@@ -203,7 +203,13 @@ async function examineSetCard(id, setCode, num) {
   document.getElementById('cardDetailContent').innerHTML = `
     <div class="card-detail-body">
       <div>
-        ${entry.imageLarge || entry.image ? `<img class="card-detail-img" src="${entry.imageLarge || entry.image}" alt="${entry.name}">` : '<div style="height:280px;background:var(--bg3);border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--text3)">No Image</div>'}
+        ${entry.imageLarge || entry.image
+          ? `<div style="position:relative">
+              <img id="cardDetailMainImg" class="card-detail-img" src="${entry.imageLarge || entry.image}" alt="${entry.name}">
+              <button id="cardFaceFlipBtn" class="btn btn-outline btn-sm" onclick="flipCardDetailFace()"
+                style="display:none;position:absolute;top:8px;right:8px;min-width:30px;padding:2px 8px;line-height:1.2;background:var(--gold);border:1px solid rgba(0,0,0,0.25);color:#1a1200;font-weight:700;box-shadow:0 2px 8px rgba(0,0,0,0.35)">↻</button>
+            </div>`
+          : '<div style="height:280px;background:var(--bg3);border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--text3)">No Image</div>'}
         <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
           <a href="https://www.tcgplayer.com/search/all/product?q=${encodeURIComponent(entry.name)}" target="_blank" class="btn btn-outline btn-sm" style="flex:1;justify-content:center">TCGPlayer</a>
           <a href="https://scryfall.com/card/${entry.set}/${entry.number}" target="_blank" class="btn btn-outline btn-sm" style="flex:1;justify-content:center">Scryfall</a>
@@ -240,6 +246,12 @@ async function examineSetCard(id, setCode, num) {
         </div>
       </div>
     </div>`;
+  _setupCardDetailFaces({
+    name: entry.name,
+    type: entry.type,
+    oracleText: entry.oracleText || '',
+    image: entry.imageLarge || entry.image || '',
+  }, entry.cardFaces || []);
 }
 
 function adjustQtyInSet(uid, delta) {

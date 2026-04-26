@@ -1134,6 +1134,20 @@ main {
 .deck-sidebar-name { font-family: 'Cinzel', serif; font-size: 0.75rem; color: #fff; line-height: 1.2; }
 .deck-sidebar-meta { font-family: 'Inter', system-ui, sans-serif; font-size: 0.62rem; color: rgba(255,255,255,0.65); margin-top: 2px; }
 
+/* Normalize top action buttons */
+.top-action-bar .btn {
+  height: 30px;
+  border-radius: 8px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+.top-action-bar .btn.btn-sm {
+  font-size: 0.78rem;
+}
+
 /* Deck card grid view */
 .deck-card-grid {
   display: grid;
@@ -1205,23 +1219,23 @@ main {
 }
 .deck-stack-cards::-webkit-scrollbar-thumb:hover { background: var(--border2); }
 .stack-wrap { position: relative; width: 100%; }
-.stack-layer {
-  position: absolute; inset: 0; border-radius: 7px;
-  background: var(--bg4); border: 1px solid var(--border2);
-}
-.stack-layer.l2 { transform: translate(6px, -6px); z-index: 1; }
-.stack-layer.l3 { transform: translate(12px, -12px); z-index: 0; }
 .stack-main {
   position: relative; z-index: 2; width: 100%; border-radius: 7px; display: block;
-  border: 2px solid transparent; transition: border-color 0.15s; cursor: pointer;
+  border: 2px solid transparent; box-sizing: border-box;
+  transition: border-color 0.15s, border-width 0.15s; cursor: pointer;
 }
-.deck-stack-card:hover .stack-main { border-color: var(--gold); }
-.stack-main.is-commander { border-color: var(--gold); }
+.deck-stack-card:hover .stack-main,
+.deck-stack-card:focus-within .stack-main {
+  border-color: var(--border2);
+  border-width: 3px;
+}
+.stack-main.is-commander { border-color: var(--border2); }
 .stack-qty {
   position: absolute; top: 6px; right: 6px;
-  background: rgba(0,0,0,0.85); color: #fff;
+  background: rgba(0,0,0,0.85); color: var(--gold);
   font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; font-weight: 700;
-  padding: 1px 6px; border-radius: 4px; z-index: 10;
+  padding: 1px 6px; border-radius: 4px; z-index: 10; pointer-events: none;
+  opacity: 0; transition: opacity 0.15s;
 }
 .stack-remove, .stack-version, .stack-tag {
   position: absolute; z-index: 10;
@@ -1230,12 +1244,14 @@ main {
   cursor: pointer; display: flex; align-items: center; justify-content: center;
   opacity: 0; transition: opacity 0.15s; padding: 0; line-height: 1;
 }
-.stack-remove  { top: 4px; right: 4px; font-size: 0.6rem; }
+.stack-remove  { top: 4px; right: 34px; font-size: 0.6rem; }
 .stack-version { bottom: 4px; right: 4px; font-size: 0.75rem; }
 .stack-tag { bottom: 4px; right: 28px; font-size: 0.62rem; }
 .deck-stack-card:hover .stack-remove,
 .deck-stack-card:hover .stack-version,
-.deck-stack-card:hover .stack-tag { opacity: 1; }
+.deck-stack-card:hover .stack-tag,
+.deck-stack-card:hover .stack-qty,
+.deck-stack-card:focus-within .stack-qty { opacity: 1; }
 .stack-version:hover { background: rgba(200,168,74,0.85); color: #000; }
 .stack-remove:hover  { background: rgba(212,90,74,0.85); }
 .stack-tag:hover { background: rgba(138,108,212,0.85); color: #fff; }

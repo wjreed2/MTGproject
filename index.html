@@ -293,7 +293,7 @@
 <div id="tab-decks" class="tab-content">
 
   <!-- Top bar — always visible -->
-  <div style="display:flex;align-items:center;gap:10px;margin-bottom:1.25rem;flex-wrap:wrap">
+  <div class="top-action-bar" style="display:flex;align-items:center;gap:10px;margin-bottom:1.25rem;flex-wrap:wrap">
     <button id="backToDecksBtn" class="btn btn-ghost btn-sm" style="display:none" onclick="closeDeckDetail()">← All Decks</button>
     <span class="panel-title" style="font-size:1.1rem">My Decks</span>
     <span id="deckCountLabel" style="font-size:0.8rem;color:var(--text3)"></span>
@@ -313,17 +313,19 @@
 
     <!-- Active Deck -->
     <div id="activeDeckArea" style="flex:1;min-width:0">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:0.5rem;flex-wrap:wrap">
+      <div id="deckTopBar" class="top-action-bar" style="display:flex;align-items:center;gap:10px;margin-bottom:0.5rem;flex-wrap:wrap">
         <span id="activeDeckName" class="panel-title" style="font-size:1rem"></span>
+        <button id="deckRenameBtn" class="btn btn-ghost btn-sm" onclick="renameActiveDeck()" title="Rename deck" style="color:var(--text3)">Rename</button>
         <span id="activeDeckFormat" class="tag tag-gold"></span>
         <span id="activeDeckCount" class="tag tag-blue"></span>
         <span id="deckSharedByBadge" style="display:none;font-size:0.75rem;padding:2px 9px;border-radius:10px;background:rgba(100,140,220,0.15);color:var(--blue);border:1px solid rgba(100,140,220,0.3)"></span>
         <span id="deckValidBadge"></span>
         <div style="flex:1"></div>
         <button id="toggleDeckSidebarBtn" class="btn btn-outline btn-sm" onclick="toggleDeckSidebar()" title="Show or hide deck switcher">⇤ Decks</button>
-        <button id="deckPublicToggleBtn" class="btn btn-outline btn-sm" onclick="toggleDeckPublic()" style="color:var(--text3)" title="Toggle public/private">🔒 Private</button>
-        <button class="btn btn-outline btn-sm" onclick="exportDeck()">⬇ Export</button>
-        <button id="deckDeleteBtn" class="btn btn-danger btn-sm" onclick="deleteDeck()">✕ Delete</button>
+        <button id="deckPublicToggleBtn" class="btn btn-outline btn-sm" onclick="toggleDeckPublic()" style="color:var(--text3)" title="Toggle public/private">Private</button>
+        <button id="deckSkeletonBtn" class="btn btn-outline btn-sm" onclick="openSkeletonBuilderModal()" title="Auto-build from collection">Build Skeleton</button>
+        <button class="btn btn-outline btn-sm" onclick="exportDeck()">Export</button>
+        <button id="deckDeleteBtn" class="btn btn-danger btn-sm" onclick="deleteDeck()">Delete</button>
       </div>
       <div id="deckValidationPanel" style="margin-bottom:0.75rem"></div>
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:0.5rem;flex-wrap:wrap">
@@ -361,6 +363,17 @@
               <button class="btn btn-primary" onclick="runDeckSearch(document.getElementById('deckSearchInput').value)">Search</button>
             </div>
             <div id="deckSearchAutocomplete" style="display:none;position:fixed;background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius2);z-index:9999;max-height:280px;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.5)"></div>
+          </div>
+          <div id="deckSearchRoleFilters" style="display:flex;gap:6px;flex-wrap:wrap;margin:0 0 0.75rem 0">
+            <button class="filter-chip" data-deck-role="Ramp" onclick="toggleDeckSearchRoleFilter('Ramp', this)">Ramp</button>
+            <button class="filter-chip" data-deck-role="Card Draw" onclick="toggleDeckSearchRoleFilter('Card Draw', this)">Card Draw</button>
+            <button class="filter-chip" data-deck-role="Removal" onclick="toggleDeckSearchRoleFilter('Removal', this)">Removal</button>
+            <button class="filter-chip" data-deck-role="Board Wipe" onclick="toggleDeckSearchRoleFilter('Board Wipe', this)">Wipe</button>
+            <button class="filter-chip" data-deck-role="Protection" onclick="toggleDeckSearchRoleFilter('Protection', this)">Protection</button>
+            <button class="filter-chip" data-deck-role="Counterspell" onclick="toggleDeckSearchRoleFilter('Counterspell', this)">Counter</button>
+            <button class="filter-chip" data-deck-role="Tutor" onclick="toggleDeckSearchRoleFilter('Tutor', this)">Tutor</button>
+            <button class="filter-chip" data-deck-role="Recursion" onclick="toggleDeckSearchRoleFilter('Recursion', this)">Recursion</button>
+            <button class="filter-chip" data-deck-role="Land" onclick="toggleDeckSearchRoleFilter('Land', this)">Land</button>
           </div>
           <div id="deckSearchResults" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px"></div>
         </div>
@@ -429,7 +442,7 @@
         </div>
       </div>
 
-      <!-- Bottom: Mana Curve + Type Breakdown -->
+      <!-- Bottom: Deck composition and mana profile -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem">
         <div class="panel">
           <div class="panel-header"><span class="panel-title">Mana Curve</span></div>
@@ -440,6 +453,14 @@
         <div class="panel">
           <div class="panel-header"><span class="panel-title">Type Breakdown</span></div>
           <div class="panel-body" id="typeBreakdown"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-header"><span class="panel-title">Mana Cost Demand</span></div>
+          <div class="panel-body" id="manaCostProfile"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-header"><span class="panel-title">Mana Generation</span></div>
+          <div class="panel-body" id="manaGenerationProfile"></div>
         </div>
       </div>
 
@@ -1034,6 +1055,49 @@
     <div style="display:flex;gap:8px;margin-top:10px">
       <input id="deckCardTagNewInput" type="text" placeholder="Create and assign new tag" style="flex:1">
       <button class="btn btn-primary btn-sm" onclick="addAndAssignDeckTagFromPicker()">+ Tag</button>
+    </div>
+  </div>
+</div>
+
+<!-- SKELETON BUILDER MODAL -->
+<div class="modal-overlay" id="skeletonBuilderModal">
+  <div class="modal" style="width:min(620px,96vw)">
+    <button class="btn btn-ghost btn-icon" style="position:absolute;top:0.75rem;right:0.75rem" onclick="closeSkeletonBuilderModal()">✕</button>
+    <div class="modal-title">Build Skeleton Deck</div>
+    <p style="font-size:0.8rem;color:var(--text3);margin-bottom:0.9rem">Tune the template before generating from your collection.</p>
+    <div style="display:grid;grid-template-columns:repeat(3,minmax(120px,1fr));gap:8px;margin-bottom:1rem">
+      <label style="font-size:0.74rem;color:var(--text3)">Lands
+        <input id="skeletonTplLands" type="number" min="18" max="45" style="width:100%;margin-top:3px">
+      </label>
+      <label style="font-size:0.74rem;color:var(--text3)">Ramp
+        <input id="skeletonTplRamp" type="number" min="0" max="20" style="width:100%;margin-top:3px">
+      </label>
+      <label style="font-size:0.74rem;color:var(--text3)">Draw
+        <input id="skeletonTplDraw" type="number" min="0" max="20" style="width:100%;margin-top:3px">
+      </label>
+      <label style="font-size:0.74rem;color:var(--text3)">Removal
+        <input id="skeletonTplRemoval" type="number" min="0" max="20" style="width:100%;margin-top:3px">
+      </label>
+      <label style="font-size:0.74rem;color:var(--text3)">Board Wipes
+        <input id="skeletonTplWipe" type="number" min="0" max="10" style="width:100%;margin-top:3px">
+      </label>
+      <label style="font-size:0.74rem;color:var(--text3)">Protection
+        <input id="skeletonTplProtection" type="number" min="0" max="12" style="width:100%;margin-top:3px">
+      </label>
+      <label style="font-size:0.74rem;color:var(--text3)">Recursion
+        <input id="skeletonTplRecursion" type="number" min="0" max="12" style="width:100%;margin-top:3px">
+      </label>
+      <label style="font-size:0.74rem;color:var(--text3)">Tutors
+        <input id="skeletonTplTutor" type="number" min="0" max="8" style="width:100%;margin-top:3px">
+      </label>
+      <label style="font-size:0.74rem;color:var(--text3)">Counters
+        <input id="skeletonTplCounter" type="number" min="0" max="12" style="width:100%;margin-top:3px">
+      </label>
+    </div>
+    <div id="skeletonTplSummary" style="font-size:0.76rem;color:var(--text3);margin-bottom:1rem"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-outline btn-sm" onclick="resetSkeletonTemplateDefaults()">Reset Defaults</button>
+      <button class="btn btn-primary btn-sm" onclick="applySkeletonBuilder()">Build Deck</button>
     </div>
   </div>
 </div>

@@ -4,6 +4,7 @@ function showTab(t) {
   document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
   document.getElementById('tab-' + t).classList.add('active');
+  localStorage.setItem('mtg_active_tab', t);
   const sidebarItem = document.querySelector(`.sidebar-item[onclick*="'${t}'"]`);
   if (sidebarItem) sidebarItem.classList.add('active');
   else if (typeof event !== 'undefined' && event?.currentTarget) event.currentTarget.classList.add('active');

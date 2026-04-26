@@ -47,6 +47,14 @@ function getCKPriceForCard(card) {
 function cardToEntry(card, qty = 1) {
   const usd = parseFloat(card.prices?.usd || 0);
   const usdFoil = parseFloat(card.prices?.usd_foil || 0);
+  const cardFaces = (card.card_faces || []).map(face => ({
+    name: face.name || '',
+    type: face.type_line || '',
+    mana: face.mana_cost || '',
+    oracleText: face.oracle_text || '',
+    image: face.image_uris?.normal || face.image_uris?.large || null,
+    imageLarge: face.image_uris?.large || face.image_uris?.normal || null,
+  }));
   const faceText = (card.card_faces || [])
     .map(f => {
       const nm = f.name ? `${f.name}` : '';
@@ -71,6 +79,7 @@ function cardToEntry(card, qty = 1) {
     colorIdentity: card.color_identity || [],
     image: card.image_uris?.normal || (card.card_faces?.[0]?.image_uris?.normal) || null,
     imageLarge: card.image_uris?.large || (card.card_faces?.[0]?.image_uris?.large) || null,
+    cardFaces,
     priceTCG: usd,
     priceTCGFoil: usdFoil,
     priceCK: usd * 0.88,

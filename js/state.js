@@ -199,4 +199,7 @@ async function initApp() {
   if (typeof refreshAuthUserLabel === 'function') refreshAuthUserLabel(me.email);
 
   await loadAppDataAfterAuth();
+  const savedTab = localStorage.getItem('mtg_active_tab');
+  const validTabs = new Set(['collection', 'sets', 'decks', 'browse', 'wishlist', 'stats', 'games']);
+  if (savedTab && validTabs.has(savedTab) && typeof showTab === 'function') showTab(savedTab);
 }
