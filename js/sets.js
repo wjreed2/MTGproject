@@ -34,7 +34,7 @@ function renderSets(filter = '') {
     el.innerHTML = '';
     empty.style.display = 'flex';
     const msgs = {
-      owned: '<p style="font-size:1.5rem;margin-bottom:0.5rem">🃏</p><p style="font-size:0.9rem">No cards in your collection yet.<br>Add cards to see their sets here, or switch to <strong>All Sets</strong>.</p>',
+      owned: '<img src="https://cards.scryfall.io/back.jpg" alt="Magic card back" style="width:44px;border-radius:4px;opacity:0.35;margin-bottom:0.5rem;box-shadow:0 3px 8px rgba(0,0,0,0.4)"><p style="font-size:0.9rem">No cards in your collection yet.<br>Add cards to see their sets here, or switch to <strong>All Sets</strong>.</p>',
       starred: '<p style="font-size:1.5rem;margin-bottom:0.5rem">☆</p><p style="font-size:0.9rem">No starred sets yet.<br>Switch to <strong>All Sets</strong> and star the ones you collect.</p>',
       all: '<p style="font-size:0.9rem">No sets found.</p>',
     };
@@ -114,32 +114,76 @@ function toggleSetStar(code, event) {
   filterSetType(document.getElementById('setTypeFilter')?.value || '');
 }
 
+let _browseSetCards = [];
+let _browseSetCode  = '';
+let _browseSetName  = '';
+let _browseSetOwned = false;
+
 async function browseSet(code, name) {
+  _browseSetCode  = code;
+  _browseSetName  = name;
+  _browseSetOwned = false;
+
   const modal = document.getElementById('cardDetailModal');
-  document.getElementById('cardDetailContent').innerHTML = `<div style="font-family:'Cinzel',serif;color:var(--gold);font-size:1.1rem;margin-bottom:1rem">${name}</div><div style="display:flex;gap:8px;align-items:center;color:var(--text2);margin-bottom:1rem"><div class="spinner"></div> Loading set cards…</div>`;
+  document.getElementById('cardDetailContent').innerHTML = `
+    <div style="font-family:'Cinzel',serif;color:var(--gold);font-size:1.1rem;margin-bottom:1rem">${name}</div>
+    <div style="display:flex;gap:8px;align-items:center;color:var(--text2)"><div class="spinner"></div> Loading set cards…</div>`;
   modal.classList.add('open');
 
-  const res = await fetch(`https://api.scryfall.com/cards/search?q=e:${code}&order=collector_number&unique=prints`);
-  if (!res.ok) { document.getElementById('cardDetailContent').innerHTML = '<p style="color:var(--red)">Failed to load set.</p>'; return; }
-  const d = await res.json();
-  const cards = d.data || [];
+  // Fetch all pages
+  const cards = [];
+  let url = `https://api.scryfall.com/cards/search?q=e:${code}&order=collector_number&unique=prints`;
+  try {
+    while (url) {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('fetch failed');
+      const d = await res.json();
+      cards.push(...(d.data || []));
+      url = d.has_more ? d.next_page : null;
+    }
+  } catch {
+    document.getElementById('cardDetailContent').innerHTML = '<p style="color:var(--red)">Failed to load set.</p>';
+    return;
+  }
+
+  _browseSetCards = cards;
+  _renderSetBrowse();
+}
+
+function _renderSetBrowse() {
+  const code  = _browseSetCode;
+  const name  = _browseSetName;
+  const owned = _browseSetOwned;
+  const ownedCount = _browseSetCards.filter(c => collection.some(col => col.scryfallId === c.id)).length;
+
+  const cards = owned
+    ? _browseSetCards.filter(c => collection.some(col => col.scryfallId === c.id))
+    : _browseSetCards;
 
   document.getElementById('cardDetailContent').innerHTML = `
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem">
-      <div style="font-family:'Cinzel',serif;color:var(--gold);font-size:1.1rem">${name}</div>
-      <div style="font-family:'Inter',system-ui,sans-serif;font-size:0.75rem;color:var(--text3);letter-spacing:0.04em">${cards.length} CARDS</div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:1rem;flex-wrap:wrap">
+      <div style="font-family:'Cinzel',serif;color:var(--gold);font-size:1.1rem;flex:1">${name}</div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <button class="btn btn-sm ${!owned ? 'btn-primary' : 'btn-outline'}" onclick="_setSetOwnedFilter(false)">All (${_browseSetCards.length})</button>
+        <button class="btn btn-sm ${owned  ? 'btn-primary' : 'btn-outline'}" onclick="_setSetOwnedFilter(true)">Owned (${ownedCount})</button>
+      </div>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(175px,1fr));gap:12px;max-height:76vh;overflow-y:auto;padding-right:6px">
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;max-height:76vh;overflow-y:auto;padding-right:6px">
       ${cards.map(c => {
-        const owned = collection.find(col => col.scryfallId === c.id);
+        const col = collection.find(col => col.scryfallId === c.id);
         const img = c.image_uris?.normal || c.image_uris?.large || c.card_faces?.[0]?.image_uris?.normal || c.card_faces?.[0]?.image_uris?.large;
-        const imgStyle = owned ? 'width:100%;display:block' : 'width:100%;display:block;filter:grayscale(65%) opacity(0.6)';
-        return `<div style="position:relative;cursor:pointer;border-radius:6px;overflow:hidden;border:2px solid ${owned?'var(--gold)':'transparent'};transition:all 0.2s" onclick="examineSetCard('${c.id}','${code}','${c.collector_number}')" title="${c.name} — ${owned?'In collection ('+owned.qty+')':'Click to examine'}">
-          ${img ? `<img src="${img}" loading="lazy" style="${imgStyle}" alt="${c.name}">` : `<div style="aspect-ratio:0.715;background:var(--bg4);display:flex;align-items:center;justify-content:center;font-size:0.65rem;color:var(--text3);text-align:center;padding:4px;${owned?'':'opacity:0.6'}">${c.name}</div>`}
-          ${owned ? `<div style="position:absolute;top:3px;right:3px;background:var(--gold);color:#1a1200;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:0.6rem;font-weight:700;font-family:'JetBrains Mono',monospace">${owned.qty}</div>` : ''}
+        const imgStyle = col ? 'width:100%;display:block' : 'width:100%;display:block;filter:grayscale(65%) opacity(0.6)';
+        return `<div style="position:relative;cursor:pointer;border-radius:6px;overflow:hidden;border:2px solid ${col?'var(--gold)':'transparent'};transition:all 0.2s" onclick="examineSetCard('${c.id}','${code}','${c.collector_number}')" title="${c.name}${col?' — In collection ('+col.qty+')':''}">
+          ${img ? `<img src="${img}" loading="lazy" style="${imgStyle}" alt="${c.name}">` : `<div style="aspect-ratio:0.715;background:var(--bg4);display:flex;align-items:center;justify-content:center;font-size:0.65rem;color:var(--text3);text-align:center;padding:4px;${col?'':'opacity:0.6'}">${c.name}</div>`}
+          ${col ? `<div style="position:absolute;top:3px;right:3px;background:var(--gold);color:#1a1200;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:0.6rem;font-weight:700;font-family:'JetBrains Mono',monospace">${col.qty}</div>` : ''}
         </div>`;
       }).join('')}
     </div>`;
+}
+
+function _setSetOwnedFilter(val) {
+  _browseSetOwned = val;
+  _renderSetBrowse();
 }
 
 async function examineSetCard(id, setCode, num) {
@@ -175,6 +219,7 @@ async function examineSetCard(id, setCode, num) {
           <tr><td>TCGPlayer</td><td style="color:var(--blue2)">$${entry.priceTCG.toFixed(2)}</td></tr>
           <tr><td>TCGPlayer Foil</td><td style="color:var(--blue2)">$${entry.priceTCGFoil.toFixed(2)}</td></tr>
           <tr><td>Card Kingdom</td><td style="color:var(--green)">$${entry.priceCK.toFixed(2)}</td></tr>
+          <tr><td>Card Kingdom Foil</td><td style="color:var(--green)">$${(entry.priceCKFoil || 0).toFixed(2)}</td></tr>
         </table>
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:1rem">
           <span class="tag tag-gold">${entry.set.toUpperCase()} #${entry.number}</span>

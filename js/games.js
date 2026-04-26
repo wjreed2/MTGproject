@@ -106,18 +106,45 @@ function selectGame(id) {
 
 // ── New game modal ────────────────────────────────────────────────────────────
 
-function openNewGame() {
+let _allAppUsers = [];           // [{ id, email }]
+let _userDecksCache = {};        // userId → [{ id, name, format, commander, commanderImage }]
+
+async function openNewGame() {
+  // Pre-fill slot 0 with current user
+  const me = currentUser || {};
   newGamePlayers = [
-    { name: '', deckName: '', deckId: '', commander: '' },
-    { name: '', deckName: '', deckId: '', commander: '' },
+    { userId: me.id || null, name: me.email ? _displayName(me.email) : '', deckName: '', deckId: '', commander: '' },
+    { userId: null, name: '', deckName: '', deckId: '', commander: '' },
   ];
   const fmtEl = document.getElementById('newGameFormat');
   if (fmtEl) fmtEl.value = 'Commander';
   const notesEl = document.getElementById('newGameNotes');
   if (notesEl) notesEl.value = '';
-  renderNewGamePlayersList();
+
   document.getElementById('newGameModal').classList.add('open');
-  setTimeout(() => document.getElementById('ngp-name-0')?.focus(), 80);
+  renderNewGamePlayersList();
+
+  // Fetch users + current user's decks in parallel
+  const base = document.querySelector('meta[name="mtg-api-base"]')?.content || 'http://localhost:3001/api';
+  try {
+    _allAppUsers = await fetch(`${base}/users`, { credentials: 'include' }).then(r => r.json());
+  } catch { _allAppUsers = []; }
+
+  if (me.id) await _loadUserDecks(me.id);
+  renderNewGamePlayersList();
+}
+
+function _displayName(email) {
+  const at = (email || '').indexOf('@');
+  return at > 0 ? email.slice(0, at) : (email || '');
+}
+
+async function _loadUserDecks(userId) {
+  if (_userDecksCache[userId]) return;
+  const base = document.querySelector('meta[name="mtg-api-base"]')?.content || 'http://localhost:3001/api';
+  try {
+    _userDecksCache[userId] = await fetch(`${base}/users/${userId}/decks`, { credentials: 'include' }).then(r => r.json());
+  } catch { _userDecksCache[userId] = []; }
 }
 
 function closeNewGameModal() {
@@ -138,44 +165,65 @@ function removeNewGamePlayer(i) {
 
 function renderNewGamePlayersList() {
   const fmt = document.getElementById('newGameFormat')?.value || 'Commander';
-  const isCmd = fmt === 'Commander' || fmt === 'Brawl';
   const el = document.getElementById('newGamePlayersList');
   if (!el) return;
-  const deckOpts = decks.map(d =>
-    `<option value="${d.name}" data-id="${d.id}" data-commander="${d.commander || ''}">`
-  ).join('');
-  el.innerHTML = newGamePlayers.map((p, i) => `
-    <div style="display:grid;grid-template-columns:10px 1fr 1fr${isCmd ? ' 1fr' : ''}${i >= 2 ? ' 28px' : ''};gap:8px;align-items:center;padding:9px 0;border-bottom:1px solid var(--border)">
+
+  el.innerHTML = newGamePlayers.map((p, i) => {
+    const userOpts = _allAppUsers.map(u =>
+      `<option value="${u.id}" ${p.userId == u.id ? 'selected' : ''}>${_displayName(u.email)}</option>`
+    ).join('');
+
+    const userDecks = p.userId ? (_userDecksCache[p.userId] || []) : [];
+    const deckOpts = `<option value="">— no deck —</option>` + userDecks.map(d =>
+      `<option value="${d.id}" ${p.deckId === d.id ? 'selected' : ''}>${d.name}${d.format ? ' ('+d.format+')' : ''}</option>`
+    ).join('');
+
+    const showDeck  = userDecks.length > 0;
+    const selDeck   = userDecks.find(d => d.id === p.deckId);
+
+    return `
+    <div style="display:grid;grid-template-columns:10px 1fr 1fr${selDeck?.commander ? ' 1fr' : ''}${i >= 2 ? ' 28px' : ''};gap:8px;align-items:center;padding:9px 0;border-bottom:1px solid var(--border)">
       <div style="width:10px;height:10px;border-radius:50%;background:${GAME_COLORS[i % GAME_COLORS.length]};flex-shrink:0"></div>
-      <input id="ngp-name-${i}" placeholder="Player ${i + 1}" value="${p.name}"
-        oninput="newGamePlayers[${i}].name=this.value"
-        style="min-width:0">
-      <div style="min-width:0">
-        <input list="ngpDecks${i}" placeholder="Deck name (optional)" value="${p.deckName}"
-          oninput="ngpDeckInput(${i},this.value)"
-          style="width:100%">
-        <datalist id="ngpDecks${i}">${deckOpts}</datalist>
-      </div>
-      ${isCmd ? `<input placeholder="Commander" value="${p.commander || ''}"
-        oninput="newGamePlayers[${i}].commander=this.value"
-        style="min-width:0">` : ''}
-      ${i >= 2 ? `<button class="btn btn-ghost btn-icon" onclick="removeNewGamePlayer(${i})"
-        style="color:var(--red);padding:3px 5px;font-size:0.85rem">✕</button>` : ''}
-    </div>`).join('');
+      <select onchange="ngpUserSelect(${i}, this.value)" style="min-width:0">
+        <option value="">— select player —</option>
+        ${userOpts}
+      </select>
+      ${showDeck ? `<select onchange="ngpDeckSelect(${i}, this.value)" style="min-width:0">${deckOpts}</select>` : `<div style="font-size:0.78rem;color:var(--text3);padding:4px 0">${p.userId ? 'No decks' : ''}</div>`}
+      ${selDeck?.commander ? `<div style="font-size:0.78rem;color:var(--gold);font-family:'Cinzel',serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0">${selDeck.commander}</div>` : ''}
+      ${i >= 2 ? `<button class="btn btn-ghost btn-icon" onclick="removeNewGamePlayer(${i})" style="color:var(--red);padding:3px 5px;font-size:0.85rem">✕</button>` : ''}
+    </div>`;
+  }).join('');
 }
 
-function ngpDeckInput(i, val) {
-  newGamePlayers[i].deckName = val;
-  const match = decks.find(d => d.name === val);
-  if (match) {
-    newGamePlayers[i].deckId = match.id;
-    if (match.commander && !newGamePlayers[i].commander) {
-      newGamePlayers[i].commander = match.commander;
-      renderNewGamePlayersList();
+async function ngpUserSelect(i, userIdStr) {
+  const userId = userIdStr ? parseInt(userIdStr) : null;
+  newGamePlayers[i].userId = userId;
+  const user = _allAppUsers.find(u => u.id == userId);
+  newGamePlayers[i].name = user ? _displayName(user.email) : '';
+  newGamePlayers[i].deckId = '';
+  newGamePlayers[i].deckName = '';
+  newGamePlayers[i].commander = '';
+  if (userId) {
+    await _loadUserDecks(userId);
+    // Auto-select first deck if only one
+    const userDecks = _userDecksCache[userId] || [];
+    if (userDecks.length === 1) {
+      newGamePlayers[i].deckId = userDecks[0].id;
+      newGamePlayers[i].deckName = userDecks[0].name;
+      newGamePlayers[i].commander = userDecks[0].commander || '';
     }
-  } else {
-    newGamePlayers[i].deckId = '';
   }
+  renderNewGamePlayersList();
+}
+
+function ngpDeckSelect(i, deckId) {
+  const userId = newGamePlayers[i].userId;
+  const userDecks = userId ? (_userDecksCache[userId] || []) : [];
+  const deck = userDecks.find(d => d.id === deckId);
+  newGamePlayers[i].deckId = deckId || '';
+  newGamePlayers[i].deckName = deck?.name || '';
+  newGamePlayers[i].commander = deck?.commander || '';
+  renderNewGamePlayersList();
 }
 
 function submitNewGame() {
@@ -186,6 +234,7 @@ function submitNewGame() {
   const players = newGamePlayers.map((p, i) => ({
     id: 'p' + i,
     name: p.name.trim() || 'Player ' + (i + 1),
+    userId: p.userId || null,
     deckName: p.deckName || '',
     deckId: p.deckId || null,
     commander: p.commander || null,

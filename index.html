@@ -3,23 +3,77 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="mtg-api-base" content="http://localhost:3001/api">
 <title>MTG Archive</title>
+<link rel="icon" type="image/svg+xml" href='data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="%23f0d878"/><stop offset="0.55" stop-color="%23c8a84a"/><stop offset="1" stop-color="%237a5828"/></linearGradient></defs><polygon points="32,3 61,23 49,61 15,61 3,23" fill="url(%23g)"/></svg>'>
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles/main.css">
 </head>
 <body>
 
-<aside id="sidebar" class="sidebar">
-  <a class="sidebar-logo" href="#">
-    <div class="logo-gem"></div>
-    <span class="sidebar-label">MTG Archive</span>
-  </a>
-  <button class="sidebar-toggle" onclick="toggleSidebar()" title="Collapse sidebar">
+<div id="authGate" class="auth-gate" style="display:none" aria-hidden="true">
+  <div class="auth-card">
+    <div class="logo-gem" style="margin:0 auto 1rem"></div>
+    <h1 class="auth-title">MTG Archive</h1>
+    <p class="auth-sub">Sign in to load your collection, decks, and wishlist.</p>
+    <div id="authError" class="auth-error" style="display:none" role="alert"></div>
+    <form id="authLoginForm" onsubmit="return submitAuthLogin(event)">
+      <label class="auth-label">Email
+        <input class="auth-input" type="email" id="authEmail" required autocomplete="username">
+      </label>
+      <label class="auth-label">Password
+        <input class="auth-input" type="password" id="authPassword" required autocomplete="current-password">
+      </label>
+      <button type="submit" class="btn btn-primary auth-submit">Sign in</button>
+    </form>
+    <p class="auth-switch">New here? <button type="button" class="btn-link" onclick="showAuthRegister()">Create an account</button></p>
+    <div id="authRegisterPanel" style="display:none">
+      <h2 class="auth-register-heading">Create account</h2>
+      <form id="authRegisterForm" onsubmit="return submitAuthRegister(event)">
+        <label class="auth-label">Email
+          <input class="auth-input" type="email" id="regEmail" required autocomplete="email">
+        </label>
+        <label class="auth-label">Password (8+ characters)
+          <input class="auth-input" type="password" id="regPassword" required autocomplete="new-password">
+        </label>
+        <button type="submit" class="btn btn-primary auth-submit">Register</button>
+      </form>
+      <p class="auth-switch"><button type="button" class="btn-link" onclick="showAuthLogin()">Back to sign in</button></p>
+    </div>
+  </div>
+</div>
+
+<header class="topbar">
+  <button class="topbar-toggle" onclick="toggleSidebar()" title="Toggle sidebar">
     <svg class="sidebar-toggle-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
       <line x1="2" y1="4" x2="14" y2="4"/><line x1="2" y1="8" x2="14" y2="8"/><line x1="2" y1="12" x2="14" y2="12"/>
     </svg>
   </button>
+  <div class="topbar-brand">
+    <div class="logo-gem"></div>
+    <span>MTG Archive</span>
+  </div>
+  <div class="topbar-user" id="topbarUserRow" style="display:none">
+    <div style="position:relative">
+    <button type="button" class="btn btn-ghost btn-sm" id="topbarUser" onclick="toggleSettingsDropdown()" style="font-size:0.72rem;color:var(--text3);max-width:min(160px,28vw);overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></button>
+    <div class="settings-dropdown" id="settingsDropdown">
+      <div class="settings-section-label">Display</div>
+      <div class="theme-options">
+        <button class="theme-btn" id="themeBtnDark"  onclick="setTheme('dark')">☾ Dark</button>
+        <button class="theme-btn" id="themeBtnLight" onclick="setTheme('light')">☀ Light</button>
+        <button class="theme-btn" id="themeBtnSystem" onclick="setTheme('system')">⊙ System</button>
+      </div>
+      <div class="settings-divider"></div>
+      <div class="settings-section-label">Developer</div>
+      <button type="button" class="btn btn-ghost btn-sm" style="width:100%;justify-content:flex-start;gap:6px;color:var(--text2)" onclick="toggleSettingsDropdown();openSeedModal()">⚗ Generate Test Data</button>
+      <div class="settings-divider"></div>
+      <button type="button" class="btn btn-ghost btn-sm" style="width:100%;justify-content:center;color:var(--red)" onclick="logoutAccount()">Sign out</button>
+    </div>
+    </div>
+  </div>
+</header>
 
+<aside id="sidebar" class="sidebar">
   <nav class="sidebar-nav">
     <button class="sidebar-item active" onclick="showTab('collection')" data-label="Collection">
       <svg class="sidebar-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
@@ -42,6 +96,13 @@
         <line x1="6" y1="8" x2="10" y2="8"/><line x1="6" y1="11" x2="10" y2="11"/>
       </svg>
       <span class="sidebar-label">Deck Builder</span>
+    </button>
+    <button class="sidebar-item" onclick="showTab('browse')" data-label="Browse Decks">
+      <svg class="sidebar-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="8" cy="8" r="6.5"/>
+        <path d="M8 1.5C8 1.5 11 5 11 8s-3 6.5-3 6.5M8 1.5C8 1.5 5 5 5 8s3 6.5 3 6.5M1.5 8h13"/>
+      </svg>
+      <span class="sidebar-label">Browse Decks</span>
     </button>
     <button class="sidebar-item" onclick="showTab('wishlist')" data-label="Wishlist">
       <svg class="sidebar-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
@@ -103,37 +164,84 @@
     <div class="stat-card"><div class="stat-val" id="statValueCK">$0</div><div class="stat-label">Est. Value (CK)</div></div>
   </div>
 
-  <div class="view-controls">
-    <input class="search-box" type="text" placeholder="Search cards, sets, types…" oninput="filterCards(this.value)" id="searchInput">
-    <div class="color-pills" id="colorFilter">
-      <div class="color-pill cp-w tooltip-wrap" onclick="toggleColor('W',this)" data-c="W"><span class="tooltip">White</span>W</div>
-      <div class="color-pill cp-u tooltip-wrap" onclick="toggleColor('U',this)" data-c="U"><span class="tooltip">Blue</span>U</div>
-      <div class="color-pill cp-b tooltip-wrap" onclick="toggleColor('B',this)" data-c="B"><span class="tooltip">Black</span>B</div>
-      <div class="color-pill cp-r tooltip-wrap" onclick="toggleColor('R',this)" data-c="R"><span class="tooltip">Red</span>R</div>
-      <div class="color-pill cp-g tooltip-wrap" onclick="toggleColor('G',this)" data-c="G"><span class="tooltip">Green</span>G</div>
-      <div class="color-pill cp-c tooltip-wrap" onclick="toggleColor('C',this)" data-c="C"><span class="tooltip">Colorless</span>∅</div>
+  <div class="filter-bar">
+    <!-- Row 1: search + colors + sort + view -->
+    <div class="view-controls" style="border-bottom:1px solid var(--border);padding-bottom:10px;margin-bottom:10px">
+      <div style="position:relative;flex:1;min-width:180px">
+        <input class="search-box" type="text" style="width:100%;padding-right:28px"
+          placeholder="Search… or use t: r: cmc: is: s: qty:" oninput="filterCards(this.value)" id="searchInput" autocomplete="off">
+        <div class="filter-syntax-hint tooltip-wrap" style="position:absolute;right:7px;top:50%;transform:translateY(-50%);font-size:0.72rem;color:var(--text3);cursor:default;user-select:none">?
+          <div class="tooltip" style="white-space:normal;width:260px;left:auto;right:0;transform:none;font-size:0.72rem;line-height:1.6;bottom:auto;top:calc(100% + 6px)">
+            <strong>Search syntax</strong><br>
+            <code>t:creature</code> — type or subtype<br>
+            <code>t:vampire</code> — creature subtype<br>
+            <code>is:legendary</code> — legendary cards<br>
+            <code>is:foil</code> / <code>is:nonfoil</code><br>
+            <code>cmc>=4</code> or <code>mv:3</code> — mana value<br>
+            <code>qty>=4</code> — owned count<br>
+            <code>r:rare</code> / <code>r:mythic</code> — rarity<br>
+            <code>s:znr</code> — set code<br>
+            <code>c:u</code> — color (w/u/b/r/g)<br>
+            <code>-t:land</code> — negate any filter
+          </div>
+        </div>
+      </div>
+      <div class="color-pills" id="colorFilter">
+        <div class="color-pill cp-w tooltip-wrap" onclick="toggleColor('W',this)" data-c="W"><span class="tooltip">White</span>W</div>
+        <div class="color-pill cp-u tooltip-wrap" onclick="toggleColor('U',this)" data-c="U"><span class="tooltip">Blue</span>U</div>
+        <div class="color-pill cp-b tooltip-wrap" onclick="toggleColor('B',this)" data-c="B"><span class="tooltip">Black</span>B</div>
+        <div class="color-pill cp-r tooltip-wrap" onclick="toggleColor('R',this)" data-c="R"><span class="tooltip">Red</span>R</div>
+        <div class="color-pill cp-g tooltip-wrap" onclick="toggleColor('G',this)" data-c="G"><span class="tooltip">Green</span>G</div>
+        <div class="color-pill cp-c tooltip-wrap" onclick="toggleColor('C',this)" data-c="C"><span class="tooltip">Colorless</span>∅</div>
+      </div>
+      <select onchange="sortCards(this.value)">
+        <option value="name">Sort: Name</option>
+        <option value="cmc">Sort: Mana Value</option>
+        <option value="price_tcg">Sort: Price (TCG)</option>
+        <option value="price_ck">Sort: Price (CK)</option>
+        <option value="set">Sort: Set</option>
+        <option value="added">Sort: Recently Added</option>
+      </select>
+      <div class="view-toggle">
+        <button class="active tooltip-wrap" onclick="setView('grid',this)"><span class="tooltip">Grid</span>⊞</button>
+        <button class="tooltip-wrap" onclick="setView('large',this)"><span class="tooltip">Large</span>⊟</button>
+        <button class="tooltip-wrap" onclick="setView('compact',this)"><span class="tooltip">Compact</span>⊠</button>
+        <button class="tooltip-wrap" onclick="setView('list',this)"><span class="tooltip">List</span>☰</button>
+      </div>
     </div>
-    <select onchange="sortCards(this.value)">
-      <option value="name">Sort: Name</option>
-      <option value="cmc">Sort: Mana Value</option>
-      <option value="price_tcg">Sort: Price (TCG)</option>
-      <option value="price_ck">Sort: Price (CK)</option>
-      <option value="set">Sort: Set</option>
-      <option value="added">Sort: Recently Added</option>
-    </select>
-    <select onchange="changeRarity(this.value)">
-      <option value="">All Rarities</option>
-      <option value="common">Common</option>
-      <option value="uncommon">Uncommon</option>
-      <option value="rare">Rare</option>
-      <option value="mythic">Mythic</option>
-    </select>
-    <button class="btn btn-outline btn-sm" id="starFilterBtn" onclick="toggleStarFilter(this)" style="white-space:nowrap">☆ Starred</button>
-    <div class="view-toggle">
-      <button class="active tooltip-wrap" onclick="setView('grid',this)"><span class="tooltip">Grid</span>⊞</button>
-      <button class="tooltip-wrap" onclick="setView('large',this)"><span class="tooltip">Large</span>⊟</button>
-      <button class="tooltip-wrap" onclick="setView('compact',this)"><span class="tooltip">Compact</span>⊠</button>
-      <button class="tooltip-wrap" onclick="setView('list',this)"><span class="tooltip">List</span>☰</button>
+    <!-- Row 2: quick-filter chips -->
+    <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px">
+      <span style="font-size:0.68rem;color:var(--text3);white-space:nowrap;letter-spacing:0.04em;text-transform:uppercase">Type</span>
+      <button class="filter-chip" data-qtype="creature"     onclick="toggleQuickType('creature',this)">Creature</button>
+      <button class="filter-chip" data-qtype="instant"      onclick="toggleQuickType('instant',this)">Instant</button>
+      <button class="filter-chip" data-qtype="sorcery"      onclick="toggleQuickType('sorcery',this)">Sorcery</button>
+      <button class="filter-chip" data-qtype="artifact"     onclick="toggleQuickType('artifact',this)">Artifact</button>
+      <button class="filter-chip" data-qtype="enchantment"  onclick="toggleQuickType('enchantment',this)">Enchantment</button>
+      <button class="filter-chip" data-qtype="planeswalker" onclick="toggleQuickType('planeswalker',this)">Planeswalker</button>
+      <button class="filter-chip" data-qtype="land"         onclick="toggleQuickType('land',this)">Land</button>
+      <span style="width:1px;height:14px;background:var(--border2);flex-shrink:0"></span>
+      <button class="filter-chip" data-qflag="legendary" onclick="toggleQuickFlag('legendary',this)">Legendary</button>
+      <button class="filter-chip" data-qflag="foil"      onclick="toggleQuickFlag('foil',this)">Foil</button>
+      <button class="filter-chip" data-qflag="nonfoil"   onclick="toggleQuickFlag('nonfoil',this)">Non-foil</button>
+      <span style="width:1px;height:14px;background:var(--border2);flex-shrink:0"></span>
+      <span style="font-size:0.68rem;color:var(--text3);white-space:nowrap;letter-spacing:0.04em;text-transform:uppercase">CMC</span>
+      <input id="cmcMinInput" type="number" min="0" max="20" placeholder="Min"
+        oninput="setQuickCMC()"
+        style="width:46px;padding:3px 5px;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);color:var(--text);font-size:0.78rem;font-family:'JetBrains Mono',monospace">
+      <span style="font-size:0.72rem;color:var(--text3)">–</span>
+      <input id="cmcMaxInput" type="number" min="0" max="20" placeholder="Max"
+        oninput="setQuickCMC()"
+        style="width:46px;padding:3px 5px;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);color:var(--text);font-size:0.78rem;font-family:'JetBrains Mono',monospace">
+      <span style="width:1px;height:14px;background:var(--border2);flex-shrink:0"></span>
+      <select onchange="changeRarity(this.value)" style="font-size:0.75rem;padding:3px 6px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);border-radius:var(--radius)">
+        <option value="">All Rarities</option>
+        <option value="common">Common</option>
+        <option value="uncommon">Uncommon</option>
+        <option value="rare">Rare</option>
+        <option value="mythic">Mythic</option>
+      </select>
+      <button class="btn btn-outline btn-sm" id="starFilterBtn" onclick="toggleStarFilter(this)" style="white-space:nowrap;font-size:0.72rem;padding:3px 8px">☆ Starred</button>
+      <button id="clearChipsBtn" class="btn btn-ghost btn-sm" onclick="clearQuickFilters()" style="display:none;font-size:0.72rem;padding:3px 8px;color:var(--red)">✕ Clear</button>
     </div>
   </div>
 
@@ -143,9 +251,9 @@
     <p>Use the <strong style="color:var(--gold)">🎙 Add Cards</strong> button to start adding cards by voice,<br>or import a collection list below.</p>
     <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:0.5rem">
       <button class="btn btn-primary" onclick="openVoice()">🎙 Start Adding Cards</button>
-      <button class="btn btn-outline demo-cards-btn" onclick="addDemoCards()">🎲 Add 2000 Demo Cards</button>
+      <button class="btn btn-outline" onclick="openImport()">🎲 Generate Sample Collection</button>
     </div>
-    <p style="margin-top:0.75rem;font-size:0.78rem;color:var(--text3)">Demo cards loads ~200 random cards from recent sets via Scryfall</p>
+    <p style="margin-top:0.75rem;font-size:0.78rem;color:var(--text3)">Loads random cards from recent sets via Scryfall — choose count &amp; foils in the import panel</p>
   </div>
 </div>
 
@@ -190,6 +298,8 @@
     <span class="panel-title" style="font-size:1.1rem">My Decks</span>
     <span id="deckCountLabel" style="font-size:0.8rem;color:var(--text3)"></span>
     <div style="flex:1"></div>
+    <button class="btn btn-outline btn-sm" onclick="openArchidektImport()">↓ Archidekt</button>
+    <button class="btn btn-outline btn-sm" onclick="openMoxfieldImport()">↓ Moxfield</button>
     <button class="btn btn-primary btn-sm" onclick="createNewDeck()">+ New Deck</button>
   </div>
 
@@ -207,10 +317,13 @@
         <span id="activeDeckName" class="panel-title" style="font-size:1rem"></span>
         <span id="activeDeckFormat" class="tag tag-gold"></span>
         <span id="activeDeckCount" class="tag tag-blue"></span>
+        <span id="deckSharedByBadge" style="display:none;font-size:0.75rem;padding:2px 9px;border-radius:10px;background:rgba(100,140,220,0.15);color:var(--blue);border:1px solid rgba(100,140,220,0.3)"></span>
         <span id="deckValidBadge"></span>
         <div style="flex:1"></div>
+        <button id="toggleDeckSidebarBtn" class="btn btn-outline btn-sm" onclick="toggleDeckSidebar()" title="Show or hide deck switcher">⇤ Decks</button>
+        <button id="deckPublicToggleBtn" class="btn btn-outline btn-sm" onclick="toggleDeckPublic()" style="color:var(--text3)" title="Toggle public/private">🔒 Private</button>
         <button class="btn btn-outline btn-sm" onclick="exportDeck()">⬇ Export</button>
-        <button class="btn btn-danger btn-sm" onclick="deleteDeck()">✕ Delete</button>
+        <button id="deckDeleteBtn" class="btn btn-danger btn-sm" onclick="deleteDeck()">✕ Delete</button>
       </div>
       <div id="deckValidationPanel" style="margin-bottom:0.75rem"></div>
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:0.5rem;flex-wrap:wrap">
@@ -228,88 +341,140 @@
         </div>
       </div>
 
-      <div style="display:grid;grid-template-columns:1fr 300px;gap:1.25rem">
-        <!-- Left: mana curve, card search, deck list -->
-        <div>
-          <div class="panel" style="margin-bottom:1rem">
-            <div class="panel-header"><span class="panel-title">Mana Curve</span></div>
-            <div class="panel-body">
-              <div class="mana-curve" id="manaCurve"></div>
+      <!-- Add Cards -->
+      <div class="panel" style="margin-bottom:1rem">
+        <div class="panel-header">
+          <span class="panel-title">Add Cards to Deck</span>
+          <span style="font-size:0.68rem;color:var(--text3);display:flex;align-items:center;gap:8px">
+            <span style="display:inline-flex;align-items:center;gap:3px"><span style="width:8px;height:8px;border-radius:2px;border:2px solid var(--gold);display:inline-block"></span>collection</span>
+            <span style="display:inline-flex;align-items:center;gap:3px"><span style="width:8px;height:8px;border-radius:2px;border:2px solid var(--teal);display:inline-block"></span>in deck</span>
+          </span>
+        </div>
+        <div class="panel-body">
+          <div style="position:relative;margin-bottom:0.75rem">
+            <div style="display:flex;gap:6px">
+              <input class="search-box" style="flex:1" type="text" placeholder="Search for a card…"
+                id="deckSearchInput"
+                oninput="deckSearchAutocomplete(this.value)"
+                onkeydown="if(event.key==='Enter'){event.preventDefault();runDeckSearch(this.value);}"
+                autocomplete="off">
+              <button class="btn btn-primary" onclick="runDeckSearch(document.getElementById('deckSearchInput').value)">Search</button>
             </div>
+            <div id="deckSearchAutocomplete" style="display:none;position:fixed;background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius2);z-index:9999;max-height:280px;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.5)"></div>
           </div>
-          <div class="panel" style="margin-bottom:1rem">
-            <div class="panel-header">
-              <span class="panel-title">Add Cards to Deck</span>
-              <span style="font-size:0.68rem;color:var(--text3);display:flex;align-items:center;gap:8px">
-                <span style="display:inline-flex;align-items:center;gap:3px"><span style="width:8px;height:8px;border-radius:2px;border:2px solid var(--gold);display:inline-block"></span>collection</span>
-                <span style="display:inline-flex;align-items:center;gap:3px"><span style="width:8px;height:8px;border-radius:2px;border:2px solid var(--teal);display:inline-block"></span>in deck</span>
-              </span>
-            </div>
-            <div class="panel-body">
-              <div style="position:relative;margin-bottom:0.75rem">
-                <div style="display:flex;gap:6px">
-                  <input class="search-box" style="flex:1" type="text" placeholder="Search for a card…"
-                    id="deckSearchInput"
-                    oninput="deckSearchAutocomplete(this.value)"
-                    onkeydown="if(event.key==='Enter'){event.preventDefault();runDeckSearch(this.value);}"
-                    autocomplete="off">
-                  <button class="btn btn-primary" onclick="runDeckSearch(document.getElementById('deckSearchInput').value)">Search</button>
-                </div>
-                <div id="deckSearchAutocomplete" style="display:none;position:fixed;background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius2);z-index:9999;max-height:280px;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.5)"></div>
-              </div>
-              <div id="deckSearchResults" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px"></div>
-            </div>
+          <div id="deckSearchResults" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px"></div>
+        </div>
+      </div>
+
+      <!-- Deck List -->
+      <div class="panel" style="margin-bottom:1rem">
+        <div class="panel-header" style="flex-wrap:wrap;gap:6px">
+          <span class="panel-title">Deck List</span>
+          <span id="deckListCount" style="font-size:0.78rem"></span>
+          <div style="flex:1"></div>
+          <span id="deckGroupByWrap" style="display:flex;align-items:center;gap:5px">
+            <span style="font-size:0.68rem;color:var(--text3)">Group</span>
+            <select id="deckGroupBySelect" onchange="setDeckGroupBy(this.value)"
+              style="background:var(--bg3);border:1px solid var(--border2);color:var(--text);border-radius:var(--radius);padding:2px 5px;font-size:0.72rem;font-family:'Inter',system-ui,sans-serif">
+              <option value="type">Type</option>
+              <option value="color">Color</option>
+              <option value="cmc">CMC</option>
+              <option value="custom_tag">Custom Tag</option>
+            </select>
+            <button class="btn btn-outline btn-sm" onclick="openDeckTagManager()" title="Manage reusable deck tags">Manage Tags</button>
+          </span>
+          <div class="view-toggle">
+            <button id="deckListViewList" onclick="setDeckListView('list',this)" title="List view">☰</button>
+            <button id="deckListViewGrid" class="active" onclick="setDeckListView('grid',this)" title="Visual view">⊞</button>
           </div>
-          <div class="panel">
-            <div class="panel-header">
-              <span class="panel-title">Deck List</span>
-              <span id="deckListCount" style="font-size:0.78rem"></span>
-              <div style="flex:1"></div>
-              <div class="view-toggle">
-                <button id="deckListViewList" class="active" onclick="setDeckListView('list',this)" title="List view">☰</button>
-                <button id="deckListViewGrid" onclick="setDeckListView('grid',this)" title="Grid view">⊞</button>
-              </div>
-            </div>
-            <div id="deckCardList" style="max-height:420px;overflow-y:auto"></div>
-          </div>
-          <div class="panel" style="margin-top:1rem">
-            <div class="panel-header">
-              <span class="panel-title" style="color:var(--gold)">★ Tagged Cards</span>
-              <span id="taggedCardsCount" style="font-size:0.72rem;color:var(--text3)"></span>
-            </div>
-            <div class="deck-cards-scroll" id="taggedCardsList" style="max-height:220px">
-              <div style="padding:1rem;text-align:center;color:var(--text3);font-size:0.85rem">No tagged cards</div>
-            </div>
+          <button id="deckListCollapseBtn" onclick="toggleDeckListCollapse()"
+            style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:0.85rem;padding:2px 4px;line-height:1;transition:transform 0.2s"
+            title="Collapse / expand">▾</button>
+        </div>
+        <div id="deckCardList" style="overflow-y:auto"></div>
+      </div>
+
+      <!-- EDHREC Suggestions (below deck list) -->
+      <div class="panel" style="margin-bottom:1rem">
+        <div class="panel-header">
+          <span class="panel-title" style="color:var(--teal)">EDHREC Suggestions</span>
+          <select id="edhrecThemeSelect" onchange="fetchEDHRECRecs()"
+            style="background:var(--bg3);border:1px solid var(--border2);color:var(--text);border-radius:var(--radius);padding:3px 6px;font-family:'Crimson Pro',serif;font-size:0.8rem">
+            <option value="">All themes</option>
+            <option value="artifacts">Artifacts</option>
+            <option value="tokens">Tokens</option>
+            <option value="graveyard">Graveyard</option>
+            <option value="counters">Counters</option>
+            <option value="lifegain">Lifegain</option>
+            <option value="ramp">Ramp</option>
+          </select>
+          <button onclick="this.closest('.panel').querySelector('.rec-scroll').classList.toggle('edhrec-collapsed')"
+            style="margin-left:4px;background:none;border:none;color:var(--text3);cursor:pointer;font-size:0.8rem;padding:2px 4px" title="Toggle">▾</button>
+        </div>
+        <div class="rec-scroll" id="edhrecResults">
+          <div style="padding:1.5rem;text-align:center;color:var(--text3);font-size:0.85rem">
+            Select a commander to see recommendations
           </div>
         </div>
+      </div>
 
-        <!-- Right: EDHREC + type breakdown -->
-        <div>
-          <div class="rec-panel">
-            <div class="panel-header">
-              <span class="panel-title" style="color:var(--teal)">EDHREC Suggestions</span>
-              <select id="edhrecThemeSelect" onchange="fetchEDHRECRecs()"
-                style="background:var(--bg3);border:1px solid var(--border2);color:var(--text);border-radius:var(--radius);padding:3px 6px;font-family:'Crimson Pro',serif;font-size:0.8rem">
-                <option value="">All themes</option>
-                <option value="artifacts">Artifacts</option>
-                <option value="tokens">Tokens</option>
-                <option value="graveyard">Graveyard</option>
-                <option value="counters">Counters</option>
-                <option value="lifegain">Lifegain</option>
-                <option value="ramp">Ramp</option>
-              </select>
-            </div>
-            <div class="rec-scroll" id="edhrecResults">
-              <div style="padding:1.5rem;text-align:center;color:var(--text3);font-size:0.85rem">
-                Select a commander to see recommendations
-              </div>
-            </div>
-          </div>
+      <!-- Tagged Cards -->
+      <div class="panel" style="margin-bottom:1rem">
+        <div class="panel-header">
+          <span class="panel-title" style="color:var(--gold)">★ Tagged Cards</span>
+          <span id="taggedCardsCount" style="font-size:0.72rem;color:var(--text3)"></span>
+        </div>
+        <div class="deck-cards-scroll" id="taggedCardsList" style="max-height:220px">
+          <div style="padding:1rem;text-align:center;color:var(--text3);font-size:0.85rem">No tagged cards</div>
+        </div>
+      </div>
 
-          <div class="panel" style="margin-top:1rem">
-            <div class="panel-header"><span class="panel-title">Type Breakdown</span></div>
-            <div class="panel-body" id="typeBreakdown"></div>
+      <!-- Bottom: Mana Curve + Type Breakdown -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem">
+        <div class="panel">
+          <div class="panel-header"><span class="panel-title">Mana Curve</span></div>
+          <div class="panel-body">
+            <div class="mana-curve" id="manaCurve"></div>
           </div>
+        </div>
+        <div class="panel">
+          <div class="panel-header"><span class="panel-title">Type Breakdown</span></div>
+          <div class="panel-body" id="typeBreakdown"></div>
+        </div>
+      </div>
+
+      <!-- Draw Probability -->
+      <div class="panel" style="margin-top:1.25rem">
+        <div class="panel-header" style="flex-wrap:wrap;gap:8px">
+          <span class="panel-title">Draw Probability</span>
+          <span style="font-size:0.72rem;color:var(--text3);flex:1">Probability of drawing <strong style="color:var(--text2)">at least N</strong> of each category in your opening hand</span>
+          <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+            <span style="font-size:0.72rem;color:var(--text3)">Hand size</span>
+            <input type="number" id="probHandSize" value="7" min="1" max="20" style="width:52px;padding:3px 6px;font-size:0.78rem" oninput="onProbHandSizeChange(this.value)">
+          </div>
+        </div>
+        <div class="panel-body">
+          <div id="probChartFilters" style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:0.85rem"></div>
+          <div style="position:relative;height:200px">
+            <canvas id="probChart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Collaborators (owner only) -->
+      <div id="deckCollaboratorsPanel" class="panel" style="margin-top:1.25rem;display:none">
+        <div class="panel-header">
+          <span class="panel-title">Collaborators</span>
+          <span style="font-size:0.72rem;color:var(--text3)">Users who can edit this deck</span>
+        </div>
+        <div class="panel-body">
+          <div id="collabList" style="margin-bottom:0.75rem"></div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input id="collabEmailInput" type="email" placeholder="Add by email address…" style="flex:1"
+              onkeydown="if(event.key==='Enter')addDeckCollaborator()">
+            <button class="btn btn-primary btn-sm" onclick="addDeckCollaborator()">Add</button>
+          </div>
+          <div id="collabError" style="margin-top:6px;font-size:0.78rem;color:var(--red)"></div>
         </div>
       </div>
     </div>
@@ -317,22 +482,42 @@
     </div><!-- end deckDetailArea -->
 </div>
 
+<!-- BROWSE DECKS TAB -->
+<div id="tab-browse" class="tab-content">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:1.25rem;flex-wrap:wrap">
+    <span class="panel-title" style="font-size:1.1rem">Browse Public Decks</span>
+    <span id="browseCountLabel" style="font-size:0.8rem;color:var(--text3)"></span>
+    <div style="flex:1"></div>
+    <input id="browseSearchInput" type="text" placeholder="Search by name, format, or commander…" style="width:260px" oninput="filterBrowseDecks(this.value)">
+  </div>
+  <div id="browseDeckGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:1rem"></div>
+</div>
+
 <!-- WISHLIST TAB -->
 <div id="tab-wishlist" class="tab-content">
   <div style="display:grid;grid-template-columns:1fr 320px;gap:1.5rem">
     <div>
       <div class="view-controls" style="margin-bottom:1rem">
-        <input class="search-box" type="text" placeholder="Add a card to wishlist…" id="wishlistSearch" oninput="searchWishlist(this.value)">
+        <div style="position:relative;flex:1">
+          <input class="search-box" type="text" placeholder="Add a card to wishlist…" id="wishlistSearch" oninput="wishlistAutocomplete(this.value)" onkeydown="if(event.key==='Enter'){event.preventDefault();runWishlistSearch(this.value);}">
+          <div id="wishlistSearchAutocomplete" style="display:none;position:fixed;background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius2);z-index:9999;max-height:260px;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.5)"></div>
+        </div>
         <select id="wishlistPriority">
           <option value="high">High Priority</option>
           <option value="med">Medium</option>
           <option value="low">Low Priority</option>
         </select>
-        <button class="btn btn-primary btn-sm" onclick="addToWishlistManual()">+ Add</button>
+        <button class="btn btn-primary btn-sm" onclick="runWishlistSearch(document.getElementById('wishlistSearch').value)">Search</button>
       </div>
-      <div id="wishlistSearchResults" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin-bottom:1rem"></div>
+      <div id="wishlistSearchResults" class="wishlist-search-results"></div>
       <div class="panel">
-        <div class="panel-header"><span class="panel-title">Wishlist</span><span id="wishlistTotal" style="font-size:0.78rem;color:var(--text3)"></span></div>
+        <div class="panel-header wishlist-panel-header">
+          <span><span class="panel-title">Wishlist</span> <span id="wishlistTotal" style="font-size:0.78rem;color:var(--text3)"></span></span>
+          <div class="wishlist-view-toggle" role="group" aria-label="Wishlist layout">
+            <button type="button" class="btn btn-ghost btn-sm" id="wishlistViewGrid" onclick="setWishlistViewMode('grid')">Grid</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="wishlistViewList" onclick="setWishlistViewMode('list')">List</button>
+          </div>
+        </div>
         <div id="wishlistItems"></div>
         <div id="wishlistEmpty" style="padding:2rem;text-align:center;color:var(--text3);font-size:0.85rem">Your wishlist is empty</div>
       </div>
@@ -464,6 +649,19 @@
     </div>
     <div id="voiceLookupResult"></div>
     <button class="btn btn-primary" style="width:100%;margin-top:1rem" onclick="confirmVoiceAdd()" id="voiceAddBtn" disabled>Add to Collection</button>
+    <hr style="margin:1.25rem 0;border-color:var(--border2)">
+    <button class="btn btn-outline" style="width:100%" onclick="closeVoice();openFindCard()">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;display:inline-block;vertical-align:middle;margin-right:6px"><circle cx="6.5" cy="6.5" r="4.5"/><path d="M10 10l3.5 3.5"/></svg>
+      Find Cards
+    </button>
+  </div>
+</div>
+
+<!-- PUBLIC DECK MODAL -->
+<div class="modal-overlay" id="publicDeckModal" onclick="if(event.target===this)closePublicDeckModal()">
+  <div class="modal" style="width:min(860px,96vw);max-height:92vh;overflow-y:auto">
+    <button class="btn btn-ghost btn-icon" style="position:absolute;top:0.75rem;right:0.75rem" onclick="closePublicDeckModal()">✕</button>
+    <div id="publicDeckContent"></div>
   </div>
 </div>
 
@@ -544,9 +742,17 @@
       <button class="btn btn-outline" onclick="closeImport()">Cancel</button>
     </div>
     <div style="margin-top:1rem;padding-top:1rem;border-top:1px solid var(--border)">
-      <p style="font-size:0.78rem;color:var(--text3);margin-bottom:0.6rem;text-align:center">No list? Try demo mode to explore the app.</p>
-      <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
-        <button class="btn btn-outline btn-sm demo-cards-btn" onclick="addDemoCards()">🎲 Add 2000 Demo Cards</button>
+      <p style="font-size:0.78rem;color:var(--text3);margin-bottom:0.75rem;text-align:center">No list? Generate a sample collection to explore the app.</p>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:0.6rem;flex-wrap:wrap">
+        <label style="font-size:0.78rem;color:var(--text3);white-space:nowrap">Cards:</label>
+        <input type="number" id="demoCardCount" value="500" min="100" max="5000" step="100"
+          style="width:80px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);border-radius:var(--radius);padding:4px 8px;font-family:'JetBrains Mono',monospace;font-size:0.85rem">
+        <label style="display:flex;align-items:center;gap:5px;font-size:0.78rem;color:var(--text3);cursor:pointer;white-space:nowrap">
+          <input type="checkbox" id="demoIncludeFoils" checked style="accent-color:var(--teal)"> Include foils
+        </label>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-outline btn-sm demo-cards-btn" style="flex:1" onclick="addDemoCards()">🎲 Generate Sample</button>
         <button class="btn btn-danger btn-sm" onclick="clearCollection()">🗑 Clear Collection</button>
       </div>
     </div>
@@ -660,6 +866,178 @@
   </div>
 </div>
 
+<!-- ARCHIDEKT IMPORT MODAL -->
+<div class="modal-overlay" id="archidektModal">
+  <div class="modal" style="width:min(480px,96vw)">
+    <button class="btn btn-ghost btn-icon" style="position:absolute;top:0.75rem;right:0.75rem" onclick="closeArchidektImport()">✕</button>
+    <div class="modal-title">↓ Import from Archidekt</div>
+    <p style="font-size:0.85rem;color:var(--text2);margin-bottom:1.25rem">
+      Paste an Archidekt deck URL or just the deck ID number.<br>
+      <em style="color:var(--teal)">e.g. https://archidekt.com/decks/1234567 or just 1234567</em>
+    </p>
+    <label style="font-size:0.78rem;color:var(--text3);display:block;margin-bottom:4px;letter-spacing:0.04em">ARCHIDEKT URL OR ID</label>
+    <input class="search-box" id="archidektInput" style="width:100%;margin-bottom:1rem"
+      placeholder="https://archidekt.com/decks/1234567/my-deck"
+      onkeydown="if(event.key==='Enter') importFromArchidekt()">
+    <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius2);padding:0.75rem;font-size:0.78rem;color:var(--text3);margin-bottom:1rem;line-height:1.6">
+      <strong style="color:var(--text2)">Notes:</strong><br>
+      • Deck must be set to <strong style="color:var(--text)">public</strong> on Archidekt<br>
+      • Cards you own will link to your collection; others are added as Scryfall entries<br>
+      • Maybeboard and sideboard cards are skipped
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:0.82rem;color:var(--text2);cursor:pointer;margin-bottom:1.25rem;user-select:none">
+      <input type="checkbox" id="archidektAddToCollection" style="width:15px;height:15px;accent-color:var(--teal)">
+      Also add all cards to my collection
+    </label>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-primary" style="flex:1" id="archidektImportBtn" onclick="importFromArchidekt()">Import Deck</button>
+      <button class="btn btn-outline" onclick="closeArchidektImport()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- MOXFIELD IMPORT MODAL -->
+<div class="modal-overlay" id="moxfieldModal">
+  <div class="modal" style="width:min(520px,96vw)">
+    <button class="btn btn-ghost btn-icon" style="position:absolute;top:0.75rem;right:0.75rem" onclick="closeMoxfieldImport()">✕</button>
+    <div class="modal-title">↓ Import from Moxfield</div>
+    <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius2);padding:0.75rem;font-size:0.8rem;color:var(--text2);margin-bottom:1rem;line-height:1.8">
+      <strong style="color:var(--gold)">How to export from Moxfield:</strong><br>
+      Open your deck → click <strong>Export</strong> → choose <strong>Text</strong> → copy all → paste below.
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:0.65rem">
+      <div style="flex:1">
+        <label style="font-size:0.78rem;color:var(--text3);display:block;margin-bottom:4px;letter-spacing:0.04em">DECK NAME (optional)</label>
+        <input class="search-box" id="moxfieldDeckName" style="width:100%" placeholder="My Commander Deck">
+      </div>
+      <div style="flex:1">
+        <label style="font-size:0.78rem;color:var(--text3);display:block;margin-bottom:4px;letter-spacing:0.04em">FORMAT (optional)</label>
+        <input class="search-box" id="moxfieldFormat" style="width:100%" placeholder="Commander">
+      </div>
+    </div>
+    <label style="font-size:0.78rem;color:var(--text3);display:block;margin-bottom:4px;letter-spacing:0.04em">DECK LIST</label>
+    <textarea id="moxfieldInput" rows="10" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);color:var(--text);padding:8px 10px;font-family:'JetBrains Mono',monospace;font-size:0.78rem;resize:vertical;margin-bottom:0.75rem"
+      placeholder="1 Atraxa, Praetors' Voice *CMDR*&#10;1 Sol Ring&#10;1 Arcane Signet&#10;..."></textarea>
+    <label style="display:flex;align-items:center;gap:8px;font-size:0.82rem;color:var(--text2);cursor:pointer;margin-bottom:1.25rem;user-select:none">
+      <input type="checkbox" id="moxfieldAddToCollection" style="width:15px;height:15px;accent-color:var(--teal)">
+      Also add all cards to my collection
+    </label>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-primary" style="flex:1" id="moxfieldImportBtn" onclick="importFromMoxfield()">Import Deck</button>
+      <button class="btn btn-outline" onclick="closeMoxfieldImport()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- FIND CARD MODAL -->
+<div class="modal-overlay" id="findCardModal">
+  <div class="modal" style="width:min(700px,96vw)">
+    <button class="btn btn-ghost btn-icon" style="position:absolute;top:0.75rem;right:0.75rem" onclick="closeFindCard()">✕</button>
+    <div class="modal-title">Find & Add Card</div>
+    <div style="display:flex;gap:8px;margin-bottom:0.75rem;align-items:center">
+      <div style="position:relative;flex:1">
+        <input class="search-box" style="width:100%" type="text" id="findCardInput"
+          placeholder="Search any Magic card by name, type, text…"
+          oninput="findCardAutocomplete(this.value)"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();runFindCard(this.value);}"
+          autocomplete="off">
+        <div id="findCardAutocomplete" style="display:none;position:fixed;background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius2);z-index:9999;max-height:240px;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.5)"></div>
+      </div>
+      <label style="font-size:0.78rem;color:var(--text3);white-space:nowrap;display:flex;align-items:center;gap:5px">
+        Qty <input type="number" id="findCardQty" value="1" min="1" max="99"
+          style="width:52px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);border-radius:var(--radius);padding:6px 8px;font-family:'JetBrains Mono',monospace;font-size:0.85rem">
+      </label>
+      <button class="btn btn-primary" onclick="runFindCard(document.getElementById('findCardInput').value)">Search</button>
+    </div>
+    <div id="findCardResults" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;max-height:420px;overflow-y:auto"></div>
+  </div>
+</div>
+
+<!-- CONFIRM MODAL -->
+<div class="modal-overlay" id="confirmModal">
+  <div class="modal" style="width:min(440px,96vw)">
+    <div class="modal-title" id="confirmModalTitle"></div>
+    <div id="confirmModalBody" style="font-size:0.9rem;color:var(--text2);line-height:1.6;margin-bottom:1.5rem"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-outline" id="confirmModalCancel" onclick="resolveConfirmModal(false)">Cancel</button>
+      <button class="btn btn-primary" id="confirmModalOk" onclick="resolveConfirmModal(true)">Continue</button>
+    </div>
+  </div>
+</div>
+
+<!-- SEED TEST DATA MODAL -->
+<div class="modal-overlay" id="seedModal" onclick="if(event.target===this)closeSeedModal()">
+  <div class="modal" style="width:min(520px,96vw)">
+    <button class="btn btn-ghost btn-icon" style="position:absolute;top:0.75rem;right:0.75rem" onclick="closeSeedModal()">✕</button>
+    <div class="modal-title">⚗ Generate Test Data</div>
+    <p style="font-size:0.85rem;color:var(--text2);margin-bottom:1rem;line-height:1.5">
+      Creates up to 3 test users (<code>player1–3@mtg-test.local</code> / password: <code>testpass123</code>) and imports Archidekt decks as public decks assigned to them.
+    </p>
+    <div style="display:flex;gap:8px;margin-bottom:1rem">
+      <button class="btn btn-primary" id="seedRunBtn" onclick="runSeedTestData()">⚡ Fetch 12 Random Decks</button>
+      <button class="btn btn-outline" onclick="closeSeedModal()">Cancel</button>
+    </div>
+    <details style="margin-bottom:0.75rem">
+      <summary style="font-size:0.8rem;color:var(--text3);cursor:pointer;user-select:none">Or paste specific Archidekt URLs / IDs</summary>
+      <textarea id="seedDeckInput" rows="5" placeholder="https://archidekt.com/decks/12345&#10;67890&#10;https://archidekt.com/decks/99999" style="width:100%;margin-top:0.5rem;font-family:'JetBrains Mono',monospace;font-size:0.8rem"></textarea>
+    </details>
+    <div style="margin-bottom:1rem">
+      <span id="seedStatus" style="font-size:0.8rem;color:var(--text3)"></span>
+    </div>
+    <div id="seedResults" style="display:none">
+      <div style="font-size:0.78rem;color:var(--text3);margin-bottom:6px;font-family:'Cinzel',serif;letter-spacing:0.05em;text-transform:uppercase">Results</div>
+      <div id="seedUsersOut" style="margin-bottom:0.75rem"></div>
+      <div id="seedDecksOut"></div>
+    </div>
+  </div>
+</div>
+
+<!-- VERSION PICKER MODAL -->
+<div class="modal-overlay" id="versionPickerModal">
+  <div class="modal" style="width:min(860px,96vw)">
+    <button class="btn btn-ghost btn-icon" style="position:absolute;top:0.75rem;right:0.75rem" onclick="closeVersionPicker()">✕</button>
+    <div class="modal-title" id="versionPickerTitle">Choose Printing</div>
+    <p style="font-size:0.78rem;color:var(--text3);margin-bottom:1rem">Select a printing to update this card's art and set info. Each option shows whether that printing is owned or unowned.</p>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn btn-outline btn-sm active" id="versionFilterAll" onclick="setVersionPickerFilter('all', this)">All</button>
+        <button class="btn btn-outline btn-sm" id="versionFilterOwned" onclick="setVersionPickerFilter('owned', this)">Owned</button>
+        <button class="btn btn-outline btn-sm" id="versionFilterUnowned" onclick="setVersionPickerFilter('unowned', this)">Unowned</button>
+      </div>
+      <div id="versionPickerCount" style="font-size:0.72rem;color:var(--text3)"></div>
+    </div>
+    <div id="versionPickerResults" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;max-height:520px;overflow-y:auto"></div>
+  </div>
+</div>
+
+<!-- DECK TAG MANAGER MODAL -->
+<div class="modal-overlay" id="deckTagManagerModal">
+  <div class="modal" style="width:min(560px,96vw)">
+    <button class="btn btn-ghost btn-icon" style="position:absolute;top:0.75rem;right:0.75rem" onclick="closeDeckTagManager()">✕</button>
+    <div class="modal-title">Manage Deck Tags</div>
+    <p style="font-size:0.78rem;color:var(--text3);margin-bottom:1rem">These tags are reusable across all decks.</p>
+    <div style="display:flex;gap:8px;margin-bottom:10px">
+      <input id="deckTagInput" type="text" placeholder="New tag name (e.g. Ramp, Removal)" style="flex:1">
+      <button class="btn btn-primary btn-sm" onclick="addDeckCustomTag()">+ Add</button>
+    </div>
+    <div id="deckTagManagerList" style="display:flex;flex-wrap:wrap;gap:8px;max-height:320px;overflow-y:auto"></div>
+  </div>
+</div>
+
+<!-- DECK CARD TAG PICKER MODAL -->
+<div class="modal-overlay" id="deckCardTagModal">
+  <div class="modal" style="width:min(520px,96vw)">
+    <button class="btn btn-ghost btn-icon" style="position:absolute;top:0.75rem;right:0.75rem" onclick="closeDeckCardTagPicker()">✕</button>
+    <div class="modal-title" id="deckCardTagTitle">Card Tags</div>
+    <p style="font-size:0.78rem;color:var(--text3);margin-bottom:1rem">Toggle tags to assign them to this card.</p>
+    <div id="deckCardTagList" style="display:flex;flex-wrap:wrap;gap:8px;max-height:280px;overflow-y:auto"></div>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <input id="deckCardTagNewInput" type="text" placeholder="Create and assign new tag" style="flex:1">
+      <button class="btn btn-primary btn-sm" onclick="addAndAssignDeckTagFromPicker()">+ Tag</button>
+    </div>
+  </div>
+</div>
+
 <!-- NOTIFICATION -->
 <div class="notif" id="notif">
   <span class="notif-icon">✓</span>
@@ -672,12 +1050,14 @@
 <!-- JS: load order matters — db-client first, then state, then feature modules -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="js/db-client.js"></script>
+<script src="js/auth.js"></script>
 <script src="js/state.js"></script>
 <script src="js/api.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/collection.js"></script>
 <script src="js/sets.js"></script>
 <script src="js/decks.js"></script>
+<script src="js/browse.js"></script>
 <script src="js/wishlist.js"></script>
 <script src="js/import.js"></script>
 <script src="js/analytics.js"></script>

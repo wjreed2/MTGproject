@@ -295,7 +295,8 @@ async function lookupManual() {
   pendingCard = cardToEntry(card, parseInt(document.getElementById('manualQty').value) || 1);
   pendingCard.foil = pendingFoil;
   pendingCard.uid = pendingCard.scryfallId + (pendingCard.foil ? '_f' : '_n');
-  const displayPrice = pendingCard.foil && pendingCard.priceTCGFoil > 0 ? pendingCard.priceTCGFoil : pendingCard.priceTCG;
+  const displayPrice = getTCGPriceForCard(pendingCard);
+  const displayCKPrice = getCKPriceForCard(pendingCard);
   el.innerHTML = `
     <div style="display:grid;grid-template-columns:160px 1fr;gap:16px;background:var(--bg3);border:1px solid ${pendingCard.foil ? 'var(--gold)' : 'var(--border2)'};border-radius:var(--radius2);padding:14px;align-items:start">
       <div style="position:relative">
@@ -308,7 +309,7 @@ async function lookupManual() {
         <div style="font-size:0.8rem;color:var(--text2);margin-bottom:10px">${pendingCard.type}</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <span class="price-badge price-tcg">${pendingCard.foil && pendingCard.priceTCGFoil > 0 ? 'Foil' : 'TCG'} $${displayPrice.toFixed(2)}</span>
-          <span class="price-badge price-ck">CK $${pendingCard.priceCK.toFixed(2)}</span>
+          <span class="price-badge price-ck">${pendingCard.foil ? 'CK Foil' : 'CK'} $${displayCKPrice.toFixed(2)}</span>
         </div>
       </div>
     </div>`;

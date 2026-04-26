@@ -46,7 +46,7 @@ function renderRarityChart() {
 function renderValueChart() {
   const ctx = document.getElementById('valueChart').getContext('2d');
   if (valueChartInst) valueChartInst.destroy();
-  const curVal = collection.reduce((s,c) => s + (c.priceTCG||0)*(c.qty||1), 0);
+  const curVal = collection.reduce((s,c) => s + getTCGPriceForCard(c) * (c.qty||1), 0);
   const labels = ['7d ago','6d','5d','4d','3d','2d','Yesterday','Today'];
   const data = labels.map((_, i) => Math.round(curVal * (0.9 + i * 0.015)));
   valueChartInst = new Chart(ctx, {
@@ -67,12 +67,12 @@ function renderValueChart() {
 
 function renderTopValues() {
   const el = document.getElementById('topValueCards');
-  const top = [...collection].sort((a,b) => b.priceTCG - a.priceTCG).slice(0, 8);
+  const top = [...collection].sort((a,b) => getTCGPriceForCard(b) - getTCGPriceForCard(a)).slice(0, 8);
   if (!top.length) { el.innerHTML = '<p style="color:var(--text3);font-size:0.85rem;text-align:center">No cards yet</p>'; return; }
   el.innerHTML = top.map(c => `
     <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);cursor:pointer" onclick="openCardDetail('${c.uid || c.scryfallId}')">
       ${c.image ? `<img src="${c.image}" style="width:28px;border-radius:3px;flex-shrink:0">` : ''}
       <span style="flex:1;font-size:0.85rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.name}</span>
-      <span style="font-family:'JetBrains Mono',monospace;font-size:0.78rem;color:var(--gold)">$${(c.foil && c.priceTCGFoil > 0 ? c.priceTCGFoil : c.priceTCG).toFixed(2)}</span>
+      <span style="font-family:'JetBrains Mono',monospace;font-size:0.78rem;color:var(--gold)">$${getTCGPriceForCard(c).toFixed(2)}</span>
     </div>`).join('');
 }

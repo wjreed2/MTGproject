@@ -1,44 +1,90 @@
 CREATE DATABASE IF NOT EXISTS mtgproject CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE mtgproject;
 
+CREATE TABLE IF NOT EXISTS accounts (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  email VARCHAR(255) NOT NULL,
+  password_hash VARCHAR(255) NOT NULL,
+  created_at BIGINT NOT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_accounts_email (email)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS collection (
-  uid         VARCHAR(120) NOT NULL,
-  name        VARCHAR(255) NOT NULL DEFAULT '',
-  qty         INT          NOT NULL DEFAULT 1,
-  foil        TINYINT(1)   NOT NULL DEFAULT 0,
-  scryfall_id VARCHAR(50)           DEFAULT NULL,
-  data        JSON         NOT NULL,
-  added_at    BIGINT       NOT NULL DEFAULT 0,
-  PRIMARY KEY (uid),
+  account_id BIGINT UNSIGNED NOT NULL,
+  uid VARCHAR(120) NOT NULL,
+  name VARCHAR(255) NOT NULL DEFAULT '',
+  qty INT NOT NULL DEFAULT 1,
+  foil TINYINT(1) NOT NULL DEFAULT 0,
+  scryfall_id VARCHAR(50) DEFAULT NULL,
+  data JSON NOT NULL,
+  added_at BIGINT NOT NULL DEFAULT 0,
+  PRIMARY KEY (account_id, uid),
   INDEX idx_name (name),
-  INDEX idx_scryfall_id (scryfall_id)
+  INDEX idx_scryfall_id (scryfall_id),
+  CONSTRAINT fk_collection_account FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS decks (
-  id          VARCHAR(50)  NOT NULL,
-  name        VARCHAR(255) NOT NULL DEFAULT '',
-  format      VARCHAR(50)  NOT NULL DEFAULT '',
-  data        JSON         NOT NULL,
-  created_at  BIGINT       NOT NULL DEFAULT 0,
-  PRIMARY KEY (id)
+  account_id BIGINT UNSIGNED NOT NULL,
+  id VARCHAR(50) NOT NULL,
+  name VARCHAR(255) NOT NULL DEFAULT '',
+  format VARCHAR(50) NOT NULL DEFAULT '',
+  data JSON NOT NULL,
+  created_at BIGINT NOT NULL DEFAULT 0,
+  PRIMARY KEY (account_id, id),
+  CONSTRAINT fk_decks_account FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS deck_cards (
+  account_id BIGINT UNSIGNED NOT NULL,
+  deck_id VARCHAR(50) NOT NULL,
+  card_uid VARCHAR(120) NOT NULL,
+  scryfall_id VARCHAR(50) DEFAULT NULL,
+  card_name VARCHAR(255) NOT NULL DEFAULT '',
+  qty INT NOT NULL DEFAULT 1,
+  is_commander TINYINT(1) NOT NULL DEFAULT 0,
+  sort_order INT NOT NULL DEFAULT 0,
+  card_data JSON NOT NULL,
+  PRIMARY KEY (account_id, deck_id, card_uid),
+  INDEX idx_deck_cards_scryfall (scryfall_id),
+  INDEX idx_deck_cards_name (card_name),
+  CONSTRAINT fk_deck_cards_deck FOREIGN KEY (account_id, deck_id) REFERENCES decks(account_id, id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS deck_card_tags (
+  account_id BIGINT UNSIGNED NOT NULL,
+  deck_id VARCHAR(50) NOT NULL,
+  card_uid VARCHAR(120) NOT NULL,
+  tag_name VARCHAR(100) NOT NULL,
+  PRIMARY KEY (account_id, deck_id, card_uid, tag_name),
+  INDEX idx_deck_card_tags_tag (tag_name),
+  CONSTRAINT fk_deck_card_tags_card FOREIGN KEY (account_id, deck_id, card_uid)
+    REFERENCES deck_cards(account_id, deck_id, card_uid) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS games (
-  id          VARCHAR(50)  NOT NULL,
-  data        JSON         NOT NULL,
-  created_at  BIGINT       NOT NULL DEFAULT 0,
-  PRIMARY KEY (id)
+  account_id BIGINT UNSIGNED NOT NULL,
+  id VARCHAR(50) NOT NULL,
+  data JSON NOT NULL,
+  created_at BIGINT NOT NULL DEFAULT 0,
+  PRIMARY KEY (account_id, id),
+  CONSTRAINT fk_games_account FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS wishlist (
-  uid         VARCHAR(120) NOT NULL,
-  data        JSON         NOT NULL,
-  added_at    BIGINT       NOT NULL DEFAULT 0,
-  PRIMARY KEY (uid)
+  account_id BIGINT UNSIGNED NOT NULL,
+  uid VARCHAR(120) NOT NULL,
+  data JSON NOT NULL,
+  added_at BIGINT NOT NULL DEFAULT 0,
+  PRIMARY KEY (account_id, uid),
+  CONSTRAINT fk_wishlist_account FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS preferences (
-  key_name    VARCHAR(100) NOT NULL,
-  value       JSON         NOT NULL,
-  PRIMARY KEY (key_name)
+  account_id BIGINT UNSIGNED NOT NULL,
+  key_name VARCHAR(100) NOT NULL,
+  value JSON NOT NULL,
+  PRIMARY KEY (account_id, key_name),
+  CONSTRAINT fk_preferences_account FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
