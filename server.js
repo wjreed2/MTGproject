@@ -5,13 +5,35 @@ const cors    = require('cors');
 const path    = require('path');
 const bcrypt  = require('bcrypt');
 const session = require('express-session');
+const crypto  = require('crypto');
 
 const app = express();
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '20mb' }));
+
+function resolveSessionSecret() {
+  const configured = String(process.env.SESSION_SECRET || '').trim();
+  const weakDefaults = new Set([
+    '',
+    'mtg-dev-session-change-me',
+    'change-me',
+    'change-me-to-a-long-random-string',
+  ]);
+  const isWeak = weakDefaults.has(configured) || configured.length < 32;
+
+  if (!isWeak) return configured;
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('SESSION_SECRET is missing or too weak. Set a long random value (32+ chars).');
+  }
+  const generated = crypto.randomBytes(48).toString('base64url');
+  console.warn('[auth] SESSION_SECRET is not set/strong; using temporary runtime secret. Set SESSION_SECRET in .env to persist sessions across restarts.');
+  return generated;
+}
+
+const SESSION_SECRET = resolveSessionSecret();
 app.use(
   session({
-    secret: process.env.SESSION_SECRET || 'mtg-dev-session-change-me',
+    secret: SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
     cookie: {

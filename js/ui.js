@@ -20,6 +20,7 @@ function showTab(t) {
 // ── Custom confirm dialog ─────────────────────────────────────────────────────
 
 let _confirmResolve = null;
+let _promptResolve = null;
 
 function showConfirmModal({ title, body, okLabel = 'Continue', cancelLabel = 'Cancel', okClass = 'btn-primary' } = {}) {
   document.getElementById('confirmModalTitle').textContent = title || '';
@@ -34,6 +35,35 @@ function showConfirmModal({ title, body, okLabel = 'Continue', cancelLabel = 'Ca
 function resolveConfirmModal(result) {
   document.getElementById('confirmModal').classList.remove('open');
   if (_confirmResolve) { _confirmResolve(result); _confirmResolve = null; }
+}
+
+function showPromptModal({
+  title,
+  body,
+  defaultValue = '',
+  placeholder = '',
+  okLabel = 'Continue',
+  cancelLabel = 'Cancel',
+} = {}) {
+  document.getElementById('promptModalTitle').textContent = title || '';
+  document.getElementById('promptModalBody').innerHTML = body || '';
+  const input = document.getElementById('promptModalInput');
+  input.value = defaultValue || '';
+  input.placeholder = placeholder || '';
+  document.getElementById('promptModalOk').textContent = okLabel;
+  document.getElementById('promptModalCancel').textContent = cancelLabel;
+  document.getElementById('promptModal').classList.add('open');
+  setTimeout(() => input.focus(), 20);
+  input.onkeydown = e => {
+    if (e.key === 'Enter') { e.preventDefault(); resolvePromptModal(input.value); }
+    if (e.key === 'Escape') { e.preventDefault(); resolvePromptModal(null); }
+  };
+  return new Promise(resolve => { _promptResolve = resolve; });
+}
+
+function resolvePromptModal(result) {
+  document.getElementById('promptModal').classList.remove('open');
+  if (_promptResolve) { _promptResolve(result); _promptResolve = null; }
 }
 
 function toggleSidebar() {

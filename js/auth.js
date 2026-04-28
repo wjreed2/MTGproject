@@ -71,13 +71,34 @@ function setAuthError(msg) {
 function refreshAuthUserLabel(email) {
   const el = document.getElementById('topbarUser');
   const row = document.getElementById('topbarUserRow');
-  if (el) el.textContent = email || '';
+  if (el) el.innerHTML = email
+    ? `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="width:13px;height:13px;flex-shrink:0;opacity:0.6"><circle cx="8" cy="5.5" r="2.5"/><path d="M2.5 14c0-3 2.5-5 5.5-5s5.5 2 5.5 5"/></svg><span>${email}</span>`
+    : '';
   if (row) row.style.display = email ? 'flex' : 'none';
   // Sync theme button active state whenever the label refreshes
   const saved = localStorage.getItem('mtg_theme') || 'dark';
   ['Dark','Light','System'].forEach(t => {
     document.getElementById('themeBtn' + t)?.classList.toggle('active', saved === t.toLowerCase());
   });
+  if (typeof renderDeckOwnershipBtn === 'function') renderDeckOwnershipBtn();
+}
+
+function toggleDeckOwnershipSetting() {
+  deckOwnershipEnabled = !deckOwnershipEnabled;
+  localStorage.setItem('mtg_deck_ownership', deckOwnershipEnabled ? '1' : '0');
+  renderDeckOwnershipBtn();
+  if (typeof renderDecks === 'function') renderDecks();
+  if (typeof _renderDeckSearchGrid === 'function') _renderDeckSearchGrid();
+  if (typeof renderVersionPickerTiles === 'function') renderVersionPickerTiles();
+  showNotif(`Deck ownership indicators ${deckOwnershipEnabled ? 'enabled' : 'disabled'}`);
+}
+
+function renderDeckOwnershipBtn() {
+  const btn = document.getElementById('settingsDeckOwnershipBtn');
+  if (!btn) return;
+  btn.innerHTML = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M2.5 4.5h11v7h-11z"/><path d="M5 7.2h6M5 9.8h3.5"/></svg>${deckOwnershipEnabled ? ' Deck ownership: on' : ' Deck ownership: off'}`;
+  btn.style.color = deckOwnershipEnabled ? 'var(--teal)' : '';
+  btn.style.borderColor = deckOwnershipEnabled ? 'var(--teal)' : '';
 }
 
 function showAuthRegister() {

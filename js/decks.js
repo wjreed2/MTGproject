@@ -1,5 +1,28 @@
 // Deck builder tab
 
+// ── Deck options dropdown ─────────────────────────────────────────────────────
+
+function toggleDeckOptionsDropdown() {
+  document.getElementById('deckOptionsDropdown')?.classList.toggle('open');
+}
+
+function toggleDeckValidTooltip() {
+  document.getElementById('deckValidBadge')?.classList.toggle('open');
+}
+
+document.addEventListener('click', e => {
+  const btn = document.getElementById('deckOptionsBtn');
+  const menu = document.getElementById('deckOptionsDropdown');
+  if (menu && btn && !btn.contains(e.target) && !menu.contains(e.target)) {
+    menu.classList.remove('open');
+  }
+
+  const badge = document.getElementById('deckValidBadge');
+  if (badge && !badge.contains(e.target)) {
+    badge.classList.remove('open');
+  }
+});
+
 // ── Validation ────────────────────────────────────────────────────────────────
 
 const FORMAT_RULES = {
@@ -230,30 +253,32 @@ function validateDeck(deck) {
 function renderDeckValidation(deck) {
   const badge = document.getElementById('deckValidBadge');
   const panel = document.getElementById('deckValidationPanel');
-  if (!badge || !panel) return;
+  if (!badge) return;
+  if (panel) panel.innerHTML = '';
 
   const issues = validateDeck(deck);
   const errors   = issues.filter(i => i.severity === 'error');
   const warnings = issues.filter(i => i.severity === 'warning');
 
   if (issues.length === 0) {
-    badge.innerHTML = `<span style="font-size:0.72rem;padding:2px 9px;border-radius:10px;background:rgba(61,184,160,0.12);color:var(--teal);border:1px solid rgba(61,184,160,0.3)">✓ Valid</span>`;
-    panel.innerHTML = '';
+    badge.innerHTML = `<span class="deck-valid-circle deck-valid-ok" title="Valid">✓</span>`;
     return;
   }
 
-  badge.innerHTML = errors.length > 0
-    ? `<span style="font-size:0.72rem;padding:2px 9px;border-radius:10px;background:rgba(212,90,74,0.12);color:var(--red);border:1px solid rgba(212,90,74,0.3)">✕ ${errors.length} error${errors.length > 1 ? 's' : ''}${warnings.length ? ` · ${warnings.length} warning${warnings.length > 1 ? 's' : ''}` : ''}</span>`
-    : `<span style="font-size:0.72rem;padding:2px 9px;border-radius:10px;background:rgba(200,168,74,0.12);color:var(--gold);border:1px solid rgba(200,168,74,0.3)">⚠ ${warnings.length} warning${warnings.length > 1 ? 's' : ''}</span>`;
+  const hasErrors = errors.length > 0;
+  const circleClass = hasErrors ? 'deck-valid-error' : 'deck-valid-warn';
+  const circleIcon  = hasErrors ? '✕' : '⚠';
 
-  panel.innerHTML = `
-    <div style="background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius2);overflow:hidden">
-      ${issues.map(i => `
-        <div ${i.cardName ? `onclick="jumpToDeckIssue('${i.cardName.replace(/'/g, "\\'")}')"` : ''} style="display:flex;align-items:flex-start;gap:8px;padding:6px 12px;border-bottom:1px solid var(--border);font-size:0.78rem;${i.cardName ? 'cursor:pointer' : ''}">
-          <span style="flex-shrink:0;color:${i.severity === 'error' ? 'var(--red)' : 'var(--gold)'};margin-top:1px">${i.severity === 'error' ? '✕' : '⚠'}</span>
-          <span style="color:var(--text2)">${i.msg}${i.cardName ? ' <span style="color:var(--teal);font-size:0.7rem">· view</span>' : ''}</span>
-        </div>`).join('')}
-    </div>`;
+  const rows = issues.map(i => `
+    <div ${i.cardName ? `onclick="jumpToDeckIssue('${i.cardName.replace(/'/g, "\\'")}')"` : ''}
+         class="deck-valid-row${i.cardName ? ' deck-valid-row-link' : ''}">
+      <span style="flex-shrink:0;color:${i.severity === 'error' ? 'var(--red)' : 'var(--gold)'}">${i.severity === 'error' ? '✕' : '⚠'}</span>
+      <span>${i.msg}${i.cardName ? ' <span style="color:var(--teal);font-size:0.7rem">· view</span>' : ''}</span>
+    </div>`).join('');
+
+  badge.innerHTML = `
+    <span class="deck-valid-circle ${circleClass}" onclick="toggleDeckValidTooltip()" title="Click to view issues">${circleIcon}</span>
+    <div class="deck-valid-tooltip">${rows}</div>`;
 }
 
 function jumpToDeckIssue(cardName) {
@@ -266,6 +291,7 @@ function jumpToDeckIssue(cardName) {
 
 let deckListView = 'grid';
 let deckGroupBy  = 'type';
+let deckListSearchQ = '';
 let deckSidebarCollapsed = localStorage.getItem('mtg_deck_sidebar_collapsed') === 'true';
 let _deckCardTagPickerTarget = null; // { deckId, cardUid }
 let activeDeckIsShared = false;
@@ -305,6 +331,12 @@ function toggleDeckSidebar() {
 
 function setDeckGroupBy(val) {
   deckGroupBy = val;
+  const deck = getActiveDeck();
+  if (deck) renderDeckList(deck);
+}
+
+function setDeckListSearch(q) {
+  deckListSearchQ = String(q || '').trim().toLowerCase();
   const deck = getActiveDeck();
   if (deck) renderDeckList(deck);
 }
@@ -386,12 +418,6 @@ function renderDecks() {
   let roleTagChanged = false;
   decks.forEach(d => { if (syncDeckAutoRoleTags(d)) roleTagChanged = true; });
   if (roleTagChanged) save();
-  const label = document.getElementById('deckCountLabel');
-  if (label) {
-    const total = decks.length + (sharedDecks?.length || 0);
-    label.textContent = total ? `${total} deck${total !== 1 ? 's' : ''}` : '';
-  }
-
   if (!activeDeckId) {
     // Show big grid, hide detail split
     document.getElementById('deckGridArea').style.display = '';
@@ -523,7 +549,7 @@ function toggleDeckPublic() {
 }
 
 function _applyPublicToggleBtn(btn, isPublic) {
-  btn.textContent = isPublic ? '🌐 Public' : '🔒 Private';
+  btn.innerHTML = isPublic ? `${SVG_GLOBE} Public` : `${SVG_LOCK} Private`;
   btn.style.color = isPublic ? 'var(--teal)' : 'var(--text3)';
   btn.title = isPublic ? 'Visible to all users — click to make private' : 'Only you can see this — click to make public';
 }
@@ -652,7 +678,7 @@ function sortColorsWUBRG(colors) {
 
 function colorPips(colors) {
   return sortColorsWUBRG(colors).map(col =>
-    `<span class="mana-pip mana-${col.toLowerCase()}" title="${col}" aria-label="${col}"></span>`
+    `<img src="https://svgs.scryfall.io/card-symbols/${col}.svg" class="mana-pip" alt="${col}" title="${col}">`
   ).join('');
 }
 
@@ -1120,6 +1146,10 @@ function _buildDeckGroups(cards, groupBy) {
 let _ownedByUid  = {}; // scryfallId+foil key → collection card
 let _ownedByName = {}; // lowercase name     → collection card (any printing/foil)
 
+function isDeckOwnershipEnabled() {
+  return deckOwnershipEnabled !== false;
+}
+
 function getCardInventoryKey(card) {
   if (!card) return '';
   if (card.uid) return card.uid;
@@ -1202,23 +1232,24 @@ function _stackTile(c) {
     || (c.scryfallId ? `https://cards.scryfall.io/normal/front/${c.scryfallId[0]}/${c.scryfallId[1]}/${c.scryfallId}.jpg` : '');
   const safeName = c.name.replace(/"/g, '&quot;');
 
+  const ownershipOn = isDeckOwnershipEnabled();
   // Ownership: exact uid (same printing + foil), then same printing any foil, then by name
   const uidKey       = getCardInventoryKey(c);
-  const ownedExact   = _ownedByUid[uidKey];
-  const ownedByName  = !ownedExact && _ownedByName[(c.name || '').toLowerCase()];
-  const owned        = ownedExact || ownedByName;
+  const ownedExact   = ownershipOn ? _ownedByUid[uidKey] : null;
+  const ownedByName  = ownershipOn && !ownedExact ? _ownedByName[(c.name || '').toLowerCase()] : null;
+  const owned        = ownershipOn ? (ownedExact || ownedByName) : null;
 
   // Foil mismatch: own the other variant but not the requested one
-  const foilMismatch = !ownedExact && ownedByName && (ownedByName.foil !== !!c.foil);
+  const foilMismatch = ownershipOn && !ownedExact && ownedByName && (ownedByName.foil !== !!c.foil);
 
-  const notOwned = !owned;
+  const notOwned = ownershipOn && !owned;
   const imgStyle = notOwned ? 'filter:grayscale(82%) brightness(0.8) contrast(0.9)' : '';
 
   // Ownership badge
   let ownerBadge = '';
-  if (notOwned) {
+  if (ownershipOn && notOwned) {
     ownerBadge = `<div class="stack-not-owned">✗ unowned</div>`;
-  } else if (foilMismatch) {
+  } else if (ownershipOn && foilMismatch) {
     ownerBadge = `<div class="stack-foil-mismatch">${owned.foil ? '✦ own foil' : 'own non-foil'}</div>`;
   }
 
@@ -1241,16 +1272,24 @@ function _stackTile(c) {
 function renderDeckList(deck) {
   const el = document.getElementById('deckCardList');
   if (!el) return;
+  const filteredCards = deckListSearchQ
+    ? (deck.cards || []).filter(c => (c.name || '').toLowerCase().includes(deckListSearchQ))
+    : (deck.cards || []);
 
   if (!deck.cards.length) {
     el.innerHTML = '<div style="padding:1rem;text-align:center;color:var(--text3);font-size:0.85rem">No cards yet — search for cards above to add them</div>';
     el.onclick = null;
     return;
   }
+  if (!filteredCards.length) {
+    el.innerHTML = '<div style="padding:1rem;text-align:center;color:var(--text3);font-size:0.85rem">No matching cards in this deck list</div>';
+    el.onclick = null;
+    return;
+  }
 
   if (deckListView === 'grid') {
-    _rebuildOwnershipMaps();
-    const groups = _buildDeckGroups(deck.cards, deckGroupBy);
+    if (isDeckOwnershipEnabled()) _rebuildOwnershipMaps();
+    const groups = _buildDeckGroups(filteredCards, deckGroupBy);
     const entries = Object.entries(groups).filter(([, v]) => v.length > 0);
     el.innerHTML = `<div class="deck-stack-view">` +
       entries.map(([grp, cards]) => {
@@ -1281,14 +1320,14 @@ function renderDeckList(deck) {
   }
 
   // List view — grouped by selected mode
-  const groups = _buildDeckGroups(deck.cards, deckGroupBy || 'type');
+  const groups = _buildDeckGroups(filteredCards, deckGroupBy || 'type');
   el.onclick = null;
   el.innerHTML = Object.entries(groups).filter(([, v]) => v.length > 0).map(([grp, cards]) => `
     <div style="padding:6px 8px;font-size:0.72rem;color:var(--text3);letter-spacing:0.08em;text-transform:uppercase;border-bottom:1px solid var(--border)">${grp} (${cards.reduce((s,c)=>s+c.qty,0)})</div>
     ${cards.sort((a,b)=>a.name.localeCompare(b.name)).map(c => `
       <div class="deck-card-row" onclick="openCardDetail('${c.uid || c.scryfallId}')">
         <span class="deck-card-name">${c.name}</span>
-        <span style="display:flex;gap:2px">${sortColorsWUBRG(c.colors).map(col => `<span class="mana-pip mana-${col.toLowerCase()}" title="${col}" aria-label="${col}"></span>`).join('')}</span>
+        <span style="display:flex;gap:2px">${sortColorsWUBRG(c.colors).map(col => `<img src="https://svgs.scryfall.io/card-symbols/${col}.svg" class="mana-pip" alt="${col}" title="${col}">`).join('')}</span>
         <button class="btn btn-ghost btn-sm btn-icon" title="Edit custom tags" onclick="event.stopPropagation();openDeckCardTagPicker('${activeDeckId}','${c.uid || c.scryfallId || ''}')">🏷</button>
         <button class="btn btn-ghost btn-sm btn-icon" title="Change printing" onclick="event.stopPropagation();openVersionPicker('${activeDeckId}','${c.uid || c.scryfallId || ''}','${(c.name || '').replace(/'/g, "\\'")}')">⟳</button>
         <div style="display:flex;align-items:center;gap:5px;margin-left:auto" onclick="event.stopPropagation()">
@@ -1792,15 +1831,16 @@ function _matchesDeckSearchRoleFilters(cardLike, isApi = false) {
 }
 
 function _cardTile(name, img, inDeck, inCollection, inv, addFn) {
-  const unavailable = inCollection && (inv?.available || 0) <= 0 && !inDeck;
+  const ownershipOn = isDeckOwnershipEnabled();
+  const unavailable = ownershipOn && inCollection && (inv?.available || 0) <= 0 && !inDeck;
   const border = inDeck
     ? '2px solid var(--teal)'
-    : unavailable ? '2px solid var(--red)'
-    : inCollection ? '2px solid var(--gold)' : '1px solid var(--border)';
-  const filter = (!inCollection && !inDeck) || unavailable ? 'grayscale(60%) opacity(0.65)' : '';
+    : (ownershipOn && unavailable) ? '2px solid var(--red)'
+    : (ownershipOn && inCollection) ? '2px solid var(--gold)' : '1px solid var(--border)';
+  const filter = (ownershipOn && ((!inCollection && !inDeck) || unavailable)) ? 'grayscale(60%) opacity(0.65)' : '';
   return `
     <div class="deck-search-tile" data-add="${addFn}" style="cursor:pointer">
-      <div style="aspect-ratio:0.715;overflow:hidden;border-radius:6px;border:${border};
+      <div class="deck-search-art" style="aspect-ratio:0.715;overflow:hidden;border-radius:6px;border:${border};
         transition:border-color 0.15s;position:relative">
         ${img
           ? `<img src="${img}" style="width:100%;height:100%;object-fit:cover;${filter}" alt="${name}" loading="lazy">`
@@ -1808,12 +1848,11 @@ function _cardTile(name, img, inDeck, inCollection, inv, addFn) {
               justify-content:center;font-size:0.6rem;padding:4px;text-align:center;color:var(--text2)">${name}</div>`}
         ${inDeck ? `<div style="position:absolute;bottom:2px;right:2px;background:var(--teal);color:#000;
           font-size:0.5rem;font-weight:700;padding:1px 4px;border-radius:3px">IN DECK</div>` : ''}
-        ${unavailable ? `<div style="position:absolute;bottom:2px;right:2px;background:var(--red);color:#fff;
+        ${ownershipOn && unavailable ? `<div style="position:absolute;bottom:2px;right:2px;background:var(--red);color:#fff;
           font-size:0.5rem;font-weight:700;padding:1px 4px;border-radius:3px">IN OTHER DECKS</div>` : ''}
       </div>
-      <div style="font-size:0.62rem;color:var(--text3);margin-top:2px;text-align:center;
-        white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${name}</div>
-      ${inCollection ? `<div style="font-size:0.56rem;color:${unavailable ? 'var(--red)' : 'var(--text3)'};text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Owned ${inv.owned} · Used ${inv.usedTotal} · Avail ${inv.available}</div>` : ''}
+      <div class="deck-search-name">${name}</div>
+      ${ownershipOn && inCollection ? `<div class="deck-search-meta" style="color:${unavailable ? 'var(--red)' : 'var(--text3)'}">Owned ${inv.owned} · Used ${inv.usedTotal} · Avail ${inv.available}</div>` : ''}
     </div>`;
 }
 
@@ -1903,15 +1942,13 @@ async function runDeckSearch(q) {
 async function addScryfallCardToDeck(scryfallId) {
   const deck = getActiveDeck();
   if (!deck) return;
-  let card = collection.find(c => c.scryfallId === scryfallId && !c.foil) || collection.find(c => c.scryfallId === scryfallId);
+  let card = window.Ownership?.preferredOwnedPrinting
+    ? window.Ownership.preferredOwnedPrinting(collection, scryfallId)
+    : (collection.find(c => c.scryfallId === scryfallId && !c.foil) || collection.find(c => c.scryfallId === scryfallId));
   if (!card) {
     const sc = await fetchCardById(scryfallId);
     if (!sc) { showNotif('Failed to fetch card', true); return; }
     card = cardToEntry(sc, 0);
-  }
-  if (getAvailableCollectionQtyForCard(card) <= 0) {
-    showNotif(`No available copies of ${card.name} (all copies are already in decks)`, true);
-    return;
   }
   const existing = findDeckCardSlot(deck, card);
   if (existing) { existing.qty++; } else { deck.cards.push({ ...card, uid: getCardInventoryKey(card), qty: 1 }); }
@@ -1922,12 +1959,10 @@ async function addScryfallCardToDeck(scryfallId) {
 function addToDeck(uid) {
   const deck = getActiveDeck();
   if (!deck) return;
-  const card = collection.find(c => c.uid === uid);
+  const card = window.Ownership?.findByRef
+    ? window.Ownership.findByRef(collection, uid)
+    : collection.find(c => c.uid === uid);
   if (!card) return;
-  if (getAvailableCollectionQtyForCard(card) <= 0) {
-    showNotif(`No available copies of ${card.name} (${card.foil ? 'foil' : 'non-foil'})`, true);
-    return;
-  }
   const existing = findDeckCardSlot(deck, card);
   if (existing) { existing.qty++; } else { deck.cards.push({ ...card, uid: getCardInventoryKey(card), qty: 1 }); }
   saveActiveDeck(deck); renderActiveDeck(); renderTaggedCards(deck); _renderDeckSearchGrid(); showNotif('Added ' + card.name + ' to deck');
@@ -1955,10 +1990,6 @@ function adjustDeckCardQtyByUid(uid, delta) {
   const card = deck.cards.find(c => getCardInventoryKey(c) === uid || c.uid === uid);
   if (!card) return;
   if (delta > 0) {
-    if (getAvailableCollectionQtyForCard(card) <= 0) {
-      showNotif(`No additional ${card.name} copies available`, true);
-      return;
-    }
     card.qty = (card.qty || 0) + delta;
   }
   else if ((card.qty || 1) > 1) card.qty += delta;
@@ -1968,21 +1999,33 @@ function adjustDeckCardQtyByUid(uid, delta) {
   scheduleEDHRECRefresh();
 }
 
-function deleteDeck() {
+async function deleteDeck() {
   if (activeDeckIsShared) return;
-  if (!confirm('Delete this deck?')) return;
+  const ok = await showConfirmModal({
+    title: 'Delete Deck',
+    body: 'Delete this deck? This cannot be undone.',
+    okLabel: 'Delete',
+    okClass: 'btn-danger',
+  });
+  if (!ok) return;
   decks = decks.filter(d => d.id !== activeDeckId);
   activeDeckId = null;
   activeDeckIsShared = false;
   save(); renderDecks();
 }
 
-function renameActiveDeck() {
+async function renameActiveDeck() {
   if (activeDeckIsShared) return;
   const deck = getActiveDeck();
   if (!deck) return;
 
-  const nextName = prompt('Rename deck:', deck.name || '');
+  const nextName = await showPromptModal({
+    title: 'Rename Deck',
+    body: 'Enter a new name for this deck.',
+    defaultValue: deck.name || '',
+    placeholder: 'Deck name',
+    okLabel: 'Save',
+  });
   if (nextName === null) return;
   const trimmed = nextName.trim();
   if (!trimmed) {
@@ -2272,7 +2315,7 @@ function applySkeletonBuilder() {
   buildSkeletonDeckFromCollection(template);
 }
 
-function buildSkeletonDeckFromInspectorCard(cardRef) {
+async function buildSkeletonDeckFromInspectorCard(cardRef) {
   const card = collection.find(c => c.uid === cardRef || c.scryfallId === cardRef);
   if (!card) {
     showNotif('Card not found in collection', true);
@@ -2291,7 +2334,13 @@ function buildSkeletonDeckFromInspectorCard(cardRef) {
     return;
   }
 
-  let format = prompt('Deck format (Commander, Brawl, Oathbreaker):', 'Commander');
+  let format = await showPromptModal({
+    title: 'Deck Format',
+    body: 'Choose format: Commander, Brawl, or Oathbreaker',
+    defaultValue: 'Commander',
+    placeholder: 'Commander',
+    okLabel: 'Next',
+  });
   if (format === null) return;
   format = String(format || '').trim();
   const formatNorm = format.toLowerCase();
@@ -2307,7 +2356,13 @@ function buildSkeletonDeckFromInspectorCard(cardRef) {
   }
 
   const suggestedName = `${card.name} Skeleton`;
-  const deckNameInput = prompt('Deck name:', suggestedName);
+  const deckNameInput = await showPromptModal({
+    title: 'Deck Name',
+    body: 'Name your new deck.',
+    defaultValue: suggestedName,
+    placeholder: 'Deck name',
+    okLabel: 'Create',
+  });
   if (deckNameInput === null) return;
   const deckName = String(deckNameInput || '').trim();
   if (!deckName) {
@@ -2336,7 +2391,7 @@ function buildSkeletonDeckFromInspectorCard(cardRef) {
   openSkeletonBuilderModal();
 }
 
-function buildSkeletonDeckFromCollection(templateOverride = null) {
+async function buildSkeletonDeckFromCollection(templateOverride = null) {
   if (activeDeckIsShared) return;
   const deck = getActiveDeck();
   if (!deck) return;
@@ -2367,7 +2422,15 @@ function buildSkeletonDeckFromCollection(templateOverride = null) {
     return;
   }
 
-  if (deck.cards.length && !confirm('Replace current deck list with an auto-built skeleton?')) return;
+  if (deck.cards.length) {
+    const ok = await showConfirmModal({
+      title: 'Replace Deck List',
+      body: 'Replace current deck list with an auto-built skeleton?',
+      okLabel: 'Replace',
+      okClass: 'btn-danger',
+    });
+    if (!ok) return;
+  }
 
   const pool = collection
     .filter(c => (c.name || '').toLowerCase() !== deck.commander.toLowerCase())
@@ -2806,15 +2869,17 @@ async function _loadCardReplacements(card, deckId, containerId) {
       return;
     }
 
-    const ownedById = {}, ownedByName = {};
-    collection.forEach(c => {
-      ownedById[c.scryfallId] = c;
-      const key = (c.name || '').toLowerCase();
-      if (!ownedByName[key]) ownedByName[key] = c;
-    });
-    const getOwned = c => ownedById[c.id] || ownedByName[(c.name || '').toLowerCase()];
+    const ownershipOn = isDeckOwnershipEnabled();
+    const getOwned = c => window.Ownership?.hasOwnedByPrintingOrTitle
+      ? window.Ownership.hasOwnedByPrintingOrTitle(collection, c.id, c.name)
+      : (
+        collection.find(col => col.scryfallId === c.id) ||
+        collection.find(col => String(col.name || '').toLowerCase() === String(c.name || '').toLowerCase())
+      );
 
-    candidates.sort((a, b) => (!!getOwned(a) === !!getOwned(b) ? 0 : getOwned(a) ? -1 : 1));
+    if (ownershipOn) {
+      candidates.sort((a, b) => (!!getOwned(a) === !!getOwned(b) ? 0 : getOwned(a) ? -1 : 1));
+    }
 
     const previewMap = {};
     const rows = candidates.slice(0, 12).map((c, i) => {
@@ -2822,7 +2887,7 @@ async function _loadCardReplacements(card, deckId, containerId) {
       const previewImg = c.image_uris?.normal || c.card_faces?.[0]?.image_uris?.normal || img || '';
       previewMap[c.id] = previewImg;
       const price = parseFloat(c.prices?.usd || 0).toFixed(2);
-      const isOwned = !!getOwned(c);
+      const isOwned = ownershipOn && !!getOwned(c);
       const score = Math.max(10, 100 - i * 7);
       const safeScryfallId = (card.scryfallId || '').replace(/'/g, "\\'");
       const swapBtn = `
@@ -2861,8 +2926,10 @@ async function _loadCardReplacements(card, deckId, containerId) {
 }
 
 async function _addCardToDeckDirect(scryfallId, deck) {
-  let newCard = collection.find(c => c.scryfallId === scryfallId && !c.foil)
-    || collection.find(c => c.scryfallId === scryfallId);
+  let newCard = window.Ownership?.preferredOwnedPrinting
+    ? window.Ownership.preferredOwnedPrinting(collection, scryfallId)
+    : (collection.find(c => c.scryfallId === scryfallId && !c.foil)
+      || collection.find(c => c.scryfallId === scryfallId));
   if (!newCard) {
     const sc = await fetchCardById(scryfallId);
     if (!sc) { showNotif('Failed to fetch card data', true); return false; }
@@ -2882,7 +2949,12 @@ async function _swapDeckCard(oldScryfallId, newScryfallId, deckId) {
   const ok = await _addCardToDeckDirect(newScryfallId, deck);
   if (!ok) {
     // restore removed card on failure
-    if (idx !== -1) { const orig = collection.find(c => c.scryfallId === oldScryfallId); if (orig) deck.cards.splice(idx, 0, orig); }
+    if (idx !== -1) {
+      const orig = window.Ownership?.findOwnedByPrinting
+        ? window.Ownership.findOwnedByPrinting(collection, oldScryfallId)
+        : collection.find(c => c.scryfallId === oldScryfallId);
+      if (orig) deck.cards.splice(idx, 0, orig);
+    }
     return;
   }
   saveActiveDeck(deck);
@@ -2907,7 +2979,21 @@ let _versionPickerTarget = null; // { deckId, cardUid }
 let _versionPickerFilter = 'all';
 let _versionPickerState = null; // { prints, currentCard }
 
+function setVersionPickerFiltersVisible(show) {
+  const ids = ['versionFilterOwned', 'versionFilterUnowned'];
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = show ? '' : 'none';
+  });
+  if (!show) {
+    _versionPickerFilter = 'all';
+    document.getElementById('versionFilterAll')?.classList.add('active');
+    ids.forEach(id => document.getElementById(id)?.classList.remove('active'));
+  }
+}
+
 function setVersionPickerFilter(filter, btn) {
+  if (!isDeckOwnershipEnabled() && filter !== 'all') filter = 'all';
   _versionPickerFilter = filter;
   document.querySelectorAll('#versionFilterAll,#versionFilterOwned,#versionFilterUnowned')
     .forEach(b => b.classList.remove('active'));
@@ -2921,10 +3007,17 @@ function renderVersionPickerTiles() {
   const { prints, currentCard } = _versionPickerState;
 
   const withOwnership = prints.map((c, idx) => {
-    const ownedPrintings = collection.filter(col => col.scryfallId === c.id);
-    const ownedQty = ownedPrintings.reduce((sum, col) => sum + (col.qty || 1), 0);
-    const ownedFoilQty = ownedPrintings.filter(col => col.foil).reduce((sum, col) => sum + (col.qty || 1), 0);
-    const ownedNonFoilQty = ownedPrintings.filter(col => !col.foil).reduce((sum, col) => sum + (col.qty || 1), 0);
+    const breakdown = window.Ownership?.ownedPrintingBreakdown
+      ? window.Ownership.ownedPrintingBreakdown(collection, c.id)
+      : (() => {
+        const ownedPrintings = collection.filter(col => col.scryfallId === c.id);
+        return {
+          ownedQty: ownedPrintings.reduce((sum, col) => sum + (col.qty || 1), 0),
+          ownedFoilQty: ownedPrintings.filter(col => col.foil).reduce((sum, col) => sum + (col.qty || 1), 0),
+          ownedNonFoilQty: ownedPrintings.filter(col => !col.foil).reduce((sum, col) => sum + (col.qty || 1), 0),
+        };
+      })();
+    const { ownedQty, ownedFoilQty, ownedNonFoilQty } = breakdown;
     const usedFoilQty = getAllocatedDeckQtyForKey(c.id + '_f');
     const usedNonFoilQty = getAllocatedDeckQtyForKey(c.id + '_n');
     const availableFoilQty = Math.max(0, ownedFoilQty - usedFoilQty);
@@ -2944,9 +3037,11 @@ function renderVersionPickerTiles() {
     };
   });
 
+  const ownershipOn = isDeckOwnershipEnabled();
   const filtered = withOwnership.filter(item =>
-    _versionPickerFilter === 'owned' ? item.isOwned :
-    _versionPickerFilter === 'unowned' ? !item.isOwned : true
+    !ownershipOn ? true :
+    (_versionPickerFilter === 'owned' ? item.isOwned :
+      _versionPickerFilter === 'unowned' ? !item.isOwned : true)
   );
 
   const countEl = document.getElementById('versionPickerCount');
@@ -2964,7 +3059,7 @@ function renderVersionPickerTiles() {
         ${imgS ? `<img src="${imgS}" style="width:100%;display:block" loading="lazy" alt="${c.set_name}">` : `<div style="aspect-ratio:0.715;background:var(--bg4);display:flex;align-items:center;justify-content:center;font-size:0.65rem;color:var(--text3)">${c.set_name}</div>`}
       </div>
       <div style="font-size:0.6rem;color:var(--text3);margin-top:4px;line-height:1.3">${c.set_name}<br>${c.set.toUpperCase()} #${c.collector_number}</div>
-      <div style="font-size:0.58rem;margin-top:3px;color:${isOwned ? 'var(--teal)' : 'var(--text3)'}">${ownedLabel}</div>
+      ${ownershipOn ? `<div style="font-size:0.58rem;margin-top:3px;color:${isOwned ? 'var(--teal)' : 'var(--text3)'}">${ownedLabel}</div>` : ''}
       ${isCurrent ? '<div style="font-size:0.56rem;color:var(--gold);margin-top:2px">Current</div>' : ''}
     </div>`;
   }).join('') || '<div style="grid-column:1/-1;padding:1rem;color:var(--text3)">No printings found for this filter</div>';
@@ -2974,7 +3069,7 @@ async function openVersionPicker(deckId, cardUid, cardName) {
   _versionPickerFilter = 'all';
   _versionPickerTarget = { deckId, cardUid };
   _ownedSuggestionCandidates = null;
-  setVersionPickerFiltersVisible(true);
+  setVersionPickerFiltersVisible(isDeckOwnershipEnabled());
   document.getElementById('versionPickerTitle').textContent = cardName + ' — Choose Printing';
   document.querySelectorAll('#versionFilterAll,#versionFilterOwned,#versionFilterUnowned')
     .forEach(b => b.classList.remove('active'));
@@ -3069,5 +3164,5 @@ function closeVersionPicker() {
   _versionPickerTarget = null;
   _versionPickerState = null;
   _ownedSuggestionCandidates = null;
-  setVersionPickerFiltersVisible(true);
+  setVersionPickerFiltersVisible(isDeckOwnershipEnabled());
 }

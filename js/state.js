@@ -11,6 +11,18 @@ let currentSort   = 'name';
 let currentRarity = '';
 let searchQ       = '';
 let pendingCard   = null;
+let deckOwnershipEnabled = localStorage.getItem('mtg_deck_ownership') !== '0';
+
+// Shared SVG icon strings used across voice.js and collection.js
+var SVG_PIN         = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px;flex-shrink:0"><path d="M5.5 1.5h5v1.5L9 5.5v3.5l2.5 1v1h-7v-1l2.5-1V5.5L5.5 3z"/><line x1="8" y1="11" x2="8" y2="15"/></svg>`;
+var SVG_MIC_X       = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px;flex-shrink:0"><path d="M8 1.5a2.5 2.5 0 0 1 2.5 2.5v3a2.5 2.5 0 0 1-5 0V4A2.5 2.5 0 0 1 8 1.5z"/><path d="M12 8v.5a4 4 0 0 1-8 0V8"/><line x1="8" y1="12.5" x2="8" y2="14.5"/><line x1="5.5" y1="14.5" x2="10.5" y2="14.5"/><line x1="11.5" y1="1.5" x2="14" y2="4"/><line x1="14" y1="1.5" x2="11.5" y2="4"/></svg>`;
+var SVG_DIAMOND     = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px;flex-shrink:0"><path d="M8 2L13.5 8L8 14L2.5 8Z"/></svg>`;
+var SVG_DIAMOND_ON  = `<svg viewBox="0 0 16 16" fill="currentColor" stroke="none" style="width:12px;height:12px;flex-shrink:0"><path d="M8 2L13.5 8L8 14L2.5 8Z"/></svg>`;
+var SVG_X_SM        = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="width:11px;height:11px;flex-shrink:0"><line x1="3" y1="3" x2="13" y2="13"/><line x1="13" y1="3" x2="3" y2="13"/></svg>`;
+var SVG_PLUS        = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="width:13px;height:13px;flex-shrink:0"><line x1="8" y1="2" x2="8" y2="14"/><line x1="2" y1="8" x2="14" y2="8"/></svg>`;
+var SVG_SEARCH_SM   = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px;flex-shrink:0"><circle cx="6.5" cy="6.5" r="4.5"/><path d="M10 10l3.5 3.5"/></svg>`;
+var SVG_GLOBE       = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><circle cx="8" cy="8" r="5.5"/><path d="M8 2.5c-2 1.5-2 8 0 11M8 2.5c2 1.5 2 8 0 11"/><line x1="2.5" y1="8" x2="13.5" y2="8"/></svg>`;
+var SVG_LOCK        = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><rect x="4" y="7.5" width="8" height="6" rx="1"/><path d="M5.5 7.5V5.5a2.5 2.5 0 0 1 5 0v2"/></svg>`;
 
 // Voice state
 let recognition      = null;
@@ -19,6 +31,15 @@ let micStream        = null;
 let voiceMode        = 'scan'; // 'scan' | 'confirm'
 let voiceAutoRestart = false;
 let pinnedSetCode    = localStorage.getItem('mtg_pinned_set') || '';
+let lastHeardSetCode = '';
+let lastHeardSetTime = 0;
+let lastRejectedCode  = '';
+let lastRawSpokenCode = '';
+let voiceCorrections  = JSON.parse(localStorage.getItem('mtg_voice_corrections') || '{}');
+let autoPinEnabled    = localStorage.getItem('mtg_auto_pin') === '1';
+let autoPin_lastSet   = '';
+let autoPin_setStreak = 0;
+let autoPin_ovStreak  = 0;
 let pendingFoil      = false;
 
 // Set browser state
@@ -84,10 +105,16 @@ async function loadAppDataAfterAuth() {
       save();
     }
 
+    let backfilledAddedAt = false;
     collection.forEach(c => {
       if (!c.uid) c.uid = c.scryfallId + (c.foil ? '_f' : '_n');
       if (typeof c.priceCKFoil !== 'number') c.priceCKFoil = c.priceTCGFoil ? c.priceTCGFoil * 0.88 : 0;
+      if (!c.addedAt) {
+        c.addedAt = Date.now();
+        backfilledAddedAt = true;
+      }
     });
+    if (backfilledAddedAt) save();
     wishlist.forEach(c => {
       if (typeof c.priceCKFoil !== 'number') c.priceCKFoil = c.priceTCGFoil ? c.priceTCGFoil * 0.88 : 0;
     });

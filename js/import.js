@@ -423,8 +423,14 @@ function addDeckCardsToCollection(deck) {
   }
 }
 
-function clearCollection() {
-  if (!confirm('Clear your entire collection? This cannot be undone.')) return;
+async function clearCollection() {
+  const ok = await showConfirmModal({
+    title: 'Clear Collection',
+    body: 'Clear your entire collection? This cannot be undone.',
+    okLabel: 'Clear',
+    okClass: 'btn-danger',
+  });
+  if (!ok) return;
   collection.length = 0;
   save(); renderCollection(); updateStats();
   showNotif('Collection cleared');
