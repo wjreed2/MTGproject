@@ -71,6 +71,33 @@ function toggleSidebar() {
   localStorage.setItem('mtg_sidebar_collapsed', document.body.classList.contains('sidebar-collapsed'));
 }
 
+// Map each modal overlay ID to its close/cancel function
+const _modalCloseMap = {
+  voiceModal:            () => closeVoice(),
+  publicDeckModal:       () => closePublicDeckModal(),
+  cardDetailModal:       () => closeCardDetail(),
+  newDeckModal:          () => closeNewDeckModal(),
+  importModal:           () => closeImport(),
+  newGameModal:          () => closeNewGameModal(),
+  logEventModal:         () => closeLogEventModal(),
+  endGameModal:          () => closeEndGameModal(),
+  archidektModal:        () => closeArchidektImport(),
+  moxfieldModal:         () => closeMoxfieldImport(),
+  confirmModal:          () => resolveConfirmModal(false),
+  promptModal:           () => resolvePromptModal(null),
+  seedModal:             () => closeSeedModal(),
+  versionPickerModal:    () => closeVersionPicker(),
+  deckTagManagerModal:   () => closeDeckTagManager(),
+  deckCardTagModal:      () => closeDeckCardTagPicker(),
+  skeletonBuilderModal:  () => closeSkeletonBuilderModal(),
+};
+
+document.addEventListener('click', e => {
+  if (!e.target.classList.contains('modal-overlay')) return;
+  const fn = _modalCloseMap[e.target.id];
+  if (fn) fn();
+});
+
 function showNotif(msg, isError = false) {
   const el = document.getElementById('notif');
   document.getElementById('notifText').textContent = msg;

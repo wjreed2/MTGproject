@@ -1,6 +1,7 @@
 // Global application state — loaded from MySQL via the Express API
 
 let collection = [];
+let collectionHistory = []; // loaded from server in loadAppDataAfterAuth
 let decks      = [];
 let wishlist   = [];
 let activeDeckId  = null;
@@ -79,6 +80,7 @@ async function loadAppDataAfterAuth() {
     const data = await loadAllData();
 
     collection = data.collection || [];
+    collectionHistory = data.history || [];
     decks = data.decks || [];
     games = data.games || [];
     wishlist = data.wishlist || [];
@@ -129,6 +131,9 @@ async function loadAppDataAfterAuth() {
         if (!Array.isArray(c.customTags)) c.customTags = [];
       })
     );
+    if (typeof loadTagOverrides === 'function') {
+      try { await loadTagOverrides(true); } catch (_) {}
+    }
   } catch (e) {
     console.error('[db] Could not reach server — starting with empty state:', e);
     showNotif('Could not connect to server — data will not be saved', true);

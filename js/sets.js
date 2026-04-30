@@ -418,7 +418,7 @@ function _renderSetBrowse() {
             : collection.find(col => col.scryfallId === c.id));
         const img = c.image_uris?.normal || c.image_uris?.large || c.card_faces?.[0]?.image_uris?.normal || c.card_faces?.[0]?.image_uris?.large;
         const imgStyle = col ? 'width:100%;display:block' : 'width:100%;display:block;filter:grayscale(65%) opacity(0.6)';
-        return `<div class="set-browse-card" style="position:relative;cursor:pointer;border-radius:6px;overflow:hidden;border:2px solid ${col?'var(--gold)':'transparent'};transition:all 0.2s" onclick="examineSetCard('${c.id}','${code}','${c.collector_number}')" title="${c.name}${col?' — In collection ('+col.qty+')':''}">
+        return `<div class="set-browse-card" style="position:relative;cursor:pointer;border-radius:6px;overflow:hidden;border:2px solid transparent;transition:all 0.2s" onclick="examineSetCard('${c.id}','${code}','${c.collector_number}')" title="${c.name}${col?' — In collection ('+col.qty+')':''}">
           ${img ? `<img src="${img}" loading="lazy" style="${imgStyle}" alt="${c.name}">` : `<div style="aspect-ratio:0.715;background:var(--bg4);display:flex;align-items:center;justify-content:center;font-size:0.65rem;color:var(--text3);text-align:center;padding:4px;${col?'':'opacity:0.6'}">${c.name}</div>`}
           ${col ? `<div style="position:absolute;top:3px;right:3px;background:var(--gold);color:#1a1200;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:0.6rem;font-weight:700;font-family:'JetBrains Mono',monospace">${col.qty}</div>` : ''}
         </div>`;

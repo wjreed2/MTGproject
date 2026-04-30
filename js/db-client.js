@@ -109,15 +109,16 @@ async function authLogout() {
 }
 
 async function loadAllData() {
-  const [col, dks, gms, wl, prefs, sharedDks] = await Promise.all([
+  const [col, dks, gms, wl, prefs, sharedDks, hist] = await Promise.all([
     apiFetch('/collection'),
     apiFetch('/decks'),
     apiFetch('/games'),
     apiFetch('/wishlist'),
     apiFetch('/preferences'),
     apiFetch('/decks/shared'),
+    apiFetch('/history'),
   ]);
-  return { collection: col, decks: dks, games: gms, wishlist: wl, prefs, sharedDecks: sharedDks };
+  return { collection: col, decks: dks, games: gms, wishlist: wl, prefs, sharedDecks: sharedDks, history: hist };
 }
 
 // Debounced per-deck save for shared (collaborator) decks

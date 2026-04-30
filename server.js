@@ -65,6 +65,8 @@ function db() {
   return pool;
 }
 
+const ORACLE_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 async function tableExists(conn, table) {
   const [rows] = await conn.query(
     `SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`,
@@ -578,10 +580,27 @@ app.get('/api/users/:id/decks', requireAuth, async (req, res) => {
 app.get('/api/collection', requireAuth, async (req, res) => {
   try {
     const [rows] = await db().query(
-      'SELECT data FROM collection WHERE account_id = ? ORDER BY added_at ASC',
+      'SELECT data, oracle_id, role_tags_json FROM collection WHERE account_id = ? ORDER BY added_at ASC',
       [req.accountId]
     );
-    res.json(rows.map(r => (typeof r.data === 'string' ? JSON.parse(r.data) : r.data)));
+    res.json(
+      rows.map(r => {
+        const card = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
+        if (r.oracle_id) card.oracleId = card.oracleId || String(r.oracle_id).toLowerCase();
+        if (r.role_tags_json != null) {
+          let rt = r.role_tags_json;
+          if (typeof rt === 'string') {
+            try {
+              rt = JSON.parse(rt);
+            } catch (_) {
+              rt = null;
+            }
+          }
+          if (Array.isArray(rt)) card.roleTags = rt;
+        }
+        return card;
+      })
+    );
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
@@ -593,19 +612,77 @@ app.put('/api/collection', requireAuth, async (req, res) => {
   if (!Array.isArray(cards)) return res.status(400).json({ error: 'Expected array' });
   const accountId = req.accountId;
   try {
+    const needOracle = cards.filter(
+      c => c?.scryfallId && !ORACLE_UUID_RE.test(String(c?.oracleId || ''))
+    );
+    if (needOracle.length) await enrichCardsFromScryfall(needOracle);
+
     await replaceAllForAccount(accountId, 'collection', cards, async (conn, aid, rows) => {
-      const ph = rows.map(() => '(?,?,?,?,?,?,?)').join(',');
-      const vals = rows.flatMap(c => [
-        aid,
-        c.uid,
-        (c.name || '').slice(0, 255),
-        c.qty ?? 1,
-        c.foil ? 1 : 0,
-        c.scryfallId || null,
-        JSON.stringify(c),
-      ]);
+      const oidList = [
+        ...new Set(
+          rows
+            .map(c => {
+              const raw = c?.oracleId;
+              return raw && ORACLE_UUID_RE.test(String(raw)) ? String(raw).toLowerCase() : null;
+            })
+            .filter(Boolean)
+        ),
+      ];
+      let typeRows = [];
+      let tagRows = [];
+      if (oidList.length) {
+        const ph = oidList.map(() => '?').join(',');
+        const [tr] = await conn.query(
+          `SELECT oracle_id, type_line FROM scryfall_oracle_cards WHERE oracle_id IN (${ph})`,
+          oidList
+        );
+        typeRows = tr || [];
+        const [tg] = await conn.query(
+          `SELECT oracle_id, tags_json FROM scryfall_oracle_tags
+           WHERE oracle_id IN (${ph}) AND schema_version = ?`,
+          [...oidList, SCRY_TAG_SCHEMA_VERSION]
+        );
+        tagRows = tg || [];
+      }
+      const typeByOid = new Map(
+        (typeRows || []).map(r => [String(r.oracle_id || '').toLowerCase(), String(r.type_line || '')])
+      );
+      const tagsByOidMap = tagsFromBatchLogic(oidList, typeRows || [], tagRows || []);
+
+      const [ovRows] = await conn.query(
+        'SELECT oracle_id, add_tags_json, remove_tags_json FROM tag_overrides WHERE account_id = ?',
+        [aid]
+      );
+      const ovByOid = new Map();
+      for (const r of ovRows || []) {
+        const o = String(r.oracle_id || '').toLowerCase();
+        ovByOid.set(o, {
+          add: parseMysqlJsonArray(r.add_tags_json),
+          remove: parseMysqlJsonArray(r.remove_tags_json),
+        });
+      }
+
+      const ph = rows.map(() => '(?,?,?,?,?,?,?,?,?)').join(',');
+      const vals = rows.flatMap(c => {
+        const rawOid = c?.oracleId;
+        const oracleId =
+          rawOid && ORACLE_UUID_RE.test(String(rawOid)) ? String(rawOid).toLowerCase() : null;
+        const roleTags = computeCollectionStoredRoleTags(c, oracleId, typeByOid, tagsByOidMap, ovByOid);
+        const dataObj = { ...c, roleTags, ...(oracleId ? { oracleId } : {}) };
+        return [
+          aid,
+          c.uid,
+          (c.name || '').slice(0, 255),
+          c.qty ?? 1,
+          c.foil ? 1 : 0,
+          c.scryfallId || null,
+          oracleId,
+          JSON.stringify(roleTags),
+          JSON.stringify(dataObj),
+        ];
+      });
       await conn.query(
-        `INSERT INTO collection (account_id, uid, name, qty, foil, scryfall_id, data) VALUES ${ph}`,
+        `INSERT INTO collection (account_id, uid, name, qty, foil, scryfall_id, oracle_id, role_tags_json, data) VALUES ${ph}`,
         vals
       );
       for (const c of rows) {
@@ -1138,11 +1215,13 @@ async function enrichCardsFromScryfall(cards) {
   for (let i = 0; i < cards.length; i += BATCH) {
     const batch = cards.slice(i, i + BATCH);
     try {
-      const res = await fetch('https://api.scryfall.com/cards/collection', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identifiers: batch.map(c => ({ id: c.scryfallId })) }),
-        signal: AbortSignal.timeout(15000),
+      const res = await scryfallFetch('https://api.scryfall.com/cards/collection', {
+        init: {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ identifiers: batch.map(c => ({ id: c.scryfallId })) }),
+          signal: AbortSignal.timeout(15000),
+        },
       });
       const data = await res.json();
       for (const sc of (data.data || [])) {
@@ -1160,6 +1239,9 @@ async function enrichCardsFromScryfall(cards) {
         card.setName    = sc.set_name         || card.setName;
         card.number     = sc.collector_number || card.number;
         if (sc.color_identity?.length) card.colorIdentity = card.colors = sc.color_identity;
+        if (sc.oracle_id && ORACLE_UUID_RE.test(String(sc.oracle_id))) {
+          card.oracleId = String(sc.oracle_id).toLowerCase();
+        }
       }
     } catch (e) {
       console.warn('Scryfall batch enrich failed:', e.message);
@@ -1402,10 +1484,718 @@ app.get('/api/moxfield/:deckId', async (req, res) => {
 });
 
 // ── Scryfall proxy with TCG enrichment ────────────────────────────────────────
+let _scryfallLastRequestAt = 0;
+const SCRYFALL_AUTO_TAGS = [
+  { label: 'Ramp', otag: 'ramp' },
+  { label: 'Card Draw', otag: 'draw' },
+  { label: 'Removal', otag: 'removal' },
+  { label: 'Board Wipe', otag: 'board-wipe' },
+  { label: 'Anthem', otag: 'anthem' },
+  { label: 'Evasion', otag: 'evasion' },
+  // No reliable single otag on Scryfall; use close text-pattern queries.
+  { label: 'Pump', query: '(o:"target creature gets +" or o:"creatures you control get +" or (o:"gets +" and o:"until end of turn"))' },
+  { label: 'Control', query: '(o:"gain control" or o:"exchange control")' },
+  { label: 'Bounce', otag: 'bounce' },
+  { label: 'Recursion', otag: 'recursion' },
+  { label: 'Tutor', otag: 'tutor' },
+  { label: 'Counterspell', otag: 'counterspell' },
+  // Scryfall does not reliably expose this as a single otag; use query expression.
+  { label: 'Protection', query: '(o:"protection from" or o:hexproof or o:indestructible or o:"phase out")' },
+  { label: 'Lifegain', otag: 'lifegain' },
+  { label: 'Discard', otag: 'discard' },
+  { label: 'Mill', otag: 'mill' },
+  { label: 'Token Maker', otag: 'tokens' },
+  { label: 'Blink', otag: 'blink' },
+  { label: 'Sac Outlet', otag: 'sacrifice' },
+  { label: 'Treasure', otag: 'treasure' },
+  { label: 'Stax', otag: 'stax' },
+  { label: 'Copy', otag: 'copy' },
+];
+function _sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+async function scryfallFetch(url, { maxRetries = 3, init } = {}) {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    const elapsed = Date.now() - _scryfallLastRequestAt;
+    const waitMs = Math.max(0, 125 - elapsed); // stay under Scryfall's 10 req/s guidance
+    if (waitMs) await _sleep(waitMs);
+    const res = await fetch(url, init);
+    _scryfallLastRequestAt = Date.now();
+    if (res.status !== 429) return res;
+    const retryAfterHeader = Number(res.headers.get('retry-after') || '1');
+    const retryAfterMs = (Number.isFinite(retryAfterHeader) && retryAfterHeader > 0 ? retryAfterHeader : 1) * 1000;
+    await _sleep(retryAfterMs);
+  }
+  return fetch(url);
+}
+
+async function ensureScryfallTagCacheTable() {
+  const conn = await db().getConnection();
+  try {
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS scryfall_oracle_cards (
+        oracle_id      CHAR(36)      NOT NULL,
+        name           VARCHAR(255)  NOT NULL,
+        type_line      TEXT          NULL,
+        oracle_text    MEDIUMTEXT    NULL,
+        colors_json    JSON          NULL,
+        mana_cost      VARCHAR(120)  NULL,
+        cmc            DECIMAL(10,2) NULL,
+        imported_at    BIGINT        NOT NULL,
+        PRIMARY KEY (oracle_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+    try {
+      await conn.query(`ALTER TABLE scryfall_oracle_cards MODIFY COLUMN cmc DECIMAL(10,2) NULL`);
+    } catch (_) {}
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS scryfall_oracle_tags (
+        oracle_id      CHAR(36)      NOT NULL,
+        tags_json      JSON          NOT NULL,
+        schema_version VARCHAR(16)   NOT NULL DEFAULT '1',
+        fetched_at     BIGINT        NOT NULL,
+        PRIMARY KEY (oracle_id),
+        INDEX idx_sot_schema (schema_version)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS scryfall_tag_query_cache (
+        schema_version VARCHAR(16)   NOT NULL,
+        query_key      VARCHAR(255)  NOT NULL,
+        oracle_ids_json MEDIUMTEXT   NOT NULL,
+        fetched_at     BIGINT        NOT NULL,
+        PRIMARY KEY (schema_version, query_key),
+        INDEX idx_stqc_fetched (fetched_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+  } finally {
+    conn.release();
+  }
+}
+
+async function fetchScryfallTagsForOracle(oracleId, schemaVersion = '4') {
+  const [rows] = await db().query(
+    `SELECT tags_json FROM scryfall_oracle_tags WHERE oracle_id = ? AND schema_version = ? LIMIT 1`,
+    [String(oracleId || '').toLowerCase(), schemaVersion]
+  );
+  if (!rows.length) return null;
+  try {
+    if (Array.isArray(rows[0].tags_json)) return rows[0].tags_json;
+    return JSON.parse(rows[0].tags_json || '[]');
+  } catch (_) {
+    return [];
+  }
+}
+
+const SCRY_TAG_SCHEMA_VERSION = '4';
+let _scryfallImportProgress = {
+  running: false,
+  phase: 'idle',
+  mode: 'full',
+  schemaVersion: SCRY_TAG_SCHEMA_VERSION,
+  importedRows: 0,
+  totalOracleRows: 0,
+  taggedRows: 0,
+  totalTagRows: 0,
+  completedQueries: 0,
+  totalQueries: 0,
+  startedAt: 0,
+  endedAt: 0,
+  error: null,
+};
+
+function parseMysqlJsonArray(val) {
+  if (val == null) return [];
+  if (Array.isArray(val)) return val.map(v => String(v || '').trim()).filter(Boolean);
+  if (typeof val === 'string') {
+    try {
+      const j = JSON.parse(val);
+      return Array.isArray(j) ? j.map(v => String(v || '').trim()).filter(Boolean) : [];
+    } catch (_) {
+      return [];
+    }
+  }
+  return [];
+}
+
+/** Match `/api/scryfall/tags/batch` DB-side tag list (incl. Land from type line, missing rows). */
+function tagsFromBatchLogic(oracleIds, typeRows, tagRows) {
+  const typeByOracle = new Map(
+    (typeRows || []).map(r => [String(r.oracle_id || '').toLowerCase(), String(r.type_line || '')])
+  );
+  const fromDb = new Map();
+  for (const r of tagRows || []) {
+    const oid = String(r.oracle_id || '').toLowerCase();
+    let arr = [];
+    try {
+      if (Array.isArray(r.tags_json)) arr = r.tags_json;
+      else arr = JSON.parse(r.tags_json || '[]');
+    } catch (_) {
+      arr = [];
+    }
+    const typeLine = String(typeByOracle.get(oid) || '').toLowerCase();
+    if (typeLine.includes('land') && !arr.includes('Land')) arr.unshift('Land');
+    fromDb.set(oid, arr.filter(Boolean));
+  }
+  const out = new Map();
+  for (const oid of oracleIds) {
+    if (fromDb.has(oid)) out.set(oid, fromDb.get(oid));
+    else {
+      const typeLine = String(typeByOracle.get(oid) || '').toLowerCase();
+      out.set(oid, typeLine.includes('land') ? ['Land'] : []);
+    }
+  }
+  return out;
+}
+
+function isLandPayloadCard(c) {
+  const tl = String(c?.type || '').toLowerCase();
+  if (tl.includes('land')) return true;
+  const faces = Array.isArray(c?.cardFaces)
+    ? c.cardFaces
+    : (Array.isArray(c?.card_faces) ? c.card_faces : []);
+  return faces.some(f => String(f?.type || f?.type_line || '').toLowerCase().includes('land'));
+}
+
+function applyAccountTagOverridesToTags(tags, ov) {
+  const add = new Set(Array.isArray(ov?.add) ? ov.add : []);
+  const remove = new Set(Array.isArray(ov?.remove) ? ov.remove : []);
+  const out = new Set((tags || []).filter(t => !remove.has(t)));
+  add.forEach(t => out.add(t));
+  return [...out];
+}
+
+/** Mirrors client `_roleTagsForCard` + overrides for collection rows (persisted). */
+function computeCollectionStoredRoleTags(card, oid, typeByOid, tagsByOidMap, ovByOid) {
+  const tags = [];
+  const typeFromDb = oid ? (typeByOid.get(oid) || '') : '';
+  const tlMerged = String(typeFromDb || card?.type || '').toLowerCase();
+  const landPayload = isLandPayloadCard(card);
+  if (tlMerged.includes('land') || landPayload) tags.push('Land');
+  if (card?.isCommander) tags.push('Commander');
+  if (oid && tagsByOidMap.has(oid)) tags.push(...(tagsByOidMap.get(oid) || []));
+  const uniq = [...new Set(tags)];
+  const ov = oid ? ovByOid.get(oid) : null;
+  return applyAccountTagOverridesToTags(uniq, ov || { add: [], remove: [] });
+}
+
+async function ensureCollectionRoleTagsColumns() {
+  const conn = await db().getConnection();
+  try {
+    if (!(await columnExists(conn, 'collection', 'oracle_id'))) {
+      await conn.query('ALTER TABLE collection ADD COLUMN oracle_id CHAR(36) NULL AFTER scryfall_id');
+    }
+    if (!(await columnExists(conn, 'collection', 'role_tags_json'))) {
+      await conn.query('ALTER TABLE collection ADD COLUMN role_tags_json JSON NULL AFTER oracle_id');
+    }
+    const [idxRows] = await conn.query(
+      `SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'collection' AND INDEX_NAME = 'idx_collection_account_oracle'`
+    );
+    if (!idxRows.length) {
+      try {
+        await conn.query(
+          'ALTER TABLE collection ADD INDEX idx_collection_account_oracle (account_id, oracle_id)'
+        );
+      } catch (_) {}
+    }
+  } finally {
+    conn.release();
+  }
+}
+
+async function refreshCollectionRoleTagsForAccountOracle(accountId, oracleId) {
+  const conn = await db().getConnection();
+  try {
+    if (!(await columnExists(conn, 'collection', 'role_tags_json'))) return;
+    const oid = String(oracleId || '').trim().toLowerCase();
+    if (!ORACLE_UUID_RE.test(oid)) return;
+
+    const [typeRows] = await conn.query(
+      'SELECT oracle_id, type_line FROM scryfall_oracle_cards WHERE oracle_id = ?',
+      [oid]
+    );
+    const [tagRows] = await conn.query(
+      'SELECT oracle_id, tags_json FROM scryfall_oracle_tags WHERE oracle_id = ? AND schema_version = ?',
+      [oid, SCRY_TAG_SCHEMA_VERSION]
+    );
+    const typeByOid = new Map(
+      (typeRows || []).map(r => [String(r.oracle_id || '').toLowerCase(), String(r.type_line || '')])
+    );
+    const tagsMap = tagsFromBatchLogic([oid], typeRows || [], tagRows || []);
+
+    const [ovRows] = await conn.query(
+      'SELECT add_tags_json, remove_tags_json FROM tag_overrides WHERE account_id = ? AND oracle_id = ? LIMIT 1',
+      [accountId, oid]
+    );
+    const ovEntry =
+      ovRows && ovRows.length
+        ? {
+            add: parseMysqlJsonArray(ovRows[0].add_tags_json),
+            remove: parseMysqlJsonArray(ovRows[0].remove_tags_json),
+          }
+        : { add: [], remove: [] };
+    const ovByOid = new Map([[oid, ovEntry]]);
+
+    const [collRows] = await conn.query(
+      `SELECT uid, data FROM collection WHERE account_id = ? AND (
+         oracle_id = ? OR LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(data, '$.oracleId')), '')) = ?
+       )`,
+      [accountId, oid, oid]
+    );
+    for (const row of collRows || []) {
+      let card;
+      try {
+        card = typeof row.data === 'string' ? JSON.parse(row.data) : row.data;
+      } catch (_) {
+        continue;
+      }
+      const rowOid =
+        ORACLE_UUID_RE.test(String(card?.oracleId || ''))
+          ? String(card.oracleId).toLowerCase()
+          : oid;
+      const roleTags = computeCollectionStoredRoleTags(card, rowOid, typeByOid, tagsMap, ovByOid);
+      card.roleTags = roleTags;
+      card.oracleId = card.oracleId || rowOid;
+      await conn.query(
+        'UPDATE collection SET oracle_id = ?, role_tags_json = ?, data = ? WHERE account_id = ? AND uid = ?',
+        [rowOid, JSON.stringify(roleTags), JSON.stringify(card), accountId, row.uid]
+      );
+    }
+  } catch (e) {
+    console.warn('[collection] refresh role tags:', e.message);
+  } finally {
+    conn.release();
+  }
+}
+
+/** Fill `oracle_id` / `role_tags_json` / `data.roleTags` for legacy rows (runs until none left). */
+async function infillCollectionRoleTagsMissing() {
+  const outer = await db().getConnection();
+  try {
+    if (!(await columnExists(outer, 'collection', 'role_tags_json'))) return;
+    const [[{ n }]] = await outer.query(
+      'SELECT COUNT(*) AS n FROM collection WHERE role_tags_json IS NULL'
+    );
+    const totalNull = Number(n) || 0;
+    if (!totalNull) return;
+
+    console.log(
+      `[collection] infilling role_tags_json for ${totalNull} row(s) in the background (this may take several minutes; server is already up)`
+    );
+    let batches = 0;
+    let processed = 0;
+    for (;;) {
+      const [batch] = await outer.query(
+        `SELECT account_id, uid, scryfall_id, oracle_id, data FROM collection
+         WHERE role_tags_json IS NULL LIMIT 250`
+      );
+      if (!batch.length) break;
+      batches += 1;
+
+      const items = [];
+      for (const row of batch) {
+        let card;
+        try {
+          card = typeof row.data === 'string' ? JSON.parse(row.data) : { ...row.data };
+        } catch (_) {
+          await outer.query(
+            `UPDATE collection SET role_tags_json = ? WHERE account_id = ? AND uid = ?`,
+            [JSON.stringify([]), row.account_id, row.uid]
+          );
+          processed += 1;
+          continue;
+        }
+        if (row.scryfall_id && !card.scryfallId) card.scryfallId = row.scryfall_id;
+        if (row.oracle_id && ORACLE_UUID_RE.test(String(row.oracle_id))) {
+          card.oracleId = card.oracleId || String(row.oracle_id).toLowerCase();
+        }
+        items.push({ account_id: row.account_id, uid: row.uid, card });
+      }
+
+      const needEnrich = items
+        .map(it => it.card)
+        .filter(c => c?.scryfallId && !ORACLE_UUID_RE.test(String(c?.oracleId || '')));
+      if (needEnrich.length) {
+        const repsBySf = new Map();
+        for (const c of needEnrich) {
+          if (!repsBySf.has(c.scryfallId)) repsBySf.set(c.scryfallId, c);
+        }
+        const uniqueCards = [...repsBySf.values()];
+        await enrichCardsFromScryfall(uniqueCards);
+        const oidBySf = new Map();
+        for (const c of uniqueCards) {
+          if (c.oracleId && ORACLE_UUID_RE.test(String(c.oracleId))) {
+            oidBySf.set(c.scryfallId, String(c.oracleId).toLowerCase());
+          }
+        }
+        for (const c of needEnrich) {
+          if (!ORACLE_UUID_RE.test(String(c.oracleId || ''))) {
+            const oid = oidBySf.get(c.scryfallId);
+            if (oid) c.oracleId = oid;
+          }
+        }
+      }
+
+      const oidList = [
+        ...new Set(
+          items
+            .map(it => {
+              const raw = it.card?.oracleId;
+              return raw && ORACLE_UUID_RE.test(String(raw)) ? String(raw).toLowerCase() : null;
+            })
+            .filter(Boolean)
+        ),
+      ];
+
+      let typeRows = [];
+      let tagRows = [];
+      if (oidList.length) {
+        const ph = oidList.map(() => '?').join(',');
+        const [tr] = await outer.query(
+          `SELECT oracle_id, type_line FROM scryfall_oracle_cards WHERE oracle_id IN (${ph})`,
+          oidList
+        );
+        typeRows = tr || [];
+        const [tg] = await outer.query(
+          `SELECT oracle_id, tags_json FROM scryfall_oracle_tags
+           WHERE oracle_id IN (${ph}) AND schema_version = ?`,
+          [...oidList, SCRY_TAG_SCHEMA_VERSION]
+        );
+        tagRows = tg || [];
+      }
+      const typeByOid = new Map(
+        (typeRows || []).map(r => [String(r.oracle_id || '').toLowerCase(), String(r.type_line || '')])
+      );
+      const tagsByOidMap = tagsFromBatchLogic(oidList, typeRows || [], tagRows || []);
+
+      const accountIds = [...new Set(items.map(it => it.account_id))];
+      const ovByAccount = new Map();
+      for (const aid of accountIds) {
+        const [ovRows] = await outer.query(
+          'SELECT oracle_id, add_tags_json, remove_tags_json FROM tag_overrides WHERE account_id = ?',
+          [aid]
+        );
+        const ovByOid = new Map();
+        for (const r of ovRows || []) {
+          const o = String(r.oracle_id || '').toLowerCase();
+          ovByOid.set(o, {
+            add: parseMysqlJsonArray(r.add_tags_json),
+            remove: parseMysqlJsonArray(r.remove_tags_json),
+          });
+        }
+        ovByAccount.set(aid, ovByOid);
+      }
+
+      const conn2 = await db().getConnection();
+      try {
+        await conn2.beginTransaction();
+        for (const it of items) {
+          const rawOid = it.card?.oracleId;
+          const oracleId =
+            rawOid && ORACLE_UUID_RE.test(String(rawOid)) ? String(rawOid).toLowerCase() : null;
+          const ovByOid = ovByAccount.get(it.account_id) || new Map();
+          const roleTags = computeCollectionStoredRoleTags(
+            it.card,
+            oracleId,
+            typeByOid,
+            tagsByOidMap,
+            ovByOid
+          );
+          const dataObj = { ...it.card, roleTags, ...(oracleId ? { oracleId } : {}) };
+          await conn2.query(
+            `UPDATE collection SET oracle_id = ?, role_tags_json = ?, data = ? WHERE account_id = ? AND uid = ?`,
+            [oracleId, JSON.stringify(roleTags), JSON.stringify(dataObj), it.account_id, it.uid]
+          );
+        }
+        await conn2.commit();
+        processed += items.length;
+      } catch (e) {
+        await conn2.rollback();
+        console.warn('[collection] infill chunk failed:', e.message);
+        break;
+      } finally {
+        conn2.release();
+      }
+      console.log(`[collection] infill progress: ${processed}/${totalNull} rows (${batches} chunk(s))`);
+    }
+    if (batches) console.log(`[collection] infill finished (${processed} row(s))`);
+  } finally {
+    outer.release();
+  }
+}
+
+function runCollectionRoleTagsInfillBackground() {
+  if (String(process.env.SKIP_COLLECTION_TAG_INFILL || '').trim() === '1') {
+    console.log('[collection] SKIP_COLLECTION_TAG_INFILL=1 — skipping role_tags infill');
+    return;
+  }
+  void infillCollectionRoleTagsMissing().catch(e =>
+    console.warn('[collection] infill (background):', e.message)
+  );
+}
+
+async function fetchAllScryfallCardsForQuery(query) {
+  let url = `https://api.scryfall.com/cards/search?q=${encodeURIComponent(query)}&order=name&unique=cards`;
+  const out = [];
+  for (let guard = 0; guard < 500; guard++) {
+    const res = await scryfallFetch(url, { maxRetries: 3 });
+    if (!res.ok) break;
+    const data = await res.json();
+    out.push(...(data?.data || []));
+    if (!data?.has_more || !data?.next_page) break;
+    url = data.next_page;
+  }
+  return out;
+}
+
+async function loadTagQueryCache(schemaVersion, maxAgeMs = 24 * 60 * 60 * 1000) {
+  const minTs = Date.now() - Math.max(0, Number(maxAgeMs || 0));
+  const [rows] = await db().query(
+    `SELECT query_key, oracle_ids_json, fetched_at FROM scryfall_tag_query_cache
+     WHERE schema_version = ? AND fetched_at >= ?`,
+    [schemaVersion, minTs]
+  );
+  const out = new Map();
+  for (const r of rows || []) {
+    const key = String(r.query_key || '');
+    if (!key) continue;
+    try {
+      const parsed = JSON.parse(r.oracle_ids_json || '[]');
+      out.set(key, Array.isArray(parsed) ? parsed : []);
+    } catch (_) {
+      out.set(key, []);
+    }
+  }
+  return out;
+}
+
+async function saveTagQueryCache(schemaVersion, cacheMap) {
+  const entries = [...(cacheMap || new Map()).entries()];
+  if (!entries.length) return;
+  const now = Date.now();
+  const chunkSize = 100;
+  for (let i = 0; i < entries.length; i += chunkSize) {
+    const chunk = entries.slice(i, i + chunkSize);
+    const sql = chunk.map(() => '(?,?,?,?)').join(',');
+    const vals = chunk.flatMap(([queryKey, oracleIds]) => [
+      schemaVersion,
+      String(queryKey || '').slice(0, 255),
+      JSON.stringify(Array.isArray(oracleIds) ? oracleIds : []),
+      now,
+    ]);
+    await db().query(
+      `INSERT INTO scryfall_tag_query_cache (schema_version, query_key, oracle_ids_json, fetched_at)
+       VALUES ${sql}
+       ON DUPLICATE KEY UPDATE oracle_ids_json=VALUES(oracle_ids_json), fetched_at=VALUES(fetched_at)`,
+      vals
+    );
+  }
+}
+
+async function buildTagMapFromQueries({ schemaVersion = '4', useCache = true, refreshCache = false, onProgress = null } = {}) {
+  const specs = SCRYFALL_AUTO_TAGS.map(spec => ({
+    label: spec.label,
+    query: spec.query || `otag:${spec.otag}`,
+  }));
+  const totalQueries = specs.length;
+  let completedQueries = 0;
+  const cached = (!refreshCache && useCache) ? await loadTagQueryCache(schemaVersion) : new Map();
+  const cacheWriteMap = new Map();
+  const tagMap = new Map(); // oracle_id -> Set<label>
+
+  const applyOracleIds = (label, oracleIds) => {
+    for (const oidRaw of oracleIds || []) {
+      const oid = String(oidRaw || '').toLowerCase();
+      if (!/^[0-9a-f-]{36}$/i.test(oid)) continue;
+      if (!tagMap.has(oid)) tagMap.set(oid, new Set());
+      tagMap.get(oid).add(label);
+    }
+  };
+
+  const emit = () => {
+    if (typeof onProgress === 'function') {
+      onProgress({
+        phase: 'building-tag-map',
+        totalQueries,
+        completedQueries,
+      });
+    }
+  };
+  emit();
+
+  const pending = [];
+  for (const spec of specs) {
+    if (cached.has(spec.query)) {
+      applyOracleIds(spec.label, cached.get(spec.query));
+      completedQueries += 1;
+      emit();
+    } else {
+      pending.push(spec);
+    }
+  }
+
+  const concurrency = 3;
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(concurrency, pending.length) }, async () => {
+    while (cursor < pending.length) {
+      const idx = cursor++;
+      const spec = pending[idx];
+      const rows = await fetchAllScryfallCardsForQuery(spec.query);
+      const oracleIds = [];
+      rows.forEach(card => {
+        const oid = String(card?.oracle_id || '').toLowerCase();
+        if (!/^[0-9a-f-]{36}$/i.test(oid)) return;
+        oracleIds.push(oid);
+      });
+      cacheWriteMap.set(spec.query, [...new Set(oracleIds)]);
+      applyOracleIds(spec.label, oracleIds);
+      completedQueries += 1;
+      emit();
+    }
+  });
+  await Promise.all(workers);
+  if (cacheWriteMap.size) await saveTagQueryCache(schemaVersion, cacheWriteMap);
+  return { tagMap, totalQueries, completedQueries };
+}
+
+async function importScryfallOracleBulkToDb({
+  schemaVersion = '4',
+  importCards = true,
+  rebuildTags = true,
+  useTagQueryCache = true,
+  onProgress = null,
+} = {}) {
+  if (!importCards && !rebuildTags) throw new Error('No import mode selected');
+  let sourceUpdatedAt = null;
+  let totalOracleRows = 0;
+  let imported = 0;
+  let tagged = 0;
+  let totalTagRows = 0;
+  let totalQueries = 0;
+  let completedQueries = 0;
+
+  let byOracle = new Map();
+  if (importCards) {
+    if (typeof onProgress === 'function') onProgress({ phase: 'downloading-bulk' });
+    const bulkRes = await scryfallFetch('https://api.scryfall.com/bulk-data');
+    if (!bulkRes.ok) throw new Error('Could not fetch Scryfall bulk-data index');
+    const bulk = await bulkRes.json();
+    const row = (bulk?.data || []).find(r => r?.type === 'oracle_cards');
+    if (!row?.download_uri) throw new Error('oracle_cards bulk feed missing from Scryfall');
+    sourceUpdatedAt = row.updated_at || null;
+    const dataRes = await scryfallFetch(row.download_uri, { maxRetries: 2 });
+    if (!dataRes.ok) throw new Error('Could not download oracle_cards bulk data');
+    const cards = await dataRes.json();
+    if (!Array.isArray(cards)) throw new Error('oracle_cards payload was not an array');
+    cards.forEach(c => {
+      const oid = String(c?.oracle_id || '').toLowerCase();
+      if (!/^[0-9a-f-]{36}$/i.test(oid)) return;
+      if (!byOracle.has(oid)) byOracle.set(oid, c);
+    });
+    totalOracleRows = byOracle.size;
+  } else {
+    const [[row]] = await db().query('SELECT COUNT(*) AS n FROM scryfall_oracle_cards');
+    totalOracleRows = Number(row?.n || 0);
+  }
+
+  const conn = await db().getConnection();
+  try {
+    await conn.beginTransaction();
+    const now = Date.now();
+
+    if (importCards) {
+      if (typeof onProgress === 'function') onProgress({ phase: 'writing-oracle-cards', totalOracleRows, importedRows: 0 });
+      const entries = [...byOracle.entries()];
+      const chunkSize = 500;
+      for (let i = 0; i < entries.length; i += chunkSize) {
+        const chunk = entries.slice(i, i + chunkSize);
+        const cardsSql = chunk.map(() => '(?,?,?,?,?,?,?,?)').join(',');
+        const cardsVals = chunk.flatMap(([oid, c]) => [
+          oid, String(c?.name || ''), c?.type_line || null, c?.oracle_text || null,
+          JSON.stringify(c?.colors || []), c?.mana_cost || null,
+          (() => {
+            const n = Number(c?.cmc);
+            if (!Number.isFinite(n)) return null;
+            if (n < 0) return null;
+            if (n > 99999999.99) return 99999999.99;
+            return n;
+          })(),
+          now,
+        ]);
+        await conn.query(
+          `INSERT INTO scryfall_oracle_cards (oracle_id, name, type_line, oracle_text, colors_json, mana_cost, cmc, imported_at)
+           VALUES ${cardsSql}
+           ON DUPLICATE KEY UPDATE
+             name=VALUES(name), type_line=VALUES(type_line), oracle_text=VALUES(oracle_text),
+             colors_json=VALUES(colors_json), mana_cost=VALUES(mana_cost), cmc=VALUES(cmc), imported_at=VALUES(imported_at)`,
+          cardsVals
+        );
+        imported += chunk.length;
+        if (typeof onProgress === 'function') onProgress({ phase: 'writing-oracle-cards', totalOracleRows, importedRows: imported });
+      }
+    }
+
+    if (rebuildTags) {
+      const built = await buildTagMapFromQueries({
+        schemaVersion,
+        useCache: useTagQueryCache,
+        refreshCache: !useTagQueryCache,
+        onProgress: patch => {
+          totalQueries = Number(patch?.totalQueries || totalQueries || 0);
+          completedQueries = Number(patch?.completedQueries || completedQueries || 0);
+          if (typeof onProgress === 'function') onProgress({ ...patch, totalOracleRows, importedRows: imported });
+        },
+      });
+      const tagMap = built.tagMap;
+      totalQueries = built.totalQueries;
+      completedQueries = built.completedQueries;
+      totalTagRows = tagMap.size;
+      if (typeof onProgress === 'function') onProgress({ phase: 'writing-tag-rows', totalTagRows, taggedRows: 0, totalOracleRows, importedRows: imported, totalQueries, completedQueries });
+      const tagEntries = [...tagMap.entries()];
+      const tagChunk = 500;
+      for (let i = 0; i < tagEntries.length; i += tagChunk) {
+        const chunk = tagEntries.slice(i, i + tagChunk);
+        const sql = chunk.map(() => '(?,?,?,?)').join(',');
+        const vals = chunk.flatMap(([oid, labels]) => [
+          oid,
+          JSON.stringify([...labels].sort((a, b) => a.localeCompare(b))),
+          schemaVersion,
+          now,
+        ]);
+        await conn.query(
+          `INSERT INTO scryfall_oracle_tags (oracle_id, tags_json, schema_version, fetched_at)
+           VALUES ${sql}
+           ON DUPLICATE KEY UPDATE tags_json=VALUES(tags_json), schema_version=VALUES(schema_version), fetched_at=VALUES(fetched_at)`,
+          vals
+        );
+        tagged += chunk.length;
+        if (typeof onProgress === 'function') onProgress({ phase: 'writing-tag-rows', totalTagRows, taggedRows: tagged, totalOracleRows, importedRows: imported, totalQueries, completedQueries });
+      }
+      await conn.query(
+        `DELETE FROM scryfall_oracle_tags WHERE schema_version = ? AND fetched_at < ?`,
+        [schemaVersion, now]
+      );
+    }
+
+    await conn.commit();
+  } catch (e) {
+    await conn.rollback();
+    throw e;
+  } finally {
+    conn.release();
+  }
+
+  if (typeof onProgress === 'function') {
+    onProgress({ phase: 'completed', totalOracleRows, importedRows: imported, taggedRows: tagged, totalTagRows, totalQueries, completedQueries });
+  }
+  return { imported, tagged, totalOracleRows, totalTagRows, totalQueries, completedQueries, sourceUpdatedAt };
+}
+
 app.get('/api/scryfall/card/:set/:num', async (req, res) => {
   try {
     const { set, num } = req.params;
-    const upstream = await fetch(`https://api.scryfall.com/cards/${String(set).toLowerCase()}/${num}`);
+    const upstream = await scryfallFetch(`https://api.scryfall.com/cards/${String(set).toLowerCase()}/${num}`);
     if (!upstream.ok) return res.status(upstream.status).json({ error: 'Card not found' });
     const card = await upstream.json();
     await enrichCardWithTcgPrices(card);
@@ -1418,7 +2208,7 @@ app.get('/api/scryfall/card/:set/:num', async (req, res) => {
 
 app.get('/api/scryfall/card-id/:id', async (req, res) => {
   try {
-    const upstream = await fetch(`https://api.scryfall.com/cards/${req.params.id}`);
+    const upstream = await scryfallFetch(`https://api.scryfall.com/cards/${req.params.id}`);
     if (!upstream.ok) return res.status(upstream.status).json({ error: 'Card not found' });
     const card = await upstream.json();
     await enrichCardWithTcgPrices(card);
@@ -1432,7 +2222,7 @@ app.get('/api/scryfall/card-id/:id', async (req, res) => {
 app.get('/api/scryfall/named', async (req, res) => {
   try {
     const fuzzy = req.query.fuzzy || '';
-    const upstream = await fetch(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(fuzzy)}`);
+    const upstream = await scryfallFetch(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(fuzzy)}`);
     if (!upstream.ok) return res.status(upstream.status).json({ error: 'Card not found' });
     const card = await upstream.json();
     await enrichCardWithTcgPrices(card);
@@ -1448,13 +2238,422 @@ app.get('/api/scryfall/search', async (req, res) => {
     const q = req.query.q || '';
     const order = req.query.order || 'name';
     const unique = req.query.unique || 'cards';
-    const upstream = await fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(q)}&order=${encodeURIComponent(order)}&unique=${encodeURIComponent(unique)}`);
-    if (!upstream.ok) return res.status(upstream.status).json({ error: 'Search failed' });
+    const upstream = await scryfallFetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(q)}&order=${encodeURIComponent(order)}&unique=${encodeURIComponent(unique)}`);
+    if (!upstream.ok) {
+      let msg = 'Search failed';
+      try {
+        const err = await upstream.json();
+        msg = err?.details || err?.error || msg;
+      } catch (_) {}
+      return res.status(upstream.status).json({ error: msg });
+    }
     const data = await upstream.json();
     const cards = data.data || [];
     await Promise.all(cards.slice(0, 24).map(enrichCardWithTcgPrices)); // cap for responsiveness
     data.data = cards;
     res.json(data);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+async function runScryfallImportEndpoint(req, res, mode) {
+  const schemaVersion = String(req.body?.schemaVersion || '4').slice(0, 16);
+  if (_scryfallImportProgress.running) {
+    return res.status(409).json({ error: 'Scryfall import already running', progress: _scryfallImportProgress });
+  }
+  _scryfallImportProgress = {
+    running: true,
+    phase: 'starting',
+    mode,
+    schemaVersion,
+    importedRows: 0,
+    totalOracleRows: 0,
+    taggedRows: 0,
+    totalTagRows: 0,
+    completedQueries: 0,
+    totalQueries: 0,
+    startedAt: Date.now(),
+    endedAt: 0,
+    error: null,
+  };
+  try {
+    const result = await importScryfallOracleBulkToDb({
+      schemaVersion,
+      importCards: mode !== 'tags',
+      rebuildTags: mode !== 'cards',
+      useTagQueryCache: !req.body?.forceTagQueryRefresh,
+      onProgress: patch => {
+        _scryfallImportProgress = {
+          ..._scryfallImportProgress,
+          ...patch,
+          running: true,
+          mode,
+          error: null,
+        };
+      },
+    });
+    _scryfallImportProgress = {
+      ..._scryfallImportProgress,
+      running: false,
+      phase: 'completed',
+      mode,
+      endedAt: Date.now(),
+      importedRows: Number(result?.imported || 0),
+      taggedRows: Number(result?.tagged || 0),
+      totalOracleRows: Number(result?.totalOracleRows || _scryfallImportProgress.totalOracleRows || 0),
+      totalTagRows: Number(result?.totalTagRows || _scryfallImportProgress.totalTagRows || 0),
+      completedQueries: Number(result?.completedQueries || _scryfallImportProgress.completedQueries || 0),
+      totalQueries: Number(result?.totalQueries || _scryfallImportProgress.totalQueries || 0),
+      error: null,
+    };
+    return res.json({ ok: true, schemaVersion, mode, ...result });
+  } catch (e) {
+    console.error(e);
+    _scryfallImportProgress = {
+      ..._scryfallImportProgress,
+      running: false,
+      phase: 'failed',
+      mode,
+      endedAt: Date.now(),
+      error: e.message || 'Import failed',
+    };
+    return res.status(500).json({ error: e.message });
+  }
+}
+
+app.post('/api/admin/scryfall/import-oracle', requireAuth, async (req, res) =>
+  runScryfallImportEndpoint(req, res, 'full')
+);
+
+app.post('/api/admin/scryfall/import-oracle-cards', requireAuth, async (req, res) =>
+  runScryfallImportEndpoint(req, res, 'cards')
+);
+
+app.post('/api/admin/scryfall/rebuild-tags', requireAuth, async (req, res) =>
+  runScryfallImportEndpoint(req, res, 'tags')
+);
+
+app.get('/api/admin/scryfall/import-status', requireAuth, async (_req, res) => {
+  try {
+    const [[cardsRow]] = await db().query('SELECT COUNT(*) AS n FROM scryfall_oracle_cards');
+    const [[tagsRow]] = await db().query('SELECT COUNT(*) AS n, MAX(fetched_at) AS latest FROM scryfall_oracle_tags');
+    res.json({
+      oracleCards: Number(cardsRow?.n || 0),
+      oracleTags: Number(tagsRow?.n || 0),
+      latestTagUpdate: Number(tagsRow?.latest || 0) || null,
+      activeImport: _scryfallImportProgress,
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/scryfall/tags/batch', requireAuth, async (req, res) => {
+  const rawIds = Array.isArray(req.body?.oracleIds) ? req.body.oracleIds : [];
+  const schemaVersion = String(req.body?.schemaVersion || '1').slice(0, 16);
+  const oracleIds = [...new Set(rawIds
+    .map(v => String(v || '').trim().toLowerCase())
+    .filter(v => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v))
+  )];
+  if (!oracleIds.length) return res.json({ tagsByOracleId: {}, cacheHits: 0, missing: 0, source: 'db' });
+  if (oracleIds.length > 300) return res.status(400).json({ error: 'Too many oracle IDs (max 300)' });
+
+  try {
+    const ph = oracleIds.map(() => '?').join(',');
+    const [typeRows] = await db().query(
+      `SELECT oracle_id, type_line FROM scryfall_oracle_cards
+       WHERE oracle_id IN (${ph})`,
+      [...oracleIds]
+    );
+    const typeByOracle = new Map(
+      (typeRows || []).map(r => [String(r.oracle_id || '').toLowerCase(), String(r.type_line || '')])
+    );
+    const [rows] = await db().query(
+      `SELECT oracle_id, tags_json FROM scryfall_oracle_tags
+       WHERE oracle_id IN (${ph}) AND schema_version = ?`,
+      [...oracleIds, schemaVersion]
+    );
+    const tagsByOracleId = {};
+    rows.forEach(r => {
+      let arr = [];
+      try {
+        if (Array.isArray(r.tags_json)) arr = r.tags_json;
+        else arr = JSON.parse(r.tags_json || '[]');
+      } catch (_) { arr = []; }
+      const typeLine = String(typeByOracle.get(String(r.oracle_id || '').toLowerCase()) || '').toLowerCase();
+      if (typeLine.includes('land') && !arr.includes('Land')) arr.unshift('Land');
+      tagsByOracleId[String(r.oracle_id || '').toLowerCase()] = arr.filter(Boolean);
+    });
+    const cachedSet = new Set(Object.keys(tagsByOracleId));
+    const missing = oracleIds.filter(oid => !cachedSet.has(oid));
+    missing.forEach(oid => {
+      const typeLine = String(typeByOracle.get(oid) || '').toLowerCase();
+      tagsByOracleId[oid] = typeLine.includes('land') ? ['Land'] : [];
+    });
+
+    res.json({
+      tagsByOracleId,
+      cacheHits: oracleIds.length - missing.length,
+      missing: missing.length,
+      source: 'db',
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Collection History ────────────────────────────────────────────────────────
+
+async function ensureDeckHistoryTable() {
+  const conn = await db().getConnection();
+  try {
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS deck_history (
+        id         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        account_id BIGINT UNSIGNED NOT NULL,
+        deck_id    VARCHAR(50)     NOT NULL,
+        ts         BIGINT          NOT NULL,
+        type       VARCHAR(30)     NOT NULL,
+        uid        VARCHAR(120)    NOT NULL DEFAULT '',
+        name       VARCHAR(255)    NOT NULL DEFAULT '',
+        foil       TINYINT(1)      NOT NULL DEFAULT 0,
+        qty        INT             NOT NULL DEFAULT 1,
+        detail     VARCHAR(255)    NULL,
+        image      VARCHAR(500)    NULL,
+        PRIMARY KEY (id),
+        INDEX idx_dh_deck_ts (account_id, deck_id, ts),
+        CONSTRAINT fk_dh_account FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+    if (!(await columnExists(conn, 'deck_history', 'actor_account_id'))) {
+      await conn.query(
+        `ALTER TABLE deck_history ADD COLUMN actor_account_id BIGINT UNSIGNED NULL DEFAULT NULL AFTER account_id`
+      );
+    }
+    if (!(await columnExists(conn, 'deck_history', 'actor_email'))) {
+      await conn.query(
+        `ALTER TABLE deck_history ADD COLUMN actor_email VARCHAR(255) NULL DEFAULT NULL AFTER actor_account_id`
+      );
+    }
+  } finally {
+    conn.release();
+  }
+}
+
+/** Deck owner id + whether the viewer may read/write this deck (owner or collaborator). */
+async function resolveDeckAccessForViewer(viewerAccountId, deckId) {
+  const [deckRows] = await db().query('SELECT account_id FROM decks WHERE id = ?', [deckId]);
+  if (!deckRows.length) return null;
+  const ownerId = Number(deckRows[0].account_id);
+  const viewerId = Number(viewerAccountId);
+  if (ownerId === viewerId) return { ownerId, canWrite: true };
+  const [cr] = await db().query(
+    'SELECT 1 FROM deck_collaborators WHERE deck_id = ? AND collaborator_id = ?',
+    [deckId, viewerId]
+  );
+  if (cr.length) return { ownerId, canWrite: true };
+  return null;
+}
+
+app.get('/api/deck-history/:deckId', requireAuth, async (req, res) => {
+  const deckId = req.params.deckId;
+  try {
+    const access = await resolveDeckAccessForViewer(req.accountId, deckId);
+    if (!access) return res.status(403).json({ error: 'Access denied' });
+    const [rows] = await db().query(
+      `SELECT id, ts, type, uid, name, foil, qty, detail, image, actor_account_id, actor_email
+       FROM deck_history WHERE account_id = ? AND deck_id = ? ORDER BY ts DESC LIMIT 500`,
+      [access.ownerId, deckId]
+    );
+    res.json(rows.map(r => ({
+      id: r.id, ts: r.ts, type: r.type, uid: r.uid,
+      name: r.name, foil: !!r.foil, qty: r.qty, detail: r.detail, image: r.image,
+      actorAccountId: r.actor_account_id != null ? Number(r.actor_account_id) : null,
+      actorEmail: r.actor_email || null,
+    })));
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/deck-history', requireAuth, async (req, res) => {
+  const { deckId, ts, type, uid, name, foil, qty, detail, image } = req.body;
+  const cardName = String(name || '').trim() || 'Unknown card';
+  if (!deckId || !type) return res.status(400).json({ error: 'Missing required fields' });
+  try {
+    const access = await resolveDeckAccessForViewer(req.accountId, deckId);
+    if (!access || !access.canWrite) return res.status(403).json({ error: 'Access denied' });
+    const [actorRows] = await db().query('SELECT email FROM accounts WHERE id = ?', [req.accountId]);
+    const actorEmail = actorRows.length ? String(actorRows[0].email || '') : '';
+    await db().query(
+      `INSERT INTO deck_history (account_id, deck_id, ts, type, uid, name, foil, qty, detail, image, actor_account_id, actor_email)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [access.ownerId, deckId, ts || Date.now(), type, uid || '', cardName,
+       foil ? 1 : 0, qty || 1, detail || null, image || null,
+       req.accountId, actorEmail || null]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+async function ensureCollectionHistoryTable() {
+  const conn = await db().getConnection();
+  try {
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS collection_history (
+        id         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        account_id BIGINT UNSIGNED NOT NULL,
+        ts         BIGINT          NOT NULL,
+        type       VARCHAR(20)     NOT NULL,
+        uid        VARCHAR(120)    NOT NULL DEFAULT '',
+        name       VARCHAR(255)    NOT NULL DEFAULT '',
+        set_code   VARCHAR(20)     NOT NULL DEFAULT '',
+        set_name   VARCHAR(255)    NOT NULL DEFAULT '',
+        foil       TINYINT(1)      NOT NULL DEFAULT 0,
+        delta      INT             NOT NULL DEFAULT 1,
+        image      VARCHAR(500)    NULL,
+        PRIMARY KEY (id),
+        INDEX idx_ch_account_ts (account_id, ts),
+        CONSTRAINT fk_ch_account FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+  } finally {
+    conn.release();
+  }
+}
+
+async function ensureTagOverrideTables() {
+  const conn = await db().getConnection();
+  try {
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS tag_overrides (
+        account_id       BIGINT UNSIGNED NOT NULL,
+        oracle_id        CHAR(36)        NOT NULL,
+        add_tags_json    JSON            NOT NULL,
+        remove_tags_json JSON            NOT NULL,
+        created_at       BIGINT          NOT NULL,
+        updated_at       BIGINT          NOT NULL,
+        PRIMARY KEY (account_id, oracle_id),
+        INDEX idx_to_account_updated (account_id, updated_at),
+        CONSTRAINT fk_to_account FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+  } finally {
+    conn.release();
+  }
+}
+
+app.get('/api/history', requireAuth, async (req, res) => {
+  try {
+    const [rows] = await db().query(
+      `SELECT id, ts, type, uid, name, set_code, set_name, foil, delta, image
+       FROM collection_history WHERE account_id = ? ORDER BY ts DESC LIMIT 500`,
+      [req.accountId]
+    );
+    res.json(rows.map(r => ({
+      id: r.id, ts: r.ts, type: r.type, uid: r.uid,
+      name: r.name, set: r.set_code, setName: r.set_name,
+      foil: !!r.foil, delta: r.delta, image: r.image,
+    })));
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/history', requireAuth, async (req, res) => {
+  const { ts, type, uid, name, set, setName, foil, delta, image } = req.body;
+  if (!type || !name) return res.status(400).json({ error: 'Missing required fields' });
+  try {
+    await db().query(
+      `INSERT INTO collection_history (account_id, ts, type, uid, name, set_code, set_name, foil, delta, image)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [req.accountId, ts || Date.now(), type, uid || '', name || '',
+       set || '', setName || '', foil ? 1 : 0, delta || 1, image || null]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/tag-overrides', requireAuth, async (req, res) => {
+  try {
+    const [rows] = await db().query(
+      `SELECT o.oracle_id, o.add_tags_json, o.remove_tags_json, o.updated_at, oc.name
+       FROM tag_overrides o
+       LEFT JOIN scryfall_oracle_cards oc ON oc.oracle_id = o.oracle_id
+       WHERE o.account_id = ?
+       ORDER BY o.updated_at DESC`,
+      [req.accountId]
+    );
+    const out = rows.map(r => {
+      let addTags = [];
+      let removeTags = [];
+      try { addTags = Array.isArray(r.add_tags_json) ? r.add_tags_json : JSON.parse(r.add_tags_json || '[]'); } catch (_) {}
+      try { removeTags = Array.isArray(r.remove_tags_json) ? r.remove_tags_json : JSON.parse(r.remove_tags_json || '[]'); } catch (_) {}
+      return {
+        oracleId: String(r.oracle_id || '').toLowerCase(),
+        cardName: r.name || null,
+        addTags: addTags.filter(Boolean),
+        removeTags: removeTags.filter(Boolean),
+        updatedAt: Number(r.updated_at || 0),
+      };
+    });
+    res.json(out);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.put('/api/tag-overrides/:oracleId', requireAuth, async (req, res) => {
+  const oracleId = String(req.params.oracleId || '').trim().toLowerCase();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(oracleId)) {
+    return res.status(400).json({ error: 'Invalid oracle ID' });
+  }
+  const normArr = arr => [...new Set((Array.isArray(arr) ? arr : [])
+    .map(v => String(v || '').trim())
+    .filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const addTags = normArr(req.body?.addTags);
+  const removeTags = normArr(req.body?.removeTags).filter(t => !addTags.includes(t));
+  const now = Date.now();
+  try {
+    await db().query(
+      `INSERT INTO tag_overrides (account_id, oracle_id, add_tags_json, remove_tags_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         add_tags_json = VALUES(add_tags_json),
+         remove_tags_json = VALUES(remove_tags_json),
+         updated_at = VALUES(updated_at)`,
+      [req.accountId, oracleId, JSON.stringify(addTags), JSON.stringify(removeTags), now, now]
+    );
+    await refreshCollectionRoleTagsForAccountOracle(req.accountId, oracleId);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/tag-overrides/:oracleId', requireAuth, async (req, res) => {
+  const oracleId = String(req.params.oracleId || '').trim().toLowerCase();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(oracleId)) {
+    return res.status(400).json({ error: 'Invalid oracle ID' });
+  }
+  try {
+    await db().query('DELETE FROM tag_overrides WHERE account_id = ? AND oracle_id = ?', [req.accountId, oracleId]);
+    await refreshCollectionRoleTagsForAccountOracle(req.accountId, oracleId);
+    res.json({ ok: true });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
@@ -1468,6 +2667,11 @@ async function start() {
   try {
     await ensureNormalizedDeckSchema();
     await ensureAccountMigration();
+    await ensureDeckHistoryTable();
+    await ensureCollectionHistoryTable();
+    await ensureTagOverrideTables();
+    await ensureCollectionRoleTagsColumns();
+    await ensureScryfallTagCacheTable();
     await backfillDeckCardsIfEmpty();
   } catch (e) {
     console.error('[db] schema/backfill warning:', e.message);
@@ -1477,6 +2681,7 @@ async function start() {
     console.log(`MTG Archive running at http://localhost:${PORT}`);
     console.log(`Make sure MySQL is running and mtg_archive database exists.`);
     console.log(`Run: /usr/local/mysql-9.7.0-macos15-arm64/bin/mysql -u root -p < db/schema.sql`);
+    runCollectionRoleTagsInfillBackground();
   });
 }
 

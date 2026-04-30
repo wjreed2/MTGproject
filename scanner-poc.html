@@ -1,0 +1,1658 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>Card Scanner POC</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <style>
+    :root {
+      --bg: #070810;
+      --bg2: #0c0e17;
+      --bg3: #12141e;
+      --bg4: #181b28;
+      --border: rgba(255,255,255,0.06);
+      --border2: rgba(255,255,255,0.12);
+      --border3: rgba(255,255,255,0.22);
+      --gold: #c8a84a;
+      --gold2: #e6c868;
+      --gold-dim: rgba(200,168,74,0.12);
+      --gold-glow: rgba(200,168,74,0.28);
+      --text: #d8d4ca;
+      --text2: #888278;
+      --text3: #504e48;
+      --blue: #4a8fd4;
+      --teal: #3db8a0;
+      --red: #d45a4a;
+      --green: #5ab85a;
+      --amber: #e8a030;
+      --radius: 8px;
+      --radius2: 12px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', sans-serif;
+      font-size: 15px;
+      min-height: 100dvh;
+      padding-bottom: 60px;
+    }
+
+    /* ── Mode banner ─────────────────────────────────────────── */
+    #mode-banner {
+      padding: 9px 16px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-align: center;
+    }
+    #mode-banner.mock { background: rgba(232,160,48,0.15); color: var(--amber); border-bottom: 1px solid rgba(232,160,48,0.25); }
+    #mode-banner.real { background: rgba(90,184,90,0.12); color: var(--green); border-bottom: 1px solid rgba(90,184,90,0.25); }
+
+    /* ── Header ──────────────────────────────────────────────── */
+    header {
+      padding: 16px 16px 10px;
+      text-align: center;
+      border-bottom: 1px solid var(--border);
+    }
+    header h1 { font-family: 'Cinzel', serif; font-size: 20px; color: var(--gold2); letter-spacing: 0.04em; }
+
+    /* ── Camera section ──────────────────────────────────────── */
+    .camera-section { padding: 16px; }
+
+    .camera-wrap {
+      position: relative;
+      background: #000;
+      border-radius: var(--radius2);
+      overflow: hidden;
+      border: 2px solid var(--border2);
+      aspect-ratio: 3/4;
+      display: flex; align-items: center; justify-content: center;
+      transition: border-color 0.3s;
+    }
+    .camera-wrap.active { border-color: var(--gold); }
+    .camera-wrap.locked { border-color: var(--green); box-shadow: 0 0 24px rgba(90,184,90,0.25); }
+
+    #camera-video {
+      width: 100%; height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    /* scan zone overlay */
+    .scan-zone {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 12%;
+      border-bottom: 2px solid var(--gold);
+      background: rgba(200,168,74,0.08);
+      pointer-events: none;
+      transition: background 0.3s, border-color 0.3s;
+    }
+    .camera-wrap.locked .scan-zone {
+      background: rgba(90,184,90,0.12);
+      border-color: var(--green);
+    }
+
+    .scan-zone-label {
+      position: absolute;
+      top: 5px; left: 10px;
+      font-size: 10px; font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--gold);
+      opacity: 0.8;
+      transition: color 0.3s;
+    }
+    .camera-wrap.locked .scan-zone-label { color: var(--green); }
+
+    /* bottom scan zone */
+    .scan-zone-bottom {
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      height: 6%;
+      border-top: 2px solid var(--blue);
+      background: rgba(74,143,212,0.07);
+      pointer-events: none;
+      transition: background 0.3s, border-color 0.3s;
+    }
+    .camera-wrap.locked .scan-zone-bottom { background: rgba(90,184,90,0.1); border-color: var(--green); }
+    .scan-zone-bottom-label {
+      position: absolute;
+      bottom: 5px; left: 10px;
+      font-size: 10px; font-weight: 600;
+      letter-spacing: 0.08em; text-transform: uppercase;
+      color: var(--blue); opacity: 0.8;
+      transition: color 0.3s;
+    }
+    .camera-wrap.locked .scan-zone-bottom-label { color: var(--green); }
+    .camera-wrap.set-only-mode .scan-zone,
+    .camera-wrap.set-only-mode .scan-zone-bottom,
+    .camera-wrap.set-only-mode .scan-zone-label,
+    .camera-wrap.set-only-mode .scan-zone-bottom-label {
+      opacity: 0.22;
+    }
+
+    /* corner brackets */
+    .bracket {
+      position: absolute;
+      width: 20px; height: 20px;
+      border-color: var(--gold);
+      border-style: solid;
+      opacity: 0.6;
+      pointer-events: none;
+      transition: border-color 0.3s, opacity 0.3s;
+    }
+    .camera-wrap.locked .bracket { border-color: var(--green); opacity: 0.9; }
+    .bracket.tl { top: 12%; left: 6px; border-width: 2px 0 0 2px; }
+    .bracket.tr { top: 12%; right: 6px; border-width: 2px 2px 0 0; }
+    .bracket.bl { bottom: 6%; left: 6px; border-width: 0 0 2px 2px; }
+    .bracket.br { bottom: 6%; right: 6px; border-width: 0 2px 2px 0; }
+
+    /* OCR pulse animation on the scan zone */
+    .scan-line {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--gold), transparent);
+      animation: scan-sweep 2s ease-in-out infinite;
+      opacity: 0;
+      pointer-events: none;
+    }
+    .camera-wrap.scanning .scan-line { opacity: 1; }
+    @keyframes scan-sweep {
+      0%   { transform: translateY(0); opacity: 0; }
+      10%  { opacity: 0.8; }
+      90%  { opacity: 0.8; }
+      100% { transform: translateY(calc(16dvh)); opacity: 0; }
+    }
+
+    /* idle placeholder */
+    .camera-idle {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 12px; color: var(--text3); user-select: none;
+    }
+    .camera-idle svg { width: 48px; height: 48px; opacity: 0.4; }
+    .camera-idle p { font-size: 13px; }
+
+    /* ── Detection status bar ────────────────────────────────── */
+    .detection-bar {
+      margin-top: 10px;
+      background: var(--bg2);
+      border: 1px solid var(--border2);
+      border-radius: var(--radius);
+      padding: 10px 14px;
+      display: flex; align-items: center; gap: 10px;
+      min-height: 44px;
+      transition: border-color 0.3s;
+    }
+    .detection-bar.locked { border-color: var(--green); }
+
+    .det-icon {
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      background: var(--bg3);
+      border: 1px solid var(--border2);
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      font-size: 13px;
+      transition: background 0.3s, border-color 0.3s;
+    }
+    .detection-bar.locked .det-icon { background: rgba(90,184,90,0.15); border-color: var(--green); }
+
+    .det-info { flex: 1; min-width: 0; }
+    .det-name {
+      font-size: 14px; font-weight: 600;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      color: var(--text);
+    }
+    .det-meta { font-size: 11px; color: var(--text3); margin-top: 2px; }
+
+    .conf-bar {
+      height: 3px; background: var(--bg3); border-radius: 2px; margin-top: 5px; overflow: hidden;
+    }
+    .conf-fill {
+      height: 100%; border-radius: 2px; transition: width 0.4s, background 0.3s;
+      background: var(--green);
+    }
+    .conf-fill.low { background: var(--red); }
+    .conf-fill.mid { background: var(--amber); }
+
+    /* ── Camera controls ─────────────────────────────────────── */
+    .camera-controls {
+      display: flex; gap: 10px; margin-top: 12px;
+    }
+    .zoom-controls {
+      margin-top: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      background: var(--bg2);
+      border: 1px solid var(--border2);
+      border-radius: var(--radius);
+    }
+    .zoom-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text3);
+      white-space: nowrap;
+    }
+    .zoom-slider {
+      flex: 1;
+      accent-color: var(--gold);
+    }
+    .zoom-val {
+      min-width: 42px;
+      text-align: right;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: var(--text2);
+    }
+
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+      padding: 10px 18px; border-radius: var(--radius);
+      border: none; cursor: pointer;
+      font-family: inherit; font-size: 14px; font-weight: 500;
+      transition: opacity 0.15s, transform 0.1s, background 0.15s;
+    }
+    .btn:active { transform: scale(0.97); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+    .btn-primary { background: var(--gold); color: #1a1408; flex: 1; }
+    .btn-primary:hover:not(:disabled) { background: var(--gold2); }
+    .btn-danger { background: rgba(212,90,74,0.15); border: 1px solid var(--red); color: var(--red); flex: 1; }
+    .btn-danger:hover:not(:disabled) { background: rgba(212,90,74,0.25); }
+    .btn-ghost { background: var(--bg3); border: 1px solid var(--border2); color: var(--text); }
+    .btn-ghost:hover:not(:disabled) { border-color: var(--border3); }
+    .btn-green { background: rgba(90,184,90,0.15); border: 1px solid var(--green); color: var(--green); flex: 1; }
+    .btn-green:hover:not(:disabled) { background: rgba(90,184,90,0.25); }
+    .btn-sm { padding: 7px 13px; font-size: 13px; }
+    .btn-icon { padding: 10px; min-width: 42px; }
+
+    /* ── HTTPS warning ───────────────────────────────────────── */
+    #https-warning {
+      display: none;
+      margin: 0 16px 16px;
+      background: rgba(212,90,74,0.08);
+      border: 1px solid rgba(212,90,74,0.3);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+    }
+    #https-warning h3 { font-size: 13px; font-weight: 600; color: var(--red); margin-bottom: 6px; }
+    #https-warning p { font-size: 12px; color: var(--text2); line-height: 1.6; }
+    #https-warning code {
+      background: var(--bg3); border: 1px solid var(--border2);
+      border-radius: 4px; padding: 1px 5px; font-size: 11px;
+      color: var(--gold2);
+    }
+
+    /* ── Search section ──────────────────────────────────────── */
+    .search-section {
+      padding: 0 16px 16px;
+    }
+
+    .section-title {
+      font-size: 11px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.07em;
+      color: var(--text3); margin-bottom: 8px;
+    }
+
+    .name-row {
+      display: flex; gap: 8px; margin-bottom: 12px;
+    }
+    .name-row input {
+      flex: 1;
+      background: var(--bg3); border: 1px solid var(--border2);
+      border-radius: var(--radius); padding: 10px 12px;
+      color: var(--text); font-family: inherit; font-size: 14px;
+      outline: none; transition: border-color 0.2s;
+    }
+    .name-row input:focus { border-color: var(--gold); }
+    .name-row input::placeholder { color: var(--text3); }
+
+    /* ── Candidates ──────────────────────────────────────────── */
+    .candidates-wrap {
+      display: none;
+      padding: 0 16px 16px;
+    }
+    .candidates-wrap.visible { display: block; }
+
+    .candidates-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 10px;
+    }
+
+    .card-tile {
+      background: var(--bg2);
+      border: 1px solid var(--border2);
+      border-radius: var(--radius2);
+      overflow: hidden; cursor: pointer;
+      transition: border-color 0.2s, transform 0.15s, box-shadow 0.2s;
+      display: flex; flex-direction: column;
+    }
+    .card-tile:hover { border-color: var(--gold); box-shadow: 0 4px 20px rgba(0,0,0,0.5); transform: translateY(-2px); }
+    .card-tile:active { transform: scale(0.97); }
+    .card-tile img { width: 100%; aspect-ratio: 5/7; object-fit: cover; display: block; background: var(--bg3); }
+    .card-tile-info { padding: 8px 10px; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+    .card-tile-name { font-size: 12px; font-weight: 600; line-height: 1.3; }
+    .card-tile-set { font-size: 11px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.04em; }
+    .card-tile-price { font-size: 12px; color: var(--gold); font-weight: 500; margin-top: 2px; }
+    .add-tile-btn {
+      margin: 0 8px 8px;
+      padding: 7px; background: var(--gold-dim);
+      border: 1px solid var(--gold); border-radius: var(--radius);
+      color: var(--gold2); font-size: 12px; font-weight: 600;
+      cursor: pointer; text-align: center;
+      transition: background 0.15s;
+    }
+    .add-tile-btn:hover { background: rgba(200,168,74,0.25); }
+
+    .candidates-actions { display: flex; gap: 8px; margin-top: 12px; }
+
+    .status-line {
+      font-size: 13px; color: var(--text2); text-align: center;
+      min-height: 18px; margin-top: 6px;
+    }
+    .status-line.error { color: var(--red); }
+
+    /* ── Spinner ─────────────────────────────────────────────── */
+    .spinner {
+      display: inline-block; width: 14px; height: 14px;
+      border: 2px solid var(--border2); border-top-color: var(--gold);
+      border-radius: 50%; animation: spin 0.7s linear infinite;
+      vertical-align: middle; margin-right: 5px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Scanned Today ───────────────────────────────────────── */
+    .scanned-section { padding: 0 16px; }
+    .scanned-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .scanned-header h2 {
+      font-size: 12px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.07em; color: var(--text2);
+    }
+    .scanned-header-btns { display: flex; gap: 6px; }
+
+    .scanned-list { display: flex; flex-direction: column; gap: 6px; }
+    .scanned-row {
+      display: flex; align-items: center; gap: 10px;
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 8px 10px;
+    }
+    .scanned-row img { width: 30px; height: 42px; object-fit: cover; border-radius: 4px; background: var(--bg3); flex-shrink: 0; }
+    .scanned-row-info { flex: 1; min-width: 0; }
+    .scanned-row-name { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .scanned-row-meta { font-size: 11px; color: var(--text2); }
+    .scanned-qty { font-size: 12px; font-weight: 600; background: var(--bg3); border: 1px solid var(--border2); border-radius: 12px; padding: 2px 8px; color: var(--text2); flex-shrink: 0; }
+    .scanned-remove { background: none; border: none; color: var(--text3); font-size: 16px; cursor: pointer; padding: 4px; line-height: 1; border-radius: 4px; transition: color 0.15s; }
+    .scanned-remove:hover { color: var(--red); }
+    .empty-state { text-align: center; padding: 24px; color: var(--text3); font-size: 13px; }
+
+    /* ── Tips ────────────────────────────────────────────────── */
+    .tips {
+      margin: 16px 16px 0;
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 12px 14px;
+    }
+    .tips h3 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text2); margin-bottom: 6px; }
+    .tips ul { padding-left: 14px; }
+    .tips li { font-size: 12px; color: var(--text3); line-height: 1.6; }
+    .tips li strong { color: var(--text2); }
+
+    /* ── Section divider ─────────────────────────────────────── */
+    .divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+
+    /* ── Debug panel ─────────────────────────────────────────── */
+    .debug-panel {
+      margin: 0 16px 0;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .debug-toggle {
+      width: 100%; background: none; border: none;
+      padding: 9px 14px; text-align: left; cursor: pointer;
+      font-family: inherit; font-size: 11px; font-weight: 600;
+      letter-spacing: 0.06em; text-transform: uppercase;
+      color: var(--text3);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .debug-toggle:hover { color: var(--text2); }
+    .debug-body { padding: 10px 14px; border-top: 1px solid var(--border); }
+    .debug-strips { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+    .debug-strip-label { font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
+    .debug-strip-img {
+      width: 100%; height: auto; min-height: 28px;
+      display: block; border-radius: 4px; border: 1px solid var(--border2);
+      background: #000; object-fit: contain;
+    }
+    .debug-ocr {
+      margin-top: 5px; padding: 5px 7px;
+      background: var(--bg3); border-radius: 4px;
+      font-size: 11px; font-family: monospace; color: var(--text2);
+      word-break: break-all; min-height: 22px;
+    }
+    .debug-dims { font-size: 11px; color: var(--text3); margin-top: 8px; }
+
+    /* ── Toast ───────────────────────────────────────────────── */
+    #notif {
+      position: fixed; bottom: 24px; left: 50%;
+      transform: translateX(-50%) translateY(80px);
+      background: var(--bg4); border: 1px solid var(--border3);
+      border-radius: 24px; padding: 10px 20px;
+      font-size: 14px; font-weight: 500;
+      white-space: nowrap; transition: transform 0.3s, opacity 0.3s;
+      opacity: 0; z-index: 999; pointer-events: none;
+      max-width: 90vw; text-align: center;
+    }
+    #notif.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+    #notif.success { color: var(--green); border-color: rgba(90,184,90,0.4); }
+    #notif.err { color: var(--red); border-color: rgba(212,90,74,0.4); }
+
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+
+<div id="mode-banner" class="mock">
+  ⚠ MOCK MODE — saves to browser storage only &nbsp;·&nbsp; Add <strong>?real=true</strong> to URL to save to your account
+</div>
+
+<header>
+  <h1>Card Scanner</h1>
+</header>
+
+<!-- HTTPS warning (shown if getUserMedia fails due to non-secure context) -->
+<div id="https-warning">
+  <h3>Live camera requires HTTPS on mobile</h3>
+  <p>
+    Your browser blocked camera access because this page is served over HTTP.
+    The easiest fix is to use <strong>ngrok</strong> to create an HTTPS tunnel:<br><br>
+    1. Install: <code>brew install ngrok</code><br>
+    2. Run: <code>ngrok http 3001</code><br>
+    3. Open the <code>https://…ngrok…</code> URL on your phone<br><br>
+    On desktop (localhost) live scanning works without any changes.
+  </p>
+</div>
+
+<!-- ── Camera section ── -->
+<div class="camera-section">
+  <div class="camera-wrap" id="camera-wrap">
+    <div class="scan-zone">
+      <span class="scan-zone-label">Card name</span>
+    </div>
+    <div class="scan-zone-bottom">
+      <span class="scan-zone-bottom-label">Set · Number</span>
+    </div>
+    <div class="scan-line"></div>
+    <div class="bracket tl"></div>
+    <div class="bracket tr"></div>
+    <div class="bracket bl"></div>
+    <div class="bracket br"></div>
+
+    <video id="camera-video" playsinline muted autoplay></video>
+
+    <div class="camera-idle" id="camera-idle">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
+        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+        <circle cx="12" cy="13" r="4"/>
+      </svg>
+      <p>Tap Start to begin scanning</p>
+    </div>
+  </div>
+
+  <!-- Detection status bar -->
+  <div class="detection-bar" id="detection-bar">
+    <div class="det-icon" id="det-icon">👁</div>
+    <div class="det-info">
+      <div class="det-name" id="det-name">Waiting for camera…</div>
+      <div class="det-meta" id="det-meta"></div>
+      <div class="conf-bar"><div class="conf-fill" id="conf-fill" style="width:0%"></div></div>
+    </div>
+  </div>
+
+  <!-- Camera controls -->
+  <div class="camera-controls">
+    <button class="btn btn-primary" id="start-btn">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3" fill="currentColor"/></svg>
+      Start Camera
+    </button>
+    <button class="btn btn-danger hidden" id="stop-btn">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+      Stop
+    </button>
+    <button class="btn btn-ghost btn-icon" id="flip-btn" title="Flip camera" style="display:none">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 .49-4.5"/></svg>
+    </button>
+  </div>
+  <div class="zoom-controls" id="zoom-controls">
+    <span class="zoom-label">Zoom</span>
+    <button class="btn btn-ghost btn-sm" id="zoom-out-btn" title="Zoom out">−</button>
+    <input type="range" id="zoom-slider" class="zoom-slider" min="1" max="1" step="0.1" value="1">
+    <button class="btn btn-ghost btn-sm" id="zoom-in-btn" title="Zoom in">+</button>
+    <span class="zoom-val" id="zoom-val">1.0×</span>
+  </div>
+</div>
+
+<!-- ── Debug panel ── -->
+<div class="debug-panel" id="debug-panel">
+  <button class="debug-toggle" id="debug-toggle">OCR Debug ▾</button>
+  <div class="debug-body hidden" id="debug-body">
+    <div class="debug-strips">
+      <div>
+        <div class="debug-strip-label">Name strip (top)</div>
+        <img class="debug-strip-img" id="dbg-top-img" alt="">
+        <div class="debug-ocr" id="dbg-top-txt">–</div>
+      </div>
+      <div>
+        <div class="debug-strip-label">Set/# strip (bottom)</div>
+        <img class="debug-strip-img" id="dbg-bot-img" alt="">
+        <div class="debug-ocr" id="dbg-bot-txt">–</div>
+      </div>
+    </div>
+    <div class="debug-dims" id="dbg-dims">Video: –</div>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- ── Manual search ── -->
+<div class="search-section">
+  <div class="section-title">Card name</div>
+  <div class="name-row">
+    <input type="text" id="name-input" placeholder="Detected name / type manually…" autocomplete="off" autocorrect="off" spellcheck="false">
+    <button class="btn btn-ghost" id="search-btn" style="white-space:nowrap">Search</button>
+  </div>
+  <div class="status-line" id="search-status"></div>
+</div>
+
+<!-- ── Candidates ── -->
+<div class="candidates-wrap" id="candidates-wrap">
+  <div class="section-title" id="candidates-label">Select the correct card</div>
+  <div class="candidates-grid" id="candidates-grid"></div>
+  <div class="candidates-actions">
+    <button class="btn btn-ghost btn-sm" id="dismiss-candidates">Dismiss</button>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- ── Scanned Today ── -->
+<div class="scanned-section">
+  <div class="scanned-header">
+    <h2>Scanned <span id="scanned-count"></span></h2>
+    <div class="scanned-header-btns">
+      <button class="btn btn-ghost btn-sm" id="export-btn">Export</button>
+      <button class="btn btn-ghost btn-sm" id="clear-btn">Clear</button>
+    </div>
+  </div>
+  <div class="scanned-list" id="scanned-list"></div>
+</div>
+
+<!-- Tips -->
+<div class="tips">
+  <h3>Tips</h3>
+  <ul>
+    <li><strong>Two modes:</strong> normal uses top+bottom strips, Set-only zoom focuses on footer set/# only</li>
+    <li>Set+number gives an <strong>exact match</strong> — far more reliable than reading the name font</li>
+    <li><strong>Hold steady</strong> — OCR runs every ~3s, motion blurs the text</li>
+    <li><strong>Good lighting, non-foil</strong> cards scan best; avoid glare on the bottom strip</li>
+    <li>Edit the name manually and hit Search if OCR misreads it</li>
+  </ul>
+</div>
+
+<div id="notif"></div>
+
+<script>
+(() => {
+  // ── Config ────────────────────────────────────────────────────────────────
+  const MOCK_KEY           = 'mtg_scanner_mock_collection';
+  const isMockMode         = !new URLSearchParams(location.search).has('real');
+  const API_BASE           = `${location.protocol}//${location.host}/api`;
+  const OCR_INTERVAL_MS    = 250;
+  const CONFIDENCE_THRESH  = 42;
+  const LOCK_AFTER_MATCHES = 1;
+  const SET_FALLBACK_SCAN_LIMIT = 2;
+
+  // ── DOM ───────────────────────────────────────────────────────────────────
+  const cameraWrap     = document.getElementById('camera-wrap');
+  const videoEl        = document.getElementById('camera-video');
+  const cameraIdle     = document.getElementById('camera-idle');
+  const detectionBar   = document.getElementById('detection-bar');
+  const detIcon        = document.getElementById('det-icon');
+  const detName        = document.getElementById('det-name');
+  const detMeta        = document.getElementById('det-meta');
+  const confFill       = document.getElementById('conf-fill');
+  const startBtn       = document.getElementById('start-btn');
+  const stopBtn        = document.getElementById('stop-btn');
+  const flipBtn        = document.getElementById('flip-btn');
+  const zoomControls   = document.getElementById('zoom-controls');
+  const zoomSlider     = document.getElementById('zoom-slider');
+  const zoomVal        = document.getElementById('zoom-val');
+  const zoomInBtn      = document.getElementById('zoom-in-btn');
+  const zoomOutBtn     = document.getElementById('zoom-out-btn');
+  const nameInput      = document.getElementById('name-input');
+  const searchBtn      = document.getElementById('search-btn');
+  const searchStatus   = document.getElementById('search-status');
+  const candidatesWrap = document.getElementById('candidates-wrap');
+  const candidatesGrid = document.getElementById('candidates-grid');
+  const candidatesLabel = document.getElementById('candidates-label');
+  const dismissBtn     = document.getElementById('dismiss-candidates');
+  const scannedList    = document.getElementById('scanned-list');
+  const exportBtn      = document.getElementById('export-btn');
+  const clearBtn       = document.getElementById('clear-btn');
+  const dbgTopImg      = document.getElementById('dbg-top-img');
+  const dbgBotImg      = document.getElementById('dbg-bot-img');
+  const dbgTopTxt      = document.getElementById('dbg-top-txt');
+  const dbgBotTxt      = document.getElementById('dbg-bot-txt');
+  const dbgDims        = document.getElementById('dbg-dims');
+
+  document.getElementById('debug-toggle').addEventListener('click', () => {
+    const body = document.getElementById('debug-body');
+    body.classList.toggle('hidden');
+  });
+
+  // ── Mode banner ───────────────────────────────────────────────────────────
+  if (!isMockMode) {
+    const banner = document.getElementById('mode-banner');
+    banner.className = 'real';
+    banner.textContent = '✓ REAL MODE — saves to your account';
+  }
+
+  // ── State ─────────────────────────────────────────────────────────────────
+  let stream         = null;
+  let ocrActive      = false;
+  let ocrRunning     = false;
+  let ocrLoopTimer   = null;
+  let nameWorker     = null;
+  let setWorker      = null;
+  let workerReady    = false;
+  let facingMode     = 'environment';
+  let lastName       = '';
+  let lastSetInfo    = null;
+  let lastSetKey     = '';
+  let consecutiveSetHits = 0;
+  let consecutiveHits = 0;
+  let scansWithoutSet = 0;
+  let fallbackTitleLast = '';
+  let searchPaused   = false;
+  let setOnlyMode    = true;
+  let zoomSupported  = false;
+  let zoomMin        = 1;
+  let zoomMax        = 1;
+  let zoomStep       = 0.1;
+  let currentZoom    = 1;
+
+  // ── Tesseract: init two workers in parallel ───────────────────────────────
+  (async () => {
+    try {
+      [nameWorker, setWorker] = await Promise.all([
+        Tesseract.createWorker('eng'),
+        Tesseract.createWorker('eng'),
+      ]);
+      workerReady = true;
+    } catch (e) {
+      console.warn('Tesseract init failed', e);
+    }
+  })();
+
+  // ── Camera start/stop ─────────────────────────────────────────────────────
+  startBtn.addEventListener('click', startCamera);
+  stopBtn.addEventListener('click', stopCamera);
+  flipBtn.addEventListener('click', () => {
+    facingMode = facingMode === 'environment' ? 'user' : 'environment';
+    stopCamera();
+    startCamera();
+  });
+  zoomSlider.addEventListener('input', async () => {
+    const z = Number(zoomSlider.value || currentZoom);
+    await setCameraZoom(z);
+  });
+  zoomInBtn.addEventListener('click', async () => {
+    if (!zoomSupported) return;
+    const next = Math.min(zoomMax, currentZoom + zoomStep);
+    await setCameraZoom(next);
+  });
+  zoomOutBtn.addEventListener('click', async () => {
+    if (!zoomSupported) return;
+    const next = Math.max(zoomMin, currentZoom - zoomStep);
+    await setCameraZoom(next);
+  });
+
+  async function startCamera() {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      showHttpsWarning();
+      return;
+    }
+    try {
+      if (stream) stopCamera();
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: facingMode },
+          width:  { ideal: 1080 },
+          height: { ideal: 1440 },
+        }
+      });
+      videoEl.srcObject = stream;
+      await videoEl.play();
+
+      cameraIdle.classList.add('hidden');
+      videoEl.classList.remove('hidden');
+      cameraWrap.classList.add('active');
+      cameraWrap.classList.add('set-only-mode');
+      cameraWrap.classList.add('scanning');
+      startBtn.classList.add('hidden');
+      stopBtn.classList.remove('hidden');
+      flipBtn.style.display = '';
+
+      setDetection('idle');
+      startOCRLoop();
+
+      // Log video dimensions to debug panel once metadata loads
+      videoEl.addEventListener('loadedmetadata', () => {
+        dbgDims.textContent = `Video: ${videoEl.videoWidth}×${videoEl.videoHeight} (${videoEl.videoWidth > videoEl.videoHeight ? 'landscape' : 'portrait'})`;
+      }, { once: true });
+
+      // Show flip button only if multiple cameras
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const cams = devices.filter(d => d.kind === 'videoinput');
+      if (cams.length <= 1) flipBtn.style.display = 'none';
+      await setupZoomControls();
+
+    } catch (err) {
+      console.error('Camera error:', err);
+      if (err.name === 'NotAllowedError') {
+        showNotif('Camera permission denied', 'err');
+      } else if (
+        err.name === 'NotSupportedError' ||
+        err.message?.includes('secure') ||
+        err.message?.includes('https') ||
+        location.protocol === 'http:' && location.hostname !== 'localhost'
+      ) {
+        showHttpsWarning();
+      } else {
+        showNotif(`Camera error: ${err.message}`, 'err');
+      }
+    }
+  }
+
+  function stopCamera() {
+    ocrActive = false;
+    clearTimeout(ocrLoopTimer);
+    if (stream) {
+      stream.getTracks().forEach(t => t.stop());
+      stream = null;
+    }
+    videoEl.srcObject = null;
+    cameraIdle.classList.remove('hidden');
+    cameraWrap.classList.remove('active', 'scanning', 'locked', 'set-only-mode');
+    startBtn.classList.remove('hidden');
+    stopBtn.classList.add('hidden');
+    flipBtn.style.display = 'none';
+    zoomSupported = false;
+    zoomMin = 1; zoomMax = 1; zoomStep = 0.1; currentZoom = 1;
+    refreshZoomUI();
+    setDetection('off');
+  }
+
+  async function setupZoomControls() {
+    const track = stream?.getVideoTracks?.()[0];
+    if (!track) {
+      zoomSupported = false;
+      refreshZoomUI();
+      return;
+    }
+    const caps = track.getCapabilities ? track.getCapabilities() : {};
+    if (!caps || typeof caps.zoom !== 'object') {
+      zoomSupported = false;
+      refreshZoomUI();
+      return;
+    }
+    zoomSupported = true;
+    zoomMin = Number(caps.zoom.min ?? 1);
+    zoomMax = Number(caps.zoom.max ?? zoomMin);
+    zoomStep = Number(caps.zoom.step ?? 0.1);
+    const settings = track.getSettings ? track.getSettings() : {};
+    currentZoom = Number(settings.zoom ?? zoomMin);
+    refreshZoomUI();
+  }
+
+  function refreshZoomUI() {
+    zoomSlider.min = String(zoomMin);
+    zoomSlider.max = String(zoomMax);
+    zoomSlider.step = String(zoomStep);
+    zoomSlider.value = String(currentZoom);
+    zoomSlider.disabled = !zoomSupported;
+    zoomInBtn.disabled = !zoomSupported;
+    zoomOutBtn.disabled = !zoomSupported;
+    zoomVal.textContent = `${Number(currentZoom).toFixed(1)}×`;
+    zoomControls.style.opacity = zoomSupported ? '1' : '0.55';
+    zoomControls.title = zoomSupported ? '' : 'This camera does not expose zoom controls';
+  }
+
+  async function setCameraZoom(z) {
+    const track = stream?.getVideoTracks?.()[0];
+    if (!track || !zoomSupported) return;
+    const clamped = Math.max(zoomMin, Math.min(zoomMax, z));
+    try {
+      await track.applyConstraints({ advanced: [{ zoom: clamped }] });
+      currentZoom = clamped;
+      refreshZoomUI();
+    } catch (e) {
+      console.warn('Zoom apply failed', e);
+    }
+  }
+
+  function showHttpsWarning() {
+    document.getElementById('https-warning').style.display = 'block';
+    showNotif('Camera needs HTTPS on mobile — see instructions below', 'err');
+  }
+
+  // ── OCR loop ──────────────────────────────────────────────────────────────
+  function startOCRLoop() {
+    ocrActive = true;
+    scheduleTick();
+  }
+
+  function scheduleTick() {
+    if (!ocrActive) return;
+    ocrLoopTimer = setTimeout(tick, OCR_INTERVAL_MS);
+  }
+
+  async function tick() {
+    if (!ocrActive) return;
+
+    if (!ocrRunning && videoEl.readyState >= 2 && !searchPaused) {
+      ocrRunning = true;
+      try {
+        const topUrl    = setOnlyMode ? null : captureStrip(false, 0.15);
+        const bottomUrl = setOnlyMode ? captureFooterCorner() : captureStrip(true, 0.08);
+        // Show strips in debug panel immediately
+        if (topUrl)    dbgTopImg.src = topUrl;
+        if (bottomUrl) dbgBotImg.src = bottomUrl;
+        if (topUrl || bottomUrl) {
+          // PSM 11 = sparse text (finds text anywhere, no layout assumptions)
+          // PSM  6 = uniform block (good for the footer line of text)
+          const [nameResult, setResult] = await Promise.all([
+            topUrl ? runOCR(nameWorker, topUrl, '11') : Promise.resolve({ text: '', confidence: 0 }),
+            runOCR(setWorker, bottomUrl, setOnlyMode ? '11' : '6'),
+          ]);
+          dbgTopTxt.textContent = `${nameResult.variant || 'raw'} · ${nameResult.text || '(nothing)'}`;
+          dbgBotTxt.textContent = `${setResult.variant || 'raw'} · ${setResult.text || '(nothing)'}`;
+          processOCRResult(nameResult.text, nameResult.confidence, setResult.text);
+        }
+      } catch (e) {
+        console.warn('OCR tick error', e);
+      } finally {
+        ocrRunning = false;
+      }
+    }
+
+    scheduleTick();
+  }
+
+  // Capture a horizontal strip and upscale 2.5×.
+  // No preprocessing for now — colored card backgrounds make global contrast
+  // adjustments backfire. The debug panel lets us see exactly what Tesseract gets.
+  function captureStrip(fromBottom, fraction) {
+    const vw = videoEl.videoWidth;
+    const vh = videoEl.videoHeight;
+    if (!vw || !vh) return null;
+
+    const srcH = Math.floor(vh * fraction);
+    const srcY = fromBottom ? vh - srcH : 0;
+    const SCALE = 2.5;
+
+    const canvas = document.createElement('canvas');
+    canvas.width  = Math.floor(vw * SCALE);
+    canvas.height = Math.floor(srcH * SCALE);
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(videoEl, 0, srcY, vw, srcH, 0, 0, canvas.width, canvas.height);
+
+    return canvas.toDataURL('image/png');
+  }
+
+  // Capture the lower-left footer corner from a full-card frame.
+  // This targets the printed set code + collector number area directly.
+  function captureFooterCorner() {
+    const vw = videoEl.videoWidth;
+    const vh = videoEl.videoHeight;
+    if (!vw || !vh) return null;
+
+    // Approximate footer region (for portrait card filling the frame):
+    // left 44%, bottom 18%, with small inset margins to avoid border glare.
+    const insetX = Math.floor(vw * 0.03);
+    const insetY = Math.floor(vh * 0.02);
+    const srcW = Math.max(80, Math.floor(vw * 0.44) - insetX);
+    const srcH = Math.max(40, Math.floor(vh * 0.18) - insetY);
+    const srcX = insetX;
+    const srcY = Math.max(0, vh - srcH - insetY);
+
+    const SCALE = 2.0;
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.floor(srcW * SCALE);
+    canvas.height = Math.floor(srcH * SCALE);
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(videoEl, srcX, srcY, srcW, srcH, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/png');
+  }
+
+  async function runOCR(w, dataUrl, psm) {
+    if (!workerReady || !w || !dataUrl) return { text: '', confidence: 0, variant: 'none' };
+    await w.setParameters({ tessedit_pageseg_mode: psm });
+    // Fast path: raw OCR first, expand to heavy variants only if needed.
+    try {
+      const rawRes = await w.recognize(dataUrl);
+      const rawText = (rawRes?.data?.text || '').trim();
+      const rawConf = Math.round(rawRes?.data?.confidence || 0);
+      if (rawText && rawConf >= 58) {
+        return { text: rawText, confidence: rawConf, variant: 'raw' };
+      }
+
+      const variants = await buildOCRVariants(dataUrl);
+      let best = { text: rawText, confidence: rawConf, variant: 'raw' };
+      for (const v of variants) {
+        if (v.label === 'raw') continue;
+        try {
+          const result = await w.recognize(v.url);
+          const text = (result?.data?.text || '').trim();
+          const conf = Math.round(result?.data?.confidence || 0);
+          if (conf > best.confidence && text) best = { text, confidence: conf, variant: v.label };
+          if (best.confidence >= 64) break; // early exit on strong hit
+        } catch (_) { /* ignore variant errors */ }
+      }
+      return best;
+    } catch (_) {
+      return { text: '', confidence: 0, variant: 'none' };
+    }
+  }
+
+  async function buildOCRVariants(dataUrl) {
+    const variants = [{ label: 'raw', url: dataUrl }];
+    const img = await loadImageFromDataUrl(dataUrl);
+    if (!img || !img.naturalWidth || !img.naturalHeight) return variants;
+
+    const mk = (mode) => {
+      const c = document.createElement('canvas');
+      c.width = img.naturalWidth;
+      c.height = img.naturalHeight;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      const id = ctx.getImageData(0, 0, c.width, c.height);
+      const d = id.data;
+      for (let i = 0; i < d.length; i += 4) {
+        const r = d[i], g = d[i + 1], b = d[i + 2];
+        const y = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
+        let v = y;
+        if (mode === 'bw') v = y > 140 ? 255 : 0;          // black text on light bg
+        if (mode === 'invbw') v = y > 120 ? 0 : 255;       // white text on dark bg
+        d[i] = d[i + 1] = d[i + 2] = v;
+      }
+      ctx.putImageData(id, 0, 0);
+      return c.toDataURL('image/png');
+    };
+    variants.push({ label: 'bw', url: mk('bw') });
+    variants.push({ label: 'invbw', url: mk('invbw') });
+    return variants;
+  }
+
+  function loadImageFromDataUrl(dataUrl) {
+    return new Promise(resolve => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => resolve(null);
+      img.src = dataUrl;
+    });
+  }
+
+  function parseSetInfo(text) {
+    if (!text) return null;
+    const src = String(text || '')
+      .toUpperCase()
+      .replace(/\n+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .replace(/[|]/g, 'I')
+      .trim();
+    if (!src) return null;
+
+    const IGNORE = new Set([
+      'EN','JP','DE','FR','IT','ES','PT','KR','CN','TW','RU',
+      'MT','OF','AT','IN','IS','THE','AND','WIZARDS',
+    ]);
+
+    const isPlausibleCollector = (raw, fromSlash = false) => {
+      const m = String(raw || '').match(/^(\d{1,4})([A-Z]?)$/);
+      if (!m) return false;
+      const n = Number(m[1]);
+      if (!Number.isFinite(n) || n <= 0) return false;
+      // Avoid years from copyright text unless anchored by x/y collector pattern.
+      if (!fromSlash && n >= 1900 && n <= 2099) return false;
+      return true;
+    };
+
+    const normalizeCollector = raw => {
+      const m = String(raw || '').match(/^(\d{1,4})([A-Z]?)$/);
+      if (!m) return null;
+      return `${Number(m[1])}${m[2] || ''}`;
+    };
+
+    const normalizeSetToken = raw => {
+      let t = String(raw || '').toUpperCase();
+      // OCR swaps O/0 often; use nearby context to normalize.
+      if (/[A-Z]/.test(t)) t = t.replace(/0/g, 'O');
+      if (/\d/.test(t)) t = t.replace(/O(?=\d)/g, '0').replace(/(?<=\d)O/g, '0');
+      return t;
+    };
+
+    // 1) Prefer direct "SET NUM" / "SET 0006" style matches first.
+    // Example noisy footer: "... FDN 0006 ...".
+    let directSet = null;
+    let directNum = null;
+    let directIdx = -1;
+    let direct = src.match(/\b([A-Z0-9]{2,6})\s*[:;.,-]?\s*0*([0-9]{1,4}[A-Z]?)\b/);
+    if (direct) {
+      const candSet = normalizeSetToken(direct[1]);
+      const candNum = normalizeCollector(direct[2]);
+      if (
+        candNum &&
+        isPlausibleCollector(candNum) &&
+        /[A-Z]/.test(candSet) &&
+        !IGNORE.has(candSet)
+      ) {
+        directSet = candSet;
+        directNum = candNum;
+        directIdx = direct.index ?? -1;
+      }
+    }
+
+    // 2) Collector number (prefer explicit x/y patterns).
+    let num = null;
+    let numIdx = -1;
+    let m = src.match(/\b(\d{1,4}[A-Z]?)\s*[★*◆]?\s*\/\s*\d{1,4}\b/);
+    if (m && isPlausibleCollector(m[1], true)) {
+      num = normalizeCollector(m[1]);
+      numIdx = m.index ?? -1;
+    }
+    if (!num) {
+      m = src.match(/\b#\s*(\d{1,4}[A-Z]?)\b/);
+      if (m && isPlausibleCollector(m[1])) {
+        num = normalizeCollector(m[1]);
+        numIdx = m.index ?? -1;
+      }
+    }
+    if (!num) {
+      // Fallback: nearest standalone numeric token in expected range.
+      const tokens = [...src.matchAll(/\b(\d{1,4}[A-Z]?)\b/g)]
+        .map(x => ({ value: x[1], index: x.index ?? -1 }))
+        .filter(x => isPlausibleCollector(x.value));
+      if (tokens.length) {
+        const best = tokens.sort((a, b) => {
+          const av = Number((a.value.match(/\d+/) || ['0'])[0]);
+          const bv = Number((b.value.match(/\d+/) || ['0'])[0]);
+          const aScore = av <= 999 ? 0 : 1;
+          const bScore = bv <= 999 ? 0 : 1;
+          return aScore - bScore;
+        })[0];
+        num = normalizeCollector(best.value);
+        numIdx = best.index;
+      }
+    }
+
+    // 3) Set code (supports digits, e.g. M21 / 2X2 / MH3).
+    // Important: detect set code independently from collector number; OCR often
+    // places them far apart in noisy footer text.
+    const rawCodes = [...src.matchAll(/\b[A-Z0-9]{2,6}\b/g)]
+      .map(x => ({ value: normalizeSetToken(x[0]), index: x.index ?? -1 }))
+      .filter(x => /[A-Z]/.test(x.value)) // reject pure digits
+      .filter(x => !IGNORE.has(x.value));
+
+    let setCode = null;
+    // If we already got a direct pair, keep it unless a much better candidate appears.
+    if (directSet && directNum) {
+      setCode = directSet;
+      num = num || directNum;
+      if (numIdx < 0) numIdx = directIdx;
+    }
+    if (rawCodes.length) {
+      // Base quality score first (independent), with only a light proximity nudge.
+      const score = c => {
+        let s = 0;
+        const v = c.value;
+        // Canonical MTG set codes are usually 3 chars.
+        s += /^[A-Z]{3}$/.test(v) ? -16 : 0;
+        s += v.length === 3 ? -10 : 0;
+        s += /^[A-Z]{4}$/.test(v) ? -4 : 0;
+        s += /^[A-Z]{2}$/.test(v) ? 10 : 0; // often language/noise
+        s += /\d/.test(v) ? 2 : 0;
+        // Tiny preference for being near a collector number, but not required.
+        if (numIdx >= 0) {
+          const dist = Math.abs(c.index - numIdx);
+          if (dist <= 10) s -= 4;
+          else if (dist <= 24) s -= 2;
+          else if (dist > 70) s += 1;
+        }
+        return s;
+      };
+      rawCodes.sort((a, b) => score(a) - score(b));
+      setCode = rawCodes[0].value;
+    }
+
+    if (!num && !setCode) return null;
+    return { num, setCode };
+  }
+
+  function processOCRResult(rawText, confidence, rawSetText) {
+    const cleaned = cleanText(rawText);
+    const setInfo = parseSetInfo(rawSetText);
+    updateDetectionUI(cleaned, confidence, setInfo);
+
+    // Track set+number independently from name OCR; this is the reliable path.
+    const setKey = (setInfo?.setCode && setInfo?.num)
+      ? `${setInfo.setCode.toUpperCase()}#${setInfo.num}`
+      : '';
+    if (setKey) {
+      scansWithoutSet = 0;
+      if (setKey === lastSetKey) {
+        consecutiveSetHits++;
+      } else {
+        lastSetKey = setKey;
+        consecutiveSetHits = 1;
+      }
+      if (consecutiveSetHits >= LOCK_AFTER_MATCHES) {
+        consecutiveSetHits = 0;
+        lockAndSearch(cleaned || setKey, setInfo);
+        return;
+      }
+    } else {
+      lastSetKey = '';
+      consecutiveSetHits = 0;
+      scansWithoutSet++;
+      if (scansWithoutSet >= SET_FALLBACK_SCAN_LIMIT) {
+        scansWithoutSet = 0;
+        const titleCandidate = getTitleFallbackCandidate(cleaned);
+        if (titleCandidate) {
+          fallbackToTitleSearch(titleCandidate, 'set code not stable');
+          return;
+        }
+      }
+    }
+
+    if (!cleaned || cleaned.length < 2 || confidence < CONFIDENCE_THRESH) {
+      consecutiveHits = 0;
+      lastName = '';
+      if (!setKey) lastSetInfo = null;
+      return;
+    }
+
+    if (cleaned.toLowerCase() === lastName.toLowerCase()) {
+      consecutiveHits++;
+      if (setInfo) lastSetInfo = setInfo;
+    } else {
+      lastName = cleaned;
+      lastSetInfo = setInfo;
+      consecutiveHits = 1;
+    }
+
+    nameInput.value = cleaned;
+
+    if (consecutiveHits >= LOCK_AFTER_MATCHES) {
+      consecutiveHits = 0;
+      lockAndSearch(cleaned, lastSetInfo);
+    }
+  }
+
+  function cleanText(raw) {
+    const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
+    const first = lines[0] || '';
+    return first.replace(/[^A-Za-z ',\-]/g, '').trim();
+  }
+
+  function normalizeTitleCandidate(raw) {
+    const s = String(raw || '')
+      .replace(/[^A-Za-z ',\-]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!s) return '';
+    const noisyLead = /^(TR|TM|MTG|MAG|A|AN)\b\s*/i;
+    const trimmedLead = s.replace(noisyLead, '').trim();
+    const words = trimmedLead.split(' ').filter(Boolean);
+    const cleanedWords = words.filter((w, idx) => {
+      if (idx === 0) return w.length >= 2;
+      return w.length >= 2 || /^(of|to|in|on|at|a|an|the)$/i.test(w);
+    });
+    return cleanedWords.join(' ').slice(0, 80).trim();
+  }
+
+  function getTitleFallbackCandidate(currentCleaned) {
+    const fromInput = normalizeTitleCandidate(nameInput.value);
+    const fromCurrent = normalizeTitleCandidate(currentCleaned);
+    const fromLast = normalizeTitleCandidate(lastName);
+    return [fromInput, fromCurrent, fromLast].find(v => v && v.length >= 3) || '';
+  }
+
+  async function fallbackToTitleSearch(title, reason = '') {
+    if (!title || searchPaused) return;
+    const norm = normalizeTitleCandidate(title);
+    if (!norm || norm.length < 3) return;
+    if (norm.toLowerCase() === fallbackTitleLast.toLowerCase()) return;
+    fallbackTitleLast = norm;
+    searchPaused = true;
+    cameraWrap.classList.remove('scanning');
+    setDetection('locked', norm, 60, null);
+    setStatus(`<span class="spinner"></span>Title fallback (${reason || 'set scan fallback'})…`);
+    await searchScryfall(norm);
+  }
+
+  // ── Detection UI ──────────────────────────────────────────────────────────
+  function fmtSetInfo(setInfo) {
+    if (!setInfo) return '';
+    const parts = [];
+    if (setInfo.setCode) parts.push(setInfo.setCode.toUpperCase());
+    if (setInfo.num)     parts.push(`#${setInfo.num}`);
+    return parts.length ? ' · ' + parts.join(' ') : '';
+  }
+
+  function setDetection(state, name, conf, setInfo) {
+    detectionBar.className = 'detection-bar';
+    const displayName = setInfo?.setCode && setInfo?.num
+      ? `${setInfo.setCode.toUpperCase()} #${setInfo.num}`
+      : name;
+    switch (state) {
+      case 'off':
+        detIcon.textContent = '👁';
+        detName.textContent = 'Camera off';
+        detMeta.textContent = '';
+        confFill.style.width = '0%';
+        break;
+      case 'idle':
+        detIcon.textContent = '⬜';
+        detName.textContent = 'Scanning…';
+        detMeta.textContent = setOnlyMode
+          ? 'Set-only zoom ON — show full card; OCR reads footer corner only'
+          : 'Fill the frame — name at top (gold), set·# at bottom (blue)';
+        confFill.style.width = '0%';
+        break;
+      case 'detecting':
+        detIcon.textContent = '🔍';
+        detName.textContent = displayName + (setInfo?.setCode && setInfo?.num ? '' : fmtSetInfo(setInfo));
+        detMeta.textContent = `Name confidence ${conf}% — hold steady`;
+        setConfBar(conf);
+        break;
+      case 'locked':
+        detectionBar.classList.add('locked');
+        cameraWrap.classList.add('locked');
+        cameraWrap.classList.remove('scanning');
+        detIcon.textContent = '✓';
+        detName.textContent = displayName + (setInfo?.setCode && setInfo?.num ? '' : fmtSetInfo(setInfo));
+        detMeta.textContent = setInfo?.num ? 'Exact lookup via set+number…' : 'Fuzzy name search…';
+        setConfBar(conf);
+        break;
+      case 'paused':
+        detIcon.textContent = '⏸';
+        detName.textContent = name || 'Select a card below';
+        detMeta.textContent = '';
+        break;
+    }
+  }
+
+  function updateDetectionUI(name, conf, setInfo) {
+    if (searchPaused) return;
+    if (!name) { setDetection('idle'); return; }
+    // Show any output, even low confidence — helps diagnose what OCR is reading
+    setDetection('detecting', name, conf, setInfo);
+  }
+
+  function setConfBar(conf) {
+    confFill.style.width = conf + '%';
+    confFill.className = 'conf-fill' + (conf < 45 ? ' low' : conf < 65 ? ' mid' : '');
+  }
+
+  async function lockAndSearch(name, setInfo) {
+    setDetection('locked', name, 90, setInfo);
+    searchPaused = true;
+    cameraWrap.classList.remove('scanning');
+
+    // Exact set+number lookup only (no fuzzy-name fallback when set+num exists).
+    if (setInfo?.setCode && setInfo?.num) {
+      setStatus(`<span class="spinner"></span>Exact lookup: ${setInfo.setCode.toUpperCase()} #${setInfo.num}…`);
+      try {
+        const res = await fetch(`${API_BASE}/scryfall/card/${setInfo.setCode.toLowerCase()}/${setInfo.num}`);
+        if (res.ok) {
+          const card = await res.json();
+          setStatus('');
+          displayCandidates([card], card.name);
+          return;
+        }
+      } catch (e) { /* try secondary exact query */ }
+
+      // Secondary exact path by query syntax (handles endpoint misses / formatting quirks).
+      try {
+        const q = `e:${setInfo.setCode.toLowerCase()} cn:${setInfo.num}`;
+        const searchRes = await fetch(
+          `${API_BASE}/scryfall/search?q=${encodeURIComponent(q)}&unique=prints&order=set`
+        );
+        if (searchRes.ok) {
+          const data = await searchRes.json();
+          const cards = (data.data || []).slice(0, 3);
+          if (cards.length) {
+            setStatus('');
+            displayCandidates(cards, `${setInfo.setCode.toUpperCase()} #${setInfo.num}`);
+            return;
+          }
+        }
+      } catch (e) { /* handled below */ }
+
+      setStatus(`No exact match for ${setInfo.setCode.toUpperCase()} #${setInfo.num}`, true);
+      resumeScanning();
+      return;
+    }
+
+    // Fall back to fuzzy name search
+    await searchScryfall(name);
+  }
+
+  // ── Manual search ─────────────────────────────────────────────────────────
+  searchBtn.addEventListener('click', () => {
+    const name = nameInput.value.trim();
+    if (!name) return;
+    searchPaused = true;
+    searchScryfall(name);
+  });
+  nameInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      const name = nameInput.value.trim();
+      if (name) { searchPaused = true; searchScryfall(name); }
+    }
+  });
+
+  // ── Scryfall search ───────────────────────────────────────────────────────
+  async function searchScryfall(name) {
+    const cleanName = normalizeTitleCandidate(name) || String(name || '').trim();
+    if (!cleanName) {
+      setStatus('No usable title detected yet', true);
+      resumeScanning();
+      return;
+    }
+    setStatus('<span class="spinner"></span>Searching Scryfall…');
+    candidatesGrid.innerHTML = '';
+
+    try {
+      const namedRes = await fetch(`${API_BASE}/scryfall/named?fuzzy=${encodeURIComponent(cleanName)}`);
+      if (namedRes.ok) {
+        displayCandidates([await namedRes.json()], cleanName);
+        setStatus('');
+        return;
+      }
+
+      const searchRes = await fetch(
+        `${API_BASE}/scryfall/search?q=${encodeURIComponent(`name:"${cleanName}"`)}&unique=cards&order=name`
+      );
+      if (searchRes.ok) {
+        const data = await searchRes.json();
+        const cards = (data.data || []).slice(0, 3);
+        if (cards.length) { displayCandidates(cards, cleanName); setStatus(''); }
+        else {
+          const looseRes = await fetch(
+            `${API_BASE}/scryfall/search?q=${encodeURIComponent(cleanName)}&unique=cards&order=name`
+          );
+          if (looseRes.ok) {
+            const looseData = await looseRes.json();
+            const looseCards = (looseData.data || []).slice(0, 3);
+            if (looseCards.length) {
+              displayCandidates(looseCards, cleanName);
+              setStatus('');
+              return;
+            }
+          }
+          setStatus(`No results for "${cleanName}"`, true);
+        }
+        return;
+      }
+
+      setStatus(`No card found for "${cleanName}"`, true);
+      resumeScanning();
+
+    } catch (err) {
+      setStatus('Network error — is the server running?', true);
+      resumeScanning();
+    }
+  }
+
+  // ── Display candidates ────────────────────────────────────────────────────
+  function displayCandidates(cards, queryName) {
+    candidatesLabel.textContent = cards.length === 1
+      ? 'Confirm this card'
+      : `${cards.length} results for "${queryName}"`;
+
+    candidatesGrid.innerHTML = '';
+    cards.forEach(card => {
+      const img = card.image_uris?.normal || card.card_faces?.[0]?.image_uris?.normal || '';
+      const price = card.prices?.usd ? `$${parseFloat(card.prices.usd).toFixed(2)}` : '';
+      const tile = document.createElement('div');
+      tile.className = 'card-tile';
+      tile.innerHTML = `
+        <img src="${img}" alt="${card.name}" loading="lazy">
+        <div class="card-tile-info">
+          <div class="card-tile-name">${card.name}</div>
+          <div class="card-tile-set">${(card.set || '').toUpperCase()} · #${card.collector_number || ''}</div>
+          ${price ? `<div class="card-tile-price">${price}</div>` : ''}
+        </div>
+        <div class="add-tile-btn">+ Add</div>
+      `;
+      tile.querySelector('.add-tile-btn').addEventListener('click', () => confirmAdd(card));
+      candidatesGrid.appendChild(tile);
+    });
+
+    candidatesWrap.classList.add('visible');
+    setDetection('paused', queryName);
+    candidatesWrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  dismissBtn.addEventListener('click', async () => {
+    const titleCandidate = getTitleFallbackCandidate(nameInput.value);
+    if (titleCandidate) {
+      candidatesWrap.classList.remove('visible');
+      await fallbackToTitleSearch(titleCandidate, 'manual reject');
+      return;
+    }
+    resumeScanning();
+  });
+
+  function resumeScanning() {
+    searchPaused = false;
+    lastName = '';
+    lastSetInfo = null;
+    lastSetKey = '';
+    consecutiveSetHits = 0;
+    consecutiveHits = 0;
+    scansWithoutSet = 0;
+    fallbackTitleLast = '';
+    candidatesWrap.classList.remove('visible');
+    cameraWrap.classList.remove('locked');
+    if (stream) {
+      cameraWrap.classList.add('scanning');
+      setDetection('idle');
+    }
+  }
+
+  // ── Confirm add ───────────────────────────────────────────────────────────
+  async function confirmAdd(scryfallCard) {
+    const entry = scryfallToEntry(scryfallCard);
+    if (isMockMode) {
+      saveMock(entry);
+      showNotif(`Added ${entry.name}`, 'success');
+      resumeScanning();
+    } else {
+      const ok = await saveReal(entry);
+      if (ok) { showNotif(`Added ${entry.name}`, 'success'); resumeScanning(); }
+    }
+  }
+
+  // ── cardToEntry (matches js/api.js exactly) ───────────────────────────────
+  function scryfallToEntry(card, qty = 1) {
+    const usd = parseFloat(card.prices?.usd || 0);
+    const usdFoil = parseFloat(card.prices?.usd_foil || 0);
+    const cardFaces = (card.card_faces || []).map(face => ({
+      name: face.name || '',
+      type: face.type_line || '',
+      mana: face.mana_cost || '',
+      oracleText: face.oracle_text || '',
+      image: face.image_uris?.normal || face.image_uris?.large || null,
+      imageLarge: face.image_uris?.large || face.image_uris?.normal || null,
+    }));
+    const faceText = (card.card_faces || [])
+      .map(f => {
+        const nm = f.name || '';
+        const txt = f.oracle_text || '';
+        return (nm && txt) ? `${nm}\n${txt}` : (txt || nm);
+      })
+      .filter(Boolean).join('\n\n//\n\n');
+    return {
+      id: card.id, scryfallId: card.id, uid: card.id + '_n',
+      name: card.name, set: card.set, setName: card.set_name,
+      number: card.collector_number, rarity: card.rarity,
+      type: card.type_line, mana: card.mana_cost || '',
+      cmc: card.cmc || 0, colors: card.colors || [],
+      colorIdentity: card.color_identity || [],
+      image: card.image_uris?.normal || card.card_faces?.[0]?.image_uris?.normal || null,
+      imageLarge: card.image_uris?.large || card.card_faces?.[0]?.image_uris?.large || null,
+      cardFaces,
+      priceTCG: usd, priceTCGFoil: usdFoil,
+      priceCK: usd * 0.88, priceCKFoil: usdFoil * 0.88,
+      oracleText: card.oracle_text || faceText || '',
+      power: card.power || null, toughness: card.toughness || null,
+      loyalty: card.loyalty || null,
+      qty, foil: false, addedAt: Date.now()
+    };
+  }
+
+  // ── Storage ───────────────────────────────────────────────────────────────
+  function saveMock(entry) {
+    const col = getMockCollection();
+    const idx = col.findIndex(c => c.uid === entry.uid);
+    if (idx >= 0) col[idx].qty += 1; else col.push(entry);
+    localStorage.setItem(MOCK_KEY, JSON.stringify(col));
+    renderScannedList();
+  }
+
+  function getMockCollection() {
+    try { return JSON.parse(localStorage.getItem(MOCK_KEY) || '[]'); } catch { return []; }
+  }
+
+  async function saveReal(entry) {
+    setStatus('<span class="spinner"></span>Saving…');
+    try {
+      const getRes = await fetch('/api/collection', { credentials: 'include' });
+      if (getRes.status === 401) {
+        setStatus('Not signed in — open the main app, sign in, then return here.', true);
+        return false;
+      }
+      const col = await getRes.json();
+      const idx = col.findIndex(c => c.uid === entry.uid);
+      if (idx >= 0) col[idx].qty += 1; else col.push(entry);
+      const put = await fetch('/api/collection', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(col)
+      });
+      if (!put.ok) throw new Error('PUT failed');
+      setStatus('');
+      return true;
+    } catch (err) {
+      setStatus('Save failed — check server connection.', true);
+      return false;
+    }
+  }
+
+  // ── Scanned list ──────────────────────────────────────────────────────────
+  function renderScannedList() {
+    if (!isMockMode) {
+      scannedList.innerHTML = '<div class="empty-state">Scanned cards show here in mock mode.</div>';
+      document.getElementById('scanned-count').textContent = '';
+      return;
+    }
+    const cards = getMockCollection();
+    document.getElementById('scanned-count').textContent = cards.length ? `(${cards.length})` : '';
+    if (!cards.length) {
+      scannedList.innerHTML = '<div class="empty-state">No cards yet.</div>';
+      return;
+    }
+    scannedList.innerHTML = '';
+    [...cards].reverse().forEach((card, i) => {
+      const realIdx = cards.length - 1 - i;
+      const row = document.createElement('div');
+      row.className = 'scanned-row';
+      row.innerHTML = `
+        <img src="${card.image || ''}" alt="${card.name}">
+        <div class="scanned-row-info">
+          <div class="scanned-row-name">${card.name}</div>
+          <div class="scanned-row-meta">${(card.set || '').toUpperCase()} · ${card.rarity || ''}${card.priceTCG ? ' · $' + parseFloat(card.priceTCG).toFixed(2) : ''}</div>
+        </div>
+        <div class="scanned-qty">×${card.qty}</div>
+        <button class="scanned-remove" data-idx="${realIdx}" title="Remove">×</button>
+      `;
+      row.querySelector('.scanned-remove').addEventListener('click', () => {
+        const col = getMockCollection();
+        col.splice(realIdx, 1);
+        localStorage.setItem(MOCK_KEY, JSON.stringify(col));
+        renderScannedList();
+      });
+      scannedList.appendChild(row);
+    });
+  }
+
+  exportBtn.addEventListener('click', () => {
+    const cards = getMockCollection();
+    if (!cards.length) { showNotif('Nothing to export', 'err'); return; }
+    navigator.clipboard.writeText(JSON.stringify(cards, null, 2))
+      .then(() => showNotif(`Copied ${cards.length} card(s) to clipboard`, 'success'))
+      .catch(() => showNotif('Copy failed — try again', 'err'));
+  });
+
+  clearBtn.addEventListener('click', () => {
+    if (!confirm('Clear all scanned cards?')) return;
+    localStorage.removeItem(MOCK_KEY);
+    renderScannedList();
+    showNotif('Cleared', 'success');
+  });
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  function setStatus(html, isError = false) {
+    searchStatus.innerHTML = html;
+    searchStatus.className = 'status-line' + (isError ? ' error' : '');
+  }
+
+  let notifTimer;
+  function showNotif(msg, type = 'success') {
+    const el = document.getElementById('notif');
+    el.textContent = msg;
+    el.className = `show ${type}`;
+    clearTimeout(notifTimer);
+    notifTimer = setTimeout(() => { el.className = ''; }, 2800);
+  }
+
+  // ── Init ──────────────────────────────────────────────────────────────────
+  renderScannedList();
+  setDetection('off');
+  videoEl.classList.add('hidden');
+})();
+</script>
+</body>
+</html>

@@ -528,8 +528,10 @@ function confirmVoiceAdd() {
   if (existing) {
     existing.qty += pendingCard.qty;
     existing.addedAt = Date.now();
+    recordCollectionEvent('add', existing, pendingCard.qty);
   } else {
     collection.push(pendingCard);
+    recordCollectionEvent('add', pendingCard, pendingCard.qty);
   }
   save();
   renderCollection();

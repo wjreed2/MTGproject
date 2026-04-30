@@ -2,6 +2,7 @@
 
 // ── Scryfall-like query parser ────────────────────────────────────────────────
 const NEW_CARD_WINDOW_MS = 30 * 60 * 1000;
+let _collectionTagSearchDebounce = null;
 
 function isRecentlyAdded(card) {
   const addedAt = Number(card?.addedAt || 0);
@@ -58,12 +59,35 @@ function matchToken(card, tok) {
   } else if (key === 's' || key === 'e' || key === 'set') {
     hit = (card.set||'').toLowerCase() === val;
   } else if (key === 'c' || key === 'color' || key === 'ci') {
-    const cm = { w:'W', u:'U', b:'B', r:'R', g:'G' };
-    const col = cm[val] || val.toUpperCase();
-    if (val === 'c') hit = (card.colors||[]).length === 0;
-    else             hit = (card.colors||[]).includes(col);
+    const parsed = (val || '')
+      .toUpperCase()
+      .replace(/[^WUBRGC]/g, '')
+      .split('')
+      .filter((ch, idx, arr) => arr.indexOf(ch) === idx);
+    const cardColors = [...new Set((card.colors || []).filter(Boolean).map(x => String(x).toUpperCase()))];
+    const hasColorless = parsed.includes('C');
+    const parsedColors = parsed.filter(ch => ch !== 'C');
+    if (hasColorless) {
+      if (cardColors.length === 0) hit = true;
+      else if (!parsedColors.length) hit = false;
+      else hit = cardColors.every(ch => parsedColors.includes(ch));
+    } else {
+      hit = parsed.length > 0
+        && cardColors.length > 0
+        && cardColors.every(ch => parsed.includes(ch));
+    }
   } else if (key === 'name' || key === 'n') {
     hit = (card.name||'').toLowerCase().includes(val);
+  } else if (key === 'tag' || key === 'tags') {
+    const stored = Array.isArray(card.roleTags)
+      ? card.roleTags.map(t => String(t || '').toLowerCase()).filter(Boolean)
+      : [];
+    const live = (typeof _roleTagsForCard === 'function')
+      ? _roleTagsForCard(card).map(t => String(t || '').toLowerCase()).filter(Boolean)
+      : [];
+    const tags = [...new Set([...stored, ...live])];
+    if (val === 'untagged') hit = tags.length === 0;
+    else hit = tags.some(t => t.includes(val));
   } else {
     hit = true; // unknown key — don't filter out
   }
@@ -93,8 +117,21 @@ function getFilteredCollection() {
 
   // ── Color pill filters ────────────────────────────────────────────────────
   if (colorFilters.size > 0) {
-    if (colorFilters.has('C')) cards = cards.filter(c => !c.colors || c.colors.length === 0);
-    else cards = cards.filter(c => [...colorFilters].some(col => (c.colors||[]).includes(col)));
+    const selected = [...colorFilters];
+    const selectedHasColorless = selected.includes('C');
+    const selectedColors = selected.filter(c => c !== 'C');
+    cards = cards.filter(c => {
+      const cardColors = [...new Set((c.colors || []).filter(Boolean).map(x => String(x).toUpperCase()))];
+      if (selectedHasColorless) {
+        if (cardColors.length === 0) return true;
+        if (!selectedColors.length) return false;
+        // Allow only selected colors (no extras), including mono-color subsets.
+        return cardColors.every(col => selectedColors.includes(col));
+      }
+      if (!cardColors.length) return false;
+      // Allow only selected colors (no extras), including mono-color subsets.
+      return cardColors.every(col => selected.includes(col));
+    });
   }
 
   // ── Rarity dropdown ───────────────────────────────────────────────────────
@@ -124,6 +161,66 @@ function getFilteredCollection() {
   };
   cards.sort(sorts[currentSort] || sorts.name);
   return cards;
+}
+
+/** Resolve oracle ids + batch-load Scryfall tags so `tag:` search can use `_roleTagsForCard` (collection never runs deck tag refresh). */
+async function hydrateOracleTagsForCollectionIfNeeded() {
+  if (!collection.length) return;
+  if (typeof _resolveOracleIdForCard !== 'function' || typeof _fetchScryfallTagsForDeckOracleIds !== 'function') return;
+  if (typeof loadTagOverrides === 'function') await loadTagOverrides();
+
+  const needResolve = [];
+  for (const c of collection) {
+    const raw = c?.oracleId || (typeof _scryOracleByPrintId !== 'undefined' && c?.scryfallId ? _scryOracleByPrintId.get(c.scryfallId) : null) || '';
+    const hasOid = raw && typeof _isUuidLike === 'function' && _isUuidLike(String(raw));
+    if (!hasOid && (c?.scryfallId || (c?.set && c?.number) || c?.name)) needResolve.push(c);
+  }
+  const CHUNK = 12;
+  for (let i = 0; i < needResolve.length; i += CHUNK) {
+    await Promise.all(needResolve.slice(i, i + CHUNK).map(c => _resolveOracleIdForCard(c)));
+  }
+
+  const oidsMissingTags = new Set();
+  for (const c of collection) {
+    const raw = c?.oracleId || (typeof _scryOracleByPrintId !== 'undefined' && c?.scryfallId ? _scryOracleByPrintId.get(c.scryfallId) : null) || '';
+    const oid = raw && typeof _isUuidLike === 'function' && _isUuidLike(String(raw)) ? String(raw).toLowerCase() : '';
+    if (oid && typeof _scryTagsByOracleId !== 'undefined' && _scryTagsByOracleId && !_scryTagsByOracleId.has(oid)) {
+      oidsMissingTags.add(oid);
+    }
+  }
+  const batch = [...oidsMissingTags];
+  if (batch.length) await _fetchScryfallTagsForDeckOracleIds(batch);
+}
+
+function _collectionNeedsTagHydrate() {
+  if (!collection.length) return false;
+  if (typeof _isUuidLike !== 'function') return false;
+  for (const c of collection) {
+    const raw = c?.oracleId || (typeof _scryOracleByPrintId !== 'undefined' && c?.scryfallId ? _scryOracleByPrintId.get(c.scryfallId) : null);
+    if (raw && _isUuidLike(String(raw))) {
+      const oid = String(raw).toLowerCase();
+      if (typeof _scryTagsByOracleId !== 'undefined' && _scryTagsByOracleId && !_scryTagsByOracleId.has(oid)) return true;
+    } else if (c?.scryfallId && typeof _scryOracleByPrintId !== 'undefined' && !_scryOracleByPrintId.has(c.scryfallId)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function scheduleCollectionTagHydrateIfNeeded() {
+  if (!/\b(tag|tags)\s*:/i.test(String(searchQ || ''))) return;
+  if (!_collectionNeedsTagHydrate()) return;
+  clearTimeout(_collectionTagSearchDebounce);
+  const pending = String(searchQ || '');
+  _collectionTagSearchDebounce = setTimeout(async () => {
+    if (pending !== searchQ || !/\b(tag|tags)\s*:/i.test(searchQ)) return;
+    if (!_collectionNeedsTagHydrate()) return;
+    try {
+      await hydrateOracleTagsForCollectionIfNeeded();
+    } catch (_) {}
+    if (pending !== searchQ) return;
+    renderCollection();
+  }, 320);
 }
 
 // ── Quick-filter chip helpers ─────────────────────────────────────────────────
@@ -181,6 +278,7 @@ function renderCollection() {
   if (collection.length === 0) {
     grid.style.display = 'none';
     empty.style.display = 'block';
+    updateStats();
     return;
   }
   grid.style.display = 'grid';
@@ -193,10 +291,11 @@ function renderCollection() {
       const tileImg = c.imageLarge || c.image;
       return `
       <div class="card-item" onclick="openCardDetail('${c.uid}')">
-        <div class="card-img-wrap${c.foil ? ' foil' : ''}" style="position:relative">
+        <div class="card-img-wrap${c.foil ? ' foil' : ''}">
           ${tileImg ? `<img src="${tileImg}" loading="lazy" alt="${c.name}">` : '<div class="card-img-placeholder">?</div>'}
           ${c.foil ? `<div class="card-foil-overlay"></div><div class="card-foil-badge">✦ FOIL</div>` : ''}
           ${isRecentlyAdded(c) ? `<div class="card-new-badge" title="New card"></div>` : ''}
+          <button type="button" class="collection-card-star${c.starred ? ' is-starred' : ''}" data-card-uid="${c.uid}" onclick="toggleCardStar('${c.uid}',event)" aria-pressed="${c.starred ? 'true' : 'false'}" aria-label="${c.starred ? 'Unstar card' : 'Star card'}">${c.starred ? '★' : '☆'}</button>
         </div>
         <div class="card-meta">
           <div class="card-name">${c.name}</div>
@@ -207,7 +306,6 @@ function renderCollection() {
             ${c.qty > 1 ? `<span class="price-badge price-qty" style="margin-left:auto">x${c.qty}</span>` : ''}
           </div>
         </div>
-        <button onclick="toggleCardStar('${c.uid}',event)" style="margin-left:auto;background:none;border:none;cursor:pointer;font-size:1.02rem;opacity:${c.starred?'1':'0.88'};color:var(--gold);padding:3px 6px;text-shadow:0 1px 2px rgba(0,0,0,0.65),0 0 3px rgba(0,0,0,0.45);-webkit-text-stroke:${c.starred ? '0' : '0.6px'} rgba(240,216,120,0.95)">${c.starred ? '★' : '☆'}</button>
       </div>`;
     }).join('');
   } else {
@@ -217,11 +315,11 @@ function renderCollection() {
       const tileImg = c.imageLarge || c.image;
       return `
       <div class="card-item" onclick="openCardDetail('${c.uid}')">
-        <div class="card-img-wrap${c.foil ? ' foil' : ''}" style="position:relative">
+        <div class="card-img-wrap${c.foil ? ' foil' : ''}">
           ${tileImg ? `<img src="${tileImg}" loading="lazy" alt="${c.name}">` : `<div class="card-img-placeholder"><svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="1"><rect x="2" y="2" width="20" height="20" rx="2"/><path d="M8 12h8M12 8v8"/></svg><span>${c.set.toUpperCase()}</span></div>`}
           ${c.foil ? `<div class="card-foil-overlay"></div><div class="card-foil-badge">✦ FOIL</div>` : ''}
           ${isRecentlyAdded(c) ? `<div class="card-new-badge" title="New card"></div>` : ''}
-          <button onclick="toggleCardStar('${c.uid}',event)" style="position:absolute;top:3px;left:3px;background:none;border:none;cursor:pointer;font-size:0.98rem;line-height:1;padding:2px 4px;opacity:${c.starred?'1':'0.9'};color:var(--gold);text-shadow:0 1px 2px rgba(0,0,0,0.75),0 0 3px rgba(0,0,0,0.5);-webkit-text-stroke:${c.starred ? '0' : '0.65px'} rgba(240,216,120,0.95)">${c.starred ? '★' : '☆'}</button>
+          <button type="button" class="collection-card-star${c.starred ? ' is-starred' : ''}" data-card-uid="${c.uid}" onclick="toggleCardStar('${c.uid}',event)" aria-pressed="${c.starred ? 'true' : 'false'}" aria-label="${c.starred ? 'Unstar card' : 'Star card'}">${c.starred ? '★' : '☆'}</button>
         </div>
         <div class="card-meta">
           <div class="card-name">${c.name}</div>
@@ -236,20 +334,23 @@ function renderCollection() {
   }
 
   updateStats();
+  scheduleCollectionTagHydrateIfNeeded();
 }
 
 function updateStats() {
-  const total = collection.reduce((s, c) => s + (c.qty || 1), 0);
-  const unique = collection.length;
-  const sets = new Set(collection.map(c => c.set)).size;
-  const valTCG = collection.reduce((s,c) => s + getTCGPriceForCard(c) * (c.qty || 1), 0);
-  const valCK = collection.reduce((s,c) => s + getCKPriceForCard(c) * (c.qty || 1), 0);
+  const rows = getFilteredCollection();
+  const total = rows.reduce((s, c) => s + (c.qty || 1), 0);
+  const unique = rows.length;
+  const sets = new Set(rows.map(c => c.set)).size;
+  const valTCG = rows.reduce((s, c) => s + getTCGPriceForCard(c) * (c.qty || 1), 0);
+  const valCK = rows.reduce((s, c) => s + getCKPriceForCard(c) * (c.qty || 1), 0);
   document.getElementById('statCards').textContent = total.toLocaleString();
   document.getElementById('statUnique').textContent = unique.toLocaleString();
   document.getElementById('statSets').textContent = sets;
   document.getElementById('statValue').textContent = '$' + valTCG.toFixed(0);
   document.getElementById('statValueCK').textContent = '$' + valCK.toFixed(0);
-  recordValueSnapshot(valTCG);
+  const fullTcg = collection.reduce((s, c) => s + getTCGPriceForCard(c) * (c.qty || 1), 0);
+  recordValueSnapshot(fullTcg);
 }
 
 function recordValueSnapshot(value) {
@@ -263,7 +364,11 @@ function recordValueSnapshot(value) {
   localStorage.setItem('mtg_value_history', JSON.stringify(history.slice(-60)));
 }
 
-function filterCards(q) { searchQ = q; renderCollection(); }
+function filterCards(q) {
+  searchQ = q;
+  renderCollection();
+  scheduleCollectionTagHydrateIfNeeded();
+}
 function sortCards(v) { currentSort = v; renderCollection(); }
 function changeRarity(v) { currentRarity = v; renderCollection(); }
 
@@ -286,6 +391,44 @@ function setView(v, btn) {
 let _cardDetailFaces = [];
 let _cardDetailFaceIdx = 0;
 let _cardDetailBase = null;
+let _cardDetailCurrentUid = null;
+
+function _getCardDetailCollectionNavState(currentUid) {
+  if (!currentUid) return { prevUid: null, nextUid: null, index: -1, total: 0 };
+  const rows = getFilteredCollection();
+  const uids = rows.map(c => c.uid).filter(Boolean);
+  const index = uids.indexOf(currentUid);
+  if (index === -1) return { prevUid: null, nextUid: null, index: -1, total: uids.length };
+  return {
+    prevUid: index > 0 ? uids[index - 1] : null,
+    nextUid: index < uids.length - 1 ? uids[index + 1] : null,
+    index,
+    total: uids.length,
+  };
+}
+
+function navigateCardDetailCollection(direction) {
+  const currentUid = _cardDetailCurrentUid;
+  if (!currentUid) return;
+  const nav = _getCardDetailCollectionNavState(currentUid);
+  const targetUid = direction === 'next' ? nav.nextUid : nav.prevUid;
+  if (!targetUid) return;
+  openCardDetail(targetUid);
+}
+
+function _updateCardDetailEdgeNav(uid) {
+  const prevEl = document.getElementById('cardDetailPrevNav');
+  const nextEl = document.getElementById('cardDetailNextNav');
+  if (!prevEl || !nextEl) return;
+  const nav = _getCardDetailCollectionNavState(uid);
+  const show = nav.index !== -1 && nav.total > 1;
+  prevEl.style.display = show ? '' : 'none';
+  nextEl.style.display = show ? '' : 'none';
+  prevEl.classList.toggle('disabled', !nav.prevUid);
+  nextEl.classList.toggle('disabled', !nav.nextUid);
+  prevEl.tabIndex = show && nav.prevUid ? 0 : -1;
+  nextEl.tabIndex = show && nav.nextUid ? 0 : -1;
+}
 
 function _setupCardDetailFaces(base, faces) {
   _cardDetailBase = {
@@ -322,6 +465,7 @@ function flipCardDetailFace() {
 }
 
 async function openCardDetail(uid) {
+  _cardDetailCurrentUid = uid;
   const deckCards = decks.flatMap(d => d.cards || []);
   const sourceCard = window.Ownership?.resolveFromPools
     ? window.Ownership.resolveFromPools(uid, [collection, wishlist, deckCards])
@@ -386,7 +530,7 @@ async function openCardDetail(uid) {
     <div class="card-detail-body">
       <div>
         ${card.imageLarge || card.image
-          ? `<div style="position:relative;overflow:hidden;border-radius:12px;${card.foil ? 'box-shadow:0 0 9px 1px rgba(180,80,255,0.55);' : ''}">
+          ? `<div style="position:relative;overflow:hidden;border-radius:12px;${card.foil ? 'box-shadow:0 0 5px 0 rgba(180,80,255,0.35);' : ''}">
               <img id="cardDetailMainImg" class="card-detail-img" src="${card.imageLarge || card.image}" alt="${card.name}">
               ${card.foil ? `<div class="card-foil-overlay"></div><div class="card-foil-badge">✦ FOIL</div>` : ''}
               <button id="cardFaceFlipBtn" class="btn btn-outline btn-sm" onclick="flipCardDetailFace()"
@@ -420,6 +564,12 @@ async function openCardDetail(uid) {
           ${card.foil ? `<span class="tag tag-gold">✦ Foil</span>` : ''}
           ${!isOwned ? `<span class="tag tag-red">Unowned</span>` : ''}
         </div>
+        <div id="cardDetailDefaultTagsWrap" style="margin-bottom:0.75rem">
+          <div style="font-size:0.78rem;color:var(--text3);margin-bottom:6px;letter-spacing:0.04em">DEFAULT TAGS</div>
+          <div id="cardDetailDefaultTags" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-height:1.25rem">
+            <span style="font-size:0.72rem;color:var(--text3)">Loading…</span>
+          </div>
+        </div>
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:0.75rem">
           <span style="font-size:0.85rem;color:var(--text2)">In Collection:</span>
           ${isOwned
@@ -441,24 +591,27 @@ async function openCardDetail(uid) {
             ? `<button class="btn btn-primary btn-sm" onclick="addToDeckFromDetail('${actionUid}')">+ Add to Deck</button>
                ${isCommanderCandidate ? `<button class="btn btn-outline btn-sm" onclick="buildSkeletonDeckFromInspectorCard('${actionUid}')">Build Skeleton Deck</button>` : ''}
                <button class="btn btn-outline btn-sm" onclick="toggleWishlistFromDetail('${uid}')">${isWishlisted ? '♥ Wishlisted' : '♡ Wishlist'}</button>
-               <button class="btn btn-outline btn-sm" onclick="toggleCardStar('${actionUid}',event)">${card.starred ? '★ Starred' : '☆ Star'}</button>
+               <button type="button" id="cardDetailStarBtn" class="btn btn-outline btn-sm" data-detail-uid="${actionUid}" onclick="toggleCardStar('${actionUid}',event)">${card.starred ? '★ Starred' : '☆ Star'}</button>
                <button class="btn btn-danger btn-sm" onclick="removeFromCollection('${actionUid}')">Remove</button>`
             : `<button class="btn btn-primary btn-sm" onclick="addCardToCollectionFromDetail('${uid}')">+ Add to Collection</button>
                <button class="btn btn-outline btn-sm" onclick="toggleWishlistFromDetail('${uid}')">${isWishlisted ? '♥ Wishlisted' : '♡ Wishlist'}</button>`}
         </div>
         ${activeDeckCard && !activeDeckIsShared
-          ? `<div style="border-top:1px solid var(--border2);padding-top:0.75rem;margin-top:0.25rem;margin-bottom:0.75rem">
+          ? `<div id="cardDetailDeckTagsSection" style="border-top:1px solid var(--border2);padding-top:0.75rem;margin-top:0.25rem;margin-bottom:0.75rem">
               <div style="font-size:0.78rem;color:var(--text3);margin-bottom:6px;letter-spacing:0.04em">DECK CARD TAGS</div>
-              <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+              <div id="cardDetailDeckTagsChips" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
                 ${((activeDeckCard.customTags || []).length
-                  ? activeDeckCard.customTags.map(t => `<span class="tag tag-purple" style="font-size:0.66rem">${t}</span>`).join('')
+                  ? activeDeckCard.customTags.map(t => {
+                      const cls = (typeof _isProtectedDeckTag === 'function' && _isProtectedDeckTag(t)) ? 'tag-scryfall' : 'tag-purple';
+                      return `<span class="tag ${cls}" style="font-size:0.84rem">${t}</span>`;
+                    }).join('')
                   : '<span style="font-size:0.72rem;color:var(--text3)">No tags yet</span>')}
                 <button class="btn btn-outline btn-sm" onclick="openDeckCardTagPicker('${activeDeckId}','${activeDeckCard.uid || activeDeckCard.scryfallId || ''}')">Edit Tags</button>
               </div>
             </div>`
           : ''}
         ${isOwned && decks.length > 0 ? `<div style="border-top:1px solid var(--border2);padding-top:0.75rem;margin-top:0.25rem">
-          <div style="font-size:0.78rem;color:var(--text3);margin-bottom:6px;letter-spacing:0.04em">TAG TO DECK</div>
+          <div style="font-size:0.78rem;color:var(--text3);margin-bottom:6px;letter-spacing:0.04em">TAG TO DECK <span style="font-weight:400;opacity:0.9">· adds 1 copy to that deck’s sideboard</span></div>
           <div style="display:flex;gap:6px;flex-wrap:wrap">${decks.map(d => {
             const tagged = (card.deckTags||[]).includes(d.id);
             return '<button class="btn btn-sm ' + (tagged ? 'btn-primary' : 'btn-outline') + '" onclick="toggleDeckTag(\'' + actionUid + '\',\'' + d.id + '\')">' + d.name + '</button>';
@@ -480,6 +633,57 @@ async function openCardDetail(uid) {
     oracleText: card.oracleText || '',
     image: card.imageLarge || card.image || '',
   }, modalFaces);
+  void _loadCardDetailDefaultTags(card);
+  _updateCardDetailEdgeNav(actionUid);
+}
+
+async function _loadCardDetailDefaultTags(card) {
+  const el = document.getElementById('cardDetailDefaultTags');
+  const modal = document.getElementById('cardDetailModal');
+  if (!el || !modal?.classList.contains('open')) return;
+  if (!card || (!card.scryfallId && !card.oracleId)) {
+    el.innerHTML = '<span style="font-size:0.72rem;color:var(--text3)">—</span>';
+    return;
+  }
+  if (typeof _resolveOracleIdForCard !== 'function' || typeof _roleTagsForCard !== 'function') {
+    el.innerHTML = '<span style="font-size:0.72rem;color:var(--text3)">—</span>';
+    return;
+  }
+  try {
+    if (typeof loadTagOverrides === 'function') await loadTagOverrides();
+    if (Array.isArray(card.roleTags) && card.roleTags.length) {
+      const tags = card.roleTags;
+      if (!modal.classList.contains('open') || document.getElementById('cardDetailDefaultTags') !== el) return;
+      el.innerHTML = tags.map(t => {
+        const prot = typeof _isProtectedDeckTag === 'function' && _isProtectedDeckTag(t);
+        return `<span class="tag ${prot ? 'tag-scryfall' : 'tag-purple'}" style="font-size:0.84rem">${t}</span>`;
+      }).join('');
+      return;
+    }
+    const oid = await _resolveOracleIdForCard(card);
+    if (oid && typeof _SCRY_TAG_SCHEMA_VERSION !== 'undefined' && typeof apiPostJson === 'function'
+      && typeof _scryTagsByOracleId !== 'undefined' && _scryTagsByOracleId && !_scryTagsByOracleId.has(oid)) {
+      try {
+        const r = await apiPostJson('/scryfall/tags/batch', { oracleIds: [oid], schemaVersion: _SCRY_TAG_SCHEMA_VERSION });
+        const arr = Array.isArray(r?.tagsByOracleId?.[oid]) ? r.tagsByOracleId[oid] : [];
+        _scryTagsByOracleId.set(oid, arr);
+      } catch (_) {}
+    }
+    const tags = _roleTagsForCard(card);
+    if (!modal.classList.contains('open') || document.getElementById('cardDetailDefaultTags') !== el) return;
+    if (!tags.length) {
+      el.innerHTML = '<span style="font-size:0.72rem;color:var(--text3)">None</span>';
+      return;
+    }
+    el.innerHTML = tags.map(t => {
+      const prot = typeof _isProtectedDeckTag === 'function' && _isProtectedDeckTag(t);
+      return `<span class="tag ${prot ? 'tag-scryfall' : 'tag-purple'}" style="font-size:0.84rem">${t}</span>`;
+    }).join('');
+  } catch (_) {
+    if (document.getElementById('cardDetailDefaultTags') === el && modal.classList.contains('open')) {
+      el.innerHTML = '<span style="font-size:0.72rem;color:var(--text3)">—</span>';
+    }
+  }
 }
 
 function adjustActiveDeckQtyFromDetail(cardRef, delta) {
@@ -535,13 +739,11 @@ function addCardToCollectionFromDetail(uid) {
   if (existing) {
     existing.qty = (existing.qty || 0) + 1;
     existing.addedAt = Date.now();
+    recordCollectionEvent('add', existing, 1);
   } else {
-    collection.push({
-      ...sourceCard,
-      uid: targetUid,
-      qty: 1,
-      addedAt: Date.now()
-    });
+    const newCard = { ...sourceCard, uid: targetUid, qty: 1, addedAt: Date.now() };
+    collection.push(newCard);
+    recordCollectionEvent('add', newCard, 1);
   }
   save();
   renderCollection();
@@ -603,14 +805,163 @@ function closeCardDetail() {
     return;
   }
   document.getElementById('cardDetailModal').classList.remove('open');
+  _cardDetailCurrentUid = null;
+  _updateCardDetailEdgeNav(null);
   if (typeof _hideCardHoverPreview === 'function') _hideCardHoverPreview();
 }
+
+document.addEventListener('keydown', e => {
+  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+  const modal = document.getElementById('cardDetailModal');
+  if (!modal?.classList.contains('open')) return;
+  const tag = String(e.target?.tagName || '').toLowerCase();
+  const isTypingTarget = tag === 'input' || tag === 'textarea' || tag === 'select' || !!e.target?.isContentEditable;
+  if (isTypingTarget) return;
+  e.preventDefault();
+  navigateCardDetailCollection(e.key === 'ArrowRight' ? 'next' : 'prev');
+});
+
+function _resolveActiveDeckCardForOpenDetail(uid) {
+  const deckCards = decks.flatMap(d => d.cards || []);
+  const sourceCard = window.Ownership?.resolveFromPools
+    ? window.Ownership.resolveFromPools(uid, [collection, wishlist, deckCards])
+    : (
+      collection.find(c => c.uid === uid || c.scryfallId === uid) ||
+      wishlist.find(c => c.scryfallId === uid || c.uid === uid) ||
+      deckCards.find(c => c.uid === uid || c.scryfallId === uid)
+    );
+  if (!sourceCard) return null;
+  const ownedCard = window.Ownership?.resolveOwnedCard
+    ? window.Ownership.resolveOwnedCard(collection, sourceCard)
+    : (
+      collection.find(c => c.uid === sourceCard.uid) ||
+      collection.find(c => c.scryfallId === sourceCard.scryfallId && !!c.foil === !!sourceCard.foil) ||
+      collection.find(c => c.scryfallId === sourceCard.scryfallId)
+    );
+  const card = ownedCard || sourceCard;
+  const activeDeck = decks.find(d => d.id === activeDeckId);
+  const cardKey = (typeof getCardInventoryKey === 'function')
+    ? getCardInventoryKey(card)
+    : (card.uid || (card.scryfallId ? card.scryfallId + (card.foil ? '_f' : '_n') : ''));
+  const activeDeckCard = activeDeck?.cards?.find(c => {
+    const deckKey = (typeof getCardInventoryKey === 'function')
+      ? getCardInventoryKey(c)
+      : (c.uid || (c.scryfallId ? c.scryfallId + (c.foil ? '_f' : '_n') : ''));
+    return deckKey === cardKey;
+  });
+  return { activeDeckCard };
+}
+
+/** Updates only the DECK CARD TAGS chip row so tag edits do not rebuild the whole inspector (avoids flicker). */
+function patchOpenCardDetailDeckTags() {
+  const modal = document.getElementById('cardDetailModal');
+  const chipsEl = document.getElementById('cardDetailDeckTagsChips');
+  if (!modal?.classList.contains('open') || !chipsEl || !_cardDetailCurrentUid) return;
+  if (typeof activeDeckIsShared !== 'undefined' && activeDeckIsShared) return;
+  const { activeDeckCard } = _resolveActiveDeckCardForOpenDetail(_cardDetailCurrentUid);
+  if (!activeDeckCard) return;
+  const tags = Array.isArray(activeDeckCard.customTags) ? activeDeckCard.customTags : [];
+  const chipsHtml = tags.length
+    ? tags.map(t => {
+        const cls = (typeof _isProtectedDeckTag === 'function' && _isProtectedDeckTag(t)) ? 'tag-scryfall' : 'tag-purple';
+        return `<span class="tag ${cls}" style="font-size:0.84rem">${t}</span>`;
+      }).join('')
+    : '<span style="font-size:0.72rem;color:var(--text3)">No tags yet</span>';
+  const ref = String(activeDeckCard.uid || activeDeckCard.scryfallId || '').replace(/'/g, "\\'");
+  chipsEl.innerHTML = `${chipsHtml}<button class="btn btn-outline btn-sm" onclick="openDeckCardTagPicker('${activeDeckId}','${ref}')">Edit Tags</button>`;
+}
+
+function refreshOpenCardDetail() {
+  const modal = document.getElementById('cardDetailModal');
+  if (!modal || !modal.classList.contains('open') || !_cardDetailCurrentUid) return;
+  openCardDetail(_cardDetailCurrentUid);
+}
+
+// ── Collection History ────────────────────────────────────────────────────────
+
+function recordCollectionEvent(type, card, delta) {
+  const event = {
+    ts: Date.now(),
+    type,
+    uid: card.uid || '',
+    name: card.name || '',
+    set: card.set || '',
+    setName: card.setName || '',
+    foil: !!card.foil,
+    delta: Math.abs(delta || 1),
+    image: card.image || null,
+  };
+  collectionHistory.unshift(event);
+  if (collectionHistory.length > 500) collectionHistory.length = 500;
+  apiPostJson('/history', event).catch(() => {});
+  if (_historyVisible) renderCollectionHistory();
+}
+
+let _historyVisible = false;
+
+function toggleCollectionHistory() {
+  _historyVisible = !_historyVisible;
+  document.getElementById('tab-collection')?.classList.toggle('history-active', _historyVisible);
+  document.getElementById('historyBtn')?.classList.toggle('active', _historyVisible);
+  if (_historyVisible) renderCollectionHistory();
+}
+
+function renderCollectionHistory() {
+  const panel = document.getElementById('collectionHistoryPanel');
+  if (!panel) return;
+  if (!collectionHistory.length) {
+    panel.innerHTML = '<div class="history-empty">No history yet — add or remove cards to see changes here.</div>';
+    return;
+  }
+  const todayKey = new Date().toDateString();
+  const yestKey  = new Date(Date.now() - 86400000).toDateString();
+  const days = {};
+  for (const ev of collectionHistory) {
+    const key = new Date(ev.ts).toDateString();
+    (days[key] = days[key] || []).push(ev);
+  }
+  panel.innerHTML = Object.entries(days).map(([key, events]) => {
+    const label = key === todayKey ? 'Today'
+      : key === yestKey ? 'Yesterday'
+      : new Date(events[0].ts).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+    return `<div class="history-day-group">
+      <div class="history-day-label">${label}</div>
+      ${events.map(ev => {
+        const isAdd = ev.type === 'add';
+        const d     = new Date(ev.ts);
+        const time  = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                    + ' · ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+        const meta  = [ev.setName || ev.set, ev.foil ? 'Foil' : ''].filter(Boolean).join(' · ');
+        const img   = ev.image
+          ? `<img class="history-card-img" src="${ev.image}" alt="" loading="lazy">`
+          : `<div class="history-card-img-placeholder"></div>`;
+        return `<div class="history-event" onclick="openCardDetail('${ev.uid}')">
+          ${img}
+          <div class="history-event-info">
+            <div class="history-event-name">${ev.name}</div>
+            ${meta ? `<div class="history-event-meta">${meta}</div>` : ''}
+            <div class="history-event-time">${time}</div>
+          </div>
+          <div class="history-event-badge ${isAdd ? 'history-add' : 'history-remove'}">${isAdd ? '+' : '−'}${ev.delta}</div>
+        </div>`;
+      }).join('')}
+    </div>`;
+  }).join('');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 function adjustQty(uid, delta) {
   const card = collection.find(c => c.uid === uid);
   if (!card) return;
-  card.qty = Math.max(0, (card.qty || 1) + delta);
-  if (card.qty === 0) collection = collection.filter(c => c.uid !== uid);
+  const prevQty = card.qty || 1;
+  card.qty = Math.max(0, prevQty + delta);
+  if (card.qty === 0) {
+    recordCollectionEvent('remove', card, prevQty);
+    collection = collection.filter(c => c.uid !== uid);
+  } else {
+    recordCollectionEvent(delta > 0 ? 'add' : 'remove', card, Math.abs(delta));
+  }
   save();
   const el = document.getElementById('detailQty');
   if (el) el.textContent = card.qty;
@@ -644,6 +995,8 @@ function setCardFoilFromDetail(uid, toFoil) {
 }
 
 function removeFromCollection(uid) {
+  const card = collection.find(c => c.uid === uid);
+  if (card) recordCollectionEvent('remove', card, card.qty || 1);
   collection = collection.filter(c => c.uid !== uid);
   save(); renderCollection(); closeCardDetail();
   showNotif('Card removed from collection');
@@ -655,15 +1008,45 @@ function toggleStarFilter(btn) {
   renderCollection();
 }
 
+function _escapeAttrSelector(val) {
+  const s = String(val || '');
+  if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') return CSS.escape(s);
+  return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+/** Updates star UI without re-rendering tiles (avoids restarting foil rainbow on other cards). */
+function _syncCollectionStarDisplay(uid, starred) {
+  const grid = document.getElementById('cardGrid');
+  if (grid) {
+    const sel = `.collection-card-star[data-card-uid="${_escapeAttrSelector(uid)}"]`;
+    grid.querySelectorAll(sel).forEach(btn => {
+      btn.classList.toggle('is-starred', starred);
+      btn.setAttribute('aria-pressed', starred ? 'true' : 'false');
+      btn.setAttribute('aria-label', starred ? 'Unstar card' : 'Star card');
+      btn.textContent = starred ? '★' : '☆';
+    });
+  }
+  const detailBtn = document.getElementById('cardDetailStarBtn');
+  if (detailBtn && String(detailBtn.getAttribute('data-detail-uid') || '') === String(uid)) {
+    detailBtn.textContent = starred ? '★ Starred' : '☆ Star';
+  }
+}
+
 function toggleCardStar(uid, event) {
   if (event) event.stopPropagation();
   const card = collection.find(c => c.uid === uid);
   if (!card) return;
-  card.starred = !card.starred;
+  const nowStarred = !card.starred;
+  card.starred = nowStarred;
   save();
-  renderCollection();
-  const modal = document.getElementById('cardDetailModal');
-  if (modal.classList.contains('open')) openCardDetail(uid);
+  if (showStarredCardsOnly && !nowStarred) {
+    renderCollection();
+    const modal = document.getElementById('cardDetailModal');
+    if (modal.classList.contains('open')) openCardDetail(uid);
+    return;
+  }
+  _syncCollectionStarDisplay(uid, nowStarred);
+  updateStats();
 }
 
 function toggleDeckTag(uid, deckId) {
@@ -671,8 +1054,16 @@ function toggleDeckTag(uid, deckId) {
   if (!card) return;
   if (!card.deckTags) card.deckTags = [];
   const idx = card.deckTags.indexOf(deckId);
-  if (idx >= 0) { card.deckTags.splice(idx, 1); } else { card.deckTags.push(deckId); }
+  const removing = idx >= 0;
+  if (removing) card.deckTags.splice(idx, 1);
+  else card.deckTags.push(deckId);
+  if (typeof syncDeckSideboardForCollectionTag === 'function') {
+    syncDeckSideboardForCollectionTag(deckId, card, !removing);
+  }
   save();
+  if (typeof activeDeckId !== 'undefined' && activeDeckId === deckId && typeof renderActiveDeck === 'function') {
+    renderActiveDeck();
+  }
   openCardDetail(uid);
 }
 
@@ -829,8 +1220,10 @@ function addCardToCollection(scryfallCard, qty, foil) {
   if (existing) {
     existing.qty += qty;
     existing.addedAt = Date.now();
+    recordCollectionEvent('add', existing, qty);
   } else {
     collection.push(entry);
+    recordCollectionEvent('add', entry, qty);
   }
   save();
   renderCollection();

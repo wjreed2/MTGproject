@@ -17,11 +17,14 @@ CREATE TABLE IF NOT EXISTS collection (
   qty INT NOT NULL DEFAULT 1,
   foil TINYINT(1) NOT NULL DEFAULT 0,
   scryfall_id VARCHAR(50) DEFAULT NULL,
+  oracle_id CHAR(36) DEFAULT NULL,
+  role_tags_json JSON DEFAULT NULL,
   data JSON NOT NULL,
   added_at BIGINT NOT NULL DEFAULT 0,
   PRIMARY KEY (account_id, uid),
   INDEX idx_name (name),
   INDEX idx_scryfall_id (scryfall_id),
+  INDEX idx_collection_account_oracle (account_id, oracle_id),
   CONSTRAINT fk_collection_account FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
