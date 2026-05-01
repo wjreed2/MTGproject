@@ -131,6 +131,17 @@ async function loadAppDataAfterAuth() {
         if (!Array.isArray(c.customTags)) c.customTags = [];
       })
     );
+    const savedDeckId = localStorage.getItem('mtg_active_deck_id');
+    if (savedDeckId) {
+      if (decks.some(d => d.id === savedDeckId) || sharedDecks.some(d => d.id === savedDeckId)) {
+        activeDeckId = savedDeckId;
+        if (typeof activeDeckIsShared !== 'undefined') {
+          activeDeckIsShared = !decks.some(d => d.id === savedDeckId);
+        }
+      } else {
+        localStorage.removeItem('mtg_active_deck_id');
+      }
+    }
     if (typeof loadTagOverrides === 'function') {
       try { await loadTagOverrides(true); } catch (_) {}
     }
