@@ -176,7 +176,7 @@ async function copyPublicDeck() {
     };
 
     decks.push(copy);
-    save();
+    save('decks');
 
     closePublicDeckModal();
     // Navigate to the deck tab and select the new deck

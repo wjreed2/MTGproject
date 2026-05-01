@@ -545,7 +545,7 @@ async function _deferredHydrateCardDetail(card, openSession, actionUid, isOwned)
     if (!fresh) return;
     const entry = cardToEntry(fresh, card.qty || 1);
     _mergeFetchedCardIntoDetailCard(card, entry);
-    save();
+    save('collection');
     if (openSession !== _cardDetailOpenSession || actionUid !== _cardDetailCurrentUid) return;
     _patchCardDetailInspectorDom(card, isOwned);
     const modalFaces = Array.isArray(card.cardFaces) ? card.cardFaces : [];
@@ -643,7 +643,7 @@ function _getCardDetailDeckNavState(currentUid) {
   };
 }
 
-/** Same arrow handler for both modes: order comes from filtered collection vs active deck (+ SB); only `_cardDetailNavMode` differs. */
+/** Same arrow handler for both modes: order comes from filtered collection vs active deck (+ MB); only `_cardDetailNavMode` differs. */
 function navigateCardDetailCollection(direction) {
   const currentUid = _cardDetailCurrentUid;
   if (!currentUid) return;
@@ -857,7 +857,7 @@ function _syncCardDetailTagToDeckWrap(ctx) {
   if (!el) return;
   el.style.display = show ? 'block' : 'none';
   if (show) {
-    el.innerHTML = `<div style="font-size:0.78rem;color:var(--text3);margin-bottom:6px;letter-spacing:0.04em">TAG TO DECK <span style="font-weight:400;opacity:0.9">· adds 1 copy to that deck’s sideboard</span></div>
+    el.innerHTML = `<div style="font-size:0.78rem;color:var(--text3);margin-bottom:6px;letter-spacing:0.04em">TAG TO DECK <span style="font-weight:400;opacity:0.9">· adds 1 copy to that deck’s maybe board</span></div>
           <div style="display:flex;gap:6px;flex-wrap:wrap">${decks.map(d => {
     const tagged = (card.deckTags || []).includes(d.id);
     return '<button class="btn btn-sm ' + (tagged ? 'btn-primary' : 'btn-outline') + '" onclick="toggleDeckTag(\'' + actionUid + '\',\'' + d.id + '\')">' + d.name + '</button>';
@@ -964,7 +964,7 @@ function _htmlOpenCardDetailRightColumn(ctx) {
               </div>`
     : '';
   const tagToDeckInner = showTagToDeck
-    ? `<div style="font-size:0.78rem;color:var(--text3);margin-bottom:6px;letter-spacing:0.04em">TAG TO DECK <span style="font-weight:400;opacity:0.9">· adds 1 copy to that deck’s sideboard</span></div>
+    ? `<div style="font-size:0.78rem;color:var(--text3);margin-bottom:6px;letter-spacing:0.04em">TAG TO DECK <span style="font-weight:400;opacity:0.9">· adds 1 copy to that deck’s maybe board</span></div>
           <div style="display:flex;gap:6px;flex-wrap:wrap">${decks.map(d => {
     const tagged = (card.deckTags || []).includes(d.id);
     return '<button class="btn btn-sm ' + (tagged ? 'btn-primary' : 'btn-outline') + '" onclick="toggleDeckTag(\'' + actionUid + '\',\'' + d.id + '\')">' + d.name + '</button>';
@@ -1082,7 +1082,7 @@ async function openCardDetail(uid, navMode, opts) {
       if (fresh) {
         const entry = cardToEntry(fresh, card.qty || 1);
         _mergeFetchedCardIntoDetailCard(card, entry);
-        save();
+        save('collection');
       }
     } catch (_) {}
   }
@@ -1213,7 +1213,7 @@ function adjustActiveDeckQtyFromDetail(cardRef, delta) {
     if ((card.qty || 1) > 1) card.qty -= 1;
     else deck.cards = deck.cards.filter(c => c !== card);
   }
-  save();
+  save('collection');
   renderActiveDeck();
   const deckQtyEl = document.getElementById('detailDeckQty');
   if (deckQtyEl) {
@@ -1245,7 +1245,7 @@ function addCardToCollectionFromDetail(uid) {
     collection.push(newCard);
     recordCollectionEvent('add', newCard, 1);
   }
-  save();
+  save('collection');
   renderCollection();
   updateStats();
   openCardDetail(targetUid);
@@ -1272,7 +1272,7 @@ function addToWishlistAnyFromDetail(uid) {
     priority: 'med',
     addedAt: Date.now()
   });
-  save();
+  save('collection');
   renderWishlist();
   showNotif('Added to wishlist');
 }
@@ -1290,7 +1290,7 @@ function toggleWishlistFromDetail(uid) {
   const idx = wishlist.findIndex(c => c.scryfallId === sourceCard.scryfallId);
   if (idx >= 0) {
     wishlist.splice(idx, 1);
-    save();
+    save('collection');
     renderWishlist();
     openCardDetail(uid);
     showNotif('Removed from wishlist');
@@ -1459,7 +1459,7 @@ function adjustQty(uid, delta) {
   } else {
     recordCollectionEvent(delta > 0 ? 'add' : 'remove', card, Math.abs(delta));
   }
-  save();
+  save('collection');
   const el = document.getElementById('detailQty');
   if (el) el.textContent = card.qty;
   renderCollection();
@@ -1484,7 +1484,7 @@ function setCardFoilFromDetail(uid, toFoil) {
     card.uid = targetUid;
   }
 
-  save();
+  save('collection');
   renderCollection();
   updateStats();
   openCardDetail(targetUid);
@@ -1495,7 +1495,7 @@ function removeFromCollection(uid) {
   const card = collection.find(c => c.uid === uid);
   if (card) recordCollectionEvent('remove', card, card.qty || 1);
   collection = collection.filter(c => c.uid !== uid);
-  save(); renderCollection(); closeCardDetail();
+  save('collection'); renderCollection(); closeCardDetail();
   showNotif('Card removed from collection');
 }
 
@@ -1535,7 +1535,7 @@ function toggleCardStar(uid, event) {
   if (!card) return;
   const nowStarred = !card.starred;
   card.starred = nowStarred;
-  save();
+  save('collection');
   if (showStarredCardsOnly && !nowStarred) {
     renderCollection();
     const modal = document.getElementById('cardDetailModal');
@@ -1557,7 +1557,7 @@ function toggleDeckTag(uid, deckId) {
   if (typeof syncDeckSideboardForCollectionTag === 'function') {
     syncDeckSideboardForCollectionTag(deckId, card, !removing);
   }
-  save();
+  save('collection');
   if (typeof activeDeckId !== 'undefined' && activeDeckId === deckId && typeof renderActiveDeck === 'function') {
     renderActiveDeck();
   }
@@ -1707,7 +1707,7 @@ function addCardToCollection(scryfallCard, qty, foil) {
     collection.push(entry);
     recordCollectionEvent('add', entry, qty);
   }
-  save();
+  save('collection');
   renderCollection();
   updateStats();
 }

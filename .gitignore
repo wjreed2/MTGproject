@@ -2,3 +2,7 @@
 node_modules/
 .claude
 .vs
+ios/
+android/
+www/
+dist/

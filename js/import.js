@@ -142,7 +142,7 @@ async function importFromArchidekt() {
       if (confirmed) addDeckCardsToCollection(deck);
     }
 
-    save();
+    save('decks', 'collection');
     closeArchidektImport();
     showTab('decks');
     showNotif(`Imported "${deck.name}" — ${deck.cards.length} cards`);
@@ -299,7 +299,7 @@ async function importFromMoxfield() {
       if (confirmed) addDeckCardsToCollection(deck);
     }
 
-    save();
+    save('decks', 'collection');
     closeMoxfieldImport();
     showTab('decks');
     showNotif(`Imported "${deck.name}" — ${deck.cards.length} cards`);
@@ -415,7 +415,7 @@ function addDeckCardsToCollection(deck) {
     }
   }
   if (added + updated > 0) {
-    save();
+    save('collection');
     renderCollection();
     updateStats();
     const skipNote = skipped ? ` (${skipped} unidentified card${skipped !== 1 ? 's' : ''} skipped)` : '';
@@ -432,7 +432,7 @@ async function clearCollection() {
   });
   if (!ok) return;
   collection.length = 0;
-  save(); renderCollection(); updateStats();
+  save('collection'); renderCollection(); updateStats();
   showNotif('Collection cleared');
 }
 
@@ -511,7 +511,7 @@ async function addDemoCards() {
       await new Promise(r => setTimeout(r, 120));
     }
 
-    save(); renderCollection(); updateStats(); closeImport();
+    save('collection'); renderCollection(); updateStats(); closeImport();
     showNotif(`Added ~${totalAdded} entries (${targetCount} cards${includeFoils ? ' + foils' : ''}) from the last 12 sets!`);
   } catch(e) {
     showNotif('Failed to fetch demo cards — check your connection', true);
@@ -642,7 +642,7 @@ async function importCSV(text) {
     }
   }
 
-  save(); renderCollection(); updateStats(); closeImport();
+  save('collection'); renderCollection(); updateStats(); closeImport();
   showNotif(`Imported ${added} cards${skipped ? ` (${skipped} skipped)` : ''}`);
 }
 
@@ -680,6 +680,6 @@ async function importCollection() {
     await new Promise(r => setTimeout(r, 80));
   }
 
-  save(); renderCollection(); updateStats(); closeImport();
+  save('collection'); renderCollection(); updateStats(); closeImport();
   showNotif(`Imported ${added} cards${failed ? ` (${failed} failed)` : ''}`);
 }

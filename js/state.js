@@ -64,8 +64,9 @@ let currentUser = null; // { id, email } — set on login
 
 // ── Save ──────────────────────────────────────────────────────────────────────
 
-function save() {
-  scheduleSave(); // debounced, fire-and-forget (defined in db-client.js)
+function save(...domains) {
+  markDirty(...domains);
+  scheduleSave();
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
@@ -104,7 +105,7 @@ async function loadAppDataAfterAuth() {
     collection = collection.filter(c => c.scryfallId || c.image);
     if (collection.length < before) {
       console.warn(`Removed ${before - collection.length} unidentified card(s) from collection`);
-      save();
+      save('collection');
     }
 
     let backfilledAddedAt = false;
@@ -116,7 +117,7 @@ async function loadAppDataAfterAuth() {
         backfilledAddedAt = true;
       }
     });
-    if (backfilledAddedAt) save();
+    if (backfilledAddedAt) save('collection');
     wishlist.forEach(c => {
       if (typeof c.priceCKFoil !== 'number') c.priceCKFoil = c.priceTCGFoil ? c.priceTCGFoil * 0.88 : 0;
     });
@@ -167,6 +168,23 @@ function cardNeedsPriceRefresh(card) {
   return card?.foil ? (foil <= 0 && nonFoil <= 0) : nonFoil <= 0;
 }
 
+function _applyFreshCardData(card, fresh) {
+  const entry   = cardToEntry(fresh, card.qty || 1);
+  const oldTCG  = parseFloat(card.priceTCG) || 0;
+  const oldFoil = parseFloat(card.priceTCGFoil) || 0;
+  card.id           = fresh.id           || card.id;
+  card.scryfallId   = fresh.id           || card.scryfallId;
+  card.priceTCG     = entry.priceTCG     ?? card.priceTCG;
+  card.priceTCGFoil = entry.priceTCGFoil ?? card.priceTCGFoil;
+  card.priceCK      = entry.priceCK      ?? card.priceCK;
+  card.priceCKFoil  = entry.priceCKFoil  ?? card.priceCKFoil;
+  card.image        = card.image         || entry.image;
+  card.imageLarge   = card.imageLarge    || entry.imageLarge;
+  card.type         = card.type          || entry.type;
+  card.oracleText   = card.oracleText    || entry.oracleText;
+  return ((parseFloat(card.priceTCG) || 0) !== oldTCG || (parseFloat(card.priceTCGFoil) || 0) !== oldFoil) ? 1 : 0;
+}
+
 async function refreshMissingCollectionPrices() {
   if (isPriceRefreshRunning) return;
   const targets = collection.filter(c =>
@@ -178,37 +196,39 @@ async function refreshMissingCollectionPrices() {
   let updated = 0;
 
   try {
-    for (const card of targets) {
+    // Cards with a Scryfall ID are batched — 75 per request instead of 1 each
+    const batchable = targets.filter(c => c.scryfallId);
+    const fallback  = targets.filter(c => !c.scryfallId);
+
+    const BATCH = 75;
+    for (let i = 0; i < batchable.length; i += BATCH) {
+      const slice = batchable.slice(i, i + BATCH);
+      let freshCards = [];
+      try {
+        const res = await fetch('https://api.scryfall.com/cards/collection', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ identifiers: slice.map(c => ({ id: c.scryfallId })) }),
+        });
+        const json = await res.json();
+        freshCards = json.data || [];
+      } catch (_) {}
+      const freshById = new Map(freshCards.map(f => [f.id, f]));
+      for (const card of slice) {
+        const fresh = freshById.get(card.scryfallId);
+        if (fresh) updated += _applyFreshCardData(card, fresh);
+      }
+      if (i + BATCH < batchable.length) await new Promise(r => setTimeout(r, 100));
+    }
+
+    // Serial fallback for the rare cards that have no Scryfall ID yet
+    for (const card of fallback) {
       let fresh = null;
       try {
-        if (card.scryfallId) fresh = await fetchCardById(card.scryfallId);
-        if (!fresh && card.set && card.number) fresh = await fetchCard(card.set, card.number);
+        if (card.set && card.number) fresh = await fetchCard(card.set, card.number);
         if (!fresh && card.name) fresh = await fetchCardByName(card.name);
-      } catch (_) {
-        fresh = null;
-      }
-
-      if (!fresh) continue;
-
-      const entry = cardToEntry(fresh, card.qty || 1);
-      const oldTCG = parseFloat(card.priceTCG) || 0;
-      const oldFoil = parseFloat(card.priceTCGFoil) || 0;
-
-      card.id = fresh.id || card.id;
-      card.scryfallId = fresh.id || card.scryfallId;
-      card.priceTCG = entry.priceTCG ?? card.priceTCG;
-      card.priceTCGFoil = entry.priceTCGFoil ?? card.priceTCGFoil;
-      card.priceCK = entry.priceCK ?? card.priceCK;
-      card.priceCKFoil = entry.priceCKFoil ?? card.priceCKFoil;
-      card.image = card.image || entry.image;
-      card.imageLarge = card.imageLarge || entry.imageLarge;
-      card.type = card.type || entry.type;
-      card.oracleText = card.oracleText || entry.oracleText;
-
-      if ((parseFloat(card.priceTCG) || 0) !== oldTCG || (parseFloat(card.priceTCGFoil) || 0) !== oldFoil) {
-        updated++;
-      }
-
+      } catch (_) {}
+      if (fresh) updated += _applyFreshCardData(card, fresh);
       await new Promise(r => setTimeout(r, 90));
     }
   } finally {
@@ -216,7 +236,7 @@ async function refreshMissingCollectionPrices() {
   }
 
   if (!updated) return;
-  save();
+  save('collection');
   renderCollection();
   updateStats();
   showNotif(`Updated prices for ${updated} card${updated === 1 ? '' : 's'}.`);

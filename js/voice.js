@@ -533,7 +533,7 @@ function confirmVoiceAdd() {
     collection.push(pendingCard);
     recordCollectionEvent('add', pendingCard, pendingCard.qty);
   }
-  save();
+  save('collection');
   renderCollection();
   updateStats();
   showNotif(`Added ${pendingCard.qty}x ${pendingCard.name}`);

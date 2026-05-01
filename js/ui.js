@@ -14,7 +14,12 @@ function showTab(t) {
   if (t === 'browse') renderBrowseDecks();
   if (t === 'wishlist') renderWishlist();
   if (t === 'stats') renderStats();
-  if (t === 'games') renderGames();
+  if (t === 'games') {
+    if (!window.THREE) {
+      import('/vendor/three.module.min.js').then(m => { window.THREE = m; renderAllLifeDice3D(); });
+    }
+    renderGames();
+  }
 }
 
 // ── Custom confirm dialog ─────────────────────────────────────────────────────

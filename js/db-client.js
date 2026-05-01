@@ -131,20 +131,28 @@ function scheduleSaveSharedDeck(deck) {
   }, 500);
 }
 
+const _dirty = new Set();
+function markDirty(...domains) {
+  if (!domains.length) {
+    ['collection', 'decks', 'games', 'wishlist', 'prefs'].forEach(d => _dirty.add(d));
+  } else {
+    domains.forEach(d => _dirty.add(d));
+  }
+}
+
 // Debounced fire-and-forget save — called by save() in state.js
 let _saveTimer = null;
 function scheduleSave() {
   clearTimeout(_saveTimer);
   _saveTimer = setTimeout(() => {
-    Promise.all([
-      apiPut('/collection', collection),
-      apiPut('/decks', decks),
-      apiPut('/games', games),
-      apiPut('/wishlist', wishlist),
-      apiPut('/preferences', {
-        starred_sets: [...starredSets],
-        deck_custom_tags: deckCustomTags || [],
-      }),
-    ]).catch(e => console.error('[db] save failed:', e));
+    const toSave = new Set(_dirty);
+    _dirty.clear();
+    const ops = [];
+    if (toSave.has('collection')) ops.push(apiPut('/collection', collection));
+    if (toSave.has('decks'))      ops.push(apiPut('/decks', decks));
+    if (toSave.has('games'))      ops.push(apiPut('/games', games));
+    if (toSave.has('wishlist'))   ops.push(apiPut('/wishlist', wishlist));
+    if (toSave.has('prefs'))      ops.push(apiPut('/preferences', { starred_sets: [...starredSets], deck_custom_tags: deckCustomTags || [] }));
+    if (ops.length) Promise.all(ops).catch(e => console.error('[db] save failed:', e));
   }, 500);
 }

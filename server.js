@@ -1,13 +1,15 @@
 require('dotenv').config();
-const express = require('express');
-const mysql   = require('mysql2/promise');
-const cors    = require('cors');
-const path    = require('path');
-const bcrypt  = require('bcrypt');
-const session = require('express-session');
-const crypto  = require('crypto');
+const express     = require('express');
+const mysql       = require('mysql2/promise');
+const cors        = require('cors');
+const path        = require('path');
+const bcrypt      = require('bcrypt');
+const session     = require('express-session');
+const crypto      = require('crypto');
+const compression = require('compression');
 
 const app = express();
+app.use(compression());
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '20mb' }));
 
@@ -2676,7 +2678,12 @@ async function start() {
   } catch (e) {
     console.error('[db] schema/backfill warning:', e.message);
   }
-  app.use(express.static(path.join(__dirname)));
+  app.use('/js',     express.static(path.join(__dirname, 'js')));
+  app.use('/styles', express.static(path.join(__dirname, 'styles')));
+  app.use('/vendor', express.static(path.join(__dirname, 'vendor')));
+  app.use('/dist',   express.static(path.join(__dirname, 'dist')));
+  app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'index.html')));
+  app.get('/scanner-poc.html', (_req, res) => res.sendFile(path.join(__dirname, 'scanner-poc.html')));
   app.listen(PORT, () => {
     console.log(`MTG Archive running at http://localhost:${PORT}`);
     console.log(`Make sure MySQL is running and mtg_archive database exists.`);

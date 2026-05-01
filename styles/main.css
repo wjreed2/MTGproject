@@ -594,31 +594,57 @@ main {
   max-width: min(340px, 100%);
 }
 
-/* Draw probability chart (deck view) — chips live outside panel-body so the chart cannot stack over them */
-.panel--draw-prob {
-  overflow: visible;
+/* Draw probability chart (deck view) — filters + chart share one panel-body so flex layout isn’t clipped between siblings */
+#tab-decks .panel.panel--draw-prob {
+  overflow: visible !important;
+  min-height: min-content;
+  contain: none;
 }
-.panel--draw-prob > .prob-chart-filters-row {
+/* Main column: avoid horizontal bleed; vertical must stay visible so wrapped chip rows aren’t clipped */
+#tab-decks #activeDeckArea {
+  overflow-x: hidden;
+  overflow-y: visible;
+}
+/*
+ * Grid: row 1 = chips (visual top), row 2 = chart — DOM order is chart then chips so Chrome paints chips after the canvas layer.
+ */
+.panel--draw-prob .prob-chart-panel-body {
+  display: grid;
+  grid-template-rows: auto 320px;
+  grid-template-areas:
+    'filters'
+    'chart';
+  gap: 1rem;
+  overflow: visible !important;
+  padding: 0 0 1.25rem;
+  min-height: min-content;
+  isolation: isolate;
+}
+.panel--draw-prob .prob-chart-filters-row {
+  grid-area: filters;
   position: relative;
-  z-index: 4;
-  padding: 0.35rem 1.25rem 0.85rem;
+  z-index: 3;
+  overflow: visible !important;
+  padding: 0.85rem 1.25rem 0.85rem;
   border-bottom: 1px solid var(--border);
   background: var(--bg2);
-}
-.prob-chart-panel-body {
-  padding-top: 1rem;
+  /* New stacking context above chart (Chrome GPU layer quirk) */
+  transform: translateZ(0);
 }
 .prob-chart-filters {
   display: flex;
   flex-wrap: wrap;
   gap: 6px 8px;
   align-content: flex-start;
-  align-items: center;
+  align-items: flex-start;
   position: relative;
   z-index: 2;
-  margin-bottom: 0;
+  width: 100%;
+  min-height: min-content;
+  overflow: visible;
 }
 .prob-type-chip {
+  flex-shrink: 0;
   font-size: 0.72rem;
   padding: 3px 10px;
   border-radius: 20px;
@@ -638,17 +664,20 @@ main {
   display: inline-block;
   width: 1px;
   height: 20px;
-  margin: 0 4px;
+  margin: 0 6px;
+  flex-shrink: 0;
   align-self: center;
   background: var(--border2);
-  flex-shrink: 0;
 }
 .prob-chart-wrap {
+  grid-area: chart;
   position: relative;
-  z-index: 1;
+  z-index: 0;
   height: 320px;
+  margin: 0 1.25rem;
   overflow: hidden;
   border-radius: var(--radius);
+  contain: paint;
 }
 .prob-chart-wrap canvas {
   display: block;
@@ -658,6 +687,15 @@ main {
 /* Deck builder tab: +2pt on text (not .btn / not .view-toggle / not stack icon controls / not decklist-collapse) */
 #tab-decks {
   --dl-fs: 2pt;
+}
+/* Larger Scryfall mana symbols than global .mana-pip (browse / elsewhere stay default) */
+#tab-decks .mana-pip {
+  width: calc(22px + var(--dl-fs));
+  height: calc(22px + var(--dl-fs));
+}
+#newDeckModal .mana-pip {
+  width: 24px;
+  height: 24px;
 }
 #tab-decks .panel-title {
   font-size: calc(0.85rem + var(--dl-fs));
@@ -688,7 +726,8 @@ main {
   font-size: calc(0.62rem + var(--dl-fs));
 }
 #tab-decks .stack-not-owned,
-#tab-decks .stack-foil-mismatch {
+#tab-decks .stack-foil-mismatch,
+#tab-decks .stack-mb-pool {
   font-size: calc(0.55rem + var(--dl-fs));
 }
 #tab-decks .deck-sideboard-header {
@@ -780,10 +819,6 @@ main {
 }
 #tab-decks #edhrecThemeSelect {
   font-size: calc(0.8rem + var(--dl-fs));
-}
-#tab-decks #taggedCardsCount {
-  font-size: calc(0.72rem + var(--dl-fs));
-  color: var(--text3);
 }
 #tab-decks #probHandSize {
   font-size: calc(0.78rem + var(--dl-fs));
@@ -2381,7 +2416,7 @@ main {
 }
 .deck-stack-cards::-webkit-scrollbar-thumb:hover { background: var(--border2); }
 
-/* Vertical stack orientation — groups wrap into rows, sideboard pinned right */
+/* Vertical stack orientation — groups wrap into rows, maybe board pinned right */
 .deck-stack-view.vertical-orient {
   flex-direction: row;
   overflow-x: visible;
@@ -2543,6 +2578,20 @@ main {
 }
 .deck-stack-card:hover .stack-not-owned,
 .deck-stack-card:hover .stack-foil-mismatch { opacity: 1; }
+
+/* Mainboard tile: same printing also on maybe board */
+.stack-mb-pool {
+  position: absolute; top: 6px; left: 6px; z-index: 10;
+  background: rgba(140, 110, 40, 0.92); color: #fff;
+  font-size: 0.52rem; font-weight: 700; letter-spacing: 0.03em;
+  padding: 1px 5px; border-radius: 3px; pointer-events: none;
+}
+
+.deck-row-mb-pool {
+  font-size: 0.62rem; font-weight: 700; color: var(--gold);
+  white-space: nowrap; flex-shrink: 0;
+}
+
 .stack-name {
   font-size: 0.62rem; color: var(--text3); margin-top: 5px; text-align: center;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; padding: 0 2px;

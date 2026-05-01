@@ -156,7 +156,7 @@ function setSetsView(mode, btn) {
 function toggleSetStar(code, event) {
   event.stopPropagation();
   if (starredSets.has(code)) { starredSets.delete(code); } else { starredSets.add(code); }
-  save();
+  save('prefs');
   renderSets();
 }
 
@@ -657,7 +657,7 @@ function adjustQtyInSet(uid, delta) {
   if (!card) return;
   card.qty = Math.max(0, card.qty + delta);
   if (card.qty === 0) collection = collection.filter(c => c.uid !== uid);
-  save();
+  save('collection');
   renderCollection();
   const el = document.getElementById('detailQty');
   if (el) el.textContent = card.qty;
@@ -672,7 +672,7 @@ async function addSetCardToCollection(id, setCode, num) {
     existing.addedAt = Date.now();
   }
   else { collection.push(cardToEntry(card, 1)); }
-  save();
+  save('collection');
   renderCollection();
   showNotif('Added ' + card.name);
   examineSetCard(id, setCode, num);

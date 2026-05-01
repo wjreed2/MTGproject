@@ -362,9 +362,9 @@ function renderDeckHistory() {
   const TYPE = {
     add:        { label: '+ Main',  cls: 'history-add'    },
     remove:     { label: '− Main',  cls: 'history-remove'  },
-    add_sb:     { label: '+ SB',    cls: 'history-add'    },
-    remove_sb:  { label: '− SB',    cls: 'history-remove'  },
-    to_sb:      { label: '→ SB',    cls: 'history-move'   },
+    add_sb:     { label: '+ MB',    cls: 'history-add'    },
+    remove_sb:  { label: '− MB',    cls: 'history-remove'  },
+    to_sb:      { label: '→ MB',    cls: 'history-move'   },
     to_main:    { label: '← Main',  cls: 'history-move'   },
     tag_add:    { label: '+ Tag',   cls: 'history-tag'    },
     tag_remove: { label: '− Tag',   cls: 'history-tag'    },
@@ -482,7 +482,7 @@ function saveActiveDeck(deck) {
   if (activeDeckIsShared) {
     scheduleSaveSharedDeck(deck);
   } else {
-    save();
+    save('decks');
   }
 }
 
@@ -612,7 +612,7 @@ function addDeckCustomTag() {
   deckCustomTags.sort((a, b) => a.localeCompare(b));
   if (input) input.value = '';
   localStorage.setItem('mtg_deck_custom_tags', JSON.stringify(deckCustomTags));
-  save();
+  save('prefs');
   renderDeckTagManager();
   if (_deckCardTagPickerTarget) renderDeckCardTagPicker();
   showNotif(`Added tag "${tag}"`);
@@ -628,7 +628,7 @@ function removeDeckCustomTag(tag) {
     if (Array.isArray(c.customTags)) c.customTags = c.customTags.filter(t => t !== tag);
   }));
   localStorage.setItem('mtg_deck_custom_tags', JSON.stringify(deckCustomTags));
-  save();
+  save('decks', 'prefs');
   renderDeckTagManager();
   if (_deckCardTagPickerTarget) renderDeckCardTagPicker();
   renderActiveDeck();
@@ -901,7 +901,7 @@ function renderDecks() {
     if (syncDeckAutoRoleTags(d)) roleTagChanged = true;
     _scheduleDeckScryfallTagRefresh(d);
   });
-  if (roleTagChanged) save();
+  if (roleTagChanged) save('decks');
   if (!activeDeckId) {
     // Show big grid, hide detail split
     document.getElementById('deckGridArea').style.display = '';
@@ -952,7 +952,7 @@ function _deckGridCard(d, isShared) {
       <div class="browse-deck-meta">${d.format}${d.commander ? ' · ' + d.commander : ''}${isShared ? ' · ' + (d.ownerEmail || '') : ''}</div>
       ${combo ? `<div class="browse-deck-combo">${combo}</div>` : ''}
       <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px">
-        <span style="display:inline-flex;align-items:center;gap:3px">${pips}</span>
+        <span style="display:inline-flex;align-items:center;gap:5px">${pips}</span>
         <span style="display:flex;align-items:center;gap:3px">${validBadge}${pubBadge}${sharedBadge}</span>
       </div>
     </div>
@@ -1032,7 +1032,7 @@ function toggleDeckPublic() {
   const deck = decks.find(d => d.id === activeDeckId);
   if (!deck) return;
   deck.isPublic = !deck.isPublic;
-  save();
+  save('decks');
   const btn = document.getElementById('deckPublicToggleBtn');
   if (btn) _applyPublicToggleBtn(btn, deck.isPublic);
   showNotif(deck.isPublic ? 'Deck set to Public — visible in Browse Decks' : 'Deck set to Private');
@@ -1106,7 +1106,7 @@ function searchCommanderInput(q, resultsId, format) {
           <div style="padding:6px 10px 2px;border-bottom:1px solid var(--border2)">
             <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
               <span style="font-size:0.78rem;font-family:'Cinzel',serif;color:var(--text)">${group.name}</span>
-              <span style="display:flex;gap:2px">${pips}</span>
+              <span style="display:flex;gap:5px;align-items:center">${pips}</span>
               <span style="font-size:0.65rem;color:var(--text3)">${group.prints.length} version${group.prints.length !== 1 ? 's' : ''}</span>
             </div>
             <div style="display:flex;flex-wrap:wrap;gap:6px;padding-bottom:8px">${printCards}</div>
@@ -1281,7 +1281,7 @@ async function submitNewDeck() {
   localStorage.setItem('mtg_active_deck_id', deck.id);
   document.getElementById('newDeckModal').classList.remove('open');
   if (commanderScryId) await addCommanderCardToDeck(deck, commanderScryId);
-  save(); renderDecks();
+  save('decks'); renderDecks();
 }
 
 function closeNewDeckModal() {
@@ -1389,50 +1389,8 @@ function renderActiveDeck() {
   renderManaCostProfile(deck);
   renderManaGenerationProfile(deck);
   renderProbabilityChart(deck);
-  renderTaggedCards(deck);
   renderDeckValidation(deck);
   renderCollaboratorsPanel(deck);
-}
-
-function renderTaggedCards(deck) {
-  const el = document.getElementById('taggedCardsList');
-  const countEl = document.getElementById('taggedCardsCount');
-  if (!el) return;
-  const tagged = collection.filter(c => (c.deckTags || []).includes(deck.id));
-  if (countEl) countEl.textContent = tagged.length ? tagged.length + ' cards' : '';
-  if (tagged.length === 0) {
-    el.innerHTML = '<div style="padding:1rem;text-align:center;color:var(--text3);font-size:0.85rem">No tagged cards — tag cards from the card detail view</div>';
-    return;
-  }
-  el.innerHTML = tagged.map(c => {
-    const key = getCardInventoryKey(c);
-    const inMain = (deck.cards || []).some(x => getCardInventoryKey(x) === key);
-    const inSb = (deck.sideboard || []).some(x => getCardInventoryKey(x) === key);
-    const alreadyIn = inMain || inSb;
-    const inv = getInventoryBreakdown(c, deck.id);
-    const usedElsewhere = getDeckAllocationsForCard(c, deck.id);
-    const dispPrice = getTCGPriceForCard(c);
-    return `
-    <div class="deck-card-row" style="align-items:flex-start;padding:6px 8px" onclick="openCardDetail('${c.uid}','collection')">
-      ${(() => { const _si = c.image || (c.scryfallId ? `https://cards.scryfall.io/small/front/${c.scryfallId[0]}/${c.scryfallId[1]}/${c.scryfallId}.jpg` : ''); return _si ? `<img src="${_si}" style="width:22px;border-radius:2px;flex-shrink:0;margin-top:1px" alt="">` : ''; })()}
-      <div style="flex:1;min-width:0">
-        <div style="display:flex;align-items:center;gap:6px">
-          <span class="deck-card-name" style="flex:1">${c.name}</span>
-          <span style="font-family:'JetBrains Mono',monospace;font-size:0.7rem;color:var(--text3)">×${c.qty || 1}</span>
-          ${dispPrice ? `<span style="font-family:'JetBrains Mono',monospace;font-size:0.72rem;color:var(--gold)">$${dispPrice.toFixed(2)}</span>` : ''}
-          ${alreadyIn
-            ? '<span style="font-size:0.65rem;color:var(--teal);white-space:nowrap">In deck</span>'
-            : inv.available > 0
-              ? `<button class="btn btn-primary btn-sm btn-icon" onclick="event.stopPropagation();addToDeck('${c.uid}')" style="padding:2px 7px;font-size:0.72rem">+Add</button>`
-              : '<span style="font-size:0.65rem;color:var(--red);white-space:nowrap">In other decks</span>'}
-        </div>
-        <div style="margin-top:2px;font-size:0.62rem;color:var(--text3)">Owned ${inv.owned} · Used ${inv.usedTotal} · Avail ${inv.available}</div>
-        ${usedElsewhere.length > 0
-          ? `<div style="margin-top:3px;display:flex;flex-wrap:wrap;gap:3px">${usedElsewhere.map(d => `<span style="font-size:0.62rem;padding:1px 5px;border-radius:10px;background:var(--bg4);color:var(--text3);border:1px solid var(--border)">↳ ${d.deckName} (${d.qty})</span>`).join('')}</div>`
-          : ''}
-      </div>
-    </div>`;
-  }).join('');
 }
 
 // ── Collaborators panel ───────────────────────────────────────────────────────
@@ -1690,7 +1648,7 @@ function addAndAssignDeckTagFromPicker() {
   }
   if (input) input.value = '';
   toggleDeckCardCustomTag(tag);
-  save();
+  save('decks');
 }
 
 function _buildDeckGroups(cards, groupBy) {
@@ -1845,6 +1803,23 @@ function getInventoryBreakdown(card, currentDeckId = null) {
   return { owned, usedTotal, usedInCurrent, usedInOther, available };
 }
 
+/** Qty of this printing (inventory key) on the active deck’s maybe board — for mainboard hints. */
+function _maybeBoardQtyForDeckSlot(sideboard, cardKey) {
+  if (!cardKey || !sideboard?.length) return 0;
+  return sideboard
+    .filter(c => getCardInventoryKey(c) === cardKey)
+    .reduce((s, c) => s + (c.qty || 1), 0);
+}
+
+/** Total maybe-board qty for this card name (any printing in that zone). */
+function _maybeBoardQtyForCardName(deck, name) {
+  const n = (name || '').toLowerCase();
+  if (!n) return 0;
+  return (deck?.sideboard || [])
+    .filter(c => (c.name || '').toLowerCase() === n)
+    .reduce((s, c) => s + (c.qty || 1), 0);
+}
+
 function _rebuildOwnershipMaps() {
   _ownedByUid  = {};
   _ownedByName = {};
@@ -1856,7 +1831,7 @@ function _rebuildOwnershipMaps() {
   });
 }
 
-function _stackTile(c, isSideboard = false) {
+function _stackTile(c, isSideboard = false, sideboardForMbHint = null) {
   const qty = c.qty || 1;
   const cardKey = getCardInventoryKey(c);
   const nameKey = String(c.name || '').trim().toLowerCase();
@@ -1885,6 +1860,13 @@ function _stackTile(c, isSideboard = false) {
     ownerBadge = `<div class="stack-foil-mismatch">${owned.foil ? '✦ own foil' : 'own non-foil'}</div>`;
   }
 
+  const mbPoolQty = !isSideboard && Array.isArray(sideboardForMbHint)
+    ? _maybeBoardQtyForDeckSlot(sideboardForMbHint, cardKey)
+    : 0;
+  const mbPoolBadge = mbPoolQty > 0
+    ? `<div class="stack-mb-pool" title="Same printing on maybe board">MB ×${mbPoolQty}</div>`
+    : '';
+
   return `
     <div class="deck-stack-card${notOwned ? ' not-owned' : ''}" draggable="true" data-uid="${c.uid || ''}" data-sid="${c.scryfallId || ''}" data-name="${safeName}" data-card-key="${cardKey}" data-card-name-key="${nameKey.replace(/"/g, '&quot;')}">
       <div class="stack-wrap">
@@ -1893,10 +1875,11 @@ function _stackTile(c, isSideboard = false) {
           : `<div class="stack-main stack-face-fallback${c.isCommander ? ' is-commander' : ''}"
                style="aspect-ratio:0.715;background:var(--bg4);display:flex;align-items:center;justify-content:center;color:var(--text3);padding:4px;text-align:center;${imgStyle}">${c.name}</div>`}
         <div class="stack-qty">×${qty}</div>
+        ${mbPoolBadge}
         ${ownerBadge}
         <button class="stack-remove" data-uid="${c.uid || ''}" data-zone="${isSideboard ? 'sb' : 'main'}" title="Remove">✕</button>
         <button class="stack-version" title="Change printing">⟳</button>
-        <button class="stack-swap" data-uid="${c.uid || ''}" title="${isSideboard ? 'Move to mainboard' : 'Move to sideboard'}">${isSideboard ? '→ Main' : '→ SB'}</button>
+        <button class="stack-swap" data-uid="${c.uid || ''}" title="${isSideboard ? 'Move to mainboard' : 'Move to maybe board'}">${isSideboard ? '→ Main' : '→ MB'}</button>
       </div>
       <div class="stack-name" style="${notOwned ? 'color:var(--text3);opacity:0.6' : ''}">${c.name}</div>
     </div>`;
@@ -2053,7 +2036,7 @@ function _assignGroupsToColumns(entries, numCols) {
   return cols.map(c => c.groups);
 }
 
-// 256 = sideboard fixed col (240) + its padding-left (16); 32 = view h-padding; 256 = col+gap
+// 256 = maybe board fixed col (240) + its padding-left (16); 32 = view h-padding; 256 = col+gap
 function _calcVertColCount(el) {
   return Math.max(1, Math.floor((el.clientWidth - 288) / 256));
 }
@@ -2120,16 +2103,16 @@ function renderDeckList(deck) {
       return `
         <div class="deck-stack-group">
           <div class="deck-stack-group-label">${grp} <span class="deck-stack-group-count">(${total})</span></div>
-          <div class="deck-stack-cards${orientClass}">${sorted.map(c => _stackTile(c, false)).join('')}</div>
+          <div class="deck-stack-cards${orientClass}">${sorted.map(c => _stackTile(c, false, sideboard)).join('')}</div>
         </div>`;
     }
 
     const sbHtml = `
       <div class="deck-sideboard-section">
-        <div class="deck-sideboard-header">Sideboard <span class="deck-stack-group-count">(${sbTotal})</span></div>
+        <div class="deck-sideboard-header">Maybe board <span class="deck-stack-group-count">(${sbTotal})</span></div>
         ${sideboard.length
           ? `<div class="deck-stack-cards${orientClass}">${sideboard.map(c => _stackTile(c, true)).join('')}</div>`
-          : `<div class="deck-list-quiet" style="padding:4px 0">No sideboard cards — click → SB on any card to add it</div>`}
+          : `<div class="deck-list-quiet" style="padding:4px 0">No maybe board cards — click → MB on any card to add it</div>`}
       </div>`;
 
     if (isVertical) {
@@ -2187,13 +2170,13 @@ function renderDeckList(deck) {
   const sbListHtml = `
     <div class="deck-sideboard-section" style="margin:0">
       <div class="deck-list-group-head deck-list-group-head--sb">
-        Sideboard (${sbTotal})
+        Maybe board (${sbTotal})
       </div>
       ${sideboard.length
         ? sideboard.sort((a, b) => a.name.localeCompare(b.name)).map(c => `
           <div class="deck-card-row" draggable="true" data-uid="${c.uid || ''}" data-zone="sb" data-card-key="${getCardInventoryKey(c)}" data-card-name-key="${String(c.name || '').trim().toLowerCase().replace(/"/g, '&quot;')}" onclick="openCardDetail('${c.uid || c.scryfallId}','deck')">
             <span class="deck-card-name">${c.name}</span>
-            <span style="display:flex;gap:2px">${sortColorsWUBRG(c.colors).map(col => `<img src="https://svgs.scryfall.io/card-symbols/${col}.svg" class="mana-pip" alt="${col}" title="${col}">`).join('')}</span>
+            <span style="display:flex;gap:5px;align-items:center">${sortColorsWUBRG(c.colors).map(col => `<img src="https://svgs.scryfall.io/card-symbols/${col}.svg" class="mana-pip" alt="${col}" title="${col}">`).join('')}</span>
             <button class="btn btn-ghost btn-sm" title="Move to mainboard" style="font-size:0.65rem;padding:1px 6px" onclick="event.stopPropagation();moveToMainboard('${c.uid || ''}')">→ Main</button>
             <div style="display:flex;align-items:center;gap:5px;margin-left:auto" onclick="event.stopPropagation()">
               <button class="btn btn-ghost btn-sm btn-icon" title="Remove one" onclick="adjustSideboardCardQtyByUid('${c.uid || ''}',-1)">−</button>
@@ -2201,24 +2184,31 @@ function renderDeckList(deck) {
               <button class="btn btn-ghost btn-sm btn-icon" title="Add one" onclick="adjustSideboardCardQtyByUid('${c.uid || ''}',1)">+</button>
             </div>
           </div>`).join('')
-        : `<div class="deck-list-quiet deck-list-quiet--pad">No sideboard cards — click → SB on any card above to add it</div>`}
+        : `<div class="deck-list-quiet deck-list-quiet--pad">No maybe board cards — click → MB on any card above to add it</div>`}
     </div>`;
   el.onclick = null;
   el.innerHTML = (Object.entries(groups).filter(([, v]) => v.length > 0).map(([grp, cards]) => `
     <div class="deck-list-group-head deck-list-group-head--main">${grp} (${cards.reduce((s,c)=>s+c.qty,0)})</div>
-    ${cards.sort((a,b)=>a.name.localeCompare(b.name)).map(c => `
+    ${cards.sort((a,b)=>a.name.localeCompare(b.name)).map(c => {
+      const mbRow = _maybeBoardQtyForDeckSlot(sideboard, getCardInventoryKey(c));
+      const mbRowHtml = mbRow > 0
+        ? `<span class="deck-row-mb-pool" title="Same printing on maybe board">MB ×${mbRow}</span>`
+        : '';
+      return `
       <div class="deck-card-row" draggable="true" data-uid="${c.uid || ''}" data-zone="main" data-card-key="${getCardInventoryKey(c)}" data-card-name-key="${String(c.name || '').trim().toLowerCase().replace(/"/g, '&quot;')}" onclick="openCardDetail('${c.uid || c.scryfallId}','deck')">
         <span class="deck-card-name">${c.name}</span>
-        <span style="display:flex;gap:2px">${sortColorsWUBRG(c.colors).map(col => `<img src="https://svgs.scryfall.io/card-symbols/${col}.svg" class="mana-pip" alt="${col}" title="${col}">`).join('')}</span>
+        <span style="display:flex;gap:5px;align-items:center">${sortColorsWUBRG(c.colors).map(col => `<img src="https://svgs.scryfall.io/card-symbols/${col}.svg" class="mana-pip" alt="${col}" title="${col}">`).join('')}</span>
+        ${mbRowHtml}
         <button class="btn btn-ghost btn-sm btn-icon" title="Edit custom tags" onclick="event.stopPropagation();openDeckCardTagPicker('${activeDeckId}','${c.uid || c.scryfallId || ''}')">🏷</button>
         <button class="btn btn-ghost btn-sm btn-icon" title="Change printing" onclick="event.stopPropagation();openVersionPicker('${activeDeckId}','${c.uid || c.scryfallId || ''}','${(c.name || '').replace(/'/g, "\\'")}')">⟳</button>
-        <button class="btn btn-ghost btn-sm" title="Move to sideboard" style="font-size:0.65rem;padding:1px 6px" onclick="event.stopPropagation();moveToSideboard('${c.uid || ''}')">→ SB</button>
+        <button class="btn btn-ghost btn-sm" title="Move to maybe board" style="font-size:0.65rem;padding:1px 6px" onclick="event.stopPropagation();moveToSideboard('${c.uid || ''}')">→ MB</button>
         <div style="display:flex;align-items:center;gap:5px;margin-left:auto" onclick="event.stopPropagation()">
           <button class="btn btn-ghost btn-sm btn-icon" title="Remove one" onclick="adjustDeckCardQtyByUid('${c.uid || ''}',-1)">−</button>
           <span class="deck-list-qty">${c.qty||1}</span>
           <button class="btn btn-ghost btn-sm btn-icon" title="Add one" onclick="adjustDeckCardQtyByUid('${c.uid || ''}',1)">+</button>
         </div>
-      </div>`).join('')}
+      </div>`;
+    }).join('')}
   `).join('') || '<div class="deck-list-muted-center">No cards yet</div>') + sbListHtml;
 
   _attachDeckDragHandlers(el);
@@ -2406,7 +2396,8 @@ function renderManaGenerationProfile(deck) {
 // ── Draw Probability Chart ────────────────────────────────────────────────────
 
 let _probHandSize    = 7;
-let _probActiveTypes = null; // Set<string>
+/** Keys the user turned off; everything else is shown. New types/tags default on without fighting the old "active set" merge logic. */
+let _probInactiveKeys = new Set();
 let _probLastDeckId  = null;
 let _probChartInst   = null;
 let _probFilterDelegationBound = false;
@@ -2421,6 +2412,8 @@ const _PROB_TYPE_COLORS = {
   'Planeswalker': '#c8a84a',
   'Other':        '#504e48',
 };
+const _PROB_TYPE_ORDER = Object.keys(_PROB_TYPE_COLORS);
+const _PROB_BUILTIN_LC = new Set(_PROB_TYPE_ORDER.map(t => t.toLowerCase()));
 
 function _logFact(n) {
   let r = 0;
@@ -2454,6 +2447,19 @@ function _probCardType(typeLine) {
   return 'Other';
 }
 
+/** Union of saved tags and role/Scryfall tags so shared decks (no tag sync) and pre-hydration cards still get full tag chips. */
+function _probTagsOnCard(card) {
+  const out = new Set();
+  (card.customTags || []).forEach(raw => {
+    const t = String(raw || '').trim();
+    if (t) out.add(t);
+  });
+  _roleTagsForCard(card).forEach(t => {
+    if (t) out.add(t);
+  });
+  return [...out];
+}
+
 function _ensureProbChartFilterDelegation() {
   const el = document.getElementById('probChartFilters');
   if (!el || _probFilterDelegationBound) return;
@@ -2468,7 +2474,7 @@ function _ensureProbChartFilterDelegation() {
 }
 
 function _appendProbChip(container, key, label, count, col) {
-  const active = _probActiveTypes?.has(key);
+  const active = !_probInactiveKeys.has(key);
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'prob-type-chip' + (active ? ' is-active' : '');
@@ -2493,8 +2499,8 @@ function onProbHandSizeChange(val) {
 }
 
 function toggleProbType(type) {
-  if (_probActiveTypes.has(type)) _probActiveTypes.delete(type);
-  else _probActiveTypes.add(type);
+  if (_probInactiveKeys.has(type)) _probInactiveKeys.delete(type);
+  else _probInactiveKeys.add(type);
   const deck = getActiveDeck();
   if (deck) renderProbabilityChart(deck);
 }
@@ -2524,11 +2530,15 @@ function renderProbabilityChart(deck) {
     typeGroups[t] = (typeGroups[t] || 0) + (c.qty || 1);
   });
 
-  // Group by custom tag — each tag is its own category
+  // Group by deck tag — each tag is its own category (hypergeometric “marked” subset).
+  // Use customTags ∪ role/Scryfall tags so shared decks and cards before tag sync still match the deck list.
+  // Skip names that match card-type buckets (Land, Creature, …); those use type-line counts only.
   const tagGroups = {};
   cards.forEach(c => {
-    (c.customTags || []).forEach(tag => {
-      if (tag) tagGroups[tag] = (tagGroups[tag] || 0) + (c.qty || 1);
+    const qty = c.qty || 1;
+    _probTagsOnCard(c).forEach(tag => {
+      if (_PROB_BUILTIN_LC.has(tag.toLowerCase())) return;
+      tagGroups[tag] = (tagGroups[tag] || 0) + qty;
     });
   });
 
@@ -2541,20 +2551,24 @@ function renderProbabilityChart(deck) {
   // All category keys prefixed so type keys and tag keys can't collide
   const allGroups = {};
   Object.entries(typeGroups).forEach(([t, n]) => { allGroups['type:' + t] = { label: t, count: n, color: _PROB_TYPE_COLORS[t] || '#888', isTag: false }; });
-  tagKeys.forEach(tag => { allGroups['tag:' + tag] = { label: tag, count: tagGroups[tag], color: tagColors[tag], isTag: true }; });
+  tagKeys.forEach(tag => {
+    allGroups['tag:' + tag] = {
+      label: tag,
+      count: tagGroups[tag],
+      color: tagColors[tag],
+      isTag: true,
+    };
+  });
 
-  // Reset active categories when deck changes
-  if (_probLastDeckId !== deck.id || _probActiveTypes === null) {
-    _probActiveTypes = new Set(Object.keys(allGroups));
+  if (_probLastDeckId !== deck.id) {
+    _probInactiveKeys = new Set();
     _probLastDeckId = deck.id;
   }
-  // Drop stale keys
-  [..._probActiveTypes].forEach(k => { if (!allGroups[k]) _probActiveTypes.delete(k); });
+  [..._probInactiveKeys].forEach(k => { if (!allGroups[k]) _probInactiveKeys.delete(k); });
 
   // Filter chips — types first, then tags separated by a divider
-  const typeOrder = ['Land','Creature','Instant','Sorcery','Enchantment','Artifact','Planeswalker','Other'];
   filterEl.replaceChildren();
-  typeOrder.forEach(t => {
+  _PROB_TYPE_ORDER.forEach(t => {
     if (!typeGroups[t]) return;
     _appendProbChip(filterEl, `type:${t}`, t, typeGroups[t], _PROB_TYPE_COLORS[t] || '#888');
   });
@@ -2568,12 +2582,14 @@ function renderProbabilityChart(deck) {
     });
   }
 
+  void filterEl.offsetHeight;
+
   // Build datasets
   const MAX_K = Math.min(6, _probHandSize);
   const xLabels = Array.from({length: MAX_K}, (_, i) => `≥${i + 1}`);
 
   const datasets = Object.entries(allGroups)
-    .filter(([key]) => _probActiveTypes.has(key))
+    .filter(([key]) => !_probInactiveKeys.has(key))
     .sort((a, b) => (a[1].isTag ? 1 : 0) - (b[1].isTag ? 1 : 0)) // types first
     .map(([, { label, count: K, color: col }]) => {
       const data = Array.from({length: MAX_K}, (_, i) =>
@@ -2592,46 +2608,59 @@ function renderProbabilityChart(deck) {
       };
     });
 
-  // Destroy old chart
   if (_probChartInst) { _probChartInst.destroy(); _probChartInst = null; }
 
   const isDark = document.documentElement.dataset.theme !== 'light';
   const gridCol  = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.07)';
   const tickCol  = isDark ? '#504e48' : '#9a9288';
 
-  _probChartInst = new Chart(canvas.getContext('2d'), {
-    type: 'line',
-    data: { labels: xLabels, datasets },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      interaction: { mode: 'index', intersect: false },
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          backgroundColor: isDark ? '#12141e' : '#ebe7e0',
-          titleColor: isDark ? '#d8d4ca' : '#1e1c18',
-          bodyColor:  isDark ? '#888278' : '#5a5448',
-          borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)',
-          borderWidth: 1,
-          padding: 10,
-          callbacks: {
-            label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)}%`,
+  const filtersRow = filterEl.closest('.prob-chart-filters-row');
+  void filterEl.offsetHeight;
+  if (filtersRow) void filtersRow.offsetHeight;
+
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    _probChartInst = new Chart(ctx, {
+      type: 'line',
+      data: { labels: xLabels, datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: isDark ? '#12141e' : '#ebe7e0',
+            titleColor: isDark ? '#d8d4ca' : '#1e1c18',
+            bodyColor:  isDark ? '#888278' : '#5a5448',
+            borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)',
+            borderWidth: 1,
+            padding: 10,
+            callbacks: {
+              label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)}%`,
+            },
+          },
+        },
+        scales: {
+          y: {
+            min: 0, max: 100,
+            ticks: { callback: v => v + '%', color: tickCol, font: { size: 10 }, stepSize: 25 },
+            grid: { color: gridCol },
+          },
+          x: {
+            ticks: { color: tickCol, font: { size: 11 } },
+            grid: { color: gridCol },
           },
         },
       },
-      scales: {
-        y: {
-          min: 0, max: 100,
-          ticks: { callback: v => v + '%', color: tickCol, font: { size: 10 }, stepSize: 25 },
-          grid: { color: gridCol },
-        },
-        x: {
-          ticks: { color: tickCol, font: { size: 11 } },
-          grid: { color: gridCol },
-        },
-      },
-    },
+    });
+  }
+
+  requestAnimationFrame(() => {
+    void filterEl.offsetHeight;
+    _probChartInst?.resize();
+    requestAnimationFrame(() => _probChartInst?.resize());
   });
 }
 
@@ -2758,7 +2787,7 @@ function _matchesDeckSearchRoleFilters(cardLike, isApi = false) {
   return [..._deckSearchRoleFilters].every(f => tags.includes(f));
 }
 
-function _cardTile(name, img, inDeck, inCollection, inv, addFn, inSideboard = false, sbAddFn = null) {
+function _cardTile(name, img, inDeck, inCollection, inv, addFn, inSideboard = false, sbAddFn = null, mbAlsoOnDeck = 0) {
   const ownershipOn = isDeckOwnershipEnabled();
   const unavailable = ownershipOn && inCollection && (inv?.available || 0) <= 0 && !inDeck;
   const border = inDeck
@@ -2778,13 +2807,14 @@ function _cardTile(name, img, inDeck, inCollection, inv, addFn, inSideboard = fa
         ${inDeck ? `<div style="position:absolute;bottom:2px;right:2px;background:var(--teal);color:#000;
           font-size:0.5rem;font-weight:700;padding:1px 4px;border-radius:3px">IN DECK</div>` : ''}
         ${inSideboard && !inDeck ? `<div style="position:absolute;bottom:2px;right:2px;background:var(--gold);color:#000;
-          font-size:0.5rem;font-weight:700;padding:1px 4px;border-radius:3px">IN SB</div>` : ''}
+          font-size:0.5rem;font-weight:700;padding:1px 4px;border-radius:3px">IN MB</div>` : ''}
         ${ownershipOn && unavailable && !inSideboard ? `<div style="position:absolute;bottom:2px;right:2px;background:var(--red);color:#fff;
           font-size:0.5rem;font-weight:700;padding:1px 4px;border-radius:3px">IN OTHER DECKS</div>` : ''}
-        ${sbAddFn ? `<button class="deck-search-sb-btn" data-sb-add="${sbAddFn}" title="Add to sideboard">→ SB</button>` : ''}
+        ${sbAddFn ? `<button class="deck-search-sb-btn" data-sb-add="${sbAddFn}" title="Add to maybe board">→ MB</button>` : ''}
       </div>
       <div class="deck-search-name">${name}</div>
-      ${ownershipOn && inCollection ? `<div class="deck-search-meta" style="color:${unavailable ? 'var(--red)' : 'var(--text3)'}">Owned ${inv.owned} · Used ${inv.usedTotal} · Avail ${inv.available}</div>` : ''}
+      ${ownershipOn && inCollection ? `<div class="deck-search-meta" style="color:${unavailable ? 'var(--red)' : 'var(--text3)'}">Owned ${inv.owned} · Used ${inv.usedTotal} · Avail ${inv.available}${inDeck && mbAlsoOnDeck > 0 ? ` · MB ×${mbAlsoOnDeck}` : ''}</div>` : ''}
+      ${inDeck && mbAlsoOnDeck > 0 && (!ownershipOn || !inCollection) ? `<div class="deck-search-meta" style="color:var(--gold)">Maybe board ×${mbAlsoOnDeck}</div>` : ''}
     </div>`;
 }
 
@@ -2804,7 +2834,8 @@ function _renderDeckSearchGrid() {
     const inDeck = inDeckNames.has(c.name.toLowerCase());
     const inSideboard = inSideboardNames.has(c.name.toLowerCase());
     const inv = getInventoryBreakdown(c, deck?.id || null);
-    return _cardTile(c.name, c.image, inDeck, true, inv, `addToDeck:${c.uid}`, inSideboard, `addToSideboard:${c.uid}`);
+    const mbAlso = inDeck ? _maybeBoardQtyForCardName(deck, c.name) : 0;
+    return _cardTile(c.name, c.image, inDeck, true, inv, `addToDeck:${c.uid}`, inSideboard, `addToSideboard:${c.uid}`, mbAlso);
   }).join('');
 
   const apiHtml = _deckSearchApi
@@ -2817,7 +2848,8 @@ function _renderDeckSearchGrid() {
     const inv = owned ? getInventoryBreakdown(owned, deck?.id || null) : null;
     const addFn = owned ? `addToDeck:${owned.uid}` : `addScryfall:${c.id}`;
     const sbAddFn = owned ? `addToSideboard:${owned.uid}` : `addScryfallToSideboard:${c.id}`;
-    return _cardTile(c.name, img, inDeck, !!owned, inv, addFn, inSideboard, sbAddFn);
+    const mbAlso = inDeck ? _maybeBoardQtyForCardName(deck, c.name) : 0;
+    return _cardTile(c.name, img, inDeck, !!owned, inv, addFn, inSideboard, sbAddFn, mbAlso);
   }).join('');
 
   el.innerHTML = (localHtml + apiHtml) ||
@@ -2910,7 +2942,7 @@ function addToDeck(uid) {
   const existing = findDeckCardSlot(deck, card);
   if (existing) { existing.qty++; } else { deck.cards.push({ ...card, uid: getCardInventoryKey(card), qty: 1 }); }
   recordDeckEvent('add', card);
-  saveActiveDeck(deck); renderActiveDeck(); renderTaggedCards(deck); _renderDeckSearchGrid(); showNotif('Added ' + card.name + ' to deck');
+  saveActiveDeck(deck); renderActiveDeck(); _renderDeckSearchGrid(); showNotif('Added ' + card.name + ' to deck');
   scheduleEDHRECRefresh();
 }
 
@@ -2950,14 +2982,14 @@ function adjustDeckCardQtyByUid(uid, delta) {
   scheduleEDHRECRefresh();
 }
 
-// ── Sideboard ─────────────────────────────────────────────────────────────────
+// ── Maybe board (stored as deck.sideboard) ───────────────────────────────────
 
 function findSideboardCardSlot(deck, card) {
   const key = getCardInventoryKey(card);
   return (deck?.sideboard || []).find(c => getCardInventoryKey(c) === key);
 }
 
-/** When tagging a collection card to a deck (TAG TO DECK), mirror one copy in that deck’s sideboard. */
+/** When tagging a collection card to a deck (TAG TO DECK), mirror one copy in that deck’s maybe board. */
 function syncDeckSideboardForCollectionTag(deckId, collectionCard, tagged) {
   const deck = decks.find(d => d.id === deckId);
   if (!deck || !collectionCard) return;
@@ -2996,7 +3028,7 @@ function addToSideboard(uid) {
   const existing = findSideboardCardSlot(deck, card);
   if (existing) { existing.qty++; } else { deck.sideboard.push({ ...card, uid: getCardInventoryKey(card), qty: 1 }); }
   recordDeckEvent('add_sb', card);
-  saveActiveDeck(deck); renderActiveDeck(); showNotif('Added ' + card.name + ' to sideboard');
+  saveActiveDeck(deck); renderActiveDeck(); showNotif('Added ' + card.name + ' to maybe board');
 }
 
 async function addScryfallCardToSideboard(scryfallId) {
@@ -3014,7 +3046,7 @@ async function addScryfallCardToSideboard(scryfallId) {
   const existing = findSideboardCardSlot(deck, card);
   if (existing) { existing.qty++; } else { deck.sideboard.push({ ...card, uid: getCardInventoryKey(card), qty: 1 }); }
   recordDeckEvent('add_sb', card);
-  saveActiveDeck(deck); renderActiveDeck(); _renderDeckSearchGrid(); showNotif('Added ' + card.name + ' to sideboard');
+  saveActiveDeck(deck); renderActiveDeck(); _renderDeckSearchGrid(); showNotif('Added ' + card.name + ' to maybe board');
 }
 
 function removeFromSideboard(uid) {
@@ -3057,7 +3089,7 @@ function moveToSideboard(uid) {
   const existingSb = findSideboardCardSlot(deck, snapshot);
   if (existingSb) existingSb.qty++; else deck.sideboard.push({ ...snapshot, qty: 1 });
   recordDeckEvent('to_sb', snapshot);
-  saveActiveDeck(deck); renderActiveDeck(); showNotif(snapshot.name + ' moved to sideboard');
+  saveActiveDeck(deck); renderActiveDeck(); showNotif(snapshot.name + ' moved to maybe board');
 }
 
 function moveToMainboard(uid) {
@@ -3086,7 +3118,7 @@ async function deleteDeck() {
   activeDeckId = null;
   activeDeckIsShared = false;
   localStorage.removeItem('mtg_active_deck_id');
-  save(); renderDecks();
+  save('decks'); renderDecks();
 }
 
 async function renameActiveDeck() {
@@ -3366,6 +3398,10 @@ async function _refreshDeckScryfallTags(deck) {
       renderDeckList(deck);
       if (_deckCardTagPickerTarget) renderDeckCardTagPicker();
     }
+  }
+  // First paint runs before oracle/tag cache fills; chips were built from partial data. Always redraw prob chart after refresh.
+  if (deck.id === activeDeckId) {
+    renderProbabilityChart(deck);
   }
 }
 
@@ -3743,7 +3779,7 @@ async function buildSkeletonDeckFromInspectorCard(cardRef) {
   activeDeckId = deck.id;
   activeDeckIsShared = false;
   localStorage.setItem('mtg_active_deck_id', deck.id);
-  save();
+  save('decks');
   closeCardDetail();
   showTab('decks');
   renderDecks();
@@ -4524,7 +4560,7 @@ function applyCardVersion(sc) {
     deck.commander      = card.name;
   }
 
-  save();
+  save('decks');
   renderDecks();   // refreshes sidebar + grid thumbnails
   renderDeckList(deck);
   scheduleEDHRECRefresh();

@@ -300,7 +300,7 @@ function addToWishlistCard(id, dataStr) {
   const uid = (data.scryfallId || id) + (data.foil ? '_f' : '_n');
   if (wishlist.find(c => (c.uid || (c.scryfallId + (c.foil ? '_f' : '_n'))) === uid)) { showNotif('Already in wishlist'); return; }
   wishlist.push({...data, uid, priority, addedAt: Date.now()});
-  save(); renderWishlist();
+  save('wishlist'); renderWishlist();
   showNotif(`Added to wishlist${data.foil ? ' (foil)' : ''}`);
 }
 
@@ -311,14 +311,14 @@ function addToWishlistManual() {
   runWishlistSearch(q);
 }
 
-function removeWishlist(i) { wishlist.splice(i, 1); save(); renderWishlist(); }
+function removeWishlist(i) { wishlist.splice(i, 1); save('wishlist'); renderWishlist(); }
 
 function moveWishlistToCollection(i) {
   const card = wishlist[i];
   const wUid = card.scryfallId + (card.foil ? '_f' : '_n');
   const existing = collection.find(c => c.uid === wUid);
   if (existing) { existing.qty++; } else { collection.push({...card, uid: wUid, qty: 1, addedAt: Date.now()}); }
-  wishlist.splice(i, 1); save(); renderWishlist(); renderCollection(); showNotif('Moved to collection!');
+  wishlist.splice(i, 1); save('wishlist'); renderWishlist(); renderCollection(); showNotif('Moved to collection!');
 }
 
 document.addEventListener('click', e => {

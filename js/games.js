@@ -83,7 +83,7 @@ function togglePauseTimer(gameId) {
   if (_turnPaused) {
     _turnPaused = false;
     game.turnStartedAt = Date.now() - _pausedElapsed;
-    save();
+    save('games');
     startTurnTimer(gameId);
   } else {
     _pausedElapsed = game.turnStartedAt ? Date.now() - game.turnStartedAt : 0;
@@ -420,7 +420,7 @@ async function submitNewGame() {
   };
 
   games.push(game);
-  save();
+  save('games');
   closeNewGameModal();
   activeGameId = game.id;
   renderGames();
@@ -902,7 +902,7 @@ function applyGameAction(gameId, targetId) {
   }
 
   gameActionMode = null;
-  save();
+  save('games');
   if (tabletViewGameId) renderTabletView();
   renderActiveGame(game);
 }
@@ -929,7 +929,7 @@ function selfLifeChange(gameId, playerId, direction, useX) {
   addLog(game, { type: delta > 0 ? 'life_gain' : 'damage', toId: playerId, amount,
     text: `${player.name} ${dir} ${amount} life → ${player.life}` });
   if (player.life <= 0 && !player.eliminated) eliminatePlayer(game, player, 'life');
-  save();
+  save('games');
   if (tabletViewGameId) renderTabletView();
   renderActiveGame(game);
 }
@@ -944,7 +944,7 @@ function changePoison(gameId, playerId, delta) {
   player.poison = Math.max(0, player.poison + delta);
   addLog(game, { type: 'poison', text: `${player.name} → ${player.poison} poison counter${player.poison !== 1 ? 's' : ''}` });
   if (player.poison >= 10 && !player.eliminated) eliminatePlayer(game, player, 'poison');
-  save(); if (tabletViewGameId) renderTabletView(); renderActiveGame(game);
+  save('games'); if (tabletViewGameId) renderTabletView(); renderActiveGame(game);
 }
 
 function changeCommanderDamage(gameId, targetId, sourceId, delta) {
@@ -965,7 +965,7 @@ function changeCommanderDamage(gameId, targetId, sourceId, delta) {
   } else {
     addLog(game, { type: 'commander_damage', text: `Adjusted: ${source.name} cmd dmg on ${target.name} → ${total}` });
   }
-  save(); if (tabletViewGameId) renderTabletView(); renderActiveGame(game);
+  save('games'); if (tabletViewGameId) renderTabletView(); renderActiveGame(game);
 }
 
 function eliminatePlayer(game, player, reason) {
@@ -987,7 +987,7 @@ function autoEndGame(game, winner) {
   }
   stopTurnTimer();
   addLog(game, { type: 'game_end', text: `${winner.name} wins! (${game.currentTurn} turns)` });
-  save(); showNotif(`${winner.name} wins!`);
+  save('games'); showNotif(`${winner.name} wins!`);
   renderGames(); selectGame(game.id);
 }
 
@@ -1013,7 +1013,7 @@ function nextTurn(gameId) {
   _pausedElapsed = 0;
   const ap = game.players[next];
   addLog(game, { type: 'turn_change', text: `─── T${game.currentTurn}, P${next + 1} · ${ap.name} ───`, duration: turnDuration });
-  save();
+  save('games');
   if (tabletViewGameId) renderTabletView();
   renderActiveGame(game);
 }
@@ -1074,7 +1074,7 @@ function randomizeFirstPlayer(gameId) {
     game.activePlayerIdx = winner.idx;
     game.currentTurn = 1;
     addLog(game, { type: 'turn_change', text: `Random first player: T1, P${winner.idx + 1} · ${winner.p.name}` });
-    save();
+    save('games');
     if (tabletViewGameId) renderTabletView();
     renderActiveGame(game);
     textEl.textContent = `P${winner.idx + 1} · ${winner.p.name}`;
@@ -1162,7 +1162,7 @@ function submitLogEvent() {
 
   if (note && type !== 'note') text += note ? ' — ' + note : '';
   addLog(game, { type, fromId: fromId || null, toId: toId || null, amount: amount || null, card: card || null, text });
-  save();
+  save('games');
   closeLogEventModal();
   renderActiveGame(game);
 }
@@ -1204,7 +1204,7 @@ function submitEndGame() {
   if (winner) { winner.placement = 1; winner.eliminated = false; }
   game.players.filter(p => p.id !== winnerId && !p.placement).forEach((p, i) => { p.placement = i + 2; });
   addLog(game, { type: 'game_end', text: `${winner?.name} wins! Game ended at turn ${game.currentTurn}` });
-  save(); closeEndGameModal(); renderGames(); selectGame(game.id);
+  save('games'); closeEndGameModal(); renderGames(); selectGame(game.id);
   showNotif(`Game saved — ${winner?.name} wins!`);
 }
 
@@ -1551,5 +1551,5 @@ function deleteGame(id) {
     document.getElementById('gameDetailArea').style.display = 'none';
     document.getElementById('gamesEmpty').style.display = '';
   }
-  save(); renderGames(); showNotif('Game deleted');
+  save('games'); renderGames(); showNotif('Game deleted');
 }

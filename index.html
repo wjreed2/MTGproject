@@ -6,6 +6,8 @@
 <meta name="mtg-api-base" content="http://localhost:3001/api">
 <title>MTG Archive</title>
 <link rel="icon" type="image/svg+xml" href='data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="%23f0d878"/><stop offset="0.55" stop-color="%23c8a84a"/><stop offset="1" stop-color="%237a5828"/></linearGradient></defs><polygon points="32,3 61,23 49,61 15,61 3,23" fill="url(%23g)"/></svg>'>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles/main.css">
 </head>
@@ -435,7 +437,7 @@
       <div id="deckValidationPanel"></div>
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:0.5rem;flex-wrap:wrap">
         <span id="activeDeckCommander" style="display:none;color:var(--gold);font-family:'Cinzel',serif"></span>
-        <span id="activeDeckCommanderPips" style="display:flex;gap:2px"></span>
+        <span id="activeDeckCommanderPips" style="display:flex;gap:5px;align-items:center"></span>
         <button id="activeDeckCommanderEditBtn" onclick="openCommanderEdit()" style="display:none;background:none;border:none;color:var(--text3);cursor:pointer;font-size:0.72rem;padding:0" title="Change commander">✎ change</button>
         <span id="activeDeckNotes" style="display:none;color:var(--text3);font-style:italic"></span>
       </div>
@@ -498,7 +500,7 @@
             <button id="deckListViewList" onclick="setDeckListView('list',this)" title="List view">☰</button>
             <button id="deckListViewGrid" class="active" onclick="setDeckListView('grid',this)" title="Visual view">⊞</button>
           </div>
-          <button id="deckHistoryBtn" type="button" class="btn btn-outline btn-sm" onclick="toggleDeckHistory()" style="white-space:nowrap" title="Adds, removals, main↔sideboard, tag changes">◷ History</button>
+          <button id="deckHistoryBtn" type="button" class="btn btn-outline btn-sm" onclick="toggleDeckHistory()" style="white-space:nowrap" title="Adds, removals, main↔maybe board, tag changes">◷ History</button>
           <button id="deckListCollapseBtn" class="decklist-collapse-btn" onclick="toggleDeckListCollapse()"
             style="transition:transform 0.2s"
             title="Collapse / expand">▾</button>
@@ -530,17 +532,6 @@
           <div class="deck-tab-muted" style="padding:1.5rem;text-align:center">
             Select a commander to see recommendations
           </div>
-        </div>
-      </div>
-
-      <!-- Tagged Cards -->
-      <div class="panel" style="margin-bottom:1rem">
-        <div class="panel-header">
-          <span class="panel-title" style="color:var(--gold)">★ Tagged Cards</span>
-          <span id="taggedCardsCount"></span>
-        </div>
-        <div class="deck-cards-scroll" id="taggedCardsList" style="max-height:220px">
-          <div class="deck-tab-muted" style="padding:1rem;text-align:center">No tagged cards</div>
         </div>
       </div>
 
@@ -576,12 +567,13 @@
             <input type="number" id="probHandSize" value="7" min="1" max="20" style="width:52px;padding:3px 6px" oninput="onProbHandSizeChange(this.value)">
           </div>
         </div>
-        <div class="prob-chart-filters-row">
-          <div id="probChartFilters" class="prob-chart-filters"></div>
-        </div>
         <div class="panel-body prob-chart-panel-body">
+          <!-- Chart first in DOM so the chip row (grid row 1) paints above any compositor bleed from the canvas -->
           <div class="prob-chart-wrap">
             <canvas id="probChart"></canvas>
+          </div>
+          <div class="prob-chart-filters-row">
+            <div id="probChartFilters" class="prob-chart-filters"></div>
           </div>
         </div>
       </div>
@@ -889,7 +881,7 @@
         <div id="newDeckCommanderChosen" style="display:none;margin-top:6px;padding:6px 10px;background:var(--bg4);border:1px solid var(--border2);border-radius:var(--radius);display:flex;align-items:center;gap:8px">
           <img id="newDeckCommanderImg" src="" style="width:28px;border-radius:3px;flex-shrink:0" alt="">
           <span id="newDeckCommanderLabel" style="flex:1;font-size:0.85rem;color:var(--gold);font-family:'Cinzel',serif"></span>
-          <span id="newDeckCommanderPips" style="display:flex;gap:2px"></span>
+          <span id="newDeckCommanderPips" style="display:flex;gap:5px;align-items:center"></span>
           <button onclick="clearCommanderChoice('newDeck')" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:0.85rem;padding:0 2px" title="Clear">✕</button>
         </div>
         <input type="hidden" id="newDeckCommanderName">
@@ -1078,7 +1070,7 @@
       <strong style="color:var(--text2)">Notes:</strong><br>
       • Deck must be set to <strong style="color:var(--text)">public</strong> on Archidekt<br>
       • Cards you own will link to your collection; others are added as Scryfall entries<br>
-      • Maybeboard and sideboard cards are skipped
+      • Maybeboard and maybe board cards are skipped
     </div>
     <label style="display:flex;align-items:center;gap:8px;font-size:0.82rem;color:var(--text2);cursor:pointer;margin-bottom:1.25rem;user-select:none">
       <input type="checkbox" id="archidektAddToCollection" style="width:15px;height:15px;accent-color:var(--teal)">
@@ -1301,32 +1293,13 @@
 <!-- TABLET VIEW OVERLAY -->
 <div id="tabletView" style="display:none;position:fixed;inset:0;z-index:600;"></div>
 
-<!-- JS: load order matters — db-client first, then state, then feature modules -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-<script type="module">
-  import * as THREE from '/node_modules/three/build/three.module.min.js';
-  window.THREE = THREE;
-</script>
-<script src="js/db-client.js"></script>
-<script src="js/auth.js"></script>
-<script src="js/state.js"></script>
-<script src="js/api.js"></script>
-<script src="js/ui.js"></script>
-<script src="js/ownership.js"></script>
-<script src="js/collection.js"></script>
-<script src="js/sets.js"></script>
-<script src="js/decks.js"></script>
-<script src="js/browse.js"></script>
-<script src="js/wishlist.js"></script>
-<script src="js/import.js"></script>
-<script src="js/analytics.js"></script>
-<script src="js/voice.js"></script>
-<script src="js/games.js"></script>
+<script src="dist/bundle.js"></script>
 <script>
   if (localStorage.getItem('mtg_sidebar_collapsed') === 'true') {
     document.body.classList.add('sidebar-collapsed');
   }
-  initApp(); // async — fetches from MySQL via Express, then renders
+  initApp();
 </script>
 
 </body>
