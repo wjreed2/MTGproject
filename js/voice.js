@@ -38,6 +38,72 @@ function clearCardPanel() {
   document.getElementById('voiceAddBtn').disabled = true;
 }
 
+function _formatVoiceDeckName() {
+  const base = 'Untitled Deck';
+  const names = new Set((decks || []).map(d => String(d.name || '').trim().toLowerCase()));
+  if (!names.has(base.toLowerCase())) return base;
+  let n = 1;
+  while (names.has(`${base} ${n}`.toLowerCase())) n++;
+  return `${base} ${n}`;
+}
+
+function _getVoiceDeckTarget() {
+  if (!voiceDeckTargetId) return null;
+  return decks.find(d => d.id === voiceDeckTargetId) || null;
+}
+
+function _ensureVoiceDeckTarget() {
+  let deck = _getVoiceDeckTarget();
+  if (deck) return deck;
+  const id = `${Date.now()}_voice`;
+  deck = {
+    id,
+    name: _formatVoiceDeckName(),
+    format: 'Casual',
+    commander: null,
+    commanderColorIdentity: [],
+    commanderImage: null,
+    notes: 'Created from Voice Deck mode',
+    cards: [],
+    sideboard: [],
+    colors: [],
+  };
+  decks.push(deck);
+  voiceDeckTargetId = id;
+  localStorage.setItem('mtg_voice_deck_target_id', id);
+  if (document.getElementById('tab-decks')?.classList.contains('active') && typeof renderDecks === 'function') {
+    renderDecks();
+  }
+  return deck;
+}
+
+function renderVoiceDeckModeControls() {
+  const btn = document.getElementById('voiceNewDeckToggleBtn');
+  if (!btn) return;
+  btn.classList.toggle('active', !!voiceDeckModeEnabled);
+  btn.textContent = voiceDeckModeEnabled ? 'New Deck On' : 'New Deck';
+}
+
+function toggleVoiceNewDeckMode() {
+  if (voiceDeckModeEnabled) {
+    voiceDeckModeEnabled = false;
+    localStorage.setItem('mtg_voice_deck_mode', '0');
+    voiceDeckTargetId = '';
+    localStorage.removeItem('mtg_voice_deck_target_id');
+    renderVoiceDeckModeControls();
+    showNotif('Voice deck capture off');
+    return;
+  }
+  voiceDeckModeEnabled = true;
+  localStorage.setItem('mtg_voice_deck_mode', '1');
+  voiceDeckTargetId = '';
+  localStorage.removeItem('mtg_voice_deck_target_id');
+  const deck = _ensureVoiceDeckTarget();
+  save('decks');
+  renderVoiceDeckModeControls();
+  if (deck) showNotif(`Capturing into "${deck.name}"`);
+}
+
 function switchVoiceTab(tab) {
   const isVoice = tab === 'voice';
   document.getElementById('voiceTabContent').style.display = isVoice ? '' : 'none';
@@ -70,6 +136,7 @@ function openVoice() {
   foilBtn.style.borderColor = '';
   renderPinnedSet();
   renderAutoPinBtn();
+  renderVoiceDeckModeControls();
   if (!isListening) startRecording();
 }
 
@@ -524,19 +591,38 @@ function confirmVoiceAdd() {
     }
   }
 
-  const existing = collection.find(c => c.uid === pendingCard.uid);
-  if (existing) {
-    existing.qty += pendingCard.qty;
-    existing.addedAt = Date.now();
-    recordCollectionEvent('add', existing, pendingCard.qty);
+  const existingCollection = collection.find(c => c.uid === pendingCard.uid);
+  if (existingCollection) {
+    existingCollection.qty += pendingCard.qty;
+    existingCollection.addedAt = Date.now();
+    recordCollectionEvent('add', existingCollection, pendingCard.qty);
   } else {
     collection.push(pendingCard);
     recordCollectionEvent('add', pendingCard, pendingCard.qty);
   }
-  save('collection');
+  if (voiceDeckModeEnabled) {
+    const deck = _ensureVoiceDeckTarget();
+    if (!deck) {
+      showNotif('Could not create voice deck', true);
+      return;
+    }
+    const existingDeck = (deck.cards || []).find(c => c.uid === pendingCard.uid);
+    if (existingDeck) {
+      existingDeck.qty += pendingCard.qty;
+      recordDeckEvent('add', existingDeck, null, deck.id);
+    } else {
+      deck.cards.push({ ...pendingCard });
+      recordDeckEvent('add', pendingCard, null, deck.id);
+    }
+    save('collection', 'decks');
+    showNotif(`Added ${pendingCard.qty}x ${pendingCard.name} to collection + "${deck.name}"`);
+  } else {
+    save('collection');
+    showNotif(`Added ${pendingCard.qty}x ${pendingCard.name} to collection`);
+  }
   renderCollection();
   updateStats();
-  showNotif(`Added ${pendingCard.qty}x ${pendingCard.name}`);
+  renderVoiceDeckModeControls();
   pendingCard = null;
   clearCardPanel();
   document.getElementById('voiceTranscript').textContent = 'Waiting for speech…';

@@ -6,10 +6,12 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "build": "cat js/db-client.js js/auth.js js/state.js js/api.js js/ui.js js/ownership.js js/collection.js js/sets.js js/decks.js js/browse.js js/wishlist.js js/import.js js/analytics.js js/voice.js js/games.js | npx esbuild --minify > dist/bundle.js",
+    "build": "cat js/db-client.js js/auth.js js/state.js js/api.js js/ui.js js/ownership.js js/collection.js js/sets.js js/decks.js js/browse.js js/wishlist.js js/import.js js/analytics.js js/voice.js js/games.js js/scanner.js | npx esbuild --minify > dist/bundle.js",
     "build:watch": "npm run build && nodemon --watch js --ext js --exec 'npm run build'",
-    "cap:ip": "node scripts/update-cap-ip.js",
-    "cap:sync": "npx cap sync"
+    "cap:sim": "node scripts/update-cap-ip.js --sim && npx cap sync",
+    "cap:device": "node scripts/update-cap-ip.js && npx cap sync",
+    "cap:sync": "npx cap sync",
+    "setup:https": "bash scripts/setup-https.sh"
   },
   "dependencies": {
     "@capacitor/android": "^8.3.1",

@@ -121,7 +121,102 @@ async function loadAllData() {
   return { collection: col, decks: dks, games: gms, wishlist: wl, prefs, sharedDecks: sharedDks, history: hist };
 }
 
-// Debounced per-deck save for shared (collaborator) decks
+// ── IndexedDB offline cache ───────────────────────────────────────────────
+
+let _idb = null;
+function _openIDB() {
+  if (_idb) return Promise.resolve(_idb);
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('mtg_cache', 1);
+    req.onupgradeneeded = e => e.target.result.createObjectStore('kv');
+    req.onsuccess = e => { _idb = e.target.result; resolve(_idb); };
+    req.onerror = e => reject(e.target.error);
+  });
+}
+
+async function cacheSet(key, val) {
+  try {
+    const db = await _openIDB();
+    await new Promise((res, rej) => {
+      const tx = db.transaction('kv', 'readwrite');
+      tx.objectStore('kv').put(val, key);
+      tx.oncomplete = res;
+      tx.onerror = e => rej(e.target.error);
+    });
+  } catch (e) { console.warn('[cache] set failed:', e); }
+}
+
+async function cacheGet(key) {
+  try {
+    const db = await _openIDB();
+    return new Promise((res, rej) => {
+      const tx = db.transaction('kv', 'readonly');
+      const req = tx.objectStore('kv').get(key);
+      req.onsuccess = e => res(e.target.result ?? null);
+      req.onerror = e => rej(e.target.error);
+    });
+  } catch (_) { return null; }
+}
+
+async function cacheSaveAll(data) {
+  await Promise.all([
+    cacheSet('collection', data.collection  || []),
+    cacheSet('decks',      data.decks       || []),
+    cacheSet('games',      data.games       || []),
+    cacheSet('wishlist',   data.wishlist    || []),
+    cacheSet('prefs',      data.prefs       || {}),
+    cacheSet('sharedDecks',data.sharedDecks || []),
+    cacheSet('history',    data.history     || []),
+  ]);
+}
+
+async function cacheLoadAll() {
+  const keys = ['collection','decks','games','wishlist','prefs','sharedDecks','history'];
+  const vals = await Promise.all(keys.map(k => cacheGet(k)));
+  if (vals.every(v => v === null)) return null;
+  return {
+    collection:  vals[0] || [],
+    decks:       vals[1] || [],
+    games:       vals[2] || [],
+    wishlist:    vals[3] || [],
+    prefs:       vals[4] || {},
+    sharedDecks: vals[5] || [],
+    history:     vals[6] || [],
+  };
+}
+
+// ── Offline state ─────────────────────────────────────────────────────────
+
+let _isOffline = false;
+let _reconnectTimer = null;
+
+function _setOffline() {
+  if (_isOffline) return;
+  _isOffline = true;
+  document.getElementById('offlineBanner')?.style.setProperty('display', 'flex');
+  if (!_reconnectTimer) {
+    _reconnectTimer = setInterval(async () => {
+      try {
+        await fetch(mtgApiRoot() + '/auth/me', { credentials: 'include' });
+        _setOnline();
+      } catch (_) {}
+    }, 15000);
+  }
+}
+
+function _setOnline() {
+  if (!_isOffline) return;
+  _isOffline = false;
+  document.getElementById('offlineBanner')?.style.setProperty('display', 'none');
+  clearInterval(_reconnectTimer);
+  _reconnectTimer = null;
+  if (_dirty.size) _flushSave();
+}
+
+window.addEventListener('online',  () => { if (_isOffline) _setOnline(); });
+window.addEventListener('offline', () => _setOffline());
+
+// ── Debounced per-deck save for shared (collaborator) decks
 const _sharedSaveTimers = {};
 function scheduleSaveSharedDeck(deck) {
   clearTimeout(_sharedSaveTimers[deck.id]);
@@ -140,19 +235,29 @@ function markDirty(...domains) {
   }
 }
 
-// Debounced fire-and-forget save — called by save() in state.js
+// Debounced save — called by save() in state.js
 let _saveTimer = null;
 function scheduleSave() {
   clearTimeout(_saveTimer);
-  _saveTimer = setTimeout(() => {
-    const toSave = new Set(_dirty);
-    _dirty.clear();
-    const ops = [];
-    if (toSave.has('collection')) ops.push(apiPut('/collection', collection));
-    if (toSave.has('decks'))      ops.push(apiPut('/decks', decks));
-    if (toSave.has('games'))      ops.push(apiPut('/games', games));
-    if (toSave.has('wishlist'))   ops.push(apiPut('/wishlist', wishlist));
-    if (toSave.has('prefs'))      ops.push(apiPut('/preferences', { starred_sets: [...starredSets], deck_custom_tags: deckCustomTags || [] }));
-    if (ops.length) Promise.all(ops).catch(e => console.error('[db] save failed:', e));
-  }, 500);
+  _saveTimer = setTimeout(_flushSave, 500);
+}
+
+async function _flushSave() {
+  if (!_dirty.size) return;
+  const toSave = new Set(_dirty);
+  _dirty.clear();
+  const ops = [];
+  if (toSave.has('collection')) ops.push(apiPut('/collection', collection));
+  if (toSave.has('decks'))      ops.push(apiPut('/decks', decks));
+  if (toSave.has('games'))      ops.push(apiPut('/games', games));
+  if (toSave.has('wishlist'))   ops.push(apiPut('/wishlist', wishlist));
+  if (toSave.has('prefs'))      ops.push(apiPut('/preferences', { starred_sets: [...starredSets], deck_custom_tags: deckCustomTags || [] }));
+  try {
+    if (ops.length) await Promise.all(ops);
+    if (_isOffline) _setOnline();
+  } catch (e) {
+    console.warn('[db] save failed — queued for retry:', e);
+    toSave.forEach(d => _dirty.add(d));
+    _setOffline();
+  }
 }

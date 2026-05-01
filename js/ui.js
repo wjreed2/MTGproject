@@ -3,11 +3,14 @@
 function showTab(t) {
   document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.mob-nav-item').forEach(el => el.classList.remove('active'));
   document.getElementById('tab-' + t).classList.add('active');
   localStorage.setItem('mtg_active_tab', t);
   const sidebarItem = document.querySelector(`.sidebar-item[onclick*="'${t}'"]`);
   if (sidebarItem) sidebarItem.classList.add('active');
   else if (typeof event !== 'undefined' && event?.currentTarget) event.currentTarget.classList.add('active');
+  const mobItem = document.querySelector(`.mob-nav-item[data-tab="${t}"]`);
+  if (mobItem) mobItem.classList.add('active');
   if (t === 'collection') renderCollection();
   if (t === 'sets') loadSets();
   if (t === 'decks') renderDecks();
@@ -90,6 +93,7 @@ const _modalCloseMap = {
   moxfieldModal:         () => closeMoxfieldImport(),
   confirmModal:          () => resolveConfirmModal(false),
   promptModal:           () => resolvePromptModal(null),
+  scannerModal:          () => closeScanner(),
   seedModal:             () => closeSeedModal(),
   versionPickerModal:    () => closeVersionPicker(),
   deckTagManagerModal:   () => closeDeckTagManager(),
@@ -102,6 +106,25 @@ document.addEventListener('click', e => {
   const fn = _modalCloseMap[e.target.id];
   if (fn) fn();
 });
+
+// ── Card detail swipe navigation (mobile) ────────────────────────────────
+(function () {
+  let _sx = 0, _sy = 0;
+  const overlay = document.getElementById('cardDetailModal');
+  if (!overlay) return;
+  overlay.addEventListener('touchstart', e => {
+    _sx = e.touches[0].clientX;
+    _sy = e.touches[0].clientY;
+  }, { passive: true });
+  overlay.addEventListener('touchend', e => {
+    const dx = e.changedTouches[0].clientX - _sx;
+    const dy = e.changedTouches[0].clientY - _sy;
+    if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy)) return;
+    if (typeof navigateCardDetailCollection === 'function') {
+      navigateCardDetailCollection(dx < 0 ? 'next' : 'prev');
+    }
+  }, { passive: true });
+})();
 
 function showNotif(msg, isError = false) {
   const el = document.getElementById('notif');

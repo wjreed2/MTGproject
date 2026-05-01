@@ -2,14 +2,15 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="mtg-api-base" content="http://localhost:3001/api">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="mtg-api-base" content="/api">
 <title>MTG Archive</title>
 <link rel="icon" type="image/svg+xml" href='data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="%23f0d878"/><stop offset="0.55" stop-color="%23c8a84a"/><stop offset="1" stop-color="%237a5828"/></linearGradient></defs><polygon points="32,3 61,23 49,61 15,61 3,23" fill="url(%23g)"/></svg>'>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles/main.css">
+<link rel="stylesheet" href="styles/mobile.css">
 </head>
 <body>
 
@@ -349,7 +350,7 @@
         <span id="activeSetMeta" class="tag tag-gold"></span>
         <div style="flex:1"></div>
         <button id="toggleSetSidebarBtn" class="btn btn-outline btn-sm" onclick="toggleSetSidebar()" title="Show or hide set switcher">⇤ Sets</button>
-        <button id="backToSetsBtn" class="btn btn-outline btn-sm" onclick="closeSetDetail()">← All Sets</button>
+        <button id="backToSetsBtn" class="btn btn-outline btn-sm" onclick="closeSetDetail()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><polyline points="15 18 9 12 15 6"/></svg> All Sets</button>
       </div>
       <div class="panel">
         <div id="setDetailContent" style="padding:1rem"></div>
@@ -363,7 +364,8 @@
 
   <!-- Top bar — always visible -->
   <div class="top-action-bar" style="display:flex;align-items:center;gap:10px;margin-bottom:1.25rem;flex-wrap:wrap">
-    <button id="backToDecksBtn" class="btn btn-ghost btn-sm" style="display:none" onclick="closeDeckDetail()">← All Decks</button>
+    <button id="backToDecksBtn" class="btn btn-ghost btn-sm" style="display:none" onclick="closeDeckDetail()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><polyline points="15 18 9 12 15 6"/></svg> All Decks</button>
+    <button id="newDeckTopBtn" class="btn btn-primary btn-sm" onclick="createNewDeck()">+ New Deck</button>
   </div>
 
   <!-- Deck grid — shown when no deck is selected -->
@@ -377,16 +379,10 @@
     <!-- Active Deck -->
     <div id="activeDeckArea" style="flex:1;min-width:0">
       <div id="deckTopBar" class="top-action-bar" style="display:flex;align-items:center;gap:10px;margin-bottom:0.5rem;flex-wrap:wrap">
-        <span id="deckValidBadge"></span>
-        <span id="activeDeckName" class="panel-title"></span>
-        <span id="activeDeckFormat" class="tag tag-gold"></span>
-        <span id="activeDeckCount" class="tag tag-blue"></span>
-        <span id="deckScryTagSyncBadge" class="tag tag-scryfall" style="display:none">Syncing Scryfall tags…</span>
-        <span id="deckSharedByBadge" style="display:none;padding:2px 9px;border-radius:10px;background:rgba(100,140,220,0.15);color:var(--blue);border:1px solid rgba(100,140,220,0.3)"></span>
-        <div style="flex:1"></div>
-        <button id="toggleDeckSidebarBtn" class="btn btn-outline btn-sm" onclick="toggleDeckSidebar()" title="Show or hide deck switcher">⇤ Decks</button>
-        <button class="btn btn-primary btn-sm" onclick="createNewDeck()">+ New Deck</button>
-        <div style="position:relative">
+        <div class="deck-top-title-row" style="display:flex;align-items:center;gap:8px;min-width:0">
+          <span id="deckValidBadge"></span>
+          <span id="activeDeckName" class="panel-title" style="min-width:0"></span>
+          <div id="deckTopMenuWrap" style="position:relative;flex-shrink:0">
           <button class="btn btn-outline btn-sm" onclick="toggleDeckOptionsDropdown()" id="deckOptionsBtn" title="More options" style="padding:2px 10px">
             <svg viewBox="0 0 16 16" fill="currentColor" stroke="none" style="width:13px;height:13px"><circle cx="8" cy="3.5" r="1.3"/><circle cx="8" cy="8" r="1.3"/><circle cx="8" cy="12.5" r="1.3"/></svg>
           </button>
@@ -433,6 +429,13 @@
             </button>
           </div>
         </div>
+        </div><!-- /.deck-top-title-row -->
+        <span id="activeDeckFormat" class="tag tag-gold"></span>
+        <span id="activeDeckCount" class="tag tag-blue"></span>
+        <span id="deckScryTagSyncBadge" class="tag tag-scryfall" style="display:none">Syncing Scryfall tags…</span>
+        <span id="deckSharedByBadge" style="display:none;padding:2px 9px;border-radius:10px;background:rgba(100,140,220,0.15);color:var(--blue);border:1px solid rgba(100,140,220,0.3)"></span>
+        <div style="flex:1"></div>
+        <button id="toggleDeckSidebarBtn" class="btn btn-outline btn-sm" onclick="toggleDeckSidebar()" title="Show or hide deck switcher">⇤ Decks</button>
       </div>
       <div id="deckValidationPanel"></div>
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:0.5rem;flex-wrap:wrap">
@@ -493,12 +496,20 @@
             <button class="btn btn-outline btn-sm" onclick="openDeckTagManager()" title="Manage reusable deck tags">Manage Tags</button>
           </span>
           <div id="deckStackOrientToggle" class="view-toggle">
-            <button id="deckStackOrientV" class="active" onclick="setDeckStackOrient('vertical')" title="Vertical stack">↕</button>
-            <button id="deckStackOrientH" onclick="setDeckStackOrient('horizontal')" title="Horizontal stack">↔</button>
+            <button id="deckStackOrientV" class="active" onclick="setDeckStackOrient('vertical')" title="Vertical stack" aria-label="Vertical stack">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><path d="M8 1.8v12.4"/><path d="M5.8 4 8 1.8 10.2 4"/><path d="M5.8 12 8 14.2 10.2 12"/></svg>
+            </button>
+            <button id="deckStackOrientH" onclick="setDeckStackOrient('horizontal')" title="Horizontal stack" aria-label="Horizontal stack">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><path d="M1.8 8h12.4"/><path d="M4 5.8 1.8 8 4 10.2"/><path d="M12 5.8 14.2 8 12 10.2"/></svg>
+            </button>
           </div>
           <div class="view-toggle">
-            <button id="deckListViewList" onclick="setDeckListView('list',this)" title="List view">☰</button>
-            <button id="deckListViewGrid" class="active" onclick="setDeckListView('grid',this)" title="Visual view">⊞</button>
+            <button id="deckListViewList" onclick="setDeckListView('list',this)" title="List view">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" style="width:13px;height:13px"><line x1="3" y1="4.5" x2="13" y2="4.5"/><line x1="3" y1="8" x2="13" y2="8"/><line x1="3" y1="11.5" x2="13" y2="11.5"/></svg>
+            </button>
+            <button id="deckListViewGrid" class="active" onclick="setDeckListView('grid',this)" title="Visual view">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="0.5"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="0.5"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="0.5"/><rect x="9" y="9" width="4.5" height="4.5" rx="0.5"/></svg>
+            </button>
           </div>
           <button id="deckHistoryBtn" type="button" class="btn btn-outline btn-sm" onclick="toggleDeckHistory()" style="white-space:nowrap" title="Adds, removals, main↔maybe board, tag changes">◷ History</button>
           <button id="deckListCollapseBtn" class="decklist-collapse-btn" onclick="toggleDeckListCollapse()"
@@ -730,6 +741,87 @@
 
 </main>
 
+<!-- SCANNER MODAL -->
+<div class="modal-overlay" id="scannerModal">
+  <div class="scanner-sheet">
+    <div class="scanner-sheet-header">
+      <div style="display:flex;align-items:center;gap:8px">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;flex-shrink:0"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        <span class="panel-title" style="font-size:0.9rem">Card Scanner</span>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="closeScanner()" style="font-size:0.8rem">✕ Close</button>
+    </div>
+
+    <div class="scanner-sheet-body">
+      <!-- Camera -->
+      <div class="scn-camera-wrap" id="scnCameraWrap">
+        <div class="scn-scan-zone-bot">
+          <span class="scn-szb-label">Set · Number</span>
+        </div>
+        <div class="scn-scan-line"></div>
+        <div class="scn-bracket tl"></div><div class="scn-bracket tr"></div>
+        <div class="scn-bracket bl"></div><div class="scn-bracket br"></div>
+        <video id="scnVideo" playsinline muted autoplay style="width:100%;height:100%;object-fit:cover;display:none;border-radius:inherit"></video>
+        <div class="scn-camera-idle" id="scnCameraIdle">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" style="width:48px;height:48px;opacity:0.35"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+          <p style="font-size:13px;color:var(--text3)">Tap Start Camera</p>
+        </div>
+      </div>
+
+      <!-- Detection bar -->
+      <div class="scn-det-bar" id="scnDetBar">
+        <div class="scn-det-icon" id="scnDetIcon">👁</div>
+        <div style="flex:1;min-width:0">
+          <div class="scn-det-name" id="scnDetName">Waiting for camera…</div>
+          <div class="scn-det-meta" id="scnDetMeta"></div>
+          <div class="scn-conf-bar"><div class="scn-conf-fill" id="scnConfFill" style="width:0%"></div></div>
+        </div>
+      </div>
+
+      <!-- Camera controls -->
+      <div class="scn-controls">
+        <button class="btn btn-primary" id="scnStartBtn" onclick="scnStartCamera()" style="flex:1">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/></svg>
+          Start Camera
+        </button>
+        <button class="btn btn-danger hidden" id="scnStopBtn" onclick="scnStopCamera()" style="flex:1">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+          Stop
+        </button>
+        <button class="btn btn-ghost" id="scnFlipBtn" onclick="scnFlipCamera()" title="Flip camera" style="display:none;padding:7px 10px">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 .49-4.5"/></svg>
+        </button>
+      </div>
+
+      <!-- Zoom -->
+      <div class="scn-zoom-row" id="scnZoomControls" style="opacity:0.45">
+        <span style="font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text3);white-space:nowrap">Zoom</span>
+        <button class="btn btn-ghost btn-sm" id="scnZoomOutBtn" onclick="scnZoomOut()">−</button>
+        <input type="range" id="scnZoomSlider" min="1" max="1" step="0.1" value="1" style="flex:1;accent-color:var(--gold)" disabled>
+        <button class="btn btn-ghost btn-sm" id="scnZoomInBtn" onclick="scnZoomIn()">+</button>
+        <span id="scnZoomVal" style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text2);min-width:36px;text-align:right">1.0×</span>
+      </div>
+
+      <!-- Manual search -->
+      <div class="scn-search-row">
+        <input class="search-box" id="scnNameInput" type="text" placeholder="Detected name — or type and search…" autocorrect="off" autocomplete="off" spellcheck="false" style="flex:1">
+        <button class="btn btn-outline btn-sm" onclick="scnSearchManual()">Search</button>
+      </div>
+      <div class="scn-status-line" id="scnStatusLine"></div>
+
+      <!-- Candidates -->
+      <div class="scn-candidates hidden" id="scnCandidates">
+        <div class="scn-cand-label" id="scnCandLabel">Select the correct card</div>
+        <div class="scn-cand-grid" id="scnCandGrid"></div>
+        <button class="btn btn-ghost btn-sm" onclick="scnDismiss()" style="margin-top:8px">Dismiss</button>
+      </div>
+
+      <!-- Session list -->
+      <div id="scnSessionList"></div>
+    </div>
+  </div>
+</div>
+
 <!-- VOICE MODAL -->
 <div class="modal-overlay" id="voiceModal">
   <div class="modal" style="width:min(960px,96vw)">
@@ -785,6 +877,7 @@
             <input type="number" id="manualCardNum" placeholder="Card # (e.g. 142)" style="flex:1">
             <input type="number" id="manualQty" placeholder="Qty" value="1" style="width:64px">
             <button class="btn btn-outline btn-sm" id="foilToggleBtn" onclick="toggleFoil()" title="Toggle foil" style="white-space:nowrap;display:inline-flex;align-items:center;gap:4px"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px;flex-shrink:0"><path d="M8 2L13.5 8L8 14L2.5 8Z"/></svg> Foil</button>
+            <button class="btn btn-outline btn-sm" id="voiceNewDeckToggleBtn" onclick="toggleVoiceNewDeckMode()" title="Toggle voice deck capture" style="white-space:nowrap">New Deck</button>
             <button class="btn btn-primary btn-sm" onclick="lookupManual()" style="display:inline-flex;align-items:center;gap:5px;white-space:nowrap"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px;flex-shrink:0"><circle cx="6.5" cy="6.5" r="4.5"/><path d="M10 10l3.5 3.5"/></svg> Look Up</button>
           </div>
           <button class="btn btn-primary" style="width:100%;display:flex;align-items:center;justify-content:center;gap:6px" onclick="confirmVoiceAdd()" id="voiceAddBtn" disabled><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="width:13px;height:13px;flex-shrink:0"><line x1="8" y1="2" x2="8" y2="14"/><line x1="2" y1="8" x2="14" y2="8"/></svg> Add to Collection</button>
@@ -1292,6 +1385,86 @@
 
 <!-- TABLET VIEW OVERLAY -->
 <div id="tabletView" style="display:none;position:fixed;inset:0;z-index:600;"></div>
+
+<!-- OFFLINE BANNER -->
+<div id="offlineBanner" class="offline-banner" style="display:none">
+  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" style="width:14px;height:14px;flex-shrink:0">
+    <path d="M1 1l14 14M9.5 4.5A5 5 0 0 1 13 8M3 8a5 5 0 0 1 1.5-3.5M6.5 11H11M5 11H4"/>
+    <circle cx="8" cy="14" r="1" fill="currentColor" stroke="none"/>
+  </svg>
+  Offline — changes will sync when reconnected
+</div>
+
+<!-- MOBILE BOTTOM NAV -->
+<nav class="mobile-bottom-nav" id="mobileBottomNav">
+  <button class="mob-nav-item active" data-tab="collection" onclick="showTab('collection')">
+    <svg class="mob-nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/>
+      <rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/>
+    </svg>
+    <span class="mob-nav-label">Cards</span>
+  </button>
+  <button class="mob-nav-item" data-tab="sets" onclick="showTab('sets')">
+    <svg class="mob-nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <polygon points="8,1 15,5 15,11 8,15 1,11 1,5"/>
+      <polygon points="8,5 11,7 11,9 8,11 5,9 5,7"/>
+    </svg>
+    <span class="mob-nav-label">Sets</span>
+  </button>
+  <button class="mob-nav-item" data-tab="decks" onclick="showTab('decks')">
+    <svg class="mob-nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3" y="4" width="10" height="10" rx="1.5"/>
+      <path d="M5 4V3a2 2 0 0 1 6 0v1"/>
+      <line x1="6" y1="8" x2="10" y2="8"/><line x1="6" y1="11" x2="10" y2="11"/>
+    </svg>
+    <span class="mob-nav-label">Decks</span>
+  </button>
+  <button class="mob-nav-item" data-tab="games" onclick="showTab('games')">
+    <svg class="mob-nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M2 14L14 2M2 2l12 12" stroke-linecap="round"/>
+      <circle cx="8" cy="8" r="2.5"/>
+    </svg>
+    <span class="mob-nav-label">Games</span>
+  </button>
+  <button class="mob-nav-item" data-tab="browse" onclick="showTab('browse')">
+    <svg class="mob-nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="8" cy="8" r="6.5"/>
+      <path d="M8 1.5C8 1.5 11 5 11 8s-3 6.5-3 6.5M8 1.5C8 1.5 5 5 5 8s3 6.5 3 6.5M1.5 8h13"/>
+    </svg>
+    <span class="mob-nav-label">Browse</span>
+  </button>
+  <button class="mob-nav-item" data-tab="wishlist" onclick="showTab('wishlist')">
+    <svg class="mob-nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M8 13.5S1.5 9.5 1.5 5.5A3.5 3.5 0 0 1 8 4a3.5 3.5 0 0 1 6.5 1.5C14.5 9.5 8 13.5 8 13.5z"/>
+    </svg>
+    <span class="mob-nav-label">Wishlist</span>
+  </button>
+  <button class="mob-nav-item" data-tab="stats" onclick="showTab('stats')">
+    <svg class="mob-nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <line x1="1" y1="14" x2="15" y2="14"/>
+      <rect x="2" y="9" width="3" height="5" rx="0.5"/>
+      <rect x="6.5" y="5" width="3" height="9" rx="0.5"/>
+      <rect x="11" y="2" width="3" height="12" rx="0.5"/>
+    </svg>
+    <span class="mob-nav-label">Stats</span>
+  </button>
+  <button class="mob-nav-item" onclick="openVoice()">
+    <svg class="mob-nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M8 1.5a2.5 2.5 0 0 1 2.5 2.5v3a2.5 2.5 0 0 1-5 0V4A2.5 2.5 0 0 1 8 1.5z"/>
+      <path d="M12 8v.5a4 4 0 0 1-8 0V8"/>
+      <line x1="8" y1="12.5" x2="8" y2="14.5"/>
+      <line x1="5.5" y1="14.5" x2="10.5" y2="14.5"/>
+    </svg>
+    <span class="mob-nav-label">Voice</span>
+  </button>
+  <button class="mob-nav-item" onclick="openScanner()">
+    <svg class="mob-nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M5.5 2H3a1 1 0 0 0-1 1v2.5M10.5 2H13a1 1 0 0 1 1 1v2.5M14 10.5V13a1 1 0 0 1-1 1h-2.5M5.5 14H3a1 1 0 0 1-1-1v-2.5"/>
+      <rect x="5" y="5" width="6" height="6" rx="1"/>
+    </svg>
+    <span class="mob-nav-label">Scan</span>
+  </button>
+</nav>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="dist/bundle.js"></script>

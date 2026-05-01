@@ -887,6 +887,7 @@ async function openTagSettingsForCardRef(cardRef) {
 }
 
 function renderDecks() {
+  const topNewDeckBtn = document.getElementById('newDeckTopBtn');
   if (activeDeckId) {
     const exists = decks.some(d => d.id === activeDeckId) || sharedDecks.some(d => d.id === activeDeckId);
     if (!exists) {
@@ -907,12 +908,14 @@ function renderDecks() {
     document.getElementById('deckGridArea').style.display = '';
     document.getElementById('deckDetailArea').style.display = 'none';
     document.getElementById('backToDecksBtn').style.display = 'none';
+    if (topNewDeckBtn) topNewDeckBtn.style.display = '';
     renderDeckGrid();
   } else {
     // Show detail split, hide grid
     document.getElementById('deckGridArea').style.display = 'none';
     document.getElementById('deckDetailArea').style.display = 'flex';
     document.getElementById('backToDecksBtn').style.display = '';
+    if (topNewDeckBtn) topNewDeckBtn.style.display = 'none';
     applyDeckSidebarState();
     renderDeckSidebar();
     renderActiveDeck();

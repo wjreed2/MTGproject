@@ -5,4 +5,4 @@ node_modules/
 ios/
 android/
 www/
-dist/
+dist/certs/

@@ -42,6 +42,8 @@ let autoPin_lastSet   = '';
 let autoPin_setStreak = 0;
 let autoPin_ovStreak  = 0;
 let pendingFoil      = false;
+let voiceDeckModeEnabled = localStorage.getItem('mtg_voice_deck_mode') === '1';
+let voiceDeckTargetId = localStorage.getItem('mtg_voice_deck_target_id') || '';
 
 // Set browser state
 let allSets      = [];
@@ -77,10 +79,27 @@ async function loadAppDataAfterAuth() {
   body.style.opacity = '0.5';
   body.style.pointerEvents = 'none';
 
+  let fromCache = false;
+  let data;
   try {
-    const data = await loadAllData();
+    const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 8000));
+    data = await Promise.race([loadAllData(), timeout]);
+    cacheSaveAll(data);
+  } catch (e) {
+    console.warn('[db] Server unreachable, trying cache:', e);
+    data = await cacheLoadAll();
+    if (data) {
+      fromCache = true;
+    } else {
+      console.error('[db] No cache available:', e);
+      showNotif('Could not connect to server — data will not be saved', true);
+      data = { collection: [], decks: [], games: [], wishlist: [], prefs: {}, sharedDecks: [], history: [] };
+    }
+  }
 
-    collection = data.collection || [];
+  if (fromCache) _setOffline();
+
+  collection = data.collection || [];
     collectionHistory = data.history || [];
     decks = data.decks || [];
     games = data.games || [];
@@ -143,12 +162,8 @@ async function loadAppDataAfterAuth() {
         localStorage.removeItem('mtg_active_deck_id');
       }
     }
-    if (typeof loadTagOverrides === 'function') {
-      try { await loadTagOverrides(true); } catch (_) {}
-    }
-  } catch (e) {
-    console.error('[db] Could not reach server — starting with empty state:', e);
-    showNotif('Could not connect to server — data will not be saved', true);
+  if (typeof loadTagOverrides === 'function') {
+    try { await loadTagOverrides(true); } catch (_) {}
   }
 
   body.style.opacity = '';
