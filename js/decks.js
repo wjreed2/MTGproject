@@ -470,12 +470,6 @@ function _renderScryTagSyncBadge() {
   }
 }
 
-function _countDeckCardsWithScryTags(deck) {
-  return (deck?.cards || []).reduce((n, c) => {
-    const tags = Array.isArray(c?.customTags) ? c.customTags : [];
-    return n + (tags.some(t => _SCRY_AUTO_LABEL_SET.has(t)) ? 1 : 0);
-  }, 0);
-}
 
 // Returns the active deck from either decks[] or sharedDecks[]
 function getActiveDeck() {
@@ -951,12 +945,12 @@ function _deckGridCard(d, isShared) {
     <div class="browse-deck-img">
       ${img
         ? `<img src="${img}" alt="${d.name}" style="width:100%;height:100%;object-fit:cover;object-position:center top">`
-        : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-family:'Cinzel',serif;font-size:0.65rem;color:var(--text3);text-align:center;padding:8px;background:var(--bg4)">${d.name}</div>`}
+        : `<div class="deck-grid-placeholder" style="width:100%;height:100%;background:var(--bg4)">${d.name}</div>`}
     </div>
     <div class="browse-deck-overlay">
       <div class="browse-deck-name">${d.name}</div>
       <div class="browse-deck-meta">${d.format}${d.commander ? ' · ' + d.commander : ''}${isShared ? ' · ' + (d.ownerEmail || '') : ''}</div>
-      ${combo ? `<div style="font-family:'Cinzel',serif;font-size:0.75rem;font-weight:600;color:var(--gold);letter-spacing:0.04em;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${combo}</div>` : ''}
+      ${combo ? `<div class="browse-deck-combo">${combo}</div>` : ''}
       <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px">
         <span style="display:inline-flex;align-items:center;gap:3px">${pips}</span>
         <span style="display:flex;align-items:center;gap:3px">${validBadge}${pubBadge}${sharedBadge}</span>
@@ -975,8 +969,8 @@ function renderDeckGrid() {
   if (!ownedHtml && !sharedHtml) {
     el.innerHTML = `<div class="deck-grid"><div class="deck-grid-empty">
       <img src="https://cards.scryfall.io/back.jpg" alt="Magic card back" style="width:60px;border-radius:6px;opacity:0.35;margin-bottom:1rem;box-shadow:0 4px 12px rgba(0,0,0,0.4)">
-      <div style="font-family:'Cinzel',serif;font-size:1rem;color:var(--text2);margin-bottom:0.5rem">No decks yet</div>
-      <p style="margin-bottom:1.5rem">Create your first deck to get started</p>
+      <div class="deck-grid-empty-title">No decks yet</div>
+      <p>Create your first deck to get started</p>
       <button class="btn btn-primary" onclick="createNewDeck()">+ Create Deck</button>
     </div></div>`;
     return;
@@ -997,13 +991,13 @@ function _deckSidebarItem(d) {
   const total  = d.cards.reduce((s,c)=>s+c.qty,0);
   const issues = validateDeck(d);
   const badge  = issues.some(i => i.severity === 'error')
-    ? `<span style="font-size:0.55rem;padding:1px 4px;border-radius:4px;background:rgba(212,90,74,0.85);color:#fff;margin-top:2px;display:inline-block">✕ Invalid</span>`
-    : issues.length ? `<span style="font-size:0.55rem;padding:1px 4px;border-radius:4px;background:rgba(200,168,74,0.7);color:#000;margin-top:2px;display:inline-block">⚠</span>` : '';
+    ? `<span class="deck-sidebar-badge deck-sidebar-badge--error">✕ Invalid</span>`
+    : issues.length ? `<span class="deck-sidebar-badge deck-sidebar-badge--warn">⚠</span>` : '';
   return `
   <div class="deck-sidebar-item ${activeDeckId === d.id ? 'active' : ''}" onclick="selectDeck('${d.id}')">
     ${_deckImage(d)
       ? `<img src="${_deckImage(d)}" alt="${d.name}" style="width:100%;height:100%;object-fit:cover;object-position:center top;display:block">`
-      : `<div style="width:100%;height:100%;background:var(--bg4);display:flex;align-items:center;justify-content:center;font-family:'Cinzel',serif;font-size:0.65rem;color:var(--text3);text-align:center;padding:8px">${d.name}</div>`}
+      : `<div class="deck-grid-placeholder" style="width:100%;height:100%;background:var(--bg4)">${d.name}</div>`}
     <div style="position:absolute;bottom:0;left:0;right:0;padding:18px 8px 7px;background:linear-gradient(transparent,rgba(0,0,0,0.85))">
       <div class="deck-sidebar-name">${d.name}</div>
       <div class="deck-sidebar-meta">${d.format} · ${total} cards</div>
@@ -1052,7 +1046,6 @@ function _applyPublicToggleBtn(btn, isPublic) {
 
 // ── Commander search ──────────────────────────────────────────────────────────
 
-const COLOR_SYMBOLS = { W:'☀', U:'💧', B:'💀', R:'🔥', G:'🌲' };
 const COLOR_HEX     = { W:'#f8f6d8', U:'#0e68ab', B:'#150b00', R:'#d3202a', G:'#00733e' };
 
 function commanderQuery(format) {
@@ -1454,22 +1447,22 @@ async function renderCollaboratorsPanel(deck) {
   const errorEl = document.getElementById('collabError');
   if (!listEl) return;
   if (errorEl) errorEl.textContent = '';
-  listEl.innerHTML = '<div style="color:var(--text3);font-size:0.8rem;padding:4px 0">Loading…</div>';
+  listEl.innerHTML = '<div class="collab-list-msg">Loading…</div>';
 
   try {
     const collabs = await apiFetch(`/decks/${deck.id}/collaborators`);
     if (!collabs.length) {
-      listEl.innerHTML = '<div style="color:var(--text3);font-size:0.8rem;padding:4px 0">No collaborators yet</div>';
+      listEl.innerHTML = '<div class="collab-list-msg">No collaborators yet</div>';
     } else {
       listEl.innerHTML = collabs.map(c => `
         <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)">
-          <span style="flex:1;font-size:0.82rem;color:var(--text2)">${c.email}</span>
+          <span class="collab-list-email">${c.email}</span>
           <button class="btn btn-ghost btn-sm btn-icon" style="color:var(--text3);padding:2px 6px"
             onclick="removeDeckCollaborator('${deck.id}',${c.id},'${c.email.replace(/'/g,"\\'")}')">✕</button>
         </div>`).join('');
     }
   } catch (e) {
-    listEl.innerHTML = `<div style="color:var(--red);font-size:0.8rem">${e.message}</div>`;
+    listEl.innerHTML = `<div class="collab-list-msg collab-list-msg--error">${e.message}</div>`;
   }
 }
 
@@ -1897,8 +1890,8 @@ function _stackTile(c, isSideboard = false) {
       <div class="stack-wrap">
         ${img
           ? `<img src="${img}" class="stack-main${c.isCommander ? ' is-commander' : ''}" alt="${c.name}" loading="lazy" style="${imgStyle}">`
-          : `<div class="stack-main${c.isCommander ? ' is-commander' : ''}"
-               style="aspect-ratio:0.715;background:var(--bg4);display:flex;align-items:center;justify-content:center;font-size:0.6rem;color:var(--text3);padding:4px;text-align:center;${imgStyle}">${c.name}</div>`}
+          : `<div class="stack-main stack-face-fallback${c.isCommander ? ' is-commander' : ''}"
+               style="aspect-ratio:0.715;background:var(--bg4);display:flex;align-items:center;justify-content:center;color:var(--text3);padding:4px;text-align:center;${imgStyle}">${c.name}</div>`}
         <div class="stack-qty">×${qty}</div>
         ${ownerBadge}
         <button class="stack-remove" data-uid="${c.uid || ''}" data-zone="${isSideboard ? 'sb' : 'main'}" title="Remove">✕</button>
@@ -2101,12 +2094,12 @@ function renderDeckList(deck) {
   const sideboard = deck.sideboard || [];
 
   if (!deck.cards.length && !sideboard.length) {
-    el.innerHTML = '<div style="padding:1rem;text-align:center;color:var(--text3);font-size:0.85rem">No cards yet — search for cards above to add them</div>';
+    el.innerHTML = '<div class="deck-list-muted-center">No cards yet — search for cards above to add them</div>';
     el.onclick = null;
     return;
   }
   if (!filteredCards.length && !sideboard.length) {
-    el.innerHTML = '<div style="padding:1rem;text-align:center;color:var(--text3);font-size:0.85rem">No matching cards in this deck list</div>';
+    el.innerHTML = '<div class="deck-list-muted-center">No matching cards in this deck list</div>';
     el.onclick = null;
     return;
   }
@@ -2136,7 +2129,7 @@ function renderDeckList(deck) {
         <div class="deck-sideboard-header">Sideboard <span class="deck-stack-group-count">(${sbTotal})</span></div>
         ${sideboard.length
           ? `<div class="deck-stack-cards${orientClass}">${sideboard.map(c => _stackTile(c, true)).join('')}</div>`
-          : `<div style="font-size:0.78rem;color:var(--text3);padding:4px 0">No sideboard cards — click → SB on any card to add it</div>`}
+          : `<div class="deck-list-quiet" style="padding:4px 0">No sideboard cards — click → SB on any card to add it</div>`}
       </div>`;
 
     if (isVertical) {
@@ -2193,7 +2186,7 @@ function renderDeckList(deck) {
   const sbTotal = sideboard.reduce((s, c) => s + (c.qty || 1), 0);
   const sbListHtml = `
     <div class="deck-sideboard-section" style="margin:0">
-      <div style="padding:6px 8px;font-size:0.72rem;color:var(--teal);letter-spacing:0.08em;text-transform:uppercase;border-bottom:1px solid var(--border);border-top:2px dashed var(--border2);margin-top:6px">
+      <div class="deck-list-group-head deck-list-group-head--sb">
         Sideboard (${sbTotal})
       </div>
       ${sideboard.length
@@ -2204,15 +2197,15 @@ function renderDeckList(deck) {
             <button class="btn btn-ghost btn-sm" title="Move to mainboard" style="font-size:0.65rem;padding:1px 6px" onclick="event.stopPropagation();moveToMainboard('${c.uid || ''}')">→ Main</button>
             <div style="display:flex;align-items:center;gap:5px;margin-left:auto" onclick="event.stopPropagation()">
               <button class="btn btn-ghost btn-sm btn-icon" title="Remove one" onclick="adjustSideboardCardQtyByUid('${c.uid || ''}',-1)">−</button>
-              <span style="font-family:'JetBrains Mono',monospace;font-size:0.74rem;min-width:22px;text-align:center;color:var(--text2)">${c.qty||1}</span>
+              <span class="deck-list-qty">${c.qty||1}</span>
               <button class="btn btn-ghost btn-sm btn-icon" title="Add one" onclick="adjustSideboardCardQtyByUid('${c.uid || ''}',1)">+</button>
             </div>
           </div>`).join('')
-        : `<div style="padding:0.75rem 1rem;font-size:0.8rem;color:var(--text3)">No sideboard cards — click → SB on any card above to add it</div>`}
+        : `<div class="deck-list-quiet deck-list-quiet--pad">No sideboard cards — click → SB on any card above to add it</div>`}
     </div>`;
   el.onclick = null;
   el.innerHTML = (Object.entries(groups).filter(([, v]) => v.length > 0).map(([grp, cards]) => `
-    <div style="padding:6px 8px;font-size:0.72rem;color:var(--text3);letter-spacing:0.08em;text-transform:uppercase;border-bottom:1px solid var(--border)">${grp} (${cards.reduce((s,c)=>s+c.qty,0)})</div>
+    <div class="deck-list-group-head deck-list-group-head--main">${grp} (${cards.reduce((s,c)=>s+c.qty,0)})</div>
     ${cards.sort((a,b)=>a.name.localeCompare(b.name)).map(c => `
       <div class="deck-card-row" draggable="true" data-uid="${c.uid || ''}" data-zone="main" data-card-key="${getCardInventoryKey(c)}" data-card-name-key="${String(c.name || '').trim().toLowerCase().replace(/"/g, '&quot;')}" onclick="openCardDetail('${c.uid || c.scryfallId}','deck')">
         <span class="deck-card-name">${c.name}</span>
@@ -2222,11 +2215,11 @@ function renderDeckList(deck) {
         <button class="btn btn-ghost btn-sm" title="Move to sideboard" style="font-size:0.65rem;padding:1px 6px" onclick="event.stopPropagation();moveToSideboard('${c.uid || ''}')">→ SB</button>
         <div style="display:flex;align-items:center;gap:5px;margin-left:auto" onclick="event.stopPropagation()">
           <button class="btn btn-ghost btn-sm btn-icon" title="Remove one" onclick="adjustDeckCardQtyByUid('${c.uid || ''}',-1)">−</button>
-          <span style="font-family:'JetBrains Mono',monospace;font-size:0.74rem;min-width:22px;text-align:center;color:var(--text2)">${c.qty||1}</span>
+          <span class="deck-list-qty">${c.qty||1}</span>
           <button class="btn btn-ghost btn-sm btn-icon" title="Add one" onclick="adjustDeckCardQtyByUid('${c.uid || ''}',1)">+</button>
         </div>
       </div>`).join('')}
-  `).join('') || '<div style="padding:1rem;text-align:center;color:var(--text3);font-size:0.85rem">No cards yet</div>') + sbListHtml;
+  `).join('') || '<div class="deck-list-muted-center">No cards yet</div>') + sbListHtml;
 
   _attachDeckDragHandlers(el);
   _bindDeckTagGroupHoverLinking(el, deckGroupBy === 'custom_tag');
@@ -2290,7 +2283,7 @@ function _renderManaPie(containerId, chartRefName, counts, emptyText) {
   const values = order.map(c => +(counts[c] || 0));
   const total = values.reduce((s, v) => s + v, 0);
   if (total <= 0) {
-    el.innerHTML = `<div style="font-size:0.8rem;color:var(--text3)">${emptyText}</div>`;
+    el.innerHTML = `<div class="mana-pie-empty">${emptyText}</div>`;
     if (chartRefName === 'cost' && _manaCostChartInst) { _manaCostChartInst.destroy(); _manaCostChartInst = null; }
     if (chartRefName === 'gen' && _manaGenChartInst) { _manaGenChartInst.destroy(); _manaGenChartInst = null; }
     return;
@@ -2301,10 +2294,10 @@ function _renderManaPie(containerId, chartRefName, counts, emptyText) {
     const n = values[i];
     const pct = (n / total) * 100;
     return `
-      <div style="display:flex;align-items:center;gap:8px;font-size:0.78rem;color:var(--text2)">
+      <div class="mana-pie-legend-row">
         <span style="width:10px;height:10px;border-radius:50%;background:${pieColors[c]};border:1px solid rgba(0,0,0,0.22)"></span>
         <span style="min-width:64px">${names[c]}</span>
-        <span style="margin-left:auto;font-family:'JetBrains Mono',monospace;color:var(--text3)">${n.toFixed(1).replace('.0','')} · ${pct.toFixed(0)}%</span>
+        <span class="mana-pie-legend-stat">${n.toFixed(1).replace('.0','')} · ${pct.toFixed(0)}%</span>
       </div>`;
   }).join('');
 
@@ -2652,11 +2645,11 @@ function renderTypeBreakdown(deck) {
   const total = Object.values(types).reduce((s,v)=>s+v,0) || 1;
   el.innerHTML = Object.entries(types).sort((a,b)=>b[1]-a[1]).map(([t,n]) => `
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-      <span style="font-size:0.82rem;min-width:80px;color:var(--text2)">${t}</span>
+      <span class="deck-type-break-label">${t}</span>
       <div style="flex:1;height:6px;background:var(--bg4);border-radius:3px">
         <div style="height:100%;background:var(--gold);border-radius:3px;width:${Math.round((n/total)*100)}%"></div>
       </div>
-      <span style="font-family:'JetBrains Mono',monospace;font-size:0.72rem;color:var(--text3);min-width:20px;text-align:right">${n}</span>
+      <span class="deck-type-break-count">${n}</span>
     </div>`).join('');
 }
 
@@ -2712,9 +2705,7 @@ function deckSearchAutocomplete(q) {
     // Use data-idx so no string escaping needed in onclick
     drop.innerHTML = _deckAcNames.map((name, i) => {
       const inCollection = localSet.has(name.toLowerCase());
-      return `<div class="deck-ac-row" data-idx="${i}"
-        style="padding:7px 12px;cursor:pointer;font-size:0.85rem;display:flex;align-items:center;gap:8px;
-          border-bottom:1px solid var(--border);color:${inCollection ? 'var(--gold)' : 'var(--text)'}">
+      return `<div class="deck-ac-row${inCollection ? ' deck-ac-row--collection' : ''}" data-idx="${i}">
         <span style="width:6px;height:6px;border-radius:50%;flex-shrink:0;
           background:${inCollection ? 'var(--gold)' : 'transparent'}"></span>
         ${name}

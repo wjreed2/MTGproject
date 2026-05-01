@@ -655,6 +655,303 @@ main {
   max-width: 100%;
 }
 
+/* Deck builder tab: +2pt on text (not .btn / not .view-toggle / not stack icon controls / not decklist-collapse) */
+#tab-decks {
+  --dl-fs: 2pt;
+}
+#tab-decks .panel-title {
+  font-size: calc(0.85rem + var(--dl-fs));
+}
+#tab-decks #deckListCount {
+  font-size: calc(0.78rem + var(--dl-fs));
+}
+#tab-decks .deck-list-group-hint {
+  font-size: calc(0.68rem + var(--dl-fs));
+  color: var(--text3);
+}
+#tab-decks .deck-card-name {
+  font-size: calc(0.88rem + var(--dl-fs));
+}
+#tab-decks .deck-stack-group-label {
+  font-size: calc(0.7rem + var(--dl-fs));
+}
+#tab-decks .deck-stack-group-count {
+  font-size: calc(0.68rem + var(--dl-fs));
+}
+#tab-decks .deck-card-grid-qty {
+  font-size: calc(0.65rem + var(--dl-fs));
+}
+#tab-decks .stack-qty {
+  font-size: calc(0.75rem + var(--dl-fs));
+}
+#tab-decks .stack-name {
+  font-size: calc(0.62rem + var(--dl-fs));
+}
+#tab-decks .stack-not-owned,
+#tab-decks .stack-foil-mismatch {
+  font-size: calc(0.55rem + var(--dl-fs));
+}
+#tab-decks .deck-sideboard-header {
+  font-size: calc(0.7rem + var(--dl-fs));
+}
+#tab-decks .stack-main.stack-face-fallback {
+  font-size: calc(0.6rem + var(--dl-fs));
+}
+#tab-decks .deck-list-group-head {
+  padding: 6px 8px;
+  font-size: calc(0.72rem + var(--dl-fs));
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--border);
+}
+#tab-decks .deck-list-group-head--sb {
+  color: var(--teal);
+  border-top: 2px dashed var(--border2);
+  margin-top: 6px;
+}
+#tab-decks .deck-list-group-head--main {
+  color: var(--text3);
+}
+#tab-decks .deck-list-quiet {
+  color: var(--text3);
+  font-size: calc(0.8rem + var(--dl-fs));
+}
+#tab-decks .deck-list-quiet--pad {
+  padding: 0.75rem 1rem;
+}
+#tab-decks .deck-list-muted-center {
+  padding: 1rem;
+  text-align: center;
+  color: var(--text3);
+  font-size: calc(0.85rem + var(--dl-fs));
+}
+#tab-decks .deck-list-qty {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: calc(0.74rem + var(--dl-fs));
+  min-width: 22px;
+  text-align: center;
+  color: var(--text2);
+}
+#tab-decks .history-event-name {
+  font-size: calc(0.85rem + var(--dl-fs));
+}
+#tab-decks .history-event-meta {
+  font-size: calc(0.72rem + var(--dl-fs));
+}
+#tab-decks .history-event-time {
+  font-size: calc(0.65rem + var(--dl-fs));
+}
+#tab-decks .history-event-actor {
+  font-size: calc(0.68rem + var(--dl-fs));
+}
+#tab-decks .history-event-badge {
+  font-size: calc(0.8rem + var(--dl-fs));
+}
+#tab-decks .history-empty {
+  font-size: calc(0.85rem + var(--dl-fs));
+}
+#tab-decks .history-day-label {
+  font-size: calc(0.68rem + var(--dl-fs));
+}
+
+/* Deck tab — header, stats, search, EDHREC, mana / probability, sidebar, validation */
+#tab-decks #activeDeckName {
+  font-size: calc(1.4rem + var(--dl-fs));
+}
+#tab-decks #deckSharedByBadge {
+  font-size: calc(0.75rem + var(--dl-fs));
+}
+#tab-decks #activeDeckCommander {
+  font-size: calc(0.82rem + var(--dl-fs));
+}
+#tab-decks #activeDeckNotes {
+  font-size: calc(0.8rem + var(--dl-fs));
+}
+#tab-decks #activeDeckCommanderSearchInput {
+  font-size: calc(0.85rem + var(--dl-fs));
+}
+#tab-decks .deck-tab-hint {
+  font-size: calc(0.72rem + var(--dl-fs));
+  color: var(--text3);
+}
+#tab-decks .deck-tab-muted {
+  font-size: calc(0.85rem + var(--dl-fs));
+  color: var(--text3);
+}
+#tab-decks #edhrecThemeSelect {
+  font-size: calc(0.8rem + var(--dl-fs));
+}
+#tab-decks #taggedCardsCount {
+  font-size: calc(0.72rem + var(--dl-fs));
+  color: var(--text3);
+}
+#tab-decks #probHandSize {
+  font-size: calc(0.78rem + var(--dl-fs));
+}
+#tab-decks .mana-bar-count {
+  font-size: calc(0.6rem + var(--dl-fs));
+}
+#tab-decks .mana-cmc {
+  font-size: calc(0.65rem + var(--dl-fs));
+}
+#tab-decks .deck-type-break-label {
+  font-size: calc(0.82rem + var(--dl-fs));
+  min-width: 80px;
+  color: var(--text2);
+}
+#tab-decks .deck-type-break-count {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: calc(0.72rem + var(--dl-fs));
+  color: var(--text3);
+  min-width: 20px;
+  text-align: right;
+}
+#tab-decks .mana-pie-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: calc(0.78rem + var(--dl-fs));
+  color: var(--text2);
+}
+#tab-decks .mana-pie-legend-stat {
+  margin-left: auto;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text3);
+}
+#tab-decks .mana-pie-empty {
+  font-size: calc(0.8rem + var(--dl-fs));
+  color: var(--text3);
+}
+#tab-decks .prob-type-chip {
+  font-size: calc(0.72rem + var(--dl-fs));
+}
+#tab-decks .deck-sidebar-name {
+  font-size: calc(0.75rem + var(--dl-fs));
+}
+#tab-decks .deck-sidebar-meta {
+  font-size: calc(0.62rem + var(--dl-fs));
+}
+#tab-decks .deck-grid-count {
+  font-size: calc(0.65rem + var(--dl-fs));
+}
+#tab-decks .deck-grid-badge {
+  font-size: calc(0.6rem + var(--dl-fs));
+}
+#tab-decks .deck-grid-placeholder {
+  font-size: calc(0.7rem + var(--dl-fs));
+}
+#tab-decks .deck-grid-empty {
+  font-size: calc(0.85rem + var(--dl-fs));
+}
+#tab-decks .deck-valid-row {
+  font-size: calc(0.78rem + var(--dl-fs));
+}
+#tab-decks .deck-valid-circle {
+  font-size: calc(1rem + var(--dl-fs));
+}
+#tab-decks .rec-card-row {
+  font-size: calc(0.88rem + var(--dl-fs));
+}
+#tab-decks .rec-score {
+  font-size: calc(0.7rem + var(--dl-fs));
+}
+#tab-decks .rec-synergy-score {
+  font-size: calc(0.68rem + var(--dl-fs));
+}
+#tab-decks .settings-section-label {
+  font-size: calc(0.65rem + var(--dl-fs));
+}
+#tab-decks .tag {
+  font-size: calc(0.75rem + var(--dl-fs));
+}
+#tab-decks .browse-deck-name {
+  font-size: calc(0.72rem + var(--dl-fs));
+}
+#tab-decks .browse-deck-meta {
+  font-size: calc(0.65rem + var(--dl-fs));
+}
+#tab-decks .browse-deck-combo {
+  font-family: 'Cinzel', serif;
+  font-size: calc(0.75rem + var(--dl-fs));
+  font-weight: 600;
+  color: var(--gold);
+  letter-spacing: 0.04em;
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#tab-decks .deck-section-label {
+  font-size: calc(0.72rem + var(--dl-fs));
+}
+#tab-decks .deck-sidebar-section-label {
+  font-size: calc(0.62rem + var(--dl-fs));
+}
+#tab-decks .deck-grid-empty-title {
+  font-family: 'Cinzel', serif;
+  font-size: calc(1rem + var(--dl-fs));
+  color: var(--text2);
+  margin-bottom: 0.5rem;
+}
+#tab-decks .deck-grid-empty p {
+  font-size: calc(0.9rem + var(--dl-fs));
+  margin-bottom: 1.5rem;
+}
+#tab-decks .deck-sidebar-badge {
+  font-size: calc(0.55rem + var(--dl-fs));
+  padding: 1px 4px;
+  border-radius: 4px;
+  margin-top: 2px;
+  display: inline-block;
+}
+#tab-decks .deck-sidebar-badge--error {
+  background: rgba(212, 90, 74, 0.85);
+  color: #fff;
+}
+#tab-decks .deck-sidebar-badge--warn {
+  background: rgba(200, 168, 74, 0.7);
+  color: #000;
+}
+#tab-decks .deck-ac-row {
+  padding: 7px 12px;
+  cursor: pointer;
+  font-size: calc(0.85rem + var(--dl-fs));
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+#tab-decks .deck-ac-row--collection {
+  color: var(--gold);
+}
+#tab-decks .collab-list-msg {
+  color: var(--text3);
+  font-size: calc(0.8rem + var(--dl-fs));
+  padding: 4px 0;
+}
+#tab-decks .collab-list-msg--error {
+  color: var(--red);
+}
+#tab-decks .collab-list-email {
+  flex: 1;
+  font-size: calc(0.82rem + var(--dl-fs));
+  color: var(--text2);
+}
+#tab-decks #collabError {
+  font-size: calc(0.78rem + var(--dl-fs));
+  color: var(--red);
+}
+#tab-decks #collabEmailInput {
+  font-size: calc(0.82rem + var(--dl-fs));
+}
+#tab-decks .deck-grid-format {
+  font-size: calc(0.62rem + var(--dl-fs));
+}
+#tab-decks .deck-grid-name {
+  font-size: clamp(calc(0.7rem + var(--dl-fs)), 1.8vw, calc(0.95rem + var(--dl-fs)));
+}
+
 /* TABS */
 .tab-content { display: none; }
 .tab-content.active { display: block; }
@@ -1847,7 +2144,15 @@ main {
 
 /* Deck list control sizing parity */
 #tab-decks #deckGroupByWrap input,
-#tab-decks #deckGroupByWrap select,
+#tab-decks #deckGroupByWrap select {
+  height: 34px !important;
+  padding: 0 12px !important;
+  border-radius: 8px !important;
+  font-size: calc(0.82rem + var(--dl-fs)) !important;
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+}
 #tab-decks #deckGroupByWrap .btn {
   height: 34px !important;
   padding: 0 12px !important;
@@ -1960,7 +2265,7 @@ main {
 }
 #tab-decks #deckSearchInput {
   padding: 0 12px !important;
-  font-size: 0.82rem !important;
+  font-size: calc(0.82rem + var(--dl-fs)) !important;
 }
 
 /* Deck add-search tiles: larger, dynamic, readable */
@@ -1988,7 +2293,7 @@ main {
   transform: scale(1.035);
 }
 #tab-decks .deck-search-name {
-  font-size: 0.93rem;
+  font-size: calc(0.93rem + var(--dl-fs));
   color: var(--text2);
   margin-top: 5px;
   text-align: center;
@@ -1997,7 +2302,7 @@ main {
   text-overflow: ellipsis;
 }
 #tab-decks .deck-search-meta {
-  font-size: 0.84rem;
+  font-size: calc(0.84rem + var(--dl-fs));
   text-align: center;
   white-space: nowrap;
   overflow: hidden;

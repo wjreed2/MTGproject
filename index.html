@@ -309,8 +309,8 @@
 <!-- SET BROWSER TAB -->
 <div id="tab-sets" class="tab-content">
   <div class="view-controls">
-    <input class="search-box" type="text" placeholder="Search sets…" oninput="filterSets(this.value)" id="setSearch">
-    <select onchange="filterSetType(this.value)" id="setTypeFilter">
+    <input class="search-box" type="text" placeholder="Search sets…" oninput="filterSets()" id="setSearch">
+    <select onchange="filterSetType()" id="setTypeFilter">
       <option value="">All Types</option>
       <option value="expansion">Expansion</option>
       <option value="core">Core Set</option>
@@ -376,11 +376,11 @@
     <div id="activeDeckArea" style="flex:1;min-width:0">
       <div id="deckTopBar" class="top-action-bar" style="display:flex;align-items:center;gap:10px;margin-bottom:0.5rem;flex-wrap:wrap">
         <span id="deckValidBadge"></span>
-        <span id="activeDeckName" class="panel-title" style="font-size:1.4rem"></span>
+        <span id="activeDeckName" class="panel-title"></span>
         <span id="activeDeckFormat" class="tag tag-gold"></span>
         <span id="activeDeckCount" class="tag tag-blue"></span>
         <span id="deckScryTagSyncBadge" class="tag tag-scryfall" style="display:none">Syncing Scryfall tags…</span>
-        <span id="deckSharedByBadge" style="display:none;font-size:0.75rem;padding:2px 9px;border-radius:10px;background:rgba(100,140,220,0.15);color:var(--blue);border:1px solid rgba(100,140,220,0.3)"></span>
+        <span id="deckSharedByBadge" style="display:none;padding:2px 9px;border-radius:10px;background:rgba(100,140,220,0.15);color:var(--blue);border:1px solid rgba(100,140,220,0.3)"></span>
         <div style="flex:1"></div>
         <button id="toggleDeckSidebarBtn" class="btn btn-outline btn-sm" onclick="toggleDeckSidebar()" title="Show or hide deck switcher">⇤ Decks</button>
         <button class="btn btn-primary btn-sm" onclick="createNewDeck()">+ New Deck</button>
@@ -434,10 +434,10 @@
       </div>
       <div id="deckValidationPanel"></div>
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:0.5rem;flex-wrap:wrap">
-        <span id="activeDeckCommander" style="display:none;font-size:0.82rem;color:var(--gold);font-family:'Cinzel',serif"></span>
+        <span id="activeDeckCommander" style="display:none;color:var(--gold);font-family:'Cinzel',serif"></span>
         <span id="activeDeckCommanderPips" style="display:flex;gap:2px"></span>
         <button id="activeDeckCommanderEditBtn" onclick="openCommanderEdit()" style="display:none;background:none;border:none;color:var(--text3);cursor:pointer;font-size:0.72rem;padding:0" title="Change commander">✎ change</button>
-        <span id="activeDeckNotes" style="display:none;font-size:0.8rem;color:var(--text3);font-style:italic"></span>
+        <span id="activeDeckNotes" style="display:none;color:var(--text3);font-style:italic"></span>
       </div>
       <div id="activeDeckCommanderSearch" style="display:none;margin-bottom:0.75rem">
         <div style="position:relative;max-width:360px">
@@ -474,15 +474,15 @@
       <div class="panel" style="margin-bottom:1rem">
         <div class="panel-header" style="flex-wrap:wrap;gap:6px">
           <span class="panel-title">Deck List</span>
-          <span id="deckListCount" style="font-size:0.78rem"></span>
+          <span id="deckListCount"></span>
           <div style="flex:1"></div>
           <span id="deckGroupByWrap" style="display:flex;align-items:center;gap:5px">
             <input id="deckListSearchInput" type="text" placeholder="Search decklist…"
               oninput="setDeckListSearch(this.value)"
-              style="width:160px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);border-radius:var(--radius);padding:3px 6px;font-size:0.74rem">
-            <span style="font-size:0.68rem;color:var(--text3)">Group</span>
+              style="width:160px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);border-radius:var(--radius);padding:3px 6px">
+            <span class="deck-list-group-hint">Group</span>
             <select id="deckGroupBySelect" onchange="setDeckGroupBy(this.value)"
-              style="background:var(--bg3);border:1px solid var(--border2);color:var(--text);border-radius:var(--radius);padding:2px 5px;font-size:0.72rem;font-family:'Inter',system-ui,sans-serif">
+              style="background:var(--bg3);border:1px solid var(--border2);color:var(--text);border-radius:var(--radius);padding:2px 5px;font-family:'Inter',system-ui,sans-serif">
               <option value="type">Type</option>
               <option value="color">Color</option>
               <option value="cmc">CMC</option>
@@ -514,7 +514,7 @@
         <div class="panel-header">
           <span class="panel-title" style="color:var(--teal)">EDHREC Suggestions</span>
           <select id="edhrecThemeSelect" onchange="fetchEDHRECRecs()"
-            style="background:var(--bg3);border:1px solid var(--border2);color:var(--text);border-radius:var(--radius);padding:3px 6px;font-family:'Crimson Pro',serif;font-size:0.8rem">
+            style="background:var(--bg3);border:1px solid var(--border2);color:var(--text);border-radius:var(--radius);padding:3px 6px;font-family:'Crimson Pro',serif">
             <option value="">All themes</option>
             <option value="artifacts">Artifacts</option>
             <option value="tokens">Tokens</option>
@@ -527,7 +527,7 @@
             style="margin-left:4px;background:none;border:none;color:var(--text3);cursor:pointer;font-size:0.8rem;padding:2px 4px" title="Toggle">▾</button>
         </div>
         <div class="rec-scroll" id="edhrecResults">
-          <div style="padding:1.5rem;text-align:center;color:var(--text3);font-size:0.85rem">
+          <div class="deck-tab-muted" style="padding:1.5rem;text-align:center">
             Select a commander to see recommendations
           </div>
         </div>
@@ -537,10 +537,10 @@
       <div class="panel" style="margin-bottom:1rem">
         <div class="panel-header">
           <span class="panel-title" style="color:var(--gold)">★ Tagged Cards</span>
-          <span id="taggedCardsCount" style="font-size:0.72rem;color:var(--text3)"></span>
+          <span id="taggedCardsCount"></span>
         </div>
         <div class="deck-cards-scroll" id="taggedCardsList" style="max-height:220px">
-          <div style="padding:1rem;text-align:center;color:var(--text3);font-size:0.85rem">No tagged cards</div>
+          <div class="deck-tab-muted" style="padding:1rem;text-align:center">No tagged cards</div>
         </div>
       </div>
 
@@ -570,10 +570,10 @@
       <div class="panel panel--draw-prob" style="margin-top:1.25rem">
         <div class="panel-header" style="flex-wrap:wrap;gap:8px">
           <span class="panel-title">Draw Probability</span>
-          <span style="font-size:0.72rem;color:var(--text3);flex:1">Probability of drawing <strong style="color:var(--text2)">at least N</strong> of each category in your opening hand</span>
+          <span class="deck-tab-hint" style="flex:1">Probability of drawing <strong style="color:var(--text2)">at least N</strong> of each category in your opening hand</span>
           <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
-            <span style="font-size:0.72rem;color:var(--text3)">Hand size</span>
-            <input type="number" id="probHandSize" value="7" min="1" max="20" style="width:52px;padding:3px 6px;font-size:0.78rem" oninput="onProbHandSizeChange(this.value)">
+            <span class="deck-tab-hint">Hand size</span>
+            <input type="number" id="probHandSize" value="7" min="1" max="20" style="width:52px;padding:3px 6px" oninput="onProbHandSizeChange(this.value)">
           </div>
         </div>
         <div class="prob-chart-filters-row">
@@ -590,7 +590,7 @@
       <div id="deckCollaboratorsPanel" class="panel" style="margin-top:1.25rem;display:none">
         <div class="panel-header">
           <span class="panel-title">Collaborators</span>
-          <span style="font-size:0.72rem;color:var(--text3)">Users who can edit this deck</span>
+          <span class="deck-tab-hint">Users who can edit this deck</span>
         </div>
         <div class="panel-body">
           <div id="collabList" style="margin-bottom:0.75rem"></div>
@@ -599,7 +599,7 @@
               onkeydown="if(event.key==='Enter')addDeckCollaborator()">
             <button class="btn btn-primary btn-sm" onclick="addDeckCollaborator()">Add</button>
           </div>
-          <div id="collabError" style="margin-top:6px;font-size:0.78rem;color:var(--red)"></div>
+          <div id="collabError" style="margin-top:6px"></div>
         </div>
       </div>
     </div>

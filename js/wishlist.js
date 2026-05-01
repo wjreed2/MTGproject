@@ -304,13 +304,6 @@ function addToWishlistCard(id, dataStr) {
   showNotif(`Added to wishlist${data.foil ? ' (foil)' : ''}`);
 }
 
-function addToWishlistFromDetail(uid) {
-  const card = collection.find(c => c.uid === uid);
-  if (!card) return;
-  const wUid = card.scryfallId + (card.foil ? '_f' : '_n');
-  if (wishlist.find(c => (c.uid || (c.scryfallId + (c.foil ? '_f' : '_n'))) === wUid)) { showNotif('Already in wishlist'); return; }
-  wishlist.push({...card, uid: wUid, priority: 'med'}); save(); showNotif('Added to wishlist');
-}
 
 function addToWishlistManual() {
   const q = document.getElementById('wishlistSearch').value;

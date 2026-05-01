@@ -1568,13 +1568,6 @@ function toggleDeckTag(uid, deckId) {
 
 let findCardFoil = false;
 
-function openFindCard() {
-  findCardFoil = false;
-  const btn = document.getElementById('findFoilBtn');
-  if (btn) { btn.innerHTML = SVG_DIAMOND + ' Foil'; btn.style.color = ''; btn.style.borderColor = ''; }
-  openVoice();
-  switchVoiceTab('search');
-}
 
 function toggleFindFoil() {
   findCardFoil = !findCardFoil;
@@ -1584,14 +1577,6 @@ function toggleFindFoil() {
   btn.style.borderColor = findCardFoil ? 'var(--gold)' : '';
 }
 
-function closeFindCard() {
-  const inp = document.getElementById('findCardInput');
-  const res = document.getElementById('findCardResults');
-  const ac  = document.getElementById('findCardAutocomplete');
-  if (inp) inp.value = '';
-  if (res) res.innerHTML = '';
-  if (ac)  ac.style.display = 'none';
-}
 
 let _findAcTimer = null;
 let _findAcNames = [];
