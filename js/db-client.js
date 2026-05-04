@@ -1,5 +1,13 @@
 // API client — communicates with the Express server (session cookies for accounts).
 
+/** Camera/mic (getUserMedia) only work in a secure context — not on http:// LAN URLs. */
+function mtgIsSecureMediaContext() {
+  if (typeof window === 'undefined') return false;
+  if (window.isSecureContext) return true;
+  const p = String(window.location?.protocol || '').toLowerCase();
+  return p === 'capacitor:' || p === 'ionic:';
+}
+
 /** API base URL (must hit the Express server, not another static host). */
 function mtgApiRoot() {
   const loc = typeof window !== 'undefined' ? window.location : null;

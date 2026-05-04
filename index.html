@@ -217,7 +217,7 @@
     <div class="view-controls" style="border-bottom:1px solid var(--border);padding-bottom:10px;margin-bottom:10px">
       <div style="position:relative;flex:1;min-width:180px">
         <input class="search-box" type="text" style="width:100%;padding-right:28px"
-          placeholder="Search… or use t: r: cmc: is: s: qty: tag:" oninput="filterCards(this.value)" id="searchInput" autocomplete="off">
+          placeholder="Search… or use t: o: r: cmc: is: s: qty: tag:" oninput="filterCards(this.value)" id="searchInput" autocomplete="off">
         <div class="filter-syntax-hint tooltip-wrap" style="position:absolute;right:7px;top:50%;transform:translateY(-50%);font-size:0.72rem;color:var(--text3);cursor:default;user-select:none">?
           <div class="tooltip" style="white-space:normal;width:280px;left:auto;right:0;transform:none;font-size:0.72rem;line-height:1.6;bottom:auto;top:calc(100% + 6px)">
             <strong>Search syntax</strong><br>
@@ -311,6 +311,9 @@
 
 <!-- SET BROWSER TAB -->
 <div id="tab-sets" class="tab-content">
+  <div id="setTabTopBar" class="top-action-bar" style="display:none;align-items:center;gap:10px;margin-bottom:1.25rem;flex-wrap:wrap">
+    <button id="backToSetsBtn" class="btn btn-ghost btn-sm" onclick="closeSetDetail()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><polyline points="15 18 9 12 15 6"/></svg> All Sets</button>
+  </div>
   <div class="view-controls">
     <input class="search-box" type="text" placeholder="Search sets…" oninput="filterSets()" id="setSearch">
     <select onchange="filterSetType()" id="setTypeFilter">
@@ -350,7 +353,6 @@
         <span id="activeSetMeta" class="tag tag-gold"></span>
         <div style="flex:1"></div>
         <button id="toggleSetSidebarBtn" class="btn btn-outline btn-sm" onclick="toggleSetSidebar()" title="Show or hide set switcher">⇤ Sets</button>
-        <button id="backToSetsBtn" class="btn btn-outline btn-sm" onclick="closeSetDetail()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><polyline points="15 18 9 12 15 6"/></svg> All Sets</button>
       </div>
       <div class="panel">
         <div id="setDetailContent" style="padding:1rem"></div>
@@ -741,83 +743,155 @@
 
 </main>
 
-<!-- SCANNER MODAL -->
+<!-- SCANNER MODAL — fullscreen camera -->
 <div class="modal-overlay" id="scannerModal">
-  <div class="scanner-sheet">
-    <div class="scanner-sheet-header">
-      <div style="display:flex;align-items:center;gap:8px">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;flex-shrink:0"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-        <span class="panel-title" style="font-size:0.9rem">Card Scanner</span>
+  <div class="scanner-sheet scanner-sheet--fullscreen">
+    <div class="scn-fs-root">
+      <header class="scn-fs-top">
+        <span class="scn-fs-title">Scanner</span>
+        <div class="scn-fs-top-actions">
+          <button type="button" class="btn btn-ghost btn-sm" id="scnScannedBtn" onclick="scnToggleScannedPanel()">Scanned <span class="scn-session-badge" id="scnSessionCount">0</span></button>
+          <button type="button" class="btn btn-ghost btn-sm" onclick="closeScanner()">✕</button>
+        </div>
+      </header>
+
+      <div class="scn-fs-stage">
+        <div class="scn-camera-wrap" id="scnCameraWrap">
+          <video id="scnVideo" playsinline muted autoplay class="scn-video"></video>
+          <svg class="scn-overlay-svg hidden" id="scnRoiSvg" aria-hidden="true">
+            <polygon id="scnCardPoly" class="scn-card-poly hidden" />
+            <polygon id="scnTitlePoly" class="scn-region-poly scn-region-poly--title hidden" />
+            <text id="scnTitleLabel" class="scn-region-label scn-region-label--title hidden" text-anchor="middle" dominant-baseline="middle">Title</text>
+            <polygon id="scnSetnumPoly" class="scn-region-poly scn-region-poly--setnum hidden" />
+            <text id="scnSetnumLabel" class="scn-region-label scn-region-label--setnum hidden" text-anchor="middle" dominant-baseline="middle">Set · #</text>
+            <g id="scnConfMarkers" class="scn-conf-markers hidden" aria-hidden="true">
+              <g id="scnConfMarkTl" class="scn-conf-marker" transform="translate(0,0)"><circle r="5.5" cx="0" cy="0" /></g>
+              <g id="scnConfMarkTr" class="scn-conf-marker" transform="translate(0,0)"><circle r="5.5" cx="0" cy="0" /></g>
+              <g id="scnConfMarkBr" class="scn-conf-marker" transform="translate(0,0)"><circle r="5.5" cx="0" cy="0" /></g>
+              <g id="scnConfMarkBl" class="scn-conf-marker" transform="translate(0,0)"><circle r="5.5" cx="0" cy="0" /></g>
+              <g id="scnConfMarkTop" class="scn-conf-marker scn-conf-marker--side" transform="translate(0,0)"><circle r="4.5" cx="0" cy="0" /></g>
+              <g id="scnConfMarkRight" class="scn-conf-marker scn-conf-marker--side" transform="translate(0,0)"><circle r="4.5" cx="0" cy="0" /></g>
+              <g id="scnConfMarkBot" class="scn-conf-marker scn-conf-marker--side" transform="translate(0,0)"><circle r="4.5" cx="0" cy="0" /></g>
+              <g id="scnConfMarkLeft" class="scn-conf-marker scn-conf-marker--side" transform="translate(0,0)"><circle r="4.5" cx="0" cy="0" /></g>
+            </g>
+            <polygon id="scnUserHintPoly" class="scn-user-hint-poly hidden" />
+          </svg>
+          <div id="scnDrawCapture" class="scn-draw-capture" aria-hidden="true"></div>
+          <div class="scn-ocr-hud hidden" id="scnOcrHud" aria-live="polite">
+            <div class="scn-ocr-hud-label">Reading</div>
+            <div class="scn-ocr-hud-raw" id="scnOcrHudRaw"></div>
+            <div class="scn-ocr-hud-guess" id="scnOcrHudGuess"></div>
+          </div>
+          <div class="scn-camera-idle" id="scnCameraIdle">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" style="width:48px;height:48px;opacity:0.35"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+            <p style="font-size:13px;color:var(--text3)">Tap Start Camera</p>
+          </div>
+          <div class="scn-match-overlay hidden" id="scnMatchOverlay" aria-live="polite">
+            <div class="scn-match-primary" id="scnMatchPrimary"></div>
+            <div class="scn-match-sub" id="scnMatchSub"></div>
+          </div>
+        </div>
+        <div id="scnParseDistPanel" class="scn-parse-dist-panel hidden" aria-hidden="true">
+          <div class="scn-parse-dist-head">
+            <span class="scn-parse-dist-title">OCR parse counts (this session)</span>
+            <button type="button" class="btn btn-ghost btn-sm" onclick="scnToggleParseDistOverlay()">Close</button>
+          </div>
+          <div id="scnParseDistTiming" class="scn-parse-dist-timing" aria-live="polite">
+            <div class="scn-parse-dist-timing-row">
+              <span class="scn-parse-dist-timing-k">Scans</span>
+              <span id="scnParseDistScanCount" class="scn-parse-dist-timing-v">0</span>
+            </div>
+            <div class="scn-parse-dist-timing-row">
+              <span class="scn-parse-dist-timing-k">Elapsed</span>
+              <span id="scnMajorityElapsed" class="scn-parse-dist-timing-v">—</span>
+            </div>
+            <div class="scn-parse-dist-timing-row">
+              <span class="scn-parse-dist-timing-k">Set majority</span>
+              <span id="scnMajoritySetTime" class="scn-parse-dist-timing-v">—</span>
+            </div>
+            <div class="scn-parse-dist-timing-row">
+              <span class="scn-parse-dist-timing-k"># majority</span>
+              <span id="scnMajorityNumTime" class="scn-parse-dist-timing-v">—</span>
+            </div>
+            <div class="scn-parse-dist-timing-row scn-parse-dist-timing-row--both">
+              <span class="scn-parse-dist-timing-k">Both → search</span>
+              <span id="scnMajorityBothTime" class="scn-parse-dist-timing-v">—</span>
+            </div>
+          </div>
+          <div class="scn-parse-dist-body">
+            <div class="scn-parse-dist-block">
+              <div class="scn-parse-dist-label">Set code</div>
+              <canvas id="scnDistSetCanvas" class="scn-parse-dist-canvas" width="400" height="120"></canvas>
+            </div>
+            <div class="scn-parse-dist-block">
+              <div class="scn-parse-dist-label">Collector number</div>
+              <canvas id="scnDistNumCanvas" class="scn-parse-dist-canvas" width="400" height="120"></canvas>
+            </div>
+          </div>
+        </div>
       </div>
-      <button class="btn btn-ghost btn-sm" onclick="closeScanner()" style="font-size:0.8rem">✕ Close</button>
+
+      <footer class="scn-fs-bottom">
+        <div class="scn-controls">
+          <button class="btn btn-primary" id="scnStartBtn" onclick="scnStartCamera()" style="flex:1">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/></svg>
+            Start Camera
+          </button>
+          <button class="btn btn-danger hidden" id="scnStopBtn" onclick="scnStopCamera()" style="flex:1">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+            Stop
+          </button>
+          <button class="btn btn-ghost" id="scnFlipBtn" onclick="scnFlipCamera()" title="Flip camera" style="display:none;padding:7px 10px">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 .49-4.5"/></svg>
+          </button>
+        </div>
+        <div class="scn-hint-row">
+          <button type="button" class="btn btn-outline btn-sm" id="scnHintDrawBtn" onclick="scnToggleHintDrawMode()">Draw card hint</button>
+          <button type="button" class="btn btn-ghost btn-sm hidden" id="scnHintClearBtn" onclick="scnClearManualHint()">Clear hint</button>
+          <button type="button" class="btn btn-primary btn-sm" id="scnAutoModeBtn" onclick="scnToggleAutoMode()">Auto: on</button>
+          <button type="button" class="btn btn-outline btn-sm hidden" id="scnPauseScanBtn" onclick="scnToggleScanPause()">Pause scan</button>
+          <button type="button" class="btn btn-outline btn-sm" id="scnParseDistBtn" onclick="scnToggleParseDistOverlay()">Parse distribution</button>
+          <button type="button" class="btn btn-primary btn-sm hidden" id="scnScanAgainBtn" onclick="scnScanAgain()">Scan Again</button>
+        </div>
+        <div class="scn-zoom-row" id="scnZoomControls" style="opacity:0.45">
+          <span style="font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text3);white-space:nowrap">Zoom</span>
+          <button class="btn btn-ghost btn-sm" id="scnZoomOutBtn" onclick="scnZoomOut()">−</button>
+          <input type="range" id="scnZoomSlider" min="1" max="1" step="0.1" value="1.5" style="flex:1;accent-color:var(--gold)" disabled>
+          <button class="btn btn-ghost btn-sm" id="scnZoomInBtn" onclick="scnZoomIn()">+</button>
+          <span id="scnZoomVal" style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text2);min-width:36px;text-align:right">1.5×</span>
+        </div>
+        <details class="scn-manual-details">
+          <summary class="scn-manual-summary">Manual name search</summary>
+          <div class="scn-search-row">
+            <input class="search-box" id="scnNameInput" type="text" placeholder="Type card name…" autocorrect="off" autocomplete="off" spellcheck="false" style="flex:1">
+            <button type="button" class="btn btn-outline btn-sm" onclick="scnSearchManual()">Search</button>
+          </div>
+        </details>
+        <div class="scn-status-line" id="scnStatusLine"></div>
+      </footer>
     </div>
 
-    <div class="scanner-sheet-body">
-      <!-- Camera -->
-      <div class="scn-camera-wrap" id="scnCameraWrap">
-        <div class="scn-scan-zone-bot">
-          <span class="scn-szb-label">Set · Number</span>
-        </div>
-        <div class="scn-scan-line"></div>
-        <div class="scn-bracket tl"></div><div class="scn-bracket tr"></div>
-        <div class="scn-bracket bl"></div><div class="scn-bracket br"></div>
-        <video id="scnVideo" playsinline muted autoplay style="width:100%;height:100%;object-fit:cover;display:none;border-radius:inherit"></video>
-        <div class="scn-camera-idle" id="scnCameraIdle">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" style="width:48px;height:48px;opacity:0.35"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-          <p style="font-size:13px;color:var(--text3)">Tap Start Camera</p>
+    <aside class="scn-scanned-panel" id="scnScannedPanel" aria-hidden="true">
+      <div class="scn-scanned-panel-head">
+        <span class="scn-scanned-panel-title">Scanned &amp; queued</span>
+        <div class="scn-scanned-panel-actions">
+          <button type="button" class="btn btn-ghost btn-sm" onclick="_scnClearSession()">Clear</button>
+          <button type="button" class="btn btn-primary btn-sm" onclick="scnAddPendingToCollection()">Add queued to collection</button>
+          <button type="button" class="btn btn-ghost btn-sm" onclick="scnToggleScannedPanel(false)">Done</button>
         </div>
       </div>
+      <div class="scn-scanned-panel-body" id="scnSessionList"></div>
+    </aside>
 
-      <!-- Detection bar -->
-      <div class="scn-det-bar" id="scnDetBar">
-        <div class="scn-det-icon" id="scnDetIcon">👁</div>
-        <div style="flex:1;min-width:0">
-          <div class="scn-det-name" id="scnDetName">Waiting for camera…</div>
-          <div class="scn-det-meta" id="scnDetMeta"></div>
-          <div class="scn-conf-bar"><div class="scn-conf-fill" id="scnConfFill" style="width:0%"></div></div>
-        </div>
-      </div>
-
-      <!-- Camera controls -->
-      <div class="scn-controls">
-        <button class="btn btn-primary" id="scnStartBtn" onclick="scnStartCamera()" style="flex:1">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/></svg>
-          Start Camera
-        </button>
-        <button class="btn btn-danger hidden" id="scnStopBtn" onclick="scnStopCamera()" style="flex:1">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
-          Stop
-        </button>
-        <button class="btn btn-ghost" id="scnFlipBtn" onclick="scnFlipCamera()" title="Flip camera" style="display:none;padding:7px 10px">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 .49-4.5"/></svg>
-        </button>
-      </div>
-
-      <!-- Zoom -->
-      <div class="scn-zoom-row" id="scnZoomControls" style="opacity:0.45">
-        <span style="font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text3);white-space:nowrap">Zoom</span>
-        <button class="btn btn-ghost btn-sm" id="scnZoomOutBtn" onclick="scnZoomOut()">−</button>
-        <input type="range" id="scnZoomSlider" min="1" max="1" step="0.1" value="1" style="flex:1;accent-color:var(--gold)" disabled>
-        <button class="btn btn-ghost btn-sm" id="scnZoomInBtn" onclick="scnZoomIn()">+</button>
-        <span id="scnZoomVal" style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text2);min-width:36px;text-align:right">1.0×</span>
-      </div>
-
-      <!-- Manual search -->
-      <div class="scn-search-row">
-        <input class="search-box" id="scnNameInput" type="text" placeholder="Detected name — or type and search…" autocorrect="off" autocomplete="off" spellcheck="false" style="flex:1">
-        <button class="btn btn-outline btn-sm" onclick="scnSearchManual()">Search</button>
-      </div>
-      <div class="scn-status-line" id="scnStatusLine"></div>
-
-      <!-- Candidates -->
-      <div class="scn-candidates hidden" id="scnCandidates">
+    <div class="scn-candidates scn-candidates--overlay hidden" id="scnCandidates">
+      <div class="scn-candidates-inner">
         <div class="scn-cand-label" id="scnCandLabel">Select the correct card</div>
         <div class="scn-cand-grid" id="scnCandGrid"></div>
-        <button class="btn btn-ghost btn-sm" onclick="scnDismiss()" style="margin-top:8px">Dismiss</button>
+        <div class="scn-cand-footer-btns">
+          <button type="button" class="btn btn-ghost btn-sm scn-cand-dismiss" onclick="scnDismiss()">Dismiss</button>
+          <button type="button" class="btn btn-outline btn-sm scn-cand-reset-dist" onclick="scnResetParseDistribution()">Reset</button>
+        </div>
       </div>
-
-      <!-- Session list -->
-      <div id="scnSessionList"></div>
     </div>
   </div>
 </div>
@@ -881,6 +955,7 @@
             <button class="btn btn-primary btn-sm" onclick="lookupManual()" style="display:inline-flex;align-items:center;gap:5px;white-space:nowrap"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px;flex-shrink:0"><circle cx="6.5" cy="6.5" r="4.5"/><path d="M10 10l3.5 3.5"/></svg> Look Up</button>
           </div>
           <button class="btn btn-primary" style="width:100%;display:flex;align-items:center;justify-content:center;gap:6px" onclick="confirmVoiceAdd()" id="voiceAddBtn" disabled><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="width:13px;height:13px;flex-shrink:0"><line x1="8" y1="2" x2="8" y2="14"/><line x1="2" y1="8" x2="14" y2="8"/></svg> Add to Collection</button>
+          <div id="voiceAccPanel" class="voice-acc-panel" aria-live="polite"></div>
         </div>
 
         <!-- SEARCH TAB -->
@@ -901,7 +976,7 @@
             <button class="btn btn-outline" id="findFoilBtn" onclick="toggleFindFoil()" style="white-space:nowrap;display:inline-flex;align-items:center;gap:4px"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px;flex-shrink:0"><path d="M8 2L13.5 8L8 14L2.5 8Z"/></svg> Foil</button>
             <button class="btn btn-primary" onclick="runFindCard(document.getElementById('findCardInput').value)">Search</button>
           </div>
-          <div id="findCardResults" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;max-height:400px;overflow-y:auto"></div>
+          <div id="findCardResults"></div>
         </div>
       </div>
       <!-- RIGHT COLUMN: card preview panel -->
@@ -1467,6 +1542,7 @@
 </nav>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="dist/scanner-card-yolo.js"></script>
 <script src="dist/bundle.js"></script>
 <script>
   if (localStorage.getItem('mtg_sidebar_collapsed') === 'true') {

@@ -170,7 +170,6 @@
   #setDetailArea .set-detail-sidebar,
   #setDetailSidebar { display: none !important; }
   #toggleSetSidebarBtn  { display: none !important; }
-  #backToSetsBtn        { display: inline-flex !important; }
 
   /* ── DECK BUILDER: hide deck list sidebar when viewing a deck ─────────── */
   #deckDetailArea .deck-detail-sidebar,
@@ -289,15 +288,13 @@
   }
   .game-player-card { padding: 0.65rem !important; }
 
-  /* ── Scanner — full-screen sheet on mobile ─────────────────────────────── */
-  #scannerModal { align-items: flex-end !important; }
-  .scanner-sheet {
-    width: 100% !important;
-    max-width: 100% !important;
-    border-radius: var(--radius2) var(--radius2) 0 0 !important;
-    max-height: 96dvh !important;
+  /* ── Scanner — edge-to-edge on small screens ───────────────────────────── */
+  .scanner-sheet--fullscreen {
+    max-height: 100dvh !important;
   }
-  .scn-camera-wrap { aspect-ratio: 4 / 3 !important; }
+  .scn-match-overlay {
+    bottom: max(22%, 100px) !important;
+  }
   .scn-cand-grid {
     grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)) !important;
   }
@@ -311,6 +308,11 @@
     max-height: 92dvh !important;
     overflow-y: auto;
     padding: 1.25rem 1rem calc(1rem + env(safe-area-inset-bottom)) !important;
+  }
+  #findCardResults {
+    grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)) !important;
+    gap: 10px !important;
+    max-height: min(48dvh, 420px) !important;
   }
 }
 

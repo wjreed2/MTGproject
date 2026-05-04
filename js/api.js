@@ -44,6 +44,79 @@ function getCKPriceForCard(card) {
   return nonFoil > 0 ? nonFoil : foil;
 }
 
+/** Max of TCG vs CK for the card’s foil state (same logic as price badges). */
+function getUnitMarketMaxUsd(entry) {
+  if (!entry) return 0;
+  const tcg = Number(getTCGPriceForCard(entry));
+  const ck = Number(getCKPriceForCard(entry));
+  const t = Number.isFinite(tcg) ? tcg : 0;
+  const c = Number.isFinite(ck) ? ck : 0;
+  return Math.max(t, c);
+}
+
+/** Scryfall search card + foil toggle → same USD max as collection entries. */
+function getUnitMarketMaxUsdForSearchResult(scryfallCard, foil) {
+  if (!scryfallCard) return 0;
+  const e = cardToEntry(scryfallCard, 1);
+  e.foil = !!foil;
+  return getUnitMarketMaxUsd(e);
+}
+
+const MTG_CASH_CHING_THRESHOLD_USD = 5;
+
+/** Register ka-ching: WAV served at /sounds/cash-ching.wav, synth fallback if play fails. */
+function playCashChingSound() {
+  try {
+    if (!window.__mtgCashChingAudioEl) {
+      window.__mtgCashChingAudioEl = new Audio('/sounds/cash-ching.wav');
+      window.__mtgCashChingAudioEl.preload = 'auto';
+    }
+    const a = window.__mtgCashChingAudioEl;
+    a.volume = 0.88;
+    a.currentTime = 0;
+    const p = a.play();
+    if (p && typeof p.catch === 'function') p.catch(() => playCashChingSoundSynth());
+  } catch (_) {
+    playCashChingSoundSynth();
+  }
+}
+
+/** Offline / autoplay-block fallback — short metallic till hit. */
+function playCashChingSoundSynth() {
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    if (!window.__mtgCashChingCtx) window.__mtgCashChingCtx = new AC();
+    const ctx = window.__mtgCashChingCtx;
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+
+    const t0 = ctx.currentTime;
+    const strike = (freq, tStart, dur, peak) => {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'square';
+      o.frequency.setValueAtTime(freq, tStart);
+      o.frequency.exponentialRampToValueAtTime(freq * 0.55, tStart + dur * 0.7);
+      g.gain.setValueAtTime(0.0001, tStart);
+      g.gain.exponentialRampToValueAtTime(peak, tStart + 0.004);
+      g.gain.exponentialRampToValueAtTime(0.0001, tStart + dur);
+      const f = ctx.createBiquadFilter();
+      f.type = 'bandpass';
+      f.frequency.setValueAtTime(freq * 1.2, tStart);
+      f.Q.setValueAtTime(6, tStart);
+      o.connect(f);
+      f.connect(g);
+      g.connect(ctx.destination);
+      o.start(tStart);
+      o.stop(tStart + dur + 0.02);
+    };
+    strike(165, t0, 0.06, 0.07);
+    strike(1840, t0 + 0.08, 0.22, 0.11);
+    strike(2360, t0 + 0.095, 0.18, 0.07);
+    strike(3100, t0 + 0.11, 0.12, 0.045);
+  } catch (_) { /* ignore */ }
+}
+
 function cardToEntry(card, qty = 1) {
   const usd = parseFloat(card.prices?.usd || 0);
   const usdFoil = parseFloat(card.prices?.usd_foil || 0);

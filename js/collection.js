@@ -9,6 +9,20 @@ function isRecentlyAdded(card) {
   return addedAt > 0 && (Date.now() - addedAt) <= NEW_CARD_WINDOW_MS;
 }
 
+/** Lowercase blob for collection search: main oracle + each face (MDFC / lessons). */
+function _collectionOracleHaystack(c) {
+  const parts = [];
+  const main = String(c?.oracleText || '').trim();
+  if (main) parts.push(main);
+  if (Array.isArray(c?.cardFaces)) {
+    for (const f of c.cardFaces) {
+      const t = String(f?.oracleText || '').trim();
+      if (t && !main.includes(t)) parts.push(t);
+    }
+  }
+  return parts.join('\n').toLowerCase();
+}
+
 function _cmpNum(a, op, b) {
   if (op === ':' || op === '=')  return a === b;
   if (op === '>')                return a > b;
@@ -78,6 +92,8 @@ function matchToken(card, tok) {
     }
   } else if (key === 'name' || key === 'n') {
     hit = (card.name||'').toLowerCase().includes(val);
+  } else if (key === 'o' || key === 'oracle') {
+    hit = _collectionOracleHaystack(card).includes(val);
   } else if (key === 'tag' || key === 'tags') {
     const stored = Array.isArray(card.roleTags)
       ? card.roleTags.map(t => String(t || '').toLowerCase()).filter(Boolean)
@@ -104,11 +120,13 @@ function getFilteredCollection() {
   if (searchQ.trim()) {
     const { tokens, nameTerms } = parseSearchQuery(searchQ);
     cards = cards.filter(c => {
-      // All name terms must match name (OR set/setName as fallback)
+      // All name terms must match name, set metadata, type line, or oracle text
       if (nameTerms.length && !nameTerms.every(t =>
         (c.name||'').toLowerCase().includes(t) ||
         (c.set||'').toLowerCase().includes(t) ||
-        (c.setName||'').toLowerCase().includes(t)
+        (c.setName||'').toLowerCase().includes(t) ||
+        (c.type||'').toLowerCase().includes(t) ||
+        _collectionOracleHaystack(c).includes(t)
       )) return false;
       // All tokens must match
       return tokens.every(tok => matchToken(c, tok));
@@ -192,6 +210,32 @@ async function hydrateOracleTagsForCollectionIfNeeded() {
   if (batch.length) await _fetchScryfallTagsForDeckOracleIds(batch);
 }
 
+function _collectionNeedsOracleTextBackfill() {
+  if (!collection.length) return false;
+  for (const c of collection) {
+    if ((c?.oracleText || '').trim()) continue;
+    if (c?.scryfallId || (c?.set && c?.number) || c?.name) return true;
+  }
+  return false;
+}
+
+/** Resolve print metadata from Scryfall so `oracleText` is filled (for `o:` search and older rows). */
+async function hydrateCollectionOracleTextBackfill() {
+  if (!collection.length) return;
+  if (typeof _resolveOracleIdForCard !== 'function') return;
+  if (typeof loadTagOverrides === 'function') await loadTagOverrides();
+  const need = [];
+  for (const c of collection) {
+    if ((c?.oracleText || '').trim()) continue;
+    if (!c?.scryfallId && !(c?.set && c?.number) && !c?.name) continue;
+    need.push(c);
+  }
+  const CHUNK = 12;
+  for (let i = 0; i < need.length; i += CHUNK) {
+    await Promise.all(need.slice(i, i + CHUNK).map(c => _resolveOracleIdForCard(c)));
+  }
+}
+
 function _collectionNeedsTagHydrate() {
   if (!collection.length) return false;
   if (typeof _isUuidLike !== 'function') return false;
@@ -208,15 +252,24 @@ function _collectionNeedsTagHydrate() {
 }
 
 function scheduleCollectionTagHydrateIfNeeded() {
-  if (!/\b(tag|tags)\s*:/i.test(String(searchQ || ''))) return;
-  if (!_collectionNeedsTagHydrate()) return;
+  const q = String(searchQ || '');
+  const wantsTags = /\b(tag|tags)\s*:/i.test(q);
+  const wantsOracleTok = /\b(o|oracle)\s*:/i.test(q);
+  if (!wantsTags && !wantsOracleTok) return;
+  const needTags = wantsTags && _collectionNeedsTagHydrate();
+  const needOracleText = wantsOracleTok && _collectionNeedsOracleTextBackfill();
+  if (!needTags && !needOracleText) return;
   clearTimeout(_collectionTagSearchDebounce);
-  const pending = String(searchQ || '');
+  const pending = q;
   _collectionTagSearchDebounce = setTimeout(async () => {
-    if (pending !== searchQ || !/\b(tag|tags)\s*:/i.test(searchQ)) return;
-    if (!_collectionNeedsTagHydrate()) return;
+    if (pending !== searchQ) return;
+    const stillTags = /\b(tag|tags)\s*:/i.test(searchQ);
+    const stillOracle = /\b(o|oracle)\s*:/i.test(searchQ);
     try {
-      await hydrateOracleTagsForCollectionIfNeeded();
+      if (stillTags && _collectionNeedsTagHydrate())
+        await hydrateOracleTagsForCollectionIfNeeded();
+      else if (stillOracle && _collectionNeedsOracleTextBackfill())
+        await hydrateCollectionOracleTextBackfill();
     } catch (_) {}
     if (pending !== searchQ) return;
     renderCollection();
@@ -1575,6 +1628,8 @@ function toggleFindFoil() {
   btn.innerHTML = findCardFoil ? SVG_DIAMOND_ON + ' Foil' : SVG_DIAMOND + ' Foil';
   btn.style.color = findCardFoil ? 'var(--gold)' : '';
   btn.style.borderColor = findCardFoil ? 'var(--gold)' : '';
+  const q = (document.getElementById('findCardInput')?.value || '').trim();
+  if (q.length >= 2) runFindCard(q);
 }
 
 
@@ -1650,24 +1705,35 @@ async function runFindCard(q) {
     const cards = (data.data || []).slice(0, 60);
     if (!cards.length) { el.innerHTML = '<div style="grid-column:1/-1;padding:1rem;font-size:0.85rem;color:var(--text3)">No cards found</div>'; return; }
 
+    const foil = !!findCardFoil;
+    if (cards.some(c => getUnitMarketMaxUsdForSearchResult(c, foil) > MTG_CASH_CHING_THRESHOLD_USD)) {
+      playCashChingSound();
+    }
+
     el.innerHTML = cards.map(c => {
-      const img    = c.image_uris?.normal || c.card_faces?.[0]?.image_uris?.normal;
+      const uris   = c.image_uris || c.card_faces?.[0]?.image_uris;
+      const img    = uris?.large || uris?.png || uris?.normal || uris?.small || null;
       const nfQty  = collection.filter(x => x.uid === c.id + '_n').reduce((s,x)=>s+x.qty,0);
       const fQty   = collection.filter(x => x.uid === c.id + '_f').reduce((s,x)=>s+x.qty,0);
       const inColl = nfQty > 0 || fQty > 0;
       const border = inColl ? '2px solid var(--teal)' : '1px solid var(--border)';
+      const addUid = c.id + (findCardFoil ? '_f' : '_n');
+      const newToCollection = !collection.some(x => x.uid === addUid);
+      const newBadge = newToCollection
+        ? `<span class="find-tile-new-badge" title="This printing (${(c.set || '').toUpperCase()} #${c.collector_number}${findCardFoil ? ', foil' : ''}) is not in your collection yet">New</span>`
+        : '';
       return `
         <div class="deck-search-tile" data-add="find:${c.id}" style="cursor:pointer">
           <div data-img-wrapper style="aspect-ratio:0.715;overflow:hidden;border-radius:6px;border:${border};position:relative;transition:border-color 0.15s">
-            ${img ? `<img src="${img}" style="width:100%;height:100%;object-fit:cover" alt="${c.name}" loading="lazy">`
-                  : `<div style="width:100%;height:100%;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:0.6rem;padding:4px;text-align:center;color:var(--text2)">${c.name}</div>`}
+            ${img ? `<img src="${img}" class="find-card-results-img" alt="${c.name}" loading="lazy">`
+                  : `<div style="width:100%;height:100%;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:0.68rem;padding:6px;text-align:center;color:var(--text2)">${c.name}</div>`}
             <div data-badges style="position:absolute;inset:0;pointer-events:none">
-              ${nfQty > 0 ? `<div style="position:absolute;bottom:2px;right:2px;background:var(--teal);color:#000;font-size:0.5rem;font-weight:700;padding:1px 4px;border-radius:3px">×${nfQty}</div>` : ''}
-              ${fQty  > 0 ? `<div style="position:absolute;bottom:2px;left:2px;background:var(--gold);color:#000;font-size:0.5rem;font-weight:700;padding:1px 4px;border-radius:3px">✦×${fQty}</div>` : ''}
+              ${nfQty > 0 ? `<div class="find-card-results-qty find-card-results-qty--nf">×${nfQty}</div>` : ''}
+              ${fQty  > 0 ? `<div class="find-card-results-qty find-card-results-qty--foil">✦×${fQty}</div>` : ''}
             </div>
           </div>
-          <div style="font-size:0.62rem;color:var(--text3);margin-top:2px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.name}</div>
-          <div style="font-size:0.58rem;color:var(--text3);text-align:center;letter-spacing:0.03em">${(c.set||'').toUpperCase()} #${c.collector_number}</div>
+          <div class="find-card-results-name">${c.name}</div>
+          <div class="find-card-results-meta">${(c.set||'').toUpperCase()} #${c.collector_number}${newBadge}</div>
         </div>`;
     }).join('');
 
@@ -1684,8 +1750,8 @@ async function runFindCard(q) {
       const nfQty = collection.filter(x => x.uid === scryfallId + '_n').reduce((s,x)=>s+x.qty,0);
       const fQty  = collection.filter(x => x.uid === scryfallId + '_f').reduce((s,x)=>s+x.qty,0);
       tile.querySelector('[data-badges]').innerHTML =
-        (nfQty > 0 ? `<div style="position:absolute;bottom:2px;right:2px;background:var(--teal);color:#000;font-size:0.5rem;font-weight:700;padding:1px 4px;border-radius:3px">×${nfQty}</div>` : '') +
-        (fQty  > 0 ? `<div style="position:absolute;bottom:2px;left:2px;background:var(--gold);color:#000;font-size:0.5rem;font-weight:700;padding:1px 4px;border-radius:3px">✦×${fQty}</div>` : '');
+        (nfQty > 0 ? `<div class="find-card-results-qty find-card-results-qty--nf">×${nfQty}</div>` : '') +
+        (fQty  > 0 ? `<div class="find-card-results-qty find-card-results-qty--foil">✦×${fQty}</div>` : '');
       showNotif(`Added ${qty}× ${card.name}${foil ? ' (foil)' : ''}`);
     };
   } catch(e) {

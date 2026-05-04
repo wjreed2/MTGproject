@@ -13,7 +13,8 @@ async function loadSetsFromAPI() {
   const res = await fetch('https://api.scryfall.com/sets');
   if (!res.ok) return;
   const d = await res.json();
-  allSets = d.data;
+  // Scryfall `digital`: only released in a video game (Arena / Alchemy / etc.) — hide from paper-focused set browser
+  allSets = (d.data || []).filter(s => !s.digital);
   allSets.sort((a,b) => new Date(b.released_at) - new Date(a.released_at));
   renderSets();
 }
@@ -86,6 +87,8 @@ function renderSets() {
     localStorage.removeItem('mtg_active_set_code');
   }
   const hasSelected = !!selected;
+  const setTabTopBar = document.getElementById('setTabTopBar');
+  if (setTabTopBar) setTabTopBar.style.display = hasSelected ? 'flex' : 'none';
 
   const gridArea = document.getElementById('setGridArea');
   const detailArea = document.getElementById('setDetailArea');
@@ -192,13 +195,16 @@ function renderSetSidebar(sets) {
   if (!el) return;
   const rows = (sets || []).map(s => {
     const owned = _ownedPrintingCountForSet(s.code);
+    const total = s.card_count || 1;
+    const pct = Math.min(100, Math.round((owned / total) * 100));
     return `
       <div class="set-sidebar-item ${activeSetCode === s.code ? 'active' : ''}" onclick="selectSet('${s.code}')">
         <div style="display:flex;align-items:center;gap:7px">
           ${_setIconMarkup(s.icon_svg_uri)}
           <span style="font-family:'Cinzel',serif;font-size:0.76rem;line-height:1.2;flex:1">${s.name}</span>
         </div>
-        <div class="meta">${s.code.toUpperCase()} · ${owned}/${s.card_count || 0}</div>
+        <div class="meta">${s.code.toUpperCase()} · ${owned}/${total}</div>
+        <div class="set-sidebar-progress"><div class="set-sidebar-progress-fill" style="width:${pct}%;background:${_setCompletionColor(pct)}"></div></div>
       </div>`;
   }).join('');
   el.innerHTML = rows || '<div style="padding:0.75rem;color:var(--text3);font-size:0.82rem">No sets match current filters.</div>';
@@ -462,18 +468,22 @@ function _renderSetBrowse() {
     </div>
     <div style="display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:10px;max-height:calc(82vh - 220px);overflow-y:auto;overflow-x:hidden;padding-right:6px;box-sizing:border-box">
       ${cards.map(c => {
+        const nameKey = String(c.name || '').trim().toLowerCase();
         const col = isTitleMode
-          ? (window.Ownership?.findOwnedByTitle
-            ? window.Ownership.findOwnedByTitle(collection, c.name)
-            : collection.find(col => String(col.name || '').trim().toLowerCase() === String(c.name || '').trim().toLowerCase()))
+          ? (ownedTitles.has(nameKey)
+            ? (window.Ownership?.findOwnedByTitleInSet
+              ? window.Ownership.findOwnedByTitleInSet(collection, c.name, code)
+              : collection.find(col =>
+                String(col.set || '').toLowerCase() === String(code || '').toLowerCase() &&
+                String(col.name || '').trim().toLowerCase() === nameKey))
+            : null)
           : (window.Ownership?.findOwnedByPrinting
             ? window.Ownership.findOwnedByPrinting(collection, c.id)
             : collection.find(col => col.scryfallId === c.id));
         const img = c.image_uris?.normal || c.image_uris?.large || c.card_faces?.[0]?.image_uris?.normal || c.card_faces?.[0]?.image_uris?.large;
         const imgStyle = col ? 'width:100%;display:block' : 'width:100%;display:block;filter:grayscale(65%) opacity(0.6)';
-        return `<div class="set-browse-card" style="position:relative;cursor:pointer;border-radius:6px;overflow:hidden;border:2px solid transparent;transition:all 0.2s" onclick="examineSetCard('${c.id}','${code}','${c.collector_number}')" title="${c.name}${col?' — In collection ('+col.qty+')':''}">
-          ${img ? `<img src="${img}" loading="lazy" style="${imgStyle}" alt="${c.name}">` : `<div style="aspect-ratio:0.715;background:var(--bg4);display:flex;align-items:center;justify-content:center;font-size:0.65rem;color:var(--text3);text-align:center;padding:4px;${col?'':'opacity:0.6'}">${c.name}</div>`}
-          ${col ? `<div style="position:absolute;top:3px;right:3px;background:var(--gold);color:#1a1200;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:0.6rem;font-weight:700;font-family:'JetBrains Mono',monospace">${col.qty}</div>` : ''}
+        return `<div class="set-browse-card" style="position:relative;cursor:pointer;border-radius:6px;overflow:hidden;border:2px solid transparent;transition:all 0.2s" onclick="examineSetCard('${c.id}','${code}','${c.collector_number}')" title="${c.name}${col ? ' — In this set (' + col.qty + ')' : ''}">
+          ${img ? `<img src="${img}" loading="lazy" style="${imgStyle}" alt="${c.name}">` : `<div style="aspect-ratio:0.715;background:var(--bg4);display:flex;align-items:center;justify-content:center;font-size:0.65rem;color:var(--text3);text-align:center;padding:4px;${col ? '' : 'opacity:0.6'}">${c.name}</div>`}
         </div>`;
       }).join('')}
     </div>
@@ -671,7 +681,9 @@ async function addSetCardToCollection(id, setCode, num) {
     existing.qty++;
     existing.addedAt = Date.now();
   }
-  else { collection.push(cardToEntry(card, 1)); }
+  else {
+    collection.push(cardToEntry(card, 1));
+  }
   save('collection');
   renderCollection();
   showNotif('Added ' + card.name);

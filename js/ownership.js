@@ -62,6 +62,12 @@
     return (cards || []).find(c => _norm(c?.name) === t) || null;
   }
 
+  function findOwnedByTitleInSet(cards, title, setCode) {
+    const t = _norm(title);
+    const code = _norm(setCode);
+    return (cards || []).find(c => _norm(c?.name) === t && _norm(c?.set) === code) || null;
+  }
+
   function findByRef(cards, ref) {
     const key = String(ref || '');
     return (cards || []).find(c => c?.uid === key || c?.scryfallId === key) || null;
@@ -110,6 +116,7 @@
     resolveOwnedCard,
     findOwnedByPrinting,
     findOwnedByTitle,
+    findOwnedByTitleInSet,
     findByRef,
     resolveFromPools,
     preferredOwnedPrinting,

@@ -33,6 +33,187 @@ const skipWords = new Set([
   'WON','WOO','YAM','YAP','YEP','YET','ZIP','ZOO'
 ]);
 
+/** Strip colons so STT “times” (e.g. 12:34) don’t swallow collector numbers. */
+function normalizeVoiceTranscript(raw) {
+  return String(raw || '').replace(/:/g, '');
+}
+
+/** Soft two-note chime after voice “yes” adds a card (Web Audio — no file). */
+function playVoiceAddDing() {
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    if (!window.__mtgVoiceDingCtx) window.__mtgVoiceDingCtx = new AC();
+    const ctx = window.__mtgVoiceDingCtx;
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+
+    const t0 = ctx.currentTime;
+    const ring = (freq, tStart, tEnd, peak) => {
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, tStart);
+      g.gain.setValueAtTime(0.0001, tStart);
+      g.gain.exponentialRampToValueAtTime(peak, tStart + 0.014);
+      g.gain.exponentialRampToValueAtTime(0.0001, tEnd);
+      osc.connect(g);
+      g.connect(ctx.destination);
+      osc.start(tStart);
+      osc.stop(tEnd + 0.015);
+    };
+    ring(784, t0, t0 + 0.2, 0.085);
+    ring(1047, t0 + 0.05, t0 + 0.24, 0.055);
+  } catch (_) { /* ignore */ }
+}
+
+// ── Voice session accuracy / throughput metrics (in-memory per modal open) ──
+let voiceAcc = null;
+let voiceAccTimer = null;
+/** “Yes” finals while the same preview is up, until a full add completes (for extra-yes metric). */
+let voicePendingYesCount = 0;
+
+function _voiceAccVoiceTabActive() {
+  return document.getElementById('voiceModal')?.classList.contains('open') &&
+    document.getElementById('voiceTabBtn')?.classList.contains('active');
+}
+
+function initVoiceAccSession() {
+  voiceAcc = {
+    t0: Date.now(),
+    finalsAtCycleStart: 0,
+    finalUtterances: 0,
+    noSkips: 0,
+    failedLookups: 0,
+    voiceParseLookups: 0,
+    manualLookups: 0,
+    samePrintReheard: 0,
+    confirmReparses: 0,
+    cardsAddedSpeech: 0,
+    cardsAddedButton: 0,
+    extraYesBeforeAdd: 0,
+    lastCardFinalCost: null,
+  };
+}
+
+function voiceAccNoteCardResolved() {
+  if (!voiceAcc) return;
+  const spent = voiceAcc.finalUtterances - voiceAcc.finalsAtCycleStart;
+  voiceAcc.lastCardFinalCost = spent;
+  voiceAcc.finalsAtCycleStart = voiceAcc.finalUtterances;
+  renderVoiceAccPanel();
+}
+
+function bumpVoiceAccFinalUtterance() {
+  if (!voiceAcc || !_voiceAccVoiceTabActive()) return;
+  voiceAcc.finalUtterances++;
+  renderVoiceAccPanel();
+}
+
+function formatVoiceAccDuration(ms) {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${m}:${String(r).padStart(2, '0')}`;
+}
+
+/**
+ * Single 0–100 score (needs ≥1 card added). Blends utterance efficiency vs ~2 finals per card
+ * with deductions for skips, failed lookups, re-speech, confirm reparses, extra yes, manual lookup.
+ */
+function computeVoiceSessionAccuracy(va) {
+  const cards = va.cardsAddedSpeech + va.cardsAddedButton;
+  if (cards < 1) {
+    return {
+      score: null,
+      title: 'Overall accuracy appears after you add at least one card this session.',
+    };
+  }
+  const finals = Math.max(va.finalUtterances, 1);
+  const idealFinals = 2 * cards;
+  const efficiencyPts = Math.min(100, (100 * idealFinals) / finals);
+
+  const penaltyRaw =
+    va.noSkips * 6 +
+    va.failedLookups * 5 +
+    va.samePrintReheard * 4 +
+    va.confirmReparses * 3 +
+    va.extraYesBeforeAdd * 3 +
+    va.manualLookups * 2;
+  const smoothPts = Math.max(0, 100 - Math.min(72, penaltyRaw));
+
+  const combined = efficiencyPts * 0.55 + smoothPts * 0.45;
+  const score = Math.max(0, Math.min(100, Math.round(combined)));
+
+  const title =
+    `Overall ≈ 55% “efficiency” (${Math.round(efficiencyPts)}% of ideal: ${idealFinals} finals for ${cards} card(s), you used ${va.finalUtterances})` +
+    ` + 45% “smooth” (${Math.round(smoothPts)}% after penalties for skips, not-found, repeats, reparses, extra yes, manual Look Up).`;
+
+  return { score, title };
+}
+
+function renderVoiceAccPanel() {
+  const el = document.getElementById('voiceAccPanel');
+  if (!el || !voiceAcc) return;
+  const prevDetails = document.getElementById('voiceAccDetails');
+  const wasOpen = prevDetails ? prevDetails.open : true;
+  const cards = voiceAcc.cardsAddedSpeech + voiceAcc.cardsAddedButton;
+  const avg = cards ? (voiceAcc.finalUtterances / cards).toFixed(1) : '—';
+  const last = voiceAcc.lastCardFinalCost != null ? String(voiceAcc.lastCardFinalCost) : '—';
+  const elapsed = formatVoiceAccDuration(Date.now() - voiceAcc.t0);
+  const acc = computeVoiceSessionAccuracy(voiceAcc);
+  const scoreShort = acc.score == null ? '—' : `${acc.score}%`;
+  const overallHtml = acc.score == null
+    ? `<div class="voice-acc-overall" title="${acc.title.replace(/"/g, '&quot;')}">
+         <span class="voice-acc-overall-label">Overall accuracy</span>
+         <span class="voice-acc-overall-val voice-acc-overall-na">—</span>
+       </div>`
+    : `<div class="voice-acc-overall" title="${acc.title.replace(/"/g, '&quot;')}">
+         <span class="voice-acc-overall-label">Overall accuracy</span>
+         <span class="voice-acc-overall-val">${acc.score}%</span>
+       </div>`;
+  el.innerHTML = `
+    <details id="voiceAccDetails" class="voice-acc-details"${wasOpen ? ' open' : ''}>
+      <summary class="voice-acc-summary">
+        <span class="voice-acc-summary-main">
+          <span class="voice-acc-title">Session accuracy</span>
+          <span class="voice-acc-summary-score${acc.score == null ? ' voice-acc-summary-na' : ''}" title="${acc.title.replace(/"/g, '&quot;')}">${scoreShort}</span>
+        </span>
+        <span class="voice-acc-summary-meta">
+          <span id="voiceAccElapsed" class="voice-acc-summary-time">${elapsed}</span>
+          <span class="voice-acc-chevron" aria-hidden="true"></span>
+        </span>
+      </summary>
+      <div class="voice-acc-details-body">
+        <div class="voice-acc-head">
+          <span class="voice-acc-title-sub">Metrics</span>
+          <button type="button" class="btn btn-ghost btn-sm voice-acc-reset" onclick="resetVoiceAccSession()">Reset</button>
+        </div>
+        ${overallHtml}
+        <div class="voice-acc-grid">
+          <span>Time</span><span>${elapsed}</span>
+          <span>Cards added</span><span>${cards} <span class="voice-acc-sub">(${voiceAcc.cardsAddedSpeech} voice · ${voiceAcc.cardsAddedButton} button)</span></span>
+          <span>“No” / skip</span><span>${voiceAcc.noSkips}</span>
+          <span>Final utterances</span><span>${voiceAcc.finalUtterances} <span class="voice-acc-sub">(each time the mic finishes a phrase)</span></span>
+          <span>Avg utterances / card</span><span>${avg}</span>
+          <span>Last card (utterances)</span><span>${last} <span class="voice-acc-sub">(this card’s cycle)</span></span>
+          <span>Voice set+number lookups</span><span>${voiceAcc.voiceParseLookups}</span>
+          <span>Manual Look Up taps</span><span>${voiceAcc.manualLookups}</span>
+          <span>Not found</span><span>${voiceAcc.failedLookups}</span>
+          <span>Same print again</span><span>${voiceAcc.samePrintReheard} <span class="voice-acc-sub">(re-spoke same set·# while preview up)</span></span>
+          <span>Confirm → new parse</span><span>${voiceAcc.confirmReparses} <span class="voice-acc-sub">(changed card without saying “no”)</span></span>
+          <span>Extra “yes”</span><span>${voiceAcc.extraYesBeforeAdd} <span class="voice-acc-sub">(more than one yes before add stuck)</span></span>
+        </div>
+        <p class="voice-acc-hint">Rough goal: <strong>2</strong> finals per card (set + number, then yes). <strong>Overall accuracy</strong> blends that efficiency (55%) with a penalty-based “smooth” score (45%) for skips, not-found, repeating the same print, reparsing from confirm, extra yes, and manual Look Up.</p>
+      </div>
+    </details>`;
+}
+
+function resetVoiceAccSession() {
+  initVoiceAccSession();
+  voicePendingYesCount = 0;
+  renderVoiceAccPanel();
+}
+
 function clearCardPanel() {
   document.getElementById('voiceLookupResult').innerHTML = '';
   document.getElementById('voiceAddBtn').disabled = true;
@@ -137,6 +318,11 @@ function openVoice() {
   renderPinnedSet();
   renderAutoPinBtn();
   renderVoiceDeckModeControls();
+  initVoiceAccSession();
+  voicePendingYesCount = 0;
+  renderVoiceAccPanel();
+  if (voiceAccTimer) clearInterval(voiceAccTimer);
+  voiceAccTimer = setInterval(() => renderVoiceAccPanel(), 1000);
   if (!isListening) startRecording();
 }
 
@@ -151,6 +337,10 @@ function closeVoice() {
   if (inp) inp.value = '';
   if (res) res.innerHTML = '';
   if (ac)  ac.style.display = 'none';
+  if (voiceAccTimer) {
+    clearInterval(voiceAccTimer);
+    voiceAccTimer = null;
+  }
 }
 
 function toggleRecording() {
@@ -167,6 +357,14 @@ async function startRecording() {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
     showNotif('Speech recognition not supported in this browser. Use Chrome.', true);
+    return;
+  }
+  if (!mtgIsSecureMediaContext()) {
+    showNotif(
+      'Microphone needs HTTPS on this device (same as camera). Run npm run setup:https, trust the CA on your phone, then npm run cap:device.',
+      true,
+    );
+    voiceAutoRestart = false;
     return;
   }
   if (!micStream) {
@@ -188,12 +386,13 @@ async function startRecording() {
     recognition.onresult = e => {
       const lastResult = e.results[e.results.length - 1];
       const priorText = Array.from(e.results).slice(0, -1).map(r => r[0].transcript).join('');
-      const chosen = (lastResult.isFinal && voiceMode === 'scan')
+      const rawChosen = (lastResult.isFinal && voiceMode === 'scan')
         ? pickBestAlternative(Array.from({length: lastResult.length}, (_, i) => lastResult[i].transcript))
         : lastResult[0].transcript;
-      const t = priorText + chosen;
+      const t = normalizeVoiceTranscript(priorText + rawChosen);
       document.getElementById('voiceTranscript').textContent = t;
       if (lastResult.isFinal) {
+        bumpVoiceAccFinalUtterance();
         if (voiceMode === 'confirm') {
           handleVoiceConfirmation(t);
         } else {
@@ -249,13 +448,20 @@ function stopRecording() {
 }
 
 function handleVoiceConfirmation(text) {
-  if (!pendingCard) return; // still fetching — ignore until card is ready
+  text = normalizeVoiceTranscript(text);
   const lower = text.toLowerCase();
   const yesWords = ['yes','yeah','yep','yup','correct','add','confirm','right','sure','ok','okay','do it','add it','that one','perfect','great'];
   const noWords = ['no','nope','wrong','cancel','skip','next','redo','not that','not it','incorrect'];
+  if (!pendingCard) return;
   if (yesWords.some(w => lower.includes(w))) {
-    confirmVoiceAdd();
+    voicePendingYesCount++;
+    confirmVoiceAdd(true);
   } else if (noWords.some(w => lower.includes(w))) {
+    voicePendingYesCount = 0;
+    if (voiceAcc) {
+      voiceAcc.noSkips++;
+      voiceAccNoteCardResolved();
+    }
     lastRejectedCode = pendingCard ? pendingCard.set.toUpperCase() : '';
     pendingCard = null;
     clearCardPanel();
@@ -272,6 +478,10 @@ function handleVoiceConfirmation(text) {
     const hasPotentialSet = /\b([A-Za-z0-9])\s([A-Za-z0-9])\s([A-Za-z0-9])\b|\b([A-Z][A-Z0-9]{2}|[A-Z0-9][A-Z][A-Z0-9]|[A-Z0-9]{2}[A-Z])\b/i.test(text);
     const canUseBufferedOrPinned = !!(pinnedSetCode || (lastHeardSetCode && (Date.now() - lastHeardSetTime) < 8000));
     if (hasDigits && (hasPotentialSet || canUseBufferedOrPinned)) {
+      if (voiceAcc) {
+        voiceAcc.confirmReparses++;
+        renderVoiceAccPanel();
+      }
       voiceMode = 'scan';
       parseVoiceInput(text);
     }
@@ -286,7 +496,7 @@ function toggleFoil() {
   btn.style.borderColor = pendingFoil ? 'var(--gold)' : '';
   if (pendingCard) {
     pendingCard.foil = pendingFoil;
-    lookupManual();
+    lookupManual('foil');
   }
 }
 
@@ -377,11 +587,11 @@ function matchToSetCode(candidate) {
 // Pick the recognition alternative whose candidate set code is closest to a real set code.
 // Falls back to alternative[0] when the set is already known (pinned/buffered) or no set data.
 function pickBestAlternative(alternatives) {
-  if (alternatives.length <= 1 || !allSets.length) return alternatives[0];
+  if (alternatives.length <= 1 || !allSets.length) return normalizeVoiceTranscript(alternatives[0]);
   const knownCodes = new Set(allSets.map(s => s.code.toUpperCase()));
   let best = alternatives[0], bestScore = Infinity;
   for (const alt of alternatives) {
-    const norm = alt.replace(/\b([A-Za-z0-9])\s([A-Za-z0-9])\s([A-Za-z0-9])\b/g,
+    const norm = normalizeVoiceTranscript(alt).replace(/\b([A-Za-z0-9])\s([A-Za-z0-9])\s([A-Za-z0-9])\b/g,
       (m, a, b, c) => /[A-Za-z]/.test(a + b + c) ? a + b + c : m);
     const codes = [...norm.toUpperCase().matchAll(/\b([A-Z][A-Z0-9]{2}|[A-Z0-9][A-Z][A-Z0-9]|[A-Z0-9]{2}[A-Z])\b/g)]
       .map(m => m[1]).filter(c => !skipWords.has(c));
@@ -394,10 +604,11 @@ function pickBestAlternative(alternatives) {
     }));
     if (score < bestScore) { bestScore = score; best = alt; }
   }
-  return best;
+  return normalizeVoiceTranscript(best);
 }
 
 function parseVoiceInput(text) {
+  text = normalizeVoiceTranscript(text);
   // Collapse spaced chars from speech recognition: "D M R" → "DMR", "M H 3" → "MH3"
   text = text.replace(/\b([A-Za-z0-9])\s([A-Za-z0-9])\s([A-Za-z0-9])\b/g, (m, a, b, c) =>
     /[A-Za-z]/.test(a + b + c) ? a + b + c : m);
@@ -494,14 +705,24 @@ function parseVoiceInput(text) {
   if (setCode && num) {
     document.getElementById('manualSetCode').value = setCode;
     document.getElementById('manualCardNum').value = num;
-    lookupManual();
+    lookupManual('parse');
   }
 }
 
-async function lookupManual() {
+async function lookupManual(source = 'manual') {
   const setCode = document.getElementById('manualSetCode').value.trim();
   const num = document.getElementById('manualCardNum').value.trim();
   if (!setCode || !num) return;
+
+  if (voiceAcc && document.getElementById('voiceModal')?.classList.contains('open')) {
+    const key = `${setCode.toUpperCase()}|${String(num).trim()}|${!!pendingFoil}`;
+    if (pendingCard && source === 'parse') {
+      const pkey = `${String(pendingCard.set).toUpperCase()}|${String(pendingCard.number).trim()}|${!!pendingCard.foil}`;
+      if (pkey === key) voiceAcc.samePrintReheard++;
+    }
+    if (source === 'parse') voiceAcc.voiceParseLookups++;
+    else if (source === 'manual') voiceAcc.manualLookups++;
+  }
 
   voiceMode = 'confirm'; // lock before fetch so yes/no during load don't hit parseVoiceInput
   pendingCard = null;
@@ -510,18 +731,26 @@ async function lookupManual() {
 
   const card = await fetchCard(setCode, num);
   if (!card) {
+    if (voiceAcc) voiceAcc.failedLookups++;
     el.innerHTML = `<div style="aspect-ratio:5/7;display:flex;align-items:center;justify-content:center;border:1px dashed var(--red);border-radius:8px;color:var(--red);font-size:0.8rem;text-align:center;padding:8px">Not found:<br>${setCode} #${num}</div>`;
     document.getElementById('voiceAddBtn').disabled = true;
     pendingCard = null;
     voiceMode = 'scan';
+    voicePendingYesCount = 0;
+    renderVoiceAccPanel();
     return;
   }
 
+  voicePendingYesCount = 0;
   pendingCard = cardToEntry(card, parseInt(document.getElementById('manualQty').value) || 1);
   pendingCard.foil = pendingFoil;
   pendingCard.uid = pendingCard.scryfallId + (pendingCard.foil ? '_f' : '_n');
+  const ownedEntry = collection.find(c => c.uid === pendingCard.uid);
   const displayPrice = getTCGPriceForCard(pendingCard);
   const displayCKPrice = getCKPriceForCard(pendingCard);
+  const collectionStatusHtml = ownedEntry
+    ? `<span class="voice-owned-print-badge" title="This set · number · foil is already in your collection">In collection ×${ownedEntry.qty}</span>`
+    : `<span class="voice-new-to-collection-badge" title="No copy of this printing in your collection yet">New to collection</span>`;
   el.innerHTML = `
     <div style="background:var(--bg3);border:1px solid ${pendingCard.foil ? 'var(--gold)' : 'var(--border2)'};border-radius:var(--radius2);padding:10px">
       <div style="position:relative;overflow:hidden;border-radius:6px;margin-bottom:8px">
@@ -530,6 +759,7 @@ async function lookupManual() {
       </div>
       <div style="font-family:'Cinzel',serif;color:var(--gold);font-size:0.82rem;margin-bottom:3px;line-height:1.2">${pendingCard.name}</div>
       <div style="font-size:0.72rem;color:var(--text2);margin-bottom:2px;font-style:italic">${pendingCard.set.toUpperCase()} · #${pendingCard.number}</div>
+      <div style="margin-bottom:6px">${collectionStatusHtml}</div>
       <div style="font-size:0.7rem;color:var(--text2);margin-bottom:8px">${pendingCard.type}</div>
       <div style="display:flex;gap:4px;flex-wrap:wrap">
         <span class="price-badge price-tcg" style="font-size:0.68rem">${pendingCard.foil && pendingCard.priceTCGFoil > 0 ? 'Foil' : 'TCG'} $${displayPrice.toFixed(2)}</span>
@@ -542,7 +772,7 @@ async function lookupManual() {
   if (!isListening && voiceAutoRestart) startRecording();
 }
 
-function confirmVoiceAdd() {
+function confirmVoiceAdd(fromSpeech) {
   if (!pendingCard) return;
   // If the user rejected a card and then confirmed one with a different set, learn the correction
   const confirmedCode = pendingCard.set.toUpperCase();
@@ -604,6 +834,13 @@ function confirmVoiceAdd() {
     const deck = _ensureVoiceDeckTarget();
     if (!deck) {
       showNotif('Could not create voice deck', true);
+      if (voiceAcc) {
+        if (fromSpeech) {
+          if (voicePendingYesCount > 1) voiceAcc.extraYesBeforeAdd += voicePendingYesCount - 1;
+          voiceAcc.cardsAddedSpeech++;
+        } else voiceAcc.cardsAddedButton++;
+        voiceAccNoteCardResolved();
+      }
       return;
     }
     const existingDeck = (deck.cards || []).find(c => c.uid === pendingCard.uid);
@@ -620,6 +857,15 @@ function confirmVoiceAdd() {
     save('collection');
     showNotif(`Added ${pendingCard.qty}x ${pendingCard.name} to collection`);
   }
+  if (voiceAcc) {
+    if (fromSpeech) {
+      if (voicePendingYesCount > 1) voiceAcc.extraYesBeforeAdd += voicePendingYesCount - 1;
+      voiceAcc.cardsAddedSpeech++;
+    } else voiceAcc.cardsAddedButton++;
+    voiceAccNoteCardResolved();
+  }
+  voicePendingYesCount = 0;
+  if (fromSpeech) playVoiceAddDing();
   renderCollection();
   updateStats();
   renderVoiceDeckModeControls();

@@ -3,7 +3,7 @@
   "appName": "MTG Archive",
   "webDir": "www",
   "server": {
-    "url": "http://192.168.0.19:3001",
-    "cleartext": true
+    "url": "https://192.168.0.12:3001",
+    "cleartext": false
   }
 }
