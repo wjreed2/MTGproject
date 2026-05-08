@@ -279,7 +279,7 @@ async function initApp() {
   document.body.classList.remove('auth-pending');
   if (typeof hideAuthGate === 'function') hideAuthGate();
   currentUser = me;
-  if (typeof refreshAuthUserLabel === 'function') refreshAuthUserLabel(me.email);
+  if (typeof refreshAuthUserLabel === 'function') refreshAuthUserLabel(me.email, me.role);
 
   await loadAppDataAfterAuth();
   const savedTab = localStorage.getItem('mtg_active_tab');

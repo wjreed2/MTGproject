@@ -29,7 +29,7 @@
       </label>
       <button type="submit" class="btn btn-primary auth-submit">Sign in</button>
     </form>
-    <p class="auth-switch">New here? <button type="button" class="btn-link" onclick="showAuthRegister()">Create an account</button></p>
+    <p class="auth-switch">New here? <button type="button" class="btn-link" onclick="showAuthRegister()">Create an account</button> · <button type="button" class="btn-link" onclick="showForgotPassword()">Forgot password?</button></p>
     <div id="authRegisterPanel" style="display:none">
       <h2 class="auth-register-heading">Create account</h2>
       <form id="authRegisterForm" onsubmit="return submitAuthRegister(event)">
@@ -40,6 +40,29 @@
           <input class="auth-input" type="password" id="regPassword" required autocomplete="new-password">
         </label>
         <button type="submit" class="btn btn-primary auth-submit">Register</button>
+      </form>
+      <p class="auth-switch"><button type="button" class="btn-link" onclick="showAuthLogin()">Back to sign in</button></p>
+    </div>
+    <div id="authForgotPanel" style="display:none">
+      <h2 class="auth-register-heading">Reset password</h2>
+      <form id="authForgotForm" onsubmit="return submitForgotPassword(event)">
+        <label class="auth-label">Email
+          <input class="auth-input" type="email" id="forgotEmail" required autocomplete="email">
+        </label>
+        <button type="submit" class="btn btn-primary auth-submit">Send reset link</button>
+      </form>
+      <p class="auth-switch"><button type="button" class="btn-link" onclick="showAuthLogin()">Back to sign in</button></p>
+    </div>
+    <div id="authResetPanel" style="display:none">
+      <h2 class="auth-register-heading">Set new password</h2>
+      <form id="authResetForm" onsubmit="return submitResetPassword(event)">
+        <label class="auth-label">New password (8+ characters)
+          <input class="auth-input" type="password" id="resetPassword" required autocomplete="new-password">
+        </label>
+        <label class="auth-label">Confirm password
+          <input class="auth-input" type="password" id="resetPasswordConfirm" required autocomplete="new-password">
+        </label>
+        <button type="submit" class="btn btn-primary auth-submit">Set password</button>
       </form>
       <p class="auth-switch"><button type="button" class="btn-link" onclick="showAuthLogin()">Back to sign in</button></p>
     </div>
@@ -104,24 +127,26 @@
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M8 1.5a2.5 2.5 0 0 1 2.5 2.5v3a2.5 2.5 0 0 1-5 0V4A2.5 2.5 0 0 1 8 1.5z"/><path d="M12 8v.5a4 4 0 0 1-8 0V8"/><line x1="8" y1="12.5" x2="8" y2="14.5"/><line x1="5.5" y1="14.5" x2="10.5" y2="14.5"/><line x1="11.5" y1="1.5" x2="14" y2="4"/><line x1="14" y1="1.5" x2="11.5" y2="4"/></svg>
         Reset voice corrections
       </button>
-      <div class="settings-divider"></div>
-      <div class="settings-section-label">Developer</div>
-      <button type="button" id="settingsImportScryDbBtn" class="btn btn-ghost btn-sm" style="width:100%;justify-content:flex-start;gap:7px;color:var(--text2)" onclick="toggleSettingsDropdown();importScryfallOracleDb()">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M8 2v7"/><path d="M5.5 6.5 8 9l2.5-2.5"/><path d="M2.5 11.5h11v2h-11z"/></svg>
-        Rebuild Scryfall (Full)
-      </button>
-      <button type="button" id="settingsImportScryCardsBtn" class="btn btn-ghost btn-sm" style="width:100%;justify-content:flex-start;gap:7px;color:var(--text2)" onclick="toggleSettingsDropdown();importScryfallOracleCards()">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><rect x="2.5" y="2.5" width="11" height="11" rx="1.5"/><path d="M5 6.2h6M5 8.5h6M5 10.8h4"/></svg>
-        Import Oracle Cards Only
-      </button>
-      <button type="button" id="settingsImportScryTagsBtn" class="btn btn-ghost btn-sm" style="width:100%;justify-content:flex-start;gap:7px;color:var(--text2)" onclick="toggleSettingsDropdown();rebuildScryfallAutoTags()">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M2.5 8h11"/><path d="M4 5.5h8"/><path d="M6 10.5h4"/><circle cx="8" cy="8" r="5.5"/></svg>
-        Rebuild Auto Tags Only
-      </button>
-      <button type="button" class="btn btn-ghost btn-sm" style="width:100%;justify-content:flex-start;gap:7px;color:var(--text2)" onclick="toggleSettingsDropdown();openSeedModal()">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M5.5 1.5h5"/><path d="M6 1.5V7L2 14.5h12L10 7V1.5"/><line x1="3.5" y1="11" x2="12.5" y2="11"/></svg>
-        Generate Test Data
-      </button>
+      <div data-admin-only style="display:none">
+        <div class="settings-divider"></div>
+        <div class="settings-section-label">Developer</div>
+        <button type="button" id="settingsImportScryDbBtn" class="btn btn-ghost btn-sm" style="width:100%;justify-content:flex-start;gap:7px;color:var(--text2)" onclick="toggleSettingsDropdown();importScryfallOracleDb()">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M8 2v7"/><path d="M5.5 6.5 8 9l2.5-2.5"/><path d="M2.5 11.5h11v2h-11z"/></svg>
+          Rebuild Scryfall (Full)
+        </button>
+        <button type="button" id="settingsImportScryCardsBtn" class="btn btn-ghost btn-sm" style="width:100%;justify-content:flex-start;gap:7px;color:var(--text2)" onclick="toggleSettingsDropdown();importScryfallOracleCards()">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><rect x="2.5" y="2.5" width="11" height="11" rx="1.5"/><path d="M5 6.2h6M5 8.5h6M5 10.8h4"/></svg>
+          Import Oracle Cards Only
+        </button>
+        <button type="button" id="settingsImportScryTagsBtn" class="btn btn-ghost btn-sm" style="width:100%;justify-content:flex-start;gap:7px;color:var(--text2)" onclick="toggleSettingsDropdown();rebuildScryfallAutoTags()">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M2.5 8h11"/><path d="M4 5.5h8"/><path d="M6 10.5h4"/><circle cx="8" cy="8" r="5.5"/></svg>
+          Rebuild Auto Tags Only
+        </button>
+        <button type="button" class="btn btn-ghost btn-sm" style="width:100%;justify-content:flex-start;gap:7px;color:var(--text2)" onclick="toggleSettingsDropdown();openSeedModal()">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M5.5 1.5h5"/><path d="M6 1.5V7L2 14.5h12L10 7V1.5"/><line x1="3.5" y1="11" x2="12.5" y2="11"/></svg>
+          Generate Test Data
+        </button>
+      </div>
       <div class="settings-divider"></div>
       <button type="button" class="btn btn-ghost btn-sm" style="width:100%;justify-content:flex-start;gap:7px;color:var(--red)" onclick="logoutAccount()">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M7 3.5H4a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h3"/><path d="M10.5 5.5L13.5 8.5 10.5 11.5"/><line x1="13.5" y1="8.5" x2="6" y2="8.5"/></svg>
@@ -788,7 +813,7 @@
             <div class="scn-match-sub" id="scnMatchSub"></div>
           </div>
         </div>
-        <div id="scnParseDistPanel" class="scn-parse-dist-panel hidden" aria-hidden="true">
+        <div id="scnParseDistPanel" class="scn-parse-dist-panel hidden" data-admin-only aria-hidden="true">
           <div class="scn-parse-dist-head">
             <span class="scn-parse-dist-title">OCR parse counts (this session)</span>
             <button type="button" class="btn btn-ghost btn-sm" onclick="scnToggleParseDistOverlay()">Close</button>
@@ -849,7 +874,7 @@
           <button type="button" class="btn btn-outline btn-sm" id="scnVoiceModeBtn" onclick="scnToggleVoiceMode()">Voice: off</button>
           <button type="button" class="btn btn-outline btn-sm" id="scnFoilModeBtn" onclick="scnToggleFoilMode()">✦ Foil: off</button>
           <button type="button" class="btn btn-outline btn-sm hidden" id="scnPauseScanBtn" onclick="scnToggleScanPause()">Pause scan</button>
-          <button type="button" class="btn btn-outline btn-sm" id="scnParseDistBtn" onclick="scnToggleParseDistOverlay()">Parse distribution</button>
+          <button type="button" class="btn btn-outline btn-sm" id="scnParseDistBtn" data-admin-only style="display:none" onclick="scnToggleParseDistOverlay()">Parse distribution</button>
           <button type="button" class="btn btn-primary btn-sm hidden" id="scnScanAgainBtn" onclick="scnScanAgain()">Scan Again</button>
         </div>
         <div class="scn-zoom-row" id="scnZoomControls" style="opacity:0.45">
@@ -1361,7 +1386,7 @@
 </div>
 
 <!-- SEED TEST DATA MODAL -->
-<div class="modal-overlay" id="seedModal" onclick="if(event.target===this)closeSeedModal()">
+<div class="modal-overlay" id="seedModal" data-admin-only style="display:none" onclick="if(event.target===this)closeSeedModal()">
   <div class="modal" style="width:min(520px,96vw)">
     <button class="btn btn-ghost btn-icon" style="position:absolute;top:0.75rem;right:0.75rem" onclick="closeSeedModal()">✕</button>
     <div class="modal-title">⚗ Generate Test Data</div>

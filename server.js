@@ -10,11 +10,38 @@ const compression = require('compression');
 const fs          = require('fs');
 const http        = require('http');
 const https       = require('https');
+const rateLimit   = require('express-rate-limit');
+const helmet      = require('helmet');
+const nodemailer  = require('nodemailer');
+const MySQLStore  = require('express-mysql-session')(session);
 
 const app = express();
 app.use(compression());
-app.use(cors({ origin: true, credentials: true }));
+app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
+app.get('/health', (_req, res) => res.json({ ok: true }));
+
+const ALLOWED_ORIGINS = new Set(
+  process.env.ALLOWED_ORIGIN
+    ? [process.env.ALLOWED_ORIGIN]
+    : ['http://localhost:3001', 'https://localhost:3001', 'capacitor://localhost', 'ionic://localhost']
+);
+app.use(cors({
+  origin: (origin, cb) => {
+    if (!origin || ALLOWED_ORIGINS.has(origin)) return cb(null, true);
+    cb(new Error('CORS: origin not allowed'));
+  },
+  credentials: true,
+}));
 app.use(express.json({ limit: '20mb' }));
+
+// ── Rate limiting ─────────────────────────────────────────────────────────────
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many attempts — try again in 15 minutes' },
+});
 
 function resolveSessionSecret() {
   const configured = String(process.env.SESSION_SECRET || '').trim();
@@ -41,6 +68,19 @@ app.use(
     secret: SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
+    store: process.env.SESSION_SECURE === '1'
+      ? new MySQLStore({
+          host:               process.env.DB_HOST || 'localhost',
+          port:               parseInt(process.env.DB_PORT || '3306'),
+          user:               process.env.DB_USER || 'root',
+          password:           process.env.DB_PASS || '',
+          database:           process.env.DB_NAME || 'mtgproject',
+          clearExpired:       true,
+          checkExpirationInterval: 15 * 60 * 1000,
+          expiration:         7 * 24 * 60 * 60 * 1000,
+          createDatabaseTable: true,
+        })
+      : undefined,
     cookie: {
       maxAge: 7 * 24 * 60 * 60 * 1000,
       httpOnly: true,
@@ -245,6 +285,11 @@ function requireAuth(req, res, next) {
   const id = req.session && req.session.accountId;
   if (!id) return res.status(401).json({ error: 'Not signed in' });
   req.accountId = id;
+  next();
+}
+
+function requireAdminRole(req, res, next) {
+  if (req.session?.userRole !== 'admin') return res.status(403).json({ error: 'Admin access required' });
   next();
 }
 
@@ -483,8 +528,10 @@ async function enrichCardWithTcgPrices(card) {
   }
 }
 
+const _REPLACE_ALLOWED_TABLES = new Set(['collection', 'games', 'wishlist']);
 /** Full-replacement PUT for one account inside a transaction. */
 async function replaceAllForAccount(accountId, table, rows, insertFn) {
+  if (!_REPLACE_ALLOWED_TABLES.has(table)) throw new Error(`replaceAllForAccount: disallowed table '${table}'`);
   const conn = await db().getConnection();
   try {
     await conn.beginTransaction();
@@ -501,19 +548,49 @@ async function replaceAllForAccount(accountId, table, rows, insertFn) {
 
 // ── Collection ────────────────────────────────────────────────────────────────
 
+// ── Email helper ──────────────────────────────────────────────────────────────
+function createMailTransport() {
+  if (!process.env.SMTP_HOST) return null;
+  return nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: parseInt(process.env.SMTP_PORT || '587'),
+    secure: process.env.SMTP_SECURE === '1',
+    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+  });
+}
+
+async function sendResetEmail(toEmail, resetUrl) {
+  const transport = createMailTransport();
+  if (!transport) {
+    console.warn('[auth] SMTP not configured — reset URL:', resetUrl);
+    return;
+  }
+  await transport.sendMail({
+    from: process.env.EMAIL_FROM || 'noreply@mtgarchive.app',
+    to: toEmail,
+    subject: 'MTG Archive — Reset your password',
+    text: `Click the link below to reset your password (expires in 1 hour):\n\n${resetUrl}\n\nIf you did not request this, ignore this email.`,
+    html: `<p>Click the link below to reset your password (expires in 1 hour):</p><p><a href="${resetUrl}">${resetUrl}</a></p><p>If you did not request this, ignore this email.</p>`,
+  });
+}
+
+// ── Auth routes ───────────────────────────────────────────────────────────────
 const authRouter = express.Router();
+
 authRouter.get('/me', async (req, res) => {
   try {
     if (!req.session.accountId) return res.status(401).json({ error: 'Not signed in' });
-    const [rows] = await db().query('SELECT id, email FROM accounts WHERE id = ?', [req.session.accountId]);
+    const [rows] = await db().query('SELECT id, email, role FROM accounts WHERE id = ?', [req.session.accountId]);
     if (!rows.length) return res.status(401).json({ error: 'Invalid session' });
-    res.json(rows[0]);
+    req.session.userRole = rows[0].role;
+    res.json({ id: rows[0].id, email: rows[0].email, role: rows[0].role });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
   }
 });
-authRouter.post('/register', async (req, res) => {
+
+authRouter.post('/register', authLimiter, async (req, res) => {
   try {
     const email = String(req.body?.email || '').toLowerCase().trim();
     const password = String(req.body?.password || '');
@@ -525,31 +602,82 @@ authRouter.post('/register', async (req, res) => {
       [email, hash, Date.now()]
     );
     req.session.accountId = r.insertId;
-    res.json({ ok: true, email });
+    req.session.userRole = 'user';
+    res.json({ ok: true, email, role: 'user' });
   } catch (e) {
     if (e.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'Email already registered' });
     console.error(e);
     res.status(500).json({ error: e.message });
   }
 });
-authRouter.post('/login', async (req, res) => {
+
+authRouter.post('/login', authLimiter, async (req, res) => {
   try {
     const email = String(req.body?.email || '').toLowerCase().trim();
     const password = String(req.body?.password || '');
-    const [rows] = await db().query('SELECT id, email, password_hash FROM accounts WHERE email = ?', [email]);
+    const [rows] = await db().query('SELECT id, email, password_hash, role FROM accounts WHERE email = ?', [email]);
     if (!rows.length) return res.status(401).json({ error: 'Invalid email or password' });
     const ok = await bcrypt.compare(password, rows[0].password_hash);
     if (!ok) return res.status(401).json({ error: 'Invalid email or password' });
     req.session.accountId = rows[0].id;
-    res.json({ ok: true, email: rows[0].email });
+    req.session.userRole = rows[0].role;
+    res.json({ ok: true, email: rows[0].email, role: rows[0].role });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
   }
 });
+
 authRouter.post('/logout', (req, res) => {
   req.session.destroy(() => res.json({ ok: true }));
 });
+
+authRouter.post('/forgot-password', authLimiter, async (req, res) => {
+  try {
+    const email = String(req.body?.email || '').toLowerCase().trim();
+    // Always respond OK to prevent email enumeration
+    res.json({ ok: true });
+    if (!email.includes('@')) return;
+    const [rows] = await db().query('SELECT id FROM accounts WHERE email = ?', [email]);
+    if (!rows.length) return;
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const expiresAt = Date.now() + 60 * 60 * 1000; // 1 hour
+    await db().query(
+      'INSERT INTO password_reset_tokens (account_id, token_hash, expires_at) VALUES (?,?,?)',
+      [rows[0].id, tokenHash, expiresAt]
+    );
+    const appUrl = process.env.APP_URL || `http://localhost:${process.env.PORT || 3001}`;
+    await sendResetEmail(email, `${appUrl}/?reset_token=${rawToken}`);
+  } catch (e) {
+    console.error('[auth] forgot-password error:', e);
+  }
+});
+
+authRouter.post('/reset-password', authLimiter, async (req, res) => {
+  try {
+    const token = String(req.body?.token || '').trim();
+    const newPassword = String(req.body?.newPassword || '');
+    if (!token || newPassword.length < 8) return res.status(400).json({ error: 'Invalid request' });
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const [rows] = await db().query(
+      'SELECT id, account_id, expires_at, used_at FROM password_reset_tokens WHERE token_hash = ?',
+      [tokenHash]
+    );
+    if (!rows.length) return res.status(400).json({ error: 'Invalid or expired reset link' });
+    const t = rows[0];
+    if (t.used_at) return res.status(400).json({ error: 'Reset link already used' });
+    if (Date.now() > t.expires_at) return res.status(400).json({ error: 'Reset link has expired' });
+    const hash = await bcrypt.hash(newPassword, 10);
+    await db().query('UPDATE accounts SET password_hash = ? WHERE id = ?', [hash, t.account_id]);
+    await db().query('UPDATE password_reset_tokens SET used_at = ? WHERE id = ?', [Date.now(), t.id]);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.use('/api/auth', authRouter);
 app.use('/auth', authRouter);
 
@@ -1259,7 +1387,7 @@ async function enrichCardsFromScryfall(cards) {
 
 // ── Admin: seed test users + public decks ────────────────────────────────────
 
-app.post('/api/admin/seed-test-data', requireAuth, async (req, res) => { try {
+app.post('/api/admin/seed-test-data', requireAuth, requireAdminRole, async (req, res) => { try {
   const rawIds = Array.isArray(req.body?.deckIds) ? req.body.deckIds : [];
   let deckIds = rawIds
     .map(d => String(d).match(/(\d{4,})/)?.[1] || '')
@@ -1331,12 +1459,20 @@ app.post('/api/admin/seed-test-data', requireAuth, async (req, res) => { try {
   // Wipe all existing test data for these users before importing fresh decks
   const testUserIds = testUsers.map(u => u.id);
   if (testUserIds.length) {
-    const placeholders = testUserIds.map(() => '?').join(',');
-    for (const table of ['deck_cards', 'deck_collaborators', 'decks', 'games', 'collection', 'wishlist']) {
+    const ph = testUserIds.map(() => '?').join(',');
+    const seedCleanup = [
+      `DELETE FROM deck_cards WHERE account_id IN (${ph})`,
+      `DELETE FROM deck_card_tags WHERE account_id IN (${ph})`,
+      `DELETE FROM decks WHERE account_id IN (${ph})`,
+      `DELETE FROM games WHERE account_id IN (${ph})`,
+      `DELETE FROM collection WHERE account_id IN (${ph})`,
+      `DELETE FROM wishlist WHERE account_id IN (${ph})`,
+    ];
+    for (const sql of seedCleanup) {
       try {
-        await db().query(`DELETE FROM ${table} WHERE account_id IN (${placeholders})`, testUserIds);
+        await db().query(sql, testUserIds);
       } catch (e) {
-        console.warn(`[seed] cleanup skip (${table}):`, e.message);
+        console.warn('[seed] cleanup skip:', e.message);
       }
     }
   }
@@ -2330,19 +2466,19 @@ async function runScryfallImportEndpoint(req, res, mode) {
   }
 }
 
-app.post('/api/admin/scryfall/import-oracle', requireAuth, async (req, res) =>
+app.post('/api/admin/scryfall/import-oracle', requireAuth, requireAdminRole, async (req, res) =>
   runScryfallImportEndpoint(req, res, 'full')
 );
 
-app.post('/api/admin/scryfall/import-oracle-cards', requireAuth, async (req, res) =>
+app.post('/api/admin/scryfall/import-oracle-cards', requireAuth, requireAdminRole, async (req, res) =>
   runScryfallImportEndpoint(req, res, 'cards')
 );
 
-app.post('/api/admin/scryfall/rebuild-tags', requireAuth, async (req, res) =>
+app.post('/api/admin/scryfall/rebuild-tags', requireAuth, requireAdminRole, async (req, res) =>
   runScryfallImportEndpoint(req, res, 'tags')
 );
 
-app.get('/api/admin/scryfall/import-status', requireAuth, async (_req, res) => {
+app.get('/api/admin/scryfall/import-status', requireAuth, requireAdminRole, async (_req, res) => {
   try {
     const [[cardsRow]] = await db().query('SELECT COUNT(*) AS n FROM scryfall_oracle_cards');
     const [[tagsRow]] = await db().query('SELECT COUNT(*) AS n, MAX(fetched_at) AS latest FROM scryfall_oracle_tags');

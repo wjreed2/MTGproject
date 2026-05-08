@@ -1,5 +1,18 @@
 // Sign-in UI and session helpers (uses db-client auth APIs).
 
+// ── Role ─────────────────────────────────────────────────────────────────────
+
+let currentUserRole = 'user';
+
+function isAdmin() { return currentUserRole === 'admin'; }
+
+function applyRoleVisibility() {
+  const admin = isAdmin();
+  document.querySelectorAll('[data-admin-only]').forEach(el => {
+    el.style.display = admin ? '' : 'none';
+  });
+}
+
 // ── Theme ────────────────────────────────────────────────────────────────────
 
 const _mql = window.matchMedia('(prefers-color-scheme: light)');
@@ -85,6 +98,11 @@ function showAuthGate() {
     g.style.display = 'flex';
     g.setAttribute('aria-hidden', 'false');
   }
+  const params = new URLSearchParams(location.search);
+  if (params.has('reset_token')) {
+    _hideAllAuthPanels();
+    document.getElementById('authResetPanel').style.display = 'block';
+  }
 }
 
 function hideAuthGate() {
@@ -107,7 +125,8 @@ function setAuthError(msg) {
   }
 }
 
-function refreshAuthUserLabel(email) {
+function refreshAuthUserLabel(email, role) {
+  if (role) currentUserRole = role;
   const el = document.getElementById('topbarUser');
   const row = document.getElementById('topbarUserRow');
   if (el) el.innerHTML = email
@@ -121,6 +140,7 @@ function refreshAuthUserLabel(email) {
   });
   if (typeof renderDeckOwnershipBtn === 'function') renderDeckOwnershipBtn();
   renderValueExcludeSlider();
+  applyRoleVisibility();
 }
 
 function toggleDeckOwnershipSetting() {
@@ -141,20 +161,92 @@ function renderDeckOwnershipBtn() {
   btn.style.borderColor = deckOwnershipEnabled ? 'var(--teal)' : '';
 }
 
+function _hideAllAuthPanels() {
+  ['authLoginForm','authRegisterPanel','authForgotPanel','authResetPanel'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
+}
+
 function showAuthRegister() {
   setAuthError('');
-  const p = document.getElementById('authRegisterPanel');
-  const f = document.getElementById('authLoginForm');
-  if (p) p.style.display = 'block';
-  if (f) f.style.display = 'none';
+  _hideAllAuthPanels();
+  document.getElementById('authRegisterPanel').style.display = 'block';
 }
 
 function showAuthLogin() {
   setAuthError('');
-  const p = document.getElementById('authRegisterPanel');
-  const f = document.getElementById('authLoginForm');
-  if (p) p.style.display = 'none';
-  if (f) f.style.display = 'block';
+  _hideAllAuthPanels();
+  document.getElementById('authLoginForm').style.display = 'block';
+}
+
+function showForgotPassword() {
+  setAuthError('');
+  _hideAllAuthPanels();
+  document.getElementById('authForgotPanel').style.display = 'block';
+  setTimeout(() => document.getElementById('forgotEmail')?.focus(), 50);
+}
+
+function _showResetPanel() {
+  setAuthError('');
+  _hideAllAuthPanels();
+  document.getElementById('authResetPanel').style.display = 'block';
+  setTimeout(() => document.getElementById('resetPassword')?.focus(), 50);
+}
+
+async function submitForgotPassword(ev) {
+  ev.preventDefault();
+  setAuthError('');
+  const email = document.getElementById('forgotEmail')?.value?.trim();
+  const btn = ev.target.querySelector('button[type=submit]');
+  if (btn) btn.disabled = true;
+  try {
+    await fetch(mtgApiRoot() + '/auth/forgot-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    // Always show success message (prevents email enumeration)
+    setAuthError('');
+    const panel = document.getElementById('authForgotPanel');
+    if (panel) panel.innerHTML = '<p style="color:var(--teal);font-size:0.9rem;text-align:center;padding:0.5rem 0">If that email is registered, a reset link has been sent. Check your inbox.</p><p class="auth-switch"><button type="button" class="btn-link" onclick="showAuthLogin()">Back to sign in</button></p>';
+  } catch {
+    setAuthError('Request failed. Please try again.');
+    if (btn) btn.disabled = false;
+  }
+  return false;
+}
+
+async function submitResetPassword(ev) {
+  ev.preventDefault();
+  setAuthError('');
+  const newPassword = document.getElementById('resetPassword')?.value || '';
+  const confirm = document.getElementById('resetPasswordConfirm')?.value || '';
+  if (newPassword !== confirm) { setAuthError('Passwords do not match'); return false; }
+  if (newPassword.length < 8) { setAuthError('Password must be at least 8 characters'); return false; }
+  const params = new URLSearchParams(location.search);
+  const token = params.get('reset_token');
+  if (!token) { setAuthError('Invalid or missing reset token'); return false; }
+  const btn = ev.target.querySelector('button[type=submit]');
+  if (btn) btn.disabled = true;
+  try {
+    const res = await fetch(mtgApiRoot() + '/auth/reset-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, newPassword }),
+    });
+    const data = await res.json();
+    if (!res.ok) { setAuthError(data.error || 'Reset failed'); if (btn) btn.disabled = false; return false; }
+    history.replaceState(null, '', location.pathname);
+    showAuthLogin();
+    setAuthError('');
+    const err = document.getElementById('authError');
+    if (err) { err.style.display = 'block'; err.style.color = 'var(--teal)'; err.textContent = 'Password updated — please sign in.'; }
+  } catch {
+    setAuthError('Request failed. Please try again.');
+    if (btn) btn.disabled = false;
+  }
+  return false;
 }
 
 async function submitAuthLogin(ev) {
@@ -165,7 +257,7 @@ async function submitAuthLogin(ev) {
   try {
     const data = await authLogin(email, password);
     hideAuthGate();
-    refreshAuthUserLabel(data.email);
+    refreshAuthUserLabel(data.email, data.role);
     document.body.classList.remove('auth-pending');
     await loadAppDataAfterAuth();
   } catch (e) {
@@ -182,7 +274,7 @@ async function submitAuthRegister(ev) {
   try {
     const data = await authRegister(email, password);
     hideAuthGate();
-    refreshAuthUserLabel(data.email);
+    refreshAuthUserLabel(data.email, data.role);
     document.body.classList.remove('auth-pending');
     await loadAppDataAfterAuth();
   } catch (e) {
