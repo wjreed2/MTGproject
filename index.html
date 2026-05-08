@@ -404,6 +404,23 @@
   <div class="top-action-bar" style="display:flex;align-items:center;gap:10px;margin-bottom:1.25rem;flex-wrap:wrap">
     <button id="backToDecksBtn" class="btn btn-ghost btn-sm" style="display:none" onclick="closeDeckDetail()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><polyline points="15 18 9 12 15 6"/></svg> All Decks</button>
     <button id="newDeckTopBtn" class="btn btn-primary btn-sm" onclick="createNewDeck()">+ New Deck</button>
+    <div style="position:relative" id="deckImportDropdownWrap">
+      <button class="btn btn-outline btn-sm" onclick="toggleDeckImportDropdown()">↓ Import</button>
+      <div id="deckImportDropdown" class="deck-options-dropdown" style="min-width:200px">
+        <button class="btn btn-ghost btn-sm deck-menu-item" onclick="toggleDeckImportDropdown();openTextImport()">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><rect x="2.5" y="2.5" width="11" height="11" rx="1.5"/><path d="M5 6.5h6M5 9.5h4"/></svg>
+          From Text / Exact Printings
+        </button>
+        <button class="btn btn-ghost btn-sm deck-menu-item" onclick="toggleDeckImportDropdown();openArchidektImport()">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><line x1="8" y1="2" x2="8" y2="10"/><path d="M5 7L8 10 11 7"/><line x1="3" y1="14" x2="13" y2="14"/></svg>
+          From Archidekt
+        </button>
+        <button class="btn btn-ghost btn-sm deck-menu-item" onclick="toggleDeckImportDropdown();openMoxfieldImport()">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><line x1="8" y1="2" x2="8" y2="10"/><path d="M5 7L8 10 11 7"/><line x1="3" y1="14" x2="13" y2="14"/></svg>
+          From Moxfield
+        </button>
+      </div>
+    </div>
   </div>
 
   <!-- Deck grid — shown when no deck is selected -->
@@ -461,18 +478,10 @@
               Refresh Tags
             </button>
             <div class="settings-divider"></div>
-            <div class="settings-section-label">Import / Export</div>
+            <div class="settings-section-label">Export</div>
             <button class="btn btn-ghost btn-sm deck-menu-item" onclick="toggleDeckOptionsDropdown();exportDeck()">
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><line x1="8" y1="10" x2="8" y2="2"/><path d="M5 5L8 2 11 5"/><line x1="3" y1="14" x2="13" y2="14"/></svg>
-              Export
-            </button>
-            <button class="btn btn-ghost btn-sm deck-menu-item" onclick="toggleDeckOptionsDropdown();openArchidektImport()">
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><line x1="8" y1="2" x2="8" y2="10"/><path d="M5 8L8 11 11 8"/><line x1="3" y1="14" x2="13" y2="14"/></svg>
-              Import from Archidekt
-            </button>
-            <button class="btn btn-ghost btn-sm deck-menu-item" onclick="toggleDeckOptionsDropdown();openMoxfieldImport()">
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><line x1="8" y1="2" x2="8" y2="10"/><path d="M5 8L8 11 11 8"/><line x1="3" y1="14" x2="13" y2="14"/></svg>
-              Import from Moxfield
+              Export Deck
             </button>
             <div class="settings-divider"></div>
             <div class="settings-section-label">Danger</div>
@@ -1269,6 +1278,37 @@
     <div style="display:flex;gap:8px;margin-top:1.25rem">
       <button class="btn btn-primary" style="flex:1" onclick="submitEndGame()">Save & End Game</button>
       <button class="btn btn-outline" onclick="closeEndGameModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- TEXT IMPORT MODAL -->
+<div class="modal-overlay" id="textImportModal">
+  <div class="modal" style="width:min(540px,96vw)">
+    <button class="btn btn-ghost btn-icon" style="position:absolute;top:0.75rem;right:0.75rem" onclick="closeTextImport()">✕</button>
+    <div class="modal-title">↓ Import from Text</div>
+    <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius2);padding:0.75rem;font-size:0.78rem;color:var(--text2);margin-bottom:1rem;line-height:1.7">
+      Paste a card list — supports the app's <strong style="color:var(--teal)">exact printings format</strong> or a simple card list.<br>
+      <code style="color:var(--text3)">2 Lightning Bolt [2X2 #123]</code><br>
+      <code style="color:var(--text3)">1 Sol Ring [CLB #244 foil]</code><br>
+      <code style="color:var(--text3)">1 Atraxa, Praetor's Voice *CMDR*</code>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:0.65rem">
+      <div style="flex:1">
+        <label style="font-size:0.78rem;color:var(--text3);display:block;margin-bottom:4px;letter-spacing:0.04em">DECK NAME</label>
+        <input class="search-box" id="textImportDeckName" style="width:100%" placeholder="My Deck">
+      </div>
+      <div style="flex:1">
+        <label style="font-size:0.78rem;color:var(--text3);display:block;margin-bottom:4px;letter-spacing:0.04em">FORMAT</label>
+        <input class="search-box" id="textImportFormat" style="width:100%" placeholder="Commander">
+      </div>
+    </div>
+    <label style="font-size:0.78rem;color:var(--text3);display:block;margin-bottom:4px;letter-spacing:0.04em">CARD LIST</label>
+    <textarea id="textImportInput" rows="12" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);color:var(--text);padding:8px 10px;font-family:'JetBrains Mono',monospace;font-size:0.78rem;resize:vertical;margin-bottom:0.75rem"
+      placeholder="1 Atraxa, Praetor's Voice *CMDR*&#10;2 Lightning Bolt [2X2 #123]&#10;1 Sol Ring [CLB #244 foil]&#10;..."></textarea>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-primary" style="flex:1" id="textImportBtn" onclick="importFromText()">Import Deck</button>
+      <button class="btn btn-outline" onclick="closeTextImport()">Cancel</button>
     </div>
   </div>
 </div>

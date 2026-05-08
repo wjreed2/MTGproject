@@ -3,6 +3,154 @@
 function openImport() { document.getElementById('importModal').classList.add('open'); }
 function closeImport() { document.getElementById('importModal').classList.remove('open'); }
 
+// ── Import dropdown (all decks page) ─────────────────────────────────────────
+
+function toggleDeckImportDropdown() {
+  document.getElementById('deckImportDropdown')?.classList.toggle('open');
+}
+
+document.addEventListener('click', e => {
+  const wrap = document.getElementById('deckImportDropdownWrap');
+  if (wrap && !wrap.contains(e.target)) {
+    document.getElementById('deckImportDropdown')?.classList.remove('open');
+  }
+});
+
+// ── Text / Exact Printings import ────────────────────────────────────────────
+
+function openTextImport() {
+  document.getElementById('textImportModal').classList.add('open');
+  setTimeout(() => document.getElementById('textImportInput')?.focus(), 80);
+}
+
+function closeTextImport() {
+  document.getElementById('textImportModal').classList.remove('open');
+  document.getElementById('textImportInput').value = '';
+  document.getElementById('textImportDeckName').value = '';
+  document.getElementById('textImportFormat').value = '';
+}
+
+async function importFromText() {
+  const raw = document.getElementById('textImportInput').value.trim();
+  if (!raw) { showNotif('Paste a card list first', true); return; }
+
+  const btn = document.getElementById('textImportBtn');
+  btn.disabled = true; btn.textContent = 'Importing…';
+
+  try {
+    const deckName = document.getElementById('textImportDeckName').value.trim() || 'Imported Deck';
+    const format   = document.getElementById('textImportFormat').value.trim()   || 'Commander';
+
+    function parseLine(line) {
+      let s = line.trim();
+      const isCmdrTag = /\*CMDR\*/i.test(s);
+      s = s.replace(/\s*\*CMDR\*\s*/i, '').trim();
+      const m = s.match(/^(\d+)[x×]?\s+(.+)$/);
+      if (!m) return null;
+      let name = m[2].trim();
+      let setCode = '', collectorNumber = '', foil = false;
+      const exact = name.match(/\s+\[([A-Z0-9]{2,6})\s*#\s*([A-Z0-9]+[A-Z0-9\-]*)\s*(foil)?\]\s*$/i);
+      if (exact) {
+        setCode = String(exact[1] || '').toUpperCase();
+        collectorNumber = String(exact[2] || '').trim();
+        foil = !!exact[3];
+        name = name.replace(/\s+\[[^\]]+\]\s*$/i, '').trim();
+      }
+      name = name.replace(/\s+\([A-Z0-9]{2,6}\).*$/i, '').trim();
+      return { qty: parseInt(m[1]) || 1, name, isCmdrTag, setCode, collectorNumber, foil };
+    }
+
+    const blocks = raw.split(/\n[ \t]*\n/).map(b =>
+      b.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('//'))
+    ).filter(b => b.length > 0);
+
+    if (!blocks.length) { showNotif('No cards found — check the format and try again', true); return; }
+
+    let commanderLines, mainLines;
+    if (blocks.length === 1) {
+      commanderLines = [];
+      mainLines = blocks[0];
+    } else {
+      commanderLines = blocks[blocks.length - 1];
+      mainLines = blocks.slice(0, -1).flat();
+    }
+
+    const entries = [];
+    for (const line of mainLines) {
+      const p = parseLine(line);
+      if (p) entries.push({ ...p, isCommander: p.isCmdrTag });
+    }
+    for (const line of commanderLines) {
+      const p = parseLine(line);
+      if (p) entries.push({ ...p, isCommander: true });
+    }
+
+    if (!entries.length) { showNotif('No cards found — check the format and try again', true); return; }
+
+    const commanderEntry = entries.find(e => e.isCommander);
+    const deck = {
+      id: Date.now().toString(),
+      name: deckName, format,
+      commander: commanderEntry?.name || null,
+      commanderColorIdentity: [], commanderImage: null,
+      notes: null, cards: [], colors: [],
+    };
+
+    for (const entry of entries) {
+      const { qty, name, isCommander, setCode, collectorNumber, foil } = entry;
+      const hasExactPrinting = !!(setCode && collectorNumber);
+      const owned = hasExactPrinting
+        ? collection.find(c =>
+            String(c?.set || '').toUpperCase() === setCode &&
+            String(c?.number || '').trim().toUpperCase() === String(collectorNumber).trim().toUpperCase() &&
+            !!c?.foil === !!foil
+          )
+        : collection.find(c => c.name?.toLowerCase() === name.toLowerCase());
+      if (owned) {
+        deck.cards.push({ ...owned, qty, isCommander });
+      } else {
+        deck.cards.push({
+          uid: name.replace(/\s+/g, '_') + (foil ? '_f' : '_n'),
+          scryfallId: null,
+          name, qty, foil: hasExactPrinting ? !!foil : false, isCommander,
+          type: '', mana: '', cmc: 0, colors: [], colorIdentity: [],
+          rarity: '', set: hasExactPrinting ? setCode.toLowerCase() : '',
+          setName: '', number: hasExactPrinting ? collectorNumber : '',
+          image: null, imageLarge: null,
+          priceTCG: 0, priceTCGFoil: 0, priceCK: 0, priceCKFoil: 0,
+          addedAt: Date.now(),
+        });
+      }
+    }
+
+    deck.cards.sort((a, b) => (b.isCommander ? 1 : 0) - (a.isCommander ? 1 : 0));
+
+    const needsEnrich = deck.cards.filter(c => !c.scryfallId || !c.image || !c.type);
+    if (needsEnrich.length) {
+      showNotif(`Looking up ${needsEnrich.length} cards on Scryfall…`);
+      await enrichCardsByName(needsEnrich);
+    }
+
+    const cmdCard = deck.cards.find(c => c.isCommander);
+    if (cmdCard) {
+      deck.commanderImage         = cmdCard.imageLarge || cmdCard.image || null;
+      deck.commanderColorIdentity = cmdCard.colorIdentity || [];
+      deck.commander              = deck.commander || cmdCard.name;
+    }
+
+    decks.push(deck);
+    activeDeckId = deck.id;
+    save('decks');
+    closeTextImport();
+    showTab('decks');
+    showNotif(`Imported "${deck.name}" — ${deck.cards.length} cards`);
+  } catch (e) {
+    showNotif('Import failed — ' + e.message, true);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Import Deck';
+  }
+}
+
 // ── Archidekt import ──────────────────────────────────────────────────────────
 
 function openArchidektImport() {
