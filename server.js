@@ -16,6 +16,7 @@ const nodemailer  = require('nodemailer');
 const MySQLStore  = require('express-mysql-session')(session);
 
 const app = express();
+app.set('trust proxy', 1);
 app.use(compression());
 app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
 app.get('/health', (_req, res) => res.json({ ok: true }));
