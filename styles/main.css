@@ -215,6 +215,7 @@ body {
   font-size: 110%;
   min-height: 100vh;
   overflow-x: hidden;
+  transition: opacity 0.15s;
 }
 
 body::before {

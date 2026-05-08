@@ -272,6 +272,7 @@ async function initApp() {
 
   if (!me) {
     document.body.classList.add('auth-pending');
+    document.body.style.opacity = '1';
     if (typeof showAuthGate === 'function') showAuthGate();
     return;
   }
