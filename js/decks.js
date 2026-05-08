@@ -3437,6 +3437,18 @@ async function addScryfallCardToSideboard(scryfallId) {
   saveActiveDeck(deck); renderActiveDeck(); _renderDeckSearchGrid(); showNotif('Added ' + card.name + ' to maybe board');
 }
 
+function toggleDeckCardFoil(uid, zone) {
+  const deck = getActiveDeck();
+  if (!deck) return;
+  const cards = zone === 'sb' ? (deck.sideboard || []) : deck.cards;
+  const card = cards.find(c => getCardInventoryKey(c) === uid || c.uid === uid);
+  if (!card) return;
+  card.foil = !card.foil;
+  if (card.scryfallId) card.uid = card.scryfallId + (card.foil ? '_f' : '_n');
+  saveActiveDeck(deck);
+  renderActiveDeck();
+}
+
 function removeFromSideboard(uid) {
   const deck = getActiveDeck();
   if (!deck || !deck.sideboard) return;
@@ -4324,7 +4336,8 @@ function _formatDeckExportLine(card, exactPrintings) {
   if (!exactPrintings) return `${qty} ${name}`;
   const set = String(card?.set || '').toUpperCase();
   const num = String(card?.number || '').trim();
-  const foil = !!card?.foil ? ' foil' : '';
+  const isFoil = !!card?.foil || (card?.uid ? card.uid.endsWith('_f') : false);
+  const foil = isFoil ? ' foil' : '';
   const printMeta = (set || num)
     ? ` [${set || '?'} #${num || '?'}${foil}]`
     : (foil ? ' [foil]' : '');

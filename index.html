@@ -1306,6 +1306,10 @@
     <label style="font-size:0.78rem;color:var(--text3);display:block;margin-bottom:4px;letter-spacing:0.04em">CARD LIST</label>
     <textarea id="textImportInput" rows="12" style="width:100%;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);color:var(--text);padding:8px 10px;font-family:'JetBrains Mono',monospace;font-size:0.78rem;resize:vertical;margin-bottom:0.75rem"
       placeholder="1 Atraxa, Praetor's Voice *CMDR*&#10;2 Lightning Bolt [2X2 #123]&#10;1 Sol Ring [CLB #244 foil]&#10;..."></textarea>
+    <label style="display:flex;align-items:center;gap:8px;font-size:0.82rem;color:var(--text2);cursor:pointer;margin-bottom:1.25rem;user-select:none">
+      <input type="checkbox" id="textImportAddToCollection" style="width:15px;height:15px;accent-color:var(--teal)">
+      Also add all cards to my collection
+    </label>
     <div style="display:flex;gap:8px">
       <button class="btn btn-primary" style="flex:1" id="textImportBtn" onclick="importFromText()">Import Deck</button>
       <button class="btn btn-outline" onclick="closeTextImport()">Cancel</button>

@@ -28,6 +28,8 @@ function closeTextImport() {
   document.getElementById('textImportInput').value = '';
   document.getElementById('textImportDeckName').value = '';
   document.getElementById('textImportFormat').value = '';
+  const cb = document.getElementById('textImportAddToCollection');
+  if (cb) cb.checked = false;
 }
 
 async function importFromText() {
@@ -140,7 +142,20 @@ async function importFromText() {
 
     decks.push(deck);
     activeDeckId = deck.id;
-    save('decks');
+
+    if (document.getElementById('textImportAddToCollection')?.checked) {
+      const confirmed = await showConfirmModal({
+        title: '⚠ Add cards to collection?',
+        body: `
+          <p style="margin-bottom:0.85rem">Cards will be added using the printings from the imported deck list. Verify foil status and set codes match your physical cards.</p>
+          <p style="color:var(--text3);font-size:0.82rem">Do you still want to add all deck cards to your collection?</p>`,
+        okLabel: 'Yes, add to collection',
+        cancelLabel: 'Skip',
+      });
+      if (confirmed) addDeckCardsToCollection(deck);
+    }
+
+    save('decks', 'collection');
     closeTextImport();
     showTab('decks');
     showNotif(`Imported "${deck.name}" — ${deck.cards.length} cards`);

@@ -348,9 +348,11 @@ async function ensureNormalizedDeckSchema() {
 function normalizeDeckForStorage(deck) {
   const cards = (deck.cards || []).map((c, idx) => {
     const uid = c.uid || (c.scryfallId ? `${c.scryfallId}_${c.foil ? 'f' : 'n'}` : `${(c.name || 'card').replace(/\s+/g, '_')}_${idx}`);
+    const foil = c.foil != null ? !!c.foil : uid.endsWith('_f');
     return {
       ...c,
       uid,
+      foil,
       qty: c.qty ?? 1,
       customTags: Array.isArray(c.customTags) ? c.customTags : []
     };
@@ -869,7 +871,8 @@ app.get('/api/decks', requireAuth, async (req, res) => {
       const cardKey = `${deckId}::${r.card_uid}`;
       if (!byCardKey.has(cardKey)) {
         const parsed = typeof r.card_data === 'string' ? JSON.parse(r.card_data) : r.card_data;
-        const card = { ...parsed, uid: parsed.uid || r.card_uid, customTags: [] };
+        const cardUid = parsed.uid || r.card_uid;
+        const card = { ...parsed, uid: cardUid, foil: parsed.foil != null ? !!parsed.foil : cardUid.endsWith('_f'), customTags: [] };
         byCardKey.set(cardKey, card);
         byDeck.get(deckId).push(card);
       }
@@ -1087,7 +1090,8 @@ app.get('/api/decks/shared', requireAuth, async (req, res) => {
       const key = `${r.deck_id}::${r.card_uid}`;
       if (!byCardKey.has(key)) {
         const parsed = typeof r.card_data === 'string' ? JSON.parse(r.card_data) : r.card_data;
-        const card = { ...parsed, uid: parsed.uid || r.card_uid, customTags: [] };
+        const cardUid = parsed.uid || r.card_uid;
+        const card = { ...parsed, uid: cardUid, foil: parsed.foil != null ? !!parsed.foil : cardUid.endsWith('_f'), customTags: [] };
         byCardKey.set(key, card);
         byDeck.get(r.deck_id).push(card);
       }
