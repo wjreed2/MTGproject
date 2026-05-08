@@ -142,6 +142,7 @@ async function importFromText() {
 
     decks.push(deck);
     activeDeckId = deck.id;
+    localStorage.setItem('mtg_active_deck_id', deck.id);
 
     if (document.getElementById('textImportAddToCollection')?.checked) {
       const confirmed = await showConfirmModal({
@@ -291,6 +292,7 @@ async function importFromArchidekt() {
 
     decks.push(deck);
     activeDeckId = deck.id;
+    localStorage.setItem('mtg_active_deck_id', deck.id);
 
     if (document.getElementById('archidektAddToCollection')?.checked) {
       const confirmed = await showConfirmModal({
@@ -468,6 +470,7 @@ async function importFromMoxfield() {
 
     decks.push(deck);
     activeDeckId = deck.id;
+    localStorage.setItem('mtg_active_deck_id', deck.id);
 
     if (document.getElementById('moxfieldAddToCollection')?.checked) {
       const confirmed = await showConfirmModal({

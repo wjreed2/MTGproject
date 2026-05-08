@@ -346,18 +346,17 @@ async function ensureNormalizedDeckSchema() {
 }
 
 function normalizeDeckForStorage(deck) {
-  const cards = (deck.cards || []).map((c, idx) => {
+  const seen = new Map();
+  (deck.cards || []).forEach((c, idx) => {
     const uid = c.uid || (c.scryfallId ? `${c.scryfallId}_${c.foil ? 'f' : 'n'}` : `${(c.name || 'card').replace(/\s+/g, '_')}_${idx}`);
     const foil = c.foil != null ? !!c.foil : uid.endsWith('_f');
-    return {
-      ...c,
-      uid,
-      foil,
-      qty: c.qty ?? 1,
-      customTags: Array.isArray(c.customTags) ? c.customTags : []
-    };
+    if (seen.has(uid)) {
+      seen.get(uid).qty += (c.qty ?? 1);
+    } else {
+      seen.set(uid, { ...c, uid, foil, qty: c.qty ?? 1, customTags: Array.isArray(c.customTags) ? c.customTags : [] });
+    }
   });
-  return { ...deck, cards };
+  return { ...deck, cards: [...seen.values()] };
 }
 
 async function backfillDeckCardsIfEmpty() {
