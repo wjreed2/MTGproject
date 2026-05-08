@@ -44,6 +44,11 @@ let autoPin_ovStreak  = 0;
 let pendingFoil      = false;
 let voiceDeckModeEnabled = localStorage.getItem('mtg_voice_deck_mode') === '1';
 let voiceDeckTargetId = localStorage.getItem('mtg_voice_deck_target_id') || '';
+/** When true, voice confirms add to collection and to the active (owned) deck — set only for the deck builder entry path. */
+let voiceAddToActiveDeckMode = false;
+/** Deck-view voice mode preference: also add to collection when adding to active deck. */
+let voiceDeckAddToCollectionEnabled = localStorage.getItem('mtg_voice_deck_add_collection') !== '0';
+let voiceSetSettingsOpen = false;
 
 // Set browser state
 let allSets      = [];

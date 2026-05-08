@@ -1,9 +1,9 @@
 // Card Scanner — fullscreen camera + Tesseract OCR + Scryfall
 
 /** Pause after each OCR batch; post-lock uses this (still leaves the GPU/CPU room between passes). */
-const SCN_INTERVAL_MS = 300;
+const SCN_INTERVAL_MS = 50;
 /** Poll interval while hunting set/# majority (footer + name probe each cycle). */
-const SCN_INTERVAL_FAST_MS = 300;
+const SCN_INTERVAL_FAST_MS = 50;
 /**
  * Extra ms after each footer OCR pass **only while both set and # are majority-locked** (stable re-read
  * before Scryfall). When still hunting either field, this is skipped so votes accumulate quickly.
@@ -246,6 +246,10 @@ let _scnSession = [];
 /** Auto mode: matched cards go here until user taps “Add queued to collection”. */
 let _scnPendingAuto = [];
 let _scnAutoMode = true;
+let _scnVoiceMode = false;
+let _scnFoilMode = false;
+let _scnVoiceNoCount = 0;
+let _scnVoiceRec = null;
 let _scnAutoStageInFlight = false;
 /** `requestAnimationFrame` id while waiting for motion after Auto queue; cleared in `_scnStopMotionWatch`. */
 let _scnMotionRaf = 0;
@@ -483,6 +487,7 @@ async function openScanner() {
 function closeScanner() {
   document.getElementById('scannerModal').classList.remove('open');
   scnToggleScannedPanel(false);
+  _scnVoiceAbort();
   _scnHardStop();
 }
 
@@ -699,7 +704,7 @@ function _scnArmMotionResume(onDone) {
       _scnMotionRaf = requestAnimationFrame(tick);
       return;
     }
-    if (!_scnAutoMode) {
+    if (!_scnAutoMode && !_scnVoiceMode) {
       _scnStopMotionWatch();
       _scnStatus('');
       _scnResume();
@@ -2939,8 +2944,9 @@ async function _scnOcrTickLoop(gen) {
           const classicUrl = classicResult?.url ?? null;
           _ocrSharp = classicResult?.sharpness ?? 0;
           const probe = _scnCaptureRegion(v, slot.rx, slot.ry, slot.rw, slot.rh, SCN_OCR_PROBE_MAX_DIM);
+          const stalling = _scnOcrStallCycles >= 5;
           const cl = classicUrl
-            ? _scnRunOCR(_scnSetWorker, classicUrl, '11', { fast: false, whitelist: true })
+            ? _scnRunOCR(_scnSetWorker, classicUrl, '11', { fast: false, whitelist: true, stalling })
             : Promise.resolve({ text: '', confidence: 0 });
           const pr = probe
             ? _scnRunOCR(_scnNameWorker, probe, '7', { fast: true })
@@ -3001,16 +3007,15 @@ async function _scnRunOCR(worker, url, psm, opts = {}) {
     const raw = await worker.recognize(url);
     pick(raw?.data?.text, raw?.data?.confidence);
     // Always run at least invbw — raw-only skips were dropping good collector reads.
-    const variants = await _scnVariants(url, { invOnly: fast });
+    const variants = await _scnVariants(url, { invOnly: fast, extra: opts.stalling });
     for (const variant of variants) {
       if (variant.label === 'raw') continue;
       try {
         const r = await worker.recognize(variant.url);
         pick(r?.data?.text, r?.data?.confidence);
       } catch (_) {}
-      // In fast mode always run all listed variants (usually invbw only) — partial parses are unreliable.
     }
-    if (opts.whitelist && psm !== '6') {
+    if (opts.whitelist && psm !== '6' && opts.stalling) {
       try {
         await worker.setParameters({ tessedit_pageseg_mode: '6', tessedit_char_whitelist: params.tessedit_char_whitelist });
         const r6 = await worker.recognize(url);
@@ -3056,8 +3061,10 @@ async function _scnVariants(dataUrl, opts = {}) {
   }
   vs.push({ label: 'bw', url: mk(135) });
   vs.push({ label: 'invbw', url: mk(115, true) });
-  vs.push({ label: 'bw_lo', url: mk(100) });
-  vs.push({ label: 'bw_hi', url: mk(160) });
+  if (opts.extra) {
+    vs.push({ label: 'bw_lo', url: mk(100) });
+    vs.push({ label: 'bw_hi', url: mk(160) });
+  }
   return vs;
 }
 
@@ -3291,9 +3298,10 @@ function _scnProcessOCR(rawSetText, classicNorm, ocrConf = 0, ocrSharp = 999) {
   _scnOcrStallCycles = 0;
   _scnParseDistScanCount++;
   _scnParseHistRecord(p);
-  if (ocrConf >= SCN_OCR_VOTE_CONF_MIN && ocrSharp >= SCN_OCR_SHARPNESS_MIN) {
+  if (ocrConf >= SCN_OCR_VOTE_CONF_MIN) {
     _scnParseVotePush({ s: _scnVoteRingSetSlot(sRaw, known), n: nRaw });
-  } else if (ocrSharp < SCN_OCR_SHARPNESS_MIN && !_scnPaused) {
+  }
+  if (ocrSharp < SCN_OCR_SHARPNESS_MIN && !_scnPaused) {
     _scnStatus('Hold still…');
   }
 
@@ -3557,6 +3565,10 @@ function _scnShowCands(cards, query) {
     void _scnAutoStageAndResume(cards[0]);
     return;
   }
+  if (_scnVoiceMode && cards.length === 1 && !_scnRequireCandPick) {
+    void _scnVoiceConfirmCard(cards[0]);
+    return;
+  }
   if (_scnRequireCandPick) {
     label.textContent =
       cards.length === 1
@@ -3598,6 +3610,7 @@ function scnDismiss() {
 function _scnResume() {
   _scnPaused = false;
   _scnLastName = '';
+  _scnVoiceNoCount = 0;
   _scnResetPartialLocks();
   _scnScansNoSet = 0;
   _scnOcrCyclesWithoutSetNumMatch = 0;
@@ -3614,15 +3627,22 @@ function _scnResume() {
 }
 
 async function _scnAutoStageAndResume(card) {
-  if (!_scnAutoMode || !card) return;
+  if ((!_scnAutoMode && !_scnVoiceMode) || !card) return;
   if (_scnAutoStageInFlight) return;
   _scnAutoStageInFlight = true;
   try {
     const entry = cardToEntry(card, 1);
-    if (_scnPendingAuto.some(e => e.scryfallId === entry.scryfallId)) {
-      _scnStatus('Already queued — move to next card');
+    if (_scnFoilMode) { entry.foil = true; entry.uid = card.id + '_f'; }
+    if (_scnPendingAuto.some(e => e.scryfallId === entry.scryfallId && !!e.foil === !!entry.foil)) {
+      _scnStatus('Already queued');
       _scnClearOverlay();
-      await new Promise(resolve => _scnArmMotionResume(resolve));
+      if (_scnVoiceMode) {
+        await new Promise(r => setTimeout(r, 800));
+        _scnStatus('');
+        _scnResume();
+      } else {
+        await new Promise(resolve => _scnArmMotionResume(resolve));
+      }
       return;
     }
     _scnPendingAuto.push(entry);
@@ -3632,7 +3652,14 @@ async function _scnAutoStageAndResume(card) {
     if (navigator.vibrate) navigator.vibrate(80);
     document.getElementById('scnCandidates')?.classList.add('hidden');
     _scnClearOverlay();
-    await new Promise(resolve => _scnArmMotionResume(resolve));
+    if (_scnVoiceMode) {
+      _scnStatus('Queued!');
+      await new Promise(r => setTimeout(r, 300));
+      _scnStatus('');
+      _scnResume();
+    } else {
+      await new Promise(resolve => _scnArmMotionResume(resolve));
+    }
   } finally {
     _scnAutoStageInFlight = false;
   }
@@ -3646,6 +3673,11 @@ function scnScanAgain() {
 
 function scnToggleAutoMode() {
   _scnAutoMode = !_scnAutoMode;
+  if (_scnAutoMode && _scnVoiceMode) {
+    _scnVoiceMode = false;
+    _scnVoiceAbort();
+    _scnRefreshVoiceModeUI();
+  }
   _scnRefreshAutoModeUI();
   if (_scnAutoMode) {
     showNotif('Auto mode on — matches queue in Scanned until you add to collection.');
@@ -3658,6 +3690,480 @@ function _scnRefreshAutoModeUI() {
   b.textContent = _scnAutoMode ? 'Auto: on' : 'Auto: off';
   b.classList.toggle('btn-primary', _scnAutoMode);
   b.classList.toggle('btn-outline', !_scnAutoMode);
+}
+
+async function scnToggleVoiceMode() {
+  _scnVoiceMode = !_scnVoiceMode;
+  if (_scnVoiceMode && _scnAutoMode) {
+    _scnAutoMode = false;
+    _scnRefreshAutoModeUI();
+  }
+  _scnRefreshVoiceModeUI();
+  if (_scnVoiceMode) {
+    const NativeSR = window.Capacitor?.Plugins?.SpeechRecognition;
+    if (NativeSR) {
+      // Native app: request permission via Capacitor plugin
+      try {
+        const { speechRecognition } = await NativeSR.requestPermissions();
+        if (speechRecognition !== 'granted') {
+          showNotif('Microphone permission denied — enable it in app settings.');
+          _scnVoiceMode = false;
+          _scnRefreshVoiceModeUI();
+          return;
+        }
+      } catch (_) {}
+    } else {
+      // Browser fallback: probe Web Speech API for permission
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SR) {
+        showNotif('Voice recognition not supported in this browser.');
+        _scnVoiceMode = false;
+        _scnRefreshVoiceModeUI();
+        return;
+      }
+      try {
+        const probe = new SR();
+        probe.onresult = () => {};
+        probe.onerror = e => {
+          if (e.error === 'not-allowed') {
+            showNotif('Microphone permission denied — enable it in browser settings.');
+            _scnVoiceMode = false;
+            _scnRefreshVoiceModeUI();
+          }
+          try { probe.abort(); } catch (_) {}
+        };
+        probe.onend = () => { try { probe.abort(); } catch (_) {} };
+        probe.start();
+        setTimeout(() => { try { probe.abort(); } catch (_) {} }, 500);
+      } catch (_) {}
+    }
+    showNotif('Voice mode on — say "yes" to queue a match, "no" to skip.');
+  } else {
+    _scnVoiceAbort();
+  }
+}
+
+function _scnRefreshVoiceModeUI() {
+  const b = document.getElementById('scnVoiceModeBtn');
+  if (b) {
+    b.textContent = _scnVoiceMode ? 'Voice: on' : 'Voice: off';
+    b.classList.toggle('btn-primary', _scnVoiceMode);
+    b.classList.toggle('btn-outline', !_scnVoiceMode);
+  }
+  // Hide "Add queued" in voice mode — cards are added directly, queue button risks duplicates
+  document.getElementById('scnAddQueuedBtn')?.classList.toggle('hidden', _scnVoiceMode);
+}
+
+function scnToggleFoilMode() {
+  _scnFoilMode = !_scnFoilMode;
+  const b = document.getElementById('scnFoilModeBtn');
+  if (!b) return;
+  b.textContent = _scnFoilMode ? '✦ Foil: on' : '✦ Foil: off';
+  b.classList.toggle('btn-primary', _scnFoilMode);
+  b.classList.toggle('btn-outline', !_scnFoilMode);
+}
+
+function _scnVoiceAbort() {
+  const NativeSR = window.Capacitor?.Plugins?.SpeechRecognition;
+  if (NativeSR) {
+    NativeSR.stop().catch(() => {});
+  }
+  if (_scnVoiceRec) {
+    try { _scnVoiceRec.abort(); } catch (_) {}
+    _scnVoiceRec = null;
+  }
+}
+
+function _scnVoiceListen(timeoutMs = 10000) {
+  const YES = new Set(['yes','yeah','yep','yup','add','confirm','right','sure','ok','okay','do it','add it','perfect','great']);
+  const NO  = new Set(['no','nope','wrong','cancel','skip','next','nah','not that','not it','incorrect']);
+  const matchWords = t => {
+    const words = t.trim().toLowerCase().replace(/[^a-z ]/g, '').split(/\s+/);
+    if (words.some(w => YES.has(w))) return 'yes';
+    if (words.some(w => NO.has(w)))  return 'no';
+    return null;
+  };
+
+  const NativeSR = window.Capacitor?.Plugins?.SpeechRecognition;
+  if (NativeSR) {
+    // Native Capacitor path — uses iOS SFSpeechRecognizer / Android SpeechRecognizer.
+    // partialResults:true so we act as soon as the word is recognised mid-utterance,
+    // without waiting for the end-of-speech silence timeout.
+    return new Promise(async resolve => {
+      let settled = false;
+      let listenerHandle = null;
+      const finish = val => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        listenerHandle?.remove().catch(() => {});
+        NativeSR.stop().catch(() => {});
+        resolve(val);
+      };
+      const timer = setTimeout(() => finish(null), timeoutMs);
+      try {
+        listenerHandle = await NativeSR.addListener('partialResults', ({ matches }) => {
+          if (settled) return;
+          for (const m of (matches || [])) {
+            const r = matchWords(m);
+            if (r) { finish(r); return; }
+          }
+        });
+      } catch (_) {}
+      NativeSR.start({ language: 'en-US', maxResults: 5, partialResults: true, popup: false })
+        .then(({ matches }) => {
+          if (settled) return;
+          for (const m of (matches || [])) {
+            const r = matchWords(m);
+            if (r) { finish(r); return; }
+          }
+          finish(null);
+        })
+        .catch(e => {
+          const msg = (e?.message || '').toLowerCase();
+          if (msg.includes('not allowed') || msg.includes('denied') || msg.includes('permission')) {
+            finish('denied');
+          } else {
+            finish(null);
+          }
+        });
+    });
+  }
+
+  // Browser fallback — Web Speech API with interim results for lower latency
+  return new Promise(resolve => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { resolve(null); return; }
+    let done = false;
+    const rec = new SR();
+    _scnVoiceRec = rec;
+    rec.lang = 'en-US';
+    rec.continuous = false;
+    rec.interimResults = true;
+    rec.maxAlternatives = 3;
+    const finish = val => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      _scnVoiceRec = null;
+      try { rec.abort(); } catch (_) {}
+      resolve(val);
+    };
+    const timer = setTimeout(() => finish(null), timeoutMs);
+    rec.onresult = e => {
+      for (let i = 0; i < e.results.length; i++) {
+        const r = e.results[i];
+        for (let j = 0; j < r.length; j++) {
+          const match = matchWords(r[j].transcript);
+          if (match) { finish(match); return; }
+        }
+      }
+    };
+    rec.onerror = e => {
+      if (e.error === 'not-allowed') { finish('denied'); return; }
+      if (e.error === 'no-speech') return;
+      finish(null);
+    };
+    rec.onend = () => finish(null);
+    try { rec.start(); } catch (_) { finish(null); }
+  });
+}
+
+async function _scnVoiceConfirmCard(card) {
+  if (!_scnVoiceMode || !card) return;
+  _scnPaused = true;
+  document.getElementById('scnCandidates')?.classList.add('hidden');
+  _scnPlayScanBeep();
+  if (navigator.vibrate) navigator.vibrate(80);
+  _scnSetOverlay(card.name, `${(card.set || '').toUpperCase()} · #${card.collector_number || ''}`, 'match');
+
+  while (_scnVoiceMode && _scnPaused) {
+    _scnStatus('<span class="scn-voice-listen-dot"></span>Say "yes" to add or "no" to skip');
+    const answer = await _scnVoiceListen(10000);
+    if (!_scnVoiceMode || !_scnPaused) return;
+    if (answer === 'yes') {
+      _scnVoiceNoCount = 0;
+      await _scnVoiceAddAndResume(card);
+      return;
+    } else if (answer === 'no') {
+      _scnVoiceNoCount++;
+      if (_scnVoiceNoCount >= 2) {
+        _scnVoiceNoCount = 0;
+        _scnClearOverlay();
+        await _scnVoiceTitleFallback();
+        return;
+      }
+      _scnStatus('Skipped');
+      _scnClearOverlay();
+      scnResetParseDistribution();
+      _scnResume();
+      return;
+    } else if (answer === 'denied') {
+      _scnStatus('Microphone permission denied — check browser settings');
+      return;
+    }
+  }
+}
+
+async function _scnVoiceAddAndResume(card) {
+  if (!card) return;
+  const entry = cardToEntry(card, 1);
+  if (_scnFoilMode) { entry.foil = true; entry.uid = card.id + '_f'; }
+  const existing = collection.find(c => c.uid === entry.uid);
+  if (existing) {
+    existing.qty += 1;
+    existing.addedAt = Date.now();
+    recordCollectionEvent('add', existing, 1);
+  } else {
+    collection.push(entry);
+    recordCollectionEvent('add', entry, 1);
+  }
+  save('collection');
+  renderCollection();
+  updateStats();
+  _scnSession.push(entry);
+  _scnRenderSession();
+  _scnPlayScanBeep();
+  if (navigator.vibrate) navigator.vibrate(80);
+  _scnClearOverlay();
+  _scnStatus(`Added: ${entry.name}${entry.foil ? ' ✦' : ''}`);
+  await new Promise(r => setTimeout(r, 300));
+  _scnStatus('');
+  _scnResume();
+}
+
+async function _scnVoiceTitleFallback() {
+  _scnPaused = true;
+  _scnStatus('<span class="scn-spin"></span>Reading title…');
+  const title = await _scnVoiceReadTitle() || _scnLastName || '';
+  if (!title || title.length < 2) {
+    _scnStatus('Could not read title — try manual search');
+    await new Promise(r => setTimeout(r, 2000));
+    _scnResume();
+    return;
+  }
+  _scnStatus('<span class="scn-spin"></span>Searching…');
+  const cards = await _scnVoiceTitleSearchFetch(title);
+  if (!cards.length) {
+    _scnStatus(`No results for "${title}"`);
+    await new Promise(r => setTimeout(r, 2000));
+    _scnResume();
+    return;
+  }
+  if (cards.length === 1) {
+    await _scnVoiceConfirmCard(cards[0]);
+    return;
+  }
+  _scnShowVoiceCands(cards, title);
+  await _scnVoicePickFromCands(cards);
+}
+
+function _scnCaptureTitleStrip(v, maxDim) {
+  if (!v?.videoWidth) return null;
+  const vw = v.videoWidth;
+  const vh = v.videoHeight;
+  let sx, sy, sw, sh;
+  const b = _scnQuadAxisBBox(_scnCardQuad);
+  if (b && b.nw > 0.12 && b.nh > 0.15 && b.nx + b.nw <= 1.02 && b.ny + b.nh <= 1.02) {
+    const t = _scnAdaptiveTitleUv || SCN_CARD_TITLE_UV;
+    // Use the full width of the card for the title, with generous vertical padding
+    sx = Math.max(0, Math.floor(vw * (b.nx + b.nw * t.u0)));
+    sy = Math.max(0, Math.floor(vh * (b.ny + b.nh * t.v0)));
+    sw = Math.max(80, Math.floor(vw * b.nw * (t.u1 - t.u0)));
+    sh = Math.max(40, Math.floor(vh * b.nh * (t.v1 - t.v0)));
+  } else {
+    // Static fallback: wide strip covering the upper portion of where a card typically sits
+    sx = Math.floor(vw * 0.03);
+    sy = Math.floor(vh * 0.32);
+    sw = Math.floor(vw * 0.65);
+    sh = Math.floor(vh * 0.14);
+  }
+  if (sx + sw > vw) sw = vw - sx;
+  if (sy + sh > vh) sh = vh - sy;
+  const ar = sw / Math.max(1, sh);
+  let tw = Math.min(sw * SCN_OCR_UPSCALE, maxDim);
+  let th = Math.round(tw / ar);
+  tw = Math.max(192, tw);
+  th = Math.max(96, th);
+  const c = document.createElement('canvas');
+  c.width = tw; c.height = th;
+  const ctx = c.getContext('2d');
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(v, sx, sy, sw, sh, 0, 0, tw, th);
+  return c.toDataURL('image/png');
+}
+
+async function _scnVoiceReadTitle() {
+  const v = document.getElementById('scnVideo');
+  if (!v || v.readyState < 2 || !_scnWorkerReady || !_scnNameWorker) return '';
+  const readings = [];
+  // Run 3 passes on the title strip region (not the footer sweep slots)
+  for (let i = 0; i < 3; i++) {
+    const url = _scnCaptureTitleStrip(v, SCN_OCR_PROBE_MAX_DIM);
+    if (!url) continue;
+    try {
+      const { text } = await _scnRunOCR(_scnNameWorker, url, '7', { fast: true });
+      const n = _scnNorm(text || '');
+      if (n.length >= 2) readings.push(n);
+    } catch (_) {}
+  }
+  if (!readings.length) return '';
+  const freq = {};
+  for (const r of readings) freq[r] = (freq[r] || 0) + 1;
+  return Object.entries(freq).sort((a, b) => b[1] - a[1])[0][0];
+}
+
+async function _scnVoiceTitleSearchFetch(title) {
+  const clean = _scnNorm(title) || '';
+  if (!clean || clean.length < 2) return [];
+  const tryFetch = async url => {
+    try {
+      const r = await fetch(url);
+      if (!r.ok) return [];
+      const d = await r.json();
+      return d.id ? [d] : (d.data || []).slice(0, 5);
+    } catch (_) { return []; }
+  };
+  let cards = await tryFetch(`${mtgApiRoot()}/scryfall/named?fuzzy=${encodeURIComponent(clean)}`);
+  if (cards.length) return cards;
+  cards = await tryFetch(`${mtgApiRoot()}/scryfall/search?q=${encodeURIComponent(`name:"${clean}"`)}&unique=cards&order=name`);
+  if (cards.length) return cards;
+  return tryFetch(`${mtgApiRoot()}/scryfall/search?q=${encodeURIComponent(clean)}&unique=cards&order=name`);
+}
+
+function _scnShowVoiceCands(cards, title) {
+  const label = document.getElementById('scnCandLabel');
+  const grid = document.getElementById('scnCandGrid');
+  const wrap = document.getElementById('scnCandidates');
+  if (!grid) return;
+  label.textContent = `Say a number to pick — "${title}"`;
+  grid.innerHTML = '';
+  cards.forEach((card, i) => {
+    const img = card.image_uris?.normal || card.card_faces?.[0]?.image_uris?.normal || '';
+    const price = card.prices?.usd ? `$${parseFloat(card.prices.usd).toFixed(2)}` : '';
+    const tile = document.createElement('div');
+    tile.className = 'scn-cand-tile';
+    tile.innerHTML = `
+      <div class="scn-voice-num">${i + 1}</div>
+      <img src="${img}" alt="${card.name}" loading="lazy">
+      <div class="scn-tile-info">
+        <div class="scn-tile-name">${card.name}</div>
+        <div class="scn-tile-set">${(card.set || '').toUpperCase()} · #${card.collector_number || ''}</div>
+        ${price ? `<div class="scn-tile-price">${price}</div>` : ''}
+      </div>
+      <div class="scn-tile-add-btn">+ Add</div>`;
+    tile.querySelector('.scn-tile-add-btn').addEventListener('click', () => {
+      wrap.classList.add('hidden');
+      void _scnVoiceAddAndResume(card);
+    });
+    grid.appendChild(tile);
+  });
+  wrap.classList.remove('hidden');
+}
+
+async function _scnVoicePickFromCands(cards) {
+  while (_scnVoiceMode && _scnPaused) {
+    _scnStatus('<span class="scn-voice-listen-dot"></span>Say a number to pick, or "skip"');
+    const pick = await _scnVoiceListenForPick(cards.length);
+    if (!_scnVoiceMode || !_scnPaused) return;
+    if (pick === 'denied') { _scnStatus('Microphone permission denied'); return; }
+    if (pick === 'skip') {
+      document.getElementById('scnCandidates')?.classList.add('hidden');
+      _scnClearOverlay();
+      scnResetParseDistribution();
+      _scnResume();
+      return;
+    }
+    if (typeof pick === 'number' && cards[pick - 1]) {
+      document.getElementById('scnCandidates')?.classList.add('hidden');
+      await _scnVoiceAddAndResume(cards[pick - 1]);
+      return;
+    }
+  }
+}
+
+function _scnVoiceListenForPick(max) {
+  const NUMS = {
+    'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+    'first': 1, 'second': 2, 'third': 3, 'fourth': 4, 'fifth': 5,
+    '1': 1, '2': 2, '3': 3, '4': 4, '5': 5,
+    'won': 1, 'to': 2, 'too': 2, 'tree': 3, 'for': 4,
+  };
+  const SKIP = new Set(['skip', 'no', 'nope', 'none', 'cancel', 'next', 'pass']);
+  const matchPick = t => {
+    const words = t.trim().toLowerCase().replace(/[^a-z0-9 ]/g, '').split(/\s+/);
+    for (const w of words) {
+      if (SKIP.has(w)) return 'skip';
+      const n = NUMS[w];
+      if (n !== undefined && n >= 1 && n <= max) return n;
+    }
+    return null;
+  };
+
+  const NativeSR = window.Capacitor?.Plugins?.SpeechRecognition;
+  if (NativeSR) {
+    return new Promise(async resolve => {
+      let settled = false;
+      let listenerHandle = null;
+      const finish = val => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        listenerHandle?.remove().catch(() => {});
+        NativeSR.stop().catch(() => {});
+        resolve(val);
+      };
+      const timer = setTimeout(() => finish(null), 12000);
+      try {
+        listenerHandle = await NativeSR.addListener('partialResults', ({ matches }) => {
+          if (settled) return;
+          for (const m of (matches || [])) {
+            const r = matchPick(m);
+            if (r !== null) { finish(r); return; }
+          }
+        });
+      } catch (_) {}
+      NativeSR.start({ language: 'en-US', maxResults: 5, partialResults: true, popup: false })
+        .then(({ matches }) => {
+          if (settled) return;
+          for (const m of (matches || [])) {
+            const r = matchPick(m);
+            if (r !== null) { finish(r); return; }
+          }
+          finish(null);
+        })
+        .catch(e => {
+          const msg = (e?.message || '').toLowerCase();
+          finish(msg.includes('not allowed') || msg.includes('denied') ? 'denied' : null);
+        });
+    });
+  }
+
+  return new Promise(resolve => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { resolve(null); return; }
+    let done = false;
+    const rec = new SR();
+    _scnVoiceRec = rec;
+    rec.lang = 'en-US'; rec.continuous = false; rec.interimResults = true; rec.maxAlternatives = 3;
+    const finish = val => {
+      if (done) return; done = true;
+      clearTimeout(timer); _scnVoiceRec = null;
+      try { rec.abort(); } catch (_) {}
+      resolve(val);
+    };
+    const timer = setTimeout(() => finish(null), 12000);
+    rec.onresult = e => {
+      for (let i = 0; i < e.results.length; i++)
+        for (let j = 0; j < e.results[i].length; j++) {
+          const r = matchPick(e.results[i][j].transcript);
+          if (r !== null) { finish(r); return; }
+        }
+    };
+    rec.onerror = e => { if (e.error === 'not-allowed') { finish('denied'); return; } if (e.error !== 'no-speech') finish(null); };
+    rec.onend = () => finish(null);
+    try { rec.start(); } catch (_) { finish(null); }
+  });
 }
 
 function scnToggleScanPause() {
@@ -3763,6 +4269,7 @@ function _scnClearSession() {
 
 document.addEventListener('DOMContentLoaded', () => {
   _scnRefreshAutoModeUI();
+  _scnRefreshVoiceModeUI();
   document.getElementById('scnZoomSlider')?.addEventListener('input', e => {
     _scnApplyZoom(Number(e.target.value));
   });

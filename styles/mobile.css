@@ -188,10 +188,11 @@
   }
   .deck-top-title-row {
     flex: 0 0 100%;
-    justify-content: space-between;
+    justify-content: flex-start;
   }
   #activeDeckName {
-    flex: 1 !important;
+    flex: 0 1 auto !important;
+    max-width: 100%;
   }
   #deckTopBar #deckOptionsDropdown {
     right: 0;

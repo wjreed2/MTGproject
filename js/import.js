@@ -183,6 +183,7 @@ async function importFromMoxfield() {
     //   1 Commander Name          ← commander is the LAST block after a blank line
     //
     // Also handles set/collector suffixes Moxfield sometimes appends: "1 Sol Ring (NEO) 243"
+    // and app exact-export suffix: "1 Sol Ring [NEO #243 foil]"
     // and split-card names: "1 Fire // Ice"
 
     function parseLine(line) {
@@ -194,10 +195,21 @@ async function importFromMoxfield() {
       const m = s.match(/^(\d+)[x×]?\s+(.+)$/);
       if (!m) return null;
       let name = m[2].trim();
+      let setCode = '';
+      let collectorNumber = '';
+      let foil = false;
+      // Exact export format: [SET #NUM foil]
+      const exact = name.match(/\s+\[([A-Z0-9]{2,6})\s*#\s*([A-Z0-9]+[A-Z0-9\-]*)\s*(foil)?\]\s*$/i);
+      if (exact) {
+        setCode = String(exact[1] || '').toUpperCase();
+        collectorNumber = String(exact[2] || '').trim();
+        foil = !!exact[3];
+        name = name.replace(/\s+\[[^\]]+\]\s*$/i, '').trim();
+      }
       // Strip trailing set/collector info: " (ABC) 243", " (ABC) 243f", " (ABC) *F* 12", etc.
       // Anything after a (2-6 char uppercase set code) is junk
       name = name.replace(/\s+\([A-Z0-9]{2,6}\).*$/i, '').trim();
-      return { qty: parseInt(m[1]) || 1, name, isCmdrTag };
+      return { qty: parseInt(m[1]) || 1, name, isCmdrTag, setCode, collectorNumber, foil };
     }
 
     // Split into blocks separated by blank lines
@@ -243,19 +255,26 @@ async function importFromMoxfield() {
     };
 
     for (const entry of entries) {
-      const { qty, name, isCommander } = entry;
-      // Match to collection by name
-      const owned = collection.find(c => c.name?.toLowerCase() === name.toLowerCase());
+      const { qty, name, isCommander, setCode, collectorNumber } = entry;
+      const hasExactPrinting = !!(setCode && collectorNumber);
+      // Match to collection by exact printing first when available, else by name.
+      const owned = hasExactPrinting
+        ? collection.find(c =>
+          String(c?.set || '').toUpperCase() === setCode &&
+          String(c?.number || '').trim().toUpperCase() === String(collectorNumber).trim().toUpperCase() &&
+          !!c?.foil === !!entry.foil
+        )
+        : collection.find(c => c.name?.toLowerCase() === name.toLowerCase());
       if (owned) {
         deck.cards.push({ ...owned, qty, isCommander });
       } else {
         deck.cards.push({
           uid:        name.replace(/\s+/g, '_') + '_n',
           scryfallId: null,
-          name, qty, foil: false, isCommander,
+          name, qty, foil: hasExactPrinting ? !!entry.foil : false, isCommander,
           type: '', mana: '', cmc: 0,
           colors: [], colorIdentity: [],
-          rarity: '', set: '', setName: '', number: '',
+          rarity: '', set: hasExactPrinting ? setCode.toLowerCase() : '', setName: '', number: hasExactPrinting ? collectorNumber : '',
           image: null, imageLarge: null,
           priceTCG: 0, priceTCGFoil: 0, priceCK: 0, priceCKFoil: 0,
           addedAt: Date.now(),
@@ -321,6 +340,7 @@ async function enrichCardsByName(cards) {
       // For split cards like "Fire // Ice", Scryfall only finds them by the first face name
       const identifier = c => {
         if (c.scryfallId) return { id: c.scryfallId };
+        if (c.set && c.number) return { set: c.set, collector_number: String(c.number) };
         const lookupName = c.name.includes('//') ? c.name.split('//')[0].trim() : c.name;
         return { name: lookupName };
       };
@@ -332,11 +352,15 @@ async function enrichCardsByName(cards) {
       const data = await res.json();
       for (const sc of (data.data || [])) {
         // Match by id, or by canonical name (handles split cards where sc.name = "Fire // Ice")
-        const card = batch.find(c =>
-          c.scryfallId === sc.id ||
-          c.name?.toLowerCase() === sc.name?.toLowerCase() ||
-          sc.name?.toLowerCase().startsWith(c.name.split('//')[0].trim().toLowerCase())
-        );
+        const card = batch.find(c => {
+          const byId = c.scryfallId === sc.id;
+          const bySetNumber = c.set && c.number
+            && String(c.set).toLowerCase() === String(sc.set || '').toLowerCase()
+            && String(c.number).trim().toLowerCase() === String(sc.collector_number || '').trim().toLowerCase();
+          const byName = c.name?.toLowerCase() === sc.name?.toLowerCase()
+            || sc.name?.toLowerCase().startsWith(c.name.split('//')[0].trim().toLowerCase());
+          return byId || bySetNumber || byName;
+        });
         if (!card) continue;
         card.scryfallId  = sc.id;
         card.uid         = sc.id + (card.foil ? '_f' : '_n');

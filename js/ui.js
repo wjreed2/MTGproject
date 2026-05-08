@@ -99,6 +99,7 @@ const _modalCloseMap = {
   deckTagManagerModal:   () => closeDeckTagManager(),
   deckCardTagModal:      () => closeDeckCardTagPicker(),
   skeletonBuilderModal:  () => closeSkeletonBuilderModal(),
+  changeDeckFormatModal: () => closeChangeDeckFormatModal(),
 };
 
 document.addEventListener('click', e => {

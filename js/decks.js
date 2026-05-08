@@ -39,6 +39,280 @@ const FORMAT_RULES = {
   'Sealed':      { min: 40,  max: null,  singleton: false },
 };
 
+/** Change-format modal: { step: 1|2, deckId, pendingFormat? } */
+let _changeDeckFormatFlow = null;
+
+function _isCommanderFormatName(fmt) {
+  return fmt === 'Commander' || fmt === 'Brawl' || fmt === 'Oathbreaker';
+}
+
+function _typeLineOfDeckCard(c) {
+  return String(c?.type || c?.typeLine || c?.type_line || '');
+}
+
+function _deckCardEligibleCommander(c, format) {
+  const tl = _typeLineOfDeckCard(c);
+  if (!/legendary/i.test(tl)) return false;
+  if (format === 'Oathbreaker') return /planeswalker/i.test(tl);
+  return /creature/i.test(tl) || /planeswalker/i.test(tl);
+}
+
+function _commanderCandidatesFromDeck(deck, format) {
+  if (!_isCommanderFormatName(format)) return [];
+  return (deck.cards || []).filter(c => _deckCardEligibleCommander(c, format));
+}
+
+function _stripCommanderFlags(deck) {
+  (deck.cards || []).forEach(c => { if (c && 'isCommander' in c) delete c.isCommander; });
+}
+
+function _clearDeckCommanderMetadata(deck) {
+  deck.commander = null;
+  deck.commanderColorIdentity = [];
+  deck.commanderImage = null;
+  _stripCommanderFlags(deck);
+}
+
+function _setDeckCommanderByInventoryKey(deck, key) {
+  _stripCommanderFlags(deck);
+  const c = (deck.cards || []).find(x => getCardInventoryKey(x) === key);
+  if (!c) return false;
+  c.isCommander = true;
+  deck.commander = c.name;
+  deck.commanderColorIdentity = sortColorsWUBRG(c.colorIdentity || []);
+  deck.commanderImage = c.imageLarge || c.image || null;
+  return true;
+}
+
+function _commanderStillValid(deck, newFormat) {
+  if (!_isCommanderFormatName(newFormat)) return false;
+  let cur = (deck.cards || []).find(c => c.isCommander);
+  if (!cur && deck.commander) {
+    cur = (deck.cards || []).find(c => c.name === deck.commander);
+  }
+  return !!(cur && _deckCardEligibleCommander(cur, newFormat));
+}
+
+function _ensureCommanderFlagOnCard(deck) {
+  let cur = (deck.cards || []).find(c => c.isCommander);
+  if (!cur && deck.commander) {
+    cur = (deck.cards || []).find(c => c.name === deck.commander);
+  }
+  if (cur) cur.isCommander = true;
+}
+
+function _formatSelectOrder() {
+  const preferred = ['Commander', 'Standard', 'Modern', 'Pioneer', 'Legacy', 'Vintage', 'Pauper', 'Draft', 'Sealed', 'Brawl', 'Oathbreaker'];
+  const keys = new Set(Object.keys(FORMAT_RULES));
+  const out = [];
+  for (const p of preferred) {
+    if (keys.has(p)) {
+      out.push(p);
+      keys.delete(p);
+    }
+  }
+  for (const k of [...keys].sort()) out.push(k);
+  return out;
+}
+
+function _populateChangeDeckFormatSelect(deck) {
+  const sel = document.getElementById('changeDeckFormatSelect');
+  if (!sel) return;
+  sel.innerHTML = '';
+  if (deck.format && !FORMAT_RULES[deck.format]) {
+    const o = document.createElement('option');
+    o.value = deck.format;
+    o.textContent = deck.format;
+    sel.appendChild(o);
+  }
+  for (const fmt of _formatSelectOrder()) {
+    const o = document.createElement('option');
+    o.value = fmt;
+    o.textContent = fmt;
+    sel.appendChild(o);
+  }
+  if (deck.format) sel.value = deck.format;
+}
+
+function _populateCommanderSelectFromCandidates(sel, candidates) {
+  if (!sel) return;
+  sel.innerHTML = '';
+  const ph = document.createElement('option');
+  ph.value = '';
+  ph.textContent = 'Choose a commander from this deck…';
+  sel.appendChild(ph);
+  for (const c of candidates) {
+    const opt = document.createElement('option');
+    opt.value = getCardInventoryKey(c);
+    const set = c.set ? String(c.set).toUpperCase() : '';
+    const num = c.number || '';
+    opt.textContent = `${c.name}${set ? ` · ${set}` : ''}${num ? ` #${num}` : ''}`;
+    sel.appendChild(opt);
+  }
+}
+
+function _cdfDeckOrAbort() {
+  const deck = getActiveDeck();
+  if (!deck || !_changeDeckFormatFlow || deck.id !== _changeDeckFormatFlow.deckId) return null;
+  return deck;
+}
+
+function changeDeckFormatGoBack() {
+  if (!_changeDeckFormatFlow || _changeDeckFormatFlow.step !== 2) return;
+  _changeDeckFormatFlow.step = 1;
+  _changeDeckFormatFlow.pendingFormat = null;
+  const s1 = document.getElementById('changeDeckFormatStep1');
+  const s2 = document.getElementById('changeDeckFormatStep2');
+  const back = document.getElementById('changeDeckFormatBackBtn');
+  const prim = document.getElementById('changeDeckFormatPrimaryBtn');
+  if (s1) s1.style.display = '';
+  if (s2) s2.style.display = 'none';
+  if (back) back.style.display = 'none';
+  if (prim) prim.textContent = 'Continue';
+}
+
+function closeChangeDeckFormatModal() {
+  document.getElementById('changeDeckFormatModal')?.classList.remove('open');
+  _changeDeckFormatFlow = null;
+  const s1 = document.getElementById('changeDeckFormatStep1');
+  const s2 = document.getElementById('changeDeckFormatStep2');
+  const back = document.getElementById('changeDeckFormatBackBtn');
+  const prim = document.getElementById('changeDeckFormatPrimaryBtn');
+  if (s1) s1.style.display = '';
+  if (s2) s2.style.display = 'none';
+  if (back) back.style.display = 'none';
+  if (prim) prim.textContent = 'Continue';
+}
+
+function openChangeDeckFormatModal() {
+  if (activeDeckIsShared) return;
+  const deck = getActiveDeck();
+  if (!deck) return;
+  _populateChangeDeckFormatSelect(deck);
+  _changeDeckFormatFlow = { step: 1, deckId: deck.id };
+  const s1 = document.getElementById('changeDeckFormatStep1');
+  const s2 = document.getElementById('changeDeckFormatStep2');
+  const back = document.getElementById('changeDeckFormatBackBtn');
+  const prim = document.getElementById('changeDeckFormatPrimaryBtn');
+  if (s1) s1.style.display = '';
+  if (s2) s2.style.display = 'none';
+  if (back) back.style.display = 'none';
+  if (prim) prim.textContent = 'Continue';
+  document.getElementById('changeDeckFormatModal')?.classList.add('open');
+}
+
+function _cdfTryApplyFormatStep1(deck, next) {
+  if (!FORMAT_RULES[next] && deck.format !== next) {
+    showNotif('Choose a supported format', true);
+    return;
+  }
+
+  if (next === deck.format) {
+    if (!_isCommanderFormatName(next)) {
+      closeChangeDeckFormatModal();
+      return;
+    }
+    if (_commanderStillValid(deck, next)) {
+      closeChangeDeckFormatModal();
+      return;
+    }
+  }
+
+  if (!_isCommanderFormatName(next)) {
+    _clearDeckCommanderMetadata(deck);
+    deck.format = next;
+    saveActiveDeck(deck);
+    renderActiveDeck();
+    showNotif(`Deck format set to ${next}`);
+    closeChangeDeckFormatModal();
+    return;
+  }
+
+  const candidates = _commanderCandidatesFromDeck(deck, next);
+  if (candidates.length === 0) {
+    showNotif(
+      next === 'Oathbreaker'
+        ? 'Add a legendary planeswalker to this deck first.'
+        : 'Add a legendary creature or planeswalker to this deck first.',
+      true,
+    );
+    return;
+  }
+
+  if (next !== deck.format && _isCommanderFormatName(deck.format) && _commanderStillValid(deck, next)) {
+    deck.format = next;
+    _ensureCommanderFlagOnCard(deck);
+    saveActiveDeck(deck);
+    renderActiveDeck();
+    fetchEDHRECRecs();
+    showNotif(`Deck format set to ${next}`);
+    closeChangeDeckFormatModal();
+    return;
+  }
+
+  if (candidates.length === 1) {
+    deck.format = next;
+    if (!_setDeckCommanderByInventoryKey(deck, getCardInventoryKey(candidates[0]))) {
+      showNotif('Could not set commander', true);
+      return;
+    }
+    saveActiveDeck(deck);
+    renderActiveDeck();
+    fetchEDHRECRecs();
+    showNotif(`Deck format set to ${next}`);
+    closeChangeDeckFormatModal();
+    return;
+  }
+
+  _changeDeckFormatFlow.step = 2;
+  _changeDeckFormatFlow.pendingFormat = next;
+  const cmdSel = document.getElementById('changeDeckCommanderSelect');
+  _populateCommanderSelectFromCandidates(cmdSel, candidates);
+  document.getElementById('changeDeckFormatStep1').style.display = 'none';
+  document.getElementById('changeDeckFormatStep2').style.display = '';
+  document.getElementById('changeDeckFormatBackBtn').style.display = '';
+  document.getElementById('changeDeckFormatPrimaryBtn').textContent = 'Save format';
+}
+
+function changeDeckFormatPrimaryAction() {
+  const deck = _cdfDeckOrAbort();
+  if (!deck) return;
+  const flow = _changeDeckFormatFlow;
+  const selFmt = document.getElementById('changeDeckFormatSelect');
+  const next = selFmt?.value;
+  if (!next) {
+    showNotif('Choose a format', true);
+    return;
+  }
+
+  if (flow.step === 1) {
+    _cdfTryApplyFormatStep1(deck, next);
+    return;
+  }
+
+  const cmdSel = document.getElementById('changeDeckCommanderSelect');
+  const key = cmdSel?.value;
+  if (!key) {
+    showNotif('Choose a commander from the list', true);
+    return;
+  }
+  const pending = flow.pendingFormat;
+  if (!pending || !_isCommanderFormatName(pending)) {
+    closeChangeDeckFormatModal();
+    return;
+  }
+  deck.format = pending;
+  if (!_setDeckCommanderByInventoryKey(deck, key)) {
+    showNotif('Could not apply commander', true);
+    return;
+  }
+  saveActiveDeck(deck);
+  renderActiveDeck();
+  fetchEDHRECRecs();
+  showNotif(`Deck format set to ${deck.format}`);
+  closeChangeDeckFormatModal();
+}
+
 // Vintage restricted — max 1 copy
 const VINTAGE_RESTRICTED = new Set([
   'Ancestral Recall','Balance','Black Lotus','Brainstorm','Chain of Vapor',
@@ -1349,7 +1623,12 @@ function renderActiveDeck() {
   document.getElementById('activeDeckName').textContent = deck.name;
   document.getElementById('activeDeckFormat').textContent = deck.format;
   const total = deck.cards.reduce((s,c) => s + c.qty, 0);
-  document.getElementById('activeDeckCount').textContent = total + ' cards';
+  const totalTcg = (deck.cards || []).reduce((sum, c) => {
+    const unit = typeof getTCGPriceForCard === 'function' ? getTCGPriceForCard(c) : (Number(c?.priceTCG) || 0);
+    return sum + (Number(unit) || 0) * (Number(c?.qty) || 1);
+  }, 0);
+  const topValueEl = document.getElementById('activeDeckValue');
+  if (topValueEl) topValueEl.textContent = `$${totalTcg.toFixed(2)}`;
   const target = FORMAT_RULES[deck.format]?.min || 60;
   const max    = FORMAT_RULES[deck.format]?.max;
   const countOk = total >= target && (!max || total <= max);
@@ -1375,8 +1654,12 @@ function renderActiveDeck() {
   if (delBtn) delBtn.style.display = isOwner ? '' : 'none';
   const renameBtn = document.getElementById('deckRenameBtn');
   if (renameBtn) renameBtn.style.display = isOwner ? '' : 'none';
+  const formatBtn = document.getElementById('deckFormatBtn');
+  if (formatBtn) formatBtn.style.display = isOwner ? '' : 'none';
   const skeletonBtn = document.getElementById('deckSkeletonBtn');
   if (skeletonBtn) skeletonBtn.style.display = isOwner ? '' : 'none';
+  const deckVoiceBtn = document.getElementById('deckBuilderVoiceBtn');
+  if (deckVoiceBtn) deckVoiceBtn.style.display = isOwner ? '' : 'none';
 
   // Shared-by badge
   const sharedBadge = document.getElementById('deckSharedByBadge');
@@ -2224,16 +2507,103 @@ function renderManaCurve(deck) {
   const counts = buckets.map(cmc =>
     deck.cards.filter(c => !c.type?.toLowerCase().includes('land') && Math.round(c.cmc) === cmc).reduce((s,c) => s+c.qty, 0)
   );
-  const max = Math.max(...counts, 1);
-  const pct = i => Math.round((counts[i] / max) * 100);
-  el.innerHTML = buckets.map((cmc, i) => `
-    <div class="mana-bar-wrap">
-      <div class="mana-bar-count">${counts[i] ? counts[i] : ''}</div>
-      <div class="mana-bar-track">
-        <div class="mana-bar" style="height:${pct(i)}%"></div>
+  const idealWeights = [0.06, 0.13, 0.2, 0.2, 0.16, 0.12, 0.08, 0.05];
+  const nonlandTotal = counts.reduce((s, n) => s + n, 0);
+  const ideal = idealWeights.map(w => nonlandTotal * w);
+  const actualNorm = nonlandTotal > 0 ? counts.map(n => n / nonlandTotal) : counts.map(() => 0);
+  const l1 = actualNorm.reduce((sum, n, i) => sum + Math.abs(n - idealWeights[i]), 0);
+  const fit = Math.max(0, Math.min(1, 1 - (l1 / 2)));
+  const fitPct = Math.round(fit * 100);
+  const _lerp = (a, b, t) => Math.round(a + (b - a) * t);
+  const gradeStops = [
+    { pct: 0,   rgb: [214, 58, 58] },   // F-
+    { pct: 50,  rgb: [214, 58, 58] },   // F
+    { pct: 60,  rgb: [225, 118, 46] },  // D
+    { pct: 70,  rgb: [214, 166, 42] },  // C
+    { pct: 80,  rgb: [163, 180, 53] },  // B
+    { pct: 90,  rgb: [98, 176, 72] },   // A-
+    { pct: 100, rgb: [58, 186, 92] },   // A+
+  ];
+  let fitColor = 'rgb(214, 58, 58)';
+  for (let i = 0; i < gradeStops.length - 1; i++) {
+    const a = gradeStops[i];
+    const b = gradeStops[i + 1];
+    if (fitPct >= a.pct && fitPct <= b.pct) {
+      const span = Math.max(1, b.pct - a.pct);
+      const t = (fitPct - a.pct) / span;
+      fitColor = `rgb(${_lerp(a.rgb[0], b.rgb[0], t)}, ${_lerp(a.rgb[1], b.rgb[1], t)}, ${_lerp(a.rgb[2], b.rgb[2], t)})`;
+      break;
+    }
+  }
+  const labels = buckets.map(cmc => (cmc === 7 ? '7+' : String(cmc)));
+  const max = Math.max(...counts, ...ideal, 1);
+  const w = 760;
+  const h = 210;
+  const pad = { l: 24, r: 16, t: 10, b: 20 };
+  const drawW = w - pad.l - pad.r;
+  const drawH = h - pad.t - pad.b;
+  const xAt = i => pad.l + ((drawW * i) / Math.max(1, labels.length - 1));
+  const yAt = v => pad.t + drawH - ((v / max) * drawH);
+  const smoothPath = arr => {
+    const pts = arr.map((v, i) => ({ x: xAt(i), y: yAt(v) }));
+    if (!pts.length) return '';
+    if (pts.length === 1) return `M ${pts[0].x.toFixed(2)} ${pts[0].y.toFixed(2)}`;
+    let d = `M ${pts[0].x.toFixed(2)} ${pts[0].y.toFixed(2)}`;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = pts[i - 1] || pts[i];
+      const p1 = pts[i];
+      const p2 = pts[i + 1];
+      const p3 = pts[i + 2] || p2;
+      const cp1x = p1.x + (p2.x - p0.x) / 6;
+      const cp1y = p1.y + (p2.y - p0.y) / 6;
+      const cp2x = p2.x - (p3.x - p1.x) / 6;
+      const cp2y = p2.y - (p3.y - p1.y) / 6;
+      d += ` C ${cp1x.toFixed(2)} ${cp1y.toFixed(2)}, ${cp2x.toFixed(2)} ${cp2y.toFixed(2)}, ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}`;
+    }
+    return d;
+  };
+  const actualPath = smoothPath(counts);
+  const idealPath = smoothPath(ideal);
+  const points = counts.map((v, i) => `
+    <circle class="hist-line-point" cx="${xAt(i)}" cy="${yAt(v)}" r="3.2"></circle>
+  `).join('');
+  const values = counts.map((v, i) => `
+    <text class="hist-line-value" x="${xAt(i)}" y="${Math.max(10, yAt(v) - 8)}">${v || ''}</text>
+  `).join('');
+  const yTicks = [0, 0.25, 0.5, 0.75, 1];
+  const yAxis = yTicks.map(fr => {
+    const y = pad.t + drawH * (1 - fr);
+    const val = Math.round(max * fr);
+    return `
+      <line x1="${pad.l - 4}" y1="${y}" x2="${pad.l}" y2="${y}" class="hist-axis-tick"></line>
+      <text x="${pad.l - 8}" y="${y + 4}" class="hist-axis-label">${val}</text>
+    `;
+  }).join('');
+  const ticks = labels.map((lab, i) => `
+    <span class="hist-line-xlabel" style="left:${((xAt(i) / w) * 100).toFixed(3)}%">${lab}</span>
+  `).join('');
+  const grid = [0.25, 0.5, 0.75].map(fr => {
+    const y = pad.t + drawH * fr;
+    return `<line x1="${pad.l}" y1="${y}" x2="${w - pad.r}" y2="${y}" class="hist-line-grid"></line>`;
+  }).join('');
+  el.innerHTML = `
+    <div class="hist-line-wrap" style="--curve-color:${fitColor}">
+      <div class="hist-line-meta">
+        <span class="hist-fit-label">Fit</span>
+        <span class="hist-fit-value">${fitPct}%</span>
       </div>
-      <div class="mana-cmc">${cmc === 7 ? '7+' : cmc}</div>
-    </div>`).join('');
+      <svg class="hist-line-svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMidYMid meet" aria-label="Mana curve">
+        <line x1="${pad.l}" y1="${pad.t}" x2="${pad.l}" y2="${h - pad.b}" class="hist-axis-line"></line>
+        ${yAxis}
+        ${grid}
+        <path class="hist-line-ideal" d="${idealPath}"></path>
+        <path class="hist-line-main" d="${actualPath}"></path>
+        ${points}
+        ${values}
+      </svg>
+      <div class="hist-line-xlabels">${ticks}</div>
+    </div>
+  `;
 }
 
 function _parseManaSymbols(manaCost) {
@@ -2273,7 +2643,8 @@ function _renderManaPie(containerId, chartRefName, counts, emptyText) {
     R: '#d23030',
     G: '#1a9e50',
   };
-  const values = order.map(c => +(counts[c] || 0));
+  const present = order.filter(c => +(counts[c] || 0) > 0);
+  const values = present.map(c => +(counts[c] || 0));
   const total = values.reduce((s, v) => s + v, 0);
   if (total <= 0) {
     el.innerHTML = `<div class="mana-pie-empty">${emptyText}</div>`;
@@ -2283,13 +2654,13 @@ function _renderManaPie(containerId, chartRefName, counts, emptyText) {
   }
 
   const canvasId = `${containerId}Canvas`;
-  const legendHtml = order.map((c, i) => {
+  const legendHtml = present.map((c, i) => {
     const n = values[i];
     const pct = (n / total) * 100;
     return `
       <div class="mana-pie-legend-row">
-        <span style="width:10px;height:10px;border-radius:50%;background:${pieColors[c]};border:1px solid rgba(0,0,0,0.22)"></span>
-        <span style="min-width:64px">${names[c]}</span>
+        <img src="https://svgs.scryfall.io/card-symbols/${c}.svg" class="mana-pie-legend-symbol" alt="${c}" title="${names[c]}">
+        <span class="mana-pie-legend-label">${names[c]}</span>
         <span class="mana-pie-legend-stat">${n.toFixed(1).replace('.0','')} · ${pct.toFixed(0)}%</span>
       </div>`;
   }).join('');
@@ -2310,10 +2681,10 @@ function _renderManaPie(containerId, chartRefName, counts, emptyText) {
   const inst = new Chart(ctx, {
     type: 'pie',
     data: {
-      labels: order.map(c => names[c]),
+      labels: present.map(c => names[c]),
       datasets: [{
         data: values,
-        backgroundColor: order.map(c => pieColors[c]),
+        backgroundColor: present.map(c => pieColors[c]),
         borderColor: 'rgba(0,0,0,0.25)',
         borderWidth: 1,
       }],
@@ -2648,11 +3019,11 @@ function renderProbabilityChart(deck) {
         scales: {
           y: {
             min: 0, max: 100,
-            ticks: { callback: v => v + '%', color: tickCol, font: { size: 10 }, stepSize: 25 },
+            ticks: { callback: v => v + '%', color: tickCol, font: { size: 12 }, stepSize: 25 },
             grid: { color: gridCol },
           },
           x: {
-            ticks: { color: tickCol, font: { size: 11 } },
+            ticks: { color: tickCol, font: { size: 12 } },
             grid: { color: gridCol },
           },
         },
@@ -2675,14 +3046,19 @@ function renderTypeBreakdown(deck) {
     types[t] = (types[t]||0) + c.qty;
   });
   const total = Object.values(types).reduce((s,v)=>s+v,0) || 1;
-  el.innerHTML = Object.entries(types).sort((a,b)=>b[1]-a[1]).map(([t,n]) => `
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-      <span class="deck-type-break-label">${t}</span>
-      <div style="flex:1;height:6px;background:var(--bg4);border-radius:3px">
-        <div style="height:100%;background:var(--gold);border-radius:3px;width:${Math.round((n/total)*100)}%"></div>
+  el.innerHTML = `
+    <div class="deck-type-break-wrap">
+      ${Object.entries(types).sort((a,b)=>b[1]-a[1]).map(([t,n]) => `
+      <div class="deck-type-break-row">
+        <span class="deck-type-break-label">${t}</span>
+        <div class="deck-type-break-track">
+          <div class="deck-type-break-fill" style="width:${Math.round((n/total)*100)}%"></div>
+        </div>
+        <span class="deck-type-break-count">${n}</span>
       </div>
-      <span class="deck-type-break-count">${n}</span>
-    </div>`).join('');
+      `).join('')}
+    </div>
+  `;
 }
 
 // ── Deck card search: stage 1 autocomplete ───────────────────────────────────
@@ -2702,9 +3078,11 @@ function _positionDeckAc() {
 
 function deckSearchAutocomplete(q) {
   const drop = document.getElementById('deckSearchAutocomplete');
+  const resultsEl = document.getElementById('deckSearchResults');
+  if (!drop || !resultsEl) return;
   if (!q || q.length < 2) {
     drop.style.display = 'none';
-    document.getElementById('deckSearchResults').innerHTML = '';
+    resultsEl.innerHTML = '';
     clearTimeout(_deckAcTimer);
     clearTimeout(_deckSearchTimer);
     return;
@@ -2755,8 +3133,11 @@ function deckSearchAutocomplete(q) {
 }
 
 function pickDeckSearchName(name) {
-  document.getElementById('deckSearchInput').value = name;
-  document.getElementById('deckSearchAutocomplete').style.display = 'none';
+  const input = document.getElementById('deckSearchInput');
+  const drop = document.getElementById('deckSearchAutocomplete');
+  if (!input) return;
+  input.value = name;
+  if (drop) drop.style.display = 'none';
   runDeckSearch(name);
 }
 
@@ -2880,6 +3261,10 @@ async function runDeckSearch(q) {
   const el = document.getElementById('deckSearchResults');
   const drop = document.getElementById('deckSearchAutocomplete');
   if (drop) drop.style.display = 'none';
+  if (!el) {
+    _deckSearchLocal = []; _deckSearchApi = [];
+    return;
+  }
   if (!q || q.length < 2) {
     _deckSearchLocal = []; _deckSearchApi = [];
     el.innerHTML = ''; return;
@@ -3122,6 +3507,10 @@ async function deleteDeck() {
   activeDeckIsShared = false;
   localStorage.removeItem('mtg_active_deck_id');
   save('decks'); renderDecks();
+}
+
+function changeActiveDeckFormat() {
+  openChangeDeckFormatModal();
 }
 
 async function renameActiveDeck() {
@@ -3929,13 +4318,39 @@ async function buildSkeletonDeckFromCollection(templateOverride = null) {
   showNotif(`Built skeleton: ${total}/${targetSize} cards`);
 }
 
-function exportDeck() {
+function _formatDeckExportLine(card, exactPrintings) {
+  const qty = Number(card?.qty) || 1;
+  const name = String(card?.name || '').trim();
+  if (!exactPrintings) return `${qty} ${name}`;
+  const set = String(card?.set || '').toUpperCase();
+  const num = String(card?.number || '').trim();
+  const foil = !!card?.foil ? ' foil' : '';
+  const printMeta = (set || num)
+    ? ` [${set || '?'} #${num || '?'}${foil}]`
+    : (foil ? ' [foil]' : '');
+  return `${qty} ${name}${printMeta}`;
+}
+
+async function exportDeck() {
   const deck = getActiveDeck();
   if (!deck) return;
-  const text = deck.cards.map(c => `${c.qty} ${c.name}`).join('\n');
+  let exactPrintings = false;
+  if (typeof showConfirmModal === 'function') {
+    const useExact = await showConfirmModal({
+      title: 'Export Deck',
+      body: 'Export with exact printings (set code, collector number, foil) so copies can be reconstructed exactly?',
+      okLabel: 'Exact Printings',
+      cancelLabel: 'Simple List',
+      okClass: 'btn-primary',
+    });
+    exactPrintings = !!useExact;
+  }
+  const text = deck.cards.map(c => _formatDeckExportLine(c, exactPrintings)).join('\n');
   const blob = new Blob([text], {type:'text/plain'});
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-  a.download = deck.name.replace(/\s+/g,'_') + '.txt'; a.click();
+  a.download = deck.name.replace(/\s+/g,'_') + (exactPrintings ? '_exact' : '') + '.txt';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
 let _edhrecAbort = null;
@@ -4017,11 +4432,15 @@ function openOwnedRecommendationPicker(cardName, candidates) {
 }
 
 async function fetchEDHRECRecs() {
-  const deck = decks.find(d => d.id === activeDeckId);
+  const deck = typeof getActiveDeck === 'function'
+    ? getActiveDeck()
+    : (decks.find(d => d.id === activeDeckId) || sharedDecks.find(d => d.id === activeDeckId));
   const el = document.getElementById('edhrecResults');
   if (!el) return;
 
-  const commanderName = deck?.commander;
+  const commanderCard = deck?.cards?.find(c => c.isCommander)
+    || deck?.cards?.find(c => String(c?.name || '').toLowerCase() === String(deck?.commander || '').toLowerCase());
+  const commanderName = commanderCard?.name || deck?.commander;
   if (!commanderName) {
     el.innerHTML = '<div style="padding:1.5rem;text-align:center;color:var(--text3);font-size:0.85rem">Set a commander to see recommendations</div>';
     return;
@@ -4035,12 +4454,8 @@ async function fetchEDHRECRecs() {
   const theme = document.getElementById('edhrecThemeSelect').value;
   el.innerHTML = '<div style="padding:1rem;display:flex;align-items:center;gap:8px;color:var(--text2)"><div class="spinner"></div> Fetching suggestions…</div>';
 
-  // Color identity: prefer stored commanderColorIdentity, fall back to card in deck
-  let colors = deck?.commanderColorIdentity;
-  if (!colors?.length) {
-    const cmdCard = deck?.cards.find(c => c.name === commanderName);
-    colors = cmdCard?.colorIdentity || cmdCard?.colors || [];
-  }
+  // Color identity: prefer whichever card is currently tagged commander.
+  let colors = commanderCard?.colorIdentity || commanderCard?.colors || deck?.commanderColorIdentity || [];
 
   // Build Scryfall query — id<=WUBRG means "within this color identity"
   const idQ    = colors.length > 0 ? `id<=${colors.join('')}` : '';
@@ -4202,11 +4617,9 @@ function _hideCardHoverPreview() {
 }
 
 function _buildReplacementQuery(card, deck) {
-  let colors = deck?.commanderColorIdentity;
-  if (!colors?.length) {
-    const cmdCard = deck?.cards?.find(c => c.isCommander);
-    colors = cmdCard?.colorIdentity || cmdCard?.colors || [];
-  }
+  const cmdCard = deck?.cards?.find(c => c.isCommander)
+    || deck?.cards?.find(c => String(c?.name || '').toLowerCase() === String(deck?.commander || '').toLowerCase());
+  let colors = cmdCard?.colorIdentity || cmdCard?.colors || deck?.commanderColorIdentity || [];
   const idQ = colors.length > 0 ? `id<=${colors.join('')}` : '';
 
   const cardType = _probCardType(card.type || '');

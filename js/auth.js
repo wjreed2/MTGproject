@@ -31,6 +31,45 @@ initTheme();
 
 function toggleSettingsDropdown() {
   document.getElementById('settingsDropdown')?.classList.toggle('open');
+  if (document.getElementById('settingsDropdown')?.classList.contains('open')) {
+    renderValueExcludeSlider();
+  }
+}
+
+/** $0–$10: rows with max(TCG, CK) unit price below this are omitted from collection value stats only. */
+const VALUE_EXCLUDE_MAX_USD = 10;
+
+function getValueExcludeBelowUsd() {
+  const v = parseFloat(localStorage.getItem('mtg_value_exclude_below_usd') || '0');
+  if (!Number.isFinite(v) || v <= 0) return 0;
+  return Math.min(VALUE_EXCLUDE_MAX_USD, v);
+}
+
+function setValueExcludeBelowUsd(usd) {
+  const n = Math.min(VALUE_EXCLUDE_MAX_USD, Math.max(0, Number(usd) || 0));
+  const rounded = Math.round(n * 100) / 100;
+  if (rounded <= 0) localStorage.removeItem('mtg_value_exclude_below_usd');
+  else localStorage.setItem('mtg_value_exclude_below_usd', String(rounded));
+  const label = document.getElementById('settingsValueExcludeLabel');
+  if (label) {
+    label.textContent = rounded <= 0 ? 'Off' : ('$' + rounded.toFixed(2));
+  }
+  if (typeof updateStats === 'function') updateStats();
+}
+
+function onValueExcludeThresholdInput(sliderVal) {
+  const steps = Number(sliderVal);
+  const usd = Math.min(VALUE_EXCLUDE_MAX_USD, Math.max(0, (Number.isFinite(steps) ? steps : 0) / 10));
+  setValueExcludeBelowUsd(usd);
+}
+
+function renderValueExcludeSlider() {
+  const slider = document.getElementById('settingsValueExcludeSlider');
+  const label = document.getElementById('settingsValueExcludeLabel');
+  const v = getValueExcludeBelowUsd();
+  const steps = Math.min(100, Math.max(0, Math.round(v * 10)));
+  if (slider) slider.value = String(steps);
+  if (label) label.textContent = v <= 0 ? 'Off' : ('$' + v.toFixed(2));
 }
 
 document.addEventListener('click', e => {
@@ -81,6 +120,7 @@ function refreshAuthUserLabel(email) {
     document.getElementById('themeBtn' + t)?.classList.toggle('active', saved === t.toLowerCase());
   });
   if (typeof renderDeckOwnershipBtn === 'function') renderDeckOwnershipBtn();
+  renderValueExcludeSlider();
 }
 
 function toggleDeckOwnershipSetting() {

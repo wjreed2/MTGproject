@@ -139,6 +139,7 @@ function cardToEntry(card, qty = 1) {
   return {
     id: card.id,
     scryfallId: card.id,
+    oracleId: card.oracle_id || null,
     uid: card.id + '_n',
     name: card.name,
     set: card.set,

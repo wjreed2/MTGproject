@@ -389,19 +389,51 @@ function renderCollection() {
   updateStats();
 }
 
+/** One “unique” per printing: foil + non-foil of the same Scryfall card share one key. */
+function _collectionUniqueCardKey(c) {
+  if (!c) return '';
+  let sid = c.scryfallId;
+  if (!sid && c.uid) {
+    const u = String(c.uid);
+    if (/_f$|_n$/.test(u)) sid = u.replace(/_[fn]$/, '');
+    else sid = u;
+  }
+  if (sid) return 'sid:' + String(sid).toLowerCase();
+  const nm = String(c.name || '').split('//')[0].trim().toLowerCase();
+  return nm ? 'nm:' + nm : '';
+}
+
+function _rowExcludedFromValueTotalsByThreshold(c) {
+  const floor = typeof getValueExcludeBelowUsd === 'function' ? getValueExcludeBelowUsd() : 0;
+  if (!floor || floor <= 0) return false;
+  const unit = typeof getUnitMarketMaxUsd === 'function'
+    ? getUnitMarketMaxUsd(c)
+    : Math.max(getTCGPriceForCard(c), getCKPriceForCard(c));
+  return unit < floor;
+}
+
 function updateStats() {
   const rows = getFilteredCollection();
   const total = rows.reduce((s, c) => s + (c.qty || 1), 0);
-  const unique = rows.length;
+  const unique = new Set(rows.map(_collectionUniqueCardKey).filter(Boolean)).size;
   const sets = new Set(rows.map(c => c.set)).size;
-  const valTCG = rows.reduce((s, c) => s + getTCGPriceForCard(c) * (c.qty || 1), 0);
-  const valCK = rows.reduce((s, c) => s + getCKPriceForCard(c) * (c.qty || 1), 0);
+  const valTCG = rows.reduce((s, c) => {
+    if (_rowExcludedFromValueTotalsByThreshold(c)) return s;
+    return s + getTCGPriceForCard(c) * (c.qty || 1);
+  }, 0);
+  const valCK = rows.reduce((s, c) => {
+    if (_rowExcludedFromValueTotalsByThreshold(c)) return s;
+    return s + getCKPriceForCard(c) * (c.qty || 1);
+  }, 0);
   document.getElementById('statCards').textContent = total.toLocaleString();
   document.getElementById('statUnique').textContent = unique.toLocaleString();
   document.getElementById('statSets').textContent = sets;
   document.getElementById('statValue').textContent = '$' + valTCG.toFixed(0);
   document.getElementById('statValueCK').textContent = '$' + valCK.toFixed(0);
-  const fullTcg = collection.reduce((s, c) => s + getTCGPriceForCard(c) * (c.qty || 1), 0);
+  const fullTcg = collection.reduce((s, c) => {
+    if (_rowExcludedFromValueTotalsByThreshold(c)) return s;
+    return s + getTCGPriceForCard(c) * (c.qty || 1);
+  }, 0);
   recordValueSnapshot(fullTcg);
 }
 
@@ -844,34 +876,78 @@ function _syncCardDetailLeftInPlace(card) {
   return true;
 }
 
+function _findCollectionRowByPrinting(scryfallId, wantFoil) {
+  if (!scryfallId) return null;
+  const sid = String(scryfallId);
+  const exact = sid + (!!wantFoil ? '_f' : '_n');
+  return collection.find(c => c.uid === exact)
+    || collection.find(c => c.scryfallId === sid && !!c.foil === !!wantFoil);
+}
+
+function _findTemplateCardForPrinting(scryfallId) {
+  if (!scryfallId) return null;
+  const sid = String(scryfallId);
+  const deckCards = decks.flatMap(d => d.cards || []);
+  return collection.find(c => c.scryfallId === sid)
+    || wishlist.find(w => w.scryfallId === sid)
+    || deckCards.find(c => c.scryfallId === sid);
+}
+
+function _htmlCardDetailCollectionRows(ctx) {
+  const { card, isOwned, ownedCard, actionUid } = ctx;
+  const sid = card && card.scryfallId ? String(card.scryfallId) : '';
+  if (!sid) {
+    return isOwned
+      ? `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <button type="button" class="btn btn-outline btn-sm btn-icon" onclick="adjustQty('${actionUid}',-1)">−</button>
+          <span style="font-family:'JetBrains Mono',monospace;font-size:0.9rem;min-width:20px;text-align:center" id="detailQty">${ownedCard.qty || 0}</span>
+          <button type="button" class="btn btn-outline btn-sm btn-icon" onclick="adjustQty('${actionUid}',1)">+</button>
+        </div>`
+      : `<span style="font-family:'JetBrains Mono',monospace;font-size:0.9rem;color:var(--text3)">0</span>`;
+  }
+  const enc = encodeURIComponent(sid);
+  const nf = _findCollectionRowByPrinting(sid, false);
+  const f = _findCollectionRowByPrinting(sid, true);
+  const nfQ = nf ? (nf.qty || 0) : 0;
+  const fQ = f ? (f.qty || 0) : 0;
+  return `
+    <div class="card-detail-qty-printing" style="display:flex;flex-direction:column;gap:8px;width:100%">
+      <div class="card-detail-qty-printing-row" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span style="min-width:58px;font-size:0.78rem;color:var(--text2)">Non-foil</span>
+        <button type="button" class="btn btn-outline btn-sm btn-icon" onclick="adjustCollectionPrintingQtyFromDetail(decodeURIComponent('${enc}'),false,-1)">−</button>
+        <span id="detailQty_nf" style="font-family:'JetBrains Mono',monospace;font-size:0.9rem;min-width:22px;text-align:center">${nfQ}</span>
+        <button type="button" class="btn btn-outline btn-sm btn-icon" onclick="adjustCollectionPrintingQtyFromDetail(decodeURIComponent('${enc}'),false,1)">+</button>
+      </div>
+      <div class="card-detail-qty-printing-row" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span style="min-width:58px;font-size:0.78rem;color:var(--text2)">Foil</span>
+        <button type="button" class="btn btn-outline btn-sm btn-icon" onclick="adjustCollectionPrintingQtyFromDetail(decodeURIComponent('${enc}'),true,-1)">−</button>
+        <span id="detailQty_f" style="font-family:'JetBrains Mono',monospace;font-size:0.9rem;min-width:22px;text-align:center">${fQ}</span>
+        <button type="button" class="btn btn-outline btn-sm btn-icon" onclick="adjustCollectionPrintingQtyFromDetail(decodeURIComponent('${enc}'),true,1)">+</button>
+      </div>
+    </div>`;
+}
+
 function _syncCardDetailRowCollection(ctx) {
-  const { isOwned, ownedCard, actionUid, card } = ctx;
   const el = document.getElementById('cardDetailRowCollection');
   if (!el) return;
-  el.innerHTML = `<span style="font-size:0.85rem;color:var(--text2)">In Collection:</span>
-          ${isOwned
-    ? `<button class="btn btn-outline btn-sm btn-icon" onclick="adjustQty('${actionUid}',-1)">−</button>
-               <span style="font-family:'JetBrains Mono',monospace;font-size:0.9rem;min-width:20px;text-align:center" id="detailQty">${ownedCard.qty || 0}</span>
-               <button class="btn btn-outline btn-sm btn-icon" onclick="adjustQty('${actionUid}',1)">+</button>
-               <button class="btn btn-outline btn-sm" onclick="setCardFoilFromDetail('${actionUid}',${card.foil ? 'false' : 'true'})">${card.foil ? 'Set Non-foil' : 'Set Foil'}</button>`
-    : `<span style="font-family:'JetBrains Mono',monospace;font-size:0.9rem;min-width:20px;text-align:center;color:var(--text3)">0</span>`}`;
+  el.innerHTML = `<span style="font-size:0.85rem;color:var(--text2);white-space:nowrap;padding-top:5px">In collection:</span>
+    <div style="flex:1;min-width:0">${_htmlCardDetailCollectionRows(ctx)}</div>`;
 }
 
 function _syncCardDetailRowInDeck(ctx) {
-  const { activeDeck, activeDeckCard, actionUid, inDeckQty } = ctx;
+  const { activeDeck, inDeckQty } = ctx;
   const el = document.getElementById('cardDetailRowInDeck');
   if (!el) return;
-  if (!activeDeck) {
+  const show = !!(activeDeck && _isDeckBuilderMainTabActive());
+  if (!show) {
     el.style.display = 'none';
     el.innerHTML = '';
     return;
   }
   el.style.display = 'flex';
-  el.innerHTML = `<span style="font-size:0.85rem;color:var(--text2)">In Deck:</span>
-          <button class="btn btn-outline btn-sm btn-icon" onclick="adjustActiveDeckQtyFromDetail('${(activeDeckCard ? getCardInventoryKey(activeDeckCard) : actionUid)}',-1)">−</button>
-          <span style="font-family:'JetBrains Mono',monospace;font-size:0.9rem;min-width:20px;text-align:center" id="detailDeckQty">${inDeckQty}</span>
-          <button class="btn btn-outline btn-sm btn-icon" onclick="adjustActiveDeckQtyFromDetail('${(activeDeckCard ? getCardInventoryKey(activeDeckCard) : actionUid)}',1)">+</button>
-          <span style="font-size:0.72rem;color:var(--text3)">${activeDeck.name}</span>`;
+  el.innerHTML = `<span style="font-size:0.85rem;color:var(--text2)">In deck:</span>
+          <span style="font-family:'JetBrains Mono',monospace;font-size:0.9rem">${inDeckQty}</span>
+          <span style="font-size:0.72rem;color:var(--text3)">· ${activeDeck.name}</span>`;
 }
 
 function _syncCardDetailRowPrimaryActions(ctx) {
@@ -891,7 +967,7 @@ function _syncCardDetailRowPrimaryActions(ctx) {
 function _syncCardDetailDeckTagsSection(ctx) {
   const { activeDeckCard } = ctx;
   const sharedDeck = typeof activeDeckIsShared !== 'undefined' && activeDeckIsShared;
-  const showDeckTags = !!(activeDeckCard && !sharedDeck);
+  const showDeckTags = !!(activeDeckCard && !sharedDeck && _isDeckBuilderMainTabActive());
   const el = document.getElementById('cardDetailDeckTagsSection');
   if (!el) return;
   el.style.display = showDeckTags ? 'block' : 'none';
@@ -1001,14 +1077,13 @@ function _htmlOpenCardDetailRightColumn(ctx) {
     isCommanderCandidate, isWishlisted,
   } = ctx;
   const sharedDeck = typeof activeDeckIsShared !== 'undefined' && activeDeckIsShared;
-  const showDeckTags = !!(activeDeckCard && !sharedDeck);
+  const showDeckTags = !!(activeDeckCard && !sharedDeck && _isDeckBuilderMainTabActive());
   const showTagToDeck = !!(isOwned && decks.length > 0);
-  const inDeckInner = activeDeck
-    ? `<span style="font-size:0.85rem;color:var(--text2)">In Deck:</span>
-          <button class="btn btn-outline btn-sm btn-icon" onclick="adjustActiveDeckQtyFromDetail('${(activeDeckCard ? getCardInventoryKey(activeDeckCard) : actionUid)}',-1)">−</button>
-          <span style="font-family:'JetBrains Mono',monospace;font-size:0.9rem;min-width:20px;text-align:center" id="detailDeckQty">${inDeckQty}</span>
-          <button class="btn btn-outline btn-sm btn-icon" onclick="adjustActiveDeckQtyFromDetail('${(activeDeckCard ? getCardInventoryKey(activeDeckCard) : actionUid)}',1)">+</button>
-          <span style="font-size:0.72rem;color:var(--text3)">${activeDeck.name}</span>`
+  const showInDeckRow = !!(activeDeck && _isDeckBuilderMainTabActive());
+  const inDeckInner = showInDeckRow
+    ? `<span style="font-size:0.85rem;color:var(--text2)">In deck:</span>
+          <span style="font-family:'JetBrains Mono',monospace;font-size:0.9rem">${inDeckQty}</span>
+          <span style="font-size:0.72rem;color:var(--text3)">· ${activeDeck.name}</span>`
     : '';
   const deckTagsInner = showDeckTags
     ? `<div style="font-size:0.78rem;color:var(--text3);margin-bottom:6px;letter-spacing:0.04em">DECK CARD TAGS</div>
@@ -1044,16 +1119,11 @@ function _htmlOpenCardDetailRightColumn(ctx) {
             ${_renderCardDetailDefaultTagsInitialHtml(card)}
           </div>
         </div>
-        <div id="cardDetailRowCollection" style="display:flex;align-items:center;gap:8px;margin-bottom:0.75rem">
-          <span style="font-size:0.85rem;color:var(--text2)">In Collection:</span>
-          ${isOwned
-    ? `<button class="btn btn-outline btn-sm btn-icon" onclick="adjustQty('${actionUid}',-1)">−</button>
-               <span style="font-family:'JetBrains Mono',monospace;font-size:0.9rem;min-width:20px;text-align:center" id="detailQty">${ownedCard.qty || 0}</span>
-               <button class="btn btn-outline btn-sm btn-icon" onclick="adjustQty('${actionUid}',1)">+</button>
-               <button class="btn btn-outline btn-sm" onclick="setCardFoilFromDetail('${actionUid}',${card.foil ? 'false' : 'true'})">${card.foil ? 'Set Non-foil' : 'Set Foil'}</button>`
-    : `<span style="font-family:'JetBrains Mono',monospace;font-size:0.9rem;min-width:20px;text-align:center;color:var(--text3)">0</span>`}
+        <div id="cardDetailRowCollection" style="display:flex;align-items:flex-start;gap:10px;margin-bottom:0.75rem;flex-wrap:wrap">
+          <span style="font-size:0.85rem;color:var(--text2);white-space:nowrap;padding-top:5px">In collection:</span>
+          <div style="flex:1;min-width:0">${_htmlCardDetailCollectionRows(ctx)}</div>
         </div>
-        <div id="cardDetailRowInDeck" style="display:${activeDeck ? 'flex' : 'none'};align-items:center;gap:8px;margin-bottom:0.75rem">
+        <div id="cardDetailRowInDeck" style="display:${showInDeckRow ? 'flex' : 'none'};align-items:center;gap:8px;margin-bottom:0.75rem">
           ${inDeckInner}
         </div>
         <div id="cardDetailRowPrimaryActions" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:0.75rem">
@@ -1087,6 +1157,10 @@ function _findActiveDeckSlotByCardKey(activeDeck, cardKey) {
   return (activeDeck.sideboard || []).find(match) || null;
 }
 
+function _isDeckBuilderMainTabActive() {
+  return !!document.getElementById('tab-decks')?.classList.contains('active');
+}
+
 async function openCardDetail(uid, navMode, opts) {
   const deckCards = decks.flatMap(d => d.cards || []);
   const sourceCard = window.Ownership?.resolveFromPools
@@ -1110,7 +1184,9 @@ async function openCardDetail(uid, navMode, opts) {
   const card = ownedCard || sourceCard;
   const isOwned = !!ownedCard;
   const actionUid = card.uid || sourceCard.uid || (card.scryfallId ? card.scryfallId + (card.foil ? '_f' : '_n') : uid);
-  const activeDeck = decks.find(d => d.id === activeDeckId);
+  const activeDeck = typeof getActiveDeck === 'function'
+    ? getActiveDeck()
+    : decks.find(d => d.id === activeDeckId);
   const cardKey = (typeof getCardInventoryKey === 'function')
     ? getCardInventoryKey(card)
     : (card.uid || (card.scryfallId ? card.scryfallId + (card.foil ? '_f' : '_n') : ''));
@@ -1163,7 +1239,7 @@ async function openCardDetail(uid, navMode, opts) {
   };
   const leftHtml = _htmlOpenCardDetailLeftColumn(card);
   const rightHtml = _htmlOpenCardDetailRightColumn(detailCtx);
-  const showReplacements = !!activeDeckCard;
+  const showReplacements = !!activeDeckCard && _isDeckBuilderMainTabActive();
   const replacementsHtml = showReplacements ? _htmlOpenCardDetailReplacementsBlock() : '';
   const useInPlace = inspectorAlreadyOpen && fromArrowNav && _canCardDetailInspectorInPlace();
   let appliedInPlace = false;
@@ -1174,7 +1250,7 @@ async function openCardDetail(uid, navMode, opts) {
     _mountUniversalCardInspector(leftHtml, rightHtml, replacementsHtml, showReplacements);
   }
   modal.classList.add('open');
-  if (activeDeckCard && card.scryfallId && typeof _loadCardReplacements === 'function') {
+  if (showReplacements && activeDeckCard && card.scryfallId && typeof _loadCardReplacements === 'function') {
     _loadCardReplacements(card, activeDeckId, 'cardReplacementsContainer', { skipSpinner: appliedInPlace });
   }
   _setupCardDetailFaces({
@@ -1239,44 +1315,6 @@ async function _loadCardDetailDefaultTags(card) {
   }
 }
 
-function adjustActiveDeckQtyFromDetail(cardRef, delta) {
-  const deck = getActiveDeck();
-  if (!deck || !cardRef) return;
-  const card = deck.cards.find(c => {
-    const deckKey = (typeof getCardInventoryKey === 'function')
-      ? getCardInventoryKey(c)
-      : (c.uid || (c.scryfallId ? c.scryfallId + (c.foil ? '_f' : '_n') : ''));
-    return deckKey === cardRef || c.uid === cardRef || c.scryfallId === cardRef;
-  });
-  if (delta > 0) {
-    if (card) {
-      card.qty = (card.qty || 0) + 1;
-    } else {
-      const source =
-        collection.find(c => getCardInventoryKey(c) === cardRef || c.uid === cardRef || c.scryfallId === cardRef) ||
-        wishlist.find(c => getCardInventoryKey(c) === cardRef || c.uid === cardRef || c.scryfallId === cardRef);
-      if (!source) return;
-      const sourceKey = (typeof getCardInventoryKey === 'function')
-        ? getCardInventoryKey(source)
-        : (source.uid || (source.scryfallId + (source.foil ? '_f' : '_n')));
-      deck.cards.push({ ...source, uid: sourceKey, qty: 1 });
-    }
-  } else {
-    if (!card) return;
-    if ((card.qty || 1) > 1) card.qty -= 1;
-    else deck.cards = deck.cards.filter(c => c !== card);
-  }
-  save('collection');
-  renderActiveDeck();
-  const deckQtyEl = document.getElementById('detailDeckQty');
-  if (deckQtyEl) {
-    const nextQty = delta > 0
-      ? ((card?.qty || 0))
-      : (card ? (card.qty || 0) : 0);
-    deckQtyEl.textContent = String(Math.max(0, nextQty));
-  }
-}
-
 function addCardToCollectionFromDetail(uid) {
   const deckCards = decks.flatMap(d => d.cards || []);
   const sourceCard = window.Ownership?.resolveFromPools
@@ -1303,6 +1341,7 @@ function addCardToCollectionFromDetail(uid) {
   updateStats();
   openCardDetail(targetUid);
   showNotif('Added to collection');
+  _refreshDeckListIfActive();
 }
 
 function addToWishlistAnyFromDetail(uid) {
@@ -1394,7 +1433,9 @@ function _resolveActiveDeckCardForOpenDetail(uid) {
       collection.find(c => c.scryfallId === sourceCard.scryfallId)
     );
   const card = ownedCard || sourceCard;
-  const activeDeck = decks.find(d => d.id === activeDeckId);
+  const activeDeck = typeof getActiveDeck === 'function'
+    ? getActiveDeck()
+    : decks.find(d => d.id === activeDeckId);
   const cardKey = (typeof getCardInventoryKey === 'function')
     ? getCardInventoryKey(card)
     : (card.uid || (card.scryfallId ? card.scryfallId + (card.foil ? '_f' : '_n') : ''));
@@ -1407,6 +1448,7 @@ function patchOpenCardDetailDeckTags() {
   const modal = document.getElementById('cardDetailModal');
   const chipsEl = document.getElementById('cardDetailDeckTagsChips');
   if (!modal?.classList.contains('open') || !chipsEl || !_cardDetailCurrentUid) return;
+  if (!_isDeckBuilderMainTabActive()) return;
   if (typeof activeDeckIsShared !== 'undefined' && activeDeckIsShared) return;
   const { activeDeckCard } = _resolveActiveDeckCardForOpenDetail(_cardDetailCurrentUid);
   if (!activeDeckCard) return;
@@ -1434,6 +1476,7 @@ function recordCollectionEvent(type, card, delta) {
     ts: Date.now(),
     type,
     uid: card.uid || '',
+    scryfallId: card.scryfallId || '',
     name: card.name || '',
     set: card.set || '',
     setName: card.setName || '',
@@ -1456,9 +1499,146 @@ function toggleCollectionHistory() {
   if (_historyVisible) renderCollectionHistory();
 }
 
+function _collectionHistoryPackEv(ev) {
+  return btoa(JSON.stringify({
+    u: ev.uid || '',
+    s: ev.scryfallId || '',
+    f: !!ev.foil,
+    n: Math.max(1, Math.abs(Number(ev.delta)) || 1),
+  }));
+}
+
+function _collectionHistoryUnpackEv(packed) {
+  const o = JSON.parse(atob(packed));
+  return {
+    uid: o.u || '',
+    scryfallId: o.s || '',
+    foil: !!o.f,
+    delta: o.n != null ? Math.max(1, Math.abs(Number(o.n)) || 1) : 1,
+  };
+}
+
+/** Match a history row to the current collection (uid may be stale after foil changes). */
+function _historyResolveLiveCollectionCard(ev) {
+  if (ev.uid) {
+    const byUid = collection.find(c => c.uid === ev.uid);
+    if (byUid) return byUid;
+  }
+  let sid = ev.scryfallId;
+  if (!sid && ev.uid) {
+    const m = String(ev.uid).match(/^(.+)_(f|n)$/);
+    if (m) sid = m[1];
+  }
+  if (!sid) return null;
+  const wantFoil = !!ev.foil;
+  return collection.find(c => c.scryfallId === sid && !!c.foil === wantFoil)
+    || collection.find(c => c.scryfallId === sid);
+}
+
+/** Move up to `qtyToMove` copies to the other foil printing; leaves the rest on the source row. */
+function applyCollectionFoilChangePartial(uid, targetFoil, qtyToMove) {
+  const card = collection.find(c => c.uid === uid);
+  if (!card || !card.scryfallId) return null;
+  const tf = !!targetFoil;
+  if (!!card.foil === tf) return null;
+
+  const have = Math.max(0, Number(card.qty || 1));
+  const n = Math.min(Math.max(1, Number(qtyToMove || 1)), have);
+  if (n < 1 || have < 1) return null;
+
+  const targetUid = card.scryfallId + (tf ? '_f' : '_n');
+  const existing = collection.find(c => c.uid === targetUid);
+  const snapshot = { ...card };
+
+  if (have <= n) {
+    collection = collection.filter(c => c !== card);
+  } else {
+    card.qty = have - n;
+  }
+
+  if (existing) {
+    existing.qty = Math.max(0, Number(existing.qty || 0)) + n;
+    if (!existing.addedAt && snapshot.addedAt) existing.addedAt = snapshot.addedAt;
+  } else {
+    collection.push({
+      ...snapshot,
+      uid: targetUid,
+      foil: tf,
+      qty: n,
+    });
+  }
+
+  return targetUid;
+}
+
+function historyOpenCardDetailFromRow(packed) {
+  let ev;
+  try {
+    ev = _collectionHistoryUnpackEv(packed);
+  } catch (_) {
+    return;
+  }
+  const c = _historyResolveLiveCollectionCard(ev);
+  const uid = c ? c.uid : (ev.uid || '');
+  if (uid) openCardDetail(uid);
+}
+
+function historyCollectionRemoveFromRow(packed) {
+  let ev;
+  try {
+    ev = _collectionHistoryUnpackEv(packed);
+  } catch (_) {
+    return;
+  }
+  const c = _historyResolveLiveCollectionCard(ev);
+  if (!c) {
+    showNotif('That card is not in your collection anymore', true);
+    return;
+  }
+  removeFromCollection(c.uid, { skipCloseDetail: true });
+}
+
+function historyCollectionToggleFoilFromRow(packed) {
+  let ev;
+  try {
+    ev = _collectionHistoryUnpackEv(packed);
+  } catch (_) {
+    return;
+  }
+  const c = _historyResolveLiveCollectionCard(ev);
+  if (!c) {
+    showNotif('That printing is not in your collection', true);
+    return;
+  }
+  if (!c.scryfallId) {
+    showNotif('Cannot change foil for this entry', true);
+    return;
+  }
+  const wasFoil = !!c.foil;
+  const prevQty = Math.max(1, Number(c.qty || 1));
+  const cap = Math.max(1, Number(ev.delta) || 1);
+  const qtyMove = Math.min(prevQty, cap);
+  const newUid = applyCollectionFoilChangePartial(c.uid, !wasFoil, qtyMove);
+  if (!newUid) return;
+  save('collection');
+  renderCollection();
+  updateStats();
+  if (_historyVisible) renderCollectionHistory();
+  const rest = prevQty - qtyMove;
+  showNotif(
+    rest > 0
+      ? `Moved ${qtyMove}× to ${!wasFoil ? 'foil' : 'non-foil'} · ${rest}× still on this printing`
+      : `Moved ${qtyMove}× to ${!wasFoil ? 'foil' : 'non-foil'}`,
+  );
+  _refreshDeckListIfActive();
+}
+
 function renderCollectionHistory() {
   const panel = document.getElementById('collectionHistoryPanel');
   if (!panel) return;
+  const esc = typeof _escapeHistoryHtml === 'function'
+    ? _escapeHistoryHtml
+    : (s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'));
   if (!collectionHistory.length) {
     panel.innerHTML = '<div class="history-empty">No history yet — add or remove cards to see changes here.</div>';
     return;
@@ -1482,15 +1662,36 @@ function renderCollectionHistory() {
         const time  = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
                     + ' · ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
         const meta  = [ev.setName || ev.set, ev.foil ? 'Foil' : ''].filter(Boolean).join(' · ');
+        const imgSrc = ev.image ? String(ev.image).replace(/"/g, '&quot;') : '';
         const img   = ev.image
-          ? `<img class="history-card-img" src="${ev.image}" alt="" loading="lazy">`
+          ? `<img class="history-card-img" src="${imgSrc}" alt="" loading="lazy">`
           : `<div class="history-card-img-placeholder"></div>`;
-        return `<div class="history-event" onclick="openCardDetail('${ev.uid}')">
+        const live = _historyResolveLiveCollectionCard(ev);
+        const canFoil = !!(live && live.scryfallId);
+        const pack = _collectionHistoryPackEv(ev);
+        const entryQtyCap = Math.max(1, Math.abs(Number(ev.delta)) || 1);
+        const foilBtn = !live
+          ? ''
+          : (canFoil
+            ? `<button type="button" class="btn btn-outline btn-sm history-row-btn" onclick="historyCollectionToggleFoilFromRow('${pack}')" title="Moves up to ${entryQtyCap} card(s) from this log line (not your full stack)">${live.foil ? 'Non-foil' : 'Foil'}</button>`
+            : '');
+        const removeBtn = live
+          ? `<button type="button" class="btn btn-ghost btn-sm history-row-btn history-row-btn--danger" onclick="historyCollectionRemoveFromRow('${pack}')">Remove</button>`
+          : '';
+        const missing = !live
+          ? '<span class="history-not-in-coll">Not in collection</span>'
+          : '';
+        return `<div class="history-event">
           ${img}
           <div class="history-event-info">
-            <div class="history-event-name">${ev.name}</div>
-            ${meta ? `<div class="history-event-meta">${meta}</div>` : ''}
+            <button type="button" class="history-name-open-btn" onclick="historyOpenCardDetailFromRow('${pack}')">${esc(ev.name)}</button>
+            ${meta ? `<div class="history-event-meta">${esc(meta)}</div>` : ''}
             <div class="history-event-time">${time}</div>
+            ${missing}
+          </div>
+          <div class="history-event-actions">
+            ${foilBtn}
+            ${removeBtn}
           </div>
           <div class="history-event-badge ${isAdd ? 'history-add' : 'history-remove'}">${isAdd ? '+' : '−'}${ev.delta}</div>
         </div>`;
@@ -1500,6 +1701,13 @@ function renderCollectionHistory() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+
+/** Deck ownership badges use `collection` — keep the active deck list in sync when the collection pool changes. */
+function _refreshDeckListIfActive() {
+  if (typeof activeDeckId === 'undefined' || !activeDeckId) return;
+  if (typeof renderActiveDeck === 'function') renderActiveDeck();
+  if (typeof _renderDeckSearchGrid === 'function') _renderDeckSearchGrid();
+}
 
 function adjustQty(uid, delta) {
   const card = collection.find(c => c.uid === uid);
@@ -1513,43 +1721,99 @@ function adjustQty(uid, delta) {
     recordCollectionEvent(delta > 0 ? 'add' : 'remove', card, Math.abs(delta));
   }
   save('collection');
-  const el = document.getElementById('detailQty');
-  if (el) el.textContent = card.qty;
+  const elNf = document.getElementById('detailQty_nf');
+  const elF = document.getElementById('detailQty_f');
+  if (elNf || elF) {
+    const sid = card.scryfallId;
+    if (sid) {
+      const nf = _findCollectionRowByPrinting(sid, false);
+      const f = _findCollectionRowByPrinting(sid, true);
+      if (elNf) elNf.textContent = String(nf ? (nf.qty || 0) : 0);
+      if (elF) elF.textContent = String(f ? (f.qty || 0) : 0);
+    }
+  } else {
+    const el = document.getElementById('detailQty');
+    if (el) el.textContent = String(card.qty);
+  }
   renderCollection();
+  _refreshDeckListIfActive();
 }
 
-function setCardFoilFromDetail(uid, toFoil) {
-  const card = collection.find(c => c.uid === uid);
-  if (!card || !card.scryfallId) return;
-  const targetFoil = !!toFoil;
-  if (!!card.foil === targetFoil) return;
+function adjustCollectionPrintingQtyFromDetail(scryfallIdEnc, wantFoil, delta) {
+  let sid;
+  try {
+    sid = decodeURIComponent(String(scryfallIdEnc || ''));
+  } catch (_) {
+    return;
+  }
+  if (!sid) return;
+  const d = Number(delta);
+  if (!d || d !== Math.trunc(d)) return;
 
-  const targetUid = card.scryfallId + (targetFoil ? '_f' : '_n');
-  const existing = collection.find(c => c.uid === targetUid);
-  const movedQty = Math.max(1, Number(card.qty || 1));
+  const foil = !!wantFoil;
+  const targetUid = sid + (foil ? '_f' : '_n');
+  let row = _findCollectionRowByPrinting(sid, foil);
 
-  if (existing) {
-    existing.qty = Math.max(0, Number(existing.qty || 0)) + movedQty;
-    if (!existing.addedAt && card.addedAt) existing.addedAt = card.addedAt;
-    collection = collection.filter(c => c !== card);
+  if (d > 0) {
+    if (row) {
+      row.qty = Math.max(0, Number(row.qty || 0)) + d;
+      row.addedAt = Date.now();
+      recordCollectionEvent('add', row, d);
+    } else {
+      const template = _findTemplateCardForPrinting(sid);
+      if (!template) {
+        showNotif('Could not add — try from search or wishlist first', true);
+        return;
+      }
+      const newCard = {
+        ...template,
+        uid: targetUid,
+        foil,
+        qty: d,
+        addedAt: Date.now(),
+      };
+      collection.push(newCard);
+      recordCollectionEvent('add', newCard, d);
+    }
   } else {
-    card.foil = targetFoil;
-    card.uid = targetUid;
+    if (!row) return;
+    const cur = Math.max(0, Number(row.qty || 1));
+    const remove = Math.min(cur, Math.abs(d));
+    if (remove < 1) return;
+    if (cur <= remove) {
+      recordCollectionEvent('remove', row, cur);
+      collection = collection.filter(c => c !== row);
+    } else {
+      row.qty = cur - remove;
+      recordCollectionEvent('remove', row, remove);
+    }
   }
 
   save('collection');
   renderCollection();
   updateStats();
-  openCardDetail(targetUid);
-  showNotif(targetFoil ? 'Set to foil' : 'Set to non-foil');
+  _refreshDeckListIfActive();
+
+  const modal = document.getElementById('cardDetailModal');
+  if (!modal?.classList.contains('open')) return;
+
+  const preferred = _cardDetailCurrentUid
+    ? collection.find(c => c.uid === _cardDetailCurrentUid)
+    : null;
+  const fallback = _findCollectionRowByPrinting(sid, false) || _findCollectionRowByPrinting(sid, true);
+  if (preferred) refreshOpenCardDetail();
+  else if (fallback) openCardDetail(fallback.uid);
+  else closeCardDetail();
 }
 
-function removeFromCollection(uid) {
+function removeFromCollection(uid, opts = {}) {
   const card = collection.find(c => c.uid === uid);
   if (card) recordCollectionEvent('remove', card, card.qty || 1);
   collection = collection.filter(c => c.uid !== uid);
-  save('collection'); renderCollection(); closeCardDetail();
+  save('collection'); renderCollection();
+  if (!opts.skipCloseDetail) closeCardDetail();
   showNotif('Card removed from collection');
+  _refreshDeckListIfActive();
 }
 
 function toggleStarFilter(btn) {
@@ -1702,12 +1966,42 @@ async function runFindCard(q) {
     );
     if (!res.ok) { el.innerHTML = '<div style="grid-column:1/-1;padding:1rem;font-size:0.85rem;color:var(--text3)">No cards found</div>'; return; }
     const data  = await res.json();
-    const cards = (data.data || []).slice(0, 60);
+    let cards = (data.data || []).slice(0, 60);
+    // Voice modal can provide an optional set-filter predicate.
+    const voiceSetFilter =
+      typeof globalThis.getVoiceSearchSetFilterPredicate === 'function'
+        ? globalThis.getVoiceSearchSetFilterPredicate()
+        : null;
+    if (typeof voiceSetFilter === 'function') {
+      cards = cards.filter(card => {
+        try {
+          return !!voiceSetFilter(card);
+        } catch (_) {
+          return true;
+        }
+      });
+    }
     if (!cards.length) { el.innerHTML = '<div style="grid-column:1/-1;padding:1rem;font-size:0.85rem;color:var(--text3)">No cards found</div>'; return; }
 
     const foil = !!findCardFoil;
-    if (cards.some(c => getUnitMarketMaxUsdForSearchResult(c, foil) > MTG_CASH_CHING_THRESHOLD_USD)) {
-      playCashChingSound();
+    const deckBuilderVoiceMode = !!(
+      document.getElementById('voiceModal')?.classList.contains('open') &&
+      typeof voiceAddToActiveDeckMode !== 'undefined' &&
+      voiceAddToActiveDeckMode
+    );
+    if (deckBuilderVoiceMode) {
+      cards = cards
+        .map((c, idx) => {
+          const nfQty = collection.filter(x => x.uid === c.id + '_n').reduce((s, x) => s + x.qty, 0);
+          const fQty = collection.filter(x => x.uid === c.id + '_f').reduce((s, x) => s + x.qty, 0);
+          const inCollection = (nfQty + fQty) > 0;
+          return { c, idx, inCollection };
+        })
+        .sort((a, b) => {
+          if (a.inCollection !== b.inCollection) return a.inCollection ? -1 : 1;
+          return a.idx - b.idx;
+        })
+        .map(x => x.c);
     }
 
     el.innerHTML = cards.map(c => {
@@ -1717,6 +2011,8 @@ async function runFindCard(q) {
       const fQty   = collection.filter(x => x.uid === c.id + '_f').reduce((s,x)=>s+x.qty,0);
       const inColl = nfQty > 0 || fQty > 0;
       const border = inColl ? '2px solid var(--teal)' : '1px solid var(--border)';
+      const cardFilter = deckBuilderVoiceMode && !inColl ? 'grayscale(72%) opacity(0.62)' : '';
+      const titleColor = deckBuilderVoiceMode && !inColl ? 'var(--text3)' : '';
       const addUid = c.id + (findCardFoil ? '_f' : '_n');
       const newToCollection = !collection.some(x => x.uid === addUid);
       const newBadge = newToCollection
@@ -1724,7 +2020,7 @@ async function runFindCard(q) {
         : '';
       return `
         <div class="deck-search-tile" data-add="find:${c.id}" style="cursor:pointer">
-          <div data-img-wrapper style="aspect-ratio:0.715;overflow:hidden;border-radius:6px;border:${border};position:relative;transition:border-color 0.15s">
+          <div data-img-wrapper style="aspect-ratio:0.715;overflow:hidden;border-radius:6px;border:${border};position:relative;transition:border-color 0.15s;${cardFilter ? `filter:${cardFilter};` : ''}">
             ${img ? `<img src="${img}" class="find-card-results-img" alt="${c.name}" loading="lazy">`
                   : `<div style="width:100%;height:100%;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:0.68rem;padding:6px;text-align:center;color:var(--text2)">${c.name}</div>`}
             <div data-badges style="position:absolute;inset:0;pointer-events:none">
@@ -1732,7 +2028,7 @@ async function runFindCard(q) {
               ${fQty  > 0 ? `<div class="find-card-results-qty find-card-results-qty--foil">✦×${fQty}</div>` : ''}
             </div>
           </div>
-          <div class="find-card-results-name">${c.name}</div>
+          <div class="find-card-results-name" style="${titleColor ? `color:${titleColor};` : ''}">${c.name}</div>
           <div class="find-card-results-meta">${(c.set||'').toUpperCase()} #${c.collector_number}${newBadge}</div>
         </div>`;
     }).join('');
@@ -1752,7 +2048,6 @@ async function runFindCard(q) {
       tile.querySelector('[data-badges]').innerHTML =
         (nfQty > 0 ? `<div class="find-card-results-qty find-card-results-qty--nf">×${nfQty}</div>` : '') +
         (fQty  > 0 ? `<div class="find-card-results-qty find-card-results-qty--foil">✦×${fQty}</div>` : '');
-      showNotif(`Added ${qty}× ${card.name}${foil ? ' (foil)' : ''}`);
     };
   } catch(e) {
     if (e.name === 'AbortError') return;
@@ -1764,16 +2059,59 @@ function addCardToCollection(scryfallCard, qty, foil) {
   const entry = cardToEntry(scryfallCard, qty);
   entry.foil = foil;
   entry.uid  = scryfallCard.id + (foil ? '_f' : '_n');
-  const existing = collection.find(c => c.uid === entry.uid);
-  if (existing) {
-    existing.qty += qty;
-    existing.addedAt = Date.now();
-    recordCollectionEvent('add', existing, qty);
-  } else {
-    collection.push(entry);
-    recordCollectionEvent('add', entry, qty);
+  const addToCollectionThisRun = !(typeof voiceAddToActiveDeckMode !== 'undefined' && voiceAddToActiveDeckMode)
+    || (typeof voiceShouldAddCollectionInDeckMode === 'function'
+      ? voiceShouldAddCollectionInDeckMode()
+      : true);
+  if (addToCollectionThisRun) {
+    const existing = collection.find(c => c.uid === entry.uid);
+    if (existing) {
+      existing.qty += qty;
+      existing.addedAt = Date.now();
+      recordCollectionEvent('add', existing, qty);
+    } else {
+      collection.push(entry);
+      recordCollectionEvent('add', entry, qty);
+    }
   }
-  save('collection');
-  renderCollection();
-  updateStats();
+
+  let deckAddedName = '';
+  if (typeof voiceAddToActiveDeckMode !== 'undefined' && voiceAddToActiveDeckMode
+      && (typeof activeDeckIsShared === 'undefined' || !activeDeckIsShared)) {
+    const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+    if (deck) {
+      const slot = typeof findDeckCardSlot === 'function' ? findDeckCardSlot(deck, entry) : null;
+      if (slot) {
+        slot.qty += qty;
+        recordDeckEvent('add', slot, null, deck.id);
+      } else {
+        const uid = typeof getCardInventoryKey === 'function' ? getCardInventoryKey(entry) : entry.uid;
+        deck.cards.push({ ...entry, uid, qty });
+        recordDeckEvent('add', entry, null, deck.id);
+      }
+      saveActiveDeck(deck);
+      deckAddedName = deck.name || '';
+      if (typeof renderActiveDeck === 'function') renderActiveDeck();
+      if (typeof _renderDeckSearchGrid === 'function') _renderDeckSearchGrid();
+      if (typeof scheduleEDHRECRefresh === 'function') scheduleEDHRECRefresh();
+    }
+  }
+
+  if (addToCollectionThisRun) {
+    save('collection');
+    renderCollection();
+    updateStats();
+  }
+  _refreshDeckListIfActive();
+  if (deckAddedName) {
+    showNotif(
+      addToCollectionThisRun
+        ? `Added ${qty}× ${entry.name}${foil ? ' (foil)' : ''} to collection + "${deckAddedName}"`
+        : `Added ${qty}× ${entry.name}${foil ? ' (foil)' : ''} to "${deckAddedName}"`,
+    );
+  } else if (addToCollectionThisRun) {
+    showNotif(`Added ${qty}× ${entry.name}${foil ? ' (foil)' : ''} to collection`);
+  } else {
+    showNotif('Could not add card (no active deck)', true);
+  }
 }
