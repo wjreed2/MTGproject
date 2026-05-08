@@ -2853,7 +2853,7 @@ async function start() {
   const certDir  = path.join(__dirname, 'certs');
   const certFile = path.join(certDir, 'server.pem');
   const keyFile  = path.join(certDir, 'server-key.pem');
-  if (fs.existsSync(certFile) && fs.existsSync(keyFile)) {
+  if (!process.env.SESSION_SECURE && fs.existsSync(certFile) && fs.existsSync(keyFile)) {
     const tlsOpts = { cert: fs.readFileSync(certFile), key: fs.readFileSync(keyFile) };
     https.createServer(tlsOpts, app).listen(PORT, BIND_HOST, () => {
       console.log(
