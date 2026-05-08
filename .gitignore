@@ -6,4 +6,5 @@ ios/
 android/
 www/
 dist/certs/
+certs/
 vendor/playing_cards_yolov8.pt
