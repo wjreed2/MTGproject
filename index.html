@@ -478,6 +478,12 @@
               Refresh Tags
             </button>
             <div class="settings-divider"></div>
+            <div class="settings-section-label">Playtest</div>
+            <button class="btn btn-ghost btn-sm deck-menu-item" onclick="toggleDeckOptionsDropdown();openGoldfish()">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><rect x="2" y="4" width="12" height="9" rx="1.5"/><path d="M5 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1"/><path d="M8 8v0"/><circle cx="8" cy="8.5" r="1.5"/></svg>
+              Goldfish Playtest
+            </button>
+            <div class="settings-divider"></div>
             <div class="settings-section-label">Export</div>
             <button class="btn btn-ghost btn-sm deck-menu-item" onclick="toggleDeckOptionsDropdown();exportDeck()">
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><line x1="8" y1="10" x2="8" y2="2"/><path d="M5 5L8 2 11 5"/><line x1="3" y1="14" x2="13" y2="14"/></svg>
@@ -1660,6 +1666,103 @@
 </nav>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<!-- GOLDFISH PLAYTEST OVERLAY -->
+<div id="goldfishOverlay" style="display:none;position:fixed;inset:0;z-index:9000;background:var(--bg);flex-direction:column">
+
+  <!-- Header bar -->
+  <div class="gf-header">
+    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+      <button class="btn btn-outline btn-sm" onclick="_gfNewGame()" title="Reset and draw new opening hand">New Game</button>
+      <button class="btn btn-outline btn-sm" onclick="_gfDraw()" title="Draw a card">Draw</button>
+      <button class="btn btn-outline btn-sm" id="gfMulliganBtn" onclick="_gfMulligan()" title="London mulligan — draw 7, put back">Mulligan</button>
+      <button class="btn btn-outline btn-sm" onclick="_gfEndTurn()" title="Untap all and advance turn">End Turn</button>
+      <button class="btn btn-outline btn-sm" onclick="_gfScry(3)" title="Look at top 3 cards of library">Scry 3</button>
+      <button class="btn btn-outline btn-sm" onclick="_gfUntapAll()" title="Untap all permanents">Untap All</button>
+    </div>
+    <div class="gf-flash-wrap">
+      <span id="gfFlash" style="font-size:0.78rem;color:var(--teal);opacity:0;transition:opacity 0.3s;white-space:nowrap"></span>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <span style="font-size:0.72rem;color:var(--text3)" id="gfDeckLabel"></span>
+      <button class="btn btn-ghost btn-sm" onclick="closeGoldfish()" style="font-size:1rem;line-height:1;padding:2px 8px" title="Close playtest">✕</button>
+    </div>
+  </div>
+
+  <!-- Body -->
+  <div style="display:flex;flex:1;overflow:hidden">
+
+    <!-- Battlefield + hand -->
+    <div style="display:flex;flex-direction:column;flex:1;min-width:0;overflow:hidden">
+      <div id="gfBattlefield" class="gf-battlefield" onclick="_gfHideContextMenu()"></div>
+      <div class="gf-hand-area">
+        <div style="font-size:0.65rem;color:var(--text3);letter-spacing:0.06em;padding:0 8px 2px;flex-shrink:0">HAND (<span id="gfHandCount">0</span>)</div>
+        <div id="gfHand" class="gf-hand"></div>
+      </div>
+    </div>
+
+    <!-- Sidebar -->
+    <div class="gf-sidebar">
+
+      <!-- Life total -->
+      <div class="gf-side-block">
+        <div class="gf-side-label">LIFE</div>
+        <div style="display:flex;align-items:center;gap:4px">
+          <button class="gf-life-btn" onclick="_gfLifeDelta(-1)">−</button>
+          <span id="gfLifeVal" style="font-family:'Cinzel',serif;font-size:1.5rem;color:var(--gold);min-width:36px;text-align:center">20</span>
+          <button class="gf-life-btn" onclick="_gfLifeDelta(1)">+</button>
+        </div>
+        <div style="font-size:0.62rem;color:var(--text3);margin-top:2px">Turn <span id="gfTurnVal">0</span></div>
+      </div>
+
+      <!-- Library -->
+      <div class="gf-side-block gf-zone-btn" onclick="_gfClickLibrary()" title="Click to draw a card">
+        <div class="gf-side-label">LIBRARY</div>
+        <div class="gf-zone-stack">
+          <div class="gf-lib-pile"></div>
+        </div>
+        <div class="gf-zone-count"><span id="gfLibCount">0</span> cards</div>
+      </div>
+
+      <!-- Graveyard -->
+      <div class="gf-side-block gf-zone-btn" onclick="_gfClickGraveyard()" title="Click to view graveyard">
+        <div class="gf-side-label">GRAVEYARD</div>
+        <div id="gfGYPreview"></div>
+        <div class="gf-zone-count"><span id="gfGYCount">0</span> cards</div>
+      </div>
+
+      <!-- Exile -->
+      <div class="gf-side-block gf-zone-btn" onclick="_gfClickExile()" title="Click to view exile">
+        <div class="gf-side-label">EXILE</div>
+        <div id="gfExilePreview"></div>
+        <div class="gf-zone-count"><span id="gfExileCount">0</span> cards</div>
+      </div>
+
+      <!-- Command zone (Commander only) -->
+      <div class="gf-side-block" id="gfCommandZone" style="display:none">
+        <div class="gf-side-label">COMMAND ZONE</div>
+        <div class="gf-cmd-cards"></div>
+        <div style="font-size:0.6rem;color:var(--text3);margin-top:2px">Click to play</div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Context menu -->
+  <div id="gfContextMenu" class="gf-context-menu" style="display:none"></div>
+
+  <!-- Zone viewer (graveyard / exile / scry) -->
+  <div id="gfZoneViewer" class="gf-zone-viewer" style="display:none" onclick="if(event.target===this)_gfCloseZoneViewer()">
+    <div class="gf-zone-viewer-inner">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem">
+        <span id="gfZoneViewerTitle" style="font-family:'Cinzel',serif;font-size:0.85rem;color:var(--gold);letter-spacing:0.08em"></span>
+        <button class="btn btn-ghost btn-sm" onclick="_gfCloseZoneViewer()">✕</button>
+      </div>
+      <div id="gfZoneViewerGrid" class="gf-viewer-grid"></div>
+      <div style="font-size:0.72rem;color:var(--text3);margin-top:0.75rem;text-align:center">Click a card to interact with it</div>
+    </div>
+  </div>
+</div>
+
 <script src="dist/scanner-card-yolo.js"></script>
 <script src="dist/bundle.js"></script>
 <script>

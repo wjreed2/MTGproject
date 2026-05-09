@@ -8,7 +8,7 @@
     "dev": "nodemon server.js",
     "build": "npm run build:model && npm run build:ml && npm run build:bundle",
     "build:model": "python3 scripts/ensure-card-onnx.py",
-    "build:bundle": "cat js/db-client.js js/auth.js js/state.js js/api.js js/ui.js js/ownership.js js/collection.js js/sets.js js/decks.js js/browse.js js/wishlist.js js/import.js js/analytics.js js/voice.js js/games.js js/scanner.js | npx esbuild --minify > dist/bundle.js",
+    "build:bundle": "cat js/db-client.js js/auth.js js/state.js js/api.js js/ui.js js/ownership.js js/collection.js js/sets.js js/decks.js js/browse.js js/wishlist.js js/import.js js/analytics.js js/voice.js js/games.js js/scanner.js js/goldfish.js | npx esbuild --minify > dist/bundle.js",
     "build:ml": "npx esbuild js/scanner-card-yolo-onnx.js --bundle --minify --format=iife --global-name=ScnCardYolo --outfile=dist/scanner-card-yolo.js",
     "build:watch": "npm run build && nodemon --watch js --ext js --exec 'npm run build'",
     "cap:sim": "node scripts/update-cap-ip.js --sim && npx cap sync",
