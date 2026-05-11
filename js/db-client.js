@@ -236,6 +236,24 @@ function _setOnline() {
 window.addEventListener('online',  () => { if (_isOffline) _setOnline(); });
 window.addEventListener('offline', () => _setOffline());
 
+// Flush any pending save when the user navigates away or refreshes.
+// fetch with keepalive:true tells the browser to complete the request even after unload.
+window.addEventListener('beforeunload', () => {
+  if (!_saveTimer && !_dirty.size) return;
+  clearTimeout(_saveTimer);
+  _saveTimer = null;
+  if (!_dirty.size) return;
+  const toSave = new Set(_dirty);
+  _dirty.clear();
+  const root = mtgApiRoot();
+  const ko   = { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', keepalive: true };
+  if (toSave.has('decks'))      fetch(root + '/decks',       { ...ko, body: JSON.stringify(decks) }).catch(() => {});
+  if (toSave.has('collection')) fetch(root + '/collection',  { ...ko, body: JSON.stringify(collection) }).catch(() => {});
+  if (toSave.has('games'))      fetch(root + '/games',       { ...ko, body: JSON.stringify(games) }).catch(() => {});
+  if (toSave.has('wishlist'))   fetch(root + '/wishlist',    { ...ko, body: JSON.stringify(wishlist) }).catch(() => {});
+  if (toSave.has('prefs'))      fetch(root + '/preferences', { ...ko, body: JSON.stringify({ starred_sets: [...starredSets], deck_custom_tags: deckCustomTags || [] }) }).catch(() => {});
+});
+
 // ── Debounced per-deck save for shared (collaborator) decks
 const _sharedSaveTimers = {};
 function scheduleSaveSharedDeck(deck) {
