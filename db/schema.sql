@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS decks (
   format VARCHAR(50) NOT NULL DEFAULT '',
   data JSON NOT NULL,
   created_at BIGINT NOT NULL DEFAULT 0,
+  updated_at BIGINT NOT NULL DEFAULT 0,
   PRIMARY KEY (account_id, id),
   CONSTRAINT fk_decks_account FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

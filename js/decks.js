@@ -3536,8 +3536,8 @@ async function addScryfallCardToDeck(scryfallId) {
     card = cardToEntry(sc, 0);
   }
   const existing = findDeckCardSlot(deck, card);
-  if (existing) { existing.qty++; } else { deck.cards.push({ ...card, uid: getCardInventoryKey(card), qty: 1 }); }
-  recordDeckEvent('add', card);
+  if (existing) { existing.qty++; recordDeckEvent('qty_change', existing); }
+  else { const c = { ...card, uid: getCardInventoryKey(card), qty: 1 }; deck.cards.push(c); recordDeckEvent('add', c); }
   saveActiveDeck(deck); renderActiveDeck(); _renderDeckSearchGrid(); showNotif('Added ' + card.name + ' to deck');
   scheduleEDHRECRefresh();
 }
@@ -3550,8 +3550,8 @@ function addToDeck(uid) {
     : collection.find(c => c.uid === uid);
   if (!card) return;
   const existing = findDeckCardSlot(deck, card);
-  if (existing) { existing.qty++; } else { deck.cards.push({ ...card, uid: getCardInventoryKey(card), qty: 1 }); }
-  recordDeckEvent('add', card);
+  if (existing) { existing.qty++; recordDeckEvent('qty_change', existing); }
+  else { const c = { ...card, uid: getCardInventoryKey(card), qty: 1 }; deck.cards.push(c); recordDeckEvent('add', c); }
   saveActiveDeck(deck); renderActiveDeck(); _renderDeckSearchGrid(); showNotif('Added ' + card.name + ' to deck');
   scheduleEDHRECRefresh();
 }
@@ -3565,9 +3565,8 @@ function removeFromDeck(uid) {
   if (!deck) return;
   const c = deck.cards.find(c => getCardInventoryKey(c) === uid || c.uid === uid);
   if (!c) return;
-  recordDeckEvent('remove', c);
-  if (c.qty > 1) c.qty--;
-  else deck.cards = deck.cards.filter(card => card !== c);
+  if (c.qty > 1) { c.qty--; recordDeckEvent('qty_change', c); }
+  else { recordDeckEvent('remove', c); deck.cards = deck.cards.filter(card => card !== c); }
   saveActiveDeck(deck); renderActiveDeck();
   scheduleEDHRECRefresh();
 }
@@ -3579,10 +3578,10 @@ function adjustDeckCardQtyByUid(uid, delta) {
   if (!card) return;
   if (delta > 0) {
     card.qty = (card.qty || 0) + delta;
-    recordDeckEvent('add', card);
+    recordDeckEvent('qty_change', card);
   } else if ((card.qty || 1) > 1) {
     card.qty += delta;
-    recordDeckEvent('remove', card);
+    recordDeckEvent('qty_change', card);
   } else {
     recordDeckEvent('remove', card);
     deck.cards = deck.cards.filter(c => c !== card);
@@ -3636,8 +3635,8 @@ function addToSideboard(uid) {
   if (!card) return;
   if (!deck.sideboard) deck.sideboard = [];
   const existing = findSideboardCardSlot(deck, card);
-  if (existing) { existing.qty++; } else { deck.sideboard.push({ ...card, uid: getCardInventoryKey(card), qty: 1 }); }
-  recordDeckEvent('add_sb', card);
+  if (existing) { existing.qty++; recordDeckEvent('qty_change_sb', existing); }
+  else { const c = { ...card, uid: getCardInventoryKey(card), qty: 1 }; deck.sideboard.push(c); recordDeckEvent('add_sb', c); }
   saveActiveDeck(deck); renderActiveDeck(); showNotif('Added ' + card.name + ' to maybe board');
 }
 
@@ -3654,8 +3653,8 @@ async function addScryfallCardToSideboard(scryfallId) {
   }
   if (!deck.sideboard) deck.sideboard = [];
   const existing = findSideboardCardSlot(deck, card);
-  if (existing) { existing.qty++; } else { deck.sideboard.push({ ...card, uid: getCardInventoryKey(card), qty: 1 }); }
-  recordDeckEvent('add_sb', card);
+  if (existing) { existing.qty++; recordDeckEvent('qty_change_sb', existing); }
+  else { const c = { ...card, uid: getCardInventoryKey(card), qty: 1 }; deck.sideboard.push(c); recordDeckEvent('add_sb', c); }
   saveActiveDeck(deck); renderActiveDeck(); _renderDeckSearchGrid(); showNotif('Added ' + card.name + ' to maybe board');
 }
 
@@ -3676,9 +3675,8 @@ function removeFromSideboard(uid) {
   if (!deck || !deck.sideboard) return;
   const c = deck.sideboard.find(c => getCardInventoryKey(c) === uid || c.uid === uid);
   if (!c) return;
-  recordDeckEvent('remove_sb', c);
-  if (c.qty > 1) c.qty--;
-  else deck.sideboard = deck.sideboard.filter(card => card !== c);
+  if (c.qty > 1) { c.qty--; recordDeckEvent('qty_change_sb', c); }
+  else { recordDeckEvent('remove_sb', c); deck.sideboard = deck.sideboard.filter(card => card !== c); }
   saveActiveDeck(deck); renderActiveDeck();
 }
 
@@ -3689,10 +3687,10 @@ function adjustSideboardCardQtyByUid(uid, delta) {
   if (!card) return;
   if (delta > 0) {
     card.qty = (card.qty || 0) + delta;
-    recordDeckEvent('add_sb', card);
+    recordDeckEvent('qty_change_sb', card);
   } else if ((card.qty || 1) > 1) {
     card.qty += delta;
-    recordDeckEvent('remove_sb', card);
+    recordDeckEvent('qty_change_sb', card);
   } else {
     recordDeckEvent('remove_sb', card);
     deck.sideboard = deck.sideboard.filter(c => c !== card);

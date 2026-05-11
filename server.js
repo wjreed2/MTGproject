@@ -461,6 +461,9 @@ async function ensureNormalizedDeckSchema() {
     if (!(await columnExists(conn, 'decks', 'is_public'))) {
       await conn.query('ALTER TABLE decks ADD COLUMN is_public TINYINT(1) NOT NULL DEFAULT 0');
     }
+    if (!(await columnExists(conn, 'decks', 'updated_at'))) {
+      await conn.query('ALTER TABLE decks ADD COLUMN updated_at BIGINT NOT NULL DEFAULT 0');
+    }
 
     // Deck collaborators table
     await conn.query(`
@@ -1174,53 +1177,49 @@ app.put('/api/decks', requireAuth, async (req, res) => {
     const conn = await db().getConnection();
     try {
       await conn.beginTransaction();
-      await conn.query('DELETE FROM deck_card_tags WHERE account_id = ?', [accountId]);
-      await conn.query('DELETE FROM deck_cards WHERE account_id = ?', [accountId]);
-      await conn.query('DELETE FROM decks WHERE account_id = ?', [accountId]);
 
+      // 1. Upsert deck rows first — data always exists even if cards fail below
       if (normDecks.length) {
-        const ph = normDecks.map(() => '(?,?,?,?,?,?,?)').join(',');
+        const now = Date.now();
+        const ph = normDecks.map(() => '(?,?,?,?,?,?,?,?)').join(',');
         const vals = normDecks.flatMap(d => [
           accountId,
           d.id,
           (d.name || '').slice(0, 255),
           (d.format || '').slice(0, 50),
           JSON.stringify(d),
-          parseInt(d.id) || Date.now(),
+          parseInt(d.id) || now,
           d.isPublic ? 1 : 0,
+          now,
         ]);
         await conn.query(
-          `INSERT INTO decks (account_id, id, name, format, data, created_at, is_public) VALUES ${ph}`,
+          `INSERT INTO decks (account_id, id, name, format, data, created_at, is_public, updated_at) VALUES ${ph}
+           ON DUPLICATE KEY UPDATE name=VALUES(name), format=VALUES(format), data=VALUES(data), is_public=VALUES(is_public), updated_at=VALUES(updated_at)`,
           vals
         );
+      }
 
-        const cards = normDecks.flatMap(d =>
-          (d.cards || []).map((c, idx) => ({
-            deckId: d.id,
-            uid: c.uid,
-            scryfallId: c.scryfallId || null,
-            name: (c.name || '').slice(0, 255),
-            qty: c.qty ?? 1,
-            isCommander: c.isCommander ? 1 : 0,
-            sortOrder: idx,
-            data: JSON.stringify(c),
-            tags: (c.customTags || []).map(t => String(t).slice(0, 100))
-          }))
-        );
+      // 2. Per-deck: replace cards + tags (scoped DELETE avoids wiping other decks on failure)
+      const newDeckIds = normDecks.map(d => d.id);
+      for (const d of normDecks) {
+        await conn.query('DELETE FROM deck_card_tags WHERE account_id=? AND deck_id=?', [accountId, d.id]);
+        await conn.query('DELETE FROM deck_cards WHERE account_id=? AND deck_id=?', [accountId, d.id]);
+
+        const cards = (d.cards || []).map((c, idx) => ({
+          deckId: d.id,
+          uid: c.uid,
+          scryfallId: c.scryfallId || null,
+          name: (c.name || '').slice(0, 255),
+          qty: c.qty ?? 1,
+          isCommander: c.isCommander ? 1 : 0,
+          sortOrder: idx,
+          data: JSON.stringify(c),
+          tags: (c.customTags || []).map(t => String(t).slice(0, 100)),
+        }));
 
         if (cards.length) {
           const cph = cards.map(() => '(?,?,?,?,?,?,?,?,?)').join(',');
-          const cvals = cards.flatMap(c => [
-            accountId,
-            c.deckId,
-            c.uid,
-            c.scryfallId,
-            c.name,
-            c.qty,
-            c.isCommander,
-            c.sortOrder,
-            c.data,
-          ]);
+          const cvals = cards.flatMap(c => [accountId, c.deckId, c.uid, c.scryfallId, c.name, c.qty, c.isCommander, c.sortOrder, c.data]);
           await conn.query(
             `INSERT INTO deck_cards (account_id, deck_id, card_uid, scryfall_id, card_name, qty, is_commander, sort_order, card_data) VALUES ${cph}`,
             cvals
@@ -1229,13 +1228,19 @@ app.put('/api/decks', requireAuth, async (req, res) => {
           const tags = cards.flatMap(c => c.tags.map(tag => [accountId, c.deckId, c.uid, tag]));
           if (tags.length) {
             const tph = tags.map(() => '(?,?,?,?)').join(',');
-            await conn.query(
-              `INSERT INTO deck_card_tags (account_id, deck_id, card_uid, tag_name) VALUES ${tph}`,
-              tags.flat()
-            );
+            await conn.query(`INSERT INTO deck_card_tags (account_id, deck_id, card_uid, tag_name) VALUES ${tph}`, tags.flat());
           }
         }
       }
+
+      // 3. Delete decks no longer in the client state (FK cascade cleans up cards+tags)
+      if (newDeckIds.length) {
+        const idph = newDeckIds.map(() => '?').join(',');
+        await conn.query(`DELETE FROM decks WHERE account_id=? AND id NOT IN (${idph})`, [accountId, ...newDeckIds]);
+      } else {
+        await conn.query('DELETE FROM decks WHERE account_id=?', [accountId]);
+      }
+
       await conn.commit();
     } catch (e) {
       await conn.rollback();

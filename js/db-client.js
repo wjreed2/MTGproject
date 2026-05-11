@@ -277,8 +277,11 @@ function markDirty(...domains) {
 let _saveTimer = null;
 function scheduleSave() {
   clearTimeout(_saveTimer);
-  _saveTimer = setTimeout(_flushSave, 500);
+  _saveTimer = setTimeout(_flushSave, 100);
 }
+
+// Belt-and-suspenders: flush any dirty state every 30s regardless of debounce
+setInterval(() => { if (_dirty.size) _flushSave(); }, 30_000);
 
 async function _flushSave() {
   if (!_dirty.size) return;
