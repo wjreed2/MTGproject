@@ -186,13 +186,30 @@ function _gfPlayFromHand(iid) {
   }
   const card = _gfCardFromZone(iid, 'hand');
   if (!card) return;
-  // Place in battlefield at next open slot
-  const placed = _gf.battlefield.length;
-  card.x = 20 + (placed % 8) * 92;
-  card.y = 20 + Math.floor(placed / 8) * 140;
   card.tapped = false;
+  card.autoPlaced = true;
   _gf.battlefield.push(card);
+  _gfRepositionAutoPlaced();
   _gfRender();
+}
+
+function _gfRepositionAutoPlaced() {
+  if (!_gf) return;
+  const autoCards = _gf.battlefield.filter(c => c.autoPlaced);
+  if (!autoCards.length) return;
+  const bf = document.getElementById('gfBattlefield');
+  const bfW = bf ? bf.clientWidth : 800;
+  const bfH = bf ? bf.clientHeight : 500;
+  const cw = 185, ch = Math.round(185 * 1.396);
+  const gap = 8;
+  const n = autoCards.length;
+  const totalW = n * cw + (n - 1) * gap;
+  const startX = Math.max(8, (bfW - totalW) / 2);
+  const rowY = Math.max(0, bfH - ch - 10);
+  autoCards.forEach((c, i) => {
+    c.x = startX + i * (cw + gap);
+    c.y = rowY;
+  });
 }
 
 function _gfPutBackFromHand(iid) {
@@ -229,11 +246,10 @@ function _gfSendTo(iid, fromZone, toZone) {
 function _gfPlayFromZone(iid, fromZone) {
   const card = _gfCardFromZone(iid, fromZone);
   if (!card) return;
-  const placed = _gf.battlefield.length;
-  card.x = 20 + (placed % 8) * 92;
-  card.y = 20 + Math.floor(placed / 8) * 140;
   card.tapped = false;
+  card.autoPlaced = true;
   _gf.battlefield.push(card);
+  _gfRepositionAutoPlaced();
   _gfRender();
 }
 
@@ -414,15 +430,17 @@ function _gfPointerMove(e) {
   _gfDragState.moved = true;
 
   const card = _gf?.battlefield.find(c => c.iid === _gfDragState.iid);
+  if (card) card.autoPlaced = false;
   if (!card) return;
 
   const bf = document.getElementById('gfBattlefield');
   const bfRect = bf.getBoundingClientRect();
-  card.x = Math.max(0, Math.min(bfRect.width  - 80, _gfDragState.origX + dx));
-  card.y = Math.max(0, Math.min(bfRect.height - 112, _gfDragState.origY + dy));
+  card.x = Math.max(0, Math.min(bfRect.width  - 185, _gfDragState.origX + dx));
+  card.y = Math.max(0, Math.min(bfRect.height - 258, _gfDragState.origY + dy));
 
   const el = bf.querySelector(`[data-iid="${_gfDragState.iid}"]`);
   if (el) { el.style.left = card.x + 'px'; el.style.top = card.y + 'px'; el.classList.add('dragging'); }
+  _gfHighlightZones(e.clientX, e.clientY);
 }
 
 function _gfPointerUp(e) {
@@ -437,8 +455,13 @@ function _gfPointerUp(e) {
 
   const el = document.getElementById('gfBattlefield')?.querySelector(`[data-iid="${iid}"]`);
   if (el) el.classList.remove('dragging');
+  _gfClearZoneHighlights();
 
-  if (!wasMoved) _gfTap(iid);
+  if (!wasMoved) { _gfTap(iid); return; }
+
+  // Check if dropped over a zone slot
+  const hit = _gfHitZone(e.clientX, e.clientY);
+  if (hit) _gfSendTo(iid, 'battlefield', hit.toKey);
 }
 
 // ── Flash message ─────────────────────────────────────────────────────────────
@@ -470,12 +493,14 @@ function _gfCardImg(c, width = 80) {
 function _gfRenderBattlefield() {
   const bf = document.getElementById('gfBattlefield');
   if (!bf || !_gf) return;
-  bf.innerHTML = _gf.battlefield.map(c => `
+  const empty = _gf.battlefield.length === 0
+    ? `<div class="gf-bf-empty">Drag cards from your hand to play them</div>` : '';
+  bf.innerHTML = empty + _gf.battlefield.map(c => `
     <div class="gf-bf-card${c.tapped ? ' tapped' : ''}" data-iid="${c.iid}"
          style="left:${c.x}px;top:${c.y}px"
          onpointerdown="_gfBfPointerDown(event,${c.iid})"
          oncontextmenu="_gfShowContextMenu(event,${c.iid},'battlefield')">
-      ${_gfCardImg(c)}
+      ${_gfCardImg(c, 185)}
       ${c.counters > 0 ? `<div class="gf-counter-badge">+${c.counters}/+${c.counters}</div>` : ''}
     </div>`).join('');
 }
@@ -483,16 +508,162 @@ function _gfRenderBattlefield() {
 function _gfRenderHand() {
   const handEl = document.getElementById('gfHand');
   if (!handEl || !_gf) return;
+  const cards = _gf.hand;
+  const n = cards.length;
   const isPutBack = _gf.mulligansInProgress && _gf.putBackCount > 0;
-  handEl.innerHTML = _gf.hand.length
-    ? _gf.hand.map(c => `
-        <div class="gf-hand-card" title="${c.name}${isPutBack ? ' — click to put back' : ''}"
-             onclick="${isPutBack ? `_gfPutBackFromHand(${c.iid})` : `_gfPlayFromHand(${c.iid})`}"
-             oncontextmenu="_gfShowContextMenu(event,${c.iid},'hand')">
-          ${_gfCardImg(c, 72)}
-          ${isPutBack ? `<div class="gf-putback-hint">put back</div>` : ''}
-        </div>`).join('')
-    : `<div class="gf-hand-empty">No cards in hand</div>`;
+
+  if (!n) {
+    handEl.innerHTML = `<div class="gf-hand-empty">No cards in hand — click the library to draw (D)</div>`;
+    return;
+  }
+
+  const maxAngle = Math.min(30, n * 3.2);
+  const maxRise = 60; // px center cards lift above edge cards
+  const cardW = 137;
+
+  handEl.innerHTML = cards.map((c, i) => {
+    const norm  = n === 1 ? 0 : (i / (n - 1)) * 2 - 1; // -1..+1
+    const angle = norm * maxAngle;
+    const rise  = (1 - norm * norm) * maxRise; // parabolic: 0 at edges, maxRise at center
+    const zIndex = Math.round((1 - Math.abs(norm)) * n) + 1;
+    const ml = i === 0 ? '0' : '-34px';
+    return `<div class="gf-hand-card" data-iid="${c.iid}"
+      style="--angle:${angle.toFixed(1)}deg;--rise:${rise.toFixed(1)}px;z-index:${zIndex};margin-left:${ml}"
+      title="${c.name}${isPutBack ? ' — click to put back' : ' — drag to battlefield'}"
+      onpointerdown="_gfHandPointerDown(event,${c.iid})"
+      oncontextmenu="_gfShowContextMenu(event,${c.iid},'hand')">
+      ${_gfCardImg(c, cardW)}
+      ${isPutBack ? `<div class="gf-putback-hint">put back</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+// ── Drag from hand ────────────────────────────────────────────────────────────
+
+let _gfHandDragState = null;
+
+function _gfHandPointerDown(e, iid) {
+  if (e.button === 2) return;
+  e.preventDefault();
+  e.stopPropagation();
+  _gfHideContextMenu();
+
+  const card = _gf?.hand.find(c => c.iid === iid);
+  if (!card) return;
+
+  const ghost = document.createElement('div');
+  ghost.id = 'gfHandDragGhost';
+  ghost.style.cssText = `left:${e.clientX}px;top:${e.clientY}px;opacity:0`;
+  ghost.innerHTML = _gfCardImg(card, 130);
+  document.body.appendChild(ghost);
+
+  _gfHandDragState = { iid, startX: e.clientX, startY: e.clientY, moved: false };
+
+  document.addEventListener('pointermove', _gfHandPointerMove, { passive: false });
+  document.addEventListener('pointerup',   _gfHandPointerUp);
+  document.addEventListener('pointercancel', _gfHandPointerUp);
+}
+
+const _GF_ZONE_IDS = ['gfGYSlot','gfExileSlot','gfCommandZone','gfLibSlot'];
+
+function _gfHighlightZones(x, y) {
+  for (const id of _GF_ZONE_IDS) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    const r = el.getBoundingClientRect();
+    const over = x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+    el.classList.toggle('gf-zone-drop-target', over);
+  }
+}
+
+function _gfClearZoneHighlights() {
+  for (const id of _GF_ZONE_IDS) document.getElementById(id)?.classList.remove('gf-zone-drop-target');
+}
+
+function _gfHandPointerMove(e) {
+  if (!_gfHandDragState) return;
+  const dx = e.clientX - _gfHandDragState.startX;
+  const dy = e.clientY - _gfHandDragState.startY;
+  if (!_gfHandDragState.moved && Math.hypot(dx, dy) < 6) return;
+  if (!_gfHandDragState.moved) {
+    _gfHandDragState.moved = true;
+    const ghost = document.getElementById('gfHandDragGhost');
+    if (ghost) ghost.style.opacity = '1';
+    const src = document.querySelector(`#gfHand [data-iid="${_gfHandDragState.iid}"]`);
+    if (src) src.classList.add('gf-hand-dragging');
+    document.getElementById('gfBattlefield')?.classList.add('gf-bf-drop-active');
+  }
+  const ghost = document.getElementById('gfHandDragGhost');
+  if (ghost) { ghost.style.left = e.clientX + 'px'; ghost.style.top = e.clientY + 'px'; }
+  _gfHighlightZones(e.clientX, e.clientY);
+  e.preventDefault();
+}
+
+// Returns { zone, toKey } if (x,y) is over a zone slot, else null.
+// toKey is what _gfSendTo expects as the destination zone name.
+function _gfHitZone(x, y) {
+  const zones = [
+    { id: 'gfGYSlot',      toKey: 'graveyard'    },
+    { id: 'gfExileSlot',   toKey: 'exile'         },
+    { id: 'gfCommandZone', toKey: 'commandZone'   },
+    { id: 'gfLibSlot',     toKey: 'library_top'   },
+  ];
+  for (const z of zones) {
+    const el = document.getElementById(z.id);
+    if (!el) continue;
+    const r = el.getBoundingClientRect();
+    if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return z;
+  }
+  return null;
+}
+
+function _gfHandPointerUp(e) {
+  document.removeEventListener('pointermove', _gfHandPointerMove);
+  document.removeEventListener('pointerup',   _gfHandPointerUp);
+  document.removeEventListener('pointercancel', _gfHandPointerUp);
+
+  document.getElementById('gfHandDragGhost')?.remove();
+  document.getElementById('gfBattlefield')?.classList.remove('gf-bf-drop-active');
+  _gfClearZoneHighlights();
+
+  if (!_gfHandDragState) return;
+  const { iid, moved } = _gfHandDragState;
+  _gfHandDragState = null;
+
+  if (!moved) {
+    if (_gf?.mulligansInProgress && _gf.putBackCount > 0) {
+      _gfPutBackFromHand(iid);
+    } else {
+      _gfPlayFromHand(iid);
+    }
+    return;
+  }
+
+  // Check zone slots first
+  const hit = _gfHitZone(e.clientX, e.clientY);
+  if (hit) {
+    if (_gf?.mulligansInProgress) { _gfFlash('Put back cards first'); _gfRenderHand(); return; }
+    _gfSendTo(iid, 'hand', hit.toKey);
+    return;
+  }
+
+  // Then battlefield
+  const bf = document.getElementById('gfBattlefield');
+  if (!bf) { _gfRenderHand(); return; }
+  const r = bf.getBoundingClientRect();
+  if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) {
+    if (_gf?.mulligansInProgress) { _gfFlash('Put back cards first'); _gfRenderHand(); return; }
+    const card = _gfCardFromZone(iid, 'hand');
+    if (!card) return;
+    const cw = 185, ch = Math.round(185 * 1.396);
+    card.x = Math.max(0, Math.min(r.width  - cw, e.clientX - r.left  - cw / 2));
+    card.y = Math.max(0, Math.min(r.height - ch, e.clientY - r.top   - ch / 2));
+    card.tapped = false;
+    _gf.battlefield.push(card);
+    _gfRender();
+  } else {
+    _gfRenderHand();
+  }
 }
 
 function _gfRenderSidebar() {
@@ -528,38 +699,42 @@ function _gfRenderSidebar() {
     }
   }
 
-  // Command zone
+  // Command zone — always visible in the quadrant panel
   const cmdZone = document.getElementById('gfCommandZone');
   if (cmdZone) {
-    if (_gf.commandZone.length) {
-      cmdZone.style.display = 'block';
-      cmdZone.querySelector('.gf-cmd-cards').innerHTML = _gf.commandZone.map(c => `
-        <div class="gf-cmd-card" title="${c.name}"
-             oncontextmenu="_gfShowContextMenu(event,${c.iid},'commandZone')"
-             onclick="_gfPlayFromZone(${c.iid},'commandZone')">
-          ${_gfCardImg(c, 72)}
-        </div>`).join('');
-    } else {
-      cmdZone.style.display = 'none';
-    }
+    const cmds = _gf.commandZone;
+    cmdZone.querySelector('.gf-cmd-cards').innerHTML = cmds.length
+      ? cmds.map(c => `
+          <div class="gf-cmd-card" title="${c.name}"
+               oncontextmenu="_gfShowContextMenu(event,${c.iid},'commandZone')"
+               onclick="_gfPlayFromZone(${c.iid},'commandZone')">
+            ${_gfCardImg(c, 120)}
+          </div>`).join('')
+      : `<div class="gf-zone-empty-placeholder">—</div>`;
+    const cmdCount = document.getElementById('gfCmdCount');
+    if (cmdCount) cmdCount.textContent = cmds.length || '';
   }
+
+  // Library visual — dim when empty
+  const libVisual = document.getElementById('gfLibVisual');
+  if (libVisual) libVisual.style.opacity = _gf.library.length > 0 ? '1' : '0.2';
 
   // GY top card preview
   const gyPreview = document.getElementById('gfGYPreview');
   if (gyPreview) {
     const top = _gf.graveyard[_gf.graveyard.length - 1];
     gyPreview.innerHTML = top
-      ? `<div class="gf-zone-top" onclick="_gfOpenZoneViewer('graveyard',_gf.graveyard)" title="View graveyard">${_gfCardImg(top, 56)}</div>`
-      : `<div class="gf-zone-empty" onclick="_gfOpenZoneViewer('graveyard',_gf.graveyard)">GY</div>`;
+      ? `<div class="gf-zone-top">${_gfCardImg(top, 120)}</div>`
+      : `<div class="gf-zone-empty-placeholder">GY</div>`;
   }
 
-  // Exile preview
+  // Exile top card preview
   const exPreview = document.getElementById('gfExilePreview');
   if (exPreview) {
     const top = _gf.exile[_gf.exile.length - 1];
     exPreview.innerHTML = top
-      ? `<div class="gf-zone-top" onclick="_gfOpenZoneViewer('exile',_gf.exile)" title="View exile">${_gfCardImg(top, 56)}</div>`
-      : `<div class="gf-zone-empty" onclick="_gfOpenZoneViewer('exile',_gf.exile)">EX</div>`;
+      ? `<div class="gf-zone-top">${_gfCardImg(top, 120)}</div>`
+      : `<div class="gf-zone-empty-placeholder">EX</div>`;
   }
 }
 

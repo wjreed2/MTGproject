@@ -96,12 +96,24 @@ async function apiPostJson(path, body) {
   return data;
 }
 
-/** @returns {Promise<{id:number,email:string}|null>} */
+/** @returns {Promise<{id:number,email:string,role?:string,createdAt?:number,lastLoginAt?:number|null,changelogAckAt?:number|null}|null>} */
 async function authMe() {
   const res = await fetch(mtgApiRoot() + '/auth/me', { credentials: 'include' });
   if (res.status === 401) return null;
   if (!res.ok) throw new Error('Could not verify session');
   return res.json();
+}
+
+async function authFetchDigest() {
+  return apiFetch('/auth/digest');
+}
+
+async function authFetchDigestMeta() {
+  return apiFetch('/auth/digest-meta');
+}
+
+async function authChangelogAck() {
+  return apiPostJson('/auth/changelog-ack', {});
 }
 
 async function authLogin(email, password) {

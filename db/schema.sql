@@ -7,6 +7,8 @@ CREATE TABLE IF NOT EXISTS accounts (
   password_hash VARCHAR(255) NOT NULL,
   created_at BIGINT NOT NULL,
   role ENUM('user','admin') NOT NULL DEFAULT 'user',
+  last_login_at BIGINT NULL DEFAULT NULL,
+  changelog_ack_at BIGINT NULL DEFAULT NULL,
   PRIMARY KEY (id),
   UNIQUE KEY uk_accounts_email (email)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -103,4 +105,17 @@ CREATE TABLE IF NOT EXISTS preferences (
   value JSON NOT NULL,
   PRIMARY KEY (account_id, key_name),
   CONSTRAINT fk_preferences_account FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS app_changelog (
+  id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  entry_key     VARCHAR(80) NULL,
+  published_at  BIGINT NOT NULL,
+  area          VARCHAR(80) NULL,
+  title         VARCHAR(512) NOT NULL,
+  summary       TEXT NOT NULL,
+  created_at    BIGINT NOT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_app_changelog_entry_key (entry_key),
+  INDEX idx_app_changelog_published (published_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

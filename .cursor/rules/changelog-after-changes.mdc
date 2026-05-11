@@ -1,0 +1,31 @@
+---
+description: After shipping user-visible behavior, append app_changelog via npm run changelog:add
+alwaysApply: true
+---
+
+# Changelog after meaningful changes
+
+When you **complete** work that users will notice (UI, features, fixes, perf, copy, mobile, auth, API behavior), **add a release note** before ending the task.
+
+## How
+
+From repo root, with the **dev server and MySQL running** and **`CHANGELOG_INGEST_SECRET` set in `.env`**:
+
+```bash
+npm run changelog:add -- --title "Short headline" --summary "One or two sentences on what changed and why it matters." [--area "Section"]
+```
+
+- Use **`--entryKey`**: stable slug (e.g. `feature-name-2026-02`) when you might retry, so duplicates fail cleanly.
+- **`--area`**: optional — e.g. `Deck builder`, `Collection`, `General`, `Auth`.
+
+If the command fails (server down, missing secret), tell the user to run it after restart or set `CHANGELOG_INGEST_SECRET`. Do not skip documenting the change in your reply.
+
+## Skip the changelog for
+
+- Typos / comments-only / internal refactors with **no** user-visible effect  
+- Dependency bumps with no behavior change (unless security-relevant to users)  
+- Formatting-only diffs  
+
+## Prod
+
+Do **not** commit secrets. For production rows, operators use the same CLI with **`MTG_API_URL`** and Railway’s secret (see `docs/deployment-runbook.md`).

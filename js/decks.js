@@ -88,17 +88,69 @@ function _commanderStillValid(deck, newFormat) {
   if (!_isCommanderFormatName(newFormat)) return false;
   let cur = (deck.cards || []).find(c => c.isCommander);
   if (!cur && deck.commander) {
-    cur = (deck.cards || []).find(c => c.name === deck.commander);
+    const want = _normalizeCommanderNameKey(deck.commander);
+    cur = (deck.cards || []).find(c => _normalizeCommanderNameKey(c.name) === want);
   }
   return !!(cur && _deckCardEligibleCommander(cur, newFormat));
+}
+
+/** Compare commander / deck card names ignoring case, trim, DFC `//` front face, and curly quotes. */
+function _normalizeCommanderNameKey(name) {
+  return String(name || '')
+    .replace(/[\u2018\u2019\u201B]/g, "'")
+    .split('//')[0]
+    .replace(/\u2212/g, '-')
+    .trim()
+    .toLowerCase();
 }
 
 function _ensureCommanderFlagOnCard(deck) {
   let cur = (deck.cards || []).find(c => c.isCommander);
   if (!cur && deck.commander) {
-    cur = (deck.cards || []).find(c => c.name === deck.commander);
+    const want = _normalizeCommanderNameKey(deck.commander);
+    cur = (deck.cards || []).find(c => _normalizeCommanderNameKey(c.name) === want);
   }
   if (cur) cur.isCommander = true;
+}
+
+/**
+ * Reliable commander for EDHREC-style queries: `deck.commander` name wins over a lone stale
+ * `isCommander` tag; DFC/adventure names match on front face; partners merge color identity.
+ */
+function _resolveCommanderContextForEdhrec(deck) {
+  if (!deck || !Array.isArray(deck.cards)) return null;
+  _ensureCommanderFlagOnCard(deck);
+  const cards = deck.cards;
+  let tagged = cards.filter(c => c.isCommander);
+  const seen = new Set();
+  tagged = tagged.filter(c => {
+    const k = String(c.scryfallId || '').toLowerCase() || _normalizeCommanderNameKey(c.name);
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+
+  if (tagged.length >= 2) {
+    const displayName = tagged.map(c => String(c.name || '').split('//')[0].trim()).join(' · ');
+    const ciSet = new Set();
+    tagged.forEach(c => (c.colorIdentity || c.colors || []).forEach(col => ciSet.add(col)));
+    let colors = sortColorsWUBRG([...ciSet]);
+    if (!colors.length) colors = deck.commanderColorIdentity || [];
+    return { primary: tagged[0], tagged, displayName, colors };
+  }
+
+  const want = String(deck.commander || '').trim() ? _normalizeCommanderNameKey(deck.commander) : '';
+  const namePrimary = want ? cards.find(c => _normalizeCommanderNameKey(c.name) === want) : null;
+  const primary = namePrimary || tagged[0] || null;
+  const displayName = primary?.name || (String(deck.commander || '').trim() || null);
+  const ciSet = new Set();
+  (primary ? [primary] : tagged).forEach(c => {
+    if (!c) return;
+    (c.colorIdentity || c.colors || []).forEach(col => ciSet.add(col));
+  });
+  let colors = sortColorsWUBRG([...ciSet]);
+  if (!colors.length) colors = deck.commanderColorIdentity || [];
+  return { primary, tagged, displayName, colors };
 }
 
 function _formatSelectOrder() {
@@ -244,7 +296,6 @@ function _cdfTryApplyFormatStep1(deck, next) {
     _ensureCommanderFlagOnCard(deck);
     saveActiveDeck(deck);
     renderActiveDeck();
-    fetchEDHRECRecs();
     showNotif(`Deck format set to ${next}`);
     closeChangeDeckFormatModal();
     return;
@@ -258,7 +309,6 @@ function _cdfTryApplyFormatStep1(deck, next) {
     }
     saveActiveDeck(deck);
     renderActiveDeck();
-    fetchEDHRECRecs();
     showNotif(`Deck format set to ${next}`);
     closeChangeDeckFormatModal();
     return;
@@ -308,7 +358,6 @@ function changeDeckFormatPrimaryAction() {
   }
   saveActiveDeck(deck);
   renderActiveDeck();
-  fetchEDHRECRecs();
   showNotif(`Deck format set to ${deck.format}`);
   closeChangeDeckFormatModal();
 }
@@ -990,10 +1039,15 @@ async function _selectTagSettingsCandidate(candidate) {
   if (!Array.isArray(defaultTags)) {
     try {
       const r = await apiPostJson('/scryfall/tags/batch', { oracleIds: [oid], schemaVersion: _SCRY_TAG_SCHEMA_VERSION });
-      defaultTags = Array.isArray(r?.tagsByOracleId?.[oid]) ? r.tagsByOracleId[oid] : [];
-      _scryTagsByOracleId.set(oid, defaultTags);
+      const byOid = r?.tagsByOracleId || {};
+      if (Object.prototype.hasOwnProperty.call(byOid, oid)) {
+        defaultTags = Array.isArray(byOid[oid]) ? byOid[oid].filter(Boolean) : [];
+        _scryTagsByOracleId.set(oid, defaultTags);
+      } else {
+        defaultTags = await _fetchScryfallTagsForOracle(oid);
+      }
     } catch (_) {
-      defaultTags = [];
+      defaultTags = await _fetchScryfallTagsForOracle(oid);
     }
   }
   const ov = _tagOverridesByOracleId.get(oid) || { addTags: [], removeTags: [] };
@@ -1431,7 +1485,6 @@ function selectCommanderResult(resultsId, name, colorsJson, imgUrl, scryfallId) 
     saveActiveDeck(deck);
     closeCommanderEdit();
     renderDecks();
-    fetchEDHRECRecs();
     showNotif(`Commander set to ${name}`);
   }
 }
@@ -1575,8 +1628,6 @@ function selectDeck(id) {
     document.getElementById('deckHistoryBtn')?.classList.remove('active');
   }
   renderDecks();
-  renderActiveDeck();
-  if (!activeDeckIsShared) fetchEDHRECRecs();
   _enrichMissingDeckImages();
 }
 
@@ -1677,6 +1728,8 @@ function renderActiveDeck() {
   renderProbabilityChart(deck);
   renderDeckValidation(deck);
   renderCollaboratorsPanel(deck);
+  _simAutoLoad();
+  if (!activeDeckIsShared) scheduleEDHRECRefresh(0);
 }
 
 // ── Collaborators panel ───────────────────────────────────────────────────────
@@ -1869,10 +1922,15 @@ async function _hydrateDeckCardTagPickerDefaults(card) {
   if (!Array.isArray(defaultTags)) {
     try {
       const r = await apiPostJson('/scryfall/tags/batch', { oracleIds: [oid], schemaVersion: _SCRY_TAG_SCHEMA_VERSION });
-      defaultTags = Array.isArray(r?.tagsByOracleId?.[oid]) ? r.tagsByOracleId[oid] : [];
-      _scryTagsByOracleId.set(oid, defaultTags);
+      const byOid = r?.tagsByOracleId || {};
+      if (Object.prototype.hasOwnProperty.call(byOid, oid)) {
+        defaultTags = Array.isArray(byOid[oid]) ? byOid[oid].filter(Boolean) : [];
+        _scryTagsByOracleId.set(oid, defaultTags);
+      } else {
+        defaultTags = await _fetchScryfallTagsForOracle(oid);
+      }
     } catch (_) {
-      defaultTags = [];
+      defaultTags = await _fetchScryfallTagsForOracle(oid);
     }
   }
   const ov = _tagOverridesByOracleId.get(oid) || { addTags: [], removeTags: [] };
@@ -2501,15 +2559,179 @@ function renderDeckList(deck) {
   _bindDeckTagGroupHoverLinking(el, deckGroupBy === 'custom_tag');
 }
 
+/** CMC-bucket (0–7+) non-land mana curve targets by format — normalized in caller. */
+const _IDEAL_MANA_BASE_BY_FORMAT = {
+  Commander:   [0.06, 0.13, 0.20, 0.20, 0.16, 0.12, 0.08, 0.05],
+  Brawl:       [0.06, 0.15, 0.22, 0.22, 0.15, 0.10, 0.06, 0.04],
+  Oathbreaker: [0.06, 0.15, 0.22, 0.22, 0.15, 0.10, 0.06, 0.04],
+  Standard:    [0.05, 0.14, 0.22, 0.22, 0.18, 0.12, 0.05, 0.02],
+  Pioneer:     [0.05, 0.14, 0.22, 0.22, 0.18, 0.12, 0.05, 0.02],
+  Modern:      [0.05, 0.14, 0.22, 0.22, 0.18, 0.12, 0.05, 0.02],
+  Legacy:      [0.05, 0.13, 0.21, 0.22, 0.18, 0.13, 0.06, 0.02],
+  Vintage:     [0.05, 0.13, 0.21, 0.22, 0.18, 0.13, 0.06, 0.02],
+  Pauper:      [0.06, 0.16, 0.24, 0.22, 0.14, 0.10, 0.06, 0.02],
+  Draft:       [0.08, 0.18, 0.24, 0.20, 0.14, 0.10, 0.04, 0.02],
+  Sealed:      [0.08, 0.18, 0.24, 0.20, 0.14, 0.10, 0.04, 0.02],
+};
+
+function _idealManaBaseForFormat(format) {
+  const f = String(format || '');
+  if (_IDEAL_MANA_BASE_BY_FORMAT[f]) return _IDEAL_MANA_BASE_BY_FORMAT[f].slice();
+  return _IDEAL_MANA_BASE_BY_FORMAT.Commander.slice();
+}
+
+function _normalizePositive(arr) {
+  const s = arr.reduce((a, v) => a + Math.max(0, v), 0);
+  if (s <= 0) return arr.map(() => 1 / arr.length);
+  return arr.map(v => Math.max(0, v) / s);
+}
+
+function _deckLandQtyForManaIdeal(deck) {
+  return (deck.cards || []).reduce((s, c) => {
+    if (_isLandDeckCard(c)) return s + (c.qty || 1);
+    return s;
+  }, 0);
+}
+
+function _deckRampScoreForManaIdeal(deck) {
+  let score = 0;
+  (deck.cards || []).forEach(c => {
+    if (_isLandDeckCard(c)) return;
+    const txt = String(c.oracleText || '').toLowerCase();
+    const t = String(c.type || '').toLowerCase();
+    const q = c.qty || 1;
+    if (txt.includes('create a treasure')) score += 0.65 * q;
+    if (/\badd\s+\{/.test(txt) || txt.includes('add one mana') || txt.includes('add two mana') || txt.includes('add three mana')) {
+      score += t.includes('creature') || t.includes('artifact') ? 0.85 * q : 0.35 * q;
+    }
+    if (txt.includes('search your library') && (txt.includes('land') || txt.includes('basic'))) score += 0.45 * q;
+    const tags = [...(c.customTags || [])].map(x => String(x).toLowerCase());
+    if (tags.includes('ramp')) score += 0.5 * q;
+  });
+  return score;
+}
+
+function _commanderCardForManaIdeal(deck) {
+  if (!deck || !_isCommanderFormatName(deck.format || '')) return null;
+  let c = (deck.cards || []).find(x => x.isCommander);
+  if (!c && deck.commander) {
+    const want = _normalizeCommanderNameKey(deck.commander);
+    c = (deck.cards || []).find(x => _normalizeCommanderNameKey(x.name) === want);
+  }
+  return c || null;
+}
+
+function _computeIdealManaSpeed(deck, landQty, spellQty) {
+  const mode = String(deck.manaIdealArchetype || 'auto').toLowerCase();
+  const fixed = { aggro: 14, balanced: 48, mid: 62, control: 88 };
+  if (fixed[mode] != null) return { speed: fixed[mode], auto: false };
+
+  let speed = 50;
+  const spellN = Math.max(1, spellQty);
+  const mainTotal = landQty + spellN;
+  const landPct = mainTotal > 0 ? landQty / mainTotal : 0.36;
+
+  if (landPct > 0.38) speed += Math.min(24, (landPct - 0.38) * 140);
+  if (landPct < 0.32) speed -= Math.min(22, (0.32 - landPct) * 120);
+
+  const ramp = _deckRampScoreForManaIdeal(deck);
+  speed += Math.min(20, ramp * 2.1);
+
+  if (_isCommanderFormatName(deck.format || '')) {
+    const cmd = _commanderCardForManaIdeal(deck);
+    const cc = Number(cmd?.cmc);
+    if (Number.isFinite(cc)) speed += (cc - 4) * 5.5;
+  }
+
+  return { speed: Math.max(0, Math.min(100, speed)), auto: true };
+}
+
+function _shapeIdealManaWeights(base, speed01) {
+  const s = Math.max(0, Math.min(1, speed01));
+  const peakIdx = 2.05 + s * 2.95;
+  const sigma = 1.42;
+  const gauss = [0, 1, 2, 3, 4, 5, 6, 7].map(i => Math.exp(-0.5 * Math.pow((i - peakIdx) / sigma, 2)));
+  const gSum = gauss.reduce((a, b) => a + b, 0) || 1;
+  const gn = gauss.map(x => x / gSum);
+  const t = 0.26 + 0.52 * s;
+  const mix = base.map((b, i) => (1 - t) * b + t * gn[i]);
+  return _normalizePositive(mix);
+}
+
+function _computeIdealManaCurveContext(deck, counts) {
+  const nonlandTotal = counts.reduce((s, n) => s + n, 0);
+  const landQty = _deckLandQtyForManaIdeal(deck);
+  const base = _idealManaBaseForFormat(deck.format);
+  const { speed, auto } = _computeIdealManaSpeed(deck, landQty, nonlandTotal);
+  const idealWeights = _shapeIdealManaWeights(base, speed / 100);
+  const ideal = idealWeights.map(w => nonlandTotal * w);
+  const parts = [];
+  parts.push(`${deck.format || 'Deck'} baseline`);
+  parts.push(auto ? `auto speed ${Math.round(speed)}` : `${deck.manaIdealArchetype} (${Math.round(speed)})`);
+  if (landQty) parts.push(`${landQty} lands`);
+  const ramp = _deckRampScoreForManaIdeal(deck);
+  if (ramp > 0.4) parts.push(`ramp score ${ramp.toFixed(1)}`);
+  const cmd = _commanderCardForManaIdeal(deck);
+  if (cmd && Number.isFinite(Number(cmd.cmc))) parts.push(`cmd CMC ${cmd.cmc}`);
+  return {
+    idealWeights,
+    ideal,
+    nonlandTotal,
+    speed,
+    auto,
+    summary: parts.join(' · '),
+  };
+}
+
+function _renderManaIdealControls(deck) {
+  const wrap = document.getElementById('manaIdealControls');
+  if (!wrap) return;
+  if (!deck) {
+    wrap.innerHTML = '';
+    wrap.style.display = 'none';
+    return;
+  }
+  wrap.style.display = '';
+  const mode = String(deck.manaIdealArchetype || 'auto');
+  const landQty = _deckLandQtyForManaIdeal(deck);
+  const spellQty = (deck.cards || []).reduce((s, c) => (s + (_isLandDeckCard(c) ? 0 : (c.qty || 1))), 0);
+  const { speed, auto } = _computeIdealManaSpeed(deck, landQty, spellQty);
+  const hint = auto
+    ? `Ideal curve uses format, lands (${landQty}), ramp, and commander CMC. Speed ≈ ${Math.round(speed)}/100.`
+    : `Fixed “${mode}” curve (${Math.round(speed)}/100). Pick Auto to derive from this deck.`;
+  const sharedNote = activeDeckIsShared ? ' <span class="mana-ideal-shared-note">(shared — view only)</span>' : '';
+  const disabled = activeDeckIsShared ? ' disabled' : '';
+  const onchg = activeDeckIsShared ? '' : ' onchange="onManaIdealArchetypeChange(this.value)"';
+  wrap.innerHTML = `
+    <label for="manaIdealArchetypeSelect">Ideal curve</label>
+    <select id="manaIdealArchetypeSelect"${onchg}${disabled}>
+      <option value="auto" ${mode === 'auto' ? 'selected' : ''}>Auto</option>
+      <option value="aggro" ${mode === 'aggro' ? 'selected' : ''}>Aggro</option>
+      <option value="balanced" ${mode === 'balanced' ? 'selected' : ''}>Balanced</option>
+      <option value="mid" ${mode === 'mid' ? 'selected' : ''}>Mid</option>
+      <option value="control" ${mode === 'control' ? 'selected' : ''}>Control</option>
+    </select>
+    <span class="mana-ideal-hint" title="${String(hint).replace(/"/g, '&quot;')}">${hint}${sharedNote}</span>`;
+}
+
+function onManaIdealArchetypeChange(val) {
+  const deck = getActiveDeck();
+  if (!deck || activeDeckIsShared) return;
+  const v = String(val || 'auto').toLowerCase();
+  const ok = new Set(['auto', 'aggro', 'balanced', 'mid', 'control']);
+  deck.manaIdealArchetype = ok.has(v) ? v : 'auto';
+  saveActiveDeck(deck);
+  renderManaCurve(deck);
+}
+
 function renderManaCurve(deck) {
+  _renderManaIdealControls(deck);
   const el = document.getElementById('manaCurve');
   const buckets = [0,1,2,3,4,5,6,7];
   const counts = buckets.map(cmc =>
-    deck.cards.filter(c => !c.type?.toLowerCase().includes('land') && Math.round(c.cmc) === cmc).reduce((s,c) => s+c.qty, 0)
+    deck.cards.filter(c => !_isLandDeckCard(c) && Math.round(c.cmc) === cmc).reduce((s,c) => s+c.qty, 0)
   );
-  const idealWeights = [0.06, 0.13, 0.2, 0.2, 0.16, 0.12, 0.08, 0.05];
-  const nonlandTotal = counts.reduce((s, n) => s + n, 0);
-  const ideal = idealWeights.map(w => nonlandTotal * w);
+  const { idealWeights, ideal, nonlandTotal, summary } = _computeIdealManaCurveContext(deck, counts);
   const actualNorm = nonlandTotal > 0 ? counts.map(n => n / nonlandTotal) : counts.map(() => 0);
   const l1 = actualNorm.reduce((sum, n, i) => sum + Math.abs(n - idealWeights[i]), 0);
   const fit = Math.max(0, Math.min(1, 1 - (l1 / 2)));
@@ -2589,8 +2811,8 @@ function renderManaCurve(deck) {
   el.innerHTML = `
     <div class="hist-line-wrap" style="--curve-color:${fitColor}">
       <div class="hist-line-meta">
-        <span class="hist-fit-label">Fit</span>
-        <span class="hist-fit-value">${fitPct}%</span>
+        <span class="hist-fit-label" title="${String(summary || '').replace(/"/g, '&quot;')}">Fit</span>
+        <span class="hist-fit-value" title="${String(summary || '').replace(/"/g, '&quot;')}">${fitPct}%</span>
       </div>
       <svg class="hist-line-svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMidYMid meet" aria-label="Mana curve">
         <line x1="${pad.l}" y1="${pad.t}" x2="${pad.l}" y2="${h - pad.b}" class="hist-axis-line"></line>
@@ -3663,8 +3885,9 @@ function syncDeckAutoRoleTags(deck) {
 async function _resolveOracleIdForCard(card) {
   if (!card) return null;
   if (card.oracleId && _isUuidLike(card.oracleId)) {
-    const needsTypeHydrate = !_isLandDeckCard(card) && !card?.type && !card?.typeLine && !card?.type_line;
-    if (!needsTypeHydrate) return card.oracleId;
+    const hasType = !!(card?.type || card?.typeLine || card?.type_line) || _isLandDeckCard(card);
+    const hasCmc = card.cmc !== undefined && card.cmc !== null;
+    if (hasType && hasCmc) return card.oracleId;
   }
   if (card.oracleId && !_isUuidLike(card.oracleId)) card.oracleId = null;
 
@@ -3702,6 +3925,8 @@ async function _resolveOracleIdForCard(card) {
       if (!card.type && sc?.type_line) card.type = sc.type_line;
       if (!card.typeLine && sc?.type_line) card.typeLine = sc.type_line;
       if (!card.oracleText && sc?.oracle_text) card.oracleText = sc.oracle_text;
+      if (typeof sc?.cmc === 'number') card.cmc = sc.cmc;
+      if (sc?.mana_cost && !String(card.mana || '').trim()) card.mana = sc.mana_cost;
       if ((!Array.isArray(card.cardFaces) || !card.cardFaces.length) && Array.isArray(sc?.card_faces)) {
         card.cardFaces = sc.card_faces.map(f => ({
           name: f?.name || '',
@@ -3751,7 +3976,6 @@ async function _fetchScryfallTagsForOracle(oracleId) {
 async function _fetchScryfallTagsForDeckOracleIds(oracleIds) {
   const ids = [...new Set((oracleIds || []).filter(_isUuidLike))];
   const out = new Map();
-  ids.forEach(oid => out.set(oid, _scryTagsByOracleId.get(oid) || []));
   if (!ids.length) return out;
   try {
     const r = await apiPostJson('/scryfall/tags/batch', {
@@ -3760,6 +3984,7 @@ async function _fetchScryfallTagsForDeckOracleIds(oracleIds) {
     });
     const byOid = r?.tagsByOracleId || {};
     ids.forEach(oid => {
+      if (!Object.prototype.hasOwnProperty.call(byOid, oid)) return;
       const arr = Array.isArray(byOid[oid]) ? byOid[oid].filter(Boolean) : [];
       out.set(oid, arr);
       _scryTagsByOracleId.set(oid, arr);
@@ -3790,9 +4015,8 @@ async function _refreshDeckScryfallTags(deck) {
   for (const c of cards) {
     const oid = oidByCard.get(c);
     if (!oid) continue;
-    let hits = batchTags.get(oid);
-    if (!Array.isArray(hits)) {
-      hits = await _fetchScryfallTagsForOracle(oid);
+    if (!batchTags.has(oid)) {
+      await _fetchScryfallTagsForOracle(oid);
     }
   }
   const changed = syncDeckAutoRoleTags(deck);
@@ -4369,11 +4593,39 @@ async function exportDeck() {
 let _edhrecAbort = null;
 let _edhrecRefreshTimer = null;
 let _ownedSuggestionCandidates = null;
+/** EDHREC panel: `'nonlands'` (default) or `'lands'` — applied as Scryfall `-t:land` / `t:land`. */
+let _edhrecLandFilter = 'nonlands';
 
-function scheduleEDHRECRefresh(delay = 120) {
+/** Completed Scryfall search results by full query string (LRU). Revisit = instant; grouping uses live deck/collection. */
+let _edhrecSearchCache = new Map();
+const _EDHREC_SEARCH_CACHE_MAX = 28;
+
+function _edhrecSearchCacheSet(query, cards) {
+  if (_edhrecSearchCache.has(query)) _edhrecSearchCache.delete(query);
+  _edhrecSearchCache.set(query, cards);
+  while (_edhrecSearchCache.size > _EDHREC_SEARCH_CACHE_MAX) {
+    const k = _edhrecSearchCache.keys().next().value;
+    _edhrecSearchCache.delete(k);
+  }
+}
+
+/** Debounced refresh when the theme `<select>` changes — avoids stacked requests against the server’s ~100ms Scryfall spacing. */
+function scheduleEDHRECThemeRefresh() {
+  scheduleEDHRECRefresh(220);
+}
+
+function setEdhrecLandFilter(mode) {
+  const next = mode === 'lands' ? 'lands' : 'nonlands';
+  if (_edhrecLandFilter === next) return;
+  _edhrecLandFilter = next;
+  document.querySelectorAll('.edhrec-land-toggle button[data-edhrec-land]').forEach(btn => {
+    btn.classList.toggle('active', btn.getAttribute('data-edhrec-land') === _edhrecLandFilter);
+  });
+  scheduleEDHRECRefresh(0);
+}
+
+function scheduleEDHRECRefresh(delay = 16) {
   if (activeDeckIsShared || !activeDeckId) return;
-  const panel = document.getElementById('edhrecResults');
-  if (!panel) return;
   if (_edhrecRefreshTimer) clearTimeout(_edhrecRefreshTimer);
   _edhrecRefreshTimer = setTimeout(() => {
     _edhrecRefreshTimer = null;
@@ -4444,6 +4696,48 @@ function openOwnedRecommendationPicker(cardName, candidates) {
   document.getElementById('versionPickerModal').classList.add('open');
 }
 
+function _paintEdhrecRecsPanel(el, deck, cards) {
+  if (!cards.length) {
+    el.innerHTML = '<div style="padding:1.5rem;text-align:center;color:var(--text3);font-size:0.85rem">No suggestions found</div>';
+    return;
+  }
+
+  const ownedById = {};
+  const ownedByName = {};
+  collection.forEach(c => {
+    ownedById[c.scryfallId] = c;
+    const key = c.name.toLowerCase();
+    if (!ownedByName[key]) ownedByName[key] = c;
+  });
+  const inDeckIds = new Set(deck?.cards.map(c => c.scryfallId) || []);
+  const inDeckNames = new Set(deck?.cards.map(c => c.name.toLowerCase()) || []);
+
+  const getOwned = c => ownedById[c.id] || ownedByName[c.name.toLowerCase()];
+
+  const ownedAvailable = cards.filter(c => {
+    const own = getOwned(c);
+    if (!own) return false;
+    if (inDeckIds.has(c.id) || inDeckNames.has(c.name.toLowerCase())) return false;
+    return getInventoryBreakdown(own, deck.id).available > 0;
+  });
+  const ownedAllocated = cards.filter(c => {
+    const own = getOwned(c);
+    if (!own) return false;
+    if (inDeckIds.has(c.id) || inDeckNames.has(c.name.toLowerCase())) return false;
+    return getInventoryBreakdown(own, deck.id).available <= 0;
+  });
+  const unowned = cards.filter(c => !getOwned(c) && !inDeckIds.has(c.id) && !inDeckNames.has(c.name.toLowerCase()));
+  const inDeck = cards.filter(c => inDeckIds.has(c.id) || inDeckNames.has(c.name.toLowerCase()));
+
+  el.innerHTML =
+    renderRecSection('Available in Collection', ownedAvailable, true, getOwned) +
+    renderRecSection('Owned but Fully Allocated', ownedAllocated, true, getOwned) +
+    renderRecSection('Not in Collection', unowned, false, getOwned) +
+    (inDeck.length
+      ? `<div style="padding:6px 10px;font-size:0.7rem;color:var(--text3);border-top:1px solid var(--border);background:var(--bg3)">${inDeck.length} suggestion${inDeck.length !== 1 ? 's' : ''} already in deck</div>`
+      : '');
+}
+
 async function fetchEDHRECRecs() {
   const deck = typeof getActiveDeck === 'function'
     ? getActiveDeck()
@@ -4451,85 +4745,66 @@ async function fetchEDHRECRecs() {
   const el = document.getElementById('edhrecResults');
   if (!el) return;
 
-  const commanderCard = deck?.cards?.find(c => c.isCommander)
-    || deck?.cards?.find(c => String(c?.name || '').toLowerCase() === String(deck?.commander || '').toLowerCase());
-  const commanderName = commanderCard?.name || deck?.commander;
+  const cmdCtx = _resolveCommanderContextForEdhrec(deck);
+  const commanderName = String(cmdCtx?.displayName || '').trim();
   if (!commanderName) {
     el.innerHTML = '<div style="padding:1.5rem;text-align:center;color:var(--text3);font-size:0.85rem">Set a commander to see recommendations</div>';
     return;
   }
 
-  // Cancel any in-flight request
+  const theme = document.getElementById('edhrecThemeSelect')?.value || '';
+  let colors = cmdCtx?.colors?.length ? cmdCtx.colors : (deck?.commanderColorIdentity || []);
+  const idQ = colors.length > 0 ? `id<=${colors.join('')}` : '';
+  const typeFilters = {
+    artifacts: 't:artifact',
+    tokens: 't:enchantment o:token',
+    graveyard: 'o:graveyard',
+    counters: 'o:counter',
+    lifegain: '(o:lifelink OR o:"gain life")',
+    ramp: '(o:ramp OR (o:"add" t:land))',
+  };
+  const themeQ = theme && typeFilters[theme] ? typeFilters[theme] : '(r:rare OR r:mythic)';
+  const landQ = _edhrecLandFilter === 'lands' ? 't:land' : '-t:land';
+  const query = [idQ, themeQ, landQ, 'not:extra', '-t:basic'].filter(Boolean).join(' ');
+
+  const cached = _edhrecSearchCache.get(query);
+  if (cached) {
+    _paintEdhrecRecsPanel(el, deck, cached);
+    return;
+  }
+
   if (_edhrecAbort) _edhrecAbort.abort();
   _edhrecAbort = new AbortController();
   const signal = _edhrecAbort.signal;
 
-  const theme = document.getElementById('edhrecThemeSelect').value;
-  el.innerHTML = '<div style="padding:1rem;display:flex;align-items:center;gap:8px;color:var(--text2)"><div class="spinner"></div> Fetching suggestions…</div>';
-
-  // Color identity: prefer whichever card is currently tagged commander.
-  let colors = commanderCard?.colorIdentity || commanderCard?.colors || deck?.commanderColorIdentity || [];
-
-  // Build Scryfall query — id<=WUBRG means "within this color identity"
-  const idQ    = colors.length > 0 ? `id<=${colors.join('')}` : '';
-  const typeFilters = {
-    artifacts: 't:artifact',
-    tokens:    't:enchantment o:token',
-    graveyard: 'o:graveyard',
-    counters:  'o:counter',
-    lifegain:  '(o:lifelink OR o:"gain life")',
-    ramp:      '(o:ramp OR (o:"add" t:land))',
-  };
-  const themeQ = theme && typeFilters[theme] ? typeFilters[theme] : '(r:rare OR r:mythic)';
-  const query  = [idQ, themeQ, 'not:extra', '-t:basic'].filter(Boolean).join(' ');
+  const cmdLabel = String(commanderName).split('//')[0].trim();
+  const cmdSafe = cmdLabel.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+  el.innerHTML = `<div style="padding:1rem;display:flex;flex-direction:column;gap:6px;color:var(--text2)"><div style="display:flex;align-items:center;gap:8px"><div class="spinner"></div> Fetching suggestions…</div><div style="font-size:0.72rem;color:var(--text3);padding-left:26px">Commander: ${cmdSafe}</div></div>`;
 
   try {
-    const res = await fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(query)}&order=edhrec&unique=cards`, { signal });
-    if (!res.ok) throw new Error('Scryfall error');
-    const data = await res.json();
-    const cards = (data.data || []).slice(0, 40);
-
-    // Index collection by both scryfallId and lowercase name (any printing counts)
-    const ownedById   = {};
-    const ownedByName = {};
-    collection.forEach(c => {
-      ownedById[c.scryfallId] = c;
-      const key = c.name.toLowerCase();
-      if (!ownedByName[key]) ownedByName[key] = c; // keep first found
-    });
-    const inDeckIds   = new Set(deck?.cards.map(c => c.scryfallId) || []);
-    const inDeckNames = new Set(deck?.cards.map(c => c.name.toLowerCase()) || []);
-
-    const getOwned = c => ownedById[c.id] || ownedByName[c.name.toLowerCase()];
-
-    const ownedAvailable = cards.filter(c => {
-      const own = getOwned(c);
-      if (!own) return false;
-      if (inDeckIds.has(c.id) || inDeckNames.has(c.name.toLowerCase())) return false;
-      return getInventoryBreakdown(own, deck.id).available > 0;
-    });
-    const ownedAllocated = cards.filter(c => {
-      const own = getOwned(c);
-      if (!own) return false;
-      if (inDeckIds.has(c.id) || inDeckNames.has(c.name.toLowerCase())) return false;
-      return getInventoryBreakdown(own, deck.id).available <= 0;
-    });
-    const unowned = cards.filter(c => !getOwned(c) && !inDeckIds.has(c.id) && !inDeckNames.has(c.name.toLowerCase()));
-    const inDeck  = cards.filter(c => inDeckIds.has(c.id) || inDeckNames.has(c.name.toLowerCase()));
-
-    if (!cards.length) {
-      el.innerHTML = '<div style="padding:1.5rem;text-align:center;color:var(--text3);font-size:0.85rem">No suggestions found</div>';
-      return;
+    const res = await fetch(
+      `/api/scryfall/search?q=${encodeURIComponent(query)}&order=edhrec&unique=cards&skipTcg=1`,
+      { signal },
+    );
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      if (res.status === 404) {
+        _edhrecSearchCacheSet(query, []);
+        el.innerHTML = '<div style="padding:1.5rem;text-align:center;color:var(--text3);font-size:0.85rem">No suggestions found</div>';
+        return;
+      }
+      throw new Error(data?.error || `Search failed (${res.status})`);
     }
-
-    el.innerHTML =
-      renderRecSection('Available in Collection', ownedAvailable, true,  getOwned) +
-      renderRecSection('Owned but Fully Allocated', ownedAllocated, true, getOwned) +
-      renderRecSection('Not in Collection',  unowned, false, getOwned) +
-      (inDeck.length ? `<div style="padding:6px 10px;font-size:0.7rem;color:var(--text3);border-top:1px solid var(--border);background:var(--bg3)">${inDeck.length} suggestion${inDeck.length!==1?'s':''} already in deck</div>` : '');
-  } catch(e) {
+    const cards = (data.data || []).slice(0, 40);
+    _edhrecSearchCacheSet(query, cards);
+    _paintEdhrecRecsPanel(el, deck, cards);
+  } catch (e) {
     if (e.name === 'AbortError') return; // superseded by a newer request
-    el.innerHTML = '<div style="padding:1rem;color:var(--red);font-size:0.82rem">Failed to load — check connection.</div>';
+    const detail = String(e?.message || 'check connection')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/"/g, '&quot;');
+    el.innerHTML = `<div style="padding:1rem;color:var(--red);font-size:0.82rem">Failed to load — ${detail}</div>`;
   }
 }
 
@@ -4575,7 +4850,7 @@ function renderRecSection(title, cards, owned, getOwned) {
 
     const inspectId = (uid || c.id || '').replace(/'/g, "\\'");
     return `<div class="rec-card-row" style="${owned ? 'background:rgba(61,184,160,0.03)' : ''};cursor:pointer"
-      onclick="openCardDetail('${inspectId}','collection')">
+      onclick="openCardDetail('${inspectId}')">
       ${img ? `<img src="${img}" style="width:74px;border-radius:6px;flex-shrink:0;${owned ? 'box-shadow:0 0 0 1px rgba(61,184,160,0.3)' : ''}" alt="">` : ''}
       <div style="flex:1;min-width:0">
         <div style="font-size:0.98rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
@@ -4629,10 +4904,25 @@ function _hideCardHoverPreview() {
   if (preview) preview.style.opacity = '0';
 }
 
-function _buildReplacementQuery(card, deck) {
-  const cmdCard = deck?.cards?.find(c => c.isCommander)
-    || deck?.cards?.find(c => String(c?.name || '').toLowerCase() === String(deck?.commander || '').toLowerCase());
-  let colors = cmdCard?.colorIdentity || cmdCard?.colors || deck?.commanderColorIdentity || [];
+/** Lowercased oracle text from all faces (better auto-match on MDFC / adventures). */
+function _replacementOracleBlob(card) {
+  const chunks = [];
+  if (card?.oracleText) chunks.push(String(card.oracleText));
+  const faces = Array.isArray(card?.cardFaces)
+    ? card.cardFaces
+    : (Array.isArray(card?.card_faces) ? card.card_faces : []);
+  for (const f of faces) {
+    const t = f?.oracleText || f?.oracle_text;
+    if (t) chunks.push(String(t));
+  }
+  return chunks.join('\n\n').toLowerCase();
+}
+
+function _buildReplacementQuery(card, deck, refineKey) {
+  const cmdCtx = _resolveCommanderContextForEdhrec(deck);
+  let colors = (cmdCtx?.colors && cmdCtx.colors.length)
+    ? cmdCtx.colors
+    : (deck?.commanderColorIdentity || []);
   const idQ = colors.length > 0 ? `id<=${colors.join('')}` : '';
 
   const cardType = _probCardType(card.type || '');
@@ -4641,49 +4931,140 @@ function _buildReplacementQuery(card, deck) {
     Instant: 't:instant', Sorcery: 't:sorcery', Enchantment: 't:enchantment', Artifact: 't:artifact',
   };
   const typeQ = typeMap[cardType] || '';
+  const tailParts = ['not:extra', '-t:basic'];
+  const headParts = [idQ, typeQ].filter(Boolean);
 
-  const oracle = (card.oracleText || '').toLowerCase();
-  let roleQ = '';
-  if (/draw a card|draw \d+ card|draw cards/.test(oracle)) {
-    roleQ = '(o:"draw a card" OR o:"draw cards" OR o:"draw two" OR o:"draw three")';
-  } else if (/add \{|search your library for a basic land|put.+land.+onto the battlefield/.test(oracle)) {
-    roleQ = '(o:"add {" OR o:"search your library for a basic land" OR o:"search your library for a land")';
-  } else if (/destroy target|exile target/.test(oracle)) {
-    roleQ = '(o:"destroy target" OR o:"exile target")';
-  } else if (/counter target spell/.test(oracle)) {
-    roleQ = 'o:"counter target spell"';
-  } else if (/create.+token|put.+token/.test(oracle)) {
-    roleQ = '(o:create o:token)';
-  } else if (/destroy all|exile all creatures/.test(oracle)) {
-    roleQ = '(o:"destroy all" OR o:"exile all creatures")';
-  } else if (/return.+from your graveyard|return.+graveyard to|from a graveyard/.test(oracle)) {
-    roleQ = '(o:return o:graveyard)';
-  } else if (/search your library/.test(oracle)) {
-    roleQ = 'o:"search your library"';
+  if (refineKey && refineKey !== 'auto') {
+    const frag = _scryTagQueryFragmentFromLabel(refineKey);
+    if (frag) return [...headParts, frag, ...tailParts].join(' ');
   }
 
-  return [idQ, typeQ, roleQ, 'not:extra -t:basic'].filter(Boolean).join(' ');
+  const oracle = _replacementOracleBlob(card);
+  let roleQ = '';
+
+  // Auto = phrase-style heuristics (avoid single-word matches like "draw" in "withdraw").
+  if (/\b(destroy|exile) all (creatures|artifacts|enchantments|permanents|nonland permanents)\b/.test(oracle)
+    || /\bdestroy all\b/.test(oracle) || /\bexile all creatures\b/.test(oracle)) {
+    roleQ = '(o:"destroy all" OR o:"exile all creatures" OR o:"destroy all creatures")';
+  } else if (/\bcounter target spell\b/.test(oracle) || /\bcounter target activated\b/.test(oracle)) {
+    roleQ = 'o:"counter target spell"';
+  } else if (/\bdraw (a|one|two|three|four|five|x) cards?\b/.test(oracle)
+    || /\bdraw \d+ cards?\b/.test(oracle)
+    || /\bdraw cards\b/.test(oracle)
+    || /\bdraws (a|two|three) cards?\b/.test(oracle)) {
+    roleQ = '(o:"draw a card" OR o:"draw two cards" OR o:"draw three cards" OR o:"draw cards")';
+  } else if (/add \{[^}]+\}/.test(oracle)
+    || /search your library for a basic land/.test(oracle)
+    || /\bput\b.{0,80}\bland\b.{0,40}\bbattlefield\b/.test(oracle)) {
+    roleQ = '(o:"add {" OR o:"search your library for a basic land" OR o:"search your library for a land")';
+  } else if (/\b(destroy|exile) target (creature|permanent|artifact|enchantment|land|planeswalker|nonland)\b/.test(oracle)) {
+    roleQ = '(o:"destroy target" OR o:"exile target")';
+  } else if (/\b(create|put)\b.{0,50}\btoken\b/.test(oracle)) {
+    roleQ = '(o:create o:token)';
+  } else if (/\breturn\b.{0,80}\b(from your graveyard|from a graveyard|to the battlefield)\b/.test(oracle)) {
+    roleQ = '(o:return o:graveyard)';
+  } else if (/\bsearch your library for\b/.test(oracle)) {
+    roleQ = 'o:"search your library for"';
+  }
+
+  return [...headParts, roleQ, ...tailParts].filter(Boolean).join(' ');
 }
 
-async function _loadCardReplacements(card, deckId, containerId, opts) {
+/** Scryfall syntax fragment for a known auto-tag label (oracle tags or fallback query). */
+function _scryTagQueryFragmentFromLabel(label) {
+  const spec = SCRYFALL_AUTO_TAGS.find(t => t.label === String(label || ''));
+  if (!spec) return '';
+  return spec.query ? `(${spec.query})` : `otag:${spec.otag}`;
+}
+
+/** Labels from SCRYFALL_AUTO_TAGS that apply to this card (deck tags first, else resolved role tags). */
+function _replacementRefineTagLabelsForCard(card, deckSlot) {
+  const merged = deckSlot && typeof card === 'object'
+    ? {
+      ...card,
+      ...deckSlot,
+      oracleId: card.oracleId || deckSlot.oracleId,
+      scryfallId: card.scryfallId || deckSlot.scryfallId,
+    }
+    : card;
+  const fromSlot = Array.isArray(deckSlot?.customTags) ? deckSlot.customTags : [];
+  const auto = _SCRY_AUTO_LABEL_SET;
+  const onCard = [...new Set(fromSlot.filter(t => auto.has(String(t))))].sort((a, b) => a.localeCompare(b));
+  if (onCard.length) return onCard;
+  const derived = _roleTagsForCard(merged).filter(t => auto.has(String(t)));
+  return [...new Set(derived)].sort((a, b) => a.localeCompare(b));
+}
+
+let _cardReplacementSession = null;
+
+function _renderCardReplacementToolbar(activeRefineKey) {
+  const tb = document.getElementById('cardReplacementsToolbar');
+  const s = _cardReplacementSession;
+  if (!tb || !s) return;
+  const tags = s.tagLabels || [];
+  const escHtml = v => String(v || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const parts = [
+    `<button type="button" class="btn btn-sm btn-outline card-repl-refine-btn${
+      activeRefineKey === 'auto' ? ' card-repl-refine-btn--active' : ''
+    }" data-repl-refine="auto" title="Uses phrase-style rules on oracle text (no single-word matches)">Text match (auto)</button>`,
+  ];
+  for (const label of tags) {
+    const active = activeRefineKey === label ? ' card-repl-refine-btn--active' : '';
+    parts.push(
+      `<button type="button" class="btn btn-sm btn-outline card-repl-refine-btn${active}" data-repl-refine="tag" data-repl-tag="${encodeURIComponent(label)}" title="Scryfall oracle-tag filter">${escHtml(label)}</button>`,
+    );
+  }
+  tb.innerHTML = `
+    <div class="card-repl-refine-row">
+      <span class="card-repl-refine-label">Refine by role</span>
+      <div class="card-repl-refine-chips">${parts.join('')}</div>
+    </div>`;
+  tb.querySelectorAll('button[data-repl-refine]').forEach(btn => {
+    btn.onclick = () => {
+      const mode = btn.getAttribute('data-repl-refine');
+      const enc = btn.getAttribute('data-repl-tag') || '';
+      const key = mode === 'auto' ? 'auto' : decodeURIComponent(enc);
+      void _executeCardReplacementsFetch(key);
+    };
+  });
+}
+
+async function _executeCardReplacementsFetch(refineKey) {
+  const s = _cardReplacementSession;
+  if (!s) return;
+  const { card, deck, deckId, containerId } = s;
   const container = document.getElementById(containerId);
   if (!container) return;
 
-  const deck = decks.find(d => d.id === deckId) || sharedDecks.find(d => d.id === deckId);
-  if (!deck) return;
-
+  const query = _buildReplacementQuery(card, deck, refineKey);
+  const cached = s.refineCache[refineKey];
+  const cacheHit = cached && cached.query === query;
+  const showBusy = !cacheHit && (!s.opts?.skipSpinner || refineKey !== s.initialRefineKey);
   container.dataset.loadState = 'pending';
-
-  if (!opts || !opts.skipSpinner) {
+  if (showBusy) {
     container.innerHTML = '<div style="display:flex;align-items:center;gap:8px;color:var(--text2);font-size:0.82rem;padding:0.5rem 0"><div class="spinner"></div> Finding replacements…</div>';
   }
+  _renderCardReplacementToolbar(refineKey);
 
   try {
-    const query = _buildReplacementQuery(card, deck);
-    const res = await fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(query)}&order=edhrec&unique=cards`);
-    if (!res.ok) throw new Error('no results');
-    const data = await res.json();
-    const allResults = data.data || [];
+    let allResults;
+    if (cacheHit) {
+      allResults = cached.rawCards;
+    } else {
+      const res = await fetch(
+        `/api/scryfall/search?q=${encodeURIComponent(query)}&order=edhrec&unique=cards&skipTcg=1`,
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (res.status === 404) {
+          container.innerHTML = '<div style="font-size:0.8rem;color:var(--text3);padding:0.5rem 0">No replacements found</div>';
+          return;
+        }
+        throw new Error(data?.error || 'no results');
+      }
+      allResults = data.data || [];
+      s.refineCache[refineKey] = { query, rawCards: allResults };
+    }
 
     const inDeckIds   = new Set(deck.cards.map(c => c.scryfallId).filter(Boolean));
     const inDeckNames = new Set(deck.cards.map(c => (c.name || '').toLowerCase()));
@@ -4743,7 +5124,6 @@ async function _loadCardReplacements(card, deckId, containerId, opts) {
 
     container.innerHTML = rows;
 
-    // Attach hover preview listeners
     container.querySelectorAll('[data-hpid]').forEach(row => {
       const src = previewMap[row.dataset.hpid];
       if (!src) return;
@@ -4755,6 +5135,39 @@ async function _loadCardReplacements(card, deckId, containerId, opts) {
   } finally {
     container.dataset.loadState = 'done';
   }
+}
+
+async function _loadCardReplacements(card, deckId, containerId, opts) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  const deck = decks.find(d => d.id === deckId) || sharedDecks.find(d => d.id === deckId);
+  if (!deck) return;
+
+  if (typeof loadTagOverrides === 'function') await loadTagOverrides();
+
+  const deckSlot = opts?.deckSlot || null;
+  const tagLabels = _replacementRefineTagLabelsForCard(card, deckSlot);
+  const defaultRefineKey = tagLabels.length === 1 ? tagLabels[0] : 'auto';
+
+  _cardReplacementSession = {
+    card,
+    deck,
+    deckId,
+    deckSlot,
+    containerId,
+    tagLabels,
+    opts: opts || {},
+    initialRefineKey: defaultRefineKey,
+    refineCache: Object.create(null),
+  };
+
+  if (!opts?.skipSpinner) {
+    container.innerHTML = '<div style="display:flex;align-items:center;gap:8px;color:var(--text2);font-size:0.82rem;padding:0.5rem 0"><div class="spinner"></div> Finding replacements…</div>';
+  }
+
+  _renderCardReplacementToolbar(defaultRefineKey);
+  await _executeCardReplacementsFetch(defaultRefineKey);
 }
 
 async function _addCardToDeckDirect(scryfallId, deck) {
@@ -5003,4 +5416,146 @@ function closeVersionPicker() {
   _versionPickerState = null;
   _ownedSuggestionCandidates = null;
   setVersionPickerFiltersVisible(isDeckOwnershipEnabled());
+}
+
+// ── Deck Similarity ───────────────────────────────────────────────────────────
+
+let _simLoadedDeckId = null;
+
+function _simAutoLoad() {
+  const deck = getActiveDeck();
+  if (!deck || deck.id === _simLoadedDeckId) return;
+  loadDeckSimilarity();
+}
+
+async function loadDeckSimilarity() {
+  const deck  = getActiveDeck();
+  const panel = document.getElementById('simPanel');
+  const btn   = document.getElementById('simAnalyzeBtn');
+  if (!deck || !panel) return;
+
+  _simLoadedDeckId = deck.id;
+
+  const commander = deck.cards.find(c => c.isCommander)?.name || deck.commander;
+  if (!commander) {
+    panel.innerHTML = '<p style="color:var(--text3);font-size:0.85rem;margin:0">No commander found in this deck.</p>';
+    return;
+  }
+
+  if (btn) btn.disabled = true;
+  panel.innerHTML = '<p style="color:var(--text3);font-size:0.85rem;margin:0">Loading…</p>';
+
+  const base   = (document.querySelector('meta[name="mtg-api-base"]')?.content ?? '/api').replace(/\/$/, '');
+  const encCmd = encodeURIComponent(commander);
+  const safeJson = async url => {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  };
+
+  const [edhrecRes, archiveRes] = await Promise.allSettled([
+    safeJson(`${base}/decks/edhrec-similarity?commander=${encCmd}`),
+    safeJson(`${base}/decks/archive-similarity?commander=${encCmd}&deckId=${encodeURIComponent(deck.id)}`),
+  ]);
+
+  const edhrecData  = edhrecRes.status  === 'fulfilled' ? edhrecRes.value  : { error: edhrecRes.reason?.message ?? 'Request failed' };
+  const archiveData = archiveRes.status === 'fulfilled' ? archiveRes.value : { error: archiveRes.reason?.message ?? 'Request failed' };
+
+  panel.innerHTML = _simRenderHTML(deck, commander, edhrecData, archiveData);
+  if (btn) btn.disabled = false;
+}
+
+
+function _simIsLand(card) {
+  const t = (card.typeLine || card.type || card.type_line || '').toLowerCase();
+  return t.includes('land');
+}
+
+function _simJaccard(setA, setB) {
+  if (!setA.size || !setB.size) return 0;
+  let intersection = 0;
+  for (const name of setA) if (setB.has(name)) intersection++;
+  return intersection / (setA.size + setB.size - intersection);
+}
+
+function _simRenderHTML(deck, commander, edhrecData, archiveData) {
+  const parts = [];
+
+  // ── EDHREC ────────────────────────────────────────────────────────────────
+  if (edhrecData?.error) {
+    parts.push(`<div class="sim-section"><div class="sim-section-title">EDHREC</div><p class="sim-note">${edhrecData.error}</p></div>`);
+  } else if (edhrecData?.cards) {
+    const edhrecMap  = new Map(edhrecData.cards.map(c => [c.name.toLowerCase(), c]));
+    const nonLands   = deck.cards.filter(c => !c.isCommander && !_simIsLand(c));
+    const deckNames  = new Set(nonLands.map(c => c.name.toLowerCase()));
+    const found      = nonLands.map(c => edhrecMap.get(c.name.toLowerCase())).filter(Boolean);
+    const score      = found.length ? Math.round(found.reduce((s, c) => s + c.inclusion, 0) / found.length) : 0;
+    const coverage   = nonLands.length ? Math.round((found.length / nonLands.length) * 100) : 0;
+    const scoreColor = score >= 65 ? 'var(--green)' : score >= 40 ? 'var(--gold)' : 'var(--red)';
+
+    const missing = edhrecData.cards
+      .filter(c => c.inclusion >= 30 && !deckNames.has(c.name.toLowerCase()))
+      .slice(0, 8);
+    const spice = nonLands.filter(c => !edhrecMap.has(c.name.toLowerCase()));
+
+    parts.push(`
+<div class="sim-section">
+  <div class="sim-section-title">EDHREC Alignment
+    <span class="sim-meta">${edhrecData.num_decks.toLocaleString()} decks on EDHREC</span>
+  </div>
+  <div class="sim-score-row">
+    <div class="sim-score-bar-wrap"><div class="sim-score-bar" style="width:${score}%;background:${scoreColor}"></div></div>
+    <span class="sim-score-label" style="color:${scoreColor}">${score}%</span>
+  </div>
+  <p class="sim-note">${found.length} of ${nonLands.length} nonland cards appear in EDHREC data (${coverage}% coverage)</p>
+  ${missing.length ? `
+  <div class="sim-subsection-title">Top staples you're not running</div>
+  <div class="sim-chip-row">${missing.map(c =>
+    `<span class="sim-chip sim-chip--missing" title="${c.inclusion}% of ${commander} decks">${c.name} <em>${c.inclusion}%</em></span>`
+  ).join('')}</div>` : ''}
+  ${spice.length ? `
+  <div class="sim-subsection-title">Your spicy picks <span class="sim-meta">(not in EDHREC data)</span></div>
+  <div class="sim-chip-row">${spice.map(c =>
+    `<span class="sim-chip sim-chip--spice">${c.name}</span>`
+  ).join('')}</div>` : ''}
+</div>`);
+  }
+
+  // ── Archive ───────────────────────────────────────────────────────────────
+  if (archiveData?.error) {
+    parts.push(`<div class="sim-section"><div class="sim-section-title">Archive</div><p class="sim-note">${archiveData.error}</p></div>`);
+  } else if (archiveData) {
+    const mySet = new Set(deck.cards.filter(c => !c.isCommander && !_simIsLand(c)).map(c => c.name.toLowerCase()));
+    const scored = (archiveData.decks ?? []).map(d => {
+      const theirSet = new Set((d.card_names ?? []).map(n => n.toLowerCase()));
+      return { ...d, similarity: _simJaccard(mySet, theirSet), shared: [...mySet].filter(n => theirSet.has(n)).length };
+    }).sort((a, b) => b.similarity - a.similarity);
+
+    const meta = scored.length === 0
+      ? 'No other decks in the archive with this commander yet'
+      : `${scored.length} other deck${scored.length !== 1 ? 's' : ''} in the archive`;
+
+    parts.push(`
+<div class="sim-section">
+  <div class="sim-section-title">Archive Comparison — <strong>${commander}</strong>
+    <span class="sim-meta">${meta}</span>
+  </div>
+  ${scored.length === 0
+    ? '<p class="sim-note">Be the trendsetter — no one else has built this commander here yet.</p>'
+    : `<div class="sim-archive-list">${scored.map(d => {
+        const pct = Math.round(d.similarity * 100);
+        const col = pct >= 60 ? 'var(--teal)' : pct >= 35 ? 'var(--gold)' : 'var(--text3)';
+        const who = d.is_own ? '(you)' : d.owner_email.replace(/@.*$/, '@…');
+        return `<div class="sim-archive-row">
+          <div class="sim-archive-name">${d.deck_name} <span class="sim-meta">${who}</span></div>
+          <div class="sim-score-bar-wrap" style="flex:1;max-width:160px"><div class="sim-score-bar" style="width:${pct}%;background:${col}"></div></div>
+          <span class="sim-score-label" style="color:${col};min-width:38px">${pct}%</span>
+          <span class="sim-meta">${d.shared} shared</span>
+        </div>`;
+      }).join('')}</div>`
+  }
+</div>`);
+  }
+
+  return parts.join('') || '<p class="sim-note">No similarity data available.</p>';
 }

@@ -294,6 +294,140 @@ function requireAdminRole(req, res, next) {
   next();
 }
 
+const CHANGELOG_JSON_PATH = path.join(__dirname, 'data', 'changelog.json');
+
+/** Parse `data/changelog.json` (used only to seed an empty `app_changelog` table). */
+function readChangelogJsonFileEntries() {
+  try {
+    if (!fs.existsSync(CHANGELOG_JSON_PATH)) return [];
+    const parsed = JSON.parse(fs.readFileSync(CHANGELOG_JSON_PATH, 'utf8'));
+    return Array.isArray(parsed.entries)
+      ? parsed.entries.filter(e => e && typeof e.at === 'number' && String(e.title || '').trim())
+      : [];
+  } catch (e) {
+    console.warn('[changelog] json read failed:', e.message);
+    return [];
+  }
+}
+
+async function ensureAppChangelogTable() {
+  const conn = await db().getConnection();
+  try {
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS app_changelog (
+        id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        entry_key     VARCHAR(80) NULL,
+        published_at  BIGINT NOT NULL,
+        area          VARCHAR(80) NULL,
+        title         VARCHAR(512) NOT NULL,
+        summary       TEXT NOT NULL,
+        created_at    BIGINT NOT NULL,
+        PRIMARY KEY (id),
+        UNIQUE KEY uk_app_changelog_entry_key (entry_key),
+        INDEX idx_app_changelog_published (published_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+    const [[row]] = await conn.query('SELECT COUNT(*) AS c FROM app_changelog');
+    if (Number(row.c) > 0) return;
+    const fromFile = readChangelogJsonFileEntries();
+    const now = Date.now();
+    for (const e of fromFile) {
+      const key = e.id && String(e.id).trim() ? String(e.id).trim().slice(0, 80) : null;
+      await conn.query(
+        `INSERT IGNORE INTO app_changelog (entry_key, published_at, area, title, summary, created_at) VALUES (?,?,?,?,?,?)`,
+        [
+          key,
+          e.at,
+          e.area ? String(e.area).trim().slice(0, 80) : null,
+          String(e.title).trim().slice(0, 512),
+          String(e.summary || '').trim(),
+          now,
+        ],
+      );
+    }
+    if (fromFile.length) {
+      console.log(`[db] Seeded app_changelog with ${fromFile.length} row(s) from data/changelog.json`);
+    }
+  } finally {
+    conn.release();
+  }
+}
+
+/** Release notes for digest UI — shape matches prior JSON (`id`, `at`, `area`, `title`, `summary`). */
+async function fetchChangelogEntriesForDigest() {
+  try {
+    const [rows] = await db().query(
+      `SELECT entry_key, published_at, area, title, summary FROM app_changelog ORDER BY published_at DESC, id DESC`,
+    );
+    return rows.map(r => ({
+      id: r.entry_key || undefined,
+      at: Number(r.published_at),
+      area: r.area || undefined,
+      title: r.title,
+      summary: r.summary || '',
+    }));
+  } catch (e) {
+    console.warn('[changelog] db read failed:', e.message);
+    return [];
+  }
+}
+
+/** @returns {Promise<{ ok?: true, publishedAt?: number, error?: string, status?: number }>} */
+async function tryInsertAppChangelog(body) {
+  const publishedAt = Number(body?.publishedAt);
+  const at = Number.isFinite(publishedAt) && publishedAt > 0 ? publishedAt : Date.now();
+  const title = String(body?.title || '').trim().slice(0, 512);
+  const summary = String(body?.summary || '').trim();
+  const areaRaw = body?.area != null ? String(body.area).trim() : '';
+  const area = areaRaw ? areaRaw.slice(0, 80) : null;
+  const keyRaw = body?.entryKey != null ? String(body.entryKey).trim() : '';
+  const entryKey = keyRaw ? keyRaw.slice(0, 80) : null;
+  if (!title) return { error: 'title is required', status: 400 };
+  const now = Date.now();
+  try {
+    await db().query(
+      `INSERT INTO app_changelog (entry_key, published_at, area, title, summary, created_at) VALUES (?,?,?,?,?,?)`,
+      [entryKey, at, area, title, summary || '', now],
+    );
+  } catch (e) {
+    if (e.code === 'ER_DUP_ENTRY') {
+      return { error: 'entryKey already exists — use a different entryKey or omit it', status: 400 };
+    }
+    throw e;
+  }
+  return { ok: true, publishedAt: at };
+}
+
+function requireChangelogIngestSecret(req, res, next) {
+  const secret = String(process.env.CHANGELOG_INGEST_SECRET || '').trim();
+  if (!secret) {
+    return res.status(503).json({
+      error: 'CHANGELOG_INGEST_SECRET is not set — automated changelog ingest is disabled',
+    });
+  }
+  const auth = String(req.headers.authorization || '');
+  const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
+  if (token !== secret) {
+    return res.status(401).json({ error: 'Invalid or missing Authorization: Bearer <CHANGELOG_INGEST_SECRET>' });
+  }
+  next();
+}
+
+async function ensureAccountLoginMetaColumns() {
+  const conn = await db().getConnection();
+  try {
+    if (!(await tableExists(conn, 'accounts'))) return;
+    if (!(await columnExists(conn, 'accounts', 'last_login_at'))) {
+      await conn.query('ALTER TABLE accounts ADD COLUMN last_login_at BIGINT NULL DEFAULT NULL');
+    }
+    if (!(await columnExists(conn, 'accounts', 'changelog_ack_at'))) {
+      await conn.query('ALTER TABLE accounts ADD COLUMN changelog_ack_at BIGINT NULL DEFAULT NULL');
+    }
+  } finally {
+    conn.release();
+  }
+}
+
 async function ensureNormalizedDeckSchema() {
   const conn = await db().getConnection();
   try {
@@ -582,10 +716,20 @@ const authRouter = express.Router();
 authRouter.get('/me', async (req, res) => {
   try {
     if (!req.session.accountId) return res.status(401).json({ error: 'Not signed in' });
-    const [rows] = await db().query('SELECT id, email, role FROM accounts WHERE id = ?', [req.session.accountId]);
+    const [rows] = await db().query(
+      'SELECT id, email, role, created_at, last_login_at, changelog_ack_at FROM accounts WHERE id = ?',
+      [req.session.accountId],
+    );
     if (!rows.length) return res.status(401).json({ error: 'Invalid session' });
     req.session.userRole = rows[0].role;
-    res.json({ id: rows[0].id, email: rows[0].email, role: rows[0].role });
+    res.json({
+      id: rows[0].id,
+      email: rows[0].email,
+      role: rows[0].role,
+      createdAt: rows[0].created_at,
+      lastLoginAt: rows[0].last_login_at,
+      changelogAckAt: rows[0].changelog_ack_at,
+    });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
@@ -599,9 +743,10 @@ authRouter.post('/register', authLimiter, async (req, res) => {
     if (!email.includes('@') || email.length > 255) return res.status(400).json({ error: 'Invalid email' });
     if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
     const hash = await bcrypt.hash(password, 10);
+    const now = Date.now();
     const [r] = await db().query(
-      'INSERT INTO accounts (email, password_hash, created_at) VALUES (?,?,?)',
-      [email, hash, Date.now()]
+      'INSERT INTO accounts (email, password_hash, created_at, last_login_at) VALUES (?,?,?,?)',
+      [email, hash, now, now],
     );
     req.session.accountId = r.insertId;
     req.session.userRole = 'user';
@@ -621,6 +766,8 @@ authRouter.post('/login', authLimiter, async (req, res) => {
     if (!rows.length) return res.status(401).json({ error: 'Invalid email or password' });
     const ok = await bcrypt.compare(password, rows[0].password_hash);
     if (!ok) return res.status(401).json({ error: 'Invalid email or password' });
+    const now = Date.now();
+    await db().query('UPDATE accounts SET last_login_at = ? WHERE id = ?', [now, rows[0].id]);
     req.session.accountId = rows[0].id;
     req.session.userRole = rows[0].role;
     res.json({ ok: true, email: rows[0].email, role: rows[0].role });
@@ -632,6 +779,62 @@ authRouter.post('/login', authLimiter, async (req, res) => {
 
 authRouter.post('/logout', (req, res) => {
   req.session.destroy(() => res.json({ ok: true }));
+});
+
+authRouter.get('/digest', requireAuth, async (req, res) => {
+  try {
+    const [accRows] = await db().query(
+      'SELECT created_at, last_login_at, changelog_ack_at FROM accounts WHERE id = ?',
+      [req.accountId],
+    );
+    if (!accRows.length) return res.status(401).json({ error: 'Not found' });
+    const acc = accRows[0];
+    const sinceMs = acc.changelog_ack_at != null ? acc.changelog_ack_at : acc.created_at;
+
+    const all = await fetchChangelogEntriesForDigest();
+    const features = all
+      .filter(e => e.at > sinceMs)
+      .sort((a, b) => b.at - a.at)
+      .slice(0, 40);
+
+    res.json({
+      sinceMs,
+      lastLoginAt: acc.last_login_at,
+      features,
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+authRouter.get('/digest-meta', requireAuth, async (req, res) => {
+  try {
+    const [accRows] = await db().query(
+      'SELECT created_at, changelog_ack_at FROM accounts WHERE id = ?',
+      [req.accountId],
+    );
+    if (!accRows.length) return res.status(401).json({ error: 'Not found' });
+    const acc = accRows[0];
+    const sinceMs = acc.changelog_ack_at != null ? acc.changelog_ack_at : acc.created_at;
+    const all = await fetchChangelogEntriesForDigest();
+    const unreadCount = all.filter(e => e.at > sinceMs).length;
+    res.json({ unreadCount });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+authRouter.post('/changelog-ack', requireAuth, async (req, res) => {
+  try {
+    const now = Date.now();
+    await db().query('UPDATE accounts SET changelog_ack_at = ? WHERE id = ?', [now, req.accountId]);
+    res.json({ ok: true, changelogAckAt: now });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 authRouter.post('/forgot-password', authLimiter, async (req, res) => {
@@ -1246,6 +1449,95 @@ app.delete('/api/decks/:id/collaborators/:userId', requireAuth, async (req, res)
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── Deck Similarity ───────────────────────────────────────────────────────────
+
+// Convert a commander name to the slug EDHREC uses in its URL
+function edhrecSlug(name) {
+  return name.toLowerCase()
+    .replace(/['']/g, '')          // curly apostrophes
+    .replace(/[^a-z0-9\s-]/g, '') // strip everything else except spaces/hyphens
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-');
+}
+
+app.get('/api/decks/edhrec-similarity', requireAuth, async (req, res) => {
+  const { commander } = req.query;
+  if (!commander) return res.status(400).json({ error: 'commander required' });
+  const slug = edhrecSlug(commander);
+  try {
+    const upstream = await fetch(`https://json.edhrec.com/pages/commanders/${slug}.json`, {
+      headers: { 'User-Agent': 'MTGArchive/1.0' },
+    });
+    if (!upstream.ok) return res.status(404).json({ error: `Commander not found on EDHREC (tried slug: ${slug})` });
+    const data = await upstream.json();
+
+    const cardMap = new Map(); // name → {num_decks, potential_decks}
+    const cardlists = data?.container?.json_dict?.cardlists ?? [];
+    for (const list of cardlists) {
+      if (list.tag === 'lands') continue; // skip basic/nonbasic land lists
+      for (const cv of (list.cardviews ?? [])) {
+        if (!cardMap.has(cv.name)) {
+          cardMap.set(cv.name, {
+            name: cv.name,
+            num_decks: cv.num_decks,
+            potential_decks: cv.potential_decks,
+            inclusion: Math.round((cv.num_decks / cv.potential_decks) * 100),
+          });
+        }
+      }
+    }
+
+    res.json({
+      slug,
+      num_decks: data.num_decks_avg ?? 0,
+      cards: Array.from(cardMap.values()).sort((a, b) => b.inclusion - a.inclusion),
+    });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to fetch EDHREC data: ' + e.message });
+  }
+});
+
+app.get('/api/decks/archive-similarity', requireAuth, async (req, res) => {
+  const { commander, deckId } = req.query;
+  if (!commander) return res.status(400).json({ error: 'commander required' });
+  const accountId = req.accountId;
+  try {
+    // Find all decks (own + public) with matching commander card, excluding the current deck
+    const [rows] = await db().query(`
+      SELECT d.account_id, d.id AS deck_id, d.name AS deck_name, a.email AS owner_email,
+             GROUP_CONCAT(
+               CASE WHEN dc.is_commander = 0 THEN dc.card_name END
+               ORDER BY dc.card_name SEPARATOR '|||'
+             ) AS card_names
+      FROM decks d
+      JOIN accounts a ON d.account_id = a.id
+      JOIN deck_cards dc ON d.account_id = dc.account_id AND d.id = dc.deck_id
+      WHERE (d.account_id = ? OR JSON_EXTRACT(d.data, '$.isPublic') = true)
+        AND NOT (d.account_id = ? AND d.id = ?)
+        AND EXISTS (
+          SELECT 1 FROM deck_cards dc2
+          WHERE dc2.account_id = d.account_id AND dc2.deck_id = d.id
+            AND dc2.card_name = ? AND dc2.is_commander = 1
+        )
+      GROUP BY d.account_id, d.id, d.name, a.email
+      LIMIT 30
+    `, [accountId, accountId, deckId ?? '', commander]);
+
+    res.json({
+      decks: rows.map(r => ({
+        deck_id: r.deck_id,
+        deck_name: r.deck_name,
+        owner_email: r.owner_email,
+        is_own: Number(r.account_id) === Number(accountId),
+        card_names: r.card_names ? r.card_names.split('|||') : [],
+      })),
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Games ─────────────────────────────────────────────────────────────────────
 
 app.get('/api/games', requireAuth, async (req, res) => {
@@ -1664,7 +1956,7 @@ function _sleep(ms) {
 async function scryfallFetch(url, { maxRetries = 3, init } = {}) {
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     const elapsed = Date.now() - _scryfallLastRequestAt;
-    const waitMs = Math.max(0, 125 - elapsed); // stay under Scryfall's 10 req/s guidance
+    const waitMs = Math.max(0, 100 - elapsed); // ~10 req/s max; small buffer vs Scryfall guidance
     if (waitMs) await _sleep(waitMs);
     const res = await fetch(url, init);
     _scryfallLastRequestAt = Date.now();
@@ -2385,6 +2677,7 @@ app.get('/api/scryfall/search', async (req, res) => {
     const q = req.query.q || '';
     const order = req.query.order || 'name';
     const unique = req.query.unique || 'cards';
+    const skipTcg = req.query.skipTcg === '1' || req.query.skipTcg === 'true';
     const upstream = await scryfallFetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(q)}&order=${encodeURIComponent(order)}&unique=${encodeURIComponent(unique)}`);
     if (!upstream.ok) {
       let msg = 'Search failed';
@@ -2396,7 +2689,11 @@ app.get('/api/scryfall/search', async (req, res) => {
     }
     const data = await upstream.json();
     const cards = data.data || [];
-    await Promise.all(cards.slice(0, 24).map(enrichCardWithTcgPrices)); // cap for responsiveness
+    // TCG enrichment is slow (catalog + pricing per card). Scryfall JSON already includes prices;
+    // use skipTcg=1 for high-frequency UI (deck suggestions, replacement finder).
+    if (!skipTcg && hasTcgCreds()) {
+      await Promise.all(cards.slice(0, 24).map(enrichCardWithTcgPrices)); // cap for responsiveness
+    }
     data.data = cards;
     res.json(data);
   } catch (e) {
@@ -2524,27 +2821,34 @@ app.post('/api/scryfall/tags/batch', requireAuth, async (req, res) => {
       [...oracleIds, schemaVersion]
     );
     const tagsByOracleId = {};
+    const oracleIdsWithTagRow = new Set();
     rows.forEach(r => {
       let arr = [];
       try {
         if (Array.isArray(r.tags_json)) arr = r.tags_json;
         else arr = JSON.parse(r.tags_json || '[]');
       } catch (_) { arr = []; }
-      const typeLine = String(typeByOracle.get(String(r.oracle_id || '').toLowerCase()) || '').toLowerCase();
+      const oidKey = String(r.oracle_id || '').toLowerCase();
+      oracleIdsWithTagRow.add(oidKey);
+      const typeLine = String(typeByOracle.get(oidKey) || '').toLowerCase();
       if (typeLine.includes('land') && !arr.includes('Land')) arr.unshift('Land');
-      tagsByOracleId[String(r.oracle_id || '').toLowerCase()] = arr.filter(Boolean);
+      tagsByOracleId[oidKey] = arr.filter(Boolean);
     });
-    const cachedSet = new Set(Object.keys(tagsByOracleId));
-    const missing = oracleIds.filter(oid => !cachedSet.has(oid));
-    missing.forEach(oid => {
+    const missingTagRow = oracleIds.filter(oid => !oracleIdsWithTagRow.has(oid));
+    missingTagRow.forEach(oid => {
       const typeLine = String(typeByOracle.get(oid) || '').toLowerCase();
-      tagsByOracleId[oid] = typeLine.includes('land') ? ['Land'] : [];
+      // Lands still get a deterministic tag without a DB row. Non-lands are omitted so the
+      // client can fall back to live Scryfall tag queries (new / not-yet-imported oracles).
+      if (typeLine.includes('land')) tagsByOracleId[oid] = ['Land'];
     });
 
+    const resolvedInBatch = oracleIds.filter(oid =>
+      Object.prototype.hasOwnProperty.call(tagsByOracleId, oid)
+    ).length;
     res.json({
       tagsByOracleId,
-      cacheHits: oracleIds.length - missing.length,
-      missing: missing.length,
+      cacheHits: resolvedInBatch,
+      missing: oracleIds.length - resolvedInBatch,
       source: 'db',
     });
   } catch (e) {
@@ -2807,6 +3111,42 @@ app.delete('/api/tag-overrides/:oracleId', requireAuth, async (req, res) => {
   }
 });
 
+app.get('/api/admin/changelog', requireAuth, requireAdminRole, async (_req, res) => {
+  try {
+    const [rows] = await db().query(
+      `SELECT id, entry_key, published_at, area, title, summary, created_at
+       FROM app_changelog ORDER BY published_at DESC, id DESC LIMIT 250`,
+    );
+    res.json({ entries: rows });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/admin/changelog', requireAuth, requireAdminRole, async (req, res) => {
+  try {
+    const r = await tryInsertAppChangelog(req.body || {});
+    if (r.error) return res.status(r.status || 400).json({ error: r.error });
+    res.json({ ok: true, publishedAt: r.publishedAt });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Machine / agent ingest — Bearer CHANGELOG_INGEST_SECRET (no session). For scripts and CI. */
+app.post('/api/internal/changelog-ingest', requireChangelogIngestSecret, async (req, res) => {
+  try {
+    const r = await tryInsertAppChangelog(req.body || {});
+    if (r.error) return res.status(r.status || 400).json({ error: r.error });
+    res.json({ ok: true, publishedAt: r.publishedAt });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Start ─────────────────────────────────────────────────────────────────────
 
 const PORT = process.env.PORT || 3001;
@@ -2823,6 +3163,8 @@ async function start() {
 
   const runDbMigrations = async () => {
     try {
+      await ensureAccountLoginMetaColumns();
+      await ensureAppChangelogTable();
       await ensureNormalizedDeckSchema();
       await ensureAccountMigration();
       await ensureDeckHistoryTable();

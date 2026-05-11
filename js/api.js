@@ -22,7 +22,7 @@ async function fetchCardByName(name) {
 }
 
 async function searchCards(q, signal) {
-  const url = `/api/scryfall/search?q=${encodeURIComponent(q)}&order=name&unique=cards`;
+  const url = `/api/scryfall/search?q=${encodeURIComponent(q)}&order=name&unique=cards&skipTcg=1`;
   const res = await fetch(url, signal ? { signal } : undefined);
   if (!res.ok) return [];
   const d = await res.json();

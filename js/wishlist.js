@@ -198,11 +198,11 @@ async function runWishlistSearch(q) {
   const signal = _wishlistSearchAbort.signal;
 
   try {
-    const exactRes = await fetch(`/api/scryfall/search?q=${encodeURIComponent(`!"${query}" -is:extra`)}&order=released&unique=prints`, { signal });
+    const exactRes = await fetch(`/api/scryfall/search?q=${encodeURIComponent(`!"${query}" -is:extra`)}&order=released&unique=prints&skipTcg=1`, { signal });
     let data = exactRes.ok ? await exactRes.json() : { data: [] };
     let apiCards = data.data || [];
     if (!apiCards.length) {
-      const res = await fetch(`/api/scryfall/search?q=${encodeURIComponent(`${query} -is:extra`)}&order=released&unique=prints`, { signal });
+      const res = await fetch(`/api/scryfall/search?q=${encodeURIComponent(`${query} -is:extra`)}&order=released&unique=prints&skipTcg=1`, { signal });
       data = res.ok ? await res.json() : { data: [] };
       apiCards = data.data || [];
     }

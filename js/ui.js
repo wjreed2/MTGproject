@@ -100,6 +100,7 @@ const _modalCloseMap = {
   deckCardTagModal:      () => closeDeckCardTagPicker(),
   skeletonBuilderModal:  () => closeSkeletonBuilderModal(),
   changeDeckFormatModal: () => closeChangeDeckFormatModal(),
+  whatsNewModal:         () => { void closeWhatsNewModal(); },
 };
 
 document.addEventListener('click', e => {
@@ -134,4 +135,99 @@ function showNotif(msg, isError = false) {
   el.querySelector('.notif-icon').style.color = isError ? 'var(--red)' : 'var(--green)';
   el.classList.add('show');
   setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+function applyWhatsNewUnreadUi(n) {
+  const count = Math.max(0, Number(n) || 0);
+  const btn = document.getElementById('topbarWhatsNewIconBtn');
+  const dot = document.getElementById('topbarWhatsNewIconDot');
+  const pip = document.getElementById('settingsWhatsNewMenuPip');
+  const show = count > 0;
+  if (btn) {
+    btn.style.display = show ? 'inline-flex' : 'none';
+    btn.title = show ? `What’s new — ${count} update${count === 1 ? '' : 's'}` : 'What’s new';
+    btn.setAttribute('aria-label', show ? `App updates available, ${count}` : 'What’s new');
+  }
+  if (dot) dot.hidden = !show;
+  if (pip) pip.style.display = show ? 'block' : 'none';
+}
+
+async function refreshWhatsNewUpdateBadge() {
+  if (document.body.classList.contains('auth-pending')) return;
+  try {
+    const m = await authFetchDigestMeta();
+    applyWhatsNewUnreadUi(m.unreadCount || 0);
+  } catch (_) {
+    applyWhatsNewUnreadUi(0);
+  }
+}
+
+async function openWhatsNewFromMenu() {
+  if (typeof closeSettingsDropdown === 'function') closeSettingsDropdown();
+  try {
+    const d = await authFetchDigest();
+    if (!d.features?.length) {
+      showNotif('You’re all caught up on app updates');
+      applyWhatsNewUnreadUi(0);
+      return;
+    }
+    openWhatsNewModal(d);
+  } catch (_) {
+    showNotif('Could not load updates', true);
+  }
+}
+
+function _escapeWhatsNewHtml(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/"/g, '&quot;');
+}
+
+function openWhatsNewModal(digest) {
+  const overlay = document.getElementById('whatsNewModal');
+  const body = document.getElementById('whatsNewModalBody');
+  if (!overlay || !body || !digest) return;
+
+  const esc = _escapeWhatsNewHtml;
+  const sinceDate = new Date(digest.sinceMs);
+  const sinceStr = Number.isFinite(sinceDate.getTime())
+    ? sinceDate.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+    : '';
+
+  const lastIn = digest.lastLoginAt && Number.isFinite(Number(digest.lastLoginAt))
+    ? new Date(Number(digest.lastLoginAt)).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+    : '';
+
+  const parts = [];
+  parts.push(
+    `<p class="whats-new-lead">App updates since <strong>${esc(sinceStr)}</strong> — from when you last closed this summary, or your join date the first time.</p>`,
+  );
+  if (lastIn) parts.push(`<p class="whats-new-meta">Last sign-in: ${esc(lastIn)}</p>`);
+
+  if (digest.features && digest.features.length) {
+    parts.push('<div class="whats-new-section"><h3 class="whats-new-h">What’s new</h3><ul class="whats-new-list">');
+    for (const f of digest.features) {
+      const area = f.area ? ` <span class="whats-new-area">${esc(f.area)}</span>` : '';
+      const when = new Date(f.at).toLocaleDateString(undefined, { dateStyle: 'medium' });
+      parts.push(
+        `<li><span class="whats-new-item-title">${esc(f.title)}</span>${area}`
+        + `<div class="whats-new-item-summary">${esc(f.summary || '')}</div>`
+        + `<div class="whats-new-item-date">${esc(when)}</div></li>`,
+      );
+    }
+    parts.push('</ul></div>');
+  }
+
+  body.innerHTML = parts.join('');
+  overlay.classList.add('open');
+}
+
+async function closeWhatsNewModal() {
+  document.getElementById('whatsNewModal')?.classList.remove('open');
+  try {
+    await authChangelogAck();
+    if (currentUser && typeof currentUser === 'object') currentUser.changelogAckAt = Date.now();
+  } catch (_) {}
+  void refreshWhatsNewUpdateBadge();
 }

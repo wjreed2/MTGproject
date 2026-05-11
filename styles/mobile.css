@@ -70,6 +70,17 @@
   }
   #topbarUser svg { width: 16px !important; height: 16px !important; }
   #topbarUserRow > div { position: relative; }
+  #topbarWhatsNewIconBtn {
+    padding: 6px !important;
+    min-width: 34px;
+    min-height: 34px;
+    align-items: center;
+    justify-content: center;
+  }
+  #topbarWhatsNewIconBtn svg { width: 17px !important; height: 17px !important; }
+  #topbarUserRow .topbar-user-menu-cluster {
+    gap: 4px !important;
+  }
 
   /* ── Main content — below safe area, above bottom nav ────────────────── */
   main {

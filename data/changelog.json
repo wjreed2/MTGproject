@@ -1,0 +1,18 @@
+{
+  "entries": [
+    {
+      "id": "whats-new-digest-2026-05",
+      "at": 1778328000000,
+      "area": "General",
+      "title": "“What you’ve missed” on sign-in",
+      "summary": "After loading your data, you may see app release notes since you last dismissed this panel. Add entries by editing data/changelog.json on the server."
+    },
+    {
+      "id": "edhrec-land-toggle-2026-05",
+      "at": 1778241600000,
+      "area": "Deck builder",
+      "title": "EDHREC suggestions: lands / non-lands",
+      "summary": "Toggle whether commander suggestions show utility lands or hide them. Results are cached per query so revisiting a theme is faster."
+    }
+  ]
+}

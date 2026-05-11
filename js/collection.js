@@ -630,7 +630,7 @@ async function _deferredHydrateCardDetail(card, openSession, actionUid, isOwned)
     if (!fresh) return;
     const entry = cardToEntry(fresh, card.qty || 1);
     _mergeFetchedCardIntoDetailCard(card, entry);
-    save('collection');
+    if (isOwned) save('collection');
     if (openSession !== _cardDetailOpenSession || actionUid !== _cardDetailCurrentUid) return;
     _patchCardDetailInspectorDom(card, isOwned);
     const modalFaces = Array.isArray(card.cardFaces) ? card.cardFaces : [];
@@ -1055,6 +1055,7 @@ function _htmlOpenCardDetailLeftColumn(card) {
 function _htmlOpenCardDetailReplacementsBlock() {
   return `<div style="border-top:2px solid var(--border2);padding:1rem 1.25rem">
       <div style="font-size:0.78rem;color:var(--text3);margin-bottom:10px;letter-spacing:0.05em;font-weight:700;text-transform:uppercase">Suggested Replacements</div>
+      <div id="cardReplacementsToolbar" class="card-replacements-toolbar" aria-label="Refine replacements"></div>
       <div id="cardReplacementsContainer"></div>
     </div>`;
 }
@@ -1161,15 +1162,26 @@ function _isDeckBuilderMainTabActive() {
   return !!document.getElementById('tab-decks')?.classList.contains('active');
 }
 
+function _looksLikeScryfallCardId(v) {
+  return typeof v === 'string'
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+}
+
 async function openCardDetail(uid, navMode, opts) {
   const deckCards = decks.flatMap(d => d.cards || []);
-  const sourceCard = window.Ownership?.resolveFromPools
+  let sourceCard = window.Ownership?.resolveFromPools
     ? window.Ownership.resolveFromPools(uid, [collection, wishlist, deckCards])
     : (
       collection.find(c => c.uid === uid || c.scryfallId === uid) ||
       wishlist.find(c => c.scryfallId === uid || c.uid === uid) ||
       deckCards.find(c => c.uid === uid || c.scryfallId === uid)
     );
+  if (!sourceCard && _looksLikeScryfallCardId(uid)) {
+    try {
+      const fresh = await fetchCardById(String(uid));
+      if (fresh) sourceCard = cardToEntry(fresh, 1);
+    } catch (_) {}
+  }
   if (!sourceCard) return;
   if (navMode === 'deck' || navMode === 'collection') _cardDetailNavMode = navMode;
   const openSession = ++_cardDetailOpenSession;
@@ -1211,7 +1223,7 @@ async function openCardDetail(uid, navMode, opts) {
       if (fresh) {
         const entry = cardToEntry(fresh, card.qty || 1);
         _mergeFetchedCardIntoDetailCard(card, entry);
-        save('collection');
+        if (isOwned) save('collection');
       }
     } catch (_) {}
   }
@@ -1251,7 +1263,10 @@ async function openCardDetail(uid, navMode, opts) {
   }
   modal.classList.add('open');
   if (showReplacements && activeDeckCard && card.scryfallId && typeof _loadCardReplacements === 'function') {
-    _loadCardReplacements(card, activeDeckId, 'cardReplacementsContainer', { skipSpinner: appliedInPlace });
+    _loadCardReplacements(card, activeDeckId, 'cardReplacementsContainer', {
+      skipSpinner: appliedInPlace,
+      deckSlot: activeDeckCard,
+    });
   }
   _setupCardDetailFaces({
     name: card.name,
@@ -1294,8 +1309,13 @@ async function _loadCardDetailDefaultTags(card) {
       && typeof _scryTagsByOracleId !== 'undefined' && _scryTagsByOracleId && !_scryTagsByOracleId.has(oid)) {
       try {
         const r = await apiPostJson('/scryfall/tags/batch', { oracleIds: [oid], schemaVersion: _SCRY_TAG_SCHEMA_VERSION });
-        const arr = Array.isArray(r?.tagsByOracleId?.[oid]) ? r.tagsByOracleId[oid] : [];
-        _scryTagsByOracleId.set(oid, arr);
+        const byOid = r?.tagsByOracleId || {};
+        if (Object.prototype.hasOwnProperty.call(byOid, oid)) {
+          const arr = Array.isArray(byOid[oid]) ? byOid[oid].filter(Boolean) : [];
+          _scryTagsByOracleId.set(oid, arr);
+        } else if (typeof _fetchScryfallTagsForOracle === 'function') {
+          await _fetchScryfallTagsForOracle(oid);
+        }
       } catch (_) {}
     }
     const tags = _roleTagsForCard(card);

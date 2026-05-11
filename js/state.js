@@ -67,7 +67,7 @@ let games      = [];
 let activeGameId = null;
 let sharedDecks = [];
 let isPriceRefreshRunning = false;
-let currentUser = null; // { id, email } — set on login
+let currentUser = null; // { id, email, role, createdAt, lastLoginAt, changelogAckAt } — set after session
 
 // ── Save ──────────────────────────────────────────────────────────────────────
 
@@ -174,11 +174,32 @@ async function loadAppDataAfterAuth() {
   body.style.opacity = '';
   body.style.pointerEvents = '';
 
+  try {
+    const me = await authMe();
+    if (me) currentUser = me;
+  } catch (_) {}
+
   renderCollection();
   updateStats();
   loadSets();
   renderGames();
   refreshMissingCollectionPrices();
+
+  void maybeShowWhatsNewDigest();
+}
+
+async function maybeShowWhatsNewDigest() {
+  if (document.body.classList.contains('auth-pending')) return;
+  try {
+    const d = await authFetchDigest();
+    const n = d.features?.length || 0;
+    if (typeof applyWhatsNewUnreadUi === 'function') applyWhatsNewUnreadUi(n);
+    if (n === 0) return;
+    if (typeof getWhatsNewAutoPopup === 'function' && !getWhatsNewAutoPopup()) return;
+    if (typeof openWhatsNewModal === 'function') openWhatsNewModal(d);
+  } catch (_) {
+    if (typeof applyWhatsNewUnreadUi === 'function') applyWhatsNewUnreadUi(0);
+  }
 }
 
 function cardNeedsPriceRefresh(card) {

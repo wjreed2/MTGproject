@@ -80,6 +80,11 @@
     <span>MTG Archive</span>
   </div>
   <div class="topbar-user" id="topbarUserRow" style="display:none">
+    <div class="topbar-user-menu-cluster" style="display:flex;align-items:center;gap:2px;flex-shrink:0">
+    <button type="button" class="btn btn-ghost btn-sm topbar-whats-new-btn" id="topbarWhatsNewIconBtn" onclick="openWhatsNewFromMenu()" title="What’s new" aria-label="App updates" style="display:none;padding:5px 8px;flex-shrink:0;color:var(--gold);position:relative">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;display:block"><path d="M6 14h4"/><path d="M8 2v1"/><path d="M4.5 5.5 3 3h10l-1.5 2.5"/><path d="M12.5 5.5 11.5 13h-7L4.5 5.5"/></svg>
+      <span class="topbar-whats-new-btn__dot" id="topbarWhatsNewIconDot" hidden aria-hidden="true"></span>
+    </button>
     <div style="position:relative">
     <button type="button" class="btn btn-ghost btn-sm" id="topbarUser" onclick="toggleSettingsDropdown()" style="font-size:0.72rem;color:var(--text3);max-width:min(160px,28vw);overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></button>
     <div class="settings-dropdown" id="settingsDropdown">
@@ -100,6 +105,15 @@
       </div>
       <div class="settings-divider"></div>
       <div class="settings-section-label">Settings</div>
+      <button type="button" class="btn btn-ghost btn-sm settings-whats-new-row" style="width:100%;justify-content:flex-start;gap:7px;color:var(--text2);position:relative" onclick="closeSettingsDropdown();openWhatsNewFromMenu()">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M5 14h6"/><path d="M8 2v1"/><path d="M3.5 5.5 2 2h12l-1.5 3.5"/><path d="M13.5 5.5 12 14H4L2.5 5.5"/></svg>
+        What’s new
+        <span class="settings-menu-update-pip" id="settingsWhatsNewMenuPip" style="display:none" aria-hidden="true"></span>
+      </button>
+      <button type="button" id="settingsWhatsNewAutoBtn" class="btn btn-ghost btn-sm" style="width:100%;justify-content:flex-start;gap:7px;color:var(--text2)" onclick="toggleWhatsNewAutoPopup()">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><rect x="2" y="3" width="12" height="9" rx="1"/><path d="M6 14h4"/></svg>
+        Release notes popup
+      </button>
       <button type="button" id="settingsAutoPinBtn" class="btn btn-ghost btn-sm" style="width:100%;justify-content:flex-start;gap:7px;color:var(--text2)" onclick="toggleAutoPin()">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M5.5 1.5h5v1.5L9 5.5v3.5l2.5 1v1h-7v-1l2.5-1V5.5L5.5 3z"/><line x1="8" y1="11" x2="8" y2="15"/></svg>
         Auto-pin set
@@ -152,6 +166,7 @@
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M7 3.5H4a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h3"/><path d="M10.5 5.5L13.5 8.5 10.5 11.5"/><line x1="13.5" y1="8.5" x2="6" y2="8.5"/></svg>
         Sign out
       </button>
+    </div>
     </div>
     </div>
   </div>
@@ -565,7 +580,7 @@
       <div class="panel" style="margin-bottom:1rem">
         <div class="panel-header">
           <span class="panel-title" style="color:var(--teal)">EDHREC Suggestions</span>
-          <select id="edhrecThemeSelect" onchange="fetchEDHRECRecs()"
+          <select id="edhrecThemeSelect" onchange="scheduleEDHRECThemeRefresh()"
             style="background:var(--bg3);border:1px solid var(--border2);color:var(--text);border-radius:var(--radius);padding:3px 6px;font-family:'Crimson Pro',serif">
             <option value="">All themes</option>
             <option value="artifacts">Artifacts</option>
@@ -575,6 +590,13 @@
             <option value="lifegain">Lifegain</option>
             <option value="ramp">Ramp</option>
           </select>
+          <div class="view-toggle edhrec-land-toggle" role="group" aria-label="Suggestions: non-lands or lands"
+            style="margin-left:8px;flex-shrink:0">
+            <button type="button" class="active" data-edhrec-land="nonlands" onclick="setEdhrecLandFilter('nonlands')"
+              title="Exclude lands">Non-lands</button>
+            <button type="button" data-edhrec-land="lands" onclick="setEdhrecLandFilter('lands')"
+              title="Lands only">Lands</button>
+          </div>
           <button onclick="this.closest('.panel').querySelector('.rec-scroll').classList.toggle('edhrec-collapsed')"
             style="margin-left:4px;background:none;border:none;color:var(--text3);cursor:pointer;font-size:0.8rem;padding:2px 4px" title="Toggle">▾</button>
         </div>
@@ -589,7 +611,8 @@
       <div class="deck-stats-grid">
         <div class="panel">
           <div class="panel-header"><span class="panel-title">Mana Curve</span></div>
-          <div class="panel-body">
+          <div class="panel-body deck-mana-curve-panel">
+            <div id="manaIdealControls" class="mana-ideal-controls"></div>
             <div class="mana-curve" id="manaCurve"></div>
           </div>
         </div>
@@ -625,6 +648,18 @@
           <div class="prob-chart-filters-row">
             <div id="probChartFilters" class="prob-chart-filters"></div>
           </div>
+        </div>
+      </div>
+
+      <!-- Similarity Analysis -->
+      <div class="panel panel--similarity" style="margin-top:1.25rem">
+        <div class="panel-header" style="flex-wrap:wrap;gap:8px">
+          <span class="panel-title">Similarity</span>
+          <span class="deck-tab-hint" style="flex:1">EDHREC alignment &amp; archive comparison for this commander</span>
+          <button class="btn btn-sm" id="simAnalyzeBtn" onclick="loadDeckSimilarity()">Refresh</button>
+        </div>
+        <div class="panel-body" id="simPanel">
+          <p style="color:var(--text3);font-size:0.85rem;font-style:italic;margin:0">Loading…</p>
         </div>
       </div>
 
@@ -1411,6 +1446,16 @@
 </div>
 
 <!-- CONFIRM MODAL -->
+<div class="modal-overlay" id="whatsNewModal">
+  <div class="modal whats-new-modal" style="max-height:min(88vh,760px);display:flex;flex-direction:column">
+    <div class="modal-title" style="flex-shrink:0">What you’ve missed</div>
+    <div id="whatsNewModalBody" class="whats-new-body" style="flex:1;min-height:0;overflow-y:auto;font-size:0.88rem;color:var(--text2);line-height:1.55;padding-right:4px"></div>
+    <div style="flex-shrink:0;display:flex;gap:8px;justify-content:flex-end;margin-top:1rem;padding-top:0.75rem;border-top:1px solid var(--border)">
+      <button type="button" class="btn btn-primary" onclick="closeWhatsNewModal()">Got it</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="confirmModal">
   <div class="modal" style="width:min(440px,96vw)">
     <div class="modal-title" id="confirmModalTitle"></div>
@@ -1667,98 +1712,91 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <!-- GOLDFISH PLAYTEST OVERLAY -->
-<div id="goldfishOverlay" style="display:none;position:fixed;inset:0;z-index:9000;background:var(--bg);flex-direction:column">
+<div id="goldfishOverlay" style="display:none;position:fixed;inset:0;z-index:9000;flex-direction:column">
 
-  <!-- Header bar -->
+  <!-- Header -->
   <div class="gf-header">
-    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-      <button class="btn btn-outline btn-sm" onclick="_gfNewGame()" title="Reset and draw new opening hand">New Game</button>
-      <button class="btn btn-outline btn-sm" onclick="_gfDraw()" title="Draw a card">Draw</button>
-      <button class="btn btn-outline btn-sm" id="gfMulliganBtn" onclick="_gfMulligan()" title="London mulligan — draw 7, put back">Mulligan</button>
-      <button class="btn btn-outline btn-sm" onclick="_gfEndTurn()" title="Untap all and advance turn">End Turn</button>
-      <button class="btn btn-outline btn-sm" onclick="_gfScry(3)" title="Look at top 3 cards of library">Scry 3</button>
-      <button class="btn btn-outline btn-sm" onclick="_gfUntapAll()" title="Untap all permanents">Untap All</button>
+    <div class="gf-controls">
+      <button class="gf-btn" onclick="_gfNewGame()" title="New game">↺ New</button>
+      <button class="gf-btn" id="gfMulliganBtn" onclick="_gfMulligan()" title="London mulligan">Mulligan</button>
+      <div class="gf-divider-v"></div>
+      <button class="gf-btn" onclick="_gfEndTurn()" title="End turn — untap all (E)">End Turn</button>
+      <button class="gf-btn" onclick="_gfScry(3)" title="Scry 3">Scry 3</button>
+      <button class="gf-btn" onclick="_gfUntapAll()" title="Untap all">Untap All</button>
     </div>
-    <div class="gf-flash-wrap">
-      <span id="gfFlash" style="font-size:0.78rem;color:var(--teal);opacity:0;transition:opacity 0.3s;white-space:nowrap"></span>
-    </div>
-    <div style="display:flex;align-items:center;gap:10px">
-      <span style="font-size:0.72rem;color:var(--text3)" id="gfDeckLabel"></span>
-      <button class="btn btn-ghost btn-sm" onclick="closeGoldfish()" style="font-size:1rem;line-height:1;padding:2px 8px" title="Close playtest">✕</button>
+    <span id="gfFlash" class="gf-flash"></span>
+    <div class="gf-header-right">
+      <div class="gf-life-hud">
+        <button class="gf-life-adj" onclick="_gfLifeDelta(-1)">−</button>
+        <span id="gfLifeVal" class="gf-life-num">20</span>
+        <button class="gf-life-adj" onclick="_gfLifeDelta(1)">+</button>
+        <span class="gf-life-label">LIFE</span>
+      </div>
+      <div class="gf-turn-hud">T<span id="gfTurnVal">0</span></div>
+      <span class="gf-deck-name" id="gfDeckLabel"></span>
+      <button class="gf-close-btn" onclick="closeGoldfish()" title="Close (Esc)">✕</button>
     </div>
   </div>
 
-  <!-- Body -->
-  <div style="display:flex;flex:1;overflow:hidden">
+  <!-- Main layout -->
+  <div class="gf-mat">
 
-    <!-- Battlefield + hand -->
-    <div style="display:flex;flex-direction:column;flex:1;min-width:0;overflow:hidden">
+    <!-- Middle row: battlefield left, zone quadrant right -->
+    <div class="gf-mid-row">
+
+      <!-- Battlefield — innerHTML replaced on render, keep empty -->
       <div id="gfBattlefield" class="gf-battlefield" onclick="_gfHideContextMenu()"></div>
-      <div class="gf-hand-area">
-        <div style="font-size:0.65rem;color:var(--text3);letter-spacing:0.06em;padding:0 8px 2px;flex-shrink:0">HAND (<span id="gfHandCount">0</span>)</div>
-        <div id="gfHand" class="gf-hand"></div>
+
+      <!-- Zone quadrant panel (2×2 grid, right side) -->
+      <!-- Row 1: Command Zone | Exile -->
+      <!-- Row 2: Library      | Graveyard -->
+      <div class="gf-zones-panel">
+        <div class="gf-zone-slot" id="gfCommandZone" onclick="if(_gf?.commandZone.length)_gfOpenZoneViewer('commandZone',_gf.commandZone)" title="Command Zone">
+          <div class="gf-zone-label">Command Zone</div>
+          <div class="gf-cmd-cards"></div>
+          <div class="gf-zone-count" id="gfCmdCount"></div>
+        </div>
+        <div class="gf-zone-slot" id="gfExileSlot" onclick="_gfClickExile()" title="Exile">
+          <div class="gf-zone-label">Exile</div>
+          <div id="gfExilePreview" class="gf-zone-preview"></div>
+          <div class="gf-zone-count" id="gfExileCount">0</div>
+        </div>
+        <div class="gf-zone-slot gf-lib-slot" id="gfLibSlot" onclick="_gfClickLibrary()" title="Library — click to draw (D)">
+          <div class="gf-zone-label">Library</div>
+          <div class="gf-lib-visual" id="gfLibVisual">
+            <div class="gf-lib-card gf-lib-c3"></div>
+            <div class="gf-lib-card gf-lib-c2"></div>
+            <div class="gf-lib-card gf-lib-c1"></div>
+          </div>
+          <div class="gf-zone-count" id="gfLibCount">0</div>
+        </div>
+        <div class="gf-zone-slot" id="gfGYSlot" onclick="_gfClickGraveyard()" title="Graveyard">
+          <div class="gf-zone-label">Graveyard</div>
+          <div id="gfGYPreview" class="gf-zone-preview"></div>
+          <div class="gf-zone-count" id="gfGYCount">0</div>
+        </div>
       </div>
     </div>
 
-    <!-- Sidebar -->
-    <div class="gf-sidebar">
-
-      <!-- Life total -->
-      <div class="gf-side-block">
-        <div class="gf-side-label">LIFE</div>
-        <div style="display:flex;align-items:center;gap:4px">
-          <button class="gf-life-btn" onclick="_gfLifeDelta(-1)">−</button>
-          <span id="gfLifeVal" style="font-family:'Cinzel',serif;font-size:1.5rem;color:var(--gold);min-width:36px;text-align:center">20</span>
-          <button class="gf-life-btn" onclick="_gfLifeDelta(1)">+</button>
-        </div>
-        <div style="font-size:0.62rem;color:var(--text3);margin-top:2px">Turn <span id="gfTurnVal">0</span></div>
-      </div>
-
-      <!-- Library -->
-      <div class="gf-side-block gf-zone-btn" onclick="_gfClickLibrary()" title="Click to draw a card">
-        <div class="gf-side-label">LIBRARY</div>
-        <div class="gf-zone-stack">
-          <div class="gf-lib-pile"></div>
-        </div>
-        <div class="gf-zone-count"><span id="gfLibCount">0</span> cards</div>
-      </div>
-
-      <!-- Graveyard -->
-      <div class="gf-side-block gf-zone-btn" onclick="_gfClickGraveyard()" title="Click to view graveyard">
-        <div class="gf-side-label">GRAVEYARD</div>
-        <div id="gfGYPreview"></div>
-        <div class="gf-zone-count"><span id="gfGYCount">0</span> cards</div>
-      </div>
-
-      <!-- Exile -->
-      <div class="gf-side-block gf-zone-btn" onclick="_gfClickExile()" title="Click to view exile">
-        <div class="gf-side-label">EXILE</div>
-        <div id="gfExilePreview"></div>
-        <div class="gf-zone-count"><span id="gfExileCount">0</span> cards</div>
-      </div>
-
-      <!-- Command zone (Commander only) -->
-      <div class="gf-side-block" id="gfCommandZone" style="display:none">
-        <div class="gf-side-label">COMMAND ZONE</div>
-        <div class="gf-cmd-cards"></div>
-        <div style="font-size:0.6rem;color:var(--text3);margin-top:2px">Click to play</div>
-      </div>
-
+    <!-- Hand -->
+    <div class="gf-hand-wrap">
+      <div class="gf-hand-label">HAND · <span id="gfHandCount">0</span></div>
+      <div id="gfHand" class="gf-hand"></div>
     </div>
   </div>
 
   <!-- Context menu -->
   <div id="gfContextMenu" class="gf-context-menu" style="display:none"></div>
 
-  <!-- Zone viewer (graveyard / exile / scry) -->
+  <!-- Zone / scry viewer -->
   <div id="gfZoneViewer" class="gf-zone-viewer" style="display:none" onclick="if(event.target===this)_gfCloseZoneViewer()">
     <div class="gf-zone-viewer-inner">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem">
-        <span id="gfZoneViewerTitle" style="font-family:'Cinzel',serif;font-size:0.85rem;color:var(--gold);letter-spacing:0.08em"></span>
-        <button class="btn btn-ghost btn-sm" onclick="_gfCloseZoneViewer()">✕</button>
+      <div class="gf-viewer-header">
+        <span id="gfZoneViewerTitle" class="gf-viewer-title"></span>
+        <button class="gf-btn" onclick="_gfCloseZoneViewer()">✕ Close</button>
       </div>
       <div id="gfZoneViewerGrid" class="gf-viewer-grid"></div>
-      <div style="font-size:0.72rem;color:var(--text3);margin-top:0.75rem;text-align:center">Click a card to interact with it</div>
+      <div class="gf-viewer-hint">Click a card to interact · right-click for more options</div>
     </div>
   </div>
 </div>

@@ -1,0 +1,42 @@
+App release notes (“What’s new”)
+================================
+
+Primary store: MySQL table **app_changelog** (see db/schema.sql).
+
+Columns:
+  entry_key     — optional unique slug (e.g. feature-slug-2026-05); omit for one-off rows
+  published_at  — UTC epoch ms; shown to users as the “release” time (maps to JSON `at`)
+  area          — optional section label (“Deck builder”, …)
+  title         — headline
+  summary       — body text in the modal
+  created_at    — when the row was inserted (audit)
+
+Add rows:
+  • Admin API (signed in as admin):
+      POST /api/admin/changelog
+      JSON: { "title", "summary", "publishedAt"?, "area"?, "entryKey"? }
+  • Or SQL INSERT into app_changelog.
+
+List rows (admin):
+      GET /api/admin/changelog
+
+On first deploy, if **app_changelog** is empty, the server copies **changelog.json**
+into the table once (INSERT IGNORE). After that, prefer the database; the JSON file
+is only a bootstrap template.
+
+Automated / agent ingest
+------------------------
+1. Set **CHANGELOG_INGEST_SECRET** in `.env` to a long random string and restart the app.
+2. From the repo root (server running, DB up):
+
+     npm run changelog:add -- --title "Headline" --summary "What changed." --area "Decks"
+
+   Or pipe JSON / use `--file note.json` (see `scripts/changelog-add.js`).
+
+3. Endpoint: **POST /api/internal/changelog-ingest** with header
+   **Authorization: Bearer &lt;CHANGELOG_INGEST_SECRET&gt;** and JSON body
+   `{ "title", "summary", "area"?, "entryKey"?, "publishedAt"? }`.
+
+For Cursor / Claude Code: after shipping a user-visible change, run `changelog:add`
+with a short title and summary (or call the ingest endpoint from CI with the secret
+in a protected env var).
