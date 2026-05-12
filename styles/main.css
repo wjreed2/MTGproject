@@ -1204,6 +1204,8 @@ main {
 }
 .whats-new-item-summary { margin-top: 0.35rem; font-size: 0.84rem; color: var(--text2); }
 .whats-new-item-date { margin-top: 0.25rem; font-size: 0.68rem; color: var(--text3); }
+.whats-new-list--older .whats-new-item-title { color: var(--text2); font-weight: 500; }
+.whats-new-list--older .whats-new-item-summary { color: var(--text3); }
 .whats-new-bullets { margin: 0; padding-left: 1.15rem; }
 .whats-new-bullets li { margin: 0.28rem 0; font-size: 0.82rem; }
 .whats-new-strong { color: var(--text); font-weight: 500; }

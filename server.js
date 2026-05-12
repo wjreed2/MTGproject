@@ -799,11 +799,16 @@ authRouter.get('/digest', requireAuth, async (req, res) => {
       .filter(e => e.at > sinceMs)
       .sort((a, b) => b.at - a.at)
       .slice(0, 40);
+    const older = all
+      .filter(e => e.at <= sinceMs)
+      .sort((a, b) => b.at - a.at)
+      .slice(0, 40);
 
     res.json({
       sinceMs,
       lastLoginAt: acc.last_login_at,
       features,
+      older,
     });
   } catch (e) {
     console.error(e);
