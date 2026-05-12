@@ -139,16 +139,16 @@ function showNotif(msg, isError = false) {
 
 function applyWhatsNewUnreadUi(n) {
   const count = Math.max(0, Number(n) || 0);
-  const btn = document.getElementById(‘topbarWhatsNewIconBtn’);
-  const dot = document.getElementById(‘topbarWhatsNewIconDot’);
-  const pip = document.getElementById(‘settingsWhatsNewMenuPip’);
+  const btn = document.getElementById('topbarWhatsNewIconBtn');
+  const dot = document.getElementById('topbarWhatsNewIconDot');
+  const pip = document.getElementById('settingsWhatsNewMenuPip');
   if (btn) {
-    btn.style.display = ‘inline-flex’;
-    btn.title = count > 0 ? `What’s new — ${count} update${count === 1 ? ‘’ : ‘s’}` : ‘What\’s new’;
-    btn.setAttribute(‘aria-label’, count > 0 ? `App updates available, ${count}` : ‘What\’s new’);
+    btn.style.display = 'inline-flex';
+    btn.title = count > 0 ? `What's new — ${count} update${count === 1 ? '' : 's'}` : 'What\'s new';
+    btn.setAttribute('aria-label', count > 0 ? `App updates available, ${count}` : 'What\'s new');
   }
   if (dot) dot.hidden = count === 0;
-  if (pip) pip.style.display = count > 0 ? ‘block’ : ‘none’;
+  if (pip) pip.style.display = count > 0 ? 'block' : 'none';
 }
 
 async function refreshWhatsNewUpdateBadge() {
@@ -162,12 +162,12 @@ async function refreshWhatsNewUpdateBadge() {
 }
 
 async function openWhatsNewFromMenu() {
-  if (typeof closeSettingsDropdown === ‘function’) closeSettingsDropdown();
+  if (typeof closeSettingsDropdown === 'function') closeSettingsDropdown();
   try {
     const d = await authFetchDigest();
     openWhatsNewModal(d);
   } catch (_) {
-    showNotif(‘Could not load updates’, true);
+    showNotif('Could not load updates', true);
   }
 }
 
@@ -196,28 +196,28 @@ function openWhatsNewModal(digest) {
   const parts = [];
 
   const renderEntry = f => {
-    const area = f.area ? ` <span class="whats-new-area">${esc(f.area)}</span>` : ‘’;
-    const when = new Date(f.at).toLocaleDateString(undefined, { dateStyle: ‘medium’ });
+    const area = f.area ? ` <span class="whats-new-area">${esc(f.area)}</span>` : '';
+    const when = new Date(f.at).toLocaleDateString(undefined, { dateStyle: 'medium' });
     return `<li><span class="whats-new-item-title">${esc(f.title)}</span>${area}`
-      + `<div class="whats-new-item-summary">${esc(f.summary || ‘’)}</div>`
+      + `<div class="whats-new-item-summary">${esc(f.summary || '')}</div>`
       + `<div class="whats-new-item-date">${esc(when)}</div></li>`;
   };
 
   if (digest.features && digest.features.length) {
-    parts.push(‘<div class="whats-new-section"><h3 class="whats-new-h">What\’s new</h3><ul class="whats-new-list">’);
+    parts.push('<div class="whats-new-section"><h3 class="whats-new-h">What\'s new</h3><ul class="whats-new-list">');
     for (const f of digest.features) parts.push(renderEntry(f));
-    parts.push(‘</ul></div>’);
+    parts.push('</ul></div>');
   } else {
-    parts.push(‘<p class="whats-new-lead" style="color:var(--teal)">You\’re all caught up!</p>’);
+    parts.push('<p class="whats-new-lead" style="color:var(--teal)">You\'re all caught up!</p>');
   }
 
   if (digest.older && digest.older.length) {
-    parts.push(‘<div class="whats-new-section"><h3 class="whats-new-h" style="color:var(--text3)">Previously</h3><ul class="whats-new-list whats-new-list--older">’);
+    parts.push('<div class="whats-new-section"><h3 class="whats-new-h" style="color:var(--text3)">Previously</h3><ul class="whats-new-list whats-new-list--older">');
     for (const f of digest.older) parts.push(renderEntry(f));
-    parts.push(‘</ul></div>’);
+    parts.push('</ul></div>');
   }
 
-  body.innerHTML = parts.join(‘’);
+  body.innerHTML = parts.join('');
   overlay.classList.add('open');
 }
 
