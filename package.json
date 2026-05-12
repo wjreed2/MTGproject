@@ -15,7 +15,8 @@
     "cap:device": "node scripts/update-cap-ip.js && npx cap sync",
     "cap:sync": "npx cap sync",
     "setup:https": "bash scripts/setup-https.sh",
-    "changelog:add": "node scripts/changelog-add.js"
+    "changelog:add": "node scripts/changelog-add.js",
+    "changelog:sync": "node scripts/sync-changelog.js"
   },
   "dependencies": {
     "@capacitor-community/speech-recognition": "^7.0.1",
