@@ -178,7 +178,7 @@ function _escapeWhatsNewHtml(s) {
     .replace(/"/g, '&quot;');
 }
 
-function openWhatsNewModal(digest) {
+function openWhatsNewModal(digest, { autoPopup = false } = {}) {
   const overlay = document.getElementById('whatsNewModal');
   const body = document.getElementById('whatsNewModalBody');
   if (!overlay || !body || !digest) return;
@@ -211,7 +211,7 @@ function openWhatsNewModal(digest) {
     parts.push('<p class="whats-new-lead" style="color:var(--teal)">You\'re all caught up!</p>');
   }
 
-  if (digest.older && digest.older.length) {
+  if (!autoPopup && digest.older && digest.older.length) {
     parts.push('<div class="whats-new-section"><h3 class="whats-new-h" style="color:var(--text3)">Previously</h3><ul class="whats-new-list whats-new-list--older">');
     for (const f of digest.older) parts.push(renderEntry(f));
     parts.push('</ul></div>');

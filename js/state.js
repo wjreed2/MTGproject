@@ -196,7 +196,7 @@ async function maybeShowWhatsNewDigest() {
     if (typeof applyWhatsNewUnreadUi === 'function') applyWhatsNewUnreadUi(n);
     if (n === 0) return;
     if (typeof getWhatsNewAutoPopup === 'function' && !getWhatsNewAutoPopup()) return;
-    if (typeof openWhatsNewModal === 'function') openWhatsNewModal(d);
+    if (typeof openWhatsNewModal === 'function') openWhatsNewModal(d, { autoPopup: true });
   } catch (_) {
     if (typeof applyWhatsNewUnreadUi === 'function') applyWhatsNewUnreadUi(0);
   }
