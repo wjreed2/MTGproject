@@ -11,7 +11,10 @@
  *   TARGET_DB_HOST=... TARGET_DB_PORT=3306 TARGET_DB_USER=root TARGET_DB_PASS=... TARGET_DB_NAME=railway \
  *     node scripts/sync-changelog.js
  *
- *   Add --apply to actually write. Without it, prints what would be inserted (dry run).
+ *   Add --apply to actually write (or CHANGELOG_SYNC_APPLY=1, or npm run changelog:sync:apply).
+ *   Without it, prints what would be inserted (dry run).
+ *
+ *   npm note: use `npm run changelog:sync -- --apply` (two dashes before --apply).
  *
  * Source defaults to local dev DB (DB_HOST/DB_USER/DB_PASS/DB_NAME from .env).
  * Override source with SOURCE_DB_HOST / SOURCE_DB_PORT / SOURCE_DB_USER / SOURCE_DB_PASS / SOURCE_DB_NAME.
@@ -19,10 +22,28 @@
 'use strict';
 
 require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
-const mysql   = require('mysql2/promise');
-const DRY_RUN = !process.argv.includes('--apply');
+const mysql = require('mysql2/promise');
+
+function _syncWantsApply() {
+  const ev = process.env.npm_lifecycle_event;
+  if (ev === 'changelog:sync:apply') return true;
+  const flag = String(process.env.CHANGELOG_SYNC_APPLY || '').toLowerCase();
+  if (flag === '1' || flag === 'true' || flag === 'yes') return true;
+  return process.argv.some(a => String(a).trim() === '--apply');
+}
+
+const DRY_RUN = !_syncWantsApply();
 
 async function main() {
+  if (DRY_RUN) {
+    console.log('Mode: DRY RUN (no writes).\n');
+    console.log('To write: npm run changelog:sync:apply');
+    console.log('  or:     CHANGELOG_SYNC_APPLY=1 npm run changelog:sync');
+    console.log('  or:     node scripts/sync-changelog.js --apply\n');
+    console.log(`Debug: argv=[${process.argv.slice(2).join(', ')}] npm_lifecycle_event=${process.env.npm_lifecycle_event || '(unset)'}\n`);
+  } else {
+    console.log('Mode: APPLY (writing to target DB).\n');
+  }
   const source = await mysql.createConnection({
     host:     process.env.SOURCE_DB_HOST || process.env.DB_HOST || 'localhost',
     port:     parseInt(process.env.SOURCE_DB_PORT || process.env.DB_PORT || '3306'),

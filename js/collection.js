@@ -1080,17 +1080,30 @@ function _syncCardDetailRowInDeck(ctx) {
     <div style="flex:1;min-width:0">${_htmlCardDetailDeckQtyCounter(ctx)}</div>`;
 }
 
+function _showCardDetailChangePrinting(ctx) {
+  const { isOwned, activeDeckCard } = ctx;
+  if (isOwned) return true;
+  return !!(activeDeckCard && _isDeckBuilderMainTabActive());
+}
+
+function _htmlCardDetailChangePrintingBtn() {
+  return `<button type="button" class="btn btn-outline btn-sm" title="Change printing" onclick="openVersionPickerFromCardDetail()">⟳ Change printing</button>`;
+}
+
 function _syncCardDetailRowPrimaryActions(ctx) {
   const { isOwned, isCommanderCandidate, actionUid, uid, isWishlisted, card } = ctx;
   const el = document.getElementById('cardDetailRowPrimaryActions');
   if (!el) return;
+  const printBtn = _showCardDetailChangePrinting(ctx) ? _htmlCardDetailChangePrintingBtn() : '';
   el.innerHTML = isOwned
     ? `<button class="btn btn-primary btn-sm" onclick="addToDeckFromDetail('${actionUid}')">+ Add to Deck</button>
+               ${printBtn}
                ${isCommanderCandidate ? `<button class="btn btn-outline btn-sm" onclick="buildSkeletonDeckFromInspectorCard('${actionUid}')">Build Skeleton Deck</button>` : ''}
                <button class="btn btn-outline btn-sm" onclick="toggleWishlistFromDetail('${uid}')">${isWishlisted ? '♥ Wishlisted' : '♡ Wishlist'}</button>
                <button type="button" id="cardDetailStarBtn" class="btn btn-outline btn-sm" data-detail-uid="${actionUid}" onclick="toggleCardStar('${actionUid}',event)">${card.starred ? '★ Starred' : '☆ Star'}</button>
                <button class="btn btn-danger btn-sm" onclick="removeFromCollection('${actionUid}')">Remove</button>`
     : `<button class="btn btn-primary btn-sm" onclick="addCardToCollectionFromDetail('${uid}')">+ Add to Collection</button>
+               ${printBtn}
                <button class="btn btn-outline btn-sm" onclick="toggleWishlistFromDetail('${uid}')">${isWishlisted ? '♥ Wishlisted' : '♡ Wishlist'}</button>`;
 }
 
@@ -1190,6 +1203,7 @@ function _htmlOpenCardDetailRightColumn(ctx) {
       : `<span class="tag tag-primary" style="font-size:0.84rem">${t}</span>`)).join('')
     : '<span style="font-size:0.72rem;color:var(--text3)">No tags yet</span>';
   const actionUidRef = (actionUid || '').replace(/'/g, "\\'");
+  const printBtn = _showCardDetailChangePrinting(ctx) ? _htmlCardDetailChangePrintingBtn() : '';
   const showInDeckRow = !!(activeDeck && _isDeckBuilderMainTabActive());
   const inDeckInner = showInDeckRow
     ? `<span class="card-detail-qty-row-label">In deck:</span>
@@ -1227,11 +1241,13 @@ function _htmlOpenCardDetailRightColumn(ctx) {
         <div id="cardDetailRowPrimaryActions" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:0.75rem">
           ${isOwned
     ? `<button class="btn btn-primary btn-sm" onclick="addToDeckFromDetail('${actionUid}')">+ Add to Deck</button>
+               ${printBtn}
                ${isCommanderCandidate ? `<button class="btn btn-outline btn-sm" onclick="buildSkeletonDeckFromInspectorCard('${actionUid}')">Build Skeleton Deck</button>` : ''}
                <button class="btn btn-outline btn-sm" onclick="toggleWishlistFromDetail('${uid}')">${isWishlisted ? '♥ Wishlisted' : '♡ Wishlist'}</button>
                <button type="button" id="cardDetailStarBtn" class="btn btn-outline btn-sm" data-detail-uid="${actionUid}" onclick="toggleCardStar('${actionUid}',event)">${card.starred ? '★ Starred' : '☆ Star'}</button>
                <button class="btn btn-danger btn-sm" onclick="removeFromCollection('${actionUid}')">Remove</button>`
     : `<button class="btn btn-primary btn-sm" onclick="addCardToCollectionFromDetail('${uid}')">+ Add to Collection</button>
+               ${printBtn}
                <button class="btn btn-outline btn-sm" onclick="toggleWishlistFromDetail('${uid}')">${isWishlisted ? '♥ Wishlisted' : '♡ Wishlist'}</button>`}
         </div>
         <div id="cardDetailDefaultTagsWrap" style="border-top:1px solid var(--border2);padding-top:0.75rem;margin-top:0.25rem;margin-bottom:0.75rem">

@@ -10,6 +10,10 @@ function toggleDeckValidTooltip() {
   document.getElementById('deckValidBadge')?.classList.toggle('open');
 }
 
+function toggleDeckGameChangerTooltip() {
+  document.getElementById('deckGameChangerBadge')?.classList.toggle('open');
+}
+
 document.addEventListener('click', e => {
   const btn = document.getElementById('deckOptionsBtn');
   const menu = document.getElementById('deckOptionsDropdown');
@@ -20,6 +24,11 @@ document.addEventListener('click', e => {
   const badge = document.getElementById('deckValidBadge');
   if (badge && !badge.contains(e.target)) {
     badge.classList.remove('open');
+  }
+
+  const gcBadge = document.getElementById('deckGameChangerBadge');
+  if (gcBadge && !gcBadge.contains(e.target)) {
+    gcBadge.classList.remove('open');
   }
 });
 
@@ -612,6 +621,122 @@ function jumpToDeckIssue(cardName) {
   openCardDetail(hit.uid || hit.scryfallId, 'deck');
 }
 
+// ── Commander game changers (Scryfall is:gamechanger) ─────────────────────────
+
+const _COMMANDER_FMTS_WITH_GC = new Set(['Commander', 'Brawl', 'Oathbreaker']);
+let _gameChangerOracleIds = null; // Set<string> | null
+let _gameChangerNames = null;
+let _gameChangerLoadPromise = null;
+
+function _isCommanderFormatForGameChangers(deck) {
+  return _COMMANDER_FMTS_WITH_GC.has(deck?.format || '');
+}
+
+async function ensureGameChangerIndex() {
+  if (_gameChangerOracleIds) return;
+  if (!_gameChangerLoadPromise) {
+    _gameChangerLoadPromise = (async () => {
+      const data = await apiFetch('/scryfall/game-changers');
+      _gameChangerOracleIds = new Set((data.oracleIds || []).map(id => String(id).toLowerCase()));
+      _gameChangerNames = new Set((data.names || []).map(n => String(n).toLowerCase()));
+    })().catch(err => {
+      _gameChangerLoadPromise = null;
+      throw err;
+    });
+  }
+  await _gameChangerLoadPromise;
+}
+
+function _gameChangerOracleIdForCard(card) {
+  const raw = card?.oracleId
+    || (card?.scryfallId && typeof _scryOracleByPrintId !== 'undefined' ? _scryOracleByPrintId.get(card.scryfallId) : '')
+    || '';
+  return raw && typeof _isUuidLike === 'function' && _isUuidLike(String(raw))
+    ? String(raw).toLowerCase()
+    : '';
+}
+
+function isGameChangerCard(card) {
+  if (!_gameChangerOracleIds || !_gameChangerNames) return false;
+  const oid = _gameChangerOracleIdForCard(card);
+  if (oid && _gameChangerOracleIds.has(oid)) return true;
+  const name = String(card?.name || '').trim().toLowerCase();
+  return name && _gameChangerNames.has(name);
+}
+
+function _deckGameChangerEntries(deck) {
+  const byKey = new Map();
+  const add = (c) => {
+    if (!c || !isGameChangerCard(c)) return;
+    const key = _gameChangerOracleIdForCard(c) || String(c.name || '').trim().toLowerCase();
+    if (!key || byKey.has(key)) return;
+    byKey.set(key, c);
+  };
+  (deck?.cards || []).forEach(add);
+  (deck?.sideboard || []).forEach(add);
+  return [...byKey.values()].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+}
+
+function renderDeckGameChangers(deck) {
+  const badge = document.getElementById('deckGameChangerBadge');
+  if (!badge) return;
+  badge.innerHTML = '';
+  badge.classList.remove('open');
+  if (!deck || !_isCommanderFormatForGameChangers(deck)) {
+    badge.style.display = 'none';
+    return;
+  }
+  if (!_gameChangerOracleIds) {
+    badge.style.display = 'inline-flex';
+    badge.innerHTML = `<span class="deck-gc-circle deck-gc-loading" title="Loading game changers…">…</span>`;
+    return;
+  }
+  const entries = _deckGameChangerEntries(deck);
+  badge.style.display = 'inline-flex';
+  if (!entries.length) {
+    badge.innerHTML = `<span class="deck-gc-circle deck-gc-none" title="No Commander game changers in this deck">GC 0</span>`;
+    return;
+  }
+  const rows = entries.map(c => {
+    const safe = (c.name || '').replace(/'/g, "\\'");
+    return `<div class="deck-gc-row deck-gc-row-link" onclick="jumpToDeckIssue('${safe}')">
+      <span class="deck-gc-row-name">${c.name}</span>
+      <span style="color:var(--text3);font-size:0.7rem">view</span>
+    </div>`;
+  }).join('');
+  badge.innerHTML = `
+    <span class="deck-gc-circle deck-gc-has" onclick="toggleDeckGameChangerTooltip()" title="Commander game changers in this deck">${entries.length} GC</span>
+    <div class="deck-gc-tooltip">
+      <div class="deck-gc-tooltip-title">Game changers</div>
+      ${rows}
+    </div>`;
+}
+
+let _gameChangerRefreshGen = 0;
+function scheduleDeckGameChangerRefresh(deck) {
+  const d = deck || getActiveDeck();
+  if (!d || !_isCommanderFormatForGameChangers(d)) {
+    renderDeckGameChangers(d);
+    return;
+  }
+  const gen = ++_gameChangerRefreshGen;
+  renderDeckGameChangers(d);
+  ensureGameChangerIndex()
+    .then(() => {
+      if (gen !== _gameChangerRefreshGen) return;
+      renderDeckGameChangers(getActiveDeck());
+      if (getActiveDeck()?.id === d.id) renderDeckList(getActiveDeck());
+    })
+    .catch(() => {
+      if (gen !== _gameChangerRefreshGen) return;
+      const el = document.getElementById('deckGameChangerBadge');
+      if (el) {
+        el.style.display = 'inline-flex';
+        el.innerHTML = `<span class="deck-gc-circle deck-gc-none" title="Could not load game changer list">GC ?</span>`;
+      }
+    });
+}
+
 let deckListView = 'grid';
 let deckStackOrient = (localStorage.getItem('mtg_deck_stack_orient') === 'horizontal' ? 'horizontal' : 'vertical');
 let deckGroupBy  = (() => {
@@ -765,29 +890,42 @@ let deckSidebarCollapsed = localStorage.getItem('mtg_deck_sidebar_collapsed') ==
 let _deckCardTagPickerTarget = null; // { deckId, cardUid }
 let activeDeckIsShared = false;
 const SCRYFALL_AUTO_TAGS = [
-  { label: 'Ramp',        otag: 'ramp' },
-  { label: 'Card Draw',   otag: 'draw' },
-  { label: 'Removal',     otag: 'removal' },
-  { label: 'Board Wipe',  otag: 'board-wipe' },
-  { label: 'Anthem',      otag: 'anthem' },
-  { label: 'Evasion',     otag: 'evasion' },
-  // No reliable single otag on Scryfall; use close text-pattern queries.
-  { label: 'Pump',        query: '(o:"target creature gets +" or o:"creatures you control get +" or (o:"gets +" and o:"until end of turn"))' },
-  { label: 'Control',     query: '(o:"gain control" or o:"exchange control")' },
-  { label: 'Bounce',      otag: 'bounce' },
-  { label: 'Recursion',   otag: 'recursion' },
-  { label: 'Tutor',       otag: 'tutor' },
-  { label: 'Counterspell',otag: 'counterspell' },
-  { label: 'Protection',  query: '(o:"protection from" or o:hexproof or o:indestructible or o:"phase out")' },
-  { label: 'Lifegain',    otag: 'lifegain' },
-  { label: 'Discard',     otag: 'discard' },
-  { label: 'Mill',        otag: 'mill' },
-  { label: 'Token Maker', otag: 'tokens' },
-  { label: 'Blink',       otag: 'blink' },
-  { label: 'Sac Outlet',  otag: 'sacrifice' },
-  { label: 'Treasure',    otag: 'treasure' },
-  { label: 'Stax',        otag: 'stax' },
-  { label: 'Copy',        otag: 'copy' },
+  { label: 'Ramp',           otag: 'ramp' },
+  { label: 'Card Draw',      otag: 'draw' },
+  { label: 'Removal',        otag: 'removal' },
+  { label: 'Board Wipe',     otag: 'board-wipe' },
+  { label: 'Tutor',          otag: 'tutor' },
+  { label: 'Counterspell',   otag: 'counterspell' },
+  { label: 'Protection',     query: '(o:"protection from" or o:hexproof or o:indestructible or o:"phase out")' },
+  { label: 'Bounce',         otag: 'bounce' },
+  { label: 'Control',        query: '(o:"gain control" or o:"exchange control")' },
+  { label: 'Burn',           otag: 'burn' },
+  { label: 'Group Slug',     otag: 'group-slug' },
+  { label: 'Stax',           otag: 'tax' },
+  { label: 'Hatebear',       otag: 'hatebear' },
+  { label: 'Anthem',         otag: 'anthem' },
+  { label: 'Evasion',        otag: 'evasion' },
+  { label: 'Pump',           query: '(o:"target creature gets +" or o:"creatures you control get +" or (o:"gets +" and o:"until end of turn"))' },
+  { label: 'Combat Trick',   otag: 'combat-trick' },
+  { label: 'Bite',           otag: 'bite' },
+  { label: 'Extra Combat',   otag: 'extra-combat' },
+  { label: 'Token Maker',    query: '(o:create o:token)' },
+  { label: 'Blink',          otag: 'blink' },
+  { label: 'Copy',           otag: 'copy' },
+  { label: 'Treasure',       query: 'o:"treasure token"' },
+  { label: 'Lifegain',       otag: 'lifegain' },
+  { label: 'Discard',        otag: 'discard' },
+  { label: 'Mill',           otag: 'mill' },
+  { label: 'Wheel',          otag: 'wheel' },
+  { label: 'Landfall',       otag: 'landfall' },
+  { label: 'Recursion',      otag: 'recursion' },
+  { label: 'Reanimate',      otag: 'reanimate' },
+  { label: 'Graveyard Cast', otag: 'synergy-graveyard-cast' },
+  { label: 'Self-Mill',      otag: 'self-mill' },
+  { label: 'Sac Outlet',     otag: 'sacrifice-outlet' },
+  { label: 'Death Trigger',  otag: 'death-trigger' },
+  { label: 'Drain',          otag: 'drain-life' },
+  { label: 'Sac Synergy',    otag: 'synergy-sacrifice' },
 ];
 const SCRYFALL_PROTECTED_TAGS = new Set(['Commander', 'Land', ...SCRYFALL_AUTO_TAGS.map(t => t.label)]);
 const _scryTagsByOracleId = new Map();    // oracleId -> string[]
@@ -2203,6 +2341,7 @@ function renderActiveDeck() {
   renderLandCoverageChart(deck);
   renderProbabilityChart(deck);
   renderDeckValidation(deck);
+  scheduleDeckGameChangerRefresh(deck);
   renderCollaboratorsPanel(deck);
   _simAutoLoad();
   if (!activeDeckIsShared) scheduleEDHRECRefresh(0);
@@ -3060,14 +3199,20 @@ function _stackTile(c, isSideboard = false, sideboardForMbHint = null) {
     ? `<div class="stack-mb-pool" title="Same printing on maybe board">MB ×${mbPoolQty}</div>`
     : '';
 
+  const isGameChanger = typeof isGameChangerCard === 'function' && isGameChangerCard(c);
+  const gcBadge = isGameChanger
+    ? `<div class="stack-game-changer" title="Commander game changer">GC</div>`
+    : '';
+
   return `
-    <div class="deck-stack-card${notOwned ? ' not-owned' : ''}" draggable="true" data-uid="${c.uid || ''}" data-sid="${c.scryfallId || ''}" data-name="${safeName}" data-card-key="${cardKey}" data-card-name-key="${nameKey.replace(/"/g, '&quot;')}">
+    <div class="deck-stack-card${notOwned ? ' not-owned' : ''}${isGameChanger ? ' is-game-changer' : ''}" draggable="true" data-uid="${c.uid || ''}" data-sid="${c.scryfallId || ''}" data-name="${safeName}" data-card-key="${cardKey}" data-card-name-key="${nameKey.replace(/"/g, '&quot;')}">
       <div class="stack-wrap">
         ${img
           ? `<img src="${img}" class="stack-main${c.isCommander ? ' is-commander' : ''}" alt="${c.name}" loading="lazy" style="${imgStyle}">`
           : `<div class="stack-main stack-face-fallback${c.isCommander ? ' is-commander' : ''}"
                style="aspect-ratio:0.715;background:var(--bg4);display:flex;align-items:center;justify-content:center;color:var(--text3);padding:4px;text-align:center;${imgStyle}">${c.name}</div>`}
         <div class="stack-qty">×${qty}</div>
+        ${gcBadge}
         ${mbPoolBadge}
         ${ownerBadge}
         <button class="stack-remove" data-uid="${c.uid || ''}" data-zone="${isSideboard ? 'sb' : 'main'}" title="Remove">✕</button>
@@ -3606,9 +3751,13 @@ function renderDeckList(deck) {
       const rowTagHtml = rowTags.length
         ? `<span class="deck-row-tags" onclick="event.stopPropagation()">${rowTags.map(t => _deckTagChipHtml(t, { deck, interactive: true, size: '0.62rem' })).join('')}</span>`
         : '';
+      const rowIsGc = typeof isGameChangerCard === 'function' && isGameChangerCard(c);
+      const gcRowHtml = rowIsGc
+        ? `<span class="deck-gc-chip" title="Commander game changer">GC</span>`
+        : '';
       return `
-      <div class="deck-card-row" draggable="true" data-uid="${c.uid || ''}" data-zone="main" data-card-key="${getCardInventoryKey(c)}" data-card-name-key="${String(c.name || '').trim().toLowerCase().replace(/"/g, '&quot;')}" onclick="openCardDetail('${c.uid || c.scryfallId}','deck')">
-        <span class="deck-card-name">${c.name}</span>${rowTagHtml}
+      <div class="deck-card-row${rowIsGc ? ' is-game-changer' : ''}" draggable="true" data-uid="${c.uid || ''}" data-zone="main" data-card-key="${getCardInventoryKey(c)}" data-card-name-key="${String(c.name || '').trim().toLowerCase().replace(/"/g, '&quot;')}" onclick="openCardDetail('${c.uid || c.scryfallId}','deck')">
+        <span class="deck-card-name">${c.name}</span>${gcRowHtml}${rowTagHtml}
         <span style="display:flex;gap:5px;align-items:center">${sortColorsWUBRG(c.colors).map(col => `<img src="https://svgs.scryfall.io/card-symbols/${col}.svg" class="mana-pip" alt="${col}" title="${col}">`).join('')}</span>
         ${mbRowHtml}
         <button class="btn btn-ghost btn-sm btn-icon" title="Edit My Tags" onclick="event.stopPropagation();openGlobalTagPickerForCard('${c.uid || c.scryfallId || ''}')">🏷</button>
@@ -4538,6 +4687,89 @@ function renderLandCoverageChart(deck) {
 let _cmdFreeMulligan = localStorage.getItem('mtg_cmd_free_mulligan') !== 'false';
 const _cmdGpEdhrecCache = new Map();
 
+// Custom gameplan requirements — persisted per deck.
+// Each entry is a group: { id, parts: [{ type, value, label }] }
+// Within a group = OR logic. Between groups = AND logic.
+function _getCmdCustomReqs(deckId) {
+  try {
+    const raw = JSON.parse(localStorage.getItem(`mtg_cgp_reqs_${deckId}`) || '[]');
+    // Migrate old flat format { type, value, label } → new group format { parts: [...] }
+    return raw.map(r => r.parts ? r : { id: r.id, parts: [{ type: r.type, value: r.value, label: r.label }] });
+  } catch { return []; }
+}
+function _setCmdCustomReqs(deckId, reqs) {
+  localStorage.setItem(`mtg_cgp_reqs_${deckId}`, JSON.stringify(reqs));
+}
+// Union of all deck cards matching any part in a requirement group
+function _customReqCards(deck, group) {
+  const seen = new Map(); // uid/name → card (dedup across OR parts)
+  (group.parts || []).forEach(part => {
+    (deck.cards || []).forEach(c => {
+      let matches = false;
+      if (part.type === 'tag') matches = _probTagsOnCard(c).includes(part.value);
+      if (part.type === 'card') matches = c.scryfallId === part.cardId || c.name === part.cardName;
+      if (matches) seen.set(c.scryfallId || c.name, c);
+    });
+  });
+  const cards = [...seen.values()];
+  let K = 0, cmcSum = 0;
+  cards.forEach(c => { const q = c.qty || 1; K += q; cmcSum += (c.cmc || 0) * q; });
+  const avgCMC = K > 0 ? cmcSum / K : 0;
+  return { cards, K, avgCMC };
+}
+let _cmdCustomEditorOpen = false;
+let _cmdOrPickerGroup = null; // group id whose "+ or" picker is currently open
+function toggleCmdCustomEditor() {
+  _cmdCustomEditorOpen = !_cmdCustomEditorOpen;
+  _cmdOrPickerGroup = null;
+  // Full re-render: recalculates probabilities with or without custom reqs
+  const deck = getActiveDeck();
+  if (deck) renderCommanderGameplan(deck);
+}
+function toggleCmdOrPicker(groupId) {
+  _cmdOrPickerGroup = _cmdOrPickerGroup === groupId ? null : groupId;
+  const deck = getActiveDeck();
+  if (deck) renderCommanderGameplan(deck);
+}
+// Add a new AND group with a single part
+function addCmdCustomReq(deckId, type, value, label) {
+  const reqs = _getCmdCustomReqs(deckId);
+  if (reqs.some(g => g.parts.some(p => p.type === type && p.value === value))) return; // dedup
+  reqs.push({ id: Date.now() + Math.random(), parts: [{ type, value, label }] });
+  _setCmdCustomReqs(deckId, reqs);
+  const deck = getActiveDeck();
+  if (deck) renderCommanderGameplan(deck);
+}
+// Add an OR alternative to an existing group
+function addCmdCustomReqOr(deckId, groupId, type, value, label) {
+  const reqs = _getCmdCustomReqs(deckId);
+  const group = reqs.find(g => String(g.id) === String(groupId));
+  if (!group) return;
+  if (group.parts.some(p => p.type === type && p.value === value)) return;
+  group.parts.push({ type, value, label });
+  _cmdOrPickerGroup = null;
+  _setCmdCustomReqs(deckId, reqs);
+  const deck = getActiveDeck();
+  if (deck) renderCommanderGameplan(deck);
+}
+// Remove one part from a group; removes the whole group if it becomes empty
+function removeCmdCustomReqPart(deckId, groupId, value) {
+  let reqs = _getCmdCustomReqs(deckId);
+  const group = reqs.find(g => String(g.id) === String(groupId));
+  if (!group) return;
+  group.parts = group.parts.filter(p => p.value !== value);
+  if (!group.parts.length) reqs = reqs.filter(g => String(g.id) !== String(groupId));
+  _setCmdCustomReqs(deckId, reqs);
+  const deck = getActiveDeck();
+  if (deck) renderCommanderGameplan(deck);
+}
+function removeCmdCustomReq(deckId, id) {
+  const reqs = _getCmdCustomReqs(deckId).filter(g => String(g.id) !== String(id));
+  _setCmdCustomReqs(deckId, reqs);
+  const deck = getActiveDeck();
+  if (deck) renderCommanderGameplan(deck);
+}
+
 function toggleCmdFreeMulligan(checked) {
   _cmdFreeMulligan = !!checked;
   localStorage.setItem('mtg_cmd_free_mulligan', String(_cmdFreeMulligan));
@@ -4588,17 +4820,18 @@ function _rampIsRelevant(card, cmdColors, hasGenericCost) {
   return false;
 }
 
-function _countEarlyRamp(deck, cmdColors, hasGenericCost) {
+function _countEarlyRamp(deck, cmdColors, hasGenericCost, cmdCMC = 4) {
   return (deck.cards || []).reduce((s, c) => {
     if (_isLandDeckCard(c)) return s;
     if (!_probTagsOnCard(c).includes('Ramp')) return s;
-    if ((c.cmc || 0) > 2) return s;
+    // "Early" = castable before the commander turn (CMC < cmdCMC)
+    if ((c.cmc || 0) >= cmdCMC) return s;
     if (cmdColors && !_rampIsRelevant(c, cmdColors, hasGenericCost)) return s;
     return s + (c.qty || 1);
   }, 0);
 }
 
-function _cmdGameplanProbs(deck, cmdCard) {
+function _cmdGameplanProbs(deck, cmdCard, customReqs = []) {
   const _COLOR_FULL = { W: 'White', U: 'Blue', B: 'Black', R: 'Red', G: 'Green' };
   const cards = deck.cards || [];
   const N = Math.max(1, cards.reduce((s, c) => s + (c.qty || 1), 0));
@@ -4628,7 +4861,16 @@ function _cmdGameplanProbs(deck, cmdCard) {
 
   const coloredPips = ['W','U','B','R','G'].reduce((s, c) => s + (cmdManaPips[c] || 0), 0);
   const hasGenericCost = cmdCMC > coloredPips;
-  const R = _countEarlyRamp(deck, cmdColors, hasGenericCost);
+
+  // Compute custom requirement turn shift first — it affects what counts as "early" ramp
+  const _customDataRaw = customReqs.map(group => {
+    const { avgCMC } = _customReqCards(deck, group);
+    return avgCMC;
+  });
+  const extraTurns = Math.round(_customDataRaw.reduce((s, v) => s + v, 0));
+  const adjustedCMC = cmdCMC + extraTurns;
+
+  const R = _countEarlyRamp(deck, cmdColors, hasGenericCost, adjustedCMC);
   const clamp01 = v => Math.max(0, Math.min(1, v));
   // Mulligan adjustment: P(success) = 1 - P(fail original hand) × P(fail mulligan hand)
   // Mulligan hand starts with 6 cards (bottom 1 after free redraw) + same turn draws = seen-1 total
@@ -4673,7 +4915,9 @@ function _cmdGameplanProbs(deck, cmdCard) {
     return clamp01(1 - (1 - p) * (1 - pColorsJoint(colors, Math.max(1, seen - 1))));
   };
 
-  const results = { onCurve: null, preCurve: null, meta: { N, L, L_ut, R, cmdCMC, cmdColors, colorSources, hasGenericCost } };
+  // customGroups populated after customData is built below; placeholder here so meta reference is stable
+  const customGroups = [];
+  const results = { onCurve: null, preCurve: null, meta: { N, L, L_ut, R, cmdCMC, adjustedCMC, extraTurns, cmdColors, colorSources, hasGenericCost, customGroups } };
 
   // Build sorted card-name list for a given color — used in tooltip detail strings
   const colorSourceCards = col => {
@@ -4693,57 +4937,99 @@ function _cmdGameplanProbs(deck, cmdCard) {
     return `${Math.round(S)} sources\n${cardList}`;
   };
 
+  const rampDetail = () => {
+    const rampCards = (deck.cards || []).filter(c => {
+      if (_isLandDeckCard(c)) return false;
+      if (!_probTagsOnCard(c).includes('Ramp')) return false;
+      if ((c.cmc || 0) >= adjustedCMC) return false;
+      return true;
+    }).sort((a, b) => (a.cmc || 0) - (b.cmc || 0) || a.name.localeCompare(b.name));
+    const cardList = rampCards.map(c => c.qty > 1 ? `${c.name} ×${c.qty}` : c.name).join('\n');
+    return `${R} ramp pieces (CMC<${adjustedCMC})\n${cardList}`;
+  };
+
+  // rampCMCMax: highest CMC a ramp piece can be and still be castable before the commander
+  const rampCMCMax = cmdCMC - 1;
+
+  // Custom requirements — draw probability; avg CMC shifts the target curve turn (extraTurns already computed above)
+  const customData = customReqs.map(group => {
+    const { cards, K, avgCMC } = _customReqCards(deck, group);
+    const groupLabel = group.parts.map(p => p.label).join(' or ');
+    const cardList = cards.sort((a,b) => (a.cmc||0)-(b.cmc||0) || a.name.localeCompare(b.name))
+      .map(c => c.qty > 1 ? `${c.name} (CMC${c.cmc||0}) ×${c.qty}` : `${c.name} (CMC${c.cmc||0})`).join('\n');
+    return { group, groupLabel, K, avgCMC, detail: `${K} cards (avg CMC ${avgCMC.toFixed(1)})\n${cardList || '(none in deck)'}` };
+  });
+  customGroups.push(...customData.map(d => ({ groupLabel: d.groupLabel, avgCMC: d.avgCMC })));
+  const customReqRows = (sceneSeen) => customData.map(d => ({
+    label: `Drew ${d.groupLabel}`,
+    p: mulP(d.K, sceneSeen, 1),
+    detail: d.detail,
+  }));
+  const customReqMul = (sceneSeen) => customData.reduce((s, d) => s * mulP(d.K, sceneSeen, 1), 1);
+
   if (cmdCMC >= 1) {
-    const turn = cmdCMC;
+    // Shift the target turn by the total avg CMC of custom requirements
+    const turn = cmdCMC + extraTurns;
     const seen = 7 + (turn - 1);
-    const p_ramp_early = mulP(R, 8, 1);
-    // With ramp by T2 you need one fewer land drop to reach the same mana
+    // Ramp has until T(turn-1) to show up — cards seen by that turn
+    const rampSeen = 7 + Math.max(0, turn - 2);
+    const p_ramp_0    = clamp01(1 - mulP(R, rampSeen, 1));
+    const p_ramp_1    = clamp01(mulP(R, rampSeen, 1) - mulP(R, rampSeen, 2));
+    const p_ramp_2plus = mulP(R, rampSeen, 2);
     const p_land_natural = mulP(L, seen, turn);
-    const p_land_ramp    = turn > 1 ? mulP(L, seen, turn - 1) : p_land_natural;
-    // Weighted blend: ramp-assisted route + natural route
-    const p_mana = clamp01(p_land_natural + p_ramp_early * (p_land_ramp - p_land_natural));
+    const p_land_1ramp   = turn > 1 ? mulP(L, seen, turn - 1) : p_land_natural;
+    const p_land_2ramp   = turn > 2 ? mulP(L, seen, turn - 2) : p_land_1ramp;
+    const p_mana = clamp01(
+      p_ramp_0     * p_land_natural +
+      p_ramp_1     * p_land_1ramp   +
+      p_ramp_2plus * p_land_2ramp
+    );
+    const p_ramp_any = mulP(R, rampSeen, 1);
     const colorReqs = cmdColors.map(col => {
       const S = colorSources[col] || 0;
       return { label: `${_COLOR_FULL[col]} source`, p: mulP(S, seen, 1), detail: colorSourceDetail(col) };
     });
-    // Joint color probability via inclusion-exclusion — correctly credits dual lands
-    const p_overall = clamp01(p_mana * pColorsJointMul(cmdColors, seen));
+    const p_overall = clamp01(p_mana * pColorsJointMul(cmdColors, seen) * customReqMul(seen));
     results.onCurve = {
       turn, p: p_overall,
       requirements: [
         { label: `≥${turn} lands by T${turn}`, p: p_land_natural, detail: `${L} lands` },
-        { label: `Early ramp by T2 (saves a land drop)`, p: p_ramp_early, detail: `${R} ramp ≤2 CMC`, bonus: true },
+        { label: `Early ramp by T${Math.max(1, turn - 1)} (saves land drops)`, p: p_ramp_any, detail: rampDetail(), bonus: true },
         ...colorReqs.map(r => ({ label: r.label, p: r.p, detail: r.detail })),
+        ...customReqRows(seen),
       ],
     };
   }
 
   if (cmdCMC >= 3) {
-    const turn = cmdCMC - 1;
+    const turn = cmdCMC + extraTurns - 1;
     const seen = 7 + (turn - 1);
     const p_lands = mulP(L, seen, turn);
     const colorReqs = cmdColors.map(col => {
       const S = colorSources[col] || 0;
       return { label: `${_COLOR_FULL[col]} source`, p: mulP(S, seen, 1), detail: colorSourceDetail(col) };
     });
-    // Untapped land + ramp by T2: apply mulligan to the combined joint probability
+    // Ramp + untapped land needed by T(turn-1) to accelerate into pre-curve
+    const preCurveRampSeen = 7 + Math.max(0, turn - 2);
     const _incEx = (seenN) => {
       const pu = clamp01(_hypergeoAtLeast(N, L_ut, seenN, 1));
       const pr = clamp01(_hypergeoAtLeast(N, R, seenN, 1));
       const pn = _hyper(N, Math.min(N, L_ut + R), seenN, 0);
       return clamp01(pu + pr - 1 + pn);
     };
-    const p_ramp_ut_orig = _incEx(8);
+    const p_ramp_ut_orig = _incEx(preCurveRampSeen);
     const p_ramp_ut = _cmdFreeMulligan
-      ? clamp01(1 - (1 - p_ramp_ut_orig) * (1 - _incEx(7)))
+      ? clamp01(1 - (1 - p_ramp_ut_orig) * (1 - _incEx(preCurveRampSeen - 1)))
       : p_ramp_ut_orig;
-    const p_overall = clamp01(p_lands * p_ramp_ut * pColorsJointMul(cmdColors, seen));
+    const p_overall = clamp01(p_lands * p_ramp_ut * pColorsJointMul(cmdColors, seen) * customReqMul(seen));
+    const rampTurnLabel = Math.max(1, turn - 1);
     results.preCurve = {
       turn, p: p_overall,
       requirements: [
         { label: `≥${turn} lands by T${turn}`, p: p_lands, detail: `${L} lands` },
-        { label: `Untapped land + ramp by T2`, p: p_ramp_ut, detail: `${R} ramp ≤2 CMC, ${L_ut} untapped lands` },
+        { label: `Untapped land + ramp by T${rampTurnLabel}`, p: p_ramp_ut, detail: rampDetail() + `\n${L_ut} untapped lands` },
         ...colorReqs.map(r => ({ label: r.label, p: r.p, detail: r.detail })),
+        ...customReqRows(seen),
       ],
     };
   }
@@ -4751,7 +5037,7 @@ function _cmdGameplanProbs(deck, cmdCard) {
   return results;
 }
 
-function _suggestRamp(cmdColors, hasGenericCost, deckCardNames) {
+function _suggestRamp(cmdColors, hasGenericCost, deckCardNames, cmdCMC = 4) {
   const cmdColorSet = new Set(cmdColors);
   const inDeck = new Set(deckCardNames.map(n => n.toLowerCase()));
   const seen = new Set();
@@ -4760,7 +5046,7 @@ function _suggestRamp(cmdColors, hasGenericCost, deckCardNames) {
   const candidates = (typeof collection !== 'undefined' ? collection : [])
     .filter(c => {
       if (_isLandDeckCard(c)) return false;
-      if ((c.cmc || 0) > 2) return false;
+      if ((c.cmc || 0) >= cmdCMC) return false;
       // Check roleTags (pre-fetched from DB) first, then fall back to live _probTagsOnCard
       const tags = Array.isArray(c.roleTags) ? c.roleTags : _probTagsOnCard(c);
       if (!tags.includes('Ramp')) return false;
@@ -4782,7 +5068,7 @@ function _suggestRamp(cmdColors, hasGenericCost, deckCardNames) {
   return suggestions;
 }
 
-async function _loadGameplanEdhrecRamp(cmdColors, deckCardNames) {
+async function _loadGameplanEdhrecRamp(cmdColors, deckCardNames, cmdCMC = 4) {
   const el = document.getElementById('cmdGpEdhrecSuggs');
   if (!el) return;
   const colors = sortColorsWUBRG(cmdColors);
@@ -4791,7 +5077,7 @@ async function _loadGameplanEdhrecRamp(cmdColors, deckCardNames) {
   if (!cards) {
     el.innerHTML = '<span style="color:var(--text3);font-size:0.75rem;padding:4px 0;display:block">Loading…</span>';
     const idQ = key ? `id<=${key}` : '';
-    const query = [idQ, 'cmc<=2', 'otag:ramp', '-t:land', 'not:extra'].filter(Boolean).join(' ');
+    const query = [idQ, `cmc<${cmdCMC}`, 'otag:ramp', '-t:land', 'not:extra'].filter(Boolean).join(' ');
     try {
       const res = await fetch(`/api/scryfall/search?q=${encodeURIComponent(query)}&order=edhrec&unique=cards&skipTcg=1`);
       if (!res.ok) throw new Error(`${res.status}`);
@@ -4830,7 +5116,10 @@ function renderCommanderGameplan(deck) {
   el.style.display = '';
 
   const cmdCMC = Math.round(cmdCard.cmc || 0);
-  const probs = _cmdGameplanProbs(deck, cmdCard);
+  const savedReqs = _getCmdCustomReqs(deck.id);
+  // Only apply custom requirements when the Custom toggle is active
+  const customReqs = _cmdCustomEditorOpen ? savedReqs : [];
+  const probs = _cmdGameplanProbs(deck, cmdCard, customReqs);
   const { meta } = probs;
 
   const THRESHOLD = 0.85;
@@ -4840,7 +5129,7 @@ function renderCommanderGameplan(deck) {
     return `<div class="cmdr-gp-bar"><div class="cmdr-gp-bar-fill" style="width:${pct}%;background:${pColor(p)}"></div></div>`;
   };
   const reqRow = req => {
-    const pct = Math.round(req.p * 100);
+    const pct = req.p >= 1 ? 100 : Math.min(99, Math.round(req.p * 100));
     // Bonus rows (ramp on on-curve): helpful but not a hard requirement
     if (req.bonus) {
       return `
@@ -4859,26 +5148,26 @@ function renderCommanderGameplan(deck) {
   };
 
   const cards = deck.cards || [];
-  const { cmdColors, hasGenericCost } = meta;
-  const existingRamp = cards.filter(c => !_isLandDeckCard(c) && _probTagsOnCard(c).includes('Ramp') && (c.cmc || 0) <= 2 && _rampIsRelevant(c, cmdColors, hasGenericCost))
+  const { cmdColors, hasGenericCost, adjustedCMC } = meta;
+  const existingRamp = cards.filter(c => !_isLandDeckCard(c) && _probTagsOnCard(c).includes('Ramp') && (c.cmc || 0) < adjustedCMC && _rampIsRelevant(c, cmdColors, hasGenericCost))
     .sort((a, b) => (a.cmc || 0) - (b.cmc || 0)).slice(0, 4).map(c => c.name);
   const existingColorCards = col => cards.filter(c => (_estimateManaSources(c, null)[col] || 0) > 0)
     .slice(0, 3).map(c => c.name);
 
   // Ramp suggestions — always computed, shown regardless of probability threshold
-  const rampSuggestions = _suggestRamp(cmdColors, hasGenericCost, cards.map(c => c.name));
+  const rampSuggestions = _suggestRamp(cmdColors, hasGenericCost, cards.map(c => c.name), adjustedCMC);
 
   const scenarioHtml = (scenario, label, isPrimary) => {
     if (!scenario) return '';
-    const pct = Math.round(scenario.p * 100);
+    const pct = scenario.p >= 1 ? 100 : Math.min(99, Math.round(scenario.p * 100));
     const reqs = scenario.requirements.map(reqRow).join('');
     const recs = scenario.requirements.filter(r => r.p < THRESHOLD).map(r => {
       const lc = r.label.toLowerCase();
       if (lc.includes('ramp')) {
         const have = existingRamp.length ? `have: ${existingRamp.join(', ')}` : '';
-        return `<div class="cmdr-gp-rec">→ Add more CMC≤2 ramp${have ? ` — ${have}` : ''}</div>`;
+        return `<div class="cmdr-gp-rec">→ Add more CMC&lt;${adjustedCMC} ramp${have ? ` — ${have}` : ''}</div>`;
       }
-      if (lc.includes('lands')) return `<div class="cmdr-gp-rec">→ Add more lands (target ≥36-38 for Commander)</div>`;
+      if (lc.includes('lands')) return meta.L >= 36 ? '' : `<div class="cmdr-gp-rec">→ Add more lands (target ≥36-38 for Commander)</div>`;
       for (const [col, name] of [['W','white'],['U','blue'],['B','black'],['R','red'],['G','green']]) {
         if (lc.startsWith(name)) {
           const have = existingColorCards(col);
@@ -4889,6 +5178,15 @@ function renderCommanderGameplan(deck) {
       return `<div class="cmdr-gp-rec">→ Improve: ${r.label}</div>`;
     }).join('');
 
+    // On the primary scenario only: suggest lowering avg CMC of custom groups that are meaningfully shifting the curve
+    const cmcRecs = isPrimary ? (meta.customGroups || []).filter(g => g.avgCMC >= 1.5).map(g => {
+      const otherAvg = (meta.customGroups || []).filter(x => x !== g).reduce((s, x) => s + x.avgCMC, 0);
+      const potentialTurn = meta.cmdCMC + Math.round(otherAvg + Math.max(0, g.avgCMC - 1));
+      const saving = scenario.turn - potentialTurn;
+      if (saving <= 0) return '';
+      return `<div class="cmdr-gp-rec">→ Lower avg CMC of ${g.groupLabel} (currently ${g.avgCMC.toFixed(1)}) — cheaper options could shift your curve to T${potentialTurn}</div>`;
+    }).join('') : '';
+
     return `
       <div class="cmdr-gp-scenario${isPrimary ? ' cmdr-gp-scenario--primary' : ''}">
         <div class="cmdr-gp-scenario-header">
@@ -4897,7 +5195,7 @@ function renderCommanderGameplan(deck) {
           <span class="cmdr-gp-scenario-pct" style="color:${pColor(scenario.p)}" data-tooltip="Probability all requirements fire at once. Requirements multiply: 90% lands x 85% color = 77% combined. Aim for 85%+.">${pct}%</span>
         </div>
         <div class="cmdr-gp-reqs">${reqs}</div>
-        ${recs}
+        ${recs}${cmcRecs}
       </div>`;
   };
 
@@ -4909,6 +5207,67 @@ function renderCommanderGameplan(deck) {
           <input type="checkbox" ${_cmdFreeMulligan ? 'checked' : ''} onchange="toggleCmdFreeMulligan(this.checked)">
           Free mulligan
         </label>
+        <button id="cmdGpCustomBtn" class="cmdr-gp-custom-btn${_cmdCustomEditorOpen ? ' cmdr-gp-custom-btn--active' : ''}" onclick="toggleCmdCustomEditor()" title="Define cards you need in hand to execute your gameplan">
+          Custom${savedReqs.length ? ` (${savedReqs.length})` : ''}
+        </button>
+      </div>
+      <div id="cmdGpCustomEditor" class="cmdr-gp-custom-editor" style="display:none">
+        <div class="cmdr-gp-custom-editor-inner">
+          <div class="cmdr-gp-custom-desc">Add cards you need in hand. Groups joined by <em>or</em> are treated as one slot; separate groups are each required (AND).</div>
+          ${(() => {
+            const ALL_TAGS = [
+              ['Protection','Protection'],['Counterspell','Counterspell'],['Removal','Removal'],
+              ['Tutor','Tutor'],['Card Draw','Card Draw'],['Ramp','Ramp'],
+              ['Board Wipe','Board Wipe'],['Recursion','Recursion'],
+            ];
+            // tagBtns: onclickGen(tag, label) → full onclick string
+            const tagBtns = (onclickGen, excludeValues) => ALL_TAGS
+              .filter(([tag]) => !excludeValues.has(tag))
+              .map(([tag, label]) => {
+                const { K } = _customReqCards(deck, { id:'_', parts:[{ type:'tag', value:tag }] });
+                if (!K) return '';
+                return `<button class="cmdr-gp-custom-tag-btn" onclick="${onclickGen(tag, label)}">${label} <span class="cmdr-gp-custom-tag-count">${K}</span></button>`;
+              }).join('');
+
+            // All tag values already used (across all groups) — for the "Add new" section
+            const usedTags = new Set(savedReqs.flatMap(g => g.parts.map(p => p.value)));
+
+            const groupsHtml = savedReqs.length ? `
+            <div class="cmdr-gp-custom-list">
+              ${savedReqs.map(group => {
+                const { K, avgCMC } = _customReqCards(deck, group);
+                const safeid = String(group.id).replace(/['"]/g,'');
+                const tagsInGroup = new Set(group.parts.map(p => p.value));
+                const orPickerOpen = String(_cmdOrPickerGroup) === String(group.id);
+                const orBtns = tagBtns((tag, label) => `addCmdCustomReqOr('${deck.id}','${safeid}','tag','${tag}','${label}')`, tagsInGroup);
+                return `<div class="cmdr-gp-custom-item">
+                  <div class="cmdr-gp-custom-item-main">
+                    <span class="cmdr-gp-custom-item-chips">
+                      ${group.parts.map((p, i) => `
+                        ${i > 0 ? '<span class="cmdr-gp-or-sep">or</span>' : ''}
+                        <span class="cmdr-gp-part-chip">
+                          ${p.label}
+                          <button class="cmdr-gp-part-chip-x" onclick="removeCmdCustomReqPart('${deck.id}','${safeid}','${p.value}')" title="Remove">×</button>
+                        </span>`).join('')}
+                    </span>
+                    <span class="cmdr-gp-custom-item-meta">${K} in deck · avg CMC ${avgCMC.toFixed(1)}</span>
+                    <button class="cmdr-gp-or-add-btn${orPickerOpen ? ' cmdr-gp-or-add-btn--open' : ''}" onclick="toggleCmdOrPicker('${safeid}')" title="Add OR alternative">+ or</button>
+                  </div>
+                  ${orPickerOpen && orBtns ? `<div class="cmdr-gp-or-picker">${orBtns}</div>` : ''}
+                </div>`;
+              }).join('')}
+            </div>` : '';
+
+            const addBtns = tagBtns((tag, label) => `addCmdCustomReq('${deck.id}','tag','${tag}','${label}')`, usedTags);
+            const addSection = addBtns ? `
+            <div class="cmdr-gp-custom-add-section">
+              <span class="cmdr-gp-custom-add-label">Add requirement:</span>
+              <div class="cmdr-gp-custom-tag-btns">${addBtns}</div>
+            </div>` : '';
+
+            return groupsHtml + addSection;
+          })()}
+        </div>
       </div>
       <div class="panel-body cmdr-gp-body">
         <div class="cmdr-gp-meta">Playing <strong>${deck.commander}</strong> — CMC&nbsp;${meta.cmdCMC} · ${meta.L} lands · ${meta.R} early ramp · ${meta.L_ut} untapped lands</div>
@@ -4926,7 +5285,13 @@ function renderCommanderGameplan(deck) {
       </div>
     </div>
   `;
-  _loadGameplanEdhrecRamp(cmdColors, cards.map(c => c.name));
+  _loadGameplanEdhrecRamp(cmdColors, cards.map(c => c.name), adjustedCMC);
+
+  // Restore editor open state after re-render
+  if (_cmdCustomEditorOpen) {
+    const editorEl = document.getElementById('cmdGpCustomEditor');
+    if (editorEl) editorEl.style.display = '';
+  }
 
   // Wire fixed-position JS tooltips — CSS ::after can't escape ancestor overflow:hidden containers
   _initCmdrGpTooltip();
@@ -6963,7 +7328,7 @@ async function _addReplacementCard(newScryfallId, deckId) {
 
 // ── Card version / printing picker ────────────────────────────────────────────
 
-let _versionPickerTarget = null; // { deckId, cardUid }
+let _versionPickerTarget = null; // { mode: 'deck'|'collection', deckId?, cardUid }
 let _versionPickerFilter = 'all';
 let _versionPickerState = null; // { prints, currentCard }
 
@@ -7053,9 +7418,53 @@ function renderVersionPickerTiles() {
   }).join('') || '<div style="grid-column:1/-1;padding:1rem;color:var(--text3)">No printings found for this filter</div>';
 }
 
-async function openVersionPicker(deckId, cardUid, cardName) {
+function _resolveVersionPickerCurrentCard(mode, deckId, cardUid) {
+  if (mode === 'collection') {
+    return (collection || []).find(c =>
+      c.uid === cardUid || c.scryfallId === cardUid || _cardMatchesRef(c, cardUid)
+    ) || null;
+  }
+  const deck = (decks || []).find(d => d.id === deckId) || getActiveDeck();
+  return deck ? getDeckCardByUid(deck, cardUid) : null;
+}
+
+/** Open printing picker from the universal card inspector (collection or deck builder). */
+function openVersionPickerFromCardDetail() {
+  const uid = typeof _cardDetailCurrentUid !== 'undefined' ? _cardDetailCurrentUid : null;
+  if (!uid) return;
+
+  let card = (collection || []).find(c => c.uid === uid || c.scryfallId === uid || _cardMatchesRef(c, uid));
+  const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+  if (!card && deck) card = getDeckCardByUid(deck, uid);
+  if (!card) return;
+
+  const cardKey = typeof getCardInventoryKey === 'function' ? getCardInventoryKey(card) : uid;
+  const name = card.name || 'Card';
+  const onDeckTab = typeof _isDeckBuilderMainTabActive === 'function' && _isDeckBuilderMainTabActive();
+  const activeDeckCard = deck && typeof _findActiveDeckSlotByCardKey === 'function'
+    ? _findActiveDeckSlotByCardKey(deck, cardKey)
+    : null;
+
+  if (activeDeckCard && onDeckTab && deck) {
+    openVersionPicker(deck.id, activeDeckCard.uid || uid, name, { mode: 'deck' });
+    return;
+  }
+
+  const collRow = (collection || []).find(c => c.uid === uid || _cardMatchesRef(c, uid));
+  if (collRow) {
+    openVersionPicker(null, collRow.uid, name, { mode: 'collection' });
+    return;
+  }
+
+  if (activeDeckCard && deck) {
+    openVersionPicker(deck.id, activeDeckCard.uid || uid, name, { mode: 'deck' });
+  }
+}
+
+async function openVersionPicker(deckId, cardUid, cardName, opts = {}) {
+  const mode = opts.mode || (deckId ? 'deck' : 'collection');
   _versionPickerFilter = 'all';
-  _versionPickerTarget = { deckId, cardUid };
+  _versionPickerTarget = { mode, deckId: deckId || null, cardUid };
   _ownedSuggestionCandidates = null;
   setVersionPickerFiltersVisible(isDeckOwnershipEnabled());
   document.getElementById('versionPickerTitle').textContent = cardName + ' — Choose Printing';
@@ -7069,11 +7478,7 @@ async function openVersionPicker(deckId, cardUid, cardName) {
   document.getElementById('versionPickerModal').classList.add('open');
 
   try {
-    const deck = getActiveDeck();
-    const currentCard = deck?.cards?.find(c =>
-      c.uid === cardUid || c.scryfallId === cardUid ||
-      (c.scryfallId && c.scryfallId + (c.foil ? '_f' : '_n') === cardUid)
-    );
+    const currentCard = _resolveVersionPickerCurrentCard(mode, deckId, cardUid);
 
     let prints = [];
     if (currentCard?.scryfallId) {
@@ -7109,42 +7514,191 @@ async function openVersionPicker(deckId, cardUid, cardName) {
   }
 }
 
-function applyCardVersion(sc) {
+function _findCollectionRowForDeckCard(deckCard) {
+  if (!deckCard || !Array.isArray(collection) || !collection.length) return null;
+  const refs = [deckCard.uid, deckCard.scryfallId, getCardInventoryKey(deckCard)].filter(Boolean);
+  for (const ref of refs) {
+    const hit = collection.find(c => _cardMatchesRef(c, ref));
+    if (hit) return hit;
+  }
+  const nameKey = (deckCard.name || '').trim().toLowerCase();
+  if (!nameKey) return null;
+  return collection.find(c => (c.name || '').trim().toLowerCase() === nameKey) || null;
+}
+
+function _applyScryfallPrintingFields(card, sc) {
+  if (!card || !sc) return;
+  const imgS = sc.image_uris?.small || sc.card_faces?.[0]?.image_uris?.small || null;
+  const imgN = sc.image_uris?.normal || sc.card_faces?.[0]?.image_uris?.normal || null;
+  card.scryfallId = sc.id;
+  card.uid = sc.id + (card.foil ? '_f' : '_n');
+  card.name = sc.name || card.name;
+  card.image = imgS || card.image;
+  card.imageLarge = imgN || card.imageLarge;
+  card.set = sc.set || card.set;
+  card.setName = sc.set_name || card.setName;
+  card.number = sc.collector_number || card.number;
+  card.rarity = sc.rarity || card.rarity;
+  card.type = sc.type_line || card.type;
+  card.mana = sc.mana_cost || card.mana;
+  card.cmc = sc.cmc ?? card.cmc;
+  if (sc.oracle_id) card.oracleId = sc.oracle_id;
+  if (Array.isArray(sc.card_faces) && sc.card_faces.length) {
+    card.cardFaces = sc.card_faces.map(face => ({
+      name: face.name || '',
+      type: face.type_line || '',
+      mana: face.mana_cost || '',
+      oracleText: face.oracle_text || '',
+      image: face.image_uris?.normal || face.image_uris?.large || null,
+      imageLarge: face.image_uris?.large || face.image_uris?.normal || null,
+    }));
+  }
+  const usd = parseFloat(sc.prices?.usd || 0);
+  const usdFoil = parseFloat(sc.prices?.usd_foil || 0);
+  if (Number.isFinite(usd)) card.priceTCG = usd;
+  if (Number.isFinite(usdFoil)) card.priceTCGFoil = usdFoil;
+}
+
+/** When a deck printing changes, update the matching collection row to the same printing. */
+function _syncCollectionPrintingFromDeckChange(collRow, sc) {
+  if (!collRow || !sc || typeof cardToEntry !== 'function') return false;
+  const foil = !!collRow.foil;
+  const qty = collRow.qty || 1;
+  const fresh = cardToEntry(sc, qty);
+  fresh.foil = foil;
+  fresh.uid = sc.id + (foil ? '_f' : '_n');
+  fresh.customTags = collRow.customTags;
+  fresh.addedAt = collRow.addedAt;
+  fresh.qty = qty;
+
+  const conflict = collection.find(c => c !== collRow && c.uid === fresh.uid);
+  if (conflict) {
+    conflict.qty = (conflict.qty || 0) + qty;
+    const idx = collection.indexOf(collRow);
+    if (idx >= 0) collection.splice(idx, 1);
+  } else {
+    Object.assign(collRow, fresh);
+  }
+  return true;
+}
+
+function _deckSlotMatchesPrintingChange(card, oldUid, oldKey, oldNameKey) {
+  if (!card) return false;
+  if (_cardMatchesRef(card, oldUid)) return true;
+  if (oldKey && getCardInventoryKey(card) === oldKey) return true;
+  if (oldNameKey && (card.name || '').trim().toLowerCase() === oldNameKey) return true;
+  return false;
+}
+
+function _syncDeckSlotsForPrintingChange(oldUid, oldKey, oldNameKey, sc) {
+  let changed = false;
+  (decks || []).forEach(deck => {
+    const pools = [...(deck.cards || []), ...(deck.sideboard || [])];
+    pools.forEach(card => {
+      if (!_deckSlotMatchesPrintingChange(card, oldUid, oldKey, oldNameKey)) return;
+      _applyScryfallPrintingFields(card, sc);
+      if (card.isCommander) {
+        deck.commanderImage = card.imageLarge || card.image || deck.commanderImage;
+        deck.commander = card.name;
+      }
+      changed = true;
+    });
+  });
+  return changed;
+}
+
+function applyCollectionCardVersion(sc) {
   if (!_versionPickerTarget) return;
   const { cardUid } = _versionPickerTarget;
-  const deck = getActiveDeck();
+  const collRow = (collection || []).find(c =>
+    c.uid === cardUid || c.scryfallId === cardUid || _cardMatchesRef(c, cardUid)
+  );
+  if (!collRow) return;
+
+  const oldUid = collRow.uid;
+  const oldKey = getCardInventoryKey(collRow);
+  const oldNameKey = (collRow.name || '').trim().toLowerCase();
+  const foil = !!collRow.foil;
+
+  _syncCollectionPrintingFromDeckChange(collRow, sc);
+  const newUid = sc.id + (foil ? '_f' : '_n');
+
+  const deckChanged = _syncDeckSlotsForPrintingChange(oldUid, oldKey, oldNameKey, sc);
+
+  save('collection');
+  if (typeof renderCollection === 'function') renderCollection();
+  if (typeof updateStats === 'function') updateStats();
+
+  if (deckChanged) {
+    save('decks');
+    if (typeof renderDecks === 'function') renderDecks();
+    const deck = getActiveDeck();
+    if (deck && typeof renderDeckList === 'function') renderDeckList(deck);
+    if (typeof renderActiveDeck === 'function') renderActiveDeck();
+    scheduleEDHRECRefresh();
+  }
+
+  closeVersionPicker();
+  const setLabel = sc.set_name || sc.set?.toUpperCase() || 'new';
+  showNotif(deckChanged
+    ? `Updated to ${setLabel} printing (decks too)`
+    : `Updated to ${setLabel} printing`);
+
+  if (newUid && typeof openCardDetail === 'function') {
+    const nav = typeof _cardDetailNavMode !== 'undefined' ? _cardDetailNavMode : undefined;
+    openCardDetail(newUid, nav);
+  }
+}
+
+function applyDeckCardVersion(sc) {
+  if (!_versionPickerTarget) return;
+  const { cardUid, deckId } = _versionPickerTarget;
+  const deck = (decks || []).find(d => d.id === deckId) || getActiveDeck();
   if (!deck) return;
-  const card = deck.cards.find(c => c.uid === cardUid || c.scryfallId === cardUid);
+  const card = getDeckCardByUid(deck, cardUid);
   if (!card) return;
 
-  const imgS = sc.image_uris?.small  || sc.card_faces?.[0]?.image_uris?.small  || null;
-  const imgN = sc.image_uris?.normal || sc.card_faces?.[0]?.image_uris?.normal || null;
+  const collRow = _findCollectionRowForDeckCard(card);
+  _applyScryfallPrintingFields(card, sc);
 
-  card.scryfallId  = sc.id;
-  card.uid         = sc.id + (card.foil ? '_f' : '_n');
-  card.name        = sc.name        || card.name;
-  card.image       = imgS || card.image;
-  card.imageLarge  = imgN || card.imageLarge;
-  card.set         = sc.set         || card.set;
-  card.setName     = sc.set_name    || card.setName;
-  card.number      = sc.collector_number || card.number;
-  card.rarity      = sc.rarity      || card.rarity;
-  card.type        = sc.type_line   || card.type;
-  card.mana        = sc.mana_cost   || card.mana;
-  card.cmc         = sc.cmc         ?? card.cmc;
-
-  // Keep deck.commanderImage and deck.commander in sync
   if (card.isCommander) {
-    deck.commanderImage = imgN || imgS || deck.commanderImage;
-    deck.commander      = card.name;
+    deck.commanderImage = card.imageLarge || card.image || deck.commanderImage;
+    deck.commander = card.name;
+  }
+
+  let collectionSynced = false;
+  if (collRow) {
+    collectionSynced = _syncCollectionPrintingFromDeckChange(collRow, sc);
+    if (collectionSynced) {
+      save('collection');
+      if (typeof renderCollection === 'function') renderCollection();
+      if (typeof updateStats === 'function') updateStats();
+    }
   }
 
   save('decks');
-  renderDecks();   // refreshes sidebar + grid thumbnails
+  renderDecks();
   renderDeckList(deck);
   scheduleEDHRECRefresh();
   closeVersionPicker();
-  showNotif(`Updated to ${sc.set_name} printing`);
+  const setLabel = sc.set_name || sc.set?.toUpperCase() || 'new';
+  showNotif(collectionSynced
+    ? `Updated to ${setLabel} printing (collection too)`
+    : `Updated to ${setLabel} printing`);
+
+  if (typeof openCardDetail === 'function') {
+    const nav = typeof _cardDetailNavMode !== 'undefined' ? _cardDetailNavMode : undefined;
+    openCardDetail(card.uid || card.scryfallId, nav);
+  }
+}
+
+function applyCardVersion(sc) {
+  if (!_versionPickerTarget) return;
+  if (_versionPickerTarget.mode === 'collection') {
+    applyCollectionCardVersion(sc);
+    return;
+  }
+  applyDeckCardVersion(sc);
 }
 
 function closeVersionPicker() {

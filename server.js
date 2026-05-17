@@ -1967,26 +1967,38 @@ const SCRYFALL_AUTO_TAGS = [
   { label: 'Card Draw', otag: 'draw' },
   { label: 'Removal', otag: 'removal' },
   { label: 'Board Wipe', otag: 'board-wipe' },
-  { label: 'Anthem', otag: 'anthem' },
-  { label: 'Evasion', otag: 'evasion' },
-  // No reliable single otag on Scryfall; use close text-pattern queries.
-  { label: 'Pump', query: '(o:"target creature gets +" or o:"creatures you control get +" or (o:"gets +" and o:"until end of turn"))' },
-  { label: 'Control', query: '(o:"gain control" or o:"exchange control")' },
-  { label: 'Bounce', otag: 'bounce' },
-  { label: 'Recursion', otag: 'recursion' },
   { label: 'Tutor', otag: 'tutor' },
   { label: 'Counterspell', otag: 'counterspell' },
-  // Scryfall does not reliably expose this as a single otag; use query expression.
   { label: 'Protection', query: '(o:"protection from" or o:hexproof or o:indestructible or o:"phase out")' },
+  { label: 'Bounce', otag: 'bounce' },
+  { label: 'Control', query: '(o:"gain control" or o:"exchange control")' },
+  { label: 'Burn', otag: 'burn' },
+  { label: 'Group Slug', otag: 'group-slug' },
+  { label: 'Stax', otag: 'tax' },
+  { label: 'Hatebear', otag: 'hatebear' },
+  { label: 'Anthem', otag: 'anthem' },
+  { label: 'Evasion', otag: 'evasion' },
+  { label: 'Pump', query: '(o:"target creature gets +" or o:"creatures you control get +" or (o:"gets +" and o:"until end of turn"))' },
+  { label: 'Combat Trick', otag: 'combat-trick' },
+  { label: 'Bite', otag: 'bite' },
+  { label: 'Extra Combat', otag: 'extra-combat' },
+  { label: 'Token Maker', query: '(o:create o:token)' },
+  { label: 'Blink', otag: 'blink' },
+  { label: 'Copy', otag: 'copy' },
+  { label: 'Treasure', query: 'o:"treasure token"' },
   { label: 'Lifegain', otag: 'lifegain' },
   { label: 'Discard', otag: 'discard' },
   { label: 'Mill', otag: 'mill' },
-  { label: 'Token Maker', otag: 'tokens' },
-  { label: 'Blink', otag: 'blink' },
-  { label: 'Sac Outlet', otag: 'sacrifice' },
-  { label: 'Treasure', otag: 'treasure' },
-  { label: 'Stax', otag: 'stax' },
-  { label: 'Copy', otag: 'copy' },
+  { label: 'Wheel', otag: 'wheel' },
+  { label: 'Landfall', otag: 'landfall' },
+  { label: 'Recursion', otag: 'recursion' },
+  { label: 'Reanimate', otag: 'reanimate' },
+  { label: 'Graveyard Cast', otag: 'synergy-graveyard-cast' },
+  { label: 'Self-Mill', otag: 'self-mill' },
+  { label: 'Sac Outlet', otag: 'sacrifice-outlet' },
+  { label: 'Death Trigger', otag: 'death-trigger' },
+  { label: 'Drain', otag: 'drain-life' },
+  { label: 'Sac Synergy', otag: 'synergy-sacrifice' },
 ];
 function _sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -2925,6 +2937,52 @@ app.get('/api/cards/search', requireAuth, async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
+  }
+});
+
+/** Commander "game changer" list from Scryfall (`is:gamechanger`). Cached ~24h in memory. */
+let _gameChangerCache = null; // { oracleIds: string[], names: string[], fetchedAt: number }
+const GAME_CHANGER_CACHE_MS = 24 * 60 * 60 * 1000;
+
+async function fetchGameChangerIndexFromScryfall() {
+  const oracleIds = new Set();
+  const names = new Set();
+  let url = 'https://api.scryfall.com/cards/search?q=' + encodeURIComponent('is:gamechanger') + '&unique=cards';
+  while (url) {
+    const upstream = await scryfallFetch(url);
+    if (!upstream.ok) {
+      let msg = 'Failed to load game changers from Scryfall';
+      try {
+        const err = await upstream.json();
+        msg = err?.details || err?.error || msg;
+      } catch (_) {}
+      throw new Error(msg);
+    }
+    const data = await upstream.json();
+    for (const card of data.data || []) {
+      if (card.oracle_id) oracleIds.add(String(card.oracle_id).toLowerCase());
+      if (card.name) names.add(String(card.name).toLowerCase());
+    }
+    url = data.has_more && data.next_page ? data.next_page : null;
+  }
+  return {
+    oracleIds: [...oracleIds],
+    names: [...names],
+    fetchedAt: Date.now(),
+  };
+}
+
+app.get('/api/scryfall/game-changers', async (req, res) => {
+  try {
+    const now = Date.now();
+    if (_gameChangerCache && (now - _gameChangerCache.fetchedAt) < GAME_CHANGER_CACHE_MS) {
+      return res.json(_gameChangerCache);
+    }
+    _gameChangerCache = await fetchGameChangerIndexFromScryfall();
+    res.json(_gameChangerCache);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message || 'Failed to load game changers' });
   }
 });
 
