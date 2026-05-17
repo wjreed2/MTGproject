@@ -5850,16 +5850,29 @@ async function _runScryfallImport(mode = 'full') {
   };
   try {
     setImportBtnState(`Starting ${modeLabel} import…`, true);
-    progressTimer = setInterval(pollProgress, 1200);
-    importRequestInFlight = true;
-    const r = await apiPostJson(endpoint, {
-      schemaVersion: _SCRY_TAG_SCHEMA_VERSION,
-    });
+    // POST returns 202 immediately — import runs in background on the server.
+    // Poll import-status until running: false to get final counts.
+    await apiPostJson(endpoint, { schemaVersion: _SCRY_TAG_SCHEMA_VERSION });
     importRequestInFlight = false;
-    importFinished = true;
-    _scryTagsByOracleId.clear();
-    _scryOracleByPrintId.clear();
-    showNotif(`Scryfall ${modeLabel} complete (${Number(r.imported || 0).toLocaleString()} oracle rows, ${Number(r.tagged || 0).toLocaleString()} tag rows)`);
+    progressTimer = setInterval(pollProgress, 1200);
+    // Wait for the background job to finish
+    await new Promise((resolve, reject) => {
+      const check = setInterval(async () => {
+        try {
+          const s = await apiFetch('/admin/scryfall/import-status');
+          const p = s?.activeImport || {};
+          if (!p.running) {
+            clearInterval(check);
+            if (p.phase === 'failed') reject(new Error(p.error || 'Import failed'));
+            else resolve(p);
+          }
+        } catch (e) { clearInterval(check); reject(e); }
+      }, 1500);
+    }).then(p => {
+      _scryTagsByOracleId.clear();
+      _scryOracleByPrintId.clear();
+      showNotif(`Scryfall ${modeLabel} complete (${Number(p.importedRows || 0).toLocaleString()} oracle rows, ${Number(p.taggedRows || 0).toLocaleString()} tag rows)`);
+    });
   } catch (e) {
     importRequestInFlight = false;
     const msg = String(e?.message || 'Scryfall DB import failed');

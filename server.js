@@ -2963,22 +2963,25 @@ async function runScryfallImportEndpoint(req, res, mode) {
     endedAt: 0,
     error: null,
   };
-  try {
-    const result = await importScryfallOracleBulkToDb({
-      schemaVersion,
-      importCards: mode !== 'tags',
-      rebuildTags: mode !== 'cards',
-      useTagQueryCache: !req.body?.forceTagQueryRefresh,
-      onProgress: patch => {
-        _scryfallImportProgress = {
-          ..._scryfallImportProgress,
-          ...patch,
-          running: true,
-          mode,
-          error: null,
-        };
-      },
-    });
+  // Respond immediately — the import can take minutes and would 502 behind a reverse proxy.
+  // Client polls /api/admin/scryfall/import-status for progress.
+  res.status(202).json({ ok: true, status: 'started', schemaVersion, mode });
+
+  importScryfallOracleBulkToDb({
+    schemaVersion,
+    importCards: mode !== 'tags',
+    rebuildTags: mode !== 'cards',
+    useTagQueryCache: !req.body?.forceTagQueryRefresh,
+    onProgress: patch => {
+      _scryfallImportProgress = {
+        ..._scryfallImportProgress,
+        ...patch,
+        running: true,
+        mode,
+        error: null,
+      };
+    },
+  }).then(result => {
     _scryfallImportProgress = {
       ..._scryfallImportProgress,
       running: false,
@@ -2993,9 +2996,8 @@ async function runScryfallImportEndpoint(req, res, mode) {
       totalQueries: Number(result?.totalQueries || _scryfallImportProgress.totalQueries || 0),
       error: null,
     };
-    return res.json({ ok: true, schemaVersion, mode, ...result });
-  } catch (e) {
-    console.error(e);
+  }).catch(e => {
+    console.error('Scryfall import failed:', e);
     _scryfallImportProgress = {
       ..._scryfallImportProgress,
       running: false,
@@ -3004,8 +3006,7 @@ async function runScryfallImportEndpoint(req, res, mode) {
       endedAt: Date.now(),
       error: e.message || 'Import failed',
     };
-    return res.status(500).json({ error: e.message });
-  }
+  });
 }
 
 app.post('/api/admin/scryfall/import-oracle', requireAuth, requireAdminRole, async (req, res) =>
