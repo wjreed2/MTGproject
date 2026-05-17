@@ -16,7 +16,8 @@
     "cap:sync": "npx cap sync",
     "setup:https": "bash scripts/setup-https.sh",
     "changelog:add": "node scripts/changelog-add.js",
-    "changelog:sync": "node scripts/sync-changelog.js"
+    "changelog:sync": "node scripts/sync-changelog.js",
+    "changelog:sync:apply": "CHANGELOG_SYNC_APPLY=1 node scripts/sync-changelog.js"
   },
   "dependencies": {
     "@capacitor-community/speech-recognition": "^7.0.1",
@@ -36,6 +37,7 @@
     "mysql2": "^3.6.0",
     "nodemailer": "^8.0.7",
     "onnxruntime-web": "^1.17.3",
+    "stream-json": "^2.1.0",
     "three": "^0.184.0"
   },
   "devDependencies": {

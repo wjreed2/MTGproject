@@ -14,6 +14,8 @@ const rateLimit   = require('express-rate-limit');
 const helmet      = require('helmet');
 const nodemailer  = require('nodemailer');
 const MySQLStore  = require('express-mysql-session')(session);
+// stream-json's exports map only exposes the root; use resolved path for sub-modules
+const { withParserAsStream: streamJsonArray } = require(path.join(__dirname, 'node_modules/stream-json/src/streamers/stream-array.js'));
 
 const app = express();
 app.set('trust proxy', 1);
@@ -2582,12 +2584,18 @@ async function importScryfallOracleBulkToDb({
     sourceUpdatedAt = row.updated_at || null;
     const dataRes = await scryfallFetch(row.download_uri, { maxRetries: 2 });
     if (!dataRes.ok) throw new Error('Could not download oracle_cards bulk data');
-    const cards = await dataRes.json();
-    if (!Array.isArray(cards)) throw new Error('oracle_cards payload was not an array');
-    cards.forEach(c => {
-      const oid = String(c?.oracle_id || '').toLowerCase();
-      if (!/^[0-9a-f-]{36}$/i.test(oid)) return;
-      if (!byOracle.has(oid)) byOracle.set(oid, c);
+    // Stream-parse the bulk JSON to avoid loading 100MB+ into heap all at once.
+    // dataRes.body is a Node.js ReadableStream (node-fetch / native fetch).
+    await new Promise((resolve, reject) => {
+      const pipeline = dataRes.body.pipe(streamJsonArray());
+      pipeline.on('data', ({ value: c }) => {
+        const oid = String(c?.oracle_id || '').toLowerCase();
+        if (!/^[0-9a-f-]{36}$/i.test(oid)) return;
+        if (!byOracle.has(oid)) byOracle.set(oid, c);
+      });
+      pipeline.on('end', resolve);
+      pipeline.on('error', reject);
+      dataRes.body.on('error', reject);
     });
     totalOracleRows = byOracle.size;
   } else {
