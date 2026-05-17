@@ -10,7 +10,60 @@
  */
 'use strict';
 
+const https = require('https');
+
 require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
+
+function isLocalDevHost(hostname) {
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+}
+
+/** Local dev often uses mkcert HTTPS; Node fetch rejects that cert by default. */
+function changelogFetch(url, init = {}) {
+  let u;
+  try {
+    u = new URL(url);
+  } catch {
+    return fetch(url, init);
+  }
+  if (u.protocol !== 'https:' || !isLocalDevHost(u.hostname)) {
+    return fetch(url, init);
+  }
+
+  const body = init.body != null ? String(init.body) : '';
+  const headers = { ...(init.headers || {}) };
+  if (body && !headers['Content-Length'] && !headers['content-length']) {
+    headers['Content-Length'] = Buffer.byteLength(body);
+  }
+
+  return new Promise((resolve, reject) => {
+    const req = https.request(
+      {
+        hostname: u.hostname,
+        port: u.port || 443,
+        path: `${u.pathname}${u.search}`,
+        method: init.method || 'GET',
+        headers,
+        rejectUnauthorized: false,
+      },
+      (res) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => {
+          const text = Buffer.concat(chunks).toString('utf8');
+          resolve({
+            ok: res.statusCode >= 200 && res.statusCode < 300,
+            status: res.statusCode,
+            text: async () => text,
+          });
+        });
+      },
+    );
+    req.on('error', reject);
+    if (body) req.write(body);
+    req.end();
+  });
+}
 
 async function main() {
   const secret = String(process.env.CHANGELOG_INGEST_SECRET || '').trim();
@@ -36,14 +89,31 @@ async function main() {
     process.exit(1);
   }
 
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${secret}`,
-    },
-    body: JSON.stringify(body),
-  });
+  let res;
+  try {
+    res = await changelogFetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${secret}`,
+      },
+      body: JSON.stringify(body),
+    });
+  } catch (e) {
+    const msg = e?.cause?.message || e?.message || String(e);
+    if (/certificate|UNABLE_TO_VERIFY|TLS/i.test(msg)) {
+      console.error(
+        'TLS error calling the API. Local HTTPS (mkcert) is supported automatically for localhost —',
+        'check MTG_API_URL in .env matches how you open the app (https vs http, port).',
+      );
+    } else if (/HTTP\/1\.1 protocol|Expected HTTP/i.test(msg)) {
+      console.error(
+        'Protocol mismatch: the server spoke HTTPS but MTG_API_URL used http:// (or the reverse).',
+        `Tried: ${url}`,
+      );
+    }
+    throw e;
+  }
 
   const text = await res.text();
   let data;
@@ -106,6 +176,6 @@ function parseBody() {
 }
 
 main().catch(e => {
-  console.error(e);
+  console.error(e?.cause || e);
   process.exit(1);
 });

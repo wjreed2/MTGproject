@@ -100,6 +100,7 @@ const _modalCloseMap = {
   deckCardTagModal:      () => closeDeckCardTagPicker(),
   skeletonBuilderModal:  () => closeSkeletonBuilderModal(),
   changeDeckFormatModal: () => closeChangeDeckFormatModal(),
+  commanderPickerModal:  () => closeCommanderEdit(),
   whatsNewModal:         () => { void closeWhatsNewModal(); },
 };
 
@@ -178,20 +179,12 @@ function _escapeWhatsNewHtml(s) {
     .replace(/"/g, '&quot;');
 }
 
-function openWhatsNewModal(digest, { autoPopup = false } = {}) {
+function openWhatsNewModal(digest) {
   const overlay = document.getElementById('whatsNewModal');
   const body = document.getElementById('whatsNewModalBody');
   if (!overlay || !body || !digest) return;
 
   const esc = _escapeWhatsNewHtml;
-  const sinceDate = new Date(digest.sinceMs);
-  const sinceStr = Number.isFinite(sinceDate.getTime())
-    ? sinceDate.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
-    : '';
-
-  const lastIn = digest.lastLoginAt && Number.isFinite(Number(digest.lastLoginAt))
-    ? new Date(Number(digest.lastLoginAt)).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
-    : '';
 
   const parts = [];
 
@@ -207,14 +200,16 @@ function openWhatsNewModal(digest, { autoPopup = false } = {}) {
     parts.push('<div class="whats-new-section"><h3 class="whats-new-h">What\'s new</h3><ul class="whats-new-list">');
     for (const f of digest.features) parts.push(renderEntry(f));
     parts.push('</ul></div>');
-  } else {
-    parts.push('<p class="whats-new-lead" style="color:var(--teal)">You\'re all caught up!</p>');
   }
 
-  if (!autoPopup && digest.older && digest.older.length) {
+  if (digest.older && digest.older.length) {
     parts.push('<div class="whats-new-section"><h3 class="whats-new-h" style="color:var(--text3)">Previously</h3><ul class="whats-new-list whats-new-list--older">');
     for (const f of digest.older) parts.push(renderEntry(f));
     parts.push('</ul></div>');
+  }
+
+  if (!parts.length) {
+    parts.push('<p class="whats-new-lead" style="color:var(--text3)">No updates yet.</p>');
   }
 
   body.innerHTML = parts.join('');

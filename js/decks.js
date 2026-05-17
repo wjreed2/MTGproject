@@ -614,7 +614,31 @@ function jumpToDeckIssue(cardName) {
 
 let deckListView = 'grid';
 let deckStackOrient = (localStorage.getItem('mtg_deck_stack_orient') === 'horizontal' ? 'horizontal' : 'vertical');
-let deckGroupBy  = 'type';
+let deckGroupBy  = (() => {
+  const saved = localStorage.getItem('mtg_deck_group_by');
+  if (saved === 'custom_tag') return 'tag_all';
+  return saved || 'type';
+})();
+let deckCardSize = Math.max(120, Math.min(280, parseInt(localStorage.getItem('mtg_deck_card_size')) || 220));
+let deckTagCatalogFilter = 'all';
+
+function _applyDeckCardSize() {
+  const px = deckCardSize + 'px';
+  const panel = document.getElementById('deckListPanel');
+  const list = document.getElementById('deckCardList');
+  if (panel) panel.style.setProperty('--deck-card-w', px);
+  if (list) list.style.setProperty('--deck-card-w', px);
+}
+
+function setDeckCardSize(size) {
+  deckCardSize = Math.max(120, Math.min(280, Math.round(size / 10) * 10));
+  localStorage.setItem('mtg_deck_card_size', deckCardSize);
+  _applyDeckCardSize();
+  const slider = document.getElementById('deckCardSizeSlider');
+  if (slider && +slider.value !== deckCardSize) slider.value = deckCardSize;
+  const deck = getActiveDeck ? getActiveDeck() : null;
+  if (deck && deckListView === 'grid') renderDeckList(deck);
+}
 
 // ── Deck History ──────────────────────────────────────────────────────────────
 
@@ -704,7 +728,11 @@ function renderDeckHistory() {
         const time = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
                    + ' · ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
         const t    = TYPE[ev.type] || { label: ev.type, cls: '' };
-        const meta = ev.detail ? String(ev.detail) : '';
+        const isTagEv = ev.type === 'tag_add' || ev.type === 'tag_remove';
+        const badgeLabel = isTagEv && ev.detail
+          ? `${ev.type === 'tag_add' ? '+' : '−'} ${ev.detail}`
+          : t.label;
+        const meta = !isTagEv && ev.detail ? String(ev.detail) : '';
         const aid = ev.actorAccountId != null ? Number(ev.actorAccountId) : null;
         const myId = currentUser?.id != null ? Number(currentUser.id) : null;
         const actorLabel = aid == null && !ev.actorEmail
@@ -724,7 +752,7 @@ function renderDeckHistory() {
             <div class="history-event-time">${time}</div>
             ${actorLine}
           </div>
-          <div class="history-event-badge ${t.cls}">${t.label}</div>
+          <div class="history-event-badge ${t.cls}${isTagEv ? ' history-tag-badge' : ''}">${_escapeHistoryHtml(badgeLabel)}</div>
         </div>`;
       }).join('')}
     </div>`;
@@ -827,9 +855,47 @@ function toggleDeckSidebar() {
 }
 
 function setDeckGroupBy(val) {
+  if (val === 'custom_tag') val = 'tag_all';
   deckGroupBy = val;
+  localStorage.setItem('mtg_deck_group_by', deckGroupBy);
+  const sel = document.getElementById('deckGroupBySelect');
+  if (sel && sel.value !== deckGroupBy) sel.value = deckGroupBy;
   const deck = getActiveDeck();
   if (deck) renderDeckList(deck);
+}
+
+function _isTagGroupByMode(groupBy) {
+  return groupBy === 'tag_all' || groupBy === 'tag_default' || groupBy === 'tag_primary' || groupBy === 'tag_secondary';
+}
+
+/** Tags on a card used for deck-list grouping (includes disabled-for-deck tags). */
+function _tagsOnCardForGrouping(card) {
+  const out = new Set();
+  if (typeof _getGlobalCustomTagsForCard === 'function') {
+    _getGlobalCustomTagsForCard(card).forEach(t => out.add(t));
+  } else {
+    (card.customTags || []).forEach(t => {
+      const s = String(t || '').trim();
+      if (s && _isUserMyTag(s)) out.add(s);
+    });
+  }
+  return [...out];
+}
+
+function _tagsOnCardForGroupTier(card, tier) {
+  if (tier === 'tag_default') {
+    const roleTags = typeof _roleTagsForCard === 'function' ? _roleTagsForCard(card) : [];
+    return roleTags.filter(t => _tagMatchesDeckGroupTier(t, tier));
+  }
+  const userTags = _tagsOnCardForGrouping(card);
+  if (tier === 'tag_primary' || tier === 'tag_secondary') {
+    return userTags.filter(t => _tagMatchesDeckGroupTier(t, tier));
+  }
+  if (tier === 'tag_all') {
+    const roleTags = typeof _roleTagsForCard === 'function' ? _roleTagsForCard(card) : [];
+    return [...new Set([...roleTags, ...userTags])];
+  }
+  return userTags;
 }
 
 function setDeckListSearch(q) {
@@ -842,12 +908,287 @@ function normalizeDeckTagName(v) {
   return String(v || '').trim().replace(/\s+/g, ' ').slice(0, 32);
 }
 
+function _dedupeCustomTags(tags) {
+  const seen = new Map();
+  for (const raw of tags || []) {
+    const t = normalizeDeckTagName(raw);
+    if (!t) continue;
+    const key = t.toLowerCase();
+    if (!seen.has(key)) seen.set(key, t);
+  }
+  return [...seen.values()].sort((a, b) => a.localeCompare(b));
+}
+
+function _customTagsHas(tags, tag) {
+  const key = normalizeDeckTagName(tag).toLowerCase();
+  if (!key) return false;
+  return (tags || []).some(t => normalizeDeckTagName(t).toLowerCase() === key);
+}
+
+function _setCardCustomTags(card, tags) {
+  if (!card) return;
+  card.customTags = _dedupeCustomTags(tags);
+}
+
+function sanitizeAllDeckCustomTags() {
+  let changed = false;
+  const touch = c => {
+    if (!c || !Array.isArray(c.customTags)) return;
+    const next = _dedupeCustomTags(c.customTags);
+    if (next.length !== c.customTags.length || next.some((t, i) => t !== c.customTags[i])) {
+      c.customTags = next;
+      changed = true;
+    }
+  };
+  (collection || []).forEach(touch);
+  [...(decks || []), ...(sharedDecks || [])].forEach(d => {
+    [...(d.cards || []), ...(d.sideboard || [])].forEach(touch);
+  });
+  for (const ov of _tagOverridesByOracleId.values()) {
+    if (Array.isArray(ov.customTags)) {
+      const next = _dedupeCustomTags(ov.customTags);
+      if (next.length !== ov.customTags.length) { ov.customTags = next; changed = true; }
+    }
+  }
+  return changed;
+}
+
+function _userDeckTagsUnion() {
+  return [...new Set([
+    ...(deckCustomTags || []),
+    ...(deckPrimaryTags || []),
+    ...(deckSecondaryTags || []),
+  ])].filter(Boolean).sort((a, b) => a.localeCompare(b));
+}
+
+function _syncDeckCustomTagsUnion() {
+  deckCustomTags = _userDeckTagsUnion();
+  localStorage.setItem('mtg_deck_custom_tags', JSON.stringify(deckCustomTags));
+  localStorage.setItem('mtg_deck_primary_tags', JSON.stringify(deckPrimaryTags || []));
+  localStorage.setItem('mtg_deck_secondary_tags', JSON.stringify(deckSecondaryTags || []));
+}
+
+/** Register a user tag in the catalog; new tags join both primary and secondary lists. */
+function _ensureUserTagInCatalog(tag, opts = {}) {
+  const t = normalizeDeckTagName(tag);
+  if (!t || !_pickerTagAllowed(t)) return false;
+  const primary = opts.primary !== false;
+  const secondary = opts.secondary !== false;
+  if (!Array.isArray(deckCustomTags)) deckCustomTags = [];
+  if (!Array.isArray(deckPrimaryTags)) deckPrimaryTags = [];
+  if (!Array.isArray(deckSecondaryTags)) deckSecondaryTags = [];
+  if (!deckCustomTags.includes(t)) deckCustomTags.push(t);
+  if (primary && !deckPrimaryTags.includes(t)) deckPrimaryTags.push(t);
+  if (secondary && !deckSecondaryTags.includes(t)) deckSecondaryTags.push(t);
+  deckPrimaryTags.sort((a, b) => a.localeCompare(b));
+  deckSecondaryTags.sort((a, b) => a.localeCompare(b));
+  _syncDeckCustomTagsUnion();
+  return true;
+}
+
+/** Tags that may appear in My Tags UI (catalog names always allowed). */
+function _pickerTagAllowed(tag) {
+  const t = String(tag || '').trim();
+  if (!t || t === 'Commander') return false;
+  if (_isUserCatalogTag(t)) return true;
+  return !_isProtectedDeckTag(t);
+}
+
+/** Reconcile catalog + tier lists without forcing secondary tags into primary-only. */
+function normalizeDeckTagPrefs() {
+  if (!Array.isArray(deckPrimaryTags)) deckPrimaryTags = [];
+  if (!Array.isArray(deckSecondaryTags)) deckSecondaryTags = [];
+  if (!Array.isArray(deckCustomTags)) deckCustomTags = [];
+  const catalog = new Set(
+    [...deckCustomTags, ...deckPrimaryTags, ...deckSecondaryTags].filter(_pickerTagAllowed),
+  );
+  deckPrimaryTags = deckPrimaryTags.filter(t => catalog.has(t));
+  deckSecondaryTags = deckSecondaryTags.filter(t => catalog.has(t));
+  deckCustomTags = [...catalog].sort((a, b) => a.localeCompare(b));
+  deckPrimaryTags.sort((a, b) => a.localeCompare(b));
+  deckSecondaryTags.sort((a, b) => a.localeCompare(b));
+  _syncDeckCustomTagsUnion();
+}
+
+function applyDeckTagPrefsFromServer(prefs) {
+  const p = prefs || {};
+  let primary = Array.isArray(p.deck_primary_tags) ? p.deck_primary_tags.filter(Boolean) : [];
+  let secondary = Array.isArray(p.deck_secondary_tags) ? p.deck_secondary_tags.filter(Boolean) : [];
+  const custom = Array.isArray(p.deck_custom_tags) ? p.deck_custom_tags.filter(Boolean) : [];
+  const hasTierKeys = Array.isArray(p.deck_primary_tags) || Array.isArray(p.deck_secondary_tags);
+  if (!hasTierKeys && custom.length) {
+    primary = custom.filter(t => _pickerTagAllowed(t));
+    secondary = [];
+  } else if (custom.length) {
+    custom.forEach(t => {
+      if (!_pickerTagAllowed(t)) return;
+      if (!primary.includes(t) && !secondary.includes(t)) {
+        primary.push(t);
+        secondary.push(t);
+      }
+    });
+  }
+  deckPrimaryTags = primary;
+  deckSecondaryTags = secondary;
+  deckCustomTags = custom.length ? custom : _userDeckTagsUnion();
+  normalizeDeckTagPrefs();
+  _seedUserTagCatalogFromUsage();
+}
+
+function _seedUserTagCatalogFromUsage() {
+  if (_userDeckTagsUnion().length) return false;
+  const discovered = _collectUsedUserTags();
+  if (!discovered.length) return false;
+  discovered.forEach(t => _ensureUserTagInCatalog(t, { primary: true, secondary: true }));
+  return true;
+}
+
+function _getUserTagTier(tag, opts = {}) {
+  const t = String(tag || '');
+  const filter = opts.filter || deckTagCatalogFilter || 'all';
+  const inSec = (deckSecondaryTags || []).includes(t);
+  const inPri = (deckPrimaryTags || []).includes(t);
+  if (filter === 'secondary' && inSec) return 'secondary';
+  if (filter === 'primary' && inPri) return 'primary';
+  if (inSec && !inPri) return 'secondary';
+  if (inPri) return 'primary';
+  if (_isProtectedDeckTag(t)) return 'default';
+  return 'primary';
+}
+
+/** Sort key: primary-tier tags first, then secondary-only, then alpha within tier. */
+function _userTagTierSortRank(tag) {
+  const t = String(tag || '');
+  const inPri = (deckPrimaryTags || []).includes(t);
+  const inSec = (deckSecondaryTags || []).includes(t);
+  if (inPri) return 0;
+  if (inSec) return 1;
+  return 0;
+}
+
+function _sortUserTagsForDisplay(tags) {
+  return [...new Set((tags || []).filter(Boolean))].sort((a, b) => {
+    const ra = _userTagTierSortRank(a);
+    const rb = _userTagTierSortRank(b);
+    if (ra !== rb) return ra - rb;
+    return String(a).localeCompare(String(b));
+  });
+}
+
+function _compareDeckTagGroupKeys(a, b) {
+  if (a === 'Untagged') return 1;
+  if (b === 'Untagged') return -1;
+  if (a === 'Commander') return -1;
+  if (b === 'Commander') return 1;
+  const ra = _userTagTierSortRank(a);
+  const rb = _userTagTierSortRank(b);
+  if (ra !== rb) return ra - rb;
+  return a.localeCompare(b);
+}
+
+function _tagMatchesDeckGroupTier(tag, groupTier) {
+  const t = String(tag || '');
+  if (groupTier === 'tag_default') return _isProtectedDeckTag(t);
+  const inPri = (deckPrimaryTags || []).includes(t);
+  const inSec = (deckSecondaryTags || []).includes(t);
+  if (groupTier === 'tag_primary') return inPri;
+  if (groupTier === 'tag_secondary') return inSec;
+  return true;
+}
+
+function _tagClassForTier(tag) {
+  const tier = _getUserTagTier(tag);
+  if (tier === 'default') return 'tag-scryfall';
+  if (tier === 'secondary') return 'tag-secondary';
+  return 'tag-primary';
+}
+
+function _ensureDeckDisabledTags(deck) {
+  if (deck && !Array.isArray(deck.disabledTags)) deck.disabledTags = [];
+}
+
+function _isDeckTagDisabled(deck, tag) {
+  return !!(deck && Array.isArray(deck.disabledTags) && deck.disabledTags.includes(tag));
+}
+
+function _tagsForCatalogFilter(filter) {
+  const f = filter || deckTagCatalogFilter || 'all';
+  if (f === 'default') {
+    return [...SCRYFALL_PROTECTED_TAGS].filter(t => t !== 'Commander').sort((a, b) => a.localeCompare(b));
+  }
+  if (f === 'primary' || f === 'secondary') {
+    return _userDeckTagsUnion().filter(t => !_isProtectedDeckTag(t));
+  }
+  return _allDeckTagsForUI();
+}
+
+function setDeckTagCatalogFilter(filter) {
+  deckTagCatalogFilter = filter || 'all';
+  document.querySelectorAll('[data-deck-tag-filter]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.deckTagFilter === deckTagCatalogFilter);
+  });
+  renderDeckTagManager();
+  if (_deckCardTagPickerTarget) renderDeckCardTagPicker();
+}
+
+function _deckTagChipHtml(tag, opts = {}) {
+  const deck = opts.deck != null ? opts.deck : (typeof getActiveDeck === 'function' ? getActiveDeck() : null);
+  const interactive = !!opts.interactive;
+  const size = opts.size || '0.84rem';
+  const safe = String(tag || '').replace(/"/g, '&quot;');
+  const esc = String(tag || '').replace(/'/g, "\\'");
+  const cls = _tagClassForTier(tag);
+  const disabled = deck && _isDeckTagDisabled(deck, tag);
+  const disabledCls = disabled ? ' tag-deck-disabled' : '';
+  const canToggleDeck = interactive && deck && !activeDeckIsShared;
+  const title = canToggleDeck
+    ? (disabled ? 'Right-click to enable for this deck' : 'Right-click to disable for this deck')
+    : '';
+  const ctx = canToggleDeck
+    ? ` oncontextmenu="event.preventDefault();event.stopPropagation();toggleDeckTagDisabled('${esc}')"`
+    : '';
+  return `<span class="tag ${cls}${disabledCls}" style="font-size:${size}" title="${title}"${ctx}>${safe}</span>`;
+}
+
+function toggleDeckTagDisabled(tag) {
+  const deck = getActiveDeck();
+  if (!deck || activeDeckIsShared || !tag) return;
+  _ensureDeckDisabledTags(deck);
+  const t = String(tag);
+  if (deck.disabledTags.includes(t)) {
+    deck.disabledTags = deck.disabledTags.filter(x => x !== t);
+    showNotif(`"${t}" enabled for this deck`);
+  } else {
+    deck.disabledTags.push(t);
+    showNotif(`"${t}" disabled for this deck (still on card & in collection)`);
+  }
+  saveActiveDeck(deck);
+  renderActiveDeck();
+  if (typeof patchOpenCardDetailMyTags === 'function') patchOpenCardDetailMyTags();
+}
+
+function _deckCardSubtypeGroup(card) {
+  const t = String(card?.type || '').trim();
+  if (!t) return 'Other';
+  const parts = t.split(/\s*[—–]\s*|\s+-\s+/);
+  if (parts.length >= 2) {
+    const sub = parts.slice(1).join(' — ').trim();
+    return sub || parts[0].trim() || 'Other';
+  }
+  if (/\bland\b/i.test(parts[0])) return 'Land';
+  return parts[0].trim() || 'Other';
+}
+
 function ensureDefaultDeckRoleTags() {
   // Retained for compatibility; role tags now come from Scryfall + protected list.
 }
 
 function _isProtectedDeckTag(tag) {
   return SCRYFALL_PROTECTED_TAGS.has(String(tag || ''));
+}
+
+function _normalizeTagOracleId(oracleId) {
+  return String(oracleId || '').toLowerCase();
 }
 
 async function loadTagOverrides(force = false) {
@@ -861,6 +1202,7 @@ async function loadTagOverrides(force = false) {
         {
           addTags: Array.isArray(r.addTags) ? r.addTags.filter(Boolean) : [],
           removeTags: Array.isArray(r.removeTags) ? r.removeTags.filter(Boolean) : [],
+          customTags: Array.isArray(r.customTags) ? r.customTags.filter(Boolean) : [],
           updatedAt: Number(r.updatedAt || 0),
           cardName: r.cardName || null,
         },
@@ -889,12 +1231,14 @@ function _hasTagOverrideChanges(overrideRow) {
 }
 
 function _allDeckTagsForUI() {
-  const userTags = (deckCustomTags || []).filter(t => !_isProtectedDeckTag(t));
+  const userTags = _userDeckTagsUnion().filter(t => !_isProtectedDeckTag(t));
   const merged = [...SCRYFALL_PROTECTED_TAGS, ...userTags];
   return [...new Set(merged)].sort((a, b) => a.localeCompare(b));
 }
 
 function openDeckTagManager() {
+  deckTagCatalogFilter = 'all';
+  if (_seedUserTagCatalogFromUsage()) save('prefs');
   renderDeckTagManager();
   const modal = document.getElementById('deckTagManagerModal');
   modal.classList.add('open');
@@ -905,40 +1249,129 @@ function closeDeckTagManager() {
   document.getElementById('deckTagManagerModal').classList.remove('open');
 }
 
-function renderDeckTagManager() {
+function _renderDeckTagFilterBar(containerId) {
+  const bar = document.getElementById(containerId);
+  if (!bar) return;
+  const myTagsOnly = containerId === 'deckCardTagFilterBar';
+  const filters = myTagsOnly
+    ? [
+      { id: 'all', label: 'All tags' },
+      { id: 'default', label: 'Default tags' },
+      { id: 'primary', label: 'Primary' },
+      { id: 'secondary', label: 'Secondary' },
+    ]
+    : [
+      { id: 'all', label: 'All tags' },
+      { id: 'default', label: 'Default tags' },
+      { id: 'primary', label: 'Primary tags' },
+      { id: 'secondary', label: 'Secondary tags' },
+    ];
+  bar.innerHTML = filters.map(f => `
+    <button type="button" class="btn btn-sm ${deckTagCatalogFilter === f.id ? 'btn-primary' : 'btn-outline'}"
+      data-deck-tag-filter="${f.id}" onclick="setDeckTagCatalogFilter('${f.id}')">${f.label}</button>
+  `).join('');
+}
+
+function renderMyTagsCatalog(opts = {}) {
+  const filterBarId = opts.filterBarId || 'deckTagManagerFilterBar';
+  const listId = opts.listId || 'deckTagManagerList';
   ensureDefaultDeckRoleTags();
-  const el = document.getElementById('deckTagManagerList');
+  _renderDeckTagFilterBar(filterBarId);
+  const el = document.getElementById(listId);
   if (!el) return;
-  const allTags = _allDeckTagsForUI();
+  const allTags = _sortUserTagsForDisplay(_tagsForCatalogFilter(deckTagCatalogFilter));
   if (!allTags.length) {
-    el.innerHTML = '<div style="padding:0.75rem;color:var(--text3);font-size:0.82rem">No custom tags yet.</div>';
+    const hint = deckTagCatalogFilter === 'primary' || deckTagCatalogFilter === 'secondary'
+      ? 'No My Tags yet — create one below (+ Primary or + Secondary). New tags appear in both lists.'
+      : 'No tags in this filter.';
+    el.innerHTML = `<div style="padding:0.75rem;color:var(--text3);font-size:0.82rem">${hint}</div>`;
     return;
   }
   el.innerHTML = allTags.map(tag => {
-    const isProtected = _isProtectedDeckTag(tag);
+    const isProtected = _isProtectedDeckTag(tag) && !_isUserCatalogTag(tag);
+    const esc = tag.replace(/'/g, "\\'");
     return `
-    <span class="tag ${isProtected ? 'tag-scryfall' : 'tag-purple'}" style="display:inline-flex;align-items:center;gap:6px">
+    <span class="tag ${_tagClassForTier(tag)}" style="display:inline-flex;align-items:center;gap:6px">
       ${tag}
       ${isProtected
-        ? ``
-        : `<button class="btn btn-ghost btn-sm btn-icon" style="padding:0 4px;font-size:0.72rem" onclick="removeDeckCustomTag('${tag.replace(/'/g, "\\'")}')" title="Delete tag">✕</button>`}
+        ? ''
+        : `<button type="button" class="btn btn-ghost btn-sm" style="font-size:0.62rem;padding:1px 5px" title="Set as primary" onclick="setDeckTagTier('${esc}','primary')">P</button>
+           <button type="button" class="btn btn-ghost btn-sm" style="font-size:0.62rem;padding:1px 5px" title="Set as secondary" onclick="setDeckTagTier('${esc}','secondary')">S</button>
+           <button class="btn btn-ghost btn-sm btn-icon" style="padding:0 4px;font-size:0.72rem" onclick="removeDeckCustomTag('${esc}')" title="Delete tag">✕</button>`}
     </span>`;
   }).join('');
 }
 
-function addDeckCustomTag() {
-  const input = document.getElementById('deckTagInput');
+function _refreshMyTagsCatalogUIs() {
+  renderMyTagsCatalog({ filterBarId: 'deckTagManagerFilterBar', listId: 'deckTagManagerList' });
+  renderMyTagsCatalog({ filterBarId: 'tagSettingsMyTagsFilterBar', listId: 'tagSettingsMyTagsList' });
+}
+
+function renderDeckTagManager() {
+  _refreshMyTagsCatalogUIs();
+}
+
+function setDeckTagTier(tag, tier) {
+  if (_isProtectedDeckTag(tag) && !_isUserCatalogTag(tag)) return;
+  const t = String(tag);
+  if (!deckCustomTags?.includes(t)) deckCustomTags = [...(deckCustomTags || []), t];
+  if (tier === 'secondary') {
+    if (!(deckSecondaryTags || []).includes(t)) deckSecondaryTags.push(t);
+    deckPrimaryTags = (deckPrimaryTags || []).filter(x => x !== t);
+  } else {
+    if (!(deckPrimaryTags || []).includes(t)) deckPrimaryTags.push(t);
+    deckSecondaryTags = (deckSecondaryTags || []).filter(x => x !== t);
+  }
+  normalizeDeckTagPrefs();
+  save('prefs');
+  _refreshMyTagsCatalogUIs();
+  if (_deckCardTagPickerTarget) renderDeckCardTagPicker();
+  if (typeof patchOpenCardDetailMyTags === 'function') patchOpenCardDetailMyTags();
+}
+
+function addDeckCustomTag(tier, inputId) {
+  const input = document.getElementById(inputId || 'deckTagInput')
+    || document.getElementById('tagSettingsTagInput');
   const tag = normalizeDeckTagName(input?.value);
   if (!tag) return;
-  if (_allDeckTagsForUI().includes(tag)) { showNotif('Tag already exists'); return; }
-  deckCustomTags.push(tag);
-  deckCustomTags.sort((a, b) => a.localeCompare(b));
+  if (_isProtectedDeckTag(tag)) { showNotif('That name is reserved for default tags'); return; }
+  const useTier = tier === 'secondary' ? 'secondary' : 'primary';
+  const existed = _userDeckTagsUnion().includes(tag);
+  if (existed) {
+    setDeckTagTier(tag, useTier);
+    if (input) input.value = '';
+    showNotif(`"${tag}" added to ${useTier} list`);
+    return;
+  }
+  _ensureUserTagInCatalog(tag, { primary: true, secondary: true });
   if (input) input.value = '';
-  localStorage.setItem('mtg_deck_custom_tags', JSON.stringify(deckCustomTags));
   save('prefs');
-  renderDeckTagManager();
+  _refreshMyTagsCatalogUIs();
   if (_deckCardTagPickerTarget) renderDeckCardTagPicker();
-  showNotif(`Added tag "${tag}"`);
+  showNotif(`Created tag "${tag}" (available as primary and secondary)`);
+}
+
+function _stripCustomTagFromCard(card, tag) {
+  if (!card || !Array.isArray(card.customTags)) return;
+  const norm = normalizeDeckTagName(tag).toLowerCase();
+  card.customTags = card.customTags.filter(t => normalizeDeckTagName(t).toLowerCase() !== norm);
+}
+
+async function _purgeCustomTagFromOverrides(tag) {
+  const norm = normalizeDeckTagName(tag).toLowerCase();
+  const touched = [];
+  for (const [oid, ov] of _tagOverridesByOracleId.entries()) {
+    if (!Array.isArray(ov.customTags) || !ov.customTags.some(t => normalizeDeckTagName(t).toLowerCase() === norm)) continue;
+    ov.customTags = ov.customTags.filter(t => normalizeDeckTagName(t).toLowerCase() !== norm);
+    touched.push(oid);
+  }
+  for (const oid of touched) {
+    try {
+      await _saveGlobalCustomTags(oid);
+    } catch (e) {
+      console.warn('Could not update tag override after delete', oid, e);
+    }
+  }
 }
 
 function removeDeckCustomTag(tag) {
@@ -946,15 +1379,25 @@ function removeDeckCustomTag(tag) {
     showNotif('Scryfall tags cannot be removed');
     return;
   }
-  deckCustomTags = deckCustomTags.filter(t => t !== tag);
-  decks.forEach(d => (d.cards || []).forEach(c => {
-    if (Array.isArray(c.customTags)) c.customTags = c.customTags.filter(t => t !== tag);
-  }));
-  localStorage.setItem('mtg_deck_custom_tags', JSON.stringify(deckCustomTags));
-  save('decks', 'prefs');
-  renderDeckTagManager();
+  const t = String(tag);
+  if (!confirm(`Delete "${t}" from your tag catalog? It will be removed from all cards.`)) return;
+  deckPrimaryTags = (deckPrimaryTags || []).filter(x => x !== t);
+  deckSecondaryTags = (deckSecondaryTags || []).filter(x => x !== t);
+  deckCustomTags = (deckCustomTags || []).filter(x => x !== t);
+  normalizeDeckTagPrefs();
+  (collection || []).forEach(c => _stripCustomTagFromCard(c, t));
+  [...(decks || []), ...(sharedDecks || [])].forEach(d => {
+    _ensureDeckDisabledTags(d);
+    d.disabledTags = d.disabledTags.filter(x => x !== t);
+    [...(d.cards || []), ...(d.sideboard || [])].forEach(c => _stripCustomTagFromCard(c, t));
+  });
+  save('collection', 'decks', 'prefs');
+  _refreshMyTagsCatalogUIs();
   if (_deckCardTagPickerTarget) renderDeckCardTagPicker();
   renderActiveDeck();
+  if (typeof patchOpenCardDetailMyTags === 'function') patchOpenCardDetailMyTags();
+  showNotif(`Deleted tag "${t}"`);
+  void _purgeCustomTagFromOverrides(t);
 }
 
 function _tagSettingChoices() {
@@ -1044,10 +1487,12 @@ async function _selectTagSettingsCandidate(candidate) {
         defaultTags = Array.isArray(byOid[oid]) ? byOid[oid].filter(Boolean) : [];
         _scryTagsByOracleId.set(oid, defaultTags);
       } else {
-        defaultTags = await _fetchScryfallTagsForOracle(oid);
+        defaultTags = [];
+        _scryTagsByOracleId.set(oid, defaultTags);
       }
     } catch (_) {
-      defaultTags = await _fetchScryfallTagsForOracle(oid);
+      defaultTags = [];
+      _scryTagsByOracleId.set(oid, defaultTags);
     }
   }
   const ov = _tagOverridesByOracleId.get(oid) || { addTags: [], removeTags: [] };
@@ -1112,11 +1557,13 @@ function renderTagOverridesList() {
 
 async function openTagSettingsModal() {
   await loadTagOverrides(true);
+  if (_seedUserTagCatalogFromUsage()) save('prefs');
   _tagSettingsTarget = null;
   document.getElementById('tagSettingsCardSearch').value = '';
   renderTagSettingsSearchResults();
   renderTagOverridesList();
   _renderTagSettingsTarget();
+  _refreshMyTagsCatalogUIs();
   document.getElementById('tagSettingsModal').classList.add('open');
 }
 
@@ -1127,20 +1574,23 @@ function closeTagSettingsModal() {
 async function saveTagSettingsOverride() {
   if (!_tagSettingsTarget) return;
   const t = _tagSettingsTarget;
+  const oid = _normalizeTagOracleId(t.oracleId);
   const addTags = [...t.add].sort((a, b) => a.localeCompare(b));
   const removeTags = [...t.remove].sort((a, b) => a.localeCompare(b));
+  const existing = _tagOverridesByOracleId.get(oid) || {};
+  const customTags = Array.from(existing.customTags || []);
   try {
-    if (!addTags.length && !removeTags.length) {
-      await apiDelete(`/tag-overrides/${t.oracleId}`);
+    if (!addTags.length && !removeTags.length && !customTags.length) {
+      await apiDelete(`/tag-overrides/${oid}`);
     } else {
-      await apiPut(`/tag-overrides/${t.oracleId}`, { addTags, removeTags });
+      await apiPut(`/tag-overrides/${oid}`, { addTags, removeTags, customTags });
     }
     await loadTagOverrides(true);
     renderTagOverridesList();
     const deck = getActiveDeck();
     if (deck && syncDeckAutoRoleTags(deck)) saveActiveDeck(deck);
     if (deck) renderActiveDeck();
-    if (typeof patchOpenCardDetailDeckTags === 'function') patchOpenCardDetailDeckTags();
+    if (typeof patchOpenCardDetailMyTags === 'function') patchOpenCardDetailMyTags();
     showNotif((!addTags.length && !removeTags.length) ? 'Tag override reset to default' : 'Tag override saved');
   } catch (e) {
     showNotif(e.message || 'Could not save tag override', true);
@@ -1161,7 +1611,7 @@ async function resetTagSettingsOverrideByOracle(oracleId) {
     const deck = getActiveDeck();
     if (deck && syncDeckAutoRoleTags(deck)) saveActiveDeck(deck);
     if (deck) renderActiveDeck();
-    if (typeof patchOpenCardDetailDeckTags === 'function') patchOpenCardDetailDeckTags();
+    if (typeof patchOpenCardDetailMyTags === 'function') patchOpenCardDetailMyTags();
     showNotif('Tag override reset to default');
   } catch (e) {
     showNotif(e.message || 'Could not reset override', true);
@@ -1215,6 +1665,9 @@ async function openTagSettingsForCardRef(cardRef) {
 }
 
 function renderDecks() {
+  _applyDeckCardSize();
+  const slider = document.getElementById('deckCardSizeSlider');
+  if (slider) slider.value = deckCardSize;
   const topNewDeckBtn = document.getElementById('newDeckTopBtn');
   if (activeDeckId) {
     const exists = decks.some(d => d.id === activeDeckId) || sharedDecks.some(d => d.id === activeDeckId);
@@ -1389,62 +1842,70 @@ let _cmdSearchTimer = null;
 function searchCommanderInput(q, resultsId, format) {
   const el = document.getElementById(resultsId);
   if (!el) return;
-  if (!q || q.length < 2) { el.style.display = 'none'; return; }
+  if (!q || q.length < 2) { el.style.display = 'none'; el.innerHTML = ''; return; }
   clearTimeout(_cmdSearchTimer);
   _cmdSearchTimer = setTimeout(async () => {
     el.style.display = 'block';
-    el.innerHTML = '<div style="padding:8px 12px;font-size:0.78rem;color:var(--text3)">Searching…</div>';
+    el.innerHTML = '<div style="padding:16px;font-size:0.82rem;color:var(--text3)">Searching…</div>';
     try {
-      // unique=prints so every art/set version is returned
       const query = `${commanderQuery(format)} name:${encodeURIComponent(q)}`;
       const res = await fetch(`https://api.scryfall.com/cards/search?q=${query}&order=released&unique=prints`);
       const data = await res.json();
       if (!data.data?.length) {
-        el.innerHTML = '<div style="padding:8px 12px;font-size:0.78rem;color:var(--text3)">No legendary commanders found</div>';
+        el.innerHTML = '<div style="padding:16px;font-size:0.82rem;color:var(--text3)">No legendary commanders found</div>';
         return;
       }
-      const cards = data.data.slice(0, 24);
-      // Group by card name so we can show a header row when multiple names appear
+      const cards = data.data.slice(0, 48);
       const names = [...new Set(cards.map(c => c.name))];
       const byName = names.map(n => ({ name: n, prints: cards.filter(c => c.name === n) }));
 
       el.innerHTML = byName.map(group => {
         const ci = group.prints[0]?.color_identity || [];
         const pips = colorPips(ci);
+        const nameLower = group.name.toLowerCase();
+        const ownedTotal = (collection || []).reduce((acc, c) =>
+          (c.name || '').toLowerCase() === nameLower ? acc + (c.qty || 1) : acc, 0);
+        const ownedBadge = ownedTotal > 0
+          ? `<span style="font-size:0.68rem;background:rgba(0,200,150,0.15);color:var(--teal);border:1px solid rgba(0,200,150,0.3);border-radius:10px;padding:1px 8px;white-space:nowrap">${ownedTotal}× owned</span>`
+          : '';
+
         const printCards = group.prints.map(c => {
           const img     = c.image_uris?.small || c.card_faces?.[0]?.image_uris?.small || '';
           const imgFull = c.image_uris?.normal || c.card_faces?.[0]?.image_uris?.normal || img;
           const ciArr   = c.color_identity || [];
-          const safeImg     = img.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
           const safeImgFull = imgFull.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
           const safeName    = c.name.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
           const safeCI      = JSON.stringify(ciArr).replace(/"/g,'&quot;');
+          const isOwnedPrint = (collection || []).some(col => col.scryfallId === c.id);
+          const borderColor = isOwnedPrint ? 'var(--teal)' : 'transparent';
           return `
             <div onclick="selectCommanderResult('${resultsId}','${safeName}','${safeCI}','${safeImgFull}','${c.id}')"
               title="${c.name} · ${c.set_name}"
-              style="cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px">
-              <div style="border-radius:5px;overflow:hidden;border:2px solid transparent;transition:border-color 0.15s;width:64px"
-                onmouseover="this.style.borderColor='var(--gold)'" onmouseout="this.style.borderColor='transparent'">
+              style="cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px">
+              <div style="border-radius:6px;overflow:hidden;border:2px solid ${borderColor};transition:border-color 0.15s;width:120px"
+                onmouseover="this.style.borderColor='var(--gold)'" onmouseout="this.style.borderColor='${borderColor}'">
                 ${img
-                  ? `<img src="${safeImg}" style="width:64px;display:block" alt="${c.name}">`
-                  : `<div style="width:64px;height:89px;background:var(--bg4);display:flex;align-items:center;justify-content:center;font-size:0.55rem;color:var(--text3);text-align:center;padding:3px">${c.name}</div>`}
+                  ? `<img src="${img}" style="width:120px;display:block" alt="${c.name}" loading="lazy">`
+                  : `<div style="width:120px;height:167px;background:var(--bg4);display:flex;align-items:center;justify-content:center;font-size:0.65rem;color:var(--text3);text-align:center;padding:6px">${c.name}</div>`}
               </div>
-              <span style="font-size:0.58rem;color:var(--text3);text-transform:uppercase;letter-spacing:0.04em">${c.set}</span>
+              <span style="font-size:0.64rem;color:var(--text3);text-transform:uppercase;letter-spacing:0.04em">${c.set}</span>
+              ${isOwnedPrint ? `<span style="font-size:0.6rem;color:var(--teal);letter-spacing:0.02em">owned</span>` : ''}
             </div>`;
         }).join('');
 
         return `
-          <div style="padding:6px 10px 2px;border-bottom:1px solid var(--border2)">
-            <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
-              <span style="font-size:0.78rem;font-family:'Cinzel',serif;color:var(--text)">${group.name}</span>
+          <div style="padding:14px 16px 12px;border-bottom:1px solid var(--border2)">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+              <span style="font-size:0.9rem;font-family:'Cinzel',serif;color:var(--text)">${group.name}</span>
               <span style="display:flex;gap:5px;align-items:center">${pips}</span>
-              <span style="font-size:0.65rem;color:var(--text3)">${group.prints.length} version${group.prints.length !== 1 ? 's' : ''}</span>
+              <span style="font-size:0.7rem;color:var(--text3)">${group.prints.length} version${group.prints.length !== 1 ? 's' : ''}</span>
+              ${ownedBadge}
             </div>
-            <div style="display:flex;flex-wrap:wrap;gap:6px;padding-bottom:8px">${printCards}</div>
+            <div style="display:flex;flex-wrap:wrap;gap:10px">${printCards}</div>
           </div>`;
       }).join('');
     } catch(e) {
-      el.innerHTML = '<div style="padding:8px 12px;font-size:0.78rem;color:var(--red)">Search failed — check connection</div>';
+      el.innerHTML = '<div style="padding:16px;font-size:0.82rem;color:var(--red)">Search failed — check connection</div>';
     }
   }, 280);
 }
@@ -1539,18 +2000,22 @@ function clearCommanderChoice(prefix) {
 }
 
 function openCommanderEdit() {
-  const wrap = document.getElementById('activeDeckCommanderSearch');
-  if (!wrap) return;
-  wrap.style.display = 'block';
-  setTimeout(() => document.getElementById('activeDeckCommanderSearchInput')?.focus(), 60);
+  const modal = document.getElementById('commanderPickerModal');
+  if (!modal) return;
+  const input = document.getElementById('activeDeckCommanderSearchInput');
+  if (input) input.value = '';
+  const results = document.getElementById('activeDeckCommanderResults');
+  if (results) results.innerHTML = '';
+  modal.classList.add('open');
+  setTimeout(() => input?.focus(), 80);
 }
 
 function closeCommanderEdit() {
-  const wrap = document.getElementById('activeDeckCommanderSearch');
-  if (wrap) wrap.style.display = 'none';
+  document.getElementById('commanderPickerModal')?.classList.remove('open');
   const input = document.getElementById('activeDeckCommanderSearchInput');
   if (input) input.value = '';
-  closeCommanderDropdown('activeDeckCommanderResults');
+  const results = document.getElementById('activeDeckCommanderResults');
+  if (results) results.innerHTML = '';
 }
 
 // ── Commander card helper ─────────────────────────────────────────────────────
@@ -1569,7 +2034,9 @@ async function addCommanderCardToDeck(deck, scryfallId) {
     } catch(e) { return; }
   }
 
-  deck.cards.unshift({ ...card, qty: 1, isCommander: true });
+  const newCmd = { ...card, qty: 1, isCommander: true };
+  _applyGlobalCustomTagsToCard(newCmd);
+  deck.cards.unshift(newCmd);
 }
 
 // ── Deck CRUD ─────────────────────────────────────────────────────────────────
@@ -1665,6 +2132,12 @@ async function _enrichMissingDeckImages() {
 function renderActiveDeck() {
   const deck = getActiveDeck();
   if (!deck) return;
+  _ensureDeckDisabledTags(deck);
+  const gbSel = document.getElementById('deckGroupBySelect');
+  if (gbSel) {
+    if (gbSel.value === 'custom_tag') gbSel.value = 'tag_all';
+    if (gbSel.value !== deckGroupBy) gbSel.value = deckGroupBy;
+  }
   document.querySelectorAll('#deckStackOrientH, #deckStackOrientV').forEach(b => b.classList.remove('active'));
   const activeBtn = document.getElementById(deckStackOrient === 'horizontal' ? 'deckStackOrientH' : 'deckStackOrientV');
   if (activeBtn) activeBtn.classList.add('active');
@@ -1722,9 +2195,12 @@ function renderActiveDeck() {
 
   renderDeckList(deck);
   renderManaCurve(deck);
+  renderCommanderGameplan(deck);
   renderTypeBreakdown(deck);
   renderManaCostProfile(deck);
   renderManaGenerationProfile(deck);
+  renderOpeningHandChart(deck);
+  renderLandCoverageChart(deck);
   renderProbabilityChart(deck);
   renderDeckValidation(deck);
   renderCollaboratorsPanel(deck);
@@ -1811,6 +2287,8 @@ function setDeckListView(view, btn) {
   btn.classList.add('active');
   const orientToggle = document.getElementById('deckStackOrientToggle');
   if (orientToggle) orientToggle.style.display = view === 'grid' ? '' : 'none';
+  const sizeWrap = document.getElementById('deckCardSizeWrap');
+  if (sizeWrap) sizeWrap.style.display = view === 'grid' ? 'flex' : 'none';
   const deck = getActiveDeck();
   if (deck) renderDeckList(deck);
 }
@@ -1826,28 +2304,190 @@ function setDeckStackOrient(orient) {
 }
 
 function getDeckCardByUid(deck, uid) {
-  return (deck?.cards || []).find(c => c.uid === uid || c.scryfallId === uid);
+  const key = String(uid || '');
+  const inMain = (deck?.cards || []).find(c => c.uid === key || c.scryfallId === key);
+  if (inMain) return inMain;
+  return (deck?.sideboard || []).find(c => c.uid === key || c.scryfallId === key) || null;
 }
 
-async function openDeckCardTagPicker(deckId, cardUid) {
-  const deck = deckId === activeDeckId
-    ? getActiveDeck()
-    : (decks.find(d => d.id === deckId) || sharedDecks.find(d => d.id === deckId));
-  const card = getDeckCardByUid(deck, cardUid);
-  if (!deck || !card) return;
+function _cardMatchesRef(card, ref) {
+  if (!card || ref == null || ref === '') return false;
+  const key = String(ref);
+  if (card.uid === key || card.scryfallId === key) return true;
+  if (typeof getCardInventoryKey === 'function' && getCardInventoryKey(card) === key) return true;
+  const sid = String(card.scryfallId || '').toLowerCase();
+  const k = key.toLowerCase();
+  if (sid && (k === sid || k === `${sid}_f` || k === `${sid}_n`)) return true;
+  return false;
+}
+
+function _findCardForTagPicker(cardUid) {
+  const key = String(cardUid || '');
+  if (!key) return null;
+  const coll = (collection || []).find(c => _cardMatchesRef(c, key));
+  if (coll) return coll;
+  for (const d of [...(decks || []), ...(sharedDecks || [])]) {
+    const pools = [...(d.cards || []), ...(d.sideboard || [])];
+    const slot = pools.find(c => _cardMatchesRef(c, key));
+    if (slot) return slot;
+  }
+  return null;
+}
+
+function _oracleIdForMyTags(card) {
+  if (!card) return '';
+  return _normalizeTagOracleId(card.oracleId || _scryOracleByPrintId.get(card.scryfallId || '') || '');
+}
+
+function _isUserCatalogTag(tag) {
+  return _userDeckTagsUnion().includes(String(tag || ''));
+}
+
+/** True when tag is a user My Tag (catalog name or non-Scryfall custom label on card). */
+function _isUserMyTag(tag) {
+  const t = String(tag || '');
+  if (!t || t === 'Commander') return false;
+  if (_isUserCatalogTag(t)) return true;
+  return !_isProtectedDeckTag(t);
+}
+
+function _userTagsOnCardLocal(card) {
+  if (!Array.isArray(card?.customTags)) return [];
+  return card.customTags.filter(t => _isUserMyTag(t));
+}
+
+/** Scryfall role + override tags for the DEFAULT TAGS inspector row only. */
+function _defaultTagsForCardInspector(card) {
+  if (!card) return [];
+  return _roleTagsForCard(card);
+}
+
+function _collectUsedUserTags() {
+  const out = new Set();
+  const add = t => {
+    const s = String(t || '').trim();
+    if (_pickerTagAllowed(s)) out.add(s);
+  };
+  _userDeckTagsUnion().forEach(add);
+  (deckCustomTags || []).forEach(add);
+  for (const ov of _tagOverridesByOracleId.values()) {
+    (ov.customTags || []).forEach(add);
+  }
+  [...(collection || []), ...decks.flatMap(d => [...(d.cards || []), ...(d.sideboard || [])]), ...sharedDecks.flatMap(d => [...(d.cards || []), ...(d.sideboard || [])])].forEach(c => {
+    (c.customTags || []).forEach(add);
+  });
+  return [...out].sort((a, b) => a.localeCompare(b));
+}
+
+function _defaultTagsForPicker() {
+  return [...SCRYFALL_PROTECTED_TAGS].filter(t => t !== 'Commander').sort((a, b) => a.localeCompare(b));
+}
+
+/** Build picker rows: Scryfall default tags + My Tags (primary/secondary). */
+function _entriesForCardTagPicker(filter, card) {
+  const f = filter || deckTagCatalogFilter || 'all';
+  const protectedEntries = [];
+  const userEntries = [];
+  const seen = new Set();
+
+  const pushProtected = tag => {
+    const t = String(tag || '').trim();
+    if (!t || t === 'Commander' || seen.has(t)) return;
+    seen.add(t);
+    protectedEntries.push({ tag: t, kind: 'protected' });
+  };
+  const pushUser = tag => {
+    const t = String(tag || '').trim();
+    if (!t || t === 'Commander') return;
+    if (_isProtectedDeckTag(t) && !_isUserCatalogTag(t)) return;
+    if (seen.has(t)) return;
+    seen.add(t);
+    userEntries.push({ tag: t, kind: 'user' });
+  };
+
+  if (f === 'default') {
+    _defaultTagsForPicker().forEach(pushProtected);
+    return protectedEntries;
+  }
+  if (f === 'primary' || f === 'secondary') {
+    _userDeckTagsUnion().forEach(pushUser);
+    _collectUsedUserTags().forEach(pushUser);
+    userEntries.sort((a, b) => {
+      const ra = _userTagTierSortRank(a.tag);
+      const rb = _userTagTierSortRank(b.tag);
+      if (ra !== rb) return ra - rb;
+      return a.tag.localeCompare(b.tag);
+    });
+    return userEntries;
+  }
+
+  _defaultTagsForPicker().forEach(pushProtected);
+  _userDeckTagsUnion().forEach(pushUser);
+  if (card) {
+    (card.customTags || []).forEach(t => {
+      if (_isProtectedDeckTag(t)) pushProtected(t);
+      else pushUser(t);
+    });
+    if (typeof _getGlobalCustomTagsForCard === 'function') {
+      _getGlobalCustomTagsForCard(card).forEach(t => {
+        if (_isProtectedDeckTag(t)) pushProtected(t);
+        else pushUser(t);
+      });
+    }
+  }
+  for (const ov of _tagOverridesByOracleId.values()) {
+    (ov.customTags || []).forEach(pushUser);
+  }
+  _collectUsedUserTags().forEach(pushUser);
+
+  userEntries.sort((a, b) => {
+    const ra = _userTagTierSortRank(a.tag);
+    const rb = _userTagTierSortRank(b.tag);
+    if (ra !== rb) return ra - rb;
+    return a.tag.localeCompare(b.tag);
+  });
+  return [...protectedEntries, ...userEntries];
+}
+
+function _bindDeckCardTagPickerClicks() {
+  const list = document.getElementById('deckCardTagList');
+  if (!list || list.dataset.tagPickerBound === '1') return;
+  list.dataset.tagPickerBound = '1';
+  list.addEventListener('click', e => {
+    const btn = e.target.closest('[data-tag-pick-idx]');
+    if (!btn || !list.contains(btn)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const idx = Number(btn.dataset.tagPickIdx);
+    const entry = _deckCardTagPickerTarget?.entries?.[idx];
+    if (!entry) return;
+    if (entry.kind === 'protected') void toggleDeckCardProtectedTagOverride(entry.tag);
+    else void toggleDeckCardCustomTag(entry.tag);
+  });
+}
+
+async function openDeckCardTagPicker(_deckId, cardUid) {
+  const card = _findCardForTagPicker(cardUid);
+  if (!card) return;
+  _bindDeckCardTagPickerClicks();
+  deckTagCatalogFilter = 'all';
   _deckCardTagPickerTarget = {
-    deckId,
-    cardUid: card.uid || card.scryfallId,
+    deckId: null,
+    cardUid: card.uid || card.scryfallId || cardUid,
     oracleId: null,
     defaultTags: new Set(),
     overrideAdd: new Set(),
     overrideRemove: new Set(),
+    entries: [],
   };
   if (!Array.isArray(card.customTags)) card.customTags = [];
   document.getElementById('deckCardTagTitle').textContent = `${card.name} — Tags`;
-  await _hydrateDeckCardTagPickerDefaults(card);
-  renderDeckCardTagPicker();
+  const listEl = document.getElementById('deckCardTagList');
+  if (listEl) listEl.innerHTML = '<div style="padding:0.75rem;color:var(--text3);font-size:0.82rem">Loading tags…</div>';
   document.getElementById('deckCardTagModal').classList.add('open');
+  await _hydrateDeckCardTagPickerDefaults(card);
+  if (_seedUserTagCatalogFromUsage()) save('prefs');
+  renderDeckCardTagPicker();
   setTimeout(() => document.getElementById('deckCardTagNewInput')?.focus(), 60);
 }
 
@@ -1859,101 +2499,289 @@ function closeDeckCardTagPicker() {
 function renderDeckCardTagPicker() {
   const el = document.getElementById('deckCardTagList');
   if (!el || !_deckCardTagPickerTarget) return;
-  const tid = _deckCardTagPickerTarget.deckId;
-  const deck = tid === activeDeckId
-    ? getActiveDeck()
-    : (decks.find(d => d.id === tid) || sharedDecks.find(d => d.id === tid));
-  const card = getDeckCardByUid(deck, _deckCardTagPickerTarget.cardUid);
+  _renderDeckTagFilterBar('deckCardTagFilterBar');
+  const card = _findCardForTagPicker(_deckCardTagPickerTarget.cardUid);
   if (!card) return;
   if (!Array.isArray(card.customTags)) card.customTags = [];
-  const allTags = _allDeckTagsForUI();
-  if (!allTags.length) {
-    el.innerHTML = '<div style="padding:0.75rem;color:var(--text3);font-size:0.82rem">No tags available. Create one below.</div>';
+  const entries = _entriesForCardTagPicker(deckTagCatalogFilter, card);
+  if (!entries.length) {
+    _deckCardTagPickerTarget.entries = [];
+    el.innerHTML = '<div style="padding:0.75rem;color:var(--text3);font-size:0.82rem">No tags in this filter. Create a My Tag below or switch to Default tags / All tags.</div>';
     return;
   }
-  el.innerHTML = allTags.map(tag => {
-    const active = card.customTags.includes(tag);
-    if (_isProtectedDeckTag(tag)) {
-      const defOn = _deckCardTagPickerTarget.defaultTags.has(tag);
-      const forceOn = _deckCardTagPickerTarget.overrideAdd.has(tag);
-      const forceOff = _deckCardTagPickerTarget.overrideRemove.has(tag);
+  const oracleId = _deckCardTagPickerTarget.oracleId;
+  const pickerTarget = _deckCardTagPickerTarget;
+  _deckCardTagPickerTarget.entries = entries;
+  el.innerHTML = entries.map((entry, i) => {
+    const { tag, kind } = entry;
+    const safe = String(tag).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    if (kind === 'protected') {
+      const defOn = pickerTarget.defaultTags.has(tag);
+      const forceOn = pickerTarget.overrideAdd.has(tag);
+      const forceOff = pickerTarget.overrideRemove.has(tag);
       const effectiveOn = forceOn || (defOn && !forceOff);
-      let cls = 'btn-outline';
+      let cls = effectiveOn ? 'btn-scryfall' : 'btn-outline btn-outline-scryfall';
       let hint = defOn ? 'Default ON' : 'Default OFF';
       if (forceOn) { cls = 'btn-primary'; hint = 'Forced ON override'; }
       else if (forceOff) { cls = 'btn-danger'; hint = 'Forced OFF override'; }
-      else if (effectiveOn) { cls = 'btn-scryfall'; }
-      return `<button class="btn btn-sm ${cls}" style="${effectiveOn ? '' : 'opacity:0.78'}" onclick="toggleDeckCardProtectedTagOverride('${tag.replace(/'/g, "\\'")}')" title="${hint}">${tag}</button>`;
+      return `<button type="button" class="btn btn-sm ${cls}" data-tag-pick-idx="${i}" title="${hint}">${safe}</button>`;
     }
-    const cls = active ? 'btn-primary' : 'btn-outline';
-    return `<button class="btn btn-sm ${cls}" onclick="toggleDeckCardCustomTag('${tag.replace(/'/g, "\\'")}')">${tag}</button>`;
+    const active = _isUserTagActiveOnCard(card, tag, oracleId);
+    const tier = _getUserTagTier(tag, { filter: deckTagCatalogFilter });
+    const cls = active
+      ? (tier === 'secondary' ? 'btn-secondary-tag' : 'btn-primary-tag')
+      : (tier === 'secondary' ? 'btn-outline btn-outline-secondary-tag' : 'btn-outline btn-outline-primary-tag');
+    return `<button type="button" class="btn btn-sm ${cls}" data-tag-pick-idx="${i}">${safe}</button>`;
   }).join('');
 }
 
-function toggleDeckCardCustomTag(tag) {
-  if (!_deckCardTagPickerTarget) return;
-  const tid = _deckCardTagPickerTarget.deckId;
-  const deck = tid === activeDeckId
-    ? getActiveDeck()
-    : (decks.find(d => d.id === tid) || sharedDecks.find(d => d.id === tid));
-  const card = getDeckCardByUid(deck, _deckCardTagPickerTarget.cardUid);
-  if (!deck || !card) return;
-  if (!Array.isArray(card.customTags)) card.customTags = [];
-  if (card.customTags.includes(tag)) {
-    card.customTags = card.customTags.filter(t => t !== tag);
-    recordDeckEvent('tag_remove', card, tag);
+function _isUserTagActiveOnCard(card, tag, oracleId) {
+  if (!card || !tag || !_isUserMyTag(tag)) return false;
+  if (_customTagsHas(card.customTags, tag)) return true;
+  if (oracleId) {
+    const ov = _tagOverridesByOracleId.get(_normalizeTagOracleId(oracleId));
+    if (_customTagsHas(ov?.customTags, tag)) return true;
+  }
+  return false;
+}
+
+function _getGlobalCustomTagsForCard(card) {
+  if (!card) return [];
+  const merged = new Set(_userTagsOnCardLocal(card));
+  const oid = _oracleIdForMyTags(card);
+  if (oid && _tagOverridesByOracleId.has(oid)) {
+    (_tagOverridesByOracleId.get(oid).customTags || []).forEach(t => merged.add(t));
+  }
+  const nameLower = (card.name || '').toLowerCase();
+  if (nameLower) {
+    for (const [mapOid, ov] of _tagOverridesByOracleId.entries()) {
+      if (mapOid === oid) continue;
+      if ((ov.cardName || '').toLowerCase() === nameLower && ov.customTags?.length) {
+        ov.customTags.forEach(t => merged.add(t));
+      }
+    }
+  }
+  return _sortUserTagsForDisplay([...merged].filter(Boolean));
+}
+
+function _applyGlobalCustomTagsToCard(card) {
+  const globalTags = _getGlobalCustomTagsForCard(card);
+  if (!globalTags.length) return false;
+  const merged = _dedupeCustomTags([...(card.customTags || []), ...globalTags]);
+  const changed = merged.length !== (card.customTags || []).length
+    || merged.some((t, i) => t !== (card.customTags || [])[i]);
+  if (changed) card.customTags = merged;
+  return changed;
+}
+
+async function _saveGlobalCustomTags(oracleId) {
+  const oid = _normalizeTagOracleId(oracleId);
+  if (!oid) return;
+  const ov = _tagOverridesByOracleId.get(oid) || {};
+  const addTags = Array.from(ov.addTags || []);
+  const removeTags = Array.from(ov.removeTags || []);
+  const customTags = Array.from(ov.customTags || []);
+  if (!addTags.length && !removeTags.length && !customTags.length) {
+    await apiDelete(`/tag-overrides/${oid}`);
+    _tagOverridesByOracleId.delete(oid);
   } else {
-    card.customTags.push(tag);
-    recordDeckEvent('tag_add', card, tag);
+    await apiPut(`/tag-overrides/${oid}`, { addTags, removeTags, customTags });
+  }
+}
+
+async function toggleDeckCardCustomTag(tag) {
+  tag = normalizeDeckTagName(tag);
+  if (!_deckCardTagPickerTarget || !tag || !_isUserMyTag(tag)) return;
+  const card = _findCardForTagPicker(_deckCardTagPickerTarget.cardUid);
+  if (!card) return;
+
+  if (deckTagCatalogFilter === 'secondary' && (deckPrimaryTags || []).includes(tag)) {
+    setDeckTagTier(tag, 'secondary');
+    showNotif(`"${tag}" moved to secondary tags`);
+    return;
+  }
+  if (deckTagCatalogFilter === 'primary' && !(deckPrimaryTags || []).includes(tag) && (deckSecondaryTags || []).includes(tag)) {
+    setDeckTagTier(tag, 'primary');
+    showNotif(`"${tag}" moved to primary tags`);
+    return;
+  }
+
+  let oracleId = _normalizeTagOracleId(_deckCardTagPickerTarget.oracleId);
+  if (!oracleId) {
+    oracleId = _normalizeTagOracleId(await _resolveOracleIdForCard(card));
+    if (oracleId) {
+      _deckCardTagPickerTarget.oracleId = oracleId;
+      card.oracleId = oracleId;
+      const sid = String(card.scryfallId || '').trim().toLowerCase();
+      if (sid) _scryOracleByPrintId.set(sid, oracleId);
+    }
+  }
+  if (!oracleId) {
+    showNotif('Could not resolve this card for My Tags — try again in a moment', true);
+    return;
+  }
+
+  const isAdding = !_isUserTagActiveOnCard(card, tag, oracleId);
+
+  if (!_tagOverridesByOracleId.has(oracleId)) {
+    _tagOverridesByOracleId.set(oracleId, { addTags: [], removeTags: [], customTags: [], updatedAt: Date.now(), cardName: card.name });
+  }
+  const ov = _tagOverridesByOracleId.get(oracleId);
+  if (!Array.isArray(ov.customTags)) ov.customTags = [];
+  if (Array.isArray(ov.addTags) && ov.addTags.includes(tag)) {
+    ov.addTags = ov.addTags.filter(t => t !== tag);
+  }
+  if (Array.isArray(ov.removeTags) && ov.removeTags.includes(tag)) {
+    ov.removeTags = ov.removeTags.filter(t => t !== tag);
+  }
+  if (isAdding) ov.customTags = _dedupeCustomTags([...ov.customTags, tag]);
+  else ov.customTags = ov.customTags.filter(t => normalizeDeckTagName(t).toLowerCase() !== tag.toLowerCase());
+  ov.customTags = _dedupeCustomTags(ov.customTags);
+  try {
+    await _saveGlobalCustomTags(oracleId);
+  } catch (e) {
+    showNotif(e.message || 'Could not save My Tags', true);
+    return;
+  }
+
+  const collCard = (collection || []).find(c => _cardMatchesRef(c, _deckCardTagPickerTarget.cardUid));
+  const touch = (c) => {
+    if (!c) return;
+    if (isAdding) _setCardCustomTags(c, [...(c.customTags || []), tag]);
+    else _setCardCustomTags(c, (c.customTags || []).filter(t => normalizeDeckTagName(t).toLowerCase() !== tag.toLowerCase()));
+    syncDeckCardAutoRoleTags(c);
+  };
+  touch(card);
+  touch(collCard);
+
+  const cardNameLower = (card.name || '').toLowerCase();
+  [...decks, ...sharedDecks].forEach(d => {
+    [...(d.cards || []), ...(d.sideboard || [])].forEach(c => {
+      const cOid = String(c.oracleId || _scryOracleByPrintId.get(c.scryfallId || '') || '').toLowerCase();
+      const matches = (oracleId && cOid === oracleId) || (c.name || '').toLowerCase() === cardNameLower;
+      if (!matches) return;
+      touch(c);
+    });
+  });
+
+  const active = getActiveDeck();
+  const activeSlot = active && getDeckCardByUid(active, _deckCardTagPickerTarget.cardUid);
+  if (activeSlot) recordDeckEvent(isAdding ? 'tag_add' : 'tag_remove', activeSlot, tag);
+  if (collCard) save('collection');
+  save('decks');
+  if (active) renderDeckList(active);
+  renderDeckCardTagPicker();
+  if (typeof _loadCardDetailMyTags === 'function') void _loadCardDetailMyTags(card);
+  else if (typeof patchOpenCardDetailMyTags === 'function') patchOpenCardDetailMyTags();
+  if (typeof _loadCardDetailDefaultTags === 'function') void _loadCardDetailDefaultTags(card);
+}
+
+function setCardAsCommander() {
+  if (!_deckCardTagPickerTarget) return;
+  const deck = getActiveDeck();
+  const card = getDeckCardByUid(deck, _deckCardTagPickerTarget.cardUid)
+    || _findCardForTagPicker(_deckCardTagPickerTarget.cardUid);
+  if (!deck || !card) return;
+
+  if (card.isCommander) {
+    showNotif(`${card.name} is already the deck commander`);
+    return;
+  }
+
+  if (!_isCommanderFormatName(deck.format || '')) {
+    showNotif('Set the deck format to Commander, Brawl, or Oathbreaker first', true);
+    return;
+  }
+
+  if (!_deckCardEligibleCommander(card, deck.format)) {
+    const tl = _typeLineOfDeckCard(card);
+    const isLegendary = /legendary/i.test(tl);
+    if (!isLegendary) {
+      showNotif(`${card.name} is not legendary — commanders must be legendary`, true);
+    } else if (deck.format === 'Oathbreaker') {
+      showNotif(`${card.name} must be a legendary planeswalker for Oathbreaker`, true);
+    } else {
+      showNotif(`${card.name} must be a legendary creature or planeswalker`, true);
+    }
+    return;
+  }
+
+  if (!_setDeckCommanderByInventoryKey(deck, getCardInventoryKey(card))) {
+    showNotif('Could not set commander', true);
+    return;
   }
   saveActiveDeck(deck);
-  renderDeckCardTagPicker();
-  renderDeckList(deck);
-  if (typeof patchOpenCardDetailDeckTags === 'function') patchOpenCardDetailDeckTags();
+  renderActiveDeck();
+  closeDeckCardTagPicker();
+  showNotif(`${card.name} set as commander`);
 }
 
 async function _hydrateDeckCardTagPickerDefaults(card) {
   if (!_deckCardTagPickerTarget || !card) return;
   await loadTagOverrides();
   const oid = await _resolveOracleIdForCard(card);
-  if (!oid) return;
-  _deckCardTagPickerTarget.oracleId = oid;
-  let defaultTags = _scryTagsByOracleId.get(oid);
+  if (!oid) {
+    _deckCardTagPickerTarget.defaultTags = new Set();
+    _deckCardTagPickerTarget.overrideAdd = new Set();
+    _deckCardTagPickerTarget.overrideRemove = new Set();
+    return;
+  }
+  const normOid = _normalizeTagOracleId(oid);
+  _deckCardTagPickerTarget.oracleId = normOid;
+  card.oracleId = normOid;
+  const sid = String(card.scryfallId || '').trim().toLowerCase();
+  if (sid) _scryOracleByPrintId.set(sid, normOid);
+  let defaultTags = _scryTagsByOracleId.get(normOid);
   if (!Array.isArray(defaultTags)) {
     try {
-      const r = await apiPostJson('/scryfall/tags/batch', { oracleIds: [oid], schemaVersion: _SCRY_TAG_SCHEMA_VERSION });
+      const r = await apiPostJson('/scryfall/tags/batch', { oracleIds: [normOid], schemaVersion: _SCRY_TAG_SCHEMA_VERSION });
       const byOid = r?.tagsByOracleId || {};
-      if (Object.prototype.hasOwnProperty.call(byOid, oid)) {
-        defaultTags = Array.isArray(byOid[oid]) ? byOid[oid].filter(Boolean) : [];
-        _scryTagsByOracleId.set(oid, defaultTags);
+      if (Object.prototype.hasOwnProperty.call(byOid, normOid)) {
+        defaultTags = Array.isArray(byOid[normOid]) ? byOid[normOid].filter(Boolean) : [];
+        _scryTagsByOracleId.set(normOid, defaultTags);
       } else {
-        defaultTags = await _fetchScryfallTagsForOracle(oid);
+        defaultTags = [];
+        _scryTagsByOracleId.set(normOid, defaultTags);
       }
     } catch (_) {
-      defaultTags = await _fetchScryfallTagsForOracle(oid);
+      defaultTags = [];
+      _scryTagsByOracleId.set(normOid, defaultTags);
     }
   }
-  const ov = _tagOverridesByOracleId.get(oid) || { addTags: [], removeTags: [] };
+  const ov = _tagOverridesByOracleId.get(normOid) || { addTags: [], removeTags: [], customTags: [] };
   _deckCardTagPickerTarget.defaultTags = new Set(defaultTags || []);
   _deckCardTagPickerTarget.overrideAdd = new Set(ov.addTags || []);
   _deckCardTagPickerTarget.overrideRemove = new Set(ov.removeTags || []);
+
+  // Pre-populate card.customTags from the global store so sorting/grouping works
+  // even for cards added before tags were created
+  const globalCustom = Array.isArray(ov.customTags) ? ov.customTags : [];
+  if (!Array.isArray(card.customTags)) card.customTags = [];
+  let hydrated = false;
+  const merged = _dedupeCustomTags([...(card.customTags || []), ...globalCustom]);
+  if (merged.length !== (card.customTags || []).length || merged.some((t, i) => t !== (card.customTags || [])[i])) {
+    card.customTags = merged;
+    save('decks');
+  }
 }
 
 async function toggleDeckCardProtectedTagOverride(tag) {
-  if (!_deckCardTagPickerTarget?.oracleId) {
+  const t = _deckCardTagPickerTarget;
+  if (!t) return;
+  const card = _findCardForTagPicker(t.cardUid);
+  let oracleId = t.oracleId;
+  if (!oracleId && card) {
+    oracleId = await _resolveOracleIdForCard(card);
+    if (oracleId) t.oracleId = oracleId;
+  }
+  if (!oracleId) {
     showNotif('Could not resolve oracle id for tag override', true);
     return;
   }
-  const t = _deckCardTagPickerTarget;
-  const tid = t.deckId;
-  const deck = tid === activeDeckId
-    ? getActiveDeck()
-    : (decks.find(d => d.id === tid) || sharedDecks.find(d => d.id === tid));
-  const card = getDeckCardByUid(deck, t.cardUid);
-  if (!deck || !card) return;
   const defOn = t.defaultTags.has(tag);
   const forceOn = t.overrideAdd.has(tag);
   const forceOff = t.overrideRemove.has(tag);
+  const wasOn = forceOn || (defOn && !forceOff);
   if (defOn) {
     if (!forceOn && !forceOff) t.overrideRemove.add(tag);
     else { t.overrideAdd.delete(tag); t.overrideRemove.delete(tag); }
@@ -1962,19 +2790,25 @@ async function toggleDeckCardProtectedTagOverride(tag) {
     else { t.overrideAdd.delete(tag); t.overrideRemove.delete(tag); }
   }
   if (t.overrideAdd.has(tag)) t.overrideRemove.delete(tag);
+  const nowOn = t.overrideAdd.has(tag) || (defOn && !t.overrideRemove.has(tag));
   const addTags = [...t.overrideAdd].sort((a, b) => a.localeCompare(b));
   const removeTags = [...t.overrideRemove].sort((a, b) => a.localeCompare(b));
   try {
-    if (!addTags.length && !removeTags.length) await apiDelete(`/tag-overrides/${t.oracleId}`);
-    else await apiPut(`/tag-overrides/${t.oracleId}`, { addTags, removeTags });
+    const ov = _tagOverridesByOracleId.get(t.oracleId) || {};
+    const customTags = Array.from(ov.customTags || []);
+    if (!addTags.length && !removeTags.length && !customTags.length) await apiDelete(`/tag-overrides/${t.oracleId}`);
+    else await apiPut(`/tag-overrides/${t.oracleId}`, { addTags, removeTags, customTags });
+    const active = getActiveDeck();
+    const activeSlot = active && getDeckCardByUid(active, t.cardUid);
+    if (nowOn !== wasOn && activeSlot) recordDeckEvent(nowOn ? 'tag_add' : 'tag_remove', activeSlot, tag);
     await loadTagOverrides(true);
     renderTagOverridesList();
     renderTagSettingsSearchResults();
-    const active = getActiveDeck();
     if (active && syncDeckAutoRoleTags(active)) saveActiveDeck(active);
     if (active) renderActiveDeck();
-    if (typeof patchOpenCardDetailDeckTags === 'function') patchOpenCardDetailDeckTags();
-    await _hydrateDeckCardTagPickerDefaults(card);
+    if (typeof patchOpenCardDetailMyTags === 'function') patchOpenCardDetailMyTags();
+    if (typeof _loadCardDetailDefaultTags === 'function' && card) void _loadCardDetailDefaultTags(card);
+    if (card) await _hydrateDeckCardTagPickerDefaults(card);
     renderDeckCardTagPicker();
   } catch (e) {
     showNotif(e.message || 'Could not save protected tag override', true);
@@ -1985,52 +2819,68 @@ function addAndAssignDeckTagFromPicker() {
   const input = document.getElementById('deckCardTagNewInput');
   const tag = normalizeDeckTagName(input?.value);
   if (!tag) return;
-  if (!_allDeckTagsForUI().includes(tag)) {
-    deckCustomTags.push(tag);
-    deckCustomTags.sort((a, b) => a.localeCompare(b));
-    localStorage.setItem('mtg_deck_custom_tags', JSON.stringify(deckCustomTags));
+  if (_isProtectedDeckTag(tag) && !_userDeckTagsUnion().includes(tag)) {
+    if (input) input.value = '';
+    void toggleDeckCardProtectedTagOverride(tag);
+    return;
+  }
+  if (!_userDeckTagsUnion().includes(tag)) {
+    _ensureUserTagInCatalog(tag, { primary: true, secondary: true });
+    save('prefs');
   }
   if (input) input.value = '';
-  toggleDeckCardCustomTag(tag);
-  save('decks');
+  void toggleDeckCardCustomTag(tag);
 }
 
 function _buildDeckGroups(cards, groupBy) {
-  if (groupBy === 'custom_tag') {
-    const groups = { Untagged: [] };
-    cards.forEach(c => {
-      const tags = Array.isArray(c.customTags) ? c.customTags.filter(Boolean) : [];
-      if (!tags.length) {
-        groups.Untagged.push(c);
-        return;
-      }
-      tags.forEach(tag => {
-        if (!groups[tag]) groups[tag] = [];
-        groups[tag].push(c);
-      });
+  // Commander always gets its own group regardless of sort mode
+  const commanderCards = cards.filter(c => c.isCommander);
+  const rest = cards.filter(c => !c.isCommander);
+  const withCommander = g => commanderCards.length ? { Commander: commanderCards, ...g } : g;
+
+  if (groupBy === 'subtype') {
+    const groups = {};
+    rest.forEach(c => {
+      const key = _deckCardSubtypeGroup(c);
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(c);
     });
     const ordered = {};
     Object.keys(groups).sort((a, b) => {
-      if (a === 'Untagged') return 1;
-      if (b === 'Untagged') return -1;
+      if (a === 'Land') return 1;
+      if (b === 'Land') return -1;
       return a.localeCompare(b);
-    }).forEach(k => { if (groups[k].length) ordered[k] = groups[k]; });
-    return ordered;
+    }).forEach(k => { ordered[k] = groups[k]; });
+    return withCommander(ordered);
+  }
+  if (_isTagGroupByMode(groupBy)) {
+    const groups = { Untagged: [] };
+    rest.forEach(c => {
+      const tags = _tagsOnCardForGroupTier(c, groupBy);
+      if (!tags.length) { groups.Untagged.push(c); return; }
+      tags.forEach(t => {
+        if (!groups[t]) groups[t] = [];
+        groups[t].push(c);
+      });
+    });
+    const ordered = {};
+    Object.keys(groups).sort(_compareDeckTagGroupKeys).forEach(k => { if (groups[k].length) ordered[k] = groups[k]; });
+    return withCommander(ordered);
   }
   if (groupBy === 'color') {
     const COLOR_NAMES = { W: 'White', U: 'Blue', B: 'Black', R: 'Red', G: 'Green' };
     const groups = { White: [], Blue: [], Black: [], Red: [], Green: [], Multicolor: [], Colorless: [] };
-    cards.forEach(c => {
+    rest.forEach(c => {
       const ci = c.colorIdentity || c.colors || [];
       if (ci.length === 0) groups.Colorless.push(c);
       else if (ci.length > 1) groups.Multicolor.push(c);
       else groups[COLOR_NAMES[ci[0]] || 'Colorless'].push(c);
     });
-    return groups;
+    return withCommander(groups);
   }
   if (groupBy === 'cmc') {
     const raw = {};
-    cards.forEach(c => {
+    rest.forEach(c => {
       const key = c.type?.toLowerCase().includes('land') ? 'Land' : `${Math.round(c.cmc || 0)}`;
       if (!raw[key]) raw[key] = [];
       raw[key].push(c);
@@ -2040,14 +2890,13 @@ function _buildDeckGroups(cards, groupBy) {
       if (a === 'Land') return 1; if (b === 'Land') return -1;
       return parseInt(a) - parseInt(b);
     }).forEach(k => sorted[k === 'Land' ? 'Land' : `${k} CMC`] = raw[k]);
-    return sorted;
+    return withCommander(sorted);
   }
   // Default: type
-  const groups = { Commander: [], Creatures: [], Instants: [], Sorceries: [], Artifacts: [], Enchantments: [], Planeswalkers: [], Lands: [], Other: [] };
-  cards.forEach(c => {
+  const groups = { Creatures: [], Instants: [], Sorceries: [], Artifacts: [], Enchantments: [], Planeswalkers: [], Lands: [], Other: [] };
+  rest.forEach(c => {
     const t = (c.type || '').toLowerCase();
-    if (c.isCommander)               groups.Commander.push(c);
-    else if (t.includes('creature'))     groups.Creatures.push(c);
+    if (t.includes('creature'))          groups.Creatures.push(c);
     else if (t.includes('instant'))      groups.Instants.push(c);
     else if (t.includes('sorcery'))      groups.Sorceries.push(c);
     else if (t.includes('artifact'))     groups.Artifacts.push(c);
@@ -2056,7 +2905,7 @@ function _buildDeckGroups(cards, groupBy) {
     else if (t.includes('land'))         groups.Lands.push(c);
     else                                 groups.Other.push(c);
   });
-  return groups;
+  return withCommander(groups);
 }
 
 // Precomputed ownership maps — rebuilt before each stacked render
@@ -2382,7 +3231,7 @@ function _assignGroupsToColumns(entries, numCols) {
 
 // 256 = maybe board fixed col (240) + its padding-left (16); 32 = view h-padding; 256 = col+gap
 function _calcVertColCount(el) {
-  return Math.max(1, Math.floor((el.clientWidth - 288) / 256));
+  return Math.max(1, Math.floor((el.clientWidth - 288) / (deckCardSize + 36)));
 }
 
 function _attachVertStackObserver(el, deck) {
@@ -2408,6 +3257,214 @@ function _detachVertStackObserver() {
   }
 }
 
+// ── Generated tokens (Scryfall all_parts) ─────────────────────────────────────
+
+let _deckTokensTimer = null;
+let _deckTokensReq = 0;
+let _deckTokensCache = { deckId: '', fp: '', tokens: [] };
+
+function _deckTokensFingerprint(deck) {
+  const ids = [];
+  for (const c of [...(deck.cards || []), ...(deck.sideboard || [])]) {
+    if (c?.scryfallId) ids.push(c.scryfallId);
+  }
+  return [...new Set(ids)].sort().join('|');
+}
+
+function _isTokenTypeDeckCard(c) {
+  const tl = String(c?.type || c?.typeLine || c?.type_line || '').toLowerCase();
+  return /\btoken\b/.test(tl) || c?.layout === 'token';
+}
+
+function _normalizeDeckTokenName(name) {
+  return String(name || '').trim().toLowerCase();
+}
+
+function _mergeDeckTokenSources(target, sources) {
+  if (!target.sources) target.sources = [];
+  for (const s of sources || []) {
+    if (!target.sources.some(x => x.scryfallId === s.scryfallId)) target.sources.push(s);
+  }
+}
+
+/** Collapse token printings to one row per oracle (fallback: card name). */
+function _collapseDeckTokensDistinct(tokens, scryfallById) {
+  const map = new Map();
+  for (const t of tokens) {
+    const sc = scryfallById?.get(t.id);
+    const oid = sc?.oracle_id ? String(sc.oracle_id).toLowerCase() : '';
+    const key = oid || `name:${_normalizeDeckTokenName(t.name)}` || `id:${t.id}`;
+    const existing = map.get(key);
+    if (!existing) {
+      map.set(key, { ...t, sources: [...(t.sources || [])] });
+      continue;
+    }
+    _mergeDeckTokenSources(existing, t.sources);
+    if ((!existing.image && t.image) || (!existing.imageLarge && t.imageLarge)) {
+      existing.id = t.id;
+      existing.image = t.image || existing.image;
+      existing.imageLarge = t.imageLarge || existing.imageLarge;
+    }
+    if (!existing.typeLine && t.typeLine) existing.typeLine = t.typeLine;
+  }
+  return [...map.values()];
+}
+
+function _scheduleDeckTokensRefresh(deck) {
+  clearTimeout(_deckTokensTimer);
+  if (!deck) {
+    _renderDeckTokensSection(null);
+    return;
+  }
+  _deckTokensTimer = setTimeout(() => _refreshDeckGeneratedTokens(deck), 320);
+}
+
+/** Load generatable tokens/emblems for a deck (shared cache with deck builder UI). */
+async function fetchDeckGeneratedTokens(deck) {
+  if (!deck) return [];
+  const fp = _deckTokensFingerprint(deck);
+  if (_deckTokensCache.deckId === deck.id && _deckTokensCache.fp === fp) {
+    return _deckTokensCache.tokens;
+  }
+
+  const sourceIds = [...new Set(
+    [...(deck.cards || []), ...(deck.sideboard || [])]
+      .filter(c => c?.scryfallId && !_isTokenTypeDeckCard(c))
+      .map(c => c.scryfallId)
+  )];
+
+  if (!sourceIds.length) {
+    _deckTokensCache = { deckId: deck.id, fp, tokens: [] };
+    return [];
+  }
+
+  const cards = await fetchAllCardsByScryfallIds(sourceIds);
+  const tokenMap = new Map();
+  for (const sc of cards) {
+    const parts = (sc.all_parts || []).filter(p =>
+      p.component === 'token' || /\bemblem\b/i.test(p.type_line || '')
+    );
+    for (const p of parts) {
+      const key = _normalizeDeckTokenName(p.name) || p.id;
+      const existing = tokenMap.get(key);
+      const src = { name: sc.name, scryfallId: sc.id };
+      if (existing) {
+        _mergeDeckTokenSources(existing, [src]);
+        if (!existing.typeLine && p.type_line) existing.typeLine = p.type_line;
+      } else {
+        tokenMap.set(key, {
+          id: p.id,
+          name: p.name,
+          typeLine: p.type_line || '',
+          image: null,
+          imageLarge: null,
+          sources: [src],
+        });
+      }
+    }
+  }
+  let tokens = [...tokenMap.values()];
+  if (tokens.length) {
+    const tokenCards = await fetchAllCardsByScryfallIds(tokens.map(t => t.id));
+    const byId = new Map(tokenCards.map(sc => [sc.id, sc]));
+    tokens = tokens.map(t => {
+      const sc = byId.get(t.id);
+      if (!sc) return t;
+      const iu = sc.image_uris || sc.card_faces?.[0]?.image_uris;
+      return {
+        ...t,
+        name: t.name || sc.name,
+        typeLine: t.typeLine || sc.type_line || '',
+        image: iu?.small || t.image,
+        imageLarge: iu?.normal || t.imageLarge,
+      };
+    });
+    tokens = _collapseDeckTokensDistinct(tokens, byId);
+  }
+  tokens.sort((a, b) => a.name.localeCompare(b.name));
+  _deckTokensCache = { deckId: deck.id, fp, tokens };
+  return tokens;
+}
+
+async function _refreshDeckGeneratedTokens(deck) {
+  if (!deck) return;
+  const fp = _deckTokensFingerprint(deck);
+  if (_deckTokensCache.deckId === deck.id && _deckTokensCache.fp === fp) {
+    _renderDeckTokensSection(deck, _deckTokensCache.tokens);
+    return;
+  }
+  const reqId = ++_deckTokensReq;
+  _renderDeckTokensSection(deck, null, { loading: true });
+  try {
+    const tokens = await fetchDeckGeneratedTokens(deck);
+    if (reqId !== _deckTokensReq) return;
+    _renderDeckTokensSection(deck, tokens);
+  } catch (e) {
+    if (reqId !== _deckTokensReq) return;
+    _renderDeckTokensSection(deck, null, { error: e.message || 'Could not load tokens' });
+  }
+}
+
+function _deckTokenTileHtml(t) {
+  const img = t.imageLarge || t.image
+    || (t.id ? `https://cards.scryfall.io/normal/front/${t.id[0]}/${t.id[1]}/${t.id}.jpg` : '');
+  const sources = t.sources.map(s => s.name).join(', ');
+  const safeName = String(t.name || '').replace(/"/g, '&quot;');
+  return `<div class="deck-stack-card deck-token-card" data-sid="${t.id}" title="${safeName} — from: ${sources.replace(/"/g, '&quot;')}">
+      <div class="stack-wrap">
+        ${img
+          ? `<img src="${img}" class="stack-main" alt="${safeName}" loading="lazy">`
+          : `<div class="stack-main stack-face-fallback" style="aspect-ratio:0.715;background:var(--bg4);display:flex;align-items:center;justify-content:center;color:var(--text3);padding:4px;text-align:center;font-size:0.62rem">${safeName}</div>`}
+      </div>
+    </div>`;
+}
+
+function _renderDeckTokensSection(deck, tokens, opts = {}) {
+  const section = document.getElementById('deckTokensSection');
+  const body = document.getElementById('deckTokensBody');
+  const countEl = document.getElementById('deckTokensCount');
+  if (!section || !body) return;
+  if (!deck) {
+    section.hidden = true;
+    return;
+  }
+  section.hidden = false;
+  if (opts.loading) {
+    body.innerHTML = '<div class="deck-tokens-loading">Loading generated tokens…</div>';
+    if (countEl) countEl.textContent = '';
+    return;
+  }
+  if (opts.error) {
+    body.innerHTML = `<div class="deck-tokens-quiet">${opts.error}</div>`;
+    if (countEl) countEl.textContent = '';
+    return;
+  }
+  const list = tokens || [];
+  if (countEl) countEl.textContent = list.length ? `(${list.length})` : '';
+  if (!list.length) {
+    body.innerHTML = '<div class="deck-tokens-quiet">No token-generating cards in this deck.</div>';
+    body.onclick = null;
+    return;
+  }
+  if (deckListView === 'grid') {
+    body.innerHTML = `<div class="deck-stack-cards deck-tokens-grid">${list.map(_deckTokenTileHtml).join('')}</div>`;
+  } else {
+    body.innerHTML = list.map(t => {
+      const srcLabel = t.sources.map(s => s.name).join(', ');
+      const srcCount = t.sources.length;
+      return `<div class="deck-token-row" data-sid="${t.id}" title="Created by: ${srcLabel.replace(/"/g, '&quot;')}">
+        <span class="deck-token-name">${t.name}</span>
+        <span class="deck-token-type">${t.typeLine || ''}</span>
+        <span class="deck-token-sources">${srcCount} source${srcCount === 1 ? '' : 's'}</span>
+      </div>`;
+    }).join('');
+  }
+  body.onclick = e => {
+    const row = e.target.closest('[data-sid]');
+    if (row) openCardDetail(row.dataset.sid, 'deck');
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 function renderDeckList(deck) {
@@ -2423,11 +3480,13 @@ function renderDeckList(deck) {
   if (!deck.cards.length && !sideboard.length) {
     el.innerHTML = '<div class="deck-list-muted-center">No cards yet — search for cards above to add them</div>';
     el.onclick = null;
+    _scheduleDeckTokensRefresh(deck);
     return;
   }
   if (!filteredCards.length && !sideboard.length) {
     el.innerHTML = '<div class="deck-list-muted-center">No matching cards in this deck list</div>';
     el.onclick = null;
+    _scheduleDeckTokensRefresh(deck);
     return;
   }
 
@@ -2441,9 +3500,11 @@ function renderDeckList(deck) {
 
     function _renderGroup([grp, cards]) {
       const total = cards.reduce((s, c) => s + (c.qty || 1), 0);
-      const sorted = cards.slice().sort((a, b) =>
-        deckGroupBy === 'cmc' ? (a.cmc || 0) - (b.cmc || 0) : a.name.localeCompare(b.name)
-      );
+      const sorted = cards.slice().sort((a, b) => {
+        if (deckGroupBy === 'cmc') return (a.cmc || 0) - (b.cmc || 0);
+        if (deckGroupBy === 'subtype') return _deckCardSubtypeGroup(a).localeCompare(_deckCardSubtypeGroup(b)) || a.name.localeCompare(b.name);
+        return a.name.localeCompare(b.name);
+      });
       return `
         <div class="deck-stack-group">
           <div class="deck-stack-group-label">${grp} <span class="deck-stack-group-count">(${total})</span></div>
@@ -2502,7 +3563,8 @@ function renderDeckList(deck) {
     };
 
     _attachDeckDragHandlers(el);
-    _bindDeckTagGroupHoverLinking(el, deckGroupBy === 'custom_tag');
+    _bindDeckTagGroupHoverLinking(el, _isTagGroupByMode(deckGroupBy));
+    _scheduleDeckTokensRefresh(deck);
     return;
   }
 
@@ -2538,12 +3600,18 @@ function renderDeckList(deck) {
       const mbRowHtml = mbRow > 0
         ? `<span class="deck-row-mb-pool" title="Same printing on maybe board">MB ×${mbRow}</span>`
         : '';
+      const rowTags = typeof _getGlobalCustomTagsForCard === 'function'
+        ? _getGlobalCustomTagsForCard(c)
+        : _sortUserTagsForDisplay((c.customTags || []).filter(Boolean));
+      const rowTagHtml = rowTags.length
+        ? `<span class="deck-row-tags" onclick="event.stopPropagation()">${rowTags.map(t => _deckTagChipHtml(t, { deck, interactive: true, size: '0.62rem' })).join('')}</span>`
+        : '';
       return `
       <div class="deck-card-row" draggable="true" data-uid="${c.uid || ''}" data-zone="main" data-card-key="${getCardInventoryKey(c)}" data-card-name-key="${String(c.name || '').trim().toLowerCase().replace(/"/g, '&quot;')}" onclick="openCardDetail('${c.uid || c.scryfallId}','deck')">
-        <span class="deck-card-name">${c.name}</span>
+        <span class="deck-card-name">${c.name}</span>${rowTagHtml}
         <span style="display:flex;gap:5px;align-items:center">${sortColorsWUBRG(c.colors).map(col => `<img src="https://svgs.scryfall.io/card-symbols/${col}.svg" class="mana-pip" alt="${col}" title="${col}">`).join('')}</span>
         ${mbRowHtml}
-        <button class="btn btn-ghost btn-sm btn-icon" title="Edit custom tags" onclick="event.stopPropagation();openDeckCardTagPicker('${activeDeckId}','${c.uid || c.scryfallId || ''}')">🏷</button>
+        <button class="btn btn-ghost btn-sm btn-icon" title="Edit My Tags" onclick="event.stopPropagation();openGlobalTagPickerForCard('${c.uid || c.scryfallId || ''}')">🏷</button>
         <button class="btn btn-ghost btn-sm btn-icon" title="Change printing" onclick="event.stopPropagation();openVersionPicker('${activeDeckId}','${c.uid || c.scryfallId || ''}','${(c.name || '').replace(/'/g, "\\'")}')">⟳</button>
         <button class="btn btn-ghost btn-sm" title="Move to maybe board" style="font-size:0.65rem;padding:1px 6px" onclick="event.stopPropagation();moveToSideboard('${c.uid || ''}')">→ MB</button>
         <div style="display:flex;align-items:center;gap:5px;margin-left:auto" onclick="event.stopPropagation()">
@@ -2556,7 +3624,8 @@ function renderDeckList(deck) {
   `).join('') || '<div class="deck-list-muted-center">No cards yet</div>') + sbListHtml;
 
   _attachDeckDragHandlers(el);
-  _bindDeckTagGroupHoverLinking(el, deckGroupBy === 'custom_tag');
+  _bindDeckTagGroupHoverLinking(el, _isTagGroupByMode(deckGroupBy));
+  _scheduleDeckTokensRefresh(deck);
 }
 
 /** CMC-bucket (0–7+) non-land mana curve targets by format — normalized in caller. */
@@ -2683,6 +3752,26 @@ function _computeIdealManaCurveContext(deck, counts) {
   };
 }
 
+let _manaCurveFilter = 'all';
+function setManaCurveFilter(f) {
+  _manaCurveFilter = f;
+  const deck = getActiveDeck();
+  if (deck) renderManaCurve(deck);
+}
+
+function _manaCurveFilterFn(card) {
+  const f = _manaCurveFilter;
+  if (!f || f === 'all') return true;
+  const type = (card.type || '').toLowerCase();
+  if (f === 'creature')    return type.includes('creature');
+  if (f === 'instant')     return type.includes('instant');
+  if (f === 'sorcery')     return type.includes('sorcery');
+  if (f === 'enchantment') return type.includes('enchantment');
+  if (f === 'artifact')    return type.includes('artifact');
+  if (f === 'planeswalker') return type.includes('planeswalker');
+  return _probTagsOnCard(card).includes(f);
+}
+
 function _renderManaIdealControls(deck) {
   const wrap = document.getElementById('manaIdealControls');
   if (!wrap) return;
@@ -2727,24 +3816,38 @@ function onManaIdealArchetypeChange(val) {
 function renderManaCurve(deck) {
   _renderManaIdealControls(deck);
   const el = document.getElementById('manaCurve');
+  const isFiltered = _manaCurveFilter !== 'all';
   const buckets = [0,1,2,3,4,5,6,7];
+
+  // Filtered card set for the curve
+  const nonlandCards = deck.cards.filter(c => !_isLandDeckCard(c));
+  const filteredCards = isFiltered ? nonlandCards.filter(_manaCurveFilterFn) : nonlandCards;
   const counts = buckets.map(cmc =>
-    deck.cards.filter(c => !_isLandDeckCard(c) && Math.round(c.cmc) === cmc).reduce((s,c) => s+c.qty, 0)
+    filteredCards.filter(c => Math.round(c.cmc) === cmc).reduce((s,c) => s+c.qty, 0)
   );
-  const { idealWeights, ideal, nonlandTotal, summary } = _computeIdealManaCurveContext(deck, counts);
+
+  // Average CMC (weighted by qty, capped at 7 for display)
+  let totalCmcSum = 0, totalQty = 0;
+  filteredCards.forEach(c => { const q = c.qty || 1; totalCmcSum += Math.min(c.cmc || 0, 7) * q; totalQty += q; });
+  const avgCMC = totalQty > 0 ? totalCmcSum / totalQty : 0;
+
+  // Fit score only meaningful for full (unfiltered) deck
+  const { idealWeights, ideal, nonlandTotal, summary } = _computeIdealManaCurveContext(deck,
+    isFiltered ? buckets.map(cmc => nonlandCards.filter(c => Math.round(c.cmc) === cmc).reduce((s,c)=>s+c.qty,0)) : counts
+  );
   const actualNorm = nonlandTotal > 0 ? counts.map(n => n / nonlandTotal) : counts.map(() => 0);
   const l1 = actualNorm.reduce((sum, n, i) => sum + Math.abs(n - idealWeights[i]), 0);
   const fit = Math.max(0, Math.min(1, 1 - (l1 / 2)));
   const fitPct = Math.round(fit * 100);
   const _lerp = (a, b, t) => Math.round(a + (b - a) * t);
   const gradeStops = [
-    { pct: 0,   rgb: [214, 58, 58] },   // F-
-    { pct: 50,  rgb: [214, 58, 58] },   // F
-    { pct: 60,  rgb: [225, 118, 46] },  // D
-    { pct: 70,  rgb: [214, 166, 42] },  // C
-    { pct: 80,  rgb: [163, 180, 53] },  // B
-    { pct: 90,  rgb: [98, 176, 72] },   // A-
-    { pct: 100, rgb: [58, 186, 92] },   // A+
+    { pct: 0,   rgb: [214, 58, 58] },
+    { pct: 50,  rgb: [214, 58, 58] },
+    { pct: 60,  rgb: [225, 118, 46] },
+    { pct: 70,  rgb: [214, 166, 42] },
+    { pct: 80,  rgb: [163, 180, 53] },
+    { pct: 90,  rgb: [98, 176, 72] },
+    { pct: 100, rgb: [58, 186, 92] },
   ];
   let fitColor = 'rgb(214, 58, 58)';
   for (let i = 0; i < gradeStops.length - 1; i++) {
@@ -2758,10 +3861,10 @@ function renderManaCurve(deck) {
     }
   }
   const labels = buckets.map(cmc => (cmc === 7 ? '7+' : String(cmc)));
-  const max = Math.max(...counts, ...ideal, 1);
+  const max = Math.max(...counts, ...(isFiltered ? [] : ideal), 1);
   const w = 760;
-  const h = 210;
-  const pad = { l: 24, r: 16, t: 10, b: 20 };
+  const h = 224;
+  const pad = { l: 24, r: 16, t: 10, b: 34 };
   const drawW = w - pad.l - pad.r;
   const drawH = h - pad.t - pad.b;
   const xAt = i => pad.l + ((drawW * i) / Math.max(1, labels.length - 1));
@@ -2785,12 +3888,25 @@ function renderManaCurve(deck) {
     return d;
   };
   const actualPath = smoothPath(counts);
-  const idealPath = smoothPath(ideal);
+  const idealPath = isFiltered ? '' : smoothPath(ideal);
+
+  // Average CMC vertical line
+  const avgX = xAt(avgCMC).toFixed(2);
+  const avgLabel = avgCMC.toFixed(1);
+  const avgLineEl = totalQty > 0 ? `
+    <line x1="${avgX}" y1="${pad.t}" x2="${avgX}" y2="${h - pad.b}" class="mc-avg-line"></line>
+    <text x="${+avgX + 4}" y="${pad.t + 12}" class="mc-avg-label">avg ${avgLabel}</text>
+  ` : '';
+
   const points = counts.map((v, i) => `
     <circle class="hist-line-point" cx="${xAt(i)}" cy="${yAt(v)}" r="3.2"></circle>
   `).join('');
   const values = counts.map((v, i) => `
     <text class="hist-line-value" x="${xAt(i)}" y="${Math.max(10, yAt(v) - 8)}">${v || ''}</text>
+  `).join('');
+  // X-axis labels inside the SVG so they always align with data points
+  const xLabels = labels.map((lab, i) => `
+    <text class="hist-line-xlabel" x="${xAt(i)}" y="${h - pad.b + 14}">${lab}</text>
   `).join('');
   const yTicks = [0, 0.25, 0.5, 0.75, 1];
   const yAxis = yTicks.map(fr => {
@@ -2801,29 +3917,40 @@ function renderManaCurve(deck) {
       <text x="${pad.l - 8}" y="${y + 4}" class="hist-axis-label">${val}</text>
     `;
   }).join('');
-  const ticks = labels.map((lab, i) => `
-    <span class="hist-line-xlabel" style="left:${((xAt(i) / w) * 100).toFixed(3)}%">${lab}</span>
-  `).join('');
   const grid = [0.25, 0.5, 0.75].map(fr => {
     const y = pad.t + drawH * fr;
     return `<line x1="${pad.l}" y1="${y}" x2="${w - pad.r}" y2="${y}" class="hist-line-grid"></line>`;
   }).join('');
+
+  const mcBtn = (f, label) => `<button class="mc-filter-btn${_manaCurveFilter === f ? ' active' : ''}" onclick="setManaCurveFilter('${f}')">${label}</button>`;
+  const filterRow = `
+    <div class="mc-filter-row">
+      ${mcBtn('all','All')}
+      <span class="mc-filter-sep">│</span>
+      ${mcBtn('creature','Creatures')}${mcBtn('instant','Instants')}${mcBtn('sorcery','Sorceries')}${mcBtn('enchantment','Enchantments')}${mcBtn('artifact','Artifacts')}${mcBtn('planeswalker','Planeswalkers')}
+      <span class="mc-filter-sep">│</span>
+      ${mcBtn('Ramp','Ramp')}${mcBtn('Removal','Removal')}${mcBtn('Board Wipe','Board Wipes')}${mcBtn('Counterspell','Counterspells')}
+    </div>`;
+
   el.innerHTML = `
     <div class="hist-line-wrap" style="--curve-color:${fitColor}">
+      ${filterRow}
       <div class="hist-line-meta">
-        <span class="hist-fit-label" title="${String(summary || '').replace(/"/g, '&quot;')}">Fit</span>
-        <span class="hist-fit-value" title="${String(summary || '').replace(/"/g, '&quot;')}">${fitPct}%</span>
+        ${!isFiltered ? `<span class="hist-fit-label" title="${String(summary || '').replace(/"/g, '&quot;')}">Fit</span>
+        <span class="hist-fit-value" title="${String(summary || '').replace(/"/g, '&quot;')}">${fitPct}%</span>` : ''}
+        <span class="mc-avg-stat">avg CMC <strong>${avgLabel}</strong></span>
       </div>
-      <svg class="hist-line-svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMidYMid meet" aria-label="Mana curve">
+      <svg class="hist-line-svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-label="Mana curve">
         <line x1="${pad.l}" y1="${pad.t}" x2="${pad.l}" y2="${h - pad.b}" class="hist-axis-line"></line>
         ${yAxis}
         ${grid}
-        <path class="hist-line-ideal" d="${idealPath}"></path>
+        ${idealPath ? `<path class="hist-line-ideal" d="${idealPath}"></path>` : ''}
         <path class="hist-line-main" d="${actualPath}"></path>
+        ${avgLineEl}
         ${points}
         ${values}
+        ${xLabels}
       </svg>
-      <div class="hist-line-xlabels">${ticks}</div>
     </div>
   `;
 }
@@ -2943,7 +4070,7 @@ function renderManaCostProfile(deck) {
   _renderManaPie('manaCostProfile', 'cost', demand, 'No colored mana symbols in current deck.');
 }
 
-function _estimateManaSources(card, allowedColors = null) {
+function _estimateManaSources(card, allowedColors = null, sourceMode = false) {
   const t = String(card.type || '').toLowerCase();
   const txt = String(card.oracleText || '').toLowerCase();
   const sources = { W: 0, U: 0, B: 0, R: 0, G: 0 };
@@ -2956,6 +4083,22 @@ function _estimateManaSources(card, allowedColors = null) {
       if (!allowed || allowed.has(basics[card.name])) sources[basics[card.name]] += 1;
       return sources;
     }
+    // Fetch lands: tutor for specific or any basic land type
+    if (txt.includes('search your library for a')) {
+      const fetchMap = { forest: 'G', plains: 'W', island: 'U', swamp: 'B', mountain: 'R' };
+      let found = false;
+      Object.entries(fetchMap).forEach(([type, col]) => {
+        if (txt.includes(type) && sources[col] != null && (!allowed || allowed.has(col))) {
+          sources[col] = 1; found = true;
+        }
+      });
+      if (!found && txt.includes('basic land')) {
+        const spread = allowed ? [...allowed] : ['W', 'U', 'B', 'R', 'G'];
+        spread.forEach(col => { if (sources[col] != null) sources[col] = 0.8; });
+        found = true;
+      }
+      if (found) return sources;
+    }
     const symbols = txt.match(/\{[wubrg]\}/gi) || [];
     symbols.forEach(s => {
       const col = s.replace(/[{}]/g, '').toUpperCase();
@@ -2963,16 +4106,25 @@ function _estimateManaSources(card, allowedColors = null) {
     });
     return sources;
   }
-  if (!(txt.includes('add {') || txt.includes('create a treasure'))) return sources;
-  const qty = txt.includes('create a treasure') ? 0.7 : 1;
-  const symbols = txt.match(/\{[wubrg]\}/gi) || [];
-  symbols.forEach(s => {
-    const col = s.replace(/[{}]/g, '').toUpperCase();
-    if (sources[col] != null && (!allowed || allowed.has(col))) sources[col] += qty;
+  // Only count explicit mana-production: "add {X}" patterns or "mana of any color".
+  // Deliberately excludes "create a treasure" — treasure tokens are colorless/conditional and
+  // shouldn't be counted as color sources (avoids picking up {R} from pump costs like
+  // "{R}: Storm Kiln Artist gets +1/+0" when the card also happens to make treasures).
+  if (!(txt.includes('add {') || txt.includes('mana of any'))) return sources;
+  // Only count colored symbols that appear inside "add {…}" phrases, not activation costs.
+  const addPhrases = txt.match(/add (?:\{[^}]+\}\s*)+/gi) || [];
+  let hasColorSym = false;
+  addPhrases.forEach(phrase => {
+    (phrase.match(/\{[wubrg]\}/gi) || []).forEach(s => {
+      const col = s.replace(/[{}]/g, '').toUpperCase();
+      if (sources[col] != null && (!allowed || allowed.has(col))) { sources[col] += 1; hasColorSym = true; }
+    });
   });
-  if (!symbols.length && txt.includes('mana of any color')) {
+  if (!hasColorSym && txt.includes('mana of any')) {
     const spread = allowed ? [...allowed] : ['W', 'U', 'B', 'R', 'G'];
-    const perColor = spread.length ? (0.4 * 5) / spread.length : 0;
+    // sourceMode=true: 1.0 per color ("is this a source of X?", used by gameplan prob)
+    // sourceMode=false: 1/N per color so total sums to 1 (used by generation chart proportions)
+    const perColor = spread.length ? (sourceMode ? 1 : 1 / spread.length) : 0;
     spread.forEach(c => { if (sources[c] != null) sources[c] += perColor; });
   }
   return sources;
@@ -3044,7 +4196,8 @@ function _probCardType(typeLine) {
 }
 
 /** Union of saved tags and role/Scryfall tags so shared decks (no tag sync) and pre-hydration cards still get full tag chips. */
-function _probTagsOnCard(card) {
+function _probTagsOnCard(card, deck) {
+  const deckRef = deck || (typeof getActiveDeck === 'function' ? getActiveDeck() : null);
   const out = new Set();
   (card.customTags || []).forEach(raw => {
     const t = String(raw || '').trim();
@@ -3053,7 +4206,7 @@ function _probTagsOnCard(card) {
   _roleTagsForCard(card).forEach(t => {
     if (t) out.add(t);
   });
-  return [...out];
+  return [...out].filter(t => !_isDeckTagDisabled(deckRef, t));
 }
 
 function _ensureProbChartFilterDelegation() {
@@ -3241,11 +4394,11 @@ function renderProbabilityChart(deck) {
         scales: {
           y: {
             min: 0, max: 100,
-            ticks: { callback: v => v + '%', color: tickCol, font: { size: 12 }, stepSize: 25 },
+            ticks: { callback: v => v + '%', color: tickCol, font: { size: 13 }, stepSize: 25 },
             grid: { color: gridCol },
           },
           x: {
-            ticks: { color: tickCol, font: { size: 12 } },
+            ticks: { color: tickCol, font: { size: 13 } },
             grid: { color: gridCol },
           },
         },
@@ -3258,6 +4411,563 @@ function renderProbabilityChart(deck) {
     _probChartInst?.resize();
     requestAnimationFrame(() => _probChartInst?.resize());
   });
+}
+
+// ── Hypergeometric helpers (land probability charts) ─────────────────────────
+
+function _comb(n, k) {
+  if (k < 0 || k > n) return 0;
+  if (k === 0 || k === n) return 1;
+  k = Math.min(k, n - k);
+  let r = 1;
+  for (let i = 0; i < k; i++) r = r * (n - i) / (i + 1);
+  return r;
+}
+
+function _hypergeoProb(N, K, n, k) {
+  if (k < 0 || k > Math.min(K, n) || n - k > N - K) return 0;
+  return _comb(K, k) * _comb(N - K, n - k) / _comb(N, n);
+}
+
+function _hypergeoAtLeast(N, K, n, minK) {
+  let p = 0;
+  const cap = Math.min(n, K);
+  for (let k = Math.max(0, minK); k <= cap; k++) p += _hypergeoProb(N, K, n, k);
+  return Math.min(1, Math.max(0, p));
+}
+
+// ── Opening hand land distribution ───────────────────────────────────────────
+
+let _openingHandChartInst = null;
+
+function renderOpeningHandChart(deck) {
+  const el = document.getElementById('openingHandChart');
+  if (!el) return;
+  if (_openingHandChartInst) { _openingHandChartInst.destroy(); _openingHandChartInst = null; }
+
+  const cards = (deck?.cards || []).filter(c => !c.sideboard && !c.maybeboard);
+  const N = cards.reduce((s, c) => s + (c.qty || 1), 0);
+  const K = cards.filter(c => _isLandDeckCard(c)).reduce((s, c) => s + (c.qty || 1), 0);
+  const empty = N < 7 || K === 0;
+
+  const buckets = [0,1,2,3,4,5,6,7];
+  const data = buckets.map(k => empty ? 0 : Math.round(_hypergeoProb(N, K, 7, k) * 1000) / 10);
+  const avg = empty ? '' : (K / N * 7).toFixed(1);
+
+  _openingHandChartInst = new Chart(el.getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels: buckets.map(String),
+      datasets: [{
+        data,
+        backgroundColor: buckets.map(k => {
+          if (k <= 1 || k >= 5) return 'rgba(200,80,80,0.72)';
+          if (k === 2 || k === 4) return 'rgba(200,168,74,0.75)';
+          return 'rgba(60,160,90,0.75)';
+        }),
+        borderWidth: 0, borderRadius: 3,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: ctx => ctx.parsed.y.toFixed(1) + '%' } },
+        title: {
+          display: !empty,
+          text: `Avg ${avg} lands  ·  ${K} lands / ${N} cards`,
+          color: '#9a9488', font: { size: 12 }, padding: { bottom: 4 },
+        },
+      },
+      scales: {
+        y: { beginAtZero: true, ticks: { color: '#6a6560', callback: v => v + '%', font: { size: 13 } }, grid: { color: 'rgba(255,255,255,0.04)' } },
+        x: { title: { display: true, text: 'Lands in opening hand', color: '#6a6560', font: { size: 12 } }, ticks: { color: '#9a9488', font: { size: 13 } }, grid: { display: false } },
+      },
+    },
+  });
+}
+
+// ── Land drop coverage by turn ────────────────────────────────────────────────
+
+let _landCoverageChartInst = null;
+
+function renderLandCoverageChart(deck) {
+  const el = document.getElementById('landCoverageChart');
+  if (!el) return;
+  if (_landCoverageChartInst) { _landCoverageChartInst.destroy(); _landCoverageChartInst = null; }
+
+  const cards = (deck?.cards || []).filter(c => !c.sideboard && !c.maybeboard);
+  const N = cards.reduce((s, c) => s + (c.qty || 1), 0);
+  const K = cards.filter(c => _isLandDeckCard(c)).reduce((s, c) => s + (c.qty || 1), 0);
+  const empty = N < 7 || K === 0;
+
+  // Turn t: opening hand (7) + (t-1) draws = 6+t cards seen; need ≥ t lands
+  const turns = [1,2,3,4,5,6,7,8];
+  const data = turns.map(t => empty ? 0 : Math.round(_hypergeoAtLeast(N, K, 6 + t, t) * 1000) / 10);
+
+  _landCoverageChartInst = new Chart(el.getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels: turns.map(t => `T${t}`),
+      datasets: [{
+        data,
+        backgroundColor: data.map(p => {
+          if (p >= 85) return 'rgba(60,160,90,0.75)';
+          if (p >= 65) return 'rgba(200,168,74,0.75)';
+          return 'rgba(200,80,80,0.75)';
+        }),
+        borderWidth: 0, borderRadius: 3,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: ctx => ctx.parsed.y.toFixed(1) + '% to make land drop' } },
+      },
+      scales: {
+        y: { min: 0, max: 100, ticks: { color: '#6a6560', callback: v => v + '%', font: { size: 13 } }, grid: { color: 'rgba(255,255,255,0.04)' } },
+        x: { title: { display: true, text: 'Turn', color: '#6a6560', font: { size: 12 } }, ticks: { color: '#9a9488', font: { size: 13 } }, grid: { display: false } },
+      },
+    },
+  });
+}
+
+// ── Commander Gameplan Probability Calculator ─────────────────────────────────
+
+let _cmdFreeMulligan = localStorage.getItem('mtg_cmd_free_mulligan') !== 'false';
+const _cmdGpEdhrecCache = new Map();
+
+function toggleCmdFreeMulligan(checked) {
+  _cmdFreeMulligan = !!checked;
+  localStorage.setItem('mtg_cmd_free_mulligan', String(_cmdFreeMulligan));
+  const deck = getActiveDeck();
+  if (deck) renderCommanderGameplan(deck);
+}
+
+async function openCardDetailByName(name) {
+  const pools = [
+    ...(typeof collection !== 'undefined' ? collection : []),
+    ...(typeof wishlist !== 'undefined' ? wishlist : []),
+    ...(decks || []).flatMap(d => d.cards || []),
+  ];
+  const found = pools.find(c => (c.name || '').toLowerCase() === name.toLowerCase());
+  if (found) { openCardDetail(found.uid || found.scryfallId); return; }
+  const card = await fetchCardByName(name).catch(() => null);
+  if (card) openCardDetail(card.scryfallId || card.id);
+}
+
+
+function _countColorSources(deck, color, cmdColors, cmdCMC = Infinity) {
+  let total = 0;
+  (deck.cards || []).forEach(c => {
+    // Non-land mana sources with CMC >= commander's CMC can't be cast before the commander turn,
+    // so they don't count as available color sources for casting on curve.
+    // Lands are exempt from this filter (played one per turn regardless of CMC).
+    if (!_isLandDeckCard(c) && (c.cmc || 0) >= cmdCMC) return;
+    // sourceMode=true: "any color" sources count as a full 1.0 source of each commander color
+    const src = _estimateManaSources(c, cmdColors || null, true);
+    total += (src[color] || 0) * (c.qty || 1);
+  });
+  return total;
+}
+
+function _rampIsRelevant(card, cmdColors, hasGenericCost) {
+  const txt = String(card.oracleText || '').toLowerCase();
+  // Land ramp always helps with mana development regardless of color
+  if (txt.includes('search your library') && (txt.includes(' land') || txt.includes('basic'))) return true;
+  if (txt.includes('put') && txt.includes(' land') && txt.includes('onto the battlefield')) return true;
+  // Any-color producers: Birds of Paradise, Arcane Signet, Commander's Sphere, etc.
+  if (txt.includes('mana of any color') || txt.includes('any one color') ||
+      txt.includes("commander's color identity") || txt.includes('any combination of colors')) return true;
+  // Colorless mana (Sol Ring, etc.) only helps if commander has generic mana in cost
+  if (hasGenericCost && (txt.includes('{c}') || (txt.includes('colorless') && txt.includes('add')))) return true;
+  // Does this card produce a pip color the commander actually needs?
+  const src = _estimateManaSources(card, null);
+  if (cmdColors.some(col => (src[col] || 0) > 0)) return true;
+  return false;
+}
+
+function _countEarlyRamp(deck, cmdColors, hasGenericCost) {
+  return (deck.cards || []).reduce((s, c) => {
+    if (_isLandDeckCard(c)) return s;
+    if (!_probTagsOnCard(c).includes('Ramp')) return s;
+    if ((c.cmc || 0) > 2) return s;
+    if (cmdColors && !_rampIsRelevant(c, cmdColors, hasGenericCost)) return s;
+    return s + (c.qty || 1);
+  }, 0);
+}
+
+function _cmdGameplanProbs(deck, cmdCard) {
+  const _COLOR_FULL = { W: 'White', U: 'Blue', B: 'Black', R: 'Red', G: 'Green' };
+  const cards = deck.cards || [];
+  const N = Math.max(1, cards.reduce((s, c) => s + (c.qty || 1), 0));
+
+  // Compute colors first — needed for conditional-tapped classification
+  const cmdCMC = Math.round(cmdCard?.cmc || 0);
+  const cmdManaPips = _parseManaSymbols(cmdCard?.mana || '');
+  const cmdColors = ['W','U','B','R','G'].filter(c => (cmdManaPips[c] || 0) > 0);
+  const cmdColorSet = new Set(cmdColors);
+
+  const L = cards.filter(c => _isLandDeckCard(c)).reduce((s, c) => s + (c.qty || 1), 0);
+  // Count untapped lands — shock lands (pay 2 life) and check lands (unless you control X)
+  // in the right color identity are treated as functionally untapped
+  const _FETCH_TYPE_COLOR = { forest: 'G', plains: 'W', island: 'U', swamp: 'B', mountain: 'R' };
+  const L_ut = cards.filter(c => {
+    if (!_isLandDeckCard(c)) return false;
+    if (!_isEtbTappedLand(c)) return true;
+    const txt = String(c.oracleText || '').toLowerCase();
+    if (txt.includes('pay 2 life')) return true; // shock lands
+    if (txt.includes('unless you control')) {
+      for (const [type, col] of Object.entries(_FETCH_TYPE_COLOR)) {
+        if (txt.includes(type) && cmdColorSet.has(col)) return true;
+      }
+    }
+    return false;
+  }).reduce((s, c) => s + (c.qty || 1), 0);
+
+  const coloredPips = ['W','U','B','R','G'].reduce((s, c) => s + (cmdManaPips[c] || 0), 0);
+  const hasGenericCost = cmdCMC > coloredPips;
+  const R = _countEarlyRamp(deck, cmdColors, hasGenericCost);
+  const clamp01 = v => Math.max(0, Math.min(1, v));
+  // Mulligan adjustment: P(success) = 1 - P(fail original hand) × P(fail mulligan hand)
+  // Mulligan hand starts with 6 cards (bottom 1 after free redraw) + same turn draws = seen-1 total
+  const mulP = (K, seen, minK) => {
+    const Ki = Math.round(K); // hypergeometric requires integer K; source counts can be floats (0.8 fetches, 0.7 treasures)
+    const p = clamp01(_hypergeoAtLeast(N, Ki, seen, minK));
+    if (!_cmdFreeMulligan) return p;
+    const p2 = clamp01(_hypergeoAtLeast(N, Ki, Math.max(minK, seen - 1), minK));
+    return clamp01(1 - (1 - p) * (1 - p2));
+  };
+
+  const colorSources = {};
+  cmdColors.forEach(col => { colorSources[col] = _countColorSources(deck, col, cmdColors, cmdCMC); });
+
+  // Per-card color masks — used for joint probability via inclusion-exclusion.
+  // Multiplying independent per-color probabilities underestimates when dual/tri lands
+  // satisfy multiple requirements simultaneously (e.g. Command Tower for WUBRG).
+  const _cardColorMasks = (deck.cards || []).map(c => {
+    const src = _estimateManaSources(c, cmdColors, true);
+    return { qty: c.qty || 1, set: new Set(cmdColors.filter(col => (src[col] || 0) > 0)) };
+  });
+  // # cards (weighted by qty) that can produce AT LEAST ONE color in 'subset'
+  const _unionSize = subset => _cardColorMasks.reduce(
+    (s, {qty, set}) => s + (subset.some(col => set.has(col)) ? qty : 0), 0);
+  // P(≥1 of EACH color in 'colors' drawn within 'seen' cards)
+  // Uses inclusion-exclusion so dual lands that cover multiple pips don't get under-credited
+  const pColorsJoint = (colors, seen) => {
+    if (!colors.length) return 1;
+    const n = colors.length;
+    let pFail = 0;
+    for (let mask = 1; mask < (1 << n); mask++) {
+      const subset = colors.filter((_, i) => mask & (1 << i));
+      const sign = subset.length % 2 === 1 ? 1 : -1;
+      pFail += sign * _hyper(N, Math.min(N, _unionSize(subset)), seen, 0);
+    }
+    return clamp01(1 - pFail);
+  };
+  // Same but with free-mulligan adjustment applied to the joint probability
+  const pColorsJointMul = (colors, seen) => {
+    const p = pColorsJoint(colors, seen);
+    if (!_cmdFreeMulligan) return p;
+    return clamp01(1 - (1 - p) * (1 - pColorsJoint(colors, Math.max(1, seen - 1))));
+  };
+
+  const results = { onCurve: null, preCurve: null, meta: { N, L, L_ut, R, cmdCMC, cmdColors, colorSources, hasGenericCost } };
+
+  // Build sorted card-name list for a given color — used in tooltip detail strings
+  const colorSourceCards = col => {
+    const contributors = [];
+    (deck.cards || []).forEach(c => {
+      const src = _estimateManaSources(c, cmdColors, true);
+      const contribution = (src[col] || 0) * (c.qty || 1);
+      if (contribution > 0) contributors.push({ name: c.name, qty: c.qty || 1, contribution });
+    });
+    contributors.sort((a, b) => b.contribution - a.contribution || a.name.localeCompare(b.name));
+    return contributors;
+  };
+  const colorSourceDetail = col => {
+    const S = colorSources[col] || 0;
+    const cards = colorSourceCards(col);
+    const cardList = cards.map(c => c.qty > 1 ? `${c.name} ×${c.qty}` : c.name).join('\n');
+    return `${Math.round(S)} sources\n${cardList}`;
+  };
+
+  if (cmdCMC >= 1) {
+    const turn = cmdCMC;
+    const seen = 7 + (turn - 1);
+    const p_ramp_early = mulP(R, 8, 1);
+    // With ramp by T2 you need one fewer land drop to reach the same mana
+    const p_land_natural = mulP(L, seen, turn);
+    const p_land_ramp    = turn > 1 ? mulP(L, seen, turn - 1) : p_land_natural;
+    // Weighted blend: ramp-assisted route + natural route
+    const p_mana = clamp01(p_land_natural + p_ramp_early * (p_land_ramp - p_land_natural));
+    const colorReqs = cmdColors.map(col => {
+      const S = colorSources[col] || 0;
+      return { label: `${_COLOR_FULL[col]} source`, p: mulP(S, seen, 1), detail: colorSourceDetail(col) };
+    });
+    // Joint color probability via inclusion-exclusion — correctly credits dual lands
+    const p_overall = clamp01(p_mana * pColorsJointMul(cmdColors, seen));
+    results.onCurve = {
+      turn, p: p_overall,
+      requirements: [
+        { label: `≥${turn} lands by T${turn}`, p: p_land_natural, detail: `${L} lands` },
+        { label: `Early ramp by T2 (saves a land drop)`, p: p_ramp_early, detail: `${R} ramp ≤2 CMC`, bonus: true },
+        ...colorReqs.map(r => ({ label: r.label, p: r.p, detail: r.detail })),
+      ],
+    };
+  }
+
+  if (cmdCMC >= 3) {
+    const turn = cmdCMC - 1;
+    const seen = 7 + (turn - 1);
+    const p_lands = mulP(L, seen, turn);
+    const colorReqs = cmdColors.map(col => {
+      const S = colorSources[col] || 0;
+      return { label: `${_COLOR_FULL[col]} source`, p: mulP(S, seen, 1), detail: colorSourceDetail(col) };
+    });
+    // Untapped land + ramp by T2: apply mulligan to the combined joint probability
+    const _incEx = (seenN) => {
+      const pu = clamp01(_hypergeoAtLeast(N, L_ut, seenN, 1));
+      const pr = clamp01(_hypergeoAtLeast(N, R, seenN, 1));
+      const pn = _hyper(N, Math.min(N, L_ut + R), seenN, 0);
+      return clamp01(pu + pr - 1 + pn);
+    };
+    const p_ramp_ut_orig = _incEx(8);
+    const p_ramp_ut = _cmdFreeMulligan
+      ? clamp01(1 - (1 - p_ramp_ut_orig) * (1 - _incEx(7)))
+      : p_ramp_ut_orig;
+    const p_overall = clamp01(p_lands * p_ramp_ut * pColorsJointMul(cmdColors, seen));
+    results.preCurve = {
+      turn, p: p_overall,
+      requirements: [
+        { label: `≥${turn} lands by T${turn}`, p: p_lands, detail: `${L} lands` },
+        { label: `Untapped land + ramp by T2`, p: p_ramp_ut, detail: `${R} ramp ≤2 CMC, ${L_ut} untapped lands` },
+        ...colorReqs.map(r => ({ label: r.label, p: r.p, detail: r.detail })),
+      ],
+    };
+  }
+
+  return results;
+}
+
+function _suggestRamp(cmdColors, hasGenericCost, deckCardNames) {
+  const cmdColorSet = new Set(cmdColors);
+  const inDeck = new Set(deckCardNames.map(n => n.toLowerCase()));
+  const seen = new Set();
+  const suggestions = [];
+
+  const candidates = (typeof collection !== 'undefined' ? collection : [])
+    .filter(c => {
+      if (_isLandDeckCard(c)) return false;
+      if ((c.cmc || 0) > 2) return false;
+      // Check roleTags (pre-fetched from DB) first, then fall back to live _probTagsOnCard
+      const tags = Array.isArray(c.roleTags) ? c.roleTags : _probTagsOnCard(c);
+      if (!tags.includes('Ramp')) return false;
+      // Use length-checked colorIdentity; [] is vacuously true in .every() so can't use it raw
+      const ci = c.colorIdentity?.length ? c.colorIdentity : (c.colors?.length ? c.colors : []);
+      if (ci.length && !ci.every(col => cmdColorSet.has(col))) return false;
+      return true;
+    });
+
+  candidates.sort((a, b) => (a.cmc || 0) - (b.cmc || 0) || (a.name || '').localeCompare(b.name || ''));
+
+  for (const c of candidates) {
+    if (suggestions.length >= 10) break;
+    const key = (c.name || '').toLowerCase();
+    if (inDeck.has(key) || seen.has(key)) continue;
+    seen.add(key);
+    suggestions.push({ name: c.name, id: c.uid || c.scryfallId || '' });
+  }
+  return suggestions;
+}
+
+async function _loadGameplanEdhrecRamp(cmdColors, deckCardNames) {
+  const el = document.getElementById('cmdGpEdhrecSuggs');
+  if (!el) return;
+  const colors = sortColorsWUBRG(cmdColors);
+  const key = colors.join('');
+  let cards = _cmdGpEdhrecCache.get(key);
+  if (!cards) {
+    el.innerHTML = '<span style="color:var(--text3);font-size:0.75rem;padding:4px 0;display:block">Loading…</span>';
+    const idQ = key ? `id<=${key}` : '';
+    const query = [idQ, 'cmc<=2', 'otag:ramp', '-t:land', 'not:extra'].filter(Boolean).join(' ');
+    try {
+      const res = await fetch(`/api/scryfall/search?q=${encodeURIComponent(query)}&order=edhrec&unique=cards&skipTcg=1`);
+      if (!res.ok) throw new Error(`${res.status}`);
+      const data = await res.json().catch(() => ({}));
+      cards = data.data || [];
+      _cmdGpEdhrecCache.set(key, cards);
+    } catch (_) {
+      el.innerHTML = '';
+      return;
+    }
+  }
+  const inDeck = new Set(deckCardNames.map(n => n.toLowerCase()));
+  const shown = cards.filter(c => !inDeck.has((c.name || '').toLowerCase())).slice(0, 12);
+  if (!shown.length) { el.innerHTML = ''; return; }
+  const chips = shown.map(c => {
+    const id = (c.id || '').replace(/'/g, "\\'");
+    const name = (c.name || '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    return `<span class="sim-chip sim-chip--edhrec" style="cursor:pointer" onclick="openCardDetail('${id}')">${name}</span>`;
+  }).join('');
+  el.innerHTML = `
+    <div class="cmdr-gp-suggest-group">
+      <span class="cmdr-gp-suggest-label">EDHREC popular:</span>
+      <div class="sim-chip-row">${chips}</div>
+    </div>`;
+}
+
+function renderCommanderGameplan(deck) {
+  const el = document.getElementById('commanderGameplan');
+  if (!el) return;
+  const cmdCard = (deck.cards || []).find(c => c.isCommander);
+  if (!cmdCard || !deck.commander) {
+    el.innerHTML = '';
+    el.style.display = 'none';
+    return;
+  }
+  el.style.display = '';
+
+  const cmdCMC = Math.round(cmdCard.cmc || 0);
+  const probs = _cmdGameplanProbs(deck, cmdCard);
+  const { meta } = probs;
+
+  const THRESHOLD = 0.85;
+  const pColor = p => p >= THRESHOLD ? '#3db85a' : p >= 0.65 ? '#d4a83a' : '#d44a4a';
+  const pBar = p => {
+    const pct = Math.round(p * 100);
+    return `<div class="cmdr-gp-bar"><div class="cmdr-gp-bar-fill" style="width:${pct}%;background:${pColor(p)}"></div></div>`;
+  };
+  const reqRow = req => {
+    const pct = Math.round(req.p * 100);
+    // Bonus rows (ramp on on-curve): helpful but not a hard requirement
+    if (req.bonus) {
+      return `
+        <div class="cmdr-gp-req-row cmdr-gp-req-row--bonus">
+          <span class="cmdr-gp-req-dot" style="background:${pColor(req.p)};opacity:0.7"></span>
+          <span class="cmdr-gp-req-label">${req.label}</span>
+          <span class="cmdr-gp-req-pct" style="color:${pColor(req.p)}" data-tooltip="${req.detail}">${pct}%</span>
+        </div>`;
+    }
+    return `
+      <div class="cmdr-gp-req-row">
+        <span class="cmdr-gp-req-dot" style="background:${pColor(req.p)}"></span>
+        <span class="cmdr-gp-req-label">${req.label}</span>
+        <span class="cmdr-gp-req-pct" style="color:${pColor(req.p)}" data-tooltip="${req.detail}">${pct}%</span>
+      </div>`;
+  };
+
+  const cards = deck.cards || [];
+  const { cmdColors, hasGenericCost } = meta;
+  const existingRamp = cards.filter(c => !_isLandDeckCard(c) && _probTagsOnCard(c).includes('Ramp') && (c.cmc || 0) <= 2 && _rampIsRelevant(c, cmdColors, hasGenericCost))
+    .sort((a, b) => (a.cmc || 0) - (b.cmc || 0)).slice(0, 4).map(c => c.name);
+  const existingColorCards = col => cards.filter(c => (_estimateManaSources(c, null)[col] || 0) > 0)
+    .slice(0, 3).map(c => c.name);
+
+  // Ramp suggestions — always computed, shown regardless of probability threshold
+  const rampSuggestions = _suggestRamp(cmdColors, hasGenericCost, cards.map(c => c.name));
+
+  const scenarioHtml = (scenario, label, isPrimary) => {
+    if (!scenario) return '';
+    const pct = Math.round(scenario.p * 100);
+    const reqs = scenario.requirements.map(reqRow).join('');
+    const recs = scenario.requirements.filter(r => r.p < THRESHOLD).map(r => {
+      const lc = r.label.toLowerCase();
+      if (lc.includes('ramp')) {
+        const have = existingRamp.length ? `have: ${existingRamp.join(', ')}` : '';
+        return `<div class="cmdr-gp-rec">→ Add more CMC≤2 ramp${have ? ` — ${have}` : ''}</div>`;
+      }
+      if (lc.includes('lands')) return `<div class="cmdr-gp-rec">→ Add more lands (target ≥36-38 for Commander)</div>`;
+      for (const [col, name] of [['W','white'],['U','blue'],['B','black'],['R','red'],['G','green']]) {
+        if (lc.startsWith(name)) {
+          const have = existingColorCards(col);
+          const haveStr = have.length ? ` (have: ${have.join(', ')})` : '';
+          return `<div class="cmdr-gp-rec">→ Add more ${r.label.toLowerCase()}${haveStr}</div>`;
+        }
+      }
+      return `<div class="cmdr-gp-rec">→ Improve: ${r.label}</div>`;
+    }).join('');
+
+    return `
+      <div class="cmdr-gp-scenario${isPrimary ? ' cmdr-gp-scenario--primary' : ''}">
+        <div class="cmdr-gp-scenario-header">
+          <span class="cmdr-gp-scenario-label">${label} <span class="cmdr-gp-scenario-turn">T${scenario.turn}</span></span>
+          ${pBar(scenario.p)}
+          <span class="cmdr-gp-scenario-pct" style="color:${pColor(scenario.p)}" data-tooltip="Probability all requirements fire at once. Requirements multiply: 90% lands x 85% color = 77% combined. Aim for 85%+.">${pct}%</span>
+        </div>
+        <div class="cmdr-gp-reqs">${reqs}</div>
+        ${recs}
+      </div>`;
+  };
+
+  el.innerHTML = `
+    <div class="panel">
+      <div class="panel-header cmdr-gp-panel-header">
+        <span class="panel-title">Commander Gameplan</span>
+        <label class="cmdr-gp-mulligan-toggle" title="Commander free mulligan: if your opening hand is bad, you may redraw 7 and bottom 1">
+          <input type="checkbox" ${_cmdFreeMulligan ? 'checked' : ''} onchange="toggleCmdFreeMulligan(this.checked)">
+          Free mulligan
+        </label>
+      </div>
+      <div class="panel-body cmdr-gp-body">
+        <div class="cmdr-gp-meta">Playing <strong>${deck.commander}</strong> — CMC&nbsp;${meta.cmdCMC} · ${meta.L} lands · ${meta.R} early ramp · ${meta.L_ut} untapped lands</div>
+        ${probs.preCurve ? scenarioHtml(probs.preCurve, 'Pre-curve', false) : ''}
+        ${probs.onCurve ? scenarioHtml(probs.onCurve, 'On-curve', true) : ''}
+        ${!probs.preCurve && !probs.onCurve ? '<div class="cmdr-gp-empty">Set a commander with a mana cost to see gameplan probabilities.</div>' : ''}
+        <div class="cmdr-gp-suggest">
+          ${rampSuggestions.length ? `
+          <div class="cmdr-gp-suggest-group">
+            <span class="cmdr-gp-suggest-label">In your collection:</span>
+            <div class="sim-chip-row">${rampSuggestions.map(s => `<span class="sim-chip sim-chip--owned" style="cursor:pointer" onclick="openCardDetail('${s.id}')">${s.name}</span>`).join('')}</div>
+          </div>` : ''}
+          <div id="cmdGpEdhrecSuggs"></div>
+        </div>
+      </div>
+    </div>
+  `;
+  _loadGameplanEdhrecRamp(cmdColors, cards.map(c => c.name));
+
+  // Wire fixed-position JS tooltips — CSS ::after can't escape ancestor overflow:hidden containers
+  _initCmdrGpTooltip();
+  el.querySelectorAll('[data-tooltip]').forEach(target => {
+    target.addEventListener('mouseenter', () => _showCmdrGpTooltip(target, target.dataset.tooltip));
+    target.addEventListener('mouseleave', _hideCmdrGpTooltip);
+  });
+}
+
+function _initCmdrGpTooltip() {
+  if (document.getElementById('cmdr-gp-tooltip-el')) return;
+  const tip = document.createElement('div');
+  tip.id = 'cmdr-gp-tooltip-el';
+  tip.style.cssText = [
+    'position:fixed', 'z-index:9999', 'display:none', 'pointer-events:none',
+    'max-width:280px', 'background:var(--bg2)', 'border:1px solid var(--border2)',
+    'border-radius:6px', 'padding:6px 9px', 'font-size:0.71rem', 'font-family:inherit',
+    'color:var(--text2)', 'white-space:pre-wrap', 'line-height:1.5',
+    'box-shadow:0 4px 14px rgba(0,0,0,0.35)', 'text-align:left',
+  ].join(';');
+  document.body.appendChild(tip);
+}
+
+function _showCmdrGpTooltip(anchor, text) {
+  const tip = document.getElementById('cmdr-gp-tooltip-el');
+  if (!tip) return;
+  tip.textContent = text;
+  tip.style.display = 'block';
+  const rect = anchor.getBoundingClientRect();
+  const tipW = tip.offsetWidth;
+  const tipH = tip.offsetHeight;
+  // Prefer above; fall back to below if not enough space
+  const top = rect.top - tipH - 6 > 8 ? rect.top - tipH - 6 : rect.bottom + 6;
+  const left = Math.max(8, Math.min(rect.right - tipW, window.innerWidth - tipW - 8));
+  tip.style.top = top + 'px';
+  tip.style.left = left + 'px';
+}
+
+function _hideCmdrGpTooltip() {
+  const tip = document.getElementById('cmdr-gp-tooltip-el');
+  if (tip) tip.style.display = 'none';
 }
 
 function renderTypeBreakdown(deck) {
@@ -3537,7 +5247,7 @@ async function addScryfallCardToDeck(scryfallId) {
   }
   const existing = findDeckCardSlot(deck, card);
   if (existing) { existing.qty++; recordDeckEvent('qty_change', existing); }
-  else { const c = { ...card, uid: getCardInventoryKey(card), qty: 1 }; deck.cards.push(c); recordDeckEvent('add', c); }
+  else { const c = { ...card, uid: getCardInventoryKey(card), qty: 1 }; _applyGlobalCustomTagsToCard(c); deck.cards.push(c); recordDeckEvent('add', c); }
   saveActiveDeck(deck); renderActiveDeck(); _renderDeckSearchGrid(); showNotif('Added ' + card.name + ' to deck');
   scheduleEDHRECRefresh();
 }
@@ -3551,7 +5261,7 @@ function addToDeck(uid) {
   if (!card) return;
   const existing = findDeckCardSlot(deck, card);
   if (existing) { existing.qty++; recordDeckEvent('qty_change', existing); }
-  else { const c = { ...card, uid: getCardInventoryKey(card), qty: 1 }; deck.cards.push(c); recordDeckEvent('add', c); }
+  else { const c = { ...card, uid: getCardInventoryKey(card), qty: 1 }; _applyGlobalCustomTagsToCard(c); deck.cards.push(c); recordDeckEvent('add', c); }
   saveActiveDeck(deck); renderActiveDeck(); _renderDeckSearchGrid(); showNotif('Added ' + card.name + ' to deck');
   scheduleEDHRECRefresh();
 }
@@ -3589,6 +5299,7 @@ function adjustDeckCardQtyByUid(uid, delta) {
   saveActiveDeck(deck);
   renderActiveDeck();
   scheduleEDHRECRefresh();
+  if (typeof _patchCardDetailDeckQty === 'function') _patchCardDetailDeckQty(uid);
 }
 
 // ── Maybe board (stored as deck.sideboard) ───────────────────────────────────
@@ -3695,7 +5406,9 @@ function adjustSideboardCardQtyByUid(uid, delta) {
     recordDeckEvent('remove_sb', card);
     deck.sideboard = deck.sideboard.filter(c => c !== card);
   }
-  saveActiveDeck(deck); renderActiveDeck();
+  saveActiveDeck(deck);
+  renderActiveDeck();
+  if (typeof _patchCardDetailDeckQty === 'function') _patchCardDetailDeckQty(uid);
 }
 
 function moveToSideboard(uid) {
@@ -3861,13 +5574,11 @@ function _roleTagsForCard(card) {
 }
 
 function syncDeckCardAutoRoleTags(card) {
-  const roleTags = _roleTagsForCard(card);
   const existing = Array.isArray(card.customTags) ? card.customTags.slice() : [];
-  const manual = existing.filter(t => !_isProtectedDeckTag(t));
-  const merged = [...manual, ...roleTags];
-  const same = existing.length === merged.length && existing.every((t, i) => t === merged[i]);
+  const manual = existing.filter(t => _isUserMyTag(t));
+  const same = existing.length === manual.length && existing.every((t, i) => t === manual[i]);
   if (same) return false;
-  card.customTags = merged;
+  card.customTags = manual;
   return true;
 }
 
@@ -3944,6 +5655,7 @@ async function _resolveOracleIdForCard(card) {
   }
 }
 
+/** Live Scryfall o:tag queries — used only when refreshing a deck with `{ liveFallback: true }`. */
 async function _fetchScryfallTagsForOracle(oracleId) {
   if (!oracleId) return [];
   if (_scryTagsByOracleId.has(oracleId)) return _scryTagsByOracleId.get(oracleId) || [];
@@ -3993,7 +5705,8 @@ async function _fetchScryfallTagsForDeckOracleIds(oracleIds) {
   return out;
 }
 
-async function _refreshDeckScryfallTags(deck) {
+async function _refreshDeckScryfallTags(deck, opts) {
+  const liveFallback = !!(opts && opts.liveFallback);
   if (!deck || !Array.isArray(deck.cards) || !deck.cards.length) return;
   const cards = deck.cards || [];
   if (!cards.length) return;
@@ -4010,24 +5723,30 @@ async function _refreshDeckScryfallTags(deck) {
 
   const batchTags = await _fetchScryfallTagsForDeckOracleIds(resolvedOids);
 
-  for (const c of cards) {
-    const oid = oidByCard.get(c);
-    if (!oid) continue;
-    if (!batchTags.has(oid)) {
-      await _fetchScryfallTagsForOracle(oid);
+  if (liveFallback) {
+    for (const c of cards) {
+      const oid = oidByCard.get(c);
+      if (!oid) continue;
+      if (!batchTags.has(oid)) {
+        await _fetchScryfallTagsForOracle(oid);
+      }
+    }
+  } else {
+    for (const c of cards) {
+      const oid = oidByCard.get(c);
+      if (!oid) continue;
+      if (!batchTags.has(oid)) {
+        _scryTagsByOracleId.set(oid, []);
+      }
     }
   }
   const changed = syncDeckAutoRoleTags(deck);
-  if (changed) {
-    saveActiveDeck(deck);
-    if (deck.id === activeDeckId) {
-      renderDeckList(deck);
-      if (_deckCardTagPickerTarget) renderDeckCardTagPicker();
-    }
-  }
-  // First paint runs before oracle/tag cache fills; chips were built from partial data. Always redraw prob chart after refresh.
+  if (changed) saveActiveDeck(deck);
   if (deck.id === activeDeckId) {
+    if (changed || _isTagGroupByMode(deckGroupBy)) renderDeckList(deck);
+    if (_deckCardTagPickerTarget) renderDeckCardTagPicker();
     renderProbabilityChart(deck);
+    renderCommanderGameplan(deck);
   }
 }
 
@@ -4038,7 +5757,7 @@ function _scheduleDeckScryfallTagRefresh(deck) {
   if (_scryRefreshTimer) clearTimeout(_scryRefreshTimer);
   _scryRefreshTimer = setTimeout(() => {
     _scryRefreshTimer = null;
-    _refreshDeckScryfallTags(deck)
+    _refreshDeckScryfallTags(deck, { liveFallback: false })
       .catch(() => {})
       .finally(() => {
         _scrySyncDecks.delete(deck.id);
@@ -4058,7 +5777,7 @@ async function forceRefreshDeckScryfallTags() {
   _scrySyncDecks.add(deck.id);
   _renderScryTagSyncBadge();
   try {
-    await _refreshDeckScryfallTags(deck);
+    await _refreshDeckScryfallTags(deck, { liveFallback: true });
     showNotif('Scryfall tags refreshed');
   } catch (_) {
     showNotif('Could not refresh Scryfall tags', true);
@@ -4199,7 +5918,12 @@ function _preferredBasicByColors(colors) {
 
 function _isEtbTappedLand(card) {
   const txt = String(card?.oracleText || '').toLowerCase();
-  return txt.includes('enters the battlefield tapped') || txt.includes('enters tapped');
+  // Standard ETB-tapped lands (shock lands, tap lands, etc.)
+  if (txt.includes('enters the battlefield tapped') || txt.includes('enters tapped')) return true;
+  // Fetch lands that put the found land in tapped (Evolving Wilds, Terramorphic Expanse, etc.)
+  // Real fetch lands (Flooded Strand) put the card in untapped, so they don't match this.
+  if (txt.includes('search your library') && txt.includes('onto the battlefield tapped')) return true;
+  return false;
 }
 
 function _landColorProduction(card) {
@@ -5184,8 +6908,10 @@ async function _addCardToDeckDirect(scryfallId, deck) {
     existing.qty++;
     if (record) recordDeckEvent('add', existing);
   } else {
-    deck.cards.push({ ...newCard, uid: getCardInventoryKey(newCard), qty: 1 });
-    if (record) recordDeckEvent('add', deck.cards[deck.cards.length - 1]);
+    const c = { ...newCard, uid: getCardInventoryKey(newCard), qty: 1 };
+    _applyGlobalCustomTagsToCard(c);
+    deck.cards.push(c);
+    if (record) recordDeckEvent('add', c);
   }
   return true;
 }
@@ -5508,14 +7234,16 @@ function _simRenderHTML(deck, commander, edhrecData, archiveData) {
   <p class="sim-note">${found.length} of ${nonLands.length} nonland cards appear in EDHREC data (${coverage}% coverage)</p>
   ${missing.length ? `
   <div class="sim-subsection-title">Top staples you're not running</div>
-  <div class="sim-chip-row">${missing.map(c =>
-    `<span class="sim-chip sim-chip--missing" title="${c.inclusion}% of ${commander} decks">${c.name} <em>${c.inclusion}%</em></span>`
-  ).join('')}</div>` : ''}
+  <div class="sim-chip-row">${missing.map(c => {
+    const n = (c.name || '').replace(/'/g, "\\'");
+    return `<span class="sim-chip sim-chip--missing" style="cursor:pointer" title="${c.inclusion}% of ${commander} decks" onclick="openCardDetailByName('${n}')">${c.name} <em>${c.inclusion}%</em></span>`;
+  }).join('')}</div>` : ''}
   ${spice.length ? `
   <div class="sim-subsection-title">Your spicy picks <span class="sim-meta">(not in EDHREC data)</span></div>
-  <div class="sim-chip-row">${spice.map(c =>
-    `<span class="sim-chip sim-chip--spice">${c.name}</span>`
-  ).join('')}</div>` : ''}
+  <div class="sim-chip-row">${spice.map(c => {
+    const id = (c.uid || c.scryfallId || '').replace(/'/g, "\\'");
+    return `<span class="sim-chip sim-chip--spice" style="cursor:pointer" onclick="openCardDetail('${id}')">${c.name}</span>`;
+  }).join('')}</div>` : ''}
 </div>`);
   }
 

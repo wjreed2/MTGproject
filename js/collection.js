@@ -33,17 +33,23 @@ function _cmpNum(a, op, b) {
   return true;
 }
 
-function parseSearchQuery(raw) {
+// Matches key:value, key>=value, key:"quoted value", with optional spaces around operator
+const _SEARCH_TOKEN_RE = /(-?)(\w+)\s*(>=|<=|!=|<>|[:=><])\s*(?:"([^"]*)"|((?:[^\s"]+)))/g;
+
+function _parseSearchGroup(group) {
   const tokens = [];
   const nameTerms = [];
-  // Match filter tokens: optional leading -, key, operator, value
-  const TOKEN_RE = /(-?)(\w+)(>=|<=|!=|<>|[:=><])"?([^\s"]+)"?/g;
-  const cleaned = raw.replace(TOKEN_RE, (_full, neg, key, op, val) => {
-    tokens.push({ neg: neg === '-', key: key.toLowerCase(), op, val: val.toLowerCase() });
+  const cleaned = group.replace(/\bAND\b/gi, ' ').replace(_SEARCH_TOKEN_RE, (_f, neg, key, op, qv, bv) => {
+    tokens.push({ neg: neg === '-', key: key.toLowerCase(), op, val: (qv !== undefined ? qv : bv ?? '').toLowerCase() });
     return ' ';
   });
-  cleaned.trim().split(/\s+/).filter(Boolean).forEach(t => nameTerms.push(t.toLowerCase()));
+  cleaned.trim().split(/\s+/).filter(w => w && !/^AND$/i.test(w)).forEach(t => nameTerms.push(t.toLowerCase()));
   return { tokens, nameTerms };
+}
+
+function parseSearchQuery(raw) {
+  const orGroups = raw.split(/\bOR\b/i).map(_parseSearchGroup);
+  return { tokens: orGroups[0]?.tokens || [], nameTerms: orGroups[0]?.nameTerms || [], orGroups };
 }
 
 function matchToken(card, tok) {
@@ -73,22 +79,24 @@ function matchToken(card, tok) {
   } else if (key === 's' || key === 'e' || key === 'set') {
     hit = (card.set||'').toLowerCase() === val;
   } else if (key === 'c' || key === 'color' || key === 'ci') {
-    const parsed = (val || '')
-      .toUpperCase()
-      .replace(/[^WUBRGC]/g, '')
-      .split('')
-      .filter((ch, idx, arr) => arr.indexOf(ch) === idx);
-    const cardColors = [...new Set((card.colors || []).filter(Boolean).map(x => String(x).toUpperCase()))];
-    const hasColorless = parsed.includes('C');
-    const parsedColors = parsed.filter(ch => ch !== 'C');
-    if (hasColorless) {
-      if (cardColors.length === 0) hit = true;
-      else if (!parsedColors.length) hit = false;
-      else hit = cardColors.every(ch => parsedColors.includes(ch));
+    const _CN = { white:'W', blue:'U', black:'B', red:'R', green:'G', colorless:'C', multicolor:'M', multi:'M' };
+    const resolved = _CN[val] || val;
+    if (resolved === 'M') {
+      hit = (card.colors||[]).length > 1;
     } else {
-      hit = parsed.length > 0
-        && cardColors.length > 0
-        && cardColors.every(ch => parsed.includes(ch));
+      const parsed = resolved.toUpperCase().replace(/[^WUBRGC]/g, '').split('').filter((ch, i, a) => a.indexOf(ch) === i);
+      const cardColors = [...new Set((card.colors || []).filter(Boolean).map(x => String(x).toUpperCase()))];
+      const hasColorless = parsed.includes('C');
+      const parsedColors = parsed.filter(ch => ch !== 'C');
+      if (hasColorless) {
+        if (cardColors.length === 0) hit = true;
+        else if (!parsedColors.length) hit = false;
+        else hit = cardColors.every(ch => parsedColors.includes(ch));
+      } else {
+        hit = parsed.length > 0
+          && cardColors.length > 0
+          && cardColors.every(ch => parsed.includes(ch));
+      }
     }
   } else if (key === 'name' || key === 'n') {
     hit = (card.name||'').toLowerCase().includes(val);
@@ -118,9 +126,8 @@ function getFilteredCollection() {
 
   // ── Text search with Scryfall-like syntax ─────────────────────────────────
   if (searchQ.trim()) {
-    const { tokens, nameTerms } = parseSearchQuery(searchQ);
-    cards = cards.filter(c => {
-      // All name terms must match name, set metadata, type line, or oracle text
+    const { orGroups } = parseSearchQuery(searchQ);
+    cards = cards.filter(c => orGroups.some(({ tokens, nameTerms }) => {
       if (nameTerms.length && !nameTerms.every(t =>
         (c.name||'').toLowerCase().includes(t) ||
         (c.set||'').toLowerCase().includes(t) ||
@@ -128,9 +135,8 @@ function getFilteredCollection() {
         (c.type||'').toLowerCase().includes(t) ||
         _collectionOracleHaystack(c).includes(t)
       )) return false;
-      // All tokens must match
       return tokens.every(tok => matchToken(c, tok));
-    });
+    }));
   }
 
   // ── Color pill filters ────────────────────────────────────────────────────
@@ -648,20 +654,14 @@ function _renderCardDetailDefaultTagsInitialHtml(card) {
   if (!card || (!card.scryfallId && !card.oracleId)) {
     return '<span style="font-size:0.72rem;color:var(--text3)">—</span>';
   }
-  if (Array.isArray(card.roleTags) && card.roleTags.length) {
-    return card.roleTags.map(t => {
+  const tags = typeof _defaultTagsForCardInspector === 'function'
+    ? _defaultTagsForCardInspector(card)
+    : (typeof _roleTagsForCard === 'function' ? _roleTagsForCard(card) : []);
+  if (tags.length) {
+    return tags.map(t => {
       const prot = typeof _isProtectedDeckTag === 'function' && _isProtectedDeckTag(t);
       return `<span class="tag ${prot ? 'tag-scryfall' : 'tag-purple'}" style="font-size:0.84rem">${t}</span>`;
     }).join('');
-  }
-  if (typeof _roleTagsForCard === 'function') {
-    const tags = _roleTagsForCard(card);
-    if (tags.length) {
-      return tags.map(t => {
-        const prot = typeof _isProtectedDeckTag === 'function' && _isProtectedDeckTag(t);
-        return `<span class="tag ${prot ? 'tag-scryfall' : 'tag-purple'}" style="font-size:0.84rem">${t}</span>`;
-      }).join('');
-    }
   }
   return '<span class="card-detail-tags-pending" aria-hidden="true"></span>';
 }
@@ -839,7 +839,7 @@ function _canCardDetailInspectorInPlace() {
     document.getElementById('cardDetailRowCollection') &&
     document.getElementById('cardDetailRowInDeck') &&
     document.getElementById('cardDetailRowPrimaryActions') &&
-    document.getElementById('cardDetailDeckTagsSection') &&
+    document.getElementById('cardDetailMyTagsWrap') &&
     document.getElementById('cardDetailTagToDeckWrap')
   );
 }
@@ -893,61 +893,191 @@ function _findTemplateCardForPrinting(scryfallId) {
     || deckCards.find(c => c.scryfallId === sid);
 }
 
+function _htmlCardDetailQtyControlRow(opts = {}) {
+  const {
+    label = '',
+    qty = 0,
+    qtyId = '',
+    onMinus = '',
+    onPlus = '',
+    meta = '',
+    interactive = true,
+    muted = false,
+  } = opts;
+  const labelHtml = label
+    ? `<span class="card-detail-qty-label">${label}</span>`
+    : '<span class="card-detail-qty-label card-detail-qty-label--spacer" aria-hidden="true"></span>';
+  const valueCls = `card-detail-qty-value${muted ? ' card-detail-qty-value--muted' : ''}`;
+  const idAttr = qtyId ? ` id="${qtyId}"` : '';
+  const controlsHtml = interactive && onMinus && onPlus
+    ? `<button type="button" class="btn btn-outline btn-sm btn-icon" onclick="${onMinus}">−</button>
+       <span class="${valueCls}"${idAttr}>${qty}</span>
+       <button type="button" class="btn btn-outline btn-sm btn-icon" onclick="${onPlus}">+</button>`
+    : `<span class="card-detail-qty-slot--empty" aria-hidden="true"></span>
+       <span class="${valueCls}"${idAttr}>${qty}</span>
+       <span class="card-detail-qty-slot--empty" aria-hidden="true"></span>`;
+  const metaHtml = meta ? `<span class="card-detail-qty-meta">${meta}</span>` : '<span class="card-detail-qty-meta" aria-hidden="true"></span>';
+  return `<div class="card-detail-qty-printing-row">${labelHtml}${controlsHtml}${metaHtml}</div>`;
+}
+
 function _htmlCardDetailCollectionRows(ctx) {
   const { card, isOwned, ownedCard, actionUid } = ctx;
   const sid = card && card.scryfallId ? String(card.scryfallId) : '';
   if (!sid) {
-    return isOwned
-      ? `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-          <button type="button" class="btn btn-outline btn-sm btn-icon" onclick="adjustQty('${actionUid}',-1)">−</button>
-          <span style="font-family:'JetBrains Mono',monospace;font-size:0.9rem;min-width:20px;text-align:center" id="detailQty">${ownedCard.qty || 0}</span>
-          <button type="button" class="btn btn-outline btn-sm btn-icon" onclick="adjustQty('${actionUid}',1)">+</button>
-        </div>`
-      : `<span style="font-family:'JetBrains Mono',monospace;font-size:0.9rem;color:var(--text3)">0</span>`;
+    if (!isOwned) {
+      return `<div class="card-detail-qty-printing">${_htmlCardDetailQtyControlRow({ qty: 0, muted: true, interactive: false })}</div>`;
+    }
+    return `<div class="card-detail-qty-printing">${_htmlCardDetailQtyControlRow({
+      qty: ownedCard.qty || 0,
+      qtyId: 'detailQty',
+      onMinus: `adjustQty('${actionUid}',-1)`,
+      onPlus: `adjustQty('${actionUid}',1)`,
+    })}</div>`;
   }
   const enc = encodeURIComponent(sid);
   const nf = _findCollectionRowByPrinting(sid, false);
   const f = _findCollectionRowByPrinting(sid, true);
   const nfQ = nf ? (nf.qty || 0) : 0;
   const fQ = f ? (f.qty || 0) : 0;
-  return `
-    <div class="card-detail-qty-printing" style="display:flex;flex-direction:column;gap:8px;width:100%">
-      <div class="card-detail-qty-printing-row" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-        <span style="min-width:58px;font-size:0.78rem;color:var(--text2)">Non-foil</span>
-        <button type="button" class="btn btn-outline btn-sm btn-icon" onclick="adjustCollectionPrintingQtyFromDetail(decodeURIComponent('${enc}'),false,-1)">−</button>
-        <span id="detailQty_nf" style="font-family:'JetBrains Mono',monospace;font-size:0.9rem;min-width:22px;text-align:center">${nfQ}</span>
-        <button type="button" class="btn btn-outline btn-sm btn-icon" onclick="adjustCollectionPrintingQtyFromDetail(decodeURIComponent('${enc}'),false,1)">+</button>
-      </div>
-      <div class="card-detail-qty-printing-row" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-        <span style="min-width:58px;font-size:0.78rem;color:var(--text2)">Foil</span>
-        <button type="button" class="btn btn-outline btn-sm btn-icon" onclick="adjustCollectionPrintingQtyFromDetail(decodeURIComponent('${enc}'),true,-1)">−</button>
-        <span id="detailQty_f" style="font-family:'JetBrains Mono',monospace;font-size:0.9rem;min-width:22px;text-align:center">${fQ}</span>
-        <button type="button" class="btn btn-outline btn-sm btn-icon" onclick="adjustCollectionPrintingQtyFromDetail(decodeURIComponent('${enc}'),true,1)">+</button>
-      </div>
+  return `<div class="card-detail-qty-printing">
+      ${_htmlCardDetailQtyControlRow({
+        label: 'Non-foil',
+        qty: nfQ,
+        qtyId: 'detailQty_nf',
+        onMinus: `adjustCollectionPrintingQtyFromDetail(decodeURIComponent('${enc}'),false,-1)`,
+        onPlus: `adjustCollectionPrintingQtyFromDetail(decodeURIComponent('${enc}'),false,1)`,
+      })}
+      ${_htmlCardDetailQtyControlRow({
+        label: 'Foil',
+        qty: fQ,
+        qtyId: 'detailQty_f',
+        onMinus: `adjustCollectionPrintingQtyFromDetail(decodeURIComponent('${enc}'),true,-1)`,
+        onPlus: `adjustCollectionPrintingQtyFromDetail(decodeURIComponent('${enc}'),true,1)`,
+      })}
     </div>`;
 }
 
 function _syncCardDetailRowCollection(ctx) {
   const el = document.getElementById('cardDetailRowCollection');
   if (!el) return;
-  el.innerHTML = `<span style="font-size:0.85rem;color:var(--text2);white-space:nowrap;padding-top:5px">In collection:</span>
+  el.className = 'card-detail-qty-row';
+  el.innerHTML = `<span class="card-detail-qty-row-label">In collection:</span>
     <div style="flex:1;min-width:0">${_htmlCardDetailCollectionRows(ctx)}</div>`;
 }
 
+function _deckSlotZoneLabel(deck, slot) {
+  if (!deck || !slot) return '';
+  const key = typeof getCardInventoryKey === 'function' ? getCardInventoryKey(slot) : (slot.uid || '');
+  const onMb = (deck.sideboard || []).some(c => {
+    const k = typeof getCardInventoryKey === 'function' ? getCardInventoryKey(c) : (c.uid || '');
+    return k && k === key;
+  });
+  return onMb ? ' (maybe board)' : '';
+}
+
+function _cardDetailHasPrintingQtyRows(card) {
+  return !!(card && card.scryfallId);
+}
+
+function _htmlCardDetailQtyFoilAlignSpacer() {
+  return `<div class="card-detail-qty-printing-row card-detail-qty-printing-row--align" aria-hidden="true">
+    <span class="card-detail-qty-label card-detail-qty-label--spacer"></span>
+    <span class="card-detail-qty-slot--empty"></span>
+    <span class="card-detail-qty-slot--empty"></span>
+    <span class="card-detail-qty-slot--empty"></span>
+  </div>`;
+}
+
+function _htmlCardDetailDeckNameMeta(activeDeck, zoneHint) {
+  if (!activeDeck) return '';
+  const name = `${activeDeck.name || 'Deck'}${zoneHint || ''}`;
+  return `<div class="card-detail-qty-deck-name" id="cardDetailDeckNameMeta">${name}</div>`;
+}
+
+function _htmlCardDetailDeckQtyCounter(ctx) {
+  const { card, activeDeck, activeDeckCard, actionUid, inDeckQty } = ctx;
+  const zoneHint = activeDeckCard ? _deckSlotZoneLabel(activeDeck, activeDeckCard) : '';
+  const nameMeta = _htmlCardDetailDeckNameMeta(activeDeck, zoneHint);
+  const foilSpacer = _cardDetailHasPrintingQtyRows(card) ? _htmlCardDetailQtyFoilAlignSpacer() : '';
+  if (!activeDeck) {
+    return `<div class="card-detail-qty-printing">${_htmlCardDetailQtyControlRow({ qty: 0, muted: true, interactive: false })}${foilSpacer}${nameMeta}</div>`;
+  }
+  const esc = String(actionUid || '').replace(/'/g, "\\'");
+  if (!activeDeckCard || !(inDeckQty > 0)) {
+    return `<div class="card-detail-qty-printing">${_htmlCardDetailQtyControlRow({
+      qty: 0,
+      qtyId: 'detailQty_deck',
+      muted: true,
+      interactive: false,
+    })}${foilSpacer}${nameMeta}</div>`;
+  }
+  return `<div class="card-detail-qty-printing">${_htmlCardDetailQtyControlRow({
+    qty: inDeckQty,
+    qtyId: 'detailQty_deck',
+    onMinus: `adjustDeckQtyFromDetail('${esc}',-1)`,
+    onPlus: `adjustDeckQtyFromDetail('${esc}',1)`,
+  })}${foilSpacer}${nameMeta}</div>`;
+}
+
+function _patchCardDetailDeckQty(uid) {
+  const modal = document.getElementById('cardDetailModal');
+  if (!modal?.classList.contains('open')) return;
+  const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+  if (!deck || !_isDeckBuilderMainTabActive()) return;
+  const ref = String(uid || '');
+  const cardKey = ref;
+  const slot = _findActiveDeckSlotByCardKey(deck, cardKey);
+  const qtyEl = document.getElementById('detailQty_deck');
+  if (slot && qtyEl) {
+    qtyEl.textContent = String(slot.qty || 1);
+    return;
+  }
+  const row = document.getElementById('cardDetailRowInDeck');
+  if (!row) return;
+  const actionUid = _cardDetailCurrentUid || ref;
+  _syncCardDetailRowInDeck({
+    activeDeck: deck,
+    activeDeckCard: slot,
+    actionUid,
+    inDeckQty: slot?.qty || 0,
+  });
+}
+
+function adjustDeckQtyFromDetail(uid, delta) {
+  const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+  if (!deck) return;
+  const d = Number(delta);
+  if (!d || d !== Math.trunc(d)) return;
+  const ref = String(uid || '');
+  const inMain = (deck.cards || []).find(c => {
+    const k = typeof getCardInventoryKey === 'function' ? getCardInventoryKey(c) : (c.uid || '');
+    return k === ref || c.uid === ref;
+  });
+  const inSb = (deck.sideboard || []).find(c => {
+    const k = typeof getCardInventoryKey === 'function' ? getCardInventoryKey(c) : (c.uid || '');
+    return k === ref || c.uid === ref;
+  });
+  if (inMain && typeof adjustDeckCardQtyByUid === 'function') {
+    adjustDeckCardQtyByUid(ref, d);
+  } else if (inSb && typeof adjustSideboardCardQtyByUid === 'function') {
+    adjustSideboardCardQtyByUid(ref, d);
+  } else return;
+  _patchCardDetailDeckQty(ref);
+}
+
 function _syncCardDetailRowInDeck(ctx) {
-  const { activeDeck, inDeckQty } = ctx;
   const el = document.getElementById('cardDetailRowInDeck');
   if (!el) return;
-  const show = !!(activeDeck && _isDeckBuilderMainTabActive());
+  const show = !!(ctx.activeDeck && _isDeckBuilderMainTabActive());
   if (!show) {
     el.style.display = 'none';
     el.innerHTML = '';
     return;
   }
+  el.className = 'card-detail-qty-row';
   el.style.display = 'flex';
-  el.innerHTML = `<span style="font-size:0.85rem;color:var(--text2)">In deck:</span>
-          <span style="font-family:'JetBrains Mono',monospace;font-size:0.9rem">${inDeckQty}</span>
-          <span style="font-size:0.72rem;color:var(--text3)">· ${activeDeck.name}</span>`;
+  el.innerHTML = `<span class="card-detail-qty-row-label">In deck:</span>
+    <div style="flex:1;min-width:0">${_htmlCardDetailDeckQtyCounter(ctx)}</div>`;
 }
 
 function _syncCardDetailRowPrimaryActions(ctx) {
@@ -964,20 +1094,6 @@ function _syncCardDetailRowPrimaryActions(ctx) {
                <button class="btn btn-outline btn-sm" onclick="toggleWishlistFromDetail('${uid}')">${isWishlisted ? '♥ Wishlisted' : '♡ Wishlist'}</button>`;
 }
 
-function _syncCardDetailDeckTagsSection(ctx) {
-  const { activeDeckCard } = ctx;
-  const sharedDeck = typeof activeDeckIsShared !== 'undefined' && activeDeckIsShared;
-  const showDeckTags = !!(activeDeckCard && !sharedDeck && _isDeckBuilderMainTabActive());
-  const el = document.getElementById('cardDetailDeckTagsSection');
-  if (!el) return;
-  el.style.display = showDeckTags ? 'block' : 'none';
-  if (showDeckTags) {
-    el.innerHTML = `<div style="font-size:0.78rem;color:var(--text3);margin-bottom:6px;letter-spacing:0.04em">DECK CARD TAGS</div>
-              <div id="cardDetailDeckTagsChips" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-                ${_htmlCardDetailDeckTagsChipsInner(activeDeckCard)}
-              </div>`;
-  } else el.innerHTML = '';
-}
 
 function _syncCardDetailTagToDeckWrap(ctx) {
   const { card, isOwned, actionUid } = ctx;
@@ -1015,8 +1131,8 @@ function _syncCardDetailInspectorInPlace(card, ctx) {
   _syncCardDetailRowCollection(ctx);
   _syncCardDetailRowInDeck(ctx);
   _syncCardDetailRowPrimaryActions(ctx);
-  _syncCardDetailDeckTagsSection(ctx);
   _syncCardDetailTagToDeckWrap(ctx);
+  void _loadCardDetailMyTags(card);
   return true;
 }
 
@@ -1060,37 +1176,24 @@ function _htmlOpenCardDetailReplacementsBlock() {
     </div>`;
 }
 
-function _htmlCardDetailDeckTagsChipsInner(activeDeckCard) {
-  if (!activeDeckCard) return '';
-  return `${((activeDeckCard.customTags || []).length
-    ? activeDeckCard.customTags.map(t => {
-      const cls = (typeof _isProtectedDeckTag === 'function' && _isProtectedDeckTag(t)) ? 'tag-scryfall' : 'tag-purple';
-      return `<span class="tag ${cls}" style="font-size:0.84rem">${t}</span>`;
-    }).join('')
-    : '<span style="font-size:0.72rem;color:var(--text3)">No tags yet</span>')}
-                <button class="btn btn-outline btn-sm" onclick="openDeckCardTagPicker('${activeDeckId}','${activeDeckCard.uid || activeDeckCard.scryfallId || ''}')">Edit Tags</button>`;
-}
-
 function _htmlOpenCardDetailRightColumn(ctx) {
   const {
     card, isOwned, ownedCard, actionUid, uid,
     activeDeck, activeDeckCard, inDeckQty,
     isCommanderCandidate, isWishlisted,
   } = ctx;
-  const sharedDeck = typeof activeDeckIsShared !== 'undefined' && activeDeckIsShared;
-  const showDeckTags = !!(activeDeckCard && !sharedDeck && _isDeckBuilderMainTabActive());
   const showTagToDeck = !!(isOwned && decks.length > 0);
+  const globalCustomTags = typeof _getGlobalCustomTagsForCard === 'function' ? _getGlobalCustomTagsForCard(card) : [];
+  const myTagsChipsHtml = globalCustomTags.length
+    ? globalCustomTags.map(t => (typeof _deckTagChipHtml === 'function'
+      ? _deckTagChipHtml(t, { interactive: false, size: '0.84rem' })
+      : `<span class="tag tag-primary" style="font-size:0.84rem">${t}</span>`)).join('')
+    : '<span style="font-size:0.72rem;color:var(--text3)">No tags yet</span>';
+  const actionUidRef = (actionUid || '').replace(/'/g, "\\'");
   const showInDeckRow = !!(activeDeck && _isDeckBuilderMainTabActive());
   const inDeckInner = showInDeckRow
-    ? `<span style="font-size:0.85rem;color:var(--text2)">In deck:</span>
-          <span style="font-family:'JetBrains Mono',monospace;font-size:0.9rem">${inDeckQty}</span>
-          <span style="font-size:0.72rem;color:var(--text3)">· ${activeDeck.name}</span>`
-    : '';
-  const deckTagsInner = showDeckTags
-    ? `<div style="font-size:0.78rem;color:var(--text3);margin-bottom:6px;letter-spacing:0.04em">DECK CARD TAGS</div>
-              <div id="cardDetailDeckTagsChips" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-                ${_htmlCardDetailDeckTagsChipsInner(activeDeckCard)}
-              </div>`
+    ? `<span class="card-detail-qty-row-label">In deck:</span>
+          <div style="flex:1;min-width:0">${_htmlCardDetailDeckQtyCounter(ctx)}</div>`
     : '';
   const tagToDeckInner = showTagToDeck
     ? `<div style="font-size:0.78rem;color:var(--text3);margin-bottom:6px;letter-spacing:0.04em">TAG TO DECK <span style="font-weight:400;opacity:0.9">· adds 1 copy to that deck’s maybe board</span></div>
@@ -1114,17 +1217,11 @@ function _htmlOpenCardDetailRightColumn(ctx) {
           ${card.foil ? `<span class="tag tag-gold">✦ Foil</span>` : ''}
           ${!isOwned ? `<span class="tag tag-red">Unowned</span>` : ''}
         </div>
-        <div id="cardDetailDefaultTagsWrap" style="margin-bottom:0.75rem">
-          <div style="font-size:0.78rem;color:var(--text3);margin-bottom:6px;letter-spacing:0.04em">DEFAULT TAGS</div>
-          <div id="cardDetailDefaultTags" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-height:1.25rem">
-            ${_renderCardDetailDefaultTagsInitialHtml(card)}
-          </div>
-        </div>
-        <div id="cardDetailRowCollection" style="display:flex;align-items:flex-start;gap:10px;margin-bottom:0.75rem;flex-wrap:wrap">
-          <span style="font-size:0.85rem;color:var(--text2);white-space:nowrap;padding-top:5px">In collection:</span>
+        <div id="cardDetailRowCollection" class="card-detail-qty-row">
+          <span class="card-detail-qty-row-label">In collection:</span>
           <div style="flex:1;min-width:0">${_htmlCardDetailCollectionRows(ctx)}</div>
         </div>
-        <div id="cardDetailRowInDeck" style="display:${showInDeckRow ? 'flex' : 'none'};align-items:center;gap:8px;margin-bottom:0.75rem">
+        <div id="cardDetailRowInDeck" class="card-detail-qty-row" style="display:${showInDeckRow ? 'flex' : 'none'}">
           ${inDeckInner}
         </div>
         <div id="cardDetailRowPrimaryActions" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:0.75rem">
@@ -1137,8 +1234,18 @@ function _htmlOpenCardDetailRightColumn(ctx) {
     : `<button class="btn btn-primary btn-sm" onclick="addCardToCollectionFromDetail('${uid}')">+ Add to Collection</button>
                <button class="btn btn-outline btn-sm" onclick="toggleWishlistFromDetail('${uid}')">${isWishlisted ? '♥ Wishlisted' : '♡ Wishlist'}</button>`}
         </div>
-        <div id="cardDetailDeckTagsSection" style="display:${showDeckTags ? 'block' : 'none'};border-top:1px solid var(--border2);padding-top:0.75rem;margin-top:0.25rem;margin-bottom:0.75rem">
-          ${deckTagsInner}
+        <div id="cardDetailDefaultTagsWrap" style="border-top:1px solid var(--border2);padding-top:0.75rem;margin-top:0.25rem;margin-bottom:0.75rem">
+          <div style="font-size:0.78rem;color:var(--text3);margin-bottom:6px;letter-spacing:0.04em">DEFAULT TAGS</div>
+          <div id="cardDetailDefaultTags" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-height:1.25rem">
+            ${_renderCardDetailDefaultTagsInitialHtml(card)}
+          </div>
+        </div>
+        <div id="cardDetailMyTagsWrap" style="border-top:1px solid var(--border2);padding-top:0.75rem;margin-top:0.25rem;margin-bottom:0.75rem">
+          <div style="font-size:0.78rem;color:var(--text3);margin-bottom:6px;letter-spacing:0.04em">MY TAGS <span style="font-weight:400;opacity:0.85">· primary (teal) · secondary (gold)</span></div>
+          <div id="cardDetailMyTagsChips" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            ${myTagsChipsHtml}
+            <button class="btn btn-outline btn-sm" onclick="openGlobalTagPickerForCard('${actionUidRef}')">Edit Tags</button>
+          </div>
         </div>
         <div id="cardDetailTagToDeckWrap" style="display:${showTagToDeck ? 'block' : 'none'};border-top:1px solid var(--border2);padding-top:0.75rem;margin-top:0.25rem">
           ${tagToDeckInner}
@@ -1275,6 +1382,7 @@ async function openCardDetail(uid, navMode, opts) {
     image: card.imageLarge || card.image || '',
   }, modalFaces);
   void _loadCardDetailDefaultTags(card);
+  void _loadCardDetailMyTags(card);
   _updateCardDetailEdgeNav(actionUid);
   if (needsHydrate && shouldDeferHydrate) {
     void _deferredHydrateCardDetail(card, openSession, actionUid, isOwned);
@@ -1295,15 +1403,6 @@ async function _loadCardDetailDefaultTags(card) {
   }
   try {
     if (typeof loadTagOverrides === 'function') await loadTagOverrides();
-    if (Array.isArray(card.roleTags) && card.roleTags.length) {
-      const tags = card.roleTags;
-      if (!modal.classList.contains('open') || document.getElementById('cardDetailDefaultTags') !== el) return;
-      el.innerHTML = tags.map(t => {
-        const prot = typeof _isProtectedDeckTag === 'function' && _isProtectedDeckTag(t);
-        return `<span class="tag ${prot ? 'tag-scryfall' : 'tag-purple'}" style="font-size:0.84rem">${t}</span>`;
-      }).join('');
-      return;
-    }
     const oid = await _resolveOracleIdForCard(card);
     if (oid && typeof _SCRY_TAG_SCHEMA_VERSION !== 'undefined' && typeof apiPostJson === 'function'
       && typeof _scryTagsByOracleId !== 'undefined' && _scryTagsByOracleId && !_scryTagsByOracleId.has(oid)) {
@@ -1313,12 +1412,16 @@ async function _loadCardDetailDefaultTags(card) {
         if (Object.prototype.hasOwnProperty.call(byOid, oid)) {
           const arr = Array.isArray(byOid[oid]) ? byOid[oid].filter(Boolean) : [];
           _scryTagsByOracleId.set(oid, arr);
-        } else if (typeof _fetchScryfallTagsForOracle === 'function') {
-          await _fetchScryfallTagsForOracle(oid);
+        } else {
+          _scryTagsByOracleId.set(oid, []);
         }
-      } catch (_) {}
+      } catch (_) {
+        _scryTagsByOracleId.set(oid, []);
+      }
     }
-    const tags = _roleTagsForCard(card);
+    const tags = typeof _defaultTagsForCardInspector === 'function'
+      ? _defaultTagsForCardInspector(card)
+      : _roleTagsForCard(card);
     if (!modal.classList.contains('open') || document.getElementById('cardDetailDefaultTags') !== el) return;
     if (!tags.length) {
       el.innerHTML = '<span style="font-size:0.72rem;color:var(--text3)">None</span>';
@@ -1463,24 +1566,49 @@ function _resolveActiveDeckCardForOpenDetail(uid) {
   return { activeDeckCard };
 }
 
-/** Updates only the DECK CARD TAGS chip row so tag edits do not rebuild the whole inspector (avoids flicker). */
-function patchOpenCardDetailDeckTags() {
+function openGlobalTagPickerForCard(uid) {
+  if (typeof openDeckCardTagPicker === 'function') openDeckCardTagPicker(null, uid);
+}
+
+function patchOpenCardDetailMyTags() {
   const modal = document.getElementById('cardDetailModal');
-  const chipsEl = document.getElementById('cardDetailDeckTagsChips');
+  const chipsEl = document.getElementById('cardDetailMyTagsChips');
   if (!modal?.classList.contains('open') || !chipsEl || !_cardDetailCurrentUid) return;
-  if (!_isDeckBuilderMainTabActive()) return;
-  if (typeof activeDeckIsShared !== 'undefined' && activeDeckIsShared) return;
-  const { activeDeckCard } = _resolveActiveDeckCardForOpenDetail(_cardDetailCurrentUid);
-  if (!activeDeckCard) return;
-  const tags = Array.isArray(activeDeckCard.customTags) ? activeDeckCard.customTags : [];
-  const chipsHtml = tags.length
-    ? tags.map(t => {
-        const cls = (typeof _isProtectedDeckTag === 'function' && _isProtectedDeckTag(t)) ? 'tag-scryfall' : 'tag-purple';
-        return `<span class="tag ${cls}" style="font-size:0.84rem">${t}</span>`;
-      }).join('')
+  const card = typeof _findCardForTagPicker === 'function'
+    ? _findCardForTagPicker(_cardDetailCurrentUid)
+    : (collection || []).find(c => c.uid === _cardDetailCurrentUid || c.scryfallId === _cardDetailCurrentUid);
+  const globalTags = card && typeof _getGlobalCustomTagsForCard === 'function'
+    ? _getGlobalCustomTagsForCard(card)
+    : [];
+  const chipsHtml = globalTags.length
+    ? globalTags.map(t => (typeof _deckTagChipHtml === 'function'
+      ? _deckTagChipHtml(t, { interactive: false, size: '0.84rem' })
+      : `<span class="tag tag-primary" style="font-size:0.84rem">${t}</span>`)).join('')
     : '<span style="font-size:0.72rem;color:var(--text3)">No tags yet</span>';
-  const ref = String(activeDeckCard.uid || activeDeckCard.scryfallId || '').replace(/'/g, "\\'");
-  chipsEl.innerHTML = `${chipsHtml}<button class="btn btn-outline btn-sm" onclick="openDeckCardTagPicker('${activeDeckId}','${ref}')">Edit Tags</button>`;
+  const ref = String(
+    (card && typeof getCardInventoryKey === 'function' ? getCardInventoryKey(card) : null)
+    || card?.uid
+    || card?.scryfallId
+    || _cardDetailCurrentUid
+    || ''
+  ).replace(/'/g, "\\'");
+  chipsEl.innerHTML = `${chipsHtml}<button class="btn btn-outline btn-sm" onclick="openGlobalTagPickerForCard('${ref}')">Edit Tags</button>`;
+}
+
+async function _loadCardDetailMyTags(card) {
+  const modal = document.getElementById('cardDetailModal');
+  if (!modal?.classList.contains('open') || !card) return;
+  if (typeof loadTagOverrides === 'function') await loadTagOverrides();
+  if (typeof _resolveOracleIdForCard === 'function') {
+    const oid = await _resolveOracleIdForCard(card);
+    if (oid) {
+      const norm = typeof _normalizeTagOracleId === 'function' ? _normalizeTagOracleId(oid) : String(oid).toLowerCase();
+      card.oracleId = norm;
+      const sid = String(card.scryfallId || '').trim().toLowerCase();
+      if (sid && typeof _scryOracleByPrintId !== 'undefined') _scryOracleByPrintId.set(sid, norm);
+    }
+  }
+  if (typeof patchOpenCardDetailMyTags === 'function') patchOpenCardDetailMyTags();
 }
 
 function refreshOpenCardDetail() {
@@ -1930,9 +2058,68 @@ function _positionFindAc() {
   drop.style.width = r.width + 'px';
 }
 
+const _KNOWN_SEARCH_KEYS = /\b(?:t|type|c|ci|color|id|cmc|mv|manavalue|r|rarity|s|e|set|o|oracle|is|has|name|n|qty|q|tag|tags)\s*(?:>=|<=|!=|<>|[:=><])/i;
+function _findQueryHasTokens(q) { return _KNOWN_SEARCH_KEYS.test(q); }
+
+function _getFindPaperOnly() {
+  return document.getElementById('findCardPaperOnlyChk')?.checked !== false
+    && (typeof voiceSetPrefs === 'undefined' || voiceSetPrefs.paperOnly !== false);
+}
+function _updateFindPaperOnlyState() {
+  const chk = document.getElementById('findCardPaperOnlyChk');
+  if (chk && typeof voiceSetPrefs !== 'undefined') chk.checked = voiceSetPrefs.paperOnly !== false;
+}
+globalThis._updateFindPaperOnlyState = _updateFindPaperOnlyState;
+
+// Quick-filter token toggle for search tab
+function _toggleFindToken(key, val) {
+  const input = document.getElementById('findCardInput');
+  if (!input) return;
+  let q = input.value;
+  // Match existing token with this exact key:val (case-insensitive)
+  const esc = val.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const existing = new RegExp(`(?:^|\\s)-?${key}:${esc}(?=\\s|$)`, 'i');
+  if (existing.test(q)) {
+    q = q.replace(existing, ' ').replace(/\s+/g, ' ').trim();
+  } else {
+    // Remove any prior token with same key, then append new one
+    q = q.replace(new RegExp(`(?:^|\\s)-?${key}:[^\\s"]*`, 'ig'), ' ').replace(/\s+/g, ' ').trim();
+    q = q ? q + ' ' + `${key}:${val}` : `${key}:${val}`;
+  }
+  input.value = q;
+  _syncFindFilterBtns(q);
+  runFindCard(q);
+}
+
+function _syncFindFilterBtns(q) {
+  const qlo = (q || '').toLowerCase();
+  const colorMap = { W:'w', U:'u', B:'b', R:'r', G:'g', C:'c' };
+  for (const [code, sym] of Object.entries(colorMap)) {
+    document.getElementById('fcp-' + code)?.classList.toggle('active', new RegExp(`(?:^|\\s)c:${sym}(?=\\s|$)`).test(qlo));
+  }
+  for (const t of ['creature','instant','sorcery','artifact','enchantment','planeswalker','land']) {
+    document.getElementById('fct-' + t)?.classList.toggle('active', new RegExp(`(?:^|\\s)t:${t}(?=\\s|$)`).test(qlo));
+  }
+  document.getElementById('fct-legendary')?.classList.toggle('active', /(?:^|\s)is:legendary(?=\s|$)/.test(qlo));
+  for (const r of ['r','m','u','c']) {
+    document.getElementById('fcr-' + r)?.classList.toggle('active', new RegExp(`(?:^|\\s)r:${r}(?=\\s|$)`).test(qlo));
+  }
+}
+
+let _findSearchOffset = 0;
+let _findSearchTotal = 0;
+let _findSearchQuery = '';
+
 function findCardAutocomplete(q) {
   const drop = document.getElementById('findCardAutocomplete');
   if (!q || q.length < 2) { drop.style.display = 'none'; return; }
+  // Token queries skip name autocomplete and go straight to search
+  if (_findQueryHasTokens(q)) {
+    drop.style.display = 'none';
+    clearTimeout(_findAcTimer);
+    _findAcTimer = setTimeout(() => runFindCard(q), 500);
+    return;
+  }
   clearTimeout(_findAcTimer);
   _findAcTimer = setTimeout(async () => {
     try {
@@ -1966,112 +2153,142 @@ document.addEventListener('click', e => {
     drop.style.display = 'none';
 });
 
+const _FIND_PAGE = 300;
 let _findSearchAbort = null;
-async function runFindCard(q) {
-  q = (q || '').trim();
+
+function _renderFindCard(cards, el, append, total, isTokenQuery) {
+  const deckBuilderVoiceMode = !!(
+    document.getElementById('voiceModal')?.classList.contains('open') &&
+    typeof voiceAddToActiveDeckMode !== 'undefined' && voiceAddToActiveDeckMode
+  );
+  if (!append) el.innerHTML = '';
+  if (!cards.length && !append) {
+    el.innerHTML = '<div style="grid-column:1/-1;padding:1rem;font-size:0.85rem;color:var(--text3)">No cards found</div>';
+    return;
+  }
+  const frag = document.createDocumentFragment();
+  for (const c of cards) {
+    const uris   = c.image_uris || c.card_faces?.[0]?.image_uris;
+    const img    = uris?.large || uris?.png || uris?.normal || uris?.small || null;
+    const nfQty  = collection.filter(x => x.uid === c.id + '_n').reduce((s,x)=>s+x.qty,0);
+    const fQty   = collection.filter(x => x.uid === c.id + '_f').reduce((s,x)=>s+x.qty,0);
+    const inColl = nfQty > 0 || fQty > 0;
+    const border = inColl ? '2px solid var(--teal)' : '1px solid var(--border)';
+    const cardFilter = deckBuilderVoiceMode && !inColl ? 'grayscale(72%) opacity(0.62)' : '';
+    const div = document.createElement('div');
+    div.className = 'deck-search-tile';
+    div.dataset.add = 'find:' + c.id;
+    div.dataset.card = JSON.stringify({
+      id: c.id, oracle_id: c.oracle_id, name: c.name, set: c.set,
+      set_name: c.set_name, collector_number: c.collector_number,
+      rarity: c.rarity, type_line: c.type_line, mana_cost: c.mana_cost,
+      cmc: c.cmc, colors: c.colors, color_identity: c.color_identity,
+      image_uris: c.image_uris, card_faces: c.card_faces,
+      oracle_text: c.oracle_text, power: c.power, toughness: c.toughness,
+      loyalty: c.loyalty,
+    });
+    div.style.cursor = 'pointer';
+    div.innerHTML = `<div data-img-wrapper style="aspect-ratio:0.715;overflow:hidden;border-radius:6px;border:${border};position:relative;transition:border-color 0.15s;${cardFilter ? `filter:${cardFilter};` : ''}">
+      ${img ? `<img src="${img}" class="find-card-results-img" alt="${c.name}" loading="lazy">` : `<div style="width:100%;height:100%;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:0.68rem;padding:6px;text-align:center;color:var(--text2)">${c.name}</div>`}
+      <div data-badges style="position:absolute;inset:0;pointer-events:none">
+        ${nfQty > 0 ? `<div class="find-card-results-qty find-card-results-qty--nf">×${nfQty}</div>` : ''}
+        ${fQty  > 0 ? `<div class="find-card-results-qty find-card-results-qty--foil">✦×${fQty}</div>` : ''}
+      </div>
+    </div>`;
+    frag.appendChild(div);
+  }
+  // Remove old load-more button before appending
+  el.querySelector('.find-load-more-row')?.remove();
+  el.appendChild(frag);
+  // Count row + load more
+  const shown = el.querySelectorAll('.deck-search-tile').length;
+  if (isTokenQuery && total !== null) {
+    const footer = document.createElement('div');
+    footer.className = 'find-load-more-row';
+    footer.style.cssText = 'grid-column:1/-1;padding:0.75rem 0;display:flex;align-items:center;gap:12px;justify-content:center;font-size:0.78rem;color:var(--text3)';
+    footer.innerHTML = `<span>${shown.toLocaleString()} of ${Number(total).toLocaleString()}</span>` +
+      (shown < total ? `<button class="btn btn-outline btn-sm" onclick="runFindCard(null,true)">Load more</button>` : '');
+    el.appendChild(footer);
+  }
+}
+
+async function runFindCard(q, append) {
+  if (append) {
+    q = _findSearchQuery;
+  } else {
+    q = (q || '').trim();
+    _findSearchQuery = q;
+    _findSearchOffset = 0;
+    _findSearchTotal = 0;
+  }
   document.getElementById('findCardAutocomplete').style.display = 'none';
   const el = document.getElementById('findCardResults');
   if (!q || q.length < 2) { el.innerHTML = ''; return; }
 
-  if (_findSearchAbort) _findSearchAbort.abort();
-  _findSearchAbort = new AbortController();
-  const signal = _findSearchAbort.signal;
+  if (!append) {
+    if (_findSearchAbort) _findSearchAbort.abort();
+    _findSearchAbort = new AbortController();
+  }
+  const signal = _findSearchAbort?.signal;
 
-  el.innerHTML = '<div style="grid-column:1/-1;padding:1rem;font-size:0.85rem;color:var(--text3)">Searching…</div>';
+  if (!append) el.innerHTML = '<div style="grid-column:1/-1;padding:1rem;font-size:0.85rem;color:var(--text3)">Searching…</div>';
+
+  const isTokenQuery = _findQueryHasTokens(q);
+  const paperOnly = _getFindPaperOnly();
 
   try {
-    const res = await fetch(
-      `https://api.scryfall.com/cards/search?q=${encodeURIComponent(q + ' -is:extra')}&order=released&unique=prints`,
-      { signal }
-    );
-    if (!res.ok) { el.innerHTML = '<div style="grid-column:1/-1;padding:1rem;font-size:0.85rem;color:var(--text3)">No cards found</div>'; return; }
-    const data  = await res.json();
-    let cards = (data.data || []).slice(0, 60);
-    // Voice modal can provide an optional set-filter predicate.
+    let cards, total = null;
+    if (isTokenQuery) {
+      const url = `/api/cards/search?q=${encodeURIComponent(q)}&limit=${_FIND_PAGE}&offset=${_findSearchOffset}${paperOnly ? '&paperOnly=1' : ''}`;
+      const res = await fetch(url, { signal });
+      if (!res.ok) { if (!append) el.innerHTML = '<div style="grid-column:1/-1;padding:1rem;font-size:0.85rem;color:var(--text3)">No cards found</div>'; return; }
+      const data = await res.json();
+      cards = data.data || [];
+      total = data.total ?? null;
+      _findSearchTotal = total;
+      _findSearchOffset += cards.length;
+    } else {
+      const scryfallQ = q + ' -is:extra' + (paperOnly ? ' game:paper' : '');
+      const res = await fetch(
+        `https://api.scryfall.com/cards/search?q=${encodeURIComponent(scryfallQ)}&order=released&unique=prints`,
+        { signal }
+      );
+      if (!res.ok) { if (!append) el.innerHTML = '<div style="grid-column:1/-1;padding:1rem;font-size:0.85rem;color:var(--text3)">No cards found</div>'; return; }
+      const data = await res.json();
+      cards = (data.data || []).slice(0, 60);
+    }
     const voiceSetFilter =
       typeof globalThis.getVoiceSearchSetFilterPredicate === 'function'
-        ? globalThis.getVoiceSearchSetFilterPredicate()
-        : null;
+        ? globalThis.getVoiceSearchSetFilterPredicate() : null;
     if (typeof voiceSetFilter === 'function') {
-      cards = cards.filter(card => {
-        try {
-          return !!voiceSetFilter(card);
-        } catch (_) {
-          return true;
-        }
-      });
-    }
-    if (!cards.length) { el.innerHTML = '<div style="grid-column:1/-1;padding:1rem;font-size:0.85rem;color:var(--text3)">No cards found</div>'; return; }
-
-    const foil = !!findCardFoil;
-    const deckBuilderVoiceMode = !!(
-      document.getElementById('voiceModal')?.classList.contains('open') &&
-      typeof voiceAddToActiveDeckMode !== 'undefined' &&
-      voiceAddToActiveDeckMode
-    );
-    if (deckBuilderVoiceMode) {
-      cards = cards
-        .map((c, idx) => {
-          const nfQty = collection.filter(x => x.uid === c.id + '_n').reduce((s, x) => s + x.qty, 0);
-          const fQty = collection.filter(x => x.uid === c.id + '_f').reduce((s, x) => s + x.qty, 0);
-          const inCollection = (nfQty + fQty) > 0;
-          return { c, idx, inCollection };
-        })
-        .sort((a, b) => {
-          if (a.inCollection !== b.inCollection) return a.inCollection ? -1 : 1;
-          return a.idx - b.idx;
-        })
-        .map(x => x.c);
+      cards = cards.filter(card => { try { return !!voiceSetFilter(card); } catch (_) { return true; } });
     }
 
-    el.innerHTML = cards.map(c => {
-      const uris   = c.image_uris || c.card_faces?.[0]?.image_uris;
-      const img    = uris?.large || uris?.png || uris?.normal || uris?.small || null;
-      const nfQty  = collection.filter(x => x.uid === c.id + '_n').reduce((s,x)=>s+x.qty,0);
-      const fQty   = collection.filter(x => x.uid === c.id + '_f').reduce((s,x)=>s+x.qty,0);
-      const inColl = nfQty > 0 || fQty > 0;
-      const border = inColl ? '2px solid var(--teal)' : '1px solid var(--border)';
-      const cardFilter = deckBuilderVoiceMode && !inColl ? 'grayscale(72%) opacity(0.62)' : '';
-      const titleColor = deckBuilderVoiceMode && !inColl ? 'var(--text3)' : '';
-      const addUid = c.id + (findCardFoil ? '_f' : '_n');
-      const newToCollection = !collection.some(x => x.uid === addUid);
-      const newBadge = newToCollection
-        ? `<span class="find-tile-new-badge" title="This printing (${(c.set || '').toUpperCase()} #${c.collector_number}${findCardFoil ? ', foil' : ''}) is not in your collection yet">New</span>`
-        : '';
-      return `
-        <div class="deck-search-tile" data-add="find:${c.id}" style="cursor:pointer">
-          <div data-img-wrapper style="aspect-ratio:0.715;overflow:hidden;border-radius:6px;border:${border};position:relative;transition:border-color 0.15s;${cardFilter ? `filter:${cardFilter};` : ''}">
-            ${img ? `<img src="${img}" class="find-card-results-img" alt="${c.name}" loading="lazy">`
-                  : `<div style="width:100%;height:100%;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:0.68rem;padding:6px;text-align:center;color:var(--text2)">${c.name}</div>`}
-            <div data-badges style="position:absolute;inset:0;pointer-events:none">
-              ${nfQty > 0 ? `<div class="find-card-results-qty find-card-results-qty--nf">×${nfQty}</div>` : ''}
-              ${fQty  > 0 ? `<div class="find-card-results-qty find-card-results-qty--foil">✦×${fQty}</div>` : ''}
-            </div>
-          </div>
-          <div class="find-card-results-name" style="${titleColor ? `color:${titleColor};` : ''}">${c.name}</div>
-          <div class="find-card-results-meta">${(c.set||'').toUpperCase()} #${c.collector_number}${newBadge}</div>
-        </div>`;
-    }).join('');
+    _renderFindCard(cards, el, !!append, isTokenQuery ? _findSearchTotal : null, isTokenQuery);
 
-    el.onclick = e => {
-      const tile = e.target.closest('.deck-search-tile');
-      if (!tile) return;
-      const scryfallId = tile.dataset.add.replace('find:', '');
-      const card = cards.find(c => c.id === scryfallId);
-      if (!card) return;
-      const qty  = parseInt(document.getElementById('findCardQty')?.value) || 1;
-      const foil = findCardFoil;
-      addCardToCollection(card, qty, foil);
-      tile.querySelector('[data-img-wrapper]').style.border = '2px solid var(--teal)';
-      const nfQty = collection.filter(x => x.uid === scryfallId + '_n').reduce((s,x)=>s+x.qty,0);
-      const fQty  = collection.filter(x => x.uid === scryfallId + '_f').reduce((s,x)=>s+x.qty,0);
-      tile.querySelector('[data-badges]').innerHTML =
-        (nfQty > 0 ? `<div class="find-card-results-qty find-card-results-qty--nf">×${nfQty}</div>` : '') +
-        (fQty  > 0 ? `<div class="find-card-results-qty find-card-results-qty--foil">✦×${fQty}</div>` : '');
-    };
+    // Wire click handler once (on first load or after clear)
+    if (!append) {
+      el.onclick = e => {
+        const tile = e.target.closest('.deck-search-tile');
+        if (!tile) return;
+        const scryfallId = tile.dataset.add?.replace('find:', '');
+        if (!scryfallId) return;
+        const qty  = parseInt(document.getElementById('findCardQty')?.value) || 1;
+        let cardData;
+        try { cardData = JSON.parse(tile.dataset.card || '{}'); } catch(_) { cardData = {}; }
+        if (!cardData.id) cardData = { id: scryfallId, name: tile.querySelector('img')?.alt || scryfallId };
+        addCardToCollection(cardData, qty, findCardFoil);
+        tile.querySelector('[data-img-wrapper]').style.border = '2px solid var(--teal)';
+        const nfQty = collection.filter(x => x.uid === scryfallId + '_n').reduce((s,x)=>s+x.qty,0);
+        const fQty  = collection.filter(x => x.uid === scryfallId + '_f').reduce((s,x)=>s+x.qty,0);
+        tile.querySelector('[data-badges]').innerHTML =
+          (nfQty > 0 ? `<div class="find-card-results-qty find-card-results-qty--nf">×${nfQty}</div>` : '') +
+          (fQty  > 0 ? `<div class="find-card-results-qty find-card-results-qty--foil">✦×${fQty}</div>` : '');
+      };
+    }
   } catch(e) {
     if (e.name === 'AbortError') return;
-    el.innerHTML = '<div style="grid-column:1/-1;padding:1rem;font-size:0.85rem;color:var(--red)">Search failed — check connection</div>';
+    if (!append) el.innerHTML = '<div style="grid-column:1/-1;padding:1rem;font-size:0.85rem;color:var(--red)">Search failed — check connection</div>';
   }
 }
 

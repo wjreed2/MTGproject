@@ -251,7 +251,12 @@ window.addEventListener('beforeunload', () => {
   if (toSave.has('collection')) fetch(root + '/collection',  { ...ko, body: JSON.stringify(collection) }).catch(() => {});
   if (toSave.has('games'))      fetch(root + '/games',       { ...ko, body: JSON.stringify(games) }).catch(() => {});
   if (toSave.has('wishlist'))   fetch(root + '/wishlist',    { ...ko, body: JSON.stringify(wishlist) }).catch(() => {});
-  if (toSave.has('prefs'))      fetch(root + '/preferences', { ...ko, body: JSON.stringify({ starred_sets: [...starredSets], deck_custom_tags: deckCustomTags || [] }) }).catch(() => {});
+  if (toSave.has('prefs'))      fetch(root + '/preferences', { ...ko, body: JSON.stringify({
+    starred_sets: [...starredSets],
+    deck_custom_tags: deckCustomTags || [],
+    deck_primary_tags: deckPrimaryTags || [],
+    deck_secondary_tags: deckSecondaryTags || [],
+  }) }).catch(() => {});
 });
 
 // ── Debounced per-deck save for shared (collaborator) decks
@@ -292,7 +297,12 @@ async function _flushSave() {
   if (toSave.has('decks'))      ops.push(apiPut('/decks', decks));
   if (toSave.has('games'))      ops.push(apiPut('/games', games));
   if (toSave.has('wishlist'))   ops.push(apiPut('/wishlist', wishlist));
-  if (toSave.has('prefs'))      ops.push(apiPut('/preferences', { starred_sets: [...starredSets], deck_custom_tags: deckCustomTags || [] }));
+  if (toSave.has('prefs'))      ops.push(apiPut('/preferences', {
+    starred_sets: [...starredSets],
+    deck_custom_tags: deckCustomTags || [],
+    deck_primary_tags: deckPrimaryTags || [],
+    deck_secondary_tags: deckSecondaryTags || [],
+  }));
   try {
     if (ops.length) await Promise.all(ops);
     if (_isOffline) _setOnline();

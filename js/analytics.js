@@ -23,7 +23,7 @@ function renderColorChart() {
     },
     options: {
       maintainAspectRatio: false,
-      plugins: { legend: { labels: { color: '#9a9488', font: { family: 'Crimson Pro' } } } },
+      plugins: { legend: { labels: { color: '#9a9488', font: { family: 'Crimson Pro', size: 13 } } } },
       cutout: '65%'
     }
   });
@@ -42,7 +42,7 @@ function renderRarityChart() {
     },
     options: {
       plugins: { legend: { display: false } },
-      scales: { y: { ticks: { color: '#6a6560' }, grid: { color: 'rgba(255,255,255,0.05)' } }, x: { ticks: { color: '#9a9488' }, grid: { display: false } } }
+      scales: { y: { ticks: { color: '#6a6560', font: { size: 13 } }, grid: { color: 'rgba(255,255,255,0.05)' } }, x: { ticks: { color: '#9a9488', font: { size: 13 } }, grid: { display: false } } }
     }
   });
 }
@@ -81,8 +81,8 @@ function renderValueChart() {
         tooltip: { callbacks: { label: ctx => '$' + ctx.parsed.y.toFixed(2) } }
       },
       scales: {
-        y: { ticks: { color: '#6a6560', callback: v => '$' + v.toFixed(0) }, grid: { color: 'rgba(255,255,255,0.04)' } },
-        x: { ticks: { color: '#9a9488', maxTicksLimit: 10 }, grid: { display: false } }
+        y: { ticks: { color: '#6a6560', callback: v => '$' + v.toFixed(0), font: { size: 13 } }, grid: { color: 'rgba(255,255,255,0.04)' } },
+        x: { ticks: { color: '#9a9488', maxTicksLimit: 10, font: { size: 13 } }, grid: { display: false } }
       }
     }
   });

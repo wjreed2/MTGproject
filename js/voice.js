@@ -39,6 +39,7 @@ const voiceSetPrefsDefault = {
   excludeTokenSets: true,
   excludeArtCardSets: true,
   filterOwnedSetsOnly: false,
+  paperOnly: true,
 };
 let voiceSetPrefs = { ...voiceSetPrefsDefault };
 _voiceLoadSetPrefs();
@@ -78,6 +79,7 @@ function _voiceSaveSetPrefs() {
     excludeTokenSets: !!voiceSetPrefs.excludeTokenSets,
     excludeArtCardSets: !!voiceSetPrefs.excludeArtCardSets,
     filterOwnedSetsOnly: !!voiceSetPrefs.filterOwnedSetsOnly,
+    paperOnly: voiceSetPrefs.paperOnly !== false,
   };
   localStorage.setItem(VOICE_SET_PREFS_KEY, JSON.stringify(payload));
 }
@@ -153,9 +155,11 @@ function renderVoiceSetSearchSettings() {
   const tokenChk = document.getElementById('voiceExcludeTokenSetsChk');
   const artChk = document.getElementById('voiceExcludeArtSetsChk');
   const mySetsChk = document.getElementById('voiceFilterMyCollectionSetsChk');
+  const paperChk = document.getElementById('findCardPaperOnlyChk');
   if (tokenChk) tokenChk.checked = !!voiceSetPrefs.excludeTokenSets;
   if (artChk) artChk.checked = !!voiceSetPrefs.excludeArtCardSets;
   if (mySetsChk) mySetsChk.checked = !!voiceSetPrefs.filterOwnedSetsOnly;
+  if (paperChk) paperChk.checked = voiceSetPrefs.paperOnly !== false;
 }
 
 function onVoiceSearchSettingsChanged() {
@@ -164,6 +168,13 @@ function onVoiceSearchSettingsChanged() {
   voiceSetPrefs.filterOwnedSetsOnly = !!document.getElementById('voiceFilterMyCollectionSetsChk')?.checked;
   _voiceSaveSetPrefs();
   renderVoiceSetSearchSettings();
+  const q = String(document.getElementById('findCardInput')?.value || '').trim();
+  if (q.length >= 2 && typeof runFindCard === 'function') runFindCard(q);
+}
+
+function onFindPaperOnlyChanged() {
+  voiceSetPrefs.paperOnly = !!document.getElementById('findCardPaperOnlyChk')?.checked;
+  _voiceSaveSetPrefs();
   const q = String(document.getElementById('findCardInput')?.value || '').trim();
   if (q.length >= 2 && typeof runFindCard === 'function') runFindCard(q);
 }
@@ -453,10 +464,15 @@ function switchVoiceTab(tab) {
   document.getElementById('searchTabContent').style.display = isVoice ? 'none' : '';
   document.getElementById('voiceTabBtn').classList.toggle('active', isVoice);
   document.getElementById('searchTabBtn').classList.toggle('active', !isVoice);
+  const modal = document.getElementById('voiceModal');
+  const modalEl = modal?.querySelector('.modal');
+  modal?.classList.toggle('search-mode', !isVoice);
+  if (modalEl) modalEl.style.width = isVoice ? 'min(960px,96vw)' : '';
   if (!isVoice) {
     if (isListening) stopRecording();
+    if (typeof _updateFindPaperOnlyState === 'function') _updateFindPaperOnlyState();
     setTimeout(() => document.getElementById('findCardInput')?.focus(), 60);
-  } else if (document.getElementById('voiceModal').classList.contains('open') && !isListening) {
+  } else if (modal?.classList.contains('open') && !isListening) {
     voiceAutoRestart = true;
     startRecording();
   }

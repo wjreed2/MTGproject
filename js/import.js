@@ -531,19 +531,12 @@ async function enrichCardsByName(cards) {
           return byId || bySetNumber || byName;
         });
         if (!card) continue;
-        card.scryfallId  = sc.id;
-        card.uid         = sc.id + (card.foil ? '_f' : '_n');
-        card.name        = sc.name; // use canonical Scryfall name
-        card.image       = sc.image_uris?.small  || sc.card_faces?.[0]?.image_uris?.small  || card.image;
-        card.imageLarge  = sc.image_uris?.normal || sc.card_faces?.[0]?.image_uris?.normal || card.imageLarge;
-        card.type        = sc.type_line        || card.type;
-        card.mana        = sc.mana_cost        || card.mana;
-        card.cmc         = sc.cmc              ?? card.cmc;
-        card.rarity      = sc.rarity           || card.rarity;
-        card.set         = sc.set              || card.set;
-        card.setName     = sc.set_name         || card.setName;
-        card.number      = sc.collector_number || card.number;
-        if (sc.color_identity?.length) card.colorIdentity = card.colors = sc.color_identity;
+        const { foil, isCommander, qty } = card;
+        const entry = cardToEntry(sc, qty);
+        Object.assign(card, entry);
+        card.foil = foil;
+        if (isCommander !== undefined) card.isCommander = isCommander;
+        card.uid = sc.id + (foil ? '_f' : '_n');
       }
       // Track cards Scryfall couldn't identify
       for (const nf of (data.not_found || [])) {

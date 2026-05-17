@@ -29,6 +29,28 @@ async function searchCards(q, signal) {
   return d.data || [];
 }
 
+async function fetchScryfallCollection(identifiers) {
+  const res = await fetch('/api/scryfall/collection', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ identifiers }),
+  });
+  if (!res.ok) return { data: [], not_found: [] };
+  return await res.json();
+}
+
+/** Batch-fetch Scryfall cards by id (75 per request). */
+async function fetchAllCardsByScryfallIds(ids) {
+  const unique = [...new Set((ids || []).filter(Boolean))];
+  const out = [];
+  for (let i = 0; i < unique.length; i += 75) {
+    const batch = unique.slice(i, i + 75).map(id => ({ id }));
+    const d = await fetchScryfallCollection(batch);
+    out.push(...(d.data || []));
+  }
+  return out;
+}
+
 function getTCGPriceForCard(card) {
   if (!card) return 0;
   const nonFoil = parseFloat(card.priceTCG) || 0;

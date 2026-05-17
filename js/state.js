@@ -6,6 +6,8 @@ let decks      = [];
 let wishlist   = [];
 let activeDeckId  = null;
 let deckCustomTags = [];
+let deckPrimaryTags = [];
+let deckSecondaryTags = [];
 let colorFilters  = new Set();
 let currentView   = 'grid';
 let currentSort   = 'name';
@@ -72,6 +74,8 @@ let currentUser = null; // { id, email, role, createdAt, lastLoginAt, changelogA
 // ── Save ──────────────────────────────────────────────────────────────────────
 
 function save(...domains) {
+  const touched = domains.length ? domains : ['collection', 'decks', 'games', 'wishlist', 'prefs'];
+  if (touched.includes('prefs') && typeof normalizeDeckTagPrefs === 'function') normalizeDeckTagPrefs();
   markDirty(...domains);
   scheduleSave();
 }
@@ -116,11 +120,32 @@ async function loadAppDataAfterAuth() {
       const stored = localStorage.getItem('mtg_starred_sets');
       starredSets = new Set(stored ? JSON.parse(stored) : []);
     }
-    if (Array.isArray(data.prefs?.deck_custom_tags)) {
-      deckCustomTags = data.prefs.deck_custom_tags;
+    if (typeof applyDeckTagPrefsFromServer === 'function') {
+      applyDeckTagPrefsFromServer(data.prefs || {});
     } else {
+      const storedPri = localStorage.getItem('mtg_deck_primary_tags');
+      const storedSec = localStorage.getItem('mtg_deck_secondary_tags');
       const storedTags = localStorage.getItem('mtg_deck_custom_tags');
-      deckCustomTags = storedTags ? JSON.parse(storedTags) : [];
+      if (storedPri || storedSec) {
+        try {
+          deckPrimaryTags = storedPri ? JSON.parse(storedPri) : [];
+          deckSecondaryTags = storedSec ? JSON.parse(storedSec) : [];
+        } catch (_) {
+          deckPrimaryTags = [];
+          deckSecondaryTags = [];
+        }
+      } else if (Array.isArray(data.prefs?.deck_custom_tags)) {
+        deckPrimaryTags = data.prefs.deck_custom_tags.filter(Boolean);
+        deckSecondaryTags = [];
+      } else {
+        const parsed = storedTags ? JSON.parse(storedTags) : [];
+        deckPrimaryTags = Array.isArray(parsed) ? parsed : [];
+        deckSecondaryTags = [];
+      }
+      if (typeof normalizeDeckTagPrefs === 'function') normalizeDeckTagPrefs();
+      else {
+        deckCustomTags = [...new Set([...deckPrimaryTags, ...deckSecondaryTags])].sort((a, b) => a.localeCompare(b));
+      }
     }
 
     // Drop any collection entries that have no scryfallId and no image — these are
@@ -145,17 +170,29 @@ async function loadAppDataAfterAuth() {
     wishlist.forEach(c => {
       if (typeof c.priceCKFoil !== 'number') c.priceCKFoil = c.priceTCGFoil ? c.priceTCGFoil * 0.88 : 0;
     });
-    decks.forEach(d =>
+    decks.forEach(d => {
+      if (!Array.isArray(d.disabledTags)) d.disabledTags = [];
       (d.cards || []).forEach(c => {
         if (!Array.isArray(c.customTags)) c.customTags = [];
-      })
-    );
+      });
+      (d.sideboard || []).forEach(c => {
+        if (!Array.isArray(c.customTags)) c.customTags = [];
+      });
+    });
     sharedDecks = data.sharedDecks || [];
-    sharedDecks.forEach(d =>
+    sharedDecks.forEach(d => {
+      if (!Array.isArray(d.disabledTags)) d.disabledTags = [];
       (d.cards || []).forEach(c => {
         if (!Array.isArray(c.customTags)) c.customTags = [];
-      })
-    );
+      });
+      (d.sideboard || []).forEach(c => {
+        if (!Array.isArray(c.customTags)) c.customTags = [];
+      });
+    });
+    if (typeof sanitizeAllDeckCustomTags === 'function' && sanitizeAllDeckCustomTags()) {
+      save('decks', 'collection');
+    }
+    if (typeof deckGroupBy !== 'undefined' && deckGroupBy === 'custom_tag') deckGroupBy = 'tag_all';
     const savedDeckId = localStorage.getItem('mtg_active_deck_id');
     if (savedDeckId) {
       if (decks.some(d => d.id === savedDeckId) || sharedDecks.some(d => d.id === savedDeckId)) {
@@ -168,7 +205,17 @@ async function loadAppDataAfterAuth() {
       }
     }
   if (typeof loadTagOverrides === 'function') {
-    try { await loadTagOverrides(true); } catch (_) {}
+    try {
+      await loadTagOverrides(true);
+      // Retroactively apply global custom tags to all existing deck cards
+      if (typeof _applyGlobalCustomTagsToCard === 'function') {
+        let dirty = false;
+        [...decks, ...sharedDecks].forEach(d =>
+          (d.cards || []).forEach(c => { if (_applyGlobalCustomTagsToCard(c)) dirty = true; })
+        );
+        if (dirty) save('decks');
+      }
+    } catch (_) {}
   }
 
   body.style.opacity = '';
@@ -194,9 +241,6 @@ async function maybeShowWhatsNewDigest() {
     const d = await authFetchDigest();
     const n = d.features?.length || 0;
     if (typeof applyWhatsNewUnreadUi === 'function') applyWhatsNewUnreadUi(n);
-    if (n === 0) return;
-    if (typeof getWhatsNewAutoPopup === 'function' && !getWhatsNewAutoPopup()) return;
-    if (typeof openWhatsNewModal === 'function') openWhatsNewModal(d, { autoPopup: true });
   } catch (_) {
     if (typeof applyWhatsNewUnreadUi === 'function') applyWhatsNewUnreadUi(0);
   }

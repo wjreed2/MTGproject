@@ -53,29 +53,6 @@ function closeSettingsDropdown() {
   document.getElementById('settingsDropdown')?.classList.remove('open');
 }
 
-function getWhatsNewAutoPopup() {
-  return localStorage.getItem('mtg_whats_new_auto') !== '0';
-}
-
-function toggleWhatsNewAutoPopup() {
-  const next = !getWhatsNewAutoPopup();
-  localStorage.setItem('mtg_whats_new_auto', next ? '1' : '0');
-  renderWhatsNewAutoBtn();
-  showNotif(
-    next
-      ? 'Release notes will open automatically after load'
-      : 'Release notes auto-popup off — use the bell or What’s new in the menu',
-  );
-}
-
-function renderWhatsNewAutoBtn() {
-  const btn = document.getElementById('settingsWhatsNewAutoBtn');
-  if (!btn) return;
-  const on = getWhatsNewAutoPopup();
-  btn.innerHTML = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><rect x="2" y="3" width="12" height="9" rx="1"/><path d="M6 14h4"/></svg>Release notes popup${on ? ': on' : ': off'}`;
-  btn.style.color = on ? 'var(--teal)' : '';
-  btn.style.borderColor = on ? 'var(--teal)' : '';
-}
 
 /** $0–$10: rows with max(TCG, CK) unit price below this are omitted from collection value stats only. */
 const VALUE_EXCLUDE_MAX_USD = 10;
@@ -115,8 +92,9 @@ function renderValueExcludeSlider() {
 
 document.addEventListener('click', e => {
   const row = document.getElementById('topbarUserRow');
-  if (row && !row.contains(e.target)) {
-    document.getElementById('settingsDropdown')?.classList.remove('open');
+  const dropdown = document.getElementById('settingsDropdown');
+  if (row && dropdown && !row.contains(e.target) && !dropdown.contains(e.target)) {
+    dropdown.classList.remove('open');
   }
 });
 
@@ -158,7 +136,7 @@ function refreshAuthUserLabel(email, role) {
   const el = document.getElementById('topbarUser');
   const row = document.getElementById('topbarUserRow');
   if (el) el.innerHTML = email
-    ? `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="width:13px;height:13px;flex-shrink:0;opacity:0.6"><circle cx="8" cy="5.5" r="2.5"/><path d="M2.5 14c0-3 2.5-5 5.5-5s5.5 2 5.5 5"/></svg><span>${email}</span>`
+    ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:20px;height:20px;flex-shrink:0"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg><span style="font-size:0.82rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${email}</span>`
     : '';
   if (row) row.style.display = email ? 'flex' : 'none';
   // Sync theme button active state whenever the label refreshes
@@ -167,7 +145,6 @@ function refreshAuthUserLabel(email, role) {
     document.getElementById('themeBtn' + t)?.classList.toggle('active', saved === t.toLowerCase());
   });
   if (typeof renderDeckOwnershipBtn === 'function') renderDeckOwnershipBtn();
-  renderWhatsNewAutoBtn();
   renderValueExcludeSlider();
   applyRoleVisibility();
   if (email && typeof refreshWhatsNewUpdateBadge === 'function') void refreshWhatsNewUpdateBadge();
