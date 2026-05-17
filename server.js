@@ -2573,33 +2573,83 @@ async function importScryfallOracleBulkToDb({
   let totalQueries = 0;
   let completedQueries = 0;
 
-  let byOracle = new Map();
   if (importCards) {
     if (typeof onProgress === 'function') onProgress({ phase: 'downloading-bulk' });
     const bulkRes = await scryfallFetch('https://api.scryfall.com/bulk-data');
     if (!bulkRes.ok) throw new Error('Could not fetch Scryfall bulk-data index');
     const bulk = await bulkRes.json();
-    const row = (bulk?.data || []).find(r => r?.type === 'oracle_cards');
-    if (!row?.download_uri) throw new Error('oracle_cards bulk feed missing from Scryfall');
-    sourceUpdatedAt = row.updated_at || null;
-    const dataRes = await scryfallFetch(row.download_uri, { maxRetries: 2 });
+    const bulkRow = (bulk?.data || []).find(r => r?.type === 'oracle_cards');
+    if (!bulkRow?.download_uri) throw new Error('oracle_cards bulk feed missing from Scryfall');
+    sourceUpdatedAt = bulkRow.updated_at || null;
+    const dataRes = await scryfallFetch(bulkRow.download_uri, { maxRetries: 2 });
     if (!dataRes.ok) throw new Error('Could not download oracle_cards bulk data');
-    // Stream-parse the bulk JSON to avoid loading 100MB+ into heap all at once.
-    // dataRes.body is a Node.js ReadableStream (node-fetch / native fetch).
-    await new Promise((resolve, reject) => {
-      // native fetch .body is a WHATWG ReadableStream — convert to Node.js stream for .pipe()
-      const nodeStream = require('stream').Readable.fromWeb(dataRes.body);
-      const pipeline = nodeStream.pipe(streamJsonArray());
-      pipeline.on('data', ({ value: c }) => {
-        const oid = String(c?.oracle_id || '').toLowerCase();
-        if (!/^[0-9a-f-]{36}$/i.test(oid)) return;
-        if (!byOracle.has(oid)) byOracle.set(oid, c);
+
+    // Stream-parse + batch-insert so we never accumulate all 30k cards in heap.
+    // ON DUPLICATE KEY UPDATE is idempotent so we commit each batch independently.
+    if (typeof onProgress === 'function') onProgress({ phase: 'writing-oracle-cards', totalOracleRows: 0, importedRows: 0 });
+    const now = Date.now();
+    const CARD_BATCH = 200;
+    const cardInsertSql = `INSERT INTO scryfall_oracle_cards
+      (oracle_id, name, type_line, oracle_text, colors_json, mana_cost, cmc, imported_at,
+       scryfall_id, color_identity_json, rarity, set_code, image_small, image_normal, power, toughness, loyalty, games_json)
+     VALUES {VALS}
+     ON DUPLICATE KEY UPDATE
+       name=VALUES(name), type_line=VALUES(type_line), oracle_text=VALUES(oracle_text),
+       colors_json=VALUES(colors_json), mana_cost=VALUES(mana_cost), cmc=VALUES(cmc), imported_at=VALUES(imported_at),
+       scryfall_id=VALUES(scryfall_id), color_identity_json=VALUES(color_identity_json),
+       rarity=VALUES(rarity), set_code=VALUES(set_code),
+       image_small=VALUES(image_small), image_normal=VALUES(image_normal),
+       power=VALUES(power), toughness=VALUES(toughness), loyalty=VALUES(loyalty), games_json=VALUES(games_json)`;
+
+    const cardToRow = (oid, c) => {
+      const imgs = c?.image_uris || c?.card_faces?.[0]?.image_uris || {};
+      const n = Number(c?.cmc);
+      const cmcVal = Number.isFinite(n) && n >= 0 ? Math.min(n, 99999999.99) : null;
+      return [
+        oid, String(c?.name || ''), c?.type_line || null, c?.oracle_text || null,
+        JSON.stringify(c?.colors || []), c?.mana_cost || null, cmcVal, now,
+        c?.id || null, JSON.stringify(c?.color_identity || []),
+        c?.rarity || null, c?.set || null,
+        imgs.small || null, imgs.normal || null,
+        c?.power || null, c?.toughness || null, c?.loyalty || null,
+        JSON.stringify(Array.isArray(c?.games) ? c.games : ['paper']),
+      ];
+    };
+
+    const conn = await db().getConnection();
+    try {
+      let batch = [];
+      const seen = new Set();
+      const flushBatch = async () => {
+        if (!batch.length) return;
+        const ph = batch.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').join(',');
+        await conn.query(cardInsertSql.replace('{VALS}', ph), batch.flat());
+        imported += batch.length;
+        totalOracleRows = imported;
+        batch = [];
+        if (typeof onProgress === 'function') onProgress({ phase: 'writing-oracle-cards', totalOracleRows, importedRows: imported });
+      };
+
+      await new Promise((resolve, reject) => {
+        const nodeStream = require('stream').Readable.fromWeb(dataRes.body);
+        const arr = nodeStream.pipe(streamJsonArray());
+        arr.on('data', ({ value: c }) => {
+          const oid = String(c?.oracle_id || '').toLowerCase();
+          if (!/^[0-9a-f-]{36}$/i.test(oid) || seen.has(oid)) return;
+          seen.add(oid);
+          batch.push(cardToRow(oid, c));
+          if (batch.length >= CARD_BATCH) {
+            arr.pause();
+            flushBatch().then(() => arr.resume()).catch(e => { arr.destroy(e); reject(e); });
+          }
+        });
+        arr.on('end', () => flushBatch().then(resolve).catch(reject));
+        arr.on('error', reject);
+        nodeStream.on('error', reject);
       });
-      pipeline.on('end', resolve);
-      pipeline.on('error', reject);
-      nodeStream.on('error', reject);
-    });
-    totalOracleRows = byOracle.size;
+    } finally {
+      conn.release();
+    }
   } else {
     const [[row]] = await db().query('SELECT COUNT(*) AS n FROM scryfall_oracle_cards');
     totalOracleRows = Number(row?.n || 0);
@@ -2609,51 +2659,6 @@ async function importScryfallOracleBulkToDb({
   try {
     await conn.beginTransaction();
     const now = Date.now();
-
-    if (importCards) {
-      if (typeof onProgress === 'function') onProgress({ phase: 'writing-oracle-cards', totalOracleRows, importedRows: 0 });
-      const entries = [...byOracle.entries()];
-      const chunkSize = 500;
-      for (let i = 0; i < entries.length; i += chunkSize) {
-        const chunk = entries.slice(i, i + chunkSize);
-        const cardsSql = chunk.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').join(',');
-        const cardsVals = chunk.flatMap(([oid, c]) => {
-          const imgs = c?.image_uris || c?.card_faces?.[0]?.image_uris || {};
-          const cmcVal = (() => {
-            const n = Number(c?.cmc);
-            if (!Number.isFinite(n)) return null;
-            if (n < 0) return null;
-            if (n > 99999999.99) return 99999999.99;
-            return n;
-          })();
-          return [
-            oid, String(c?.name || ''), c?.type_line || null, c?.oracle_text || null,
-            JSON.stringify(c?.colors || []), c?.mana_cost || null, cmcVal, now,
-            c?.id || null, JSON.stringify(c?.color_identity || []),
-            c?.rarity || null, c?.set || null,
-            imgs.small || null, imgs.normal || null,
-            c?.power || null, c?.toughness || null, c?.loyalty || null,
-            JSON.stringify(Array.isArray(c?.games) ? c.games : ['paper']),
-          ];
-        });
-        await conn.query(
-          `INSERT INTO scryfall_oracle_cards
-             (oracle_id, name, type_line, oracle_text, colors_json, mana_cost, cmc, imported_at,
-              scryfall_id, color_identity_json, rarity, set_code, image_small, image_normal, power, toughness, loyalty, games_json)
-           VALUES ${cardsSql}
-           ON DUPLICATE KEY UPDATE
-             name=VALUES(name), type_line=VALUES(type_line), oracle_text=VALUES(oracle_text),
-             colors_json=VALUES(colors_json), mana_cost=VALUES(mana_cost), cmc=VALUES(cmc), imported_at=VALUES(imported_at),
-             scryfall_id=VALUES(scryfall_id), color_identity_json=VALUES(color_identity_json),
-             rarity=VALUES(rarity), set_code=VALUES(set_code),
-             image_small=VALUES(image_small), image_normal=VALUES(image_normal),
-             power=VALUES(power), toughness=VALUES(toughness), loyalty=VALUES(loyalty), games_json=VALUES(games_json)`,
-          cardsVals
-        );
-        imported += chunk.length;
-        if (typeof onProgress === 'function') onProgress({ phase: 'writing-oracle-cards', totalOracleRows, importedRows: imported });
-      }
-    }
 
     if (rebuildTags) {
       const built = await buildTagMapFromQueries({
