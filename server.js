@@ -2587,7 +2587,9 @@ async function importScryfallOracleBulkToDb({
     // Stream-parse the bulk JSON to avoid loading 100MB+ into heap all at once.
     // dataRes.body is a Node.js ReadableStream (node-fetch / native fetch).
     await new Promise((resolve, reject) => {
-      const pipeline = dataRes.body.pipe(streamJsonArray());
+      // native fetch .body is a WHATWG ReadableStream — convert to Node.js stream for .pipe()
+      const nodeStream = require('stream').Readable.fromWeb(dataRes.body);
+      const pipeline = nodeStream.pipe(streamJsonArray());
       pipeline.on('data', ({ value: c }) => {
         const oid = String(c?.oracle_id || '').toLowerCase();
         if (!/^[0-9a-f-]{36}$/i.test(oid)) return;
@@ -2595,7 +2597,7 @@ async function importScryfallOracleBulkToDb({
       });
       pipeline.on('end', resolve);
       pipeline.on('error', reject);
-      dataRes.body.on('error', reject);
+      nodeStream.on('error', reject);
     });
     totalOracleRows = byOracle.size;
   } else {
