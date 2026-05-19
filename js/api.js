@@ -139,6 +139,44 @@ function playCashChingSoundSynth() {
   } catch (_) { /* ignore */ }
 }
 
+/** Effective type line — reversible/MDFC printings often omit root `type_line`. */
+function resolveCardTypeLine(card) {
+  if (!card) return '';
+  const direct = String(card.type || card.typeLine || card.type_line || '').trim();
+  if (direct && direct !== 'undefined') return direct;
+
+  const faces = Array.isArray(card.cardFaces) ? card.cardFaces
+    : (Array.isArray(card.card_faces) ? card.card_faces : []);
+  const faceTypes = faces
+    .map(f => String(f?.type || f?.type_line || '').trim())
+    .filter(t => t && t !== 'undefined');
+  if (!faceTypes.length) return '';
+
+  const uniq = [];
+  faceTypes.forEach(t => { if (!uniq.includes(t)) uniq.push(t); });
+  return uniq.length === 1 ? uniq[0] : uniq.join(' // ');
+}
+
+/** Shorter label when both faces share the same name (e.g. reversible basics). */
+function resolveCardDisplayName(card) {
+  const name = String(card?.name || '').trim();
+  if (!name.includes('//')) return name;
+  const parts = name.split('//').map(s => s.trim()).filter(Boolean);
+  if (parts.length >= 2 && parts.every(p => p.toLowerCase() === parts[0].toLowerCase())) {
+    return parts[0];
+  }
+  return name;
+}
+
+function ensureCardTypeLine(card) {
+  if (!card) return;
+  const tl = resolveCardTypeLine(card);
+  if (tl) {
+    card.type = tl;
+    if (!card.typeLine) card.typeLine = tl;
+  }
+}
+
 function cardToEntry(card, qty = 1) {
   const usd = parseFloat(card.prices?.usd || 0);
   const usdFoil = parseFloat(card.prices?.usd_foil || 0);
@@ -168,7 +206,7 @@ function cardToEntry(card, qty = 1) {
     setName: card.set_name,
     number: card.collector_number,
     rarity: card.rarity,
-    type: card.type_line,
+    type: resolveCardTypeLine(card),
     mana: card.mana_cost || '',
     cmc: card.cmc || 0,
     colors: card.colors || [],

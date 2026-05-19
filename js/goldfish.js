@@ -10,6 +10,7 @@ document.addEventListener('keydown', e => {
     if (_gfCloseTokenPanel()) return;
     if (_gfCloseTutor()) return;
     if (_gfCancelPeek()) return;
+    if (_gfClosePlayChoiceModal()) return;
     _gfCloseZoneViewer();
     return;
   }
@@ -37,6 +38,13 @@ document.addEventListener('keydown', e => {
     e.preventDefault();
     _gfCopyHovered();
   }
+  if (_gfIsHZoomKey(e) && !e.repeat) {
+    e.preventDefault();
+    _gfOnHZoomKeyDown();
+  }
+});
+document.addEventListener('keyup', e => {
+  if (_gfIsHZoomKey(e)) _gfOnHZoomKeyUp();
 });
 document.addEventListener('click', e => {
   const menu = document.getElementById('gfContextMenu');
@@ -57,12 +65,223 @@ let _gfPeekState = null;
 let _gfUid = 0;
 let _gfHover = null;
 let _gfZoneViewerSource = null;
+let _gfZoomedIid = null;
+let _gfHZoomHeld = false;
 
-const GF_BF_CARD_W = 165;
-const GF_BF_CARD_HOVER_W = GF_BF_CARD_W + 20;
-const GF_BF_HOVER_SCALE = GF_BF_CARD_HOVER_W / GF_BF_CARD_W;
 const GF_CARD_ASPECT = 1.396;
-const GF_HAND_CARD_W = 137;
+const GF_BF_SIZE_MIN = 120;
+const GF_BF_SIZE_MAX = 280;
+const GF_BF_PCT_MIN = 20;
+const GF_BF_PCT_MAX = 100;
+const GF_BF_DEFAULT_PCT = 20;
+const GF_BF_ZOOM_PCT = 80;
+const GF_BF_ZOOM_ZONES = new Set(['battlefield', 'hand', 'commandZone']);
+
+const GF_HAND_SIZE_MIN = 72;
+const GF_HAND_SIZE_MAX = 200;
+const GF_HAND_PCT_MIN = 20;
+const GF_HAND_PCT_MAX = 100;
+const GF_HAND_DEFAULT_PCT = 50;
+const GF_HAND_REF_W = 137;
+const GF_HAND_MAX_RISE = 60;
+const GF_HAND_OVERLAP = 34;
+
+function _gfBfPctToPx(pct) {
+  const p = Math.max(GF_BF_PCT_MIN, Math.min(GF_BF_PCT_MAX, pct));
+  const px = GF_BF_SIZE_MIN + (p / 100) * (GF_BF_SIZE_MAX - GF_BF_SIZE_MIN);
+  return Math.max(GF_BF_SIZE_MIN, Math.min(GF_BF_SIZE_MAX, Math.round(px / 10) * 10));
+}
+
+function _gfBfPxToPct(px) {
+  const t = (px - GF_BF_SIZE_MIN) / (GF_BF_SIZE_MAX - GF_BF_SIZE_MIN);
+  const pct = Math.round(Math.max(GF_BF_PCT_MIN, Math.min(GF_BF_PCT_MAX, t * 100)) / 5) * 5;
+  return pct;
+}
+
+function _gfBfZoomTargetPx() {
+  return _gfBfPctToPx(GF_BF_ZOOM_PCT);
+}
+
+function _gfHandPctToPx(pct) {
+  const p = Math.max(GF_HAND_PCT_MIN, Math.min(GF_HAND_PCT_MAX, pct));
+  const px = GF_HAND_SIZE_MIN + (p / 100) * (GF_HAND_SIZE_MAX - GF_HAND_SIZE_MIN);
+  return Math.max(GF_HAND_SIZE_MIN, Math.min(GF_HAND_SIZE_MAX, Math.round(px / 2) * 2));
+}
+
+function _gfHandPxToPct(px) {
+  const t = (px - GF_HAND_SIZE_MIN) / (GF_HAND_SIZE_MAX - GF_HAND_SIZE_MIN);
+  return Math.round(Math.max(GF_HAND_PCT_MIN, Math.min(GF_HAND_PCT_MAX, t * 100)) / 5) * 5;
+}
+
+function _gfReadGfCardPct(storageKey, legacyPxKey) {
+  const pct = parseInt(localStorage.getItem(storageKey), 10);
+  if (Number.isFinite(pct)) return pct;
+  const legacy = parseInt(localStorage.getItem(legacyPxKey), 10);
+  if (Number.isFinite(legacy)) return _gfBfPxToPct(legacy);
+  return GF_BF_DEFAULT_PCT;
+}
+
+let gfLandCardPct = _gfReadGfCardPct('mtg_gf_land_card_pct', 'mtg_gf_land_card_size');
+let gfNonlandCardPct = _gfReadGfCardPct('mtg_gf_nonland_card_pct', 'mtg_gf_nonland_card_size');
+function _gfReadGfHandCardPct() {
+  const pct = parseInt(localStorage.getItem('mtg_gf_hand_card_pct'), 10);
+  if (Number.isFinite(pct)) return pct;
+  const legacy = parseInt(localStorage.getItem('mtg_gf_hand_card_size'), 10);
+  if (Number.isFinite(legacy)) return _gfHandPxToPct(legacy);
+  return GF_HAND_DEFAULT_PCT;
+}
+
+let gfHandCardPct = _gfReadGfHandCardPct();
+let gfLandCardSize = _gfBfPctToPx(gfLandCardPct);
+let gfNonlandCardSize = _gfBfPctToPx(gfNonlandCardPct);
+let gfHandCardSize = _gfHandPctToPx(gfHandCardPct);
+
+function _gfBfCardW(card) {
+  return _gfIsLand(card) ? gfLandCardSize : gfNonlandCardSize;
+}
+
+function _gfHandLayoutMetrics() {
+  const scale = gfHandCardSize / GF_HAND_REF_W;
+  const maxRise = Math.round(GF_HAND_MAX_RISE * scale);
+  const overlap = Math.round(GF_HAND_OVERLAP * scale);
+  const cardH = Math.round(gfHandCardSize * GF_CARD_ASPECT);
+  const handH = cardH + maxRise + 8;
+  const padTop = Math.max(4, Math.round(6 * scale));
+  const padBottom = Math.max(8, Math.round(16 * scale));
+  return { maxRise, overlap, cardH, handH, padTop, padBottom };
+}
+
+function _gfApplyGfCardSizes() {
+  const el = document.getElementById('goldfishOverlay');
+  if (!el) return;
+  el.style.setProperty('--gf-bf-land-w', `${gfLandCardSize}px`);
+  el.style.setProperty('--gf-bf-nonland-w', `${gfNonlandCardSize}px`);
+  const hand = _gfHandLayoutMetrics();
+  el.style.setProperty('--gf-hand-card-w', `${gfHandCardSize}px`);
+  el.style.setProperty('--gf-hand-h', `${hand.handH}px`);
+  el.style.setProperty('--gf-hand-pad-top', `${hand.padTop}px`);
+  el.style.setProperty('--gf-hand-pad-bottom', `${hand.padBottom}px`);
+}
+
+function _gfInitCardSizeSliders() {
+  _gfApplyGfCardSizes();
+  const land = document.getElementById('gfLandCardSizeSlider');
+  const nl = document.getElementById('gfNonlandCardSizeSlider');
+  const hand = document.getElementById('gfHandCardSizeSlider');
+  if (land) land.value = gfLandCardPct;
+  if (nl) nl.value = gfNonlandCardPct;
+  if (hand) hand.value = gfHandCardPct;
+}
+
+function _gfCardZoomBaseW(zone, card) {
+  if (zone === 'battlefield') return _gfBfCardW(card);
+  if (zone === 'hand') return gfHandCardSize;
+  return gfNonlandCardSize;
+}
+
+function _gfCardZoomScale(zone, card) {
+  const base = _gfCardZoomBaseW(zone, card);
+  return base > 0 ? _gfBfZoomTargetPx() / base : 1;
+}
+
+function _gfApplyZoomToEl(el, zone, card) {
+  const scale = _gfCardZoomScale(zone, card);
+  el.classList.add('gf-card-zoomed');
+  el.style.setProperty('--gf-zoom-scale', String(scale));
+}
+
+function _gfClearCardZoom() {
+  if (_gfZoomedIid != null) {
+    const el = document.querySelector(`#goldfishOverlay [data-gf-iid="${_gfZoomedIid}"], #goldfishOverlay [data-iid="${_gfZoomedIid}"]`);
+    if (el) {
+      el.classList.remove('gf-card-zoomed');
+      el.style.removeProperty('--gf-zoom-scale');
+    }
+  }
+  _gfZoomedIid = null;
+}
+
+function _gfIsHZoomKey(e) {
+  return e.code === 'KeyH' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey;
+}
+
+function _gfApplyHoveredZoom() {
+  const { zone, iid } = _gfHover || {};
+  if (iid == null || !GF_BF_ZOOM_ZONES.has(zone)) {
+    _gfClearCardZoom();
+    return;
+  }
+  const card = _gfCardInZone(iid, zone);
+  const el = document.querySelector(`#goldfishOverlay [data-gf-iid="${iid}"], #goldfishOverlay [data-iid="${iid}"]`);
+  if (!card || !el) {
+    _gfClearCardZoom();
+    return;
+  }
+  if (_gfZoomedIid === iid) return;
+  _gfClearCardZoom();
+  _gfZoomedIid = iid;
+  _gfApplyZoomToEl(el, zone, card);
+}
+
+function _gfRefreshCardZoom() {
+  if (!_gfHZoomHeld) return;
+  _gfApplyHoveredZoom();
+}
+
+function _gfOnHZoomKeyDown() {
+  if (!_gf) return;
+  _gfHZoomHeld = true;
+  _gfApplyHoveredZoom();
+}
+
+function _gfOnHZoomKeyUp() {
+  _gfHZoomHeld = false;
+  _gfClearCardZoom();
+}
+
+function setGfLandCardSizePct(pct) {
+  gfLandCardPct = Math.max(GF_BF_PCT_MIN, Math.min(GF_BF_PCT_MAX, Math.round(pct / 5) * 5));
+  gfLandCardSize = _gfBfPctToPx(gfLandCardPct);
+  localStorage.setItem('mtg_gf_land_card_pct', gfLandCardPct);
+  localStorage.setItem('mtg_gf_land_card_size', gfLandCardSize);
+  _gfApplyGfCardSizes();
+  const slider = document.getElementById('gfLandCardSizeSlider');
+  if (slider && +slider.value !== gfLandCardPct) slider.value = gfLandCardPct;
+  if (_gf) {
+    _gfRepositionAutoPlaced();
+    _gfRenderBattlefield();
+    _gfRefreshCardZoom();
+  }
+}
+
+function setGfNonlandCardSizePct(pct) {
+  gfNonlandCardPct = Math.max(GF_BF_PCT_MIN, Math.min(GF_BF_PCT_MAX, Math.round(pct / 5) * 5));
+  gfNonlandCardSize = _gfBfPctToPx(gfNonlandCardPct);
+  localStorage.setItem('mtg_gf_nonland_card_pct', gfNonlandCardPct);
+  localStorage.setItem('mtg_gf_nonland_card_size', gfNonlandCardSize);
+  _gfApplyGfCardSizes();
+  const slider = document.getElementById('gfNonlandCardSizeSlider');
+  if (slider && +slider.value !== gfNonlandCardPct) slider.value = gfNonlandCardPct;
+  if (_gf) {
+    _gfRepositionAutoPlaced();
+    _gfRenderBattlefield();
+    _gfRefreshCardZoom();
+  }
+}
+
+function setGfHandCardSizePct(pct) {
+  gfHandCardPct = Math.max(GF_HAND_PCT_MIN, Math.min(GF_HAND_PCT_MAX, Math.round(pct / 5) * 5));
+  gfHandCardSize = _gfHandPctToPx(gfHandCardPct);
+  localStorage.setItem('mtg_gf_hand_card_pct', gfHandCardPct);
+  localStorage.setItem('mtg_gf_hand_card_size', gfHandCardSize);
+  _gfApplyGfCardSizes();
+  const slider = document.getElementById('gfHandCardSizeSlider');
+  if (slider && +slider.value !== gfHandCardPct) slider.value = gfHandCardPct;
+  if (_gf) {
+    _gfRenderHand();
+    _gfRefreshCardZoom();
+  }
+}
 
 function _gfId() { return ++_gfUid; }
 
@@ -112,7 +331,7 @@ function _gfPlaceCardInZone(card, toZone, opts = {}) {
     const bf = document.getElementById('gfBattlefield');
     const bfW = bf?.clientWidth || 800;
     const bfH = bf?.clientHeight || 500;
-    const cw = GF_BF_CARD_W;
+    const cw = _gfBfCardW(card);
     const ch = Math.round(cw * GF_CARD_ASPECT);
     if (opts.autoPlace) {
       card.autoPlaced = true;
@@ -136,16 +355,241 @@ function _gfPlayDestination(c) {
   return 'battlefield';
 }
 
+const GF_SPELL_FLY_MS = 440;
+let _gfPlayChoicePending = null;
+
+function _gfCardFaces(c) {
+  return Array.isArray(c?.cardFaces) ? c.cardFaces
+    : (Array.isArray(c?.card_faces) ? c.card_faces : []);
+}
+
+function _gfParseDualFaces(c) {
+  const name = String(c?.name || '');
+  const faces = _gfCardFaces(c);
+  const parts = name.includes('//') ? name.split(/\s*\/\/\s*/).map(s => s.trim()) : [];
+  if (faces.length >= 2) {
+    return faces.map((f, i) => ({
+      label: parts[i] || String(f.name || `Face ${i + 1}`).split('//')[0].trim(),
+      typeLine: String(f.type_line || f.type || '').trim(),
+    }));
+  }
+  if (parts.length >= 2) {
+    return parts.map(label => ({ label, typeLine: '' }));
+  }
+  return null;
+}
+
+function _gfIsAdventureCard(c) {
+  const faces = _gfCardFaces(c);
+  if (faces.some(f => /\badventure\b/i.test(String(f.type_line || f.type || '')))) return true;
+  if (/\badventure\b/i.test(_gfTypeLine(c))) return true;
+  return String(c?.name || '').includes('//') && faces.length >= 2;
+}
+
+function _gfIsOmenCard(c) {
+  const tl = _gfTypeLine(c);
+  const name = String(c?.name || '');
+  return /\bomen\b/i.test(tl) || /\bomen\b/i.test(name);
+}
+
+function _gfIsModalPlayCard(c) {
+  return _gfIsAdventureCard(c) || _gfIsOmenCard(c)
+    || (!!_gfParseDualFaces(c) && String(c?.name || '').includes('//'));
+}
+
+function _gfBuildPlayChoices(c) {
+  const choices = [];
+  const faces = _gfParseDualFaces(c);
+  const name = String(c?.name || '');
+
+  if (_gfIsAdventureCard(c) && faces?.length >= 2) {
+    const adv = faces.find(f => /\badventure\b/i.test(f.typeLine)) || faces[0];
+    const perm = faces.find(f => f !== adv) || faces[1];
+    choices.push({ label: `Cast ${adv.label} → Exile`, zone: 'exile' });
+    if (_gfIsInstantSorcery({ type: adv.typeLine })) {
+      choices.push({ label: `Cast ${adv.label} → Graveyard`, zone: 'graveyard', animateSpell: true });
+    }
+    const permDest = _gfPlayDestination({ type: perm.typeLine });
+    choices.push({
+      label: `Cast ${perm.label} → ${_GF_ZONE_LABELS[permDest] || permDest}`,
+      zone: permDest,
+      autoPlace: permDest === 'battlefield',
+      animateSpell: permDest === 'graveyard',
+    });
+    return choices;
+  }
+
+  if (faces?.length >= 2 && name.includes('//')) {
+    for (const face of faces) {
+      const fake = { type: face.typeLine, typeLine: face.typeLine };
+      const zone = _gfPlayDestination(fake);
+      choices.push({
+        label: `${face.label} → ${_GF_ZONE_LABELS[zone] || zone}`,
+        zone,
+        autoPlace: zone === 'battlefield',
+        animateSpell: zone === 'graveyard' && _gfIsInstantSorcery(fake),
+      });
+    }
+    choices.push({ label: 'Whole card → Exile', zone: 'exile' });
+    choices.push({ label: 'Whole card → Hand', zone: 'hand' });
+    return choices;
+  }
+
+  if (_gfIsOmenCard(c)) {
+    choices.push({ label: '→ Battlefield', zone: 'battlefield', autoPlace: true });
+    choices.push({ label: '→ Graveyard', zone: 'graveyard', animateSpell: true });
+    choices.push({ label: '→ Exile', zone: 'exile' });
+    choices.push({ label: '→ Hand', zone: 'hand' });
+    choices.push({ label: '→ Bottom of library', zone: 'library_bottom' });
+    return choices;
+  }
+
+  return null;
+}
+
+function _gfRectFromEl(el, cardW) {
+  const r = el?.getBoundingClientRect?.();
+  const w = cardW || gfHandCardSize;
+  const h = Math.round(w * GF_CARD_ASPECT);
+  if (r && r.width > 2) {
+    return { left: r.left, top: r.top, width: r.width, height: r.height };
+  }
+  return {
+    left: window.innerWidth / 2 - w / 2,
+    top: window.innerHeight * 0.68,
+    width: w,
+    height: h,
+  };
+}
+
+function _gfZoneAnimTargetEl(zone) {
+  if (zone === 'graveyard') {
+    return document.getElementById('gfGYPreview')?.querySelector('.gf-zone-top')
+      || document.getElementById('gfGYSlot');
+  }
+  if (zone === 'exile') {
+    return document.getElementById('gfExilePreview')?.querySelector('.gf-zone-top')
+      || document.getElementById('gfExileSlot');
+  }
+  if (zone === 'hand') return document.querySelector('.gf-hand-wrap');
+  if (zone === 'battlefield') return document.getElementById('gfBattlefield');
+  if (zone === 'library_top' || zone === 'library_bottom') return document.getElementById('gfLibSlot');
+  return document.getElementById('gfBattlefield');
+}
+
+function _gfAnimateCardToZone(card, fromRect, toZone, onDone) {
+  const cardW = fromRect.width || gfHandCardSize;
+  const target = _gfZoneAnimTargetEl(toZone);
+  const toR = target?.getBoundingClientRect?.()
+    || { left: window.innerWidth * 0.88, top: window.innerHeight * 0.35, width: 48, height: 68 };
+
+  const wrap = document.createElement('div');
+  wrap.className = 'gf-spell-fly';
+  wrap.style.cssText = `left:${fromRect.left}px;top:${fromRect.top}px;width:${fromRect.width}px;z-index:9950;`;
+  const inner = document.createElement('div');
+  inner.className = 'gf-spell-fly-inner';
+  inner.innerHTML = _gfCardImg(card, cardW);
+  wrap.appendChild(inner);
+  document.body.appendChild(wrap);
+
+  const dx = (toR.left + toR.width / 2) - (fromRect.left + fromRect.width / 2);
+  const dy = (toR.top + toR.height / 2) - (fromRect.top + fromRect.height / 2);
+  const scale = Math.max(0.28, Math.min(0.72, toR.width / Math.max(fromRect.width, 40)));
+
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      inner.style.transform = `translate(${dx}px, ${dy}px) scale(${scale})`;
+      inner.style.opacity = '0.2';
+      wrap.classList.add('gf-spell-fly--active');
+    });
+  });
+
+  setTimeout(() => {
+    wrap.remove();
+    onDone?.();
+  }, GF_SPELL_FLY_MS + 40);
+}
+
+function _gfClosePlayChoiceModal() {
+  const modal = document.getElementById('gfPlayChoiceModal');
+  if (!modal || modal.style.display === 'none') return false;
+  modal.style.display = 'none';
+  modal.setAttribute('aria-hidden', 'true');
+  _gfPlayChoicePending = null;
+  return true;
+}
+
+function _gfOpenPlayChoiceModal(pending) {
+  const modal = document.getElementById('gfPlayChoiceModal');
+  const title = document.getElementById('gfPlayChoiceTitle');
+  const hint = document.getElementById('gfPlayChoiceHint');
+  const opts = document.getElementById('gfPlayChoiceOptions');
+  if (!modal || !opts || !pending?.choices?.length) return;
+  _gfPlayChoicePending = pending;
+  if (title) title.textContent = pending.card?.name || 'Play card';
+  if (hint) {
+    hint.textContent = _gfIsAdventureCard(pending.card)
+      ? 'Adventure — pick where this spell or permanent goes.'
+      : 'Choose a zone for this card.';
+  }
+  opts.innerHTML = pending.choices.map((ch, i) => `
+    <button type="button" class="gf-play-choice-btn" onclick="_gfConfirmPlayChoice(${i})">${ch.label}</button>
+  `).join('');
+  modal.style.display = 'flex';
+  modal.setAttribute('aria-hidden', 'false');
+}
+
+function _gfConfirmPlayChoice(index) {
+  const pending = _gfPlayChoicePending;
+  if (!pending) return;
+  const choice = pending.choices[index];
+  if (!choice) return;
+  const { iid, fromZone, sourceEl } = pending;
+  _gfClosePlayChoiceModal();
+  _gfResolvePlay(iid, fromZone, choice, sourceEl);
+}
+
+function _gfResolvePlay(iid, fromZone, opts, sourceEl) {
+  if (!_gf) return;
+  const card = _gfCardFromZone(iid, fromZone);
+  if (!card) return;
+
+  const zone = opts.zone;
+  const autoPlace = !!opts.autoPlace;
+  const animate = opts.animateSpell ?? (zone === 'graveyard' && _gfIsInstantSorcery(card));
+  const fromRect = _gfRectFromEl(sourceEl, fromZone === 'hand' ? gfHandCardSize : _gfBfCardW(card));
+
+  if (animate) {
+    _gfRender();
+    _gfAnimateCardToZone(card, fromRect, zone, () => {
+      const placed = _gfPlaceCardInZone(card, zone, { autoPlace });
+      _gfRender();
+      if (placed === 'ceased') _gfFlash(_gfTokenRemovedMsg(card));
+      else _gfFlash(`${card.name} → ${_GF_ZONE_LABELS[zone] || zone}`);
+    });
+    return;
+  }
+
+  const placed = _gfPlaceCardInZone(card, zone, { autoPlace });
+  _gfRender();
+  if (placed === 'ceased') _gfFlash(_gfTokenRemovedMsg(card));
+  else _gfFlash(`${card.name} → ${_GF_ZONE_LABELS[zone] || zone}`);
+}
+
 function _gfOnHoverEnter(el) {
   if (!el?.dataset?.gfZone) return;
   const iid = el.dataset.gfIid ? +el.dataset.gfIid : null;
   _gfHover = { zone: el.dataset.gfZone, iid: Number.isFinite(iid) ? iid : null };
+  if (_gfHZoomHeld) _gfApplyHoveredZoom();
 }
 
 function _gfOnHoverLeave(el) {
   if (!_gfHover || _gfHover.zone !== el?.dataset?.gfZone) return;
   const iid = el.dataset.gfIid ? +el.dataset.gfIid : null;
-  if (_gfHover.iid === (Number.isFinite(iid) ? iid : null)) _gfHover = null;
+  if (_gfHover.iid === (Number.isFinite(iid) ? iid : null)) {
+    _gfHover = null;
+    if (_gfHZoomHeld) _gfClearCardZoom();
+  }
 }
 
 function _gfHoverAttrs(zone, iid) {
@@ -179,6 +623,7 @@ function openGoldfish() {
   document.body.style.overflow = 'hidden';
   const label = document.getElementById('gfDeckLabel');
   if (label) label.textContent = deck.name;
+  _gfInitCardSizeSliders();
   _gfNewGame(false);
   _gfLoadDeckTokens(deck);
   _gfToggleTokenPanel(false);
@@ -186,12 +631,19 @@ function openGoldfish() {
 }
 
 function closeGoldfish() {
+  if (_gfZoneDragState) {
+    const st = _gfZoneDragState;
+    _gfZoneDragState = null;
+    _gfZoneDragCleanupGhost(st);
+  }
   _gf = null;
-  _gfZoneDragState = null;
+  _gfHZoomHeld = false;
+  _gfClearCardZoom();
   _gfHideContextMenu();
   _gfCloseSimPanel();
   _gfCloseTokenPanel();
   _gfCloseTutor();
+  _gfClosePlayChoiceModal();
   const el = document.getElementById('goldfishOverlay');
   if (el) el.style.display = 'none';
   document.body.style.overflow = '';
@@ -203,7 +655,7 @@ function _gfExpandDeck(deck) {
   const cards = [];
   for (const card of (deck.cards || [])) {
     for (let i = 0; i < (card.qty || 1); i++) {
-      cards.push({ ...card, qty: 1, iid: _gfId(), tapped: false, x: 60, y: 40, counters: 0 });
+      cards.push({ ...card, qty: 1, iid: _gfId(), tapped: false, x: 60, y: 40, counters: 0, markers: [] });
     }
   }
   return cards;
@@ -318,12 +770,50 @@ function _gfCloneCard(card, overrides = {}) {
     iid: _gfId(),
     tapped: !!card.tapped,
     counters: card.counters || 0,
+    markers: Array.isArray(card.markers) ? [...card.markers] : [],
     autoPlaced: false,
     ...overrides,
   };
   delete clone._peekDone;
   delete clone._peekDest;
   return clone;
+}
+
+/** Keyword / ability markers (right-click battlefield permanent). */
+const _GF_MARKERS = [
+  'Flying', 'Trample', 'Haste', 'Vigilance', 'Lifelink', 'Deathtouch',
+  'First Strike', 'Double Strike', 'Reach', 'Hexproof', 'Indestructible',
+  'Menace', 'Ward', 'Defender', 'Flash', 'Shroud',
+];
+
+function _gfToggleMarker(iid, label) {
+  const card = _gfFindPermanent(iid);
+  if (!card) return;
+  if (!Array.isArray(card.markers)) card.markers = [];
+  const idx = card.markers.indexOf(label);
+  if (idx >= 0) card.markers.splice(idx, 1);
+  else card.markers.push(label);
+  _gfRenderBattlefield();
+}
+
+function _gfMarkerBadgesHtml(c) {
+  const markers = Array.isArray(c.markers) ? c.markers : [];
+  if (!markers.length) return '';
+  return `<div class="gf-marker-badges">${markers.map(m =>
+    `<span class="gf-marker-chip">${m}</span>`
+  ).join('')}</div>`;
+}
+
+function _gfMarkerMenuItems(iid, card) {
+  const active = new Set(Array.isArray(card?.markers) ? card.markers : []);
+  const items = [{ sep: true }, { header: 'Markers' }];
+  for (const label of _GF_MARKERS) {
+    items.push({
+      label: (active.has(label) ? '✓ ' : '') + label,
+      fn: `_gfToggleMarker(${iid},${JSON.stringify(label)})`,
+    });
+  }
+  return items;
 }
 
 function _gfCopyCard(iid, zone) {
@@ -342,7 +832,7 @@ function _gfCopyCard(iid, zone) {
     const bf = document.getElementById('gfBattlefield');
     const bfW = bf?.clientWidth || 800;
     const bfH = bf?.clientHeight || 500;
-    const cw = GF_BF_CARD_W;
+    const cw = _gfBfCardW(card);
     const ch = Math.round(cw * GF_CARD_ASPECT);
     const baseX = card.x ?? Math.max(8, (bfW - cw) / 2);
     const baseY = card.y ?? Math.max(8, (bfH - ch) / 2);
@@ -404,25 +894,24 @@ function _gfCardFromZone(iid, zone) {
   return arr.splice(idx, 1)[0];
 }
 
-function _gfPlayFromHand(iid) {
+function _gfPlayFromHand(iid, sourceEl) {
   if (!_gf || _gf.mulligansInProgress) {
     if (_gf?.mulligansInProgress) _gfPutBackFromHand(iid);
     return;
   }
-  const card = _gfCardFromZone(iid, 'hand');
+  const card = _gfCardInZone(iid, 'hand');
   if (!card) return;
-  const dest = _gfPlayDestination(card);
-  card.tapped = false;
-  if (dest === 'graveyard') {
-    const placed = _gfPlaceCardInZone(card, 'graveyard');
-    _gfFlash(placed === 'ceased' ? _gfTokenRemovedMsg(card) : `${card.name} → graveyard`);
-  } else {
-    card.autoPlaced = true;
-    _gf.battlefield.push(card);
-    _gfRepositionAutoPlaced();
-    _gfFlash(`${card.name} → battlefield`);
+  const choices = _gfBuildPlayChoices(card);
+  if (choices?.length) {
+    _gfOpenPlayChoiceModal({ iid, fromZone: 'hand', card, choices, sourceEl });
+    return;
   }
-  _gfRender();
+  const dest = _gfPlayDestination(card);
+  _gfResolvePlay(iid, 'hand', {
+    zone: dest,
+    autoPlace: dest === 'battlefield',
+    animateSpell: dest === 'graveyard',
+  }, sourceEl);
 }
 
 /** Auto-placed permanents: lands bottom row (centered above hand), other permanents top. */
@@ -431,30 +920,32 @@ function _gfRepositionAutoPlaced() {
   const bf = document.getElementById('gfBattlefield');
   const bfW = bf?.clientWidth || 800;
   const bfH = bf?.clientHeight || 500;
-  const cw = GF_BF_CARD_W;
-  const ch = Math.round(cw * GF_CARD_ASPECT);
   const gap = 8;
 
   const landCards = _gf.battlefield.filter(c => c.autoPlaced && _gfIsLand(c));
   const nonLandCards = _gf.battlefield.filter(c => c.autoPlaced && !_gfIsLand(c));
 
+  const landW = gfLandCardSize;
+  const landH = Math.round(landW * GF_CARD_ASPECT);
   const landN = landCards.length;
   if (landN) {
-    const totalW = landN * cw + (landN - 1) * gap;
+    const totalW = landN * landW + (landN - 1) * gap;
     const startX = Math.max(8, (bfW - totalW) / 2);
-    const rowY = Math.max(8, bfH - ch - 10);
+    const rowY = Math.max(8, bfH - landH - 10);
     landCards.forEach((c, i) => {
-      c.x = startX + i * (cw + gap);
+      c.x = startX + i * (landW + gap);
       c.y = rowY;
     });
   }
 
-  const cols = Math.max(1, Math.floor((bfW - 16) / (cw + gap)));
+  const nlW = gfNonlandCardSize;
+  const nlH = Math.round(nlW * GF_CARD_ASPECT);
+  const cols = Math.max(1, Math.floor((bfW - 16) / (nlW + gap)));
   nonLandCards.forEach((c, i) => {
     const col = i % cols;
     const row = Math.floor(i / cols);
-    c.x = 8 + col * (cw + gap);
-    c.y = 16 + row * (ch + gap);
+    c.x = 8 + col * (nlW + gap);
+    c.y = 16 + row * (nlH + gap);
   });
 }
 
@@ -494,18 +985,33 @@ function _gfSendTo(iid, fromZone, toZone, opts) {
 
 function _gfMoveCard(iid, fromZone, toZone, opts = {}) {
   if (!_gf || _gf.mulligansInProgress) return false;
-  const card = _gfCardFromZone(iid, fromZone);
+  const card = _gfCardInZone(iid, fromZone);
   if (!card) return false;
-  if (fromZone === 'hand' && toZone === 'battlefield' && _gfIsInstantSorcery(card)) {
-    const placed = _gfPlaceCardInZone(card, 'graveyard');
-    _gfRender();
-    _gfFlash(placed === 'ceased' ? _gfTokenRemovedMsg(card) : `${card.name} → graveyard`);
+
+  if (fromZone === 'hand' && toZone === 'battlefield') {
+    if (_gfIsModalPlayCard(card)) {
+      const choices = _gfBuildPlayChoices(card);
+      if (choices?.length) {
+        _gfOpenPlayChoiceModal({ iid, fromZone, card, choices, sourceEl: opts.sourceEl });
+        return true;
+      }
+    }
+    if (_gfIsInstantSorcery(card)) {
+      _gfResolvePlay(iid, fromZone, { zone: 'graveyard', animateSpell: true }, opts.sourceEl);
+      return true;
+    }
+  }
+  if (fromZone === 'hand' && toZone === 'graveyard' && _gfIsInstantSorcery(card)) {
+    _gfResolvePlay(iid, fromZone, { zone: 'graveyard', animateSpell: true }, opts.sourceEl);
     return true;
   }
-  const placed = _gfPlaceCardInZone(card, toZone, opts);
+
+  const removed = _gfCardFromZone(iid, fromZone);
+  if (!removed) return false;
+  const placed = _gfPlaceCardInZone(removed, toZone, opts);
   if (placed === 'ceased') {
     _gfRender();
-    _gfFlash(_gfTokenRemovedMsg(card));
+    _gfFlash(_gfTokenRemovedMsg(removed));
     return true;
   }
   if (!placed) return false;
@@ -513,16 +1019,21 @@ function _gfMoveCard(iid, fromZone, toZone, opts = {}) {
   return true;
 }
 
-function _gfPlayFromZone(iid, fromZone) {
+function _gfPlayFromZone(iid, fromZone, sourceEl) {
   if (_gf.mulligansInProgress) return;
   const card = _gfCardInZone(iid, fromZone);
   if (!card) return;
-  const dest = _gfPlayDestination(card);
-  if (dest === 'graveyard') {
-    _gfMoveCard(iid, fromZone, 'graveyard');
+  const choices = _gfBuildPlayChoices(card);
+  if (choices?.length) {
+    _gfOpenPlayChoiceModal({ iid, fromZone, card, choices, sourceEl });
     return;
   }
-  _gfMoveCard(iid, fromZone, 'battlefield', { autoPlace: true });
+  const dest = _gfPlayDestination(card);
+  _gfResolvePlay(iid, fromZone, {
+    zone: dest,
+    autoPlace: dest === 'battlefield',
+    animateSpell: dest === 'graveyard',
+  }, sourceEl);
 }
 
 function _gfAddCounter(iid) {
@@ -1072,9 +1583,9 @@ function _gfZoneMoveItems(iid, fromZone) {
     items.push({ label: card?.tapped ? '↺ Untap' : '↻ Tap', fn: `_gfTap(${iid})` });
     items.push({ label: '⧉ Copy (C)', fn: `_gfCopyCard(${iid},'battlefield');_gfHideContextMenu()` });
     items.push({ sep: true });
-    items.push({ label: '+ Counter', fn: `_gfAddCounter(${iid})` });
-    items.push({ label: '− Counter', fn: `_gfRemoveCounter(${iid})` });
-    items.push({ sep: true });
+    items.push({ label: '+1/+1 Counter', fn: `_gfAddCounter(${iid})` });
+    items.push({ label: '−1/+1 Counter', fn: `_gfRemoveCounter(${iid})` });
+    items.push(..._gfMarkerMenuItems(iid, card));
   } else if (fromZone !== 'peek') {
     items.push({ label: '→ Play', fn: `_gfPlayFromZone(${iid},'${fromZone}')` });
   }
@@ -1111,10 +1622,11 @@ function _gfShowContextMenu(e, iid, zone) {
   if (!menu) return;
   menu.innerHTML = `
     <div class="gf-ctx-header">${name}</div>
-    ${items.map(it => it.sep
-      ? `<div class="gf-ctx-sep"></div>`
-      : `<button class="gf-ctx-item" type="button" onclick="${it.fn};_gfHideContextMenu()">${it.label}</button>`
-    ).join('')}`;
+    ${items.map(it => {
+      if (it.sep) return '<div class="gf-ctx-sep"></div>';
+      if (it.header) return `<div class="gf-ctx-header gf-ctx-subheader">${it.header}</div>`;
+      return `<button class="gf-ctx-item" type="button" onclick="${it.fn};_gfHideContextMenu()">${it.label}</button>`;
+    }).join('')}`;
   _gfPositionContextMenu(e, menu);
 }
 
@@ -1125,6 +1637,30 @@ function _gfHideContextMenu() {
 }
 
 // ── Cross-zone drag ───────────────────────────────────────────────────────────
+
+const _GF_DRAG_LISTENER_OPTS = { passive: false, capture: true };
+
+function _gfZoneDragBindListeners() {
+  window.addEventListener('pointermove', _gfZoneDragMove, _GF_DRAG_LISTENER_OPTS);
+  window.addEventListener('pointerup', _gfZoneDragEnd, _GF_DRAG_LISTENER_OPTS);
+  window.addEventListener('pointercancel', _gfZoneDragEnd, _GF_DRAG_LISTENER_OPTS);
+}
+
+function _gfZoneDragUnbindListeners() {
+  window.removeEventListener('pointermove', _gfZoneDragMove, _GF_DRAG_LISTENER_OPTS);
+  window.removeEventListener('pointerup', _gfZoneDragEnd, _GF_DRAG_LISTENER_OPTS);
+  window.removeEventListener('pointercancel', _gfZoneDragEnd, _GF_DRAG_LISTENER_OPTS);
+}
+
+function _gfZoneDragCleanupGhost(st = _gfZoneDragState) {
+  _gfZoneDragUnbindListeners();
+  if (st?.captureEl?.releasePointerCapture && st.pointerId != null) {
+    try { st.captureEl.releasePointerCapture(st.pointerId); } catch { /* ignore */ }
+  }
+  document.getElementById('gfZoneDragGhost')?.remove();
+  document.getElementById('gfBattlefield')?.classList.remove('gf-bf-drop-active');
+  _gfClearZoneHighlights();
+}
 
 function _gfZoneCardPointerDown(e, iid, zone) {
   if (e.button === 2 || zone === 'peek') return;
@@ -1146,23 +1682,85 @@ function _gfLibraryPointerDown(e) {
   _gfStartZoneDrag(e, top.iid, 'library', top);
 }
 
+/** Pointer offset from element top-left (screen px) for ghost + drop placement. */
+function _gfDragGrabFromEl(e, el, fallbackW, fallbackH) {
+  const r = el?.getBoundingClientRect?.();
+  if (!r || r.width < 2) {
+    return { ghostOx: fallbackW / 2, ghostOy: fallbackH * 0.55, ratioX: 0.5, ratioY: 0.55 };
+  }
+  const ghostOx = e.clientX - r.left;
+  const ghostOy = e.clientY - r.top;
+  return {
+    ghostOx,
+    ghostOy,
+    ratioX: Math.max(0, Math.min(1, ghostOx / r.width)),
+    ratioY: Math.max(0, Math.min(1, ghostOy / r.height)),
+  };
+}
+
+function _gfBfDropXY(e, st, cw, ch, bfRect) {
+  let offX = st.grabRatioX * cw;
+  let offY = st.grabRatioY * ch;
+  if (st.grabBfX != null && st.grabBfY != null) {
+    offX = st.grabBfX;
+    offY = st.grabBfY;
+  }
+  return {
+    x: Math.max(0, Math.min(bfRect.width - cw, e.clientX - bfRect.left - offX)),
+    y: Math.max(0, Math.min(bfRect.height - ch, e.clientY - bfRect.top - offY)),
+  };
+}
+
 function _gfStartZoneDrag(e, iid, fromZone, card) {
+  const ghostCard = fromZone === 'battlefield' ? _gfFindPermanent(iid) : null;
+  const ghostW = fromZone === 'battlefield'
+    ? (ghostCard ? _gfBfCardW(ghostCard) : gfNonlandCardSize)
+    : (fromZone === 'hand' ? gfHandCardSize : 120);
+  const ghostH = Math.round(ghostW * GF_CARD_ASPECT);
+  const captureEl = e.currentTarget;
+  const grab = _gfDragGrabFromEl(e, captureEl, ghostW, ghostH);
+
+  let grabBfX = null;
+  let grabBfY = null;
+  if (fromZone === 'battlefield') {
+    const bf = document.getElementById('gfBattlefield');
+    const bfRect = bf?.getBoundingClientRect();
+    if (bfRect) {
+      grabBfX = e.clientX - bfRect.left - card.x;
+      grabBfY = e.clientY - bfRect.top - card.y;
+    }
+  }
+
   const ghost = document.createElement('div');
   ghost.id = 'gfZoneDragGhost';
-  ghost.style.cssText = `left:${e.clientX}px;top:${e.clientY}px;opacity:0;position:fixed;pointer-events:none;z-index:9900;transform:translate(-50%,-60%)`;
-  const ghostW = fromZone === 'battlefield' ? GF_BF_CARD_W
-    : (fromZone === 'hand' ? GF_HAND_CARD_W : 120);
+  ghost.style.cssText = [
+    `left:${e.clientX - grab.ghostOx}px`,
+    `top:${e.clientY - grab.ghostOy}px`,
+    'opacity:0',
+    'position:fixed',
+    'pointer-events:none',
+    'z-index:9900',
+    'transform:none',
+  ].join(';');
   ghost.innerHTML = _gfCardImg(card, ghostW);
   document.body.appendChild(ghost);
+
   _gfZoneDragState = {
     iid, fromZone, startX: e.clientX, startY: e.clientY, moved: false,
     bfReposition: fromZone === 'battlefield',
-    origX: fromZone === 'battlefield' ? card.x : 0,
-    origY: fromZone === 'battlefield' ? card.y : 0,
+    ghostOx: grab.ghostOx,
+    ghostOy: grab.ghostOy,
+    grabRatioX: grab.ratioX,
+    grabRatioY: grab.ratioY,
+    grabBfX,
+    grabBfY,
+    captureEl,
+    pointerId: e.pointerId,
   };
-  document.addEventListener('pointermove', _gfZoneDragMove, { passive: false });
-  document.addEventListener('pointerup', _gfZoneDragEnd);
-  document.addEventListener('pointercancel', _gfZoneDragEnd);
+  if (captureEl?.setPointerCapture) {
+    try { captureEl.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+  }
+  _gfZoneDragBindListeners();
 }
 
 function _gfZoneDragMove(e) {
@@ -1181,18 +1779,21 @@ function _gfZoneDragMove(e) {
     }
   }
   const ghost = document.getElementById('gfZoneDragGhost');
-  if (ghost) { ghost.style.left = e.clientX + 'px'; ghost.style.top = e.clientY + 'px'; }
+  if (ghost) {
+    ghost.style.left = `${e.clientX - _gfZoneDragState.ghostOx}px`;
+    ghost.style.top = `${e.clientY - _gfZoneDragState.ghostOy}px`;
+  }
   if (_gfZoneDragState.bfReposition && _gfZoneDragState.moved) {
     const card = _gfFindPermanent(_gfZoneDragState.iid);
     if (card) {
       card.autoPlaced = false;
       const container = document.getElementById('gfBattlefield');
       const rect = container?.getBoundingClientRect();
-      const cw = GF_BF_CARD_W;
+      const cw = _gfBfCardW(card);
       const ch = Math.round(cw * GF_CARD_ASPECT);
-      if (rect) {
-        card.x = Math.max(0, Math.min(rect.width - cw, _gfZoneDragState.origX + dx));
-        card.y = Math.max(0, Math.min(rect.height - ch, _gfZoneDragState.origY + dy));
+      if (rect && _gfZoneDragState.grabBfX != null && _gfZoneDragState.grabBfY != null) {
+        card.x = Math.max(0, Math.min(rect.width - cw, e.clientX - rect.left - _gfZoneDragState.grabBfX));
+        card.y = Math.max(0, Math.min(rect.height - ch, e.clientY - rect.top - _gfZoneDragState.grabBfY));
         const el = container?.querySelector(`[data-iid="${_gfZoneDragState.iid}"]`);
         if (el) { el.style.left = card.x + 'px'; el.style.top = card.y + 'px'; el.classList.add('dragging'); }
       }
@@ -1203,15 +1804,9 @@ function _gfZoneDragMove(e) {
 }
 
 function _gfZoneDragEnd(e) {
-  document.removeEventListener('pointermove', _gfZoneDragMove);
-  document.removeEventListener('pointerup', _gfZoneDragEnd);
-  document.removeEventListener('pointercancel', _gfZoneDragEnd);
-  document.getElementById('gfZoneDragGhost')?.remove();
-  document.getElementById('gfBattlefield')?.classList.remove('gf-bf-drop-active');
-  _gfClearZoneHighlights();
-
   const st = _gfZoneDragState;
   _gfZoneDragState = null;
+  _gfZoneDragCleanupGhost(st);
   if (!st) return;
 
   const { iid, fromZone, moved, bfReposition } = st;
@@ -1224,7 +1819,7 @@ function _gfZoneDragEnd(e) {
   if (!moved) {
     if (fromZone === 'hand') {
       if (_gf?.mulligansInProgress && _gf.putBackCount > 0) _gfPutBackFromHand(iid);
-      else _gfPlayFromHand(iid);
+      else _gfPlayFromHand(iid, st.captureEl);
     } else if (fromZone === 'battlefield') _gfTap(iid);
     else if (fromZone === 'library') _gfClickLibrary();
     else if (fromZone === 'commandZone') _gfPlayFromZone(iid, 'commandZone');
@@ -1239,20 +1834,32 @@ function _gfZoneDragEnd(e) {
 
   const hit = _gfHitZone(e.clientX, e.clientY);
   const dragged = _gfCardInZone(iid, fromZone) || (fromZone === 'library' ? _gf?.library[0] : null);
+  const dragOpts = { sourceEl: st.captureEl };
+
   if (hit) {
-    if (hit.toKey === 'battlefield') {
+    if (hit.toKey === 'battlefield' && dragged) {
+      if (fromZone === 'hand' && _gfIsModalPlayCard(dragged)) {
+        const choices = _gfBuildPlayChoices(dragged);
+        if (choices?.length) {
+          _gfOpenPlayChoiceModal({ iid, fromZone, card: dragged, choices, sourceEl: st.captureEl });
+          return;
+        }
+      }
+      if (fromZone === 'hand' && _gfIsInstantSorcery(dragged)) {
+        _gfResolvePlay(iid, fromZone, { zone: 'graveyard', animateSpell: true }, st.captureEl);
+        return;
+      }
       const bf = document.getElementById('gfBattlefield');
       const r = bf?.getBoundingClientRect();
       if (r) {
-        const cw = GF_BF_CARD_W;
+        const cw = _gfBfCardW(dragged);
         const ch = Math.round(cw * GF_CARD_ASPECT);
-        const x = Math.max(0, Math.min(r.width - cw, e.clientX - r.left - cw / 2));
-        const y = Math.max(0, Math.min(r.height - ch, e.clientY - r.top - ch / 2));
-        _gfMoveCard(iid, fromZone, 'battlefield', { x, y });
+        const { x, y } = _gfBfDropXY(e, st, cw, ch, r);
+        _gfMoveCard(iid, fromZone, 'battlefield', { x, y, ...dragOpts });
         return;
       }
     }
-    _gfMoveCard(iid, fromZone, hit.toKey);
+    _gfMoveCard(iid, fromZone, hit.toKey, dragOpts);
     return;
   }
 
@@ -1311,6 +1918,7 @@ function _gfRender() {
   _gfRenderBattlefield();
   _gfRenderHand();
   _gfRenderSidebar();
+  _gfRefreshCardZoom();
 }
 
 function _gfCardImg(c, width = 80) {
@@ -1337,6 +1945,7 @@ function _gfBfCardHtml(c, zone, cardW) {
          onpointerdown="_gfZoneCardPointerDown(event,${c.iid},'${zone}')"
          oncontextmenu="_gfShowContextMenu(event,${c.iid},'${zone}')">
       ${_gfCardImg(c, cardW)}
+      ${_gfMarkerBadgesHtml(c)}
       ${c.counters > 0 ? `<div class="gf-counter-badge">+${c.counters}/+${c.counters}</div>` : ''}
     </div>`;
 }
@@ -1346,7 +1955,7 @@ function _gfRenderBattlefield() {
   if (!bf || !_gf) return;
   const empty = _gf.battlefield.length === 0
     ? `<div class="gf-bf-empty">Non-land permanents appear here</div>` : '';
-  bf.innerHTML = empty + _gf.battlefield.map(c => _gfBfCardHtml(c, 'battlefield', GF_BF_CARD_W)).join('');
+  bf.innerHTML = empty + _gf.battlefield.map(c => _gfBfCardHtml(c, 'battlefield', _gfBfCardW(c))).join('');
 }
 
 function _gfRenderHand() {
@@ -1362,15 +1971,16 @@ function _gfRenderHand() {
   }
 
   const maxAngle = Math.min(30, n * 3.2);
-  const maxRise = 60; // px center cards lift above edge cards
-  const cardW = 137;
+  const { maxRise, overlap } = _gfHandLayoutMetrics();
+  const cardW = gfHandCardSize;
+  const overlapPx = -overlap;
 
   handEl.innerHTML = cards.map((c, i) => {
     const norm  = n === 1 ? 0 : (i / (n - 1)) * 2 - 1; // -1..+1
     const angle = norm * maxAngle;
     const rise  = (1 - norm * norm) * maxRise; // parabolic: 0 at edges, maxRise at center
     const zIndex = Math.round((1 - Math.abs(norm)) * n) + 1;
-    const ml = i === 0 ? '0' : '-34px';
+    const ml = i === 0 ? '0' : `${overlapPx}px`;
     return `<div class="gf-hand-card" data-iid="${c.iid}"
       style="--angle:${angle.toFixed(1)}deg;--rise:${rise.toFixed(1)}px;z-index:${zIndex};margin-left:${ml}"
       title="${c.name}${isPutBack ? ' — click to put back' : ' — drag to play'}"
@@ -1638,7 +2248,8 @@ function _gfSpawnToken(idx) {
   const bf = document.getElementById('gfBattlefield');
   const bfW = bf?.clientWidth || 800;
   const bfH = bf?.clientHeight || 500;
-  const cw = GF_BF_CARD_W;
+  const tokenIsLand = /\bland\b/i.test(token.typeLine || '');
+  const cw = tokenIsLand ? gfLandCardSize : gfNonlandCardSize;
   const ch = Math.round(cw * GF_CARD_ASPECT);
   const sameOnBf = _gf.battlefield.filter(c =>
     c.isToken && (c.scryfallId === token.id || c.name === token.name)
@@ -1655,6 +2266,7 @@ function _gfSpawnToken(idx) {
     qty: 1,
     tapped: false,
     counters: 0,
+    markers: [],
     autoPlaced: false,
     x: Math.max(8, (bfW - cw) / 2 + (sameOnBf % 6) * 14),
     y: Math.max(8, (bfH - ch) / 2 - 30 + Math.floor(sameOnBf / 6) * 14),
@@ -1668,7 +2280,7 @@ function _gfSpawnToken(idx) {
 
 const GF_SIM_RUNS = 1000;
 const GF_SIM_HAND_SIZE = 7;
-const GF_SIM_TOP_CARDS = 26;
+const GF_SIM_TOP_TAGS = 24;
 const GF_SIM_ANIM_STEPS = 24;
 const GF_SIM_STEP_DELAY_MS = 48;
 const GF_TEXT_SCALE = 1.2544; /* matches #goldfishOverlay --gf-fs (second +12%) */
@@ -1682,10 +2294,10 @@ function _gfRem(n) {
   return `calc(${n}rem * var(--gf-fs))`;
 }
 
-function _gfSetCardChartHeight(barCount) {
-  const wrap = document.querySelector('.gf-sim-chart-wrap--cards');
+function _gfSetTagChartHeight(barCount) {
+  const wrap = document.querySelector('.gf-sim-chart-wrap--tags');
   if (!wrap) return;
-  const n = Math.max(1, barCount || GF_SIM_TOP_CARDS);
+  const n = Math.max(1, barCount || GF_SIM_TOP_TAGS);
   const rowPx = Math.round(GF_SIM_CHART_ROW_PX * GF_TEXT_SCALE);
   const h = Math.min(560, Math.max(200, n * rowPx + 52));
   wrap.style.height = `${h}px`;
@@ -1694,7 +2306,7 @@ function _gfSetCardChartHeight(barCount) {
 let _gfSimLandChart = null;
 let _gfSimCardChart = null;
 let _gfSimRunToken = 0;
-let _gfSimTopCardKeys = [];
+let _gfSimTopTagKeys = [];
 
 function _gfSimIsLand(c) {
   if (typeof _isLandDeckCard === 'function') return _isLandDeckCard(c);
@@ -1716,56 +2328,55 @@ function _gfNormalizeCardName(c) {
   return name.split(/\s*\/\/\s*/)[0].trim().toLowerCase();
 }
 
-function _gfCardSimKey(c) {
-  const oid = c.oracleId || c.oracle_id;
-  if (oid) return `oid:${String(oid).toLowerCase()}`;
-  const name = _gfNormalizeCardName(c);
-  return name ? `name:${name}` : `id:${c.scryfallId || c.uid || '?'}`;
-}
-
-function _gfCardSimLabel(c, key) {
-  const name = String(c?.name || '').trim();
-  if (name) return name.split(/\s*\/\/\s*/)[0].trim();
-  return key.replace(/^(oid|name|id):/, '');
+function _gfTagsForSimCard(card, deck) {
+  if (typeof _probTagsOnCard === 'function') {
+    return _probTagsOnCard(card, deck).filter(tag => {
+      const lc = String(tag || '').toLowerCase();
+      if (lc === 'commander') return false;
+      if (typeof _PROB_BUILTIN_LC !== 'undefined' && _PROB_BUILTIN_LC.has(lc)) return false;
+      return true;
+    });
+  }
+  return [];
 }
 
 function _gfEmptySimStats(template) {
   return {
     landBuckets: Array(GF_SIM_HAND_SIZE + 1).fill(0),
-    cardAppearances: new Map(),
-    cardNames: new Map(),
+    tagAppearances: new Map(),
     completedRuns: 0,
     deckSize: template.length,
     landTotal: template.filter(_gfSimIsLand).length,
   };
 }
 
-function _gfSimulateBatch(template, runs, cardNames) {
+function _gfSimulateBatch(template, runs, deck) {
   const landBuckets = Array(GF_SIM_HAND_SIZE + 1).fill(0);
-  const cardAppearances = new Map();
+  const tagAppearances = new Map();
   for (let r = 0; r < runs; r++) {
     const shuffled = _gfShuffle(template);
     const hand = shuffled.slice(0, GF_SIM_HAND_SIZE);
     let lands = 0;
-    const seen = new Set();
+    const tagsInHand = new Set();
     for (const c of hand) {
-      if (_gfSimIsLand(c)) lands++;
-      const key = _gfCardSimKey(c);
-      seen.add(key);
-      if (!cardNames.has(key)) cardNames.set(key, _gfCardSimLabel(c, key));
+      if (_gfSimIsLand(c)) {
+        lands++;
+        tagsInHand.add('Land');
+      }
+      for (const tag of _gfTagsForSimCard(c, deck)) tagsInHand.add(tag);
     }
     landBuckets[lands]++;
-    for (const key of seen) {
-      cardAppearances.set(key, (cardAppearances.get(key) || 0) + 1);
+    for (const tag of tagsInHand) {
+      tagAppearances.set(tag, (tagAppearances.get(tag) || 0) + 1);
     }
   }
-  return { landBuckets, cardAppearances };
+  return { landBuckets, tagAppearances };
 }
 
 function _gfMergeSimBatch(stats, batch, runs) {
   batch.landBuckets.forEach((n, k) => { stats.landBuckets[k] += n; });
-  for (const [key, count] of batch.cardAppearances) {
-    stats.cardAppearances.set(key, (stats.cardAppearances.get(key) || 0) + count);
+  for (const [tag, count] of batch.tagAppearances) {
+    stats.tagAppearances.set(tag, (stats.tagAppearances.get(tag) || 0) + count);
   }
   stats.completedRuns += runs;
 }
@@ -1779,20 +2390,19 @@ function _gfSimStatsDisplay(stats) {
   const landPcts = stats.landBuckets.map(n =>
     runs ? Math.round((n / runs) * 1000) / 10 : 0
   );
-  const topCards = [...stats.cardAppearances.entries()]
-    .map(([key, count]) => ({
-      key,
-      name: stats.cardNames.get(key) || key,
+  const topTags = [...stats.tagAppearances.entries()]
+    .map(([tag, count]) => ({
+      tag,
       pct: runs ? (count / runs) * 100 : 0,
     }))
-    .sort((a, b) => b.pct - a.pct || a.name.localeCompare(b.name))
-    .slice(0, GF_SIM_TOP_CARDS);
+    .sort((a, b) => b.pct - a.pct || a.tag.localeCompare(b.tag))
+    .slice(0, GF_SIM_TOP_TAGS);
   const avgLands = runs
     ? stats.landBuckets.reduce((s, n, k) => s + k * n, 0) / runs
     : 0;
   const keepable = stats.landBuckets.slice(2, 5).reduce((s, n) => s + n, 0);
   const keepPct = runs ? Math.round((keepable / runs) * 1000) / 10 : 0;
-  return { landPcts, landBuckets: stats.landBuckets, runs, topCards, avgLands, keepPct };
+  return { landPcts, landBuckets: stats.landBuckets, runs, topTags, avgLands, keepPct };
 }
 
 function _gfChartTheme() {
@@ -1892,18 +2502,17 @@ function _gfInitSimCharts(stats, landBucketsRef) {
     });
   }
 
-  _gfSimTopCardKeys = [];
-  const goldBar = _gfUiGoldChartColors();
-  const cardCanvas = document.getElementById('gfSimCardChart');
-  if (cardCanvas) {
-    _gfSimCardChart = new Chart(cardCanvas.getContext('2d'), {
+  _gfSimTopTagKeys = [];
+  const tagCanvas = document.getElementById('gfSimTagChart');
+  if (tagCanvas) {
+    _gfSimCardChart = new Chart(tagCanvas.getContext('2d'), {
       type: 'bar',
       data: {
         labels: [],
         datasets: [{
           data: [],
-          backgroundColor: goldBar.fill,
-          borderColor: goldBar.border,
+          backgroundColor: [],
+          borderColor: [],
           borderWidth: 1,
           borderRadius: 3,
           categoryPercentage: 0.52,
@@ -1928,7 +2537,7 @@ function _gfInitSimCharts(stats, landBucketsRef) {
             titleFont: { size: _gfFs(11) },
             bodyFont: { size: _gfFs(11) },
             callbacks: {
-              label: ctx => ` ${ctx.parsed.x.toFixed(1)}% of hands`,
+              label: ctx => ` ${ctx.parsed.x.toFixed(1)}% of hands with this tag`,
             },
           },
         },
@@ -1947,8 +2556,13 @@ function _gfInitSimCharts(stats, landBucketsRef) {
       },
     });
   }
-  _gfSetCardChartHeight(0);
+  _gfSetTagChartHeight(0);
   return true;
+}
+
+function _gfSimTagBarColors(count) {
+  const gold = _gfUiGoldChartColors();
+  return Array.from({ length: Math.max(0, count) }, () => ({ fill: gold.fill, border: gold.border }));
 }
 
 function _gfUpdateSimSummary(stats, final = false) {
@@ -1977,11 +2591,14 @@ function _gfUpdateSimCharts(stats, animate = true) {
   }
 
   if (_gfSimCardChart) {
-    const top = display.topCards;
-    _gfSimTopCardKeys = top.map(c => c.key);
-    _gfSetCardChartHeight(top.length);
-    _gfSimCardChart.data.labels = top.map(c => c.name);
-    _gfSimCardChart.data.datasets[0].data = top.map(c => Math.round(c.pct * 10) / 10);
+    const top = display.topTags;
+    _gfSimTopTagKeys = top.map(t => t.tag);
+    _gfSetTagChartHeight(top.length);
+    const colors = _gfSimTagBarColors(top.length);
+    _gfSimCardChart.data.labels = top.map(t => t.tag);
+    _gfSimCardChart.data.datasets[0].data = top.map(t => Math.round(t.pct * 10) / 10);
+    _gfSimCardChart.data.datasets[0].backgroundColor = colors.map(c => c.fill);
+    _gfSimCardChart.data.datasets[0].borderColor = colors.map(c => c.border);
     _gfSimCardChart.options.animation = anim;
     _gfSimCardChart.update(animate ? 'active' : 'none');
   }
@@ -2022,7 +2639,7 @@ async function _gfRunSimPanel(deck) {
     const runs = baseStep + (step < extra ? 1 : 0);
     if (!runs) continue;
 
-    const batch = _gfSimulateBatch(template, runs, stats.cardNames);
+    const batch = _gfSimulateBatch(template, runs, deck);
     _gfMergeSimBatch(stats, batch, runs);
     _gfUpdateSimSummary(stats, false);
     _gfUpdateSimCharts(stats, true);

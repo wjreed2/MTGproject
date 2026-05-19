@@ -56,7 +56,9 @@ function _isCommanderFormatName(fmt) {
 }
 
 function _typeLineOfDeckCard(c) {
-  return String(c?.type || c?.typeLine || c?.type_line || '');
+  return typeof resolveCardTypeLine === 'function'
+    ? resolveCardTypeLine(c)
+    : String(c?.type || c?.typeLine || c?.type_line || '');
 }
 
 function _deckCardEligibleCommander(c, format) {
@@ -493,19 +495,36 @@ function validateDeck(deck) {
 
   if (isSingleton) {
     Object.entries(nameCounts).forEach(([name, qty]) => {
-      if (qty > 1) issues.push({ severity: 'error', cardName: name, msg: `${name}: only 1 copy allowed in ${fmt} (found ${qty})` });
+      if (qty > 1) {
+        issues.push({
+          severity: 'error', cardName: name, fix: 'duplicate', targetQty: 1,
+          msg: `${name}: only 1 copy allowed in ${fmt} (found ${qty})`,
+        });
+      }
     });
   } else if (fmtKey === 'vintage') {
     // Vintage: restricted cards limited to 1
     Object.entries(nameCounts).forEach(([name, qty]) => {
-      if (VINTAGE_RESTRICTED.has(name) && qty > 1)
-        issues.push({ severity: 'error', cardName: name, msg: `${name} is Restricted in Vintage — max 1 copy (found ${qty})` });
-      else if (qty > 4)
-        issues.push({ severity: 'error', cardName: name, msg: `${name}: max 4 copies allowed (found ${qty})` });
+      if (VINTAGE_RESTRICTED.has(name) && qty > 1) {
+        issues.push({
+          severity: 'error', cardName: name, fix: 'duplicate', targetQty: 1,
+          msg: `${name} is Restricted in Vintage — max 1 copy (found ${qty})`,
+        });
+      } else if (qty > 4) {
+        issues.push({
+          severity: 'error', cardName: name, fix: 'duplicate', targetQty: 4,
+          msg: `${name}: max 4 copies allowed (found ${qty})`,
+        });
+      }
     });
   } else {
     Object.entries(nameCounts).forEach(([name, qty]) => {
-      if (qty > 4) issues.push({ severity: 'error', cardName: name, msg: `${name}: max 4 copies allowed (found ${qty})` });
+      if (qty > 4) {
+        issues.push({
+          severity: 'error', cardName: name, fix: 'duplicate', targetQty: 4,
+          msg: `${name}: max 4 copies allowed (found ${qty})`,
+        });
+      }
     });
   }
 
@@ -560,9 +579,12 @@ function validateDeck(deck) {
           const shown = violations.slice(0, 3);
           const extra = violations.length > 3 ? ` +${violations.length - 3} more` : '';
           shown.forEach(v => {
-            issues.push({ severity: 'error',
+            issues.push({
+              severity: 'error',
               cardName: v.name,
-              msg: `${v.name} [{${(v.ci||[]).join('')}}] is outside ${deck.commander}'s color identity [{${[...cmdCI].join('')||'∅'}}]` });
+              fix: 'color_identity',
+              msg: `${v.name} [{${(v.ci || []).join('')}}] is outside ${deck.commander}'s color identity [{${[...cmdCI].join('') || '∅'}}]`,
+            });
           });
           if (extra) issues.push({ severity: 'error', msg: `…and ${violations.length - 3} more color identity violation${violations.length - 3 > 1 ? 's' : ''}` });
         }
@@ -574,12 +596,28 @@ function validateDeck(deck) {
 
   // ── Format-specific land/set warnings ────────────────────────────────────
   if (fmt === 'Pauper') {
-    const nonCommons = deck.cards.filter(c => c.rarity && c.rarity !== 'common' && !BASIC_LANDS.has(c.name));
-    if (nonCommons.length > 0)
-      issues.push({ severity: 'error', msg: `Pauper only allows common cards: ${nonCommons.slice(0,3).map(c=>c.name).join(', ')}${nonCommons.length > 3 ? ` +${nonCommons.length-3} more` : ''}` });
+    deck.cards.forEach(c => {
+      if (c.rarity && c.rarity !== 'common' && !BASIC_LANDS.has(c.name))
+        issues.push({ severity: 'error', cardName: c.name, msg: `${c.name} is not common (Pauper only allows commons)` });
+    });
   }
 
   return issues;
+}
+
+function _deckValidationErrorNameSet(deck) {
+  const names = new Set();
+  if (!deck) return names;
+  for (const issue of validateDeck(deck)) {
+    if (issue.severity === 'error' && issue.cardName)
+      names.add(String(issue.cardName).toLowerCase());
+  }
+  return names;
+}
+
+function _deckCardValidationClass(c, errorNames) {
+  if (!errorNames?.size) return '';
+  return errorNames.has(String(c?.name || '').toLowerCase()) ? ' has-validation-error' : '';
 }
 
 function renderDeckValidation(deck) {
@@ -601,16 +639,113 @@ function renderDeckValidation(deck) {
   const circleClass = hasErrors ? 'deck-valid-error' : 'deck-valid-warn';
   const circleIcon  = hasErrors ? '✕' : '⚠';
 
-  const rows = issues.map(i => `
-    <div ${i.cardName ? `onclick="jumpToDeckIssue('${i.cardName.replace(/'/g, "\\'")}')"` : ''}
-         class="deck-valid-row${i.cardName ? ' deck-valid-row-link' : ''}">
+  window.__deckValidationIssues = issues;
+  const rows = issues.map((i, idx) => {
+    const clickable = !!(i.fix || i.cardName);
+    const hint = i.fix
+      ? '<span style="color:var(--teal);font-size:0.7rem"> · fix</span>'
+      : (i.cardName ? '<span style="color:var(--teal);font-size:0.7rem"> · view</span>' : '');
+    return `
+    <div class="deck-valid-row${clickable ? ' deck-valid-row-link' : ''}" data-issue-idx="${idx}"${clickable ? ` onclick="handleDeckValidationClick(${idx})"` : ''}>
       <span style="flex-shrink:0;color:${i.severity === 'error' ? 'var(--red)' : 'var(--gold)'}">${i.severity === 'error' ? '✕' : '⚠'}</span>
-      <span>${i.msg}${i.cardName ? ' <span style="color:var(--teal);font-size:0.7rem">· view</span>' : ''}</span>
-    </div>`).join('');
+      <span>${i.msg}${hint}</span>
+    </div>`;
+  }).join('');
 
   badge.innerHTML = `
     <span class="deck-valid-circle ${circleClass}" onclick="toggleDeckValidTooltip()" title="Click to view issues">${circleIcon}</span>
     <div class="deck-valid-tooltip">${rows}</div>`;
+}
+
+function handleDeckValidationClick(index) {
+  const issue = (window.__deckValidationIssues || [])[index];
+  if (!issue) return;
+  if (issue.fix && !activeDeckIsShared) {
+    applyDeckValidationFix(issue);
+    return;
+  }
+  if (issue.cardName) jumpToDeckIssue(issue.cardName);
+}
+
+function _trimDeckCardsByName(deck, cardName, targetQty) {
+  const key = String(cardName || '').toLowerCase();
+  const indices = [];
+  for (let i = 0; i < deck.cards.length; i++) {
+    if ((deck.cards[i].name || '').toLowerCase() === key) indices.push(i);
+  }
+  let remaining = Math.max(0, targetQty);
+  const removeIdx = [];
+  for (const i of indices) {
+    const c = deck.cards[i];
+    const q = c.qty || 1;
+    if (remaining <= 0) {
+      removeIdx.push(i);
+      continue;
+    }
+    if (q <= remaining) {
+      remaining -= q;
+    } else {
+      c.qty = remaining;
+      recordDeckEvent('qty_change', c);
+      remaining = 0;
+    }
+  }
+  for (let r = removeIdx.length - 1; r >= 0; r--) {
+    const i = removeIdx[r];
+    recordDeckEvent('remove', deck.cards[i]);
+    deck.cards.splice(i, 1);
+  }
+}
+
+function _removeCardByNameFromAllDeckZones(deck, cardName) {
+  const key = String(cardName || '').toLowerCase();
+  const isMatch = c => (c.name || '').toLowerCase() === key;
+  const cmd = (deck.commander || '').toLowerCase();
+
+  deck.cards = deck.cards.filter(c => {
+    if (!isMatch(c)) return true;
+    if (cmd && (c.name || '').toLowerCase() === cmd) return true;
+    recordDeckEvent('remove', c);
+    return false;
+  });
+
+  const mb = _deckMaybeBoard(deck);
+  for (let i = mb.length - 1; i >= 0; i--) {
+    if (!isMatch(mb[i])) continue;
+    recordDeckEvent('remove_sb', mb[i]);
+    mb.splice(i, 1);
+  }
+
+  if (_deckMatchSideboardEnabled(deck)) {
+    const sb = _deckMatchSideboard(deck);
+    for (let i = sb.length - 1; i >= 0; i--) {
+      if (!isMatch(sb[i])) continue;
+      recordDeckEvent('remove_sb', sb[i]);
+      sb.splice(i, 1);
+    }
+  }
+}
+
+function applyDeckValidationFix(issue) {
+  const deck = getActiveDeck();
+  if (!deck || activeDeckIsShared || !issue?.cardName) return;
+
+  if (issue.fix === 'color_identity') {
+    _removeCardByNameFromAllDeckZones(deck, issue.cardName);
+    saveActiveDeck(deck);
+    renderActiveDeck();
+    showNotif(`Removed ${issue.cardName} (outside color identity)`);
+    return;
+  }
+
+  if (issue.fix === 'duplicate') {
+    const target = issue.targetQty ?? 1;
+    _trimDeckCardsByName(deck, issue.cardName, target);
+    saveActiveDeck(deck);
+    renderActiveDeck();
+    scheduleEDHRECRefresh();
+    showNotif(`Set ${issue.cardName} to ${target} cop${target === 1 ? 'y' : 'ies'}`);
+  }
 }
 
 function jumpToDeckIssue(cardName) {
@@ -673,7 +808,7 @@ function _deckGameChangerEntries(deck) {
     byKey.set(key, c);
   };
   (deck?.cards || []).forEach(add);
-  (deck?.sideboard || []).forEach(add);
+  _deckExtraPoolsForAlloc(deck).forEach(add);
   return [...byKey.values()].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 }
 
@@ -739,6 +874,12 @@ function scheduleDeckGameChangerRefresh(deck) {
 
 let deckListView = 'grid';
 let deckStackOrient = (localStorage.getItem('mtg_deck_stack_orient') === 'horizontal' ? 'horizontal' : 'vertical');
+const _DECK_STACK_SORT_KEYS = new Set(['name', 'cmc', 'mana', 'price']);
+let deckStackSort = (() => {
+  const saved = localStorage.getItem('mtg_deck_stack_sort');
+  return _DECK_STACK_SORT_KEYS.has(saved) ? saved : 'name';
+})();
+let deckStackSortDir = localStorage.getItem('mtg_deck_stack_sort_dir') === 'desc' ? 'desc' : 'asc';
 let deckGroupBy  = (() => {
   const saved = localStorage.getItem('mtg_deck_group_by');
   if (saved === 'custom_tag') return 'tag_all';
@@ -798,6 +939,104 @@ function recordDeckEvent(type, card, detail, deckIdOverride) {
   }
 }
 
+async function undoDeckHistoryEvent(historyId, ev) {
+  const deck = getActiveDeck();
+  if (!deck) return;
+  try {
+    await apiDelete(`/deck-history/${deck.id}/${historyId}`);
+  } catch (e) {
+    showNotif('Could not delete history entry: ' + (e?.message || e), true);
+    return;
+  }
+  _deckHistory = _deckHistory.filter(e => e.id !== historyId);
+  renderDeckHistory();
+
+  const { type, uid, name, detail } = ev;
+  if (type === 'add') {
+    const slot = deck.cards.find(c => c.uid === uid || c.name === name);
+    if (slot) {
+      if (slot.qty > 1) { slot.qty--; recordDeckEvent('qty_change', slot); }
+      else { recordDeckEvent('remove', slot); deck.cards = deck.cards.filter(c => c !== slot); }
+      saveActiveDeck(deck); renderActiveDeck();
+    }
+  } else if (type === 'remove') {
+    const found = (window.Ownership?.preferredOwnedPrinting
+      ? window.Ownership.preferredOwnedPrinting(collection, uid)
+      : collection.find(c => c.uid === uid)) ||
+      collection.find(c => c.name?.toLowerCase() === name?.toLowerCase());
+    const card = found || { uid, name, image: ev.image, qty: 1, foil: !!ev.foil, cmc: 0, type: '', mana: '', colors: [], colorIdentity: [] };
+    const existing = findDeckCardSlot(deck, card);
+    if (existing) { existing.qty++; } else { deck.cards.push({ ...card, uid: uid || getCardInventoryKey(card), qty: 1 }); }
+    saveActiveDeck(deck); renderActiveDeck();
+  } else if (type === 'add_sb') {
+    const mb = _deckMaybeBoard(deck);
+    const slot = mb.find(c => c.uid === uid || c.name === name);
+    if (slot) {
+      if (slot.qty > 1) slot.qty--; else deck.maybeboard = mb.filter(c => c !== slot);
+      saveActiveDeck(deck); renderActiveDeck();
+    }
+  } else if (type === 'remove_sb') {
+    const found = collection.find(c => c.uid === uid) || collection.find(c => c.name?.toLowerCase() === name?.toLowerCase());
+    const card = found || { uid, name, image: ev.image, qty: 1, foil: !!ev.foil, cmc: 0, type: '', mana: '', colors: [], colorIdentity: [] };
+    _addCardToDeckZone(deck, card, 'mb', 'maybe board');
+    showNotif('Undid ' + (name || 'action'));
+    return;
+  } else if (type === 'to_main') {
+    // zone → main: undo by moving from main back to the source zone
+    const srcZone = (detail === 'mb' || detail === 'sb') ? detail : 'mb';
+    const slot = deck.cards.find(c => c.uid === uid || c.name === name);
+    if (slot) {
+      const snap = { ...slot };
+      if (slot.qty > 1) slot.qty--; else deck.cards = deck.cards.filter(c => c !== slot);
+      const findSlot = srcZone === 'sb' ? findMatchSideboardCardSlot : findMaybeBoardCardSlot;
+      const existing = findSlot(deck, snap);
+      if (existing) existing.qty++; else _deckZonePool(deck, srcZone).push({ ...snap, qty: 1 });
+      saveActiveDeck(deck); renderActiveDeck();
+    }
+  } else if (type === 'to_sb') {
+    if (detail && detail.includes(':')) {
+      // zone → zone: undo by moving from toZone back to fromZone
+      const [fromZone, toZone] = detail.split(':');
+      const toPool = _deckZonePool(deck, toZone);
+      const slot = toPool.find(c => c.uid === uid || c.name === name);
+      if (slot) {
+        const snap = { ...slot };
+        if (slot.qty > 1) slot.qty--; else { const i = toPool.indexOf(slot); toPool.splice(i, 1); }
+        const findSlot = fromZone === 'sb' ? findMatchSideboardCardSlot : findMaybeBoardCardSlot;
+        const existing = findSlot(deck, snap);
+        if (existing) existing.qty++; else _deckZonePool(deck, fromZone).push({ ...snap, qty: 1 });
+        saveActiveDeck(deck); renderActiveDeck();
+      }
+    } else {
+      // main → zone: undo by moving from that zone back to main
+      const tgtZone = (detail === 'mb' || detail === 'sb') ? detail : 'mb';
+      const pool = _deckZonePool(deck, tgtZone);
+      const slot = pool.find(c => c.uid === uid || c.name === name);
+      if (slot) {
+        const snap = { ...slot };
+        if (slot.qty > 1) slot.qty--; else { const i = pool.indexOf(slot); pool.splice(i, 1); }
+        const existing = findDeckCardSlot(deck, snap);
+        if (existing) existing.qty++; else deck.cards.push({ ...snap, qty: 1 });
+        saveActiveDeck(deck); renderActiveDeck();
+      }
+    }
+  } else if (type === 'tag_add') {
+    const slot = deck.cards.find(c => c.uid === uid);
+    if (slot && detail && Array.isArray(slot.customTags)) {
+      slot.customTags = slot.customTags.filter(t => t !== detail);
+      saveActiveDeck(deck); renderActiveDeck();
+    }
+  } else if (type === 'tag_remove') {
+    const slot = deck.cards.find(c => c.uid === uid);
+    if (slot && detail) {
+      if (!Array.isArray(slot.customTags)) slot.customTags = [];
+      if (!slot.customTags.includes(detail)) slot.customTags.push(detail);
+      saveActiveDeck(deck); renderActiveDeck();
+    }
+  }
+  showNotif('Undid ' + (name || 'action'));
+}
+
 async function toggleDeckHistory() {
   _deckHistoryVisible = !_deckHistoryVisible;
   document.getElementById('deckListPanel')?.classList.toggle('deck-history-active', _deckHistoryVisible);
@@ -846,7 +1085,8 @@ function renderDeckHistory() {
     const label = key === todayKey ? 'Today'
       : key === yestKey ? 'Yesterday'
       : new Date(events[0].ts).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
-    return `<div class="history-day-group">
+    return `
+      <div class="history-day-group">
       <div class="history-day-label">${label}</div>
       ${events.map(ev => {
         const d    = new Date(ev.ts);
@@ -869,7 +1109,12 @@ function renderDeckHistory() {
         const img  = ev.image
           ? `<img class="history-card-img" src="${ev.image}" alt="" loading="lazy">`
           : `<div class="history-card-img-placeholder"></div>`;
-        return `<div class="history-event">
+        const evJson = JSON.stringify({ type: ev.type, uid: ev.uid, name: ev.name, foil: ev.foil, image: ev.image, detail: ev.detail }).replace(/"/g, '&quot;');
+        const undoBtn = ev.id != null
+          ? `<button class="history-undo-btn" title="Delete entry and undo this change" onclick="undoDeckHistoryEvent(${ev.id},JSON.parse(this.dataset.ev))" data-ev="${evJson}">↩</button>`
+          : '';
+        const safeName = (ev.name || '').replace(/"/g, '&quot;');
+        return `<div class="history-event" data-card-name="${safeName}" style="cursor:pointer" title="View ${_escapeHistoryHtml(ev.name)}">
           ${img}
           <div class="history-event-info">
             <div class="history-event-name">${_escapeHistoryHtml(ev.name)}</div>
@@ -878,14 +1123,22 @@ function renderDeckHistory() {
             ${actorLine}
           </div>
           <div class="history-event-badge ${t.cls}${isTagEv ? ' history-tag-badge' : ''}">${_escapeHistoryHtml(badgeLabel)}</div>
+          ${undoBtn}
         </div>`;
       }).join('')}
     </div>`;
   }).join('');
+
+  panel.onclick = e => {
+    if (e.target.closest('.history-undo-btn')) return; // let undo button handle itself
+    const row = e.target.closest('.history-event[data-card-name]');
+    if (row?.dataset.cardName) openCardDetailByName(row.dataset.cardName);
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 let deckListSearchQ = '';
+let _deckListFilter = { q: '', colors: new Set() };
 let deckSidebarCollapsed = localStorage.getItem('mtg_deck_sidebar_collapsed') === 'true';
 let _deckCardTagPickerTarget = null; // { deckId, cardUid }
 let activeDeckIsShared = false;
@@ -962,8 +1215,165 @@ function _renderScryTagSyncBadge() {
 
 // Returns the active deck from either decks[] or sharedDecks[]
 function getActiveDeck() {
-  if (activeDeckIsShared) return sharedDecks.find(d => d.id === activeDeckId);
-  return decks.find(d => d.id === activeDeckId);
+  const deck = activeDeckIsShared
+    ? sharedDecks.find(d => d.id === activeDeckId)
+    : decks.find(d => d.id === activeDeckId);
+  return deck ? _ensureDeckZones(deck) : null;
+}
+
+/** Migrate legacy `sideboard` (maybe board) → `maybeboard` + optional match `sideboard`. */
+function _ensureDeckZones(deck) {
+  if (!deck) return deck;
+  if (deck.zoneLayout === 2) {
+    if (!Array.isArray(deck.maybeboard)) deck.maybeboard = [];
+    if (!Array.isArray(deck.sideboard)) deck.sideboard = [];
+    if (deck.sideboardEnabled == null) deck.sideboardEnabled = false;
+    return deck;
+  }
+  if (deck.maybeboard == null) {
+    deck.maybeboard = Array.isArray(deck.sideboard) ? deck.sideboard.slice() : [];
+    deck.sideboard = [];
+  }
+  if (!Array.isArray(deck.sideboard)) deck.sideboard = [];
+  if (deck.sideboardEnabled == null) deck.sideboardEnabled = false;
+  deck.zoneLayout = 2;
+  return deck;
+}
+
+function _deckMaybeBoard(deck) {
+  _ensureDeckZones(deck);
+  if (!deck.maybeboard) deck.maybeboard = [];
+  return deck.maybeboard;
+}
+
+function _deckMatchSideboard(deck) {
+  _ensureDeckZones(deck);
+  if (!deck.sideboard) deck.sideboard = [];
+  return deck.sideboard;
+}
+
+function _deckMatchSideboardEnabled(deck) {
+  _ensureDeckZones(deck);
+  return !!deck.sideboardEnabled;
+}
+
+function _deckExtraPoolsForAlloc(deck) {
+  if (!deck) return [];
+  _ensureDeckZones(deck);
+  const pools = [..._deckMaybeBoard(deck)];
+  if (_deckMatchSideboardEnabled(deck)) pools.push(..._deckMatchSideboard(deck));
+  return pools;
+}
+
+function _deckAllZoneCards(deck) {
+  if (!deck) return [];
+  return [...(deck.cards || []), ..._deckExtraPoolsForAlloc(deck)];
+}
+
+function _deckZoneCollapseKey(zone, deckId) {
+  return `mtg_deck_${zone}_collapsed_${deckId || 'none'}`;
+}
+
+function _deckZoneCollapsed(zone) {
+  const deck = getActiveDeck();
+  if (!deck) return false;
+  return localStorage.getItem(_deckZoneCollapseKey(zone, deck.id)) === '1';
+}
+
+function toggleDeckExtraZoneCollapsed(zone) {
+  const deck = getActiveDeck();
+  if (!deck) return;
+  const key = _deckZoneCollapseKey(zone, deck.id);
+  localStorage.setItem(key, _deckZoneCollapsed(zone) ? '0' : '1');
+  renderDeckList(deck);
+}
+
+function _handleDeckExtraZoneToggleClick(e) {
+  const btn = e.target.closest('[data-zone-toggle]');
+  if (!btn) return false;
+  e.preventDefault();
+  e.stopPropagation();
+  toggleDeckExtraZoneCollapsed(btn.dataset.zoneToggle);
+  return true;
+}
+
+function _deckExtraZonesExpanded(deck) {
+  const mbOpen = !_deckZoneCollapsed('mb');
+  const sbOpen = _deckMatchSideboardEnabled(deck) && !_deckZoneCollapsed('sb');
+  return mbOpen || sbOpen;
+}
+
+function _deckExtraZoneColumnPx(deck) {
+  return _deckExtraZonesExpanded(deck) ? deckCardSize + 6 : _DECK_EXTRA_ZONE_PILL_W;
+}
+
+function _deckZonesBesideMainboard(el, deck, numCols) {
+  const zoneW = _deckExtraZoneColumnPx(deck);
+  const cols = Math.max(1, numCols || 1);
+  const mainW = cols * (deckCardSize + 36);
+  return el.clientWidth >= mainW + zoneW + 44;
+}
+
+function _deckExtraZonesWrapOpenHtml(deck, innerHtml, extraClass = '') {
+  const expanded = _deckExtraZonesExpanded(deck);
+  const w = _deckExtraZoneColumnPx(deck);
+  const cls = `deck-extra-zones-wrap${expanded ? ' is-expanded' : ''}${extraClass ? ` ${extraClass}` : ''}`;
+  const style = `width:${w}px;min-width:0;max-width:${w}px;overflow:visible;box-sizing:border-box`;
+  return `<div class="${cls}" style="${style}">${innerHtml}</div>`;
+}
+
+function _deckStackZoneLayout(el, deck, isVertical) {
+  const zoneW = _deckExtraZoneColumnPx(deck);
+  let numCols = 1;
+  let zonesBeside = false;
+  if (isVertical) {
+    numCols = _calcVertColCount(el, deck, true);
+    zonesBeside = _deckZonesBesideMainboard(el, deck, numCols);
+    if (!zonesBeside) numCols = _calcVertColCount(el, deck, false);
+  } else {
+    zonesBeside = el.clientWidth >= deckCardSize + zoneW + 80;
+  }
+  const layoutClass = zonesBeside ? ' deck-stack-view--zones-beside' : ' deck-stack-view--zones-below';
+  const stackStyle = `--deck-extra-zone-w:${zoneW}px`;
+  return { numCols, zonesBeside, layoutClass, stackStyle };
+}
+
+function _deckExtraZoneSectionStyle() {
+  return 'width:100%;max-width:100%;min-width:0;box-sizing:border-box';
+}
+
+function setDeckSideboardEnabled(enabled) {
+  const deck = getActiveDeck();
+  if (!deck || activeDeckIsShared) return;
+  _ensureDeckZones(deck);
+  deck.sideboardEnabled = !!enabled;
+  saveActiveDeck(deck);
+  renderActiveDeck();
+}
+
+function toggleDeckSideboardEnabled() {
+  const deck = getActiveDeck();
+  if (!deck || activeDeckIsShared) return;
+  setDeckSideboardEnabled(!_deckMatchSideboardEnabled(deck));
+}
+
+function renderDeckSideboardEnabledBtn() {
+  const btn = document.getElementById('deckSideboardEnabledBtn');
+  if (!btn) return;
+  const deck = getActiveDeck();
+  const on = !!(deck && _deckMatchSideboardEnabled(deck));
+  btn.innerHTML = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><rect x="2" y="3" width="12" height="10" rx="1"/><path d="M3 6.5h10M3 9.5h6"/></svg>${on ? ' Sideboard: on' : ' Sideboard'}`;
+  btn.style.color = on ? 'var(--teal)' : '';
+  btn.style.borderColor = on ? 'var(--teal)' : '';
+}
+
+function _syncDeckSideboardToggle() {
+  const btn = document.getElementById('deckSideboardEnabledBtn');
+  if (!btn) return;
+  const deck = getActiveDeck();
+  const show = deck && !activeDeckIsShared;
+  btn.style.display = show ? '' : 'none';
+  if (show) renderDeckSideboardEnabledBtn();
 }
 
 // Routes save to the right path depending on ownership
@@ -1002,6 +1412,56 @@ function setDeckGroupBy(val) {
   if (deck) renderDeckList(deck);
 }
 
+function _deckCardSortPrice(c) {
+  if (typeof getTCGPriceForCard === 'function') return Number(getTCGPriceForCard(c)) || 0;
+  return Number(c?.priceTCG) || 0;
+}
+
+function _deckStackSortCards(cards) {
+  const dir = deckStackSortDir === 'desc' ? -1 : 1;
+  const tieName = (a, b) => String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' });
+  return cards.slice().sort((a, b) => {
+    let cmp = 0;
+    if (deckStackSort === 'cmc') {
+      cmp = (a.cmc || 0) - (b.cmc || 0);
+    } else if (deckStackSort === 'mana') {
+      cmp = (a.cmc || 0) - (b.cmc || 0);
+      if (cmp === 0) cmp = String(a.mana || '').localeCompare(String(b.mana || ''));
+    } else if (deckStackSort === 'price') {
+      cmp = _deckCardSortPrice(a) - _deckCardSortPrice(b);
+    } else {
+      cmp = tieName(a, b);
+    }
+    if (cmp === 0) cmp = tieName(a, b);
+    return cmp * dir;
+  });
+}
+
+function setDeckStackSort(val) {
+  deckStackSort = _DECK_STACK_SORT_KEYS.has(val) ? val : 'name';
+  localStorage.setItem('mtg_deck_stack_sort', deckStackSort);
+  const sel = document.getElementById('deckStackSortSelect');
+  if (sel && sel.value !== deckStackSort) sel.value = deckStackSort;
+  const deck = getActiveDeck();
+  if (deck) renderDeckList(deck);
+}
+
+function setDeckStackSortDir(val) {
+  deckStackSortDir = val === 'desc' ? 'desc' : 'asc';
+  localStorage.setItem('mtg_deck_stack_sort_dir', deckStackSortDir);
+  const sel = document.getElementById('deckStackSortDirSelect');
+  if (sel && sel.value !== deckStackSortDir) sel.value = deckStackSortDir;
+  const deck = getActiveDeck();
+  if (deck) renderDeckList(deck);
+}
+
+function _syncDeckStackSortControls() {
+  const sortSel = document.getElementById('deckStackSortSelect');
+  const dirSel = document.getElementById('deckStackSortDirSelect');
+  if (sortSel && sortSel.value !== deckStackSort) sortSel.value = deckStackSort;
+  if (dirSel && dirSel.value !== deckStackSortDir) dirSel.value = deckStackSortDir;
+}
+
 function _isTagGroupByMode(groupBy) {
   return groupBy === 'tag_all' || groupBy === 'tag_default' || groupBy === 'tag_primary' || groupBy === 'tag_secondary';
 }
@@ -1023,11 +1483,11 @@ function _tagsOnCardForGrouping(card) {
 function _tagsOnCardForGroupTier(card, tier) {
   if (tier === 'tag_default') {
     const roleTags = typeof _roleTagsForCard === 'function' ? _roleTagsForCard(card) : [];
-    return roleTags.filter(t => _tagMatchesDeckGroupTier(t, tier));
+    return roleTags.filter(t => _tagMatchesDeckGroupTier(card, t, tier));
   }
   const userTags = _tagsOnCardForGrouping(card);
   if (tier === 'tag_primary' || tier === 'tag_secondary') {
-    return userTags.filter(t => _tagMatchesDeckGroupTier(t, tier));
+    return userTags.filter(t => _tagMatchesDeckGroupTier(card, t, tier));
   }
   if (tier === 'tag_all') {
     const roleTags = typeof _roleTagsForCard === 'function' ? _roleTagsForCard(card) : [];
@@ -1037,9 +1497,95 @@ function _tagsOnCardForGroupTier(card, tier) {
 }
 
 function setDeckListSearch(q) {
-  deckListSearchQ = String(q || '').trim().toLowerCase();
+  _deckListFilter.q = String(q || '').trim();
+  deckListSearchQ = _deckListFilter.q.toLowerCase(); // legacy compat
+  _updateDeckListFilterUI();
   const deck = getActiveDeck();
   if (deck) renderDeckList(deck);
+}
+
+function toggleDeckListColorFilter(color) {
+  if (_deckListFilter.colors.has(color)) _deckListFilter.colors.delete(color);
+  else _deckListFilter.colors.add(color);
+  _updateDeckListFilterUI();
+  const deck = getActiveDeck();
+  if (deck) renderDeckList(deck);
+}
+
+function clearDeckListFilters() {
+  _deckListFilter.q = '';
+  _deckListFilter.colors.clear();
+  deckListSearchQ = '';
+  const inp = document.getElementById('deckListFilterInput');
+  if (inp) inp.value = '';
+  _updateDeckListFilterUI();
+  const deck = getActiveDeck();
+  if (deck) renderDeckList(deck);
+}
+
+function toggleDeckListFilterBar() {
+  const bar = document.getElementById('deckListFilterBar');
+  const btn = document.getElementById('deckListFilterToggleBtn');
+  if (!bar) return;
+  const open = bar.style.display === 'none' || bar.style.display === '';
+  bar.style.display = open ? 'block' : 'none';
+  if (btn) btn.classList.toggle('active', open);
+  if (open) document.getElementById('deckListFilterInput')?.focus();
+}
+
+function _updateDeckListFilterUI() {
+  const { q, colors } = _deckListFilter;
+  const hasFilter = q.trim() || colors.size > 0;
+  const clearBtn = document.getElementById('deckListFilterClear');
+  if (clearBtn) clearBtn.style.display = hasFilter ? '' : 'none';
+  const toggleBtn = document.getElementById('deckListFilterToggleBtn');
+  if (toggleBtn) toggleBtn.classList.toggle('active', hasFilter);
+  document.querySelectorAll('.dlf-color-pill').forEach(btn => {
+    btn.classList.toggle('active', colors.has(btn.dataset.color));
+  });
+}
+
+function _applyDeckListFilter(cards) {
+  const { q, colors } = _deckListFilter;
+  let out = cards;
+
+  if (q.trim()) {
+    const { orGroups } = parseSearchQuery(q);
+    out = out.filter(c => {
+      // Merge customTags into roleTags so tag: searches cover both
+      const augmented = { ...c, roleTags: [...(c.roleTags || []), ...(c.customTags || [])] };
+      return orGroups.some(({ tokens, nameTerms }) => {
+        if (nameTerms.length && !nameTerms.every(t =>
+          (c.name || '').toLowerCase().includes(t) ||
+          (c.type || '').toLowerCase().includes(t) ||
+          (c.oracleText || '').toLowerCase().includes(t)
+        )) return false;
+        return tokens.every(tok => matchToken(augmented, tok));
+      });
+    });
+  }
+
+  if (colors.size > 0) {
+    const selected = [...colors];
+    const hasColorless = selected.includes('C');
+    const colorCols = selected.filter(c => c !== 'C');
+    out = out.filter(c => {
+      const cc = [...new Set((c.colors || []).filter(Boolean).map(x => String(x).toUpperCase()))];
+      if (hasColorless && cc.length === 0) return true;
+      if (!cc.length) return hasColorless;
+      return cc.every(col => colorCols.includes(col));
+    });
+  }
+
+  const countEl = document.getElementById('deckListFilterCount');
+  const deck = getActiveDeck();
+  if (countEl && deck) {
+    const total = (deck.cards || []).length;
+    const hasFilter = q.trim() || colors.size > 0;
+    countEl.textContent = hasFilter ? `${out.length} / ${total}` : '';
+  }
+
+  return out;
 }
 
 function normalizeDeckTagName(v) {
@@ -1063,9 +1609,81 @@ function _customTagsHas(tags, tag) {
   return (tags || []).some(t => normalizeDeckTagName(t).toLowerCase() === key);
 }
 
+function _tagTierKey(tag) {
+  return normalizeDeckTagName(tag).toLowerCase();
+}
+
+function _ensureCardCustomTagTiers(card) {
+  if (!card) return {};
+  if (!card.customTagTiers || typeof card.customTagTiers !== 'object') card.customTagTiers = {};
+  return card.customTagTiers;
+}
+
+function _normalizeCustomTagTiers(tiers) {
+  const out = {};
+  if (!tiers || typeof tiers !== 'object') return out;
+  for (const [k, v] of Object.entries(tiers)) {
+    const tag = normalizeDeckTagName(k);
+    if (!tag) continue;
+    out[_tagTierKey(tag)] = v === 'secondary' ? 'secondary' : 'primary';
+  }
+  return out;
+}
+
+function _pruneCardCustomTagTiers(card) {
+  if (!card?.customTagTiers) return;
+  const allowed = new Set((card.customTags || []).map(t => _tagTierKey(t)));
+  for (const k of Object.keys(card.customTagTiers)) {
+    if (!allowed.has(k)) delete card.customTagTiers[k];
+  }
+}
+
+function _getCardCustomTagTier(card, tag, oracleId) {
+  const key = _tagTierKey(tag);
+  if (!key) return 'primary';
+  if (card) {
+    const tiers = card.customTagTiers;
+    if (tiers && tiers[key]) return tiers[key] === 'secondary' ? 'secondary' : 'primary';
+  }
+  const oid = _normalizeTagOracleId(oracleId || (card ? _oracleIdForMyTags(card) : ''));
+  if (oid && _tagOverridesByOracleId.has(oid)) {
+    const ovTiers = _tagOverridesByOracleId.get(oid).customTagTiers;
+    if (ovTiers && ovTiers[key]) return ovTiers[key] === 'secondary' ? 'secondary' : 'primary';
+  }
+  return 'primary';
+}
+
+function _setCardCustomTagTier(card, tag, tier) {
+  if (!card || !tag) return;
+  const tiers = _ensureCardCustomTagTiers(card);
+  tiers[_tagTierKey(tag)] = tier === 'secondary' ? 'secondary' : 'primary';
+}
+
+function _removeCardCustomTagTier(card, tag) {
+  if (!card?.customTagTiers) return;
+  delete card.customTagTiers[_tagTierKey(tag)];
+}
+
+function _setOverrideCustomTagTier(ov, tag, tier) {
+  if (!ov) return;
+  if (!ov.customTagTiers || typeof ov.customTagTiers !== 'object') ov.customTagTiers = {};
+  ov.customTagTiers[_tagTierKey(tag)] = tier === 'secondary' ? 'secondary' : 'primary';
+}
+
+function _removeOverrideCustomTagTier(ov, tag) {
+  if (!ov?.customTagTiers) return;
+  delete ov.customTagTiers[_tagTierKey(tag)];
+}
+
+function _tierForTagPickerAssign() {
+  const f = deckTagCatalogFilter || 'all';
+  return f === 'secondary' ? 'secondary' : 'primary';
+}
+
 function _setCardCustomTags(card, tags) {
   if (!card) return;
   card.customTags = _dedupeCustomTags(tags);
+  _pruneCardCustomTagTiers(card);
 }
 
 function sanitizeAllDeckCustomTags() {
@@ -1080,7 +1698,7 @@ function sanitizeAllDeckCustomTags() {
   };
   (collection || []).forEach(touch);
   [...(decks || []), ...(sharedDecks || [])].forEach(d => {
-    [...(d.cards || []), ...(d.sideboard || [])].forEach(touch);
+    _deckAllZoneCards(d).forEach(touch);
   });
   for (const ov of _tagOverridesByOracleId.values()) {
     if (Array.isArray(ov.customTags)) {
@@ -1092,34 +1710,25 @@ function sanitizeAllDeckCustomTags() {
 }
 
 function _userDeckTagsUnion() {
-  return [...new Set([
-    ...(deckCustomTags || []),
-    ...(deckPrimaryTags || []),
-    ...(deckSecondaryTags || []),
-  ])].filter(Boolean).sort((a, b) => a.localeCompare(b));
+  return [...new Set((deckCustomTags || []).filter(Boolean))].sort((a, b) => a.localeCompare(b));
 }
 
 function _syncDeckCustomTagsUnion() {
   deckCustomTags = _userDeckTagsUnion();
   localStorage.setItem('mtg_deck_custom_tags', JSON.stringify(deckCustomTags));
-  localStorage.setItem('mtg_deck_primary_tags', JSON.stringify(deckPrimaryTags || []));
-  localStorage.setItem('mtg_deck_secondary_tags', JSON.stringify(deckSecondaryTags || []));
+  deckPrimaryTags = [];
+  deckSecondaryTags = [];
+  localStorage.removeItem('mtg_deck_primary_tags');
+  localStorage.removeItem('mtg_deck_secondary_tags');
 }
 
-/** Register a user tag in the catalog; new tags join both primary and secondary lists. */
-function _ensureUserTagInCatalog(tag, opts = {}) {
+/** Register a user tag in the shared My Tags catalog. */
+function _ensureUserTagInCatalog(tag) {
   const t = normalizeDeckTagName(tag);
   if (!t || !_pickerTagAllowed(t)) return false;
-  const primary = opts.primary !== false;
-  const secondary = opts.secondary !== false;
   if (!Array.isArray(deckCustomTags)) deckCustomTags = [];
-  if (!Array.isArray(deckPrimaryTags)) deckPrimaryTags = [];
-  if (!Array.isArray(deckSecondaryTags)) deckSecondaryTags = [];
   if (!deckCustomTags.includes(t)) deckCustomTags.push(t);
-  if (primary && !deckPrimaryTags.includes(t)) deckPrimaryTags.push(t);
-  if (secondary && !deckSecondaryTags.includes(t)) deckSecondaryTags.push(t);
-  deckPrimaryTags.sort((a, b) => a.localeCompare(b));
-  deckSecondaryTags.sort((a, b) => a.localeCompare(b));
+  deckCustomTags.sort((a, b) => a.localeCompare(b));
   _syncDeckCustomTagsUnion();
   return true;
 }
@@ -1132,43 +1741,29 @@ function _pickerTagAllowed(tag) {
   return !_isProtectedDeckTag(t);
 }
 
-/** Reconcile catalog + tier lists without forcing secondary tags into primary-only. */
+/** Reconcile My Tags catalog (legacy primary/secondary lists merge into one). */
 function normalizeDeckTagPrefs() {
-  if (!Array.isArray(deckPrimaryTags)) deckPrimaryTags = [];
-  if (!Array.isArray(deckSecondaryTags)) deckSecondaryTags = [];
   if (!Array.isArray(deckCustomTags)) deckCustomTags = [];
+  const legacyPri = Array.isArray(deckPrimaryTags) ? deckPrimaryTags : [];
+  const legacySec = Array.isArray(deckSecondaryTags) ? deckSecondaryTags : [];
   const catalog = new Set(
-    [...deckCustomTags, ...deckPrimaryTags, ...deckSecondaryTags].filter(_pickerTagAllowed),
+    [...deckCustomTags, ...legacyPri, ...legacySec].filter(_pickerTagAllowed),
   );
-  deckPrimaryTags = deckPrimaryTags.filter(t => catalog.has(t));
-  deckSecondaryTags = deckSecondaryTags.filter(t => catalog.has(t));
   deckCustomTags = [...catalog].sort((a, b) => a.localeCompare(b));
-  deckPrimaryTags.sort((a, b) => a.localeCompare(b));
-  deckSecondaryTags.sort((a, b) => a.localeCompare(b));
+  deckPrimaryTags = [];
+  deckSecondaryTags = [];
   _syncDeckCustomTagsUnion();
 }
 
 function applyDeckTagPrefsFromServer(prefs) {
   const p = prefs || {};
-  let primary = Array.isArray(p.deck_primary_tags) ? p.deck_primary_tags.filter(Boolean) : [];
-  let secondary = Array.isArray(p.deck_secondary_tags) ? p.deck_secondary_tags.filter(Boolean) : [];
   const custom = Array.isArray(p.deck_custom_tags) ? p.deck_custom_tags.filter(Boolean) : [];
-  const hasTierKeys = Array.isArray(p.deck_primary_tags) || Array.isArray(p.deck_secondary_tags);
-  if (!hasTierKeys && custom.length) {
-    primary = custom.filter(t => _pickerTagAllowed(t));
-    secondary = [];
-  } else if (custom.length) {
-    custom.forEach(t => {
-      if (!_pickerTagAllowed(t)) return;
-      if (!primary.includes(t) && !secondary.includes(t)) {
-        primary.push(t);
-        secondary.push(t);
-      }
-    });
-  }
-  deckPrimaryTags = primary;
-  deckSecondaryTags = secondary;
-  deckCustomTags = custom.length ? custom : _userDeckTagsUnion();
+  const legacyPri = Array.isArray(p.deck_primary_tags) ? p.deck_primary_tags.filter(Boolean) : [];
+  const legacySec = Array.isArray(p.deck_secondary_tags) ? p.deck_secondary_tags.filter(Boolean) : [];
+  deckCustomTags = [...new Set([...custom, ...legacyPri, ...legacySec].filter(_pickerTagAllowed))]
+    .sort((a, b) => a.localeCompare(b));
+  deckPrimaryTags = [];
+  deckSecondaryTags = [];
   normalizeDeckTagPrefs();
   _seedUserTagCatalogFromUsage();
 }
@@ -1177,37 +1772,30 @@ function _seedUserTagCatalogFromUsage() {
   if (_userDeckTagsUnion().length) return false;
   const discovered = _collectUsedUserTags();
   if (!discovered.length) return false;
-  discovered.forEach(t => _ensureUserTagInCatalog(t, { primary: true, secondary: true }));
+  discovered.forEach(t => _ensureUserTagInCatalog(t));
   return true;
 }
 
 function _getUserTagTier(tag, opts = {}) {
   const t = String(tag || '');
-  const filter = opts.filter || deckTagCatalogFilter || 'all';
-  const inSec = (deckSecondaryTags || []).includes(t);
-  const inPri = (deckPrimaryTags || []).includes(t);
-  if (filter === 'secondary' && inSec) return 'secondary';
-  if (filter === 'primary' && inPri) return 'primary';
-  if (inSec && !inPri) return 'secondary';
-  if (inPri) return 'primary';
   if (_isProtectedDeckTag(t)) return 'default';
+  if (opts.card || opts.oracleId) {
+    return _getCardCustomTagTier(opts.card, tag, opts.oracleId);
+  }
+  if (opts.filter === 'secondary' || deckTagCatalogFilter === 'secondary') return 'secondary';
   return 'primary';
 }
 
-/** Sort key: primary-tier tags first, then secondary-only, then alpha within tier. */
-function _userTagTierSortRank(tag) {
-  const t = String(tag || '');
-  const inPri = (deckPrimaryTags || []).includes(t);
-  const inSec = (deckSecondaryTags || []).includes(t);
-  if (inPri) return 0;
-  if (inSec) return 1;
+/** Sort key: primary on card first, then secondary, then alpha. */
+function _userTagTierSortRank(tag, card) {
+  if (card) return _getCardCustomTagTier(card, tag) === 'secondary' ? 1 : 0;
   return 0;
 }
 
-function _sortUserTagsForDisplay(tags) {
+function _sortUserTagsForDisplay(tags, card) {
   return [...new Set((tags || []).filter(Boolean))].sort((a, b) => {
-    const ra = _userTagTierSortRank(a);
-    const rb = _userTagTierSortRank(b);
+    const ra = _userTagTierSortRank(a, card);
+    const rb = _userTagTierSortRank(b, card);
     if (ra !== rb) return ra - rb;
     return String(a).localeCompare(String(b));
   });
@@ -1218,24 +1806,19 @@ function _compareDeckTagGroupKeys(a, b) {
   if (b === 'Untagged') return -1;
   if (a === 'Commander') return -1;
   if (b === 'Commander') return 1;
-  const ra = _userTagTierSortRank(a);
-  const rb = _userTagTierSortRank(b);
-  if (ra !== rb) return ra - rb;
   return a.localeCompare(b);
 }
 
-function _tagMatchesDeckGroupTier(tag, groupTier) {
+function _tagMatchesDeckGroupTier(card, tag, groupTier) {
   const t = String(tag || '');
   if (groupTier === 'tag_default') return _isProtectedDeckTag(t);
-  const inPri = (deckPrimaryTags || []).includes(t);
-  const inSec = (deckSecondaryTags || []).includes(t);
-  if (groupTier === 'tag_primary') return inPri;
-  if (groupTier === 'tag_secondary') return inSec;
+  if (groupTier === 'tag_primary') return _getCardCustomTagTier(card, tag) === 'primary';
+  if (groupTier === 'tag_secondary') return _getCardCustomTagTier(card, tag) === 'secondary';
   return true;
 }
 
-function _tagClassForTier(tag) {
-  const tier = _getUserTagTier(tag);
+function _tagClassForTier(tag, opts = {}) {
+  const tier = _getUserTagTier(tag, opts);
   if (tier === 'default') return 'tag-scryfall';
   if (tier === 'secondary') return 'tag-secondary';
   return 'tag-primary';
@@ -1253,9 +1836,6 @@ function _tagsForCatalogFilter(filter) {
   const f = filter || deckTagCatalogFilter || 'all';
   if (f === 'default') {
     return [...SCRYFALL_PROTECTED_TAGS].filter(t => t !== 'Commander').sort((a, b) => a.localeCompare(b));
-  }
-  if (f === 'primary' || f === 'secondary') {
-    return _userDeckTagsUnion().filter(t => !_isProtectedDeckTag(t));
   }
   return _allDeckTagsForUI();
 }
@@ -1275,7 +1855,7 @@ function _deckTagChipHtml(tag, opts = {}) {
   const size = opts.size || '0.84rem';
   const safe = String(tag || '').replace(/"/g, '&quot;');
   const esc = String(tag || '').replace(/'/g, "\\'");
-  const cls = _tagClassForTier(tag);
+  const cls = _tagClassForTier(tag, { card: opts.card });
   const disabled = deck && _isDeckTagDisabled(deck, tag);
   const disabledCls = disabled ? ' tag-deck-disabled' : '';
   const canToggleDeck = interactive && deck && !activeDeckIsShared;
@@ -1306,7 +1886,7 @@ function toggleDeckTagDisabled(tag) {
 }
 
 function _deckCardSubtypeGroup(card) {
-  const t = String(card?.type || '').trim();
+  const t = _typeLineOfDeckCard(card).trim();
   if (!t) return 'Other';
   const parts = t.split(/\s*[—–]\s*|\s+-\s+/);
   if (parts.length >= 2) {
@@ -1341,6 +1921,7 @@ async function loadTagOverrides(force = false) {
           addTags: Array.isArray(r.addTags) ? r.addTags.filter(Boolean) : [],
           removeTags: Array.isArray(r.removeTags) ? r.removeTags.filter(Boolean) : [],
           customTags: Array.isArray(r.customTags) ? r.customTags.filter(Boolean) : [],
+          customTagTiers: _normalizeCustomTagTiers(r.customTagTiers),
           updatedAt: Number(r.updatedAt || 0),
           cardName: r.cardName || null,
         },
@@ -1395,14 +1976,11 @@ function _renderDeckTagFilterBar(containerId) {
     ? [
       { id: 'all', label: 'All tags' },
       { id: 'default', label: 'Default tags' },
-      { id: 'primary', label: 'Primary' },
-      { id: 'secondary', label: 'Secondary' },
+      { id: 'primary', label: 'Apply as primary' },
+      { id: 'secondary', label: 'Apply as secondary' },
     ]
     : [
       { id: 'all', label: 'All tags' },
-      { id: 'default', label: 'Default tags' },
-      { id: 'primary', label: 'Primary tags' },
-      { id: 'secondary', label: 'Secondary tags' },
     ];
   bar.innerHTML = filters.map(f => `
     <button type="button" class="btn btn-sm ${deckTagCatalogFilter === f.id ? 'btn-primary' : 'btn-outline'}"
@@ -1419,23 +1997,18 @@ function renderMyTagsCatalog(opts = {}) {
   if (!el) return;
   const allTags = _sortUserTagsForDisplay(_tagsForCatalogFilter(deckTagCatalogFilter));
   if (!allTags.length) {
-    const hint = deckTagCatalogFilter === 'primary' || deckTagCatalogFilter === 'secondary'
-      ? 'No My Tags yet — create one below (+ Primary or + Secondary). New tags appear in both lists.'
-      : 'No tags in this filter.';
-    el.innerHTML = `<div style="padding:0.75rem;color:var(--text3);font-size:0.82rem">${hint}</div>`;
+    el.innerHTML = '<div style="padding:0.75rem;color:var(--text3);font-size:0.82rem">No My Tags yet — create one below. Assign primary or secondary when tagging cards.</div>';
     return;
   }
   el.innerHTML = allTags.map(tag => {
     const isProtected = _isProtectedDeckTag(tag) && !_isUserCatalogTag(tag);
     const esc = tag.replace(/'/g, "\\'");
     return `
-    <span class="tag ${_tagClassForTier(tag)}" style="display:inline-flex;align-items:center;gap:6px">
+    <span class="tag tag-primary" style="display:inline-flex;align-items:center;gap:6px">
       ${tag}
       ${isProtected
         ? ''
-        : `<button type="button" class="btn btn-ghost btn-sm" style="font-size:0.62rem;padding:1px 5px" title="Set as primary" onclick="setDeckTagTier('${esc}','primary')">P</button>
-           <button type="button" class="btn btn-ghost btn-sm" style="font-size:0.62rem;padding:1px 5px" title="Set as secondary" onclick="setDeckTagTier('${esc}','secondary')">S</button>
-           <button class="btn btn-ghost btn-sm btn-icon" style="padding:0 4px;font-size:0.72rem" onclick="removeDeckCustomTag('${esc}')" title="Delete tag">✕</button>`}
+        : `<button class="btn btn-ghost btn-sm btn-icon" style="padding:0 4px;font-size:0.72rem" onclick="removeDeckCustomTag('${esc}')" title="Delete tag">✕</button>`}
     </span>`;
   }).join('');
 }
@@ -1449,50 +2022,26 @@ function renderDeckTagManager() {
   _refreshMyTagsCatalogUIs();
 }
 
-function setDeckTagTier(tag, tier) {
-  if (_isProtectedDeckTag(tag) && !_isUserCatalogTag(tag)) return;
-  const t = String(tag);
-  if (!deckCustomTags?.includes(t)) deckCustomTags = [...(deckCustomTags || []), t];
-  if (tier === 'secondary') {
-    if (!(deckSecondaryTags || []).includes(t)) deckSecondaryTags.push(t);
-    deckPrimaryTags = (deckPrimaryTags || []).filter(x => x !== t);
-  } else {
-    if (!(deckPrimaryTags || []).includes(t)) deckPrimaryTags.push(t);
-    deckSecondaryTags = (deckSecondaryTags || []).filter(x => x !== t);
-  }
-  normalizeDeckTagPrefs();
-  save('prefs');
-  _refreshMyTagsCatalogUIs();
-  if (_deckCardTagPickerTarget) renderDeckCardTagPicker();
-  if (typeof patchOpenCardDetailMyTags === 'function') patchOpenCardDetailMyTags();
-}
-
-function addDeckCustomTag(tier, inputId) {
+function addDeckCustomTag(inputId) {
   const input = document.getElementById(inputId || 'deckTagInput')
     || document.getElementById('tagSettingsTagInput');
   const tag = normalizeDeckTagName(input?.value);
   if (!tag) return;
   if (_isProtectedDeckTag(tag)) { showNotif('That name is reserved for default tags'); return; }
-  const useTier = tier === 'secondary' ? 'secondary' : 'primary';
   const existed = _userDeckTagsUnion().includes(tag);
-  if (existed) {
-    setDeckTagTier(tag, useTier);
-    if (input) input.value = '';
-    showNotif(`"${tag}" added to ${useTier} list`);
-    return;
-  }
-  _ensureUserTagInCatalog(tag, { primary: true, secondary: true });
+  _ensureUserTagInCatalog(tag);
   if (input) input.value = '';
   save('prefs');
   _refreshMyTagsCatalogUIs();
   if (_deckCardTagPickerTarget) renderDeckCardTagPicker();
-  showNotif(`Created tag "${tag}" (available as primary and secondary)`);
+  showNotif(existed ? `"${tag}" is already in My Tags` : `Created tag "${tag}"`);
 }
 
 function _stripCustomTagFromCard(card, tag) {
   if (!card || !Array.isArray(card.customTags)) return;
   const norm = normalizeDeckTagName(tag).toLowerCase();
   card.customTags = card.customTags.filter(t => normalizeDeckTagName(t).toLowerCase() !== norm);
+  _removeCardCustomTagTier(card, tag);
 }
 
 async function _purgeCustomTagFromOverrides(tag) {
@@ -1501,6 +2050,7 @@ async function _purgeCustomTagFromOverrides(tag) {
   for (const [oid, ov] of _tagOverridesByOracleId.entries()) {
     if (!Array.isArray(ov.customTags) || !ov.customTags.some(t => normalizeDeckTagName(t).toLowerCase() === norm)) continue;
     ov.customTags = ov.customTags.filter(t => normalizeDeckTagName(t).toLowerCase() !== norm);
+    _removeOverrideCustomTagTier(ov, tag);
     touched.push(oid);
   }
   for (const oid of touched) {
@@ -1519,15 +2069,13 @@ function removeDeckCustomTag(tag) {
   }
   const t = String(tag);
   if (!confirm(`Delete "${t}" from your tag catalog? It will be removed from all cards.`)) return;
-  deckPrimaryTags = (deckPrimaryTags || []).filter(x => x !== t);
-  deckSecondaryTags = (deckSecondaryTags || []).filter(x => x !== t);
   deckCustomTags = (deckCustomTags || []).filter(x => x !== t);
   normalizeDeckTagPrefs();
   (collection || []).forEach(c => _stripCustomTagFromCard(c, t));
   [...(decks || []), ...(sharedDecks || [])].forEach(d => {
     _ensureDeckDisabledTags(d);
     d.disabledTags = d.disabledTags.filter(x => x !== t);
-    [...(d.cards || []), ...(d.sideboard || [])].forEach(c => _stripCustomTagFromCard(c, t));
+    _deckAllZoneCards(d).forEach(c => _stripCustomTagFromCard(c, t));
   });
   save('collection', 'decks', 'prefs');
   _refreshMyTagsCatalogUIs();
@@ -1822,12 +2370,16 @@ function renderDecks() {
     _scheduleDeckScryfallTagRefresh(d);
   });
   if (roleTagChanged) save('decks');
+  const importWrap = document.getElementById('deckImportDropdownWrap');
+  const sidebarToggleBtn = document.getElementById('toggleDeckSidebarBtn');
   if (!activeDeckId) {
     // Show big grid, hide detail split
     document.getElementById('deckGridArea').style.display = '';
     document.getElementById('deckDetailArea').style.display = 'none';
     document.getElementById('backToDecksBtn').style.display = 'none';
     if (topNewDeckBtn) topNewDeckBtn.style.display = '';
+    if (importWrap) importWrap.style.display = '';
+    if (sidebarToggleBtn) sidebarToggleBtn.style.display = 'none';
     renderDeckGrid();
   } else {
     // Show detail split, hide grid
@@ -1835,6 +2387,8 @@ function renderDecks() {
     document.getElementById('deckDetailArea').style.display = 'flex';
     document.getElementById('backToDecksBtn').style.display = '';
     if (topNewDeckBtn) topNewDeckBtn.style.display = 'none';
+    if (importWrap) importWrap.style.display = 'none';
+    if (sidebarToggleBtn) sidebarToggleBtn.style.display = '';
     applyDeckSidebarState();
     renderDeckSidebar();
     renderActiveDeck();
@@ -2211,7 +2765,7 @@ async function submitNewDeck() {
   const commanderImage   = document.getElementById('newDeckCommanderImage')?.value || null;
   const commanderScryId  = document.getElementById('newDeckCommanderScryfallId')?.value || null;
   const notes = document.getElementById('newDeckNotes').value.trim() || null;
-  const deck = { id: Date.now().toString(), name, format, commander, commanderColorIdentity, commanderImage, notes, cards: [], sideboard: [], colors: [] };
+  const deck = { id: Date.now().toString(), name, format, commander, commanderColorIdentity, commanderImage, notes, cards: [], maybeboard: [], sideboard: [], sideboardEnabled: false, zoneLayout: 2, colors: [] };
   decks.push(deck); activeDeckId = deck.id;
   localStorage.setItem('mtg_active_deck_id', deck.id);
   document.getElementById('newDeckModal').classList.remove('open');
@@ -2267,15 +2821,30 @@ async function _enrichMissingDeckImages() {
   } catch (_) {}
 }
 
+function _backfillDeckCardTypeLines(deck) {
+  if (!deck || typeof ensureCardTypeLine !== 'function') return;
+  let changed = false;
+  _deckAllZoneCards(deck).forEach(c => {
+    if (!c?.type || c.type === 'undefined') {
+      ensureCardTypeLine(c);
+      if (c.type) changed = true;
+    }
+  });
+  if (changed && !activeDeckIsShared) saveActiveDeck(deck);
+}
+
 function renderActiveDeck() {
   const deck = getActiveDeck();
   if (!deck) return;
+  _backfillDeckCardTypeLines(deck);
   _ensureDeckDisabledTags(deck);
   const gbSel = document.getElementById('deckGroupBySelect');
   if (gbSel) {
     if (gbSel.value === 'custom_tag') gbSel.value = 'tag_all';
     if (gbSel.value !== deckGroupBy) gbSel.value = deckGroupBy;
   }
+  _syncDeckStackSortControls();
+  _syncDeckSideboardToggle();
   document.querySelectorAll('#deckStackOrientH, #deckStackOrientV').forEach(b => b.classList.remove('active'));
   const activeBtn = document.getElementById(deckStackOrient === 'horizontal' ? 'deckStackOrientH' : 'deckStackOrientV');
   if (activeBtn) activeBtn.classList.add('active');
@@ -2332,14 +2901,22 @@ function renderActiveDeck() {
   _renderScryTagSyncBadge();
 
   renderDeckList(deck);
-  renderManaCurve(deck);
-  renderCommanderGameplan(deck);
-  renderTypeBreakdown(deck);
-  renderManaCostProfile(deck);
-  renderManaGenerationProfile(deck);
-  renderOpeningHandChart(deck);
-  renderLandCoverageChart(deck);
-  renderProbabilityChart(deck);
+  const _renderDeckChart = (fn, label) => {
+    try {
+      fn(deck);
+    } catch (err) {
+      console.error(`Deck chart failed (${label}):`, err);
+    }
+  };
+  _renderDeckChart(renderManaCurve, 'mana curve');
+  _renderDeckChart(renderCommanderGameplan, 'commander gameplan');
+  _renderDeckChart(renderTypeBreakdown, 'type breakdown');
+  _renderDeckChart(renderManaCostProfile, 'mana cost');
+  _renderDeckChart(renderManaGenerationProfile, 'mana generation');
+  _renderDeckChart(renderOpeningHandChart, 'opening hand');
+  _renderDeckChart(renderLandCoverageChart, 'land coverage');
+  _renderDeckChart(renderCardDrawAccelChart, 'card draw');
+  _renderDeckChart(renderProbabilityChart, 'probability');
   renderDeckValidation(deck);
   scheduleDeckGameChangerRefresh(deck);
   renderCollaboratorsPanel(deck);
@@ -2414,7 +2991,6 @@ function toggleDeckListCollapse() {
   const wrap = document.getElementById('deckListPanel');
   const btn  = document.getElementById('deckListCollapseBtn');
   const gbWrap = document.getElementById('deckGroupByWrap');
-  const viewToggle = document.querySelector('#deckListCollapseBtn')?.closest('.panel-header')?.querySelector('.view-toggle');
   if (wrap) wrap.style.display = _deckListCollapsed ? 'none' : '';
   if (btn)  btn.style.transform = _deckListCollapsed ? 'rotate(-90deg)' : '';
   if (gbWrap) gbWrap.style.visibility = _deckListCollapsed ? 'hidden' : '';
@@ -2446,7 +3022,7 @@ function getDeckCardByUid(deck, uid) {
   const key = String(uid || '');
   const inMain = (deck?.cards || []).find(c => c.uid === key || c.scryfallId === key);
   if (inMain) return inMain;
-  return (deck?.sideboard || []).find(c => c.uid === key || c.scryfallId === key) || null;
+  return _deckAllZoneCards(deck).find(c => c.uid === key || c.scryfallId === key) || null;
 }
 
 function _cardMatchesRef(card, ref) {
@@ -2466,7 +3042,7 @@ function _findCardForTagPicker(cardUid) {
   const coll = (collection || []).find(c => _cardMatchesRef(c, key));
   if (coll) return coll;
   for (const d of [...(decks || []), ...(sharedDecks || [])]) {
-    const pools = [...(d.cards || []), ...(d.sideboard || [])];
+    const pools = _deckAllZoneCards(d);
     const slot = pools.find(c => _cardMatchesRef(c, key));
     if (slot) return slot;
   }
@@ -2512,7 +3088,7 @@ function _collectUsedUserTags() {
   for (const ov of _tagOverridesByOracleId.values()) {
     (ov.customTags || []).forEach(add);
   }
-  [...(collection || []), ...decks.flatMap(d => [...(d.cards || []), ...(d.sideboard || [])]), ...sharedDecks.flatMap(d => [...(d.cards || []), ...(d.sideboard || [])])].forEach(c => {
+  [...(collection || []), ...decks.flatMap(d => _deckAllZoneCards(d)), ...sharedDecks.flatMap(d => _deckAllZoneCards(d))].forEach(c => {
     (c.customTags || []).forEach(add);
   });
   return [...out].sort((a, b) => a.localeCompare(b));
@@ -2551,12 +3127,7 @@ function _entriesForCardTagPicker(filter, card) {
   if (f === 'primary' || f === 'secondary') {
     _userDeckTagsUnion().forEach(pushUser);
     _collectUsedUserTags().forEach(pushUser);
-    userEntries.sort((a, b) => {
-      const ra = _userTagTierSortRank(a.tag);
-      const rb = _userTagTierSortRank(b.tag);
-      if (ra !== rb) return ra - rb;
-      return a.tag.localeCompare(b.tag);
-    });
+    userEntries.sort((a, b) => a.tag.localeCompare(b.tag));
     return userEntries;
   }
 
@@ -2580,8 +3151,8 @@ function _entriesForCardTagPicker(filter, card) {
   _collectUsedUserTags().forEach(pushUser);
 
   userEntries.sort((a, b) => {
-    const ra = _userTagTierSortRank(a.tag);
-    const rb = _userTagTierSortRank(b.tag);
+    const ra = _userTagTierSortRank(a.tag, card);
+    const rb = _userTagTierSortRank(b.tag, card);
     if (ra !== rb) return ra - rb;
     return a.tag.localeCompare(b.tag);
   });
@@ -2602,6 +3173,18 @@ function _bindDeckCardTagPickerClicks() {
     if (!entry) return;
     if (entry.kind === 'protected') void toggleDeckCardProtectedTagOverride(entry.tag);
     else void toggleDeckCardCustomTag(entry.tag);
+  });
+  list.addEventListener('contextmenu', e => {
+    const btn = e.target.closest('[data-tag-pick-idx]');
+    if (!btn || !list.contains(btn)) return;
+    const idx = Number(btn.dataset.tagPickIdx);
+    const entry = _deckCardTagPickerTarget?.entries?.[idx];
+    if (!entry || entry.kind !== 'user') return;
+    const card = _findCardForTagPicker(_deckCardTagPickerTarget?.cardUid);
+    if (!card || !_isUserTagActiveOnCard(card, entry.tag, _deckCardTagPickerTarget?.oracleId)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    void toggleDeckCardCustomTag(entry.tag, { cycleTier: true });
   });
 }
 
@@ -2666,11 +3249,14 @@ function renderDeckCardTagPicker() {
       return `<button type="button" class="btn btn-sm ${cls}" data-tag-pick-idx="${i}" title="${hint}">${safe}</button>`;
     }
     const active = _isUserTagActiveOnCard(card, tag, oracleId);
-    const tier = _getUserTagTier(tag, { filter: deckTagCatalogFilter });
+    const tier = active
+      ? _getCardCustomTagTier(card, tag, oracleId)
+      : _tierForTagPickerAssign();
     const cls = active
       ? (tier === 'secondary' ? 'btn-secondary-tag' : 'btn-primary-tag')
       : (tier === 'secondary' ? 'btn-outline btn-outline-secondary-tag' : 'btn-outline btn-outline-primary-tag');
-    return `<button type="button" class="btn btn-sm ${cls}" data-tag-pick-idx="${i}">${safe}</button>`;
+    const title = active ? 'Click to remove · right-click to switch primary/secondary' : `Add as ${tier}`;
+    return `<button type="button" class="btn btn-sm ${cls}" data-tag-pick-idx="${i}" title="${title}">${safe}</button>`;
   }).join('');
 }
 
@@ -2700,7 +3286,7 @@ function _getGlobalCustomTagsForCard(card) {
       }
     }
   }
-  return _sortUserTagsForDisplay([...merged].filter(Boolean));
+  return _sortUserTagsForDisplay([...merged].filter(Boolean), card);
 }
 
 function _applyGlobalCustomTagsToCard(card) {
@@ -2720,30 +3306,21 @@ async function _saveGlobalCustomTags(oracleId) {
   const addTags = Array.from(ov.addTags || []);
   const removeTags = Array.from(ov.removeTags || []);
   const customTags = Array.from(ov.customTags || []);
-  if (!addTags.length && !removeTags.length && !customTags.length) {
+  const customTagTiers = _normalizeCustomTagTiers(ov.customTagTiers);
+  const hasTiers = Object.keys(customTagTiers).length > 0;
+  if (!addTags.length && !removeTags.length && !customTags.length && !hasTiers) {
     await apiDelete(`/tag-overrides/${oid}`);
     _tagOverridesByOracleId.delete(oid);
   } else {
-    await apiPut(`/tag-overrides/${oid}`, { addTags, removeTags, customTags });
+    await apiPut(`/tag-overrides/${oid}`, { addTags, removeTags, customTags, customTagTiers });
   }
 }
 
-async function toggleDeckCardCustomTag(tag) {
+async function toggleDeckCardCustomTag(tag, opts = {}) {
   tag = normalizeDeckTagName(tag);
   if (!_deckCardTagPickerTarget || !tag || !_isUserMyTag(tag)) return;
   const card = _findCardForTagPicker(_deckCardTagPickerTarget.cardUid);
   if (!card) return;
-
-  if (deckTagCatalogFilter === 'secondary' && (deckPrimaryTags || []).includes(tag)) {
-    setDeckTagTier(tag, 'secondary');
-    showNotif(`"${tag}" moved to secondary tags`);
-    return;
-  }
-  if (deckTagCatalogFilter === 'primary' && !(deckPrimaryTags || []).includes(tag) && (deckSecondaryTags || []).includes(tag)) {
-    setDeckTagTier(tag, 'primary');
-    showNotif(`"${tag}" moved to primary tags`);
-    return;
-  }
 
   let oracleId = _normalizeTagOracleId(_deckCardTagPickerTarget.oracleId);
   if (!oracleId) {
@@ -2760,10 +3337,50 @@ async function toggleDeckCardCustomTag(tag) {
     return;
   }
 
-  const isAdding = !_isUserTagActiveOnCard(card, tag, oracleId);
+  const isActive = _isUserTagActiveOnCard(card, tag, oracleId);
+  const wantTier = _tierForTagPickerAssign();
+
+  if (isActive && opts.cycleTier) {
+    const next = _getCardCustomTagTier(card, tag, oracleId) === 'secondary' ? 'primary' : 'secondary';
+    if (!_tagOverridesByOracleId.has(oracleId)) {
+      _tagOverridesByOracleId.set(oracleId, { addTags: [], removeTags: [], customTags: [], customTagTiers: {}, updatedAt: Date.now(), cardName: card.name });
+    }
+    _setOverrideCustomTagTier(_tagOverridesByOracleId.get(oracleId), tag, next);
+    try {
+      await _saveGlobalCustomTags(oracleId);
+    } catch (e) {
+      showNotif(e.message || 'Could not save My Tags', true);
+      return;
+    }
+    const applyTier = c => { if (c) _setCardCustomTagTier(c, tag, next); };
+    applyTier(card);
+    const collCard = (collection || []).find(c => _cardMatchesRef(c, _deckCardTagPickerTarget.cardUid));
+    applyTier(collCard);
+    const cardNameLower = (card.name || '').toLowerCase();
+    [...decks, ...sharedDecks].forEach(d => {
+      _deckAllZoneCards(d).forEach(c => {
+        const cOid = String(c.oracleId || _scryOracleByPrintId.get(c.scryfallId || '') || '').toLowerCase();
+        if ((oracleId && cOid === oracleId) || (c.name || '').toLowerCase() === cardNameLower) applyTier(c);
+      });
+    });
+    renderDeckCardTagPicker();
+    if (typeof patchOpenCardDetailMyTags === 'function') patchOpenCardDetailMyTags();
+    showNotif(`"${tag}" set as ${next} on this card`);
+    return;
+  }
+
+  if (isActive) {
+    const currentTier = _getCardCustomTagTier(card, tag, oracleId);
+    const f = deckTagCatalogFilter || 'all';
+    if ((f === 'primary' || f === 'secondary') && currentTier !== wantTier) {
+      return toggleDeckCardCustomTag(tag, { cycleTier: true });
+    }
+  }
+
+  const isAdding = !isActive;
 
   if (!_tagOverridesByOracleId.has(oracleId)) {
-    _tagOverridesByOracleId.set(oracleId, { addTags: [], removeTags: [], customTags: [], updatedAt: Date.now(), cardName: card.name });
+    _tagOverridesByOracleId.set(oracleId, { addTags: [], removeTags: [], customTags: [], customTagTiers: {}, updatedAt: Date.now(), cardName: card.name });
   }
   const ov = _tagOverridesByOracleId.get(oracleId);
   if (!Array.isArray(ov.customTags)) ov.customTags = [];
@@ -2773,8 +3390,13 @@ async function toggleDeckCardCustomTag(tag) {
   if (Array.isArray(ov.removeTags) && ov.removeTags.includes(tag)) {
     ov.removeTags = ov.removeTags.filter(t => t !== tag);
   }
-  if (isAdding) ov.customTags = _dedupeCustomTags([...ov.customTags, tag]);
-  else ov.customTags = ov.customTags.filter(t => normalizeDeckTagName(t).toLowerCase() !== tag.toLowerCase());
+  if (isAdding) {
+    ov.customTags = _dedupeCustomTags([...ov.customTags, tag]);
+    _setOverrideCustomTagTier(ov, tag, wantTier);
+  } else {
+    ov.customTags = ov.customTags.filter(t => normalizeDeckTagName(t).toLowerCase() !== tag.toLowerCase());
+    _removeOverrideCustomTagTier(ov, tag);
+  }
   ov.customTags = _dedupeCustomTags(ov.customTags);
   try {
     await _saveGlobalCustomTags(oracleId);
@@ -2786,8 +3408,13 @@ async function toggleDeckCardCustomTag(tag) {
   const collCard = (collection || []).find(c => _cardMatchesRef(c, _deckCardTagPickerTarget.cardUid));
   const touch = (c) => {
     if (!c) return;
-    if (isAdding) _setCardCustomTags(c, [...(c.customTags || []), tag]);
-    else _setCardCustomTags(c, (c.customTags || []).filter(t => normalizeDeckTagName(t).toLowerCase() !== tag.toLowerCase()));
+    if (isAdding) {
+      _setCardCustomTags(c, [...(c.customTags || []), tag]);
+      _setCardCustomTagTier(c, tag, wantTier);
+    } else {
+      _setCardCustomTags(c, (c.customTags || []).filter(t => normalizeDeckTagName(t).toLowerCase() !== tag.toLowerCase()));
+      _removeCardCustomTagTier(c, tag);
+    }
     syncDeckCardAutoRoleTags(c);
   };
   touch(card);
@@ -2795,7 +3422,7 @@ async function toggleDeckCardCustomTag(tag) {
 
   const cardNameLower = (card.name || '').toLowerCase();
   [...decks, ...sharedDecks].forEach(d => {
-    [...(d.cards || []), ...(d.sideboard || [])].forEach(c => {
+    _deckAllZoneCards(d).forEach(c => {
       const cOid = String(c.oracleId || _scryOracleByPrintId.get(c.scryfallId || '') || '').toLowerCase();
       const matches = (oracleId && cOid === oracleId) || (c.name || '').toLowerCase() === cardNameLower;
       if (!matches) return;
@@ -2896,11 +3523,15 @@ async function _hydrateDeckCardTagPickerDefaults(card) {
   // even for cards added before tags were created
   const globalCustom = Array.isArray(ov.customTags) ? ov.customTags : [];
   if (!Array.isArray(card.customTags)) card.customTags = [];
-  let hydrated = false;
   const merged = _dedupeCustomTags([...(card.customTags || []), ...globalCustom]);
   if (merged.length !== (card.customTags || []).length || merged.some((t, i) => t !== (card.customTags || [])[i])) {
     card.customTags = merged;
     save('decks');
+  }
+  const ovTiers = _normalizeCustomTagTiers(ov.customTagTiers);
+  for (const t of card.customTags || []) {
+    const key = _tagTierKey(t);
+    if (ovTiers[key]) _setCardCustomTagTier(card, t, ovTiers[key]);
   }
 }
 
@@ -2935,8 +3566,12 @@ async function toggleDeckCardProtectedTagOverride(tag) {
   try {
     const ov = _tagOverridesByOracleId.get(t.oracleId) || {};
     const customTags = Array.from(ov.customTags || []);
-    if (!addTags.length && !removeTags.length && !customTags.length) await apiDelete(`/tag-overrides/${t.oracleId}`);
-    else await apiPut(`/tag-overrides/${t.oracleId}`, { addTags, removeTags, customTags });
+    const customTagTiers = _normalizeCustomTagTiers(ov.customTagTiers);
+    if (!addTags.length && !removeTags.length && !customTags.length && !Object.keys(customTagTiers).length) {
+      await apiDelete(`/tag-overrides/${t.oracleId}`);
+    } else {
+      await apiPut(`/tag-overrides/${t.oracleId}`, { addTags, removeTags, customTags, customTagTiers });
+    }
     const active = getActiveDeck();
     const activeSlot = active && getDeckCardByUid(active, t.cardUid);
     if (nowOn !== wasOn && activeSlot) recordDeckEvent(nowOn ? 'tag_add' : 'tag_remove', activeSlot, tag);
@@ -2964,7 +3599,7 @@ function addAndAssignDeckTagFromPicker() {
     return;
   }
   if (!_userDeckTagsUnion().includes(tag)) {
-    _ensureUserTagInCatalog(tag, { primary: true, secondary: true });
+    _ensureUserTagInCatalog(tag);
     save('prefs');
   }
   if (input) input.value = '';
@@ -3034,7 +3669,7 @@ function _buildDeckGroups(cards, groupBy) {
   // Default: type
   const groups = { Creatures: [], Instants: [], Sorceries: [], Artifacts: [], Enchantments: [], Planeswalkers: [], Lands: [], Other: [] };
   rest.forEach(c => {
-    const t = (c.type || '').toLowerCase();
+    const t = _typeLineOfDeckCard(c).toLowerCase();
     if (t.includes('creature'))          groups.Creatures.push(c);
     else if (t.includes('instant'))      groups.Instants.push(c);
     else if (t.includes('sorcery'))      groups.Sorceries.push(c);
@@ -3062,6 +3697,10 @@ function getCardInventoryKey(card) {
   return (card.name || '').toLowerCase() + (card.foil ? '_f' : '_n');
 }
 
+function _deckCardDragKey(card) {
+  return getCardInventoryKey(card) || '';
+}
+
 function getCollectionOwnedQtyForKey(cardKey) {
   if (!cardKey) return 0;
   return collection
@@ -3076,10 +3715,10 @@ function getAllocatedDeckQtyForKey(cardKey, excludeDeckId = null) {
     const main = (deck.cards || [])
       .filter(c => getCardInventoryKey(c) === cardKey)
       .reduce((inner, c) => inner + (c.qty || 1), 0);
-    const sb = (deck.sideboard || [])
+    const extra = _deckExtraPoolsForAlloc(deck)
       .filter(c => getCardInventoryKey(c) === cardKey)
       .reduce((inner, c) => inner + (c.qty || 1), 0);
-    return sum + main + sb;
+    return sum + main + extra;
   }, 0);
 }
 
@@ -3104,10 +3743,10 @@ function getDeckAllocationsForCard(card, excludeDeckId = null) {
       const main = (d.cards || [])
         .filter(c => getCardInventoryKey(c) === key)
         .reduce((sum, c) => sum + (c.qty || 1), 0);
-      const sb = (d.sideboard || [])
+      const extra = _deckExtraPoolsForAlloc(d)
         .filter(c => getCardInventoryKey(c) === key)
         .reduce((sum, c) => sum + (c.qty || 1), 0);
-      const qty = main + sb;
+      const qty = main + extra;
       return qty > 0 ? { deckId: d.id, deckName: d.name, qty } : null;
     })
     .filter(Boolean);
@@ -3124,10 +3763,10 @@ function getInventoryBreakdown(card, currentDeckId = null) {
       const main = (d.cards || [])
         .filter(c => getCardInventoryKey(c) === key)
         .reduce((sum, c) => sum + (c.qty || 1), 0);
-      const sb = (d.sideboard || [])
+      const extra = _deckExtraPoolsForAlloc(d)
         .filter(c => getCardInventoryKey(c) === key)
         .reduce((sum, c) => sum + (c.qty || 1), 0);
-      return main + sb;
+      return main + extra;
     })()
     : 0;
   const usedInOther = Math.max(0, usedTotal - usedInCurrent);
@@ -3147,7 +3786,22 @@ function _maybeBoardQtyForDeckSlot(sideboard, cardKey) {
 function _maybeBoardQtyForCardName(deck, name) {
   const n = (name || '').toLowerCase();
   if (!n) return 0;
-  return (deck?.sideboard || [])
+  return _deckMaybeBoard(deck)
+    .filter(c => (c.name || '').toLowerCase() === n)
+    .reduce((s, c) => s + (c.qty || 1), 0);
+}
+
+function _matchSideboardQtyForDeckSlot(pool, cardKey) {
+  if (!cardKey || !pool?.length) return 0;
+  return pool
+    .filter(c => getCardInventoryKey(c) === cardKey)
+    .reduce((s, c) => s + (c.qty || 1), 0);
+}
+
+function _matchSideboardQtyForCardName(deck, name) {
+  const n = (name || '').toLowerCase();
+  if (!n || !_deckMatchSideboardEnabled(deck)) return 0;
+  return _deckMatchSideboard(deck)
     .filter(c => (c.name || '').toLowerCase() === n)
     .reduce((s, c) => s + (c.qty || 1), 0);
 }
@@ -3163,10 +3817,11 @@ function _rebuildOwnershipMaps() {
   });
 }
 
-function _stackTile(c, isSideboard = false, sideboardForMbHint = null) {
+function _stackTile(c, zone = 'main', poolHints = null) {
   const qty = c.qty || 1;
   const cardKey = getCardInventoryKey(c);
   const nameKey = String(c.name || '').trim().toLowerCase();
+  const isExtra = zone !== 'main';
   const img = c.imageLarge || c.image
     || (c.scryfallId ? `https://cards.scryfall.io/normal/front/${c.scryfallId[0]}/${c.scryfallId[1]}/${c.scryfallId}.jpg` : '');
   const safeName = c.name.replace(/"/g, '&quot;');
@@ -3192,11 +3847,17 @@ function _stackTile(c, isSideboard = false, sideboardForMbHint = null) {
     ownerBadge = `<div class="stack-foil-mismatch">${owned.foil ? '✦ own foil' : 'own non-foil'}</div>`;
   }
 
-  const mbPoolQty = !isSideboard && Array.isArray(sideboardForMbHint)
-    ? _maybeBoardQtyForDeckSlot(sideboardForMbHint, cardKey)
+  const mbPoolQty = zone === 'main' && poolHints?.mb
+    ? _maybeBoardQtyForDeckSlot(poolHints.mb, cardKey)
+    : 0;
+  const sbPoolQty = zone === 'main' && poolHints?.sb
+    ? _matchSideboardQtyForDeckSlot(poolHints.sb, cardKey)
     : 0;
   const mbPoolBadge = mbPoolQty > 0
     ? `<div class="stack-mb-pool" title="Same printing on maybe board">MB ×${mbPoolQty}</div>`
+    : '';
+  const sbPoolBadge = sbPoolQty > 0
+    ? `<div class="stack-sb-pool" title="Same printing on sideboard">SB ×${sbPoolQty}</div>`
     : '';
 
   const isGameChanger = typeof isGameChangerCard === 'function' && isGameChangerCard(c);
@@ -3204,27 +3865,40 @@ function _stackTile(c, isSideboard = false, sideboardForMbHint = null) {
     ? `<div class="stack-game-changer" title="Commander game changer">GC</div>`
     : '';
 
+  const dragKey = _deckCardDragKey(c).replace(/"/g, '&quot;');
+
+  const swapBtns = isExtra
+    ? `<button class="stack-swap" draggable="false" data-uid="${dragKey}" data-swap-zone="${zone}" title="Move to mainboard">→ Main</button>`
+    : `${poolHints?.sbEnabled ? `<button class="stack-swap stack-swap--sb" draggable="false" data-uid="${dragKey}" data-swap-zone="sb" title="Move to sideboard">→ SB</button>` : ''}` +
+      `<button class="stack-swap stack-swap--mb" draggable="false" data-uid="${dragKey}" data-swap-zone="mb" title="Move to maybe board">→ MB</button>`;
+
+  const validCls = _deckCardValidationClass(c, poolHints?.validationErrorNames);
   return `
-    <div class="deck-stack-card${notOwned ? ' not-owned' : ''}${isGameChanger ? ' is-game-changer' : ''}" draggable="true" data-uid="${c.uid || ''}" data-sid="${c.scryfallId || ''}" data-name="${safeName}" data-card-key="${cardKey}" data-card-name-key="${nameKey.replace(/"/g, '&quot;')}">
+    <div class="deck-stack-card deck-zone-draggable${notOwned ? ' not-owned' : ''}${isGameChanger ? ' is-game-changer' : ''}${validCls}" data-uid="${dragKey}" data-zone="${zone}" data-sid="${c.scryfallId || ''}" data-name="${safeName}" data-card-key="${cardKey}" data-card-name-key="${nameKey.replace(/"/g, '&quot;')}" onpointerdown="_deckZoneCardPointerDown(event)">
       <div class="stack-wrap">
         ${img
-          ? `<img src="${img}" class="stack-main${c.isCommander ? ' is-commander' : ''}" alt="${c.name}" loading="lazy" style="${imgStyle}">`
+          ? `<img src="${img}" draggable="false" class="stack-main${c.isCommander ? ' is-commander' : ''}" alt="${c.name}" loading="lazy" style="${imgStyle}">`
           : `<div class="stack-main stack-face-fallback${c.isCommander ? ' is-commander' : ''}"
                style="aspect-ratio:0.715;background:var(--bg4);display:flex;align-items:center;justify-content:center;color:var(--text3);padding:4px;text-align:center;${imgStyle}">${c.name}</div>`}
         <div class="stack-qty">×${qty}</div>
         ${gcBadge}
         ${mbPoolBadge}
+        ${sbPoolBadge}
         ${ownerBadge}
-        <button class="stack-remove" data-uid="${c.uid || ''}" data-zone="${isSideboard ? 'sb' : 'main'}" title="Remove">✕</button>
-        <button class="stack-version" title="Change printing">⟳</button>
-        <button class="stack-swap" data-uid="${c.uid || ''}" title="${isSideboard ? 'Move to mainboard' : 'Move to maybe board'}">${isSideboard ? '→ Main' : '→ MB'}</button>
+        <button class="stack-remove" draggable="false" data-uid="${dragKey}" data-zone="${zone}" title="Remove">✕</button>
+        <button class="stack-version" draggable="false" title="Change printing">⟳</button>
+        ${swapBtns}
       </div>
       <div class="stack-name" style="${notOwned ? 'color:var(--text3);opacity:0.6' : ''}">${c.name}</div>
     </div>`;
 }
 
 let _deckDragZone = null;
+let _deckPointerDrag = null;
+let _deckSuppressClick = false;
 let _deckTagLinkHoverRef = null;
+
+const _DECK_PTR_OPTS = { passive: false, capture: true };
 
 function _clearDeckTagLinkedHighlight(el) {
   if (!el) return;
@@ -3291,63 +3965,228 @@ function _bindDeckTagGroupHoverLinking(el, enabled) {
   };
 }
 
+function _deckZoneSectionEl(root, zone) {
+  if (!root || !zone) return null;
+  return root.querySelector(`.deck-extra-zone-section[data-zone="${zone}"]`);
+}
+
+function _deckIsMainboardDropTarget(target) {
+  if (!target) return false;
+  if (target.closest('.deck-stack-card[data-zone="main"], .deck-card-row[data-zone="main"], .deck-list-group-head--main')) return true;
+  if (target.closest('.deck-mainboard-area--cards, .deck-mainboard-area, .deck-stack-column, .deck-stack-group, .deck-stack-backplates')) return true;
+  if (target.closest('.deck-stack-layers') && !target.closest('.deck-extra-zone-section')) return true;
+  return false;
+}
+
+function _deckDropTargetZone(target, dragEvent, fromZone) {
+  const from = fromZone || _deckDragZone;
+  if (!target) return null;
+
+  // MB/SB → main: prefer mainboard before any extra-zone heuristics (avoids snapping to the other zone)
+  if (from !== 'main' && _deckIsMainboardDropTarget(target)) return 'main';
+
+  const sec = target.closest('.deck-extra-zone-section[data-zone]');
+  if (sec?.dataset?.zone && sec.dataset.zone !== from) return sec.dataset.zone;
+
+  // Main → MB/SB only: pick section by pointer Y when both zones exist
+  if (from === 'main' && target.closest('.deck-extra-zones-wrap')) {
+    const wrap = target.closest('.deck-extra-zones-wrap');
+    const sections = [...wrap.querySelectorAll('.deck-extra-zone-section[data-zone]')];
+    if (sections.length === 1) return sections[0].dataset.zone;
+    if (sections.length > 1 && dragEvent) {
+      const y = dragEvent.clientY ?? 0;
+      let best = sections[0];
+      let bestDist = Infinity;
+      for (const s of sections) {
+        const r = s.getBoundingClientRect();
+        const mid = r.top + r.height / 2;
+        const d = Math.abs(y - mid);
+        if (d < bestDist) { bestDist = d; best = s; }
+      }
+      return best.dataset.zone;
+    }
+  }
+
+  if (from !== 'main' && target.closest('#deckCardList') && !target.closest(`.deck-extra-zone-section[data-zone="${from}"]`)) {
+    return 'main';
+  }
+
+  return null;
+}
+
+function _deckDropHighlightEl(target, dragEvent, fromZone) {
+  const root = document.getElementById('deckCardList');
+  if (!root) return null;
+  const z = _deckDropTargetZone(target, dragEvent, fromZone);
+  if (!z || z === fromZone) return null;
+  if (z === 'mb' || z === 'sb') return _deckZoneSectionEl(root, z);
+  if (z === 'main') {
+    return root.querySelector('.deck-mainboard-area--cards')
+      || root.querySelector('.deck-mainboard-area');
+  }
+  return null;
+}
+
+function _deckSetDropHighlight(st, el) {
+  if (!st) return;
+  if (st.highlightEl === el) return;
+  if (st.highlightEl) st.highlightEl.classList.remove('drag-over');
+  st.highlightEl = el || null;
+  if (el) el.classList.add('drag-over');
+}
+
+function _deckApplyZoneDrop(data, dropZone) {
+  if (!data?.uid || !dropZone || dropZone === data.zone) return;
+  if (dropZone === 'main') moveToMainboard(data.uid, data.zone);
+  else if (data.zone === 'main') {
+    if (dropZone === 'mb') moveToSideboard(data.uid);
+    else if (dropZone === 'sb') moveToMatchSideboard(data.uid);
+  } else moveBetweenDeckZones(data.uid, data.zone, dropZone);
+}
+
+function _deckConsumeSuppressClick() {
+  if (!_deckSuppressClick) return false;
+  _deckSuppressClick = false;
+  return true;
+}
+
+function _deckRemoveZoneDragGhost() {
+  document.getElementById('deckZoneDragGhost')?.remove();
+}
+
+function _deckPointerDragBind() {
+  window.addEventListener('pointermove', _deckPointerMove, _DECK_PTR_OPTS);
+  window.addEventListener('pointerup', _deckPointerEnd, _DECK_PTR_OPTS);
+  window.addEventListener('pointercancel', _deckPointerEnd, _DECK_PTR_OPTS);
+}
+
+function _deckPointerDragUnbind() {
+  window.removeEventListener('pointermove', _deckPointerMove, _DECK_PTR_OPTS);
+  window.removeEventListener('pointerup', _deckPointerEnd, _DECK_PTR_OPTS);
+  window.removeEventListener('pointercancel', _deckPointerEnd, _DECK_PTR_OPTS);
+}
+
+function _deckZoneCardPointerDown(e) {
+  if (typeof activeDeckIsShared !== 'undefined' && activeDeckIsShared) return;
+  if (e.button !== 0) return;
+  const tile = e.currentTarget;
+  if (!tile?.classList?.contains('deck-zone-draggable')) return;
+  if (e.target?.closest?.('button')) return;
+  const root = document.getElementById('deckCardList');
+  if (!root?.contains(tile)) return;
+  const key = tile.dataset.uid || tile.dataset.cardKey || '';
+  if (!key) return;
+  e.preventDefault();
+  e.stopPropagation();
+  _deckPointerDrag = {
+    tile,
+    key,
+    zone: tile.dataset.zone || 'main',
+    root,
+    startX: e.clientX,
+    startY: e.clientY,
+    moved: false,
+    pointerId: e.pointerId,
+  };
+  if (tile.setPointerCapture) {
+    try { tile.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+  }
+  _deckPointerDragBind();
+}
+window._deckZoneCardPointerDown = _deckZoneCardPointerDown;
+
+function _deckPointerMove(e) {
+  const st = _deckPointerDrag;
+  if (!st || e.pointerId !== st.pointerId) return;
+  if (!st.moved) {
+    if (Math.hypot(e.clientX - st.startX, e.clientY - st.startY) < 6) return;
+    st.moved = true;
+    _deckDragZone = st.zone;
+    st.root.classList.add('is-deck-dragging');
+    st.root.dataset.deckDragFrom = st.zone;
+    st.tile.classList.add('dragging');
+    const img = st.tile.querySelector('.stack-main, img');
+    if (img) {
+      const ghost = document.createElement('div');
+      ghost.id = 'deckZoneDragGhost';
+      ghost.style.cssText = 'position:fixed;pointer-events:none;z-index:9900;opacity:0.92;transform:none;';
+      const clone = img.cloneNode(true);
+      clone.removeAttribute('loading');
+      clone.style.maxWidth = 'var(--deck-card-w, 220px)';
+      clone.style.width = 'var(--deck-card-w, 220px)';
+      clone.style.height = 'auto';
+      clone.style.display = 'block';
+      ghost.appendChild(clone);
+      document.body.appendChild(ghost);
+      st.ghost = ghost;
+    }
+  }
+  if (st.ghost) {
+    const r = st.tile.getBoundingClientRect();
+    const ox = st.startX - r.left;
+    const oy = st.startY - r.top;
+    st.ghost.style.left = `${e.clientX - ox}px`;
+    st.ghost.style.top = `${e.clientY - oy}px`;
+  }
+  const under = document.elementFromPoint(e.clientX, e.clientY);
+  const hl = _deckDropHighlightEl(under, e, st.zone);
+  _deckSetDropHighlight(st, hl);
+  e.preventDefault();
+}
+
+function _deckPointerEnd(e) {
+  const st = _deckPointerDrag;
+  _deckPointerDrag = null;
+  _deckPointerDragUnbind();
+  if (!st || e.pointerId !== st.pointerId) return;
+
+  if (st.tile.releasePointerCapture) {
+    try { st.tile.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+  }
+  _deckRemoveZoneDragGhost();
+
+  _deckDragZone = null;
+  st.root.classList.remove('is-deck-dragging');
+  st.tile.classList.remove('dragging');
+  _deckSetDropHighlight(st, null);
+  delete st.root.dataset.deckDragFrom;
+
+  if (!st.moved) return;
+
+  _deckSuppressClick = true;
+  setTimeout(() => { _deckSuppressClick = false; }, 400);
+
+  const under = document.elementFromPoint(e.clientX, e.clientY);
+  const dropZone = _deckDropTargetZone(under, e, st.zone);
+  _deckApplyZoneDrop({ uid: st.key, zone: st.zone }, dropZone);
+}
+
 function _attachDeckDragHandlers(el) {
-  el.ondragstart = e => {
-    const draggable = e.target.closest('[draggable="true"]');
-    if (!draggable || !draggable.dataset.uid) return;
-    _deckDragZone = draggable.dataset.zone || (draggable.closest('.deck-sideboard-section') ? 'sb' : 'main');
-    e.dataTransfer.setData('text/plain', JSON.stringify({ uid: draggable.dataset.uid, zone: _deckDragZone }));
-    e.dataTransfer.effectAllowed = 'move';
-    requestAnimationFrame(() => draggable.classList.add('dragging'));
-  };
-
-  el.ondragend = () => {
-    _deckDragZone = null;
-    el.querySelectorAll('.dragging').forEach(c => c.classList.remove('dragging'));
-    el.querySelectorAll('.drag-over').forEach(c => c.classList.remove('drag-over'));
-  };
-
-  el.ondragover = e => {
-    if (!_deckDragZone) return;
-    const inSb = !!e.target.closest('.deck-sideboard-section');
-    // Only allow drop if it's crossing zones
-    if (_deckDragZone === 'main' && !inSb) return;
-    if (_deckDragZone === 'sb' && inSb) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    el.querySelectorAll('.drag-over').forEach(c => c.classList.remove('drag-over'));
-    const zone = inSb
-      ? e.target.closest('.deck-sideboard-section')
-      : e.target.closest('.deck-mainboard-area') || e.target.closest('.deck-stack-column') || e.target.closest('.deck-stack-view');
-    if (zone) zone.classList.add('drag-over');
-  };
-
-  el.ondragleave = e => {
-    if (!el.contains(e.relatedTarget))
-      el.querySelectorAll('.drag-over').forEach(c => c.classList.remove('drag-over'));
-  };
-
-  el.ondrop = e => {
-    e.preventDefault();
-    el.querySelectorAll('.drag-over').forEach(c => c.classList.remove('drag-over'));
-    let data;
-    try { data = JSON.parse(e.dataTransfer.getData('text/plain')); } catch { return; }
-    const inSb = !!e.target.closest('.deck-sideboard-section');
-    if (!inSb && data.zone === 'sb') moveToMainboard(data.uid);
-    else if (inSb && data.zone === 'main') moveToSideboard(data.uid);
-  };
+  /* pointer drag wired via onpointerdown on each .deck-zone-draggable tile */
 }
 
 // ── Vertical stack column layout helpers ─────────────────────────────────────
 
 let _deckStackResizeObserver = null;
 let _deckStackLastColCount = 0;
+let _deckStackLastZonesBeside = null;
 let _deckStackResizeTimer = null;
 
 // card at 220px wide → ~306px tall (63×88mm ratio); overlap = 272px; visible = 34px
 function _estimateGroupHeight(cards) {
   const count = cards.reduce((s, c) => s + (c.qty || 1), 0);
   return 58 + 306 + Math.max(0, count - 1) * 34; // label+padding + first card + extra cards
+}
+
+/** Gray stack boxes only — paired with _renderGroup(..., { cardsOnly: true }) for zone layering. */
+function _renderStackGroupBackplate([grp, cards]) {
+  const total = cards.reduce((s, c) => s + (c.qty || 1), 0);
+  const backdropH = Math.max(280, _estimateGroupHeight(cards) - 52);
+  return `
+    <div class="deck-stack-group deck-stack-group--backplate" aria-hidden="true">
+      <div class="deck-stack-group-label">${grp} <span class="deck-stack-group-count">(${total})</span></div>
+      <div class="deck-stack-group-backdrop" style="min-height:${backdropH}px"></div>
+    </div>`;
 }
 
 // LPT greedy: Commander always pins to col 0, then sort tallest first and fill shortest column
@@ -3374,20 +4213,30 @@ function _assignGroupsToColumns(entries, numCols) {
   return cols.map(c => c.groups);
 }
 
-// 256 = maybe board fixed col (240) + its padding-left (16); 32 = view h-padding; 256 = col+gap
-function _calcVertColCount(el) {
-  return Math.max(1, Math.floor((el.clientWidth - 288) / (deckCardSize + 36)));
+const _DECK_EXTRA_ZONE_PILL_W = 22;
+
+function _calcVertExtraZoneWidth(deck, zonesBeside) {
+  if (!deck || !zonesBeside) return 0;
+  return _deckExtraZoneColumnPx(deck) + 24;
+}
+
+function _calcVertColCount(el, deck, zonesBeside) {
+  const extra = deck ? _calcVertExtraZoneWidth(deck, zonesBeside) : 0;
+  return Math.max(1, Math.floor((el.clientWidth - extra - 32) / (deckCardSize + 36)));
 }
 
 function _attachVertStackObserver(el, deck) {
   if (_deckStackResizeObserver) _deckStackResizeObserver.disconnect();
-  _deckStackLastColCount = _calcVertColCount(el);
+  const layout = _deckStackZoneLayout(el, deck, true);
+  _deckStackLastColCount = layout.numCols;
+  _deckStackLastZonesBeside = layout.zonesBeside;
   _deckStackResizeObserver = new ResizeObserver(() => {
     clearTimeout(_deckStackResizeTimer);
     _deckStackResizeTimer = setTimeout(() => {
-      const n = _calcVertColCount(el);
-      if (n !== _deckStackLastColCount) {
-        _deckStackLastColCount = n;
+      const next = _deckStackZoneLayout(el, deck, true);
+      if (next.numCols !== _deckStackLastColCount || next.zonesBeside !== _deckStackLastZonesBeside) {
+        _deckStackLastColCount = next.numCols;
+        _deckStackLastZonesBeside = next.zonesBeside;
         renderDeckList(deck);
       }
     }, 150);
@@ -3410,7 +4259,7 @@ let _deckTokensCache = { deckId: '', fp: '', tokens: [] };
 
 function _deckTokensFingerprint(deck) {
   const ids = [];
-  for (const c of [...(deck.cards || []), ...(deck.sideboard || [])]) {
+  for (const c of _deckAllZoneCards(deck)) {
     if (c?.scryfallId) ids.push(c.scryfallId);
   }
   return [...new Set(ids)].sort().join('|');
@@ -3473,7 +4322,7 @@ async function fetchDeckGeneratedTokens(deck) {
   }
 
   const sourceIds = [...new Set(
-    [...(deck.cards || []), ...(deck.sideboard || [])]
+    _deckAllZoneCards(deck)
       .filter(c => c?.scryfallId && !_isTokenTypeDeckCard(c))
       .map(c => c.scryfallId)
   )];
@@ -3610,25 +4459,87 @@ function _renderDeckTokensSection(deck, tokens, opts = {}) {
   };
 }
 
+function _renderDeckExtraZoneGrid(deck, zone, label, cards, orientClass, emptyHint, poolHints = null) {
+  const collapsed = _deckZoneCollapsed(zone);
+  const headerLabel = zone === 'sb' ? 'SB' : 'MB';
+  const total = cards.reduce((s, c) => s + (c.qty || 1), 0);
+  const chevron = collapsed ? '▸' : '▾';
+  const sorted = _deckStackSortCards(cards);
+  const body = collapsed
+    ? ''
+    : (sorted.length
+      ? `<div class="deck-stack-cards${orientClass}">${sorted.map(c => _stackTile(c, zone, poolHints)).join('')}</div>`
+      : `<div class="deck-list-quiet" style="padding:4px 0">${emptyHint}</div>`);
+  return `
+    <div class="deck-sideboard-section deck-extra-zone-section deck-extra-zone--${zone}${collapsed ? ' is-collapsed' : ''}" data-zone="${zone}" style="${_deckExtraZoneSectionStyle()}">
+      <button type="button" class="deck-sideboard-header deck-extra-zone-header" data-zone-toggle="${zone}" title="${label.replace(/"/g, '&quot;')} (${total})">
+        <span class="deck-extra-zone-chevron" aria-hidden="true">${chevron}</span>
+        <span class="deck-extra-zone-label">${headerLabel}</span>
+        <span class="deck-stack-group-count">(${total})</span>
+      </button>
+      <div class="deck-extra-zone-body">${body}</div>
+    </div>`;
+}
+
+function _renderDeckExtraZoneList(deck, zone, label, cards, emptyHint, validationErrorNames = null) {
+  const collapsed = _deckZoneCollapsed(zone);
+  const total = cards.reduce((s, c) => s + (c.qty || 1), 0);
+  const chevron = collapsed ? '▸' : '▾';
+  const sorted = _deckStackSortCards(cards);
+  const adjustFn = zone === 'sb' ? 'adjustMatchSideboardCardQtyByUid' : 'adjustSideboardCardQtyByUid';
+  const rows = collapsed ? '' : (sorted.length
+    ? sorted.map(c => {
+      const dk = _deckCardDragKey(c).replace(/'/g, "\\'");
+      return `
+          <div class="deck-card-row deck-zone-draggable${_deckCardValidationClass(c, validationErrorNames)}" data-uid="${_deckCardDragKey(c)}" data-zone="${zone}" data-card-key="${getCardInventoryKey(c)}" data-card-name-key="${String(c.name || '').trim().toLowerCase().replace(/"/g, '&quot;')}" onpointerdown="_deckZoneCardPointerDown(event)" onclick="openCardDetail('${c.uid || c.scryfallId}','deck')">
+            <span class="deck-card-name">${c.name}</span>
+            <span style="display:flex;gap:5px;align-items:center">${sortColorsWUBRG(c.colors).map(col => `<img src="https://svgs.scryfall.io/card-symbols/${col}.svg" class="mana-pip" alt="${col}" title="${col}" draggable="false">`).join('')}</span>
+            <button class="btn btn-ghost btn-sm" title="Move to mainboard" style="font-size:0.65rem;padding:1px 6px" onclick="event.stopPropagation();moveToMainboard('${dk}','${zone}')">→ Main</button>
+            <div style="display:flex;align-items:center;gap:5px;margin-left:auto" onclick="event.stopPropagation()">
+              <button class="btn btn-ghost btn-sm btn-icon" title="Remove one" onclick="${adjustFn}('${dk}',-1)">−</button>
+              <span class="deck-list-qty">${c.qty||1}</span>
+              <button class="btn btn-ghost btn-sm btn-icon" title="Add one" onclick="${adjustFn}('${dk}',1)">+</button>
+            </div>
+          </div>`;
+    }).join('')
+    : `<div class="deck-list-quiet deck-list-quiet--pad">${emptyHint}</div>`);
+  return `
+    <div class="deck-sideboard-section deck-extra-zone-section deck-extra-zone--${zone}${collapsed ? ' is-collapsed' : ''}" data-zone="${zone}" style="margin:0;${_deckExtraZoneSectionStyle()}">
+      <button type="button" class="deck-list-group-head deck-list-group-head--sb deck-extra-zone-header" data-zone-toggle="${zone}" title="${label.replace(/"/g, '&quot;')} (${total})">
+        <span class="deck-extra-zone-chevron" aria-hidden="true">${chevron}</span>
+        <span class="deck-extra-zone-label">${label}</span>
+        <span class="deck-stack-group-count">(${total})</span>
+      </button>
+      <div class="deck-extra-zone-body">${rows}</div>
+    </div>`;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 function renderDeckList(deck) {
   const el = document.getElementById('deckCardList');
   if (!el) return;
   _bindDeckTagGroupHoverLinking(el, false);
-  const filteredCards = deckListSearchQ
-    ? (deck.cards || []).filter(c => (c.name || '').toLowerCase().includes(deckListSearchQ))
-    : (deck.cards || []);
+  const filteredCards = _applyDeckListFilter(deck.cards || []);
 
-  const sideboard = deck.sideboard || [];
+  const maybeboard = _deckMaybeBoard(deck);
+  const matchSideboard = _deckMatchSideboardEnabled(deck) ? _deckMatchSideboard(deck) : [];
+  const hasExtra = maybeboard.length > 0 || matchSideboard.length > 0;
+  const validationErrorNames = _deckValidationErrorNameSet(deck);
+  const poolHints = {
+    mb: maybeboard,
+    sb: matchSideboard,
+    sbEnabled: _deckMatchSideboardEnabled(deck),
+    validationErrorNames,
+  };
 
-  if (!deck.cards.length && !sideboard.length) {
+  if (!deck.cards.length && !hasExtra) {
     el.innerHTML = '<div class="deck-list-muted-center">No cards yet — search for cards above to add them</div>';
     el.onclick = null;
     _scheduleDeckTokensRefresh(deck);
     return;
   }
-  if (!filteredCards.length && !sideboard.length) {
+  if (!filteredCards.length && !hasExtra) {
     el.innerHTML = '<div class="deck-list-muted-center">No matching cards in this deck list</div>';
     el.onclick = null;
     _scheduleDeckTokensRefresh(deck);
@@ -3639,61 +4550,77 @@ function renderDeckList(deck) {
     if (isDeckOwnershipEnabled()) _rebuildOwnershipMaps();
     const groups = _buildDeckGroups(filteredCards, deckGroupBy);
     const entries = Object.entries(groups).filter(([, v]) => v.length > 0);
-    const sbTotal = sideboard.reduce((s, c) => s + (c.qty || 1), 0);
     const isVertical = deckStackOrient === 'vertical';
     const orientClass = isVertical ? ' vertical' : '';
 
-    function _renderGroup([grp, cards]) {
+    function _renderGroup([grp, cards], opts = {}) {
       const total = cards.reduce((s, c) => s + (c.qty || 1), 0);
-      const sorted = cards.slice().sort((a, b) => {
-        if (deckGroupBy === 'cmc') return (a.cmc || 0) - (b.cmc || 0);
-        if (deckGroupBy === 'subtype') return _deckCardSubtypeGroup(a).localeCompare(_deckCardSubtypeGroup(b)) || a.name.localeCompare(b.name);
-        return a.name.localeCompare(b.name);
-      });
+      const sorted = _deckStackSortCards(cards);
+      const cardsCls = opts.cardsOnly ? ' deck-stack-group--cards' : '';
       return `
-        <div class="deck-stack-group">
+        <div class="deck-stack-group${cardsCls}">
           <div class="deck-stack-group-label">${grp} <span class="deck-stack-group-count">(${total})</span></div>
-          <div class="deck-stack-cards${orientClass}">${sorted.map(c => _stackTile(c, false, sideboard)).join('')}</div>
+          <div class="deck-stack-cards${orientClass}">${sorted.map(c => _stackTile(c, 'main', poolHints)).join('')}</div>
         </div>`;
     }
 
-    const sbHtml = `
-      <div class="deck-sideboard-section">
-        <div class="deck-sideboard-header">Maybe board <span class="deck-stack-group-count">(${sbTotal})</span></div>
-        ${sideboard.length
-          ? `<div class="deck-stack-cards${orientClass}">${sideboard.map(c => _stackTile(c, true)).join('')}</div>`
-          : `<div class="deck-list-quiet" style="padding:4px 0">No maybe board cards — click → MB on any card to add it</div>`}
-      </div>`;
+    const zoneInner = _renderDeckExtraZoneGrid(deck, 'mb', 'Maybe board', maybeboard, ' vertical', 'No maybe board cards — click → MB on any card to add it', poolHints) +
+      (_deckMatchSideboardEnabled(deck)
+        ? _renderDeckExtraZoneGrid(deck, 'sb', 'Sideboard', matchSideboard, ' vertical', 'No sideboard cards — click → SB on any card to add it', poolHints)
+        : '');
+    const extraZonesHtml = _deckExtraZonesWrapOpenHtml(deck, zoneInner);
+    const layout = _deckStackZoneLayout(el, deck, isVertical);
 
     if (isVertical) {
-      const numCols = _calcVertColCount(el);
-      const cols = _assignGroupsToColumns(entries, numCols);
-      const mainboardHtml = cols
-        .map(colGroups => `<div class="deck-stack-column">${colGroups.map(_renderGroup).join('')}</div>`)
-        .join('');
-      el.innerHTML = `<div class="deck-stack-view vertical-orient">` +
-        `<div class="deck-mainboard-area vertical-orient">${mainboardHtml}</div>` +
-        sbHtml + `</div>`;
+      const cols = _assignGroupsToColumns(entries, layout.numCols);
+      if (layout.zonesBeside) {
+        const backplatesHtml = cols
+          .map(colGroups => `<div class="deck-stack-column">${colGroups.map(_renderStackGroupBackplate).join('')}</div>`)
+          .join('');
+        const cardsHtml = cols
+          .map(colGroups => `<div class="deck-stack-column">${colGroups.map(g => _renderGroup(g, { cardsOnly: true })).join('')}</div>`)
+          .join('');
+        el.innerHTML = `<div class="deck-stack-view vertical-orient${layout.layoutClass}" style="${layout.stackStyle}">` +
+          `<div class="deck-stack-layers">` +
+          `<div class="deck-stack-backplates vertical-orient">${backplatesHtml}</div>` +
+          `<div class="deck-mainboard-area vertical-orient deck-mainboard-area--cards">${cardsHtml}</div>` +
+          `</div>` +
+          extraZonesHtml +
+          `</div>`;
+      } else {
+        const mainboardHtml = cols
+          .map(colGroups => `<div class="deck-stack-column">${colGroups.map(_renderGroup).join('')}</div>`)
+          .join('');
+        el.innerHTML = `<div class="deck-stack-view vertical-orient${layout.layoutClass}" style="${layout.stackStyle}">` +
+          `<div class="deck-mainboard-area vertical-orient">${mainboardHtml}</div>` +
+          extraZonesHtml + `</div>`;
+      }
       _attachVertStackObserver(el, deck);
     } else {
       _detachVertStackObserver();
-      el.innerHTML = `<div class="deck-stack-view">` +
+      el.innerHTML = `<div class="deck-stack-view${layout.layoutClass}" style="${layout.stackStyle}">` +
         `<div class="deck-mainboard-area">${entries.map(_renderGroup).join('')}</div>` +
-        sbHtml + `</div>`;
+        extraZonesHtml + `</div>`;
     }
 
     el.onclick = e => {
+      if (_deckConsumeSuppressClick()) return;
+      if (_handleDeckExtraZoneToggleClick(e)) return;
       const removeBtn = e.target.closest('.stack-remove');
       if (removeBtn) {
-        if (removeBtn.dataset.zone === 'sb') removeFromSideboard(removeBtn.dataset.uid);
+        const z = removeBtn.dataset.zone;
+        if (z === 'mb') removeFromSideboard(removeBtn.dataset.uid);
+        else if (z === 'sb') removeFromMatchSideboard(removeBtn.dataset.uid);
         else removeFromDeck(removeBtn.dataset.uid);
         return;
       }
       const swapBtn = e.target.closest('.stack-swap');
       if (swapBtn) {
-        const tile = swapBtn.closest('.deck-stack-card');
         const uid = swapBtn.dataset.uid;
-        if (tile.closest('.deck-sideboard-section')) moveToMainboard(uid);
+        const fromZone = swapBtn.dataset.swapZone;
+        const tileZone = swapBtn.closest('.deck-stack-card')?.dataset?.zone;
+        if (tileZone && tileZone !== 'main') moveToMainboard(uid, tileZone);
+        else if (fromZone === 'sb') moveToMatchSideboard(uid);
         else moveToSideboard(uid);
         return;
       }
@@ -3717,33 +4644,25 @@ function renderDeckList(deck) {
 
   // List view — grouped by selected mode
   const groups = _buildDeckGroups(filteredCards, deckGroupBy || 'type');
-  const sbTotal = sideboard.reduce((s, c) => s + (c.qty || 1), 0);
-  const sbListHtml = `
-    <div class="deck-sideboard-section" style="margin:0">
-      <div class="deck-list-group-head deck-list-group-head--sb">
-        Maybe board (${sbTotal})
-      </div>
-      ${sideboard.length
-        ? sideboard.sort((a, b) => a.name.localeCompare(b.name)).map(c => `
-          <div class="deck-card-row" draggable="true" data-uid="${c.uid || ''}" data-zone="sb" data-card-key="${getCardInventoryKey(c)}" data-card-name-key="${String(c.name || '').trim().toLowerCase().replace(/"/g, '&quot;')}" onclick="openCardDetail('${c.uid || c.scryfallId}','deck')">
-            <span class="deck-card-name">${c.name}</span>
-            <span style="display:flex;gap:5px;align-items:center">${sortColorsWUBRG(c.colors).map(col => `<img src="https://svgs.scryfall.io/card-symbols/${col}.svg" class="mana-pip" alt="${col}" title="${col}">`).join('')}</span>
-            <button class="btn btn-ghost btn-sm" title="Move to mainboard" style="font-size:0.65rem;padding:1px 6px" onclick="event.stopPropagation();moveToMainboard('${c.uid || ''}')">→ Main</button>
-            <div style="display:flex;align-items:center;gap:5px;margin-left:auto" onclick="event.stopPropagation()">
-              <button class="btn btn-ghost btn-sm btn-icon" title="Remove one" onclick="adjustSideboardCardQtyByUid('${c.uid || ''}',-1)">−</button>
-              <span class="deck-list-qty">${c.qty||1}</span>
-              <button class="btn btn-ghost btn-sm btn-icon" title="Add one" onclick="adjustSideboardCardQtyByUid('${c.uid || ''}',1)">+</button>
-            </div>
-          </div>`).join('')
-        : `<div class="deck-list-quiet deck-list-quiet--pad">No maybe board cards — click → MB on any card above to add it</div>`}
-    </div>`;
-  el.onclick = null;
-  el.innerHTML = (Object.entries(groups).filter(([, v]) => v.length > 0).map(([grp, cards]) => `
+  const listZoneInner = _renderDeckExtraZoneList(deck, 'mb', 'Maybe board', maybeboard, 'No maybe board cards — click → MB on any card above to add it', validationErrorNames) +
+    (_deckMatchSideboardEnabled(deck)
+      ? _renderDeckExtraZoneList(deck, 'sb', 'Sideboard', matchSideboard, 'No sideboard cards — click → SB on any card above to add it', validationErrorNames)
+      : '');
+  const extraListHtml = _deckExtraZonesWrapOpenHtml(deck, listZoneInner, 'deck-extra-zones-wrap--list');
+  el.onclick = e => {
+    if (_deckConsumeSuppressClick()) return;
+    if (_handleDeckExtraZoneToggleClick(e)) return;
+  };
+  const mainListHtml = (Object.entries(groups).filter(([, v]) => v.length > 0).map(([grp, cards]) => `
     <div class="deck-list-group-head deck-list-group-head--main">${grp} (${cards.reduce((s,c)=>s+c.qty,0)})</div>
-    ${cards.sort((a,b)=>a.name.localeCompare(b.name)).map(c => {
-      const mbRow = _maybeBoardQtyForDeckSlot(sideboard, getCardInventoryKey(c));
+    ${_deckStackSortCards(cards).map(c => {
+      const mbRow = _maybeBoardQtyForDeckSlot(maybeboard, getCardInventoryKey(c));
+      const sbRow = _matchSideboardQtyForDeckSlot(matchSideboard, getCardInventoryKey(c));
       const mbRowHtml = mbRow > 0
         ? `<span class="deck-row-mb-pool" title="Same printing on maybe board">MB ×${mbRow}</span>`
+        : '';
+      const sbRowHtml = sbRow > 0
+        ? `<span class="deck-row-sb-pool" title="Same printing on sideboard">SB ×${sbRow}</span>`
         : '';
       const rowTags = typeof _getGlobalCustomTagsForCard === 'function'
         ? _getGlobalCustomTagsForCard(c)
@@ -3756,13 +4675,14 @@ function renderDeckList(deck) {
         ? `<span class="deck-gc-chip" title="Commander game changer">GC</span>`
         : '';
       return `
-      <div class="deck-card-row${rowIsGc ? ' is-game-changer' : ''}" draggable="true" data-uid="${c.uid || ''}" data-zone="main" data-card-key="${getCardInventoryKey(c)}" data-card-name-key="${String(c.name || '').trim().toLowerCase().replace(/"/g, '&quot;')}" onclick="openCardDetail('${c.uid || c.scryfallId}','deck')">
+      <div class="deck-card-row deck-zone-draggable${rowIsGc ? ' is-game-changer' : ''}${_deckCardValidationClass(c, validationErrorNames)}" data-uid="${_deckCardDragKey(c)}" data-zone="main" data-card-key="${getCardInventoryKey(c)}" data-card-name-key="${String(c.name || '').trim().toLowerCase().replace(/"/g, '&quot;')}" onpointerdown="_deckZoneCardPointerDown(event)" onclick="openCardDetail('${c.uid || c.scryfallId}','deck')">
         <span class="deck-card-name">${c.name}</span>${gcRowHtml}${rowTagHtml}
         <span style="display:flex;gap:5px;align-items:center">${sortColorsWUBRG(c.colors).map(col => `<img src="https://svgs.scryfall.io/card-symbols/${col}.svg" class="mana-pip" alt="${col}" title="${col}">`).join('')}</span>
-        ${mbRowHtml}
+        ${mbRowHtml}${sbRowHtml}
         <button class="btn btn-ghost btn-sm btn-icon" title="Edit My Tags" onclick="event.stopPropagation();openGlobalTagPickerForCard('${c.uid || c.scryfallId || ''}')">🏷</button>
         <button class="btn btn-ghost btn-sm btn-icon" title="Change printing" onclick="event.stopPropagation();openVersionPicker('${activeDeckId}','${c.uid || c.scryfallId || ''}','${(c.name || '').replace(/'/g, "\\'")}')">⟳</button>
         <button class="btn btn-ghost btn-sm" title="Move to maybe board" style="font-size:0.65rem;padding:1px 6px" onclick="event.stopPropagation();moveToSideboard('${c.uid || ''}')">→ MB</button>
+        ${_deckMatchSideboardEnabled(deck) ? `<button class="btn btn-ghost btn-sm" title="Move to sideboard" style="font-size:0.65rem;padding:1px 6px" onclick="event.stopPropagation();moveToMatchSideboard('${c.uid || ''}')">→ SB</button>` : ''}
         <div style="display:flex;align-items:center;gap:5px;margin-left:auto" onclick="event.stopPropagation()">
           <button class="btn btn-ghost btn-sm btn-icon" title="Remove one" onclick="adjustDeckCardQtyByUid('${c.uid || ''}',-1)">−</button>
           <span class="deck-list-qty">${c.qty||1}</span>
@@ -3770,7 +4690,8 @@ function renderDeckList(deck) {
         </div>
       </div>`;
     }).join('')}
-  `).join('') || '<div class="deck-list-muted-center">No cards yet</div>') + sbListHtml;
+  `).join('') || '<div class="deck-list-muted-center">No cards yet</div>');
+  el.innerHTML = `<div class="deck-mainboard-area deck-mainboard-area--list">${mainListHtml}</div>` + extraListHtml;
 
   _attachDeckDragHandlers(el);
   _bindDeckTagGroupHoverLinking(el, _isTagGroupByMode(deckGroupBy));
@@ -3965,24 +4886,25 @@ function onManaIdealArchetypeChange(val) {
 function renderManaCurve(deck) {
   _renderManaIdealControls(deck);
   const el = document.getElementById('manaCurve');
+  if (!el || !deck) return;
   const isFiltered = _manaCurveFilter !== 'all';
   const buckets = [0,1,2,3,4,5,6,7];
 
   // Filtered card set for the curve
-  const nonlandCards = deck.cards.filter(c => !_isLandDeckCard(c));
+  const nonlandCards = (deck.cards || []).filter(c => !_isLandDeckCard(c));
   const filteredCards = isFiltered ? nonlandCards.filter(_manaCurveFilterFn) : nonlandCards;
   const counts = buckets.map(cmc =>
-    filteredCards.filter(c => Math.round(c.cmc) === cmc).reduce((s,c) => s+c.qty, 0)
+    filteredCards.filter(c => Math.round(_effectiveCmc(c)) === cmc).reduce((s,c) => s+c.qty, 0)
   );
 
   // Average CMC (weighted by qty, capped at 7 for display)
   let totalCmcSum = 0, totalQty = 0;
-  filteredCards.forEach(c => { const q = c.qty || 1; totalCmcSum += Math.min(c.cmc || 0, 7) * q; totalQty += q; });
+  filteredCards.forEach(c => { const q = c.qty || 1; totalCmcSum += Math.min(_effectiveCmc(c), 7) * q; totalQty += q; });
   const avgCMC = totalQty > 0 ? totalCmcSum / totalQty : 0;
 
   // Fit score only meaningful for full (unfiltered) deck
   const { idealWeights, ideal, nonlandTotal, summary } = _computeIdealManaCurveContext(deck,
-    isFiltered ? buckets.map(cmc => nonlandCards.filter(c => Math.round(c.cmc) === cmc).reduce((s,c)=>s+c.qty,0)) : counts
+    isFiltered ? buckets.map(cmc => nonlandCards.filter(c => Math.round(_effectiveCmc(c)) === cmc).reduce((s,c)=>s+c.qty,0)) : counts
   );
   const actualNorm = nonlandTotal > 0 ? counts.map(n => n / nonlandTotal) : counts.map(() => 0);
   const l1 = actualNorm.reduce((sum, n, i) => sum + Math.abs(n - idealWeights[i]), 0);
@@ -4010,14 +4932,19 @@ function renderManaCurve(deck) {
     }
   }
   const labels = buckets.map(cmc => (cmc === 7 ? '7+' : String(cmc)));
-  const max = Math.max(...counts, ...(isFiltered ? [] : ideal), 1);
+  const dataMax = Math.max(...counts, ...(isFiltered ? [] : ideal), 0);
+  // Cubic smoothing overshoots peaks and can dip below zero between points.
+  const yMin = -0.5;
+  const yMax = Math.max(1, Math.ceil(dataMax * 1.18 + (dataMax >= 8 ? 2 : 1)));
+  const yRange = yMax - yMin;
   const w = 760;
   const h = 224;
   const pad = { l: 24, r: 16, t: 10, b: 34 };
   const drawW = w - pad.l - pad.r;
   const drawH = h - pad.t - pad.b;
   const xAt = i => pad.l + ((drawW * i) / Math.max(1, labels.length - 1));
-  const yAt = v => pad.t + drawH - ((v / max) * drawH);
+  const yAt = v => pad.t + drawH - (((v - yMin) / yRange) * drawH);
+  const plotClipId = 'manaCurvePlotClip';
   const smoothPath = arr => {
     const pts = arr.map((v, i) => ({ x: xAt(i), y: yAt(v) }));
     if (!pts.length) return '';
@@ -4057,17 +4984,17 @@ function renderManaCurve(deck) {
   const xLabels = labels.map((lab, i) => `
     <text class="hist-line-xlabel" x="${xAt(i)}" y="${h - pad.b + 14}">${lab}</text>
   `).join('');
-  const yTicks = [0, 0.25, 0.5, 0.75, 1];
-  const yAxis = yTicks.map(fr => {
-    const y = pad.t + drawH * (1 - fr);
-    const val = Math.round(max * fr);
+  const yTickFracs = [0, 0.25, 0.5, 0.75, 1];
+  const yAxis = yTickFracs.map(fr => {
+    const val = yMax * fr;
+    const y = yAt(val);
     return `
       <line x1="${pad.l - 4}" y1="${y}" x2="${pad.l}" y2="${y}" class="hist-axis-tick"></line>
-      <text x="${pad.l - 8}" y="${y + 4}" class="hist-axis-label">${val}</text>
+      <text x="${pad.l - 8}" y="${y + 4}" class="hist-axis-label">${Math.round(val)}</text>
     `;
   }).join('');
   const grid = [0.25, 0.5, 0.75].map(fr => {
-    const y = pad.t + drawH * fr;
+    const y = yAt(yMax * fr);
     return `<line x1="${pad.l}" y1="${y}" x2="${w - pad.r}" y2="${y}" class="hist-line-grid"></line>`;
   }).join('');
 
@@ -4090,13 +5017,20 @@ function renderManaCurve(deck) {
         <span class="mc-avg-stat">avg CMC <strong>${avgLabel}</strong></span>
       </div>
       <svg class="hist-line-svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-label="Mana curve">
+        <defs>
+          <clipPath id="${plotClipId}">
+            <rect x="${pad.l}" y="${pad.t}" width="${drawW}" height="${drawH}"></rect>
+          </clipPath>
+        </defs>
         <line x1="${pad.l}" y1="${pad.t}" x2="${pad.l}" y2="${h - pad.b}" class="hist-axis-line"></line>
         ${yAxis}
         ${grid}
-        ${idealPath ? `<path class="hist-line-ideal" d="${idealPath}"></path>` : ''}
-        <path class="hist-line-main" d="${actualPath}"></path>
+        <g clip-path="url(#${plotClipId})">
+          ${idealPath ? `<path class="hist-line-ideal" d="${idealPath}"></path>` : ''}
+          <path class="hist-line-main" d="${actualPath}"></path>
+          ${points}
+        </g>
         ${avgLineEl}
-        ${points}
         ${values}
         ${xLabels}
       </svg>
@@ -4105,7 +5039,7 @@ function renderManaCurve(deck) {
 }
 
 function _parseManaSymbols(manaCost) {
-  const counts = { W: 0, U: 0, B: 0, R: 0, G: 0 };
+  const counts = { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 };
   const symbols = String(manaCost || '').match(/\{[^}]+\}/g) || [];
   symbols.forEach(sym => {
     const raw = sym.replace(/[{}]/g, '').toUpperCase();
@@ -4129,17 +5063,18 @@ function _activeDeckColors(deck) {
 let _manaCostChartInst = null;
 let _manaGenChartInst = null;
 
-function _renderManaPie(containerId, chartRefName, counts, emptyText) {
+function _renderManaPie(containerId, chartRefName, counts, emptyText, breakdown) {
   const el = document.getElementById(containerId);
   if (!el) return;
-  const order = ['W', 'U', 'B', 'R', 'G'];
-  const names = { W: 'White', U: 'Blue', B: 'Black', R: 'Red', G: 'Green' };
+  const order = ['W', 'U', 'B', 'R', 'G', 'C'];
+  const names = { W: 'White', U: 'Blue', B: 'Black', R: 'Red', G: 'Green', C: 'Colorless' };
   const pieColors = {
     W: '#e8e0b0',
     U: '#2589d0',
     B: '#2b1f1a',
     R: '#d23030',
     G: '#1a9e50',
+    C: '#999999',
   };
   const present = order.filter(c => +(counts[c] || 0) > 0);
   const values = present.map(c => +(counts[c] || 0));
@@ -4156,10 +5091,10 @@ function _renderManaPie(containerId, chartRefName, counts, emptyText) {
     const n = values[i];
     const pct = (n / total) * 100;
     return `
-      <div class="mana-pie-legend-row">
+      <div class="mana-pie-legend-row" data-pie-col="${c}">
         <img src="https://svgs.scryfall.io/card-symbols/${c}.svg" class="mana-pie-legend-symbol" alt="${c}" title="${names[c]}">
         <span class="mana-pie-legend-label">${names[c]}</span>
-        <span class="mana-pie-legend-stat">${n.toFixed(1).replace('.0','')} · ${pct.toFixed(0)}%</span>
+        <span class="mana-pie-legend-stat mana-pie-stat-hover">${n.toFixed(1).replace('.0','')} · ${pct.toFixed(0)}%</span>
       </div>`;
   }).join('');
 
@@ -4206,10 +5141,26 @@ function _renderManaPie(containerId, chartRefName, counts, emptyText) {
   });
   if (chartRefName === 'cost') _manaCostChartInst = inst;
   else _manaGenChartInst = inst;
+
+  if (breakdown) {
+    el.querySelectorAll('.mana-pie-legend-row[data-pie-col]').forEach((row) => {
+      const col = row.dataset.pieCol;
+      const entries = breakdown[col];
+      if (!entries || !entries.length) return;
+      const statEl = row.querySelector('.mana-pie-stat-hover');
+      if (!statEl) return;
+      statEl.style.cursor = 'help';
+      statEl.style.borderBottom = '1px dashed var(--text3,#888)';
+      statEl.addEventListener('mouseenter', () =>
+        _showManaGenTooltip(statEl, names[col], entries, counts[col] || 0),
+      );
+      statEl.addEventListener('mouseleave', _hideManaGenTooltip);
+    });
+  }
 }
 
 function renderManaCostProfile(deck) {
-  const demand = { W: 0, U: 0, B: 0, R: 0, G: 0 };
+  const demand = { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 };
   (deck.cards || []).forEach(c => {
     if ((c.type || '').toLowerCase().includes('land')) return;
     const parsed = _parseManaSymbols(c.mana || '');
@@ -4222,7 +5173,7 @@ function renderManaCostProfile(deck) {
 function _estimateManaSources(card, allowedColors = null, sourceMode = false) {
   const t = String(card.type || '').toLowerCase();
   const txt = String(card.oracleText || '').toLowerCase();
-  const sources = { W: 0, U: 0, B: 0, R: 0, G: 0 };
+  const sources = { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 };
   const allowed = Array.isArray(allowedColors) && allowedColors.length
     ? new Set(allowedColors)
     : null;
@@ -4232,6 +5183,7 @@ function _estimateManaSources(card, allowedColors = null, sourceMode = false) {
       if (!allowed || allowed.has(basics[card.name])) sources[basics[card.name]] += 1;
       return sources;
     }
+    if (card.name === 'Wastes') { sources.C += 1; return sources; }
     // Fetch lands: tutor for specific or any basic land type
     if (txt.includes('search your library for a')) {
       const fetchMap = { forest: 'G', plains: 'W', island: 'U', swamp: 'B', mountain: 'R' };
@@ -4243,14 +5195,18 @@ function _estimateManaSources(card, allowedColors = null, sourceMode = false) {
       });
       if (!found && txt.includes('basic land')) {
         const spread = allowed ? [...allowed] : ['W', 'U', 'B', 'R', 'G'];
-        spread.forEach(col => { if (sources[col] != null) sources[col] = 0.8; });
+        spread.forEach(col => { if (sources[col] != null) sources[col] = sourceMode ? 1 : 0.8; });
         found = true;
       }
       if (found) return sources;
     }
-    const symbols = txt.match(/\{[wubrg]\}/gi) || [];
-    symbols.forEach(s => {
+    // Scan oracle text for mana symbols — {C} for colorless, {W}/{U}/{B}/{R}/{G} for colors.
+    // Use "add" sentences only to avoid counting activation costs as production.
+    const addSentences = txt.match(/add [^.;]+/gi) || [];
+    const scanTarget = addSentences.length ? addSentences.join(' ') : txt;
+    (scanTarget.match(/\{[wubrgc]\}/gi) || []).forEach(s => {
       const col = s.replace(/[{}]/g, '').toUpperCase();
+      if (col === 'C') { sources.C += 1; return; }
       if (sources[col] != null && (!allowed || allowed.has(col))) sources[col] += 1;
     });
     return sources;
@@ -4260,14 +5216,18 @@ function _estimateManaSources(card, allowedColors = null, sourceMode = false) {
   // shouldn't be counted as color sources (avoids picking up {R} from pump costs like
   // "{R}: Storm Kiln Artist gets +1/+0" when the card also happens to make treasures).
   if (!(txt.includes('add {') || txt.includes('mana of any'))) return sources;
-  // Only count colored symbols that appear inside "add {…}" phrases, not activation costs.
-  const addPhrases = txt.match(/add (?:\{[^}]+\}\s*)+/gi) || [];
+  // Scan "add …" sentences (up to period/semicolon) for mana symbols to handle
+  // both contiguous "{W}{U}" and "or"-separated "{W} or {U}" patterns.
+  const addPhrases = txt.match(/add [^.;]+/gi) || [];
   let hasColorSym = false;
   addPhrases.forEach(phrase => {
     (phrase.match(/\{[wubrg]\}/gi) || []).forEach(s => {
       const col = s.replace(/[{}]/g, '').toUpperCase();
       if (sources[col] != null && (!allowed || allowed.has(col))) { sources[col] += 1; hasColorSym = true; }
     });
+    // Colorless pips (Sol Ring, Mana Crypt, Mind Stone, etc.)
+    const cCount = (phrase.match(/\{c\}/gi) || []).length;
+    if (cCount) { sources.C += cCount; hasColorSym = true; }
   });
   if (!hasColorSym && txt.includes('mana of any')) {
     const spread = allowed ? [...allowed] : ['W', 'U', 'B', 'R', 'G'];
@@ -4281,13 +5241,27 @@ function _estimateManaSources(card, allowedColors = null, sourceMode = false) {
 
 function renderManaGenerationProfile(deck) {
   const activeColors = _activeDeckColors(deck);
-  const generation = { W: 0, U: 0, B: 0, R: 0, G: 0 };
-  (deck.cards || []).forEach(c => {
-    const src = _estimateManaSources(c, activeColors);
+  const generation = { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 };
+  const breakdown = { W: [], U: [], B: [], R: [], G: [], C: [] };
+  (deck.cards || []).forEach((c) => {
+    const src = _estimateManaSources(c, activeColors, true);
     const qty = c.qty || 1;
-    Object.keys(generation).forEach(col => { generation[col] += (src[col] || 0) * qty; });
+    Object.keys(generation).forEach((col) => {
+      const perCopy = src[col] || 0;
+      const total = perCopy * qty;
+      if (total > 0) {
+        generation[col] += total;
+        breakdown[col].push({ name: c.name, qty, perCopy, total });
+      }
+    });
   });
-  _renderManaPie('manaGenerationProfile', 'gen', generation, 'No colored mana generation detected.');
+  _renderManaPie(
+    'manaGenerationProfile',
+    'gen',
+    generation,
+    'No colored mana generation detected.',
+    breakdown,
+  );
 }
 
 // ── Draw Probability Chart ────────────────────────────────────────────────────
@@ -4682,6 +5656,260 @@ function renderLandCoverageChart(deck) {
   });
 }
 
+// ── Card Draw Acceleration ────────────────────────────────────────────────────
+
+function _drawWordToNum(word) {
+  const map = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
+  return map[String(word).toLowerCase()] || parseInt(word) || 1;
+}
+
+function _parseCardDrawInfo(card) {
+  const textParts = [String(card.oracleText || '')];
+  const faces = Array.isArray(card.cardFaces) ? card.cardFaces : (Array.isArray(card.card_faces) ? card.card_faces : []);
+  faces.forEach(f => { if (f?.oracle_text) textParts.push(String(f.oracle_text)); else if (f?.oracleText) textParts.push(String(f.oracleText)); });
+  const txt = textParts.join('\n').toLowerCase();
+  const typeLine = String(card.type || card.typeLine || card.type_line || '').toLowerCase();
+
+  if (typeLine.includes('land')) return null;
+
+  const isImpulse = txt.includes('exile the top') &&
+    (txt.includes('you may play') || txt.includes('you may cast')) &&
+    !txt.includes('draw a card') && !txt.includes('draw two') && !txt.includes('draw three');
+
+  const drawMatch = txt.match(/draw (a|an|one|two|three|four|five|six|seven|\d+) cards?/);
+  const hasDraw = !!drawMatch || txt.includes('draw cards');
+
+  if (!isImpulse && !hasDraw) return null;
+
+  let drawAmount;
+  if (isImpulse) {
+    const m = txt.match(/exile the top (\w+) cards?/);
+    drawAmount = m ? _drawWordToNum(m[1]) : 1;
+  } else if (drawMatch) {
+    drawAmount = _drawWordToNum(drawMatch[1]);
+  } else {
+    drawAmount = 2; // "draw cards" without specified count
+  }
+
+  if (!drawAmount || drawAmount <= 0) return null;
+
+  const isPermanent = /creature|enchantment|artifact|planeswalker/.test(typeLine);
+  const isOngoing = isPermanent && /(at the beginning of your upkeep|at the beginning of each upkeep|whenever you (cast|attack|deal|gain)|whenever an opponent|whenever a (player|creature|opponent)|whenever another)/.test(txt);
+
+  return {
+    name: card.name,
+    cmc: card.cmc || 0,
+    turn: Math.max(1, Math.ceil(card.cmc || 1)),
+    drawAmount,
+    isImpulse,
+    isOngoing,
+    qty: card.qty || 1,
+  };
+}
+
+let _cardDrawAccelChartInst = null;
+let _drawChartMode = localStorage.getItem('mtg_draw_chart_mode') || 'area';
+let _drawInactiveCards = new Set();
+let _drawAccelLastDeckId = null;
+let _drawAccelFilterBound = false;
+
+function setDrawChartMode(mode) {
+  _drawChartMode = mode;
+  localStorage.setItem('mtg_draw_chart_mode', mode);
+  const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+  if (deck) renderCardDrawAccelChart(deck);
+}
+
+function _ensureDrawAccelFilterDelegation() {
+  const el = document.getElementById('drawAccelFilters');
+  if (!el || _drawAccelFilterBound) return;
+  el.addEventListener('click', e => {
+    const chip = e.target.closest('.draw-accel-chip');
+    if (!chip || !el.contains(chip)) return;
+    e.preventDefault();
+    const name = chip.dataset.cardName;
+    if (!name) return;
+    if (_drawInactiveCards.has(name)) _drawInactiveCards.delete(name);
+    else _drawInactiveCards.add(name);
+    const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+    if (deck) renderCardDrawAccelChart(deck);
+  });
+  _drawAccelFilterBound = true;
+}
+
+function _renderDrawAccelChips(filterEl, drawMap) {
+  filterEl.replaceChildren();
+  const TYPE_COL = {
+    impulse: 'rgba(220,140,55,1)',
+    ongoing: 'rgba(60,160,90,1)',
+    spell:   'rgba(90,140,210,1)',
+  };
+  for (const [name, info] of [...drawMap].sort((a, b) => a[1].turn - b[1].turn || a[0].localeCompare(b[0]))) {
+    const active = !_drawInactiveCards.has(name);
+    const col = TYPE_COL[info.isImpulse ? 'impulse' : info.isOngoing ? 'ongoing' : 'spell'];
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'prob-type-chip draw-accel-chip' + (active ? ' is-active' : '');
+    btn.dataset.cardName = name;
+    if (active) {
+      btn.style.borderColor = col;
+      btn.style.background = col.replace('1)', '0.13)');
+      btn.style.color = col;
+    }
+    const tag = info.isImpulse ? 'imp' : info.isOngoing ? 'eng' : '';
+    btn.textContent = name + (tag ? ` · ${tag}` : '');
+    filterEl.appendChild(btn);
+  }
+}
+
+function renderCardDrawAccelChart(deck) {
+  const el = document.getElementById('cardDrawAccelChart');
+  const panel = document.querySelector('.deck-draw-accel-panel');
+  const filterEl = document.getElementById('drawAccelFilters');
+  if (!el) return;
+  if (_cardDrawAccelChartInst) { _cardDrawAccelChartInst.destroy(); _cardDrawAccelChartInst = null; }
+
+  document.querySelectorAll('.draw-mode-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.mode === _drawChartMode);
+  });
+
+  _ensureDrawAccelFilterDelegation();
+
+  const cards = (deck?.cards || []).filter(c => !c.sideboard && !c.maybeboard);
+  const turns = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+  const drawMap = new Map();
+  for (const card of cards) {
+    if (drawMap.has(card.name)) continue;
+    const info = _parseCardDrawInfo(card);
+    if (info) drawMap.set(card.name, info);
+  }
+
+  if (panel) panel.style.display = 'none';
+  if (drawMap.size === 0) {
+    if (filterEl) filterEl.replaceChildren();
+    return;
+  }
+
+  // Reset filter state when switching decks
+  if (_drawAccelLastDeckId !== deck.id) {
+    _drawInactiveCards = new Set();
+    _drawAccelLastDeckId = deck.id;
+  }
+  // Drop any stale inactive names that are no longer in the deck
+  for (const name of _drawInactiveCards) { if (!drawMap.has(name)) _drawInactiveCards.delete(name); }
+
+  if (filterEl) _renderDrawAccelChips(filterEl, drawMap);
+
+  // Engines draw at upkeep — first trigger fires the turn AFTER casting.
+  // One-shots/impulse/ETB draw immediately on cast turn, then stay flat.
+  const cumDrawAt = (info, t) => {
+    if (t < info.turn) return 0;
+    if (info.isOngoing) return (t - info.turn) * info.drawAmount;
+    return info.drawAmount;
+  };
+
+  // Semantic colors for area mode; distinct palette for lines mode.
+  const TYPE_COLORS = {
+    impulse: { border: 'rgba(220,140,55,1)',  bg: 'rgba(220,140,55,0.38)' },
+    ongoing: { border: 'rgba(60,160,90,1)',   bg: 'rgba(60,160,90,0.38)'  },
+    spell:   { border: 'rgba(90,140,210,1)',  bg: 'rgba(90,140,210,0.38)' },
+  };
+  const LINE_PALETTE = [
+    '#5a8cd2','#3ca05a','#dc8c37','#b050b0','#c84646',
+    '#50bebe','#c8b432','#8c64b4','#dc7864','#64b482','#dc5078','#7890c8',
+  ];
+
+  const typeKey = info => info.isImpulse ? 'impulse' : info.isOngoing ? 'ongoing' : 'spell';
+  const sorted = [...drawMap]
+    .filter(([name]) => !_drawInactiveCards.has(name))
+    .sort((a, b) => a[1].turn - b[1].turn || a[0].localeCompare(b[0]));
+  const isArea = _drawChartMode === 'area';
+
+  const datasets = [];
+  sorted.forEach(([name, info], idx) => {
+    const data = turns.map(t => cumDrawAt(info, t));
+    if (data.every(v => v === 0)) return;
+
+    if (isArea) {
+      const col = TYPE_COLORS[typeKey(info)];
+      datasets.push({
+        label: name, data,
+        fill: true, tension: 0.05,
+        pointRadius: 0, borderWidth: 1.5,
+        borderColor: col.border, backgroundColor: col.bg,
+      });
+    } else {
+      const color = LINE_PALETTE[idx % LINE_PALETTE.length];
+      // Mark the first non-zero point (when the card is cast / first fires)
+      const pointRadius = data.map((v, i) => v > 0 && (i === 0 || data[i - 1] === 0) ? 5 : 0);
+      datasets.push({
+        label: name, data,
+        fill: false, tension: 0,
+        pointRadius, pointHoverRadius: 6,
+        borderWidth: info.isOngoing ? 2.5 : 1.8,
+        borderDash: info.isImpulse ? [5, 3] : [],
+        borderColor: color, backgroundColor: color, pointBackgroundColor: color,
+      });
+    }
+  });
+
+  if (!datasets.length) { if (panel) panel.style.display = 'none'; return; }
+
+  const legendEl = document.querySelector('.draw-accel-legend');
+  if (legendEl) legendEl.style.display = isArea ? '' : 'none';
+
+  const tooltipCallbacks = {
+    title: ctx => `By end of turn ${ctx[0].label.slice(1)}`,
+    label: ctx => {
+      const info = drawMap.get(ctx.dataset.label);
+      if (!info || ctx.parsed.y === 0) return null;
+      const tag = info.isImpulse ? ' (impulse)' : info.isOngoing ? ' (engine)' : '';
+      return `${ctx.dataset.label}${tag}: ${ctx.parsed.y} card${ctx.parsed.y !== 1 ? 's' : ''}`;
+    },
+    footer: items => {
+      const total = items.reduce((s, i) => s + (i.parsed.y || 0), 0);
+      return total > 0 ? `Total drawn: ${total} card${total !== 1 ? 's' : ''}` : null;
+    },
+  };
+
+  _cardDrawAccelChartInst = new Chart(el.getContext('2d'), {
+    type: 'line',
+    data: { labels: turns.map(t => `T${t}`), datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: {
+          display: !isArea,
+          position: 'bottom',
+          labels: { color: '#9a9488', font: { size: 11 }, boxWidth: 14, padding: 10, usePointStyle: true },
+        },
+        tooltip: {
+          mode: 'index',
+          filter: item => item.parsed.y > 0,
+          callbacks: tooltipCallbacks,
+        },
+      },
+      scales: {
+        x: {
+          stacked: isArea,
+          ticks: { color: '#9a9488', font: { size: 13 } },
+          grid: { display: false },
+          title: { display: true, text: 'Game turn', color: '#6a6560', font: { size: 12 } },
+        },
+        y: {
+          stacked: isArea,
+          beginAtZero: true,
+          ticks: { color: '#6a6560', font: { size: 13 }, precision: 0 },
+          grid: { color: 'rgba(255,255,255,0.04)' },
+          title: { display: true, text: 'Cumulative cards drawn', color: '#6a6560', font: { size: 12 } },
+        },
+      },
+    },
+  });
+}
+
 // ── Commander Gameplan Probability Calculator ─────────────────────────────────
 
 let _cmdFreeMulligan = localStorage.getItem('mtg_cmd_free_mulligan') !== 'false';
@@ -4796,7 +6024,7 @@ function _countColorSources(deck, color, cmdColors, cmdCMC = Infinity) {
     // Non-land mana sources with CMC >= commander's CMC can't be cast before the commander turn,
     // so they don't count as available color sources for casting on curve.
     // Lands are exempt from this filter (played one per turn regardless of CMC).
-    if (!_isLandDeckCard(c) && (c.cmc || 0) >= cmdCMC) return;
+    if (!_isLandDeckCard(c) && _effectiveCmc(c) >= cmdCMC) return;
     // sourceMode=true: "any color" sources count as a full 1.0 source of each commander color
     const src = _estimateManaSources(c, cmdColors || null, true);
     total += (src[color] || 0) * (c.qty || 1);
@@ -4825,7 +6053,7 @@ function _countEarlyRamp(deck, cmdColors, hasGenericCost, cmdCMC = 4) {
     if (_isLandDeckCard(c)) return s;
     if (!_probTagsOnCard(c).includes('Ramp')) return s;
     // "Early" = castable before the commander turn (CMC < cmdCMC)
-    if ((c.cmc || 0) >= cmdCMC) return s;
+    if (_effectiveCmc(c) >= cmdCMC) return s;
     if (cmdColors && !_rampIsRelevant(c, cmdColors, hasGenericCost)) return s;
     return s + (c.qty || 1);
   }, 0);
@@ -4937,19 +6165,19 @@ function _cmdGameplanProbs(deck, cmdCard, customReqs = []) {
     return `${Math.round(S)} sources\n${cardList}`;
   };
 
-  const rampDetail = () => {
+  const rampDetail = (cmcCap = adjustedCMC) => {
     const rampCards = (deck.cards || []).filter(c => {
       if (_isLandDeckCard(c)) return false;
       if (!_probTagsOnCard(c).includes('Ramp')) return false;
-      if ((c.cmc || 0) >= adjustedCMC) return false;
+      if (_effectiveCmc(c) >= cmcCap) return false;
       return true;
-    }).sort((a, b) => (a.cmc || 0) - (b.cmc || 0) || a.name.localeCompare(b.name));
+    }).sort((a, b) => _effectiveCmc(a) - _effectiveCmc(b) || a.name.localeCompare(b.name));
+    const count = rampCards.reduce((s, c) => s + (c.qty || 1), 0);
     const cardList = rampCards.map(c => c.qty > 1 ? `${c.name} ×${c.qty}` : c.name).join('\n');
-    return `${R} ramp pieces (CMC<${adjustedCMC})\n${cardList}`;
+    return `${count} ramp pieces (CMC<${cmcCap})\n${cardList}`;
   };
 
-  // rampCMCMax: highest CMC a ramp piece can be and still be castable before the commander
-  const rampCMCMax = cmdCMC - 1;
+
 
   // Custom requirements — draw probability; avg CMC shifts the target curve turn (extraTurns already computed above)
   const customData = customReqs.map(group => {
@@ -4991,7 +6219,7 @@ function _cmdGameplanProbs(deck, cmdCard, customReqs = []) {
     });
     const p_overall = clamp01(p_mana * pColorsJointMul(cmdColors, seen) * customReqMul(seen));
     results.onCurve = {
-      turn, p: p_overall,
+      turn, p: p_overall, rampCmcCap: adjustedCMC,
       requirements: [
         { label: `≥${turn} lands by T${turn}`, p: p_land_natural, detail: `${L} lands` },
         { label: `Early ramp by T${Math.max(1, turn - 1)} (saves land drops)`, p: p_ramp_any, detail: rampDetail(), bonus: true },
@@ -5001,7 +6229,7 @@ function _cmdGameplanProbs(deck, cmdCard, customReqs = []) {
     };
   }
 
-  if (cmdCMC >= 3) {
+  if (adjustedCMC >= 3) {
     const turn = cmdCMC + extraTurns - 1;
     const seen = 7 + (turn - 1);
     const p_lands = mulP(L, seen, turn);
@@ -5009,12 +6237,15 @@ function _cmdGameplanProbs(deck, cmdCard, customReqs = []) {
       const S = colorSources[col] || 0;
       return { label: `${_COLOR_FULL[col]} source`, p: mulP(S, seen, 1), detail: colorSourceDetail(col) };
     });
-    // Ramp + untapped land needed by T(turn-1) to accelerate into pre-curve
+    // Ramp + untapped land needed by T(turn-1) to accelerate into pre-curve.
+    // Pre-curve ramp must be castable BEFORE the target turn, so CMC < turn (one stricter than on-curve).
+    // e.g. for a CMC 4 commander pre-curving to T3: only CMC 0-2 ramp helps (CMC 3 played on T3 = same turn, useless).
+    const R_pre = _countEarlyRamp(deck, cmdColors, hasGenericCost, turn);
     const preCurveRampSeen = 7 + Math.max(0, turn - 2);
     const _incEx = (seenN) => {
       const pu = clamp01(_hypergeoAtLeast(N, L_ut, seenN, 1));
-      const pr = clamp01(_hypergeoAtLeast(N, R, seenN, 1));
-      const pn = _hyper(N, Math.min(N, L_ut + R), seenN, 0);
+      const pr = clamp01(_hypergeoAtLeast(N, R_pre, seenN, 1));
+      const pn = _hyper(N, Math.min(N, L_ut + R_pre), seenN, 0);
       return clamp01(pu + pr - 1 + pn);
     };
     const p_ramp_ut_orig = _incEx(preCurveRampSeen);
@@ -5024,10 +6255,10 @@ function _cmdGameplanProbs(deck, cmdCard, customReqs = []) {
     const p_overall = clamp01(p_lands * p_ramp_ut * pColorsJointMul(cmdColors, seen) * customReqMul(seen));
     const rampTurnLabel = Math.max(1, turn - 1);
     results.preCurve = {
-      turn, p: p_overall,
+      turn, p: p_overall, rampCmcCap: turn,
       requirements: [
         { label: `≥${turn} lands by T${turn}`, p: p_lands, detail: `${L} lands` },
-        { label: `Untapped land + ramp by T${rampTurnLabel}`, p: p_ramp_ut, detail: rampDetail() + `\n${L_ut} untapped lands` },
+        { label: `Untapped land + ramp by T${rampTurnLabel}`, p: p_ramp_ut, detail: rampDetail(turn) + `\n${L_ut} untapped lands` },
         ...colorReqs.map(r => ({ label: r.label, p: r.p, detail: r.detail })),
         ...customReqRows(seen),
       ],
@@ -5046,7 +6277,7 @@ function _suggestRamp(cmdColors, hasGenericCost, deckCardNames, cmdCMC = 4) {
   const candidates = (typeof collection !== 'undefined' ? collection : [])
     .filter(c => {
       if (_isLandDeckCard(c)) return false;
-      if ((c.cmc || 0) >= cmdCMC) return false;
+      if (_effectiveCmc(c) >= cmdCMC) return false;
       // Check roleTags (pre-fetched from DB) first, then fall back to live _probTagsOnCard
       const tags = Array.isArray(c.roleTags) ? c.roleTags : _probTagsOnCard(c);
       if (!tags.includes('Ramp')) return false;
@@ -5056,7 +6287,7 @@ function _suggestRamp(cmdColors, hasGenericCost, deckCardNames, cmdCMC = 4) {
       return true;
     });
 
-  candidates.sort((a, b) => (a.cmc || 0) - (b.cmc || 0) || (a.name || '').localeCompare(b.name || ''));
+  candidates.sort((a, b) => _effectiveCmc(a) - _effectiveCmc(b) || (a.name || '').localeCompare(b.name || ''));
 
   for (const c of candidates) {
     if (suggestions.length >= 10) break;
@@ -5149,8 +6380,8 @@ function renderCommanderGameplan(deck) {
 
   const cards = deck.cards || [];
   const { cmdColors, hasGenericCost, adjustedCMC } = meta;
-  const existingRamp = cards.filter(c => !_isLandDeckCard(c) && _probTagsOnCard(c).includes('Ramp') && (c.cmc || 0) < adjustedCMC && _rampIsRelevant(c, cmdColors, hasGenericCost))
-    .sort((a, b) => (a.cmc || 0) - (b.cmc || 0)).slice(0, 4).map(c => c.name);
+  const existingRamp = (cmcCap = adjustedCMC) => cards.filter(c => !_isLandDeckCard(c) && _probTagsOnCard(c).includes('Ramp') && _effectiveCmc(c) < cmcCap && _rampIsRelevant(c, cmdColors, hasGenericCost))
+    .sort((a, b) => _effectiveCmc(a) - _effectiveCmc(b)).slice(0, 4).map(c => c.name);
   const existingColorCards = col => cards.filter(c => (_estimateManaSources(c, null)[col] || 0) > 0)
     .slice(0, 3).map(c => c.name);
 
@@ -5164,8 +6395,10 @@ function renderCommanderGameplan(deck) {
     const recs = scenario.requirements.filter(r => r.p < THRESHOLD).map(r => {
       const lc = r.label.toLowerCase();
       if (lc.includes('ramp')) {
-        const have = existingRamp.length ? `have: ${existingRamp.join(', ')}` : '';
-        return `<div class="cmdr-gp-rec">→ Add more CMC&lt;${adjustedCMC} ramp${have ? ` — ${have}` : ''}</div>`;
+        const cap = scenario.rampCmcCap || adjustedCMC;
+        const have = existingRamp(cap);
+        const haveStr = have.length ? `have: ${have.join(', ')}` : '';
+        return `<div class="cmdr-gp-rec">→ Add more CMC&lt;${cap} ramp${haveStr ? ` — ${haveStr}` : ''}</div>`;
       }
       if (lc.includes('lands')) return meta.L >= 36 ? '' : `<div class="cmdr-gp-rec">→ Add more lands (target ≥36-38 for Commander)</div>`;
       for (const [col, name] of [['W','white'],['U','blue'],['B','black'],['R','red'],['G','green']]) {
@@ -5203,13 +6436,9 @@ function renderCommanderGameplan(deck) {
     <div class="panel">
       <div class="panel-header cmdr-gp-panel-header">
         <span class="panel-title">Commander Gameplan</span>
-        <label class="cmdr-gp-mulligan-toggle" title="Commander free mulligan: if your opening hand is bad, you may redraw 7 and bottom 1">
-          <input type="checkbox" ${_cmdFreeMulligan ? 'checked' : ''} onchange="toggleCmdFreeMulligan(this.checked)">
-          Free mulligan
-        </label>
-        <button id="cmdGpCustomBtn" class="cmdr-gp-custom-btn${_cmdCustomEditorOpen ? ' cmdr-gp-custom-btn--active' : ''}" onclick="toggleCmdCustomEditor()" title="Define cards you need in hand to execute your gameplan">
-          Custom${savedReqs.length ? ` (${savedReqs.length})` : ''}
-        </button>
+        <div style="flex:1"></div>
+        <button class="btn btn-outline btn-sm${_cmdFreeMulligan ? ' active' : ''}" onclick="toggleCmdFreeMulligan(!_cmdFreeMulligan)" title="Commander free mulligan: if your opening hand is bad, you may redraw 7 and bottom 1">Free mulligan</button>
+        <button id="cmdGpCustomBtn" class="btn btn-outline btn-sm${_cmdCustomEditorOpen ? ' active' : ''}" onclick="toggleCmdCustomEditor()" title="Define cards you need in hand to execute your gameplan">Custom${savedReqs.length ? ` (${savedReqs.length})` : ''}</button>
       </div>
       <div id="cmdGpCustomEditor" class="cmdr-gp-custom-editor" style="display:none">
         <div class="cmdr-gp-custom-editor-inner">
@@ -5337,8 +6566,9 @@ function _hideCmdrGpTooltip() {
 
 function renderTypeBreakdown(deck) {
   const el = document.getElementById('typeBreakdown');
+  if (!el || !deck) return;
   const types = {};
-  deck.cards.forEach(c => {
+  (deck.cards || []).forEach(c => {
     const t = (c.type || 'Unknown').split('—')[0].trim().split(' ').pop();
     types[t] = (types[t]||0) + c.qty;
   });
@@ -5468,12 +6698,12 @@ function _matchesDeckSearchRoleFilters(cardLike, isApi = false) {
   return [..._deckSearchRoleFilters].every(f => tags.includes(f));
 }
 
-function _cardTile(name, img, inDeck, inCollection, inv, addFn, inSideboard = false, sbAddFn = null, mbAlsoOnDeck = 0) {
+function _cardTile(name, img, inDeck, inCollection, inv, addFn, inMaybeBoard = false, mbAddFn = null, mbAlsoOnDeck = 0, inMatchSb = false, matchSbAddFn = null) {
   const ownershipOn = isDeckOwnershipEnabled();
   const unavailable = ownershipOn && inCollection && (inv?.available || 0) <= 0 && !inDeck;
   const border = inDeck
     ? '2px solid var(--teal)'
-    : inSideboard ? '2px solid var(--gold)'
+    : (inMaybeBoard || inMatchSb) ? '2px solid var(--gold)'
     : (ownershipOn && unavailable) ? '2px solid var(--red)'
     : (ownershipOn && inCollection) ? '2px solid var(--gold)' : '1px solid var(--border)';
   const filter = (ownershipOn && ((!inCollection && !inDeck) || unavailable)) ? 'grayscale(60%) opacity(0.65)' : '';
@@ -5487,11 +6717,14 @@ function _cardTile(name, img, inDeck, inCollection, inv, addFn, inSideboard = fa
               justify-content:center;font-size:0.6rem;padding:4px;text-align:center;color:var(--text2)">${name}</div>`}
         ${inDeck ? `<div style="position:absolute;bottom:2px;right:2px;background:var(--teal);color:#000;
           font-size:0.5rem;font-weight:700;padding:1px 4px;border-radius:3px">IN DECK</div>` : ''}
-        ${inSideboard && !inDeck ? `<div style="position:absolute;bottom:2px;right:2px;background:var(--gold);color:#000;
+        ${inMaybeBoard && !inDeck ? `<div style="position:absolute;bottom:2px;right:2px;background:var(--gold);color:#000;
           font-size:0.5rem;font-weight:700;padding:1px 4px;border-radius:3px">IN MB</div>` : ''}
-        ${ownershipOn && unavailable && !inSideboard ? `<div style="position:absolute;bottom:2px;right:2px;background:var(--red);color:#fff;
+        ${inMatchSb && !inDeck && !inMaybeBoard ? `<div style="position:absolute;bottom:2px;right:2px;background:var(--blue);color:#fff;
+          font-size:0.5rem;font-weight:700;padding:1px 4px;border-radius:3px">IN SB</div>` : ''}
+        ${ownershipOn && unavailable && !inMaybeBoard && !inMatchSb ? `<div style="position:absolute;bottom:2px;right:2px;background:var(--red);color:#fff;
           font-size:0.5rem;font-weight:700;padding:1px 4px;border-radius:3px">IN OTHER DECKS</div>` : ''}
-        ${sbAddFn ? `<button class="deck-search-sb-btn" data-sb-add="${sbAddFn}" title="Add to maybe board">→ MB</button>` : ''}
+        ${mbAddFn ? `<button class="deck-search-sb-btn deck-search-mb-btn" data-sb-add="${mbAddFn}" title="Add to maybe board">→ MB</button>` : ''}
+        ${matchSbAddFn ? `<button class="deck-search-sb-btn deck-search-match-sb-btn" data-match-sb-add="${matchSbAddFn}" title="Add to sideboard">→ SB</button>` : ''}
       </div>
       <div class="deck-search-name">${name}</div>
       ${ownershipOn && inCollection ? `<div class="deck-search-meta" style="color:${unavailable ? 'var(--red)' : 'var(--text3)'}">Owned ${inv.owned} · Used ${inv.usedTotal} · Avail ${inv.available}${inDeck && mbAlsoOnDeck > 0 ? ` · MB ×${mbAlsoOnDeck}` : ''}</div>` : ''}
@@ -5505,7 +6738,9 @@ function _renderDeckSearchGrid() {
 
   const deck = getActiveDeck();
   const inDeckNames = new Set((deck?.cards || []).map(c => c.name.toLowerCase()));
-  const inSideboardNames = new Set((deck?.sideboard || []).map(c => c.name.toLowerCase()));
+  const inMaybeBoardNames = new Set(_deckMaybeBoard(deck).map(c => c.name.toLowerCase()));
+  const inMatchSbNames = new Set(_deckMatchSideboard(deck).map(c => c.name.toLowerCase()));
+  const sbEnabled = _deckMatchSideboardEnabled(deck);
   const collectionByScryId = {};
   collection.forEach(c => { collectionByScryId[c.scryfallId] = c; });
 
@@ -5513,10 +6748,13 @@ function _renderDeckSearchGrid() {
     .filter(c => _matchesDeckSearchRoleFilters(c, false))
     .map(c => {
     const inDeck = inDeckNames.has(c.name.toLowerCase());
-    const inSideboard = inSideboardNames.has(c.name.toLowerCase());
+    const inMb = inMaybeBoardNames.has(c.name.toLowerCase());
+    const inSb = sbEnabled && inMatchSbNames.has(c.name.toLowerCase());
     const inv = getInventoryBreakdown(c, deck?.id || null);
     const mbAlso = inDeck ? _maybeBoardQtyForCardName(deck, c.name) : 0;
-    return _cardTile(c.name, c.image, inDeck, true, inv, `addToDeck:${c.uid}`, inSideboard, `addToSideboard:${c.uid}`, mbAlso);
+    const mbAddFn = `addToSideboard:${c.uid}`;
+    const matchSbAddFn = sbEnabled ? `addToMatchSideboard:${c.uid}` : null;
+    return _cardTile(c.name, c.image, inDeck, true, inv, `addToDeck:${c.uid}`, inMb, mbAddFn, mbAlso, inSb, matchSbAddFn);
   }).join('');
 
   const apiHtml = _deckSearchApi
@@ -5524,13 +6762,17 @@ function _renderDeckSearchGrid() {
     .map(c => {
     const img = c.image_uris?.small || c.card_faces?.[0]?.image_uris?.small;
     const inDeck = inDeckNames.has(c.name.toLowerCase());
-    const inSideboard = inSideboardNames.has(c.name.toLowerCase());
+    const inMb = inMaybeBoardNames.has(c.name.toLowerCase());
+    const inSb = sbEnabled && inMatchSbNames.has(c.name.toLowerCase());
     const owned = collectionByScryId[c.id];
     const inv = owned ? getInventoryBreakdown(owned, deck?.id || null) : null;
     const addFn = owned ? `addToDeck:${owned.uid}` : `addScryfall:${c.id}`;
-    const sbAddFn = owned ? `addToSideboard:${owned.uid}` : `addScryfallToSideboard:${c.id}`;
+    const mbAddFn = owned ? `addToSideboard:${owned.uid}` : `addScryfallToSideboard:${c.id}`;
+    const matchSbAddFn = sbEnabled
+      ? (owned ? `addToMatchSideboard:${owned.uid}` : `addScryfallToMatchSideboard:${c.id}`)
+      : null;
     const mbAlso = inDeck ? _maybeBoardQtyForCardName(deck, c.name) : 0;
-    return _cardTile(c.name, img, inDeck, !!owned, inv, addFn, inSideboard, sbAddFn, mbAlso);
+    return _cardTile(c.name, img, inDeck, !!owned, inv, addFn, inMb, mbAddFn, mbAlso, inSb, matchSbAddFn);
   }).join('');
 
   el.innerHTML = (localHtml + apiHtml) ||
@@ -5538,7 +6780,14 @@ function _renderDeckSearchGrid() {
 
   // Delegated click — no string escaping needed
   el.onclick = e => {
-    const sbBtn = e.target.closest('.deck-search-sb-btn');
+    const matchSbBtn = e.target.closest('[data-match-sb-add]');
+    if (matchSbBtn) {
+      const [type, id] = matchSbBtn.dataset.matchSbAdd.split(':');
+      if (type === 'addToMatchSideboard') addToMatchSideboard(id);
+      else if (type === 'addScryfallToMatchSideboard') addScryfallCardToMatchSideboard(id);
+      return;
+    }
+    const sbBtn = e.target.closest('[data-sb-add]');
     if (sbBtn) {
       const [type, id] = sbBtn.dataset.sbAdd.split(':');
       if (type === 'addToSideboard') addToSideboard(id);
@@ -5587,10 +6836,20 @@ async function runDeckSearch(q) {
 
   _renderDeckSearchGrid();
   if (!_deckSearchLocal.length)
-    el.innerHTML = '<div style="grid-column:1/-1;padding:8px;font-size:0.8rem;color:var(--text3)">Fetching from Scryfall…</div>';
+    el.innerHTML = '<div style="grid-column:1/-1;padding:8px;font-size:0.8rem;color:var(--text3)">Searching…</div>';
 
   try {
+    // Try local DB first (exact name → /api/scryfall/search fast-path, then local oracle search).
+    // Only fall back to Scryfall if local DB has no results (e.g. DB not imported yet).
     let apiCards = await searchCards(`!"${q}" -is:extra`, signal);
+    if (!apiCards.length) {
+      // Local oracle search via the DB-backed endpoint
+      const localRes = await fetch(`/api/cards/search?q=${encodeURIComponent(q)}&limit=20`, signal ? { signal } : undefined);
+      if (localRes.ok) {
+        const localData = await localRes.json();
+        apiCards = localData.data || [];
+      }
+    }
     if (!apiCards.length) apiCards = await searchCards(`${q} -is:extra`, signal);
     _deckSearchApi = apiCards.filter(c => !localIds.has(c.id)).slice(0, 20);
     _renderDeckSearchGrid();
@@ -5646,6 +6905,27 @@ function removeFromDeck(uid) {
   scheduleEDHRECRefresh();
 }
 
+async function simAddToMaybe(btn, name) {
+  btn.disabled = true;
+  const deck = getActiveDeck();
+  if (!deck) return;
+  let card = collection.find(c => c.name.toLowerCase() === name.toLowerCase() && !c.foil)
+    || collection.find(c => c.name.toLowerCase() === name.toLowerCase());
+  if (!card) {
+    const sc = await fetchCardByName(name);
+    if (!sc) { showNotif('Failed to fetch card', true); btn.disabled = false; return; }
+    card = cardToEntry(sc, 0);
+  }
+  _addCardToDeckZone(deck, card, 'mb', 'maybe board');
+  btn.textContent = '✓';
+  btn.style.opacity = '0.5';
+}
+
+function simRemoveFromDeck(btn, uid) {
+  removeFromDeck(uid);
+  btn.closest('.sim-chip')?.remove();
+}
+
 function adjustDeckCardQtyByUid(uid, delta) {
   const deck = getActiveDeck();
   if (!deck) return;
@@ -5667,39 +6947,66 @@ function adjustDeckCardQtyByUid(uid, delta) {
   if (typeof _patchCardDetailDeckQty === 'function') _patchCardDetailDeckQty(uid);
 }
 
-// ── Maybe board (stored as deck.sideboard) ───────────────────────────────────
+// ── Maybe board (deck.maybeboard) & match sideboard (deck.sideboard) ─────────
+
+function findMaybeBoardCardSlot(deck, card) {
+  const key = getCardInventoryKey(card);
+  return _deckMaybeBoard(deck).find(c => getCardInventoryKey(c) === key);
+}
+
+function findMatchSideboardCardSlot(deck, card) {
+  const key = getCardInventoryKey(card);
+  return _deckMatchSideboard(deck).find(c => getCardInventoryKey(c) === key);
+}
 
 function findSideboardCardSlot(deck, card) {
-  const key = getCardInventoryKey(card);
-  return (deck?.sideboard || []).find(c => getCardInventoryKey(c) === key);
+  return findMaybeBoardCardSlot(deck, card);
+}
+
+function _deckZonePool(deck, zone) {
+  if (zone === 'sb') return _deckMatchSideboard(deck);
+  if (zone === 'mb') return _deckMaybeBoard(deck);
+  return deck.cards || [];
 }
 
 /** When tagging a collection card to a deck (TAG TO DECK), mirror one copy in that deck’s maybe board. */
 function syncDeckSideboardForCollectionTag(deckId, collectionCard, tagged) {
   const deck = decks.find(d => d.id === deckId);
   if (!deck || !collectionCard) return;
-  if (!deck.sideboard) deck.sideboard = [];
+  _ensureDeckZones(deck);
+  const pool = _deckMaybeBoard(deck);
   const key = getCardInventoryKey(collectionCard);
-  const slotIdx = deck.sideboard.findIndex(
+  const slotIdx = pool.findIndex(
     c => getCardInventoryKey(c) === key || c.uid === collectionCard.uid
   );
 
   if (tagged) {
-    if (slotIdx >= 0) {
-      const row = deck.sideboard[slotIdx];
-      row.qty = (row.qty || 0) + 1;
-    } else {
-      deck.sideboard.push({ ...collectionCard, uid: key, qty: 1 });
-    }
+    if (slotIdx >= 0) pool[slotIdx].qty = (pool[slotIdx].qty || 0) + 1;
+    else pool.push({ ...collectionCard, uid: key, qty: 1 });
     recordDeckEvent('add_sb', collectionCard, null, deckId);
   } else {
     if (slotIdx < 0) return;
-    const sb = deck.sideboard[slotIdx];
-    const snap = { ...sb };
-    if ((sb.qty || 1) > 1) sb.qty -= 1;
-    else deck.sideboard.splice(slotIdx, 1);
+    const row = pool[slotIdx];
+    const snap = { ...row };
+    if ((row.qty || 1) > 1) row.qty -= 1;
+    else pool.splice(slotIdx, 1);
     recordDeckEvent('remove_sb', snap, null, deckId);
   }
+}
+
+function _addCardToDeckZone(deck, card, zone, notifyLabel) {
+  const pool = _deckZonePool(deck, zone);
+  const findSlot = zone === 'sb' ? findMatchSideboardCardSlot : findMaybeBoardCardSlot;
+  const existing = findSlot(deck, card);
+  if (existing) { existing.qty++; recordDeckEvent('qty_change_sb', existing); }
+  else {
+    const c = { ...card, uid: getCardInventoryKey(card), qty: 1 };
+    pool.push(c);
+    recordDeckEvent('add_sb', c);
+  }
+  saveActiveDeck(deck);
+  renderActiveDeck();
+  showNotif('Added ' + card.name + ' to ' + notifyLabel);
 }
 
 function addToSideboard(uid) {
@@ -5709,11 +7016,7 @@ function addToSideboard(uid) {
     ? window.Ownership.findByRef(collection, uid)
     : collection.find(c => c.uid === uid);
   if (!card) return;
-  if (!deck.sideboard) deck.sideboard = [];
-  const existing = findSideboardCardSlot(deck, card);
-  if (existing) { existing.qty++; recordDeckEvent('qty_change_sb', existing); }
-  else { const c = { ...card, uid: getCardInventoryKey(card), qty: 1 }; deck.sideboard.push(c); recordDeckEvent('add_sb', c); }
-  saveActiveDeck(deck); renderActiveDeck(); showNotif('Added ' + card.name + ' to maybe board');
+  _addCardToDeckZone(deck, card, 'mb', 'maybe board');
 }
 
 async function addScryfallCardToSideboard(scryfallId) {
@@ -5727,17 +7030,39 @@ async function addScryfallCardToSideboard(scryfallId) {
     if (!sc) { showNotif('Failed to fetch card', true); return; }
     card = cardToEntry(sc, 0);
   }
-  if (!deck.sideboard) deck.sideboard = [];
-  const existing = findSideboardCardSlot(deck, card);
-  if (existing) { existing.qty++; recordDeckEvent('qty_change_sb', existing); }
-  else { const c = { ...card, uid: getCardInventoryKey(card), qty: 1 }; deck.sideboard.push(c); recordDeckEvent('add_sb', c); }
-  saveActiveDeck(deck); renderActiveDeck(); _renderDeckSearchGrid(); showNotif('Added ' + card.name + ' to maybe board');
+  _addCardToDeckZone(deck, card, 'mb', 'maybe board');
+  _renderDeckSearchGrid();
+}
+
+function addToMatchSideboard(uid) {
+  const deck = getActiveDeck();
+  if (!deck || !_deckMatchSideboardEnabled(deck)) return;
+  const card = window.Ownership?.findByRef
+    ? window.Ownership.findByRef(collection, uid)
+    : collection.find(c => c.uid === uid);
+  if (!card) return;
+  _addCardToDeckZone(deck, card, 'sb', 'sideboard');
+}
+
+async function addScryfallCardToMatchSideboard(scryfallId) {
+  const deck = getActiveDeck();
+  if (!deck || !_deckMatchSideboardEnabled(deck)) return;
+  let card = window.Ownership?.preferredOwnedPrinting
+    ? window.Ownership.preferredOwnedPrinting(collection, scryfallId)
+    : (collection.find(c => c.scryfallId === scryfallId && !c.foil) || collection.find(c => c.scryfallId === scryfallId));
+  if (!card) {
+    const sc = await fetchCardById(scryfallId);
+    if (!sc) { showNotif('Failed to fetch card', true); return; }
+    card = cardToEntry(sc, 0);
+  }
+  _addCardToDeckZone(deck, card, 'sb', 'sideboard');
+  _renderDeckSearchGrid();
 }
 
 function toggleDeckCardFoil(uid, zone) {
   const deck = getActiveDeck();
   if (!deck) return;
-  const cards = zone === 'sb' ? (deck.sideboard || []) : deck.cards;
+  const cards = zone === 'sb' ? _deckMatchSideboard(deck) : zone === 'mb' ? _deckMaybeBoard(deck) : deck.cards;
   const card = cards.find(c => getCardInventoryKey(c) === uid || c.uid === uid);
   if (!card) return;
   card.foil = !card.foil;
@@ -5746,20 +7071,24 @@ function toggleDeckCardFoil(uid, zone) {
   renderActiveDeck();
 }
 
-function removeFromSideboard(uid) {
-  const deck = getActiveDeck();
-  if (!deck || !deck.sideboard) return;
-  const c = deck.sideboard.find(c => getCardInventoryKey(c) === uid || c.uid === uid);
+function _removeFromDeckZone(deck, uid, zone) {
+  const pool = _deckZonePool(deck, zone);
+  const c = pool.find(card => getCardInventoryKey(card) === uid || card.uid === uid);
   if (!c) return;
   if (c.qty > 1) { c.qty--; recordDeckEvent('qty_change_sb', c); }
-  else { recordDeckEvent('remove_sb', c); deck.sideboard = deck.sideboard.filter(card => card !== c); }
-  saveActiveDeck(deck); renderActiveDeck();
+  else { recordDeckEvent('remove_sb', c); const i = pool.indexOf(c); if (i >= 0) pool.splice(i, 1); }
+  saveActiveDeck(deck);
+  renderActiveDeck();
 }
 
-function adjustSideboardCardQtyByUid(uid, delta) {
+function removeFromSideboard(uid) { _removeFromDeckZone(getActiveDeck(), uid, 'mb'); }
+function removeFromMatchSideboard(uid) { _removeFromDeckZone(getActiveDeck(), uid, 'sb'); }
+
+function _adjustDeckZoneQtyByUid(uid, delta, zone) {
   const deck = getActiveDeck();
-  if (!deck || !deck.sideboard) return;
-  const card = deck.sideboard.find(c => getCardInventoryKey(c) === uid || c.uid === uid);
+  if (!deck) return;
+  const pool = _deckZonePool(deck, zone);
+  const card = pool.find(c => getCardInventoryKey(c) === uid || c.uid === uid);
   if (!card) return;
   if (delta > 0) {
     card.qty = (card.qty || 0) + delta;
@@ -5769,38 +7098,78 @@ function adjustSideboardCardQtyByUid(uid, delta) {
     recordDeckEvent('qty_change_sb', card);
   } else {
     recordDeckEvent('remove_sb', card);
-    deck.sideboard = deck.sideboard.filter(c => c !== card);
+    const i = pool.indexOf(card);
+    if (i >= 0) pool.splice(i, 1);
   }
   saveActiveDeck(deck);
   renderActiveDeck();
   if (typeof _patchCardDetailDeckQty === 'function') _patchCardDetailDeckQty(uid);
 }
 
-function moveToSideboard(uid) {
+function adjustSideboardCardQtyByUid(uid, delta) { _adjustDeckZoneQtyByUid(uid, delta, 'mb'); }
+function adjustMatchSideboardCardQtyByUid(uid, delta) { _adjustDeckZoneQtyByUid(uid, delta, 'sb'); }
+
+function _moveMainToDeckZone(uid, zone, label) {
   const deck = getActiveDeck();
   if (!deck) return;
+  if (zone === 'sb' && !_deckMatchSideboardEnabled(deck)) return;
   const card = deck.cards.find(c => getCardInventoryKey(c) === uid || c.uid === uid);
   if (!card) return;
-  if (!deck.sideboard) deck.sideboard = [];
   const snapshot = { ...card };
   if (card.qty > 1) card.qty--; else deck.cards = deck.cards.filter(c => c !== card);
-  const existingSb = findSideboardCardSlot(deck, snapshot);
-  if (existingSb) existingSb.qty++; else deck.sideboard.push({ ...snapshot, qty: 1 });
-  recordDeckEvent('to_sb', snapshot);
-  saveActiveDeck(deck); renderActiveDeck(); showNotif(snapshot.name + ' moved to maybe board');
+  const findSlot = zone === 'sb' ? findMatchSideboardCardSlot : findMaybeBoardCardSlot;
+  const existing = findSlot(deck, snapshot);
+  if (existing) existing.qty++; else _deckZonePool(deck, zone).push({ ...snapshot, qty: 1 });
+  recordDeckEvent('to_sb', snapshot, zone); // detail = target zone ('mb' or 'sb')
+  saveActiveDeck(deck);
+  renderActiveDeck();
+  showNotif(snapshot.name + ' moved to ' + label);
 }
 
-function moveToMainboard(uid) {
+function moveToSideboard(uid) { _moveMainToDeckZone(uid, 'mb', 'maybe board'); }
+function moveToMatchSideboard(uid) { _moveMainToDeckZone(uid, 'sb', 'sideboard'); }
+
+function moveToMainboard(uid, fromZone = 'mb') {
   const deck = getActiveDeck();
-  if (!deck || !deck.sideboard) return;
-  const card = deck.sideboard.find(c => getCardInventoryKey(c) === uid || c.uid === uid);
+  if (!deck) return;
+  const pool = _deckZonePool(deck, fromZone);
+  const card = pool.find(c => getCardInventoryKey(c) === uid || c.uid === uid);
   if (!card) return;
   const snapshot = { ...card };
-  if (card.qty > 1) card.qty--; else deck.sideboard = deck.sideboard.filter(c => c !== card);
+  if (card.qty > 1) card.qty--; else { const i = pool.indexOf(card); if (i >= 0) pool.splice(i, 1); }
   const existingMain = findDeckCardSlot(deck, snapshot);
   if (existingMain) existingMain.qty++; else deck.cards.push({ ...snapshot, qty: 1 });
-  recordDeckEvent('to_main', snapshot);
-  saveActiveDeck(deck); renderActiveDeck(); showNotif(snapshot.name + ' moved to mainboard');
+  recordDeckEvent('to_main', snapshot, fromZone); // detail = source zone ('mb' or 'sb')
+  saveActiveDeck(deck);
+  renderActiveDeck();
+  showNotif(snapshot.name + ' moved to mainboard');
+}
+
+const _DECK_ZONE_LABELS = { mb: 'maybe board', sb: 'sideboard' };
+
+function moveBetweenDeckZones(uid, fromZone, toZone) {
+  const deck = getActiveDeck();
+  if (!deck || fromZone === toZone) return;
+  if (toZone === 'sb' && !_deckMatchSideboardEnabled(deck)) return;
+  if (fromZone !== 'mb' && fromZone !== 'sb') return;
+  if (toZone !== 'mb' && toZone !== 'sb') return;
+  const fromPool = _deckZonePool(deck, fromZone);
+  const card = fromPool.find(c => getCardInventoryKey(c) === uid || c.uid === uid);
+  if (!card) return;
+  const snapshot = { ...card };
+  if (card.qty > 1) card.qty--;
+  else {
+    const i = fromPool.indexOf(card);
+    if (i >= 0) fromPool.splice(i, 1);
+  }
+  const findSlot = toZone === 'sb' ? findMatchSideboardCardSlot : findMaybeBoardCardSlot;
+  const existing = findSlot(deck, snapshot);
+  if (existing) existing.qty++;
+  else _deckZonePool(deck, toZone).push({ ...snapshot, qty: 1 });
+  recordDeckEvent('to_sb', snapshot, fromZone + ':' + toZone); // detail = 'fromZone:toZone'
+  saveActiveDeck(deck);
+  renderActiveDeck();
+  showNotif(snapshot.name + ' moved to ' + (_DECK_ZONE_LABELS[toZone] || toZone));
 }
 
 async function deleteDeck() {
@@ -5917,6 +7286,10 @@ function _hasMainNonLandRole(roles) {
     .some(r => roles.has(r));
 }
 
+function _effectiveCmc(card) {
+  return (card?.customCmc != null && Number.isFinite(card.customCmc)) ? card.customCmc : (card?.cmc || 0);
+}
+
 function _isLandDeckCard(card) {
   const typeLine = String(card?.type || card?.typeLine || card?.type_line || '').toLowerCase();
   if (typeLine.includes('land')) return true;
@@ -5996,8 +7369,13 @@ async function _resolveOracleIdForCard(card) {
         }
       }
       // Backfill missing card metadata so role/tag detection is reliable on older imports.
-      if (!card.type && sc?.type_line) card.type = sc.type_line;
-      if (!card.typeLine && sc?.type_line) card.typeLine = sc.type_line;
+      const hydratedType = typeof resolveCardTypeLine === 'function'
+        ? resolveCardTypeLine({ ...card, type_line: sc?.type_line, card_faces: sc?.card_faces, cardFaces: card.cardFaces })
+        : (sc?.type_line || card.type || '');
+      if (hydratedType) {
+        card.type = hydratedType;
+        card.typeLine = hydratedType;
+      }
       if (!card.oracleText && sc?.oracle_text) card.oracleText = sc.oracle_text;
       if (typeof sc?.cmc === 'number') card.cmc = sc.cmc;
       if (sc?.mana_cost && !String(card.mana || '').trim()) card.mana = sc.mana_cost;
@@ -6048,6 +7426,31 @@ async function _fetchScryfallTagsForOracle(oracleId) {
   }
 }
 
+// Batch live fallback: 36 requests total (one per tag) instead of 36 per card.
+async function _fetchScryfallTagsBatch(missingOids) {
+  if (!missingOids.length) return;
+  const tagMap = new Map(missingOids.map(oid => [oid, []]));
+  const CHUNK = 50; // keep URLs within safe length limits
+  for (let i = 0; i < missingOids.length; i += CHUNK) {
+    const chunk = missingOids.slice(i, i + CHUNK);
+    const oidFilter = '(' + chunk.map(id => `oracleid:${id}`).join(' or ') + ')';
+    for (const spec of SCRYFALL_AUTO_TAGS) {
+      try {
+        const tagFilter = spec.query || `otag:${spec.otag}`;
+        const cards = await searchCards(`${oidFilter} ${tagFilter}`);
+        for (const c of cards || []) {
+          if (c.oracle_id && tagMap.has(c.oracle_id)) {
+            tagMap.get(c.oracle_id).push(spec.label);
+          }
+        }
+      } catch (_) {}
+    }
+  }
+  for (const [oid, tags] of tagMap) {
+    _scryTagsByOracleId.set(oid, tags);
+  }
+}
+
 async function _fetchScryfallTagsForDeckOracleIds(oracleIds) {
   const ids = [...new Set((oracleIds || []).filter(_isUuidLike))];
   const out = new Map();
@@ -6070,41 +7473,34 @@ async function _fetchScryfallTagsForDeckOracleIds(oracleIds) {
   return out;
 }
 
-async function _refreshDeckScryfallTags(deck, opts) {
-  const liveFallback = !!(opts && opts.liveFallback);
+function _oracleIdFromCardLocal(card) {
+  if (!card) return null;
+  if (card.oracleId && _isUuidLike(card.oracleId)) return card.oracleId;
+  const rawSid = String(card.scryfallId || '').trim().toLowerCase();
+  const sidFromUid = String(card.uid || '').trim().toLowerCase().replace(/_(n|f)$/i, '');
+  const cacheKey = [rawSid, sidFromUid].find(v => _isUuidLike(v)) || '';
+  return cacheKey ? (_scryOracleByPrintId.get(cacheKey) || null) : null;
+}
+
+async function _refreshDeckScryfallTags(deck) {
   if (!deck || !Array.isArray(deck.cards) || !deck.cards.length) return;
   const cards = deck.cards || [];
-  if (!cards.length) return;
   const oidByCard = new Map();
   const resolvedOids = [];
   for (const c of cards) {
-    const oid = await _resolveOracleIdForCard(c);
-    if (!oid) {
-      continue;
-    }
+    const oid = _oracleIdFromCardLocal(c);
+    if (!oid) continue;
     oidByCard.set(c, oid);
     resolvedOids.push(oid);
   }
 
   const batchTags = await _fetchScryfallTagsForDeckOracleIds(resolvedOids);
 
-  if (liveFallback) {
-    for (const c of cards) {
-      const oid = oidByCard.get(c);
-      if (!oid) continue;
-      if (!batchTags.has(oid)) {
-        await _fetchScryfallTagsForOracle(oid);
-      }
-    }
-  } else {
-    for (const c of cards) {
-      const oid = oidByCard.get(c);
-      if (!oid) continue;
-      if (!batchTags.has(oid)) {
-        _scryTagsByOracleId.set(oid, []);
-      }
-    }
+  for (const c of cards) {
+    const oid = oidByCard.get(c);
+    if (oid && !batchTags.has(oid)) _scryTagsByOracleId.set(oid, []);
   }
+
   const changed = syncDeckAutoRoleTags(deck);
   if (changed) saveActiveDeck(deck);
   if (deck.id === activeDeckId) {
@@ -6122,7 +7518,7 @@ function _scheduleDeckScryfallTagRefresh(deck) {
   if (_scryRefreshTimer) clearTimeout(_scryRefreshTimer);
   _scryRefreshTimer = setTimeout(() => {
     _scryRefreshTimer = null;
-    _refreshDeckScryfallTags(deck, { liveFallback: false })
+    _refreshDeckScryfallTags(deck)
       .catch(() => {})
       .finally(() => {
         _scrySyncDecks.delete(deck.id);
@@ -6134,15 +7530,14 @@ function _scheduleDeckScryfallTagRefresh(deck) {
 async function forceRefreshDeckScryfallTags() {
   const deck = getActiveDeck();
   if (!deck || activeDeckIsShared) return;
-  // Clear cached oracle/tag data for cards in this deck only.
+  // Clear only the tag cache so the DB is re-queried; oracle IDs are stable and don't need clearing.
   (deck.cards || []).forEach(c => {
-    if (c?.scryfallId) _scryOracleByPrintId.delete(c.scryfallId);
     if (c?.oracleId) _scryTagsByOracleId.delete(c.oracleId);
   });
   _scrySyncDecks.add(deck.id);
   _renderScryTagSyncBadge();
   try {
-    await _refreshDeckScryfallTags(deck, { liveFallback: true });
+    await _refreshDeckScryfallTags(deck);
     showNotif('Scryfall tags refreshed');
   } catch (_) {
     showNotif('Could not refresh Scryfall tags', true);
@@ -6501,6 +7896,10 @@ async function buildSkeletonDeckFromInspectorCard(cardRef) {
     commanderImage: card.imageLarge || card.image || null,
     notes: null,
     cards: [{ ...card, qty: 1, isCommander: true }],
+    maybeboard: [],
+    sideboard: [],
+    sideboardEnabled: false,
+    zoneLayout: 2,
     colors: [],
   };
   decks.push(deck);
@@ -6682,7 +8081,20 @@ async function exportDeck() {
     });
     exactPrintings = !!useExact;
   }
-  const text = deck.cards.map(c => _formatDeckExportLine(c, exactPrintings)).join('\n');
+  const lines = deck.cards.map(c => _formatDeckExportLine(c, exactPrintings));
+  const mb = _deckMaybeBoard(deck);
+  if (mb.length) {
+    lines.push('', '// Maybe board');
+    mb.forEach(c => lines.push(_formatDeckExportLine(c, exactPrintings)));
+  }
+  if (_deckMatchSideboardEnabled(deck)) {
+    const sb = _deckMatchSideboard(deck);
+    if (sb.length) {
+      lines.push('', '// Sideboard');
+      sb.forEach(c => lines.push(_formatDeckExportLine(c, exactPrintings)));
+    }
+  }
+  const text = lines.join('\n');
   const blob = new Blob([text], {type:'text/plain'});
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
   a.download = deck.name.replace(/\s+/g,'_') + (exactPrintings ? '_exact' : '') + '.txt';
@@ -6976,7 +8388,7 @@ function renderRecSection(title, cards, owned, getOwned) {
 
 // ── Card replacement recommendations ──────────────────────────────────────────
 
-function _showCardHoverPreview(imgSrc, triggerEl) {
+function _showCardHoverPreview(imgSrc, triggerEl, constrainTo) {
   let preview = document.getElementById('_cardHoverPreview');
   if (!preview) {
     preview = document.createElement('div');
@@ -6989,10 +8401,22 @@ function _showCardHoverPreview(imgSrc, triggerEl) {
 
   const rect = triggerEl.getBoundingClientRect();
   const W = 240, H = 335;
+  const margin = 8;
+
+  // Use constraining container bounds if provided, otherwise viewport
+  let bounds;
+  if (constrainTo) {
+    const cr = constrainTo.getBoundingClientRect();
+    bounds = { left: cr.left + margin, top: cr.top + margin, right: cr.right - margin, bottom: cr.bottom - margin };
+  } else {
+    bounds = { left: margin, top: margin, right: window.innerWidth - margin, bottom: window.innerHeight - margin };
+  }
+
   let left = rect.right + 14;
-  if (left + W > window.innerWidth - 8) left = rect.left - W - 14;
+  if (left + W > bounds.right) left = rect.left - W - 14;
+  left = Math.max(bounds.left, Math.min(bounds.right - W, left));
   let top = rect.top + rect.height / 2 - H / 2;
-  top = Math.max(8, Math.min(window.innerHeight - H - 8, top));
+  top = Math.max(bounds.top, Math.min(bounds.bottom - H, top));
 
   preview.style.left = left + 'px';
   preview.style.top  = top  + 'px';
@@ -7002,6 +8426,61 @@ function _showCardHoverPreview(imgSrc, triggerEl) {
 function _hideCardHoverPreview() {
   const preview = document.getElementById('_cardHoverPreview');
   if (preview) preview.style.opacity = '0';
+}
+
+function _showManaGenTooltip(triggerEl, colName, entries, colTotal) {
+  let tip = document.getElementById('_manaGenTooltip');
+  if (!tip) {
+    tip = document.createElement('div');
+    tip.id = '_manaGenTooltip';
+    tip.style.cssText = [
+      'position:fixed', 'z-index:9999', 'pointer-events:none',
+      'background:var(--bg2,#1e1e2e)', 'border:1px solid var(--border,#333)',
+      'border-radius:8px', 'padding:10px 14px', 'font-size:0.78rem',
+      'color:var(--text,#ddd)', 'box-shadow:0 4px 24px rgba(0,0,0,0.6)',
+      'min-width:200px', 'max-width:300px', 'opacity:0', 'transition:opacity 0.1s',
+    ].join(';') + ';';
+    document.body.appendChild(tip);
+  }
+  const fmt = (v) => {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return '0';
+    return n % 1 === 0 ? String(n) : n.toFixed(2).replace(/\.?0+$/, '');
+  };
+  const sorted = [...entries].sort((a, b) => b.total - a.total);
+  let rows = '';
+  for (const e of sorted) {
+    const qtyLabel = e.qty > 1 ? ` <span style="color:var(--text3,#888)">\xd7${e.qty}</span>` : '';
+    rows +=
+      '<div style="display:flex;justify-content:space-between;gap:16px;padding:1px 0">' +
+      `<span style="color:var(--text2,#bbb);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${e.name}${qtyLabel}</span>` +
+      `<span style="white-space:nowrap;color:var(--text,#ddd);flex-shrink:0">${fmt(e.total)}</span>` +
+      '</div>';
+  }
+  tip.innerHTML =
+    `<div style="font-weight:600;margin-bottom:6px">${colName} sources</div>` +
+    '<div style="border-top:1px solid var(--border,#444);margin-bottom:6px"></div>' +
+    rows +
+    '<div style="border-top:1px solid var(--border,#444);margin-top:6px;padding-top:4px;' +
+    'display:flex;justify-content:space-between;color:var(--text3,#888)">' +
+    `<span>Total</span><span style="color:var(--text,#ddd)">${fmt(colTotal)}</span></div>`;
+
+  const rect = triggerEl.getBoundingClientRect();
+  const W = 260;
+  let left = rect.right + 10;
+  if (left + W > window.innerWidth - 8) left = rect.left - W - 10;
+  left = Math.max(8, left);
+  const tipH = tip.scrollHeight || 200;
+  let top = rect.top;
+  top = Math.max(8, Math.min(window.innerHeight - tipH - 8, top));
+  tip.style.left = left + 'px';
+  tip.style.top = top + 'px';
+  tip.style.opacity = '1';
+}
+
+function _hideManaGenTooltip() {
+  const tip = document.getElementById('_manaGenTooltip');
+  if (tip) tip.style.opacity = '0';
 }
 
 /** Lowercased oracle text from all faces (better auto-match on MDFC / adventures). */
@@ -7224,10 +8703,11 @@ async function _executeCardReplacementsFetch(refineKey) {
 
     container.innerHTML = rows;
 
+    const modalEl = document.getElementById('cardDetailModal');
     container.querySelectorAll('[data-hpid]').forEach(row => {
       const src = previewMap[row.dataset.hpid];
       if (!src) return;
-      row.addEventListener('mouseenter', () => _showCardHoverPreview(src, row));
+      row.addEventListener('mouseenter', () => _showCardHoverPreview(src, row, modalEl));
       row.addEventListener('mouseleave', _hideCardHoverPreview);
     });
   } catch (e) {
@@ -7539,10 +9019,6 @@ function _applyScryfallPrintingFields(card, sc) {
   card.setName = sc.set_name || card.setName;
   card.number = sc.collector_number || card.number;
   card.rarity = sc.rarity || card.rarity;
-  card.type = sc.type_line || card.type;
-  card.mana = sc.mana_cost || card.mana;
-  card.cmc = sc.cmc ?? card.cmc;
-  if (sc.oracle_id) card.oracleId = sc.oracle_id;
   if (Array.isArray(sc.card_faces) && sc.card_faces.length) {
     card.cardFaces = sc.card_faces.map(face => ({
       name: face.name || '',
@@ -7553,6 +9029,14 @@ function _applyScryfallPrintingFields(card, sc) {
       imageLarge: face.image_uris?.large || face.image_uris?.normal || null,
     }));
   }
+  const resolvedType = resolveCardTypeLine({ ...card, type_line: sc.type_line, card_faces: sc.card_faces });
+  if (resolvedType) {
+    card.type = resolvedType;
+    card.typeLine = resolvedType;
+  }
+  card.mana = sc.mana_cost || card.mana;
+  card.cmc = sc.cmc ?? card.cmc;
+  if (sc.oracle_id) card.oracleId = sc.oracle_id;
   const usd = parseFloat(sc.prices?.usd || 0);
   const usdFoil = parseFloat(sc.prices?.usd_foil || 0);
   if (Number.isFinite(usd)) card.priceTCG = usd;
@@ -7593,7 +9077,7 @@ function _deckSlotMatchesPrintingChange(card, oldUid, oldKey, oldNameKey) {
 function _syncDeckSlotsForPrintingChange(oldUid, oldKey, oldNameKey, sc) {
   let changed = false;
   (decks || []).forEach(deck => {
-    const pools = [...(deck.cards || []), ...(deck.sideboard || [])];
+    const pools = _deckAllZoneCards(deck);
     pools.forEach(card => {
       if (!_deckSlotMatchesPrintingChange(card, oldUid, oldKey, oldNameKey)) return;
       _applyScryfallPrintingFields(card, sc);
@@ -7803,13 +9287,13 @@ function _simRenderHTML(deck, commander, edhrecData, archiveData) {
   <div class="sim-subsection-title">Top staples you're not running</div>
   <div class="sim-chip-row">${missing.map(c => {
     const n = (c.name || '').replace(/'/g, "\\'");
-    return `<span class="sim-chip sim-chip--missing" style="cursor:pointer" title="${c.inclusion}% of ${commander} decks" onclick="openCardDetailByName('${n}')">${c.name} <em>${c.inclusion}%</em></span>`;
+    return `<span class="sim-chip sim-chip--missing" title="${c.inclusion}% of ${commander} decks"><span style="cursor:pointer" onclick="openCardDetailByName('${n}')">${c.name} <em>${c.inclusion}%</em></span><button class="sim-chip-btn" onclick="simAddToMaybe(this,'${n}')" title="Add to maybe board">+</button></span>`;
   }).join('')}</div>` : ''}
   ${spice.length ? `
   <div class="sim-subsection-title">Your spicy picks <span class="sim-meta">(not in EDHREC data)</span></div>
   <div class="sim-chip-row">${spice.map(c => {
     const id = (c.uid || c.scryfallId || '').replace(/'/g, "\\'");
-    return `<span class="sim-chip sim-chip--spice" style="cursor:pointer" onclick="openCardDetail('${id}')">${c.name}</span>`;
+    return `<span class="sim-chip sim-chip--spice"><span style="cursor:pointer" onclick="openCardDetail('${id}')">${c.name}</span><button class="sim-chip-btn sim-chip-btn--remove" onclick="simRemoveFromDeck(this,'${id}')" title="Remove from deck">−</button></span>`;
   }).join('')}</div>` : ''}
 </div>`);
   }

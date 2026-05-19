@@ -358,7 +358,7 @@ function renderCollection() {
         </div>
         <div class="card-meta">
           <div class="card-name">${c.name}</div>
-          <div style="font-size:0.78rem;color:var(--text3)">${c.set.toUpperCase()} • ${c.type.split('—')[0].trim()}</div>
+          <div style="font-size:0.78rem;color:var(--text3)">${c.set.toUpperCase()} • ${(typeof resolveCardTypeLine === 'function' ? resolveCardTypeLine(c) : (c.type || '')).split('—')[0].trim()}</div>
           <div class="card-prices">
             ${dispPrice ? `<span class="price-badge price-tcg">${c.foil ? '✦ ' : ''}$${dispPrice.toFixed(2)}</span>` : ''}
             ${ckPrice ? `<span class="price-badge price-ck">$${ckPrice.toFixed(2)}</span>` : ''}
@@ -553,7 +553,8 @@ function _mergeFetchedCardIntoDetailCard(card, entry) {
   card.priceCK = entry.priceCK ?? card.priceCK;
   card.priceCKFoil = entry.priceCKFoil ?? card.priceCKFoil;
   card.mana = entry.mana || card.mana;
-  card.type = entry.type || card.type;
+  if (entry.type) card.type = entry.type;
+  else if (typeof ensureCardTypeLine === 'function') ensureCardTypeLine(card);
   card.image = entry.image || card.image;
   card.imageLarge = entry.imageLarge || card.imageLarge;
   card.cardFaces = Array.isArray(entry.cardFaces) ? entry.cardFaces : (card.cardFaces || []);
@@ -574,9 +575,13 @@ function _patchCardDetailInspectorDom(card, isOwned) {
     img.alt = card.name || '';
   }
   const nameEl = document.getElementById('cardDetailName');
-  if (nameEl) nameEl.textContent = card.name || '';
+  if (nameEl) {
+    nameEl.textContent = typeof resolveCardDisplayName === 'function'
+      ? resolveCardDisplayName(card)
+      : (card.name || '');
+  }
   const typeEl = document.getElementById('cardDetailType');
-  if (typeEl) typeEl.textContent = card.type || '';
+  if (typeEl) typeEl.textContent = typeof resolveCardTypeLine === 'function' ? resolveCardTypeLine(card) : (card.type || '');
   const oracleEl = document.getElementById('cardDetailOracle');
   if (oracleEl) {
     if (card.oracleText) {
@@ -706,10 +711,10 @@ function _getCardDetailDeckNavState(currentUid) {
     .filter(c => !searchQ || String(c.name || '').toLowerCase().includes(searchQ))
     .slice()
     .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
-  const sb = (deck.sideboard || [])
-    .slice()
-    .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
-  const rows = [...main, ...sb];
+  const extra = typeof _deckExtraPoolsForAlloc === 'function'
+    ? _deckExtraPoolsForAlloc(deck)
+    : [...(deck.maybeboard || deck.sideboard || [])];
+  const rows = [...main, ...extra.slice().sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))];
   const index = rows.findIndex(c => _deckRowMatchesInspectorNavId(c, currentUid));
   if (index === -1) return { prevUid: null, nextUid: null, index: -1, total: rows.length };
   const prevRow = index > 0 ? rows[index - 1] : null;
@@ -968,11 +973,15 @@ function _syncCardDetailRowCollection(ctx) {
 function _deckSlotZoneLabel(deck, slot) {
   if (!deck || !slot) return '';
   const key = typeof getCardInventoryKey === 'function' ? getCardInventoryKey(slot) : (slot.uid || '');
-  const onMb = (deck.sideboard || []).some(c => {
+  const match = (pool) => (pool || []).some(c => {
     const k = typeof getCardInventoryKey === 'function' ? getCardInventoryKey(c) : (c.uid || '');
     return k && k === key;
   });
-  return onMb ? ' (maybe board)' : '';
+  const mb = typeof _deckMaybeBoard === 'function' ? _deckMaybeBoard(deck) : (deck.maybeboard || deck.sideboard || []);
+  const sb = typeof _deckMatchSideboard === 'function' ? _deckMatchSideboard(deck) : [];
+  if (match(mb)) return ' (maybe board)';
+  if (match(sb)) return ' (sideboard)';
+  return '';
 }
 
 function _cardDetailHasPrintingQtyRows(card) {
@@ -1053,16 +1062,87 @@ function adjustDeckQtyFromDetail(uid, delta) {
     const k = typeof getCardInventoryKey === 'function' ? getCardInventoryKey(c) : (c.uid || '');
     return k === ref || c.uid === ref;
   });
-  const inSb = (deck.sideboard || []).find(c => {
+  const mbPool = typeof _deckMaybeBoard === 'function' ? _deckMaybeBoard(deck) : (deck.maybeboard || []);
+  const sbPool = typeof _deckMatchSideboard === 'function' ? _deckMatchSideboard(deck) : (deck.sideboard || []);
+  const inMb = mbPool.find(c => {
+    const k = typeof getCardInventoryKey === 'function' ? getCardInventoryKey(c) : (c.uid || '');
+    return k === ref || c.uid === ref;
+  });
+  const inMatchSb = sbPool.find(c => {
     const k = typeof getCardInventoryKey === 'function' ? getCardInventoryKey(c) : (c.uid || '');
     return k === ref || c.uid === ref;
   });
   if (inMain && typeof adjustDeckCardQtyByUid === 'function') {
     adjustDeckCardQtyByUid(ref, d);
-  } else if (inSb && typeof adjustSideboardCardQtyByUid === 'function') {
+  } else if (inMb && typeof adjustSideboardCardQtyByUid === 'function') {
     adjustSideboardCardQtyByUid(ref, d);
+  } else if (inMatchSb && typeof adjustMatchSideboardCardQtyByUid === 'function') {
+    adjustMatchSideboardCardQtyByUid(ref, d);
   } else return;
   _patchCardDetailDeckQty(ref);
+}
+
+function setCardCustomCmc(actionUid, rawVal) {
+  const val = String(rawVal ?? '').trim();
+  const parsed = val === '' ? null : parseFloat(val);
+  const customCmc = (parsed !== null && Number.isFinite(parsed) && parsed >= 0) ? parsed : null;
+
+  const applyTo = (card) => {
+    if (!card) return false;
+    if (customCmc === null) delete card.customCmc;
+    else card.customCmc = customCmc;
+    return true;
+  };
+
+  // Apply to every matching card in collection, wishlist, and all decks (match by name for universal override)
+  const ref = String(actionUid || '');
+  const findName = (() => {
+    const deckCards = (decks || []).flatMap(d => d.cards || []);
+    const src = collection.find(c => c.uid === ref || c.scryfallId === ref)
+      || wishlist.find(c => c.uid === ref || c.scryfallId === ref)
+      || deckCards.find(c => c.uid === ref || c.scryfallId === ref);
+    return src?.name || '';
+  })();
+
+  const nameLow = findName.toLowerCase();
+  let collChanged = false;
+  for (const c of collection) {
+    if ((c.uid === ref || c.scryfallId === ref || (nameLow && c.name?.toLowerCase() === nameLow)) && applyTo(c)) collChanged = true;
+  }
+  if (collChanged) save('collection');
+
+  for (const deck of (decks || [])) {
+    let changed = false;
+    const zones = [deck.cards, deck.maybeboard, deck.sideboard].filter(Array.isArray);
+    for (const zone of zones) {
+      for (const c of zone) {
+        if (c.uid === ref || c.scryfallId === ref || (nameLow && c.name?.toLowerCase() === nameLow)) {
+          applyTo(c); changed = true;
+        }
+      }
+    }
+    if (changed && typeof saveActiveDeck === 'function') saveActiveDeck(deck);
+  }
+
+  // Refresh mana curve / gameplan if deck builder is active
+  if (typeof renderManaCurve === 'function' && typeof getActiveDeck === 'function') {
+    const deck = getActiveDeck();
+    if (deck) {
+      renderManaCurve(deck);
+      if (typeof renderManaGenerationProfile === 'function') renderManaGenerationProfile(deck);
+    }
+  }
+
+  // Update the reset button visibility
+  const wrap = document.getElementById('cardDetailCustomCmcWrap');
+  if (wrap) {
+    const input = wrap.querySelector('input');
+    const resetBtn = wrap.querySelector('.card-detail-cmc-reset');
+    const defaultCmc = parseFloat(input?.dataset.defaultCmc ?? '0');
+    const isCustom = customCmc !== null && customCmc !== defaultCmc;
+    if (resetBtn) resetBtn.style.display = isCustom ? '' : 'none';
+    if (input) input.style.color = isCustom ? 'var(--gold)' : '';
+  }
 }
 
 function _syncCardDetailRowInDeck(ctx) {
@@ -1217,8 +1297,8 @@ function _htmlOpenCardDetailRightColumn(ctx) {
   }).join('')}</div>`
     : '';
   return `
-        <div id="cardDetailName" class="card-detail-name">${card.name}</div>
-        <div id="cardDetailType" class="card-detail-type">${card.type}</div>
+        <div id="cardDetailName" class="card-detail-name">${typeof resolveCardDisplayName === 'function' ? resolveCardDisplayName(card) : card.name}</div>
+        <div id="cardDetailType" class="card-detail-type">${typeof resolveCardTypeLine === 'function' ? resolveCardTypeLine(card) : (card.type || '')}</div>
         <div id="cardDetailOracle" class="card-detail-text" style="${card.oracleText ? '' : 'display:none'}">${card.oracleText ? card.oracleText.replace(/\n/g, '<br>') : ''}</div>
         <div id="cardDetailPT" style="font-family:'JetBrains Mono',monospace;font-size:0.85rem;color:var(--text2);margin-bottom:0.75rem;${(card.power && card.toughness) ? '' : 'display:none'}">${(card.power && card.toughness) ? `${card.power}/${card.toughness}` : ''}</div>
         <div id="cardDetailLoyalty" style="font-family:'JetBrains Mono',monospace;font-size:0.85rem;color:var(--text2);margin-bottom:0.75rem;${card.loyalty ? '' : 'display:none'}">${card.loyalty ? `Loyalty: ${card.loyalty}` : ''}</div>
@@ -1230,6 +1310,19 @@ function _htmlOpenCardDetailRightColumn(ctx) {
           <span class="tag tag-${card.rarity === 'mythic' ? 'red' : card.rarity === 'rare' ? 'gold' : card.rarity === 'uncommon' ? 'blue' : 'blue'}">${card.rarity}</span>
           ${card.foil ? `<span class="tag tag-gold">✦ Foil</span>` : ''}
           ${!isOwned ? `<span class="tag tag-red">Unowned</span>` : ''}
+        </div>
+        <div id="cardDetailCustomCmcWrap" style="display:flex;align-items:center;gap:8px;margin-bottom:0.75rem">
+          <span style="font-size:0.78rem;color:var(--text3);letter-spacing:0.04em;white-space:nowrap">MANA VALUE</span>
+          <input type="number" id="cardDetailCustomCmcInput" min="0" step="0.5"
+            value="${card.customCmc != null ? card.customCmc : (card.cmc ?? '')}"
+            data-default-cmc="${card.cmc ?? 0}"
+            placeholder="${card.cmc ?? 0}"
+            oninput="setCardCustomCmc('${actionUidRef}', this.value)"
+            style="width:64px;padding:2px 6px;font-size:0.85rem;border:1px solid var(--border2);border-radius:4px;background:var(--bg2);color:${card.customCmc != null && card.customCmc !== (card.cmc ?? 0) ? 'var(--gold)' : 'var(--text)'};text-align:center">
+          <button class="btn btn-sm btn-outline card-detail-cmc-reset"
+            style="display:${card.customCmc != null && card.customCmc !== (card.cmc ?? 0) ? '' : 'none'}"
+            onclick="setCardCustomCmc('${actionUidRef}', '')" title="Reset to Scryfall default (${card.cmc ?? 0})">Reset</button>
+          <span style="font-size:0.75rem;color:var(--text3)">(Scryfall: ${card.cmc ?? 0})</span>
         </div>
         <div id="cardDetailRowCollection" class="card-detail-qty-row">
           <span class="card-detail-qty-row-label">In collection:</span>
@@ -1278,7 +1371,11 @@ function _findActiveDeckSlotByCardKey(activeDeck, cardKey) {
   };
   const inMain = (activeDeck.cards || []).find(match);
   if (inMain) return inMain;
-  return (activeDeck.sideboard || []).find(match) || null;
+  const mb = typeof _deckMaybeBoard === 'function' ? _deckMaybeBoard(activeDeck) : (activeDeck.maybeboard || []);
+  const hitMb = mb.find(match);
+  if (hitMb) return hitMb;
+  const sb = typeof _deckMatchSideboard === 'function' ? _deckMatchSideboard(activeDeck) : (activeDeck.sideboard || []);
+  return sb.find(match) || null;
 }
 
 function _isDeckBuilderMainTabActive() {
@@ -1317,6 +1414,7 @@ async function openCardDetail(uid, navMode, opts) {
       collection.find(c => c.scryfallId === sourceCard.scryfallId)
     );
   const card = ownedCard || sourceCard;
+  if (typeof ensureCardTypeLine === 'function') ensureCardTypeLine(card);
   const isOwned = !!ownedCard;
   const actionUid = card.uid || sourceCard.uid || (card.scryfallId ? card.scryfallId + (card.foil ? '_f' : '_n') : uid);
   const activeDeck = typeof getActiveDeck === 'function'
@@ -1327,7 +1425,7 @@ async function openCardDetail(uid, navMode, opts) {
     : (card.uid || (card.scryfallId ? card.scryfallId + (card.foil ? '_f' : '_n') : ''));
   const activeDeckCard = _findActiveDeckSlotByCardKey(activeDeck, cardKey);
   const inDeckQty = activeDeckCard?.qty || 0;
-  const typeLine = String(card.type || '');
+  const typeLine = typeof resolveCardTypeLine === 'function' ? resolveCardTypeLine(card) : String(card.type || '');
   const isLegendary = /Legendary/i.test(typeLine);
   const isCommanderCandidate = isLegendary && /Creature|Planeswalker/i.test(typeLine);
   const isWishlisted = wishlist.some(w => w.scryfallId === card.scryfallId);
@@ -1598,7 +1696,7 @@ function patchOpenCardDetailMyTags() {
     : [];
   const chipsHtml = globalTags.length
     ? globalTags.map(t => (typeof _deckTagChipHtml === 'function'
-      ? _deckTagChipHtml(t, { interactive: false, size: '0.84rem' })
+      ? _deckTagChipHtml(t, { interactive: false, size: '0.84rem', card })
       : `<span class="tag tag-primary" style="font-size:0.84rem">${t}</span>`)).join('')
     : '<span style="font-size:0.72rem;color:var(--text3)">No tags yet</span>';
   const ref = String(

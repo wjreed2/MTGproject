@@ -566,7 +566,17 @@ async function enrichCardsFromScryfall(cards) {
         if (!card) continue;
         const img      = sc.image_uris?.small  || sc.card_faces?.[0]?.image_uris?.small  || null;
         const imgLarge = sc.image_uris?.normal || sc.card_faces?.[0]?.image_uris?.normal || null;
-        card.type      = sc.type_line         || card.type;
+        card.type      = (typeof resolveCardTypeLine === 'function' ? resolveCardTypeLine(sc) : sc.type_line) || card.type;
+        if (Array.isArray(sc.card_faces) && sc.card_faces.length && (!Array.isArray(card.cardFaces) || !card.cardFaces.length)) {
+          card.cardFaces = sc.card_faces.map(f => ({
+            name: f?.name || '',
+            type: f?.type_line || '',
+            mana: f?.mana_cost || '',
+            oracleText: f?.oracle_text || '',
+            image: f?.image_uris?.normal || f?.image_uris?.large || null,
+            imageLarge: f?.image_uris?.large || f?.image_uris?.normal || null,
+          }));
+        }
         card.mana      = sc.mana_cost         || card.mana;
         card.cmc       = sc.cmc               ?? card.cmc;
         card.rarity    = sc.rarity            || card.rarity;

@@ -432,6 +432,7 @@
         </button>
       </div>
     </div>
+    <button id="toggleDeckSidebarBtn" class="btn btn-outline btn-sm" onclick="toggleDeckSidebar()" style="display:none" title="Show or hide deck switcher">⇤ Decks</button>
   </div>
 
   <!-- Deck grid — shown when no deck is selected -->
@@ -453,13 +454,14 @@
           <span id="activeDeckValue" class="tag tag-green" title="Total TCG value of main deck cards"></span>
         </div><!-- /.deck-top-title-row -->
         <span id="deckScryTagSyncBadge" class="tag tag-scryfall" style="display:none">Syncing Scryfall tags…</span>
-        <span id="deckSharedByBadge" style="display:none;padding:2px 9px;border-radius:10px;background:rgba(100,140,220,0.15);color:var(--blue);border:1px solid rgba(100,140,220,0.3)"></span>
+        <span id="deckSharedByBadge" class="tag tag-blue" style="display:none"></span>
         <div style="flex:1"></div>
-        <button id="toggleDeckSidebarBtn" class="btn btn-outline btn-sm" onclick="toggleDeckSidebar()" title="Show or hide deck switcher">⇤ Decks</button>
         <button id="deckBuilderVoiceBtn" type="button" class="btn btn-outline btn-sm" onclick="openVoice({ addToActiveDeck: true })" title="Add cards — voice, search, or manual" style="display:inline-flex;align-items:center;gap:5px;white-space:nowrap">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" style="width:13px;height:13px;flex-shrink:0"><line x1="8" y1="2" x2="8" y2="14"/><line x1="2" y1="8" x2="14" y2="8"/></svg>
           Add cards
         </button>
+        <button id="deckHistoryBtn" type="button" class="btn btn-outline btn-sm" onclick="toggleDeckHistory()" style="white-space:nowrap" title="Adds, removals, main↔maybe board, tag changes">◷ History</button>
+        <button class="btn btn-outline btn-sm" onclick="openDeckTagManager()" title="Manage reusable deck tags">Manage Tags</button>
         <div id="deckTopMenuWrap" style="position:relative;flex-shrink:0">
           <button class="btn btn-outline btn-sm" onclick="toggleDeckOptionsDropdown()" id="deckOptionsBtn" title="More options" style="padding:2px 10px">
             <svg viewBox="0 0 16 16" fill="currentColor" stroke="none" style="width:13px;height:13px"><circle cx="8" cy="3.5" r="1.3"/><circle cx="8" cy="8" r="1.3"/><circle cx="8" cy="12.5" r="1.3"/></svg>
@@ -473,6 +475,10 @@
             <button id="deckFormatBtn" class="btn btn-ghost btn-sm deck-menu-item" onclick="toggleDeckOptionsDropdown();changeActiveDeckFormat()">
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M3 3.5h10v9H3z"/><path d="M3 6.5h10"/><path d="M6 2v3"/><path d="M10 2v3"/></svg>
               Change format
+            </button>
+            <button type="button" id="deckSideboardEnabledBtn" class="btn btn-ghost btn-sm deck-menu-item" style="display:none" onclick="toggleDeckOptionsDropdown();toggleDeckSideboardEnabled()">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><rect x="2" y="3" width="12" height="10" rx="1"/><path d="M3 6.5h10M3 9.5h6"/></svg>
+              Sideboard
             </button>
             <div class="settings-divider"></div>
             <button id="deckPublicToggleBtn" class="btn btn-ghost btn-sm deck-menu-item" onclick="toggleDeckOptionsDropdown();toggleDeckPublic()" title="Toggle public/private" style="color:var(--text3)">
@@ -521,18 +527,15 @@
       </div>
 
       <!-- Deck List -->
-      <div class="panel" style="margin-bottom:1rem">
+      <div class="panel" style="margin-bottom:1.25rem">
         <div class="panel-header" style="flex-wrap:wrap;gap:6px">
           <span class="panel-title">Deck List</span>
           <span id="deckListCount"></span>
           <div style="flex:1"></div>
           <span id="deckGroupByWrap" style="display:flex;align-items:center;gap:5px">
-            <input id="deckListSearchInput" type="text" placeholder="Search decklist…"
-              oninput="setDeckListSearch(this.value)"
-              style="width:160px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);border-radius:var(--radius);padding:3px 6px">
+            <button id="deckListFilterToggleBtn" class="btn btn-outline btn-sm" onclick="toggleDeckListFilterBar()" title="Filter deck list">⌕ Filter</button>
             <span class="deck-list-group-hint">Group</span>
-            <select id="deckGroupBySelect" onchange="setDeckGroupBy(this.value)"
-              style="background:var(--bg3);border:1px solid var(--border2);color:var(--text);border-radius:var(--radius);padding:2px 5px;font-family:'Inter',system-ui,sans-serif">
+            <select id="deckGroupBySelect" class="deck-select" onchange="setDeckGroupBy(this.value)">
               <option value="type">Type</option>
               <option value="subtype">Subtype</option>
               <option value="tag_all">All tags</option>
@@ -542,7 +545,17 @@
               <option value="color">Color</option>
               <option value="cmc">CMC</option>
             </select>
-            <button class="btn btn-outline btn-sm" onclick="openDeckTagManager()" title="Manage reusable deck tags">Manage Tags</button>
+            <span class="deck-list-group-hint">Sort</span>
+            <select id="deckStackSortSelect" class="deck-select" onchange="setDeckStackSort(this.value)">
+              <option value="name">Name</option>
+              <option value="cmc">CMC</option>
+              <option value="mana">Mana cost</option>
+              <option value="price">Price</option>
+            </select>
+            <select id="deckStackSortDirSelect" class="deck-select" onchange="setDeckStackSortDir(this.value)" title="Sort direction" style="min-width:3.2rem">
+              <option value="asc">↑</option>
+              <option value="desc">↓</option>
+            </select>
           </span>
           <div id="deckCardSizeWrap" style="display:flex;align-items:center;gap:5px">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px;opacity:0.5;flex-shrink:0"><rect x="2" y="1.5" width="7" height="10" rx="1"/><rect x="7" y="4.5" width="7" height="10" rx="1"/></svg>
@@ -566,10 +579,23 @@
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="0.5"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="0.5"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="0.5"/><rect x="9" y="9" width="4.5" height="4.5" rx="0.5"/></svg>
             </button>
           </div>
-          <button id="deckHistoryBtn" type="button" class="btn btn-outline btn-sm" onclick="toggleDeckHistory()" style="white-space:nowrap" title="Adds, removals, main↔maybe board, tag changes">◷ History</button>
-          <button id="deckListCollapseBtn" class="decklist-collapse-btn" onclick="toggleDeckListCollapse()"
-            style="transition:transform 0.2s"
-            title="Collapse / expand">▾</button>
+          <button id="deckListCollapseBtn" class="decklist-collapse-btn" onclick="toggleDeckListCollapse()" style="transition:transform 0.2s" title="Collapse / expand">▾</button>
+        </div>
+        <div id="deckListFilterBar" class="deck-list-filter-bar" style="display:none">
+          <div class="dlf-row">
+            <input id="deckListFilterInput" type="search" class="dlf-text" placeholder="Filter deck… name, o:text, tag:ramp, cmc<=3, c:ug, t:creature"
+              oninput="setDeckListSearch(this.value)" autocomplete="off" spellcheck="false">
+            <button class="dlf-clear" id="deckListFilterClear" onclick="clearDeckListFilters()" title="Clear all filters" style="display:none">✕</button>
+          </div>
+          <div class="dlf-row dlf-pills">
+            <button class="dlf-color-pill" data-color="W" onclick="toggleDeckListColorFilter('W')" title="White"><img src="https://svgs.scryfall.io/card-symbols/W.svg" class="mana-pip" alt="W"></button>
+            <button class="dlf-color-pill" data-color="U" onclick="toggleDeckListColorFilter('U')" title="Blue"><img src="https://svgs.scryfall.io/card-symbols/U.svg" class="mana-pip" alt="U"></button>
+            <button class="dlf-color-pill" data-color="B" onclick="toggleDeckListColorFilter('B')" title="Black"><img src="https://svgs.scryfall.io/card-symbols/B.svg" class="mana-pip" alt="B"></button>
+            <button class="dlf-color-pill" data-color="R" onclick="toggleDeckListColorFilter('R')" title="Red"><img src="https://svgs.scryfall.io/card-symbols/R.svg" class="mana-pip" alt="R"></button>
+            <button class="dlf-color-pill" data-color="G" onclick="toggleDeckListColorFilter('G')" title="Green"><img src="https://svgs.scryfall.io/card-symbols/G.svg" class="mana-pip" alt="G"></button>
+            <button class="dlf-color-pill" data-color="C" onclick="toggleDeckListColorFilter('C')" title="Colorless"><img src="https://svgs.scryfall.io/card-symbols/C.svg" class="mana-pip" alt="C"></button>
+            <span class="dlf-hint" id="deckListFilterCount"></span>
+          </div>
         </div>
         <div id="deckListPanel" class="deck-list-panel-wrap">
           <div id="deckHistoryPanel" class="deck-history-panel-inner" aria-live="polite"></div>
@@ -586,11 +612,11 @@
       </div>
 
       <!-- EDHREC Suggestions (below deck list) -->
-      <div class="panel" style="margin-bottom:1rem">
+      <div class="panel" style="margin-bottom:1.25rem">
         <div class="panel-header">
-          <span class="panel-title" style="color:var(--teal)">EDHREC Suggestions</span>
-          <select id="edhrecThemeSelect" onchange="scheduleEDHRECThemeRefresh()"
-            style="background:var(--bg3);border:1px solid var(--border2);color:var(--text);border-radius:var(--radius);padding:3px 6px;font-family:'Crimson Pro',serif">
+          <span class="panel-title">EDHREC Suggestions</span>
+          <div style="flex:1"></div>
+          <select id="edhrecThemeSelect" class="deck-select" onchange="scheduleEDHRECThemeRefresh()">
             <option value="">All themes</option>
             <option value="artifacts">Artifacts</option>
             <option value="tokens">Tokens</option>
@@ -606,8 +632,8 @@
             <button type="button" data-edhrec-land="lands" onclick="setEdhrecLandFilter('lands')"
               title="Lands only">Lands</button>
           </div>
-          <button onclick="this.closest('.panel').querySelector('.rec-scroll').classList.toggle('edhrec-collapsed')"
-            style="margin-left:4px;background:none;border:none;color:var(--text3);cursor:pointer;font-size:0.8rem;padding:2px 4px" title="Toggle">▾</button>
+          <button onclick="this.closest('.panel').querySelector('.rec-scroll').classList.toggle('edhrec-collapsed');this.classList.toggle('is-rotated')"
+            class="decklist-collapse-btn edhrec-collapse-btn" style="margin-left:4px" title="Toggle">▾</button>
         </div>
         <div class="rec-scroll" id="edhrecResults">
           <div class="deck-tab-muted" style="padding:1.5rem;text-align:center">
@@ -652,6 +678,26 @@
             <canvas id="landCoverageChart"></canvas>
           </div>
         </div>
+        <div class="panel deck-draw-accel-panel" style="display:none">
+          <div class="panel-header" style="flex-wrap:wrap;gap:8px">
+            <span class="panel-title">Cumulative Card Draw</span>
+            <span class="deck-tab-hint draw-accel-legend" style="flex:1">Cards drawn by each turn, assuming each source is played at its CMC &nbsp;·&nbsp;
+              <span style="color:rgba(90,140,210,0.9)">&#9632;</span> spell/ETB &nbsp;
+              <span style="color:rgba(60,160,90,0.9)">&#9632;</span> engine &nbsp;
+              <span style="color:rgba(220,140,55,0.9)">&#9632;</span> impulse
+            </span>
+            <div style="display:flex;gap:3px;flex-shrink:0">
+              <button class="btn btn-sm draw-mode-btn" data-mode="area" onclick="setDrawChartMode('area')">Area</button>
+              <button class="btn btn-sm draw-mode-btn" data-mode="lines" onclick="setDrawChartMode('lines')">Lines</button>
+            </div>
+          </div>
+          <div class="panel-body deck-draw-accel-body">
+            <div id="drawAccelFilters" class="prob-chart-filters draw-accel-filters"></div>
+            <div class="deck-land-chart-panel">
+              <canvas id="cardDrawAccelChart"></canvas>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Draw Probability -->
@@ -680,7 +726,7 @@
         <div class="panel-header" style="flex-wrap:wrap;gap:8px">
           <span class="panel-title">Similarity</span>
           <span class="deck-tab-hint" style="flex:1">EDHREC alignment &amp; archive comparison for this commander</span>
-          <button class="btn btn-sm" id="simAnalyzeBtn" onclick="loadDeckSimilarity()">Refresh</button>
+          <button class="btn btn-outline btn-sm" id="simAnalyzeBtn" onclick="loadDeckSimilarity()">Refresh</button>
         </div>
         <div class="panel-body" id="simPanel">
           <p style="color:var(--text3);font-size:0.85rem;font-style:italic;margin:0">Loading…</p>
@@ -1586,12 +1632,11 @@
     </div>
     <div style="border-top:1px solid var(--border2);margin-top:14px;padding-top:12px">
       <div style="font-size:0.88rem;font-weight:600;color:var(--text);margin-bottom:4px">My Tags</div>
-      <div style="font-size:0.78rem;color:var(--text3);margin-bottom:10px">Create, set primary/secondary tier, or delete custom tags. Deleting removes the tag from every card in your collection and decks.</div>
+      <div style="font-size:0.78rem;color:var(--text3);margin-bottom:10px">Create or delete custom tags. When tagging cards, choose primary (teal) or secondary (gold) per card.</div>
       <div id="tagSettingsMyTagsFilterBar" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px"></div>
       <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
         <input id="tagSettingsTagInput" type="text" placeholder="New tag name (e.g. Ramp, Removal)" style="flex:1;min-width:140px">
-        <button class="btn btn-primary btn-sm" onclick="addDeckCustomTag('primary', 'tagSettingsTagInput')">+ Primary</button>
-        <button class="btn btn-outline btn-sm btn-outline-secondary-tag" onclick="addDeckCustomTag('secondary', 'tagSettingsTagInput')">+ Secondary</button>
+        <button class="btn btn-primary btn-sm" onclick="addDeckCustomTag('tagSettingsTagInput')">+ Tag</button>
       </div>
       <div id="tagSettingsMyTagsList" style="display:flex;flex-wrap:wrap;gap:8px;max-height:220px;overflow-y:auto"></div>
     </div>
@@ -1621,12 +1666,11 @@
   <div class="modal" style="width:min(560px,96vw)">
     <button class="btn btn-ghost btn-icon" style="position:absolute;top:0.75rem;right:0.75rem" onclick="closeDeckTagManager()">✕</button>
     <div class="modal-title">Manage Deck Tags</div>
-    <p style="font-size:0.78rem;color:var(--text3);margin-bottom:0.75rem">New tags are added to both primary and secondary lists. Use P/S to add a tag to that tier; teal vs gold styling follows tier membership.</p>
+    <p style="font-size:0.78rem;color:var(--text3);margin-bottom:0.75rem">One list of custom tags. Assign each tag as primary (teal) or secondary (gold) per card in the tag picker.</p>
     <div id="deckTagManagerFilterBar" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px"></div>
     <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
       <input id="deckTagInput" type="text" placeholder="New tag name (e.g. Ramp, Removal)" style="flex:1;min-width:140px">
-      <button class="btn btn-primary btn-sm" onclick="addDeckCustomTag('primary')">+ Primary</button>
-      <button class="btn btn-outline btn-sm btn-outline-secondary-tag" onclick="addDeckCustomTag('secondary')">+ Secondary</button>
+      <button class="btn btn-primary btn-sm" onclick="addDeckCustomTag()">+ Tag</button>
     </div>
     <div id="deckTagManagerList" style="display:flex;flex-wrap:wrap;gap:8px;max-height:320px;overflow-y:auto"></div>
   </div>
@@ -1637,7 +1681,7 @@
   <div class="modal" style="width:min(520px,96vw)">
     <button class="btn btn-ghost btn-icon" style="position:absolute;top:0.75rem;right:0.75rem" onclick="closeDeckCardTagPicker()">✕</button>
     <div class="modal-title" id="deckCardTagTitle">Card Tags</div>
-    <p style="font-size:0.78rem;color:var(--text3);margin-bottom:0.75rem">Toggle default Scryfall role tags (purple) or your My Tags (teal primary, gold secondary). Defaults update the card’s role tags; My Tags are saved per oracle across your collection.</p>
+    <p style="font-size:0.78rem;color:var(--text3);margin-bottom:0.75rem">Toggle Scryfall default tags (purple) or My Tags. Use Apply as primary/secondary filters when adding; right-click an active tag to switch tier. Tags sync per oracle across your collection.</p>
     <div id="deckCardTagFilterBar" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px"></div>
     <div id="deckCardTagList" style="display:flex;flex-wrap:wrap;gap:8px;max-height:280px;overflow-y:auto"></div>
     <div style="display:flex;gap:8px;margin-top:10px">
@@ -1812,6 +1856,27 @@
       <button class="gf-btn" id="gfTokensBtn" onclick="_gfToggleTokenPanel()" title="Spawn tokens from this deck">Tokens</button>
       <button class="gf-btn" id="gfSimBtn" onclick="_gfToggleSimPanel()" title="Simulate 1000 opening hands">Simulate</button>
     </div>
+    <div class="gf-divider-v"></div>
+    <div class="gf-size-controls" title="Card sizes (land, spell, hand)">
+      <div class="gf-size-control">
+        <span class="gf-size-label">Land</span>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="gf-size-icon" aria-hidden="true"><rect x="2" y="1.5" width="7" height="10" rx="1"/><rect x="7" y="4.5" width="7" height="10" rx="1"/></svg>
+        <input type="range" id="gfLandCardSizeSlider" min="20" max="100" step="5" value="20"
+          oninput="setGfLandCardSizePct(+this.value)" title="Land card size (% of max)">
+      </div>
+      <div class="gf-size-control">
+        <span class="gf-size-label">Spell</span>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="gf-size-icon" aria-hidden="true"><rect x="2" y="1.5" width="7" height="10" rx="1"/><rect x="7" y="4.5" width="7" height="10" rx="1"/></svg>
+        <input type="range" id="gfNonlandCardSizeSlider" min="20" max="100" step="5" value="20"
+          oninput="setGfNonlandCardSizePct(+this.value)" title="Non-land card size (% of max)">
+      </div>
+      <div class="gf-size-control">
+        <span class="gf-size-label">Hand</span>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="gf-size-icon" aria-hidden="true"><path d="M2 12.5c2-4 4.5-6 6-6s4 2 6 6"/><rect x="4" y="3" width="4.5" height="7" rx="0.8"/><rect x="7.5" y="5" width="4.5" height="7" rx="0.8"/></svg>
+        <input type="range" id="gfHandCardSizeSlider" min="20" max="100" step="5" value="50"
+          oninput="setGfHandCardSizePct(+this.value)" title="Hand card size (% of max)">
+      </div>
+    </div>
     <span id="gfFlash" class="gf-flash"></span>
     <div class="gf-header-right">
       <div class="gf-life-hud">
@@ -1830,7 +1895,7 @@
   <div class="gf-mat">
 
     <div class="gf-mat-hud">
-    <div id="gfHotkeys" class="gf-hotkeys" aria-hidden="true">
+    <div id="gfHotkeys" class="gf-hotkeys" aria-hidden="false">
       <div class="gf-hotkeys-title">Hotkeys</div>
       <dl class="gf-hotkeys-list">
         <div><dt>D</dt><dd>Draw</dd></div>
@@ -1841,6 +1906,7 @@
         <div><dt>Shift+U</dt><dd>Untap all</dd></div>
         <div><dt>S</dt><dd>Search hovered zone</dd></div>
         <div><dt>C</dt><dd>Copy hovered card</dd></div>
+        <div><dt>H</dt><dd>Hold to zoom hovered card</dd></div>
         <div><dt>Esc</dt><dd>Close sim / menus</dd></div>
       </dl>
     </div>
@@ -1849,7 +1915,8 @@
         <p id="gfSimSummary" class="gf-sim-summary"></p>
         <div class="gf-sim-charts">
           <div class="gf-sim-chart-wrap gf-sim-chart-wrap--land"><canvas id="gfSimLandChart"></canvas></div>
-          <div class="gf-sim-chart-wrap gf-sim-chart-wrap--cards"><canvas id="gfSimCardChart"></canvas></div>
+          <div class="gf-sim-chart-caption">Deck tags in opening hand</div>
+          <div class="gf-sim-chart-wrap gf-sim-chart-wrap--tags"><canvas id="gfSimTagChart"></canvas></div>
         </div>
       </div>
     </div>
@@ -1937,6 +2004,19 @@
     </div>
   </div>
 
+
+  <!-- Play choice (adventures, omens, DFC) -->
+  <div id="gfPlayChoiceModal" class="gf-zone-viewer gf-play-choice-modal" style="display:none"
+    onclick="if(event.target===this)_gfClosePlayChoiceModal()">
+    <div class="gf-zone-viewer-inner gf-play-choice-inner" onclick="event.stopPropagation()">
+      <div class="gf-viewer-header">
+        <span id="gfPlayChoiceTitle" class="gf-viewer-title">Play card</span>
+        <button class="gf-btn" type="button" onclick="_gfClosePlayChoiceModal()">Cancel</button>
+      </div>
+      <p id="gfPlayChoiceHint" class="gf-play-choice-hint"></p>
+      <div id="gfPlayChoiceOptions" class="gf-play-choice-options"></div>
+    </div>
+  </div>
 
   <!-- Zone / scry viewer -->
   <div id="gfZoneViewer" class="gf-zone-viewer" style="display:none" onclick="if(event.target===this)_gfCloseZoneViewer()">

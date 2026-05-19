@@ -205,9 +205,7 @@
     flex: 0 1 auto !important;
     max-width: 100%;
   }
-  #deckTopBar #deckOptionsDropdown {
-    right: 0;
-    left: auto;
+  #deckTopMenuWrap .deck-options-dropdown {
     width: min(84vw, 280px);
   }
 
@@ -240,11 +238,11 @@
   .voice-two-col  { grid-template-columns: 1fr !important; }
   .voice-card-panel { display: none !important; }
 
-  /* ── Deck: sideboard below mainboard (not side-by-side) ─────────────── */
+  /* ── Deck: extra zones — one card width (inline px), below mainboard on phone ── */
+  .deck-stack-view.vertical-orient.deck-stack-view--zones-below,
   .deck-stack-view.vertical-orient {
-    flex-wrap: wrap !important;
+    flex-wrap: nowrap !important;
   }
-  /* Mainboard takes full width and scrolls its columns horizontally */
   .deck-mainboard-area.vertical-orient {
     flex: none !important;
     width: 100% !important;
@@ -252,16 +250,22 @@
     -webkit-overflow-scrolling: touch !important;
     padding-bottom: 0.5rem !important;
   }
-  /* Sideboard wraps to next row, full width */
-  .deck-stack-view.vertical-orient > .deck-sideboard-section {
-    flex: none !important;
-    width: 100% !important;
+  .deck-stack-view.vertical-orient > .deck-extra-zones-wrap {
+    flex: 0 0 auto !important;
+    max-width: var(--deck-card-w, 220px) !important;
     border-left: none !important;
-    border-top: 2px dashed var(--border2) !important;
+    border-top: none !important;
     padding-left: 0 !important;
-    padding-top: 1rem !important;
-    margin-top: 0 !important;
+    padding-top: 0.75rem !important;
+    margin-top: 0.25rem !important;
+    align-self: flex-end !important;
+  }
+  .deck-stack-view.vertical-orient > .deck-extra-zones-wrap > .deck-extra-zone-section,
+  .deck-stack-view.vertical-orient > .deck-sideboard-section {
+    width: 100% !important;
+    max-width: 100% !important;
     min-height: 0 !important;
+    border-left: none !important;
   }
   #tab-decks .deck-mainboard-area.vertical-orient {
     display: flex !important;
@@ -288,10 +292,23 @@
     margin-top: 8px !important;
   }
   #tab-decks .deck-stack-cards.vertical .deck-stack-card:hover ~ .deck-stack-card,
-  #tab-decks .deck-stack-cards.vertical .deck-stack-card:focus-within ~ .deck-stack-card,
+  #tab-decks .deck-stack-cards.vertical .deck-stack-card:focus-within ~ .deck-stack-card {
+    transform: translateY(354px) !important;
+  }
+  #tab-decks .deck-stack-view > .deck-extra-zones-wrap .deck-stack-cards.vertical .deck-stack-card {
+    width: 100% !important;
+    margin-top: calc(-1 * (min(90vw, 270px) / 0.715 - 36px)) !important;
+  }
+  #tab-decks .deck-stack-view > .deck-extra-zones-wrap .deck-stack-cards.vertical .deck-stack-card:first-child {
+    margin-top: 8px !important;
+  }
+  #tab-decks .deck-stack-view > .deck-extra-zones-wrap .deck-stack-cards.vertical .deck-stack-card:hover ~ .deck-stack-card,
+  #tab-decks .deck-stack-view > .deck-extra-zones-wrap .deck-stack-cards.vertical .deck-stack-card:focus-within ~ .deck-stack-card,
+  #tab-decks .deck-stack-view.vertical-orient > .deck-extra-zones-wrap .deck-stack-card:hover ~ .deck-stack-card,
+  #tab-decks .deck-stack-view.vertical-orient > .deck-extra-zones-wrap .deck-stack-card:focus-within ~ .deck-stack-card,
   #tab-decks .deck-stack-view.vertical-orient > .deck-sideboard-section .deck-stack-card:hover ~ .deck-stack-card,
   #tab-decks .deck-stack-view.vertical-orient > .deck-sideboard-section .deck-stack-card:focus-within ~ .deck-stack-card {
-    transform: translateY(354px) !important;
+    transform: none !important;
   }
 
   /* ── Games tab ────────────────────────────────────────────────────────── */

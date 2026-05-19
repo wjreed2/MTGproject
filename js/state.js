@@ -171,21 +171,23 @@ async function loadAppDataAfterAuth() {
       if (typeof c.priceCKFoil !== 'number') c.priceCKFoil = c.priceTCGFoil ? c.priceTCGFoil * 0.88 : 0;
     });
     decks.forEach(d => {
+      if (typeof _ensureDeckZones === 'function') _ensureDeckZones(d);
       if (!Array.isArray(d.disabledTags)) d.disabledTags = [];
-      (d.cards || []).forEach(c => {
-        if (!Array.isArray(c.customTags)) c.customTags = [];
-      });
-      (d.sideboard || []).forEach(c => {
+      const zoneCards = typeof _deckAllZoneCards === 'function'
+        ? _deckAllZoneCards(d)
+        : [...(d.cards || []), ...(d.maybeboard || d.sideboard || [])];
+      zoneCards.forEach(c => {
         if (!Array.isArray(c.customTags)) c.customTags = [];
       });
     });
     sharedDecks = data.sharedDecks || [];
     sharedDecks.forEach(d => {
+      if (typeof _ensureDeckZones === 'function') _ensureDeckZones(d);
       if (!Array.isArray(d.disabledTags)) d.disabledTags = [];
-      (d.cards || []).forEach(c => {
-        if (!Array.isArray(c.customTags)) c.customTags = [];
-      });
-      (d.sideboard || []).forEach(c => {
+      const zoneCards = typeof _deckAllZoneCards === 'function'
+        ? _deckAllZoneCards(d)
+        : [...(d.cards || []), ...(d.maybeboard || d.sideboard || [])];
+      zoneCards.forEach(c => {
         if (!Array.isArray(c.customTags)) c.customTags = [];
       });
     });

@@ -473,10 +473,27 @@ async function ensureNormalizedDeckSchema() {
         collaborator_id BIGINT UNSIGNED NOT NULL,
         added_at        BIGINT          NOT NULL DEFAULT 0,
         PRIMARY KEY (deck_id, collaborator_id),
+        INDEX idx_dcollab_collaborator (collaborator_id),
         CONSTRAINT fk_dcollab_deck    FOREIGN KEY (deck_owner_id, deck_id) REFERENCES decks(account_id, id) ON DELETE CASCADE,
         CONSTRAINT fk_dcollab_account FOREIGN KEY (collaborator_id)        REFERENCES accounts(id)          ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
+
+    // Index migrations for hot query paths
+    const deckIndexes = [
+      ['decks', 'idx_decks_id', 'ALTER TABLE decks ADD INDEX idx_decks_id (id)'],
+      ['decks', 'idx_decks_is_public_created', 'ALTER TABLE decks ADD INDEX idx_decks_is_public_created (is_public, created_at)'],
+      ['decks', 'idx_decks_account_created', 'ALTER TABLE decks ADD INDEX idx_decks_account_created (account_id, created_at)'],
+      ['deck_collaborators', 'idx_dcollab_collaborator', 'ALTER TABLE deck_collaborators ADD INDEX idx_dcollab_collaborator (collaborator_id)'],
+    ];
+    for (const [table, idxName, sql] of deckIndexes) {
+      const [rows] = await conn.query(
+        `SELECT INDEX_NAME FROM INFORMATION_SCHEMA.STATISTICS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?`,
+        [table, idxName]
+      );
+      if (!rows.length) { try { await conn.query(sql); } catch (_) {} }
+    }
   } finally {
     conn.release();
   }
@@ -877,6 +894,10 @@ authRouter.post('/forgot-password', authLimiter, async (req, res) => {
     if (!email.includes('@')) return;
     const [rows] = await db().query('SELECT id FROM accounts WHERE email = ?', [email]);
     if (!rows.length) return;
+    await db().query(
+      'UPDATE password_reset_tokens SET used_at = ? WHERE account_id = ? AND used_at IS NULL',
+      [Date.now(), rows[0].id]
+    );
     const rawToken = crypto.randomBytes(32).toString('hex');
     const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
     const expiresAt = Date.now() + 60 * 60 * 1000; // 1 hour
@@ -1685,11 +1706,11 @@ async function enrichCardsFromScryfall(cards) {
     const batch = cards.slice(i, i + BATCH);
     try {
       const res = await scryfallFetch('https://api.scryfall.com/cards/collection', {
+        timeoutMs: 15000,
         init: {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ identifiers: batch.map(c => ({ id: c.scryfallId })) }),
-          signal: AbortSignal.timeout(15000),
         },
       });
       const data = await res.json();
@@ -1962,6 +1983,7 @@ app.get('/api/moxfield/:deckId', async (req, res) => {
 
 // ── Scryfall proxy with TCG enrichment ────────────────────────────────────────
 let _scryfallLastRequestAt = 0;
+let _scryfallQueue = Promise.resolve(); // serializes concurrent requests to prevent 429 bursts
 const SCRYFALL_AUTO_TAGS = [
   { label: 'Ramp', otag: 'ramp' },
   { label: 'Card Draw', otag: 'draw' },
@@ -2003,19 +2025,26 @@ const SCRYFALL_AUTO_TAGS = [
 function _sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
-async function scryfallFetch(url, { maxRetries = 3, init } = {}) {
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    const elapsed = Date.now() - _scryfallLastRequestAt;
-    const waitMs = Math.max(0, 100 - elapsed); // ~10 req/s max; small buffer vs Scryfall guidance
-    if (waitMs) await _sleep(waitMs);
-    const res = await fetch(url, init);
-    _scryfallLastRequestAt = Date.now();
-    if (res.status !== 429) return res;
-    const retryAfterHeader = Number(res.headers.get('retry-after') || '1');
-    const retryAfterMs = (Number.isFinite(retryAfterHeader) && retryAfterHeader > 0 ? retryAfterHeader : 1) * 1000;
-    await _sleep(retryAfterMs);
-  }
-  return fetch(url);
+async function scryfallFetch(url, { maxRetries = 3, timeoutMs = 0, init = {} } = {}) {
+  const result = _scryfallQueue.then(async () => {
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      const elapsed = Date.now() - _scryfallLastRequestAt;
+      const waitMs = Math.max(0, 100 - elapsed); // ~10 req/s max
+      if (waitMs) await _sleep(waitMs);
+      // Create the AbortSignal fresh here so its timeout starts when the request fires, not when enqueued
+      const fetchInit = timeoutMs > 0 ? { ...init, signal: AbortSignal.timeout(timeoutMs) } : init;
+      const res = await fetch(url, fetchInit);
+      _scryfallLastRequestAt = Date.now();
+      if (res.status !== 429) return res;
+      const retryAfterHeader = Number(res.headers.get('retry-after') || '1');
+      const retryAfterMs = (Number.isFinite(retryAfterHeader) && retryAfterHeader > 0 ? retryAfterHeader : 1) * 1000;
+      await _sleep(retryAfterMs);
+    }
+    const fetchInit = timeoutMs > 0 ? { ...init, signal: AbortSignal.timeout(timeoutMs) } : init;
+    return fetch(url, fetchInit);
+  });
+  _scryfallQueue = result.catch(() => {}); // keep the chain alive even if this request fails
+  return result;
 }
 
 async function ensureScryfallTagCacheTable() {
@@ -2064,10 +2093,17 @@ async function ensureScryfallTagCacheTable() {
         tags_json      JSON          NOT NULL,
         schema_version VARCHAR(16)   NOT NULL DEFAULT '1',
         fetched_at     BIGINT        NOT NULL,
-        PRIMARY KEY (oracle_id),
-        INDEX idx_sot_schema (schema_version)
+        PRIMARY KEY (oracle_id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
+    // Drop the unused schema_version index — never selected by optimizer, adds write overhead on bulk imports
+    const [sotIdxRows] = await conn.query(
+      `SELECT INDEX_NAME FROM INFORMATION_SCHEMA.STATISTICS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'scryfall_oracle_tags' AND INDEX_NAME = 'idx_sot_schema'`
+    );
+    if (sotIdxRows.length) {
+      try { await conn.query('ALTER TABLE scryfall_oracle_tags DROP INDEX idx_sot_schema'); } catch (_) {}
+    }
     await conn.query(`
       CREATE TABLE IF NOT EXISTS scryfall_tag_query_cache (
         schema_version VARCHAR(16)   NOT NULL,
@@ -2208,6 +2244,23 @@ async function ensureCollectionRoleTagsColumns() {
           'ALTER TABLE collection ADD INDEX idx_collection_account_oracle (account_id, oracle_id)'
         );
       } catch (_) {}
+    }
+
+    // Index migrations for sort-order and filter hot paths
+    const collectionIndexes = [
+      ['deck_cards',  'idx_deck_cards_sort',             'ALTER TABLE deck_cards ADD INDEX idx_deck_cards_sort (account_id, deck_id, sort_order)'],
+      ['deck_cards',  'idx_deck_cards_commander_lookup', 'ALTER TABLE deck_cards ADD INDEX idx_deck_cards_commander_lookup (account_id, deck_id, card_name(100), is_commander)'],
+      ['collection',  'idx_collection_account_added',    'ALTER TABLE collection ADD INDEX idx_collection_account_added (account_id, added_at)'],
+      ['games',       'idx_games_account_created',       'ALTER TABLE games ADD INDEX idx_games_account_created (account_id, created_at)'],
+      ['wishlist',    'idx_wishlist_account_added',       'ALTER TABLE wishlist ADD INDEX idx_wishlist_account_added (account_id, added_at)'],
+    ];
+    for (const [table, idxName, sql] of collectionIndexes) {
+      const [rows] = await conn.query(
+        `SELECT INDEX_NAME FROM INFORMATION_SCHEMA.STATISTICS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?`,
+        [table, idxName]
+      );
+      if (!rows.length) { try { await conn.query(sql); } catch (_) {} }
     }
   } finally {
     conn.release();
@@ -2731,6 +2784,9 @@ async function importScryfallOracleBulkToDb({
 app.get('/api/scryfall/card/:set/:num', async (req, res) => {
   try {
     const { set, num } = req.params;
+    if (!/^[a-z0-9]{2,6}$/i.test(set) || !/^\d+[a-z]?$/i.test(num)) {
+      return res.status(400).json({ error: 'Invalid card reference' });
+    }
     const upstream = await scryfallFetch(`https://api.scryfall.com/cards/${String(set).toLowerCase()}/${num}`);
     if (!upstream.ok) return res.status(upstream.status).json({ error: 'Card not found' });
     const card = await upstream.json();
@@ -2744,7 +2800,20 @@ app.get('/api/scryfall/card/:set/:num', async (req, res) => {
 
 app.get('/api/scryfall/card-id/:id', async (req, res) => {
   try {
-    const upstream = await scryfallFetch(`https://api.scryfall.com/cards/${req.params.id}`);
+    if (!/^[0-9a-f-]{36}$/.test(req.params.id)) {
+      return res.status(400).json({ error: 'Invalid card ID' });
+    }
+    const cardId = req.params.id;
+    // Check local DB first by scryfall_id or oracle_id — avoids Scryfall round-trip
+    const [[localRow]] = await db().query(
+      `SELECT oracle_id, scryfall_id, name, type_line, oracle_text, mana_cost, cmc,
+              colors_json, color_identity_json, image_normal, image_small,
+              power, toughness, loyalty, rarity, set_code
+       FROM scryfall_oracle_cards WHERE scryfall_id = ? OR oracle_id = ? LIMIT 1`,
+      [cardId, cardId]
+    );
+    if (localRow) return res.json(_localRowToScryfallCard(localRow));
+    const upstream = await scryfallFetch(`https://api.scryfall.com/cards/${cardId}`);
     if (!upstream.ok) return res.status(upstream.status).json({ error: 'Card not found' });
     const card = await upstream.json();
     await enrichCardWithTcgPrices(card);
@@ -2765,11 +2834,11 @@ app.post('/api/scryfall/collection', async (req, res) => {
       return res.status(400).json({ error: 'Max 75 identifiers per request' });
     }
     const upstream = await scryfallFetch('https://api.scryfall.com/cards/collection', {
+      timeoutMs: 20000,
       init: {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ identifiers }),
-        signal: AbortSignal.timeout(20000),
       },
     });
     const data = await upstream.json();
@@ -2784,6 +2853,49 @@ app.post('/api/scryfall/collection', async (req, res) => {
 app.get('/api/scryfall/named', async (req, res) => {
   try {
     const fuzzy = req.query.fuzzy || '';
+    // Check local oracle DB first (exact match, then prefix) — avoids Scryfall round-trip
+    const [[exact]] = await db().query(
+      `SELECT oracle_id, scryfall_id, name, type_line, oracle_text, mana_cost, cmc,
+              colors_json, color_identity_json, image_normal, image_small,
+              power, toughness, loyalty, rarity, set_code
+       FROM scryfall_oracle_cards WHERE name = ? LIMIT 1`,
+      [fuzzy]
+    );
+    const localRow = exact || await (async () => {
+      const [[prefix]] = await db().query(
+        `SELECT oracle_id, scryfall_id, name, type_line, oracle_text, mana_cost, cmc,
+                colors_json, color_identity_json, image_normal, image_small,
+                power, toughness, loyalty, rarity, set_code
+         FROM scryfall_oracle_cards WHERE name LIKE ? LIMIT 1`,
+        [fuzzy.replace(/[%_]/g, '\\$&') + '%']
+      );
+      return prefix;
+    })();
+    if (localRow) {
+      const colors = (() => { try { return JSON.parse(localRow.colors_json) || []; } catch { return []; } })();
+      const colorIdentity = (() => { try { return JSON.parse(localRow.color_identity_json) || []; } catch { return []; } })();
+      const imageUri = localRow.image_normal || localRow.image_small;
+      return res.json({
+        id: localRow.scryfall_id || localRow.oracle_id,
+        oracle_id: localRow.oracle_id,
+        name: localRow.name,
+        type_line: localRow.type_line || '',
+        oracle_text: localRow.oracle_text || '',
+        mana_cost: localRow.mana_cost || '',
+        cmc: parseFloat(localRow.cmc) || 0,
+        colors,
+        color_identity: colorIdentity,
+        rarity: localRow.rarity || 'common',
+        set: localRow.set_code || '',
+        set_name: localRow.set_code || '',
+        collector_number: '',
+        image_uris: imageUri ? { normal: imageUri, large: imageUri } : undefined,
+        prices: { usd: null, usd_foil: null },
+        power: localRow.power || null,
+        toughness: localRow.toughness || null,
+        loyalty: localRow.loyalty || null,
+      });
+    }
     const upstream = await scryfallFetch(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(fuzzy)}`);
     if (!upstream.ok) return res.status(upstream.status).json({ error: 'Card not found' });
     const card = await upstream.json();
@@ -2986,12 +3098,56 @@ app.get('/api/scryfall/game-changers', async (req, res) => {
   }
 });
 
+function _localRowToScryfallCard(row) {
+  const colors = (() => { try { return JSON.parse(row.colors_json) || []; } catch (_) { return []; } })();
+  const colorIdentity = (() => { try { return JSON.parse(row.color_identity_json) || []; } catch (_) { return []; } })();
+  const imageUri = row.image_normal || row.image_small;
+  return {
+    id: row.scryfall_id || row.oracle_id,
+    oracle_id: row.oracle_id,
+    name: row.name,
+    type_line: row.type_line || '',
+    oracle_text: row.oracle_text || '',
+    mana_cost: row.mana_cost || '',
+    cmc: parseFloat(row.cmc) || 0,
+    colors,
+    color_identity: colorIdentity,
+    rarity: row.rarity || 'common',
+    set: row.set_code || '',
+    set_name: row.set_code || '',
+    image_uris: imageUri ? { normal: imageUri, large: imageUri, small: row.image_small || imageUri } : undefined,
+    prices: { usd: null, usd_foil: null },
+    power: row.power || null,
+    toughness: row.toughness || null,
+    loyalty: row.loyalty || null,
+  };
+}
+
 app.get('/api/scryfall/search', async (req, res) => {
   try {
     const q = req.query.q || '';
     const order = req.query.order || 'name';
     const unique = req.query.unique || 'cards';
     const skipTcg = req.query.skipTcg === '1' || req.query.skipTcg === 'true';
+
+    // Fast path: exact name search `!"CardName"` → serve from local oracle DB, no Scryfall round-trip.
+    // The deck builder always appends `-is:extra`; strip that and any other simple suffix filters.
+    const exactNameMatch = q.match(/^!"([^"]+)"/);
+    if (exactNameMatch) {
+      const exactName = exactNameMatch[1];
+      const [rows] = await db().query(
+        `SELECT oracle_id, scryfall_id, name, type_line, oracle_text, mana_cost, cmc,
+                colors_json, color_identity_json, image_normal, image_small,
+                power, toughness, loyalty, rarity, set_code
+         FROM scryfall_oracle_cards WHERE name = ? LIMIT 4`,
+        [exactName]
+      );
+      if (rows.length) {
+        return res.json({ object: 'list', total_cards: rows.length, has_more: false, data: rows.map(_localRowToScryfallCard) });
+      }
+      // Not in local DB — fall through to Scryfall
+    }
+
     const upstream = await scryfallFetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(q)}&order=${encodeURIComponent(order)}&unique=${encodeURIComponent(unique)}`);
     if (!upstream.ok) {
       let msg = 'Search failed';
@@ -3192,6 +3348,7 @@ async function ensureDeckHistoryTable() {
         image      VARCHAR(500)    NULL,
         PRIMARY KEY (id),
         INDEX idx_dh_deck_ts (account_id, deck_id, ts),
+        UNIQUE KEY uq_dh_dedup (account_id, deck_id, ts, type, uid),
         CONSTRAINT fk_dh_account FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
@@ -3203,6 +3360,15 @@ async function ensureDeckHistoryTable() {
     if (!(await columnExists(conn, 'deck_history', 'actor_email'))) {
       await conn.query(
         `ALTER TABLE deck_history ADD COLUMN actor_email VARCHAR(255) NULL DEFAULT NULL AFTER actor_account_id`
+      );
+    }
+    const [dhIdxRows] = await conn.query(
+      `SELECT INDEX_NAME FROM INFORMATION_SCHEMA.STATISTICS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'deck_history' AND INDEX_NAME = 'uq_dh_dedup'`
+    );
+    if (!dhIdxRows.length) {
+      await conn.query(
+        `ALTER TABLE deck_history ADD UNIQUE KEY uq_dh_dedup (account_id, deck_id, ts, type, uid)`
       );
     }
   } finally {
@@ -3257,12 +3423,32 @@ app.post('/api/deck-history', requireAuth, async (req, res) => {
     const [actorRows] = await db().query('SELECT email FROM accounts WHERE id = ?', [req.accountId]);
     const actorEmail = actorRows.length ? String(actorRows[0].email || '') : '';
     await db().query(
-      `INSERT INTO deck_history (account_id, deck_id, ts, type, uid, name, foil, qty, detail, image, actor_account_id, actor_email)
+      `INSERT IGNORE INTO deck_history (account_id, deck_id, ts, type, uid, name, foil, qty, detail, image, actor_account_id, actor_email)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [access.ownerId, deckId, ts || Date.now(), type, uid || '', cardName,
        foil ? 1 : 0, qty || 1, detail || null, image || null,
        req.accountId, actorEmail || null]
     );
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/deck-history/:deckId/:historyId', requireAuth, async (req, res) => {
+  const { deckId, historyId } = req.params;
+  const id = Number(historyId);
+  if (!id || !Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+  try {
+    const access = await resolveDeckAccessForViewer(req.accountId, deckId);
+    if (!access || !access.canWrite) return res.status(403).json({ error: 'Access denied' });
+    const [[row]] = await db().query(
+      'SELECT id FROM deck_history WHERE id = ? AND account_id = ? AND deck_id = ?',
+      [id, access.ownerId, deckId]
+    );
+    if (!row) return res.status(404).json({ error: 'Not found' });
+    await db().query('DELETE FROM deck_history WHERE id = ?', [id]);
     res.json({ ok: true });
   } catch (e) {
     console.error(e);
@@ -3288,9 +3474,19 @@ async function ensureCollectionHistoryTable() {
         image      VARCHAR(500)    NULL,
         PRIMARY KEY (id),
         INDEX idx_ch_account_ts (account_id, ts),
+        UNIQUE KEY uq_ch_dedup (account_id, ts, type, uid),
         CONSTRAINT fk_ch_account FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
+    const [chIdxRows] = await conn.query(
+      `SELECT INDEX_NAME FROM INFORMATION_SCHEMA.STATISTICS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'collection_history' AND INDEX_NAME = 'uq_ch_dedup'`
+    );
+    if (!chIdxRows.length) {
+      await conn.query(
+        `ALTER TABLE collection_history ADD UNIQUE KEY uq_ch_dedup (account_id, ts, type, uid)`
+      );
+    }
   } finally {
     conn.release();
   }
@@ -3344,7 +3540,7 @@ app.post('/api/history', requireAuth, async (req, res) => {
   if (!type || !name) return res.status(400).json({ error: 'Missing required fields' });
   try {
     await db().query(
-      `INSERT INTO collection_history (account_id, ts, type, uid, name, set_code, set_name, foil, delta, image)
+      `INSERT IGNORE INTO collection_history (account_id, ts, type, uid, name, set_code, set_name, foil, delta, image)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [req.accountId, ts || Date.now(), type, uid || '', name || '',
        set || '', setName || '', foil ? 1 : 0, delta || 1, image || null]
@@ -3355,6 +3551,44 @@ app.post('/api/history', requireAuth, async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+
+function parseTagOverrideCustomTags(raw) {
+  if (Array.isArray(raw)) return { tags: raw.filter(Boolean), tiers: {} };
+  if (raw && typeof raw === 'object' && Array.isArray(raw.tags)) {
+    const tiers = raw.tiers && typeof raw.tiers === 'object' ? raw.tiers : {};
+    return { tags: raw.tags.filter(Boolean), tiers };
+  }
+  return { tags: [], tiers: {} };
+}
+
+function serializeTagOverrideCustomTags(tags, tiers) {
+  const tagList = [...new Set((tags || []).map(t => String(t || '').trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b));
+  const tierMap = {};
+  for (const [k, v] of Object.entries(tiers || {})) {
+    const key = String(k || '').trim().toLowerCase();
+    if (!key) continue;
+    tierMap[key] = v === 'secondary' ? 'secondary' : 'primary';
+  }
+  const usedTiers = {};
+  for (const t of tagList) {
+    const key = t.toLowerCase();
+    if (tierMap[key]) usedTiers[key] = tierMap[key];
+  }
+  if (!Object.keys(usedTiers).length) return tagList;
+  return { tags: tagList, tiers: usedTiers };
+}
+
+function normalizeCustomTagTiersBody(tiers) {
+  const out = {};
+  if (!tiers || typeof tiers !== 'object') return out;
+  for (const [k, v] of Object.entries(tiers)) {
+    const key = String(k || '').trim().toLowerCase();
+    if (!key) continue;
+    out[key] = v === 'secondary' ? 'secondary' : 'primary';
+  }
+  return out;
+}
 
 app.get('/api/tag-overrides', requireAuth, async (req, res) => {
   try {
@@ -3367,16 +3601,18 @@ app.get('/api/tag-overrides', requireAuth, async (req, res) => {
       [req.accountId]
     );
     const out = rows.map(r => {
-      let addTags = [], removeTags = [], customTags = [];
+      let addTags = [], removeTags = [], customRaw = null;
       try { addTags = Array.isArray(r.add_tags_json) ? r.add_tags_json : JSON.parse(r.add_tags_json || '[]'); } catch (_) {}
       try { removeTags = Array.isArray(r.remove_tags_json) ? r.remove_tags_json : JSON.parse(r.remove_tags_json || '[]'); } catch (_) {}
-      try { customTags = Array.isArray(r.custom_tags_json) ? r.custom_tags_json : JSON.parse(r.custom_tags_json || '[]'); } catch (_) {}
+      try { customRaw = Array.isArray(r.custom_tags_json) ? r.custom_tags_json : JSON.parse(r.custom_tags_json || '[]'); } catch (_) {}
+      const parsedCustom = parseTagOverrideCustomTags(customRaw);
       return {
         oracleId: String(r.oracle_id || '').toLowerCase(),
         cardName: r.name || null,
         addTags: addTags.filter(Boolean),
         removeTags: removeTags.filter(Boolean),
-        customTags: customTags.filter(Boolean),
+        customTags: parsedCustom.tags,
+        customTagTiers: parsedCustom.tiers,
         updatedAt: Number(r.updated_at || 0),
       };
     });
@@ -3398,6 +3634,8 @@ app.put('/api/tag-overrides/:oracleId', requireAuth, async (req, res) => {
   const addTags = normArr(req.body?.addTags);
   const removeTags = normArr(req.body?.removeTags).filter(t => !addTags.includes(t));
   const customTags = normArr(req.body?.customTags);
+  const customTagTiers = normalizeCustomTagTiersBody(req.body?.customTagTiers);
+  const customTagsStored = serializeTagOverrideCustomTags(customTags, customTagTiers);
   const now = Date.now();
   try {
     await db().query(
@@ -3408,7 +3646,7 @@ app.put('/api/tag-overrides/:oracleId', requireAuth, async (req, res) => {
          remove_tags_json = VALUES(remove_tags_json),
          custom_tags_json = VALUES(custom_tags_json),
          updated_at = VALUES(updated_at)`,
-      [req.accountId, oracleId, JSON.stringify(addTags), JSON.stringify(removeTags), JSON.stringify(customTags), now, now]
+      [req.accountId, oracleId, JSON.stringify(addTags), JSON.stringify(removeTags), JSON.stringify(customTagsStored), now, now]
     );
     await refreshCollectionRoleTagsForAccountOracle(req.accountId, oracleId);
     res.json({ ok: true });
