@@ -14,11 +14,26 @@ async function fetchCardById(id) {
   return await res.json();
 }
 
-async function fetchCardByName(name) {
-  const url = `/api/scryfall/named?fuzzy=${encodeURIComponent(name)}`;
-  const res = await fetch(url);
-  if (!res.ok) return null;
-  return await res.json();
+function _cardNameLookupVariants(name) {
+  const raw = String(name || '').trim();
+  if (!raw) return [];
+  const variants = [raw];
+  if (raw.includes('//')) {
+    const front = raw.split('//')[0].trim();
+    if (front && front.toLowerCase() !== raw.toLowerCase()) variants.push(front);
+  }
+  return variants;
+}
+
+async function fetchCardByName(name, opts) {
+  const preferUpstream = !!(opts && opts.preferUpstream);
+  for (const variant of _cardNameLookupVariants(name)) {
+    const q = preferUpstream ? '&preferUpstream=1' : '';
+    const url = `/api/scryfall/named?fuzzy=${encodeURIComponent(variant)}${q}`;
+    const res = await fetch(url);
+    if (res.ok) return await res.json();
+  }
+  return null;
 }
 
 async function searchCards(q, signal) {
@@ -177,9 +192,14 @@ function ensureCardTypeLine(card) {
   }
 }
 
+function _parseScryfallPriceField(v) {
+  const n = parseFloat(v);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
 function cardToEntry(card, qty = 1) {
-  const usd = parseFloat(card.prices?.usd || 0);
-  const usdFoil = parseFloat(card.prices?.usd_foil || 0);
+  const usd = _parseScryfallPriceField(card.prices?.usd);
+  const usdFoil = _parseScryfallPriceField(card.prices?.usd_foil);
   const cardFaces = (card.card_faces || []).map(face => ({
     name: face.name || '',
     type: face.type_line || '',

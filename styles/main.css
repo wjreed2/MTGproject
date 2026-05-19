@@ -3580,8 +3580,124 @@ main {
 .stack-tag:hover { background: rgba(138,108,212,0.85); color: #fff; }
 
 /* Version picker tiles */
-.version-tile { cursor: pointer; transition: transform 0.12s; }
-.version-tile:hover { transform: scale(1.04); }
+.version-picker-modal {
+  width: min(1180px, 98vw);
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+  padding: 1.15rem 1.25rem 1.1rem;
+}
+.version-picker-close {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+}
+.version-picker-intro {
+  font-size: 0.84rem;
+  color: var(--text3);
+  margin: 0 0 0.85rem;
+  line-height: 1.45;
+}
+.version-picker-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.version-picker-filters {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.version-picker-count {
+  font-size: 0.8rem;
+  color: var(--text3);
+}
+.version-picker-results {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(172px, 1fr));
+  gap: 14px;
+  flex: 1;
+  min-height: 0;
+  max-height: min(74vh, 820px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 2px 4px 4px 0;
+}
+.version-tile {
+  cursor: pointer;
+  transition: transform 0.12s;
+  text-align: center;
+}
+.version-tile:hover { transform: scale(1.02); }
+.version-tile-img-wrap {
+  border-radius: 8px;
+  overflow: hidden;
+  border: 2px solid transparent;
+  transition: border-color 0.15s;
+}
+.version-tile.is-current .version-tile-img-wrap {
+  border-color: var(--gold);
+}
+.version-tile:hover .version-tile-img-wrap {
+  border-color: var(--gold);
+}
+.version-tile img {
+  width: 100%;
+  display: block;
+}
+.version-tile-placeholder {
+  aspect-ratio: 0.715;
+  background: var(--bg4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  color: var(--text3);
+  padding: 8px;
+}
+.version-tile-meta {
+  font-size: 0.78rem;
+  color: var(--text2);
+  margin-top: 8px;
+  line-height: 1.35;
+}
+.version-tile-meta-sub {
+  font-size: 0.72rem;
+  color: var(--text3);
+  margin-top: 2px;
+}
+.version-tile-price {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--blue2);
+  margin-top: 6px;
+  line-height: 1.3;
+}
+.version-tile-price--muted {
+  color: var(--text3);
+  font-weight: 500;
+}
+.version-tile-owned {
+  font-size: 0.74rem;
+  margin-top: 5px;
+  line-height: 1.35;
+  color: var(--text3);
+}
+.version-tile-owned.is-owned { color: var(--teal); }
+.version-tile-badge {
+  font-size: 0.72rem;
+  color: var(--gold);
+  margin-top: 4px;
+  font-weight: 600;
+}
+.version-tile-foil {
+  font-size: 0.74rem;
+  margin-top: 4px;
+  color: var(--gold);
+}
 
 /* Deck card ownership indicators */
 .stack-not-owned {
@@ -6269,4 +6385,81 @@ select:focus { outline: none; border-color: rgba(200,168,74,0.6); box-shadow: 0 
     max-width: min(92vw, 360px);
   }
   .gf-sim-panel { max-width: 100%; }
+}
+
+/* ── Suggested Cuts panel (deck builder) ── */
+.cut-candidate-row {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .4rem .75rem;
+  border-bottom: 1px solid var(--border1);
+  font-size: .82rem;
+}
+.cut-candidate-row:last-child { border-bottom: none; }
+.cut-cmc-badge {
+  min-width: 1.4rem;
+  text-align: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: .78rem;
+  color: var(--text2);
+  background: var(--bg3);
+  border-radius: var(--radius);
+  padding: 1px 4px;
+}
+.cut-card-name {
+  flex: 1;
+  cursor: pointer;
+  color: var(--text);
+}
+.cut-card-name:hover { color: var(--gold); }
+.cut-reason {
+  color: var(--text3);
+  font-size: .76rem;
+  max-width: 200px;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.btn-danger-ghost {
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid rgba(220, 70, 70, .4);
+  color: #d44a4a;
+  padding: 2px 8px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: .76rem;
+}
+.btn-danger-ghost:hover { background: rgba(220, 70, 70, .12); }
+
+.cut-threshold-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: .35rem .6rem;
+  padding: .5rem .75rem;
+  border-top: 1px solid var(--border1);
+}
+.cut-threshold-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cut-threshold-label {
+  font-size: .68rem;
+  color: var(--text3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cut-threshold-input {
+  width: 100%;
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  color: var(--text);
+  border-radius: var(--radius);
+  padding: 2px 5px;
+  font-size: .78rem;
+  font-family: 'JetBrains Mono', monospace;
 }

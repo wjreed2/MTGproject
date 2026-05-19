@@ -611,6 +611,32 @@
         </div>
       </div>
 
+      <!-- Suggested Cuts (shown when deck exceeds 100 cards) -->
+      <div id="deckCutSuggestionsPanel" class="panel" style="display:none;margin-bottom:1.25rem">
+        <div class="panel-header">
+          <span class="panel-title">Suggested Cuts</span>
+          <span id="deckCutOverBadge" class="tag tag-red" style="margin-left:.5rem"></span>
+          <div style="flex:1"></div>
+          <select id="deckCutArchetypeSelect" class="deck-select" onchange="_onCutArchetypeChange(this.value)" style="font-size:.76rem;margin-right:4px" title="Deck archetype (affects cut thresholds)">
+            <option value="">Auto</option>
+            <option value="goodstuff">Goodstuff</option>
+            <option value="graveyard">Graveyard</option>
+            <option value="tokens">Tokens</option>
+            <option value="artifacts">Artifacts</option>
+            <option value="counters">Counters</option>
+            <option value="lifegain">Lifegain</option>
+            <option value="ramp">Ramp</option>
+            <option value="control">Control</option>
+            <option value="combo">Combo</option>
+            <option value="voltron">Voltron</option>
+          </select>
+          <button id="deckCutThresholdBtn" onclick="_toggleCutThresholdEditor()" class="btn btn-ghost btn-sm" title="Customize tag targets" style="margin-right:2px;font-size:.8rem">⚙</button>
+          <button onclick="_toggleCutPanel()" class="decklist-collapse-btn" id="deckCutCollapseBtn" title="Toggle">▾</button>
+        </div>
+        <div id="deckCutThresholdEditor" style="display:none"></div>
+        <div id="deckCutSuggestionsBody"></div>
+      </div>
+
       <!-- EDHREC Suggestions (below deck list) -->
       <div class="panel" style="margin-bottom:1.25rem">
         <div class="panel-header">
@@ -1645,19 +1671,19 @@
 
 <!-- VERSION PICKER MODAL -->
 <div class="modal-overlay" id="versionPickerModal">
-  <div class="modal" style="width:min(860px,96vw)">
-    <button class="btn btn-ghost btn-icon" style="position:absolute;top:0.75rem;right:0.75rem" onclick="closeVersionPicker()">✕</button>
+  <div class="modal version-picker-modal">
+    <button class="btn btn-ghost btn-icon version-picker-close" onclick="closeVersionPicker()">✕</button>
     <div class="modal-title" id="versionPickerTitle">Choose Printing</div>
-    <p style="font-size:0.78rem;color:var(--text3);margin-bottom:1rem">Select a printing to update this card's art and set info. Each option shows whether that printing is owned or unowned.</p>
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;flex-wrap:wrap">
-      <div style="display:flex;gap:6px;flex-wrap:wrap">
+    <p class="version-picker-intro">Select a printing to update this card's art and set info. Prices are TCGPlayer market (USD).</p>
+    <div class="version-picker-toolbar">
+      <div class="version-picker-filters">
         <button class="btn btn-outline btn-sm active" id="versionFilterAll" onclick="setVersionPickerFilter('all', this)">All</button>
         <button class="btn btn-outline btn-sm" id="versionFilterOwned" onclick="setVersionPickerFilter('owned', this)">Owned</button>
         <button class="btn btn-outline btn-sm" id="versionFilterUnowned" onclick="setVersionPickerFilter('unowned', this)">Unowned</button>
       </div>
-      <div id="versionPickerCount" style="font-size:0.72rem;color:var(--text3)"></div>
+      <div id="versionPickerCount" class="version-picker-count"></div>
     </div>
-    <div id="versionPickerResults" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;max-height:520px;overflow-y:auto"></div>
+    <div id="versionPickerResults" class="version-picker-results"></div>
   </div>
 </div>
 

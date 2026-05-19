@@ -548,10 +548,10 @@ function _htmlCardDetailPriceRows(card) {
 function _mergeFetchedCardIntoDetailCard(card, entry) {
   if (!card || !entry) return;
   card.oracleText = entry.oracleText || card.oracleText;
-  card.priceTCG = entry.priceTCG ?? card.priceTCG;
-  card.priceTCGFoil = entry.priceTCGFoil ?? card.priceTCGFoil;
-  card.priceCK = entry.priceCK ?? card.priceCK;
-  card.priceCKFoil = entry.priceCKFoil ?? card.priceCKFoil;
+  if (entry.priceTCG > 0) card.priceTCG = entry.priceTCG;
+  if (entry.priceTCGFoil > 0) card.priceTCGFoil = entry.priceTCGFoil;
+  if (entry.priceCK > 0) card.priceCK = entry.priceCK;
+  if (entry.priceCKFoil > 0) card.priceCKFoil = entry.priceCKFoil;
   card.mana = entry.mana || card.mana;
   if (entry.type) card.type = entry.type;
   else if (typeof ensureCardTypeLine === 'function') ensureCardTypeLine(card);
@@ -1389,13 +1389,46 @@ function _looksLikeScryfallCardId(v) {
 
 async function openCardDetail(uid, navMode, opts) {
   const deckCards = decks.flatMap(d => d.cards || []);
-  let sourceCard = window.Ownership?.resolveFromPools
-    ? window.Ownership.resolveFromPools(uid, [collection, wishlist, deckCards])
-    : (
-      collection.find(c => c.uid === uid || c.scryfallId === uid) ||
-      wishlist.find(c => c.scryfallId === uid || c.uid === uid) ||
-      deckCards.find(c => c.uid === uid || c.scryfallId === uid)
-    );
+  const pools = [collection, wishlist, deckCards];
+  let sourceCard = null;
+
+  if (opts?.prefetchedEntry) {
+    sourceCard = { ...opts.prefetchedEntry };
+    if (!sourceCard.scryfallId && _looksLikeScryfallCardId(uid)) {
+      sourceCard.scryfallId = String(uid);
+    }
+  } else if (opts?.freshScryfall && _looksLikeScryfallCardId(uid)) {
+    try {
+      const fresh = await fetchCardById(String(uid));
+      if (fresh) {
+        sourceCard = cardToEntry(fresh, 1);
+        const poolCard = window.Ownership?.resolveFromPools
+          ? window.Ownership.resolveFromPools(uid, pools)
+          : (
+            collection.find(c => c.uid === uid || c.scryfallId === uid) ||
+            wishlist.find(c => c.scryfallId === uid || c.uid === uid) ||
+            deckCards.find(c => c.uid === uid || c.scryfallId === uid)
+          );
+        if (poolCard) {
+          sourceCard.uid = poolCard.uid || sourceCard.uid;
+          sourceCard.qty = poolCard.qty ?? sourceCard.qty;
+          sourceCard.foil = !!poolCard.foil;
+          if (poolCard.customCmc != null) sourceCard.customCmc = poolCard.customCmc;
+          if (Array.isArray(poolCard.deckTags)) sourceCard.deckTags = poolCard.deckTags.slice();
+        }
+      }
+    } catch (_) {}
+  }
+
+  if (!sourceCard) {
+    sourceCard = window.Ownership?.resolveFromPools
+      ? window.Ownership.resolveFromPools(uid, pools)
+      : (
+        collection.find(c => c.uid === uid || c.scryfallId === uid) ||
+        wishlist.find(c => c.scryfallId === uid || c.uid === uid) ||
+        deckCards.find(c => c.uid === uid || c.scryfallId === uid)
+      );
+  }
   if (!sourceCard && _looksLikeScryfallCardId(uid)) {
     try {
       const fresh = await fetchCardById(String(uid));
@@ -1413,7 +1446,18 @@ async function openCardDetail(uid, navMode, opts) {
       collection.find(c => c.scryfallId === sourceCard.scryfallId && !!c.foil === !!sourceCard.foil) ||
       collection.find(c => c.scryfallId === sourceCard.scryfallId)
     );
-  const card = ownedCard || sourceCard;
+  let card = sourceCard;
+  if (opts?.prefetchedEntry || opts?.freshScryfall) {
+    if (ownedCard) {
+      card.uid = ownedCard.uid || card.uid;
+      card.qty = ownedCard.qty ?? card.qty;
+      card.foil = !!ownedCard.foil;
+      if (ownedCard.customCmc != null) card.customCmc = ownedCard.customCmc;
+      if (Array.isArray(ownedCard.deckTags)) card.deckTags = ownedCard.deckTags.slice();
+    }
+  } else {
+    card = ownedCard || sourceCard;
+  }
   if (typeof ensureCardTypeLine === 'function') ensureCardTypeLine(card);
   const isOwned = !!ownedCard;
   const actionUid = card.uid || sourceCard.uid || (card.scryfallId ? card.scryfallId + (card.foil ? '_f' : '_n') : uid);
@@ -1429,10 +1473,16 @@ async function openCardDetail(uid, navMode, opts) {
   const isLegendary = /Legendary/i.test(typeLine);
   const isCommanderCandidate = isLegendary && /Creature|Planeswalker/i.test(typeLine);
   const isWishlisted = wishlist.some(w => w.scryfallId === card.scryfallId);
+  const needsPriceHydrate = !opts?.skipPriceHydrate && (
+    typeof getUnitMarketMaxUsd === 'function'
+      ? getUnitMarketMaxUsd(card) <= 0
+      : ((card.priceTCG || 0) <= 0 && (card.priceTCGFoil || 0) <= 0)
+  );
   const needsHydrate = !!card.scryfallId && (
     !card.oracleText ||
     !Array.isArray(card.cardFaces) ||
-    ((card.priceTCG || 0) <= 0 && (card.priceTCGFoil || 0) <= 0)
+    !(typeof resolveCardTypeLine === 'function' ? resolveCardTypeLine(card) : card.type) ||
+    needsPriceHydrate
   );
   const modal = document.getElementById('cardDetailModal');
   const inspectorAlreadyOpen = !!(modal?.classList.contains('open'));

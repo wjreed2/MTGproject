@@ -684,14 +684,38 @@ async function fetchTcgPricesForProduct(productId) {
   return { usd, usd_foil: usdFoil || 0 };
 }
 
+function _cardHasUsdPrice(card) {
+  const usd = parseFloat(card?.prices?.usd);
+  const foil = parseFloat(card?.prices?.usd_foil);
+  return (Number.isFinite(usd) && usd > 0) || (Number.isFinite(foil) && foil > 0);
+}
+
+async function _fetchScryfallCardById(scryfallId) {
+  if (!scryfallId || !/^[0-9a-f-]{36}$/i.test(scryfallId)) return null;
+  const upstream = await scryfallFetch(`https://api.scryfall.com/cards/${scryfallId}`);
+  if (!upstream.ok) return null;
+  const card = await upstream.json();
+  await enrichCardWithTcgPrices(card);
+  return card;
+}
+
+function _applyTcgPricesToCard(card, usd, usdFoil) {
+  const next = { ...(card.prices || {}) };
+  const nf = parseFloat(usd) || 0;
+  const fo = parseFloat(usdFoil) || 0;
+  if (nf > 0) next.usd = String(nf);
+  if (fo > 0) next.usd_foil = String(fo);
+  card.prices = next;
+  return card;
+}
+
 async function enrichCardWithTcgPrices(card) {
   if (!card || !card.id) return card;
   if (!hasTcgCreds()) return card;
 
   const cached = _tcgPriceCache.get(card.id);
   if (cached && Date.now() - cached.ts < TCG_CACHE_MS) {
-    card.prices = { ...(card.prices || {}), usd: String(cached.usd || 0), usd_foil: String(cached.usd_foil || 0) };
-    return card;
+    return _applyTcgPricesToCard(card, cached.usd, cached.usd_foil);
   }
 
   try {
@@ -699,9 +723,11 @@ async function enrichCardWithTcgPrices(card) {
     if (!product?.productId) return card;
     const pricing = await fetchTcgPricesForProduct(product.productId);
     if (!pricing) return card;
-    _tcgPriceCache.set(card.id, { ...pricing, ts: Date.now() });
-    card.prices = { ...(card.prices || {}), usd: String(pricing.usd || 0), usd_foil: String(pricing.usd_foil || 0) };
-    return card;
+    const usd = parseFloat(pricing.usd) || 0;
+    const usdFoil = parseFloat(pricing.usd_foil) || 0;
+    if (usd <= 0 && usdFoil <= 0) return card;
+    _tcgPriceCache.set(card.id, { usd, usd_foil: usdFoil, ts: Date.now() });
+    return _applyTcgPricesToCard(card, usd, usdFoil);
   } catch (e) {
     console.warn('[tcg] enrich failed:', e.message);
     return card;
@@ -2804,17 +2830,36 @@ app.get('/api/scryfall/card-id/:id', async (req, res) => {
       return res.status(400).json({ error: 'Invalid card ID' });
     }
     const cardId = req.params.id;
-    // Check local DB first by scryfall_id or oracle_id — avoids Scryfall round-trip
-    const [[localRow]] = await db().query(
-      `SELECT oracle_id, scryfall_id, name, type_line, oracle_text, mana_cost, cmc,
-              colors_json, color_identity_json, image_normal, image_small,
-              power, toughness, loyalty, rarity, set_code
-       FROM scryfall_oracle_cards WHERE scryfall_id = ? OR oracle_id = ? LIMIT 1`,
-      [cardId, cardId]
-    );
-    if (localRow) return res.json(_localRowToScryfallCard(localRow));
     const upstream = await scryfallFetch(`https://api.scryfall.com/cards/${cardId}`);
-    if (!upstream.ok) return res.status(upstream.status).json({ error: 'Card not found' });
+    if (!upstream.ok) {
+      // Fall back to local oracle DB if Scryfall is unavailable
+      const [[localRow]] = await db().query(
+        `SELECT oracle_id, scryfall_id, name, type_line, oracle_text, mana_cost, cmc,
+                colors_json, color_identity_json, image_normal, image_small,
+                power, toughness, loyalty, rarity, set_code
+         FROM scryfall_oracle_cards WHERE scryfall_id = ? OR oracle_id = ? LIMIT 1`,
+        [cardId, cardId]
+      );
+      if (localRow) {
+        let card = _localRowToScryfallCard(localRow);
+        await enrichCardWithTcgPrices(card);
+        if (!_cardHasUsdPrice(card) && localRow.scryfall_id) {
+          const upstreamCard = await _fetchScryfallCardById(localRow.scryfall_id);
+          if (upstreamCard) card = upstreamCard;
+        }
+        if (!_cardHasUsdPrice(card) && localRow.name) {
+          const namedRes = await scryfallFetch(
+            `https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(localRow.name)}`
+          );
+          if (namedRes.ok) {
+            card = await namedRes.json();
+            await enrichCardWithTcgPrices(card);
+          }
+        }
+        return res.json(card);
+      }
+      return res.status(upstream.status).json({ error: 'Card not found' });
+    }
     const card = await upstream.json();
     await enrichCardWithTcgPrices(card);
     res.json(card);
@@ -2853,6 +2898,16 @@ app.post('/api/scryfall/collection', async (req, res) => {
 app.get('/api/scryfall/named', async (req, res) => {
   try {
     const fuzzy = req.query.fuzzy || '';
+    const preferUpstream = req.query.preferUpstream === '1' || req.query.preferUpstream === 'true';
+
+    if (preferUpstream) {
+      const upstream = await scryfallFetch(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(fuzzy)}`);
+      if (!upstream.ok) return res.status(upstream.status).json({ error: 'Card not found' });
+      const card = await upstream.json();
+      await enrichCardWithTcgPrices(card);
+      return res.json(card);
+    }
+
     // Check local oracle DB first (exact match, then prefix) — avoids Scryfall round-trip
     const [[exact]] = await db().query(
       `SELECT oracle_id, scryfall_id, name, type_line, oracle_text, mana_cost, cmc,
@@ -2872,29 +2927,22 @@ app.get('/api/scryfall/named', async (req, res) => {
       return prefix;
     })();
     if (localRow) {
-      const colors = (() => { try { return JSON.parse(localRow.colors_json) || []; } catch { return []; } })();
-      const colorIdentity = (() => { try { return JSON.parse(localRow.color_identity_json) || []; } catch { return []; } })();
-      const imageUri = localRow.image_normal || localRow.image_small;
-      return res.json({
-        id: localRow.scryfall_id || localRow.oracle_id,
-        oracle_id: localRow.oracle_id,
-        name: localRow.name,
-        type_line: localRow.type_line || '',
-        oracle_text: localRow.oracle_text || '',
-        mana_cost: localRow.mana_cost || '',
-        cmc: parseFloat(localRow.cmc) || 0,
-        colors,
-        color_identity: colorIdentity,
-        rarity: localRow.rarity || 'common',
-        set: localRow.set_code || '',
-        set_name: localRow.set_code || '',
-        collector_number: '',
-        image_uris: imageUri ? { normal: imageUri, large: imageUri } : undefined,
-        prices: { usd: null, usd_foil: null },
-        power: localRow.power || null,
-        toughness: localRow.toughness || null,
-        loyalty: localRow.loyalty || null,
-      });
+      let card = _localRowToScryfallCard(localRow);
+      await enrichCardWithTcgPrices(card);
+      if (!_cardHasUsdPrice(card) && localRow.scryfall_id) {
+        const upstreamCard = await _fetchScryfallCardById(localRow.scryfall_id);
+        if (upstreamCard) card = upstreamCard;
+      }
+      if (!_cardHasUsdPrice(card)) {
+        const namedRes = await scryfallFetch(
+          `https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(fuzzy)}`
+        );
+        if (namedRes.ok) {
+          card = await namedRes.json();
+          await enrichCardWithTcgPrices(card);
+        }
+      }
+      return res.json(card);
     }
     const upstream = await scryfallFetch(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(fuzzy)}`);
     if (!upstream.ok) return res.status(upstream.status).json({ error: 'Card not found' });

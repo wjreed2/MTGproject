@@ -4516,9 +4516,305 @@ function _renderDeckExtraZoneList(deck, zone, label, cards, emptyHint, validatio
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+let _deckCutArchetypeOverride = '';
+let _deckCutThresholdOverrides = {};
+let _deckCutLastDeckId = null;
+
+function _autoDetectArchetype(deck) {
+  const edhrecTheme = document.getElementById('edhrecThemeSelect')?.value || '';
+  const cards = deck.cards || [];
+
+  // Tag distribution across non-land, non-commander cards
+  const nonLandCmdr = cards.filter(c => {
+    if (c.isCommander || (deck.commander && c.name === deck.commander)) return false;
+    const tl = typeof resolveCardTypeLine === 'function' ? resolveCardTypeLine(c) : (c.type || '');
+    return !tl.toLowerCase().includes('land');
+  });
+  const deckSize = nonLandCmdr.length || 1;
+  const tagCounts = {};
+  for (const card of nonLandCmdr) {
+    for (const tag of _probTagsOnCard(card, deck)) tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+  }
+  const frac = tag => (tagCounts[tag] || 0) / deckSize;
+
+  // Commander's own role tags for Voltron detection
+  const commanderCard = cards.find(c => c.isCommander || (deck.commander && c.name === deck.commander));
+  const cmdTags = new Set(commanderCard ? _probTagsOnCard(commanderCard, deck) : []);
+
+  return {
+    edhrecTheme,
+    isGraveyard: edhrecTheme === 'graveyard' || frac('Recursion') > 0.12 || frac('Graveyard Cast') > 0.08 || frac('Self-Mill') > 0.07,
+    isTokens:    edhrecTheme === 'tokens'    || frac('Token Maker') > 0.10,
+    isArtifacts: edhrecTheme === 'artifacts',
+    isCounters:  edhrecTheme === 'counters',
+    isLifegain:  edhrecTheme === 'lifegain'  || (frac('Lifegain') + frac('Drain')) > 0.15,
+    isRamp:      edhrecTheme === 'ramp'      || frac('Ramp') > 0.22,
+    isControl:   frac('Counterspell') > 0.08 || frac('Board Wipe') > 0.07,
+    isCombo:     frac('Tutor') > 0.07,
+    isVoltron:   cmdTags.has('Pump') || cmdTags.has('Evasion') || cmdTags.has('Extra Combat'),
+  };
+}
+
+function _detectDeckArchetype(deck) {
+  const ov = _deckCutArchetypeOverride;
+  if (ov) {
+    return {
+      edhrecTheme: ov,
+      isGraveyard: ov === 'graveyard',
+      isTokens:    ov === 'tokens',
+      isArtifacts: ov === 'artifacts',
+      isCounters:  ov === 'counters',
+      isLifegain:  ov === 'lifegain',
+      isRamp:      ov === 'ramp',
+      isControl:   ov === 'control',
+      isCombo:     ov === 'combo',
+      isVoltron:   ov === 'voltron',
+    };
+  }
+  return _autoDetectArchetype(deck);
+}
+
+function _archetypeLabel(a) {
+  const parts = [];
+  if (a.isVoltron)   parts.push('Voltron');
+  if (a.isCombo)     parts.push('Combo');
+  if (a.isControl)   parts.push('Control');
+  if (a.isGraveyard) parts.push('Graveyard');
+  if (a.isTokens)    parts.push('Tokens');
+  if (a.isArtifacts) parts.push('Artifacts');
+  if (a.isCounters)  parts.push('Counters');
+  if (a.isLifegain)  parts.push('Lifegain');
+  if (a.isRamp)      parts.push('Ramp');
+  return parts.length ? parts.join(' · ') : 'Goodstuff';
+}
+
+function _onCutArchetypeChange(value) {
+  _deckCutArchetypeOverride = value;
+  _deckCutThresholdOverrides = {};
+  const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+  if (deck) {
+    _renderCutSuggestions(deck);
+    const editorEl = document.getElementById('deckCutThresholdEditor');
+    if (editorEl && editorEl.style.display !== 'none') _renderCutThresholdEditorContent(deck);
+  }
+}
+
+function _renderCutThresholdEditorContent(deck) {
+  const el = document.getElementById('deckCutThresholdEditor');
+  if (!el) return;
+  const effective = _computeCutThresholds(deck);
+  const tags = Object.keys(effective);
+  el.innerHTML = `<div class="cut-threshold-grid">
+    ${tags.map(tag => `<label class="cut-threshold-cell">
+      <span class="cut-threshold-label">${tag}</span>
+      <input type="number" min="0" max="40" value="${effective[tag]}"
+        class="cut-threshold-input"
+        oninput="_setCutThreshold('${tag}',+this.value||0)">
+    </label>`).join('')}
+  </div>
+  <div style="padding:.35rem .75rem .5rem;border-top:1px solid var(--border1)">
+    <button class="btn btn-ghost btn-sm" onclick="_resetCutThresholds()" style="font-size:.72rem">Reset to archetype defaults</button>
+  </div>`;
+}
+
+function _toggleCutThresholdEditor() {
+  const el = document.getElementById('deckCutThresholdEditor');
+  const btn = document.getElementById('deckCutThresholdBtn');
+  if (!el) return;
+  const open = el.style.display !== 'none';
+  el.style.display = open ? 'none' : '';
+  if (btn) btn.classList.toggle('active', !open);
+  if (!open) {
+    const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+    if (deck) _renderCutThresholdEditorContent(deck);
+  }
+}
+
+function _setCutThreshold(tag, val) {
+  if (Number.isFinite(val) && val >= 0) _deckCutThresholdOverrides[tag] = val;
+  else delete _deckCutThresholdOverrides[tag];
+  const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+  if (deck) _renderCutSuggestions(deck);
+}
+
+function _resetCutThresholds() {
+  _deckCutThresholdOverrides = {};
+  const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+  if (deck) {
+    _renderCutSuggestions(deck);
+    _renderCutThresholdEditorContent(deck);
+  }
+}
+
+function _computeCutThresholds(deck) {
+  const t = {
+    'Ramp': 10, 'Card Draw': 10, 'Removal': 8,
+    'Board Wipe': 3, 'Tutor': 2, 'Counterspell': 3,
+    'Protection': 3, 'Recursion': 3,
+  };
+  const a = _detectDeckArchetype(deck);
+  if (a.isGraveyard) { t['Recursion'] = 8; t['Board Wipe'] = 2; t['Removal'] = 7; }
+  if (a.isTokens)    { t['Board Wipe'] = 2; t['Removal'] = 7; }
+  if (a.isArtifacts) { t['Ramp'] = 13; t['Tutor'] = 5; t['Recursion'] = 5; }
+  if (a.isCounters)  { t['Protection'] = 6; t['Board Wipe'] = 2; }
+  if (a.isLifegain)  { t['Protection'] = 5; t['Card Draw'] = 11; }
+  if (a.isRamp)      { t['Ramp'] = 15; t['Card Draw'] = 11; }
+  if (a.isControl)   { t['Counterspell'] = 8; t['Removal'] = 11; t['Board Wipe'] = 5; }
+  if (a.isCombo)     { t['Tutor'] = 7; t['Counterspell'] = 5; t['Ramp'] = 12; t['Board Wipe'] = 2; }
+  if (a.isVoltron)   { t['Protection'] = 8; t['Board Wipe'] = 1; t['Removal'] = 9; }
+  // User overrides applied last
+  for (const [tag, val] of Object.entries(_deckCutThresholdOverrides)) {
+    if (Number.isFinite(val) && val >= 0) t[tag] = val;
+  }
+  return t;
+}
+
+function _buildCutReason(card, tags, surplusTag, roleCount, thresholds, cmdCmc, noRole, bucketExcess) {
+  const cmc = card.cmc || 0;
+  const timingNote = cmc >= cmdCmc && cmdCmc > 0 ? `, same turn as your ${cmdCmc}-CMC commander` : '';
+  const overCurve = bucketExcess > 0.05;
+  if (noRole) return `No clear role — CMC ${cmc}${overCurve ? ' (over curve)' : ''}`;
+  if (surplusTag) {
+    const count = roleCount[surplusTag] || 0;
+    const thresh = thresholds[surplusTag] ?? '?';
+    return `${count} ${surplusTag} (ideal ≤${thresh}) — CMC ${cmc}${timingNote}`;
+  }
+  if (overCurve) return `Over curve at CMC ${cmc}${timingNote}`;
+  return `High CMC (${cmc}) — limited role${timingNote}`;
+}
+
+function _suggestCardsToCut(deck) {
+  const cards = deck.cards || [];
+  const commanderCard = cards.find(c => c.isCommander || (deck.commander && c.name === deck.commander));
+  const cmdCmc = commanderCard?.cmc ?? 4;
+  const thresholds = _computeCutThresholds(deck);
+
+  const roleCount = {};
+  for (const card of cards) {
+    const tags = _probTagsOnCard(card, deck);
+    for (const tag of tags) roleCount[tag] = (roleCount[tag] || 0) + (card.qty || 1);
+  }
+
+  // Mana curve excess per CMC bucket (0–7+), using the existing ideal-curve pipeline
+  const buckets = [0, 1, 2, 3, 4, 5, 6, 7];
+  const nonLands = cards.filter(c => typeof _isLandDeckCard === 'function' ? !_isLandDeckCard(c) : !resolveCardTypeLine(c).toLowerCase().includes('land'));
+  const curveCounts = buckets.map(b =>
+    nonLands.filter(c => Math.min(Math.floor(typeof _effectiveCmc === 'function' ? _effectiveCmc(c) : (c.cmc || 0)), 7) === b)
+      .reduce((s, c) => s + (c.qty || 1), 0)
+  );
+  const curveTotal = curveCounts.reduce((s, n) => s + n, 0) || 1;
+  const { idealWeights } = typeof _computeIdealManaCurveContext === 'function'
+    ? _computeIdealManaCurveContext(deck, curveCounts)
+    : { idealWeights: [0.06, 0.13, 0.20, 0.20, 0.16, 0.12, 0.08, 0.05] };
+  const curveExcess = buckets.map((_, i) => (curveCounts[i] / curveTotal) - idealWeights[i]);
+
+  const candidates = cards.filter(c => {
+    if (c.isCommander || (deck.commander && c.name === deck.commander)) return false;
+    const tl = typeof resolveCardTypeLine === 'function' ? resolveCardTypeLine(c) : (c.type || '');
+    if (tl && tl.toLowerCase().includes('land')) return false;
+    return true;
+  });
+
+  for (const card of candidates) {
+    const tags = _probTagsOnCard(card, deck).filter(t => t !== 'Land' && t !== 'Commander');
+    const noRole = tags.length === 0;
+
+    let maxSurplus = 0, surplusTag = '';
+    for (const tag of tags) {
+      const thresh = thresholds[tag];
+      if (thresh == null) continue;
+      const surplus = (roleCount[tag] || 0) - thresh;
+      if (surplus > maxSurplus) { maxSurplus = surplus; surplusTag = tag; }
+    }
+
+    const cmcPenalty = card.cmc >= cmdCmc && cmdCmc > 0 ? 0.8 : 0;
+    const cmcFactor = Math.min((card.cmc || 0) * 0.12, 1.2);
+    const noRoleBonus = noRole ? 3.5 : 0;
+    // More tags = more versatile = less likely to cut
+    const multiRoleDiscount = Math.max(0, tags.length - 1) * 0.4;
+    // Cheaper cards are more replaceable; $0 → +0.5, $10+ → +0
+    const price = typeof getUnitMarketMaxUsd === 'function' ? getUnitMarketMaxUsd(card) : 0;
+    const priceBonus = Math.max(0, 1 - price / 10) * 0.5;
+    // Curve: how much the card's CMC bucket exceeds the ideal fraction
+    const cmcBucket = Math.min(Math.floor(typeof _effectiveCmc === 'function' ? _effectiveCmc(card) : (card.cmc || 0)), 7);
+    const bucketExcess = curveExcess[cmcBucket] ?? 0;
+    const curvePenalty = Math.min(Math.max(0, bucketExcess) * 5, 1.5);
+    card._cutScore = maxSurplus + cmcFactor + cmcPenalty + noRoleBonus - multiRoleDiscount + priceBonus + curvePenalty;
+    card._cutReason = _buildCutReason(card, tags, surplusTag, roleCount, thresholds, cmdCmc, noRole, bucketExcess);
+  }
+
+  return candidates
+    .slice()
+    .sort((a, b) => (b._cutScore || 0) - (a._cutScore || 0))
+    .slice(0, 5);
+}
+
+function _toggleCutPanel() {
+  const body = document.getElementById('deckCutSuggestionsBody');
+  const btn = document.getElementById('deckCutCollapseBtn');
+  if (!body) return;
+  const collapsed = body.style.display === 'none';
+  body.style.display = collapsed ? '' : 'none';
+  if (btn) btn.classList.toggle('is-rotated', collapsed);
+}
+
+function _renderCutSuggestions(deck) {
+  const panel = document.getElementById('deckCutSuggestionsPanel');
+  const body = document.getElementById('deckCutSuggestionsBody');
+  const badge = document.getElementById('deckCutOverBadge');
+  if (!panel || !body) return;
+
+  // Reset all overrides when the active deck changes
+  if (deck.id !== _deckCutLastDeckId) {
+    _deckCutArchetypeOverride = '';
+    _deckCutThresholdOverrides = {};
+    _deckCutLastDeckId = deck.id;
+    const editorEl = document.getElementById('deckCutThresholdEditor');
+    if (editorEl) editorEl.style.display = 'none';
+    const threshBtn = document.getElementById('deckCutThresholdBtn');
+    if (threshBtn) threshBtn.classList.remove('active');
+  }
+
+  const total = (deck.cards || []).reduce((s, c) => s + (c.qty || 1), 0);
+  if (total <= 100) { panel.style.display = 'none'; return; }
+
+  panel.style.display = '';
+  if (badge) badge.textContent = `${total - 100} over`;
+
+  // Update archetype select: show auto-detected label on the Auto option
+  const sel = document.getElementById('deckCutArchetypeSelect');
+  if (sel) {
+    sel.options[0].text = `Auto: ${_archetypeLabel(_autoDetectArchetype(deck))}`;
+    sel.value = _deckCutArchetypeOverride;
+  }
+
+  const cuts = _suggestCardsToCut(deck);
+  if (!cuts.length) {
+    body.innerHTML = '<div class="deck-tab-muted" style="padding:.75rem 1rem">No obvious cuts found.</div>';
+    return;
+  }
+
+  body.innerHTML = cuts.map(card => {
+    const uid = (card.uid || card.scryfallId || '').replace(/'/g, "\\'");
+    const sid = card.scryfallId || card.uid || '';
+    const displayName = (card.name || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const cmc = card.cmc || 0;
+    const reason = (card._cutReason || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return `<div class="cut-candidate-row">
+      <span class="cut-cmc-badge" title="Mana value">${cmc}</span>
+      <span class="cut-card-name" onclick="openCardDetail('${sid}','deck')">${displayName}</span>
+      <span class="cut-reason" title="${reason}">${reason}</span>
+      <button class="btn-danger-ghost" onclick="adjustDeckCardQtyByUid('${uid}',-1)">Cut</button>
+    </div>`;
+  }).join('');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 function renderDeckList(deck) {
   const el = document.getElementById('deckCardList');
   if (!el) return;
+  _renderCutSuggestions(deck);
   _bindDeckTagGroupHoverLinking(el, false);
   const filteredCards = _applyDeckListFilter(deck.cards || []);
 
@@ -5928,15 +6224,39 @@ function _getCmdCustomReqs(deckId) {
 function _setCmdCustomReqs(deckId, reqs) {
   localStorage.setItem(`mtg_cgp_reqs_${deckId}`, JSON.stringify(reqs));
 }
+
+/** Combine duplicate card names (e.g. multiple Plains printings) for counts and tooltips. */
+function _mergeEntriesByCardName(entries, opts = {}) {
+  const map = new Map();
+  for (const e of entries || []) {
+    const key = String(e.name || '').trim().toLowerCase();
+    if (!key) continue;
+    const qty = e.qty ?? 1;
+    const prev = map.get(key);
+    if (!prev) {
+      map.set(key, { ...e, name: e.name, qty });
+    } else {
+      prev.qty = (prev.qty ?? 1) + qty;
+      if (opts.sumContribution) prev.contribution = (prev.contribution || 0) + (e.contribution || 0);
+    }
+  }
+  return [...map.values()];
+}
+
 // Union of all deck cards matching any part in a requirement group
 function _customReqCards(deck, group) {
-  const seen = new Map(); // uid/name → card (dedup across OR parts)
+  const seen = new Map(); // name → card (dedup across OR parts and printings)
   (group.parts || []).forEach(part => {
     (deck.cards || []).forEach(c => {
       let matches = false;
       if (part.type === 'tag') matches = _probTagsOnCard(c).includes(part.value);
       if (part.type === 'card') matches = c.scryfallId === part.cardId || c.name === part.cardName;
-      if (matches) seen.set(c.scryfallId || c.name, c);
+      if (!matches) return;
+      const key = String(c.name || '').trim().toLowerCase();
+      if (!key) return;
+      const prev = seen.get(key);
+      if (prev) prev.qty = (prev.qty || 1) + (c.qty || 1);
+      else seen.set(key, { name: c.name, cmc: c.cmc, qty: c.qty || 1 });
     });
   });
   const cards = [...seen.values()];
@@ -6006,15 +6326,72 @@ function toggleCmdFreeMulligan(checked) {
 }
 
 async function openCardDetailByName(name) {
+  const norm = String(name || '').trim();
+  if (!norm) return;
+  const sc = await fetchCardByName(norm, { preferUpstream: true }).catch(() => null);
+  if (sc?.id || sc?.name) {
+    await _openCardDetailFromScryfallSearch(sc, norm);
+    return;
+  }
+  const key = norm.toLowerCase();
   const pools = [
     ...(typeof collection !== 'undefined' ? collection : []),
     ...(typeof wishlist !== 'undefined' ? wishlist : []),
     ...(decks || []).flatMap(d => d.cards || []),
   ];
-  const found = pools.find(c => (c.name || '').toLowerCase() === name.toLowerCase());
-  if (found) { openCardDetail(found.uid || found.scryfallId); return; }
-  const card = await fetchCardByName(name).catch(() => null);
-  if (card) openCardDetail(card.scryfallId || card.id);
+  const found = pools.find(c => (c.name || '').toLowerCase() === key);
+  if (found) openCardDetail(found.uid || found.scryfallId);
+}
+
+async function _openCardDetailFromScryfallSearch(sc, nameHint) {
+  const entry = cardToEntry(sc, 1);
+  entry.scryfallId = sc.id || entry.scryfallId;
+  const noPrice = typeof getUnitMarketMaxUsd === 'function'
+    ? getUnitMarketMaxUsd(entry) <= 0
+    : ((entry.priceTCG || 0) <= 0 && (entry.priceTCGFoil || 0) <= 0);
+  if (noPrice && entry.scryfallId) {
+    try {
+      const fresh = await fetchCardById(entry.scryfallId);
+      if (fresh && typeof _mergeFetchedCardIntoDetailCard === 'function') {
+        const refreshed = cardToEntry(fresh, 1);
+        _mergeFetchedCardIntoDetailCard(entry, refreshed);
+        if ((entry.priceTCG || 0) <= 0 && (entry.priceCK || 0) <= 0) {
+          const usd = _parseScryfallPriceField(fresh.prices?.usd);
+          const foil = _parseScryfallPriceField(fresh.prices?.usd_foil);
+          if (usd > 0) entry.priceTCG = usd;
+          if (foil > 0) entry.priceTCGFoil = foil;
+          if (usd > 0) entry.priceCK = usd * 0.88;
+          if (foil > 0) entry.priceCKFoil = foil * 0.88;
+        }
+      }
+    } catch (_) {}
+  }
+  const key = String(nameHint || sc.name || '').trim().toLowerCase();
+  const pools = [
+    ...(typeof collection !== 'undefined' ? collection : []),
+    ...(typeof wishlist !== 'undefined' ? wishlist : []),
+    ...(decks || []).flatMap(d => d.cards || []),
+  ];
+  const found = pools.find(c =>
+    (c.name || '').toLowerCase() === key
+    || (sc.id && c.scryfallId === sc.id)
+  );
+  if (found) {
+    entry.uid = found.uid || entry.uid;
+    entry.qty = found.qty ?? entry.qty;
+    entry.foil = !!found.foil;
+    if (found.customCmc != null) entry.customCmc = found.customCmc;
+    if (Array.isArray(found.deckTags)) entry.deckTags = found.deckTags.slice();
+  }
+  const openUid = entry.scryfallId || entry.uid;
+  if (!openUid) return;
+  await openCardDetail(openUid, undefined, { prefetchedEntry: entry, skipPriceHydrate: true });
+}
+
+function openCardDetailFromSimChip(el) {
+  const chip = el?.closest?.('[data-card-name]');
+  const name = chip?.getAttribute('data-card-name');
+  if (name) openCardDetailByName(name);
 }
 
 
@@ -6149,12 +6526,13 @@ function _cmdGameplanProbs(deck, cmdCard, customReqs = []) {
 
   // Build sorted card-name list for a given color — used in tooltip detail strings
   const colorSourceCards = col => {
-    const contributors = [];
+    const raw = [];
     (deck.cards || []).forEach(c => {
       const src = _estimateManaSources(c, cmdColors, true);
       const contribution = (src[col] || 0) * (c.qty || 1);
-      if (contribution > 0) contributors.push({ name: c.name, qty: c.qty || 1, contribution });
+      if (contribution > 0) raw.push({ name: c.name, qty: c.qty || 1, contribution });
     });
+    const contributors = _mergeEntriesByCardName(raw, { sumContribution: true });
     contributors.sort((a, b) => b.contribution - a.contribution || a.name.localeCompare(b.name));
     return contributors;
   };
@@ -6166,12 +6544,14 @@ function _cmdGameplanProbs(deck, cmdCard, customReqs = []) {
   };
 
   const rampDetail = (cmcCap = adjustedCMC) => {
-    const rampCards = (deck.cards || []).filter(c => {
+    const rampRaw = (deck.cards || []).filter(c => {
       if (_isLandDeckCard(c)) return false;
       if (!_probTagsOnCard(c).includes('Ramp')) return false;
       if (_effectiveCmc(c) >= cmcCap) return false;
       return true;
-    }).sort((a, b) => _effectiveCmc(a) - _effectiveCmc(b) || a.name.localeCompare(b.name));
+    }).map(c => ({ name: c.name, qty: c.qty || 1 }));
+    const rampCards = _mergeEntriesByCardName(rampRaw)
+      .sort((a, b) => a.name.localeCompare(b.name));
     const count = rampCards.reduce((s, c) => s + (c.qty || 1), 0);
     const cardList = rampCards.map(c => c.qty > 1 ? `${c.name} ×${c.qty}` : c.name).join('\n');
     return `${count} ramp pieces (CMC<${cmcCap})\n${cardList}`;
@@ -6179,14 +6559,19 @@ function _cmdGameplanProbs(deck, cmdCard, customReqs = []) {
 
 
 
+  // "Land in hand" reqs are folded into the main land minK rather than shown as a separate row.
+  // Each Land req adds 1 to the required lands (you must draw turn+N lands, not just turn).
+  const extraLandsInHand = customReqs.filter(g => g.parts.every(p => p.value === 'Land')).length;
   // Custom requirements — draw probability; avg CMC shifts the target curve turn (extraTurns already computed above)
-  const customData = customReqs.map(group => {
-    const { cards, K, avgCMC } = _customReqCards(deck, group);
-    const groupLabel = group.parts.map(p => p.label).join(' or ');
-    const cardList = cards.sort((a,b) => (a.cmc||0)-(b.cmc||0) || a.name.localeCompare(b.name))
-      .map(c => c.qty > 1 ? `${c.name} (CMC${c.cmc||0}) ×${c.qty}` : `${c.name} (CMC${c.cmc||0})`).join('\n');
-    return { group, groupLabel, K, avgCMC, detail: `${K} cards (avg CMC ${avgCMC.toFixed(1)})\n${cardList || '(none in deck)'}` };
-  });
+  const customData = customReqs
+    .filter(g => !g.parts.every(p => p.value === 'Land'))
+    .map(group => {
+      const { cards, K, avgCMC } = _customReqCards(deck, group);
+      const groupLabel = group.parts.map(p => p.label).join(' or ');
+      const cardList = cards.sort((a,b) => (a.cmc||0)-(b.cmc||0) || a.name.localeCompare(b.name))
+        .map(c => c.qty > 1 ? `${c.name} (CMC${c.cmc||0}) ×${c.qty}` : `${c.name} (CMC${c.cmc||0})`).join('\n');
+      return { group, groupLabel, K, avgCMC, detail: `${K} cards (avg CMC ${avgCMC.toFixed(1)})\n${cardList || '(none in deck)'}` };
+    });
   customGroups.push(...customData.map(d => ({ groupLabel: d.groupLabel, avgCMC: d.avgCMC })));
   const customReqRows = (sceneSeen) => customData.map(d => ({
     label: `Drew ${d.groupLabel}`,
@@ -6204,9 +6589,11 @@ function _cmdGameplanProbs(deck, cmdCard, customReqs = []) {
     const p_ramp_0    = clamp01(1 - mulP(R, rampSeen, 1));
     const p_ramp_1    = clamp01(mulP(R, rampSeen, 1) - mulP(R, rampSeen, 2));
     const p_ramp_2plus = mulP(R, rampSeen, 2);
-    const p_land_natural = mulP(L, seen, turn);
-    const p_land_1ramp   = turn > 1 ? mulP(L, seen, turn - 1) : p_land_natural;
-    const p_land_2ramp   = turn > 2 ? mulP(L, seen, turn - 2) : p_land_1ramp;
+    // If user requires lands in hand, they need turn+N lands total (N played + N held)
+    const landMinK = turn + extraLandsInHand;
+    const p_land_natural = mulP(L, seen, landMinK);
+    const p_land_1ramp   = landMinK > 1 ? mulP(L, seen, landMinK - 1) : p_land_natural;
+    const p_land_2ramp   = landMinK > 2 ? mulP(L, seen, landMinK - 2) : p_land_1ramp;
     const p_mana = clamp01(
       p_ramp_0     * p_land_natural +
       p_ramp_1     * p_land_1ramp   +
@@ -6217,11 +6604,14 @@ function _cmdGameplanProbs(deck, cmdCard, customReqs = []) {
       const S = colorSources[col] || 0;
       return { label: `${_COLOR_FULL[col]} source`, p: mulP(S, seen, 1), detail: colorSourceDetail(col) };
     });
+    const landLabel = extraLandsInHand > 0
+      ? `≥${landMinK} lands by T${turn} (${extraLandsInHand} in hand)`
+      : `≥${turn} lands by T${turn}`;
     const p_overall = clamp01(p_mana * pColorsJointMul(cmdColors, seen) * customReqMul(seen));
     results.onCurve = {
       turn, p: p_overall, rampCmcCap: adjustedCMC,
       requirements: [
-        { label: `≥${turn} lands by T${turn}`, p: p_land_natural, detail: `${L} lands` },
+        { label: landLabel, p: p_land_natural, detail: `${L} lands` },
         { label: `Early ramp by T${Math.max(1, turn - 1)} (saves land drops)`, p: p_ramp_any, detail: rampDetail(), bonus: true },
         ...colorReqs.map(r => ({ label: r.label, p: r.p, detail: r.detail })),
         ...customReqRows(seen),
@@ -6232,7 +6622,8 @@ function _cmdGameplanProbs(deck, cmdCard, customReqs = []) {
   if (adjustedCMC >= 3) {
     const turn = cmdCMC + extraTurns - 1;
     const seen = 7 + (turn - 1);
-    const p_lands = mulP(L, seen, turn);
+    const preLandMinK = turn + extraLandsInHand;
+    const p_lands = mulP(L, seen, preLandMinK);
     const colorReqs = cmdColors.map(col => {
       const S = colorSources[col] || 0;
       return { label: `${_COLOR_FULL[col]} source`, p: mulP(S, seen, 1), detail: colorSourceDetail(col) };
@@ -6254,10 +6645,13 @@ function _cmdGameplanProbs(deck, cmdCard, customReqs = []) {
       : p_ramp_ut_orig;
     const p_overall = clamp01(p_lands * p_ramp_ut * pColorsJointMul(cmdColors, seen) * customReqMul(seen));
     const rampTurnLabel = Math.max(1, turn - 1);
+    const preLandLabel = extraLandsInHand > 0
+      ? `≥${preLandMinK} lands by T${turn} (${extraLandsInHand} in hand)`
+      : `≥${turn} lands by T${turn}`;
     results.preCurve = {
       turn, p: p_overall, rampCmcCap: turn,
       requirements: [
-        { label: `≥${turn} lands by T${turn}`, p: p_lands, detail: `${L} lands` },
+        { label: preLandLabel, p: p_lands, detail: `${L} lands` },
         { label: `Untapped land + ramp by T${rampTurnLabel}`, p: p_ramp_ut, detail: rampDetail(turn) + `\n${L_ut} untapped lands` },
         ...colorReqs.map(r => ({ label: r.label, p: r.p, detail: r.detail })),
         ...customReqRows(seen),
@@ -6448,6 +6842,7 @@ function renderCommanderGameplan(deck) {
               ['Protection','Protection'],['Counterspell','Counterspell'],['Removal','Removal'],
               ['Tutor','Tutor'],['Card Draw','Card Draw'],['Ramp','Ramp'],
               ['Board Wipe','Board Wipe'],['Recursion','Recursion'],
+              ['Land','Land in hand'],
             ];
             // tagBtns: onclickGen(tag, label) → full onclick string
             const tagBtns = (onclickGen, excludeValues) => ALL_TAGS
@@ -8179,21 +8574,27 @@ function openOwnedRecommendationPicker(cardName, candidates) {
   if (countEl) countEl.textContent = `${candidates.length} available version${candidates.length === 1 ? '' : 's'}`;
   const el = document.getElementById('versionPickerResults');
   el.innerHTML = candidates.map((card, idx) => {
-    const img = card.image || card.imageLarge || '';
+    const img = card.imageLarge || card.image || '';
     const inv = getInventoryBreakdown(card);
     const deckAllocs = getDeckAllocationsForCard(card)
       .map(d => `${d.deckName} (${d.qty})`)
       .join(', ');
+    const setName = _escapeVersionPickerText(card.setName || card.set || '');
+    const setCode = _escapeVersionPickerText((card.set || '').toUpperCase());
+    const num = _escapeVersionPickerText(card.number || '');
     return `
-      <div class="version-tile" data-owned-idx="${idx}" style="cursor:pointer;text-align:center">
-        <div style="border-radius:7px;overflow:hidden;border:2px solid transparent;transition:border-color 0.15s"
-          onmouseover="this.style.borderColor='var(--gold)'" onmouseout="this.style.borderColor='transparent'">
-          ${img ? `<img src="${img}" style="width:100%;display:block" loading="lazy" alt="${card.name}">` : `<div style="aspect-ratio:0.715;background:var(--bg4);display:flex;align-items:center;justify-content:center;font-size:0.65rem;color:var(--text3)">${card.set?.toUpperCase() || 'CARD'}</div>`}
+      <div class="version-tile" data-owned-idx="${idx}">
+        <div class="version-tile-img-wrap">
+          ${img
+            ? `<img src="${img}" loading="lazy" alt="${_escapeVersionPickerText(card.name)}">`
+            : `<div class="version-tile-placeholder">${setCode || 'CARD'}</div>`}
         </div>
-        <div style="font-size:0.62rem;color:var(--text3);margin-top:4px;line-height:1.3">${(card.setName || card.set || '').toString()}<br>${(card.set || '').toUpperCase()} #${card.number || ''}</div>
-        <div style="font-size:0.6rem;margin-top:3px;color:${card.foil ? 'var(--gold)' : 'var(--text2)'}">${card.foil ? 'Foil' : 'Non-foil'}</div>
-        <div style="font-size:0.58rem;margin-top:2px;color:var(--teal)">Owned ${inv.owned} · Used ${inv.usedTotal} · Avail ${inv.available}</div>
-        ${deckAllocs ? `<div style="font-size:0.56rem;margin-top:2px;color:var(--text3)">Used in: ${deckAllocs}</div>` : ''}
+        ${_versionPickerPriceHtmlFromCollection(card)}
+        <div class="version-tile-meta">${setName}</div>
+        <div class="version-tile-meta-sub">${setCode} #${num}</div>
+        <div class="version-tile-foil">${card.foil ? 'Foil' : 'Non-foil'}</div>
+        <div class="version-tile-owned is-owned">Owned ${inv.owned} · Used ${inv.usedTotal} · Avail ${inv.available}</div>
+        ${deckAllocs ? `<div class="version-tile-meta-sub">Used in: ${_escapeVersionPickerText(deckAllocs)}</div>` : ''}
       </div>
     `;
   }).join('');
@@ -8504,7 +8905,10 @@ function _buildReplacementQuery(card, deck, refineKey) {
     : (deck?.commanderColorIdentity || []);
   const idQ = colors.length > 0 ? `id<=${colors.join('')}` : '';
 
-  const cardType = _probCardType(card.type || '');
+  const resolvedTypeLine = typeof resolveCardTypeLine === 'function'
+    ? resolveCardTypeLine(card)
+    : (card.type || card.typeLine || card.type_line || '');
+  const cardType = _probCardType(resolvedTypeLine);
   const typeMap = {
     Land: 't:land', Creature: 't:creature', Planeswalker: 't:planeswalker',
     Instant: 't:instant', Sorcery: 't:sorcery', Enchantment: 't:enchantment', Artifact: 't:artifact',
@@ -8544,6 +8948,23 @@ function _buildReplacementQuery(card, deck, refineKey) {
     roleQ = '(o:return o:graveyard)';
   } else if (/\bsearch your library for\b/.test(oracle)) {
     roleQ = 'o:"search your library for"';
+  } else if (/\bproliferate\b/.test(oracle)
+    || /\bdouble\b.{0,60}\bcounters?\b/.test(oracle)
+    || /\bfor each counter\b.{0,60}\bput\b/.test(oracle)
+    || /\bput\b.{0,60}\bfor each.{0,40}\bcounter\b/.test(oracle)) {
+    roleQ = '(o:proliferate OR (o:double o:counter) OR o:"for each counter")';
+  } else if (/\b\+1\/\+1 counter\b/.test(oracle) || /\bplace.{0,30}\bcounters?\b/.test(oracle)) {
+    roleQ = 'o:"+1/+1 counter"';
+  }
+
+  // If no text heuristic matched, fall back to the card's oracle tags rather than
+  // returning an unfiltered popularity list (which puts Rhystic Study #1 for any enchantment).
+  if (!roleQ) {
+    const tagLabels = _replacementRefineTagLabelsForCard(card);
+    for (const label of tagLabels) {
+      const frag = _scryTagQueryFragmentFromLabel(label);
+      if (frag) { roleQ = frag; break; }
+    }
   }
 
   return [...headParts, roleQ, ...tailParts].filter(Boolean).join(' ');
@@ -8834,6 +9255,29 @@ function setVersionPickerFilter(filter, btn) {
   renderVersionPickerTiles();
 }
 
+function _escapeVersionPickerText(s) {
+  return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+}
+
+function _versionPickerPriceHtmlFromScryfall(c) {
+  const usd = parseFloat(c?.prices?.usd);
+  const usdFoil = parseFloat(c?.prices?.usd_foil);
+  const parts = [];
+  if (Number.isFinite(usd) && usd > 0) parts.push(`$${usd.toFixed(2)}`);
+  if (Number.isFinite(usdFoil) && usdFoil > 0) parts.push(`Foil $${usdFoil.toFixed(2)}`);
+  if (!parts.length) return '<div class="version-tile-price version-tile-price--muted">—</div>';
+  return `<div class="version-tile-price">${parts.join(' · ')}</div>`;
+}
+
+function _versionPickerPriceHtmlFromCollection(card) {
+  const nf = parseFloat(card?.priceTCG) || 0;
+  const fo = parseFloat(card?.priceTCGFoil) || 0;
+  if (card?.foil && fo > 0) return `<div class="version-tile-price">$${fo.toFixed(2)} foil</div>`;
+  if (nf > 0) return `<div class="version-tile-price">$${nf.toFixed(2)}</div>`;
+  if (fo > 0) return `<div class="version-tile-price">Foil $${fo.toFixed(2)}</div>`;
+  return '<div class="version-tile-price version-tile-price--muted">—</div>';
+}
+
 function renderVersionPickerTiles() {
   const el = document.getElementById('versionPickerResults');
   if (!el || !_versionPickerState) return;
@@ -8881,19 +9325,25 @@ function renderVersionPickerTiles() {
   if (countEl) countEl.textContent = `${filtered.length} shown · ${withOwnership.length} total`;
 
   el.innerHTML = filtered.map(({ c, idx, isOwned, ownedQty, ownedFoilQty, ownedNonFoilQty, usedFoilQty, usedNonFoilQty, availableFoilQty, availableNonFoilQty, isCurrent }) => {
-    const img  = c.image_uris?.normal || c.card_faces?.[0]?.image_uris?.normal || '';
-    const imgS = c.image_uris?.small  || c.card_faces?.[0]?.image_uris?.small  || img;
+    const img = c.image_uris?.normal || c.card_faces?.[0]?.image_uris?.normal
+      || c.image_uris?.large || c.card_faces?.[0]?.image_uris?.large || '';
+    const setName = _escapeVersionPickerText(c.set_name);
+    const setCode = _escapeVersionPickerText((c.set || '').toUpperCase());
+    const num = _escapeVersionPickerText(c.collector_number);
     const ownedLabel = isOwned
       ? `Owned ${ownedQty}× · Used ${usedNonFoilQty + usedFoilQty} · Avail ${availableNonFoilQty + availableFoilQty}`
       : 'Unowned';
-    return `<div class="version-tile" data-idx="${idx}" style="cursor:pointer;text-align:center">
-      <div style="border-radius:7px;overflow:hidden;border:2px solid ${isCurrent ? 'var(--gold)' : 'transparent'};transition:border-color 0.15s"
-        onmouseover="this.style.borderColor='var(--gold)'" onmouseout="this.style.borderColor='${isCurrent ? 'var(--gold)' : 'transparent'}'">
-        ${imgS ? `<img src="${imgS}" style="width:100%;display:block" loading="lazy" alt="${c.set_name}">` : `<div style="aspect-ratio:0.715;background:var(--bg4);display:flex;align-items:center;justify-content:center;font-size:0.65rem;color:var(--text3)">${c.set_name}</div>`}
+    return `<div class="version-tile${isCurrent ? ' is-current' : ''}" data-idx="${idx}">
+      <div class="version-tile-img-wrap">
+        ${img
+          ? `<img src="${img}" loading="lazy" alt="${setName}">`
+          : `<div class="version-tile-placeholder">${setName}</div>`}
       </div>
-      <div style="font-size:0.6rem;color:var(--text3);margin-top:4px;line-height:1.3">${c.set_name}<br>${c.set.toUpperCase()} #${c.collector_number}</div>
-      ${ownershipOn ? `<div style="font-size:0.58rem;margin-top:3px;color:${isOwned ? 'var(--teal)' : 'var(--text3)'}">${ownedLabel}</div>` : ''}
-      ${isCurrent ? '<div style="font-size:0.56rem;color:var(--gold);margin-top:2px">Current</div>' : ''}
+      ${_versionPickerPriceHtmlFromScryfall(c)}
+      <div class="version-tile-meta">${setName}</div>
+      <div class="version-tile-meta-sub">${setCode} #${num}</div>
+      ${ownershipOn ? `<div class="version-tile-owned${isOwned ? ' is-owned' : ''}">${ownedLabel}</div>` : ''}
+      ${isCurrent ? '<div class="version-tile-badge">Current</div>' : ''}
     </div>`;
   }).join('') || '<div style="grid-column:1/-1;padding:1rem;color:var(--text3)">No printings found for this filter</div>';
 }
@@ -9286,8 +9736,9 @@ function _simRenderHTML(deck, commander, edhrecData, archiveData) {
   ${missing.length ? `
   <div class="sim-subsection-title">Top staples you're not running</div>
   <div class="sim-chip-row">${missing.map(c => {
+    const attr = String(c.name || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;');
     const n = (c.name || '').replace(/'/g, "\\'");
-    return `<span class="sim-chip sim-chip--missing" title="${c.inclusion}% of ${commander} decks"><span style="cursor:pointer" onclick="openCardDetailByName('${n}')">${c.name} <em>${c.inclusion}%</em></span><button class="sim-chip-btn" onclick="simAddToMaybe(this,'${n}')" title="Add to maybe board">+</button></span>`;
+    return `<span class="sim-chip sim-chip--missing" data-card-name="${attr}" title="${c.inclusion}% of ${commander} decks"><span style="cursor:pointer" onclick="openCardDetailFromSimChip(this)">${c.name} <em>${c.inclusion}%</em></span><button class="sim-chip-btn" onclick="simAddToMaybe(this,'${n}')" title="Add to maybe board">+</button></span>`;
   }).join('')}</div>` : ''}
   ${spice.length ? `
   <div class="sim-subsection-title">Your spicy picks <span class="sim-meta">(not in EDHREC data)</span></div>
