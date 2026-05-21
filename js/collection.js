@@ -1385,12 +1385,31 @@ function _syncCardDetailRowPrimaryActions(ctx) {
 
 function _syncCardDetailTagToDeckWrap(ctx) {
   const { card, isOwned, actionUid } = ctx;
-  const show = !!(isOwned && decks.length > 0);
   const el = document.getElementById('cardDetailTagToDeckWrap');
   if (!el) return;
+
+  // Shared collection view: show decks owned by the same person that the viewer can edit
+  if (_viewingSharedCollOwnerId) {
+    const ownerDecks = (typeof sharedDecks !== 'undefined' ? sharedDecks : [])
+      .filter(d => Number(d.ownerId) === Number(_viewingSharedCollOwnerId) && d.userPermission !== 'view');
+    if (!ownerDecks.length) { el.innerHTML = ''; el.style.display = 'none'; return; }
+    const sid = card.scryfallId || '';
+    const foilFlag = !!card.foil;
+    const cardUid = card.uid || '';
+    el.style.display = 'block';
+    el.innerHTML = `<div style="font-size:0.78rem;color:var(--text3);margin-bottom:6px;letter-spacing:0.04em">TAG TO DECK <span style="font-weight:400;opacity:0.9">· adds 1 copy to that deck's maybe board</span></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">${ownerDecks.map(d => {
+      const pool = (d.maybeboard || []);
+      const tagged = pool.some(c => c.scryfallId === sid && !!c.foil === foilFlag);
+      return '<button class="btn btn-sm ' + (tagged ? 'btn-primary' : 'btn-outline') + '" onclick="toggleSharedCollectionDeckTag(\'' + cardUid + '\',\'' + sid + '\',' + foilFlag + ',\'' + d.id + '\')">' + d.name + '</button>';
+    }).join('')}</div>`;
+    return;
+  }
+
+  const show = !!(isOwned && decks.length > 0);
   el.style.display = show ? 'block' : 'none';
   if (show) {
-    el.innerHTML = `<div style="font-size:0.78rem;color:var(--text3);margin-bottom:6px;letter-spacing:0.04em">TAG TO DECK <span style="font-weight:400;opacity:0.9">· adds 1 copy to that deck’s maybe board</span></div>
+    el.innerHTML = `<div style="font-size:0.78rem;color:var(--text3);margin-bottom:6px;letter-spacing:0.04em">TAG TO DECK <span style="font-weight:400;opacity:0.9">· adds 1 copy to that deck's maybe board</span></div>
           <div style="display:flex;gap:6px;flex-wrap:wrap">${decks.map(d => {
     const tagged = (card.deckTags || []).includes(d.id);
     return '<button class="btn btn-sm ' + (tagged ? 'btn-primary' : 'btn-outline') + '" onclick="toggleDeckTag(\'' + actionUid + '\',\'' + d.id + '\')">' + d.name + '</button>';
@@ -1470,7 +1489,11 @@ function _htmlOpenCardDetailRightColumn(ctx) {
     activeDeck, activeDeckCard, inDeckQty,
     isCommanderCandidate, isWishlisted,
   } = ctx;
-  const showTagToDeck = !!(isOwned && decks.length > 0);
+  const _sharedOwnerDecks = _viewingSharedCollOwnerId
+    ? (typeof sharedDecks !== 'undefined' ? sharedDecks : [])
+        .filter(d => Number(d.ownerId) === Number(_viewingSharedCollOwnerId) && d.userPermission !== 'view')
+    : [];
+  const showTagToDeck = !!(isOwned && decks.length > 0) || _sharedOwnerDecks.length > 0;
   const globalCustomTags = typeof _getGlobalCustomTagsForCard === 'function' ? _getGlobalCustomTagsForCard(card) : [];
   const myTagsChipsHtml = globalCustomTags.length
     ? globalCustomTags.map(t => (typeof _deckTagChipHtml === 'function'
@@ -1489,12 +1512,22 @@ function _htmlOpenCardDetailRightColumn(ctx) {
     ? `<span class="card-detail-qty-row-label">In deck:</span>
           <div style="flex:1;min-width:0">${_htmlCardDetailDeckQtyCounter(ctx)}</div>`
     : '';
+  const _tagDeckList = _sharedOwnerDecks.length > 0 ? _sharedOwnerDecks : decks;
+  const _tagFn = _sharedOwnerDecks.length > 0
+    ? (d => {
+        const sid = card.scryfallId || '';
+        const foilFlag = !!card.foil;
+        const cardUid = card.uid || '';
+        const tagged = (d.maybeboard || []).some(c => c.scryfallId === sid && !!c.foil === foilFlag);
+        return '<button class="btn btn-sm ' + (tagged ? 'btn-primary' : 'btn-outline') + '" onclick="toggleSharedCollectionDeckTag(\'' + cardUid + '\',\'' + sid + '\',' + foilFlag + ',\'' + d.id + '\')">' + d.name + '</button>';
+      })
+    : (d => {
+        const tagged = (card.deckTags || []).includes(d.id);
+        return '<button class="btn btn-sm ' + (tagged ? 'btn-primary' : 'btn-outline') + '" onclick="toggleDeckTag(\'' + actionUid + '\',\'' + d.id + '\')">' + d.name + '</button>';
+      });
   const tagToDeckInner = showTagToDeck
-    ? `<div style="font-size:0.78rem;color:var(--text3);margin-bottom:6px;letter-spacing:0.04em">TAG TO DECK <span style="font-weight:400;opacity:0.9">· adds 1 copy to that deck’s maybe board</span></div>
-          <div style="display:flex;gap:6px;flex-wrap:wrap">${decks.map(d => {
-    const tagged = (card.deckTags || []).includes(d.id);
-    return '<button class="btn btn-sm ' + (tagged ? 'btn-primary' : 'btn-outline') + '" onclick="toggleDeckTag(\'' + actionUid + '\',\'' + d.id + '\')">' + d.name + '</button>';
-  }).join('')}</div>`
+    ? `<div style="font-size:0.78rem;color:var(--text3);margin-bottom:6px;letter-spacing:0.04em">TAG TO DECK <span style="font-weight:400;opacity:0.9">· adds 1 copy to that deck's maybe board</span></div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">${_tagDeckList.map(_tagFn).join('')}</div>`
     : '';
   return `
         <div id="cardDetailName" class="card-detail-name">${typeof resolveCardDisplayName === 'function' ? resolveCardDisplayName(card) : card.name}</div>
@@ -2436,6 +2469,36 @@ function toggleDeckTag(uid, deckId) {
     renderActiveDeck();
   }
   openCardDetail(uid);
+}
+
+function toggleSharedCollectionDeckTag(cardUid, scryfallId, foil, deckId) {
+  const deck = (typeof sharedDecks !== 'undefined' ? sharedDecks : []).find(d => d.id === deckId);
+  if (!deck) return;
+  if (!deck.maybeboard) deck.maybeboard = [];
+  const pool = deck.maybeboard;
+  const slotIdx = pool.findIndex(c => c.scryfallId === scryfallId && !!c.foil === !!foil);
+  if (slotIdx >= 0) {
+    const row = pool[slotIdx];
+    if ((row.qty || 1) > 1) row.qty -= 1;
+    else pool.splice(slotIdx, 1);
+  } else {
+    let card = null;
+    if (typeof sharedCollections !== 'undefined') {
+      for (const sc of sharedCollections) {
+        card = sc.cards.find(c => c.uid === cardUid || (c.scryfallId === scryfallId && !!c.foil === !!foil));
+        if (card) break;
+      }
+    }
+    const entry = card
+      ? { ...card, qty: 1 }
+      : { scryfallId, foil: !!foil, qty: 1, uid: scryfallId + (foil ? '_f' : '_n') };
+    pool.push(entry);
+  }
+  if (typeof scheduleSaveSharedDeck === 'function') scheduleSaveSharedDeck(deck);
+  if (typeof activeDeckId !== 'undefined' && activeDeckId === deckId && typeof renderActiveDeck === 'function') {
+    renderActiveDeck();
+  }
+  openCardDetail(cardUid || scryfallId);
 }
 
 // ── Find & Add Card ───────────────────────────────────────────────────────────
