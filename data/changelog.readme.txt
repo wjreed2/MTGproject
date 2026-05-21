@@ -20,6 +20,10 @@ Add rows:
 List rows (admin):
       GET /api/admin/changelog
 
+Delete a row (admin):
+      DELETE /api/admin/changelog/:id
+  In the app: open What's new while signed in as admin — each entry has a Delete button.
+
 On first deploy, if **app_changelog** is empty, the server copies **changelog.json**
 into the table once (INSERT IGNORE). After that, prefer the database; the JSON file
 is only a bootstrap template.

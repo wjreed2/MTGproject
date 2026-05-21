@@ -259,6 +259,15 @@
     <div class="stat-card"><div class="stat-val" id="statValueCK">$0</div><div class="stat-label">Est. Value (CK)</div></div>
   </div>
 
+  <!-- Shared collection banner — shown when viewing another user's collection -->
+  <div id="sharedCollViewBanner" style="display:none;align-items:center;gap:10px;margin-bottom:0.75rem;padding:8px 12px;background:rgba(60,120,200,0.12);border:1px solid rgba(60,120,200,0.3);border-radius:var(--radius2)">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;flex-shrink:0;color:var(--blue)"><path d="M13 8A5 5 0 1 1 3 8a5 5 0 0 1 10 0z"/><path d="M8 6v2l1.5 1.5"/></svg>
+    <span id="sharedCollBannerLabel" style="font-size:0.82rem;color:var(--text2)"></span>
+    <span style="font-size:0.76rem;color:var(--text3)">(read-only)</span>
+    <div style="flex:1"></div>
+    <button class="btn btn-ghost btn-sm" onclick="exitSharedCollectionView()" style="font-size:0.78rem;color:var(--text3)">← Back to my collection</button>
+  </div>
+
   <div class="filter-bar">
     <!-- Row 1: search + colors + sort + view -->
     <div class="view-controls" style="border-bottom:1px solid var(--border);padding-bottom:10px;margin-bottom:10px">
@@ -305,6 +314,7 @@
         <button class="tooltip-wrap" onclick="setView('list',this)"><span class="tooltip">List</span>☰</button>
       </div>
       <button id="historyBtn" class="btn btn-outline btn-sm" onclick="toggleCollectionHistory()" style="white-space:nowrap;font-size:0.72rem;padding:3px 10px">◷ History</button>
+      <button class="btn btn-outline btn-sm" onclick="openCollectionShareModal()" style="white-space:nowrap;font-size:0.72rem;padding:3px 10px" title="Share collection / view shared collections">⇄ Share</button>
     </div>
     <!-- Row 2: quick-filter chips -->
     <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px">
@@ -354,6 +364,7 @@
     </div>
     <p style="margin-top:0.75rem;font-size:0.78rem;color:var(--text3)">Loads random cards from recent sets via Scryfall — choose count &amp; foils in the import panel</p>
   </div>
+
 </div>
 
 <!-- SET BROWSER TAB -->
@@ -563,6 +574,7 @@
               oninput="setDeckCardSize(+this.value)"
               style="width:72px;cursor:pointer;accent-color:var(--gold)" title="Card size">
           </div>
+          <button id="deckStackLayoutResetBtn" class="btn btn-outline btn-sm" onclick="resetDeckStackLayout()" style="display:none" title="Restore automatic stack column layout">Reset stacks</button>
           <div id="deckStackOrientToggle" class="view-toggle">
             <button id="deckStackOrientV" class="active" onclick="setDeckStackOrient('vertical')" title="Vertical stack" aria-label="Vertical stack">
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><path d="M8 1.8v12.4"/><path d="M5.8 4 8 1.8 10.2 4"/><path d="M5.8 12 8 14.2 10.2 12"/></svg>
@@ -615,6 +627,17 @@
       <div id="deckCutSuggestionsPanel" class="panel" style="display:none;margin-bottom:1.25rem">
         <div class="panel-header">
           <span class="panel-title">Suggested Cuts</span>
+          <span class="deck-cut-help tooltip-wrap" tabindex="0" aria-label="How suggested cuts work">
+            <span class="deck-cut-help-icon" aria-hidden="true">?</span>
+            <span class="tooltip deck-cut-help-tooltip">
+              <strong>Suggested cuts</strong> appear when your deck has more than 100 cards.
+              We list up to five nonland, non-commander cards that look like the weakest fits.
+              Each pick is scored from role tags (ramp, draw, removal, etc.) versus targets for your deck archetype,
+              along with mana curve and mana value compared to your commander.
+              Choose an archetype or leave Auto; use ⚙ to adjust role targets.
+              Cut removes one copy.
+            </span>
+          </span>
           <span id="deckCutOverBadge" class="tag tag-red" style="margin-left:.5rem"></span>
           <div style="flex:1"></div>
           <select id="deckCutArchetypeSelect" class="deck-select" onchange="_onCutArchetypeChange(this.value)" style="font-size:.76rem;margin-right:4px" title="Deck archetype (affects cut thresholds)">
@@ -629,8 +652,9 @@
             <option value="control">Control</option>
             <option value="combo">Combo</option>
             <option value="voltron">Voltron</option>
+            <option value="custom">Custom</option>
           </select>
-          <button id="deckCutThresholdBtn" onclick="_toggleCutThresholdEditor()" class="btn btn-ghost btn-sm" title="Customize tag targets" style="margin-right:2px;font-size:.8rem">⚙</button>
+          <button type="button" id="deckCutThresholdBtn" onclick="_toggleCutThresholdEditor()" class="deck-cut-threshold-btn" title="Customize tag targets" aria-label="Customize tag targets" aria-pressed="false">⚙</button>
           <button onclick="_toggleCutPanel()" class="decklist-collapse-btn" id="deckCutCollapseBtn" title="Toggle">▾</button>
         </div>
         <div id="deckCutThresholdEditor" style="display:none"></div>
@@ -763,13 +787,17 @@
       <div id="deckCollaboratorsPanel" class="panel" style="margin-top:1.25rem;display:none">
         <div class="panel-header">
           <span class="panel-title">Collaborators</span>
-          <span class="deck-tab-hint">Users who can edit this deck</span>
+          <span class="deck-tab-hint">Manage access</span>
         </div>
         <div class="panel-body">
           <div id="collabList" style="margin-bottom:0.75rem"></div>
-          <div style="display:flex;gap:8px;align-items:center">
-            <input id="collabEmailInput" type="email" placeholder="Add by email address…" style="flex:1"
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <input id="collabEmailInput" type="email" placeholder="Add by email address…" style="flex:1;min-width:160px"
               onkeydown="if(event.key==='Enter')addDeckCollaborator()">
+            <select id="collabPermSelect" class="collab-perm-select">
+              <option value="edit">Can Edit</option>
+              <option value="view">View Only</option>
+            </select>
             <button class="btn btn-primary btn-sm" onclick="addDeckCollaborator()">Add</button>
           </div>
           <div id="collabError" style="margin-top:6px"></div>
@@ -1113,10 +1141,17 @@
           </label>
           <div id="voiceDeckCollectionToggleWrap" style="display:none;margin-top:8px;padding-top:8px;border-top:1px solid var(--border2)">
             <div class="settings-section-label">Deck Add Behavior</div>
-            <label class="voice-settings-check voice-settings-check--last">
+            <label class="voice-settings-check">
               <input type="checkbox" id="voiceDeckAddCollectionChk" onchange="toggleVoiceDeckAddCollection()">
               Add cards to collection too
             </label>
+            <div id="deckPoolSourceWrap" style="display:none;margin-top:8px">
+              <div class="settings-section-label" style="margin-bottom:5px">Card Pool</div>
+              <div class="view-toggle" style="width:100%" role="group" aria-label="Card pool source">
+                <button type="button" id="deckPoolMineBtn" class="active" style="flex:1" onclick="setDeckPoolSource('mine')">My Collection</button>
+                <button type="button" id="deckPoolSharedBtn" style="flex:1" onclick="setDeckPoolSource('sharedWith')">Shared With Me</button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -1213,6 +1248,35 @@
         <div style="font-size:0.68rem;color:var(--text3);text-transform:uppercase;letter-spacing:0.1em;text-align:center;margin-bottom:8px">Card Preview</div>
         <div id="voiceLookupResult"></div>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- COLLECTION SHARE MODAL -->
+<div class="modal-overlay" id="collectionShareModal" onclick="if(event.target===this)closeCollectionShareModal()">
+  <div class="modal" style="width:min(540px,96vw);max-height:88vh;overflow-y:auto">
+    <button class="btn btn-ghost btn-icon" style="position:absolute;top:0.75rem;right:0.75rem" onclick="closeCollectionShareModal()">✕</button>
+    <div class="modal-title">Collection Sharing</div>
+
+    <!-- Share my collection section -->
+    <div style="margin-bottom:1.5rem">
+      <div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text3);margin-bottom:0.5rem">Share My Collection</div>
+      <p style="font-size:0.8rem;color:var(--text3);margin:0 0 0.75rem">Invite someone to browse your cards when building a deck together. They see your collection read-only.</p>
+      <div id="collectionShareList" style="margin-bottom:0.75rem"></div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input id="collectionShareEmail" type="email" placeholder="Email address…" style="flex:1"
+          onkeydown="if(event.key==='Enter')addCollectionShare()">
+        <button class="btn btn-primary btn-sm" onclick="addCollectionShare()">Share</button>
+      </div>
+      <div id="collectionShareError" style="margin-top:6px;font-size:0.78rem;color:var(--red)"></div>
+    </div>
+
+    <div class="settings-divider"></div>
+
+    <!-- Collections shared with me -->
+    <div style="margin-top:1.25rem">
+      <div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text3);margin-bottom:0.5rem">Shared With Me</div>
+      <div id="collectionSharedWithMe"></div>
     </div>
   </div>
 </div>
@@ -1577,6 +1641,7 @@
   <div class="modal whats-new-modal" style="max-height:min(88vh,760px);display:flex;flex-direction:column">
     <div class="modal-title" style="flex-shrink:0">What you’ve missed</div>
     <div id="whatsNewModalBody" class="whats-new-body" style="flex:1;min-height:0;overflow-y:auto;font-size:0.88rem;color:var(--text2);line-height:1.55;padding-right:4px"></div>
+    <p id="whatsNewAdminNote" class="whats-new-admin-note" hidden>Developer mode: delete removes entries from the database for all users.</p>
     <div style="flex-shrink:0;display:flex;gap:8px;justify-content:flex-end;margin-top:1rem;padding-top:0.75rem;border-top:1px solid var(--border)">
       <button type="button" class="btn btn-primary" onclick="closeWhatsNewModal()">Got it</button>
     </div>

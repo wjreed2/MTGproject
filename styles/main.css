@@ -1367,6 +1367,22 @@ main {
 .whats-new-item-date { margin-top: 0.3rem; font-size: 0.76rem; color: var(--text3); }
 .whats-new-list--older .whats-new-item-title { color: var(--text2); font-weight: 500; }
 .whats-new-list--older .whats-new-item-summary { color: var(--text3); }
+.whats-new-item-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.whats-new-item-row .whats-new-item-body { flex: 1; min-width: 0; }
+.whats-new-delete-btn {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.whats-new-admin-note {
+  flex-shrink: 0;
+  margin: 0.75rem 0 0;
+  font-size: 0.78rem;
+  color: var(--text3);
+}
 .whats-new-bullets { margin: 0; padding-left: 1.15rem; }
 .whats-new-bullets li { margin: 0.32rem 0; font-size: 0.92rem; }
 .whats-new-strong { color: var(--text); font-weight: 500; }
@@ -2797,6 +2813,20 @@ main {
   gap: 3px;
   min-width: 44px;
 }
+.deck-card-valid-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  font-size: 0.65rem;
+  font-weight: 700;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.deck-card-valid-dot--error { background: rgba(212,90,74,0.2); color: var(--red); border: 1.5px solid rgba(212,90,74,0.5); }
+.deck-card-valid-dot--warn  { background: rgba(200,168,74,0.2); color: var(--gold); border: 1.5px solid rgba(200,168,74,0.5); }
 .deck-grid-badge {
   margin-left: auto;
   font-size: 0.6rem;
@@ -2979,6 +3009,34 @@ main {
   color: var(--text);
   border-color: var(--gold-soft);
 }
+#tab-decks .deck-cut-threshold-btn {
+  height: 34px;
+  min-width: 40px;
+  padding: 0 10px;
+  margin-right: 2px;
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  background: var(--bg3);
+  color: var(--text2);
+  cursor: pointer;
+  font-size: 1.55rem;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+#tab-decks .deck-cut-threshold-btn:hover {
+  color: var(--text);
+  border-color: var(--gold-soft);
+  background: var(--bg3);
+}
+#tab-decks .deck-cut-threshold-btn.active {
+  color: var(--gold);
+  border-color: rgba(200, 168, 74, 0.55);
+  background: var(--gold-dim);
+}
 
 /* Collection controls sizing parity */
 #tab-collection .view-controls .search-box,
@@ -3130,7 +3188,7 @@ main {
   grid-row: 1;
   display: grid;
   grid-template-columns: 1fr;
-  grid-template-rows: 1fr;
+  grid-template-rows: auto;
   align-items: start;
   min-width: 0;
   max-width: 100%;
@@ -3164,9 +3222,21 @@ main {
   width: calc(var(--deck-card-w, 220px) + 16px);
   padding: 4px 8px 12px;
   box-sizing: border-box;
+  position: relative;
 }
 .deck-stack-group--backplate .deck-stack-group-label {
   visibility: hidden;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+.deck-stack-view.deck-stack-view--zones-beside .deck-stack-backplates {
+  height: fit-content;
+  align-self: start;
 }
 .deck-stack-group-backdrop {
   width: 100%;
@@ -3203,6 +3273,59 @@ main {
   display: flex; align-items: baseline; gap: 6px;
 }
 .deck-stack-group-count { font-family: 'JetBrains Mono', monospace; font-size: 0.68rem; opacity: 0.6; }
+.deck-stack-group-label--drag {
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+.deck-stack-group-label--drag:active {
+  cursor: grabbing;
+}
+.deck-stack-group.is-stack-group-dragging {
+  opacity: 0.45;
+  pointer-events: none;
+}
+.deck-stack-view.is-stack-group-dragging .deck-stack-group.is-stack-group-dragging .deck-stack-cards {
+  pointer-events: none;
+}
+.deck-stack-group.stack-group-drop-target .deck-stack-group-label {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+.deck-stack-group.stack-group-drop-before::before,
+.deck-stack-group.stack-group-drop-after::after {
+  content: '';
+  display: block;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+  margin: 0 4px;
+}
+.deck-stack-group.stack-group-drop-before::before {
+  margin-bottom: 8px;
+}
+.deck-stack-group.stack-group-drop-after::after {
+  margin-top: 8px;
+}
+.deck-stack-group-drag-ghost {
+  position: fixed;
+  z-index: 10000;
+  pointer-events: none;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: var(--bg3);
+  border: 1px solid var(--accent);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  font-family: 'Cinzel', serif;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text1);
+  max-width: min(280px, 90vw);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .deck-stack-cards {
   display: flex;
   flex-wrap: nowrap;
@@ -6388,6 +6511,44 @@ select:focus { outline: none; border-color: rgba(200,168,74,0.6); box-shadow: 0 
 }
 
 /* ── Suggested Cuts panel (deck builder) ── */
+.deck-cut-help {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 0.35rem;
+  cursor: help;
+  vertical-align: middle;
+}
+.deck-cut-help-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.05rem;
+  height: 1.05rem;
+  border-radius: 50%;
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--text3);
+  border: 1px solid var(--border2);
+  background: var(--bg3);
+}
+.deck-cut-help:hover .deck-cut-help-icon,
+.deck-cut-help:focus-visible .deck-cut-help-icon {
+  color: var(--gold);
+  border-color: var(--gold);
+}
+.deck-cut-help-tooltip {
+  white-space: normal;
+  width: min(300px, 88vw);
+  max-width: 300px;
+  line-height: 1.55;
+  text-align: left;
+  left: 0;
+  transform: none;
+  bottom: auto;
+  top: calc(100% + 8px);
+}
 .cut-candidate-row {
   display: flex;
   align-items: center;
@@ -6462,4 +6623,75 @@ select:focus { outline: none; border-color: rgba(200,168,74,0.6); box-shadow: 0 
   padding: 2px 5px;
   font-size: .78rem;
   font-family: 'JetBrains Mono', monospace;
+}
+
+/* ── Collaborator permission badge ───────────────────────────────────────── */
+.collab-perm-badge {
+  font-size: 0.72rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: opacity 0.15s;
+}
+.collab-perm-badge--edit {
+  background: rgba(0,180,160,0.18);
+  color: var(--teal);
+  border-color: rgba(0,180,160,0.35);
+}
+.collab-perm-badge--view {
+  background: rgba(200,160,60,0.18);
+  color: var(--gold);
+  border-color: rgba(200,160,60,0.35);
+}
+.collab-perm-badge:hover { opacity: 0.75; }
+
+.collab-perm-select {
+  font-size: 0.8rem;
+  padding: 4px 8px;
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  color: var(--text);
+  border-radius: var(--radius);
+}
+
+/* ── Collab / collection share row ───────────────────────────────────────── */
+.collab-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+}
+.collab-row:last-child { border-bottom: none; }
+.collab-email {
+  flex: 1;
+  font-size: 0.82rem;
+  color: var(--text2);
+}
+.collab-remove-btn {
+  color: var(--text3);
+  padding: 2px 6px;
+}
+
+/* ── Shared-from chip on find-card results ───────────────────────────────── */
+.find-card-shared-from {
+  position: absolute;
+  bottom: 4px;
+  left: 4px;
+  right: 4px;
+  background: rgba(60,120,200,0.85);
+  color: #fff;
+  font-size: 0.58rem;
+  font-weight: 700;
+  text-align: center;
+  padding: 2px 4px;
+  border-radius: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
 }

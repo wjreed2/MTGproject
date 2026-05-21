@@ -1,5 +1,47 @@
 // Collection tab — rendering, filtering, card detail modal
 
+// ── Shared collection view state ──────────────────────────────────────────────
+let _viewingSharedCollOwnerId = null;
+
+function _getCollectionSource() {
+  if (!_viewingSharedCollOwnerId) return collection;
+  const sc = (typeof sharedCollections !== 'undefined' ? sharedCollections : [])
+    .find(s => s.ownerId === _viewingSharedCollOwnerId);
+  return sc ? sc.cards : collection;
+}
+
+function viewSharedCollection(ownerId) {
+  _viewingSharedCollOwnerId = ownerId;
+  closeCollectionShareModal();
+  showTab('collection');
+  _syncSharedCollectionBanner();
+  renderCollection();
+  updateStats();
+}
+
+function exitSharedCollectionView() {
+  _viewingSharedCollOwnerId = null;
+  _sharedCollHistory = null;
+  _syncSharedCollectionBanner();
+  renderCollection();
+  if (_historyVisible) renderCollectionHistory();
+  updateStats();
+}
+
+function _syncSharedCollectionBanner() {
+  const banner = document.getElementById('sharedCollViewBanner');
+  if (!banner) return;
+  if (!_viewingSharedCollOwnerId) {
+    banner.style.display = 'none';
+    return;
+  }
+  const sc = (typeof sharedCollections !== 'undefined' ? sharedCollections : [])
+    .find(s => s.ownerId === _viewingSharedCollOwnerId);
+  banner.style.display = 'flex';
+  document.getElementById('sharedCollBannerLabel').textContent =
+    `Viewing ${sc?.ownerEmail ?? 'shared'} collection`;
+}
+
 // ── Scryfall-like query parser ────────────────────────────────────────────────
 const NEW_CARD_WINDOW_MS = 30 * 60 * 1000;
 let _collectionTagSearchDebounce = null;
@@ -120,7 +162,7 @@ function matchToken(card, tok) {
 }
 
 function getFilteredCollection() {
-  let cards = [...collection];
+  let cards = [..._getCollectionSource()];
 
   if (showStarredCardsOnly) cards = cards.filter(c => c.starred);
 
@@ -333,10 +375,12 @@ function renderCollection() {
   const grid = document.getElementById('cardGrid');
   const empty = document.getElementById('collectionEmpty');
   const cards = getFilteredCollection();
+  const isSharedView = !!_viewingSharedCollOwnerId;
+  const source = _getCollectionSource();
 
-  if (collection.length === 0) {
+  if (source.length === 0) {
     grid.style.display = 'none';
-    empty.style.display = 'block';
+    empty.style.display = isSharedView ? 'none' : 'block';
     updateStats();
     return;
   }
@@ -353,8 +397,8 @@ function renderCollection() {
         <div class="card-img-wrap${c.foil ? ' foil' : ''}">
           ${tileImg ? `<img src="${tileImg}" loading="lazy" alt="${c.name}">` : '<div class="card-img-placeholder">?</div>'}
           ${c.foil ? `<div class="card-foil-overlay"></div><div class="card-foil-badge">✦ FOIL</div>` : ''}
-          ${isRecentlyAdded(c) ? `<div class="card-new-badge" title="New card"></div>` : ''}
-          <button type="button" class="collection-card-star${c.starred ? ' is-starred' : ''}" data-card-uid="${c.uid}" onclick="toggleCardStar('${c.uid}',event)" aria-pressed="${c.starred ? 'true' : 'false'}" aria-label="${c.starred ? 'Unstar card' : 'Star card'}">${c.starred ? '★' : '☆'}</button>
+          ${!isSharedView && isRecentlyAdded(c) ? `<div class="card-new-badge" title="New card"></div>` : ''}
+          ${!isSharedView ? `<button type="button" class="collection-card-star${c.starred ? ' is-starred' : ''}" data-card-uid="${c.uid}" onclick="toggleCardStar('${c.uid}',event)" aria-pressed="${c.starred ? 'true' : 'false'}" aria-label="${c.starred ? 'Unstar card' : 'Star card'}">${c.starred ? '★' : '☆'}</button>` : ''}
         </div>
         <div class="card-meta">
           <div class="card-name">${c.name}</div>
@@ -377,8 +421,8 @@ function renderCollection() {
         <div class="card-img-wrap${c.foil ? ' foil' : ''}">
           ${tileImg ? `<img src="${tileImg}" loading="lazy" alt="${c.name}">` : `<div class="card-img-placeholder"><svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="1"><rect x="2" y="2" width="20" height="20" rx="2"/><path d="M8 12h8M12 8v8"/></svg><span>${c.set.toUpperCase()}</span></div>`}
           ${c.foil ? `<div class="card-foil-overlay"></div><div class="card-foil-badge">✦ FOIL</div>` : ''}
-          ${isRecentlyAdded(c) ? `<div class="card-new-badge" title="New card"></div>` : ''}
-          <button type="button" class="collection-card-star${c.starred ? ' is-starred' : ''}" data-card-uid="${c.uid}" onclick="toggleCardStar('${c.uid}',event)" aria-pressed="${c.starred ? 'true' : 'false'}" aria-label="${c.starred ? 'Unstar card' : 'Star card'}">${c.starred ? '★' : '☆'}</button>
+          ${!isSharedView && isRecentlyAdded(c) ? `<div class="card-new-badge" title="New card"></div>` : ''}
+          ${!isSharedView ? `<button type="button" class="collection-card-star${c.starred ? ' is-starred' : ''}" data-card-uid="${c.uid}" onclick="toggleCardStar('${c.uid}',event)" aria-pressed="${c.starred ? 'true' : 'false'}" aria-label="${c.starred ? 'Unstar card' : 'Star card'}">${c.starred ? '★' : '☆'}</button>` : ''}
         </div>
         <div class="card-meta">
           <div class="card-name">${c.name}</div>
@@ -1130,6 +1174,7 @@ function setCardCustomCmc(actionUid, rawVal) {
     if (deck) {
       renderManaCurve(deck);
       if (typeof renderManaGenerationProfile === 'function') renderManaGenerationProfile(deck);
+      if (typeof renderCommanderGameplan === 'function') renderCommanderGameplan(deck);
     }
   }
 
@@ -1142,6 +1187,156 @@ function setCardCustomCmc(actionUid, rawVal) {
     const isCustom = customCmc !== null && customCmc !== defaultCmc;
     if (resetBtn) resetBtn.style.display = isCustom ? '' : 'none';
     if (input) input.style.color = isCustom ? 'var(--gold)' : '';
+  }
+}
+
+function setCardCustomPip(actionUid, color, rawVal) {
+  const val = String(rawVal ?? '').trim();
+  const parsed = parseInt(val, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) return;
+
+  const ref = String(actionUid || '');
+  const baseCard = collection.find(c => c.uid === ref || c.scryfallId === ref)
+    || (decks || []).flatMap(d => d.cards || []).find(c => c.uid === ref || c.scryfallId === ref);
+  if (!baseCard) return;
+  const naturalPips = typeof _parseManaSymbols === 'function' ? _parseManaSymbols(baseCard.mana || '') : { W: 0, U: 0, B: 0, R: 0, G: 0 };
+  const naturalCmc = baseCard.cmc ?? 0;
+  const nameLow = (baseCard.name || '').toLowerCase();
+
+  // Pips drive CMC: new total = sum of all colored pips after the change.
+  // User can then manually raise CMC above that total to add generic mana.
+  let newPipTotal = null;
+  let newPips = null;
+
+  const applyTo = (card) => {
+    if (!card) return false;
+    const base = (card.customPips && typeof card.customPips === 'object')
+      ? { W: 0, U: 0, B: 0, R: 0, G: 0, ...card.customPips }
+      : { W: naturalPips.W || 0, U: naturalPips.U || 0, B: naturalPips.B || 0, R: naturalPips.R || 0, G: naturalPips.G || 0 };
+    base[color] = parsed;
+    const isDefault = ['W','U','B','R','G'].every(c => (base[c] || 0) === (naturalPips[c] || 0));
+    if (isDefault) delete card.customPips;
+    else card.customPips = base;
+    // Sync CMC to colored pip total
+    const pipTotal = ['W','U','B','R','G'].reduce((s, c) => s + (base[c] || 0), 0);
+    if (pipTotal !== naturalCmc) card.customCmc = pipTotal;
+    else delete card.customCmc;
+    newPipTotal = pipTotal;
+    newPips = base;
+    return true;
+  };
+
+  let collChanged = false;
+  for (const c of collection) {
+    if ((c.uid === ref || c.scryfallId === ref || (nameLow && c.name?.toLowerCase() === nameLow)) && applyTo(c)) collChanged = true;
+  }
+  if (collChanged) save('collection');
+
+  for (const deck of (decks || [])) {
+    let changed = false;
+    const zones = [deck.cards, deck.maybeboard, deck.sideboard].filter(Array.isArray);
+    for (const zone of zones) {
+      for (const c of zone) {
+        if (c.uid === ref || c.scryfallId === ref || (nameLow && c.name?.toLowerCase() === nameLow)) {
+          applyTo(c); changed = true;
+        }
+      }
+    }
+    if (changed && typeof saveActiveDeck === 'function') saveActiveDeck(deck);
+  }
+
+  if (typeof renderManaCurve === 'function' && typeof getActiveDeck === 'function') {
+    const deck = getActiveDeck();
+    if (deck) {
+      renderManaCurve(deck);
+      if (typeof renderCommanderGameplan === 'function') renderCommanderGameplan(deck);
+    }
+  }
+
+  // Update pip UI
+  const wrap = document.getElementById('cardDetailCustomPipsWrap');
+  if (wrap) {
+    wrap.querySelectorAll('input[data-color]').forEach(inp => {
+      const def = parseInt(inp.dataset.defaultPip || '0', 10);
+      const cur = parseInt(inp.value || '0', 10);
+      inp.style.color = cur !== def ? 'var(--gold)' : '';
+    });
+    const hasCustom = ['W','U','B','R','G'].some(c => {
+      const inp = wrap.querySelector(`input[data-color="${c}"]`);
+      return inp ? parseInt(inp.value || '0', 10) !== parseInt(inp.dataset.defaultPip || '0', 10) : false;
+    });
+    const resetBtn = wrap.querySelector('.card-detail-pips-reset');
+    if (resetBtn) resetBtn.style.display = hasCustom ? '' : 'none';
+  }
+
+  // Sync CMC input to new pip total
+  if (newPipTotal !== null) {
+    const cmcWrap = document.getElementById('cardDetailCustomCmcWrap');
+    if (cmcWrap) {
+      const cmcInput = cmcWrap.querySelector('input');
+      const cmcReset = cmcWrap.querySelector('.card-detail-cmc-reset');
+      const defaultCmc = parseFloat(cmcInput?.dataset.defaultCmc ?? '0');
+      if (cmcInput) {
+        cmcInput.value = newPipTotal;
+        cmcInput.style.color = newPipTotal !== defaultCmc ? 'var(--gold)' : '';
+      }
+      if (cmcReset) cmcReset.style.display = newPipTotal !== defaultCmc ? '' : 'none';
+    }
+  }
+}
+
+function resetCardCustomPips(actionUid) {
+  const ref = String(actionUid || '');
+  const baseCard = collection.find(c => c.uid === ref || c.scryfallId === ref)
+    || (decks || []).flatMap(d => d.cards || []).find(c => c.uid === ref || c.scryfallId === ref);
+  const nameLow = (baseCard?.name || '').toLowerCase();
+
+  let collChanged = false;
+  for (const c of collection) {
+    if (c.uid === ref || c.scryfallId === ref || (nameLow && c.name?.toLowerCase() === nameLow)) {
+      delete c.customPips; delete c.customCmc; collChanged = true;
+    }
+  }
+  if (collChanged) save('collection');
+
+  for (const deck of (decks || [])) {
+    let changed = false;
+    const zones = [deck.cards, deck.maybeboard, deck.sideboard].filter(Array.isArray);
+    for (const zone of zones) {
+      for (const c of zone) {
+        if (c.uid === ref || c.scryfallId === ref || (nameLow && c.name?.toLowerCase() === nameLow)) {
+          delete c.customPips; delete c.customCmc; changed = true;
+        }
+      }
+    }
+    if (changed && typeof saveActiveDeck === 'function') saveActiveDeck(deck);
+  }
+
+  if (typeof renderManaCurve === 'function' && typeof getActiveDeck === 'function') {
+    const deck = getActiveDeck();
+    if (deck) {
+      renderManaCurve(deck);
+      if (typeof renderCommanderGameplan === 'function') renderCommanderGameplan(deck);
+    }
+  }
+
+  const wrap = document.getElementById('cardDetailCustomPipsWrap');
+  if (wrap) {
+    wrap.querySelectorAll('input[data-color]').forEach(inp => {
+      inp.value = inp.dataset.defaultPip || '0';
+      inp.style.color = '';
+    });
+    const resetBtn = wrap.querySelector('.card-detail-pips-reset');
+    if (resetBtn) resetBtn.style.display = 'none';
+  }
+  // Also reset the CMC input to natural
+  const cmcWrap = document.getElementById('cardDetailCustomCmcWrap');
+  if (cmcWrap) {
+    const cmcInput = cmcWrap.querySelector('input');
+    const cmcReset = cmcWrap.querySelector('.card-detail-cmc-reset');
+    const defaultCmc = parseFloat(cmcInput?.dataset.defaultCmc ?? '0');
+    if (cmcInput) { cmcInput.value = defaultCmc; cmcInput.style.color = ''; }
+    if (cmcReset) cmcReset.style.display = 'none';
   }
 }
 
@@ -1284,6 +1479,11 @@ function _htmlOpenCardDetailRightColumn(ctx) {
     : '<span style="font-size:0.72rem;color:var(--text3)">No tags yet</span>';
   const actionUidRef = (actionUid || '').replace(/'/g, "\\'");
   const printBtn = _showCardDetailChangePrinting(ctx) ? _htmlCardDetailChangePrintingBtn() : '';
+  const _naturalPips = typeof _parseManaSymbols === 'function' ? _parseManaSymbols(card.mana || '') : { W: 0, U: 0, B: 0, R: 0, G: 0 };
+  const _curPips = (card.customPips && typeof card.customPips === 'object')
+    ? { W: 0, U: 0, B: 0, R: 0, G: 0, ...card.customPips }
+    : _naturalPips;
+  const _hasCustomPips = card.customPips != null;
   const showInDeckRow = !!(activeDeck && _isDeckBuilderMainTabActive());
   const inDeckInner = showInDeckRow
     ? `<span class="card-detail-qty-row-label">In deck:</span>
@@ -1323,6 +1523,25 @@ function _htmlOpenCardDetailRightColumn(ctx) {
             style="display:${card.customCmc != null && card.customCmc !== (card.cmc ?? 0) ? '' : 'none'}"
             onclick="setCardCustomCmc('${actionUidRef}', '')" title="Reset to Scryfall default (${card.cmc ?? 0})">Reset</button>
           <span style="font-size:0.75rem;color:var(--text3)">(Scryfall: ${card.cmc ?? 0})</span>
+        </div>
+        <div id="cardDetailCustomPipsWrap" style="display:flex;align-items:center;gap:6px;margin-bottom:0.75rem;flex-wrap:wrap">
+          <span style="font-size:0.78rem;color:var(--text3);letter-spacing:0.04em;white-space:nowrap">PIPS</span>
+          ${['W','U','B','R','G'].map(col => {
+            const cur = _curPips[col] || 0;
+            const def = _naturalPips[col] || 0;
+            return `<label style="display:flex;align-items:center;gap:2px" title="${{W:'White',U:'Blue',B:'Black',R:'Red',G:'Green'}[col]} pips">
+              <img src="https://svgs.scryfall.io/card-symbols/${col}.svg" class="mana-pip" alt="${col}" style="width:14px;height:14px;box-shadow:none">
+              <input type="number" min="0" step="1"
+                value="${cur}"
+                data-color="${col}"
+                data-default-pip="${def}"
+                oninput="setCardCustomPip('${actionUidRef}', '${col}', this.value)"
+                style="width:30px;padding:1px 3px;font-size:0.8rem;border:1px solid var(--border2);border-radius:3px;background:var(--bg2);color:${cur !== def ? 'var(--gold)' : 'var(--text)'};text-align:center">
+            </label>`;
+          }).join('')}
+          <button class="btn btn-sm btn-outline card-detail-pips-reset"
+            style="display:${_hasCustomPips ? '' : 'none'}"
+            onclick="resetCardCustomPips('${actionUidRef}')" title="Reset pips to Scryfall default">Reset</button>
         </div>
         <div id="cardDetailRowCollection" class="card-detail-qty-row">
           <span class="card-detail-qty-row-label">In collection:</span>
@@ -1414,6 +1633,7 @@ async function openCardDetail(uid, navMode, opts) {
           sourceCard.qty = poolCard.qty ?? sourceCard.qty;
           sourceCard.foil = !!poolCard.foil;
           if (poolCard.customCmc != null) sourceCard.customCmc = poolCard.customCmc;
+          if (poolCard.customPips != null) sourceCard.customPips = { ...poolCard.customPips };
           if (Array.isArray(poolCard.deckTags)) sourceCard.deckTags = poolCard.deckTags.slice();
         }
       }
@@ -1428,6 +1648,13 @@ async function openCardDetail(uid, navMode, opts) {
         wishlist.find(c => c.scryfallId === uid || c.uid === uid) ||
         deckCards.find(c => c.uid === uid || c.scryfallId === uid)
       );
+  }
+  // Fall back to shared collections (read-only view)
+  if (!sourceCard && typeof sharedCollections !== 'undefined') {
+    for (const sc of sharedCollections) {
+      sourceCard = sc.cards.find(c => c.uid === uid || c.scryfallId === uid);
+      if (sourceCard) break;
+    }
   }
   if (!sourceCard && _looksLikeScryfallCardId(uid)) {
     try {
@@ -1453,6 +1680,7 @@ async function openCardDetail(uid, navMode, opts) {
       card.qty = ownedCard.qty ?? card.qty;
       card.foil = !!ownedCard.foil;
       if (ownedCard.customCmc != null) card.customCmc = ownedCard.customCmc;
+      if (ownedCard.customPips != null) card.customPips = { ...ownedCard.customPips };
       if (Array.isArray(ownedCard.deckTags)) card.deckTags = ownedCard.deckTags.slice();
     }
   } else {
@@ -1803,12 +2031,24 @@ function recordCollectionEvent(type, card, delta) {
 }
 
 let _historyVisible = false;
+let _sharedCollHistory = null; // cached history for the currently-viewed shared collection
 
-function toggleCollectionHistory() {
+async function toggleCollectionHistory() {
   _historyVisible = !_historyVisible;
   document.getElementById('tab-collection')?.classList.toggle('history-active', _historyVisible);
   document.getElementById('historyBtn')?.classList.toggle('active', _historyVisible);
-  if (_historyVisible) renderCollectionHistory();
+  if (_historyVisible) {
+    if (_viewingSharedCollOwnerId) {
+      _sharedCollHistory = null;
+      renderCollectionHistory();
+      try {
+        _sharedCollHistory = await apiFetch(`/collection/shared/${_viewingSharedCollOwnerId}/history`);
+      } catch (_) {
+        _sharedCollHistory = [];
+      }
+    }
+    renderCollectionHistory();
+  }
 }
 
 function _collectionHistoryPackEv(ev) {
@@ -1951,14 +2191,23 @@ function renderCollectionHistory() {
   const esc = typeof _escapeHistoryHtml === 'function'
     ? _escapeHistoryHtml
     : (s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'));
-  if (!collectionHistory.length) {
-    panel.innerHTML = '<div class="history-empty">No history yet — add or remove cards to see changes here.</div>';
+
+  const isSharedView = !!_viewingSharedCollOwnerId;
+  const history = isSharedView ? _sharedCollHistory : collectionHistory;
+
+  if (isSharedView && history === null) {
+    panel.innerHTML = '<div class="history-empty">Loading history…</div>';
     return;
   }
+  if (!history || !history.length) {
+    panel.innerHTML = '<div class="history-empty">No history yet.</div>';
+    return;
+  }
+
   const todayKey = new Date().toDateString();
   const yestKey  = new Date(Date.now() - 86400000).toDateString();
   const days = {};
-  for (const ev of collectionHistory) {
+  for (const ev of history) {
     const key = new Date(ev.ts).toDateString();
     (days[key] = days[key] || []).push(ev);
   }
@@ -1978,21 +2227,20 @@ function renderCollectionHistory() {
         const img   = ev.image
           ? `<img class="history-card-img" src="${imgSrc}" alt="" loading="lazy">`
           : `<div class="history-card-img-placeholder"></div>`;
-        const live = _historyResolveLiveCollectionCard(ev);
-        const canFoil = !!(live && live.scryfallId);
         const pack = _collectionHistoryPackEv(ev);
-        const entryQtyCap = Math.max(1, Math.abs(Number(ev.delta)) || 1);
-        const foilBtn = !live
-          ? ''
-          : (canFoil
+        let foilBtn = '', removeBtn = '', missing = '';
+        if (!isSharedView) {
+          const live = _historyResolveLiveCollectionCard(ev);
+          const canFoil = !!(live && live.scryfallId);
+          const entryQtyCap = Math.max(1, Math.abs(Number(ev.delta)) || 1);
+          foilBtn = !live ? '' : (canFoil
             ? `<button type="button" class="btn btn-outline btn-sm history-row-btn" onclick="historyCollectionToggleFoilFromRow('${pack}')" title="Moves up to ${entryQtyCap} card(s) from this log line (not your full stack)">${live.foil ? 'Non-foil' : 'Foil'}</button>`
             : '');
-        const removeBtn = live
-          ? `<button type="button" class="btn btn-ghost btn-sm history-row-btn history-row-btn--danger" onclick="historyCollectionRemoveFromRow('${pack}')">Remove</button>`
-          : '';
-        const missing = !live
-          ? '<span class="history-not-in-coll">Not in collection</span>'
-          : '';
+          removeBtn = live
+            ? `<button type="button" class="btn btn-ghost btn-sm history-row-btn history-row-btn--danger" onclick="historyCollectionRemoveFromRow('${pack}')">Remove</button>`
+            : '';
+          missing = !live ? '<span class="history-not-in-coll">Not in collection</span>' : '';
+        }
         return `<div class="history-event">
           ${img}
           <div class="history-event-info">
@@ -2001,10 +2249,7 @@ function renderCollectionHistory() {
             <div class="history-event-time">${time}</div>
             ${missing}
           </div>
-          <div class="history-event-actions">
-            ${foilBtn}
-            ${removeBtn}
-          </div>
+          <div class="history-event-actions">${foilBtn}${removeBtn}</div>
           <div class="history-event-badge ${isAdd ? 'history-add' : 'history-remove'}">${isAdd ? '+' : '−'}${ev.delta}</div>
         </div>`;
       }).join('')}
@@ -2273,6 +2518,16 @@ function _syncFindFilterBtns(q) {
 let _findSearchOffset = 0;
 let _findSearchTotal = 0;
 let _findSearchQuery = '';
+let _deckPoolSource = localStorage.getItem('mtg_deck_pool_source') || 'mine';
+
+function setDeckPoolSource(src) {
+  _deckPoolSource = src;
+  localStorage.setItem('mtg_deck_pool_source', src);
+  document.getElementById('deckPoolMineBtn')?.classList.toggle('active', src === 'mine');
+  document.getElementById('deckPoolSharedBtn')?.classList.toggle('active', src === 'sharedWith');
+  const q = (document.getElementById('findCardInput')?.value || '').trim();
+  if (q.length >= 2) runFindCard(q);
+}
 
 function findCardAutocomplete(q) {
   const drop = document.getElementById('findCardAutocomplete');
@@ -2325,6 +2580,19 @@ function _renderFindCard(cards, el, append, total, isTokenQuery) {
     document.getElementById('voiceModal')?.classList.contains('open') &&
     typeof voiceAddToActiveDeckMode !== 'undefined' && voiceAddToActiveDeckMode
   );
+  const useSharedPool = deckBuilderVoiceMode && _deckPoolSource === 'sharedWith';
+  // Build a lookup: scryfallId → [ownerEmail,...] from shared collections
+  const sharedOwnersByScryId = {};
+  if (useSharedPool && typeof sharedCollections !== 'undefined') {
+    for (const sc of sharedCollections) {
+      for (const card of (sc.cards || [])) {
+        if (!sharedOwnersByScryId[card.scryfallId]) sharedOwnersByScryId[card.scryfallId] = [];
+        if (!sharedOwnersByScryId[card.scryfallId].includes(sc.ownerEmail))
+          sharedOwnersByScryId[card.scryfallId].push(sc.ownerEmail);
+      }
+    }
+  }
+
   if (!append) el.innerHTML = '';
   if (!cards.length && !append) {
     el.innerHTML = '<div style="grid-column:1/-1;padding:1rem;font-size:0.85rem;color:var(--text3)">No cards found</div>';
@@ -2334,11 +2602,25 @@ function _renderFindCard(cards, el, append, total, isTokenQuery) {
   for (const c of cards) {
     const uris   = c.image_uris || c.card_faces?.[0]?.image_uris;
     const img    = uris?.large || uris?.png || uris?.normal || uris?.small || null;
-    const nfQty  = collection.filter(x => x.uid === c.id + '_n').reduce((s,x)=>s+x.qty,0);
-    const fQty   = collection.filter(x => x.uid === c.id + '_f').reduce((s,x)=>s+x.qty,0);
-    const inColl = nfQty > 0 || fQty > 0;
-    const border = inColl ? '2px solid var(--teal)' : '1px solid var(--border)';
-    const cardFilter = deckBuilderVoiceMode && !inColl ? 'grayscale(72%) opacity(0.62)' : '';
+
+    let inColl, border, cardFilter, fromLabel;
+    if (useSharedPool) {
+      const owners = sharedOwnersByScryId[c.id] || [];
+      inColl = owners.length > 0;
+      border = inColl ? '2px solid var(--blue)' : '1px solid var(--border)';
+      cardFilter = !inColl ? 'grayscale(72%) opacity(0.62)' : '';
+      fromLabel = inColl ? owners.map(e => e.split('@')[0]).join(', ') : '';
+    } else {
+      const nfQty = collection.filter(x => x.uid === c.id + '_n').reduce((s,x)=>s+x.qty,0);
+      const fQty  = collection.filter(x => x.uid === c.id + '_f').reduce((s,x)=>s+x.qty,0);
+      inColl = nfQty > 0 || fQty > 0;
+      border = inColl ? '2px solid var(--teal)' : '1px solid var(--border)';
+      cardFilter = deckBuilderVoiceMode && !inColl ? 'grayscale(72%) opacity(0.62)' : '';
+      fromLabel = '';
+      var nfQtyDisplay = nfQty;
+      var fQtyDisplay  = fQty;
+    }
+
     const div = document.createElement('div');
     div.className = 'deck-search-tile';
     div.dataset.add = 'find:' + c.id;
@@ -2355,8 +2637,9 @@ function _renderFindCard(cards, el, append, total, isTokenQuery) {
     div.innerHTML = `<div data-img-wrapper style="aspect-ratio:0.715;overflow:hidden;border-radius:6px;border:${border};position:relative;transition:border-color 0.15s;${cardFilter ? `filter:${cardFilter};` : ''}">
       ${img ? `<img src="${img}" class="find-card-results-img" alt="${c.name}" loading="lazy">` : `<div style="width:100%;height:100%;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:0.68rem;padding:6px;text-align:center;color:var(--text2)">${c.name}</div>`}
       <div data-badges style="position:absolute;inset:0;pointer-events:none">
-        ${nfQty > 0 ? `<div class="find-card-results-qty find-card-results-qty--nf">×${nfQty}</div>` : ''}
-        ${fQty  > 0 ? `<div class="find-card-results-qty find-card-results-qty--foil">✦×${fQty}</div>` : ''}
+        ${!useSharedPool && (nfQtyDisplay > 0) ? `<div class="find-card-results-qty find-card-results-qty--nf">×${nfQtyDisplay}</div>` : ''}
+        ${!useSharedPool && (fQtyDisplay  > 0) ? `<div class="find-card-results-qty find-card-results-qty--foil">✦×${fQtyDisplay}</div>` : ''}
+        ${fromLabel ? `<div class="find-card-shared-from">From ${fromLabel}</div>` : ''}
       </div>
     </div>`;
     frag.appendChild(div);
@@ -2516,3 +2799,96 @@ function addCardToCollection(scryfallCard, qty, foil) {
     showNotif('Could not add card (no active deck)', true);
   }
 }
+
+// ── Collection sharing modal ──────────────────────────────────────────────────
+
+let _collectionShares = []; // [{ id, email, addedAt }] — who I'm sharing with
+
+async function openCollectionShareModal() {
+  const modal = document.getElementById('collectionShareModal');
+  if (!modal) return;
+  modal.classList.add('open');
+  await _refreshCollectionShareModal();
+}
+
+function closeCollectionShareModal() {
+  document.getElementById('collectionShareModal')?.classList.remove('open');
+}
+
+async function _refreshCollectionShareModal() {
+  // My shares
+  try {
+    _collectionShares = await apiFetch('/collection/shares');
+  } catch (_) {
+    _collectionShares = [];
+  }
+  _renderCollectionShareList();
+  _renderSharedWithMe();
+}
+
+function _renderCollectionShareList() {
+  const listEl = document.getElementById('collectionShareList');
+  if (!listEl) return;
+  if (!_collectionShares.length) {
+    listEl.innerHTML = '<p style="font-size:0.83rem;color:var(--text3);margin:0">Not sharing with anyone yet.</p>';
+    return;
+  }
+  listEl.innerHTML = _collectionShares.map(s => `
+    <div class="collab-row">
+      <span class="collab-email">${s.email}</span>
+      <button class="btn btn-ghost btn-sm" onclick="removeCollectionShare(${s.id})" title="Revoke access" style="color:var(--red);padding:2px 6px">✕</button>
+    </div>
+  `).join('');
+}
+
+function _renderSharedWithMe() {
+  const el = document.getElementById('collectionSharedWithMe');
+  if (!el) return;
+  const sc = typeof sharedCollections !== 'undefined' ? sharedCollections : [];
+  if (!sc.length) {
+    el.innerHTML = '<p style="font-size:0.83rem;color:var(--text3);margin:0">No one has shared their collection with you yet.</p>';
+    return;
+  }
+  el.innerHTML = sc.map(s => {
+    const count = (s.cards || []).length;
+    const uniqueNames = new Set((s.cards || []).map(c => c.name)).size;
+    return `
+      <div class="collab-row" style="cursor:pointer" onclick="viewSharedCollection(${s.ownerId})">
+        <span class="collab-email">${s.ownerEmail}</span>
+        <span style="font-size:0.75rem;color:var(--text3);white-space:nowrap">${uniqueNames.toLocaleString()} unique · ${count.toLocaleString()} cards</span>
+        <span style="font-size:0.78rem;color:var(--teal);margin-left:4px">View →</span>
+      </div>`;
+  }).join('');
+}
+
+
+async function addCollectionShare() {
+  const input = document.getElementById('collectionShareEmail');
+  const errEl = document.getElementById('collectionShareError');
+  const email = (input?.value || '').trim().toLowerCase();
+  if (!email) return;
+  if (errEl) errEl.textContent = '';
+  try {
+    await apiPostJson('/collection/shares', { email });
+    if (input) input.value = '';
+    showNotif(`Shared collection with ${email}`);
+    await _refreshCollectionShareModal();
+  } catch (e) {
+    if (errEl) errEl.textContent = e.message || 'Could not share collection';
+  }
+}
+
+async function removeCollectionShare(viewerId) {
+  const errEl = document.getElementById('collectionShareError');
+  if (errEl) errEl.textContent = '';
+  try {
+    await apiDelete('/collection/shares/' + viewerId);
+    showNotif('Collection share removed');
+    await _refreshCollectionShareModal();
+  } catch (e) {
+    if (errEl) errEl.textContent = e.message || 'Could not remove share';
+  }
+}
+
+// Keep old name for backward compat (called from state.js and ui.js on load/tab switch)
+async function renderCollectionSharePanel() { /* no-op — panel moved to modal */ }

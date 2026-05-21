@@ -430,6 +430,17 @@ function renderVoiceDeckCollectionToggle() {
   );
   wrap.style.display = show ? '' : 'none';
   chk.checked = !!voiceDeckAddToCollectionEnabled;
+
+  // Show pool source toggle only when shared collections are available
+  const poolWrap = document.getElementById('deckPoolSourceWrap');
+  if (poolWrap) {
+    const hasShared = typeof sharedCollections !== 'undefined' && sharedCollections.length > 0;
+    poolWrap.style.display = show && hasShared ? '' : 'none';
+    // Sync button active states with current pool source
+    const src = typeof _deckPoolSource !== 'undefined' ? _deckPoolSource : 'mine';
+    document.getElementById('deckPoolMineBtn')?.classList.toggle('active', src === 'mine');
+    document.getElementById('deckPoolSharedBtn')?.classList.toggle('active', src === 'sharedWith');
+  }
 }
 
 function toggleVoiceDeckAddCollection() {

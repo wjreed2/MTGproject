@@ -11,6 +11,7 @@ function showTab(t) {
   else if (typeof event !== 'undefined' && event?.currentTarget) event.currentTarget.classList.add('active');
   const mobItem = document.querySelector(`.mob-nav-item[data-tab="${t}"]`);
   if (mobItem) mobItem.classList.add('active');
+  if (t !== 'collection' && typeof exitSharedCollectionView === 'function' && typeof _viewingSharedCollOwnerId !== 'undefined' && _viewingSharedCollOwnerId) exitSharedCollectionView();
   if (t === 'collection') renderCollection();
   if (t === 'sets') loadSets();
   if (t === 'decks') renderDecks();
@@ -99,7 +100,8 @@ const _modalCloseMap = {
   deckTagManagerModal:   () => closeDeckTagManager(),
   deckCardTagModal:      () => closeDeckCardTagPicker(),
   skeletonBuilderModal:  () => closeSkeletonBuilderModal(),
-  changeDeckFormatModal: () => closeChangeDeckFormatModal(),
+  changeDeckFormatModal:   () => closeChangeDeckFormatModal(),
+  collectionShareModal:       () => closeCollectionShareModal(),
   commanderPickerModal:  () => closeCommanderEdit(),
   whatsNewModal:         () => { void closeWhatsNewModal(); },
 };
@@ -165,8 +167,13 @@ async function refreshWhatsNewUpdateBadge() {
 async function openWhatsNewFromMenu() {
   if (typeof closeSettingsDropdown === 'function') closeSettingsDropdown();
   try {
-    const d = await authFetchDigest();
-    openWhatsNewModal(d);
+    if (typeof isAdmin === 'function' && isAdmin()) {
+      const data = await apiFetch('/admin/changelog');
+      openWhatsNewModal({ adminEntries: data.entries || [] });
+    } else {
+      const d = await authFetchDigest();
+      openWhatsNewModal(d);
+    }
   } catch (_) {
     showNotif('Could not load updates', true);
   }
@@ -182,39 +189,91 @@ function _escapeWhatsNewHtml(s) {
 function openWhatsNewModal(digest) {
   const overlay = document.getElementById('whatsNewModal');
   const body = document.getElementById('whatsNewModalBody');
+  const adminNote = document.getElementById('whatsNewAdminNote');
   if (!overlay || !body || !digest) return;
 
   const esc = _escapeWhatsNewHtml;
+  const isAdminView = Array.isArray(digest.adminEntries);
+  if (adminNote) adminNote.hidden = !isAdminView;
 
   const parts = [];
 
-  const renderEntry = f => {
+  const renderEntry = (f, opts = {}) => {
     const area = f.area ? ` <span class="whats-new-area">${esc(f.area)}</span>` : '';
-    const when = new Date(f.at).toLocaleDateString(undefined, { dateStyle: 'medium' });
-    return `<li><span class="whats-new-item-title">${esc(f.title)}</span>${area}`
+    const at = f.at != null ? f.at : f.published_at;
+    const when = at ? new Date(at).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '';
+    const deleteBtn = opts.adminId
+      ? `<button type="button" class="btn btn-danger-ghost btn-sm whats-new-delete-btn" title="Remove from database" onclick="deleteChangelogEntry(event, ${opts.adminId})">Delete</button>`
+      : '';
+    return `<li class="whats-new-item-row">${deleteBtn}<div class="whats-new-item-body"><span class="whats-new-item-title">${esc(f.title)}</span>${area}`
       + `<div class="whats-new-item-summary">${esc(f.summary || '')}</div>`
-      + `<div class="whats-new-item-date">${esc(when)}</div></li>`;
+      + (when ? `<div class="whats-new-item-date">${esc(when)}</div>` : '')
+      + `</div></li>`;
   };
 
-  if (digest.features && digest.features.length) {
-    parts.push('<div class="whats-new-section"><h3 class="whats-new-h">What\'s new</h3><ul class="whats-new-list">');
-    for (const f of digest.features) parts.push(renderEntry(f));
-    parts.push('</ul></div>');
-  }
+  if (isAdminView) {
+    const entries = digest.adminEntries;
+    parts.push('<p class="whats-new-lead">All release notes — delete removes the row from the database for every user.</p>');
+    if (entries.length) {
+      parts.push('<ul class="whats-new-list whats-new-list--admin">');
+      for (const e of entries) {
+        parts.push(renderEntry({
+          title: e.title,
+          summary: e.summary,
+          area: e.area,
+          at: e.published_at,
+        }, { adminId: e.id }));
+      }
+      parts.push('</ul>');
+    } else {
+      parts.push('<p class="whats-new-lead" style="color:var(--text3)">No changelog entries in the database.</p>');
+    }
+  } else {
+    if (digest.features && digest.features.length) {
+      parts.push('<div class="whats-new-section"><h3 class="whats-new-h">What\'s new</h3><ul class="whats-new-list">');
+      for (const f of digest.features) parts.push(renderEntry(f));
+      parts.push('</ul></div>');
+    }
 
-  if (digest.older && digest.older.length) {
-    parts.push('<div class="whats-new-section"><h3 class="whats-new-h" style="color:var(--text3)">Previously</h3><ul class="whats-new-list whats-new-list--older">');
-    for (const f of digest.older) parts.push(renderEntry(f));
-    parts.push('</ul></div>');
-  }
+    if (digest.older && digest.older.length) {
+      parts.push('<div class="whats-new-section"><h3 class="whats-new-h" style="color:var(--text3)">Previously</h3><ul class="whats-new-list whats-new-list--older">');
+      for (const f of digest.older) parts.push(renderEntry(f));
+      parts.push('</ul></div>');
+    }
 
-  if (!parts.length) {
-    parts.push('<p class="whats-new-lead" style="color:var(--text3)">No updates yet.</p>');
+    if (!parts.length) {
+      parts.push('<p class="whats-new-lead" style="color:var(--text3)">No updates yet.</p>');
+    }
   }
 
   body.innerHTML = parts.join('');
   overlay.classList.add('open');
 }
+
+async function deleteChangelogEntry(ev, id) {
+  ev?.stopPropagation?.();
+  ev?.preventDefault?.();
+  if (typeof isAdmin !== 'function' || !isAdmin()) return;
+  const entryId = parseInt(String(id), 10);
+  if (!Number.isFinite(entryId) || entryId <= 0) return;
+  const ok = await showConfirmModal({
+    title: 'Delete release note?',
+    body: 'This permanently removes the entry from the database. Users will no longer see it in What\'s new.',
+    okLabel: 'Delete',
+    okClass: 'btn-danger',
+  });
+  if (!ok) return;
+  try {
+    await apiDelete(`/admin/changelog/${entryId}`);
+    showNotif('Release note deleted');
+    const data = await apiFetch('/admin/changelog');
+    openWhatsNewModal({ adminEntries: data.entries || [] });
+    void refreshWhatsNewUpdateBadge();
+  } catch (e) {
+    showNotif(e.message || 'Could not delete entry', true);
+  }
+}
+window.deleteChangelogEntry = deleteChangelogEntry;
 
 async function closeWhatsNewModal() {
   document.getElementById('whatsNewModal')?.classList.remove('open');

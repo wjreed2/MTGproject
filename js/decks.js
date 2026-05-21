@@ -1142,6 +1142,13 @@ let _deckListFilter = { q: '', colors: new Set() };
 let deckSidebarCollapsed = localStorage.getItem('mtg_deck_sidebar_collapsed') === 'true';
 let _deckCardTagPickerTarget = null; // { deckId, cardUid }
 let activeDeckIsShared = false;
+
+function activeDeckPermission() {
+  if (!activeDeckIsShared) return 'owner';
+  const deck = getActiveDeck();
+  return (deck?.userPermission) || 'view';
+}
+
 const SCRYFALL_AUTO_TAGS = [
   { label: 'Ramp',           otag: 'ramp' },
   { label: 'Card Draw',      otag: 'draw' },
@@ -2407,8 +2414,8 @@ function _deckGridCard(d, isShared) {
   const issues = validateDeck(d);
   const hasErrors = issues.some(i => i.severity === 'error');
   const validBadge = hasErrors
-    ? `<span class="deck-grid-badge deck-grid-badge-error">✕ Invalid</span>`
-    : issues.length ? `<span class="deck-grid-badge deck-grid-badge-warn">⚠</span>` : '';
+    ? `<span class="deck-card-valid-dot deck-card-valid-dot--error" title="Invalid deck">✕</span>`
+    : issues.length ? `<span class="deck-card-valid-dot deck-card-valid-dot--warn" title="Deck has warnings">⚠</span>` : '';
   const pubBadge = !isShared && d.isPublic
     ? `<span class="deck-grid-badge deck-grid-badge-public">🌐</span>`
     : '';
@@ -2467,8 +2474,8 @@ function _deckSidebarItem(d) {
   const total  = d.cards.reduce((s,c)=>s+c.qty,0);
   const issues = validateDeck(d);
   const badge  = issues.some(i => i.severity === 'error')
-    ? `<span class="deck-sidebar-badge deck-sidebar-badge--error">✕ Invalid</span>`
-    : issues.length ? `<span class="deck-sidebar-badge deck-sidebar-badge--warn">⚠</span>` : '';
+    ? `<span class="deck-card-valid-dot deck-card-valid-dot--error" title="Invalid deck">✕</span>`
+    : issues.length ? `<span class="deck-card-valid-dot deck-card-valid-dot--warn" title="Deck has warnings">⚠</span>` : '';
   return `
   <div class="deck-sidebar-item ${activeDeckId === d.id ? 'active' : ''}" onclick="selectDeck('${d.id}')">
     ${_deckImage(d)
@@ -2477,8 +2484,8 @@ function _deckSidebarItem(d) {
     <div style="position:absolute;bottom:0;left:0;right:0;padding:18px 8px 7px;background:linear-gradient(transparent,rgba(0,0,0,0.85))">
       <div class="deck-sidebar-name">${d.name}</div>
       <div class="deck-sidebar-meta">${d.format} · ${total} cards</div>
-      ${badge}
     </div>
+    ${badge ? `<div style="position:absolute;bottom:7px;right:7px">${badge}</div>` : ''}
   </div>`;
 }
 
@@ -2943,12 +2950,19 @@ async function renderCollaboratorsPanel(deck) {
     if (!collabs.length) {
       listEl.innerHTML = '<div class="collab-list-msg">No collaborators yet</div>';
     } else {
-      listEl.innerHTML = collabs.map(c => `
+      listEl.innerHTML = collabs.map(c => {
+        const perm = c.permission || 'edit';
+        const nextPerm = perm === 'edit' ? 'view' : 'edit';
+        const safeEmail = c.email.replace(/'/g, "\\'");
+        return `
         <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)">
           <span class="collab-list-email">${c.email}</span>
-          <button class="btn btn-ghost btn-sm btn-icon" style="color:var(--text3);padding:2px 6px"
-            onclick="removeDeckCollaborator('${deck.id}',${c.id},'${c.email.replace(/'/g,"\\'")}')">✕</button>
-        </div>`).join('');
+          <button class="btn btn-sm collab-perm-badge collab-perm-badge--${perm}" title="Click to switch to ${nextPerm}"
+            onclick="setCollaboratorPermission('${deck.id}',${c.id},'${nextPerm}')">${perm === 'edit' ? 'Edit' : 'View'}</button>
+          <button class="btn btn-ghost btn-sm btn-icon" style="color:var(--text3);padding:2px 6px;margin-left:auto"
+            onclick="removeDeckCollaborator('${deck.id}',${c.id},'${safeEmail}')">✕</button>
+        </div>`;
+      }).join('');
     }
   } catch (e) {
     listEl.innerHTML = `<div class="collab-list-msg collab-list-msg--error">${e.message}</div>`;
@@ -2957,19 +2971,31 @@ async function renderCollaboratorsPanel(deck) {
 
 async function addDeckCollaborator() {
   const input = document.getElementById('collabEmailInput');
+  const permSelect = document.getElementById('collabPermSelect');
   const errorEl = document.getElementById('collabError');
   const email = (input?.value || '').trim();
   if (!email) return;
   const deck = getActiveDeck();
   if (!deck) return;
   if (errorEl) errorEl.textContent = '';
+  const permission = permSelect?.value === 'view' ? 'view' : 'edit';
   try {
-    const result = await apiPostJson(`/decks/${deck.id}/collaborators`, { email });
+    const result = await apiPostJson(`/decks/${deck.id}/collaborators`, { email, permission });
     if (input) input.value = '';
-    showNotif(`Added ${result.collaborator.email} as collaborator`);
+    showNotif(`Added ${result.collaborator.email} (${result.collaborator.permission})`);
     renderCollaboratorsPanel(deck);
   } catch (e) {
     if (errorEl) errorEl.textContent = e.message || 'Could not add collaborator';
+  }
+}
+
+async function setCollaboratorPermission(deckId, userId, permission) {
+  try {
+    await apiPatchJson(`/decks/${deckId}/collaborators/${userId}`, { permission });
+    const deck = getActiveDeck();
+    if (deck) renderCollaboratorsPanel(deck);
+  } catch (e) {
+    showNotif(e.message || 'Could not update permission', true);
   }
 }
 
@@ -3004,6 +3030,8 @@ function setDeckListView(view, btn) {
   if (orientToggle) orientToggle.style.display = view === 'grid' ? '' : 'none';
   const sizeWrap = document.getElementById('deckCardSizeWrap');
   if (sizeWrap) sizeWrap.style.display = view === 'grid' ? 'flex' : 'none';
+  const resetBtn = document.getElementById('deckStackLayoutResetBtn');
+  if (resetBtn) resetBtn.style.display = 'none';
   const deck = getActiveDeck();
   if (deck) renderDeckList(deck);
 }
@@ -4165,6 +4193,336 @@ function _attachDeckDragHandlers(el) {
   /* pointer drag wired via onpointerdown on each .deck-zone-draggable tile */
 }
 
+// ── Stack group reorder (drag title to swap with another group) ─────────────
+
+let _deckStackGroupDrag = null;
+
+function _deckStackGroupLayoutKey(deckId, groupBy) {
+  return `mtg_deck_stack_group_layout_${deckId || 'none'}_${groupBy || 'type'}`;
+}
+
+function _loadDeckStackGroupLayout(deckId, groupBy) {
+  try {
+    const raw = localStorage.getItem(_deckStackGroupLayoutKey(deckId, groupBy));
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (parsed?.custom === true && Array.isArray(parsed.columns)) {
+      return {
+        custom: true,
+        columns: parsed.columns.map(col => (Array.isArray(col) ? col.filter(Boolean) : [])),
+      };
+    }
+    if (parsed?.custom === true && Array.isArray(parsed.order)) {
+      return { custom: true, columns: null, legacyOrder: parsed.order.filter(Boolean) };
+    }
+  } catch { /* ignore */ }
+  return { custom: false, columns: null };
+}
+
+function _saveDeckStackGroupLayout(deckId, groupBy, columns) {
+  localStorage.setItem(
+    _deckStackGroupLayoutKey(deckId, groupBy),
+    JSON.stringify({ custom: true, columns })
+  );
+}
+
+function _clearDeckStackGroupLayout(deckId, groupBy) {
+  localStorage.removeItem(_deckStackGroupLayoutKey(deckId, groupBy));
+}
+
+function _hasDeckStackGroupCustomLayout(deckId, groupBy) {
+  return _loadDeckStackGroupLayout(deckId, groupBy).custom;
+}
+
+function resetDeckStackLayout() {
+  const deck = getActiveDeck();
+  if (!deck || activeDeckIsShared) return;
+  _clearDeckStackGroupLayout(deck.id, deckGroupBy);
+  renderDeckList(deck);
+  if (typeof showNotif === 'function') showNotif('Stack layout reset to automatic');
+}
+window.resetDeckStackLayout = resetDeckStackLayout;
+
+function _syncDeckStackLayoutResetBtn(deck) {
+  const btn = document.getElementById('deckStackLayoutResetBtn');
+  if (!btn) return;
+  const show = !!deck && deckListView === 'grid' && !activeDeckIsShared
+    && _hasDeckStackGroupCustomLayout(deck.id, deckGroupBy);
+  btn.style.display = show ? '' : 'none';
+}
+
+function _legacyOrderToColumns(order, numCols) {
+  const n = Math.max(1, numCols || 1);
+  const cols = Array.from({ length: n }, () => []);
+  for (let i = 0; i < order.length; i++) cols[i % n].push(order[i]);
+  return cols;
+}
+
+function _normalizeStackColumnNames(columnNames, numCols) {
+  const n = Math.max(1, numCols || 1);
+  const cols = columnNames.map(col => (Array.isArray(col) ? col.filter(Boolean) : []));
+  while (cols.length < n) cols.push([]);
+  while (cols.length > n) {
+    const extra = cols.pop();
+    if (extra?.length && cols.length) cols[cols.length - 1].push(...extra);
+  }
+  const seen = new Set();
+  for (const col of cols) {
+    for (let i = col.length - 1; i >= 0; i--) {
+      if (seen.has(col[i])) col.splice(i, 1);
+      else seen.add(col[i]);
+    }
+  }
+  return cols;
+}
+
+function _resolveStackLayoutColumns(layout, numCols) {
+  if (!layout?.custom) return null;
+  if (layout.columns?.length) {
+    return _normalizeStackColumnNames(layout.columns, numCols);
+  }
+  if (layout.legacyOrder?.length) return _legacyOrderToColumns(layout.legacyOrder, numCols);
+  return null;
+}
+
+/** Match gray backplates to real card stack heights (zones-beside layout). */
+function _syncDeckStackBackplateHeights(el) {
+  const view = el?.querySelector('.deck-stack-view.deck-stack-view--zones-beside');
+  if (!view) return;
+  const cardCols = view.querySelectorAll('.deck-mainboard-area--cards > .deck-stack-column');
+  const backCols = view.querySelectorAll('.deck-stack-backplates > .deck-stack-column');
+  if (!cardCols.length || cardCols.length !== backCols.length) return;
+  cardCols.forEach((cardCol, ci) => {
+    const backCol = backCols[ci];
+    if (!backCol) return;
+    const cardGroups = cardCol.querySelectorAll('.deck-stack-group[data-stack-group]');
+    const backGroups = backCol.querySelectorAll('.deck-stack-group--backplate');
+    cardGroups.forEach((cardG, gi) => {
+      const backG = backGroups[gi];
+      if (!backG) return;
+      const backdrop = backG.querySelector('.deck-stack-group-backdrop');
+      if (!backdrop) return;
+      const cardH = Math.round(cardG.getBoundingClientRect().height);
+      const label = cardG.querySelector('.deck-stack-group-label');
+      const labelH = label ? Math.round(label.getBoundingClientRect().height) : 0;
+      const pad = 16;
+      const backdropH = Math.max(72, cardH - labelH - pad);
+      backdrop.style.minHeight = `${backdropH}px`;
+    });
+    backCol.style.height = cardCol.getBoundingClientRect().height
+      ? `${Math.round(cardCol.getBoundingClientRect().height)}px`
+      : '';
+  });
+  const backplates = view.querySelector('.deck-stack-backplates');
+  const cardsArea = view.querySelector('.deck-mainboard-area--cards');
+  if (backplates && cardsArea) {
+    backplates.style.height = `${Math.round(cardsArea.getBoundingClientRect().height)}px`;
+  }
+}
+
+function _scheduleDeckStackBackplateSync(el) {
+  if (!el) return;
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => _syncDeckStackBackplateHeights(el));
+  });
+}
+
+function _deckStackGroupAttr(name) {
+  return encodeURIComponent(String(name || ''));
+}
+
+function _deckStackGroupNameFromEl(el) {
+  const raw = el?.dataset?.stackGroup;
+  if (!raw) return '';
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
+function _deckStackMainboardEl(root) {
+  return root?.querySelector(
+    '.deck-stack-view > .deck-mainboard-area--cards, .deck-stack-view > .deck-mainboard-area, .deck-stack-layers .deck-mainboard-area--cards'
+  ) || null;
+}
+
+const _DECK_STACK_GROUP_SEL = '.deck-stack-group[data-stack-group]:not(.deck-stack-group--backplate)';
+
+/** Snapshot column → group names from what is on screen (WYSIWYG). */
+function _deckStackColumnsFromDom(root) {
+  const main = _deckStackMainboardEl(root);
+  if (!main) return [];
+  const columns = [];
+  const walkCol = (col) => {
+    const names = [];
+    col.querySelectorAll(_DECK_STACK_GROUP_SEL).forEach(el => {
+      const name = _deckStackGroupNameFromEl(el);
+      if (name) names.push(name);
+    });
+    columns.push(names);
+  };
+  const colEls = main.querySelectorAll(':scope > .deck-stack-column');
+  if (colEls.length) colEls.forEach(walkCol);
+  else walkCol(main);
+  return columns;
+}
+
+function _deckStackGroupFromTarget(target) {
+  return target?.closest?.('.deck-stack-group[data-stack-group]:not(.deck-stack-group--backplate)');
+}
+
+function _deckStackGroupAtPoint(root, x, y, dragName) {
+  const main = _deckStackMainboardEl(root);
+  if (!main) return null;
+  for (const el of document.elementsFromPoint(x, y)) {
+    if (!main.contains(el)) continue;
+    const grp = _deckStackGroupFromTarget(el);
+    if (!grp || grp.classList.contains('is-stack-group-dragging')) continue;
+    const name = _deckStackGroupNameFromEl(grp);
+    if (!name || name === dragName) continue;
+    return { el: grp, name };
+  }
+  let best = null;
+  let bestArea = Infinity;
+  main.querySelectorAll(_DECK_STACK_GROUP_SEL).forEach(grp => {
+    if (grp.classList.contains('is-stack-group-dragging')) return;
+    const name = _deckStackGroupNameFromEl(grp);
+    if (!name || name === dragName) return;
+    const r = grp.getBoundingClientRect();
+    if (x < r.left || x > r.right || y < r.top || y > r.bottom) return;
+    const area = r.width * r.height;
+    if (area < bestArea) {
+      best = { el: grp, name };
+      bestArea = area;
+    }
+  });
+  return best;
+}
+
+function _findStackGroupInColumns(columns, name) {
+  for (let c = 0; c < columns.length; c++) {
+    const i = columns[c].indexOf(name);
+    if (i >= 0) return { col: c, idx: i };
+  }
+  return null;
+}
+
+/** Exchange two stacks in place; nothing else moves. Returns false if swap could not run. */
+function _swapStackGroupsInColumns(columns, nameA, nameB) {
+  if (!nameA || !nameB || nameA === nameB) return false;
+  const posA = _findStackGroupInColumns(columns, nameA);
+  const posB = _findStackGroupInColumns(columns, nameB);
+  if (!posA || !posB) return false;
+  const tmp = columns[posA.col][posA.idx];
+  columns[posA.col][posA.idx] = columns[posB.col][posB.idx];
+  columns[posB.col][posB.idx] = tmp;
+  return true;
+}
+
+function _deckStackGroupClearDropTargets(root) {
+  root?.querySelectorAll('.deck-stack-group.stack-group-drop-target').forEach(el => {
+    el.classList.remove('stack-group-drop-target', 'stack-group-drop-before', 'stack-group-drop-after');
+  });
+}
+
+function _deckStackGroupPointerBind() {
+  window.addEventListener('pointermove', _deckStackGroupPointerMove, _DECK_PTR_OPTS);
+  window.addEventListener('pointerup', _deckStackGroupPointerEnd, _DECK_PTR_OPTS);
+  window.addEventListener('pointercancel', _deckStackGroupPointerEnd, _DECK_PTR_OPTS);
+}
+
+function _deckStackGroupPointerUnbind() {
+  window.removeEventListener('pointermove', _deckStackGroupPointerMove, _DECK_PTR_OPTS);
+  window.removeEventListener('pointerup', _deckStackGroupPointerEnd, _DECK_PTR_OPTS);
+  window.removeEventListener('pointercancel', _deckStackGroupPointerEnd, _DECK_PTR_OPTS);
+}
+
+function _deckStackGroupPointerDown(e) {
+  if (typeof activeDeckIsShared !== 'undefined' && activeDeckIsShared) return;
+  if (deckListView !== 'grid') return;
+  if (e.button !== 0) return;
+  const label = e.currentTarget;
+  const group = label.closest('.deck-stack-group[data-stack-group]');
+  const root = document.getElementById('deckCardList');
+  if (!group || !root?.contains(group)) return;
+  const name = _deckStackGroupNameFromEl(group);
+  if (!name) return;
+  e.preventDefault();
+  e.stopPropagation();
+  _deckStackGroupDrag = {
+    group,
+    name,
+    root,
+    startX: e.clientX,
+    startY: e.clientY,
+    moved: false,
+    pointerId: e.pointerId,
+  };
+  if (label.setPointerCapture) {
+    try { label.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+  }
+  _deckStackGroupPointerBind();
+}
+window._deckStackGroupPointerDown = _deckStackGroupPointerDown;
+
+function _deckStackGroupPointerMove(e) {
+  const st = _deckStackGroupDrag;
+  if (!st || e.pointerId !== st.pointerId) return;
+  if (!st.moved) {
+    if (Math.hypot(e.clientX - st.startX, e.clientY - st.startY) < 6) return;
+    st.moved = true;
+    st.group.classList.add('is-stack-group-dragging');
+    st.root.classList.add('is-stack-group-dragging');
+    const ghost = document.createElement('div');
+    ghost.className = 'deck-stack-group-drag-ghost';
+    ghost.textContent = st.group.querySelector('.deck-stack-group-label')?.textContent?.trim() || st.name;
+    document.body.appendChild(ghost);
+    st.ghost = ghost;
+  }
+  if (st.ghost) {
+    st.ghost.style.left = `${e.clientX + 12}px`;
+    st.ghost.style.top = `${e.clientY + 8}px`;
+  }
+  _deckStackGroupClearDropTargets(st.root);
+  const hit = _deckStackGroupAtPoint(st.root, e.clientX, e.clientY, st.name);
+  if (hit) {
+    st.dropTarget = hit.el;
+    st.dropTargetName = hit.name;
+    hit.el.classList.add('stack-group-drop-target');
+  }
+  e.preventDefault();
+}
+
+function _deckStackGroupPointerEnd(e) {
+  const st = _deckStackGroupDrag;
+  _deckStackGroupDrag = null;
+  _deckStackGroupPointerUnbind();
+  if (!st || e.pointerId !== st.pointerId) return;
+  const captureEl = st.group.querySelector('.deck-stack-group-label--drag') || st.group;
+  if (captureEl.releasePointerCapture) {
+    try { captureEl.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+  }
+  st.ghost?.remove();
+  st.group.classList.remove('is-stack-group-dragging');
+  st.root.classList.remove('is-stack-group-dragging');
+  _deckStackGroupClearDropTargets(st.root);
+  if (!st.moved) return;
+  _deckSuppressClick = true;
+  setTimeout(() => { _deckSuppressClick = false; }, 400);
+  const deck = getActiveDeck();
+  if (!deck) return;
+  const hit = (st.dropTargetName && st.dropTargetName !== st.name)
+    ? { name: st.dropTargetName, el: st.dropTarget }
+    : _deckStackGroupAtPoint(st.root, e.clientX, e.clientY, st.name);
+  if (!hit?.name || hit.name === st.name) return;
+
+  const columns = _deckStackColumnsFromDom(st.root).map(col => col.slice());
+  if (!_swapStackGroupsInColumns(columns, st.name, hit.name)) return;
+
+  _saveDeckStackGroupLayout(deck.id, deckGroupBy, columns);
+  renderDeckList(deck);
+}
+
 // ── Vertical stack column layout helpers ─────────────────────────────────────
 
 let _deckStackResizeObserver = null;
@@ -4173,44 +4531,66 @@ let _deckStackLastZonesBeside = null;
 let _deckStackResizeTimer = null;
 
 // card at 220px wide → ~306px tall (63×88mm ratio); overlap = 272px; visible = 34px
-function _estimateGroupHeight(cards) {
-  const count = cards.reduce((s, c) => s + (c.qty || 1), 0);
-  return 58 + 306 + Math.max(0, count - 1) * 34; // label+padding + first card + extra cards
+function _estimateGroupHeight() {
+  // Cards fan horizontally so group height = one card + label + padding,
+  // regardless of card count. Scales with deckCardSize (card h ≈ width × 1.4).
+  return Math.round(95 + deckCardSize * 1.4);
 }
 
 /** Gray stack boxes only — paired with _renderGroup(..., { cardsOnly: true }) for zone layering. */
 function _renderStackGroupBackplate([grp, cards]) {
   const total = cards.reduce((s, c) => s + (c.qty || 1), 0);
-  const backdropH = Math.max(280, _estimateGroupHeight(cards) - 52);
+  const backdropH = Math.max(280, _estimateGroupHeight() - 52);
+  const grpAttr = _deckStackGroupAttr(grp);
   return `
-    <div class="deck-stack-group deck-stack-group--backplate" aria-hidden="true">
+    <div class="deck-stack-group deck-stack-group--backplate" data-stack-group="${grpAttr}" aria-hidden="true">
       <div class="deck-stack-group-label">${grp} <span class="deck-stack-group-count">(${total})</span></div>
       <div class="deck-stack-group-backdrop" style="min-height:${backdropH}px"></div>
     </div>`;
 }
 
-// LPT greedy: Commander always pins to col 0, then sort tallest first and fill shortest column
-function _assignGroupsToColumns(entries, numCols) {
+// Greedy column packing: Commander pins to col 0, remaining groups go into the
+// shortest column (ties broken left-to-right). Cols are capped to entries.length
+// so there are never empty trailing columns.
+function _assignGroupsToColumnsBalanced(entries, numCols) {
+  const effectiveCols = Math.max(1, Math.min(numCols, entries.length));
   const commanderIdx = entries.findIndex(([grp]) => grp === 'Commander');
   const commander = commanderIdx >= 0 ? entries[commanderIdx] : null;
   const rest = entries.filter((_, i) => i !== commanderIdx);
 
-  const sorted = rest.slice().sort((a, b) =>
-    _estimateGroupHeight(b[1]) - _estimateGroupHeight(a[1])
-  );
-  const cols = Array.from({ length: numCols }, () => ({ groups: [], height: 0 }));
+  const cols = Array.from({ length: effectiveCols }, () => ({ groups: [], height: 0 }));
 
   if (commander) {
     cols[0].groups.push(commander);
-    cols[0].height += _estimateGroupHeight(commander[1]);
+    cols[0].height += _estimateGroupHeight();
   }
 
-  for (const entry of sorted) {
+  for (const entry of rest) {
     const min = cols.reduce((m, c) => c.height < m.height ? c : m);
     min.groups.push(entry);
-    min.height += _estimateGroupHeight(entry[1]);
+    min.height += _estimateGroupHeight();
   }
   return cols.map(c => c.groups);
+}
+
+function _assignGroupsToColumns(entries, numCols, deckId, groupBy) {
+  const layout = _loadDeckStackGroupLayout(deckId, groupBy);
+  const columns = _resolveStackLayoutColumns(layout, numCols);
+  if (columns) {
+    const map = new Map(entries);
+    const result = columns.map(colNames =>
+      colNames.map(name => [name, map.get(name)]).filter(([, cards]) => cards?.length)
+    );
+    for (const [name, cards] of entries) {
+      if (!columns.some(col => col.includes(name))) {
+        if (!result[0]) result[0] = [];
+        result[0].push([name, cards]);
+      }
+    }
+    // Drop trailing empty columns (groups deleted, window widened, etc.)
+    return result.filter((col, i) => col.length > 0 || i === 0);
+  }
+  return _assignGroupsToColumnsBalanced(entries, numCols);
 }
 
 const _DECK_EXTRA_ZONE_PILL_W = 22;
@@ -4519,6 +4899,49 @@ function _renderDeckExtraZoneList(deck, zone, label, cards, emptyHint, validatio
 let _deckCutArchetypeOverride = '';
 let _deckCutThresholdOverrides = {};
 let _deckCutLastDeckId = null;
+const DECK_CUT_PREFS_KEY = 'mtg_deck_cut_prefs';
+
+function _readAllCutPrefs() {
+  try {
+    const raw = localStorage.getItem(DECK_CUT_PREFS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch { return {}; }
+}
+
+function _loadCutPrefsForDeck(deckId) {
+  if (!deckId) return { archetype: '', thresholds: {} };
+  const p = _readAllCutPrefs()[deckId];
+  if (!p || typeof p !== 'object') return { archetype: '', thresholds: {} };
+  const archetype = typeof p.archetype === 'string' ? p.archetype : '';
+  const thresholds = {};
+  if (p.thresholds && typeof p.thresholds === 'object') {
+    for (const [tag, val] of Object.entries(p.thresholds)) {
+      if (Number.isFinite(val) && val >= 0) thresholds[tag] = val;
+    }
+  }
+  return { archetype, thresholds };
+}
+
+function _applyCutPrefsToState(prefs) {
+  _deckCutArchetypeOverride = prefs.archetype || '';
+  _deckCutThresholdOverrides = _deckCutArchetypeOverride === 'custom'
+    ? { ...prefs.thresholds }
+    : {};
+}
+
+function _saveCutPrefsForDeck(deckId) {
+  if (!deckId) return;
+  const all = _readAllCutPrefs();
+  const prev = all[deckId] || {};
+  const entry = { archetype: _deckCutArchetypeOverride };
+  if (_deckCutArchetypeOverride === 'custom') {
+    entry.thresholds = { ..._deckCutThresholdOverrides };
+  } else {
+    entry.thresholds = (prev.thresholds && typeof prev.thresholds === 'object') ? prev.thresholds : {};
+  }
+  all[deckId] = entry;
+  try { localStorage.setItem(DECK_CUT_PREFS_KEY, JSON.stringify(all)); } catch { /* quota */ }
+}
 
 function _autoDetectArchetype(deck) {
   const edhrecTheme = document.getElementById('edhrecThemeSelect')?.value || '';
@@ -4557,7 +4980,7 @@ function _autoDetectArchetype(deck) {
 
 function _detectDeckArchetype(deck) {
   const ov = _deckCutArchetypeOverride;
-  if (ov) {
+  if (ov && ov !== 'custom') {
     return {
       edhrecTheme: ov,
       isGraveyard: ov === 'graveyard',
@@ -4569,6 +4992,13 @@ function _detectDeckArchetype(deck) {
       isControl:   ov === 'control',
       isCombo:     ov === 'combo',
       isVoltron:   ov === 'voltron',
+    };
+  }
+  if (ov === 'custom') {
+    return {
+      edhrecTheme: '',
+      isGraveyard: false, isTokens: false, isArtifacts: false, isCounters: false,
+      isLifegain: false, isRamp: false, isControl: false, isCombo: false, isVoltron: false,
     };
   }
   return _autoDetectArchetype(deck);
@@ -4590,8 +5020,13 @@ function _archetypeLabel(a) {
 
 function _onCutArchetypeChange(value) {
   _deckCutArchetypeOverride = value;
-  _deckCutThresholdOverrides = {};
   const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+  if (value === 'custom' && deck) {
+    _deckCutThresholdOverrides = { ..._loadCutPrefsForDeck(deck.id).thresholds };
+  } else {
+    _deckCutThresholdOverrides = {};
+  }
+  if (deck) _saveCutPrefsForDeck(deck.id);
   if (deck) {
     _renderCutSuggestions(deck);
     const editorEl = document.getElementById('deckCutThresholdEditor');
@@ -4623,7 +5058,10 @@ function _toggleCutThresholdEditor() {
   if (!el) return;
   const open = el.style.display !== 'none';
   el.style.display = open ? 'none' : '';
-  if (btn) btn.classList.toggle('active', !open);
+  if (btn) {
+    btn.classList.toggle('active', !open);
+    btn.setAttribute('aria-pressed', open ? 'false' : 'true');
+  }
   if (!open) {
     const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
     if (deck) _renderCutThresholdEditorContent(deck);
@@ -4633,14 +5071,28 @@ function _toggleCutThresholdEditor() {
 function _setCutThreshold(tag, val) {
   if (Number.isFinite(val) && val >= 0) _deckCutThresholdOverrides[tag] = val;
   else delete _deckCutThresholdOverrides[tag];
+  _deckCutArchetypeOverride = 'custom';
+  const sel = document.getElementById('deckCutArchetypeSelect');
+  if (sel) sel.value = 'custom';
   const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
-  if (deck) _renderCutSuggestions(deck);
+  if (deck) {
+    _saveCutPrefsForDeck(deck.id);
+    _renderCutSuggestions(deck);
+  }
 }
 
 function _resetCutThresholds() {
   _deckCutThresholdOverrides = {};
+  _deckCutArchetypeOverride = '';
+  const sel = document.getElementById('deckCutArchetypeSelect');
+  if (sel) sel.value = '';
   const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
   if (deck) {
+    const all = _readAllCutPrefs();
+    if (all[deck.id]) {
+      all[deck.id] = { archetype: '', thresholds: {} };
+      try { localStorage.setItem(DECK_CUT_PREFS_KEY, JSON.stringify(all)); } catch { /* quota */ }
+    }
     _renderCutSuggestions(deck);
     _renderCutThresholdEditorContent(deck);
   }
@@ -4764,15 +5216,16 @@ function _renderCutSuggestions(deck) {
   const badge = document.getElementById('deckCutOverBadge');
   if (!panel || !body) return;
 
-  // Reset all overrides when the active deck changes
   if (deck.id !== _deckCutLastDeckId) {
-    _deckCutArchetypeOverride = '';
-    _deckCutThresholdOverrides = {};
     _deckCutLastDeckId = deck.id;
+    _applyCutPrefsToState(_loadCutPrefsForDeck(deck.id));
     const editorEl = document.getElementById('deckCutThresholdEditor');
     if (editorEl) editorEl.style.display = 'none';
     const threshBtn = document.getElementById('deckCutThresholdBtn');
-    if (threshBtn) threshBtn.classList.remove('active');
+    if (threshBtn) {
+      threshBtn.classList.remove('active');
+      threshBtn.setAttribute('aria-pressed', 'false');
+    }
   }
 
   const total = (deck.cards || []).reduce((s, c) => s + (c.qty || 1), 0);
@@ -4853,9 +5306,10 @@ function renderDeckList(deck) {
       const total = cards.reduce((s, c) => s + (c.qty || 1), 0);
       const sorted = _deckStackSortCards(cards);
       const cardsCls = opts.cardsOnly ? ' deck-stack-group--cards' : '';
+      const grpAttr = _deckStackGroupAttr(grp);
       return `
-        <div class="deck-stack-group${cardsCls}">
-          <div class="deck-stack-group-label">${grp} <span class="deck-stack-group-count">(${total})</span></div>
+        <div class="deck-stack-group${cardsCls}" data-stack-group="${grpAttr}">
+          <div class="deck-stack-group-label deck-stack-group-label--drag" title="Drag onto another group to swap positions" onpointerdown="_deckStackGroupPointerDown(event)">${grp} <span class="deck-stack-group-count">(${total})</span></div>
           <div class="deck-stack-cards${orientClass}">${sorted.map(c => _stackTile(c, 'main', poolHints)).join('')}</div>
         </div>`;
     }
@@ -4868,7 +5322,7 @@ function renderDeckList(deck) {
     const layout = _deckStackZoneLayout(el, deck, isVertical);
 
     if (isVertical) {
-      const cols = _assignGroupsToColumns(entries, layout.numCols);
+      const cols = _assignGroupsToColumns(entries, layout.numCols, deck.id, deckGroupBy);
       if (layout.zonesBeside) {
         const backplatesHtml = cols
           .map(colGroups => `<div class="deck-stack-column">${colGroups.map(_renderStackGroupBackplate).join('')}</div>`)
@@ -4883,6 +5337,7 @@ function renderDeckList(deck) {
           `</div>` +
           extraZonesHtml +
           `</div>`;
+        _scheduleDeckStackBackplateSync(el);
       } else {
         const mainboardHtml = cols
           .map(colGroups => `<div class="deck-stack-column">${colGroups.map(_renderGroup).join('')}</div>`)
@@ -4932,6 +5387,7 @@ function renderDeckList(deck) {
 
     _attachDeckDragHandlers(el);
     _bindDeckTagGroupHoverLinking(el, _isTagGroupByMode(deckGroupBy));
+    _syncDeckStackLayoutResetBtn(deck);
     _scheduleDeckTokensRefresh(deck);
     return;
   }
@@ -4991,6 +5447,7 @@ function renderDeckList(deck) {
 
   _attachDeckDragHandlers(el);
   _bindDeckTagGroupHoverLinking(el, _isTagGroupByMode(deckGroupBy));
+  _syncDeckStackLayoutResetBtn(deck);
   _scheduleDeckTokensRefresh(deck);
 }
 

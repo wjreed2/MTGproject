@@ -472,10 +472,27 @@ async function ensureNormalizedDeckSchema() {
         deck_owner_id   BIGINT UNSIGNED NOT NULL,
         collaborator_id BIGINT UNSIGNED NOT NULL,
         added_at        BIGINT          NOT NULL DEFAULT 0,
+        permission      ENUM('edit','view') NOT NULL DEFAULT 'edit',
         PRIMARY KEY (deck_id, collaborator_id),
         INDEX idx_dcollab_collaborator (collaborator_id),
         CONSTRAINT fk_dcollab_deck    FOREIGN KEY (deck_owner_id, deck_id) REFERENCES decks(account_id, id) ON DELETE CASCADE,
         CONSTRAINT fk_dcollab_account FOREIGN KEY (collaborator_id)        REFERENCES accounts(id)          ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+    if (!(await columnExists(conn, 'deck_collaborators', 'permission'))) {
+      await conn.query("ALTER TABLE deck_collaborators ADD COLUMN permission ENUM('edit','view') NOT NULL DEFAULT 'edit'");
+    }
+
+    // Collection shares table
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS collection_shares (
+        owner_id    BIGINT UNSIGNED NOT NULL,
+        viewer_id   BIGINT UNSIGNED NOT NULL,
+        added_at    BIGINT          NOT NULL DEFAULT 0,
+        PRIMARY KEY (owner_id, viewer_id),
+        INDEX idx_collshare_viewer (viewer_id),
+        CONSTRAINT fk_collshare_owner  FOREIGN KEY (owner_id)  REFERENCES accounts(id) ON DELETE CASCADE,
+        CONSTRAINT fk_collshare_viewer FOREIGN KEY (viewer_id) REFERENCES accounts(id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
 
@@ -1340,10 +1357,11 @@ app.get('/api/decks/shared', requireAuth, async (req, res) => {
   try {
     const accountId = req.accountId;
     const [collabRows] = await db().query(
-      `SELECT deck_id, deck_owner_id FROM deck_collaborators WHERE collaborator_id = ?`,
+      `SELECT deck_id, deck_owner_id, permission FROM deck_collaborators WHERE collaborator_id = ?`,
       [accountId]
     );
     if (!collabRows.length) return res.json([]);
+    const permByDeck = new Map(collabRows.map(r => [r.deck_id, r.permission || 'edit']));
 
     const deckIds = collabRows.map(r => r.deck_id);
     const ph = deckIds.map(() => '?').join(',');
@@ -1394,6 +1412,7 @@ app.get('/api/decks/shared', requireAuth, async (req, res) => {
       if (Array.isArray(cards) && cards.length) deck.cards = cards;
       deck.ownerEmail = r.email;
       deck.ownerId = r.account_id;
+      deck.userPermission = permByDeck.get(r.id) || 'edit';
       return deck;
     });
     res.json(out);
@@ -1415,10 +1434,23 @@ app.patch('/api/decks/:id', requireAuth, async (req, res) => {
     const isOwner = ownerId === Number(accountId);
     if (!isOwner) {
       const [cr] = await db().query(
-        'SELECT 1 FROM deck_collaborators WHERE deck_id = ? AND collaborator_id = ?',
+        'SELECT permission FROM deck_collaborators WHERE deck_id = ? AND collaborator_id = ?',
         [deckId, accountId]
       );
       if (!cr.length) return res.status(403).json({ error: 'Access denied' });
+      if ((cr[0].permission || 'edit') === 'view') return res.status(403).json({ error: 'You have view-only access to this deck' });
+      // Block printing changes — compare incoming scryfallIds against stored cards by name
+      const [storedCards] = await db().query(
+        'SELECT card_name, scryfall_id FROM deck_cards WHERE account_id=? AND deck_id=?',
+        [ownerId, deckId]
+      );
+      const storedById = new Map(storedCards.map(r => [String(r.card_name).toLowerCase(), r.scryfall_id]));
+      const incoming = Array.isArray(req.body?.cards) ? req.body.cards : [];
+      const printingChanged = incoming.some(c => {
+        const stored = storedById.get(String(c.name || '').toLowerCase());
+        return stored !== undefined && c.scryfallId && stored !== c.scryfallId;
+      });
+      if (printingChanged) return res.status(403).json({ error: 'Collaborators cannot change card printings' });
     }
 
     const deck = normalizeDeckForStorage(req.body);
@@ -1489,12 +1521,12 @@ app.get('/api/decks/:id/collaborators', requireAuth, async (req, res) => {
     if (Number(deckRows[0].account_id) !== Number(req.accountId))
       return res.status(403).json({ error: 'Only the owner can view collaborators' });
     const [rows] = await db().query(
-      `SELECT a.id, a.email, dc.added_at
+      `SELECT a.id, a.email, dc.added_at, dc.permission
        FROM deck_collaborators dc JOIN accounts a ON a.id = dc.collaborator_id
        WHERE dc.deck_id = ? ORDER BY dc.added_at ASC`,
       [deckId]
     );
-    res.json(rows.map(r => ({ id: r.id, email: r.email, addedAt: r.added_at })));
+    res.json(rows.map(r => ({ id: r.id, email: r.email, addedAt: r.added_at, permission: r.permission || 'edit' })));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -1503,6 +1535,7 @@ app.post('/api/decks/:id/collaborators', requireAuth, async (req, res) => {
   const deckId = req.params.id;
   const email = String(req.body?.email || '').toLowerCase().trim();
   if (!email) return res.status(400).json({ error: 'Email required' });
+  const permission = ['edit', 'view'].includes(req.body?.permission) ? req.body.permission : 'edit';
   try {
     const [deckRows] = await db().query('SELECT account_id FROM decks WHERE id=?', [deckId]);
     if (!deckRows.length) return res.status(404).json({ error: 'Deck not found' });
@@ -1513,10 +1546,31 @@ app.post('/api/decks/:id/collaborators', requireAuth, async (req, res) => {
     if (Number(userRows[0].id) === Number(req.accountId))
       return res.status(400).json({ error: 'Cannot add yourself as a collaborator' });
     await db().query(
-      `INSERT IGNORE INTO deck_collaborators (deck_id, deck_owner_id, collaborator_id, added_at) VALUES (?,?,?,?)`,
-      [deckId, req.accountId, userRows[0].id, Date.now()]
+      `INSERT INTO deck_collaborators (deck_id, deck_owner_id, collaborator_id, added_at, permission) VALUES (?,?,?,?,?)
+       ON DUPLICATE KEY UPDATE permission=VALUES(permission)`,
+      [deckId, req.accountId, userRows[0].id, Date.now(), permission]
     );
-    res.json({ ok: true, collaborator: { id: userRows[0].id, email: userRows[0].email } });
+    res.json({ ok: true, collaborator: { id: userRows[0].id, email: userRows[0].email, permission } });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Update collaborator permission (owner only)
+app.patch('/api/decks/:id/collaborators/:userId', requireAuth, async (req, res) => {
+  const deckId = req.params.id;
+  const userId = parseInt(req.params.userId);
+  if (!Number.isFinite(userId)) return res.status(400).json({ error: 'Invalid user id' });
+  const permission = req.body?.permission;
+  if (!['edit', 'view'].includes(permission)) return res.status(400).json({ error: 'permission must be "edit" or "view"' });
+  try {
+    const [deckRows] = await db().query('SELECT account_id FROM decks WHERE id=?', [deckId]);
+    if (!deckRows.length) return res.status(404).json({ error: 'Deck not found' });
+    if (Number(deckRows[0].account_id) !== Number(req.accountId))
+      return res.status(403).json({ error: 'Only the owner can change collaborator permissions' });
+    await db().query(
+      'UPDATE deck_collaborators SET permission=? WHERE deck_id=? AND collaborator_id=?',
+      [permission, deckId, userId]
+    );
+    res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -1530,6 +1584,79 @@ app.delete('/api/decks/:id/collaborators/:userId', requireAuth, async (req, res)
     if (Number(deckRows[0].account_id) !== Number(req.accountId))
       return res.status(403).json({ error: 'Only the owner can remove collaborators' });
     await db().query('DELETE FROM deck_collaborators WHERE deck_id=? AND collaborator_id=?', [deckId, userId]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Collection Sharing ────────────────────────────────────────────────────────
+
+// Collections shared with me (viewer)
+app.get('/api/collection/shared', requireAuth, async (req, res) => {
+  try {
+    const [shareRows] = await db().query(
+      `SELECT cs.owner_id, a.email AS owner_email
+       FROM collection_shares cs JOIN accounts a ON a.id = cs.owner_id
+       WHERE cs.viewer_id = ?`,
+      [req.accountId]
+    );
+    if (!shareRows.length) return res.json([]);
+    const ownerIds = shareRows.map(r => r.owner_id);
+    const ph = ownerIds.map(() => '?').join(',');
+    const [cardRows] = await db().query(
+      `SELECT account_id, data, qty FROM collection WHERE account_id IN (${ph}) ORDER BY account_id, added_at`,
+      ownerIds
+    );
+    const byOwner = new Map();
+    for (const r of cardRows) {
+      if (!byOwner.has(r.account_id)) byOwner.set(r.account_id, []);
+      const card = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
+      card.qty = r.qty;
+      byOwner.get(r.account_id).push(card);
+    }
+    res.json(shareRows.map(r => ({
+      ownerId: r.owner_id,
+      ownerEmail: r.owner_email,
+      cards: byOwner.get(r.owner_id) || [],
+    })));
+  } catch (e) { console.error(e); res.status(500).json({ error: e.message }); }
+});
+
+// Who I'm sharing my collection with
+app.get('/api/collection/shares', requireAuth, async (req, res) => {
+  try {
+    const [rows] = await db().query(
+      `SELECT a.id, a.email, cs.added_at FROM collection_shares cs
+       JOIN accounts a ON a.id = cs.viewer_id
+       WHERE cs.owner_id = ? ORDER BY cs.added_at ASC`,
+      [req.accountId]
+    );
+    res.json(rows.map(r => ({ id: r.id, email: r.email, addedAt: r.added_at })));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Share my collection with someone by email
+app.post('/api/collection/shares', requireAuth, async (req, res) => {
+  const email = String(req.body?.email || '').toLowerCase().trim();
+  if (!email) return res.status(400).json({ error: 'Email required' });
+  try {
+    const [userRows] = await db().query('SELECT id, email FROM accounts WHERE email=?', [email]);
+    if (!userRows.length) return res.status(404).json({ error: 'No user found with that email' });
+    if (Number(userRows[0].id) === Number(req.accountId))
+      return res.status(400).json({ error: 'Cannot share with yourself' });
+    await db().query(
+      'INSERT IGNORE INTO collection_shares (owner_id, viewer_id, added_at) VALUES (?,?,?)',
+      [req.accountId, userRows[0].id, Date.now()]
+    );
+    res.json({ ok: true, viewer: { id: userRows[0].id, email: userRows[0].email } });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Revoke collection share
+app.delete('/api/collection/shares/:viewerId', requireAuth, async (req, res) => {
+  const viewerId = parseInt(req.params.viewerId);
+  if (!Number.isFinite(viewerId)) return res.status(400).json({ error: 'Invalid viewer id' });
+  try {
+    await db().query('DELETE FROM collection_shares WHERE owner_id=? AND viewer_id=?', [req.accountId, viewerId]);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -3565,6 +3692,31 @@ async function ensureTagOverrideTables() {
   }
 }
 
+app.get('/api/collection/shared/:ownerId/history', requireAuth, async (req, res) => {
+  const ownerId = parseInt(req.params.ownerId);
+  if (!isFinite(ownerId)) return res.status(400).json({ error: 'Invalid owner ID' });
+  try {
+    const [[access]] = await db().query(
+      'SELECT 1 FROM collection_shares WHERE owner_id=? AND viewer_id=? LIMIT 1',
+      [ownerId, req.accountId]
+    );
+    if (!access) return res.status(403).json({ error: 'No access' });
+    const [rows] = await db().query(
+      `SELECT id, ts, type, uid, name, set_code, set_name, foil, delta, image
+       FROM collection_history WHERE account_id = ? ORDER BY ts DESC LIMIT 500`,
+      [ownerId]
+    );
+    res.json(rows.map(r => ({
+      id: r.id, ts: r.ts, type: r.type, uid: r.uid,
+      name: r.name, set: r.set_code, setName: r.set_name,
+      foil: !!r.foil, delta: r.delta, image: r.image,
+    })));
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('/api/history', requireAuth, async (req, res) => {
   try {
     const [rows] = await db().query(
@@ -3737,6 +3889,19 @@ app.post('/api/admin/changelog', requireAuth, requireAdminRole, async (req, res)
     const r = await tryInsertAppChangelog(req.body || {});
     if (r.error) return res.status(r.status || 400).json({ error: r.error });
     res.json({ ok: true, publishedAt: r.publishedAt });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/admin/changelog/:id', requireAuth, requireAdminRole, async (req, res) => {
+  try {
+    const id = parseInt(String(req.params.id || ''), 10);
+    if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'Invalid id' });
+    const [result] = await db().query('DELETE FROM app_changelog WHERE id = ?', [id]);
+    if (!result.affectedRows) return res.status(404).json({ error: 'Entry not found' });
+    res.json({ ok: true });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
