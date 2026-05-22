@@ -493,21 +493,21 @@ function openVoice(options) {
   const opts = options && typeof options === 'object' ? options : {};
   voiceAddToActiveDeckMode = !!opts.addToActiveDeck;
   if (voiceAddToActiveDeckMode) {
-    if (typeof activeDeckIsShared !== 'undefined' && activeDeckIsShared) {
-      voiceAddToActiveDeckMode = false;
-      showNotif('Voice add is only available for decks you own.', true);
-      return;
-    }
     if (typeof getActiveDeck !== 'function' || !getActiveDeck()) {
       voiceAddToActiveDeckMode = false;
       showNotif('Select a deck first.', true);
+      return;
+    }
+    if (typeof canEditActiveDeck === 'function' && !canEditActiveDeck()) {
+      voiceAddToActiveDeckMode = false;
+      showNotif('You have view-only access to this deck.', true);
       return;
     }
   }
   document.getElementById('voiceModal').classList.add('open');
   toggleVoiceSearchSettings(false);
   renderVoiceSetSearchSettings();
-  switchVoiceTab('voice');
+  switchVoiceTab(voiceAddToActiveDeckMode ? 'search' : 'voice');
   pendingCard = null;
   voiceMode = 'scan';
   voiceAutoRestart = true;
@@ -545,6 +545,7 @@ function closeVoice() {
   if (inp) inp.value = '';
   if (res) res.innerHTML = '';
   if (ac)  ac.style.display = 'none';
+  if (typeof clearFindColorFilters === 'function') clearFindColorFilters();
   if (voiceAccTimer) {
     clearInterval(voiceAccTimer);
     voiceAccTimer = null;
@@ -1053,12 +1054,12 @@ function confirmVoiceAdd(fromSpeech) {
     }
   }
   if (voiceAddToActiveDeckMode) {
-    if (typeof activeDeckIsShared !== 'undefined' && activeDeckIsShared) {
+    if (typeof canEditActiveDeck === 'function' && !canEditActiveDeck()) {
       if (addToCollectionThisRun) {
         save('collection');
-        showNotif(`Added ${pendingCard.qty}x ${pendingCard.name} to collection (shared deck can’t be edited)`, true);
+        showNotif(`Added ${pendingCard.qty}x ${pendingCard.name} to collection (view-only deck)`, true);
       } else {
-        showNotif('Shared deck can’t be edited', true);
+        showNotif('You have view-only access to this deck.', true);
       }
     } else {
       const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;

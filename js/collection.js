@@ -2545,6 +2545,11 @@ globalThis._updateFindPaperOnlyState = _updateFindPaperOnlyState;
 
 // Quick-filter token toggle for search tab
 function _toggleFindToken(key, val) {
+  if (key === 'c') {
+    const sym = String(val || '').toUpperCase();
+    toggleFindColorFilter(sym === 'C' ? 'C' : sym);
+    return;
+  }
   const input = document.getElementById('findCardInput');
   if (!input) return;
   let q = input.value;
@@ -2564,11 +2569,8 @@ function _toggleFindToken(key, val) {
 }
 
 function _syncFindFilterBtns(q) {
+  _syncFindColorPills();
   const qlo = (q || '').toLowerCase();
-  const colorMap = { W:'w', U:'u', B:'b', R:'r', G:'g', C:'c' };
-  for (const [code, sym] of Object.entries(colorMap)) {
-    document.getElementById('fcp-' + code)?.classList.toggle('active', new RegExp(`(?:^|\\s)c:${sym}(?=\\s|$)`).test(qlo));
-  }
   for (const t of ['creature','instant','sorcery','artifact','enchantment','planeswalker','land']) {
     document.getElementById('fct-' + t)?.classList.toggle('active', new RegExp(`(?:^|\\s)t:${t}(?=\\s|$)`).test(qlo));
   }
@@ -2581,7 +2583,76 @@ function _syncFindFilterBtns(q) {
 let _findSearchOffset = 0;
 let _findSearchTotal = 0;
 let _findSearchQuery = '';
+let _findColorFilters = new Set();
 let _deckPoolSource = localStorage.getItem('mtg_deck_pool_source') || 'mine';
+
+function _stripFindColorTokensFromQuery(q) {
+  return String(q || '').replace(/(?:^|\s)-?(?:c|ci|color):[^\s"]+/gi, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function _findQueryForApi(q) {
+  const stripped = _stripFindColorTokensFromQuery(q);
+  if (stripped.length >= 2) return stripped;
+  if (_findColorFilters.size > 0) return '*'; // broad catalog search; colors applied client-side
+  return '';
+}
+
+function _findColorFilterLabel() {
+  if (!_findColorFilters.size) return '';
+  return [..._findColorFilters].sort().join('');
+}
+
+function _applyFindColorFilter(cards) {
+  if (!_findColorFilters.size) return cards;
+  const selected = [..._findColorFilters];
+  const selectedHasColorless = selected.includes('C');
+  const selectedColors = selected.filter(c => c !== 'C');
+  return cards.filter(c => {
+    const cardColors = [...new Set((c.colors || []).filter(Boolean).map(x => String(x).toUpperCase()))];
+    if (selectedHasColorless) {
+      if (cardColors.length === 0) return true;
+      if (!selectedColors.length) return false;
+      return cardColors.every(col => selectedColors.includes(col));
+    }
+    if (!cardColors.length) return false;
+    return cardColors.every(col => selectedColors.includes(col));
+  });
+}
+
+function _syncFindColorPills() {
+  for (const code of ['W', 'U', 'B', 'R', 'G', 'C']) {
+    document.getElementById('fcp-' + code)?.classList.toggle('active', _findColorFilters.has(code));
+  }
+}
+
+function toggleFindColorFilter(color) {
+  const c = String(color || '').toUpperCase();
+  if (!['W', 'U', 'B', 'R', 'G', 'C'].includes(c)) return;
+  if (_findColorFilters.has(c)) _findColorFilters.delete(c);
+  else _findColorFilters.add(c);
+  _syncFindColorPills();
+  const input = document.getElementById('findCardInput');
+  if (input) {
+    input.value = _stripFindColorTokensFromQuery(input.value);
+    input.placeholder = _findColorFilters.size
+      ? `Colors: ${_findColorFilterLabel()} — add name or filters, or browse results below`
+      : 'Name, or: t:creature c:u cmc<=3 o:"draw a card" r:rare s:SET';
+  }
+  const q = (input?.value || '').trim();
+  if (_findQueryForApi(q)) runFindCard(q);
+  else document.getElementById('findCardResults').innerHTML = '';
+}
+
+function clearFindColorFilters() {
+  _findColorFilters.clear();
+  _syncFindColorPills();
+  const input = document.getElementById('findCardInput');
+  if (input) {
+    input.placeholder = 'Name, or: t:creature c:u cmc<=3 o:"draw a card" r:rare s:SET';
+  }
+}
+globalThis.toggleFindColorFilter = toggleFindColorFilter;
+globalThis.clearFindColorFilters = clearFindColorFilters;
 
 function setDeckPoolSource(src) {
   _deckPoolSource = src;
@@ -2589,14 +2660,15 @@ function setDeckPoolSource(src) {
   document.getElementById('deckPoolMineBtn')?.classList.toggle('active', src === 'mine');
   document.getElementById('deckPoolSharedBtn')?.classList.toggle('active', src === 'sharedWith');
   const q = (document.getElementById('findCardInput')?.value || '').trim();
-  if (q.length >= 2) runFindCard(q);
+  if (_findQueryForApi(q)) runFindCard(q);
 }
 
 function findCardAutocomplete(q) {
   const drop = document.getElementById('findCardAutocomplete');
-  if (!q || q.length < 2) { drop.style.display = 'none'; return; }
+  const apiQ = _findQueryForApi(q);
+  if (!apiQ) { drop.style.display = 'none'; return; }
   // Token queries skip name autocomplete and go straight to search
-  if (_findQueryHasTokens(q)) {
+  if (_findQueryHasTokens(apiQ) || apiQ === '*') {
     drop.style.display = 'none';
     clearTimeout(_findAcTimer);
     _findAcTimer = setTimeout(() => runFindCard(q), 500);
@@ -2727,13 +2799,14 @@ async function runFindCard(q, append) {
     q = _findSearchQuery;
   } else {
     q = (q || '').trim();
-    _findSearchQuery = q;
+    _findSearchQuery = _stripFindColorTokensFromQuery(q);
     _findSearchOffset = 0;
     _findSearchTotal = 0;
   }
   document.getElementById('findCardAutocomplete').style.display = 'none';
   const el = document.getElementById('findCardResults');
-  if (!q || q.length < 2) { el.innerHTML = ''; return; }
+  const apiQ = _findQueryForApi(q);
+  if (!apiQ) { el.innerHTML = ''; return; }
 
   if (!append) {
     if (_findSearchAbort) _findSearchAbort.abort();
@@ -2743,13 +2816,16 @@ async function runFindCard(q, append) {
 
   if (!append) el.innerHTML = '<div style="grid-column:1/-1;padding:1rem;font-size:0.85rem;color:var(--text3)">Searching…</div>';
 
-  const isTokenQuery = _findQueryHasTokens(q);
+  const colorParam = _findColorFilters.size ? [..._findColorFilters].sort().join(',') : '';
+  const useCatalogApi = _findQueryHasTokens(apiQ) || apiQ === '*' || !!colorParam;
   const paperOnly = _getFindPaperOnly();
 
   try {
     let cards, total = null;
-    if (isTokenQuery) {
-      const url = `/api/cards/search?q=${encodeURIComponent(q)}&limit=${_FIND_PAGE}&offset=${_findSearchOffset}${paperOnly ? '&paperOnly=1' : ''}`;
+    if (useCatalogApi) {
+      let url = `/api/cards/search?q=${encodeURIComponent(apiQ)}&limit=${_FIND_PAGE}&offset=${_findSearchOffset}`;
+      if (paperOnly) url += '&paperOnly=1';
+      if (colorParam) url += `&colors=${encodeURIComponent(colorParam)}`;
       const res = await fetch(url, { signal });
       if (!res.ok) { if (!append) el.innerHTML = '<div style="grid-column:1/-1;padding:1rem;font-size:0.85rem;color:var(--text3)">No cards found</div>'; return; }
       const data = await res.json();
@@ -2758,7 +2834,7 @@ async function runFindCard(q, append) {
       _findSearchTotal = total;
       _findSearchOffset += cards.length;
     } else {
-      const scryfallQ = q + ' -is:extra' + (paperOnly ? ' game:paper' : '');
+      const scryfallQ = apiQ + ' -is:extra' + (paperOnly ? ' game:paper' : '');
       const res = await fetch(
         `https://api.scryfall.com/cards/search?q=${encodeURIComponent(scryfallQ)}&order=released&unique=prints`,
         { signal }
@@ -2773,8 +2849,15 @@ async function runFindCard(q, append) {
     if (typeof voiceSetFilter === 'function') {
       cards = cards.filter(card => { try { return !!voiceSetFilter(card); } catch (_) { return true; } });
     }
+    if (!colorParam) {
+      cards = _applyFindColorFilter(cards);
+    }
+    if (!cards.length && !append) {
+      el.innerHTML = '<div style="grid-column:1/-1;padding:1rem;font-size:0.85rem;color:var(--text3)">No cards found</div>';
+      return;
+    }
 
-    _renderFindCard(cards, el, !!append, isTokenQuery ? _findSearchTotal : null, isTokenQuery);
+    _renderFindCard(cards, el, !!append, useCatalogApi ? _findSearchTotal : null, useCatalogApi);
 
     // Wire click handler once (on first load or after clear)
     if (!append) {
@@ -2824,7 +2907,7 @@ function addCardToCollection(scryfallCard, qty, foil) {
 
   let deckAddedName = '';
   if (typeof voiceAddToActiveDeckMode !== 'undefined' && voiceAddToActiveDeckMode
-      && (typeof activeDeckIsShared === 'undefined' || !activeDeckIsShared)) {
+      && (typeof canEditActiveDeck !== 'function' || canEditActiveDeck())) {
     const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
     if (deck) {
       const slot = typeof findDeckCardSlot === 'function' ? findDeckCardSlot(deck, entry) : null;
@@ -2859,7 +2942,8 @@ function addCardToCollection(scryfallCard, qty, foil) {
   } else if (addToCollectionThisRun) {
     showNotif(`Added ${qty}× ${entry.name}${foil ? ' (foil)' : ''} to collection`);
   } else {
-    showNotif('Could not add card (no active deck)', true);
+    const viewOnly = typeof canEditActiveDeck === 'function' && !canEditActiveDeck();
+    showNotif(viewOnly ? 'You have view-only access to this deck.' : 'Could not add card (no active deck)', true);
   }
 }
 

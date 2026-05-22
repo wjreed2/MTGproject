@@ -6549,6 +6549,7 @@ select:focus { outline: none; border-color: rgba(200,168,74,0.6); box-shadow: 0 
   bottom: auto;
   top: calc(100% + 8px);
 }
+#deckCutSuggestionsPanel { overflow: visible; }
 .cut-candidate-row {
   display: flex;
   align-items: center;
@@ -6558,15 +6559,24 @@ select:focus { outline: none; border-color: rgba(200,168,74,0.6); box-shadow: 0 
   font-size: .82rem;
 }
 .cut-candidate-row:last-child { border-bottom: none; }
-.cut-cmc-badge {
-  min-width: 1.4rem;
+.cut-score-badge {
+  min-width: 2.4rem;
   text-align: center;
   font-family: 'JetBrains Mono', monospace;
   font-size: .78rem;
-  color: var(--text2);
+  color: var(--gold);
   background: var(--bg3);
   border-radius: var(--radius);
-  padding: 1px 4px;
+  padding: 1px 5px;
+  cursor: default;
+  flex-shrink: 0;
+}
+.cut-score-tooltip {
+  left: 0;
+  transform: none;
+  white-space: normal;
+  max-width: 240px;
+  line-height: 1.4;
 }
 .cut-card-name {
   flex: 1;
@@ -6574,15 +6584,19 @@ select:focus { outline: none; border-color: rgba(200,168,74,0.6); box-shadow: 0 
   color: var(--text);
 }
 .cut-card-name:hover { color: var(--gold); }
-.cut-reason {
-  color: var(--text3);
-  font-size: .76rem;
-  max-width: 200px;
-  text-align: right;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.cut-playstyle-wrap {
+  display: flex;
+  align-items: center;
+  gap: .3rem;
+  margin: 0 .4rem;
 }
+.cut-playstyle-label {
+  font-size: .68rem;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.cut-playstyle-aggro   { color: #c85a5a; }
+.cut-playstyle-control { color: #5a8fd4; }
 .btn-danger-ghost {
   flex-shrink: 0;
   background: none;
@@ -6613,6 +6627,15 @@ select:focus { outline: none; border-color: rgba(200,168,74,0.6); box-shadow: 0 
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.cut-threshold-delta {
+  font-size: .62rem;
+  color: var(--gold);
+  opacity: .8;
+  flex-shrink: 0;
 }
 .cut-threshold-input {
   width: 100%;

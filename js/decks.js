@@ -1149,6 +1149,10 @@ function activeDeckPermission() {
   return (deck?.userPermission) || 'view';
 }
 
+function canEditActiveDeck() {
+  return activeDeckPermission() !== 'view';
+}
+
 const SCRYFALL_AUTO_TAGS = [
   { label: 'Ramp',           otag: 'ramp' },
   { label: 'Card Draw',      otag: 'draw' },
@@ -2897,7 +2901,7 @@ function renderActiveDeck() {
   const skeletonBtn = document.getElementById('deckSkeletonBtn');
   if (skeletonBtn) skeletonBtn.style.display = isOwner ? '' : 'none';
   const deckVoiceBtn = document.getElementById('deckBuilderVoiceBtn');
-  if (deckVoiceBtn) deckVoiceBtn.style.display = isOwner ? '' : 'none';
+  if (deckVoiceBtn) deckVoiceBtn.style.display = canEditActiveDeck() ? '' : 'none';
 
   // Shared-by badge
   const sharedBadge = document.getElementById('deckSharedByBadge');
@@ -4900,6 +4904,7 @@ let _deckCutArchetypeOverride = '';
 let _deckCutThresholdOverrides = {};
 let _deckCutLastDeckId = null;
 const DECK_CUT_PREFS_KEY = 'mtg_deck_cut_prefs';
+let _deckCutPlaystyleStep = (() => { try { const v = parseInt(localStorage.getItem('mtg_deck_cut_playstyle') || '0'); return Number.isFinite(v) ? Math.max(-3, Math.min(3, v)) : 0; } catch { return 0; } })();
 
 function _readAllCutPrefs() {
   try {
@@ -5037,19 +5042,34 @@ function _onCutArchetypeChange(value) {
 function _renderCutThresholdEditorContent(deck) {
   const el = document.getElementById('deckCutThresholdEditor');
   if (!el) return;
+  const base = _computeBaseThresholds(deck);
   const effective = _computeCutThresholds(deck);
-  const tags = Object.keys(effective);
+  const tags = Object.keys(base);
   el.innerHTML = `<div class="cut-threshold-grid">
-    ${tags.map(tag => `<label class="cut-threshold-cell">
-      <span class="cut-threshold-label">${tag}</span>
-      <input type="number" min="0" max="40" value="${effective[tag]}"
-        class="cut-threshold-input"
-        oninput="_setCutThreshold('${tag}',+this.value||0)">
-    </label>`).join('')}
+    ${tags.map(tag => {
+      const delta = effective[tag] - base[tag];
+      const hint = delta !== 0 ? ` title="Slider adjusts to ${effective[tag]} (${delta > 0 ? '+' : ''}${delta})"` : '';
+      return `<label class="cut-threshold-cell">
+        <span class="cut-threshold-label">${tag}${delta !== 0 ? `<span class="cut-threshold-delta">${delta > 0 ? '+' : ''}${delta}</span>` : ''}</span>
+        <input type="number" min="0" max="60" value="${base[tag]}"
+          class="cut-threshold-input"${hint}
+          oninput="_setCutThreshold('${tag}',+this.value||0)">
+      </label>`;
+    }).join('')}
   </div>
   <div style="padding:.35rem .75rem .5rem;border-top:1px solid var(--border1)">
     <button class="btn btn-ghost btn-sm" onclick="_resetCutThresholds()" style="font-size:.72rem">Reset to archetype defaults</button>
   </div>`;
+}
+
+function setDeckCutPlaystyleStep(step) {
+  const s = Math.max(-3, Math.min(3, Math.round(step)));
+  _deckCutPlaystyleStep = s;
+  try { localStorage.setItem('mtg_deck_cut_playstyle', s); } catch { /* quota */ }
+  const deck = typeof activeDeckId !== 'undefined' && activeDeckId
+    ? (typeof decks !== 'undefined' ? decks : []).find(d => d.id === activeDeckId)
+    : null;
+  if (deck) _renderCutSuggestions(deck);
 }
 
 function _toggleCutThresholdEditor() {
@@ -5098,10 +5118,11 @@ function _resetCutThresholds() {
   }
 }
 
-function _computeCutThresholds(deck) {
+// Base template: Command Zone defaults → archetype → custom. No slider.
+function _computeBaseThresholds(deck) {
   const t = {
-    'Ramp': 10, 'Card Draw': 10, 'Removal': 8,
-    'Board Wipe': 3, 'Tutor': 2, 'Counterspell': 3,
+    'Ramp': 10, 'Card Draw': 10, 'Removal': 10,
+    'Board Wipe': 3, 'Plan': 30, 'Tutor': 2, 'Counterspell': 3,
     'Protection': 3, 'Recursion': 3,
   };
   const a = _detectDeckArchetype(deck);
@@ -5114,18 +5135,43 @@ function _computeCutThresholds(deck) {
   if (a.isControl)   { t['Counterspell'] = 8; t['Removal'] = 11; t['Board Wipe'] = 5; }
   if (a.isCombo)     { t['Tutor'] = 7; t['Counterspell'] = 5; t['Ramp'] = 12; t['Board Wipe'] = 2; }
   if (a.isVoltron)   { t['Protection'] = 8; t['Board Wipe'] = 1; t['Removal'] = 9; }
-  // User overrides applied last
+  // Custom user values sit on top of archetype
   for (const [tag, val] of Object.entries(_deckCutThresholdOverrides)) {
     if (Number.isFinite(val) && val >= 0) t[tag] = val;
   }
   return t;
 }
 
-function _buildCutReason(card, tags, surplusTag, roleCount, thresholds, cmdCmc, noRole, bucketExcess) {
+// Effective thresholds: base template + slider nudge on top.
+function _computeCutThresholds(deck) {
+  const t = _computeBaseThresholds(deck);
+  const step = _deckCutPlaystyleStep;
+  if (step < 0) {
+    const a = Math.abs(step);
+    t['Ramp']       = Math.max(0, Math.round(t['Ramp']       - 0.5  * a));
+    t['Card Draw']  = Math.max(0, Math.round(t['Card Draw']  + 0.5  * a));
+    t['Removal']    = Math.max(0, Math.round(t['Removal']    - 0.5  * a));
+    t['Board Wipe'] = Math.max(0, Math.round(t['Board Wipe'] - 1.0  * a));
+    t['Plan']       = Math.max(0, Math.round(t['Plan']       + 2.84 * a));
+  } else if (step > 0) {
+    t['Ramp']       = Math.round(t['Ramp']       + 0.5  * step);
+    t['Card Draw']  = Math.round(t['Card Draw']  + 0.5  * step);
+    t['Removal']    = Math.round(t['Removal']    + 0.34 * step);
+    t['Board Wipe'] = Math.round(t['Board Wipe'] + 0.34 * step);
+    t['Plan']       = Math.max(0, Math.round(t['Plan'] - 2.68 * step));
+  }
+  return t;
+}
+
+function _buildCutReason(card, tags, surplusTag, roleCount, thresholds, cmdCmc, noRole, bucketExcess, planCount) {
   const cmc = card.cmc || 0;
-  const timingNote = cmc >= cmdCmc && cmdCmc > 0 ? `, same turn as your ${cmdCmc}-CMC commander` : '';
+  const timingNote = cmc === cmdCmc && cmdCmc > 0 ? `, same turn as your ${cmdCmc}-CMC commander` : '';
   const overCurve = bucketExcess > 0.05;
-  if (noRole) return `No clear role — CMC ${cmc}${overCurve ? ' (over curve)' : ''}`;
+  if (noRole) {
+    const pt = thresholds['Plan'] ?? 30;
+    const surplusNote = planCount > pt ? ` (${planCount} Plan, ideal ≤${pt})` : '';
+    return `No clear role${surplusNote} — CMC ${cmc}${overCurve ? ' (over curve)' : ''}`;
+  }
   if (surplusTag) {
     const count = roleCount[surplusTag] || 0;
     const thresh = thresholds[surplusTag] ?? '?';
@@ -5167,6 +5213,13 @@ function _suggestCardsToCut(deck) {
     return true;
   });
 
+  // Count "Plan" cards (no utility role tags) and compute surplus vs threshold
+  const planCount = candidates.reduce((s, c) => {
+    const ct = _probTagsOnCard(c, deck).filter(t => t !== 'Land' && t !== 'Commander');
+    return ct.length === 0 ? s + (c.qty || 1) : s;
+  }, 0);
+  const planSurplus = Math.max(0, planCount - (thresholds['Plan'] ?? 30));
+
   for (const card of candidates) {
     const tags = _probTagsOnCard(card, deck).filter(t => t !== 'Land' && t !== 'Commander');
     const noRole = tags.length === 0;
@@ -5179,9 +5232,10 @@ function _suggestCardsToCut(deck) {
       if (surplus > maxSurplus) { maxSurplus = surplus; surplusTag = tag; }
     }
 
-    const cmcPenalty = card.cmc >= cmdCmc && cmdCmc > 0 ? 0.8 : 0;
+    const cmcPenalty = cmdCmc > 0 ? (card.cmc === cmdCmc ? 0.8 : card.cmc > cmdCmc ? 0.4 : 0) : 0;
     const cmcFactor = Math.min((card.cmc || 0) * 0.12, 1.2);
-    const noRoleBonus = noRole ? 3.5 : 0;
+    // Use Plan threshold surplus for no-role cards; floor of 1.5 keeps them as candidates
+    const noRoleBonus = noRole ? Math.max(1.5, planSurplus) : 0;
     // More tags = more versatile = less likely to cut
     const multiRoleDiscount = Math.max(0, tags.length - 1) * 0.4;
     // Cheaper cards are more replaceable; $0 → +0.5, $10+ → +0
@@ -5192,7 +5246,7 @@ function _suggestCardsToCut(deck) {
     const bucketExcess = curveExcess[cmcBucket] ?? 0;
     const curvePenalty = Math.min(Math.max(0, bucketExcess) * 5, 1.5);
     card._cutScore = maxSurplus + cmcFactor + cmcPenalty + noRoleBonus - multiRoleDiscount + priceBonus + curvePenalty;
-    card._cutReason = _buildCutReason(card, tags, surplusTag, roleCount, thresholds, cmdCmc, noRole, bucketExcess);
+    card._cutReason = _buildCutReason(card, tags, surplusTag, roleCount, thresholds, cmdCmc, noRole, bucketExcess, planCount);
   }
 
   return candidates
@@ -5234,6 +5288,10 @@ function _renderCutSuggestions(deck) {
   panel.style.display = '';
   if (badge) badge.textContent = `${total - 100} over`;
 
+  // Sync playstyle slider
+  const psSlider = document.getElementById('deckCutPlaystyleSlider');
+  if (psSlider) psSlider.value = _deckCutPlaystyleStep;
+
   // Update archetype select: show auto-detected label on the Auto option
   const sel = document.getElementById('deckCutArchetypeSelect');
   if (sel) {
@@ -5251,12 +5309,11 @@ function _renderCutSuggestions(deck) {
     const uid = (card.uid || card.scryfallId || '').replace(/'/g, "\\'");
     const sid = card.scryfallId || card.uid || '';
     const displayName = (card.name || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const cmc = card.cmc || 0;
+    const score = (card._cutScore || 0).toFixed(1);
     const reason = (card._cutReason || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     return `<div class="cut-candidate-row">
-      <span class="cut-cmc-badge" title="Mana value">${cmc}</span>
+      <span class="cut-score-badge tooltip-wrap" aria-label="Cut score: ${score}">${score}<span class="tooltip cut-score-tooltip">${reason}</span></span>
       <span class="cut-card-name" onclick="openCardDetail('${sid}','deck')">${displayName}</span>
-      <span class="cut-reason" title="${reason}">${reason}</span>
       <button class="btn-danger-ghost" onclick="adjustDeckCardQtyByUid('${uid}',-1)">Cut</button>
     </div>`;
   }).join('');

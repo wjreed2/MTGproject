@@ -3090,6 +3090,10 @@ const _rarityAliases = { c: 'common', u: 'uncommon', r: 'rare', m: 'mythic' };
 const _sqlOpMap = { '>=': '>=', '<=': '<=', '!=': '!=', '<>': '!=', '>': '>', '<': '<', '=': '=', ':': '=' };
 
 function _parseLocalSearchQuery(raw) {
+  const trimmed = String(raw || '').trim();
+  if (trimmed === '*') {
+    return { orGroups: [{ tokens: [], nameTerms: [] }] };
+  }
   const orGroups = raw.split(/\bOR\b/i).map(group => {
     const tokens = [];
     const nameTerms = [];
@@ -3104,6 +3108,51 @@ function _parseLocalSearchQuery(raw) {
 }
 
 const _COLOR_NAMES_SRV = { white:'W', blue:'U', black:'B', red:'R', green:'G', colorless:'C', multicolor:'M', multi:'M' };
+
+/** Exclusive color filter (deck list / collection): card colors must be a subset of selected pips. */
+function _parseExclusiveColorsParam(raw) {
+  return [...new Set(String(raw || '').split(',').map(c => c.trim().toUpperCase()).filter(c => 'WUBRGC'.includes(c)))];
+}
+
+function _subsetExclusiveSql(jsonCol, allowed) {
+  const parts = [`JSON_LENGTH(${jsonCol}) > 0`];
+  const params = [];
+  for (const ch of 'WUBRG') {
+    if (!allowed.includes(ch)) {
+      parts.push(`NOT JSON_CONTAINS(${jsonCol}, ?)`);
+      params.push(`"${ch}"`);
+    }
+  }
+  return { sql: parts.join(' AND '), params };
+}
+
+function _buildExclusiveColorsClause(selected) {
+  const sel = _parseExclusiveColorsParam(selected.join(','));
+  if (!sel.length) return { sql: '', params: [] };
+
+  const hasC = sel.includes('C');
+  const allowed = sel.filter(c => c !== 'C');
+  const params = [];
+
+  const colorlessSql = `(JSON_LENGTH(colors_json) = 0 OR colors_json IS NULL OR colors_json = '[]')
+    AND (JSON_LENGTH(color_identity_json) = 0 OR color_identity_json IS NULL OR color_identity_json = '[]')`;
+
+  let coloredSql = '';
+  if (allowed.length) {
+    const onColors = _subsetExclusiveSql('colors_json', allowed);
+    const onCi = _subsetExclusiveSql('color_identity_json', allowed);
+    params.push(...onColors.params, ...onCi.params);
+    coloredSql = `((${onColors.sql}) OR ((JSON_LENGTH(colors_json) = 0 OR colors_json IS NULL OR colors_json = '[]') AND (${onCi.sql})))`;
+  }
+
+  let clause;
+  if (hasC && allowed.length) clause = `(${colorlessSql} OR ${coloredSql})`;
+  else if (hasC) clause = colorlessSql;
+  else if (allowed.length) clause = coloredSql;
+  else return { sql: '', params: [] };
+
+  return { sql: ` AND (${clause})`, params };
+}
 
 function _buildLocalSearchSqlGroup({ tokens, nameTerms }) {
   const where = [];
@@ -3181,10 +3230,13 @@ function _buildLocalSearchSql({ orGroups }) {
 
 app.get('/api/cards/search', requireAuth, async (req, res) => {
   try {
-    const raw = (req.query.q || '').trim();
-    if (!raw) return res.json({ data: [], total: 0 });
+    const exclusiveColors = _parseExclusiveColorsParam(req.query.colors);
+    let raw = (req.query.q || '').trim();
+    if (!raw && !exclusiveColors.length) return res.json({ data: [], total: 0 });
+    if (!raw) raw = '*';
     const parsed = _parseLocalSearchQuery(raw);
     const { sql, params } = _buildLocalSearchSql(parsed);
+    const { sql: colorSql, params: colorParams } = _buildExclusiveColorsClause(exclusiveColors);
     const paperOnly = req.query.paperOnly === '1';
     // Exclude Arena-only cards: require games_json to contain "paper" (NULL = not imported,
     // treat as excluded to be safe). Set-code patterns catch Alchemy (y*), Historic
@@ -3193,18 +3245,19 @@ app.get('/api/cards/search', requireAuth, async (req, res) => {
       ? ` AND games_json LIKE '%"paper"%'`
         + ` AND (set_code IS NULL OR (set_code NOT REGEXP '^y[a-z0-9]' AND set_code NOT REGEXP '^ha[0-9]' AND set_code != 'j21'))`
       : '';
-    const fullSql = sql + paperClause;
+    const fullSql = sql + colorSql + paperClause;
+    const allParams = [...params, ...colorParams];
     const limit = Math.min(Math.max(parseInt(req.query.limit) || 300, 1), 1000);
     const offset = Math.max(parseInt(req.query.offset) || 0, 0);
 
     const [[{ total }]] = await db().query(
-      `SELECT COUNT(*) AS total FROM scryfall_oracle_cards ${fullSql}`, params
+      `SELECT COUNT(*) AS total FROM scryfall_oracle_cards ${fullSql}`, allParams
     );
     const [rows] = await db().query(
       `SELECT oracle_id, scryfall_id, name, type_line, oracle_text, rarity, set_code, cmc, mana_cost,
               colors_json, color_identity_json, image_small, image_normal, power, toughness, loyalty
        FROM scryfall_oracle_cards ${fullSql} ORDER BY name LIMIT ? OFFSET ?`,
-      [...params, limit, offset]
+      [...allParams, limit, offset]
     );
     const cards = rows.map(row => ({
       id: row.scryfall_id || row.oracle_id,
@@ -3215,7 +3268,13 @@ app.get('/api/cards/search', requireAuth, async (req, res) => {
       set: row.set_code,
       cmc: row.cmc !== null ? Number(row.cmc) : null,
       mana_cost: row.mana_cost,
-      colors: (() => { try { return JSON.parse(row.colors_json || '[]'); } catch (_) { return []; } })(),
+      colors: (() => {
+        try {
+          const c = JSON.parse(row.colors_json || '[]');
+          if (Array.isArray(c) && c.length) return c;
+          return JSON.parse(row.color_identity_json || '[]');
+        } catch (_) { return []; }
+      })(),
       color_identity: (() => { try { return JSON.parse(row.color_identity_json || '[]'); } catch (_) { return []; } })(),
       image_uris: { small: row.image_small, normal: row.image_normal },
       power: row.power, toughness: row.toughness, loyalty: row.loyalty,

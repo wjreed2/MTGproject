@@ -640,6 +640,13 @@
           </span>
           <span id="deckCutOverBadge" class="tag tag-red" style="margin-left:.5rem"></span>
           <div style="flex:1"></div>
+          <div class="cut-playstyle-wrap" title="Playstyle — shifts cut thresholds (Aggro lowers ramp/removal targets, Control raises them)">
+            <span class="cut-playstyle-label cut-playstyle-aggro">Aggro</span>
+            <input type="range" id="deckCutPlaystyleSlider" min="-3" max="3" step="1" value="0"
+              oninput="setDeckCutPlaystyleStep(parseInt(this.value))"
+              style="width:84px;cursor:pointer;accent-color:var(--gold)" aria-label="Playstyle: Aggro to Control">
+            <span class="cut-playstyle-label cut-playstyle-control">Control</span>
+          </div>
           <select id="deckCutArchetypeSelect" class="deck-select" onchange="_onCutArchetypeChange(this.value)" style="font-size:.76rem;margin-right:4px" title="Deck archetype (affects cut thresholds)">
             <option value="">Auto</option>
             <option value="goodstuff">Goodstuff</option>
@@ -1104,13 +1111,13 @@
       <div>
         <!-- TAB BAR -->
         <div class="voice-tab-bar">
-          <button class="voice-tab active" id="voiceTabBtn" onclick="switchVoiceTab('voice')">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><path d="M8 1.5a2.5 2.5 0 0 1 2.5 2.5v3a2.5 2.5 0 0 1-5 0V4A2.5 2.5 0 0 1 8 1.5z"/><path d="M12 8v.5a4 4 0 0 1-8 0V8"/><line x1="8" y1="12.5" x2="8" y2="14.5"/><line x1="5.5" y1="14.5" x2="10.5" y2="14.5"/></svg>
-            Voice
-          </button>
-          <button class="voice-tab" id="searchTabBtn" onclick="switchVoiceTab('search')">
+          <button class="voice-tab active" id="searchTabBtn" onclick="switchVoiceTab('search')">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><circle cx="6.5" cy="6.5" r="4.5"/><path d="M10 10l3.5 3.5"/></svg>
             Search
+          </button>
+          <button class="voice-tab" id="voiceTabBtn" onclick="switchVoiceTab('voice')">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><path d="M8 1.5a2.5 2.5 0 0 1 2.5 2.5v3a2.5 2.5 0 0 1-5 0V4A2.5 2.5 0 0 1 8 1.5z"/><path d="M12 8v.5a4 4 0 0 1-8 0V8"/><line x1="8" y1="12.5" x2="8" y2="14.5"/><line x1="5.5" y1="14.5" x2="10.5" y2="14.5"/></svg>
+            Voice
           </button>
           <button class="btn btn-ghost btn-sm voice-settings-gear" id="voiceSettingsGearBtn" type="button" onclick="toggleVoiceSearchSettings()" title="Voice search settings" aria-expanded="false" aria-controls="voiceSearchSettingsPanel">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><circle cx="8" cy="8" r="2.2"/><path d="M13.4 8a5.4 5.4 0 0 0-.06-.77l1.23-.96-1.2-2.07-1.49.32a5.5 5.5 0 0 0-1.32-.77L10.3 2H5.7l-.26 1.75a5.5 5.5 0 0 0-1.32.77l-1.49-.32-1.2 2.07 1.23.96A5.4 5.4 0 0 0 2.6 8c0 .26.02.52.06.77l-1.23.96 1.2 2.07 1.49-.32c.4.33.84.6 1.32.77L5.7 14h4.6l.26-1.75c.48-.17.92-.44 1.32-.77l1.49.32 1.2-2.07-1.23-.96c.04-.25.06-.51.06-.77z"/></svg>
@@ -1156,7 +1163,7 @@
         </div>
 
         <!-- VOICE TAB -->
-        <div id="voiceTabContent">
+        <div id="voiceTabContent" style="display:none">
           <p style="font-size:0.85rem;color:var(--text2);margin-bottom:1.25rem">
             Say the <strong style="color:var(--gold)">set code</strong> and <strong style="color:var(--gold)">number</strong>, optionally add <strong style="color:var(--gold)">"foil"</strong>.<br>
             Example: <em style="color:var(--teal)">"DMU 142 foil"</em> · Pin a set to say just the number.
@@ -1198,7 +1205,7 @@
         </div>
 
         <!-- SEARCH TAB -->
-        <div id="searchTabContent" style="display:none">
+        <div id="searchTabContent">
           <!-- Search input row -->
           <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center">
             <div style="position:relative;flex:1">
@@ -1218,12 +1225,12 @@
           </div>
           <!-- Quick filters -->
           <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:8px">
-            <div class="find-color-pill" id="fcp-W" onclick="_toggleFindToken('c','w')" title="White"><img src="https://svgs.scryfall.io/card-symbols/W.svg" alt="W"></div>
-            <div class="find-color-pill" id="fcp-U" onclick="_toggleFindToken('c','u')" title="Blue"><img src="https://svgs.scryfall.io/card-symbols/U.svg" alt="U"></div>
-            <div class="find-color-pill" id="fcp-B" onclick="_toggleFindToken('c','b')" title="Black"><img src="https://svgs.scryfall.io/card-symbols/B.svg" alt="B"></div>
-            <div class="find-color-pill" id="fcp-R" onclick="_toggleFindToken('c','r')" title="Red"><img src="https://svgs.scryfall.io/card-symbols/R.svg" alt="R"></div>
-            <div class="find-color-pill" id="fcp-G" onclick="_toggleFindToken('c','g')" title="Green"><img src="https://svgs.scryfall.io/card-symbols/G.svg" alt="G"></div>
-            <div class="find-color-pill" id="fcp-C" onclick="_toggleFindToken('c','c')" title="Colorless"><img src="https://svgs.scryfall.io/card-symbols/C.svg" alt="C"></div>
+            <div class="find-color-pill" id="fcp-W" onclick="toggleFindColorFilter('W')" title="White"><img src="https://svgs.scryfall.io/card-symbols/W.svg" alt="W"></div>
+            <div class="find-color-pill" id="fcp-U" onclick="toggleFindColorFilter('U')" title="Blue"><img src="https://svgs.scryfall.io/card-symbols/U.svg" alt="U"></div>
+            <div class="find-color-pill" id="fcp-B" onclick="toggleFindColorFilter('B')" title="Black"><img src="https://svgs.scryfall.io/card-symbols/B.svg" alt="B"></div>
+            <div class="find-color-pill" id="fcp-R" onclick="toggleFindColorFilter('R')" title="Red"><img src="https://svgs.scryfall.io/card-symbols/R.svg" alt="R"></div>
+            <div class="find-color-pill" id="fcp-G" onclick="toggleFindColorFilter('G')" title="Green"><img src="https://svgs.scryfall.io/card-symbols/G.svg" alt="G"></div>
+            <div class="find-color-pill" id="fcp-C" onclick="toggleFindColorFilter('C')" title="Colorless"><img src="https://svgs.scryfall.io/card-symbols/C.svg" alt="C"></div>
             <span style="width:1px;height:14px;background:var(--border2);flex-shrink:0"></span>
             <button class="filter-chip" id="fct-creature"     onclick="_toggleFindToken('t','creature')">Creature</button>
             <button class="filter-chip" id="fct-instant"      onclick="_toggleFindToken('t','instant')">Instant</button>
