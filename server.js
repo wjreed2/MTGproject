@@ -2178,7 +2178,7 @@ const SCRYFALL_AUTO_TAGS = [
 function _sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
-async function scryfallFetch(url, { maxRetries = 3, timeoutMs = 0, init = {} } = {}) {
+async function scryfallFetch(url, { maxRetries = 3, timeoutMs = 10000, init = {} } = {}) {
   const result = _scryfallQueue.then(async () => {
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       const elapsed = Date.now() - _scryfallLastRequestAt;
@@ -2957,9 +2957,14 @@ app.get('/api/scryfall/card-id/:id', async (req, res) => {
       return res.status(400).json({ error: 'Invalid card ID' });
     }
     const cardId = req.params.id;
-    const upstream = await scryfallFetch(`https://api.scryfall.com/cards/${cardId}`);
-    if (!upstream.ok) {
-      // Fall back to local oracle DB if Scryfall is unavailable
+    let upstream = null;
+    try {
+      upstream = await scryfallFetch(`https://api.scryfall.com/cards/${cardId}`);
+    } catch (e) {
+      if (e?.name !== 'TimeoutError' && e?.name !== 'AbortError') throw e;
+    }
+    if (!upstream || !upstream.ok) {
+      // Fall back to local oracle DB if Scryfall is unavailable or timed out
       const [[localRow]] = await db().query(
         `SELECT oracle_id, scryfall_id, name, type_line, oracle_text, mana_cost, cmc,
                 colors_json, color_identity_json, image_normal, image_small,
@@ -2985,7 +2990,7 @@ app.get('/api/scryfall/card-id/:id', async (req, res) => {
         }
         return res.json(card);
       }
-      return res.status(upstream.status).json({ error: 'Card not found' });
+      return res.status(upstream ? upstream.status : 504).json({ error: upstream ? 'Card not found' : 'Card lookup timed out' });
     }
     const card = await upstream.json();
     await enrichCardWithTcgPrices(card);
