@@ -960,10 +960,11 @@ async function undoDeckHistoryEvent(historyId, ev) {
       saveActiveDeck(deck); renderActiveDeck();
     }
   } else if (type === 'remove') {
+    const pool = _ownershipCollection();
     const found = (window.Ownership?.preferredOwnedPrinting
-      ? window.Ownership.preferredOwnedPrinting(collection, uid)
-      : collection.find(c => c.uid === uid)) ||
-      collection.find(c => c.name?.toLowerCase() === name?.toLowerCase());
+      ? window.Ownership.preferredOwnedPrinting(pool, uid)
+      : pool.find(c => c.uid === uid)) ||
+      pool.find(c => c.name?.toLowerCase() === name?.toLowerCase());
     const card = found || { uid, name, image: ev.image, qty: 1, foil: !!ev.foil, cmc: 0, type: '', mana: '', colors: [], colorIdentity: [] };
     const existing = findDeckCardSlot(deck, card);
     if (existing) { existing.qty++; } else { deck.cards.push({ ...card, uid: uid || getCardInventoryKey(card), qty: 1 }); }
@@ -976,7 +977,8 @@ async function undoDeckHistoryEvent(historyId, ev) {
       saveActiveDeck(deck); renderActiveDeck();
     }
   } else if (type === 'remove_sb') {
-    const found = collection.find(c => c.uid === uid) || collection.find(c => c.name?.toLowerCase() === name?.toLowerCase());
+    const pool = _ownershipCollection();
+    const found = pool.find(c => c.uid === uid) || pool.find(c => c.name?.toLowerCase() === name?.toLowerCase());
     const card = found || { uid, name, image: ev.image, qty: 1, foil: !!ev.foil, cmc: 0, type: '', mana: '', colors: [], colorIdentity: [] };
     _addCardToDeckZone(deck, card, 'mb', 'maybe board');
     showNotif('Undid ' + (name || 'action'));
@@ -2566,7 +2568,7 @@ function searchCommanderInput(q, resultsId, format) {
         const ci = group.prints[0]?.color_identity || [];
         const pips = colorPips(ci);
         const nameLower = group.name.toLowerCase();
-        const ownedTotal = (collection || []).reduce((acc, c) =>
+        const ownedTotal = (_ownershipCollection() || []).reduce((acc, c) =>
           (c.name || '').toLowerCase() === nameLower ? acc + (c.qty || 1) : acc, 0);
         const ownedBadge = ownedTotal > 0
           ? `<span style="font-size:0.68rem;background:rgba(0,200,150,0.15);color:var(--teal);border:1px solid rgba(0,200,150,0.3);border-radius:10px;padding:1px 8px;white-space:nowrap">${ownedTotal}× owned</span>`
@@ -2579,7 +2581,7 @@ function searchCommanderInput(q, resultsId, format) {
           const safeImgFull = imgFull.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
           const safeName    = c.name.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
           const safeCI      = JSON.stringify(ciArr).replace(/"/g,'&quot;');
-          const isOwnedPrint = (collection || []).some(col => col.scryfallId === c.id);
+          const isOwnedPrint = (_ownershipCollection() || []).some(col => col.scryfallId === c.id);
           const borderColor = isOwnedPrint ? 'var(--teal)' : 'transparent';
           return `
             <div onclick="selectCommanderResult('${resultsId}','${safeName}','${safeCI}','${safeImgFull}','${c.id}')"
@@ -2727,8 +2729,8 @@ async function addCommanderCardToDeck(deck, scryfallId) {
   // Remove any existing commander card slot first
   deck.cards = deck.cards.filter(c => !c.isCommander);
 
-  // Prefer a copy already in the collection, otherwise fetch from Scryfall
-  let card = collection.find(c => c.scryfallId === scryfallId);
+  // Prefer a copy already in the ownership pool, otherwise fetch from Scryfall
+  let card = _ownershipCollection().find(c => c.scryfallId === scryfallId);
   if (!card) {
     try {
       const sc = await fetchCardById(scryfallId);
@@ -2791,6 +2793,7 @@ function closeNewDeckModal() {
 function selectDeck(id) {
   activeDeckId = id;
   activeDeckIsShared = !decks.some(d => d.id === id);
+  if (typeof clearDeckOwnerCollectionLookup === 'function') clearDeckOwnerCollectionLookup();
   localStorage.setItem('mtg_active_deck_id', id);
   if (_deckHistoryVisible) {
     _deckHistoryVisible = false;
@@ -2833,13 +2836,18 @@ async function _enrichMissingDeckImages() {
 }
 
 function _backfillDeckCardTypeLines(deck) {
-  if (!deck || typeof ensureCardTypeLine !== 'function') return;
+  if (!deck) return;
   let changed = false;
   _deckAllZoneCards(deck).forEach(c => {
-    if (!c?.type || c.type === 'undefined') {
-      ensureCardTypeLine(c);
-      if (c.type) changed = true;
-    }
+    const before = JSON.stringify({
+      type: c?.type, cmc: c?.cmc, mana: c?.mana, oracleId: c?.oracleId,
+    });
+    if (typeof ensureCardMetadata === 'function') ensureCardMetadata(c);
+    else if (typeof ensureCardTypeLine === 'function') ensureCardTypeLine(c);
+    const after = JSON.stringify({
+      type: c?.type, cmc: c?.cmc, mana: c?.mana, oracleId: c?.oracleId,
+    });
+    if (before !== after) changed = true;
   });
   if (changed && !activeDeckIsShared) saveActiveDeck(deck);
 }
@@ -2861,6 +2869,7 @@ function renderActiveDeck() {
   if (activeBtn) activeBtn.classList.add('active');
   ensureDefaultDeckRoleTags();
   if (!activeDeckIsShared && syncDeckAutoRoleTags(deck)) saveActiveDeck(deck);
+  _scheduleDeckMetadataHydrate(deck);
   _scheduleDeckScryfallTagRefresh(deck);
   document.getElementById('activeDeckName').textContent = deck.name;
   document.getElementById('activeDeckFormat').textContent = deck.format;
@@ -2903,6 +2912,17 @@ function renderActiveDeck() {
   const deckVoiceBtn = document.getElementById('deckBuilderVoiceBtn');
   if (deckVoiceBtn) deckVoiceBtn.style.display = canEditActiveDeck() ? '' : 'none';
 
+  if (activeDeckIsShared && typeof loadDeckOwnerCollectionLookup === 'function') {
+    loadDeckOwnerCollectionLookup(deck).then(() => {
+      if (getActiveDeck()?.id !== deck.id) return;
+      if (isDeckOwnershipEnabled()) _rebuildOwnershipMaps();
+      renderDeckList(deck);
+      renderCommanderGameplan(deck);
+      if (typeof _renderDeckSearchGrid === 'function') _renderDeckSearchGrid();
+      scheduleEDHRECRefresh(0);
+    });
+  }
+
   // Shared-by badge
   const sharedBadge = document.getElementById('deckSharedByBadge');
   if (sharedBadge) {
@@ -2932,7 +2952,7 @@ function renderActiveDeck() {
   scheduleDeckGameChangerRefresh(deck);
   renderCollaboratorsPanel(deck);
   _simAutoLoad();
-  if (!activeDeckIsShared) scheduleEDHRECRefresh(0);
+  scheduleEDHRECRefresh(0);
 }
 
 // ── Collaborators panel ───────────────────────────────────────────────────────
@@ -3722,6 +3742,42 @@ function isDeckOwnershipEnabled() {
   return deckOwnershipEnabled !== false;
 }
 
+/** When collaborating on a shared deck, ownership/suggestions use the deck owner's collection. */
+function _useOwnerCollectionForOwnership() {
+  if (!isDeckOwnershipEnabled()) return false;
+  if (typeof activeDeckIsShared === 'undefined' || !activeDeckIsShared) return false;
+  const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+  return !!(deck?.ownerId);
+}
+
+function _ownershipCollection() {
+  if (!_useOwnerCollectionForOwnership()) return collection;
+  if (typeof getDeckOwnerCollectionCards === 'function') {
+    const ownerCards = getDeckOwnerCollectionCards();
+    if (ownerCards.length) return ownerCards;
+  }
+  const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+  if (deck?.ownerId && typeof sharedCollections !== 'undefined') {
+    const sc = sharedCollections.find(s => Number(s.ownerId) === Number(deck.ownerId));
+    if (sc?.cards?.length) return sc.cards;
+  }
+  return collection;
+}
+
+function _ownershipCollectionLabel() {
+  const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+  if (_useOwnerCollectionForOwnership() && deck?.ownerEmail) {
+    return `${deck.ownerEmail.split('@')[0]}'s collection`;
+  }
+  return 'your collection';
+}
+
+function _deckByIdForOwnership(deckId) {
+  if (!deckId) return null;
+  return decks.find(d => d.id === deckId)
+    || (typeof sharedDecks !== 'undefined' ? sharedDecks.find(d => d.id === deckId) : null);
+}
+
 function getCardInventoryKey(card) {
   if (!card) return '';
   if (card.uid) return card.uid;
@@ -3735,23 +3791,38 @@ function _deckCardDragKey(card) {
 
 function getCollectionOwnedQtyForKey(cardKey) {
   if (!cardKey) return 0;
-  return collection
+  return _ownershipCollection()
     .filter(c => getCardInventoryKey(c) === cardKey)
     .reduce((sum, c) => sum + (c.qty || 1), 0);
 }
 
+function _allocatedQtyInDeck(deck, cardKey) {
+  if (!deck || !cardKey) return 0;
+  const main = (deck.cards || [])
+    .filter(c => getCardInventoryKey(c) === cardKey)
+    .reduce((inner, c) => inner + (c.qty || 1), 0);
+  const extra = _deckExtraPoolsForAlloc(deck)
+    .filter(c => getCardInventoryKey(c) === cardKey)
+    .reduce((inner, c) => inner + (c.qty || 1), 0);
+  return main + extra;
+}
+
 function getAllocatedDeckQtyForKey(cardKey, excludeDeckId = null) {
   if (!cardKey) return 0;
+  if (_useOwnerCollectionForOwnership()) {
+    const deck = getActiveDeck();
+    if (!deck) return 0;
+    if (excludeDeckId && deck.id === excludeDeckId) return 0;
+    return _allocatedQtyInDeck(deck, cardKey);
+  }
   return decks.reduce((sum, deck) => {
     if (excludeDeckId && deck.id === excludeDeckId) return sum;
-    const main = (deck.cards || [])
-      .filter(c => getCardInventoryKey(c) === cardKey)
-      .reduce((inner, c) => inner + (c.qty || 1), 0);
-    const extra = _deckExtraPoolsForAlloc(deck)
-      .filter(c => getCardInventoryKey(c) === cardKey)
-      .reduce((inner, c) => inner + (c.qty || 1), 0);
-    return sum + main + extra;
-  }, 0);
+    return sum + _allocatedQtyInDeck(deck, cardKey);
+  }, 0)
+    + (typeof sharedDecks !== 'undefined' ? sharedDecks : []).reduce((sum, deck) => {
+      if (excludeDeckId && deck.id === excludeDeckId) return sum;
+      return sum + _allocatedQtyInDeck(deck, cardKey);
+    }, 0);
 }
 
 function getAvailableCollectionQtyForCard(card, excludeDeckId = null) {
@@ -3769,16 +3840,13 @@ function findDeckCardSlot(deck, card) {
 function getDeckAllocationsForCard(card, excludeDeckId = null) {
   const key = getCardInventoryKey(card);
   if (!key) return [];
-  return decks
+  const pool = _useOwnerCollectionForOwnership()
+    ? (typeof sharedDecks !== 'undefined' ? sharedDecks : [])
+    : [...decks, ...(typeof sharedDecks !== 'undefined' ? sharedDecks : [])];
+  return pool
     .filter(d => !excludeDeckId || d.id !== excludeDeckId)
     .map(d => {
-      const main = (d.cards || [])
-        .filter(c => getCardInventoryKey(c) === key)
-        .reduce((sum, c) => sum + (c.qty || 1), 0);
-      const extra = _deckExtraPoolsForAlloc(d)
-        .filter(c => getCardInventoryKey(c) === key)
-        .reduce((sum, c) => sum + (c.qty || 1), 0);
-      const qty = main + extra;
+      const qty = _allocatedQtyInDeck(d, key);
       return qty > 0 ? { deckId: d.id, deckName: d.name, qty } : null;
     })
     .filter(Boolean);
@@ -3787,20 +3855,19 @@ function getDeckAllocationsForCard(card, excludeDeckId = null) {
 function getInventoryBreakdown(card, currentDeckId = null) {
   const key = getCardInventoryKey(card);
   const owned = getCollectionOwnedQtyForKey(key);
+  const deckId = currentDeckId || getActiveDeck()?.id || null;
+  const usedInCurrent = deckId ? _allocatedQtyInDeck(_deckByIdForOwnership(deckId), key) : 0;
+  if (_useOwnerCollectionForOwnership()) {
+    const available = Math.max(0, owned - usedInCurrent);
+    return {
+      owned,
+      usedTotal: usedInCurrent,
+      usedInCurrent,
+      usedInOther: 0,
+      available,
+    };
+  }
   const usedTotal = getAllocatedDeckQtyForKey(key);
-  const usedInCurrent = currentDeckId
-    ? (() => {
-      const d = decks.find(de => de.id === currentDeckId);
-      if (!d) return 0;
-      const main = (d.cards || [])
-        .filter(c => getCardInventoryKey(c) === key)
-        .reduce((sum, c) => sum + (c.qty || 1), 0);
-      const extra = _deckExtraPoolsForAlloc(d)
-        .filter(c => getCardInventoryKey(c) === key)
-        .reduce((sum, c) => sum + (c.qty || 1), 0);
-      return main + extra;
-    })()
-    : 0;
   const usedInOther = Math.max(0, usedTotal - usedInCurrent);
   const available = Math.max(0, owned - usedTotal);
   return { owned, usedTotal, usedInCurrent, usedInOther, available };
@@ -3841,7 +3908,7 @@ function _matchSideboardQtyForCardName(deck, name) {
 function _rebuildOwnershipMaps() {
   _ownedByUid  = {};
   _ownedByName = {};
-  collection.forEach(c => {
+  _ownershipCollection().forEach(c => {
     const uidKey = getCardInventoryKey(c);
     if (uidKey) _ownedByUid[uidKey] = _ownedByUid[uidKey] || c;
     const nameKey = (c.name || '').toLowerCase();
@@ -7182,7 +7249,7 @@ function _suggestRamp(cmdColors, hasGenericCost, deckCardNames, cmdCMC = 4) {
   const seen = new Set();
   const suggestions = [];
 
-  const candidates = (typeof collection !== 'undefined' ? collection : [])
+  const candidates = _ownershipCollection()
     .filter(c => {
       if (_isLandDeckCard(c)) return false;
       if (_effectiveCmc(c) >= cmdCMC) return false;
@@ -7415,7 +7482,7 @@ function renderCommanderGameplan(deck) {
         <div class="cmdr-gp-suggest">
           ${rampSuggestions.length ? `
           <div class="cmdr-gp-suggest-group">
-            <span class="cmdr-gp-suggest-label">In your collection:</span>
+            <span class="cmdr-gp-suggest-label">In ${_ownershipCollectionLabel()}:</span>
             <div class="sim-chip-row">${rampSuggestions.map(s => `<span class="sim-chip sim-chip--owned" style="cursor:pointer" onclick="openCardDetail('${s.id}')">${s.name}</span>`).join('')}</div>
           </div>` : ''}
           <div id="cmdGpEdhrecSuggs"></div>
@@ -7529,7 +7596,7 @@ function deckSearchAutocomplete(q) {
 
     // Local collection names first (up to 10)
     const localNames = [...new Set(
-      collection.filter(c => c.name.toLowerCase().includes(qLow)).map(c => c.name)
+      _ownershipCollection().filter(c => c.name.toLowerCase().includes(qLow)).map(c => c.name)
     )].slice(0, 10);
     const localSet = new Set(localNames.map(n => n.toLowerCase()));
 
@@ -7651,7 +7718,7 @@ function _renderDeckSearchGrid() {
   const inMatchSbNames = new Set(_deckMatchSideboard(deck).map(c => c.name.toLowerCase()));
   const sbEnabled = _deckMatchSideboardEnabled(deck);
   const collectionByScryId = {};
-  collection.forEach(c => { collectionByScryId[c.scryfallId] = c; });
+  _ownershipCollection().forEach(c => { if (c.scryfallId) collectionByScryId[c.scryfallId] = c; });
 
   const localHtml = _deckSearchLocal
     .filter(c => _matchesDeckSearchRoleFilters(c, false))
@@ -7725,6 +7792,11 @@ async function runDeckSearch(q) {
     el.innerHTML = ''; return;
   }
 
+  const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+  if (_useOwnerCollectionForOwnership() && deck && typeof loadDeckOwnerCollectionLookup === 'function') {
+    await loadDeckOwnerCollectionLookup(deck);
+  }
+
   // Cancel stale request
   if (_deckSearchAbort) _deckSearchAbort.abort();
   _deckSearchAbort = new AbortController();
@@ -7735,7 +7807,7 @@ async function runDeckSearch(q) {
   // Collection matches — one entry per unique card name
   const qLow = q.toLowerCase();
   const localByName = {};
-  collection.forEach(c => {
+  _ownershipCollection().forEach(c => {
     if (c.name.toLowerCase().includes(qLow) && !localByName[c.name])
       localByName[c.name] = c;
   });
@@ -7770,9 +7842,10 @@ async function runDeckSearch(q) {
 async function addScryfallCardToDeck(scryfallId) {
   const deck = getActiveDeck();
   if (!deck) return;
+  const pool = _ownershipCollection();
   let card = window.Ownership?.preferredOwnedPrinting
-    ? window.Ownership.preferredOwnedPrinting(collection, scryfallId)
-    : (collection.find(c => c.scryfallId === scryfallId && !c.foil) || collection.find(c => c.scryfallId === scryfallId));
+    ? window.Ownership.preferredOwnedPrinting(pool, scryfallId)
+    : (pool.find(c => c.scryfallId === scryfallId && !c.foil) || pool.find(c => c.scryfallId === scryfallId));
   if (!card) {
     const sc = await fetchCardById(scryfallId);
     if (!sc) { showNotif('Failed to fetch card', true); return; }
@@ -7788,9 +7861,10 @@ async function addScryfallCardToDeck(scryfallId) {
 function addToDeck(uid) {
   const deck = getActiveDeck();
   if (!deck) return;
+  const pool = _ownershipCollection();
   const card = window.Ownership?.findByRef
-    ? window.Ownership.findByRef(collection, uid)
-    : collection.find(c => c.uid === uid);
+    ? window.Ownership.findByRef(pool, uid)
+    : pool.find(c => c.uid === uid);
   if (!card) return;
   const existing = findDeckCardSlot(deck, card);
   if (existing) { existing.qty++; recordDeckEvent('qty_change', existing); }
@@ -7818,8 +7892,9 @@ async function simAddToMaybe(btn, name) {
   btn.disabled = true;
   const deck = getActiveDeck();
   if (!deck) return;
-  let card = collection.find(c => c.name.toLowerCase() === name.toLowerCase() && !c.foil)
-    || collection.find(c => c.name.toLowerCase() === name.toLowerCase());
+  const pool = _ownershipCollection();
+  let card = pool.find(c => c.name.toLowerCase() === name.toLowerCase() && !c.foil)
+    || pool.find(c => c.name.toLowerCase() === name.toLowerCase());
   if (!card) {
     const sc = await fetchCardByName(name);
     if (!sc) { showNotif('Failed to fetch card', true); btn.disabled = false; return; }
@@ -7921,9 +7996,10 @@ function _addCardToDeckZone(deck, card, zone, notifyLabel) {
 function addToSideboard(uid) {
   const deck = getActiveDeck();
   if (!deck) return;
+  const pool = _ownershipCollection();
   const card = window.Ownership?.findByRef
-    ? window.Ownership.findByRef(collection, uid)
-    : collection.find(c => c.uid === uid);
+    ? window.Ownership.findByRef(pool, uid)
+    : pool.find(c => c.uid === uid);
   if (!card) return;
   _addCardToDeckZone(deck, card, 'mb', 'maybe board');
 }
@@ -7931,9 +8007,10 @@ function addToSideboard(uid) {
 async function addScryfallCardToSideboard(scryfallId) {
   const deck = getActiveDeck();
   if (!deck) return;
+  const pool = _ownershipCollection();
   let card = window.Ownership?.preferredOwnedPrinting
-    ? window.Ownership.preferredOwnedPrinting(collection, scryfallId)
-    : (collection.find(c => c.scryfallId === scryfallId && !c.foil) || collection.find(c => c.scryfallId === scryfallId));
+    ? window.Ownership.preferredOwnedPrinting(pool, scryfallId)
+    : (pool.find(c => c.scryfallId === scryfallId && !c.foil) || pool.find(c => c.scryfallId === scryfallId));
   if (!card) {
     const sc = await fetchCardById(scryfallId);
     if (!sc) { showNotif('Failed to fetch card', true); return; }
@@ -7946,9 +8023,10 @@ async function addScryfallCardToSideboard(scryfallId) {
 function addToMatchSideboard(uid) {
   const deck = getActiveDeck();
   if (!deck || !_deckMatchSideboardEnabled(deck)) return;
+  const pool = _ownershipCollection();
   const card = window.Ownership?.findByRef
-    ? window.Ownership.findByRef(collection, uid)
-    : collection.find(c => c.uid === uid);
+    ? window.Ownership.findByRef(pool, uid)
+    : pool.find(c => c.uid === uid);
   if (!card) return;
   _addCardToDeckZone(deck, card, 'sb', 'sideboard');
 }
@@ -7956,9 +8034,10 @@ function addToMatchSideboard(uid) {
 async function addScryfallCardToMatchSideboard(scryfallId) {
   const deck = getActiveDeck();
   if (!deck || !_deckMatchSideboardEnabled(deck)) return;
+  const pool = _ownershipCollection();
   let card = window.Ownership?.preferredOwnedPrinting
-    ? window.Ownership.preferredOwnedPrinting(collection, scryfallId)
-    : (collection.find(c => c.scryfallId === scryfallId && !c.foil) || collection.find(c => c.scryfallId === scryfallId));
+    ? window.Ownership.preferredOwnedPrinting(pool, scryfallId)
+    : (pool.find(c => c.scryfallId === scryfallId && !c.foil) || pool.find(c => c.scryfallId === scryfallId));
   if (!card) {
     const sc = await fetchCardById(scryfallId);
     if (!sc) { showNotif('Failed to fetch card', true); return; }
@@ -8212,7 +8291,10 @@ function _roleTagsForCard(card) {
   const tags = [];
   if (_isLandDeckCard(card)) tags.push('Land'); // Always first when present.
   if (card?.isCommander) tags.push('Commander');
-  const raw = card?.oracleId || _scryOracleByPrintId.get(card?.scryfallId || '') || '';
+  const raw = (typeof resolveCardOracleId === 'function' ? resolveCardOracleId(card) : null)
+    || card?.oracleId
+    || _scryOracleByPrintId.get(card?.scryfallId || '')
+    || '';
   const oracleId = raw && _isUuidLike(String(raw)) ? String(raw).toLowerCase() : '';
   if (oracleId && _scryTagsByOracleId.has(oracleId)) {
     tags.push(...(_scryTagsByOracleId.get(oracleId) || []));
@@ -8238,12 +8320,20 @@ function syncDeckAutoRoleTags(deck) {
   return changed;
 }
 
+function _cardMetadataLooksComplete(card) {
+  if (!card) return false;
+  const hasType = !!(card?.type || card?.typeLine || card?.type_line) || _isLandDeckCard(card);
+  const oid = typeof resolveCardOracleId === 'function' ? resolveCardOracleId(card) : card?.oracleId;
+  if (!oid || !hasType) return false;
+  if (_isLandDeckCard(card)) return true;
+  const cmc = typeof resolveCardCmc === 'function' ? resolveCardCmc(card) : (card?.cmc || 0);
+  return cmc > 0;
+}
+
 async function _resolveOracleIdForCard(card) {
   if (!card) return null;
-  if (card.oracleId && _isUuidLike(card.oracleId)) {
-    const hasType = !!(card?.type || card?.typeLine || card?.type_line) || _isLandDeckCard(card);
-    const hasCmc = card.cmc !== undefined && card.cmc !== null;
-    if (hasType && hasCmc) return card.oracleId;
+  if (card.oracleId && _isUuidLike(card.oracleId) && _cardMetadataLooksComplete(card)) {
+    return card.oracleId;
   }
   if (card.oracleId && !_isUuidLike(card.oracleId)) card.oracleId = null;
 
@@ -8266,40 +8356,24 @@ async function _resolveOracleIdForCard(card) {
     if (!sc && card.name) {
       sc = await fetchCardByName(card.name);
     }
-    const oid = sc?.oracle_id || null;
+    const oid = (typeof resolveCardOracleId === 'function' ? resolveCardOracleId(sc) : sc?.oracle_id) || null;
     if (sidCandidate) _scryOracleByPrintId.set(sidCandidate, oid);
     if (cacheKey && cacheKey !== sidCandidate) _scryOracleByPrintId.set(cacheKey, oid);
-    if (oid) {
-      card.oracleId = oid;
-      if (sc?.id) {
+    if (sc) {
+      if (typeof applyEntryMetadataToCard === 'function' && typeof cardToEntry === 'function') {
+        applyEntryMetadataToCard(card, cardToEntry(sc, card.qty || 1));
+      } else if (typeof ensureCardMetadata === 'function') {
+        ensureCardMetadata({ ...card, ...sc, card_faces: sc?.card_faces, cardFaces: card.cardFaces });
+      }
+      if (sc.id) {
         card.scryfallId = sc.id;
         if (!card.uid || /^[0-9a-f-]{36}_(n|f)$/i.test(String(card.uid || ''))) {
           card.uid = sc.id + (card.foil ? '_f' : '_n');
         }
       }
-      // Backfill missing card metadata so role/tag detection is reliable on older imports.
-      const hydratedType = typeof resolveCardTypeLine === 'function'
-        ? resolveCardTypeLine({ ...card, type_line: sc?.type_line, card_faces: sc?.card_faces, cardFaces: card.cardFaces })
-        : (sc?.type_line || card.type || '');
-      if (hydratedType) {
-        card.type = hydratedType;
-        card.typeLine = hydratedType;
-      }
-      if (!card.oracleText && sc?.oracle_text) card.oracleText = sc.oracle_text;
-      if (typeof sc?.cmc === 'number') card.cmc = sc.cmc;
-      if (sc?.mana_cost && !String(card.mana || '').trim()) card.mana = sc.mana_cost;
-      if ((!Array.isArray(card.cardFaces) || !card.cardFaces.length) && Array.isArray(sc?.card_faces)) {
-        card.cardFaces = sc.card_faces.map(f => ({
-          name: f?.name || '',
-          type: f?.type_line || '',
-          mana: f?.mana_cost || '',
-          oracleText: f?.oracle_text || '',
-          image: f?.image_uris?.normal || f?.image_uris?.large || null,
-          imageLarge: f?.image_uris?.large || f?.image_uris?.normal || null,
-        }));
-      }
     }
-    return oid;
+    if (oid) card.oracleId = oid;
+    return oid || (typeof resolveCardOracleId === 'function' ? resolveCardOracleId(card) : card.oracleId) || null;
   } catch (_) {
     if (cacheKey) _scryOracleByPrintId.set(cacheKey, null);
     if (sidCandidate && sidCandidate !== cacheKey) _scryOracleByPrintId.set(sidCandidate, null);
@@ -8384,11 +8458,62 @@ async function _fetchScryfallTagsForDeckOracleIds(oracleIds) {
 
 function _oracleIdFromCardLocal(card) {
   if (!card) return null;
+  const resolved = typeof resolveCardOracleId === 'function' ? resolveCardOracleId(card) : null;
+  if (resolved && _isUuidLike(String(resolved))) return String(resolved).toLowerCase();
   if (card.oracleId && _isUuidLike(card.oracleId)) return card.oracleId;
   const rawSid = String(card.scryfallId || '').trim().toLowerCase();
   const sidFromUid = String(card.uid || '').trim().toLowerCase().replace(/_(n|f)$/i, '');
   const cacheKey = [rawSid, sidFromUid].find(v => _isUuidLike(v)) || '';
   return cacheKey ? (_scryOracleByPrintId.get(cacheKey) || null) : null;
+}
+
+function _deckCardNeedsMetadataHydrate(card) {
+  if (!card) return false;
+  if (typeof ensureCardMetadata === 'function') ensureCardMetadata(card);
+  const oid = typeof resolveCardOracleId === 'function' ? resolveCardOracleId(card) : card.oracleId;
+  if (!oid) return !!(card.scryfallId || (card.set && card.number));
+  if (_isLandDeckCard(card)) return false;
+  const cmc = typeof resolveCardCmc === 'function' ? resolveCardCmc(card) : (card.cmc || 0);
+  const mana = typeof resolveCardManaCost === 'function' ? resolveCardManaCost(card) : (card.mana || '');
+  return cmc <= 0 || !String(mana || '').trim() || !(Array.isArray(card.cardFaces) && card.cardFaces.length);
+}
+
+async function _hydrateDeckCardMetadata(deck) {
+  if (!deck || activeDeckIsShared) return false;
+  let changed = false;
+  const cards = _deckAllZoneCards(deck).filter(_deckCardNeedsMetadataHydrate);
+  for (const c of cards) {
+    const before = JSON.stringify({
+      cmc: c.cmc, mana: c.mana, oracleId: c.oracleId, type: c.type,
+    });
+    await _resolveOracleIdForCard(c);
+    if (typeof ensureCardMetadata === 'function') ensureCardMetadata(c);
+    const after = JSON.stringify({
+      cmc: c.cmc, mana: c.mana, oracleId: c.oracleId, type: c.type,
+    });
+    if (before !== after) changed = true;
+  }
+  if (changed) saveActiveDeck(deck);
+  return changed;
+}
+
+let _deckMetadataHydrateTimer = null;
+function _scheduleDeckMetadataHydrate(deck) {
+  if (!deck || activeDeckIsShared) return;
+  if (_deckMetadataHydrateTimer) clearTimeout(_deckMetadataHydrateTimer);
+  _deckMetadataHydrateTimer = setTimeout(() => {
+    _deckMetadataHydrateTimer = null;
+    _hydrateDeckCardMetadata(deck)
+      .then(changed => {
+        if (!changed || deck.id !== activeDeckId) return;
+        renderDeckList(deck);
+        renderManaCostProfile(deck);
+        renderManaCurve(deck);
+        renderProbabilityChart(deck);
+        renderCommanderGameplan(deck);
+      })
+      .catch(() => {});
+  }, 120);
 }
 
 async function _refreshDeckScryfallTags(deck) {
@@ -8397,7 +8522,10 @@ async function _refreshDeckScryfallTags(deck) {
   const oidByCard = new Map();
   const resolvedOids = [];
   for (const c of cards) {
-    const oid = _oracleIdFromCardLocal(c);
+    let oid = _oracleIdFromCardLocal(c);
+    if (!oid) {
+      try { oid = await _resolveOracleIdForCard(c); } catch (_) {}
+    }
     if (!oid) continue;
     oidByCard.set(c, oid);
     resolvedOids.push(oid);
@@ -8414,6 +8542,10 @@ async function _refreshDeckScryfallTags(deck) {
   if (changed) saveActiveDeck(deck);
   if (deck.id === activeDeckId) {
     if (changed || _isTagGroupByMode(deckGroupBy)) renderDeckList(deck);
+    if (changed) {
+      renderManaCostProfile(deck);
+      renderManaCurve(deck);
+    }
     if (_deckCardTagPickerTarget) renderDeckCardTagPicker();
     renderProbabilityChart(deck);
     renderCommanderGameplan(deck);
@@ -8742,7 +8874,7 @@ function applySkeletonBuilder() {
 }
 
 async function buildSkeletonDeckFromInspectorCard(cardRef) {
-  const card = collection.find(c => c.uid === cardRef || c.scryfallId === cardRef);
+  const card = _ownershipCollection().find(c => c.uid === cardRef || c.scryfallId === cardRef);
   if (!card) {
     showNotif('Card not found in collection', true);
     return;
@@ -9046,7 +9178,7 @@ function setEdhrecLandFilter(mode) {
 }
 
 function scheduleEDHRECRefresh(delay = 16) {
-  if (activeDeckIsShared || !activeDeckId) return;
+  if (!activeDeckId) return;
   if (_edhrecRefreshTimer) clearTimeout(_edhrecRefreshTimer);
   _edhrecRefreshTimer = setTimeout(() => {
     _edhrecRefreshTimer = null;
@@ -9065,7 +9197,7 @@ function setVersionPickerFiltersVisible(visible) {
 function addOwnedRecommendation(cardName) {
   const deck = getActiveDeck();
   if (!deck) return;
-  const candidates = collection
+  const candidates = _ownershipCollection()
     .filter(c => (c.name || '').toLowerCase() === String(cardName || '').toLowerCase())
     .filter(c => getInventoryBreakdown(c, deck.id).available > 0);
 
@@ -9129,12 +9261,13 @@ function _paintEdhrecRecsPanel(el, deck, cards) {
     return;
   }
 
+  const ownershipColl = _ownershipCollection();
   const ownedById = {};
   const ownedByName = {};
-  collection.forEach(c => {
-    ownedById[c.scryfallId] = c;
-    const key = c.name.toLowerCase();
-    if (!ownedByName[key]) ownedByName[key] = c;
+  ownershipColl.forEach(c => {
+    if (c.scryfallId) ownedById[c.scryfallId] = c;
+    const key = (c.name || '').toLowerCase();
+    if (key && !ownedByName[key]) ownedByName[key] = c;
   });
   const inDeckIds = new Set(deck?.cards.map(c => c.scryfallId) || []);
   const inDeckNames = new Set(deck?.cards.map(c => c.name.toLowerCase()) || []);
@@ -9156,10 +9289,12 @@ function _paintEdhrecRecsPanel(el, deck, cards) {
   const unowned = cards.filter(c => !getOwned(c) && !inDeckIds.has(c.id) && !inDeckNames.has(c.name.toLowerCase()));
   const inDeck = cards.filter(c => inDeckIds.has(c.id) || inDeckNames.has(c.name.toLowerCase()));
 
+  const collLabel = _ownershipCollectionLabel();
+  const collLabelCap = collLabel.charAt(0).toUpperCase() + collLabel.slice(1);
   el.innerHTML =
-    renderRecSection('Available in Collection', ownedAvailable, true, getOwned) +
-    renderRecSection('Owned but Fully Allocated', ownedAllocated, true, getOwned) +
-    renderRecSection('Not in Collection', unowned, false, getOwned) +
+    renderRecSection(`Available in ${collLabelCap}`, ownedAvailable, true, getOwned) +
+    renderRecSection(`Owned but fully used in this deck`, ownedAllocated, true, getOwned) +
+    renderRecSection(`Not in ${collLabel}`, unowned, false, getOwned) +
     (inDeck.length
       ? `<div style="padding:6px 10px;font-size:0.7rem;color:var(--text3);border-top:1px solid var(--border);background:var(--bg3)">${inDeck.length} suggestion${inDeck.length !== 1 ? 's' : ''} already in deck</div>`
       : '');
@@ -9171,6 +9306,11 @@ async function fetchEDHRECRecs() {
     : (decks.find(d => d.id === activeDeckId) || sharedDecks.find(d => d.id === activeDeckId));
   const el = document.getElementById('edhrecResults');
   if (!el) return;
+
+  if (_useOwnerCollectionForOwnership() && deck && typeof loadDeckOwnerCollectionLookup === 'function') {
+    await loadDeckOwnerCollectionLookup(deck);
+    _rebuildOwnershipMaps();
+  }
 
   const cmdCtx = _resolveCommanderContextForEdhrec(deck);
   const commanderName = String(cmdCtx?.displayName || '').trim();
@@ -9595,11 +9735,12 @@ async function _executeCardReplacementsFetch(refineKey) {
     }
 
     const ownershipOn = isDeckOwnershipEnabled();
+    const ownershipColl = _ownershipCollection();
     const getOwned = c => window.Ownership?.hasOwnedByPrintingOrTitle
-      ? window.Ownership.hasOwnedByPrintingOrTitle(collection, c.id, c.name)
+      ? window.Ownership.hasOwnedByPrintingOrTitle(ownershipColl, c.id, c.name)
       : (
-        collection.find(col => col.scryfallId === c.id) ||
-        collection.find(col => String(col.name || '').toLowerCase() === String(c.name || '').toLowerCase())
+        ownershipColl.find(col => col.scryfallId === c.id) ||
+        ownershipColl.find(col => String(col.name || '').toLowerCase() === String(c.name || '').toLowerCase())
       );
 
     if (ownershipOn) {
@@ -9686,10 +9827,11 @@ async function _loadCardReplacements(card, deckId, containerId, opts) {
 }
 
 async function _addCardToDeckDirect(scryfallId, deck) {
+  const pool = _ownershipCollection();
   let newCard = window.Ownership?.preferredOwnedPrinting
-    ? window.Ownership.preferredOwnedPrinting(collection, scryfallId)
-    : (collection.find(c => c.scryfallId === scryfallId && !c.foil)
-      || collection.find(c => c.scryfallId === scryfallId));
+    ? window.Ownership.preferredOwnedPrinting(pool, scryfallId)
+    : (pool.find(c => c.scryfallId === scryfallId && !c.foil)
+      || pool.find(c => c.scryfallId === scryfallId));
   if (!newCard) {
     const sc = await fetchCardById(scryfallId);
     if (!sc) { showNotif('Failed to fetch card data', true); return false; }
@@ -9797,11 +9939,12 @@ function renderVersionPickerTiles() {
   if (!el || !_versionPickerState) return;
   const { prints, currentCard } = _versionPickerState;
 
+  const pool = _ownershipCollection();
   const withOwnership = prints.map((c, idx) => {
     const breakdown = window.Ownership?.ownedPrintingBreakdown
-      ? window.Ownership.ownedPrintingBreakdown(collection, c.id)
+      ? window.Ownership.ownedPrintingBreakdown(pool, c.id)
       : (() => {
-        const ownedPrintings = collection.filter(col => col.scryfallId === c.id);
+        const ownedPrintings = pool.filter(col => col.scryfallId === c.id);
         return {
           ownedQty: ownedPrintings.reduce((sum, col) => sum + (col.qty || 1), 0),
           ownedFoilQty: ownedPrintings.filter(col => col.foil).reduce((sum, col) => sum + (col.qty || 1), 0),
@@ -9959,6 +10102,7 @@ async function openVersionPicker(deckId, cardUid, cardName, opts = {}) {
 }
 
 function _findCollectionRowForDeckCard(deckCard) {
+  if (_useOwnerCollectionForOwnership()) return null;
   if (!deckCard || !Array.isArray(collection) || !collection.length) return null;
   const refs = [deckCard.uid, deckCard.scryfallId, getCardInventoryKey(deckCard)].filter(Boolean);
   for (const ref of refs) {
@@ -9972,35 +10116,29 @@ function _findCollectionRowForDeckCard(deckCard) {
 
 function _applyScryfallPrintingFields(card, sc) {
   if (!card || !sc) return;
-  const imgS = sc.image_uris?.small || sc.card_faces?.[0]?.image_uris?.small || null;
-  const imgN = sc.image_uris?.normal || sc.card_faces?.[0]?.image_uris?.normal || null;
-  card.scryfallId = sc.id;
-  card.uid = sc.id + (card.foil ? '_f' : '_n');
-  card.name = sc.name || card.name;
-  card.image = imgS || card.image;
-  card.imageLarge = imgN || card.imageLarge;
-  card.set = sc.set || card.set;
-  card.setName = sc.set_name || card.setName;
-  card.number = sc.collector_number || card.number;
-  card.rarity = sc.rarity || card.rarity;
-  if (Array.isArray(sc.card_faces) && sc.card_faces.length) {
-    card.cardFaces = sc.card_faces.map(face => ({
-      name: face.name || '',
-      type: face.type_line || '',
-      mana: face.mana_cost || '',
-      oracleText: face.oracle_text || '',
-      image: face.image_uris?.normal || face.image_uris?.large || null,
-      imageLarge: face.image_uris?.large || face.image_uris?.normal || null,
-    }));
+  const foil = !!card.foil;
+  const qty = card.qty || 1;
+  if (typeof cardToEntry === 'function' && typeof applyEntryMetadataToCard === 'function') {
+    const entry = cardToEntry(sc, qty);
+    applyEntryMetadataToCard(card, entry);
+    card.scryfallId = sc.id;
+    card.uid = sc.id + (foil ? '_f' : '_n');
+    card.qty = qty;
+    card.foil = foil;
+    if (typeof ensureCardMetadata === 'function') ensureCardMetadata(card);
+  } else {
+    const imgS = sc.image_uris?.small || sc.card_faces?.[0]?.image_uris?.small || null;
+    const imgN = sc.image_uris?.normal || sc.card_faces?.[0]?.image_uris?.normal || null;
+    card.scryfallId = sc.id;
+    card.uid = sc.id + (foil ? '_f' : '_n');
+    card.name = sc.name || card.name;
+    card.image = imgS || card.image;
+    card.imageLarge = imgN || card.imageLarge;
+    card.set = sc.set || card.set;
+    card.setName = sc.set_name || card.setName;
+    card.number = sc.collector_number || card.number;
+    card.rarity = sc.rarity || card.rarity;
   }
-  const resolvedType = resolveCardTypeLine({ ...card, type_line: sc.type_line, card_faces: sc.card_faces });
-  if (resolvedType) {
-    card.type = resolvedType;
-    card.typeLine = resolvedType;
-  }
-  card.mana = sc.mana_cost || card.mana;
-  card.cmc = sc.cmc ?? card.cmc;
-  if (sc.oracle_id) card.oracleId = sc.oracle_id;
   const usd = parseFloat(sc.prices?.usd || 0);
   const usdFoil = parseFloat(sc.prices?.usd_foil || 0);
   if (Number.isFinite(usd)) card.priceTCG = usd;

@@ -512,6 +512,10 @@
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><rect x="2" y="4" width="12" height="9" rx="1.5"/><path d="M5 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1"/><path d="M8 8v0"/><circle cx="8" cy="8.5" r="1.5"/></svg>
               Goldfish Playtest
             </button>
+            <button data-admin-only style="display:none" class="btn btn-ghost btn-sm deck-menu-item" onclick="toggleDeckOptionsDropdown();openGoldfishEngine()" title="Experimental rules engine playtester (dev only)">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><rect x="2" y="4" width="12" height="9" rx="1.5"/><path d="M5 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1"/><path d="M8 8v0"/><circle cx="8" cy="8.5" r="1.5"/></svg>
+              Goldfish (Engine) ⚗
+            </button>
             <div class="settings-divider"></div>
             <div class="settings-section-label">Export</div>
             <button class="btn btn-ghost btn-sm deck-menu-item" onclick="toggleDeckOptionsDropdown();exportDeck()">
@@ -2135,6 +2139,222 @@
     </div>
   </div>
 </div>
+<!-- GOLDFISH ENGINE OVERLAY (experimental — rules engine wired here) -->
+<div id="goldfishEngineOverlay" style="display:none;position:fixed;inset:0;z-index:9000;flex-direction:column">
+
+  <!-- Header -->
+  <div class="gf-header">
+    <div class="gf-controls">
+      <button class="gf-btn" onclick="_gfeNewGame()" title="New game">↺ New</button>
+      <button class="gf-btn" id="gfeMulliganBtn" onclick="_gfeMulligan()" title="London mulligan">Mulligan</button>
+      <div class="gf-divider-v"></div>
+      <button class="gf-btn" onclick="_gfeNextPhase()" title="Next phase (Space) — also: E to skip to next turn">Next Phase ▶</button>
+      <div class="gf-divider-v"></div>
+      <button class="gf-btn" id="gfeTokensBtn" onclick="_gfeToggleTokenPanel()" title="Spawn tokens from this deck">Tokens</button>
+      <button class="gf-btn" id="gfeSimBtn" onclick="_gfeToggleSimPanel()" title="Simulate 1000 opening hands">Simulate</button>
+    </div>
+    <div class="gf-divider-v"></div>
+    <div class="gf-size-controls" title="Card sizes (land, spell, hand)">
+      <div class="gf-size-control">
+        <span class="gf-size-label">Land</span>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="gf-size-icon" aria-hidden="true"><rect x="2" y="1.5" width="7" height="10" rx="1"/><rect x="7" y="4.5" width="7" height="10" rx="1"/></svg>
+        <input type="range" id="gfeLandCardSizeSlider" min="10" max="100" step="5" value="10"
+          oninput="setGfeLandCardSizePct(+this.value)" title="Land card size (% of max)">
+      </div>
+      <div class="gf-size-control">
+        <span class="gf-size-label">Spell</span>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="gf-size-icon" aria-hidden="true"><rect x="2" y="1.5" width="7" height="10" rx="1"/><rect x="7" y="4.5" width="7" height="10" rx="1"/></svg>
+        <input type="range" id="gfeNonlandCardSizeSlider" min="10" max="100" step="5" value="10"
+          oninput="setGfeNonlandCardSizePct(+this.value)" title="Non-land card size (% of max)">
+      </div>
+      <div class="gf-size-control">
+        <span class="gf-size-label">Hand</span>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="gf-size-icon" aria-hidden="true"><path d="M2 12.5c2-4 4.5-6 6-6s4 2 6 6"/><rect x="4" y="3" width="4.5" height="7" rx="0.8"/><rect x="7.5" y="5" width="4.5" height="7" rx="0.8"/></svg>
+        <input type="range" id="gfeHandCardSizeSlider" min="20" max="100" step="5" value="30"
+          oninput="setGfeHandCardSizePct(+this.value)" title="Hand card size (% of max)">
+      </div>
+    </div>
+    <span id="gfeFlash" class="gf-flash"></span>
+    <div class="gf-header-right">
+      <div class="gf-life-hud" id="gfeLifeHud" onclick="_gfeOnLifeHudClick('you', event)">
+        <button class="gf-life-adj" onclick="event.stopPropagation();_gfeLifeDelta(-1)">−</button>
+        <span id="gfeLifeVal" class="gf-life-num">20</span>
+        <button class="gf-life-adj" onclick="event.stopPropagation();_gfeLifeDelta(1)">+</button>
+        <span class="gf-life-label">LIFE</span>
+      </div>
+      <div class="gf-life-hud gfe-opp-hud" id="gfeOppLifeHud" title="Opponent life" onclick="_gfeOnLifeHudClick('opp', event)">
+        <button class="gf-life-adj" onclick="event.stopPropagation();_gfeOppLifeDelta(-1)">−</button>
+        <span id="gfeOppLifeVal" class="gf-life-num">20</span>
+        <button class="gf-life-adj" onclick="event.stopPropagation();_gfeOppLifeDelta(1)">+</button>
+        <span class="gf-life-label">OPP</span>
+      </div>
+      <div class="gf-turn-hud">T<span id="gfeTurnVal">0</span></div>
+      <div id="gfeManaPool" class="gfe-mana-pool" title="Floating mana — click lands and mana rocks to add mana; empties each phase"></div>
+      <span class="gf-deck-name" id="gfeDeckLabel"></span>
+      <button class="gf-close-btn" onclick="closeGoldfishEngine()" title="Close (Esc)">✕</button>
+    </div>
+  </div>
+
+  <!-- Main layout -->
+  <div class="gf-mat">
+
+    <div id="gfePhasePillsWrap" class="gfe-phase-pills-wrap">
+      <div id="gfePhasePills" class="gfe-phase-pills"></div>
+    </div>
+
+    <div class="gf-mat-hud">
+      <div id="gfeSimPanel" class="gf-sim-panel" aria-hidden="true">
+        <div class="gf-sim-panel-title">Opening hand · 1k runs</div>
+        <p id="gfeSimSummary" class="gf-sim-summary"></p>
+        <div class="gf-sim-charts">
+          <div class="gf-sim-chart-wrap gf-sim-chart-wrap--land"><canvas id="gfeSimLandChart"></canvas></div>
+          <div class="gf-sim-chart-caption">Deck tags in opening hand</div>
+          <div class="gf-sim-chart-wrap gf-sim-chart-wrap--tags"><canvas id="gfeSimTagChart"></canvas></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Opponent (bot) band -->
+    <div id="gfeOppBand" class="gfe-opp-band" style="display:none">
+      <div class="gfe-opp-meta">
+        <span class="gfe-opp-tag">BOT</span>
+        <span id="gfeOppDeckLabel" class="gfe-opp-deck"></span>
+        <span class="gfe-opp-counts">
+          <span title="Hand">✋ <span id="gfeOppHandCount">0</span></span>
+          <span title="Library">▦ <span id="gfeOppLibCount">0</span></span>
+          <span title="Graveyard">⚰ <span id="gfeOppGYCount">0</span></span>
+        </span>
+      </div>
+      <div id="gfeOppBattlefield" class="gfe-opp-battlefield"></div>
+    </div>
+    <div id="gfeBlockBar" class="gfe-block-bar" style="display:none"></div>
+
+    <!-- Middle row: battlefield left, zone quadrant right -->
+    <div class="gf-mid-row">
+
+      <div class="gf-bf-stack">
+        <div id="gfeBattlefield" class="gf-battlefield" data-gf-zone="battlefield" onmouseenter="_gfOnHoverEnter(this)" onmouseleave="_gfeOnHoverLeave(this)" onclick="_gfeHideContextMenu()"></div>
+        <div id="gfeBfManaPool" class="gfe-bf-mana-pool" aria-live="polite"></div>
+      </div>
+
+      <!-- Zone quadrant panel (2×2 grid, right side) -->
+      <!-- Row 1: Command Zone | Exile -->
+      <!-- Row 2: Library      | Graveyard -->
+      <div class="gf-zones-panel">
+        <div class="gf-zone-slot" id="gfeCommandZone" data-gf-zone="commandZone" onmouseenter="_gfOnHoverEnter(this)" onmouseleave="_gfeOnHoverLeave(this)" onclick="if(_gf?.commandZone.length)_gfeOpenZoneBrowse('commandZone')" title="Command Zone — S to search">
+          <div class="gf-zone-label">Command Zone</div>
+          <div class="gf-cmd-cards"></div>
+          <div class="gf-zone-count" id="gfeCmdCount"></div>
+        </div>
+        <div class="gf-zone-slot" id="gfeExileSlot" data-gf-zone="exile" onmouseenter="_gfOnHoverEnter(this)" onmouseleave="_gfeOnHoverLeave(this)" onclick="_gfeClickExile()" title="Exile — click to browse, drag cards here">
+          <div class="gf-zone-label">Exile</div>
+          <div id="gfeExilePreview" class="gf-zone-preview"></div>
+          <div class="gf-zone-count" id="gfeExileCount">0</div>
+        </div>
+        <div class="gf-zone-slot gf-lib-slot" id="gfeLibSlot" data-gf-zone="library"
+          onmouseenter="_gfOnHoverEnter(this)" onmouseleave="_gfeOnHoverLeave(this)"
+          onpointerdown="_gfLibraryPointerDown(event)"
+          oncontextmenu="_gfLibraryContextMenu(event)"
+          title="Library — click to draw (D), drag top card, right-click for tutor/scry/surveil (S while hovering)">
+          <div class="gf-zone-label">Library</div>
+          <div class="gf-lib-visual" id="gfeLibVisual">
+            <div class="gf-lib-card gf-lib-c3"></div>
+            <div class="gf-lib-card gf-lib-c2"></div>
+            <div class="gf-lib-card gf-lib-c1"></div>
+          </div>
+          <div class="gf-zone-count" id="gfeLibCount">0</div>
+        </div>
+        <div class="gf-zone-slot" id="gfeGYSlot" data-gf-zone="graveyard" onmouseenter="_gfOnHoverEnter(this)" onmouseleave="_gfeOnHoverLeave(this)" onclick="_gfeClickGraveyard()" title="Graveyard — click to browse, drag cards here">
+          <div class="gf-zone-label">Graveyard</div>
+          <div id="gfeGYPreview" class="gf-zone-preview"></div>
+          <div class="gf-zone-count" id="gfeGYCount">0</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Effect log panel (absolute, bottom-left above hand) -->
+    <div id="gfeLogPanel" class="gfe-log-panel"></div>
+
+    <!-- Stack panel (absolute, top-right; hidden when empty) -->
+    <div id="gfeStackPanel" class="gfe-stack-panel" style="display:none"></div>
+
+    <!-- Hand -->
+    <div class="gf-hand-wrap" data-gf-zone="hand" onmouseenter="_gfOnHoverEnter(this)" onmouseleave="_gfeOnHoverLeave(this)">
+      <div class="gf-hand-label">HAND · <span id="gfeHandCount">0</span></div>
+      <div id="gfeHand" class="gf-hand"></div>
+    </div>
+  </div>
+
+  <!-- Deck token spawner -->
+  <div id="gfeTokenPanel" class="gf-token-panel" style="display:none" aria-hidden="true">
+    <div class="gf-token-panel-head">
+      <span class="gf-token-panel-title">Deck tokens</span>
+      <button type="button" class="gf-btn gf-token-panel-close" onclick="_gfeToggleTokenPanel(false)">Close</button>
+    </div>
+    <p class="gf-token-panel-hint">Click a token to put it on the battlefield.</p>
+    <div id="gfeTokenPanelBody" class="gf-token-panel-body"></div>
+  </div>
+
+  <!-- Context menu -->
+  <div id="gfeContextMenu" class="gf-context-menu" style="display:none"></div>
+
+  <!-- Tutor library search -->
+  <div id="gfeTutorModal" class="gf-zone-viewer gf-tutor-modal" style="display:none" onclick="if(event.target===this)_gfeCloseTutor()">
+    <div class="gf-zone-viewer-inner gf-tutor-inner" onclick="event.stopPropagation()">
+      <div class="gf-viewer-header">
+        <span id="gfeTutorTitle" class="gf-viewer-title">Tutor — search library</span>
+        <button class="gf-btn" type="button" onclick="_gfeCloseTutor()">Close</button>
+      </div>
+      <div class="gf-tutor-search-row">
+        <div class="gf-tutor-input-wrap">
+          <input class="search-box gf-tutor-input" type="text" id="gfeTutorInput"
+            placeholder="Search cards in your library"
+            oninput="gfTutorAutocomplete(this.value)"
+            onkeydown="if(event.key==='Enter'){event.preventDefault();gfTutorSearch(this.value);} if(event.key==='Escape'){_gfCloseTutor();event.stopPropagation();}"
+            autocomplete="off">
+          <div id="gfeTutorAutocomplete" class="gf-tutor-autocomplete" style="display:none"></div>
+        </div>
+        <button class="gf-btn" type="button" onclick="gfTutorSearch(document.getElementById('gfeTutorInput')?.value)">Search</button>
+      </div>
+      <div id="gfeTutorResults" class="gf-tutor-results"></div>
+      <div id="gfeTutorHint" class="gf-viewer-hint">Click a card to put it in your hand</div>
+    </div>
+  </div>
+
+
+  <!-- Play choice (adventures, omens, DFC) -->
+  <div id="gfePlayChoiceModal" class="gf-zone-viewer gf-play-choice-modal" style="display:none"
+    onclick="if(event.target===this)_gfeClosePlayChoiceModal()">
+    <div class="gf-zone-viewer-inner gf-play-choice-inner" onclick="event.stopPropagation()">
+      <div class="gf-viewer-header">
+        <span id="gfePlayChoiceTitle" class="gf-viewer-title">Play card</span>
+        <button class="gf-btn" type="button" onclick="_gfeClosePlayChoiceModal()">Cancel</button>
+      </div>
+      <p id="gfePlayChoiceHint" class="gf-play-choice-hint"></p>
+      <div id="gfePlayChoiceOptions" class="gf-play-choice-options"></div>
+    </div>
+  </div>
+
+  <!-- Zone / scry viewer -->
+  <div id="gfeZoneViewer" class="gf-zone-viewer" style="display:none" onclick="if(event.target===this)_gfeCloseZoneViewer()">
+    <div class="gf-zone-viewer-inner">
+      <div class="gf-viewer-header">
+        <span id="gfeZoneViewerTitle" class="gf-viewer-title"></span>
+        <button class="gf-btn" onclick="_gfeCloseZoneViewer()">✕ Close</button>
+      </div>
+      <div id="gfeZoneSearchRow" class="gf-tutor-search-row" style="display:none">
+        <div class="gf-tutor-input-wrap" style="flex:1">
+          <input class="search-box gf-tutor-input" type="text" id="gfeZoneSearchInput"
+            placeholder="Filter cards in this zone…" autocomplete="off"
+            oninput="_gfeZoneViewerFilter(this.value)">
+        </div>
+      </div>
+      <div id="gfeZoneViewerGrid" class="gf-viewer-grid"></div>
+      <div id="gfeZoneViewerHint" class="gf-viewer-hint">Click a card to interact · right-click for more options</div>
+    </div>
+  </div>
+</div>
+
 
 <script src="dist/scanner-card-yolo.js"></script>
 <script src="dist/bundle.js"></script>
