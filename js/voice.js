@@ -431,11 +431,12 @@ function renderVoiceDeckCollectionToggle() {
   wrap.style.display = show ? '' : 'none';
   chk.checked = !!voiceDeckAddToCollectionEnabled;
 
-  // Show pool source toggle only when shared collections are available
+  // Pool toggle: all collections shared with me (not used when editing a shared deck — owner collection is automatic)
   const poolWrap = document.getElementById('deckPoolSourceWrap');
   if (poolWrap) {
+    const onSharedDeck = typeof activeDeckIsShared !== 'undefined' && activeDeckIsShared;
     const hasShared = typeof sharedCollections !== 'undefined' && sharedCollections.length > 0;
-    poolWrap.style.display = show && hasShared ? '' : 'none';
+    poolWrap.style.display = show && hasShared && !onSharedDeck ? '' : 'none';
     // Sync button active states with current pool source
     const src = typeof _deckPoolSource !== 'undefined' ? _deckPoolSource : 'mine';
     document.getElementById('deckPoolMineBtn')?.classList.toggle('active', src === 'mine');
@@ -524,6 +525,12 @@ function openVoice(options) {
   renderAutoPinBtn();
   renderVoiceDeckModeControls();
   renderVoiceDeckCollectionToggle();
+  if (voiceAddToActiveDeckMode && typeof activeDeckIsShared !== 'undefined' && activeDeckIsShared) {
+    const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+    if (deck && typeof loadDeckOwnerCollectionLookup === 'function') {
+      loadDeckOwnerCollectionLookup(deck);
+    }
+  }
   initVoiceAccSession();
   voicePendingYesCount = 0;
   renderVoiceAccPanel();
@@ -546,6 +553,7 @@ function closeVoice() {
   if (res) res.innerHTML = '';
   if (ac)  ac.style.display = 'none';
   if (typeof clearFindColorFilters === 'function') clearFindColorFilters();
+  if (typeof clearDeckOwnerCollectionLookup === 'function') clearDeckOwnerCollectionLookup();
   if (voiceAccTimer) {
     clearInterval(voiceAccTimer);
     voiceAccTimer = null;

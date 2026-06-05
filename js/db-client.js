@@ -276,11 +276,29 @@ window.addEventListener('beforeunload', () => {
 
 // ── Debounced per-deck save for shared (collaborator) decks
 const _sharedSaveTimers = {};
+const _sharedSaveInFlight = {};
+const _sharedSavePending = {};
 function scheduleSaveSharedDeck(deck) {
-  clearTimeout(_sharedSaveTimers[deck.id]);
-  _sharedSaveTimers[deck.id] = setTimeout(() => {
-    apiPatch('/decks/' + deck.id, deck)
-      .catch(e => console.error('[db] shared deck save failed:', e));
+  const id = deck.id;
+  if (_sharedSaveInFlight[id]) {
+    _sharedSavePending[id] = deck;
+    return;
+  }
+  clearTimeout(_sharedSaveTimers[id]);
+  _sharedSaveTimers[id] = setTimeout(async () => {
+    _sharedSaveInFlight[id] = true;
+    try {
+      await apiPatch('/decks/' + id, deck);
+    } catch (e) {
+      console.error('[db] shared deck save failed:', e);
+    } finally {
+      _sharedSaveInFlight[id] = false;
+      const pending = _sharedSavePending[id];
+      if (pending) {
+        delete _sharedSavePending[id];
+        scheduleSaveSharedDeck(pending);
+      }
+    }
   }, 500);
 }
 
@@ -295,35 +313,41 @@ function markDirty(...domains) {
 
 // Debounced save — called by save() in state.js
 let _saveTimer = null;
+let _saveInFlight = false;
 function scheduleSave() {
   clearTimeout(_saveTimer);
   _saveTimer = setTimeout(_flushSave, 100);
 }
 
 // Belt-and-suspenders: flush any dirty state every 30s regardless of debounce
-setInterval(() => { if (_dirty.size) _flushSave(); }, 30_000);
+setInterval(() => { if (_dirty.size && !_saveInFlight) _flushSave(); }, 30_000);
 
 async function _flushSave() {
+  if (_saveInFlight) return;
   if (!_dirty.size) return;
+  _saveInFlight = true;
   const toSave = new Set(_dirty);
   _dirty.clear();
-  const ops = [];
-  if (toSave.has('collection')) ops.push(apiPut('/collection', collection));
-  if (toSave.has('decks'))      ops.push(apiPut('/decks', decks));
-  if (toSave.has('games'))      ops.push(apiPut('/games', games));
-  if (toSave.has('wishlist'))   ops.push(apiPut('/wishlist', wishlist));
-  if (toSave.has('prefs'))      ops.push(apiPut('/preferences', {
-    starred_sets: [...starredSets],
-    deck_custom_tags: deckCustomTags || [],
-    deck_primary_tags: deckPrimaryTags || [],
-    deck_secondary_tags: deckSecondaryTags || [],
-  }));
   try {
+    const ops = [];
+    if (toSave.has('collection')) ops.push(apiPut('/collection', collection));
+    if (toSave.has('decks'))      ops.push(apiPut('/decks', decks));
+    if (toSave.has('games'))      ops.push(apiPut('/games', games));
+    if (toSave.has('wishlist'))   ops.push(apiPut('/wishlist', wishlist));
+    if (toSave.has('prefs'))      ops.push(apiPut('/preferences', {
+      starred_sets: [...starredSets],
+      deck_custom_tags: deckCustomTags || [],
+      deck_primary_tags: deckPrimaryTags || [],
+      deck_secondary_tags: deckSecondaryTags || [],
+    }));
     if (ops.length) await Promise.all(ops);
     if (_isOffline) _setOnline();
   } catch (e) {
     console.warn('[db] save failed — queued for retry:', e);
     toSave.forEach(d => _dirty.add(d));
     _setOffline();
+  } finally {
+    _saveInFlight = false;
+    if (_dirty.size) scheduleSave();
   }
 }

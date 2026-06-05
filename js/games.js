@@ -1396,9 +1396,12 @@ function renderTabletView() {
   if (!game) return;
   const el = document.getElementById('tabletView');
   const n = game.players.length;
-  const cols = n === 3 || n === 6 ? 3 : 2;
+  const is3p = n === 3;
+  const is4p = n === 4;
+  const cols = n === 6 ? 3 : 2;
+  const rows = is3p ? 2 : Math.ceil(n / cols);
   el.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
-  el.style.gridTemplateRows = `repeat(${Math.ceil(n / cols)}, 1fr)`;
+  el.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
 
   const isAllMode = gameActionMode === 'deal1all' || gameActionMode === 'dealXall';
   const actionHint = {
@@ -1409,14 +1412,13 @@ function renderTabletView() {
   }[gameActionMode] || '';
   const activePlayer = game.players[game.activePlayerIdx ?? 0];
 
-  // For 4 players: render in around-the-table order [3,2,0,1] with top row rotated 180°
-  const is4p = n === 4;
+  // 3p: one centered on top, two on bottom. 4p: quadrants [3,2,0,1], top row rotated.
   const playerOrder = is4p ? [3, 2, 0, 1] : game.players.map((_, i) => i);
 
   el.innerHTML = `
     ${playerOrder.map((pi, orderIdx) => {
-      const rotated = is4p && orderIdx < 2;
-      const col = orderIdx % 2;
+      const rotated = (is4p && orderIdx < 2) || (is3p && orderIdx === 0);
+      const col = is3p && orderIdx > 0 ? orderIdx - 1 : orderIdx % 2;
       return renderTabletCell(game, game.players[pi], pi, n, cols, rotated, col);
     }).join('')}
     <!-- Center timer + turn controls -->
@@ -1465,7 +1467,7 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
     : p.life <= (p.startingLife * 0.5) ? 'var(--text)'
     : 'var(--teal)';
 
-  const spanStyle = (total === 5 && idx === 4) ? 'grid-column: span 2;' : '';
+  const spanStyle = (total === 3 && idx === 0) || (total === 5 && idx === 4) ? 'grid-column: span 2;' : '';
   const isActiveTurn = !p.eliminated && idx === (game.activePlayerIdx ?? 0);
   const inTargetMode = gameActionMode !== null && !p.eliminated;
   const isAllMode = gameActionMode === 'deal1all' || gameActionMode === 'dealXall';

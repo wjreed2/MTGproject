@@ -154,15 +154,20 @@ function playCashChingSoundSynth() {
   } catch (_) { /* ignore */ }
 }
 
+function _scryfallCardFaces(card) {
+  if (!card) return [];
+  if (Array.isArray(card.cardFaces) && card.cardFaces.length) return card.cardFaces;
+  if (Array.isArray(card.card_faces) && card.card_faces.length) return card.card_faces;
+  return [];
+}
+
 /** Effective type line — reversible/MDFC printings often omit root `type_line`. */
 function resolveCardTypeLine(card) {
   if (!card) return '';
   const direct = String(card.type || card.typeLine || card.type_line || '').trim();
   if (direct && direct !== 'undefined') return direct;
 
-  const faces = Array.isArray(card.cardFaces) ? card.cardFaces
-    : (Array.isArray(card.card_faces) ? card.card_faces : []);
-  const faceTypes = faces
+  const faceTypes = _scryfallCardFaces(card)
     .map(f => String(f?.type || f?.type_line || '').trim())
     .filter(t => t && t !== 'undefined');
   if (!faceTypes.length) return '';
@@ -170,6 +175,65 @@ function resolveCardTypeLine(card) {
   const uniq = [];
   faceTypes.forEach(t => { if (!uniq.includes(t)) uniq.push(t); });
   return uniq.length === 1 ? uniq[0] : uniq.join(' // ');
+}
+
+/** Root `oracle_id` is missing on some `reversible_card` printings — read from faces. */
+function resolveCardOracleId(card) {
+  if (!card) return null;
+  const direct = card.oracleId || card.oracle_id;
+  if (direct) return direct;
+  for (const f of _scryfallCardFaces(card)) {
+    const oid = f?.oracle_id || f?.oracleId;
+    if (oid) return oid;
+  }
+  return null;
+}
+
+/** Root `cmc` / `mana_cost` are often absent on reversible printings. */
+function resolveCardCmc(card) {
+  if (!card) return 0;
+  if (card.customCmc != null && Number.isFinite(card.customCmc)) return card.customCmc;
+  const direct = card.cmc;
+  if (typeof direct === 'number' && Number.isFinite(direct)) {
+    const hasRootType = !!String(card.type || card.typeLine || card.type_line || '').trim();
+    if (direct > 0 || hasRootType) return direct;
+  }
+  for (const f of _scryfallCardFaces(card)) {
+    const n = f?.cmc;
+    if (typeof n === 'number' && Number.isFinite(n) && n > 0) return n;
+  }
+  // Last resort: parse primary face mana when cmc was never stored (older imports).
+  const mana = resolveCardManaCost(card);
+  if (mana && typeof parseMana === 'function') {
+    const parsed = parseMana(String(mana).split('//')[0].trim());
+    if (parsed?.cmc > 0) return parsed.cmc;
+  }
+  return typeof direct === 'number' && Number.isFinite(direct) ? direct : 0;
+}
+
+function resolveCardManaCost(card) {
+  if (!card) return '';
+  const direct = String(card.mana || card.mana_cost || '').trim();
+  if (direct) return direct;
+  const costs = _scryfallCardFaces(card)
+    .map(f => String(f?.mana || f?.mana_cost || '').trim())
+    .filter(Boolean);
+  if (!costs.length) return '';
+  const uniq = [];
+  costs.forEach(c => { if (!uniq.includes(c)) uniq.push(c); });
+  return uniq.length === 1 ? uniq[0] : costs.join(' // ');
+}
+
+function resolveCardColors(card) {
+  if (!card) return [];
+  if (Array.isArray(card.colors) && card.colors.length) return card.colors;
+  const fromFaces = new Set();
+  _scryfallCardFaces(card).forEach(f => {
+    (f?.colors || []).forEach(c => fromFaces.add(c));
+  });
+  if (fromFaces.size) return [...fromFaces];
+  const ci = card.colorIdentity || card.color_identity;
+  return Array.isArray(ci) ? ci : [];
 }
 
 /** Shorter label when both faces share the same name (e.g. reversible basics). */
@@ -180,7 +244,25 @@ function resolveCardDisplayName(card) {
   if (parts.length >= 2 && parts.every(p => p.toLowerCase() === parts[0].toLowerCase())) {
     return parts[0];
   }
+  // Reversible adventure art pair: "A // B // A" → "A // B"
+  if (parts.length >= 3 && parts[parts.length - 1].toLowerCase() === parts[0].toLowerCase()) {
+    return parts.slice(0, -1).join(' // ');
+  }
   return name;
+}
+
+function _assembleFaceOracleText(faces) {
+  const seenText = new Set();
+  return (faces || [])
+    .map(f => {
+      const nm = f?.name ? `${f.name}` : '';
+      const txt = f?.oracle_text || f?.oracleText || '';
+      if (txt && seenText.has(txt)) return '';
+      if (txt) seenText.add(txt);
+      return (nm && txt) ? `${nm}\n${txt}` : (txt || nm);
+    })
+    .filter(Boolean)
+    .join('\n\n//\n\n');
 }
 
 function ensureCardTypeLine(card) {
@@ -192,6 +274,77 @@ function ensureCardTypeLine(card) {
   }
 }
 
+/** Oracle text from root fields or card faces (reversible / MDFC printings). */
+function resolveCardOracleText(card) {
+  if (!card) return '';
+  const direct = String(card.oracleText || card.oracle_text || '').trim();
+  if (direct) return direct;
+  const faces = _scryfallCardFaces(card);
+  if (faces.length) return _assembleFaceOracleText(faces);
+  return '';
+}
+
+/** Backfill metadata that reversible / MDFC printings omit at the card root. */
+function ensureCardMetadata(card) {
+  if (!card) return;
+  ensureCardTypeLine(card);
+  const oracle = resolveCardOracleText(card);
+  if (oracle && !String(card.oracleText || card.oracle_text || '').trim()) {
+    card.oracleText = oracle;
+  }
+  const cmc = resolveCardCmc(card);
+  if (cmc > 0 && (card.cmc == null || card.cmc === undefined || card.cmc === 0)) card.cmc = cmc;
+  const mana = resolveCardManaCost(card);
+  if (mana && !String(card.mana || '').trim()) card.mana = mana;
+  const oid = resolveCardOracleId(card);
+  if (oid && !card.oracleId) card.oracleId = oid;
+  const colors = resolveCardColors(card);
+  if (colors.length && !(Array.isArray(card.colors) && card.colors.length)) {
+    card.colors = colors;
+  }
+  if (!Array.isArray(card.colorIdentity) || !card.colorIdentity.length) {
+    const ci = card.color_identity;
+    if (Array.isArray(ci) && ci.length) card.colorIdentity = ci;
+    else if (colors.length) card.colorIdentity = colors;
+  }
+  const faces = _scryfallCardFaces(card);
+  if (faces.length && (!card.power || !card.toughness)) {
+    const creatureFace = faces.find(f => f?.power != null && f?.toughness != null);
+    if (creatureFace) {
+      if (!card.power) card.power = creatureFace.power;
+      if (!card.toughness) card.toughness = creatureFace.toughness;
+    }
+  }
+}
+
+/** Merge normalized Scryfall entry fields onto an existing deck/collection row. */
+function applyEntryMetadataToCard(card, entry) {
+  if (!card || !entry) return;
+  if (entry.type) {
+    card.type = entry.type;
+    card.typeLine = entry.type;
+  }
+  if (entry.mana) card.mana = entry.mana;
+  if (entry.cmc != null && entry.cmc > 0) card.cmc = entry.cmc;
+  if (entry.oracleId) card.oracleId = entry.oracleId;
+  if (entry.oracleText) card.oracleText = entry.oracleText;
+  if (Array.isArray(entry.colors) && entry.colors.length) card.colors = entry.colors;
+  if (Array.isArray(entry.colorIdentity) && entry.colorIdentity.length) {
+    card.colorIdentity = entry.colorIdentity;
+  }
+  if (Array.isArray(entry.cardFaces) && entry.cardFaces.length) card.cardFaces = entry.cardFaces;
+  if (entry.image) card.image = entry.image;
+  if (entry.imageLarge) card.imageLarge = entry.imageLarge;
+  if (entry.power) card.power = entry.power;
+  if (entry.toughness) card.toughness = entry.toughness;
+  if (entry.loyalty) card.loyalty = entry.loyalty;
+  if (entry.set) card.set = entry.set;
+  if (entry.setName) card.setName = entry.setName;
+  if (entry.number != null) card.number = entry.number;
+  if (entry.rarity) card.rarity = entry.rarity;
+  if (entry.scryfallId) card.scryfallId = entry.scryfallId;
+}
+
 function _parseScryfallPriceField(v) {
   const n = parseFloat(v);
   return Number.isFinite(n) && n > 0 ? n : 0;
@@ -200,26 +353,28 @@ function _parseScryfallPriceField(v) {
 function cardToEntry(card, qty = 1) {
   const usd = _parseScryfallPriceField(card.prices?.usd);
   const usdFoil = _parseScryfallPriceField(card.prices?.usd_foil);
-  const cardFaces = (card.card_faces || []).map(face => ({
+  const rawFaces = _scryfallCardFaces(card);
+  const cardFaces = rawFaces.map(face => ({
     name: face.name || '',
-    type: face.type_line || '',
-    mana: face.mana_cost || '',
-    oracleText: face.oracle_text || '',
-    image: face.image_uris?.normal || face.image_uris?.large || null,
-    imageLarge: face.image_uris?.large || face.image_uris?.normal || null,
+    type: face.type_line || face.type || '',
+    mana: face.mana_cost || face.mana || '',
+    cmc: typeof face.cmc === 'number' ? face.cmc : undefined,
+    oracleId: face.oracle_id || face.oracleId || null,
+    oracleText: face.oracle_text || face.oracleText || '',
+    image: face.image_uris?.normal || face.image_uris?.large || face.image || null,
+    imageLarge: face.image_uris?.large || face.image_uris?.normal || face.imageLarge || null,
   }));
-  const faceText = (card.card_faces || [])
-    .map(f => {
-      const nm = f.name ? `${f.name}` : '';
-      const txt = f.oracle_text || '';
-      return (nm && txt) ? `${nm}\n${txt}` : (txt || nm);
-    })
-    .filter(Boolean)
-    .join('\n\n//\n\n');
+  const faceText = _assembleFaceOracleText(rawFaces);
+  const colors = resolveCardColors(card);
+  const colorIdentity = Array.isArray(card.color_identity) && card.color_identity.length
+    ? card.color_identity
+    : (Array.isArray(card.colorIdentity) && card.colorIdentity.length ? card.colorIdentity : colors);
+  const faces = _scryfallCardFaces(card);
+  const creatureFace = faces.find(f => f?.power != null && f?.toughness != null);
   return {
     id: card.id,
     scryfallId: card.id,
-    oracleId: card.oracle_id || null,
+    oracleId: resolveCardOracleId(card),
     uid: card.id + '_n',
     name: card.name,
     set: card.set,
@@ -227,20 +382,20 @@ function cardToEntry(card, qty = 1) {
     number: card.collector_number,
     rarity: card.rarity,
     type: resolveCardTypeLine(card),
-    mana: card.mana_cost || '',
-    cmc: card.cmc || 0,
-    colors: card.colors || [],
-    colorIdentity: card.color_identity || [],
-    image: card.image_uris?.normal || (card.card_faces?.[0]?.image_uris?.normal) || null,
-    imageLarge: card.image_uris?.large || (card.card_faces?.[0]?.image_uris?.large) || null,
+    mana: resolveCardManaCost(card),
+    cmc: resolveCardCmc(card),
+    colors,
+    colorIdentity,
+    image: card.image_uris?.normal || (faces[0]?.image_uris?.normal) || (faces[0]?.image) || null,
+    imageLarge: card.image_uris?.large || (faces[0]?.image_uris?.large) || (faces[0]?.imageLarge) || null,
     cardFaces,
     priceTCG: usd,
     priceTCGFoil: usdFoil,
     priceCK: usd * 0.88,
     priceCKFoil: usdFoil * 0.88,
     oracleText: card.oracle_text || faceText || '',
-    power: card.power || null,
-    toughness: card.toughness || null,
+    power: card.power || creatureFace?.power || null,
+    toughness: card.toughness || creatureFace?.toughness || null,
     loyalty: card.loyalty || null,
     qty: qty,
     foil: false,

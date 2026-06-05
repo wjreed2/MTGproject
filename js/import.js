@@ -579,6 +579,18 @@ async function enrichCardsFromScryfall(cards) {
         }
         card.mana      = sc.mana_cost         || card.mana;
         card.cmc       = sc.cmc               ?? card.cmc;
+        if (typeof resolveCardManaCost === 'function') {
+          const mana = resolveCardManaCost({ ...card, ...sc, card_faces: sc.card_faces });
+          if (mana) card.mana = mana;
+        }
+        if (typeof resolveCardCmc === 'function') {
+          const cmc = resolveCardCmc({ ...card, ...sc, card_faces: sc.card_faces });
+          if (cmc > 0) card.cmc = cmc;
+        }
+        if (typeof resolveCardOracleId === 'function') {
+          const oid = resolveCardOracleId({ ...card, ...sc, card_faces: sc.card_faces });
+          if (oid) card.oracleId = oid;
+        }
         card.rarity    = sc.rarity            || card.rarity;
         card.set       = sc.set               || card.set;
         card.setName   = sc.set_name          || card.setName;

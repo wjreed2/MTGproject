@@ -591,23 +591,14 @@ function _htmlCardDetailPriceRows(card) {
 
 function _mergeFetchedCardIntoDetailCard(card, entry) {
   if (!card || !entry) return;
-  card.oracleText = entry.oracleText || card.oracleText;
+  if (typeof applyEntryMetadataToCard === 'function') {
+    applyEntryMetadataToCard(card, entry);
+  }
   if (entry.priceTCG > 0) card.priceTCG = entry.priceTCG;
   if (entry.priceTCGFoil > 0) card.priceTCGFoil = entry.priceTCGFoil;
   if (entry.priceCK > 0) card.priceCK = entry.priceCK;
   if (entry.priceCKFoil > 0) card.priceCKFoil = entry.priceCKFoil;
-  card.mana = entry.mana || card.mana;
-  if (entry.type) card.type = entry.type;
-  else if (typeof ensureCardTypeLine === 'function') ensureCardTypeLine(card);
-  card.image = entry.image || card.image;
-  card.imageLarge = entry.imageLarge || card.imageLarge;
-  card.cardFaces = Array.isArray(entry.cardFaces) ? entry.cardFaces : (card.cardFaces || []);
-  card.power = entry.power ?? card.power;
-  card.toughness = entry.toughness ?? card.toughness;
-  card.loyalty = entry.loyalty ?? card.loyalty;
-  if (entry.set) card.set = entry.set;
-  if (entry.number != null) card.number = entry.number;
-  if (entry.rarity) card.rarity = entry.rarity;
+  if (typeof ensureCardMetadata === 'function') ensureCardMetadata(card);
 }
 
 function _patchCardDetailInspectorDom(card, isOwned) {
@@ -674,6 +665,17 @@ function _patchCardDetailInspectorDom(card, isOwned) {
       <span class="tag tag-${r}">${card.rarity || ''}</span>
       ${card.foil ? `<span class="tag tag-gold">✦ Foil</span>` : ''}
       ${!isOwned ? '<span class="tag tag-red">Unowned</span>' : ''}`;
+  }
+  const cmcInput = document.getElementById('cardDetailCustomCmcInput');
+  if (cmcInput) {
+    const baseCmc = card.cmc ?? 0;
+    cmcInput.dataset.defaultCmc = String(baseCmc);
+    cmcInput.placeholder = String(baseCmc);
+    if (card.customCmc == null) cmcInput.value = baseCmc ? String(baseCmc) : '';
+    const resetBtn = document.querySelector('.card-detail-cmc-reset');
+    const scryLabel = cmcInput.parentElement?.querySelector('span:last-child');
+    if (scryLabel) scryLabel.textContent = `(Scryfall: ${baseCmc})`;
+    if (resetBtn) resetBtn.title = `Reset to Scryfall default (${baseCmc})`;
   }
 }
 
@@ -1719,7 +1721,8 @@ async function openCardDetail(uid, navMode, opts) {
   } else {
     card = ownedCard || sourceCard;
   }
-  if (typeof ensureCardTypeLine === 'function') ensureCardTypeLine(card);
+  if (typeof ensureCardMetadata === 'function') ensureCardMetadata(card);
+  else if (typeof ensureCardTypeLine === 'function') ensureCardTypeLine(card);
   const isOwned = !!ownedCard;
   const actionUid = card.uid || sourceCard.uid || (card.scryfallId ? card.scryfallId + (card.foil ? '_f' : '_n') : uid);
   const activeDeck = typeof getActiveDeck === 'function'
@@ -1856,6 +1859,13 @@ async function _loadCardDetailDefaultTags(card) {
       const prot = typeof _isProtectedDeckTag === 'function' && _isProtectedDeckTag(t);
       return `<span class="tag ${prot ? 'tag-scryfall' : 'tag-purple'}" style="font-size:0.84rem">${t}</span>`;
     }).join('');
+    if (typeof activeDeckId !== 'undefined' && activeDeckId && typeof getActiveDeck === 'function') {
+      const deck = getActiveDeck();
+      if (deck && (deck.cards || []).some(c => c === card || c.uid === card.uid || c.scryfallId === card.scryfallId)) {
+        if (typeof renderDeckList === 'function') renderDeckList(deck);
+        if (typeof renderProbabilityChart === 'function') renderProbabilityChart(deck);
+      }
+    }
   } catch (_) {
     if (document.getElementById('cardDetailDefaultTags') === el && modal.classList.contains('open')) {
       el.innerHTML = '<span style="font-size:0.72rem;color:var(--text3)">—</span>';
@@ -2667,7 +2677,7 @@ function findCardAutocomplete(q) {
   const drop = document.getElementById('findCardAutocomplete');
   const apiQ = _findQueryForApi(q);
   if (!apiQ) { drop.style.display = 'none'; return; }
-  // Token queries skip name autocomplete and go straight to search
+  // Syntax / color-browse queries skip name autocomplete and go straight to catalog search
   if (_findQueryHasTokens(apiQ) || apiQ === '*') {
     drop.style.display = 'none';
     clearTimeout(_findAcTimer);
@@ -2709,13 +2719,95 @@ document.addEventListener('click', e => {
 
 const _FIND_PAGE = 300;
 let _findSearchAbort = null;
+let _deckOwnerCollLookup = null;
+let _deckOwnerCollectionCards = [];
+let _deckOwnerCollDeckId = null;
+let _deckOwnerCollLoadPromise = null;
+
+function _buildCollQtyByScryfallId(cards) {
+  const map = {};
+  for (const c of cards || []) {
+    const sid = c.scryfallId || String(c.uid || '').replace(/_[fn]$/, '');
+    if (!sid) continue;
+    if (!map[sid]) map[sid] = { nf: 0, f: 0 };
+    const q = c.qty || 1;
+    const foil = c.foil != null ? !!c.foil : String(c.uid || '').endsWith('_f');
+    if (foil) map[sid].f += q;
+    else map[sid].nf += q;
+  }
+  return map;
+}
+
+function _deckOwnerCollectionFromSharedData(ownerId) {
+  const sc = (typeof sharedCollections !== 'undefined' ? sharedCollections : [])
+    .find(s => Number(s.ownerId) === Number(ownerId));
+  return sc?.cards?.length ? _buildCollQtyByScryfallId(sc.cards) : null;
+}
+
+function clearDeckOwnerCollectionLookup() {
+  _deckOwnerCollLookup = null;
+  _deckOwnerCollectionCards = [];
+  _deckOwnerCollDeckId = null;
+  _deckOwnerCollLoadPromise = null;
+}
+globalThis.clearDeckOwnerCollectionLookup = clearDeckOwnerCollectionLookup;
+
+function getDeckOwnerCollectionCards() {
+  return _deckOwnerCollectionCards || [];
+}
+globalThis.getDeckOwnerCollectionCards = getDeckOwnerCollectionCards;
+
+async function loadDeckOwnerCollectionLookup(deck) {
+  if (!deck?.id || typeof activeDeckIsShared === 'undefined' || !activeDeckIsShared) {
+    clearDeckOwnerCollectionLookup();
+    return null;
+  }
+  if (_deckOwnerCollDeckId === deck.id && _deckOwnerCollLookup) return _deckOwnerCollLookup;
+  if (_deckOwnerCollLoadPromise && _deckOwnerCollDeckId === deck.id) {
+    return _deckOwnerCollLoadPromise;
+  }
+
+  const ownerId = deck.ownerId;
+  const sc = ownerId && typeof sharedCollections !== 'undefined'
+    ? sharedCollections.find(s => Number(s.ownerId) === Number(ownerId))
+    : null;
+  if (sc?.cards?.length) {
+    _deckOwnerCollectionCards = sc.cards;
+    _deckOwnerCollLookup = _buildCollQtyByScryfallId(sc.cards);
+    _deckOwnerCollDeckId = deck.id;
+    return _deckOwnerCollLookup;
+  }
+
+  _deckOwnerCollDeckId = deck.id;
+  _deckOwnerCollLoadPromise = apiFetch(`/decks/${deck.id}/owner-collection`)
+    .then(rows => {
+      _deckOwnerCollectionCards = Array.isArray(rows) ? rows : [];
+      _deckOwnerCollLookup = _buildCollQtyByScryfallId(_deckOwnerCollectionCards);
+      return _deckOwnerCollLookup;
+    })
+    .catch(() => {
+      _deckOwnerCollectionCards = [];
+      _deckOwnerCollLookup = {};
+      return _deckOwnerCollLookup;
+    })
+    .finally(() => {
+      _deckOwnerCollLoadPromise = null;
+    });
+  return _deckOwnerCollLoadPromise;
+}
 
 function _renderFindCard(cards, el, append, total, isTokenQuery) {
   const deckBuilderVoiceMode = !!(
     document.getElementById('voiceModal')?.classList.contains('open') &&
     typeof voiceAddToActiveDeckMode !== 'undefined' && voiceAddToActiveDeckMode
   );
-  const useSharedPool = deckBuilderVoiceMode && _deckPoolSource === 'sharedWith';
+  const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+  const ownershipOn = typeof isDeckOwnershipEnabled === 'function' && isDeckOwnershipEnabled();
+  const useDeckOwnerPool = deckBuilderVoiceMode
+    && typeof activeDeckIsShared !== 'undefined' && activeDeckIsShared && !!deck && ownershipOn;
+  const useOwnerHighlight = deckBuilderVoiceMode
+    && typeof activeDeckIsShared !== 'undefined' && activeDeckIsShared && !!deck && !ownershipOn;
+  const useSharedPool = deckBuilderVoiceMode && _deckPoolSource === 'sharedWith' && !useDeckOwnerPool && !useOwnerHighlight;
   // Build a lookup: scryfallId → [ownerEmail,...] from shared collections
   const sharedOwnersByScryId = {};
   if (useSharedPool && typeof sharedCollections !== 'undefined') {
@@ -2727,6 +2819,8 @@ function _renderFindCard(cards, el, append, total, isTokenQuery) {
       }
     }
   }
+  const ownerColl = useDeckOwnerPool ? _deckOwnerCollLookup : null;
+  const ownerLabel = deck?.ownerEmail ? deck.ownerEmail.split('@')[0] : 'Owner';
 
   if (!append) el.innerHTML = '';
   if (!cards.length && !append) {
@@ -2739,12 +2833,22 @@ function _renderFindCard(cards, el, append, total, isTokenQuery) {
     const img    = uris?.large || uris?.png || uris?.normal || uris?.small || null;
 
     let inColl, border, cardFilter, fromLabel;
+    let nfQtyDisplay = 0;
+    let fQtyDisplay = 0;
     if (useSharedPool) {
       const owners = sharedOwnersByScryId[c.id] || [];
       inColl = owners.length > 0;
       border = inColl ? '2px solid var(--blue)' : '1px solid var(--border)';
       cardFilter = !inColl ? 'grayscale(72%) opacity(0.62)' : '';
       fromLabel = inColl ? owners.map(e => e.split('@')[0]).join(', ') : '';
+    } else if ((useDeckOwnerPool || useOwnerHighlight) && ownerColl) {
+      const o = ownerColl[c.id];
+      nfQtyDisplay = o?.nf || 0;
+      fQtyDisplay = o?.f || 0;
+      inColl = nfQtyDisplay > 0 || fQtyDisplay > 0;
+      border = inColl ? '2px solid var(--teal)' : '1px solid var(--border)';
+      cardFilter = useDeckOwnerPool && deckBuilderVoiceMode && !inColl ? 'grayscale(72%) opacity(0.62)' : '';
+      fromLabel = inColl ? `${ownerLabel}'s collection` : '';
     } else {
       const nfQty = collection.filter(x => x.uid === c.id + '_n').reduce((s,x)=>s+x.qty,0);
       const fQty  = collection.filter(x => x.uid === c.id + '_f').reduce((s,x)=>s+x.qty,0);
@@ -2752,8 +2856,8 @@ function _renderFindCard(cards, el, append, total, isTokenQuery) {
       border = inColl ? '2px solid var(--teal)' : '1px solid var(--border)';
       cardFilter = deckBuilderVoiceMode && !inColl ? 'grayscale(72%) opacity(0.62)' : '';
       fromLabel = '';
-      var nfQtyDisplay = nfQty;
-      var fQtyDisplay  = fQty;
+      nfQtyDisplay = nfQty;
+      fQtyDisplay  = fQty;
     }
 
     const div = document.createElement('div');
@@ -2772,8 +2876,8 @@ function _renderFindCard(cards, el, append, total, isTokenQuery) {
     div.innerHTML = `<div data-img-wrapper style="aspect-ratio:0.715;overflow:hidden;border-radius:6px;border:${border};position:relative;transition:border-color 0.15s;${cardFilter ? `filter:${cardFilter};` : ''}">
       ${img ? `<img src="${img}" class="find-card-results-img" alt="${c.name}" loading="lazy">` : `<div style="width:100%;height:100%;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:0.68rem;padding:6px;text-align:center;color:var(--text2)">${c.name}</div>`}
       <div data-badges style="position:absolute;inset:0;pointer-events:none">
-        ${!useSharedPool && (nfQtyDisplay > 0) ? `<div class="find-card-results-qty find-card-results-qty--nf">×${nfQtyDisplay}</div>` : ''}
-        ${!useSharedPool && (fQtyDisplay  > 0) ? `<div class="find-card-results-qty find-card-results-qty--foil">✦×${fQtyDisplay}</div>` : ''}
+        ${!useSharedPool && nfQtyDisplay > 0 ? `<div class="find-card-results-qty find-card-results-qty--nf">×${nfQtyDisplay}</div>` : ''}
+        ${!useSharedPool && fQtyDisplay > 0 ? `<div class="find-card-results-qty find-card-results-qty--foil">✦×${fQtyDisplay}</div>` : ''}
         ${fromLabel ? `<div class="find-card-shared-from">From ${fromLabel}</div>` : ''}
       </div>
     </div>`;
@@ -2811,53 +2915,56 @@ async function runFindCard(q, append) {
   if (!append) {
     if (_findSearchAbort) _findSearchAbort.abort();
     _findSearchAbort = new AbortController();
+  } else if (!_findSearchAbort || _findSearchAbort.signal.aborted) {
+    _findSearchAbort = new AbortController();
   }
   const signal = _findSearchAbort?.signal;
 
   if (!append) el.innerHTML = '<div style="grid-column:1/-1;padding:1rem;font-size:0.85rem;color:var(--text3)">Searching…</div>';
 
   const colorParam = _findColorFilters.size ? [..._findColorFilters].sort().join(',') : '';
-  const useCatalogApi = _findQueryHasTokens(apiQ) || apiQ === '*' || !!colorParam;
   const paperOnly = _getFindPaperOnly();
 
   try {
-    let cards, total = null;
-    if (useCatalogApi) {
-      let url = `/api/cards/search?q=${encodeURIComponent(apiQ)}&limit=${_FIND_PAGE}&offset=${_findSearchOffset}`;
-      if (paperOnly) url += '&paperOnly=1';
-      if (colorParam) url += `&colors=${encodeURIComponent(colorParam)}`;
-      const res = await fetch(url, { signal });
-      if (!res.ok) { if (!append) el.innerHTML = '<div style="grid-column:1/-1;padding:1rem;font-size:0.85rem;color:var(--text3)">No cards found</div>'; return; }
-      const data = await res.json();
-      cards = data.data || [];
-      total = data.total ?? null;
-      _findSearchTotal = total;
-      _findSearchOffset += cards.length;
-    } else {
-      const scryfallQ = apiQ + ' -is:extra' + (paperOnly ? ' game:paper' : '');
-      const res = await fetch(
-        `https://api.scryfall.com/cards/search?q=${encodeURIComponent(scryfallQ)}&order=released&unique=prints`,
-        { signal }
-      );
-      if (!res.ok) { if (!append) el.innerHTML = '<div style="grid-column:1/-1;padding:1rem;font-size:0.85rem;color:var(--text3)">No cards found</div>'; return; }
-      const data = await res.json();
-      cards = (data.data || []).slice(0, 60);
+    let url = `/api/cards/search?q=${encodeURIComponent(apiQ)}&limit=${_FIND_PAGE}&offset=${_findSearchOffset}`;
+    if (paperOnly) url += '&paperOnly=1';
+    if (colorParam) url += `&colors=${encodeURIComponent(colorParam)}`;
+    const ownedOnly = !!(
+      typeof voiceAddToActiveDeckMode !== 'undefined' && voiceAddToActiveDeckMode
+      && _deckPoolSource === 'mine'
+    );
+    if (ownedOnly) url += '&owned=1';
+    const res = await fetch(url, { signal });
+    if (!res.ok) {
+      if (!append) el.innerHTML = '<div style="grid-column:1/-1;padding:1rem;font-size:0.85rem;color:var(--text3)">No cards found</div>';
+      return;
     }
+    const data = await res.json();
+    let cards = data.data || [];
+    const total = data.total ?? null;
+    _findSearchTotal = total;
+    _findSearchOffset += cards.length;
+
+    const deckForOwner = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+    const needOwnerColl = typeof activeDeckIsShared !== 'undefined' && activeDeckIsShared && deckForOwner
+      && (
+        (typeof isDeckOwnershipEnabled === 'function' && isDeckOwnershipEnabled())
+        || (typeof voiceAddToActiveDeckMode !== 'undefined' && voiceAddToActiveDeckMode)
+      );
+    if (needOwnerColl) await loadDeckOwnerCollectionLookup(deckForOwner);
+
     const voiceSetFilter =
       typeof globalThis.getVoiceSearchSetFilterPredicate === 'function'
         ? globalThis.getVoiceSearchSetFilterPredicate() : null;
     if (typeof voiceSetFilter === 'function') {
       cards = cards.filter(card => { try { return !!voiceSetFilter(card); } catch (_) { return true; } });
     }
-    if (!colorParam) {
-      cards = _applyFindColorFilter(cards);
-    }
     if (!cards.length && !append) {
       el.innerHTML = '<div style="grid-column:1/-1;padding:1rem;font-size:0.85rem;color:var(--text3)">No cards found</div>';
       return;
     }
 
-    _renderFindCard(cards, el, !!append, useCatalogApi ? _findSearchTotal : null, useCatalogApi);
+    _renderFindCard(cards, el, !!append, _findSearchTotal, true);
 
     // Wire click handler once (on first load or after clear)
     if (!append) {
@@ -2872,8 +2979,14 @@ async function runFindCard(q, append) {
         if (!cardData.id) cardData = { id: scryfallId, name: tile.querySelector('img')?.alt || scryfallId };
         addCardToCollection(cardData, qty, findCardFoil);
         tile.querySelector('[data-img-wrapper]').style.border = '2px solid var(--teal)';
-        const nfQty = collection.filter(x => x.uid === scryfallId + '_n').reduce((s,x)=>s+x.qty,0);
-        const fQty  = collection.filter(x => x.uid === scryfallId + '_f').reduce((s,x)=>s+x.qty,0);
+        const ownerLookup = (typeof activeDeckIsShared !== 'undefined' && activeDeckIsShared && _deckOwnerCollLookup)
+          ? _deckOwnerCollLookup[scryfallId] : null;
+        const nfQty = ownerLookup
+          ? (ownerLookup.nf || 0)
+          : collection.filter(x => x.uid === scryfallId + '_n').reduce((s, x) => s + x.qty, 0);
+        const fQty = ownerLookup
+          ? (ownerLookup.f || 0)
+          : collection.filter(x => x.uid === scryfallId + '_f').reduce((s, x) => s + x.qty, 0);
         tile.querySelector('[data-badges]').innerHTML =
           (nfQty > 0 ? `<div class="find-card-results-qty find-card-results-qty--nf">×${nfQty}</div>` : '') +
           (fQty  > 0 ? `<div class="find-card-results-qty find-card-results-qty--foil">✦×${fQty}</div>` : '');
@@ -2886,9 +2999,25 @@ async function runFindCard(q, append) {
 }
 
 function addCardToCollection(scryfallCard, qty, foil) {
-  const entry = cardToEntry(scryfallCard, qty);
-  entry.foil = foil;
-  entry.uid  = scryfallCard.id + (foil ? '_f' : '_n');
+  const deckMode = typeof voiceAddToActiveDeckMode !== 'undefined' && voiceAddToActiveDeckMode;
+  const useOwnerPool = deckMode
+    && typeof activeDeckIsShared !== 'undefined' && activeDeckIsShared
+    && typeof isDeckOwnershipEnabled === 'function' && isDeckOwnershipEnabled();
+  let entry = null;
+  if (useOwnerPool && typeof getDeckOwnerCollectionCards === 'function') {
+    const pool = getDeckOwnerCollectionCards();
+    const owned = pool.find(c => c.scryfallId === scryfallCard.id && !!c.foil === !!foil)
+      || pool.find(c => c.scryfallId === scryfallCard.id && !c.foil)
+      || pool.find(c => c.scryfallId === scryfallCard.id);
+    if (owned) entry = { ...owned, qty };
+  }
+  if (!entry) {
+    entry = cardToEntry(scryfallCard, qty);
+    entry.foil = foil;
+    entry.uid  = scryfallCard.id + (foil ? '_f' : '_n');
+  } else {
+    entry = { ...entry, qty };
+  }
   const addToCollectionThisRun = !(typeof voiceAddToActiveDeckMode !== 'undefined' && voiceAddToActiveDeckMode)
     || (typeof voiceShouldAddCollectionInDeckMode === 'function'
       ? voiceShouldAddCollectionInDeckMode()

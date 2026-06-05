@@ -1874,7 +1874,7 @@ async function enrichCardsFromScryfall(cards) {
         const imgLarge = sc.image_uris?.normal || sc.card_faces?.[0]?.image_uris?.normal || null;
         card.image      = img      || card.image;
         card.imageLarge = imgLarge || card.imageLarge;
-        card.type       = sc.type_line        || card.type;
+        card.type       = sc.type_line || card.type;
         card.mana       = sc.mana_cost        || card.mana;
         card.cmc        = sc.cmc              ?? card.cmc;
         card.rarity     = sc.rarity           || card.rarity;
@@ -1884,6 +1884,35 @@ async function enrichCardsFromScryfall(cards) {
         if (sc.color_identity?.length) card.colorIdentity = card.colors = sc.color_identity;
         if (sc.oracle_id && ORACLE_UUID_RE.test(String(sc.oracle_id))) {
           card.oracleId = String(sc.oracle_id).toLowerCase();
+        } else if (Array.isArray(sc.card_faces)) {
+          const faceOid = sc.card_faces.map(f => f?.oracle_id).find(Boolean);
+          if (faceOid && ORACLE_UUID_RE.test(String(faceOid))) {
+            card.oracleId = String(faceOid).toLowerCase();
+          }
+        }
+        // Reversible / MDFC printings often omit root type_line, cmc, mana_cost.
+        const tl = String(card.type || '').trim();
+        if (!tl || tl === 'undefined') {
+          const faceTypes = (sc.card_faces || [])
+            .map(f => String(f?.type_line || '').trim())
+            .filter(t => t && t !== 'undefined');
+          const uniq = [...new Set(faceTypes)];
+          if (uniq.length) card.type = uniq.length === 1 ? uniq[0] : uniq.join(' // ');
+        }
+        if (card.cmc == null || card.cmc === 0) {
+          if (typeof sc.cmc === 'number' && sc.cmc > 0) card.cmc = sc.cmc;
+          else {
+            const faceCmc = (sc.card_faces || [])
+              .map(f => f?.cmc)
+              .find(n => typeof n === 'number' && n > 0);
+            if (faceCmc != null) card.cmc = faceCmc;
+          }
+        }
+        if (!String(card.mana || '').trim()) {
+          const costs = (sc.card_faces || [])
+            .map(f => String(f?.mana_cost || '').trim())
+            .filter(Boolean);
+          if (costs.length) card.mana = [...new Set(costs)].join(' // ');
         }
       }
     } catch (e) {
@@ -3094,6 +3123,10 @@ const _LOCAL_TOKEN_RE = /(-?)(\w+)\s*(>=|<=|!=|<>|[:=><])\s*(?:"([^"]*)"|((?:[^\
 const _rarityAliases = { c: 'common', u: 'uncommon', r: 'rare', m: 'mythic' };
 const _sqlOpMap = { '>=': '>=', '<=': '<=', '!=': '!=', '<>': '!=', '>': '>', '<': '<', '=': '=', ':': '=' };
 
+function _regexEscapeForMysql(s) {
+  return String(s).replace(/[\\^$.*+?()[\]{}|]/g, '\\$&');
+}
+
 function _parseLocalSearchQuery(raw) {
   const trimmed = String(raw || '').trim();
   if (trimmed === '*') {
@@ -3179,7 +3212,8 @@ function _buildLocalSearchSqlGroup({ tokens, nameTerms }) {
     const sqlOp = _sqlOpMap[eOp] || '=';
 
     if (key === 't' || key === 'type') {
-      where.push(`${n}(type_line LIKE ?)`); params.push(`%${eVal}%`);
+      where.push(`${n}(type_line REGEXP CONCAT('(^|[^[:alpha:]])', ?, '($|[^[:alpha:]])'))`);
+      params.push(_regexEscapeForMysql(eVal));
     } else if (key === 'o' || key === 'oracle') {
       where.push(`${n}(oracle_text LIKE ?)`); params.push(`%${eVal}%`);
     } else if (key === 'cmc' || key === 'mv') {
@@ -3250,8 +3284,13 @@ app.get('/api/cards/search', requireAuth, async (req, res) => {
       ? ` AND games_json LIKE '%"paper"%'`
         + ` AND (set_code IS NULL OR (set_code NOT REGEXP '^y[a-z0-9]' AND set_code NOT REGEXP '^ha[0-9]' AND set_code != 'j21'))`
       : '';
-    const fullSql = sql + colorSql + paperClause;
-    const allParams = [...params, ...colorParams];
+    const ownedOnly = req.query.owned === '1';
+    const ownedClause = ownedOnly
+      ? ` AND oracle_id IN (SELECT DISTINCT oracle_id FROM collection WHERE account_id = ? AND oracle_id IS NOT NULL)`
+      : '';
+    const ownedParams = ownedOnly ? [req.accountId] : [];
+    const fullSql = sql + colorSql + paperClause + ownedClause;
+    const allParams = [...params, ...colorParams, ...ownedParams];
     const limit = Math.min(Math.max(parseInt(req.query.limit) || 300, 1), 1000);
     const offset = Math.max(parseInt(req.query.offset) || 0, 0);
 
@@ -3630,6 +3669,33 @@ async function resolveDeckAccessForViewer(viewerAccountId, deckId) {
   return null;
 }
 
+// Deck owner's collection (for collaborators adding cards — does not require collection share)
+app.get('/api/decks/:id/owner-collection', requireAuth, async (req, res) => {
+  const deckId = req.params.id;
+  try {
+    const access = await resolveDeckAccessForViewer(req.accountId, deckId);
+    if (!access) return res.status(403).json({ error: 'Access denied' });
+    const [rows] = await db().query(
+      'SELECT data, qty FROM collection WHERE account_id = ? ORDER BY added_at',
+      [access.ownerId]
+    );
+    const cards = rows.map(r => {
+      const card = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
+      const uid = card.uid || '';
+      card.qty = r.qty ?? card.qty ?? 1;
+      card.foil = card.foil != null ? !!card.foil : uid.endsWith('_f');
+      if (!card.uid && card.scryfallId) {
+        card.uid = card.scryfallId + (card.foil ? '_f' : '_n');
+      }
+      return card.scryfallId ? card : null;
+    }).filter(Boolean);
+    res.json(cards);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('/api/deck-history/:deckId', requireAuth, async (req, res) => {
   const deckId = req.params.deckId;
   try {
@@ -3668,6 +3734,19 @@ app.post('/api/deck-history', requireAuth, async (req, res) => {
        foil ? 1 : 0, qty || 1, detail || null, image || null,
        req.accountId, actorEmail || null]
     );
+    // Fast-path: mirror tag changes into deck_card_tags so they survive even if the
+    // debounced PUT /api/decks (which ships the full state) gets dropped mid-upload.
+    if (type === 'tag_add' && uid && detail) {
+      await db().query(
+        `INSERT IGNORE INTO deck_card_tags (account_id, deck_id, card_uid, tag_name) VALUES (?, ?, ?, ?)`,
+        [access.ownerId, deckId, uid, detail]
+      );
+    } else if (type === 'tag_remove' && uid && detail) {
+      await db().query(
+        `DELETE FROM deck_card_tags WHERE account_id = ? AND deck_id = ? AND card_uid = ? AND tag_name = ?`,
+        [access.ownerId, deckId, uid, detail]
+      );
+    }
     res.json({ ok: true });
   } catch (e) {
     console.error(e);
