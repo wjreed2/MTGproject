@@ -3574,8 +3574,20 @@ app.get('/api/admin/scryfall/search-debug', requireAuth, requireAdminRole, async
     const [[raw]] = await db().query(`SELECT COUNT(*) AS n FROM scryfall_oracle_cards WHERE ${rawWhere}`, params);
     const [[low]] = await db().query(`SELECT COUNT(*) AS n FROM scryfall_oracle_cards WHERE ${lowWhere}`, params);
     const [sample] = await db().query(`SELECT name FROM scryfall_oracle_cards WHERE ${lowWhere} LIMIT 5`, params);
+
+    // Replicate the REAL /api/cards/search query exactly, on prod.
+    const parsed = _parseLocalSearchQuery(q);
+    const built = _buildLocalSearchSql(parsed);
+    let handlerTotal = null, handlerError = null;
+    try {
+      const [[hr]] = await db().query(
+        `SELECT COUNT(*) AS total FROM scryfall_oracle_cards ${built.sql}`, built.params
+      );
+      handlerTotal = Number(hr?.total || 0);
+    } catch (he) { handlerError = he.message; }
+
     res.json({
-      build: 'search-debug-v1',
+      build: 'search-debug-v2',
       query: q,
       collations,
       connectionCollation: vars?.connColl,
@@ -3583,6 +3595,10 @@ app.get('/api/admin/scryfall/search-debug', requireAuth, requireAdminRole, async
       rawNameMatch: Number(raw?.n || 0),
       lowerNameMatch: Number(low?.n || 0),
       sample: sample.map(r => r.name),
+      handlerSql: built.sql,
+      handlerParams: built.params,
+      handlerTotal,
+      handlerError,
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
