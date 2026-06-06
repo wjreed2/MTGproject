@@ -3553,6 +3553,42 @@ app.get('/api/admin/scryfall/import-status', requireAuth, requireAdminRole, asyn
   }
 });
 
+// Temporary diagnostic: reports prod's actual collation + whether raw vs LOWER() matching
+// finds rows for a query. The `build` marker confirms which server.js is deployed.
+app.get('/api/admin/scryfall/search-debug', requireAuth, requireAdminRole, async (req, res) => {
+  const q = String(req.query.q || 'sol ring').toLowerCase().trim();
+  const terms = q.split(/\s+/).filter(Boolean);
+  try {
+    const [collations] = await db().query(
+      `SELECT COLUMN_NAME, CHARACTER_SET_NAME, COLLATION_NAME
+         FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'scryfall_oracle_cards'
+          AND COLUMN_NAME IN ('name','type_line','oracle_text')`
+    );
+    const [[vars]] = await db().query(
+      `SELECT @@collation_connection AS connColl, @@collation_database AS dbColl`
+    );
+    const params = terms.map(t => `%${t}%`);
+    const rawWhere = terms.length ? terms.map(() => 'name LIKE ?').join(' AND ') : '1';
+    const lowWhere = terms.length ? terms.map(() => 'LOWER(name) LIKE ?').join(' AND ') : '1';
+    const [[raw]] = await db().query(`SELECT COUNT(*) AS n FROM scryfall_oracle_cards WHERE ${rawWhere}`, params);
+    const [[low]] = await db().query(`SELECT COUNT(*) AS n FROM scryfall_oracle_cards WHERE ${lowWhere}`, params);
+    const [sample] = await db().query(`SELECT name FROM scryfall_oracle_cards WHERE ${lowWhere} LIMIT 5`, params);
+    res.json({
+      build: 'search-debug-v1',
+      query: q,
+      collations,
+      connectionCollation: vars?.connColl,
+      databaseCollation: vars?.dbColl,
+      rawNameMatch: Number(raw?.n || 0),
+      lowerNameMatch: Number(low?.n || 0),
+      sample: sample.map(r => r.name),
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.post('/api/scryfall/tags/batch', requireAuth, async (req, res) => {
   const rawIds = Array.isArray(req.body?.oracleIds) ? req.body.oracleIds : [];
   const schemaVersion = String(req.body?.schemaVersion || '1').slice(0, 16);
