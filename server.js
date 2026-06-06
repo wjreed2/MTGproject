@@ -2832,7 +2832,10 @@ async function importScryfallOracleBulkToDb({
     const bulkRow = (bulk?.data || []).find(r => r?.type === 'oracle_cards');
     if (!bulkRow?.download_uri) throw new Error('oracle_cards bulk feed missing from Scryfall');
     sourceUpdatedAt = bulkRow.updated_at || null;
-    const dataRes = await scryfallFetch(bulkRow.download_uri, { maxRetries: 2 });
+    // The oracle bulk file is ~150MB and is consumed via a streaming parse below, which
+    // takes far longer than the default 10s timeout. AbortSignal.timeout aborts the whole
+    // request — including the streamed body read — so use a generous timeout (5 min) here.
+    const dataRes = await scryfallFetch(bulkRow.download_uri, { maxRetries: 2, timeoutMs: 300000 });
     if (!dataRes.ok) throw new Error('Could not download oracle_cards bulk data');
 
     // Stream-parse + batch-insert so we never accumulate all 30k cards in heap.
