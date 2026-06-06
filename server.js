@@ -3203,8 +3203,10 @@ function _buildLocalSearchSqlGroup({ tokens, nameTerms }) {
   const where = [];
   const params = [];
 
+  // Search terms are lowercased upstream; LOWER() the columns too so matching is
+  // case-insensitive regardless of the table's collation (prod's may be case-sensitive).
   for (const t of nameTerms) {
-    where.push('(name LIKE ? OR type_line LIKE ? OR oracle_text LIKE ?)');
+    where.push('(LOWER(name) LIKE ? OR LOWER(type_line) LIKE ? OR LOWER(oracle_text) LIKE ?)');
     params.push(`%${t}%`, `%${t}%`, `%${t}%`);
   }
 
@@ -3219,21 +3221,21 @@ function _buildLocalSearchSqlGroup({ tokens, nameTerms }) {
     const sqlOp = _sqlOpMap[eOp] || '=';
 
     if (key === 't' || key === 'type') {
-      where.push(`${n}(type_line REGEXP CONCAT('(^|[^[:alpha:]])', ?, '($|[^[:alpha:]])'))`);
+      where.push(`${n}(LOWER(type_line) REGEXP CONCAT('(^|[^[:alpha:]])', ?, '($|[^[:alpha:]])'))`);
       params.push(_regexEscapeForMysql(eVal));
     } else if (key === 'o' || key === 'oracle') {
-      where.push(`${n}(oracle_text LIKE ?)`); params.push(`%${eVal}%`);
+      where.push(`${n}(LOWER(oracle_text) LIKE ?)`); params.push(`%${eVal}%`);
     } else if (key === 'cmc' || key === 'mv') {
       const num = parseFloat(eVal);
       if (Number.isFinite(num)) { where.push(neg ? `NOT (cmc ${sqlOp} ?)` : `cmc ${sqlOp} ?`); params.push(num); }
     } else if (key === 'r' || key === 'rarity') {
-      where.push(`${n}(rarity = ?)`); params.push(_rarityAliases[eVal] || eVal);
+      where.push(`${n}(LOWER(rarity) = ?)`); params.push(String(_rarityAliases[eVal] || eVal).toLowerCase());
     } else if (key === 's' || key === 'set') {
-      where.push(`${n}(set_code = ?)`); params.push(eVal.toUpperCase());
+      where.push(`${n}(LOWER(set_code) = ?)`); params.push(eVal.toLowerCase());
     } else if (key === 'is') {
-      if (eVal === 'legendary') { where.push(`${n}(type_line LIKE ?)`); params.push('%Legendary%'); }
-      else if (eVal === 'instant') { where.push(`${n}(type_line LIKE ?)`); params.push('%Instant%'); }
-      else if (eVal === 'sorcery') { where.push(`${n}(type_line LIKE ?)`); params.push('%Sorcery%'); }
+      if (eVal === 'legendary') { where.push(`${n}(LOWER(type_line) LIKE ?)`); params.push('%legendary%'); }
+      else if (eVal === 'instant') { where.push(`${n}(LOWER(type_line) LIKE ?)`); params.push('%instant%'); }
+      else if (eVal === 'sorcery') { where.push(`${n}(LOWER(type_line) LIKE ?)`); params.push('%sorcery%'); }
     } else if (key === 'c' || key === 'color' || key === 'ci' || key === 'id') {
       const resolved = _COLOR_NAMES_SRV[eVal] || eVal;
       const col = (key === 'ci' || key === 'id') ? 'color_identity_json' : 'colors_json';
