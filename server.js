@@ -2207,14 +2207,18 @@ const SCRYFALL_AUTO_TAGS = [
 function _sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
+// Scryfall requires a custom User-Agent identifying the application; the default
+// Node fetch UA is rejected. Accept: application/json is also recommended.
+const SCRYFALL_HEADERS = { 'User-Agent': 'MTGArchive/1.0', Accept: 'application/json' };
 async function scryfallFetch(url, { maxRetries = 3, timeoutMs = 10000, init = {} } = {}) {
+  const headers = { ...SCRYFALL_HEADERS, ...(init.headers || {}) };
   const result = _scryfallQueue.then(async () => {
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       const elapsed = Date.now() - _scryfallLastRequestAt;
       const waitMs = Math.max(0, 100 - elapsed); // ~10 req/s max
       if (waitMs) await _sleep(waitMs);
       // Create the AbortSignal fresh here so its timeout starts when the request fires, not when enqueued
-      const fetchInit = timeoutMs > 0 ? { ...init, signal: AbortSignal.timeout(timeoutMs) } : init;
+      const fetchInit = { ...init, headers, ...(timeoutMs > 0 ? { signal: AbortSignal.timeout(timeoutMs) } : {}) };
       const res = await fetch(url, fetchInit);
       _scryfallLastRequestAt = Date.now();
       if (res.status !== 429) return res;
@@ -2222,7 +2226,7 @@ async function scryfallFetch(url, { maxRetries = 3, timeoutMs = 10000, init = {}
       const retryAfterMs = (Number.isFinite(retryAfterHeader) && retryAfterHeader > 0 ? retryAfterHeader : 1) * 1000;
       await _sleep(retryAfterMs);
     }
-    const fetchInit = timeoutMs > 0 ? { ...init, signal: AbortSignal.timeout(timeoutMs) } : init;
+    const fetchInit = { ...init, headers, ...(timeoutMs > 0 ? { signal: AbortSignal.timeout(timeoutMs) } : {}) };
     return fetch(url, fetchInit);
   });
   _scryfallQueue = result.catch(() => {}); // keep the chain alive even if this request fails
