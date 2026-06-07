@@ -18,6 +18,9 @@ const MySQLStore  = require('express-mysql-session')(session);
 const { withParserAsStream: streamJsonArray } = require(path.join(__dirname, 'node_modules/stream-json/src/streamers/stream-array.js'));
 
 const app = express();
+// Per-process identity, to detect whether requests are load-balanced across replicas
+// that see different databases. Temporary diagnostic.
+const INSTANCE_ID = require('crypto').randomBytes(4).toString('hex');
 app.set('trust proxy', 1);
 app.use(compression());
 app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
@@ -3315,6 +3318,13 @@ app.get('/api/cards/search', requireAuth, async (req, res) => {
     const [[{ total }]] = await db().query(
       `SELECT COUNT(*) AS total FROM scryfall_oracle_cards ${fullSql}`, allParams
     );
+    // Temporary diagnostic: which instance served this, and how many cards its DB sees.
+    let _dbg = null;
+    try {
+      const [[c]] = await db().query('SELECT COUNT(*) AS n FROM scryfall_oracle_cards');
+      const [[h]] = await db().query('SELECT @@hostname AS host');
+      _dbg = { instance: INSTANCE_ID, oracleCards: Number(c?.n || 0), mysqlHost: h?.host, total: Number(total), fullSql, allParams };
+    } catch (_) { _dbg = { instance: INSTANCE_ID, error: 'dbg count failed' }; }
     const [rows] = await db().query(
       `SELECT oracle_id, scryfall_id, name, type_line, oracle_text, rarity, set_code, cmc, mana_cost,
               colors_json, color_identity_json, image_small, image_normal, power, toughness, loyalty
@@ -3341,7 +3351,7 @@ app.get('/api/cards/search', requireAuth, async (req, res) => {
       image_uris: { small: row.image_small, normal: row.image_normal },
       power: row.power, toughness: row.toughness, loyalty: row.loyalty,
     }));
-    res.json({ data: cards, total: Number(total) });
+    res.json({ data: cards, total: Number(total), _dbg });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
@@ -3575,8 +3585,9 @@ app.get('/api/admin/scryfall/search-debug', requireAuth, requireAdminRole, async
           AND COLUMN_NAME IN ('name','type_line','oracle_text')`
     );
     const [[vars]] = await db().query(
-      `SELECT @@collation_connection AS connColl, @@collation_database AS dbColl`
+      `SELECT @@collation_connection AS connColl, @@collation_database AS dbColl, @@hostname AS mysqlHost`
     );
+    const [[totalRow]] = await db().query('SELECT COUNT(*) AS n FROM scryfall_oracle_cards');
     const params = terms.map(t => `%${t}%`);
     const rawWhere = terms.length ? terms.map(() => 'name LIKE ?').join(' AND ') : '1';
     const lowWhere = terms.length ? terms.map(() => 'LOWER(name) LIKE ?').join(' AND ') : '1';
@@ -3596,7 +3607,10 @@ app.get('/api/admin/scryfall/search-debug', requireAuth, requireAdminRole, async
     } catch (he) { handlerError = he.message; }
 
     res.json({
-      build: 'search-debug-v2',
+      build: 'search-debug-v3',
+      instance: INSTANCE_ID,
+      mysqlHost: vars?.mysqlHost,
+      oracleCards: Number(totalRow?.n || 0),
       query: q,
       collations,
       connectionCollation: vars?.connColl,
