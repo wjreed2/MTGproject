@@ -18,9 +18,6 @@ const MySQLStore  = require('express-mysql-session')(session);
 const { withParserAsStream: streamJsonArray } = require(path.join(__dirname, 'node_modules/stream-json/src/streamers/stream-array.js'));
 
 const app = express();
-// Per-process identity, to detect whether requests are load-balanced across replicas
-// that see different databases. Temporary diagnostic.
-const INSTANCE_ID = require('crypto').randomBytes(4).toString('hex');
 app.set('trust proxy', 1);
 app.use(compression());
 app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
@@ -3320,13 +3317,6 @@ app.get('/api/cards/search', requireAuth, async (req, res) => {
     const [[{ total }]] = await db().query(
       `SELECT COUNT(*) AS total FROM scryfall_oracle_cards ${fullSql}`, allParams
     );
-    // Temporary diagnostic: which instance served this, and how many cards its DB sees.
-    let _dbg = null;
-    try {
-      const [[c]] = await db().query('SELECT COUNT(*) AS n FROM scryfall_oracle_cards');
-      const [[h]] = await db().query('SELECT @@hostname AS host');
-      _dbg = { instance: INSTANCE_ID, oracleCards: Number(c?.n || 0), mysqlHost: h?.host, total: Number(total), fullSql, allParams };
-    } catch (_) { _dbg = { instance: INSTANCE_ID, error: 'dbg count failed' }; }
     const [rows] = await db().query(
       `SELECT oracle_id, scryfall_id, name, type_line, oracle_text, rarity, set_code, cmc, mana_cost,
               colors_json, color_identity_json, image_small, image_normal, power, toughness, loyalty
@@ -3353,7 +3343,7 @@ app.get('/api/cards/search', requireAuth, async (req, res) => {
       image_uris: { small: row.image_small, normal: row.image_normal },
       power: row.power, toughness: row.toughness, loyalty: row.loyalty,
     }));
-    res.json({ data: cards, total: Number(total), _dbg });
+    res.json({ data: cards, total: Number(total) });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
@@ -3570,62 +3560,6 @@ app.get('/api/admin/scryfall/import-status', requireAuth, requireAdminRole, asyn
     });
   } catch (e) {
     console.error(e);
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// Temporary diagnostic: reports prod's actual collation + whether raw vs LOWER() matching
-// finds rows for a query. The `build` marker confirms which server.js is deployed.
-app.get('/api/admin/scryfall/search-debug', requireAuth, requireAdminRole, async (req, res) => {
-  const q = String(req.query.q || 'sol ring').toLowerCase().trim();
-  const terms = q.split(/\s+/).filter(Boolean);
-  try {
-    const [collations] = await db().query(
-      `SELECT COLUMN_NAME, CHARACTER_SET_NAME, COLLATION_NAME
-         FROM information_schema.COLUMNS
-        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'scryfall_oracle_cards'
-          AND COLUMN_NAME IN ('name','type_line','oracle_text')`
-    );
-    const [[vars]] = await db().query(
-      `SELECT @@collation_connection AS connColl, @@collation_database AS dbColl, @@hostname AS mysqlHost`
-    );
-    const [[totalRow]] = await db().query('SELECT COUNT(*) AS n FROM scryfall_oracle_cards');
-    const params = terms.map(t => `%${t}%`);
-    const rawWhere = terms.length ? terms.map(() => 'name LIKE ?').join(' AND ') : '1';
-    const lowWhere = terms.length ? terms.map(() => 'LOWER(name) LIKE ?').join(' AND ') : '1';
-    const [[raw]] = await db().query(`SELECT COUNT(*) AS n FROM scryfall_oracle_cards WHERE ${rawWhere}`, params);
-    const [[low]] = await db().query(`SELECT COUNT(*) AS n FROM scryfall_oracle_cards WHERE ${lowWhere}`, params);
-    const [sample] = await db().query(`SELECT name FROM scryfall_oracle_cards WHERE ${lowWhere} LIMIT 5`, params);
-
-    // Replicate the REAL /api/cards/search query exactly, on prod.
-    const parsed = _parseLocalSearchQuery(q);
-    const built = _buildLocalSearchSql(parsed);
-    let handlerTotal = null, handlerError = null;
-    try {
-      const [[hr]] = await db().query(
-        `SELECT COUNT(*) AS total FROM scryfall_oracle_cards ${built.sql}`, built.params
-      );
-      handlerTotal = Number(hr?.total || 0);
-    } catch (he) { handlerError = he.message; }
-
-    res.json({
-      build: 'search-debug-v3',
-      instance: INSTANCE_ID,
-      mysqlHost: vars?.mysqlHost,
-      oracleCards: Number(totalRow?.n || 0),
-      query: q,
-      collations,
-      connectionCollation: vars?.connColl,
-      databaseCollation: vars?.dbColl,
-      rawNameMatch: Number(raw?.n || 0),
-      lowerNameMatch: Number(low?.n || 0),
-      sample: sample.map(r => r.name),
-      handlerSql: built.sql,
-      handlerParams: built.params,
-      handlerTotal,
-      handlerError,
-    });
-  } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
