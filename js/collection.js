@@ -2930,6 +2930,9 @@ async function runFindCard(q, append) {
     let url = `/api/cards/search?q=${encodeURIComponent(apiQ)}&limit=${_FIND_PAGE}&offset=${_findSearchOffset}`;
     if (paperOnly) url += '&paperOnly=1';
     if (colorParam) url += `&colors=${encodeURIComponent(colorParam)}`;
+    // In the deck-add card finder, plain words should match the card name only — otherwise a
+    // name like "Rat Out" matches every card whose rules text contains "rat" and "out".
+    if (typeof voiceAddToActiveDeckMode !== 'undefined' && voiceAddToActiveDeckMode) url += '&nameOnly=1';
     // Pool source: 'mine' restricts to owned cards; 'all' (and 'sharedWith') search everything.
     const ownedOnly = !!(
       typeof voiceAddToActiveDeckMode !== 'undefined' && voiceAddToActiveDeckMode
