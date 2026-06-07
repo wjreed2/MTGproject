@@ -21,6 +21,15 @@ const app = express();
 app.set('trust proxy', 1);
 app.use(compression());
 app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
+// API responses are dynamic and must never be cached by the browser or any CDN/edge.
+// Without this, an empty result cached early (e.g. before the card table was imported)
+// gets served stale for every identical request.
+app.use('/api', (_req, res, next) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
+  next();
+});
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
 const ALLOWED_ORIGINS = new Set(
