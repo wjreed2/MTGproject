@@ -2668,6 +2668,7 @@ function setDeckPoolSource(src) {
   _deckPoolSource = src;
   localStorage.setItem('mtg_deck_pool_source', src);
   document.getElementById('deckPoolMineBtn')?.classList.toggle('active', src === 'mine');
+  document.getElementById('deckPoolAllBtn')?.classList.toggle('active', src === 'all');
   document.getElementById('deckPoolSharedBtn')?.classList.toggle('active', src === 'sharedWith');
   const q = (document.getElementById('findCardInput')?.value || '').trim();
   if (_findQueryForApi(q)) runFindCard(q);
@@ -2929,6 +2930,7 @@ async function runFindCard(q, append) {
     let url = `/api/cards/search?q=${encodeURIComponent(apiQ)}&limit=${_FIND_PAGE}&offset=${_findSearchOffset}`;
     if (paperOnly) url += '&paperOnly=1';
     if (colorParam) url += `&colors=${encodeURIComponent(colorParam)}`;
+    // Pool source: 'mine' restricts to owned cards; 'all' (and 'sharedWith') search everything.
     const ownedOnly = !!(
       typeof voiceAddToActiveDeckMode !== 'undefined' && voiceAddToActiveDeckMode
       && _deckPoolSource === 'mine'

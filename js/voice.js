@@ -436,10 +436,15 @@ function renderVoiceDeckCollectionToggle() {
   if (poolWrap) {
     const onSharedDeck = typeof activeDeckIsShared !== 'undefined' && activeDeckIsShared;
     const hasShared = typeof sharedCollections !== 'undefined' && sharedCollections.length > 0;
-    poolWrap.style.display = show && hasShared && !onSharedDeck ? '' : 'none';
+    // Show the pool toggle whenever adding to a (non-shared) deck so "My Collection" /
+    // "All Cards" is always available; "Shared With Me" only when shared collections exist.
+    poolWrap.style.display = !!voiceAddToActiveDeckMode && !onSharedDeck ? '' : 'none';
+    const sharedBtn = document.getElementById('deckPoolSharedBtn');
+    if (sharedBtn) sharedBtn.style.display = hasShared ? '' : 'none';
     // Sync button active states with current pool source
     const src = typeof _deckPoolSource !== 'undefined' ? _deckPoolSource : 'mine';
     document.getElementById('deckPoolMineBtn')?.classList.toggle('active', src === 'mine');
+    document.getElementById('deckPoolAllBtn')?.classList.toggle('active', src === 'all');
     document.getElementById('deckPoolSharedBtn')?.classList.toggle('active', src === 'sharedWith');
   }
 }
