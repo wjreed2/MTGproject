@@ -2955,9 +2955,13 @@ async function runFindCard(q, append) {
       );
     if (needOwnerColl) await loadDeckOwnerCollectionLookup(deckForOwner);
 
+    // The voice set-prefs filter (owned-sets / token / art exclusions) is meant for voice
+    // scanning. In the "All Cards" pool the user explicitly wants every matching card, so
+    // skip it — otherwise valid cards (e.g. unowned, or from a newer set) get hidden.
     const voiceSetFilter =
-      typeof globalThis.getVoiceSearchSetFilterPredicate === 'function'
-        ? globalThis.getVoiceSearchSetFilterPredicate() : null;
+      _deckPoolSource === 'all' ? null
+        : typeof globalThis.getVoiceSearchSetFilterPredicate === 'function'
+          ? globalThis.getVoiceSearchSetFilterPredicate() : null;
     if (typeof voiceSetFilter === 'function') {
       cards = cards.filter(card => { try { return !!voiceSetFilter(card); } catch (_) { return true; } });
     }
