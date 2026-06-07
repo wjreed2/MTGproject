@@ -3168,7 +3168,9 @@ const _COLOR_NAMES_SRV = { white:'W', blue:'U', black:'B', red:'R', green:'G', c
 
 /** Exclusive color filter (deck list / collection): card colors must be a subset of selected pips. */
 function _parseExclusiveColorsParam(raw) {
-  return [...new Set(String(raw || '').split(',').map(c => c.trim().toUpperCase()).filter(c => 'WUBRGC'.includes(c)))];
+  // NB: 'WUBRGC'.includes('') === true, so an empty/missing param must be filtered by
+  // length too — otherwise it yields [''], a phantom filter that excludes every color.
+  return [...new Set(String(raw || '').split(',').map(c => c.trim().toUpperCase()).filter(c => c.length === 1 && 'WUBRGC'.includes(c)))];
 }
 
 function _subsetExclusiveSql(jsonCol, allowed) {
