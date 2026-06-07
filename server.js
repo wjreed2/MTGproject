@@ -3210,15 +3210,23 @@ function _buildExclusiveColorsClause(selected) {
   return { sql: ` AND (${clause})`, params };
 }
 
-function _buildLocalSearchSqlGroup({ tokens, nameTerms }) {
+function _buildLocalSearchSqlGroup({ tokens, nameTerms }, nameOnly = false) {
   const where = [];
   const params = [];
 
   // Search terms are lowercased upstream; LOWER() the columns too so matching is
   // case-insensitive regardless of the table's collation (prod's may be case-sensitive).
+  // nameOnly: plain words match the card name only (deck-add card finder) so a name like
+  // "Rat Out" doesn't match every card whose rules text contains "rat" and "out".
+  // The t:/o: tokens below still target type_line/oracle_text for power searches.
   for (const t of nameTerms) {
-    where.push('(LOWER(name) LIKE ? OR LOWER(type_line) LIKE ? OR LOWER(oracle_text) LIKE ?)');
-    params.push(`%${t}%`, `%${t}%`, `%${t}%`);
+    if (nameOnly) {
+      where.push('LOWER(name) LIKE ?');
+      params.push(`%${t}%`);
+    } else {
+      where.push('(LOWER(name) LIKE ? OR LOWER(type_line) LIKE ? OR LOWER(oracle_text) LIKE ?)');
+      params.push(`%${t}%`, `%${t}%`, `%${t}%`);
+    }
   }
 
   for (const tok of tokens) {
@@ -3269,12 +3277,12 @@ function _buildLocalSearchSqlGroup({ tokens, nameTerms }) {
   return { where, params };
 }
 
-function _buildLocalSearchSql({ orGroups }) {
+function _buildLocalSearchSql({ orGroups }, nameOnly = false) {
   const groupSqls = [];
   const allParams = [];
 
   for (const group of orGroups) {
-    const { where, params } = _buildLocalSearchSqlGroup(group);
+    const { where, params } = _buildLocalSearchSqlGroup(group, nameOnly);
     allParams.push(...params);
     groupSqls.push(where.length ? `(${where.join(' AND ')})` : null);
   }
@@ -3294,7 +3302,7 @@ app.get('/api/cards/search', requireAuth, async (req, res) => {
     if (!raw && !exclusiveColors.length) return res.json({ data: [], total: 0 });
     if (!raw) raw = '*';
     const parsed = _parseLocalSearchQuery(raw);
-    const { sql, params } = _buildLocalSearchSql(parsed);
+    const { sql, params } = _buildLocalSearchSql(parsed, req.query.nameOnly === '1');
     const { sql: colorSql, params: colorParams } = _buildExclusiveColorsClause(exclusiveColors);
     const paperOnly = req.query.paperOnly === '1';
     // Exclude Arena-only cards: require games_json to contain "paper" (NULL = not imported,
