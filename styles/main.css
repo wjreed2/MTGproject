@@ -2598,8 +2598,50 @@ main {
   position: relative;
   min-height: 0;
   min-width: 0;
+  touch-action: none;          /* let press-drag flow as pointer events, not scroll/zoom */
+  -webkit-touch-callout: none;
 }
 .tablet-cell-eliminated { opacity: 0.4; filter: grayscale(50%); }
+
+/* Drag-to-deal-damage */
+.tablet-drag-target {
+  border-color: var(--gold) !important;
+  box-shadow: inset 0 0 0 3px rgba(200,168,74,0.55), 0 0 30px rgba(200,168,74,0.22);
+}
+.tablet-drag-arrow {
+  position: fixed; inset: 0; width: 100vw; height: 100vh;
+  pointer-events: none; z-index: 680; overflow: visible;
+}
+.tablet-drag-menu {
+  background: color-mix(in oklab, var(--bg2) 94%, transparent);
+  border: 1px solid var(--border2); border-radius: 14px; padding: 10px;
+  min-width: 184px; max-width: 90vw; box-shadow: 0 12px 40px rgba(0,0,0,0.4);
+  font-family: 'Inter', system-ui, sans-serif;
+}
+.tablet-drag-menu-head {
+  display: flex; gap: 6px; justify-content: center; align-items: center;
+  font-family: 'Cinzel', serif; font-size: 0.85rem; padding-bottom: 8px;
+  margin-bottom: 7px; border-bottom: 1px solid var(--border);
+}
+.tablet-drag-menu-row { display: flex; gap: 6px; align-items: center; margin-bottom: 7px; }
+.tablet-drag-menu-row input {
+  width: 58px; font-family: 'JetBrains Mono', monospace; text-align: center;
+  padding: 8px 6px; font-size: 0.92rem; background: var(--bg3);
+  border: 1px solid var(--border2); border-radius: 8px; color: var(--text);
+}
+.tablet-drag-deal {
+  flex: 1; display: inline-flex; align-items: center; justify-content: center;
+  padding: 10px 12px; background: rgba(212,90,74,0.14);
+  border: 1px solid rgba(212,90,74,0.4); color: var(--red); border-radius: 9px;
+  cursor: pointer; font-size: 0.86rem; font-weight: 600; white-space: nowrap;
+  touch-action: manipulation;
+}
+.tablet-drag-deal:hover, .tablet-drag-deal:active { background: rgba(212,90,74,0.28); }
+.tablet-drag-cancel {
+  width: 100%; padding: 7px; background: none; border: 1px solid var(--border2);
+  border-radius: 8px; color: var(--text3); cursor: pointer; font-size: 0.78rem;
+  touch-action: manipulation;
+}
 .tablet-life-btn {
   border-radius: var(--radius);
   cursor: pointer;
