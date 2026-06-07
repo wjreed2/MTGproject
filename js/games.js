@@ -1442,6 +1442,10 @@ function renderTabletView() {
           ${_turnPaused ? `${gameIcon('play', 11, 'margin-right:5px')}Resume` : `${gameIcon('pause', 11, 'margin-right:5px')}Pause`}
         </button>
       </div>
+      ${!gameActionMode ? `
+      <div style="margin-top:7px;font-size:clamp(0.52rem,1.05vw,0.66rem);color:var(--text3);opacity:0.65;line-height:1.3">
+        Drag a player onto another<br>to deal damage
+      </div>` : ''}
       ${gameActionMode ? `
       <div style="margin-top:6px;padding:5px 8px;background:var(--gold-dim);border:1px solid rgba(200,168,74,0.35);
         border-radius:8px;font-size:0.72rem;color:var(--gold);display:flex;align-items:center;gap:5px;justify-content:center">
@@ -1455,6 +1459,11 @@ function renderTabletView() {
       </button>
     </div>`;
   el.onclick = () => document.querySelectorAll('.tablet-player-menu').forEach(m => m.remove());
+  // Drag-to-deal-damage: press-hold a player and drag onto another (delegated; survives re-render).
+  el.onpointerdown   = tabletDragPointerDown;
+  el.onpointermove   = tabletDragPointerMove;
+  el.onpointerup     = tabletDragPointerUp;
+  el.onpointercancel = tabletDragPointerUp;
   if (!_turnPaused) startTurnTimer(game.id);
 }
 
@@ -1495,6 +1504,7 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
 
   return `
   <div class="tablet-cell${inTargetMode ? ' player-targetable' : ''}"
+    data-pid="${p.id}" data-rotated="${rotated ? '1' : '0'}" data-elim="${p.eliminated ? '1' : '0'}"
     style="${spanStyle}border-color:${inTargetMode ? p.color + '80' : isActiveTurn ? p.color + 'cc' : p.color + '30'};
            background:radial-gradient(ellipse at 50% ${rotated ? '60' : '40'}%,${p.color}${inTargetMode ? '14' : isActiveTurn ? '18' : '0a'} 0%,transparent 70%),var(--bg2);
            ${isActiveTurn && !inTargetMode ? `box-shadow:inset 0 0 0 2px ${p.color}55;` : ''}
@@ -1541,6 +1551,175 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
       </div>
     </div>
   </div>`;
+}
+
+// ── Drag-to-deal-damage (tablet view) ──────────────────────────────────────────
+// Press-and-hold a player cell and drag onto another player; on release a small
+// menu offers "Deal 1" or "Deal X". Source player is attributed in the log.
+// Disabled while an action mode (tap-targeting) is active, to avoid conflicts.
+
+let _tabletDrag = null;            // { sourceId, pointerId, dragging, startX/Y, originX/Y }
+let _dragArrowEl = null;           // SVG overlay element
+let _dragMenuOutsideHandler = null;
+
+function _cellElAt(x, y) {
+  const el = document.elementFromPoint(x, y);
+  return el ? el.closest('.tablet-cell') : null;
+}
+
+function tabletDragPointerDown(e) {
+  if (!tabletViewGameId || gameActionMode) return;        // action mode uses tap-targeting
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  if (e.target.closest('button, input, a, .tablet-player-menu, .tablet-drag-menu')) return;
+  const cell = e.target.closest('.tablet-cell');
+  if (!cell || !cell.dataset.pid || cell.dataset.elim === '1') return;
+  const game = games.find(g => g.id === tabletViewGameId);
+  if (!game || game.status !== 'active') return;
+  const r = cell.getBoundingClientRect();
+  _tabletDrag = {
+    sourceId: cell.dataset.pid, pointerId: e.pointerId, dragging: false,
+    startX: e.clientX, startY: e.clientY,
+    originX: r.left + r.width / 2, originY: r.top + r.height / 2,
+  };
+}
+
+function tabletDragPointerMove(e) {
+  if (!_tabletDrag || e.pointerId !== _tabletDrag.pointerId) return;
+  if (!_tabletDrag.dragging) {
+    if (Math.hypot(e.clientX - _tabletDrag.startX, e.clientY - _tabletDrag.startY) < 16) return;
+    _tabletDrag.dragging = true;
+    const tEl = document.getElementById('tabletView');
+    if (tEl && tEl.setPointerCapture) { try { tEl.setPointerCapture(_tabletDrag.pointerId); } catch (_) {} }
+    _ensureDragArrow();
+  }
+  e.preventDefault();
+  _drawDragArrow(_tabletDrag.originX, _tabletDrag.originY, e.clientX, e.clientY);
+  const cell = _cellElAt(e.clientX, e.clientY);
+  const pid = (cell && cell.dataset.pid && cell.dataset.pid !== _tabletDrag.sourceId && cell.dataset.elim !== '1') ? cell.dataset.pid : null;
+  _setDragTarget(pid);
+}
+
+function tabletDragPointerUp(e) {
+  if (!_tabletDrag || e.pointerId !== _tabletDrag.pointerId) return;
+  const drag = _tabletDrag;
+  _tabletDrag = null;
+  _removeDragArrow();
+  _setDragTarget(null);
+  if (!drag.dragging) return;
+  const cell = _cellElAt(e.clientX, e.clientY);
+  const targetId = cell && cell.dataset.pid;
+  if (!targetId || targetId === drag.sourceId || cell.dataset.elim === '1') return;
+  _openDragDamageMenu(drag.sourceId, targetId, e.clientX, e.clientY, cell.dataset.rotated === '1');
+}
+
+function _setDragTarget(pid) {
+  document.querySelectorAll('.tablet-cell.tablet-drag-target').forEach(c => {
+    if (c.dataset.pid !== pid) c.classList.remove('tablet-drag-target');
+  });
+  if (pid) {
+    const cell = document.querySelector(`.tablet-cell[data-pid="${pid}"]`);
+    if (cell) cell.classList.add('tablet-drag-target');
+  }
+}
+
+function _ensureDragArrow() {
+  if (_dragArrowEl) return;
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('class', 'tablet-drag-arrow');
+  const defs = document.createElementNS(NS, 'defs');
+  const marker = document.createElementNS(NS, 'marker');
+  marker.setAttribute('id', 'dragArrowHead');
+  marker.setAttribute('markerWidth', '8'); marker.setAttribute('markerHeight', '8');
+  marker.setAttribute('refX', '6'); marker.setAttribute('refY', '3'); marker.setAttribute('orient', 'auto');
+  const head = document.createElementNS(NS, 'path');
+  head.setAttribute('d', 'M0,0 L6,3 L0,6 Z'); head.setAttribute('fill', 'var(--gold)');
+  marker.appendChild(head); defs.appendChild(marker); svg.appendChild(defs);
+  const line = document.createElementNS(NS, 'line');
+  line.setAttribute('stroke', 'var(--gold)'); line.setAttribute('stroke-width', '3');
+  line.setAttribute('stroke-linecap', 'round'); line.setAttribute('stroke-dasharray', '1 9');
+  line.setAttribute('marker-end', 'url(#dragArrowHead)');
+  const circ = document.createElementNS(NS, 'circle');
+  circ.setAttribute('r', '7'); circ.setAttribute('fill', 'var(--gold)');
+  svg.appendChild(line); svg.appendChild(circ);
+  document.body.appendChild(svg);
+  _dragArrowEl = svg;
+}
+
+function _drawDragArrow(x1, y1, x2, y2) {
+  if (!_dragArrowEl) return;
+  const line = _dragArrowEl.querySelector('line');
+  const circ = _dragArrowEl.querySelector('circle');
+  line.setAttribute('x1', x1); line.setAttribute('y1', y1);
+  line.setAttribute('x2', x2); line.setAttribute('y2', y2);
+  circ.setAttribute('cx', x1); circ.setAttribute('cy', y1);
+}
+
+function _removeDragArrow() {
+  if (_dragArrowEl) { _dragArrowEl.remove(); _dragArrowEl = null; }
+}
+
+function _openDragDamageMenu(sourceId, targetId, x, y, rotated) {
+  _closeDragMenu();
+  const game = games.find(g => g.id === tabletViewGameId);
+  if (!game) return;
+  const source = game.players.find(p => p.id === sourceId);
+  const target = game.players.find(p => p.id === targetId);
+  if (!source || !target) return;
+  const menu = document.createElement('div');
+  menu.className = 'tablet-drag-menu';
+  menu.onclick = ev => ev.stopPropagation();
+  menu.innerHTML = `
+    <div class="tablet-drag-menu-head">
+      <span style="color:${source.color};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:90px">${source.name}</span>
+      <span style="color:var(--text3)">${gameIcon('sword', 12)}</span>
+      <span style="color:${target.color};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:90px">${target.name}</span>
+    </div>
+    <div class="tablet-drag-menu-row">
+      <button class="tablet-drag-deal" onclick="applyDragDamage('${sourceId}','${targetId}',1)">Deal 1</button>
+    </div>
+    <div class="tablet-drag-menu-row">
+      <input id="dragDmgAmount" type="number" min="1" inputmode="numeric" value="${gameActionAmount}"
+        oninput="gameActionAmount=Math.max(1,parseInt(this.value)||1)" onclick="event.stopPropagation()">
+      <button class="tablet-drag-deal" onclick="applyDragDamage('${sourceId}','${targetId}',parseInt(document.getElementById('dragDmgAmount').value)||1)">Deal X</button>
+    </div>
+    <button class="tablet-drag-cancel" onclick="_closeDragMenu()">Cancel</button>`;
+  menu.style.cssText = 'position:fixed;z-index:710;visibility:hidden';
+  if (rotated) menu.style.transform = 'rotate(180deg)';
+  document.body.appendChild(menu);
+
+  const mw = menu.offsetWidth, mh = menu.offsetHeight, pad = 10;
+  let left = Math.max(pad, Math.min(x - mw / 2, window.innerWidth  - mw - pad));
+  let top  = Math.max(pad, Math.min(y - mh / 2, window.innerHeight - mh - pad));
+  menu.style.left = left + 'px';
+  menu.style.top  = top  + 'px';
+  menu.style.visibility = 'visible';
+
+  // Close on any interaction outside the menu (added next tick so the opening gesture doesn't close it).
+  setTimeout(() => {
+    _dragMenuOutsideHandler = ev => { if (!menu.contains(ev.target)) _closeDragMenu(); };
+    document.addEventListener('pointerdown', _dragMenuOutsideHandler, true);
+  }, 0);
+}
+
+function _closeDragMenu() {
+  document.querySelectorAll('.tablet-drag-menu').forEach(m => m.remove());
+  if (_dragMenuOutsideHandler) {
+    document.removeEventListener('pointerdown', _dragMenuOutsideHandler, true);
+    _dragMenuOutsideHandler = null;
+  }
+}
+
+function applyDragDamage(sourceId, targetId, amount) {
+  const game = games.find(g => g.id === tabletViewGameId);
+  if (!game || game.status !== 'active') { _closeDragMenu(); return; }
+  const target = game.players.find(p => p.id === targetId);
+  const source = game.players.find(p => p.id === sourceId);
+  _closeDragMenu();
+  if (!target || target.eliminated) return;
+  dealDamage(game, target, Math.max(1, amount | 0), (source && !source.eliminated) ? source : null);
+  save('games');
+  renderTabletView();
 }
 
 // ── Delete ────────────────────────────────────────────────────────────────────
