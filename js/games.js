@@ -1303,6 +1303,7 @@ function openTabletView(gameId) {
   tabletViewGameId = gameId;
   document.body.style.overflow = 'hidden';
   document.getElementById('tabletView').style.display = 'grid';
+  _acquireWakeLock();   // keep the screen awake while propped up during a game
   renderTabletView();
 }
 
@@ -1311,7 +1312,30 @@ function closeTabletView() {
   document.getElementById('tabletView').style.display = 'none';
   document.body.style.overflow = '';
   tabletViewGameId = null;
+  _releaseWakeLock();
 }
+
+// ── Screen wake lock (tablet view) ──────────────────────────────────────────────
+// Keeps the device awake while the tablet scoreboard is open. The OS auto-releases
+// the lock whenever the page is hidden (tab switch / lock), so re-acquire on return.
+let _wakeLock = null;
+
+async function _acquireWakeLock() {
+  if (!('wakeLock' in navigator)) return;             // unsupported (older iOS / browsers)
+  try {
+    _wakeLock = await navigator.wakeLock.request('screen');
+    _wakeLock.addEventListener('release', () => { _wakeLock = null; });
+  } catch (_) { /* denied or not allowed (e.g. low battery) — fail silently */ }
+}
+
+function _releaseWakeLock() {
+  if (_wakeLock) { _wakeLock.release().catch(() => {}); _wakeLock = null; }
+}
+
+document.addEventListener('visibilitychange', () => {
+  // Reacquire after returning to the page if the tablet view is still open.
+  if (document.visibilityState === 'visible' && tabletViewGameId && !_wakeLock) _acquireWakeLock();
+});
 
 function openTabletMenu(playerId, btn, e, rotated = false) {
   if (e) e.stopPropagation();
