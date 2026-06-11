@@ -29,7 +29,7 @@
     "compression": "1.8.1",
     "cors": "2.8.6",
     "dotenv": "17.4.2",
-    "express": "4.22.1",
+    "express": "4.22.2",
     "express-mysql-session": "3.0.3",
     "express-rate-limit": "8.5.1",
     "express-session": "1.19.0",
