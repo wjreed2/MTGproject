@@ -1780,6 +1780,19 @@ function _cellElAt(x, y) {
   return el ? el.closest('.tablet-cell') : null;
 }
 
+// A target only registers when the pointer is within a central zone around the
+// life number — not anywhere in the cell — so you have to aim closer to commit.
+// Smaller value = tighter hitbox. (Elliptical: normalized distance from centre.)
+const _TARGET_HIT = 0.5;
+function _targetCellAt(x, y) {
+  const cell = _cellElAt(x, y);
+  if (!cell) return null;
+  const r = cell.getBoundingClientRect();
+  const dx = (x - (r.left + r.width / 2)) / (r.width / 2);
+  const dy = (y - (r.top + r.height / 2)) / (r.height / 2);
+  return (dx * dx + dy * dy) <= _TARGET_HIT * _TARGET_HIT ? cell : null;
+}
+
 function tabletDragPointerDown(e) {
   if (!tabletViewGameId || gameActionMode) return;        // action mode uses tap-targeting
   if (e.pointerType === 'mouse' && e.button !== 0) return;
@@ -1810,9 +1823,9 @@ function tabletDragPointerMove(e) {
     _ensureDragArrow();
   }
   e.preventDefault();
-  const cell = _cellElAt(e.clientX, e.clientY);
+  const cell = _targetCellAt(e.clientX, e.clientY);
   const pid = (cell && cell.dataset.pid && cell.dataset.elim !== '1') ? cell.dataset.pid : null;
-  // Commit a target the first time the pointer sweeps into its cell (self included).
+  // Commit a target the first time the pointer sweeps near its life number (self included).
   if (pid !== _tabletDrag.currentPid) {
     _tabletDrag.currentPid = pid;
     if (pid && !_tabletDrag.targets.includes(pid)) {
@@ -1832,8 +1845,8 @@ function tabletDragPointerUp(e) {
   _tabletDrag = null;
   _removeDragArrow();
   if (!drag.dragging) { _highlightDragTargets([]); return; }
-  // Include whatever cell the pointer is over at release, then deal to all targets.
-  const cell = _cellElAt(e.clientX, e.clientY);
+  // Include the cell the pointer is near at release (same central hitbox), then deal.
+  const cell = _targetCellAt(e.clientX, e.clientY);
   const relPid = cell && cell.dataset.pid;
   if (relPid && cell.dataset.elim !== '1' && !drag.targets.includes(relPid)) {
     drag.targets.push(relPid);
