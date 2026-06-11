@@ -1629,6 +1629,12 @@ function renderTabletView() {
   // 3p: one centered on top, two on bottom. 4p: quadrants [3,2,0,1], top row rotated.
   const playerOrder = is4p ? [3, 2, 0, 1] : game.players.map((_, i) => i);
 
+  // 3p only: the top player is a full-width rotated cell whose name lands at the
+  // bottom-centre, right under the centred box. Hang the box just below the mid-line
+  // (in the empty gap between the two bottom players) so the name stays clear.
+  const centerBoxV = is3p ? 'top:calc(50% + 6px);transform:translate(-50%,0)'
+                          : 'top:50%;transform:translate(-50%,-50%)';
+
   el.innerHTML = `
     ${playerOrder.map((pi, orderIdx) => {
       const rotated = (is4p && orderIdx < 2) || (is3p && orderIdx === 0);
@@ -1636,7 +1642,7 @@ function renderTabletView() {
       return renderTabletCell(game, game.players[pi], pi, n, cols, rotated, col);
     }).join('')}
     <!-- Center timer + turn controls -->
-    <div onclick="event.stopPropagation()" style="position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:10;
+    <div onclick="event.stopPropagation()" style="position:fixed;left:50%;${centerBoxV};z-index:10;
       background:color-mix(in oklab, var(--bg2) 90%, transparent);backdrop-filter:blur(16px);
       border:1px solid var(--border2);border-radius:18px;padding:12px 24px;text-align:center;min-width:164px">
       <div style="font-family:'JetBrains Mono',monospace;font-size:clamp(2rem,4.5vw,3.2rem);font-weight:700;color:${_turnPaused ? 'var(--text3)' : 'var(--gold)'};line-height:1">
