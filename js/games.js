@@ -58,6 +58,19 @@ function formatDuration(ms) {
   return `${String(m).padStart(2,'0')}:${String(s % 60).padStart(2,'0')}`;
 }
 
+// Cumulative time a player has spent on their turns: sum of completed turns plus
+// the in-progress turn if it's currently theirs.
+function playerTotalTime(game, pid) {
+  let total = (game.turnDurations || [])
+    .filter(t => t.playerId === pid)
+    .reduce((s, t) => s + t.duration, 0);
+  const activeId = game.players[game.activePlayerIdx ?? 0]?.id;
+  if (pid === activeId && game.turnStartedAt) {
+    total += _turnPaused ? _pausedElapsed : (Date.now() - game.turnStartedAt);
+  }
+  return total;
+}
+
 function startTurnTimer(gameId) {
   if (_turnTimerInterval) { clearInterval(_turnTimerInterval); _turnTimerInterval = null; }
   _turnTimerInterval = setInterval(() => {
@@ -69,6 +82,10 @@ function startTurnTimer(gameId) {
     const el2 = document.getElementById('tabletTurnTimerDisplay');
     if (el1) el1.textContent = fmt;
     if (el2) el2.textContent = fmt;
+    // Tick the active player's running total in the tablet view.
+    const activeId = game.players[game.activePlayerIdx ?? 0]?.id;
+    const tt = activeId && document.querySelector(`.tablet-total-time[data-pid="${activeId}"]`);
+    if (tt) tt.textContent = formatDuration(playerTotalTime(game, activeId));
     if (!el1 && !el2) { clearInterval(_turnTimerInterval); _turnTimerInterval = null; }
   }, 1000);
 }
@@ -1125,17 +1142,19 @@ function nextTurn(gameId) {
   _snapshotGame(game);
   const current = game.activePlayerIdx ?? 0;
   const total = game.players.length;
-  let next = (current + 1) % total;
+  // Turn passes clockwise around the table, which is the reverse of array order
+  // given the tablet layout (see renderTabletView's playerOrder mapping).
+  let next = (current - 1 + total) % total;
   for (let i = 0; i < total; i++) {
     if (!game.players[next].eliminated) break;
-    next = (next + 1) % total;
+    next = (next - 1 + total) % total;
   }
   const turnDuration = game.turnStartedAt ? Date.now() - game.turnStartedAt : null;
   if (turnDuration) {
     game.turnDurations = game.turnDurations || [];
     game.turnDurations.push({ turn: game.currentTurn, playerId: game.players[current].id, duration: turnDuration });
   }
-  if (next <= current) game.currentTurn++;
+  if (next >= current) game.currentTurn++;
   game.activePlayerIdx = next;
   game.turnStartedAt = Date.now();
   _turnPaused = false;
@@ -1709,11 +1728,14 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
       ${inTargetMode
         ? `<div style="position:absolute;top:50%;right:8px;transform:translateY(-50%);font-size:clamp(0.6rem,1.3vw,0.78rem);color:var(--gold);animation:targetPulse 1s ease-in-out infinite">${targetLabel}</div>`
         : `${isActiveTurn ? `<div style="position:absolute;top:50%;${badgePos};transform:translateY(-50%);font-size:clamp(0.55rem,1.1vw,0.72rem);padding:2px 7px;background:rgba(${hexToRgb(p.color)},0.18);color:${p.color};border-radius:8px;letter-spacing:0.05em;white-space:nowrap">▶ ACTIVE</div>` : ''}
-           <button onclick="openTabletMenu('${p.id}',this,event,${rotated})"
-             style="position:absolute;top:50%;${dotsPos};transform:translateY(-50%);
-                    background:none;border:none;cursor:pointer;padding:4px 7px;
-                    font-size:clamp(1rem,2vw,1.3rem);line-height:1;letter-spacing:1px;
-                    color:${isActiveTurn ? p.color : 'var(--text3)'}">⋯</button>`}
+           <div style="position:absolute;top:50%;${dotsPos};transform:translateY(-50%);display:flex;align-items:center;gap:5px">
+             <span class="tablet-total-time" data-pid="${p.id}" title="Total time this player has spent on turns"
+               style="font-family:'JetBrains Mono',monospace;font-size:clamp(0.5rem,1.05vw,0.7rem);color:var(--text3);white-space:nowrap">${formatDuration(playerTotalTime(game, p.id))}</span>
+             <button onclick="openTabletMenu('${p.id}',this,event,${rotated})"
+               style="background:none;border:none;cursor:pointer;padding:4px 7px;
+                      font-size:clamp(1rem,2vw,1.3rem);line-height:1;letter-spacing:1px;
+                      color:${isActiveTurn ? p.color : 'var(--text3)'}">⋯</button>
+           </div>`}
     </div>
 
     <!-- Life total -->
@@ -1835,11 +1857,7 @@ function _ensureDragArrow() {
   const head = document.createElementNS(NS, 'path');
   head.setAttribute('d', 'M0,0 L6,3 L0,6 Z'); head.setAttribute('fill', 'var(--gold)');
   marker.appendChild(head); defs.appendChild(marker); svg.appendChild(defs);
-  const committed = document.createElementNS(NS, 'g');   // one solid arrow per committed target
-  committed.setAttribute('id', 'dragCommitted');
-  svg.appendChild(committed);
-  const line = document.createElementNS(NS, 'line');     // live dashed line trailing the pointer
-  line.setAttribute('id', 'dragLiveLine');
+  const line = document.createElementNS(NS, 'line');     // single dashed line trailing the pointer
   line.setAttribute('stroke', 'var(--gold)'); line.setAttribute('stroke-width', '3');
   line.setAttribute('stroke-linecap', 'round'); line.setAttribute('stroke-dasharray', '1 9');
   line.setAttribute('marker-end', 'url(#dragArrowHead)');
@@ -1850,31 +1868,15 @@ function _ensureDragArrow() {
   _dragArrowEl = svg;
 }
 
+// Free-following dotted arrow from the source to the finger — no snapping. Selected
+// cells are shown by their red highlight (_highlightDragTargets), not by arrows.
 function _drawDragArrows(liveX, liveY) {
   if (!_dragArrowEl || !_tabletDrag) return;
-  const NS = 'http://www.w3.org/2000/svg';
-  const { originX, originY, targets, currentPid } = _tabletDrag;
-  // A solid arrow to the centre of every committed target cell.
-  const g = _dragArrowEl.querySelector('#dragCommitted');
-  g.textContent = '';
-  targets.forEach(pid => {
-    const cell = document.querySelector(`.tablet-cell[data-pid="${pid}"]`);
-    if (!cell) return;
-    const r = cell.getBoundingClientRect();
-    const ln = document.createElementNS(NS, 'line');
-    ln.setAttribute('x1', originX); ln.setAttribute('y1', originY);
-    ln.setAttribute('x2', r.left + r.width / 2); ln.setAttribute('y2', r.top + r.height / 2);
-    ln.setAttribute('stroke', 'var(--gold)'); ln.setAttribute('stroke-width', '3');
-    ln.setAttribute('stroke-linecap', 'round');
-    ln.setAttribute('marker-end', 'url(#dragArrowHead)');
-    g.appendChild(ln);
-  });
-  // Hide the live line while hovering a cell that's already committed (its solid arrow shows instead).
-  const line = _dragArrowEl.querySelector('#dragLiveLine');
-  const liveHidden = currentPid && targets.includes(currentPid);
-  line.setAttribute('x1', originX); line.setAttribute('y1', originY);
-  line.setAttribute('x2', liveHidden ? originX : liveX); line.setAttribute('y2', liveHidden ? originY : liveY);
+  const { originX, originY } = _tabletDrag;
+  const line = _dragArrowEl.querySelector('line');
   const circ = _dragArrowEl.querySelector('circle');
+  line.setAttribute('x1', originX); line.setAttribute('y1', originY);
+  line.setAttribute('x2', liveX);  line.setAttribute('y2', liveY);
   circ.setAttribute('cx', originX); circ.setAttribute('cy', originY);
 }
 
