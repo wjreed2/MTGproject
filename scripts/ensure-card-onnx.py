@@ -20,8 +20,8 @@ def main():
         from ultralytics import YOLO
     except ImportError:
         print(
-            "Install Ultralytics to generate the card detector ONNX:\n"
-            "  pip install ultralytics onnx onnxruntime\n"
+            "Install the pinned build deps to generate the card detector ONNX:\n"
+            "  pip install -r scripts/requirements.txt\n"
             "  python3 scripts/ensure-card-onnx.py",
             file=sys.stderr,
         )

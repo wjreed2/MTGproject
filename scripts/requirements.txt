@@ -1,0 +1,19 @@
+# Build-time Python dependencies for scripts/ensure-card-onnx.py
+# (one-time card-detector ONNX export). The exported ONNX is committed to
+# vendor/, so production/Railway builds never install these — this file is
+# only used when regenerating the model locally.
+#
+# Pinned to exact, known-good versions for supply-chain safety. Bump
+# deliberately and re-verify against current advisories before changing.
+#
+# AVOID ultralytics 8.3.41 / 8.3.42 — compromised with a cryptominer in the
+# Dec-2024 PyPI incident. (Hades/Miasma campaign, June 2026, also targeted
+# deep-learning tooling via poisoned PyPI releases.)
+#
+# Hardening tip: for the strongest guarantee, regenerate this file with hashes:
+#   pip install pip-tools && pip-compile --generate-hashes scripts/requirements.in
+# then install with:  pip install --require-hashes -r scripts/requirements.txt
+
+ultralytics==8.4.46
+onnx==1.19.1
+onnxruntime==1.19.2
