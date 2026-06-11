@@ -444,6 +444,7 @@ async function submitNewGame() {
   activeGameId = game.id;
   renderGames();
   selectGame(game.id);
+  openTabletView(game.id);   // jump straight into the propped-up scoreboard
   showNotif('Game started!');
 }
 
@@ -1713,7 +1714,6 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
   // outer horizontal edge: col 0 = left side of screen, col 1 = right side.
   // rotation swaps left/right in screen space, so invert for rotated cells.
   const dotsPos  = ((col === 0) !== rotated) ? 'left:8px'  : 'right:8px';
-  const badgePos = ((col === 0) !== rotated) ? 'right:8px' : 'left:8px';
   const namePad  = ((col === 0) !== rotated)
     ? 'clamp(5px,1.2vh,10px) 8px clamp(3px,0.8vh,6px) 30px'
     : 'clamp(5px,1.2vh,10px) 30px clamp(3px,0.8vh,6px) 8px';
@@ -1721,9 +1721,9 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
   return `
   <div class="tablet-cell${inTargetMode ? ' player-targetable' : ''}"
     data-pid="${p.id}" data-rotated="${rotated ? '1' : '0'}" data-elim="${p.eliminated ? '1' : '0'}"
-    style="${spanStyle}border-color:${inTargetMode ? p.color + '80' : isActiveTurn ? p.color + 'cc' : p.color + '30'};
-           background:radial-gradient(ellipse at 50% ${rotated ? '60' : '40'}%,${p.color}${inTargetMode ? '14' : isActiveTurn ? '18' : '0a'} 0%,transparent 70%),var(--bg2);
-           ${isActiveTurn && !inTargetMode ? `box-shadow:inset 0 0 0 2px ${p.color}55;` : ''}
+    style="${spanStyle}border-color:${inTargetMode ? p.color + '80' : isActiveTurn ? p.color : p.color + '30'};
+           background:radial-gradient(ellipse at 50% ${rotated ? '60' : '40'}%,${p.color}${inTargetMode ? '14' : isActiveTurn ? '26' : '0a'} 0%,transparent 70%),var(--bg2);
+           ${isActiveTurn && !inTargetMode ? `box-shadow:inset 0 0 0 3px ${p.color}, 0 0 26px -4px ${p.color}aa;` : ''}
            ${inTargetMode ? 'cursor:crosshair;' : ''}
            ${rotated ? 'transform:rotate(180deg);' : ''}"
     ${inTargetMode ? `onclick="applyGameAction('${game.id}','${p.id}')"` : ''}>
@@ -1734,8 +1734,7 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
       ${p.deckName ? `<div style="font-size:clamp(0.55rem,1.2vw,0.78rem);color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px">${p.deckName}${p.commander ? ' · ' + p.commander : ''}</div>` : ''}
       ${inTargetMode
         ? `<div style="position:absolute;top:50%;right:8px;transform:translateY(-50%);font-size:clamp(0.6rem,1.3vw,0.78rem);color:var(--gold);animation:targetPulse 1s ease-in-out infinite">${targetLabel}</div>`
-        : `${isActiveTurn ? `<div style="position:absolute;top:50%;${badgePos};transform:translateY(-50%);font-size:clamp(0.55rem,1.1vw,0.72rem);padding:2px 7px;background:rgba(${hexToRgb(p.color)},0.18);color:${p.color};border-radius:8px;letter-spacing:0.05em;white-space:nowrap">▶ ACTIVE</div>` : ''}
-           <div style="position:absolute;top:50%;${dotsPos};transform:translateY(-50%);display:flex;align-items:center;gap:5px;flex-direction:${dotsPos.startsWith('left') ? 'row-reverse' : 'row'}">
+        : `<div style="position:absolute;top:50%;${dotsPos};transform:translateY(-50%);display:flex;align-items:center;gap:5px;flex-direction:${dotsPos.startsWith('left') ? 'row-reverse' : 'row'}">
              <span class="tablet-total-time" data-pid="${p.id}" title="Total time this player has spent on turns"
                style="font-family:'JetBrains Mono',monospace;font-size:clamp(0.5rem,1.05vw,0.7rem);color:var(--text3);white-space:nowrap">${formatDuration(playerTotalTime(game, p.id))}</span>
              <button onclick="openTabletMenu('${p.id}',this,event,${rotated})"
