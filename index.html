@@ -1452,18 +1452,11 @@
       </div>
     </div>
     <div style="font-size:0.78rem;color:var(--text3);margin-bottom:6px;letter-spacing:0.04em">PLAYERS</div>
-    <div style="display:grid;grid-template-columns:10px 1fr 1fr 1fr auto;gap:8px;padding-bottom:6px;border-bottom:1px solid var(--border2);font-size:0.7rem;color:var(--text3);letter-spacing:0.04em">
-      <div></div><div>NAME</div><div>DECK</div><div>COMMANDER</div><div></div>
-    </div>
+    <div id="newGamePlayersHeader" style="display:grid;gap:8px;padding-bottom:6px;border-bottom:1px solid var(--border2);font-size:0.7rem;color:var(--text3);letter-spacing:0.04em"></div>
     <div id="newGamePlayersList" style="margin-bottom:0.85rem"></div>
-    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:0.9rem">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:0.9rem">
       <button class="btn btn-outline btn-sm" onclick="addNewGamePlayer()">+ Add Player</button>
-      <button class="btn btn-outline btn-sm" onclick="randomizeNewGameFirstPlayer()" style="display:inline-flex;align-items:center;gap:5px">🎲 Random First Player</button>
-      <label style="display:inline-flex;align-items:center;gap:6px;font-size:0.78rem;color:var(--text2);cursor:pointer;user-select:none">
-        <input type="checkbox" id="newGameAnimateFirstToggle" checked onchange="setNewGameFirstPlayerAnimation(this.checked)" style="accent-color:var(--gold)">
-        Animate first-player roll on Start
-      </label>
-      <div style="font-size:0.78rem;color:var(--text2)">First player: <span id="newGameFirstPlayer" style="font-family:'Inter',system-ui,sans-serif"></span></div>
+      <span style="font-size:0.74rem;color:var(--text3)">First player is chosen at random when you start.</span>
     </div>
     <div style="display:flex;gap:8px">
       <button class="btn btn-primary" style="flex:1" onclick="submitNewGame()">Start Game</button>
