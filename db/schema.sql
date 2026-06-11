@@ -108,6 +108,36 @@ CREATE TABLE IF NOT EXISTS preferences (
   CONSTRAINT fk_preferences_account FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Reference data: Magic keyword abilities (CR 702) and ability words (CR 207.2c)
+-- that have a CONDITION that must be met, plus a metric used to decide whether a
+-- deck should be recommended a card carrying that term. Seeded from
+-- data/conditional-keywords.json by ensureConditionalKeywordsTable() in server.js.
+CREATE TABLE IF NOT EXISTS mtg_conditional_keywords (
+  id                    INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  term                  VARCHAR(60)  NOT NULL,
+  category              ENUM('ability_word','keyword_ability') NOT NULL,
+  rule_ref              VARCHAR(20)  NOT NULL,
+  `condition`           TEXT         NOT NULL,
+  recommendation_metric TEXT         NOT NULL,
+  metric_key            VARCHAR(60)  NULL,
+  metric_threshold      INT          NULL,
+  created_at            BIGINT       NOT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_mck_term (term),
+  INDEX idx_mck_category (category),
+  INDEX idx_mck_metric_key (metric_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Definitions of each metric_key referenced by mtg_conditional_keywords (the deck-signal a
+-- recommender computes to decide whether a conditional card is supportable). Seeded/updated from
+-- the _metric_keys block in data/conditional-keywords.json by ensureMetricKeysTable() in server.js.
+CREATE TABLE IF NOT EXISTS mtg_metric_keys (
+  metric_key  VARCHAR(60) NOT NULL,
+  description  TEXT        NOT NULL,
+  updated_at   BIGINT      NOT NULL,
+  PRIMARY KEY (metric_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS app_changelog (
   id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   entry_key     VARCHAR(80) NULL,

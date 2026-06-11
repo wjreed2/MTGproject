@@ -362,6 +362,113 @@ async function ensureAppChangelogTable() {
   }
 }
 
+/** Read the bundled conditional-keyword seed file (CR 702 / 207.2c). Returns the parsed object. */
+function readConditionalKeywordFile() {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(__dirname, 'data', 'conditional-keywords.json'), 'utf8'));
+  } catch (e) {
+    console.warn('[db] could not read data/conditional-keywords.json:', e.message);
+    return {};
+  }
+}
+function readConditionalKeywordSeed() {
+  const parsed = readConditionalKeywordFile();
+  return Array.isArray(parsed.terms) ? parsed.terms : [];
+}
+
+/**
+ * Create + sync mtg_metric_keys from the _metric_keys block in conditional-keywords.json.
+ * Uses UPSERT so edited definitions (e.g. a tightened graveyard_fillers) update existing rows.
+ */
+async function ensureMetricKeysTable() {
+  const conn = await db().getConnection();
+  try {
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS mtg_metric_keys (
+        metric_key  VARCHAR(60) NOT NULL,
+        description  TEXT        NOT NULL,
+        updated_at   BIGINT      NOT NULL,
+        PRIMARY KEY (metric_key)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+    const defs = readConditionalKeywordFile()._metric_keys;
+    if (!defs || typeof defs !== 'object') return;
+    const now = Date.now();
+    let touched = 0;
+    for (const [key, desc] of Object.entries(defs)) {
+      if (!key || typeof desc !== 'string') continue;
+      const [res] = await conn.query(
+        `INSERT INTO mtg_metric_keys (metric_key, description, updated_at) VALUES (?,?,?)
+         ON DUPLICATE KEY UPDATE
+           description = VALUES(description),
+           updated_at  = IF(description <> VALUES(description), VALUES(updated_at), updated_at)`,
+        [String(key).slice(0, 60), desc.trim(), now]
+      );
+      if (res.affectedRows === 2) touched++; // 2 = an existing row was updated
+    }
+    if (touched) console.log(`[db] mtg_metric_keys: updated ${touched} definition(s)`);
+  } finally {
+    conn.release();
+  }
+}
+
+/**
+ * Create and seed mtg_conditional_keywords — Magic keyword abilities (CR 702) and
+ * ability words (CR 207.2c) that have a condition that must be met, with a metric
+ * (term + machine key + threshold) used to decide whether to recommend a card.
+ * Idempotent: INSERT IGNORE on the unique term, so re-runs only add new terms.
+ */
+async function ensureConditionalKeywordsTable() {
+  const conn = await db().getConnection();
+  try {
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS mtg_conditional_keywords (
+        id                    INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        term                  VARCHAR(60)  NOT NULL,
+        category              ENUM('ability_word','keyword_ability') NOT NULL,
+        rule_ref              VARCHAR(20)  NOT NULL,
+        \`condition\`           TEXT         NOT NULL,
+        recommendation_metric TEXT         NOT NULL,
+        metric_key            VARCHAR(60)  NULL,
+        metric_threshold      INT          NULL,
+        created_at            BIGINT       NOT NULL,
+        PRIMARY KEY (id),
+        UNIQUE KEY uk_mck_term (term),
+        INDEX idx_mck_category (category),
+        INDEX idx_mck_metric_key (metric_key)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+    const seed = readConditionalKeywordSeed();
+    if (!seed.length) return;
+    const now = Date.now();
+    let inserted = 0;
+    for (const r of seed) {
+      if (!r || !r.term || !r.category || !r.condition || !r.recommendation_metric) continue;
+      const [res] = await conn.query(
+        `INSERT IGNORE INTO mtg_conditional_keywords
+           (term, category, rule_ref, \`condition\`, recommendation_metric, metric_key, metric_threshold, created_at)
+         VALUES (?,?,?,?,?,?,?,?)`,
+        [
+          String(r.term).trim().slice(0, 60),
+          r.category,
+          String(r.rule_ref || '').trim().slice(0, 20),
+          String(r.condition).trim(),
+          String(r.recommendation_metric).trim(),
+          r.metric_key ? String(r.metric_key).trim().slice(0, 60) : null,
+          Number.isFinite(r.metric_threshold) ? Math.trunc(r.metric_threshold) : null,
+          now,
+        ],
+      );
+      inserted += res.affectedRows || 0;
+    }
+    if (inserted) {
+      console.log(`[db] Seeded mtg_conditional_keywords with ${inserted} new row(s) from data/conditional-keywords.json`);
+    }
+  } finally {
+    conn.release();
+  }
+}
+
 /** Release notes for digest UI — shape matches prior JSON (`id`, `at`, `area`, `title`, `summary`). */
 async function fetchChangelogEntriesForDigest() {
   try {
@@ -1716,6 +1823,27 @@ app.get('/api/decks/edhrec-similarity', requireAuth, async (req, res) => {
     });
   } catch (e) {
     res.status(500).json({ error: 'Failed to fetch EDHREC data: ' + e.message });
+  }
+});
+
+// Conditional-keyword reference (CR 702 keyword abilities / 207.2c ability words) used by
+// the card-suggestion gate: a card carrying one of these terms is only suggested when the
+// deck has enough cards that can satisfy its condition. Static reference data, cached in memory.
+let _conditionalKeywordsCache = null;
+app.get('/api/conditional-keywords', async (req, res) => {
+  try {
+    if (!_conditionalKeywordsCache) {
+      const [rows] = await db().query(
+        `SELECT term, category, rule_ref, \`condition\`, recommendation_metric, metric_key, metric_threshold
+           FROM mtg_conditional_keywords
+          ORDER BY category, term`
+      );
+      _conditionalKeywordsCache = rows;
+    }
+    res.set('Cache-Control', 'public, max-age=86400');
+    res.json({ terms: _conditionalKeywordsCache });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 
@@ -3358,6 +3486,108 @@ app.get('/api/cards/search', requireAuth, async (req, res) => {
   }
 });
 
+// Card-name autocomplete served from the local oracle DB (replaces Scryfall's cards/autocomplete).
+// Response shape mirrors Scryfall's catalog: { object:'catalog', data:[names] }.
+app.get('/api/cards/autocomplete', async (req, res) => {
+  try {
+    const q = String(req.query.q || '').trim();
+    if (q.length < 2) return res.json({ object: 'catalog', data: [] });
+    const like = q.replace(/[%_\\]/g, '\\$&');
+    // Prefix matches rank first (index-friendly), then substring matches; shorter names first.
+    const [rows] = await db().query(
+      `SELECT DISTINCT name FROM scryfall_oracle_cards
+        WHERE name LIKE ?
+        ORDER BY (name = ?) DESC, (name LIKE ?) DESC, CHAR_LENGTH(name), name
+        LIMIT 20`,
+      [`%${like}%`, q, `${like}%`]
+    );
+    res.set('Cache-Control', 'public, max-age=86400');
+    res.json({ object: 'catalog', data: rows.map(r => r.name) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Local candidate pool for "Suggested Adds": cards (within a color identity) that carry one of the
+// requested role tags, drawn from the local oracle DB + role-tag tables. No Scryfall round-trip.
+app.post('/api/cards/by-roles', async (req, res) => {
+  try {
+    const colors = (Array.isArray(req.body?.colors) ? req.body.colors : []).filter(c => /^[WUBRG]$/.test(c));
+    const roles = (Array.isArray(req.body?.roles) ? req.body.roles : [])
+      .filter(r => typeof r === 'string' && r.length <= 40).slice(0, 12);
+    const exclude = new Set((Array.isArray(req.body?.exclude) ? req.body.exclude : []).map(n => String(n).toLowerCase()));
+    const limit = Math.min(Math.max(parseInt(req.body?.limit || 60, 10) || 60, 1), 150);
+    if (!roles.length) return res.json({ cards: [] });
+
+    const params = [JSON.stringify(roles)];
+    let ciClause = '';
+    const disallowed = ['W', 'U', 'B', 'R', 'G'].filter(c => !colors.includes(c));
+    if (disallowed.length) { ciClause = 'AND NOT JSON_OVERLAPS(c.color_identity_json, CAST(? AS JSON))'; params.push(JSON.stringify(disallowed)); }
+    params.push(500); // pool cap before JS filtering
+
+    const [rows] = await db().query(
+      `SELECT c.name, c.scryfall_id, c.type_line, c.oracle_text, c.cmc,
+              c.color_identity_json, c.image_small, c.image_normal, t.tags_json
+         FROM scryfall_oracle_cards c
+         JOIN scryfall_oracle_tags t ON t.oracle_id = c.oracle_id AND t.schema_version = '4'
+        WHERE JSON_OVERLAPS(t.tags_json, CAST(? AS JSON)) ${ciClause}
+        ORDER BY c.cmc, c.name
+        LIMIT ?`,
+      params
+    );
+
+    // mysql2 auto-parses JSON columns to JS values; tolerate both array and string forms.
+    const parseArr = v => Array.isArray(v) ? v : (() => { try { return JSON.parse(v) || []; } catch (_) { return []; } })();
+    // Non-deck / un-set card types that shouldn't be suggested.
+    const JUNK_TYPE_RE = /\b(Contraption|Attraction|Sticker|Stickers|Plane|Phenomenon|Scheme|Vanguard|Conspiracy|Dungeon|Emblem|Token)\b/i;
+
+    const out = [];
+    for (const r of rows) {
+      if (exclude.has(String(r.name).toLowerCase())) continue;
+      if (/^A-/.test(r.name || '')) continue; // Alchemy (Arena-only) rebalanced cards
+      if (/\bland\b/i.test(r.type_line || '')) continue; // adds excludes lands (mirrors cuts)
+      if (JUNK_TYPE_RE.test(r.type_line || '')) continue;
+      const roleTags = parseArr(r.tags_json);
+      const ci = parseArr(r.color_identity_json);
+      out.push({
+        name: r.name, id: r.scryfall_id, type_line: r.type_line || '', oracle_text: r.oracle_text || '',
+        cmc: parseFloat(r.cmc) || 0, color_identity: ci,
+        image_small: r.image_small || null, image_normal: r.image_normal || null,
+        roleTags,
+      });
+      if (out.length >= limit) break;
+    }
+    res.json({ cards: out });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Set list proxied + cached ~24h in memory (the oracle DB has no set table). Serves stale on failure.
+let _setsCache = null; // { payload, fetchedAt }
+const SETS_CACHE_MS = 24 * 60 * 60 * 1000;
+app.get('/api/scryfall/sets', async (req, res) => {
+  try {
+    const now = Date.now();
+    if (_setsCache && (now - _setsCache.fetchedAt) < SETS_CACHE_MS) {
+      res.set('Cache-Control', 'public, max-age=21600');
+      return res.json(_setsCache.payload);
+    }
+    const upstream = await scryfallFetch('https://api.scryfall.com/sets');
+    if (!upstream.ok) {
+      if (_setsCache) return res.json(_setsCache.payload); // serve stale rather than fail
+      return res.status(upstream.status).json({ error: 'Failed to load sets' });
+    }
+    const payload = await upstream.json();
+    _setsCache = { payload, fetchedAt: now };
+    res.set('Cache-Control', 'public, max-age=21600');
+    res.json(payload);
+  } catch (e) {
+    if (_setsCache) return res.json(_setsCache.payload);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 /** Commander "game changer" list from Scryfall (`is:gamechanger`). Cached ~24h in memory. */
 let _gameChangerCache = null; // { oracleIds: string[], names: string[], fetchedAt: number }
 const GAME_CHANGER_CACHE_MS = 24 * 60 * 60 * 1000;
@@ -4109,6 +4339,8 @@ async function start() {
     try {
       await ensureAccountLoginMetaColumns();
       await ensureAppChangelogTable();
+      await ensureConditionalKeywordsTable();
+      await ensureMetricKeysTable();
       await ensureNormalizedDeckSchema();
       await ensureAccountMigration();
       await ensureDeckHistoryTable();

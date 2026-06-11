@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta id="viewportMeta" name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="mtg-api-base" content="/api">
 <title>MTG Archive</title>
 <!-- PWA: install to home screen for a fullscreen, no-address-bar experience on mobile/tablet -->
@@ -680,35 +680,47 @@
         <div id="deckCutSuggestionsBody"></div>
       </div>
 
-      <!-- EDHREC Suggestions (below deck list) -->
-      <div class="panel" style="margin-bottom:1.25rem">
+      <!-- Suggested Adds (below deck list) — inverse of Suggested Cuts, shares its target model -->
+      <div id="deckAddSuggestionsPanel" class="panel" style="display:none;margin-bottom:1.25rem">
         <div class="panel-header">
-          <span class="panel-title">EDHREC Suggestions</span>
+          <span class="panel-title">Suggested Adds</span>
+          <span class="deck-cut-help tooltip-wrap" tabindex="0" aria-label="How suggested adds work">
+            <span class="deck-cut-help-icon" aria-hidden="true">?</span>
+            <span class="tooltip deck-cut-help-tooltip">
+              <strong>Suggested adds</strong> finds cards that fill the roles your deck is short on
+              (ramp, draw, removal, etc.) versus targets for your archetype, plus thin spots on your mana curve.
+              It scores cards you own first, then fills remaining slots with cards from the database in your colors.
+              Shares the archetype and playstyle targets with Suggested Cuts. Add puts one copy in the deck.
+            </span>
+          </span>
+          <span id="deckAddUnderBadge" class="tag" style="margin-left:.5rem;background:rgba(61,184,160,0.15);color:var(--teal)"></span>
           <div style="flex:1"></div>
-          <select id="edhrecThemeSelect" class="deck-select" onchange="scheduleEDHRECThemeRefresh()">
-            <option value="">All themes</option>
-            <option value="artifacts">Artifacts</option>
-            <option value="tokens">Tokens</option>
+          <div class="cut-playstyle-wrap" title="Playstyle — shared with Suggested Cuts (Aggro lowers ramp/removal targets, Control raises them)">
+            <span class="cut-playstyle-label cut-playstyle-aggro">Aggro</span>
+            <input type="range" id="deckAddPlaystyleSlider" min="-3" max="3" step="1" value="0"
+              oninput="setDeckCutPlaystyleStep(parseInt(this.value))"
+              style="width:84px;cursor:pointer;accent-color:var(--gold)" aria-label="Playstyle: Aggro to Control">
+            <span class="cut-playstyle-label cut-playstyle-control">Control</span>
+          </div>
+          <select id="deckAddArchetypeSelect" class="deck-select" onchange="_onCutArchetypeChange(this.value)" style="font-size:.76rem;margin-right:4px" title="Deck archetype (shared with Suggested Cuts)">
+            <option value="">Auto</option>
+            <option value="goodstuff">Goodstuff</option>
             <option value="graveyard">Graveyard</option>
+            <option value="tokens">Tokens</option>
+            <option value="artifacts">Artifacts</option>
             <option value="counters">Counters</option>
             <option value="lifegain">Lifegain</option>
             <option value="ramp">Ramp</option>
+            <option value="control">Control</option>
+            <option value="combo">Combo</option>
+            <option value="voltron">Voltron</option>
+            <option value="custom">Custom</option>
           </select>
-          <div class="view-toggle edhrec-land-toggle" role="group" aria-label="Suggestions: non-lands or lands"
-            style="margin-left:8px;flex-shrink:0">
-            <button type="button" class="active" data-edhrec-land="nonlands" onclick="setEdhrecLandFilter('nonlands')"
-              title="Exclude lands">Non-lands</button>
-            <button type="button" data-edhrec-land="lands" onclick="setEdhrecLandFilter('lands')"
-              title="Lands only">Lands</button>
-          </div>
-          <button onclick="this.closest('.panel').querySelector('.rec-scroll').classList.toggle('edhrec-collapsed');this.classList.toggle('is-rotated')"
-            class="decklist-collapse-btn edhrec-collapse-btn" style="margin-left:4px" title="Toggle">▾</button>
+          <button type="button" id="deckAddThresholdBtn" onclick="_toggleAddThresholdEditor()" class="deck-cut-threshold-btn" title="Customize role targets" aria-label="Customize role targets" aria-pressed="false">⚙</button>
+          <button onclick="_toggleAddPanel()" class="decklist-collapse-btn" id="deckAddCollapseBtn" title="Toggle">▾</button>
         </div>
-        <div class="rec-scroll" id="edhrecResults">
-          <div class="deck-tab-muted" style="padding:1.5rem;text-align:center">
-            Select a commander to see recommendations
-          </div>
-        </div>
+        <div id="deckAddThresholdEditor" style="display:none"></div>
+        <div id="deckAddSuggestionsBody"></div>
       </div>
 
       <!-- Commander Gameplan Probability -->

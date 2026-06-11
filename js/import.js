@@ -672,7 +672,7 @@ async function addDemoCards() {
   }
 
   try {
-    const setsRes  = await fetch('https://api.scryfall.com/sets');
+    const setsRes  = await fetch('/api/scryfall/sets');
     const setsData = await setsRes.json();
     const mainSets = (setsData.data || [])
       .filter(s => (s.set_type === 'expansion' || s.set_type === 'core') && !s.digital)
