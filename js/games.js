@@ -1013,6 +1013,11 @@ function changeCommanderDamage(gameId, targetId, sourceId, delta) {
     addLog(game, { type: 'commander_damage', text: `Adjusted: ${source.name} cmd dmg on ${target.name} → ${total}` });
   }
   save('games'); if (tabletViewGameId) renderTabletView(); renderActiveGame(game);
+  // The commander-damage editor lives in the player menu (on <body>, outside the
+  // re-rendered #tabletView), so update its value in place if it's open.
+  const menu = document.querySelector(`.tablet-player-menu[data-pid="${sourceId}"]`);
+  const cell = menu && menu.querySelector(`.cmd-dmg-val[data-cmddmg="${targetId}"]`);
+  if (cell) { cell.textContent = total; cell.style.color = total >= 16 ? 'var(--red)' : ''; }
 }
 
 function eliminatePlayer(game, player, reason) {
@@ -1417,14 +1422,14 @@ function openTabletMenu(playerId, btn, e, rotated = false) {
       .map(op => {
         const dmg = (op.commanderDamage || {})[player.id] || 0;
         const danger = dmg >= 16;
-        return `<div style="display:flex;align-items:center;gap:6px;padding:3px 2px">
-          <span style="width:7px;height:7px;border-radius:50%;background:${op.color};flex-shrink:0"></span>
-          <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text2);font-size:0.78rem">${op.name}</span>
-          <button onclick="changeCommanderDamage('${game.id}','${op.id}','${player.id}',-1);event.stopPropagation()"
-            style="background:none;border:none;color:var(--text3);cursor:pointer;padding:0 4px;font-size:0.9rem;line-height:1">−</button>
-          <span style="font-family:'JetBrains Mono',monospace;min-width:20px;text-align:center;color:${danger ? 'var(--red)' : 'var(--text2)'};font-weight:${danger ? 700 : 500};font-size:0.8rem">${dmg}</span>
-          <button onclick="changeCommanderDamage('${game.id}','${op.id}','${player.id}',1);event.stopPropagation()"
-            style="background:none;border:none;color:var(--text3);cursor:pointer;padding:0 4px;font-size:0.9rem;line-height:1">+</button>
+        return `<div style="display:flex;align-items:center;gap:8px;padding:4px 2px">
+          <span style="width:8px;height:8px;border-radius:50%;background:${op.color};flex-shrink:0"></span>
+          <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text2);font-size:0.8rem">${op.name}</span>
+          <div class="cmd-stepper">
+            <button type="button" class="x-stepper-btn" onclick="changeCommanderDamage('${game.id}','${op.id}','${player.id}',-1);event.stopPropagation()">−</button>
+            <span class="cmd-dmg-val" data-cmddmg="${op.id}" style="${danger ? 'color:var(--red)' : ''}">${dmg}</span>
+            <button type="button" class="x-stepper-btn" onclick="changeCommanderDamage('${game.id}','${op.id}','${player.id}',1);event.stopPropagation()">+</button>
+          </div>
         </div>`;
       }).join('')
     : '';
@@ -1512,15 +1517,15 @@ function renderTabletView() {
       ${activePlayer ? `<div style="font-size:clamp(0.6rem,1.3vw,0.82rem);color:${activePlayer.color};margin-top:5px;font-family:'Inter',system-ui,sans-serif;letter-spacing:0.04em">T${game.currentTurn} · ${activePlayer.name}</div>` : ''}
       <div style="display:flex;gap:5px;margin-top:9px">
         <button onclick="nextTurn('${game.id}')"
-          style="flex:1;padding:5px 6px;background:var(--bg3);
-            border:1px solid var(--border2);border-radius:8px;color:var(--text2);font-size:0.78rem;cursor:pointer">
+          style="flex:1;padding:9px 8px;background:var(--bg3);
+            border:1px solid var(--border2);border-radius:8px;color:var(--text2);font-size:0.9rem;cursor:pointer">
           → Next
         </button>
         <button onclick="togglePauseTimer('${game.id}')"
-          style="flex:1;padding:5px 6px;background:${_turnPaused ? 'rgba(200,168,74,0.15)' : 'var(--bg3)'};
+          style="flex:1;padding:9px 8px;background:${_turnPaused ? 'rgba(200,168,74,0.15)' : 'var(--bg3)'};
             border:1px solid ${_turnPaused ? 'rgba(200,168,74,0.4)' : 'var(--border2)'};border-radius:8px;
-            color:${_turnPaused ? 'var(--gold)' : 'var(--text2)'};font-size:0.78rem;cursor:pointer">
-          ${_turnPaused ? `${gameIcon('play', 11, 'margin-right:5px')}Resume` : `${gameIcon('pause', 11, 'margin-right:5px')}Pause`}
+            color:${_turnPaused ? 'var(--gold)' : 'var(--text2)'};font-size:0.9rem;cursor:pointer">
+          ${_turnPaused ? `${gameIcon('play', 12, 'margin-right:5px')}Resume` : `${gameIcon('pause', 12, 'margin-right:5px')}Pause`}
         </button>
       </div>
       ${!gameActionMode ? `
@@ -1635,11 +1640,13 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
 }
 
 // ── Drag-to-deal-damage (tablet view) ──────────────────────────────────────────
-// Press-and-hold a player cell and drag onto another player; on release a small
-// menu offers "Deal 1" or "Deal X". Source player is attributed in the log.
-// Disabled while an action mode (tap-targeting) is active, to avoid conflicts.
+// Press-and-hold a player cell and drag across one or more other players; each
+// cell the pointer sweeps into is committed as a target. On release a small menu
+// offers "Deal 1" / "Deal X" to every selected player at once. Source player is
+// attributed in the log. Disabled while an action mode (tap-targeting) is active.
 
-let _tabletDrag = null;            // { sourceId, pointerId, dragging, startX/Y, originX/Y }
+let _tabletDrag = null;            // { sourceId, pointerId, dragging, startX/Y, originX/Y, targets[], currentPid }
+let _dragMenuCtx = null;           // { sourceId, targetIds } for the open deal menu
 let _dragArrowEl = null;           // SVG overlay element
 let _dragMenuOutsideHandler = null;
 
@@ -1661,6 +1668,7 @@ function tabletDragPointerDown(e) {
     sourceId: cell.dataset.pid, pointerId: e.pointerId, dragging: false,
     startX: e.clientX, startY: e.clientY,
     originX: r.left + r.width / 2, originY: r.top + r.height / 2,
+    targets: [], currentPid: null,
   };
 }
 
@@ -1674,10 +1682,17 @@ function tabletDragPointerMove(e) {
     _ensureDragArrow();
   }
   e.preventDefault();
-  _drawDragArrow(_tabletDrag.originX, _tabletDrag.originY, e.clientX, e.clientY);
   const cell = _cellElAt(e.clientX, e.clientY);
   const pid = (cell && cell.dataset.pid && cell.dataset.pid !== _tabletDrag.sourceId && cell.dataset.elim !== '1') ? cell.dataset.pid : null;
-  _setDragTarget(pid);
+  // Commit a target the first time the pointer sweeps into its cell.
+  if (pid !== _tabletDrag.currentPid) {
+    _tabletDrag.currentPid = pid;
+    if (pid && !_tabletDrag.targets.includes(pid)) {
+      _tabletDrag.targets.push(pid);
+      _highlightDragTargets(_tabletDrag.targets);
+    }
+  }
+  _drawDragArrows(e.clientX, e.clientY);
 }
 
 function tabletDragPointerUp(e) {
@@ -1685,22 +1700,22 @@ function tabletDragPointerUp(e) {
   const drag = _tabletDrag;
   _tabletDrag = null;
   _removeDragArrow();
-  _setDragTarget(null);
-  if (!drag.dragging) return;
+  if (!drag.dragging) { _highlightDragTargets([]); return; }
+  // Include whatever cell the pointer is over at release, then deal to all targets.
   const cell = _cellElAt(e.clientX, e.clientY);
-  const targetId = cell && cell.dataset.pid;
-  if (!targetId || targetId === drag.sourceId || cell.dataset.elim === '1') return;
-  _openDragDamageMenu(drag.sourceId, targetId, e.clientX, e.clientY, cell.dataset.rotated === '1');
+  const relPid = cell && cell.dataset.pid;
+  if (relPid && relPid !== drag.sourceId && cell.dataset.elim !== '1' && !drag.targets.includes(relPid)) {
+    drag.targets.push(relPid);
+  }
+  if (!drag.targets.length) { _highlightDragTargets([]); return; }
+  _openDragDamageMenu(drag.sourceId, drag.targets.slice(), e.clientX, e.clientY, cell && cell.dataset.rotated === '1');
 }
 
-function _setDragTarget(pid) {
-  document.querySelectorAll('.tablet-cell.tablet-drag-target').forEach(c => {
-    if (c.dataset.pid !== pid) c.classList.remove('tablet-drag-target');
+function _highlightDragTargets(pids) {
+  const set = new Set(pids);
+  document.querySelectorAll('.tablet-cell').forEach(c => {
+    c.classList.toggle('tablet-drag-target', set.has(c.dataset.pid));
   });
-  if (pid) {
-    const cell = document.querySelector(`.tablet-cell[data-pid="${pid}"]`);
-    if (cell) cell.classList.add('tablet-drag-target');
-  }
 }
 
 function _ensureDragArrow() {
@@ -1716,7 +1731,11 @@ function _ensureDragArrow() {
   const head = document.createElementNS(NS, 'path');
   head.setAttribute('d', 'M0,0 L6,3 L0,6 Z'); head.setAttribute('fill', 'var(--gold)');
   marker.appendChild(head); defs.appendChild(marker); svg.appendChild(defs);
-  const line = document.createElementNS(NS, 'line');
+  const committed = document.createElementNS(NS, 'g');   // one solid arrow per committed target
+  committed.setAttribute('id', 'dragCommitted');
+  svg.appendChild(committed);
+  const line = document.createElementNS(NS, 'line');     // live dashed line trailing the pointer
+  line.setAttribute('id', 'dragLiveLine');
   line.setAttribute('stroke', 'var(--gold)'); line.setAttribute('stroke-width', '3');
   line.setAttribute('stroke-linecap', 'round'); line.setAttribute('stroke-dasharray', '1 9');
   line.setAttribute('marker-end', 'url(#dragArrowHead)');
@@ -1727,41 +1746,70 @@ function _ensureDragArrow() {
   _dragArrowEl = svg;
 }
 
-function _drawDragArrow(x1, y1, x2, y2) {
-  if (!_dragArrowEl) return;
-  const line = _dragArrowEl.querySelector('line');
+function _drawDragArrows(liveX, liveY) {
+  if (!_dragArrowEl || !_tabletDrag) return;
+  const NS = 'http://www.w3.org/2000/svg';
+  const { originX, originY, targets, currentPid } = _tabletDrag;
+  // A solid arrow to the centre of every committed target cell.
+  const g = _dragArrowEl.querySelector('#dragCommitted');
+  g.textContent = '';
+  targets.forEach(pid => {
+    const cell = document.querySelector(`.tablet-cell[data-pid="${pid}"]`);
+    if (!cell) return;
+    const r = cell.getBoundingClientRect();
+    const ln = document.createElementNS(NS, 'line');
+    ln.setAttribute('x1', originX); ln.setAttribute('y1', originY);
+    ln.setAttribute('x2', r.left + r.width / 2); ln.setAttribute('y2', r.top + r.height / 2);
+    ln.setAttribute('stroke', 'var(--gold)'); ln.setAttribute('stroke-width', '3');
+    ln.setAttribute('stroke-linecap', 'round');
+    ln.setAttribute('marker-end', 'url(#dragArrowHead)');
+    g.appendChild(ln);
+  });
+  // Hide the live line while hovering a cell that's already committed (its solid arrow shows instead).
+  const line = _dragArrowEl.querySelector('#dragLiveLine');
+  const liveHidden = currentPid && targets.includes(currentPid);
+  line.setAttribute('x1', originX); line.setAttribute('y1', originY);
+  line.setAttribute('x2', liveHidden ? originX : liveX); line.setAttribute('y2', liveHidden ? originY : liveY);
   const circ = _dragArrowEl.querySelector('circle');
-  line.setAttribute('x1', x1); line.setAttribute('y1', y1);
-  line.setAttribute('x2', x2); line.setAttribute('y2', y2);
-  circ.setAttribute('cx', x1); circ.setAttribute('cy', y1);
+  circ.setAttribute('cx', originX); circ.setAttribute('cy', originY);
 }
 
 function _removeDragArrow() {
   if (_dragArrowEl) { _dragArrowEl.remove(); _dragArrowEl = null; }
 }
 
-function _openDragDamageMenu(sourceId, targetId, x, y, rotated) {
+function _openDragDamageMenu(sourceId, targetIds, x, y, rotated) {
   _closeDragMenu();
   const game = games.find(g => g.id === tabletViewGameId);
   if (!game) return;
   const source = game.players.find(p => p.id === sourceId);
-  const target = game.players.find(p => p.id === targetId);
-  if (!source || !target) return;
+  const targets = targetIds.map(id => game.players.find(p => p.id === id))
+    .filter(t => t && !t.eliminated);
+  if (!source || !targets.length) { _highlightDragTargets([]); return; }
+
+  _dragMenuCtx = { sourceId, targetIds: targets.map(t => t.id) };
+  _highlightDragTargets(_dragMenuCtx.targetIds);   // keep the selected cells lit while choosing
+  const multi = targets.length > 1;
+  const each = multi ? ' each' : '';
+  const targetsHtml = targets
+    .map(t => `<span style="color:${t.color}">${t.name}</span>`)
+    .join('<span style="color:var(--text3)">,&nbsp;</span>');
+
   const menu = document.createElement('div');
   menu.className = 'tablet-drag-menu';
   menu.onclick = ev => ev.stopPropagation();
   menu.innerHTML = `
-    <div class="tablet-drag-menu-head">
-      <span style="color:${source.color};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:90px">${source.name}</span>
+    <div class="tablet-drag-menu-head" style="flex-wrap:wrap">
+      <span style="color:${source.color};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px">${source.name}</span>
       <span style="color:var(--text3)">${gameIcon('sword', 12)}</span>
-      <span style="color:${target.color};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:90px">${target.name}</span>
+      <span style="display:inline-flex;flex-wrap:wrap;justify-content:center;gap:0 2px;max-width:200px">${targetsHtml}</span>
     </div>
     <div class="tablet-drag-menu-row">
-      <button class="tablet-drag-deal" onclick="applyDragDamage('${sourceId}','${targetId}',1)">Deal 1</button>
+      <button class="tablet-drag-deal" onclick="applyDragDamage(1)">Deal 1${each}</button>
     </div>
     <div class="tablet-drag-menu-row">
       ${xStepper(game.id)}
-      <button class="tablet-drag-deal" onclick="applyDragDamage('${sourceId}','${targetId}',gameActionAmount)">Deal X</button>
+      <button class="tablet-drag-deal" onclick="applyDragDamage(gameActionAmount)">Deal X${each}</button>
     </div>
     <button class="tablet-drag-cancel" onclick="_closeDragMenu()">Cancel</button>`;
   menu.style.cssText = 'position:fixed;z-index:710;visibility:hidden';
@@ -1784,20 +1832,26 @@ function _openDragDamageMenu(sourceId, targetId, x, y, rotated) {
 
 function _closeDragMenu() {
   document.querySelectorAll('.tablet-drag-menu').forEach(m => m.remove());
+  _highlightDragTargets([]);
+  _dragMenuCtx = null;
   if (_dragMenuOutsideHandler) {
     document.removeEventListener('pointerdown', _dragMenuOutsideHandler, true);
     _dragMenuOutsideHandler = null;
   }
 }
 
-function applyDragDamage(sourceId, targetId, amount) {
+function applyDragDamage(amount) {
+  const ctx = _dragMenuCtx;
   const game = games.find(g => g.id === tabletViewGameId);
-  if (!game || game.status !== 'active') { _closeDragMenu(); return; }
-  const target = game.players.find(p => p.id === targetId);
-  const source = game.players.find(p => p.id === sourceId);
   _closeDragMenu();
-  if (!target || target.eliminated) return;
-  dealDamage(game, target, Math.max(1, amount | 0), (source && !source.eliminated) ? source : null);
+  if (!ctx || !game || game.status !== 'active') return;
+  const source = game.players.find(p => p.id === ctx.sourceId);
+  const src = (source && !source.eliminated) ? source : null;
+  const amt = Math.max(1, amount | 0);
+  ctx.targetIds.forEach(tid => {
+    const target = game.players.find(p => p.id === tid);
+    if (target && !target.eliminated) dealDamage(game, target, amt, src);
+  });
   save('games');
   renderTabletView();
 }

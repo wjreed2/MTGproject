@@ -2592,23 +2592,26 @@ main {
   touch-action: none;          /* no pinch/double-tap zoom; iOS ignores user-scalable=no */
 }
 
-/* X-amount stepper — scroll or drag up/down to change, no keyboard popup */
-.x-stepper {
-  display: inline-flex; align-items: center; gap: 3px;
-  background: var(--bg3); border: 1px solid var(--border2); border-radius: 8px;
-  padding: 2px; touch-action: none; cursor: ns-resize;
-  user-select: none; -webkit-user-select: none;
+/* X-amount stepper — scroll or drag up/down to change, no keyboard popup.
+   Commander-damage rows reuse the same button look via .cmd-stepper. */
+.x-stepper, .cmd-stepper {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: var(--bg3); border: 1px solid var(--border2); border-radius: 9px;
+  padding: 2px; user-select: none; -webkit-user-select: none;
 }
-.x-stepper-val {
-  min-width: 32px; text-align: center; padding: 2px 4px; pointer-events: none;
-  font-family: 'JetBrains Mono', monospace; font-size: 0.92rem; font-weight: 700;
+.x-stepper { touch-action: none; cursor: ns-resize; }
+.x-stepper-val, .cmd-dmg-val {
+  text-align: center; padding: 2px 4px;
+  font-family: 'JetBrains Mono', monospace; font-size: 1.02rem; font-weight: 700;
   color: var(--text);
 }
+.x-stepper-val { min-width: 36px; pointer-events: none; }
+.cmd-dmg-val { min-width: 28px; }
 .x-stepper-btn {
-  width: 26px; height: 26px; flex-shrink: 0;
+  width: 32px; height: 32px; flex-shrink: 0;
   display: inline-flex; align-items: center; justify-content: center;
-  background: var(--bg2); border: 1px solid var(--border2); border-radius: 6px;
-  color: var(--text2); font-size: 1.05rem; font-weight: 700; line-height: 1;
+  background: var(--bg2); border: 1px solid var(--border2); border-radius: 7px;
+  color: var(--text2); font-size: 1.2rem; font-weight: 700; line-height: 1;
   cursor: pointer; touch-action: manipulation;
 }
 .x-stepper-btn:active { background: var(--bg); transform: scale(0.92); }
