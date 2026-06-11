@@ -10,7 +10,7 @@ async function loadSets() {
 async function loadSetsFromAPI() {
   document.getElementById('setEmpty').style.display = 'flex';
   document.getElementById('setEmpty').innerHTML = '<div style="text-align:center;padding:3rem;color:var(--text3)"><div class="spinner" style="margin:0 auto 1rem"></div><p style="font-size:0.9rem">Loading sets…</p></div>';
-  const res = await fetch('https://api.scryfall.com/sets');
+  const res = await fetch('/api/scryfall/sets');
   if (!res.ok) return;
   const d = await res.json();
   // Scryfall `digital`: only released in a video game (Arena / Alchemy / etc.) — hide from paper-focused set browser

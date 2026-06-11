@@ -140,7 +140,8 @@ async function wishlistAutocomplete(q) {
 
     let scryNames = [];
     try {
-      const res = await fetch(`https://api.scryfall.com/cards/autocomplete?q=${encodeURIComponent(query)}`);
+      // Local oracle DB autocomplete (no Scryfall round-trip per keystroke)
+      const res = await fetch(`/api/cards/autocomplete?q=${encodeURIComponent(query)}`);
       const data = await res.json();
       scryNames = (data.data || []).filter(n => !localSet.has(n.toLowerCase())).slice(0, 10);
     } catch (_) {}
@@ -211,7 +212,7 @@ async function runWishlistSearch(q) {
   } catch (e) {
     if (e.name === 'AbortError') return;
     try {
-      const res = await fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(`${query} -is:extra`)}&order=released&unique=prints`);
+      const res = await fetch(`/api/scryfall/search?q=${encodeURIComponent(`${query} -is:extra`)}&order=released&unique=prints&skipTcg=1`);
       const d = await res.json();
       const apiCards = d.data || [];
       _wishlistSearchApi = apiCards.filter(c => !localIds.has(c.id)).slice(0, 28);

@@ -5101,13 +5101,14 @@ function _onCutArchetypeChange(value) {
   if (deck) _saveCutPrefsForDeck(deck.id);
   if (deck) {
     _renderCutSuggestions(deck);
-    const editorEl = document.getElementById('deckCutThresholdEditor');
-    if (editorEl && editorEl.style.display !== 'none') _renderCutThresholdEditorContent(deck);
+    _renderAddSuggestions(deck);
+    _refreshOpenThresholdEditors(deck);
   }
 }
 
-function _renderCutThresholdEditorContent(deck) {
-  const el = document.getElementById('deckCutThresholdEditor');
+// Shared role-target editor used by both the Cuts and Adds panels (one threshold model).
+function _renderThresholdEditorInto(deck, elId) {
+  const el = document.getElementById(elId);
   if (!el) return;
   const base = _computeBaseThresholds(deck);
   const effective = _computeCutThresholds(deck);
@@ -5129,6 +5130,33 @@ function _renderCutThresholdEditorContent(deck) {
   </div>`;
 }
 
+function _renderCutThresholdEditorContent(deck) { _renderThresholdEditorInto(deck, 'deckCutThresholdEditor'); }
+function _renderAddThresholdEditorContent(deck) { _renderThresholdEditorInto(deck, 'deckAddThresholdEditor'); }
+
+// Re-render whichever target editors are currently open (keeps Cuts/Adds editors in sync).
+function _refreshOpenThresholdEditors(deck) {
+  for (const id of ['deckCutThresholdEditor', 'deckAddThresholdEditor']) {
+    const ed = document.getElementById(id);
+    if (ed && ed.style.display !== 'none') _renderThresholdEditorInto(deck, id);
+  }
+}
+
+function _toggleAddThresholdEditor() {
+  const el = document.getElementById('deckAddThresholdEditor');
+  const btn = document.getElementById('deckAddThresholdBtn');
+  if (!el) return;
+  const open = el.style.display !== 'none';
+  el.style.display = open ? 'none' : '';
+  if (btn) {
+    btn.classList.toggle('active', !open);
+    btn.setAttribute('aria-pressed', open ? 'false' : 'true');
+  }
+  if (!open) {
+    const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+    if (deck) _renderAddThresholdEditorContent(deck);
+  }
+}
+
 function setDeckCutPlaystyleStep(step) {
   const s = Math.max(-3, Math.min(3, Math.round(step)));
   _deckCutPlaystyleStep = s;
@@ -5136,7 +5164,7 @@ function setDeckCutPlaystyleStep(step) {
   const deck = typeof activeDeckId !== 'undefined' && activeDeckId
     ? (typeof decks !== 'undefined' ? decks : []).find(d => d.id === activeDeckId)
     : null;
-  if (deck) _renderCutSuggestions(deck);
+  if (deck) { _renderCutSuggestions(deck); _renderAddSuggestions(deck); _refreshOpenThresholdEditors(deck); }
 }
 
 function _toggleCutThresholdEditor() {
@@ -5165,6 +5193,7 @@ function _setCutThreshold(tag, val) {
   if (deck) {
     _saveCutPrefsForDeck(deck.id);
     _renderCutSuggestions(deck);
+    _renderAddSuggestions(deck);
   }
 }
 
@@ -5181,7 +5210,8 @@ function _resetCutThresholds() {
       try { localStorage.setItem(DECK_CUT_PREFS_KEY, JSON.stringify(all)); } catch { /* quota */ }
     }
     _renderCutSuggestions(deck);
-    _renderCutThresholdEditorContent(deck);
+    _renderAddSuggestions(deck);
+    _refreshOpenThresholdEditors(deck);
   }
 }
 
@@ -5386,12 +5416,217 @@ function _renderCutSuggestions(deck) {
   }).join('');
 }
 
+// ── Suggested Adds ───────────────────────────────────────────────────────────
+// Inverse of Suggested Cuts: scores candidates by how well they fill the deck's UNDER-target
+// roles. Shares the same archetype/playstyle/threshold model (_computeCutThresholds). Candidate
+// pool is "owned first" — collection cards that fit, then unowned cards from the local oracle DB
+// (/api/cards/by-roles). Suggestions that fail the conditional-keyword gate are dropped.
+const _ADD_SUGGESTION_COUNT = 8;
+let _addSuggestToken = 0;
+
+function _effCmcSafe(c) { return typeof _effectiveCmc === 'function' ? _effectiveCmc(c) : (c.cmc || 0); }
+function _isLandCardSafe(c) {
+  if (typeof _isLandDeckCard === 'function') return _isLandDeckCard(c);
+  const tl = typeof resolveCardTypeLine === 'function' ? resolveCardTypeLine(c) : (c.type || c.type_line || '');
+  return tl.toLowerCase().includes('land');
+}
+
+// Role deficits + curve deficits for the active deck (uses the shared cut thresholds).
+function _computeAddContext(deck) {
+  const cards = deck.cards || [];
+  const thresholds = _computeCutThresholds(deck);
+  const roleCount = {};
+  for (const card of cards) {
+    for (const tag of _probTagsOnCard(card, deck)) roleCount[tag] = (roleCount[tag] || 0) + (card.qty || 1);
+  }
+  const nonLandCmdr = cards.filter(c =>
+    !(c.isCommander || (deck.commander && c.name === deck.commander)) && !_isLandCardSafe(c));
+  const planCount = nonLandCmdr.reduce((s, c) => {
+    const t = _probTagsOnCard(c, deck).filter(x => x !== 'Land' && x !== 'Commander');
+    return t.length === 0 ? s + (c.qty || 1) : s;
+  }, 0);
+  const deficits = {};
+  for (const [tag, thr] of Object.entries(thresholds)) {
+    const have = tag === 'Plan' ? planCount : (roleCount[tag] || 0);
+    deficits[tag] = Math.max(0, thr - have);
+  }
+  const buckets = [0, 1, 2, 3, 4, 5, 6, 7];
+  const curveCounts = buckets.map(b =>
+    nonLandCmdr.filter(c => Math.min(Math.floor(_effCmcSafe(c)), 7) === b).reduce((s, c) => s + (c.qty || 1), 0));
+  const curveTotal = curveCounts.reduce((s, n) => s + n, 0) || 1;
+  const { idealWeights } = typeof _computeIdealManaCurveContext === 'function'
+    ? _computeIdealManaCurveContext(deck, curveCounts)
+    : { idealWeights: [0.06, 0.13, 0.20, 0.20, 0.16, 0.12, 0.08, 0.05] };
+  const curveDeficit = buckets.map((_, i) => Math.max(0, idealWeights[i] - (curveCounts[i] / curveTotal)));
+  return { thresholds, roleCount, planCount, deficits, curveDeficit };
+}
+
+function _scoreAddCandidate(card, roles, ctx) {
+  let roleFit = 0, topRole = '', topVal = -1;
+  const real = roles.filter(t => t !== 'Land' && t !== 'Commander');
+  if (!real.length) {
+    roleFit = ctx.deficits['Plan'] || 0;
+    if (roleFit > 0) { topRole = 'Plan'; topVal = roleFit; }
+  } else {
+    for (const t of real) {
+      const d = ctx.deficits[t] || 0;
+      roleFit += d;
+      if (d > topVal) { topVal = d; topRole = t; }
+    }
+  }
+  const bucket = Math.min(Math.floor(_effCmcSafe(card)), 7);
+  const curveBonus = Math.min((ctx.curveDeficit[bucket] || 0) * 5, 1.5);
+  const versatility = Math.max(0, real.length - 1) * 0.3;
+  return { score: roleFit + curveBonus + versatility, topRole, topVal, bucket, roles: real };
+}
+
+function _buildAddReason(name, s, ctx, owned) {
+  const parts = [];
+  if (s.topRole === 'Plan') {
+    parts.push(`Adds a theme/identity card (deck under its ${ctx.thresholds['Plan']}-card plan target)`);
+  } else if (s.topRole) {
+    const have = ctx.roleCount[s.topRole] || 0;
+    parts.push(`Fills ${s.topRole} (deck has ${have}, target ${ctx.thresholds[s.topRole]})`);
+  }
+  const others = s.roles.filter(r => r !== s.topRole && (ctx.deficits[r] || 0) > 0);
+  if (others.length) parts.push(`also helps ${others.join(', ')}`);
+  if ((ctx.curveDeficit[s.bucket] || 0) > 0.02) parts.push(`fills a thin spot on your curve at ${s.bucket}${s.bucket === 7 ? '+' : ''} CMC`);
+  parts.push(owned ? 'In your collection.' : 'Not in your collection.');
+  return parts.join('. ') + '.';
+}
+
+async function _renderAddSuggestions(deck) {
+  const panel = document.getElementById('deckAddSuggestionsPanel');
+  const body = document.getElementById('deckAddSuggestionsBody');
+  if (!panel || !body) return;
+
+  // Sync the shared controls (slider + archetype) onto this panel
+  const psSlider = document.getElementById('deckAddPlaystyleSlider');
+  if (psSlider) psSlider.value = _deckCutPlaystyleStep;
+  const sel = document.getElementById('deckAddArchetypeSelect');
+  if (sel) {
+    if (sel.options[0]) sel.options[0].text = `Auto: ${_archetypeLabel(_autoDetectArchetype(deck))}`;
+    sel.value = _deckCutArchetypeOverride;
+  }
+
+  if (!deck || !(deck.cards || []).length) { panel.style.display = 'none'; return; }
+  panel.style.display = '';
+
+  const badge = document.getElementById('deckAddUnderBadge');
+  const rules = (typeof FORMAT_RULES !== 'undefined' && FORMAT_RULES[deck.format]) || null;
+  const target = rules ? (rules.max || rules.min || 100) : 100;
+  const total = (deck.cards || []).reduce((s, c) => s + (c.qty || 1), 0);
+  if (badge) badge.textContent = total < target ? `${target - total} to ${target}` : 'tuning';
+
+  const ctx = _computeAddContext(deck);
+  const deficitRoles = Object.entries(ctx.deficits)
+    .filter(([t, v]) => v > 0 && t !== 'Plan').map(([t]) => t);
+
+  const token = ++_addSuggestToken;
+  await _ckEnsureLoaded();
+
+  // ── Owned candidates (collection minus deck, color-legal, non-land) ──
+  // Resolve the commander's color identity robustly (commanderColorIdentity can be stale/empty).
+  const cmdCtx = typeof _resolveCommanderContextForEdhrec === 'function' ? _resolveCommanderContextForEdhrec(deck) : null;
+  const ciColors = (cmdCtx && cmdCtx.colors && cmdCtx.colors.length)
+    ? cmdCtx.colors
+    : ((deck.commanderColorIdentity && deck.commanderColorIdentity.length) ? deck.commanderColorIdentity : (deck.colors || []));
+  const cmdCI = new Set(ciColors);
+  // A card is color-legal iff its color identity is a subset of the commander's.
+  const ciOk = arr => !cmdCI.size || !(arr || []).some(x => !cmdCI.has(x));
+  const inDeckNames = new Set((deck.cards || []).map(c => (c.name || '').toLowerCase()));
+  const ownedScored = [];
+  const ownedNames = new Set();
+  for (const c of _ownershipCollection()) {
+    const nm = (c.name || '').toLowerCase();
+    if (!nm || inDeckNames.has(nm) || ownedNames.has(nm)) continue;
+    if (_isLandCardSafe(c)) continue;
+    const cci = c.colorIdentity?.length ? c.colorIdentity : (c.colors?.length ? c.colors : []);
+    if (!ciOk(cci)) continue;
+    if (typeof getInventoryBreakdown === 'function' && getInventoryBreakdown(c, deck.id).available <= 0) continue;
+    const roles = _probTagsOnCard(c, deck);
+    const s = _scoreAddCandidate(c, roles, ctx);
+    if (s.score <= 0) continue;
+    ownedNames.add(nm);
+    ownedScored.push({ card: c, owned: true, s });
+  }
+  ownedScored.sort((a, b) => b.s.score - a.s.score);
+
+  // ── Unowned candidates (local DB), only if owned can't fill all slots ──
+  let unownedScored = [];
+  if (ownedScored.length < _ADD_SUGGESTION_COUNT && deficitRoles.length) {
+    try {
+      const res = await fetch('/api/cards/by-roles', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          colors: [...cmdCI], roles: deficitRoles,
+          exclude: [...inDeckNames, ...ownedNames], limit: 60,
+        }),
+      });
+      const data = await res.json();
+      if (token !== _addSuggestToken) return; // superseded by a newer render
+      for (const c of (data.cards || [])) {
+        const nm = (c.name || '').toLowerCase();
+        if (inDeckNames.has(nm) || ownedNames.has(nm)) continue;
+        const s = _scoreAddCandidate(c, c.roleTags || [], ctx);
+        if (s.score <= 0) continue;
+        unownedScored.push({ card: c, owned: false, s });
+      }
+      unownedScored.sort((a, b) => b.s.score - a.s.score);
+    } catch (_) { /* offline — owned only */ }
+  }
+  if (token !== _addSuggestToken) return;
+
+  // ── Conditional-keyword gate, then owned-first selection ──
+  const gate = it => _ckEvaluateCandidate(it.card, deck).ok;
+  const picks = ownedScored.filter(gate).slice(0, _ADD_SUGGESTION_COUNT);
+  if (picks.length < _ADD_SUGGESTION_COUNT) {
+    picks.push(...unownedScored.filter(gate).slice(0, _ADD_SUGGESTION_COUNT - picks.length));
+  }
+
+  if (!picks.length) {
+    body.innerHTML = '<div class="deck-tab-muted" style="padding:.75rem 1rem">No add suggestions — your role targets look met. Lower a target with ⚙ on Suggested Cuts, or adjust the playstyle slider.</div>';
+    return;
+  }
+
+  body.innerHTML = picks.map(({ card, owned, s }) => {
+    const id = (card.id || card.scryfallId || card.uid || '').replace(/'/g, "\\'");
+    const name = card.name || '';
+    const safeName = name.replace(/'/g, "\\'");
+    const displayName = name.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const score = (s.score || 0).toFixed(1);
+    const reason = _buildAddReason(name, s, ctx, owned).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const ownTag = owned
+      ? '<span class="tag" style="background:rgba(61,184,160,0.15);color:var(--teal);font-size:.62rem;margin:0 .4rem">owned</span>'
+      : '<span class="tag" style="background:var(--bg3);color:var(--text3);font-size:.62rem;margin:0 .4rem">unowned</span>';
+    const addBtn = owned
+      ? `<button class="btn btn-primary btn-sm" style="padding:2px 10px;font-size:.7rem" onclick="addOwnedRecommendation('${safeName}')">+ Add</button>`
+      : `<button class="btn btn-outline btn-sm" style="padding:2px 10px;font-size:.7rem" onclick="addScryfallCardToDeck('${id}')">+ Add</button>`;
+    return `<div class="cut-candidate-row">
+      <span class="cut-score-badge tooltip-wrap" aria-label="Add score: ${score}">${score}<span class="tooltip cut-score-tooltip">${reason}</span></span>
+      <span class="cut-card-name" onclick="openCardDetail('${id}','deck')">${displayName}</span>
+      ${ownTag}
+      ${addBtn}
+    </div>`;
+  }).join('');
+}
+
+function _toggleAddPanel() {
+  const body = document.getElementById('deckAddSuggestionsBody');
+  const btn = document.getElementById('deckAddCollapseBtn');
+  if (!body) return;
+  const collapsed = body.style.display === 'none';
+  body.style.display = collapsed ? '' : 'none';
+  if (btn) btn.classList.toggle('is-rotated', collapsed);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 function renderDeckList(deck) {
   const el = document.getElementById('deckCardList');
   if (!el) return;
   _renderCutSuggestions(deck);
+  _renderAddSuggestions(deck);
   _bindDeckTagGroupHoverLinking(el, false);
   const filteredCards = _applyDeckListFilter(deck.cards || []);
 
@@ -7296,7 +7531,12 @@ async function _loadGameplanEdhrecRamp(cmdColors, deckCardNames, cmdCMC = 4) {
     }
   }
   const inDeck = new Set(deckCardNames.map(n => n.toLowerCase()));
-  const shown = cards.filter(c => !inDeck.has((c.name || '').toLowerCase())).slice(0, 12);
+  await _ckEnsureLoaded();
+  const _gpDeck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+  const shown = _ckFilterCandidates(
+    cards.filter(c => !inDeck.has((c.name || '').toLowerCase())),
+    _gpDeck,
+  ).kept.slice(0, 12);
   if (!shown.length) { el.innerHTML = ''; return; }
   const chips = shown.map(c => {
     const id = (c.id || '').replace(/'/g, "\\'");
@@ -7600,10 +7840,10 @@ function deckSearchAutocomplete(q) {
     )].slice(0, 10);
     const localSet = new Set(localNames.map(n => n.toLowerCase()));
 
-    // Scryfall autocomplete for the rest (up to 10 more)
+    // Local oracle DB autocomplete for the rest (up to 10 more) — no Scryfall round-trip
     let scryNames = [];
     try {
-      const res = await fetch(`https://api.scryfall.com/cards/autocomplete?q=${encodeURIComponent(q)}`);
+      const res = await fetch(`/api/cards/autocomplete?q=${encodeURIComponent(q)}`);
       const data = await res.json();
       scryNames = (data.data || [])
         .filter(n => !localSet.has(n.toLowerCase()))
@@ -9177,12 +9417,15 @@ function setEdhrecLandFilter(mode) {
   scheduleEDHRECRefresh(0);
 }
 
+// Debounced refresh of the Suggested Adds panel (formerly EDHREC suggestions). Wired into every
+// deck-mutation path, so adds stay in sync as cards are added/removed.
 function scheduleEDHRECRefresh(delay = 16) {
   if (!activeDeckId) return;
   if (_edhrecRefreshTimer) clearTimeout(_edhrecRefreshTimer);
   _edhrecRefreshTimer = setTimeout(() => {
     _edhrecRefreshTimer = null;
-    fetchEDHRECRecs();
+    const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+    if (deck) _renderAddSuggestions(deck);
   }, delay);
 }
 
@@ -9255,9 +9498,183 @@ function openOwnedRecommendationPicker(cardName, candidates) {
   document.getElementById('versionPickerModal').classList.add('open');
 }
 
+// ── Conditional-keyword suggestion gate (CR 702 keyword abilities / 207.2c ability words) ──
+// A suggested card that carries a keyword ability or ability word with a condition is only
+// shown when the deck already has at least CK_REQUIRED_ENABLERS cards that can satisfy that
+// condition. Data comes from /api/conditional-keywords (the mtg_conditional_keywords table).
+const CK_REQUIRED_ENABLERS = 15;
+let _ckMap = null;          // Map<lowercased term, {term, category, metricKey, condition}>
+let _ckLoadPromise = null;
+
+function _ckEnsureLoaded() {
+  if (_ckMap) return Promise.resolve(_ckMap);
+  if (_ckLoadPromise) return _ckLoadPromise;
+  _ckLoadPromise = fetch('/api/conditional-keywords')
+    .then(r => r.json())
+    .then(d => {
+      const m = new Map();
+      (d.terms || []).forEach(r => m.set(String(r.term).toLowerCase(), {
+        term: r.term, category: r.category, metricKey: r.metric_key, condition: r.condition,
+      }));
+      _ckMap = m;
+      return m;
+    })
+    .catch(() => { _ckMap = new Map(); return _ckMap; });
+  return _ckLoadPromise;
+}
+
+function _ckEsc(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+// metric_key → predicate(normalizedDeckCard, ctx): does this deck card satisfy the condition?
+// Predicates lean on type line (always present) and the app's role tags (Self-Mill, Ramp, etc.).
+const _CK_PRED = {
+  instant_sorcery_count:    (n) => n.type.includes('instant') || n.type.includes('sorcery') || n.tags.has('copy'),
+  noncreature_spell_count:  (n) => !n.type.includes('land') && !n.type.includes('creature'),
+  cheap_spell_count:        (n) => !n.type.includes('land') && n.cmc <= 2,
+  cast_from_non_hand_count: (n) => n.tags.has('graveyard cast') || n.tags.has('recursion') || n.tags.has('reanimate'),
+  targeted_spell_count:     (n) => (n.type.includes('instant') || n.type.includes('sorcery') || n.type.includes('aura')) && (n.tags.has('pump') || n.tags.has('protection') || n.tags.has('combat trick') || n.tags.has('removal')),
+  artifact_count:           (n) => n.type.includes('artifact'),
+  enchantment_count:        (n) => n.type.includes('enchantment'),
+  creature_count:           (n) => n.type.includes('creature'),
+  creature_power4_count:    (n) => n.type.includes('creature') && (isNaN(n.power) || n.power >= 4),
+  total_creature_power:     (n) => n.type.includes('creature'),
+  token_makers:             (n) => n.tags.has('token maker') || n.tags.has('treasure'),
+  tribal_count:             (n, ctx) => n.type.includes('creature') && (!ctx.tribes.length || ctx.tribes.some(t => n.subtypes.includes(t))),
+  land_count:               (n) => n.type.includes('land'),
+  basic_land_type_sources:  (n) => n.type.includes('land'),
+  // Genuine graveyard fillers only: effects that put YOUR cards into YOUR graveyard.
+  // Excludes recursion/reanimation (those use the graveyard) and Mill (usually opponent-facing).
+  graveyard_fillers:        (n) => n.tags.has('self-mill') || n.tags.has('discard') || n.tags.has('sac outlet'),
+  graveyard_creature_payload: (n) => n.type.includes('creature'),
+  graveyard_spell_payload:  (n) => n.type.includes('instant') || n.type.includes('sorcery'),
+  discard_outlets:          (n) => n.tags.has('discard') || n.tags.has('wheel'),
+  sac_outlets:              (n) => n.tags.has('sac outlet') || n.tags.has('sac synergy') || n.tags.has('death trigger'),
+  lifegain_sources:         (n) => n.tags.has('lifegain') || n.tags.has('drain'),
+  aggro_attackers:          (n) => n.type.includes('creature'),
+  evasive_creatures:        (n) => n.type.includes('creature') && n.tags.has('evasion'),
+  tapped_creature_enablers: (n) => n.type.includes('creature'),
+  ramp_sources:             (n) => n.tags.has('ramp'),
+  big_x_payoffs:            (n) => n.tags.has('ramp'),
+  counters_matter:          (n) => n.type.includes('creature'),
+  poison_payoffs:           (n) => n.type.includes('creature'),
+  speed_enablers:           (n) => n.type.includes('creature'),
+  empty_hand_enablers:      (n) => !n.type.includes('land') && n.cmc <= 2,
+};
+// Conditions that aren't a "15 cards" count (format/board state) — never used to suppress.
+const _CK_EXEMPT_KEYS = new Set([
+  'always', 'multiplayer', 'commander_present', 'single_color_pip_bias',
+  'multiple_copies', 'low_life_payoffs', 'color_count',
+]);
+
+function _ckTagSet(dc) {
+  let tags;
+  if (typeof _probTagsOnCard === 'function') {
+    try { tags = _probTagsOnCard(dc); } catch (_) { /* fall through */ }
+  }
+  if (!tags) tags = [...(dc.roleTags || []), ...(dc.customTags || [])];
+  return new Set(tags.map(t => String(t).toLowerCase()));
+}
+
+function _ckNorm(dc) {
+  const type = String(dc.type || dc.typeLine || dc.type_line || '').toLowerCase();
+  const subtypes = type.includes('—') ? type.split('—')[1].trim().split(/\s+/).filter(Boolean) : [];
+  const cmc = dc.cmc != null ? dc.cmc : (dc.mv != null ? dc.mv : 99);
+  return { type, subtypes, tags: _ckTagSet(dc), cmc, power: parseInt(dc.power, 10), qty: dc.qty || 1 };
+}
+
+// Creature subtypes on the candidate, used as the "tribe" for tribal conditions.
+function _ckCandidateTribes(card) {
+  const tl = String(card.type_line || card.type || (card.card_faces && card.card_faces[0]?.type_line) || '').toLowerCase();
+  if (!tl.includes('creature') || !tl.includes('—')) return [];
+  return tl.split('—')[1].trim().split(/\s+/).filter(Boolean);
+}
+
+// Which conditional terms does this candidate card carry?
+function _ckTermsOnCandidate(card) {
+  if (!_ckMap || !_ckMap.size) return [];
+  const kw = new Set((card.keywords || []).map(k => String(k).toLowerCase()));
+  let oracle = String(card.oracle_text || '');
+  if (!oracle && Array.isArray(card.card_faces)) oracle = card.card_faces.map(f => f.oracle_text || '').join('\n');
+  oracle = oracle.toLowerCase();
+  const out = [];
+  for (const [key, info] of _ckMap) {
+    let has = false;
+    if (kw.has(key)) {
+      has = true;
+    } else if (oracle) {
+      if (info.category === 'ability_word') {
+        // Ability words read as "Magecraft —" at the start of an ability line.
+        has = new RegExp('(^|\\n|\\u2022|•)\\s*' + _ckEsc(key) + '\\s*[\\u2014\\-]').test(oracle);
+      } else if (!Array.isArray(card.keywords)) {
+        // Keyword ability on a card that didn't ship a keywords[] array (local-DB fast path).
+        has = new RegExp('(^|\\n|\\()' + _ckEsc(key) + '(\\b|\\u2014)').test(oracle);
+      }
+    }
+    if (has) out.push(info);
+  }
+  return out;
+}
+
+// Decide whether a candidate may be suggested into `deck`.
+// Returns { ok, failures:[{term, metricKey, have, need, condition}] }.
+function _ckEvaluateCandidate(card, deck) {
+  if (!_ckMap || !_ckMap.size) return { ok: true, failures: [] };
+  const terms = _ckTermsOnCandidate(card);
+  if (!terms.length) return { ok: true, failures: [] };
+  const deckCards = (deck && deck.cards) || [];
+  if (!deckCards.length) return { ok: true, failures: [] }; // no deck context → don't suppress
+  const ctx = { tribes: _ckCandidateTribes(card) };
+  const norm = deckCards.filter(dc => !dc.isCommander).map(_ckNorm);
+  const failures = [];
+  const seen = new Set();
+  for (const info of terms) {
+    const mk = info.metricKey;
+    if (!mk || _CK_EXEMPT_KEYS.has(mk) || seen.has(mk)) continue;
+    const pred = _CK_PRED[mk];
+    if (!pred) continue;
+    seen.add(mk);
+    let have = 0;
+    for (const n of norm) { if (pred(n, ctx)) have += n.qty; }
+    if (have < CK_REQUIRED_ENABLERS) {
+      failures.push({ term: info.term, metricKey: mk, have, need: CK_REQUIRED_ENABLERS, condition: info.condition });
+    }
+  }
+  return { ok: failures.length === 0, failures };
+}
+
+// Split a candidate list into { kept, hidden:[{name, failures}] }.
+function _ckFilterCandidates(cards, deck) {
+  if (!_ckMap || !_ckMap.size || !Array.isArray(cards)) return { kept: cards || [], hidden: [] };
+  const kept = [], hidden = [];
+  for (const c of cards) {
+    const r = _ckEvaluateCandidate(c, deck);
+    if (r.ok) kept.push(c);
+    else hidden.push({ name: c.name, failures: r.failures });
+  }
+  return { kept, hidden };
+}
+
+// A small "N hidden" footer explaining why conditional cards were withheld.
+function _ckHiddenNote(hidden) {
+  if (!hidden || !hidden.length) return '';
+  const f0 = hidden[0].failures[0];
+  const eg = f0 ? ` e.g. ${hidden[0].name}: needs ${f0.need} for ${f0.term}, deck has ${f0.have}` : '';
+  const tip = hidden.map(h => {
+    const parts = h.failures.map(f => `${f.term} (${f.have}/${f.need})`).join(', ');
+    return `${h.name} — ${parts}`;
+  }).join('&#10;').replace(/"/g, '&quot;');
+  return `<div title="${tip}" style="padding:6px 10px;font-size:0.7rem;color:var(--text3);border-top:1px solid var(--border);background:var(--bg3)">
+    ${hidden.length} suggestion${hidden.length !== 1 ? 's' : ''} hidden — deck lacks ${CK_REQUIRED_ENABLERS} cards to satisfy a conditional keyword.${eg ? `<br><span style="opacity:0.8">${eg}</span>` : ''}
+  </div>`;
+}
+
 function _paintEdhrecRecsPanel(el, deck, cards) {
+  const _ckRes = _ckFilterCandidates(cards, deck);
+  cards = _ckRes.kept;
   if (!cards.length) {
-    el.innerHTML = '<div style="padding:1.5rem;text-align:center;color:var(--text3);font-size:0.85rem">No suggestions found</div>';
+    el.innerHTML = _ckRes.hidden.length
+      ? `<div style="padding:1.5rem;text-align:center;color:var(--text3);font-size:0.85rem">No suggestions met the conditional-keyword requirement</div>${_ckHiddenNote(_ckRes.hidden)}`
+      : '<div style="padding:1.5rem;text-align:center;color:var(--text3);font-size:0.85rem">No suggestions found</div>';
     return;
   }
 
@@ -9297,7 +9714,8 @@ function _paintEdhrecRecsPanel(el, deck, cards) {
     renderRecSection(`Not in ${collLabel}`, unowned, false, getOwned) +
     (inDeck.length
       ? `<div style="padding:6px 10px;font-size:0.7rem;color:var(--text3);border-top:1px solid var(--border);background:var(--bg3)">${inDeck.length} suggestion${inDeck.length !== 1 ? 's' : ''} already in deck</div>`
-      : '');
+      : '') +
+    _ckHiddenNote(_ckRes.hidden);
 }
 
 async function fetchEDHRECRecs() {
@@ -9306,6 +9724,8 @@ async function fetchEDHRECRecs() {
     : (decks.find(d => d.id === activeDeckId) || sharedDecks.find(d => d.id === activeDeckId));
   const el = document.getElementById('edhrecResults');
   if (!el) return;
+
+  await _ckEnsureLoaded();   // conditional-keyword gate data (filters suggestions below)
 
   if (_useOwnerCollectionForOwnership() && deck && typeof loadDeckOwnerCollectionLookup === 'function') {
     await loadDeckOwnerCollectionLookup(deck);
@@ -9725,12 +10145,15 @@ async function _executeCardReplacementsFetch(refineKey) {
     if (card.scryfallId) inDeckIds.add(card.scryfallId);
     inDeckNames.add((card.name || '').toLowerCase());
 
-    const candidates = allResults
-      .filter(c => !inDeckIds.has(c.id) && !inDeckNames.has((c.name || '').toLowerCase()))
-      .slice(0, 20);
+    await _ckEnsureLoaded();   // conditional-keyword gate
+    const _ckRes = _ckFilterCandidates(
+      allResults.filter(c => !inDeckIds.has(c.id) && !inDeckNames.has((c.name || '').toLowerCase())).slice(0, 20),
+      deck,
+    );
+    const candidates = _ckRes.kept;
 
     if (!candidates.length) {
-      container.innerHTML = '<div style="font-size:0.8rem;color:var(--text3);padding:0.5rem 0">No replacements found</div>';
+      container.innerHTML = `<div style="font-size:0.8rem;color:var(--text3);padding:0.5rem 0">No replacements found</div>${_ckHiddenNote(_ckRes.hidden)}`;
       return;
     }
 
@@ -9777,7 +10200,7 @@ async function _executeCardReplacementsFetch(refineKey) {
       </div>`;
     }).join('');
 
-    container.innerHTML = rows;
+    container.innerHTML = rows + _ckHiddenNote(_ckRes.hidden);
 
     const modalEl = document.getElementById('cardDetailModal');
     container.querySelectorAll('[data-hpid]').forEach(row => {

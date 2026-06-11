@@ -2688,7 +2688,7 @@ function findCardAutocomplete(q) {
   clearTimeout(_findAcTimer);
   _findAcTimer = setTimeout(async () => {
     try {
-      const res  = await fetch(`https://api.scryfall.com/cards/autocomplete?q=${encodeURIComponent(q)}`);
+      const res  = await fetch(`/api/cards/autocomplete?q=${encodeURIComponent(q)}`);
       const data = await res.json();
       _findAcNames = (data.data || []).slice(0, 12);
       if (!_findAcNames.length) { drop.style.display = 'none'; return; }

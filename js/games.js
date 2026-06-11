@@ -834,9 +834,7 @@ function renderActionBar(game) {
   <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius2)">
     <div style="display:flex;align-items:center;gap:5px;flex-shrink:0">
       <span style="font-size:0.7rem;color:var(--text3)">X =</span>
-      <input type="number" min="1" value="${gameActionAmount}" id="actionAmountInput"
-        oninput="setActionAmount(this.value,'${game.id}')"
-        style="width:52px;font-family:'JetBrains Mono',monospace;text-align:center;padding:4px 6px;font-size:0.85rem">
+      ${xStepper(game.id)}
     </div>
     <div style="display:flex;gap:4px;flex-wrap:wrap">
       <button class="btn btn-sm ${gameActionMode === 'deal1'    ? 'btn-primary' : 'btn-outline'}" onclick="setActionMode('deal1','${game.id}')" style="display:inline-flex;align-items:center;gap:5px">${gameIcon('sword', 12)}Deal 1 → target</button>
@@ -869,12 +867,61 @@ function cancelAction(gameId) {
 let _actionAmountTimer = null;
 function setActionAmount(val, gameId) {
   gameActionAmount = Math.max(1, parseInt(val) || 1);
+  // Keep any visible steppers in sync immediately; the debounced re-render below
+  // refreshes the +X/−X button labels and "Deal X" hints.
+  document.querySelectorAll('.x-stepper-val').forEach(s => { s.textContent = gameActionAmount; });
   clearTimeout(_actionAmountTimer);
   _actionAmountTimer = setTimeout(() => {
     const game = games.find(g => g.id === gameId);
     if (!game) return;
     if (tabletViewGameId) renderTabletView(); else renderActiveGame(game);
   }, 400);
+}
+
+// ── X-amount stepper (scroll/drag, no keyboard) ────────────────────────────────
+// A compact replacement for the number inputs that set gameActionAmount. Change
+// the value by scrolling (wheel/trackpad) or dragging up/down over it, or with the
+// ± buttons — so the on-screen keyboard never pops up to cover the board.
+function xStepper(gameId) {
+  return `<div class="x-stepper" onwheel="xStepperWheel(event,'${gameId}')"
+      onpointerdown="xStepperPointerDown(event,'${gameId}')" onclick="event.stopPropagation()"
+      title="Scroll or drag up/down to change">
+      <button type="button" class="x-stepper-btn" onclick="event.stopPropagation();setActionAmount(gameActionAmount-1,'${gameId}')">−</button>
+      <span class="x-stepper-val">${gameActionAmount}</span>
+      <button type="button" class="x-stepper-btn" onclick="event.stopPropagation();setActionAmount(gameActionAmount+1,'${gameId}')">+</button>
+    </div>`;
+}
+
+let _xStepDrag = null;
+function xStepperWheel(e, gameId) {
+  e.preventDefault(); e.stopPropagation();
+  setActionAmount(gameActionAmount + (e.deltaY < 0 ? 1 : -1), gameId);
+}
+function xStepperPointerDown(e, gameId) {
+  if (e.target.closest('button')) return;   // let the ± buttons handle their own taps
+  e.stopPropagation();
+  const el = e.currentTarget;
+  _xStepDrag = { gameId, pointerId: e.pointerId, lastY: e.clientY, acc: 0 };
+  try { el.setPointerCapture(e.pointerId); } catch (_) {}
+  el.onpointermove = xStepperPointerMove;
+  el.onpointerup = el.onpointercancel = xStepperPointerUp;
+}
+function xStepperPointerMove(e) {
+  if (!_xStepDrag || e.pointerId !== _xStepDrag.pointerId) return;
+  e.preventDefault();
+  _xStepDrag.acc += _xStepDrag.lastY - e.clientY;   // drag up = increase
+  _xStepDrag.lastY = e.clientY;
+  const STEP = 12;                                  // px of travel per ±1
+  while (Math.abs(_xStepDrag.acc) >= STEP) {
+    const dir = _xStepDrag.acc > 0 ? 1 : -1;
+    _xStepDrag.acc -= dir * STEP;
+    setActionAmount(gameActionAmount + dir, _xStepDrag.gameId);
+  }
+}
+function xStepperPointerUp(e) {
+  const el = e.currentTarget;
+  if (el) el.onpointermove = el.onpointerup = el.onpointercancel = null;
+  _xStepDrag = null;
 }
 
 function applyGameAction(gameId, targetId) {
@@ -1303,6 +1350,7 @@ function openTabletView(gameId) {
   tabletViewGameId = gameId;
   document.body.style.overflow = 'hidden';
   document.getElementById('tabletView').style.display = 'grid';
+  _setTabletZoomLock(true);   // no pinch / double-tap zoom while propped up as a scoreboard
   _acquireWakeLock();   // keep the screen awake while propped up during a game
   renderTabletView();
 }
@@ -1311,8 +1359,19 @@ function closeTabletView() {
   document.querySelectorAll('.tablet-player-menu').forEach(m => m.remove());
   document.getElementById('tabletView').style.display = 'none';
   document.body.style.overflow = '';
+  _setTabletZoomLock(false);
   tabletViewGameId = null;
   _releaseWakeLock();
+}
+
+// Toggle the viewport zoom lock. Keyboard-free steppers (see xStepper) mean the
+// board never needs to scale, so locking zoom avoids stray pinch gestures while
+// dragging players around. Restored to the normal responsive viewport on exit.
+const _VIEWPORT_NORMAL = 'width=device-width, initial-scale=1.0, viewport-fit=cover';
+const _VIEWPORT_LOCKED = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover';
+function _setTabletZoomLock(locked) {
+  const meta = document.getElementById('viewportMeta');
+  if (meta) meta.setAttribute('content', locked ? _VIEWPORT_LOCKED : _VIEWPORT_NORMAL);
 }
 
 // ── Screen wake lock (tablet view) ──────────────────────────────────────────────
@@ -1378,9 +1437,7 @@ function openTabletMenu(playerId, btn, e, rotated = false) {
   menu.innerHTML = `
     <div style="display:flex;align-items:center;gap:8px;padding:5px 8px 8px;border-bottom:1px solid var(--border);margin-bottom:4px">
       <span style="font-size:0.72rem;color:var(--text3);flex:1">X damage =</span>
-      <input type="number" min="1" value="${gameActionAmount}"
-        oninput="setActionAmount(this.value,'${game.id}')" onclick="event.stopPropagation()"
-        style="width:52px;font-family:'JetBrains Mono',monospace;text-align:center;padding:4px 6px;font-size:0.85rem;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;color:var(--text)">
+      ${xStepper(game.id)}
     </div>
     <button onclick="${cm};setActionMode('deal1','${game.id}')"    style="${mi}${gameActionMode==='deal1'    ? mia : ''}">${gameIcon('sword', 12, 'margin-right:5px')}Deal 1 → target</button>
     <button onclick="${cm};setActionMode('dealX','${game.id}')"    style="${mi}${gameActionMode==='dealX'    ? mia : ''}">${gameIcon('sword', 12, 'margin-right:5px')}Deal ${gameActionAmount} → target</button>
@@ -1703,9 +1760,8 @@ function _openDragDamageMenu(sourceId, targetId, x, y, rotated) {
       <button class="tablet-drag-deal" onclick="applyDragDamage('${sourceId}','${targetId}',1)">Deal 1</button>
     </div>
     <div class="tablet-drag-menu-row">
-      <input id="dragDmgAmount" type="number" min="1" inputmode="numeric" value="${gameActionAmount}"
-        oninput="gameActionAmount=Math.max(1,parseInt(this.value)||1)" onclick="event.stopPropagation()">
-      <button class="tablet-drag-deal" onclick="applyDragDamage('${sourceId}','${targetId}',parseInt(document.getElementById('dragDmgAmount').value)||1)">Deal X</button>
+      ${xStepper(game.id)}
+      <button class="tablet-drag-deal" onclick="applyDragDamage('${sourceId}','${targetId}',gameActionAmount)">Deal X</button>
     </div>
     <button class="tablet-drag-cancel" onclick="_closeDragMenu()">Cancel</button>`;
   menu.style.cssText = 'position:fixed;z-index:710;visibility:hidden';
