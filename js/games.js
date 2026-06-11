@@ -8,7 +8,6 @@ function hexToRgb(hex) {
 }
 let newGamePlayers = [];
 let newGameFirstPlayerIdx = null;
-let newGameAnimateFirstPlayer = true;
 let logEventGameId = null;
 const _lifeAnimState = {};
 let _lifeDiceRenderers = [];
@@ -220,17 +219,14 @@ async function openNewGame() {
   // Pre-fill slot 0 with current user
   const me = currentUser || {};
   newGamePlayers = [
-    { userId: me.id || null, name: me.email ? _displayName(me.email) : '', deckName: '', deckId: '', commander: '' },
-    { userId: null, name: '', deckName: '', deckId: '', commander: '' },
+    { userId: me.id || null, name: me.email ? _displayName(me.email) : '', deckName: '', deckId: '', commander: '', mulligans: 0 },
+    { userId: null, name: '', deckName: '', deckId: '', commander: '', mulligans: 0 },
   ];
   newGameFirstPlayerIdx = null;
-  newGameAnimateFirstPlayer = true;
   const fmtEl = document.getElementById('newGameFormat');
   if (fmtEl) fmtEl.value = 'Commander';
   const notesEl = document.getElementById('newGameNotes');
   if (notesEl) notesEl.value = '';
-  const animateToggleEl = document.getElementById('newGameAnimateFirstToggle');
-  if (animateToggleEl) animateToggleEl.checked = true;
 
   document.getElementById('newGameModal').classList.add('open');
   renderNewGamePlayersList();
@@ -243,18 +239,6 @@ async function openNewGame() {
 
   if (me.id) await _loadUserDecks(me.id);
   renderNewGamePlayersList();
-}
-
-function setNewGameFirstPlayerAnimation(enabled) {
-  newGameAnimateFirstPlayer = !!enabled;
-}
-
-function randomizeNewGameFirstPlayer(showToast = true) {
-  if (!newGamePlayers.length) return;
-  newGameFirstPlayerIdx = Math.floor(Math.random() * newGamePlayers.length);
-  renderNewGamePlayersList();
-  const p = newGamePlayers[newGameFirstPlayerIdx];
-  if (showToast) showNotif(`First player: ${p?.name?.trim() || `Player ${newGameFirstPlayerIdx + 1}`}`);
 }
 
 function rollNewGameFirstPlayerAnimated() {
@@ -307,7 +291,13 @@ function closeNewGameModal() {
 
 function addNewGamePlayer() {
   if (newGamePlayers.length >= 6) { showNotif('Max 6 players', true); return; }
-  newGamePlayers.push({ name: '', deckName: '', deckId: '', commander: '' });
+  newGamePlayers.push({ name: '', deckName: '', deckId: '', commander: '', mulligans: 0 });
+  renderNewGamePlayersList();
+}
+
+function ngpMull(i, delta) {
+  if (!newGamePlayers[i]) return;
+  newGamePlayers[i].mulligans = Math.max(0, (newGamePlayers[i].mulligans || 0) + delta);
   renderNewGamePlayersList();
 }
 
@@ -323,16 +313,20 @@ function renderNewGamePlayersList() {
   const fmt = document.getElementById('newGameFormat')?.value || 'Commander';
   const el = document.getElementById('newGamePlayersList');
   if (!el) return;
-  const firstWrap = document.getElementById('newGameFirstPlayer');
   if (newGameFirstPlayerIdx !== null && newGameFirstPlayerIdx >= newGamePlayers.length) newGameFirstPlayerIdx = null;
-  if (firstWrap) {
-    if (newGameFirstPlayerIdx === null) {
-      firstWrap.innerHTML = '<span style="color:var(--text3)">Not set yet</span>';
-    } else {
-      const fp = newGamePlayers[newGameFirstPlayerIdx];
-      firstWrap.innerHTML = `<span style="color:var(--gold)">P${newGameFirstPlayerIdx + 1} · ${fp?.name?.trim() || `Player ${newGameFirstPlayerIdx + 1}`}</span>`;
-    }
+
+  // Fixed columns so every row's inputs are the same width regardless of the remove
+  // button or commander. The commander column is shown for commander-style formats.
+  const isCmdFmt = fmt === 'Commander' || fmt === 'Brawl';
+  const cols = `10px 1fr 1fr${isCmdFmt ? ' 1fr' : ''} 86px 28px`;
+
+  const header = document.getElementById('newGamePlayersHeader');
+  if (header) {
+    header.style.gridTemplateColumns = cols;
+    header.innerHTML = `<div></div><div>NAME</div><div>DECK</div>${isCmdFmt ? '<div>COMMANDER</div>' : ''}<div style="text-align:center">MULL</div><div></div>`;
   }
+
+  const mullBtn = 'background:var(--bg3);border:1px solid var(--border2);color:var(--text2);border-radius:5px;width:20px;height:22px;cursor:pointer;font-size:0.95rem;line-height:1;padding:0';
 
   el.innerHTML = newGamePlayers.map((p, i) => {
     const userOpts = _allAppUsers.map(u =>
@@ -348,15 +342,20 @@ function renderNewGamePlayersList() {
     const selDeck   = userDecks.find(d => d.id === p.deckId);
 
     return `
-    <div style="display:grid;grid-template-columns:10px 1fr 1fr${selDeck?.commander ? ' 1fr' : ''}${i >= 2 ? ' 28px' : ''};gap:8px;align-items:center;padding:9px 0;border-bottom:1px solid var(--border)">
+    <div style="display:grid;grid-template-columns:${cols};gap:8px;align-items:center;padding:9px 0;border-bottom:1px solid var(--border)">
       <div style="width:10px;height:10px;border-radius:50%;background:${GAME_COLORS[i % GAME_COLORS.length]};flex-shrink:0"></div>
       <select onchange="ngpUserSelect(${i}, this.value)" style="min-width:0">
         <option value="">— select player —</option>
         ${userOpts}
       </select>
       ${showDeck ? `<select onchange="ngpDeckSelect(${i}, this.value)" style="min-width:0">${deckOpts}</select>` : `<div style="font-size:0.78rem;color:var(--text3);padding:4px 0">${p.userId ? 'No decks' : ''}</div>`}
-      ${selDeck?.commander ? `<div style="font-size:0.78rem;color:var(--gold);font-family:'Cinzel',serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0">${selDeck.commander}</div>` : ''}
-      ${i >= 2 ? `<button class="btn btn-ghost btn-icon" onclick="removeNewGamePlayer(${i})" style="color:var(--red);padding:3px 5px;font-size:0.85rem">✕</button>` : ''}
+      ${isCmdFmt ? `<div style="font-size:0.78rem;color:var(--gold);font-family:'Cinzel',serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0">${selDeck?.commander || ''}</div>` : ''}
+      <div style="display:flex;align-items:center;gap:3px;justify-content:center" title="Mulligans taken before the game">
+        <button type="button" onclick="ngpMull(${i},-1)" style="${mullBtn}">−</button>
+        <span style="min-width:14px;text-align:center;font-family:'JetBrains Mono',monospace;font-size:0.85rem">${p.mulligans || 0}</span>
+        <button type="button" onclick="ngpMull(${i},1)" style="${mullBtn}">+</button>
+      </div>
+      ${i >= 2 ? `<button class="btn btn-ghost btn-icon" onclick="removeNewGamePlayer(${i})" style="color:var(--red);padding:3px 5px;font-size:0.85rem">✕</button>` : '<div></div>'}
     </div>`;
   }).join('');
 }
@@ -396,7 +395,8 @@ async function submitNewGame() {
   const fmt = document.getElementById('newGameFormat').value;
   const notes = document.getElementById('newGameNotes').value.trim();
   const startLife = fmt === 'Commander' ? 40 : fmt === 'Brawl' ? 25 : 20;
-  if (newGameAnimateFirstPlayer) await rollNewGameFirstPlayerAnimated();
+  // First player is always chosen at random, with the roll animation.
+  await rollNewGameFirstPlayerAnimated();
 
   const players = newGamePlayers.map((p, i) => ({
     id: 'p' + i,
@@ -409,6 +409,7 @@ async function submitNewGame() {
     startingLife: startLife,
     life: startLife,
     poison: 0,
+    mulligans: p.mulligans || 0,
     commanderDamage: {},
     eliminated: false,
     placement: null,
@@ -432,7 +433,8 @@ async function submitNewGame() {
     turnDurations: [],
     log: [{
       id: 'e0', turn: 1, timestamp: Date.now(), type: 'game_start',
-      text: `Game started — ${fmt} · ${players.map(p => p.name).join(' vs ')} · ${firstPlayer.name} goes first`,
+      text: `Game started — ${fmt} · ${players.map(p => p.name).join(' vs ')} · ${firstPlayer.name} goes first`
+        + (() => { const m = players.filter(p => p.mulligans > 0).map(p => `${p.name} ${p.mulligans}`).join(', '); return m ? ` · Mulligans: ${m}` : ''; })(),
     }],
   };
 
@@ -1758,7 +1760,8 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
           ? `<span style="color:var(--red);letter-spacing:0.05em;display:inline-flex;align-items:center;gap:4px">${gameIcon('skull', 11)}ELIMINATED #${p.placement || '?'}</span>`
           : `${p.poison > 0 ? `<span style="color:${p.poison >= 8 ? 'var(--red)' : 'var(--text3)'};display:inline-flex;align-items:center;gap:4px">${gameIcon('skull', 11)}${p.poison}</span>` : ''}
              ${maxCmdDmg > 0 ? `<span style="color:${maxCmdDmg >= 16 ? 'var(--red)' : 'var(--text3)'};display:inline-flex;align-items:center;gap:4px">${gameIcon('sword', 11)}${maxCmdDmg} cmd</span>` : ''}
-             ${p.poison === 0 && maxCmdDmg === 0 ? `<span style="color:var(--text3);opacity:0.4">●</span>` : ''}`}
+             ${p.mulligans > 0 ? `<span style="color:var(--text3);display:inline-flex;align-items:center;gap:4px" title="Mulligans">🃏${p.mulligans}</span>` : ''}
+             ${p.poison === 0 && maxCmdDmg === 0 && !(p.mulligans > 0) ? `<span style="color:var(--text3);opacity:0.4">●</span>` : ''}`}
       </div>
     </div>
   </div>`;
