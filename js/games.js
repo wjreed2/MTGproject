@@ -1728,7 +1728,7 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
       ${inTargetMode
         ? `<div style="position:absolute;top:50%;right:8px;transform:translateY(-50%);font-size:clamp(0.6rem,1.3vw,0.78rem);color:var(--gold);animation:targetPulse 1s ease-in-out infinite">${targetLabel}</div>`
         : `${isActiveTurn ? `<div style="position:absolute;top:50%;${badgePos};transform:translateY(-50%);font-size:clamp(0.55rem,1.1vw,0.72rem);padding:2px 7px;background:rgba(${hexToRgb(p.color)},0.18);color:${p.color};border-radius:8px;letter-spacing:0.05em;white-space:nowrap">▶ ACTIVE</div>` : ''}
-           <div style="position:absolute;top:50%;${dotsPos};transform:translateY(-50%);display:flex;align-items:center;gap:5px">
+           <div style="position:absolute;top:50%;${dotsPos};transform:translateY(-50%);display:flex;align-items:center;gap:5px;flex-direction:${dotsPos.startsWith('left') ? 'row-reverse' : 'row'}">
              <span class="tablet-total-time" data-pid="${p.id}" title="Total time this player has spent on turns"
                style="font-family:'JetBrains Mono',monospace;font-size:clamp(0.5rem,1.05vw,0.7rem);color:var(--text3);white-space:nowrap">${formatDuration(playerTotalTime(game, p.id))}</span>
              <button onclick="openTabletMenu('${p.id}',this,event,${rotated})"
@@ -1740,7 +1740,7 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
 
     <!-- Life total -->
     <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:clamp(3px,0.8vh,8px);min-height:0">
-      <div style="font-family:'JetBrains Mono',monospace;font-size:clamp(3.1rem,${total <= 2 ? '18' : total <= 4 ? '12.5' : '9.4'}vw,${total <= 2 ? '12.5rem' : total <= 4 ? '8.2rem' : '6rem'});font-weight:700;line-height:1;color:${lifeColor};text-shadow:0 0 52px ${p.color}25;transition:color 0.25s;user-select:none">${p.life}</div>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:clamp(3.1rem,${total <= 2 ? '18' : total <= 4 ? '12.5' : '9.4'}vw,${total <= 2 ? '12.5rem' : total <= 4 ? '8.2rem' : '6rem'});font-weight:700;line-height:1;color:${lifeColor};text-shadow:0 0 38px ${p.color}2e;transition:color 0.25s;user-select:none">${p.life}</div>
       <div style="font-size:clamp(0.55rem,1.2vw,0.78rem);color:var(--text3)">of ${p.startingLife}</div>
       ${isCmd ? `<div style="display:flex;align-items:center;justify-content:center;gap:4px;flex-wrap:wrap;padding:0 8px;min-height:16px">${cmdBadges}</div>` : ''}
     </div>
@@ -1792,9 +1792,12 @@ function tabletDragPointerDown(e) {
   const r = cell.getBoundingClientRect();
   _tabletDrag = {
     sourceId: cell.dataset.pid, pointerId: e.pointerId, dragging: false,
+    sourceRotated: cell.dataset.rotated === '1',
     startX: e.clientX, startY: e.clientY,
     originX: r.left + r.width / 2, originY: r.top + r.height / 2,
-    targets: [], currentPid: null,
+    // Seed currentPid with the source so sitting on your own cell at the start of
+    // the drag doesn't auto-select you; leaving and returning still targets self.
+    targets: [], currentPid: cell.dataset.pid,
   };
 }
 
@@ -1809,8 +1812,8 @@ function tabletDragPointerMove(e) {
   }
   e.preventDefault();
   const cell = _cellElAt(e.clientX, e.clientY);
-  const pid = (cell && cell.dataset.pid && cell.dataset.pid !== _tabletDrag.sourceId && cell.dataset.elim !== '1') ? cell.dataset.pid : null;
-  // Commit a target the first time the pointer sweeps into its cell.
+  const pid = (cell && cell.dataset.pid && cell.dataset.elim !== '1') ? cell.dataset.pid : null;
+  // Commit a target the first time the pointer sweeps into its cell (self included).
   if (pid !== _tabletDrag.currentPid) {
     _tabletDrag.currentPid = pid;
     if (pid && !_tabletDrag.targets.includes(pid)) {
@@ -1830,11 +1833,12 @@ function tabletDragPointerUp(e) {
   // Include whatever cell the pointer is over at release, then deal to all targets.
   const cell = _cellElAt(e.clientX, e.clientY);
   const relPid = cell && cell.dataset.pid;
-  if (relPid && relPid !== drag.sourceId && cell.dataset.elim !== '1' && !drag.targets.includes(relPid)) {
+  if (relPid && cell.dataset.elim !== '1' && !drag.targets.includes(relPid)) {
     drag.targets.push(relPid);
   }
   if (!drag.targets.length) { _highlightDragTargets([]); return; }
-  _openDragDamageMenu(drag.sourceId, drag.targets.slice(), e.clientX, e.clientY, cell && cell.dataset.rotated === '1');
+  // Orient the menu 'up' for whoever started the drag, not where it was released.
+  _openDragDamageMenu(drag.sourceId, drag.targets.slice(), e.clientX, e.clientY, drag.sourceRotated);
 }
 
 function _highlightDragTargets(pids) {
@@ -1957,7 +1961,8 @@ function applyDragDamage(amount) {
   _snapshotGame(game);
   ctx.targetIds.forEach(tid => {
     const target = game.players.find(p => p.id === tid);
-    if (target && !target.eliminated) dealDamage(game, target, amt, src);
+    // No "from X" attribution when a player targets themselves.
+    if (target && !target.eliminated) dealDamage(game, target, amt, tid === ctx.sourceId ? null : src);
   });
   save('games');
   renderTabletView();
