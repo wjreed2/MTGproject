@@ -528,11 +528,11 @@ function renderPlayerCard(game, p) {
       <button onclick="selfLifeChange('${game.id}','${p.id}',1,false)"
         class="life-btn life-btn-pos" ${p.eliminated ? 'disabled' : ''}>+1</button>
       <button onclick="selfLifeChange('${game.id}','${p.id}',1,true)"
-        class="life-btn life-btn-pos" ${p.eliminated ? 'disabled' : ''}>+${gameActionAmount}</button>
+        class="life-btn life-btn-pos" ${p.eliminated ? 'disabled' : ''}>+${actAmt(p)}</button>
       <button onclick="selfLifeChange('${game.id}','${p.id}',-1,false)"
         class="life-btn life-btn-neg" ${p.eliminated ? 'disabled' : ''}>−1</button>
       <button onclick="selfLifeChange('${game.id}','${p.id}',-1,true)"
-        class="life-btn life-btn-neg" ${p.eliminated ? 'disabled' : ''}>−${gameActionAmount}</button>
+        class="life-btn life-btn-neg" ${p.eliminated ? 'disabled' : ''}>−${actAmt(p)}</button>
     </div>
 
     <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-top:1px solid var(--border);margin-top:4px;font-size:0.75rem" onclick="event.stopPropagation()">
@@ -825,9 +825,9 @@ function renderActionBar(game) {
   const isAllMode = gameActionMode === 'deal1all' || gameActionMode === 'dealXall';
   const hint = {
     deal1:    '→ click a player to deal 1 damage',
-    dealX:    `→ click a player to deal ${gameActionAmount} damage`,
+    dealX:    `→ click a player to deal ${activeAmt(game)} damage`,
     deal1all: '→ deals 1 to all opponents — click any player to confirm',
-    dealXall: `→ deals ${gameActionAmount} to all opponents — click any player to confirm`,
+    dealXall: `→ deals ${activeAmt(game)} to all opponents — click any player to confirm`,
   }[gameActionMode];
 
   return `
@@ -838,9 +838,9 @@ function renderActionBar(game) {
     </div>
     <div style="display:flex;gap:4px;flex-wrap:wrap">
       <button class="btn btn-sm ${gameActionMode === 'deal1'    ? 'btn-primary' : 'btn-outline'}" onclick="setActionMode('deal1','${game.id}')" style="display:inline-flex;align-items:center;gap:5px">${gameIcon('sword', 12)}Deal 1 → target</button>
-      <button class="btn btn-sm ${gameActionMode === 'dealX'    ? 'btn-primary' : 'btn-outline'}" onclick="setActionMode('dealX','${game.id}')" style="display:inline-flex;align-items:center;gap:5px">${gameIcon('sword', 12)}Deal ${gameActionAmount} → target</button>
+      <button class="btn btn-sm ${gameActionMode === 'dealX'    ? 'btn-primary' : 'btn-outline'}" onclick="setActionMode('dealX','${game.id}')" style="display:inline-flex;align-items:center;gap:5px">${gameIcon('sword', 12)}Deal ${activeAmt(game)} → target</button>
       <button class="btn btn-sm ${gameActionMode === 'deal1all' ? 'btn-primary' : 'btn-outline'}" onclick="setActionMode('deal1all','${game.id}')" style="display:inline-flex;align-items:center;gap:5px">${gameIcon('sword', 12)}Deal 1 → all opps</button>
-      <button class="btn btn-sm ${gameActionMode === 'dealXall' ? 'btn-primary' : 'btn-outline'}" onclick="setActionMode('dealXall','${game.id}')" style="display:inline-flex;align-items:center;gap:5px">${gameIcon('sword', 12)}Deal ${gameActionAmount} → all opps</button>
+      <button class="btn btn-sm ${gameActionMode === 'dealXall' ? 'btn-primary' : 'btn-outline'}" onclick="setActionMode('dealXall','${game.id}')" style="display:inline-flex;align-items:center;gap:5px">${gameIcon('sword', 12)}Deal ${activeAmt(game)} → all opps</button>
     </div>
     ${gameActionMode ? `
     <div style="display:flex;align-items:center;gap:6px;padding:3px 10px;background:var(--gold-dim);border:1px solid rgba(200,168,74,0.3);border-radius:var(--radius);font-size:0.78rem;color:var(--gold);flex-shrink:0">
@@ -865,43 +865,61 @@ function cancelAction(gameId) {
 }
 
 let _actionAmountTimer = null;
-function setActionAmount(val, gameId) {
-  gameActionAmount = Math.max(1, parseInt(val) || 1);
-  // Keep any visible steppers in sync immediately; the debounced re-render below
-  // refreshes the +X/−X button labels and "Deal X" hints.
-  document.querySelectorAll('.x-stepper-val').forEach(s => { s.textContent = gameActionAmount; });
+
+// X is per-player: each player carries their own step/attack amount in
+// player.actionAmount, falling back to the shared default for older games.
+function actAmt(p) { return Math.max(1, (p && p.actionAmount) || gameActionAmount); }
+function activeAmt(game) { return actAmt(game && game.players[game.activePlayerIdx ?? 0]); }
+
+function setActionAmount(gameId, playerId, val) {
+  const game = games.find(g => g.id === gameId);
+  if (!game) return;
+  const p = playerId ? game.players.find(pl => pl.id === playerId) : game.players[game.activePlayerIdx ?? 0];
+  if (!p) return;
+  p.actionAmount = Math.max(1, parseInt(val) || 1);
+  // Sync this player's visible stepper(s) immediately; debounce the persist + full
+  // re-render that refreshes the +X/−X button labels and "Deal X" hints.
+  document.querySelectorAll(`.x-stepper[data-pid="${p.id}"] .x-stepper-val`).forEach(s => { s.textContent = p.actionAmount; });
   clearTimeout(_actionAmountTimer);
   _actionAmountTimer = setTimeout(() => {
-    const game = games.find(g => g.id === gameId);
-    if (!game) return;
+    save('games');
     if (tabletViewGameId) renderTabletView(); else renderActiveGame(game);
   }, 400);
 }
+function adjustActionAmount(gameId, playerId, delta) {
+  const game = games.find(g => g.id === gameId);
+  if (!game) return;
+  const p = playerId ? game.players.find(pl => pl.id === playerId) : game.players[game.activePlayerIdx ?? 0];
+  if (p) setActionAmount(gameId, p.id, actAmt(p) + delta);
+}
 
 // ── X-amount stepper (scroll/drag, no keyboard) ────────────────────────────────
-// A compact replacement for the number inputs that set gameActionAmount. Change
-// the value by scrolling (wheel/trackpad) or dragging up/down over it, or with the
-// ± buttons — so the on-screen keyboard never pops up to cover the board.
-function xStepper(gameId) {
-  return `<div class="x-stepper" onwheel="xStepperWheel(event,'${gameId}')"
-      onpointerdown="xStepperPointerDown(event,'${gameId}')" onclick="event.stopPropagation()"
+// Compact, keyboard-free control for a player's X. Change by scrolling
+// (wheel/trackpad), dragging up/down, or the ± buttons. Pass a playerId to bind it
+// to that player; omit it to bind to the active player (the game-level deal bar).
+function xStepper(gameId, playerId) {
+  const game = games.find(g => g.id === gameId);
+  const p = !game ? null : (playerId ? game.players.find(pl => pl.id === playerId) : game.players[game.activePlayerIdx ?? 0]);
+  const pid = p ? p.id : '';
+  return `<div class="x-stepper" data-pid="${pid}" onwheel="xStepperWheel(event,'${gameId}','${pid}')"
+      onpointerdown="xStepperPointerDown(event,'${gameId}','${pid}')" onclick="event.stopPropagation()"
       title="Scroll or drag up/down to change">
-      <button type="button" class="x-stepper-btn" onclick="event.stopPropagation();setActionAmount(gameActionAmount-1,'${gameId}')">−</button>
-      <span class="x-stepper-val">${gameActionAmount}</span>
-      <button type="button" class="x-stepper-btn" onclick="event.stopPropagation();setActionAmount(gameActionAmount+1,'${gameId}')">+</button>
+      <button type="button" class="x-stepper-btn" onclick="event.stopPropagation();adjustActionAmount('${gameId}','${pid}',-1)">−</button>
+      <span class="x-stepper-val">${actAmt(p)}</span>
+      <button type="button" class="x-stepper-btn" onclick="event.stopPropagation();adjustActionAmount('${gameId}','${pid}',1)">+</button>
     </div>`;
 }
 
 let _xStepDrag = null;
-function xStepperWheel(e, gameId) {
+function xStepperWheel(e, gameId, playerId) {
   e.preventDefault(); e.stopPropagation();
-  setActionAmount(gameActionAmount + (e.deltaY < 0 ? 1 : -1), gameId);
+  adjustActionAmount(gameId, playerId, e.deltaY < 0 ? 1 : -1);
 }
-function xStepperPointerDown(e, gameId) {
+function xStepperPointerDown(e, gameId, playerId) {
   if (e.target.closest('button')) return;   // let the ± buttons handle their own taps
   e.stopPropagation();
   const el = e.currentTarget;
-  _xStepDrag = { gameId, pointerId: e.pointerId, lastY: e.clientY, acc: 0 };
+  _xStepDrag = { gameId, playerId, pointerId: e.pointerId, lastY: e.clientY, acc: 0 };
   try { el.setPointerCapture(e.pointerId); } catch (_) {}
   el.onpointermove = xStepperPointerMove;
   el.onpointerup = el.onpointercancel = xStepperPointerUp;
@@ -915,13 +933,66 @@ function xStepperPointerMove(e) {
   while (Math.abs(_xStepDrag.acc) >= STEP) {
     const dir = _xStepDrag.acc > 0 ? 1 : -1;
     _xStepDrag.acc -= dir * STEP;
-    setActionAmount(gameActionAmount + dir, _xStepDrag.gameId);
+    adjustActionAmount(_xStepDrag.gameId, _xStepDrag.playerId, dir);
   }
 }
 function xStepperPointerUp(e) {
   const el = e.currentTarget;
   if (el) el.onpointermove = el.onpointerup = el.onpointercancel = null;
   _xStepDrag = null;
+}
+
+// ── Undo (in-memory snapshot stack, one per game) ──────────────────────────────
+// Every reversible user action snapshots the mutable game state first; undo pops
+// the latest snapshot and restores it. Pressing undo repeatedly walks back many
+// actions. History lives only for the session (not persisted) to avoid bloat.
+const _undoStacks = {};
+function _snapshotGame(game) {
+  const snap = JSON.stringify({
+    players: game.players, currentTurn: game.currentTurn,
+    activePlayerIdx: game.activePlayerIdx, turnStartedAt: game.turnStartedAt,
+    status: game.status, winner: game.winner,
+    log: game.log, turnDurations: game.turnDurations,
+    turnPaused: _turnPaused, pausedElapsed: _pausedElapsed,
+  });
+  const stack = _undoStacks[game.id] || (_undoStacks[game.id] = []);
+  stack.push(snap);
+  if (stack.length > 100) stack.shift();
+}
+function canUndo(gameId) { return (_undoStacks[gameId] || []).length > 0; }
+function undoGameAction(gameId) {
+  const game = games.find(g => g.id === gameId);
+  const stack = _undoStacks[gameId];
+  if (!game || !stack || !stack.length) { showNotif('Nothing to undo'); return; }
+  const snap = JSON.parse(stack.pop());
+  game.players = snap.players;
+  game.currentTurn = snap.currentTurn;
+  game.activePlayerIdx = snap.activePlayerIdx;
+  game.turnStartedAt = snap.turnStartedAt;
+  game.status = snap.status;
+  game.winner = snap.winner;
+  game.log = snap.log;
+  game.turnDurations = snap.turnDurations;
+  _turnPaused = snap.turnPaused;
+  _pausedElapsed = snap.pausedElapsed;
+  gameActionMode = null;
+  save('games');
+  if (tabletViewGameId) { renderTabletView(); _syncOpenMenuCmd(game); }
+  renderActiveGame(game);
+  showNotif('Undid last action');
+}
+// Refresh the commander-damage numbers in an open tablet menu (it lives on <body>,
+// outside the re-rendered #tabletView) after an undo changes them.
+function _syncOpenMenuCmd(game) {
+  const menu = document.querySelector('.tablet-player-menu');
+  if (!menu) return;
+  const pid = menu.dataset.pid;
+  menu.querySelectorAll('.cmd-dmg-val[data-cmddmg]').forEach(span => {
+    const op = game.players.find(p => p.id === span.dataset.cmddmg);
+    const dmg = op ? ((op.commanderDamage || {})[pid] || 0) : 0;
+    span.textContent = dmg;
+    span.style.color = dmg >= 16 ? 'var(--red)' : '';
+  });
 }
 
 function applyGameAction(gameId, targetId) {
@@ -935,14 +1006,16 @@ function applyGameAction(gameId, targetId) {
     // Deal to the clicked target; source is the active player
     const target = game.players.find(p => p.id === targetId);
     if (!target || target.eliminated) return;
-    const amount = gameActionMode === 'deal1' ? 1 : gameActionAmount;
+    const amount = gameActionMode === 'deal1' ? 1 : activeAmt(game);
     const src = (activePlayer && activePlayer.id !== targetId) ? activePlayer : null;
+    _snapshotGame(game);
     dealDamage(game, target, amount, src);
 
   } else if (gameActionMode === 'deal1all' || gameActionMode === 'dealXall') {
     // Deal to ALL opponents of the active player (everyone except active player).
     // Any tap is just a confirmation — the clicked player doesn't change the targets.
-    const amount = gameActionMode === 'deal1all' ? 1 : gameActionAmount;
+    const amount = gameActionMode === 'deal1all' ? 1 : activeAmt(game);
+    _snapshotGame(game);
     game.players
       .filter(p => p.id !== (activePlayer?.id) && !p.eliminated)
       .forEach(p => dealDamage(game, p, amount, activePlayer || null));
@@ -969,7 +1042,8 @@ function selfLifeChange(gameId, playerId, direction, useX) {
   if (!game || game.status !== 'active') return;
   const player = game.players.find(p => p.id === playerId);
   if (!player || player.eliminated) return;
-  const amount = useX ? gameActionAmount : 1;
+  const amount = useX ? actAmt(player) : 1;
+  _snapshotGame(game);
   const delta = direction > 0 ? amount : -amount;
   player.life = Math.max(-99, player.life + delta);
   const dir = delta > 0 ? 'gained' : 'lost';
@@ -988,6 +1062,7 @@ function changePoison(gameId, playerId, delta) {
   if (!game || game.status !== 'active') return;
   const player = game.players.find(p => p.id === playerId);
   if (!player || player.eliminated) return;
+  _snapshotGame(game);
   player.poison = Math.max(0, player.poison + delta);
   addLog(game, { type: 'poison', text: `${player.name} → ${player.poison} poison counter${player.poison !== 1 ? 's' : ''}` });
   if (player.poison >= 10 && !player.eliminated) eliminatePlayer(game, player, 'poison');
@@ -1000,6 +1075,7 @@ function changeCommanderDamage(gameId, targetId, sourceId, delta) {
   const target = game.players.find(p => p.id === targetId);
   const source = game.players.find(p => p.id === sourceId);
   if (!target || !source) return;
+  _snapshotGame(game);
   if (!target.commanderDamage) target.commanderDamage = {};
   target.commanderDamage[sourceId] = Math.max(0, (target.commanderDamage[sourceId] || 0) + delta);
   const total = target.commanderDamage[sourceId];
@@ -1046,6 +1122,7 @@ function autoEndGame(game, winner) {
 function nextTurn(gameId) {
   const game = games.find(g => g.id === gameId);
   if (!game) return;
+  _snapshotGame(game);
   const current = game.activePlayerIdx ?? 0;
   const total = game.players.length;
   let next = (current + 1) % total;
@@ -1356,6 +1433,7 @@ function openTabletView(gameId) {
   document.body.style.overflow = 'hidden';
   document.getElementById('tabletView').style.display = 'grid';
   _setTabletZoomLock(true);   // no pinch / double-tap zoom while propped up as a scoreboard
+  _setTabletFullscreen(true); // hide the OS status bar (time/battery) where supported
   _acquireWakeLock();   // keep the screen awake while propped up during a game
   renderTabletView();
 }
@@ -1365,8 +1443,32 @@ function closeTabletView() {
   document.getElementById('tabletView').style.display = 'none';
   document.body.style.overflow = '';
   _setTabletZoomLock(false);
+  _setTabletFullscreen(false);
   tabletViewGameId = null;
   _releaseWakeLock();
+}
+
+// Request/exit fullscreen so the OS status bar is hidden while the scoreboard is up.
+// Triggered by the button tap that opens the view, satisfying the user-gesture
+// requirement. Works on Android Chrome and iPadOS Safari; iPhone Safari has no
+// Fullscreen API, so the bar stays there. All calls are guarded — never throw.
+function _setTabletFullscreen(on) {
+  try {
+    if (on) {
+      const el = document.documentElement;
+      const req = el.requestFullscreen || el.webkitRequestFullscreen;
+      if (req && !document.fullscreenElement && !document.webkitFullscreenElement) {
+        const r = req.call(el);
+        if (r && r.catch) r.catch(() => {});
+      }
+    } else {
+      const exit = document.exitFullscreen || document.webkitExitFullscreen;
+      if (exit && (document.fullscreenElement || document.webkitFullscreenElement)) {
+        const r = exit.call(document);
+        if (r && r.catch) r.catch(() => {});
+      }
+    }
+  } catch (_) { /* fullscreen unavailable (e.g. iPhone Safari) — ignore */ }
 }
 
 // Toggle the viewport zoom lock. Keyboard-free steppers (see xStepper) mean the
@@ -1439,21 +1541,23 @@ function openTabletMenu(playerId, btn, e, rotated = false) {
   menu.dataset.pid = playerId;
   menu.onclick = e => e.stopPropagation();
   menu.style.cssText = 'position:fixed;z-index:700;background:color-mix(in oklab, var(--bg2) 94%, transparent);border:1px solid var(--border2);border-radius:12px;padding:8px;min-width:215px;max-width:min(300px,90vw);box-shadow:0 12px 40px rgba(0,0,0,0.35);visibility:hidden';
+  const hasUndo = canUndo(game.id);
   menu.innerHTML = `
     <div style="display:flex;align-items:center;gap:8px;padding:5px 8px 8px;border-bottom:1px solid var(--border);margin-bottom:4px">
-      <span style="font-size:0.72rem;color:var(--text3);flex:1">X damage =</span>
-      ${xStepper(game.id)}
+      <span style="font-size:0.72rem;color:var(--text3);flex:1">${player ? player.name + "'s" : ''} X =</span>
+      ${xStepper(game.id, playerId)}
     </div>
     <button onclick="${cm};setActionMode('deal1','${game.id}')"    style="${mi}${gameActionMode==='deal1'    ? mia : ''}">${gameIcon('sword', 12, 'margin-right:5px')}Deal 1 → target</button>
-    <button onclick="${cm};setActionMode('dealX','${game.id}')"    style="${mi}${gameActionMode==='dealX'    ? mia : ''}">${gameIcon('sword', 12, 'margin-right:5px')}Deal ${gameActionAmount} → target</button>
+    <button onclick="${cm};setActionMode('dealX','${game.id}')"    style="${mi}${gameActionMode==='dealX'    ? mia : ''}">${gameIcon('sword', 12, 'margin-right:5px')}Deal ${activeAmt(game)} → target</button>
     <button onclick="${cm};setActionMode('deal1all','${game.id}')" style="${mi}${gameActionMode==='deal1all' ? mia : ''}">${gameIcon('sword', 12, 'margin-right:5px')}Deal 1 → all opps</button>
-    <button onclick="${cm};setActionMode('dealXall','${game.id}')" style="${mi}${gameActionMode==='dealXall' ? mia : ''}">${gameIcon('sword', 12, 'margin-right:5px')}Deal ${gameActionAmount} → all opps</button>
+    <button onclick="${cm};setActionMode('dealXall','${game.id}')" style="${mi}${gameActionMode==='dealXall' ? mia : ''}">${gameIcon('sword', 12, 'margin-right:5px')}Deal ${activeAmt(game)} → all opps</button>
     ${cmdEditorRows ? `
       <div style="border-top:1px solid var(--border);margin:6px 0 4px"></div>
       <div style="padding:4px 8px 2px;font-size:0.62rem;letter-spacing:0.07em;color:var(--text3)">COMMANDER DAMAGE DEALT</div>
       <div style="padding:2px 6px 4px">${cmdEditorRows}</div>
     ` : ''}
     <div style="border-top:1px solid var(--border);margin:5px 0 4px"></div>
+    <button onclick="undoGameAction('${game.id}')" style="${mi}${hasUndo ? '' : 'opacity:0.4;'}">↶ Undo last action</button>
     <button onclick="${cm};nextTurn('${game.id}')" style="${mi}">→ Next Turn</button>`;
   document.body.appendChild(menu);
 
@@ -1492,9 +1596,9 @@ function renderTabletView() {
   const isAllMode = gameActionMode === 'deal1all' || gameActionMode === 'dealXall';
   const actionHint = {
     deal1:    '→ tap a player to deal 1 damage',
-    dealX:    `→ tap a player to deal ${gameActionAmount} damage`,
+    dealX:    `→ tap a player to deal ${activeAmt(game)} damage`,
     deal1all: '→ deals 1 to all opponents — tap any player to confirm',
-    dealXall: `→ deals ${gameActionAmount} to all opponents — tap any player to confirm`,
+    dealXall: `→ deals ${activeAmt(game)} to all opponents — tap any player to confirm`,
   }[gameActionMode] || '';
   const activePlayer = game.players[game.activePlayerIdx ?? 0];
 
@@ -1623,9 +1727,9 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
     <div style="padding:clamp(5px,1.2vh,9px) clamp(8px,1.8vw,16px) 0;border-top:1px solid ${p.color}25" onclick="event.stopPropagation()">
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:clamp(3px,0.55vw,7px);margin-bottom:clamp(4px,0.8vh,7px)">
         <button onclick="selfLifeChange('${game.id}','${p.id}',1,false)"  class="tablet-life-btn tablet-life-btn-pos" ${p.eliminated ? 'disabled' : ''}>+1</button>
-        <button onclick="selfLifeChange('${game.id}','${p.id}',1,true)"   class="tablet-life-btn tablet-life-btn-pos" ${p.eliminated ? 'disabled' : ''}>+${gameActionAmount}</button>
+        <button onclick="selfLifeChange('${game.id}','${p.id}',1,true)"   class="tablet-life-btn tablet-life-btn-pos" ${p.eliminated ? 'disabled' : ''}>+${actAmt(p)}</button>
         <button onclick="selfLifeChange('${game.id}','${p.id}',-1,false)" class="tablet-life-btn tablet-life-btn-neg" ${p.eliminated ? 'disabled' : ''}>−1</button>
-        <button onclick="selfLifeChange('${game.id}','${p.id}',-1,true)"  class="tablet-life-btn tablet-life-btn-neg" ${p.eliminated ? 'disabled' : ''}>−${gameActionAmount}</button>
+        <button onclick="selfLifeChange('${game.id}','${p.id}',-1,true)"  class="tablet-life-btn tablet-life-btn-neg" ${p.eliminated ? 'disabled' : ''}>−${actAmt(p)}</button>
       </div>
       <!-- Status -->
       <div style="display:flex;gap:clamp(6px,1.2vw,12px);justify-content:center;align-items:center;padding-bottom:clamp(3px,0.7vh,6px);font-size:clamp(0.56rem,1.1vw,0.74rem)">
@@ -1808,8 +1912,8 @@ function _openDragDamageMenu(sourceId, targetIds, x, y, rotated) {
       <button class="tablet-drag-deal" onclick="applyDragDamage(1)">Deal 1${each}</button>
     </div>
     <div class="tablet-drag-menu-row">
-      ${xStepper(game.id)}
-      <button class="tablet-drag-deal" onclick="applyDragDamage(gameActionAmount)">Deal X${each}</button>
+      ${xStepper(game.id, source.id)}
+      <button class="tablet-drag-deal" onclick="applyDragDamage(-1)">Deal X${each}</button>
     </div>
     <button class="tablet-drag-cancel" onclick="_closeDragMenu()">Cancel</button>`;
   menu.style.cssText = 'position:fixed;z-index:710;visibility:hidden';
@@ -1847,7 +1951,8 @@ function applyDragDamage(amount) {
   if (!ctx || !game || game.status !== 'active') return;
   const source = game.players.find(p => p.id === ctx.sourceId);
   const src = (source && !source.eliminated) ? source : null;
-  const amt = Math.max(1, amount | 0);
+  const amt = amount < 0 ? actAmt(source) : Math.max(1, amount | 0);   // -1 = use source's X
+  _snapshotGame(game);
   ctx.targetIds.forEach(tid => {
     const target = game.players.find(p => p.id === tid);
     if (target && !target.eliminated) dealDamage(game, target, amt, src);
