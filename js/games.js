@@ -960,17 +960,18 @@ function xStepperPointerUp(e) {
 }
 
 // ── Undo (in-memory snapshot stack, one per game) ──────────────────────────────
-// Every reversible user action snapshots the mutable game state first; undo pops
-// the latest snapshot and restores it. Pressing undo repeatedly walks back many
-// actions. History lives only for the session (not persisted) to avoid bloat.
+// Undo only reverts player tallies — life, poison, commander damage, and the
+// resulting elimination/game-end. Turn advancement and the timer are deliberately
+// NOT snapshotted, so undo never rewinds whose turn it is or the clock. History
+// lives only for the session (not persisted) to avoid bloat.
 const _undoStacks = {};
 function _snapshotGame(game) {
   const snap = JSON.stringify({
-    players: game.players, currentTurn: game.currentTurn,
-    activePlayerIdx: game.activePlayerIdx, turnStartedAt: game.turnStartedAt,
-    status: game.status, winner: game.winner,
-    log: game.log, turnDurations: game.turnDurations,
-    turnPaused: _turnPaused, pausedElapsed: _pausedElapsed,
+    players: game.players.map(p => ({
+      id: p.id, life: p.life, poison: p.poison,
+      commanderDamage: p.commanderDamage, eliminated: p.eliminated, placement: p.placement,
+    })),
+    status: game.status, winner: game.winner, log: game.log,
   });
   const stack = _undoStacks[game.id] || (_undoStacks[game.id] = []);
   stack.push(snap);
@@ -982,17 +983,16 @@ function undoGameAction(gameId) {
   const stack = _undoStacks[gameId];
   if (!game || !stack || !stack.length) { showNotif('Nothing to undo'); return; }
   const snap = JSON.parse(stack.pop());
-  game.players = snap.players;
-  game.currentTurn = snap.currentTurn;
-  game.activePlayerIdx = snap.activePlayerIdx;
-  game.turnStartedAt = snap.turnStartedAt;
+  // Restore per-player tallies in place (leaves name/color/deck/X untouched).
+  snap.players.forEach(sp => {
+    const p = game.players.find(x => x.id === sp.id);
+    if (!p) return;
+    p.life = sp.life; p.poison = sp.poison; p.commanderDamage = sp.commanderDamage;
+    p.eliminated = sp.eliminated; p.placement = sp.placement;
+  });
   game.status = snap.status;
   game.winner = snap.winner;
   game.log = snap.log;
-  game.turnDurations = snap.turnDurations;
-  _turnPaused = snap.turnPaused;
-  _pausedElapsed = snap.pausedElapsed;
-  gameActionMode = null;
   save('games');
   if (tabletViewGameId) { renderTabletView(); _syncOpenMenuCmd(game); }
   renderActiveGame(game);
@@ -1094,16 +1094,20 @@ function changeCommanderDamage(gameId, targetId, sourceId, delta) {
   if (!target || !source) return;
   _snapshotGame(game);
   if (!target.commanderDamage) target.commanderDamage = {};
-  target.commanderDamage[sourceId] = Math.max(0, (target.commanderDamage[sourceId] || 0) + delta);
-  const total = target.commanderDamage[sourceId];
-  if (delta > 0) {
-    target.life = Math.max(-99, target.life - delta);
-    addLog(game, { type: 'commander_damage', fromId: sourceId, toId: targetId, amount: delta,
-      text: `${source.name}'s commander dealt ${delta} to ${target.name} (${total} total) → ${target.name}: ${target.life} life` });
+  const before = target.commanderDamage[sourceId] || 0;
+  const total = Math.max(0, before + delta);
+  target.commanderDamage[sourceId] = total;
+  const applied = total - before;   // actual change after clamping at 0
+  // Commander damage and life move together: +cmd costs life, −cmd gives it back.
+  if (applied !== 0) target.life = Math.max(-99, target.life - applied);
+  if (applied > 0) {
+    addLog(game, { type: 'commander_damage', fromId: sourceId, toId: targetId, amount: applied,
+      text: `${source.name}'s commander dealt ${applied} to ${target.name} (${total} total) → ${target.name}: ${target.life} life` });
     if (total >= 21 && !target.eliminated) eliminatePlayer(game, target, 'commander damage (21+)');
     else if (target.life <= 0 && !target.eliminated) eliminatePlayer(game, target, 'life');
-  } else {
-    addLog(game, { type: 'commander_damage', text: `Adjusted: ${source.name} cmd dmg on ${target.name} → ${total}` });
+  } else if (applied < 0) {
+    addLog(game, { type: 'commander_damage', fromId: sourceId, toId: targetId, amount: applied,
+      text: `Removed ${-applied} commander damage from ${source.name} on ${target.name} (${total} total) → ${target.name}: ${target.life} life` });
   }
   save('games'); if (tabletViewGameId) renderTabletView(); renderActiveGame(game);
   // The commander-damage editor lives in the player menu (on <body>, outside the
@@ -1139,7 +1143,6 @@ function autoEndGame(game, winner) {
 function nextTurn(gameId) {
   const game = games.find(g => g.id === gameId);
   if (!game) return;
-  _snapshotGame(game);
   const current = game.activePlayerIdx ?? 0;
   const total = game.players.length;
   // Turn passes clockwise around the table, which is the reverse of array order
@@ -1651,10 +1654,6 @@ function renderTabletView() {
           ${_turnPaused ? `${gameIcon('play', 12, 'margin-right:5px')}Resume` : `${gameIcon('pause', 12, 'margin-right:5px')}Pause`}
         </button>
       </div>
-      ${!gameActionMode ? `
-      <div style="margin-top:7px;font-size:clamp(0.52rem,1.05vw,0.66rem);color:var(--text3);opacity:0.65;line-height:1.3">
-        Drag a player onto another<br>to deal damage
-      </div>` : ''}
       ${gameActionMode ? `
       <div style="margin-top:6px;padding:5px 8px;background:var(--gold-dim);border:1px solid rgba(200,168,74,0.35);
         border-radius:8px;font-size:0.72rem;color:var(--gold);display:flex;align-items:center;gap:5px;justify-content:center">
@@ -1797,7 +1796,7 @@ function tabletDragPointerDown(e) {
     originX: r.left + r.width / 2, originY: r.top + r.height / 2,
     // Seed currentPid with the source so sitting on your own cell at the start of
     // the drag doesn't auto-select you; leaving and returning still targets self.
-    targets: [], currentPid: cell.dataset.pid,
+    targets: [], anchors: [], currentPid: cell.dataset.pid,
   };
 }
 
@@ -1818,6 +1817,9 @@ function tabletDragPointerMove(e) {
     _tabletDrag.currentPid = pid;
     if (pid && !_tabletDrag.targets.includes(pid)) {
       _tabletDrag.targets.push(pid);
+      // Drop an anchor where the path bends, so the dotted line kinks toward each
+      // selected player instead of being one straight line to the finger.
+      _tabletDrag.anchors.push({ x: e.clientX, y: e.clientY });
       _highlightDragTargets(_tabletDrag.targets);
     }
   }
@@ -1861,27 +1863,37 @@ function _ensureDragArrow() {
   const head = document.createElementNS(NS, 'path');
   head.setAttribute('d', 'M0,0 L6,3 L0,6 Z'); head.setAttribute('fill', 'var(--gold)');
   marker.appendChild(head); defs.appendChild(marker); svg.appendChild(defs);
-  const line = document.createElementNS(NS, 'line');     // single dashed line trailing the pointer
-  line.setAttribute('stroke', 'var(--gold)'); line.setAttribute('stroke-width', '3');
-  line.setAttribute('stroke-linecap', 'round'); line.setAttribute('stroke-dasharray', '1 9');
-  line.setAttribute('marker-end', 'url(#dragArrowHead)');
-  const circ = document.createElementNS(NS, 'circle');
-  circ.setAttribute('r', '7'); circ.setAttribute('fill', 'var(--gold)');
-  svg.appendChild(line); svg.appendChild(circ);
+  const poly = document.createElementNS(NS, 'polyline');   // dotted path: origin → anchors → finger
+  poly.setAttribute('id', 'dragPoly');
+  poly.setAttribute('fill', 'none');
+  poly.setAttribute('stroke', 'var(--gold)'); poly.setAttribute('stroke-width', '3');
+  poly.setAttribute('stroke-linecap', 'round'); poly.setAttribute('stroke-linejoin', 'round');
+  poly.setAttribute('stroke-dasharray', '1 9');
+  poly.setAttribute('marker-end', 'url(#dragArrowHead)');
+  const dots = document.createElementNS(NS, 'g');          // origin + one dot per anchor
+  dots.setAttribute('id', 'dragDots');
+  svg.appendChild(poly); svg.appendChild(dots);
   document.body.appendChild(svg);
   _dragArrowEl = svg;
 }
 
-// Free-following dotted arrow from the source to the finger — no snapping. Selected
-// cells are shown by their red highlight (_highlightDragTargets), not by arrows.
+// Dotted path from the source, kinking at each committed-target anchor, then trailing
+// freely to the finger. Selected cells also show their red highlight.
 function _drawDragArrows(liveX, liveY) {
   if (!_dragArrowEl || !_tabletDrag) return;
-  const { originX, originY } = _tabletDrag;
-  const line = _dragArrowEl.querySelector('line');
-  const circ = _dragArrowEl.querySelector('circle');
-  line.setAttribute('x1', originX); line.setAttribute('y1', originY);
-  line.setAttribute('x2', liveX);  line.setAttribute('y2', liveY);
-  circ.setAttribute('cx', originX); circ.setAttribute('cy', originY);
+  const NS = 'http://www.w3.org/2000/svg';
+  const { originX, originY, anchors } = _tabletDrag;
+  const pts = [[originX, originY], ...anchors.map(a => [a.x, a.y]), [liveX, liveY]];
+  _dragArrowEl.querySelector('#dragPoly').setAttribute('points', pts.map(p => p.join(',')).join(' '));
+  const dots = _dragArrowEl.querySelector('#dragDots');
+  dots.textContent = '';
+  // Origin dot (larger) plus a dot at each anchor (the bend points).
+  [[originX, originY, 7], ...anchors.map(a => [a.x, a.y, 5])].forEach(([cx, cy, r]) => {
+    const c = document.createElementNS(NS, 'circle');
+    c.setAttribute('cx', cx); c.setAttribute('cy', cy); c.setAttribute('r', r);
+    c.setAttribute('fill', 'var(--gold)');
+    dots.appendChild(c);
+  });
 }
 
 function _removeDragArrow() {
