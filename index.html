@@ -2162,8 +2162,6 @@
       <button class="gf-btn" onclick="_gfeNewGame()" title="New game">↺ New</button>
       <button class="gf-btn" id="gfeMulliganBtn" onclick="_gfeMulligan()" title="London mulligan">Mulligan</button>
       <div class="gf-divider-v"></div>
-      <button class="gf-btn" onclick="_gfeNextPhase()" title="Next phase (Space) — also: E to skip to next turn">Next Phase ▶</button>
-      <div class="gf-divider-v"></div>
       <button class="gf-btn" id="gfeTokensBtn" onclick="_gfeToggleTokenPanel()" title="Spawn tokens from this deck">Tokens</button>
       <button class="gf-btn" id="gfeSimBtn" onclick="_gfeToggleSimPanel()" title="Simulate 1000 opening hands">Simulate</button>
     </div>
@@ -2190,19 +2188,6 @@
     </div>
     <span id="gfeFlash" class="gf-flash"></span>
     <div class="gf-header-right">
-      <div class="gf-life-hud" id="gfeLifeHud" onclick="_gfeOnLifeHudClick('you', event)">
-        <button class="gf-life-adj" onclick="event.stopPropagation();_gfeLifeDelta(-1)">−</button>
-        <span id="gfeLifeVal" class="gf-life-num">20</span>
-        <button class="gf-life-adj" onclick="event.stopPropagation();_gfeLifeDelta(1)">+</button>
-        <span class="gf-life-label">LIFE</span>
-      </div>
-      <div class="gf-life-hud gfe-opp-hud" id="gfeOppLifeHud" title="Opponent life" onclick="_gfeOnLifeHudClick('opp', event)">
-        <button class="gf-life-adj" onclick="event.stopPropagation();_gfeOppLifeDelta(-1)">−</button>
-        <span id="gfeOppLifeVal" class="gf-life-num">20</span>
-        <button class="gf-life-adj" onclick="event.stopPropagation();_gfeOppLifeDelta(1)">+</button>
-        <span class="gf-life-label">OPP</span>
-      </div>
-      <div class="gf-turn-hud">T<span id="gfeTurnVal">0</span></div>
       <div id="gfeManaPool" class="gfe-mana-pool" title="Floating mana — click lands and mana rocks to add mana; empties each phase"></div>
       <span class="gf-deck-name" id="gfeDeckLabel"></span>
       <button class="gf-close-btn" onclick="closeGoldfishEngine()" title="Close (Esc)">✕</button>
@@ -2211,10 +2196,6 @@
 
   <!-- Main layout -->
   <div class="gf-mat">
-
-    <div id="gfePhasePillsWrap" class="gfe-phase-pills-wrap">
-      <div id="gfePhasePills" class="gfe-phase-pills"></div>
-    </div>
 
     <div class="gf-mat-hud">
       <div id="gfeSimPanel" class="gf-sim-panel" aria-hidden="true">
@@ -2228,27 +2209,50 @@
       </div>
     </div>
 
-    <!-- Opponent (bot) band -->
-    <div id="gfeOppBand" class="gfe-opp-band" style="display:none">
-      <div class="gfe-opp-meta">
-        <span class="gfe-opp-tag">BOT</span>
-        <span id="gfeOppDeckLabel" class="gfe-opp-deck"></span>
+    <!-- Opponent (bot) plate — avatar, life, zone counts (Arena: top of screen) -->
+    <div id="gfeOppBand" class="gfe-opp-plate" style="display:none">
+      <div class="gfe-plate-avatar gfe-plate-avatar--opp">B</div>
+      <div class="gfe-plate-main">
+        <div class="gfe-plate-name"><span class="gfe-opp-tag">BOT</span> <span id="gfeOppDeckLabel" class="gfe-opp-deck"></span></div>
         <span class="gfe-opp-counts">
           <span title="Hand">✋ <span id="gfeOppHandCount">0</span></span>
           <span title="Library">▦ <span id="gfeOppLibCount">0</span></span>
           <span title="Graveyard">⚰ <span id="gfeOppGYCount">0</span></span>
         </span>
       </div>
-      <div id="gfeOppBattlefield" class="gfe-opp-battlefield"></div>
+      <div class="gf-life-hud gfe-opp-hud" id="gfeOppLifeHud" title="Opponent life" onclick="_gfeOnLifeHudClick('opp', event)">
+        <button class="gf-life-adj" onclick="event.stopPropagation();_gfeOppLifeDelta(-1)">−</button>
+        <span id="gfeOppLifeVal" class="gf-life-num">20</span>
+        <button class="gf-life-adj" onclick="event.stopPropagation();_gfeOppLifeDelta(1)">+</button>
+        <span id="gfeOppCtr" class="gf-player-ctr" title="Opponent poison / energy / experience counters"></span>
+      </div>
     </div>
     <div id="gfeBlockBar" class="gfe-block-bar" style="display:none"></div>
 
-    <!-- Middle row: battlefield left, zone quadrant right -->
+    <!-- Middle row: shared battlefield left, zone quadrant right -->
     <div class="gf-mid-row">
 
-      <div class="gf-bf-stack">
+      <div class="gf-bf-stack gfe-table">
+        <!-- Opponent half (mirrored: lands at the top, creatures by the center line) -->
+        <div id="gfeOppBattlefield" class="gfe-opp-battlefield" onclick="_gfeHideContextMenu()"></div>
+
+        <!-- Center divider: turn info + phase ribbon + advance buttons (Arena's middle strip) -->
+        <div id="gfeCenterBar" class="gfe-center-bar">
+          <div class="gfe-center-left">
+            <span id="gfeTurnWho" class="gfe-turn-who">—</span>
+            <span class="gf-turn-hud">T<span id="gfeTurnVal">0</span></span>
+          </div>
+          <div id="gfePhasePillsWrap" class="gfe-phase-pills-wrap">
+            <div id="gfePhasePills" class="gfe-phase-pills"></div>
+          </div>
+          <div class="gfe-center-right">
+            <button class="gf-btn gfe-advance-btn" onclick="_gfeNextPhase()" title="Next phase (Space)">Next ▶</button>
+            <button class="gf-btn gfe-advance-btn" onclick="_gfeEndTurn()" title="End turn (E)">End Turn</button>
+          </div>
+        </div>
+
+        <!-- Your half (creatures by the center line, lands at the bottom near hand) -->
         <div id="gfeBattlefield" class="gf-battlefield" data-gf-zone="battlefield" onmouseenter="_gfOnHoverEnter(this)" onmouseleave="_gfeOnHoverLeave(this)" onclick="_gfeHideContextMenu()"></div>
-        <div id="gfeBfManaPool" class="gfe-bf-mana-pool" aria-live="polite"></div>
       </div>
 
       <!-- Zone quadrant panel (2×2 grid, right side) -->
@@ -2292,8 +2296,17 @@
     <!-- Stack panel (absolute, top-right; hidden when empty) -->
     <div id="gfeStackPanel" class="gfe-stack-panel" style="display:none"></div>
 
-    <!-- Hand -->
+    <!-- Hand + your player plate (Arena: avatar/life above your hand, left) -->
     <div class="gf-hand-wrap" data-gf-zone="hand" onmouseenter="_gfOnHoverEnter(this)" onmouseleave="_gfeOnHoverLeave(this)">
+      <div class="gfe-player-plate">
+        <div class="gfe-plate-avatar gfe-plate-avatar--you">Y</div>
+        <div class="gf-life-hud" id="gfeLifeHud" onclick="_gfeOnLifeHudClick('you', event)">
+          <button class="gf-life-adj" onclick="event.stopPropagation();_gfeLifeDelta(-1)">−</button>
+          <span id="gfeLifeVal" class="gf-life-num">20</span>
+          <button class="gf-life-adj" onclick="event.stopPropagation();_gfeLifeDelta(1)">+</button>
+          <span id="gfePlayerCtr" class="gf-player-ctr" title="Your poison / energy / experience counters"></span>
+        </div>
+      </div>
       <div class="gf-hand-label">HAND · <span id="gfeHandCount">0</span></div>
       <div id="gfeHand" class="gf-hand"></div>
     </div>

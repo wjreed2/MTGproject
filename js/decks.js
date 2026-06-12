@@ -1320,6 +1320,11 @@ function _deckExtraZoneColumnPx(deck) {
   return _deckExtraZonesExpanded(deck) ? deckCardSize + 6 : _DECK_EXTRA_ZONE_PILL_W;
 }
 
+/** Phone-width viewport — same breakpoint as mobile.css (tablets are 769px+). */
+function _deckIsPhone() {
+  return typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 768px)').matches;
+}
+
 function _deckZonesBesideMainboard(el, deck, numCols) {
   const zoneW = _deckExtraZoneColumnPx(deck);
   const cols = Math.max(1, numCols || 1);
@@ -1339,7 +1344,9 @@ function _deckStackZoneLayout(el, deck, isVertical) {
   const zoneW = _deckExtraZoneColumnPx(deck);
   let numCols = 1;
   let zonesBeside = false;
-  if (isVertical) {
+  if (_deckIsPhone()) {
+    // phone: single column — decklist on top, zones stacked below
+  } else if (isVertical) {
     numCols = _calcVertColCount(el, deck, true);
     zonesBeside = _deckZonesBesideMainboard(el, deck, numCols);
     if (!zonesBeside) numCols = _calcVertColCount(el, deck, false);
@@ -4166,6 +4173,7 @@ function _deckPointerDragUnbind() {
 }
 
 function _deckZoneCardPointerDown(e) {
+  if (_deckIsPhone()) return; // phone: zone moves via card/inspector buttons only
   if (typeof activeDeckIsShared !== 'undefined' && activeDeckIsShared) return;
   if (e.button !== 0) return;
   const tile = e.currentTarget;
@@ -4509,6 +4517,7 @@ function _deckStackGroupPointerUnbind() {
 }
 
 function _deckStackGroupPointerDown(e) {
+  if (_deckIsPhone()) return; // phone: stack rearranging disabled
   if (typeof activeDeckIsShared !== 'undefined' && activeDeckIsShared) return;
   if (deckListView !== 'grid') return;
   if (e.button !== 0) return;

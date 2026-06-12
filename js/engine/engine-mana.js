@@ -110,6 +110,11 @@ function _baseManaUnits(card) {
   const addLines = oracle.match(/\{T\}[^.]*?:\s*Add\s+[^.]+/gi) || [];
 
   for (const line of addLines) {
+    // Abilities whose COST includes a sacrifice or discard (Treasure, Ashnod's
+    // Altar) aren't free repeatable sources — keep them out of the auto-tap
+    // pool. They're paid via the explicit mana-ability click flow instead.
+    const costPart = line.split(':')[0];
+    if (/sacrifice|discard/i.test(costPart)) continue;
     if (/any color/i.test(line)) {
       // "Add one mana of any color" → ONE mana that could be any of WUBRG
       units.push({ colors: ['W', 'U', 'B', 'R', 'G'] });
