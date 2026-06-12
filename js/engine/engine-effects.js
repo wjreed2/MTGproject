@@ -49,11 +49,28 @@ function stripTriggerPrefix(sentence) {
   m = s.match(/^when(?:ever)?\s+you\s+cast\s+((?:a|an|another)\b[^,—\-]{0,70})[,—\-]\s*(.*)$/i);
   if (m) return { kind: 'anyCast', body: m[2], subject: m[1] };
 
-  m = s.match(/^at the beginning of your upkeep[,—\-]\s*(.*)$/i);
-  if (m) return { kind: 'upkeep', body: m[1] };
+  // "Whenever an opponent casts a spell, ..." (Rhystic Study / Smothering
+  // Tithe) and "Whenever a player casts a spell, ..." (fires for both sides).
+  m = s.match(/^when(?:ever)?\s+(an opponent|a player|each opponent)\s+casts?\s+((?:a|an)\b[^,—\-]{0,70})[,—\-]\s*(.*)$/i);
+  if (m) {
+    const who = m[1].toLowerCase();
+    return { kind: who === 'a player' ? 'playerCast' : 'oppCast', body: m[3], subject: m[2] };
+  }
 
-  m = s.match(/^at the beginning of (?:your|each) end step[,—\-]\s*(.*)$/i);
-  if (m) return { kind: 'endStep', body: m[1] };
+  // "At the beginning of your/each (player's)/each opponent's upkeep, ..."
+  m = s.match(/^at the beginning of (your|each player'?s?|each opponent'?s?|an opponent'?s?|each) upkeep[,—\-]\s*(.*)$/i);
+  if (m) {
+    const who = m[1].toLowerCase();
+    const phaseScope = who === 'your' ? 'your' : /opponent/.test(who) ? 'opp' : 'each';
+    return { kind: 'upkeep', body: m[2], phaseScope };
+  }
+
+  m = s.match(/^at the beginning of (your|each player'?s?|each opponent'?s?|each) end step[,—\-]\s*(.*)$/i);
+  if (m) {
+    const who = m[1].toLowerCase();
+    const phaseScope = who === 'your' ? 'your' : /opponent/.test(who) ? 'opp' : 'each';
+    return { kind: 'endStep', body: m[2], phaseScope };
+  }
 
   // Landfall keyword: "Landfall — [effect]"
   m = s.match(/^landfall\s*[—\-]\s*(.*)$/i);
@@ -65,12 +82,12 @@ function stripTriggerPrefix(sentence) {
 
   // "Whenever a/another <type> enters (the battlefield) (under your control), ..."
   // → generic ETB trigger (Landfall is the special case for type=land)
-  m = s.match(/^when(?:ever)?\s+(?:a|an|another)\s+([a-z][a-z\s]*?)\s+enters(?:\s+the\s+battlefield)?(?:\s+under your control)?[,—\-]\s*(.*)$/i);
+  m = s.match(/^when(?:ever)?\s+(?:a|an|another)\s+([a-z][a-z\s]*?)\s+enters(?:\s+the\s+battlefield)?(\s+under your control)?[,—\-]\s*(.*)$/i);
   if (m) {
     const subject = m[1].trim().toLowerCase();
-    if (/^land/.test(subject)) return { kind: 'landfall', body: m[2], subjectType: 'land' };
-    if (/creature/.test(subject)) return { kind: 'anyETB', body: m[2], subjectType: 'creature' };
-    return { kind: 'anyETB', body: m[2], subjectType: subject };
+    const youControl = !!m[2] || /\byou control\b/.test(subject);
+    if (/^land/.test(subject)) return { kind: 'landfall', body: m[3], subjectType: 'land' };
+    return { kind: 'anyETB', body: m[3], subjectType: subject, subjectYouControl: youControl };
   }
 
   // "Whenever a/another <type> dies, ..."
@@ -416,18 +433,61 @@ function _gfeMatchEffect(sentence) {
     return { type: 'token', extra: parseTokenDesc(sentence) };
   }
 
-  // Counters — "put N +1/+1 counters on <target>" (N may be a number, "a", or "X")
-  m = s.match(/\bput (a|an|one|two|three|four|five|six|seven|eight|nine|ten|x|\d+) \+1\/\+1 counters? on ([^.;]*)/i);
+  // Counters — "put N <kind> counters on <target>" (N may be a number, "a", or "X").
+  // Kind may be +1/+1, -1/-1, or a named counter (charge, lore, loyalty, time, ...).
+  m = s.match(/\bput (a|an|one|two|three|four|five|six|seven|eight|nine|ten|x|\d+) (\+1\/\+1|\-1\/\-1|[a-z]+(?:[ -][a-z]+)?) counters? on ([^.;]*)/i);
   if (m) {
     const word = m[1].toLowerCase();
     const n = (word === 'a' || word === 'an') ? 1
             : (word === 'x') ? null            // resolved from the spell's X at cast time
             : (_gfeWord2Num(word) || parseInt(word, 10) || 1);
-    const onText = (m[2] || '').toLowerCase();
-    let target = 'self';
-    if (/\beach\b|\ball\b/.test(onText)) target = 'all';
-    else if (/\btarget\b/.test(onText) || /\banother\b/.test(onText)) target = 'choose';
-    return { type: 'counter', n, counter: '+1/+1', target };
+    const kind = m[2].toLowerCase();
+    // Reject grammatical fragments mis-captured as counter names
+    // ("put a number of +1/+1 counters...", "put X of those counters...").
+    if (!/^(?:\+1\/\+1|\-1\/\-1)$/.test(kind) && /\b(?:number|of|that|those|the|more|fewer|additional)\b/.test(kind)) {
+      // fall through to other parsers / notify
+    } else {
+      const onText = (m[3] || '').toLowerCase();
+      let target = 'self';
+      if (/\beach\b|\ball\b/.test(onText)) target = 'all';
+      else if (/\btarget\b/.test(onText) || /\banother\b/.test(onText)) target = 'choose';
+      // "each creature you control" stays own-side; bare "each creature" hits both
+      const bothSides = target === 'all' && !/you control/.test(onText);
+      return { type: 'counter', n, counter: kind, target, bothSides };
+    }
+  }
+
+  // Energy — "you get {E}{E}..." (count the symbols)
+  m = s.match(/\byou get ((?:\{e\})+)/i);
+  if (m) {
+    const n = (m[1].match(/\{e\}/gi) || []).length;
+    return { type: 'player_counter', counter: 'energy', n, target: 'self' };
+  }
+
+  // Player-scoped counters — "you/that player/each opponent gets N poison/energy/experience counters"
+  m = s.match(/\b(you|each opponent|target player|target opponent|that player|each player) gets? (a|an|one|two|three|four|five|six|seven|eight|nine|ten|x|\d+) (poison|energy|experience) counters?/i);
+  if (m) {
+    const word = m[2].toLowerCase();
+    const n = (word === 'a' || word === 'an') ? 1
+            : (word === 'x') ? null
+            : (_gfeWord2Num(word) || parseInt(word, 10) || 1);
+    const who = m[1].toLowerCase();
+    return { type: 'player_counter', counter: m[3].toLowerCase(), n,
+             target: who === 'you' ? 'self' : who === 'each player' ? 'each' : 'opp' };
+  }
+
+  // Proliferate (reminder text is already stripped with the parens)
+  if (/\bproliferate\b/.test(s)) return { type: 'proliferate' };
+
+  // Win / lose the game. Guarded against unparsed leading conditions
+  // ("If you've cast another spell named X this game, you win") — those fall
+  // through to the manual queue instead of auto-firing.
+  if (!/^\s*if\b/.test(s)) {
+    if (/\byou win the game\b/.test(s)) return { type: 'win_game' };
+    if (/\byou lose the game\b/.test(s)) return { type: 'lose_game', target: 'self' };
+    if (/\b(?:that player|each opponent|target player|target opponent|each other player|defending player) loses the game\b/.test(s)) {
+      return { type: 'lose_game', target: 'opp' };
+    }
   }
 
   // Damage to self — "you take N damage" / "deals N damage to you"
@@ -812,21 +872,43 @@ function parseTriggers(oracleText, cardName) {
     onDeath:      [],   // self-death
     onAnyDeath:   [],   // any creature death
     onLifeGain:   [],   // "Whenever you gain life, ..."
+    onOppCast:    [],   // "Whenever an opponent casts a spell, ..." (Rhystic Study)
   };
   if (!oracleText) return result;
 
   const sentences = _gfeSplitSentences(oracleText);
   for (const sentence of sentences) {
-    const { kind, body, subject } = stripTriggerPrefix(sentence);
+    const stripped = stripTriggerPrefix(sentence);
+    const { kind, body, subject } = stripped;
     const effects = parseEffects(body);
     if (!effects.length) continue;
-    if (kind === 'anyCast') {
+    if (kind === 'anyCast' || kind === 'oppCast' || kind === 'playerCast') {
       // Stamp the cast condition (if any) on each effect so firing can gate it.
       const cond = parseCastCondition(subject);
       if (cond) effects.forEach(fx => { fx._castCondition = cond; });
     }
+    // Event triggers: stamp the subject type ("creature", "elf", ...) and its
+    // controller scope so the firing side can filter by event card + side.
+    if (kind === 'anyETB' || kind === 'anyDeath' || kind === 'anyAttack' || kind === 'anyCombatDamage') {
+      let st = String(stripped.subjectType || '').toLowerCase().trim();
+      const scope = (stripped.subjectYouControl || /\byou control\b/.test(st)) ? 'you' : 'any';
+      st = st.replace(/\s*\byou control\b\s*/, ' ').replace(/\s+/g, ' ').trim();
+      effects.forEach(fx => { fx._subjectType = st || null; fx._eventScope = scope; });
+    }
+    // Phase triggers: remember whose phase ("your" / "each" / "opp") so they
+    // can also fire on the opponent's turn when appropriate.
+    if (kind === 'upkeep' || kind === 'endStep') {
+      const ps = stripped.phaseScope || 'your';
+      effects.forEach(fx => { fx._phaseScope = ps; });
+    }
     if (kind === 'cast')         result.onCast.push(...effects);
     else if (kind === 'anyCast') result.onAnyCast.push(...effects);
+    else if (kind === 'oppCast') result.onOppCast.push(...effects);
+    else if (kind === 'playerCast') {
+      // "Whenever a player casts ..." fires for both your casts and theirs.
+      result.onAnyCast.push(...effects);
+      result.onOppCast.push(...effects);
+    }
     else if (kind === 'etb')     result.onETB.push(...effects);
     else if (kind === 'anyETB')  result.onAnyETB.push(...effects);
     else if (kind === 'landfall')result.onLandfall.push(...effects);
@@ -851,12 +933,37 @@ function parseTriggers(oracleText, cardName) {
     const n = (word === 'a' || word === 'an') ? 1
             : (word === 'x') ? null
             : (_gfeWord2Num(word) || parseInt(word, 10) || 1);
-    const kind = entersM[2];
-    if (/\+1\/\+1/.test(kind)) {
-      result.onETB.push({ type: 'counter', n, counter: '+1/+1', target: 'self', enters: true });
-    }
+    const kindRaw = entersM[2].toLowerCase();
+    const kind = /\+1\/\+1/.test(kindRaw) ? '+1/+1'
+               : /\-1\/\-1/.test(kindRaw) ? '-1/-1'
+               : kindRaw;
+    result.onETB.push({ type: 'counter', n, counter: kind, target: 'self', enters: true });
   }
   return result;
+}
+
+// ── Sagas (A10) ──────────────────────────────────────────────────────────────
+// parseSagaChapters(oracleText) → { maxChapter, entries: [{chapters:[1,2], body, effects}] } | null
+// Matches chapter lines like "I — Draw a card." or "I, II — Create a 1/1 ...".
+const _GFE_ROMAN_NUM = { i: 1, ii: 2, iii: 3, iv: 4, v: 5, vi: 6 };
+function parseSagaChapters(oracleText) {
+  if (!oracleText) return null;
+  const lines = String(oracleText).replace(/\r/g, '').split('\n');
+  const entries = [];
+  let maxChapter = 0;
+  for (const line of lines) {
+    const m = line.match(/^\s*((?:I{1,3}|IV|V|VI)(?:\s*,\s*(?:I{1,3}|IV|V|VI))*)\s*[—–-]\s*(.+)$/);
+    if (!m) continue;
+    const chapters = m[1].split(/\s*,\s*/)
+      .map(r => _GFE_ROMAN_NUM[r.trim().toLowerCase()] || 0)
+      .filter(Boolean);
+    if (!chapters.length) continue;
+    const body = m[2].trim();
+    entries.push({ chapters, body, effects: parseEffects(body) });
+    maxChapter = Math.max(maxChapter, ...chapters);
+  }
+  if (!entries.length) return null;
+  return { maxChapter, entries };
 }
 
 // parseLoyaltyAbilities(oracleText) — returns Array<{cost, effects, effectStr, source_text}>.
@@ -916,15 +1023,17 @@ function parseActivatedAbilities(oracleText) {
   return abilities;
 }
 
-// parseAbilityCost(costStr) — returns { tap, mana, sacrificeSelf, sacrificeOther, discard, life }
+// parseAbilityCost(costStr) — returns
+//   { tap, mana, sacrificeSelf, sacrificeOther, discard, life, removeCounters }
 function parseAbilityCost(costStr) {
   const cost = {
     tap: false,
     mana: '',
     sacrificeSelf: false,   // "Sacrifice ~" / "Sacrifice this creature"
-    sacrificeOther: null,   // descriptor like "a creature" / "a Goblin" — user picks
+    sacrificeOther: null,   // descriptor like "a creature" / "another Goblin" — user picks
     discard: 0,
     life: 0,
+    removeCounters: null,   // { kind: 'charge'|'+1/+1'|..., n } — removed from the source
     raw: costStr,
   };
   const parts = costStr.split(',').map(p => p.trim()).filter(Boolean);
@@ -938,6 +1047,16 @@ function parseAbilityCost(costStr) {
     const dm = part.match(/^discard\s+(a|one|two|three|four|five|\d+)\s*(?:cards?)?$/i);
     if (dm) {
       cost.discard = dm[1].toLowerCase() === 'a' ? 1 : (_gfeWord2Num(dm[1]) || 1);
+      continue;
+    }
+    // "Remove a/N <kind> counter(s) from ~ / this <type>"
+    const rm = part.match(/^remove\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(\+1\/\+1|\-1\/\-1|[a-z]+(?:[ -][a-z]+)?)\s+counters?\s+from\b/i);
+    if (rm) {
+      const w = rm[1].toLowerCase();
+      cost.removeCounters = {
+        n: (w === 'a' || w === 'an') ? 1 : (_gfeWord2Num(w) || parseInt(w, 10) || 1),
+        kind: rm[2].toLowerCase(),
+      };
       continue;
     }
     const lm = part.match(/^pay\s+(\d+)\s+life/i);
@@ -1022,22 +1141,39 @@ function parseSpendRestriction(text) {
 }
 
 // parseManaAbilities(oracleText) — returns Array of mana-ability descriptors:
-//   { costTap, amount: number|'var', varKind:'power'|'toughness', colors:'any'|['W',...],
+//   { costTap, costSacSelf, costSacOther, amount: number|'var',
+//     varKind:'power'|'toughness', colors:'any'|['W',...],
 //     chooseColor, restriction, source_text }
 function parseManaAbilities(oracleText) {
   if (!oracleText) return [];
   const out = [];
   const restrMatch = oracleText.match(/spend this mana only to cast ([^.]+)/i);
-  const restriction = restrMatch ? parseSpendRestriction(restrMatch[1]) : null;
+  let restriction = restrMatch ? parseSpendRestriction(restrMatch[1]) : null;
+  // Powerstone-style negative phrasing: "This mana can't be spent to cast a
+  // nonartifact spell." → equivalent to "spend only to cast artifact spells".
+  if (!restriction) {
+    const cantMatch = oracleText.match(/this mana can't be spent to cast a non(\w+) spell/i);
+    if (cantMatch) restriction = parseSpendRestriction(`${cantMatch[1]} spells`);
+  }
   for (const sentence of _gfeSplitSentences(oracleText)) {
     const m = sentence.match(/^([^:]+?):\s*(add\s+.+)$/i);
     if (!m) continue;
     const costStr = m[1];
     const addStr = m[2];
     const costTap = /\{t\}/i.test(costStr) || /\btap\b/i.test(costStr);
+    // Sacrifice in the cost: "Sacrifice this artifact" / "Sacrifice ~" → self;
+    // "Sacrifice a creature" (Ashnod's Altar) → other, user picks.
+    let costSacSelf = false, costSacOther = null;
+    const sacM = costStr.match(/\bsacrifice\s+(?:(a|an|another|one|two|three|four|five|\d+)\s+)?([^,:{]*)/i);
+    if (sacM) {
+      if (sacM[1]) costSacOther = `${sacM[1]} ${sacM[2]}`.trim();
+      else costSacSelf = true;
+    }
     const ab = _gfeParseAddClause(addStr);
     if (!ab) continue;
     ab.costTap = costTap;
+    ab.costSacSelf = costSacSelf;
+    ab.costSacOther = costSacOther;
     ab.restriction = restriction;
     ab.source_text = sentence;
     out.push(ab);

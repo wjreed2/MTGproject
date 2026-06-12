@@ -16,6 +16,19 @@ function runSBAs(state, hooks) {
   while (iter++ < 8) {
     let changed = false;
 
+    // 0. +1/+1 and -1/-1 counters annihilate in pairs (CR 704.5q).
+    for (const card of (state.battlefield || [])) {
+      const c = card.counters;
+      if (!c || typeof c !== 'object') continue;
+      const plus = c['+1/+1'] || 0, minus = c['-1/-1'] || 0;
+      if (plus > 0 && minus > 0) {
+        const k = Math.min(plus, minus);
+        if (plus - k) c['+1/+1'] = plus - k; else delete c['+1/+1'];
+        if (minus - k) c['-1/-1'] = minus - k; else delete c['-1/-1'];
+        changed = true;
+      }
+    }
+
     // 1. Player at 0 life loses.
     if ((state.life ?? 1) <= 0) {
       hooks && hooks.lifeLoss && hooks.lifeLoss('you');
@@ -128,11 +141,19 @@ function isIndestructible(card) {
   return /\bindestructible\b/i.test(card?.oracleText || card?.oracle_text || '');
 }
 
+function _sbaCounterCount(card, kind) {
+  const c = card?.counters;
+  if (c == null) return 0;
+  // Legacy scalar form = +1/+1 count; map form is keyed by counter kind.
+  if (typeof c === 'number') return kind === '+1/+1' ? c : 0;
+  return c[kind] || 0;
+}
+
 function effectiveToughness(card) {
   const base = parseInt(card?.toughness, 10);
   if (!Number.isFinite(base)) return 0;
-  // +1/+1 counters (stored in card.counters) must be included before 0-toughness SBA.
-  return base + (card?.counters || 0);
+  // ±1/±1 counters must be included before the 0-toughness SBA.
+  return base + _sbaCounterCount(card, '+1/+1') - _sbaCounterCount(card, '-1/-1');
 }
 
 function findLegendConflicts(state) {
