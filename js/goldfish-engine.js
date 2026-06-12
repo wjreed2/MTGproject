@@ -13,6 +13,8 @@ document.addEventListener('keydown', e => {
     if (_gfe?.priorityWaitingFor) { _gfePassPriority(); return; }
     if (_gfe?.targetPending) { _gfeFinishTargetMode(); return; }
     if (_gfe?.attachPending) { _gfe.attachPending = null; _gfeFlash('Attachment cancelled'); _gfeRender(); return; }
+    if (_gfe?.sacPending) { _gfeCancelSacPick(); return; }
+    if (_gfe?.discardCostPending) { _gfeCancelDiscardCostPick(); return; }
     if (_gfe?.counterPending) { _gfe.counterPending = null; _gfeFlash('Counter target cancelled'); _gfeRender(); return; }
     if (_gfeCloseSimPanel()) return;
     if (_gfeCloseTokenPanel()) return;
@@ -1718,6 +1720,15 @@ function _gfeResolvePlay(iid, fromZone, opts, sourceEl) {
           _gfeHandleCardEffects(card, fromZone, zone, opts);
           _gfeRender();
         },
+        onCountered: () => {
+          // The card was optimistically placed in its destination zone; a
+          // countered permanent belongs in the graveyard instead.
+          if (zone === 'battlefield' && _gfe.battlefield.some(c => c.iid === card.iid)) {
+            _gfe.battlefield = _gfe.battlefield.filter(c => c.iid !== card.iid);
+            if (!_gfeIsToken(card)) _gfe.graveyard.push(card);
+            _gfeRender();
+          }
+        },
       });
       // If the player was waiting on priority and just cast in response, clear
       // the waiting flag so the cascade can resolve the new top.
@@ -1866,7 +1877,7 @@ function _gfeExpandDeck(deck) {
     for (let i = 0; i < (card.qty || 1); i++) {
       const copy = {
         ...card, qty: 1, iid: _gfeId(), tapped: false, x: 60, y: 40,
-        counters: 0, markers: [], commanderCastCount: 0,
+        counters: {}, markers: [], commanderCastCount: 0,
       };
       if (typeof ensureCardMetadata === 'function') ensureCardMetadata(copy);
       cards.push(copy);
@@ -1927,6 +1938,16 @@ function _gfeNewGame(prompt = true) {
   _gfe.oppOut = false;
   _gfe.gameOver = false;
   _gfe.counterPending = null;
+  _gfe.sacPending = null;
+  _gfe.discardCostPending = null;
+  _gfeSacPendingCb = null;
+  _gfeDiscardCostCb = null;
+  // Reset per-game loss flags + player-scoped counters + commander damage
+  _gfe._youLost = false;
+  _gfe._oppLost = false;
+  _gfe.playerCounters = {};
+  _gfe.oppCounters = {};
+  _gfe.commanderDamage = {};
   _gfeSetupBot();
 
   _gfeDraw(7, true);
@@ -1951,7 +1972,8 @@ function _gfeDraw(n = 1, silent = false) {
     }
     if (evt.extra) extraDraws += evt.extra;
     if (!_gfe.library.length) {
-      if (!silent) _gfeFlash('Library is empty!');
+      // Drawing from an empty library loses the game (CR 104.3c / 120.3).
+      if (!silent) _gfeDeckOut('you');
       break;
     }
     _gfe.hand.push(_gfe.library.shift());
@@ -2002,11 +2024,20 @@ function _gfeComputeDrawsAllowed() {
   let allowed = 1;
   for (const card of (_gfe?.battlefield || [])) {
     const oracle = (card.oracleText || '').toLowerCase();
-    if (/you may draw any number of cards/.test(oracle)) return 99;
+    // "Any number" is optional — cap at the library size so the auto-draw
+    // can't deck the player (deck-out only applies to mandatory draws).
+    if (/you may draw any number of cards/.test(oracle)) {
+      return Math.min(99, Math.max(1, _gfe.library.length));
+    }
     if (/draws? two additional cards/.test(oracle)) allowed += 2;
     else if (/draws? an additional card/.test(oracle)) allowed += 1;
   }
   return allowed;
+}
+
+/** Loss by drawing from an empty library. */
+function _gfeDeckOut(side) {
+  _gfeEliminate(side, 'drew from an empty library');
 }
 
 function _gfeDrawForTurn() {
@@ -2019,7 +2050,7 @@ function _gfeDrawWithAnim(n) {
   if (!_gfe) return;
   const drawn = [];
   for (let i = 0; i < n; i++) {
-    if (!_gfe.library.length) { _gfeFlash('Library is empty!'); break; }
+    if (!_gfe.library.length) { _gfeDeckOut('you'); break; }
     const card = _gfe.library.shift();
     _gfe.hand.push(card);
     _gfe.drawnThisTurn++;
@@ -2059,7 +2090,7 @@ function _gfeCloneCard(card, overrides = {}) {
     ...card,
     iid: _gfeId(),
     tapped: !!card.tapped,
-    counters: card.counters || 0,
+    counters: { ..._gfeCounterMap(card) },
     markers: Array.isArray(card.markers) ? [...card.markers] : [],
     autoPlaced: false,
     ...overrides,
@@ -2092,6 +2123,26 @@ function _gfeMarkerBadgesHtml(c) {
   return `<div class="gf-marker-badges">${markers.map(m =>
     `<span class="gf-marker-chip">${m}</span>`
   ).join('')}</div>`;
+}
+
+/** Badges for all counter kinds on a permanent (read-only — doesn't normalize). */
+function _gfeCounterBadgesHtml(c) {
+  let map = c?.counters;
+  if (typeof map === 'number') map = map > 0 ? { '+1/+1': map } : null;
+  if (!map || typeof map !== 'object') return '';
+  const parts = [];
+  for (const [kind, n] of Object.entries(map)) {
+    if (!n || n <= 0) continue;
+    if (kind === '+1/+1') {
+      parts.push(`<div class="gf-counter-badge" title="+1/+1 counters">+${n}/+${n}</div>`);
+    } else if (kind === '-1/-1') {
+      parts.push(`<div class="gf-counter-badge gf-counter-badge--neg" title="-1/-1 counters">−${n}/−${n}</div>`);
+    } else {
+      parts.push(`<div class="gf-counter-badge gf-counter-badge--misc" title="${kind} counters">${kind} ×${n}</div>`);
+    }
+  }
+  if (!parts.length) return '';
+  return `<div class="gf-counter-badges">${parts.join('')}</div>`;
 }
 
 function _gfeMarkerMenuItems(iid, card) {
@@ -2297,37 +2348,8 @@ function _gfePlayFromHand(iid, sourceEl, dropPos) {
 
 /** Auto-placed permanents: lands bottom row (centered above hand), other permanents top. */
 function _gfeRepositionAutoPlaced() {
-  if (!_gfe) return;
-  const bf = document.getElementById('gfeBattlefield');
-  const bfW = bf?.clientWidth || 800;
-  const bfH = bf?.clientHeight || 500;
-  const gap = 8;
-
-  const landCards = _gfe.battlefield.filter(c => c.autoPlaced && _gfeIsLand(c));
-  const nonLandCards = _gfe.battlefield.filter(c => c.autoPlaced && !_gfeIsLand(c));
-
-  const landW = gfeLandCardSize;
-  const landH = Math.round(landW * GFE_CARD_ASPECT);
-  const landN = landCards.length;
-  if (landN) {
-    const totalW = landN * landW + (landN - 1) * gap;
-    const startX = Math.max(8, (bfW - totalW) / 2);
-    const rowY = Math.max(8, bfH - landH - 10);
-    landCards.forEach((c, i) => {
-      c.x = startX + i * (landW + gap);
-      c.y = rowY;
-    });
-  }
-
-  const nlW = gfeNonlandCardSize;
-  const nlH = Math.round(nlW * GFE_CARD_ASPECT);
-  const cols = Math.max(1, Math.floor((bfW - 16) / (nlW + gap)));
-  nonLandCards.forEach((c, i) => {
-    const col = i % cols;
-    const row = Math.floor(i / cols);
-    c.x = 8 + col * (nlW + gap);
-    c.y = 16 + row * (nlH + gap);
-  });
+  // Row-based battlefield layout (Arena-style): cards flow into type rows at
+  // render time, so there are no x/y positions to maintain anymore.
 }
 
 function _gfePutBackFromHand(iid) {
@@ -2397,9 +2419,12 @@ function _gfeMoveCard(iid, fromZone, toZone, opts = {}) {
 
   const removed = _gfeCardFromZone(iid, fromZone);
   if (!removed) return false;
-  // A permanent leaving the battlefield drags its Auras to the graveyard.
+  // A permanent leaving the battlefield drags its Auras to the graveyard,
+  // and its counters / marked damage cease to exist (CR 121.2).
   if (fromZone === 'battlefield' && toZone !== 'battlefield') {
     _gfeDetachAurasFor(removed.iid, 'you');
+    removed.counters = {};
+    removed.damage = 0;
   }
   // Disturb / Foretell back-face / token-clone variants: redirect a
   // battlefield → gy/hand move to exile when the card is flagged.
@@ -2421,7 +2446,7 @@ function _gfeMoveCard(iid, fromZone, toZone, opts = {}) {
     const trig = parseTriggers(removed.oracleText || '', removed.name);
     if (trig.onDeath.length) _gfeFireEffects(trig.onDeath, removed);
     if (_gfeIsCreature(removed)) {
-      _gfeFireBattlefieldTriggers('onAnyDeath', removed.iid);
+      _gfeFireGlobalTriggers('onAnyDeath', removed.iid, { eventCard: removed, eventSide: 'you' });
     }
   }
   _gfeRunSBAs();
@@ -2472,30 +2497,30 @@ function _gfePlayFromZone(iid, fromZone, sourceEl, dropPos) {
 function _gfeAddCounter(iid) {
   const card = _gfeFindPermanent(iid);
   if (!card) return;
-  card.counters = (card.counters || 0) + 1;
+  _gfeAddCounterTyped(card, '+1/+1', 1);
   _gfeRenderBattlefield();
 }
 function _gfeRemoveCounter(iid) {
   const card = _gfeFindPermanent(iid);
   if (!card) return;
-  card.counters = Math.max(0, (card.counters || 0) - 1);
+  _gfeAddCounterTyped(card, '+1/+1', -1);
   _gfeRenderBattlefield();
 }
 
 // ── Life & turn ──────────────────────────────────────────────────────────────
 
-function _gfeEliminate(side) {
+function _gfeEliminate(side, reason = '0 life') {
   if (!_gfe || _gfe.gameOver) return;
   if (side === 'you') {
     if (_gfe.playerOut) return;
     _gfe.playerOut = true;
-    _gfeFlash('You have been eliminated!');
-    _gfePushLog({ sourceName: 'SBA', text: 'You lose (0 life)' });
+    _gfeFlash(`You have been eliminated — ${reason}!`);
+    _gfePushLog({ sourceName: 'Game', text: `You lose (${reason})` });
   } else {
     if (_gfe.oppOut) return;
     _gfe.oppOut = true;
-    _gfeFlash('Opponent eliminated — you win!');
-    _gfePushLog({ sourceName: 'SBA', text: 'Opponent loses (0 life)' });
+    _gfeFlash(`Opponent eliminated — you win! (${reason})`);
+    _gfePushLog({ sourceName: 'Game', text: `Opponent loses (${reason})` });
   }
   _gfe.gameOver = _gfe.playerOut || _gfe.oppOut;
   if (_gfe.gameOver) {
@@ -2504,6 +2529,10 @@ function _gfeEliminate(side) {
     _gfe.attachPending = null;
     _gfe.discardPending = null;
     _gfe.targetPending = null;
+    _gfe.sacPending = null;
+    _gfe.discardCostPending = null;
+    _gfeSacPendingCb = null;
+    _gfeDiscardCostCb = null;
   }
   _gfeRender();
 }
@@ -2514,8 +2543,9 @@ function _gfeLifeDelta(delta) {
   _gfe.life = Math.max(0, before + delta);
   const el = document.getElementById('gfeLifeVal');
   if (el) el.textContent = _gfe.life;
-  // "Whenever you gain life" triggers on battlefield permanents
-  if (_gfe.life > before) _gfeFireBattlefieldTriggers('onLifeGain', null);
+  // "Whenever you gain life" triggers on YOUR permanents — explicitly your
+  // side, regardless of whose effect caused the gain.
+  if (_gfe.life > before) _gfeFireTriggersOnSide('you', 'onLifeGain', null);
   if (_gfe.life === 0 && before > 0) _gfeEliminate('you');
 }
 
@@ -2585,7 +2615,10 @@ function _gfeEffectSummary(fx) {
     case 'shuffle': return 'shuffle library';
     case 'search':  return `search library (${fx.filter || 'any'})${fx.toBattlefield ? ' → battlefield' : ''}${fx.putTapped ? ' tapped' : ''}`;
     case 'token':   return `create token (${fx.extra?.name || '?'})`;
-    case 'counter': return `+1/+1 counter${(fx.n ?? 1) > 1 ? 's' : ''} ×${fx.n ?? 1}`;
+    case 'counter': return `${fx.counter || '+1/+1'} counter${(fx.n ?? 1) > 1 ? 's' : ''} ×${fx.n ?? 1}`;
+    case 'player_counter': return `${fx.target === 'opp' ? 'opponent gets' : 'get'} ${fx.n ?? 1} ${fx.counter} counter${(fx.n ?? 1) !== 1 ? 's' : ''}`;
+    case 'proliferate': return 'proliferate';
+    case 'win_game': return 'win the game';
     case 'damage':  return `${fx.n ?? 0} damage to ${fx.target || 'target'}`;
     case 'discard': return `discard ${fx.n ?? 1}`;
     case 'bounce':  return `return ${fx.upTo ? 'up to ' : ''}${fx.n ?? 1} target to hand`;
@@ -2687,7 +2720,6 @@ function _gfeFireEffects(effects, sourceCard) {
         if (_gfeTutorPending?.searchState) _gfeTutorPending.searchState.shuffleAfter = true;
         else _gfeShuffleLibrary();
         break;
-      case 'shuffle': _gfeShuffleLibrary(); break;
       case 'mill':    _gfeMill(resolveN(1)); break;
       case 'counter': _gfeResolveCounterEffect(fx, sourceCard); break;
       case 'damage':
@@ -2740,6 +2772,12 @@ function _gfeFireEffects(effects, sourceCard) {
             // Pop the one beneath us
             const target = _gfe.stack[_gfe.stack.length - 2];
             _gfe.stack.splice(_gfe.stack.length - 2, 1);
+            target.pending = false;
+            // Undo the optimistic zone placement (countered permanent → graveyard)
+            if (typeof target.onCountered === 'function') {
+              try { target.onCountered(); } catch (e) { console.error('onCountered error', e); }
+            }
+            _gfeRecordStackHistory(target, 'countered');
             _gfePushLog({ sourceName, text: `countered ${target.label}` });
             _gfeRenderStack?.();
           } else {
@@ -2752,7 +2790,22 @@ function _gfeFireEffects(effects, sourceCard) {
       case 'copy_spell':
         _gfeResolveCopySpell(fx, sourceCard);
         break;
-      case 'lose_game': _gfeFlash('You lose'); break;
+      case 'player_counter': {
+        const n = resolveN(1);
+        if (fx.target === 'each') {
+          _gfeAddPlayerCounter('you', fx.counter, n);
+          _gfeAddPlayerCounter('opp', fx.counter, n);
+        } else {
+          _gfeAddPlayerCounter(fx.target === 'opp' ? 'opp' : 'you', fx.counter, n);
+        }
+        break;
+      }
+      case 'proliferate': _gfeProliferate('you'); break;
+      case 'win_game':  _gfeEliminate('opp', `${sourceName} — you win the game`); break;
+      case 'lose_game':
+        if (fx.target === 'opp') _gfeEliminate('opp', sourceName);
+        else _gfeEliminate('you', sourceName);
+        break;
     }
   }
   // SBA pass after a full effect queue resolves (covers life-to-0, damage spilling
@@ -2770,55 +2823,253 @@ function _gfeMill(n) {
   _gfeRender();
 }
 
-function _gfeAddCounters(iid, n) {
-  if (iid == null) return;
-  const card = _gfeFindPermanent(iid);
-  if (!card) return;
-  card.counters = (card.counters || 0) + (n || 1);
-  _gfeRenderBattlefield();
+// ── Typed counters (A12) ─────────────────────────────────────────────────────
+// card.counters is a map { '+1/+1': n, '-1/-1': n, charge: n, lore: n, ... }.
+// Older code paths / saved states may still hold a scalar (meaning +1/+1);
+// _gfeCounterMap normalizes that in place on first touch.
+
+function _gfeCounterMap(card) {
+  if (!card) return {};
+  if (card.counters == null || typeof card.counters === 'number') {
+    const n = typeof card.counters === 'number' ? card.counters : 0;
+    card.counters = n > 0 ? { '+1/+1': n } : {};
+  }
+  return card.counters;
 }
 
-/** Resolve a +1/+1 counter effect for you, honoring X amounts and self/all/target. */
+function _gfeGetCounter(card, kind = '+1/+1') {
+  return _gfeCounterMap(card)[kind] || 0;
+}
+
+/** Net ±1/±1 contribution to power/toughness. */
+function _gfeNetPlusCounters(card) {
+  return _gfeGetCounter(card, '+1/+1') - _gfeGetCounter(card, '-1/-1');
+}
+
+function _gfeAddCounterTyped(card, kind, n = 1) {
+  if (!card || !n) return;
+  const map = _gfeCounterMap(card);
+  map[kind] = Math.max(0, (map[kind] || 0) + n);
+  if (!map[kind]) delete map[kind];
+}
+
+function _gfeAddCounters(iid, n, kind = '+1/+1') {
+  if (iid == null) return;
+  const card = _gfeFindPermanent(iid) || _gfeFindOppPermanent(iid);
+  if (!card) return;
+  // Loyalty counters adjust the planeswalker's loyalty stat directly.
+  if (kind === 'loyalty' && /\bplaneswalker\b/i.test(card.type || card.typeLine || '')) {
+    card.loyalty = (card.loyalty || 0) + (n || 1);
+  } else {
+    _gfeAddCounterTyped(card, kind, n || 1);
+  }
+  _gfeRenderBattlefield();
+  // -1/-1 counters can be lethal / annihilate immediately.
+  if (kind === '-1/-1') _gfeRunSBAs();
+}
+
+/** Resolve a counter effect for you, honoring X amounts, kind and self/all/target. */
 function _gfeResolveCounterEffect(fx, sourceCard) {
   let n = (fx.n != null) ? fx.n : (sourceCard?.castX || 0);
   if (!n || n <= 0) return;
+  const kind = fx.counter || '+1/+1';
   if (fx.target === 'all') {
     for (const c of _gfe.battlefield) {
-      if (_gfeIsCreature(c)) c.counters = (c.counters || 0) + n;
+      if (_gfeIsCreature(c)) _gfeAddCounterTyped(c, kind, n);
+    }
+    // Bare "each creature" (no "you control") also hits the bot's board.
+    if (fx.bothSides && _gfe.opp) {
+      for (const c of _gfe.opp.battlefield) {
+        if (_gfeIsCreature(c)) _gfeAddCounterTyped(c, kind, n);
+      }
     }
     _gfeRenderBattlefield();
+    if (kind === '-1/-1') _gfeRunSBAs();
     return;
   }
   if (fx.target === 'choose') {
     const creatures = _gfe.battlefield.filter(_gfeIsCreature);
-    if (creatures.length <= 1) {
-      _gfeAddCounters((creatures[0] || sourceCard)?.iid, n);
+    if (kind === '+1/+1' && creatures.length <= 1) {
+      _gfeAddCounters((creatures[0] || sourceCard)?.iid, n, kind);
       return;
     }
-    _gfeBeginCounterTarget(n, sourceCard?.name);
+    _gfeBeginCounterTarget(n, sourceCard?.name, kind);
     return;
   }
   // Default 'self' — counters on the source permanent (e.g. an ETB/enters-with effect).
-  _gfeAddCounters(sourceCard?.iid, n);
+  _gfeAddCounters(sourceCard?.iid, n, kind);
 }
 
-/** Let the player click one of their creatures to receive N +1/+1 counters. */
-function _gfeBeginCounterTarget(n, sourceName) {
+/** Let the player click a creature to receive N counters of `kind`.
+ *  -1/-1 (and other harmful) counters may target the bot's creatures too. */
+function _gfeBeginCounterTarget(n, sourceName, kind = '+1/+1') {
   if (!_gfe) return;
-  if (!_gfe.battlefield.some(_gfeIsCreature)) return;
-  _gfe.counterPending = { n, sourceName: sourceName || 'effect' };
-  _gfeFlash(`Choose a creature for ${n} +1/+1 counter${n > 1 ? 's' : ''}`);
+  const anyOwn = _gfe.battlefield.some(_gfeIsCreature);
+  const anyOpp = (_gfe.opp?.battlefield || []).some(_gfeIsCreature);
+  if (!anyOwn && !anyOpp) return;
+  _gfe.counterPending = { n, kind, sourceName: sourceName || 'effect' };
+  _gfeFlash(`Choose a creature for ${n} ${kind} counter${n > 1 ? 's' : ''}`);
   _gfeRender();
 }
 
 function _gfeApplyCounterTarget(iid) {
   if (!_gfe?.counterPending) return;
-  const card = _gfeFindPermanent(iid);
+  const card = _gfeFindPermanent(iid) || _gfeFindOppPermanent(iid);
   if (!card || !_gfeIsCreature(card)) { _gfeFlash('Pick a creature'); return; }
-  const n = _gfe.counterPending.n;
+  const { n, kind = '+1/+1' } = _gfe.counterPending;
   _gfe.counterPending = null;
-  _gfeAddCounters(iid, n);
-  _gfePushLog({ sourceName: card.name, text: `gets ${n} +1/+1 counter${n > 1 ? 's' : ''}` });
+  _gfeAddCounters(iid, n, kind);
+  _gfePushLog({ sourceName: card.name, text: `gets ${n} ${kind} counter${n > 1 ? 's' : ''}` });
+}
+
+// ── Player-scoped counters (poison / energy / experience) ────────────────────
+
+function _gfePlayerCounters(side) {
+  if (!_gfe) return {};
+  if (side === 'opp' || side === 'bot') {
+    if (!_gfe.oppCounters) _gfe.oppCounters = {};
+    return _gfe.oppCounters;
+  }
+  if (!_gfe.playerCounters) _gfe.playerCounters = {};
+  return _gfe.playerCounters;
+}
+
+function _gfeAddPlayerCounter(side, kind, n = 1) {
+  if (!_gfe || !kind || !n) return;
+  const norm = (side === 'opp' || side === 'bot') ? 'opp' : 'you';
+  const pc = _gfePlayerCounters(norm);
+  pc[kind] = Math.max(0, (pc[kind] || 0) + n);
+  if (!pc[kind]) delete pc[kind];
+  const total = pc[kind] || 0;
+  _gfePushLog({
+    sourceName: norm === 'you' ? 'You' : 'Opponent',
+    text: `${n > 0 ? 'get' : 'lose'} ${Math.abs(n)} ${kind} counter${Math.abs(n) !== 1 ? 's' : ''} (${total} total)`,
+  });
+  _gfeRenderPlayerCounters();
+  // SBA: ten or more poison counters loses the game (CR 704.5c).
+  if (kind === 'poison' && total >= 10) _gfeEliminate(norm, '10+ poison counters');
+}
+
+function _gfeRenderPlayerCounters() {
+  const icon = k => k === 'poison' ? '☠' : k === 'energy' ? '⚡' : k === 'experience' ? '★' : k + ' ';
+  const fmt = pc => Object.entries(pc || {})
+    .filter(([, n]) => n > 0)
+    .map(([k, n]) => `${icon(k)}${n}`)
+    .join(' ');
+  const youEl = document.getElementById('gfePlayerCtr');
+  if (youEl) youEl.textContent = fmt(_gfe?.playerCounters);
+  const oppEl = document.getElementById('gfeOppCtr');
+  if (oppEl) oppEl.textContent = fmt(_gfe?.oppCounters);
+}
+
+/** Proliferate (CR 702.34): choose any number of permanents/players with
+ *  counters; give each another counter of each kind it has. Auto-chooses for
+ *  the acting side's benefit: own permanents (skipping harmful kinds), harmful
+ *  counters on enemy permanents, own non-poison player counters, enemy poison. */
+const _GFE_HARMFUL_COUNTERS = new Set(['-1/-1', 'stun', 'finality', 'decay']);
+function _gfeProliferate(side) {
+  if (!_gfe) return;
+  const acting = side === 'bot' ? 'bot' : 'you';
+  const mine = acting === 'bot' ? (_gfe.opp?.battlefield || []) : _gfe.battlefield;
+  const theirs = acting === 'bot' ? _gfe.battlefield : (_gfe.opp?.battlefield || []);
+  let added = 0;
+  for (const c of mine) {
+    const map = _gfeCounterMap(c);
+    for (const kind of Object.keys(map)) {
+      if (_GFE_HARMFUL_COUNTERS.has(kind) || !map[kind]) continue;
+      map[kind]++; added++;
+      // New lore counters advance the saga's chapter.
+      if (kind === 'lore') _gfeSagaLoreReached(c, acting);
+    }
+    if (/\bplaneswalker\b/i.test(c.type || c.typeLine || '') && (c.loyalty || 0) > 0) {
+      c.loyalty++; added++;
+    }
+  }
+  for (const c of theirs) {
+    const map = _gfeCounterMap(c);
+    for (const kind of Object.keys(map)) {
+      if (!_GFE_HARMFUL_COUNTERS.has(kind) || !map[kind]) continue;
+      map[kind]++; added++;
+    }
+  }
+  const myPc = _gfePlayerCounters(acting === 'bot' ? 'opp' : 'you');
+  for (const kind of Object.keys(myPc)) {
+    if (kind === 'poison' || !myPc[kind]) continue;
+    myPc[kind]++; added++;
+  }
+  const enemySide = acting === 'bot' ? 'you' : 'opp';
+  if ((_gfePlayerCounters(enemySide).poison || 0) > 0) {
+    _gfeAddPlayerCounter(enemySide, 'poison', 1);
+    added++;
+  }
+  _gfePushLog({ sourceName: 'Proliferate', text: `${added} counter${added !== 1 ? 's' : ''} added` });
+  _gfeRenderPlayerCounters();
+  _gfeRunSBAs();
+  _gfeRenderBattlefield();
+}
+
+// ── Sagas (A10) ───────────────────────────────────────────────────────────────
+// Sagas enter with a lore counter (chapter I fires), gain one at the start of
+// their controller's precombat main phase (next chapter fires), and are
+// sacrificed once the final chapter has resolved (CR 714).
+
+const _GFE_ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI'];
+
+function _gfeIsSaga(c) {
+  return /\bsaga\b/i.test(c?.type || c?.typeLine || '');
+}
+
+function _gfeSagaChapters(card) {
+  if (typeof parseSagaChapters !== 'function') return null;
+  return parseSagaChapters(card.oracleText || card.oracle_text || '');
+}
+
+/** A saga just entered the battlefield: first lore counter + chapter I. */
+function _gfeSagaOnEnter(card, side) {
+  if (!_gfeSagaChapters(card)) return;
+  _gfeAddCounterTyped(card, 'lore', 1);
+  _gfePushLog({ sourceName: card.name, text: 'enters with a lore counter (chapter I)' });
+  _gfeSagaLoreReached(card, side);
+}
+
+/** Fire the chapter matching the saga's current lore count; sac after the last. */
+function _gfeSagaLoreReached(card, side) {
+  const saga = _gfeSagaChapters(card);
+  if (!saga) return;
+  const lore = _gfeGetCounter(card, 'lore');
+  const entries = saga.entries.filter(e => e.chapters.includes(lore));
+  for (const e of entries) {
+    _gfePushLog({ sourceName: card.name, text: `chapter ${_GFE_ROMAN[lore] || lore} — ${e.body}` });
+    if (e.effects.length) {
+      _gfeWithSide(side === 'bot' ? 'bot' : 'you', () => _gfeFireEffects(e.effects, card));
+    } else if (side !== 'bot') {
+      _gfeQueueManual(card.name, `Chapter ${_GFE_ROMAN[lore] || lore}: ${e.body}`);
+    }
+  }
+  if (lore >= saga.maxChapter) {
+    // Sacrifice after the final chapter resolves. Deferred a tick so any
+    // target pickers / modals opened by the chapter render first.
+    setTimeout(() => {
+      const alive = side === 'bot' ? _gfeFindOppPermanent(card.iid) : _gfeFindPermanent(card.iid);
+      if (!alive || !_gfe || _gfe.gameOver) return;
+      _gfeDestroyCreature(card, side === 'bot' ? 'bot' : 'you', 'saga completed');
+      _gfeRunSBAs();
+      _gfeRender();
+    }, 400);
+  }
+}
+
+/** Start-of-main-phase tick: every saga on `side`'s battlefield gains a lore counter. */
+function _gfeTickSagas(side) {
+  if (!_gfe) return;
+  const bf = side === 'bot' ? (_gfe.opp?.battlefield || []) : _gfe.battlefield;
+  const sagas = [...bf].filter(c => _gfeIsSaga(c) && !c.enteredThisTurn && _gfeSagaChapters(c));
+  if (!sagas.length) return;
+  for (const c of sagas) {
+    _gfeAddCounterTyped(c, 'lore', 1);
+    _gfeSagaLoreReached(c, side);
+  }
+  _gfeRenderBattlefield();
 }
 
 function _gfeResolveTokenCount(desc, sourceCard) {
@@ -2833,6 +3084,41 @@ function _gfeResolveTokenCount(desc, sourceCard) {
     return Math.max(0, sourceCard.castX || 0);
   }
   return desc.count || 1;
+}
+
+// ── Predefined utility tokens (B14) ──────────────────────────────────────────
+// Canonical type line + oracle text for tokens the rules define abilities for.
+// Stamping the oracle text makes their activated / mana abilities work through
+// the normal parsers (sac costs via B18).
+const _GFE_TOKEN_PRESETS = {
+  treasure:   { typeLine: 'Token Artifact — Treasure',
+                oracleText: '{T}, Sacrifice this artifact: Add one mana of any color.' },
+  gold:       { typeLine: 'Token Artifact — Gold',
+                oracleText: 'Sacrifice this artifact: Add one mana of any color.' },
+  food:       { typeLine: 'Token Artifact — Food',
+                oracleText: '{2}, {T}, Sacrifice this artifact: You gain 3 life.' },
+  clue:       { typeLine: 'Token Artifact — Clue',
+                oracleText: '{2}, Sacrifice this artifact: Draw a card.' },
+  blood:      { typeLine: 'Token Artifact — Blood',
+                oracleText: '{1}, {T}, Discard a card, Sacrifice this artifact: Draw a card.' },
+  powerstone: { typeLine: 'Token Artifact — Powerstone',
+                oracleText: "{T}: Add {C}. This mana can't be spent to cast a nonartifact spell." },
+  map:        { typeLine: 'Token Artifact — Map',
+                oracleText: '{1}, {T}, Sacrifice this artifact: Target creature you control explores.' },
+};
+
+/** Apply the preset (type line + oracle + name) for known utility tokens. */
+function _gfeApplyTokenPreset(card, desc) {
+  const key = String(desc?.subtype || desc?.name || card.name || '').trim().toLowerCase();
+  const preset = _GFE_TOKEN_PRESETS[key];
+  if (!preset) return false;
+  card.name = key.charAt(0).toUpperCase() + key.slice(1);
+  card.type = preset.typeLine;
+  card.typeLine = preset.typeLine;
+  if (!card.oracleText) card.oracleText = preset.oracleText;
+  delete card.power;
+  delete card.toughness;
+  return true;
 }
 
 function _gfeSpawnEffectToken(desc, sourceCard) {
@@ -2865,7 +3151,7 @@ function _gfeSpawnEffectToken(desc, sourceCard) {
       power: String(desc.power ?? 1),
       toughness: String(desc.toughness ?? 1),
       isToken: true,
-      qty: 1, tapped: false, counters: 0, markers: [],
+      qty: 1, tapped: false, counters: {}, markers: [],
       keywords: Array.isArray(desc.keywords) && desc.keywords.length ? desc.keywords : [],
       damage: 0,
       autoPlaced: true,
@@ -2873,6 +3159,7 @@ function _gfeSpawnEffectToken(desc, sourceCard) {
       x: Math.max(8, (bfW - 120) / 2 + (i % 6) * 14),
       y: Math.max(8, (bfH - 168) / 2 - 30 + Math.floor(i / 6) * 14),
     };
+    _gfeApplyTokenPreset(card, desc);
     _gfe.battlefield.push(card);
   }
   _gfeRepositionAutoPlaced?.();
@@ -2903,6 +3190,8 @@ function _gfeHandleCardEffects(card, fromZone, toZone, opts = {}) {
     if (trig) _gfeFireEffects(trig.onCast, card);
     // Battlefield permanents with "Whenever you cast a spell" triggers
     _gfeFireBattlefieldTriggers('onAnyCast', card.iid, _gfeCastEventCtx(card, opts));
+    // Bot permanents with "Whenever an opponent casts a spell" (Rhystic Study)
+    if (_gfe.opp) _gfeFireTriggersOnSide('bot', 'onOppCast', card.iid, _gfeCastEventCtx(card, opts));
     // Cascade keyword — fires on cast, exile top of library, cast first
     // nonland card with lower CMC for free (player gets Yes/No prompt).
     if (_gfeHasCascade(card) && !opts.isCascadeCast) _gfeFireCascade(card);
@@ -2940,10 +3229,15 @@ function _gfeHandleCardEffects(card, fromZone, toZone, opts = {}) {
     // Register replacement effects from this permanent's oracle.
     _gfeRegisterReplacements(card);
     if (trig) _gfeFireEffects(trig.onETB, card);
+    // Sagas enter with their first lore counter (chapter I fires).
+    if (_gfeIsSaga(card)) _gfeSagaOnEnter(card, 'you');
     // Landfall — fires from OTHER permanents when a land enters
     if (_gfeIsLand(card)) _gfeFireBattlefieldTriggers('onLandfall', card.iid);
-    // "Whenever a creature enters" — fires from OTHER permanents when a creature enters
-    if (_gfeIsCreature(card) && !card.bestowed) _gfeFireBattlefieldTriggers('onAnyETB', card.iid);
+    // "Whenever a creature enters" — both sides watch (Suture Priest style);
+    // "...you control" entries are scope-filtered to the entering side.
+    if (_gfeIsCreature(card) && !card.bestowed) {
+      _gfeFireGlobalTriggers('onAnyETB', card.iid, { eventCard: card, eventSide: 'you' });
+    }
     if (opts.bestow) card.bestowed = true;
     // Disturb: the back-face permanent is exiled when it would leave play.
     if (opts.altCost === 'disturb') card.exileWhenLTB = true;
@@ -2968,11 +3262,28 @@ function _gfeHandleCardEffects(card, fromZone, toZone, opts = {}) {
   }
 }
 
-// Generic helper: fire `kindKey` triggers from every battlefield permanent except
-// (optionally) the card whose iid is `excludeIid`. Used by all "any-event" triggers.
-function _gfeFireBattlefieldTriggers(kindKey, excludeIid, eventCtx) {
+/** Does the event card's type line satisfy a trigger's subject ("creature",
+ *  "elf", "artifact creature", "nontoken creature")? */
+function _gfeTypeMatchesSubject(card, subjectType) {
+  if (!subjectType || !card) return true;
+  const tl = String(card.type || card.typeLine || '').toLowerCase();
+  for (const word of subjectType.split(/\s+/)) {
+    if (!word || word === 'another' || word === 'other') continue;
+    if (word === 'nontoken') { if (card.isToken) return false; continue; }
+    if (word === 'permanent') continue;
+    if (!tl.includes(word.replace(/s$/, ''))) return false;
+  }
+  return true;
+}
+
+/** Core: fire `kindKey` triggers from one side's battlefield, executing each
+ *  listener's effects AS that side. eventCtx may carry:
+ *    - cast ctx fields (for _castCondition gating)
+ *    - eventCard + eventSide (for subject-type + "you control" scope filters)
+ *    - phaseSide 'active'|'inactive' (for upkeep/end-step scope filters) */
+function _gfeFireTriggersOnSide(side, kindKey, excludeIid, eventCtx) {
   if (!_gfe) return;
-  const battlefield = (_gfeFxSide === 'bot' && _gfe.opp) ? _gfe.opp.battlefield : _gfe.battlefield;
+  const battlefield = side === 'bot' ? (_gfe.opp?.battlefield || []) : _gfe.battlefield;
   for (const perm of [...battlefield]) {
     if (excludeIid != null && perm.iid === excludeIid) continue;
     const oracle = perm.oracleText || perm.oracle_text || '';
@@ -2987,11 +3298,52 @@ function _gfeFireBattlefieldTriggers(kindKey, excludeIid, eventCtx) {
         !fx._castCondition || (typeof castSpellMatchesCondition === 'function'
           && castSpellMatchesCondition(fx._castCondition, eventCtx)));
     }
+    // Event triggers: filter by subject type ("whenever another ELF dies")
+    // and controller scope ("...you control" only sees own-side events).
+    if (eventCtx?.eventCard) {
+      effects = effects.filter(fx => _gfeTypeMatchesSubject(eventCtx.eventCard, fx._subjectType));
+      if (eventCtx.eventSide) {
+        effects = effects.filter(fx => fx._eventScope !== 'you' || side === eventCtx.eventSide);
+      }
+    }
+    // Phase triggers: "your upkeep" fires only on your own turn; "each
+    // upkeep/end step" fires on both; "each opponent's" only off-turn.
+    if (eventCtx?.phaseSide) {
+      effects = effects.filter(fx => {
+        const sc = fx._phaseScope || 'your';
+        return eventCtx.phaseSide === 'active' ? (sc === 'your' || sc === 'each') : (sc === 'each' || sc === 'opp');
+      });
+    }
     if (effects.length) {
       _gfeTraceTrigger(kindKey, perm, effects);
-      _gfeFireEffects(effects, perm);
+      _gfeWithSide(side, () => _gfeFireEffects(effects, perm));
     }
   }
+}
+
+// Generic helper: fire `kindKey` triggers from the ACTING side's battlefield
+// (legacy behavior — correct for "you"-scoped triggers like onAnyCast).
+function _gfeFireBattlefieldTriggers(kindKey, excludeIid, eventCtx) {
+  if (!_gfe) return;
+  _gfeFireTriggersOnSide(_gfeFxSide === 'bot' ? 'bot' : 'you', kindKey, excludeIid, eventCtx);
+}
+
+/** Fire `kindKey` triggers from BOTH battlefields (deaths/ETBs are visible to
+ *  everyone — Blood Artist sees your creatures die too). */
+function _gfeFireGlobalTriggers(kindKey, excludeIid, eventCtx) {
+  if (!_gfe) return;
+  _gfeFireTriggersOnSide('you', kindKey, excludeIid, eventCtx);
+  if (_gfe.opp) _gfeFireTriggersOnSide('bot', kindKey, excludeIid, eventCtx);
+}
+
+/** Upkeep / end-step triggers for the active side, plus the other side's
+ *  "at the beginning of each (player's) ..." triggers. */
+function _gfeFirePhaseTriggers(kindKey, activeSide) {
+  if (!_gfe) return;
+  _gfeFireTriggersOnSide(activeSide, kindKey, null, { phaseSide: 'active' });
+  const other = activeSide === 'bot' ? 'you' : 'bot';
+  if (other === 'bot' && !_gfe.opp) return;
+  _gfeFireTriggersOnSide(other, kindKey, null, { phaseSide: 'inactive' });
 }
 
 /** Diagnostic: when the bot's cast phase finds no candidates, write a
@@ -3384,38 +3736,105 @@ function _gfeActivateAbility(iid, abilityIndex) {
     _gfeFlash(`${card.name} is tapped`);
     return;
   }
-  let parsedMana = null;
-  let manaSourceIids = null;
   if (cost.mana) {
-    parsedMana = parseMana(cost.mana);
     const otherBfCards = _gfe.battlefield.filter(c => c.iid !== iid);
-    const pool = computeAvailableMana(otherBfCards);
-    if (!canAffordCard(pool, parsedMana)) {
+    if (!canAffordCard(computeAvailableMana(otherBfCards), parseMana(cost.mana))) {
       _gfeFlash('Not enough mana to activate');
       return;
     }
-    manaSourceIids = selectManaSources(otherBfCards, parsedMana);
   }
   if (cost.life && (_gfe.life || 0) < cost.life) {
     _gfeFlash(`Not enough life (need ${cost.life})`);
     return;
   }
+  if (cost.removeCounters) {
+    const { kind, n } = cost.removeCounters;
+    if (_gfeGetCounter(card, kind) < n) {
+      _gfeFlash(`Needs ${n} ${kind} counter${n > 1 ? 's' : ''} (has ${_gfeGetCounter(card, kind)})`);
+      return;
+    }
+  }
+  if (cost.discard && (_gfe.hand || []).length < cost.discard) {
+    _gfeFlash(`Not enough cards in hand (need ${cost.discard})`);
+    return;
+  }
+  let sacNeed = 0, sacFilter = null, sacAnother = false;
+  if (cost.sacrificeOther) {
+    sacFilter = cost.sacrificeOther;                 // e.g. "another creature"
+    sacAnother = /^another\b/i.test(sacFilter);
+    const cm = sacFilter.match(/^(?:another\s+)?(two|three|four|five|\d+)\b/i);
+    sacNeed = cm ? (_gfeWord2Num(cm[1]) || parseInt(cm[1], 10) || 1) : 1;
+    const eligible = _gfe.battlefield.filter(c =>
+      (!sacAnother || c.iid !== iid) && _gfeSacFilterMatches(c, sacFilter));
+    if (eligible.length < sacNeed) {
+      _gfeFlash(`Nothing to sacrifice (${sacFilter})`);
+      return;
+    }
+  }
 
-  // Pay costs
-  if (cost.tap) card.tapped = true;
-  if (manaSourceIids) {
-    for (const sid of manaSourceIids) {
+  // Interactive cost components (sacrifice picks, then discard picks) defer
+  // payment to _gfeFinishActivateAbility once everything is chosen.
+  const proceed = (sacIids, discardIids) =>
+    _gfeFinishActivateAbility(card, ability, { sacIids, discardIids });
+  if (sacNeed > 0) {
+    _gfeBeginSacrificePick({
+      need: sacNeed, filter: sacFilter, another: sacAnother, excludeIid: iid,
+      sourceName: card.name,
+      onComplete: (sacIids) => {
+        if (cost.discard > 0) {
+          _gfeBeginDiscardCostPick({
+            need: cost.discard, sourceName: card.name,
+            onComplete: (dIids) => proceed(sacIids, dIids),
+          });
+        } else proceed(sacIids, []);
+      },
+    });
+    return;
+  }
+  if (cost.discard > 0) {
+    _gfeBeginDiscardCostPick({
+      need: cost.discard, sourceName: card.name,
+      onComplete: (dIids) => proceed([], dIids),
+    });
+    return;
+  }
+  proceed([], []);
+}
+
+/** Pay every cost component and fire the ability. Volatile costs are
+ *  re-validated here since pickers may have let the board change. */
+function _gfeFinishActivateAbility(card, ability, { sacIids = [], discardIids = [] } = {}) {
+  if (!_gfe || _gfe.gameOver) return;
+  const cost = ability.cost;
+  if (cost.tap && card.tapped) { _gfeFlash(`${card.name} is tapped`); return; }
+  if (cost.removeCounters) {
+    const { kind, n } = cost.removeCounters;
+    if (_gfeGetCounter(card, kind) < n) { _gfeFlash(`Needs ${n} ${kind} counters`); return; }
+  }
+  if (cost.mana) {
+    const parsedMana = parseMana(cost.mana);
+    // Permanents being sacrificed for this same activation can't be tapped for it.
+    const otherBfCards = _gfe.battlefield.filter(c => c.iid !== card.iid && !sacIids.includes(c.iid));
+    const pool = computeAvailableMana(otherBfCards);
+    if (!canAffordCard(pool, parsedMana)) { _gfeFlash('Not enough mana to activate'); return; }
+    for (const sid of selectManaSources(otherBfCards, parsedMana)) {
       const src = _gfeFindPermanent(sid);
       if (src) { src.tapped = true; src.lockedTapped = true; }
     }
   }
+
+  // Pay
+  if (cost.tap) card.tapped = true;
   if (cost.life) _gfeLifeDelta(-cost.life);
-  if (cost.discard) {
-    _gfeQueueManual(card.name, `Discard ${cost.discard} card(s) (activation cost)`);
+  if (cost.removeCounters) {
+    _gfeAddCounterTyped(card, cost.removeCounters.kind, -cost.removeCounters.n);
+    _gfePushLog({
+      sourceName: card.name,
+      text: `removed ${cost.removeCounters.n} ${cost.removeCounters.kind} counter${cost.removeCounters.n > 1 ? 's' : ''} (cost)`,
+    });
   }
-  if (cost.sacrificeOther) {
-    _gfeQueueManual(card.name, `Sacrifice ${cost.sacrificeOther} (activation cost)`);
-  }
+  if (discardIids.length) _gfePayDiscardCost(discardIids, card.name);
+  if (sacIids.length) _gfePaySacrificeCost(sacIids, card.name);
 
   _gfePushLog({
     sourceName: card.name,
@@ -3424,11 +3843,148 @@ function _gfeActivateAbility(iid, abilityIndex) {
 
   // Self-sacrifice — move source to graveyard (fires death triggers via _gfeMoveCard)
   if (cost.sacrificeSelf) {
-    _gfeMoveCard(iid, 'battlefield', 'graveyard');
+    _gfeMoveCard(card.iid, 'battlefield', 'graveyard');
   }
 
   _gfeFireEffects(ability.effects, card);
   _gfeRender();
+}
+
+// ── Cost pickers: sacrifice a permanent / discard a card (B18) ───────────────
+
+let _gfeSacPendingCb = null;
+let _gfeDiscardCostCb = null;
+
+/** Does this permanent match a sacrifice-cost descriptor ("another creature",
+ *  "an artifact", "a Goblin", "two creatures", "a creature or artifact")? */
+function _gfeSacFilterMatches(card, filterText) {
+  if (!card) return false;
+  let ft = String(filterText || '').toLowerCase().trim();
+  ft = ft.replace(/^(?:another|a|an|one|two|three|four|five|\d+)\s+/, '');
+  ft = ft.replace(/^other\s+/, '');
+  if (!ft || /^permanents?$/.test(ft)) return true;
+  return ft.split(/\s+or\s+/).some(alt => _gfeMatchesSimpleFilter(card, alt.trim()));
+}
+
+function _gfeBeginSacrificePick({ need, filter, another, excludeIid, sourceName, onComplete, onCancel }) {
+  if (!_gfe) return false;
+  const eligible = _gfe.battlefield.filter(c =>
+    (!another || c.iid !== excludeIid) && _gfeSacFilterMatches(c, filter));
+  if (eligible.length < need) {
+    _gfeFlash(`No ${filter || 'permanent'} to sacrifice`);
+    onCancel?.();
+    return false;
+  }
+  _gfe.sacPending = { need, filter, another, excludeIid, picked: [], sourceName };
+  _gfeSacPendingCb = { onComplete, onCancel };
+  _gfeFlash(`Sacrifice ${need > 1 ? `${need} × ` : ''}${filter || 'a permanent'} — click your permanent${need > 1 ? 's' : ''} (ESC cancels)`);
+  _gfeRender();
+  return true;
+}
+
+function _gfeSacPickClick(iid) {
+  const sp = _gfe?.sacPending;
+  if (!sp) return;
+  const card = _gfeFindPermanent(iid);
+  if (!card) return;
+  if (sp.another && iid === sp.excludeIid) { _gfeFlash('Must sacrifice another permanent'); return; }
+  if (!_gfeSacFilterMatches(card, sp.filter)) { _gfeFlash(`Must sacrifice ${sp.filter}`); return; }
+  if (sp.picked.includes(iid)) return;
+  sp.picked.push(iid);
+  if (sp.picked.length >= sp.need) {
+    const picked = sp.picked;
+    const cb = _gfeSacPendingCb;
+    _gfe.sacPending = null;
+    _gfeSacPendingCb = null;
+    cb?.onComplete?.(picked);
+  } else {
+    _gfeFlash(`${sp.picked.length} of ${sp.need} picked`);
+    _gfeRender();
+  }
+}
+
+function _gfeCancelSacPick() {
+  if (!_gfe?.sacPending) return;
+  const cb = _gfeSacPendingCb;
+  _gfe.sacPending = null;
+  _gfeSacPendingCb = null;
+  cb?.onCancel?.();
+  _gfeFlash('Sacrifice cancelled');
+  _gfeRender();
+}
+
+function _gfeBeginDiscardCostPick({ need, sourceName, onComplete, onCancel }) {
+  if (!_gfe) return false;
+  if ((_gfe.hand || []).length < need) {
+    _gfeFlash('Not enough cards in hand');
+    onCancel?.();
+    return false;
+  }
+  _gfe.discardCostPending = { need, picked: [], sourceName };
+  _gfeDiscardCostCb = { onComplete, onCancel };
+  _gfeFlash(`Discard ${need} card${need > 1 ? 's' : ''} — click cards in hand (ESC cancels)`);
+  _gfeRender();
+  return true;
+}
+
+function _gfeDiscardCostClick(iid) {
+  const dp = _gfe?.discardCostPending;
+  if (!dp) return;
+  if (!_gfe.hand.some(c => c.iid === iid)) return;
+  if (dp.picked.includes(iid)) return;
+  dp.picked.push(iid);
+  if (dp.picked.length >= dp.need) {
+    const picked = dp.picked;
+    const cb = _gfeDiscardCostCb;
+    _gfe.discardCostPending = null;
+    _gfeDiscardCostCb = null;
+    cb?.onComplete?.(picked);
+  } else {
+    _gfeFlash(`${dp.picked.length} of ${dp.need} picked`);
+    _gfeRender();
+  }
+}
+
+function _gfeCancelDiscardCostPick() {
+  if (!_gfe?.discardCostPending) return;
+  const cb = _gfeDiscardCostCb;
+  _gfe.discardCostPending = null;
+  _gfeDiscardCostCb = null;
+  cb?.onCancel?.();
+  _gfeFlash('Discard cancelled');
+  _gfeRender();
+}
+
+/** Sacrifice the picked permanents as a cost (death triggers fire via _gfeMoveCard). */
+function _gfePaySacrificeCost(iids, sourceName) {
+  for (const iid of iids) {
+    const card = _gfeFindPermanent(iid);
+    if (!card) continue;
+    _gfePushLog({ sourceName, text: `sacrificed ${card.name} (cost)` });
+    _gfeMoveCard(iid, 'battlefield', 'graveyard');
+  }
+}
+
+/** Discard the picked hand cards as a cost (honors Madness like other discards). */
+function _gfePayDiscardCost(iids, sourceName) {
+  for (const iid of iids) {
+    const idx = _gfe.hand.findIndex(c => c.iid === iid);
+    if (idx < 0) continue;
+    const [card] = _gfe.hand.splice(idx, 1);
+    if (!_gfeIsToken(card)) {
+      const madnessCost = _gfeMadnessCost(card);
+      if (madnessCost) {
+        card.madnessAvailable = true;
+        card.madnessCost = madnessCost;
+        _gfe.exile.push(card);
+        _gfePushLog({ sourceName: card.name, text: `exiled (Madness ${madnessCost})` });
+        _gfeOpenMadnessModal(card);
+      } else {
+        _gfe.graveyard.push(card);
+      }
+    }
+    _gfePushLog({ sourceName, text: `discarded ${card.name} (cost)` });
+  }
 }
 
 // ── Mana pool + mana abilities ───────────────────────────────────────────────
@@ -3485,17 +4041,18 @@ function _gfeTapCard(iid) {
   _gfeTap(iid);
 }
 
-/** Numeric power/toughness for variable mana abilities (counts +1/+1 counters). */
+/** Numeric power/toughness for variable mana abilities (counts ±1/±1 counters). */
 function _gfeManaVarAmount(card, kind) {
   const base = kind === 'toughness' ? card.toughness : card.power;
   const n = parseInt(base, 10);
-  const counters = card.counters || 0;
-  return Math.max(0, (Number.isFinite(n) ? n : 0) + counters);
+  return Math.max(0, (Number.isFinite(n) ? n : 0) + _gfeNetPlusCounters(card));
 }
 
 let _gfeManaChoicePending = null;
 
-/** Activate a mana ability: pay tap, choose color if needed, add mana to the pool. */
+/** Activate a mana ability: pay tap (+ any sacrifice cost), choose color if
+ *  needed, add mana to the pool. Treasure-style "Sacrifice this: Add ..." and
+ *  Ashnod's Altar-style "Sacrifice a creature: Add ..." both pay for real. */
 function _gfeActivateManaAbility(iid, abilityIndex) {
   if (!_gfe) return;
   const card = _gfeFindPermanent(iid);
@@ -3505,26 +4062,46 @@ function _gfeActivateManaAbility(iid, abilityIndex) {
   if (ab.costTap && card.tapped) { _gfeFlash(`${card.name} is tapped`); return; }
   const amount = ab.amount === 'var' ? _gfeManaVarAmount(card, ab.varKind) : (ab.amount || 1);
 
-  const finish = (colorPlan) => {
+  const finish = (colorPlan, sacIids = []) => {
     if (ab.costTap) { card.tapped = true; card.lockedTapped = true; }
+    if (sacIids.length) _gfePaySacrificeCost(sacIids, card.name);
     for (const color of colorPlan) {
       _gfe.manaPool.push({ color, restriction: ab.restriction || null });
     }
     const restr = ab.restriction ? ' (restricted)' : '';
     _gfePushLog({ sourceName: card.name, text: `add ${colorPlan.map(c => _GFE_COLOR_PIPS[c] || c).join('')}${restr}` });
+    // Self-sacrifice (Treasure / Gold): mana is added, then the source goes.
+    if (ab.costSacSelf) {
+      _gfePushLog({ sourceName: card.name, text: 'sacrificed (cost)' });
+      _gfeMoveCard(card.iid, 'battlefield', 'graveyard');
+    }
     _gfeRender();
   };
 
   if (amount <= 0) { _gfeFlash(`${card.name} would add no mana`); return; }
 
-  if (!ab.chooseColor) {
-    // Fixed colors: ab.colors is an array of symbols (length == amount)
-    finish(Array.isArray(ab.colors) ? ab.colors : ['C']);
+  const pickColorsThen = (sacIids) => {
+    if (!ab.chooseColor) {
+      // Fixed colors: ab.colors is an array of symbols (length == amount)
+      finish(Array.isArray(ab.colors) ? ab.colors : ['C'], sacIids);
+      return;
+    }
+    // Needs a color choice. "any" → WUBRG; otherwise the listed options.
+    const options = ab.colors === 'any' ? ['W', 'U', 'B', 'R', 'G'] : ab.colors;
+    _gfeOpenManaChoiceModal(card, amount, options, (color) => finish(Array(amount).fill(color), sacIids));
+  };
+
+  // "Sacrifice a creature: Add ..." — pick the sacrifice first.
+  if (ab.costSacOther) {
+    _gfeBeginSacrificePick({
+      need: 1, filter: ab.costSacOther,
+      another: /^another\b/i.test(ab.costSacOther), excludeIid: iid,
+      sourceName: card.name,
+      onComplete: (sacIids) => pickColorsThen(sacIids),
+    });
     return;
   }
-  // Needs a color choice. "any" → WUBRG; otherwise the listed options.
-  const options = ab.colors === 'any' ? ['W', 'U', 'B', 'R', 'G'] : ab.colors;
-  _gfeOpenManaChoiceModal(card, amount, options, (color) => finish(Array(amount).fill(color)));
+  pickColorsThen([]);
 }
 
 function _gfeOpenManaChoiceModal(card, amount, colors, onPick) {
@@ -4720,7 +5297,7 @@ function _gfeBouncePermanent(iid) {
     _gfeDetachAurasFor(iid, 'you');
     _gfe.battlefield = _gfe.battlefield.filter(c => c.iid !== iid);
     if (!_gfeIsToken(card)) {
-      card.tapped = false; card.counters = 0; card.damage = 0;
+      card.tapped = false; card.counters = {}; card.damage = 0;
       card.attachedTo = null; card.enteredThisTurn = false;
       _gfe.hand.push(card);
     }
@@ -4732,7 +5309,7 @@ function _gfeBouncePermanent(iid) {
     _gfeDetachAurasFor(iid, 'bot');
     _gfe.opp.battlefield = _gfe.opp.battlefield.filter(c => c.iid !== iid);
     if (!_gfeIsToken(card)) {
-      card.tapped = false; card.counters = 0; card.damage = 0;
+      card.tapped = false; card.counters = {}; card.damage = 0;
       card.attachedTo = null; card.enteredThisTurn = false;
       _gfe.opp.hand.push(card);
     }
@@ -4824,6 +5401,9 @@ function _gfeEnterPhase(phase) {
     _gfeFireUpkeepTriggers();
   } else if (phase === 'draw') {
     _gfeDrawStep();
+  } else if (phase === 'main1') {
+    // Sagas gain a lore counter as your precombat main phase begins (CR 714.3b).
+    _gfeTickSagas('you');
   } else if (phase === 'combat') {
     _gfe.combatStep = 'declare';
     const hasEligible = (_gfe.battlefield || []).some(_gfeCanAttack);
@@ -4861,6 +5441,7 @@ function _gfeEnterPhase(phase) {
 function _gfeMaybeAutoAdvance() {
   if (!_gfe) return;
   if (_gfe.botActive || _gfe.defendStep || _gfe.discardPending || _gfe.targetPending || _gfe.gameOver) return;
+  if (_gfe.sacPending || _gfe.discardCostPending) return;
   const phase = _gfe.phase;
   // Phases that require user action — never auto-advance
   if (phase === 'main1' || phase === 'main2') return;
@@ -4880,6 +5461,7 @@ function _gfeMaybeAutoAdvance() {
 function _gfeNextPhase() {
   if (!_gfe) return;
   if (_gfe.botActive || _gfe.defendStep || _gfe.discardPending || _gfe.targetPending || _gfe.gameOver) return;
+  if (_gfe.sacPending || _gfe.discardCostPending) return;
   const idx = _GFE_PHASES.indexOf(_gfe.phase);
   if (idx < 0 || idx === _GFE_PHASES.length - 1) {
     _gfeTryLeavePlayerEndStep();
@@ -4905,8 +5487,8 @@ function _gfeDrawStep() {
   _gfeDrawWithAnim(allowed);
 }
 
-function _gfeFireUpkeepTriggers() { _gfeFireBattlefieldTriggers('onUpkeep', null); }
-function _gfeFireEndStepTriggers() { _gfeFireBattlefieldTriggers('onEndStep', null); }
+function _gfeFireUpkeepTriggers() { _gfeFirePhaseTriggers('onUpkeep', 'you'); }
+function _gfeFireEndStepTriggers() { _gfeFirePhaseTriggers('onEndStep', 'you'); }
 
 // ── Combat ───────────────────────────────────────────────────────────────────
 
@@ -4937,14 +5519,14 @@ function _gfeEffPower(c) {
   const n = parseInt(c?.power, 10);
   if (!Number.isFinite(n)) return 0;
   const sb = _gfeStaticBonus(c);
-  return Math.max(0, n + (c?.counters || 0) + _gfeAuraStatBonus(c).power + sb.power);
+  return Math.max(0, n + _gfeNetPlusCounters(c) + _gfeAuraStatBonus(c).power + sb.power);
 }
 
 function _gfeEffToughness(c) {
   const n = parseInt(c?.toughness, 10);
   if (!Number.isFinite(n)) return 0;
   const sb = _gfeStaticBonus(c);
-  return n + (c?.counters || 0) + _gfeAuraStatBonus(c).toughness + sb.toughness;
+  return n + _gfeNetPlusCounters(c) + _gfeAuraStatBonus(c).toughness + sb.toughness;
 }
 
 /** Sum continuous-effect modifiers (anthems / lords / granted keywords) that
@@ -5190,6 +5772,7 @@ function _gfeAccumCombatDamage({ attackers, blockMap, attackingSide, round, tota
   // your planeswalkers (not modeled).
   const dealToDefender = (dmg, atkIid) => {
     if (dmg <= 0) return;
+    const atkCard = (attackers || []).find(a => a.iid === atkIid);
     if (attackingSide === 'you') {
       const target = _gfe.attackerTargets?.[atkIid];
       if (target && target !== 'face') {
@@ -5208,6 +5791,8 @@ function _gfeAccumCombatDamage({ attackers, blockMap, attackingSide, round, tota
       totals.hitPlayerIids = totals.hitPlayerIids || new Set();
       totals.hitPlayerIids.add(atkIid);
     }
+    // 21+ combat damage from one commander eliminates the defender (CR 903.10a).
+    if (atkCard?.isCommander) _gfeAccrueCommanderDamage(atkCard, attackingSide, dmg);
   };
   const participates = (kw) => {
     if (round === 'first') return kw.firstStrike || kw.doubleStrike;
@@ -5223,7 +5808,7 @@ function _gfeAccumCombatDamage({ attackers, blockMap, attackingSide, round, tota
     if (!blockers.length) {
       totals.face += pwr;
       dealToDefender(pwr, atk.iid);
-      if (akw.lifelink) totals.lifelinkGain += pwr;
+      if (akw.lifelink) totals.atkLifelink += pwr;
       continue;
     }
 
@@ -5261,6 +5846,22 @@ function _gfeAccumCombatDamage({ attackers, blockMap, attackingSide, round, tota
   }
 
   return totals;
+}
+
+/** Track combat damage per commander per defender; 21+ from one commander
+ *  eliminates that defender (CR 903.10a). */
+function _gfeAccrueCommanderDamage(cmd, attackingSide, dmg) {
+  if (!_gfe) return;
+  if (!_gfe.commanderDamage) _gfe.commanderDamage = {};
+  const defender = attackingSide === 'you' ? 'opp' : 'you';
+  const key = `${defender}|${cmd.iid}`;
+  const total = (_gfe.commanderDamage[key] || 0) + dmg;
+  _gfe.commanderDamage[key] = total;
+  _gfePushLog({
+    sourceName: cmd.name,
+    text: `commander damage to ${defender === 'you' ? 'you' : 'opponent'}: ${total}/21`,
+  });
+  if (total >= 21) _gfeEliminate(defender, `21+ commander damage from ${cmd.name}`);
 }
 
 // ── The Stack (minimal — visualization + counterspell hook) ──────────────────
@@ -5340,7 +5941,7 @@ function _gfeResolveCopySpell(fx, sourceCard) {
   _gfePushLog({ sourceName: sourceCard?.name || 'copy', text: `copied ${targetCard.name} ×${n}` });
 }
 
-function _gfeStackPush({ sourceCard, sourceSide, label, kind = 'spell', resolveFn = null, fromZone = null, toZone = null }) {
+function _gfeStackPush({ sourceCard, sourceSide, label, kind = 'spell', resolveFn = null, onCountered = null, fromZone = null, toZone = null }) {
   if (!_gfe) return null;
   const id = _gfeId();
   // Snapshot diagnostic info: parsed effects + image — so the panel can show
@@ -5363,6 +5964,7 @@ function _gfeStackPush({ sourceCard, sourceSide, label, kind = 'spell', resolveF
     cardCmc: sourceCard?.cmc ?? null,
     pushedAt: Date.now(),
     resolveFn,
+    onCountered,
     pending: !!resolveFn,
     effects,
     triggers,
@@ -5421,6 +6023,11 @@ function _gfeStackCounterTop() {
   const top = _gfe.stack[_gfe.stack.length - 1];
   if (top.kind !== 'spell') { _gfeFlash('Cannot counter a non-spell'); return false; }
   _gfe.stack.pop();
+  top.pending = false;
+  // Undo the optimistic zone placement (countered permanents → graveyard).
+  if (typeof top.onCountered === 'function') {
+    try { top.onCountered(); } catch (e) { console.error('onCountered error', e); }
+  }
   _gfeRecordStackHistory(top, 'countered');
   _gfePushLog({ sourceName: 'Counterspell', text: `countered ${top.label}` });
   _gfeRenderStack?.();
@@ -5763,6 +6370,9 @@ function _gfeDestroyCreature(card, side, reason = 'combat') {
   const destZone = replaced.toZone || 'graveyard';
   _gfeDeregisterReplacements(card.iid);
   _gfeDetachAurasFor(card.iid, side);
+  // Counters and marked damage cease when leaving the battlefield (CR 121.2).
+  card.counters = {};
+  card.damage = 0;
   const logText = destZone !== 'graveyard'
     ? `${reason} → ${destZone} (replaced)`
     : (reason === 'destroyed' ? 'destroyed'
@@ -5780,7 +6390,9 @@ function _gfeDestroyCreature(card, side, reason = 'combat') {
       if (destZone === 'graveyard') {
         const trig = parseTriggers(card.oracleText || '', card.name);
         if (trig.onDeath && trig.onDeath.length) _gfeFireEffects(trig.onDeath, card);
-        _gfeFireBattlefieldTriggers('onAnyDeath', card.iid);
+        if (_gfeIsCreature(card)) {
+          _gfeFireGlobalTriggers('onAnyDeath', card.iid, { eventCard: card, eventSide: 'you' });
+        }
       }
     }
   } else {
@@ -5796,8 +6408,10 @@ function _gfeDestroyCreature(card, side, reason = 'combat') {
         _gfeWithSide('bot', () => {
           const trig = parseTriggers(card.oracleText || '', card.name);
           if (trig.onDeath && trig.onDeath.length) _gfeFireEffects(trig.onDeath, card);
-          _gfeFireBattlefieldTriggers('onAnyDeath', card.iid);
         });
+        if (_gfeIsCreature(card)) {
+          _gfeFireGlobalTriggers('onAnyDeath', card.iid, { eventCard: card, eventSide: 'bot' });
+        }
       }
     }
   }
@@ -5834,11 +6448,22 @@ function _gfeEnrichCardMetadata(card) {
     }
   }
 
-  // Colorless-only fallback when CMC is known but mana symbols were never stored.
+  // Fallback when CMC is known but mana symbols were never stored: synthesize
+  // a cost from the color identity (one pip per color, rest generic) so the
+  // card is at least castable instead of permanently unaffordable.
   const cmc = typeof resolveCardCmc === 'function' ? resolveCardCmc(card) : (card.cmc || 0);
   if (cmc > 0) {
     const ci = card.colorIdentity || card.color_identity || card.colors || [];
-    if (!Array.isArray(ci) || !ci.length) card.mana = `{${cmc}}`;
+    const colors = (Array.isArray(ci) ? ci : [])
+      .map(c => String(c).toUpperCase())
+      .filter(c => 'WUBRG'.includes(c));
+    if (!colors.length) {
+      card.mana = `{${cmc}}`;
+    } else {
+      const pips = colors.slice(0, cmc);
+      const generic = Math.max(0, cmc - pips.length);
+      card.mana = (generic > 0 ? `{${generic}}` : '') + pips.map(c => `{${c}}`).join('');
+    }
   }
 }
 
@@ -5865,7 +6490,7 @@ function _gfeExpandDeckForBot(deck) {
     for (let i = 0; i < (card.qty || 1); i++) {
       const copy = {
         ...card, qty: 1, iid: _gfeId(), owner: 'bot',
-        tapped: false, counters: 0, markers: [], damage: 0,
+        tapped: false, counters: {}, markers: [], damage: 0,
         enteredThisTurn: false, commanderCastCount: 0,
       };
       if (typeof ensureCardMetadata === 'function') ensureCardMetadata(copy);
@@ -5899,7 +6524,11 @@ function _gfeFindOppPermanent(iid) {
 function _gfeBotDraw(n = 1) {
   if (!_gfe?.opp) return;
   for (let i = 0; i < n; i++) {
-    if (!_gfe.opp.library.length) break;
+    if (!_gfe.opp.library.length) {
+      // Drawing from an empty library loses the game (CR 104.3c / 120.3).
+      _gfeDeckOut('opp');
+      break;
+    }
     const drawn = _gfe.opp.library.shift();
     _gfeEnrichCardMetadata(drawn);
     _gfe.opp.hand.push(drawn);
@@ -5950,7 +6579,23 @@ function _gfeFireBotEffects(effects, sourceCard) {
       }
       case 'may': _gfeBotAutoMay(fx, sourceCard); break;
       case 'copy_spell': _gfeResolveCopySpell(fx, sourceCard); break;
-      case 'lose_game': _gfe.oppLife = 0; _gfeEliminate('opp'); break;
+      case 'player_counter': {
+        const n = resolveN(1);
+        // From the bot's perspective: 'self' = the bot, 'opp' = you.
+        if (fx.target === 'each') {
+          _gfeAddPlayerCounter('you', fx.counter, n);
+          _gfeAddPlayerCounter('opp', fx.counter, n);
+        } else {
+          _gfeAddPlayerCounter(fx.target === 'opp' ? 'you' : 'opp', fx.counter, n);
+        }
+        break;
+      }
+      case 'proliferate': _gfeProliferate('bot'); break;
+      case 'win_game': _gfeEliminate('you', `Bot's ${sourceCard?.name || 'effect'}`); break;
+      case 'lose_game':
+        if (fx.target === 'opp') _gfeEliminate('you', `Bot's ${sourceCard?.name || 'effect'}`);
+        else _gfeEliminate('opp', `Bot's ${sourceCard?.name || 'effect'}`);
+        break;
       case 'notify':  break; // auto-resolved silently for the bot
     }
   }
@@ -5975,30 +6620,45 @@ function _gfeBotMill(n) {
   }
 }
 
-function _gfeBotAddCounters(iid, n) {
-  const card = _gfeFindOppPermanent(iid);
+function _gfeBotAddCounters(iid, n, kind = '+1/+1') {
+  const card = _gfeFindOppPermanent(iid) || _gfeFindPermanent(iid);
   if (!card) return;
-  card.counters = (card.counters || 0) + (n || 1);
+  if (kind === 'loyalty' && /\bplaneswalker\b/i.test(card.type || card.typeLine || '')) {
+    card.loyalty = (card.loyalty || 0) + (n || 1);
+  } else {
+    _gfeAddCounterTyped(card, kind, n || 1);
+  }
+  if (kind === '-1/-1') _gfeRunSBAs();
 }
 
-/** Bot's +1/+1 counter resolution: honors X amounts and self/all/choose targeting. */
+/** Bot's counter resolution: honors X amounts, counter kind and self/all/choose targeting. */
 function _gfeBotResolveCounterEffect(fx, sourceCard) {
   if (!_gfe?.opp) return;
   const n = (fx.n != null) ? fx.n : (sourceCard?.castX || 0);
   if (!n || n <= 0) return;
+  const kind = fx.counter || '+1/+1';
+  const harmful = kind === '-1/-1' || kind === 'stun';
   if (fx.target === 'all') {
     for (const c of _gfe.opp.battlefield) {
-      if (_gfeIsCreature(c)) c.counters = (c.counters || 0) + n;
+      if (_gfeIsCreature(c)) _gfeAddCounterTyped(c, kind, n);
     }
+    if (fx.bothSides) {
+      for (const c of _gfe.battlefield) {
+        if (_gfeIsCreature(c)) _gfeAddCounterTyped(c, kind, n);
+      }
+    }
+    if (kind === '-1/-1') _gfeRunSBAs();
     return;
   }
   if (fx.target === 'choose') {
-    const creatures = _gfe.opp.battlefield.filter(_gfeIsCreature);
+    // Harmful counters go on YOUR best creature; helpful ones on the bot's.
+    const pool = harmful ? _gfe.battlefield : _gfe.opp.battlefield;
+    const creatures = pool.filter(_gfeIsCreature);
     const best = creatures.sort((a, b) => _gfeEffPower(b) - _gfeEffPower(a))[0];
-    _gfeBotAddCounters((best || sourceCard)?.iid, n);
+    _gfeBotAddCounters((best || sourceCard)?.iid, n, kind);
     return;
   }
-  _gfeBotAddCounters(sourceCard?.iid, n);
+  _gfeBotAddCounters(sourceCard?.iid, n, kind);
 }
 
 function _gfeBotDiscard(n) {
@@ -6042,13 +6702,15 @@ function _gfeBotSpawnToken(desc, sourceCard) {
   const count = _gfeResolveTokenCount(desc, sourceCard);
   const typeLine = `Token Creature${desc.subtype ? ' — ' + desc.subtype : ''}`;
   for (let i = 0; i < count; i++) {
-    _gfe.opp.battlefield.push({
+    const card = {
       iid: _gfeId(), name: desc.name || 'Token',
       type: typeLine, typeLine,
       power: String(desc.power ?? 1), toughness: String(desc.toughness ?? 1),
       isToken: true, owner: 'bot',
-      qty: 1, tapped: false, counters: 0, markers: [], damage: 0, enteredThisTurn: true,
-    });
+      qty: 1, tapped: false, counters: {}, markers: [], damage: 0, enteredThisTurn: true,
+    };
+    _gfeApplyTokenPreset(card, desc);
+    _gfe.opp.battlefield.push(card);
   }
 }
 
@@ -6065,12 +6727,17 @@ function _gfeHandleBotCardEffects(card, fromZone, toZone) {
     }
     if (trig) _gfeFireEffects(trig.onCast, card);
     _gfeFireBattlefieldTriggers('onAnyCast', card.iid, _gfeCastEventCtx(card));
+    // Player permanents with "Whenever an opponent casts a spell" triggers
+    _gfeFireTriggersOnSide('you', 'onOppCast', card.iid, _gfeCastEventCtx(card));
   }
   if (toZone === 'battlefield') {
     card.enteredThisTurn = true;
     if (trig) _gfeFireEffects(trig.onETB, card);
     if (_gfeIsLand(card)) _gfeFireBattlefieldTriggers('onLandfall', card.iid);
-    if (_gfeIsCreature(card)) _gfeFireBattlefieldTriggers('onAnyETB', card.iid);
+    if (_gfeIsCreature(card)) {
+      _gfeFireGlobalTriggers('onAnyETB', card.iid, { eventCard: card, eventSide: 'bot' });
+    }
+    if (_gfeIsSaga(card)) _gfeSagaOnEnter(card, 'bot');
     if (_gfeIsAura(card) && card.attachedTo == null) _gfeBotAttachAura(card.iid);
   }
   if (toZone === 'graveyard') {
@@ -6226,7 +6893,7 @@ function _gfeBotParsedCost(card, tax) {
 
 /** Can the bot pay this card's colored + generic cost (with tax)? */
 function _gfeBotCanAfford(card, tax) {
-  return _gfeCanAffordCard(_gfeBotManaUnitPool(card), card, tax || 0);
+  return _gfeCanAffordCard(_gfeBotManaUnitPool(card), card, tax || 0, 'bot');
 }
 
 /** Color-aware payment for the bot: special sources -> pool -> tap lands. */
@@ -6257,23 +6924,28 @@ function _gfeBotPayCost(card, tax) {
   }
   // 2. Spend floating pool against the need, color-first.
   _gfeSpendPoolForNeed(_gfe.opp.manaPool, need, ctx);
-  // 3. Tap lands/rocks color-correctly for the remainder.
+  // 3. Tap lands/rocks color-correctly for the remainder. selectManaSources
+  //    solves the WHOLE remaining cost or returns [] — a non-empty result
+  //    means the remainder is fully paid by the tapped sources.
   const remaining = {
     colored: { W: need.W, U: need.U, B: need.B, R: need.R, G: need.G, C: 0 },
     generic: need.generic, hybrid: cost.hybrid || [],
   };
-  const sids = selectManaSources(_gfeBotManaBattlefield(), remaining);
-  for (const sid of sids) {
-    const s = _gfe.opp.battlefield.find(c => c.iid === sid);
-    if (s) {
-      s.tapped = true;
-      _gfeBotPayManaSourceLife(s);
+  const remTotal = need.W + need.U + need.B + need.R + need.G + need.generic
+    + (remaining.hybrid.length || 0);
+  if (remTotal > 0) {
+    const sids = selectManaSources(_gfeBotManaBattlefield(), remaining);
+    if (!sids.length) {
+      _gfeBotManaRestore(snap);
+      return false;
     }
-  }
-  const unpaid = need.W + need.U + need.B + need.R + need.G + need.generic;
-  if (unpaid > 0) {
-    _gfeBotManaRestore(snap);
-    return false;
+    for (const sid of sids) {
+      const s = _gfe.opp.battlefield.find(c => c.iid === sid);
+      if (s) {
+        s.tapped = true;
+        _gfeBotPayManaSourceLife(s);
+      }
+    }
   }
   return true;
 }
@@ -6282,11 +6954,13 @@ async function _gfeBotCastPhase() {
   if (!_gfe?.opp) return;
   let safety = 14;
   let iterations = 0;
+  const failedPay = new Set();   // iids whose payment failed — don't retry this phase
   while (safety-- > 0) {
     iterations++;
     const candidates = [];
     const skipped = [];
     for (const c of _gfe.opp.hand) {
+      if (failedPay.has(c.iid)) continue;
       const kind = _gfeBotCastableCard(c);
       if (!kind) {
         skipped.push({ name: c.name, reason: _gfeIsLand(c) ? 'land' : _gfeIsAura(c) ? 'no aura host' : 'X cost / unhandled' });
@@ -6300,7 +6974,7 @@ async function _gfeBotCastPhase() {
     }
     // Commander(s): cast any non-instant/sorcery commander, paying commander tax.
     for (const c of (_gfe.opp.commandZone || [])) {
-      if (_gfeIsInstantSorcery(c)) continue;
+      if (_gfeIsInstantSorcery(c) || failedPay.has(c.iid)) continue;
       const tax = (c.commanderCastCount || 0) * 2;
       if (_gfeBotCanAfford(c, tax)) {
         candidates.push({ card: c, from: 'commandZone', tax, kind: 'permanent', cost: Math.round((c.cmc || 0) + tax) });
@@ -6314,7 +6988,7 @@ async function _gfeBotCastPhase() {
     candidates.sort((a, b) => b.cost - a.cost);
     const { card, from, tax, kind } = candidates[0];
 
-    if (!_gfeBotPayCost(card, tax)) continue;
+    if (!_gfeBotPayCost(card, tax)) { failedPay.add(card.iid); continue; }
 
     if (from === 'commandZone') {
       _gfe.opp.commandZone = _gfe.opp.commandZone.filter(c => c.iid !== card.iid);
@@ -6334,10 +7008,51 @@ async function _gfeBotCastPhase() {
     _gfe.opp.lastPlayed = card.name;
     _gfePushLog({ sourceName: 'Bot', text: `cast ${card.name}${from === 'commandZone' ? ' (commander)' : ''}` });
     _gfeFlash(`Bot cast ${card.name}`);
-    _gfeWithSide('bot', () => _gfeHandleBotCardEffects(card, from, toZone));
+    // The bot's spell goes on the stack as a pending entry so the player gets
+    // a response window (cast an instant / counter it) before it resolves.
+    _gfeStackPush({
+      sourceCard: card,
+      sourceSide: 'bot',
+      label: card.name,
+      kind: 'spell',
+      fromZone: from,
+      toZone,
+      resolveFn: () => {
+        _gfeWithSide('bot', () => _gfeHandleBotCardEffects(card, from, toZone));
+        _gfeRender();
+      },
+      onCountered: () => {
+        // A countered permanent was already placed on the bot battlefield —
+        // send it to the graveyard instead. Instants/sorceries are already
+        // in the graveyard, which is where a countered spell ends up anyway.
+        if (toZone === 'battlefield') {
+          _gfe.opp.battlefield = _gfe.opp.battlefield.filter(c => c.iid !== card.iid);
+          if (!_gfeIsToken(card)) _gfe.opp.graveyard.push(card);
+        }
+        _gfeRender();
+      },
+    });
+    _gfeRender();
+    _gfeMaybePromptResponse();
+    await _gfeWaitForStackQuiet();
+    if (_gfe.gameOver) return;
     _gfeRender();
     await _gfeBotPause(420);
   }
+}
+
+/** Resolve until the stack has no pending entries and nobody holds priority.
+ *  Lets the async bot turn pause while the player responds to a bot spell. */
+function _gfeWaitForStackQuiet() {
+  return new Promise(resolve => {
+    const check = () => {
+      if (!_gfe || _gfe.gameOver) { resolve(); return; }
+      const busy = _gfe.priorityWaitingFor || (_gfe.stack || []).some(e => e.pending);
+      if (!busy) { resolve(); return; }
+      setTimeout(check, 150);
+    };
+    check();
+  });
 }
 
 /** Pick a sensible own permanent for the bot to enchant with this aura. */
@@ -6450,14 +7165,16 @@ async function _gfeStartBotTurn() {
   _gfeRender();
   await _gfeBotPause();
 
-  // Upkeep triggers
-  _gfeWithSide('bot', () => _gfeFireBattlefieldTriggers('onUpkeep', null));
+  // Upkeep triggers — bot's own, plus the player's "each upkeep" triggers
+  _gfeFirePhaseTriggers('onUpkeep', 'bot');
   _gfeRender();
 
   // Draw (skip the bot's very first turn, like real MTG)
   if (_gfe.opp.turn > 1) { _gfeBotDraw(1); _gfeRender(); await _gfeBotPause(350); }
 
-  // Main phase: one land, then spells
+  // Main phase: sagas tick, then one land, then spells
+  _gfeTickSagas('bot');
+  _gfeRender();
   _gfeEnrichBotCards();
   if (_gfeBotPlayLand()) { _gfeRender(); await _gfeBotPause(420); }
   await _gfeBotCastPhase();
@@ -6549,8 +7266,8 @@ function _gfeConfirmPlayerBlocks() {
 
 function _gfeFinishBotTurn() {
   if (!_gfe) return;
-  // Bot end-step triggers
-  if (_gfe.opp) _gfeWithSide('bot', () => _gfeFireBattlefieldTriggers('onEndStep', null));
+  // Bot end-step triggers — plus the player's "each end step" triggers
+  if (_gfe.opp) _gfeFirePhaseTriggers('onEndStep', 'bot');
   _gfeEndOfTurnCleanup('bot');
   _gfe.botActive = false;
   _gfe.defendStep = false;
@@ -7307,7 +8024,11 @@ function _gfeAbilitySummary(ability) {
 }
 
 function _gfeManaAbilitySummary(ab, card) {
-  const tap = ab.costTap ? '{T}: ' : '';
+  const costBits = [];
+  if (ab.costTap) costBits.push('{T}');
+  if (ab.costSacSelf) costBits.push('Sac');
+  else if (ab.costSacOther) costBits.push(`Sac ${ab.costSacOther}`);
+  const tap = costBits.length ? costBits.join(', ') + ': ' : '';
   let what;
   if (ab.amount === 'var') {
     const n = card ? _gfeManaVarAmount(card, ab.varKind) : 'X';
@@ -7384,6 +8105,14 @@ function _gfeZoneCardPointerDown(e, iid, zone) {
     e.stopPropagation();
     _gfeHideContextMenu();
     if (iid !== _gfe.attachPending.auraIid) _gfeAttachTo(iid);
+    return;
+  }
+  // Sacrifice-cost mode: clicking your permanent pays the sacrifice
+  if (zone === 'battlefield' && _gfe?.sacPending) {
+    e.preventDefault();
+    e.stopPropagation();
+    _gfeHideContextMenu();
+    _gfeSacPickClick(iid);
     return;
   }
   // Counter target mode: clicking your creature gives it the pending counters
@@ -7484,16 +8213,9 @@ function _gfeStartZoneDrag(e, iid, fromZone, card) {
   const captureEl = e.currentTarget;
   const grab = _gfeDragGrabFromEl(e, captureEl, ghostW, ghostH);
 
-  let grabBfX = null;
-  let grabBfY = null;
-  if (fromZone === 'battlefield') {
-    const bf = document.getElementById('gfeBattlefield');
-    const bfRect = bf?.getBoundingClientRect();
-    if (bfRect) {
-      grabBfX = e.clientX - bfRect.left - card.x;
-      grabBfY = e.clientY - bfRect.top - card.y;
-    }
-  }
+  // Row-based battlefield layout: no free repositioning, so no grab offset.
+  const grabBfX = null;
+  const grabBfY = null;
 
   const ghost = document.createElement('div');
   ghost.id = 'gfeZoneDragGhost';
@@ -7509,12 +8231,13 @@ function _gfeStartZoneDrag(e, iid, fromZone, card) {
   ghost.innerHTML = _gfeCardImg(card, ghostW);
   document.body.appendChild(ghost);
 
-  const dragStack = fromZone === 'battlefield' && _gfeAurasOn(iid).length > 0;
-  if (dragStack) ghost.style.display = 'none';
+  // Row layout auto-arranges the battlefield — dragging a battlefield card
+  // only moves the ghost (for dropping onto graveyard/exile/hand zones).
+  const dragStack = false;
 
   _gfeZoneDragState = {
     iid, fromZone, startX: e.clientX, startY: e.clientY, moved: false,
-    bfReposition: fromZone === 'battlefield',
+    bfReposition: false,
     dragStack,
     ghostOx: grab.ghostOx,
     ghostOy: grab.ghostOy,
@@ -7550,22 +8273,6 @@ function _gfeZoneDragMove(e) {
   if (ghost) {
     ghost.style.left = `${e.clientX - _gfeZoneDragState.ghostOx}px`;
     ghost.style.top = `${e.clientY - _gfeZoneDragState.ghostOy}px`;
-  }
-  if (_gfeZoneDragState.bfReposition && _gfeZoneDragState.moved) {
-    const card = _gfeFindPermanent(_gfeZoneDragState.iid);
-    if (card) {
-      card.autoPlaced = false;
-      const container = document.getElementById('gfeBattlefield');
-      const rect = container?.getBoundingClientRect();
-      const cw = _gfeBfCardW(card);
-      const ch = Math.round(cw * GFE_CARD_ASPECT);
-      if (rect && _gfeZoneDragState.grabBfX != null && _gfeZoneDragState.grabBfY != null) {
-        card.x = Math.max(0, Math.min(rect.width - cw, e.clientX - rect.left - _gfeZoneDragState.grabBfX));
-        card.y = Math.max(0, Math.min(rect.height - ch, e.clientY - rect.top - _gfeZoneDragState.grabBfY));
-        const el = container?.querySelector(`[data-iid="${_gfeZoneDragState.iid}"]`);
-        if (el) { el.style.left = card.x + 'px'; el.style.top = card.y + 'px'; el.classList.add('dragging'); }
-      }
-    }
   }
   _gfeHighlightZones(e.clientX, e.clientY);
   e.preventDefault();
@@ -7743,6 +8450,12 @@ function _gfeBfCardHtml(c, zone, cardW) {
   }
   // Counter target mode: highlight your creatures as targets
   if (_gfe?.counterPending && isCreature) cls.push('gfe-attach-target');
+  // Sacrifice-cost mode: highlight matching permanents
+  if (_gfe?.sacPending && _gfeSacFilterMatches(c, _gfe.sacPending.filter)
+      && !(_gfe.sacPending.another && c.iid === _gfe.sacPending.excludeIid)
+      && !_gfe.sacPending.picked.includes(c.iid)) {
+    cls.push('gfe-attach-target');
+  }
   // Removal / fight target mode: highlight valid permanents
   if (_gfe?.targetPending && _gfeIsTargetEligible(c, 'you')) cls.push('gfe-attach-target');
   // Defend step (blocking the bot): highlight eligible blockers + show assignment
@@ -7755,13 +8468,13 @@ function _gfeBfCardHtml(c, zone, cardW) {
   }
   return `
     <div class="${cls.join(' ')}" data-iid="${c.iid}"
-         style="left:${c.x}px;top:${c.y}px"
+         style="--cw:${cardW}px"
          ${_gfeHoverAttrs(zone, c.iid)}
          onpointerdown="_gfeZoneCardPointerDown(event,${c.iid},'${zone}')"
          oncontextmenu="_gfeShowContextMenu(event,${c.iid},'${zone}')">
       ${_gfeCardImg(c, cardW)}
       ${_gfeMarkerBadgesHtml(c)}
-      ${c.counters > 0 ? `<div class="gf-counter-badge">+${c.counters}/+${c.counters}</div>` : ''}
+      ${_gfeCounterBadgesHtml(c)}
       ${c.lockedTapped ? `<div class="gfe-mana-lock">🔒</div>` : ''}
       ${isCreature && pt ? `<div class="gfe-pt-badge">${pt}</div>` : ''}
       ${/planeswalker/i.test(c.type || c.typeLine || '') && c.loyalty != null ? `<div class="gfe-loyalty-badge" title="Loyalty">${c.loyalty}</div>` : ''}
@@ -7771,13 +8484,43 @@ function _gfeBfCardHtml(c, zone, cardW) {
     </div>`;
 }
 
+/** Order unattached cards, inserting each one's attachments right after it so
+ *  auras/equipment render tucked behind their host (Arena-style). */
+function _gfeOrderWithAttachments(cards, all) {
+  const out = [];
+  for (const c of cards) {
+    out.push(c);
+    for (const a of all) {
+      if (a.attachedTo === c.iid) out.push(a);
+    }
+  }
+  return out;
+}
+
+/** Split a battlefield into Arena-style rows: front = creatures, back = lands
+ *  then other nonland permanents. Attachments follow their hosts. */
+function _gfeBattlefieldRows(all) {
+  const unattached = all.filter(c => c.attachedTo == null);
+  const front = unattached.filter(c => _gfeIsCreature(c));
+  const lands = unattached.filter(c => !_gfeIsCreature(c) && _gfeIsLand(c));
+  const others = unattached.filter(c => !_gfeIsCreature(c) && !_gfeIsLand(c));
+  return {
+    front: _gfeOrderWithAttachments(front, all),
+    back: _gfeOrderWithAttachments([...lands, ...others], all),
+  };
+}
+
 function _gfeRenderBattlefield() {
   const bf = document.getElementById('gfeBattlefield');
   if (!bf || !_gfe) return;
   bf.classList.toggle('gfe-attach-picking', !!_gfe.attachPending);
   const empty = _gfe.battlefield.length === 0
-    ? `<div class="gf-bf-empty">Non-land permanents appear here</div>` : '';
-  bf.innerHTML = empty + _gfe.battlefield.map(c => _gfeBfCardHtml(c, 'battlefield', _gfeBfCardW(c))).join('');
+    ? `<div class="gf-bf-empty">Your battlefield — drag cards here to play them</div>` : '';
+  const rows = _gfeBattlefieldRows(_gfe.battlefield);
+  const rowHtml = (cards, mod) =>
+    `<div class="gfe-row gfe-row--${mod}">${cards.map(c => _gfeBfCardHtml(c, 'battlefield', _gfeBfCardW(c))).join('')}</div>`;
+  // Your half: creatures by the center line (top), lands/permanents below.
+  bf.innerHTML = empty + rowHtml(rows.front, 'front') + rowHtml(rows.back, 'back');
   _gfeRenderManaPool();
   _gfeRenderOpp();
 }
@@ -7787,19 +8530,25 @@ function _gfeRenderBattlefield() {
 function _gfeOppCardHtml(c) {
   const isCreature = _gfeIsCreature(c);
   const pt = _gfePtDisplay(c);
+  const cardW = _gfeBfCardW(c);
   const cls = ['gfe-opp-card'];
   if (c.tapped) cls.push('tapped');
   if (c._attacking) cls.push('gfe-attacking');
+  if (c.attachedTo != null) cls.push('gfe-aura-attached');
   const removalTarget = _gfe?.targetPending && _gfeIsTargetEligible(c, 'bot');
   const attackerTarget = _gfe?.defendStep && _gfe.botAttackers.has(c.iid);
+  const counterTarget = _gfe?.counterPending && isCreature;
   if (attackerTarget) cls.push('gfe-opp-attacker-target');
-  if (removalTarget) cls.push('gfe-attach-target');
-  const clickable = attackerTarget || removalTarget;
+  if (removalTarget || counterTarget) cls.push('gfe-attach-target');
+  const clickable = attackerTarget || removalTarget || counterTarget;
   const click = clickable ? `onclick="_gfeOppCardClick(${c.iid})"` : '';
   return `
     <div class="${cls.join(' ')}" data-iid="${c.iid}" ${click}
+         style="--cw:${cardW}px"
          ${_gfeHoverAttrs('oppBattlefield', c.iid)}>
-      ${_gfeCardImg(c, gfeOppCardW())}
+      ${_gfeCardImg(c, cardW)}
+      ${_gfeMarkerBadgesHtml(c)}
+      ${_gfeCounterBadgesHtml(c)}
       ${isCreature && pt ? `<div class="gfe-pt-badge">${pt}</div>` : ''}
       ${/planeswalker/i.test(c.type || c.typeLine || '') && c.loyalty != null ? `<div class="gfe-loyalty-badge" title="Loyalty">${c.loyalty}</div>` : ''}
       ${c._attacking ? `<div class="gfe-atk-badge">⚔</div>` : ''}
@@ -7808,16 +8557,23 @@ function _gfeOppCardHtml(c) {
 
 function _gfeOppCardClick(iid) {
   if (_gfe?.targetPending) { _gfeTargetClick(iid); return; }
+  if (_gfe?.counterPending) { _gfeApplyCounterTarget(iid); return; }
   if (_gfe?.defendStep) { _gfeClickOppCreature(iid); return; }
 }
 
-function gfeOppCardW() { return 58; }
+function gfeOppCardW() { return gfeNonlandCardSize; }
 
 function _gfeRenderOpp() {
   const band = document.getElementById('gfeOppBand');
+  const bf = document.getElementById('gfeOppBattlefield');
   if (!band) return;
-  if (!_gfe?.opp) { band.style.display = 'none'; return; }
+  if (!_gfe?.opp) {
+    band.style.display = 'none';
+    if (bf) bf.style.display = 'none';
+    return;
+  }
   band.style.display = '';
+  if (bf) bf.style.display = '';
 
   const nameEl = document.getElementById('gfeOppDeckLabel');
   if (nameEl) nameEl.textContent = _gfe.opp.deckName || 'Bot';
@@ -7828,18 +8584,15 @@ function _gfeRenderOpp() {
   const gyEl = document.getElementById('gfeOppGYCount');
   if (gyEl) gyEl.textContent = _gfe.opp.graveyard.length;
 
-  const bf = document.getElementById('gfeOppBattlefield');
   if (bf) {
-    const lands = _gfe.opp.battlefield.filter(_gfeIsLand);
-    const others = _gfe.opp.battlefield.filter(c => !_gfeIsLand(c));
     const n = _gfe.opp.battlefield.length;
     const empty = !n
-      ? `<div class="gf-bf-empty">Bot battlefield — lands and spells appear here on bot turns</div>` : '';
-    const last = _gfe.opp.lastPlayed && n
-      ? `<div class="gfe-opp-last-play">Last: ${_gfeEscapeHtml(_gfe.opp.lastPlayed)}</div>` : '';
-    bf.innerHTML = last + empty
-      + `<div class="gfe-opp-row gfe-opp-row--spells">${others.map(_gfeOppCardHtml).join('')}</div>`
-      + `<div class="gfe-opp-row gfe-opp-row--lands">${lands.map(_gfeOppCardHtml).join('')}</div>`;
+      ? `<div class="gf-bf-empty">Opponent's battlefield</div>` : '';
+    const rows = _gfeBattlefieldRows(_gfe.opp.battlefield);
+    const rowHtml = (cards, mod) =>
+      `<div class="gfe-row gfe-row--${mod}">${cards.map(_gfeOppCardHtml).join('')}</div>`;
+    // Mirrored: lands/permanents at the top, creatures by the center line.
+    bf.innerHTML = empty + rowHtml(rows.back, 'back') + rowHtml(rows.front, 'front');
     bf.dataset.permCount = String(n);
   }
 
@@ -7880,14 +8633,14 @@ function _gfeCastableManas(card) {
   return manas;
 }
 
-function _gfeCanAffordCard(pool, card, extraGeneric = 0) {
+function _gfeCanAffordCard(pool, card, extraGeneric = 0, side = 'you') {
   const manas = _gfeCastableManas(card);
   const cmc = typeof resolveCardCmc === 'function' ? resolveCardCmc(card) : (card.cmc || 0);
   if (!manas.length) return cmc === 0;
   return manas.some(m => {
     const cost = parseMana(m);
     if (!cost) return false;
-    const modDelta = _gfeCardCostDelta(card, 'you', m);
+    const modDelta = _gfeCardCostDelta(card, side, m);
     const totalExtra = (extraGeneric || 0) + modDelta;
     const effective = totalExtra !== 0
       ? { ...cost, generic: Math.max(0, (cost.generic || 0) + totalExtra) }
@@ -7938,12 +8691,13 @@ function _gfeRenderHand() {
     const zIndex = Math.round((1 - Math.abs(norm)) * n) + 1;
     const ml = i === 0 ? '0' : `${overlapPx}px`;
     const cls = ['gf-hand-card'];
-    if (!castable.has(c.iid) && !_gfe?.discardPending) cls.push('gfe-uncastable');
-    if (_gfe?.discardPending) cls.push('gfe-discard-target');
+    const discardMode = _gfe?.discardPending || _gfe?.discardCostPending;
+    if (!castable.has(c.iid) && !discardMode) cls.push('gfe-uncastable');
+    if (discardMode) cls.push('gfe-discard-target');
     if (_gfeNewlyDrawnIids.has(c.iid)) cls.push('gfe-draw-anim');
     return `<div class="${cls.join(' ')}" data-iid="${c.iid}"
       style="--angle:${angle.toFixed(1)}deg;--rise:${rise.toFixed(1)}px;z-index:${zIndex};margin-left:${ml}"
-      title="${c.name}${isPutBack ? ' — click to put back' : _gfe?.discardPending ? ' — click to discard' : ' — drag to play'}"
+      title="${c.name}${isPutBack ? ' — click to put back' : (_gfe?.discardPending || _gfe?.discardCostPending) ? ' — click to discard' : ' — drag to play'}"
       ${_gfeHoverAttrs('hand', c.iid)}
       onpointerdown="_gfeHandPointerDown(event,${c.iid})"
       oncontextmenu="_gfeShowContextMenu(event,${c.iid},'hand')">
@@ -7957,6 +8711,12 @@ function _gfeRenderHand() {
 
 function _gfeHandPointerDown(e, iid) {
   if (e.button === 2) return;
+  if (_gfe?.discardCostPending) {
+    e.preventDefault();
+    e.stopPropagation();
+    _gfeDiscardCostClick(iid);
+    return;
+  }
   if (_gfe?.discardPending) {
     e.preventDefault();
     e.stopPropagation();
@@ -8033,6 +8793,7 @@ function _gfeRenderSidebar() {
 
   _gfeRenderPhasePills();
   _gfeRenderOppLife();
+  _gfeRenderPlayerCounters();
   _gfeRenderLog();
 
   const lifeEl = document.getElementById('gfeLifeVal');
@@ -8157,6 +8918,15 @@ function _gfeRenderPhasePills() {
     if (i > idx) cls.push('gfe-phase-pill--future');
     return `<button type="button" class="${cls.join(' ')}" onclick="_gfeJumpToPhase('${p}')" title="${_GFE_PHASE_NAMES[p]}">${_GFE_PHASE_LABELS[p]}</button>`;
   }).join('');
+  // Center-bar turn indicator (Arena-style middle strip)
+  const who = document.getElementById('gfeTurnWho');
+  if (who) {
+    const isBot = !!_gfe.botActive;
+    who.textContent = isBot ? "BOT'S TURN" : 'YOUR TURN';
+    who.classList.toggle('gfe-turn-who--bot', isBot);
+  }
+  const bar = document.getElementById('gfeCenterBar');
+  if (bar) bar.classList.toggle('gfe-center-bar--bot', !!_gfe.botActive);
 }
 
 function _gfeRenderOppLife() {
@@ -8394,7 +9164,7 @@ function _gfeSpawnToken(idx) {
     isToken: true,
     qty: 1,
     tapped: false,
-    counters: 0,
+    counters: {},
     markers: [],
     autoPlaced: false,
     x: Math.max(8, (bfW - cw) / 2 + (sameOnBf % 6) * 14),
