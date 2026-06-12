@@ -238,10 +238,19 @@
   .voice-two-col  { grid-template-columns: 1fr !important; }
   .voice-card-panel { display: none !important; }
 
-  /* ── Deck: extra zones — one card width (inline px), below mainboard on phone ── */
+  /* ── Deck: phone is one column — decklist, then sideboard, then maybe board ──
+     Stack-swap and zone drag are disabled in JS on phone; let touches scroll. */
+  #deckCardList .deck-zone-draggable,
+  .deck-stack-group-label--drag {
+    touch-action: auto !important;
+    cursor: default !important;
+  }
   .deck-stack-view.vertical-orient.deck-stack-view--zones-below,
-  .deck-stack-view.vertical-orient {
+  .deck-stack-view.vertical-orient,
+  .deck-stack-view {
     flex-wrap: nowrap !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
   }
   .deck-mainboard-area.vertical-orient {
     flex: none !important;
@@ -250,22 +259,34 @@
     -webkit-overflow-scrolling: touch !important;
     padding-bottom: 0.5rem !important;
   }
-  .deck-stack-view.vertical-orient > .deck-extra-zones-wrap {
+  #deckCardList .deck-extra-zones-wrap {
+    display: flex !important;
+    flex-direction: column !important;
     flex: 0 0 auto !important;
-    max-width: var(--deck-card-w, 220px) !important;
+    width: 100% !important;
+    max-width: 100% !important;
     border-left: none !important;
     border-top: none !important;
     padding-left: 0 !important;
     padding-top: 0.75rem !important;
     margin-top: 0.25rem !important;
-    align-self: flex-end !important;
+    align-self: stretch !important;
   }
-  .deck-stack-view.vertical-orient > .deck-extra-zones-wrap > .deck-extra-zone-section,
+  #deckCardList .deck-extra-zones-wrap::before { display: none !important; }
+  /* Sideboard above maybe board (markup renders MB first) */
+  #deckCardList .deck-extra-zones-wrap > .deck-extra-zone--sb { order: 1; }
+  #deckCardList .deck-extra-zones-wrap > .deck-extra-zone--mb { order: 2; }
+  #deckCardList .deck-extra-zones-wrap > .deck-extra-zone-section,
   .deck-stack-view.vertical-orient > .deck-sideboard-section {
     width: 100% !important;
     max-width: 100% !important;
     min-height: 0 !important;
     border-left: none !important;
+  }
+  /* Zone stacks match the centered mainboard column width */
+  #tab-decks .deck-stack-view > .deck-extra-zones-wrap .deck-stack-cards.vertical {
+    width: min(90vw, 270px) !important;
+    margin: 0 auto !important;
   }
   #tab-decks .deck-mainboard-area.vertical-orient {
     display: flex !important;
