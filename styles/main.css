@@ -5022,8 +5022,8 @@ select:focus { outline: none; border-color: rgba(200,168,74,0.6); box-shadow: 0 
 .pdv-row { display: flex; align-items: center; gap: 8px; padding: 3px 4px; border-radius: 6px; cursor: pointer; }
 .pdv-row:hover { background: var(--bg2); }
 .pdv-qty { font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: var(--text3); width: 24px; text-align: right; flex-shrink: 0; }
-.pdv-row-img { width: 26px; height: 36px; object-fit: cover; object-position: center top; border-radius: 3px; flex-shrink: 0; background: var(--bg3); }
-.pdv-row-name { flex: 1; min-width: 0; font-size: 0.85rem; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pdv-row-img { width: 46px; height: 64px; object-fit: cover; object-position: center top; border-radius: 4px; flex-shrink: 0; background: var(--bg3); }
+.pdv-row-name { flex: 1; min-width: 0; font-size: 0.9rem; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pdv-row-price { font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; color: var(--gold); flex-shrink: 0; }
 .pdv-footer { margin-top: 2rem; padding-top: 1.25rem; border-top: 1px solid var(--border); text-align: center; font-size: 0.82rem; color: var(--text3); }
 .pdv-footer a { color: var(--gold); }
