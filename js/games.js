@@ -140,7 +140,7 @@ function renderGamesSidebar() {
             ${isActive ? '<span class="game-active-dot"></span>' : ''}
             <div class="game-history-title">${g.format}</div>
           </div>
-          <div class="game-history-players">${g.players.map(p => p.name).join(', ')}</div>
+          <div class="game-history-players">${g.players.map(p => escapeHtml(p.name)).join(', ')}</div>
           <div class="game-history-meta">
             <span>${playersCount}P</span>
             <span>T${turns}</span>
@@ -148,7 +148,7 @@ function renderGamesSidebar() {
           </div>
           <div class="game-history-meta" style="margin-top:3px">
             <span style="color:${isActive ? 'var(--teal)' : 'var(--gold)'}">
-              ${isActive ? `In progress${activePlayer ? ` · ${activePlayer.name}` : ''}` : `Winner: ${winner ? winner.name : '—'}`}
+              ${isActive ? `In progress${activePlayer ? ` · ${escapeHtml(activePlayer.name)}` : ''}` : `Winner: ${winner ? escapeHtml(winner.name) : '—'}`}
             </span>
           </div>
         </div>
@@ -182,7 +182,7 @@ function renderGamesQuickStats() {
     <div style="font-size:0.7rem;color:var(--text3);letter-spacing:0.05em;margin-bottom:7px">WIN LEADERBOARD</div>
     ${board.map(p => `
       <div style="display:flex;align-items:center;gap:6px;padding:3px 0;font-size:0.82rem">
-        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.name}</span>
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(p.name)}</span>
         <span style="font-family:'JetBrains Mono',monospace;font-size:0.72rem;color:var(--gold)">${p.w}W</span>
         <span style="font-size:0.68rem;color:var(--text3)">${p.g}G · ${p.rate}%</span>
       </div>`).join('')}
@@ -330,12 +330,12 @@ function renderNewGamePlayersList() {
 
   el.innerHTML = newGamePlayers.map((p, i) => {
     const userOpts = _allAppUsers.map(u =>
-      `<option value="${u.id}" ${p.userId == u.id ? 'selected' : ''}>${_displayName(u.email)}</option>`
+      `<option value="${u.id}" ${p.userId == u.id ? 'selected' : ''}>${escapeHtml(u.name || '')}</option>`
     ).join('');
 
     const userDecks = p.userId ? (_userDecksCache[p.userId] || []) : [];
     const deckOpts = `<option value="">— no deck —</option>` + userDecks.map(d =>
-      `<option value="${d.id}" ${p.deckId === d.id ? 'selected' : ''}>${d.name}${d.format ? ' ('+d.format+')' : ''}</option>`
+      `<option value="${d.id}" ${p.deckId === d.id ? 'selected' : ''}>${escapeHtml(d.name)}${d.format ? ' ('+escapeHtml(d.format)+')' : ''}</option>`
     ).join('');
 
     const showDeck  = userDecks.length > 0;
@@ -349,7 +349,7 @@ function renderNewGamePlayersList() {
         ${userOpts}
       </select>
       ${showDeck ? `<select onchange="ngpDeckSelect(${i}, this.value)" style="min-width:0">${deckOpts}</select>` : `<div style="font-size:0.78rem;color:var(--text3);padding:4px 0">${p.userId ? 'No decks' : ''}</div>`}
-      ${isCmdFmt ? `<div style="font-size:0.78rem;color:var(--gold);font-family:'Cinzel',serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0">${selDeck?.commander || ''}</div>` : ''}
+      ${isCmdFmt ? `<div style="font-size:0.78rem;color:var(--gold);font-family:'Cinzel',serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0">${escapeHtml(selDeck?.commander || '')}</div>` : ''}
       <div style="display:flex;align-items:center;gap:3px;justify-content:center" title="Mulligans taken before the game">
         <button type="button" onclick="ngpMull(${i},-1)" style="${mullBtn}">−</button>
         <span style="min-width:14px;text-align:center;font-family:'JetBrains Mono',monospace;font-size:0.85rem">${p.mulligans || 0}</span>
@@ -364,7 +364,7 @@ async function ngpUserSelect(i, userIdStr) {
   const userId = userIdStr ? parseInt(userIdStr) : null;
   newGamePlayers[i].userId = userId;
   const user = _allAppUsers.find(u => u.id == userId);
-  newGamePlayers[i].name = user ? _displayName(user.email) : '';
+  newGamePlayers[i].name = user ? (user.name || '') : '';
   newGamePlayers[i].deckId = '';
   newGamePlayers[i].deckName = '';
   newGamePlayers[i].commander = '';
@@ -465,7 +465,7 @@ function renderActiveGame(game) {
       <span class="tag tag-blue">T${game.currentTurn}, P${activeIdx + 1}</span>
       ${activePlayer ? `<span style="display:inline-flex;align-items:center;gap:5px;padding:2px 10px;background:rgba(${hexToRgb(activePlayer.color)},0.12);border:1px solid rgba(${hexToRgb(activePlayer.color)},0.35);border-radius:20px;font-size:0.75rem;font-family:'Inter',system-ui,sans-serif;white-space:nowrap">
         <span style="width:7px;height:7px;border-radius:50%;background:${activePlayer.color};flex-shrink:0"></span>
-        <strong style="color:${activePlayer.color}">${activePlayer.name}</strong>'s turn
+        <strong style="color:${activePlayer.color}">${escapeHtml(activePlayer.name)}</strong>'s turn
       </span>` : ''}
       <span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:var(--bg3);border:1px solid var(--border2);border-radius:20px;font-size:0.73rem;font-family:'JetBrains Mono',monospace;color:var(--text2)">${gameIcon('clock', 12)}<span id="turnTimerDisplay">${game.turnStartedAt ? formatDuration(Date.now() - game.turnStartedAt) : '00:00'}</span></span>
       <span style="font-size:0.8rem;color:var(--text3)">${activePlayers} active</span>
@@ -512,7 +512,7 @@ function renderPlayerCard(game, p) {
     return `
     <div style="display:flex;align-items:center;gap:4px;font-size:0.7rem;padding:2px 0">
       <span style="width:7px;height:7px;border-radius:50%;background:${op.color};flex-shrink:0"></span>
-      <span style="flex:1;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${op.name}</span>
+      <span style="flex:1;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(op.name)}</span>
       <button onclick="changeCommanderDamage('${game.id}','${p.id}','${op.id}',-1)"
         style="background:none;border:none;color:var(--text3);cursor:pointer;padding:0 3px;font-size:0.8rem;line-height:1">−</button>
       <span style="font-family:'JetBrains Mono',monospace;min-width:18px;text-align:center;color:${danger ? 'var(--red)' : 'var(--text2)'};font-weight:${danger ? 700 : 400}">${dmg}</span>
@@ -529,8 +529,8 @@ function renderPlayerCard(game, p) {
 
     <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:6px;margin-bottom:6px">
       <div style="min-width:0">
-        <div style="font-size:0.9rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.name}</div>
-        ${p.deckName ? `<div style="font-size:0.7rem;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.deckName}${p.commander ? ' · ' + p.commander : ''}</div>` : ''}
+        <div style="font-size:0.9rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(p.name)}</div>
+        ${p.deckName ? `<div style="font-size:0.7rem;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(p.deckName)}${p.commander ? ' · ' + escapeHtml(p.commander) : ''}</div>` : ''}
       </div>
       ${p.eliminated
         ? `<span style="font-size:0.65rem;padding:2px 7px;background:rgba(212,90,74,0.12);color:var(--red);border-radius:10px;white-space:nowrap;flex-shrink:0">#${p.placement || '?'} out</span>`
@@ -818,10 +818,10 @@ function renderGameLog(game) {
     const fromPlayer = e.fromId ? game.players.find(p => p.id === e.fromId) : null;
     const toPlayer   = e.toId   ? game.players.find(p => p.id === e.toId)   : null;
     const fromDot = fromPlayer
-      ? `<span title="${fromPlayer.name}" style="width:7px;height:7px;border-radius:50%;background:${fromPlayer.color};flex-shrink:0;margin-top:3px"></span>`
+      ? `<span title="${escapeHtml(fromPlayer.name)}" style="width:7px;height:7px;border-radius:50%;background:${fromPlayer.color};flex-shrink:0;margin-top:3px"></span>`
       : '';
     const toDot = toPlayer && toPlayer !== fromPlayer
-      ? `<span title="${toPlayer.name}" style="width:7px;height:7px;border-radius:50%;background:${toPlayer.color};flex-shrink:0;margin-top:3px"></span>`
+      ? `<span title="${escapeHtml(toPlayer.name)}" style="width:7px;height:7px;border-radius:50%;background:${toPlayer.color};flex-shrink:0;margin-top:3px"></span>`
       : '';
     const dots = (fromDot || toDot)
       ? `<span style="display:flex;align-items:flex-start;gap:2px">${fromDot}${fromDot && toDot ? '<span style="font-size:0.6rem;color:var(--text3);margin-top:2px">→</span>' : ''}${toDot}</span>`
@@ -833,7 +833,7 @@ function renderGameLog(game) {
     <div style="display:flex;gap:8px;padding:5px 12px;border-bottom:1px solid var(--border);font-size:0.78rem;align-items:flex-start">
       <span style="font-family:'JetBrains Mono',monospace;font-size:0.65rem;color:var(--text3);white-space:nowrap;padding-top:1px;min-width:24px">T${e.turn}</span>
       ${dots}
-      <span style="color:${typeColor[e.type] || 'var(--text2)'};">${e.text}</span>
+      <span style="color:${typeColor[e.type] || 'var(--text2)'};">${escapeHtml(e.text)}</span>
       ${durationTag}
     </div>`;
   }).join('');
@@ -1251,7 +1251,7 @@ function openLogEvent(gameId) {
   const game = games.find(g => g.id === gameId);
   if (!game) return;
   const playerOpts = '<option value="">— None —</option>' +
-    game.players.map(p => `<option value="${p.id}">${p.name}${p.eliminated ? ' ✕' : ''}</option>`).join('');
+    game.players.map(p => `<option value="${p.id}">${escapeHtml(p.name)}${p.eliminated ? ' ✕' : ''}</option>`).join('');
   document.getElementById('logEvtFrom').innerHTML = playerOpts;
   document.getElementById('logEvtTo').innerHTML = playerOpts;
   document.getElementById('logEvtAmount').value = '';
@@ -1328,7 +1328,7 @@ function openEndGame(gameId) {
   if (!game) return;
   document.getElementById('endGameWinner').innerHTML =
     '<option value="">— Select winner —</option>' +
-    game.players.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+    game.players.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
   document.getElementById('endGameNotesField').value = game.notes || '';
   document.getElementById('endGameModal').dataset.gameId = gameId;
   document.getElementById('endGameModal').classList.add('open');
@@ -1393,8 +1393,8 @@ function renderGameDetail(game) {
     ${winner ? `
     <div style="padding:1rem;background:var(--gold-dim);border:1px solid rgba(200,168,74,0.3);border-radius:var(--radius2);margin-bottom:1.25rem;text-align:center">
       <div style="font-size:1.5rem;margin-bottom:4px;display:flex;justify-content:center;color:var(--gold)">${gameIcon('trophy', 24)}</div>
-      <div style="font-family:'Cinzel',serif;font-size:1.15rem;color:var(--gold)">${winner.name}</div>
-      ${winner.deckName ? `<div style="font-size:0.8rem;color:var(--text3);margin-top:2px">${winner.deckName}${winner.commander ? ' · ' + winner.commander : ''}</div>` : ''}
+      <div style="font-family:'Cinzel',serif;font-size:1.15rem;color:var(--gold)">${escapeHtml(winner.name)}</div>
+      ${winner.deckName ? `<div style="font-size:0.8rem;color:var(--text3);margin-top:2px">${escapeHtml(winner.deckName)}${winner.commander ? ' · ' + escapeHtml(winner.commander) : ''}</div>` : ''}
       <div style="font-size:0.75rem;color:var(--text3);margin-top:2px">finished with ${winner.life} life</div>
     </div>` : ''}
 
@@ -1406,8 +1406,8 @@ function renderGameDetail(game) {
             <span style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:var(--text3);min-width:22px">${p.placement ? '#' + p.placement : '—'}</span>
             <span style="width:8px;height:8px;border-radius:50%;background:${p.color};flex-shrink:0"></span>
             <div style="flex:1;min-width:0">
-              <div style="font-size:0.85rem;display:flex;align-items:center;gap:4px">${p.name}${p.id === game.winner ? gameIcon('trophy', 11, 'color:var(--gold)') : ''}</div>
-              ${p.deckName ? `<div style="font-size:0.7rem;color:var(--text3)">${p.deckName}${p.commander ? ' · ' + p.commander : ''}</div>` : ''}
+              <div style="font-size:0.85rem;display:flex;align-items:center;gap:4px">${escapeHtml(p.name)}${p.id === game.winner ? gameIcon('trophy', 11, 'color:var(--gold)') : ''}</div>
+              ${p.deckName ? `<div style="font-size:0.7rem;color:var(--text3)">${escapeHtml(p.deckName)}${p.commander ? ' · ' + escapeHtml(p.commander) : ''}</div>` : ''}
             </div>
             <div style="text-align:right">
               <div style="font-family:'JetBrains Mono',monospace;font-size:0.85rem;color:${p.life > 0 ? 'var(--teal)' : 'var(--red)'}">${p.life}</div>
@@ -1430,12 +1430,12 @@ function renderGameDetail(game) {
               const longest = game.turnDurations.reduce((a, b) => b.duration > a.duration ? b : a);
               const longestPlayer = game.players.find(p => p.id === longest.playerId);
               return `<tr><td>Avg Turn Time</td><td style="font-family:'JetBrains Mono',monospace">${formatDuration(avg)}</td></tr>
-                      <tr><td>Longest Turn</td><td style="font-family:'JetBrains Mono',monospace">${formatDuration(longest.duration)}${longestPlayer ? ' — ' + longestPlayer.name : ''}</td></tr>`;
+                      <tr><td>Longest Turn</td><td style="font-family:'JetBrains Mono',monospace">${formatDuration(longest.duration)}${longestPlayer ? ' — ' + escapeHtml(longestPlayer.name) : ''}</td></tr>`;
             })()}
             <tr><td>Events Logged</td><td>${game.log.length}</td></tr>
-            ${topDmg && dmgDealt[topDmg.id] > 0 ? `<tr><td>Most Damage Dealt</td><td style="color:var(--gold)">${topDmg.name} (${dmgDealt[topDmg.id]})</td></tr>` : ''}
+            ${topDmg && dmgDealt[topDmg.id] > 0 ? `<tr><td>Most Damage Dealt</td><td style="color:var(--gold)">${escapeHtml(topDmg.name)} (${dmgDealt[topDmg.id]})</td></tr>` : ''}
           </table>
-          ${game.notes ? `<div style="margin-top:0.75rem;font-size:0.82rem;color:var(--text2);font-style:italic;border-top:1px solid var(--border);padding-top:0.75rem">"${game.notes}"</div>` : ''}
+          ${game.notes ? `<div style="margin-top:0.75rem;font-size:0.82rem;color:var(--text2);font-style:italic;border-top:1px solid var(--border);padding-top:0.75rem">"${escapeHtml(game.notes)}"</div>` : ''}
         </div>
       </div>
     </div>
@@ -1551,7 +1551,7 @@ function openTabletMenu(playerId, btn, e, rotated = false) {
         const danger = dmg >= 16;
         return `<div style="display:flex;align-items:center;gap:8px;padding:4px 2px">
           <span style="width:8px;height:8px;border-radius:50%;background:${op.color};flex-shrink:0"></span>
-          <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text2);font-size:0.8rem">${op.name}</span>
+          <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text2);font-size:0.8rem">${escapeHtml(op.name)}</span>
           <div class="cmd-stepper">
             <button type="button" class="x-stepper-btn" onclick="changeCommanderDamage('${game.id}','${op.id}','${player.id}',-1);event.stopPropagation()">−</button>
             <span class="cmd-dmg-val" data-cmddmg="${op.id}" style="${danger ? 'color:var(--red)' : ''}">${dmg}</span>
@@ -1569,7 +1569,7 @@ function openTabletMenu(playerId, btn, e, rotated = false) {
   const hasUndo = canUndo(game.id);
   menu.innerHTML = `
     <div style="display:flex;align-items:center;gap:8px;padding:5px 8px 8px;border-bottom:1px solid var(--border);margin-bottom:4px">
-      <span style="font-size:0.72rem;color:var(--text3);flex:1">${player ? player.name + "'s" : ''} X =</span>
+      <span style="font-size:0.72rem;color:var(--text3);flex:1">${player ? escapeHtml(player.name) + "'s" : ''} X =</span>
       ${xStepper(game.id, playerId)}
     </div>
     <button onclick="${cm};setActionMode('deal1','${game.id}')"    style="${mi}${gameActionMode==='deal1'    ? mia : ''}">${gameIcon('sword', 12, 'margin-right:5px')}Deal 1 → target</button>
@@ -1611,10 +1611,13 @@ function renderTabletView() {
   if (!game) return;
   const el = document.getElementById('tabletView');
   const n = game.players.length;
+  const is2p = n === 2;
   const is3p = n === 3;
   const is4p = n === 4;
-  const cols = n === 6 ? 3 : 2;
-  const rows = is3p ? 2 : Math.ceil(n / cols);
+  // 2-player: stack the two players one above the other (not side by side) in
+  // both portrait and landscape, so the tablet reads naturally across the table.
+  const cols = n === 6 ? 3 : (is2p ? 1 : 2);
+  const rows = is2p ? 2 : (is3p ? 2 : Math.ceil(n / cols));
   el.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
   el.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
 
@@ -1638,7 +1641,7 @@ function renderTabletView() {
 
   el.innerHTML = `
     ${playerOrder.map((pi, orderIdx) => {
-      const rotated = (is4p && orderIdx < 2) || (is3p && orderIdx === 0);
+      const rotated = (is4p && orderIdx < 2) || (is3p && orderIdx === 0) || (is2p && orderIdx === 0);
       const col = is3p && orderIdx > 0 ? orderIdx - 1 : orderIdx % 2;
       return renderTabletCell(game, game.players[pi], pi, n, cols, rotated, col);
     }).join('')}
@@ -1649,7 +1652,7 @@ function renderTabletView() {
       <div style="font-family:'JetBrains Mono',monospace;font-size:clamp(2rem,4.5vw,3.2rem);font-weight:700;color:${_turnPaused ? 'var(--text3)' : 'var(--gold)'};line-height:1">
         <span id="tabletTurnTimerDisplay">${_turnPaused ? formatDuration(_pausedElapsed) : (game.turnStartedAt ? formatDuration(Date.now() - game.turnStartedAt) : '00:00')}</span>
       </div>
-      ${activePlayer ? `<div style="font-size:clamp(0.6rem,1.3vw,0.82rem);color:${activePlayer.color};margin-top:5px;font-family:'Inter',system-ui,sans-serif;letter-spacing:0.04em">T${game.currentTurn} · ${activePlayer.name}</div>` : ''}
+      ${activePlayer ? `<div style="font-size:clamp(0.6rem,1.3vw,0.82rem);color:${activePlayer.color};margin-top:5px;font-family:'Inter',system-ui,sans-serif;letter-spacing:0.04em">T${game.currentTurn} · ${escapeHtml(activePlayer.name)}</div>` : ''}
       <div style="display:flex;gap:5px;margin-top:9px">
         <button onclick="nextTurn('${game.id}')"
           style="flex:1;padding:9px 8px;background:var(--bg3);
@@ -1693,6 +1696,12 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
     : p.life <= (p.startingLife * 0.5) ? 'var(--text)'
     : 'var(--teal)';
 
+  // 2-player cells are full-width but half-height (stacked), so cap the life
+  // number by viewport height too, to avoid overflow in landscape.
+  const lifeFontSize = total === 2 ? 'clamp(3.1rem,min(20vw,26vh),12.5rem)'
+    : total <= 4 ? 'clamp(3.1rem,12.5vw,8.2rem)'
+    : 'clamp(3.1rem,9.4vw,6rem)';
+
   const spanStyle = (total === 3 && idx === 0) || (total === 5 && idx === 4) ? 'grid-column: span 2;' : '';
   const isActiveTurn = !p.eliminated && idx === (game.activePlayerIdx ?? 0);
   const inTargetMode = gameActionMode !== null && !p.eliminated;
@@ -1705,7 +1714,7 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
         const dmg = (p.commanderDamage || {})[op.id] || 0;
         const danger = dmg >= 16;
         return `
-        <span title="${op.name}: ${dmg}" style="display:inline-flex;align-items:center;gap:3px;padding:1px 4px;border-radius:999px;background:rgba(0,0,0,0.18);border:1px solid ${op.color}44;color:${danger ? 'var(--red)' : (dmg > 0 ? 'var(--text2)' : 'var(--text3)')};font-family:'JetBrains Mono',monospace;font-size:0.6rem;line-height:1.2">
+        <span title="${escapeHtml(op.name)}: ${dmg}" style="display:inline-flex;align-items:center;gap:3px;padding:1px 4px;border-radius:999px;background:rgba(0,0,0,0.18);border:1px solid ${op.color}44;color:${danger ? 'var(--red)' : (dmg > 0 ? 'var(--text2)' : 'var(--text3)')};font-family:'JetBrains Mono',monospace;font-size:0.6rem;line-height:1.2">
           <span style="width:5px;height:5px;border-radius:50%;background:${op.color};flex-shrink:0"></span>${dmg}
         </span>`;
       }).join('')
@@ -1730,8 +1739,8 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
 
     <!-- Name bar -->
     <div style="text-align:center;padding:${namePad};border-bottom:1px solid ${p.color}25;position:relative">
-      <div style="font-family:'Cinzel',serif;font-size:clamp(0.85rem,2.2vw,1.3rem);color:${p.color};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:0.06em">${p.name}</div>
-      ${p.deckName ? `<div style="font-size:clamp(0.55rem,1.2vw,0.78rem);color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px">${p.deckName}${p.commander ? ' · ' + p.commander : ''}</div>` : ''}
+      <div style="font-family:'Cinzel',serif;font-size:clamp(0.85rem,2.2vw,1.3rem);color:${p.color};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:0.06em">${escapeHtml(p.name)}</div>
+      ${p.deckName ? `<div style="font-size:clamp(0.55rem,1.2vw,0.78rem);color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px">${escapeHtml(p.deckName)}${p.commander ? ' · ' + escapeHtml(p.commander) : ''}</div>` : ''}
       ${inTargetMode
         ? `<div style="position:absolute;top:50%;right:8px;transform:translateY(-50%);font-size:clamp(0.6rem,1.3vw,0.78rem);color:var(--gold);animation:targetPulse 1s ease-in-out infinite">${targetLabel}</div>`
         : `<div style="position:absolute;top:50%;${dotsPos};transform:translateY(-50%);display:flex;align-items:center;gap:5px;flex-direction:${dotsPos.startsWith('left') ? 'row-reverse' : 'row'}">
@@ -1746,7 +1755,7 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
 
     <!-- Life total -->
     <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:clamp(3px,0.8vh,8px);min-height:0">
-      <div style="font-family:'JetBrains Mono',monospace;font-size:clamp(3.1rem,${total <= 2 ? '18' : total <= 4 ? '12.5' : '9.4'}vw,${total <= 2 ? '12.5rem' : total <= 4 ? '8.2rem' : '6rem'});font-weight:700;line-height:1;color:${lifeColor};text-shadow:0 0 38px ${p.color}2e;transition:color 0.25s;user-select:none">${p.life}</div>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:${lifeFontSize};font-weight:700;line-height:1;color:${lifeColor};text-shadow:0 0 38px ${p.color}2e;transition:color 0.25s;user-select:none">${p.life}</div>
       <div style="font-size:clamp(0.55rem,1.2vw,0.78rem);color:var(--text3)">of ${p.startingLife}</div>
       ${isCmd ? `<div style="display:flex;align-items:center;justify-content:center;gap:4px;flex-wrap:wrap;padding:0 8px;min-height:16px">${cmdBadges}</div>` : ''}
     </div>
@@ -1935,7 +1944,7 @@ function _openDragDamageMenu(sourceId, targetIds, x, y, rotated) {
   const multi = targets.length > 1;
   const each = multi ? ' each' : '';
   const targetsHtml = targets
-    .map(t => `<span style="color:${t.color}">${t.name}</span>`)
+    .map(t => `<span style="color:${t.color}">${escapeHtml(t.name)}</span>`)
     .join('<span style="color:var(--text3)">,&nbsp;</span>');
 
   const menu = document.createElement('div');
@@ -1943,7 +1952,7 @@ function _openDragDamageMenu(sourceId, targetIds, x, y, rotated) {
   menu.onclick = ev => ev.stopPropagation();
   menu.innerHTML = `
     <div class="tablet-drag-menu-head" style="flex-wrap:wrap">
-      <span style="color:${source.color};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px">${source.name}</span>
+      <span style="color:${source.color};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px">${escapeHtml(source.name)}</span>
       <span style="color:var(--text3)">${gameIcon('sword', 12)}</span>
       <span style="display:inline-flex;flex-wrap:wrap;justify-content:center;gap:0 2px;max-width:200px">${targetsHtml}</span>
     </div>

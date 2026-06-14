@@ -17,8 +17,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles/main.css">
-<link rel="stylesheet" href="styles/mobile.css">
+<link rel="stylesheet" href="/styles/main.css">
+<link rel="stylesheet" href="/styles/mobile.css">
 </head>
 <body style="opacity:0">
 
@@ -76,6 +76,9 @@
     </div>
   </div>
 </div>
+
+<!-- Public deck view (anyone-with-link, /d/<token>) — filled & shown by renderPublicDeckView() -->
+<div id="publicDeckView" class="public-deck-view" style="display:none"></div>
 
 <header class="topbar">
   <button class="topbar-toggle" onclick="toggleSidebar()" title="Toggle sidebar">
@@ -405,9 +408,9 @@
   </div>
   <div id="setGridArea">
     <div class="set-grid" id="setGrid"></div>
-    <div id="setEmpty" style="text-align:center;padding:3rem;color:var(--text3)">
-      <div class="spinner" style="margin:0 auto 1rem"></div>
-      <p style="font-size:0.9rem">Loading sets…</p>
+    <div id="setEmpty" class="loading-state">
+      <div class="spinner"></div>
+      <p>Loading sets…</p>
     </div>
   </div>
   <div id="setDetailArea" style="display:none" class="set-detail-split">
@@ -503,6 +506,10 @@
             <button id="deckPublicToggleBtn" class="btn btn-ghost btn-sm deck-menu-item" onclick="toggleDeckOptionsDropdown();toggleDeckPublic()" title="Toggle public/private" style="color:var(--text3)">
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><rect x="4" y="7.5" width="8" height="6" rx="1"/><path d="M5.5 7.5V5.5a2.5 2.5 0 0 1 5 0v2"/></svg>
               Private
+            </button>
+            <button id="deckShareLinkBtn" class="btn btn-ghost btn-sm deck-menu-item" onclick="toggleDeckOptionsDropdown();openDeckShareLinkModal()" title="Get a view-only link anyone can open">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M6.5 9.5a2.5 2.5 0 0 0 3.6.1l2-2a2.5 2.5 0 0 0-3.5-3.5l-1 1"/><path d="M9.5 6.5a2.5 2.5 0 0 0-3.6-.1l-2 2a2.5 2.5 0 0 0 3.5 3.5l1-1"/></svg>
+              Share link
             </button>
             <div class="settings-divider"></div>
             <div class="settings-section-label">Build</div>
@@ -603,7 +610,7 @@
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="0.5"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="0.5"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="0.5"/><rect x="9" y="9" width="4.5" height="4.5" rx="0.5"/></svg>
             </button>
           </div>
-          <button id="deckListCollapseBtn" class="decklist-collapse-btn" onclick="toggleDeckListCollapse()" style="transition:transform 0.2s" title="Collapse / expand">▾</button>
+          <button id="deckListCollapseBtn" class="decklist-collapse-btn" onclick="toggleDeckListCollapse()" title="Collapse / expand">▾</button>
         </div>
         <div id="deckListFilterBar" class="deck-list-filter-bar" style="display:none">
           <div class="dlf-row">
@@ -870,13 +877,13 @@
       <div class="panel">
         <div class="panel-header wishlist-panel-header">
           <span><span class="panel-title">Wishlist</span> <span id="wishlistTotal" style="font-size:0.78rem;color:var(--text3)"></span></span>
-          <div class="wishlist-view-toggle" role="group" aria-label="Wishlist layout">
-            <button type="button" class="btn btn-ghost btn-sm" id="wishlistViewGrid" onclick="setWishlistViewMode('grid')">Grid</button>
-            <button type="button" class="btn btn-ghost btn-sm" id="wishlistViewList" onclick="setWishlistViewMode('list')">List</button>
+          <div class="view-toggle" role="group" aria-label="Wishlist layout">
+            <button type="button" id="wishlistViewGrid" onclick="setWishlistViewMode('grid')">Grid</button>
+            <button type="button" id="wishlistViewList" onclick="setWishlistViewMode('list')">List</button>
           </div>
         </div>
         <div id="wishlistItems"></div>
-        <div id="wishlistEmpty" style="padding:2rem;text-align:center;color:var(--text3);font-size:0.85rem">Your wishlist is empty</div>
+        <div id="wishlistEmpty" class="empty-state empty-state--inline">Your wishlist is empty</div>
       </div>
     </div>
     <div>
@@ -922,8 +929,8 @@
     <!-- Main area -->
     <div>
       <!-- Empty state -->
-      <div id="gamesEmpty" class="empty-state" style="height:420px">
-        <h2 style="font-size:1.3rem">No game selected</h2>
+      <div id="gamesEmpty" class="empty-state">
+        <h2>No game selected</h2>
         <p>Track damage, life totals, commander damage, and poison<br>across any format — detailed analytics after each game.</p>
         <button class="btn btn-primary" onclick="openNewGame()">+ Start New Game</button>
       </div>
@@ -1321,11 +1328,25 @@
   </div>
 </div>
 
+<!-- DECK SHARE-LINK MODAL -->
+<div class="modal-overlay" id="deckShareLinkModal" onclick="if(event.target===this)closeDeckShareLinkModal()">
+  <div class="modal" style="width:min(480px,94vw)">
+    <button class="btn btn-ghost btn-icon" style="position:absolute;top:0.75rem;right:0.75rem" onclick="closeDeckShareLinkModal()">✕</button>
+    <div class="modal-title">Share deck link</div>
+    <div id="deckShareLinkBody"></div>
+  </div>
+</div>
+
 <!-- CARD DETAIL MODAL -->
 <div class="modal-overlay" id="cardDetailModal">
   <div class="modal card-detail-modal" style="width:min(1340px,98vw);max-height:92vh">
     <div class="card-detail-modal-scroll">
       <div id="cardDetailContent" class="card-detail-content">
+        <div class="card-detail-mobile-nav" id="cardDetailMobileNav" aria-hidden="true">
+          <button type="button" class="btn btn-ghost btn-icon card-detail-mnav-btn" id="cardDetailMobilePrev" aria-label="Previous card" onclick="navigateCardDetailCollection('prev')">‹</button>
+          <span class="card-detail-mnav-title" id="cardDetailMobileNavTitle"></span>
+          <button type="button" class="btn btn-ghost btn-icon card-detail-mnav-btn" id="cardDetailMobileNext" aria-label="Next card" onclick="navigateCardDetailCollection('next')">›</button>
+        </div>
         <div class="card-detail-body" id="cardDetailBody">
           <div id="cardDetailInspectorLeft" class="card-detail-col card-detail-col--art"></div>
           <div id="cardDetailInspectorRight" class="card-detail-col card-detail-col--meta"></div>
@@ -1351,7 +1372,7 @@
       </div>
       <div>
         <label style="font-size:0.78rem;color:var(--text3);display:block;margin-bottom:4px;letter-spacing:0.04em">FORMAT</label>
-        <select id="newDeckFormat" style="width:100%;background:var(--bg3);border:1px solid var(--border2);color:var(--text);border-radius:var(--radius);padding:7px 10px;font-family:'Crimson Pro',serif;font-size:0.95rem" onchange="toggleNewDeckCommanderField()">
+        <select id="newDeckFormat" class="select" onchange="toggleNewDeckCommanderField()">
           <option value="Commander">Commander</option>
           <option value="Standard">Standard</option>
           <option value="Modern">Modern</option>
@@ -1433,7 +1454,7 @@
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.85rem;margin-bottom:1rem">
       <div>
         <label style="font-size:0.78rem;color:var(--text3);display:block;margin-bottom:4px;letter-spacing:0.04em">FORMAT</label>
-        <select id="newGameFormat" onchange="renderNewGamePlayersList()" style="width:100%;background:var(--bg3);border:1px solid var(--border2);color:var(--text);border-radius:var(--radius);padding:7px 10px;font-family:'Crimson Pro',serif;font-size:0.95rem">
+        <select id="newGameFormat" onchange="renderNewGamePlayersList()" class="select">
           <option value="Commander">Commander</option>
           <option value="Brawl">Brawl</option>
           <option value="Standard">Standard</option>
@@ -1476,7 +1497,7 @@
     <div style="display:flex;flex-direction:column;gap:0.75rem;margin-top:0.25rem">
       <div>
         <label style="font-size:0.78rem;color:var(--text3);display:block;margin-bottom:4px;letter-spacing:0.04em">EVENT TYPE</label>
-        <select id="logEvtType" onchange="updateLogEvtPlaceholder()" style="width:100%;background:var(--bg3);border:1px solid var(--border2);color:var(--text);border-radius:var(--radius);padding:7px 10px;font-family:'Crimson Pro',serif;font-size:0.92rem">
+        <select id="logEvtType" onchange="updateLogEvtPlaceholder()" class="select">
           <option value="damage">Combat / Spell Damage</option>
           <option value="commander_damage">Commander Damage</option>
           <option value="life_gain">Life Gain</option>
@@ -1487,11 +1508,11 @@
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem">
         <div>
           <label style="font-size:0.78rem;color:var(--text3);display:block;margin-bottom:4px;letter-spacing:0.04em">FROM (source)</label>
-          <select id="logEvtFrom" style="width:100%;background:var(--bg3);border:1px solid var(--border2);color:var(--text);border-radius:var(--radius);padding:7px 10px;font-family:'Crimson Pro',serif;font-size:0.9rem"></select>
+          <select id="logEvtFrom" class="select"></select>
         </div>
         <div>
           <label style="font-size:0.78rem;color:var(--text3);display:block;margin-bottom:4px;letter-spacing:0.04em">TO (target)</label>
-          <select id="logEvtTo" style="width:100%;background:var(--bg3);border:1px solid var(--border2);color:var(--text);border-radius:var(--radius);padding:7px 10px;font-family:'Crimson Pro',serif;font-size:0.9rem"></select>
+          <select id="logEvtTo" class="select"></select>
         </div>
       </div>
       <div id="logEvtAmountWrap">
@@ -1525,7 +1546,7 @@
     <div style="display:flex;flex-direction:column;gap:0.85rem;margin-top:0.25rem">
       <div>
         <label style="font-size:0.78rem;color:var(--text3);display:block;margin-bottom:4px;letter-spacing:0.04em">WINNER</label>
-        <select id="endGameWinner" style="width:100%;background:var(--bg3);border:1px solid var(--border2);color:var(--text);border-radius:var(--radius);padding:7px 10px;font-family:'Crimson Pro',serif;font-size:0.95rem"></select>
+        <select id="endGameWinner" class="select"></select>
       </div>
       <div>
         <label style="font-size:0.78rem;color:var(--text3);display:block;margin-bottom:4px;letter-spacing:0.04em">NOTES <span style="opacity:0.5">(optional)</span></label>
@@ -1548,7 +1569,9 @@
       Paste a card list — supports the app's <strong style="color:var(--teal)">exact printings format</strong> or a simple card list.<br>
       <code style="color:var(--text3)">2 Lightning Bolt [2X2 #123]</code><br>
       <code style="color:var(--text3)">1 Sol Ring [CLB #244 foil]</code><br>
-      <code style="color:var(--text3)">1 Atraxa, Praetor's Voice *CMDR*</code>
+      <code style="color:var(--text3)">1 Atraxa, Praetor's Voice *CMDR*</code><br>
+      For Commander decks the first line is the commander unless one is tagged <code style="color:var(--text3)">*CMDR*</code>.
+      Cards after a <code style="color:var(--text3)">// Maybe board</code> or <code style="color:var(--text3)">// Sideboard</code> line go to that zone.
     </div>
     <div style="display:flex;gap:8px;margin-bottom:0.65rem">
       <div style="flex:1">
@@ -2383,8 +2406,8 @@
 </div>
 
 
-<script src="dist/scanner-card-yolo.js"></script>
-<script src="dist/bundle.js"></script>
+<script src="/dist/scanner-card-yolo.js"></script>
+<script src="/dist/bundle.js"></script>
 <script>
   if (localStorage.getItem('mtg_sidebar_collapsed') === 'true') {
     document.body.classList.add('sidebar-collapsed');

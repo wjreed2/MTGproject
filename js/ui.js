@@ -179,11 +179,16 @@ async function openWhatsNewFromMenu() {
   }
 }
 
+// Canonical HTML escaper for ALL user-authored / cross-user text rendered via
+// innerHTML or template strings — safe for both text and attribute contexts.
+// Defined here (ui.js loads early) so every later bundled file can use it.
+const _HTML_ESCAPE_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => _HTML_ESCAPE_MAP[c]);
+}
+
 function _escapeWhatsNewHtml(s) {
-  return String(s ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/"/g, '&quot;');
+  return escapeHtml(s);
 }
 
 function openWhatsNewModal(digest) {

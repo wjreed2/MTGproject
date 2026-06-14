@@ -533,7 +533,7 @@ function _gfOpenPlayChoiceModal(pending) {
       : 'Choose a zone for this card.';
   }
   opts.innerHTML = pending.choices.map((ch, i) => `
-    <button type="button" class="gf-play-choice-btn" onclick="_gfConfirmPlayChoice(${i})">${ch.label}</button>
+    <button type="button" class="gf-play-choice-btn" onclick="_gfConfirmPlayChoice(${i})">${escapeHtml(ch.label)}</button>
   `).join('');
   modal.style.display = 'flex';
   modal.setAttribute('aria-hidden', 'false');
@@ -1222,7 +1222,7 @@ function _gfTutorTile(group, idx, zone) {
   const name = group.name || 'Unknown';
   const img = group.image || '';
   const count = group.count || 1;
-  const safeName = name.replace(/"/g, '&quot;');
+  const safeName = escapeHtml(name);
   const badge = _gfTutorMeta(zone).badge;
   return `
     <div class="deck-search-tile" data-tutor-idx="${idx}" style="cursor:pointer">
@@ -1285,7 +1285,7 @@ function gfTutorAutocomplete(q) {
     _gfPositionTutorAc();
     drop.style.display = 'block';
     drop.innerHTML = _gfTutorAcNames.map((name, i) => `
-      <div class="deck-ac-row" data-idx="${i}">${name}</div>
+      <div class="deck-ac-row" data-idx="${i}">${escapeHtml(name)}</div>
     `).join('');
     drop.onclick = e => {
       const row = e.target.closest('.deck-ac-row');
@@ -1427,9 +1427,9 @@ function _gfRenderZoneViewerGrid(cards, zone) {
          oncontextmenu="_gfShowContextMenu(event,${c.iid},'${zone}')"
          ondblclick="_gfPlayFromZone(${c.iid},'${zone}')">
       ${c.image || c.imageLarge
-        ? `<img src="${c.image || c.imageLarge}" alt="${c.name}" style="width:100%;border-radius:4px;display:block">`
-        : `<div class="gf-card-face-fallback">${c.name}</div>`}
-      <div style="font-size:${_gfRem(0.6)};color:var(--text3);text-align:center;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.name}</div>
+        ? `<img src="${c.image || c.imageLarge}" alt="${escapeHtml(c.name)}" style="width:100%;border-radius:4px;display:block">`
+        : `<div class="gf-card-face-fallback">${escapeHtml(c.name)}</div>`}
+      <div style="font-size:${_gfRem(0.6)};color:var(--text3);text-align:center;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(c.name)}</div>
     </div>`).join('')
     : '<div class="gf-tutor-empty">No matching cards</div>';
 }
@@ -1497,9 +1497,9 @@ function _gfRenderPeekViewer() {
            onpointerdown="_gfZoneCardPointerDown(event,${c.iid},'peek')"
            oncontextmenu="_gfShowContextMenu(event,${c.iid},'peek')">
         ${img
-          ? `<img src="${img}" alt="${c.name}" style="width:100%;border-radius:4px;display:block">`
-          : `<div class="gf-card-face-fallback">${c.name}</div>`}
-        <div class="gf-peek-card-name">${c.name}</div>
+          ? `<img src="${img}" alt="${escapeHtml(c.name)}" style="width:100%;border-radius:4px;display:block">`
+          : `<div class="gf-card-face-fallback">${escapeHtml(c.name)}</div>`}
+        <div class="gf-peek-card-name">${escapeHtml(c.name)}</div>
       </div>
       ${done ? '<div class="gf-peek-done-label">Done</div>' : `
       <div class="gf-peek-actions">
@@ -1621,7 +1621,7 @@ function _gfShowContextMenu(e, iid, zone) {
   const menu = document.getElementById('gfContextMenu');
   if (!menu) return;
   menu.innerHTML = `
-    <div class="gf-ctx-header">${name}</div>
+    <div class="gf-ctx-header">${escapeHtml(name)}</div>
     ${items.map(it => {
       if (it.sep) return '<div class="gf-ctx-sep"></div>';
       if (it.header) return `<div class="gf-ctx-header gf-ctx-subheader">${it.header}</div>`;
@@ -1923,18 +1923,18 @@ function _gfRender() {
 
 function _gfCardImg(c, width = 80) {
   const img = c.imageLarge || c.image || '';
-  if (img) return `<img src="${img}" alt="${c.name || ''}" style="width:${width}px;border-radius:4px;display:block;pointer-events:none" draggable="false">`;
-  return `<div class="gf-card-face-fallback" style="width:${width}px;height:${Math.round(width/0.716)}px">${c.name || '?'}</div>`;
+  if (img) return `<img src="${img}" alt="${escapeHtml(c.name || '')}" style="width:${width}px;border-radius:4px;display:block;pointer-events:none" draggable="false">`;
+  return `<div class="gf-card-face-fallback" style="width:${width}px;height:${Math.round(width/0.716)}px">${escapeHtml(c.name || '?')}</div>`;
 }
 
 /** Zone panel thumbnails — sized via CSS (--gf-thumb-w) so they shrink with the window. */
 function _gfZoneCardImg(c) {
   const img = c.imageLarge || c.image || '';
-  const safe = String(c.name || '').replace(/"/g, '&quot;');
+  const safe = escapeHtml(c.name || '');
   if (img) {
     return `<img src="${img}" alt="${safe}" class="gf-zone-card-img" loading="lazy" draggable="false">`;
   }
-  return `<div class="gf-card-face-fallback gf-zone-card-img">${c.name || '?'}</div>`;
+  return `<div class="gf-card-face-fallback gf-zone-card-img">${escapeHtml(c.name || '?')}</div>`;
 }
 
 function _gfBfCardHtml(c, zone, cardW) {
@@ -1983,7 +1983,7 @@ function _gfRenderHand() {
     const ml = i === 0 ? '0' : `${overlapPx}px`;
     return `<div class="gf-hand-card" data-iid="${c.iid}"
       style="--angle:${angle.toFixed(1)}deg;--rise:${rise.toFixed(1)}px;z-index:${zIndex};margin-left:${ml}"
-      title="${c.name}${isPutBack ? ' — click to put back' : ' — drag to play'}"
+      title="${escapeHtml(c.name)}${isPutBack ? ' — click to put back' : ' — drag to play'}"
       ${_gfHoverAttrs('hand', c.iid)}
       onpointerdown="_gfHandPointerDown(event,${c.iid})"
       oncontextmenu="_gfShowContextMenu(event,${c.iid},'hand')">
@@ -2099,7 +2099,7 @@ function _gfRenderSidebar() {
     const cmds = _gf.commandZone;
     cmdZone.querySelector('.gf-cmd-cards').innerHTML = cmds.length
       ? cmds.map(c => `
-          <div class="gf-cmd-card" title="${c.name}"
+          <div class="gf-cmd-card" title="${escapeHtml(c.name)}"
                ${_gfHoverAttrs('commandZone', c.iid)}
                onpointerdown="_gfZoneCardPointerDown(event,${c.iid},'commandZone')"
                oncontextmenu="_gfShowContextMenu(event,${c.iid},'commandZone')"
@@ -2154,11 +2154,7 @@ function _gfClickExile() {
 // ── Deck token spawner ────────────────────────────────────────────────────────
 
 function _gfEscapeHtml(s) {
-  return String(s || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+  return escapeHtml(s);
 }
 
 function _gfTokenImageUrl(t) {
@@ -2229,8 +2225,8 @@ function _gfRenderTokenPanel() {
     const img = _gfTokenImageUrl(t);
     const srcCount = (t.sources || []).length;
     const title = srcCount
-      ? `${name} — from ${(t.sources || []).map(s => s.name).join(', ')}`
-      : name;
+      ? `${t.name || ''} — from ${(t.sources || []).map(s => s.name).join(', ')}`
+      : (t.name || '');
     const face = img
       ? `<img src="${img}" alt="${name}" loading="lazy" draggable="false">`
       : `<div class="gf-token-tile-fallback">${name}</div>`;

@@ -648,7 +648,7 @@ function renderDeckValidation(deck) {
     return `
     <div class="deck-valid-row${clickable ? ' deck-valid-row-link' : ''}" data-issue-idx="${idx}"${clickable ? ` onclick="handleDeckValidationClick(${idx})"` : ''}>
       <span style="flex-shrink:0;color:${i.severity === 'error' ? 'var(--red)' : 'var(--gold)'}">${i.severity === 'error' ? '✕' : '⚠'}</span>
-      <span>${i.msg}${hint}</span>
+      <span>${escapeHtml(i.msg)}${hint}</span>
     </div>`;
   }).join('');
 
@@ -835,7 +835,7 @@ function renderDeckGameChangers(deck) {
   const rows = entries.map(c => {
     const safe = (c.name || '').replace(/'/g, "\\'");
     return `<div class="deck-gc-row deck-gc-row-link" onclick="jumpToDeckIssue('${safe}')">
-      <span class="deck-gc-row-name">${c.name}</span>
+      <span class="deck-gc-row-name">${escapeHtml(c.name)}</span>
       <span style="color:var(--text3);font-size:0.7rem">view</span>
     </div>`;
   }).join('');
@@ -1109,7 +1109,7 @@ function renderDeckHistory() {
           ? `<div class="history-event-actor">by ${_escapeHistoryHtml(actorLabel)}</div>`
           : '';
         const img  = ev.image
-          ? `<img class="history-card-img" src="${ev.image}" alt="" loading="lazy">`
+          ? `<img class="history-card-img" src="${escapeHtml(ev.image)}" alt="" loading="lazy">`
           : `<div class="history-card-img-placeholder"></div>`;
         const evJson = JSON.stringify({ type: ev.type, uid: ev.uid, name: ev.name, foil: ev.foil, image: ev.image, detail: ev.detail }).replace(/"/g, '&quot;');
         const undoBtn = ev.id != null
@@ -1873,7 +1873,7 @@ function _deckTagChipHtml(tag, opts = {}) {
   const deck = opts.deck != null ? opts.deck : (typeof getActiveDeck === 'function' ? getActiveDeck() : null);
   const interactive = !!opts.interactive;
   const size = opts.size || '0.84rem';
-  const safe = String(tag || '').replace(/"/g, '&quot;');
+  const safe = escapeHtml(tag);
   const esc = String(tag || '').replace(/'/g, "\\'");
   const cls = _tagClassForTier(tag, { card: opts.card });
   const disabled = deck && _isDeckTagDisabled(deck, tag);
@@ -2025,7 +2025,7 @@ function renderMyTagsCatalog(opts = {}) {
     const esc = tag.replace(/'/g, "\\'");
     return `
     <span class="tag tag-primary" style="display:inline-flex;align-items:center;gap:6px">
-      ${tag}
+      ${escapeHtml(tag)}
       ${isProtected
         ? ''
         : `<button class="btn btn-ghost btn-sm btn-icon" style="padding:0 4px;font-size:0.72rem" onclick="removeDeckCustomTag('${esc}')" title="Delete tag">✕</button>`}
@@ -2158,7 +2158,7 @@ function _renderTagSettingsTarget() {
     if (forceOn) { cls = 'btn-primary'; hint = 'Forced ON override'; }
     else if (forceOff) { cls = 'btn-danger'; hint = 'Forced OFF override'; }
     else if (effectiveOn) { cls = 'btn-scryfall'; }
-    return `<button class="btn btn-sm ${cls}" onclick="toggleTagSettingsTag('${tag.replace(/'/g, "\\'")}')" title="${hint}">${tag}</button>`;
+    return `<button class="btn btn-sm ${cls}" onclick="toggleTagSettingsTag('${tag.replace(/'/g, "\\'")}')" title="${hint}">${escapeHtml(tag)}</button>`;
   }).join('');
 }
 
@@ -2223,7 +2223,7 @@ function renderTagSettingsSearchResults() {
     return;
   }
   el.innerHTML = rows.map((r, i) =>
-    `<button class="btn btn-ghost btn-sm" style="width:100%;justify-content:flex-start;margin-bottom:4px" onclick="selectTagSettingsCandidateByIndex(${i}, '${q.replace(/'/g, "\\'")}')">${r.name}</button>`
+    `<button class="btn btn-ghost btn-sm" style="width:100%;justify-content:flex-start;margin-bottom:4px" onclick="selectTagSettingsCandidateByIndex(${i}, '${q.replace(/'/g, "\\'")}')">${escapeHtml(r.name)}</button>`
   ).join('');
   window.__tagSettingsRows = rows;
 }
@@ -2250,9 +2250,9 @@ function renderTagOverridesList() {
     const adds = (ov.addTags || []).join(', ') || 'none';
     const rems = (ov.removeTags || []).join(', ') || 'none';
     return `<div style="border:1px solid var(--border2);border-radius:8px;padding:6px;margin-bottom:6px">
-      <div style="font-size:0.8rem;color:var(--text)">${nm}</div>
-      <div style="font-size:0.72rem;color:var(--text3)">+ ${adds}</div>
-      <div style="font-size:0.72rem;color:var(--text3)">− ${rems}</div>
+      <div style="font-size:0.8rem;color:var(--text)">${escapeHtml(nm)}</div>
+      <div style="font-size:0.72rem;color:var(--text3)">+ ${escapeHtml(adds)}</div>
+      <div style="font-size:0.72rem;color:var(--text3)">− ${escapeHtml(rems)}</div>
       <div style="display:flex;gap:6px;margin-top:6px">
         <button class="btn btn-outline btn-sm" onclick="loadTagSettingsOverride('${oid}')">Edit</button>
         <button class="btn btn-danger btn-sm" onclick="resetTagSettingsOverrideByOracle('${oid}')">Reset</button>
@@ -2440,12 +2440,12 @@ function _deckGridCard(d, isShared) {
   <div class="browse-deck-card" onclick="selectDeck('${d.id}')">
     <div class="browse-deck-img">
       ${img
-        ? `<img src="${img}" alt="${d.name}" style="width:100%;height:100%;object-fit:cover;object-position:center top">`
-        : `<div class="deck-grid-placeholder" style="width:100%;height:100%;background:var(--bg4)">${d.name}</div>`}
+        ? `<img src="${escapeHtml(img)}" alt="${escapeHtml(d.name)}" style="width:100%;height:100%;object-fit:cover;object-position:center top">`
+        : `<div class="deck-grid-placeholder" style="width:100%;height:100%;background:var(--bg4)">${escapeHtml(d.name)}</div>`}
     </div>
     <div class="browse-deck-overlay">
-      <div class="browse-deck-name">${d.name}</div>
-      <div class="browse-deck-meta">${d.format}${d.commander ? ' · ' + d.commander : ''}${isShared ? ' · ' + (d.ownerEmail || '') : ''}</div>
+      <div class="browse-deck-name">${escapeHtml(d.name)}</div>
+      <div class="browse-deck-meta">${escapeHtml(d.format)}${d.commander ? ' · ' + escapeHtml(d.commander) : ''}${isShared ? ' · ' + escapeHtml(d.ownerEmail || '') : ''}</div>
       ${combo ? `<div class="browse-deck-combo">${combo}</div>` : ''}
       <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px">
         <span style="display:inline-flex;align-items:center;gap:5px">${pips}</span>
@@ -2492,11 +2492,11 @@ function _deckSidebarItem(d) {
   return `
   <div class="deck-sidebar-item ${activeDeckId === d.id ? 'active' : ''}" onclick="selectDeck('${d.id}')">
     ${_deckImage(d)
-      ? `<img src="${_deckImage(d)}" alt="${d.name}" style="width:100%;height:100%;object-fit:cover;object-position:center top;display:block">`
-      : `<div class="deck-grid-placeholder" style="width:100%;height:100%;background:var(--bg4)">${d.name}</div>`}
+      ? `<img src="${escapeHtml(_deckImage(d))}" alt="${escapeHtml(d.name)}" style="width:100%;height:100%;object-fit:cover;object-position:center top;display:block">`
+      : `<div class="deck-grid-placeholder" style="width:100%;height:100%;background:var(--bg4)">${escapeHtml(d.name)}</div>`}
     <div style="position:absolute;bottom:0;left:0;right:0;padding:18px 8px 7px;background:linear-gradient(transparent,rgba(0,0,0,0.85))">
-      <div class="deck-sidebar-name">${d.name}</div>
-      <div class="deck-sidebar-meta">${d.format} · ${total} cards</div>
+      <div class="deck-sidebar-name">${escapeHtml(d.name)}</div>
+      <div class="deck-sidebar-meta">${escapeHtml(d.format)} · ${total} cards</div>
     </div>
     ${badge ? `<div style="position:absolute;bottom:7px;right:7px">${badge}</div>` : ''}
   </div>`;
@@ -2538,6 +2538,93 @@ function _applyPublicToggleBtn(btn, isPublic) {
   btn.innerHTML = isPublic ? `${SVG_GLOBE} Public` : `${SVG_LOCK} Private`;
   btn.style.color = isPublic ? 'var(--teal)' : 'var(--text3)';
   btn.title = isPublic ? 'Visible to all users — click to make private' : 'Only you can see this — click to make public';
+}
+
+// ── Share link ("anyone with the link can view") ─────────────────────────────
+function _deckShareUrl(token) { return location.origin + '/d/' + token; }
+
+function _syncDeckShareLinkBtn(deck) {
+  const btn = document.getElementById('deckShareLinkBtn');
+  if (!btn) return;
+  const on = !!(deck && deck.shareToken);
+  btn.style.color = on ? 'var(--teal)' : '';
+  btn.title = on ? 'A view-only link is active — click to manage' : 'Get a view-only link anyone can open';
+}
+
+function openDeckShareLinkModal() {
+  if (activeDeckIsShared) return;
+  const m = document.getElementById('deckShareLinkModal');
+  if (!m) return;
+  m.classList.add('open');
+  _renderDeckShareLinkBody();
+}
+
+function closeDeckShareLinkModal() {
+  document.getElementById('deckShareLinkModal')?.classList.remove('open');
+}
+
+function _renderDeckShareLinkBody() {
+  const body = document.getElementById('deckShareLinkBody');
+  const deck = getActiveDeck();
+  if (!body || !deck) return;
+  const token = deck.shareToken;
+  if (!token) {
+    body.innerHTML = `
+      <p class="dsl-desc">Anyone with the link can view this deck (read-only) — no account needed. It won't appear in Browse Decks unless you also mark the deck Public.</p>
+      <button class="btn btn-primary" onclick="enableDeckShareLink()">Create share link</button>`;
+    return;
+  }
+  const url = _deckShareUrl(token);
+  body.innerHTML = `
+    <p class="dsl-desc">Anyone with this link can view the deck (read-only). They'll need an account to do anything else.</p>
+    <div class="dsl-row">
+      <input id="dslUrlInput" class="input" type="text" readonly value="${escapeHtml(url)}" onclick="this.select()">
+      <button class="btn btn-primary btn-sm" onclick="copyDeckShareLink()">Copy</button>
+    </div>
+    <div class="dsl-actions">
+      <button class="btn btn-ghost btn-sm" onclick="regenerateDeckShareLink()" title="Invalidate the current link and create a new one">Regenerate</button>
+      <button class="btn btn-danger btn-sm" onclick="revokeDeckShareLink()">Disable link</button>
+    </div>`;
+}
+
+async function enableDeckShareLink(regenerate = false) {
+  const deck = getActiveDeck();
+  if (!deck || activeDeckIsShared) return;
+  try {
+    const r = await apiPostJson('/decks/' + deck.id + '/share-link', regenerate ? { regenerate: true } : {});
+    deck.shareToken = r.token;
+    _renderDeckShareLinkBody();
+    _syncDeckShareLinkBtn(deck);
+    if (regenerate) showNotif('New share link created — the old one no longer works');
+  } catch (e) {
+    showNotif('Could not create link: ' + e.message, true);
+  }
+}
+
+function regenerateDeckShareLink() { enableDeckShareLink(true); }
+
+async function revokeDeckShareLink() {
+  const deck = getActiveDeck();
+  if (!deck) return;
+  try {
+    await apiDelete('/decks/' + deck.id + '/share-link');
+    deck.shareToken = null;
+    _renderDeckShareLinkBody();
+    _syncDeckShareLinkBtn(deck);
+    showNotif('Share link disabled');
+  } catch (e) {
+    showNotif('Could not disable link: ' + e.message, true);
+  }
+}
+
+function copyDeckShareLink() {
+  const deck = getActiveDeck();
+  if (!deck?.shareToken) return;
+  const url = _deckShareUrl(deck.shareToken);
+  const done = () => showNotif('Link copied to clipboard');
+  const fallback = () => { const i = document.getElementById('dslUrlInput'); if (i) { i.select(); try { document.execCommand('copy'); done(); } catch (_) {} } };
+  if (navigator.clipboard?.writeText) navigator.clipboard.writeText(url).then(done).catch(fallback);
+  else fallback();
 }
 
 // ── Commander search ──────────────────────────────────────────────────────────
@@ -2592,15 +2679,15 @@ function searchCommanderInput(q, resultsId, format) {
           const borderColor = isOwnedPrint ? 'var(--teal)' : 'transparent';
           return `
             <div onclick="selectCommanderResult('${resultsId}','${safeName}','${safeCI}','${safeImgFull}','${c.id}')"
-              title="${c.name} · ${c.set_name}"
+              title="${escapeHtml(c.name)} · ${escapeHtml(c.set_name)}"
               style="cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px">
               <div style="border-radius:6px;overflow:hidden;border:2px solid ${borderColor};transition:border-color 0.15s;width:120px"
                 onmouseover="this.style.borderColor='var(--gold)'" onmouseout="this.style.borderColor='${borderColor}'">
                 ${img
-                  ? `<img src="${img}" style="width:120px;display:block" alt="${c.name}" loading="lazy">`
-                  : `<div style="width:120px;height:167px;background:var(--bg4);display:flex;align-items:center;justify-content:center;font-size:0.65rem;color:var(--text3);text-align:center;padding:6px">${c.name}</div>`}
+                  ? `<img src="${escapeHtml(img)}" style="width:120px;display:block" alt="${escapeHtml(c.name)}" loading="lazy">`
+                  : `<div style="width:120px;height:167px;background:var(--bg4);display:flex;align-items:center;justify-content:center;font-size:0.65rem;color:var(--text3);text-align:center;padding:6px">${escapeHtml(c.name)}</div>`}
               </div>
-              <span style="font-size:0.64rem;color:var(--text3);text-transform:uppercase;letter-spacing:0.04em">${c.set}</span>
+              <span style="font-size:0.64rem;color:var(--text3);text-transform:uppercase;letter-spacing:0.04em">${escapeHtml(c.set)}</span>
               ${isOwnedPrint ? `<span style="font-size:0.6rem;color:var(--teal);letter-spacing:0.02em">owned</span>` : ''}
             </div>`;
         }).join('');
@@ -2608,7 +2695,7 @@ function searchCommanderInput(q, resultsId, format) {
         return `
           <div style="padding:14px 16px 12px;border-bottom:1px solid var(--border2)">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
-              <span style="font-size:0.9rem;font-family:'Cinzel',serif;color:var(--text)">${group.name}</span>
+              <span style="font-size:0.9rem;font-family:'Cinzel',serif;color:var(--text)">${escapeHtml(group.name)}</span>
               <span style="display:flex;gap:5px;align-items:center">${pips}</span>
               <span style="font-size:0.7rem;color:var(--text3)">${group.prints.length} version${group.prints.length !== 1 ? 's' : ''}</span>
               ${ownedBadge}
@@ -2908,6 +2995,8 @@ function renderActiveDeck() {
   const isOwner = !activeDeckIsShared;
   const pubBtn = document.getElementById('deckPublicToggleBtn');
   if (pubBtn) { pubBtn.style.display = isOwner ? '' : 'none'; if (isOwner) _applyPublicToggleBtn(pubBtn, !!deck.isPublic); }
+  const shareBtn = document.getElementById('deckShareLinkBtn');
+  if (shareBtn) { shareBtn.style.display = isOwner ? '' : 'none'; if (isOwner) _syncDeckShareLinkBtn(deck); }
   const delBtn = document.getElementById('deckDeleteBtn');
   if (delBtn) delBtn.style.display = isOwner ? '' : 'none';
   const renameBtn = document.getElementById('deckRenameBtn');
@@ -2987,7 +3076,7 @@ async function renderCollaboratorsPanel(deck) {
         const safeEmail = c.email.replace(/'/g, "\\'");
         return `
         <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)">
-          <span class="collab-list-email">${c.email}</span>
+          <span class="collab-list-email">${escapeHtml(c.email)}</span>
           <button class="btn btn-sm collab-perm-badge collab-perm-badge--${perm}" title="Click to switch to ${nextPerm}"
             onclick="setCollaboratorPermission('${deck.id}',${c.id},'${nextPerm}')">${perm === 'edit' ? 'Edit' : 'View'}</button>
           <button class="btn btn-ghost btn-sm btn-icon" style="color:var(--text3);padding:2px 6px;margin-left:auto"
@@ -3049,7 +3138,7 @@ function toggleDeckListCollapse() {
   const btn  = document.getElementById('deckListCollapseBtn');
   const gbWrap = document.getElementById('deckGroupByWrap');
   if (wrap) wrap.style.display = _deckListCollapsed ? 'none' : '';
-  if (btn)  btn.style.transform = _deckListCollapsed ? 'rotate(-90deg)' : '';
+  if (btn)  btn.classList.toggle('is-rotated', _deckListCollapsed);
   if (gbWrap) gbWrap.style.visibility = _deckListCollapsed ? 'hidden' : '';
 }
 
@@ -3295,7 +3384,7 @@ function renderDeckCardTagPicker() {
   _deckCardTagPickerTarget.entries = entries;
   el.innerHTML = entries.map((entry, i) => {
     const { tag, kind } = entry;
-    const safe = String(tag).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    const safe = escapeHtml(tag);
     if (kind === 'protected') {
       const defOn = pickerTarget.defaultTags.has(tag);
       const forceOn = pickerTarget.overrideAdd.has(tag);
@@ -3983,9 +4072,9 @@ function _stackTile(c, zone = 'main', poolHints = null) {
     <div class="deck-stack-card deck-zone-draggable${notOwned ? ' not-owned' : ''}${isGameChanger ? ' is-game-changer' : ''}${validCls}" data-uid="${dragKey}" data-zone="${zone}" data-sid="${c.scryfallId || ''}" data-name="${safeName}" data-card-key="${cardKey}" data-card-name-key="${nameKey.replace(/"/g, '&quot;')}" onpointerdown="_deckZoneCardPointerDown(event)">
       <div class="stack-wrap">
         ${img
-          ? `<img src="${img}" draggable="false" class="stack-main${c.isCommander ? ' is-commander' : ''}" alt="${c.name}" loading="lazy" style="${imgStyle}">`
+          ? `<img src="${escapeHtml(img)}" draggable="false" class="stack-main${c.isCommander ? ' is-commander' : ''}" alt="${escapeHtml(c.name)}" loading="lazy" style="${imgStyle}">`
           : `<div class="stack-main stack-face-fallback${c.isCommander ? ' is-commander' : ''}"
-               style="aspect-ratio:0.715;background:var(--bg4);display:flex;align-items:center;justify-content:center;color:var(--text3);padding:4px;text-align:center;${imgStyle}">${c.name}</div>`}
+               style="aspect-ratio:0.715;background:var(--bg4);display:flex;align-items:center;justify-content:center;color:var(--text3);padding:4px;text-align:center;${imgStyle}">${escapeHtml(c.name)}</div>`}
         <div class="stack-qty">×${qty}</div>
         ${gcBadge}
         ${mbPoolBadge}
@@ -3995,7 +4084,7 @@ function _stackTile(c, zone = 'main', poolHints = null) {
         <button class="stack-version" draggable="false" title="Change printing">⟳</button>
         ${swapBtns}
       </div>
-      <div class="stack-name" style="${notOwned ? 'color:var(--text3);opacity:0.6' : ''}">${c.name}</div>
+      <div class="stack-name" style="${notOwned ? 'color:var(--text3);opacity:0.6' : ''}">${escapeHtml(c.name)}</div>
     </div>`;
 }
 
@@ -4611,44 +4700,53 @@ let _deckStackLastZonesBeside = null;
 let _deckStackResizeTimer = null;
 
 // card at 220px wide → ~306px tall (63×88mm ratio); overlap = 272px; visible = 34px
-function _estimateGroupHeight() {
-  // Cards fan horizontally so group height = one card + label + padding,
-  // regardless of card count. Scales with deckCardSize (card h ≈ width × 1.4).
-  return Math.round(95 + deckCardSize * 1.4);
+function _estimateGroupHeight(cards) {
+  // base = label + padding + one full top card. Scales with deckCardSize (card h ≈ width × 1.4).
+  const base = 95 + deckCardSize * 1.4;
+  // Horizontal orient: cards fan sideways, so height is one card tall regardless of count.
+  if (deckStackOrient !== 'vertical') return Math.round(base);
+  // Vertical orient: each card past the first adds a ~36px visible sliver (see the
+  // margin-top overlap in .deck-stack-cards.vertical), so taller stacks = more cards.
+  const count = Array.isArray(cards) ? cards.length : 1;
+  return Math.round(base + Math.max(0, count - 1) * 36);
 }
 
 /** Gray stack boxes only — paired with _renderGroup(..., { cardsOnly: true }) for zone layering. */
 function _renderStackGroupBackplate([grp, cards]) {
   const total = cards.reduce((s, c) => s + (c.qty || 1), 0);
-  const backdropH = Math.max(280, _estimateGroupHeight() - 52);
+  const backdropH = Math.max(280, _estimateGroupHeight(cards) - 52);
   const grpAttr = _deckStackGroupAttr(grp);
   return `
     <div class="deck-stack-group deck-stack-group--backplate" data-stack-group="${grpAttr}" aria-hidden="true">
-      <div class="deck-stack-group-label">${grp} <span class="deck-stack-group-count">(${total})</span></div>
+      <div class="deck-stack-group-label">${escapeHtml(grp)} <span class="deck-stack-group-count">(${total})</span></div>
       <div class="deck-stack-group-backdrop" style="min-height:${backdropH}px"></div>
     </div>`;
 }
 
-// Greedy column packing: Commander pins to col 0, remaining groups go into the
-// shortest column (ties broken left-to-right). Cols are capped to entries.length
-// so there are never empty trailing columns.
+// Greedy LPT (longest-processing-time) column packing: Commander pins to col 0,
+// then remaining groups are placed tallest-first into the shortest column. Sorting
+// by height first both balances column heights and floats the larger stacks to the
+// tops of the columns. Ties keep the incoming group order (stable sort). Cols are
+// capped to entries.length so there are never empty trailing columns.
 function _assignGroupsToColumnsBalanced(entries, numCols) {
   const effectiveCols = Math.max(1, Math.min(numCols, entries.length));
   const commanderIdx = entries.findIndex(([grp]) => grp === 'Commander');
   const commander = commanderIdx >= 0 ? entries[commanderIdx] : null;
   const rest = entries.filter((_, i) => i !== commanderIdx);
 
+  rest.sort((a, b) => _estimateGroupHeight(b[1]) - _estimateGroupHeight(a[1]));
+
   const cols = Array.from({ length: effectiveCols }, () => ({ groups: [], height: 0 }));
 
   if (commander) {
     cols[0].groups.push(commander);
-    cols[0].height += _estimateGroupHeight();
+    cols[0].height += _estimateGroupHeight(commander[1]);
   }
 
   for (const entry of rest) {
     const min = cols.reduce((m, c) => c.height < m.height ? c : m);
     min.groups.push(entry);
-    min.height += _estimateGroupHeight();
+    min.height += _estimateGroupHeight(entry[1]);
   }
   return cols.map(c => c.groups);
 }
@@ -4799,7 +4897,10 @@ async function fetchDeckGeneratedTokens(deck) {
       p.component === 'token' || /\bemblem\b/i.test(p.type_line || '')
     );
     for (const p of parts) {
-      const key = _normalizeDeckTokenName(p.name) || p.id;
+      // Key by part id, NOT name — different tokens can share a name (three
+      // distinct "Rat" tokens, say); _collapseDeckTokensDistinct merges true
+      // reprints by oracle_id afterwards.
+      const key = p.id;
       const existing = tokenMap.get(key);
       const src = { name: sc.name, scryfallId: sc.id };
       if (existing) {
@@ -4863,11 +4964,11 @@ function _deckTokenTileHtml(t) {
   const img = t.imageLarge || t.image
     || (t.id ? `https://cards.scryfall.io/normal/front/${t.id[0]}/${t.id[1]}/${t.id}.jpg` : '');
   const sources = t.sources.map(s => s.name).join(', ');
-  const safeName = String(t.name || '').replace(/"/g, '&quot;');
-  return `<div class="deck-stack-card deck-token-card" data-sid="${t.id}" title="${safeName} — from: ${sources.replace(/"/g, '&quot;')}">
+  const safeName = escapeHtml(t.name);
+  return `<div class="deck-stack-card deck-token-card" data-sid="${t.id}" title="${safeName} — from: ${escapeHtml(sources)}">
       <div class="stack-wrap">
         ${img
-          ? `<img src="${img}" class="stack-main" alt="${safeName}" loading="lazy">`
+          ? `<img src="${escapeHtml(img)}" class="stack-main" alt="${safeName}" loading="lazy">`
           : `<div class="stack-main stack-face-fallback" style="aspect-ratio:0.715;background:var(--bg4);display:flex;align-items:center;justify-content:center;color:var(--text3);padding:4px;text-align:center;font-size:0.62rem">${safeName}</div>`}
       </div>
     </div>`;
@@ -4906,9 +5007,9 @@ function _renderDeckTokensSection(deck, tokens, opts = {}) {
     body.innerHTML = list.map(t => {
       const srcLabel = t.sources.map(s => s.name).join(', ');
       const srcCount = t.sources.length;
-      return `<div class="deck-token-row" data-sid="${t.id}" title="Created by: ${srcLabel.replace(/"/g, '&quot;')}">
-        <span class="deck-token-name">${t.name}</span>
-        <span class="deck-token-type">${t.typeLine || ''}</span>
+      return `<div class="deck-token-row" data-sid="${t.id}" title="Created by: ${escapeHtml(srcLabel)}">
+        <span class="deck-token-name">${escapeHtml(t.name)}</span>
+        <span class="deck-token-type">${escapeHtml(t.typeLine || '')}</span>
         <span class="deck-token-sources">${srcCount} source${srcCount === 1 ? '' : 's'}</span>
       </div>`;
     }).join('');
@@ -4952,7 +5053,7 @@ function _renderDeckExtraZoneList(deck, zone, label, cards, emptyHint, validatio
       const dk = _deckCardDragKey(c).replace(/'/g, "\\'");
       return `
           <div class="deck-card-row deck-zone-draggable${_deckCardValidationClass(c, validationErrorNames)}" data-uid="${_deckCardDragKey(c)}" data-zone="${zone}" data-card-key="${getCardInventoryKey(c)}" data-card-name-key="${String(c.name || '').trim().toLowerCase().replace(/"/g, '&quot;')}" onpointerdown="_deckZoneCardPointerDown(event)" onclick="openCardDetail('${c.uid || c.scryfallId}','deck')">
-            <span class="deck-card-name">${c.name}</span>
+            <span class="deck-card-name">${escapeHtml(c.name)}</span>
             <span style="display:flex;gap:5px;align-items:center">${sortColorsWUBRG(c.colors).map(col => `<img src="https://svgs.scryfall.io/card-symbols/${col}.svg" class="mana-pip" alt="${col}" title="${col}" draggable="false">`).join('')}</span>
             <button class="btn btn-ghost btn-sm" title="Move to mainboard" style="font-size:0.65rem;padding:1px 6px" onclick="event.stopPropagation();moveToMainboard('${dk}','${zone}')">→ Main</button>
             <div style="display:flex;align-items:center;gap:5px;margin-left:auto" onclick="event.stopPropagation()">
@@ -5292,6 +5393,12 @@ function _suggestCardsToCut(deck) {
   const commanderCard = cards.find(c => c.isCommander || (deck.commander && c.name === deck.commander));
   const cmdCmc = commanderCard?.cmc ?? 4;
   const thresholds = _computeCutThresholds(deck);
+  // Commander-tribal/theme context, applied inversely to replacements/adds: on-tribe and
+  // on-theme cards are shielded from cuts; payoffs gated on an under-supported "whenever
+  // you cast …" trigger are better cuts because they're mostly dead in this deck.
+  const tribes = _deckTribalTypes(deck);
+  const castThemes = _deckCommanderCastThemes(deck);
+  const metricCounts = _replacementDeckMetricCounts(deck);
 
   const roleCount = {};
   for (const card of cards) {
@@ -5351,8 +5458,23 @@ function _suggestCardsToCut(deck) {
     const cmcBucket = Math.min(Math.floor(typeof _effectiveCmc === 'function' ? _effectiveCmc(card) : (card.cmc || 0)), 7);
     const bucketExcess = curveExcess[cmcBucket] ?? 0;
     const curvePenalty = Math.min(Math.max(0, bucketExcess) * 5, 1.5);
-    card._cutScore = maxSurplus + cmcFactor + cmcPenalty + noRoleBonus - multiRoleDiscount + priceBonus + curvePenalty;
-    card._cutReason = _buildCutReason(card, tags, surplusTag, roleCount, thresholds, cmdCmc, noRole, bucketExcess, planCount);
+    // Tribal shield / dead-payoff penalty (commander-tribal decks and cast-trigger gates)
+    const blob = _replacementOracleBlob(card);
+    let tribalShield = 0;
+    if (tribes.length) {
+      if (tribes.some(t => _ckCandidateTribes(card).includes(t))) tribalShield += 2;
+      if (tribes.some(t => _tribeWordRegex(t).test(blob))) tribalShield += 1;
+    }
+    const cutTheme = castThemes.find(t => t.test(card));
+    const themeShield = cutTheme ? 2 : 0;
+    const gate = _replCastTriggerFactor(blob, metricCounts);
+    const gatePenalty = (1 - gate.factor) * 2.5;
+    card._cutScore = maxSurplus + cmcFactor + cmcPenalty + noRoleBonus - multiRoleDiscount + priceBonus + curvePenalty - tribalShield - themeShield + gatePenalty;
+    let reason = _buildCutReason(card, tags, surplusTag, roleCount, thresholds, cmdCmc, noRole, bucketExcess, planCount);
+    if (gatePenalty > 0.1) reason += ` — payoff needs ${gate.label} (deck has ${gate.have})`;
+    if (tribalShield > 0) reason += ' — spared some: fits tribal theme';
+    if (themeShield > 0) reason += ` — spared some: feeds commander trigger (${cutTheme.label})`;
+    card._cutReason = reason;
   }
 
   return candidates
@@ -5414,9 +5536,9 @@ function _renderCutSuggestions(deck) {
   body.innerHTML = cuts.map(card => {
     const uid = (card.uid || card.scryfallId || '').replace(/'/g, "\\'");
     const sid = card.scryfallId || card.uid || '';
-    const displayName = (card.name || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const displayName = escapeHtml(card.name);
     const score = (card._cutScore || 0).toFixed(1);
-    const reason = (card._cutReason || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const reason = escapeHtml(card._cutReason || '');
     return `<div class="cut-candidate-row">
       <span class="cut-score-badge tooltip-wrap" aria-label="Cut score: ${score}">${score}<span class="tooltip cut-score-tooltip">${reason}</span></span>
       <span class="cut-card-name" onclick="openCardDetail('${sid}','deck')">${displayName}</span>
@@ -5430,6 +5552,8 @@ function _renderCutSuggestions(deck) {
 // roles. Shares the same archetype/playstyle/threshold model (_computeCutThresholds). Candidate
 // pool is "owned first" — collection cards that fit, then unowned cards from the local oracle DB
 // (/api/cards/by-roles). Suggestions that fail the conditional-keyword gate are dropped.
+// Commander-tribal decks (_deckTribalTypes) boost on-tribe candidates, and role credit gated
+// on an under-supported "whenever you cast …" trigger is discounted (_replCastTriggerFactor).
 const _ADD_SUGGESTION_COUNT = 8;
 let _addSuggestToken = 0;
 
@@ -5467,14 +5591,24 @@ function _computeAddContext(deck) {
     ? _computeIdealManaCurveContext(deck, curveCounts)
     : { idealWeights: [0.06, 0.13, 0.20, 0.20, 0.16, 0.12, 0.08, 0.05] };
   const curveDeficit = buckets.map((_, i) => Math.max(0, idealWeights[i] - (curveCounts[i] / curveTotal)));
-  return { thresholds, roleCount, planCount, deficits, curveDeficit };
+  return {
+    thresholds, roleCount, planCount, deficits, curveDeficit,
+    // Same deck context the replacement scorer uses: commander-driven tribal types,
+    // commander cast-trigger themes, and spell-type counts for gating "whenever you cast …".
+    tribes: _deckTribalTypes(deck),
+    castThemes: _deckCommanderCastThemes(deck),
+    metricCounts: _replacementDeckMetricCounts(deck),
+  };
 }
 
 function _scoreAddCandidate(card, roles, ctx) {
   let roleFit = 0, topRole = '', topVal = -1;
   const real = roles.filter(t => t !== 'Land' && t !== 'Commander');
   if (!real.length) {
-    roleFit = ctx.deficits['Plan'] || 0;
+    // Plan deficits can hit 20+ in a well-tagged deck; uncapped they'd make any roleless
+    // card outrank genuine role-fillers (whose deficits top out around 5-10). Cap at 3 so
+    // "theme slot open" is a nudge, and let tribal/commander-theme bonuses pick the card.
+    roleFit = Math.min(ctx.deficits['Plan'] || 0, 3);
     if (roleFit > 0) { topRole = 'Plan'; topVal = roleFit; }
   } else {
     for (const t of real) {
@@ -5483,24 +5617,47 @@ function _scoreAddCandidate(card, roles, ctx) {
       if (d > topVal) { topVal = d; topRole = t; }
     }
   }
+  // Same gates as card replacements: role credit locked behind a cast-trigger the deck
+  // under-supports shrinks; on-tribe cards get a boost in commander-tribal decks.
+  const blob = _replacementOracleBlob(card);
+  let gate = { factor: 1 };
+  if (roleFit > 0) {
+    gate = _replCastTriggerFactor(blob, ctx.metricCounts || {});
+    roleFit *= gate.factor;
+  }
+  let tribal = 0, tribe = '';
+  if (ctx.tribes && ctx.tribes.length) {
+    const subs = _ckCandidateTribes(card);
+    const sharedTribe = ctx.tribes.find(t => subs.includes(t));
+    if (sharedTribe) tribal += 2;
+    const mention = ctx.tribes.find(t => _tribeWordRegex(t).test(blob));
+    if (mention) tribal += 1;
+    tribe = sharedTribe || mention || '';
+  }
+  // Commander cast-theme synergy (e.g. Helga: creatures MV 4+) — same weight as tribal.
+  const theme = (ctx.castThemes || []).find(t => t.test(card));
+  const themeBonus = theme ? 2 : 0;
   const bucket = Math.min(Math.floor(_effCmcSafe(card)), 7);
   const curveBonus = Math.min((ctx.curveDeficit[bucket] || 0) * 5, 1.5);
   const versatility = Math.max(0, real.length - 1) * 0.3;
-  return { score: roleFit + curveBonus + versatility, topRole, topVal, bucket, roles: real };
+  return { score: roleFit + curveBonus + versatility + tribal + themeBonus, topRole, topVal, bucket, roles: real, gate, tribal, tribe, theme };
 }
 
 function _buildAddReason(name, s, ctx, owned) {
   const parts = [];
   if (s.topRole === 'Plan') {
     parts.push(`Adds a theme/identity card (deck under its ${ctx.thresholds['Plan']}-card plan target)`);
-  } else if (s.topRole) {
+  } else if (s.topRole && (ctx.deficits[s.topRole] || 0) > 0) {
     const have = ctx.roleCount[s.topRole] || 0;
     parts.push(`Fills ${s.topRole} (deck has ${have}, target ${ctx.thresholds[s.topRole]})`);
   }
   const others = s.roles.filter(r => r !== s.topRole && (ctx.deficits[r] || 0) > 0);
   if (others.length) parts.push(`also helps ${others.join(', ')}`);
+  if (s.tribal) parts.push(`fits your ${s.tribe.charAt(0).toUpperCase() + s.tribe.slice(1)} theme`);
+  if (s.theme) parts.push(`feeds your commander's trigger (${s.theme.label})`);
+  if (s.gate && s.gate.factor < 1) parts.push(`but payoff needs ${s.gate.label} (deck has ${s.gate.have})`);
   if ((ctx.curveDeficit[s.bucket] || 0) > 0.02) parts.push(`fills a thin spot on your curve at ${s.bucket}${s.bucket === 7 ? '+' : ''} CMC`);
-  parts.push(owned ? 'In your collection.' : 'Not in your collection.');
+  parts.push(owned ? 'In your collection' : 'Not in your collection');
   return parts.join('. ') + '.';
 }
 
@@ -5563,12 +5720,12 @@ async function _renderAddSuggestions(deck) {
 
   // ── Unowned candidates (local DB), only if owned can't fill all slots ──
   let unownedScored = [];
-  if (ownedScored.length < _ADD_SUGGESTION_COUNT && deficitRoles.length) {
+  if (ownedScored.length < _ADD_SUGGESTION_COUNT && (deficitRoles.length || ctx.tribes.length)) {
     try {
       const res = await fetch('/api/cards/by-roles', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          colors: [...cmdCI], roles: deficitRoles,
+          colors: [...cmdCI], roles: deficitRoles, tribes: ctx.tribes,
           exclude: [...inDeckNames, ...ownedNames], limit: 60,
         }),
       });
@@ -5602,9 +5759,9 @@ async function _renderAddSuggestions(deck) {
     const id = (card.id || card.scryfallId || card.uid || '').replace(/'/g, "\\'");
     const name = card.name || '';
     const safeName = name.replace(/'/g, "\\'");
-    const displayName = name.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const displayName = escapeHtml(name);
     const score = (s.score || 0).toFixed(1);
-    const reason = _buildAddReason(name, s, ctx, owned).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const reason = escapeHtml(_buildAddReason(name, s, ctx, owned));
     const ownTag = owned
       ? '<span class="tag" style="background:rgba(61,184,160,0.15);color:var(--teal);font-size:.62rem;margin:0 .4rem">owned</span>'
       : '<span class="tag" style="background:var(--bg3);color:var(--text3);font-size:.62rem;margin:0 .4rem">unowned</span>';
@@ -5677,7 +5834,7 @@ function renderDeckList(deck) {
       const grpAttr = _deckStackGroupAttr(grp);
       return `
         <div class="deck-stack-group${cardsCls}" data-stack-group="${grpAttr}">
-          <div class="deck-stack-group-label deck-stack-group-label--drag" title="Drag onto another group to swap positions" onpointerdown="_deckStackGroupPointerDown(event)">${grp} <span class="deck-stack-group-count">(${total})</span></div>
+          <div class="deck-stack-group-label deck-stack-group-label--drag" title="Drag onto another group to swap positions" onpointerdown="_deckStackGroupPointerDown(event)">${escapeHtml(grp)} <span class="deck-stack-group-count">(${total})</span></div>
           <div class="deck-stack-cards${orientClass}">${sorted.map(c => _stackTile(c, 'main', poolHints)).join('')}</div>
         </div>`;
     }
@@ -5774,7 +5931,7 @@ function renderDeckList(deck) {
     if (_handleDeckExtraZoneToggleClick(e)) return;
   };
   const mainListHtml = (Object.entries(groups).filter(([, v]) => v.length > 0).map(([grp, cards]) => `
-    <div class="deck-list-group-head deck-list-group-head--main">${grp} (${cards.reduce((s,c)=>s+c.qty,0)})</div>
+    <div class="deck-list-group-head deck-list-group-head--main">${escapeHtml(grp)} (${cards.reduce((s,c)=>s+c.qty,0)})</div>
     ${_deckStackSortCards(cards).map(c => {
       const mbRow = _maybeBoardQtyForDeckSlot(maybeboard, getCardInventoryKey(c));
       const sbRow = _matchSideboardQtyForDeckSlot(matchSideboard, getCardInventoryKey(c));
@@ -5796,7 +5953,7 @@ function renderDeckList(deck) {
         : '';
       return `
       <div class="deck-card-row deck-zone-draggable${rowIsGc ? ' is-game-changer' : ''}${_deckCardValidationClass(c, validationErrorNames)}" data-uid="${_deckCardDragKey(c)}" data-zone="main" data-card-key="${getCardInventoryKey(c)}" data-card-name-key="${String(c.name || '').trim().toLowerCase().replace(/"/g, '&quot;')}" onpointerdown="_deckZoneCardPointerDown(event)" onclick="openCardDetail('${c.uid || c.scryfallId}','deck')">
-        <span class="deck-card-name">${c.name}</span>${gcRowHtml}${rowTagHtml}
+        <span class="deck-card-name">${escapeHtml(c.name)}</span>${gcRowHtml}${rowTagHtml}
         <span style="display:flex;gap:5px;align-items:center">${sortColorsWUBRG(c.colors).map(col => `<img src="https://svgs.scryfall.io/card-symbols/${col}.svg" class="mana-pip" alt="${col}" title="${col}">`).join('')}</span>
         ${mbRowHtml}${sbRowHtml}
         <button class="btn btn-ghost btn-sm btn-icon" title="Edit My Tags" onclick="event.stopPropagation();openGlobalTagPickerForCard('${c.uid || c.scryfallId || ''}')">🏷</button>
@@ -6447,9 +6604,16 @@ function _probTagsOnCard(card, deck) {
     const t = String(raw || '').trim();
     if (t) out.add(t);
   });
-  _roleTagsForCard(card).forEach(t => {
+  const fromOracle = _roleTagsForCard(card);
+  fromOracle.forEach(t => {
     if (t) out.add(t);
   });
+  // Server-synced role tags (collection rows carry role_tags_json) as a fallback when the
+  // client-side oracle-tag cache hasn't loaded this card — common for collection-wide scans
+  // like the Suggested Adds owned pool, where cache misses made every card look roleless.
+  if (Array.isArray(card.roleTags) && !fromOracle.some(t => t !== 'Land' && t !== 'Commander')) {
+    card.roleTags.forEach(t => { if (t) out.add(String(t)); });
+  }
   return [...out].filter(t => !_isDeckTagDisabled(deckRef, t));
 }
 
@@ -7549,7 +7713,7 @@ async function _loadGameplanEdhrecRamp(cmdColors, deckCardNames, cmdCMC = 4) {
   if (!shown.length) { el.innerHTML = ''; return; }
   const chips = shown.map(c => {
     const id = (c.id || '').replace(/'/g, "\\'");
-    const name = (c.name || '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    const name = escapeHtml(c.name);
     return `<span class="sim-chip sim-chip--edhrec" style="cursor:pointer" onclick="openCardDetail('${id}')">${name}</span>`;
   }).join('');
   el.innerHTML = `
@@ -7590,15 +7754,15 @@ function renderCommanderGameplan(deck) {
       return `
         <div class="cmdr-gp-req-row cmdr-gp-req-row--bonus">
           <span class="cmdr-gp-req-dot" style="background:${pColor(req.p)};opacity:0.7"></span>
-          <span class="cmdr-gp-req-label">${req.label}</span>
-          <span class="cmdr-gp-req-pct" style="color:${pColor(req.p)}" data-tooltip="${req.detail}">${pct}%</span>
+          <span class="cmdr-gp-req-label">${escapeHtml(req.label)}</span>
+          <span class="cmdr-gp-req-pct" style="color:${pColor(req.p)}" data-tooltip="${escapeHtml(req.detail)}">${pct}%</span>
         </div>`;
     }
     return `
       <div class="cmdr-gp-req-row">
         <span class="cmdr-gp-req-dot" style="background:${pColor(req.p)}"></span>
-        <span class="cmdr-gp-req-label">${req.label}</span>
-        <span class="cmdr-gp-req-pct" style="color:${pColor(req.p)}" data-tooltip="${req.detail}">${pct}%</span>
+        <span class="cmdr-gp-req-label">${escapeHtml(req.label)}</span>
+        <span class="cmdr-gp-req-pct" style="color:${pColor(req.p)}" data-tooltip="${escapeHtml(req.detail)}">${pct}%</span>
       </div>`;
   };
 
@@ -7621,18 +7785,18 @@ function renderCommanderGameplan(deck) {
       if (lc.includes('ramp')) {
         const cap = scenario.rampCmcCap || adjustedCMC;
         const have = existingRamp(cap);
-        const haveStr = have.length ? `have: ${have.join(', ')}` : '';
+        const haveStr = have.length ? `have: ${escapeHtml(have.join(', '))}` : '';
         return `<div class="cmdr-gp-rec">→ Add more CMC&lt;${cap} ramp${haveStr ? ` — ${haveStr}` : ''}</div>`;
       }
       if (lc.includes('lands')) return meta.L >= 36 ? '' : `<div class="cmdr-gp-rec">→ Add more lands (target ≥36-38 for Commander)</div>`;
       for (const [col, name] of [['W','white'],['U','blue'],['B','black'],['R','red'],['G','green']]) {
         if (lc.startsWith(name)) {
           const have = existingColorCards(col);
-          const haveStr = have.length ? ` (have: ${have.join(', ')})` : '';
-          return `<div class="cmdr-gp-rec">→ Add more ${r.label.toLowerCase()}${haveStr}</div>`;
+          const haveStr = have.length ? ` (have: ${escapeHtml(have.join(', '))})` : '';
+          return `<div class="cmdr-gp-rec">→ Add more ${escapeHtml(r.label.toLowerCase())}${haveStr}</div>`;
         }
       }
-      return `<div class="cmdr-gp-rec">→ Improve: ${r.label}</div>`;
+      return `<div class="cmdr-gp-rec">→ Improve: ${escapeHtml(r.label)}</div>`;
     }).join('');
 
     // On the primary scenario only: suggest lowering avg CMC of custom groups that are meaningfully shifting the curve
@@ -7724,7 +7888,7 @@ function renderCommanderGameplan(deck) {
         </div>
       </div>
       <div class="panel-body cmdr-gp-body">
-        <div class="cmdr-gp-meta">Playing <strong>${deck.commander}</strong> — CMC&nbsp;${meta.cmdCMC} · ${meta.L} lands · ${meta.R} early ramp · ${meta.L_ut} untapped lands</div>
+        <div class="cmdr-gp-meta">Playing <strong>${escapeHtml(deck.commander)}</strong> — CMC&nbsp;${meta.cmdCMC} · ${meta.L} lands · ${meta.R} early ramp · ${meta.L_ut} untapped lands</div>
         ${probs.preCurve ? scenarioHtml(probs.preCurve, 'Pre-curve', false) : ''}
         ${probs.onCurve ? scenarioHtml(probs.onCurve, 'On-curve', true) : ''}
         ${!probs.preCurve && !probs.onCurve ? '<div class="cmdr-gp-empty">Set a commander with a mana cost to see gameplan probabilities.</div>' : ''}
@@ -7732,7 +7896,7 @@ function renderCommanderGameplan(deck) {
           ${rampSuggestions.length ? `
           <div class="cmdr-gp-suggest-group">
             <span class="cmdr-gp-suggest-label">In ${_ownershipCollectionLabel()}:</span>
-            <div class="sim-chip-row">${rampSuggestions.map(s => `<span class="sim-chip sim-chip--owned" style="cursor:pointer" onclick="openCardDetail('${s.id}')">${s.name}</span>`).join('')}</div>
+            <div class="sim-chip-row">${rampSuggestions.map(s => `<span class="sim-chip sim-chip--owned" style="cursor:pointer" onclick="openCardDetail('${s.id}')">${escapeHtml(s.name)}</span>`).join('')}</div>
           </div>` : ''}
           <div id="cmdGpEdhrecSuggs"></div>
         </div>
@@ -7802,7 +7966,7 @@ function renderTypeBreakdown(deck) {
     <div class="deck-type-break-wrap">
       ${Object.entries(types).sort((a,b)=>b[1]-a[1]).map(([t,n]) => `
       <div class="deck-type-break-row">
-        <span class="deck-type-break-label">${t}</span>
+        <span class="deck-type-break-label">${escapeHtml(t)}</span>
         <div class="deck-type-break-track">
           <div class="deck-type-break-fill" style="width:${Math.round((n/total)*100)}%"></div>
         </div>
@@ -7870,7 +8034,7 @@ function deckSearchAutocomplete(q) {
       return `<div class="deck-ac-row${inCollection ? ' deck-ac-row--collection' : ''}" data-idx="${i}">
         <span style="width:6px;height:6px;border-radius:50%;flex-shrink:0;
           background:${inCollection ? 'var(--gold)' : 'transparent'}"></span>
-        ${name}
+        ${escapeHtml(name)}
       </div>`;
     }).join('');
 
@@ -7937,9 +8101,9 @@ function _cardTile(name, img, inDeck, inCollection, inv, addFn, inMaybeBoard = f
       <div class="deck-search-art" style="aspect-ratio:0.715;overflow:hidden;border-radius:6px;border:${border};
         transition:border-color 0.15s;position:relative">
         ${img
-          ? `<img src="${img}" style="width:100%;height:100%;object-fit:cover;${filter}" alt="${name}" loading="lazy">`
+          ? `<img src="${escapeHtml(img)}" style="width:100%;height:100%;object-fit:cover;${filter}" alt="${escapeHtml(name)}" loading="lazy">`
           : `<div style="width:100%;height:100%;background:var(--bg3);display:flex;align-items:center;
-              justify-content:center;font-size:0.6rem;padding:4px;text-align:center;color:var(--text2)">${name}</div>`}
+              justify-content:center;font-size:0.6rem;padding:4px;text-align:center;color:var(--text2)">${escapeHtml(name)}</div>`}
         ${inDeck ? `<div style="position:absolute;bottom:2px;right:2px;background:var(--teal);color:#000;
           font-size:0.5rem;font-weight:700;padding:1px 4px;border-radius:3px">IN DECK</div>` : ''}
         ${inMaybeBoard && !inDeck ? `<div style="position:absolute;bottom:2px;right:2px;background:var(--gold);color:#000;
@@ -7951,7 +8115,7 @@ function _cardTile(name, img, inDeck, inCollection, inv, addFn, inMaybeBoard = f
         ${mbAddFn ? `<button class="deck-search-sb-btn deck-search-mb-btn" data-sb-add="${mbAddFn}" title="Add to maybe board">→ MB</button>` : ''}
         ${matchSbAddFn ? `<button class="deck-search-sb-btn deck-search-match-sb-btn" data-match-sb-add="${matchSbAddFn}" title="Add to sideboard">→ SB</button>` : ''}
       </div>
-      <div class="deck-search-name">${name}</div>
+      <div class="deck-search-name">${escapeHtml(name)}</div>
       ${ownershipOn && inCollection ? `<div class="deck-search-meta" style="color:${unavailable ? 'var(--red)' : 'var(--text3)'}">Owned ${inv.owned} · Used ${inv.usedTotal} · Avail ${inv.available}${inDeck && mbAlsoOnDeck > 0 ? ` · MB ×${mbAlsoOnDeck}` : ''}</div>` : ''}
       ${inDeck && mbAlsoOnDeck > 0 && (!ownershipOn || !inCollection) ? `<div class="deck-search-meta" style="color:var(--gold)">Maybe board ×${mbAlsoOnDeck}</div>` : ''}
     </div>`;
@@ -9484,7 +9648,7 @@ function openOwnedRecommendationPicker(cardName, candidates) {
       <div class="version-tile" data-owned-idx="${idx}">
         <div class="version-tile-img-wrap">
           ${img
-            ? `<img src="${img}" loading="lazy" alt="${_escapeVersionPickerText(card.name)}">`
+            ? `<img src="${escapeHtml(img)}" loading="lazy" alt="${_escapeVersionPickerText(card.name)}">`
             : `<div class="version-tile-placeholder">${setCode || 'CARD'}</div>`}
         </div>
         ${_versionPickerPriceHtmlFromCollection(card)}
@@ -9667,7 +9831,7 @@ function _ckFilterCandidates(cards, deck) {
 function _ckHiddenNote(hidden) {
   if (!hidden || !hidden.length) return '';
   const f0 = hidden[0].failures[0];
-  const eg = f0 ? ` e.g. ${hidden[0].name}: needs ${f0.need} for ${f0.term}, deck has ${f0.have}` : '';
+  const eg = f0 ? escapeHtml(` e.g. ${hidden[0].name}: needs ${f0.need} for ${f0.term}, deck has ${f0.have}`) : '';
   const tip = hidden.map(h => {
     const parts = h.failures.map(f => `${f.term} (${f.have}/${f.need})`).join(', ');
     return `${h.name} — ${parts}`;
@@ -9847,14 +10011,14 @@ function renderRecSection(title, cards, owned, getOwned) {
     const inspectId = (uid || c.id || '').replace(/'/g, "\\'");
     return `<div class="rec-card-row" style="${owned ? 'background:rgba(61,184,160,0.03)' : ''};cursor:pointer"
       onclick="openCardDetail('${inspectId}')">
-      ${img ? `<img src="${img}" style="width:74px;border-radius:6px;flex-shrink:0;${owned ? 'box-shadow:0 0 0 1px rgba(61,184,160,0.3)' : ''}" alt="">` : ''}
+      ${img ? `<img src="${escapeHtml(img)}" style="width:74px;border-radius:6px;flex-shrink:0;${owned ? 'box-shadow:0 0 0 1px rgba(61,184,160,0.3)' : ''}" alt="">` : ''}
       <div style="flex:1;min-width:0">
         <div style="font-size:0.98rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-          color:${owned ? 'var(--teal)' : 'var(--text)'};font-weight:${owned ? '600' : '400'}">${c.name}</div>
+          color:${owned ? 'var(--teal)' : 'var(--text)'};font-weight:${owned ? '600' : '400'}">${escapeHtml(c.name)}</div>
         <div style="font-size:0.8rem;color:var(--text3);margin-top:3px">
-          ${c.type_line?.split('—')[0]?.trim()} · $${price}
+          ${escapeHtml(c.type_line?.split('—')[0]?.trim() || '')} · $${price}
           ${owned && inv ? `<span style="color:var(--teal);margin-left:4px">· own ${inv.owned} used ${inv.usedTotal} avail ${inv.available}</span>` : ''}
-          ${usedDecks ? `<span style="color:var(--text3);margin-left:4px">· in ${usedDecks}</span>` : ''}
+          ${usedDecks ? `<span style="color:var(--text3);margin-left:4px">· in ${escapeHtml(usedDecks)}</span>` : ''}
         </div>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0">
@@ -9937,7 +10101,7 @@ function _showManaGenTooltip(triggerEl, colName, entries, colTotal) {
     const qtyLabel = e.qty > 1 ? ` <span style="color:var(--text3,#888)">\xd7${e.qty}</span>` : '';
     rows +=
       '<div style="display:flex;justify-content:space-between;gap:16px;padding:1px 0">' +
-      `<span style="color:var(--text2,#bbb);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${e.name}${qtyLabel}</span>` +
+      `<span style="color:var(--text2,#bbb);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(e.name)}${qtyLabel}</span>` +
       `<span style="white-space:nowrap;color:var(--text,#ddd);flex-shrink:0">${fmt(e.total)}</span>` +
       '</div>';
   }
@@ -9971,6 +10135,7 @@ function _hideManaGenTooltip() {
 function _replacementOracleBlob(card) {
   const chunks = [];
   if (card?.oracleText) chunks.push(String(card.oracleText));
+  else if (card?.oracle_text) chunks.push(String(card.oracle_text));
   const faces = Array.isArray(card?.cardFaces)
     ? card.cardFaces
     : (Array.isArray(card?.card_faces) ? card.card_faces : []);
@@ -9981,7 +10146,132 @@ function _replacementOracleBlob(card) {
   return chunks.join('\n\n').toLowerCase();
 }
 
-function _buildReplacementQuery(card, deck, refineKey) {
+// Role phrases for replacement matching. Labels align with SCRYFALL_AUTO_TAGS labels so
+// phrase-derived and tag-derived roles share one vocabulary for overlap scoring. Every
+// matching entry counts (a modal card is draw AND tokens AND sac), no first-match-wins.
+const _REPL_ROLE_PHRASES = [
+  { label: 'Board Wipe', frag: '(o:"destroy all" OR o:"exile all creatures" OR o:"destroy all creatures")',
+    res: [/\b(destroy|exile) all (creatures|artifacts|enchantments|permanents|nonland permanents)\b/, /\bdestroy all\b/, /\bexile all creatures\b/] },
+  { label: 'Counterspell', frag: 'o:"counter target spell"',
+    res: [/\bcounter target spell\b/, /\bcounter target activated\b/] },
+  { label: 'Card Draw', frag: '(o:"draw a card" OR o:"draw two cards" OR o:"draw three cards" OR o:"draw cards")',
+    res: [/\bdraw (a|one|two|three|four|five|x) cards?\b/, /\bdraw \d+ cards?\b/, /\bdraw cards\b/, /\bdraws (a|two|three) cards?\b/] },
+  { label: 'Ramp', frag: '(o:"add {" OR o:"search your library for a basic land" OR o:"search your library for a land")',
+    res: [/add \{[^}]+\}/, /search your library for a basic land/, /\bput\b.{0,80}\bland\b.{0,40}\bbattlefield\b/] },
+  { label: 'Removal', frag: '(o:"destroy target" OR o:"exile target")',
+    res: [/\b(destroy|exile) target (creature|permanent|artifact|enchantment|land|planeswalker|nonland)\b/] },
+  { label: 'Token Maker', frag: '(o:create o:token)',
+    res: [/\b(create|put)\b.{0,50}\btoken\b/] },
+  { label: 'Recursion', frag: '(o:return o:graveyard)',
+    res: [/\breturn\b.{0,80}\b(from your graveyard|from a graveyard|to the battlefield)\b/] },
+  { label: 'Tutor', frag: 'o:"search your library for"',
+    res: [/\bsearch your library for\b/] },
+  { label: 'Proliferate', frag: '(o:proliferate OR (o:double o:counter) OR o:"for each counter")',
+    res: [/\bproliferate\b/, /\bdouble\b.{0,60}\bcounters?\b/, /\bfor each counter\b.{0,60}\bput\b/, /\bput\b.{0,60}\bfor each.{0,40}\bcounter\b/] },
+  { label: '+1/+1 Counters', frag: 'o:"+1/+1 counter"',
+    res: [/\b\+1\/\+1 counter\b/, /\bplace.{0,30}\bcounters?\b/] },
+];
+
+function _replPhraseRolesFor(oracleBlob) {
+  if (!oracleBlob) return [];
+  return _REPL_ROLE_PHRASES.filter(e => e.res.some(re => re.test(oracleBlob)));
+}
+
+// Irregular plurals for tribe words as they appear in oracle text ("Elves you control").
+const _TRIBE_PLURALS = { elf: 'elves', dwarf: 'dwarves', wolf: 'wolves', werewolf: 'werewolves', mouse: 'mice', fox: 'foxes', sphinx: 'sphinxes', octopus: 'octopuses' };
+function _tribeWordRegex(sub) {
+  const pl = _TRIBE_PLURALS[sub] || (sub + 's');
+  return new RegExp('\\b(' + _ckEsc(sub) + '|' + _ckEsc(pl) + ')\\b', 'i');
+}
+
+// Deck-level tribal detection: tribal matters when the commander names a creature type it
+// also IS (Vren the Rat Rogue talks about Rats) and the deck runs >12 cards of that type
+// (qty-weighted, by type line). Returns those types, most-represented first (max 2).
+function _deckTribalTypes(deck) {
+  const cards = deck?.cards || [];
+  const commanders = cards.filter(c => c.isCommander || (deck?.commander && c.name === deck.commander));
+  const counts = new Map();
+  for (const cmd of commanders) {
+    const text = _replacementOracleBlob(cmd);
+    for (const sub of _ckCandidateTribes(cmd)) {
+      if (counts.has(sub)) continue;
+      if (!_tribeWordRegex(sub).test(text)) continue; // commander must care about its own type
+      let count = 0;
+      for (const dc of cards) {
+        const tl = String(typeof resolveCardTypeLine === 'function' ? resolveCardTypeLine(dc) : (dc.type || dc.type_line || '')).toLowerCase();
+        if (!tl.includes('—')) continue;
+        if (tl.split('—')[1].trim().split(/\s+/).includes(sub)) count += dc.qty || 1;
+      }
+      if (count > 12) counts.set(sub, count);
+    }
+  }
+  return [...counts.keys()].sort((a, b) => counts.get(b) - counts.get(a)).slice(0, 2);
+}
+
+// Commander cast-triggers become deck themes: Helga's "whenever you cast a creature spell
+// with mana value 4 or greater" means big creatures ARE the deck's plan, the way "Rat" is
+// for Vren. Each theme is a label + predicate that candidate cards can match for a bonus.
+function _deckCommanderCastThemes(deck) {
+  const cards = deck?.cards || [];
+  const commanders = cards.filter(c => c.isCommander || (deck?.commander && c.name === deck.commander));
+  const themes = [];
+  const typeLineOf = c => String(c.type || c.type_line || c.typeLine || '');
+  for (const cmd of commanders) {
+    const text = _replacementOracleBlob(cmd);
+    const mv = text.match(/whenever you cast a creature spell with mana value (\d+) or greater/);
+    if (mv) {
+      const n = +mv[1];
+      themes.push({
+        label: `creature spells MV ${n}+`,
+        test: c => /creature/i.test(typeLineOf(c)) && _effCmcSafe(c) >= n,
+      });
+    }
+    const kind = text.match(/whenever you cast an? (artifact|enchantment|instant or sorcery|instant|sorcery|noncreature) spell/);
+    if (kind) {
+      const k = kind[1];
+      const kindRe = new RegExp(k === 'noncreature' ? 'a^' : k.split(' or ').join('|'), 'i');
+      themes.push({
+        label: `${k} spells`,
+        test: c => {
+          const tl = typeLineOf(c);
+          if (/land/i.test(tl)) return false;
+          return k === 'noncreature' ? !/creature/i.test(tl) : kindRe.test(tl);
+        },
+      });
+    }
+  }
+  return themes.slice(0, 2);
+}
+
+// Everything we know about the card being replaced: ALL of its roles (user-assigned slot
+// tags weighted double, then DB tags and phrase matches), deck-relevant tribes, curve slot,
+// and the deck's current role deficits (so replacements can patch what the deck is short on).
+function _replacementTargetProfile(card, deck, deckSlot) {
+  const oracle = _replacementOracleBlob(card);
+  const phrase = _replPhraseRolesFor(oracle);
+  const slotTags = [...new Set((Array.isArray(deckSlot?.customTags) ? deckSlot.customTags : [])
+    .filter(t => _SCRY_AUTO_LABEL_SET.has(String(t))))];
+  const derivedTags = _replacementRefineTagLabelsForCard(card);
+  const roleWeights = new Map();
+  for (const t of derivedTags) roleWeights.set(t, 1);
+  for (const e of phrase) if (!roleWeights.has(e.label)) roleWeights.set(e.label, 1);
+  for (const t of slotTags) roleWeights.set(t, 2);
+  let deficits = {};
+  try { deficits = _computeAddContext(deck).deficits || {}; } catch (_) { /* malformed deck — skip deficit bonus */ }
+  return {
+    cmc: typeof _effectiveCmc === 'function' ? _effectiveCmc(card) : (card.cmc || 0),
+    roleWeights, slotTags, phrase, derivedTags,
+    tribes: _deckTribalTypes(deck),
+    castThemes: _deckCommanderCastThemes(deck),
+    deficits,
+    metricCounts: _replacementDeckMetricCounts(deck),
+  };
+}
+
+// Queries for the candidate pool. Tag-refine = that tag only (explicit user filter).
+// Auto = one query unioning every role the card has (slot tags first, then phrase matches,
+// then DB tags), plus a tribal query when the deck is commander-tribal (_deckTribalTypes).
+function _buildReplacementQueries(card, deck, refineKey, profile) {
   const cmdCtx = _resolveCommanderContextForEdhrec(deck);
   let colors = (cmdCtx?.colors && cmdCtx.colors.length)
     ? cmdCtx.colors
@@ -10002,55 +10292,157 @@ function _buildReplacementQuery(card, deck, refineKey) {
 
   if (refineKey && refineKey !== 'auto') {
     const frag = _scryTagQueryFragmentFromLabel(refineKey);
-    if (frag) return [...headParts, frag, ...tailParts].join(' ');
+    if (frag) return [[...headParts, frag, ...tailParts].join(' ')];
   }
 
-  const oracle = _replacementOracleBlob(card);
-  let roleQ = '';
+  const frags = [];
+  const seen = new Set();
+  const pushFrag = frag => {
+    if (frag && !seen.has(frag) && frags.length < 4) { seen.add(frag); frags.push(frag); }
+  };
+  for (const t of profile.slotTags) pushFrag(_scryTagQueryFragmentFromLabel(t));
+  for (const e of profile.phrase) pushFrag(e.frag);
+  for (const t of profile.derivedTags) pushFrag(_scryTagQueryFragmentFromLabel(t));
 
-  // Auto = phrase-style heuristics (avoid single-word matches like "draw" in "withdraw").
-  if (/\b(destroy|exile) all (creatures|artifacts|enchantments|permanents|nonland permanents)\b/.test(oracle)
-    || /\bdestroy all\b/.test(oracle) || /\bexile all creatures\b/.test(oracle)) {
-    roleQ = '(o:"destroy all" OR o:"exile all creatures" OR o:"destroy all creatures")';
-  } else if (/\bcounter target spell\b/.test(oracle) || /\bcounter target activated\b/.test(oracle)) {
-    roleQ = 'o:"counter target spell"';
-  } else if (/\bdraw (a|one|two|three|four|five|x) cards?\b/.test(oracle)
-    || /\bdraw \d+ cards?\b/.test(oracle)
-    || /\bdraw cards\b/.test(oracle)
-    || /\bdraws (a|two|three) cards?\b/.test(oracle)) {
-    roleQ = '(o:"draw a card" OR o:"draw two cards" OR o:"draw three cards" OR o:"draw cards")';
-  } else if (/add \{[^}]+\}/.test(oracle)
-    || /search your library for a basic land/.test(oracle)
-    || /\bput\b.{0,80}\bland\b.{0,40}\bbattlefield\b/.test(oracle)) {
-    roleQ = '(o:"add {" OR o:"search your library for a basic land" OR o:"search your library for a land")';
-  } else if (/\b(destroy|exile) target (creature|permanent|artifact|enchantment|land|planeswalker|nonland)\b/.test(oracle)) {
-    roleQ = '(o:"destroy target" OR o:"exile target")';
-  } else if (/\b(create|put)\b.{0,50}\btoken\b/.test(oracle)) {
-    roleQ = '(o:create o:token)';
-  } else if (/\breturn\b.{0,80}\b(from your graveyard|from a graveyard|to the battlefield)\b/.test(oracle)) {
-    roleQ = '(o:return o:graveyard)';
-  } else if (/\bsearch your library for\b/.test(oracle)) {
-    roleQ = 'o:"search your library for"';
-  } else if (/\bproliferate\b/.test(oracle)
-    || /\bdouble\b.{0,60}\bcounters?\b/.test(oracle)
-    || /\bfor each counter\b.{0,60}\bput\b/.test(oracle)
-    || /\bput\b.{0,60}\bfor each.{0,40}\bcounter\b/.test(oracle)) {
-    roleQ = '(o:proliferate OR (o:double o:counter) OR o:"for each counter")';
-  } else if (/\b\+1\/\+1 counter\b/.test(oracle) || /\bplace.{0,30}\bcounters?\b/.test(oracle)) {
-    roleQ = 'o:"+1/+1 counter"';
+  const queries = [];
+  if (frags.length) {
+    queries.push([...headParts, frags.length > 1 ? `(${frags.join(' OR ')})` : frags[0], ...tailParts].join(' '));
   }
+  if (profile.tribes.length) {
+    const tribeFrag = profile.tribes
+      .flatMap(s => [`t:${s}`, `o:/\\b(${s}|${_TRIBE_PLURALS[s] || s + 's'})\\b/`])
+      .join(' OR ');
+    queries.push([...headParts, `(${tribeFrag})`, ...tailParts].join(' '));
+  }
+  // No roles and no tribes: raw popularity within identity+type beats showing nothing.
+  if (!queries.length) queries.push([...headParts, ...tailParts].join(' '));
+  return queries;
+}
 
-  // If no text heuristic matched, fall back to the card's oracle tags rather than
-  // returning an unfiltered popularity list (which puts Rhystic Study #1 for any enchantment).
-  if (!roleQ) {
-    const tagLabels = _replacementRefineTagLabelsForCard(card);
-    for (const label of tagLabels) {
-      const frag = _scryTagQueryFragmentFromLabel(label);
-      if (frag) { roleQ = frag; break; }
+// "Whenever you cast a … spell" triggers: the candidate's roles only fire if the deck casts
+// enough of that spell type. Mapped onto the CK metric predicates so deck support is countable.
+const _REPL_CAST_TRIGGER_CONDS = [
+  { re: /whenever you cast (a|an|your first) artifact spell/, key: 'artifact_count', label: 'artifact spells' },
+  { re: /whenever you cast (a|an|your first) enchantment spell/, key: 'enchantment_count', label: 'enchantment spells' },
+  { re: /whenever you cast (a|an|your first) (instant or sorcery|instant|sorcery) spell/, key: 'instant_sorcery_count', label: 'instants and sorceries' },
+  { re: /whenever you cast (a|an|your first) noncreature spell/, key: 'noncreature_spell_count', label: 'noncreature spells' },
+  { re: /whenever you cast (a|an|your first) creature spell/, key: 'creature_count', label: 'creature spells' },
+];
+
+function _replacementDeckMetricCounts(deck) {
+  const counts = {};
+  const norm = (deck?.cards || []).filter(dc => !dc.isCommander).map(_ckNorm);
+  for (const { key } of _REPL_CAST_TRIGGER_CONDS) {
+    if (key in counts) continue;
+    const pred = _CK_PRED[key];
+    counts[key] = pred ? norm.reduce((s, n) => s + (pred(n) ? n.qty : 0), 0) : Infinity;
+  }
+  return counts;
+}
+
+// 0.3–1.0 multiplier on role credit when the candidate's text hangs off a cast-trigger the
+// deck under-supports (vs the same 15-card bar the conditional-keyword gate uses).
+function _replCastTriggerFactor(blob, metricCounts) {
+  let worst = null;
+  for (const cond of _REPL_CAST_TRIGGER_CONDS) {
+    if (!cond.re.test(blob)) continue;
+    const have = metricCounts[cond.key] ?? Infinity;
+    const factor = Math.max(0.3, Math.min(1, have / CK_REQUIRED_ENABLERS));
+    if (!worst || factor < worst.factor) worst = { factor, label: cond.label, have };
+  }
+  return worst || { factor: 1 };
+}
+
+// Trim the candidate pool to `cap`, giving each source query an equal share of slots so the
+// (huge, popularity-sorted) role pool can't crowd out the tribal pool. Lists arrive in
+// per-source EDHREC order; leftovers backfill any unused share.
+function _replacementAllocatePool(cands, cap) {
+  const bySrc = new Map();
+  for (const c of cands) {
+    const k = c._srcIdx || 0;
+    if (!bySrc.has(k)) bySrc.set(k, []);
+    bySrc.get(k).push(c);
+  }
+  if (bySrc.size <= 1) return cands.slice(0, cap);
+  const share = Math.floor(cap / bySrc.size);
+  const out = [], leftovers = [];
+  for (const list of bySrc.values()) {
+    out.push(...list.slice(0, share));
+    leftovers.push(...list.slice(share));
+  }
+  leftovers.sort((a, b) => (a._edhIdx || 0) - (b._edhIdx || 0));
+  out.push(...leftovers.slice(0, Math.max(0, cap - out.length)));
+  return out;
+}
+
+const _REPL_SCORE_MAX = 17; // 6 roles + 4 tribal + 2 theme + 2 curve + 1.5 deficits + 1.5 popularity
+
+// Score a candidate against the target profile. Returns { score, pct, reasons }.
+// Candidate roles come from the local tag DB (with user overrides) plus the same phrase
+// heuristics applied to the candidate's own oracle text, so untagged cards still score.
+function _scoreReplacementCandidate(c, profile, tagsByOid) {
+  const blob = _replacementOracleBlob(c);
+  const candRoles = new Set();
+  for (const e of _replPhraseRolesFor(blob)) candRoles.add(e.label);
+  const oid = String(c.oracle_id || '').toLowerCase();
+  const dbTags = (tagsByOid && tagsByOid.get(oid)) || _scryTagsByOracleId.get(oid) || [];
+  for (const t of _applyTagOverrides(oid, dbTags)) candRoles.add(t);
+
+  const reasons = [];
+
+  let roleScore = 0;
+  if (profile.roleWeights.size) {
+    let tot = 0, hit = 0;
+    const shared = [];
+    for (const [label, w] of profile.roleWeights) {
+      tot += w;
+      if (candRoles.has(label)) { hit += w; shared.push(label); }
+    }
+    roleScore = 6 * (tot ? hit / tot : 0);
+    if (shared.length) reasons.push(`shares ${shared.join(', ')}`);
+    // Sai-in-a-Rat-deck guard: token/draw output gated on casting artifact spells is mostly
+    // dead in a 7-artifact deck, so its role credit shrinks to match.
+    const gate = _replCastTriggerFactor(blob, profile.metricCounts || {});
+    if (gate.factor < 1) {
+      roleScore *= gate.factor;
+      reasons.push(`but needs ${gate.label} (deck has ${gate.have})`);
     }
   }
 
-  return [...headParts, roleQ, ...tailParts].filter(Boolean).join(' ');
+  let tribal = 0;
+  if (profile.tribes.length) {
+    const candSubs = _ckCandidateTribes(c);
+    const sharedTribe = profile.tribes.find(t => candSubs.includes(t));
+    if (sharedTribe) tribal += 3;
+    const mention = profile.tribes.find(t => _tribeWordRegex(t).test(blob));
+    if (mention) tribal += 1; // stacks: a Rat that also cares about Rats beats a vanilla Rat
+    const hitTribe = sharedTribe || mention;
+    if (hitTribe) reasons.push(`${hitTribe.charAt(0).toUpperCase() + hitTribe.slice(1)} synergy`);
+  }
+
+  // Commander cast-theme synergy (e.g. Helga: creatures MV 4+)
+  const theme = (profile.castThemes || []).find(t => t.test(c));
+  const themeScore = theme ? 2 : 0;
+  if (theme) reasons.push(`feeds your commander's trigger (${theme.label})`);
+
+  const candCmc = typeof _effectiveCmc === 'function' ? _effectiveCmc(c) : (parseFloat(c.cmc) || 0);
+  const cmcScore = 2 * Math.max(0, 1 - Math.abs(candCmc - profile.cmc) / 3);
+  if (Math.abs(candCmc - profile.cmc) < 1) reasons.push(`similar cost (CMC ${candCmc})`);
+
+  let deficitScore = 0;
+  const fills = [];
+  for (const t of candRoles) {
+    if ((profile.deficits[t] || 0) > 0) { deficitScore += 0.75; fills.push(t); }
+  }
+  deficitScore = Math.min(deficitScore, 1.5);
+  if (fills.length) reasons.push(`deck is short on ${fills.slice(0, 2).join(', ')}`);
+
+  const popScore = 1.5 * Math.max(0, 1 - (c._edhIdx || 0) / 75);
+  if ((c._edhIdx || 0) < 10) reasons.push('EDHREC popular');
+
+  const score = roleScore + tribal + themeScore + cmcScore + deficitScore + popScore;
+  const pct = Math.max(2, Math.min(99, Math.round(100 * (score / _REPL_SCORE_MAX))));
+  return { score, pct, reasons };
 }
 
 /** Scryfall syntax fragment for a known auto-tag label (oracle tags or fallback query). */
@@ -10089,7 +10481,7 @@ function _renderCardReplacementToolbar(activeRefineKey) {
   const parts = [
     `<button type="button" class="btn btn-sm btn-outline card-repl-refine-btn${
       activeRefineKey === 'auto' ? ' card-repl-refine-btn--active' : ''
-    }" data-repl-refine="auto" title="Uses phrase-style rules on oracle text (no single-word matches)">Text match (auto)</button>`,
+    }" data-repl-refine="auto" title="Scores candidates by shared roles, tribal synergy, curve fit, deck needs, and EDHREC popularity">Best match (auto)</button>`,
   ];
   for (const label of tags) {
     const active = activeRefineKey === label ? ' card-repl-refine-btn--active' : '';
@@ -10119,9 +10511,11 @@ async function _executeCardReplacementsFetch(refineKey) {
   const container = document.getElementById(containerId);
   if (!container) return;
 
-  const query = _buildReplacementQuery(card, deck, refineKey);
+  const profile = s.profile || (s.profile = _replacementTargetProfile(card, deck, s.deckSlot));
+  const queries = _buildReplacementQueries(card, deck, refineKey, profile);
+  const queryKey = queries.join(' | ');
   const cached = s.refineCache[refineKey];
-  const cacheHit = cached && cached.query === query;
+  const cacheHit = cached && cached.queryKey === queryKey;
   const showBusy = !cacheHit && (!s.opts?.skipSpinner || refineKey !== s.initialRefineKey);
   container.dataset.loadState = 'pending';
   if (showBusy) {
@@ -10134,19 +10528,25 @@ async function _executeCardReplacementsFetch(refineKey) {
     if (cacheHit) {
       allResults = cached.rawCards;
     } else {
-      const res = await fetch(
-        `/api/scryfall/search?q=${encodeURIComponent(query)}&order=edhrec&unique=cards&skipTcg=1`,
-      );
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        if (res.status === 404) {
-          container.innerHTML = '<div style="font-size:0.8rem;color:var(--text3);padding:0.5rem 0">No replacements found</div>';
-          return;
-        }
-        throw new Error(data?.error || 'no results');
-      }
-      allResults = data.data || [];
-      s.refineCache[refineKey] = { query, rawCards: allResults };
+      const lists = await Promise.all(queries.map(q =>
+        fetch(`/api/scryfall/search?q=${encodeURIComponent(q)}&order=edhrec&unique=cards&skipTcg=1`)
+          .then(r => (r.ok ? r.json() : { data: [] }))
+          .catch(() => ({ data: [] })),
+      ));
+      // Merge pools, dedupe by id. _srcIdx remembers which query a card came from (pool
+      // balancing later), _edhIdx its position within its own list (popularity scoring).
+      // A card in both pools belongs to the one where it ranks better, so e.g. Pack Rat
+      // keeps its strong tribal-pool slot instead of a weak role-pool one.
+      const byId = new Map();
+      lists.forEach((list, si) => {
+        (list.data || []).forEach((c, i) => {
+          const prev = byId.get(c.id);
+          if (!prev) { c._edhIdx = i; c._srcIdx = si; byId.set(c.id, c); }
+          else if (i < prev._edhIdx) { prev._edhIdx = i; prev._srcIdx = si; }
+        });
+      });
+      allResults = [...byId.values()];
+      s.refineCache[refineKey] = { queryKey, rawCards: allResults };
     }
 
     const inDeckIds   = new Set(deck.cards.map(c => c.scryfallId).filter(Boolean));
@@ -10156,7 +10556,8 @@ async function _executeCardReplacementsFetch(refineKey) {
 
     await _ckEnsureLoaded();   // conditional-keyword gate
     const _ckRes = _ckFilterCandidates(
-      allResults.filter(c => !inDeckIds.has(c.id) && !inDeckNames.has((c.name || '').toLowerCase())).slice(0, 20),
+      _replacementAllocatePool(
+        allResults.filter(c => !inDeckIds.has(c.id) && !inDeckNames.has((c.name || '').toLowerCase())), 80),
       deck,
     );
     const candidates = _ckRes.kept;
@@ -10165,6 +10566,12 @@ async function _executeCardReplacementsFetch(refineKey) {
       container.innerHTML = `<div style="font-size:0.8rem;color:var(--text3);padding:0.5rem 0">No replacements found</div>${_ckHiddenNote(_ckRes.hidden)}`;
       return;
     }
+
+    // Role tags for the whole pool in one DB round-trip (best-effort; phrase matching covers gaps)
+    let tagsByOid = new Map();
+    try {
+      tagsByOid = await _fetchScryfallTagsForDeckOracleIds(candidates.map(c => c.oracle_id).filter(Boolean));
+    } catch (_) { /* offline / unauthenticated — score on phrase heuristics alone */ }
 
     const ownershipOn = isDeckOwnershipEnabled();
     const ownershipColl = _ownershipCollection();
@@ -10175,18 +10582,22 @@ async function _executeCardReplacementsFetch(refineKey) {
         ownershipColl.find(col => String(col.name || '').toLowerCase() === String(c.name || '').toLowerCase())
       );
 
-    if (ownershipOn) {
-      candidates.sort((a, b) => (!!getOwned(a) === !!getOwned(b) ? 0 : getOwned(a) ? -1 : 1));
-    }
+    // Owned cards get a nudge (~3%), enough to win near-ties without burying better matches
+    const scored = candidates.map(c => {
+      const sc = _scoreReplacementCandidate(c, profile, tagsByOid);
+      const isOwned = ownershipOn && !!getOwned(c);
+      return { c, ...sc, isOwned, sortKey: sc.score + (isOwned ? 0.5 : 0) };
+    });
+    scored.sort((a, b) => b.sortKey - a.sortKey);
 
     const previewMap = {};
-    const rows = candidates.slice(0, 12).map((c, i) => {
+    const rows = scored.slice(0, 12).map(({ c, pct, reasons, isOwned }) => {
       const img = c.image_uris?.small || c.card_faces?.[0]?.image_uris?.small;
       const previewImg = c.image_uris?.normal || c.card_faces?.[0]?.image_uris?.normal || img || '';
       previewMap[c.id] = previewImg;
       const price = parseFloat(c.prices?.usd || 0).toFixed(2);
-      const isOwned = ownershipOn && !!getOwned(c);
-      const score = Math.max(10, 100 - i * 7);
+      const reasonTip = (reasons.length ? reasons.join(' · ') : 'EDHREC-ranked within color identity and type')
+        .replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
       const safeScryfallId = (card.scryfallId || '').replace(/'/g, "\\'");
       const swapBtn = `
         <button class="btn btn-outline btn-sm"
@@ -10197,13 +10608,13 @@ async function _executeCardReplacementsFetch(refineKey) {
           onclick="_swapDeckCard('${safeScryfallId}','${c.id}','${deckId}')">⇄ Swap</button>`;
 
       return `<div data-hpid="${c.id}" style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border2);cursor:default">
-        ${img ? `<img src="${img}" style="width:50px;border-radius:5px;flex-shrink:0;${isOwned ? 'box-shadow:0 0 0 1.5px var(--teal)' : ''}" alt="">` : '<div style="width:50px;flex-shrink:0"></div>'}
+        ${img ? `<img src="${escapeHtml(img)}" style="width:50px;border-radius:5px;flex-shrink:0;${isOwned ? 'box-shadow:0 0 0 1.5px var(--teal)' : ''}" alt="">` : '<div style="width:50px;flex-shrink:0"></div>'}
         <div style="flex:1;min-width:0">
-          <div style="font-size:0.88rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:${isOwned ? 'var(--teal)' : 'var(--text)'};font-weight:${isOwned ? '600' : '400'}">${c.name}</div>
-          <div style="font-size:0.72rem;color:var(--text3);margin-top:2px">${(c.type_line||'').split('—')[0].trim()} · $${price}${isOwned ? ' · <span style="color:var(--teal)">Owned</span>' : ''}</div>
+          <div style="font-size:0.88rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:${isOwned ? 'var(--teal)' : 'var(--text)'};font-weight:${isOwned ? '600' : '400'}">${escapeHtml(c.name)}</div>
+          <div style="font-size:0.72rem;color:var(--text3);margin-top:2px">${escapeHtml((c.type_line||'').split('—')[0].trim())} · $${price}${isOwned ? ' · <span style="color:var(--teal)">Owned</span>' : ''}</div>
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex-shrink:0">
-          <span style="font-size:0.65rem;color:var(--text3);font-family:'JetBrains Mono',monospace">${score}%</span>
+          <span style="font-size:0.65rem;color:var(--text3);font-family:'JetBrains Mono',monospace;cursor:help" title="${reasonTip}">${pct}%</span>
           <div style="display:flex;gap:4px">${swapBtn}</div>
         </div>
       </div>`;
@@ -10236,7 +10647,9 @@ async function _loadCardReplacements(card, deckId, containerId, opts) {
 
   const deckSlot = opts?.deckSlot || null;
   const tagLabels = _replacementRefineTagLabelsForCard(card, deckSlot);
-  const defaultRefineKey = tagLabels.length === 1 ? tagLabels[0] : 'auto';
+  // Auto is always the default now: it unions every role (slot tags weighted double) and
+  // scores candidates, so a single-tag card no longer gets locked to one hard filter.
+  const defaultRefineKey = 'auto';
 
   _cardReplacementSession = {
     card,
@@ -10245,6 +10658,7 @@ async function _loadCardReplacements(card, deckId, containerId, opts) {
     deckSlot,
     containerId,
     tagLabels,
+    profile: _replacementTargetProfile(card, deck, deckSlot),
     opts: opts || {},
     initialRefineKey: defaultRefineKey,
     refineCache: Object.create(null),
@@ -10425,7 +10839,7 @@ function renderVersionPickerTiles() {
     return `<div class="version-tile${isCurrent ? ' is-current' : ''}" data-idx="${idx}">
       <div class="version-tile-img-wrap">
         ${img
-          ? `<img src="${img}" loading="lazy" alt="${setName}">`
+          ? `<img src="${escapeHtml(img)}" loading="lazy" alt="${setName}">`
           : `<div class="version-tile-placeholder">${setName}</div>`}
       </div>
       ${_versionPickerPriceHtmlFromScryfall(c)}
@@ -10822,13 +11236,13 @@ function _simRenderHTML(deck, commander, edhrecData, archiveData) {
   <div class="sim-chip-row">${missing.map(c => {
     const attr = String(c.name || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;');
     const n = (c.name || '').replace(/'/g, "\\'");
-    return `<span class="sim-chip sim-chip--missing" data-card-name="${attr}" title="${c.inclusion}% of ${commander} decks"><span style="cursor:pointer" onclick="openCardDetailFromSimChip(this)">${c.name} <em>${c.inclusion}%</em></span><button class="sim-chip-btn" onclick="simAddToMaybe(this,'${n}')" title="Add to maybe board">+</button></span>`;
+    return `<span class="sim-chip sim-chip--missing" data-card-name="${attr}" title="${c.inclusion}% of ${escapeHtml(commander)} decks"><span style="cursor:pointer" onclick="openCardDetailFromSimChip(this)">${escapeHtml(c.name)} <em>${c.inclusion}%</em></span><button class="sim-chip-btn" onclick="simAddToMaybe(this,'${n}')" title="Add to maybe board">+</button></span>`;
   }).join('')}</div>` : ''}
   ${spice.length ? `
   <div class="sim-subsection-title">Your spicy picks <span class="sim-meta">(not in EDHREC data)</span></div>
   <div class="sim-chip-row">${spice.map(c => {
     const id = (c.uid || c.scryfallId || '').replace(/'/g, "\\'");
-    return `<span class="sim-chip sim-chip--spice"><span style="cursor:pointer" onclick="openCardDetail('${id}')">${c.name}</span><button class="sim-chip-btn sim-chip-btn--remove" onclick="simRemoveFromDeck(this,'${id}')" title="Remove from deck">−</button></span>`;
+    return `<span class="sim-chip sim-chip--spice"><span style="cursor:pointer" onclick="openCardDetail('${id}')">${escapeHtml(c.name)}</span><button class="sim-chip-btn sim-chip-btn--remove" onclick="simRemoveFromDeck(this,'${id}')" title="Remove from deck">−</button></span>`;
   }).join('')}</div>` : ''}
 </div>`);
   }
@@ -10849,7 +11263,7 @@ function _simRenderHTML(deck, commander, edhrecData, archiveData) {
 
     parts.push(`
 <div class="sim-section">
-  <div class="sim-section-title">Archive Comparison — <strong>${commander}</strong>
+  <div class="sim-section-title">Archive Comparison — <strong>${escapeHtml(commander)}</strong>
     <span class="sim-meta">${meta}</span>
   </div>
   ${scored.length === 0
@@ -10857,9 +11271,9 @@ function _simRenderHTML(deck, commander, edhrecData, archiveData) {
     : `<div class="sim-archive-list">${scored.map(d => {
         const pct = Math.round(d.similarity * 100);
         const col = pct >= 60 ? 'var(--teal)' : pct >= 35 ? 'var(--gold)' : 'var(--text3)';
-        const who = d.is_own ? '(you)' : d.owner_email.replace(/@.*$/, '@…');
+        const who = d.is_own ? '(you)' : escapeHtml(d.owner_email.replace(/@.*$/, '@…'));
         return `<div class="sim-archive-row">
-          <div class="sim-archive-name">${d.deck_name} <span class="sim-meta">${who}</span></div>
+          <div class="sim-archive-name">${escapeHtml(d.deck_name)} <span class="sim-meta">${who}</span></div>
           <div class="sim-score-bar-wrap" style="flex:1;max-width:160px"><div class="sim-score-bar" style="width:${pct}%;background:${col}"></div></div>
           <span class="sim-score-label" style="color:${col};min-width:38px">${pct}%</span>
           <span class="sim-meta">${d.shared} shared</span>

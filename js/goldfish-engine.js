@@ -2259,8 +2259,8 @@ function _gfeOpenXModal(iid, fromZone, opts, sourceEl) {
   }
   modal.innerHTML = `
     <div class="gfe-x-modal-box">
-      <div class="gfe-x-modal-title">${card.name}</div>
-      <div class="gfe-x-modal-cost">${manaCost}</div>
+      <div class="gfe-x-modal-title">${_gfeEscapeHtml(card.name)}</div>
+      <div class="gfe-x-modal-cost">${_gfeEscapeHtml(manaCost)}</div>
       <label class="gfe-x-modal-label">Choose X <span class="gfe-x-modal-range">(0 – ${maxX})</span></label>
       <input type="number" id="gfeXInput" class="gfe-x-input" value="${maxX}" min="0" max="${maxX}" />
       <div class="gfe-x-modal-info">${poolTotal} mana available, ${pipsNeeded} committed to non-X pips</div>
@@ -6235,7 +6235,7 @@ function _gfeStackEffectsHtml(e) {
   const fxLines = effects.map(fx => `<div class="gfe-stack-fx">▸ ${_gfeStackFxSummary(fx)}</div>`).join('');
   const trigLines = triggerKinds.map(k => {
     const eff = (trig[k] || []).map(_gfeStackFxSummary).join(', ');
-    return `<div class="gfe-stack-fx gfe-stack-trig">⚡ ${k}: ${_gfeEscapeHtml(eff)}</div>`;
+    return `<div class="gfe-stack-fx gfe-stack-trig">⚡ ${k}: ${eff}</div>`;
   }).join('');
   return `<div class="gfe-stack-effects">${fxLines}${trigLines}</div>`;
 }
@@ -7437,7 +7437,7 @@ function _gfeTutorTile(group, idx, zone) {
   const name = group.name || 'Unknown';
   const img = group.image || '';
   const count = group.count || 1;
-  const safeName = name.replace(/"/g, '&quot;');
+  const safeName = escapeHtml(name);
   const badge = _gfeTutorMeta(zone).badge;
   return `
     <div class="deck-search-tile" data-tutor-idx="${idx}" style="cursor:pointer">
@@ -7501,7 +7501,7 @@ function gfTutorAutocomplete(q) {
     _gfePositionTutorAc();
     drop.style.display = 'block';
     drop.innerHTML = _gfeTutorAcNames.map((name, i) => `
-      <div class="deck-ac-row" data-idx="${i}">${name}</div>
+      <div class="deck-ac-row" data-idx="${i}">${escapeHtml(name)}</div>
     `).join('');
     drop.onclick = e => {
       const row = e.target.closest('.deck-ac-row');
@@ -7706,9 +7706,9 @@ function _gfeRenderZoneViewerGrid(cards, zone) {
          oncontextmenu="_gfeShowContextMenu(event,${c.iid},'${zone}')"
          ondblclick="_gfePlayFromZone(${c.iid},'${zone}')">
       ${c.image || c.imageLarge
-        ? `<img src="${c.image || c.imageLarge}" alt="${c.name}" style="width:100%;border-radius:4px;display:block">`
-        : `<div class="gf-card-face-fallback">${c.name}</div>`}
-      <div style="font-size:${_gfeRem(0.6)};color:var(--text3);text-align:center;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.name}</div>
+        ? `<img src="${c.image || c.imageLarge}" alt="${escapeHtml(c.name)}" style="width:100%;border-radius:4px;display:block">`
+        : `<div class="gf-card-face-fallback">${escapeHtml(c.name)}</div>`}
+      <div style="font-size:${_gfeRem(0.6)};color:var(--text3);text-align:center;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(c.name)}</div>
     </div>`).join('')
     : '<div class="gf-tutor-empty">No matching cards</div>';
 }
@@ -7777,9 +7777,9 @@ function _gfeRenderPeekViewer() {
            onpointerdown="_gfeZoneCardPointerDown(event,${c.iid},'peek')"
            oncontextmenu="_gfeShowContextMenu(event,${c.iid},'peek')">
         ${img
-          ? `<img src="${img}" alt="${c.name}" style="width:100%;border-radius:4px;display:block">`
-          : `<div class="gf-card-face-fallback">${c.name}</div>`}
-        <div class="gf-peek-card-name">${c.name}</div>
+          ? `<img src="${img}" alt="${escapeHtml(c.name)}" style="width:100%;border-radius:4px;display:block">`
+          : `<div class="gf-card-face-fallback">${escapeHtml(c.name)}</div>`}
+        <div class="gf-peek-card-name">${escapeHtml(c.name)}</div>
       </div>
       ${done ? '<div class="gf-peek-done-label">Done</div>' : `
       <div class="gf-peek-actions">
@@ -8056,11 +8056,11 @@ function _gfeShowContextMenu(e, iid, zone) {
   const menu = document.getElementById('gfeContextMenu');
   if (!menu) return;
   menu.innerHTML = `
-    <div class="gf-ctx-header">${name}</div>
+    <div class="gf-ctx-header">${escapeHtml(name)}</div>
     ${items.map(it => {
       if (it.sep) return '<div class="gf-ctx-sep"></div>';
-      if (it.header) return `<div class="gf-ctx-header gf-ctx-subheader">${it.header}</div>`;
-      return `<button class="gf-ctx-item${it.disabled ? ' gf-ctx-item--disabled' : ''}" type="button" ${it.disabled ? 'disabled' : `onclick="${it.fn};_gfeHideContextMenu()"`}>${it.label}</button>`;
+      if (it.header) return `<div class="gf-ctx-header gf-ctx-subheader">${escapeHtml(it.header)}</div>`;
+      return `<button class="gf-ctx-item${it.disabled ? ' gf-ctx-item--disabled' : ''}" type="button" ${it.disabled ? 'disabled' : `onclick="${it.fn};_gfeHideContextMenu()"`}>${escapeHtml(it.label)}</button>`;
     }).join('')}`;
   _gfePositionContextMenu(e, menu);
 }
@@ -8414,18 +8414,18 @@ function _gfeRender() {
 
 function _gfeCardImg(c, width = 80) {
   const img = c.imageLarge || c.image || '';
-  if (img) return `<img src="${img}" alt="${c.name || ''}" style="width:${width}px;border-radius:4px;display:block;pointer-events:none" draggable="false">`;
-  return `<div class="gf-card-face-fallback" style="width:${width}px;height:${Math.round(width/0.716)}px">${c.name || '?'}</div>`;
+  if (img) return `<img src="${img}" alt="${escapeHtml(c.name || '')}" style="width:${width}px;border-radius:4px;display:block;pointer-events:none" draggable="false">`;
+  return `<div class="gf-card-face-fallback" style="width:${width}px;height:${Math.round(width/0.716)}px">${escapeHtml(c.name || '?')}</div>`;
 }
 
 /** Zone panel thumbnails — sized via CSS (--gf-thumb-w) so they shrink with the window. */
 function _gfeZoneCardImg(c) {
   const img = c.imageLarge || c.image || '';
-  const safe = String(c.name || '').replace(/"/g, '&quot;');
+  const safe = escapeHtml(c.name || '');
   if (img) {
     return `<img src="${img}" alt="${safe}" class="gf-zone-card-img" loading="lazy" draggable="false">`;
   }
-  return `<div class="gf-card-face-fallback gf-zone-card-img">${c.name || '?'}</div>`;
+  return `<div class="gf-card-face-fallback gf-zone-card-img">${escapeHtml(c.name || '?')}</div>`;
 }
 
 function _gfeBfCardHtml(c, zone, cardW) {
@@ -8697,7 +8697,7 @@ function _gfeRenderHand() {
     if (_gfeNewlyDrawnIids.has(c.iid)) cls.push('gfe-draw-anim');
     return `<div class="${cls.join(' ')}" data-iid="${c.iid}"
       style="--angle:${angle.toFixed(1)}deg;--rise:${rise.toFixed(1)}px;z-index:${zIndex};margin-left:${ml}"
-      title="${c.name}${isPutBack ? ' — click to put back' : (_gfe?.discardPending || _gfe?.discardCostPending) ? ' — click to discard' : ' — drag to play'}"
+      title="${escapeHtml(c.name)}${isPutBack ? ' — click to put back' : (_gfe?.discardPending || _gfe?.discardCostPending) ? ' — click to discard' : ' — drag to play'}"
       ${_gfeHoverAttrs('hand', c.iid)}
       onpointerdown="_gfeHandPointerDown(event,${c.iid})"
       oncontextmenu="_gfeShowContextMenu(event,${c.iid},'hand')">
@@ -8840,7 +8840,7 @@ function _gfeRenderSidebar() {
           const taxLabel = tax > 0 ? `<div class="gfe-cmd-tax">+${tax}</div>` : '';
           const title = `${c.name}${tax > 0 ? ` (+${tax} commander tax)` : ''}`;
           return `
-          <div class="gf-cmd-card${castable ? '' : ' gfe-uncastable'}" title="${title}"
+          <div class="gf-cmd-card${castable ? '' : ' gfe-uncastable'}" title="${escapeHtml(title)}"
                ${_gfeHoverAttrs('commandZone', c.iid)}
                onpointerdown="_gfeZoneCardPointerDown(event,${c.iid},'commandZone')"
                oncontextmenu="_gfeShowContextMenu(event,${c.iid},'commandZone')"
@@ -8889,15 +8889,15 @@ function _gfeRenderSidebar() {
             ? `Foretold — cast for ${top.foretellCost || ''} (next turn)`
             : top.name);
       const badge = top.adventureExiled
-        ? `<div class="gfe-adventure-badge">▶ ${advLabel}</div>`
-        : (top.foretold ? `<div class="gfe-adventure-badge">⌛ Foretold ${top.foretellCost || ''}</div>` : '');
+        ? `<div class="gfe-adventure-badge">▶ ${escapeHtml(advLabel)}</div>`
+        : (top.foretold ? `<div class="gfe-adventure-badge">⌛ Foretold ${escapeHtml(top.foretellCost || '')}</div>` : '');
       exPreview.innerHTML = `
         <div class="gf-zone-top${(top.adventureExiled || top.foretold) ? ' gfe-adventure-exile' : ''}${castable ? ' gfe-adventure-castable' : ''}"
              ${_gfeHoverAttrs('exile', top.iid)}
              onpointerdown="_gfeZoneCardPointerDown(event,${top.iid},'exile')"
              oncontextmenu="_gfeShowContextMenu(event,${top.iid},'exile')"
              ${dblHandler ? `ondblclick="${dblHandler}"` : ''}
-             title="${titleText}">
+             title="${escapeHtml(titleText)}">
           ${_gfeZoneCardImg(top)}
           ${badge}
         </div>`;
@@ -9053,11 +9053,7 @@ function _gfeClickExile() {
 // ── Deck token spawner ────────────────────────────────────────────────────────
 
 function _gfeEscapeHtml(s) {
-  return String(s || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+  return escapeHtml(s);
 }
 
 function _gfeTokenImageUrl(t) {
@@ -9128,8 +9124,8 @@ function _gfeRenderTokenPanel() {
     const img = _gfeTokenImageUrl(t);
     const srcCount = (t.sources || []).length;
     const title = srcCount
-      ? `${name} — from ${(t.sources || []).map(s => s.name).join(', ')}`
-      : name;
+      ? `${t.name || ''} — from ${(t.sources || []).map(s => s.name).join(', ')}`
+      : (t.name || '');
     const face = img
       ? `<img src="${img}" alt="${name}" loading="lazy" draggable="false">`
       : `<div class="gf-token-tile-fallback">${name}</div>`;

@@ -523,7 +523,9 @@ function requireChangelogIngestSecret(req, res, next) {
   }
   const auth = String(req.headers.authorization || '');
   const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
-  if (token !== secret) {
+  const tokenBuf = Buffer.from(token);
+  const secretBuf = Buffer.from(secret);
+  if (tokenBuf.length !== secretBuf.length || !crypto.timingSafeEqual(tokenBuf, secretBuf)) {
     return res.status(401).json({ error: 'Invalid or missing Authorization: Bearer <CHANGELOG_INGEST_SECRET>' });
   }
   next();
@@ -579,6 +581,12 @@ async function ensureNormalizedDeckSchema() {
     }
     if (!(await columnExists(conn, 'decks', 'updated_at'))) {
       await conn.query('ALTER TABLE decks ADD COLUMN updated_at BIGINT NOT NULL DEFAULT 0');
+    }
+    // Unguessable per-deck "anyone with the link can view" token (independent of is_public).
+    // NULL = no active link. MySQL allows multiple NULLs under a UNIQUE index.
+    if (!(await columnExists(conn, 'decks', 'share_token'))) {
+      await conn.query('ALTER TABLE decks ADD COLUMN share_token VARCHAR(64) NULL');
+      try { await conn.query('ALTER TABLE decks ADD UNIQUE INDEX uk_decks_share_token (share_token)'); } catch (_) {}
     }
 
     // Deck collaborators table
@@ -667,7 +675,10 @@ function normalizeDeckForStorage(deck) {
       });
     }
   });
-  return { ...deck, cards: [...seen.values()] };
+  // Never persist the share token into the JSON blob — the share_token column is
+  // authoritative, and the blob is exposed by the public/browse endpoints.
+  const { shareToken, ...rest } = deck;
+  return { ...rest, cards: [...seen.values()] };
 }
 
 async function backfillDeckCardsIfEmpty() {
@@ -1102,7 +1113,13 @@ app.use('/auth', authRouter);
 app.get('/api/users', requireAuth, async (req, res) => {
   try {
     const [rows] = await db().query('SELECT id, email FROM accounts ORDER BY email ASC');
-    res.json(rows.map(r => ({ id: r.id, email: r.email })));
+    // Expose only a display name (local-part), never the full email address,
+    // to avoid leaking every account's email to any authenticated user.
+    res.json(rows.map(r => {
+      const email = String(r.email || '');
+      const at = email.indexOf('@');
+      return { id: r.id, name: at > 0 ? email.slice(0, at) : email };
+    }));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -1110,8 +1127,12 @@ app.get('/api/users', requireAuth, async (req, res) => {
 app.get('/api/users/:id/decks', requireAuth, async (req, res) => {
   try {
     const userId = parseInt(req.params.id);
+    // A user may list their own decks (public or private), but only the
+    // PUBLIC decks of other accounts — never another user's private decks.
+    const isSelf = Number(userId) === Number(req.accountId);
     const [rows] = await db().query(
-      'SELECT id, data FROM decks WHERE account_id = ? ORDER BY created_at ASC', [userId]
+      `SELECT id, data FROM decks WHERE account_id = ?${isSelf ? '' : ' AND is_public = 1'} ORDER BY created_at ASC`,
+      [userId]
     );
     const out = rows.map(r => {
       const d = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
@@ -1260,7 +1281,7 @@ app.get('/api/decks', requireAuth, async (req, res) => {
   try {
     const accountId = req.accountId;
     const [rows] = await db().query(
-      'SELECT id, data FROM decks WHERE account_id = ? ORDER BY created_at ASC',
+      'SELECT id, data, share_token FROM decks WHERE account_id = ? ORDER BY created_at ASC',
       [accountId]
     );
     if (!rows.length) return res.json([]);
@@ -1301,6 +1322,8 @@ app.get('/api/decks', requireAuth, async (req, res) => {
     const out = rows.map(r => {
       const deck = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
       const cards = byDeck.get(r.id);
+      // share_token is column-authoritative; overwrite any stale value in the JSON blob.
+      deck.shareToken = r.share_token || null;
       if (Array.isArray(cards) && cards.length) return { ...deck, cards };
       return deck;
     });
@@ -1373,6 +1396,91 @@ app.get('/api/decks/public/:deckId', async (req, res) => {
       });
     }
     res.json(deck);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// View a deck by its unguessable share token — NO AUTH (anyone with the link).
+// Independent of is_public; works only while the owner keeps a link active.
+app.get('/api/decks/link/:token', async (req, res) => {
+  try {
+    const token = String(req.params.token || '');
+    if (!token) return res.status(404).json({ error: 'Not found' });
+    const [rows] = await db().query(
+      'SELECT id, data, account_id FROM decks WHERE share_token = ? LIMIT 1',
+      [token]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Deck not found or link disabled' });
+    const row = rows[0];
+    const deck = typeof row.data === 'string' ? JSON.parse(row.data) : row.data;
+    const [cardRows] = await db().query(
+      `SELECT dc.card_uid, dc.card_data, dc.sort_order
+       FROM deck_cards dc
+       WHERE dc.account_id = ? AND dc.deck_id = ?
+       ORDER BY dc.sort_order ASC`,
+      [row.account_id, row.id]
+    );
+    const cards = cardRows.length
+      ? cardRows.map(r => {
+          const c = typeof r.card_data === 'string' ? JSON.parse(r.card_data) : r.card_data;
+          return { ...c, uid: c.uid || r.card_uid };
+        })
+      : (deck.cards || []);
+    // Return only a curated, owner-anonymous shape (no email, account_id, or token).
+    res.json({
+      name: deck.name || 'Untitled',
+      format: deck.format || '',
+      commander: deck.commander || null,
+      commanderImage: deck.commanderImage || null,
+      commanderColorIdentity: deck.commanderColorIdentity || deck.colorIdentity || [],
+      notes: deck.notes || '',
+      cards,
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Owner: create/return (or regenerate) a deck's share-link token.
+app.post('/api/decks/:id/share-link', requireAuth, async (req, res) => {
+  try {
+    const accountId = req.accountId;
+    const deckId = String(req.params.id || '');
+    const regenerate = !!(req.body && req.body.regenerate);
+    const [rows] = await db().query(
+      'SELECT share_token FROM decks WHERE account_id = ? AND id = ?',
+      [accountId, deckId]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Deck not found' });
+    let token = rows[0].share_token;
+    if (!token || regenerate) {
+      token = crypto.randomBytes(16).toString('base64url');
+      await db().query(
+        'UPDATE decks SET share_token = ? WHERE account_id = ? AND id = ?',
+        [token, accountId, deckId]
+      );
+    }
+    res.json({ token });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Owner: revoke a deck's share link (disables the public URL).
+app.delete('/api/decks/:id/share-link', requireAuth, async (req, res) => {
+  try {
+    const accountId = req.accountId;
+    const deckId = String(req.params.id || '');
+    const [r] = await db().query(
+      'UPDATE decks SET share_token = NULL WHERE account_id = ? AND id = ?',
+      [accountId, deckId]
+    );
+    if (!r.affectedRows) return res.status(404).json({ error: 'Deck not found' });
+    res.json({ ok: true });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
@@ -3515,11 +3623,25 @@ app.post('/api/cards/by-roles', async (req, res) => {
     const colors = (Array.isArray(req.body?.colors) ? req.body.colors : []).filter(c => /^[WUBRG]$/.test(c));
     const roles = (Array.isArray(req.body?.roles) ? req.body.roles : [])
       .filter(r => typeof r === 'string' && r.length <= 40).slice(0, 12);
+    // Commander-tribal types (e.g. ["rat"]): cards of the type, or whose text names it,
+    // qualify for the pool even without a matching role tag. Mirrors client _TRIBE_PLURALS.
+    const TRIBE_PLURALS = { elf: 'elves', dwarf: 'dwarves', wolf: 'wolves', werewolf: 'werewolves', mouse: 'mice', fox: 'foxes', sphinx: 'sphinxes', octopus: 'octopuses' };
+    const tribes = (Array.isArray(req.body?.tribes) ? req.body.tribes : [])
+      .map(t => String(t).toLowerCase()).filter(t => /^[a-z][a-z-]{1,30}$/.test(t)).slice(0, 2);
     const exclude = new Set((Array.isArray(req.body?.exclude) ? req.body.exclude : []).map(n => String(n).toLowerCase()));
     const limit = Math.min(Math.max(parseInt(req.body?.limit || 60, 10) || 60, 1), 150);
-    if (!roles.length) return res.json({ cards: [] });
+    if (!roles.length && !tribes.length) return res.json({ cards: [] });
 
-    const params = [JSON.stringify(roles)];
+    const params = [];
+    const matchParts = [];
+    if (roles.length) {
+      matchParts.push('JSON_OVERLAPS(t.tags_json, CAST(? AS JSON))');
+      params.push(JSON.stringify(roles));
+    }
+    for (const tr of tribes) {
+      matchParts.push('(c.type_line REGEXP ? OR c.oracle_text REGEXP ?)');
+      params.push(`\\b${tr}\\b`, `\\b(${tr}|${TRIBE_PLURALS[tr] || tr + 's'})\\b`);
+    }
     let ciClause = '';
     const disallowed = ['W', 'U', 'B', 'R', 'G'].filter(c => !colors.includes(c));
     if (disallowed.length) { ciClause = 'AND NOT JSON_OVERLAPS(c.color_identity_json, CAST(? AS JSON))'; params.push(JSON.stringify(disallowed)); }
@@ -3529,8 +3651,8 @@ app.post('/api/cards/by-roles', async (req, res) => {
       `SELECT c.name, c.scryfall_id, c.type_line, c.oracle_text, c.cmc,
               c.color_identity_json, c.image_small, c.image_normal, t.tags_json
          FROM scryfall_oracle_cards c
-         JOIN scryfall_oracle_tags t ON t.oracle_id = c.oracle_id AND t.schema_version = '4'
-        WHERE JSON_OVERLAPS(t.tags_json, CAST(? AS JSON)) ${ciClause}
+         LEFT JOIN scryfall_oracle_tags t ON t.oracle_id = c.oracle_id AND t.schema_version = '4'
+        WHERE (${matchParts.join(' OR ')}) ${ciClause}
         ORDER BY c.cmc, c.name
         LIMIT ?`,
       params
@@ -4372,6 +4494,8 @@ async function start() {
   app.use('/icons',  express.static(path.join(__dirname, 'icons')));
   app.get('/manifest.webmanifest', (_req, res) => res.sendFile(path.join(__dirname, 'manifest.webmanifest')));
   app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'index.html')));
+  // Public deck share links — serve the SPA; the client reads the token and shows a read-only view.
+  app.get('/d/:token', (_req, res) => res.sendFile(path.join(__dirname, 'index.html')));
   app.get('/scanner-poc.html', (_req, res) => res.sendFile(path.join(__dirname, 'scanner-poc.html')));
   // HTTPS if certs/server.pem + certs/server-key.pem exist (generated by mkcert)
   const certDir  = path.join(__dirname, 'certs');
