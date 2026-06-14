@@ -1291,13 +1291,13 @@ ${f} untapped lands`},...N.map(P=>({label:P.label,p:P.p,detail:P.detail})),...G(
     `:""}
     <div style="border-top:1px solid var(--border);margin:5px 0 4px"></div>
     <button onclick="undoGameAction('${i.id}')" style="${c}${p?"":"opacity:0.4;"}">\u21B6 Undo last action</button>
-    <button onclick="${u};nextTurn('${i.id}')" style="${c}">\u2192 Next Turn</button>`,document.body.appendChild(m);const g=t.getBoundingClientRect(),y=m.offsetWidth||220,h=m.offsetHeight||(l?430:292),b=8;let v=g.right-y;v<b&&(v=b),v+y>window.innerWidth-b&&(v=window.innerWidth-y-b);let C=o?g.top-h-8:g.bottom+6;C<b&&(C=g.bottom+6),C+h>window.innerHeight-b&&(C=g.top-h-8),C<b&&(C=b),m.style.top=C+"px",m.style.left=v+"px",m.style.transform=o?"rotate(180deg)":"",m.style.visibility="visible"}function renderTabletView(){const e=games.find(m=>m.id===tabletViewGameId);if(!e)return;const t=document.getElementById("tabletView"),n=e.players.length,o=n===2,a=n===3,r=n===4,i=n===6?3:o?1:2,s=o||a?2:Math.ceil(n/i);t.style.gridTemplateColumns=`repeat(${i}, 1fr)`,t.style.gridTemplateRows=`repeat(${s}, 1fr)`;const l=gameActionMode==="deal1all"||gameActionMode==="dealXall",c={deal1:"\u2192 tap a player to deal 1 damage",dealX:`\u2192 tap a player to deal ${activeAmt(e)} damage`,deal1all:"\u2192 deals 1 to all opponents \u2014 tap any player to confirm",dealXall:`\u2192 deals ${activeAmt(e)} to all opponents \u2014 tap any player to confirm`}[gameActionMode]||"",d=e.players[e.activePlayerIdx??0],u=r?[3,2,0,1]:e.players.map((m,p)=>p),f=a?"top:calc(50% + 6px);transform:translate(-50%,0)":"top:50%;transform:translate(-50%,-50%)";t.innerHTML=`
+    <button onclick="${u};nextTurn('${i.id}')" style="${c}">\u2192 Next Turn</button>`,document.body.appendChild(m);const g=t.getBoundingClientRect(),y=m.offsetWidth||220,h=m.offsetHeight||(l?430:292),b=8;let v=g.right-y;v<b&&(v=b),v+y>window.innerWidth-b&&(v=window.innerWidth-y-b);let C=o?g.top-h-8:g.bottom+6;C<b&&(C=g.bottom+6),C+h>window.innerHeight-b&&(C=g.top-h-8),C<b&&(C=b),m.style.top=C+"px",m.style.left=v+"px",m.style.transform=o?"rotate(180deg)":"",m.style.visibility="visible"}function renderTabletView(){const e=games.find(m=>m.id===tabletViewGameId);if(!e)return;const t=document.getElementById("tabletView"),n=e.players.length,o=n===2,a=n===3,r=n===4,i=n===6?3:o?1:2,s=o||a?2:Math.ceil(n/i);t.style.gridTemplateColumns=`repeat(${i}, 1fr)`,t.style.gridTemplateRows=`repeat(${s}, 1fr)`,t.classList.toggle("tv-2p",o);const l=gameActionMode==="deal1all"||gameActionMode==="dealXall",c={deal1:"\u2192 tap a player to deal 1 damage",dealX:`\u2192 tap a player to deal ${activeAmt(e)} damage`,deal1all:"\u2192 deals 1 to all opponents \u2014 tap any player to confirm",dealXall:`\u2192 deals ${activeAmt(e)} to all opponents \u2014 tap any player to confirm`}[gameActionMode]||"",d=e.players[e.activePlayerIdx??0],u=r?[3,2,0,1]:e.players.map((m,p)=>p),f=a?"top:calc(50% + 6px);transform:translate(-50%,0)":"top:50%;transform:translate(-50%,-50%)";t.innerHTML=`
     ${u.map((m,p)=>{const g=r&&p<2||a&&p===0||o&&p===0,y=a&&p>0?p-1:p%2;return renderTabletCell(e,e.players[m],m,n,i,g,y)}).join("")}
     <!-- Center timer + turn controls -->
-    <div onclick="event.stopPropagation()" style="position:fixed;left:50%;${f};z-index:10;
+    <div class="tablet-center-box" onclick="event.stopPropagation()" style="position:fixed;left:50%;${f};z-index:10;
       background:color-mix(in oklab, var(--bg2) 90%, transparent);backdrop-filter:blur(16px);
       border:1px solid var(--border2);border-radius:18px;padding:12px 24px;text-align:center;min-width:164px">
-      <div style="font-family:'JetBrains Mono',monospace;font-size:clamp(2rem,4.5vw,3.2rem);font-weight:700;color:${_turnPaused?"var(--text3)":"var(--gold)"};line-height:1">
+      <div class="tablet-center-timer" style="font-family:'JetBrains Mono',monospace;font-size:clamp(2rem,4.5vw,3.2rem);font-weight:700;color:${_turnPaused?"var(--text3)":"var(--gold)"};line-height:1">
         <span id="tabletTurnTimerDisplay">${_turnPaused?formatDuration(_pausedElapsed):e.turnStartedAt?formatDuration(Date.now()-e.turnStartedAt):"00:00"}</span>
       </div>
       ${d?`<div style="font-size:clamp(0.6rem,1.3vw,0.82rem);color:${d.color};margin-top:5px;font-family:'Inter',system-ui,sans-serif;letter-spacing:0.04em">T${e.currentTurn} \xB7 ${escapeHtml(d.name)}</div>`:""}
@@ -1342,10 +1342,10 @@ ${f} untapped lands`},...N.map(P=>({label:P.label,p:P.p,detail:P.detail})),...G(
     <div style="text-align:center;padding:${v};border-bottom:1px solid ${t.color}25;position:relative">
       <div style="font-family:'Cinzel',serif;font-size:clamp(0.85rem,2.2vw,1.3rem);color:${t.color};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:0.06em">${escapeHtml(t.name)}</div>
       ${t.deckName?`<div style="font-size:clamp(0.55rem,1.2vw,0.78rem);color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px">${escapeHtml(t.deckName)}${t.commander?" \xB7 "+escapeHtml(t.commander):""}</div>`:""}
-      ${f?`<div style="position:absolute;top:50%;right:8px;transform:translateY(-50%);font-size:clamp(0.6rem,1.3vw,0.78rem);color:var(--gold);animation:targetPulse 1s ease-in-out infinite">${p}</div>`:`<div style="position:absolute;top:50%;${b};transform:translateY(-50%);display:flex;align-items:center;gap:5px;flex-direction:${b.startsWith("left")?"row-reverse":"row"}">
+      ${f?`<div style="position:absolute;top:50%;right:8px;transform:translateY(-50%);font-size:clamp(0.6rem,1.3vw,0.78rem);color:var(--gold);animation:targetPulse 1s ease-in-out infinite">${p}</div>`:`<div class="tablet-corner ${b.startsWith("left")?"tablet-corner--left":"tablet-corner--right"}" style="position:absolute;top:50%;${b};transform:translateY(-50%);display:flex;align-items:center;gap:5px;flex-direction:${b.startsWith("left")?"row-reverse":"row"}">
              <span class="tablet-total-time" data-pid="${t.id}" title="Total time this player has spent on turns"
                style="font-family:'JetBrains Mono',monospace;font-size:clamp(0.5rem,1.05vw,0.7rem);color:var(--text3);white-space:nowrap">${formatDuration(playerTotalTime(e,t.id))}</span>
-             <button onclick="openTabletMenu('${t.id}',this,event,${r})"
+             <button class="tablet-dots-btn" onclick="openTabletMenu('${t.id}',this,event,${r})"
                style="background:none;border:none;cursor:pointer;padding:4px 7px;
                       font-size:clamp(1rem,2vw,1.3rem);line-height:1;letter-spacing:1px;
                       color:${u?t.color:"var(--text3)"}">\u22EF</button>
@@ -1354,7 +1354,7 @@ ${f} untapped lands`},...N.map(P=>({label:P.label,p:P.p,detail:P.detail})),...G(
 
     <!-- Life total -->
     <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:clamp(3px,0.8vh,8px);min-height:0">
-      <div style="font-family:'JetBrains Mono',monospace;font-size:${c};font-weight:700;line-height:1;color:${l};text-shadow:0 0 38px ${t.color}2e;transition:color 0.25s;user-select:none">${t.life}</div>
+      <div class="tablet-life-num" style="font-family:'JetBrains Mono',monospace;font-size:${c};font-weight:700;line-height:1;color:${l};text-shadow:0 0 38px ${t.color}2e;transition:color 0.25s;user-select:none">${t.life}</div>
       <div style="font-size:clamp(0.55rem,1.2vw,0.78rem);color:var(--text3)">of ${t.startingLife}</div>
       ${s?`<div style="display:flex;align-items:center;justify-content:center;gap:4px;flex-wrap:wrap;padding:0 8px;min-height:16px">${h}</div>`:""}
     </div>
