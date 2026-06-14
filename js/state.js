@@ -332,6 +332,15 @@ async function refreshMissingCollectionPrices() {
 }
 
 async function initApp() {
+  // Public deck share link (/d/<token>) — read-only view, works without an account.
+  // Handle before the auth gate so logged-out visitors can see the shared deck.
+  const _shareToken = typeof _publicDeckTokenFromPath === 'function' ? _publicDeckTokenFromPath() : null;
+  if (_shareToken) {
+    document.body.style.opacity = '1';
+    if (typeof renderPublicDeckView === 'function') await renderPublicDeckView(_shareToken);
+    return;
+  }
+
   let me = null;
   try {
     me = await authMe();

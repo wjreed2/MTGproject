@@ -395,13 +395,13 @@ function renderCollection() {
       return `
       <div class="card-item" onclick="openCardDetail('${c.uid}')">
         <div class="card-img-wrap${c.foil ? ' foil' : ''}">
-          ${tileImg ? `<img src="${tileImg}" loading="lazy" alt="${c.name}">` : '<div class="card-img-placeholder">?</div>'}
+          ${tileImg ? `<img src="${tileImg}" loading="lazy" alt="${escapeHtml(c.name)}">` : '<div class="card-img-placeholder">?</div>'}
           ${c.foil ? `<div class="card-foil-overlay"></div><div class="card-foil-badge">✦ FOIL</div>` : ''}
           ${!isSharedView && isRecentlyAdded(c) ? `<div class="card-new-badge" title="New card"></div>` : ''}
           ${!isSharedView ? `<button type="button" class="collection-card-star${c.starred ? ' is-starred' : ''}" data-card-uid="${c.uid}" onclick="toggleCardStar('${c.uid}',event)" aria-pressed="${c.starred ? 'true' : 'false'}" aria-label="${c.starred ? 'Unstar card' : 'Star card'}">${c.starred ? '★' : '☆'}</button>` : ''}
         </div>
         <div class="card-meta">
-          <div class="card-name">${c.name}</div>
+          <div class="card-name">${escapeHtml(c.name)}</div>
           <div style="font-size:0.78rem;color:var(--text3)">${c.set.toUpperCase()} • ${(typeof resolveCardTypeLine === 'function' ? resolveCardTypeLine(c) : (c.type || '')).split('—')[0].trim()}</div>
           <div class="card-prices">
             ${dispPrice ? `<span class="price-badge price-tcg">${c.foil ? '✦ ' : ''}$${dispPrice.toFixed(2)}</span>` : ''}
@@ -419,13 +419,13 @@ function renderCollection() {
       return `
       <div class="card-item" onclick="openCardDetail('${c.uid}')">
         <div class="card-img-wrap${c.foil ? ' foil' : ''}">
-          ${tileImg ? `<img src="${tileImg}" loading="lazy" alt="${c.name}">` : `<div class="card-img-placeholder"><svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="1"><rect x="2" y="2" width="20" height="20" rx="2"/><path d="M8 12h8M12 8v8"/></svg><span>${c.set.toUpperCase()}</span></div>`}
+          ${tileImg ? `<img src="${tileImg}" loading="lazy" alt="${escapeHtml(c.name)}">` : `<div class="card-img-placeholder"><svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="1"><rect x="2" y="2" width="20" height="20" rx="2"/><path d="M8 12h8M12 8v8"/></svg><span>${c.set.toUpperCase()}</span></div>`}
           ${c.foil ? `<div class="card-foil-overlay"></div><div class="card-foil-badge">✦ FOIL</div>` : ''}
           ${!isSharedView && isRecentlyAdded(c) ? `<div class="card-new-badge" title="New card"></div>` : ''}
           ${!isSharedView ? `<button type="button" class="collection-card-star${c.starred ? ' is-starred' : ''}" data-card-uid="${c.uid}" onclick="toggleCardStar('${c.uid}',event)" aria-pressed="${c.starred ? 'true' : 'false'}" aria-label="${c.starred ? 'Unstar card' : 'Star card'}">${c.starred ? '★' : '☆'}</button>` : ''}
         </div>
         <div class="card-meta">
-          <div class="card-name">${c.name}</div>
+          <div class="card-name">${escapeHtml(c.name)}</div>
           <div class="card-prices">
             ${dispPrice ? `<span class="price-badge price-tcg">${c.foil ? '✦' : ''}$${dispPrice.toFixed(2)}</span>` : ''}
             ${ckPrice ? `<span class="price-badge price-ck">$${ckPrice.toFixed(2)}</span>` : ''}
@@ -673,7 +673,7 @@ function _patchCardDetailInspectorDom(card, isOwned) {
     cmcInput.placeholder = String(baseCmc);
     if (card.customCmc == null) cmcInput.value = baseCmc ? String(baseCmc) : '';
     const resetBtn = document.querySelector('.card-detail-cmc-reset');
-    const scryLabel = cmcInput.parentElement?.querySelector('span:last-child');
+    const scryLabel = document.getElementById('cardDetailCmcScryLabel');
     if (scryLabel) scryLabel.textContent = `(Scryfall: ${baseCmc})`;
     if (resetBtn) resetBtn.title = `Reset to Scryfall default (${baseCmc})`;
   }
@@ -711,7 +711,7 @@ function _renderCardDetailDefaultTagsInitialHtml(card) {
   if (tags.length) {
     return tags.map(t => {
       const prot = typeof _isProtectedDeckTag === 'function' && _isProtectedDeckTag(t);
-      return `<span class="tag ${prot ? 'tag-scryfall' : 'tag-purple'}" style="font-size:0.84rem">${t}</span>`;
+      return `<span class="tag ${prot ? 'tag-scryfall' : 'tag-purple'}" style="font-size:0.84rem">${escapeHtml(t)}</span>`;
     }).join('');
   }
   return '<span class="card-detail-tags-pending" aria-hidden="true"></span>';
@@ -805,6 +805,17 @@ function _updateCardDetailEdgeNav(uid) {
   nextEl.classList.toggle('disabled', !nav.nextUid);
   prevEl.tabIndex = show && nav.prevUid ? 0 : -1;
   nextEl.tabIndex = show && nav.nextUid ? 0 : -1;
+  // Mirror state onto the phone-only in-sheet navigator (edge arrows are hidden on phones).
+  const mnav = document.getElementById('cardDetailMobileNav');
+  if (mnav) {
+    mnav.style.display = show ? '' : 'none';   // '' lets the mobile media query decide; desktop CSS keeps it hidden
+    const titleEl = document.getElementById('cardDetailMobileNavTitle');
+    if (titleEl) titleEl.textContent = document.getElementById('cardDetailName')?.textContent || '';
+    const mp = document.getElementById('cardDetailMobilePrev');
+    const mn = document.getElementById('cardDetailMobileNext');
+    if (mp) mp.disabled = !nav.prevUid;
+    if (mn) mn.disabled = !nav.nextUid;
+  }
   if (show && uid) _prefetchCardDetailNeighborArts(uid);
 }
 
@@ -856,6 +867,11 @@ function _ensureCardDetailShell() {
   }
   root.className = 'card-detail-content';
   root.innerHTML = `
+    <div class="card-detail-mobile-nav" id="cardDetailMobileNav" aria-hidden="true">
+      <button type="button" class="btn btn-ghost btn-icon card-detail-mnav-btn" id="cardDetailMobilePrev" aria-label="Previous card" onclick="navigateCardDetailCollection('prev')">‹</button>
+      <span class="card-detail-mnav-title" id="cardDetailMobileNavTitle"></span>
+      <button type="button" class="btn btn-ghost btn-icon card-detail-mnav-btn" id="cardDetailMobileNext" aria-label="Next card" onclick="navigateCardDetailCollection('next')">›</button>
+    </div>
     <div class="card-detail-body" id="cardDetailBody">
       <div id="cardDetailInspectorLeft" class="card-detail-col card-detail-col--art"></div>
       <div id="cardDetailInspectorRight" class="card-detail-col card-detail-col--meta"></div>
@@ -910,10 +926,8 @@ function _syncCardDetailLeftInPlace(card) {
       if (cur !== url) img.src = url;
       img.alt = card.name || '';
     }
-    const shell = wrap.querySelector('div[style*="position:relative"]') || wrap.firstElementChild;
-    if (shell && shell.style) {
-      shell.style.boxShadow = card.foil ? '0 0 5px 0 rgba(180,80,255,0.35)' : '';
-    }
+    const shell = wrap.querySelector('.card-detail-art-shell') || wrap.firstElementChild;
+    if (shell) shell.classList.toggle('is-foil', !!card.foil);
     wrap.querySelectorAll('.card-foil-overlay,.card-foil-badge').forEach(n => n.remove());
     if (card.foil && shell) {
       shell.insertAdjacentHTML('beforeend', '<div class="card-foil-overlay"></div><div class="card-foil-badge">✦ FOIL</div>');
@@ -1013,7 +1027,7 @@ function _syncCardDetailRowCollection(ctx) {
   if (!el) return;
   el.className = 'card-detail-qty-row';
   el.innerHTML = `<span class="card-detail-qty-row-label">In collection:</span>
-    <div style="flex:1;min-width:0">${_htmlCardDetailCollectionRows(ctx)}</div>`;
+    <div class="card-detail-qty-fill">${_htmlCardDetailCollectionRows(ctx)}</div>`;
 }
 
 function _deckSlotZoneLabel(deck, slot) {
@@ -1046,7 +1060,7 @@ function _htmlCardDetailQtyFoilAlignSpacer() {
 function _htmlCardDetailDeckNameMeta(activeDeck, zoneHint) {
   if (!activeDeck) return '';
   const name = `${activeDeck.name || 'Deck'}${zoneHint || ''}`;
-  return `<div class="card-detail-qty-deck-name" id="cardDetailDeckNameMeta">${name}</div>`;
+  return `<div class="card-detail-qty-deck-name" id="cardDetailDeckNameMeta">${escapeHtml(name)}</div>`;
 }
 
 function _htmlCardDetailDeckQtyCounter(ctx) {
@@ -1188,7 +1202,7 @@ function setCardCustomCmc(actionUid, rawVal) {
     const defaultCmc = parseFloat(input?.dataset.defaultCmc ?? '0');
     const isCustom = customCmc !== null && customCmc !== defaultCmc;
     if (resetBtn) resetBtn.style.display = isCustom ? '' : 'none';
-    if (input) input.style.color = isCustom ? 'var(--gold)' : '';
+    if (input) input.classList.toggle('is-custom', isCustom);
   }
 }
 
@@ -1261,7 +1275,7 @@ function setCardCustomPip(actionUid, color, rawVal) {
     wrap.querySelectorAll('input[data-color]').forEach(inp => {
       const def = parseInt(inp.dataset.defaultPip || '0', 10);
       const cur = parseInt(inp.value || '0', 10);
-      inp.style.color = cur !== def ? 'var(--gold)' : '';
+      inp.classList.toggle('is-custom', cur !== def);
     });
     const hasCustom = ['W','U','B','R','G'].some(c => {
       const inp = wrap.querySelector(`input[data-color="${c}"]`);
@@ -1280,7 +1294,7 @@ function setCardCustomPip(actionUid, color, rawVal) {
       const defaultCmc = parseFloat(cmcInput?.dataset.defaultCmc ?? '0');
       if (cmcInput) {
         cmcInput.value = newPipTotal;
-        cmcInput.style.color = newPipTotal !== defaultCmc ? 'var(--gold)' : '';
+        cmcInput.classList.toggle('is-custom', newPipTotal !== defaultCmc);
       }
       if (cmcReset) cmcReset.style.display = newPipTotal !== defaultCmc ? '' : 'none';
     }
@@ -1326,7 +1340,7 @@ function resetCardCustomPips(actionUid) {
   if (wrap) {
     wrap.querySelectorAll('input[data-color]').forEach(inp => {
       inp.value = inp.dataset.defaultPip || '0';
-      inp.style.color = '';
+      inp.classList.remove('is-custom');
     });
     const resetBtn = wrap.querySelector('.card-detail-pips-reset');
     if (resetBtn) resetBtn.style.display = 'none';
@@ -1337,7 +1351,7 @@ function resetCardCustomPips(actionUid) {
     const cmcInput = cmcWrap.querySelector('input');
     const cmcReset = cmcWrap.querySelector('.card-detail-cmc-reset');
     const defaultCmc = parseFloat(cmcInput?.dataset.defaultCmc ?? '0');
-    if (cmcInput) { cmcInput.value = defaultCmc; cmcInput.style.color = ''; }
+    if (cmcInput) { cmcInput.value = defaultCmc; cmcInput.classList.remove('is-custom'); }
     if (cmcReset) cmcReset.style.display = 'none';
   }
 }
@@ -1354,7 +1368,7 @@ function _syncCardDetailRowInDeck(ctx) {
   el.className = 'card-detail-qty-row';
   el.style.display = 'flex';
   el.innerHTML = `<span class="card-detail-qty-row-label">In deck:</span>
-    <div style="flex:1;min-width:0">${_htmlCardDetailDeckQtyCounter(ctx)}</div>`;
+    <div class="card-detail-qty-fill">${_htmlCardDetailDeckQtyCounter(ctx)}</div>`;
 }
 
 function _showCardDetailChangePrinting(ctx) {
@@ -1367,12 +1381,11 @@ function _htmlCardDetailChangePrintingBtn() {
   return `<button type="button" class="btn btn-outline btn-sm" title="Change printing" onclick="openVersionPickerFromCardDetail()">⟳ Change printing</button>`;
 }
 
-function _syncCardDetailRowPrimaryActions(ctx) {
+// Shared by the full builder and the in-place sync so the two paths can't drift.
+function _htmlCardDetailPrimaryActionsInner(ctx) {
   const { isOwned, isCommanderCandidate, actionUid, uid, isWishlisted, card } = ctx;
-  const el = document.getElementById('cardDetailRowPrimaryActions');
-  if (!el) return;
   const printBtn = _showCardDetailChangePrinting(ctx) ? _htmlCardDetailChangePrintingBtn() : '';
-  el.innerHTML = isOwned
+  return isOwned
     ? `<button class="btn btn-primary btn-sm" onclick="addToDeckFromDetail('${actionUid}')">+ Add to Deck</button>
                ${printBtn}
                ${isCommanderCandidate ? `<button class="btn btn-outline btn-sm" onclick="buildSkeletonDeckFromInspectorCard('${actionUid}')">Build Skeleton Deck</button>` : ''}
@@ -1384,39 +1397,52 @@ function _syncCardDetailRowPrimaryActions(ctx) {
                <button class="btn btn-outline btn-sm" onclick="toggleWishlistFromDetail('${uid}')">${isWishlisted ? '♥ Wishlisted' : '♡ Wishlist'}</button>`;
 }
 
-
-function _syncCardDetailTagToDeckWrap(ctx) {
-  const { card, isOwned, actionUid } = ctx;
-  const el = document.getElementById('cardDetailTagToDeckWrap');
+function _syncCardDetailRowPrimaryActions(ctx) {
+  const el = document.getElementById('cardDetailRowPrimaryActions');
   if (!el) return;
+  el.className = 'card-detail-actions';
+  el.innerHTML = _htmlCardDetailPrimaryActionsInner(ctx);
+}
 
-  // Shared collection view: show decks owned by the same person that the viewer can edit
+
+function _htmlCardDetailTagToDeckInner(btnsHtml) {
+  return `<div class="card-detail-section-label">TAG TO DECK <span class="card-detail-section-hint">· adds 1 copy to that deck's maybe board</span></div>
+      <div class="card-detail-chiprow">${btnsHtml}</div>`;
+}
+
+// Computes whether the tag-to-deck block shows and its inner HTML. Shared by the
+// full builder and the in-place sync so both render the same markup.
+function _cardDetailTagToDeckData(ctx) {
+  const { card, isOwned, actionUid } = ctx;
+  // Shared collection view: decks owned by the same person that the viewer can edit
   if (_viewingSharedCollOwnerId) {
     const ownerDecks = (typeof sharedDecks !== 'undefined' ? sharedDecks : [])
       .filter(d => Number(d.ownerId) === Number(_viewingSharedCollOwnerId) && d.userPermission !== 'view');
-    if (!ownerDecks.length) { el.innerHTML = ''; el.style.display = 'none'; return; }
+    if (!ownerDecks.length) return { show: false, html: '' };
     const sid = card.scryfallId || '';
     const foilFlag = !!card.foil;
     const cardUid = card.uid || '';
-    el.style.display = 'block';
-    el.innerHTML = `<div style="font-size:0.78rem;color:var(--text3);margin-bottom:6px;letter-spacing:0.04em">TAG TO DECK <span style="font-weight:400;opacity:0.9">· adds 1 copy to that deck's maybe board</span></div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap">${ownerDecks.map(d => {
-      const pool = (d.maybeboard || []);
-      const tagged = pool.some(c => c.scryfallId === sid && !!c.foil === foilFlag);
-      return '<button class="btn btn-sm ' + (tagged ? 'btn-primary' : 'btn-outline') + '" onclick="toggleSharedCollectionDeckTag(\'' + cardUid + '\',\'' + sid + '\',' + foilFlag + ',\'' + d.id + '\')">' + d.name + '</button>';
-    }).join('')}</div>`;
-    return;
+    const btns = ownerDecks.map(d => {
+      const tagged = (d.maybeboard || []).some(c => c.scryfallId === sid && !!c.foil === foilFlag);
+      return '<button class="btn btn-sm ' + (tagged ? 'btn-primary' : 'btn-outline') + '" onclick="toggleSharedCollectionDeckTag(\'' + cardUid + '\',\'' + sid + '\',' + foilFlag + ',\'' + d.id + '\')">' + escapeHtml(d.name) + '</button>';
+    }).join('');
+    return { show: true, html: _htmlCardDetailTagToDeckInner(btns) };
   }
-
   const show = !!(isOwned && decks.length > 0);
-  el.style.display = show ? 'block' : 'none';
-  if (show) {
-    el.innerHTML = `<div style="font-size:0.78rem;color:var(--text3);margin-bottom:6px;letter-spacing:0.04em">TAG TO DECK <span style="font-weight:400;opacity:0.9">· adds 1 copy to that deck's maybe board</span></div>
-          <div style="display:flex;gap:6px;flex-wrap:wrap">${decks.map(d => {
+  if (!show) return { show: false, html: '' };
+  const btns = decks.map(d => {
     const tagged = (card.deckTags || []).includes(d.id);
-    return '<button class="btn btn-sm ' + (tagged ? 'btn-primary' : 'btn-outline') + '" onclick="toggleDeckTag(\'' + actionUid + '\',\'' + d.id + '\')">' + d.name + '</button>';
-  }).join('')}</div>`;
-  } else el.innerHTML = '';
+    return '<button class="btn btn-sm ' + (tagged ? 'btn-primary' : 'btn-outline') + '" onclick="toggleDeckTag(\'' + actionUid + '\',\'' + d.id + '\')">' + escapeHtml(d.name) + '</button>';
+  }).join('');
+  return { show: true, html: _htmlCardDetailTagToDeckInner(btns) };
+}
+
+function _syncCardDetailTagToDeckWrap(ctx) {
+  const el = document.getElementById('cardDetailTagToDeckWrap');
+  if (!el) return;
+  const data = _cardDetailTagToDeckData(ctx);
+  el.style.display = data.show ? 'block' : 'none';
+  el.innerHTML = data.show ? data.html : '';
 }
 
 function _syncCardDetailReplacementsMount(showReplacements, replacementsHtml) {
@@ -1448,14 +1474,13 @@ function _syncCardDetailInspectorInPlace(card, ctx) {
 function _htmlCardDetailArtSlotInner(card) {
   const imgAlt = String(card.name || '').replace(/"/g, '&quot;');
   if (card.imageLarge || card.image) {
-    return `<div style="position:relative;overflow:hidden;border-radius:12px;${card.foil ? 'box-shadow:0 0 5px 0 rgba(180,80,255,0.35);' : ''}">
+    return `<div class="card-detail-art-shell${card.foil ? ' is-foil' : ''}">
               <img id="cardDetailMainImg" class="card-detail-img" src="${card.imageLarge || card.image}" alt="${imgAlt}">
               ${card.foil ? `<div class="card-foil-overlay"></div><div class="card-foil-badge">✦ FOIL</div>` : ''}
-              <button id="cardFaceFlipBtn" class="btn btn-outline btn-sm" onclick="flipCardDetailFace()"
-                style="display:none;position:absolute;top:8px;right:8px;z-index:3;min-width:30px;padding:2px 8px;line-height:1.2;background:var(--gold);border:1px solid rgba(0,0,0,0.25);color:#1a1200;font-weight:700;box-shadow:0 2px 8px rgba(0,0,0,0.35)">↻</button>
+              <button id="cardFaceFlipBtn" class="btn btn-outline btn-sm card-detail-flip-btn" onclick="flipCardDetailFace()" style="display:none">↻</button>
             </div>`;
   }
-  return '<div style="height:280px;background:var(--bg3);border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--text3)">No Image</div>';
+  return '<div class="card-detail-art-noimg">No Image</div>';
 }
 
 function _htmlCardDetailVendorRows(card) {
@@ -1463,23 +1488,23 @@ function _htmlCardDetailVendorRows(card) {
     ? `https://scryfall.com/card/${card.set}/${card.number}`
     : `https://scryfall.com/search?q=${encodeURIComponent(card.name || '')}`;
   return {
-    row1: `<a href="https://www.tcgplayer.com/search/all/product?q=${encodeURIComponent(card.name)}" target="_blank" class="btn btn-outline btn-sm" style="flex:1;justify-content:center">TCGPlayer</a>
-          <a href="https://www.cardkingdom.com/catalog/search?search=header&filter[search]=mtg_advanced&filter[tab]=mtg_card&filter[name]=${encodeURIComponent(card.name)}" target="_blank" class="btn btn-outline btn-sm" style="flex:1;justify-content:center">Card Kingdom</a>`,
-    row2: `<a href="https://edhrec.com/cards/${card.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')}" target="_blank" class="btn btn-outline btn-sm" style="flex:1;justify-content:center">EDHREC</a>
-          <a href="${scryfallHref}" target="_blank" class="btn btn-outline btn-sm" style="flex:1;justify-content:center">Scryfall</a>`,
+    row1: `<a href="https://www.tcgplayer.com/search/all/product?q=${encodeURIComponent(card.name)}" target="_blank" class="btn btn-outline btn-sm">TCGPlayer</a>
+          <a href="https://www.cardkingdom.com/catalog/search?search=header&filter[search]=mtg_advanced&filter[tab]=mtg_card&filter[name]=${encodeURIComponent(card.name)}" target="_blank" class="btn btn-outline btn-sm">Card Kingdom</a>`,
+    row2: `<a href="https://edhrec.com/cards/${card.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')}" target="_blank" class="btn btn-outline btn-sm">EDHREC</a>
+          <a href="${scryfallHref}" target="_blank" class="btn btn-outline btn-sm">Scryfall</a>`,
   };
 }
 
 function _htmlOpenCardDetailLeftColumn(card) {
   const v = _htmlCardDetailVendorRows(card);
   return `<div id="cardDetailArtWrap">${_htmlCardDetailArtSlotInner(card)}</div>
-        <div id="cardDetailVendorRow1" style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">${v.row1}</div>
-        <div id="cardDetailVendorRow2" style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">${v.row2}</div>`;
+        <div id="cardDetailVendorRow1" class="card-detail-vendor-row">${v.row1}</div>
+        <div id="cardDetailVendorRow2" class="card-detail-vendor-row">${v.row2}</div>`;
 }
 
 function _htmlOpenCardDetailReplacementsBlock() {
-  return `<div style="border-top:2px solid var(--border2);padding:1rem 1.25rem">
-      <div style="font-size:0.78rem;color:var(--text3);margin-bottom:10px;letter-spacing:0.05em;font-weight:700;text-transform:uppercase">Suggested Replacements</div>
+  return `<div class="card-detail-repl-block">
+      <div class="card-detail-section-label">Suggested Replacements</div>
       <div id="cardReplacementsToolbar" class="card-replacements-toolbar" aria-label="Refine replacements"></div>
       <div id="cardReplacementsContainer"></div>
     </div>`;
@@ -1491,128 +1516,100 @@ function _htmlOpenCardDetailRightColumn(ctx) {
     activeDeck, activeDeckCard, inDeckQty,
     isCommanderCandidate, isWishlisted,
   } = ctx;
-  const _sharedOwnerDecks = _viewingSharedCollOwnerId
-    ? (typeof sharedDecks !== 'undefined' ? sharedDecks : [])
-        .filter(d => Number(d.ownerId) === Number(_viewingSharedCollOwnerId) && d.userPermission !== 'view')
-    : [];
-  const showTagToDeck = !!(isOwned && decks.length > 0) || _sharedOwnerDecks.length > 0;
   const globalCustomTags = typeof _getGlobalCustomTagsForCard === 'function' ? _getGlobalCustomTagsForCard(card) : [];
   const myTagsChipsHtml = globalCustomTags.length
     ? globalCustomTags.map(t => (typeof _deckTagChipHtml === 'function'
       ? _deckTagChipHtml(t, { interactive: false, size: '0.84rem' })
-      : `<span class="tag tag-primary" style="font-size:0.84rem">${t}</span>`)).join('')
-    : '<span style="font-size:0.72rem;color:var(--text3)">No tags yet</span>';
+      : `<span class="tag tag-primary" style="font-size:0.84rem">${escapeHtml(t)}</span>`)).join('')
+    : '<span class="card-detail-row-hint">No tags yet</span>';
   const actionUidRef = (actionUid || '').replace(/'/g, "\\'");
-  const printBtn = _showCardDetailChangePrinting(ctx) ? _htmlCardDetailChangePrintingBtn() : '';
   const _naturalPips = typeof _parseManaSymbols === 'function' ? _parseManaSymbols(card.mana || '') : { W: 0, U: 0, B: 0, R: 0, G: 0 };
   const _curPips = (card.customPips && typeof card.customPips === 'object')
     ? { W: 0, U: 0, B: 0, R: 0, G: 0, ...card.customPips }
     : _naturalPips;
   const _hasCustomPips = card.customPips != null;
+  const _cmcCustom = card.customCmc != null && card.customCmc !== (card.cmc ?? 0);
+  const _hasAdvanced = card.customCmc != null || card.customPips != null;
   const showInDeckRow = !!(activeDeck && _isDeckBuilderMainTabActive());
   const inDeckInner = showInDeckRow
     ? `<span class="card-detail-qty-row-label">In deck:</span>
-          <div style="flex:1;min-width:0">${_htmlCardDetailDeckQtyCounter(ctx)}</div>`
+          <div class="card-detail-qty-fill">${_htmlCardDetailDeckQtyCounter(ctx)}</div>`
     : '';
-  const _tagDeckList = _sharedOwnerDecks.length > 0 ? _sharedOwnerDecks : decks;
-  const _tagFn = _sharedOwnerDecks.length > 0
-    ? (d => {
-        const sid = card.scryfallId || '';
-        const foilFlag = !!card.foil;
-        const cardUid = card.uid || '';
-        const tagged = (d.maybeboard || []).some(c => c.scryfallId === sid && !!c.foil === foilFlag);
-        return '<button class="btn btn-sm ' + (tagged ? 'btn-primary' : 'btn-outline') + '" onclick="toggleSharedCollectionDeckTag(\'' + cardUid + '\',\'' + sid + '\',' + foilFlag + ',\'' + d.id + '\')">' + d.name + '</button>';
-      })
-    : (d => {
-        const tagged = (card.deckTags || []).includes(d.id);
-        return '<button class="btn btn-sm ' + (tagged ? 'btn-primary' : 'btn-outline') + '" onclick="toggleDeckTag(\'' + actionUid + '\',\'' + d.id + '\')">' + d.name + '</button>';
-      });
-  const tagToDeckInner = showTagToDeck
-    ? `<div style="font-size:0.78rem;color:var(--text3);margin-bottom:6px;letter-spacing:0.04em">TAG TO DECK <span style="font-weight:400;opacity:0.9">· adds 1 copy to that deck's maybe board</span></div>
-          <div style="display:flex;gap:6px;flex-wrap:wrap">${_tagDeckList.map(_tagFn).join('')}</div>`
-    : '';
+  const tagData = _cardDetailTagToDeckData(ctx);
   return `
-        <div id="cardDetailName" class="card-detail-name">${typeof resolveCardDisplayName === 'function' ? resolveCardDisplayName(card) : card.name}</div>
+        <div id="cardDetailName" class="card-detail-name">${escapeHtml(typeof resolveCardDisplayName === 'function' ? resolveCardDisplayName(card) : card.name)}</div>
         <div id="cardDetailType" class="card-detail-type">${typeof resolveCardTypeLine === 'function' ? resolveCardTypeLine(card) : (card.type || '')}</div>
-        <div id="cardDetailOracle" class="card-detail-text" style="${card.oracleText ? '' : 'display:none'}">${card.oracleText ? card.oracleText.replace(/\n/g, '<br>') : ''}</div>
-        <div id="cardDetailPT" style="font-family:'JetBrains Mono',monospace;font-size:0.85rem;color:var(--text2);margin-bottom:0.75rem;${(card.power && card.toughness) ? '' : 'display:none'}">${(card.power && card.toughness) ? `${card.power}/${card.toughness}` : ''}</div>
-        <div id="cardDetailLoyalty" style="font-family:'JetBrains Mono',monospace;font-size:0.85rem;color:var(--text2);margin-bottom:0.75rem;${card.loyalty ? '' : 'display:none'}">${card.loyalty ? `Loyalty: ${card.loyalty}` : ''}</div>
+        <div id="cardDetailPT" class="card-detail-stat"${(card.power && card.toughness) ? '' : ' style="display:none"'}>${(card.power && card.toughness) ? `${card.power}/${card.toughness}` : ''}</div>
+        <div id="cardDetailLoyalty" class="card-detail-stat"${card.loyalty ? '' : ' style="display:none"'}>${card.loyalty ? `Loyalty: ${card.loyalty}` : ''}</div>
+        <div id="cardDetailOracle" class="card-detail-text"${card.oracleText ? '' : ' style="display:none"'}>${card.oracleText ? card.oracleText.replace(/\n/g, '<br>') : ''}</div>
         <table id="cardDetailPriceTable" class="price-table" style="margin-bottom:1rem">
           ${_htmlCardDetailPriceRows(card)}
         </table>
-        <div id="cardDetailPrintTags" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:1rem">
+        <div id="cardDetailPrintTags" class="card-detail-chiprow" style="margin-bottom:1rem">
           <span class="tag tag-gold">${(card.set || '').toUpperCase()} #${card.number || ''}</span>
           <span class="tag tag-${card.rarity === 'mythic' ? 'red' : card.rarity === 'rare' ? 'gold' : card.rarity === 'uncommon' ? 'blue' : 'blue'}">${card.rarity}</span>
           ${card.foil ? `<span class="tag tag-gold">✦ Foil</span>` : ''}
           ${!isOwned ? `<span class="tag tag-red">Unowned</span>` : ''}
         </div>
-        <div id="cardDetailCustomCmcWrap" style="display:flex;align-items:center;gap:8px;margin-bottom:0.75rem">
-          <span style="font-size:0.78rem;color:var(--text3);letter-spacing:0.04em;white-space:nowrap">MANA VALUE</span>
-          <input type="number" id="cardDetailCustomCmcInput" min="0" step="0.5"
-            value="${card.customCmc != null ? card.customCmc : (card.cmc ?? '')}"
-            data-default-cmc="${card.cmc ?? 0}"
-            placeholder="${card.cmc ?? 0}"
-            oninput="setCardCustomCmc('${actionUidRef}', this.value)"
-            style="width:64px;padding:2px 6px;font-size:0.85rem;border:1px solid var(--border2);border-radius:4px;background:var(--bg2);color:${card.customCmc != null && card.customCmc !== (card.cmc ?? 0) ? 'var(--gold)' : 'var(--text)'};text-align:center">
-          <button class="btn btn-sm btn-outline card-detail-cmc-reset"
-            style="display:${card.customCmc != null && card.customCmc !== (card.cmc ?? 0) ? '' : 'none'}"
-            onclick="setCardCustomCmc('${actionUidRef}', '')" title="Reset to Scryfall default (${card.cmc ?? 0})">Reset</button>
-          <span style="font-size:0.75rem;color:var(--text3)">(Scryfall: ${card.cmc ?? 0})</span>
-        </div>
-        <div id="cardDetailCustomPipsWrap" style="display:flex;align-items:center;gap:6px;margin-bottom:0.75rem;flex-wrap:wrap">
-          <span style="font-size:0.78rem;color:var(--text3);letter-spacing:0.04em;white-space:nowrap">PIPS</span>
-          ${['W','U','B','R','G'].map(col => {
-            const cur = _curPips[col] || 0;
-            const def = _naturalPips[col] || 0;
-            return `<label style="display:flex;align-items:center;gap:2px" title="${{W:'White',U:'Blue',B:'Black',R:'Red',G:'Green'}[col]} pips">
-              <img src="https://svgs.scryfall.io/card-symbols/${col}.svg" class="mana-pip" alt="${col}" style="width:14px;height:14px;box-shadow:none">
-              <input type="number" min="0" step="1"
-                value="${cur}"
-                data-color="${col}"
-                data-default-pip="${def}"
-                oninput="setCardCustomPip('${actionUidRef}', '${col}', this.value)"
-                style="width:30px;padding:1px 3px;font-size:0.8rem;border:1px solid var(--border2);border-radius:3px;background:var(--bg2);color:${cur !== def ? 'var(--gold)' : 'var(--text)'};text-align:center">
-            </label>`;
-          }).join('')}
-          <button class="btn btn-sm btn-outline card-detail-pips-reset"
-            style="display:${_hasCustomPips ? '' : 'none'}"
-            onclick="resetCardCustomPips('${actionUidRef}')" title="Reset pips to Scryfall default">Reset</button>
-        </div>
         <div id="cardDetailRowCollection" class="card-detail-qty-row">
           <span class="card-detail-qty-row-label">In collection:</span>
-          <div style="flex:1;min-width:0">${_htmlCardDetailCollectionRows(ctx)}</div>
+          <div class="card-detail-qty-fill">${_htmlCardDetailCollectionRows(ctx)}</div>
         </div>
         <div id="cardDetailRowInDeck" class="card-detail-qty-row" style="display:${showInDeckRow ? 'flex' : 'none'}">
           ${inDeckInner}
         </div>
-        <div id="cardDetailRowPrimaryActions" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:0.75rem">
-          ${isOwned
-    ? `<button class="btn btn-primary btn-sm" onclick="addToDeckFromDetail('${actionUid}')">+ Add to Deck</button>
-               ${printBtn}
-               ${isCommanderCandidate ? `<button class="btn btn-outline btn-sm" onclick="buildSkeletonDeckFromInspectorCard('${actionUid}')">Build Skeleton Deck</button>` : ''}
-               <button class="btn btn-outline btn-sm" onclick="toggleWishlistFromDetail('${uid}')">${isWishlisted ? '♥ Wishlisted' : '♡ Wishlist'}</button>
-               <button type="button" id="cardDetailStarBtn" class="btn btn-outline btn-sm" data-detail-uid="${actionUid}" onclick="toggleCardStar('${actionUid}',event)">${card.starred ? '★ Starred' : '☆ Star'}</button>
-               <button class="btn btn-danger btn-sm" onclick="removeFromCollection('${actionUid}')">Remove</button>`
-    : `<button class="btn btn-primary btn-sm" onclick="addCardToCollectionFromDetail('${uid}')">+ Add to Collection</button>
-               ${printBtn}
-               <button class="btn btn-outline btn-sm" onclick="toggleWishlistFromDetail('${uid}')">${isWishlisted ? '♥ Wishlisted' : '♡ Wishlist'}</button>`}
+        <div id="cardDetailRowPrimaryActions" class="card-detail-actions">
+          ${_htmlCardDetailPrimaryActionsInner(ctx)}
         </div>
-        <div id="cardDetailDefaultTagsWrap" style="border-top:1px solid var(--border2);padding-top:0.75rem;margin-top:0.25rem;margin-bottom:0.75rem">
-          <div style="font-size:0.78rem;color:var(--text3);margin-bottom:6px;letter-spacing:0.04em">DEFAULT TAGS</div>
-          <div id="cardDetailDefaultTags" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-height:1.25rem">
+        <div id="cardDetailDefaultTagsWrap" class="card-detail-section">
+          <div class="card-detail-section-label">DEFAULT TAGS</div>
+          <div id="cardDetailDefaultTags" class="card-detail-chiprow" style="min-height:1.25rem">
             ${_renderCardDetailDefaultTagsInitialHtml(card)}
           </div>
         </div>
-        <div id="cardDetailMyTagsWrap" style="border-top:1px solid var(--border2);padding-top:0.75rem;margin-top:0.25rem;margin-bottom:0.75rem">
-          <div style="font-size:0.78rem;color:var(--text3);margin-bottom:6px;letter-spacing:0.04em">MY TAGS <span style="font-weight:400;opacity:0.85">· primary (teal) · secondary (gold)</span></div>
-          <div id="cardDetailMyTagsChips" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <div id="cardDetailMyTagsWrap" class="card-detail-section">
+          <div class="card-detail-section-label">MY TAGS <span class="card-detail-section-hint">· primary (teal) · secondary (gold)</span></div>
+          <div id="cardDetailMyTagsChips" class="card-detail-chiprow">
             ${myTagsChipsHtml}
             <button class="btn btn-outline btn-sm" onclick="openGlobalTagPickerForCard('${actionUidRef}')">Edit Tags</button>
           </div>
         </div>
-        <div id="cardDetailTagToDeckWrap" style="display:${showTagToDeck ? 'block' : 'none'};border-top:1px solid var(--border2);padding-top:0.75rem;margin-top:0.25rem">
-          ${tagToDeckInner}
-        </div>`;
+        <div id="cardDetailTagToDeckWrap" class="card-detail-section" style="display:${tagData.show ? 'block' : 'none'}">
+          ${tagData.html}
+        </div>
+        <details class="card-detail-disclosure"${_hasAdvanced ? ' open' : ''}>
+          <summary>Advanced · mana value &amp; pips</summary>
+          <div id="cardDetailCustomCmcWrap" class="card-detail-cmc-row">
+            <span class="card-detail-row-label">MANA VALUE</span>
+            <input type="number" id="cardDetailCustomCmcInput" class="card-detail-num-input${_cmcCustom ? ' is-custom' : ''}" min="0" step="0.5"
+              value="${card.customCmc != null ? card.customCmc : (card.cmc ?? '')}"
+              data-default-cmc="${card.cmc ?? 0}"
+              placeholder="${card.cmc ?? 0}"
+              oninput="setCardCustomCmc('${actionUidRef}', this.value)">
+            <button class="btn btn-sm btn-outline card-detail-cmc-reset"
+              style="display:${_cmcCustom ? '' : 'none'}"
+              onclick="setCardCustomCmc('${actionUidRef}', '')" title="Reset to Scryfall default (${card.cmc ?? 0})">Reset</button>
+            <span id="cardDetailCmcScryLabel" class="card-detail-row-hint">(Scryfall: ${card.cmc ?? 0})</span>
+          </div>
+          <div id="cardDetailCustomPipsWrap" class="card-detail-pips-row">
+            <span class="card-detail-row-label">PIPS</span>
+            ${['W','U','B','R','G'].map(col => {
+              const cur = _curPips[col] || 0;
+              const def = _naturalPips[col] || 0;
+              return `<label class="card-detail-pip-label" title="${{W:'White',U:'Blue',B:'Black',R:'Red',G:'Green'}[col]} pips">
+                <img src="https://svgs.scryfall.io/card-symbols/${col}.svg" class="mana-pip" alt="${col}" style="width:14px;height:14px;box-shadow:none">
+                <input type="number" class="card-detail-num-input card-detail-num-input--pip${cur !== def ? ' is-custom' : ''}" min="0" step="1"
+                  value="${cur}"
+                  data-color="${col}"
+                  data-default-pip="${def}"
+                  oninput="setCardCustomPip('${actionUidRef}', '${col}', this.value)">
+              </label>`;
+            }).join('')}
+            <button class="btn btn-sm btn-outline card-detail-pips-reset"
+              style="display:${_hasCustomPips ? '' : 'none'}"
+              onclick="resetCardCustomPips('${actionUidRef}')" title="Reset pips to Scryfall default">Reset</button>
+          </div>
+        </details>`;
 }
 
 function _findActiveDeckSlotByCardKey(activeDeck, cardKey) {
@@ -1857,7 +1854,7 @@ async function _loadCardDetailDefaultTags(card) {
     }
     el.innerHTML = tags.map(t => {
       const prot = typeof _isProtectedDeckTag === 'function' && _isProtectedDeckTag(t);
-      return `<span class="tag ${prot ? 'tag-scryfall' : 'tag-purple'}" style="font-size:0.84rem">${t}</span>`;
+      return `<span class="tag ${prot ? 'tag-scryfall' : 'tag-purple'}" style="font-size:0.84rem">${escapeHtml(t)}</span>`;
     }).join('');
     if (typeof activeDeckId !== 'undefined' && activeDeckId && typeof getActiveDeck === 'function') {
       const deck = getActiveDeck();
@@ -2018,7 +2015,7 @@ function patchOpenCardDetailMyTags() {
   const chipsHtml = globalTags.length
     ? globalTags.map(t => (typeof _deckTagChipHtml === 'function'
       ? _deckTagChipHtml(t, { interactive: false, size: '0.84rem', card })
-      : `<span class="tag tag-primary" style="font-size:0.84rem">${t}</span>`)).join('')
+      : `<span class="tag tag-primary" style="font-size:0.84rem">${escapeHtml(t)}</span>`)).join('')
     : '<span style="font-size:0.72rem;color:var(--text3)">No tags yet</span>';
   const ref = String(
     (card && typeof getCardInventoryKey === 'function' ? getCardInventoryKey(card) : null)
@@ -2697,7 +2694,7 @@ function findCardAutocomplete(q) {
       drop.innerHTML = _findAcNames.map((name, i) => `
         <div class="deck-ac-row" data-idx="${i}"
           style="padding:7px 12px;cursor:pointer;font-size:0.85rem;border-bottom:1px solid var(--border);color:var(--text)">
-          ${name}
+          ${escapeHtml(name)}
         </div>`).join('');
       drop.onclick = e => {
         const row = e.target.closest('.deck-ac-row');
@@ -2875,11 +2872,11 @@ function _renderFindCard(cards, el, append, total, isTokenQuery) {
     });
     div.style.cursor = 'pointer';
     div.innerHTML = `<div data-img-wrapper style="aspect-ratio:0.715;overflow:hidden;border-radius:6px;border:${border};position:relative;transition:border-color 0.15s;${cardFilter ? `filter:${cardFilter};` : ''}">
-      ${img ? `<img src="${img}" class="find-card-results-img" alt="${c.name}" loading="lazy">` : `<div style="width:100%;height:100%;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:0.68rem;padding:6px;text-align:center;color:var(--text2)">${c.name}</div>`}
+      ${img ? `<img src="${img}" class="find-card-results-img" alt="${escapeHtml(c.name)}" loading="lazy">` : `<div style="width:100%;height:100%;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:0.68rem;padding:6px;text-align:center;color:var(--text2)">${escapeHtml(c.name)}</div>`}
       <div data-badges style="position:absolute;inset:0;pointer-events:none">
         ${!useSharedPool && nfQtyDisplay > 0 ? `<div class="find-card-results-qty find-card-results-qty--nf">×${nfQtyDisplay}</div>` : ''}
         ${!useSharedPool && fQtyDisplay > 0 ? `<div class="find-card-results-qty find-card-results-qty--foil">✦×${fQtyDisplay}</div>` : ''}
-        ${fromLabel ? `<div class="find-card-shared-from">From ${fromLabel}</div>` : ''}
+        ${fromLabel ? `<div class="find-card-shared-from">From ${escapeHtml(fromLabel)}</div>` : ''}
       </div>
     </div>`;
     frag.appendChild(div);
@@ -3120,7 +3117,7 @@ function _renderCollectionShareList() {
   }
   listEl.innerHTML = _collectionShares.map(s => `
     <div class="collab-row">
-      <span class="collab-email">${s.email}</span>
+      <span class="collab-email">${escapeHtml(s.email)}</span>
       <button class="btn btn-ghost btn-sm" onclick="removeCollectionShare(${s.id})" title="Revoke access" style="color:var(--red);padding:2px 6px">✕</button>
     </div>
   `).join('');
@@ -3139,7 +3136,7 @@ function _renderSharedWithMe() {
     const uniqueNames = new Set((s.cards || []).map(c => c.name)).size;
     return `
       <div class="collab-row" style="cursor:pointer" onclick="viewSharedCollection(${s.ownerId})">
-        <span class="collab-email">${s.ownerEmail}</span>
+        <span class="collab-email">${escapeHtml(s.ownerEmail)}</span>
         <span style="font-size:0.75rem;color:var(--text3);white-space:nowrap">${uniqueNames.toLocaleString()} unique · ${count.toLocaleString()} cards</span>
         <span style="font-size:0.78rem;color:var(--teal);margin-left:4px">View →</span>
       </div>`;

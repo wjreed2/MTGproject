@@ -227,6 +227,29 @@
     max-width: 100% !important; width: 100% !important;
   }
   .modal-edge-nav { display: none !important; }
+  /* Tighter sheet padding; clear the home indicator at the bottom */
+  #cardDetailModal .card-detail-modal-scroll {
+    padding: 0 1rem calc(1.25rem + env(safe-area-inset-bottom)) !important;
+  }
+  /* In-sheet card navigator replaces the hidden edge arrows on phones */
+  #cardDetailModal .card-detail-mobile-nav {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    position: sticky; top: 0; z-index: 13;
+    margin: 0 -1rem 0.75rem; padding: 8px 10px;
+    background: var(--bg2); border-bottom: 1px solid var(--border2);
+  }
+  #cardDetailModal .card-detail-mnav-title {
+    flex: 1; min-width: 0; text-align: center;
+    font-family: 'Cinzel', serif; color: var(--gold); font-size: 0.95rem;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  #cardDetailModal .card-detail-mnav-btn {
+    min-width: 44px; min-height: 44px; font-size: 1.4rem; flex-shrink: 0;
+  }
+  /* Larger tap targets inside the inspector on phones */
+  #cardDetailModal .card-detail-qty-printing-row .btn-icon { min-width: 40px; min-height: 40px; }
+  #cardDetailModal .card-detail-qty-slot--empty { width: 40px; height: 40px; }
+  #cardDetailModal .card-detail-actions .btn { min-height: 40px; padding-block: 9px; }
 
   /* ── Tables ───────────────────────────────────────────────────────────── */
   table {

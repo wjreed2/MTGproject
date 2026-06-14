@@ -51,86 +51,124 @@ async function importFromText() {
       if (!m) return null;
       let name = m[2].trim();
       let setCode = '', collectorNumber = '', foil = false;
-      const exact = name.match(/\s+\[([A-Z0-9]{2,6})\s*#\s*([A-Z0-9]+[A-Z0-9\-]*)\s*(foil)?\]\s*$/i);
+      // Exact export bracket: [SET #NUM foil] — NUM may be "?" when the printing is unknown
+      const exact = name.match(/\s+\[([A-Z0-9]{2,6})\s*#\s*([A-Z0-9?★][A-Z0-9?★\-]*)\s*(foil)?\]\s*$/i);
       if (exact) {
         setCode = String(exact[1] || '').toUpperCase();
-        collectorNumber = String(exact[2] || '').trim();
+        const num = String(exact[2] || '').trim();
+        collectorNumber = num.includes('?') ? '' : num;
         foil = !!exact[3];
-        name = name.replace(/\s+\[[^\]]+\]\s*$/i, '').trim();
+      } else if (/\s+\[\s*foil\s*\]\s*$/i.test(name)) {
+        foil = true;
       }
+      name = name.replace(/\s+\[[^\]]*\]\s*$/, '').trim();
       name = name.replace(/\s+\([A-Z0-9]{2,6}\).*$/i, '').trim();
       return { qty: parseInt(m[1]) || 1, name, isCmdrTag, setCode, collectorNumber, foil };
     }
 
-    const blocks = raw.split(/\n[ \t]*\n/).map(b =>
-      b.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('//'))
-    ).filter(b => b.length > 0);
+    // Repair a paste where two copies got glued together without a newline
+    // ("…[DSK #87]1 Vren…") — a "]" directly followed by a quantity only
+    // happens at a paste junction, never inside a card name.
+    let lines = raw.replace(/\]\s*(?=\d+[x×]?\s)/g, ']\n')
+      .split('\n').map(l => l.trim()).filter(Boolean);
 
-    if (!blocks.length) { showNotif('No cards found — check the format and try again', true); return; }
-
-    let commanderLines, mainLines;
-    if (blocks.length === 1) {
-      commanderLines = [];
-      mainLines = blocks[0];
-    } else {
-      commanderLines = blocks[blocks.length - 1];
-      mainLines = blocks.slice(0, -1).flat();
+    // A doubled paste (the same list copied twice) would dump the second copy
+    // into the maybe board — when the input is one list repeated, keep one copy.
+    if (lines.length % 2 === 0) {
+      const half = lines.length / 2;
+      if (lines.slice(0, half).join('\n') === lines.slice(half).join('\n')) {
+        lines = lines.slice(0, half);
+      }
     }
 
-    const entries = [];
-    for (const line of mainLines) {
+    // Split into zones on "// Maybe board" / "// Sideboard" headers
+    // (matches this app's exact-printings export format).
+    const zones = { main: [], mb: [], sb: [] };
+    let zone = 'main';
+    for (const line of lines) {
+      const header = line.match(/^(?:\/\/|#)?\s*(maybe\s*board|considering|side\s*board)\s*:?\s*$/i);
+      if (header) { zone = /side/i.test(header[1]) ? 'sb' : 'mb'; continue; }
+      if (line.startsWith('//') || line.startsWith('#')) continue;
       const p = parseLine(line);
-      if (p) entries.push({ ...p, isCommander: p.isCmdrTag });
-    }
-    for (const line of commanderLines) {
-      const p = parseLine(line);
-      if (p) entries.push({ ...p, isCommander: true });
+      if (p) zones[zone].push(p);
     }
 
-    if (!entries.length) { showNotif('No cards found — check the format and try again', true); return; }
+    // Merge duplicate rows (same name + printing + foil) within each zone
+    for (const z of Object.keys(zones)) {
+      const seen = new Map();
+      zones[z] = zones[z].filter(e => {
+        const k = [e.name.toLowerCase(), e.setCode, e.collectorNumber, e.foil ? 'f' : 'n'].join('|');
+        const prev = seen.get(k);
+        if (prev) { prev.qty += e.qty; prev.isCmdrTag = prev.isCmdrTag || e.isCmdrTag; return false; }
+        seen.set(k, e);
+        return true;
+      });
+    }
 
-    const commanderEntry = entries.find(e => e.isCommander);
+    if (!zones.main.length && !zones.mb.length && !zones.sb.length) {
+      showNotif('No cards found — check the format and try again', true); return;
+    }
+
+    // Commander: *CMDR* tag wins; otherwise the first mainboard line is the
+    // commander for commander-style formats (matches this app's export order).
+    const hasCmdrTag = zones.main.some(e => e.isCmdrTag);
+    for (const e of zones.main) e.isCommander = e.isCmdrTag;
+    if (!hasCmdrTag && /commander|edh|brawl|oathbreaker/i.test(format)
+        && zones.main.length && zones.main[0].qty === 1) {
+      zones.main[0].isCommander = true;
+    }
+
+    const commanderEntry = zones.main.find(e => e.isCommander);
     const deck = {
       id: Date.now().toString(),
       name: deckName, format,
       commander: commanderEntry?.name || null,
       commanderColorIdentity: [], commanderImage: null,
-      notes: null, cards: [], colors: [],
+      notes: null, cards: [], maybeboard: [], sideboard: [],
+      sideboardEnabled: false, zoneLayout: 2, colors: [],
     };
 
-    for (const entry of entries) {
+    function entryToCard(entry) {
       const { qty, name, isCommander, setCode, collectorNumber, foil } = entry;
       const hasExactPrinting = !!(setCode && collectorNumber);
-      const owned = hasExactPrinting
-        ? collection.find(c =>
-            String(c?.set || '').toUpperCase() === setCode &&
-            String(c?.number || '').trim().toUpperCase() === String(collectorNumber).trim().toUpperCase() &&
-            !!c?.foil === !!foil
-          )
-        : collection.find(c => c.name?.toLowerCase() === name.toLowerCase());
-      if (owned) {
-        deck.cards.push({ ...owned, qty, isCommander });
-      } else {
-        deck.cards.push({
-          uid: name.replace(/\s+/g, '_') + (foil ? '_f' : '_n'),
-          scryfallId: null,
-          name, qty, foil: hasExactPrinting ? !!foil : false, isCommander,
-          type: '', mana: '', cmc: 0, colors: [], colorIdentity: [],
-          rarity: '', set: hasExactPrinting ? setCode.toLowerCase() : '',
-          setName: '', number: hasExactPrinting ? collectorNumber : '',
-          image: null, imageLarge: null,
-          priceTCG: 0, priceTCGFoil: 0, priceCK: 0, priceCKFoil: 0,
-          addedAt: Date.now(),
-        });
-      }
+      // Prefer collection copy: exact printing → same set + name → any printing by name
+      const owned =
+        (hasExactPrinting && collection.find(c =>
+          String(c?.set || '').toUpperCase() === setCode &&
+          String(c?.number || '').trim().toUpperCase() === collectorNumber.toUpperCase() &&
+          !!c?.foil === !!foil)) ||
+        (setCode && collection.find(c =>
+          c.name?.toLowerCase() === name.toLowerCase() &&
+          String(c?.set || '').toUpperCase() === setCode &&
+          !!c?.foil === !!foil)) ||
+        collection.find(c => c.name?.toLowerCase() === name.toLowerCase());
+      if (owned) return { ...owned, qty, isCommander: !!isCommander };
+      return {
+        uid: name.replace(/\s+/g, '_') + (foil ? '_f' : '_n'),
+        scryfallId: null,
+        name, qty, foil: !!foil, isCommander: !!isCommander,
+        type: '', mana: '', cmc: 0, colors: [], colorIdentity: [],
+        rarity: '', set: setCode ? setCode.toLowerCase() : '',
+        setName: '', number: collectorNumber || '',
+        image: null, imageLarge: null,
+        priceTCG: 0, priceTCGFoil: 0, priceCK: 0, priceCKFoil: 0,
+        addedAt: Date.now(),
+      };
     }
+
+    for (const e of zones.main) deck.cards.push(entryToCard(e));
+    for (const e of zones.mb)   deck.maybeboard.push(entryToCard(e));
+    for (const e of zones.sb)   deck.sideboard.push(entryToCard(e));
+    deck.sideboardEnabled = deck.sideboard.length > 0;
 
     deck.cards.sort((a, b) => (b.isCommander ? 1 : 0) - (a.isCommander ? 1 : 0));
 
-    const needsEnrich = deck.cards.filter(c => !c.scryfallId || !c.image || !c.type);
+    const allCards = [...deck.cards, ...deck.maybeboard, ...deck.sideboard];
+    const needsEnrich = allCards.filter(c => !c.scryfallId || !c.image || !c.type);
     if (needsEnrich.length) {
       showNotif(`Looking up ${needsEnrich.length} cards on Scryfall…`);
-      await enrichCardsByName(needsEnrich);
+      const notFound = await enrichCardsByName(needsEnrich);
+      if (notFound.length) console.warn('Scryfall could not identify these cards:', notFound);
     }
 
     const cmdCard = deck.cards.find(c => c.isCommander);
@@ -160,7 +198,11 @@ async function importFromText() {
     save('decks', 'collection');
     closeTextImport();
     showTab('decks');
-    showNotif(`Imported "${deck.name}" — ${deck.cards.length} cards`);
+    const extras = [
+      deck.maybeboard.length ? `${deck.maybeboard.length} maybe board` : '',
+      deck.sideboard.length ? `${deck.sideboard.length} sideboard` : '',
+    ].filter(Boolean).join(', ');
+    showNotif(`Imported "${deck.name}" — ${deck.cards.length} cards${extras ? ` (+ ${extras})` : ''}`);
   } catch (e) {
     showNotif('Import failed — ' + e.message, true);
   } finally {
@@ -498,21 +540,35 @@ async function importFromMoxfield() {
   }
 }
 
-// Name-based Scryfall lookup — used when we only have card names (no Scryfall ID)
-// Returns array of names that couldn't be found.
-async function enrichCardsByName(cards) {
-  const notFound = [];
+// For split cards like "Fire // Ice", Scryfall only finds them by the first face name
+function _scryfallLookupName(c) {
+  return c.name.includes('//') ? c.name.split('//')[0].trim() : c.name;
+}
+
+// Match a Scryfall result back to the card that requested it. Cards that asked
+// for an exact printing must match by set+number — several basics share one
+// name, so a name fallback would pile every Swamp result onto the first Swamp.
+// `allowNameForExact` opens name matching back up for the fallback passes,
+// where exact-printing cards are deliberately re-looked-up by name.
+function _matchEnrichTarget(batch, sc, allowNameForExact) {
+  const scSet  = String(sc.set || '').toLowerCase();
+  const scNum  = String(sc.collector_number || '').trim().toLowerCase();
+  const scName = String(sc.name || '').toLowerCase();
+  const pending = batch.filter(c => !c._enriched);
+  return pending.find(c => c.scryfallId && c.scryfallId === sc.id)
+    || pending.find(c => c.set && c.number
+        && String(c.set).toLowerCase() === scSet
+        && String(c.number).trim().toLowerCase() === scNum)
+    || pending.find(c => (allowNameForExact || !(c.set && c.number))
+        && (c.name?.toLowerCase() === scName
+            || scName.startsWith(c.name.split('//')[0].trim().toLowerCase())));
+}
+
+async function _enrichPass(cards, identifier, allowNameForExact) {
   const BATCH = 75;
   for (let i = 0; i < cards.length; i += BATCH) {
     const batch = cards.slice(i, i + BATCH);
     try {
-      // For split cards like "Fire // Ice", Scryfall only finds them by the first face name
-      const identifier = c => {
-        if (c.scryfallId) return { id: c.scryfallId };
-        if (c.set && c.number) return { set: c.set, collector_number: String(c.number) };
-        const lookupName = c.name.includes('//') ? c.name.split('//')[0].trim() : c.name;
-        return { name: lookupName };
-      };
       const res = await fetch('https://api.scryfall.com/cards/collection', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -520,16 +576,7 @@ async function enrichCardsByName(cards) {
       });
       const data = await res.json();
       for (const sc of (data.data || [])) {
-        // Match by id, or by canonical name (handles split cards where sc.name = "Fire // Ice")
-        const card = batch.find(c => {
-          const byId = c.scryfallId === sc.id;
-          const bySetNumber = c.set && c.number
-            && String(c.set).toLowerCase() === String(sc.set || '').toLowerCase()
-            && String(c.number).trim().toLowerCase() === String(sc.collector_number || '').trim().toLowerCase();
-          const byName = c.name?.toLowerCase() === sc.name?.toLowerCase()
-            || sc.name?.toLowerCase().startsWith(c.name.split('//')[0].trim().toLowerCase());
-          return byId || bySetNumber || byName;
-        });
+        const card = _matchEnrichTarget(batch, sc, allowNameForExact);
         if (!card) continue;
         const { foil, isCommander, qty } = card;
         const entry = cardToEntry(sc, qty);
@@ -537,16 +584,36 @@ async function enrichCardsByName(cards) {
         card.foil = foil;
         if (isCommander !== undefined) card.isCommander = isCommander;
         card.uid = sc.id + (foil ? '_f' : '_n');
-      }
-      // Track cards Scryfall couldn't identify
-      for (const nf of (data.not_found || [])) {
-        notFound.push(nf.name || nf.id || '?');
+        card._enriched = true;
       }
     } catch (e) {
       console.warn('Scryfall name enrich failed:', e);
     }
     if (i + BATCH < cards.length) await new Promise(r => setTimeout(r, 110));
   }
+}
+
+// Name-based Scryfall lookup — used when we only have card names (no Scryfall ID)
+// Returns array of names that couldn't be found.
+async function enrichCardsByName(cards) {
+  // Pass 1: most specific identifier available (id > set+number > name+set > name)
+  await _enrichPass(cards, c => {
+    if (c.scryfallId) return { id: c.scryfallId };
+    if (c.set && c.number) return { set: c.set, collector_number: String(c.number) };
+    return c.set ? { name: _scryfallLookupName(c), set: c.set } : { name: _scryfallLookupName(c) };
+  }, false);
+  // Pass 2: failed set+number lookups retry by name+set — covers bad collector numbers
+  let missing = cards.filter(c => !c._enriched && c.set && c.number);
+  if (missing.length) {
+    await _enrichPass(missing, c => ({ name: _scryfallLookupName(c), set: c.set }), true);
+  }
+  // Pass 3: last resort, plain name (any printing) — covers bad set codes
+  missing = cards.filter(c => !c._enriched);
+  if (missing.length) {
+    await _enrichPass(missing, c => ({ name: _scryfallLookupName(c) }), true);
+  }
+  const notFound = cards.filter(c => !c._enriched).map(c => c.name);
+  for (const c of cards) delete c._enriched;
   return notFound;
 }
 

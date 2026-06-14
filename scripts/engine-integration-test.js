@@ -34,6 +34,9 @@ const ctx = {
   clearTimeout: () => {},
   localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
   navigator: { userAgent: 'test' },
+  // Mirror the canonical escapeHtml from js/ui.js (the bundle concatenates ui.js
+  // before the engine; this bare VM does not, so provide it here).
+  escapeHtml: (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])),
   __timeouts: [],
 };
 ctx.globalThis = ctx;
