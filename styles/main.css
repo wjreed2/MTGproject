@@ -2815,6 +2815,34 @@ main {
   :root { --tablet-view-scale: 0.64; }
 }
 
+/* ── Tablet view — orientation / mobile refinements ─────────────────────────── */
+/* 2-player landscape: the two players are stacked and the centre timer box sits on
+   the seam between them — shrink both the box and the life totals so it stops
+   covering the numbers. */
+@media (orientation: landscape) {
+  #tabletView.tv-2p .tablet-life-num { font-size: clamp(3rem, min(18vw, 21vh), 8rem) !important; }
+  #tabletView.tv-2p .tablet-center-box { padding: 9px 18px !important; min-width: 144px !important; }
+  #tabletView.tv-2p .tablet-center-timer { font-size: clamp(1.6rem, 3.4vw, 2.6rem) !important; }
+}
+/* Portrait phones: larger self-damage buttons (the primary interaction). */
+@media (orientation: portrait) and (max-width: 680px) {
+  #tabletView .tablet-life-btn {
+    font-size: clamp(0.95rem, 4.6vw, 1.5rem) !important;
+    padding: clamp(12px, 2.8vh, 22px) 2px !important;
+  }
+}
+/* Phones (either orientation): enlarge the ⋯ menu + cumulative turn time and pull
+   them in from the screen edge so rounded corners / notches don't clip them. */
+@media (max-width: 680px), (max-height: 500px) {
+  #tabletView .tablet-corner--left  { left:  calc(env(safe-area-inset-left, 0px) + 20px) !important; }
+  #tabletView .tablet-corner--right { right: calc(env(safe-area-inset-right, 0px) + 20px) !important; }
+  #tabletView .tablet-dots-btn {
+    font-size: clamp(1.6rem, 5vw, 2.1rem) !important;
+    padding: 6px 12px !important;
+  }
+  #tabletView .tablet-total-time { font-size: clamp(0.82rem, 3vw, 1.1rem) !important; }
+}
+
 /* GAME TRACKER — targeting & action bar */
 #tab-games {
   zoom: 1.3;

@@ -1620,6 +1620,7 @@ function renderTabletView() {
   const rows = is2p ? 2 : (is3p ? 2 : Math.ceil(n / cols));
   el.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
   el.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
+  el.classList.toggle('tv-2p', is2p);
 
   const isAllMode = gameActionMode === 'deal1all' || gameActionMode === 'dealXall';
   const actionHint = {
@@ -1646,10 +1647,10 @@ function renderTabletView() {
       return renderTabletCell(game, game.players[pi], pi, n, cols, rotated, col);
     }).join('')}
     <!-- Center timer + turn controls -->
-    <div onclick="event.stopPropagation()" style="position:fixed;left:50%;${centerBoxV};z-index:10;
+    <div class="tablet-center-box" onclick="event.stopPropagation()" style="position:fixed;left:50%;${centerBoxV};z-index:10;
       background:color-mix(in oklab, var(--bg2) 90%, transparent);backdrop-filter:blur(16px);
       border:1px solid var(--border2);border-radius:18px;padding:12px 24px;text-align:center;min-width:164px">
-      <div style="font-family:'JetBrains Mono',monospace;font-size:clamp(2rem,4.5vw,3.2rem);font-weight:700;color:${_turnPaused ? 'var(--text3)' : 'var(--gold)'};line-height:1">
+      <div class="tablet-center-timer" style="font-family:'JetBrains Mono',monospace;font-size:clamp(2rem,4.5vw,3.2rem);font-weight:700;color:${_turnPaused ? 'var(--text3)' : 'var(--gold)'};line-height:1">
         <span id="tabletTurnTimerDisplay">${_turnPaused ? formatDuration(_pausedElapsed) : (game.turnStartedAt ? formatDuration(Date.now() - game.turnStartedAt) : '00:00')}</span>
       </div>
       ${activePlayer ? `<div style="font-size:clamp(0.6rem,1.3vw,0.82rem);color:${activePlayer.color};margin-top:5px;font-family:'Inter',system-ui,sans-serif;letter-spacing:0.04em">T${game.currentTurn} · ${escapeHtml(activePlayer.name)}</div>` : ''}
@@ -1743,10 +1744,10 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
       ${p.deckName ? `<div style="font-size:clamp(0.55rem,1.2vw,0.78rem);color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px">${escapeHtml(p.deckName)}${p.commander ? ' · ' + escapeHtml(p.commander) : ''}</div>` : ''}
       ${inTargetMode
         ? `<div style="position:absolute;top:50%;right:8px;transform:translateY(-50%);font-size:clamp(0.6rem,1.3vw,0.78rem);color:var(--gold);animation:targetPulse 1s ease-in-out infinite">${targetLabel}</div>`
-        : `<div style="position:absolute;top:50%;${dotsPos};transform:translateY(-50%);display:flex;align-items:center;gap:5px;flex-direction:${dotsPos.startsWith('left') ? 'row-reverse' : 'row'}">
+        : `<div class="tablet-corner ${dotsPos.startsWith('left') ? 'tablet-corner--left' : 'tablet-corner--right'}" style="position:absolute;top:50%;${dotsPos};transform:translateY(-50%);display:flex;align-items:center;gap:5px;flex-direction:${dotsPos.startsWith('left') ? 'row-reverse' : 'row'}">
              <span class="tablet-total-time" data-pid="${p.id}" title="Total time this player has spent on turns"
                style="font-family:'JetBrains Mono',monospace;font-size:clamp(0.5rem,1.05vw,0.7rem);color:var(--text3);white-space:nowrap">${formatDuration(playerTotalTime(game, p.id))}</span>
-             <button onclick="openTabletMenu('${p.id}',this,event,${rotated})"
+             <button class="tablet-dots-btn" onclick="openTabletMenu('${p.id}',this,event,${rotated})"
                style="background:none;border:none;cursor:pointer;padding:4px 7px;
                       font-size:clamp(1rem,2vw,1.3rem);line-height:1;letter-spacing:1px;
                       color:${isActiveTurn ? p.color : 'var(--text3)'}">⋯</button>
@@ -1755,7 +1756,7 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
 
     <!-- Life total -->
     <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:clamp(3px,0.8vh,8px);min-height:0">
-      <div style="font-family:'JetBrains Mono',monospace;font-size:${lifeFontSize};font-weight:700;line-height:1;color:${lifeColor};text-shadow:0 0 38px ${p.color}2e;transition:color 0.25s;user-select:none">${p.life}</div>
+      <div class="tablet-life-num" style="font-family:'JetBrains Mono',monospace;font-size:${lifeFontSize};font-weight:700;line-height:1;color:${lifeColor};text-shadow:0 0 38px ${p.color}2e;transition:color 0.25s;user-select:none">${p.life}</div>
       <div style="font-size:clamp(0.55rem,1.2vw,0.78rem);color:var(--text3)">of ${p.startingLife}</div>
       ${isCmd ? `<div style="display:flex;align-items:center;justify-content:center;gap:4px;flex-wrap:wrap;padding:0 8px;min-height:16px">${cmdBadges}</div>` : ''}
     </div>
