@@ -141,7 +141,7 @@ async function authLogout() {
 }
 
 async function loadAllData() {
-  const [col, dks, gms, wl, prefs, sharedDks, hist, sharedCols] = await Promise.all([
+  const [col, dks, gms, wl, prefs, sharedDks, hist, sharedCols, sharedWl] = await Promise.all([
     apiFetch('/collection'),
     apiFetch('/decks'),
     apiFetch('/games'),
@@ -150,8 +150,9 @@ async function loadAllData() {
     apiFetch('/decks/shared'),
     apiFetch('/history'),
     apiFetch('/collection/shared'),
+    apiFetch('/wishlist/shared'),
   ]);
-  return { collection: col, decks: dks, games: gms, wishlist: wl, prefs, sharedDecks: sharedDks, history: hist, sharedCollections: sharedCols };
+  return { collection: col, decks: dks, games: gms, wishlist: wl, prefs, sharedDecks: sharedDks, history: hist, sharedCollections: sharedCols, sharedWishlists: sharedWl };
 }
 
 // ── IndexedDB offline cache ───────────────────────────────────────────────
@@ -201,11 +202,12 @@ async function cacheSaveAll(data) {
     cacheSet('sharedDecks',      data.sharedDecks      || []),
     cacheSet('history',          data.history          || []),
     cacheSet('sharedCollections',data.sharedCollections|| []),
+    cacheSet('sharedWishlists',  data.sharedWishlists  || []),
   ]);
 }
 
 async function cacheLoadAll() {
-  const keys = ['collection','decks','games','wishlist','prefs','sharedDecks','history','sharedCollections'];
+  const keys = ['collection','decks','games','wishlist','prefs','sharedDecks','history','sharedCollections','sharedWishlists'];
   const vals = await Promise.all(keys.map(k => cacheGet(k)));
   if (vals.every(v => v === null)) return null;
   return {
@@ -217,6 +219,7 @@ async function cacheLoadAll() {
     sharedDecks:       vals[5] || [],
     history:           vals[6] || [],
     sharedCollections: vals[7] || [],
+    sharedWishlists:   vals[8] || [],
   };
 }
 

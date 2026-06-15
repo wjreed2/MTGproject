@@ -859,6 +859,14 @@
 
 <!-- WISHLIST TAB -->
 <div id="tab-wishlist" class="tab-content">
+  <!-- Shared wishlist banner — shown when viewing another user's wishlist -->
+  <div id="sharedWishlistViewBanner" style="display:none;align-items:center;gap:10px;margin-bottom:0.75rem;padding:8px 12px;background:rgba(60,120,200,0.12);border:1px solid rgba(60,120,200,0.3);border-radius:var(--radius2)">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;flex-shrink:0;color:var(--blue)"><path d="M13 8A5 5 0 1 1 3 8a5 5 0 0 1 10 0z"/><path d="M8 6v2l1.5 1.5"/></svg>
+    <span id="sharedWishlistBannerLabel" style="font-size:0.82rem;color:var(--text2)"></span>
+    <span style="font-size:0.76rem;color:var(--text3)">(read-only)</span>
+    <div style="flex:1"></div>
+    <button class="btn btn-ghost btn-sm" onclick="exitSharedWishlistView()" style="font-size:0.78rem;color:var(--text3)">← Back to my wishlist</button>
+  </div>
   <div style="display:grid;grid-template-columns:1fr 320px;gap:1.5rem">
     <div>
       <div class="view-controls" style="margin-bottom:1rem">
@@ -877,9 +885,12 @@
       <div class="panel">
         <div class="panel-header wishlist-panel-header">
           <span><span class="panel-title">Wishlist</span> <span id="wishlistTotal" style="font-size:0.78rem;color:var(--text3)"></span></span>
-          <div class="view-toggle" role="group" aria-label="Wishlist layout">
-            <button type="button" id="wishlistViewGrid" onclick="setWishlistViewMode('grid')">Grid</button>
-            <button type="button" id="wishlistViewList" onclick="setWishlistViewMode('list')">List</button>
+          <div style="display:flex;align-items:center;gap:8px">
+            <button class="btn btn-outline btn-sm" onclick="openWishlistShareModal()" style="white-space:nowrap;font-size:0.72rem;padding:3px 10px" title="Share wishlist / view shared wishlists">⇄ Share</button>
+            <div class="view-toggle" role="group" aria-label="Wishlist layout">
+              <button type="button" id="wishlistViewGrid" onclick="setWishlistViewMode('grid')">Grid</button>
+              <button type="button" id="wishlistViewList" onclick="setWishlistViewMode('list')">List</button>
+            </div>
           </div>
         </div>
         <div id="wishlistItems"></div>
@@ -1154,7 +1165,6 @@
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><circle cx="8" cy="8" r="2.2"/><path d="M13.4 8a5.4 5.4 0 0 0-.06-.77l1.23-.96-1.2-2.07-1.49.32a5.5 5.5 0 0 0-1.32-.77L10.3 2H5.7l-.26 1.75a5.5 5.5 0 0 0-1.32.77l-1.49-.32-1.2 2.07 1.23.96A5.4 5.4 0 0 0 2.6 8c0 .26.02.52.06.77l-1.23.96 1.2 2.07 1.49-.32c.4.33.84.6 1.32.77L5.7 14h4.6l.26-1.75c.48-.17.92-.44 1.32-.77l1.49.32 1.2-2.07-1.23-.96c.04-.25.06-.51.06-.77z"/></svg>
             Settings
           </button>
-        </div>
         <div class="voice-search-settings hidden" id="voiceSearchSettingsPanel" aria-hidden="true">
           <div class="settings-section-label">Scope</div>
           <label class="voice-settings-check voice-settings-check--last">
@@ -1192,6 +1202,7 @@
               </div>
             </div>
           </div>
+        </div>
         </div>
 
         <!-- VOICE TAB -->
@@ -1316,6 +1327,35 @@
     <div style="margin-top:1.25rem">
       <div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text3);margin-bottom:0.5rem">Shared With Me</div>
       <div id="collectionSharedWithMe"></div>
+    </div>
+  </div>
+</div>
+
+<!-- WISHLIST SHARING MODAL -->
+<div class="modal-overlay" id="wishlistShareModal" onclick="if(event.target===this)closeWishlistShareModal()">
+  <div class="modal" style="width:min(540px,96vw);max-height:88vh;overflow-y:auto">
+    <button class="btn btn-ghost btn-icon" style="position:absolute;top:0.75rem;right:0.75rem" onclick="closeWishlistShareModal()">✕</button>
+    <div class="modal-title">Wishlist Sharing</div>
+
+    <!-- Share my wishlist section -->
+    <div style="margin-bottom:1.5rem">
+      <div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text3);margin-bottom:0.5rem">Share My Wishlist</div>
+      <p style="font-size:0.8rem;color:var(--text3);margin:0 0 0.75rem">Invite someone to see what you're after. They view your wishlist read-only — and can spot which cards they already own.</p>
+      <div id="wishlistShareList" style="margin-bottom:0.75rem"></div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input id="wishlistShareEmail" type="email" placeholder="Email address…" style="flex:1"
+          onkeydown="if(event.key==='Enter')addWishlistShare()">
+        <button class="btn btn-primary btn-sm" onclick="addWishlistShare()">Share</button>
+      </div>
+      <div id="wishlistShareError" style="margin-top:6px;font-size:0.78rem;color:var(--red)"></div>
+    </div>
+
+    <div class="settings-divider"></div>
+
+    <!-- Wishlists shared with me -->
+    <div style="margin-top:1.25rem">
+      <div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text3);margin-bottom:0.5rem">Shared With Me</div>
+      <div id="wishlistSharedWithMe"></div>
     </div>
   </div>
 </div>

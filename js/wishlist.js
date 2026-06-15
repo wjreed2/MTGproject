@@ -1,5 +1,90 @@
 // Wishlist tab
 
+// ── Shared wishlist view state ────────────────────────────────────────────────
+let _viewingSharedWishlistOwnerId = null;
+
+/** The wishlist currently being rendered — my own, or a shared one I'm viewing. */
+function _getWishlistSource() {
+  if (!_viewingSharedWishlistOwnerId) return wishlist;
+  const sw = (typeof sharedWishlists !== 'undefined' ? sharedWishlists : [])
+    .find(s => s.ownerId === _viewingSharedWishlistOwnerId);
+  return sw ? (sw.cards || []) : wishlist;
+}
+
+function viewSharedWishlist(ownerId) {
+  _viewingSharedWishlistOwnerId = ownerId;
+  closeWishlistShareModal();
+  showTab('wishlist');
+  renderWishlist();
+}
+
+function exitSharedWishlistView() {
+  _viewingSharedWishlistOwnerId = null;
+  renderWishlist();
+}
+
+function _syncSharedWishlistBanner() {
+  const banner = document.getElementById('sharedWishlistViewBanner');
+  if (!banner) return;
+  if (!_viewingSharedWishlistOwnerId) {
+    banner.style.display = 'none';
+    return;
+  }
+  const sw = (typeof sharedWishlists !== 'undefined' ? sharedWishlists : [])
+    .find(s => s.ownerId === _viewingSharedWishlistOwnerId);
+  banner.style.display = 'flex';
+  const label = document.getElementById('sharedWishlistBannerLabel');
+  if (label) label.textContent = `Viewing ${sw?.ownerEmail ?? 'shared'} wishlist`;
+}
+
+/**
+ * Ownership status of a shared-wishlist card against MY collection.
+ * Returns { tier:'printing'|'name'|'none', printingQty, exactFinishQty, nameQty, wantFoil }.
+ *  - 'printing' = I own this exact printing (same Scryfall id, or same set + collector number)
+ *  - 'name'     = I own a different printing of the same card (name match only)
+ */
+function _wishlistCardOwnership(card) {
+  const scryId = card.scryfallId || card.id || null;
+  const name = (card.name || '').toLowerCase();
+  const wantFoil = !!card.foil;
+  let printingQty = 0, exactFinishQty = 0, nameQty = 0;
+  const coll = typeof collection !== 'undefined' ? collection : [];
+  for (const c of coll) {
+    const sameName = name && (c.name || '').toLowerCase() === name;
+    if (sameName) nameQty += (c.qty || 1);
+    const samePrinting = scryId
+      ? c.scryfallId === scryId
+      : (sameName
+          && (c.set || '').toLowerCase() === (card.set || '').toLowerCase()
+          && String(c.number || '') === String(card.number || ''));
+    if (samePrinting) {
+      printingQty += (c.qty || 1);
+      if (!!c.foil === wantFoil) exactFinishQty += (c.qty || 1);
+    }
+  }
+  let tier = 'none';
+  if (printingQty > 0) tier = 'printing';
+  else if (nameQty > 0) tier = 'name';
+  return { tier, printingQty, exactFinishQty, nameQty, wantFoil };
+}
+
+/** Small badge shown on a shared-wishlist card indicating whether I own it. */
+function _wishlistOwnershipBadge(card) {
+  const o = _wishlistCardOwnership(card);
+  if (o.tier === 'printing') {
+    const finishNote = o.exactFinishQty > 0
+      ? (o.wantFoil ? 'foil' : 'non-foil')
+      : (o.wantFoil ? 'you own non-foil' : 'you own foil');
+    const title = `In your collection — ${o.printingQty}× this printing (${finishNote})`;
+    return `<span class="wishlist-own-badge wishlist-own-badge--printing" title="${escapeHtml(title)}">✓ In collection</span>`;
+  }
+  if (o.tier === 'name') {
+    const title = `You own ${o.nameQty}× ${card.name} in a different printing`;
+    return `<span class="wishlist-own-badge wishlist-own-badge--name" title="${escapeHtml(title)}">◆ Own other printing</span>`;
+  }
+  return `<span class="wishlist-own-badge wishlist-own-badge--none">Not in collection</span>`;
+}
+
 /** Best display URL from a card object (collection entry, wishlist row, or Scryfall JSON). */
 function wishlistCardImgUrl(c) {
   if (!c) return '';
@@ -36,12 +121,16 @@ function renderWishlist() {
   const empty = document.getElementById('wishlistEmpty');
   const total = document.getElementById('wishlistTotal');
   syncWishlistViewButtons();
+  _syncSharedWishlistBanner();
   if (!el) return;
+  const shared = !!_viewingSharedWishlistOwnerId;
+  const items = _getWishlistSource();
   const mode = getWishlistViewMode();
   el.className = 'wishlist-display wishlist-display--' + mode;
 
-  if (wishlist.length === 0) {
+  if (items.length === 0) {
     el.innerHTML = ''; empty.style.display = 'block';
+    empty.textContent = shared ? 'This wishlist is empty' : 'Your wishlist is empty';
     total.textContent = '';
     document.getElementById('wlTCGLow').textContent = '—';
     document.getElementById('wlTCGMid').textContent = '—';
@@ -49,55 +138,63 @@ function renderWishlist() {
     return;
   }
   empty.style.display = 'none';
-  total.textContent = wishlist.length + ' cards';
+  total.textContent = items.length + ' cards';
 
-  const totalTCG = wishlist.reduce((s,c) => s + getTCGPriceForCard(c), 0);
-  const totalCK = wishlist.reduce((s,c) => s + getCKPriceForCard(c), 0);
+  const totalTCG = items.reduce((s,c) => s + getTCGPriceForCard(c), 0);
+  const totalCK = items.reduce((s,c) => s + getCKPriceForCard(c), 0);
   document.getElementById('wlTCGLow').textContent = '$' + (totalTCG * 0.8).toFixed(2);
   document.getElementById('wlTCGMid').textContent = '$' + totalTCG.toFixed(2);
   document.getElementById('wlCK').textContent = '$' + totalCK.toFixed(2);
 
+  // Shared-wishlist cards are cross-user data — escape every interpolated field.
+  const sub = c => `${escapeHtml((c.set || '').toUpperCase())}${c.number ? ' #' + escapeHtml(String(c.number)) : ''}`;
   const imgSrc = c => wishlistCardImgUrl(c);
   if (mode === 'grid') {
-    el.innerHTML = wishlist.map((c,i) => {
+    el.innerHTML = items.map((c,i) => {
       const src = imgSrc(c);
       const foilStrip = c.foil
         ? `<div style="position:absolute;bottom:0;left:0;right:0;text-align:center;font-size:0.55rem;font-weight:700;color:#0e0b00;background:var(--gold);padding:1px 0;letter-spacing:0.06em">✦ FOIL</div>`
         : '';
+      const actions = shared
+        ? `<div class="wishlist-grid-actions">${_wishlistOwnershipBadge(c)}</div>`
+        : `<div class="wishlist-grid-actions">
+          <button type="button" class="btn btn-sm" onclick="event.stopPropagation();moveWishlistToCollection(${i})" title="Add to collection" style="padding:4px 8px;font-size:0.68rem;background:rgba(90,184,90,0.18);border:1px solid rgba(90,184,90,0.55);color:var(--green)">Add to Collection</button>
+          <button type="button" class="btn btn-ghost btn-sm btn-icon" onclick="event.stopPropagation();removeWishlist(${i})" style="padding:4px 8px;font-size:0.72rem;flex-shrink:0" title="Remove">✕</button>
+        </div>`;
       return `
     <div class="card-item wishlist-grid-tile">
       <div class="card-img-wrap" style="position:relative">
         <div class="wishlist-priority wishlist-priority--on-card priority-${c.priority||'med'}"></div>
         ${src
-          ? `<img src="${src}" alt="" loading="lazy"${c.foil ? ` style="filter:drop-shadow(0 0 6px rgba(201,168,76,0.5))"` : ''}>`
-          : `<div class="card-img-placeholder"><span>${(c.set||'?').toUpperCase()}</span></div>`}
+          ? `<img src="${escapeHtml(src)}" alt="" loading="lazy"${c.foil ? ` style="filter:drop-shadow(0 0 6px rgba(201,168,76,0.5))"` : ''}>`
+          : `<div class="card-img-placeholder"><span>${escapeHtml((c.set||'?').toUpperCase())}</span></div>`}
         ${foilStrip}
       </div>
       <div class="card-meta">
-        <div class="card-name">${c.name}</div>
-        <div class="wishlist-grid-sub">${c.set?.toUpperCase()}${c.number ? ' #' + c.number : ''} · $${getTCGPriceForCard(c).toFixed(2)}</div>
-        <div class="wishlist-grid-actions">
-          <button type="button" class="btn btn-sm" onclick="event.stopPropagation();moveWishlistToCollection(${i})" title="Add to collection" style="padding:4px 8px;font-size:0.68rem;background:rgba(90,184,90,0.18);border:1px solid rgba(90,184,90,0.55);color:var(--green)">Add to Collection</button>
-          <button type="button" class="btn btn-ghost btn-sm btn-icon" onclick="event.stopPropagation();removeWishlist(${i})" style="padding:4px 8px;font-size:0.72rem;flex-shrink:0" title="Remove">✕</button>
-        </div>
+        <div class="card-name">${escapeHtml(c.name)}</div>
+        <div class="wishlist-grid-sub">${sub(c)} · $${getTCGPriceForCard(c).toFixed(2)}</div>
+        ${actions}
       </div>
     </div>`;
     }).join('');
     return;
   }
 
-  el.innerHTML = wishlist.map((c,i) => {
+  el.innerHTML = items.map((c,i) => {
     const src = imgSrc(c);
+    const actions = shared
+      ? _wishlistOwnershipBadge(c)
+      : `<button class="btn btn-sm" onclick="moveWishlistToCollection(${i})" title="Add to collection" style="padding:3px 8px;font-size:0.7rem;background:rgba(90,184,90,0.18);border:1px solid rgba(90,184,90,0.55);color:var(--green)">Add to Collection</button>
+      <button class="btn btn-ghost btn-sm btn-icon" onclick="removeWishlist(${i})" style="padding:3px 7px;font-size:0.72rem">✕</button>`;
     return `
     <div class="wishlist-item">
       <div class="wishlist-priority priority-${c.priority||'med'}"></div>
-      ${src ? `<img class="wishlist-thumb" src="${src}" alt="" loading="lazy">` : ''}
+      ${src ? `<img class="wishlist-thumb" src="${escapeHtml(src)}" alt="" loading="lazy">` : ''}
       <div style="flex:1;min-width:0">
-        <div style="font-size:0.88rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.name}</div>
-        <div style="font-size:0.72rem;color:var(--text3)">${c.set?.toUpperCase()}${c.number ? ' #' + c.number : ''}${c.foil ? ' ✦ Foil' : ''} • $${getTCGPriceForCard(c).toFixed(2)}</div>
+        <div style="font-size:0.88rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(c.name)}</div>
+        <div style="font-size:0.72rem;color:var(--text3)">${sub(c)}${c.foil ? ' ✦ Foil' : ''} • $${getTCGPriceForCard(c).toFixed(2)}</div>
       </div>
-      <button class="btn btn-sm" onclick="moveWishlistToCollection(${i})" title="Add to collection" style="padding:3px 8px;font-size:0.7rem;background:rgba(90,184,90,0.18);border:1px solid rgba(90,184,90,0.55);color:var(--green)">Add to Collection</button>
-      <button class="btn btn-ghost btn-sm btn-icon" onclick="removeWishlist(${i})" style="padding:3px 7px;font-size:0.72rem">✕</button>
+      ${actions}
     </div>`;
   }).join('');
 }
@@ -328,3 +425,91 @@ document.addEventListener('click', e => {
   if (!drop || !input) return;
   if (!drop.contains(e.target) && e.target !== input) drop.style.display = 'none';
 });
+
+// ── Wishlist sharing modal (mirrors collection sharing) ───────────────────────
+
+let _wishlistShares = []; // [{ id, email, addedAt }] — who I'm sharing with
+
+async function openWishlistShareModal() {
+  const modal = document.getElementById('wishlistShareModal');
+  if (!modal) return;
+  modal.classList.add('open');
+  await _refreshWishlistShareModal();
+}
+
+function closeWishlistShareModal() {
+  document.getElementById('wishlistShareModal')?.classList.remove('open');
+}
+
+async function _refreshWishlistShareModal() {
+  try {
+    _wishlistShares = await apiFetch('/wishlist/shares');
+  } catch (_) {
+    _wishlistShares = [];
+  }
+  _renderWishlistShareList();
+  _renderWishlistSharedWithMe();
+}
+
+function _renderWishlistShareList() {
+  const listEl = document.getElementById('wishlistShareList');
+  if (!listEl) return;
+  if (!_wishlistShares.length) {
+    listEl.innerHTML = '<p style="font-size:0.83rem;color:var(--text3);margin:0">Not sharing with anyone yet.</p>';
+    return;
+  }
+  listEl.innerHTML = _wishlistShares.map(s => `
+    <div class="collab-row">
+      <span class="collab-email">${escapeHtml(s.email)}</span>
+      <button class="btn btn-ghost btn-sm" onclick="removeWishlistShare(${s.id})" title="Revoke access" style="color:var(--red);padding:2px 6px">✕</button>
+    </div>
+  `).join('');
+}
+
+function _renderWishlistSharedWithMe() {
+  const el = document.getElementById('wishlistSharedWithMe');
+  if (!el) return;
+  const sw = typeof sharedWishlists !== 'undefined' ? sharedWishlists : [];
+  if (!sw.length) {
+    el.innerHTML = '<p style="font-size:0.83rem;color:var(--text3);margin:0">No one has shared their wishlist with you yet.</p>';
+    return;
+  }
+  el.innerHTML = sw.map(s => {
+    const count = (s.cards || []).length;
+    const uniqueNames = new Set((s.cards || []).map(c => c.name)).size;
+    return `
+      <div class="collab-row" style="cursor:pointer" onclick="viewSharedWishlist(${s.ownerId})">
+        <span class="collab-email">${escapeHtml(s.ownerEmail)}</span>
+        <span style="font-size:0.75rem;color:var(--text3);white-space:nowrap">${uniqueNames.toLocaleString()} unique · ${count.toLocaleString()} cards</span>
+        <span style="font-size:0.78rem;color:var(--teal);margin-left:4px">View →</span>
+      </div>`;
+  }).join('');
+}
+
+async function addWishlistShare() {
+  const input = document.getElementById('wishlistShareEmail');
+  const errEl = document.getElementById('wishlistShareError');
+  const email = (input?.value || '').trim().toLowerCase();
+  if (!email) return;
+  if (errEl) errEl.textContent = '';
+  try {
+    await apiPostJson('/wishlist/shares', { email });
+    if (input) input.value = '';
+    showNotif(`Shared wishlist with ${email}`);
+    await _refreshWishlistShareModal();
+  } catch (e) {
+    if (errEl) errEl.textContent = e.message || 'Could not share wishlist';
+  }
+}
+
+async function removeWishlistShare(viewerId) {
+  const errEl = document.getElementById('wishlistShareError');
+  if (errEl) errEl.textContent = '';
+  try {
+    await apiDelete('/wishlist/shares/' + viewerId);
+    showNotif('Wishlist share removed');
+    await _refreshWishlistShareModal();
+  } catch (e) {
+    if (errEl) errEl.textContent = e.message || 'Could not remove share';
+  }
+}

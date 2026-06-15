@@ -1389,6 +1389,7 @@ main {
 /* VOICE TABS */
 .voice-tab-bar {
   display: flex;
+  position: relative;
   border-bottom: 1px solid var(--border2);
   margin-bottom: 1.25rem;
 }
@@ -1414,10 +1415,12 @@ main {
   color: var(--text2);
 }
 .voice-search-settings {
-  margin: -0.4rem 0 1rem;
-  width: 100%;
-  max-width: 260px;
-  margin-left: auto;
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 60;
+  width: 260px;
+  max-width: min(260px, calc(100vw - 40px));
   padding: 1rem;
   border: 1px solid var(--border2);
   border-radius: var(--radius2);
@@ -4914,6 +4917,34 @@ textarea.deck-import:focus { outline: none; border-color: var(--gold); }
 .wishlist-grid-tile .wishlist-grid-actions .btn:first-of-type {
   flex: 1;
   min-width: 0;
+}
+/* Collection-ownership badge on a shared wishlist card */
+.wishlist-own-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.66rem;
+  font-weight: 600;
+  line-height: 1;
+  padding: 3px 7px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.wishlist-own-badge--printing {
+  color: var(--green);
+  background: rgba(90, 184, 90, 0.16);
+  border-color: rgba(90, 184, 90, 0.45);
+}
+.wishlist-own-badge--name {
+  color: var(--gold);
+  background: rgba(201, 168, 76, 0.14);
+  border-color: rgba(201, 168, 76, 0.4);
+}
+.wishlist-own-badge--none {
+  color: var(--text3);
+  background: transparent;
+  border-color: var(--border);
 }
 .wishlist-item {
   display: flex; align-items: center; gap: 10px;

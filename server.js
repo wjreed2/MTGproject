@@ -620,6 +620,19 @@ async function ensureNormalizedDeckSchema() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
 
+    // Wishlist shares table (mirrors collection_shares)
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS wishlist_shares (
+        owner_id    BIGINT UNSIGNED NOT NULL,
+        viewer_id   BIGINT UNSIGNED NOT NULL,
+        added_at    BIGINT          NOT NULL DEFAULT 0,
+        PRIMARY KEY (owner_id, viewer_id),
+        INDEX idx_wishshare_viewer (viewer_id),
+        CONSTRAINT fk_wishshare_owner  FOREIGN KEY (owner_id)  REFERENCES accounts(id) ON DELETE CASCADE,
+        CONSTRAINT fk_wishshare_viewer FOREIGN KEY (viewer_id) REFERENCES accounts(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
     // Index migrations for hot query paths
     const deckIndexes = [
       ['decks', 'idx_decks_id', 'ALTER TABLE decks ADD INDEX idx_decks_id (id)'],
@@ -2057,6 +2070,78 @@ app.put('/api/wishlist', requireAuth, async (req, res) => {
     console.error(e);
     res.status(500).json({ error: e.message });
   }
+});
+
+// ── Wishlist sharing (mirrors collection sharing) ───────────────────────────────
+
+// Wishlists shared with me (viewer)
+app.get('/api/wishlist/shared', requireAuth, async (req, res) => {
+  try {
+    const [shareRows] = await db().query(
+      `SELECT ws.owner_id, a.email AS owner_email
+       FROM wishlist_shares ws JOIN accounts a ON a.id = ws.owner_id
+       WHERE ws.viewer_id = ?`,
+      [req.accountId]
+    );
+    if (!shareRows.length) return res.json([]);
+    const ownerIds = shareRows.map(r => r.owner_id);
+    const ph = ownerIds.map(() => '?').join(',');
+    const [cardRows] = await db().query(
+      `SELECT account_id, data FROM wishlist WHERE account_id IN (${ph}) ORDER BY account_id, added_at`,
+      ownerIds
+    );
+    const byOwner = new Map();
+    for (const r of cardRows) {
+      if (!byOwner.has(r.account_id)) byOwner.set(r.account_id, []);
+      const card = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
+      byOwner.get(r.account_id).push(card);
+    }
+    res.json(shareRows.map(r => ({
+      ownerId: r.owner_id,
+      ownerEmail: r.owner_email,
+      cards: byOwner.get(r.owner_id) || [],
+    })));
+  } catch (e) { console.error(e); res.status(500).json({ error: e.message }); }
+});
+
+// Who I'm sharing my wishlist with
+app.get('/api/wishlist/shares', requireAuth, async (req, res) => {
+  try {
+    const [rows] = await db().query(
+      `SELECT a.id, a.email, ws.added_at FROM wishlist_shares ws
+       JOIN accounts a ON a.id = ws.viewer_id
+       WHERE ws.owner_id = ? ORDER BY ws.added_at ASC`,
+      [req.accountId]
+    );
+    res.json(rows.map(r => ({ id: r.id, email: r.email, addedAt: r.added_at })));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Share my wishlist with someone by email
+app.post('/api/wishlist/shares', requireAuth, async (req, res) => {
+  const email = String(req.body?.email || '').toLowerCase().trim();
+  if (!email) return res.status(400).json({ error: 'Email required' });
+  try {
+    const [userRows] = await db().query('SELECT id, email FROM accounts WHERE email=?', [email]);
+    if (!userRows.length) return res.status(404).json({ error: 'No user found with that email' });
+    if (Number(userRows[0].id) === Number(req.accountId))
+      return res.status(400).json({ error: 'Cannot share with yourself' });
+    await db().query(
+      'INSERT IGNORE INTO wishlist_shares (owner_id, viewer_id, added_at) VALUES (?,?,?)',
+      [req.accountId, userRows[0].id, Date.now()]
+    );
+    res.json({ ok: true, viewer: { id: userRows[0].id, email: userRows[0].email } });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Revoke wishlist share
+app.delete('/api/wishlist/shares/:viewerId', requireAuth, async (req, res) => {
+  const viewerId = parseInt(req.params.viewerId);
+  if (!Number.isFinite(viewerId)) return res.status(400).json({ error: 'Invalid viewer id' });
+  try {
+    await db().query('DELETE FROM wishlist_shares WHERE owner_id=? AND viewer_id=?', [req.accountId, viewerId]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ── Preferences ───────────────────────────────────────────────────────────────

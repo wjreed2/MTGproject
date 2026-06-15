@@ -69,6 +69,7 @@ let games      = [];
 let activeGameId = null;
 let sharedDecks = [];
 let sharedCollections = []; // [{ ownerId, ownerEmail, cards: [] }]
+let sharedWishlists   = []; // [{ ownerId, ownerEmail, cards: [] }]
 let isPriceRefreshRunning = false;
 let currentUser = null; // { id, email, role, createdAt, lastLoginAt, changelogAckAt } — set after session
 
@@ -183,6 +184,7 @@ async function loadAppDataAfterAuth() {
     });
     sharedDecks = data.sharedDecks || [];
     sharedCollections = data.sharedCollections || [];
+    sharedWishlists = data.sharedWishlists || [];
     sharedDecks.forEach(d => {
       if (typeof _ensureDeckZones === 'function') _ensureDeckZones(d);
       if (!Array.isArray(d.disabledTags)) d.disabledTags = [];
