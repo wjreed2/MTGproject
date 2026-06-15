@@ -1919,7 +1919,7 @@ function addToWishlistAnyFromDetail(uid) {
     priority: 'med',
     addedAt: Date.now()
   });
-  save('collection');
+  save('wishlist');
   renderWishlist();
   showNotif('Added to wishlist');
 }
@@ -1937,7 +1937,7 @@ function toggleWishlistFromDetail(uid) {
   const idx = wishlist.findIndex(c => c.scryfallId === sourceCard.scryfallId);
   if (idx >= 0) {
     wishlist.splice(idx, 1);
-    save('collection');
+    save('wishlist');
     renderWishlist();
     openCardDetail(uid);
     showNotif('Removed from wishlist');
