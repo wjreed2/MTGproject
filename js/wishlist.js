@@ -416,7 +416,7 @@ function moveWishlistToCollection(i) {
   const wUid = card.scryfallId + (card.foil ? '_f' : '_n');
   const existing = collection.find(c => c.uid === wUid);
   if (existing) { existing.qty++; } else { collection.push({...card, uid: wUid, qty: 1, addedAt: Date.now()}); }
-  wishlist.splice(i, 1); save('wishlist'); renderWishlist(); renderCollection(); showNotif('Moved to collection!');
+  wishlist.splice(i, 1); save('collection', 'wishlist'); renderWishlist(); renderCollection(); showNotif('Moved to collection!');
 }
 
 document.addEventListener('click', e => {
