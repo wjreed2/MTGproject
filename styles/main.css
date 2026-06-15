@@ -2526,6 +2526,19 @@ main {
 #cardDetailModal .card-detail-num-input.is-custom { color: var(--gold); }
 .card-detail-pip-label { display: flex; align-items: center; gap: 2px; }
 
+/* Price-history chart (Advanced pane) */
+.cd-price-chart { margin-bottom: 0.85rem; }
+.cd-price-controls { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 10px; min-height: 1.4rem; }
+.cd-price-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.cd-price-btn {
+  font-size: 0.72rem; padding: 3px 10px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--border2); background: var(--bg3); color: var(--text3);
+  font-family: 'Inter', system-ui, sans-serif; transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+.cd-price-btn:hover { color: var(--text); border-color: var(--border3); }
+.cd-price-btn.active { background: var(--gold-dim); border-color: var(--gold); color: var(--gold); }
+.cd-price-canvas-wrap { position: relative; height: 180px; }
+
 /* Replacements block — margin-top keeps the divider off the Advanced section above it */
 .card-detail-repl-block { border-top: 2px solid var(--border2); margin-top: 1.25rem; padding: 1rem 1.25rem; }
 

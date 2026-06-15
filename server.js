@@ -653,6 +653,45 @@ async function ensureNormalizedDeckSchema() {
   }
 }
 
+// Historical card pricing (sourced from MTGJSON; see scripts/mtgjson-*.js).
+// card_price_daily: one WIDE row per (uuid, date) — finishes/vendors as columns.
+// mtgjson_printing: uuid -> scryfallId + light metadata for joins & foil labels.
+async function ensurePriceHistorySchema() {
+  await db().query(`
+    CREATE TABLE IF NOT EXISTS card_price_daily (
+      uuid          BINARY(16)    NOT NULL,
+      snapshot_date DATE          NOT NULL,
+      tcg_normal    DECIMAL(10,2) NULL,
+      tcg_foil      DECIMAL(10,2) NULL,
+      tcg_etched    DECIMAL(10,2) NULL,
+      ck_normal     DECIMAL(10,2) NULL,
+      ck_foil       DECIMAL(10,2) NULL,
+      ck_etched     DECIMAL(10,2) NULL,
+      ckb_normal    DECIMAL(10,2) NULL,
+      ckb_foil      DECIMAL(10,2) NULL,
+      cm_normal     DECIMAL(10,2) NULL,
+      cm_foil       DECIMAL(10,2) NULL,
+      PRIMARY KEY (uuid, snapshot_date),
+      KEY idx_cpd_date (snapshot_date)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+  await db().query(`
+    CREATE TABLE IF NOT EXISTS mtgjson_printing (
+      uuid        BINARY(16)   NOT NULL,
+      scryfall_id CHAR(36)     NULL,
+      name        VARCHAR(255) NOT NULL DEFAULT '',
+      set_code    VARCHAR(16)  NOT NULL DEFAULT '',
+      number      VARCHAR(32)  NOT NULL DEFAULT '',
+      rarity      VARCHAR(20)  NOT NULL DEFAULT '',
+      finishes    VARCHAR(64)  NOT NULL DEFAULT '',
+      promo_types VARCHAR(255) NOT NULL DEFAULT '',
+      available   TINYINT(1)   NOT NULL DEFAULT 1,
+      updated_at  BIGINT       NOT NULL DEFAULT 0,
+      PRIMARY KEY (uuid),
+      KEY idx_mp_scryfall (scryfall_id),
+      KEY idx_mp_set (set_code)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+}
+
 function normalizeDeckTagNameForDb(v) {
   return String(v || '').trim().replace(/\s+/g, ' ').slice(0, 100);
 }
@@ -1494,6 +1533,29 @@ app.delete('/api/decks/:id/share-link', requireAuth, async (req, res) => {
     );
     if (!r.affectedRows) return res.status(404).json({ error: 'Deck not found' });
     res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Per-printing daily price history for the card inspector chart (MTGJSON-sourced).
+app.get('/api/cards/price-history/:scryfallId', requireAuth, async (req, res) => {
+  try {
+    const sid = String(req.params.scryfallId || '');
+    if (!/^[0-9a-fA-F-]{36}$/.test(sid)) return res.status(400).json({ error: 'bad scryfall id' });
+    const [rows] = await db().query(
+      `SELECT DATE_FORMAT(c.snapshot_date, '%Y-%m-%d') d,
+              c.tcg_normal, c.tcg_foil, c.tcg_etched,
+              c.ck_normal, c.ck_foil, c.ck_etched, c.ckb_normal, c.ckb_foil,
+              c.cm_normal, c.cm_foil
+       FROM mtgjson_printing p
+       JOIN card_price_daily c ON c.uuid = p.uuid
+       WHERE p.scryfall_id = ?
+       ORDER BY c.snapshot_date ASC`,
+      [sid]
+    );
+    res.json({ scryfallId: sid, points: rows });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
@@ -4555,6 +4617,7 @@ async function start() {
       await ensureTagOverrideTables();
       await ensureCollectionRoleTagsColumns();
       await ensureScryfallTagCacheTable();
+      await ensurePriceHistorySchema();
       await backfillDeckCardsIfEmpty();
     } catch (e) {
       console.error('[db] schema/backfill warning:', e.message);
