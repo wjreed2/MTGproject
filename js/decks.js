@@ -5568,6 +5568,7 @@ function _suggestCardsToCut(deck) {
 
   const candidates = cards.filter(c => {
     if (c.isCommander || (deck.commander && c.name === deck.commander)) return false;
+    if (_isTokenTypeDeckCard(c)) return false; // tokens aren't real deck cards
     const tl = typeof resolveCardTypeLine === 'function' ? resolveCardTypeLine(c) : (c.type || '');
     if (tl && tl.toLowerCase().includes('land')) return false;
     return true;
@@ -5617,6 +5618,15 @@ function _suggestCardsToCut(deck) {
     const gate = _replCastTriggerFactor(blob, metricCounts);
     const gatePenalty = (1 - gate.factor) * 2.5;
     card._cutScore = maxSurplus + cmcFactor + cmcPenalty + noRoleBonus - multiRoleDiscount + priceBonus + curvePenalty - tribalShield - themeShield + gatePenalty;
+    card._cutBreakdown = {
+      noRole, noRoleBonus,
+      surplusTag, surplusCount: roleCount[surplusTag] || 0, surplusThresh: thresholds[surplusTag],
+      maxSurplus, cmcFactor, cmcPenalty, cmc: card.cmc || 0, cmdCmc,
+      curvePenalty, cmcBucket, priceBonus,
+      gatePenalty, gateLabel: gate.label, gateHave: gate.have,
+      multiRoleDiscount, tagCount: tags.length, tribalShield, themeShield,
+      tagList: tags,
+    };
     let reason = _buildCutReason(card, tags, surplusTag, roleCount, thresholds, cmdCmc, noRole, bucketExcess, planCount);
     if (gatePenalty > 0.1) reason += ` — payoff needs ${gate.label} (deck has ${gate.have})`;
     if (tribalShield > 0) reason += ' — spared some: fits tribal theme';
@@ -5685,11 +5695,17 @@ function _renderCutSuggestions(deck) {
     const sid = card.scryfallId || card.uid || '';
     const displayName = escapeHtml(card.name);
     const score = (card._cutScore || 0).toFixed(1);
-    const reason = escapeHtml(card._cutReason || '');
-    return `<div class="cut-candidate-row">
-      <span class="cut-score-badge tooltip-wrap" aria-label="Cut score: ${score}">${score}<span class="tooltip cut-score-tooltip">${reason}</span></span>
-      <span class="cut-card-name" onclick="openCardDetail('${sid}','deck')">${displayName}</span>
-      <button class="btn-danger-ghost" onclick="adjustDeckCardQtyByUid('${uid}',-1)">Cut</button>
+    const b = card._cutBreakdown || {};
+    const whyLines = _buildCutWhyLines(b);
+    const footer = `Role tags: ${(b.tagList && b.tagList.length) ? escapeHtml(b.tagList.join(', ')) : '—'}`;
+    const why = _suggestWhyDetailHtml('Why cut this', score, whyLines, footer);
+    return `<div class="suggest-item">
+      <div class="cut-candidate-row">
+        <button type="button" class="cut-score-badge cut-why-toggle" aria-expanded="false" aria-label="Why cut · score ${score}" onclick="_toggleSuggestWhy(this)">${score}<span class="cut-why-caret" aria-hidden="true">⌄</span></button>
+        <span class="cut-card-name" onclick="openCardDetail('${sid}','deck')">${displayName}</span>
+        <button class="btn-danger-ghost" onclick="adjustDeckCardQtyByUid('${uid}',-1)">Cut</button>
+      </div>
+      ${why}
     </div>`;
   }).join('');
 }
@@ -5772,22 +5788,29 @@ function _scoreAddCandidate(card, roles, ctx) {
     gate = _replCastTriggerFactor(blob, ctx.metricCounts || {});
     roleFit *= gate.factor;
   }
+  // Tribal is a light tiebreaker among role-fillers, NOT a primary driver — the
+  // old +2/+1 made it rival genuine role-fit and over-tuned suggestions to tribe.
   let tribal = 0, tribe = '';
   if (ctx.tribes && ctx.tribes.length) {
     const subs = _ckCandidateTribes(card);
     const sharedTribe = ctx.tribes.find(t => subs.includes(t));
-    if (sharedTribe) tribal += 2;
+    if (sharedTribe) tribal += 1;
     const mention = ctx.tribes.find(t => _tribeWordRegex(t).test(blob));
-    if (mention) tribal += 1;
+    if (mention) tribal += 0.5;
     tribe = sharedTribe || mention || '';
   }
-  // Commander cast-theme synergy (e.g. Helga: creatures MV 4+) — same weight as tribal.
+  // Commander cast-theme synergy (e.g. Helga: creatures MV 4+).
   const theme = (ctx.castThemes || []).find(t => t.test(card));
   const themeBonus = theme ? 2 : 0;
   const bucket = Math.min(Math.floor(_effCmcSafe(card)), 7);
   const curveBonus = Math.min((ctx.curveDeficit[bucket] || 0) * 5, 1.5);
   const versatility = Math.max(0, real.length - 1) * 0.3;
-  return { score: roleFit + curveBonus + versatility + tribal + themeBonus, topRole, topVal, bucket, roles: real, gate, tribal, tribe, theme };
+  return {
+    score: roleFit + curveBonus + versatility + tribal + themeBonus,
+    topRole, topVal, bucket, roles: real, gate, tribal, tribe, theme,
+    // Component values surfaced in the "why" breakdown.
+    roleFit, curveBonus, versatility, themeBonus,
+  };
 }
 
 function _buildAddReason(name, s, ctx, owned) {
@@ -5806,6 +5829,73 @@ function _buildAddReason(name, s, ctx, owned) {
   if ((ctx.curveDeficit[s.bucket] || 0) > 0.02) parts.push(`fills a thin spot on your curve at ${s.bucket}${s.bucket === 7 ? '+' : ''} MV`);
   parts.push(owned ? 'In your collection' : 'Not in your collection');
   return parts.join('. ') + '.';
+}
+
+// ── Suggestion "why" breakdowns (shared by Suggested Adds + Suggested Cuts) ───
+// Each suggestion row carries a tap-to-expand panel itemising the score: which
+// role deficits/surpluses it hits (with deck-vs-target numbers), curve, tribal,
+// theme, conditional-keyword gating, etc.
+function _fmtWhyVal(v) {
+  const r = Math.round(v * 10) / 10;
+  return (r >= 0 ? '+' : '') + r;
+}
+function _capWord(s) { s = String(s || ''); return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''; }
+
+function _suggestWhyDetailHtml(title, score, lines, footer) {
+  const rows = lines.length
+    ? lines.map(l => `<div class="why-line"><span class="why-line-text">${l.text}</span><span class="why-line-val${l.neg ? ' why-line-val--neg' : ''}">${l.val}</span></div>`).join('')
+    : '<div class="why-line"><span class="why-line-text">No standout factors — a marginal pick.</span></div>';
+  return `<div class="suggest-why-detail" hidden>
+      <div class="why-head">${escapeHtml(title)} · score ${score}</div>
+      ${rows}
+      ${footer ? `<div class="why-foot">${footer}</div>` : ''}
+    </div>`;
+}
+
+function _toggleSuggestWhy(btn) {
+  const item = btn.closest('.suggest-item');
+  const detail = item && item.querySelector('.suggest-why-detail');
+  if (!detail) return;
+  const willOpen = detail.hasAttribute('hidden');
+  detail.toggleAttribute('hidden', !willOpen);
+  btn.setAttribute('aria-expanded', String(willOpen));
+  btn.classList.toggle('is-open', willOpen);
+}
+
+function _buildAddWhyLines(s, ctx) {
+  const lines = [];
+  if (s.topRole === 'Plan' && !s.roles.length) {
+    lines.push({ text: `Adds a theme/identity card — deck under its ${ctx.thresholds['Plan']}-card plan target`, val: _fmtWhyVal(s.roleFit) });
+  } else {
+    for (const r of s.roles) {
+      const d = ctx.deficits[r] || 0;
+      if (d <= 0) continue;
+      lines.push({ text: `Fills ${escapeHtml(r)} — deck has ${ctx.roleCount[r] || 0}, target ${ctx.thresholds[r]}`, val: _fmtWhyVal(d) });
+    }
+  }
+  if (s.gate && s.gate.factor < 1) {
+    lines.push({ text: `Conditional payoff — needs ${escapeHtml(s.gate.label)} (deck has ${s.gate.have})`, val: `×${s.gate.factor.toFixed(2)}`, neg: true });
+  }
+  if (s.curveBonus > 0.01) lines.push({ text: `Fills a thin curve spot at ${s.bucket}${s.bucket === 7 ? '+' : ''} MV`, val: _fmtWhyVal(s.curveBonus) });
+  if (s.versatility > 0.01) lines.push({ text: `Versatile — fills ${s.roles.length} roles`, val: _fmtWhyVal(s.versatility) });
+  if (s.tribal > 0.01) lines.push({ text: `Fits your ${escapeHtml(_capWord(s.tribe))} theme`, val: _fmtWhyVal(s.tribal) });
+  if (s.themeBonus > 0.01 && s.theme) lines.push({ text: `Feeds your commander's trigger (${escapeHtml(s.theme.label)})`, val: _fmtWhyVal(s.themeBonus) });
+  return lines;
+}
+
+function _buildCutWhyLines(b) {
+  const lines = [];
+  if (b.noRole) lines.push({ text: `No clear utility role — counts toward your Plan surplus`, val: _fmtWhyVal(b.noRoleBonus) });
+  else if (b.surplusTag) lines.push({ text: `Surplus ${escapeHtml(b.surplusTag)} — deck has ${b.surplusCount}, ideal ≤${b.surplusThresh}`, val: _fmtWhyVal(b.maxSurplus) });
+  if (b.cmcFactor > 0.01) lines.push({ text: `Mana value ${b.cmc}`, val: _fmtWhyVal(b.cmcFactor) });
+  if (b.cmcPenalty > 0.01) lines.push({ text: b.cmc === b.cmdCmc ? `Competes with your ${b.cmdCmc}-MV commander` : `Above your commander's mana value`, val: _fmtWhyVal(b.cmcPenalty) });
+  if (b.curvePenalty > 0.01) lines.push({ text: `Over curve at ${b.cmcBucket}${b.cmcBucket === 7 ? '+' : ''} MV`, val: _fmtWhyVal(b.curvePenalty) });
+  if (b.priceBonus > 0.01) lines.push({ text: `Inexpensive — easy to replace`, val: _fmtWhyVal(b.priceBonus) });
+  if (b.gatePenalty > 0.01) lines.push({ text: `Payoff is mostly dead — needs ${escapeHtml(b.gateLabel)} (deck has ${b.gateHave})`, val: _fmtWhyVal(b.gatePenalty) });
+  if (b.multiRoleDiscount > 0.01) lines.push({ text: `Versatile — ${b.tagCount} roles (spared)`, val: _fmtWhyVal(-b.multiRoleDiscount), neg: true });
+  if (b.tribalShield > 0.01) lines.push({ text: `Fits your tribal theme (spared)`, val: _fmtWhyVal(-b.tribalShield), neg: true });
+  if (b.themeShield > 0.01) lines.push({ text: `Feeds your commander's trigger (spared)`, val: _fmtWhyVal(-b.themeShield), neg: true });
+  return lines;
 }
 
 async function _renderAddSuggestions(deck) {
@@ -5848,6 +5938,7 @@ async function _renderAddSuggestions(deck) {
     const nm = (c.name || '').toLowerCase();
     if (!nm || inDeckNames.has(nm) || ownedNames.has(nm)) continue;
     if (_isLandCardSafe(c)) continue;
+    if (_isTokenTypeDeckCard(c)) continue; // tokens aren't real cards — never suggest them
     const cci = c.colorIdentity?.length ? c.colorIdentity : (c.colors?.length ? c.colors : []);
     if (!ciOk(cci)) continue;
     if (typeof getInventoryBreakdown === 'function' && getInventoryBreakdown(c, deck.id).available <= 0) continue;
@@ -5861,12 +5952,16 @@ async function _renderAddSuggestions(deck) {
 
   // ── Unowned candidates (local DB), only if owned can't fill all slots ──
   let unownedScored = [];
-  if (ownedScored.length < _ADD_SUGGESTION_COUNT && (deficitRoles.length || ctx.tribes.length)) {
+  // Only fetch unowned fillers when there are genuine ROLE deficits — tribes alone
+  // no longer pull in a pool of on-tribe cards (that over-tuned suggestions to tribe).
+  if (ownedScored.length < _ADD_SUGGESTION_COUNT && deficitRoles.length) {
     try {
       const res = await fetch('/api/cards/by-roles', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          colors: [...cmdCI], roles: deficitRoles, tribes: ctx.tribes,
+          // tribes dropped from the query so the pool isn't flooded with on-tribe cards;
+          // on-tribe role-fillers still surface via their role tags (+ a small tribal bonus).
+          colors: [...cmdCI], roles: deficitRoles, tribes: [],
           exclude: [...inDeckNames, ...ownedNames], limit: 60,
         }),
       });
@@ -5875,6 +5970,7 @@ async function _renderAddSuggestions(deck) {
       for (const c of (data.cards || [])) {
         const nm = (c.name || '').toLowerCase();
         if (inDeckNames.has(nm) || ownedNames.has(nm)) continue;
+        if (_isTokenTypeDeckCard(c)) continue; // belt-and-suspenders token guard
         const s = _scoreAddCandidate(c, c.roleTags || [], ctx);
         if (s.score <= 0) continue;
         unownedScored.push({ card: c, owned: false, s });
@@ -5902,18 +5998,23 @@ async function _renderAddSuggestions(deck) {
     const safeName = name.replace(/'/g, "\\'");
     const displayName = escapeHtml(name);
     const score = (s.score || 0).toFixed(1);
-    const reason = escapeHtml(_buildAddReason(name, s, ctx, owned));
+    const whyLines = _buildAddWhyLines(s, ctx);
+    const footer = `Role tags: ${s.roles && s.roles.length ? escapeHtml(s.roles.join(', ')) : '—'} · ${owned ? 'In your collection' : 'Not in your collection'}`;
+    const why = _suggestWhyDetailHtml('Why suggested', score, whyLines, footer);
     const ownTag = owned
       ? '<span class="tag" style="background:rgba(61,184,160,0.15);color:var(--teal);font-size:.62rem;margin:0 .4rem">owned</span>'
       : '<span class="tag" style="background:var(--bg3);color:var(--text3);font-size:.62rem;margin:0 .4rem">unowned</span>';
     const addBtn = owned
       ? `<button class="btn btn-primary btn-sm" style="padding:2px 10px;font-size:.7rem" onclick="addOwnedRecommendation('${safeName}')">+ Add</button>`
       : `<button class="btn btn-outline btn-sm" style="padding:2px 10px;font-size:.7rem" onclick="addScryfallCardToDeck('${id}')">+ Add</button>`;
-    return `<div class="cut-candidate-row">
-      <span class="cut-score-badge tooltip-wrap" aria-label="Add score: ${score}">${score}<span class="tooltip cut-score-tooltip">${reason}</span></span>
-      <span class="cut-card-name" onclick="openCardDetail('${id}','deck')">${displayName}</span>
-      ${ownTag}
-      ${addBtn}
+    return `<div class="suggest-item">
+      <div class="cut-candidate-row">
+        <button type="button" class="cut-score-badge cut-why-toggle" aria-expanded="false" aria-label="Why suggested · score ${score}" onclick="_toggleSuggestWhy(this)">${score}<span class="cut-why-caret" aria-hidden="true">⌄</span></button>
+        <span class="cut-card-name" onclick="openCardDetail('${id}','deck')">${displayName}</span>
+        ${ownTag}
+        ${addBtn}
+      </div>
+      ${why}
     </div>`;
   }).join('');
 }

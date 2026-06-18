@@ -106,6 +106,13 @@
     backdrop-filter: blur(24px) saturate(1.5);
     border-top: 1px solid var(--border);
     align-items: stretch;
+    /* Keep the bar on its own compositor layer so it stays pinned during
+       momentum scroll instead of repaint-lagging behind the content (the
+       backdrop-filter makes that lag visible). */
+    transform: translateZ(0);
+    -webkit-transform: translateZ(0);
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
   }
   [data-theme="light"] .mobile-bottom-nav {
     background: rgba(244,241,236,0.96);
