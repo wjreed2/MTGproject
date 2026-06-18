@@ -7640,7 +7640,10 @@ select:focus { outline: none; border-color: rgba(200,168,74,0.6); box-shadow: 0 
   bottom: auto;
   top: calc(100% + 8px);
 }
-#deckCutSuggestionsPanel { overflow: visible; }
+/* overflow:visible lets the per-row score tooltips escape the panel instead of
+   being clipped at its rounded boundary (same treatment as Suggested Cuts). */
+#deckCutSuggestionsPanel,
+#deckAddSuggestionsPanel { overflow: visible; }
 .cut-candidate-row {
   display: flex;
   align-items: center;

@@ -197,17 +197,50 @@
   #deckTopBar {
     align-items: center !important;
   }
-  .deck-top-title-row {
-    flex: 0 0 100%;
+  /* Title row spans the full width so the Add/History/Manage-Tags buttons wrap
+     onto their own line below instead of crowding (and clipping) the deck name.
+     Higher specificity + !important is required to beat `#tab-decks .deck-top-title-row`. */
+  #tab-decks .deck-top-title-row {
+    flex: 0 0 100% !important;
+    flex-wrap: wrap !important;
     justify-content: flex-start;
+    column-gap: 8px;
+    row-gap: 6px;
+    min-width: 0;
   }
-  #activeDeckName {
-    flex: 0 1 auto !important;
+  /* Deck name owns the first line and ellipsises if long; the small indicators
+     (validity, game-changers, format, value) sit together on the line below. */
+  #tab-decks #activeDeckName {
+    order: 1;
+    flex: 1 1 100% !important;
+    min-width: 0 !important;
     max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
+  #tab-decks #deckValidBadge      { order: 2; }
+  #tab-decks #deckGameChangerBadge { order: 3; }
+  #tab-decks #activeDeckFormat    { order: 4; }
+  #tab-decks #activeDeckValue     { order: 5; }
   #deckTopMenuWrap .deck-options-dropdown {
     width: min(84vw, 280px);
   }
+
+  /* ── Deck List header controls — wrap instead of running off-screen ──── */
+  #tab-decks .panel-header { row-gap: 8px; }
+  /* The Group / Sort / direction cluster is a single nowrap flex item that
+     overflows narrow screens; let it take a full line and wrap internally. */
+  #tab-decks #deckGroupByWrap {
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 6px;
+  }
+  #tab-decks #deckGroupByWrap .deck-select { flex: 0 1 auto; min-width: 0; }
+  /* The card-size slider is overridden by the fixed mobile stack sizing, so it
+     does nothing on phones — hide it. */
+  #deckCardSizeWrap { display: none !important; }
 
   /* ── Modals — slide up from bottom ───────────────────────────────────── */
   .modal-overlay { align-items: flex-end !important; }
@@ -231,20 +264,32 @@
   #cardDetailModal .card-detail-modal-scroll {
     padding: 0 1rem calc(1.25rem + env(safe-area-inset-bottom)) !important;
   }
-  /* In-sheet card navigator replaces the hidden edge arrows on phones */
+  /* On phones you swipe left/right to move between cards, so the in-sheet arrow
+     buttons are hidden; the sticky bar just shows the current card name. */
   #cardDetailModal .card-detail-mobile-nav {
-    display: flex; align-items: center; justify-content: space-between; gap: 8px;
-    position: sticky; top: 0; z-index: 13;
-    margin: 0 -1rem 0.75rem; padding: 8px 10px;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    position: sticky; top: 0; z-index: 11;
+    margin: 0 -1rem 0.75rem;
+    /* right padding clears the enlarged close button so the title never tucks under it */
+    padding: 10px 56px;
     background: var(--bg2); border-bottom: 1px solid var(--border2);
   }
+  #cardDetailModal .card-detail-mnav-btn { display: none !important; }
   #cardDetailModal .card-detail-mnav-title {
-    flex: 1; min-width: 0; text-align: center;
+    flex: 0 1 auto; min-width: 0; text-align: center;
     font-family: 'Cinzel', serif; color: var(--gold); font-size: 0.95rem;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  #cardDetailModal .card-detail-mnav-btn {
-    min-width: 44px; min-height: 44px; font-size: 1.4rem; flex-shrink: 0;
+  /* Bigger, easy-to-tap close button that paints above the sticky nav bar */
+  #cardDetailModal .card-detail-modal-close {
+    z-index: 20;
+    top: 6px; right: 8px;
+    width: 44px; height: 44px;
+    min-width: 44px; min-height: 44px;
+    font-size: 1.5rem;
+    border-radius: 50%;
+    background: var(--bg3);
+    border: 1px solid var(--border2);
   }
   /* Larger tap targets inside the inspector on phones */
   #cardDetailModal .card-detail-qty-printing-row .btn-icon { min-width: 40px; min-height: 40px; }
