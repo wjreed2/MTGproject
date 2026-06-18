@@ -240,7 +240,9 @@
      breaks (::before/::after) split the three rows; auto-margins position each
      row (collapse right, sort right, row-3 group centred). */
   #tab-decks #deckListPanelHeader {
-    justify-content: flex-start;
+    /* center → centres row 2; rows 1 & 3 keep their layout via auto-margins
+       (collapse pushed right; filter/view group centred) which win over this. */
+    justify-content: center;
     align-items: center;
     column-gap: 6px !important;
     row-gap: 4px !important;
@@ -262,14 +264,15 @@
   #tab-decks #deckListPanelHeader #deckListCount        { order: 2; }
   #tab-decks #deckListPanelHeader #deckListCollapseBtn  { order: 3; margin-left: auto; }
 
-  /* Row 2 — Group [Type] · Sort [Name] [↕] all packed on one row.
-     The selects are width-capped so the whole cluster fits a phone row (they
-     size to their widest option otherwise, which overflows). */
+  /* Row 2 — Group [Type] · Sort [Name] [↕], centred on one row.
+     Select widths scale with viewport (clamp) so the cluster fits from ~360px
+     up; the asc/desc box is wide enough to show its arrow beside the native
+     dropdown caret. Selects otherwise size to their widest option and overflow. */
   #tab-decks #deckListPanelHeader .dlh-group               { order: 5; }
-  #tab-decks #deckListPanelHeader #deckGroupBySelect       { order: 6; max-width: 5.8rem; }
+  #tab-decks #deckListPanelHeader #deckGroupBySelect       { order: 6; width: clamp(4.2rem, 19vw, 6rem); flex-shrink: 0; box-sizing: border-box; }
   #tab-decks #deckListPanelHeader .dlh-sort                { order: 7; }
-  #tab-decks #deckListPanelHeader #deckStackSortSelect     { order: 8; max-width: 4.8rem; }
-  #tab-decks #deckListPanelHeader #deckStackSortDirSelect  { order: 9; min-width: 0 !important; width: 2.6rem; }
+  #tab-decks #deckListPanelHeader #deckStackSortSelect     { order: 8; width: clamp(4.9rem, 23vw, 6.6rem); flex-shrink: 0; box-sizing: border-box; }
+  #tab-decks #deckListPanelHeader #deckStackSortDirSelect  { order: 9; width: 3.5rem; min-width: 0 !important; flex-shrink: 0; box-sizing: border-box; }
 
   /* Row 3 — filter + stack/view toggles, centred as a group */
   #tab-decks #deckListPanelHeader #deckListFilterToggleBtn { order: 11; margin-left: auto; }
