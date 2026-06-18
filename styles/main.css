@@ -2357,6 +2357,13 @@ main {
   right: 1rem;
   z-index: 12;
 }
+/* Shared modal close (×) — same placement/size as the card inspector's close button. */
+.modal-close-x {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  z-index: 12;
+}
 #cardDetailModal .modal-edge-nav {
   z-index: 11;
 }
