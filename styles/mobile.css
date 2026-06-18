@@ -271,8 +271,8 @@
   #tab-decks #deckListPanelHeader .dlh-group               { order: 5; }
   #tab-decks #deckListPanelHeader #deckGroupBySelect       { order: 6; width: clamp(4.2rem, 19vw, 6rem); flex-shrink: 0; box-sizing: border-box; }
   #tab-decks #deckListPanelHeader .dlh-sort                { order: 7; }
-  #tab-decks #deckListPanelHeader #deckStackSortSelect     { order: 8; width: clamp(4.9rem, 23vw, 6.6rem); flex-shrink: 0; box-sizing: border-box; }
-  #tab-decks #deckListPanelHeader #deckStackSortDirSelect  { order: 9; width: 3.5rem; min-width: 0 !important; flex-shrink: 0; box-sizing: border-box; }
+  #tab-decks #deckListPanelHeader #deckStackSortSelect     { order: 8; width: clamp(4.7rem, 22vw, 6.4rem); flex-shrink: 0; box-sizing: border-box; }
+  #tab-decks #deckListPanelHeader #deckStackSortDirSelect  { order: 9; width: 3.3rem; min-width: 0 !important; flex-shrink: 0; box-sizing: border-box; }
 
   /* Row 3 — filter + stack/view toggles, centred as a group */
   #tab-decks #deckListPanelHeader #deckListFilterToggleBtn { order: 11; margin-left: auto; }
@@ -318,6 +318,26 @@
      so it doesn't spawn a phantom second grid column. */
   .deck-stats-grid .deck-draw-accel-panel { grid-column: auto !important; }
 
+  /* ── Settings page — the web settings dropdown rendered as a full page ──
+     #settingsDropdown normally lives in the (mobile-hidden) topbar, so showTab()
+     moves the live element into #tab-settings and adds .settings-as-page. One
+     element → no duplicated IDs or split state; display is forced so the inner
+     buttons' toggleSettingsDropdown() calls can't collapse the page. */
+  .settings-dropdown.settings-as-page {
+    display: block !important;
+    position: static;
+    width: auto;
+    max-width: none;
+    max-height: none;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    background: transparent;
+    padding: 0.25rem 0 1rem;
+    overflow: visible;
+    z-index: auto;
+  }
+
   /* ── Modals — slide up from bottom ───────────────────────────────────── */
   .modal-overlay { align-items: flex-end !important; }
   .modal {
@@ -356,8 +376,10 @@
     font-family: 'Cinzel', serif; color: var(--gold); font-size: 0.95rem;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  /* Bigger, red, centred close button that paints above the sticky nav bar */
-  #cardDetailModal .card-detail-modal-close {
+  /* Bigger, red, centred close button that paints above the sticky nav bar.
+     Shared by the card inspector and the "Add cards" (voice) modal. */
+  #cardDetailModal .card-detail-modal-close,
+  #voiceModal .modal-close-x {
     z-index: 20;
     top: 8px; right: 8px;
     width: 44px; height: 44px;
@@ -374,7 +396,9 @@
     border: 1px solid rgba(212, 90, 74, 0.45);
   }
   #cardDetailModal .card-detail-modal-close:hover,
-  #cardDetailModal .card-detail-modal-close:active {
+  #cardDetailModal .card-detail-modal-close:active,
+  #voiceModal .modal-close-x:hover,
+  #voiceModal .modal-close-x:active {
     color: #fff;
     background: rgba(212, 90, 74, 0.3);
     border-color: rgba(212, 90, 74, 0.6);
