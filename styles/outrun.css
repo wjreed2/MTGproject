@@ -1,0 +1,287 @@
+/* ════════════════════════════════════════════════════════════════════════════
+   OUTRUN / VAPORWAVE OVERLAY
+   Loaded last. The palette + radii live in main.css :root; this file adds the
+   decorative layers (perspective grid, sunset, scanlines) and the neon
+   treatments on chrome + interactive elements.
+
+   Design rules to keep hierarchy intact:
+     • Glow is EARNED — reserved for hero elements, active state, hover, focus.
+       Resting UI stays calm so the eye lands on what matters.
+     • Magenta (--gold) = primary accent.  Cyan (--blue) = secondary.
+       Purple (--purple) = structure/borders.  Sunset gradient = hero only.
+     • Everything is sharp-cornered; roundness is reserved for true circles
+       (status dots, avatars, life counters) for deliberate contrast.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Accent gradients reused throughout ──────────────────────────────────────── */
+:root {
+  --grad-sunset: linear-gradient(115deg, #ff3df0 0%, #ff6ec7 28%, #ff9d5c 60%, #ffd36e 100%);
+  --grad-neon:   linear-gradient(120deg, #ff3df0 0%, #9d6cff 50%, #2de2ff 100%);
+  --grad-line:   linear-gradient(90deg, transparent, #ff3df0 25%, #2de2ff 75%, transparent);
+  --scan: rgba(125, 90, 200, 0.05);
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   1. BACKGROUND FX  — sunset vignette, perspective grid floor, scanlines
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* Sky / sunset glow — replaces the old ambient radials. */
+body::before {
+  background:
+    radial-gradient(ellipse 90% 60% at 50% -12%,  rgba(255,61,240,0.20) 0%, transparent 60%),
+    radial-gradient(ellipse 70% 50% at 8% 4%,     rgba(157,108,255,0.16) 0%, transparent 62%),
+    radial-gradient(ellipse 70% 50% at 95% 8%,    rgba(45,226,255,0.12) 0%, transparent 62%),
+    radial-gradient(ellipse 60% 45% at 50% 112%,  rgba(255,61,240,0.10) 0%, transparent 65%) !important;
+}
+[data-theme="light"] body::before {
+  background:
+    radial-gradient(ellipse 90% 60% at 50% -12%,  rgba(214,36,159,0.14) 0%, transparent 60%),
+    radial-gradient(ellipse 70% 50% at 8% 4%,     rgba(138,76,208,0.10) 0%, transparent 62%),
+    radial-gradient(ellipse 70% 50% at 95% 8%,    rgba(0,148,196,0.10) 0%, transparent 62%) !important;
+}
+
+.outrun-fx {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+  /* faint CRT scanlines across the whole viewport */
+  background-image: repeating-linear-gradient(
+    to bottom, transparent 0, transparent 2px, var(--scan) 2px, var(--scan) 3px);
+}
+
+/* Horizon glow line where the sky meets the grid */
+.outrun-fx::before {
+  content: "";
+  position: absolute;
+  left: 0; right: 0;
+  bottom: 27vh;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #ff3df0 20%, #ffffff 50%, #2de2ff 80%, transparent);
+  filter: blur(0.5px);
+  box-shadow: 0 0 24px 4px rgba(255,61,240,0.45), 0 0 60px 10px rgba(45,226,255,0.25);
+  opacity: 0.6;
+}
+
+/* Perspective grid floor */
+.outrun-fx::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -34vh;
+  width: 320vw;
+  height: 62vh;
+  transform: translateX(-50%) perspective(38vh) rotateX(70deg);
+  transform-origin: 50% 100%;
+  background-image:
+    repeating-linear-gradient(90deg, transparent 0 79px, rgba(45,226,255,0.55) 79px 81px),
+    repeating-linear-gradient(0deg,  transparent 0 79px, rgba(255,61,240,0.40) 79px 81px);
+  background-size: 81px 81px, 81px 81px;
+  -webkit-mask-image: linear-gradient(to top, #000 5%, transparent 85%);
+          mask-image: linear-gradient(to top, #000 5%, transparent 85%);
+  opacity: 0.5;
+  animation: outrun-scroll 6s linear infinite;
+}
+@keyframes outrun-scroll {
+  to { background-position: 0 81px, 0 81px; }
+}
+[data-theme="light"] .outrun-fx { background-image: none; }
+[data-theme="light"] .outrun-fx::after { opacity: 0.32; }
+
+@media (prefers-reduced-motion: reduce) {
+  .outrun-fx::after { animation: none; }
+}
+/* The grid is ambiance — hide it on small screens where it'd crowd content. */
+@media (max-width: 720px) {
+  .outrun-fx::before, .outrun-fx::after { display: none; }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   2. TYPOGRAPHY  — Orbitron display, squared body, neon headings
+   ════════════════════════════════════════════════════════════════════════════ */
+body { font-family: 'Chakra Petch', 'Inter', system-ui, sans-serif; }
+
+.topbar-brand,
+.panel-title,
+.modal-title,
+.auth-title,
+.sidebar-label,
+.deck-section-label {
+  font-family: 'Orbitron', sans-serif !important;
+  text-transform: uppercase;
+}
+
+/* Brand wordmark = chrome → neon gradient */
+.topbar-brand {
+  background: linear-gradient(180deg, #ffffff 0%, #ffd9fb 30%, #ff3df0 62%, #9d6cff 100%);
+  -webkit-background-clip: text;
+          background-clip: text;
+  -webkit-text-fill-color: transparent;
+  letter-spacing: 0.18em !important;
+  filter: drop-shadow(0 0 10px rgba(255,61,240,0.45));
+}
+.logo-gem {
+  filter: drop-shadow(0 0 6px rgba(45,226,255,0.55)) drop-shadow(0 0 12px rgba(255,61,240,0.40)) !important;
+}
+
+/* Panel / modal titles glow softly in magenta */
+.panel-title,
+.modal-title,
+.auth-title {
+  text-shadow: 0 0 14px var(--gold-glow);
+  letter-spacing: 0.14em !important;
+}
+
+::selection { background: rgba(255,61,240,0.35); color: #fff; }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   3. TOP BAR + SIDEBAR
+   ════════════════════════════════════════════════════════════════════════════ */
+.topbar {
+  background: rgba(8,4,15,0.82) !important;
+  border-bottom: 1px solid transparent;
+  box-shadow: 0 1px 0 0 rgba(157,108,255,0.18), 0 8px 30px rgba(0,0,0,0.45);
+}
+.topbar::after {            /* neon underline */
+  content: "";
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 1px;
+  background: var(--grad-line);
+  opacity: 0.8;
+}
+[data-theme="light"] .topbar { background: rgba(252,232,243,0.86) !important; }
+
+.sidebar {
+  background: rgba(8,4,15,0.80) !important;
+  border-right: 1px solid rgba(157,108,255,0.16);
+}
+[data-theme="light"] .sidebar { background: rgba(252,232,243,0.86) !important; }
+
+/* Active nav item — magenta block + glow, the clearest "you are here" signal */
+.sidebar-item.active {
+  background: linear-gradient(90deg, rgba(255,61,240,0.20), rgba(255,61,240,0.04) 70%) !important;
+  box-shadow: inset 3px 0 0 0 #ff3df0, 0 0 18px -4px var(--gold-glow) !important;
+  text-shadow: 0 0 10px var(--gold-glow);
+}
+.sidebar-item:hover { box-shadow: inset 2px 0 0 0 var(--blue); }
+.sidebar-item.active:hover { box-shadow: inset 3px 0 0 0 #ff3df0, 0 0 18px -4px var(--gold-glow) !important; }
+
+.sidebar-action-primary {
+  background: linear-gradient(90deg, rgba(255,61,240,0.20), rgba(157,108,255,0.10)) !important;
+  box-shadow: inset 3px 0 0 0 #ff3df0 !important;
+}
+.sidebar-action-primary:hover { box-shadow: inset 3px 0 0 0 #ff3df0, 0 0 18px -6px var(--gold-glow) !important; }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   4. BUTTONS  — sharp, tracked, glow on intent
+   ════════════════════════════════════════════════════════════════════════════ */
+.btn { letter-spacing: 0.04em; }
+
+.btn-primary {
+  background: var(--grad-neon) !important;
+  background-size: 160% 160% !important;
+  color: #08040f !important;
+  border-color: transparent !important;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  box-shadow: 0 0 0 1px rgba(255,61,240,0.5), 0 6px 22px -6px rgba(255,61,240,0.6);
+  transition: background-position 0.4s var(--ease), box-shadow 0.2s var(--ease), transform 0.12s var(--ease);
+}
+.btn-primary:hover {
+  background-position: 100% 0 !important;
+  box-shadow: 0 0 0 1px rgba(45,226,255,0.6), 0 0 26px -2px rgba(255,61,240,0.7), 0 0 40px -6px rgba(45,226,255,0.5) !important;
+  transform: translateY(-1px);
+}
+.btn-outline:hover,
+.btn-outline.active { box-shadow: 0 0 0 1px var(--gold), 0 0 16px -4px var(--gold-glow); }
+.btn-scryfall:hover { box-shadow: 0 0 14px -3px rgba(45,226,255,0.5); }
+.btn-danger:hover  { box-shadow: 0 0 14px -3px rgba(255,77,109,0.55); }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   5. PANELS + CARDS  — sharp, neon top accent, lift on hover
+   ════════════════════════════════════════════════════════════════════════════ */
+.panel {
+  position: relative;
+  background: linear-gradient(180deg, rgba(157,108,255,0.05), transparent 40%), var(--bg2);
+  box-shadow: 0 0 0 1px rgba(157,108,255,0.06), 0 18px 40px -28px rgba(0,0,0,0.9);
+}
+.panel::before {            /* top neon hairline */
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: var(--grad-line);
+  opacity: 0.55;
+}
+.panel-header { border-bottom-color: rgba(157,108,255,0.14); }
+
+/* Deck / browse cards: sharp corners + neon ring already comes from the recolor.
+   Add a stronger lift + dual-tone glow on hover. */
+.browse-deck-card, .deck-grid-card { border-radius: 0 !important; }
+.browse-deck-card:hover,
+.deck-grid-card:hover {
+  box-shadow: 0 18px 40px -16px rgba(0,0,0,0.7),
+              0 0 0 1px var(--gold),
+              0 0 26px -6px var(--gold-glow) !important;
+}
+.deck-sidebar-item.active { box-shadow: 0 0 0 2px var(--gold), 0 0 18px -4px var(--gold-glow); }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   6. INPUTS / SELECTS  — calm at rest, cyan focus glow
+   ════════════════════════════════════════════════════════════════════════════ */
+input:focus, select:focus, textarea:focus,
+.search-box:focus, .select:focus, .deck-select:focus {
+  outline: none;
+  border-color: var(--blue) !important;
+  box-shadow: 0 0 0 1px var(--blue), 0 0 14px -4px rgba(45,226,255,0.6) !important;
+}
+.filter-chip.active { box-shadow: 0 0 12px -4px var(--gold-glow); }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   7. MODALS
+   ════════════════════════════════════════════════════════════════════════════ */
+.modal-overlay { background: rgba(8,4,15,0.78) !important; backdrop-filter: blur(12px) saturate(1.2); }
+.modal {
+  position: relative;
+  box-shadow: 0 30px 90px rgba(0,0,0,0.8), 0 0 0 1px rgba(157,108,255,0.18), 0 0 60px -20px var(--gold-glow);
+}
+.modal::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: var(--grad-line);
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   8. SCROLLBAR + MOBILE NAV
+   ════════════════════════════════════════════════════════════════════════════ */
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #ff3df0, #9d6cff) !important;
+}
+::-webkit-scrollbar-thumb:hover { background: linear-gradient(180deg, #ff6ef5, #2de2ff) !important; }
+
+@media (max-width: 760px) {
+  .mobile-bottom-nav {
+    background: rgba(8,4,15,0.92) !important;
+    border-top: 1px solid transparent;
+    box-shadow: 0 -1px 0 0 rgba(157,108,255,0.2);
+  }
+  .mob-nav-item { position: relative; }
+  .mob-nav-item.active {
+    color: var(--gold) !important;
+    text-shadow: 0 0 12px var(--gold-glow);
+  }
+  .mob-nav-item.active::after {
+    content: "";
+    position: absolute;
+    top: 0; left: 50%;
+    transform: translateX(-50%);
+    width: 26px; height: 2px;
+    background: var(--gold);
+    box-shadow: 0 0 10px var(--gold);
+  }
+}

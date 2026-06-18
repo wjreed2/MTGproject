@@ -18,7 +18,7 @@
     transform: translateY(-50%);
     background: var(--bg4); border: 1px solid var(--border2);
     color: var(--text); border-radius: var(--radius);
-    padding: 4px 10px; font-family: 'Cinzel', serif;
+    padding: 4px 10px; font-family: 'Orbitron', sans-serif;
     font-size: 0.68rem; font-weight: 600; letter-spacing: 0.08em;
     white-space: nowrap; z-index: 300; pointer-events: none;
   }
@@ -133,7 +133,7 @@
   .mob-nav-item.active { color: var(--gold); }
   .mob-nav-icon  { width: 26px; height: 26px; flex-shrink: 0; }
   .mob-nav-label {
-    font-family: 'Cinzel', serif; font-size: 0.58rem;
+    font-family: 'Orbitron', sans-serif; font-size: 0.58rem;
     font-weight: 600; letter-spacing: 0.06em; line-height: 1;
   }
 
@@ -240,7 +240,7 @@
   }
   #cardDetailModal .card-detail-mnav-title {
     flex: 1; min-width: 0; text-align: center;
-    font-family: 'Cinzel', serif; color: var(--gold); font-size: 0.95rem;
+    font-family: 'Orbitron', sans-serif; color: var(--gold); font-size: 0.95rem;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   #cardDetailModal .card-detail-mnav-btn {
