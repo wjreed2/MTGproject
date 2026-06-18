@@ -686,7 +686,7 @@ function _gfeBuildPlayChoices(c) {
     if (emerge) {
       const hasCreature = (_gfe?.battlefield || []).some(_gfeIsCreature);
       choices.push({
-        label: `Cast — Emerge ${emerge} (sacrifice a creature, cost reduced by sacced CMC)`,
+        label: `Cast — Emerge ${emerge} (sacrifice a creature, cost reduced by sacced MV)`,
         ...baseOpt,
         chosenMana: emerge,
         emerge: true,
@@ -1111,7 +1111,7 @@ function _gfeOpenEmergeModal(creatures) {
   }
   const rows = creatures.map(c => {
     const cmc = parseInt(c.cmc, 10) || 0;
-    return `<button class="gf-play-choice-btn" onclick="_gfeEmergePick(${c.iid})">${_gfeEscapeHtml(c.name)} (CMC ${cmc})</button>`;
+    return `<button class="gf-play-choice-btn" onclick="_gfeEmergePick(${c.iid})">${_gfeEscapeHtml(c.name)} (MV ${cmc})</button>`;
   }).join('');
   modal.innerHTML = `
     <div class="gfe-x-modal-box">
@@ -1154,7 +1154,7 @@ function _gfeEmergePick(creatureIid) {
   }
   // Sacrifice the creature first (fires onDeath etc. via _gfeMoveCard).
   _gfeMoveCard(creatureIid, 'battlefield', 'graveyard');
-  _gfePushLog({ sourceName: 'Emerge', text: `sacrificed ${sacCard.name} (CMC ${sacCmc})` });
+  _gfePushLog({ sourceName: 'Emerge', text: `sacrificed ${sacCard.name} (MV ${sacCmc})` });
   // Close modal + cast with reduced cost.
   const modal = document.getElementById('gfeEmergeModal');
   if (modal) modal.style.display = 'none';

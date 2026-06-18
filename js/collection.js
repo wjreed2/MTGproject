@@ -2645,6 +2645,10 @@ let _findSearchOffset = 0;
 let _findSearchTotal = 0;
 let _findSearchQuery = '';
 let _findColorFilters = new Set();
+let _findCardSort = '';            // '' = relevance | name | cmc | price | rarity
+let _findResultCards = [];         // accumulated results across "Load more" (for client-side sort)
+let _findResultTotal = null;
+let _findResultTokenQuery = false;
 let _deckPoolSource = localStorage.getItem('mtg_deck_pool_source') || 'mine';
 
 function _stripFindColorTokensFromQuery(q) {
@@ -2848,7 +2852,60 @@ async function loadDeckOwnerCollectionLookup(deck) {
   return _deckOwnerCollLoadPromise;
 }
 
+/** Owned-count chips (gold, same as the collection counter) for a find-result meta panel. */
+function _findOwnedBadgesHtml(nf, f) {
+  return (nf > 0 ? `<span class="price-badge price-qty">×${nf}</span>` : '')
+       + (f  > 0 ? `<span class="price-badge price-qty">✦×${f}</span>` : '');
+}
+
+/** Best USD across vendors/finishes for a search card (price-log enriched) — used for sorting. */
+function _findCardSortUsd(c) {
+  const p = c.prices || {};
+  const vals = [p.usd, p.usd_foil, p.usd_ck, p.usd_ck_foil].map(v => parseFloat(v) || 0);
+  return Math.max(0, ...vals);
+}
+
+function _findRarityRank(r) {
+  switch (String(r || '').toLowerCase()) {
+    case 'mythic': return 0;
+    case 'rare': return 1;
+    case 'uncommon': return 2;
+    case 'common': return 3;
+    default: return 4; // special / bonus / token / unknown
+  }
+}
+
+function _sortFindResultCards(cards) {
+  const arr = cards.slice();
+  const byName = (a, b) => String(a.name || '').localeCompare(String(b.name || ''));
+  switch (_findCardSort) {
+    case 'name': arr.sort(byName); break;
+    case 'cmc': arr.sort((a, b) => ((a.cmc == null ? 99 : a.cmc) - (b.cmc == null ? 99 : b.cmc)) || byName(a, b)); break;
+    case 'price': arr.sort((a, b) => (_findCardSortUsd(b) - _findCardSortUsd(a)) || byName(a, b)); break;
+    case 'rarity': arr.sort((a, b) => (_findRarityRank(a.rarity) - _findRarityRank(b.rarity)) || byName(a, b)); break;
+    default: break; // '' = relevance — keep server order
+  }
+  return arr;
+}
+
+function setFindCardSort(v) {
+  _findCardSort = v || '';
+  _paintFindResults(document.getElementById('findCardResults'));
+}
+
+// Accumulate results across "Load more", then (re)paint sorted. Sorting is client-side over
+// the loaded set — fine for the name-scoped searches this finder is built for.
 function _renderFindCard(cards, el, append, total, isTokenQuery) {
+  if (!el) return;
+  if (append) _findResultCards.push(...cards);
+  else _findResultCards = (cards || []).slice();
+  _findResultTotal = total;
+  _findResultTokenQuery = isTokenQuery;
+  _paintFindResults(el);
+}
+
+function _paintFindResults(el) {
+  if (!el) return;
   const deckBuilderVoiceMode = !!(
     document.getElementById('voiceModal')?.classList.contains('open') &&
     typeof voiceAddToActiveDeckMode !== 'undefined' && voiceAddToActiveDeckMode
@@ -2874,23 +2931,23 @@ function _renderFindCard(cards, el, append, total, isTokenQuery) {
   const ownerColl = useDeckOwnerPool ? _deckOwnerCollLookup : null;
   const ownerLabel = deck?.ownerEmail ? deck.ownerEmail.split('@')[0] : 'Owner';
 
-  if (!append) el.innerHTML = '';
-  if (!cards.length && !append) {
+  if (!_findResultCards.length) {
     el.innerHTML = '<div style="grid-column:1/-1;padding:1rem;font-size:0.85rem;color:var(--text3)">No cards found</div>';
     return;
   }
+
+  el.innerHTML = '';
   const frag = document.createDocumentFragment();
-  for (const c of cards) {
+  for (const c of _sortFindResultCards(_findResultCards)) {
     const uris   = c.image_uris || c.card_faces?.[0]?.image_uris;
     const img    = uris?.large || uris?.png || uris?.normal || uris?.small || null;
 
-    let inColl, border, cardFilter, fromLabel;
+    let inColl, cardFilter, fromLabel;
     let nfQtyDisplay = 0;
     let fQtyDisplay = 0;
     if (useSharedPool) {
       const owners = sharedOwnersByScryId[c.id] || [];
       inColl = owners.length > 0;
-      border = inColl ? '2px solid var(--blue)' : '1px solid var(--border)';
       cardFilter = !inColl ? 'grayscale(72%) opacity(0.62)' : '';
       fromLabel = inColl ? owners.map(e => e.split('@')[0]).join(', ') : '';
     } else if ((useDeckOwnerPool || useOwnerHighlight) && ownerColl) {
@@ -2898,19 +2955,26 @@ function _renderFindCard(cards, el, append, total, isTokenQuery) {
       nfQtyDisplay = o?.nf || 0;
       fQtyDisplay = o?.f || 0;
       inColl = nfQtyDisplay > 0 || fQtyDisplay > 0;
-      border = inColl ? '2px solid var(--teal)' : '1px solid var(--border)';
       cardFilter = useDeckOwnerPool && deckBuilderVoiceMode && !inColl ? 'grayscale(72%) opacity(0.62)' : '';
       fromLabel = inColl ? `${ownerLabel}'s collection` : '';
     } else {
       const nfQty = collection.filter(x => x.uid === c.id + '_n').reduce((s,x)=>s+x.qty,0);
       const fQty  = collection.filter(x => x.uid === c.id + '_f').reduce((s,x)=>s+x.qty,0);
       inColl = nfQty > 0 || fQty > 0;
-      border = inColl ? '2px solid var(--teal)' : '1px solid var(--border)';
       cardFilter = deckBuilderVoiceMode && !inColl ? 'grayscale(72%) opacity(0.62)' : '';
       fromLabel = '';
       nfQtyDisplay = nfQty;
       fQtyDisplay  = fQty;
     }
+    // Owned vs unowned now reads as colour vs greyscale — no coloured "owned" border.
+    const border = '1px solid var(--border)';
+
+    const pr = c.prices || {};
+    const tcgUsd = parseFloat(pr.usd) || 0;
+    const ckUsd = parseFloat(pr.usd_ck) || 0;
+    const priceBadges = (tcgUsd > 0 ? `<span class="price-badge price-tcg">$${tcgUsd.toFixed(2)}</span>` : '')
+      + (ckUsd > 0 ? `<span class="price-badge price-ck">$${ckUsd.toFixed(2)}</span>` : '');
+    const ownedBadges = !useSharedPool ? _findOwnedBadgesHtml(nfQtyDisplay, fQtyDisplay) : '';
 
     const div = document.createElement('div');
     div.className = 'deck-search-tile';
@@ -2925,22 +2989,19 @@ function _renderFindCard(cards, el, append, total, isTokenQuery) {
       loyalty: c.loyalty,
     });
     div.style.cursor = 'pointer';
+    // Collection-style layout: card image on top, info panel (price + owned count) below.
     div.innerHTML = `<div data-img-wrapper style="aspect-ratio:0.715;overflow:hidden;border-radius:6px;border:${border};position:relative;transition:border-color 0.15s;${cardFilter ? `filter:${cardFilter};` : ''}">
       ${img ? `<img src="${img}" class="find-card-results-img" alt="${escapeHtml(c.name)}" loading="lazy">` : `<div style="width:100%;height:100%;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:0.68rem;padding:6px;text-align:center;color:var(--text2)">${escapeHtml(c.name)}</div>`}
-      <div data-badges style="position:absolute;inset:0;pointer-events:none">
-        ${!useSharedPool && nfQtyDisplay > 0 ? `<div class="find-card-results-qty find-card-results-qty--nf">×${nfQtyDisplay}</div>` : ''}
-        ${!useSharedPool && fQtyDisplay > 0 ? `<div class="find-card-results-qty find-card-results-qty--foil">✦×${fQtyDisplay}</div>` : ''}
-        ${fromLabel ? `<div class="find-card-shared-from">From ${escapeHtml(fromLabel)}</div>` : ''}
-      </div>
-    </div>`;
+      ${fromLabel ? `<div class="find-card-shared-from">From ${escapeHtml(fromLabel)}</div>` : ''}
+    </div>
+    <div class="find-card-meta" data-meta>${priceBadges}<span class="find-card-owned" data-owned>${ownedBadges}</span></div>`;
     frag.appendChild(div);
   }
-  // Remove old load-more button before appending
-  el.querySelector('.find-load-more-row')?.remove();
   el.appendChild(frag);
   // Count row + load more
-  const shown = el.querySelectorAll('.deck-search-tile').length;
-  if (isTokenQuery && total !== null) {
+  const shown = _findResultCards.length;
+  const total = _findResultTotal;
+  if (_findResultTokenQuery && total !== null) {
     const footer = document.createElement('div');
     footer.className = 'find-load-more-row';
     footer.style.cssText = 'grid-column:1/-1;padding:0.75rem 0;display:flex;align-items:center;gap:12px;justify-content:center;font-size:0.78rem;color:var(--text3)';
@@ -2962,7 +3023,7 @@ async function runFindCard(q, append) {
   document.getElementById('findCardAutocomplete').style.display = 'none';
   const el = document.getElementById('findCardResults');
   const apiQ = _findQueryForApi(q);
-  if (!apiQ) { el.innerHTML = ''; return; }
+  if (!apiQ) { _findResultCards = []; el.innerHTML = ''; return; }
 
   if (!append) {
     if (_findSearchAbort) _findSearchAbort.abort();
@@ -2978,7 +3039,7 @@ async function runFindCard(q, append) {
   const paperOnly = _getFindPaperOnly();
 
   try {
-    let url = `/api/cards/search?q=${encodeURIComponent(apiQ)}&limit=${_FIND_PAGE}&offset=${_findSearchOffset}`;
+    let url = `/api/cards/search?q=${encodeURIComponent(apiQ)}&limit=${_FIND_PAGE}&offset=${_findSearchOffset}&withPrices=1`;
     if (paperOnly) url += '&paperOnly=1';
     if (colorParam) url += `&colors=${encodeURIComponent(colorParam)}`;
     // In the deck-add card finder, plain words should match the card name only — otherwise a
@@ -2992,7 +3053,7 @@ async function runFindCard(q, append) {
     if (ownedOnly) url += '&owned=1';
     const res = await fetch(url, { signal });
     if (!res.ok) {
-      if (!append) el.innerHTML = '<div style="grid-column:1/-1;padding:1rem;font-size:0.85rem;color:var(--text3)">No cards found</div>';
+      if (!append) { _findResultCards = []; el.innerHTML = '<div style="grid-column:1/-1;padding:1rem;font-size:0.85rem;color:var(--text3)">No cards found</div>'; }
       return;
     }
     const data = await res.json();
@@ -3020,6 +3081,7 @@ async function runFindCard(q, append) {
       cards = cards.filter(card => { try { return !!voiceSetFilter(card); } catch (_) { return true; } });
     }
     if (!cards.length && !append) {
+      _findResultCards = [];
       el.innerHTML = '<div style="grid-column:1/-1;padding:1rem;font-size:0.85rem;color:var(--text3)">No cards found</div>';
       return;
     }
@@ -3038,7 +3100,9 @@ async function runFindCard(q, append) {
         try { cardData = JSON.parse(tile.dataset.card || '{}'); } catch(_) { cardData = {}; }
         if (!cardData.id) cardData = { id: scryfallId, name: tile.querySelector('img')?.alt || scryfallId };
         addCardToCollection(cardData, qty, findCardFoil);
-        tile.querySelector('[data-img-wrapper]').style.border = '2px solid var(--teal)';
+        // Newly owned → switch the tile from greyscale to full colour (no border distinction).
+        const wrap = tile.querySelector('[data-img-wrapper]');
+        if (wrap) { wrap.style.filter = ''; wrap.style.border = '1px solid var(--border)'; }
         const ownerLookup = (typeof activeDeckIsShared !== 'undefined' && activeDeckIsShared && _deckOwnerCollLookup)
           ? _deckOwnerCollLookup[scryfallId] : null;
         const nfQty = ownerLookup
@@ -3047,14 +3111,13 @@ async function runFindCard(q, append) {
         const fQty = ownerLookup
           ? (ownerLookup.f || 0)
           : collection.filter(x => x.uid === scryfallId + '_f').reduce((s, x) => s + x.qty, 0);
-        tile.querySelector('[data-badges]').innerHTML =
-          (nfQty > 0 ? `<div class="find-card-results-qty find-card-results-qty--nf">×${nfQty}</div>` : '') +
-          (fQty  > 0 ? `<div class="find-card-results-qty find-card-results-qty--foil">✦×${fQty}</div>` : '');
+        const ownedEl = tile.querySelector('[data-owned]');
+        if (ownedEl) ownedEl.innerHTML = _findOwnedBadgesHtml(nfQty, fQty);
       };
     }
   } catch(e) {
     if (e.name === 'AbortError') return;
-    if (!append) el.innerHTML = '<div style="grid-column:1/-1;padding:1rem;font-size:0.85rem;color:var(--red)">Search failed — check connection</div>';
+    if (!append) { _findResultCards = []; el.innerHTML = '<div style="grid-column:1/-1;padding:1rem;font-size:0.85rem;color:var(--red)">Search failed — check connection</div>'; }
   }
 }
 

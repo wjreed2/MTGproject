@@ -1647,8 +1647,22 @@ main {
   border-radius: 4px;
   color: #0a0a0a;
 }
-#findCardResults .find-card-results-qty--nf { right: 4px; background: var(--teal); }
-#findCardResults .find-card-results-qty--foil { left: 4px; background: var(--gold); }
+#findCardResults .find-card-results-qty--nf { right: 4px; background: var(--gold); }
+#findCardResults .find-card-results-qty--foil { left: 4px; background: var(--gold2); }
+/* Collection-style info panel below each search result */
+#findCardResults .find-card-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 5px;
+  min-height: 20px;
+}
+#findCardResults .find-card-owned {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 4px;
+}
 
 .voice-acc-panel {
   margin-top: 1rem;

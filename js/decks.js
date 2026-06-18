@@ -876,7 +876,8 @@ let deckListView = 'grid';
 let deckStackOrient = (localStorage.getItem('mtg_deck_stack_orient') === 'horizontal' ? 'horizontal' : 'vertical');
 const _DECK_STACK_SORT_KEYS = new Set(['name', 'cmc', 'mana', 'price']);
 let deckStackSort = (() => {
-  const saved = localStorage.getItem('mtg_deck_stack_sort');
+  let saved = localStorage.getItem('mtg_deck_stack_sort');
+  if (saved === 'mana') saved = 'cmc'; // legacy "Mana cost" sort merged into Mana Value
   return _DECK_STACK_SORT_KEYS.has(saved) ? saved : 'name';
 })();
 let deckStackSortDir = localStorage.getItem('mtg_deck_stack_sort_dir') === 'desc' ? 'desc' : 'asc';
@@ -3941,7 +3942,7 @@ function _buildDeckGroups(cards, groupBy) {
     Object.keys(raw).sort((a, b) => {
       if (a === 'Land') return 1; if (b === 'Land') return -1;
       return parseInt(a) - parseInt(b);
-    }).forEach(k => sorted[k === 'Land' ? 'Land' : `${k} CMC`] = raw[k]);
+    }).forEach(k => sorted[k === 'Land' ? 'Land' : `${k} MV`] = raw[k]);
     return withCommander(sorted);
   }
   // Default: type
@@ -5518,20 +5519,20 @@ function _computeCutThresholds(deck) {
 
 function _buildCutReason(card, tags, surplusTag, roleCount, thresholds, cmdCmc, noRole, bucketExcess, planCount) {
   const cmc = card.cmc || 0;
-  const timingNote = cmc === cmdCmc && cmdCmc > 0 ? `, same turn as your ${cmdCmc}-CMC commander` : '';
+  const timingNote = cmc === cmdCmc && cmdCmc > 0 ? `, same turn as your ${cmdCmc}-MV commander` : '';
   const overCurve = bucketExcess > 0.05;
   if (noRole) {
     const pt = thresholds['Plan'] ?? 30;
     const surplusNote = planCount > pt ? ` (${planCount} Plan, ideal ≤${pt})` : '';
-    return `No clear role${surplusNote} — CMC ${cmc}${overCurve ? ' (over curve)' : ''}`;
+    return `No clear role${surplusNote} — MV ${cmc}${overCurve ? ' (over curve)' : ''}`;
   }
   if (surplusTag) {
     const count = roleCount[surplusTag] || 0;
     const thresh = thresholds[surplusTag] ?? '?';
-    return `${count} ${surplusTag} (ideal ≤${thresh}) — CMC ${cmc}${timingNote}`;
+    return `${count} ${surplusTag} (ideal ≤${thresh}) — MV ${cmc}${timingNote}`;
   }
-  if (overCurve) return `Over curve at CMC ${cmc}${timingNote}`;
-  return `High CMC (${cmc}) — limited role${timingNote}`;
+  if (overCurve) return `Over curve at MV ${cmc}${timingNote}`;
+  return `High MV (${cmc}) — limited role${timingNote}`;
 }
 
 function _suggestCardsToCut(deck) {
@@ -5802,7 +5803,7 @@ function _buildAddReason(name, s, ctx, owned) {
   if (s.tribal) parts.push(`fits your ${s.tribe.charAt(0).toUpperCase() + s.tribe.slice(1)} theme`);
   if (s.theme) parts.push(`feeds your commander's trigger (${s.theme.label})`);
   if (s.gate && s.gate.factor < 1) parts.push(`but payoff needs ${s.gate.label} (deck has ${s.gate.have})`);
-  if ((ctx.curveDeficit[s.bucket] || 0) > 0.02) parts.push(`fills a thin spot on your curve at ${s.bucket}${s.bucket === 7 ? '+' : ''} CMC`);
+  if ((ctx.curveDeficit[s.bucket] || 0) > 0.02) parts.push(`fills a thin spot on your curve at ${s.bucket}${s.bucket === 7 ? '+' : ''} MV`);
   parts.push(owned ? 'In your collection' : 'Not in your collection');
   return parts.join('. ') + '.';
 }
@@ -5823,12 +5824,6 @@ async function _renderAddSuggestions(deck) {
 
   if (!deck || !(deck.cards || []).length) { panel.style.display = 'none'; return; }
   panel.style.display = '';
-
-  const badge = document.getElementById('deckAddUnderBadge');
-  const rules = (typeof FORMAT_RULES !== 'undefined' && FORMAT_RULES[deck.format]) || null;
-  const target = rules ? (rules.max || rules.min || 100) : 100;
-  const total = (deck.cards || []).reduce((s, c) => s + (c.qty || 1), 0);
-  if (badge) badge.textContent = total < target ? `${target - total} to ${target}` : 'tuning';
 
   const ctx = _computeAddContext(deck);
   const deficitRoles = Object.entries(ctx.deficits)
@@ -6235,7 +6230,7 @@ function _computeIdealManaCurveContext(deck, counts) {
   const ramp = _deckRampScoreForManaIdeal(deck);
   if (ramp > 0.4) parts.push(`ramp score ${ramp.toFixed(1)}`);
   const cmd = _commanderCardForManaIdeal(deck);
-  if (cmd && Number.isFinite(Number(cmd.cmc))) parts.push(`cmd CMC ${cmd.cmc}`);
+  if (cmd && Number.isFinite(Number(cmd.cmc))) parts.push(`cmd MV ${cmd.cmc}`);
   return {
     idealWeights,
     ideal,
@@ -6280,7 +6275,7 @@ function _renderManaIdealControls(deck) {
   const spellQty = (deck.cards || []).reduce((s, c) => (s + (_isLandDeckCard(c) ? 0 : (c.qty || 1))), 0);
   const { speed, auto } = _computeIdealManaSpeed(deck, landQty, spellQty);
   const hint = auto
-    ? `Ideal curve uses format, lands (${landQty}), ramp, and commander CMC. Speed ≈ ${Math.round(speed)}/100.`
+    ? `Ideal curve uses format, lands (${landQty}), ramp, and commander mana value. Speed ≈ ${Math.round(speed)}/100.`
     : `Fixed “${mode}” curve (${Math.round(speed)}/100). Pick Auto to derive from this deck.`;
   const sharedNote = activeDeckIsShared ? ' <span class="mana-ideal-shared-note">(shared — view only)</span>' : '';
   const disabled = activeDeckIsShared ? ' disabled' : '';
@@ -6438,7 +6433,7 @@ function renderManaCurve(deck) {
       <div class="hist-line-meta">
         ${!isFiltered ? `<span class="hist-fit-label" title="${String(summary || '').replace(/"/g, '&quot;')}">Fit</span>
         <span class="hist-fit-value" title="${String(summary || '').replace(/"/g, '&quot;')}">${fitPct}%</span>` : ''}
-        <span class="mc-avg-stat">avg CMC <strong>${avgLabel}</strong></span>
+        <span class="mc-avg-stat">avg MV <strong>${avgLabel}</strong></span>
       </div>
       <svg class="hist-line-svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-label="Mana curve">
         <defs>
@@ -7689,7 +7684,7 @@ function _cmdGameplanProbs(deck, cmdCard, customReqs = []) {
       .sort((a, b) => a.name.localeCompare(b.name));
     const count = rampCards.reduce((s, c) => s + (c.qty || 1), 0);
     const cardList = rampCards.map(c => c.qty > 1 ? `${c.name} ×${c.qty}` : c.name).join('\n');
-    return `${count} ramp pieces (CMC<${cmcCap})\n${cardList}`;
+    return `${count} ramp pieces (MV<${cmcCap})\n${cardList}`;
   };
 
 
@@ -7704,8 +7699,8 @@ function _cmdGameplanProbs(deck, cmdCard, customReqs = []) {
       const { cards, K, avgCMC } = _customReqCards(deck, group);
       const groupLabel = group.parts.map(p => p.label).join(' or ');
       const cardList = cards.sort((a,b) => (a.cmc||0)-(b.cmc||0) || a.name.localeCompare(b.name))
-        .map(c => c.qty > 1 ? `${c.name} (CMC${c.cmc||0}) ×${c.qty}` : `${c.name} (CMC${c.cmc||0})`).join('\n');
-      return { group, groupLabel, K, avgCMC, detail: `${K} cards (avg CMC ${avgCMC.toFixed(1)})\n${cardList || '(none in deck)'}` };
+        .map(c => c.qty > 1 ? `${c.name} (MV ${c.cmc||0}) ×${c.qty}` : `${c.name} (MV ${c.cmc||0})`).join('\n');
+      return { group, groupLabel, K, avgCMC, detail: `${K} cards (avg MV ${avgCMC.toFixed(1)})\n${cardList || '(none in deck)'}` };
     });
   customGroups.push(...customData.map(d => ({ groupLabel: d.groupLabel, avgCMC: d.avgCMC })));
   const customReqRows = (sceneSeen) => customData.map(d => ({
@@ -7932,7 +7927,7 @@ function renderCommanderGameplan(deck) {
         const cap = scenario.rampCmcCap || adjustedCMC;
         const have = existingRamp(cap);
         const haveStr = have.length ? `have: ${escapeHtml(have.join(', '))}` : '';
-        return `<div class="cmdr-gp-rec">→ Add more CMC&lt;${cap} ramp${haveStr ? ` — ${haveStr}` : ''}</div>`;
+        return `<div class="cmdr-gp-rec">→ Add more MV&lt;${cap} ramp${haveStr ? ` — ${haveStr}` : ''}</div>`;
       }
       if (lc.includes('lands')) return meta.L >= 36 ? '' : `<div class="cmdr-gp-rec">→ Add more lands (target ≥36-38 for Commander)</div>`;
       for (const [col, name] of [['W','white'],['U','blue'],['B','black'],['R','red'],['G','green']]) {
@@ -7951,7 +7946,7 @@ function renderCommanderGameplan(deck) {
       const potentialTurn = meta.cmdCMC + Math.round(otherAvg + Math.max(0, g.avgCMC - 1));
       const saving = scenario.turn - potentialTurn;
       if (saving <= 0) return '';
-      return `<div class="cmdr-gp-rec">→ Lower avg CMC of ${g.groupLabel} (currently ${g.avgCMC.toFixed(1)}) — cheaper options could shift your curve to T${potentialTurn}</div>`;
+      return `<div class="cmdr-gp-rec">→ Lower avg MV of ${g.groupLabel} (currently ${g.avgCMC.toFixed(1)}) — cheaper options could shift your curve to T${potentialTurn}</div>`;
     }).join('') : '';
 
     return `
@@ -8014,7 +8009,7 @@ function renderCommanderGameplan(deck) {
                           <button class="cmdr-gp-part-chip-x" onclick="removeCmdCustomReqPart('${deck.id}','${safeid}','${p.value}')" title="Remove">×</button>
                         </span>`).join('')}
                     </span>
-                    <span class="cmdr-gp-custom-item-meta">${K} in deck · avg CMC ${avgCMC.toFixed(1)}</span>
+                    <span class="cmdr-gp-custom-item-meta">${K} in deck · avg MV ${avgCMC.toFixed(1)}</span>
                     <button class="cmdr-gp-or-add-btn${orPickerOpen ? ' cmdr-gp-or-add-btn--open' : ''}" onclick="toggleCmdOrPicker('${safeid}')" title="Add OR alternative">+ or</button>
                   </div>
                   ${orPickerOpen && orBtns ? `<div class="cmdr-gp-or-picker">${orBtns}</div>` : ''}
@@ -8034,7 +8029,7 @@ function renderCommanderGameplan(deck) {
         </div>
       </div>
       <div class="panel-body cmdr-gp-body">
-        <div class="cmdr-gp-meta">Playing <strong>${escapeHtml(deck.commander)}</strong> — CMC&nbsp;${meta.cmdCMC} · ${meta.L} lands · ${meta.R} early ramp · ${meta.L_ut} untapped lands</div>
+        <div class="cmdr-gp-meta">Playing <strong>${escapeHtml(deck.commander)}</strong> — MV&nbsp;${meta.cmdCMC} · ${meta.L} lands · ${meta.R} early ramp · ${meta.L_ut} untapped lands</div>
         ${probs.preCurve ? scenarioHtml(probs.preCurve, 'Pre-curve', false) : ''}
         ${probs.onCurve ? scenarioHtml(probs.onCurve, 'On-curve', true) : ''}
         ${!probs.preCurve && !probs.onCurve ? '<div class="cmdr-gp-empty">Set a commander with a mana cost to see gameplan probabilities.</div>' : ''}
@@ -10628,7 +10623,7 @@ function _scoreReplacementCandidate(c, profile, tagsByOid) {
 
   const candCmc = typeof _effectiveCmc === 'function' ? _effectiveCmc(c) : (parseFloat(c.cmc) || 0);
   const cmcScore = 2 * Math.max(0, 1 - Math.abs(candCmc - profile.cmc) / 3);
-  if (Math.abs(candCmc - profile.cmc) < 1) reasons.push(`similar cost (CMC ${candCmc})`);
+  if (Math.abs(candCmc - profile.cmc) < 1) reasons.push(`similar cost (MV ${candCmc})`);
 
   let deficitScore = 0;
   const fills = [];

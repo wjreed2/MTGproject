@@ -196,7 +196,11 @@
   }
   #deckTopBar {
     align-items: center !important;
+    /* Title row is full-width, so the action buttons wrap below it and sit
+       centred (the desktop flex spacer is removed on phones). */
+    justify-content: center !important;
   }
+  #deckTopBar .deck-top-spacer { display: none !important; }
   /* Title row spans the full width so the Add/History/Manage-Tags buttons wrap
      onto their own line below instead of crowding (and clipping) the deck name.
      Higher specificity + !important is required to beat `#tab-decks .deck-top-title-row`. */
@@ -227,20 +231,76 @@
     width: min(84vw, 280px);
   }
 
-  /* ── Deck List header controls — wrap instead of running off-screen ──── */
-  #tab-decks .panel-header { row-gap: 8px; }
-  /* The Group / Sort / direction cluster is a single nowrap flex item that
-     overflows narrow screens; let it take a full line and wrap internally. */
-  #tab-decks #deckGroupByWrap {
-    flex: 1 1 100%;
-    flex-wrap: wrap;
+  /* ── Deck List header — deliberate 3-row layout on phones ──────────────
+       Row 1:  Deck List  ·count·  …………………………………………  ▾ collapse
+       Row 2:  Group [Type ▾]  ……………………  Sort [↕] [Name ▾]
+       Row 3:  ……  ⌕ Filter   stack-toggle   view-toggle   ……   (centred)
+     deckGroupByWrap is flattened with display:contents so every control shares
+     the header's flex flow and can be ordered freely; two full-width pseudo
+     breaks (::before/::after) split the three rows; auto-margins position each
+     row (collapse right, sort right, row-3 group centred). */
+  #tab-decks #deckListPanelHeader {
     justify-content: flex-start;
-    gap: 6px;
+    align-items: center;
+    column-gap: 8px !important;
+    row-gap: 4px !important;
   }
-  #tab-decks #deckGroupByWrap .deck-select { flex: 0 1 auto; min-width: 0; }
-  /* The card-size slider is overridden by the fixed mobile stack sizing, so it
-     does nothing on phones — hide it. */
-  #deckCardSizeWrap { display: none !important; }
+  #tab-decks #deckListPanelHeader .deck-list-header-spacer { display: none !important; }
+  #tab-decks #deckListPanelHeader #deckCardSizeWrap        { display: none !important; }
+  #tab-decks #deckListPanelHeader #deckGroupByWrap         { display: contents !important; }
+
+  /* Two invisible full-width line breaks → three rows */
+  #tab-decks #deckListPanelHeader::before,
+  #tab-decks #deckListPanelHeader::after {
+    content: ""; flex: 0 0 100%; height: 0; margin: 0;
+  }
+  #tab-decks #deckListPanelHeader::before { order: 4; }
+  #tab-decks #deckListPanelHeader::after  { order: 10; }
+
+  /* Row 1 — title + count, collapse pushed to the right edge */
+  #tab-decks #deckListPanelHeader .panel-title         { order: 1; }
+  #tab-decks #deckListPanelHeader #deckListCount        { order: 2; }
+  #tab-decks #deckListPanelHeader #deckListCollapseBtn  { order: 3; margin-left: auto; }
+
+  /* Row 2 — group on the left, sort cluster pushed right (↕ before Name) */
+  #tab-decks #deckListPanelHeader .dlh-group               { order: 5; }
+  #tab-decks #deckListPanelHeader #deckGroupBySelect       { order: 6; }
+  #tab-decks #deckListPanelHeader .dlh-sort                { order: 7; margin-left: auto; }
+  #tab-decks #deckListPanelHeader #deckStackSortDirSelect  { order: 8; }
+  #tab-decks #deckListPanelHeader #deckStackSortSelect     { order: 9; }
+
+  /* Row 3 — filter + stack/view toggles, centred as a group */
+  #tab-decks #deckListPanelHeader #deckListFilterToggleBtn { order: 11; margin-left: auto; }
+  #tab-decks #deckListPanelHeader #deckStackLayoutResetBtn { order: 12; }
+  #tab-decks #deckListPanelHeader #deckStackOrientToggle   { order: 13; }
+  #tab-decks #deckListPanelHeader #deckListViewToggle      { order: 14; margin-right: auto; }
+
+  /* ── Suggested Cuts / Adds headers — controls drop below the title row ──
+     Row 1 keeps title + help + (over-count badge) + the collapse ▾ button;
+     a full-width pseudo break drops the playstyle slider, archetype select
+     and ⚙ onto row 2 so they stop overflowing the panel. */
+  #tab-decks .deck-suggest-header {
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-start;
+    column-gap: 8px;
+    row-gap: 4px;
+  }
+  #tab-decks .deck-suggest-header .deck-suggest-spacer { display: none !important; }
+
+  /* Row 1 */
+  #tab-decks .deck-suggest-header .panel-title          { order: 1; }
+  #tab-decks .deck-suggest-header .deck-cut-help        { order: 2; }
+  #tab-decks .deck-suggest-header .tag                  { order: 3; }
+  #tab-decks .deck-suggest-header .decklist-collapse-btn { order: 4; margin-left: auto; }
+  /* break → row 2 */
+  #tab-decks .deck-suggest-header::after {
+    content: ""; order: 5; flex: 0 0 100%; height: 0; margin: 0;
+  }
+  /* Row 2 — playstyle slider, archetype select, ⚙ */
+  #tab-decks .deck-suggest-header .cut-playstyle-wrap    { order: 6; margin: 0; }
+  #tab-decks .deck-suggest-header .deck-select           { order: 7; }
+  #tab-decks .deck-suggest-header .deck-cut-threshold-btn { order: 8; }
 
   /* ── Modals — slide up from bottom ───────────────────────────────────── */
   .modal-overlay { align-items: flex-end !important; }
@@ -280,16 +340,28 @@
     font-family: 'Cinzel', serif; color: var(--gold); font-size: 0.95rem;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  /* Bigger, easy-to-tap close button that paints above the sticky nav bar */
+  /* Bigger, red, centred close button that paints above the sticky nav bar */
   #cardDetailModal .card-detail-modal-close {
     z-index: 20;
-    top: 6px; right: 8px;
+    top: 8px; right: 8px;
     width: 44px; height: 44px;
     min-width: 44px; min-height: 44px;
-    font-size: 1.5rem;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    font-size: 1.4rem;
     border-radius: 50%;
-    background: var(--bg3);
-    border: 1px solid var(--border2);
+    color: var(--red);
+    background: rgba(212, 90, 74, 0.16);
+    border: 1px solid rgba(212, 90, 74, 0.45);
+  }
+  #cardDetailModal .card-detail-modal-close:hover,
+  #cardDetailModal .card-detail-modal-close:active {
+    color: #fff;
+    background: rgba(212, 90, 74, 0.3);
+    border-color: rgba(212, 90, 74, 0.6);
   }
   /* Larger tap targets inside the inspector on phones */
   #cardDetailModal .card-detail-qty-printing-row .btn-icon { min-width: 40px; min-height: 40px; }

@@ -891,6 +891,68 @@ async function enrichCardWithTcgPrices(card) {
   }
 }
 
+// ── Price-log lookup (MTGJSON daily snapshots: card_price_daily + mtgjson_printing) ──
+// Reads the latest daily market prices straight from our own price-history tables, so
+// search results can show prices without a Scryfall/TCG round-trip.
+let _priceLogLatestDate = null;
+let _priceLogLatestTs = 0;
+let _priceLogUnavailable = false;
+const _PRICE_LOG_DATE_TTL = 6 * 60 * 60 * 1000; // re-check newest snapshot every 6h
+
+async function _getPriceLogLatestDate() {
+  if (_priceLogLatestDate && Date.now() - _priceLogLatestTs < _PRICE_LOG_DATE_TTL) return _priceLogLatestDate;
+  const [[row]] = await db().query('SELECT MAX(snapshot_date) AS md FROM card_price_daily');
+  _priceLogLatestDate = row?.md || null;
+  _priceLogLatestTs = Date.now();
+  return _priceLogLatestDate;
+}
+
+/** Attach `prices:{usd,usd_foil,usd_ck,usd_ck_foil}` to each card (keyed by scryfall id) from the price log. */
+async function attachPriceLogPrices(cards) {
+  if (_priceLogUnavailable || !Array.isArray(cards) || !cards.length) return cards;
+  const ids = [...new Set(cards
+    .map(c => String(c?.id || '').toLowerCase())
+    .filter(id => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)))];
+  if (!ids.length) return cards;
+  try {
+    const md = await _getPriceLogLatestDate();
+    if (!md) return cards;
+    const ph = ids.map(() => '?').join(',');
+    const [rows] = await db().query(
+      `SELECT p.scryfall_id sid, c.tcg_normal, c.tcg_foil, c.ck_normal, c.ck_foil
+       FROM mtgjson_printing p
+       JOIN card_price_daily c ON c.uuid = p.uuid AND c.snapshot_date = ?
+       WHERE p.scryfall_id IN (${ph})`,
+      [md, ...ids]
+    );
+    const posMax = (a, b) => {
+      const x = parseFloat(a), y = parseFloat(b);
+      const m = Math.max(Number.isFinite(x) ? x : 0, Number.isFinite(y) ? y : 0);
+      return m > 0 ? m : null;
+    };
+    const byId = new Map();
+    for (const r of rows) {
+      const key = String(r.sid || '').toLowerCase();
+      const prev = byId.get(key) || {};
+      byId.set(key, {
+        usd: posMax(prev.usd, r.tcg_normal),
+        usd_foil: posMax(prev.usd_foil, r.tcg_foil),
+        usd_ck: posMax(prev.usd_ck, r.ck_normal),
+        usd_ck_foil: posMax(prev.usd_ck_foil, r.ck_foil),
+      });
+    }
+    for (const c of cards) {
+      const p = byId.get(String(c.id || '').toLowerCase());
+      if (p) c.prices = { ...(c.prices || {}), ...p };
+    }
+  } catch (e) {
+    // Price-history tables not present in this DB — degrade gracefully (search still works).
+    _priceLogUnavailable = true;
+    console.warn('[price-log] unavailable, skipping price enrichment:', e.code || e.message);
+  }
+  return cards;
+}
+
 const _REPLACE_ALLOWED_TABLES = new Set(['collection', 'games', 'wishlist']);
 /** Full-replacement PUT for one account inside a transaction. */
 async function replaceAllForAccount(accountId, table, rows, insertFn) {
@@ -3693,6 +3755,7 @@ app.get('/api/cards/search', requireAuth, async (req, res) => {
       image_uris: { small: row.image_small, normal: row.image_normal },
       power: row.power, toughness: row.toughness, loyalty: row.loyalty,
     }));
+    if (req.query.withPrices === '1') await attachPriceLogPrices(cards);
     res.json({ data: cards, total: Number(total) });
   } catch (e) {
     console.error(e);
