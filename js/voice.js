@@ -541,7 +541,8 @@ function openVoice(options) {
   renderVoiceAccPanel();
   if (voiceAccTimer) clearInterval(voiceAccTimer);
   voiceAccTimer = setInterval(() => renderVoiceAccPanel(), 1000);
-  if (!isListening) startRecording();
+  // Mic is tab-driven: switchVoiceTab() above starts recording only when the Voice tab is
+  // active, so opening "Add cards" (Search tab) no longer turns the microphone on.
 }
 
 function closeVoice() {

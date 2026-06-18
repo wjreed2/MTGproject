@@ -242,7 +242,7 @@
   #tab-decks #deckListPanelHeader {
     justify-content: flex-start;
     align-items: center;
-    column-gap: 8px !important;
+    column-gap: 6px !important;
     row-gap: 4px !important;
   }
   #tab-decks #deckListPanelHeader .deck-list-header-spacer { display: none !important; }
@@ -262,12 +262,14 @@
   #tab-decks #deckListPanelHeader #deckListCount        { order: 2; }
   #tab-decks #deckListPanelHeader #deckListCollapseBtn  { order: 3; margin-left: auto; }
 
-  /* Row 2 — group on the left, sort cluster pushed right (↕ before Name) */
+  /* Row 2 — Group [Type] · Sort [Name] [↕] all packed on one row.
+     The selects are width-capped so the whole cluster fits a phone row (they
+     size to their widest option otherwise, which overflows). */
   #tab-decks #deckListPanelHeader .dlh-group               { order: 5; }
-  #tab-decks #deckListPanelHeader #deckGroupBySelect       { order: 6; }
-  #tab-decks #deckListPanelHeader .dlh-sort                { order: 7; margin-left: auto; }
-  #tab-decks #deckListPanelHeader #deckStackSortDirSelect  { order: 8; }
-  #tab-decks #deckListPanelHeader #deckStackSortSelect     { order: 9; }
+  #tab-decks #deckListPanelHeader #deckGroupBySelect       { order: 6; max-width: 5.8rem; }
+  #tab-decks #deckListPanelHeader .dlh-sort                { order: 7; }
+  #tab-decks #deckListPanelHeader #deckStackSortSelect     { order: 8; max-width: 4.8rem; }
+  #tab-decks #deckListPanelHeader #deckStackSortDirSelect  { order: 9; min-width: 0 !important; width: 2.6rem; }
 
   /* Row 3 — filter + stack/view toggles, centred as a group */
   #tab-decks #deckListPanelHeader #deckListFilterToggleBtn { order: 11; margin-left: auto; }
@@ -301,6 +303,17 @@
   #tab-decks .deck-suggest-header .cut-playstyle-wrap    { order: 6; margin: 0; }
   #tab-decks .deck-suggest-header .deck-select           { order: 7; }
   #tab-decks .deck-suggest-header .deck-cut-threshold-btn { order: 8; }
+
+  /* ── Deck analytics charts — one full-width column on phones ───────────
+     The 2-up grid makes every chart half-width and cramped; stack them so
+     each graph is as large as possible. */
+  .deck-stats-grid {
+    grid-template-columns: 1fr !important;
+    gap: 0.85rem !important;
+  }
+  /* The Cumulative Card Draw panel spans 2 cols on desktop — reset on phones
+     so it doesn't spawn a phantom second grid column. */
+  .deck-stats-grid .deck-draw-accel-panel { grid-column: auto !important; }
 
   /* ── Modals — slide up from bottom ───────────────────────────────────── */
   .modal-overlay { align-items: flex-end !important; }
