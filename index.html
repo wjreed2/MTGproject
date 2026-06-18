@@ -217,6 +217,7 @@
       </svg>
       <span class="sidebar-label">Wishlist</span>
     </button>
+    <!-- Analytics nav removed for now (tab content kept dormant in #tab-stats)
     <button class="sidebar-item" onclick="showTab('stats')" data-label="Analytics">
       <svg class="sidebar-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
         <line x1="1" y1="14" x2="15" y2="14"/>
@@ -226,6 +227,8 @@
       </svg>
       <span class="sidebar-label">Analytics</span>
     </button>
+    -->
+
     <button class="sidebar-item" onclick="showTab('games')" data-label="Game Tracker">
       <svg class="sidebar-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
         <path d="M2 14L14 2M2 2l12 12" stroke-linecap="round"/>
@@ -954,7 +957,10 @@
   </div>
 </div>
 
-<!-- ANALYTICS TAB -->
+<!-- SETTINGS TAB (mobile only) — the settings dropdown is rendered as a full page here via CSS -->
+<div id="tab-settings" class="tab-content"></div>
+
+<!-- ANALYTICS TAB (nav entry removed for now; content kept dormant) -->
 <div id="tab-stats" class="tab-content">
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem">
     <div class="panel">
@@ -2002,14 +2008,12 @@
     </svg>
     <span class="mob-nav-label">Wishlist</span>
   </button>
-  <button class="mob-nav-item" data-tab="stats" onclick="showTab('stats')">
-    <svg class="mob-nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-      <line x1="1" y1="14" x2="15" y2="14"/>
-      <rect x="2" y="9" width="3" height="5" rx="0.5"/>
-      <rect x="6.5" y="5" width="3" height="9" rx="0.5"/>
-      <rect x="11" y="2" width="3" height="12" rx="0.5"/>
+  <button class="mob-nav-item" data-tab="settings" onclick="showTab('settings')">
+    <svg class="mob-nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="8" cy="8" r="2.2"/>
+      <path d="M8 1.4v1.7M8 12.9v1.7M14.6 8h-1.7M3.1 8H1.4M12.6 3.4l-1.2 1.2M4.6 11.4l-1.2 1.2M12.6 12.6l-1.2-1.2M4.6 4.6 3.4 3.4"/>
     </svg>
-    <span class="mob-nav-label">Stats</span>
+    <span class="mob-nav-label">Settings</span>
   </button>
   <button class="mob-nav-item" onclick="openVoice()">
     <svg class="mob-nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">

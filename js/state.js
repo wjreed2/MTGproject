@@ -364,6 +364,8 @@ async function initApp() {
 
   await loadAppDataAfterAuth();
   const savedTab = localStorage.getItem('mtg_active_tab');
-  const validTabs = new Set(['collection', 'sets', 'decks', 'browse', 'wishlist', 'stats', 'games']);
+  // 'stats' (Analytics) nav removed for now, and 'settings' is a transient mobile
+  // page — neither auto-restores; fall back to the default tab instead.
+  const validTabs = new Set(['collection', 'sets', 'decks', 'browse', 'wishlist', 'games']);
   if (savedTab && validTabs.has(savedTab) && typeof showTab === 'function') showTab(savedTab);
 }

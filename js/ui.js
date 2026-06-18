@@ -11,6 +11,20 @@ function showTab(t) {
   else if (typeof event !== 'undefined' && event?.currentTarget) event.currentTarget.classList.add('active');
   const mobItem = document.querySelector(`.mob-nav-item[data-tab="${t}"]`);
   if (mobItem) mobItem.classList.add('active');
+  // Settings tab (mobile): host the web settings dropdown as a full page. The
+  // element lives in the (mobile-hidden) topbar, so move it into the page here
+  // and move it back when leaving so the desktop dropdown keeps working.
+  const _settingsDropdown = document.getElementById('settingsDropdown');
+  if (_settingsDropdown) {
+    if (t === 'settings') {
+      document.getElementById('tab-settings')?.appendChild(_settingsDropdown);
+      _settingsDropdown.classList.add('settings-as-page');
+      if (typeof renderValueExcludeSlider === 'function') renderValueExcludeSlider();
+    } else if (_settingsDropdown.classList.contains('settings-as-page')) {
+      _settingsDropdown.classList.remove('settings-as-page', 'open');
+      document.querySelector('header.topbar')?.appendChild(_settingsDropdown);
+    }
+  }
   if (t !== 'collection' && typeof exitSharedCollectionView === 'function' && typeof _viewingSharedCollOwnerId !== 'undefined' && _viewingSharedCollOwnerId) exitSharedCollectionView();
   if (t === 'collection') renderCollection();
   if (t === 'sets') loadSets();
