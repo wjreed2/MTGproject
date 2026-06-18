@@ -528,6 +528,9 @@ let _cardDetailBase = null;
 let _cardDetailCurrentUid = null;
 /** 'collection' | 'deck' — controls prev/next in the universal card inspector */
 let _cardDetailNavMode = 'collection';
+/** Page scroll position captured when the inspector first opens, restored on close
+    so you land back where you were in the list (mobile especially). */
+let _cardDetailReturnScrollY = null;
 /** Bumps on each successful open start — stale async work must not repaint the modal */
 let _cardDetailOpenSession = 0;
 function _prefetchDetailArt(url) {
@@ -1639,6 +1642,11 @@ function _looksLikeScryfallCardId(v) {
 }
 
 async function openCardDetail(uid, navMode, opts) {
+  // Capture the underlying page scroll on a fresh open (not while arrow/swiping
+  // between cards) so closeCardDetail() can return you to your spot in the list.
+  if (!document.getElementById('cardDetailModal')?.classList.contains('open')) {
+    _cardDetailReturnScrollY = window.scrollY || window.pageYOffset || 0;
+  }
   const deckCards = decks.flatMap(d => d.cards || []);
   const pools = [collection, wishlist, deckCards];
   let sourceCard = null;
@@ -1957,6 +1965,10 @@ function closeCardDetail() {
   _cardDetailNavMode = 'collection';
   _updateCardDetailEdgeNav(null);
   if (typeof _hideCardHoverPreview === 'function') _hideCardHoverPreview();
+  // Restore the list scroll position the inspector was opened from.
+  const restoreY = _cardDetailReturnScrollY;
+  _cardDetailReturnScrollY = null;
+  if (restoreY != null) requestAnimationFrame(() => window.scrollTo(0, restoreY));
 }
 
 document.addEventListener('keydown', e => {
@@ -1969,6 +1981,48 @@ document.addEventListener('keydown', e => {
   e.preventDefault();
   navigateCardDetailCollection(e.key === 'ArrowRight' ? 'next' : 'prev');
 });
+
+// Touch: swipe the card inspector left/right to move between cards (phones).
+(function _initCardDetailSwipeNav() {
+  const modal = document.getElementById('cardDetailModal');
+  if (!modal) return;
+  let sx = 0, sy = 0, st = 0, tracking = false;
+
+  // Don't hijack swipes that start inside a horizontally-scrollable area.
+  function _startsInHScroll(el) {
+    let n = el;
+    while (n && n !== modal) {
+      if (n.scrollWidth > n.clientWidth + 4) {
+        const ov = getComputedStyle(n).overflowX;
+        if (ov === 'auto' || ov === 'scroll') return true;
+      }
+      n = n.parentElement;
+    }
+    return false;
+  }
+
+  modal.addEventListener('touchstart', e => {
+    if (e.touches.length !== 1 || !modal.classList.contains('open') || _startsInHScroll(e.target)) {
+      tracking = false;
+      return;
+    }
+    const t = e.touches[0];
+    sx = t.clientX; sy = t.clientY; st = Date.now(); tracking = true;
+  }, { passive: true });
+
+  modal.addEventListener('touchend', e => {
+    if (!tracking) return;
+    tracking = false;
+    const t = e.changedTouches[0];
+    if (!t) return;
+    const dx = t.clientX - sx;
+    const dy = t.clientY - sy;
+    if (Math.abs(dx) < 60) return;                 // not far enough
+    if (Math.abs(dx) < Math.abs(dy) * 1.6) return; // too vertical (a scroll)
+    if (Date.now() - st > 700) return;             // too slow to be a flick
+    navigateCardDetailCollection(dx < 0 ? 'next' : 'prev');
+  }, { passive: true });
+})();
 
 function _resolveActiveDeckCardForOpenDetail(uid) {
   const deckCards = decks.flatMap(d => d.cards || []);
@@ -2537,7 +2591,7 @@ function _positionFindAc() {
   drop.style.width = r.width + 'px';
 }
 
-const _KNOWN_SEARCH_KEYS = /\b(?:t|type|c|ci|color|id|cmc|mv|manavalue|r|rarity|s|e|set|o|oracle|is|has|name|n|qty|q|tag|tags)\s*(?:>=|<=|!=|<>|[:=><])/i;
+const _KNOWN_SEARCH_KEYS = /\b(?:t|type|c|ci|color|id|cmc|mv|manavalue|r|rarity|s|e|set|edition|o|oracle|is|has|name|n|qty|q|tag|tags)\s*(?:>=|<=|!=|<>|[:=><])/i;
 function _findQueryHasTokens(q) { return _KNOWN_SEARCH_KEYS.test(q); }
 
 function _getFindPaperOnly() {

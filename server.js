@@ -1643,12 +1643,33 @@ app.get('/api/decks/shared', requireAuth, async (req, res) => {
       }
     });
 
+    // Each owner's My Tags catalog — so collaborators see the deck OWNER's tags, not their own.
+    const ownerIds = [...new Set(deckRows.map(r => r.account_id))];
+    const catalogByOwner = new Map();
+    if (ownerIds.length) {
+      const oph = ownerIds.map(() => '?').join(',');
+      const [prefRows] = await db().query(
+        `SELECT account_id, key_name, value FROM preferences
+         WHERE account_id IN (${oph}) AND key_name IN ('deck_custom_tags','deck_primary_tags','deck_secondary_tags')`,
+        ownerIds
+      );
+      prefRows.forEach(r => {
+        let arr = [];
+        try { arr = Array.isArray(r.value) ? r.value : JSON.parse(r.value || '[]'); } catch (_) { arr = []; }
+        if (!Array.isArray(arr)) arr = [];
+        const set = catalogByOwner.get(r.account_id) || new Set();
+        arr.forEach(t => { const s = String(t || '').trim(); if (s) set.add(s); });
+        catalogByOwner.set(r.account_id, set);
+      });
+    }
+
     const out = deckRows.map(r => {
       const deck = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
       const cards = byDeck.get(r.id);
       if (Array.isArray(cards) && cards.length) deck.cards = cards;
       deck.ownerEmail = r.email;
       deck.ownerId = r.account_id;
+      deck.ownerCustomTags = [...(catalogByOwner.get(r.account_id) || [])].sort((a, b) => a.localeCompare(b));
       deck.userPermission = permByDeck.get(r.id) || 'edit';
       return deck;
     });
@@ -3570,7 +3591,7 @@ function _buildLocalSearchSqlGroup({ tokens, nameTerms }, nameOnly = false) {
       if (Number.isFinite(num)) { where.push(neg ? `NOT (cmc ${sqlOp} ?)` : `cmc ${sqlOp} ?`); params.push(num); }
     } else if (key === 'r' || key === 'rarity') {
       where.push(`${n}(LOWER(rarity) = ?)`); params.push(String(_rarityAliases[eVal] || eVal).toLowerCase());
-    } else if (key === 's' || key === 'set') {
+    } else if (key === 's' || key === 'set' || key === 'e' || key === 'edition') {
       where.push(`${n}(LOWER(set_code) = ?)`); params.push(eVal.toLowerCase());
     } else if (key === 'is') {
       if (eVal === 'legendary') { where.push(`${n}(LOWER(type_line) LIKE ?)`); params.push('%legendary%'); }

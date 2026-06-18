@@ -1733,6 +1733,43 @@ function _userDeckTagsUnion() {
   return [...new Set((deckCustomTags || []).filter(Boolean))].sort((a, b) => a.localeCompare(b));
 }
 
+/**
+ * Determine whose tags a card-tag picker should show/write. Tags are unique to a
+ * user; when collaborating on someone else's (shared) deck, the picker operates on
+ * the deck OWNER's tags, not the current user's.
+ */
+function _resolveTagPickerOwnerScope(card, cardUid) {
+  const onDecksTab = !!document.getElementById('tab-decks')?.classList.contains('active');
+  if (onDecksTab && activeDeckIsShared) {
+    const active = getActiveDeck();
+    if (active && active.ownerId != null) {
+      const ref = cardUid || card?.uid || card?.scryfallId;
+      const inDeck = _deckAllZoneCards(active).some(c => (card && c === card) || _cardMatchesRef(c, ref));
+      if (inDeck) {
+        return { kind: 'shared', deckId: active.id, ownerId: active.ownerId, ownerCustomTags: active.ownerCustomTags || [] };
+      }
+    }
+  }
+  return { kind: 'self' };
+}
+
+/** Catalog of My Tags available in the given owner scope (self → your catalog; shared → the deck owner's). */
+function _ownerTagCatalogForScope(scope) {
+  if (scope && scope.kind === 'shared') {
+    const allow = s => !!s && (!_isProtectedDeckTag(s) || (scope.ownerCustomTags || []).includes(s)) && s !== 'Commander';
+    const set = new Set((scope.ownerCustomTags || []).map(t => String(t || '').trim()).filter(allow));
+    const deck = (sharedDecks || []).find(d => d.id === scope.deckId);
+    if (deck) {
+      _deckAllZoneCards(deck).forEach(c => (c.customTags || []).forEach(t => {
+        const s = String(t || '').trim();
+        if (allow(s)) set.add(s);
+      }));
+    }
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }
+  return _userDeckTagsUnion();
+}
+
 function _syncDeckCustomTagsUnion() {
   deckCustomTags = _userDeckTagsUnion();
   localStorage.setItem('mtg_deck_custom_tags', JSON.stringify(deckCustomTags));
@@ -3197,6 +3234,25 @@ function _findCardForTagPicker(cardUid) {
   return null;
 }
 
+/**
+ * Resolve the card the tag picker is acting on. uids are deterministic per printing
+ * (`<scryfallId>_n/_f`), so in shared scope we must target the OWNER's deck slot rather
+ * than a same-printing copy in the current user's collection.
+ */
+function _cardForTagPickerTarget() {
+  const t = _deckCardTagPickerTarget;
+  if (!t) return null;
+  if (t.ownerScope?.kind === 'shared') {
+    const deck = (sharedDecks || []).find(d => d.id === t.ownerScope.deckId);
+    if (deck) {
+      return getDeckCardByUid(deck, t.cardUid)
+        || _deckAllZoneCards(deck).find(c => _cardMatchesRef(c, t.cardUid))
+        || null;
+    }
+  }
+  return _findCardForTagPicker(t.cardUid);
+}
+
 function _oracleIdForMyTags(card) {
   if (!card) return '';
   return _normalizeTagOracleId(card.oracleId || _scryOracleByPrintId.get(card.scryfallId || '') || '');
@@ -3236,7 +3292,8 @@ function _collectUsedUserTags() {
   for (const ov of _tagOverridesByOracleId.values()) {
     (ov.customTags || []).forEach(add);
   }
-  [...(collection || []), ...decks.flatMap(d => _deckAllZoneCards(d)), ...sharedDecks.flatMap(d => _deckAllZoneCards(d))].forEach(c => {
+  // Only the current user's own cards — NOT sharedDecks, whose tags belong to other owners.
+  [...(collection || []), ...decks.flatMap(d => _deckAllZoneCards(d))].forEach(c => {
     (c.customTags || []).forEach(add);
   });
   return [...out].sort((a, b) => a.localeCompare(b));
@@ -3248,6 +3305,10 @@ function _defaultTagsForPicker() {
 
 /** Build picker rows: Scryfall default tags + My Tags (primary/secondary). */
 function _entriesForCardTagPicker(filter, card) {
+  const scope = _deckCardTagPickerTarget?.ownerScope || { kind: 'self' };
+  const isShared = scope.kind === 'shared';
+  const catalog = _ownerTagCatalogForScope(scope);
+  const catalogSet = new Set(catalog);
   const f = filter || deckTagCatalogFilter || 'all';
   const protectedEntries = [];
   const userEntries = [];
@@ -3262,7 +3323,7 @@ function _entriesForCardTagPicker(filter, card) {
   const pushUser = tag => {
     const t = String(tag || '').trim();
     if (!t || t === 'Commander') return;
-    if (_isProtectedDeckTag(t) && !_isUserCatalogTag(t)) return;
+    if (_isProtectedDeckTag(t) && !catalogSet.has(t)) return;
     if (seen.has(t)) return;
     seen.add(t);
     userEntries.push({ tag: t, kind: 'user' });
@@ -3273,30 +3334,33 @@ function _entriesForCardTagPicker(filter, card) {
     return protectedEntries;
   }
   if (f === 'primary' || f === 'secondary') {
-    _userDeckTagsUnion().forEach(pushUser);
-    _collectUsedUserTags().forEach(pushUser);
+    catalog.forEach(pushUser);
+    if (!isShared) _collectUsedUserTags().forEach(pushUser);
     userEntries.sort((a, b) => a.tag.localeCompare(b.tag));
     return userEntries;
   }
 
   _defaultTagsForPicker().forEach(pushProtected);
-  _userDeckTagsUnion().forEach(pushUser);
+  catalog.forEach(pushUser);
   if (card) {
     (card.customTags || []).forEach(t => {
       if (_isProtectedDeckTag(t)) pushProtected(t);
       else pushUser(t);
     });
-    if (typeof _getGlobalCustomTagsForCard === 'function') {
+    // Self's global per-card overrides only apply in self scope.
+    if (!isShared && typeof _getGlobalCustomTagsForCard === 'function') {
       _getGlobalCustomTagsForCard(card).forEach(t => {
         if (_isProtectedDeckTag(t)) pushProtected(t);
         else pushUser(t);
       });
     }
   }
-  for (const ov of _tagOverridesByOracleId.values()) {
-    (ov.customTags || []).forEach(pushUser);
+  if (!isShared) {
+    for (const ov of _tagOverridesByOracleId.values()) {
+      (ov.customTags || []).forEach(pushUser);
+    }
+    _collectUsedUserTags().forEach(pushUser);
   }
-  _collectUsedUserTags().forEach(pushUser);
 
   userEntries.sort((a, b) => {
     const ra = _userTagTierSortRank(a.tag, card);
@@ -3328,8 +3392,9 @@ function _bindDeckCardTagPickerClicks() {
     const idx = Number(btn.dataset.tagPickIdx);
     const entry = _deckCardTagPickerTarget?.entries?.[idx];
     if (!entry || entry.kind !== 'user') return;
-    const card = _findCardForTagPicker(_deckCardTagPickerTarget?.cardUid);
-    if (!card || !_isUserTagActiveOnCard(card, entry.tag, _deckCardTagPickerTarget?.oracleId)) return;
+    const card = _cardForTagPickerTarget();
+    const ovOracle = _deckCardTagPickerTarget?.ownerScope?.kind === 'shared' ? null : _deckCardTagPickerTarget?.oracleId;
+    if (!card || !_isUserTagActiveOnCard(card, entry.tag, ovOracle)) return;
     e.preventDefault();
     e.stopPropagation();
     void toggleDeckCardCustomTag(entry.tag, { cycleTier: true });
@@ -3337,14 +3402,22 @@ function _bindDeckCardTagPickerClicks() {
 }
 
 async function openDeckCardTagPicker(_deckId, cardUid) {
-  const card = _findCardForTagPicker(cardUid);
+  let card = _findCardForTagPicker(cardUid);
   if (!card) return;
   _bindDeckCardTagPickerClicks();
   deckTagCatalogFilter = 'all';
+  const ownerScope = _resolveTagPickerOwnerScope(card, cardUid);
+  // In shared scope, act on the owner's deck slot, not a same-printing collection copy.
+  if (ownerScope.kind === 'shared') {
+    const deck = (sharedDecks || []).find(d => d.id === ownerScope.deckId);
+    const deckCard = deck && (getDeckCardByUid(deck, cardUid) || _deckAllZoneCards(deck).find(c => _cardMatchesRef(c, cardUid)));
+    if (deckCard) card = deckCard;
+  }
   _deckCardTagPickerTarget = {
     deckId: null,
     cardUid: card.uid || card.scryfallId || cardUid,
     oracleId: null,
+    ownerScope,
     defaultTags: new Set(),
     overrideAdd: new Set(),
     overrideRemove: new Set(),
@@ -3356,7 +3429,8 @@ async function openDeckCardTagPicker(_deckId, cardUid) {
   if (listEl) listEl.innerHTML = '<div style="padding:0.75rem;color:var(--text3);font-size:0.82rem">Loading tags…</div>';
   document.getElementById('deckCardTagModal').classList.add('open');
   await _hydrateDeckCardTagPickerDefaults(card);
-  if (_seedUserTagCatalogFromUsage()) save('prefs');
+  // Only seed YOUR catalog from YOUR usage — never while editing someone else's deck.
+  if (ownerScope.kind === 'self' && _seedUserTagCatalogFromUsage()) save('prefs');
   renderDeckCardTagPicker();
   setTimeout(() => document.getElementById('deckCardTagNewInput')?.focus(), 60);
 }
@@ -3370,7 +3444,7 @@ function renderDeckCardTagPicker() {
   const el = document.getElementById('deckCardTagList');
   if (!el || !_deckCardTagPickerTarget) return;
   _renderDeckTagFilterBar('deckCardTagFilterBar');
-  const card = _findCardForTagPicker(_deckCardTagPickerTarget.cardUid);
+  const card = _cardForTagPickerTarget();
   if (!card) return;
   if (!Array.isArray(card.customTags)) card.customTags = [];
   const entries = _entriesForCardTagPicker(deckTagCatalogFilter, card);
@@ -3379,7 +3453,9 @@ function renderDeckCardTagPicker() {
     el.innerHTML = '<div style="padding:0.75rem;color:var(--text3);font-size:0.82rem">No tags in this filter. Create a My Tag below or switch to Default tags / All tags.</div>';
     return;
   }
-  const oracleId = _deckCardTagPickerTarget.oracleId;
+  // In shared scope the card's tags are the owner's (stored on the card), so ignore
+  // self's per-oracle overrides when resolving active state / tier.
+  const oracleId = _deckCardTagPickerTarget.ownerScope?.kind === 'shared' ? null : _deckCardTagPickerTarget.oracleId;
   const pickerTarget = _deckCardTagPickerTarget;
   _deckCardTagPickerTarget.entries = entries;
   el.innerHTML = entries.map((entry, i) => {
@@ -3464,9 +3540,61 @@ async function _saveGlobalCustomTags(oracleId) {
   }
 }
 
+/**
+ * Toggle a My Tag on a card of a collaborator's (shared) deck. The tag is the deck
+ * OWNER's: it lives on the card and persists to the owner via the deck save — it does
+ * NOT touch the current user's tag catalog or per-card overrides.
+ */
+async function _toggleSharedDeckCardTag(tag, opts = {}, scope) {
+  if (!canEditActiveDeck()) {
+    showNotif('You have view-only access to this deck', true);
+    return;
+  }
+  const deck = (sharedDecks || []).find(d => d.id === scope.deckId);
+  if (!deck) return;
+  const cardUid = _deckCardTagPickerTarget.cardUid;
+  const card = getDeckCardByUid(deck, cardUid)
+    || _deckAllZoneCards(deck).find(c => _cardMatchesRef(c, cardUid));
+  if (!card) return;
+
+  const isActive = _customTagsHas(card.customTags, tag);
+  const wantTier = _tierForTagPickerAssign();
+
+  if (isActive && opts.cycleTier) {
+    const next = _getCardCustomTagTier(card, tag) === 'secondary' ? 'primary' : 'secondary';
+    _setCardCustomTagTier(card, tag, next);
+    saveActiveDeck(deck);
+    renderDeckCardTagPicker();
+    renderDeckList(deck);
+    showNotif(`"${tag}" set as ${next} on this card`);
+    return;
+  }
+
+  const f = deckTagCatalogFilter || 'all';
+  if (isActive && (f === 'primary' || f === 'secondary') && _getCardCustomTagTier(card, tag) !== wantTier) {
+    return _toggleSharedDeckCardTag(tag, { cycleTier: true }, scope);
+  }
+
+  if (isActive) {
+    _setCardCustomTags(card, (card.customTags || []).filter(t => normalizeDeckTagName(t).toLowerCase() !== tag.toLowerCase()));
+    _removeCardCustomTagTier(card, tag);
+  } else {
+    _setCardCustomTags(card, [...(card.customTags || []), tag]);
+    _setCardCustomTagTier(card, tag, wantTier);
+  }
+  syncDeckCardAutoRoleTags(card);
+  saveActiveDeck(deck);
+  renderDeckCardTagPicker();
+  renderDeckList(deck);
+  if (typeof patchOpenCardDetailMyTags === 'function') patchOpenCardDetailMyTags();
+}
+
 async function toggleDeckCardCustomTag(tag, opts = {}) {
   tag = normalizeDeckTagName(tag);
   if (!_deckCardTagPickerTarget || !tag || !_isUserMyTag(tag)) return;
+  if (_deckCardTagPickerTarget.ownerScope?.kind === 'shared') {
+    return _toggleSharedDeckCardTag(tag, opts, _deckCardTagPickerTarget.ownerScope);
+  }
   const card = _findCardForTagPicker(_deckCardTagPickerTarget.cardUid);
   if (!card) return;
 
@@ -3741,12 +3869,14 @@ function addAndAssignDeckTagFromPicker() {
   const input = document.getElementById('deckCardTagNewInput');
   const tag = normalizeDeckTagName(input?.value);
   if (!tag) return;
+  const isShared = _deckCardTagPickerTarget?.ownerScope?.kind === 'shared';
   if (_isProtectedDeckTag(tag) && !_userDeckTagsUnion().includes(tag)) {
     if (input) input.value = '';
     void toggleDeckCardProtectedTagOverride(tag);
     return;
   }
-  if (!_userDeckTagsUnion().includes(tag)) {
+  // In shared scope a new tag belongs to the owner's deck only — keep it out of your catalog.
+  if (!isShared && !_userDeckTagsUnion().includes(tag)) {
     _ensureUserTagInCatalog(tag);
     save('prefs');
   }
@@ -4963,9 +5093,8 @@ async function _refreshDeckGeneratedTokens(deck) {
 function _deckTokenTileHtml(t) {
   const img = t.imageLarge || t.image
     || (t.id ? `https://cards.scryfall.io/normal/front/${t.id[0]}/${t.id[1]}/${t.id}.jpg` : '');
-  const sources = t.sources.map(s => s.name).join(', ');
   const safeName = escapeHtml(t.name);
-  return `<div class="deck-stack-card deck-token-card" data-sid="${t.id}" title="${safeName} — from: ${escapeHtml(sources)}">
+  return `<div class="deck-stack-card deck-token-card" data-sid="${t.id}">
       <div class="stack-wrap">
         ${img
           ? `<img src="${escapeHtml(img)}" class="stack-main" alt="${safeName}" loading="lazy">`
@@ -4999,24 +5128,41 @@ function _renderDeckTokensSection(deck, tokens, opts = {}) {
   if (!list.length) {
     body.innerHTML = '<div class="deck-tokens-quiet">No token-generating cards in this deck.</div>';
     body.onclick = null;
+    body.onmouseover = null;
+    body.onmouseout = null;
+    _hideTokenSourcesTooltip();
     return;
   }
   if (deckListView === 'grid') {
     body.innerHTML = `<div class="deck-stack-cards deck-tokens-grid">${list.map(_deckTokenTileHtml).join('')}</div>`;
   } else {
     body.innerHTML = list.map(t => {
-      const srcLabel = t.sources.map(s => s.name).join(', ');
       const srcCount = t.sources.length;
-      return `<div class="deck-token-row" data-sid="${t.id}" title="Created by: ${escapeHtml(srcLabel)}">
+      return `<div class="deck-token-row" data-sid="${t.id}">
         <span class="deck-token-name">${escapeHtml(t.name)}</span>
         <span class="deck-token-type">${escapeHtml(t.typeLine || '')}</span>
         <span class="deck-token-sources">${srcCount} source${srcCount === 1 ? '' : 's'}</span>
       </div>`;
     }).join('');
   }
+  const tokensBySid = new Map(list.map(t => [String(t.id), t]));
   body.onclick = e => {
     const row = e.target.closest('[data-sid]');
     if (row) openCardDetail(row.dataset.sid, 'deck');
+  };
+  body.onmouseover = e => {
+    const el = e.target.closest('[data-sid]');
+    if (!el || el.dataset.sid === _tokenSrcTipSid) return;
+    const t = tokensBySid.get(el.dataset.sid);
+    if (!t) return;
+    _tokenSrcTipSid = el.dataset.sid;
+    _showTokenSourcesTooltip(el, t);
+  };
+  body.onmouseout = e => {
+    const el = e.target.closest('[data-sid]');
+    if (!el) return;
+    if (e.relatedTarget && el.contains(e.relatedTarget)) return;
+    _hideTokenSourcesTooltip();
   };
 }
 
@@ -10128,6 +10274,61 @@ function _showManaGenTooltip(triggerEl, colName, entries, colTotal) {
 
 function _hideManaGenTooltip() {
   const tip = document.getElementById('_manaGenTooltip');
+  if (tip) tip.style.opacity = '0';
+}
+
+let _tokenSrcTipSid = null;
+
+/** Hover popover listing the deck cards that generate a given token/emblem. */
+function _showTokenSourcesTooltip(triggerEl, token) {
+  if (!token) return;
+  let tip = document.getElementById('_tokenSourcesTooltip');
+  if (!tip) {
+    tip = document.createElement('div');
+    tip.id = '_tokenSourcesTooltip';
+    tip.style.cssText = [
+      'position:fixed', 'z-index:9999', 'pointer-events:none',
+      'background:var(--bg2,#1e1e2e)', 'border:1px solid var(--border,#333)',
+      'border-radius:8px', 'padding:10px 14px', 'font-size:0.78rem',
+      'color:var(--text,#ddd)', 'box-shadow:0 4px 24px rgba(0,0,0,0.6)',
+      'min-width:180px', 'max-width:280px', 'opacity:0', 'transition:opacity 0.1s',
+    ].join(';') + ';';
+    document.body.appendChild(tip);
+  }
+  const sources = [...(token.sources || [])]
+    .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  const rows = sources.length
+    ? sources.map(s =>
+        '<div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' +
+        `color:var(--text2,#bbb);padding:1px 0">${escapeHtml(s.name)}</div>`).join('')
+    : '<div style="color:var(--text3,#888)">Unknown source</div>';
+  const subtitle = token.typeLine
+    ? `<div style="font-size:0.68rem;color:var(--text3,#888);margin-bottom:6px">${escapeHtml(token.typeLine)}</div>`
+    : '';
+  const label = `Created by ${sources.length} card${sources.length === 1 ? '' : 's'}`;
+  tip.innerHTML =
+    `<div style="font-weight:600;margin-bottom:2px">${escapeHtml(token.name)}</div>` +
+    subtitle +
+    '<div style="font-size:0.66rem;color:var(--text3,#888);text-transform:uppercase;' +
+    `letter-spacing:0.04em;margin-bottom:4px">${label}</div>` +
+    rows;
+
+  const rect = triggerEl.getBoundingClientRect();
+  const W = tip.offsetWidth || 240;
+  let left = rect.right + 10;
+  if (left + W > window.innerWidth - 8) left = rect.left - W - 10;
+  left = Math.max(8, left);
+  const tipH = tip.scrollHeight || 120;
+  let top = rect.top;
+  top = Math.max(8, Math.min(window.innerHeight - tipH - 8, top));
+  tip.style.left = left + 'px';
+  tip.style.top = top + 'px';
+  tip.style.opacity = '1';
+}
+
+function _hideTokenSourcesTooltip() {
+  _tokenSrcTipSid = null;
+  const tip = document.getElementById('_tokenSourcesTooltip');
   if (tip) tip.style.opacity = '0';
 }
 
