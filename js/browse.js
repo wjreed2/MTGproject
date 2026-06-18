@@ -309,7 +309,7 @@ function _pdvStatsHtml(cards) {
   const maxB = Math.max(1, ...buckets);
   const curveBars = buckets.map((v, i) => `
       <div class="pdv-curve-col">
-        <div class="pdv-curve-bar" style="height:${Math.round((v / maxB) * 100)}%" title="${v} at CMC ${i === 7 ? '7+' : i}"></div>
+        <div class="pdv-curve-bar" style="height:${Math.round((v / maxB) * 100)}%" title="${v} at MV ${i === 7 ? '7+' : i}"></div>
         <div class="pdv-curve-x">${i === 7 ? '7+' : i}</div>
       </div>`).join('');
   const colorCount = { W: 0, U: 0, B: 0, R: 0, G: 0 };

@@ -284,7 +284,7 @@
     <div class="view-controls" style="border-bottom:1px solid var(--border);padding-bottom:10px;margin-bottom:10px">
       <div style="position:relative;flex:1;min-width:180px">
         <input class="search-box" type="text" style="width:100%;padding-right:28px"
-          placeholder="Search… or use t: o: r: cmc: is: s: qty: tag:" oninput="filterCards(this.value)" id="searchInput" autocomplete="off">
+          placeholder="Search… or use t: o: r: mv: is: s: qty: tag:" oninput="filterCards(this.value)" id="searchInput" autocomplete="off">
         <div class="filter-syntax-hint tooltip-wrap" style="position:absolute;right:7px;top:50%;transform:translateY(-50%);font-size:0.72rem;color:var(--text3);cursor:default;user-select:none">?
           <div class="tooltip" style="white-space:normal;width:280px;left:auto;right:0;transform:none;font-size:0.72rem;line-height:1.6;bottom:auto;top:calc(100% + 6px)">
             <strong>Search syntax</strong><br>
@@ -292,7 +292,7 @@
             <code>t:vampire</code> — creature subtype<br>
             <code>is:legendary</code> — legendary cards<br>
             <code>is:foil</code> / <code>is:nonfoil</code><br>
-            <code>cmc>=4</code> or <code>mv:3</code> — mana value<br>
+            <code>mv>=4</code> or <code>mv:3</code> — mana value<br>
             <code>qty>=4</code> — owned count<br>
             <code>r:rare</code> / <code>r:mythic</code> — rarity<br>
             <code>s:znr</code> — set code<br>
@@ -343,7 +343,7 @@
       <button class="filter-chip" data-qflag="nonfoil"   onclick="toggleQuickFlag('nonfoil',this)">Non-foil</button>
       <button class="filter-chip" data-qflag="new"       onclick="toggleQuickFlag('new',this)">New</button>
       <span style="width:1px;height:14px;background:var(--border2);flex-shrink:0"></span>
-      <span style="font-size:0.68rem;color:var(--text3);white-space:nowrap;letter-spacing:0.04em;text-transform:uppercase">CMC</span>
+      <span style="font-size:0.68rem;color:var(--text3);white-space:nowrap;letter-spacing:0.04em;text-transform:uppercase">Mana Value</span>
       <input id="cmcMinInput" type="number" min="0" max="20" placeholder="Min"
         oninput="setQuickCMC()"
         style="width:46px;padding:3px 5px;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);color:var(--text);font-size:0.78rem;font-family:'JetBrains Mono',monospace">
@@ -477,7 +477,7 @@
         </div><!-- /.deck-top-title-row -->
         <span id="deckScryTagSyncBadge" class="tag tag-scryfall" style="display:none">Syncing Scryfall tags…</span>
         <span id="deckSharedByBadge" class="tag tag-blue" style="display:none"></span>
-        <div style="flex:1"></div>
+        <div class="deck-top-spacer" style="flex:1"></div>
         <button id="deckBuilderVoiceBtn" type="button" class="btn btn-outline btn-sm" onclick="openVoice({ addToActiveDeck: true })" title="Add cards — voice, search, or manual" style="display:inline-flex;align-items:center;gap:5px;white-space:nowrap">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" style="width:13px;height:13px;flex-shrink:0"><line x1="8" y1="2" x2="8" y2="14"/><line x1="2" y1="8" x2="14" y2="8"/></svg>
           Add cards
@@ -558,13 +558,13 @@
 
       <!-- Deck List -->
       <div class="panel" style="margin-bottom:1.25rem">
-        <div class="panel-header" style="flex-wrap:wrap;gap:6px">
+        <div id="deckListPanelHeader" class="panel-header" style="flex-wrap:wrap;gap:6px">
           <span class="panel-title">Deck List</span>
           <span id="deckListCount"></span>
-          <div style="flex:1"></div>
+          <div class="deck-list-header-spacer" style="flex:1"></div>
           <span id="deckGroupByWrap" style="display:flex;align-items:center;gap:5px">
             <button id="deckListFilterToggleBtn" class="btn btn-outline btn-sm" onclick="toggleDeckListFilterBar()" title="Filter deck list">⌕ Filter</button>
-            <span class="deck-list-group-hint">Group</span>
+            <span class="deck-list-group-hint dlh-group">Group</span>
             <select id="deckGroupBySelect" class="deck-select" onchange="setDeckGroupBy(this.value)">
               <option value="type">Type</option>
               <option value="subtype">Subtype</option>
@@ -573,13 +573,12 @@
               <option value="tag_primary">Primary tags</option>
               <option value="tag_secondary">Secondary tags</option>
               <option value="color">Color</option>
-              <option value="cmc">CMC</option>
+              <option value="cmc">Mana Value</option>
             </select>
-            <span class="deck-list-group-hint">Sort</span>
+            <span class="deck-list-group-hint dlh-sort">Sort</span>
             <select id="deckStackSortSelect" class="deck-select" onchange="setDeckStackSort(this.value)">
               <option value="name">Name</option>
-              <option value="cmc">CMC</option>
-              <option value="mana">Mana cost</option>
+              <option value="cmc">Mana Value</option>
               <option value="price">Price</option>
             </select>
             <select id="deckStackSortDirSelect" class="deck-select" onchange="setDeckStackSortDir(this.value)" title="Sort direction" style="min-width:3.2rem">
@@ -602,7 +601,7 @@
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><path d="M1.8 8h12.4"/><path d="M4 5.8 1.8 8 4 10.2"/><path d="M12 5.8 14.2 8 12 10.2"/></svg>
             </button>
           </div>
-          <div class="view-toggle">
+          <div id="deckListViewToggle" class="view-toggle">
             <button id="deckListViewList" onclick="setDeckListView('list',this)" title="List view">
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" style="width:13px;height:13px"><line x1="3" y1="4.5" x2="13" y2="4.5"/><line x1="3" y1="8" x2="13" y2="8"/><line x1="3" y1="11.5" x2="13" y2="11.5"/></svg>
             </button>
@@ -614,7 +613,7 @@
         </div>
         <div id="deckListFilterBar" class="deck-list-filter-bar" style="display:none">
           <div class="dlf-row">
-            <input id="deckListFilterInput" type="search" class="dlf-text" placeholder="Filter deck… name, o:text, tag:ramp, cmc<=3, c:ug, t:creature"
+            <input id="deckListFilterInput" type="search" class="dlf-text" placeholder="Filter deck… name, o:text, tag:ramp, mv<=3, c:ug, t:creature"
               oninput="setDeckListSearch(this.value)" autocomplete="off" spellcheck="false">
             <button class="dlf-clear" id="deckListFilterClear" onclick="clearDeckListFilters()" title="Clear all filters" style="display:none">✕</button>
           </div>
@@ -644,7 +643,7 @@
 
       <!-- Suggested Cuts (shown when deck exceeds 100 cards) -->
       <div id="deckCutSuggestionsPanel" class="panel" style="display:none;margin-bottom:1.25rem">
-        <div class="panel-header">
+        <div class="panel-header deck-suggest-header">
           <span class="panel-title">Suggested Cuts</span>
           <span class="deck-cut-help tooltip-wrap" tabindex="0" aria-label="How suggested cuts work">
             <span class="deck-cut-help-icon" aria-hidden="true">?</span>
@@ -658,7 +657,7 @@
             </span>
           </span>
           <span id="deckCutOverBadge" class="tag tag-red" style="margin-left:.5rem"></span>
-          <div style="flex:1"></div>
+          <div class="deck-suggest-spacer" style="flex:1"></div>
           <div class="cut-playstyle-wrap" title="Playstyle — shifts cut thresholds (Aggro lowers ramp/removal targets, Control raises them)">
             <span class="cut-playstyle-label cut-playstyle-aggro">Aggro</span>
             <input type="range" id="deckCutPlaystyleSlider" min="-3" max="3" step="1" value="0"
@@ -689,7 +688,7 @@
 
       <!-- Suggested Adds (below deck list) — inverse of Suggested Cuts, shares its target model -->
       <div id="deckAddSuggestionsPanel" class="panel" style="display:none;margin-bottom:1.25rem">
-        <div class="panel-header">
+        <div class="panel-header deck-suggest-header">
           <span class="panel-title">Suggested Adds</span>
           <span class="deck-cut-help tooltip-wrap" tabindex="0" aria-label="How suggested adds work">
             <span class="deck-cut-help-icon" aria-hidden="true">?</span>
@@ -700,8 +699,7 @@
               Shares the archetype and playstyle targets with Suggested Cuts. Add puts one copy in the deck.
             </span>
           </span>
-          <span id="deckAddUnderBadge" class="tag" style="margin-left:.5rem;background:rgba(61,184,160,0.15);color:var(--teal)"></span>
-          <div style="flex:1"></div>
+          <div class="deck-suggest-spacer" style="flex:1"></div>
           <div class="cut-playstyle-wrap" title="Playstyle — shared with Suggested Cuts (Aggro lowers ramp/removal targets, Control raises them)">
             <span class="cut-playstyle-label cut-playstyle-aggro">Aggro</span>
             <input type="range" id="deckAddPlaystyleSlider" min="-3" max="3" step="1" value="0"
@@ -1253,7 +1251,7 @@
           <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center">
             <div style="position:relative;flex:1">
               <input class="search-box" style="width:100%" type="text" id="findCardInput"
-                placeholder="Name, or: t:creature c:u cmc<=3 o:&quot;draw a card&quot; r:rare s:SET"
+                placeholder="Name, or: t:creature c:u mv<=3 o:&quot;draw a card&quot; r:rare s:SET"
                 oninput="findCardAutocomplete(this.value);_syncFindFilterBtns(this.value)"
                 onkeydown="if(event.key==='Enter'){event.preventDefault();runFindCard(this.value);}"
                 autocomplete="off">
@@ -1289,6 +1287,18 @@
             <button class="filter-chip" id="fcr-m"  onclick="_toggleFindToken('r','m')">Mythic</button>
             <button class="filter-chip" id="fcr-u"  onclick="_toggleFindToken('r','u')">Uncommon</button>
             <button class="filter-chip" id="fcr-c"  onclick="_toggleFindToken('r','c')">Common</button>
+            <span style="width:1px;height:14px;background:var(--border2);flex-shrink:0"></span>
+            <label style="font-size:0.72rem;color:var(--text3);white-space:nowrap;display:flex;align-items:center;gap:5px;margin-left:auto">
+              Sort
+              <select id="findCardSort" onchange="setFindCardSort(this.value)" title="Sort results"
+                style="background:var(--bg3);border:1px solid var(--border2);color:var(--text);border-radius:var(--radius);padding:4px 6px;font-size:0.78rem">
+                <option value="">Relevance</option>
+                <option value="name">Name (A–Z)</option>
+                <option value="cmc">Mana Value</option>
+                <option value="price">Price (USD)</option>
+                <option value="rarity">Rarity</option>
+              </select>
+            </label>
           </div>
           <div id="findCardResults"></div>
         </div>
