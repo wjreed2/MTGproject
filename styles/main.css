@@ -2738,6 +2738,14 @@ main {
 .tablet-player-menu .cmd-stepper { gap: 8px; }
 .tablet-drag-menu .x-stepper { gap: 8px; }
 .tablet-drag-menu .x-stepper-val { font-size: 1.05rem; }
+/* Next / Pause: keep their original look but extend the tap target a few px on each edge.
+   Sides stay within the 5px flex gap so the two hitboxes never overlap. */
+.tablet-center-box .tablet-turn-btn { position: relative; }
+.tablet-center-box .tablet-turn-btn::before {
+  content: '';
+  position: absolute;
+  inset: -6px -2px;
+}
 .tablet-cell {
   display: flex;
   flex-direction: column;

@@ -874,8 +874,8 @@ function renderActionBar(game) {
     <div style="display:flex;gap:4px;flex-wrap:wrap">
       <button class="btn btn-sm ${gameActionMode === 'deal1'    ? 'btn-primary' : 'btn-outline'}" onclick="setActionMode('deal1','${game.id}')" style="display:inline-flex;align-items:center;gap:5px">${gameIcon('sword', 12)}Deal 1 → target</button>
       <button class="btn btn-sm ${gameActionMode === 'dealX'    ? 'btn-primary' : 'btn-outline'}" onclick="setActionMode('dealX','${game.id}')" style="display:inline-flex;align-items:center;gap:5px">${gameIcon('sword', 12)}Deal ${activeAmt(game)} → target</button>
-      <button class="btn btn-sm ${gameActionMode === 'deal1all' ? 'btn-primary' : 'btn-outline'}" onclick="setActionMode('deal1all','${game.id}')" style="display:inline-flex;align-items:center;gap:5px">${gameIcon('sword', 12)}Deal 1 → all opps</button>
-      <button class="btn btn-sm ${gameActionMode === 'dealXall' ? 'btn-primary' : 'btn-outline'}" onclick="setActionMode('dealXall','${game.id}')" style="display:inline-flex;align-items:center;gap:5px">${gameIcon('sword', 12)}Deal ${activeAmt(game)} → all opps</button>
+      <button class="btn btn-sm btn-outline" onclick="dealToAllOpponents('${game.id}',false)" style="display:inline-flex;align-items:center;gap:5px">${gameIcon('sword', 12)}Deal 1 → all opps</button>
+      <button class="btn btn-sm btn-outline" onclick="dealToAllOpponents('${game.id}',true)" style="display:inline-flex;align-items:center;gap:5px">${gameIcon('sword', 12)}Deal ${activeAmt(game)} → all opps</button>
     </div>
     ${gameActionMode ? `
     <div style="display:flex;align-items:center;gap:6px;padding:3px 10px;background:var(--gold-dim);border:1px solid rgba(200,168,74,0.3);border-radius:var(--radius);font-size:0.78rem;color:var(--gold);flex-shrink:0">
@@ -1056,6 +1056,22 @@ function applyGameAction(gameId, targetId) {
       .forEach(p => dealDamage(game, p, amount, activePlayer || null));
   }
 
+  gameActionMode = null;
+  save('games');
+  if (tabletViewGameId) renderTabletView();
+  renderActiveGame(game);
+}
+
+// Deal to every opponent of the active player at once — no target tap / confirmation step.
+function dealToAllOpponents(gameId, useX) {
+  const game = games.find(g => g.id === gameId);
+  if (!game || game.status !== 'active') return;
+  const activePlayer = game.players[game.activePlayerIdx ?? 0];
+  const amount = useX ? activeAmt(game) : 1;
+  const targets = game.players.filter(p => p.id !== (activePlayer?.id) && !p.eliminated);
+  if (!targets.length) return;
+  _snapshotGame(game);
+  targets.forEach(p => dealDamage(game, p, amount, activePlayer || null));
   gameActionMode = null;
   save('games');
   if (tabletViewGameId) renderTabletView();
@@ -1620,8 +1636,8 @@ function openTabletMenu(playerId, btn, e, rotated = false) {
     </div>
     <button onclick="${cm};setActionMode('deal1','${game.id}')"    style="${mi}${gameActionMode==='deal1'    ? mia : ''}">${gameIcon('sword', 12, 'margin-right:5px')}Deal 1 → target</button>
     <button onclick="${cm};setActionMode('dealX','${game.id}')"    style="${mi}${gameActionMode==='dealX'    ? mia : ''}">${gameIcon('sword', 12, 'margin-right:5px')}Deal ${activeAmt(game)} → target</button>
-    <button onclick="${cm};setActionMode('deal1all','${game.id}')" style="${mi}${gameActionMode==='deal1all' ? mia : ''}">${gameIcon('sword', 12, 'margin-right:5px')}Deal 1 → all opps</button>
-    <button onclick="${cm};setActionMode('dealXall','${game.id}')" style="${mi}${gameActionMode==='dealXall' ? mia : ''}">${gameIcon('sword', 12, 'margin-right:5px')}Deal ${activeAmt(game)} → all opps</button>
+    <button onclick="${cm};dealToAllOpponents('${game.id}',false)" style="${mi}">${gameIcon('sword', 12, 'margin-right:5px')}Deal 1 → all opps</button>
+    <button onclick="${cm};dealToAllOpponents('${game.id}',true)" style="${mi}">${gameIcon('sword', 12, 'margin-right:5px')}Deal ${activeAmt(game)} → all opps</button>
     ${cmdEditorRows ? `
       <div style="border-top:1px solid var(--border);margin:6px 0 4px"></div>
       <div style="padding:4px 8px 2px;font-size:0.62rem;letter-spacing:0.07em;color:var(--text3)">COMMANDER DAMAGE DEALT</div>
@@ -1710,17 +1726,17 @@ function renderTabletView() {
         <span id="tabletTurnTimerDisplay">${_turnPaused ? formatDuration(_pausedElapsed) : (game.turnStartedAt ? formatDuration(Date.now() - game.turnStartedAt) : '00:00')}</span>
       </div>
       ${activePlayer ? `<div style="font-size:clamp(0.6rem,1.3vw,0.82rem);color:${activePlayer.color};margin-top:5px;font-family:'Inter',system-ui,sans-serif;letter-spacing:0.04em">T${game.currentTurn} · ${escapeHtml(activePlayer.name)}</div>` : ''}
-      <div style="display:flex;gap:10px;margin-top:10px">
-        <button onclick="nextTurn('${game.id}')"
-          style="flex:1;padding:14px 10px;background:var(--bg3);
-            border:1px solid var(--border2);border-radius:9px;color:var(--text2);font-size:1rem;cursor:pointer;touch-action:manipulation">
+      <div style="display:flex;gap:5px;margin-top:9px">
+        <button onclick="nextTurn('${game.id}')" class="tablet-turn-btn"
+          style="flex:1;padding:9px 8px;background:var(--bg3);
+            border:1px solid var(--border2);border-radius:8px;color:var(--text2);font-size:0.9rem;cursor:pointer;touch-action:manipulation">
           → Next
         </button>
-        <button onclick="togglePauseTimer('${game.id}')"
-          style="flex:1;padding:14px 10px;background:${_turnPaused ? 'rgba(200,168,74,0.15)' : 'var(--bg3)'};
-            border:1px solid ${_turnPaused ? 'rgba(200,168,74,0.4)' : 'var(--border2)'};border-radius:9px;
-            color:${_turnPaused ? 'var(--gold)' : 'var(--text2)'};font-size:1rem;cursor:pointer;touch-action:manipulation">
-          ${_turnPaused ? `${gameIcon('play', 13, 'margin-right:5px')}Resume` : `${gameIcon('pause', 13, 'margin-right:5px')}Pause`}
+        <button onclick="togglePauseTimer('${game.id}')" class="tablet-turn-btn"
+          style="flex:1;padding:9px 8px;background:${_turnPaused ? 'rgba(200,168,74,0.15)' : 'var(--bg3)'};
+            border:1px solid ${_turnPaused ? 'rgba(200,168,74,0.4)' : 'var(--border2)'};border-radius:8px;
+            color:${_turnPaused ? 'var(--gold)' : 'var(--text2)'};font-size:0.9rem;cursor:pointer;touch-action:manipulation">
+          ${_turnPaused ? `${gameIcon('play', 12, 'margin-right:5px')}Resume` : `${gameIcon('pause', 12, 'margin-right:5px')}Pause`}
         </button>
       </div>
       ${gameActionMode ? `
