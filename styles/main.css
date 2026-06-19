@@ -2730,10 +2730,14 @@ main {
   cursor: pointer; touch-action: manipulation;
 }
 .x-stepper-btn:active { background: var(--bg); transform: scale(0.92); }
-/* Bigger counter buttons inside the tablet ⋯ menu (commander damage / poison) for easy tapping. */
-.tablet-player-menu .x-stepper-btn { width: 42px; height: 42px; font-size: 1.5rem; border-radius: 9px; }
+/* Bigger counter buttons inside the tablet ⋯ menu and the drag-to-deal menu (commander
+   damage / poison / X) — same size in both so they're easy to tap. */
+.tablet-player-menu .x-stepper-btn,
+.tablet-drag-menu .x-stepper-btn { width: 42px; height: 42px; font-size: 1.5rem; border-radius: 9px; }
 .tablet-player-menu .cmd-dmg-val { min-width: 34px; font-size: 1.05rem; text-align: center; }
 .tablet-player-menu .cmd-stepper { gap: 8px; }
+.tablet-drag-menu .x-stepper { gap: 8px; }
+.tablet-drag-menu .x-stepper-val { font-size: 1.05rem; }
 .tablet-cell {
   display: flex;
   flex-direction: column;
