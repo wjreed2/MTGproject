@@ -345,7 +345,8 @@ function renderNewGamePlayersList() {
     <div style="display:grid;grid-template-columns:${cols};gap:8px;align-items:center;padding:9px 0;border-bottom:1px solid var(--border)">
       <div style="width:10px;height:10px;border-radius:50%;background:${GAME_COLORS[i % GAME_COLORS.length]};flex-shrink:0"></div>
       <select onchange="ngpUserSelect(${i}, this.value)" style="min-width:0">
-        <option value="">— select player —</option>
+        <option value="" ${!p.userId && !p.guest ? 'selected' : ''}>— select player —</option>
+        <option value="guest" ${p.guest ? 'selected' : ''}>Guest</option>
         ${userOpts}
       </select>
       ${showDeck ? `<select onchange="ngpDeckSelect(${i}, this.value)" style="min-width:0">${deckOpts}</select>` : `<div style="font-size:0.78rem;color:var(--text3);padding:4px 0">${p.userId ? 'No decks' : ''}</div>`}
@@ -361,6 +362,18 @@ function renderNewGamePlayersList() {
 }
 
 async function ngpUserSelect(i, userIdStr) {
+  // "Guest" — an anonymous, account-less player (no deck list), like leaving the seat blank used to.
+  if (userIdStr === 'guest') {
+    newGamePlayers[i].guest = true;
+    newGamePlayers[i].userId = null;
+    newGamePlayers[i].name = 'Guest';
+    newGamePlayers[i].deckId = '';
+    newGamePlayers[i].deckName = '';
+    newGamePlayers[i].commander = '';
+    renderNewGamePlayersList();
+    return;
+  }
+  newGamePlayers[i].guest = false;
   const userId = userIdStr ? parseInt(userIdStr) : null;
   newGamePlayers[i].userId = userId;
   const user = _allAppUsers.find(u => u.id == userId);
@@ -488,7 +501,9 @@ function renderActiveGame(game) {
         ${renderGameLog(game)}
       </div>
     </div>`;
-  if (game.status === 'active') startTurnTimer(game.id);
+  // Respect a paused turn — otherwise any life/damage change would silently restart
+  // the ticking clock (and the displayed time would jump to include the paused span).
+  if (game.status === 'active' && !_turnPaused) startTurnTimer(game.id);
 }
 
 function renderPlayerCard(game, p) {
@@ -1087,6 +1102,10 @@ function changePoison(gameId, playerId, delta) {
   addLog(game, { type: 'poison', text: `${player.name} → ${player.poison} poison counter${player.poison !== 1 ? 's' : ''}` });
   if (player.poison >= 10 && !player.eliminated) eliminatePlayer(game, player, 'poison');
   save('games'); if (tabletViewGameId) renderTabletView(); renderActiveGame(game);
+  // Update the poison value in the open ⋯ menu in place (it lives on <body>, outside #tabletView).
+  const menu = document.querySelector(`.tablet-player-menu[data-pid="${playerId}"]`);
+  const cell = menu && menu.querySelector(`.cmd-dmg-val[data-poisonval="${playerId}"]`);
+  if (cell) { cell.textContent = player.poison; cell.style.color = player.poison >= 8 ? 'var(--red)' : ''; }
 }
 
 function changeCommanderDamage(gameId, targetId, sourceId, delta) {
@@ -1135,11 +1154,13 @@ function autoEndGame(game, winner) {
   winner.placement = 1;
   if (game.turnStartedAt) {
     game.turnDurations = game.turnDurations || [];
-    game.turnDurations.push({ turn: game.currentTurn, playerId: game.players[game.activePlayerIdx ?? 0].id, duration: Date.now() - game.turnStartedAt });
+    game.turnDurations.push({ turn: game.currentTurn, playerId: game.players[game.activePlayerIdx ?? 0].id, duration: _turnPaused ? _pausedElapsed : Date.now() - game.turnStartedAt });
   }
   stopTurnTimer();
   addLog(game, { type: 'game_end', text: `${winner.name} wins! (${game.currentTurn} turns)` });
   save('games'); showNotif(`${winner.name} wins!`);
+  // Last player standing — drop out of the propped-up scoreboard back to the game summary.
+  if (tabletViewGameId) closeTabletView();
   renderGames(); selectGame(game.id);
 }
 
@@ -1155,7 +1176,11 @@ function nextTurn(gameId) {
     if (!game.players[next].eliminated) break;
     next = (next - 1 + total) % total;
   }
-  const turnDuration = game.turnStartedAt ? Date.now() - game.turnStartedAt : null;
+  // While paused the clock is frozen at _pausedElapsed; use that so a paused span is
+  // never billed to the player (the old code added the whole wall-clock gap, e.g. +4 min).
+  const turnDuration = game.turnStartedAt
+    ? (_turnPaused ? _pausedElapsed : Date.now() - game.turnStartedAt)
+    : null;
   if (turnDuration) {
     game.turnDurations = game.turnDurations || [];
     game.turnDurations.push({ turn: game.currentTurn, playerId: game.players[current].id, duration: turnDuration });
@@ -1351,7 +1376,7 @@ function submitEndGame() {
   game.notes = notes;
   if (game.turnStartedAt) {
     game.turnDurations = game.turnDurations || [];
-    game.turnDurations.push({ turn: game.currentTurn, playerId: game.players[game.activePlayerIdx ?? 0].id, duration: Date.now() - game.turnStartedAt });
+    game.turnDurations.push({ turn: game.currentTurn, playerId: game.players[game.activePlayerIdx ?? 0].id, duration: _turnPaused ? _pausedElapsed : Date.now() - game.turnStartedAt });
   }
   stopTurnTimer();
   const winner = game.players.find(p => p.id === winnerId);
@@ -1469,6 +1494,15 @@ function closeTabletView() {
   document.body.style.overflow = '';
   _setTabletZoomLock(false);
   _setTabletFullscreen(false);
+  // Pause is an ephemeral scoreboard convenience. If we leave while paused, "resume" the
+  // clock cleanly (shift the start) so the elapsed time doesn't later jump to include the
+  // paused span, and so the flag never leaks into the next game/session.
+  if (_turnPaused) {
+    const g = games.find(gg => gg.id === tabletViewGameId);
+    if (g && g.turnStartedAt) { g.turnStartedAt = Date.now() - _pausedElapsed; save('games'); }
+  }
+  _turnPaused = false;
+  _pausedElapsed = 0;
   tabletViewGameId = null;
   _releaseWakeLock();
 }
@@ -1561,6 +1595,18 @@ function openTabletMenu(playerId, btn, e, rotated = false) {
       }).join('')
     : '';
 
+  // Single poison counter for this player (no per-opponent split, unlike commander damage).
+  const poisonRow = player ? `
+    <div style="border-top:1px solid var(--border);margin:6px 0 4px"></div>
+    <div style="display:flex;align-items:center;gap:8px;padding:5px 6px 4px">
+      <span style="flex:1;min-width:0;color:var(--text2);font-size:0.82rem;display:inline-flex;align-items:center;gap:6px">${gameIcon('skull', 13)}Poison</span>
+      <div class="cmd-stepper">
+        <button type="button" class="x-stepper-btn" onclick="changePoison('${game.id}','${player.id}',-1);event.stopPropagation()">−</button>
+        <span class="cmd-dmg-val" data-poisonval="${player.id}" style="${(player.poison || 0) >= 8 ? 'color:var(--red)' : ''}">${player.poison || 0}</span>
+        <button type="button" class="x-stepper-btn" onclick="changePoison('${game.id}','${player.id}',1);event.stopPropagation()">+</button>
+      </div>
+    </div>` : '';
+
   const menu = document.createElement('div');
   menu.className = 'tablet-player-menu';
   menu.dataset.pid = playerId;
@@ -1581,6 +1627,7 @@ function openTabletMenu(playerId, btn, e, rotated = false) {
       <div style="padding:4px 8px 2px;font-size:0.62rem;letter-spacing:0.07em;color:var(--text3)">COMMANDER DAMAGE DEALT</div>
       <div style="padding:2px 6px 4px">${cmdEditorRows}</div>
     ` : ''}
+    ${poisonRow}
     <div style="border-top:1px solid var(--border);margin:5px 0 4px"></div>
     <button onclick="undoGameAction('${game.id}')" style="${mi}${hasUndo ? '' : 'opacity:0.4;'}">↶ Undo last action</button>
     <button onclick="${cm};nextTurn('${game.id}')" style="${mi}">→ Next Turn</button>`;
@@ -1634,11 +1681,20 @@ function renderTabletView() {
   // 3p: one centered on top, two on bottom. 4p: quadrants [3,2,0,1], top row rotated.
   const playerOrder = is4p ? [3, 2, 0, 1] : game.players.map((_, i) => i);
 
+  // Rotate the centre box to face whoever's turn it is: if the active player's seat is
+  // one of the upside-down (top) cells, flip the clock so it reads upright for them.
+  const activeIdx = game.activePlayerIdx ?? 0;
+  const activeOrderIdx = playerOrder.indexOf(activeIdx);
+  const activeRotated = (is4p && activeOrderIdx > -1 && activeOrderIdx < 2)
+    || (is3p && activeOrderIdx === 0)
+    || (is2p && activeOrderIdx === 0);
+  const rot = activeRotated ? ' rotate(180deg)' : '';
+
   // 3p only: the top player is a full-width rotated cell whose name lands at the
   // bottom-centre, right under the centred box. Hang the box just below the mid-line
   // (in the empty gap between the two bottom players) so the name stays clear.
-  const centerBoxV = is3p ? 'top:calc(50% + 6px);transform:translate(-50%,0)'
-                          : 'top:50%;transform:translate(-50%,-50%)';
+  const centerBoxV = is3p ? `top:calc(50% + 6px);transform:translate(-50%,0)${rot}`
+                          : `top:50%;transform:translate(-50%,-50%)${rot}`;
 
   el.innerHTML = `
     ${playerOrder.map((pi, orderIdx) => {
@@ -1648,23 +1704,23 @@ function renderTabletView() {
     }).join('')}
     <!-- Center timer + turn controls -->
     <div class="tablet-center-box" onclick="event.stopPropagation()" style="position:fixed;left:50%;${centerBoxV};z-index:10;
-      background:color-mix(in oklab, var(--bg2) 90%, transparent);backdrop-filter:blur(16px);
+      background:color-mix(in oklab, var(--bg2) 90%, transparent);backdrop-filter:blur(16px);transition:transform 0.35s ease;
       border:1px solid var(--border2);border-radius:18px;padding:12px 24px;text-align:center;min-width:164px">
       <div class="tablet-center-timer" style="font-family:'JetBrains Mono',monospace;font-size:clamp(2rem,4.5vw,3.2rem);font-weight:700;color:${_turnPaused ? 'var(--text3)' : 'var(--gold)'};line-height:1">
         <span id="tabletTurnTimerDisplay">${_turnPaused ? formatDuration(_pausedElapsed) : (game.turnStartedAt ? formatDuration(Date.now() - game.turnStartedAt) : '00:00')}</span>
       </div>
       ${activePlayer ? `<div style="font-size:clamp(0.6rem,1.3vw,0.82rem);color:${activePlayer.color};margin-top:5px;font-family:'Inter',system-ui,sans-serif;letter-spacing:0.04em">T${game.currentTurn} · ${escapeHtml(activePlayer.name)}</div>` : ''}
-      <div style="display:flex;gap:5px;margin-top:9px">
+      <div style="display:flex;gap:10px;margin-top:10px">
         <button onclick="nextTurn('${game.id}')"
-          style="flex:1;padding:9px 8px;background:var(--bg3);
-            border:1px solid var(--border2);border-radius:8px;color:var(--text2);font-size:0.9rem;cursor:pointer">
+          style="flex:1;padding:14px 10px;background:var(--bg3);
+            border:1px solid var(--border2);border-radius:9px;color:var(--text2);font-size:1rem;cursor:pointer;touch-action:manipulation">
           → Next
         </button>
         <button onclick="togglePauseTimer('${game.id}')"
-          style="flex:1;padding:9px 8px;background:${_turnPaused ? 'rgba(200,168,74,0.15)' : 'var(--bg3)'};
-            border:1px solid ${_turnPaused ? 'rgba(200,168,74,0.4)' : 'var(--border2)'};border-radius:8px;
-            color:${_turnPaused ? 'var(--gold)' : 'var(--text2)'};font-size:0.9rem;cursor:pointer">
-          ${_turnPaused ? `${gameIcon('play', 12, 'margin-right:5px')}Resume` : `${gameIcon('pause', 12, 'margin-right:5px')}Pause`}
+          style="flex:1;padding:14px 10px;background:${_turnPaused ? 'rgba(200,168,74,0.15)' : 'var(--bg3)'};
+            border:1px solid ${_turnPaused ? 'rgba(200,168,74,0.4)' : 'var(--border2)'};border-radius:9px;
+            color:${_turnPaused ? 'var(--gold)' : 'var(--text2)'};font-size:1rem;cursor:pointer;touch-action:manipulation">
+          ${_turnPaused ? `${gameIcon('play', 13, 'margin-right:5px')}Resume` : `${gameIcon('pause', 13, 'margin-right:5px')}Pause`}
         </button>
       </div>
       ${gameActionMode ? `
@@ -1720,6 +1776,15 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
         </span>`;
       }).join('')
     : '';
+  // Poison is a single per-player total (10 = dead), shown right under commander damage.
+  const poisonColor = p.poison >= 8 ? 'var(--red)' : 'var(--purple)';
+  const poisonBadge = p.poison > 0
+    ? `<div style="display:flex;align-items:center;justify-content:center;min-height:16px">
+         <span title="Poison counters: ${p.poison} / 10" style="display:inline-flex;align-items:center;gap:4px;padding:1px 8px;border-radius:999px;background:rgba(0,0,0,0.18);border:1px solid ${poisonColor};color:${poisonColor};font-family:'JetBrains Mono',monospace;font-size:0.62rem;line-height:1.3">
+           ${gameIcon('skull', 10)}${p.poison} poison
+         </span>
+       </div>`
+    : '';
 
   // outer horizontal edge: col 0 = left side of screen, col 1 = right side.
   // rotation swaps left/right in screen space, so invert for rotated cells.
@@ -1733,7 +1798,7 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
     data-pid="${p.id}" data-rotated="${rotated ? '1' : '0'}" data-elim="${p.eliminated ? '1' : '0'}"
     style="${spanStyle}border-color:${inTargetMode ? p.color + '80' : isActiveTurn ? p.color : p.color + '30'};
            background:radial-gradient(ellipse at 50% ${rotated ? '60' : '40'}%,${p.color}${inTargetMode ? '14' : isActiveTurn ? '26' : '0a'} 0%,transparent 70%),var(--bg2);
-           ${isActiveTurn && !inTargetMode ? `box-shadow:inset 0 0 0 3px ${p.color}, 0 0 26px -4px ${p.color}aa;` : ''}
+           ${isActiveTurn && !inTargetMode ? `box-shadow:inset 0 0 0 4px ${p.color};` : ''}
            ${inTargetMode ? 'cursor:crosshair;' : ''}
            ${rotated ? 'transform:rotate(180deg);' : ''}"
     ${inTargetMode ? `onclick="applyGameAction('${game.id}','${p.id}')"` : ''}>
@@ -1759,6 +1824,7 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
       <div class="tablet-life-num" style="font-family:'JetBrains Mono',monospace;font-size:${lifeFontSize};font-weight:700;line-height:1;color:${lifeColor};text-shadow:0 0 38px ${p.color}2e;transition:color 0.25s;user-select:none">${p.life}</div>
       <div style="font-size:clamp(0.55rem,1.2vw,0.78rem);color:var(--text3)">of ${p.startingLife}</div>
       ${isCmd ? `<div style="display:flex;align-items:center;justify-content:center;gap:4px;flex-wrap:wrap;padding:0 8px;min-height:16px">${cmdBadges}</div>` : ''}
+      ${poisonBadge}
     </div>
 
     <!-- Self-modification buttons: +1 +X −1 −X -->
@@ -1773,10 +1839,9 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
       <div style="display:flex;gap:clamp(6px,1.2vw,12px);justify-content:center;align-items:center;padding-bottom:clamp(3px,0.7vh,6px);font-size:clamp(0.56rem,1.1vw,0.74rem)">
         ${p.eliminated
           ? `<span style="color:var(--red);letter-spacing:0.05em;display:inline-flex;align-items:center;gap:4px">${gameIcon('skull', 11)}ELIMINATED #${p.placement || '?'}</span>`
-          : `${p.poison > 0 ? `<span style="color:${p.poison >= 8 ? 'var(--red)' : 'var(--text3)'};display:inline-flex;align-items:center;gap:4px">${gameIcon('skull', 11)}${p.poison}</span>` : ''}
-             ${maxCmdDmg > 0 ? `<span style="color:${maxCmdDmg >= 16 ? 'var(--red)' : 'var(--text3)'};display:inline-flex;align-items:center;gap:4px">${gameIcon('sword', 11)}${maxCmdDmg} cmd</span>` : ''}
+          : `${maxCmdDmg > 0 ? `<span style="color:${maxCmdDmg >= 16 ? 'var(--red)' : 'var(--text3)'};display:inline-flex;align-items:center;gap:4px">${gameIcon('sword', 11)}${maxCmdDmg} cmd</span>` : ''}
              ${p.mulligans > 0 ? `<span style="color:var(--text3);display:inline-flex;align-items:center;gap:4px" title="Mulligans">🃏${p.mulligans}</span>` : ''}
-             ${p.poison === 0 && maxCmdDmg === 0 && !(p.mulligans > 0) ? `<span style="color:var(--text3);opacity:0.4">●</span>` : ''}`}
+             ${maxCmdDmg === 0 && !(p.mulligans > 0) ? `<span style="color:var(--text3);opacity:0.4">●</span>` : ''}`}
       </div>
     </div>
   </div>`;
