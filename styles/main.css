@@ -1105,9 +1105,6 @@ main {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-#tab-decks #deckSharedByBadge {
-  font-size: calc(0.75rem + var(--dl-fs));
-}
 #tab-decks #activeDeckCommander {
   font-size: calc(0.82rem + var(--dl-fs));
 }

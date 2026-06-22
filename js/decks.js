@@ -3057,12 +3057,6 @@ function renderActiveDeck() {
     });
   }
 
-  // Shared-by badge
-  const sharedBadge = document.getElementById('deckSharedByBadge');
-  if (sharedBadge) {
-    sharedBadge.style.display = activeDeckIsShared ? '' : 'none';
-    if (activeDeckIsShared) sharedBadge.textContent = `Shared by ${deck.ownerEmail || 'another user'}`;
-  }
   _renderScryTagSyncBadge();
 
   renderDeckList(deck);
