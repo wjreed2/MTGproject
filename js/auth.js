@@ -368,3 +368,54 @@ async function runSeedTestData() {
     btn.disabled = false;
   }
 }
+
+// ── Admin: user accounts ───────────────────────────────────────────────────────
+
+function openUsersModal() {
+  document.getElementById('usersModal')?.classList.add('open');
+  loadAdminUsers();
+}
+
+function closeUsersModal() {
+  document.getElementById('usersModal')?.classList.remove('open');
+}
+
+async function loadAdminUsers() {
+  const status = document.getElementById('usersModalStatus');
+  const list = document.getElementById('usersModalList');
+  if (!list) return;
+  if (status) status.textContent = 'Loading…';
+  list.innerHTML = '';
+
+  let users;
+  try {
+    users = await apiFetch('/admin/users');
+  } catch (e) {
+    if (status) status.textContent = e.message || 'Could not load users';
+    return;
+  }
+
+  if (status) status.textContent = `${users.length} account${users.length !== 1 ? 's' : ''}`;
+  const fmt = ts => ts ? new Date(ts).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '—';
+  const cols = '1.8fr 0.7fr 0.95fr 0.95fr repeat(4, 0.6fr)';
+  const head = `
+    <div style="display:grid;grid-template-columns:${cols};gap:8px;font-size:0.66rem;color:var(--text3);text-transform:uppercase;letter-spacing:0.04em;padding:0 8px 6px;border-bottom:1px solid var(--border)">
+      <span>Email</span><span>Role</span><span>Joined</span><span>Last login</span>
+      <span style="text-align:right">Cards</span><span style="text-align:right">Decks</span><span style="text-align:right">Wish</span><span style="text-align:right">Games</span>
+    </div>`;
+  // Admin view of other users' emails — cross-user data, so escape every field.
+  const rows = users.map(u => `
+    <div style="display:grid;grid-template-columns:${cols};gap:8px;align-items:center;font-size:0.8rem;padding:7px 8px;border-bottom:1px solid var(--border)">
+      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(u.email)}">${escapeHtml(u.email)}</span>
+      <span>${u.role === 'admin'
+        ? '<span style="font-size:0.62rem;font-weight:700;color:var(--gold);border:1px solid rgba(201,168,76,0.5);border-radius:4px;padding:1px 5px">ADMIN</span>'
+        : '<span style="font-size:0.72rem;color:var(--text3)">user</span>'}</span>
+      <span style="color:var(--text3);font-size:0.74rem">${escapeHtml(fmt(u.createdAt))}</span>
+      <span style="color:var(--text3);font-size:0.74rem">${escapeHtml(fmt(u.lastLoginAt))}</span>
+      <span style="text-align:right">${(u.collectionQty || 0).toLocaleString()}</span>
+      <span style="text-align:right">${(u.decks || 0).toLocaleString()}</span>
+      <span style="text-align:right">${(u.wishlist || 0).toLocaleString()}</span>
+      <span style="text-align:right">${(u.games || 0).toLocaleString()}</span>
+    </div>`).join('');
+  list.innerHTML = head + (rows || '<div style="padding:10px;color:var(--text3);font-size:0.8rem">No accounts</div>');
+}
