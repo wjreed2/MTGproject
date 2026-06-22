@@ -2704,6 +2704,14 @@ main {
   transform-origin: top left;
   width: calc(100% / var(--tablet-view-scale));
   height: calc(100% / var(--tablet-view-scale));
+  /* Keep the cells (and their rotated controls/damage buttons) clear of the status
+     bar, home indicator and the side notch — portrait puts the notch top/bottom,
+     landscape puts it left/right, so inset all four edges. Divide each inset by the
+     view scale so the rendered gap matches the real device. */
+  padding-top:    calc(env(safe-area-inset-top, 0px)    / var(--tablet-view-scale, 1));
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) / var(--tablet-view-scale, 1));
+  padding-left:   calc(env(safe-area-inset-left, 0px)   / var(--tablet-view-scale, 1));
+  padding-right:  calc(env(safe-area-inset-right, 0px)  / var(--tablet-view-scale, 1));
   touch-action: none;          /* no pinch/double-tap zoom; iOS ignores user-scalable=no */
 }
 
@@ -2862,6 +2870,7 @@ main {
   #tabletView.tv-2p .tablet-life-num { font-size: clamp(3rem, min(18vw, 21vh), 8rem) !important; }
   #tabletView.tv-2p .tablet-center-box { padding: 9px 18px !important; min-width: 144px !important; }
   #tabletView.tv-2p .tablet-center-timer { font-size: clamp(1.6rem, 3.4vw, 2.6rem) !important; }
+  #tabletView.tv-2p .tablet-turn-btn { padding: 9px 8px !important; font-size: 0.9rem !important; }
 }
 /* Portrait phones: larger self-damage buttons (the primary interaction). */
 @media (orientation: portrait) and (max-width: 680px) {
@@ -2871,15 +2880,21 @@ main {
   }
 }
 /* Phones (either orientation): enlarge the ⋯ menu + cumulative turn time and pull
-   them in from the screen edge so rounded corners / notches don't clip them. */
+   them in from the screen edge so rounded corners don't clip them. (The notch/safe
+   area is handled by #tabletView's padding, so the corner only needs edge clearance.) */
 @media (max-width: 680px), (max-height: 500px) {
-  #tabletView .tablet-corner--left  { left:  calc(env(safe-area-inset-left, 0px) + 20px) !important; }
-  #tabletView .tablet-corner--right { right: calc(env(safe-area-inset-right, 0px) + 20px) !important; }
+  #tabletView .tablet-corner--left  { left:  20px !important; }
+  #tabletView .tablet-corner--right { right: 20px !important; }
   #tabletView .tablet-dots-btn {
     font-size: clamp(1.6rem, 5vw, 2.1rem) !important;
     padding: 6px 12px !important;
   }
   #tabletView .tablet-total-time { font-size: clamp(0.82rem, 3vw, 1.1rem) !important; }
+  /* Bigger centre timer box + Next/Pause buttons so they're easy to tap on a phone.
+     (2-player landscape keeps its own shrunk box via the higher-specificity .tv-2p rule.) */
+  #tabletView .tablet-center-box { padding: 18px 26px !important; min-width: 212px !important; }
+  #tabletView .tablet-center-timer { font-size: clamp(2.4rem, 8vw, 3.4rem) !important; }
+  #tabletView .tablet-turn-btn { padding: 16px 10px !important; font-size: 1.1rem !important; }
 }
 
 /* GAME TRACKER — targeting & action bar */

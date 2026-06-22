@@ -2143,12 +2143,30 @@ app.put('/api/wishlist', requireAuth, async (req, res) => {
   if (!Array.isArray(items)) return res.status(400).json({ error: 'Expected array' });
   const accountId = req.accountId;
   try {
-    await replaceAllForAccount(accountId, 'wishlist', items, async (conn, aid, rows) => {
-      const ph = rows.map(() => '(?,?,?,?)').join(',');
-      const vals = rows.flatMap(i => [aid, i.uid || i.scryfallId, JSON.stringify(i), i.addedAt || Date.now()]);
-      await conn.query(`INSERT INTO wishlist (account_id, uid, data, added_at) VALUES ${ph}`, vals);
+    // Dedup by primary-key (account_id, uid) BEFORE inserting. A single duplicate or
+    // missing key used to abort the whole multi-row INSERT, and since the wipe+rewrite
+    // runs in one transaction the rollback discarded every card — presenting as
+    // "saves one, loses the rest". Last-write-wins; synthesize a unique key when a
+    // card has neither uid nor scryfallId so it can't collapse other rows onto itself.
+    const byKey = new Map();
+    items.forEach((i, idx) => {
+      if (!i || typeof i !== 'object') return;
+      const key = String(i.uid || i.scryfallId || `card_${i.foil ? 'f' : 'n'}_${idx}`);
+      byKey.set(key, { key, item: i });
     });
-    res.json({ ok: true, count: items.length });
+    const rows = [...byKey.values()];
+    await replaceAllForAccount(accountId, 'wishlist', rows, async (conn, aid, rs) => {
+      const ph = rs.map(() => '(?,?,?,?)').join(',');
+      const vals = rs.flatMap(r => [aid, r.key, JSON.stringify(r.item), r.item.addedAt || Date.now()]);
+      // ON DUPLICATE KEY UPDATE is belt-and-suspenders: even if a collision slips
+      // through, update the row instead of throwing and rolling back the batch.
+      await conn.query(
+        `INSERT INTO wishlist (account_id, uid, data, added_at) VALUES ${ph}
+         ON DUPLICATE KEY UPDATE data = VALUES(data), added_at = VALUES(added_at)`,
+        vals
+      );
+    });
+    res.json({ ok: true, count: rows.length });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
@@ -2336,6 +2354,37 @@ async function enrichCardsFromScryfall(cards) {
 }
 
 // ── Admin: seed test users + public decks ────────────────────────────────────
+
+// List all user accounts with per-user content counts (admin tool).
+app.get('/api/admin/users', requireAuth, requireAdminRole, async (req, res) => {
+  try {
+    const [rows] = await db().query(`
+      SELECT a.id, a.email, a.role, a.created_at, a.last_login_at,
+        (SELECT COALESCE(SUM(qty), 0) FROM collection WHERE account_id = a.id) AS collectionQty,
+        (SELECT COUNT(*)              FROM collection WHERE account_id = a.id) AS collectionRows,
+        (SELECT COUNT(*)              FROM decks      WHERE account_id = a.id) AS decks,
+        (SELECT COUNT(*)              FROM wishlist   WHERE account_id = a.id) AS wishlist,
+        (SELECT COUNT(*)              FROM games      WHERE account_id = a.id) AS games
+      FROM accounts a
+      ORDER BY a.created_at DESC
+    `);
+    res.json(rows.map(r => ({
+      id: r.id,
+      email: r.email,
+      role: r.role,
+      createdAt: r.created_at != null ? Number(r.created_at) : null,
+      lastLoginAt: r.last_login_at != null ? Number(r.last_login_at) : null,
+      collectionQty: Number(r.collectionQty) || 0,
+      collectionRows: Number(r.collectionRows) || 0,
+      decks: Number(r.decks) || 0,
+      wishlist: Number(r.wishlist) || 0,
+      games: Number(r.games) || 0,
+    })));
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
 
 app.post('/api/admin/seed-test-data', requireAuth, requireAdminRole, async (req, res) => { try {
   const rawIds = Array.isArray(req.body?.deckIds) ? req.body.deckIds : [];

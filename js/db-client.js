@@ -317,6 +317,8 @@ function markDirty(...domains) {
 // Debounced save — called by save() in state.js
 let _saveTimer = null;
 let _saveInFlight = false;
+let _saveRetryDelay = 100;      // grows on consecutive failures, reset on success
+let _saveErrorNotified = false; // surface a server rejection only once until it recovers
 function scheduleSave() {
   clearTimeout(_saveTimer);
   _saveTimer = setTimeout(_flushSave, 100);
@@ -345,12 +347,33 @@ async function _flushSave() {
     }));
     if (ops.length) await Promise.all(ops);
     if (_isOffline) _setOnline();
+    _saveRetryDelay = 100;
+    if (_saveErrorNotified) {
+      _saveErrorNotified = false;
+      if (typeof showNotif === 'function') showNotif('Your changes are saved.');
+    }
   } catch (e) {
     console.warn('[db] save failed — queued for retry:', e);
     toSave.forEach(d => _dirty.add(d));
-    _setOffline();
+    // A thrown TypeError (or fetch network failure) means we're offline. A non-OK HTTP
+    // response means the server reached us and *rejected* the data — a real bug the user
+    // must know about, not a transient outage. Don't let a rejection fail silently.
+    const isNetwork = (e instanceof TypeError)
+      || /Failed to fetch|NetworkError|load failed/i.test(e?.message || '');
+    if (isNetwork) {
+      _setOffline();
+    } else if (!_saveErrorNotified) {
+      _saveErrorNotified = true;
+      if (typeof showNotif === 'function') {
+        showNotif('Could not save your latest changes — keep this tab open so they aren\'t lost. (' + (e?.message || 'server error') + ')', true);
+      }
+    }
+    _saveRetryDelay = Math.min(_saveRetryDelay * 2, 30_000);
   } finally {
     _saveInFlight = false;
-    if (_dirty.size) scheduleSave();
+    if (_dirty.size) {
+      clearTimeout(_saveTimer);
+      _saveTimer = setTimeout(_flushSave, _saveRetryDelay);
+    }
   }
 }

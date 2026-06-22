@@ -152,6 +152,10 @@
       <div data-admin-only style="display:none">
         <div class="settings-divider"></div>
         <div class="settings-section-label">Developer</div>
+        <button type="button" class="btn btn-ghost btn-sm" style="width:100%;justify-content:flex-start;gap:7px;color:var(--text2)" onclick="toggleSettingsDropdown();openUsersModal()">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><circle cx="6" cy="5.5" r="2.5"/><path d="M1.5 13.5c0-2.3 2-4 4.5-4s4.5 1.7 4.5 4"/><circle cx="11.8" cy="6.2" r="1.7"/><path d="M11 9.7c1.9 0 3.5 1.3 3.5 3.2"/></svg>
+          User Accounts
+        </button>
         <button type="button" id="settingsImportScryDbBtn" class="btn btn-ghost btn-sm" style="width:100%;justify-content:flex-start;gap:7px;color:var(--text2)" onclick="toggleSettingsDropdown();importScryfallOracleDb()">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M8 2v7"/><path d="M5.5 6.5 8 9l2.5-2.5"/><path d="M2.5 11.5h11v2h-11z"/></svg>
           Rebuild Scryfall (Full)
@@ -1800,6 +1804,19 @@
       <div id="seedUsersOut" style="margin-bottom:0.75rem"></div>
       <div id="seedDecksOut"></div>
     </div>
+  </div>
+</div>
+
+<!-- ADMIN USER ACCOUNTS MODAL -->
+<div class="modal-overlay" id="usersModal" data-admin-only style="display:none" onclick="if(event.target===this)closeUsersModal()">
+  <div class="modal" style="width:min(840px,96vw);max-height:88vh;overflow-y:auto">
+    <button class="btn btn-ghost btn-icon" style="position:absolute;top:0.75rem;right:0.75rem" onclick="closeUsersModal()">✕</button>
+    <div class="modal-title">User Accounts</div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:0.75rem">
+      <span id="usersModalStatus" style="font-size:0.82rem;color:var(--text3)">Loading…</span>
+      <button class="btn btn-ghost btn-sm" style="margin-left:auto;color:var(--text2)" onclick="loadAdminUsers()">↻ Refresh</button>
+    </div>
+    <div id="usersModalList"></div>
   </div>
 </div>
 
