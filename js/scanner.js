@@ -1039,7 +1039,13 @@ function _scnSyncScannerSvgLayout() {
   poly.setAttribute('points', pts.map(([px, py]) => `${px},${py}`).join(' '));
   poly.classList.remove('hidden');
   svg.classList.remove('hidden');
-  if (titlePoly && setnumPoly) {
+  if (titlePoly && setnumPoly && _scnFingerprintMode) {
+    // Image-recognition mode draws only the card guide — hide the OCR title/footer sub-rectangles.
+    titlePoly.classList.add('hidden');
+    setnumPoly.classList.add('hidden');
+    titleLab?.classList.add('hidden');
+    setnumLab?.classList.add('hidden');
+  } else if (titlePoly && setnumPoly) {
     const t = _scnAdaptiveTitleUv || SCN_CARD_TITLE_UV;
     const footUv = _scnAdaptiveSetnumUv || SCN_CARD_SETNUM_UV;
     titlePoly.setAttribute('points', _scnUvRectToScreenPoints(q, t.u0, t.v0, t.u1, t.v1, vw, vh, cw, ch));
@@ -2527,7 +2533,7 @@ function _scnCardBoundsTick() {
   if (now - _scnLastBoundsMs < SCN_BOUNDS_MIN_MS) return;
   _scnLastBoundsMs = now;
 
-  if (_scnFingerprintMode) _scnAutoCaptureTick();
+  if (_scnFingerprintMode) { _scnFingerprintTick(v, now); return; }
 
   if (SCN_SCREEN_FOOTER_OCR_MODE) {
     if (
@@ -2845,18 +2851,18 @@ let _scnStreamAdd = false;             // false = queue to _scnPendingAuto; true
 const SCN_FP_WARP_W = 360;             // warped card canvas size (≈63:88 card aspect)
 const SCN_FP_WARP_H = 504;
 const SCN_FP_ART = { u0: 0.07, u1: 0.93, v0: 0.11, v1: 0.63 }; // art window — MUST match build-print-fingerprints.js
-const SCN_FP_STABLE_MS = 280;          // quad must hold still this long before auto-capture
-const SCN_FP_STABLE_CORNER = 0.018;    // max mean corner motion (normalized) to count as "still"
-const SCN_FP_MIN_COVER = 0.18;         // quad bbox must cover at least this fraction of the frame
+const SCN_FP_STABLE_MS = 260;          // card must be held still this long before capture
 const SCN_FP_COOLDOWN_MS = 500;        // min gap between captures
+const SCN_FP_SHARP_MIN = 8;            // Laplacian variance of the guide region — reject blur/empty
+const SCN_FP_GUIDE_FILL = 0.9;         // guide frame fills this fraction of the limiting dimension
 const SCN_FP_LRU_MAX = 24;
 const SCN_FP_LRU_HAMMING = 6;          // reuse a recent match without a round-trip within this distance
 
-let _scnFpStableSince = 0;
-let _scnFpStableRef = null;            // quad snapshot when stillness began
+let _scnFpStillSince = 0;              // timestamp the current still period began (0 = moving)
+let _scnFpPrevGray = null;             // previous downscaled luma frame (motion detection)
 let _scnFpInFlight = false;
 let _scnFpCooldownUntil = 0;
-let _scnFpAwaitingLeave = false;       // true after a queue: wait for the card to leave/change
+let _scnFpAwaitingLeave = false;       // true after a queue: wait for the card to be removed/swapped
 let _scnFpLastAcceptedPhash = null;    // hex of the last queued card's full pHash
 let _scnFpLru = [];                    // [{phash, card}] recent matches → skip the network round-trip
 
@@ -2970,36 +2976,70 @@ function _scnFpStreamAdd(card) {
   if (navigator.vibrate) navigator.vibrate(80);
 }
 
-// Called every bounds tick. Auto-captures when the card is stable, well-framed and sharp, then
-// identifies it by fingerprint and queues/adds it. Debounces on card identity (no motion-wait).
-function _scnAutoCaptureTick() {
-  if (!_scnFingerprintMode || !_scnOcrActive || _scnPaused || _scnFpInFlight) return;
-  // Debounce: after a queue, wait until the current card leaves the frame (then a new one may scan).
+// Fixed, centered card-shaped guide frame (the reticle the user fills with a card). Returns the
+// same {tl,tr,br,bl} normalized-quad shape the warp/hash pipeline expects.
+function _scnGuideQuad(v) {
+  const vw = v.videoWidth, vh = v.videoHeight;
+  if (!vw || !vh) return null;
+  const AR = 63 / 88; // card width / height
+  let hN = SCN_FP_GUIDE_FILL;          // try to fill most of the height
+  let wN = (AR * hN * vh) / vw;        // width that preserves the card's pixel aspect
+  if (wN > SCN_FP_GUIDE_FILL) {        // too wide for the frame → clamp width, recompute height
+    wN = SCN_FP_GUIDE_FILL;
+    hN = (wN * vw) / (AR * vh);
+  }
+  const x0 = (1 - wN) / 2, y0 = (1 - hN) / 2, x1 = x0 + wN, y1 = y0 + hN;
+  return { tl: { nx: x0, ny: y0 }, tr: { nx: x1, ny: y0 }, br: { nx: x1, ny: y1 }, bl: { nx: x0, ny: y1 } };
+}
+
+// Laplacian variance of the guide region (downscaled) — low when empty/blurred, high for a real card.
+function _scnFpGuideSharpness(v, quad) {
+  const bb = _scnQuadAxisBBox(quad);
+  if (!bb) return 0;
+  const vw = v.videoWidth, vh = v.videoHeight;
+  const sx = Math.floor(bb.nx * vw), sy = Math.floor(bb.ny * vh);
+  const sw = Math.floor(bb.nw * vw), sh = Math.floor(bb.nh * vh);
+  if (sw < 8 || sh < 8) return 0;
+  const tw = 96, th = Math.max(8, Math.round(tw * (sh / sw)));
+  const c = document.createElement('canvas');
+  c.width = tw; c.height = th;
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'low';
+  ctx.drawImage(v, sx, sy, sw, sh, 0, 0, tw, th);
+  return _scnLaplacianVariance(ctx, tw, th);
+}
+
+// Fixed guide-frame capture (replaces flaky free-form edge detection). Draws the steady reticle,
+// and when a card is held still + sharp inside it, fingerprint-identifies and queues/adds it.
+// Non-matching frames just return matched:false and are ignored. Debounces on motion (card swap).
+function _scnFingerprintTick(v, now) {
+  const guide = _scnGuideQuad(v);
+  if (!guide) return;
+  _scnCardQuad = guide;
+  _scnSyncScannerSvgLayout();
+  if (!_scnOcrActive || _scnPaused || _scnFpInFlight) return;
+
+  const gray = _scnMotionSampleGray(v);
+  const moving = (gray && _scnFpPrevGray) ? _scnMotionFrameChanged(gray, _scnFpPrevGray) : true;
+  _scnFpPrevGray = gray;
+
+  // After a queue, wait until the card is removed/swapped (motion) before scanning again.
   if (_scnFpAwaitingLeave) {
-    if (_scnBoundsMiss > 6) { _scnFpAwaitingLeave = false; _scnFpStableRef = null; }
+    if (moving) { _scnFpAwaitingLeave = false; _scnFpStillSince = 0; }
     return;
   }
-  const q = _scnCardQuad;
-  if (!q) { _scnFpStableRef = null; return; }
-  const now = performance.now();
   if (now < _scnFpCooldownUntil) return;
-  const bb = _scnQuadAxisBBox(q);
-  if (!bb || bb.nw * bb.nh < SCN_FP_MIN_COVER) { _scnFpStableRef = null; return; }
-  // Stability gate.
-  if (!_scnFpStableRef) { _scnFpStableRef = q; _scnFpStableSince = now; return; }
-  if (_scnQuadMeanCornerDist(q, _scnFpStableRef) > SCN_FP_STABLE_CORNER) {
-    _scnFpStableRef = q; _scnFpStableSince = now;
-    _scnSetOverlay('Hold steady…', '', 'hint');
-    return;
-  }
-  if (now - _scnFpStableSince < SCN_FP_STABLE_MS) return;
+  if (moving) { _scnFpStillSince = 0; _scnSetOverlay('Line up a card in the frame', '', 'hint'); return; }
+  if (!_scnFpStillSince) { _scnFpStillSince = now; return; }
+  if (now - _scnFpStillSince < SCN_FP_STABLE_MS) return;
+  if (_scnFpGuideSharpness(v, guide) < SCN_FP_SHARP_MIN) { _scnFpStillSince = 0; return; }
 
   _scnFpInFlight = true;
   _scnSetOverlay('Reading…', '', 'hint');
   void (async () => {
     try {
       const r = await _scnIdentifyFromQuad();
-      if (!r) { _scnFpCooldownUntil = performance.now() + 250; _scnFpStableRef = null; return; }
+      if (!r) { _scnFpCooldownUntil = performance.now() + 300; _scnFpStillSince = 0; return; }
       if (r.ambiguous && r.candidates?.length > 1) {
         _scnRequireCandPick = false;
         _scnShowCands(r.candidates, r.candidates[0]?.name || 'reprint');
@@ -3017,8 +3057,10 @@ function _scnAutoCaptureTick() {
           await _scnAutoStageAndResume(r.best); // queues + beeps; fp tail sets awaitingLeave
         }
       } else {
-        _scnFpCooldownUntil = performance.now() + 250;
-        _scnFpStableRef = null;
+        // No confident match — keep the reticle up, brief cooldown, let the user reposition.
+        _scnFpCooldownUntil = performance.now() + 350;
+        _scnFpStillSince = 0;
+        _scnSetOverlay('No match — reposition the card', '', 'hint');
       }
     } finally {
       _scnFpInFlight = false;
@@ -3031,7 +3073,8 @@ function _scnStartFingerprintScanning() {
   _scnOcrActive = true;
   _scnPaused = false;
   _scnFpAwaitingLeave = false;
-  _scnFpStableRef = null;
+  _scnFpStillSince = 0;
+  _scnFpPrevGray = null;
   _scnFpCooldownUntil = 0;
   _scnLastBoundsMs = 0;
   _scnBoundsMiss = 0;
