@@ -7443,7 +7443,7 @@ function _gfeTutorTile(group, idx, zone) {
     <div class="deck-search-tile" data-tutor-idx="${idx}" style="cursor:pointer">
       <div class="deck-search-art" style="aspect-ratio:0.715;overflow:hidden;border-radius:6px;border:1px solid var(--border);position:relative;transition:border-color 0.15s,transform 0.2s var(--ease)">
         ${img
-          ? `<img src="${img}" alt="${safeName}" loading="lazy" style="width:100%;height:100%;object-fit:cover;display:block">`
+          ? `<img src="${img}" alt="${safeName}" loading="lazy" decoding="async" onload="this.classList.add('loaded')" onerror="this.classList.add('loaded')" style="width:100%;height:100%;object-fit:cover;display:block">`
           : `<div style="width:100%;height:100%;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:${_gfeRem(0.6)};padding:4px;text-align:center;color:var(--text2)">${safeName}</div>`}
         <div style="position:absolute;bottom:2px;right:2px;background:var(--teal);color:#000;
           font-size:${_gfeRem(0.5)};font-weight:700;padding:1px 5px;border-radius:3px">${badge} ×${count}</div>

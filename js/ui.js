@@ -201,6 +201,26 @@ function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => _HTML_ESCAPE_MAP[c]);
 }
 
+/**
+ * Build the src/srcset/loading/decoding attributes for a card thumbnail.
+ * Cards carry both `image` (Scryfall small ~146px) and `imageLarge` (normal ~488px).
+ * Small-tile grids serve the small image on standard displays and only upgrade to
+ * normal on hi-DPR screens via the 2x descriptor — big bandwidth/decode win, no
+ * visible quality loss. The 'large' view (220px tiles) needs normal even at 1x.
+ * Returns '' when the card has no image (caller should render its placeholder).
+ */
+function cardThumbAttrs(card, view) {
+  const small = card && card.image;
+  const normal = card && card.imageLarge;
+  const big = normal || small, lil = small || normal;
+  if (!big) return '';
+  const useSmall = view !== 'large';
+  const src = useSmall ? lil : big;
+  const srcset = (useSmall && lil && big && lil !== big)
+    ? ` srcset="${escapeHtml(lil)} 1x, ${escapeHtml(big)} 2x"` : '';
+  return `src="${escapeHtml(src)}"${srcset} loading="lazy" decoding="async"`;
+}
+
 function _escapeWhatsNewHtml(s) {
   return escapeHtml(s);
 }

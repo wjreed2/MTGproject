@@ -4203,7 +4203,7 @@ function _stackTile(c, zone = 'main', poolHints = null) {
     <div class="deck-stack-card deck-zone-draggable${notOwned ? ' not-owned' : ''}${isGameChanger ? ' is-game-changer' : ''}${validCls}" data-uid="${dragKey}" data-zone="${zone}" data-sid="${c.scryfallId || ''}" data-name="${safeName}" data-card-key="${cardKey}" data-card-name-key="${nameKey.replace(/"/g, '&quot;')}" onpointerdown="_deckZoneCardPointerDown(event)">
       <div class="stack-wrap">
         ${img
-          ? `<img src="${escapeHtml(img)}" draggable="false" class="stack-main${c.isCommander ? ' is-commander' : ''}" alt="${escapeHtml(c.name)}" loading="lazy" style="${imgStyle}">`
+          ? `<img src="${escapeHtml(img)}" draggable="false" class="stack-main${c.isCommander ? ' is-commander' : ''}" alt="${escapeHtml(c.name)}" loading="lazy" decoding="async" onload="this.classList.add('loaded')" onerror="this.classList.add('loaded')" style="${imgStyle}">`
           : `<div class="stack-main stack-face-fallback${c.isCommander ? ' is-commander' : ''}"
                style="aspect-ratio:0.715;background:var(--bg4);display:flex;align-items:center;justify-content:center;color:var(--text3);padding:4px;text-align:center;${imgStyle}">${escapeHtml(c.name)}</div>`}
         <div class="stack-qty">×${qty}</div>
@@ -5098,7 +5098,7 @@ function _deckTokenTileHtml(t) {
   return `<div class="deck-stack-card deck-token-card" data-sid="${t.id}">
       <div class="stack-wrap">
         ${img
-          ? `<img src="${escapeHtml(img)}" class="stack-main" alt="${safeName}" loading="lazy">`
+          ? `<img src="${escapeHtml(img)}" class="stack-main" alt="${safeName}" loading="lazy" decoding="async" onload="this.classList.add('loaded')" onerror="this.classList.add('loaded')">`
           : `<div class="stack-main stack-face-fallback" style="aspect-ratio:0.715;background:var(--bg4);display:flex;align-items:center;justify-content:center;color:var(--text3);padding:4px;text-align:center;font-size:0.62rem">${safeName}</div>`}
       </div>
     </div>`;
@@ -8343,7 +8343,7 @@ function _cardTile(name, img, inDeck, inCollection, inv, addFn, inMaybeBoard = f
       <div class="deck-search-art" style="aspect-ratio:0.715;overflow:hidden;border-radius:6px;border:${border};
         transition:border-color 0.15s;position:relative">
         ${img
-          ? `<img src="${escapeHtml(img)}" style="width:100%;height:100%;object-fit:cover;${filter}" alt="${escapeHtml(name)}" loading="lazy">`
+          ? `<img src="${escapeHtml(img)}" style="width:100%;height:100%;object-fit:cover;${filter}" alt="${escapeHtml(name)}" loading="lazy" decoding="async" onload="this.classList.add('loaded')" onerror="this.classList.add('loaded')">`
           : `<div style="width:100%;height:100%;background:var(--bg3);display:flex;align-items:center;
               justify-content:center;font-size:0.6rem;padding:4px;text-align:center;color:var(--text2)">${escapeHtml(name)}</div>`}
         ${inDeck ? `<div style="position:absolute;bottom:2px;right:2px;background:var(--teal);color:#000;
