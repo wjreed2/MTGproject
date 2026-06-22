@@ -349,8 +349,9 @@ function openWelcomeModal() {
 async function closeWelcomeModal() {
   document.getElementById('welcomeModal')?.classList.remove('open');
   if (!currentUser || typeof currentUser !== 'object' || currentUser.mobileWelcomeSeenAt != null) return;
-  try {
-    await authWelcomeAck();
-    currentUser.mobileWelcomeSeenAt = Date.now();
-  } catch (_) {}
+  // Mark seen in-memory immediately so it can't reappear this session, then
+  // persist. (If the persist call fails — e.g. server not yet restarted — it
+  // simply re-shows on a future fresh session, which is the intended fallback.)
+  currentUser.mobileWelcomeSeenAt = Date.now();
+  try { await authWelcomeAck(); } catch (_) {}
 }

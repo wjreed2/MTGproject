@@ -239,6 +239,12 @@ async function loadAppDataAfterAuth() {
   refreshMissingCollectionPrices();
 
   void maybeShowWhatsNewDigest();
+
+  // First-time mobile welcome. Runs from every auth entry point — page-load
+  // session restore AND fresh login/register via the gate (which don't reload
+  // the page) — because currentUser is set here. The device + server-flag
+  // checks inside maybeShowWelcome decide whether it actually appears.
+  if (typeof maybeShowWelcome === 'function') setTimeout(maybeShowWelcome, 500);
 }
 
 async function maybeShowWhatsNewDigest() {
@@ -368,8 +374,4 @@ async function initApp() {
   // page — neither auto-restores; fall back to the default tab instead.
   const validTabs = new Set(['collection', 'sets', 'decks', 'browse', 'wishlist', 'games']);
   if (savedTab && validTabs.has(savedTab) && typeof showTab === 'function') showTab(savedTab);
-
-  // First-time mobile welcome (server-tracked; only fires on phones/tablets).
-  // Slight delay so it appears after the app's initial paint, not during it.
-  if (typeof maybeShowWelcome === 'function') setTimeout(maybeShowWelcome, 500);
 }
