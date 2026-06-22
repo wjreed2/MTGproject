@@ -567,7 +567,9 @@ async function scnStartCamera() {
     document.getElementById('scnPauseScanBtn')?.classList.remove('hidden');
     document.getElementById('scnFlipBtn').style.display = '';
     _scnClearOverlay();
-    if (!SCN_BOUNDARY_ONLY) {
+    // Fingerprint mode identifies by image hash and needs no Tesseract/OCR — skip the worker load
+    // for a fast, dependency-free start. (Reprint ambiguity is resolved by the candidate chooser.)
+    if (!SCN_BOUNDARY_ONLY && !_scnFingerprintMode) {
       const okWorkers = await _scnEnsureWorkers();
       if (!okWorkers) {
         _scnHardStop();
@@ -577,7 +579,10 @@ async function scnStartCamera() {
     }
     _scnLastBoundsMs = 0;
     _scnBoundsMiss = 0;
-    if (_scnManualBboxNorm) {
+    if (_scnFingerprintMode) {
+      // Image-recognition engine: start scanning immediately, no manual hint needed.
+      _scnStartFingerprintScanning();
+    } else if (_scnManualBboxNorm) {
       _scnTryStartScanningIfHintReady();
     } else {
       _scnStatus('Draw a card hint on the video to start scanning.', false);
@@ -2073,6 +2078,14 @@ function _scnRefreshHintDrawUI() {
   const drawBtn = document.getElementById('scnHintDrawBtn');
   const clrBtn = document.getElementById('scnHintClearBtn');
   const cap = document.getElementById('scnDrawCapture');
+  // Image-recognition mode auto-detects the card — the manual hint controls are not needed.
+  if (_scnFingerprintMode) {
+    drawBtn?.classList.add('hidden');
+    clrBtn?.classList.add('hidden');
+    if (cap) cap.classList.remove('scn-draw-capture--on');
+    return;
+  }
+  drawBtn?.classList.remove('hidden');
   if (drawBtn) {
     drawBtn.classList.toggle('btn-primary', _scnDrawHintMode);
     drawBtn.textContent = _scnDrawHintMode ? 'Drawing… (drag on video)' : 'Draw card hint';
@@ -2514,6 +2527,8 @@ function _scnCardBoundsTick() {
   if (now - _scnLastBoundsMs < SCN_BOUNDS_MIN_MS) return;
   _scnLastBoundsMs = now;
 
+  if (_scnFingerprintMode) _scnAutoCaptureTick();
+
   if (SCN_SCREEN_FOOTER_OCR_MODE) {
     if (
       _scnCardQuad != null ||
@@ -2818,6 +2833,212 @@ function _scnCaptureRegion(v, rx, ry, rw, rh, maxDim) {
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(v, sx, sy, sw, sh, 0, 0, tw, th);
   return c.toDataURL('image/png');
+}
+
+// ── Fingerprint scanning (image recognition, ManaBox-style) ──────────────────────────
+// Perspective-warp the detected card quad to a flat canvas, compute the SAME pHash as the server
+// build (js/phash-core.js → global PhashCore), and POST to /api/scan/identify. This replaces
+// per-frame OCR as the primary identifier; OCR stays only to disambiguate identical-art reprints.
+
+let _scnFingerprintMode = true;        // image-recognition is the default scanner engine
+let _scnStreamAdd = false;             // false = queue to _scnPendingAuto; true = add straight to collection
+const SCN_FP_WARP_W = 360;             // warped card canvas size (≈63:88 card aspect)
+const SCN_FP_WARP_H = 504;
+const SCN_FP_ART = { u0: 0.07, u1: 0.93, v0: 0.11, v1: 0.63 }; // art window — MUST match build-print-fingerprints.js
+const SCN_FP_STABLE_MS = 280;          // quad must hold still this long before auto-capture
+const SCN_FP_STABLE_CORNER = 0.018;    // max mean corner motion (normalized) to count as "still"
+const SCN_FP_MIN_COVER = 0.18;         // quad bbox must cover at least this fraction of the frame
+const SCN_FP_COOLDOWN_MS = 500;        // min gap between captures
+const SCN_FP_LRU_MAX = 24;
+const SCN_FP_LRU_HAMMING = 6;          // reuse a recent match without a round-trip within this distance
+
+let _scnFpStableSince = 0;
+let _scnFpStableRef = null;            // quad snapshot when stillness began
+let _scnFpInFlight = false;
+let _scnFpCooldownUntil = 0;
+let _scnFpAwaitingLeave = false;       // true after a queue: wait for the card to leave/change
+let _scnFpLastAcceptedPhash = null;    // hex of the last queued card's full pHash
+let _scnFpLru = [];                    // [{phash, card}] recent matches → skip the network round-trip
+
+// 2x3 affine mapping source pts tl→(0,0), tr→(W,0), bl→(0,H). Parallelogram approximation of the
+// quad (implied br = tr+bl-tl); good enough for pHash since the card is near-flat at capture time.
+function _scnSolveAffine(tl, tr, bl, W, H) {
+  const x0 = tl[0], y0 = tl[1];
+  const dx1 = tr[0] - x0, dy1 = tr[1] - y0;
+  const dx2 = bl[0] - x0, dy2 = bl[1] - y0;
+  const det = dx1 * dy2 - dx2 * dy1;
+  if (Math.abs(det) < 1e-6) return null;
+  const a = (W * dy2) / det, c = (-W * dx2) / det;
+  const b = (-H * dy1) / det, d = (H * dx1) / det;
+  return { a, b, c, d, e: -(a * x0 + c * y0), f: -(b * x0 + d * y0) };
+}
+
+function _scnWarpCardToCanvas(v, quad, W, H) {
+  const vw = v.videoWidth, vh = v.videoHeight;
+  if (!vw || !quad?.tl) return null;
+  const tl = [quad.tl.nx * vw, quad.tl.ny * vh];
+  const tr = [quad.tr.nx * vw, quad.tr.ny * vh];
+  const bl = [quad.bl.nx * vw, quad.bl.ny * vh];
+  const M = _scnSolveAffine(tl, tr, bl, W, H);
+  if (!M) return null;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.setTransform(M.a, M.b, M.c, M.d, M.e, M.f);
+  ctx.drawImage(v, 0, 0);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  return { canvas: c, ctx };
+}
+
+// Downscale a canvas region to 32x32 and return its Rec.601 luma (Float64Array) for PhashCore.
+function _scnLuma32(srcCanvas, sx, sy, sw, sh) {
+  const N = PhashCore.N;
+  const small = document.createElement('canvas');
+  small.width = N; small.height = N;
+  const sctx = small.getContext('2d', { willReadFrequently: true });
+  sctx.imageSmoothingEnabled = true;
+  sctx.imageSmoothingQuality = 'high';
+  sctx.drawImage(srcCanvas, sx, sy, sw, sh, 0, 0, N, N);
+  return PhashCore.lumaFromPixels(sctx.getImageData(0, 0, N, N).data, 4);
+}
+
+function _scnComputeScanHashes(v, quad) {
+  const warp = _scnWarpCardToCanvas(v, quad, SCN_FP_WARP_W, SCN_FP_WARP_H);
+  if (!warp) return null;
+  const cv = warp.canvas, W = cv.width, H = cv.height;
+  const lumaFull = _scnLuma32(cv, 0, 0, W, H);
+  const ax = Math.round(W * SCN_FP_ART.u0), ay = Math.round(H * SCN_FP_ART.v0);
+  const aw = Math.round(W * (SCN_FP_ART.u1 - SCN_FP_ART.u0)), ah = Math.round(H * (SCN_FP_ART.v1 - SCN_FP_ART.v0));
+  const lumaArt = _scnLuma32(cv, ax, ay, aw, ah);
+  return {
+    phash: PhashCore.fromLuma(lumaFull),
+    phashRot180: PhashCore.fromLuma(PhashCore.rotate180(lumaFull)),
+    artPhash: PhashCore.fromLuma(lumaArt),
+    sharp: _scnLaplacianVariance(warp.ctx, W, H),
+  };
+}
+
+async function _scnIdentifyFromQuad(hints) {
+  const v = document.getElementById('scnVideo');
+  if (!v?.videoWidth || !_scnCardQuad) return null;
+  const h = _scnComputeScanHashes(v, _scnCardQuad);
+  if (!h) return null;
+  // LRU short-circuit (no network) when the same card lingers / reappears in frame.
+  if (!hints) {
+    for (const e of _scnFpLru) {
+      if (PhashCore.hamming(e.phash, h.phash) <= SCN_FP_LRU_HAMMING) {
+        return { ok: true, matched: true, ambiguous: false, distance: 0, best: e.card, candidates: [e.card], _phash: h.phash, _cached: true };
+      }
+    }
+  }
+  const body = { phash: h.phash, artPhash: h.artPhash, phashRot180: h.phashRot180 };
+  if (hints) body.hints = hints;
+  try {
+    const res = await fetch(`${mtgApiRoot()}/scan/identify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    data._phash = h.phash;
+    if (data.matched && data.best && !data.ambiguous) {
+      _scnFpLru.unshift({ phash: h.phash, card: data.best });
+      if (_scnFpLru.length > SCN_FP_LRU_MAX) _scnFpLru.pop();
+    }
+    return data;
+  } catch (_) {
+    return null;
+  }
+}
+
+// Stream-add: push a matched card straight into the collection (used when _scnStreamAdd is on).
+function _scnFpStreamAdd(card) {
+  const entry = cardToEntry(card, 1);
+  if (_scnFoilMode) { entry.foil = true; entry.uid = card.id + '_f'; }
+  const existing = collection.find(c => c.uid === entry.uid);
+  if (existing) { existing.qty += 1; existing.addedAt = Date.now(); recordCollectionEvent('add', existing, 1); }
+  else { collection.push(entry); recordCollectionEvent('add', entry, 1); }
+  save('collection');
+  renderCollection();
+  updateStats();
+  _scnSession.push(entry);
+  _scnRenderSession();
+  _scnPlayScanBeep();
+  if (navigator.vibrate) navigator.vibrate(80);
+}
+
+// Called every bounds tick. Auto-captures when the card is stable, well-framed and sharp, then
+// identifies it by fingerprint and queues/adds it. Debounces on card identity (no motion-wait).
+function _scnAutoCaptureTick() {
+  if (!_scnFingerprintMode || !_scnOcrActive || _scnPaused || _scnFpInFlight) return;
+  // Debounce: after a queue, wait until the current card leaves the frame (then a new one may scan).
+  if (_scnFpAwaitingLeave) {
+    if (_scnBoundsMiss > 6) { _scnFpAwaitingLeave = false; _scnFpStableRef = null; }
+    return;
+  }
+  const q = _scnCardQuad;
+  if (!q) { _scnFpStableRef = null; return; }
+  const now = performance.now();
+  if (now < _scnFpCooldownUntil) return;
+  const bb = _scnQuadAxisBBox(q);
+  if (!bb || bb.nw * bb.nh < SCN_FP_MIN_COVER) { _scnFpStableRef = null; return; }
+  // Stability gate.
+  if (!_scnFpStableRef) { _scnFpStableRef = q; _scnFpStableSince = now; return; }
+  if (_scnQuadMeanCornerDist(q, _scnFpStableRef) > SCN_FP_STABLE_CORNER) {
+    _scnFpStableRef = q; _scnFpStableSince = now;
+    _scnSetOverlay('Hold steady…', '', 'hint');
+    return;
+  }
+  if (now - _scnFpStableSince < SCN_FP_STABLE_MS) return;
+
+  _scnFpInFlight = true;
+  _scnSetOverlay('Reading…', '', 'hint');
+  void (async () => {
+    try {
+      const r = await _scnIdentifyFromQuad();
+      if (!r) { _scnFpCooldownUntil = performance.now() + 250; _scnFpStableRef = null; return; }
+      if (r.ambiguous && r.candidates?.length > 1) {
+        _scnRequireCandPick = false;
+        _scnShowCands(r.candidates, r.candidates[0]?.name || 'reprint');
+        _scnFpAwaitingLeave = true; // hold until the user picks or the card leaves
+        return;
+      }
+      if (r.matched && r.best) {
+        _scnFpLastAcceptedPhash = r._phash || null;
+        if (_scnStreamAdd) {
+          _scnFpStreamAdd(r.best);
+          _scnSetOverlay(r.best.name, `${(r.best.set || '').toUpperCase()} · #${r.best.collector_number || ''}`, 'match');
+          _scnFpAwaitingLeave = true;
+          _scnFpCooldownUntil = performance.now() + SCN_FP_COOLDOWN_MS;
+        } else {
+          await _scnAutoStageAndResume(r.best); // queues + beeps; fp tail sets awaitingLeave
+        }
+      } else {
+        _scnFpCooldownUntil = performance.now() + 250;
+        _scnFpStableRef = null;
+      }
+    } finally {
+      _scnFpInFlight = false;
+    }
+  })();
+}
+
+function _scnStartFingerprintScanning() {
+  _scnStatus('Point the camera at a card', false);
+  _scnOcrActive = true;
+  _scnPaused = false;
+  _scnFpAwaitingLeave = false;
+  _scnFpStableRef = null;
+  _scnFpCooldownUntil = 0;
+  _scnLastBoundsMs = 0;
+  _scnBoundsMiss = 0;
+  _scnBoundsLoopOn = true;
+  if (_scnBoundsRaf) cancelAnimationFrame(_scnBoundsRaf);
+  _scnBoundsRaf = requestAnimationFrame(_scnCardBoundsTick);
+  // NB: no _scnOcrTickLoop — fingerprint identify replaces per-frame OCR on the hot path.
 }
 
 function _scnNormalizeOcrText(t) {
@@ -3636,7 +3857,10 @@ async function _scnAutoStageAndResume(card) {
     if (_scnPendingAuto.some(e => e.scryfallId === entry.scryfallId && !!e.foil === !!entry.foil)) {
       _scnStatus('Already queued');
       _scnClearOverlay();
-      if (_scnVoiceMode) {
+      if (_scnFingerprintMode) {
+        _scnFpAwaitingLeave = true;
+        _scnFpCooldownUntil = performance.now() + SCN_FP_COOLDOWN_MS;
+      } else if (_scnVoiceMode) {
         await new Promise(r => setTimeout(r, 800));
         _scnStatus('');
         _scnResume();
@@ -3652,7 +3876,13 @@ async function _scnAutoStageAndResume(card) {
     if (navigator.vibrate) navigator.vibrate(80);
     document.getElementById('scnCandidates')?.classList.add('hidden');
     _scnClearOverlay();
-    if (_scnVoiceMode) {
+    if (_scnFingerprintMode) {
+      // No motion-wait: keep scanning, debounce on card identity until this card leaves the frame.
+      _scnSetOverlay(card.name, `${(card.set || '').toUpperCase()} · #${card.collector_number || ''}`, 'match');
+      _scnStatus('Queued — show the next card');
+      _scnFpAwaitingLeave = true;
+      _scnFpCooldownUntil = performance.now() + SCN_FP_COOLDOWN_MS;
+    } else if (_scnVoiceMode) {
       _scnStatus('Queued!');
       await new Promise(r => setTimeout(r, 300));
       _scnStatus('');
@@ -4242,23 +4472,54 @@ function _scnRenderSession() {
       '<div class="scn-session-empty">No cards queued or added this session. With Auto on, matches queue here until you add them to your collection.</div>';
     return;
   }
-  const row = (c, tag) => `
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
+  // Queued rows are still editable (qty stepper + remove) until committed to the collection.
+  const pendRow = c => `
       <div class="scn-session-row">
-        <img src="${c.image || ''}" alt="">
+        <img src="${esc(c.image || '')}" alt="">
         <div class="scn-session-info">
-          <div class="scn-session-name">${c.name}${tag}</div>
-          <div class="scn-session-meta">${(c.set || '').toUpperCase()} · ${c.rarity || ''}</div>
+          <div class="scn-session-name">${esc(c.name)} <span class="scn-session-tag">Queued</span></div>
+          <div class="scn-session-meta">${esc((c.set || '').toUpperCase())} · ${esc(c.rarity || '')}</div>
+        </div>
+        <div class="scn-session-qty">
+          <button class="scn-qty-btn" data-act="dec" data-uid="${esc(c.uid)}" aria-label="Decrease quantity">&minus;</button>
+          <span class="scn-qty-n">${c.qty || 1}</span>
+          <button class="scn-qty-btn" data-act="inc" data-uid="${esc(c.uid)}" aria-label="Increase quantity">+</button>
+          <button class="scn-qty-btn scn-qty-rm" data-act="rm" data-uid="${esc(c.uid)}" aria-label="Remove">&times;</button>
         </div>
       </div>`;
-  const pendingHtml = [..._scnPendingAuto]
-    .reverse()
-    .map(c => row(c, ' <span class="scn-session-tag">Queued</span>'))
-    .join('');
-  const sessionHtml = [..._scnSession]
-    .reverse()
-    .map(c => row(c, ''))
-    .join('');
-  el.innerHTML = pendingHtml + sessionHtml;
+  const sessRow = c => `
+      <div class="scn-session-row">
+        <img src="${esc(c.image || '')}" alt="">
+        <div class="scn-session-info">
+          <div class="scn-session-name">${esc(c.name)}</div>
+          <div class="scn-session-meta">${esc((c.set || '').toUpperCase())} · ${esc(c.rarity || '')}</div>
+        </div>
+      </div>`;
+  el.innerHTML =
+    [..._scnPendingAuto].reverse().map(pendRow).join('') +
+    [..._scnSession].reverse().map(sessRow).join('');
+  el.querySelectorAll('.scn-qty-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const uid = btn.getAttribute('data-uid');
+      const act = btn.getAttribute('data-act');
+      if (act === 'inc') _scnSessionQty(uid, 1);
+      else if (act === 'dec') _scnSessionQty(uid, -1);
+      else if (act === 'rm') _scnSessionRemove(uid);
+    });
+  });
+}
+
+function _scnSessionQty(uid, delta) {
+  const e = _scnPendingAuto.find(x => x.uid === uid);
+  if (!e) return;
+  e.qty = Math.max(1, (e.qty || 1) + delta);
+  _scnRenderSession();
+}
+
+function _scnSessionRemove(uid) {
+  _scnPendingAuto = _scnPendingAuto.filter(x => x.uid !== uid);
+  _scnRenderSession();
 }
 
 function _scnClearSession() {

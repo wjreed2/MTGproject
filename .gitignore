@@ -11,3 +11,5 @@ vendor/playing_cards_yolov8.pt
 engine-gaps.txt
 data/MagicCompRules*.pdf
 data/mtg_conditional_keywords.csv
+fingerprints.sql.gz
+*.sql.gz

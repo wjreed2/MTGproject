@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scanner pHash parity harness</title>
+<style>
+  body { font: 14px/1.5 system-ui, sans-serif; margin: 24px; color: #1a1a1a; }
+  h1 { font-size: 18px; }
+  table { border-collapse: collapse; margin-top: 12px; width: 100%; max-width: 920px; }
+  th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; font-variant-numeric: tabular-nums; }
+  th { background: #f4f4f4; }
+  .ok { color: #157f3b; font-weight: 600; }
+  .warn { color: #b26a00; font-weight: 600; }
+  .bad { color: #c0392b; font-weight: 700; }
+  code { background: #f0f0f0; padding: 1px 4px; border-radius: 3px; }
+  img { height: 90px; vertical-align: middle; border-radius: 4px; }
+  #summary { margin-top: 16px; font-weight: 600; }
+  button { font: inherit; padding: 6px 14px; }
+</style>
+</head>
+<body>
+<h1>Scanner pHash parity harness</h1>
+<p>
+  Loads each Scryfall card image in the browser, computes the <strong>client</strong> pHash with
+  <code>js/phash-core.js</code> (canvas resampling), and asks <code>POST /api/scan/identify</code> to
+  match it against the <strong>server</strong> fingerprint DB (sharp resampling). A self-match should
+  return <code>distance 0</code> (perfect parity) — small distances (≤ a few) are acceptable resampling
+  drift. The fingerprint DB must contain these printings (run
+  <code>npm run build:fingerprints</code> first; the defaults below are in the smoke-test set).
+</p>
+<p><button id="run">Run parity check</button> <span id="status"></span></p>
+<table id="results">
+  <thead><tr><th>Image</th><th>Expected</th><th>Server best</th><th>Distance</th><th>art</th><th>Verdict</th></tr></thead>
+  <tbody></tbody>
+</table>
+<div id="summary"></div>
+
+<script src="/js/phash-core.js"></script>
+<script>
+const N = PhashCore.N;
+const ART = { u0: 0.07, u1: 0.93, v0: 0.11, v1: 0.63 }; // MUST match scanner.js / build script
+
+function luma32(srcCanvas, sx, sy, sw, sh) {
+  const small = document.createElement('canvas');
+  small.width = N; small.height = N;
+  const ctx = small.getContext('2d', { willReadFrequently: true });
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(srcCanvas, sx, sy, sw, sh, 0, 0, N, N);
+  return PhashCore.lumaFromPixels(ctx.getImageData(0, 0, N, N).data, 4);
+}
+
+function hashImage(img) {
+  // The server hashes the FULL card image; the client warps a card to a flat canvas. Here the
+  // source is already a flat full-card image, so draw it 1:1 into a card-sized canvas.
+  const W = 360, H = 504;
+  const card = document.createElement('canvas');
+  card.width = W; card.height = H;
+  const cctx = card.getContext('2d', { willReadFrequently: true });
+  cctx.imageSmoothingEnabled = true;
+  cctx.imageSmoothingQuality = 'high';
+  cctx.drawImage(img, 0, 0, W, H);
+  const full = luma32(card, 0, 0, W, H);
+  const ax = Math.round(W * ART.u0), ay = Math.round(H * ART.v0);
+  const aw = Math.round(W * (ART.u1 - ART.u0)), ah = Math.round(H * (ART.v1 - ART.v0));
+  const art = luma32(card, ax, ay, aw, ah);
+  return {
+    phash: PhashCore.fromLuma(full),
+    phashRot180: PhashCore.fromLuma(PhashCore.rotate180(full)),
+    artPhash: PhashCore.fromLuma(art),
+  };
+}
+
+function loadImg(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('image load failed (CORS?) ' + url));
+    img.src = url;
+  });
+}
+
+document.getElementById('run').addEventListener('click', async () => {
+  const tbody = document.querySelector('#results tbody');
+  tbody.innerHTML = '';
+  const status = document.getElementById('status');
+  status.textContent = 'loading samples…';
+  // Pull real fingerprint rows from the server so every card is guaranteed to be in the DB —
+  // any large distance is then genuine canvas-vs-sharp parity drift, not a missing card.
+  let SAMPLES = [];
+  try {
+    const r = await fetch('/api/scan/samples?n=10');
+    const d = await r.json();
+    SAMPLES = (d.samples || []).map(s => ({ name: s.name + ' [' + (s.set_code || '').toUpperCase() + ' #' + (s.collector_number || '') + ']', url: s.image_source }));
+  } catch (e) {
+    status.textContent = 'could not load samples: ' + e.message;
+    return;
+  }
+  if (!SAMPLES.length) { status.textContent = 'no fingerprints in DB — run npm run build:fingerprints'; return; }
+  let pass = 0, total = 0;
+  for (const s of SAMPLES) {
+    total++;
+    const tr = document.createElement('tr');
+    try {
+      status.textContent = 'hashing ' + s.name + '…';
+      const img = await loadImg(s.url);
+      const h = hashImage(img);
+      const res = await fetch('/api/scan/identify', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(h),
+      });
+      const data = await res.json();
+      const best = data.best || (data.candidates && data.candidates[0]);
+      const dist = data.distance;
+      const verdict = dist === 0 ? 'ok' : (dist <= 8 ? 'warn' : 'bad');
+      if (verdict !== 'bad') pass++;
+      tr.innerHTML =
+        '<td><img src="' + s.url + '"></td>' +
+        '<td>' + s.name + '</td>' +
+        '<td>' + (best ? best.name + ' [' + (best.set || '').toUpperCase() + ' #' + (best.collector_number || '') + ']' : '—') + '</td>' +
+        '<td class="' + verdict + '">' + dist + '</td>' +
+        '<td>' + (best && best._scanArtDistance != null ? best._scanArtDistance : '—') + '</td>' +
+        '<td class="' + verdict + '">' + (dist === 0 ? 'EXACT' : verdict === 'warn' ? 'close' : 'MISMATCH') + '</td>';
+    } catch (e) {
+      tr.innerHTML = '<td colspan="6" class="bad">' + s.name + ': ' + e.message + '</td>';
+    }
+    tbody.appendChild(tr);
+  }
+  status.textContent = '';
+  document.getElementById('summary').textContent = pass + '/' + total + ' within tolerance (distance ≤ 8).';
+});
+</script>
+</body>
+</html>

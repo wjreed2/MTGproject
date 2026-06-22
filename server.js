@@ -1245,13 +1245,22 @@ app.get('/api/users/:id/decks', requireAuth, async (req, res) => {
 app.get('/api/collection', requireAuth, async (req, res) => {
   try {
     const [rows] = await db().query(
-      'SELECT data, oracle_id, role_tags_json FROM collection WHERE account_id = ? ORDER BY added_at ASC',
+      `SELECT c.data, c.oracle_id, c.role_tags_json, oc.oracle_text AS catalog_oracle_text
+         FROM collection c
+         LEFT JOIN scryfall_oracle_cards oc ON oc.oracle_id = c.oracle_id
+        WHERE c.account_id = ? ORDER BY c.added_at ASC`,
       [req.accountId]
     );
     res.json(
       rows.map(r => {
         const card = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
         if (r.oracle_id) card.oracleId = card.oracleId || String(r.oracle_id).toLowerCase();
+        // Oracle text isn't always stored in the card blob (older rows; the server enrich
+        // path historically omitted it), which breaks the client-side `o:` oracle-text
+        // search. Backfill it from the local oracle catalog when missing.
+        if (!String(card.oracleText || '').trim() && r.catalog_oracle_text) {
+          card.oracleText = r.catalog_oracle_text;
+        }
         if (r.role_tags_json != null) {
           let rt = r.role_tags_json;
           if (typeof rt === 'string') {
@@ -2364,6 +2373,12 @@ async function enrichCardsFromScryfall(cards) {
             card.oracleId = String(faceOid).toLowerCase();
           }
         }
+        // Persist oracle text so the client-side `o:` search works without a live backfill.
+        const faceOracle = Array.isArray(sc.card_faces)
+          ? sc.card_faces.map(f => String(f?.oracle_text || '').trim()).filter(Boolean).join('\n')
+          : '';
+        const scOracle = String(sc.oracle_text || '').trim() || faceOracle;
+        if (scOracle && !String(card.oracleText || '').trim()) card.oracleText = scOracle;
         // Reversible / MDFC printings often omit root type_line, cmc, mana_cost.
         const tl = String(card.type || '').trim();
         if (!tl || tl === 'undefined') {
@@ -2808,6 +2823,165 @@ async function ensureScryfallTagCacheTable() {
   } finally {
     conn.release();
   }
+}
+
+// Printing-level perceptual-hash fingerprints used by the card scanner (see
+// scripts/build-print-fingerprints.js, which populates this table; keep the schema identical).
+async function ensurePrintFingerprintsTable() {
+  await db().query(`
+    CREATE TABLE IF NOT EXISTS scryfall_print_fingerprints (
+      scryfall_id      CHAR(36)        NOT NULL,
+      oracle_id        CHAR(36)        NULL,
+      name             VARCHAR(255)    NOT NULL DEFAULT '',
+      set_code         VARCHAR(10)     NOT NULL DEFAULT '',
+      collector_number VARCHAR(20)     NOT NULL DEFAULT '',
+      phash            BIGINT UNSIGNED NOT NULL,
+      art_phash        BIGINT UNSIGNED NULL,
+      lang             VARCHAR(8)      NOT NULL DEFAULT 'en',
+      layout           VARCHAR(32)     NULL,
+      image_source     TEXT            NULL,
+      hashed_at        BIGINT          NOT NULL,
+      PRIMARY KEY (scryfall_id),
+      INDEX idx_pfp_oracle (oracle_id),
+      INDEX idx_pfp_setnum (set_code, collector_number)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+}
+
+// ── In-memory fingerprint index for the scanner's nearest-neighbor (Hamming) search ──
+// Loaded from scryfall_print_fingerprints at startup and after an admin rebuild. 64-bit pHashes
+// are kept as split hi/lo Uint32 arrays so the per-request scan avoids BigInt in the hot loop.
+// A full linear scan over ~90k rows is ~1-2ms, so no approximate-NN structure is needed.
+let _fpIndex = null; // { n, phi, plo, ahi, alo, hasArt, meta[] }
+let _fpIndexLoadedAt = 0;
+let _fpIndexLoading = false;
+
+function _popcount32(v) {
+  v = v - ((v >>> 1) & 0x55555555);
+  v = (v & 0x33333333) + ((v >>> 2) & 0x33333333);
+  v = (v + (v >>> 4)) & 0x0f0f0f0f;
+  return (v * 0x01010101) >>> 24;
+}
+// 16-hex pHash (or decimal string) -> [hi32, lo32], or null if missing/unparseable.
+// Note: BigInt('') === 0n, so an explicit emptiness/format check is required to reject blanks.
+function _hashHexToHiLo(s) {
+  if (!s || typeof s !== 'string') return null;
+  let b;
+  try {
+    if (/^[0-9a-f]{1,16}$/i.test(s)) b = BigInt('0x' + s);
+    else if (/^\d+$/.test(s)) b = BigInt(s);
+    else return null;
+  } catch (_) { return null; }
+  return [Number((b >> 32n) & 0xffffffffn) >>> 0, Number(b & 0xffffffffn) >>> 0];
+}
+
+async function loadFingerprintIndex() {
+  if (_fpIndexLoading) return;
+  _fpIndexLoading = true;
+  try {
+    // CAST to CHAR so BIGINT UNSIGNED round-trips exactly (the default driver loses precision > 2^53).
+    const [rows] = await db().query(
+      `SELECT scryfall_id, oracle_id, name, set_code, collector_number, image_source,
+              CAST(phash AS CHAR) phash, CAST(art_phash AS CHAR) art_phash
+       FROM scryfall_print_fingerprints`
+    );
+    const n = rows.length;
+    const phi = new Uint32Array(n), plo = new Uint32Array(n);
+    const ahi = new Uint32Array(n), alo = new Uint32Array(n);
+    const hasArt = new Uint8Array(n);
+    const meta = new Array(n);
+    let valid = 0;
+    for (let i = 0; i < n; i++) {
+      const r = rows[i];
+      const p = _hashHexToHiLo(String(r.phash));
+      if (!p) continue;
+      const idx = valid++;
+      phi[idx] = p[0]; plo[idx] = p[1];
+      if (r.art_phash != null) {
+        const a = _hashHexToHiLo(String(r.art_phash));
+        if (a) { ahi[idx] = a[0]; alo[idx] = a[1]; hasArt[idx] = 1; }
+      }
+      meta[idx] = {
+        scryfall_id: r.scryfall_id, oracle_id: r.oracle_id, name: r.name,
+        set_code: r.set_code, collector_number: r.collector_number, image_source: r.image_source,
+      };
+    }
+    _fpIndex = {
+      n: valid,
+      phi: phi.subarray(0, valid), plo: plo.subarray(0, valid),
+      ahi: ahi.subarray(0, valid), alo: alo.subarray(0, valid),
+      hasArt: hasArt.subarray(0, valid), meta: meta.slice(0, valid),
+    };
+    _fpIndexLoadedAt = Date.now();
+    console.log(`[scan] fingerprint index loaded: ${valid} printings`);
+  } catch (e) {
+    console.warn('[scan] fingerprint index load failed:', e.code || e.message);
+  } finally {
+    _fpIndexLoading = false;
+  }
+}
+async function reloadFingerprintIndex() { _fpIndexLoading = false; await loadFingerprintIndex(); }
+
+// Top-K nearest by full-card Hamming distance; checks the rotated query too (upside-down scans).
+function _fpNearest(qphi, qplo, qrhi, qrlo, k) {
+  const idx = _fpIndex, phi = idx.phi, plo = idx.plo, n = idx.n;
+  const useRot = qrhi != null;
+  const best = []; // {i, dist} kept ascending, length <= k
+  let worst = 65;
+  for (let i = 0; i < n; i++) {
+    let d = _popcount32(phi[i] ^ qphi) + _popcount32(plo[i] ^ qplo);
+    if (useRot) {
+      const dr = _popcount32(phi[i] ^ qrhi) + _popcount32(plo[i] ^ qrlo);
+      if (dr < d) d = dr;
+    }
+    if (best.length < k) {
+      best.push({ i, dist: d });
+      if (best.length === k) { best.sort((a, b) => a.dist - b.dist); worst = best[k - 1].dist; }
+    } else if (d < worst) {
+      best[k - 1] = { i, dist: d };
+      best.sort((a, b) => a.dist - b.dist);
+      worst = best[k - 1].dist;
+    }
+  }
+  if (best.length < k) best.sort((a, b) => a.dist - b.dist);
+  return best;
+}
+function _fpArtDist(i, qahi, qalo) {
+  if (qahi == null || !_fpIndex.hasArt[i]) return null;
+  return _popcount32(_fpIndex.ahi[i] ^ qahi) + _popcount32(_fpIndex.alo[i] ^ qalo);
+}
+
+// Shape matched fingerprint rows into Scryfall-like cards: oracle-level gameplay data joined from
+// scryfall_oracle_cards, overridden with the matched PRINTING's identity/image, plus local prices.
+async function _fingerprintCardsFor(metas) {
+  if (!metas.length) return [];
+  const oracleIds = [...new Set(metas.map(m => String(m.oracle_id || '').toLowerCase())
+    .filter(x => /^[0-9a-f-]{36}$/.test(x)))];
+  const byOracle = new Map();
+  if (oracleIds.length) {
+    const ph = oracleIds.map(() => '?').join(',');
+    const [rows] = await db().query(
+      `SELECT oracle_id, scryfall_id, name, type_line, oracle_text, mana_cost, cmc,
+              colors_json, color_identity_json, image_normal, image_small,
+              power, toughness, loyalty, rarity, set_code
+       FROM scryfall_oracle_cards WHERE oracle_id IN (${ph})`, oracleIds);
+    for (const r of rows) byOracle.set(String(r.oracle_id).toLowerCase(), r);
+  }
+  const cards = metas.map(m => {
+    const orow = byOracle.get(String(m.oracle_id || '').toLowerCase());
+    const card = orow ? _localRowToScryfallCard(orow) : {
+      id: m.scryfall_id, oracle_id: m.oracle_id, name: m.name, type_line: '',
+      set: m.set_code, set_name: m.set_code, rarity: 'common', prices: { usd: null, usd_foil: null },
+    };
+    card.id = m.scryfall_id; // the exact printing scanned
+    card.set = m.set_code || card.set;
+    card.set_name = m.set_code || card.set_name;
+    card.collector_number = m.collector_number || card.collector_number;
+    if (m.image_source) card.image_uris = { normal: m.image_source, large: m.image_source, small: m.image_source };
+    return card;
+  });
+  await attachPriceLogPrices(cards);
+  return cards;
 }
 
 async function fetchScryfallTagsForOracle(oracleId, schemaVersion = '4') {
@@ -3542,6 +3716,89 @@ app.get('/api/scryfall/card-id/:id', async (req, res) => {
   }
 });
 
+// Scanner image-fingerprint match. Client sends a perceptual hash of the perspective-corrected
+// card (computed with js/phash-core.js); we Hamming-search the in-memory index and return the
+// matched printing(s). OCR `hints` only disambiguate identical-art reprints. Unauthenticated,
+// matching /api/scryfall/named (no user data touched).
+const SCAN_ACCEPT_MAX = 16;   // best full-card Hamming distance to consider a confident match
+const SCAN_AMBIG_MARGIN = 3;  // candidates within best+margin form the disambiguation group
+const SCAN_ART_TIE = 2;       // art-hash distance under which two printings count as "same art"
+
+app.post('/api/scan/identify', async (req, res) => {
+  try {
+    if (!_fpIndex || !_fpIndex.n) {
+      return res.status(503).json({ ok: false, error: 'fingerprint index not ready' });
+    }
+    const body = req.body || {};
+    const q = _hashHexToHiLo(String(body.phash || ''));
+    if (!q) return res.status(400).json({ ok: false, error: 'phash (16-hex) required' });
+    const rot = body.phashRot180 ? _hashHexToHiLo(String(body.phashRot180)) : null;
+    const art = body.artPhash ? _hashHexToHiLo(String(body.artPhash)) : null;
+    const k = Math.max(1, Math.min(10, Number(body.k) || 5));
+    const hintSet = body.hints && body.hints.set ? String(body.hints.set).toLowerCase() : '';
+    const hintNum = body.hints && body.hints.collector ? String(body.hints.collector).toLowerCase() : '';
+
+    const near = _fpNearest(q[0], q[1], rot ? rot[0] : null, rot ? rot[1] : null, k);
+    if (!near.length) return res.json({ ok: true, matched: false });
+    const bestDist = near[0].dist;
+
+    let cands = near.map(({ i, dist }) => ({
+      dist, artDist: art ? _fpArtDist(i, art[0], art[1]) : null, meta: _fpIndex.meta[i],
+    }));
+    // Within-margin group, re-ranked by art distance when available (separates same-frame/diff-art).
+    const group = cands.filter(c => c.dist <= bestDist + SCAN_AMBIG_MARGIN);
+    if (art) group.sort((a, b) => (a.artDist - b.artDist) || (a.dist - b.dist));
+
+    let chosen = group[0];
+    let ambiguous = false;
+    if (new Set(group.map(c => c.meta.scryfall_id)).size > 1) {
+      const byHint = group.find(c =>
+        (hintSet && String(c.meta.set_code).toLowerCase() === hintSet) ||
+        (hintNum && String(c.meta.collector_number).toLowerCase() === hintNum));
+      if (byHint) {
+        chosen = byHint;
+      } else {
+        const sameArt = art ? group.filter(c => c.artDist != null && c.artDist <= SCAN_ART_TIE) : group;
+        ambiguous = sameArt.length > 1 && new Set(sameArt.map(c => c.meta.scryfall_id)).size > 1;
+      }
+    }
+
+    const matched = chosen.dist <= SCAN_ACCEPT_MAX;
+    const toReturn = ambiguous ? group.slice(0, k) : [chosen];
+    const cards = await _fingerprintCardsFor(toReturn.map(c => c.meta));
+    cards.forEach((card, j) => {
+      card._scanDistance = toReturn[j].dist;
+      if (toReturn[j].artDist != null) card._scanArtDistance = toReturn[j].artDist;
+    });
+
+    res.json({
+      ok: true,
+      matched,
+      ambiguous,
+      distance: chosen.dist,
+      best: matched ? (cards[0] || null) : null,
+      candidates: cards,
+    });
+  } catch (e) {
+    console.error('[scan/identify]', e);
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// Dev/parity harness helper: a few real fingerprint rows (public card data) to hash client-side
+// and round-trip through /api/scan/identify, isolating canvas-vs-sharp resampling drift.
+app.get('/api/scan/samples', async (req, res) => {
+  try {
+    const n = Math.max(1, Math.min(25, Number(req.query.n) || 8));
+    const [rows] = await db().query(
+      `SELECT scryfall_id, name, set_code, collector_number, image_source
+       FROM scryfall_print_fingerprints ORDER BY RAND() LIMIT ?`, [n]);
+    res.json({ ok: true, samples: rows });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 app.post('/api/scryfall/collection', async (req, res) => {
   try {
     const identifiers = req.body?.identifiers;
@@ -4169,6 +4426,64 @@ app.post('/api/admin/scryfall/rebuild-tags', requireAuth, requireAdminRole, asyn
   runScryfallImportEndpoint(req, res, 'tags')
 );
 
+// ── Scanner fingerprint DB admin: build/refresh (spawns scripts/build-print-fingerprints.js) ──
+let _fpBuildProc = null;
+let _fpBuildProgress = { running: false, lastLine: '', startedAt: 0, endedAt: 0, exitCode: null };
+
+app.post('/api/admin/fingerprints/rebuild', requireAuth, requireAdminRole, (req, res) => {
+  if (_fpBuildProgress.running) {
+    return res.status(409).json({ error: 'fingerprint build already running', progress: _fpBuildProgress });
+  }
+  const { spawn } = require('child_process');
+  const args = [path.join(__dirname, 'scripts', 'build-print-fingerprints.js')];
+  if (req.body?.set) args.push('--set', String(req.body.set).slice(0, 10));
+  if (req.body?.limit) args.push('--limit', String(parseInt(req.body.limit) || 0));
+  if (req.body?.force) args.push('--force');
+  _fpBuildProgress = { running: true, lastLine: 'starting…', startedAt: Date.now(), endedAt: 0, exitCode: null };
+  const child = spawn(process.execPath, args, { cwd: __dirname, env: process.env });
+  _fpBuildProc = child;
+  const onLine = buf => {
+    const s = buf.toString().trim().split('\n').pop();
+    if (s) _fpBuildProgress.lastLine = s;
+  };
+  child.stdout.on('data', onLine);
+  child.stderr.on('data', onLine);
+  child.on('exit', async code => {
+    _fpBuildProgress.running = false;
+    _fpBuildProgress.endedAt = Date.now();
+    _fpBuildProgress.exitCode = code;
+    _fpBuildProc = null;
+    if (code === 0) { try { await reloadFingerprintIndex(); } catch (_) {} }
+  });
+  res.status(202).json({ ok: true, started: true });
+});
+
+app.get('/api/admin/fingerprints/status', requireAuth, requireAdminRole, async (req, res) => {
+  try {
+    const [[{ n }]] = await db().query('SELECT COUNT(*) AS n FROM scryfall_print_fingerprints');
+    res.json({
+      ok: true,
+      dbCount: n,
+      indexSize: _fpIndex ? _fpIndex.n : 0,
+      indexLoadedAt: _fpIndexLoadedAt,
+      build: _fpBuildProgress,
+    });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// Reload the in-memory match index from the DB without rebuilding — use after restoring the
+// fingerprint table from a dev dump (no server restart needed).
+app.post('/api/admin/fingerprints/reload', requireAuth, requireAdminRole, async (req, res) => {
+  try {
+    await reloadFingerprintIndex();
+    res.json({ ok: true, indexSize: _fpIndex ? _fpIndex.n : 0, indexLoadedAt: _fpIndexLoadedAt });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 app.get('/api/admin/scryfall/import-status', requireAuth, requireAdminRole, async (_req, res) => {
   try {
     const [[cardsRow]] = await db().query('SELECT COUNT(*) AS n FROM scryfall_oracle_cards');
@@ -4731,6 +5046,7 @@ async function start() {
       await ensureTagOverrideTables();
       await ensureCollectionRoleTagsColumns();
       await ensureScryfallTagCacheTable();
+      await ensurePrintFingerprintsTable();
       await backfillDeckCardsIfEmpty();
     } catch (e) {
       console.error('[db] schema/backfill warning:', e.message);
@@ -4744,6 +5060,7 @@ async function start() {
     void (async () => {
       await runDbMigrations();
       startCollectionBgOnce();
+      await loadFingerprintIndex();
     })();
   };
 
@@ -4758,6 +5075,8 @@ async function start() {
   // Public deck share links — serve the SPA; the client reads the token and shows a read-only view.
   app.get('/d/:token', (_req, res) => res.sendFile(path.join(__dirname, 'index.html')));
   app.get('/scanner-poc.html', (_req, res) => res.sendFile(path.join(__dirname, 'scanner-poc.html')));
+  // Dev harness: verify client(canvas) vs server(sharp) pHash parity for the scanner.
+  app.get('/scanner-phash-parity.html', (_req, res) => res.sendFile(path.join(__dirname, 'scanner-phash-parity.html')));
   // HTTPS if certs/server.pem + certs/server-key.pem exist (generated by mkcert)
   const certDir  = path.join(__dirname, 'certs');
   const certFile = path.join(certDir, 'server.pem');

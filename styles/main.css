@@ -6090,6 +6090,30 @@ select:focus { outline: none; border-color: rgba(200,168,74,0.6); box-shadow: 0 
   margin-left: 4px;
 }
 .scn-session-meta { font-size: 11px; color: var(--text3); margin-top: 1px; }
+.scn-session-info { flex: 1 1 auto; min-width: 0; }
+.scn-session-qty {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.scn-qty-btn {
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg3);
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.scn-qty-btn:hover { background: var(--bg2); }
+.scn-qty-rm { color: var(--danger, #ef4444); }
+.scn-qty-n { min-width: 18px; text-align: center; font-size: 13px; font-variant-numeric: tabular-nums; }
 
 /* ── Goldfish Playtest ──────────────────────────────────────────────────── */
 

@@ -9346,6 +9346,56 @@ async function rebuildScryfallAutoTags() {
   return _runScryfallImport('tags');
 }
 
+// Admin: build/refresh the scanner's perceptual-hash fingerprint DB (image recognition).
+// Spawns scripts/build-print-fingerprints.js on the server; this can take 30–60 min for a cold
+// full build (~90k card images), then reloads the in-memory index automatically. Resumable, so a
+// re-run only fetches new/changed printings.
+async function buildScannerFingerprints() {
+  const btnId = 'settingsBuildFpBtn';
+  const base = 'Build Card Fingerprints (Scanner)';
+  const setBtn = (text, disabled) => {
+    const el = document.getElementById(btnId);
+    if (!el) return;
+    if (typeof text === 'string') el.textContent = text;
+    if (disabled) el.setAttribute('disabled', 'disabled');
+    else el.removeAttribute('disabled');
+  };
+  let timer = null;
+  try {
+    setBtn('Starting fingerprint build…', true);
+    await apiPostJson('/admin/fingerprints/rebuild', {}); // 202 — runs in the background on the server
+    timer = setInterval(async () => {
+      try {
+        const s = await apiFetch('/admin/fingerprints/status');
+        const b = s?.build || {};
+        if (b.running) {
+          const line = String(b.lastLine || '').replace(/\s+/g, ' ').trim().slice(0, 52);
+          setBtn(line ? `Building… ${line}` : 'Building fingerprints…', true);
+        }
+      } catch (_) {}
+    }, 1500);
+    const final = await new Promise((resolve, reject) => {
+      const check = setInterval(async () => {
+        try {
+          const s = await apiFetch('/admin/fingerprints/status');
+          const b = s?.build || {};
+          if (!b.running) {
+            clearInterval(check);
+            if (b.exitCode != null && b.exitCode !== 0) reject(new Error(b.lastLine || `build exited (${b.exitCode})`));
+            else resolve(s);
+          }
+        } catch (e) { clearInterval(check); reject(e); }
+      }, 2500);
+    });
+    showNotif(`Scanner fingerprints ready — ${Number(final?.dbCount || 0).toLocaleString()} printings indexed`);
+  } catch (e) {
+    showNotif(String(e?.message || 'Fingerprint build failed'), true);
+  } finally {
+    if (timer) clearInterval(timer);
+    setBtn(base, false);
+  }
+}
+
 function _selectSkeletonCards(pool, desiredCount, role, selectedNames, options = {}) {
   const picks = [];
   const filtered = pool

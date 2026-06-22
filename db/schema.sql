@@ -150,3 +150,24 @@ CREATE TABLE IF NOT EXISTS app_changelog (
   UNIQUE KEY uk_app_changelog_entry_key (entry_key),
   INDEX idx_app_changelog_published (published_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Printing-level perceptual-hash fingerprints for the card scanner (image recognition).
+-- Populated by scripts/build-print-fingerprints.js from Scryfall's default_cards bulk feed;
+-- also created at startup by ensurePrintFingerprintsTable() in server.js. phash/art_phash are
+-- 64-bit DCT pHashes (js/phash-core.js) stored as BIGINT UNSIGNED (read back via BigInt()).
+CREATE TABLE IF NOT EXISTS scryfall_print_fingerprints (
+  scryfall_id      CHAR(36)        NOT NULL,
+  oracle_id        CHAR(36)        NULL,
+  name             VARCHAR(255)    NOT NULL DEFAULT '',
+  set_code         VARCHAR(10)     NOT NULL DEFAULT '',
+  collector_number VARCHAR(20)     NOT NULL DEFAULT '',
+  phash            BIGINT UNSIGNED NOT NULL,
+  art_phash        BIGINT UNSIGNED NULL,
+  lang             VARCHAR(8)      NOT NULL DEFAULT 'en',
+  layout           VARCHAR(32)     NULL,
+  image_source     TEXT            NULL,
+  hashed_at        BIGINT          NOT NULL,
+  PRIMARY KEY (scryfall_id),
+  INDEX idx_pfp_oracle (oracle_id),
+  INDEX idx_pfp_setnum (set_code, collector_number)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
