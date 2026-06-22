@@ -537,6 +537,39 @@
   }
   .game-player-card { padding: 0.65rem !important; }
 
+  /* Phone games page: swap the desktop sidebar+tracker (which overflows
+     sideways) for a single-column layout — top buttons, history list, log.
+     Live tracking happens in the tablet view, so the default tracker is gone. */
+  #tab-games { zoom: 1 !important; }            /* desktop zoom:1.3 overflows phones */
+  .games-desktop-layout { display: none !important; }
+  .games-mobile { display: block; }
+
+  .games-mobile-actions { display: flex; gap: 8px; margin-bottom: 0.9rem; }
+  .games-mobile-actions .btn { flex: 1; justify-content: center; }
+
+  .games-mobile-section-label {
+    font-size: 0.66rem; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--text3); margin: 0.1rem 0 0.45rem;
+  }
+  .games-mobile-list { display: flex; flex-direction: column; gap: 7px; }
+  .games-mobile-list .game-history-item { aspect-ratio: auto; width: 100%; }
+  .games-mobile-empty {
+    color: var(--text3); font-size: 0.85rem; text-align: center; padding: 1.75rem 0;
+  }
+
+  .games-mobile-ended-toggle {
+    display: flex; align-items: center; justify-content: space-between; width: 100%;
+    margin-top: 0.65rem; padding: 9px 11px; cursor: pointer;
+    background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius2);
+    color: var(--text2); font-family: inherit; font-size: 0.8rem;
+  }
+  .games-mobile-ended-chevron { color: var(--text3); font-size: 0.7rem; }
+  .games-mobile-ended { display: flex; flex-direction: column; gap: 7px; margin-top: 7px; }
+  .games-mobile-ended[hidden] { display: none; }
+
+  .games-mobile-log { margin-top: 1rem; }
+  .games-mobile-log-body { max-height: 48vh; overflow-y: auto; }
+
   /* ── Scanner — edge-to-edge on small screens ───────────────────────────── */
   .scanner-sheet--fullscreen {
     max-height: 100dvh !important;

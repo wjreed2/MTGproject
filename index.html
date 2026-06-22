@@ -925,7 +925,11 @@
 
 <!-- GAME TRACKER TAB -->
 <div id="tab-games" class="tab-content">
-  <div style="display:grid;grid-template-columns:280px 1fr;gap:1.25rem;align-items:start">
+
+  <!-- Mobile-only layout (phones ≤768px) — rendered by renderGamesMobile() -->
+  <div id="gamesMobile" class="games-mobile"></div>
+
+  <div class="games-desktop-layout" style="display:grid;grid-template-columns:280px 1fr;gap:1.25rem;align-items:start">
 
     <!-- Sidebar -->
     <div style="display:flex;flex-direction:column;gap:1rem">

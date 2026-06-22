@@ -2960,6 +2960,8 @@ img.stack-main.loaded { opacity: 1; }
 #tab-games {
   zoom: 1.3;
 }
+/* Phone-only games layout — shown via mobile.css at ≤768px, off everywhere else. */
+.games-mobile { display: none; }
 #tab-games #gamesSidebar {
   max-height: 630px !important;
 }
