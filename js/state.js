@@ -71,7 +71,7 @@ let sharedDecks = [];
 let sharedCollections = []; // [{ ownerId, ownerEmail, cards: [] }]
 let sharedWishlists   = []; // [{ ownerId, ownerEmail, cards: [] }]
 let isPriceRefreshRunning = false;
-let currentUser = null; // { id, email, role, createdAt, lastLoginAt, changelogAckAt } — set after session
+let currentUser = null; // { id, email, role, createdAt, lastLoginAt, changelogAckAt, mobileWelcomeSeenAt } — set after session
 
 // ── Save ──────────────────────────────────────────────────────────────────────
 
@@ -368,4 +368,8 @@ async function initApp() {
   // page — neither auto-restores; fall back to the default tab instead.
   const validTabs = new Set(['collection', 'sets', 'decks', 'browse', 'wishlist', 'games']);
   if (savedTab && validTabs.has(savedTab) && typeof showTab === 'function') showTab(savedTab);
+
+  // First-time mobile welcome (server-tracked; only fires on phones/tablets).
+  // Slight delay so it appears after the app's initial paint, not during it.
+  if (typeof maybeShowWelcome === 'function') setTimeout(maybeShowWelcome, 500);
 }

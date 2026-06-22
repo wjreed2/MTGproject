@@ -541,6 +541,9 @@ async function ensureAccountLoginMetaColumns() {
     if (!(await columnExists(conn, 'accounts', 'changelog_ack_at'))) {
       await conn.query('ALTER TABLE accounts ADD COLUMN changelog_ack_at BIGINT NULL DEFAULT NULL');
     }
+    if (!(await columnExists(conn, 'accounts', 'mobile_welcome_seen_at'))) {
+      await conn.query('ALTER TABLE accounts ADD COLUMN mobile_welcome_seen_at BIGINT NULL DEFAULT NULL');
+    }
   } finally {
     conn.release();
   }
@@ -1006,7 +1009,7 @@ authRouter.get('/me', async (req, res) => {
   try {
     if (!req.session.accountId) return res.status(401).json({ error: 'Not signed in' });
     const [rows] = await db().query(
-      'SELECT id, email, role, created_at, last_login_at, changelog_ack_at FROM accounts WHERE id = ?',
+      'SELECT id, email, role, created_at, last_login_at, changelog_ack_at, mobile_welcome_seen_at FROM accounts WHERE id = ?',
       [req.session.accountId],
     );
     if (!rows.length) return res.status(401).json({ error: 'Invalid session' });
@@ -1018,6 +1021,7 @@ authRouter.get('/me', async (req, res) => {
       createdAt: rows[0].created_at,
       lastLoginAt: rows[0].last_login_at,
       changelogAckAt: rows[0].changelog_ack_at,
+      mobileWelcomeSeenAt: rows[0].mobile_welcome_seen_at,
     });
   } catch (e) {
     console.error(e);
@@ -1125,6 +1129,19 @@ authRouter.post('/changelog-ack', requireAuth, async (req, res) => {
     const now = Date.now();
     await db().query('UPDATE accounts SET changelog_ack_at = ? WHERE id = ?', [now, req.accountId]);
     res.json({ ok: true, changelogAckAt: now });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Records that the user has seen the first-time mobile welcome (so it never
+// reappears on any of their devices once dismissed on a phone/tablet).
+authRouter.post('/welcome-ack', requireAuth, async (req, res) => {
+  try {
+    const now = Date.now();
+    await db().query('UPDATE accounts SET mobile_welcome_seen_at = ? WHERE id = ?', [now, req.accountId]);
+    res.json({ ok: true, mobileWelcomeSeenAt: now });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });

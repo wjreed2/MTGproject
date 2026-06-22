@@ -1878,15 +1878,33 @@ async function _loadCardDetailDefaultTags(card) {
   }
 }
 
-function addCardToCollectionFromDetail(uid) {
+/**
+ * Resolve the card the detail modal is showing across EVERY pool it can open from:
+ * my collection, wishlist, decks, and any shared collection I'm viewing. The
+ * detail-modal action handlers used to search only [collection, wishlist, decks],
+ * so a card belonging to someone else's shared collection never resolved and the
+ * "Add to wishlist" / "Add to collection" buttons silently did nothing.
+ */
+function _resolveDetailCard(uid) {
   const deckCards = decks.flatMap(d => d.cards || []);
-  const sourceCard = window.Ownership?.resolveFromPools
-    ? window.Ownership.resolveFromPools(uid, [collection, wishlist, deckCards])
-    : (
-      collection.find(c => c.uid === uid || c.scryfallId === uid) ||
-      wishlist.find(c => c.uid === uid || c.scryfallId === uid) ||
-      deckCards.find(c => c.uid === uid || c.scryfallId === uid)
-    );
+  const sharedPools = (typeof sharedCollections !== 'undefined' && Array.isArray(sharedCollections))
+    ? sharedCollections.map(s => s.cards || [])
+    : [];
+  const pools = [collection, wishlist, deckCards, ...sharedPools];
+  if (window.Ownership?.resolveFromPools) {
+    const hit = window.Ownership.resolveFromPools(uid, pools);
+    if (hit) return hit;
+  } else {
+    for (const pool of pools) {
+      const hit = (pool || []).find(c => c.uid === uid || c.scryfallId === uid);
+      if (hit) return hit;
+    }
+  }
+  return null;
+}
+
+function addCardToCollectionFromDetail(uid) {
+  const sourceCard = _resolveDetailCard(uid);
   if (!sourceCard) return;
   const targetUid = sourceCard.uid || (sourceCard.scryfallId + (sourceCard.foil ? '_f' : '_n'));
   const existing = collection.find(c => c.uid === targetUid);
@@ -1895,7 +1913,8 @@ function addCardToCollectionFromDetail(uid) {
     existing.addedAt = Date.now();
     recordCollectionEvent('add', existing, 1);
   } else {
-    const newCard = { ...sourceCard, uid: targetUid, qty: 1, addedAt: Date.now() };
+    // Reset star when copying out of a shared collection — the owner's star isn't mine.
+    const newCard = { ...sourceCard, uid: targetUid, qty: 1, starred: false, addedAt: Date.now() };
     collection.push(newCard);
     recordCollectionEvent('add', newCard, 1);
   }
@@ -1908,22 +1927,18 @@ function addCardToCollectionFromDetail(uid) {
 }
 
 function addToWishlistAnyFromDetail(uid) {
-  const deckCards = decks.flatMap(d => d.cards || []);
-  const sourceCard = window.Ownership?.resolveFromPools
-    ? window.Ownership.resolveFromPools(uid, [collection, wishlist, deckCards])
-    : (
-      collection.find(c => c.uid === uid || c.scryfallId === uid) ||
-      wishlist.find(c => c.uid === uid || c.scryfallId === uid) ||
-      deckCards.find(c => c.uid === uid || c.scryfallId === uid)
-    );
+  const sourceCard = _resolveDetailCard(uid);
   if (!sourceCard || !sourceCard.scryfallId) return;
   if (wishlist.find(c => c.scryfallId === sourceCard.scryfallId)) {
     showNotif('Already in wishlist');
     return;
   }
+  // Copying a card out of someone else's collection — drop their per-owner fields
+  // so my wishlist entry is clean (no foreign qty/tags/star), and key it to me.
+  const { qty, starred, deckTags, customTags, roleTags, uid: _ownerUid, addedAt: _ownerAddedAt, ...cardData } = sourceCard;
   wishlist.push({
-    ...sourceCard,
-    uid: sourceCard.uid || (sourceCard.scryfallId + (sourceCard.foil ? '_f' : '_n')),
+    ...cardData,
+    uid: sourceCard.scryfallId + (sourceCard.foil ? '_f' : '_n'),
     priority: 'med',
     addedAt: Date.now()
   });
@@ -1933,14 +1948,7 @@ function addToWishlistAnyFromDetail(uid) {
 }
 
 function toggleWishlistFromDetail(uid) {
-  const deckCards = decks.flatMap(d => d.cards || []);
-  const sourceCard = window.Ownership?.resolveFromPools
-    ? window.Ownership.resolveFromPools(uid, [collection, wishlist, deckCards])
-    : (
-      collection.find(c => c.uid === uid || c.scryfallId === uid) ||
-      wishlist.find(c => c.uid === uid || c.scryfallId === uid) ||
-      deckCards.find(c => c.uid === uid || c.scryfallId === uid)
-    );
+  const sourceCard = _resolveDetailCard(uid);
   if (!sourceCard || !sourceCard.scryfallId) return;
   const idx = wishlist.findIndex(c => c.scryfallId === sourceCard.scryfallId);
   if (idx >= 0) {

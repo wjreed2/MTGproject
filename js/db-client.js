@@ -108,7 +108,7 @@ async function apiPatchJson(path, body) {
   return data;
 }
 
-/** @returns {Promise<{id:number,email:string,role?:string,createdAt?:number,lastLoginAt?:number|null,changelogAckAt?:number|null}|null>} */
+/** @returns {Promise<{id:number,email:string,role?:string,createdAt?:number,lastLoginAt?:number|null,changelogAckAt?:number|null,mobileWelcomeSeenAt?:number|null}|null>} */
 async function authMe() {
   const res = await fetch(mtgApiRoot() + '/auth/me', { credentials: 'include' });
   if (res.status === 401) return null;
@@ -126,6 +126,10 @@ async function authFetchDigestMeta() {
 
 async function authChangelogAck() {
   return apiPostJson('/auth/changelog-ack', {});
+}
+
+async function authWelcomeAck() {
+  return apiPostJson('/auth/welcome-ack', {});
 }
 
 async function authLogin(email, password) {

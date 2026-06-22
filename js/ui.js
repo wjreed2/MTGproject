@@ -118,6 +118,7 @@ const _modalCloseMap = {
   collectionShareModal:       () => closeCollectionShareModal(),
   commanderPickerModal:  () => closeCommanderEdit(),
   whatsNewModal:         () => { void closeWhatsNewModal(); },
+  welcomeModal:          () => closeWelcomeModal(),
 };
 
 document.addEventListener('click', e => {
@@ -321,4 +322,35 @@ async function closeWhatsNewModal() {
     if (currentUser && typeof currentUser === 'object') currentUser.changelogAckAt = Date.now();
   } catch (_) {}
   void refreshWhatsNewUpdateBadge();
+}
+
+// ── First-time mobile welcome modal ──────────────────────────────────────
+// Shown the first time an account opens the app on a phone/tablet, then never
+// again (tracked server-side via accounts.mobile_welcome_seen_at). Opening on a
+// desktop neither shows nor marks it, so a later phone visit still triggers it.
+
+/** True on touch-primary devices (phones/tablets), false on desktops/laptops. */
+function _isMobileWelcomeDevice() {
+  return typeof window.matchMedia === 'function'
+    && window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+}
+
+function maybeShowWelcome() {
+  if (!currentUser || typeof currentUser !== 'object') return;
+  if (currentUser.mobileWelcomeSeenAt != null) return;
+  if (!_isMobileWelcomeDevice()) return;
+  openWelcomeModal();
+}
+
+function openWelcomeModal() {
+  document.getElementById('welcomeModal')?.classList.add('open');
+}
+
+async function closeWelcomeModal() {
+  document.getElementById('welcomeModal')?.classList.remove('open');
+  if (!currentUser || typeof currentUser !== 'object' || currentUser.mobileWelcomeSeenAt != null) return;
+  try {
+    await authWelcomeAck();
+    currentUser.mobileWelcomeSeenAt = Date.now();
+  } catch (_) {}
 }
