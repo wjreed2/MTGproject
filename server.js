@@ -1245,13 +1245,22 @@ app.get('/api/users/:id/decks', requireAuth, async (req, res) => {
 app.get('/api/collection', requireAuth, async (req, res) => {
   try {
     const [rows] = await db().query(
-      'SELECT data, oracle_id, role_tags_json FROM collection WHERE account_id = ? ORDER BY added_at ASC',
+      `SELECT c.data, c.oracle_id, c.role_tags_json, oc.oracle_text AS catalog_oracle_text
+         FROM collection c
+         LEFT JOIN scryfall_oracle_cards oc ON oc.oracle_id = c.oracle_id
+        WHERE c.account_id = ? ORDER BY c.added_at ASC`,
       [req.accountId]
     );
     res.json(
       rows.map(r => {
         const card = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
         if (r.oracle_id) card.oracleId = card.oracleId || String(r.oracle_id).toLowerCase();
+        // Oracle text isn't always stored in the card blob (older rows; the server enrich
+        // path historically omitted it), which breaks the client-side `o:` oracle-text
+        // search. Backfill it from the local oracle catalog when missing.
+        if (!String(card.oracleText || '').trim() && r.catalog_oracle_text) {
+          card.oracleText = r.catalog_oracle_text;
+        }
         if (r.role_tags_json != null) {
           let rt = r.role_tags_json;
           if (typeof rt === 'string') {
@@ -2338,6 +2347,12 @@ async function enrichCardsFromScryfall(cards) {
             card.oracleId = String(faceOid).toLowerCase();
           }
         }
+        // Persist oracle text so the client-side `o:` search works without a live backfill.
+        const faceOracle = Array.isArray(sc.card_faces)
+          ? sc.card_faces.map(f => String(f?.oracle_text || '').trim()).filter(Boolean).join('\n')
+          : '';
+        const scOracle = String(sc.oracle_text || '').trim() || faceOracle;
+        if (scOracle && !String(card.oracleText || '').trim()) card.oracleText = scOracle;
         // Reversible / MDFC printings often omit root type_line, cmc, mana_cost.
         const tl = String(card.type || '').trim();
         if (!tl || tl === 'undefined') {
