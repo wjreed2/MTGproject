@@ -2857,6 +2857,7 @@ const SCN_FP_SHARP_MIN = 8;            // Laplacian variance of the guide region
 const SCN_FP_GUIDE_FILL = 0.9;         // guide frame fills this fraction of the limiting dimension
 const SCN_FP_LRU_MAX = 24;
 const SCN_FP_LRU_HAMMING = 6;          // reuse a recent match without a round-trip within this distance
+const SCN_FP_DEDUPE_HAMMING = 6;       // don't re-queue the same card while it lingers in frame
 
 let _scnFpStillSince = 0;              // timestamp the current still period began (0 = moving)
 let _scnFpPrevGray = null;             // previous downscaled luma frame (motion detection)
@@ -3018,49 +3019,43 @@ function _scnFingerprintTick(v, now) {
   _scnCardQuad = guide;
   _scnSyncScannerSvgLayout();
   if (!_scnOcrActive || _scnPaused || _scnFpInFlight) return;
-
-  const gray = _scnMotionSampleGray(v);
-  const moving = (gray && _scnFpPrevGray) ? _scnMotionFrameChanged(gray, _scnFpPrevGray) : true;
-  _scnFpPrevGray = gray;
-
-  // After a queue, wait until the card is removed/swapped (motion) before scanning again.
-  if (_scnFpAwaitingLeave) {
-    if (moving) { _scnFpAwaitingLeave = false; _scnFpStillSince = 0; }
-    return;
-  }
   if (now < _scnFpCooldownUntil) return;
-  if (moving) { _scnFpStillSince = 0; _scnSetOverlay('Line up a card in the frame', '', 'hint'); return; }
-  if (!_scnFpStillSince) { _scnFpStillSince = now; return; }
-  if (now - _scnFpStillSince < SCN_FP_STABLE_MS) return;
-  if (_scnFpGuideSharpness(v, guide) < SCN_FP_SHARP_MIN) { _scnFpStillSince = 0; return; }
+
+  // Gate only on sharpness — rejects motion blur and empty frames, but does NOT force the user to
+  // hold perfectly still (handheld phone + handheld card rarely settles). A non-match is harmless.
+  if (_scnFpGuideSharpness(v, guide) < SCN_FP_SHARP_MIN) return;
 
   _scnFpInFlight = true;
-  _scnSetOverlay('Reading…', '', 'hint');
   void (async () => {
     try {
       const r = await _scnIdentifyFromQuad();
-      if (!r) { _scnFpCooldownUntil = performance.now() + 300; _scnFpStillSince = 0; return; }
-      if (r.ambiguous && r.candidates?.length > 1) {
+      if (!r) { _scnFpCooldownUntil = performance.now() + 300; return; }
+      const best = r.best || (r.candidates && r.candidates[0]) || null;
+      if (r.ambiguous && r.candidates && r.candidates.length > 1) {
         _scnRequireCandPick = false;
-        _scnShowCands(r.candidates, r.candidates[0]?.name || 'reprint');
-        _scnFpAwaitingLeave = true; // hold until the user picks or the card leaves
+        _scnShowCands(r.candidates, (best && best.name) || 'reprint');
+        _scnFpCooldownUntil = performance.now() + 1500;
         return;
       }
       if (r.matched && r.best) {
+        // De-dupe: don't re-queue the same card while it lingers (swap to a new card to add another).
+        if (_scnFpLastAcceptedPhash && PhashCore.hamming(r._phash, _scnFpLastAcceptedPhash) <= SCN_FP_DEDUPE_HAMMING) {
+          _scnSetOverlay(r.best.name, 'already added ✓', 'match');
+          _scnFpCooldownUntil = performance.now() + 450;
+          return;
+        }
         _scnFpLastAcceptedPhash = r._phash || null;
         if (_scnStreamAdd) {
           _scnFpStreamAdd(r.best);
           _scnSetOverlay(r.best.name, `${(r.best.set || '').toUpperCase()} · #${r.best.collector_number || ''}`, 'match');
-          _scnFpAwaitingLeave = true;
-          _scnFpCooldownUntil = performance.now() + SCN_FP_COOLDOWN_MS;
         } else {
-          await _scnAutoStageAndResume(r.best); // queues + beeps; fp tail sets awaitingLeave
+          await _scnAutoStageAndResume(r.best); // queues + beeps
         }
+        _scnFpCooldownUntil = performance.now() + 700;
       } else {
-        // No confident match — keep the reticle up, brief cooldown, let the user reposition.
-        _scnFpCooldownUntil = performance.now() + 350;
-        _scnFpStillSince = 0;
-        _scnSetOverlay('No match — reposition the card', '', 'hint');
+        // Diagnostic readout: closest match + Hamming distance, so framing vs parity is visible.
+        _scnSetOverlay('No match', best ? `closest: ${best.name} · d=${r.distance}` : `d=${r.distance}`, 'hint');
+        _scnFpCooldownUntil = performance.now() + 450;
       }
     } finally {
       _scnFpInFlight = false;

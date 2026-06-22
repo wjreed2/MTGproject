@@ -5071,9 +5071,32 @@ async function start() {
   app.use('/sounds', express.static(path.join(__dirname, 'sounds')));
   app.use('/icons',  express.static(path.join(__dirname, 'icons')));
   app.get('/manifest.webmanifest', (_req, res) => res.sendFile(path.join(__dirname, 'manifest.webmanifest')));
-  app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'index.html')));
+  // Serve index.html with a per-deploy version stamped onto the bundle URLs so a new deploy always
+  // busts the browser cache (no more stale dist/bundle.js after shipping). Cached in memory; the
+  // process restarts on deploy, recomputing the version.
+  let _indexHtmlCache = null;
+  const _assetVersion = (() => {
+    const sha = (process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT || '').slice(0, 12);
+    if (sha) return sha;
+    try { return String(Math.floor(fs.statSync(path.join(__dirname, 'dist', 'bundle.js')).mtimeMs)); }
+    catch (_) { return String(Date.now()); }
+  })();
+  const serveIndex = (res) => {
+    if (!_indexHtmlCache) {
+      try {
+        _indexHtmlCache = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8')
+          .replace('/dist/bundle.js', `/dist/bundle.js?v=${_assetVersion}`)
+          .replace('/dist/scanner-card-yolo.js', `/dist/scanner-card-yolo.js?v=${_assetVersion}`);
+      } catch (_) {
+        return res.sendFile(path.join(__dirname, 'index.html'));
+      }
+    }
+    res.set('Cache-Control', 'no-cache');
+    res.type('html').send(_indexHtmlCache);
+  };
+  app.get('/', (_req, res) => serveIndex(res));
   // Public deck share links — serve the SPA; the client reads the token and shows a read-only view.
-  app.get('/d/:token', (_req, res) => res.sendFile(path.join(__dirname, 'index.html')));
+  app.get('/d/:token', (_req, res) => serveIndex(res));
   app.get('/scanner-poc.html', (_req, res) => res.sendFile(path.join(__dirname, 'scanner-poc.html')));
   // Dev harness: verify client(canvas) vs server(sharp) pHash parity for the scanner.
   app.get('/scanner-phash-parity.html', (_req, res) => res.sendFile(path.join(__dirname, 'scanner-phash-parity.html')));
