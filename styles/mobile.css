@@ -185,6 +185,24 @@
     gap: 8px;
   }
 
+  /* ── Wishlist: single column, controls on top, 2-col card grid ─────────── */
+  .wishlist-layout {
+    grid-template-columns: 1fr !important;   /* drop the 320px side panel column */
+    gap: 1rem !important;
+  }
+  /* Hover-preview is meaningless on touch — hide it (Price Summary stays). */
+  #wishlistPreviewPanel { display: none; }
+  /* Two-column card grid, matching the collection view */
+  .wishlist-display--grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 8px;
+    padding: 8px;
+  }
+  .wishlist-search-results {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 8px;
+  }
+
   /* ── Panels ───────────────────────────────────────────────────────────── */
   .panel-header { padding: 0.75rem 1rem; }
   .panel-body   { padding: 0.85rem; }

@@ -877,7 +877,7 @@
     <div style="flex:1"></div>
     <button class="btn btn-ghost btn-sm" onclick="exitSharedWishlistView()" style="font-size:0.78rem;color:var(--text3)">← Back to my wishlist</button>
   </div>
-  <div style="display:grid;grid-template-columns:1fr 320px;gap:1.5rem">
+  <div class="wishlist-layout" style="display:grid;grid-template-columns:1fr 320px;gap:1.5rem">
     <div>
       <div class="view-controls" style="margin-bottom:1rem">
         <div style="position:relative;flex:1">
@@ -918,7 +918,7 @@
           </table>
         </div>
       </div>
-      <div class="panel" style="margin-top:1rem">
+      <div class="panel" id="wishlistPreviewPanel" style="margin-top:1rem">
         <div class="panel-header"><span class="panel-title">Card Preview</span></div>
         <div class="panel-body" id="wishlistPreview" style="text-align:center;color:var(--text3);font-size:0.85rem">
           Hover a card to preview
