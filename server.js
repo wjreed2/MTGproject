@@ -1272,6 +1272,32 @@ app.get('/api/collection', requireAuth, async (req, res) => {
   }
 });
 
+// Server-side oracle-text (`o:`) search for the Collection tab. The client can't match
+// oracle text it doesn't have (collection blobs frequently omit it), and shipping the
+// whole catalog's text to the browser is too heavy. So resolve matches in SQL — scoped
+// to the caller's own collection — and return just the matching collection uids. The
+// query is driven by the account's collection rows (indexed) joined to the oracle
+// catalog by primary key, so it never scans the full catalog. Additive route; it does
+// NOT touch the GET /api/collection load path.
+app.get('/api/collection/oracle-search', requireAuth, async (req, res) => {
+  try {
+    const term = String(req.query.q || '').trim().toLowerCase();
+    if (term.length < 2) return res.json({ uids: [] });
+    const like = '%' + term.replace(/[\\%_]/g, '\\$&') + '%';
+    const [rows] = await db().query(
+      `SELECT c.uid
+         FROM collection c
+         JOIN scryfall_oracle_cards oc ON oc.oracle_id = c.oracle_id
+        WHERE c.account_id = ? AND oc.oracle_text LIKE ?`,
+      [req.accountId, like]
+    );
+    res.json({ uids: rows.map(r => r.uid) });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.put('/api/collection', requireAuth, async (req, res) => {
   const cards = req.body;
   if (!Array.isArray(cards)) return res.status(400).json({ error: 'Expected array' });

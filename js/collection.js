@@ -143,7 +143,12 @@ function matchToken(card, tok) {
   } else if (key === 'name' || key === 'n') {
     hit = (card.name||'').toLowerCase().includes(val);
   } else if (key === 'o' || key === 'oracle') {
-    hit = _collectionOracleHaystack(card).includes(val);
+    // Match the locally-stored oracle text, OR the server-resolved set of collection
+    // uids whose catalog oracle text contains the term (fills the gap for cards whose
+    // stored blob has no oracleText). See scheduleOracleMatchFetch().
+    const serverSet = _oracleMatchSets.get(val);
+    hit = _collectionOracleHaystack(card).includes(val)
+       || (serverSet instanceof Set && serverSet.has(card.uid));
   } else if (key === 'tag' || key === 'tags') {
     const stored = Array.isArray(card.roleTags)
       ? card.roleTags.map(t => String(t || '').toLowerCase()).filter(Boolean)
@@ -302,26 +307,63 @@ function _collectionNeedsTagHydrate() {
 function scheduleCollectionTagHydrateIfNeeded() {
   const q = String(searchQ || '');
   const wantsTags = /\b(tag|tags)\s*:/i.test(q);
-  const wantsOracleTok = /\b(o|oracle)\s*:/i.test(q);
-  if (!wantsTags && !wantsOracleTok) return;
-  const needTags = wantsTags && _collectionNeedsTagHydrate();
-  const needOracleText = wantsOracleTok && _collectionNeedsOracleTextBackfill();
-  if (!needTags && !needOracleText) return;
+  if (!wantsTags) return;
+  if (!_collectionNeedsTagHydrate()) return;
   clearTimeout(_collectionTagSearchDebounce);
   const pending = q;
   _collectionTagSearchDebounce = setTimeout(async () => {
     if (pending !== searchQ) return;
-    const stillTags = /\b(tag|tags)\s*:/i.test(searchQ);
-    const stillOracle = /\b(o|oracle)\s*:/i.test(searchQ);
-    try {
-      if (stillTags && _collectionNeedsTagHydrate())
-        await hydrateOracleTagsForCollectionIfNeeded();
-      else if (stillOracle && _collectionNeedsOracleTextBackfill())
-        await hydrateCollectionOracleTextBackfill();
-    } catch (_) {}
+    if (/\b(tag|tags)\s*:/i.test(searchQ) && _collectionNeedsTagHydrate()) {
+      try { await hydrateOracleTagsForCollectionIfNeeded(); } catch (_) {}
+    }
     if (pending !== searchQ) return;
     renderCollection();
   }, 320);
+}
+
+// ── Server-side oracle-text (`o:`) search ─────────────────────────────────────
+// The client can't match oracle text it doesn't have (collection blobs often omit it),
+// and shipping the whole catalog's text to the browser is too heavy. Instead, when an
+// `o:` query is typed we ask the server which of THIS account's collection cards have
+// catalog oracle text matching the term, cache the resulting uid set per term, and union
+// it into matchToken. Runs on demand only — never on the collection-load path.
+let _oracleMatchSets = new Map();     // term(lowercased) -> Set<uid>
+let _oracleMatchPending = new Set();  // terms currently being fetched
+let _oracleMatchDebounce = null;
+
+function _extractOracleTerms(q) {
+  const terms = [];
+  const re = /\b(?:o|oracle)\s*:\s*(?:"([^"]*)"|([^\s"]+))/gi;
+  let m;
+  while ((m = re.exec(String(q || ''))) !== null) {
+    const v = (m[1] !== undefined ? m[1] : (m[2] || '')).toLowerCase().trim();
+    if (v.length >= 2) terms.push(v);
+  }
+  return [...new Set(terms)];
+}
+
+async function _fetchOracleMatchSet(term) {
+  if (_oracleMatchSets.has(term) || _oracleMatchPending.has(term)) return;
+  _oracleMatchPending.add(term);
+  try {
+    const data = await apiFetch(`/collection/oracle-search?q=${encodeURIComponent(term)}`);
+    _oracleMatchSets.set(term, new Set(data?.uids || []));
+  } catch (_) {
+    // leave unset → matchToken falls back to the client-side haystack only
+  } finally {
+    _oracleMatchPending.delete(term);
+  }
+}
+
+function scheduleOracleMatchFetch(q) {
+  const missing = _extractOracleTerms(q)
+    .filter(t => !_oracleMatchSets.has(t) && !_oracleMatchPending.has(t));
+  if (!missing.length) return;
+  clearTimeout(_oracleMatchDebounce);
+  _oracleMatchDebounce = setTimeout(async () => {
+    await Promise.all(missing.map(_fetchOracleMatchSet));
+    renderCollection();
+  }, 300);
 }
 
 // ── Quick-filter chip helpers ─────────────────────────────────────────────────
@@ -502,6 +544,7 @@ function filterCards(q) {
   searchQ = q;
   renderCollection();
   scheduleCollectionTagHydrateIfNeeded();
+  scheduleOracleMatchFetch(q);
 }
 function sortCards(v) { currentSort = v; renderCollection(); }
 function changeRarity(v) { currentRarity = v; renderCollection(); }
