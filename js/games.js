@@ -1733,10 +1733,11 @@ function renderTabletView() {
           → Next
         </button>
         <button onclick="togglePauseTimer('${game.id}')" class="tablet-turn-btn"
+          title="${_turnPaused ? 'Resume timer' : 'Pause timer'}" aria-label="${_turnPaused ? 'Resume timer' : 'Pause timer'}"
           style="flex:1;padding:9px 8px;background:${_turnPaused ? 'rgba(200,168,74,0.15)' : 'var(--bg3)'};
             border:1px solid ${_turnPaused ? 'rgba(200,168,74,0.4)' : 'var(--border2)'};border-radius:8px;
             color:${_turnPaused ? 'var(--gold)' : 'var(--text2)'};font-size:0.9rem;cursor:pointer;touch-action:manipulation">
-          ${_turnPaused ? `${gameIcon('play', 12, 'margin-right:5px')}Resume` : `${gameIcon('pause', 12, 'margin-right:5px')}Pause`}
+          ${_turnPaused ? gameIcon('play', 16, 'vertical-align:middle') : gameIcon('pause', 16, 'vertical-align:middle')}
         </button>
       </div>
       ${gameActionMode ? `
@@ -2025,6 +2026,11 @@ function _openDragDamageMenu(sourceId, targetIds, x, y, rotated) {
   _highlightDragTargets(_dragMenuCtx.targetIds);   // keep the selected cells lit while choosing
   const multi = targets.length > 1;
   const each = multi ? ' each' : '';
+  // Commander damage goes from one commander to one player, so only offer it when the
+  // drag landed on a single opponent (not a multi-target sweep, not yourself) in a
+  // commander-format game.
+  const isCmd = game.format === 'Commander' || game.format === 'Brawl';
+  const showCmd = !multi && isCmd && targets[0].id !== source.id;
   const targetsHtml = targets
     .map(t => `<span style="color:${t.color}">${escapeHtml(t.name)}</span>`)
     .join('<span style="color:var(--text3)">,&nbsp;</span>');
@@ -2045,6 +2051,12 @@ function _openDragDamageMenu(sourceId, targetIds, x, y, rotated) {
       ${xStepper(game.id, source.id)}
       <button class="tablet-drag-deal" onclick="applyDragDamage(-1)">Deal X${each}</button>
     </div>
+    ${showCmd ? `
+    <div class="tablet-drag-menu-divider">${gameIcon('sword', 11)}<span>commander</span></div>
+    <div class="tablet-drag-menu-row">
+      <button class="tablet-drag-deal tablet-drag-deal--cmd" onclick="applyDragCommander(1)">Deal 1</button>
+      <button class="tablet-drag-deal tablet-drag-deal--cmd" onclick="applyDragCommander(-1)">Deal X</button>
+    </div>` : ''}
     <button class="tablet-drag-cancel" onclick="_closeDragMenu()">Cancel</button>`;
   menu.style.cssText = 'position:fixed;z-index:710;visibility:hidden';
   if (rotated) menu.style.transform = 'rotate(180deg)';
@@ -2090,6 +2102,22 @@ function applyDragDamage(amount) {
   });
   save('games');
   renderTabletView();
+}
+
+// Deal commander damage from the drag source to the single dragged target. Only wired
+// up when the menu was opened for one opponent (see showCmd in _openDragDamageMenu).
+// changeCommanderDamage handles the life hit, the log, the 21+ KO, snapshot and re-render.
+function applyDragCommander(amount) {
+  const ctx = _dragMenuCtx;
+  const game = games.find(g => g.id === tabletViewGameId);
+  _closeDragMenu();
+  if (!ctx || !game || game.status !== 'active') return;
+  if (ctx.targetIds.length !== 1) return;
+  const targetId = ctx.targetIds[0];
+  if (targetId === ctx.sourceId) return;                       // no commander damage to self
+  const source = game.players.find(p => p.id === ctx.sourceId);
+  const amt = amount < 0 ? actAmt(source) : Math.max(1, amount | 0);   // -1 = use source's X
+  changeCommanderDamage(game.id, targetId, ctx.sourceId, amt);
 }
 
 // ── Delete ────────────────────────────────────────────────────────────────────

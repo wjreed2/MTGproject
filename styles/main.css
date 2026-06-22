@@ -1950,8 +1950,15 @@ main {
 }
 .card-img-wrap img {
   width: 100%; height: 100%; object-fit: cover;
-  transition: opacity 0.3s;
+  opacity: 0; transition: opacity 0.25s;
 }
+.card-img-wrap img.loaded { opacity: 1; }
+/* Fade card images in once decoded so they don't snap in one-by-one.
+   Scoped to <img> so text fallbacks (.stack-face-fallback divs) aren't hidden. */
+img.stack-main { opacity: 0; transition: opacity 0.25s; }
+img.stack-main.loaded { opacity: 1; }
+.deck-search-art img { opacity: 0; transition: opacity 0.25s; }
+.deck-search-art img.loaded { opacity: 1; }
 .card-img-placeholder {
   width: 100%; height: 100%;
   display: flex; flex-direction: column;
@@ -2801,6 +2808,19 @@ main {
   touch-action: manipulation;
 }
 .tablet-drag-deal:hover, .tablet-drag-deal:active { background: rgba(212,90,74,0.28); }
+/* Commander-damage variant of the deal button — gold instead of red. */
+.tablet-drag-deal--cmd {
+  background: rgba(200,168,74,0.14); border-color: rgba(200,168,74,0.4); color: var(--gold);
+}
+.tablet-drag-deal--cmd:hover, .tablet-drag-deal--cmd:active { background: rgba(200,168,74,0.28); }
+/* "commander" section divider inside the drag-to-deal menu. */
+.tablet-drag-menu-divider {
+  display: flex; align-items: center; gap: 8px; margin: 9px 2px 8px;
+  font-size: 0.62rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--gold);
+}
+.tablet-drag-menu-divider::before, .tablet-drag-menu-divider::after {
+  content: ''; flex: 1; height: 1px; background: var(--border2);
+}
 .tablet-drag-cancel {
   width: 100%; padding: 7px; background: none; border: 1px solid var(--border2);
   border-radius: 8px; color: var(--text3); cursor: pointer; font-size: 0.78rem;
@@ -2892,9 +2912,9 @@ main {
   #tabletView .tablet-total-time { font-size: clamp(0.82rem, 3vw, 1.1rem) !important; }
   /* Bigger centre timer box + Next/Pause buttons so they're easy to tap on a phone.
      (2-player landscape keeps its own shrunk box via the higher-specificity .tv-2p rule.) */
-  #tabletView .tablet-center-box { padding: 18px 26px !important; min-width: 212px !important; }
-  #tabletView .tablet-center-timer { font-size: clamp(2.4rem, 8vw, 3.4rem) !important; }
-  #tabletView .tablet-turn-btn { padding: 16px 10px !important; font-size: 1.1rem !important; }
+  #tabletView .tablet-center-box { padding: 22px 30px !important; min-width: 244px !important; }
+  #tabletView .tablet-center-timer { font-size: clamp(2.9rem, 9.5vw, 4rem) !important; }
+  #tabletView .tablet-turn-btn { padding: 20px 12px !important; font-size: 1.2rem !important; }
 }
 
 /* GAME TRACKER — targeting & action bar */
