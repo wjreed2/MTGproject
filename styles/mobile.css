@@ -179,6 +179,12 @@
   }
   .card-grid.view-list { grid-template-columns: 1fr !important; }
 
+  /* ── Deck grid (All Decks): two columns w/ smaller images, like collection ─ */
+  .deck-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 8px;
+  }
+
   /* ── Panels ───────────────────────────────────────────────────────────── */
   .panel-header { padding: 0.75rem 1rem; }
   .panel-body   { padding: 0.85rem; }
