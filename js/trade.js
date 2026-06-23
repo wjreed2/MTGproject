@@ -20,6 +20,7 @@ const _ICON_BELL = '<svg class="tf-ic" viewBox="0 0 16 16" fill="none" stroke="c
 const _ICON_UP = '<svg class="tf-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13.5V5"/><path d="M4.5 8 8 4.5 11.5 8"/><path d="M4.5 2.5h7"/></svg>';
 const _ICON_SPARKLE = '<svg class="tf-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M7 2.2 8.1 5.4 11.3 6.5 8.1 7.6 7 10.8 5.9 7.6 2.7 6.5 5.9 5.4z"/><path d="M12.2 9.6l.5 1.5 1.5.5-1.5.5-.5 1.5-.5-1.5-1.5-.5 1.5-.5z"/></svg>';
 const _ICON_WARN = '<svg class="tf-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.6 14.4 13.4H1.6z"/><line x1="8" y1="6.6" x2="8" y2="9.6"/><circle cx="8" cy="11.4" r="0.55" fill="currentColor" stroke="none"/></svg>';
+const _ICON_TRADE = '<svg class="tf-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h8.5M9 2.5 11.5 5 9 7.5"/><path d="M13 11H4.5M7 8.5 4.5 11 7 13.5"/></svg>';
 
 function renderTrade() {
   const root = document.getElementById('tab-trade');
@@ -1540,13 +1541,31 @@ function _renderPartnerDetail() {
       </div>
     </div>
     <div id="suggestionsMount">
-      <div style="text-align:center;padding:20px">
+      <div class="partner-cta">
         <button class="btn btn-primary" onclick="loadTradeSuggestions()">${_ICON_SPARKLE} Generate trade suggestions</button>
+        <button class="btn btn-outline" onclick="startTradeWithPartner()">${_ICON_TRADE} Start a trade with @${escapeHtml(_tradePartner.username)}</button>
       </div>
     </div>`;
 }
 
 async function loadTradeSuggestions() { return generateTradeSuggestions(0); }
+
+// Open a blank calculator pre-attached to this partner (manual trade, no overlap needed).
+async function startTradeWithPartner() {
+  if (!_tradePartner) return;
+  if (_calc && _calc.dirty && (_calc.give.length || _calc.receive.length)) {
+    const ok = await showConfirmModal({
+      title: 'Start a new trade?', body: 'Unsaved changes to the current trade will be lost.', okLabel: 'New trade',
+    });
+    if (!ok) return;
+  }
+  _calc = _newCalcState();
+  _calc.partnerId = _tradePartner.id;
+  _calc.partnerName = _tradePartner.username;
+  _calc.title = `Trade with @${_tradePartner.username}`;
+  setTradeSection('calculator');
+  showNotif(`New trade with @${_tradePartner.username}`);
+}
 
 // ── Phase 6: trade suggestion engine (UI) ───────────────────────────────────
 
