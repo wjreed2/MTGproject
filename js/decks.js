@@ -9165,21 +9165,63 @@ function _scheduleDeckMetadataHydrate(deck) {
   }, 120);
 }
 
+function _printIdForCard(card) {
+  const rawSid = String(card?.scryfallId || '').trim().toLowerCase();
+  const sidFromUid = String(card?.uid || '').trim().toLowerCase().replace(/_(n|f)$/i, '');
+  return [rawSid, sidFromUid].find(v => _isUuidLike(v)) || '';
+}
+
 async function _refreshDeckScryfallTags(deck) {
   if (!deck || !Array.isArray(deck.cards) || !deck.cards.length) return;
   const cards = deck.cards || [];
   const oidByCard = new Map();
-  const resolvedOids = [];
+
+  // 1) Resolve everything we already know locally — no network at all.
+  const unresolved = [];
   for (const c of cards) {
-    let oid = _oracleIdFromCardLocal(c);
-    if (!oid) {
-      try { oid = await _resolveOracleIdForCard(c); } catch (_) {}
-    }
-    if (!oid) continue;
-    oidByCard.set(c, oid);
-    resolvedOids.push(oid);
+    const oid = _oracleIdFromCardLocal(c);
+    if (oid) oidByCard.set(c, oid);
+    else unresolved.push(c);
   }
 
+  // 2) Bulk-resolve the rest by scryfall id in 75-per-request batches. The old
+  //    path resolved each card with its own Scryfall round-trip, run serially —
+  //    shared-deck cards carry no local oracleId, so a full deck stalled for
+  //    tens of seconds with every card stuck under "Untagged" until clicked.
+  if (unresolved.length && typeof fetchAllCardsByScryfallIds === 'function') {
+    const ids = [...new Set(unresolved.map(_printIdForCard).filter(Boolean))];
+    if (ids.length) {
+      try {
+        const fetched = await fetchAllCardsByScryfallIds(ids);
+        const oidBySid = new Map();
+        for (const sc of fetched || []) {
+          const oid = (typeof resolveCardOracleId === 'function' ? resolveCardOracleId(sc) : null) || sc?.oracle_id;
+          if (sc?.id && oid && _isUuidLike(String(oid))) {
+            const sid = String(sc.id).toLowerCase();
+            const lc = String(oid).toLowerCase();
+            oidBySid.set(sid, lc);
+            _scryOracleByPrintId.set(sid, lc);
+          }
+        }
+        for (const c of unresolved) {
+          const oid = oidBySid.get(_printIdForCard(c));
+          if (!oid) continue;
+          if (!c.oracleId || !_isUuidLike(c.oracleId)) c.oracleId = oid;
+          oidByCard.set(c, oid);
+        }
+      } catch (_) {}
+    }
+  }
+
+  // 3) Last-resort serial fallback for the few cards with no usable scryfall id.
+  for (const c of cards) {
+    if (oidByCard.has(c)) continue;
+    let oid = null;
+    try { oid = await _resolveOracleIdForCard(c); } catch (_) {}
+    if (oid) oidByCard.set(c, oid);
+  }
+
+  const resolvedOids = [...oidByCard.values()];
   const batchTags = await _fetchScryfallTagsForDeckOracleIds(resolvedOids);
 
   for (const c of cards) {
