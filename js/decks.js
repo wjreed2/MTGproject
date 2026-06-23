@@ -9187,7 +9187,9 @@ async function _refreshDeckScryfallTags(deck) {
     if (oid && !batchTags.has(oid)) _scryTagsByOracleId.set(oid, []);
   }
 
-  const changed = syncDeckAutoRoleTags(deck);
+  // Shared decks: populate the tag cache + re-render only — never mutate/persist
+  // someone else's deck (syncDeckAutoRoleTags is a no-op we must skip here).
+  const changed = !activeDeckIsShared && syncDeckAutoRoleTags(deck);
   if (changed) saveActiveDeck(deck);
   if (deck.id === activeDeckId) {
     if (changed || _isTagGroupByMode(deckGroupBy)) renderDeckList(deck);
@@ -9202,7 +9204,10 @@ async function _refreshDeckScryfallTags(deck) {
 }
 
 function _scheduleDeckScryfallTagRefresh(deck) {
-  if (!deck || activeDeckIsShared) return;
+  // Run for shared decks too: the refresh only fetches Scryfall tags into the
+  // in-memory cache and re-renders. It does not persist (see _refreshDeckScryfallTags),
+  // so grouping by default tags works on decks shared with the user.
+  if (!deck) return;
   _scrySyncDecks.add(deck.id);
   _renderScryTagSyncBadge();
   if (_scryRefreshTimer) clearTimeout(_scryRefreshTimer);
