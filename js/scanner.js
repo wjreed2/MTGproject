@@ -3050,28 +3050,26 @@ function _scnFingerprintTick(v, now) {
       }
       if (r.matched && r.best) {
         const ph = r._phash;
-        const setNum = `${(r.best.set || '').toUpperCase()} · #${r.best.collector_number || ''} · d=${r.distance} a=${r.artDistance}`;
+        const da = `d=${r.distance} a=${r.artDistance}`;
+        const setNum = `${(r.best.set || '').toUpperCase()} · #${r.best.collector_number || ''} · ${da}`;
         // Lingering same card already added — ignore (swap to a new card to add another).
         if (_scnFpLastAcceptedPhash && PhashCore.hamming(ph, _scnFpLastAcceptedPhash) <= SCN_FP_DEDUPE_HAMMING) {
-          _scnSetOverlay(r.best.name, 'already added ✓', 'match');
+          _scnSetOverlay(r.best.name, `already added ✓ · ${da}`, 'match');
           _scnFpCooldownUntil = performance.now() + 450;
           return;
         }
         // Require two consecutive consistent reads before adding — kills transient false matches.
         if (!_scnFpPendingMatch || PhashCore.hamming(ph, _scnFpPendingMatch.phash) > SCN_FP_DEDUPE_HAMMING) {
           _scnFpPendingMatch = { phash: ph, card: r.best };
-          _scnSetOverlay(r.best.name, 'confirming…', 'hint');
+          _scnSetOverlay(r.best.name, `confirming… · ${da}`, 'hint');
           _scnFpCooldownUntil = performance.now() + 130;
           return;
         }
         _scnFpPendingMatch = null;
         _scnFpLastAcceptedPhash = ph || null;
-        if (_scnStreamAdd) {
-          _scnFpStreamAdd(r.best);
-          _scnSetOverlay(r.best.name, setNum, 'match');
-        } else {
-          await _scnAutoStageAndResume(r.best); // queues + beeps
-        }
+        if (_scnStreamAdd) _scnFpStreamAdd(r.best);
+        else await _scnAutoStageAndResume(r.best); // queues + beeps
+        _scnSetOverlay(r.best.name, setNum, 'match'); // show d=/a= for both add paths (overrides "Queued")
         _scnFpCooldownUntil = performance.now() + 700;
       } else {
         _scnFpPendingMatch = null; // a miss breaks the confirmation streak
