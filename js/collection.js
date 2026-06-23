@@ -166,72 +166,94 @@ function matchToken(card, tok) {
   return neg ? !hit : hit;
 }
 
-function getFilteredCollection() {
-  let cards = [..._getCollectionSource()];
+/**
+ * Does a card match a collection-style search query (name terms + t:/o:/r:/mv:/
+ * is:/s:/qty:/tag: operators, OR groups)? Extracted so other views (the Trade
+ * tab's tradelist & wishlist filters) search exactly like the collection bar.
+ */
+function cardMatchesSearchQuery(c, query) {
+  const q = String(query || '').trim();
+  if (!q) return true;
+  const { orGroups } = parseSearchQuery(q);
+  return orGroups.some(({ tokens, nameTerms }) => {
+    if (nameTerms.length && !nameTerms.every(t =>
+      (c.name||'').toLowerCase().includes(t) ||
+      (c.set||'').toLowerCase().includes(t) ||
+      (c.setName||'').toLowerCase().includes(t) ||
+      (c.type||'').toLowerCase().includes(t) ||
+      _collectionOracleHaystack(c).includes(t)
+    )) return false;
+    return tokens.every(tok => matchToken(c, tok));
+  });
+}
 
-  if (showStarredCardsOnly) cards = cards.filter(c => c.starred);
+/**
+ * Apply the collection's filter set to any card list. `f` is a plain state
+ * object: { starred, searchQ, colors:Set, rarity, types:Set, flags:Set,
+ * cmcMin, cmcMax }. Shared so the Trade tab filters cards identically.
+ */
+function applyCardFilters(cards, f) {
+  let out = cards;
+  if (f.starred) out = out.filter(c => c.starred);
 
-  // ── Text search with Scryfall-like syntax ─────────────────────────────────
-  if (searchQ.trim()) {
-    const { orGroups } = parseSearchQuery(searchQ);
-    cards = cards.filter(c => orGroups.some(({ tokens, nameTerms }) => {
-      if (nameTerms.length && !nameTerms.every(t =>
-        (c.name||'').toLowerCase().includes(t) ||
-        (c.set||'').toLowerCase().includes(t) ||
-        (c.setName||'').toLowerCase().includes(t) ||
-        (c.type||'').toLowerCase().includes(t) ||
-        _collectionOracleHaystack(c).includes(t)
-      )) return false;
-      return tokens.every(tok => matchToken(c, tok));
-    }));
-  }
+  // Scryfall-like text search (name + t:/o:/r:/mv:/is:/s:/qty: operators).
+  if (String(f.searchQ || '').trim()) out = out.filter(c => cardMatchesSearchQuery(c, f.searchQ));
 
-  // ── Color pill filters ────────────────────────────────────────────────────
-  if (colorFilters.size > 0) {
-    const selected = [...colorFilters];
+  // Color pills (mono-subset allowed; C = colorless).
+  if (f.colors && f.colors.size > 0) {
+    const selected = [...f.colors];
     const selectedHasColorless = selected.includes('C');
     const selectedColors = selected.filter(c => c !== 'C');
-    cards = cards.filter(c => {
+    out = out.filter(c => {
       const cardColors = [...new Set((c.colors || []).filter(Boolean).map(x => String(x).toUpperCase()))];
       if (selectedHasColorless) {
         if (cardColors.length === 0) return true;
         if (!selectedColors.length) return false;
-        // Allow only selected colors (no extras), including mono-color subsets.
         return cardColors.every(col => selectedColors.includes(col));
       }
       if (!cardColors.length) return false;
-      // Allow only selected colors (no extras), including mono-color subsets.
       return cardColors.every(col => selected.includes(col));
     });
   }
 
-  // ── Rarity dropdown ───────────────────────────────────────────────────────
-  if (currentRarity) cards = cards.filter(c => c.rarity === currentRarity);
+  if (f.rarity) out = out.filter(c => c.rarity === f.rarity);
 
-  // ── Quick-filter chips ────────────────────────────────────────────────────
-  if (quickFilters.types.size > 0) {
-    cards = cards.filter(c => {
-      const t = (c.type||'').toLowerCase();
-      return [...quickFilters.types].some(type => t.includes(type));
+  if (f.types && f.types.size > 0) {
+    out = out.filter(c => {
+      const t = (c.type || '').toLowerCase();
+      return [...f.types].some(type => t.includes(type));
     });
   }
-  if (quickFilters.flags.has('legendary')) cards = cards.filter(c => (c.type||'').toLowerCase().includes('legendary'));
-  if (quickFilters.flags.has('foil'))      cards = cards.filter(c => !!c.foil);
-  if (quickFilters.flags.has('nonfoil'))   cards = cards.filter(c => !c.foil);
-  if (quickFilters.flags.has('new'))       cards = cards.filter(c => isRecentlyAdded(c));
-  if (quickFilters.cmcMin !== null)        cards = cards.filter(c => (c.cmc||0) >= quickFilters.cmcMin);
-  if (quickFilters.cmcMax !== null)        cards = cards.filter(c => (c.cmc||0) <= quickFilters.cmcMax);
+  if (f.flags && f.flags.has('legendary')) out = out.filter(c => (c.type || '').toLowerCase().includes('legendary'));
+  if (f.flags && f.flags.has('foil'))      out = out.filter(c => !!c.foil);
+  if (f.flags && f.flags.has('nonfoil'))   out = out.filter(c => !c.foil);
+  if (f.flags && f.flags.has('new'))       out = out.filter(c => isRecentlyAdded(c));
+  if (f.cmcMin != null)                    out = out.filter(c => (c.cmc || 0) >= f.cmcMin);
+  if (f.cmcMax != null)                    out = out.filter(c => (c.cmc || 0) <= f.cmcMax);
+  return out;
+}
 
+/** Sort a card list by the collection's sort keys (returns a new array). */
+function sortCardList(cards, sortKey) {
   const sorts = {
-    name:      (a,b) => a.name.localeCompare(b.name),
+    name:      (a,b) => (a.name||'').localeCompare(b.name||''),
     cmc:       (a,b) => (a.cmc||0) - (b.cmc||0),
     price_tcg: (a,b) => getTCGPriceForCard(b) - getTCGPriceForCard(a),
     price_ck:  (a,b) => getCKPriceForCard(b) - getCKPriceForCard(a),
-    set:       (a,b) => a.set.localeCompare(b.set) || a.number - b.number,
-    added:     (a,b) => b.addedAt - a.addedAt,
+    set:       (a,b) => (a.set||'').localeCompare(b.set||'') || (a.number - b.number),
+    added:     (a,b) => (b.addedAt||0) - (a.addedAt||0),
   };
-  cards.sort(sorts[currentSort] || sorts.name);
-  return cards;
+  return [...cards].sort(sorts[sortKey] || sorts.name);
+}
+
+function getFilteredCollection() {
+  const cards = applyCardFilters([..._getCollectionSource()], {
+    starred: showStarredCardsOnly, searchQ,
+    colors: colorFilters, rarity: currentRarity,
+    types: quickFilters.types, flags: quickFilters.flags,
+    cmcMin: quickFilters.cmcMin, cmcMax: quickFilters.cmcMax,
+  });
+  return sortCardList(cards, currentSort);
 }
 
 /** Resolve oracle ids + batch-load Scryfall tags so `tag:` search can use `_roleTagsForCard` (collection never runs deck tag refresh). */
@@ -1436,6 +1458,8 @@ function _htmlCardDetailPrimaryActionsInner(ctx) {
                ${printBtn}
                ${isCommanderCandidate ? `<button class="btn btn-outline btn-sm" onclick="buildSkeletonDeckFromInspectorCard('${actionUid}')">Build Skeleton Deck</button>` : ''}
                <button class="btn btn-outline btn-sm" onclick="toggleWishlistFromDetail('${uid}')">${isWishlisted ? '♥ Wishlisted' : '♡ Wishlist'}</button>
+               <button class="btn btn-outline btn-sm" onclick="flagUpgradeTargetFromDetail('${actionUid}')" title="Want a better printing, foil, or condition">⬆ Upgrade</button>
+               <button class="btn btn-outline btn-sm" onclick="openPriceWatchModal('${escapeHtml(card.scryfallId || '')}', ${!!card.foil}, ${JSON.stringify(card.name || '').replace(/"/g, '&quot;')})" title="Set price alerts for this card">🔔 Watch</button>
                <button type="button" id="cardDetailStarBtn" class="btn btn-outline btn-sm" data-detail-uid="${actionUid}" onclick="toggleCardStar('${actionUid}',event)">${card.starred ? '★ Starred' : '☆ Star'}</button>
                <button class="btn btn-danger btn-sm" onclick="removeFromCollection('${actionUid}')">Remove</button>`
     : `<button class="btn btn-primary btn-sm" onclick="addCardToCollectionFromDetail('${uid}')">+ Add to Collection</button>
@@ -1623,8 +1647,14 @@ function _htmlOpenCardDetailRightColumn(ctx) {
         <div id="cardDetailTagToDeckWrap" class="card-detail-section" style="display:${tagData.show ? 'block' : 'none'}">
           ${tagData.html}
         </div>
-        <details class="card-detail-disclosure"${_hasAdvanced ? ' open' : ''}>
-          <summary>Advanced · mana value &amp; pips</summary>
+        <details id="cardDetailAdvanced" class="card-detail-disclosure"${_hasAdvanced ? ' open' : ''} ontoggle="_onInspectorAdvancedToggle(this)">
+          <summary>Advanced · price history, mana value &amp; pips</summary>
+          <div id="cardDetailPriceChartWrap" class="cd-price-chart" data-sid="${card.scryfallId || ''}">
+            <div class="card-detail-section-label">PRICE HISTORY</div>
+            <div id="cardDetailPriceControls" class="cd-price-controls"></div>
+            <div class="cd-price-canvas-wrap"><canvas id="cardDetailPriceCanvas"></canvas></div>
+            <div id="cardDetailPriceEmpty" class="card-detail-row-hint" style="display:none"></div>
+          </div>
           <div id="cardDetailCustomCmcWrap" class="card-detail-cmc-row">
             <span class="card-detail-row-label">MANA VALUE</span>
             <input type="number" id="cardDetailCustomCmcInput" class="card-detail-num-input${_cmcCustom ? ' is-custom' : ''}" min="0" step="0.5"
@@ -1656,6 +1686,126 @@ function _htmlOpenCardDetailRightColumn(ctx) {
               onclick="resetCardCustomPips('${actionUidRef}')" title="Reset pips to Scryfall default">Reset</button>
           </div>
         </details>`;
+}
+
+// ── Card-detail price-history chart (MTGJSON daily snapshots) ────────────────
+// Ported from the price-history feature. Lazy: only fetches when the Advanced
+// pane is expanded. Renders with Chart.js (loaded from CDN in index.html).
+
+let _priceChart = null;
+let _priceChartState = { sid: null, points: null, finish: null, source: null };
+
+const _PRICE_SOURCES = [
+  { key: 'tcg', label: 'TCGplayer', cur: '$' },
+  { key: 'ck', label: 'Card Kingdom', cur: '$' },
+  { key: 'ckb', label: 'CK buylist', cur: '$' },
+  { key: 'cm', label: 'Cardmarket', cur: '€' },
+];
+const _PRICE_FINISHES = [{ key: 'normal', label: 'Normal' }, { key: 'foil', label: 'Foil' }, { key: 'etched', label: 'Etched' }];
+const _PRICE_COL = {
+  normal: { tcg: 'tcg_normal', ck: 'ck_normal', ckb: 'ckb_normal', cm: 'cm_normal' },
+  foil: { tcg: 'tcg_foil', ck: 'ck_foil', ckb: 'ckb_foil', cm: 'cm_foil' },
+  etched: { tcg: 'tcg_etched', ck: 'ck_etched' },
+};
+const _priceCol = (finish, source) => _PRICE_COL[finish]?.[source] || null;
+const _colHasData = (points, col) => !!col && points.some(p => p[col] != null);
+
+function _destroyInspectorPriceChart() {
+  if (_priceChart) { try { _priceChart.destroy(); } catch (_) {} _priceChart = null; }
+}
+
+// Called from openCardDetail (every open, incl. arrow-nav). Lazy: only fetches
+// when the Advanced pane is actually expanded.
+async function _syncInspectorPriceChart(scryfallId) {
+  const wrap = document.getElementById('cardDetailPriceChartWrap');
+  if (!wrap) return;
+  const sid = scryfallId || '';
+  wrap.dataset.sid = sid;
+  if (_priceChartState.sid !== sid) { _destroyInspectorPriceChart(); _priceChartState = { sid: null, points: null, finish: null, source: null }; }
+  const details = document.getElementById('cardDetailAdvanced');
+  if (details && details.open) await _loadInspectorPriceChart();
+}
+
+function _onInspectorAdvancedToggle(detailsEl) {
+  if (detailsEl && detailsEl.open) void _loadInspectorPriceChart();
+}
+
+async function _loadInspectorPriceChart() {
+  const wrap = document.getElementById('cardDetailPriceChartWrap');
+  const canvas = document.getElementById('cardDetailPriceCanvas');
+  const empty = document.getElementById('cardDetailPriceEmpty');
+  const controls = document.getElementById('cardDetailPriceControls');
+  if (!wrap || !canvas) return;
+  const sid = wrap.dataset.sid || '';
+  const showEmpty = msg => { if (empty) { empty.style.display = ''; empty.textContent = msg; } canvas.style.display = 'none'; if (controls) controls.innerHTML = ''; _destroyInspectorPriceChart(); };
+  if (!sid) return showEmpty('No price data for this card.');
+  if (_priceChartState.sid === sid && _priceChartState.points) { _renderPriceChart(); return; }     // already loaded
+
+  if (controls) controls.innerHTML = '<span class="card-detail-row-hint">Loading price history…</span>';
+  if (empty) empty.style.display = 'none';
+  let data;
+  try { data = await apiFetch('/cards/price-history/' + encodeURIComponent(sid)); }
+  catch (e) { return showEmpty('Could not load price history.'); }
+  const points = data.points || [];
+  if (!points.length) { _priceChartState = { sid, points: [], finish: null, source: null }; return showEmpty('No price history tracked for this printing yet.'); }
+
+  const finish = _PRICE_FINISHES.find(f => _PRICE_SOURCES.some(s => _colHasData(points, _priceCol(f.key, s.key))))?.key || 'normal';
+  const source = _PRICE_SOURCES.find(s => _colHasData(points, _priceCol(finish, s.key)))?.key || 'tcg';
+  _priceChartState = { sid, points, finish, source };
+  canvas.style.display = '';
+  if (empty) empty.style.display = 'none';
+  _renderPriceChartControls();
+  _renderPriceChart();
+}
+
+function _renderPriceChartControls() {
+  const controls = document.getElementById('cardDetailPriceControls');
+  if (!controls) return;
+  const { points, finish, source } = _priceChartState;
+  const finishes = _PRICE_FINISHES.filter(f => _PRICE_SOURCES.some(s => _colHasData(points, _priceCol(f.key, s.key))));
+  const sources = _PRICE_SOURCES.filter(s => _colHasData(points, _priceCol(finish, s.key)));
+  const btn = (active, label, on) => `<button type="button" class="cd-price-btn${active ? ' active' : ''}" onclick="${on}">${label}</button>`;
+  const rows = [];
+  if (finishes.length > 1) rows.push(`<div class="cd-price-row">${finishes.map(f => btn(f.key === finish, f.label, `_setPriceChartFinish('${f.key}')`)).join('')}</div>`);
+  rows.push(`<div class="cd-price-row">${sources.map(s => btn(s.key === source, s.label, `_setPriceChartSource('${s.key}')`)).join('')}</div>`);
+  controls.innerHTML = rows.join('');
+}
+
+function _setPriceChartFinish(f) {
+  _priceChartState.finish = f;
+  if (!_colHasData(_priceChartState.points, _priceCol(f, _priceChartState.source))) {
+    _priceChartState.source = _PRICE_SOURCES.find(s => _colHasData(_priceChartState.points, _priceCol(f, s.key)))?.key || _priceChartState.source;
+  }
+  _renderPriceChartControls(); _renderPriceChart();
+}
+function _setPriceChartSource(s) { _priceChartState.source = s; _renderPriceChartControls(); _renderPriceChart(); }
+
+function _renderPriceChart() {
+  const canvas = document.getElementById('cardDetailPriceCanvas');
+  if (!canvas || typeof Chart === 'undefined') return;
+  const { points, finish, source } = _priceChartState;
+  const col = _priceCol(finish, source);
+  const srcMeta = _PRICE_SOURCES.find(s => s.key === source) || { cur: '$' };
+  const labels = [], vals = [];
+  for (const p of points) if (col && p[col] != null) { labels.push(p.d); vals.push(Number(p[col])); }
+  _destroyInspectorPriceChart();
+  const css = getComputedStyle(document.documentElement);
+  const gold = (css.getPropertyValue('--gold') || '#c8a84a').trim();
+  const gridC = (css.getPropertyValue('--border') || 'rgba(255,255,255,0.08)').trim();
+  const tickC = (css.getPropertyValue('--text3') || '#888').trim();
+  _priceChart = new Chart(canvas.getContext('2d'), {
+    type: 'line',
+    data: { labels, datasets: [{ data: vals, borderColor: gold, backgroundColor: 'transparent', borderWidth: 2, pointRadius: 0, pointHoverRadius: 3, tension: 0.25, spanGaps: true }] },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => `${srcMeta.cur}${Number(c.parsed.y).toFixed(2)}` } } },
+      scales: {
+        x: { ticks: { color: tickC, maxTicksLimit: 6, font: { size: 9 } }, grid: { display: false } },
+        y: { ticks: { color: tickC, font: { size: 9 }, callback: v => srcMeta.cur + v }, grid: { color: gridC } },
+      },
+    },
+  });
 }
 
 function _findActiveDeckSlotByCardKey(activeDeck, cardKey) {
@@ -1860,6 +2010,7 @@ async function openCardDetail(uid, navMode, opts) {
   void _loadCardDetailDefaultTags(card);
   void _loadCardDetailMyTags(card);
   _updateCardDetailEdgeNav(actionUid);
+  if (typeof _syncInspectorPriceChart === 'function') void _syncInspectorPriceChart(card.scryfallId);
   if (needsHydrate && shouldDeferHydrate) {
     void _deferredHydrateCardDetail(card, openSession, actionUid, isOwned);
   }
@@ -2011,6 +2162,7 @@ function closeCardDetail() {
     return;
   }
   document.getElementById('cardDetailModal').classList.remove('open');
+  if (typeof _destroyInspectorPriceChart === 'function') _destroyInspectorPriceChart();
   _cardDetailOpenSession++;
   _cardDetailCurrentUid = null;
   _cardDetailNavMode = 'collection';

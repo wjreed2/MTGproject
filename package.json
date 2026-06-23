@@ -8,7 +8,7 @@
     "dev": "nodemon server.js",
     "build": "npm run build:model && npm run build:ml && npm run build:bundle",
     "build:model": "python3 scripts/ensure-card-onnx.py",
-    "build:bundle": "cat js/db-client.js js/auth.js js/state.js js/api.js js/ui.js js/ownership.js js/collection.js js/sets.js js/decks.js js/browse.js js/wishlist.js js/import.js js/analytics.js js/voice.js js/games.js js/phash-core.js js/scanner.js js/goldfish.js js/engine/engine-effects.js js/engine/engine-mana.js js/engine/engine-sba.js js/engine/engine-static.js js/engine/engine-replace.js js/goldfish-engine.js | npx esbuild --minify > dist/bundle.js",
+    "build:bundle": "cat js/db-client.js js/auth.js js/state.js js/api.js js/ui.js js/trade-core.js js/ownership.js js/collection.js js/sets.js js/decks.js js/trade-scoring.js js/browse.js js/wishlist.js js/trade.js js/import.js js/analytics.js js/voice.js js/games.js js/phash-core.js js/scanner.js js/goldfish.js js/engine/engine-effects.js js/engine/engine-mana.js js/engine/engine-sba.js js/engine/engine-static.js js/engine/engine-replace.js js/goldfish-engine.js | npx esbuild --minify > dist/bundle.js",
     "build:ml": "npx esbuild js/scanner-card-yolo-onnx.js --bundle --minify --format=iife --global-name=ScnCardYolo --outfile=dist/scanner-card-yolo.js",
     "build:icons": "node scripts/generate-icons.js",
     "test:phash": "node scripts/phash-smoke-test.js",
@@ -38,14 +38,17 @@
     "express-session": "1.19.0",
     "helmet": "8.1.0",
     "mysql2": "3.22.2",
+    "node-cron": "^3.0.3",
     "nodemailer": "8.0.7",
     "onnxruntime-web": "1.17.3",
+    "socket.io": "^4.8.3",
     "stream-json": "2.1.0",
     "three": "0.184.0"
   },
   "devDependencies": {
     "esbuild": "0.28.0",
     "nodemon": "3.1.14",
-    "sharp": "^0.35.1"
+    "sharp": "^0.35.1",
+    "socket.io-client": "^4.8.3"
   }
 }

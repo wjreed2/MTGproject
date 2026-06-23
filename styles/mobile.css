@@ -179,6 +179,17 @@
   }
   .card-grid.view-list { grid-template-columns: 1fr !important; }
 
+  /* ── Trade tab: exactly two columns of cards; toolbar never overflows ───── */
+  #tab-trade .card-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 8px; }
+  #tab-trade .card-grid.view-large { grid-template-columns: repeat(2, 1fr) !important; }
+  #tab-trade .card-grid.view-compact { grid-template-columns: repeat(3, 1fr) !important; }
+  #tab-trade .card-grid.view-list { grid-template-columns: 1fr !important; }
+  #tab-trade .trade-toolbar-search { flex: 1 1 100%; min-width: 0; }
+  #tab-trade .trade-toolbar-search .search-box { min-width: 0; width: 100%; }
+  #tab-trade .trade-toolbar .view-controls { gap: 6px; }
+  #tab-trade .trade-shell { padding-left: 0; padding-right: 0; }
+  #tab-trade .filter-bar { overflow: hidden; }
+
   /* ── Deck grid (All Decks): two columns w/ smaller images, like collection ─ */
   .deck-grid {
     grid-template-columns: repeat(2, 1fr) !important;

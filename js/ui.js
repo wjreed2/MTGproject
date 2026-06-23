@@ -31,6 +31,7 @@ function showTab(t) {
   if (t === 'decks') renderDecks();
   if (t === 'browse') renderBrowseDecks();
   if (t === 'wishlist') renderWishlist();
+  if (t === 'trade') renderTrade();
   if (t === 'stats') renderStats();
   if (t === 'games') {
     if (!window.THREE) {

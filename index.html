@@ -92,8 +92,12 @@
   </div>
   <div class="topbar-user" id="topbarUserRow" style="display:none">
     <div class="topbar-user-menu-cluster" style="display:flex;align-items:center;gap:2px;flex-shrink:0">
-    <button type="button" class="btn btn-ghost btn-sm topbar-whats-new-btn" id="topbarWhatsNewIconBtn" onclick="openWhatsNewFromMenu()" title="What’s new" aria-label="App updates" style="display:inline-flex;padding:5px 9px;flex-shrink:0;color:var(--gold);position:relative">
+    <button type="button" class="btn btn-ghost btn-sm topbar-notif-btn" id="topbarNotifBtn" onclick="toggleNotifPanel()" title="Notifications" aria-label="Notifications" style="display:inline-flex;padding:5px 9px;flex-shrink:0;color:var(--gold);position:relative">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:20px;height:20px;display:block"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      <span class="topbar-notif-badge" id="topbarNotifBadge" hidden aria-hidden="true">0</span>
+    </button>
+    <button type="button" class="btn btn-ghost btn-sm topbar-whats-new-btn" id="topbarWhatsNewIconBtn" onclick="openWhatsNewFromMenu()" title="What’s new" aria-label="App updates" style="display:inline-flex;padding:5px 9px;flex-shrink:0;color:var(--gold);position:relative">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:20px;height:20px;display:block"><path d="M2 6h4"/><path d="M2 10h4"/><path d="M2 14h4"/><path d="M2 18h4"/><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M16 2v20"/></svg>
       <span class="topbar-whats-new-btn__dot" id="topbarWhatsNewIconDot" hidden aria-hidden="true"></span>
     </button>
     <button type="button" class="btn btn-ghost btn-sm" id="topbarUser" onclick="toggleSettingsDropdown()" style="display:inline-flex;align-items:center;gap:6px;padding:5px 9px;color:var(--gold);flex-shrink:0;max-width:min(200px,36vw)"></button>
@@ -118,7 +122,7 @@
       <div class="settings-divider"></div>
       <div class="settings-section-label">Settings</div>
       <button type="button" class="btn btn-ghost btn-sm settings-whats-new-row" style="width:100%;justify-content:flex-start;gap:7px;color:var(--text2);position:relative" onclick="closeSettingsDropdown();openWhatsNewFromMenu()">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M5 14h6"/><path d="M8 2v1"/><path d="M3.5 5.5 2 2h12l-1.5 3.5"/><path d="M13.5 5.5 12 14H4L2.5 5.5"/></svg>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M1.5 4.5h1.8"/><path d="M1.5 7h1.8"/><path d="M1.5 9.5h1.8"/><path d="M1.5 12h1.8"/><rect x="3.2" y="1.5" width="11" height="13" rx="1.5"/><path d="M10.5 1.5v13"/></svg>
         What’s new
         <span class="settings-menu-update-pip" id="settingsWhatsNewMenuPip" style="display:none" aria-hidden="true"></span>
       </button>
@@ -186,6 +190,13 @@
     </div>
     </div>
   </div>
+  <div class="notif-panel" id="notifPanel" hidden>
+    <div class="notif-panel-head">
+      <span class="notif-panel-title">Notifications</span>
+      <button type="button" class="btn btn-ghost btn-sm" id="notifMarkAllBtn" onclick="markAllNotifsRead()">Mark all read</button>
+    </div>
+    <div class="notif-panel-body" id="notifPanelBody"></div>
+  </div>
 </header>
 
 <aside id="sidebar" class="sidebar">
@@ -226,6 +237,12 @@
         <path d="M8 13.5S1.5 9.5 1.5 5.5A3.5 3.5 0 0 1 8 4a3.5 3.5 0 0 1 6.5 1.5C14.5 9.5 8 13.5 8 13.5z"/>
       </svg>
       <span class="sidebar-label">Wishlist</span>
+    </button>
+    <button class="sidebar-item" onclick="showTab('trade')" data-label="Trade">
+      <svg class="sidebar-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 5h8.5M9 2.5 11.5 5 9 7.5"/><path d="M13 11H4.5M7 8.5 4.5 11 7 13.5"/>
+      </svg>
+      <span class="sidebar-label">Trade</span>
     </button>
     <!-- Analytics nav removed for now (tab content kept dormant in #tab-stats)
     <button class="sidebar-item" onclick="showTab('stats')" data-label="Analytics">
@@ -931,6 +948,9 @@
     </div>
   </div>
 </div>
+
+<!-- TRADE TAB -->
+<div id="tab-trade" class="tab-content"></div>
 
 <!-- GAME TRACKER TAB -->
 <div id="tab-games" class="tab-content">
@@ -2069,6 +2089,12 @@
     </svg>
     <span class="mob-nav-label">Wishlist</span>
   </button>
+  <button class="mob-nav-item" data-tab="trade" onclick="showTab('trade')">
+    <svg class="mob-nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 5h8.5M9 2.5 11.5 5 9 7.5"/><path d="M13 11H4.5M7 8.5 4.5 11 7 13.5"/>
+    </svg>
+    <span class="mob-nav-label">Trade</span>
+  </button>
   <button class="mob-nav-item" data-tab="settings" onclick="showTab('settings')">
     <svg class="mob-nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
       <circle cx="8" cy="8" r="2.2"/>
@@ -2522,6 +2548,9 @@
 
 
 <script src="/dist/scanner-card-yolo.js"></script>
+<!-- socket.io client for real-time trading (served by the socket.io server). Loaded
+     defer so a missing/late server doesn't block the app; trade.js feature-detects `io`. -->
+<script src="/socket.io/socket.io.js" defer onerror="window._noSocketIo=true"></script>
 <script src="/dist/bundle.js"></script>
 <script>
   if (localStorage.getItem('mtg_sidebar_collapsed') === 'true') {

@@ -148,6 +148,8 @@ function refreshAuthUserLabel(email, role) {
   renderValueExcludeSlider();
   applyRoleVisibility();
   if (email && typeof refreshWhatsNewUpdateBadge === 'function') void refreshWhatsNewUpdateBadge();
+  if (email && typeof refreshNotifications === 'function') void refreshNotifications();
+  if (email && typeof _initWishHotkey === 'function') _initWishHotkey();
 }
 
 function toggleDeckOwnershipSetting() {

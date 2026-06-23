@@ -13,7 +13,12 @@ const https       = require('https');
 const rateLimit   = require('express-rate-limit');
 const helmet      = require('helmet');
 const nodemailer  = require('nodemailer');
+const cron        = require('node-cron');
+const { Server: SocketIOServer } = require('socket.io');
 const MySQLStore  = require('express-mysql-session')(session);
+// Shared trade value/condition math — same module the browser bundles, so the
+// server and client compute identical line values, deltas, and condition tiers.
+const tradeCore   = require(path.join(__dirname, 'js', 'trade-core.js'));
 // stream-json's exports map only exposes the root; use resolved path for sub-modules
 const { withParserAsStream: streamJsonArray } = require(path.join(__dirname, 'node_modules/stream-json/src/streamers/stream-array.js'));
 
@@ -75,30 +80,31 @@ function resolveSessionSecret() {
 }
 
 const SESSION_SECRET = resolveSessionSecret();
-app.use(
-  session({
-    secret: SESSION_SECRET,
-    resave: false,
-    saveUninitialized: false,
-    store: new MySQLStore({
-      host:               process.env.DB_HOST || 'localhost',
-      port:               parseInt(process.env.DB_PORT || '3306'),
-      user:               process.env.DB_USER || 'root',
-      password:           process.env.DB_PASS || '',
-      database:           process.env.DB_NAME || 'mtgproject',
-      clearExpired:       true,
-      checkExpirationInterval: 15 * 60 * 1000,
-      expiration:         7 * 24 * 60 * 60 * 1000,
-      createDatabaseTable: true,
-    }),
-    cookie: {
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-      httpOnly: true,
-      sameSite: process.env.SESSION_SECURE === '1' ? 'none' : false,
-      secure: process.env.SESSION_SECURE === '1',
-    },
-  })
-);
+// Named so both Express and the socket.io engine (real-time trading) share the
+// exact same session — the WS handshake cookie is validated identically.
+const sessionMiddleware = session({
+  secret: SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  store: new MySQLStore({
+    host:               process.env.DB_HOST || 'localhost',
+    port:               parseInt(process.env.DB_PORT || '3306'),
+    user:               process.env.DB_USER || 'root',
+    password:           process.env.DB_PASS || '',
+    database:           process.env.DB_NAME || 'mtgproject',
+    clearExpired:       true,
+    checkExpirationInterval: 15 * 60 * 1000,
+    expiration:         7 * 24 * 60 * 60 * 1000,
+    createDatabaseTable: true,
+  }),
+  cookie: {
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+    httpOnly: true,
+    sameSite: process.env.SESSION_SECURE === '1' ? 'none' : false,
+    secure: process.env.SESSION_SECURE === '1',
+  },
+});
+app.use(sessionMiddleware);
 // Static files are registered after all /api routes (see start()) so API paths are never shadowed.
 
 // ── DB config — set these in a .env file (never commit credentials) ──────────
@@ -547,6 +553,1247 @@ async function ensureAccountLoginMetaColumns() {
   } finally {
     conn.release();
   }
+}
+
+// ── Notifications (durable per-user inbox; used by the Trade + price systems) ──
+
+async function ensureNotificationsTable() {
+  const conn = await db().getConnection();
+  try {
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS notifications (
+        id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        account_id  BIGINT UNSIGNED NOT NULL,
+        type        VARCHAR(40)  NOT NULL,
+        payload     JSON         NOT NULL,
+        dedup_key   VARCHAR(120) NULL,
+        read_at     BIGINT       NULL DEFAULT NULL,
+        created_at  BIGINT       NOT NULL,
+        PRIMARY KEY (id),
+        UNIQUE KEY uk_notif_dedup (account_id, dedup_key),
+        INDEX idx_notif_inbox (account_id, read_at, created_at),
+        CONSTRAINT fk_notif_account FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+  } finally {
+    conn.release();
+  }
+}
+
+/**
+ * Push-notification dispatch — scaffolded only. No service worker / web-push is
+ * wired yet, so this is a clean no-op that we already call at every notification
+ * site, so push can be switched on later without touching call sites.
+ */
+async function sendPush(accountId, payload) {
+  // Intentionally a no-op until web push is implemented. Kept async so the
+  // future implementation (look up subscriptions, POST to the push service)
+  // is a drop-in replacement.
+  void accountId; void payload;
+}
+
+/**
+ * Insert a durable notification (and fire the scaffolded push). When `dedupKey`
+ * is provided, a repeat insert for the same (account, key) is a no-op — this is
+ * what makes the daily price cron safe to re-run. Returns the row id or null.
+ */
+async function createNotification(accountId, type, payload, dedupKey = null) {
+  if (!accountId || !type) return null;
+  const now = Date.now();
+  try {
+    const [res] = await db().query(
+      `INSERT INTO notifications (account_id, type, payload, dedup_key, created_at)
+       VALUES (?,?,?,?,?)
+       ON DUPLICATE KEY UPDATE id = id`,
+      [accountId, String(type).slice(0, 40), JSON.stringify(payload || {}), dedupKey, now]
+    );
+    // affectedRows 0 => deduped (existing row), don't re-push.
+    if (res && res.affectedRows > 0 && res.insertId) {
+      void sendPush(accountId, { type, payload });
+      return res.insertId;
+    }
+    return null;
+  } catch (e) {
+    console.warn('[notif] insert failed:', e.message);
+    return null;
+  }
+}
+
+// ── Trades (calculator drafts + multi-user offers) ───────────────────────────
+
+async function ensureTradesTables() {
+  const conn = await db().getConnection();
+  try {
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS trades (
+        id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        initiator_id  BIGINT UNSIGNED NOT NULL,
+        partner_id    BIGINT UNSIGNED NULL,
+        title         VARCHAR(120) NULL,
+        status        ENUM('draft','pending','countered','accepted','declined','cancelled','completed')
+                      NOT NULL DEFAULT 'draft',
+        mode          ENUM('async','realtime') NOT NULL DEFAULT 'async',
+        revision      INT UNSIGNED NOT NULL DEFAULT 0,
+        value_a_cents BIGINT NOT NULL DEFAULT 0,
+        value_b_cents BIGINT NOT NULL DEFAULT 0,
+        last_actor_id BIGINT UNSIGNED NULL,
+        created_at    BIGINT NOT NULL,
+        updated_at    BIGINT NOT NULL,
+        PRIMARY KEY (id),
+        INDEX idx_trades_initiator (initiator_id, status, updated_at),
+        INDEX idx_trades_partner   (partner_id, status, updated_at),
+        INDEX idx_trades_pair      (initiator_id, partner_id),
+        CONSTRAINT fk_trades_initiator FOREIGN KEY (initiator_id) REFERENCES accounts(id) ON DELETE CASCADE,
+        CONSTRAINT fk_trades_partner   FOREIGN KEY (partner_id)   REFERENCES accounts(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS trade_items (
+        id               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        trade_id         BIGINT UNSIGNED NOT NULL,
+        side             ENUM('a','b') NOT NULL,
+        scryfall_id      VARCHAR(50) NOT NULL,
+        foil             TINYINT(1) NOT NULL DEFAULT 0,
+        card_name        VARCHAR(255) NOT NULL DEFAULT '',
+        \`condition\`      ENUM('NM','LP','MP','HP','DMG') NOT NULL DEFAULT 'NM',
+        language         VARCHAR(8) NOT NULL DEFAULT 'EN',
+        qty              INT NOT NULL DEFAULT 1,
+        unit_price_cents BIGINT NOT NULL DEFAULT 0,
+        multiplier       DECIMAL(4,2) NOT NULL DEFAULT 1.00,
+        reason           ENUM('manual','wishlist_match','balancer_deck','balancer_filler') NOT NULL DEFAULT 'manual',
+        reason_meta      JSON NULL,
+        card_data        JSON NULL,
+        added_at         BIGINT NOT NULL,
+        PRIMARY KEY (id),
+        INDEX idx_trade_items_trade (trade_id, side),
+        CONSTRAINT fk_trade_items_trade FOREIGN KEY (trade_id) REFERENCES trades(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+    // Two-sided completion confirmation (added to pre-existing tables too).
+    if (!(await columnExists(conn, 'trades', 'initiator_completed'))) {
+      await conn.query('ALTER TABLE trades ADD COLUMN initiator_completed TINYINT(1) NOT NULL DEFAULT 0');
+    }
+    if (!(await columnExists(conn, 'trades', 'partner_completed'))) {
+      await conn.query('ALTER TABLE trades ADD COLUMN partner_completed TINYINT(1) NOT NULL DEFAULT 0');
+    }
+  } finally {
+    conn.release();
+  }
+}
+
+const TRADE_CONDITIONS = new Set(['NM', 'LP', 'MP', 'HP', 'DMG']);
+
+/** Value (cents) of one stored trade_items row: round(unit × multiplier) × qty. */
+function tradeLineCents(it) {
+  const unit = Math.max(0, Math.round(Number(it.unit_price_cents) || 0));
+  const mult = Number(it.multiplier) || 1;
+  const qty = Math.max(0, parseInt(it.qty, 10) || 0);
+  return Math.round(unit * mult) * qty;
+}
+
+/** True when accountId is one of the two participants in a trade row. */
+function tradeIsParticipant(trade, accountId) {
+  if (!trade) return false;
+  const aid = Number(accountId);
+  return Number(trade.initiator_id) === aid || Number(trade.partner_id) === aid;
+}
+
+/**
+ * Normalise an incoming client item into a storable row. Snapshots the condition
+ * multiplier from the shared trade-core constants so later constant edits never
+ * retroactively change a saved trade's value.
+ */
+function normalizeTradeItemInput(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const side = raw.side === 'b' ? 'b' : 'a';
+  const scryfallId = String(raw.scryfallId || raw.scryfall_id || '').slice(0, 50);
+  if (!scryfallId) return null;
+  const cond = TRADE_CONDITIONS.has(raw.condition) ? raw.condition : 'NM';
+  const foil = raw.foil ? 1 : 0;
+  const qty = Math.max(1, Math.min(999, parseInt(raw.qty, 10) || 1));
+  const unitPriceCents = Math.max(0, Math.round(Number(raw.unitPriceCents) || 0));
+  const reason = ['manual', 'wishlist_match', 'balancer_deck', 'balancer_filler'].includes(raw.reason)
+    ? raw.reason : 'manual';
+  return {
+    side, scryfallId, foil,
+    cardName: String(raw.name || raw.cardName || '').slice(0, 255),
+    condition: cond,
+    language: String(raw.language || 'EN').slice(0, 8),
+    qty,
+    unitPriceCents,
+    multiplier: tradeCore.conditionMultiplier(cond),
+    reason,
+    reasonMeta: raw.reasonMeta && typeof raw.reasonMeta === 'object' ? raw.reasonMeta : null,
+    cardData: raw.cardData && typeof raw.cardData === 'object' ? raw.cardData : null,
+  };
+}
+
+/** Load a full trade document (header + items, both sides) for the client. */
+async function loadTradeDoc(tradeId) {
+  const [[t]] = await db().query('SELECT * FROM trades WHERE id = ?', [tradeId]);
+  if (!t) return null;
+  const [items] = await db().query(
+    'SELECT * FROM trade_items WHERE trade_id = ? ORDER BY id ASC', [tradeId]
+  );
+  // Resolve participant usernames/display names for the client.
+  const ids = [t.initiator_id, t.partner_id].filter(Boolean);
+  let names = {};
+  if (ids.length) {
+    const ph = ids.map(() => '?').join(',');
+    const [rows] = await db().query(`SELECT id, email FROM accounts WHERE id IN (${ph})`, ids);
+    rows.forEach(r => { names[r.id] = publicAccountName(r); });
+  }
+  const mapItem = it => ({
+    id: it.id,
+    side: it.side,
+    scryfallId: it.scryfall_id,
+    foil: !!it.foil,
+    name: it.card_name,
+    condition: it.condition,
+    language: it.language,
+    qty: it.qty,
+    unitPriceCents: Number(it.unit_price_cents) || 0,
+    multiplier: Number(it.multiplier) || 1,
+    lineCents: tradeLineCents(it),
+    reason: it.reason,
+    reasonMeta: it.reason_meta ? (typeof it.reason_meta === 'string' ? JSON.parse(it.reason_meta) : it.reason_meta) : null,
+    cardData: it.card_data ? (typeof it.card_data === 'string' ? JSON.parse(it.card_data) : it.card_data) : null,
+  });
+  return {
+    id: t.id,
+    initiatorId: t.initiator_id,
+    partnerId: t.partner_id,
+    initiatorName: names[t.initiator_id] || null,
+    partnerName: t.partner_id ? (names[t.partner_id] || null) : null,
+    title: t.title,
+    status: t.status,
+    mode: t.mode,
+    revision: t.revision,
+    lastActorId: t.last_actor_id,
+    valueACents: Number(t.value_a_cents) || 0,
+    valueBCents: Number(t.value_b_cents) || 0,
+    createdAt: t.created_at,
+    updatedAt: t.updated_at,
+    give: items.filter(i => i.side === 'a').map(mapItem),
+    receive: items.filter(i => i.side === 'b').map(mapItem),
+  };
+}
+
+/** Public display name for an account row (username preferred; email never leaked). */
+function publicAccountName(row) {
+  if (!row) return null;
+  if (row.username) return row.username;
+  if (row.display_name) return row.display_name;
+  const email = String(row.email || '');
+  const at = email.indexOf('@');
+  return at > 0 ? email.slice(0, at) : (email || `user${row.id}`);
+}
+
+// ── Trade history (append-only completion snapshot) ──────────────────────────
+
+async function ensureTradeHistoryTable() {
+  const conn = await db().getConnection();
+  try {
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS trade_history (
+        id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        trade_id     BIGINT UNSIGNED NULL,
+        initiator_id BIGINT UNSIGNED NOT NULL,
+        partner_id   BIGINT UNSIGNED NOT NULL,
+        final_status ENUM('completed','declined','cancelled') NOT NULL,
+        value_a_cents BIGINT NOT NULL,
+        value_b_cents BIGINT NOT NULL,
+        snapshot     JSON NOT NULL,
+        completed_at BIGINT NOT NULL,
+        PRIMARY KEY (id),
+        INDEX idx_th_initiator (initiator_id, completed_at),
+        INDEX idx_th_partner   (partner_id, completed_at),
+        CONSTRAINT fk_th_initiator FOREIGN KEY (initiator_id) REFERENCES accounts(id) ON DELETE CASCADE,
+        CONSTRAINT fk_th_partner   FOREIGN KEY (partner_id)   REFERENCES accounts(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+  } finally {
+    conn.release();
+  }
+}
+
+// ── Collection sync on trade completion ──────────────────────────────────────
+
+const _collUid = (scryfallId, foil) => `${scryfallId}_${foil ? 'f' : 'n'}`;
+
+/**
+ * Remove up to `qty` copies of a printing from an account's collection. Keeps
+ * the `qty` COLUMN and the `data` JSON blob's qty in lockstep — the client reads
+ * qty from the blob, so both must move together.
+ */
+async function _removeFromCollection(conn, accountId, scryfallId, foil, qty) {
+  const uid = _collUid(scryfallId, foil);
+  const [[row]] = await conn.query('SELECT qty, data FROM collection WHERE account_id = ? AND uid = ?', [accountId, uid]);
+  if (!row) return;
+  const remaining = Math.max(0, (Number(row.qty) || 0) - (qty || 1));
+  if (remaining <= 0) {
+    await conn.query('DELETE FROM collection WHERE account_id = ? AND uid = ?', [accountId, uid]);
+  } else {
+    const data = typeof row.data === 'string' ? JSON.parse(row.data || '{}') : (row.data || {});
+    data.qty = remaining;
+    await conn.query('UPDATE collection SET qty = ?, data = ? WHERE account_id = ? AND uid = ?',
+      [remaining, JSON.stringify(data), accountId, uid]);
+  }
+}
+
+/** Add a received card to an account's collection (new add: increments if present). */
+async function _addToCollection(conn, accountId, item) {
+  const uid = _collUid(item.scryfall_id, item.foil);
+  const data = item.card_data ? (typeof item.card_data === 'string' ? JSON.parse(item.card_data) : item.card_data) : {};
+  const [[row]] = await conn.query('SELECT qty, data FROM collection WHERE account_id = ? AND uid = ?', [accountId, uid]);
+  if (row) {
+    const newQty = (Number(row.qty) || 0) + (item.qty || 1);
+    const existing = typeof row.data === 'string' ? JSON.parse(row.data || '{}') : (row.data || {});
+    existing.qty = newQty;
+    await conn.query('UPDATE collection SET qty = ?, data = ? WHERE account_id = ? AND uid = ?',
+      [newQty, JSON.stringify(existing), accountId, uid]);
+  } else {
+    const blob = {
+      ...data, uid, scryfallId: item.scryfall_id, name: item.card_name, foil: !!item.foil,
+      qty: item.qty || 1, condition: item.condition, language: item.language,
+      priceTCG: data.priceTCG ?? ((Number(item.unit_price_cents) || 0) / 100),
+    };
+    await conn.query(
+      `INSERT INTO collection (account_id, uid, name, qty, foil, scryfall_id, data, added_at)
+       VALUES (?,?,?,?,?,?,?,?)`,
+      [accountId, uid, item.card_name || '', item.qty || 1, item.foil ? 1 : 0, item.scryfall_id, JSON.stringify(blob), Date.now()]
+    );
+  }
+}
+
+/**
+ * Finalize a completed trade: move cards between collections, write a history
+ * snapshot, mark the trade completed, and reconcile both users' derived data.
+ * side a = initiator gives → partner; side b = partner gives → initiator.
+ */
+async function finalizeTrade(tradeId) {
+  const conn = await db().getConnection();
+  try {
+    await conn.beginTransaction();
+    const [[t]] = await conn.query('SELECT * FROM trades WHERE id = ? FOR UPDATE', [tradeId]);
+    if (!t || t.status === 'completed') { await conn.rollback(); return; }
+    const [items] = await conn.query('SELECT * FROM trade_items WHERE trade_id = ?', [tradeId]);
+    const sideA = items.filter(i => i.side === 'a'); // initiator gives
+    const sideB = items.filter(i => i.side === 'b'); // partner gives
+    // Initiator: loses side A, gains side B.
+    for (const it of sideA) await _removeFromCollection(conn, t.initiator_id, it.scryfall_id, it.foil, it.qty);
+    for (const it of sideB) await _addToCollection(conn, t.initiator_id, it);
+    // Partner: loses side B, gains side A.
+    if (t.partner_id) {
+      for (const it of sideB) await _removeFromCollection(conn, t.partner_id, it.scryfall_id, it.foil, it.qty);
+      for (const it of sideA) await _addToCollection(conn, t.partner_id, it);
+    }
+    // Frozen snapshot (immune to later price/constant changes or trade deletion).
+    const [[ia]] = await conn.query('SELECT id, email, username, display_name FROM accounts WHERE id = ?', [t.initiator_id]);
+    const [[pa]] = t.partner_id ? await conn.query('SELECT id, email, username, display_name FROM accounts WHERE id = ?', [t.partner_id]) : [[null]];
+    const snapshot = {
+      initiator: { id: t.initiator_id, name: publicAccountName(ia) },
+      partner: pa ? { id: pa.id, name: publicAccountName(pa) } : null,
+      items: items.map(i => ({
+        side: i.side, scryfallId: i.scryfall_id, foil: !!i.foil, name: i.card_name,
+        condition: i.condition, language: i.language, qty: i.qty,
+        unitPriceCents: Number(i.unit_price_cents) || 0, multiplier: Number(i.multiplier) || 1,
+        lineCents: tradeLineCents(i),
+        cardData: i.card_data ? (typeof i.card_data === 'string' ? JSON.parse(i.card_data) : i.card_data) : null,
+      })),
+    };
+    await conn.query(
+      `INSERT INTO trade_history (trade_id, initiator_id, partner_id, final_status, value_a_cents, value_b_cents, snapshot, completed_at)
+       VALUES (?,?,?,?,?,?,?,?)`,
+      [tradeId, t.initiator_id, t.partner_id || t.initiator_id, 'completed', t.value_a_cents, t.value_b_cents, JSON.stringify(snapshot), Date.now()]
+    );
+    await conn.query("UPDATE trades SET status = 'completed', revision = revision + 1, updated_at = ? WHERE id = ?", [Date.now(), tradeId]);
+    await conn.commit();
+    // Derived data refresh + notifications.
+    invalidateTradelistCache(t.initiator_id);
+    if (t.partner_id) invalidateTradelistCache(t.partner_id);
+    void reconcileAccountWishlist(t.initiator_id);
+    if (t.partner_id) void reconcileAccountWishlist(t.partner_id);
+    const doc = await loadTradeDoc(tradeId);
+    _broadcastTrade(tradeId, 'trade:updated', doc);
+    await _notifyTradeEvent(t.partner_id, 'trade_completed', t, t.initiator_id);
+    await _notifyTradeEvent(t.initiator_id, 'trade_completed', t, t.partner_id);
+  } catch (e) {
+    await conn.rollback();
+    console.error('[trade] finalize failed:', e.message);
+    throw e;
+  } finally {
+    conn.release();
+  }
+}
+
+// ── Trade identity + visibility columns on accounts ──────────────────────────
+
+async function ensureAccountTradeColumns() {
+  const conn = await db().getConnection();
+  try {
+    if (!(await tableExists(conn, 'accounts'))) return;
+    if (!(await columnExists(conn, 'accounts', 'username'))) {
+      await conn.query('ALTER TABLE accounts ADD COLUMN username VARCHAR(32) NULL DEFAULT NULL');
+    }
+    if (!(await columnExists(conn, 'accounts', 'username_ci'))) {
+      await conn.query('ALTER TABLE accounts ADD COLUMN username_ci VARCHAR(32) NULL DEFAULT NULL');
+      // Unique on the case-insensitive handle; multiple NULLs are allowed by MySQL.
+      try { await conn.query('ALTER TABLE accounts ADD UNIQUE INDEX uk_accounts_username_ci (username_ci)'); }
+      catch (e) { if (e.code !== 'ER_DUP_KEYNAME') throw e; }
+    }
+    if (!(await columnExists(conn, 'accounts', 'display_name'))) {
+      await conn.query('ALTER TABLE accounts ADD COLUMN display_name VARCHAR(64) NULL DEFAULT NULL');
+    }
+    if (!(await columnExists(conn, 'accounts', 'trade_visibility'))) {
+      await conn.query(
+        `ALTER TABLE accounts ADD COLUMN trade_visibility
+           ENUM('not_trading','friends','public') NOT NULL DEFAULT 'not_trading'`
+      );
+    }
+  } finally {
+    conn.release();
+  }
+}
+
+// ── Tradelist (derived: collection − deck usage, plus persisted overrides) ────
+
+async function ensureTradelistOverridesTable() {
+  const conn = await db().getConnection();
+  try {
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS tradelist_overrides (
+        account_id  BIGINT UNSIGNED NOT NULL,
+        uid         VARCHAR(120) NOT NULL,
+        kind        ENUM('exclude','include') NOT NULL,
+        qty         INT NULL,
+        \`condition\` ENUM('NM','LP','MP','HP','DMG') NULL,
+        note        VARCHAR(255) NULL,
+        updated_at  BIGINT NOT NULL,
+        PRIMARY KEY (account_id, uid),
+        CONSTRAINT fk_tlo_account FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+  } finally {
+    conn.release();
+  }
+}
+
+// ── Wishlist trade columns + auto-population reconciler ──────────────────────
+
+async function ensureWishlistTradeColumns() {
+  const conn = await db().getConnection();
+  try {
+    if (!(await tableExists(conn, 'wishlist'))) return;
+    if (!(await columnExists(conn, 'wishlist', 'source'))) {
+      await conn.query(
+        `ALTER TABLE wishlist ADD COLUMN source
+           ENUM('manual','deck_needed','pending_trade','upgrade_target') NOT NULL DEFAULT 'manual'`
+      );
+    }
+    if (!(await columnExists(conn, 'wishlist', 'priority'))) {
+      await conn.query(
+        `ALTER TABLE wishlist ADD COLUMN priority ENUM('low','med','high') NOT NULL DEFAULT 'med'`
+      );
+      // Backfill the column from the existing data->priority for legacy rows.
+      await conn.query(
+        `UPDATE wishlist
+            SET priority = CASE
+              WHEN JSON_UNQUOTE(JSON_EXTRACT(data, '$.priority')) IN ('low','med','high')
+                THEN JSON_UNQUOTE(JSON_EXTRACT(data, '$.priority'))
+              ELSE 'med' END`
+      );
+    }
+    if (!(await columnExists(conn, 'wishlist', 'priority_locked'))) {
+      await conn.query('ALTER TABLE wishlist ADD COLUMN priority_locked TINYINT(1) NOT NULL DEFAULT 0');
+    }
+    if (!(await columnExists(conn, 'wishlist', 'source_meta'))) {
+      await conn.query('ALTER TABLE wishlist ADD COLUMN source_meta JSON NULL DEFAULT NULL');
+    }
+    if (!(await columnExists(conn, 'wishlist', 'scryfall_id'))) {
+      await conn.query('ALTER TABLE wishlist ADD COLUMN scryfall_id VARCHAR(50) NULL DEFAULT NULL');
+    }
+    try { await conn.query('ALTER TABLE wishlist ADD INDEX idx_wishlist_source (account_id, source)'); }
+    catch (e) { if (e.code !== 'ER_DUP_KEYNAME') throw e; }
+  } finally {
+    conn.release();
+  }
+}
+
+const _WISH_PRIORITY_RANK = { low: 0, med: 1, high: 2 };
+const _WISH_PRIORITY_BY_RANK = ['low', 'med', 'high'];
+function bumpWishPriority(p) {
+  const r = _WISH_PRIORITY_RANK[p] ?? 1;
+  return _WISH_PRIORITY_BY_RANK[Math.min(2, r + 1)];
+}
+
+/**
+ * Reconcile one auto-population source against its freshly-computed desired set.
+ * Full-replace *within the source partition only* — manual rows and other auto
+ * sources are never touched, and `priority_locked` rows keep their user priority.
+ * desiredRows: [{ uid, scryfallId, foil, name, priority?, sourceMeta?, data? }]
+ */
+async function reconcileWishlistSource(accountId, source, desiredRows) {
+  if (!['deck_needed', 'pending_trade', 'upgrade_target'].includes(source)) return;
+  const conn = await db().getConnection();
+  try {
+    await conn.beginTransaction();
+    // uids already present as manual entries — don't duplicate-list those.
+    const [manualRows] = await conn.query(
+      "SELECT uid FROM wishlist WHERE account_id = ? AND source = 'manual'", [accountId]
+    );
+    const manualUids = new Set(manualRows.map(r => r.uid));
+    const desired = desiredRows.filter(d => d && d.uid && !manualUids.has(d.uid));
+    const desiredUids = new Set(desired.map(d => d.uid));
+
+    // Delete auto rows of this source no longer desired.
+    const [existing] = await conn.query(
+      'SELECT uid FROM wishlist WHERE account_id = ? AND source = ?', [accountId, source]
+    );
+    const stale = existing.map(r => r.uid).filter(u => !desiredUids.has(u));
+    if (stale.length) {
+      const ph = stale.map(() => '?').join(',');
+      await conn.query(
+        `DELETE FROM wishlist WHERE account_id = ? AND source = ? AND uid IN (${ph})`,
+        [accountId, source, ...stale]
+      );
+    }
+    // Upsert desired rows. Respect priority_locked; default priority 'med'.
+    const now = Date.now();
+    for (const d of desired) {
+      const data = d.data && typeof d.data === 'object' ? d.data : {
+        uid: d.uid, scryfallId: d.scryfallId, name: d.name, foil: !!d.foil,
+        set: d.set, number: d.number, image: d.image, imageLarge: d.imageLarge,
+      };
+      data.priority = data.priority || d.priority || 'med';
+      await conn.query(
+        `INSERT INTO wishlist (account_id, uid, data, added_at, source, priority, priority_locked, source_meta, scryfall_id)
+         VALUES (?,?,?,?,?,?,0,?,?)
+         ON DUPLICATE KEY UPDATE
+           source = VALUES(source),
+           source_meta = VALUES(source_meta),
+           scryfall_id = VALUES(scryfall_id),
+           priority = IF(priority_locked = 1, priority, VALUES(priority)),
+           data = VALUES(data)`,
+        [accountId, d.uid, JSON.stringify(data), now, source, d.priority || 'med',
+         d.sourceMeta ? JSON.stringify(d.sourceMeta) : null, d.scryfallId || null]
+      );
+    }
+    await conn.commit();
+  } catch (e) {
+    await conn.rollback();
+    console.warn(`[wishlist] reconcile ${source} failed:`, e.message);
+  } finally {
+    conn.release();
+  }
+}
+
+/**
+ * Desired set for `deck_needed`: cards a deck lists but the account is short on
+ * (owned < required). Name-level shortfall using the non-foil uid as the key.
+ */
+async function computeDeckNeededWishlist(accountId) {
+  const [deckCards] = await db().query(
+    `SELECT card_uid, scryfall_id, card_name, card_data, SUM(qty) AS need
+       FROM deck_cards WHERE account_id = ? GROUP BY card_uid, scryfall_id, card_name, card_data`,
+    [accountId]
+  );
+  if (!deckCards.length) return [];
+  const [owned] = await db().query(
+    'SELECT uid, SUM(qty) AS have FROM collection WHERE account_id = ? GROUP BY uid', [accountId]
+  );
+  const ownedByUid = new Map(owned.map(r => [r.uid, Number(r.have) || 0]));
+  const out = [];
+  const seen = new Set();
+  for (const dc of deckCards) {
+    const need = Number(dc.need) || 0;
+    const have = ownedByUid.get(dc.card_uid) || 0;
+    if (have >= need) continue;
+    // Wishlist tracks "want this card" — key on the non-foil uid so a foil/non-foil
+    // owned copy both satisfy it. Use scryfall_id when available.
+    const sid = dc.scryfall_id || String(dc.card_uid).split('_')[0];
+    const uid = sid + '_n';
+    if (seen.has(uid)) continue;
+    seen.add(uid);
+    const data = dc.card_data ? (typeof dc.card_data === 'string' ? JSON.parse(dc.card_data) : dc.card_data) : {};
+    out.push({
+      uid, scryfallId: sid, name: dc.card_name || data.name || '', foil: false,
+      set: data.set, number: data.number, image: data.image, imageLarge: data.imageLarge,
+      sourceMeta: { reason: 'deck_needed' },
+    });
+  }
+  return out;
+}
+
+/**
+ * Desired set for `pending_trade`: cards the account would RECEIVE from any of
+ * their in-flight trades (draft/pending/countered). Receiving side depends on
+ * whether the account is the initiator (side b) or the partner (side a).
+ */
+async function computePendingTradeWishlist(accountId) {
+  const [trades] = await db().query(
+    `SELECT id, initiator_id, partner_id FROM trades
+      WHERE (initiator_id = ? OR partner_id = ?) AND status IN ('draft','pending','countered')`,
+    [accountId, accountId]
+  );
+  if (!trades.length) return [];
+  const out = [];
+  const seen = new Set();
+  for (const t of trades) {
+    const recvSide = Number(t.initiator_id) === Number(accountId) ? 'b' : 'a';
+    const [items] = await db().query(
+      'SELECT scryfall_id, foil, card_name, card_data FROM trade_items WHERE trade_id = ? AND side = ?',
+      [t.id, recvSide]
+    );
+    for (const it of items) {
+      const uid = it.scryfall_id + '_n';
+      if (seen.has(uid)) continue;
+      seen.add(uid);
+      const data = it.card_data ? (typeof it.card_data === 'string' ? JSON.parse(it.card_data) : it.card_data) : {};
+      out.push({
+        uid, scryfallId: it.scryfall_id, name: it.card_name || data.name || '', foil: !!it.foil,
+        set: data.set, number: data.number, image: data.image, imageLarge: data.imageLarge,
+        sourceMeta: { tradeId: t.id },
+      });
+    }
+  }
+  return out;
+}
+
+/** Run both auto-population passes for an account (called after relevant writes). */
+async function reconcileAccountWishlist(accountId) {
+  try {
+    await reconcileWishlistSource(accountId, 'deck_needed', await computeDeckNeededWishlist(accountId));
+    await reconcileWishlistSource(accountId, 'pending_trade', await computePendingTradeWishlist(accountId));
+  } catch (e) { console.warn('[wishlist] reconcileAccount failed:', e.message); }
+}
+
+/** Reconcile only the pending-trade source (called after trade writes). */
+async function reconcilePendingTradeWishlist(accountId) {
+  if (!accountId) return;
+  try {
+    await reconcileWishlistSource(accountId, 'pending_trade', await computePendingTradeWishlist(accountId));
+  } catch (e) { console.warn('[wishlist] reconcilePendingTrade failed:', e.message); }
+}
+
+// Short per-account memo of the derived tradelist — the suggestion engine reads
+// other users' lists repeatedly, so we avoid recomputing the collection/deck
+// diff on every call. Invalidated on any collection / deck / override write.
+const _tradelistCache = new Map();
+const _TRADELIST_TTL = 60 * 1000;
+function invalidateTradelistCache(accountId) { _tradelistCache.delete(Number(accountId)); }
+
+/**
+ * Compute a user's tradelist: surplus copies (owned − used across decks) plus
+ * manual `include` overrides, minus `exclude` overrides. Each card carries a
+ * condition-unaware NM price snapshot (cents) taken from the stored card blob.
+ * Returns { listed: [...], removed: [...] } where `removed` is the excluded
+ * surplus (for the restore view). Price/condition tiering is applied by callers.
+ */
+async function computeTradelist(accountId, { useCache = true } = {}) {
+  const aid = Number(accountId);
+  if (useCache) {
+    const hit = _tradelistCache.get(aid);
+    if (hit && (Date.now() - hit.ts) < _TRADELIST_TTL) return hit.val;
+  }
+  const [colRows] = await db().query(
+    'SELECT uid, scryfall_id, foil, name, qty, data, added_at FROM collection WHERE account_id = ?', [aid]
+  );
+  const [usageRows] = await db().query(
+    'SELECT card_uid, SUM(qty) AS used FROM deck_cards WHERE account_id = ? GROUP BY card_uid', [aid]
+  );
+  const [ovRows] = await db().query(
+    'SELECT uid, kind, qty, `condition`, note FROM tradelist_overrides WHERE account_id = ?', [aid]
+  );
+  const usageByUid = new Map(usageRows.map(r => [r.card_uid, Number(r.used) || 0]));
+  const overrideByUid = new Map(ovRows.map(r => [r.uid, r]));
+
+  const listed = [], removed = [];
+  for (const c of colRows) {
+    const data = typeof c.data === 'string' ? (JSON.parse(c.data || '{}')) : (c.data || {});
+    const foil = !!c.foil;
+    const owned = Number(c.qty) || 0;
+    const used = usageByUid.get(c.uid) || 0;
+    const surplus = Math.max(0, owned - used);
+    const ov = overrideByUid.get(c.uid);
+    const nmCents = tradeCore.usdToCents(foil ? (data.priceTCGFoil || data.priceTCG) : data.priceTCG);
+    const base = {
+      uid: c.uid, scryfallId: c.scryfall_id, foil, name: c.name,
+      set: data.set || '', setName: data.setName || '', number: data.number || '',
+      image: data.image || '', imageLarge: data.imageLarge || data.image || '',
+      type: data.type || '', unitPriceCents: nmCents,
+      // Extra fields so the client filter + sort match the collection exactly
+      // (t: / r: / mv: / o: / colors, price/recency sorting).
+      cmc: data.cmc ?? 0, colors: data.colors || [], rarity: data.rarity || '',
+      oracleText: data.oracleText || '',
+      priceTCG: data.priceTCG ?? 0, priceTCGFoil: data.priceTCGFoil ?? 0,
+      priceCK: data.priceCK ?? 0, priceCKFoil: data.priceCKFoil ?? 0,
+      addedAt: Number(c.added_at) || data.addedAt || 0,
+      owned, used,
+    };
+    if (ov && ov.kind === 'exclude') {
+      if (surplus > 0) removed.push({ ...base, qty: surplus, source: 'excluded', note: ov.note || null });
+      continue;
+    }
+    let qty = surplus, source = 'surplus', condition = 'NM';
+    if (ov && ov.kind === 'include') {
+      qty = ov.qty != null ? Math.max(1, ov.qty) : Math.max(1, surplus || 1);
+      source = 'include';
+      if (ov.condition) condition = ov.condition;
+    } else if (surplus <= 0) {
+      continue; // no spare copies and not force-included
+    }
+    listed.push({ ...base, qty, source, condition, note: ov?.note || null });
+  }
+  // `include` overrides for cards no longer owned still list at the override qty.
+  for (const ov of ovRows) {
+    if (ov.kind !== 'include' || overrideByUid.get(ov.uid)?._seen) continue;
+    if (colRows.some(c => c.uid === ov.uid)) continue; // already handled above
+    const [sid, suffix] = String(ov.uid).split('_');
+    listed.push({
+      uid: ov.uid, scryfallId: sid, foil: suffix === 'f', name: ov.note || ov.uid,
+      set: '', number: '', image: '', imageLarge: '', type: '',
+      unitPriceCents: 0, owned: 0, used: 0,
+      qty: ov.qty != null ? Math.max(1, ov.qty) : 1, source: 'include',
+      condition: ov.condition || 'NM', note: ov.note || null,
+    });
+  }
+  const val = { listed, removed };
+  _tradelistCache.set(aid, { ts: Date.now(), val });
+  return val;
+}
+
+// ── Price history (MTGJSON) + per-card price watches + daily threshold job ────
+
+// Historical card pricing (sourced from MTGJSON; see scripts/mtgjson-*.js).
+async function ensurePriceHistorySchema() {
+  await db().query(`
+    CREATE TABLE IF NOT EXISTS card_price_daily (
+      uuid          BINARY(16)    NOT NULL,
+      snapshot_date DATE          NOT NULL,
+      tcg_normal    DECIMAL(10,2) NULL,
+      tcg_foil      DECIMAL(10,2) NULL,
+      tcg_etched    DECIMAL(10,2) NULL,
+      ck_normal     DECIMAL(10,2) NULL,
+      ck_foil       DECIMAL(10,2) NULL,
+      ck_etched     DECIMAL(10,2) NULL,
+      ckb_normal    DECIMAL(10,2) NULL,
+      ckb_foil      DECIMAL(10,2) NULL,
+      cm_normal     DECIMAL(10,2) NULL,
+      cm_foil       DECIMAL(10,2) NULL,
+      PRIMARY KEY (uuid, snapshot_date),
+      KEY idx_cpd_date (snapshot_date)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+  await db().query(`
+    CREATE TABLE IF NOT EXISTS mtgjson_printing (
+      uuid        BINARY(16)   NOT NULL,
+      scryfall_id CHAR(36)     NULL,
+      name        VARCHAR(255) NOT NULL DEFAULT '',
+      set_code    VARCHAR(16)  NOT NULL DEFAULT '',
+      number      VARCHAR(32)  NOT NULL DEFAULT '',
+      rarity      VARCHAR(20)  NOT NULL DEFAULT '',
+      finishes    VARCHAR(64)  NOT NULL DEFAULT '',
+      promo_types VARCHAR(255) NOT NULL DEFAULT '',
+      available   TINYINT(1)   NOT NULL DEFAULT 1,
+      updated_at  BIGINT       NOT NULL DEFAULT 0,
+      PRIMARY KEY (uuid),
+      KEY idx_mp_scryfall (scryfall_id),
+      KEY idx_mp_set (set_code)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+}
+
+async function ensurePriceWatchesTable() {
+  const conn = await db().getConnection();
+  try {
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS price_watches (
+        account_id   BIGINT UNSIGNED NOT NULL,
+        uid          VARCHAR(120) NOT NULL,
+        scryfall_id  VARCHAR(50) NOT NULL,
+        foil         TINYINT(1) NOT NULL DEFAULT 0,
+        target_price_cents BIGINT NULL,
+        target_pct_up      DECIMAL(6,2) NULL,
+        target_pct_down    DECIMAL(6,2) NULL,
+        baseline_cents BIGINT NULL,
+        last_notified_price_cents BIGINT NULL,
+        last_notified_at BIGINT NULL,
+        created_at   BIGINT NOT NULL,
+        PRIMARY KEY (account_id, uid),
+        INDEX idx_pw_scryfall (scryfall_id),
+        CONSTRAINT fk_pw_account FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+  } finally {
+    conn.release();
+  }
+}
+
+/**
+ * Map of scryfall_id → { normalCents, foilCents } for a given snapshot date,
+ * using TCGplayer retail as the canonical market price (CK fallback).
+ */
+async function getPricesForDate(scryfallIds, date) {
+  const out = new Map();
+  if (!scryfallIds.length || !date) return out;
+  const uniq = [...new Set(scryfallIds)];
+  const CH = 500;
+  for (let i = 0; i < uniq.length; i += CH) {
+    const batch = uniq.slice(i, i + CH);
+    const ph = batch.map(() => '?').join(',');
+    const [rows] = await db().query(
+      `SELECT p.scryfall_id,
+              COALESCE(c.tcg_normal, c.ck_normal) AS n,
+              COALESCE(c.tcg_foil, c.ck_foil)     AS f
+         FROM mtgjson_printing p
+         JOIN card_price_daily c ON c.uuid = p.uuid AND c.snapshot_date = ?
+        WHERE p.scryfall_id IN (${ph})`,
+      [date, ...batch]
+    );
+    for (const r of rows) {
+      out.set(r.scryfall_id, {
+        normalCents: tradeCore.usdToCents(r.n),
+        foilCents: tradeCore.usdToCents(r.f),
+      });
+    }
+  }
+  return out;
+}
+
+function _pickPriceCents(rec, foil) {
+  if (!rec) return 0;
+  return foil ? (rec.foilCents || rec.normalCents || 0) : (rec.normalCents || 0);
+}
+
+/** The two most recent snapshot dates (today, prev) as 'YYYY-MM-DD' strings. */
+async function getLatestTwoSnapshotDates() {
+  const [rows] = await db().query(
+    "SELECT DATE_FORMAT(snapshot_date, '%Y-%m-%d') d FROM (SELECT DISTINCT snapshot_date FROM card_price_daily ORDER BY snapshot_date DESC LIMIT 2) t"
+  );
+  return rows.map(r => r.d);
+}
+
+/**
+ * Daily price job: (optionally) pull today's snapshot, then scan per-card price
+ * watches and wishlist entries for threshold/drop crossings, performing the
+ * tradelist auto-add / wishlist priority-bump actions and enqueuing one-shot
+ * notifications. Safe to re-run (idempotent via dedup keys + last-notified).
+ */
+async function runDailyPriceJob({ skipSnapshot = false } = {}) {
+  try {
+    await ensurePriceHistorySchema();
+    if (!skipSnapshot) {
+      try {
+        const { runSnapshot } = require(path.join(__dirname, 'scripts', 'mtgjson-price-snapshot.js'));
+        await runSnapshot({ db: db(), log: msg => console.log(msg) });
+      } catch (e) {
+        console.error('[price-job] snapshot failed, skipping threshold pass:', e.message);
+        return;
+      }
+    }
+    const dates = await getLatestTwoSnapshotDates();
+    if (!dates.length) { console.log('[price-job] no snapshots yet'); return; }
+    const today = dates[0], prev = dates[1] || null;
+    await runPriceWatchPass(today, prev);
+    await runWishlistDropPass(today, prev);
+    console.log(`[price-job] threshold pass done (today=${today}, prev=${prev || 'n/a'})`);
+  } catch (e) {
+    console.error('[price-job] failed:', e.message);
+  }
+}
+
+/** Per-card watch crossings → tradelist add (up) / wishlist bump (down) + notify. */
+async function runPriceWatchPass(today, prev) {
+  const [watches] = await db().query('SELECT * FROM price_watches');
+  if (!watches.length) return;
+  const sids = watches.map(w => w.scryfall_id);
+  const todayPx = await getPricesForDate(sids, today);
+  const prevPx = prev ? await getPricesForDate(sids, prev) : new Map();
+  for (const w of watches) {
+    const cur = _pickPriceCents(todayPx.get(w.scryfall_id), !!w.foil);
+    if (!cur) continue;
+    const before = _pickPriceCents(prevPx.get(w.scryfall_id), !!w.foil);
+    const baseline = Number(w.baseline_cents) || before || cur;
+    let up = false, down = false;
+    if (w.target_price_cents != null) {
+      // Crossing up through the absolute target.
+      if (cur >= Number(w.target_price_cents) && (!before || before < Number(w.target_price_cents))) up = true;
+    }
+    if (w.target_pct_up != null && baseline > 0) {
+      if (cur >= Math.round(baseline * (1 + Number(w.target_pct_up) / 100))) up = true;
+    }
+    if (w.target_pct_down != null && baseline > 0) {
+      if (cur <= Math.round(baseline * (1 - Number(w.target_pct_down) / 100))) down = true;
+    }
+    if (!up && !down) continue;
+    // Idempotency: don't re-fire at the same price we last notified at.
+    if (w.last_notified_price_cents != null && Math.abs(Number(w.last_notified_price_cents) - cur) < 1) continue;
+    const cardName = await _watchCardName(w.scryfall_id);
+    if (up) {
+      // Auto-add the card to the user's tradelist.
+      await db().query(
+        `INSERT INTO tradelist_overrides (account_id, uid, kind, qty, \`condition\`, note, updated_at)
+         VALUES (?,?, 'include', NULL, NULL, ?, ?)
+         ON DUPLICATE KEY UPDATE kind='include', updated_at=VALUES(updated_at)`,
+        [w.account_id, w.uid, cardName, Date.now()]
+      );
+      invalidateTradelistCache(w.account_id);
+      await createNotification(w.account_id, 'price_threshold',
+        { cardName, scryfallId: w.scryfall_id, price: tradeCore.fmtUsd(cur) },
+        `price_threshold:${w.uid}:${today}`);
+    }
+    if (down) {
+      await _bumpWishlistPriorityForDrop(w.account_id, w.scryfall_id);
+      await createNotification(w.account_id, 'price_drop',
+        { cardName, scryfallId: w.scryfall_id, price: tradeCore.fmtUsd(cur) },
+        `price_drop:${w.uid}:${today}`);
+    }
+    await db().query(
+      'UPDATE price_watches SET last_notified_price_cents = ?, last_notified_at = ? WHERE account_id = ? AND uid = ?',
+      [cur, Date.now(), w.account_id, w.uid]
+    );
+  }
+}
+
+/**
+ * Global default-drop pass: for each user's wishlist cards lacking an explicit
+ * per-card down-watch, if the price dropped day-over-day by ≥ their default
+ * percent, bump the (unlocked) wishlist priority one tier and notify.
+ */
+async function runWishlistDropPass(today, prev) {
+  if (!prev) return;
+  const [prefRows] = await db().query(
+    "SELECT account_id, value FROM preferences WHERE key_name = 'trade_settings'"
+  );
+  const defaults = new Map();
+  for (const r of prefRows) {
+    const v = typeof r.value === 'string' ? JSON.parse(r.value) : r.value;
+    if (v && v.defaultPctDown != null) defaults.set(Number(r.account_id), Number(v.defaultPctDown));
+  }
+  if (!defaults.size) return;
+  for (const [accountId, pctDown] of defaults) {
+    if (!(pctDown > 0)) continue;
+    const [rows] = await db().query(
+      "SELECT uid, scryfall_id, priority, priority_locked FROM wishlist WHERE account_id = ? AND priority_locked = 0 AND scryfall_id IS NOT NULL",
+      [accountId]
+    );
+    if (!rows.length) continue;
+    // Per-card down-watches override the global default — don't double-process.
+    const [watched] = await db().query(
+      'SELECT scryfall_id FROM price_watches WHERE account_id = ? AND target_pct_down IS NOT NULL', [accountId]
+    );
+    const watchedSids = new Set(watched.map(w => w.scryfall_id));
+    const sids = rows.map(r => r.scryfall_id);
+    const tPx = await getPricesForDate(sids, today);
+    const pPx = await getPricesForDate(sids, prev);
+    for (const r of rows) {
+      if (watchedSids.has(r.scryfall_id)) continue; // per-card watch takes precedence
+      const cur = _pickPriceCents(tPx.get(r.scryfall_id), false);
+      const before = _pickPriceCents(pPx.get(r.scryfall_id), false);
+      if (!cur || !before) continue;
+      if (cur <= Math.round(before * (1 - pctDown / 100)) && r.priority !== 'high') {
+        const next = bumpWishPriority(r.priority);
+        await db().query('UPDATE wishlist SET priority = ? WHERE account_id = ? AND uid = ?', [next, accountId, r.uid]);
+        const cardName = await _watchCardName(r.scryfall_id);
+        await createNotification(accountId, 'wishlist_bump',
+          { cardName, scryfallId: r.scryfall_id, price: tradeCore.fmtUsd(cur) },
+          `wishlist_bump:${r.uid}:${today}`);
+      }
+    }
+  }
+}
+
+async function _bumpWishlistPriorityForDrop(accountId, scryfallId) {
+  const [rows] = await db().query(
+    'SELECT uid, priority, priority_locked FROM wishlist WHERE account_id = ? AND scryfall_id = ?',
+    [accountId, scryfallId]
+  );
+  for (const r of rows) {
+    if (r.priority_locked || r.priority === 'high') continue;
+    await db().query('UPDATE wishlist SET priority = ? WHERE account_id = ? AND uid = ?',
+      [bumpWishPriority(r.priority), accountId, r.uid]);
+  }
+}
+
+async function _watchCardName(scryfallId) {
+  try {
+    const [[r]] = await db().query('SELECT name FROM mtgjson_printing WHERE scryfall_id = ? LIMIT 1', [scryfallId]);
+    return r?.name || 'A card';
+  } catch (_) { return 'A card'; }
+}
+
+// ── Friendships (scaffold for "Friends Only" + friend-priority ordering) ─────
+
+async function ensureFriendshipsTable() {
+  const conn = await db().getConnection();
+  try {
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS friendships (
+        requester_id BIGINT UNSIGNED NOT NULL,
+        addressee_id BIGINT UNSIGNED NOT NULL,
+        status       ENUM('pending','accepted','blocked') NOT NULL DEFAULT 'pending',
+        created_at   BIGINT NOT NULL,
+        updated_at   BIGINT NOT NULL,
+        PRIMARY KEY (requester_id, addressee_id),
+        INDEX idx_friend_addressee (addressee_id, status),
+        CONSTRAINT fk_friend_req FOREIGN KEY (requester_id) REFERENCES accounts(id) ON DELETE CASCADE,
+        CONSTRAINT fk_friend_addr FOREIGN KEY (addressee_id) REFERENCES accounts(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+  } finally {
+    conn.release();
+  }
+}
+
+// ── Trade suggestion engine: precomputed deck-wants + dismissals ─────────────
+
+async function ensureDeckWantedCardsTable() {
+  const conn = await db().getConnection();
+  try {
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS deck_wanted_cards (
+        account_id  BIGINT UNSIGNED NOT NULL,
+        deck_id     VARCHAR(50) NOT NULL,
+        deck_name   VARCHAR(255) NOT NULL DEFAULT '',
+        name        VARCHAR(255) NOT NULL,
+        top_role    VARCHAR(40) NULL,
+        score       DECIMAL(7,3) NOT NULL DEFAULT 0,
+        computed_at BIGINT NOT NULL,
+        PRIMARY KEY (account_id, deck_id, name),
+        INDEX idx_dwc_name (name),
+        CONSTRAINT fk_dwc_account FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+  } finally {
+    conn.release();
+  }
+}
+
+async function ensureTradeSuggestionDismissalsTable() {
+  const conn = await db().getConnection();
+  try {
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS trade_suggestion_dismissals (
+        account_id BIGINT UNSIGNED NOT NULL,
+        partner_id BIGINT UNSIGNED NOT NULL,
+        signature  CHAR(40) NOT NULL,
+        created_at BIGINT NOT NULL,
+        PRIMARY KEY (account_id, partner_id, signature),
+        CONSTRAINT fk_tsd_account FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE,
+        CONSTRAINT fk_tsd_partner FOREIGN KEY (partner_id) REFERENCES accounts(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+  } finally {
+    conn.release();
+  }
+}
+
+/** Map of lowercased card name → { deckId, deckName, score } the account's decks want. */
+async function getDeckWantedNames(accountId) {
+  const [rows] = await db().query(
+    'SELECT deck_id, deck_name, name, top_role, score FROM deck_wanted_cards WHERE account_id = ?', [accountId]
+  );
+  const m = new Map();
+  for (const r of rows) {
+    const k = String(r.name || '').trim().toLowerCase();
+    if (!k) continue;
+    const prev = m.get(k);
+    if (!prev || Number(r.score) > prev.score) {
+      m.set(k, { deckId: r.deck_id, deckName: r.deck_name, role: r.top_role, score: Number(r.score) });
+    }
+  }
+  return m;
+}
+
+/** Set of accountIds that are accepted friends with `accountId` (empty until the friends system ships). */
+async function getFriendIds(accountId) {
+  try {
+    const [rows] = await db().query(
+      `SELECT requester_id, addressee_id FROM friendships
+        WHERE status = 'accepted' AND (requester_id = ? OR addressee_id = ?)`,
+      [accountId, accountId]
+    );
+    const out = new Set();
+    for (const r of rows) out.add(Number(r.requester_id) === Number(accountId) ? Number(r.addressee_id) : Number(r.requester_id));
+    return out;
+  } catch (_) { return new Set(); }
+}
+
+/** Can `viewerId` see/trade with `ownerId` given the owner's visibility + friendship? */
+async function canViewTrader(viewerId, ownerId, ownerVisibility, friendIds) {
+  if (Number(viewerId) === Number(ownerId)) return true;
+  if (ownerVisibility === 'public') return true;
+  if (ownerVisibility === 'friends') {
+    const friends = friendIds || await getFriendIds(viewerId);
+    return friends.has(Number(ownerId));
+  }
+  return false; // not_trading
+}
+
+/** A user's wishlist as match rows: { name, scryfallId, foil, priority, uid }. */
+async function getWishlistMatchRows(accountId) {
+  const [rows] = await db().query(
+    'SELECT uid, scryfall_id, data, priority FROM wishlist WHERE account_id = ?', [accountId]
+  );
+  return rows.map(r => {
+    const d = typeof r.data === 'string' ? JSON.parse(r.data || '{}') : (r.data || {});
+    return {
+      uid: r.uid, scryfallId: r.scryfall_id || d.scryfallId || null,
+      name: (d.name || '').trim(), foil: !!d.foil, priority: r.priority || 'med',
+    };
+  }).filter(r => r.name || r.scryfallId);
+}
+
+/**
+ * Cross-reference two users' wishlists and tradelists.
+ * Returns { iWant, theyWant } — cards `viewer` wants that `partner` can give,
+ * and vice versa. Matching is name-level (any printing satisfies a wishlist),
+ * with each matched row carrying the giver's printing/price/condition.
+ */
+async function computeMutualMatch(viewerId, partnerId) {
+  const [vWish, pWish, vTl, pTl] = await Promise.all([
+    getWishlistMatchRows(viewerId),
+    getWishlistMatchRows(partnerId),
+    computeTradelist(viewerId),
+    computeTradelist(partnerId),
+  ]);
+  const norm = s => String(s || '').trim().toLowerCase();
+  const indexByName = list => {
+    const m = new Map();
+    for (const c of list) { const k = norm(c.name); if (k && !m.has(k)) m.set(k, c); }
+    return m;
+  };
+  const pTlByName = indexByName(pTl.listed);
+  const vTlByName = indexByName(vTl.listed);
+
+  const matchSide = (wishRows, tlByName) => {
+    const out = [];
+    const seen = new Set();
+    // Prioritise high-priority wants first, then fewest cards.
+    const rank = { high: 0, med: 1, low: 2 };
+    for (const w of [...wishRows].sort((a, b) => (rank[a.priority] ?? 1) - (rank[b.priority] ?? 1))) {
+      const k = norm(w.name);
+      if (!k || seen.has(k)) continue;
+      const give = tlByName.get(k);
+      if (!give) continue;
+      seen.add(k);
+      out.push({
+        name: give.name, scryfallId: give.scryfallId, foil: give.foil,
+        set: give.set, number: give.number, image: give.image, imageLarge: give.imageLarge,
+        condition: give.condition || 'NM', unitPriceCents: give.unitPriceCents || 0,
+        qty: 1, wantPriority: w.priority,
+      });
+    }
+    return out;
+  };
+  return {
+    iWant: matchSide(vWish, pTlByName),     // viewer receives (partner gives)
+    theyWant: matchSide(pWish, vTlByName),  // partner receives (viewer gives)
+  };
+}
+
+const _SUGGEST_MAX_PER_SIDE = 10;
+function _suggItemCents(it) { return tradeCore.lineUnitCents(it.unitPriceCents, it.condition || 'NM') * (it.qty || 1); }
+function _suggSideCents(items) { return items.reduce((s, it) => s + _suggItemCents(it), 0); }
+function _suggSignature(give, receive) {
+  const enc = items => items.map(i => `${i.scryfallId}:${i.foil ? 'f' : 'n'}:${i.qty}`).sort().join('|');
+  return crypto.createHash('sha1').update(`A[${enc(give)}]B[${enc(receive)}]`).digest('hex');
+}
+
+/**
+ * Balance one pair of baskets. The side receiving MORE value adds the minimum
+ * number of cards from its OWN tradelist that the other side's decks want
+ * (tagged with the deck name), per spec §6 step 2. If no deck-wanted fillers
+ * exist, the trade is left as-is and flagged imbalanced (no arbitrary cards).
+ */
+function _balanceBaskets(give, receive, ctx) {
+  // give = cards viewer gives (partner receives); receive = cards viewer receives.
+  give = give.slice(); receive = receive.slice();
+  const usedNames = new Set([...give, ...receive].map(i => (i.name || '').toLowerCase()));
+  let giveVal = _suggSideCents(give), recvVal = _suggSideCents(receive);
+
+  const tier = () => {
+    const denom = Math.max(giveVal, recvVal, 1);
+    return Math.abs(recvVal - giveVal) / denom * 100;
+  };
+  // Add deck-wanted fillers from `tradelist` (cards `wants` lists) to `target` side.
+  const addFillers = (target, gapFn, tradelist, wants) => {
+    const cands = tradelist
+      .filter(c => wants.has((c.name || '').toLowerCase()) && !usedNames.has((c.name || '').toLowerCase()))
+      .map(c => ({ c, w: wants.get((c.name || '').toLowerCase()) }))
+      .sort((a, b) => b.w.score - a.w.score);
+    for (const { c, w } of cands) {
+      if (gapFn() <= 0) break;
+      target.push({
+        scryfallId: c.scryfallId, foil: c.foil, name: c.name, set: c.set, number: c.number,
+        image: c.image, imageLarge: c.imageLarge, condition: c.condition || 'NM',
+        qty: 1, unitPriceCents: c.unitPriceCents || 0,
+        reason: 'balancer_deck', reasonMeta: { deckId: w.deckId, deckName: w.deckName, role: w.role },
+      });
+      usedNames.add((c.name || '').toLowerCase());
+      giveVal = _suggSideCents(give); recvVal = _suggSideCents(receive);
+    }
+  };
+
+  if (recvVal > giveVal) {
+    // Viewer receives more → viewer gives more: add to `give` cards the PARTNER's decks want.
+    addFillers(give, () => recvVal - giveVal, ctx.myTradelist, ctx.partnerWants);
+  } else if (giveVal > recvVal) {
+    // Partner receives more → partner gives more: add to `receive` cards MY decks want.
+    addFillers(receive, () => giveVal - recvVal, ctx.partnerTradelist, ctx.myWants);
+  }
+  giveVal = _suggSideCents(give); recvVal = _suggSideCents(receive);
+  const pct = tier();
+  return {
+    give, receive, giveValueCents: giveVal, receiveValueCents: recvVal,
+    deltaPct: pct, tier: tradeCore.deltaTier(pct),
+    favors: Math.abs(recvVal - giveVal) < 1 ? null : (recvVal > giveVal ? 'you' : 'them'),
+    favorCents: Math.abs(recvVal - giveVal),
+    signature: _suggSignature(give, receive),
+  };
+}
+
+/** Build an ordered list of suggestion variants for a pairing (best first). */
+async function buildTradeSuggestions(viewerId, partnerId) {
+  const [mm, myTl, partnerTl, myWants, partnerWants] = await Promise.all([
+    computeMutualMatch(viewerId, partnerId),
+    computeTradelist(viewerId),
+    computeTradelist(partnerId),
+    getDeckWantedNames(viewerId),
+    getDeckWantedNames(partnerId),
+  ]);
+  const ctx = {
+    myTradelist: myTl.listed, partnerTradelist: partnerTl.listed,
+    myWants, partnerWants,
+  };
+  const baseGive = mm.theyWant.slice(0, _SUGGEST_MAX_PER_SIDE);
+  const baseRecv = mm.iWant.slice(0, _SUGGEST_MAX_PER_SIDE);
+  if (!baseGive.length && !baseRecv.length) return [];
+
+  const variants = [];
+  const seen = new Set();
+  const pushVariant = (g, r) => {
+    if (!g.length && !r.length) return;
+    const v = _balanceBaskets(g, r, ctx);
+    if (seen.has(v.signature)) return;
+    seen.add(v.signature);
+    variants.push(v);
+  };
+  // Base = full matched baskets.
+  pushVariant(baseGive, baseRecv);
+  // "Suggest another" variants: progressively trim the lowest-priority matched
+  // card from the larger basket to surface smaller / differently-balanced trades.
+  const byPriorityAsc = arr => [...arr].sort((a, b) =>
+    ({ low: 0, med: 1, high: 2 }[b.wantPriority] ?? 1) - ({ low: 0, med: 1, high: 2 }[a.wantPriority] ?? 1));
+  let g = baseGive.slice(), r = baseRecv.slice();
+  for (let i = 0; i < 5; i++) {
+    if (r.length >= g.length && r.length > 0) r = byPriorityAsc(r).slice(0, -1);
+    else if (g.length > 0) g = byPriorityAsc(g).slice(0, -1);
+    else break;
+    pushVariant(g.slice(), r.slice());
+  }
+  // Best first: prefer balanced (low delta), then more cards moved (more value).
+  variants.sort((a, b) => (a.deltaPct - b.deltaPct) || ((b.giveValueCents + b.receiveValueCents) - (a.giveValueCents + a.receiveValueCents)));
+  return variants;
 }
 
 async function ensureNormalizedDeckSchema() {
@@ -1395,6 +2642,10 @@ app.put('/api/collection', requireAuth, async (req, res) => {
         }
       }
     });
+    // Tradelist is derived from the collection; a write makes the memo stale.
+    invalidateTradelistCache(accountId);
+    // Acquiring/removing cards changes deck-needed shortfalls.
+    void reconcileAccountWishlist(accountId);
     res.json({ ok: true, count: cards.length });
   } catch (e) {
     console.error(e);
@@ -1694,6 +2945,10 @@ app.put('/api/decks', requireAuth, async (req, res) => {
     } finally {
       conn.release();
     }
+    // Deck card usage feeds tradelist surplus; a deck write makes the memo stale.
+    invalidateTradelistCache(accountId);
+    // Deck contents drive deck-needed wishlist entries.
+    void reconcileAccountWishlist(accountId);
     res.json({ ok: true, count: decks.length });
   } catch (e) {
     console.error(e);
@@ -2180,49 +3435,145 @@ app.put('/api/games', requireAuth, async (req, res) => {
 app.get('/api/wishlist', requireAuth, async (req, res) => {
   try {
     const [rows] = await db().query(
-      'SELECT data FROM wishlist WHERE account_id = ? ORDER BY added_at ASC',
+      `SELECT uid, data, added_at, source, priority, priority_locked, source_meta
+         FROM wishlist WHERE account_id = ? ORDER BY added_at ASC`,
       [req.accountId]
     );
-    res.json(rows.map(r => (typeof r.data === 'string' ? JSON.parse(r.data) : r.data)));
+    res.json(rows.map(r => {
+      const card = typeof r.data === 'string' ? JSON.parse(r.data) : (r.data || {});
+      // Columns are authoritative over the JSON blob for trade-managed fields.
+      card.uid = card.uid || r.uid;
+      card.source = r.source || 'manual';
+      card.priority = r.priority || card.priority || 'med';
+      card.priorityLocked = !!r.priority_locked;
+      card.sourceMeta = r.source_meta ? (typeof r.source_meta === 'string' ? JSON.parse(r.source_meta) : r.source_meta) : null;
+      return card;
+    }));
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
   }
 });
 
+// Replace the user's MANUAL wishlist rows from the client array. Auto rows
+// (deck_needed / pending_trade / upgrade_target) are server-managed and left
+// intact; if the client changes the priority of an auto card, we persist that
+// and lock it so the reconciler stops overriding it.
 app.put('/api/wishlist', requireAuth, async (req, res) => {
   const items = req.body;
   if (!Array.isArray(items)) return res.status(400).json({ error: 'Expected array' });
   const accountId = req.accountId;
+  const conn = await db().getConnection();
   try {
-    // Dedup by primary-key (account_id, uid) BEFORE inserting. A single duplicate or
-    // missing key used to abort the whole multi-row INSERT, and since the wipe+rewrite
-    // runs in one transaction the rollback discarded every card — presenting as
-    // "saves one, loses the rest". Last-write-wins; synthesize a unique key when a
-    // card has neither uid nor scryfallId so it can't collapse other rows onto itself.
+    await conn.beginTransaction();
+    // Existing auto rows (uid → priority) so we can detect user priority edits.
+    const [autoRows] = await conn.query(
+      "SELECT uid, priority FROM wishlist WHERE account_id = ? AND source <> 'manual'", [accountId]
+    );
+    const autoByUid = new Map(autoRows.map(r => [r.uid, r.priority]));
+
+    // Partition the client array into manual rows vs. edits to auto rows.
     const byKey = new Map();
+    const autoPriorityEdits = [];
     items.forEach((i, idx) => {
       if (!i || typeof i !== 'object') return;
       const key = String(i.uid || i.scryfallId || `card_${i.foil ? 'f' : 'n'}_${idx}`);
+      if (autoByUid.has(key)) {
+        const newP = ['low', 'med', 'high'].includes(i.priority) ? i.priority : null;
+        if (newP && newP !== autoByUid.get(key)) autoPriorityEdits.push({ key, priority: newP });
+        return; // never re-insert auto rows as manual
+      }
       byKey.set(key, { key, item: i });
     });
+
+    // Full-replace the manual partition only.
+    await conn.query("DELETE FROM wishlist WHERE account_id = ? AND source = 'manual'", [accountId]);
     const rows = [...byKey.values()];
-    await replaceAllForAccount(accountId, 'wishlist', rows, async (conn, aid, rs) => {
-      const ph = rs.map(() => '(?,?,?,?)').join(',');
-      const vals = rs.flatMap(r => [aid, r.key, JSON.stringify(r.item), r.item.addedAt || Date.now()]);
-      // ON DUPLICATE KEY UPDATE is belt-and-suspenders: even if a collision slips
-      // through, update the row instead of throwing and rolling back the batch.
+    if (rows.length) {
+      const ph = rows.map(() => '(?,?,?,?,?,?,?,?)').join(',');
+      const vals = rows.flatMap(r => {
+        const pr = ['low', 'med', 'high'].includes(r.item.priority) ? r.item.priority : 'med';
+        const locked = r.item.priorityLocked ? 1 : 0;
+        const sid = r.item.scryfallId || (String(r.key).split('_')[0]) || null;
+        return [accountId, r.key, JSON.stringify(r.item), r.item.addedAt || Date.now(), 'manual', pr, locked, sid];
+      });
       await conn.query(
-        `INSERT INTO wishlist (account_id, uid, data, added_at) VALUES ${ph}
-         ON DUPLICATE KEY UPDATE data = VALUES(data), added_at = VALUES(added_at)`,
+        `INSERT INTO wishlist (account_id, uid, data, added_at, source, priority, priority_locked, scryfall_id)
+         VALUES ${ph}
+         ON DUPLICATE KEY UPDATE data = VALUES(data), added_at = VALUES(added_at),
+           source = 'manual', priority = VALUES(priority), priority_locked = VALUES(priority_locked)`,
         vals
       );
-    });
+    }
+    // Apply (and lock) any user priority edits to auto rows.
+    for (const e of autoPriorityEdits) {
+      await conn.query(
+        'UPDATE wishlist SET priority = ?, priority_locked = 1 WHERE account_id = ? AND uid = ?',
+        [e.priority, accountId, e.key]
+      );
+    }
+    await conn.commit();
     res.json({ ok: true, count: rows.length });
   } catch (e) {
+    await conn.rollback();
     console.error(e);
     res.status(500).json({ error: e.message });
+  } finally {
+    conn.release();
   }
+});
+
+// Flag an owned card as an upgrade target (want a better printing/foil/condition).
+// Creates an `upgrade_target` wishlist entry tied to the owned card.
+app.post('/api/wishlist/upgrade-target', requireAuth, async (req, res) => {
+  const b = req.body || {};
+  const scryfallId = String(b.scryfallId || '').slice(0, 50);
+  if (!scryfallId) return res.status(400).json({ error: 'scryfallId required' });
+  const foil = b.foil ? 'f' : 'n';
+  const uid = `${scryfallId}_${foil}_upg`;
+  const data = (b.cardData && typeof b.cardData === 'object') ? { ...b.cardData } : {};
+  data.uid = uid; data.scryfallId = scryfallId; data.name = b.name || data.name || '';
+  data.foil = !!b.foil; data.priority = 'med';
+  const sourceMeta = {
+    upgrade: true,
+    fromUid: b.fromUid || (scryfallId + '_' + foil),
+    targetCondition: TRADE_CONDITIONS.has(b.targetCondition) ? b.targetCondition : null,
+    note: b.note ? String(b.note).slice(0, 200) : null,
+  };
+  try {
+    await db().query(
+      `INSERT INTO wishlist (account_id, uid, data, added_at, source, priority, priority_locked, source_meta, scryfall_id)
+       VALUES (?,?,?,?, 'upgrade_target', 'med', 0, ?, ?)
+       ON DUPLICATE KEY UPDATE data = VALUES(data), source_meta = VALUES(source_meta)`,
+      [req.accountId, uid, JSON.stringify(data), Date.now(), JSON.stringify(sourceMeta), scryfallId]
+    );
+    res.json({ ok: true, uid });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Set a wishlist entry's priority (any source) and lock it so the auto-population
+// reconciler won't override the user's choice.
+app.patch('/api/wishlist/:uid', requireAuth, async (req, res) => {
+  const uid = String(req.params.uid || '').slice(0, 120);
+  const priority = ['low', 'med', 'high'].includes(req.body?.priority) ? req.body.priority : null;
+  if (!priority) return res.status(400).json({ error: 'priority must be low|med|high' });
+  try {
+    await db().query(
+      'UPDATE wishlist SET priority = ?, priority_locked = 1 WHERE account_id = ? AND uid = ?',
+      [priority, req.accountId, uid]
+    );
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Delete a single wishlist entry by uid (manual or upgrade-target; auto rows
+// will simply be re-added by the reconciler if still applicable).
+app.delete('/api/wishlist/:uid', requireAuth, async (req, res) => {
+  const uid = String(req.params.uid || '').slice(0, 120);
+  try {
+    await db().query('DELETE FROM wishlist WHERE account_id = ? AND uid = ?', [req.accountId, uid]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ── Wishlist sharing (mirrors collection sharing) ───────────────────────────────
@@ -2332,6 +3683,895 @@ app.put('/api/preferences', requireAuth, async (req, res) => {
     console.error(e);
     res.status(500).json({ error: e.message });
   }
+});
+
+// ── Notifications inbox ─────────────────────────────────────────────────────
+
+app.get('/api/notifications', requireAuth, async (req, res) => {
+  try {
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 50));
+    const [rows] = await db().query(
+      `SELECT id, type, payload, read_at, created_at
+         FROM notifications WHERE account_id = ?
+        ORDER BY created_at DESC LIMIT ?`,
+      [req.accountId, limit]
+    );
+    const [[cnt]] = await db().query(
+      'SELECT COUNT(*) AS unread FROM notifications WHERE account_id = ? AND read_at IS NULL',
+      [req.accountId]
+    );
+    res.json({
+      unread: Number(cnt.unread) || 0,
+      items: rows.map(r => ({
+        id: r.id,
+        type: r.type,
+        payload: typeof r.payload === 'string' ? JSON.parse(r.payload) : r.payload,
+        readAt: r.read_at,
+        createdAt: r.created_at,
+      })),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/notifications/unread-count', requireAuth, async (req, res) => {
+  try {
+    const [[cnt]] = await db().query(
+      'SELECT COUNT(*) AS unread FROM notifications WHERE account_id = ? AND read_at IS NULL',
+      [req.accountId]
+    );
+    res.json({ unread: Number(cnt.unread) || 0 });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.patch('/api/notifications/:id/read', requireAuth, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+  try {
+    await db().query(
+      'UPDATE notifications SET read_at = ? WHERE id = ? AND account_id = ? AND read_at IS NULL',
+      [Date.now(), id, req.accountId]
+    );
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/notifications/read-all', requireAuth, async (req, res) => {
+  try {
+    await db().query(
+      'UPDATE notifications SET read_at = ? WHERE account_id = ? AND read_at IS NULL',
+      [Date.now(), req.accountId]
+    );
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Trades ──────────────────────────────────────────────────────────────────
+
+/** Insert the given normalized items for a trade inside an existing connection. */
+async function _insertTradeItems(conn, tradeId, items) {
+  if (!items.length) return;
+  const now = Date.now();
+  const ph = items.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?)').join(',');
+  const vals = items.flatMap(it => [
+    tradeId, it.side, it.scryfallId, it.foil, it.cardName, it.condition, it.language,
+    it.qty, it.unitPriceCents, it.multiplier, it.reason,
+    it.reasonMeta ? JSON.stringify(it.reasonMeta) : null,
+    it.cardData ? JSON.stringify(it.cardData) : null, now,
+  ]);
+  await conn.query(
+    `INSERT INTO trade_items
+       (trade_id, side, scryfall_id, foil, card_name, \`condition\`, language,
+        qty, unit_price_cents, multiplier, reason, reason_meta, card_data, added_at)
+     VALUES ${ph}`,
+    vals
+  );
+}
+
+function _sumSideCents(items, side) {
+  return items.filter(i => i.side === side)
+    .reduce((s, i) => s + Math.round((Math.max(0, Math.round(i.unitPriceCents)) * (Number(i.multiplier) || 1))) * i.qty, 0);
+}
+
+// Create a trade (draft by default). Body: { title?, partnerId?, mode?, items?[] }
+app.post('/api/trades', requireAuth, async (req, res) => {
+  const body = req.body || {};
+  const items = Array.isArray(body.items) ? body.items.map(normalizeTradeItemInput).filter(Boolean) : [];
+  const now = Date.now();
+  const conn = await db().getConnection();
+  try {
+    await conn.beginTransaction();
+    let partnerId = null;
+    if (body.partnerId != null && Number(body.partnerId) !== Number(req.accountId)) {
+      const [[p]] = await conn.query('SELECT id FROM accounts WHERE id = ?', [Number(body.partnerId)]);
+      if (p) partnerId = p.id;
+    }
+    const valueA = _sumSideCents(items, 'a');
+    const valueB = _sumSideCents(items, 'b');
+    const [r] = await conn.query(
+      `INSERT INTO trades
+         (initiator_id, partner_id, title, status, mode, revision, value_a_cents, value_b_cents, last_actor_id, created_at, updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+      [req.accountId, partnerId, (body.title || '').slice(0, 120) || null, 'draft',
+       body.mode === 'realtime' ? 'realtime' : 'async', 0, valueA, valueB, req.accountId, now, now]
+    );
+    await _insertTradeItems(conn, r.insertId, items);
+    await conn.commit();
+    // Cards I'd receive in this draft become pending-trade wishlist entries.
+    void reconcilePendingTradeWishlist(req.accountId);
+    if (partnerId) void reconcilePendingTradeWishlist(partnerId);
+    res.json(await loadTradeDoc(r.insertId));
+  } catch (e) {
+    await conn.rollback();
+    res.status(500).json({ error: e.message });
+  } finally {
+    conn.release();
+  }
+});
+
+// List my trades (as initiator or partner). Optional ?status=draft,pending
+app.get('/api/trades', requireAuth, async (req, res) => {
+  try {
+    const statusFilter = String(req.query.status || '').split(',').map(s => s.trim()).filter(Boolean);
+    let sql = `SELECT t.*,
+                 ia.email AS initiator_email, pa.email AS partner_email
+               FROM trades t
+               JOIN accounts ia ON ia.id = t.initiator_id
+               LEFT JOIN accounts pa ON pa.id = t.partner_id
+              WHERE (t.initiator_id = ? OR t.partner_id = ?)`;
+    const params = [req.accountId, req.accountId];
+    if (statusFilter.length) {
+      sql += ` AND t.status IN (${statusFilter.map(() => '?').join(',')})`;
+      params.push(...statusFilter);
+    }
+    sql += ' ORDER BY t.updated_at DESC LIMIT 200';
+    const [rows] = await db().query(sql, params);
+    res.json(rows.map(t => ({
+      id: t.id,
+      title: t.title,
+      status: t.status,
+      mode: t.mode,
+      initiatorId: t.initiator_id,
+      partnerId: t.partner_id,
+      initiatorName: publicAccountName({ id: t.initiator_id, email: t.initiator_email }),
+      partnerName: t.partner_id ? publicAccountName({ id: t.partner_id, email: t.partner_email }) : null,
+      valueACents: Number(t.value_a_cents) || 0,
+      valueBCents: Number(t.value_b_cents) || 0,
+      iAmInitiator: Number(t.initiator_id) === Number(req.accountId),
+      updatedAt: t.updated_at,
+      createdAt: t.created_at,
+    })));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/trades/:id', requireAuth, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+  try {
+    const [[t]] = await db().query('SELECT initiator_id, partner_id FROM trades WHERE id = ?', [id]);
+    if (!t) return res.status(404).json({ error: 'Trade not found' });
+    if (!tradeIsParticipant(t, req.accountId)) return res.status(403).json({ error: 'Not your trade' });
+    res.json(await loadTradeDoc(id));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Update a trade. Body: { baseRevision?, title?, items? } — full item replace (Phase 1).
+// Granular ops + strict optimistic concurrency arrive with real-time (Phase 7).
+app.patch('/api/trades/:id', requireAuth, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+  const body = req.body || {};
+  const conn = await db().getConnection();
+  try {
+    await conn.beginTransaction();
+    const [[t]] = await conn.query('SELECT * FROM trades WHERE id = ? FOR UPDATE', [id]);
+    if (!t) { await conn.rollback(); return res.status(404).json({ error: 'Trade not found' }); }
+    if (!tradeIsParticipant(t, req.accountId)) { await conn.rollback(); return res.status(403).json({ error: 'Not your trade' }); }
+    if (['completed', 'cancelled', 'declined'].includes(t.status)) {
+      await conn.rollback(); return res.status(409).json({ error: 'Trade is closed' });
+    }
+    if (body.baseRevision != null && Number(body.baseRevision) !== Number(t.revision)) {
+      await conn.rollback();
+      return res.status(409).json({ error: 'stale', revision: t.revision, doc: await loadTradeDoc(id) });
+    }
+    const now = Date.now();
+    let valueA = Number(t.value_a_cents) || 0, valueB = Number(t.value_b_cents) || 0;
+    if (Array.isArray(body.items)) {
+      const items = body.items.map(normalizeTradeItemInput).filter(Boolean);
+      await conn.query('DELETE FROM trade_items WHERE trade_id = ?', [id]);
+      await _insertTradeItems(conn, id, items);
+      valueA = _sumSideCents(items, 'a');
+      valueB = _sumSideCents(items, 'b');
+    }
+    const newTitle = body.title != null ? String(body.title).slice(0, 120) : t.title;
+    await conn.query(
+      `UPDATE trades SET title = ?, value_a_cents = ?, value_b_cents = ?,
+         revision = revision + 1, last_actor_id = ?, updated_at = ? WHERE id = ?`,
+      [newTitle, valueA, valueB, req.accountId, now, id]
+    );
+    await conn.commit();
+    // Received-side changes ripple to both participants' pending-trade wishlists.
+    void reconcilePendingTradeWishlist(t.initiator_id);
+    if (t.partner_id) void reconcilePendingTradeWishlist(t.partner_id);
+    res.json(await loadTradeDoc(id));
+  } catch (e) {
+    await conn.rollback();
+    res.status(500).json({ error: e.message });
+  } finally {
+    conn.release();
+  }
+});
+
+app.delete('/api/trades/:id', requireAuth, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+  try {
+    const [[t]] = await db().query('SELECT initiator_id, partner_id, status FROM trades WHERE id = ?', [id]);
+    if (!t) return res.status(404).json({ error: 'Trade not found' });
+    // Only the initiator can delete, and only while it's still a private draft.
+    if (Number(t.initiator_id) !== Number(req.accountId)) return res.status(403).json({ error: 'Not your trade' });
+    if (t.status !== 'draft') return res.status(409).json({ error: 'Only drafts can be deleted' });
+    await db().query('DELETE FROM trades WHERE id = ?', [id]);
+    // Removing the trade clears its pending-trade wishlist entries.
+    void reconcilePendingTradeWishlist(t.initiator_id);
+    if (t.partner_id) void reconcilePendingTradeWishlist(t.partner_id);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Multi-user trade actions (async offers) ──────────────────────────────────
+
+/** The participant currently expected to respond (the one who isn't last actor). */
+function _tradeResponderId(trade) {
+  return Number(trade.last_actor_id) === Number(trade.initiator_id) ? trade.partner_id : trade.initiator_id;
+}
+
+async function _notifyTradeEvent(toAccountId, type, trade, fromAccountId) {
+  if (!toAccountId) return;
+  const [[from]] = await db().query('SELECT id, email, username, display_name FROM accounts WHERE id = ?', [fromAccountId]);
+  await createNotification(toAccountId, type, {
+    tradeId: trade.id, fromName: publicAccountName(from), fromId: fromAccountId,
+  });
+}
+
+// Send / accept / decline / counter / cancel an offer.
+// Body: { action: 'send'|'accept'|'decline'|'counter'|'cancel', items?, title? }
+app.post('/api/trades/:id/action', requireAuth, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+  const action = String(req.body?.action || '');
+  const me = Number(req.accountId);
+  const conn = await db().getConnection();
+  try {
+    await conn.beginTransaction();
+    const [[t]] = await conn.query('SELECT * FROM trades WHERE id = ? FOR UPDATE', [id]);
+    if (!t) { await conn.rollback(); return res.status(404).json({ error: 'Trade not found' }); }
+    if (!tradeIsParticipant(t, me)) { await conn.rollback(); return res.status(403).json({ error: 'Not your trade' }); }
+    const now = Date.now();
+    let newStatus = t.status, notify = null, notifyType = null;
+
+    if (action === 'send') {
+      if (Number(t.initiator_id) !== me) { await conn.rollback(); return res.status(403).json({ error: 'Only the initiator can send' }); }
+      if (!t.partner_id) { await conn.rollback(); return res.status(400).json({ error: 'Attach a trade partner first' }); }
+      if (!['draft', 'countered'].includes(t.status)) { await conn.rollback(); return res.status(409).json({ error: 'Cannot send from this state' }); }
+      newStatus = 'pending';
+      await conn.query('UPDATE trades SET status = ?, last_actor_id = ?, revision = revision + 1, updated_at = ? WHERE id = ?',
+        [newStatus, me, now, id]);
+      notify = t.partner_id; notifyType = 'trade_offer';
+    } else if (['accept', 'decline', 'counter', 'cancel'].includes(action)) {
+      if (!['pending', 'countered'].includes(t.status)) { await conn.rollback(); return res.status(409).json({ error: 'No open offer to respond to' }); }
+      if (action === 'cancel') {
+        newStatus = 'cancelled';
+        await conn.query('UPDATE trades SET status = ?, last_actor_id = ?, revision = revision + 1, updated_at = ? WHERE id = ?', [newStatus, me, now, id]);
+        notify = me === Number(t.initiator_id) ? t.partner_id : t.initiator_id; notifyType = 'trade_cancelled';
+      } else {
+        // Only the awaited responder may accept/decline/counter.
+        if (Number(_tradeResponderId(t)) !== me) { await conn.rollback(); return res.status(403).json({ error: 'Waiting on the other trader' }); }
+        if (action === 'accept') {
+          newStatus = 'accepted';
+          await conn.query('UPDATE trades SET status = ?, last_actor_id = ?, revision = revision + 1, updated_at = ? WHERE id = ?', [newStatus, me, now, id]);
+          notify = me === Number(t.initiator_id) ? t.partner_id : t.initiator_id; notifyType = 'trade_accepted';
+        } else if (action === 'decline') {
+          newStatus = 'declined';
+          await conn.query('UPDATE trades SET status = ?, last_actor_id = ?, revision = revision + 1, updated_at = ? WHERE id = ?', [newStatus, me, now, id]);
+          notify = me === Number(t.initiator_id) ? t.partner_id : t.initiator_id; notifyType = 'trade_declined';
+        } else if (action === 'counter') {
+          // Replace items with the counter-proposal, flip to countered, await the other party.
+          if (Array.isArray(req.body.items)) {
+            const items = req.body.items.map(normalizeTradeItemInput).filter(Boolean);
+            await conn.query('DELETE FROM trade_items WHERE trade_id = ?', [id]);
+            await _insertTradeItems(conn, id, items);
+            const valueA = _sumSideCents(items, 'a'), valueB = _sumSideCents(items, 'b');
+            await conn.query('UPDATE trades SET value_a_cents = ?, value_b_cents = ? WHERE id = ?', [valueA, valueB, id]);
+          }
+          newStatus = 'countered';
+          await conn.query('UPDATE trades SET status = ?, last_actor_id = ?, revision = revision + 1, updated_at = ? WHERE id = ?', [newStatus, me, now, id]);
+          notify = me === Number(t.initiator_id) ? t.partner_id : t.initiator_id; notifyType = 'trade_countered';
+        }
+      }
+    } else if (action === 'complete') {
+      if (t.status !== 'accepted') { await conn.rollback(); return res.status(409).json({ error: 'Only accepted trades can be completed' }); }
+      const col = me === Number(t.initiator_id) ? 'initiator_completed' : 'partner_completed';
+      await conn.query(`UPDATE trades SET ${col} = 1, updated_at = ? WHERE id = ?`, [now, id]);
+      const [[fresh]] = await conn.query('SELECT initiator_completed, partner_completed, partner_id FROM trades WHERE id = ?', [id]);
+      const bothDone = fresh.initiator_completed && (fresh.partner_completed || !fresh.partner_id);
+      await conn.commit();
+      if (bothDone) { await finalizeTrade(id); }
+      else { await _notifyTradeEvent(me === Number(t.initiator_id) ? t.partner_id : t.initiator_id, 'trade_completed', t, me); }
+      return res.json(await loadTradeDoc(id));
+    } else {
+      await conn.rollback(); return res.status(400).json({ error: 'Unknown action' });
+    }
+    await conn.commit();
+    const doc = await loadTradeDoc(id);
+    if (notify && notifyType) await _notifyTradeEvent(notify, notifyType, t, me);
+    // Pending-trade wishlist entries follow the offer lifecycle.
+    void reconcilePendingTradeWishlist(t.initiator_id);
+    if (t.partner_id) void reconcilePendingTradeWishlist(t.partner_id);
+    // Broadcast to any live (real-time) room watchers.
+    _broadcastTrade(id, 'trade:updated', doc);
+    res.json(doc);
+  } catch (e) {
+    await conn.rollback();
+    res.status(500).json({ error: e.message });
+  } finally {
+    conn.release();
+  }
+});
+
+// Pre-completion warning: which of MY give-cards have no surplus beyond decks.
+app.get('/api/trades/:id/completion-check', requireAuth, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+  try {
+    const [[t]] = await db().query('SELECT initiator_id, partner_id FROM trades WHERE id = ?', [id]);
+    if (!t) return res.status(404).json({ error: 'Trade not found' });
+    if (!tradeIsParticipant(t, req.accountId)) return res.status(403).json({ error: 'Not your trade' });
+    const mySide = Number(t.initiator_id) === Number(req.accountId) ? 'a' : 'b';
+    const [give] = await db().query('SELECT scryfall_id, foil, card_name, SUM(qty) qty FROM trade_items WHERE trade_id = ? AND side = ? GROUP BY scryfall_id, foil, card_name', [id, mySide]);
+    if (!give.length) return res.json({ warnings: [] });
+    // Owned + deck usage per uid for this account.
+    const [owned] = await db().query('SELECT uid, SUM(qty) have FROM collection WHERE account_id = ? GROUP BY uid', [req.accountId]);
+    const ownedByUid = new Map(owned.map(r => [r.uid, Number(r.have) || 0]));
+    const [usage] = await db().query(
+      `SELECT dc.card_uid, d.name deck_name, SUM(dc.qty) used
+         FROM deck_cards dc JOIN decks d ON d.account_id = dc.account_id AND d.id = dc.deck_id
+        WHERE dc.account_id = ? GROUP BY dc.card_uid, d.name`, [req.accountId]);
+    const usageByUid = new Map(); const decksByUid = new Map();
+    for (const u of usage) {
+      usageByUid.set(u.card_uid, (usageByUid.get(u.card_uid) || 0) + (Number(u.used) || 0));
+      if (!decksByUid.has(u.card_uid)) decksByUid.set(u.card_uid, []);
+      decksByUid.get(u.card_uid).push(u.deck_name);
+    }
+    const warnings = [];
+    for (const g of give) {
+      const uid = _collUid(g.scryfall_id, g.foil);
+      const have = ownedByUid.get(uid) || 0;
+      const used = usageByUid.get(uid) || 0;
+      const surplus = have - used;
+      if (surplus < (Number(g.qty) || 1)) {
+        warnings.push({ name: g.card_name, qty: Number(g.qty) || 1, surplus: Math.max(0, surplus),
+          deckNames: decksByUid.get(uid) || [] });
+      }
+    }
+    res.json({ warnings });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Real-time trading (socket.io): room-per-trade, per-side edit ownership ────
+
+let _io = null;
+function _broadcastTrade(tradeId, event, payload) {
+  if (_io) _io.to(`trade:${tradeId}`).emit(event, payload);
+}
+
+/**
+ * Apply one granular edit to a trade with optimistic concurrency. Enforces
+ * per-side ownership: a participant may only mutate cards on THEIR side
+ * (initiator → side 'a', partner → side 'b'), so the two users never touch the
+ * same rows and no merge is needed beyond the revision check.
+ */
+async function applyTradeOp(tradeId, actorId, baseRevision, op) {
+  const conn = await db().getConnection();
+  try {
+    await conn.beginTransaction();
+    const [[t]] = await conn.query('SELECT * FROM trades WHERE id = ? FOR UPDATE', [tradeId]);
+    if (!t) { await conn.rollback(); return { error: 'not_found' }; }
+    if (!tradeIsParticipant(t, actorId)) { await conn.rollback(); return { error: 'forbidden' }; }
+    if (['completed', 'cancelled', 'declined'].includes(t.status)) { await conn.rollback(); return { error: 'closed' }; }
+    if (baseRevision != null && Number(baseRevision) !== Number(t.revision)) {
+      await conn.rollback();
+      return { error: 'stale', doc: await loadTradeDoc(tradeId) };
+    }
+    const mySide = Number(t.initiator_id) === Number(actorId) ? 'a' : 'b';
+    const o = op || {};
+    if (o.action === 'add_item') {
+      const it = normalizeTradeItemInput({ ...o.item, side: mySide });
+      if (it) await _insertTradeItems(conn, tradeId, [it]);
+    } else if (o.action === 'remove_item') {
+      await conn.query('DELETE FROM trade_items WHERE id = ? AND trade_id = ? AND side = ?', [o.itemId, tradeId, mySide]);
+    } else if (o.action === 'set_qty') {
+      await conn.query('UPDATE trade_items SET qty = ? WHERE id = ? AND trade_id = ? AND side = ?',
+        [Math.max(1, parseInt(o.qty, 10) || 1), o.itemId, tradeId, mySide]);
+    } else if (o.action === 'set_condition') {
+      if (TRADE_CONDITIONS.has(o.condition)) {
+        await conn.query('UPDATE trade_items SET `condition` = ?, multiplier = ? WHERE id = ? AND trade_id = ? AND side = ?',
+          [o.condition, tradeCore.conditionMultiplier(o.condition), o.itemId, tradeId, mySide]);
+      }
+    } else if (o.action === 'replace_side') {
+      // Replace all of MY side from a list (used when loading a suggestion live).
+      const items = (Array.isArray(o.items) ? o.items : []).map(x => normalizeTradeItemInput({ ...x, side: mySide })).filter(Boolean);
+      await conn.query('DELETE FROM trade_items WHERE trade_id = ? AND side = ?', [tradeId, mySide]);
+      await _insertTradeItems(conn, tradeId, items);
+    } else {
+      await conn.rollback(); return { error: 'bad_op' };
+    }
+    // Recompute side values.
+    const [items] = await conn.query('SELECT side, qty, unit_price_cents, multiplier FROM trade_items WHERE trade_id = ?', [tradeId]);
+    const va = items.filter(i => i.side === 'a').reduce((s, i) => s + Math.round(i.unit_price_cents * (Number(i.multiplier) || 1)) * i.qty, 0);
+    const vb = items.filter(i => i.side === 'b').reduce((s, i) => s + Math.round(i.unit_price_cents * (Number(i.multiplier) || 1)) * i.qty, 0);
+    await conn.query('UPDATE trades SET value_a_cents = ?, value_b_cents = ?, revision = revision + 1, last_actor_id = ?, updated_at = ? WHERE id = ?',
+      [va, vb, actorId, Date.now(), tradeId]);
+    await conn.commit();
+    return { doc: await loadTradeDoc(tradeId) };
+  } catch (e) {
+    await conn.rollback();
+    return { error: e.message };
+  } finally {
+    conn.release();
+  }
+}
+
+function attachRealtime(httpServer) {
+  const io = new SocketIOServer(httpServer, { path: '/socket.io' });
+  _io = io;
+  // Share the Express session so the WS handshake reuses the login cookie.
+  io.engine.use(sessionMiddleware);
+  io.use((socket, next) => {
+    const sess = socket.request.session;
+    if (!sess || !sess.accountId) return next(new Error('unauthorized'));
+    socket.accountId = sess.accountId;
+    next();
+  });
+  io.on('connection', socket => {
+    socket.on('trade:join', async ({ tradeId } = {}) => {
+      try {
+        const [[t]] = await db().query('SELECT initiator_id, partner_id FROM trades WHERE id = ?', [tradeId]);
+        if (!t || !tradeIsParticipant(t, socket.accountId)) return;
+        socket.join(`trade:${tradeId}`);
+        socket.emit('trade:state', await loadTradeDoc(tradeId));
+      } catch (_) {}
+    });
+    socket.on('trade:leave', ({ tradeId } = {}) => { socket.leave(`trade:${tradeId}`); });
+    socket.on('trade:edit', async ({ tradeId, baseRevision, op } = {}) => {
+      const result = await applyTradeOp(tradeId, socket.accountId, baseRevision, op);
+      if (result.error === 'stale') { socket.emit('trade:stale', result.doc); return; }
+      if (result.error) { socket.emit('trade:error', { error: result.error }); return; }
+      _io.to(`trade:${tradeId}`).emit('trade:state', result.doc);
+    });
+  });
+  console.log('[realtime] socket.io attached');
+}
+
+// ── Tradelist ────────────────────────────────────────────────────────────────
+
+app.get('/api/tradelist', requireAuth, async (req, res) => {
+  try {
+    const { listed, removed } = await computeTradelist(req.accountId);
+    res.json({ listed, removed });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Upsert a tradelist override (exclude a surplus card, or force-include one).
+// Body: { uid, kind:'exclude'|'include', qty?, condition?, note? }
+app.put('/api/tradelist/overrides', requireAuth, async (req, res) => {
+  const b = req.body || {};
+  const uid = String(b.uid || '').slice(0, 120);
+  if (!uid) return res.status(400).json({ error: 'uid required' });
+  const kind = b.kind === 'include' ? 'include' : 'exclude';
+  const qty = b.qty != null ? Math.max(1, Math.min(999, parseInt(b.qty, 10) || 1)) : null;
+  const condition = TRADE_CONDITIONS.has(b.condition) ? b.condition : null;
+  const note = b.note != null ? String(b.note).slice(0, 255) : null;
+  try {
+    await db().query(
+      `INSERT INTO tradelist_overrides (account_id, uid, kind, qty, \`condition\`, note, updated_at)
+       VALUES (?,?,?,?,?,?,?)
+       ON DUPLICATE KEY UPDATE kind=VALUES(kind), qty=VALUES(qty), \`condition\`=VALUES(\`condition\`),
+         note=VALUES(note), updated_at=VALUES(updated_at)`,
+      [req.accountId, uid, kind, qty, condition, note, Date.now()]
+    );
+    invalidateTradelistCache(req.accountId);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Remove an override (restore a removed card, or un-force an included one).
+app.delete('/api/tradelist/overrides/:uid', requireAuth, async (req, res) => {
+  const uid = String(req.params.uid || '').slice(0, 120);
+  try {
+    await db().query('DELETE FROM tradelist_overrides WHERE account_id = ? AND uid = ?', [req.accountId, uid]);
+    invalidateTradelistCache(req.accountId);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Trade settings (visibility + price-threshold defaults) ────────────────────
+
+const TRADE_VISIBILITIES = new Set(['not_trading', 'friends', 'public']);
+
+app.get('/api/trade/settings', requireAuth, async (req, res) => {
+  try {
+    const [[acc]] = await db().query('SELECT trade_visibility, username, display_name FROM accounts WHERE id = ?', [req.accountId]);
+    const [prefRows] = await db().query(
+      "SELECT value FROM preferences WHERE account_id = ? AND key_name = 'trade_settings'", [req.accountId]
+    );
+    let prefs = {};
+    if (prefRows.length) prefs = typeof prefRows[0].value === 'string' ? JSON.parse(prefRows[0].value) : prefRows[0].value;
+    res.json({
+      visibility: acc?.trade_visibility || 'not_trading',
+      username: acc?.username || null,
+      displayName: acc?.display_name || null,
+      defaultPctUp: prefs.defaultPctUp ?? null,
+      defaultPctDown: prefs.defaultPctDown ?? null,
+      defaultCondition: prefs.defaultCondition || 'NM',
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/trade/settings', requireAuth, async (req, res) => {
+  const b = req.body || {};
+  try {
+    if (b.visibility != null) {
+      const v = TRADE_VISIBILITIES.has(b.visibility) ? b.visibility : 'not_trading';
+      await db().query('UPDATE accounts SET trade_visibility = ? WHERE id = ?', [v, req.accountId]);
+    }
+    // Merge price-threshold defaults into the trade_settings preference blob.
+    const keys = ['defaultPctUp', 'defaultPctDown', 'defaultCondition'];
+    if (keys.some(k => b[k] !== undefined)) {
+      const [prefRows] = await db().query(
+        "SELECT value FROM preferences WHERE account_id = ? AND key_name = 'trade_settings'", [req.accountId]
+      );
+      let prefs = {};
+      if (prefRows.length) prefs = typeof prefRows[0].value === 'string' ? JSON.parse(prefRows[0].value) : prefRows[0].value;
+      for (const k of keys) if (b[k] !== undefined) prefs[k] = b[k];
+      await db().query(
+        "REPLACE INTO preferences (account_id, key_name, value) VALUES (?, 'trade_settings', ?)",
+        [req.accountId, JSON.stringify(prefs)]
+      );
+    }
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Price history + per-card price watches ───────────────────────────────────
+
+app.get('/api/cards/price-history/:scryfallId', requireAuth, async (req, res) => {
+  try {
+    const sid = String(req.params.scryfallId || '');
+    if (!/^[0-9a-fA-F-]{36}$/.test(sid)) return res.status(400).json({ error: 'bad scryfall id' });
+    const [rows] = await db().query(
+      `SELECT DATE_FORMAT(c.snapshot_date, '%Y-%m-%d') d,
+              c.tcg_normal, c.tcg_foil, c.tcg_etched,
+              c.ck_normal, c.ck_foil, c.ck_etched, c.ckb_normal, c.ckb_foil,
+              c.cm_normal, c.cm_foil
+       FROM mtgjson_printing p
+       JOIN card_price_daily c ON c.uuid = p.uuid
+       WHERE p.scryfall_id = ?
+       ORDER BY c.snapshot_date ASC`,
+      [sid]
+    );
+    res.json({ scryfallId: sid, points: rows });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Get the current user's price watch for a printing (foil-aware).
+app.get('/api/price-watch/:scryfallId', requireAuth, async (req, res) => {
+  const sid = String(req.params.scryfallId || '').slice(0, 50);
+  const foil = req.query.foil === '1' || req.query.foil === 'true';
+  const uid = sid + (foil ? '_f' : '_n');
+  try {
+    const [[w]] = await db().query(
+      'SELECT * FROM price_watches WHERE account_id = ? AND uid = ?', [req.accountId, uid]
+    );
+    res.json(w ? {
+      uid: w.uid, scryfallId: w.scryfall_id, foil: !!w.foil,
+      targetPriceCents: w.target_price_cents != null ? Number(w.target_price_cents) : null,
+      targetPctUp: w.target_pct_up != null ? Number(w.target_pct_up) : null,
+      targetPctDown: w.target_pct_down != null ? Number(w.target_pct_down) : null,
+      baselineCents: w.baseline_cents != null ? Number(w.baseline_cents) : null,
+    } : null);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Upsert a price watch. Body: { scryfallId, foil?, targetPriceCents?, targetPctUp?, targetPctDown?, baselineCents? }
+app.put('/api/price-watch', requireAuth, async (req, res) => {
+  const b = req.body || {};
+  const sid = String(b.scryfallId || '').slice(0, 50);
+  if (!sid) return res.status(400).json({ error: 'scryfallId required' });
+  const foil = b.foil ? 1 : 0;
+  const uid = sid + (foil ? '_f' : '_n');
+  const num = (v) => (v == null || v === '' || isNaN(Number(v))) ? null : Number(v);
+  try {
+    await db().query(
+      `INSERT INTO price_watches
+         (account_id, uid, scryfall_id, foil, target_price_cents, target_pct_up, target_pct_down, baseline_cents, created_at)
+       VALUES (?,?,?,?,?,?,?,?,?)
+       ON DUPLICATE KEY UPDATE
+         target_price_cents=VALUES(target_price_cents),
+         target_pct_up=VALUES(target_pct_up),
+         target_pct_down=VALUES(target_pct_down),
+         baseline_cents=COALESCE(VALUES(baseline_cents), baseline_cents)`,
+      [req.accountId, uid, sid, foil,
+       num(b.targetPriceCents), num(b.targetPctUp), num(b.targetPctDown), num(b.baselineCents), Date.now()]
+    );
+    res.json({ ok: true, uid });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/price-watch/:uid', requireAuth, async (req, res) => {
+  const uid = String(req.params.uid || '').slice(0, 120);
+  try {
+    await db().query('DELETE FROM price_watches WHERE account_id = ? AND uid = ?', [req.accountId, uid]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Admin/dev: run the daily price job on demand (e.g. external cron, or testing).
+app.post('/api/admin/run-price-job', requireAuth, requireAdminRole, async (req, res) => {
+  const skipSnapshot = req.body?.skipSnapshot === true;
+  try {
+    await runDailyPriceJob({ skipSnapshot });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Trade-partner discovery ──────────────────────────────────────────────────
+
+const USERNAME_RE = /^[a-z0-9_]{3,32}$/;
+
+// Set/update my public username (+ optional display name).
+app.put('/api/trade/username', requireAuth, async (req, res) => {
+  const username = String(req.body?.username || '').toLowerCase().trim();
+  const displayName = req.body?.displayName != null ? String(req.body.displayName).slice(0, 64).trim() : null;
+  if (!USERNAME_RE.test(username)) {
+    return res.status(400).json({ error: 'Username must be 3–32 chars: letters, numbers, underscore' });
+  }
+  try {
+    await db().query(
+      'UPDATE accounts SET username = ?, username_ci = ?, display_name = ? WHERE id = ?',
+      [username, username, displayName, req.accountId]
+    );
+    res.json({ ok: true, username, displayName });
+  } catch (e) {
+    if (e.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'That username is taken' });
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Search users by username / display name (only those open to trades, excl. me).
+app.get('/api/users/search', requireAuth, async (req, res) => {
+  const q = String(req.query.q || '').toLowerCase().trim();
+  if (q.length < 2) return res.json([]);
+  try {
+    const like = '%' + q.replace(/[%_]/g, '\\$&') + '%';
+    const [rows] = await db().query(
+      `SELECT id, username, display_name, trade_visibility FROM accounts
+        WHERE id <> ? AND username IS NOT NULL
+          AND trade_visibility IN ('public','friends')
+          AND (username_ci LIKE ? OR LOWER(display_name) LIKE ?)
+        ORDER BY username ASC LIMIT 25`,
+      [req.accountId, like, like]
+    );
+    const friendIds = await getFriendIds(req.accountId);
+    const visible = [];
+    for (const r of rows) {
+      if (await canViewTrader(req.accountId, r.id, r.trade_visibility, friendIds)) {
+        visible.push({ id: r.id, username: r.username, displayName: r.display_name,
+                       visibility: r.trade_visibility, isFriend: friendIds.has(Number(r.id)) });
+      }
+    }
+    res.json(visible);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Browse open traders. Friends first (when the friends system ships), then by
+// mutual-match count. Returns lightweight per-user trade info.
+app.get('/api/trade/browse', requireAuth, async (req, res) => {
+  try {
+    const friendIds = await getFriendIds(req.accountId);
+    const [rows] = await db().query(
+      `SELECT id, username, display_name, trade_visibility FROM accounts
+        WHERE id <> ? AND username IS NOT NULL AND trade_visibility = 'public'
+        ORDER BY id DESC LIMIT 40`,
+      [req.accountId]
+    );
+    const out = [];
+    for (const r of rows) {
+      const [[tlCount]] = await db().query(
+        'SELECT COUNT(*) c FROM tradelist_overrides WHERE account_id = ? AND kind = ?', [r.id, 'include']
+      );
+      let mutual = 0;
+      try {
+        const mm = await computeMutualMatch(req.accountId, r.id);
+        mutual = mm.iWant.length + mm.theyWant.length;
+      } catch (_) {}
+      out.push({
+        id: r.id, username: r.username, displayName: r.display_name,
+        visibility: r.trade_visibility, isFriend: friendIds.has(Number(r.id)),
+        mutualMatches: mutual,
+        rating: null, // ratings are a scaffolded future feature
+      });
+    }
+    // Friends first, then by mutual-match count desc.
+    out.sort((a, b) => (b.isFriend - a.isFriend) || (b.mutualMatches - a.mutualMatches));
+    res.json(out);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// A partner's tradelist (gated by their visibility + our friendship).
+app.get('/api/tradelist/user/:username', requireAuth, async (req, res) => {
+  const username = String(req.params.username || '').toLowerCase().trim();
+  try {
+    const [[owner]] = await db().query(
+      'SELECT id, username, display_name, trade_visibility FROM accounts WHERE username_ci = ?', [username]
+    );
+    if (!owner) return res.status(404).json({ error: 'User not found' });
+    if (!(await canViewTrader(req.accountId, owner.id, owner.trade_visibility))) {
+      return res.status(403).json({ error: 'This user is not open to trades with you' });
+    }
+    const { listed } = await computeTradelist(owner.id);
+    res.json({ username: owner.username, displayName: owner.display_name, listed });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Trade suggestion engine ──────────────────────────────────────────────────
+
+// Client posts its per-deck "wanted cards" (computed by the deckbuilder scorer)
+// so partners' suggestion engines can use them as deck-tagged balancing cards.
+app.put('/api/decks/wanted', requireAuth, async (req, res) => {
+  const decks = Array.isArray(req.body?.decks) ? req.body.decks : [];
+  const conn = await db().getConnection();
+  try {
+    await conn.beginTransaction();
+    await conn.query('DELETE FROM deck_wanted_cards WHERE account_id = ?', [req.accountId]);
+    const now = Date.now();
+    const rows = [];
+    for (const d of decks) {
+      const deckId = String(d.deckId || '').slice(0, 50);
+      const deckName = String(d.deckName || '').slice(0, 255);
+      if (!deckId) continue;
+      const seen = new Set();
+      for (const c of (d.cards || [])) {
+        const name = String(c.name || '').slice(0, 255);
+        const key = name.toLowerCase();
+        if (!name || seen.has(key)) continue;
+        seen.add(key);
+        rows.push([req.accountId, deckId, deckName, name, c.topRole ? String(c.topRole).slice(0, 40) : null, Number(c.score) || 0, now]);
+      }
+    }
+    const CH = 200;
+    for (let i = 0; i < rows.length; i += CH) {
+      const batch = rows.slice(i, i + CH);
+      const ph = batch.map(() => '(?,?,?,?,?,?,?)').join(',');
+      await conn.query(
+        `INSERT INTO deck_wanted_cards (account_id, deck_id, deck_name, name, top_role, score, computed_at)
+         VALUES ${ph} ON DUPLICATE KEY UPDATE deck_name=VALUES(deck_name), top_role=VALUES(top_role), score=VALUES(score), computed_at=VALUES(computed_at)`,
+        batch.flat()
+      );
+    }
+    await conn.commit();
+    res.json({ ok: true, count: rows.length });
+  } catch (e) {
+    await conn.rollback();
+    res.status(500).json({ error: e.message });
+  } finally {
+    conn.release();
+  }
+});
+
+// Generate trade suggestions for a pairing. ?rank=N returns the N-th best
+// non-dismissed suggestion (0 = best). Dismissed signatures are filtered out.
+app.get('/api/trade/suggest/:username', requireAuth, async (req, res) => {
+  const username = String(req.params.username || '').toLowerCase().trim();
+  const rank = Math.max(0, parseInt(req.query.rank, 10) || 0);
+  try {
+    const [[owner]] = await db().query(
+      'SELECT id, username, display_name, trade_visibility FROM accounts WHERE username_ci = ?', [username]
+    );
+    if (!owner) return res.status(404).json({ error: 'User not found' });
+    if (Number(owner.id) === Number(req.accountId)) return res.status(400).json({ error: "Can't trade with yourself" });
+    if (!(await canViewTrader(req.accountId, owner.id, owner.trade_visibility))) {
+      return res.status(403).json({ error: 'This user is not open to trades with you' });
+    }
+    const variants = await buildTradeSuggestions(req.accountId, owner.id);
+    const [dis] = await db().query(
+      'SELECT signature FROM trade_suggestion_dismissals WHERE account_id = ? AND partner_id = ?',
+      [req.accountId, owner.id]
+    );
+    const dismissed = new Set(dis.map(d => d.signature));
+    const live = variants.filter(v => !dismissed.has(v.signature));
+    if (!live.length) {
+      return res.json({ partner: { id: owner.id, username: owner.username, displayName: owner.display_name },
+        suggestion: null, rank: 0, total: 0,
+        message: variants.length ? 'No more suggestions for this pairing.' : 'No mutual trade interest yet.' });
+    }
+    const idx = Math.min(rank, live.length - 1);
+    const s = live[idx];
+    res.json({
+      partner: { id: owner.id, username: owner.username, displayName: owner.display_name },
+      rank: idx, total: live.length,
+      suggestion: {
+        signature: s.signature,
+        give: s.give, receive: s.receive,
+        giveValueCents: s.giveValueCents, receiveValueCents: s.receiveValueCents,
+        deltaPct: s.deltaPct, tier: s.tier, favors: s.favors, favorCents: s.favorCents,
+      },
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Dismiss a suggestion (by content signature) so it never reappears for the pair.
+app.post('/api/trade/suggest/:username/dismiss', requireAuth, async (req, res) => {
+  const username = String(req.params.username || '').toLowerCase().trim();
+  const signature = String(req.body?.signature || '').slice(0, 40);
+  if (!signature) return res.status(400).json({ error: 'signature required' });
+  try {
+    const [[owner]] = await db().query('SELECT id FROM accounts WHERE username_ci = ?', [username]);
+    if (!owner) return res.status(404).json({ error: 'User not found' });
+    await db().query(
+      `INSERT INTO trade_suggestion_dismissals (account_id, partner_id, signature, created_at)
+       VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE created_at = VALUES(created_at)`,
+      [req.accountId, owner.id, signature, Date.now()]
+    );
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Trade history ────────────────────────────────────────────────────────────
+
+app.get('/api/trade/history', requireAuth, async (req, res) => {
+  try {
+    const sort = req.query.sort === 'value' ? 'value' : 'date';
+    const [rows] = await db().query(
+      `SELECT * FROM trade_history WHERE initiator_id = ? OR partner_id = ? ORDER BY completed_at DESC LIMIT 200`,
+      [req.accountId, req.accountId]
+    );
+    // Collect all scryfall ids to re-price at current (latest snapshot) value.
+    const allSids = new Set();
+    const parsed = rows.map(r => {
+      const snap = typeof r.snapshot === 'string' ? JSON.parse(r.snapshot) : r.snapshot;
+      (snap.items || []).forEach(i => i.scryfallId && allSids.add(i.scryfallId));
+      return { r, snap };
+    });
+    const dates = await getLatestTwoSnapshotDates();
+    const livePx = dates.length ? await getPricesForDate([...allSids], dates[0]) : new Map();
+    const out = parsed.map(({ r, snap }) => {
+      const iAmInitiator = Number(r.initiator_id) === Number(req.accountId);
+      // From my perspective: my give = my side; my receive = the other side.
+      const mySide = iAmInitiator ? 'a' : 'b';
+      const give = (snap.items || []).filter(i => i.side === mySide);
+      const receive = (snap.items || []).filter(i => i.side !== mySide);
+      const liveCents = items => items.reduce((s, i) => {
+        const rec = livePx.get(i.scryfallId);
+        const cur = rec ? (i.foil ? (rec.foilCents || rec.normalCents) : rec.normalCents) : 0;
+        const adj = tradeCore.lineUnitCents(cur || i.unitPriceCents, i.condition || 'NM');
+        return s + adj * (i.qty || 1);
+      }, 0);
+      const snapCents = items => items.reduce((s, i) => s + (i.lineCents || 0), 0);
+      const partner = iAmInitiator ? snap.partner : snap.initiator;
+      return {
+        id: r.id, tradeId: r.trade_id, finalStatus: r.final_status, completedAt: r.completed_at,
+        partner: partner || null,
+        give, receive,
+        giveSnapCents: snapCents(give), receiveSnapCents: snapCents(receive),
+        giveLiveCents: liveCents(give), receiveLiveCents: liveCents(receive),
+      };
+    });
+    if (sort === 'value') out.sort((a, b) => (b.giveSnapCents + b.receiveSnapCents) - (a.giveSnapCents + a.receiveSnapCents));
+    res.json(out);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ── Scryfall enrichment helper (server-side, mirrors import.js logic) ─────────
@@ -5042,9 +7282,37 @@ async function start() {
     runCollectionRoleTagsInfillBackground();
   };
 
+  // Daily MTGJSON price snapshot + threshold/drop pass. In-process node-cron,
+  // opt-in via PRICE_CRON_ENABLED=1 so dev/Capacitor builds don't poll MTGJSON.
+  let priceCronStarted = false;
+  const startPriceCronOnce = () => {
+    if (priceCronStarted) return;
+    priceCronStarted = true;
+    if (process.env.PRICE_CRON_ENABLED !== '1') {
+      console.log('[price-job] cron disabled (set PRICE_CRON_ENABLED=1 to enable daily snapshot)');
+      return;
+    }
+    const schedule = process.env.PRICE_CRON_SCHEDULE || '30 9 * * *';
+    const tz = process.env.PRICE_CRON_TZ || 'America/New_York';
+    if (!cron.validate(schedule)) { console.warn('[price-job] invalid PRICE_CRON_SCHEDULE, cron not started'); return; }
+    cron.schedule(schedule, () => { void runDailyPriceJob(); }, { timezone: tz });
+    console.log(`[price-job] daily cron scheduled (${schedule} ${tz})`);
+  };
+
   const runDbMigrations = async () => {
     try {
       await ensureAccountLoginMetaColumns();
+      await ensureAccountTradeColumns();
+      await ensureNotificationsTable();
+      await ensureTradesTables();
+      await ensureTradelistOverridesTable();
+      await ensureWishlistTradeColumns();
+      await ensurePriceHistorySchema();
+      await ensurePriceWatchesTable();
+      await ensureFriendshipsTable();
+      await ensureDeckWantedCardsTable();
+      await ensureTradeSuggestionDismissalsTable();
+      await ensureTradeHistoryTable();
       await ensureAppChangelogTable();
       await ensureConditionalKeywordsTable();
       await ensureMetricKeysTable();
@@ -5069,6 +7337,7 @@ async function start() {
     void (async () => {
       await runDbMigrations();
       startCollectionBgOnce();
+      startPriceCronOnce();
       await loadFingerprintIndex();
     })();
   };
@@ -5115,13 +7384,15 @@ async function start() {
   const keyFile  = path.join(certDir, 'server-key.pem');
   if (!process.env.SESSION_SECURE && fs.existsSync(certFile) && fs.existsSync(keyFile)) {
     const tlsOpts = { cert: fs.readFileSync(certFile), key: fs.readFileSync(keyFile) };
-    https.createServer(tlsOpts, app).listen(PORT, BIND_HOST, () => {
+    const primaryServer = https.createServer(tlsOpts, app);
+    primaryServer.listen(PORT, BIND_HOST, () => {
       console.log(
         `MTG Archive running at https://localhost:${PORT}  (HTTPS — camera OK on device)  [bound ${BIND_HOST}:${PORT}]`,
       );
       console.log(`  Note: plain http://localhost:${PORT} is not served. Use https:// in the address bar.`);
       scheduleMigrationsThenBg();
     });
+    attachRealtime(primaryServer);
     // Optional cleartext HTTP for Capacitor (no camera/mic). Prefer https:// in server.url (see setup-https.sh).
     const capRaw = process.env.CAPACITOR_HTTP_PORT;
     const capHttp =
@@ -5163,11 +7434,12 @@ async function start() {
         });
     }
   } else {
-    app.listen(PORT, BIND_HOST, () => {
+    const primaryServer = app.listen(PORT, BIND_HOST, () => {
       console.log(`MTG Archive running at http://localhost:${PORT}  [bound ${BIND_HOST}:${PORT}]`);
       console.log(`  → Camera scanner needs HTTPS on a real device. See README or run scripts/setup-https.sh`);
       scheduleMigrationsThenBg();
     });
+    attachRealtime(primaryServer);
   }
 }
 
