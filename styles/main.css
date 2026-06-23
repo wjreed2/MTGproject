@@ -321,6 +321,12 @@
   pointer-events: none;
 }
 .deck-tag-badge--corner svg { width: 15px; height: 15px; margin-bottom: 5px; }
+/* Touch devices keep :hover stuck after a tap, so .btn-outline:hover would make
+   the badge toggle look "on" when it's off. Let only .active drive the highlight. */
+@media (hover: none) {
+  #deckTagBadgeToggleBtn:hover { color: var(--text2); border-color: var(--border2); background: transparent; }
+  #deckTagBadgeToggleBtn.active:hover { color: var(--gold); border-color: rgba(200,168,74,0.55); background: var(--gold-dim); }
+}
 
 .deck-valid-row {
   display: flex;

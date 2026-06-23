@@ -322,10 +322,12 @@
   /* Drop the native caret so the ↑/↓ arrow sits centred in the box. */
   #tab-decks #deckListPanelHeader #deckStackSortDirSelect  { order: 9; width: 3rem; min-width: 0 !important; flex-shrink: 0; box-sizing: border-box; appearance: none; -webkit-appearance: none; text-align: center; text-align-last: center; padding-inline: 0; }
 
-  /* Row 3 — filter + stack/view toggles, centred as a group */
+  /* Row 3 — filter · badge toggle · view toggle, centred as a group.
+     Orientation toggle is hidden on mobile (horizontal stacks make no sense). */
   #tab-decks #deckListPanelHeader #deckListFilterToggleBtn { order: 11; margin-left: auto; }
-  #tab-decks #deckListPanelHeader #deckStackLayoutResetBtn { order: 12; }
-  #tab-decks #deckListPanelHeader #deckStackOrientToggle   { order: 13; }
+  #tab-decks #deckListPanelHeader #deckTagBadgeToggleBtn   { order: 12; }
+  #tab-decks #deckListPanelHeader #deckStackLayoutResetBtn { order: 13; }
+  #tab-decks #deckListPanelHeader #deckStackOrientToggle   { display: none !important; }
   #tab-decks #deckListPanelHeader #deckListViewToggle      { order: 14; margin-right: auto; }
 
   /* ── Suggested Cuts / Adds headers — controls drop below the title row ──
