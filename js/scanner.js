@@ -2858,6 +2858,7 @@ const SCN_FP_GUIDE_FILL = 0.9;         // guide frame fills this fraction of the
 const SCN_FP_LRU_MAX = 24;
 const SCN_FP_LRU_HAMMING = 6;          // reuse a recent match without a round-trip within this distance
 const SCN_FP_DEDUPE_HAMMING = 6;       // don't re-queue the same card while it lingers in frame
+const SCN_FP_WARMUP_MS = 900;          // wait this long after video dimensions settle before capturing
 
 let _scnFpStillSince = 0;              // timestamp the current still period began (0 = moving)
 let _scnFpPrevGray = null;             // previous downscaled luma frame (motion detection)
@@ -2866,6 +2867,8 @@ let _scnFpCooldownUntil = 0;
 let _scnFpAwaitingLeave = false;       // true after a queue: wait for the card to be removed/swapped
 let _scnFpLastAcceptedPhash = null;    // hex of the last queued card's full pHash
 let _scnFpPendingMatch = null;         // {phash, card} matched once, awaiting a confirming 2nd read
+let _scnFpDimKey = '';                 // last seen "WxH" video dimensions (camera warm-up)
+let _scnFpDimStableAt = 0;             // when the current dimensions first held
 let _scnFpLru = [];                    // [{phash, card}] recent matches → skip the network round-trip
 
 // 2x3 affine mapping source pts tl→(0,0), tr→(W,0), bl→(0,H). Parallelogram approximation of the
@@ -3020,6 +3023,13 @@ function _scnFingerprintTick(v, now) {
   _scnCardQuad = guide;
   _scnSyncScannerSvgLayout();
   if (!_scnOcrActive || _scnPaused || _scnFpInFlight) return;
+
+  // Camera warm-up: phones often switch resolution a beat after the stream starts, which shifts the
+  // frame. Don't capture until the video dimensions have held steady for a moment.
+  const dimKey = `${v.videoWidth}x${v.videoHeight}`;
+  if (dimKey !== _scnFpDimKey) { _scnFpDimKey = dimKey; _scnFpDimStableAt = now; _scnSetOverlay('Focusing…', '', 'hint'); return; }
+  if (now - _scnFpDimStableAt < SCN_FP_WARMUP_MS) return;
+
   if (now < _scnFpCooldownUntil) return;
 
   // Gate only on sharpness — rejects motion blur and empty frames, but does NOT force the user to
@@ -3040,7 +3050,7 @@ function _scnFingerprintTick(v, now) {
       }
       if (r.matched && r.best) {
         const ph = r._phash;
-        const setNum = `${(r.best.set || '').toUpperCase()} · #${r.best.collector_number || ''} · d=${r.distance}`;
+        const setNum = `${(r.best.set || '').toUpperCase()} · #${r.best.collector_number || ''} · d=${r.distance} a=${r.artDistance}`;
         // Lingering same card already added — ignore (swap to a new card to add another).
         if (_scnFpLastAcceptedPhash && PhashCore.hamming(ph, _scnFpLastAcceptedPhash) <= SCN_FP_DEDUPE_HAMMING) {
           _scnSetOverlay(r.best.name, 'already added ✓', 'match');
@@ -3066,7 +3076,7 @@ function _scnFingerprintTick(v, now) {
       } else {
         _scnFpPendingMatch = null; // a miss breaks the confirmation streak
         // Diagnostic readout: closest match + Hamming distance, so framing vs parity is visible.
-        _scnSetOverlay('No match', best ? `closest: ${best.name} · d=${r.distance}` : `d=${r.distance}`, 'hint');
+        _scnSetOverlay('No match', best ? `closest: ${best.name} · d=${r.distance} a=${r.artDistance}` : `d=${r.distance}`, 'hint');
         _scnFpCooldownUntil = performance.now() + 450;
       }
     } finally {
@@ -3084,6 +3094,8 @@ function _scnStartFingerprintScanning() {
   _scnFpPrevGray = null;
   _scnFpPendingMatch = null;
   _scnFpLastAcceptedPhash = null;
+  _scnFpDimKey = '';
+  _scnFpDimStableAt = 0;
   _scnFpCooldownUntil = 0;
   _scnLastBoundsMs = 0;
   _scnBoundsMiss = 0;

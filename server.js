@@ -3720,9 +3720,13 @@ app.get('/api/scryfall/card-id/:id', async (req, res) => {
 // card (computed with js/phash-core.js); we Hamming-search the in-memory index and return the
 // matched printing(s). OCR `hints` only disambiguate identical-art reprints. Unauthenticated,
 // matching /api/scryfall/named (no user data touched).
-const SCAN_ACCEPT_MAX = 12;   // best full-card Hamming distance to consider a confident match.
-// NB: with ~98k printings the nearest neighbour to a RANDOM frame sits ~14-16 bits away, so this
-// must stay comfortably below that to reject backgrounds/noise. Real card reads are typically <8.
+// A camera photo of a card sits ~14-16 bits from the pristine Scryfall scan, and with ~98k
+// printings the nearest neighbour to a RANDOM frame ALSO sits ~14-16 bits away on the full-card
+// hash — so the full hash alone can't separate cards from noise. The art-crop hash is the real
+// discriminator: a real card matches the SAME printing on both hashes, whereas a noise frame's
+// full-hash neighbour has an unrelated art (~32 bits away). So a confident match needs BOTH.
+const SCAN_ACCEPT_MAX = 18;     // full-card Hamming distance — loose pre-filter
+const SCAN_ART_ACCEPT_MAX = 22; // art-crop Hamming distance — the discriminating gate (noise ~32)
 const SCAN_AMBIG_MARGIN = 3;  // candidates within best+margin form the disambiguation group
 const SCAN_ART_TIE = 2;       // art-hash distance under which two printings count as "same art"
 
@@ -3765,7 +3769,9 @@ app.post('/api/scan/identify', async (req, res) => {
       }
     }
 
-    const matched = chosen.dist <= SCAN_ACCEPT_MAX;
+    // Confident match needs the full-card AND the art-crop hash to agree (art rejects noise).
+    const matched = chosen.dist <= SCAN_ACCEPT_MAX
+      && chosen.artDist != null && chosen.artDist <= SCAN_ART_ACCEPT_MAX;
     const toReturn = ambiguous ? group.slice(0, k) : [chosen];
     const cards = await _fingerprintCardsFor(toReturn.map(c => c.meta));
     cards.forEach((card, j) => {
@@ -3778,6 +3784,7 @@ app.post('/api/scan/identify', async (req, res) => {
       matched,
       ambiguous,
       distance: chosen.dist,
+      artDistance: chosen.artDist,
       best: matched ? (cards[0] || null) : null,
       candidates: cards,
     });
