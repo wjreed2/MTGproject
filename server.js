@@ -956,6 +956,53 @@ async function ensureAccountTradeColumns() {
   }
 }
 
+/** A username candidate base derived from an email local-part (sanitised). */
+function _usernameBaseFromEmail(email) {
+  let base = String(email || '').split('@')[0].toLowerCase().replace(/[^a-z0-9_]/g, '');
+  if (base.length < 3) base = (base + 'trader').slice(0, 8);
+  return base.slice(0, 28); // leave room for a numeric suffix
+}
+
+/** Generate a unique username for an account (used to auto-name discoverable users). */
+async function generateUniqueUsername(conn, email) {
+  const base = _usernameBaseFromEmail(email);
+  for (let i = 0; i < 60; i++) {
+    const candidate = (i === 0 ? base : `${base}${i}`).slice(0, 32);
+    const [[hit]] = await conn.query('SELECT 1 FROM accounts WHERE username_ci = ? LIMIT 1', [candidate]);
+    if (!hit) return candidate;
+  }
+  return `${base}${String(Math.floor(Math.random() * 100000))}`.slice(0, 32);
+}
+
+/**
+ * Discoverability needs a username, but the visibility toggle was independent of
+ * username setup — so users could go "Open to Trades" with no username and stay
+ * invisible in browse/search. Backfill a username for any such account so they
+ * become discoverable (they can change it later in the username picker).
+ */
+async function backfillTradeUsernames() {
+  const conn = await db().getConnection();
+  try {
+    if (!(await columnExists(conn, 'accounts', 'username'))) return;
+    const [rows] = await conn.query(
+      "SELECT id, email FROM accounts WHERE username IS NULL AND trade_visibility IN ('public','friends')"
+    );
+    let n = 0;
+    for (const r of rows) {
+      const u = await generateUniqueUsername(conn, r.email);
+      try {
+        const [res] = await conn.query(
+          'UPDATE accounts SET username = ?, username_ci = ? WHERE id = ? AND username IS NULL', [u, u, r.id]
+        );
+        if (res.affectedRows) n++;
+      } catch (e) { if (e.code !== 'ER_DUP_ENTRY') console.warn('[trade] username backfill', r.id, e.message); }
+    }
+    if (n) console.log(`[trade] backfilled ${n} username(s) for discoverable accounts`);
+  } finally {
+    conn.release();
+  }
+}
+
 // ── Tradelist (derived: collection − deck usage, plus persisted overrides) ────
 
 async function ensureTradelistOverridesTable() {
@@ -4227,9 +4274,23 @@ app.get('/api/trade/settings', requireAuth, async (req, res) => {
 app.put('/api/trade/settings', requireAuth, async (req, res) => {
   const b = req.body || {};
   try {
+    let assignedUsername = null;
     if (b.visibility != null) {
       const v = TRADE_VISIBILITIES.has(b.visibility) ? b.visibility : 'not_trading';
       await db().query('UPDATE accounts SET trade_visibility = ? WHERE id = ?', [v, req.accountId]);
+      // Discoverability needs a username — if the user goes public/friends without
+      // one, auto-assign so they actually appear in browse/search.
+      if (v === 'public' || v === 'friends') {
+        const [[acc]] = await db().query('SELECT username, email FROM accounts WHERE id = ?', [req.accountId]);
+        if (acc && !acc.username) {
+          const conn = await db().getConnection();
+          try {
+            const u = await generateUniqueUsername(conn, acc.email);
+            const [r] = await conn.query('UPDATE accounts SET username = ?, username_ci = ? WHERE id = ? AND username IS NULL', [u, u, req.accountId]);
+            if (r.affectedRows) assignedUsername = u;
+          } catch (_) {} finally { conn.release(); }
+        }
+      }
     }
     // Merge price-threshold defaults into the trade_settings preference blob.
     const keys = ['defaultPctUp', 'defaultPctDown', 'defaultCondition'];
@@ -4245,7 +4306,7 @@ app.put('/api/trade/settings', requireAuth, async (req, res) => {
         [req.accountId, JSON.stringify(prefs)]
       );
     }
-    res.json({ ok: true });
+    res.json({ ok: true, assignedUsername });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -7146,16 +7207,14 @@ function parseTagOverrideCustomTags(raw) {
 function serializeTagOverrideCustomTags(tags, tiers) {
   const tagList = [...new Set((tags || []).map(t => String(t || '').trim()).filter(Boolean))]
     .sort((a, b) => a.localeCompare(b));
-  const tierMap = {};
+  // Tiers may apply to either a custom My Tag (in tagList) OR a Scryfall default
+  // tag (Discard, Ramp, …) that the user marked primary/secondary in place — the
+  // latter is not in tagList, so keep every provided tier, not just used ones.
+  const usedTiers = {};
   for (const [k, v] of Object.entries(tiers || {})) {
     const key = String(k || '').trim().toLowerCase();
     if (!key) continue;
-    tierMap[key] = v === 'secondary' ? 'secondary' : 'primary';
-  }
-  const usedTiers = {};
-  for (const t of tagList) {
-    const key = t.toLowerCase();
-    if (tierMap[key]) usedTiers[key] = tierMap[key];
+    usedTiers[key] = v === 'secondary' ? 'secondary' : 'primary';
   }
   if (!Object.keys(usedTiers).length) return tagList;
   return { tags: tagList, tiers: usedTiers };
@@ -7337,6 +7396,7 @@ async function start() {
     try {
       await ensureAccountLoginMetaColumns();
       await ensureAccountTradeColumns();
+      await backfillTradeUsernames();
       await ensureNotificationsTable();
       await ensureTradesTables();
       await ensureTradelistOverridesTable();

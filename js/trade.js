@@ -886,11 +886,17 @@ async function saveTradePriceDefaults() {
 
 async function setTradeVisibility(v) {
   try {
-    await apiPut('/trade/settings', { visibility: v });
+    const r = await apiPut('/trade/settings', { visibility: v });
     _tradeSettings.visibility = v;
+    if (r && r.assignedUsername) {
+      _tradeSettings.username = r.assignedUsername;
+      if (_tradeMe && typeof _tradeMe === 'object') _tradeMe.username = r.assignedUsername;
+      showNotif(`You're discoverable as @${r.assignedUsername} — you can change it under Find Trades`);
+    } else {
+      showNotif('Trading visibility updated');
+    }
     const host = document.getElementById('tradeSectionBody');
     if (host && _tradeSection === 'tradelist') _paintTradelist(host);
-    showNotif('Trading visibility updated');
   } catch (e) { showNotif(e.message || 'Could not update', true); }
 }
 
@@ -1457,10 +1463,28 @@ async function saveUsername() {
   } catch (e) { if (err) err.textContent = e.message || 'Could not save username'; }
 }
 
+async function changeUsername() {
+  const next = await showPromptModal({
+    title: 'Change username',
+    body: 'Pick a new public handle. 3–32 characters: letters, numbers, underscore.',
+    defaultValue: _tradeMe.username || '', placeholder: 'username', okLabel: 'Save',
+  });
+  if (next === null) return;
+  const u = String(next).toLowerCase().trim();
+  try {
+    await apiPut('/trade/username', { username: u, displayName: _tradeMe.displayName || null });
+    _tradeMe.username = u;
+    if (typeof _tradeSettings === 'object') _tradeSettings.username = u;
+    showNotif(`Username changed to @${u}`);
+    const host = document.getElementById('tradeSectionBody');
+    if (host && _tradeSection === 'partners') _paintPartners(host);
+  } catch (e) { showNotif(e.message || 'Could not change username', true); }
+}
+
 async function _paintPartners(host) {
   host.innerHTML = `
     <div class="partners-bar">
-      <div class="partners-me">Trading as <strong>@${escapeHtml(_tradeMe.username)}</strong></div>
+      <div class="partners-me">Trading as <strong>@${escapeHtml(_tradeMe.username)}</strong> <button type="button" class="btn btn-ghost btn-sm" style="padding:1px 7px;font-size:0.72rem" onclick="changeUsername()">Change</button></div>
       <div class="partners-search">
         <input type="text" id="partnerSearch" class="calc-search-input" placeholder="Search traders by username…"
           oninput="partnerSearchInput(this.value)" autocomplete="off">

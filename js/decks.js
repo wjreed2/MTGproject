@@ -1751,15 +1751,21 @@ function _normalizeCustomTagTiers(tiers) {
 
 function _pruneCardCustomTagTiers(card) {
   if (!card?.customTagTiers) return;
+  // Keep tiers for custom My Tags AND for any default/role tag currently present on
+  // the card (tiers can attach to default tags in place, e.g. Discard as primary).
   const allowed = new Set((card.customTags || []).map(t => _tagTierKey(t)));
+  try {
+    (typeof _roleTagsForCard === 'function' ? _roleTagsForCard(card) : []).forEach(t => allowed.add(_tagTierKey(t)));
+  } catch (_) {}
   for (const k of Object.keys(card.customTagTiers)) {
     if (!allowed.has(k)) delete card.customTagTiers[k];
   }
 }
 
-function _getCardCustomTagTier(card, tag, oracleId) {
+/** Tier explicitly set for this tag on this card/oracle, or null if none. */
+function _getCardCustomTagTierRaw(card, tag, oracleId) {
   const key = _tagTierKey(tag);
-  if (!key) return 'primary';
+  if (!key) return null;
   if (card) {
     const tiers = card.customTagTiers;
     if (tiers && tiers[key]) return tiers[key] === 'secondary' ? 'secondary' : 'primary';
@@ -1769,7 +1775,11 @@ function _getCardCustomTagTier(card, tag, oracleId) {
     const ovTiers = _tagOverridesByOracleId.get(oid).customTagTiers;
     if (ovTiers && ovTiers[key]) return ovTiers[key] === 'secondary' ? 'secondary' : 'primary';
   }
-  return 'primary';
+  return null;
+}
+
+function _getCardCustomTagTier(card, tag, oracleId) {
+  return _getCardCustomTagTierRaw(card, tag, oracleId) || 'primary';
 }
 
 function _setCardCustomTagTier(card, tag, tier) {
@@ -1934,10 +1944,15 @@ function _seedUserTagCatalogFromUsage() {
 
 function _getUserTagTier(tag, opts = {}) {
   const t = String(tag || '');
-  if (_isProtectedDeckTag(t)) return 'default';
   if (opts.card || opts.oracleId) {
-    return _getCardCustomTagTier(opts.card, tag, opts.oracleId);
+    // A default tag the user marked primary/secondary in place shows its tier color;
+    // an untiered default tag stays 'default' (purple); a My Tag defaults to primary.
+    const raw = _getCardCustomTagTierRaw(opts.card, tag, opts.oracleId);
+    if (raw) return raw;
+    if (_isProtectedDeckTag(t)) return 'default';
+    return 'primary';
   }
+  if (_isProtectedDeckTag(t)) return 'default';
   if (opts.filter === 'secondary' || deckTagCatalogFilter === 'secondary') return 'secondary';
   return 'primary';
 }
@@ -3431,7 +3446,13 @@ function _entriesForCardTagPicker(filter, card) {
     catalog.forEach(pushUser);
     if (!isShared) _collectUsedUserTags().forEach(pushUser);
     userEntries.sort((a, b) => a.tag.localeCompare(b.tag));
-    return userEntries;
+    // Default tags can also be marked primary/secondary in place (they stay default
+    // tags, just gain a tier), so offer them as options here too.
+    const defaultEntries = _defaultTagsForPicker()
+      .filter(t => !seen.has(t))
+      .sort((a, b) => a.localeCompare(b))
+      .map(t => ({ tag: t, kind: 'defaultTier' }));
+    return [...userEntries, ...defaultEntries];
   }
 
   _defaultTagsForPicker().forEach(pushProtected);
@@ -3478,6 +3499,7 @@ function _bindDeckCardTagPickerClicks() {
     const entry = _deckCardTagPickerTarget?.entries?.[idx];
     if (!entry) return;
     if (entry.kind === 'protected') void toggleDeckCardProtectedTagOverride(entry.tag);
+    else if (entry.kind === 'defaultTier') void toggleDeckCardDefaultTagTier(entry.tag);
     else void toggleDeckCardCustomTag(entry.tag);
   });
   list.addEventListener('contextmenu', e => {
@@ -3485,7 +3507,17 @@ function _bindDeckCardTagPickerClicks() {
     if (!btn || !list.contains(btn)) return;
     const idx = Number(btn.dataset.tagPickIdx);
     const entry = _deckCardTagPickerTarget?.entries?.[idx];
-    if (!entry || entry.kind !== 'user') return;
+    if (!entry) return;
+    if (entry.kind === 'defaultTier') {
+      const card = _cardForTagPickerTarget();
+      const ovOracle = _deckCardTagPickerTarget?.ownerScope?.kind === 'shared' ? null : _deckCardTagPickerTarget?.oracleId;
+      if (!card || !_getCardCustomTagTierRaw(card, entry.tag, ovOracle)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      void toggleDeckCardDefaultTagTier(entry.tag, { cycleTier: true });
+      return;
+    }
+    if (entry.kind !== 'user') return;
     const card = _cardForTagPickerTarget();
     const ovOracle = _deckCardTagPickerTarget?.ownerScope?.kind === 'shared' ? null : _deckCardTagPickerTarget?.oracleId;
     if (!card || !_isUserTagActiveOnCard(card, entry.tag, ovOracle)) return;
@@ -3566,6 +3598,22 @@ function renderDeckCardTagPicker() {
       else if (forceOff) { cls = 'btn-danger'; hint = 'Forced OFF override'; }
       return `<button type="button" class="btn btn-sm ${cls}" data-tag-pick-idx="${i}" title="${hint}">${safe}</button>`;
     }
+    if (kind === 'defaultTier') {
+      // A Scryfall default tag offered as a primary/secondary option. It stays a
+      // default tag; a tier just adds teal/gold emphasis (and turns it on if absent).
+      const rawTier = _getCardCustomTagTierRaw(card, tag, oracleId);
+      const assignTier = _tierForTagPickerAssign();
+      const present = pickerTarget.overrideAdd.has(tag)
+        || (pickerTarget.defaultTags.has(tag) && !pickerTarget.overrideRemove.has(tag));
+      const shown = rawTier || assignTier;
+      const cls = rawTier
+        ? (rawTier === 'secondary' ? 'btn-secondary-tag' : 'btn-primary-tag')
+        : (shown === 'secondary' ? 'btn-outline btn-outline-secondary-tag' : 'btn-outline btn-outline-primary-tag');
+      const title = rawTier
+        ? `Default tag · ${rawTier} · click to clear tier · right-click to switch`
+        : `Default tag${present ? ' (on)' : ''} · click to mark as ${assignTier}`;
+      return `<button type="button" class="btn btn-sm ${cls}" data-tag-pick-idx="${i}" data-default-tier="1" title="${title}">${safe}</button>`;
+    }
     const active = _isUserTagActiveOnCard(card, tag, oracleId);
     const tier = active
       ? _getCardCustomTagTier(card, tag, oracleId)
@@ -3605,6 +3653,24 @@ function _getGlobalCustomTagsForCard(card) {
     }
   }
   return _sortUserTagsForDisplay([...merged].filter(Boolean), card);
+}
+
+/**
+ * Default/role tags on a card that the user gave a primary/secondary tier. These show
+ * in the MY TAGS row too (in addition to the DEFAULT TAGS row) so a tiered default tag
+ * appears in both sections.
+ */
+function _tieredDefaultTagsForCard(card) {
+  if (!card) return [];
+  const oid = _oracleIdForMyTags(card);
+  let roleTags = [];
+  try { roleTags = (typeof _roleTagsForCard === 'function' ? _roleTagsForCard(card) : []) || []; } catch (_) {}
+  const out = [];
+  for (const t of roleTags) {
+    if (!_isProtectedDeckTag(t) || t === 'Commander') continue;
+    if (_getCardCustomTagTierRaw(card, t, oid)) out.push(t);
+  }
+  return out;
 }
 
 function _applyGlobalCustomTagsToCard(card) {
@@ -3805,11 +3871,17 @@ async function toggleDeckCardCustomTag(tag, opts = {}) {
   if (activeSlot) recordDeckEvent(isAdding ? 'tag_add' : 'tag_remove', activeSlot, tag);
   if (collCard) save('collection');
   save('decks');
-  if (active) renderDeckList(active);
+  // Refresh the picker + card inspector FIRST so the change is always reflected, even
+  // if the heavier deck-list re-render below throws — otherwise an error there would
+  // silently swallow the whole update (tag saved, but no chip ever appears).
   renderDeckCardTagPicker();
   if (typeof _loadCardDetailMyTags === 'function') void _loadCardDetailMyTags(card);
   else if (typeof patchOpenCardDetailMyTags === 'function') patchOpenCardDetailMyTags();
   if (typeof _loadCardDetailDefaultTags === 'function') void _loadCardDetailDefaultTags(card);
+  if (active) {
+    try { renderDeckList(active); }
+    catch (e) { console.error('renderDeckList failed after tag change', e); }
+  }
 }
 
 function setCardAsCommander() {
@@ -3959,14 +4031,115 @@ async function toggleDeckCardProtectedTagOverride(tag) {
   }
 }
 
-function addAndAssignDeckTagFromPicker() {
+/**
+ * Mark a Scryfall default tag (Discard, Ramp, …) as primary/secondary on a card. The
+ * tag STAYS a default tag — the tier just adds teal/gold emphasis and turns the tag on
+ * if it wasn't already present. Stored in the per-oracle override's customTagTiers, so
+ * it can be applied independently to any card.
+ *   click            → set the active filter's tier (primary/secondary); re-click clears it
+ *   { cycleTier }    → flip primary↔secondary (right-click; only when a tier is set)
+ */
+async function toggleDeckCardDefaultTagTier(tag, opts = {}) {
+  tag = String(tag || '').trim();
+  const t = _deckCardTagPickerTarget;
+  if (!t || !tag || tag === 'Commander' || !_isProtectedDeckTag(tag)) return;
+  const card = _findCardForTagPicker(t.cardUid);
+  if (!card) return;
+
+  let oracleId = _normalizeTagOracleId(t.oracleId);
+  if (!oracleId) {
+    oracleId = _normalizeTagOracleId(await _resolveOracleIdForCard(card));
+    if (oracleId) {
+      t.oracleId = oracleId;
+      card.oracleId = oracleId;
+      const sid = String(card.scryfallId || '').trim().toLowerCase();
+      if (sid) _scryOracleByPrintId.set(sid, oracleId);
+    }
+  }
+  if (!oracleId) {
+    showNotif('Could not resolve this card for tags — try again in a moment', true);
+    return;
+  }
+
+  if (!_tagOverridesByOracleId.has(oracleId)) {
+    _tagOverridesByOracleId.set(oracleId, { addTags: [], removeTags: [], customTags: [], customTagTiers: {}, updatedAt: Date.now(), cardName: card.name });
+  }
+  const ov = _tagOverridesByOracleId.get(oracleId);
+  if (!ov.customTagTiers || typeof ov.customTagTiers !== 'object') ov.customTagTiers = {};
+  if (!Array.isArray(ov.addTags)) ov.addTags = [];
+  if (!Array.isArray(ov.removeTags)) ov.removeTags = [];
+
+  const key = _tagTierKey(tag);
+  const currentTier = ov.customTagTiers[key] || null;
+  const present = t.overrideAdd.has(tag) || (t.defaultTags.has(tag) && !t.overrideRemove.has(tag));
+
+  let nextTier;
+  if (opts.cycleTier) {
+    if (!currentTier) return;
+    nextTier = currentTier === 'secondary' ? 'primary' : 'secondary';
+  } else {
+    const want = _tierForTagPickerAssign();
+    nextTier = currentTier === want ? null : want;
+  }
+
+  if (nextTier) {
+    ov.customTagTiers[key] = nextTier;
+    // A tier is only visible if the tag is on — turn it on if it wasn't already.
+    if (!present) { t.overrideRemove.delete(tag); t.overrideAdd.add(tag); }
+  } else {
+    delete ov.customTagTiers[key];
+  }
+  ov.addTags = [...t.overrideAdd].sort((a, b) => a.localeCompare(b));
+  ov.removeTags = [...t.overrideRemove].sort((a, b) => a.localeCompare(b));
+  ov.updatedAt = Date.now();
+  if (!ov.cardName) ov.cardName = card.name;
+
+  try {
+    await _saveGlobalCustomTags(oracleId);
+  } catch (e) {
+    showNotif(e.message || 'Could not save tag', true);
+    return;
+  }
+
+  // Mirror the tier onto in-memory card copies so deck-list / inspector colors update.
+  const applyTier = c => {
+    if (!c) return;
+    if (nextTier) _setCardCustomTagTier(c, tag, nextTier);
+    else _removeCardCustomTagTier(c, tag);
+  };
+  applyTier(card);
+  const collCard = (collection || []).find(c => _cardMatchesRef(c, t.cardUid));
+  applyTier(collCard);
+  const cardNameLower = (card.name || '').toLowerCase();
+  [...decks, ...sharedDecks].forEach(d => {
+    _deckAllZoneCards(d).forEach(c => {
+      const cOid = String(c.oracleId || _scryOracleByPrintId.get(c.scryfallId || '') || '').toLowerCase();
+      if ((oracleId && cOid === oracleId) || (c.name || '').toLowerCase() === cardNameLower) applyTier(c);
+    });
+  });
+
+  if (collCard) save('collection');
+  save('decks');
+  renderDeckCardTagPicker();
+  if (typeof _loadCardDetailMyTags === 'function') void _loadCardDetailMyTags(card);
+  if (typeof _loadCardDetailDefaultTags === 'function') void _loadCardDetailDefaultTags(card);
+  const active = getActiveDeck();
+  if (active) {
+    try { renderDeckList(active); }
+    catch (e) { console.error('renderDeckList failed after default-tag tier change', e); }
+  }
+  showNotif(nextTier ? `"${tag}" set as ${nextTier} on this card` : `Cleared tier on "${tag}"`);
+}
+
+async function addAndAssignDeckTagFromPicker() {
   const input = document.getElementById('deckCardTagNewInput');
   const tag = normalizeDeckTagName(input?.value);
   if (!tag) return;
   const isShared = _deckCardTagPickerTarget?.ownerScope?.kind === 'shared';
   if (_isProtectedDeckTag(tag) && !_userDeckTagsUnion().includes(tag)) {
     if (input) input.value = '';
-    void toggleDeckCardProtectedTagOverride(tag);
+    try { await toggleDeckCardProtectedTagOverride(tag); }
+    catch (e) { console.error('toggleDeckCardProtectedTagOverride failed', e); showNotif(e?.message || 'Could not assign tag', true); }
     return;
   }
   // In shared scope a new tag belongs to the owner's deck only — keep it out of your catalog.
@@ -3975,7 +4148,14 @@ function addAndAssignDeckTagFromPicker() {
     save('prefs');
   }
   if (input) input.value = '';
-  void toggleDeckCardCustomTag(tag);
+  // Don't swallow failures: a thrown error here used to vanish (fire-and-forget),
+  // leaving the tag saved but no chip rendered and no feedback to the user.
+  try {
+    await toggleDeckCardCustomTag(tag);
+  } catch (e) {
+    console.error('toggleDeckCardCustomTag failed', e);
+    showNotif(e?.message || 'Could not assign tag', true);
+  }
 }
 
 function _buildDeckGroups(cards, groupBy) {
@@ -9278,6 +9458,17 @@ async function _refreshDeckScryfallTags(deck) {
   const cards = deck.cards || [];
   const oidByCard = new Map();
 
+  // Snapshot the role-tag badge each card currently paints. The badge comes from
+  // caches we fill below (oracle id + Scryfall tags), and a plain spell gaining a
+  // tag like "Card Draw" doesn't flip `changed` (that only tracks synced auto-role
+  // customTags). Late-resolving printings (e.g. special full-art) therefore render
+  // once with a cold cache and never repaint — so diff the badge to force a redraw.
+  const _badgeSig = (c) => {
+    try { const r = _roleTagsForCard(c); return (r && r.length) ? r[0] : ''; }
+    catch (_) { return ''; }
+  };
+  const beforeBadges = deckTagBadgesEnabled ? cards.map(_badgeSig) : null;
+
   // 1) Resolve everything we already know locally — no network at all.
   const unresolved = [];
   for (const c of cards) {
@@ -9335,8 +9526,11 @@ async function _refreshDeckScryfallTags(deck) {
   // someone else's deck (syncDeckAutoRoleTags is a no-op we must skip here).
   const changed = !activeDeckIsShared && syncDeckAutoRoleTags(deck);
   if (changed) saveActiveDeck(deck);
+  const badgesChanged = beforeBadges
+    ? cards.some((c, i) => _badgeSig(c) !== beforeBadges[i])
+    : false;
   if (deck.id === activeDeckId) {
-    if (changed || _isTagGroupByMode(deckGroupBy)) renderDeckList(deck);
+    if (changed || badgesChanged || _isTagGroupByMode(deckGroupBy)) renderDeckList(deck);
     if (changed) {
       renderManaCostProfile(deck);
       renderManaCurve(deck);

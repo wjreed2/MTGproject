@@ -769,6 +769,18 @@ async function _deferredHydrateCardDetail(card, openSession, actionUid, isOwned)
   } catch (_) {}
 }
 
+/** True when a default/role tag has been given a primary/secondary tier (so it moves to MY TAGS). */
+function _cardDetailDefaultTagIsTiered(card, t) {
+  return typeof _getCardCustomTagTierRaw === 'function'
+    && !!_getCardCustomTagTierRaw(card, t, card && card.oracleId);
+}
+
+/** Default-tag chip for the inspector (tiered ones are shown in the MY TAGS row instead). */
+function _cardDetailDefaultTagChipHtml(card, t) {
+  const prot = typeof _isProtectedDeckTag === 'function' && _isProtectedDeckTag(t);
+  return `<span class="tag ${prot ? 'tag-scryfall' : 'tag-purple'}" style="font-size:0.84rem">${escapeHtml(t)}</span>`;
+}
+
 function _renderCardDetailDefaultTagsInitialHtml(card) {
   if (!card || (!card.scryfallId && !card.oracleId)) {
     return '<span style="font-size:0.72rem;color:var(--text3)">—</span>';
@@ -776,11 +788,9 @@ function _renderCardDetailDefaultTagsInitialHtml(card) {
   const tags = typeof _defaultTagsForCardInspector === 'function'
     ? _defaultTagsForCardInspector(card)
     : (typeof _roleTagsForCard === 'function' ? _roleTagsForCard(card) : []);
-  if (tags.length) {
-    return tags.map(t => {
-      const prot = typeof _isProtectedDeckTag === 'function' && _isProtectedDeckTag(t);
-      return `<span class="tag ${prot ? 'tag-scryfall' : 'tag-purple'}" style="font-size:0.84rem">${escapeHtml(t)}</span>`;
-    }).join('');
+  const shown = tags.filter(t => !_cardDetailDefaultTagIsTiered(card, t));
+  if (shown.length) {
+    return shown.map(t => _cardDetailDefaultTagChipHtml(card, t)).join('');
   }
   return '<span class="card-detail-tags-pending" aria-hidden="true"></span>';
 }
@@ -1586,10 +1596,13 @@ function _htmlOpenCardDetailRightColumn(ctx) {
     activeDeck, activeDeckCard, inDeckQty,
     isCommanderCandidate, isWishlisted,
   } = ctx;
-  const globalCustomTags = typeof _getGlobalCustomTagsForCard === 'function' ? _getGlobalCustomTagsForCard(card) : [];
+  const myTags = typeof _getGlobalCustomTagsForCard === 'function' ? _getGlobalCustomTagsForCard(card) : [];
+  const tieredDefaults = typeof _tieredDefaultTagsForCard === 'function' ? _tieredDefaultTagsForCard(card) : [];
+  let globalCustomTags = [...new Set([...myTags, ...tieredDefaults])];
+  if (typeof _sortUserTagsForDisplay === 'function') globalCustomTags = _sortUserTagsForDisplay(globalCustomTags, card);
   const myTagsChipsHtml = globalCustomTags.length
     ? globalCustomTags.map(t => (typeof _deckTagChipHtml === 'function'
-      ? _deckTagChipHtml(t, { interactive: false, size: '0.84rem' })
+      ? _deckTagChipHtml(t, { interactive: false, size: '0.84rem', card })
       : `<span class="tag tag-primary" style="font-size:0.84rem">${escapeHtml(t)}</span>`)).join('')
     : '<span class="card-detail-row-hint">No tags yet</span>';
   const actionUidRef = (actionUid || '').replace(/'/g, "\\'");
@@ -2051,14 +2064,12 @@ async function _loadCardDetailDefaultTags(card) {
       ? _defaultTagsForCardInspector(card)
       : _roleTagsForCard(card);
     if (!modal.classList.contains('open') || document.getElementById('cardDetailDefaultTags') !== el) return;
-    if (!tags.length) {
+    const shown = tags.filter(t => !_cardDetailDefaultTagIsTiered(card, t));
+    if (!shown.length) {
       el.innerHTML = '<span style="font-size:0.72rem;color:var(--text3)">None</span>';
       return;
     }
-    el.innerHTML = tags.map(t => {
-      const prot = typeof _isProtectedDeckTag === 'function' && _isProtectedDeckTag(t);
-      return `<span class="tag ${prot ? 'tag-scryfall' : 'tag-purple'}" style="font-size:0.84rem">${escapeHtml(t)}</span>`;
-    }).join('');
+    el.innerHTML = shown.map(t => _cardDetailDefaultTagChipHtml(card, t)).join('');
     if (typeof activeDeckId !== 'undefined' && activeDeckId && typeof getActiveDeck === 'function') {
       const deck = getActiveDeck();
       if (deck && (deck.cards || []).some(c => c === card || c.uid === card.uid || c.scryfallId === card.scryfallId)) {
@@ -2267,9 +2278,15 @@ function patchOpenCardDetailMyTags() {
   const card = typeof _findCardForTagPicker === 'function'
     ? _findCardForTagPicker(_cardDetailCurrentUid)
     : (collection || []).find(c => c.uid === _cardDetailCurrentUid || c.scryfallId === _cardDetailCurrentUid);
-  const globalTags = card && typeof _getGlobalCustomTagsForCard === 'function'
+  const myTags = card && typeof _getGlobalCustomTagsForCard === 'function'
     ? _getGlobalCustomTagsForCard(card)
     : [];
+  // Default/role tags the user tiered (primary/secondary) also belong in this row.
+  const tieredDefaults = card && typeof _tieredDefaultTagsForCard === 'function'
+    ? _tieredDefaultTagsForCard(card)
+    : [];
+  let globalTags = [...new Set([...myTags, ...tieredDefaults])];
+  if (typeof _sortUserTagsForDisplay === 'function') globalTags = _sortUserTagsForDisplay(globalTags, card);
   const chipsHtml = globalTags.length
     ? globalTags.map(t => (typeof _deckTagChipHtml === 'function'
       ? _deckTagChipHtml(t, { interactive: false, size: '0.84rem', card })
