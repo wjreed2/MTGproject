@@ -10,8 +10,16 @@ const _TRADE_SECTIONS = [
   { key: 'tradelist',  label: 'Tradelist' },
   { key: 'wishlist',   label: 'Wishlist' },
   { key: 'partners',   label: 'Find Trades' },
+  { key: 'watches',    label: 'Price Alerts' },
   { key: 'history',    label: 'History' },
 ];
+
+// Inline SVG line icons (no emoji — match the app's icon style). 1em so they
+// scale with the surrounding text.
+const _ICON_BELL = '<svg class="tf-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6a4 4 0 0 0-8 0c0 4.5-2 5.5-2 5.5h12s-2-1-2-5.5"/><path d="M9.3 13.5a1.5 1.5 0 0 1-2.6 0"/></svg>';
+const _ICON_UP = '<svg class="tf-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13.5V5"/><path d="M4.5 8 8 4.5 11.5 8"/><path d="M4.5 2.5h7"/></svg>';
+const _ICON_SPARKLE = '<svg class="tf-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M7 2.2 8.1 5.4 11.3 6.5 8.1 7.6 7 10.8 5.9 7.6 2.7 6.5 5.9 5.4z"/><path d="M12.2 9.6l.5 1.5 1.5.5-1.5.5-.5 1.5-.5-1.5-1.5-.5 1.5-.5z"/></svg>';
+const _ICON_WARN = '<svg class="tf-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.6 14.4 13.4H1.6z"/><line x1="8" y1="6.6" x2="8" y2="9.6"/><circle cx="8" cy="11.4" r="0.55" fill="currentColor" stroke="none"/></svg>';
 
 function renderTrade() {
   const root = document.getElementById('tab-trade');
@@ -63,6 +71,9 @@ function renderTradeSection() {
       break;
     case 'partners':
       if (typeof renderTradePartnersSection === 'function') return renderTradePartnersSection(host);
+      break;
+    case 'watches':
+      if (typeof renderTradeWatchesSection === 'function') return renderTradeWatchesSection(host);
       break;
     case 'history':
       if (typeof renderTradeHistorySection === 'function') return renderTradeHistorySection(host);
@@ -127,7 +138,7 @@ function _calcSideHtml(side) {
       </div>
       <div class="calc-search">
         <input type="text" class="calc-search-input" id="calcSearch-${side}"
-          placeholder="Add a card to ${_calcSideLabel(side).toLowerCase()}…"
+          placeholder="${side === 'a' ? 'Add a card you own…' : 'Add any card…'}"
           oninput="tradeCalcSearchInput('${side}', this.value)" autocomplete="off">
         <div class="calc-search-results" id="calcResults-${side}"></div>
       </div>
@@ -298,7 +309,38 @@ function tradeCalcSearchInput(side, query) {
   _calcSearchTimers[side] = setTimeout(() => _runCalcSearch(side, q), 220);
 }
 
+// Owned printings matching a name — one result per printing+foil you actually
+// own, with its quantity. Used for "give" / tradelist adds (you can only give
+// cards you own).
+function _collectionSearchResults(query) {
+  const q = String(query || '').toLowerCase();
+  const seen = new Set();
+  const out = [];
+  (typeof collection !== 'undefined' ? collection : []).forEach(c => {
+    if (!(c.name || '').toLowerCase().includes(q)) return;
+    const uid = c.uid || (c.scryfallId + (c.foil ? '_f' : '_n'));
+    if (seen.has(uid)) return;
+    seen.add(uid);
+    out.push({
+      scryfallId: c.scryfallId, name: c.name, set: c.set, number: c.number,
+      image: c.image || c.imageLarge, imageLarge: c.imageLarge || c.image, type: c.type,
+      foil: !!c.foil, ownedQty: c.qty || 1,
+      nonFoilCents: usdToCents(c.priceTCG), foilCents: usdToCents(c.priceTCGFoil),
+      owned: true,
+    });
+  });
+  out.sort((a, b) => (a.name || '').localeCompare(b.name || '') || (a.foil - b.foil) || (a.set || '').localeCompare(b.set || ''));
+  return out.slice(0, 40);
+}
+
 async function _runCalcSearch(side, query) {
+  // "You Give" (side a): only cards in your collection — you can't give what you don't own.
+  if (side === 'a') {
+    _calcSearchResults['a'] = _collectionSearchResults(query);
+    _renderCalcResults('a');
+    return;
+  }
+  // "You Receive" (side b): collection first, then the full card database.
   const localByName = {};
   (typeof collection !== 'undefined' ? collection : []).forEach(c => {
     if ((c.name || '').toLowerCase().includes(query.toLowerCase()) && !localByName[c.scryfallId]) {
@@ -353,12 +395,15 @@ function _renderCalcResults(side) {
   if (!results.length) { el.innerHTML = ''; el.classList.remove('open'); return; }
   el.classList.add('open');
   el.innerHTML = results.map((r, i) => {
-    const price = r.nonFoilCents > 0 ? fmtUsd(r.nonFoilCents) : '—';
+    const unit = r.foil ? r.foilCents : r.nonFoilCents;
+    const price = unit > 0 ? fmtUsd(unit) : '—';
+    const foilTag = r.foil ? ' <span class="calc-foil-tag">✦ foil</span>' : '';
+    const qtyTag = r.owned && r.ownedQty ? ` · ×${r.ownedQty}` : '';
     return `<button type="button" class="calc-result" onclick="tradeCalcAddResult('${side}', ${i})">
       <div class="calc-result-thumb">${r.image ? `<img src="${escapeHtml(r.image)}" loading="lazy" alt="">` : ''}</div>
       <div class="calc-result-info">
-        <div class="calc-result-name">${escapeHtml(r.name)}${r.owned ? ' <span class="calc-owned-dot" title="In your collection"></span>' : ''}</div>
-        <div class="calc-result-sub">${escapeHtml((r.set || '').toUpperCase())}${r.number ? ' #' + escapeHtml(r.number) : ''} · ${price}</div>
+        <div class="calc-result-name">${escapeHtml(r.name)}${foilTag}${r.owned ? ' <span class="calc-owned-dot" title="In your collection"></span>' : ''}</div>
+        <div class="calc-result-sub">${escapeHtml((r.set || '').toUpperCase())}${r.number ? ' #' + escapeHtml(r.number) : ''} · ${price}${qtyTag}</div>
       </div>
     </button>`;
   }).join('');
@@ -369,7 +414,7 @@ async function tradeCalcAddResult(side, idx) {
   if (!r) return;
   // Surplus warning when giving away a card you don't have spare copies of.
   if (side === 'a' && typeof getAvailableCollectionQtyForCard === 'function') {
-    const probe = { scryfallId: r.scryfallId, foil: false };
+    const probe = { scryfallId: r.scryfallId, foil: !!r.foil };
     const available = getAvailableCollectionQtyForCard(probe);
     const ownedAny = (typeof collection !== 'undefined' ? collection : [])
       .some(c => c.scryfallId === r.scryfallId);
@@ -385,7 +430,8 @@ async function tradeCalcAddResult(side, idx) {
       if (!ok) return;
     }
   }
-  _addCalcLine(side, r, false);
+  // Collection results carry the owned foil status; full-DB results default non-foil.
+  _addCalcLine(side, r, !!r.foil);
 }
 
 function _addCalcLine(side, r, foil) {
@@ -757,7 +803,7 @@ function _paintTradelist(host) {
   const removed = _tradelistData.removed || [];
   host.innerHTML = `
     ${_tradeSettingsBarHtml()}
-    ${_tradeToolbarHtml('tl', 'Add a card to your tradelist…', 'tradelistAddInput')}
+    ${_tradeToolbarHtml('tl', 'Add a card you own to your tradelist…', 'tradelistAddInput')}
     <div class="trade-meta-row">
       <span class="tl-count" id="tlCount"></span>
       <span class="tl-total" id="tlTotal"></span>
@@ -934,18 +980,9 @@ function tradelistAddInput(query) {
   _tradelistAddTimer = setTimeout(() => _runTradelistAddSearch(q), 220);
 }
 
+// Tradelist adds are force-includes of cards you own (collection-only search).
 async function _runTradelistAddSearch(query) {
-  try {
-    const res = await fetch(
-      `${mtgApiRoot()}/scryfall/search?q=${encodeURIComponent(`!"${query}" -is:extra`)}&order=released&unique=prints`,
-      { credentials: 'include' });
-    const data = res.ok ? await res.json() : { data: [] };
-    _tradelistAddResults = (data.data || []).slice(0, 20).map(c => {
-      const iu = c.image_uris || c.card_faces?.[0]?.image_uris || {};
-      return { scryfallId: c.id, name: c.name, set: c.set, number: c.collector_number,
-               image: iu.small || iu.normal || '' };
-    });
-  } catch (_) { _tradelistAddResults = []; }
+  _tradelistAddResults = _collectionSearchResults(query);
   _renderTradelistAddResults();
 }
 
@@ -954,20 +991,24 @@ function _renderTradelistAddResults() {
   if (!el) return;
   if (!_tradelistAddResults.length) { el.classList.remove('open'); el.innerHTML = ''; return; }
   el.classList.add('open');
-  el.innerHTML = _tradelistAddResults.map((r, i) => `
-    <button type="button" class="calc-result" onclick="tradelistAddCard(${i}, false)">
+  el.innerHTML = _tradelistAddResults.map((r, i) => {
+    const foilTag = r.foil ? ' <span class="calc-foil-tag">✦ foil</span>' : '';
+    const qtyTag = r.ownedQty ? ` · ×${r.ownedQty}` : '';
+    return `
+    <button type="button" class="calc-result" onclick="tradelistAddCard(${i})">
       <div class="calc-result-thumb">${r.image ? `<img src="${escapeHtml(r.image)}" alt="">` : ''}</div>
       <div class="calc-result-info">
-        <div class="calc-result-name">${escapeHtml(r.name)}</div>
-        <div class="calc-result-sub">${escapeHtml((r.set || '').toUpperCase())}${r.number ? ' #' + escapeHtml(r.number) : ''}</div>
+        <div class="calc-result-name">${escapeHtml(r.name)}${foilTag}</div>
+        <div class="calc-result-sub">${escapeHtml((r.set || '').toUpperCase())}${r.number ? ' #' + escapeHtml(r.number) : ''}${qtyTag}</div>
       </div>
-    </button>`).join('');
+    </button>`;
+  }).join('');
 }
 
-async function tradelistAddCard(idx, foil) {
+async function tradelistAddCard(idx) {
   const r = _tradelistAddResults[idx];
   if (!r) return;
-  const uid = r.scryfallId + (foil ? '_f' : '_n');
+  const uid = r.scryfallId + (r.foil ? '_f' : '_n');
   try {
     await apiPut('/tradelist/overrides', { uid, kind: 'include', qty: 1, note: r.name });
     const input = document.getElementById('tlAddSearch');
@@ -988,7 +1029,7 @@ const _WISH_SOURCE_BADGE = {
   manual: null,
   deck_needed: { label: 'Deck needs', cls: 'src-deck' },
   pending_trade: { label: 'Pending trade', cls: 'src-trade' },
-  upgrade_target: { label: '⬆ Upgrade', cls: 'src-upgrade' },
+  upgrade_target: { label: 'Upgrade', icon: _ICON_UP, cls: 'src-upgrade' },
 };
 const _PRIORITY_ORDER = ['high', 'med', 'low'];
 const _PRIORITY_LABEL = { high: 'High', med: 'Medium', low: 'Low' };
@@ -1050,7 +1091,7 @@ function _wishlistCardHtml(c) {
       <div class="card-img-wrap${c.foil ? ' foil' : ''}" onclick="tradeCalcOpenCard('${escapeHtml(c.scryfallId || '')}')">
         ${_tradeCardImgHtml(c)}
         ${c.foil ? `<div class="card-foil-overlay"></div><div class="card-foil-badge">✦ FOIL</div>` : ''}
-        ${badge ? `<span class="wl-src-badge ${badge.cls}">${escapeHtml(badge.label)}</span>` : ''}
+        ${badge ? `<span class="wl-src-badge ${badge.cls}">${badge.icon || ''}${escapeHtml(badge.label)}</span>` : ''}
       </div>
       <div class="card-meta trade-card-foot">
         <div class="card-name">${escapeHtml(c.name)}</div>
@@ -1163,8 +1204,11 @@ function addManualWishlistCard(card, opts = {}) {
 
 // ── Price-watch config modal (per-card thresholds) ──────────────────────────
 
-async function openPriceWatchModal(scryfallId, foil, cardName) {
+let _pwCardName = null, _pwCardData = null;
+async function openPriceWatchModal(scryfallId, foil, cardName, cardData) {
   if (!scryfallId) { showNotif('No card to watch', true); return; }
+  _pwCardName = cardName || null;
+  _pwCardData = (cardData && typeof cardData === 'object') ? cardData : null;
   let cur = null;
   try { cur = await apiFetch(`/price-watch/${encodeURIComponent(scryfallId)}?foil=${foil ? 1 : 0}`); } catch (_) {}
   const v = cur || {};
@@ -1176,7 +1220,7 @@ async function openPriceWatchModal(scryfallId, foil, cardName) {
   overlay.innerHTML = `
     <div class="modal" style="max-width:420px">
       <button class="modal-close-x" onclick="closePriceWatchModal()">✕</button>
-      <div class="modal-title">🔔 Price watch</div>
+      <div class="modal-title">${_ICON_BELL} Price watch</div>
       <div style="color:var(--text2);font-size:0.85rem;margin-bottom:14px">${escapeHtml(cardName || 'this card')}${foil ? ' (foil)' : ''}</div>
       <div class="pw-field">
         <label>Target price (alerts + auto-adds to tradelist when reached)</label>
@@ -1207,7 +1251,7 @@ async function savePriceWatch(scryfallId, foil) {
   const up = document.getElementById('pwUp')?.value;
   const down = document.getElementById('pwDown')?.value;
   const body = {
-    scryfallId, foil,
+    scryfallId, foil, name: _pwCardName, cardData: _pwCardData,
     targetPriceCents: t !== '' && t != null ? Math.round(parseFloat(t) * 100) : null,
     targetPctUp: up !== '' && up != null ? parseFloat(up) : null,
     targetPctDown: down !== '' && down != null ? parseFloat(down) : null,
@@ -1216,6 +1260,7 @@ async function savePriceWatch(scryfallId, foil) {
     await apiPut('/price-watch', body);
     closePriceWatchModal();
     showNotif('Price watch saved');
+    _refreshWatchesIfOpen();
   } catch (e) { showNotif(e.message || 'Could not save watch', true); }
 }
 
@@ -1225,6 +1270,70 @@ async function clearPriceWatch(scryfallId, foil) {
     await apiDelete(`/price-watch/${encodeURIComponent(uid)}`);
     closePriceWatchModal();
     showNotif('Price watch removed');
+    _refreshWatchesIfOpen();
+  } catch (e) { showNotif(e.message || 'Could not remove', true); }
+}
+
+function _refreshWatchesIfOpen() {
+  if (_tradeSection !== 'watches') return;
+  const host = document.getElementById('tradeSectionBody');
+  if (host) renderTradeWatchesSection(host);
+}
+
+// ── Price Alerts: a list of every card you're watching ──────────────────────
+
+async function renderTradeWatchesSection(host) {
+  host.innerHTML = `<div class="trade-loading">Loading your price alerts…</div>`;
+  let watches;
+  try { watches = await apiFetch('/price-watches'); }
+  catch (e) { host.innerHTML = `<div class="trade-empty">Could not load price alerts: ${escapeHtml(e.message || '')}</div>`; return; }
+  if (!watches.length) {
+    host.innerHTML = `<div class="trade-empty">No price alerts yet. Open any card, choose <strong>Watch</strong>, and set a target — your alerts appear here.</div>`;
+    return;
+  }
+  host.innerHTML = `
+    <div class="watch-head">${watches.length} price alert${watches.length === 1 ? '' : 's'}</div>
+    <div class="watch-list">${watches.map(_watchRowHtml).join('')}</div>`;
+}
+
+function _scryThumb(scryfallId) {
+  const id = String(scryfallId || '');
+  if (id.length < 2) return '';
+  return `https://cards.scryfall.io/small/front/${id[0]}/${id[1]}/${id}.jpg`;
+}
+
+function _watchTargets(w) {
+  const parts = [];
+  if (w.targetPriceCents != null) parts.push(`target ${fmtUsd(w.targetPriceCents)}`);
+  if (w.targetPctUp != null) parts.push(`rise ${w.targetPctUp}%`);
+  if (w.targetPctDown != null) parts.push(`drop ${w.targetPctDown}%`);
+  return parts.length ? parts.join(' · ') : 'no thresholds set';
+}
+
+function _watchRowHtml(w) {
+  const img = _scryThumb(w.scryfallId);
+  const name = w.name || w.cardData?.name || 'Card';
+  const cur = w.currentCents ? fmtUsd(w.currentCents) : '—';
+  return `
+    <div class="watch-row" data-uid="${escapeHtml(w.uid)}">
+      <div class="watch-thumb" onclick="tradeCalcOpenCard('${escapeHtml(w.scryfallId)}')">${img ? `<img src="${escapeHtml(img)}" loading="lazy" alt="">` : ''}</div>
+      <div class="watch-info">
+        <div class="watch-name">${escapeHtml(name)}${w.foil ? ' <span class="calc-foil-tag">✦ foil</span>' : ''}</div>
+        <div class="watch-targets">${escapeHtml(_watchTargets(w))}</div>
+      </div>
+      <div class="watch-current"><span class="watch-current-label">now</span> ${cur}</div>
+      <div class="watch-actions">
+        <button class="btn btn-outline btn-sm" onclick="openPriceWatchModal('${escapeHtml(w.scryfallId)}', ${!!w.foil}, ${JSON.stringify(name).replace(/"/g, '&quot;')})">Edit</button>
+        <button class="trade-card-x" title="Remove alert" onclick="watchRemove('${escapeHtml(w.uid)}', '${escapeHtml(w.scryfallId)}', ${!!w.foil})">✕</button>
+      </div>
+    </div>`;
+}
+
+async function watchRemove(uid, scryfallId, foil) {
+  try {
+    await apiDelete(`/price-watch/${encodeURIComponent(uid)}`);
+    showNotif('Price alert removed');
+    _refreshWatchesIfOpen();
   } catch (e) { showNotif(e.message || 'Could not remove', true); }
 }
 
@@ -1432,7 +1541,7 @@ function _renderPartnerDetail() {
     </div>
     <div id="suggestionsMount">
       <div style="text-align:center;padding:20px">
-        <button class="btn btn-primary" onclick="loadTradeSuggestions()">✨ Generate trade suggestions</button>
+        <button class="btn btn-primary" onclick="loadTradeSuggestions()">${_ICON_SPARKLE} Generate trade suggestions</button>
       </div>
     </div>`;
 }
@@ -1493,7 +1602,7 @@ function _renderSuggestion(data) {
     ? `<span class="sugg-balanced">Balanced</span>`
     : `<span>Favors ${s.favors === 'you' ? 'you' : '@' + escapeHtml(_tradePartner.username)} by ${fmtUsd(s.favorCents)} (${s.deltaPct.toFixed(1)}%)</span>`;
   const imbalance = s.tier === 'red'
-    ? `<div class="sugg-imbalance">⚠️ This trade favors ${s.favors === 'you' ? 'you' : '@' + escapeHtml(_tradePartner.username)} by ~${fmtUsd(s.favorCents)}</div>` : '';
+    ? `<div class="sugg-imbalance">${_ICON_WARN} This trade favors ${s.favors === 'you' ? 'you' : '@' + escapeHtml(_tradePartner.username)} by ~${fmtUsd(s.favorCents)}</div>` : '';
   mount.innerHTML = `
     <div class="sugg-card">
       <div class="sugg-delta tier-${s.tier}">${favorLabel}</div>

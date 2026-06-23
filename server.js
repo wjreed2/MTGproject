@@ -1323,6 +1323,13 @@ async function ensurePriceWatchesTable() {
         CONSTRAINT fk_pw_account FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
+    // Display fields for the "Price watches" list (name + light card data).
+    if (!(await columnExists(conn, 'price_watches', 'card_name'))) {
+      await conn.query('ALTER TABLE price_watches ADD COLUMN card_name VARCHAR(255) NULL DEFAULT NULL');
+    }
+    if (!(await columnExists(conn, 'price_watches', 'card_data'))) {
+      await conn.query('ALTER TABLE price_watches ADD COLUMN card_data JSON NULL DEFAULT NULL');
+    }
   } finally {
     conn.release();
   }
@@ -4285,7 +4292,30 @@ app.get('/api/price-watch/:scryfallId', requireAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Upsert a price watch. Body: { scryfallId, foil?, targetPriceCents?, targetPctUp?, targetPctDown?, baselineCents? }
+// List all of my price watches, with each card's current market price.
+app.get('/api/price-watches', requireAuth, async (req, res) => {
+  try {
+    const [rows] = await db().query(
+      'SELECT * FROM price_watches WHERE account_id = ? ORDER BY created_at DESC', [req.accountId]
+    );
+    let priceByScry = new Map();
+    const dates = await getLatestTwoSnapshotDates();
+    if (dates.length) priceByScry = await getPricesForDate(rows.map(r => r.scryfall_id), dates[0]);
+    res.json(rows.map(w => ({
+      uid: w.uid, scryfallId: w.scryfall_id, foil: !!w.foil,
+      name: w.card_name || null,
+      cardData: w.card_data ? (typeof w.card_data === 'string' ? JSON.parse(w.card_data) : w.card_data) : null,
+      targetPriceCents: w.target_price_cents != null ? Number(w.target_price_cents) : null,
+      targetPctUp: w.target_pct_up != null ? Number(w.target_pct_up) : null,
+      targetPctDown: w.target_pct_down != null ? Number(w.target_pct_down) : null,
+      baselineCents: w.baseline_cents != null ? Number(w.baseline_cents) : null,
+      currentCents: _pickPriceCents(priceByScry.get(w.scryfall_id), !!w.foil),
+      createdAt: w.created_at,
+    })));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Upsert a price watch. Body: { scryfallId, foil?, name?, cardData?, targetPriceCents?, targetPctUp?, targetPctDown?, baselineCents? }
 app.put('/api/price-watch', requireAuth, async (req, res) => {
   const b = req.body || {};
   const sid = String(b.scryfallId || '').slice(0, 50);
@@ -4293,17 +4323,21 @@ app.put('/api/price-watch', requireAuth, async (req, res) => {
   const foil = b.foil ? 1 : 0;
   const uid = sid + (foil ? '_f' : '_n');
   const num = (v) => (v == null || v === '' || isNaN(Number(v))) ? null : Number(v);
+  const name = b.name != null ? String(b.name).slice(0, 255) : null;
+  const cardData = (b.cardData && typeof b.cardData === 'object') ? JSON.stringify(b.cardData) : null;
   try {
     await db().query(
       `INSERT INTO price_watches
-         (account_id, uid, scryfall_id, foil, target_price_cents, target_pct_up, target_pct_down, baseline_cents, created_at)
-       VALUES (?,?,?,?,?,?,?,?,?)
+         (account_id, uid, scryfall_id, foil, card_name, card_data, target_price_cents, target_pct_up, target_pct_down, baseline_cents, created_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)
        ON DUPLICATE KEY UPDATE
+         card_name=COALESCE(VALUES(card_name), card_name),
+         card_data=COALESCE(VALUES(card_data), card_data),
          target_price_cents=VALUES(target_price_cents),
          target_pct_up=VALUES(target_pct_up),
          target_pct_down=VALUES(target_pct_down),
          baseline_cents=COALESCE(VALUES(baseline_cents), baseline_cents)`,
-      [req.accountId, uid, sid, foil,
+      [req.accountId, uid, sid, foil, name, cardData,
        num(b.targetPriceCents), num(b.targetPctUp), num(b.targetPctDown), num(b.baselineCents), Date.now()]
     );
     res.json({ ok: true, uid });

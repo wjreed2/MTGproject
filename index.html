@@ -625,6 +625,9 @@
               oninput="setDeckCardSize(+this.value)"
               style="width:72px;cursor:pointer;accent-color:var(--gold)" title="Card size">
           </div>
+          <button id="deckTagBadgeToggleBtn" class="btn btn-outline btn-sm active" onclick="toggleDeckTagBadges()" title="Hide role-tag badges" aria-pressed="true" style="display:flex;align-items:center;padding:3px 7px">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><path d="M8 1.8l5 1.8v3.4c0 3.3-2.3 5.3-5 6.2-2.7-.9-5-2.9-5-6.2V3.6z"/></svg>
+          </button>
           <button id="deckStackLayoutResetBtn" class="btn btn-outline btn-sm" onclick="resetDeckStackLayout()" style="display:none" title="Restore automatic stack column layout">Reset stacks</button>
           <div id="deckStackOrientToggle" class="view-toggle">
             <button id="deckStackOrientV" class="active" onclick="setDeckStackOrient('vertical')" title="Vertical stack" aria-label="Vertical stack">

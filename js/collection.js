@@ -1458,8 +1458,8 @@ function _htmlCardDetailPrimaryActionsInner(ctx) {
                ${printBtn}
                ${isCommanderCandidate ? `<button class="btn btn-outline btn-sm" onclick="buildSkeletonDeckFromInspectorCard('${actionUid}')">Build Skeleton Deck</button>` : ''}
                <button class="btn btn-outline btn-sm" onclick="toggleWishlistFromDetail('${uid}')">${isWishlisted ? '♥ Wishlisted' : '♡ Wishlist'}</button>
-               <button class="btn btn-outline btn-sm" onclick="flagUpgradeTargetFromDetail('${actionUid}')" title="Want a better printing, foil, or condition">⬆ Upgrade</button>
-               <button class="btn btn-outline btn-sm" onclick="openPriceWatchModal('${escapeHtml(card.scryfallId || '')}', ${!!card.foil}, ${JSON.stringify(card.name || '').replace(/"/g, '&quot;')})" title="Set price alerts for this card">🔔 Watch</button>
+               <button class="btn btn-outline btn-sm" onclick="flagUpgradeTargetFromDetail('${actionUid}')" title="Want a better printing, foil, or condition"><svg class="tf-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13.5V5"/><path d="M4.5 8 8 4.5 11.5 8"/><path d="M4.5 2.5h7"/></svg> Upgrade</button>
+               <button class="btn btn-outline btn-sm" onclick="openPriceWatchModal('${escapeHtml(card.scryfallId || '')}', ${!!card.foil}, ${JSON.stringify(card.name || '').replace(/"/g, '&quot;')})" title="Set price alerts for this card"><svg class="tf-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6a4 4 0 0 0-8 0c0 4.5-2 5.5-2 5.5h12s-2-1-2-5.5"/><path d="M9.3 13.5a1.5 1.5 0 0 1-2.6 0"/></svg> Watch</button>
                <button type="button" id="cardDetailStarBtn" class="btn btn-outline btn-sm" data-detail-uid="${actionUid}" onclick="toggleCardStar('${actionUid}',event)">${card.starred ? '★ Starred' : '☆ Star'}</button>
                <button class="btn btn-danger btn-sm" onclick="removeFromCollection('${actionUid}')">Remove</button>`
     : `<button class="btn btn-primary btn-sm" onclick="addCardToCollectionFromDetail('${uid}')">+ Add to Collection</button>
@@ -1790,12 +1790,13 @@ function _renderPriceChart() {
   for (const p of points) if (col && p[col] != null) { labels.push(p.d); vals.push(Number(p[col])); }
   _destroyInspectorPriceChart();
   const css = getComputedStyle(document.documentElement);
-  const gold = (css.getPropertyValue('--gold') || '#c8a84a').trim();
+  // Line color = the teal gem from the logo (--teal).
+  const lineC = (css.getPropertyValue('--teal') || '#3db8a0').trim();
   const gridC = (css.getPropertyValue('--border') || 'rgba(255,255,255,0.08)').trim();
   const tickC = (css.getPropertyValue('--text3') || '#888').trim();
   _priceChart = new Chart(canvas.getContext('2d'), {
     type: 'line',
-    data: { labels, datasets: [{ data: vals, borderColor: gold, backgroundColor: 'transparent', borderWidth: 2, pointRadius: 0, pointHoverRadius: 3, tension: 0.25, spanGaps: true }] },
+    data: { labels, datasets: [{ data: vals, borderColor: lineC, backgroundColor: 'transparent', borderWidth: 2, pointRadius: 0, pointHoverRadius: 3, tension: 0.25, spanGaps: true }] },
     options: {
       responsive: true, maintainAspectRatio: false, animation: false,
       interaction: { mode: 'index', intersect: false },

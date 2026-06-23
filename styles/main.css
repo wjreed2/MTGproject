@@ -294,6 +294,34 @@
 }
 .deck-card-row.is-game-changer .deck-card-name { color: #e8c090; }
 
+/* Default-tag badge — first role tag (list view: left of mana pips; stack: corner) */
+.deck-tag-badge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 21px;
+  height: 23px;
+  background: var(--badge-color, #6b7280);
+  color: #fff;
+  /* Heraldic shield: flat top, sides taper to a point at the bottom. */
+  clip-path: polygon(0 0, 100% 0, 100% 56%, 50% 100%, 0 56%);
+  filter: drop-shadow(0 1px 1.5px rgba(0,0,0,0.55));
+}
+/* margin-bottom nudges the icon up into the wide part of the shield, off the point */
+.deck-tag-badge svg { width: 13px; height: 13px; display: block; margin-bottom: 4px; }
+.deck-tag-badge--corner {
+  position: absolute;
+  top: -1px;
+  right: 42px;
+  left: auto;
+  width: 25px;
+  height: 29px;
+  z-index: 11;
+  pointer-events: none;
+}
+.deck-tag-badge--corner svg { width: 15px; height: 15px; margin-bottom: 5px; }
+
 .deck-valid-row {
   display: flex;
   align-items: flex-start;
@@ -8244,6 +8272,25 @@ select:focus { outline: none; border-color: rgba(200,168,74,0.6); box-shadow: 0 
 .trade-meta-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 8px 0 14px; flex-wrap: wrap; }
 .trade-add-toggle { flex-shrink: 0; }
 .trade-add-panel { position: relative; max-width: 420px; margin: 0 0 14px; }
+
+/* Inline SVG line icon that scales with surrounding text (replaces emoji). */
+.tf-ic { width: 1em; height: 1em; vertical-align: -0.12em; flex-shrink: 0; }
+
+/* ── Price Alerts (watch list) ──────────────────────────────────────────── */
+.watch-head { font-family: 'Cinzel', serif; color: var(--text2); font-size: 0.9rem; margin-bottom: 14px; }
+.watch-list { display: flex; flex-direction: column; gap: 8px; max-width: 720px; }
+.watch-row {
+  display: flex; align-items: center; gap: 12px; background: var(--bg2);
+  border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 12px;
+}
+.watch-thumb { width: 34px; height: 47px; flex-shrink: 0; border-radius: 4px; overflow: hidden; background: var(--bg4); cursor: pointer; }
+.watch-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.watch-info { flex: 1 1 auto; min-width: 0; }
+.watch-name { color: var(--text); font-size: 0.9rem; font-weight: 500; }
+.watch-targets { color: var(--text3); font-size: 0.74rem; margin-top: 2px; }
+.watch-current { font-family: 'JetBrains Mono', monospace; font-size: 0.9rem; color: var(--gold); white-space: nowrap; }
+.watch-current-label { color: var(--text3); font-size: 0.66rem; font-family: 'Inter', sans-serif; }
+.watch-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 
 .tl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
 .tl-card {

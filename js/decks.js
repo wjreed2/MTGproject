@@ -1201,6 +1201,91 @@ const _scryTagInflight = new Map();       // oracleId -> Promise<string[]>
 const _scrySyncDecks = new Set();         // deck ids currently refreshing tags
 let _scryRefreshTimer = null;
 const _SCRY_AUTO_LABEL_SET = new Set(SCRYFALL_AUTO_TAGS.map(t => t.label));
+
+// ─── Default-tag badges ──────────────────────────────────────────────────────
+// Each protected/role tag (Land, Commander + the Scryfall auto tags) gets a
+// distinct color and an inline line icon. The deck viewer paints a small badge
+// for a card's FIRST role tag — see _roleTagsForCard() for the ordering.
+// Icons are 24×24 line icons (stroke=currentColor) to match the app's SVG style.
+const DEFAULT_TAG_BADGE = {
+  'Land':          { color: '#8a6f3e', icon: '<path d="M3 19l6-9 4 5 2-3 6 7z"/>' },
+  'Commander':     { color: '#9b6dff', icon: '<path d="M4 18h16M4 18l-1.5-9 5 4 4.5-7 4.5 7 5-4L20 18"/>' },
+  'Ramp':          { color: '#3fae5a', icon: '<path d="M3 17l6-6 4 4 8-8M15 7h6v6"/>' },
+  'Card Draw':     { color: '#3d8bd4', icon: '<rect x="3" y="8" width="10" height="13" rx="1.5"/><path d="M18 9V3m-3 3l3-3 3 3"/>' },
+  'Removal':       { color: '#d4483f', icon: '<circle cx="12" cy="12" r="8"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>' },
+  'Board Wipe':    { color: '#b02a37', icon: '<path d="M12 2l2.2 6.2L20 6l-2.5 5.6L23 14l-6.3.4L18 21l-6-3.4L6 21l1.3-6.6L1 14l5.5-2.4L4 6l5.8 2.2z"/>' },
+  'Tutor':         { color: '#00b3a4', icon: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-5-5"/>' },
+  'Counterspell':  { color: '#5b6dd8', icon: '<circle cx="12" cy="12" r="8"/><path d="M6.5 6.5l11 11"/>' },
+  'Protection':    { color: '#4aa3d4', icon: '<path d="M12 3l7 3v5c0 5-3.5 8-7 9-3.5-1-7-4-7-9V6z"/>' },
+  'Bounce':        { color: '#56b4e0', icon: '<path d="M9 10L4 15l5 5"/><path d="M4 15h11a5 5 0 005-5V6"/>' },
+  'Control':       { color: '#7a52cc', icon: '<path d="M4 9h14l-4-4M20 15H6l4 4"/>' },
+  'Burn':          { color: '#e8632a', icon: '<path d="M12 3c1 4 5 5 5 9a5 5 0 01-10 0c0-2 1-3 2.2-4 .2 2 1 2.8 1.8 3-1-3 .5-5 1-8z"/>' },
+  'Group Slug':    { color: '#c43d5a', icon: '<path d="M12 20s-7-4.5-7-9a4 4 0 017-2.6A4 4 0 0119 11c0 4.5-7 9-7 9z"/><path d="M4 4l16 16"/>' },
+  'Stax':          { color: '#6b7280', icon: '<rect x="5" y="11" width="14" height="9" rx="1.5"/><path d="M8 11V8a4 4 0 018 0v3"/>' },
+  'Hatebear':      { color: '#a9744f', icon: '<circle cx="7" cy="10" r="1.8"/><circle cx="12" cy="8.5" r="1.8"/><circle cx="17" cy="10" r="1.8"/><path d="M7.5 15a4.5 4.5 0 009 0c0-2-2-3-4.5-3s-4.5 1-4.5 3z"/>' },
+  'Anthem':        { color: '#d4a017', icon: '<path d="M6 21V4M6 4h11l-2.5 4L17 12H6"/>' },
+  'Evasion':       { color: '#2fb6c4', icon: '<path d="M3 12c4-4 7-1.5 9-7 2 5.5 5 3 9 7-4 1.5-7-.5-9 2.5-2-3-5-1-9-2.5z"/>' },
+  'Pump':          { color: '#7cb342', icon: '<path d="M6 13l6-6 6 6M6 19l6-6 6 6"/>' },
+  'Combat Trick':  { color: '#e0a020', icon: '<path d="M13 2L4 14h7l-2 8 9-12h-7z"/>' },
+  'Bite':          { color: '#5a8a3c', icon: '<path d="M4 6h16v2c0 4-3 5-4 9-1-4-2-5-4-5s-3 1-4 5c-1-4-4-5-4-9z"/>' },
+  'Extra Combat':  { color: '#d65a31', icon: '<path d="M5 5l9 9M19 5l-9 9M3 17l3 3M21 17l-3 3"/>' },
+  'Token Maker':   { color: '#1fa8a0', icon: '<rect x="3" y="3" width="11" height="11" rx="1.5"/><path d="M19 11v8m-4-4h8"/>' },
+  'Blink':         { color: '#6cc4e8', icon: '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>' },
+  'Copy':          { color: '#8b6fd8', icon: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h8"/>' },
+  'Treasure':      { color: '#d4af37', icon: '<path d="M6 9l-2 4 8 9 8-9-2-4z"/><path d="M4 13h16M9 4h6l3 5M9 4L6 9M15 4l3 5"/>' },
+  'Lifegain':      { color: '#e066a3', icon: '<path d="M12 20s-7-4.5-7-9a4 4 0 017-2.6A4 4 0 0119 11c0 4.5-7 9-7 9z"/><path d="M12 9v5m-2.5-2.5h5"/>' },
+  'Discard':       { color: '#8a5cb0', icon: '<rect x="3" y="3" width="10" height="13" rx="1.5"/><path d="M18 15v6m-3-3l3 3 3-3"/>' },
+  'Mill':          { color: '#5f7da8', icon: '<path d="M4 6h11M4 10h11M4 14h7"/><path d="M19 8v9m-3-3l3 3 3-3"/>' },
+  'Wheel':         { color: '#d98324', icon: '<path d="M20 11A8 8 0 105.7 6.3"/><path d="M20 3v4h-4"/>' },
+  'Landfall':      { color: '#7a9a3e', icon: '<path d="M12 3v11m-4-4l4 4 4-4"/><path d="M4 20h16"/>' },
+  'Recursion':     { color: '#9159c4', icon: '<path d="M4 12a8 8 0 0114-5"/><path d="M18 3v4h-4"/><path d="M20 12a8 8 0 01-14 5"/><path d="M6 21v-4h4"/>' },
+  'Reanimate':     { color: '#4a7a52', icon: '<path d="M5 21V11a7 7 0 0114 0v10"/><path d="M12 18v-9m-3 3l3-3 3 3"/>' },
+  'Graveyard Cast':{ color: '#6b6f8a', icon: '<path d="M5 21V11a7 7 0 0114 0v10"/><path d="M12 8v6m-3-3h6"/>' },
+  'Self-Mill':     { color: '#5c7a9a', icon: '<path d="M12 3v9m-3-3l3 3 3-3"/><path d="M4 13a8 8 0 0016 0"/>' },
+  'Sac Outlet':    { color: '#b04a4a', icon: '<path d="M5 19l9-9 1 1-9 9-2 1z"/><path d="M14 7l3-3 3 3-3 3z"/>' },
+  'Death Trigger': { color: '#4b4f5a', icon: '<path d="M5 11a7 7 0 1114 0v3l-1.5 1.5V19H7.5v-3.5L6 14z"/><circle cx="9.2" cy="11" r="1.3"/><circle cx="14.8" cy="11" r="1.3"/>' },
+  'Drain':         { color: '#a93f8a', icon: '<path d="M12 3s6 7 6 11a6 6 0 01-12 0c0-4 6-11 6-11z"/><path d="M9 14h6"/>' },
+  'Sac Synergy':   { color: '#9a5a4a', icon: '<circle cx="8.5" cy="12" r="4.5"/><circle cx="15.5" cy="12" r="4.5"/>' },
+};
+
+function _tagBadgeSvg(inner) {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
+}
+
+/** Badge HTML for a card's first role/default tag (Land > Commander > Scryfall auto). */
+function _defaultTagBadgeHtml(card, opts = {}) {
+  let tag = null;
+  try {
+    const roles = (typeof _roleTagsForCard === 'function') ? _roleTagsForCard(card) : [];
+    tag = (roles && roles.length) ? roles[0] : null;
+  } catch (_) {}
+  const meta = tag ? DEFAULT_TAG_BADGE[tag] : null;
+  if (!meta) return '';
+  if (!deckTagBadgesEnabled) return '';
+  const corner = opts.variant === 'corner' ? ' deck-tag-badge--corner' : '';
+  return `<span class="deck-tag-badge${corner}" style="--badge-color:${meta.color}" title="${escapeHtml(tag)}" aria-label="${escapeHtml(tag)}">${_tagBadgeSvg(meta.icon)}</span>`;
+}
+
+// Deck-list toggle for the role-tag badges (persisted; default on).
+let deckTagBadgesEnabled = localStorage.getItem('mtg_deck_tag_badges') !== '0';
+
+function _applyDeckTagBadgesSetting() {
+  const btn = document.getElementById('deckTagBadgeToggleBtn');
+  if (btn) {
+    btn.classList.toggle('active', deckTagBadgesEnabled);
+    btn.setAttribute('aria-pressed', deckTagBadgesEnabled ? 'true' : 'false');
+    btn.title = deckTagBadgesEnabled ? 'Hide role-tag badges' : 'Show role-tag badges';
+  }
+}
+
+function toggleDeckTagBadges() {
+  deckTagBadgesEnabled = !deckTagBadgesEnabled;
+  localStorage.setItem('mtg_deck_tag_badges', deckTagBadgesEnabled ? '1' : '0');
+  _applyDeckTagBadgesSetting();
+  const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+  if (deck) renderDeckList(deck);
+}
+
 let _tagOverridesByOracleId = new Map();  // oracleId -> { addTags:string[], removeTags:string[], updatedAt:number, cardName?:string }
 let _tagOverridesLoaded = false;
 let _tagOverridesLoadPromise = null;
@@ -2996,6 +3081,7 @@ function renderActiveDeck() {
   }
   _syncDeckStackSortControls();
   _syncDeckSideboardToggle();
+  _applyDeckTagBadgesSetting();
   document.querySelectorAll('#deckStackOrientH, #deckStackOrientV').forEach(b => b.classList.remove('active'));
   const activeBtn = document.getElementById(deckStackOrient === 'horizontal' ? 'deckStackOrientH' : 'deckStackOrientV');
   if (activeBtn) activeBtn.classList.add('active');
@@ -4185,6 +4271,8 @@ function _stackTile(c, zone = 'main', poolHints = null) {
     ? `<div class="stack-game-changer" title="Commander game changer">GC</div>`
     : '';
 
+  const tagBadge = _defaultTagBadgeHtml(c, { variant: 'corner' });
+
   const dragKey = _deckCardDragKey(c).replace(/"/g, '&quot;');
 
   const swapBtns = isExtra
@@ -4201,6 +4289,7 @@ function _stackTile(c, zone = 'main', poolHints = null) {
           : `<div class="stack-main stack-face-fallback${c.isCommander ? ' is-commander' : ''}"
                style="aspect-ratio:0.715;background:var(--bg4);display:flex;align-items:center;justify-content:center;color:var(--text3);padding:4px;text-align:center;${imgStyle}">${escapeHtml(c.name)}</div>`}
         <div class="stack-qty">×${qty}</div>
+        ${tagBadge}
         ${gcBadge}
         ${mbPoolBadge}
         ${sbPoolBadge}
@@ -6190,7 +6279,7 @@ function renderDeckList(deck) {
       return `
       <div class="deck-card-row deck-zone-draggable${rowIsGc ? ' is-game-changer' : ''}${_deckCardValidationClass(c, validationErrorNames)}" data-uid="${_deckCardDragKey(c)}" data-zone="main" data-card-key="${getCardInventoryKey(c)}" data-card-name-key="${String(c.name || '').trim().toLowerCase().replace(/"/g, '&quot;')}" onpointerdown="_deckZoneCardPointerDown(event)" onclick="openCardDetail('${c.uid || c.scryfallId}','deck')">
         <span class="deck-card-name">${escapeHtml(c.name)}</span>${gcRowHtml}${rowTagHtml}
-        <span style="display:flex;gap:5px;align-items:center">${sortColorsWUBRG(c.colors).map(col => `<img src="https://svgs.scryfall.io/card-symbols/${col}.svg" class="mana-pip" alt="${col}" title="${col}">`).join('')}</span>
+        ${_defaultTagBadgeHtml(c)}<span style="display:flex;gap:5px;align-items:center">${sortColorsWUBRG(c.colors).map(col => `<img src="https://svgs.scryfall.io/card-symbols/${col}.svg" class="mana-pip" alt="${col}" title="${col}">`).join('')}</span>
         ${mbRowHtml}${sbRowHtml}
         <button class="btn btn-ghost btn-sm btn-icon" title="Edit My Tags" onclick="event.stopPropagation();openGlobalTagPickerForCard('${c.uid || c.scryfallId || ''}')">🏷</button>
         <button class="btn btn-ghost btn-sm btn-icon" title="Change printing" onclick="event.stopPropagation();openVersionPicker('${activeDeckId}','${c.uid || c.scryfallId || ''}','${(c.name || '').replace(/'/g, "\\'")}')">⟳</button>
