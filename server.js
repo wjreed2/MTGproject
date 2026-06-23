@@ -3720,7 +3720,9 @@ app.get('/api/scryfall/card-id/:id', async (req, res) => {
 // card (computed with js/phash-core.js); we Hamming-search the in-memory index and return the
 // matched printing(s). OCR `hints` only disambiguate identical-art reprints. Unauthenticated,
 // matching /api/scryfall/named (no user data touched).
-const SCAN_ACCEPT_MAX = 16;   // best full-card Hamming distance to consider a confident match
+const SCAN_ACCEPT_MAX = 12;   // best full-card Hamming distance to consider a confident match.
+// NB: with ~98k printings the nearest neighbour to a RANDOM frame sits ~14-16 bits away, so this
+// must stay comfortably below that to reject backgrounds/noise. Real card reads are typically <8.
 const SCAN_AMBIG_MARGIN = 3;  // candidates within best+margin form the disambiguation group
 const SCAN_ART_TIE = 2;       // art-hash distance under which two printings count as "same art"
 

@@ -2865,6 +2865,7 @@ let _scnFpInFlight = false;
 let _scnFpCooldownUntil = 0;
 let _scnFpAwaitingLeave = false;       // true after a queue: wait for the card to be removed/swapped
 let _scnFpLastAcceptedPhash = null;    // hex of the last queued card's full pHash
+let _scnFpPendingMatch = null;         // {phash, card} matched once, awaiting a confirming 2nd read
 let _scnFpLru = [];                    // [{phash, card}] recent matches → skip the network round-trip
 
 // 2x3 affine mapping source pts tl→(0,0), tr→(W,0), bl→(0,H). Parallelogram approximation of the
@@ -3038,21 +3039,32 @@ function _scnFingerprintTick(v, now) {
         return;
       }
       if (r.matched && r.best) {
-        // De-dupe: don't re-queue the same card while it lingers (swap to a new card to add another).
-        if (_scnFpLastAcceptedPhash && PhashCore.hamming(r._phash, _scnFpLastAcceptedPhash) <= SCN_FP_DEDUPE_HAMMING) {
+        const ph = r._phash;
+        const setNum = `${(r.best.set || '').toUpperCase()} · #${r.best.collector_number || ''} · d=${r.distance}`;
+        // Lingering same card already added — ignore (swap to a new card to add another).
+        if (_scnFpLastAcceptedPhash && PhashCore.hamming(ph, _scnFpLastAcceptedPhash) <= SCN_FP_DEDUPE_HAMMING) {
           _scnSetOverlay(r.best.name, 'already added ✓', 'match');
           _scnFpCooldownUntil = performance.now() + 450;
           return;
         }
-        _scnFpLastAcceptedPhash = r._phash || null;
+        // Require two consecutive consistent reads before adding — kills transient false matches.
+        if (!_scnFpPendingMatch || PhashCore.hamming(ph, _scnFpPendingMatch.phash) > SCN_FP_DEDUPE_HAMMING) {
+          _scnFpPendingMatch = { phash: ph, card: r.best };
+          _scnSetOverlay(r.best.name, 'confirming…', 'hint');
+          _scnFpCooldownUntil = performance.now() + 130;
+          return;
+        }
+        _scnFpPendingMatch = null;
+        _scnFpLastAcceptedPhash = ph || null;
         if (_scnStreamAdd) {
           _scnFpStreamAdd(r.best);
-          _scnSetOverlay(r.best.name, `${(r.best.set || '').toUpperCase()} · #${r.best.collector_number || ''}`, 'match');
+          _scnSetOverlay(r.best.name, setNum, 'match');
         } else {
           await _scnAutoStageAndResume(r.best); // queues + beeps
         }
         _scnFpCooldownUntil = performance.now() + 700;
       } else {
+        _scnFpPendingMatch = null; // a miss breaks the confirmation streak
         // Diagnostic readout: closest match + Hamming distance, so framing vs parity is visible.
         _scnSetOverlay('No match', best ? `closest: ${best.name} · d=${r.distance}` : `d=${r.distance}`, 'hint');
         _scnFpCooldownUntil = performance.now() + 450;
@@ -3070,6 +3082,8 @@ function _scnStartFingerprintScanning() {
   _scnFpAwaitingLeave = false;
   _scnFpStillSince = 0;
   _scnFpPrevGray = null;
+  _scnFpPendingMatch = null;
+  _scnFpLastAcceptedPhash = null;
   _scnFpCooldownUntil = 0;
   _scnLastBoundsMs = 0;
   _scnBoundsMiss = 0;
