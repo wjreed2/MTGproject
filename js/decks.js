@@ -874,7 +874,7 @@ function scheduleDeckGameChangerRefresh(deck) {
 
 let deckListView = 'grid';
 let deckStackOrient = (localStorage.getItem('mtg_deck_stack_orient') === 'horizontal' ? 'horizontal' : 'vertical');
-const _DECK_STACK_SORT_KEYS = new Set(['name', 'cmc', 'mana', 'price']);
+const _DECK_STACK_SORT_KEYS = new Set(['name', 'cmc', 'mana', 'price', 'badge']);
 let deckStackSort = (() => {
   let saved = localStorage.getItem('mtg_deck_stack_sort');
   if (saved === 'mana') saved = 'cmc'; // legacy "Mana cost" sort merged into Mana Value
@@ -1523,6 +1523,17 @@ function _deckCardSortPrice(c) {
   return Number(c?.priceTCG) || 0;
 }
 
+/** Sort key for "Badge" sort — a card's first role tag; un-badged cards sort last. */
+function _deckCardBadgeSortKey(card) {
+  let tag = '';
+  try {
+    const roles = (typeof _roleTagsForCard === 'function') ? _roleTagsForCard(card) : [];
+    tag = (roles && roles.length) ? roles[0] : '';
+  } catch (_) {}
+  // Prefix so badged cards ('0…') always sort before un-badged ('1'), locale-safe.
+  return tag ? '0' + tag : '1';
+}
+
 function _deckStackSortCards(cards) {
   const dir = deckStackSortDir === 'desc' ? -1 : 1;
   const tieName = (a, b) => String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' });
@@ -1535,6 +1546,8 @@ function _deckStackSortCards(cards) {
       if (cmp === 0) cmp = String(a.mana || '').localeCompare(String(b.mana || ''));
     } else if (deckStackSort === 'price') {
       cmp = _deckCardSortPrice(a) - _deckCardSortPrice(b);
+    } else if (deckStackSort === 'badge') {
+      cmp = _deckCardBadgeSortKey(a).localeCompare(_deckCardBadgeSortKey(b), undefined, { sensitivity: 'base' });
     } else {
       cmp = tieName(a, b);
     }
