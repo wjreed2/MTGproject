@@ -127,6 +127,10 @@ async function _loadCalcSuggestions(username) {
   if (_calcSuggest.username !== u) {
     _calcSuggest = { username: u, give: _emptySuggest(), receive: _emptySuggest(), loading: true, sort: { a: 'best', b: 'best' } };
     _renderCalcSuggestPanel('a'); _renderCalcSuggestPanel('b');
+    // Make sure my decks' suggested-adds are posted before matching, so the
+    // "Suggested for your decks" picks reflect my current decks (throttled, so
+    // this is a no-op if they were posted recently).
+    if (typeof postAllDeckWantedCards === 'function') { try { await postAllDeckWantedCards(); } catch (_) {} }
     try {
       const data = await apiFetch(`/trade/match/${encodeURIComponent(u)}`);
       const norm = g => (g && Array.isArray(g.wants)) ? { wants: g.wants, deckSuggestions: Array.isArray(g.deckSuggestions) ? g.deckSuggestions : [] } : _emptySuggest();
@@ -197,9 +201,12 @@ function _renderCalcSuggestPanel(side) {
   const deckHeader = side === 'a'
     ? `Suggested for @${escapeHtml(_calc.partnerName)}'s decks`
     : `Suggested for your decks`;
+  const deckEmptyHint = side === 'a'
+    ? `Nothing in your tradelist fits @${escapeHtml(_calc.partnerName)}'s decks yet.`
+    : `Nothing in @${escapeHtml(_calc.partnerName)}'s tradelist fits your decks yet.`;
   const deckSection = decks.length
     ? `<div class="calc-sugg-subhead">${deckHeader}</div>${decks.map(it => _calcSuggItemHtml(it, side, inSide)).join('')}`
-    : '';
+    : `<div class="calc-sugg-subhead">${deckHeader}</div><div class="calc-sugg-empty">${deckEmptyHint}</div>`;
   el.innerHTML = `
     <div class="calc-sugg-head">
       <span>${label} <span class="calc-sugg-count">${wants.length}</span></span>

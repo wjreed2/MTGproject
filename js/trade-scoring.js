@@ -51,7 +51,7 @@ async function computeDeckWantedCards(deck) {
         const res = await fetch(`${typeof mtgApiRoot === 'function' ? mtgApiRoot() : '/api'}/cards/by-roles`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
           body: JSON.stringify({ colors: [...cmdCI], roles: deficitRoles, tribes: [],
-            exclude: [...inDeckNames, ...ownedNames], limit: 60 }),
+            exclude: [...inDeckNames, ...ownedNames], limit: 120 }),
         });
         const data = res.ok ? await res.json() : { cards: [] };
         for (const c of (data.cards || [])) {
@@ -67,7 +67,10 @@ async function computeDeckWantedCards(deck) {
     }
 
     scored.sort((a, b) => b.score - a.score);
-    return scored.slice(0, 16);
+    // Keep a generous slice: these are the deck's "suggested adds" (its gameplan
+    // cards) that partners might own, so a wider pool means the trade pick-lists
+    // actually populate instead of needing a partner to own one of a narrow top-N.
+    return scored.slice(0, 50);
   } catch (_) {
     return [];
   }
