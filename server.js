@@ -6204,16 +6204,23 @@ app.get('/api/scryfall/card-id/:id', async (req, res) => {
     }
     const cardId = req.params.id;
 
-    // Local-first: serve oracle data + price-log prices with no Scryfall round-trip. This is
-    // the hot path behind opening the card inspector for an unowned card; the old code always
-    // hit Scryfall first and only fell back to local on a 10s timeout, so every open stalled.
-    const local = await _lookupLocalCardById(cardId);
-    if (local) {
-      const card = _localRowToScryfallCard(local.row);
-      if (local.scryfallId) card.id = local.scryfallId;
-      await attachPriceLogPrices([card]); // local price-history tables, keyed by printing id
-      if (!_cardHasUsdPrice(card)) await enrichCardWithTcgPrices(card); // cached TCG fallback
-      return res.json(card);
+    // Local-first (fast path): serve oracle data + price-log prices with no Scryfall round-trip.
+    // The hot path behind opening the card inspector for an unowned card. This is BEST-EFFORT:
+    // if the local tables are absent/incomplete (e.g. a deployment without the price-history
+    // schema) the lookup throws or finds nothing and we fall through to Scryfall, so the
+    // inspector still opens. (A missing mtgjson_printing table used to 500 here, which made the
+    // inspector never open for unowned cards in prod.)
+    try {
+      const local = await _lookupLocalCardById(cardId);
+      if (local) {
+        const card = _localRowToScryfallCard(local.row);
+        if (local.scryfallId) card.id = local.scryfallId;
+        await attachPriceLogPrices([card]); // local price-history tables, keyed by printing id
+        if (!_cardHasUsdPrice(card)) await enrichCardWithTcgPrices(card); // cached TCG fallback
+        return res.json(card);
+      }
+    } catch (e) {
+      console.warn('[card-id] local lookup failed, falling back to Scryfall:', e.code || e.message);
     }
 
     // Not in the local DB (e.g. a brand-new printing not yet imported) — go to Scryfall.
