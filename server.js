@@ -1141,8 +1141,11 @@ async function reconcileWishlistSource(accountId, source, desiredRows) {
  */
 async function computeDeckNeededWishlist(accountId) {
   const [deckCards] = await db().query(
-    `SELECT card_uid, scryfall_id, card_name, card_data, SUM(qty) AS need
-       FROM deck_cards WHERE account_id = ? GROUP BY card_uid, scryfall_id, card_name, card_data`,
+    `SELECT dc.card_uid, dc.scryfall_id, dc.card_name, dc.card_data, d.name AS deck_name, SUM(dc.qty) AS need
+       FROM deck_cards dc
+       JOIN decks d ON d.account_id = dc.account_id AND d.id = dc.deck_id
+      WHERE dc.account_id = ?
+      GROUP BY dc.card_uid, dc.scryfall_id, dc.card_name, dc.card_data, d.name`,
     [accountId]
   );
   if (!deckCards.length) return [];
@@ -1150,12 +1153,22 @@ async function computeDeckNeededWishlist(accountId) {
     'SELECT uid, SUM(qty) AS have FROM collection WHERE account_id = ? GROUP BY uid', [accountId]
   );
   const ownedByUid = new Map(owned.map(r => [r.uid, Number(r.have) || 0]));
+  // Aggregate per card: total copies needed across decks + the decks that want it.
+  const byUid = new Map();
+  for (const dc of deckCards) {
+    const cur = byUid.get(dc.card_uid) || {
+      card_uid: dc.card_uid, scryfall_id: dc.scryfall_id, card_name: dc.card_name,
+      card_data: dc.card_data, need: 0, deckNames: [],
+    };
+    cur.need += Number(dc.need) || 0;
+    if (dc.deck_name && !cur.deckNames.includes(dc.deck_name)) cur.deckNames.push(dc.deck_name);
+    byUid.set(dc.card_uid, cur);
+  }
   const out = [];
   const seen = new Set();
-  for (const dc of deckCards) {
-    const need = Number(dc.need) || 0;
+  for (const dc of byUid.values()) {
     const have = ownedByUid.get(dc.card_uid) || 0;
-    if (have >= need) continue;
+    if (have >= dc.need) continue;
     // Wishlist tracks "want this card" — key on the non-foil uid so a foil/non-foil
     // owned copy both satisfy it. Use scryfall_id when available.
     const sid = dc.scryfall_id || String(dc.card_uid).split('_')[0];
@@ -1166,7 +1179,7 @@ async function computeDeckNeededWishlist(accountId) {
     out.push({
       uid, scryfallId: sid, name: dc.card_name || data.name || '', foil: false,
       set: data.set, number: data.number, image: data.image, imageLarge: data.imageLarge,
-      sourceMeta: { reason: 'deck_needed' },
+      sourceMeta: { reason: 'deck_needed', deckNames: dc.deckNames },
     });
   }
   return out;
@@ -1819,33 +1832,44 @@ async function buildTradeSuggestions(viewerId, partnerId) {
     myTradelist: myTl.listed, partnerTradelist: partnerTl.listed,
     myWants, partnerWants,
   };
-  const baseGive = mm.theyWant.slice(0, _SUGGEST_MAX_PER_SIDE);
-  const baseRecv = mm.iWant.slice(0, _SUGGEST_MAX_PER_SIDE);
-  if (!baseGive.length && !baseRecv.length) return [];
+  // Wishlist-driven trade: I give cards the partner wants (their wishlist ∩ my
+  // tradelist), I receive cards I want (my wishlist ∩ their tradelist). Both
+  // pools sorted high→low priority, then by value, so the best wants come first.
+  const rankP = p => ({ high: 0, med: 1, low: 2 }[p] ?? 1);
+  const sortMatches = arr => [...arr].sort((a, b) => rankP(a.wantPriority) - rankP(b.wantPriority) || (_suggItemCents(b) - _suggItemCents(a)));
+  const theyWant = sortMatches(mm.theyWant); // cards I give (partner's wishlist)
+  const iWant = sortMatches(mm.iWant);        // cards I receive (my wishlist)
+  if (!theyWant.length && !iWant.length) return [];
 
   const variants = [];
   const seen = new Set();
-  const pushVariant = (g, r) => {
-    if (!g.length && !r.length) return;
-    const v = _balanceBaskets(g, r, ctx);
+  // Greedily add the next wishlist match to whichever side is currently worth
+  // LESS, so the two sides' values track each other — "suggested adds" come
+  // straight from the wishlists. _balanceBaskets then only adds a deck-wanted
+  // filler as a last resort if one wishlist runs dry and a gap remains.
+  const buildAndPush = (giveCap, recvCap) => {
+    const give = [], receive = [];
+    let gi = 0, ri = 0;
+    while (true) {
+      const canGive = gi < theyWant.length && give.length < giveCap;
+      const canRecv = ri < iWant.length && receive.length < recvCap;
+      if (!canGive && !canRecv) break;
+      const gv = _suggSideCents(give), rv = _suggSideCents(receive);
+      if (canGive && (!canRecv || gv <= rv)) give.push(theyWant[gi++]);
+      else receive.push(iWant[ri++]);
+    }
+    if (!give.length && !receive.length) return;
+    const v = _balanceBaskets(give, receive, ctx);
     if (seen.has(v.signature)) return;
     seen.add(v.signature);
     variants.push(v);
   };
-  // Base = full matched baskets.
-  pushVariant(baseGive, baseRecv);
-  // "Suggest another" variants: progressively trim the lowest-priority matched
-  // card from the larger basket to surface smaller / differently-balanced trades.
-  const byPriorityAsc = arr => [...arr].sort((a, b) =>
-    ({ low: 0, med: 1, high: 2 }[b.wantPriority] ?? 1) - ({ low: 0, med: 1, high: 2 }[a.wantPriority] ?? 1));
-  let g = baseGive.slice(), r = baseRecv.slice();
-  for (let i = 0; i < 5; i++) {
-    if (r.length >= g.length && r.length > 0) r = byPriorityAsc(r).slice(0, -1);
-    else if (g.length > 0) g = byPriorityAsc(g).slice(0, -1);
-    else break;
-    pushVariant(g.slice(), r.slice());
-  }
-  // Best first: prefer balanced (low delta), then more cards moved (more value).
+  // Main suggestion, then progressively smaller caps for "Suggest another".
+  buildAndPush(_SUGGEST_MAX_PER_SIDE, _SUGGEST_MAX_PER_SIDE);
+  const maxLen = Math.min(_SUGGEST_MAX_PER_SIDE, Math.max(theyWant.length, iWant.length));
+  for (let cap = maxLen - 1; cap >= 1 && variants.length < 6; cap--) buildAndPush(cap, cap);
+
+  // Best first: prefer balanced (low delta), then more value moved.
   variants.sort((a, b) => (a.deltaPct - b.deltaPct) || ((b.giveValueCents + b.receiveValueCents) - (a.giveValueCents + a.receiveValueCents)));
   return variants;
 }

@@ -6,10 +6,10 @@
 let _tradeSection = 'calculator';
 
 const _TRADE_SECTIONS = [
-  { key: 'calculator', label: 'Calculator' },
+  { key: 'partners',   label: 'Find Trades' },
   { key: 'tradelist',  label: 'Tradelist' },
   { key: 'wishlist',   label: 'Wishlist' },
-  { key: 'partners',   label: 'Find Trades' },
+  { key: 'calculator', label: 'Calculator' },
   { key: 'watches',    label: 'Price Alerts' },
   { key: 'history',    label: 'History' },
 ];
@@ -278,13 +278,14 @@ function _getTradeSocket() {
   if (typeof io === 'undefined' || window._noSocketIo) return null;
   try {
     _tradeSocket = io({ path: '/socket.io', withCredentials: true });
+    // Live updates from the other trader. Marked fromSocket so we DON'T re-join
+    // the room (re-joining echoes another trade:state → infinite render loop /
+    // the mobile flicker).
     _tradeSocket.on('trade:state', doc => {
-      // Live update: if this is the trade we're viewing, refresh it.
-      if (_calc && doc && _calc.id === doc.id) _applyTradeDocToCalc(doc);
-      void _loadCalcDrafts();
+      if (_calc && doc && _calc.id === doc.id) _applyTradeDocToCalc(doc, { fromSocket: true });
     });
     _tradeSocket.on('trade:updated', doc => {
-      if (_calc && doc && _calc.id === doc.id) _applyTradeDocToCalc(doc);
+      if (_calc && doc && _calc.id === doc.id) _applyTradeDocToCalc(doc, { fromSocket: true });
     });
   } catch (_) { _tradeSocket = null; }
   return _tradeSocket;
@@ -293,7 +294,8 @@ function _getTradeSocket() {
 function joinTradeRoom(tradeId) {
   const s = _getTradeSocket();
   if (!s) return;
-  if (_joinedTradeRoom && _joinedTradeRoom !== tradeId) s.emit('trade:leave', { tradeId: _joinedTradeRoom });
+  if (_joinedTradeRoom === tradeId) return;   // already in this room — don't re-emit
+  if (_joinedTradeRoom) s.emit('trade:leave', { tradeId: _joinedTradeRoom });
   _joinedTradeRoom = tradeId;
   s.emit('trade:join', { tradeId });
 }
@@ -570,8 +572,10 @@ async function tradeCalcSave() {
   }
 }
 
-function _applyTradeDocToCalc(doc) {
+function _applyTradeDocToCalc(doc, opts = {}) {
   if (!doc) return;
+  // Ignore redundant live echoes (same trade + revision) — prevents the flicker loop.
+  if (opts.fromSocket && _calc && _calc.id === doc.id && _calc.revision === doc.revision) return;
   const mapLine = it => ({
     lineId: _calcLineSeq++, scryfallId: it.scryfallId, name: it.name,
     set: it.cardData?.set, number: it.cardData?.number,
@@ -596,7 +600,8 @@ function _applyTradeDocToCalc(doc) {
   };
   const host = document.getElementById('tradeSectionBody');
   if (host && _tradeSection === 'calculator') renderTradeCalculator(host);
-  if (_calc.id && _calc.partnerId && ['pending', 'countered', 'accepted'].includes(_calc.status)) joinTradeRoom(_calc.id);
+  // Join the live room once on the initial load — never from a socket echo.
+  if (!opts.fromSocket && _calc.id && _calc.partnerId && ['pending', 'countered', 'accepted'].includes(_calc.status)) joinTradeRoom(_calc.id);
 }
 
 async function tradeCalcNew() {
@@ -1088,6 +1093,16 @@ function _renderWishlistGroups() {
 
 function _wishlistCardHtml(c) {
   const badge = _WISH_SOURCE_BADGE[c.source];
+  // For deck-needed cards, name the deck(s) that want it.
+  let badgeLabel = badge ? badge.label : '';
+  let badgeTitle = badge ? badge.label : '';
+  if (c.source === 'deck_needed') {
+    const names = (c.sourceMeta && Array.isArray(c.sourceMeta.deckNames)) ? c.sourceMeta.deckNames : [];
+    if (names.length) {
+      badgeLabel = names.length === 1 ? names[0] : `${names[0]} +${names.length - 1}`;
+      badgeTitle = 'Wanted by: ' + names.join(', ');
+    }
+  }
   const upgradeNote = c.source === 'upgrade_target' && c.sourceMeta
     ? `Want: ${escapeHtml(c.sourceMeta.targetCondition || 'better copy')}${c.sourceMeta.note ? ' · ' + escapeHtml(c.sourceMeta.note) : ''}`
     : '';
@@ -1098,7 +1113,7 @@ function _wishlistCardHtml(c) {
       <div class="card-img-wrap${c.foil ? ' foil' : ''}" onclick="tradeCalcOpenCard('${escapeHtml(c.scryfallId || '')}')">
         ${_tradeCardImgHtml(c)}
         ${c.foil ? `<div class="card-foil-overlay"></div><div class="card-foil-badge">✦ FOIL</div>` : ''}
-        ${badge ? `<span class="wl-src-badge ${badge.cls}">${badge.icon || ''}${escapeHtml(badge.label)}</span>` : ''}
+        ${badge ? `<span class="wl-src-badge ${badge.cls}" title="${escapeHtml(badgeTitle)}">${badge.icon || ''}${escapeHtml(badgeLabel)}</span>` : ''}
       </div>
       <div class="card-meta trade-card-foot">
         <div class="card-name">${escapeHtml(c.name)}</div>
