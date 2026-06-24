@@ -1065,9 +1065,73 @@ function _htmlCardDetailQtyControlRow(opts = {}) {
   return `<div class="card-detail-qty-printing-row">${labelHtml}${controlsHtml}${metaHtml}</div>`;
 }
 
+function _rowQtyVal(row) { return row ? (Number(row.qty) || 0) : 0; }
+
+function _findRowInSource(source, scryfallId, wantFoil) {
+  if (!scryfallId || !Array.isArray(source)) return null;
+  const sid = String(scryfallId);
+  const exact = sid + (wantFoil ? '_f' : '_n');
+  return source.find(c => c.uid === exact)
+    || source.find(c => c.scryfallId === sid && !!c.foil === !!wantFoil)
+    || null;
+}
+
+function _nameQtyInSource(source, name) {
+  if (!Array.isArray(source) || !name) return 0;
+  const n = String(name).toLowerCase();
+  return source.filter(c => String(c.name || '').toLowerCase() === n).reduce((s, c) => s + (Number(c.qty) || 1), 0);
+}
+
+/**
+ * Which collection the inspector's "In collection" rows should reflect, and whether
+ * it's editable. When you're viewing someone else's SHARED collection or SHARED deck,
+ * show THEIR counts read-only — otherwise a card you're literally looking at in their
+ * list reads "0" just because it isn't in your own collection. Your own context stays
+ * fully editable (the +/- writes to your collection).
+ */
+function _cardDetailOwnershipView() {
+  if (_viewingSharedCollOwnerId) {
+    const sc = (typeof sharedCollections !== 'undefined' ? sharedCollections : [])
+      .find(s => s.ownerId === _viewingSharedCollOwnerId);
+    if (sc) return { source: sc.cards || [], readOnly: true };
+  }
+  if (_cardDetailNavMode === 'deck' && typeof activeDeckIsShared !== 'undefined' && activeDeckIsShared
+      && typeof getDeckOwnerCollectionCards === 'function') {
+    const ownerCards = getDeckOwnerCollectionCards();
+    if (Array.isArray(ownerCards) && ownerCards.length) return { source: ownerCards, readOnly: true };
+  }
+  return { source: collection, readOnly: false };
+}
+
 function _htmlCardDetailCollectionRows(ctx) {
   const { card, isOwned, ownedCard, actionUid } = ctx;
   const sid = card && card.scryfallId ? String(card.scryfallId) : '';
+  const view = _cardDetailOwnershipView();
+
+  // Viewing someone else's shared collection/deck: show THEIR counts, read-only (you
+  // can't edit another account's collection). If they don't own this exact printing
+  // but own a different one, surface that instead of a misleading 0.
+  if (view.readOnly) {
+    const src = view.source;
+    const nfQ = _rowQtyVal(_findRowInSource(src, sid, false));
+    const fQ  = _rowQtyVal(_findRowInSource(src, sid, true));
+    if (sid && !nfQ && !fQ) {
+      const other = _nameQtyInSource(src, card && card.name);
+      if (other > 0) {
+        return `<div class="card-detail-qty-printing">${_htmlCardDetailQtyControlRow({ label: 'Owned', qty: other, interactive: false, meta: 'different printing' })}</div>`;
+      }
+    }
+    if (!sid) {
+      const q = _nameQtyInSource(src, card && card.name);
+      return `<div class="card-detail-qty-printing">${_htmlCardDetailQtyControlRow({ qty: q, muted: q === 0, interactive: false })}</div>`;
+    }
+    return `<div class="card-detail-qty-printing">
+        ${_htmlCardDetailQtyControlRow({ label: 'Non-foil', qty: nfQ, interactive: false })}
+        ${_htmlCardDetailQtyControlRow({ label: 'Foil', qty: fQ, interactive: false })}
+      </div>`;
+  }
+
+  // Your own collection: editable.
   if (!sid) {
     if (!isOwned) {
       return `<div class="card-detail-qty-printing">${_htmlCardDetailQtyControlRow({ qty: 0, muted: true, interactive: false })}</div>`;
@@ -1084,6 +1148,12 @@ function _htmlCardDetailCollectionRows(ctx) {
   const f = _findCollectionRowByPrinting(sid, true);
   const nfQ = nf ? (nf.qty || 0) : 0;
   const fQ = f ? (f.qty || 0) : 0;
+  // You don't own this exact printing, but you own another printing of the same card —
+  // surface it so the slot doesn't read a bare 0 while the deck shows it full-color.
+  const otherQ = (!nfQ && !fQ) ? _nameQtyInSource(collection, card && card.name) : 0;
+  const otherRow = otherQ > 0
+    ? _htmlCardDetailQtyControlRow({ label: 'Owned', qty: otherQ, interactive: false, meta: 'different printing' })
+    : '';
   return `<div class="card-detail-qty-printing">
       ${_htmlCardDetailQtyControlRow({
         label: 'Non-foil',
@@ -1099,6 +1169,7 @@ function _htmlCardDetailCollectionRows(ctx) {
         onMinus: `adjustCollectionPrintingQtyFromDetail(decodeURIComponent('${enc}'),true,-1)`,
         onPlus: `adjustCollectionPrintingQtyFromDetail(decodeURIComponent('${enc}'),true,1)`,
       })}
+      ${otherRow}
     </div>`;
 }
 
