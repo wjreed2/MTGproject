@@ -4430,30 +4430,33 @@ function _rebuildOwnershipMaps() {
 function _deckCardOwnership(c) {
   const ownershipOn = isDeckOwnershipEnabled();
   if (!ownershipOn) return { ownershipOn: false, owned: null, ownedByName: null, notOwned: false, foilMismatch: false, printingMismatch: false };
-  // exact uid (same printing + foil), then by name (any printing/foil)
-  const ownedExact  = _ownedByUid[getCardInventoryKey(c)] || null;
-  const ownedByName = !ownedExact ? (_ownedByName[(c.name || '').toLowerCase()] || null) : null;
-  const owned       = ownedExact || ownedByName;
-  // Owned by name but not the exact slot: either same printing different foil,
-  // or a different printing entirely. The card inspector counts only the exact
-  // printing (so it can show 0), so flag these to badge the deck tile accordingly.
-  const samePrinting     = !!ownedByName && String(ownedByName.scryfallId || '') === String(c.scryfallId || '');
-  const foilMismatch     = !ownedExact && !!ownedByName && samePrinting && (ownedByName.foil !== !!c.foil);
-  const printingMismatch = !ownedExact && !!ownedByName && !samePrinting;
+  const sid = c && c.scryfallId ? String(c.scryfallId) : '';
+  // Printing-strict: the slot counts as "owned" (full color) only if you own THIS exact
+  // printing — either finish. Owning a different printing of the same card does NOT count;
+  // it grays out (matching the inspector, which is also printing-specific).
+  const ownedThisPrinting = sid
+    ? (_ownedByUid[sid + '_n'] || _ownedByUid[sid + '_f'] || null)
+    : (_ownedByUid[getCardInventoryKey(c)] || null);
+  // Any printing by name — only used to tell "own a different printing" apart from
+  // "don't own it at all" for the badge.
+  const ownedByName = _ownedByName[(c.name || '').toLowerCase()] || null;
+  const owned = ownedThisPrinting;
+  const foilMismatch     = !!ownedThisPrinting && (!!ownedThisPrinting.foil !== !!c.foil);
+  const printingMismatch = !ownedThisPrinting && !!ownedByName;
   return { ownershipOn, owned, ownedByName, notOwned: !owned, foilMismatch, printingMismatch };
 }
 
 /** Small "unowned" / "own foil" pill for list-view rows (grid tiles use _stackTile badges instead). */
 function _deckRowOwnershipChipHtml(own) {
   if (!own || !own.ownershipOn) return '';
+  if (own.printingMismatch) {
+    return `<span class="deck-not-owned-chip" title="You own a different printing, not this one">other printing</span>`;
+  }
   if (own.notOwned) {
     return `<span class="deck-not-owned-chip" title="Not in ${_ownershipCollectionLabel()}">unowned</span>`;
   }
   if (own.foilMismatch) {
     return `<span class="deck-foil-mismatch-chip" title="You own a different finish">${own.owned?.foil ? 'own foil' : 'own non-foil'}</span>`;
-  }
-  if (own.printingMismatch) {
-    return `<span class="deck-foil-mismatch-chip" title="You own a different printing of this card">other printing</span>`;
   }
   return '';
 }
@@ -4472,12 +4475,12 @@ function _stackTile(c, zone = 'main', poolHints = null) {
 
   // Ownership badge
   let ownerBadge = '';
-  if (ownershipOn && notOwned) {
+  if (ownershipOn && printingMismatch) {
+    ownerBadge = `<div class="stack-not-owned" title="You own a different printing, not this one">other printing</div>`;
+  } else if (ownershipOn && notOwned) {
     ownerBadge = `<div class="stack-not-owned">✗ unowned</div>`;
   } else if (ownershipOn && foilMismatch) {
     ownerBadge = `<div class="stack-foil-mismatch">${owned.foil ? '✦ own foil' : 'own non-foil'}</div>`;
-  } else if (ownershipOn && printingMismatch) {
-    ownerBadge = `<div class="stack-foil-mismatch" title="You own a different printing of this card">other printing</div>`;
   }
 
   const mbPoolQty = zone === 'main' && poolHints?.mb

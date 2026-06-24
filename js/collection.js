@@ -1113,18 +1113,12 @@ function _htmlCardDetailCollectionRows(ctx) {
   // but own a different one, surface that instead of a misleading 0.
   if (view.readOnly) {
     const src = view.source;
-    const nfQ = _rowQtyVal(_findRowInSource(src, sid, false));
-    const fQ  = _rowQtyVal(_findRowInSource(src, sid, true));
-    if (sid && !nfQ && !fQ) {
-      const other = _nameQtyInSource(src, card && card.name);
-      if (other > 0) {
-        return `<div class="card-detail-qty-printing">${_htmlCardDetailQtyControlRow({ label: 'Owned', qty: other, interactive: false, meta: 'different printing' })}</div>`;
-      }
-    }
     if (!sid) {
       const q = _nameQtyInSource(src, card && card.name);
       return `<div class="card-detail-qty-printing">${_htmlCardDetailQtyControlRow({ qty: q, muted: q === 0, interactive: false })}</div>`;
     }
+    const nfQ = _rowQtyVal(_findRowInSource(src, sid, false));
+    const fQ  = _rowQtyVal(_findRowInSource(src, sid, true));
     return `<div class="card-detail-qty-printing">
         ${_htmlCardDetailQtyControlRow({ label: 'Non-foil', qty: nfQ, interactive: false })}
         ${_htmlCardDetailQtyControlRow({ label: 'Foil', qty: fQ, interactive: false })}
@@ -1148,12 +1142,6 @@ function _htmlCardDetailCollectionRows(ctx) {
   const f = _findCollectionRowByPrinting(sid, true);
   const nfQ = nf ? (nf.qty || 0) : 0;
   const fQ = f ? (f.qty || 0) : 0;
-  // You don't own this exact printing, but you own another printing of the same card —
-  // surface it so the slot doesn't read a bare 0 while the deck shows it full-color.
-  const otherQ = (!nfQ && !fQ) ? _nameQtyInSource(collection, card && card.name) : 0;
-  const otherRow = otherQ > 0
-    ? _htmlCardDetailQtyControlRow({ label: 'Owned', qty: otherQ, interactive: false, meta: 'different printing' })
-    : '';
   return `<div class="card-detail-qty-printing">
       ${_htmlCardDetailQtyControlRow({
         label: 'Non-foil',
@@ -1169,7 +1157,6 @@ function _htmlCardDetailCollectionRows(ctx) {
         onMinus: `adjustCollectionPrintingQtyFromDetail(decodeURIComponent('${enc}'),true,-1)`,
         onPlus: `adjustCollectionPrintingQtyFromDetail(decodeURIComponent('${enc}'),true,1)`,
       })}
-      ${otherRow}
     </div>`;
 }
 
