@@ -4429,14 +4429,18 @@ function _rebuildOwnershipMaps() {
 /** Ownership status for a deck card against the prebuilt ownership maps. Call _rebuildOwnershipMaps() first. */
 function _deckCardOwnership(c) {
   const ownershipOn = isDeckOwnershipEnabled();
-  if (!ownershipOn) return { ownershipOn: false, owned: null, ownedByName: null, notOwned: false, foilMismatch: false };
+  if (!ownershipOn) return { ownershipOn: false, owned: null, ownedByName: null, notOwned: false, foilMismatch: false, printingMismatch: false };
   // exact uid (same printing + foil), then by name (any printing/foil)
   const ownedExact  = _ownedByUid[getCardInventoryKey(c)] || null;
   const ownedByName = !ownedExact ? (_ownedByName[(c.name || '').toLowerCase()] || null) : null;
   const owned       = ownedExact || ownedByName;
-  // Foil mismatch: own the other variant but not the requested one
-  const foilMismatch = !ownedExact && !!ownedByName && (ownedByName.foil !== !!c.foil);
-  return { ownershipOn, owned, ownedByName, notOwned: !owned, foilMismatch };
+  // Owned by name but not the exact slot: either same printing different foil,
+  // or a different printing entirely. The card inspector counts only the exact
+  // printing (so it can show 0), so flag these to badge the deck tile accordingly.
+  const samePrinting     = !!ownedByName && String(ownedByName.scryfallId || '') === String(c.scryfallId || '');
+  const foilMismatch     = !ownedExact && !!ownedByName && samePrinting && (ownedByName.foil !== !!c.foil);
+  const printingMismatch = !ownedExact && !!ownedByName && !samePrinting;
+  return { ownershipOn, owned, ownedByName, notOwned: !owned, foilMismatch, printingMismatch };
 }
 
 /** Small "unowned" / "own foil" pill for list-view rows (grid tiles use _stackTile badges instead). */
@@ -4447,6 +4451,9 @@ function _deckRowOwnershipChipHtml(own) {
   }
   if (own.foilMismatch) {
     return `<span class="deck-foil-mismatch-chip" title="You own a different finish">${own.owned?.foil ? 'own foil' : 'own non-foil'}</span>`;
+  }
+  if (own.printingMismatch) {
+    return `<span class="deck-foil-mismatch-chip" title="You own a different printing of this card">other printing</span>`;
   }
   return '';
 }
@@ -4460,7 +4467,7 @@ function _stackTile(c, zone = 'main', poolHints = null) {
     || (c.scryfallId ? `https://cards.scryfall.io/normal/front/${c.scryfallId[0]}/${c.scryfallId[1]}/${c.scryfallId}.jpg` : '');
   const safeName = c.name.replace(/"/g, '&quot;');
 
-  const { ownershipOn, owned, notOwned, foilMismatch } = _deckCardOwnership(c);
+  const { ownershipOn, owned, notOwned, foilMismatch, printingMismatch } = _deckCardOwnership(c);
   const imgStyle = notOwned ? 'filter:grayscale(82%) brightness(0.8) contrast(0.9)' : '';
 
   // Ownership badge
@@ -4469,6 +4476,8 @@ function _stackTile(c, zone = 'main', poolHints = null) {
     ownerBadge = `<div class="stack-not-owned">✗ unowned</div>`;
   } else if (ownershipOn && foilMismatch) {
     ownerBadge = `<div class="stack-foil-mismatch">${owned.foil ? '✦ own foil' : 'own non-foil'}</div>`;
+  } else if (ownershipOn && printingMismatch) {
+    ownerBadge = `<div class="stack-foil-mismatch" title="You own a different printing of this card">other printing</div>`;
   }
 
   const mbPoolQty = zone === 'main' && poolHints?.mb
