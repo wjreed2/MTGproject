@@ -1263,8 +1263,89 @@ function _defaultTagBadgeHtml(card, opts = {}) {
   if (!meta) return '';
   if (!deckTagBadgesEnabled) return '';
   const corner = opts.variant === 'corner' ? ' deck-tag-badge--corner' : '';
-  return `<span class="deck-tag-badge${corner}" style="--badge-color:${meta.color}" title="${escapeHtml(tag)}" aria-label="${escapeHtml(tag)}">${_tagBadgeSvg(meta.icon)}</span>`;
+  const safeTag = escapeHtml(tag);
+  // No native `title`: it never fires on touch and is clipped inside grid tiles.
+  // We paint a custom bubble instead — hover on desktop, tap on touch.
+  return `<span class="deck-tag-badge${corner}" style="--badge-color:${meta.color}" data-tag-badge="${safeTag}" role="img" aria-label="${safeTag}" onpointerdown="event.stopPropagation()" onclick="_toggleTagBadgeTip(event,this)">${_tagBadgeSvg(meta.icon)}</span>`;
 }
+
+// ─── Role-tag badge explainer bubble (hover on desktop, tap on touch) ─────────
+// A single floating element reused for every badge. position:fixed + viewport
+// coords from getBoundingClientRect, so it's never clipped by the deck tiles.
+let _tagBadgeTipEl = null;
+let _tagBadgeTipAnchor = null;
+
+function _tagTipTouchMode() {
+  return !!(window.matchMedia && window.matchMedia('(hover: none)').matches);
+}
+
+function _ensureTagBadgeTip() {
+  if (_tagBadgeTipEl && document.body.contains(_tagBadgeTipEl)) return _tagBadgeTipEl;
+  const el = document.createElement('div');
+  el.className = 'tag-badge-tip';
+  el.setAttribute('role', 'tooltip');
+  document.body.appendChild(el);
+  _tagBadgeTipEl = el;
+  return el;
+}
+
+function _showTagBadgeTip(badge) {
+  if (!badge) return;
+  if (_tagBadgeTipAnchor === badge && _tagBadgeTipEl && _tagBadgeTipEl.classList.contains('show')) return;
+  const tag = badge.getAttribute('data-tag-badge');
+  if (!tag) return;
+  const tip = _ensureTagBadgeTip();
+  tip.textContent = tag;
+  _tagBadgeTipAnchor = badge;
+  tip.classList.add('show');
+  _positionTagBadgeTip(badge, tip);
+}
+
+function _positionTagBadgeTip(badge, tip) {
+  const r = badge.getBoundingClientRect();
+  const tw = tip.offsetWidth, th = tip.offsetHeight, pad = 6;
+  let left = r.left + r.width / 2 - tw / 2;
+  left = Math.max(pad, Math.min(left, window.innerWidth - tw - pad));
+  let top = r.top - th - 8;
+  if (top < pad) top = r.bottom + 8;        // flip below when there's no room above
+  tip.style.left = `${Math.round(left)}px`;
+  tip.style.top = `${Math.round(top)}px`;
+}
+
+function _hideTagBadgeTip() {
+  if (_tagBadgeTipEl) _tagBadgeTipEl.classList.remove('show');
+  _tagBadgeTipAnchor = null;
+}
+
+function _toggleTagBadgeTip(e, badge) {
+  if (e) { e.stopPropagation(); e.preventDefault(); }
+  if (!_tagTipTouchMode()) { _showTagBadgeTip(badge); return; }  // desktop: hover owns it
+  if (_tagBadgeTipAnchor === badge) _hideTagBadgeTip();
+  else _showTagBadgeTip(badge);
+}
+
+(function _initTagBadgeTips() {
+  if (typeof document === 'undefined') return;
+  document.addEventListener('mouseover', e => {
+    if (_tagTipTouchMode()) return;
+    const t = e.target;
+    const badge = t && t.closest ? t.closest('.deck-tag-badge') : null;
+    if (badge) _showTagBadgeTip(badge);
+  });
+  document.addEventListener('mouseout', e => {
+    if (_tagTipTouchMode()) return;
+    const t = e.target;
+    const badge = t && t.closest ? t.closest('.deck-tag-badge') : null;
+    if (!badge || _tagBadgeTipAnchor !== badge) return;
+    const to = e.relatedTarget;
+    if (to && to.closest && to.closest('.deck-tag-badge') === badge) return;  // moved within badge
+    _hideTagBadgeTip();
+  });
+  // Badge taps stopPropagation, so this only fires for taps elsewhere → dismiss.
+  document.addEventListener('click', () => { if (_tagBadgeTipAnchor) _hideTagBadgeTip(); });
+  window.addEventListener('scroll', () => { if (_tagBadgeTipAnchor) _hideTagBadgeTip(); }, true);
+  window.addEventListener('resize', () => { if (_tagBadgeTipAnchor) _hideTagBadgeTip(); });
+})();
 
 // Deck-list toggle for the role-tag badges (persisted; default on).
 let deckTagBadgesEnabled = localStorage.getItem('mtg_deck_tag_badges') !== '0';
@@ -11254,7 +11335,7 @@ async function _executeCardReplacementsFetch(refineKey) {
       allResults = cached.rawCards;
     } else {
       const lists = await Promise.all(queries.map(q =>
-        fetch(`/api/scryfall/search?q=${encodeURIComponent(q)}&order=edhrec&unique=cards&skipTcg=1`)
+        fetch(`/api/scryfall/search?q=${encodeURIComponent(q)}&order=edhrec&unique=cards&skipTcg=1&localFirst=1`)
           .then(r => (r.ok ? r.json() : { data: [] }))
           .catch(() => ({ data: [] })),
       ));

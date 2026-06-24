@@ -661,9 +661,17 @@ function _htmlCardDetailPriceRows(card) {
 
 function _mergeFetchedCardIntoDetailCard(card, entry) {
   if (!card || !entry) return;
+  // We hydrate a card by its own scryfallId, but the server may answer from the local oracle
+  // DB with a *representative* printing's art/set when that exact printing isn't stored. If the
+  // card already has its own printing, keep it — only oracle-level fields (text/type/cmc/price)
+  // should change, not the displayed printing.
+  const keepPrinting = (card.imageLarge || card.image)
+    ? { image: card.image, imageLarge: card.imageLarge, set: card.set, setName: card.setName, number: card.number, rarity: card.rarity }
+    : null;
   if (typeof applyEntryMetadataToCard === 'function') {
     applyEntryMetadataToCard(card, entry);
   }
+  if (keepPrinting) Object.assign(card, keepPrinting);
   if (entry.priceTCG > 0) card.priceTCG = entry.priceTCG;
   if (entry.priceTCGFoil > 0) card.priceTCGFoil = entry.priceTCGFoil;
   if (entry.priceCK > 0) card.priceCK = entry.priceCK;

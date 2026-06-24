@@ -307,7 +307,30 @@
   /* Heraldic shield: flat top, sides taper to a point at the bottom. */
   clip-path: polygon(0 0, 100% 0, 100% 56%, 50% 100%, 0 56%);
   filter: drop-shadow(0 1px 1.5px rgba(0,0,0,0.55));
+  cursor: help;
 }
+
+/* Explainer bubble for the role-tag badges — hover (desktop) / tap (touch).
+   position:fixed so it's never clipped by the deck row / grid tile. */
+.tag-badge-tip {
+  position: fixed;
+  z-index: 10050;
+  max-width: 220px;
+  padding: 5px 9px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(3px);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+.tag-badge-tip.show { opacity: 1; transform: translateY(0); }
 /* margin-bottom nudges the icon up into the wide part of the shield, off the point */
 .deck-tag-badge svg { width: 13px; height: 13px; display: block; margin-bottom: 4px; }
 .deck-tag-badge--corner {
@@ -318,7 +341,9 @@
   width: 25px;
   height: 29px;
   z-index: 11;
-  pointer-events: none;
+  /* Tappable/hoverable so the explainer bubble works in grid view too. The
+     badge stops its own pointerdown so it never starts a card drag. */
+  pointer-events: auto;
 }
 .deck-tag-badge--corner svg { width: 15px; height: 15px; margin-bottom: 5px; }
 /* Touch devices keep :hover stuck after a tap, so .btn-outline:hover would make

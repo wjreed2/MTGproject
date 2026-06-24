@@ -2283,6 +2283,52 @@ async function attachPriceLogPrices(cards) {
   return cards;
 }
 
+/**
+ * Backfill deck-card market prices (priceTCG/priceTCGFoil/priceCK/priceCKFoil) from the
+ * price log, keyed by the card's exact printing (scryfallId). Deck build/import flows store
+ * these as 0 and nothing ever refreshes them — unlike search, which enriches via
+ * attachPriceLogPrices into `card.prices`. The deck value total reads priceTCG/priceTCGFoil,
+ * so without this an imported deck shows ~$0. Mutates `cards` in place. Only overwrites when
+ * the price log has a positive value, so cards missing from the log keep their stored price.
+ */
+async function attachPriceLogPricesToDeckCards(cards) {
+  if (_priceLogUnavailable || !Array.isArray(cards) || !cards.length) return cards;
+  const ids = [...new Set(cards
+    .map(c => String(c?.scryfallId || '').toLowerCase())
+    .filter(id => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)))];
+  if (!ids.length) return cards;
+  try {
+    const md = await _getPriceLogLatestDate();
+    if (!md) return cards;
+    const ph = ids.map(() => '?').join(',');
+    const [rows] = await db().query(
+      `SELECT p.scryfall_id sid,
+              MAX(c.tcg_normal) tcg_normal, MAX(c.tcg_foil) tcg_foil,
+              MAX(c.ck_normal)  ck_normal,  MAX(c.ck_foil)  ck_foil
+         FROM mtgjson_printing p
+         JOIN card_price_daily c ON c.uuid = p.uuid AND c.snapshot_date = ?
+        WHERE p.scryfall_id IN (${ph})
+        GROUP BY p.scryfall_id`,
+      [md, ...ids]
+    );
+    const byId = new Map(rows.map(r => [String(r.sid || '').toLowerCase(), r]));
+    for (const c of cards) {
+      const p = byId.get(String(c?.scryfallId || '').toLowerCase());
+      if (!p) continue;
+      const tcg = parseFloat(p.tcg_normal), tcgF = parseFloat(p.tcg_foil);
+      const ck = parseFloat(p.ck_normal), ckF = parseFloat(p.ck_foil);
+      if (Number.isFinite(tcg) && tcg > 0) c.priceTCG = tcg;
+      if (Number.isFinite(tcgF) && tcgF > 0) c.priceTCGFoil = tcgF;
+      if (Number.isFinite(ck) && ck > 0) c.priceCK = ck;
+      if (Number.isFinite(ckF) && ckF > 0) c.priceCKFoil = ckF;
+    }
+  } catch (e) {
+    _priceLogUnavailable = true;
+    console.warn('[price-log] deck enrichment unavailable, skipping:', e.code || e.message);
+  }
+  return cards;
+}
+
 const _REPLACE_ALLOWED_TABLES = new Set(['collection', 'games', 'wishlist']);
 /** Full-replacement PUT for one account inside a transaction. */
 async function replaceAllForAccount(accountId, table, rows, insertFn) {
@@ -2785,6 +2831,7 @@ app.get('/api/decks', requireAuth, async (req, res) => {
       if (Array.isArray(cards) && cards.length) return { ...deck, cards };
       return deck;
     });
+    await attachPriceLogPricesToDeckCards(out.flatMap(d => d.cards || []));
     res.json(out);
   } catch (e) {
     console.error(e);
@@ -2853,6 +2900,7 @@ app.get('/api/decks/public/:deckId', async (req, res) => {
         return { ...c, uid: c.uid || r.card_uid };
       });
     }
+    await attachPriceLogPricesToDeckCards(deck.cards || []);
     res.json(deck);
   } catch (e) {
     console.error(e);
@@ -2886,6 +2934,7 @@ app.get('/api/decks/link/:token', async (req, res) => {
           return { ...c, uid: c.uid || r.card_uid };
         })
       : (deck.cards || []);
+    await attachPriceLogPricesToDeckCards(cards);
     // Return only a curated, owner-anonymous shape (no email, account_id, or token).
     res.json({
       name: deck.name || 'Untitled',
@@ -3122,6 +3171,7 @@ app.get('/api/decks/shared', requireAuth, async (req, res) => {
       deck.userPermission = permByDeck.get(r.id) || 'edit';
       return deck;
     });
+    await attachPriceLogPricesToDeckCards(out.flatMap(d => d.cards || []));
     res.json(out);
   } catch (e) {
     console.error(e);
@@ -5200,6 +5250,11 @@ const SCRYFALL_AUTO_TAGS = [
   { label: 'Drain', otag: 'drain-life' },
   { label: 'Sac Synergy', otag: 'synergy-sacrifice' },
 ];
+// Scryfall tagger slug → the label we store in scryfall_oracle_tags. Lets the local search
+// engine resolve `otag:removal` against the local tag table (which stores "Removal").
+const _OTAG_TO_LABEL = new Map(
+  SCRYFALL_AUTO_TAGS.filter(t => t.otag).map(t => [t.otag.toLowerCase(), t.label])
+);
 function _sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -6148,40 +6203,29 @@ app.get('/api/scryfall/card-id/:id', async (req, res) => {
       return res.status(400).json({ error: 'Invalid card ID' });
     }
     const cardId = req.params.id;
+
+    // Local-first: serve oracle data + price-log prices with no Scryfall round-trip. This is
+    // the hot path behind opening the card inspector for an unowned card; the old code always
+    // hit Scryfall first and only fell back to local on a 10s timeout, so every open stalled.
+    const local = await _lookupLocalCardById(cardId);
+    if (local) {
+      const card = _localRowToScryfallCard(local.row);
+      if (local.scryfallId) card.id = local.scryfallId;
+      await attachPriceLogPrices([card]); // local price-history tables, keyed by printing id
+      if (!_cardHasUsdPrice(card)) await enrichCardWithTcgPrices(card); // cached TCG fallback
+      return res.json(card);
+    }
+
+    // Not in the local DB (e.g. a brand-new printing not yet imported) — go to Scryfall.
     let upstream = null;
     try {
-      upstream = await scryfallFetch(`https://api.scryfall.com/cards/${cardId}`);
+      upstream = await scryfallFetch(`https://api.scryfall.com/cards/${cardId}`, { timeoutMs: 6000 });
     } catch (e) {
       if (e?.name !== 'TimeoutError' && e?.name !== 'AbortError') throw e;
     }
     if (!upstream || !upstream.ok) {
-      // Fall back to local oracle DB if Scryfall is unavailable or timed out
-      const [[localRow]] = await db().query(
-        `SELECT oracle_id, scryfall_id, name, type_line, oracle_text, mana_cost, cmc,
-                colors_json, color_identity_json, image_normal, image_small,
-                power, toughness, loyalty, rarity, set_code
-         FROM scryfall_oracle_cards WHERE scryfall_id = ? OR oracle_id = ? LIMIT 1`,
-        [cardId, cardId]
-      );
-      if (localRow) {
-        let card = _localRowToScryfallCard(localRow);
-        await enrichCardWithTcgPrices(card);
-        if (!_cardHasUsdPrice(card) && localRow.scryfall_id) {
-          const upstreamCard = await _fetchScryfallCardById(localRow.scryfall_id);
-          if (upstreamCard) card = upstreamCard;
-        }
-        if (!_cardHasUsdPrice(card) && localRow.name) {
-          const namedRes = await scryfallFetch(
-            `https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(localRow.name)}`
-          );
-          if (namedRes.ok) {
-            card = await namedRes.json();
-            await enrichCardWithTcgPrices(card);
-          }
-        }
-        return res.json(card);
-      }
-      return res.status(upstream ? upstream.status : 504).json({ error: upstream ? 'Card not found' : 'Card lookup timed out' });
+      return res.status(upstream ? upstream.status : 504)
+        .json({ error: upstream ? 'Card not found' : 'Card lookup timed out' });
     }
     const card = await upstream.json();
     await enrichCardWithTcgPrices(card);
@@ -6784,12 +6828,262 @@ function _localRowToScryfallCard(row) {
   };
 }
 
+// Resolve a card from local tables by Scryfall printing id OR oracle id — no network.
+// Returns { row, scryfallId } (scryfallId = the printing id to report to the client) or
+// null when the id is unknown locally. When the requested printing isn't the oracle row's
+// representative, we map the printing id → name via mtgjson_printing and serve oracle data
+// for that name (image/set then come from the representative printing).
+async function _lookupLocalCardById(cardId) {
+  const cols = `oracle_id, scryfall_id, name, type_line, oracle_text, mana_cost, cmc,
+                colors_json, color_identity_json, image_normal, image_small,
+                power, toughness, loyalty, rarity, set_code`;
+  const [[direct]] = await db().query(
+    `SELECT ${cols} FROM scryfall_oracle_cards WHERE scryfall_id = ? OR oracle_id = ? LIMIT 1`,
+    [cardId, cardId]
+  );
+  if (direct) {
+    return { row: direct, scryfallId: direct.scryfall_id === cardId ? cardId : (direct.scryfall_id || null) };
+  }
+  const [[pr]] = await db().query(
+    'SELECT name FROM mtgjson_printing WHERE scryfall_id = ? LIMIT 1', [cardId]
+  );
+  if (pr?.name) {
+    const [[byName]] = await db().query(
+      `SELECT ${cols} FROM scryfall_oracle_cards WHERE name = ? LIMIT 1`, [pr.name]
+    );
+    if (byName) return { row: byName, scryfallId: cardId };
+  }
+  return null;
+}
+
+// ── Local-first Scryfall-syntax search (deck "replacements" panel) ───────────
+// The replacements finder issues boolean otag:/o:/t:/id<= queries. Translating these to
+// SQL against the local oracle DB avoids slow, rate-limited Scryfall round-trips. We only
+// serve queries whose EVERY token we can faithfully reproduce; anything else throws
+// _NOT_LOCAL and the caller falls back to Scryfall.
+const _NOT_LOCAL = Symbol('not-locally-servable');
+
+// Hand scanner: emits paren/keyword/atom tokens. "quoted" and /regex/ values are read as
+// opaque units so their inner parens don't break grouping.
+function _tokenizeLocalBool(s) {
+  const toks = [];
+  let i = 0;
+  while (i < s.length) {
+    const c = s[i];
+    if (c === ' ' || c === '\t' || c === '\n') { i++; continue; }
+    if (c === '(') { toks.push({ t: '(' }); i++; continue; }
+    if (c === ')') { toks.push({ t: ')' }); i++; continue; }
+    const kw = /^(OR|AND)(?=$|[\s()])/i.exec(s.slice(i));
+    if (kw) { toks.push({ t: kw[1].toUpperCase() }); i += kw[1].length; continue; }
+    let neg = false, j = i;
+    if (s[j] === '-') { neg = true; j++; }
+    const km = /^(\w+)\s*(>=|<=|!=|<>|[:=<>])/.exec(s.slice(j));
+    if (km) {
+      const key = km[1].toLowerCase();
+      const op = km[2];
+      j += km[0].length;
+      let val = '';
+      if (s[j] === '"') {
+        const end = s.indexOf('"', j + 1);
+        val = s.slice(j + 1, end < 0 ? s.length : end);
+        j = end < 0 ? s.length : end + 1;
+      } else if (s[j] === '/') {
+        let k = j + 1, buf = '';
+        while (k < s.length && s[k] !== '/') {
+          if (s[k] === '\\') { buf += s[k] + (s[k + 1] || ''); k += 2; }
+          else { buf += s[k]; k++; }
+        }
+        val = '/' + buf + '/';
+        j = k < s.length ? k + 1 : k;
+      } else {
+        const vm = /^[^\s()]+/.exec(s.slice(j));
+        val = vm ? vm[0] : '';
+        j += val.length;
+      }
+      toks.push({ t: 'atom', neg, key, op, val });
+      i = j;
+    } else {
+      const vm = /^[^\s()]+/.exec(s.slice(j));
+      const word = vm ? vm[0] : s[j];
+      toks.push({ t: 'atom', neg, word });
+      i = j + (word ? word.length : 1);
+    }
+  }
+  return toks;
+}
+
+function _localColorAtomSql(col, op, rawVal, neg) {
+  const resolved = String(_COLOR_NAMES_SRV[rawVal] || rawVal).toUpperCase();
+  if (resolved === 'C') {
+    const base = `(JSON_LENGTH(${col}) = 0 OR ${col} IS NULL)`;
+    return { sql: neg ? `NOT ${base}` : base, params: [] };
+  }
+  if (resolved === 'M') {
+    return { sql: neg ? `NOT (JSON_LENGTH(${col}) > 1)` : `JSON_LENGTH(${col}) > 1`, params: [] };
+  }
+  const wanted = [...resolved].filter(ch => 'WUBRG'.includes(ch));
+  if (!wanted.length) throw _NOT_LOCAL;
+  if (op === '<=' || op === '<') {
+    // colour identity must be a SUBSET of `wanted`: forbid every colour not in the set.
+    const conds = [];
+    for (const ch of 'WUBRG') if (!wanted.includes(ch)) conds.push(`NOT JSON_CONTAINS(${col}, '"${ch}"')`);
+    const base = conds.length ? `(${conds.join(' AND ')})` : '1=1';
+    return { sql: neg ? `NOT ${base}` : base, params: [] };
+  }
+  // ':' '=' '>=' → must contain ALL wanted colours
+  const conds = wanted.map(() => `JSON_CONTAINS(${col}, ?)`);
+  const params = wanted.map(ch => `"${ch}"`);
+  const base = conds.length === 1 ? conds[0] : `(${conds.join(' AND ')})`;
+  return { sql: neg ? `NOT (${base})` : base, params };
+}
+
+// One atom → SQL boolean on scryfall_oracle_cards. Throws _NOT_LOCAL for anything we can't
+// faithfully translate (so the query falls back to Scryfall instead of returning wrong rows).
+function _localAtomToSql(atom) {
+  if (atom.word !== undefined) {
+    const w = `%${String(atom.word).toLowerCase()}%`;
+    const base = `(LOWER(name) LIKE ? OR LOWER(type_line) LIKE ? OR LOWER(oracle_text) LIKE ?)`;
+    return { sql: atom.neg ? `NOT ${base}` : base, params: [w, w, w] };
+  }
+  const { neg, key, op } = atom;
+  const val = String(atom.val).toLowerCase();
+  const n = neg ? 'NOT ' : '';
+  switch (key) {
+    case 't': case 'type':
+      return { sql: `${n}(LOWER(type_line) REGEXP CONCAT('(^|[^[:alpha:]])', ?, '($|[^[:alpha:]])'))`, params: [_regexEscapeForMysql(val)] };
+    case 'o': case 'oracle': {
+      const rx = val.match(/^\/(.*)\/$/);
+      if (rx) return { sql: `${n}(LOWER(oracle_text) REGEXP ?)`, params: [rx[1]] };
+      return { sql: `${n}(LOWER(oracle_text) LIKE ?)`, params: [`%${val}%`] };
+    }
+    case 'otag': case 'function': case 'oracletag': {
+      const label = _OTAG_TO_LABEL.get(val);
+      if (!label) throw _NOT_LOCAL;
+      return { sql: `${n}(oracle_id IN (SELECT oracle_id FROM scryfall_oracle_tags WHERE JSON_CONTAINS(tags_json, ?)))`, params: [JSON.stringify(label)] };
+    }
+    case 'cmc': case 'mv': {
+      const num = parseFloat(val);
+      if (!Number.isFinite(num)) throw _NOT_LOCAL;
+      const sqlOp = _sqlOpMap[op] || '=';
+      return { sql: neg ? `NOT (cmc ${sqlOp} ?)` : `cmc ${sqlOp} ?`, params: [num] };
+    }
+    case 'r': case 'rarity':
+      return { sql: `${n}(LOWER(rarity) = ?)`, params: [String(_rarityAliases[val] || val).toLowerCase()] };
+    case 's': case 'set': case 'e': case 'edition':
+      return { sql: `${n}(LOWER(set_code) = ?)`, params: [val] };
+    case 'c': case 'color': case 'ci': case 'id':
+      return _localColorAtomSql((key === 'ci' || key === 'id') ? 'color_identity_json' : 'colors_json', op, val, neg);
+    case 'is':
+      if (val === 'legendary' || val === 'instant' || val === 'sorcery') {
+        return { sql: `${n}(LOWER(type_line) LIKE ?)`, params: [`%${val}%`] };
+      }
+      throw _NOT_LOCAL;
+    case 'not':
+      // not:extra etc. — extras (tokens/emblems/art) are already excluded by the caller's
+      // type_line filter, so treat as a no-op rather than failing the whole query.
+      return { sql: '1=1', params: [] };
+    default:
+      throw _NOT_LOCAL;
+  }
+}
+
+// Recursive descent: implicit AND between adjacent terms, explicit OR, parenthesised groups.
+// Returns { sql, params } or null when the query isn't cleanly/fully locally servable.
+function _buildLocalScryfallSearchSql(q) {
+  const toks = _tokenizeLocalBool(String(q || ''));
+  if (!toks.length) return null;
+  let pos = 0;
+  const params = [];
+  const peek = () => toks[pos];
+  const parseOr = () => {
+    let left = parseAnd();
+    while (peek() && peek().t === 'OR') { pos++; left = `(${left} OR ${parseAnd()})`; }
+    return left;
+  };
+  const parseAnd = () => {
+    let left = parseTerm();
+    for (;;) {
+      const tk = peek();
+      if (!tk || tk.t === 'OR' || tk.t === ')') break;
+      if (tk.t === 'AND') pos++;
+      left = `(${left} AND ${parseTerm()})`;
+    }
+    return left;
+  };
+  const parseTerm = () => {
+    const tk = peek();
+    if (!tk) throw _NOT_LOCAL;
+    if (tk.t === '(') {
+      pos++;
+      const inner = parseOr();
+      if (peek() && peek().t === ')') pos++; else throw _NOT_LOCAL;
+      return inner;
+    }
+    if (tk.t === 'atom') {
+      pos++;
+      const { sql, params: p } = _localAtomToSql(tk);
+      params.push(...p);
+      return sql;
+    }
+    throw _NOT_LOCAL; // stray OR/AND/) where a term was expected
+  };
+  try {
+    const sql = parseOr();
+    if (pos !== toks.length) return null; // leftover tokens → didn't parse cleanly
+    return { sql, params };
+  } catch (e) {
+    if (e === _NOT_LOCAL) return null;
+    throw e;
+  }
+}
+
 app.get('/api/scryfall/search', async (req, res) => {
   try {
     const q = req.query.q || '';
     const order = req.query.order || 'name';
     const unique = req.query.unique || 'cards';
     const skipTcg = req.query.skipTcg === '1' || req.query.skipTcg === 'true';
+
+    // Local-first path (deck replacements panel sets localFirst=1). Serve from the local
+    // oracle DB when the whole query translates to SQL; otherwise hit Scryfall but fail soft
+    // (short timeout, empty result) so the panel degrades gracefully instead of hanging.
+    if (req.query.localFirst === '1' && q && !q.startsWith('!"')) {
+      let local = null;
+      try { local = _buildLocalScryfallSearchSql(q); } catch (_) { local = null; }
+      if (local) {
+        // Paper-only (drop Arena rebalanced "A-"/Alchemy y* / Historic-only printings) so the
+        // panel never suggests digital cards. No local EDHREC rank, so order by mana value —
+        // a decent "playable staple" proxy (cheap dorks/removal first) the client then re-scores.
+        const [rows] = await db().query(
+          `SELECT oracle_id, scryfall_id, name, type_line, oracle_text, mana_cost, cmc,
+                  colors_json, color_identity_json, image_normal, image_small,
+                  power, toughness, loyalty, rarity, set_code
+           FROM scryfall_oracle_cards
+           WHERE (${local.sql})
+             AND type_line NOT LIKE '%Token%' AND type_line NOT LIKE '%Emblem%'
+             AND games_json LIKE '%"paper"%'
+             AND (set_code IS NULL OR (set_code NOT REGEXP '^y[a-z0-9]' AND set_code NOT REGEXP '^ha[0-9]' AND set_code != 'j21'))
+           ORDER BY cmc ASC, name ASC LIMIT 175`,
+          local.params
+        );
+        const cards = rows.map(_localRowToScryfallCard);
+        await attachPriceLogPrices(cards);
+        return res.json({ object: 'list', total_cards: cards.length, has_more: false, data: cards });
+      }
+      try {
+        const upstream = await scryfallFetch(
+          `https://api.scryfall.com/cards/search?q=${encodeURIComponent(q)}&order=${encodeURIComponent(order)}&unique=${encodeURIComponent(unique)}`,
+          { timeoutMs: 5000, maxRetries: 1 }
+        );
+        if (!upstream.ok) return res.json({ object: 'list', total_cards: 0, has_more: false, data: [] });
+        return res.json(await upstream.json());
+      } catch (e) {
+        if (e?.name === 'TimeoutError' || e?.name === 'AbortError') {
+          return res.json({ object: 'list', total_cards: 0, has_more: false, data: [] });
+        }
+        throw e;
+      }
+    }
 
     // Fast path: exact name search `!"CardName"` → serve from local oracle DB, no Scryfall round-trip.
     // The deck builder always appends `-is:extra`; strip that and any other simple suffix filters.
