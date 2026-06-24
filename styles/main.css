@@ -8196,21 +8196,25 @@ select:focus { outline: none; border-color: rgba(200,168,74,0.6); box-shadow: 0 
 .calc-line-remove { background: transparent; border: none; color: var(--text3); cursor: pointer; font-size: 0.85rem; padding: 2px; }
 .calc-line-remove:hover { color: var(--red); }
 
-.calc-drafts { margin-top: 22px; }
-.calc-drafts-head { font-family: 'Cinzel', serif; color: var(--text2); font-size: 0.85rem; margin-bottom: 8px; letter-spacing: 0.03em; }
-.calc-drafts-list { display: flex; flex-direction: column; gap: 6px; }
-.calc-draft-row { display: flex; align-items: center; gap: 6px; }
-.calc-draft-row.active .calc-draft-open { border-color: var(--gold); }
-.calc-draft-open {
-  flex: 1 1 auto; display: flex; flex-direction: column; gap: 2px; text-align: left;
+.calc-suggest-mount:not(:empty) { margin-top: 18px; }
+.linklike { background: none; border: none; color: var(--teal); cursor: pointer; font: inherit; text-decoration: underline; padding: 0; }
+
+/* ── Offers tab (saved drafts + incoming/outgoing offers) ────────────────── */
+.offers-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 16px; }
+.offers-bar-title { font-family: 'Cinzel', serif; color: var(--text); font-size: 1.05rem; }
+.offers-group { margin-bottom: 20px; }
+.offers-group-head { font-family: 'Cinzel', serif; color: var(--text2); font-size: 0.82rem; letter-spacing: 0.03em; margin-bottom: 8px; text-transform: uppercase; }
+.offers-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.offers-row-open {
+  flex: 1 1 auto; display: flex; flex-direction: column; gap: 3px; text-align: left;
   background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 8px 12px; cursor: pointer;
+  padding: 10px 13px; cursor: pointer;
 }
-.calc-draft-open:hover { background: var(--bg3); }
-.calc-draft-title { color: var(--text); font-size: 0.85rem; font-weight: 500; }
-.calc-draft-meta { color: var(--text3); font-size: 0.7rem; font-family: 'JetBrains Mono', monospace; }
-.calc-draft-del { background: transparent; border: 1px solid var(--border); border-radius: var(--radius); color: var(--text3); cursor: pointer; padding: 6px 9px; }
-.calc-draft-del:hover { color: var(--red); border-color: var(--red); }
+.offers-row-open:hover { background: var(--bg3); border-color: var(--border2); }
+.offers-row-title { color: var(--text); font-size: 0.9rem; font-weight: 500; display: flex; align-items: center; gap: 8px; }
+.offers-row-meta { color: var(--text3); font-size: 0.74rem; font-family: 'JetBrains Mono', monospace; }
+.offers-row-del { background: transparent; border: 1px solid var(--border); border-radius: var(--radius); color: var(--text3); cursor: pointer; padding: 8px 10px; }
+.offers-row-del:hover { color: var(--red); border-color: var(--red); }
 
 /* ── Tradelist ──────────────────────────────────────────────────────────── */
 .trade-loading { color: var(--text3); padding: 40px; text-align: center; font-style: italic; }

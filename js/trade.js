@@ -3,13 +3,13 @@
 // Tradelist, the Wishlist (absorbed here), partner Discovery + Suggestions, and
 // the Trade History log. Each section renders into #tradeSectionBody.
 
-let _tradeSection = 'calculator';
+let _tradeSection = 'partners';
 
 const _TRADE_SECTIONS = [
   { key: 'partners',   label: 'Find Trades' },
+  { key: 'offers',     label: 'Offers' },
   { key: 'tradelist',  label: 'Tradelist' },
   { key: 'wishlist',   label: 'Wishlist' },
-  { key: 'calculator', label: 'Calculator' },
   { key: 'watches',    label: 'Price Alerts' },
   { key: 'history',    label: 'History' },
 ];
@@ -61,8 +61,8 @@ function renderTradeSection() {
   const host = document.getElementById('tradeSectionBody');
   if (!host) return;
   switch (_tradeSection) {
-    case 'calculator':
-      if (typeof renderTradeCalculator === 'function') return renderTradeCalculator(host);
+    case 'offers':
+      if (typeof renderTradeOffersSection === 'function') return renderTradeOffersSection(host);
       break;
     case 'tradelist':
       if (typeof renderTradelistSection === 'function') return renderTradelistSection(host);
@@ -89,8 +89,30 @@ let _calc = null;                                  // active calculator state
 let _calcSearchResults = { a: [], b: [] };          // last search payloads per side
 let _calcSearchTimers = { a: null, b: null };
 let _calcSearchAbort = { a: null, b: null };
-let _calcDrafts = [];                               // saved draft summaries
 let _calcLineSeq = 1;
+
+// The calculator is no longer its own tab — it renders inline either inside Find
+// Trades (when you start a trade with a partner) or inside the Offers tab (when
+// you resume/respond to a saved trade). Track where it's mounted + where to
+// return when it closes.
+let _calcHostId = 'tradeSectionBody';              // DOM id the calculator renders into
+let _calcContext = 'offers';                       // 'partners' | 'offers'
+let _partnerTradelist = { username: null, items: [] };  // cached partner tradelist for the receive search
+
+function _calcHost() { return document.getElementById(_calcHostId); }
+function _rerenderCalc() { const h = _calcHost(); if (h) renderTradeCalculator(h); }
+
+// Fetch (and memoize) the partner's tradelist so the "You Receive" search shows
+// the cards they actually have available to trade.
+async function _ensurePartnerTradelist(username) {
+  const u = String(username || '').toLowerCase();
+  if (!u) return;
+  if (_partnerTradelist.username === u && _partnerTradelist.items.length) return;
+  try {
+    const data = await apiFetch(`/tradelist/user/${encodeURIComponent(u)}`);
+    _partnerTradelist = { username: u, items: Array.isArray(data?.listed) ? data.listed : [] };
+  } catch (_) { _partnerTradelist = { username: u, items: [] }; }
+}
 
 function _newCalcState() {
   return {
@@ -102,12 +124,15 @@ function _newCalcState() {
 
 function renderTradeCalculator(host) {
   if (!_calc) _calc = _newCalcState();
+  _calcHostId = host.id || 'tradeSectionBody';
+  const canSuggest = !!_calc.partnerId;
   host.innerHTML = `
     <div class="calc-toolbar">
       <input type="text" id="calcTitle" class="calc-title-input" placeholder="Untitled trade"
         value="${escapeHtml(_calc.title || '')}" oninput="tradeCalcSetTitle(this.value)">
       <div class="calc-toolbar-actions">
-        <button class="btn btn-ghost btn-sm" onclick="tradeCalcNew()">New</button>
+        ${canSuggest ? `<button class="btn btn-outline btn-sm" onclick="calcSuggestTrade()">${_ICON_SPARKLE} Suggest a trade</button>` : ''}
+        <button class="btn btn-ghost btn-sm" onclick="tradeCalcClose()">Close</button>
         <button class="btn btn-primary btn-sm" id="calcSaveBtn" onclick="tradeCalcSave()">Save</button>
       </div>
     </div>
@@ -117,9 +142,10 @@ function renderTradeCalculator(host) {
       ${_calcSideHtml('a')}
       ${_calcSideHtml('b')}
     </div>
-    <div class="calc-drafts" id="calcDrafts"></div>`;
+    <div class="calc-suggest-mount" id="calcSuggestMount"></div>`;
   _renderCalcDelta();
-  void _loadCalcDrafts();
+  // Prefetch the partner's tradelist so the "You Receive" search hits their cards.
+  if (_calc.partnerName) void _ensurePartnerTradelist(_calc.partnerName);
 }
 
 function _calcSideLines(side) { return side === 'a' ? _calc.give : _calc.receive; }
@@ -139,7 +165,7 @@ function _calcSideHtml(side) {
       </div>
       <div class="calc-search">
         <input type="text" class="calc-search-input" id="calcSearch-${side}"
-          placeholder="${side === 'a' ? 'Add a card you own…' : 'Add any card…'}"
+          placeholder="${side === 'a' ? 'Add a card you own…' : (_calc.partnerName ? `Search @${escapeHtml(_calc.partnerName)}'s tradelist…` : 'Add any card…')}"
           oninput="tradeCalcSearchInput('${side}', this.value)" autocomplete="off">
         <div class="calc-search-results" id="calcResults-${side}"></div>
       </div>
@@ -297,12 +323,10 @@ async function calcSetPartner(idx) {
       const doc = await apiPatch(`/trades/${_calc.id}`, { partnerId: u.id, baseRevision: _calc.revision });
       _applyTradeDocToCalc(doc);
       showNotif(`Trade now with @${u.username}`);
-      void _loadCalcDrafts();
       return;
     } catch (e) { showNotif(e.message || 'Could not set partner', true); }
   }
-  const host = document.getElementById('tradeSectionBody');
-  if (host && _tradeSection === 'calculator') renderTradeCalculator(host);
+  _rerenderCalc();
 }
 
 async function calcClearPartner() {
@@ -313,12 +337,10 @@ async function calcClearPartner() {
     try {
       const doc = await apiPatch(`/trades/${_calc.id}`, { partnerId: null, baseRevision: _calc.revision });
       _applyTradeDocToCalc(doc);
-      void _loadCalcDrafts();
       return;
     } catch (e) { showNotif(e.message || 'Could not clear partner', true); }
   }
-  const host = document.getElementById('tradeSectionBody');
-  if (host && _tradeSection === 'calculator') renderTradeCalculator(host);
+  _rerenderCalc();
 }
 
 async function tradeCalcSendOffer() {
@@ -329,7 +351,7 @@ async function tradeCalcSendOffer() {
     const doc = await apiPostJson(`/trades/${_calc.id}/action`, { action: 'send' });
     _applyTradeDocToCalc(doc);
     showNotif('Offer sent');
-    void _loadCalcDrafts();
+    void _refreshOffersList();
   } catch (e) { showNotif(e.message || 'Could not send offer', true); }
 }
 
@@ -349,7 +371,7 @@ async function tradeCalcRespond(action) {
     const doc = await apiPostJson(`/trades/${_calc.id}/action`, body);
     _applyTradeDocToCalc(doc);
     showNotif(`Trade ${action === 'counter' ? 'countered' : action + 'ed'}`);
-    void _loadCalcDrafts();
+    void _refreshOffersList();
   } catch (e) { showNotif(e.message || `Could not ${action}`, true); }
 }
 
@@ -387,6 +409,12 @@ function joinTradeRoom(tradeId) {
   if (_joinedTradeRoom) s.emit('trade:leave', { tradeId: _joinedTradeRoom });
   _joinedTradeRoom = tradeId;
   s.emit('trade:join', { tradeId });
+}
+
+function leaveTradeRoom() {
+  const s = _tradeSocket;
+  if (s && _joinedTradeRoom) s.emit('trade:leave', { tradeId: _joinedTradeRoom });
+  _joinedTradeRoom = null;
 }
 
 // ── search ──
@@ -432,7 +460,24 @@ async function _runCalcSearch(side, query) {
     _renderCalcResults('a');
     return;
   }
-  // "You Receive" (side b): collection first, then the full card database.
+  // "You Receive" (side b): when the trade is scoped to a partner, search THEIR
+  // tradelist — the cards they actually have available to give you.
+  if (_calc && _calc.partnerName) {
+    await _ensurePartnerTradelist(_calc.partnerName);
+    const q = query.toLowerCase();
+    _calcSearchResults['b'] = _partnerTradelist.items
+      .filter(it => (it.name || '').toLowerCase().includes(q))
+      .slice(0, 40)
+      .map(it => ({
+        scryfallId: it.scryfallId, name: it.name, set: it.set, number: it.number,
+        image: it.image || it.imageLarge, imageLarge: it.imageLarge || it.image, type: it.type,
+        foil: !!it.foil, nonFoilCents: usdToCents(it.priceTCG), foilCents: usdToCents(it.priceTCGFoil),
+        owned: false, partnerQty: it.qty,
+      }));
+    _renderCalcResults('b');
+    return;
+  }
+  // Partnerless draft: collection first, then the full card database.
   const localByName = {};
   (typeof collection !== 'undefined' ? collection : []).forEach(c => {
     if ((c.name || '').toLowerCase().includes(query.toLowerCase()) && !localByName[c.scryfallId]) {
@@ -653,7 +698,7 @@ async function tradeCalcSave() {
     _applyTradeDocToCalc(doc);
     _calc.dirty = false;
     showNotif('Trade saved');
-    void _loadCalcDrafts();
+    void _refreshOffersList();
   } catch (e) {
     showNotif(e.message || 'Could not save trade', true);
   } finally {
@@ -687,23 +732,35 @@ function _applyTradeDocToCalc(doc, opts = {}) {
     lastActorId: doc.lastActorId, mySide: iAmPartner ? 'b' : 'a',
     give: myGive.map(mapLine), receive: myReceive.map(mapLine), dirty: false,
   };
-  const host = document.getElementById('tradeSectionBody');
-  if (host && _tradeSection === 'calculator') renderTradeCalculator(host);
+  _rerenderCalc();
   // Join the live room once on the initial load — never from a socket echo.
   if (!opts.fromSocket && _calc.id && _calc.partnerId && ['pending', 'countered', 'accepted'].includes(_calc.status)) joinTradeRoom(_calc.id);
 }
 
-async function tradeCalcNew() {
+// Close the inline calculator and return to wherever it was opened from.
+async function tradeCalcClose() {
   if (_calc && _calc.dirty && (_calc.give.length || _calc.receive.length)) {
     const ok = await showConfirmModal({
-      title: 'Start a new trade?', body: 'Unsaved changes to the current trade will be lost.',
-      okLabel: 'New trade',
+      title: 'Close this trade?', body: 'Unsaved changes will be lost. Save first if you want to keep them.',
+      okLabel: 'Close without saving',
     });
     if (!ok) return;
   }
+  _exitCalc();
+}
+
+// Tear down the calculator and re-render its host's natural view.
+function _exitCalc() {
+  if (_joinedTradeRoom && typeof leaveTradeRoom === 'function') leaveTradeRoom();
   _calc = _newCalcState();
-  const host = document.getElementById('tradeSectionBody');
-  if (host) renderTradeCalculator(host);
+  if (_calcContext === 'offers') {
+    _offersOpenId = null;
+    const host = document.getElementById('tradeSectionBody');
+    if (host && _tradeSection === 'offers') renderTradeOffersSection(host);
+  } else {
+    // Find Trades: drop back to the partner's detail (CTA + suggestions).
+    if (typeof _renderPartnerDetail === 'function') _renderPartnerDetail();
+  }
 }
 
 async function tradeCalcLoadDraft(id) {
@@ -715,34 +772,6 @@ async function tradeCalcLoadDraft(id) {
   }
 }
 
-async function _loadCalcDrafts() {
-  try {
-    _calcDrafts = await apiFetch('/trades?status=draft,pending,countered');
-  } catch (_) { _calcDrafts = []; }
-  _renderCalcDrafts();
-}
-
-function _renderCalcDrafts() {
-  const el = document.getElementById('calcDrafts');
-  if (!el) return;
-  if (!_calcDrafts.length) { el.innerHTML = ''; return; }
-  el.innerHTML = `
-    <div class="calc-drafts-head">Saved trades</div>
-    <div class="calc-drafts-list">${_calcDrafts.map(d => {
-      const active = _calc && _calc.id === d.id;
-      const give = fmtUsd(d.valueACents), recv = fmtUsd(d.valueBCents);
-      const who = d.partnerName ? ` · with ${escapeHtml(d.partnerName)}` : '';
-      const status = d.status !== 'draft' ? ` · ${escapeHtml(d.status)}` : '';
-      return `<div class="calc-draft-row${active ? ' active' : ''}">
-        <button class="calc-draft-open" onclick="tradeCalcLoadDraft(${d.id})">
-          <span class="calc-draft-title">${escapeHtml(d.title || 'Untitled trade')}</span>
-          <span class="calc-draft-meta">${give} ⇄ ${recv}${who}${status}</span>
-        </button>
-        ${d.status === 'draft' && d.iAmInitiator ? `<button class="calc-draft-del" title="Delete draft" onclick="tradeCalcDeleteDraft(${d.id})">✕</button>` : ''}
-      </div>`;
-    }).join('')}</div>`;
-}
-
 async function tradeCalcDeleteDraft(id) {
   const ok = await showConfirmModal({ title: 'Delete draft?', body: 'This permanently deletes the saved draft.', okLabel: 'Delete', okClass: 'btn-danger' });
   if (!ok) return;
@@ -750,9 +779,117 @@ async function tradeCalcDeleteDraft(id) {
     await apiDelete(`/trades/${id}`);
     if (_calc && _calc.id === id) _calc = _newCalcState();
     showNotif('Draft deleted');
-    const host = document.getElementById('tradeSectionBody');
-    if (host && _tradeSection === 'calculator') renderTradeCalculator(host);
+    _offersOpenId = null;
+    void _refreshOffersList();
   } catch (e) { showNotif(e.message || 'Could not delete', true); }
+}
+
+// ── Offers tab: saved drafts + incoming/outgoing offers ──────────────────────
+let _offersList = [];
+let _offersOpenId = null;   // trade currently opened in the Offers tab
+
+async function _refreshOffersList() {
+  try { _offersList = await apiFetch('/trades?status=draft,pending,countered,accepted'); }
+  catch (_) { _offersList = []; }
+  if (_tradeSection === 'offers' && !_offersOpenId) {
+    const host = document.getElementById('tradeSectionBody');
+    if (host) renderTradeOffersSection(host);
+  }
+}
+
+async function renderTradeOffersSection(host) {
+  // When a trade is open, the calculator takes over the section body.
+  if (_offersOpenId) {
+    _calcContext = 'offers';
+    renderTradeCalculator(host);
+    return;
+  }
+  host.innerHTML = `
+    <div class="offers-bar">
+      <div class="offers-bar-title">Your trades &amp; offers</div>
+      <button class="btn btn-outline btn-sm" onclick="offersNewBlank()">${_ICON_TRADE} New trade</button>
+    </div>
+    <div id="offersListMount"><div class="trade-loading">Loading…</div></div>`;
+  try { _offersList = await apiFetch('/trades?status=draft,pending,countered,accepted'); }
+  catch (_) { _offersList = []; }
+  _renderOffersList();
+}
+
+function _renderOffersList() {
+  const el = document.getElementById('offersListMount');
+  if (!el) return;
+  if (!_offersList.length) {
+    el.innerHTML = `<div class="trade-empty">No trades yet. Find a trader in <button type="button" class="linklike" onclick="setTradeSection('partners')">Find Trades</button> to start one.</div>`;
+    return;
+  }
+  const me = _calcMyId();
+  const incoming = [], outgoing = [], ready = [], drafts = [];
+  for (const d of _offersList) {
+    if (d.status === 'draft') drafts.push(d);
+    else if (d.status === 'accepted') ready.push(d);
+    else if (Number(_offerResponderId(d)) === Number(me)) incoming.push(d);
+    else outgoing.push(d);
+  }
+  const group = (title, rows) => rows.length ? `
+    <div class="offers-group">
+      <div class="offers-group-head">${escapeHtml(title)}</div>
+      ${rows.map(_offerRowHtml).join('')}
+    </div>` : '';
+  el.innerHTML =
+    group('Incoming offers', incoming) +
+    group('Ready to complete', ready) +
+    group('Waiting on partner', outgoing) +
+    group('Drafts', drafts);
+}
+
+// The responder is whoever didn't act last (mirrors _calcResponderId for summaries).
+function _offerResponderId(d) {
+  if (d.lastActorId == null) return d.partnerId;
+  return Number(d.lastActorId) === Number(d.initiatorId) ? d.partnerId : d.initiatorId;
+}
+
+// Name of the OTHER party, from the viewer's perspective.
+function _offerOtherName(d) {
+  const other = d.iAmInitiator ? d.partnerName : d.initiatorName;
+  return other ? `@${other}` : (d.iAmInitiator ? 'no partner yet' : 'a trader');
+}
+
+function _offerRowHtml(d) {
+  const give = fmtUsd(d.valueACents), recv = fmtUsd(d.valueBCents);
+  const who = escapeHtml(_offerOtherName(d));
+  const badge = d.status !== 'draft' ? `<span class="calc-status-badge status-${d.status}">${escapeHtml(d.status)}</span>` : '';
+  return `<div class="offers-row">
+    <button class="offers-row-open" onclick="openTradeInOffers(${d.id})">
+      <span class="offers-row-title">${escapeHtml(d.title || 'Untitled trade')} ${badge}</span>
+      <span class="offers-row-meta">${give} ⇄ ${recv} · with ${who}</span>
+    </button>
+    ${d.status === 'draft' && d.iAmInitiator ? `<button class="offers-row-del" title="Delete draft" onclick="tradeCalcDeleteDraft(${d.id})">✕</button>` : ''}
+  </div>`;
+}
+
+// Open a saved trade inside the Offers tab (calculator takes over the body).
+async function openTradeInOffers(id) {
+  _offersOpenId = id;
+  _calcContext = 'offers';
+  if (_tradeSection !== 'offers') { setTradeSection('offers'); }
+  try {
+    const doc = await apiFetch(`/trades/${id}`);
+    _applyTradeDocToCalc(doc);
+  } catch (e) {
+    showNotif(e.message || 'Could not load trade', true);
+    _offersOpenId = null;
+    const host = document.getElementById('tradeSectionBody');
+    if (host) renderTradeOffersSection(host);
+  }
+}
+
+// "New trade" from the Offers tab: a blank calculator (pick the partner inline).
+function offersNewBlank() {
+  _calc = _newCalcState();
+  _offersOpenId = -1;   // sentinel: calc open, not tied to a saved id yet
+  _calcContext = 'offers';
+  const host = document.getElementById('tradeSectionBody');
+  if (host) { _calcContext = 'offers'; renderTradeCalculator(host); }
 }
 
 // ── Phase 2: tradelist ──────────────────────────────────────────────────────
@@ -1670,15 +1807,16 @@ function _renderPartnerDetail() {
     </div>
     <div id="suggestionsMount">
       <div class="partner-cta">
-        <button class="btn btn-primary" onclick="loadTradeSuggestions()">${_ICON_SPARKLE} Generate trade suggestions</button>
-        <button class="btn btn-outline" onclick="startTradeWithPartner()">${_ICON_TRADE} Start a trade with @${escapeHtml(_tradePartner.username)}</button>
+        <button class="btn btn-primary" onclick="startTradeWithPartner()">${_ICON_TRADE} New trade with @${escapeHtml(_tradePartner.username)}</button>
+        <button class="btn btn-outline" onclick="loadTradeSuggestions()">${_ICON_SPARKLE} Suggest a trade</button>
       </div>
     </div>`;
 }
 
 async function loadTradeSuggestions() { return generateTradeSuggestions(0); }
 
-// Open a blank calculator pre-attached to this partner (manual trade, no overlap needed).
+// Open the calculator inline (inside Find Trades), pre-attached to this partner.
+// "You Receive" searches their tradelist; "Suggest a trade" balances from wishlists.
 async function startTradeWithPartner() {
   if (!_tradePartner) return;
   if (_calc && _calc.dirty && (_calc.give.length || _calc.receive.length)) {
@@ -1691,26 +1829,41 @@ async function startTradeWithPartner() {
   _calc.partnerId = _tradePartner.id;
   _calc.partnerName = _tradePartner.username;
   _calc.title = `Trade with @${_tradePartner.username}`;
-  setTradeSection('calculator');
-  showNotif(`New trade with @${_tradePartner.username}`);
+  _calcContext = 'partners';
+  _offersOpenId = null;
+  const mount = document.getElementById('suggestionsMount');
+  if (mount) renderTradeCalculator(mount);
 }
 
 // ── Phase 6: trade suggestion engine (UI) ───────────────────────────────────
 
 let _suggestionRank = 0;
+let _suggestMountId = 'suggestionsMount';
+let _suggestInCalc = false;
 
-async function generateTradeSuggestions(rank = 0) {
-  if (!_tradePartner) return;
+async function generateTradeSuggestions(rank = 0, opts = {}) {
+  // Partner comes from the selected trader (Find Trades) or the open trade (Offers).
+  if (!_tradePartner && _calc && _calc.partnerId) {
+    _tradePartner = { id: _calc.partnerId, username: _calc.partnerName };
+  }
+  const username = _tradePartner?.username || _calc?.partnerName;
+  if (!username) { showNotif('Pick a trade partner first', true); return; }
   _suggestionRank = rank;
-  const mount = document.getElementById('suggestionsMount');
+  _suggestMountId = opts.mount || 'suggestionsMount';
+  _suggestInCalc = !!opts.inCalc;
+  const mount = document.getElementById(_suggestMountId);
   if (mount) mount.innerHTML = `<div class="trade-loading">Finding a fair trade…</div>`;
   try {
-    const data = await apiFetch(`/trade/suggest/${encodeURIComponent(_tradePartner.username)}?rank=${rank}`);
+    const data = await apiFetch(`/trade/suggest/${encodeURIComponent(username)}?rank=${rank}`);
     _renderSuggestion(data);
   } catch (e) {
     if (mount) mount.innerHTML = `<div class="trade-empty">${escapeHtml(e.message || 'Could not generate suggestions')}</div>`;
   }
 }
+
+// In-calc "Suggest a trade" button: balances from both wishlists, shown inside
+// the open calculator with an "Add to this trade" action.
+function calcSuggestTrade() { return generateTradeSuggestions(0, { mount: 'calcSuggestMount', inCalc: true }); }
 
 function _suggReasonTag(item, side) {
   if (item.reason === 'balancer_deck') {
@@ -1737,9 +1890,12 @@ function _suggItemHtml(item, side) {
     </div>`;
 }
 
+function _suggPartnerName() { return _tradePartner?.username || _calc?.partnerName || 'partner'; }
+
 function _renderSuggestion(data) {
-  const mount = document.getElementById('suggestionsMount');
+  const mount = document.getElementById(_suggestMountId);
   if (!mount) return;
+  const pname = _suggPartnerName();
   const s = data.suggestion;
   if (!s) {
     mount.innerHTML = `<div class="trade-empty">${escapeHtml(data.message || 'No suggestions available.')}</div>`;
@@ -1747,9 +1903,12 @@ function _renderSuggestion(data) {
   }
   const favorLabel = s.favors == null
     ? `<span class="sugg-balanced">Balanced</span>`
-    : `<span>Favors ${s.favors === 'you' ? 'you' : '@' + escapeHtml(_tradePartner.username)} by ${fmtUsd(s.favorCents)} (${s.deltaPct.toFixed(1)}%)</span>`;
+    : `<span>Favors ${s.favors === 'you' ? 'you' : '@' + escapeHtml(pname)} by ${fmtUsd(s.favorCents)} (${s.deltaPct.toFixed(1)}%)</span>`;
   const imbalance = s.tier === 'red'
-    ? `<div class="sugg-imbalance">${_ICON_WARN} This trade favors ${s.favors === 'you' ? 'you' : '@' + escapeHtml(_tradePartner.username)} by ~${fmtUsd(s.favorCents)}</div>` : '';
+    ? `<div class="sugg-imbalance">${_ICON_WARN} This trade favors ${s.favors === 'you' ? 'you' : '@' + escapeHtml(pname)} by ~${fmtUsd(s.favorCents)}</div>` : '';
+  const applyBtn = _suggestInCalc
+    ? `<button class="btn btn-primary btn-sm" onclick="calcApplySuggestion()">Add to this trade</button>`
+    : `<button class="btn btn-primary btn-sm" onclick="openSuggestionInTrade()">Open in Trade</button>`;
   mount.innerHTML = `
     <div class="sugg-card">
       <div class="sugg-delta tier-${s.tier}">${favorLabel}</div>
@@ -1765,7 +1924,7 @@ function _renderSuggestion(data) {
         </div>
       </div>
       <div class="sugg-actions">
-        <button class="btn btn-primary btn-sm" onclick="openSuggestionInTrade()">Open in Trade</button>
+        ${applyBtn}
         <button class="btn btn-outline btn-sm" onclick="suggestAnother()">Suggest another ${data.total > 1 ? `(${data.rank + 1}/${data.total})` : ''}</button>
         <button class="btn btn-ghost btn-sm" onclick="dismissSuggestion('${s.signature}')">Dismiss</button>
       </div>
@@ -1775,39 +1934,57 @@ function _renderSuggestion(data) {
 
 let _lastSuggestion = null;
 
-async function suggestAnother() {
-  await generateTradeSuggestions(_suggestionRank + 1);
-}
-
-async function dismissSuggestion(signature) {
-  if (!_tradePartner) return;
-  try {
-    await apiPostJson(`/trade/suggest/${encodeURIComponent(_tradePartner.username)}/dismiss`, { signature });
-    await generateTradeSuggestions(0);
-  } catch (e) { showNotif(e.message || 'Could not dismiss', true); }
-}
-
-// Load a suggestion into the live calculator, pre-populated, partner attached.
-function openSuggestionInTrade() {
-  if (!_lastSuggestion || !_tradePartner) return;
-  const mapItem = it => ({
+function _suggMapItem(it) {
+  return {
     lineId: _calcLineSeq++, scryfallId: it.scryfallId, name: it.name,
     set: it.set, number: it.number, image: it.image, imageLarge: it.imageLarge, type: it.type,
     foil: !!it.foil, condition: it.condition || 'NM', qty: it.qty || 1,
     unitNonFoilCents: it.foil ? 0 : (it.unitPriceCents || 0),
     unitFoilCents: it.foil ? (it.unitPriceCents || 0) : 0,
     reason: it.reason || 'manual',
-  });
+  };
+}
+
+async function suggestAnother() {
+  await generateTradeSuggestions(_suggestionRank + 1, { mount: _suggestMountId, inCalc: _suggestInCalc });
+}
+
+async function dismissSuggestion(signature) {
+  const username = _suggPartnerName();
+  try {
+    await apiPostJson(`/trade/suggest/${encodeURIComponent(username)}/dismiss`, { signature });
+    await generateTradeSuggestions(0, { mount: _suggestMountId, inCalc: _suggestInCalc });
+  } catch (e) { showNotif(e.message || 'Could not dismiss', true); }
+}
+
+// CTA path (no calc open): open a fresh inline calculator pre-filled, partner attached.
+function openSuggestionInTrade() {
+  if (!_lastSuggestion) return;
+  const partnerId = _tradePartner?.id ?? _calc?.partnerId;
+  const partnerName = _tradePartner?.username ?? _calc?.partnerName;
   _calc = {
     id: null, revision: 0, status: 'draft', mode: 'async',
-    title: `Trade with @${_tradePartner.username}`,
-    partnerId: _tradePartner.id, partnerName: _tradePartner.username,
-    give: _lastSuggestion.give.map(mapItem),
-    receive: _lastSuggestion.receive.map(mapItem),
+    title: `Trade with @${partnerName}`,
+    partnerId, partnerName,
+    give: _lastSuggestion.give.map(_suggMapItem),
+    receive: _lastSuggestion.receive.map(_suggMapItem),
     dirty: true,
   };
-  setTradeSection('calculator');
+  _calcContext = 'partners';
+  _offersOpenId = null;
+  const mount = document.getElementById('suggestionsMount') || _calcHost();
+  if (mount) renderTradeCalculator(mount);
   showNotif('Loaded into the trade calculator');
+}
+
+// In-calc path: merge the suggestion into the open trade (keeps id/partner/status).
+function calcApplySuggestion() {
+  if (!_lastSuggestion || !_calc) return;
+  _calc.give = _lastSuggestion.give.map(_suggMapItem);
+  _calc.receive = _lastSuggestion.receive.map(_suggMapItem);
+  _calc.dirty = true;
+  _rerenderCalc();
+  showNotif('Suggestion added — review and save');
 }
 
 // ── Phase 8: trade completion + collection sync ─────────────────────────────
@@ -1832,7 +2009,7 @@ async function completeTradeFlow(tradeId) {
     const doc = await apiPostJson(`/trades/${tradeId}/action`, { action: 'complete' });
     _applyTradeDocToCalc(doc);
     showNotif(doc.status === 'completed' ? '✓ Trade completed — collections updated' : 'Marked complete — waiting on your partner');
-    void _loadCalcDrafts();
+    void _refreshOffersList();
     // Refresh the app's collection so the synced cards show up.
     if (doc.status === 'completed' && typeof loadAllData === 'function') {
       try { const d = await loadAllData(); if (typeof collection !== 'undefined') collection = d.collection || collection; } catch (_) {}
@@ -1997,7 +2174,7 @@ function _notifContent(n) {
 
 /** Where a notification routes when clicked. */
 function _notifTarget(n) {
-  if (String(n.type).startsWith('trade_')) return { tab: 'trade', section: n.payload?.tradeId ? 'calculator' : 'partners' };
+  if (String(n.type).startsWith('trade_')) return { tab: 'trade', section: n.payload?.tradeId ? 'offers' : 'partners' };
   if (n.type === 'price_threshold')        return { tab: 'trade', section: 'tradelist' };
   if (n.type === 'price_drop' || n.type === 'wishlist_bump') return { tab: 'trade', section: 'wishlist' };
   return null;
@@ -2036,10 +2213,9 @@ async function onNotifClick(id) {
   if (t && typeof showTab === 'function') {
     showTab(t.tab);
     if (t.section && typeof setTradeSection === 'function') setTradeSection(t.section);
-    // Deep-link trade notifications to the specific trade in the calculator.
+    // Deep-link trade notifications to the specific trade, opened in the Offers tab.
     if (String(n.type).startsWith('trade_') && n.payload?.tradeId) {
-      setTradeSection('calculator');
-      if (typeof tradeCalcLoadDraft === 'function') void tradeCalcLoadDraft(n.payload.tradeId);
+      if (typeof openTradeInOffers === 'function') void openTradeInOffers(n.payload.tradeId);
     }
   }
 }

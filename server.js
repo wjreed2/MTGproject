@@ -3913,6 +3913,7 @@ app.get('/api/trades', requireAuth, async (req, res) => {
       partnerId: t.partner_id,
       initiatorName: publicAccountName({ id: t.initiator_id, username: t.initiator_username, display_name: t.initiator_display, email: t.initiator_email }),
       partnerName: t.partner_id ? publicAccountName({ id: t.partner_id, username: t.partner_username, display_name: t.partner_display, email: t.partner_email }) : null,
+      lastActorId: t.last_actor_id,
       valueACents: Number(t.value_a_cents) || 0,
       valueBCents: Number(t.value_b_cents) || 0,
       iAmInitiator: Number(t.initiator_id) === Number(req.accountId),
