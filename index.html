@@ -1233,12 +1233,7 @@
             Paper cards only (hide Arena / digital-only)
           </label>
           <div id="voiceDeckCollectionToggleWrap" style="display:none;margin-top:8px;padding-top:8px;border-top:1px solid var(--border2)">
-            <div class="settings-section-label">Deck Add Behavior</div>
-            <label class="voice-settings-check">
-              <input type="checkbox" id="voiceDeckAddCollectionChk" onchange="toggleVoiceDeckAddCollection()">
-              Add cards to collection too
-            </label>
-            <div id="deckPoolSourceWrap" style="display:none;margin-top:8px">
+            <div id="deckPoolSourceWrap" style="display:none">
               <div class="settings-section-label" style="margin-bottom:5px">Card Pool</div>
               <div class="view-toggle" style="width:100%" role="group" aria-label="Card pool source">
                 <button type="button" id="deckPoolMineBtn" class="active" style="flex:1" onclick="setDeckPoolSource('mine')">My Collection</button>
@@ -1249,6 +1244,12 @@
           </div>
         </div>
         </div>
+
+        <!-- Always-visible: do scanned / looked-up cards also go into my collection? Default on. -->
+        <label id="voiceAddCollectionBar" title="When on, cards you add here are also saved to your collection. Turn off to add to a deck only." style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 10px;padding:9px 12px;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius2);cursor:pointer">
+          <span style="font-size:0.82rem;color:var(--text2)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;vertical-align:-2px;margin-right:5px"><path d="M2.5 4.5h11v7h-11z"/><path d="M5 7.2h6M5 9.8h3.5"/></svg>Add cards to my collection</span>
+          <input type="checkbox" id="voiceDeckAddCollectionChk" checked onchange="toggleVoiceDeckAddCollection()">
+        </label>
 
         <!-- VOICE TAB -->
         <div id="voiceTabContent" style="display:none">

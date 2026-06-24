@@ -3429,10 +3429,9 @@ function addCardToCollection(scryfallCard, qty, foil) {
   } else {
     entry = { ...entry, qty };
   }
-  const addToCollectionThisRun = !(typeof voiceAddToActiveDeckMode !== 'undefined' && voiceAddToActiveDeckMode)
-    || (typeof voiceShouldAddCollectionInDeckMode === 'function'
-      ? voiceShouldAddCollectionInDeckMode()
-      : true);
+  const addToCollectionThisRun = (typeof voiceShouldAddCollectionInDeckMode === 'function')
+    ? voiceShouldAddCollectionInDeckMode()
+    : true;
   if (addToCollectionThisRun) {
     const existing = collection.find(c => c.uid === entry.uid);
     if (existing) {
@@ -3483,7 +3482,7 @@ function addCardToCollection(scryfallCard, qty, foil) {
     showNotif(`Added ${qty}× ${entry.name}${foil ? ' (foil)' : ''} to collection`);
   } else {
     const viewOnly = typeof canEditActiveDeck === 'function' && !canEditActiveDeck();
-    showNotif(viewOnly ? 'You have view-only access to this deck.' : 'Could not add card (no active deck)', true);
+    showNotif(viewOnly ? 'You have view-only access to this deck.' : 'Nothing added — turn on "Add to collection" or open a deck', true);
   }
 }
 

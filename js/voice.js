@@ -411,11 +411,11 @@ function renderVoiceDeckModeControls() {
   btn.textContent = voiceDeckModeEnabled ? 'New Deck On' : 'New Deck';
 }
 
+// Single source of truth for "add scanned/looked-up cards to my collection".
+// Controlled by the always-visible toggle (default on). Applies to every voice/search
+// entry — plain collection capture, adding to the active deck, and New Deck mode.
 function voiceShouldAddCollectionInDeckMode() {
-  const ownershipOn = typeof isDeckOwnershipEnabled === 'function'
-    ? isDeckOwnershipEnabled()
-    : (typeof deckOwnershipEnabled === 'undefined' || deckOwnershipEnabled !== false);
-  return ownershipOn && !!voiceDeckAddToCollectionEnabled;
+  return !!voiceDeckAddToCollectionEnabled;
 }
 globalThis.voiceShouldAddCollectionInDeckMode = voiceShouldAddCollectionInDeckMode;
 
@@ -1055,7 +1055,7 @@ function confirmVoiceAdd(fromSpeech) {
     }
   }
 
-  const addToCollectionThisRun = !voiceAddToActiveDeckMode || voiceShouldAddCollectionInDeckMode();
+  const addToCollectionThisRun = voiceShouldAddCollectionInDeckMode();
   if (addToCollectionThisRun) {
     const existingCollection = collection.find(c => c.uid === pendingCard.uid);
     if (existingCollection) {
@@ -1126,11 +1126,13 @@ function confirmVoiceAdd(fromSpeech) {
       deck.cards.push({ ...pendingCard });
       recordDeckEvent('add', pendingCard, null, deck.id);
     }
-    save('collection', 'decks');
-    showNotif(`Added ${pendingCard.qty}x ${pendingCard.name} to collection + "${deck.name}"`);
-  } else {
+    save(...(addToCollectionThisRun ? ['collection', 'decks'] : ['decks']));
+    showNotif(`Added ${pendingCard.qty}x ${pendingCard.name} to ${addToCollectionThisRun ? 'collection + ' : ''}"${deck.name}"`);
+  } else if (addToCollectionThisRun) {
     save('collection');
     showNotif(`Added ${pendingCard.qty}x ${pendingCard.name} to collection`);
+  } else {
+    showNotif(`"Add to collection" is off — turn it on (or use New Deck) to capture "${pendingCard.name}"`, true);
   }
   if (voiceAcc) {
     if (fromSpeech) {
