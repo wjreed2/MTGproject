@@ -1,0 +1,39 @@
+name: CI
+
+# Runs the engine + scanner test suites and verifies the front-end bundle builds
+# cleanly on every push and pull request. Results show up under the repo's
+# "Actions" tab; the badge in README.md reflects the latest run on the branch.
+on:
+  push:
+    branches: [main, development]
+  pull_request:
+
+jobs:
+  test:
+    name: Tests + bundle build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Engine + scanner tests
+        run: npm test   # engine-smoke (34) + engine-integration (44) + phash-smoke (13)
+
+      - name: Verify front-end bundle builds
+        run: npm run build:bundle
+
+      - name: Verify committed bundle is up to date
+        run: |
+          if ! git diff --quiet dist/bundle.js; then
+            echo "::error::dist/bundle.js is out of date — run 'npm run build:bundle' and commit it."
+            git diff --stat dist/bundle.js
+            exit 1
+          fi
+          echo "Committed bundle matches source."
