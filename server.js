@@ -1696,16 +1696,18 @@ async function canViewTrader(viewerId, ownerId, ownerVisibility, friendIds) {
   return false; // not_trading
 }
 
-/** A user's wishlist as match rows: { name, scryfallId, foil, priority, uid }. */
+/** A user's wishlist as match rows: { name, scryfallId, foil, priority, source, deckNames, uid }. */
 async function getWishlistMatchRows(accountId) {
   const [rows] = await db().query(
-    'SELECT uid, scryfall_id, data, priority FROM wishlist WHERE account_id = ?', [accountId]
+    'SELECT uid, scryfall_id, data, priority, source, source_meta FROM wishlist WHERE account_id = ?', [accountId]
   );
   return rows.map(r => {
     const d = typeof r.data === 'string' ? JSON.parse(r.data || '{}') : (r.data || {});
+    const sm = r.source_meta ? (typeof r.source_meta === 'string' ? JSON.parse(r.source_meta || '{}') : r.source_meta) : null;
     return {
       uid: r.uid, scryfallId: r.scryfall_id || d.scryfallId || null,
       name: (d.name || '').trim(), foil: !!d.foil, priority: r.priority || 'med',
+      source: r.source || 'manual', deckNames: Array.isArray(sm?.deckNames) ? sm.deckNames : [],
     };
   }).filter(r => r.name || r.scryfallId);
 }
@@ -4604,6 +4606,93 @@ app.put('/api/decks/wanted', requireAuth, async (req, res) => {
 
 // Generate trade suggestions for a pairing. ?rank=N returns the N-th best
 // non-dismissed suggestion (0 = best). Dismissed signatures are filtered out.
+// Index a wishlist's match-rows by lowercased name, merging an explicit (manual)
+// priority with any deck-needed deck names for the same card.
+function _indexWishByName(rows) {
+  const rankP = { high: 0, med: 1, low: 2 };
+  const m = new Map();
+  for (const w of rows) {
+    const k = String(w.name || '').trim().toLowerCase();
+    if (!k) continue;
+    let e = m.get(k);
+    if (!e) { e = { manualPriority: null, deckNames: [] }; m.set(k, e); }
+    if (w.source === 'deck_needed') {
+      for (const dn of (w.deckNames || [])) if (dn && !e.deckNames.includes(dn)) e.deckNames.push(dn);
+      if (!e.deckNames.length) e.deckNames.push('a deck');
+    } else {
+      // manual / pending_trade / upgrade_target → a genuine want with a priority.
+      if (e.manualPriority == null || (rankP[w.priority] ?? 1) < (rankP[e.manualPriority] ?? 1)) e.manualPriority = w.priority;
+    }
+  }
+  return m;
+}
+
+// Rank the giver's tradelist down to cards the wanter actually wants — on their
+// wishlist (with priority) and/or needed by one of their decks. Sorted:
+// wishlist priority → deck-need → score → price. Capped at 50.
+function _rankTradeMatches(tradelist, wishByName, wantsByName) {
+  const rankP = { high: 0, med: 1, low: 2 };
+  const out = [];
+  for (const c of tradelist) {
+    const k = String(c.name || '').trim().toLowerCase();
+    if (!k) continue;
+    const wish = wishByName.get(k);            // { manualPriority, deckNames } | undefined
+    const deckWant = wantsByName.get(k);        // deck_wanted_cards entry | undefined
+    const manualPriority = wish ? wish.manualPriority : null;
+    const deckNames = (wish && wish.deckNames.length) ? wish.deckNames
+                      : (deckWant ? [deckWant.deckName] : []);
+    if (manualPriority == null && !deckNames.length) continue;
+    out.push({
+      scryfallId: c.scryfallId, foil: !!c.foil, name: c.name, set: c.set, number: c.number,
+      image: c.image, imageLarge: c.imageLarge, type: c.type,
+      condition: c.condition || 'NM', unitPriceCents: c.unitPriceCents || 0,
+      priceTCG: c.priceTCG ?? 0, priceTCGFoil: c.priceTCGFoil ?? 0, qty: c.qty || 1,
+      onWishlist: manualPriority != null, wantPriority: manualPriority,
+      deckName: deckNames[0] || null, deckCount: deckNames.length,
+      deckScore: deckWant ? deckWant.score : 0,
+    });
+  }
+  out.sort((a, b) => {
+    const aw = a.onWishlist ? (rankP[a.wantPriority] ?? 1) : 9;
+    const bw = b.onWishlist ? (rankP[b.wantPriority] ?? 1) : 9;
+    if (aw !== bw) return aw - bw;
+    const ad = a.deckName ? 1 : 0, bd = b.deckName ? 1 : 0;
+    if (ad !== bd) return bd - ad;
+    if (b.deckScore !== a.deckScore) return b.deckScore - a.deckScore;
+    return _suggItemCents(b) - _suggItemCents(a);
+  });
+  return out.slice(0, 50);
+}
+
+// Always-on pick-lists for the calculator: cards I should GIVE (my tradelist the
+// partner wants) and cards I should RECEIVE (their tradelist that I want).
+app.get('/api/trade/match/:username', requireAuth, async (req, res) => {
+  const username = String(req.params.username || '').toLowerCase().trim();
+  try {
+    const [[owner]] = await db().query(
+      'SELECT id, username, display_name, trade_visibility FROM accounts WHERE username_ci = ?', [username]
+    );
+    if (!owner) return res.status(404).json({ error: 'User not found' });
+    if (Number(owner.id) === Number(req.accountId)) return res.status(400).json({ error: "Can't trade with yourself" });
+    if (!(await canViewTrader(req.accountId, owner.id, owner.trade_visibility))) {
+      return res.status(403).json({ error: 'This user is not open to trades with you' });
+    }
+    const [myTl, partnerTl, myWish, partnerWish, myWants, partnerWants] = await Promise.all([
+      computeTradelist(req.accountId),
+      computeTradelist(owner.id),
+      getWishlistMatchRows(req.accountId),
+      getWishlistMatchRows(owner.id),
+      getDeckWantedNames(req.accountId),
+      getDeckWantedNames(owner.id),
+    ]);
+    res.json({
+      username: owner.username, displayName: owner.display_name,
+      give: _rankTradeMatches(myTl.listed, _indexWishByName(partnerWish), partnerWants),
+      receive: _rankTradeMatches(partnerTl.listed, _indexWishByName(myWish), myWants),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/trade/suggest/:username', requireAuth, async (req, res) => {
   const username = String(req.params.username || '').toLowerCase().trim();
   const rank = Math.max(0, parseInt(req.query.rank, 10) || 0);

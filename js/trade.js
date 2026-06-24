@@ -114,6 +114,105 @@ async function _ensurePartnerTradelist(username) {
   } catch (_) { _partnerTradelist = { username: u, items: [] }; }
 }
 
+// ── always-visible suggestion pick-lists (below each calculator column) ──────
+// give = cards I should give (my tradelist the partner wants);
+// receive = cards I should receive (their tradelist that I want).
+let _calcSuggest = { username: null, give: [], receive: [], loading: false, sort: { a: 'best', b: 'best' } };
+
+async function _loadCalcSuggestions(username) {
+  const u = String(username || '').toLowerCase();
+  if (!u) return;
+  if (_calcSuggest.username !== u) {
+    _calcSuggest = { username: u, give: [], receive: [], loading: true, sort: { a: 'best', b: 'best' } };
+    _renderCalcSuggestPanel('a'); _renderCalcSuggestPanel('b');
+    try {
+      const data = await apiFetch(`/trade/match/${encodeURIComponent(u)}`);
+      _calcSuggest.give = Array.isArray(data?.give) ? data.give : [];
+      _calcSuggest.receive = Array.isArray(data?.receive) ? data.receive : [];
+    } catch (_) { _calcSuggest.give = []; _calcSuggest.receive = []; }
+    _calcSuggest.loading = false;
+  }
+  _renderCalcSuggestPanel('a'); _renderCalcSuggestPanel('b');
+}
+
+function _calcSuggestItems(side) { return side === 'a' ? _calcSuggest.give : _calcSuggest.receive; }
+function _suggUnitCents(it) { return lineUnitCents(it.unitPriceCents || 0, it.condition || 'NM'); }
+
+function _sortCalcSuggest(items, mode) {
+  const rankP = { high: 0, med: 1, low: 2 };
+  const arr = items.slice();
+  if (mode === 'price') arr.sort((a, b) => _suggUnitCents(b) - _suggUnitCents(a));
+  else if (mode === 'deck') arr.sort((a, b) => (b.deckName ? 1 : 0) - (a.deckName ? 1 : 0) || (b.deckScore || 0) - (a.deckScore || 0) || _suggUnitCents(b) - _suggUnitCents(a));
+  else if (mode === 'priority') arr.sort((a, b) => (a.onWishlist ? (rankP[a.wantPriority] ?? 1) : 9) - (b.onWishlist ? (rankP[b.wantPriority] ?? 1) : 9) || _suggUnitCents(b) - _suggUnitCents(a));
+  // 'best' keeps the server's combined ranking.
+  return arr;
+}
+
+function setCalcSuggestSort(side, mode) {
+  _calcSuggest.sort[side] = mode;
+  _renderCalcSuggestPanel(side);
+}
+
+function _calcSuggItemHtml(it, side, inSide) {
+  const added = inSide.has(it.scryfallId + (it.foil ? '_f' : '_n'));
+  const wantWord = side === 'a' ? 'They want' : 'You want';
+  const wishTag = it.onWishlist
+    ? `<span class="calc-sugg-tag tag-${it.wantPriority || 'med'}">${wantWord} · ${escapeHtml(it.wantPriority || 'med')}</span>` : '';
+  const deckTag = it.deckName ? `<span class="calc-sugg-tag tag-deck">${escapeHtml(it.deckName)}</span>` : '';
+  const price = _suggUnitCents(it) > 0 ? fmtUsd(_suggUnitCents(it)) : '—';
+  return `
+    <button type="button" class="calc-sugg-item${added ? ' added' : ''}" ${added ? 'disabled' : ''}
+      onclick="addCalcSuggestion('${side}','${escapeHtml(it.scryfallId)}',${it.foil ? 1 : 0})">
+      <span class="calc-sugg-thumb">${it.image ? `<img src="${escapeHtml(it.image)}" loading="lazy" alt="">` : ''}</span>
+      <span class="calc-sugg-info">
+        <span class="calc-sugg-name">${escapeHtml(it.name)}${it.foil ? ' <span class="calc-foil-tag">✦</span>' : ''}</span>
+        <span class="calc-sugg-tags">${wishTag}${deckTag}</span>
+      </span>
+      <span class="calc-sugg-price">${added ? '✓ added' : price}</span>
+    </button>`;
+}
+
+function _renderCalcSuggestPanel(side) {
+  const el = document.getElementById(`calcSuggest-${side}`);
+  if (!el) return;
+  if (!_calc || !_calc.partnerName) { el.innerHTML = ''; return; }
+  const label = side === 'a' ? `Cards @${escapeHtml(_calc.partnerName)} wants` : `Cards you want from @${escapeHtml(_calc.partnerName)}`;
+  if (_calcSuggest.loading) {
+    el.innerHTML = `<div class="calc-sugg-head"><span>${label}</span></div><div class="calc-sugg-loading">Finding matches…</div>`;
+    return;
+  }
+  const items = _sortCalcSuggest(_calcSuggestItems(side), _calcSuggest.sort[side]);
+  if (!items.length) {
+    el.innerHTML = `<div class="calc-sugg-head"><span>${label}</span></div><div class="calc-sugg-empty">No matches — nothing on ${side === 'a' ? 'their wishlist matches your tradelist' : 'your wishlist matches their tradelist'} yet.</div>`;
+    return;
+  }
+  const sort = _calcSuggest.sort[side];
+  const chip = (k, t) => `<button type="button" class="calc-sugg-chip${sort === k ? ' active' : ''}" onclick="setCalcSuggestSort('${side}','${k}')">${t}</button>`;
+  const inSide = new Set(_calcSideLines(side).map(l => l.scryfallId + (l.foil ? '_f' : '_n')));
+  el.innerHTML = `
+    <div class="calc-sugg-head">
+      <span>${label} <span class="calc-sugg-count">${items.length}</span></span>
+      <span class="calc-sugg-sorts">${chip('best', 'Best')}${chip('priority', 'Priority')}${chip('deck', 'Deck')}${chip('price', 'Price')}</span>
+    </div>
+    <div class="calc-sugg-list">${items.map(it => _calcSuggItemHtml(it, side, inSide)).join('')}</div>`;
+}
+
+function addCalcSuggestion(side, scryfallId, foilInt) {
+  const foil = !!Number(foilInt);
+  const it = _calcSuggestItems(side).find(x => x.scryfallId === scryfallId && !!x.foil === foil);
+  if (!it) return;
+  const r = {
+    scryfallId: it.scryfallId, name: it.name, set: it.set, number: it.number,
+    image: it.image, imageLarge: it.imageLarge, type: it.type,
+    nonFoilCents: usdToCents(it.priceTCG), foilCents: usdToCents(it.priceTCGFoil),
+  };
+  // Fall back to the server's NM unit price if a finish-specific price is missing.
+  if (foil && !(r.foilCents > 0)) r.foilCents = it.unitPriceCents || 0;
+  if (!foil && !(r.nonFoilCents > 0)) r.nonFoilCents = it.unitPriceCents || 0;
+  _addCalcLine(side, r, foil);
+  _renderCalcSuggestPanel(side);   // refresh the "added" state
+}
+
 function _newCalcState() {
   return {
     id: null, revision: 0, status: 'draft', mode: 'async',
@@ -125,13 +224,11 @@ function _newCalcState() {
 function renderTradeCalculator(host) {
   if (!_calc) _calc = _newCalcState();
   _calcHostId = host.id || 'tradeSectionBody';
-  const canSuggest = !!_calc.partnerId;
   host.innerHTML = `
     <div class="calc-toolbar">
       <input type="text" id="calcTitle" class="calc-title-input" placeholder="Untitled trade"
         value="${escapeHtml(_calc.title || '')}" oninput="tradeCalcSetTitle(this.value)">
       <div class="calc-toolbar-actions">
-        ${canSuggest ? `<button class="btn btn-outline btn-sm" onclick="calcSuggestTrade()">${_ICON_SPARKLE} Suggest a trade</button>` : ''}
         <button class="btn btn-ghost btn-sm" onclick="tradeCalcClose()">Close</button>
         <button class="btn btn-primary btn-sm" id="calcSaveBtn" onclick="tradeCalcSave()">Save</button>
       </div>
@@ -141,11 +238,13 @@ function renderTradeCalculator(host) {
     <div class="calc-grid">
       ${_calcSideHtml('a')}
       ${_calcSideHtml('b')}
-    </div>
-    <div class="calc-suggest-mount" id="calcSuggestMount"></div>`;
+    </div>`;
   _renderCalcDelta();
-  // Prefetch the partner's tradelist so the "You Receive" search hits their cards.
-  if (_calc.partnerName) void _ensurePartnerTradelist(_calc.partnerName);
+  // Prefetch the partner's tradelist (receive search) + the ranked pick-lists.
+  if (_calc.partnerName) {
+    void _ensurePartnerTradelist(_calc.partnerName);
+    void _loadCalcSuggestions(_calc.partnerName);
+  }
 }
 
 function _calcSideLines(side) { return side === 'a' ? _calc.give : _calc.receive; }
@@ -170,6 +269,7 @@ function _calcSideHtml(side) {
         <div class="calc-search-results" id="calcResults-${side}"></div>
       </div>
       <div class="calc-lines" id="calcLines-${side}">${linesHtml}</div>
+      <div class="calc-suggest" id="calcSuggest-${side}"></div>
     </div>`;
 }
 
@@ -628,6 +728,7 @@ function tradeCalcRemoveLine(side, lineId) {
   if (i >= 0) lines.splice(i, 1);
   _calc.dirty = true;
   _refreshCalcSide(side); _renderCalcDelta();
+  _renderCalcSuggestPanel(side);   // clears the "added" mark for the removed card
 }
 
 function tradeCalcOpenCard(scryfallId) {
@@ -1808,15 +1909,13 @@ function _renderPartnerDetail() {
     <div id="suggestionsMount">
       <div class="partner-cta">
         <button class="btn btn-primary" onclick="startTradeWithPartner()">${_ICON_TRADE} New trade with @${escapeHtml(_tradePartner.username)}</button>
-        <button class="btn btn-outline" onclick="loadTradeSuggestions()">${_ICON_SPARKLE} Suggest a trade</button>
+        <div class="partner-cta-hint">Build the trade and pick from the suggested cards under each column.</div>
       </div>
     </div>`;
 }
 
-async function loadTradeSuggestions() { return generateTradeSuggestions(0); }
-
 // Open the calculator inline (inside Find Trades), pre-attached to this partner.
-// "You Receive" searches their tradelist; "Suggest a trade" balances from wishlists.
+// "You Receive" searches their tradelist; ranked pick-lists sit under each column.
 async function startTradeWithPartner() {
   if (!_tradePartner) return;
   if (_calc && _calc.dirty && (_calc.give.length || _calc.receive.length)) {
@@ -1833,158 +1932,6 @@ async function startTradeWithPartner() {
   _offersOpenId = null;
   const mount = document.getElementById('suggestionsMount');
   if (mount) renderTradeCalculator(mount);
-}
-
-// ── Phase 6: trade suggestion engine (UI) ───────────────────────────────────
-
-let _suggestionRank = 0;
-let _suggestMountId = 'suggestionsMount';
-let _suggestInCalc = false;
-
-async function generateTradeSuggestions(rank = 0, opts = {}) {
-  // Partner comes from the selected trader (Find Trades) or the open trade (Offers).
-  if (!_tradePartner && _calc && _calc.partnerId) {
-    _tradePartner = { id: _calc.partnerId, username: _calc.partnerName };
-  }
-  const username = _tradePartner?.username || _calc?.partnerName;
-  if (!username) { showNotif('Pick a trade partner first', true); return; }
-  _suggestionRank = rank;
-  _suggestMountId = opts.mount || 'suggestionsMount';
-  _suggestInCalc = !!opts.inCalc;
-  const mount = document.getElementById(_suggestMountId);
-  if (mount) mount.innerHTML = `<div class="trade-loading">Finding a fair trade…</div>`;
-  try {
-    const data = await apiFetch(`/trade/suggest/${encodeURIComponent(username)}?rank=${rank}`);
-    _renderSuggestion(data);
-  } catch (e) {
-    if (mount) mount.innerHTML = `<div class="trade-empty">${escapeHtml(e.message || 'Could not generate suggestions')}</div>`;
-  }
-}
-
-// In-calc "Suggest a trade" button: balances from both wishlists, shown inside
-// the open calculator with an "Add to this trade" action.
-function calcSuggestTrade() { return generateTradeSuggestions(0, { mount: 'calcSuggestMount', inCalc: true }); }
-
-function _suggReasonTag(item, side) {
-  if (item.reason === 'balancer_deck') {
-    return `<span class="sugg-tag tag-balance">Suggested for deck: ${escapeHtml(item.reasonMeta?.deckName || 'deck')}</span>`;
-  }
-  if (item.reason === 'balancer_filler') return `<span class="sugg-tag tag-balance">Balancing card</span>`;
-  return side === 'give'
-    ? `<span class="sugg-tag tag-their">On their wishlist</span>`
-    : `<span class="sugg-tag tag-your">On your wishlist</span>`;
-}
-
-function _suggItemHtml(item, side) {
-  const img = item.image || item.imageLarge || '';
-  const cents = lineUnitCents(item.unitPriceCents, item.condition || 'NM') * (item.qty || 1);
-  return `
-    <div class="sugg-item">
-      <div class="sugg-item-thumb">${img ? `<img src="${escapeHtml(img)}" loading="lazy" alt="" onclick="tradeCalcOpenCard('${escapeHtml(item.scryfallId)}')">` : ''}</div>
-      <div class="sugg-item-main">
-        <div class="sugg-item-name">${escapeHtml(item.name)}${item.foil ? ' <span class="calc-foil-tag">✦</span>' : ''} ${item.qty > 1 ? `×${item.qty}` : ''}</div>
-        <div class="sugg-item-sub">${escapeHtml((item.set || '').toUpperCase())} · ${escapeHtml(item.condition || 'NM')}</div>
-        ${_suggReasonTag(item, side)}
-      </div>
-      <div class="sugg-item-val">${fmtUsd(cents)}</div>
-    </div>`;
-}
-
-function _suggPartnerName() { return _tradePartner?.username || _calc?.partnerName || 'partner'; }
-
-function _renderSuggestion(data) {
-  const mount = document.getElementById(_suggestMountId);
-  if (!mount) return;
-  const pname = _suggPartnerName();
-  const s = data.suggestion;
-  if (!s) {
-    mount.innerHTML = `<div class="trade-empty">${escapeHtml(data.message || 'No suggestions available.')}</div>`;
-    return;
-  }
-  const favorLabel = s.favors == null
-    ? `<span class="sugg-balanced">Balanced</span>`
-    : `<span>Favors ${s.favors === 'you' ? 'you' : '@' + escapeHtml(pname)} by ${fmtUsd(s.favorCents)} (${s.deltaPct.toFixed(1)}%)</span>`;
-  const imbalance = s.tier === 'red'
-    ? `<div class="sugg-imbalance">${_ICON_WARN} This trade favors ${s.favors === 'you' ? 'you' : '@' + escapeHtml(pname)} by ~${fmtUsd(s.favorCents)}</div>` : '';
-  const applyBtn = _suggestInCalc
-    ? `<button class="btn btn-primary btn-sm" onclick="calcApplySuggestion()">Add to this trade</button>`
-    : `<button class="btn btn-primary btn-sm" onclick="openSuggestionInTrade()">Open in Trade</button>`;
-  mount.innerHTML = `
-    <div class="sugg-card">
-      <div class="sugg-delta tier-${s.tier}">${favorLabel}</div>
-      ${imbalance}
-      <div class="sugg-cols">
-        <div class="sugg-col">
-          <div class="sugg-col-head">You give <span>${fmtUsd(s.giveValueCents)}</span></div>
-          ${s.give.length ? s.give.map(i => _suggItemHtml(i, 'give')).join('') : '<div class="sugg-empty">—</div>'}
-        </div>
-        <div class="sugg-col">
-          <div class="sugg-col-head">You receive <span>${fmtUsd(s.receiveValueCents)}</span></div>
-          ${s.receive.length ? s.receive.map(i => _suggItemHtml(i, 'receive')).join('') : '<div class="sugg-empty">—</div>'}
-        </div>
-      </div>
-      <div class="sugg-actions">
-        ${applyBtn}
-        <button class="btn btn-outline btn-sm" onclick="suggestAnother()">Suggest another ${data.total > 1 ? `(${data.rank + 1}/${data.total})` : ''}</button>
-        <button class="btn btn-ghost btn-sm" onclick="dismissSuggestion('${s.signature}')">Dismiss</button>
-      </div>
-    </div>`;
-  _lastSuggestion = s;
-}
-
-let _lastSuggestion = null;
-
-function _suggMapItem(it) {
-  return {
-    lineId: _calcLineSeq++, scryfallId: it.scryfallId, name: it.name,
-    set: it.set, number: it.number, image: it.image, imageLarge: it.imageLarge, type: it.type,
-    foil: !!it.foil, condition: it.condition || 'NM', qty: it.qty || 1,
-    unitNonFoilCents: it.foil ? 0 : (it.unitPriceCents || 0),
-    unitFoilCents: it.foil ? (it.unitPriceCents || 0) : 0,
-    reason: it.reason || 'manual',
-  };
-}
-
-async function suggestAnother() {
-  await generateTradeSuggestions(_suggestionRank + 1, { mount: _suggestMountId, inCalc: _suggestInCalc });
-}
-
-async function dismissSuggestion(signature) {
-  const username = _suggPartnerName();
-  try {
-    await apiPostJson(`/trade/suggest/${encodeURIComponent(username)}/dismiss`, { signature });
-    await generateTradeSuggestions(0, { mount: _suggestMountId, inCalc: _suggestInCalc });
-  } catch (e) { showNotif(e.message || 'Could not dismiss', true); }
-}
-
-// CTA path (no calc open): open a fresh inline calculator pre-filled, partner attached.
-function openSuggestionInTrade() {
-  if (!_lastSuggestion) return;
-  const partnerId = _tradePartner?.id ?? _calc?.partnerId;
-  const partnerName = _tradePartner?.username ?? _calc?.partnerName;
-  _calc = {
-    id: null, revision: 0, status: 'draft', mode: 'async',
-    title: `Trade with @${partnerName}`,
-    partnerId, partnerName,
-    give: _lastSuggestion.give.map(_suggMapItem),
-    receive: _lastSuggestion.receive.map(_suggMapItem),
-    dirty: true,
-  };
-  _calcContext = 'partners';
-  _offersOpenId = null;
-  const mount = document.getElementById('suggestionsMount') || _calcHost();
-  if (mount) renderTradeCalculator(mount);
-  showNotif('Loaded into the trade calculator');
-}
-
-// In-calc path: merge the suggestion into the open trade (keeps id/partner/status).
-function calcApplySuggestion() {
-  if (!_lastSuggestion || !_calc) return;
-  _calc.give = _lastSuggestion.give.map(_suggMapItem);
-  _calc.receive = _lastSuggestion.receive.map(_suggMapItem);
-  _calc.dirty = true;
-  _rerenderCalc();
-  showNotif('Suggestion added — review and save');
 }
 
 // ── Phase 8: trade completion + collection sync ─────────────────────────────

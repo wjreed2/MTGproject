@@ -8134,6 +8134,43 @@ select:focus { outline: none; border-color: rgba(200,168,74,0.6); box-shadow: 0 
 }
 .calc-side-a { border-top: 2px solid var(--red); }
 .calc-side-b { border-top: 2px solid var(--green); }
+
+/* ── always-visible suggestion pick-lists (one under each column) ─────────── */
+.calc-suggest:not(:empty) { margin-top: 4px; border-top: 1px dashed var(--border2); padding-top: 10px; }
+.calc-sugg-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;
+  font-size: 0.78rem; color: var(--text2); margin-bottom: 8px;
+}
+.calc-sugg-count { color: var(--text3); font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; }
+.calc-sugg-sorts { display: flex; gap: 4px; }
+.calc-sugg-chip {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 10px; cursor: pointer;
+  color: var(--text3); font-size: 0.68rem; padding: 2px 8px;
+}
+.calc-sugg-chip:hover { color: var(--text2); }
+.calc-sugg-chip.active { color: var(--teal); border-color: var(--teal); }
+.calc-sugg-list { display: flex; flex-direction: column; gap: 4px; max-height: 320px; overflow-y: auto; padding-right: 2px; }
+.calc-sugg-item {
+  display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; cursor: pointer;
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 5px 8px;
+}
+.calc-sugg-item:hover { border-color: var(--teal); background: var(--bg3); }
+.calc-sugg-item.added { opacity: 0.5; cursor: default; }
+.calc-sugg-item.added:hover { border-color: var(--border); background: var(--bg); }
+.calc-sugg-thumb { flex: 0 0 auto; width: 30px; height: 42px; border-radius: 3px; overflow: hidden; background: var(--bg4); }
+.calc-sugg-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.calc-sugg-info { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.calc-sugg-name { color: var(--text); font-size: 0.82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.calc-sugg-tags { display: flex; gap: 4px; flex-wrap: wrap; }
+.calc-sugg-tag { font-size: 0.62rem; border-radius: 3px; padding: 1px 5px; white-space: nowrap; }
+.calc-sugg-tag.tag-high { background: rgba(206,99,99,0.18); color: var(--red); }
+.calc-sugg-tag.tag-med  { background: rgba(212,175,110,0.18); color: var(--gold); }
+.calc-sugg-tag.tag-low  { background: var(--bg4); color: var(--text3); }
+.calc-sugg-tag.tag-deck { background: rgba(61,184,160,0.16); color: var(--teal); max-width: 130px; overflow: hidden; text-overflow: ellipsis; }
+.calc-sugg-price { flex: 0 0 auto; font-family: 'JetBrains Mono', monospace; font-size: 0.74rem; color: var(--gold); }
+.calc-sugg-item.added .calc-sugg-price { color: var(--green); }
+.calc-sugg-loading, .calc-sugg-empty { color: var(--text3); font-size: 0.76rem; font-style: italic; padding: 8px 2px; }
+.partner-cta-hint { color: var(--text3); font-size: 0.78rem; text-align: center; max-width: 320px; }
 .calc-side-head { display: flex; align-items: baseline; justify-content: space-between; }
 .calc-side-title { font-family: 'Cinzel', serif; font-weight: 600; color: var(--text); font-size: 1rem; }
 .calc-side-total { font-family: 'JetBrains Mono', monospace; font-weight: 600; color: var(--gold); font-size: 1.05rem; }
