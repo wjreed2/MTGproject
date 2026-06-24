@@ -8150,6 +8150,10 @@ select:focus { outline: none; border-color: rgba(200,168,74,0.6); box-shadow: 0 
 .calc-sugg-chip:hover { color: var(--text2); }
 .calc-sugg-chip.active { color: var(--teal); border-color: var(--teal); }
 .calc-sugg-list { display: flex; flex-direction: column; gap: 4px; max-height: 320px; overflow-y: auto; padding-right: 2px; }
+.calc-sugg-subhead {
+  font-size: 0.7rem; color: var(--text2); text-transform: uppercase; letter-spacing: 0.04em;
+  margin: 8px 0 2px; padding-top: 8px; border-top: 1px dashed var(--border2);
+}
 .calc-sugg-item {
   display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; cursor: pointer;
   background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 5px 8px;

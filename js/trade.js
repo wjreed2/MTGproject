@@ -117,25 +117,28 @@ async function _ensurePartnerTradelist(username) {
 // ── always-visible suggestion pick-lists (below each calculator column) ──────
 // give = cards I should give (my tradelist the partner wants);
 // receive = cards I should receive (their tradelist that I want).
-let _calcSuggest = { username: null, give: [], receive: [], loading: false, sort: { a: 'best', b: 'best' } };
+// give/receive are each { wants: [], deckSuggestions: [] } from /trade/match.
+const _emptySuggest = () => ({ wants: [], deckSuggestions: [] });
+let _calcSuggest = { username: null, give: _emptySuggest(), receive: _emptySuggest(), loading: false, sort: { a: 'best', b: 'best' } };
 
 async function _loadCalcSuggestions(username) {
   const u = String(username || '').toLowerCase();
   if (!u) return;
   if (_calcSuggest.username !== u) {
-    _calcSuggest = { username: u, give: [], receive: [], loading: true, sort: { a: 'best', b: 'best' } };
+    _calcSuggest = { username: u, give: _emptySuggest(), receive: _emptySuggest(), loading: true, sort: { a: 'best', b: 'best' } };
     _renderCalcSuggestPanel('a'); _renderCalcSuggestPanel('b');
     try {
       const data = await apiFetch(`/trade/match/${encodeURIComponent(u)}`);
-      _calcSuggest.give = Array.isArray(data?.give) ? data.give : [];
-      _calcSuggest.receive = Array.isArray(data?.receive) ? data.receive : [];
-    } catch (_) { _calcSuggest.give = []; _calcSuggest.receive = []; }
+      const norm = g => (g && Array.isArray(g.wants)) ? { wants: g.wants, deckSuggestions: Array.isArray(g.deckSuggestions) ? g.deckSuggestions : [] } : _emptySuggest();
+      _calcSuggest.give = norm(data?.give);
+      _calcSuggest.receive = norm(data?.receive);
+    } catch (_) { _calcSuggest.give = _emptySuggest(); _calcSuggest.receive = _emptySuggest(); }
     _calcSuggest.loading = false;
   }
   _renderCalcSuggestPanel('a'); _renderCalcSuggestPanel('b');
 }
 
-function _calcSuggestItems(side) { return side === 'a' ? _calcSuggest.give : _calcSuggest.receive; }
+function _calcSuggestData(side) { return side === 'a' ? _calcSuggest.give : _calcSuggest.receive; }
 function _suggUnitCents(it) { return lineUnitCents(it.unitPriceCents || 0, it.condition || 'NM'); }
 
 function _sortCalcSuggest(items, mode) {
@@ -181,25 +184,34 @@ function _renderCalcSuggestPanel(side) {
     el.innerHTML = `<div class="calc-sugg-head"><span>${label}</span></div><div class="calc-sugg-loading">Finding matches…</div>`;
     return;
   }
-  const items = _sortCalcSuggest(_calcSuggestItems(side), _calcSuggest.sort[side]);
-  if (!items.length) {
-    el.innerHTML = `<div class="calc-sugg-head"><span>${label}</span></div><div class="calc-sugg-empty">No matches — nothing on ${side === 'a' ? 'their wishlist matches your tradelist' : 'your wishlist matches their tradelist'} yet.</div>`;
+  const data = _calcSuggestData(side);
+  const wants = _sortCalcSuggest(data.wants || [], _calcSuggest.sort[side]);
+  const decks = data.deckSuggestions || [];
+  if (!wants.length && !decks.length) {
+    el.innerHTML = `<div class="calc-sugg-head"><span>${label}</span></div><div class="calc-sugg-empty">No matches — nothing on ${side === 'a' ? 'their wishlist or decks matches your tradelist' : 'your wishlist or decks matches their tradelist'} yet.</div>`;
     return;
   }
   const sort = _calcSuggest.sort[side];
   const chip = (k, t) => `<button type="button" class="calc-sugg-chip${sort === k ? ' active' : ''}" onclick="setCalcSuggestSort('${side}','${k}')">${t}</button>`;
   const inSide = new Set(_calcSideLines(side).map(l => l.scryfallId + (l.foil ? '_f' : '_n')));
+  const deckHeader = side === 'a'
+    ? `Suggested for @${escapeHtml(_calc.partnerName)}'s decks`
+    : `Suggested for your decks`;
+  const deckSection = decks.length
+    ? `<div class="calc-sugg-subhead">${deckHeader}</div>${decks.map(it => _calcSuggItemHtml(it, side, inSide)).join('')}`
+    : '';
   el.innerHTML = `
     <div class="calc-sugg-head">
-      <span>${label} <span class="calc-sugg-count">${items.length}</span></span>
+      <span>${label} <span class="calc-sugg-count">${wants.length}</span></span>
       <span class="calc-sugg-sorts">${chip('best', 'Best')}${chip('priority', 'Priority')}${chip('deck', 'Deck')}${chip('price', 'Price')}</span>
     </div>
-    <div class="calc-sugg-list">${items.map(it => _calcSuggItemHtml(it, side, inSide)).join('')}</div>`;
+    <div class="calc-sugg-list">${wants.map(it => _calcSuggItemHtml(it, side, inSide)).join('')}${deckSection}</div>`;
 }
 
 function addCalcSuggestion(side, scryfallId, foilInt) {
   const foil = !!Number(foilInt);
-  const it = _calcSuggestItems(side).find(x => x.scryfallId === scryfallId && !!x.foil === foil);
+  const data = _calcSuggestData(side);
+  const it = [...(data.wants || []), ...(data.deckSuggestions || [])].find(x => x.scryfallId === scryfallId && !!x.foil === foil);
   if (!it) return;
   const r = {
     scryfallId: it.scryfallId, name: it.name, set: it.set, number: it.number,

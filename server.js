@@ -4627,32 +4627,45 @@ function _indexWishByName(rows) {
   return m;
 }
 
-// Rank the giver's tradelist down to cards the wanter actually wants — on their
-// wishlist (with priority) and/or needed by one of their decks. Sorted:
-// wishlist priority → deck-need → score → price. Capped at 50.
+const _MATCH_CAP = 50;
+
+// Split the giver's tradelist into two ranked groups:
+//   wants           — cards on the wanter's wishlist or needed by their decks
+//                     (sorted: wishlist priority → deck-need → score → price)
+//   deckSuggestions — cards their deckbuilder scored as good adds for their decks
+//                     but that aren't on any wishlist (sorted by score → price)
+// Together capped at _MATCH_CAP; deckSuggestions only fill the room wants leave.
 function _rankTradeMatches(tradelist, wishByName, wantsByName) {
   const rankP = { high: 0, med: 1, low: 2 };
-  const out = [];
+  const mkItem = (c, extra) => ({
+    scryfallId: c.scryfallId, foil: !!c.foil, name: c.name, set: c.set, number: c.number,
+    image: c.image, imageLarge: c.imageLarge, type: c.type,
+    condition: c.condition || 'NM', unitPriceCents: c.unitPriceCents || 0,
+    priceTCG: c.priceTCG ?? 0, priceTCGFoil: c.priceTCGFoil ?? 0, qty: c.qty || 1,
+    ...extra,
+  });
+  const wants = [], deckSuggestions = [];
   for (const c of tradelist) {
     const k = String(c.name || '').trim().toLowerCase();
     if (!k) continue;
     const wish = wishByName.get(k);            // { manualPriority, deckNames } | undefined
     const deckWant = wantsByName.get(k);        // deck_wanted_cards entry | undefined
-    const manualPriority = wish ? wish.manualPriority : null;
-    const deckNames = (wish && wish.deckNames.length) ? wish.deckNames
-                      : (deckWant ? [deckWant.deckName] : []);
-    if (manualPriority == null && !deckNames.length) continue;
-    out.push({
-      scryfallId: c.scryfallId, foil: !!c.foil, name: c.name, set: c.set, number: c.number,
-      image: c.image, imageLarge: c.imageLarge, type: c.type,
-      condition: c.condition || 'NM', unitPriceCents: c.unitPriceCents || 0,
-      priceTCG: c.priceTCG ?? 0, priceTCGFoil: c.priceTCGFoil ?? 0, qty: c.qty || 1,
-      onWishlist: manualPriority != null, wantPriority: manualPriority,
-      deckName: deckNames[0] || null, deckCount: deckNames.length,
-      deckScore: deckWant ? deckWant.score : 0,
-    });
+    if (wish) {
+      const deckNames = wish.deckNames.length ? wish.deckNames : (deckWant ? [deckWant.deckName] : []);
+      wants.push(mkItem(c, {
+        onWishlist: wish.manualPriority != null, wantPriority: wish.manualPriority,
+        deckName: deckNames[0] || null, deckCount: deckNames.length,
+        deckScore: deckWant ? deckWant.score : 0, deckSuggestion: false,
+      }));
+    } else if (deckWant) {
+      deckSuggestions.push(mkItem(c, {
+        onWishlist: false, wantPriority: null,
+        deckName: deckWant.deckName, deckCount: 1, deckScore: deckWant.score || 0,
+        deckRole: deckWant.role || null, deckSuggestion: true,
+      }));
+    }
   }
-  out.sort((a, b) => {
+  wants.sort((a, b) => {
     const aw = a.onWishlist ? (rankP[a.wantPriority] ?? 1) : 9;
     const bw = b.onWishlist ? (rankP[b.wantPriority] ?? 1) : 9;
     if (aw !== bw) return aw - bw;
@@ -4661,7 +4674,10 @@ function _rankTradeMatches(tradelist, wishByName, wantsByName) {
     if (b.deckScore !== a.deckScore) return b.deckScore - a.deckScore;
     return _suggItemCents(b) - _suggItemCents(a);
   });
-  return out.slice(0, 50);
+  deckSuggestions.sort((a, b) => (b.deckScore - a.deckScore) || (_suggItemCents(b) - _suggItemCents(a)));
+  const cappedWants = wants.slice(0, _MATCH_CAP);
+  const room = Math.max(0, _MATCH_CAP - cappedWants.length);
+  return { wants: cappedWants, deckSuggestions: deckSuggestions.slice(0, room) };
 }
 
 // Always-on pick-lists for the calculator: cards I should GIVE (my tradelist the
