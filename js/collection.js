@@ -1971,6 +1971,16 @@ async function openCardDetail(uid, navMode, opts) {
       if (sourceCard) break;
     }
   }
+  // Fall back to shared decks (read-only view). These live in `sharedDecks`, NOT in `decks`,
+  // so they're absent from `pools` above — without this, clicking an UNOWNED card in someone
+  // else's shared deck resolves to nothing and the inspector silently never opens (owned cards
+  // still open because they match your own `collection`).
+  if (!sourceCard && typeof sharedDecks !== 'undefined') {
+    for (const sd of sharedDecks) {
+      sourceCard = (sd.cards || []).find(c => c.uid === uid || c.scryfallId === uid);
+      if (sourceCard) break;
+    }
+  }
   if (!sourceCard && _looksLikeScryfallCardId(uid)) {
     try {
       const fresh = await fetchCardById(String(uid));
