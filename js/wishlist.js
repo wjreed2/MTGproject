@@ -162,7 +162,7 @@ function renderWishlist() {
           <button type="button" class="btn btn-ghost btn-sm btn-icon" onclick="event.stopPropagation();removeWishlist(${i})" style="padding:4px 8px;font-size:0.72rem;flex-shrink:0" title="Remove">✕</button>
         </div>`;
       return `
-    <div class="card-item wishlist-grid-tile">
+    <div class="card-item wishlist-grid-tile" style="cursor:pointer" onclick="openWishlistCardDetail(${i})">
       <div class="card-img-wrap" style="position:relative">
         <div class="wishlist-priority wishlist-priority--on-card priority-${c.priority||'med'}"></div>
         ${src
@@ -184,10 +184,10 @@ function renderWishlist() {
     const src = imgSrc(c);
     const actions = shared
       ? _wishlistOwnershipBadge(c)
-      : `<button class="btn btn-sm" onclick="moveWishlistToCollection(${i})" title="Add to collection" style="padding:3px 8px;font-size:0.7rem;background:rgba(90,184,90,0.18);border:1px solid rgba(90,184,90,0.55);color:var(--green)">Add to Collection</button>
-      <button class="btn btn-ghost btn-sm btn-icon" onclick="removeWishlist(${i})" style="padding:3px 7px;font-size:0.72rem">✕</button>`;
+      : `<button class="btn btn-sm" onclick="event.stopPropagation();moveWishlistToCollection(${i})" title="Add to collection" style="padding:3px 8px;font-size:0.7rem;background:rgba(90,184,90,0.18);border:1px solid rgba(90,184,90,0.55);color:var(--green)">Add to Collection</button>
+      <button class="btn btn-ghost btn-sm btn-icon" onclick="event.stopPropagation();removeWishlist(${i})" style="padding:3px 7px;font-size:0.72rem">✕</button>`;
     return `
-    <div class="wishlist-item">
+    <div class="wishlist-item" style="cursor:pointer" onclick="openWishlistCardDetail(${i})">
       <div class="wishlist-priority priority-${c.priority||'med'}"></div>
       ${src ? `<img class="wishlist-thumb" src="${escapeHtml(src)}" alt="" loading="lazy">` : ''}
       <div style="flex:1;min-width:0">
@@ -197,6 +197,18 @@ function renderWishlist() {
       ${actions}
     </div>`;
   }).join('');
+}
+
+// Open the card inspector for a wishlist card. Own-wishlist cards resolve from
+// the local pool by scryfallId; shared-wishlist cards aren't in any pool, so the
+// full entry is handed over (and openCardDetail falls back to a Scryfall fetch).
+function openWishlistCardDetail(i) {
+  if (typeof openCardDetail !== 'function') return;
+  const c = _getWishlistSource()[i];
+  if (!c) return;
+  const id = c.scryfallId || c.id || c.uid;
+  if (!id) return;
+  openCardDetail(id, undefined, _viewingSharedWishlistOwnerId ? { prefetchedEntry: c } : undefined);
 }
 
 let _wishlistAcTimer = null;

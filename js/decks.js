@@ -4261,7 +4261,12 @@ function _ownershipCollection() {
     const sc = sharedCollections.find(s => Number(s.ownerId) === Number(deck.ownerId));
     if (sc?.cards?.length) return sc.cards;
   }
-  return collection;
+  // Shared deck, but the owner's collection isn't loaded yet (or the fetch failed).
+  // Do NOT fall back to the viewer's own collection — that would mark cards "owned"
+  // based on the wrong person, showing them full-color instead of grayed. Treat as
+  // empty (everything unowned) until loadDeckOwnerCollectionLookup() resolves and
+  // triggers a re-render. See renderActiveDeck's shared-deck branch.
+  return [];
 }
 
 function _ownershipCollectionLabel() {
@@ -4409,10 +4414,15 @@ function _rebuildOwnershipMaps() {
   _ownedByUid  = {};
   _ownedByName = {};
   _ownershipCollection().forEach(c => {
+    // Skip zero-qty rows — they're not effectively owned and would mark a card
+    // as owned (full-color) even though it's gone from the collection. Missing/NaN
+    // qty is treated as owned (legacy rows predate the qty field).
+    const q = Number(c.qty);
+    if (Number.isFinite(q) && q < 1) return;
     const uidKey = getCardInventoryKey(c);
     if (uidKey) _ownedByUid[uidKey] = _ownedByUid[uidKey] || c;
     const nameKey = (c.name || '').toLowerCase();
-    if (!_ownedByName[nameKey]) _ownedByName[nameKey] = c;
+    if (nameKey && !_ownedByName[nameKey]) _ownedByName[nameKey] = c;
   });
 }
 

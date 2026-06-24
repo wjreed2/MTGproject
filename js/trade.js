@@ -1456,7 +1456,7 @@ function _wishlistCardHtml(c) {
   const priOpts = _PRIORITY_ORDER.map(p => `<option value="${p}"${c.priority === p ? ' selected' : ''}>${_PRIORITY_LABEL[p]}</option>`).join('');
   return `
     <div class="card-item trade-card wl-card" data-uid="${escapeHtml(c.uid)}">
-      <div class="card-img-wrap${c.foil ? ' foil' : ''}" onclick="tradeCalcOpenCard('${escapeHtml(c.scryfallId || '')}')">
+      <div class="card-img-wrap${c.foil ? ' foil' : ''}" onclick="tradeCalcOpenCard('${escapeHtml(c.scryfallId || c.uid || '')}')">
         ${_tradeCardImgHtml(c)}
         ${c.foil ? `<div class="card-foil-overlay"></div><div class="card-foil-badge">✦ FOIL</div>` : ''}
         ${badge ? `<span class="wl-src-badge ${badge.cls}" title="${escapeHtml(badgeTitle)}">${badge.icon || ''}${escapeHtml(badgeLabel)}</span>` : ''}
