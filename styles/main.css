@@ -4177,6 +4177,17 @@ img.stack-main.loaded { opacity: 1; }
 .deck-stack-card:focus-within .stack-not-owned,
 .deck-stack-card:focus-within .stack-foil-mismatch { opacity: 1; }
 
+/* List-view row ownership indicators */
+.deck-card-row.not-owned .deck-card-name { color: var(--text3); opacity: 0.6; }
+.deck-not-owned-chip,
+.deck-foil-mismatch-chip {
+  font-size: 0.55rem; font-weight: 700; letter-spacing: 0.04em;
+  color: #fff; padding: 1px 5px; border-radius: 3px; flex-shrink: 0;
+  white-space: nowrap;
+}
+.deck-not-owned-chip { background: rgba(180,60,50,0.88); }
+.deck-foil-mismatch-chip { background: rgba(160,130,40,0.88); }
+
 /* Mainboard tile: same printing also on maybe board */
 .stack-mb-pool {
   position: absolute; top: 4px; right: 4px; left: auto; z-index: 10;

@@ -591,6 +591,8 @@ let _cardDetailFaces = [];
 let _cardDetailFaceIdx = 0;
 let _cardDetailBase = null;
 let _cardDetailCurrentUid = null;
+/** The card object currently shown in the inspector — used as a fallback template when adding to collection. */
+let _cardDetailCurrentCard = null;
 /** 'collection' | 'deck' — controls prev/next in the universal card inspector */
 let _cardDetailNavMode = 'collection';
 /** Page scroll position captured when the inspector first opens, restored on close
@@ -1984,6 +1986,7 @@ async function openCardDetail(uid, navMode, opts) {
   }
 
   _cardDetailCurrentUid = actionUid;
+  _cardDetailCurrentCard = card;
   const detailCtx = {
     card,
     isOwned,
@@ -2177,6 +2180,7 @@ function closeCardDetail() {
   if (typeof _destroyInspectorPriceChart === 'function') _destroyInspectorPriceChart();
   _cardDetailOpenSession++;
   _cardDetailCurrentUid = null;
+  _cardDetailCurrentCard = null;
   _cardDetailNavMode = 'collection';
   _updateCardDetailEdgeNav(null);
   if (typeof _hideCardHoverPreview === 'function') _hideCardHoverPreview();
@@ -2632,7 +2636,12 @@ function adjustCollectionPrintingQtyFromDetail(scryfallIdEnc, wantFoil, delta) {
       row.addedAt = Date.now();
       recordCollectionEvent('add', row, d);
     } else {
-      const template = _findTemplateCardForPrinting(sid);
+      // Fall back to the card currently shown in the inspector — covers cards on the
+      // maybe board / sideboard or in a shared deck, which _findTemplateCardForPrinting misses.
+      let template = _findTemplateCardForPrinting(sid);
+      if (!template && _cardDetailCurrentCard && String(_cardDetailCurrentCard.scryfallId) === sid) {
+        template = _cardDetailCurrentCard;
+      }
       if (!template) {
         showNotif('Could not add — try from search or wishlist first', true);
         return;

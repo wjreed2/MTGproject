@@ -4416,6 +4416,31 @@ function _rebuildOwnershipMaps() {
   });
 }
 
+/** Ownership status for a deck card against the prebuilt ownership maps. Call _rebuildOwnershipMaps() first. */
+function _deckCardOwnership(c) {
+  const ownershipOn = isDeckOwnershipEnabled();
+  if (!ownershipOn) return { ownershipOn: false, owned: null, ownedByName: null, notOwned: false, foilMismatch: false };
+  // exact uid (same printing + foil), then by name (any printing/foil)
+  const ownedExact  = _ownedByUid[getCardInventoryKey(c)] || null;
+  const ownedByName = !ownedExact ? (_ownedByName[(c.name || '').toLowerCase()] || null) : null;
+  const owned       = ownedExact || ownedByName;
+  // Foil mismatch: own the other variant but not the requested one
+  const foilMismatch = !ownedExact && !!ownedByName && (ownedByName.foil !== !!c.foil);
+  return { ownershipOn, owned, ownedByName, notOwned: !owned, foilMismatch };
+}
+
+/** Small "unowned" / "own foil" pill for list-view rows (grid tiles use _stackTile badges instead). */
+function _deckRowOwnershipChipHtml(own) {
+  if (!own || !own.ownershipOn) return '';
+  if (own.notOwned) {
+    return `<span class="deck-not-owned-chip" title="Not in ${_ownershipCollectionLabel()}">unowned</span>`;
+  }
+  if (own.foilMismatch) {
+    return `<span class="deck-foil-mismatch-chip" title="You own a different finish">${own.owned?.foil ? 'own foil' : 'own non-foil'}</span>`;
+  }
+  return '';
+}
+
 function _stackTile(c, zone = 'main', poolHints = null) {
   const qty = c.qty || 1;
   const cardKey = getCardInventoryKey(c);
@@ -4425,17 +4450,7 @@ function _stackTile(c, zone = 'main', poolHints = null) {
     || (c.scryfallId ? `https://cards.scryfall.io/normal/front/${c.scryfallId[0]}/${c.scryfallId[1]}/${c.scryfallId}.jpg` : '');
   const safeName = c.name.replace(/"/g, '&quot;');
 
-  const ownershipOn = isDeckOwnershipEnabled();
-  // Ownership: exact uid (same printing + foil), then same printing any foil, then by name
-  const uidKey       = getCardInventoryKey(c);
-  const ownedExact   = ownershipOn ? _ownedByUid[uidKey] : null;
-  const ownedByName  = ownershipOn && !ownedExact ? _ownedByName[(c.name || '').toLowerCase()] : null;
-  const owned        = ownershipOn ? (ownedExact || ownedByName) : null;
-
-  // Foil mismatch: own the other variant but not the requested one
-  const foilMismatch = ownershipOn && !ownedExact && ownedByName && (ownedByName.foil !== !!c.foil);
-
-  const notOwned = ownershipOn && !owned;
+  const { ownershipOn, owned, notOwned, foilMismatch } = _deckCardOwnership(c);
   const imgStyle = notOwned ? 'filter:grayscale(82%) brightness(0.8) contrast(0.9)' : '';
 
   // Ownership badge
@@ -5474,9 +5489,10 @@ function _renderDeckExtraZoneList(deck, zone, label, cards, emptyHint, validatio
   const rows = collapsed ? '' : (sorted.length
     ? sorted.map(c => {
       const dk = _deckCardDragKey(c).replace(/'/g, "\\'");
+      const own = _deckCardOwnership(c);
       return `
-          <div class="deck-card-row deck-zone-draggable${_deckCardValidationClass(c, validationErrorNames)}" data-uid="${_deckCardDragKey(c)}" data-zone="${zone}" data-card-key="${getCardInventoryKey(c)}" data-card-name-key="${String(c.name || '').trim().toLowerCase().replace(/"/g, '&quot;')}" onpointerdown="_deckZoneCardPointerDown(event)" onclick="openCardDetail('${c.uid || c.scryfallId}','deck')">
-            <span class="deck-card-name">${escapeHtml(c.name)}</span>
+          <div class="deck-card-row deck-zone-draggable${own.notOwned ? ' not-owned' : ''}${_deckCardValidationClass(c, validationErrorNames)}" data-uid="${_deckCardDragKey(c)}" data-zone="${zone}" data-card-key="${getCardInventoryKey(c)}" data-card-name-key="${String(c.name || '').trim().toLowerCase().replace(/"/g, '&quot;')}" onpointerdown="_deckZoneCardPointerDown(event)" onclick="openCardDetail('${c.uid || c.scryfallId}','deck')">
+            <span class="deck-card-name">${escapeHtml(c.name)}</span>${_deckRowOwnershipChipHtml(own)}
             <span style="display:flex;gap:5px;align-items:center">${sortColorsWUBRG(c.colors).map(col => `<img src="https://svgs.scryfall.io/card-symbols/${col}.svg" class="mana-pip" alt="${col}" title="${col}" draggable="false">`).join('')}</span>
             <button class="btn btn-ghost btn-sm" title="Move to mainboard" style="font-size:0.65rem;padding:1px 6px" onclick="event.stopPropagation();moveToMainboard('${dk}','${zone}')">→ Main</button>
             <div style="display:flex;align-items:center;gap:5px;margin-left:auto" onclick="event.stopPropagation()">
@@ -6436,6 +6452,7 @@ function renderDeckList(deck) {
   }
 
   _detachVertStackObserver();
+  if (isDeckOwnershipEnabled()) _rebuildOwnershipMaps();
 
   // List view — grouped by selected mode
   const groups = _buildDeckGroups(filteredCards, deckGroupBy || 'type');
@@ -6469,9 +6486,11 @@ function renderDeckList(deck) {
       const gcRowHtml = rowIsGc
         ? `<span class="deck-gc-chip" title="Commander game changer">GC</span>`
         : '';
+      const rowOwn = _deckCardOwnership(c);
+      const ownChipHtml = _deckRowOwnershipChipHtml(rowOwn);
       return `
-      <div class="deck-card-row deck-zone-draggable${rowIsGc ? ' is-game-changer' : ''}${_deckCardValidationClass(c, validationErrorNames)}" data-uid="${_deckCardDragKey(c)}" data-zone="main" data-card-key="${getCardInventoryKey(c)}" data-card-name-key="${String(c.name || '').trim().toLowerCase().replace(/"/g, '&quot;')}" onpointerdown="_deckZoneCardPointerDown(event)" onclick="openCardDetail('${c.uid || c.scryfallId}','deck')">
-        <span class="deck-card-name">${escapeHtml(c.name)}</span>${gcRowHtml}${rowTagHtml}
+      <div class="deck-card-row deck-zone-draggable${rowOwn.notOwned ? ' not-owned' : ''}${rowIsGc ? ' is-game-changer' : ''}${_deckCardValidationClass(c, validationErrorNames)}" data-uid="${_deckCardDragKey(c)}" data-zone="main" data-card-key="${getCardInventoryKey(c)}" data-card-name-key="${String(c.name || '').trim().toLowerCase().replace(/"/g, '&quot;')}" onpointerdown="_deckZoneCardPointerDown(event)" onclick="openCardDetail('${c.uid || c.scryfallId}','deck')">
+        <span class="deck-card-name">${escapeHtml(c.name)}</span>${gcRowHtml}${ownChipHtml}${rowTagHtml}
         ${_defaultTagBadgeHtml(c)}<span style="display:flex;gap:5px;align-items:center">${sortColorsWUBRG(c.colors).map(col => `<img src="https://svgs.scryfall.io/card-symbols/${col}.svg" class="mana-pip" alt="${col}" title="${col}">`).join('')}</span>
         ${mbRowHtml}${sbRowHtml}
         <button class="btn btn-ghost btn-sm btn-icon" title="Edit My Tags" onclick="event.stopPropagation();openGlobalTagPickerForCard('${c.uid || c.scryfallId || ''}')">🏷</button>
