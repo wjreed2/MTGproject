@@ -8431,6 +8431,43 @@ select:focus { outline: none; border-color: rgba(200,168,74,0.6); box-shadow: 0 
 .status-completed { background: rgba(94,186,125,0.28); color: var(--green); }
 .status-declined, .status-cancelled { background: rgba(206,99,99,0.18); color: var(--red); }
 .calc-await { color: var(--text3); font-style: italic; }
+.calc-partner-change {
+  background: none; border: none; color: var(--teal); cursor: pointer;
+  font: inherit; font-size: 0.8rem; text-decoration: underline; padding: 0 2px;
+}
+.calc-partner-change:hover { color: var(--text); }
+
+/* ── Calculator partner picker (manual trade → choose recipient) ─────────── */
+.calc-partner-pick { align-items: flex-start; }
+.calc-partner-label { display: inline-flex; align-items: center; gap: 6px; color: var(--text2); white-space: nowrap; padding-top: 6px; }
+.calc-partner-search { position: relative; flex: 1 1 220px; min-width: 200px; }
+.calc-partner-input {
+  width: 100%; background: var(--bg); border: 1px solid var(--border2);
+  border-radius: var(--radius); padding: 7px 11px; color: var(--text); font-size: 0.85rem;
+}
+.calc-partner-input:focus { outline: none; border-color: var(--teal); }
+.calc-partner-results {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 40;
+  background: var(--bg2); border: 1px solid var(--border2); border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35); overflow: hidden; max-height: 280px; overflow-y: auto;
+}
+.calc-partner-results:empty { display: none; }
+.calc-partner-opt {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  background: none; border: none; border-bottom: 1px solid var(--border); cursor: pointer;
+  padding: 8px 11px; color: var(--text);
+}
+.calc-partner-opt:last-child { border-bottom: none; }
+.calc-partner-opt:hover { background: var(--bg4); }
+.calc-partner-avatar {
+  flex: 0 0 auto; width: 26px; height: 26px; border-radius: 50%;
+  background: var(--bg4); color: var(--text2); display: flex; align-items: center;
+  justify-content: center; font-size: 0.78rem; font-weight: 700;
+}
+.calc-partner-optmain { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.calc-partner-optname { font-size: 0.85rem; }
+.calc-partner-optsub { font-size: 0.72rem; color: var(--text3); }
+.calc-partner-empty { padding: 10px 12px; color: var(--text3); font-size: 0.82rem; }
 
 /* ── Trade history ──────────────────────────────────────────────────────── */
 .hist-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; color: var(--text2); font-size: 0.85rem; }

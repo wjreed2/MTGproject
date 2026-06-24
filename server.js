@@ -740,7 +740,7 @@ async function loadTradeDoc(tradeId) {
   let names = {};
   if (ids.length) {
     const ph = ids.map(() => '?').join(',');
-    const [rows] = await db().query(`SELECT id, email FROM accounts WHERE id IN (${ph})`, ids);
+    const [rows] = await db().query(`SELECT id, username, display_name, email FROM accounts WHERE id IN (${ph})`, ids);
     rows.forEach(r => { names[r.id] = publicAccountName(r); });
   }
   const mapItem = it => ({
@@ -3891,7 +3891,8 @@ app.get('/api/trades', requireAuth, async (req, res) => {
   try {
     const statusFilter = String(req.query.status || '').split(',').map(s => s.trim()).filter(Boolean);
     let sql = `SELECT t.*,
-                 ia.email AS initiator_email, pa.email AS partner_email
+                 ia.email AS initiator_email, ia.username AS initiator_username, ia.display_name AS initiator_display,
+                 pa.email AS partner_email, pa.username AS partner_username, pa.display_name AS partner_display
                FROM trades t
                JOIN accounts ia ON ia.id = t.initiator_id
                LEFT JOIN accounts pa ON pa.id = t.partner_id
@@ -3910,8 +3911,8 @@ app.get('/api/trades', requireAuth, async (req, res) => {
       mode: t.mode,
       initiatorId: t.initiator_id,
       partnerId: t.partner_id,
-      initiatorName: publicAccountName({ id: t.initiator_id, email: t.initiator_email }),
-      partnerName: t.partner_id ? publicAccountName({ id: t.partner_id, email: t.partner_email }) : null,
+      initiatorName: publicAccountName({ id: t.initiator_id, username: t.initiator_username, display_name: t.initiator_display, email: t.initiator_email }),
+      partnerName: t.partner_id ? publicAccountName({ id: t.partner_id, username: t.partner_username, display_name: t.partner_display, email: t.partner_email }) : null,
       valueACents: Number(t.value_a_cents) || 0,
       valueBCents: Number(t.value_b_cents) || 0,
       iAmInitiator: Number(t.initiator_id) === Number(req.accountId),
@@ -3961,10 +3962,20 @@ app.patch('/api/trades/:id', requireAuth, async (req, res) => {
       valueB = _sumSideCents(items, 'b');
     }
     const newTitle = body.title != null ? String(body.title).slice(0, 120) : t.title;
+    // Attach / change the partner — only while it's still a draft and only by the
+    // initiator (so you can build a trade manually then pick who to send it to).
+    let newPartner = t.partner_id;
+    if (body.partnerId !== undefined && t.status === 'draft' && Number(t.initiator_id) === Number(req.accountId)) {
+      if (body.partnerId == null) newPartner = null;
+      else if (Number(body.partnerId) !== Number(req.accountId)) {
+        const [[p]] = await conn.query('SELECT id FROM accounts WHERE id = ?', [Number(body.partnerId)]);
+        if (p) newPartner = p.id;
+      }
+    }
     await conn.query(
-      `UPDATE trades SET title = ?, value_a_cents = ?, value_b_cents = ?,
+      `UPDATE trades SET title = ?, partner_id = ?, value_a_cents = ?, value_b_cents = ?,
          revision = revision + 1, last_actor_id = ?, updated_at = ? WHERE id = ?`,
-      [newTitle, valueA, valueB, req.accountId, now, id]
+      [newTitle, newPartner, valueA, valueB, req.accountId, now, id]
     );
     await conn.commit();
     // Received-side changes ripple to both participants' pending-trade wishlists.

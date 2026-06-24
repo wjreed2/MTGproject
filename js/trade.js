@@ -200,21 +200,29 @@ function _calcResponderId() {
 }
 
 function _calcTradeStatusHtml() {
-  if (!_calc || !_calc.id) {
-    return _calc && _calc.partnerId
-      ? `<div class="calc-trade-status">Trade with <strong>@${escapeHtml(_calc.partnerName || '')}</strong> · save then send an offer.</div>`
-      : '';
+  // No partner attached yet → show a picker so a manually-built trade can be
+  // sent to whomever you choose (works whether or not it's been saved).
+  if (!_calc || !_calc.partnerId) {
+    if (_calc && _calc.id && ['accepted', 'completed', 'declined', 'cancelled'].includes(_calc.status)) {
+      const badge = `<span class="calc-status-badge status-${_calc.status}">${escapeHtml(_calc.status)}</span>`;
+      return `<div class="calc-trade-status">${badge} · solo draft.</div>`;
+    }
+    return _calcPartnerPickerHtml();
   }
   const myId = _calcMyId();
   const partner = _calc.partnerName ? `@${escapeHtml(_calc.partnerName)}` : 'partner';
+  // Partner chosen but the trade isn't saved yet → save then send.
+  if (!_calc.id) {
+    return `<div class="calc-trade-status">Trade with <strong>${partner}</strong>
+      <button class="calc-partner-change" onclick="calcClearPartner()">change</button>
+      · save, then send an offer.</div>`;
+  }
   const status = _calc.status;
   let badge = `<span class="calc-status-badge status-${status}">${escapeHtml(status)}</span>`;
   let actions = '';
-  if (!_calc.partnerId) {
-    return `<div class="calc-trade-status">${badge} · solo draft. Generate a suggestion or pick a partner from Find Trades to send an offer.</div>`;
-  }
   if (status === 'draft') {
-    actions = `<button class="btn btn-primary btn-sm" onclick="tradeCalcSendOffer()">Send offer to ${partner}</button>`;
+    actions = `<button class="btn btn-primary btn-sm" onclick="tradeCalcSendOffer()">Send offer to ${partner}</button>
+      <button class="calc-partner-change" onclick="calcClearPartner()">change partner</button>`;
   } else if (status === 'pending' || status === 'countered') {
     const amResponder = Number(_calcResponderId()) === Number(myId);
     if (amResponder) {
@@ -230,6 +238,87 @@ function _calcTradeStatusHtml() {
     actions = `<button class="btn btn-primary btn-sm" onclick="tradeCalcComplete()">Mark complete</button>`;
   }
   return `<div class="calc-trade-status">${badge} · with ${partner} ${actions}</div>`;
+}
+
+// ── manual partner picker (build a trade by typing cards, then pick who to send to) ──
+let _calcPartnerHits = [];
+let _calcPartnerTimer = null;
+
+function _calcPartnerPickerHtml() {
+  return `
+    <div class="calc-trade-status calc-partner-pick">
+      <span class="calc-partner-label">${_ICON_TRADE} Send this trade to:</span>
+      <div class="calc-partner-search">
+        <input type="text" id="calcPartnerInput" class="calc-partner-input"
+          placeholder="Search a username…" autocomplete="off"
+          oninput="calcPartnerSearchInput(this.value)">
+        <div class="calc-partner-results" id="calcPartnerResults"></div>
+      </div>
+    </div>`;
+}
+
+function calcPartnerSearchInput(query) {
+  const q = String(query || '').trim();
+  const box = document.getElementById('calcPartnerResults');
+  if (_calcPartnerTimer) clearTimeout(_calcPartnerTimer);
+  if (q.length < 2) { if (box) box.innerHTML = ''; return; }
+  _calcPartnerTimer = setTimeout(async () => {
+    try {
+      const users = await apiFetch(`/users/search?q=${encodeURIComponent(q)}`);
+      _calcPartnerHits = Array.isArray(users) ? users : [];
+      const el = document.getElementById('calcPartnerResults');
+      if (!el) return;
+      if (!_calcPartnerHits.length) { el.innerHTML = `<div class="calc-partner-empty">No traders found</div>`; return; }
+      el.innerHTML = _calcPartnerHits.map((u, i) => `
+        <button class="calc-partner-opt" onclick="calcSetPartner(${i})">
+          <span class="calc-partner-avatar">${escapeHtml((u.username || '?')[0].toUpperCase())}</span>
+          <span class="calc-partner-optmain">
+            <span class="calc-partner-optname">@${escapeHtml(u.username || '')}${u.isFriend ? ' <span class="friend-badge">friend</span>' : ''}</span>
+            ${u.displayName ? `<span class="calc-partner-optsub">${escapeHtml(u.displayName)}</span>` : ''}
+          </span>
+        </button>`).join('');
+    } catch (e) {
+      const el = document.getElementById('calcPartnerResults');
+      if (el) el.innerHTML = `<div class="calc-partner-empty">${escapeHtml(e.message || 'Search failed')}</div>`;
+    }
+  }, 220);
+}
+
+async function calcSetPartner(idx) {
+  const u = _calcPartnerHits[idx];
+  if (!u || !_calc) return;
+  _calc.partnerId = u.id;
+  _calc.partnerName = u.username;
+  if (!_calc.title) _calc.title = `Trade with @${u.username}`;
+  // If the trade is already saved, persist the partner now; otherwise it rides
+  // along with the first save (POST/PATCH both carry partnerId).
+  if (_calc.id) {
+    try {
+      const doc = await apiPatch(`/trades/${_calc.id}`, { partnerId: u.id, baseRevision: _calc.revision });
+      _applyTradeDocToCalc(doc);
+      showNotif(`Trade now with @${u.username}`);
+      void _loadCalcDrafts();
+      return;
+    } catch (e) { showNotif(e.message || 'Could not set partner', true); }
+  }
+  const host = document.getElementById('tradeSectionBody');
+  if (host && _tradeSection === 'calculator') renderTradeCalculator(host);
+}
+
+async function calcClearPartner() {
+  if (!_calc) return;
+  _calc.partnerId = null;
+  _calc.partnerName = null;
+  if (_calc.id && _calc.status === 'draft') {
+    try {
+      const doc = await apiPatch(`/trades/${_calc.id}`, { partnerId: null, baseRevision: _calc.revision });
+      _applyTradeDocToCalc(doc);
+      void _loadCalcDrafts();
+      return;
+    } catch (e) { showNotif(e.message || 'Could not clear partner', true); }
+  }
+  const host = document.getElementById('tradeSectionBody');
+  if (host && _tradeSection === 'calculator') renderTradeCalculator(host);
 }
 
 async function tradeCalcSendOffer() {
@@ -554,11 +643,11 @@ async function tradeCalcSave() {
   if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
   try {
     const payload = { title: _calc.title || null, items: _calcItemsPayload() };
+    if (_calc.partnerId) payload.partnerId = _calc.partnerId;
     let doc;
     if (_calc.id) {
       doc = await apiPatch(`/trades/${_calc.id}`, { ...payload, baseRevision: _calc.revision });
     } else {
-      if (_calc.partnerId) payload.partnerId = _calc.partnerId;
       doc = await apiPostJson('/trades', payload);
     }
     _applyTradeDocToCalc(doc);
