@@ -5315,6 +5315,10 @@ async function ensureScryfallTagCacheTable() {
       `ALTER TABLE scryfall_oracle_cards ADD COLUMN toughness VARCHAR(10) NULL`,
       `ALTER TABLE scryfall_oracle_cards ADD COLUMN loyalty VARCHAR(10) NULL`,
       `ALTER TABLE scryfall_oracle_cards ADD COLUMN games_json JSON NULL`,
+      // Per-face data for multi-faced cards (transform/MDFC/meld/split/adventure). Holds each
+      // face's name/type/text/mana + image_uris so the card inspector can flip DFCs without a
+      // Scryfall round-trip. NULL for single-faced cards. Backfills on the next cards re-import.
+      `ALTER TABLE scryfall_oracle_cards ADD COLUMN faces_json JSON NULL`,
     ];
     for (const sql of newCols) { try { await conn.query(sql); } catch (_) {} }
     const newIdxs = [
@@ -6055,7 +6059,7 @@ async function importScryfallOracleBulkToDb({
     const CARD_BATCH = 200;
     const cardInsertSql = `INSERT INTO scryfall_oracle_cards
       (oracle_id, name, type_line, oracle_text, colors_json, mana_cost, cmc, imported_at,
-       scryfall_id, color_identity_json, rarity, set_code, image_small, image_normal, power, toughness, loyalty, games_json)
+       scryfall_id, color_identity_json, rarity, set_code, image_small, image_normal, power, toughness, loyalty, games_json, faces_json)
      VALUES {VALS}
      ON DUPLICATE KEY UPDATE
        name=VALUES(name), type_line=VALUES(type_line), oracle_text=VALUES(oracle_text),
@@ -6063,7 +6067,25 @@ async function importScryfallOracleBulkToDb({
        scryfall_id=VALUES(scryfall_id), color_identity_json=VALUES(color_identity_json),
        rarity=VALUES(rarity), set_code=VALUES(set_code),
        image_small=VALUES(image_small), image_normal=VALUES(image_normal),
-       power=VALUES(power), toughness=VALUES(toughness), loyalty=VALUES(loyalty), games_json=VALUES(games_json)`;
+       power=VALUES(power), toughness=VALUES(toughness), loyalty=VALUES(loyalty), games_json=VALUES(games_json),
+       faces_json=VALUES(faces_json)`;
+
+    // Compact per-face payload — only when the card actually has >1 face. We keep each face's
+    // image_uris so the inspector can flip; for layouts with no per-face art (split/adventure/
+    // flip) the faces simply carry no images and the client never offers a flip button.
+    const facesToJson = (c) => {
+      const faces = Array.isArray(c?.card_faces) ? c.card_faces : [];
+      if (faces.length < 2) return null;
+      return JSON.stringify(faces.map(f => ({
+        name: f?.name || '',
+        type_line: f?.type_line || '',
+        oracle_text: f?.oracle_text || '',
+        mana_cost: f?.mana_cost || '',
+        image_uris: f?.image_uris
+          ? { small: f.image_uris.small || null, normal: f.image_uris.normal || null, large: f.image_uris.large || null }
+          : null,
+      })));
+    };
 
     const cardToRow = (oid, c) => {
       const imgs = c?.image_uris || c?.card_faces?.[0]?.image_uris || {};
@@ -6077,6 +6099,7 @@ async function importScryfallOracleBulkToDb({
         imgs.small || null, imgs.normal || null,
         c?.power || null, c?.toughness || null, c?.loyalty || null,
         JSON.stringify(Array.isArray(c?.games) ? c.games : ['paper']),
+        facesToJson(c),
       ];
     };
 
@@ -6086,7 +6109,7 @@ async function importScryfallOracleBulkToDb({
       const seen = new Set();
       const flushBatch = async () => {
         if (!batch.length) return;
-        const ph = batch.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').join(',');
+        const ph = batch.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').join(',');
         await conn.query(cardInsertSql.replace('{VALS}', ph), batch.flat());
         imported += batch.length;
         totalOracleRows = imported;
@@ -6212,7 +6235,14 @@ app.get('/api/scryfall/card-id/:id', async (req, res) => {
     // inspector never open for unowned cards in prod.)
     try {
       const local = await _lookupLocalCardById(cardId);
-      if (local) {
+      // A multi-faced card ("Front // Back") whose per-face data hasn't been backfilled yet
+      // (faces_json NULL — i.e. imported before that column existed) would serve only the front
+      // image, leaving the inspector unable to flip it. Skip local for these until the next cards
+      // re-import populates faces_json; rows that already have it serve straight from local.
+      const needsFacesFromScryfall = local
+        && local.row.faces_json == null
+        && / \/\/ /.test(String(local.row.name || ''));
+      if (local && !needsFacesFromScryfall) {
         const card = _localRowToScryfallCard(local.row);
         if (local.scryfallId) card.id = local.scryfallId;
         await attachPriceLogPrices([card]); // local price-history tables, keyed by printing id
@@ -6378,7 +6408,7 @@ app.get('/api/scryfall/named', async (req, res) => {
     const [[exact]] = await db().query(
       `SELECT oracle_id, scryfall_id, name, type_line, oracle_text, mana_cost, cmc,
               colors_json, color_identity_json, image_normal, image_small,
-              power, toughness, loyalty, rarity, set_code
+              power, toughness, loyalty, rarity, set_code, faces_json
        FROM scryfall_oracle_cards WHERE name = ? LIMIT 1`,
       [fuzzy]
     );
@@ -6386,7 +6416,7 @@ app.get('/api/scryfall/named', async (req, res) => {
       const [[prefix]] = await db().query(
         `SELECT oracle_id, scryfall_id, name, type_line, oracle_text, mana_cost, cmc,
                 colors_json, color_identity_json, image_normal, image_small,
-                power, toughness, loyalty, rarity, set_code
+                power, toughness, loyalty, rarity, set_code, faces_json
          FROM scryfall_oracle_cards WHERE name LIKE ? LIMIT 1`,
         [fuzzy.replace(/[%_]/g, '\\$&') + '%']
       );
@@ -6814,7 +6844,24 @@ function _localRowToScryfallCard(row) {
   const colors = (() => { try { return JSON.parse(row.colors_json) || []; } catch (_) { return []; } })();
   const colorIdentity = (() => { try { return JSON.parse(row.color_identity_json) || []; } catch (_) { return []; } })();
   const imageUri = row.image_normal || row.image_small;
-  return {
+  // Multi-faced cards (transform/MDFC/meld) carry per-face art so the inspector can flip them.
+  // Older rows imported before faces_json existed have it NULL — they degrade to single-face
+  // (no flip), same as before, until the next cards re-import backfills the column.
+  const cardFaces = (() => {
+    if (!row.faces_json) return null;
+    try {
+      const raw = typeof row.faces_json === 'string' ? JSON.parse(row.faces_json) : row.faces_json;
+      if (!Array.isArray(raw) || raw.length < 2) return null;
+      return raw.map(f => ({
+        name: f?.name || '',
+        type_line: f?.type_line || '',
+        oracle_text: f?.oracle_text || '',
+        mana_cost: f?.mana_cost || '',
+        image_uris: f?.image_uris || undefined,
+      }));
+    } catch (_) { return null; }
+  })();
+  const card = {
     id: row.scryfall_id || row.oracle_id,
     oracle_id: row.oracle_id,
     name: row.name,
@@ -6833,6 +6880,8 @@ function _localRowToScryfallCard(row) {
     toughness: row.toughness || null,
     loyalty: row.loyalty || null,
   };
+  if (cardFaces) card.card_faces = cardFaces;
+  return card;
 }
 
 // Resolve a card from local tables by Scryfall printing id OR oracle id — no network.
@@ -6843,7 +6892,7 @@ function _localRowToScryfallCard(row) {
 async function _lookupLocalCardById(cardId) {
   const cols = `oracle_id, scryfall_id, name, type_line, oracle_text, mana_cost, cmc,
                 colors_json, color_identity_json, image_normal, image_small,
-                power, toughness, loyalty, rarity, set_code`;
+                power, toughness, loyalty, rarity, set_code, faces_json`;
   const [[direct]] = await db().query(
     `SELECT ${cols} FROM scryfall_oracle_cards WHERE scryfall_id = ? OR oracle_id = ? LIMIT 1`,
     [cardId, cardId]
