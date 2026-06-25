@@ -562,6 +562,11 @@
     transform: none !important;
   }
 
+  /* Nudge the role-tag corner badge 10px left of the right-edge controls. */
+  #tab-decks .deck-tag-badge--corner {
+    right: 52px !important;
+  }
+
   /* ── Games tab ────────────────────────────────────────────────────────── */
   .games-grid {
     grid-template-columns: 1fr 1fr !important; gap: 0.6rem;
