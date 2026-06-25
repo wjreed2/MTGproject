@@ -486,6 +486,10 @@
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><line x1="8" y1="2" x2="8" y2="10"/><path d="M5 7L8 10 11 7"/><line x1="3" y1="14" x2="13" y2="14"/></svg>
           From Moxfield
         </button>
+        <button class="btn btn-ghost btn-sm deck-menu-item" onclick="toggleDeckImportDropdown();openPreconImport()">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><rect x="3" y="2.5" width="8" height="11" rx="1"/><path d="M5.5 5.5h3M5.5 8h3"/><path d="M11 4.5l2 .7v8l-2-.7"/></svg>
+          From Precon Deck
+        </button>
       </div>
     </div>
     <button id="toggleDeckSidebarBtn" class="btn btn-outline btn-sm" onclick="toggleDeckSidebar()" style="display:none" title="Show or hide deck switcher">⇤ Decks</button>
@@ -1754,6 +1758,39 @@
     <div style="display:flex;gap:8px">
       <button class="btn btn-primary" style="flex:1" id="moxfieldImportBtn" onclick="importFromMoxfield()">Import Deck</button>
       <button class="btn btn-outline" onclick="closeMoxfieldImport()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- PRECON IMPORT MODAL -->
+<div class="modal-overlay" id="preconModal">
+  <div class="modal" style="width:min(560px,96vw)">
+    <button class="btn btn-ghost btn-icon" style="position:absolute;top:0.75rem;right:0.75rem" onclick="closePreconImport()">✕</button>
+    <div class="modal-title">↓ Import a Precon Deck</div>
+    <div style="background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius2);padding:0.75rem;font-size:0.78rem;color:var(--text2);margin-bottom:1rem;line-height:1.6">
+      Pick a preconstructed deck and we'll import the full, correct list — commander, mainboard and sideboard. Card data comes from <strong style="color:var(--teal)">MTGJSON</strong>.
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:0.65rem">
+      <div style="flex:2">
+        <label style="font-size:0.78rem;color:var(--text3);display:block;margin-bottom:4px;letter-spacing:0.04em">SEARCH</label>
+        <input class="search-box" id="preconSearch" style="width:100%" placeholder="Search precons…" oninput="renderPreconList()">
+      </div>
+      <div style="flex:1">
+        <label style="font-size:0.78rem;color:var(--text3);display:block;margin-bottom:4px;letter-spacing:0.04em">TYPE</label>
+        <select id="preconTypeFilter" onchange="renderPreconList()" style="width:100%;background:var(--bg3);border:1px solid var(--border2);color:var(--text);border-radius:var(--radius);padding:7px 10px;font-size:0.85rem"></select>
+      </div>
+    </div>
+    <div id="preconListCount" style="font-size:0.72rem;color:var(--text3);margin-bottom:5px;min-height:1em"></div>
+    <div id="preconList" style="height:300px;overflow-y:auto;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);margin-bottom:0.85rem">
+      <div style="padding:1.5rem;text-align:center;color:var(--text3);font-size:0.85rem">Loading precon list…</div>
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:0.82rem;color:var(--text2);cursor:pointer;margin-bottom:1rem;user-select:none">
+      <input type="checkbox" id="preconAddToCollection" style="width:15px;height:15px;accent-color:var(--teal)">
+      Also add all cards to my collection
+    </label>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-primary" style="flex:1" id="preconImportBtn" onclick="importFromPrecon()" disabled>Select a precon</button>
+      <button class="btn btn-outline" onclick="closePreconImport()">Cancel</button>
     </div>
   </div>
 </div>

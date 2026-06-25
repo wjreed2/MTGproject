@@ -5209,6 +5209,105 @@ app.get('/api/moxfield/:deckId', async (req, res) => {
   }
 });
 
+// ── MTGJSON precon deck proxy ─────────────────────────────────────────────────
+// Source for preconstructed deck lists. The decklist index is small and cached
+// for a day; individual deck files are huge (rulings/foreignData per card) so we
+// trim each card down to just what the client needs to build + enrich a deck.
+
+const MTGJSON_DECKLIST_TTL = 24 * 60 * 60 * 1000; // 24h
+let _mtgjsonDeckListCache = null;        // { at, data: [...] }
+const _mtgjsonDeckCache = new Map();     // fileName -> trimmed deck (LRU-ish, capped)
+const MTGJSON_DECK_CACHE_MAX = 60;
+
+function _trimMtgjsonDeckCard(c) {
+  return {
+    name: c.name || '',
+    count: c.count || 1,
+    setCode: c.setCode || '',
+    number: c.number || '',
+    isFoil: !!c.isFoil,
+    scryfallId: c.identifiers?.scryfallId || null,
+    colorIdentity: Array.isArray(c.colorIdentity) ? c.colorIdentity : [],
+    manaCost: c.manaCost || '',
+    manaValue: typeof c.manaValue === 'number' ? c.manaValue
+             : (typeof c.convertedManaCost === 'number' ? c.convertedManaCost : 0),
+    type: c.type || '',
+    rarity: c.rarity || '',
+  };
+}
+
+app.get('/api/mtgjson/decklist', async (req, res) => {
+  try {
+    if (_mtgjsonDeckListCache && (Date.now() - _mtgjsonDeckListCache.at) < MTGJSON_DECKLIST_TTL) {
+      return res.json({ data: _mtgjsonDeckListCache.data });
+    }
+    const upstream = await fetch('https://mtgjson.com/api/v5/DeckList.json', {
+      headers: { 'User-Agent': 'MTGArchive/1.0' },
+    });
+    const text = await upstream.text();
+    let parsed;
+    try { parsed = JSON.parse(text); } catch (_) {
+      return res.status(502).json({ error: 'MTGJSON returned an unexpected response' });
+    }
+    if (!upstream.ok || !Array.isArray(parsed.data)) {
+      return res.status(upstream.ok ? 502 : upstream.status).json({ error: 'Could not load precon list from MTGJSON' });
+    }
+    // Trim to the fields the picker needs.
+    const data = parsed.data.map(d => ({
+      fileName: d.fileName,
+      name: d.name,
+      type: d.type || '',
+      code: d.code || '',
+      releaseDate: d.releaseDate || '',
+    })).filter(d => d.fileName && d.name);
+    _mtgjsonDeckListCache = { at: Date.now(), data };
+    res.json({ data });
+  } catch (e) {
+    console.error('MTGJSON decklist error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/mtgjson/deck/:fileName', async (req, res) => {
+  const { fileName } = req.params;
+  // MTGJSON deck file names are CamelCase + set code joined by underscores.
+  if (!/^[A-Za-z0-9_]{1,80}$/.test(fileName)) return res.status(400).json({ error: 'Invalid deck name' });
+  try {
+    const cached = _mtgjsonDeckCache.get(fileName);
+    if (cached) return res.json({ data: cached });
+
+    const upstream = await fetch(`https://mtgjson.com/api/v5/decks/${fileName}.json`, {
+      headers: { 'User-Agent': 'MTGArchive/1.0' },
+    });
+    const text = await upstream.text();
+    let parsed;
+    try { parsed = JSON.parse(text); } catch (_) {
+      return res.status(502).json({ error: 'MTGJSON returned an unexpected response — the deck may not exist' });
+    }
+    if (!upstream.ok || !parsed.data) {
+      return res.status(upstream.ok ? 502 : upstream.status).json({ error: 'Precon deck not found' });
+    }
+    const d = parsed.data;
+    const trimmed = {
+      name: d.name || fileName,
+      type: d.type || '',
+      code: d.code || '',
+      releaseDate: d.releaseDate || '',
+      commander: (d.commander || []).map(_trimMtgjsonDeckCard),
+      mainBoard: (d.mainBoard || []).map(_trimMtgjsonDeckCard),
+      sideBoard: (d.sideBoard || []).map(_trimMtgjsonDeckCard),
+    };
+    if (_mtgjsonDeckCache.size >= MTGJSON_DECK_CACHE_MAX) {
+      _mtgjsonDeckCache.delete(_mtgjsonDeckCache.keys().next().value);
+    }
+    _mtgjsonDeckCache.set(fileName, trimmed);
+    res.json({ data: trimmed });
+  } catch (e) {
+    console.error('MTGJSON deck error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Scryfall proxy with TCG enrichment ────────────────────────────────────────
 let _scryfallLastRequestAt = 0;
 let _scryfallQueue = Promise.resolve(); // serializes concurrent requests to prevent 429 bursts

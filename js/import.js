@@ -540,6 +540,235 @@ async function importFromMoxfield() {
   }
 }
 
+// ── Precon (MTGJSON) import ───────────────────────────────────────────────────
+
+let _preconList = null;      // full trimmed array from /api/mtgjson/decklist
+let _preconSelected = null;  // { fileName, name, type, code, releaseDate }
+let _preconLoading = false;
+
+// Surface real, playable preconstructed decks first in the type filter.
+const PRECON_PRIORITY_TYPES = [
+  'Commander Deck', 'Brawl Deck', 'Historic Brawl Precon Deck', 'Planeswalker Deck',
+  'Challenger Deck', 'Pioneer Challenger Deck', 'Event Deck', 'Modern Event Deck',
+  'Duel Deck', 'Theme Deck', 'Intro Pack', 'Starter Deck',
+];
+
+function openPreconImport() {
+  document.getElementById('preconModal').classList.add('open');
+  loadPreconList();
+  setTimeout(() => document.getElementById('preconSearch')?.focus(), 80);
+}
+
+function closePreconImport() {
+  document.getElementById('preconModal').classList.remove('open');
+  _preconSelected = null;
+  const s = document.getElementById('preconSearch'); if (s) s.value = '';
+  const cb = document.getElementById('preconAddToCollection'); if (cb) cb.checked = false;
+  _setPreconImportBtn();
+}
+
+async function loadPreconList() {
+  if (_preconList) { renderPreconList(); return; }
+  if (_preconLoading) return;
+  _preconLoading = true;
+  const listEl = document.getElementById('preconList');
+  try {
+    const res = await fetch('/api/mtgjson/decklist');
+    if (!res.ok) throw new Error('Could not load precon list');
+    const data = await res.json();
+    // Newest first so recent precons land at the top.
+    _preconList = (data.data || []).slice().sort((a, b) =>
+      String(b.releaseDate || '').localeCompare(String(a.releaseDate || '')));
+
+    const sel = document.getElementById('preconTypeFilter');
+    if (sel) {
+      const types = [...new Set(_preconList.map(d => d.type).filter(Boolean))];
+      types.sort((a, b) => {
+        const ia = PRECON_PRIORITY_TYPES.indexOf(a), ib = PRECON_PRIORITY_TYPES.indexOf(b);
+        if (ia !== -1 || ib !== -1) return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+        return a.localeCompare(b);
+      });
+      sel.innerHTML = `<option value="">All types</option>` +
+        types.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
+      // Default to Commander decks — the most common reason to import a precon here.
+      sel.value = types.includes('Commander Deck') ? 'Commander Deck' : '';
+    }
+    renderPreconList();
+  } catch (e) {
+    if (listEl) listEl.innerHTML = `<div style="padding:1.5rem;text-align:center;color:var(--text3);font-size:0.85rem">Failed to load precon list — check your connection.</div>`;
+  } finally {
+    _preconLoading = false;
+  }
+}
+
+function renderPreconList() {
+  const listEl  = document.getElementById('preconList');
+  const countEl = document.getElementById('preconListCount');
+  if (!listEl || !_preconList) return;
+  const q = (document.getElementById('preconSearch')?.value || '').trim().toLowerCase();
+  const typeF = document.getElementById('preconTypeFilter')?.value || '';
+  const matches = _preconList.filter(d => {
+    if (typeF && d.type !== typeF) return false;
+    if (q && !`${d.name} ${d.code}`.toLowerCase().includes(q)) return false;
+    return true;
+  });
+  const total = matches.length;
+  const CAP = 300;
+  const shown = matches.slice(0, CAP);
+
+  if (!total) {
+    listEl.innerHTML = `<div style="padding:1.5rem;text-align:center;color:var(--text3);font-size:0.85rem">No precons match.</div>`;
+    if (countEl) countEl.textContent = '';
+    return;
+  }
+  listEl.innerHTML = shown.map(d => {
+    const isSel = _preconSelected?.fileName === d.fileName;
+    const year = String(d.releaseDate || '').slice(0, 4);
+    const meta = [escapeHtml(d.type || 'Deck'), year, d.code ? escapeHtml(d.code) : ''].filter(Boolean).join(' · ');
+    return `<button type="button" onclick="selectPrecon('${escapeHtml(d.fileName)}')"
+      style="display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;text-align:left;padding:8px 11px;border:none;border-bottom:1px solid var(--border);background:${isSel ? 'var(--bg2)' : 'transparent'};color:var(--text);cursor:pointer;font-family:inherit">
+      <span style="min-width:0;flex:1">
+        <span style="display:block;font-size:0.88rem;${isSel ? 'color:var(--teal);font-weight:600;' : ''}white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(d.name)}</span>
+        <span style="display:block;font-size:0.7rem;color:var(--text3)">${meta}</span>
+      </span>
+      ${isSel ? '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--teal)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><polyline points="20 6 9 17 4 12"/></svg>' : ''}
+    </button>`;
+  }).join('');
+  if (countEl) countEl.textContent = total > CAP
+    ? `Showing ${CAP} of ${total} — refine your search`
+    : `${total} precon${total !== 1 ? 's' : ''}`;
+}
+
+function selectPrecon(fileName) {
+  _preconSelected = (_preconList || []).find(d => d.fileName === fileName) || null;
+  renderPreconList();
+  _setPreconImportBtn();
+}
+
+function _setPreconImportBtn() {
+  const btn = document.getElementById('preconImportBtn');
+  if (!btn) return;
+  btn.disabled = !_preconSelected;
+  btn.textContent = _preconSelected ? 'Import Deck' : 'Select a precon';
+}
+
+function _preconFormatFor(src) {
+  const t = (src.type || '').toLowerCase();
+  if ((src.commander || []).length || t.includes('commander')) return 'Commander';
+  if (t.includes('oathbreaker')) return 'Oathbreaker';
+  if (t.includes('brawl'))       return 'Brawl';
+  if (t.includes('pioneer'))     return 'Pioneer';
+  if (t.includes('modern'))      return 'Modern';
+  if (t.includes('legacy'))      return 'Legacy';
+  if (t.includes('vintage'))     return 'Vintage';
+  if (t.includes('pauper'))      return 'Pauper';
+  return 'Standard';
+}
+
+async function importFromPrecon() {
+  if (!_preconSelected) { showNotif('Pick a precon first', true); return; }
+  const sel = _preconSelected;
+  const btn = document.getElementById('preconImportBtn');
+  btn.disabled = true; btn.textContent = 'Importing…';
+  showNotif(`Fetching "${sel.name}"…`);
+
+  try {
+    const res = await fetch(`/api/mtgjson/deck/${encodeURIComponent(sel.fileName)}`);
+    if (!res.ok) {
+      let msg = 'Import failed';
+      try { const e = await res.json(); msg = e.error || msg; } catch (_) {}
+      showNotif(msg, true); return;
+    }
+    const { data: src } = await res.json();
+    const format = _preconFormatFor(src);
+
+    // MTGJSON gives us exact printing + Scryfall ID per card, so build a precise
+    // entry (linking to a collection copy when owned) and let Scryfall fill images.
+    function preconToCard(c, isCommander) {
+      const scryfallId = c.scryfallId || null;
+      const qty  = c.count || 1;
+      const foil = !!c.isFoil;
+      const owned =
+        (scryfallId && collection.find(x => x.scryfallId === scryfallId && !!x.foil === foil)) ||
+        (scryfallId && collection.find(x => x.scryfallId === scryfallId)) ||
+        collection.find(x => x.name?.toLowerCase() === c.name.toLowerCase());
+      if (owned) return { ...owned, qty, isCommander: !!isCommander };
+      return {
+        uid: (scryfallId || c.name.replace(/\s+/g, '_')) + (foil ? '_f' : '_n'),
+        scryfallId,
+        name: c.name, qty, foil, isCommander: !!isCommander,
+        type: c.type || '', mana: c.manaCost || '', cmc: c.manaValue || 0,
+        colors: c.colorIdentity || [], colorIdentity: c.colorIdentity || [],
+        rarity: c.rarity || '', set: (c.setCode || '').toLowerCase(),
+        setName: '', number: c.number || '',
+        image: null, imageLarge: null,
+        priceTCG: 0, priceTCGFoil: 0, priceCK: 0, priceCKFoil: 0,
+        addedAt: Date.now(),
+      };
+    }
+
+    const deck = {
+      id: Date.now().toString(),
+      name: sel.name || 'Precon Deck',
+      format,
+      commander: (src.commander || [])[0]?.name || null,
+      commanderColorIdentity: [], commanderImage: null,
+      notes: null, cards: [], maybeboard: [], sideboard: [],
+      sideboardEnabled: false, zoneLayout: 2, colors: [],
+    };
+
+    for (const c of (src.commander || [])) deck.cards.push(preconToCard(c, true));
+    for (const c of (src.mainBoard || [])) deck.cards.push(preconToCard(c, false));
+    for (const c of (src.sideBoard || [])) deck.sideboard.push(preconToCard(c, false));
+    deck.sideboardEnabled = deck.sideboard.length > 0;
+
+    deck.cards.sort((a, b) => (b.isCommander ? 1 : 0) - (a.isCommander ? 1 : 0));
+
+    const allCards = [...deck.cards, ...deck.sideboard];
+    const needsEnrich = allCards.filter(c => !c.scryfallId || !c.image || !c.type);
+    if (needsEnrich.length) {
+      showNotif(`Looking up ${needsEnrich.length} cards on Scryfall…`);
+      const notFound = await enrichCardsByName(needsEnrich);
+      if (notFound.length) console.warn('Scryfall could not identify these cards:', notFound);
+    }
+
+    const cmdCard = deck.cards.find(c => c.isCommander);
+    if (cmdCard) {
+      deck.commanderImage         = cmdCard.imageLarge || cmdCard.image || null;
+      deck.commanderColorIdentity = cmdCard.colorIdentity || [];
+      deck.commander              = deck.commander || cmdCard.name;
+    }
+
+    decks.push(deck);
+    activeDeckId = deck.id;
+    localStorage.setItem('mtg_active_deck_id', deck.id);
+    for (const card of deck.cards) recordDeckEvent('add', card);
+
+    if (document.getElementById('preconAddToCollection')?.checked) {
+      const totalCards = deck.cards.length + deck.sideboard.length;
+      const confirmed = await showConfirmModal({
+        title: '⚠ Add cards to collection?',
+        body: `
+          <p style="margin-bottom:0.85rem">All ${totalCards} cards from this precon will be added to your collection using the printings from the official deck list.</p>
+          <p style="color:var(--text3);font-size:0.82rem">Only do this if you actually own the physical precon.</p>`,
+        okLabel: 'Yes, add to collection',
+        cancelLabel: 'Skip',
+      });
+      if (confirmed) addDeckCardsToCollection({ cards: [...deck.cards, ...deck.sideboard] });
+    }
+
+    save('decks', 'collection');
+    closePreconImport();
+    showTab('decks');
+    const extra = deck.sideboard.length ? ` (+ ${deck.sideboard.length} sideboard)` : '';
+    showNotif(`Imported "${deck.name}" — ${deck.cards.length} cards${extra}`);
+  } catch (e) {
+    showNotif('Import failed — ' + e.message, true);
+  } finally {
+    btn.disabled = false; _setPreconImportBtn();
+  }
+}
+
 // For split cards like "Fire // Ice", Scryfall only finds them by the first face name
 function _scryfallLookupName(c) {
   return c.name.includes('//') ? c.name.split('//')[0].trim() : c.name;
