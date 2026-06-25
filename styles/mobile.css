@@ -34,8 +34,12 @@
   /* ── Safe-area background — status bar shows app BG, not bleed ───────── */
   body {
     background-color: var(--bg);
-    /* Stretch body to fill behind status bar; content is inset via padding */
-    padding-top: env(safe-area-inset-top);
+    /* Inset all tab content below the status bar (battery/wifi/clock). On a
+       notched iPhone env() reports ~47-59px; in contexts where env() resolves
+       to 0 (Safari portrait, non-standalone), floor it at 44px — the same
+       status-bar zone height the floating account button uses — so content
+       never tucks under the status bar. */
+    padding-top: max(env(safe-area-inset-top), 44px);
   }
   [data-theme="light"] body { background-color: #f4f1ec; }
 
@@ -91,7 +95,7 @@
 
   /* ── Offline banner sits at very top below safe area ─────────────────── */
   .offline-banner {
-    top: env(safe-area-inset-top) !important;
+    top: max(env(safe-area-inset-top), 44px) !important;
   }
 
   /* ── Bottom nav ───────────────────────────────────────────────────────── */
