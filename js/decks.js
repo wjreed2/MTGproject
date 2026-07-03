@@ -6406,6 +6406,8 @@ function _renderCutSuggestions(deck) {
     return;
   }
 
+  // With Adds & Cuts on, "Cut" plans the cut (card stays in the deck) instead of removing it.
+  const swapsOn = _deckSwapsEnabled(deck);
   body.innerHTML = cuts.map(card => {
     const uid = (card.uid || card.scryfallId || '').replace(/'/g, "\\'");
     const sid = card.scryfallId || card.uid || '';
@@ -6415,11 +6417,15 @@ function _renderCutSuggestions(deck) {
     const whyLines = _buildCutWhyLines(b);
     const footer = `Role tags: ${(b.tagList && b.tagList.length) ? escapeHtml(b.tagList.join(', ')) : '—'}`;
     const why = _suggestWhyDetailHtml('Why cut this', score, whyLines, footer);
+    const cutOnclick = swapsOn ? `markPlannedCut('${uid}')` : `adjustDeckCardQtyByUid('${uid}',-1)`;
+    const cutTitle = swapsOn
+      ? 'Mark as a planned cut — stays in the deck until you apply swaps'
+      : 'Remove one copy from the deck';
     return `<div class="suggest-item">
       <div class="cut-candidate-row">
         <button type="button" class="cut-score-badge cut-why-toggle" aria-expanded="false" aria-label="Why cut · score ${score}" onclick="_toggleSuggestWhy(this)">${score}<span class="cut-why-caret" aria-hidden="true">⌄</span></button>
         <span class="cut-card-name" onclick="openCardDetail('${sid}','deck')">${displayName}</span>
-        <button class="btn-danger-ghost" onclick="adjustDeckCardQtyByUid('${uid}',-1)">Cut</button>
+        <button class="btn-danger-ghost" title="${cutTitle}" onclick="${cutOnclick}">Cut</button>
       </div>
       ${why}
     </div>`;
@@ -6708,6 +6714,8 @@ async function _renderAddSuggestions(deck) {
     return;
   }
 
+  // With Adds & Cuts on, suggestions land in the planned-adds section instead of the deck.
+  const swapsOn = _deckSwapsEnabled(deck);
   body.innerHTML = picks.map(({ card, owned, s }) => {
     const id = (card.id || card.scryfallId || card.uid || '').replace(/'/g, "\\'");
     const name = card.name || '';
@@ -6720,9 +6728,10 @@ async function _renderAddSuggestions(deck) {
     const ownTag = owned
       ? '<span class="tag" style="background:rgba(61,184,160,0.15);color:var(--teal);font-size:.62rem;margin:0 .4rem">owned</span>'
       : '<span class="tag" style="background:var(--bg3);color:var(--text3);font-size:.62rem;margin:0 .4rem">unowned</span>';
+    const addTitle = swapsOn ? ' title="Add to planned adds — not counted until you apply swaps"' : '';
     const addBtn = owned
-      ? `<button class="btn btn-primary btn-sm" style="padding:2px 10px;font-size:.7rem" onclick="addOwnedRecommendation('${safeName}')">+ Add</button>`
-      : `<button class="btn btn-outline btn-sm" style="padding:2px 10px;font-size:.7rem" onclick="addScryfallCardToDeck('${id}')">+ Add</button>`;
+      ? `<button class="btn btn-primary btn-sm" style="padding:2px 10px;font-size:.7rem"${addTitle} onclick="${swapsOn ? `addOwnedRecommendationToAdds('${safeName}')` : `addOwnedRecommendation('${safeName}')`}">+ Add</button>`
+      : `<button class="btn btn-outline btn-sm" style="padding:2px 10px;font-size:.7rem"${addTitle} onclick="${swapsOn ? `addScryfallCardToAdds('${id}')` : `addScryfallCardToDeck('${id}')`}">+ Add</button>`;
     return `<div class="suggest-item">
       <div class="cut-candidate-row">
         <button type="button" class="cut-score-badge cut-why-toggle" aria-expanded="false" aria-label="Why suggested · score ${score}" onclick="_toggleSuggestWhy(this)">${score}<span class="cut-why-caret" aria-hidden="true">⌄</span></button>
@@ -9818,30 +9827,37 @@ function _htmlCardDetailSwapActionsInner(ctx) {
   if (typeof canEditActiveDeck === 'function' && !canEditActiveDeck()) return '';
   const card = ctx.card;
   if (!card) return '';
+  // The inspector often resolves to the OWNED copy of a card, whose printing (and
+  // therefore inventory key) can differ from the deck slot's — common on imported
+  // decks. Match by key first, then by name, and act on the resolved slot's key.
   const key = getCardInventoryKey(card);
+  const nameKey = String(card.name || '').trim().toLowerCase();
+  const findSlot = pool => (pool || []).find(c => getCardInventoryKey(c) === key)
+    || (nameKey ? (pool || []).find(c => String(c.name || '').trim().toLowerCase() === nameKey) : null);
+  const ref = slot => String(_deckCardDragKey(slot)).replace(/'/g, "\\'");
   const esc = String(ctx.actionUid || key).replace(/'/g, "\\'");
-  const find = zone => _deckZonePool(deck, zone).find(c => getCardInventoryKey(c) === key);
-  const inMain = (deck.cards || []).find(c => getCardInventoryKey(c) === key);
-  const inMb = find('mb');
-  const inSb = find('sb');
-  const inAdds = find('add');
-  const cutSlot = find('cut');
+  const inMainAny = findSlot(deck.cards);
+  const inMain = inMainAny && !inMainAny.isCommander ? inMainAny : null;
+  const inMb = findSlot(_deckMaybeBoard(deck));
+  const inSb = _deckMatchSideboardEnabled(deck) ? findSlot(_deckMatchSideboard(deck)) : null;
+  const inAdds = findSlot(_deckPlannedAdds(deck));
+  const cutSlot = findSlot(_deckPlannedCuts(deck));
   const cutQty = cutSlot ? (cutSlot.qty || 1) : 0;
   const btns = [];
-  if (inMain && !inMain.isCommander) {
+  if (inMain) {
     if (cutQty < (inMain.qty || 1)) {
-      btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--red);border-color:var(--red)" title="Plan to cut this card — it stays in the deck until you apply swaps" onclick="markPlannedCutFromDetail('${esc}')">${_SWAP_CUT_ICON} Mark as cut</button>`);
+      btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--red);border-color:var(--red)" title="Plan to cut this card — it stays in the deck until you apply swaps" onclick="markPlannedCutFromDetail('${ref(inMain)}')">${_SWAP_CUT_ICON} Mark as cut</button>`);
     }
     if (cutQty > 0) {
-      btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--green);border-color:var(--green)" title="Remove the cut marker" onclick="unmarkPlannedCutFromDetail('${esc}')">${_SWAP_KEEP_ICON} Keep in deck</button>`);
+      btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--green);border-color:var(--green)" title="Remove the cut marker" onclick="unmarkPlannedCutFromDetail('${ref(cutSlot)}')">${_SWAP_KEEP_ICON} Keep in deck</button>`);
     }
   }
-  if (inMb) btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--green);border-color:var(--green)" title="Move from the maybe board to planned adds" onclick="movePoolToAddsFromDetail('${esc}','mb')">${_SWAP_ADD_ICON} To Adds</button>`);
-  if (inSb) btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--green);border-color:var(--green)" title="Move from the sideboard to planned adds" onclick="movePoolToAddsFromDetail('${esc}','sb')">${_SWAP_ADD_ICON} To Adds</button>`);
+  if (inMb) btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--green);border-color:var(--green)" title="Move from the maybe board to planned adds" onclick="movePoolToAddsFromDetail('${ref(inMb)}','mb')">${_SWAP_ADD_ICON} To Adds</button>`);
+  if (inSb) btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--green);border-color:var(--green)" title="Move from the sideboard to planned adds" onclick="movePoolToAddsFromDetail('${ref(inSb)}','sb')">${_SWAP_ADD_ICON} To Adds</button>`);
   if (inAdds) {
-    btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--green);border-color:var(--green)" title="Move into the deck now" onclick="commitPlannedAddFromDetail('${esc}')">${_SWAP_ADD_ICON} Adds → Main</button>`);
-    btns.push(`<button class="btn btn-outline btn-sm" title="Remove from planned adds" onclick="removeFromPlannedAddsFromDetail('${esc}')">Remove from Adds</button>`);
-  } else if (!inMain && !inMb && !inSb) {
+    btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--green);border-color:var(--green)" title="Move into the deck now" onclick="commitPlannedAddFromDetail('${ref(inAdds)}')">${_SWAP_ADD_ICON} Adds → Main</button>`);
+    btns.push(`<button class="btn btn-outline btn-sm" title="Remove from planned adds" onclick="removeFromPlannedAddsFromDetail('${ref(inAdds)}')">Remove from Adds</button>`);
+  } else if (!inMainAny && !inMb && !inSb) {
     btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--green);border-color:var(--green)" title="Plan to add this card — it shows in the deck list but isn't counted until you apply swaps" onclick="addToAddsFromDetail('${esc}')">${_SWAP_ADD_ICON} To Adds</button>`);
   }
   return btns.join('\n               ');
@@ -11042,6 +11058,21 @@ function addOwnedRecommendation(cardName) {
     return;
   }
   openOwnedRecommendationPicker(cardName, candidates);
+}
+
+/** Suggested-add "+ Add" when Adds & Cuts is on — plan the add instead of adding to the deck. */
+function addOwnedRecommendationToAdds(cardName) {
+  const deck = getActiveDeck();
+  if (!deck || !_deckSwapsEnabled(deck)) return;
+  const candidates = _ownershipCollection()
+    .filter(c => (c.name || '').toLowerCase() === String(cardName || '').toLowerCase())
+    .filter(c => getInventoryBreakdown(c, deck.id).available > 0);
+  if (!candidates.length) {
+    showNotif(`No available owned copies of ${cardName}`, true);
+    return;
+  }
+  // Planning doesn't need printing precision — take the first available copy.
+  addToAdds(candidates[0].uid);
 }
 
 function openOwnedRecommendationPicker(cardName, candidates) {

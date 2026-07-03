@@ -3567,20 +3567,30 @@ function addCardToCollection(scryfallCard, qty, foil) {
       && (typeof canEditActiveDeck !== 'function' || canEditActiveDeck())) {
     const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
     if (deck) {
-      const slot = typeof findDeckCardSlot === 'function' ? findDeckCardSlot(deck, entry) : null;
-      if (slot) {
-        slot.qty += qty;
-        recordDeckEvent('add', slot, null, deck.id);
-      } else {
+      const toAdds = typeof voiceDeckAddTargetIsAdds === 'function' && voiceDeckAddTargetIsAdds();
+      if (toAdds) {
+        // Planned adds — no deck history (planning only)
+        const pool = _deckPlannedAdds(deck);
         const uid = typeof getCardInventoryKey === 'function' ? getCardInventoryKey(entry) : entry.uid;
-        deck.cards.push({ ...entry, uid, qty });
-        recordDeckEvent('add', entry, null, deck.id);
+        const slot = pool.find(c => getCardInventoryKey(c) === uid);
+        if (slot) slot.qty = (slot.qty || 1) + qty;
+        else pool.push({ ...entry, uid, qty });
+      } else {
+        const slot = typeof findDeckCardSlot === 'function' ? findDeckCardSlot(deck, entry) : null;
+        if (slot) {
+          slot.qty += qty;
+          recordDeckEvent('add', slot, null, deck.id);
+        } else {
+          const uid = typeof getCardInventoryKey === 'function' ? getCardInventoryKey(entry) : entry.uid;
+          deck.cards.push({ ...entry, uid, qty });
+          recordDeckEvent('add', entry, null, deck.id);
+        }
       }
       saveActiveDeck(deck);
-      deckAddedName = deck.name || '';
+      deckAddedName = toAdds ? `planned adds of "${deck.name}"` : `"${deck.name}"`;
       if (typeof renderActiveDeck === 'function') renderActiveDeck();
       if (typeof _renderDeckSearchGrid === 'function') _renderDeckSearchGrid();
-      if (typeof scheduleEDHRECRefresh === 'function') scheduleEDHRECRefresh();
+      if (!toAdds && typeof scheduleEDHRECRefresh === 'function') scheduleEDHRECRefresh();
     }
   }
 
@@ -3593,8 +3603,8 @@ function addCardToCollection(scryfallCard, qty, foil) {
   if (deckAddedName) {
     showNotif(
       addToCollectionThisRun
-        ? `Added ${qty}× ${entry.name}${foil ? ' (foil)' : ''} to collection + "${deckAddedName}"`
-        : `Added ${qty}× ${entry.name}${foil ? ' (foil)' : ''} to "${deckAddedName}"`,
+        ? `Added ${qty}× ${entry.name}${foil ? ' (foil)' : ''} to collection + ${deckAddedName}`
+        : `Added ${qty}× ${entry.name}${foil ? ' (foil)' : ''} to ${deckAddedName}`,
     );
   } else if (addToCollectionThisRun) {
     showNotif(`Added ${qty}× ${entry.name}${foil ? ' (foil)' : ''} to collection`);

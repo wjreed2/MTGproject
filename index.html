@@ -1262,6 +1262,14 @@
           <span style="font-size:0.82rem;color:var(--text2)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;vertical-align:-2px;margin-right:5px"><path d="M2.5 4.5h11v7h-11z"/><path d="M5 7.2h6M5 9.8h3.5"/></svg>Add cards to my collection</span>
           <input type="checkbox" id="voiceDeckAddCollectionChk" checked onchange="toggleVoiceDeckAddCollection()">
         </label>
+        <!-- Deck destination — only when the active deck's Adds & Cuts toggle is on -->
+        <div id="voiceDeckTargetBar" style="display:none;align-items:center;justify-content:space-between;gap:10px;margin:0 0 10px;padding:9px 12px;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius2)">
+          <span style="font-size:0.82rem;color:var(--text2)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;vertical-align:-2px;margin-right:5px"><path d="M2.5 5.5h9"/><path d="M9 3l2.5 2.5L9 8"/><path d="M13.5 10.5h-9"/><path d="M7 8l-2.5 2.5L7 13"/></svg>Deck cards go to</span>
+          <div class="view-toggle" role="group" aria-label="Deck destination">
+            <button type="button" id="voiceTargetDeckBtn" class="active" style="padding:3px 12px" onclick="setVoiceDeckAddTarget('deck')">Deck</button>
+            <button type="button" id="voiceTargetAddsBtn" style="padding:3px 12px" title="Planned adds — shown in the deck list but not counted until you apply swaps" onclick="setVoiceDeckAddTarget('adds')">Adds</button>
+          </div>
+        </div>
 
         <!-- VOICE TAB -->
         <div id="voiceTabContent" style="display:none">

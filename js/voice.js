@@ -455,6 +455,33 @@ function toggleVoiceDeckAddCollection() {
   localStorage.setItem('mtg_voice_deck_add_collection', voiceDeckAddToCollectionEnabled ? '1' : '0');
 }
 
+// ── Deck vs planned-adds destination (shown only when the deck's Adds & Cuts toggle is on) ──
+
+function voiceDeckAddTargetIsAdds() {
+  if (voiceDeckAddTarget !== 'adds' || !voiceAddToActiveDeckMode) return false;
+  const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+  return !!(deck && typeof _deckSwapsEnabled === 'function' && _deckSwapsEnabled(deck));
+}
+globalThis.voiceDeckAddTargetIsAdds = voiceDeckAddTargetIsAdds;
+
+function renderVoiceDeckTargetBar() {
+  const bar = document.getElementById('voiceDeckTargetBar');
+  if (!bar) return;
+  const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+  const show = !!voiceAddToActiveDeckMode && !!deck
+    && typeof _deckSwapsEnabled === 'function' && _deckSwapsEnabled(deck)
+    && (typeof canEditActiveDeck !== 'function' || canEditActiveDeck());
+  bar.style.display = show ? 'flex' : 'none';
+  if (!show) { voiceDeckAddTarget = 'deck'; return; }
+  document.getElementById('voiceTargetDeckBtn')?.classList.toggle('active', voiceDeckAddTarget !== 'adds');
+  document.getElementById('voiceTargetAddsBtn')?.classList.toggle('active', voiceDeckAddTarget === 'adds');
+}
+
+function setVoiceDeckAddTarget(target) {
+  voiceDeckAddTarget = target === 'adds' ? 'adds' : 'deck';
+  renderVoiceDeckTargetBar();
+}
+
 function toggleVoiceNewDeckMode() {
   if (voiceDeckModeEnabled) {
     voiceDeckModeEnabled = false;
@@ -530,6 +557,8 @@ function openVoice(options) {
   renderAutoPinBtn();
   renderVoiceDeckModeControls();
   renderVoiceDeckCollectionToggle();
+  voiceDeckAddTarget = 'deck';
+  renderVoiceDeckTargetBar();
   if (voiceAddToActiveDeckMode && typeof activeDeckIsShared !== 'undefined' && activeDeckIsShared) {
     const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
     if (deck && typeof loadDeckOwnerCollectionLookup === 'function') {
@@ -1084,6 +1113,21 @@ function confirmVoiceAdd(fromSpeech) {
         } else {
           showNotif('No active deck selected', true);
         }
+      } else if (voiceDeckAddTargetIsAdds()) {
+        // Planned adds — no deck history (planning only)
+        const pool = _deckPlannedAdds(deck);
+        const uid = typeof getCardInventoryKey === 'function' ? getCardInventoryKey(pendingCard) : pendingCard.uid;
+        const slot = pool.find(c => getCardInventoryKey(c) === uid);
+        if (slot) slot.qty = (slot.qty || 1) + pendingCard.qty;
+        else pool.push({ ...pendingCard, uid, qty: pendingCard.qty });
+        save(...(addToCollectionThisRun ? ['collection', 'decks'] : ['decks']));
+        showNotif(
+          addToCollectionThisRun
+            ? `Added ${pendingCard.qty}x ${pendingCard.name} to collection + planned adds of "${deck.name}"`
+            : `Added ${pendingCard.qty}x ${pendingCard.name} to planned adds of "${deck.name}"`,
+        );
+        if (typeof renderActiveDeck === 'function') renderActiveDeck();
+        if (typeof _renderDeckSearchGrid === 'function') _renderDeckSearchGrid();
       } else {
         const slot = typeof findDeckCardSlot === 'function' ? findDeckCardSlot(deck, pendingCard) : null;
         if (slot) {
@@ -1149,6 +1193,7 @@ function confirmVoiceAdd(fromSpeech) {
   }
   renderVoiceDeckModeControls();
   renderVoiceDeckCollectionToggle();
+  renderVoiceDeckTargetBar();
   pendingCard = null;
   clearCardPanel();
   document.getElementById('voiceTranscript').textContent = 'Waiting for speech…';
