@@ -1406,7 +1406,6 @@ function _ensureDeckZones(deck) {
   if (!deck) return deck;
   if (!Array.isArray(deck.adds)) deck.adds = [];
   if (!Array.isArray(deck.cuts)) deck.cuts = [];
-  if (deck.swapsEnabled == null) deck.swapsEnabled = false;
   if (deck.zoneLayout === 2) {
     if (!Array.isArray(deck.maybeboard)) deck.maybeboard = [];
     if (!Array.isArray(deck.sideboard)) deck.sideboard = [];
@@ -1440,9 +1439,11 @@ function _deckMatchSideboardEnabled(deck) {
   return !!deck.sideboardEnabled;
 }
 
-// ── Adds & Cuts planning zones (deck.adds / deck.cuts, gated by deck.swapsEnabled) ──
+// ── Adds & Cuts planning zones (deck.adds / deck.cuts, gated by the user-wide toggle) ──
 // Adds: cards planned to go in — shown in the deck list but never counted.
 // Cuts: copies of mainboard cards planned to come out — the real card stays in the deck.
+// The toggle (Settings → Adds & Cuts, like deck ownership) only shows/hides the feature;
+// each deck's adds/cuts pools are kept, so turning it back on restores the plan.
 
 function _deckPlannedAdds(deck) {
   _ensureDeckZones(deck);
@@ -1456,9 +1457,8 @@ function _deckPlannedCuts(deck) {
   return deck.cuts;
 }
 
-function _deckSwapsEnabled(deck) {
-  _ensureDeckZones(deck);
-  return !!deck.swapsEnabled;
+function _deckSwapsEnabled() {
+  return typeof deckSwapsFeatureEnabled === 'undefined' || deckSwapsFeatureEnabled !== false;
 }
 
 function _deckZoneIsPlanning(zone) {
@@ -1596,38 +1596,25 @@ function _syncDeckSideboardToggle() {
   if (show) renderDeckSideboardEnabledBtn();
 }
 
-function setDeckSwapsEnabled(enabled) {
-  const deck = getActiveDeck();
-  if (!deck || activeDeckIsShared) return;
-  _ensureDeckZones(deck);
-  deck.swapsEnabled = !!enabled;
-  saveActiveDeck(deck);
-  renderActiveDeck();
+/** User-wide Adds & Cuts toggle — mirrors the deck-ownership setting. Data is never cleared. */
+function toggleDeckSwapsSetting() {
+  deckSwapsFeatureEnabled = !deckSwapsFeatureEnabled;
+  localStorage.setItem('mtg_deck_swaps', deckSwapsFeatureEnabled ? '1' : '0');
+  renderDeckSwapsSettingBtn();
+  if (typeof renderDecks === 'function') renderDecks();
+  if (typeof _renderDeckSearchGrid === 'function') _renderDeckSearchGrid();
+  showNotif(deckSwapsFeatureEnabled
+    ? 'Adds & Cuts planning enabled for all decks'
+    : 'Adds & Cuts planning hidden — your planned adds and cuts are kept and come back when you re-enable it');
 }
 
-function toggleDeckSwapsEnabled() {
-  const deck = getActiveDeck();
-  if (!deck || activeDeckIsShared) return;
-  setDeckSwapsEnabled(!_deckSwapsEnabled(deck));
-}
-
-function renderDeckSwapsEnabledBtn() {
-  const btn = document.getElementById('deckSwapsEnabledBtn');
+function renderDeckSwapsSettingBtn() {
+  const btn = document.getElementById('settingsDeckSwapsBtn');
   if (!btn) return;
-  const deck = getActiveDeck();
-  const on = !!(deck && _deckSwapsEnabled(deck));
-  btn.innerHTML = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M2.5 5.5h9"/><path d="M9 3l2.5 2.5L9 8"/><path d="M13.5 10.5h-9"/><path d="M7 8l-2.5 2.5L7 13"/></svg>${on ? ' Adds &amp; Cuts: on' : ' Adds &amp; Cuts'}`;
+  const on = _deckSwapsEnabled();
+  btn.innerHTML = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M2.5 5.5h9"/><path d="M9 3l2.5 2.5L9 8"/><path d="M13.5 10.5h-9"/><path d="M7 8l-2.5 2.5L7 13"/></svg>${on ? ' Adds &amp; Cuts: on' : ' Adds &amp; Cuts: off'}`;
   btn.style.color = on ? 'var(--teal)' : '';
   btn.style.borderColor = on ? 'var(--teal)' : '';
-}
-
-function _syncDeckSwapsToggle() {
-  const btn = document.getElementById('deckSwapsEnabledBtn');
-  if (!btn) return;
-  const deck = getActiveDeck();
-  const show = deck && !activeDeckIsShared;
-  btn.style.display = show ? '' : 'none';
-  if (show) renderDeckSwapsEnabledBtn();
 }
 
 // Routes save to the right path depending on ownership
@@ -3299,7 +3286,7 @@ async function submitNewDeck() {
   const commanderFoil    = !!document.getElementById('newDeckCommanderFoil')?.checked;
   const commanderAddColl = !!document.getElementById('newDeckCommanderAddColl')?.checked;
   const notes = document.getElementById('newDeckNotes').value.trim() || null;
-  const deck = { id: Date.now().toString(), name, format, commander, commanderColorIdentity, commanderImage, notes, cards: [], maybeboard: [], sideboard: [], sideboardEnabled: false, adds: [], cuts: [], swapsEnabled: false, zoneLayout: 2, colors: [] };
+  const deck = { id: Date.now().toString(), name, format, commander, commanderColorIdentity, commanderImage, notes, cards: [], maybeboard: [], sideboard: [], sideboardEnabled: false, adds: [], cuts: [], zoneLayout: 2, colors: [] };
   decks.push(deck); activeDeckId = deck.id;
   localStorage.setItem('mtg_active_deck_id', deck.id);
   document.getElementById('newDeckModal').classList.remove('open');
@@ -3385,7 +3372,6 @@ function renderActiveDeck() {
   }
   _syncDeckStackSortControls();
   _syncDeckSideboardToggle();
-  _syncDeckSwapsToggle();
   _applyDeckTagBadgesSetting();
   document.querySelectorAll('#deckStackOrientH, #deckStackOrientV').forEach(b => b.classList.remove('active'));
   const activeBtn = document.getElementById(deckStackOrient === 'horizontal' ? 'deckStackOrientH' : 'deckStackOrientV');
@@ -9666,11 +9652,10 @@ function _prunePlannedCuts(deck) {
 /** Mark one copy of a mainboard card as a planned cut — the card stays in the deck. */
 function markPlannedCut(uid) {
   const deck = getActiveDeck();
-  if (!deck) return;
+  if (!deck || !_deckSwapsEnabled()) return;
   const card = deck.cards.find(c => getCardInventoryKey(c) === uid || c.uid === uid);
   if (!card) return;
   if (card.isCommander) { showNotif("The commander can't be marked as a cut", true); return; }
-  _autoEnableDeckSwaps(deck);
   const deckQty = _deckMainboardQtyForKey(deck, getCardInventoryKey(card));
   const existing = _findDeckZoneSlot(deck, 'cut', card);
   if (existing) {
@@ -9725,8 +9710,7 @@ function commitPlannedAdd(uid) {
 function _movePlanningZoneCard(uid, fromZone, toZone) {
   const deck = getActiveDeck();
   if (!deck || fromZone === toZone) return;
-  if (toZone === 'add') _autoEnableDeckSwaps(deck);
-  if ((fromZone === 'add' || toZone === 'add') && !_deckSwapsEnabled(deck)) return;
+  if ((fromZone === 'add' || toZone === 'add') && !_deckSwapsEnabled()) return;
   if (toZone === 'sb' && !_deckMatchSideboardEnabled(deck)) return;
   const fromPool = _deckZonePool(deck, fromZone);
   const card = fromPool.find(c => getCardInventoryKey(c) === uid || c.uid === uid);
@@ -9744,19 +9728,18 @@ function _movePlanningZoneCard(uid, fromZone, toZone) {
 
 function addToAdds(uid) {
   const deck = getActiveDeck();
-  if (!deck) return;
+  if (!deck || !_deckSwapsEnabled()) return;
   const pool = _ownershipCollection();
   const card = window.Ownership?.findByRef
     ? window.Ownership.findByRef(pool, uid)
     : pool.find(c => c.uid === uid);
   if (!card) return;
-  _autoEnableDeckSwaps(deck);
   _addCardToDeckZone(deck, card, 'add', 'planned adds');
 }
 
 async function addScryfallCardToAdds(scryfallId) {
   const deck = getActiveDeck();
-  if (!deck) return;
+  if (!deck || !_deckSwapsEnabled()) return;
   const pool = _ownershipCollection();
   let card = window.Ownership?.preferredOwnedPrinting
     ? window.Ownership.preferredOwnedPrinting(pool, scryfallId)
@@ -9766,7 +9749,6 @@ async function addScryfallCardToAdds(scryfallId) {
     if (!sc) { showNotif('Failed to fetch card', true); return; }
     card = cardToEntry(sc, 0);
   }
-  _autoEnableDeckSwaps(deck);
   _addCardToDeckZone(deck, card, 'add', 'planned adds');
   _renderDeckSearchGrid();
 }
@@ -9824,19 +9806,10 @@ const _SWAP_CUT_ICON = '<svg class="tf-ic" viewBox="0 0 16 16" fill="none" strok
 const _SWAP_KEEP_ICON = '<svg class="tf-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.2 3.2L13 5"/></svg>';
 const _SWAP_ADD_ICON = '<svg class="tf-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>';
 
-/** Turn Adds & Cuts on the first time a planning action is used, so the buttons work out of the box. */
-function _autoEnableDeckSwaps(deck) {
-  if (!deck || _deckSwapsEnabled(deck)) return;
-  deck.swapsEnabled = true;
-  showNotif('Adds & Cuts turned on for this deck — Adds and Cuts sections added next to the maybe board');
-}
-
-/** Inspector buttons for the Adds & Cuts planning zones. Rendered by _htmlCardDetailPrimaryActionsInner.
- *  Shown even before the deck's toggle is on — first use enables the feature (discoverability on
- *  mobile, where these buttons are the only entry point). */
+/** Inspector buttons for the Adds & Cuts planning zones. Rendered by _htmlCardDetailPrimaryActionsInner. */
 function _htmlCardDetailSwapActionsInner(ctx) {
   const deck = ctx?.activeDeck;
-  if (!deck || !_isDeckBuilderMainTabActive()) return '';
+  if (!deck || !_isDeckBuilderMainTabActive() || !_deckSwapsEnabled()) return '';
   if (typeof canEditActiveDeck === 'function' && !canEditActiveDeck()) return '';
   const card = ctx.card;
   if (!card) return '';
@@ -9889,7 +9862,7 @@ function removeFromPlannedAddsFromDetail(uid) { removeFromPlannedAdds(uid); _ref
 /** "To Adds" for a card that isn't in the deck yet — owned copy preferred, Scryfall fallback. */
 async function addToAddsFromDetail(ref) {
   const deck = getActiveDeck();
-  if (!deck) return;
+  if (!deck || !_deckSwapsEnabled()) return;
   const pool = _ownershipCollection();
   let card = window.Ownership?.findByRef
     ? window.Ownership.findByRef(pool, ref)
@@ -9900,7 +9873,6 @@ async function addToAddsFromDetail(ref) {
     if (!sc) { showNotif('Failed to fetch card', true); return; }
     card = cardToEntry(sc, 0);
   }
-  _autoEnableDeckSwaps(deck);
   _addCardToDeckZone(deck, card, 'add', 'planned adds');
   _refreshCardDetailAfterSwapAction(ref);
 }
@@ -10798,7 +10770,6 @@ async function buildSkeletonDeckFromInspectorCard(cardRef) {
     sideboardEnabled: false,
     adds: [],
     cuts: [],
-    swapsEnabled: false,
     zoneLayout: 2,
     colors: [],
   };

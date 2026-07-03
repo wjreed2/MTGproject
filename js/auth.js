@@ -145,6 +145,7 @@ function refreshAuthUserLabel(email, role) {
     document.getElementById('themeBtn' + t)?.classList.toggle('active', saved === t.toLowerCase());
   });
   if (typeof renderDeckOwnershipBtn === 'function') renderDeckOwnershipBtn();
+  if (typeof renderDeckSwapsSettingBtn === 'function') renderDeckSwapsSettingBtn();
   renderValueExcludeSlider();
   applyRoleVisibility();
   if (email && typeof refreshWhatsNewUpdateBadge === 'function') void refreshWhatsNewUpdateBadge();

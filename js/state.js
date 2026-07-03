@@ -15,6 +15,8 @@ let currentRarity = '';
 let searchQ       = '';
 let pendingCard   = null;
 let deckOwnershipEnabled = localStorage.getItem('mtg_deck_ownership') !== '0';
+/** User-wide Adds & Cuts planning toggle — on for all decks or none; per-deck adds/cuts data persists either way. */
+let deckSwapsFeatureEnabled = localStorage.getItem('mtg_deck_swaps') !== '0';
 
 // Shared SVG icon strings used across voice.js and collection.js
 var SVG_PIN         = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px;flex-shrink:0"><path d="M5.5 1.5h5v1.5L9 5.5v3.5l2.5 1v1h-7v-1l2.5-1V5.5L5.5 3z"/><line x1="8" y1="11" x2="8" y2="15"/></svg>`;
