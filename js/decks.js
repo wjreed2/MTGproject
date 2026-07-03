@@ -9666,10 +9666,11 @@ function _prunePlannedCuts(deck) {
 /** Mark one copy of a mainboard card as a planned cut — the card stays in the deck. */
 function markPlannedCut(uid) {
   const deck = getActiveDeck();
-  if (!deck || !_deckSwapsEnabled(deck)) return;
+  if (!deck) return;
   const card = deck.cards.find(c => getCardInventoryKey(c) === uid || c.uid === uid);
   if (!card) return;
   if (card.isCommander) { showNotif("The commander can't be marked as a cut", true); return; }
+  _autoEnableDeckSwaps(deck);
   const deckQty = _deckMainboardQtyForKey(deck, getCardInventoryKey(card));
   const existing = _findDeckZoneSlot(deck, 'cut', card);
   if (existing) {
@@ -9724,6 +9725,7 @@ function commitPlannedAdd(uid) {
 function _movePlanningZoneCard(uid, fromZone, toZone) {
   const deck = getActiveDeck();
   if (!deck || fromZone === toZone) return;
+  if (toZone === 'add') _autoEnableDeckSwaps(deck);
   if ((fromZone === 'add' || toZone === 'add') && !_deckSwapsEnabled(deck)) return;
   if (toZone === 'sb' && !_deckMatchSideboardEnabled(deck)) return;
   const fromPool = _deckZonePool(deck, fromZone);
@@ -9742,18 +9744,19 @@ function _movePlanningZoneCard(uid, fromZone, toZone) {
 
 function addToAdds(uid) {
   const deck = getActiveDeck();
-  if (!deck || !_deckSwapsEnabled(deck)) return;
+  if (!deck) return;
   const pool = _ownershipCollection();
   const card = window.Ownership?.findByRef
     ? window.Ownership.findByRef(pool, uid)
     : pool.find(c => c.uid === uid);
   if (!card) return;
+  _autoEnableDeckSwaps(deck);
   _addCardToDeckZone(deck, card, 'add', 'planned adds');
 }
 
 async function addScryfallCardToAdds(scryfallId) {
   const deck = getActiveDeck();
-  if (!deck || !_deckSwapsEnabled(deck)) return;
+  if (!deck) return;
   const pool = _ownershipCollection();
   let card = window.Ownership?.preferredOwnedPrinting
     ? window.Ownership.preferredOwnedPrinting(pool, scryfallId)
@@ -9763,6 +9766,7 @@ async function addScryfallCardToAdds(scryfallId) {
     if (!sc) { showNotif('Failed to fetch card', true); return; }
     card = cardToEntry(sc, 0);
   }
+  _autoEnableDeckSwaps(deck);
   _addCardToDeckZone(deck, card, 'add', 'planned adds');
   _renderDeckSearchGrid();
 }
@@ -9820,10 +9824,19 @@ const _SWAP_CUT_ICON = '<svg class="tf-ic" viewBox="0 0 16 16" fill="none" strok
 const _SWAP_KEEP_ICON = '<svg class="tf-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.2 3.2L13 5"/></svg>';
 const _SWAP_ADD_ICON = '<svg class="tf-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>';
 
-/** Inspector buttons for the Adds & Cuts planning zones. Rendered by _htmlCardDetailPrimaryActionsInner. */
+/** Turn Adds & Cuts on the first time a planning action is used, so the buttons work out of the box. */
+function _autoEnableDeckSwaps(deck) {
+  if (!deck || _deckSwapsEnabled(deck)) return;
+  deck.swapsEnabled = true;
+  showNotif('Adds & Cuts turned on for this deck — Adds and Cuts sections added next to the maybe board');
+}
+
+/** Inspector buttons for the Adds & Cuts planning zones. Rendered by _htmlCardDetailPrimaryActionsInner.
+ *  Shown even before the deck's toggle is on — first use enables the feature (discoverability on
+ *  mobile, where these buttons are the only entry point). */
 function _htmlCardDetailSwapActionsInner(ctx) {
   const deck = ctx?.activeDeck;
-  if (!deck || !_isDeckBuilderMainTabActive() || !_deckSwapsEnabled(deck)) return '';
+  if (!deck || !_isDeckBuilderMainTabActive()) return '';
   if (typeof canEditActiveDeck === 'function' && !canEditActiveDeck()) return '';
   const card = ctx.card;
   if (!card) return '';
@@ -9876,7 +9889,7 @@ function removeFromPlannedAddsFromDetail(uid) { removeFromPlannedAdds(uid); _ref
 /** "To Adds" for a card that isn't in the deck yet — owned copy preferred, Scryfall fallback. */
 async function addToAddsFromDetail(ref) {
   const deck = getActiveDeck();
-  if (!deck || !_deckSwapsEnabled(deck)) return;
+  if (!deck) return;
   const pool = _ownershipCollection();
   let card = window.Ownership?.findByRef
     ? window.Ownership.findByRef(pool, ref)
@@ -9887,6 +9900,7 @@ async function addToAddsFromDetail(ref) {
     if (!sc) { showNotif('Failed to fetch card', true); return; }
     card = cardToEntry(sc, 0);
   }
+  _autoEnableDeckSwaps(deck);
   _addCardToDeckZone(deck, card, 'add', 'planned adds');
   _refreshCardDetailAfterSwapAction(ref);
 }
