@@ -60,6 +60,17 @@ const authLimiter = rateLimit({
   message: { error: 'Too many attempts — try again in 15 minutes' },
 });
 
+// Scanner identify is unauthenticated; cap it well above an honest client's worst case
+// (min 130ms between capture attempts with an in-flight guard ≈ 5/s ≈ 300/min per device).
+// The client treats any !res.ok as a soft miss, so a 429 degrades gracefully.
+const scanLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { ok: false, error: 'Too many scan requests — slow down a little' },
+});
+
 function resolveSessionSecret() {
   const configured = String(process.env.SESSION_SECRET || '').trim();
   const weakDefaults = new Set([
@@ -5585,6 +5596,29 @@ function _fpArtDist(i, qahi, qalo) {
   return _popcount32(_fpIndex.ahi[i] ^ qahi) + _popcount32(_fpIndex.alo[i] ^ qalo);
 }
 
+// Top-K by ART-CROP hash only. Fallback path for frames whose full-card hash is mangled (foil
+// glare, non-English text) but whose art still reads — those never surface in _fpNearest's
+// full-hash top-K, so a second scan over the art hashes is required. Only runs on misses.
+function _fpNearestArt(qahi, qalo, k) {
+  const idx = _fpIndex, ahi = idx.ahi, alo = idx.alo, hasArt = idx.hasArt, n = idx.n;
+  const best = []; // {i, artDist} kept ascending, length <= k
+  let worst = 65;
+  for (let i = 0; i < n; i++) {
+    if (!hasArt[i]) continue;
+    const d = _popcount32(ahi[i] ^ qahi) + _popcount32(alo[i] ^ qalo);
+    if (best.length < k) {
+      best.push({ i, artDist: d });
+      if (best.length === k) { best.sort((a, b) => a.artDist - b.artDist); worst = best[k - 1].artDist; }
+    } else if (d < worst) {
+      best[k - 1] = { i, artDist: d };
+      best.sort((a, b) => a.artDist - b.artDist);
+      worst = best[k - 1].artDist;
+    }
+  }
+  if (best.length < k) best.sort((a, b) => a.artDist - b.artDist);
+  return best;
+}
+
 // Shape matched fingerprint rows into Scryfall-like cards: oracle-level gameplay data joined from
 // scryfall_oracle_cards, overridden with the matched PRINTING's identity/image, plus local prices.
 async function _fingerprintCardsFor(metas) {
@@ -6383,10 +6417,14 @@ app.get('/api/scryfall/card-id/:id', async (req, res) => {
 // full-hash neighbour has an unrelated art (~32 bits away). So a confident match needs BOTH.
 const SCAN_ACCEPT_MAX = 18;     // full-card Hamming distance — loose pre-filter
 const SCAN_ART_ACCEPT_MAX = 22; // art-crop Hamming distance — the discriminating gate (noise ~32)
+const SCAN_ACCEPT_RELAXED_MAX = 24; // full-card gate when the art hash alone is decisive
+const SCAN_ART_STRONG_MAX = 12; // art distance far enough below the ~32 noise floor to carry a match
 const SCAN_AMBIG_MARGIN = 3;  // candidates within best+margin form the disambiguation group
 const SCAN_ART_TIE = 2;       // art-hash distance under which two printings count as "same art"
+const SCAN_ART_PRIMARY_MAX = 12;  // art-only fallback gate (foil glare / non-English fronts)
+const SCAN_ART_PRIMARY_GROUP = 2; // art-distance tie window for the fallback chooser group
 
-app.post('/api/scan/identify', async (req, res) => {
+app.post('/api/scan/identify', scanLimiter, async (req, res) => {
   try {
     if (!_fpIndex || !_fpIndex.n) {
       return res.status(503).json({ ok: false, error: 'fingerprint index not ready' });
@@ -6426,8 +6464,37 @@ app.post('/api/scan/identify', async (req, res) => {
     }
 
     // Confident match needs the full-card AND the art-crop hash to agree (art rejects noise).
-    const matched = chosen.dist <= SCAN_ACCEPT_MAX
-      && chosen.artDist != null && chosen.artDist <= SCAN_ART_ACCEPT_MAX;
+    // When the art hash is decisive (glare/border bleed distorts the full hash more than the art),
+    // the full-card gate relaxes a few bits — 19-24 is exactly that borderline regime.
+    const matched = (chosen.dist <= SCAN_ACCEPT_MAX
+      && chosen.artDist != null && chosen.artDist <= SCAN_ART_ACCEPT_MAX)
+      || (chosen.dist <= SCAN_ACCEPT_RELAXED_MAX
+      && chosen.artDist != null && chosen.artDist <= SCAN_ART_STRONG_MAX);
+
+    // Art-primary fallback: the full-card hash is mangled (foil glare, non-English text) but the
+    // art alone is decisive (noise floor ~32). Such printings never surface in the full-hash top-K,
+    // so re-scan by art distance and hand back a low-confidence group — the client always routes
+    // artPrimary results through the user-confirmed chooser, never auto-adds.
+    if (!matched && !ambiguous && art) {
+      const nearArt = _fpNearestArt(art[0], art[1], k);
+      if (nearArt.length && nearArt[0].artDist <= SCAN_ART_PRIMARY_MAX) {
+        const bestArt = nearArt[0].artDist;
+        const grp = nearArt.filter(c => c.artDist <= bestArt + SCAN_ART_PRIMARY_GROUP);
+        const cardsArt = await _fingerprintCardsFor(grp.map(c => _fpIndex.meta[c.i]));
+        cardsArt.forEach((card, j) => { card._scanArtDistance = grp[j].artDist; });
+        return res.json({
+          ok: true,
+          matched: false,
+          ambiguous: true,
+          artPrimary: true,
+          distance: chosen.dist,
+          artDistance: bestArt,
+          best: null,
+          candidates: cardsArt,
+        });
+      }
+    }
+
     const toReturn = ambiguous ? group.slice(0, k) : [chosen];
     const cards = await _fingerprintCardsFor(toReturn.map(c => c.meta));
     cards.forEach((card, j) => {
@@ -8059,7 +8126,6 @@ async function start() {
   app.get('/', (_req, res) => serveIndex(res));
   // Public deck share links — serve the SPA; the client reads the token and shows a read-only view.
   app.get('/d/:token', (_req, res) => serveIndex(res));
-  app.get('/scanner-poc.html', (_req, res) => res.sendFile(path.join(__dirname, 'scanner-poc.html')));
   // Dev harness: verify client(canvas) vs server(sharp) pHash parity for the scanner.
   app.get('/scanner-phash-parity.html', (_req, res) => res.sendFile(path.join(__dirname, 'scanner-phash-parity.html')));
   // HTTPS if certs/server.pem + certs/server-key.pem exist (generated by mkcert)

@@ -468,20 +468,24 @@ async function openScanner() {
   _scnRefreshPauseScanUI();
   _scnRenderSession();
   if (typeof loadSets === 'function') void loadSets();
-  if (!_scnTessLoaded) {
-    if (window.Tesseract) {
-      _scnTessLoaded = true;
-      _scnInitWorkers();
-    } else {
-      const s = document.createElement('script');
-      s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
-      s.onload = () => {
-        _scnTessLoaded = true;
-        _scnInitWorkers();
-      };
-      document.head.appendChild(s);
-    }
+  // Fingerprint mode never OCRs — don't pull the Tesseract CDN script + two workers for nothing.
+  if (!_scnFingerprintMode) _scnInjectTesseract();
+}
+
+function _scnInjectTesseract() {
+  if (_scnTessLoaded) return;
+  if (window.Tesseract) {
+    _scnTessLoaded = true;
+    _scnInitWorkers();
+    return;
   }
+  const s = document.createElement('script');
+  s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+  s.onload = () => {
+    _scnTessLoaded = true;
+    _scnInitWorkers();
+  };
+  document.head.appendChild(s);
 }
 
 function closeScanner() {
@@ -514,6 +518,7 @@ async function _scnInitWorkers() {
 
 /** Wait for CDN Tesseract + workers (camera can start before script finishes). */
 async function _scnEnsureWorkers() {
+  _scnInjectTesseract(); // self-heal: OCR paths load the engine on demand
   const deadline = Date.now() + 12000;
   while (Date.now() < deadline) {
     if (window.Tesseract) break;
@@ -592,6 +597,7 @@ async function scnStartCamera() {
       document.getElementById('scnFlipBtn').style.display = 'none';
     }
     await _scnSetupZoom();
+    _scnSetupTorch();
     _scnRefreshHintDrawUI();
   } catch (err) {
     const msg = String(err.message || '');
@@ -885,6 +891,9 @@ function _scnHardStop() {
   document.getElementById('scnScanAgainBtn')?.classList.add('hidden');
   const flip = document.getElementById('scnFlipBtn');
   if (flip) flip.style.display = 'none';
+  _scnTorchOk = false;
+  _scnTorchOn = false;
+  _scnRefreshTorchUI();
   _scnZoomOk = false;
   _scnZoom = 1;
   _scnZoomMin = 1;
@@ -954,12 +963,46 @@ function scnZoomOut() {
   _scnApplyZoom(_scnZoom - _scnZoomStep);
 }
 
+// ── Torch (flashlight) ────────────────────────────────────────────────────────
+// Capability-gated: iOS WebKit doesn't expose `torch`, and front cameras have none — the button
+// only appears when the active track reports support. track.stop() physically kills the torch,
+// so state resets in _scnHardStop and _scnSetupTorch re-runs after every (re)start/flip.
+
+let _scnTorchOk = false;
+let _scnTorchOn = false;
+
+function _scnSetupTorch() {
+  _scnTorchOn = false;
+  const t = _scnStream?.getVideoTracks?.()[0];
+  _scnTorchOk = (t?.getCapabilities?.() ?? {}).torch === true;
+  _scnRefreshTorchUI();
+}
+
+function _scnRefreshTorchUI() {
+  const btn = document.getElementById('scnTorchBtn');
+  if (!btn) return;
+  btn.style.display = _scnTorchOk ? '' : 'none';
+  btn.classList.toggle('btn-primary', _scnTorchOn);
+  btn.classList.toggle('btn-ghost', !_scnTorchOn);
+}
+
+async function scnToggleTorch() {
+  const t = _scnStream?.getVideoTracks?.()[0];
+  if (!t || !_scnTorchOk) return;
+  try {
+    await t.applyConstraints({ advanced: [{ torch: !_scnTorchOn }] });
+    _scnTorchOn = !_scnTorchOn;
+  } catch (_) {}
+  _scnRefreshTorchUI();
+}
+
 // ── Match overlay ─────────────────────────────────────────────────────────────
 
 function _scnClearOverlay() {
   const wrap = document.getElementById('scnMatchOverlay');
   const p = document.getElementById('scnMatchPrimary');
   const s = document.getElementById('scnMatchSub');
+  _scnHidePlusOne();
   if (wrap) {
     wrap.classList.add('hidden');
     wrap.classList.remove('scn-match-overlay--accent');
@@ -1174,6 +1217,17 @@ function _scnFillSnapshotContrast(gray, W, H, out) {
     x = (x - 128) * crush + 128;
     out[i] = x < 0 ? 0 : x > 255 ? 255 : x | 0;
   }
+}
+
+/** Contrast-cranked snapshot of a luma buffer in the shared reusable buffer. */
+function _scnSnapshotContrast(gray, W, H) {
+  const n = W * H;
+  if (!_scnDetectContrastBuf || _scnDetectContrastLen !== n) {
+    _scnDetectContrastBuf = new Uint8Array(n);
+    _scnDetectContrastLen = n;
+  }
+  _scnFillSnapshotContrast(gray, W, H, _scnDetectContrastBuf);
+  return _scnDetectContrastBuf;
 }
 
 /** Mean luma in axis rect (inclusive), step ≥1 for speed. */
@@ -1763,13 +1817,7 @@ function _scnApplyAdaptiveUvForQuad(v, q) {
     return;
   }
   const { gray, W, H } = buf;
-  const n = W * H;
-  if (!_scnDetectContrastBuf || _scnDetectContrastLen !== n) {
-    _scnDetectContrastBuf = new Uint8Array(n);
-    _scnDetectContrastLen = n;
-  }
-  _scnFillSnapshotContrast(gray, W, H, _scnDetectContrastBuf);
-  const snap = _scnDetectContrastBuf;
+  const snap = _scnSnapshotContrast(gray, W, H);
   if (SCN_PAUSE_EDGE_CORNER_CONF) {
     _scnAdaptiveSetnumUv = {
       u0: SCN_CARD_FOOTER_U0,
@@ -1828,13 +1876,7 @@ function _scnDetectCardQuadNormClassic(v) {
   const buf = _scnDetectGrayBuffer(v);
   if (!buf) return null;
   const { gray, W, H } = buf;
-  const n = W * H;
-  if (!_scnDetectContrastBuf || _scnDetectContrastLen !== n) {
-    _scnDetectContrastBuf = new Uint8Array(n);
-    _scnDetectContrastLen = n;
-  }
-  _scnFillSnapshotContrast(gray, W, H, _scnDetectContrastBuf);
-  const snap = _scnDetectContrastBuf;
+  const snap = _scnSnapshotContrast(gray, W, H);
   /** @type {{ x0: number, y0: number, x1: number, y1: number }[]} */
   let seeds;
   if (_scnManualBboxNorm) {
@@ -2719,6 +2761,7 @@ function _scnSetOverlay(primary, sub, mode) {
     _scnClearOverlay();
     return;
   }
+  _scnHidePlusOne(); // callers that want "+1" re-show it right after
   wrap.classList.remove('hidden');
   wrap.classList.toggle('scn-match-overlay--accent', mode === 'match');
   pEl.textContent = primary || '';
@@ -2851,7 +2894,6 @@ let _scnStreamAdd = false;             // false = queue to _scnPendingAuto; true
 const SCN_FP_WARP_W = 360;             // warped card canvas size (≈63:88 card aspect)
 const SCN_FP_WARP_H = 504;
 const SCN_FP_ART = { u0: 0.07, u1: 0.93, v0: 0.11, v1: 0.63 }; // art window — MUST match build-print-fingerprints.js
-const SCN_FP_STABLE_MS = 260;          // card must be held still this long before capture
 const SCN_FP_COOLDOWN_MS = 500;        // min gap between captures
 const SCN_FP_SHARP_MIN = 8;            // Laplacian variance of the guide region — reject blur/empty
 const SCN_FP_GUIDE_FILL = 0.9;         // guide frame fills this fraction of the limiting dimension
@@ -2859,9 +2901,13 @@ const SCN_FP_LRU_MAX = 24;
 const SCN_FP_LRU_HAMMING = 6;          // reuse a recent match without a round-trip within this distance
 const SCN_FP_DEDUPE_HAMMING = 6;       // don't re-queue the same card while it lingers in frame
 const SCN_FP_WARMUP_MS = 900;          // wait this long after video dimensions settle before capturing
+const SCN_FP_REFINE_PAD = 0.06;        // guide bbox expansion for the corner-hunt seed (fraction of bbox)
+const SCN_FP_REFINE_MIN_CONF = 0.55;   // min compound confidence to trust a refined quad over the guide
+const SCN_FP_REFINE_ASPECT_TOL = 0.12; // refined quad aspect must be within ±this of 63:88
+const SCN_FP_SHARP_RING = 4;           // recent capture-eligible sharpness readings kept
+const SCN_FP_SHARP_PEAK_RATIO = 0.85;  // only hash frames near the recent sharpness peak (skip focus hunts)
+const SCN_FP_LEAVE_TICKS = 3;          // consecutive empty-reticle ticks that count as "card removed"
 
-let _scnFpStillSince = 0;              // timestamp the current still period began (0 = moving)
-let _scnFpPrevGray = null;             // previous downscaled luma frame (motion detection)
 let _scnFpInFlight = false;
 let _scnFpCooldownUntil = 0;
 let _scnFpAwaitingLeave = false;       // true after a queue: wait for the card to be removed/swapped
@@ -2870,6 +2916,9 @@ let _scnFpPendingMatch = null;         // {phash, card} matched once, awaiting a
 let _scnFpDimKey = '';                 // last seen "WxH" video dimensions (camera warm-up)
 let _scnFpDimStableAt = 0;             // when the current dimensions first held
 let _scnFpLru = [];                    // [{phash, card}] recent matches → skip the network round-trip
+let _scnFpSharpRing = [];              // rolling sharpness of recent capture-eligible frames
+let _scnFpEmptyTicks = 0;              // consecutive below-sharpness ticks (card-left detection)
+let _scnFpLastQueuedUid = null;        // uid the overlay "+1" button increments
 
 // 2x3 affine mapping source pts tl→(0,0), tr→(W,0), bl→(0,H). Parallelogram approximation of the
 // quad (implied br = tr+bl-tl); good enough for pHash since the card is near-flat at capture time.
@@ -2890,6 +2939,15 @@ function _scnWarpCardToCanvas(v, quad, W, H) {
   const tl = [quad.tl.nx * vw, quad.tl.ny * vh];
   const tr = [quad.tr.nx * vw, quad.tr.ny * vh];
   const bl = [quad.bl.nx * vw, quad.bl.ny * vh];
+  const br = quad.br
+    ? [quad.br.nx * vw, quad.br.ny * vh]
+    : [tr[0] + bl[0] - tl[0], tr[1] + bl[1] - tl[1]];
+  // Refined quads are genuinely projective; the fixed reticle stays on the fast affine path
+  // (identical to the original behavior). Epsilon ≈ 2px at 1080p.
+  const eps = Math.max(vw, vh) * 0.002;
+  if (WarpCore.parallelogramError(tl, tr, br, bl) > eps) {
+    return _scnWarpProjective(v, { tl, tr, br, bl }, W, H);
+  }
   const M = _scnSolveAffine(tl, tr, bl, W, H);
   if (!M) return null;
   const c = document.createElement('canvas');
@@ -2900,6 +2958,45 @@ function _scnWarpCardToCanvas(v, quad, W, H) {
   ctx.setTransform(M.a, M.b, M.c, M.d, M.e, M.f);
   ctx.drawImage(v, 0, 0);
   ctx.setTransform(1, 0, 0, 1, 0, 0);
+  return { canvas: c, ctx };
+}
+
+// True perspective flatten for non-parallelogram quads. The quad's bbox is first drawn to an
+// intermediate canvas at ~2x the output size (high-quality resample) so the per-pixel bilinear
+// warp below doesn't alias against the sharp-built reference hashes; WarpCore then inverse-maps
+// each output pixel. Capture-time only — never runs on the per-frame hot path.
+function _scnWarpProjective(v, corners, W, H) {
+  const vw = v.videoWidth, vh = v.videoHeight;
+  const xs = [corners.tl[0], corners.tr[0], corners.br[0], corners.bl[0]];
+  const ys = [corners.tl[1], corners.tr[1], corners.br[1], corners.bl[1]];
+  const bx0 = Math.max(0, Math.floor(Math.min(...xs)));
+  const by0 = Math.max(0, Math.floor(Math.min(...ys)));
+  const bx1 = Math.min(vw, Math.ceil(Math.max(...xs)));
+  const by1 = Math.min(vh, Math.ceil(Math.max(...ys)));
+  const bw = bx1 - bx0, bh = by1 - by0;
+  if (bw < 8 || bh < 8) return null;
+  const scale = Math.min(1, Math.max((2 * W) / bw, (2 * H) / bh)); // never upscale
+  const iw = Math.max(8, Math.round(bw * scale));
+  const ih = Math.max(8, Math.round(bh * scale));
+  const ic = document.createElement('canvas');
+  ic.width = iw; ic.height = ih;
+  const ictx = ic.getContext('2d', { willReadFrequently: true });
+  ictx.imageSmoothingEnabled = true;
+  ictx.imageSmoothingQuality = 'high';
+  ictx.drawImage(v, bx0, by0, bw, bh, 0, 0, iw, ih);
+  const src = ictx.getImageData(0, 0, iw, ih);
+  const toIc = p => [((p[0] - bx0) * iw) / bw, ((p[1] - by0) * ih) / bh];
+  const M = WarpCore.solveHomography(
+    { tl: toIc(corners.tl), tr: toIc(corners.tr), br: toIc(corners.br), bl: toIc(corners.bl) },
+    W, H,
+  );
+  if (!M) return null;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  const out = ctx.createImageData(W, H);
+  WarpCore.projectiveInto(src.data, iw, ih, M, out.data, W, H);
+  ctx.putImageData(out, 0, 0);
   return { canvas: c, ctx };
 }
 
@@ -2931,10 +3028,11 @@ function _scnComputeScanHashes(v, quad) {
   };
 }
 
-async function _scnIdentifyFromQuad(hints) {
+async function _scnIdentifyFromQuad(hints, quad) {
   const v = document.getElementById('scnVideo');
-  if (!v?.videoWidth || !_scnCardQuad) return null;
-  const h = _scnComputeScanHashes(v, _scnCardQuad);
+  const useQuad = quad || _scnCardQuad;
+  if (!v?.videoWidth || !useQuad) return null;
+  const h = _scnComputeScanHashes(v, useQuad);
   if (!h) return null;
   // LRU short-circuit (no network) when the same card lingers / reappears in frame.
   if (!hints) {
@@ -2975,10 +3073,57 @@ function _scnFpStreamAdd(card) {
   save('collection');
   renderCollection();
   updateStats();
+  _scnFpLastQueuedUid = entry.uid;
   _scnSession.push(entry);
   _scnRenderSession();
   _scnPlayScanBeep();
   if (navigator.vibrate) navigator.vibrate(80);
+}
+
+// ── Overlay "+1" (playset flow) ───────────────────────────────────────────────
+// Shown while a just-added/queued card's overlay is up; taps bump that card's quantity without
+// re-scanning. Hidden automatically whenever the overlay changes to a different state.
+
+function _scnShowPlusOne() {
+  if (!_scnFpLastQueuedUid) return;
+  document.getElementById('scnPlusOneBtn')?.classList.remove('hidden');
+}
+
+function _scnHidePlusOne() {
+  document.getElementById('scnPlusOneBtn')?.classList.add('hidden');
+}
+
+function scnMatchPlusOne() {
+  const uid = _scnFpLastQueuedUid;
+  if (!uid) return;
+  if (_scnStreamAdd) {
+    const existing = collection.find(c => c.uid === uid);
+    if (!existing) { _scnHidePlusOne(); return; }
+    existing.qty += 1;
+    existing.addedAt = Date.now();
+    recordCollectionEvent('add', existing, 1);
+    save('collection');
+    renderCollection();
+    updateStats();
+    _scnSetOverlay(existing.name, `×${existing.qty} in collection`, 'match');
+  } else {
+    const e = _scnPendingAuto.find(x => x.uid === uid);
+    if (!e) { _scnHidePlusOne(); return; } // queue was committed/cleared since
+    e.qty = (e.qty || 1) + 1;
+    _scnRenderSession();
+    _scnSetOverlay(e.name, `×${e.qty} queued`, 'match');
+  }
+  _scnShowPlusOne();
+  _scnPlayScanBeep();
+  if (navigator.vibrate) navigator.vibrate(80);
+}
+
+// Distance readouts (d=full a=art Hamming) are developer telemetry — admins only.
+function _scnFpDiag(r, extra) {
+  if (typeof isAdmin !== 'function' || !isAdmin()) return '';
+  const parts = [`d=${r.distance}${r.artDistance != null ? ` a=${r.artDistance}` : ''}`];
+  if (extra) parts.push(extra);
+  return ` · ${parts.join(' · ')}`;
 }
 
 // Fixed, centered card-shaped guide frame (the reticle the user fills with a card). Returns the
@@ -2995,6 +3140,41 @@ function _scnGuideQuad(v) {
   }
   const x0 = (1 - wN) / 2, y0 = (1 - hN) / 2, x1 = x0 + wN, y1 = y0 + hN;
   return { tl: { nx: x0, ny: y0 }, tr: { nx: x1, ny: y0 }, br: { nx: x1, ny: y1 }, bl: { nx: x0, ny: y1 } };
+}
+
+// Refine the fixed reticle to the card's true edges: seed the classic corner hunt with the guide
+// bbox so a slightly tilted/off-center card is warped from its real quad instead of the rectangle
+// (less background bleed, lower Hamming distance). Any failure falls back to the guide — additive.
+function _scnRefineGuideQuad(v, guide) {
+  const bb = _scnQuadAxisBBox(guide);
+  const buf = bb && _scnDetectGrayBuffer(v);
+  if (!buf) return null;
+  const { gray, W, H } = buf;
+  const snap = _scnSnapshotContrast(gray, W, H);
+  const padX = bb.nw * SCN_FP_REFINE_PAD;
+  const padY = bb.nh * SCN_FP_REFINE_PAD;
+  const seed = {
+    x0: Math.max(1, Math.round((bb.nx - padX) * W)),
+    y0: Math.max(1, Math.round((bb.ny - padY) * H)),
+    x1: Math.min(W - 2, Math.round((bb.nx + bb.nw + padX) * W)),
+    y1: Math.min(H - 2, Math.round((bb.ny + bb.nh + padY) * H)),
+  };
+  const r = _scnQuadFromSeedPx(snap, gray, W, H, seed);
+  if (!r || r.compound < SCN_FP_REFINE_MIN_CONF) return null;
+  const q = r.q;
+  // Corners must stay inside the expanded seed (a hunt that wandered off found something else).
+  const inSeed = c =>
+    c.nx * W >= seed.x0 - 1 && c.nx * W <= seed.x1 + 1 &&
+    c.ny * H >= seed.y0 - 1 && c.ny * H <= seed.y1 + 1;
+  if (!inSeed(q.tl) || !inSeed(q.tr) || !inSeed(q.br) || !inSeed(q.bl)) return null;
+  // And the quad must still be card-shaped (aspect in detect-buffer pixels, which preserve video AR).
+  const px = c => [c.nx * W, c.ny * H];
+  const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+  const tl = px(q.tl), tr = px(q.tr), br = px(q.br), bl = px(q.bl);
+  const w = (dist(tl, tr) + dist(bl, br)) / 2;
+  const h = (dist(tl, bl) + dist(tr, br)) / 2;
+  if (!h || Math.abs(w / h - SCN_GUIDE_CARD_AR) > SCN_FP_REFINE_ASPECT_TOL) return null;
+  return q;
 }
 
 // Laplacian variance of the guide region (downscaled) — low when empty/blurred, high for a real card.
@@ -3034,47 +3214,91 @@ function _scnFingerprintTick(v, now) {
 
   // Gate only on sharpness — rejects motion blur and empty frames, but does NOT force the user to
   // hold perfectly still (handheld phone + handheld card rarely settles). A non-match is harmless.
-  if (_scnFpGuideSharpness(v, guide) < SCN_FP_SHARP_MIN) return;
+  const sharp = _scnFpGuideSharpness(v, guide);
+  if (sharp < SCN_FP_SHARP_MIN) {
+    // Empty/blurred reticle. Once the card has demonstrably left, re-arm dedupe so deliberately
+    // re-presenting the same card queues another copy (playset flow).
+    if (_scnFpAwaitingLeave && ++_scnFpEmptyTicks >= SCN_FP_LEAVE_TICKS) {
+      _scnFpAwaitingLeave = false;
+      _scnFpLastAcceptedPhash = null;
+      _scnFpEmptyTicks = 0;
+    }
+    return;
+  }
+  _scnFpEmptyTicks = 0;
+
+  // Near-peak selection: while autofocus hunts, sharpness oscillates — don't waste the capture
+  // (and its cooldown) on a frame clearly blurrier than what the camera just delivered.
+  _scnFpSharpRing.push(sharp);
+  if (_scnFpSharpRing.length > SCN_FP_SHARP_RING) _scnFpSharpRing.shift();
+  if (sharp < SCN_FP_SHARP_PEAK_RATIO * Math.max(..._scnFpSharpRing)) return;
+
+  // Capture-time only (never on the steady-state hot path): hunt the card's true corners near the
+  // reticle so tilted/off-center cards hash cleanly; the guide rectangle remains the fallback.
+  const refined = _scnRefineGuideQuad(v, guide);
 
   _scnFpInFlight = true;
   void (async () => {
     try {
-      const r = await _scnIdentifyFromQuad();
+      const r = await _scnIdentifyFromQuad(undefined, refined || guide);
+      if (r) r._quadSrc = refined ? 'q=refined' : 'q=guide';
       if (!r) { _scnFpCooldownUntil = performance.now() + 300; return; }
       const best = r.best || (r.candidates && r.candidates[0]) || null;
-      if (r.ambiguous && r.candidates && r.candidates.length > 1) {
-        _scnRequireCandPick = false;
-        _scnShowCands(r.candidates, (best && best.name) || 'reprint');
+      if (r.ambiguous && r.candidates && (r.candidates.length > 1 || r.artPrimary)) {
+        // artPrimary = weak art-only match (foil glare / non-English) — must be user-confirmed;
+        // _scnShowCands would otherwise auto-stage a lone candidate in Auto mode.
+        _scnRequireCandPick = !!r.artPrimary;
+        _scnShowCands(
+          r.candidates,
+          (best && best.name) || 'reprint',
+          r.artPrimary ? 'Low-confidence match — pick your card' : undefined,
+        );
         _scnFpCooldownUntil = performance.now() + 1500;
         return;
       }
       if (r.matched && r.best) {
         const ph = r._phash;
-        const da = `d=${r.distance} a=${r.artDistance}`;
-        const setNum = `${(r.best.set || '').toUpperCase()} · #${r.best.collector_number || ''} · ${da}`;
-        // Lingering same card already added — ignore (swap to a new card to add another).
+        const da = _scnFpDiag(r, r._quadSrc);
+        const setNum = `${(r.best.set || '').toUpperCase()} · #${r.best.collector_number || ''}${da}`;
+        // Lingering same card already added — ignore, but offer "+1" for extra copies in hand.
         if (_scnFpLastAcceptedPhash && PhashCore.hamming(ph, _scnFpLastAcceptedPhash) <= SCN_FP_DEDUPE_HAMMING) {
-          _scnSetOverlay(r.best.name, `already added ✓ · ${da}`, 'match');
+          _scnSetOverlay(r.best.name, `already added ✓${da}`, 'match');
+          _scnShowPlusOne();
           _scnFpCooldownUntil = performance.now() + 450;
           return;
         }
-        // Require two consecutive consistent reads before adding — kills transient false matches.
-        if (!_scnFpPendingMatch || PhashCore.hamming(ph, _scnFpPendingMatch.phash) > SCN_FP_DEDUPE_HAMMING) {
+        // Require two consecutive consistent reads of the SAME printing before adding — kills
+        // transient false matches and split-decision wrong-printing accepts.
+        if (!_scnFpPendingMatch
+          || PhashCore.hamming(ph, _scnFpPendingMatch.phash) > SCN_FP_DEDUPE_HAMMING
+          || _scnFpPendingMatch.card?.id !== r.best.id) {
           _scnFpPendingMatch = { phash: ph, card: r.best };
-          _scnSetOverlay(r.best.name, `confirming… · ${da}`, 'hint');
+          _scnSetOverlay(r.best.name, `confirming…${da}`, 'hint');
           _scnFpCooldownUntil = performance.now() + 130;
           return;
         }
         _scnFpPendingMatch = null;
         _scnFpLastAcceptedPhash = ph || null;
-        if (_scnStreamAdd) _scnFpStreamAdd(r.best);
-        else await _scnAutoStageAndResume(r.best); // queues + beeps
-        _scnSetOverlay(r.best.name, setNum, 'match'); // show d=/a= for both add paths (overrides "Queued")
+        let staged = null;
+        if (_scnStreamAdd) _scnFpStreamAdd(r.best); // sets _scnFpLastQueuedUid itself
+        else staged = await _scnAutoStageAndResume(r.best); // queues + beeps
+        if (staged?.uid) _scnFpLastQueuedUid = staged.uid;
+        if (staged && !staged.queued) {
+          // Lingering re-read past the hash dedupe (new angle) — nothing new was queued.
+          _scnSetOverlay(r.best.name, `already queued ✓${da}`, 'match');
+          _scnShowPlusOne();
+          _scnFpCooldownUntil = performance.now() + 700;
+          return;
+        }
+        const qtyTag = staged && staged.qty > 1 ? `×${staged.qty} · ` : '';
+        _scnSetOverlay(r.best.name, qtyTag + setNum, 'match'); // overrides "Queued"
+        if (_scnStreamAdd || staged) _scnShowPlusOne();
         _scnFpCooldownUntil = performance.now() + 700;
       } else {
         _scnFpPendingMatch = null; // a miss breaks the confirmation streak
-        // Diagnostic readout: closest match + Hamming distance, so framing vs parity is visible.
-        _scnSetOverlay('No match', best ? `closest: ${best.name} · d=${r.distance} a=${r.artDistance}` : `d=${r.distance}`, 'hint');
+        // "closest" readout keeps framing feedback for everyone; distances are admin-only.
+        const da = _scnFpDiag(r, r._quadSrc);
+        _scnSetOverlay('No match', best ? `closest: ${best.name}${da}` : da.replace(/^ · /, ''), 'hint');
         _scnFpCooldownUntil = performance.now() + 450;
       }
     } finally {
@@ -3088,13 +3312,15 @@ function _scnStartFingerprintScanning() {
   _scnOcrActive = true;
   _scnPaused = false;
   _scnFpAwaitingLeave = false;
-  _scnFpStillSince = 0;
-  _scnFpPrevGray = null;
   _scnFpPendingMatch = null;
   _scnFpLastAcceptedPhash = null;
   _scnFpDimKey = '';
   _scnFpDimStableAt = 0;
   _scnFpCooldownUntil = 0;
+  _scnFpSharpRing = [];
+  _scnFpEmptyTicks = 0;
+  _scnFpLastQueuedUid = null;
+  _scnHidePlusOne();
   _scnLastBoundsMs = 0;
   _scnBoundsMiss = 0;
   _scnBoundsLoopOn = true;
@@ -3839,7 +4065,7 @@ async function _scnSearch(name) {
   }
 }
 
-function _scnShowCands(cards, query) {
+function _scnShowCands(cards, query, labelOverride) {
   const label = document.getElementById('scnCandLabel');
   const grid = document.getElementById('scnCandGrid');
   const wrap = document.getElementById('scnCandidates');
@@ -3852,7 +4078,9 @@ function _scnShowCands(cards, query) {
     void _scnVoiceConfirmCard(cards[0]);
     return;
   }
-  if (_scnRequireCandPick) {
+  if (labelOverride) {
+    label.textContent = labelOverride;
+  } else if (_scnRequireCandPick) {
     label.textContent =
       cards.length === 1
         ? 'Choose the correct card (title search)'
@@ -3910,13 +4138,26 @@ function _scnResume() {
 }
 
 async function _scnAutoStageAndResume(card) {
-  if ((!_scnAutoMode && !_scnVoiceMode) || !card) return;
-  if (_scnAutoStageInFlight) return;
+  if ((!_scnAutoMode && !_scnVoiceMode) || !card) return null;
+  if (_scnAutoStageInFlight) return null;
   _scnAutoStageInFlight = true;
   try {
     const entry = cardToEntry(card, 1);
     if (_scnFoilMode) { entry.foil = true; entry.uid = card.id + '_f'; }
-    if (_scnPendingAuto.some(e => e.scryfallId === entry.scryfallId && !!e.foil === !!entry.foil)) {
+    const dup = _scnPendingAuto.find(e => e.scryfallId === entry.scryfallId && !!e.foil === !!entry.foil);
+    if (dup) {
+      // Fingerprint mode: a re-read after the card demonstrably left the reticle is a deliberate
+      // "add another copy" — bump the queued qty. A still-lingering card stays a no-op.
+      if (_scnFingerprintMode && !_scnFpAwaitingLeave) {
+        dup.qty = (dup.qty || 1) + 1;
+        _scnRenderSession();
+        _scnPlayScanBeep();
+        if (navigator.vibrate) navigator.vibrate(80);
+        _scnStatus('Queued another copy — show the next card');
+        _scnFpAwaitingLeave = true;
+        _scnFpCooldownUntil = performance.now() + SCN_FP_COOLDOWN_MS;
+        return { queued: true, qty: dup.qty, uid: dup.uid };
+      }
       _scnStatus('Already queued');
       _scnClearOverlay();
       if (_scnFingerprintMode) {
@@ -3929,7 +4170,7 @@ async function _scnAutoStageAndResume(card) {
       } else {
         await new Promise(resolve => _scnArmMotionResume(resolve));
       }
-      return;
+      return { queued: false, qty: dup.qty || 1, uid: dup.uid };
     }
     _scnPendingAuto.push(entry);
     _scnRenderSession();
@@ -3952,6 +4193,7 @@ async function _scnAutoStageAndResume(card) {
     } else {
       await new Promise(resolve => _scnArmMotionResume(resolve));
     }
+    return { queued: true, qty: entry.qty || 1, uid: entry.uid };
   } finally {
     _scnAutoStageInFlight = false;
   }
