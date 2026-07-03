@@ -1190,19 +1190,6 @@ function _deckSlotZoneLabel(deck, slot) {
   return '';
 }
 
-function _cardDetailHasPrintingQtyRows(card) {
-  return !!(card && card.scryfallId);
-}
-
-function _htmlCardDetailQtyFoilAlignSpacer() {
-  return `<div class="card-detail-qty-printing-row card-detail-qty-printing-row--align" aria-hidden="true">
-    <span class="card-detail-qty-label card-detail-qty-label--spacer"></span>
-    <span class="card-detail-qty-slot--empty"></span>
-    <span class="card-detail-qty-slot--empty"></span>
-    <span class="card-detail-qty-slot--empty"></span>
-  </div>`;
-}
-
 function _htmlCardDetailDeckNameMeta(activeDeck, zoneHint) {
   if (!activeDeck) return '';
   const name = `${activeDeck.name || 'Deck'}${zoneHint || ''}`;
@@ -1211,27 +1198,69 @@ function _htmlCardDetailDeckNameMeta(activeDeck, zoneHint) {
 
 function _htmlCardDetailDeckQtyCounter(ctx) {
   const { card, activeDeck, activeDeckCard, actionUid, inDeckQty } = ctx;
-  const zoneHint = activeDeckCard ? _deckSlotZoneLabel(activeDeck, activeDeckCard) : '';
-  const nameMeta = _htmlCardDetailDeckNameMeta(activeDeck, zoneHint);
-  const foilSpacer = _cardDetailHasPrintingQtyRows(card) ? _htmlCardDetailQtyFoilAlignSpacer() : '';
+  const nameMeta = _htmlCardDetailDeckNameMeta(activeDeck, '');
+
+  // No active deck → single muted placeholder row.
   if (!activeDeck) {
-    return `<div class="card-detail-qty-printing">${_htmlCardDetailQtyControlRow({ qty: 0, muted: true, interactive: false })}${foilSpacer}${nameMeta}</div>`;
+    return `<div class="card-detail-qty-printing">${_htmlCardDetailQtyControlRow({ qty: 0, muted: true, interactive: false })}${nameMeta}</div>`;
   }
-  const esc = String(actionUid || '').replace(/'/g, "\\'");
-  if (!activeDeckCard || !(inDeckQty > 0)) {
+
+  const sid = card && card.scryfallId ? String(card.scryfallId) : '';
+
+  // Cards with no scryfallId can't be split by printing/finish — keep the single counter.
+  if (!sid) {
+    const zoneHint = activeDeckCard ? _deckSlotZoneLabel(activeDeck, activeDeckCard) : '';
+    const meta = _htmlCardDetailDeckNameMeta(activeDeck, zoneHint);
+    const esc = String(actionUid || '').replace(/'/g, "\\'");
+    if (!activeDeckCard || !(inDeckQty > 0)) {
+      return `<div class="card-detail-qty-printing">${_htmlCardDetailQtyControlRow({
+        qty: 0, qtyId: 'detailQty_deck', muted: true, interactive: false,
+      })}${meta}</div>`;
+    }
     return `<div class="card-detail-qty-printing">${_htmlCardDetailQtyControlRow({
-      qty: 0,
+      qty: inDeckQty,
       qtyId: 'detailQty_deck',
-      muted: true,
-      interactive: false,
-    })}${foilSpacer}${nameMeta}</div>`;
+      onMinus: `adjustDeckQtyFromDetail('${esc}',-1)`,
+      onPlus: `adjustDeckQtyFromDetail('${esc}',1)`,
+    })}${meta}</div>`;
   }
-  return `<div class="card-detail-qty-printing">${_htmlCardDetailQtyControlRow({
-    qty: inDeckQty,
-    qtyId: 'detailQty_deck',
-    onMinus: `adjustDeckQtyFromDetail('${esc}',-1)`,
-    onPlus: `adjustDeckQtyFromDetail('${esc}',1)`,
-  })}${foilSpacer}${nameMeta}</div>`;
+
+  // Split Non-foil / Foil rows for this printing, mirroring the "In collection" rows so
+  // you can move a copy between finishes without removing and re-adding the card.
+  const readOnly = (typeof activeDeckIsShared !== 'undefined' && activeDeckIsShared);
+  const enc = encodeURIComponent(sid);
+  const nfSlot = _findActiveDeckSlotByCardKey(activeDeck, sid + '_n');
+  const fSlot  = _findActiveDeckSlotByCardKey(activeDeck, sid + '_f');
+  const nfQ = nfSlot ? (nfSlot.qty || 0) : 0;
+  const fQ  = fSlot ? (fSlot.qty || 0) : 0;
+  const nfMeta = nfSlot ? _deckSlotZoneLabel(activeDeck, nfSlot).replace(/^\s*\(|\)\s*$/g, '').trim() : '';
+  const fMeta  = fSlot ? _deckSlotZoneLabel(activeDeck, fSlot).replace(/^\s*\(|\)\s*$/g, '').trim() : '';
+
+  if (readOnly) {
+    return `<div class="card-detail-qty-printing">
+        ${_htmlCardDetailQtyControlRow({ label: 'Non-foil', qty: nfQ, interactive: false, meta: nfMeta })}
+        ${_htmlCardDetailQtyControlRow({ label: 'Foil', qty: fQ, interactive: false, meta: fMeta })}
+      ${nameMeta}</div>`;
+  }
+
+  return `<div class="card-detail-qty-printing">
+      ${_htmlCardDetailQtyControlRow({
+        label: 'Non-foil',
+        qty: nfQ,
+        qtyId: 'detailQty_deck_nf',
+        onMinus: `adjustDeckPrintingQtyFromDetail(decodeURIComponent('${enc}'),false,-1)`,
+        onPlus: `adjustDeckPrintingQtyFromDetail(decodeURIComponent('${enc}'),false,1)`,
+        meta: nfMeta,
+      })}
+      ${_htmlCardDetailQtyControlRow({
+        label: 'Foil',
+        qty: fQ,
+        qtyId: 'detailQty_deck_f',
+        onMinus: `adjustDeckPrintingQtyFromDetail(decodeURIComponent('${enc}'),true,-1)`,
+        onPlus: `adjustDeckPrintingQtyFromDetail(decodeURIComponent('${enc}'),true,1)`,
+        meta: fMeta,
+      })}
+    ${nameMeta}</div>`;
 }
 
 function _patchCardDetailDeckQty(uid) {
@@ -1240,8 +1269,25 @@ function _patchCardDetailDeckQty(uid) {
   const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
   if (!deck || !_isDeckBuilderMainTabActive()) return;
   const ref = String(uid || '');
-  const cardKey = ref;
-  const slot = _findActiveDeckSlotByCardKey(deck, cardKey);
+
+  // Split foil/non-foil rows present → recompute both from the inspector's current printing.
+  // A zone change (e.g. a copy entering the maybe board) needs a full re-render so the meta
+  // hint updates, so fall through to _syncCardDetailRowInDeck when the meta would change.
+  const elNf = document.getElementById('detailQty_deck_nf');
+  const elF = document.getElementById('detailQty_deck_f');
+  if (elNf || elF) {
+    const sid = _cardDetailCurrentCard?.scryfallId ? String(_cardDetailCurrentCard.scryfallId) : '';
+    if (sid) {
+      const nfSlot = _findActiveDeckSlotByCardKey(deck, sid + '_n');
+      const fSlot = _findActiveDeckSlotByCardKey(deck, sid + '_f');
+      if (elNf) elNf.textContent = String(nfSlot ? (nfSlot.qty || 0) : 0);
+      if (elF) elF.textContent = String(fSlot ? (fSlot.qty || 0) : 0);
+      return;
+    }
+  }
+
+  // Single-counter fallback (cards without a scryfallId).
+  const slot = _findActiveDeckSlotByCardKey(deck, ref);
   const qtyEl = document.getElementById('detailQty_deck');
   if (slot && qtyEl) {
     qtyEl.textContent = String(slot.qty || 1);
@@ -1256,6 +1302,48 @@ function _patchCardDetailDeckQty(uid) {
     actionUid,
     inDeckQty: slot?.qty || 0,
   });
+}
+
+/**
+ * Add/remove a specific printing+finish in the active deck's main zone from the inspector's
+ * split "In deck" rows. Existing slots route through the zone-aware adjuster; a brand-new
+ * finish gets a fresh main-deck slot cloned from the printing currently shown.
+ */
+function adjustDeckPrintingQtyFromDetail(scryfallId, wantFoil, delta) {
+  const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+  if (!deck) return;
+  if (typeof activeDeckIsShared !== 'undefined' && activeDeckIsShared) return;
+  const sid = String(scryfallId || '');
+  if (!sid) return;
+  const d = Number(delta);
+  if (!d || d !== Math.trunc(d)) return;
+  const foil = !!wantFoil;
+  const key = sid + (foil ? '_f' : '_n');
+
+  const slot = _findActiveDeckSlotByCardKey(deck, key);
+  if (slot) {
+    // Existing slot in some zone → reuse the zone-aware adjuster (it patches the rows).
+    adjustDeckQtyFromDetail(key, d);
+    return;
+  }
+  if (d < 0) return; // nothing to remove
+
+  // No slot yet → create one in the MAIN deck for this exact printing + finish.
+  let template = (_cardDetailCurrentCard && String(_cardDetailCurrentCard.scryfallId) === sid)
+    ? _cardDetailCurrentCard
+    : _findTemplateCardForPrinting(sid);
+  if (!template) { showNotif('Could not add to deck', true); return; }
+  const newCard = { ...template, uid: key, scryfallId: sid, foil, qty: d };
+  delete newCard.isCommander;
+  delete newCard.deckTags;
+  if (typeof _applyGlobalCustomTagsToCard === 'function') _applyGlobalCustomTagsToCard(newCard);
+  deck.cards = deck.cards || [];
+  deck.cards.push(newCard);
+  if (typeof recordDeckEvent === 'function') recordDeckEvent('add', newCard);
+  if (typeof saveActiveDeck === 'function') saveActiveDeck(deck);
+  if (typeof renderActiveDeck === 'function') renderActiveDeck();
+  if (typeof scheduleEDHRECRefresh === 'function') scheduleEDHRECRefresh();
+  _patchCardDetailDeckQty(key);
 }
 
 function adjustDeckQtyFromDetail(uid, delta) {
@@ -1531,9 +1619,11 @@ function _htmlCardDetailChangePrintingBtn() {
 function _htmlCardDetailPrimaryActionsInner(ctx) {
   const { isOwned, isCommanderCandidate, actionUid, uid, isWishlisted, card } = ctx;
   const printBtn = _showCardDetailChangePrinting(ctx) ? _htmlCardDetailChangePrintingBtn() : '';
+  const swapBtns = typeof _htmlCardDetailSwapActionsInner === 'function' ? _htmlCardDetailSwapActionsInner(ctx) : '';
   return isOwned
     ? `<button class="btn btn-primary btn-sm" onclick="addToDeckFromDetail('${actionUid}')">+ Add to Deck</button>
                ${printBtn}
+               ${swapBtns}
                ${isCommanderCandidate ? `<button class="btn btn-outline btn-sm" onclick="buildSkeletonDeckFromInspectorCard('${actionUid}')">Build Skeleton Deck</button>` : ''}
                <button class="btn btn-outline btn-sm" onclick="toggleWishlistFromDetail('${uid}')">${isWishlisted ? '♥ Wishlisted' : '♡ Wishlist'}</button>
                <button class="btn btn-outline btn-sm" onclick="flagUpgradeTargetFromDetail('${actionUid}')" title="Want a better printing, foil, or condition"><svg class="tf-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13.5V5"/><path d="M4.5 8 8 4.5 11.5 8"/><path d="M4.5 2.5h7"/></svg> Upgrade</button>
@@ -1542,6 +1632,7 @@ function _htmlCardDetailPrimaryActionsInner(ctx) {
                <button class="btn btn-danger btn-sm" onclick="removeFromCollection('${actionUid}')">Remove</button>`
     : `<button class="btn btn-primary btn-sm" onclick="addCardToCollectionFromDetail('${uid}')">+ Add to Collection</button>
                ${printBtn}
+               ${swapBtns}
                <button class="btn btn-outline btn-sm" onclick="toggleWishlistFromDetail('${uid}')">${isWishlisted ? '♥ Wishlisted' : '♡ Wishlist'}</button>`;
 }
 
@@ -1922,7 +2013,13 @@ async function openCardDetail(uid, navMode, opts) {
   if (!document.getElementById('cardDetailModal')?.classList.contains('open')) {
     _cardDetailReturnScrollY = window.scrollY || window.pageYOffset || 0;
   }
-  const deckCards = decks.flatMap(d => d.cards || []);
+  // Include zone pools — an unowned card that lives only on a maybe board /
+  // sideboard / adds-cuts plan is otherwise unresolvable and the inspector
+  // silently never opens.
+  const deckCards = decks.flatMap(d => [
+    ...(d.cards || []), ...(d.maybeboard || []), ...(d.sideboard || []),
+    ...(d.adds || []), ...(d.cuts || []),
+  ]);
   const pools = [collection, wishlist, deckCards];
   let sourceCard = null;
 
@@ -2171,7 +2268,10 @@ async function _loadCardDetailDefaultTags(card) {
  * "Add to wishlist" / "Add to collection" buttons silently did nothing.
  */
 function _resolveDetailCard(uid) {
-  const deckCards = decks.flatMap(d => d.cards || []);
+  const deckCards = decks.flatMap(d => [
+    ...(d.cards || []), ...(d.maybeboard || []), ...(d.sideboard || []),
+    ...(d.adds || []), ...(d.cuts || []),
+  ]);
   const sharedPools = (typeof sharedCollections !== 'undefined' && Array.isArray(sharedCollections))
     ? sharedCollections.map(s => s.cards || [])
     : [];

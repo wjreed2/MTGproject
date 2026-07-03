@@ -507,9 +507,12 @@
     align-self: stretch !important;
   }
   #deckCardList .deck-extra-zones-wrap::before { display: none !important; }
-  /* Sideboard above maybe board (markup renders MB first) */
+  /* Sideboard above maybe board (markup renders MB first); adds/cuts + apply button after */
   #deckCardList .deck-extra-zones-wrap > .deck-extra-zone--sb { order: 1; }
   #deckCardList .deck-extra-zones-wrap > .deck-extra-zone--mb { order: 2; }
+  #deckCardList .deck-extra-zones-wrap > .deck-extra-zone--add { order: 3; }
+  #deckCardList .deck-extra-zones-wrap > .deck-extra-zone--cut { order: 4; }
+  #deckCardList .deck-extra-zones-wrap > .deck-swaps-apply-btn { order: 5; display: block !important; }
   #deckCardList .deck-extra-zones-wrap > .deck-extra-zone-section,
   .deck-stack-view.vertical-orient > .deck-sideboard-section {
     width: 100% !important;

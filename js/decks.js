@@ -1404,6 +1404,9 @@ function getActiveDeck() {
 /** Migrate legacy `sideboard` (maybe board) → `maybeboard` + optional match `sideboard`. */
 function _ensureDeckZones(deck) {
   if (!deck) return deck;
+  if (!Array.isArray(deck.adds)) deck.adds = [];
+  if (!Array.isArray(deck.cuts)) deck.cuts = [];
+  if (deck.swapsEnabled == null) deck.swapsEnabled = false;
   if (deck.zoneLayout === 2) {
     if (!Array.isArray(deck.maybeboard)) deck.maybeboard = [];
     if (!Array.isArray(deck.sideboard)) deck.sideboard = [];
@@ -1437,11 +1440,39 @@ function _deckMatchSideboardEnabled(deck) {
   return !!deck.sideboardEnabled;
 }
 
+// ── Adds & Cuts planning zones (deck.adds / deck.cuts, gated by deck.swapsEnabled) ──
+// Adds: cards planned to go in — shown in the deck list but never counted.
+// Cuts: copies of mainboard cards planned to come out — the real card stays in the deck.
+
+function _deckPlannedAdds(deck) {
+  _ensureDeckZones(deck);
+  if (!deck.adds) deck.adds = [];
+  return deck.adds;
+}
+
+function _deckPlannedCuts(deck) {
+  _ensureDeckZones(deck);
+  if (!deck.cuts) deck.cuts = [];
+  return deck.cuts;
+}
+
+function _deckSwapsEnabled(deck) {
+  _ensureDeckZones(deck);
+  return !!deck.swapsEnabled;
+}
+
+function _deckZoneIsPlanning(zone) {
+  return zone === 'add' || zone === 'cut';
+}
+
 function _deckExtraPoolsForAlloc(deck) {
   if (!deck) return [];
   _ensureDeckZones(deck);
   const pools = [..._deckMaybeBoard(deck)];
   if (_deckMatchSideboardEnabled(deck)) pools.push(..._deckMatchSideboard(deck));
+  // Planned adds hold their own copies; planned cuts reference mainboard cards
+  // already allocated, so including them would double-count.
+  if (_deckSwapsEnabled(deck)) pools.push(..._deckPlannedAdds(deck));
   return pools;
 }
 
@@ -1480,7 +1511,9 @@ function _handleDeckExtraZoneToggleClick(e) {
 function _deckExtraZonesExpanded(deck) {
   const mbOpen = !_deckZoneCollapsed('mb');
   const sbOpen = _deckMatchSideboardEnabled(deck) && !_deckZoneCollapsed('sb');
-  return mbOpen || sbOpen;
+  const addOpen = _deckSwapsEnabled(deck) && !_deckZoneCollapsed('add');
+  const cutOpen = _deckSwapsEnabled(deck) && !_deckZoneCollapsed('cut');
+  return mbOpen || sbOpen || addOpen || cutOpen;
 }
 
 function _deckExtraZoneColumnPx(deck) {
@@ -1561,6 +1594,40 @@ function _syncDeckSideboardToggle() {
   const show = deck && !activeDeckIsShared;
   btn.style.display = show ? '' : 'none';
   if (show) renderDeckSideboardEnabledBtn();
+}
+
+function setDeckSwapsEnabled(enabled) {
+  const deck = getActiveDeck();
+  if (!deck || activeDeckIsShared) return;
+  _ensureDeckZones(deck);
+  deck.swapsEnabled = !!enabled;
+  saveActiveDeck(deck);
+  renderActiveDeck();
+}
+
+function toggleDeckSwapsEnabled() {
+  const deck = getActiveDeck();
+  if (!deck || activeDeckIsShared) return;
+  setDeckSwapsEnabled(!_deckSwapsEnabled(deck));
+}
+
+function renderDeckSwapsEnabledBtn() {
+  const btn = document.getElementById('deckSwapsEnabledBtn');
+  if (!btn) return;
+  const deck = getActiveDeck();
+  const on = !!(deck && _deckSwapsEnabled(deck));
+  btn.innerHTML = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M2.5 5.5h9"/><path d="M9 3l2.5 2.5L9 8"/><path d="M13.5 10.5h-9"/><path d="M7 8l-2.5 2.5L7 13"/></svg>${on ? ' Adds &amp; Cuts: on' : ' Adds &amp; Cuts'}`;
+  btn.style.color = on ? 'var(--teal)' : '';
+  btn.style.borderColor = on ? 'var(--teal)' : '';
+}
+
+function _syncDeckSwapsToggle() {
+  const btn = document.getElementById('deckSwapsEnabledBtn');
+  if (!btn) return;
+  const deck = getActiveDeck();
+  const show = deck && !activeDeckIsShared;
+  btn.style.display = show ? '' : 'none';
+  if (show) renderDeckSwapsEnabledBtn();
 }
 
 // Routes save to the right path depending on ownership
@@ -2967,18 +3034,89 @@ function selectCommanderResult(resultsId, name, colorsJson, imgUrl, scryfallId) 
     }
     idField.value = scryfallId || '';
     document.getElementById('newDeckCommanderChosen').style.display = 'flex';
+    const foilChk = document.getElementById('newDeckCommanderFoil');
+    if (foilChk) foilChk.checked = false;
+    const optsEl = document.getElementById('newDeckCommanderOptions');
+    if (optsEl) optsEl.style.display = 'flex';
+    _updateNewDeckCommanderAddCollVisibility();
   } else {
-    const deck = getActiveDeck();
-    if (!deck) return;
-    deck.commander = name;
-    deck.commanderColorIdentity = colors;
-    deck.commanderImage = imgUrl;
-    if (scryfallId) addCommanderCardToDeck(deck, scryfallId);
-    saveActiveDeck(deck);
-    closeCommanderEdit();
-    renderDecks();
-    showNotif(`Commander set to ${name}`);
+    // Active-deck commander picker: stage the choice so the user can pick a finish and
+    // decide whether to add the copy to their collection before it's applied.
+    _stageActiveDeckCommander(name, colors, imgUrl, scryfallId);
   }
+}
+
+/** Show/hide the new-deck "add to collection" option depending on whether that exact
+ *  printing + finish is already owned (no point adding a copy you already have). */
+function _updateNewDeckCommanderAddCollVisibility() {
+  const sid = document.getElementById('newDeckCommanderScryfallId')?.value || '';
+  const foil = !!document.getElementById('newDeckCommanderFoil')?.checked;
+  const label = document.getElementById('newDeckCommanderAddCollLabel');
+  const chk = document.getElementById('newDeckCommanderAddColl');
+  if (!label || !chk) return;
+  const owned = !!sid && (collection || []).some(c => c.scryfallId === sid && !!c.foil === foil);
+  if (owned) { label.style.display = 'none'; chk.checked = false; }
+  else { label.style.display = 'flex'; }
+}
+
+function onNewDeckCommanderFoilChange() {
+  _updateNewDeckCommanderAddCollVisibility();
+}
+
+let _pendingActiveDeckCommander = null;
+
+function _stageActiveDeckCommander(name, colors, imgUrl, scryfallId) {
+  _pendingActiveDeckCommander = { name, colors, imgUrl, scryfallId };
+  const chosen = document.getElementById('commanderPickerChosen');
+  if (!chosen) { // markup missing → apply directly (non-foil, no collection add)
+    _applyActiveDeckCommander(name, colors, imgUrl, scryfallId, false, false);
+    return;
+  }
+  const imgEl = document.getElementById('commanderPickerChosenImg');
+  if (imgEl) imgEl.src = imgUrl || '';
+  const nameEl = document.getElementById('commanderPickerChosenName');
+  if (nameEl) nameEl.textContent = name;
+  const foilChk = document.getElementById('commanderPickerFoil');
+  if (foilChk) foilChk.checked = false;
+  chosen.style.display = 'flex';
+  _updateActiveDeckCommanderAddCollVisibility();
+}
+
+function _updateActiveDeckCommanderAddCollVisibility() {
+  const sid = _pendingActiveDeckCommander?.scryfallId || '';
+  const foil = !!document.getElementById('commanderPickerFoil')?.checked;
+  const label = document.getElementById('commanderPickerAddCollLabel');
+  const chk = document.getElementById('commanderPickerAddColl');
+  if (!label || !chk) return;
+  const owned = !!sid && (collection || []).some(c => c.scryfallId === sid && !!c.foil === foil);
+  if (owned) { label.style.display = 'none'; chk.checked = false; }
+  else { label.style.display = 'flex'; }
+}
+
+function onActiveDeckCommanderFoilChange() {
+  _updateActiveDeckCommanderAddCollVisibility();
+}
+
+function confirmActiveDeckCommander() {
+  const p = _pendingActiveDeckCommander;
+  if (!p) return;
+  const foil = !!document.getElementById('commanderPickerFoil')?.checked;
+  const addColl = !!document.getElementById('commanderPickerAddColl')?.checked;
+  _applyActiveDeckCommander(p.name, p.colors, p.imgUrl, p.scryfallId, foil, addColl);
+}
+
+async function _applyActiveDeckCommander(name, colors, imgUrl, scryfallId, foil, addColl) {
+  const deck = getActiveDeck();
+  if (!deck) return;
+  deck.commander = name;
+  deck.commanderColorIdentity = colors;
+  deck.commanderImage = imgUrl;
+  if (scryfallId) await addCommanderCardToDeck(deck, scryfallId, { foil, addToCollection: addColl });
+  saveActiveDeck(deck);
+  _pendingActiveDeckCommander = null;
+  closeCommanderEdit();
+  renderDecks();
+  showNotif(`Commander set to ${name}`);
 }
 
 function sortColorsWUBRG(colors) {
@@ -3028,6 +3166,16 @@ function clearCommanderChoice(prefix) {
   document.getElementById(prefix + 'DeckCommanderName').value   = '';
   document.getElementById(prefix + 'DeckCommanderColors').value = '';
   document.getElementById(prefix + 'DeckCommanderChosen').style.display = 'none';
+  if (prefix === 'newDeck') {
+    const opts = document.getElementById('newDeckCommanderOptions');
+    if (opts) opts.style.display = 'none';
+    const foil = document.getElementById('newDeckCommanderFoil');
+    if (foil) foil.checked = false;
+    const addColl = document.getElementById('newDeckCommanderAddColl');
+    if (addColl) addColl.checked = false;
+    const idField = document.getElementById('newDeckCommanderScryfallId');
+    if (idField) idField.value = '';
+  }
 }
 
 function openCommanderEdit() {
@@ -3037,6 +3185,9 @@ function openCommanderEdit() {
   if (input) input.value = '';
   const results = document.getElementById('activeDeckCommanderResults');
   if (results) results.innerHTML = '';
+  const chosen = document.getElementById('commanderPickerChosen');
+  if (chosen) chosen.style.display = 'none';
+  _pendingActiveDeckCommander = null;
   modal.classList.add('open');
   setTimeout(() => input?.focus(), 80);
 }
@@ -3047,27 +3198,63 @@ function closeCommanderEdit() {
   if (input) input.value = '';
   const results = document.getElementById('activeDeckCommanderResults');
   if (results) results.innerHTML = '';
+  const chosen = document.getElementById('commanderPickerChosen');
+  if (chosen) chosen.style.display = 'none';
+  _pendingActiveDeckCommander = null;
 }
 
 // ── Commander card helper ─────────────────────────────────────────────────────
 
-async function addCommanderCardToDeck(deck, scryfallId) {
+async function addCommanderCardToDeck(deck, scryfallId, opts = {}) {
+  const foil = !!opts.foil;
   // Remove any existing commander card slot first
   deck.cards = deck.cards.filter(c => !c.isCommander);
 
-  // Prefer a copy already in the ownership pool, otherwise fetch from Scryfall
-  let card = _ownershipCollection().find(c => c.scryfallId === scryfallId);
-  if (!card) {
+  // Prefer an owned copy of this printing (matching finish first) as a rich template,
+  // otherwise fetch from Scryfall.
+  let base = _ownershipCollection().find(c => c.scryfallId === scryfallId && !!c.foil === foil)
+          || _ownershipCollection().find(c => c.scryfallId === scryfallId);
+  let card;
+  if (base) {
+    card = { ...base };
+  } else {
     try {
       const sc = await fetchCardById(scryfallId);
       if (!sc) return;
       card = cardToEntry(sc, 1);
     } catch(e) { return; }
   }
+  card.scryfallId = scryfallId;
+  card.foil = foil;
+  card.uid = scryfallId + (foil ? '_f' : '_n');
 
   const newCmd = { ...card, qty: 1, isCommander: true };
   _applyGlobalCustomTagsToCard(newCmd);
   deck.cards.unshift(newCmd);
+
+  if (opts.addToCollection) _addCommanderCopyToCollection(newCmd, scryfallId, foil);
+}
+
+/** Add a single copy of the chosen commander printing+finish to the user's collection,
+ *  stacking onto an existing row if that exact printing+finish is already there. */
+function _addCommanderCopyToCollection(cardLike, scryfallId, foil) {
+  if (typeof collection === 'undefined') return;
+  const uid = scryfallId + (foil ? '_f' : '_n');
+  const existing = collection.find(c => c.uid === uid
+    || (c.scryfallId === scryfallId && !!c.foil === !!foil));
+  if (existing) {
+    existing.qty = (existing.qty || 0) + 1;
+    existing.addedAt = Date.now();
+    if (typeof recordCollectionEvent === 'function') recordCollectionEvent('add', existing, 1);
+  } else {
+    const { isCommander, qty, deckTags, ...rest } = cardLike;
+    const newCard = { ...rest, uid, scryfallId, foil: !!foil, qty: 1, addedAt: Date.now() };
+    collection.push(newCard);
+    if (typeof recordCollectionEvent === 'function') recordCollectionEvent('add', newCard, 1);
+  }
+  save('collection');
+  if (typeof renderCollection === 'function') renderCollection();
+  if (typeof updateStats === 'function') updateStats();
 }
 
 // ── Deck CRUD ─────────────────────────────────────────────────────────────────
@@ -3081,6 +3268,12 @@ function createNewDeck() {
   const idField = document.getElementById('newDeckCommanderScryfallId');
   if (idField) idField.value = '';
   document.getElementById('newDeckCommanderChosen').style.display = 'none';
+  const cmdOpts = document.getElementById('newDeckCommanderOptions');
+  if (cmdOpts) cmdOpts.style.display = 'none';
+  const cmdFoil = document.getElementById('newDeckCommanderFoil');
+  if (cmdFoil) cmdFoil.checked = false;
+  const cmdAddColl = document.getElementById('newDeckCommanderAddColl');
+  if (cmdAddColl) cmdAddColl.checked = false;
   document.getElementById('newDeckNotes').value = '';
   toggleNewDeckCommanderField();
   document.getElementById('newDeckModal').classList.add('open');
@@ -3103,12 +3296,14 @@ async function submitNewDeck() {
     : [];
   const commanderImage   = document.getElementById('newDeckCommanderImage')?.value || null;
   const commanderScryId  = document.getElementById('newDeckCommanderScryfallId')?.value || null;
+  const commanderFoil    = !!document.getElementById('newDeckCommanderFoil')?.checked;
+  const commanderAddColl = !!document.getElementById('newDeckCommanderAddColl')?.checked;
   const notes = document.getElementById('newDeckNotes').value.trim() || null;
-  const deck = { id: Date.now().toString(), name, format, commander, commanderColorIdentity, commanderImage, notes, cards: [], maybeboard: [], sideboard: [], sideboardEnabled: false, zoneLayout: 2, colors: [] };
+  const deck = { id: Date.now().toString(), name, format, commander, commanderColorIdentity, commanderImage, notes, cards: [], maybeboard: [], sideboard: [], sideboardEnabled: false, adds: [], cuts: [], swapsEnabled: false, zoneLayout: 2, colors: [] };
   decks.push(deck); activeDeckId = deck.id;
   localStorage.setItem('mtg_active_deck_id', deck.id);
   document.getElementById('newDeckModal').classList.remove('open');
-  if (commanderScryId) await addCommanderCardToDeck(deck, commanderScryId);
+  if (commanderScryId) await addCommanderCardToDeck(deck, commanderScryId, { foil: commanderFoil, addToCollection: commanderAddColl });
   save('decks'); renderDecks();
 }
 
@@ -3190,6 +3385,7 @@ function renderActiveDeck() {
   }
   _syncDeckStackSortControls();
   _syncDeckSideboardToggle();
+  _syncDeckSwapsToggle();
   _applyDeckTagBadgesSetting();
   document.querySelectorAll('#deckStackOrientH, #deckStackOrientV').forEach(b => b.classList.remove('active'));
   const activeBtn = document.getElementById(deckStackOrient === 'horizontal' ? 'deckStackOrientH' : 'deckStackOrientV');
@@ -3213,6 +3409,14 @@ function renderActiveDeck() {
   const countEl = document.getElementById('deckListCount');
   countEl.textContent = total + ' / ' + (max || target);
   countEl.style.color = countOk ? 'var(--teal)' : 'var(--red)';
+  if (_deckSwapsEnabled(deck)) {
+    const addQty = _deckPlannedAdds(deck).reduce((s, c) => s + (c.qty || 1), 0);
+    const cutQty = _deckPlannedCuts(deck).reduce((s, c) => s + (c.qty || 1), 0);
+    if (addQty || cutQty) {
+      const projected = total + addQty - cutQty;
+      countEl.innerHTML = `${total} / ${max || target} <span class="deck-swaps-projected" title="Deck size if all planned adds and cuts were applied">→ ${projected} after swaps</span>`;
+    }
+  }
   const isCommanderFmt = ['Commander','Brawl','Oathbreaker'].includes(deck.format);
   const cmdEl = document.getElementById('activeDeckCommander');
   if (cmdEl) { cmdEl.textContent = deck.commander || ''; cmdEl.style.display = deck.commander ? '' : 'none'; }
@@ -4576,6 +4780,17 @@ function _stackTile(c, zone = 'main', poolHints = null) {
   const sbPoolBadge = sbPoolQty > 0
     ? `<div class="stack-sb-pool" title="Same printing on sideboard">SB ×${sbPoolQty}</div>`
     : '';
+  const isPlannedAdd = !!c._plannedAdd;
+  const cutQty = zone === 'main' && !isPlannedAdd && poolHints?.cuts
+    ? _plannedCutQtyForDeckSlot(poolHints.cuts, cardKey)
+    : 0;
+  const cutBadge = cutQty > 0 || zone === 'cut'
+    ? `<div class="stack-cut-flag" title="Planned cut — still in the deck">CUT${(zone === 'main' && cutQty > 0 && qty > 1) ? ` ×${cutQty}` : ''}</div>`
+    : '';
+  const addBadge = isPlannedAdd || zone === 'add'
+    ? `<div class="stack-add-flag" title="Planned add — not counted in the deck">ADD</div>`
+    : '';
+  const swapCls = (cutQty > 0 || zone === 'cut') ? ' is-planned-cut' : (isPlannedAdd || zone === 'add') ? ' is-planned-add' : '';
 
   const isGameChanger = typeof isGameChangerCard === 'function' && isGameChangerCard(c);
   const gcBadge = isGameChanger
@@ -4586,14 +4801,18 @@ function _stackTile(c, zone = 'main', poolHints = null) {
 
   const dragKey = _deckCardDragKey(c).replace(/"/g, '&quot;');
 
-  const swapBtns = isExtra
+  const swapBtns = zone === 'cut'
+    ? `<button class="stack-swap" draggable="false" data-uid="${dragKey}" data-swap-zone="cut" title="Remove the cut marker — the card stays in the deck">Keep</button>`
+    : zone === 'add'
+    ? `<button class="stack-swap" draggable="false" data-uid="${dragKey}" data-swap-zone="add" title="Move into the deck now">→ Main</button>`
+    : isExtra
     ? `<button class="stack-swap" draggable="false" data-uid="${dragKey}" data-swap-zone="${zone}" title="Move to mainboard">→ Main</button>`
     : `${poolHints?.sbEnabled ? `<button class="stack-swap stack-swap--sb" draggable="false" data-uid="${dragKey}" data-swap-zone="sb" title="Move to sideboard">→ SB</button>` : ''}` +
       `<button class="stack-swap stack-swap--mb" draggable="false" data-uid="${dragKey}" data-swap-zone="mb" title="Move to maybe board">→ MB</button>`;
 
   const validCls = _deckCardValidationClass(c, poolHints?.validationErrorNames);
   return `
-    <div class="deck-stack-card deck-zone-draggable${notOwned ? ' not-owned' : ''}${isGameChanger ? ' is-game-changer' : ''}${validCls}" data-uid="${dragKey}" data-zone="${zone}" data-sid="${c.scryfallId || ''}" data-name="${safeName}" data-card-key="${cardKey}" data-card-name-key="${nameKey.replace(/"/g, '&quot;')}" onpointerdown="_deckZoneCardPointerDown(event)">
+    <div class="deck-stack-card deck-zone-draggable${notOwned ? ' not-owned' : ''}${isGameChanger ? ' is-game-changer' : ''}${validCls}${swapCls}" data-uid="${dragKey}" data-zone="${isPlannedAdd ? 'add' : zone}" data-sid="${c.scryfallId || ''}" data-name="${safeName}" data-card-key="${cardKey}" data-card-name-key="${nameKey.replace(/"/g, '&quot;')}" onpointerdown="_deckZoneCardPointerDown(event)">
       <div class="stack-wrap">
         ${img
           ? `<img src="${escapeHtml(img)}" draggable="false" class="stack-main${c.isCommander ? ' is-commander' : ''}" alt="${escapeHtml(c.name)}" loading="lazy" decoding="async" onload="this.classList.add('loaded')" onerror="this.classList.add('loaded')" style="${imgStyle}">`
@@ -4604,8 +4823,10 @@ function _stackTile(c, zone = 'main', poolHints = null) {
         ${gcBadge}
         ${mbPoolBadge}
         ${sbPoolBadge}
+        ${cutBadge}
+        ${addBadge}
         ${ownerBadge}
-        <button class="stack-remove" draggable="false" data-uid="${dragKey}" data-zone="${zone}" title="Remove">✕</button>
+        <button class="stack-remove" draggable="false" data-uid="${dragKey}" data-zone="${isPlannedAdd ? 'add' : zone}" title="Remove">✕</button>
         <button class="stack-version" draggable="false" title="Change printing">⟳</button>
         ${swapBtns}
       </div>
@@ -4685,6 +4906,31 @@ function _bindDeckTagGroupHoverLinking(el, enabled) {
   };
 }
 
+/** Hovering a card in the Adds/Cuts zones emphasizes its counterpart(s) in the deck list — always on, unlike tag-group linking. */
+function _bindSwapZoneHoverLinking(el, enabled) {
+  if (!el) return;
+  el.onpointerover = null;
+  el.onpointerout = null;
+  if (!enabled) return;
+  const pickRow = target => target?.closest?.('.deck-card-row[data-zone], .deck-stack-card[data-zone]');
+  const isSwapZone = row => row?.dataset?.zone === 'add' || row?.dataset?.zone === 'cut';
+  el.onpointerover = e => {
+    const row = pickRow(e.target);
+    if (!row || !el.contains(row) || !isSwapZone(row)) return;
+    const key = row.dataset.cardKey || '';
+    const nameKey = row.dataset.cardNameKey || '';
+    if (!key && !nameKey) return;
+    _setDeckTagLinkedHighlight(el, key, nameKey, row);
+  };
+  el.onpointerout = e => {
+    const from = pickRow(e.target);
+    if (!from || !isSwapZone(from)) return;
+    const to = pickRow(e.relatedTarget);
+    if (to && to.dataset.cardKey === from.dataset.cardKey) return;
+    _clearDeckTagLinkedHighlight(el);
+  };
+}
+
 function _deckZoneSectionEl(root, zone) {
   if (!root || !zone) return null;
   return root.querySelector(`.deck-extra-zone-section[data-zone="${zone}"]`);
@@ -4698,20 +4944,38 @@ function _deckIsMainboardDropTarget(target) {
   return false;
 }
 
+// Which zones each drag source may drop onto. Cuts only accept mainboard cards
+// (marking, not moving); planned adds come from the maybe board, sideboard, or search.
+const _DECK_ZONE_DROP_TARGETS = {
+  main: ['mb', 'sb', 'cut'],
+  mb: ['main', 'sb', 'add'],
+  sb: ['main', 'mb', 'add'],
+  add: ['main', 'mb', 'sb'],
+  cut: ['main'],
+  search: ['main', 'mb', 'sb', 'add'],
+};
+
+function _deckZoneDropAllowed(from, to) {
+  if (!from || !to || from === to) return false;
+  return (_DECK_ZONE_DROP_TARGETS[from] || []).includes(to);
+}
+
 function _deckDropTargetZone(target, dragEvent, fromZone) {
   const from = fromZone || _deckDragZone;
   if (!target) return null;
+  const ok = z => (_deckZoneDropAllowed(from, z) ? z : null);
 
-  // MB/SB → main: prefer mainboard before any extra-zone heuristics (avoids snapping to the other zone)
-  if (from !== 'main' && _deckIsMainboardDropTarget(target)) return 'main';
+  // Zone/search → main: prefer mainboard before any extra-zone heuristics (avoids snapping to the other zone)
+  if (from !== 'main' && _deckIsMainboardDropTarget(target)) return ok('main');
 
   const sec = target.closest('.deck-extra-zone-section[data-zone]');
-  if (sec?.dataset?.zone && sec.dataset.zone !== from) return sec.dataset.zone;
+  if (sec?.dataset?.zone) return ok(sec.dataset.zone);
 
-  // Main → MB/SB only: pick section by pointer Y when both zones exist
+  // Main → zone column only: pick eligible section by pointer Y when several exist
   if (from === 'main' && target.closest('.deck-extra-zones-wrap')) {
     const wrap = target.closest('.deck-extra-zones-wrap');
-    const sections = [...wrap.querySelectorAll('.deck-extra-zone-section[data-zone]')];
+    const sections = [...wrap.querySelectorAll('.deck-extra-zone-section[data-zone]')]
+      .filter(s => _deckZoneDropAllowed(from, s.dataset.zone));
     if (sections.length === 1) return sections[0].dataset.zone;
     if (sections.length > 1 && dragEvent) {
       const y = dragEvent.clientY ?? 0;
@@ -4728,7 +4992,7 @@ function _deckDropTargetZone(target, dragEvent, fromZone) {
   }
 
   if (from !== 'main' && target.closest('#deckCardList') && !target.closest(`.deck-extra-zone-section[data-zone="${from}"]`)) {
-    return 'main';
+    return ok('main');
   }
 
   return null;
@@ -4739,12 +5003,11 @@ function _deckDropHighlightEl(target, dragEvent, fromZone) {
   if (!root) return null;
   const z = _deckDropTargetZone(target, dragEvent, fromZone);
   if (!z || z === fromZone) return null;
-  if (z === 'mb' || z === 'sb') return _deckZoneSectionEl(root, z);
   if (z === 'main') {
     return root.querySelector('.deck-mainboard-area--cards')
       || root.querySelector('.deck-mainboard-area');
   }
-  return null;
+  return _deckZoneSectionEl(root, z);
 }
 
 function _deckSetDropHighlight(st, el) {
@@ -4757,11 +5020,34 @@ function _deckSetDropHighlight(st, el) {
 
 function _deckApplyZoneDrop(data, dropZone) {
   if (!data?.uid || !dropZone || dropZone === data.zone) return;
-  if (dropZone === 'main') moveToMainboard(data.uid, data.zone);
-  else if (data.zone === 'main') {
+  if (!_deckZoneDropAllowed(data.zone, dropZone)) return;
+  if (data.zone === 'search') { _deckApplySearchDrop(data.uid, dropZone); return; }
+  if (dropZone === 'main') {
+    if (data.zone === 'add') commitPlannedAdd(data.uid);
+    else if (data.zone === 'cut') unmarkPlannedCut(data.uid);
+    else moveToMainboard(data.uid, data.zone);
+  } else if (data.zone === 'main') {
     if (dropZone === 'mb') moveToSideboard(data.uid);
     else if (dropZone === 'sb') moveToMatchSideboard(data.uid);
+    else if (dropZone === 'cut') markPlannedCut(data.uid);
+  } else if (data.zone === 'add' || dropZone === 'add') {
+    _movePlanningZoneCard(data.uid, data.zone, dropZone);
   } else moveBetweenDeckZones(data.uid, data.zone, dropZone);
+}
+
+/** Drop from the search grid — key is the tile's data-add ("addToDeck:<uid>" or "addScryfall:<id>"). */
+function _deckApplySearchDrop(addKey, dropZone) {
+  const raw = String(addKey || '');
+  const i = raw.indexOf(':');
+  if (i < 0) return;
+  const type = raw.slice(0, i);
+  const id = raw.slice(i + 1);
+  const owned = type === 'addToDeck';
+  if (type !== 'addToDeck' && type !== 'addScryfall') return;
+  if (dropZone === 'main') owned ? addToDeck(id) : addScryfallCardToDeck(id);
+  else if (dropZone === 'mb') owned ? addToSideboard(id) : addScryfallCardToSideboard(id);
+  else if (dropZone === 'sb') owned ? addToMatchSideboard(id) : addScryfallCardToMatchSideboard(id);
+  else if (dropZone === 'add') owned ? addToAdds(id) : addScryfallCardToAdds(id);
 }
 
 function _deckConsumeSuppressClick() {
@@ -4815,6 +5101,33 @@ function _deckZoneCardPointerDown(e) {
   _deckPointerDragBind();
 }
 window._deckZoneCardPointerDown = _deckZoneCardPointerDown;
+
+/** Drag a search-result tile into the deck list (mainboard, MB, SB, or planned adds). */
+function _deckSearchTilePointerDown(e) {
+  if (_deckIsPhone()) return;
+  if (typeof activeDeckIsShared !== 'undefined' && activeDeckIsShared) return;
+  if (e.button !== 0) return;
+  const tile = e.target?.closest?.('.deck-search-tile');
+  if (!tile?.dataset?.add) return;
+  if (e.target?.closest?.('button')) return;
+  const root = document.getElementById('deckCardList');
+  if (!root) return;
+  e.preventDefault();
+  _deckPointerDrag = {
+    tile,
+    key: tile.dataset.add,
+    zone: 'search',
+    root,
+    startX: e.clientX,
+    startY: e.clientY,
+    moved: false,
+    pointerId: e.pointerId,
+  };
+  if (tile.setPointerCapture) {
+    try { tile.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+  }
+  _deckPointerDragBind();
+}
 
 function _deckPointerMove(e) {
   const st = _deckPointerDrag;
@@ -5561,9 +5874,11 @@ function _renderDeckTokensSection(deck, tokens, opts = {}) {
   };
 }
 
+const _DECK_ZONE_SHORT_LABELS = { mb: 'MB', sb: 'SB', add: 'ADDS', cut: 'CUTS' };
+
 function _renderDeckExtraZoneGrid(deck, zone, label, cards, orientClass, emptyHint, poolHints = null) {
   const collapsed = _deckZoneCollapsed(zone);
-  const headerLabel = zone === 'sb' ? 'SB' : 'MB';
+  const headerLabel = _DECK_ZONE_SHORT_LABELS[zone] || 'MB';
   const total = cards.reduce((s, c) => s + (c.qty || 1), 0);
   const chevron = collapsed ? '▸' : '▾';
   const sorted = _deckStackSortCards(cards);
@@ -5588,16 +5903,22 @@ function _renderDeckExtraZoneList(deck, zone, label, cards, emptyHint, validatio
   const total = cards.reduce((s, c) => s + (c.qty || 1), 0);
   const chevron = collapsed ? '▸' : '▾';
   const sorted = _deckStackSortCards(cards);
-  const adjustFn = zone === 'sb' ? 'adjustMatchSideboardCardQtyByUid' : 'adjustSideboardCardQtyByUid';
+  const adjustFnByZone = { sb: 'adjustMatchSideboardCardQtyByUid', mb: 'adjustSideboardCardQtyByUid', add: 'adjustPlannedAddQtyByUid', cut: 'adjustPlannedCutQtyByUid' };
+  const adjustFn = adjustFnByZone[zone] || 'adjustSideboardCardQtyByUid';
   const rows = collapsed ? '' : (sorted.length
     ? sorted.map(c => {
       const dk = _deckCardDragKey(c).replace(/'/g, "\\'");
       const own = _deckCardOwnership(c);
+      const mainBtn = zone === 'cut'
+        ? `<button class="btn btn-ghost btn-sm" title="Remove the cut marker — the card stays in the deck" style="font-size:0.65rem;padding:1px 6px" onclick="event.stopPropagation();unmarkPlannedCut('${dk}')">Keep</button>`
+        : zone === 'add'
+        ? `<button class="btn btn-ghost btn-sm" title="Move into the deck now" style="font-size:0.65rem;padding:1px 6px" onclick="event.stopPropagation();commitPlannedAdd('${dk}')">→ Main</button>`
+        : `<button class="btn btn-ghost btn-sm" title="Move to mainboard" style="font-size:0.65rem;padding:1px 6px" onclick="event.stopPropagation();moveToMainboard('${dk}','${zone}')">→ Main</button>`;
       return `
-          <div class="deck-card-row deck-zone-draggable${own.notOwned ? ' not-owned' : ''}${_deckCardValidationClass(c, validationErrorNames)}" data-uid="${_deckCardDragKey(c)}" data-zone="${zone}" data-card-key="${getCardInventoryKey(c)}" data-card-name-key="${String(c.name || '').trim().toLowerCase().replace(/"/g, '&quot;')}" onpointerdown="_deckZoneCardPointerDown(event)" onclick="openCardDetail('${c.uid || c.scryfallId}','deck')">
+          <div class="deck-card-row deck-zone-draggable${own.notOwned ? ' not-owned' : ''}${_deckCardValidationClass(c, validationErrorNames)}${zone === 'add' ? ' is-planned-add' : ''}${zone === 'cut' ? ' is-planned-cut' : ''}" data-uid="${_deckCardDragKey(c)}" data-zone="${zone}" data-card-key="${getCardInventoryKey(c)}" data-card-name-key="${String(c.name || '').trim().toLowerCase().replace(/"/g, '&quot;')}" onpointerdown="_deckZoneCardPointerDown(event)" onclick="openCardDetail('${c.uid || c.scryfallId}','deck')">
             <span class="deck-card-name">${escapeHtml(c.name)}</span>${_deckRowOwnershipChipHtml(own)}
             <span style="display:flex;gap:5px;align-items:center">${sortColorsWUBRG(c.colors).map(col => `<img src="https://svgs.scryfall.io/card-symbols/${col}.svg" class="mana-pip" alt="${col}" title="${col}" draggable="false">`).join('')}</span>
-            <button class="btn btn-ghost btn-sm" title="Move to mainboard" style="font-size:0.65rem;padding:1px 6px" onclick="event.stopPropagation();moveToMainboard('${dk}','${zone}')">→ Main</button>
+            ${mainBtn}
             <div style="display:flex;align-items:center;gap:5px;margin-left:auto" onclick="event.stopPropagation()">
               <button class="btn btn-ghost btn-sm btn-icon" title="Remove one" onclick="${adjustFn}('${dk}',-1)">−</button>
               <span class="deck-list-qty">${c.qty||1}</span>
@@ -6431,17 +6752,40 @@ function renderDeckList(deck) {
   _renderCutSuggestions(deck);
   _renderAddSuggestions(deck);
   _bindDeckTagGroupHoverLinking(el, false);
+  _bindSwapZoneHoverLinking(el, false);
   const filteredCards = _applyDeckListFilter(deck.cards || []);
 
   const maybeboard = _deckMaybeBoard(deck);
   const matchSideboard = _deckMatchSideboardEnabled(deck) ? _deckMatchSideboard(deck) : [];
-  const hasExtra = maybeboard.length > 0 || matchSideboard.length > 0;
+  const swapsOn = _deckSwapsEnabled(deck);
+  if (swapsOn) _prunePlannedCuts(deck);
+  const plannedAdds = swapsOn ? _deckPlannedAdds(deck) : [];
+  const plannedCuts = swapsOn ? _deckPlannedCuts(deck) : [];
+  // Ghost copies of planned adds — shown in their deck-list groups but never counted
+  const addGhosts = swapsOn
+    ? _applyDeckListFilter(plannedAdds).map(c => ({ ...c, isCommander: false, _plannedAdd: true }))
+    : [];
+  const hasExtra = maybeboard.length > 0 || matchSideboard.length > 0 || plannedAdds.length > 0 || plannedCuts.length > 0;
   const validationErrorNames = _deckValidationErrorNameSet(deck);
   const poolHints = {
     mb: maybeboard,
     sb: matchSideboard,
     sbEnabled: _deckMatchSideboardEnabled(deck),
+    cuts: plannedCuts,
+    swapsEnabled: swapsOn,
     validationErrorNames,
+  };
+  const applySwapsHtml = swapsOn && !activeDeckIsShared && (plannedAdds.length || plannedCuts.length)
+    ? `<button type="button" class="deck-swaps-apply-btn" onclick="applyDeckSwaps()" title="Move all planned adds into the deck and remove all planned cuts">Apply swaps</button>`
+    : '';
+  const mergeAddGhostGroups = groups => {
+    if (!addGhosts.length) return groups;
+    for (const [g, arr] of Object.entries(_buildDeckGroups(addGhosts, deckGroupBy))) {
+      if (!arr.length) continue;
+      if (groups[g]) groups[g].push(...arr);
+      else groups[g] = arr;
+    }
+    return groups;
   };
 
   if (!deck.cards.length && !hasExtra) {
@@ -6459,28 +6803,32 @@ function renderDeckList(deck) {
 
   if (deckListView === 'grid') {
     if (isDeckOwnershipEnabled()) _rebuildOwnershipMaps();
-    const groups = _buildDeckGroups(filteredCards, deckGroupBy);
+    const groups = mergeAddGhostGroups(_buildDeckGroups(filteredCards, deckGroupBy));
     const entries = Object.entries(groups).filter(([, v]) => v.length > 0);
     const isVertical = deckStackOrient === 'vertical';
     const orientClass = isVertical ? ' vertical' : '';
 
     function _renderGroup([grp, cards], opts = {}) {
-      const total = cards.reduce((s, c) => s + (c.qty || 1), 0);
+      const total = cards.reduce((s, c) => s + (c._plannedAdd ? 0 : (c.qty || 1)), 0);
       const sorted = _deckStackSortCards(cards);
       const cardsCls = opts.cardsOnly ? ' deck-stack-group--cards' : '';
       const grpAttr = _deckStackGroupAttr(grp);
       return `
         <div class="deck-stack-group${cardsCls}" data-stack-group="${grpAttr}">
           <div class="deck-stack-group-label deck-stack-group-label--drag" title="Drag onto another group to swap positions" onpointerdown="_deckStackGroupPointerDown(event)">${escapeHtml(grp)} <span class="deck-stack-group-count">(${total})</span></div>
-          <div class="deck-stack-cards${orientClass}">${sorted.map(c => _stackTile(c, 'main', poolHints)).join('')}</div>
+          <div class="deck-stack-cards${orientClass}">${sorted.map(c => _stackTile(c, c._plannedAdd ? 'add' : 'main', poolHints)).join('')}</div>
         </div>`;
     }
 
     const zoneInner = _renderDeckExtraZoneGrid(deck, 'mb', 'Maybe board', maybeboard, ' vertical', 'No maybe board cards — click → MB on any card to add it', poolHints) +
       (_deckMatchSideboardEnabled(deck)
         ? _renderDeckExtraZoneGrid(deck, 'sb', 'Sideboard', matchSideboard, ' vertical', 'No sideboard cards — click → SB on any card to add it', poolHints)
+        : '') +
+      (swapsOn
+        ? _renderDeckExtraZoneGrid(deck, 'add', 'Adds', plannedAdds, ' vertical', 'No planned adds — drag cards here from search or the maybe board', poolHints) +
+          _renderDeckExtraZoneGrid(deck, 'cut', 'Cuts', plannedCuts, ' vertical', 'No planned cuts — drag deck cards here to mark them', poolHints)
         : '');
-    const extraZonesHtml = _deckExtraZonesWrapOpenHtml(deck, zoneInner);
+    const extraZonesHtml = _deckExtraZonesWrapOpenHtml(deck, zoneInner + applySwapsHtml);
     const layout = _deckStackZoneLayout(el, deck, isVertical);
 
     if (isVertical) {
@@ -6524,6 +6872,8 @@ function renderDeckList(deck) {
         const z = removeBtn.dataset.zone;
         if (z === 'mb') removeFromSideboard(removeBtn.dataset.uid);
         else if (z === 'sb') removeFromMatchSideboard(removeBtn.dataset.uid);
+        else if (z === 'add') removeFromPlannedAdds(removeBtn.dataset.uid);
+        else if (z === 'cut') removeFromPlannedCuts(removeBtn.dataset.uid);
         else removeFromDeck(removeBtn.dataset.uid);
         return;
       }
@@ -6532,7 +6882,9 @@ function renderDeckList(deck) {
         const uid = swapBtn.dataset.uid;
         const fromZone = swapBtn.dataset.swapZone;
         const tileZone = swapBtn.closest('.deck-stack-card')?.dataset?.zone;
-        if (tileZone && tileZone !== 'main') moveToMainboard(uid, tileZone);
+        if (tileZone === 'add') commitPlannedAdd(uid);
+        else if (tileZone === 'cut') unmarkPlannedCut(uid);
+        else if (tileZone && tileZone !== 'main') moveToMainboard(uid, tileZone);
         else if (fromZone === 'sb') moveToMatchSideboard(uid);
         else moveToSideboard(uid);
         return;
@@ -6549,6 +6901,7 @@ function renderDeckList(deck) {
 
     _attachDeckDragHandlers(el);
     _bindDeckTagGroupHoverLinking(el, _isTagGroupByMode(deckGroupBy));
+    _bindSwapZoneHoverLinking(el, swapsOn);
     _syncDeckStackLayoutResetBtn(deck);
     _scheduleDeckTokensRefresh(deck);
     return;
@@ -6558,26 +6911,49 @@ function renderDeckList(deck) {
   if (isDeckOwnershipEnabled()) _rebuildOwnershipMaps();
 
   // List view — grouped by selected mode
-  const groups = _buildDeckGroups(filteredCards, deckGroupBy || 'type');
+  const groups = mergeAddGhostGroups(_buildDeckGroups(filteredCards, deckGroupBy || 'type'));
   const listZoneInner = _renderDeckExtraZoneList(deck, 'mb', 'Maybe board', maybeboard, 'No maybe board cards — click → MB on any card above to add it', validationErrorNames) +
     (_deckMatchSideboardEnabled(deck)
       ? _renderDeckExtraZoneList(deck, 'sb', 'Sideboard', matchSideboard, 'No sideboard cards — click → SB on any card above to add it', validationErrorNames)
+      : '') +
+    (swapsOn
+      ? _renderDeckExtraZoneList(deck, 'add', 'Adds', plannedAdds, 'No planned adds — drag cards here from search or the maybe board', validationErrorNames) +
+        _renderDeckExtraZoneList(deck, 'cut', 'Cuts', plannedCuts, 'No planned cuts — drag deck cards here to mark them', validationErrorNames)
       : '');
-  const extraListHtml = _deckExtraZonesWrapOpenHtml(deck, listZoneInner, 'deck-extra-zones-wrap--list');
+  const extraListHtml = _deckExtraZonesWrapOpenHtml(deck, listZoneInner + applySwapsHtml, 'deck-extra-zones-wrap--list');
   el.onclick = e => {
     if (_deckConsumeSuppressClick()) return;
     if (_handleDeckExtraZoneToggleClick(e)) return;
   };
   const mainListHtml = (Object.entries(groups).filter(([, v]) => v.length > 0).map(([grp, cards]) => `
-    <div class="deck-list-group-head deck-list-group-head--main">${escapeHtml(grp)} (${cards.reduce((s,c)=>s+c.qty,0)})</div>
+    <div class="deck-list-group-head deck-list-group-head--main">${escapeHtml(grp)} (${cards.reduce((s,c)=>s+(c._plannedAdd?0:c.qty),0)})</div>
     ${_deckStackSortCards(cards).map(c => {
+      if (c._plannedAdd) {
+        const dkAdd = _deckCardDragKey(c).replace(/'/g, "\\'");
+        const ownAdd = _deckCardOwnership(c);
+        return `
+      <div class="deck-card-row deck-zone-draggable is-planned-add${ownAdd.notOwned ? ' not-owned' : ''}" data-uid="${_deckCardDragKey(c)}" data-zone="add" data-card-key="${getCardInventoryKey(c)}" data-card-name-key="${String(c.name || '').trim().toLowerCase().replace(/"/g, '&quot;')}" onpointerdown="_deckZoneCardPointerDown(event)" onclick="openCardDetail('${c.uid || c.scryfallId}','deck')">
+        <span class="deck-card-name">${escapeHtml(c.name)}</span><span class="deck-row-add-flag" title="Planned add — not counted in the deck">ADD</span>${_deckRowOwnershipChipHtml(ownAdd)}
+        <span style="display:flex;gap:5px;align-items:center">${sortColorsWUBRG(c.colors).map(col => `<img src="https://svgs.scryfall.io/card-symbols/${col}.svg" class="mana-pip" alt="${col}" title="${col}">`).join('')}</span>
+        <button class="btn btn-ghost btn-sm" title="Move into the deck now" style="font-size:0.65rem;padding:1px 6px" onclick="event.stopPropagation();commitPlannedAdd('${dkAdd}')">→ Main</button>
+        <div style="display:flex;align-items:center;gap:5px;margin-left:auto" onclick="event.stopPropagation()">
+          <button class="btn btn-ghost btn-sm btn-icon" title="Remove one" onclick="adjustPlannedAddQtyByUid('${dkAdd}',-1)">−</button>
+          <span class="deck-list-qty">${c.qty||1}</span>
+          <button class="btn btn-ghost btn-sm btn-icon" title="Add one" onclick="adjustPlannedAddQtyByUid('${dkAdd}',1)">+</button>
+        </div>
+      </div>`;
+      }
       const mbRow = _maybeBoardQtyForDeckSlot(maybeboard, getCardInventoryKey(c));
       const sbRow = _matchSideboardQtyForDeckSlot(matchSideboard, getCardInventoryKey(c));
+      const cutRow = swapsOn ? _plannedCutQtyForDeckSlot(plannedCuts, getCardInventoryKey(c)) : 0;
       const mbRowHtml = mbRow > 0
         ? `<span class="deck-row-mb-pool" title="Same printing on maybe board">MB ×${mbRow}</span>`
         : '';
       const sbRowHtml = sbRow > 0
         ? `<span class="deck-row-sb-pool" title="Same printing on sideboard">SB ×${sbRow}</span>`
+        : '';
+      const cutRowHtml = cutRow > 0
+        ? `<span class="deck-row-cut-flag" title="Planned cut — still in the deck">CUT${(c.qty || 1) > 1 ? ` ×${cutRow}` : ''}</span>`
         : '';
       const rowTags = typeof _getGlobalCustomTagsForCard === 'function'
         ? _getGlobalCustomTagsForCard(c)
@@ -6592,10 +6968,10 @@ function renderDeckList(deck) {
       const rowOwn = _deckCardOwnership(c);
       const ownChipHtml = _deckRowOwnershipChipHtml(rowOwn);
       return `
-      <div class="deck-card-row deck-zone-draggable${rowOwn.notOwned ? ' not-owned' : ''}${rowIsGc ? ' is-game-changer' : ''}${_deckCardValidationClass(c, validationErrorNames)}" data-uid="${_deckCardDragKey(c)}" data-zone="main" data-card-key="${getCardInventoryKey(c)}" data-card-name-key="${String(c.name || '').trim().toLowerCase().replace(/"/g, '&quot;')}" onpointerdown="_deckZoneCardPointerDown(event)" onclick="openCardDetail('${c.uid || c.scryfallId}','deck')">
+      <div class="deck-card-row deck-zone-draggable${rowOwn.notOwned ? ' not-owned' : ''}${rowIsGc ? ' is-game-changer' : ''}${cutRow > 0 ? ' is-planned-cut' : ''}${_deckCardValidationClass(c, validationErrorNames)}" data-uid="${_deckCardDragKey(c)}" data-zone="main" data-card-key="${getCardInventoryKey(c)}" data-card-name-key="${String(c.name || '').trim().toLowerCase().replace(/"/g, '&quot;')}" onpointerdown="_deckZoneCardPointerDown(event)" onclick="openCardDetail('${c.uid || c.scryfallId}','deck')">
         <span class="deck-card-name">${escapeHtml(c.name)}</span>${gcRowHtml}${ownChipHtml}${rowTagHtml}
         ${_defaultTagBadgeHtml(c)}<span style="display:flex;gap:5px;align-items:center">${sortColorsWUBRG(c.colors).map(col => `<img src="https://svgs.scryfall.io/card-symbols/${col}.svg" class="mana-pip" alt="${col}" title="${col}">`).join('')}</span>
-        ${mbRowHtml}${sbRowHtml}
+        ${mbRowHtml}${sbRowHtml}${cutRowHtml}
         <button class="btn btn-ghost btn-sm btn-icon" title="Edit My Tags" onclick="event.stopPropagation();openGlobalTagPickerForCard('${c.uid || c.scryfallId || ''}')">🏷</button>
         <button class="btn btn-ghost btn-sm btn-icon" title="Change printing" onclick="event.stopPropagation();openVersionPicker('${activeDeckId}','${c.uid || c.scryfallId || ''}','${(c.name || '').replace(/'/g, "\\'")}')">⟳</button>
         <button class="btn btn-ghost btn-sm" title="Move to maybe board" style="font-size:0.65rem;padding:1px 6px" onclick="event.stopPropagation();moveToSideboard('${c.uid || ''}')">→ MB</button>
@@ -6612,6 +6988,7 @@ function renderDeckList(deck) {
 
   _attachDeckDragHandlers(el);
   _bindDeckTagGroupHoverLinking(el, _isTagGroupByMode(deckGroupBy));
+  _bindSwapZoneHoverLinking(el, swapsOn);
   _syncDeckStackLayoutResetBtn(deck);
   _scheduleDeckTokensRefresh(deck);
 }
@@ -8727,11 +9104,12 @@ function _matchesDeckSearchRoleFilters(cardLike, isApi = false) {
   return [..._deckSearchRoleFilters].every(f => tags.includes(f));
 }
 
-function _cardTile(name, img, inDeck, inCollection, inv, addFn, inMaybeBoard = false, mbAddFn = null, mbAlsoOnDeck = 0, inMatchSb = false, matchSbAddFn = null) {
+function _cardTile(name, img, inDeck, inCollection, inv, addFn, inMaybeBoard = false, mbAddFn = null, mbAlsoOnDeck = 0, inMatchSb = false, matchSbAddFn = null, inAdds = false) {
   const ownershipOn = isDeckOwnershipEnabled();
   const unavailable = ownershipOn && inCollection && (inv?.available || 0) <= 0 && !inDeck;
   const border = inDeck
     ? '2px solid var(--teal)'
+    : inAdds ? '2px solid var(--green)'
     : (inMaybeBoard || inMatchSb) ? '2px solid var(--gold)'
     : (ownershipOn && unavailable) ? '2px solid var(--red)'
     : (ownershipOn && inCollection) ? '2px solid var(--gold)' : '1px solid var(--border)';
@@ -8746,11 +9124,13 @@ function _cardTile(name, img, inDeck, inCollection, inv, addFn, inMaybeBoard = f
               justify-content:center;font-size:0.6rem;padding:4px;text-align:center;color:var(--text2)">${escapeHtml(name)}</div>`}
         ${inDeck ? `<div style="position:absolute;bottom:2px;right:2px;background:var(--teal);color:#000;
           font-size:0.5rem;font-weight:700;padding:1px 4px;border-radius:3px">IN DECK</div>` : ''}
-        ${inMaybeBoard && !inDeck ? `<div style="position:absolute;bottom:2px;right:2px;background:var(--gold);color:#000;
+        ${inAdds && !inDeck ? `<div style="position:absolute;bottom:2px;right:2px;background:var(--green);color:#000;
+          font-size:0.5rem;font-weight:700;padding:1px 4px;border-radius:3px">IN ADDS</div>` : ''}
+        ${inMaybeBoard && !inDeck && !inAdds ? `<div style="position:absolute;bottom:2px;right:2px;background:var(--gold);color:#000;
           font-size:0.5rem;font-weight:700;padding:1px 4px;border-radius:3px">IN MB</div>` : ''}
-        ${inMatchSb && !inDeck && !inMaybeBoard ? `<div style="position:absolute;bottom:2px;right:2px;background:var(--blue);color:#fff;
+        ${inMatchSb && !inDeck && !inMaybeBoard && !inAdds ? `<div style="position:absolute;bottom:2px;right:2px;background:var(--blue);color:#fff;
           font-size:0.5rem;font-weight:700;padding:1px 4px;border-radius:3px">IN SB</div>` : ''}
-        ${ownershipOn && unavailable && !inMaybeBoard && !inMatchSb ? `<div style="position:absolute;bottom:2px;right:2px;background:var(--red);color:#fff;
+        ${ownershipOn && unavailable && !inMaybeBoard && !inMatchSb && !inAdds ? `<div style="position:absolute;bottom:2px;right:2px;background:var(--red);color:#fff;
           font-size:0.5rem;font-weight:700;padding:1px 4px;border-radius:3px">IN OTHER DECKS</div>` : ''}
         ${mbAddFn ? `<button class="deck-search-sb-btn deck-search-mb-btn" data-sb-add="${mbAddFn}" title="Add to maybe board">→ MB</button>` : ''}
         ${matchSbAddFn ? `<button class="deck-search-sb-btn deck-search-match-sb-btn" data-match-sb-add="${matchSbAddFn}" title="Add to sideboard">→ SB</button>` : ''}
@@ -8770,6 +9150,10 @@ function _renderDeckSearchGrid() {
   const inMaybeBoardNames = new Set(_deckMaybeBoard(deck).map(c => c.name.toLowerCase()));
   const inMatchSbNames = new Set(_deckMatchSideboard(deck).map(c => c.name.toLowerCase()));
   const sbEnabled = _deckMatchSideboardEnabled(deck);
+  const swapsOn = _deckSwapsEnabled(deck);
+  const inAddsNames = swapsOn
+    ? new Set(_deckPlannedAdds(deck).map(c => c.name.toLowerCase()))
+    : new Set();
   const collectionByScryId = {};
   _ownershipCollection().forEach(c => { if (c.scryfallId) collectionByScryId[c.scryfallId] = c; });
 
@@ -8783,7 +9167,8 @@ function _renderDeckSearchGrid() {
     const mbAlso = inDeck ? _maybeBoardQtyForCardName(deck, c.name) : 0;
     const mbAddFn = `addToSideboard:${c.uid}`;
     const matchSbAddFn = sbEnabled ? `addToMatchSideboard:${c.uid}` : null;
-    return _cardTile(c.name, c.image, inDeck, true, inv, `addToDeck:${c.uid}`, inMb, mbAddFn, mbAlso, inSb, matchSbAddFn);
+    const inAdds = swapsOn && inAddsNames.has(c.name.toLowerCase());
+    return _cardTile(c.name, c.image, inDeck, true, inv, `addToDeck:${c.uid}`, inMb, mbAddFn, mbAlso, inSb, matchSbAddFn, inAdds);
   }).join('');
 
   const apiHtml = _deckSearchApi
@@ -8801,7 +9186,8 @@ function _renderDeckSearchGrid() {
       ? (owned ? `addToMatchSideboard:${owned.uid}` : `addScryfallToMatchSideboard:${c.id}`)
       : null;
     const mbAlso = inDeck ? _maybeBoardQtyForCardName(deck, c.name) : 0;
-    return _cardTile(c.name, img, inDeck, !!owned, inv, addFn, inMb, mbAddFn, mbAlso, inSb, matchSbAddFn);
+    const inAdds = swapsOn && inAddsNames.has(c.name.toLowerCase());
+    return _cardTile(c.name, img, inDeck, !!owned, inv, addFn, inMb, mbAddFn, mbAlso, inSb, matchSbAddFn, inAdds);
   }).join('');
 
   el.innerHTML = (localHtml + apiHtml) ||
@@ -8829,6 +9215,7 @@ function _renderDeckSearchGrid() {
     if (type === 'addToDeck') addToDeck(id);
     else if (type === 'addScryfall') addScryfallCardToDeck(id);
   };
+  el.onpointerdown = _deckSearchTilePointerDown;
 }
 
 async function runDeckSearch(q) {
@@ -9003,7 +9390,14 @@ function findSideboardCardSlot(deck, card) {
 function _deckZonePool(deck, zone) {
   if (zone === 'sb') return _deckMatchSideboard(deck);
   if (zone === 'mb') return _deckMaybeBoard(deck);
+  if (zone === 'add') return _deckPlannedAdds(deck);
+  if (zone === 'cut') return _deckPlannedCuts(deck);
   return deck.cards || [];
+}
+
+function _findDeckZoneSlot(deck, zone, card) {
+  const key = getCardInventoryKey(card);
+  return _deckZonePool(deck, zone).find(c => getCardInventoryKey(c) === key);
 }
 
 /** When tagging a collection card to a deck (TAG TO DECK), mirror one copy in that deck’s maybe board. */
@@ -9033,13 +9427,14 @@ function syncDeckSideboardForCollectionTag(deckId, collectionCard, tagged) {
 
 function _addCardToDeckZone(deck, card, zone, notifyLabel) {
   const pool = _deckZonePool(deck, zone);
-  const findSlot = zone === 'sb' ? findMatchSideboardCardSlot : findMaybeBoardCardSlot;
-  const existing = findSlot(deck, card);
-  if (existing) { existing.qty++; recordDeckEvent('qty_change_sb', existing); }
+  const planning = _deckZoneIsPlanning(zone); // planning zones don't write deck history
+  const existing = _findDeckZoneSlot(deck, zone, card);
+  if (existing) { existing.qty++; if (!planning) recordDeckEvent('qty_change_sb', existing); }
   else {
     const c = { ...card, uid: getCardInventoryKey(card), qty: 1 };
+    delete c._plannedAdd;
     pool.push(c);
-    recordDeckEvent('add_sb', c);
+    if (!planning) recordDeckEvent('add_sb', c);
   }
   saveActiveDeck(deck);
   renderActiveDeck();
@@ -9114,31 +9509,42 @@ function toggleDeckCardFoil(uid, zone) {
 
 function _removeFromDeckZone(deck, uid, zone) {
   const pool = _deckZonePool(deck, zone);
+  const planning = _deckZoneIsPlanning(zone);
   const c = pool.find(card => getCardInventoryKey(card) === uid || card.uid === uid);
   if (!c) return;
-  if (c.qty > 1) { c.qty--; recordDeckEvent('qty_change_sb', c); }
-  else { recordDeckEvent('remove_sb', c); const i = pool.indexOf(c); if (i >= 0) pool.splice(i, 1); }
+  if (c.qty > 1) { c.qty--; if (!planning) recordDeckEvent('qty_change_sb', c); }
+  else { if (!planning) recordDeckEvent('remove_sb', c); const i = pool.indexOf(c); if (i >= 0) pool.splice(i, 1); }
   saveActiveDeck(deck);
   renderActiveDeck();
 }
 
 function removeFromSideboard(uid) { _removeFromDeckZone(getActiveDeck(), uid, 'mb'); }
 function removeFromMatchSideboard(uid) { _removeFromDeckZone(getActiveDeck(), uid, 'sb'); }
+function removeFromPlannedAdds(uid) { _removeFromDeckZone(getActiveDeck(), uid, 'add'); }
+function removeFromPlannedCuts(uid) { _removeFromDeckZone(getActiveDeck(), uid, 'cut'); }
 
 function _adjustDeckZoneQtyByUid(uid, delta, zone) {
   const deck = getActiveDeck();
   if (!deck) return;
   const pool = _deckZonePool(deck, zone);
+  const planning = _deckZoneIsPlanning(zone);
   const card = pool.find(c => getCardInventoryKey(c) === uid || c.uid === uid);
   if (!card) return;
+  if (delta > 0 && zone === 'cut') {
+    // Can't plan to cut more copies than the deck actually holds
+    const deckQty = (deck.cards || [])
+      .filter(c => getCardInventoryKey(c) === getCardInventoryKey(card))
+      .reduce((s, c) => s + (c.qty || 1), 0);
+    if ((card.qty || 1) + delta > deckQty) return;
+  }
   if (delta > 0) {
     card.qty = (card.qty || 0) + delta;
-    recordDeckEvent('qty_change_sb', card);
+    if (!planning) recordDeckEvent('qty_change_sb', card);
   } else if ((card.qty || 1) > 1) {
     card.qty += delta;
-    recordDeckEvent('qty_change_sb', card);
+    if (!planning) recordDeckEvent('qty_change_sb', card);
   } else {
-    recordDeckEvent('remove_sb', card);
+    if (!planning) recordDeckEvent('remove_sb', card);
     const i = pool.indexOf(card);
     if (i >= 0) pool.splice(i, 1);
   }
@@ -9149,6 +9555,8 @@ function _adjustDeckZoneQtyByUid(uid, delta, zone) {
 
 function adjustSideboardCardQtyByUid(uid, delta) { _adjustDeckZoneQtyByUid(uid, delta, 'mb'); }
 function adjustMatchSideboardCardQtyByUid(uid, delta) { _adjustDeckZoneQtyByUid(uid, delta, 'sb'); }
+function adjustPlannedAddQtyByUid(uid, delta) { _adjustDeckZoneQtyByUid(uid, delta, 'add'); }
+function adjustPlannedCutQtyByUid(uid, delta) { _adjustDeckZoneQtyByUid(uid, delta, 'cut'); }
 
 function _moveMainToDeckZone(uid, zone, label) {
   const deck = getActiveDeck();
@@ -9186,7 +9594,7 @@ function moveToMainboard(uid, fromZone = 'mb') {
   showNotif(snapshot.name + ' moved to mainboard');
 }
 
-const _DECK_ZONE_LABELS = { mb: 'maybe board', sb: 'sideboard' };
+const _DECK_ZONE_LABELS = { mb: 'maybe board', sb: 'sideboard', add: 'planned adds', cut: 'planned cuts' };
 
 function moveBetweenDeckZones(uid, fromZone, toZone) {
   const deck = getActiveDeck();
@@ -9211,6 +9619,260 @@ function moveBetweenDeckZones(uid, fromZone, toZone) {
   saveActiveDeck(deck);
   renderActiveDeck();
   showNotif(snapshot.name + ' moved to ' + (_DECK_ZONE_LABELS[toZone] || toZone));
+}
+
+// ── Adds & Cuts planning actions ─────────────────────────────────────────────
+
+function _deckMainboardQtyForKey(deck, key) {
+  return (deck.cards || [])
+    .filter(c => getCardInventoryKey(c) === key)
+    .reduce((s, c) => s + (c.qty || 1), 0);
+}
+
+function _plannedCutQtyForDeckSlot(pool, cardKey) {
+  if (!cardKey || !pool?.length) return 0;
+  return pool
+    .filter(c => getCardInventoryKey(c) === cardKey)
+    .reduce((s, c) => s + (c.qty || 1), 0);
+}
+
+/** Drop cut markers whose mainboard card is gone; clamp qty and re-point to the current printing. */
+function _prunePlannedCuts(deck) {
+  const cuts = _deckPlannedCuts(deck);
+  if (!cuts.length) return;
+  const kept = [];
+  for (const slot of cuts) {
+    const key = getCardInventoryKey(slot);
+    let main = (deck.cards || []).find(c => getCardInventoryKey(c) === key);
+    if (!main) main = (deck.cards || []).find(c => !c.isCommander && (c.name || '').toLowerCase() === (slot.name || '').toLowerCase());
+    if (!main || main.isCommander) continue;
+    const q = Math.min(slot.qty || 1, main.qty || 1);
+    if (getCardInventoryKey(main) !== key) kept.push({ ...main, uid: getCardInventoryKey(main), qty: q });
+    else if (q !== (slot.qty || 1)) kept.push({ ...slot, qty: q });
+    else kept.push(slot);
+  }
+  deck.cuts = kept;
+}
+
+/** Mark one copy of a mainboard card as a planned cut — the card stays in the deck. */
+function markPlannedCut(uid) {
+  const deck = getActiveDeck();
+  if (!deck || !_deckSwapsEnabled(deck)) return;
+  const card = deck.cards.find(c => getCardInventoryKey(c) === uid || c.uid === uid);
+  if (!card) return;
+  if (card.isCommander) { showNotif("The commander can't be marked as a cut", true); return; }
+  const deckQty = _deckMainboardQtyForKey(deck, getCardInventoryKey(card));
+  const existing = _findDeckZoneSlot(deck, 'cut', card);
+  if (existing) {
+    if ((existing.qty || 1) >= deckQty) { showNotif('All copies of ' + card.name + ' are already marked as cuts'); return; }
+    existing.qty = (existing.qty || 1) + 1;
+  } else {
+    _deckPlannedCuts(deck).push({ ...card, uid: getCardInventoryKey(card), qty: 1 });
+  }
+  saveActiveDeck(deck);
+  renderActiveDeck();
+  showNotif(card.name + ' marked as a cut');
+}
+
+function unmarkPlannedCut(uid) {
+  const deck = getActiveDeck();
+  if (!deck) return;
+  const pool = _deckPlannedCuts(deck);
+  const slot = pool.find(c => getCardInventoryKey(c) === uid || c.uid === uid);
+  if (!slot) return;
+  if ((slot.qty || 1) > 1) slot.qty--;
+  else { const i = pool.indexOf(slot); if (i >= 0) pool.splice(i, 1); }
+  saveActiveDeck(deck);
+  renderActiveDeck();
+  showNotif(slot.name + ' kept — cut marker removed');
+}
+
+/** Move one copy of a planned add into the deck for real. */
+function commitPlannedAdd(uid) {
+  const deck = getActiveDeck();
+  if (!deck) return;
+  const pool = _deckPlannedAdds(deck);
+  const slot = pool.find(c => getCardInventoryKey(c) === uid || c.uid === uid);
+  if (!slot) return;
+  const snap = { ...slot };
+  if ((slot.qty || 1) > 1) slot.qty--;
+  else { const i = pool.indexOf(slot); if (i >= 0) pool.splice(i, 1); }
+  const existing = findDeckCardSlot(deck, snap);
+  if (existing) { existing.qty++; recordDeckEvent('qty_change', existing); }
+  else {
+    const c = { ...snap, uid: getCardInventoryKey(snap), qty: 1 };
+    delete c._plannedAdd;
+    deck.cards.push(c);
+    recordDeckEvent('add', c);
+  }
+  saveActiveDeck(deck);
+  renderActiveDeck();
+  scheduleEDHRECRefresh();
+  showNotif(snap.name + ' added to deck');
+}
+
+/** Move a card between the planned-adds pool and the maybe board / sideboard (no history — planning only). */
+function _movePlanningZoneCard(uid, fromZone, toZone) {
+  const deck = getActiveDeck();
+  if (!deck || fromZone === toZone) return;
+  if ((fromZone === 'add' || toZone === 'add') && !_deckSwapsEnabled(deck)) return;
+  if (toZone === 'sb' && !_deckMatchSideboardEnabled(deck)) return;
+  const fromPool = _deckZonePool(deck, fromZone);
+  const card = fromPool.find(c => getCardInventoryKey(c) === uid || c.uid === uid);
+  if (!card) return;
+  const snap = { ...card };
+  if (card.qty > 1) card.qty--;
+  else { const i = fromPool.indexOf(card); if (i >= 0) fromPool.splice(i, 1); }
+  const existing = _findDeckZoneSlot(deck, toZone, snap);
+  if (existing) existing.qty++;
+  else _deckZonePool(deck, toZone).push({ ...snap, qty: 1 });
+  saveActiveDeck(deck);
+  renderActiveDeck();
+  showNotif(snap.name + ' moved to ' + (_DECK_ZONE_LABELS[toZone] || toZone));
+}
+
+function addToAdds(uid) {
+  const deck = getActiveDeck();
+  if (!deck || !_deckSwapsEnabled(deck)) return;
+  const pool = _ownershipCollection();
+  const card = window.Ownership?.findByRef
+    ? window.Ownership.findByRef(pool, uid)
+    : pool.find(c => c.uid === uid);
+  if (!card) return;
+  _addCardToDeckZone(deck, card, 'add', 'planned adds');
+}
+
+async function addScryfallCardToAdds(scryfallId) {
+  const deck = getActiveDeck();
+  if (!deck || !_deckSwapsEnabled(deck)) return;
+  const pool = _ownershipCollection();
+  let card = window.Ownership?.preferredOwnedPrinting
+    ? window.Ownership.preferredOwnedPrinting(pool, scryfallId)
+    : (pool.find(c => c.scryfallId === scryfallId && !c.foil) || pool.find(c => c.scryfallId === scryfallId));
+  if (!card) {
+    const sc = await fetchCardById(scryfallId);
+    if (!sc) { showNotif('Failed to fetch card', true); return; }
+    card = cardToEntry(sc, 0);
+  }
+  _addCardToDeckZone(deck, card, 'add', 'planned adds');
+  _renderDeckSearchGrid();
+}
+
+/** Commit the whole plan: adds go into the deck, cuts come out, both sections clear. */
+async function applyDeckSwaps() {
+  const deck = getActiveDeck();
+  if (!deck || activeDeckIsShared || !_deckSwapsEnabled(deck)) return;
+  _prunePlannedCuts(deck);
+  const adds = _deckPlannedAdds(deck).slice();
+  const cuts = _deckPlannedCuts(deck).slice();
+  if (!adds.length && !cuts.length) return;
+  const addQty = adds.reduce((s, c) => s + (c.qty || 1), 0);
+  const cutQty = cuts.reduce((s, c) => s + (c.qty || 1), 0);
+  const parts = [];
+  if (addQty) parts.push(`add ${addQty} card${addQty === 1 ? '' : 's'}`);
+  if (cutQty) parts.push(`cut ${cutQty} card${cutQty === 1 ? '' : 's'}`);
+  const ok = await showConfirmModal({
+    title: 'Apply swaps',
+    body: `This will ${parts.join(' and ')} and clear both sections. Apply now?`,
+    okLabel: 'Apply',
+  });
+  if (!ok) return;
+  for (const slot of adds) {
+    const existing = findDeckCardSlot(deck, slot);
+    if (existing) { existing.qty = (existing.qty || 1) + (slot.qty || 1); recordDeckEvent('qty_change', existing); }
+    else {
+      const c = { ...slot, uid: getCardInventoryKey(slot), qty: slot.qty || 1 };
+      delete c._plannedAdd;
+      deck.cards.push(c);
+      recordDeckEvent('add', c);
+    }
+  }
+  for (const slot of cuts) {
+    const key = getCardInventoryKey(slot);
+    const main = deck.cards.find(c => getCardInventoryKey(c) === key)
+      || deck.cards.find(c => !c.isCommander && (c.name || '').toLowerCase() === (slot.name || '').toLowerCase());
+    if (!main || main.isCommander) continue;
+    const remaining = (main.qty || 1) - (slot.qty || 1);
+    if (remaining > 0) { main.qty = remaining; recordDeckEvent('qty_change', main); }
+    else { recordDeckEvent('remove', main); deck.cards = deck.cards.filter(c => c !== main); }
+  }
+  deck.adds = [];
+  deck.cuts = [];
+  saveActiveDeck(deck);
+  renderActiveDeck();
+  scheduleEDHRECRefresh();
+  showNotif(`Swaps applied — ${addQty} in, ${cutQty} out`);
+}
+window.applyDeckSwaps = applyDeckSwaps;
+
+// ── Adds & Cuts from the card inspector (the only entry point on phones, where zone drag is off) ──
+
+const _SWAP_CUT_ICON = '<svg class="tf-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="4" cy="4.5" r="1.8"/><circle cx="4" cy="11.5" r="1.8"/><path d="M5.6 5.7 13.5 13"/><path d="M5.6 10.3 13.5 3"/></svg>';
+const _SWAP_KEEP_ICON = '<svg class="tf-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.2 3.2L13 5"/></svg>';
+const _SWAP_ADD_ICON = '<svg class="tf-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>';
+
+/** Inspector buttons for the Adds & Cuts planning zones. Rendered by _htmlCardDetailPrimaryActionsInner. */
+function _htmlCardDetailSwapActionsInner(ctx) {
+  const deck = ctx?.activeDeck;
+  if (!deck || !_isDeckBuilderMainTabActive() || !_deckSwapsEnabled(deck)) return '';
+  if (typeof canEditActiveDeck === 'function' && !canEditActiveDeck()) return '';
+  const card = ctx.card;
+  if (!card) return '';
+  const key = getCardInventoryKey(card);
+  const esc = String(ctx.actionUid || key).replace(/'/g, "\\'");
+  const find = zone => _deckZonePool(deck, zone).find(c => getCardInventoryKey(c) === key);
+  const inMain = (deck.cards || []).find(c => getCardInventoryKey(c) === key);
+  const inMb = find('mb');
+  const inSb = find('sb');
+  const inAdds = find('add');
+  const cutSlot = find('cut');
+  const cutQty = cutSlot ? (cutSlot.qty || 1) : 0;
+  const btns = [];
+  if (inMain && !inMain.isCommander) {
+    if (cutQty < (inMain.qty || 1)) {
+      btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--red);border-color:var(--red)" title="Plan to cut this card — it stays in the deck until you apply swaps" onclick="markPlannedCutFromDetail('${esc}')">${_SWAP_CUT_ICON} Mark as cut</button>`);
+    }
+    if (cutQty > 0) {
+      btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--green);border-color:var(--green)" title="Remove the cut marker" onclick="unmarkPlannedCutFromDetail('${esc}')">${_SWAP_KEEP_ICON} Keep in deck</button>`);
+    }
+  }
+  if (inMb) btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--green);border-color:var(--green)" title="Move from the maybe board to planned adds" onclick="movePoolToAddsFromDetail('${esc}','mb')">${_SWAP_ADD_ICON} To Adds</button>`);
+  if (inSb) btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--green);border-color:var(--green)" title="Move from the sideboard to planned adds" onclick="movePoolToAddsFromDetail('${esc}','sb')">${_SWAP_ADD_ICON} To Adds</button>`);
+  if (inAdds) {
+    btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--green);border-color:var(--green)" title="Move into the deck now" onclick="commitPlannedAddFromDetail('${esc}')">${_SWAP_ADD_ICON} Adds → Main</button>`);
+    btns.push(`<button class="btn btn-outline btn-sm" title="Remove from planned adds" onclick="removeFromPlannedAddsFromDetail('${esc}')">Remove from Adds</button>`);
+  } else if (!inMain && !inMb && !inSb) {
+    btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--green);border-color:var(--green)" title="Plan to add this card — it shows in the deck list but isn't counted until you apply swaps" onclick="addToAddsFromDetail('${esc}')">${_SWAP_ADD_ICON} To Adds</button>`);
+  }
+  return btns.join('\n               ');
+}
+
+function _refreshCardDetailAfterSwapAction(uid) {
+  if (document.getElementById('cardDetailModal')?.classList.contains('open')) openCardDetail(uid, 'deck');
+}
+
+function markPlannedCutFromDetail(uid) { markPlannedCut(uid); _refreshCardDetailAfterSwapAction(uid); }
+function unmarkPlannedCutFromDetail(uid) { unmarkPlannedCut(uid); _refreshCardDetailAfterSwapAction(uid); }
+function movePoolToAddsFromDetail(uid, fromZone) { _movePlanningZoneCard(uid, fromZone, 'add'); _refreshCardDetailAfterSwapAction(uid); }
+function commitPlannedAddFromDetail(uid) { commitPlannedAdd(uid); _refreshCardDetailAfterSwapAction(uid); }
+function removeFromPlannedAddsFromDetail(uid) { removeFromPlannedAdds(uid); _refreshCardDetailAfterSwapAction(uid); }
+
+/** "To Adds" for a card that isn't in the deck yet — owned copy preferred, Scryfall fallback. */
+async function addToAddsFromDetail(ref) {
+  const deck = getActiveDeck();
+  if (!deck || !_deckSwapsEnabled(deck)) return;
+  const pool = _ownershipCollection();
+  let card = window.Ownership?.findByRef
+    ? window.Ownership.findByRef(pool, ref)
+    : pool.find(c => c.uid === ref);
+  if (!card) {
+    const sid = String(ref).replace(/_[nf]$/, '');
+    const sc = await fetchCardById(sid);
+    if (!sc) { showNotif('Failed to fetch card', true); return; }
+    card = cardToEntry(sc, 0);
+  }
+  _addCardToDeckZone(deck, card, 'add', 'planned adds');
+  _refreshCardDetailAfterSwapAction(ref);
 }
 
 async function deleteDeck() {
@@ -10104,6 +10766,9 @@ async function buildSkeletonDeckFromInspectorCard(cardRef) {
     maybeboard: [],
     sideboard: [],
     sideboardEnabled: false,
+    adds: [],
+    cuts: [],
+    swapsEnabled: false,
     zoneLayout: 2,
     colors: [],
   };
@@ -11888,6 +12553,82 @@ function applyCollectionCardVersion(sc) {
   }
 }
 
+/**
+ * After a deck slot's printing changes, its inventory key (scryfallId + finish) changes
+ * too. If another slot in the SAME zone already holds that exact printing + finish, fold
+ * the two together so we don't end up with two slots sharing one key (which would break
+ * qty editing, since lookups match the first slot only).
+ */
+function _mergeDuplicateDeckSlotAfterPrintingChange(deck, card) {
+  if (!deck || !card) return;
+  const key = getCardInventoryKey(card);
+  const zones = [deck.cards, _deckMaybeBoard(deck), _deckMatchSideboard(deck)];
+  for (const zone of zones) {
+    if (!Array.isArray(zone) || !zone.includes(card)) continue;
+    const dupIdx = zone.findIndex(c => c !== card && getCardInventoryKey(c) === key);
+    if (dupIdx >= 0) {
+      card.qty = (card.qty || 1) + (zone[dupIdx].qty || 1);
+      zone.splice(dupIdx, 1);
+    }
+    break;
+  }
+}
+
+/**
+ * Re-printing a deck slot moves the copies that BACK that slot to the new printing in the
+ * collection too — but only those copies. If you own 4 of printing X and re-print one deck
+ * slot (qty N), N copies move from X to Y and the rest stay on X. Matching is by the exact
+ * old printing + finish (never by name), so unrelated copies are never touched. Returns true
+ * if the collection changed.
+ */
+function _transferCollectionCopyForDeckReprint(oldSid, foil, sc, moveQty) {
+  if (typeof _useOwnerCollectionForOwnership === 'function' && _useOwnerCollectionForOwnership()) return false;
+  if (!oldSid || !sc || !sc.id || oldSid === sc.id) return false;
+  if (!Array.isArray(collection) || !(moveQty > 0)) return false;
+  const f = !!foil;
+  const oldUid = oldSid + (f ? '_f' : '_n');
+  const oldRow = collection.find(c => c.uid === oldUid)
+    || collection.find(c => c.scryfallId === oldSid && !!c.foil === f);
+  if (!oldRow) return false; // this deck slot wasn't owned in that printing → nothing to move
+
+  const move = Math.min(moveQty, oldRow.qty || 1);
+  if (!(move > 0)) return false;
+
+  // Remove the moved copies from the old-printing row.
+  if ((oldRow.qty || 1) <= move) {
+    const idx = collection.indexOf(oldRow);
+    if (idx >= 0) collection.splice(idx, 1);
+    if (typeof recordCollectionEvent === 'function') recordCollectionEvent('remove', oldRow, oldRow.qty || 1);
+  } else {
+    oldRow.qty = (oldRow.qty || 1) - move;
+    if (typeof recordCollectionEvent === 'function') recordCollectionEvent('remove', oldRow, move);
+  }
+
+  // Add them to the new-printing row (same finish), creating it if needed.
+  const newUid = sc.id + (f ? '_f' : '_n');
+  const newRow = collection.find(c => c.uid === newUid)
+    || collection.find(c => c.scryfallId === sc.id && !!c.foil === f);
+  if (newRow) {
+    newRow.qty = (newRow.qty || 0) + move;
+    newRow.addedAt = Date.now();
+    if (typeof recordCollectionEvent === 'function') recordCollectionEvent('add', newRow, move);
+  } else {
+    const fresh = (typeof cardToEntry === 'function') ? cardToEntry(sc, move) : { ...oldRow };
+    fresh.scryfallId = sc.id;
+    fresh.foil = f;
+    fresh.uid = newUid;
+    fresh.qty = move;
+    fresh.addedAt = Date.now();
+    // Carry over the user's metadata from the copies that moved.
+    if (oldRow.customTags) fresh.customTags = oldRow.customTags;
+    if (oldRow.roleTags) fresh.roleTags = oldRow.roleTags;
+    if (oldRow.starred != null) fresh.starred = oldRow.starred;
+    collection.push(fresh);
+    if (typeof recordCollectionEvent === 'function') recordCollectionEvent('add', fresh, move);
+  }
+  return true;
+}
+
 function applyDeckCardVersion(sc) {
   if (!_versionPickerTarget) return;
   const { cardUid, deckId } = _versionPickerTarget;
@@ -11896,22 +12637,25 @@ function applyDeckCardVersion(sc) {
   const card = getDeckCardByUid(deck, cardUid);
   if (!card) return;
 
-  const collRow = _findCollectionRowForDeckCard(card);
+  // Capture this slot's printing/finish/qty BEFORE re-printing so we can move exactly the
+  // copies that back this deck slot in the collection — not every copy you own.
+  const oldSid = card.scryfallId;
+  const foil = !!card.foil;
+  const moveQty = card.qty || 1;
+
   _applyScryfallPrintingFields(card, sc);
+  _mergeDuplicateDeckSlotAfterPrintingChange(deck, card);
 
   if (card.isCommander) {
     deck.commanderImage = card.imageLarge || card.image || deck.commanderImage;
     deck.commander = card.name;
   }
 
-  let collectionSynced = false;
-  if (collRow) {
-    collectionSynced = _syncCollectionPrintingFromDeckChange(collRow, sc);
-    if (collectionSynced) {
-      save('collection');
-      if (typeof renderCollection === 'function') renderCollection();
-      if (typeof updateStats === 'function') updateStats();
-    }
+  const collectionMoved = _transferCollectionCopyForDeckReprint(oldSid, foil, sc, moveQty);
+  if (collectionMoved) {
+    save('collection');
+    if (typeof renderCollection === 'function') renderCollection();
+    if (typeof updateStats === 'function') updateStats();
   }
 
   save('decks');
@@ -11920,7 +12664,7 @@ function applyDeckCardVersion(sc) {
   scheduleEDHRECRefresh();
   closeVersionPicker();
   const setLabel = sc.set_name || sc.set?.toUpperCase() || 'new';
-  showNotif(collectionSynced
+  showNotif(collectionMoved
     ? `Updated to ${setLabel} printing (collection too)`
     : `Updated to ${setLabel} printing`);
 
