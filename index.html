@@ -1316,8 +1316,8 @@
         <!-- SEARCH TAB -->
         <div id="searchTabContent">
           <!-- Search input row -->
-          <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center">
-            <div style="position:relative;flex:1">
+          <div id="findCardSearchRow" style="display:flex;gap:8px;margin-bottom:8px;align-items:center">
+            <div style="position:relative;flex:1;min-width:0">
               <input class="search-box" style="width:100%" type="text" id="findCardInput"
                 placeholder="Name, or: t:creature c:u mv<=3 o:&quot;draw a card&quot; r:rare s:SET"
                 oninput="findCardAutocomplete(this.value);_syncFindFilterBtns(this.value)"

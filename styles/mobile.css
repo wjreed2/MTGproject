@@ -639,6 +639,11 @@
     gap: 10px !important;
     max-height: min(48dvh, 420px) !important;
   }
+  /* Search row: input on its own line so Qty / Foil / Search aren't pushed off-screen */
+  #findCardSearchRow { flex-wrap: wrap; }
+  #findCardSearchRow > div:first-child { flex: 1 1 100% !important; }
+  /* Deck list rows (incl. Adds/Cuts zone rows): wrap the qty controls instead of clipping them */
+  #deckCardList .deck-card-row { flex-wrap: wrap; row-gap: 2px; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
