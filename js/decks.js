@@ -1741,7 +1741,10 @@ function _tagsOnCardForGroupTier(card, tier) {
   }
   const userTags = _tagsOnCardForGrouping(card);
   if (tier === 'tag_primary' || tier === 'tag_secondary') {
-    return userTags.filter(t => _tagMatchesDeckGroupTier(card, t, tier));
+    // Default tags the user tiered in place count as primary/secondary here too —
+    // the picker and inspector both present them as manual primary/secondary tags.
+    const tieredDefaults = typeof _tieredDefaultTagsForCard === 'function' ? _tieredDefaultTagsForCard(card) : [];
+    return [...new Set([...userTags, ...tieredDefaults])].filter(t => _tagMatchesDeckGroupTier(card, t, tier));
   }
   if (tier === 'tag_all') {
     const roleTags = typeof _roleTagsForCard === 'function' ? _roleTagsForCard(card) : [];
@@ -10240,8 +10243,11 @@ function _printIdForCard(card) {
 }
 
 async function _refreshDeckScryfallTags(deck) {
-  if (!deck || !Array.isArray(deck.cards) || !deck.cards.length) return;
-  const cards = deck.cards || [];
+  if (!deck || !Array.isArray(deck.cards)) return;
+  // Planned adds render as ghost copies inside the tag groups, so they need
+  // oracle ids + Scryfall tags resolved just like mainboard cards.
+  const cards = [...deck.cards, ...(Array.isArray(deck.adds) ? deck.adds : [])];
+  if (!cards.length) return;
   const oidByCard = new Map();
 
   // Snapshot the role-tag badge each card currently paints. The badge comes from
