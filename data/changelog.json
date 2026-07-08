@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "id": "playstyle-slider-fine-steps-2026-07",
+      "at": 1783533600000,
+      "area": "Deck builder",
+      "title": "Finer playstyle slider",
+      "summary": "The Aggro–Control playstyle slider on Suggested Cuts and Suggested Adds now has seven stops per side instead of three, so you can tune suggestion targets more gradually between neutral and the same extremes. Your saved slider position carries over automatically."
+    },
+    {
       "id": "deck-group-after-swaps-2026-07",
       "at": 1783530000000,
       "area": "Deck builder",

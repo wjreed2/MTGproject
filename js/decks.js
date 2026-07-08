@@ -5933,7 +5933,16 @@ let _deckCutArchetypeOverride = '';
 let _deckCutThresholdOverrides = {};
 let _deckCutLastDeckId = null;
 const DECK_CUT_PREFS_KEY = 'mtg_deck_cut_prefs';
-let _deckCutPlaystyleStep = (() => { try { const v = parseInt(localStorage.getItem('mtg_deck_cut_playstyle') || '0'); return Number.isFinite(v) ? Math.max(-3, Math.min(3, v)) : 0; } catch { return 0; } })();
+// 7 stops per side (was 3) with the same endpoints — v2 values live on the finer
+// −7…7 scale; a legacy −3…3 value is rescaled ×7/3 so its position keeps its feel.
+let _deckCutPlaystyleStep = (() => {
+  try {
+    const v2 = localStorage.getItem('mtg_deck_cut_playstyle_v2');
+    if (v2 != null) { const v = parseInt(v2); return Number.isFinite(v) ? Math.max(-7, Math.min(7, v)) : 0; }
+    const v1 = parseInt(localStorage.getItem('mtg_deck_cut_playstyle') || '0');
+    return Number.isFinite(v1) ? Math.max(-7, Math.min(7, Math.round(v1 * 7 / 3))) : 0;
+  } catch { return 0; }
+})();
 
 function _readAllCutPrefs() {
   try {
@@ -6120,9 +6129,9 @@ function _toggleAddThresholdEditor() {
 }
 
 function setDeckCutPlaystyleStep(step) {
-  const s = Math.max(-3, Math.min(3, Math.round(step)));
+  const s = Math.max(-7, Math.min(7, Math.round(step)));
   _deckCutPlaystyleStep = s;
-  try { localStorage.setItem('mtg_deck_cut_playstyle', s); } catch { /* quota */ }
+  try { localStorage.setItem('mtg_deck_cut_playstyle_v2', s); } catch { /* quota */ }
   const deck = typeof activeDeckId !== 'undefined' && activeDeckId
     ? (typeof decks !== 'undefined' ? decks : []).find(d => d.id === activeDeckId)
     : null;
@@ -6201,10 +6210,12 @@ function _computeBaseThresholds(deck) {
   return t;
 }
 
-// Effective thresholds: base template + slider nudge on top.
+// Effective thresholds: base template + slider nudge on top. The slider has 7
+// stops per side but ±7 lands exactly where the original ±3 did — each stop
+// applies 3/7 of the original per-step nudge, coefficients unchanged.
 function _computeCutThresholds(deck) {
   const t = _computeBaseThresholds(deck);
-  const step = _deckCutPlaystyleStep;
+  const step = _deckCutPlaystyleStep * (3 / 7);
   if (step < 0) {
     const a = Math.abs(step);
     t['Ramp']       = Math.max(0, Math.round(t['Ramp']       - 0.5  * a));

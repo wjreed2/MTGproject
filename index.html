@@ -705,9 +705,9 @@
           <div class="deck-suggest-spacer" style="flex:1"></div>
           <div class="cut-playstyle-wrap" title="Playstyle — shifts cut thresholds (Aggro lowers ramp/removal targets, Control raises them)">
             <span class="cut-playstyle-label cut-playstyle-aggro">Aggro</span>
-            <input type="range" id="deckCutPlaystyleSlider" min="-3" max="3" step="1" value="0"
+            <input type="range" id="deckCutPlaystyleSlider" min="-7" max="7" step="1" value="0"
               oninput="setDeckCutPlaystyleStep(parseInt(this.value))"
-              style="width:84px;cursor:pointer;accent-color:var(--gold)" aria-label="Playstyle: Aggro to Control">
+              style="width:112px;cursor:pointer;accent-color:var(--gold)" aria-label="Playstyle: Aggro to Control">
             <span class="cut-playstyle-label cut-playstyle-control">Control</span>
           </div>
           <select id="deckCutArchetypeSelect" class="deck-select" onchange="_onCutArchetypeChange(this.value)" style="font-size:.76rem;margin-right:4px" title="Deck archetype (affects cut thresholds)">
@@ -747,9 +747,9 @@
           <div class="deck-suggest-spacer" style="flex:1"></div>
           <div class="cut-playstyle-wrap" title="Playstyle — shared with Suggested Cuts (Aggro lowers ramp/removal targets, Control raises them)">
             <span class="cut-playstyle-label cut-playstyle-aggro">Aggro</span>
-            <input type="range" id="deckAddPlaystyleSlider" min="-3" max="3" step="1" value="0"
+            <input type="range" id="deckAddPlaystyleSlider" min="-7" max="7" step="1" value="0"
               oninput="setDeckCutPlaystyleStep(parseInt(this.value))"
-              style="width:84px;cursor:pointer;accent-color:var(--gold)" aria-label="Playstyle: Aggro to Control">
+              style="width:112px;cursor:pointer;accent-color:var(--gold)" aria-label="Playstyle: Aggro to Control">
             <span class="cut-playstyle-label cut-playstyle-control">Control</span>
           </div>
           <select id="deckAddArchetypeSelect" class="deck-select" onchange="_onCutArchetypeChange(this.value)" style="font-size:.76rem;margin-right:4px" title="Deck archetype (shared with Suggested Cuts)">
