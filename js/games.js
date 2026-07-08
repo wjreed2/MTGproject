@@ -1815,7 +1815,21 @@ function renderTabletView() {
         ${gameIcon('x', 11, 'margin-right:5px')}Exit Tablet
       </button>
     </div>`;
-  el.onclick = () => document.querySelectorAll('.tablet-player-menu').forEach(m => m.remove());
+  // Tap anywhere that isn't a control (name bar, life number, empty space) to advance the
+  // turn — a big, forgiving hit target. Guards: a completed drag-to-deal gesture fires a
+  // trailing click (swallow it via _tabletDragJustEnded); an open ⋯ menu just dismisses;
+  // action-mode taps are for targeting players; buttons and the centre box handle their own.
+  el.onclick = (e) => {
+    const menus = document.querySelectorAll('.tablet-player-menu');
+    const hadMenu = menus.length > 0;
+    menus.forEach(m => m.remove());
+    if (_tabletDragJustEnded) { _tabletDragJustEnded = false; return; }
+    if (hadMenu) return;
+    if (gameActionMode) return;
+    if (e.target.closest('button, input, a, select, textarea, .tablet-player-menu, .tablet-drag-menu, .tablet-center-box, .player-targetable')) return;
+    if (game.status !== 'active') return;
+    nextTurn(game.id);
+  };
   // Drag-to-deal-damage: press-hold a player and drag onto another (delegated; survives re-render).
   el.onpointerdown   = tabletDragPointerDown;
   el.onpointermove   = tabletDragPointerMove;
@@ -1868,10 +1882,19 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
 
   // outer horizontal edge: col 0 = left side of screen, col 1 = right side.
   // rotation swaps left/right in screen space, so invert for rotated cells.
-  const dotsPos  = ((col === 0) !== rotated) ? 'left:8px'  : 'right:8px';
-  const namePad  = ((col === 0) !== rotated)
-    ? 'clamp(5px,1.2vh,10px) 8px clamp(3px,0.8vh,6px) 30px'
-    : 'clamp(5px,1.2vh,10px) 30px clamp(3px,0.8vh,6px) 8px';
+  // 2-player: the centre timer box sits dead-centre on the seam where the two name bars
+  // meet, so it covers centred names. Push both names to the screen-right (clear of the
+  // box) and move both ⋯ menus to the screen-left so names and menus never collide.
+  const nameAlign = total === 2 ? (rotated ? 'left' : 'right') : 'center';
+  const dotsPos = total === 2
+    ? (rotated ? 'right:8px' : 'left:8px')                       // both → screen-left
+    : (((col === 0) !== rotated) ? 'left:8px' : 'right:8px');
+  const namePad = total === 2
+    ? (rotated ? 'clamp(5px,1.2vh,10px) 30px clamp(3px,0.8vh,6px) 12px'
+               : 'clamp(5px,1.2vh,10px) 12px clamp(3px,0.8vh,6px) 30px')
+    : (((col === 0) !== rotated)
+        ? 'clamp(5px,1.2vh,10px) 8px clamp(3px,0.8vh,6px) 30px'
+        : 'clamp(5px,1.2vh,10px) 30px clamp(3px,0.8vh,6px) 8px');
 
   return `
   <div class="tablet-cell${inTargetMode ? ' player-targetable' : ''}"
@@ -1884,7 +1907,7 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
     ${inTargetMode ? `onclick="applyGameAction('${game.id}','${p.id}')"` : ''}>
 
     <!-- Name bar -->
-    <div style="text-align:center;padding:${namePad};border-bottom:1px solid ${p.color}25;position:relative">
+    <div style="text-align:${nameAlign};padding:${namePad};border-bottom:1px solid ${p.color}25;position:relative">
       <div style="font-family:'Cinzel',serif;font-size:clamp(0.85rem,2.2vw,1.3rem);color:${p.color};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:0.06em">${escapeHtml(p.name)}</div>
       ${p.deckName ? `<div style="font-size:clamp(0.55rem,1.2vw,0.78rem);color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px">${escapeHtml(p.deckName)}${p.commander ? ' · ' + escapeHtml(p.commander) : ''}</div>` : ''}
       ${inTargetMode
@@ -1934,6 +1957,7 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
 // attributed in the log. Disabled while an action mode (tap-targeting) is active.
 
 let _tabletDrag = null;            // { sourceId, pointerId, dragging, startX/Y, originX/Y, targets[], currentPid }
+let _tabletDragJustEnded = false;  // true for the trailing click after a real drag, so tap-to-advance ignores it
 let _dragMenuCtx = null;           // { sourceId, targetIds } for the open deal menu
 let _dragArrowEl = null;           // SVG overlay element
 let _dragMenuOutsideHandler = null;
@@ -1957,6 +1981,7 @@ function _targetCellAt(x, y) {
 }
 
 function tabletDragPointerDown(e) {
+  _tabletDragJustEnded = false;                           // fresh gesture: clear any stale drag flag
   if (!tabletViewGameId || gameActionMode) return;        // action mode uses tap-targeting
   if (e.pointerType === 'mouse' && e.button !== 0) return;
   if (e.target.closest('button, input, a, .tablet-player-menu, .tablet-drag-menu')) return;
@@ -2008,6 +2033,7 @@ function tabletDragPointerUp(e) {
   _tabletDrag = null;
   _removeDragArrow();
   if (!drag.dragging) { _highlightDragTargets([]); return; }
+  _tabletDragJustEnded = true;   // a click follows this drag — don't let it advance the turn
   // Include the cell the pointer is near at release (same central hitbox), then deal.
   const cell = _targetCellAt(e.clientX, e.clientY);
   const relPid = cell && cell.dataset.pid;

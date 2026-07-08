@@ -3001,15 +3001,15 @@ img.stack-main.loaded { opacity: 1; }
   #tabletView .tablet-corner--left  { left:  20px !important; }
   #tabletView .tablet-corner--right { right: 20px !important; }
   #tabletView .tablet-dots-btn {
-    font-size: clamp(1.6rem, 5vw, 2.1rem) !important;
-    padding: 6px 12px !important;
+    font-size: clamp(2rem, 6.2vw, 2.7rem) !important;
+    padding: 9px 16px !important;
   }
-  #tabletView .tablet-total-time { font-size: clamp(0.82rem, 3vw, 1.1rem) !important; }
+  #tabletView .tablet-total-time { font-size: clamp(0.9rem, 3.3vw, 1.2rem) !important; }
   /* Bigger centre timer box + Next/Pause buttons so they're easy to tap on a phone.
      (2-player landscape keeps its own shrunk box via the higher-specificity .tv-2p rule.) */
-  #tabletView .tablet-center-box { padding: 22px 30px !important; min-width: 244px !important; }
-  #tabletView .tablet-center-timer { font-size: clamp(2.9rem, 9.5vw, 4rem) !important; }
-  #tabletView .tablet-turn-btn { padding: 20px 12px !important; font-size: 1.2rem !important; }
+  #tabletView .tablet-center-box { padding: 28px 40px !important; min-width: 300px !important; }
+  #tabletView .tablet-center-timer { font-size: clamp(3.4rem, 11.5vw, 4.8rem) !important; }
+  #tabletView .tablet-turn-btn { padding: 26px 14px !important; font-size: 1.45rem !important; }
 }
 
 /* GAME TRACKER — targeting & action bar */
