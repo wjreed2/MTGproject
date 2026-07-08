@@ -555,7 +555,10 @@
   }
   #tab-decks .deck-stack-view > .deck-extra-zones-wrap .deck-stack-cards.vertical .deck-stack-card {
     width: 100% !important;
-    margin-top: calc(-1 * (min(90vw, 270px) / 0.715 - 36px)) !important;
+    /* Cards fill the zone stack's content box, which is 4px narrower than the
+       min(90vw, 270px) container (2px side padding each side) — subtract it or
+       the overlap overshoots and clips the card names. 40px peek ≈ mainboard. */
+    margin-top: calc(-1 * ((min(90vw, 270px) - 4px) / 0.715 - 40px)) !important;
   }
   #tab-decks .deck-stack-view > .deck-extra-zones-wrap .deck-stack-cards.vertical .deck-stack-card:first-child {
     margin-top: 8px !important;
