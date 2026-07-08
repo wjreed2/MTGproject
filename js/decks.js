@@ -6785,6 +6785,26 @@ function renderDeckList(deck) {
     }
     return groups;
   };
+  // Per-group "→ N after swaps" (same pattern as the deck-size indicator above):
+  // group total + its ADD ghosts − planned cuts of its mainboard cards. Empty
+  // when the group has no planned swaps.
+  const groupProjectedHtml = (cards, total) => {
+    if (!swapsOn) return '';
+    const addQty = cards.reduce((s, c) => s + (c._plannedAdd ? (c.qty || 1) : 0), 0);
+    let cutQty = 0;
+    if (plannedCuts.length) {
+      const seen = new Set();
+      for (const c of cards) {
+        if (c._plannedAdd) continue;
+        const key = getCardInventoryKey(c);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        cutQty += _plannedCutQtyForDeckSlot(plannedCuts, key);
+      }
+    }
+    if (!addQty && !cutQty) return '';
+    return ` <span class="deck-swaps-projected" title="Cards in this group if all planned adds and cuts were applied">→ ${total + addQty - cutQty} after swaps</span>`;
+  };
 
   if (!deck.cards.length && !hasExtra) {
     el.innerHTML = '<div class="deck-list-muted-center">No cards yet — search for cards above to add them</div>';
@@ -6813,7 +6833,7 @@ function renderDeckList(deck) {
       const grpAttr = _deckStackGroupAttr(grp);
       return `
         <div class="deck-stack-group${cardsCls}" data-stack-group="${grpAttr}">
-          <div class="deck-stack-group-label deck-stack-group-label--drag" title="Drag onto another group to swap positions" onpointerdown="_deckStackGroupPointerDown(event)">${escapeHtml(grp)} <span class="deck-stack-group-count">(${total})</span></div>
+          <div class="deck-stack-group-label deck-stack-group-label--drag" title="Drag onto another group to swap positions" onpointerdown="_deckStackGroupPointerDown(event)">${escapeHtml(grp)} <span class="deck-stack-group-count">(${total})</span>${groupProjectedHtml(cards, total)}</div>
           <div class="deck-stack-cards${orientClass}">${sorted.map(c => _stackTile(c, c._plannedAdd ? 'add' : 'main', poolHints)).join('')}</div>
         </div>`;
     }
@@ -6923,8 +6943,10 @@ function renderDeckList(deck) {
     if (_deckConsumeSuppressClick()) return;
     if (_handleDeckExtraZoneToggleClick(e)) return;
   };
-  const mainListHtml = (Object.entries(groups).filter(([, v]) => v.length > 0).map(([grp, cards]) => `
-    <div class="deck-list-group-head deck-list-group-head--main">${escapeHtml(grp)} (${cards.reduce((s,c)=>s+(c._plannedAdd?0:c.qty),0)})</div>
+  const mainListHtml = (Object.entries(groups).filter(([, v]) => v.length > 0).map(([grp, cards]) => {
+    const groupTotal = cards.reduce((s,c)=>s+(c._plannedAdd?0:c.qty),0);
+    return `
+    <div class="deck-list-group-head deck-list-group-head--main">${escapeHtml(grp)} (${groupTotal})${groupProjectedHtml(cards, groupTotal)}</div>
     ${_deckStackSortCards(cards).map(c => {
       if (c._plannedAdd) {
         const dkAdd = _deckCardDragKey(c).replace(/'/g, "\\'");
@@ -6981,7 +7003,7 @@ function renderDeckList(deck) {
         </div>
       </div>`;
     }).join('')}
-  `).join('') || '<div class="deck-list-muted-center">No cards yet</div>');
+  `; }).join('') || '<div class="deck-list-muted-center">No cards yet</div>');
   el.innerHTML = `<div class="deck-mainboard-area deck-mainboard-area--list">${mainListHtml}</div>` + extraListHtml;
 
   _attachDeckDragHandlers(el);

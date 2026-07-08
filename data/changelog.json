@@ -1,6 +1,13 @@
 {
   "entries": [
     {
+      "id": "deck-group-after-swaps-2026-07",
+      "at": 1783530000000,
+      "area": "Deck builder",
+      "title": "Category counts show your planned swaps",
+      "summary": "With Adds & Cuts planning, every category header in the deck list now shows what its count will become once your planned swaps are applied — e.g. ‘Card Draw (16) → 14 after swaps’. It works in both the visual and list views, updates live as you plan adds and cuts, and disappears for categories with no planned changes."
+    },
+    {
       "id": "deck-share-links-2026-06",
       "at": 1781460000000,
       "area": "Deck builder",
