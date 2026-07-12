@@ -5429,6 +5429,15 @@ async function ensureScryfallTagCacheTable() {
       // face's name/type/text/mana + image_uris so the card inspector can flip DFCs without a
       // Scryfall round-trip. NULL for single-faced cards. Backfills on the next cards re-import.
       `ALTER TABLE scryfall_oracle_cards ADD COLUMN faces_json JSON NULL`,
+      // Columns for the engine2 semantics pipeline (added 2026-07). All backfill on the next
+      // oracle re-import; legal_commander is materialized from legalities at import time so
+      // add-candidate pools can filter on an indexed plain column.
+      `ALTER TABLE scryfall_oracle_cards ADD COLUMN keywords_json JSON NULL`,
+      `ALTER TABLE scryfall_oracle_cards ADD COLUMN legalities_json JSON NULL`,
+      `ALTER TABLE scryfall_oracle_cards ADD COLUMN layout VARCHAR(30) NULL`,
+      `ALTER TABLE scryfall_oracle_cards ADD COLUMN edhrec_rank INT NULL`,
+      `ALTER TABLE scryfall_oracle_cards ADD COLUMN produced_mana_json JSON NULL`,
+      `ALTER TABLE scryfall_oracle_cards ADD COLUMN legal_commander TINYINT(1) NOT NULL DEFAULT 0`,
     ];
     for (const sql of newCols) { try { await conn.query(sql); } catch (_) {} }
     const newIdxs = [
@@ -5436,6 +5445,8 @@ async function ensureScryfallTagCacheTable() {
       `CREATE INDEX idx_soc_cmc    ON scryfall_oracle_cards (cmc)`,
       `CREATE INDEX idx_soc_rarity ON scryfall_oracle_cards (rarity)`,
       `CREATE INDEX idx_soc_set    ON scryfall_oracle_cards (set_code)`,
+      `CREATE INDEX idx_soc_edhrec ON scryfall_oracle_cards (edhrec_rank)`,
+      `CREATE INDEX idx_soc_cmdr   ON scryfall_oracle_cards (legal_commander)`,
     ];
     for (const sql of newIdxs) { try { await conn.query(sql); } catch (_) {} }
     await conn.query(`
@@ -5463,6 +5474,92 @@ async function ensureScryfallTagCacheTable() {
         fetched_at     BIGINT        NOT NULL,
         PRIMARY KEY (schema_version, query_key),
         INDEX idx_stqc_fetched (fetched_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+  } finally {
+    conn.release();
+  }
+}
+
+// engine2 card-semantics tables (see docs/engine2-plan.md). card_semantics holds one CardIR
+// document per oracle card, extracted by the dev-side pipeline (scripts/semantics-extract.js)
+// and cross-checked by engine2/validator.js. card_semantics_axes is the flattened
+// provides/needs/anti projection — the hot query path for add-candidate pools. The runs/items
+// tables are the pipeline's resumable state; the review queue holds rejected extractions.
+async function ensureCardSemanticsTables() {
+  const conn = await db().getConnection();
+  try {
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS card_semantics (
+        oracle_id        CHAR(36)     NOT NULL,
+        ir_version       SMALLINT     NOT NULL,
+        vocab_version    SMALLINT     NOT NULL,
+        ir_json          MEDIUMTEXT   NOT NULL,
+        roles_json       JSON         NULL,
+        confidence       DECIMAL(4,3) NOT NULL DEFAULT 0,
+        validation_score DECIMAL(4,3) NULL,
+        status           ENUM('valid','flagged','review','manual') NOT NULL DEFAULT 'valid',
+        run_id           VARCHAR(40)  NOT NULL,
+        model            VARCHAR(60)  NOT NULL,
+        prompt_version   VARCHAR(20)  NOT NULL,
+        updated_at       BIGINT       NOT NULL,
+        PRIMARY KEY (oracle_id),
+        KEY idx_cs_status (status)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS card_semantics_axes (
+        id        BIGINT AUTO_INCREMENT PRIMARY KEY,
+        oracle_id CHAR(36)    NOT NULL,
+        kind      ENUM('provides','needs','anti') NOT NULL,
+        axis      VARCHAR(60) NOT NULL,
+        param     VARCHAR(60) NULL,
+        weight    TINYINT     NOT NULL DEFAULT 1,
+        rate      VARCHAR(12) NULL,
+        UNIQUE KEY uq_csa (oracle_id, kind, axis, param),
+        KEY idx_csa_axis (kind, axis, param)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS semantics_runs (
+        run_id         VARCHAR(40)  NOT NULL,
+        model          VARCHAR(60)  NOT NULL,
+        prompt_version VARCHAR(20)  NOT NULL,
+        ir_version     SMALLINT     NOT NULL,
+        status         ENUM('running','done','aborted') NOT NULL DEFAULT 'running',
+        total_cards    INT NOT NULL DEFAULT 0,
+        succeeded      INT NOT NULL DEFAULT 0,
+        failed         INT NOT NULL DEFAULT 0,
+        est_cost_usd   DECIMAL(10,2) NULL,
+        started_at     BIGINT NOT NULL,
+        finished_at    BIGINT NULL,
+        PRIMARY KEY (run_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS semantics_run_items (
+        run_id     VARCHAR(40) NOT NULL,
+        oracle_id  CHAR(36)    NOT NULL,
+        status     ENUM('pending','submitted','succeeded','invalid','requeued','review','failed') NOT NULL DEFAULT 'pending',
+        batch_id   VARCHAR(80) NULL,
+        attempt    TINYINT     NOT NULL DEFAULT 0,
+        flags_json JSON        NULL,
+        updated_at BIGINT      NOT NULL,
+        PRIMARY KEY (run_id, oracle_id),
+        KEY idx_sri_status (run_id, status)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS semantics_review_queue (
+        id         BIGINT AUTO_INCREMENT PRIMARY KEY,
+        oracle_id  CHAR(36)    NOT NULL,
+        run_id     VARCHAR(40) NOT NULL,
+        ir_json    MEDIUMTEXT  NOT NULL,
+        flags_json JSON        NOT NULL,
+        status     ENUM('open','fixed','dismissed') NOT NULL DEFAULT 'open',
+        created_at BIGINT NOT NULL,
+        KEY idx_srq_status (status),
+        KEY idx_srq_oracle (oracle_id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
   } finally {
@@ -6192,7 +6289,8 @@ async function importScryfallOracleBulkToDb({
     const CARD_BATCH = 200;
     const cardInsertSql = `INSERT INTO scryfall_oracle_cards
       (oracle_id, name, type_line, oracle_text, colors_json, mana_cost, cmc, imported_at,
-       scryfall_id, color_identity_json, rarity, set_code, image_small, image_normal, power, toughness, loyalty, games_json, faces_json)
+       scryfall_id, color_identity_json, rarity, set_code, image_small, image_normal, power, toughness, loyalty, games_json, faces_json,
+       keywords_json, legalities_json, layout, edhrec_rank, produced_mana_json, legal_commander)
      VALUES {VALS}
      ON DUPLICATE KEY UPDATE
        name=VALUES(name), type_line=VALUES(type_line), oracle_text=VALUES(oracle_text),
@@ -6201,7 +6299,9 @@ async function importScryfallOracleBulkToDb({
        rarity=VALUES(rarity), set_code=VALUES(set_code),
        image_small=VALUES(image_small), image_normal=VALUES(image_normal),
        power=VALUES(power), toughness=VALUES(toughness), loyalty=VALUES(loyalty), games_json=VALUES(games_json),
-       faces_json=VALUES(faces_json)`;
+       faces_json=VALUES(faces_json),
+       keywords_json=VALUES(keywords_json), legalities_json=VALUES(legalities_json), layout=VALUES(layout),
+       edhrec_rank=VALUES(edhrec_rank), produced_mana_json=VALUES(produced_mana_json), legal_commander=VALUES(legal_commander)`;
 
     // Compact per-face payload — only when the card actually has >1 face. We keep each face's
     // image_uris so the inspector can flip; for layouts with no per-face art (split/adventure/
@@ -6233,6 +6333,12 @@ async function importScryfallOracleBulkToDb({
         c?.power || null, c?.toughness || null, c?.loyalty || null,
         JSON.stringify(Array.isArray(c?.games) ? c.games : ['paper']),
         facesToJson(c),
+        JSON.stringify(Array.isArray(c?.keywords) ? c.keywords : []),
+        JSON.stringify(c?.legalities || {}),
+        c?.layout || null,
+        Number.isFinite(Number(c?.edhrec_rank)) ? Number(c.edhrec_rank) : null,
+        JSON.stringify(Array.isArray(c?.produced_mana) ? c.produced_mana : []),
+        c?.legalities?.commander === 'legal' ? 1 : 0,
       ];
     };
 
@@ -6242,7 +6348,7 @@ async function importScryfallOracleBulkToDb({
       const seen = new Set();
       const flushBatch = async () => {
         if (!batch.length) return;
-        const ph = batch.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').join(',');
+        const ph = batch.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').join(',');
         await conn.query(cardInsertSql.replace('{VALS}', ph), batch.flat());
         imported += batch.length;
         totalOracleRows = imported;
@@ -7427,6 +7533,105 @@ app.post('/api/admin/scryfall/rebuild-tags', requireAuth, requireAdminRole, asyn
   runScryfallImportEndpoint(req, res, 'tags')
 );
 
+// ── engine2 semantics review queue (see docs/engine2-plan.md §2.2) ──
+// Rejected pipeline extractions land in semantics_review_queue; these endpoints let an admin
+// inspect them and either accept a (possibly hand-edited) CardIR into card_semantics as
+// status='manual', or dismiss the item. Axis rows are rebuilt on accept so the flattened
+// provides/needs projection stays in sync with the stored IR.
+app.get('/api/admin/semantics/review', requireAuth, requireAdminRole, async (req, res) => {
+  try {
+    const status = ['open', 'fixed', 'dismissed'].includes(req.query.status) ? req.query.status : 'open';
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 200);
+    const [rows] = await db().query(
+      `SELECT q.id, q.oracle_id, q.run_id, q.ir_json, q.flags_json, q.status, q.created_at, c.name, c.oracle_text
+       FROM semantics_review_queue q
+       LEFT JOIN scryfall_oracle_cards c ON c.oracle_id = q.oracle_id
+       WHERE q.status = ? ORDER BY q.id LIMIT ?`,
+      [status, limit]
+    );
+    const [[counts]] = await db().query(
+      `SELECT
+         (SELECT COUNT(*) FROM semantics_review_queue WHERE status='open') AS openItems,
+         (SELECT COUNT(*) FROM card_semantics) AS totalSemantics,
+         (SELECT COUNT(*) FROM card_semantics WHERE status='valid') AS validSemantics`
+    );
+    res.json({ ok: true, items: rows, counts });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/admin/semantics/review/:id', requireAuth, requireAdminRole, async (req, res) => {
+  const id = parseInt(req.params.id);
+  const action = req.body?.action;
+  if (!Number.isFinite(id) || !['accept', 'dismiss'].includes(action)) {
+    return res.status(400).json({ error: 'expected {action: "accept"|"dismiss"} and a numeric id' });
+  }
+  const conn = await db().getConnection();
+  try {
+    const [[item]] = await conn.query('SELECT * FROM semantics_review_queue WHERE id = ?', [id]);
+    if (!item) return res.status(404).json({ error: 'review item not found' });
+    if (action === 'dismiss') {
+      await conn.query(`UPDATE semantics_review_queue SET status='dismissed' WHERE id = ?`, [id]);
+      return res.json({ ok: true, dismissed: id });
+    }
+    // accept: prefer a hand-edited IR from the request body, else the stored candidate
+    let ir;
+    try {
+      ir = req.body?.ir && typeof req.body.ir === 'object' ? req.body.ir : JSON.parse(item.ir_json);
+    } catch (_) {
+      return res.status(400).json({ error: 'stored candidate IR is unparsable; supply an edited ir in the body' });
+    }
+    if (String(ir?.oracle_id || '') !== String(item.oracle_id)) {
+      return res.status(400).json({ error: 'ir.oracle_id does not match the review item' });
+    }
+    await conn.beginTransaction();
+    const now = Date.now();
+    await conn.query(
+      `INSERT INTO card_semantics
+         (oracle_id, ir_version, vocab_version, ir_json, roles_json, confidence, validation_score,
+          status, run_id, model, prompt_version, updated_at)
+       VALUES (?,?,?,?,?,?,?, 'manual', ?, 'manual', ?, ?)
+       ON DUPLICATE KEY UPDATE
+         ir_version=VALUES(ir_version), vocab_version=VALUES(vocab_version), ir_json=VALUES(ir_json),
+         roles_json=VALUES(roles_json), confidence=VALUES(confidence), validation_score=VALUES(validation_score),
+         status='manual', run_id=VALUES(run_id), model='manual', prompt_version=VALUES(prompt_version),
+         updated_at=VALUES(updated_at)`,
+      [
+        item.oracle_id, parseInt(ir.ir_version) || 1, parseInt(ir.vocab_version) || 1,
+        JSON.stringify(ir), JSON.stringify(Array.isArray(ir.roles) ? ir.roles : []),
+        Number(ir.confidence) || 0, null, item.run_id, String(ir?._prov?.prompt_version || 'manual'), now,
+      ]
+    );
+    await conn.query('DELETE FROM card_semantics_axes WHERE oracle_id = ?', [item.oracle_id]);
+    const axisRows = [];
+    for (const [kind, list] of [['provides', ir.provides], ['needs', ir.needs], ['anti', ir.anti]]) {
+      for (const a of Array.isArray(list) ? list : []) {
+        if (!a || typeof a.axis !== 'string') continue;
+        axisRows.push([
+          item.oracle_id, kind, a.axis.slice(0, 60), a.param ? String(a.param).slice(0, 60) : null,
+          Math.min(Math.max(parseInt(a.weight) || 1, 1), 5), a.rate ? String(a.rate).slice(0, 12) : null,
+        ]);
+      }
+    }
+    if (axisRows.length) {
+      await conn.query(
+        `INSERT IGNORE INTO card_semantics_axes (oracle_id, kind, axis, param, weight, rate)
+         VALUES ${axisRows.map(() => '(?,?,?,?,?,?)').join(',')}`,
+        axisRows.flat()
+      );
+    }
+    await conn.query(`UPDATE semantics_review_queue SET status='fixed' WHERE id = ?`, [id]);
+    await conn.commit();
+    res.json({ ok: true, accepted: id, oracleId: item.oracle_id, axes: axisRows.length });
+  } catch (e) {
+    try { await conn.rollback(); } catch (_) {}
+    res.status(500).json({ error: e.message });
+  } finally {
+    conn.release();
+  }
+});
+
 // ── Scanner fingerprint DB admin: build/refresh (spawns scripts/build-print-fingerprints.js) ──
 let _fpBuildProc = null;
 let _fpBuildProgress = { running: false, lastLine: '', startedAt: 0, endedAt: 0, exitCode: null };
@@ -8074,6 +8279,7 @@ async function start() {
       await ensureTagOverrideTables();
       await ensureCollectionRoleTagsColumns();
       await ensureScryfallTagCacheTable();
+      await ensureCardSemanticsTables();
       await ensurePrintFingerprintsTable();
       await backfillDeckCardsIfEmpty();
     } catch (e) {
