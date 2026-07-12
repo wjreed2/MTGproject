@@ -1,0 +1,76 @@
+{
+  "row": {
+    "oracle_id": "00000000-0000-4000-8000-000000000002",
+    "name": "Blood Artist",
+    "type_line": "Creature — Vampire",
+    "oracle_text": "Whenever Blood Artist or another creature dies, target player loses 1 life and you gain 1 life.",
+    "mana_cost": "{1}{B}",
+    "cmc": 2,
+    "colors_json": ["B"],
+    "color_identity_json": ["B"],
+    "power": "0",
+    "toughness": "1",
+    "loyalty": null,
+    "keywords_json": [],
+    "layout": "normal",
+    "produced_mana_json": [],
+    "faces_json": null
+  },
+  "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "00000000-0000-4000-8000-000000000002",
+    "name": "Blood Artist",
+    "layout": "normal",
+    "faces": [
+      {
+        "face_name": "Blood Artist",
+        "types": { "super": [], "card": ["Creature"], "sub": ["Vampire"] },
+        "mana_cost": "{1}{B}",
+        "mana_value": 2,
+        "colors": ["B"],
+        "pt": { "power": "0", "toughness": "1" },
+        "loyalty": null,
+        "defense": null,
+        "costs": { "additional": [], "alternative": [] },
+        "keywords": [],
+        "abilities": [
+          {
+            "kind": "triggered",
+            "trigger": {
+              "event": "dies",
+              "subject": { "types": ["creature"], "controller": "any", "or_self": true },
+              "controller_scope": "any",
+              "condition": null,
+              "once_each_turn": false
+            },
+            "effects": [
+              {
+                "op": "drain",
+                "n": { "kind": "fixed", "value": 1 },
+                "target": { "who": "target_player", "n_targets": 1 }
+              }
+            ],
+            "text": "Whenever Blood Artist or another creature dies, target player loses 1 life and you gain 1 life."
+          }
+        ],
+        "restrictions": [],
+        "cdf": null
+      }
+    ],
+    "provides": [
+      { "axis": "trigger.death_payoff", "param": null, "rate": "repeatable", "weight": 4 },
+      { "axis": "lifegain.source", "param": null, "rate": "repeatable", "weight": 2 },
+      { "axis": "drain.incremental", "param": null, "rate": "repeatable", "weight": 3 }
+    ],
+    "needs": [
+      { "axis": "creatures_dying", "param": null, "criticality": "requires", "weight": 5 }
+    ],
+    "roles": ["wincon"],
+    "anti": [],
+    "wincon": { "kind": "drain", "detail": "scales with death count; combo-adjacent with free sac outlets" },
+    "tribal": { "types": ["Vampire"], "lord_of": [] },
+    "power_level_hint": 3,
+    "confidence": 0.97
+  }
+}
