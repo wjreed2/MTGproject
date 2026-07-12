@@ -2,14 +2,16 @@
 // Pure helpers for scripts/semantics-extract.js — no DB, no child_process, so the
 // usage-limit detection and response parsing are unit-testable (semantics-validator-test.js).
 
-// Claude Code usage-limit failures look like:
-//   "You've hit your session limit · resets 3:45pm"
-//   "You've hit your weekly limit · resets Mon 12:00am"
-// Phrasing may drift between CLI versions — keep detection permissive: any mention of a
-// hit/reached limit plus a reset marker counts. Unmatched errors are NOT limits.
+// Claude Code usage-limit failures come in (at least) two phrasings:
+//   interactive: "You've hit your session limit · resets 3:45pm"
+//                "You've hit your weekly limit · resets Mon 12:00am"
+//   headless:    "Claude AI usage limit reached|1780000000"   (epoch seconds after the pipe)
+// Phrasing may drift between CLI versions — keep detection permissive: any hit/reached
+// usage-limit mention counts, with or without a parseable reset (no reset → poll fallback).
 function isLimitError(text) {
   const t = String(text || '');
-  return /(hit your|reached your|usage) .{0,40}limit/is.test(t) && /reset/i.test(t);
+  if (/usage limit (reached|exceeded)/i.test(t)) return true;
+  return /(hit|reached) (your )?.{0,40}limit/is.test(t) && /reset/i.test(t);
 }
 
 const WEEKDAYS = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
@@ -18,6 +20,13 @@ const WEEKDAYS = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
 // Date after `now`. Returns null when unparsable (caller falls back to interval polling).
 function parseLimitReset(text, now) {
   const t = String(text || '');
+  // headless form: "…usage limit reached|1780000000" (epoch seconds, sometimes ms)
+  const epoch = t.match(/limit[^|]{0,40}\|(\d{10,13})\b/i);
+  if (epoch) {
+    const n = parseInt(epoch[1], 10);
+    const d = new Date(n < 1e12 ? n * 1000 : n);
+    return d > now ? d : null;
+  }
   const m = t.match(/resets?\s+(?:(sun|mon|tue|wed|thu|fri|sat)[a-z]*\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i);
   if (!m) return null;
   const [, wd, hh, mm, ap] = m;

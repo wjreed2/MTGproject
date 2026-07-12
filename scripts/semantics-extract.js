@@ -32,7 +32,6 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execFile } = require('child_process');
 const mysql = require('mysql2/promise');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
@@ -72,6 +71,7 @@ function parseArgs(argv) {
     incremental: has('--incremental'),
     requeue: has('--requeue'),
     groupSize: Math.max(1, parseInt(val('--group-size', '10')) || 10),
+    concurrency: Math.min(8, Math.max(1, parseInt(val('--concurrency', '3')) || 3)),
     limitPollMinutes: Math.max(1, parseInt(val('--limit-poll-minutes', '20')) || 20),
     dryRun: has('--dry-run'),
   };
@@ -158,10 +158,29 @@ function resolveClaudeBin() {
 const CLAUDE_BIN = resolveClaudeBin();
 
 function callClaude(args, cwd, timeoutMs) {
+  // spawn (not execFile) so stdin can be closed outright: an open-but-silent stdin pipe
+  // makes the CLI wait ("no stdin data received in 3s…") and can leave calls lingering
+  // until the timeout instead of exiting when the response is done.
+  const { spawn } = require('child_process');
   return new Promise((resolve) => {
-    execFile(CLAUDE_BIN, args, { cwd, env: childEnv(), timeout: timeoutMs, maxBuffer: 64 * 1024 * 1024 },
-      (err, stdout, stderr) => resolve({ err, stdout: String(stdout || ''), stderr: String(stderr || '') }));
+    const child = spawn(CLAUDE_BIN, args, {
+      cwd, env: childEnv(), stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: timeoutMs, killSignal: 'SIGKILL',
+    });
+    let stdout = '', stderr = '';
+    child.stdout.on('data', d => { stdout += d; });
+    child.stderr.on('data', d => { stderr += d; });
+    child.on('error', err => resolve({ err, stdout, stderr }));
+    child.on('close', code => resolve({ err: code === 0 ? null : new Error(`exit ${code}`), stdout, stderr }));
   });
+}
+
+// Shared pause: any worker that hits a usage limit sets state.pauseUntil; every worker
+// waits it out before its next call, so concurrency never turns one limit into N retries.
+async function waitIfPaused(state) {
+  while (state.pauseUntil > now()) {
+    await sleep(Math.min(state.pauseUntil - now() + 500, 30_000));
+  }
 }
 
 async function runGroupSubscription(rows, cfg, state) {
@@ -173,18 +192,21 @@ async function runGroupSubscription(rows, cfg, state) {
     model: cfg.model,
   });
   for (;;) {
+    await waitIfPaused(state);
     const { err, stdout, stderr } = await callClaude(args, state.scratchDir, 10 * 60 * 1000);
     const combined = `${stdout}\n${stderr}`;
     if (err && core.isLimitError(combined)) {
       const reset = core.parseLimitReset(combined, new Date());
-      const waitMs = reset
-        ? Math.max(60_000, reset.getTime() - now() + 2 * 60_000)
-        : state.limitPollMs;
-      console.log(`\n⏸ usage limit hit — ${reset ? `sleeping until ${reset.toLocaleString()} (+2min)` : `polling in ${Math.round(waitMs / 60000)}min`}`);
-      await sleep(waitMs);
-      continue; // same group, retry after the window resets
+      const until = reset ? reset.getTime() + 2 * 60_000 : now() + state.limitPollMs;
+      if (until > (state.pauseUntil || 0)) {
+        state.pauseUntil = until;
+        console.log(`\n⏸ usage limit hit — resuming ${new Date(until).toLocaleString()}${reset ? '' : ' (reset time unparsable — polling)'}`);
+      }
+      continue; // same group, retry after the shared pause
     }
     if (err) {
+      // Salvage: a killed-on-timeout child may still have written a complete response.
+      try { return core.extractResultJson(stdout); } catch (_) { /* genuinely failed */ }
       const detail = (stderr || stdout || err.message || '').slice(0, 400);
       throw new Error(`claude call failed: ${detail}`);
     }
@@ -380,62 +402,107 @@ async function main() {
 
     const state = await buildCallState(opts, opts.groupSize);
     const cfg = { runId, model: opts.model, promptOpts: null };
-    let processed = 0;
 
-    for (;;) {
-      const [pending] = await db.query(
+    // Atomically claim up to `size` pending items for one worker, best (lowest) EDHREC
+    // rank first — so even an interrupted full run leaves the most-played cards done.
+    let claimSeq = 0;
+    async function claimGroup(size) {
+      const token = `w${process.pid}-${++claimSeq}`;
+      await db.query(
+        `UPDATE semantics_run_items i
+         JOIN (SELECT i2.oracle_id FROM semantics_run_items i2
+               JOIN scryfall_oracle_cards c ON c.oracle_id = i2.oracle_id
+               WHERE i2.run_id = ? AND i2.status = 'pending'
+               ORDER BY (c.edhrec_rank IS NULL), c.edhrec_rank LIMIT ${size}) pick
+           ON pick.oracle_id = i.oracle_id
+         SET i.status='submitted', i.batch_id=?, i.updated_at=?
+         WHERE i.run_id = ? AND i.status = 'pending'`,
+        [runId, token, now(), runId]);
+      const [rows] = await db.query(
         `SELECT i.oracle_id, c.* FROM semantics_run_items i
          JOIN scryfall_oracle_cards c ON c.oracle_id = i.oracle_id
-         WHERE i.run_id=? AND i.status='pending' LIMIT ?`, [runId, opts.groupSize]);
-      if (!pending.length) break;
-      const ids = pending.map(r => r.oracle_id);
-      await db.query(
-        `UPDATE semantics_run_items SET status='submitted', updated_at=? WHERE run_id=? AND oracle_id IN (${ids.map(() => '?').join(',')})`,
-        [now(), runId, ...ids]);
+         WHERE i.run_id = ? AND i.batch_id = ? AND i.status = 'submitted'`, [runId, token]);
+      return rows;
+    }
 
+    async function processGroup(pending) {
+      const t0 = now();
       let payload = null, lastErr = null;
-      for (let attempt = 0; attempt < 3 && !payload; attempt++) {
+      const tries = pending.length > 1 ? 2 : 3; // failed groups fall through to singles fast
+      for (let attempt = 0; attempt < tries && !payload; attempt++) {
         try { payload = await runGroupSubscription(pending, cfg, state); }
-        catch (e) { lastErr = e; await sleep(5000 * (attempt + 1)); }
-      }
-      if (!payload) {
-        // isolate bad apples: singles get retried individually on the next loop pass;
-        // a group that already IS a single gets marked failed.
-        if (pending.length > 1) {
-          console.error(`  group of ${pending.length} failed (${lastErr.message.slice(0, 120)}) — splitting into singles`);
-          for (const row of pending) await setItem(db, runId, row.oracle_id, 'pending', null, 0);
-          state.forceSingles = true;
-          opts.groupSize = 1;
-          continue;
+        catch (e) {
+          lastErr = e;
+          console.error(`\n  attempt ${attempt + 1}/${tries} failed (${pending.length} cards): ${e.message.slice(0, 160)}`);
+          await sleep(5000 * (attempt + 1));
         }
+      }
+      if (!payload && pending.length > 1) {
+        // Isolate the bad apple: retry THIS group's cards one-by-one, right here.
+        // Other workers and later groups keep the normal group size.
+        console.error(`  group of ${pending.length} failed — retrying its cards individually`);
+        for (const row of pending) {
+          let single = null;
+          for (let attempt = 0; attempt < 2 && !single; attempt++) {
+            try { single = await runGroupSubscription([row], cfg, state); }
+            catch (e) {
+              lastErr = e;
+              console.error(`  single ${row.name}: attempt ${attempt + 1}/2 failed: ${e.message.slice(0, 120)}`);
+              await sleep(3000);
+            }
+          }
+          if (single && single.cards && single.cards[0]) {
+            try { await disposition(db, row, single.cards[0], cfg, 0); }
+            catch (e) {
+              await setItem(db, runId, row.oracle_id, 'failed',
+                [{ code: 'runner', severity: 'hard', detail: e.message.slice(0, 300) }], 1);
+            }
+          } else {
+            await setItem(db, runId, row.oracle_id, 'failed',
+              [{ code: 'runner', severity: 'hard', detail: lastErr.message.slice(0, 300) }], 1);
+          }
+        }
+      } else if (!payload) {
         await setItem(db, runId, pending[0].oracle_id, 'failed',
           [{ code: 'runner', severity: 'hard', detail: lastErr.message.slice(0, 300) }], 1);
-        continue;
-      }
-
-      const byId = new Map((payload.cards || []).map(c => [String(c?.oracle_id || ''), c]));
-      for (let i = 0; i < pending.length; i++) {
-        const row = pending[i];
-        const ir = byId.get(row.oracle_id) || payload.cards[i]; // id match first, index fallback
-        if (!ir) {
-          await setItem(db, runId, row.oracle_id, 'invalid',
-            [{ code: 'runner', severity: 'hard', detail: 'card missing from model output' }], 1);
-          continue;
+      } else {
+        const byId = new Map((payload.cards || []).map(c => [String(c?.oracle_id || ''), c]));
+        for (let i = 0; i < pending.length; i++) {
+          const row = pending[i];
+          const ir = byId.get(row.oracle_id) || payload.cards[i]; // id match first, index fallback
+          if (!ir) {
+            await setItem(db, runId, row.oracle_id, 'invalid',
+              [{ code: 'runner', severity: 'hard', detail: 'card missing from model output' }], 1);
+            continue;
+          }
+          try { await disposition(db, row, ir, cfg, 0); }
+          catch (e) {
+            await setItem(db, runId, row.oracle_id, 'failed',
+              [{ code: 'runner', severity: 'hard', detail: e.message.slice(0, 300) }], 1);
+          }
         }
-        try { await disposition(db, row, ir, cfg, 0); }
-        catch (e) {
-          await setItem(db, runId, row.oracle_id, 'failed',
-            [{ code: 'runner', severity: 'hard', detail: e.message.slice(0, 300) }], 1);
-        }
       }
-      processed += pending.length;
+      const callSecs = Math.round((now() - t0) / 1000);
       const [[stats]] = await db.query(
         `SELECT SUM(status='succeeded') ok, SUM(status IN ('invalid','review','failed')) bad,
-                SUM(status='pending') todo FROM semantics_run_items WHERE run_id=?`, [runId]);
+                SUM(status IN ('pending','submitted')) todo FROM semantics_run_items WHERE run_id=?`, [runId]);
       await db.query(`UPDATE semantics_runs SET succeeded=?, failed=? WHERE run_id=?`,
         [Number(stats.ok) || 0, Number(stats.bad) || 0, runId]);
-      process.stdout.write(`\r${Number(stats.ok) || 0} ok · ${Number(stats.bad) || 0} flagged/failed · ${Number(stats.todo) || 0} to go   `);
+      process.stdout.write(`\r${Number(stats.ok) || 0} ok · ${Number(stats.bad) || 0} flagged/failed · ${Number(stats.todo) || 0} to go · last group ${callSecs}s   `);
     }
+
+    // Worker pool: N groups in flight at once. Credits are the real limit, not
+    // connections — parallelism just uses each 5-hour window efficiently. A usage-limit
+    // error from any worker pauses all of them (shared state.pauseUntil).
+    console.log(`workers: ${opts.concurrency}`);
+    async function workerLoop() {
+      for (;;) {
+        const pending = await claimGroup(opts.groupSize);
+        if (!pending.length) return;
+        await processGroup(pending);
+      }
+    }
+    await Promise.all(Array.from({ length: opts.concurrency }, () => workerLoop()));
 
     await db.query(`UPDATE semantics_runs SET status='done', finished_at=? WHERE run_id=?`, [now(), runId]);
     const [[fin]] = await db.query(
@@ -454,6 +521,7 @@ async function buildCallState(opts, groupSize) {
     schemaJson: JSON.stringify(irSchema.buildWireSchema(groupSize)),
     scratchDir,
     limitPollMs: opts.limitPollMinutes * 60 * 1000,
+    pauseUntil: 0, // shared across workers — set by any usage-limit error
   };
 }
 

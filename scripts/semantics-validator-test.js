@@ -134,8 +134,12 @@ console.log('subscription runner core (usage-limit pause/resume)');
 
   check('session-limit error detected', core.isLimitError("You've hit your session limit · resets 3:45pm"));
   check('weekly-limit error detected', core.isLimitError("You've hit your weekly limit · resets Mon 12:00am"));
+  check('headless limit form detected', core.isLimitError('Claude AI usage limit reached|1780000000'));
+  check('bare "usage limit exceeded" detected (poll fallback)', core.isLimitError('usage limit exceeded'));
   check('ordinary error NOT a limit', !core.isLimitError('Error: ECONNREFUSED 127.0.0.1:443'));
-  check('rate-limit without reset NOT matched (falls to retry path)', !core.isLimitError('usage limit exceeded'));
+  const rEpoch = core.parseLimitReset('Claude AI usage limit reached|4102444800', now); // 2100-01-01
+  check('epoch reset parsed', rEpoch && rEpoch.getTime() === 4102444800 * 1000, String(rEpoch));
+  check('stale epoch reset → null', core.parseLimitReset('usage limit reached|946684800', now) === null);
 
   const r1 = core.parseLimitReset('resets 3:45pm', now);
   check('same-day reset parsed', r1 && r1.getHours() === 15 && r1.getMinutes() === 45 && r1.getDate() === now.getDate(), String(r1));
