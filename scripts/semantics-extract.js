@@ -406,18 +406,36 @@ async function main() {
     // Atomically claim up to `size` pending items for one worker, best (lowest) EDHREC
     // rank first — so even an interrupted full run leaves the most-played cards done.
     let claimSeq = 0;
+    // Concurrent claim UPDATEs deadlock in InnoDB (overlapping next-key locks on the same
+    // ordered candidate rows), so claims are serialized through an in-process mutex —
+    // a claim takes milliseconds vs the minutes-long claude call, so this costs nothing.
+    // The deadlock retry stays as a belt-and-braces for a second process on the same run.
+    let claimChain = Promise.resolve();
+    function withClaimLock(fn) {
+      const p = claimChain.then(fn, fn);
+      claimChain = p.catch(() => {});
+      return p;
+    }
     async function claimGroup(size) {
       const token = `w${process.pid}-${++claimSeq}`;
-      await db.query(
-        `UPDATE semantics_run_items i
-         JOIN (SELECT i2.oracle_id FROM semantics_run_items i2
-               JOIN scryfall_oracle_cards c ON c.oracle_id = i2.oracle_id
-               WHERE i2.run_id = ? AND i2.status = 'pending'
-               ORDER BY (c.edhrec_rank IS NULL), c.edhrec_rank LIMIT ${size}) pick
-           ON pick.oracle_id = i.oracle_id
-         SET i.status='submitted', i.batch_id=?, i.updated_at=?
-         WHERE i.run_id = ? AND i.status = 'pending'`,
-        [runId, token, now(), runId]);
+      for (let attempt = 0; ; attempt++) {
+        try {
+          await db.query(
+            `UPDATE semantics_run_items i
+             JOIN (SELECT i2.oracle_id FROM semantics_run_items i2
+                   JOIN scryfall_oracle_cards c ON c.oracle_id = i2.oracle_id
+                   WHERE i2.run_id = ? AND i2.status = 'pending'
+                   ORDER BY (c.edhrec_rank IS NULL), c.edhrec_rank LIMIT ${size}) pick
+               ON pick.oracle_id = i.oracle_id
+             SET i.status='submitted', i.batch_id=?, i.updated_at=?
+             WHERE i.run_id = ? AND i.status = 'pending'`,
+            [runId, token, now(), runId]);
+          break;
+        } catch (e) {
+          if (e.code === 'ER_LOCK_DEADLOCK' && attempt < 3) { await sleep(250 * (attempt + 1)); continue; }
+          throw e;
+        }
+      }
       const [rows] = await db.query(
         `SELECT i.oracle_id, c.* FROM semantics_run_items i
          JOIN scryfall_oracle_cards c ON c.oracle_id = i.oracle_id
@@ -497,9 +515,21 @@ async function main() {
     console.log(`workers: ${opts.concurrency}`);
     async function workerLoop() {
       for (;;) {
-        const pending = await claimGroup(opts.groupSize);
+        const pending = await withClaimLock(() => claimGroup(opts.groupSize));
         if (!pending.length) return;
-        await processGroup(pending);
+        try {
+          await processGroup(pending);
+        } catch (e) {
+          // A worker crash must never kill the pool — release the group and move on.
+          console.error(`\n  worker error (group released back to pending): ${e.message.slice(0, 200)}`);
+          const ids = pending.map(r => r.oracle_id);
+          try {
+            await db.query(
+              `UPDATE semantics_run_items SET status='pending', updated_at=? WHERE run_id=? AND status='submitted' AND oracle_id IN (${ids.map(() => '?').join(',')})`,
+              [now(), runId, ...ids]);
+          } catch (_) { /* picked up by the submitted→pending reset on next launch */ }
+          await sleep(3000);
+        }
       }
     }
     await Promise.all(Array.from({ length: opts.concurrency }, () => workerLoop()));
