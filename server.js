@@ -3631,7 +3631,7 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
         ? `AND NOT (${disallowed.map(() => `JSON_CONTAINS(c.color_identity_json, ?)`).join(' OR ')})`
         : '';
       const [candRows] = await db().query(
-        `SELECT DISTINCT c.oracle_id, c.name, c.type_line, c.cmc, c.edhrec_rank, s.ir_json
+        `SELECT DISTINCT c.oracle_id, c.name, c.type_line, c.cmc, c.edhrec_rank, c.scryfall_id, s.ir_json
          FROM card_semantics_axes x
          JOIN scryfall_oracle_cards c ON c.oracle_id = x.oracle_id
          JOIN card_semantics s ON s.oracle_id = x.oracle_id AND s.status IN ('valid','flagged','manual')
@@ -3665,7 +3665,8 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
       const ownedNames = new Set((Array.isArray(body.ownedNames) ? body.ownedNames : []).map(n => String(n).toLowerCase()));
       const candidates = candRows.map(r => ({
         name: r.name, ir: parseIR(r), cmc: Number(r.cmc) || 0, typeLine: r.type_line,
-        edhrecRank: r.edhrec_rank, price: prices.has(r.name) ? prices.get(r.name) : null,
+        edhrecRank: r.edhrec_rank, scryfallId: r.scryfall_id || null,
+        price: prices.has(r.name) ? prices.get(r.name) : null,
         owned: ownedNames.has(String(r.name).toLowerCase()),
       }));
       adds = engine2.recommender.scoreAdds({

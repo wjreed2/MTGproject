@@ -219,7 +219,8 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
     if (score <= 0.5) continue;
     scored.push({
       name: cand.name, score: Math.round(score * 100) / 100,
-      owned: !!cand.owned, price: cand.price != null ? cand.price : null, priceFlag, trace,
+      owned: !!cand.owned, price: cand.price != null ? cand.price : null, priceFlag,
+      scryfallId: cand.scryfallId || null, trace,
     });
   }
 

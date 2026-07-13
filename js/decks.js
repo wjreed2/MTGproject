@@ -1596,6 +1596,32 @@ function _syncDeckSideboardToggle() {
   if (show) renderDeckSideboardEnabledBtn();
 }
 
+/** User-wide Deck Goal / semantic-analysis toggle — mirrors the Adds & Cuts setting. */
+function _deckGoalEnabled() {
+  return typeof deckGoalFeatureEnabled === 'undefined' || deckGoalFeatureEnabled !== false;
+}
+
+function toggleDeckGoalSetting() {
+  deckGoalFeatureEnabled = !deckGoalFeatureEnabled;
+  localStorage.setItem('mtg_deck_goal', deckGoalFeatureEnabled ? '1' : '0');
+  renderDeckGoalSettingBtn();
+  _e2AnalysisCache = { key: null, data: null };
+  const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+  if (deck && typeof renderDeckList === 'function') renderDeckList(deck);
+  showNotif(deckGoalFeatureEnabled
+    ? 'Deck goal analysis enabled — suggestions use the semantic engine'
+    : 'Deck goal analysis hidden — suggestions fall back to the classic role heuristics');
+}
+
+function renderDeckGoalSettingBtn() {
+  const btn = document.getElementById('settingsDeckGoalBtn');
+  if (!btn) return;
+  const on = _deckGoalEnabled();
+  btn.innerHTML = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="2.5"/><path d="M8 2v2M8 12v2M2 8h2M12 8h2"/></svg>${on ? ' Deck goal analysis: on' : ' Deck goal analysis: off'}`;
+  btn.style.color = on ? 'var(--teal)' : '';
+  btn.style.borderColor = on ? 'var(--teal)' : '';
+}
+
 /** User-wide Adds & Cuts toggle — mirrors the deck-ownership setting. Data is never cleared. */
 function toggleDeckSwapsSetting() {
   deckSwapsFeatureEnabled = !deckSwapsFeatureEnabled;
@@ -6365,7 +6391,84 @@ function _toggleCutPanel() {
   if (btn) btn.classList.toggle('is-rotated', collapsed);
 }
 
-function _renderCutSuggestions(deck) {
+// ── engine2 semantic analysis client (POST /api/decks/analyze) ────────────────
+// Deterministic server-side analysis over precomputed card semantics: deck goal,
+// synergy-aware cuts, and on-plan adds. Falls back to the classic role-tag heuristics
+// whenever the endpoint errors, semantics coverage is low, or the toggle is off.
+let _e2AnalysisCache = { key: null, data: null, promise: null };
+
+function _e2AnalysisKey(deck) {
+  const cards = (deck.cards || []).map(c => `${c.name}x${c.qty || 1}`).sort().join('|');
+  return `${deck.id}::${cards}::${_deckCutPlaystyleStep}`;
+}
+
+async function _e2Analyze(deck) {
+  if (!_deckGoalEnabled()) return null;
+  const key = _e2AnalysisKey(deck);
+  if (_e2AnalysisCache.key === key) {
+    return _e2AnalysisCache.promise ? _e2AnalysisCache.promise : _e2AnalysisCache.data;
+  }
+  const promise = (async () => {
+    try {
+      const commander = (deck.cards || []).find(c => c.isCommander)?.name || deck.commander || null;
+      const ownedNames = [];
+      if (typeof _ownershipCollection === 'function') {
+        const seen = new Set();
+        for (const c of _ownershipCollection()) {
+          const nm = (c.name || '').toLowerCase();
+          if (nm && !seen.has(nm)) { seen.add(nm); ownedNames.push(nm); }
+        }
+      }
+      const res = await fetch('/api/decks/analyze', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cards: (deck.cards || []).map(c => ({ name: c.name, count: c.qty || 1, isCommander: !!c.isCommander })),
+          commander,
+          playstyleStep: _deckCutPlaystyleStep,
+          ownedNames,
+          budget: { maxCardPrice: null, flagAbove: 5 },
+        }),
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      // Low semantics coverage → classic heuristics know this deck better.
+      if (!data || (data.coverage?.semantics ?? 0) < 0.7) return null;
+      return data;
+    } catch (_) {
+      return null; // offline / endpoint missing — classic path takes over
+    }
+  })();
+  _e2AnalysisCache = { key, data: null, promise };
+  const data = await promise;
+  _e2AnalysisCache = { key, data, promise: null };
+  return data;
+}
+
+// Compact goal readout injected above the Suggested Adds panel.
+function _renderDeckGoalReadout(deck, e2) {
+  const panel = document.getElementById('deckAddSuggestionsPanel');
+  if (!panel || !panel.parentNode) return;
+  let el = document.getElementById('deckGoalReadout');
+  const top = e2 && e2.goals && e2.goals[0];
+  if (!_deckGoalEnabled() || !top) { if (el) el.style.display = 'none'; return; }
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'deckGoalReadout';
+    panel.parentNode.insertBefore(el, panel);
+  }
+  el.style.cssText = 'margin:0 0 10px;padding:.65rem .9rem;background:var(--bg3);border-radius:8px;font-size:.8rem;color:var(--text2);line-height:1.45';
+  el.style.display = '';
+  const icon = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0;vertical-align:-2px;color:var(--teal)"><circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="2.5"/><path d="M8 2v2M8 12v2M2 8h2M12 8h2"/></svg>';
+  const pct = Math.round((top.confidence || 0) * 100);
+  const comboHtml = (e2.combos || []).slice(0, 2).map(c =>
+    `<div style="color:var(--text3);font-size:.72rem;margin-top:2px">Combo detected: <span style="color:var(--gold)">${escapeHtml(c.label || c.key)}</span> — ${escapeHtml((c.members || []).join(' + '))}</div>`
+  ).join('');
+  el.innerHTML = `<div>${icon} Deck goal: <strong style="color:var(--teal)">${escapeHtml(top.label || top.goal)}</strong>` +
+    `<span style="color:var(--text3);font-size:.72rem"> · ${pct}% match</span></div>` +
+    `<div style="color:var(--text3);font-size:.74rem;margin-top:2px">${escapeHtml(top.summary || '')}</div>` + comboHtml;
+}
+
+async function _renderCutSuggestions(deck) {
   const panel = document.getElementById('deckCutSuggestionsPanel');
   const body = document.getElementById('deckCutSuggestionsBody');
   const badge = document.getElementById('deckCutOverBadge');
@@ -6398,6 +6501,40 @@ function _renderCutSuggestions(deck) {
   if (sel) {
     sel.options[0].text = `Auto: ${_archetypeLabel(_autoDetectArchetype(deck))}`;
     sel.value = _deckCutArchetypeOverride;
+  }
+
+  // Server-first: semantic engine cuts (same panel, same buttons); classic heuristics
+  // remain the fallback for offline / low-coverage / toggle-off.
+  if (_deckGoalEnabled()) {
+    const e2 = await _e2Analyze(deck);
+    if (e2 && Array.isArray(e2.cuts) && e2.cuts.length) {
+      const swapsOnE2 = _deckSwapsEnabled(deck);
+      const byName = new Map((deck.cards || []).map(c => [c.name, c]));
+      const items = e2.cuts.map(cut => ({ cut, card: byName.get(cut.name) })).filter(x => x.card);
+      if (items.length) {
+        body.innerHTML = items.map(({ cut, card }) => {
+          const uid = (card.uid || card.scryfallId || '').replace(/'/g, "\\'");
+          const sid = card.scryfallId || card.uid || '';
+          const displayName = escapeHtml(card.name);
+          const score = Number(cut.score || 0).toFixed(1);
+          const whyLines = (cut.reasons || []).map(r => escapeHtml(r));
+          const why = _suggestWhyDetailHtml('Why cut this', score, whyLines, 'Semantic engine analysis');
+          const cutOnclick = swapsOnE2 ? `markPlannedCut('${uid}')` : `adjustDeckCardQtyByUid('${uid}',-1)`;
+          const cutTitle = swapsOnE2
+            ? 'Mark as a planned cut — stays in the deck until you apply swaps'
+            : 'Remove one copy from the deck';
+          return `<div class="suggest-item">
+            <div class="cut-candidate-row">
+              <button type="button" class="cut-score-badge cut-why-toggle" aria-expanded="false" aria-label="Why cut · score ${score}" onclick="_toggleSuggestWhy(this)">${score}<span class="cut-why-caret" aria-hidden="true">⌄</span></button>
+              <span class="cut-card-name" onclick="openCardDetail('${sid}','deck')">${displayName}</span>
+              <button class="btn-danger-ghost" title="${cutTitle}" onclick="${cutOnclick}">Cut</button>
+            </div>
+            ${why}
+          </div>`;
+        }).join('');
+        return;
+      }
+    }
   }
 
   const cuts = _suggestCardsToCut(deck);
@@ -6636,6 +6773,52 @@ async function _renderAddSuggestions(deck) {
 
   if (!deck || !(deck.cards || []).length) { panel.style.display = 'none'; return; }
   panel.style.display = '';
+
+  // Server-first: semantic engine adds + Deck Goal readout; classic heuristics below
+  // remain the fallback for offline / low-coverage / toggle-off.
+  if (_deckGoalEnabled()) {
+    const e2Token = ++_addSuggestToken;
+    const e2 = await _e2Analyze(deck);
+    if (e2Token !== _addSuggestToken) return;
+    _renderDeckGoalReadout(deck, e2);
+    if (e2 && Array.isArray(e2.adds) && e2.adds.length) {
+      const swapsOnE2 = _deckSwapsEnabled(deck);
+      body.innerHTML = e2.adds.slice(0, _ADD_SUGGESTION_COUNT).map(a => {
+        const name = a.name || '';
+        const safeName = name.replace(/'/g, "\\'");
+        const displayName = escapeHtml(name);
+        const sid = String(a.scryfallId || '').replace(/'/g, "\\'");
+        const score = Number(a.score || 0).toFixed(1);
+        const whyLines = (a.reasons || []).map(r => escapeHtml(r));
+        const priceBit = a.price != null ? ` · $${Number(a.price).toFixed(2)}` : '';
+        const why = _suggestWhyDetailHtml('Why suggested', score, whyLines,
+          `Semantic engine analysis · ${a.owned ? 'In your collection' : 'Not in your collection'}${priceBit}`);
+        const ownTag = a.owned
+          ? '<span class="tag" style="background:rgba(61,184,160,0.15);color:var(--teal);font-size:.62rem;margin:0 .4rem">owned</span>'
+          : '<span class="tag" style="background:var(--bg3);color:var(--text3);font-size:.62rem;margin:0 .4rem">unowned</span>';
+        const priceTag = a.priceFlag === 'expensive' && a.price != null
+          ? `<span class="tag" style="background:rgba(212,175,55,0.12);color:var(--gold);font-size:.62rem;margin:0 .4rem 0 0">$${Number(a.price).toFixed(0)}</span>` : '';
+        const addTitle = swapsOnE2 ? ' title="Add to planned adds — not counted until you apply swaps"' : '';
+        const addBtn = a.owned
+          ? `<button class="btn btn-primary btn-sm" style="padding:2px 10px;font-size:.7rem"${addTitle} onclick="${swapsOnE2 ? `addOwnedRecommendationToAdds('${safeName}')` : `addOwnedRecommendation('${safeName}')`}">+ Add</button>`
+          : (sid
+            ? `<button class="btn btn-outline btn-sm" style="padding:2px 10px;font-size:.7rem"${addTitle} onclick="${swapsOnE2 ? `addScryfallCardToAdds('${sid}')` : `addScryfallCardToDeck('${sid}')`}">+ Add</button>`
+            : '');
+        return `<div class="suggest-item">
+          <div class="cut-candidate-row">
+            <button type="button" class="cut-score-badge cut-why-toggle" aria-expanded="false" aria-label="Why suggested · score ${score}" onclick="_toggleSuggestWhy(this)">${score}<span class="cut-why-caret" aria-hidden="true">⌄</span></button>
+            <span class="cut-card-name" onclick="openCardDetail('${sid}','deck')">${displayName}</span>
+            ${priceTag}${ownTag}
+            ${addBtn}
+          </div>
+          ${why}
+        </div>`;
+      }).join('');
+      return;
+    }
+  } else {
+    _renderDeckGoalReadout(deck, null);
+  }
 
   const ctx = _computeAddContext(deck);
   const deficitRoles = Object.entries(ctx.deficits)
