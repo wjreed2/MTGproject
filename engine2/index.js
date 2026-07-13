@@ -11,4 +11,7 @@ module.exports = {
   interactions: require('./interactions'),
   deckGoals: require('./deck-goals'),
   thresholds: require('./thresholds'),
+  goalTemplates: require('./goal-templates'),
+  recommender: require('./recommender'),
+  explain: require('./explain'),
 };

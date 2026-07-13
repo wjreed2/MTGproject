@@ -14,6 +14,7 @@ const rateLimit   = require('express-rate-limit');
 const helmet      = require('helmet');
 const nodemailer  = require('nodemailer');
 const cron        = require('node-cron');
+const engine2     = require('./engine2'); // semantics/interaction engine (docs/engine2-plan.md)
 const { Server: SocketIOServer } = require('socket.io');
 const MySQLStore  = require('express-mysql-session')(session);
 // Shared trade value/condition math — same module the browser bundles, so the
@@ -3535,6 +3536,153 @@ app.get('/api/decks/archive-similarity', requireAuth, async (req, res) => {
       })),
     });
   } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── engine2 deck analysis (docs/engine2-plan.md §7.1) ─────────────────────────
+// Deterministic adds/cuts + goal inference from precomputed card semantics. The decklist
+// arrives in the body (decks live client-side in the decks.data JSON blob); no LLM here.
+
+const _e2AnalyzeLast = new Map(); // accountId → ts (light rate limit; analysis is CPU-bound)
+
+async function _e2ResolveCards(names) {
+  const found = new Map(); // name → {row, ir}
+  const uniq = [...new Set(names)].filter(Boolean);
+  for (let i = 0; i < uniq.length; i += 400) {
+    const chunk = uniq.slice(i, i + 400);
+    const [rows] = await db().query(
+      `SELECT c.oracle_id, c.name, c.type_line, c.cmc, c.edhrec_rank, s.ir_json
+       FROM scryfall_oracle_cards c
+       LEFT JOIN card_semantics s ON s.oracle_id = c.oracle_id AND s.status IN ('valid','flagged','manual')
+       WHERE c.name IN (${chunk.map(() => '?').join(',')})`, chunk);
+    for (const r of rows) if (!found.has(r.name)) found.set(r.name, r);
+  }
+  // front-face fallback for DFC names ("Malakir Rebirth" → "Malakir Rebirth // …")
+  for (const n of uniq) {
+    if (found.has(n)) continue;
+    const [rows] = await db().query(
+      `SELECT c.oracle_id, c.name, c.type_line, c.cmc, c.edhrec_rank, s.ir_json
+       FROM scryfall_oracle_cards c
+       LEFT JOIN card_semantics s ON s.oracle_id = c.oracle_id AND s.status IN ('valid','flagged','manual')
+       WHERE c.name LIKE ? LIMIT 1`, [`${n} // %`]);
+    if (rows.length) found.set(n, rows[0]);
+  }
+  return found;
+}
+
+app.post('/api/decks/analyze', requireAuth, async (req, res) => {
+  try {
+    const last = _e2AnalyzeLast.get(req.accountId) || 0;
+    if (Date.now() - last < 1000) return res.status(429).json({ error: 'analyze rate limit — retry in a second' });
+    _e2AnalyzeLast.set(req.accountId, Date.now());
+
+    const body = req.body || {};
+    const cardsIn = Array.isArray(body.cards) ? body.cards.slice(0, 400) : [];
+    if (!cardsIn.length) return res.status(400).json({ error: 'expected {cards:[{name,count}]}' });
+    const commanderName = String(body.commander || '').trim() ||
+      cardsIn.find(c => c.isCommander)?.name || null;
+
+    const allNames = cardsIn.map(c => String(c.name || '')).concat(commanderName ? [commanderName] : []);
+    const resolved = await _e2ResolveCards(allNames);
+    const parseIR = (r) => { try { return r?.ir_json ? JSON.parse(r.ir_json) : null; } catch (_) { return null; } };
+
+    const deckCards = [];
+    for (const c of cardsIn) {
+      if (commanderName && c.name === commanderName && !c.isCommander) { /* keep in 99 if duplicated */ }
+      if (c.isCommander || c.name === commanderName) continue;
+      const r = resolved.get(String(c.name));
+      deckCards.push({
+        name: String(c.name), qty: Math.max(1, parseInt(c.count) || 1),
+        ir: parseIR(r), cmc: r ? Number(r.cmc) : 0, typeLine: r ? r.type_line : '',
+      });
+    }
+    const cr = commanderName ? resolved.get(commanderName) : null;
+    const commander = commanderName ? { name: commanderName, ir: parseIR(cr) } : null;
+
+    const withIR = deckCards.filter(c => c.ir).length;
+    const coverage = deckCards.length ? Math.round((withIR / deckCards.length) * 100) / 100 : 0;
+
+    const goalsRes = engine2.deckGoals.inferGoals(deckCards, commander, { edhrecTheme: body.edhrecTheme });
+    const topGoal = goalsRes.goals[0] || null;
+    const thresholds = engine2.thresholds.computeThresholds({
+      goal: topGoal?.goal, playstyleStep: body.playstyleStep, overrides: body.thresholdOverrides,
+    });
+    const roleCounts = engine2.thresholds.countRoles(deckCards);
+
+    const cuts = engine2.recommender.scoreCuts({ deckCards, commander, goals: goalsRes.goals, thresholds, roleCounts })
+      .map(c => ({ ...c, reasons: engine2.explain.cutReasons(c) }));
+
+    // ── add candidates: commander-legal cards providing the deck's wanted axes ──
+    const templates = engine2.goalTemplates;
+    const index = engine2.recommender.deckAxisIndex(deckCards, commander);
+    const wanted = [...engine2.recommender.wantedAxes(topGoal?.goal, goalsRes.histogram, index, templates).keys()].slice(0, 8);
+    let adds = [];
+    if (wanted.length) {
+      let ciColors = [];
+      if (commanderName) {
+        const [[cRow]] = await db().query(
+          `SELECT color_identity_json FROM scryfall_oracle_cards WHERE name = ? OR name LIKE ? LIMIT 1`,
+          [commanderName, `${commanderName} // %`]);
+        try { ciColors = typeof cRow?.color_identity_json === 'string' ? JSON.parse(cRow.color_identity_json) : (cRow?.color_identity_json || []); } catch (_) {}
+      }
+      const disallowed = ['W', 'U', 'B', 'R', 'G'].filter(x => !ciColors.includes(x));
+      const ciSql = disallowed.length
+        ? `AND NOT (${disallowed.map(() => `JSON_CONTAINS(c.color_identity_json, ?)`).join(' OR ')})`
+        : '';
+      const [candRows] = await db().query(
+        `SELECT DISTINCT c.oracle_id, c.name, c.type_line, c.cmc, c.edhrec_rank, s.ir_json
+         FROM card_semantics_axes x
+         JOIN scryfall_oracle_cards c ON c.oracle_id = x.oracle_id
+         JOIN card_semantics s ON s.oracle_id = x.oracle_id AND s.status IN ('valid','flagged','manual')
+         WHERE x.kind = 'provides' AND x.axis IN (${wanted.map(() => '?').join(',')})
+           AND c.legal_commander = 1
+           ${ciSql}
+         ORDER BY (c.edhrec_rank IS NULL), c.edhrec_rank
+         LIMIT 400`,
+        [...wanted, ...disallowed.map(d => JSON.stringify(d))]);
+
+      // prices (best normal finish across printings at the latest snapshot) — optional
+      const prices = new Map();
+      try {
+        const candNames = candRows.map(r => r.name);
+        if (candNames.length) {
+          const [[{ d }]] = await db().query(`SELECT MAX(snapshot_date) d FROM card_price_daily`);
+          if (d) {
+            for (let i = 0; i < candNames.length; i += 300) {
+              const chunk = candNames.slice(i, i + 300);
+              const [priceRows] = await db().query(
+                `SELECT pr.name, MIN(cpd.tcg_normal) price
+                 FROM mtgjson_printing pr JOIN card_price_daily cpd ON cpd.uuid = pr.uuid AND cpd.snapshot_date = ?
+                 WHERE pr.name IN (${chunk.map(() => '?').join(',')}) AND cpd.tcg_normal IS NOT NULL
+                 GROUP BY pr.name`, [d, ...chunk]);
+              for (const p of priceRows) prices.set(p.name, Number(p.price));
+            }
+          }
+        }
+      } catch (_) { /* price tables optional — adds still work without them */ }
+
+      const ownedNames = new Set((Array.isArray(body.ownedNames) ? body.ownedNames : []).map(n => String(n).toLowerCase()));
+      const candidates = candRows.map(r => ({
+        name: r.name, ir: parseIR(r), cmc: Number(r.cmc) || 0, typeLine: r.type_line,
+        edhrecRank: r.edhrec_rank, price: prices.has(r.name) ? prices.get(r.name) : null,
+        owned: ownedNames.has(String(r.name).toLowerCase()),
+      }));
+      adds = engine2.recommender.scoreAdds({
+        candidates, deckCards, commander, goals: goalsRes.goals, thresholds, roleCounts,
+        hist: goalsRes.histogram, budget: body.budget, templates,
+      }).map(a => ({ ...a, reasons: engine2.explain.addReasons(a) }));
+    }
+
+    res.json({
+      goals: goalsRes.goals,
+      thresholds, roleCounts,
+      cuts, adds,
+      combos: goalsRes.interactions.combos,
+      coverage: { semantics: coverage },
+    });
+  } catch (e) {
+    console.error('[analyze]', e);
     res.status(500).json({ error: e.message });
   }
 });
