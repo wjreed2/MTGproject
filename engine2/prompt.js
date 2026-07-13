@@ -133,7 +133,7 @@ ${JSON.stringify({
 function buildUserMessage(rows, opts) {
   const blocks = rows.map((r, i) => buildCardBlock(r, i)).join('\n\n');
   const feedback = opts && opts.feedback
-    ? `\n\n# Corrections required\nA previous extraction of these cards failed validation. Fix these specific problems:\n${opts.feedback}`
+    ? `\n\n# Corrections required\nA previous extraction of these cards failed validation. Fix these specific problems:\n${opts.feedback}\nIMPORTANT: these corrections may be stale — if any correction conflicts with the card data above (face count, costs, types), the CARD DATA wins, always.`
     : '';
   const rulings = opts && opts.rulings
     ? `\n\n# Official rulings (context only — encode the oracle text, not the rulings)\n${opts.rulings}`
