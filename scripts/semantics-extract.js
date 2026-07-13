@@ -399,6 +399,13 @@ async function main() {
     }
     // interrupted 'submitted' items go back to pending
     await db.query(`UPDATE semantics_run_items SET status='pending' WHERE run_id=? AND status='submitted'`, [runId]);
+    // Self-heal: items failed by RUNNER errors (spawn/timeout/max-turns — flag code
+    // 'runner') requeue automatically; genuine validation failures stay put.
+    const [healed] = await db.query(
+      `UPDATE semantics_run_items SET status='pending', attempt=0
+       WHERE run_id=? AND status='failed'
+         AND JSON_SEARCH(flags_json, 'one', 'runner', NULL, '$[*].code') IS NOT NULL`, [runId]);
+    if (healed.affectedRows) console.log(`requeued ${healed.affectedRows} runner-failed items`);
 
     const state = await buildCallState(opts, opts.groupSize);
     const cfg = { runId, model: opts.model, promptOpts: null };

@@ -56,7 +56,12 @@ function buildClaudeArgs({ userMessage, systemPrompt, schemaJson, model }) {
     '--output-format', 'json',
     '--json-schema', schemaJson,
     '--append-system-prompt', systemPrompt,
-    '--max-turns', '1',
+    // Extraction is a pure completion: no tools. Headless mode exposes Bash/Read/Edit by
+    // default and the model occasionally reaches for one; with --max-turns 1 that turned
+    // into error_max_turns/tool_use failures. Disallow the built-ins and leave turn
+    // headroom for the structured-output round-trip.
+    '--disallowedTools', 'Bash,Read,Edit,Write,Glob,Grep,WebFetch,WebSearch,Task,TodoWrite,NotebookEdit',
+    '--max-turns', '4',
     '--model', model,
   ];
 }

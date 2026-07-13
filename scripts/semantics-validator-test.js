@@ -166,10 +166,10 @@ console.log('subscription runner core (usage-limit pause/resume)');
     try { core.extractResultJson(JSON.stringify({ is_error: true, result: 'boom' })); return false; }
     catch (e) { return /boom/.test(e.message); }
   })());
-  check('claude args include json-schema + max-turns 1 + append-system-prompt', (() => {
+  check('claude args include json-schema + max-turns + append-system-prompt, tools disallowed, no --bare', (() => {
     const args = core.buildClaudeArgs({ userMessage: 'u', systemPrompt: 's', schemaJson: '{}', model: 'sonnet' });
     return args.includes('--json-schema') && args.includes('--max-turns') && args.includes('--append-system-prompt')
-      && !args.includes('--bare');
+      && args.includes('--disallowedTools') && !args.includes('--bare');
   })());
 }
 
