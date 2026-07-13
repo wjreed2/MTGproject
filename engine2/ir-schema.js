@@ -280,6 +280,9 @@ const cardIRSchema = {
               required: ['types', 'lord_of'] },
     power_level_hint: { type: 'number' },
     confidence:       { type: 'number' },
+    // Stamped by the pipeline AFTER validation; present on stored IRs, so re-validation
+    // (semantics-audit) must accept it. Never required, never model-authored.
+    _prov: { type: ['object', 'null'] },
   },
   required: ['ir_version', 'vocab_version', 'oracle_id', 'name', 'layout', 'faces',
              'provides', 'needs', 'roles', 'anti', 'wincon', 'tribal',

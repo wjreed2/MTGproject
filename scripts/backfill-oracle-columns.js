@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 /**
- * Backfill the engine2 columns on scryfall_oracle_cards (keywords_json, legalities_json,
- * layout, edhrec_rank, produced_mana_json, legal_commander) from the Scryfall oracle bulk
- * feed — WITHOUT rewriting the rest of the row. Companion to the full admin re-import
- * (POST /api/admin/scryfall/import-oracle), which also fills these columns; use this when
- * you only need the new columns populated (e.g. right after the Phase 0 migration).
+ * Backfill/refresh scryfall_oracle_cards from the Scryfall oracle bulk feed: the engine2
+ * columns (keywords_json, legalities_json, layout, edhrec_rank, produced_mana_json,
+ * legal_commander) PLUS the text ground-truth the validator compares against
+ * (oracle_text, type_line, mana_cost, faces_json, power/toughness/loyalty — rows imported
+ * before faces_json existed otherwise break multiface validation). Lighter companion to
+ * the full admin re-import (POST /api/admin/scryfall/import-oracle).
  *
  * Only UPDATEs existing rows — never inserts. Idempotent; safe to re-run.
  *
@@ -46,13 +47,29 @@ async function main() {
 
     const conn = await db.getConnection();
     let updated = 0, seen = 0, batch = [];
+    // Same compact per-face payload the server import writes (server.js facesToJson).
+    const facesToJson = (c) => {
+      const faces = Array.isArray(c?.card_faces) ? c.card_faces : [];
+      if (faces.length < 2) return null;
+      return JSON.stringify(faces.map(f => ({
+        name: f?.name || '',
+        type_line: f?.type_line || '',
+        oracle_text: f?.oracle_text || '',
+        mana_cost: f?.mana_cost || '',
+        image_uris: f?.image_uris
+          ? { small: f.image_uris.small || null, normal: f.image_uris.normal || null, large: f.image_uris.large || null }
+          : null,
+      })));
+    };
     const flush = async () => {
       if (!batch.length) return;
       await conn.beginTransaction();
       for (const row of batch) {
         const [r] = await conn.query(
           `UPDATE scryfall_oracle_cards SET keywords_json=?, legalities_json=?, layout=?,
-             edhrec_rank=?, produced_mana_json=?, legal_commander=? WHERE oracle_id=?`, row);
+             edhrec_rank=?, produced_mana_json=?, legal_commander=?,
+             oracle_text=?, type_line=?, mana_cost=?, faces_json=?, power=?, toughness=?, loyalty=?
+           WHERE oracle_id=?`, row);
         if (r.affectedRows) updated++;
       }
       await conn.commit();
@@ -74,6 +91,13 @@ async function main() {
           Number.isFinite(Number(c?.edhrec_rank)) ? Number(c.edhrec_rank) : null,
           JSON.stringify(Array.isArray(c?.produced_mana) ? c.produced_mana : []),
           c?.legalities?.commander === 'legal' ? 1 : 0,
+          c?.oracle_text || null,
+          c?.type_line || null,
+          c?.mana_cost || null,
+          facesToJson(c),
+          c?.power || null,
+          c?.toughness || null,
+          c?.loyalty || null,
           oid,
         ]);
         if (batch.length >= 200) {

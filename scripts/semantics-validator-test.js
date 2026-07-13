@@ -126,6 +126,13 @@ console.log('mutation tests');
   const res = validateCardIR(fx.ir, fx.row);
   check('missing required field → hard schema fail', !res.ok && hasFlag(res, 'schema', 'hard'), JSON.stringify(res.flags));
 }
+{
+  // stored IRs carry the pipeline's _prov stamp — re-validation (audit) must accept it
+  const fx = clone(fixtures['serra-angel']);
+  fx.ir._prov = { model: 'sonnet', run_id: 'x', validated: true };
+  const res = validateCardIR(fx.ir, fx.row);
+  check('stored IR with _prov still validates', res.ok && res.score >= 0.9, JSON.stringify(res.flags.slice(0, 2)));
+}
 
 console.log('subscription runner core (usage-limit pause/resume)');
 {

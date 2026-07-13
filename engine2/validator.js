@@ -111,7 +111,8 @@ function walkEffects(effects, depth, ctx) {
       if (!vocab.inVocab('N_KINDS', ef.n.kind)) ctx.hard('vocab', `unknown n.kind "${ef.n.kind}"`);
       else if (ef.n.kind === 'fixed') {
         if (typeof ef.n.value !== 'number') ctx.soft('n_shape', `n.kind=fixed without numeric value (op ${ef.op})`);
-        else ctx.numbers.push(ef.n.value);
+        // add_mana amounts live in symbols ("{G}{W}"), not digits — exempt from grounding
+        else if (ef.op !== 'add_mana') ctx.numbers.push(ef.n.value);
       } else if (ef.n.kind === 'count' && !ef.n.of) {
         ctx.soft('n_shape', `n.kind=count without "of" filter (op ${ef.op})`);
       }
@@ -187,13 +188,20 @@ function validateCardIR(ir, cardRow) {
     ctx.hard('identity', `name "${ir.name}" != catalog "${rowName}"`);
   }
   const faces = Array.isArray(ir.faces) ? ir.faces : [];
-  const expectedFaceCount = Array.isArray(rowFaces) && rowFaces.length >= 2 ? rowFaces.length : 1;
+  // Face count: faces_json is authoritative, but rows imported before that column existed
+  // have NULL there — fall back to the "A // B" name convention for multi-face cards.
+  const nameFaceCount = String(rowName).includes(' // ') ? String(rowName).split(' // ').length : 1;
+  const expectedFaceCount = Array.isArray(rowFaces) && rowFaces.length >= 2 ? rowFaces.length
+    : Math.max(1, nameFaceCount);
   if (faces.length !== expectedFaceCount) {
     ctx.hard('identity', `face count ${faces.length} != expected ${expectedFaceCount}`);
   } else if (expectedFaceCount > 1) {
-    rowFaces.forEach((rf, i) => {
-      if (normWs(faces[i]?.face_name).toLowerCase() !== normWs(rf?.name).toLowerCase()) {
-        ctx.hard('identity', `face[${i}] name "${faces[i]?.face_name}" != "${rf?.name}"`);
+    const expectedNames = Array.isArray(rowFaces) && rowFaces.length >= 2
+      ? rowFaces.map(rf => rf?.name)
+      : String(rowName).split(' // ');
+    expectedNames.forEach((expName, i) => {
+      if (normWs(faces[i]?.face_name).toLowerCase() !== normWs(expName).toLowerCase()) {
+        ctx.hard('identity', `face[${i}] name "${faces[i]?.face_name}" != "${expName}"`);
       }
     });
   } else if (faces[0] && normWs(faces[0].face_name).toLowerCase() !== normWs(rowName).toLowerCase()) {
@@ -226,9 +234,11 @@ function validateCardIR(ir, cardRow) {
     const rowManaCost = expectedFaceCount > 1 ? String(rf?.mana_cost || '') : String(cardRow?.mana_cost || '');
     const rowTypeLine = expectedFaceCount > 1 ? String(rf?.type_line || '') : String(cardRow?.type_line || '');
 
-    // 5. mana cost
+    // 5. mana cost (skipped for multiface cards whose row predates faces_json — no
+    // per-face ground truth to compare against)
+    const staleMultiface = expectedFaceCount > 1 && !rf;
     const irCost = normWs(face?.mana_cost || '');
-    if (normWs(rowManaCost) !== irCost && !(rowManaCost === '' && irCost === '')) {
+    if (!staleMultiface && normWs(rowManaCost) !== irCost && !(rowManaCost === '' && irCost === '')) {
       ctx.soft('cost_mismatch', `face[${fi}] mana_cost "${irCost}" != "${rowManaCost}"`);
     }
     // alternative cost strings must appear in text
@@ -289,16 +299,24 @@ function validateCardIR(ir, cardRow) {
       }
       if (ab.applies_to) walkFilter(ab.applies_to, ctx);
       walkEffects(ab.effects, 1, ctx);
-      // 10a. anchor must be a substring of this face's text
+      // 10a. anchor must be a substring of this face's text. Exemptions: mana abilities are
+      // often INTRINSIC (Triome/basic-type lands print only reminder text — nothing to
+      // anchor), and anchors may legitimately quote reminder text, so match against the
+      // unstripped text too. Stale multiface rows (no per-face text) skip anchor checks.
       const anchor = normText(ab.text);
-      if (!anchor) ctx.soft('anchor_missing', 'ability with empty text anchor');
-      else if (!faceTextNorm.includes(anchor)) ctx.soft('anchor_missing', `ability anchor not in face text: "${String(ab.text).slice(0, 60)}…"`);
-      else anchors.push(anchor);
+      const faceTextRaw = normWs(faceText).toLowerCase();
+      if (!anchor) {
+        if (ab.kind !== 'mana') ctx.soft('anchor_missing', 'ability with empty text anchor');
+      } else if (faceText && !faceTextNorm.includes(anchor) && !faceTextRaw.includes(anchor)) {
+        if (ab.kind !== 'mana') ctx.soft('anchor_missing', `ability anchor not in face text: "${String(ab.text).slice(0, 60)}…"`);
+      } else if (anchor) {
+        anchors.push(anchor);
+      }
     }
     for (const r of face?.restrictions || []) {
       if (!vocab.inVocab('RESTRICTION_KINDS', r?.kind)) ctx.hard('vocab', `unknown restriction kind "${r?.kind}"`);
       const anchor = normText(r?.text);
-      if (anchor && faceTextNorm.includes(anchor)) anchors.push(anchor);
+      if (anchor && (!faceText || faceTextNorm.includes(anchor) || normWs(faceText).toLowerCase().includes(anchor))) anchors.push(anchor);
       else if (anchor) ctx.soft('anchor_missing', `restriction anchor not in face text: "${String(r.text).slice(0, 60)}…"`);
     }
     for (const c of face?.costs?.additional || []) {
