@@ -8,4 +8,7 @@ module.exports = {
   irSchema: require('./ir-schema'),
   validator: require('./validator'),
   prompt: require('./prompt'),
+  interactions: require('./interactions'),
+  deckGoals: require('./deck-goals'),
+  thresholds: require('./thresholds'),
 };
