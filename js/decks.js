@@ -6517,7 +6517,7 @@ async function _renderCutSuggestions(deck) {
           const sid = card.scryfallId || card.uid || '';
           const displayName = escapeHtml(card.name);
           const score = Number(cut.score || 0).toFixed(1);
-          const whyLines = (cut.reasons || []).map(r => escapeHtml(r));
+          const whyLines = (cut.reasons || []).map(r => ({ text: escapeHtml(r), val: '' }));
           const why = _suggestWhyDetailHtml('Why cut this', score, whyLines, 'Semantic engine analysis');
           const cutOnclick = swapsOnE2 ? `markPlannedCut('${uid}')` : `adjustDeckCardQtyByUid('${uid}',-1)`;
           const cutTitle = swapsOnE2
@@ -6789,7 +6789,7 @@ async function _renderAddSuggestions(deck) {
         const displayName = escapeHtml(name);
         const sid = String(a.scryfallId || '').replace(/'/g, "\\'");
         const score = Number(a.score || 0).toFixed(1);
-        const whyLines = (a.reasons || []).map(r => escapeHtml(r));
+        const whyLines = (a.reasons || []).map(r => ({ text: escapeHtml(r), val: '' }));
         const priceBit = a.price != null ? ` · $${Number(a.price).toFixed(2)}` : '';
         const why = _suggestWhyDetailHtml('Why suggested', score, whyLines,
           `Semantic engine analysis · ${a.owned ? 'In your collection' : 'Not in your collection'}${priceBit}`);
