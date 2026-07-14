@@ -170,7 +170,10 @@ function inferGoals(deckCards, commander, opts = {}) {
     });
   }
   for (const hit of tribal.slice(0, 2)) {
-    const score = Math.min(1, (hit.bodies / 22) + (hit.lords * 0.12));
+    // Uncapped-ish score: a deck that is DOMINANTLY one tribe (Edgar with 30+ vampires)
+    // must outrank saturated generic goals like aristocrats in the tie-break; the bias
+    // loop caps the displayed confidence at 1.
+    const score = Math.min(1.3, (hit.bodies / 22) + (hit.lords * 0.12));
     goals.push({
       goal: `tribal:${hit.type}`, label: `${hit.type} tribal`,
       confidence: Math.round(score * 100) / 100,

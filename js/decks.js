@@ -6463,8 +6463,11 @@ function _renderDeckGoalReadout(deck, e2) {
   const comboHtml = (e2.combos || []).slice(0, 2).map(c =>
     `<div style="color:var(--text3);font-size:.72rem;margin-top:2px">Combo detected: <span style="color:var(--gold)">${escapeHtml(c.label || c.key)}</span> — ${escapeHtml((c.members || []).join(' + '))}</div>`
   ).join('');
+  const second = e2.goals[1];
+  const secondBit = second && (second.confidence || 0) >= 0.85
+    ? ` <span style="color:var(--text3);font-size:.72rem">· secondary: ${escapeHtml(second.label || second.goal)}</span>` : '';
   el.innerHTML = `<div>${icon} Deck goal: <strong style="color:var(--teal)">${escapeHtml(top.label || top.goal)}</strong>` +
-    `<span style="color:var(--text3);font-size:.72rem"> · ${pct}% match</span></div>` +
+    `<span style="color:var(--text3);font-size:.72rem"> · ${pct}% match</span>${secondBit}</div>` +
     `<div style="color:var(--text3);font-size:.74rem;margin-top:2px">${escapeHtml(top.summary || '')}</div>` + comboHtml;
 }
 
