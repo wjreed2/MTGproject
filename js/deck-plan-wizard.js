@@ -123,7 +123,7 @@
   function _pwSuggestHint(sug) {
     if (!sug) return '';
     const pct = Math.round((sug.score || 0) * 100);
-    return `<p class="deck-tab-muted" style="margin-bottom:.65rem">Suggested: <strong>${escapeHtml(sug.label)}</strong>${pct ? ` (${pct}%)` : ''} - change it below if that is wrong.</p>`;
+    return `<p class="deck-tab-muted" style="margin-bottom:.65rem">Best guess: <strong>${escapeHtml(sug.label)}</strong>${pct ? ` (~${pct}% confidence)` : ''} - this is only a suggestion; change it if wrong.</p>`;
   }
 
   function _pwRender() {

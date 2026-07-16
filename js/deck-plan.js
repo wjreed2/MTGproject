@@ -218,38 +218,54 @@
     return scores;
   }
 
-  function _topRanked(scoreMap, catalog, fallbackIds, count) {
+  function _topRanked(scoreMap, catalog, fallbackIds, count, opts) {
+    const refHalf = (opts && opts.refHalf != null) ? opts.refHalf : 2;
     const rows = catalog.map(c => ({
       id: c.id,
       label: c.label,
-      score: Number(scoreMap[c.id] || 0),
-    })).sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
-    const top = rows[0]?.score || 0;
-    if (top < PLAN_INFERENCE_CONFIDENCE_MIN) {
+      raw: Number(scoreMap[c.id] || 0),
+    })).sort((a, b) => b.raw - a.raw || a.id.localeCompare(b.id));
+    const topRaw = rows[0]?.raw || 0;
+    const secondRaw = rows[1]?.raw || 0;
+
+    // No usable signal → static fallback list (not a confident pick).
+    if (topRaw <= 0) {
       return fallbackIds.slice(0, count).map(id => {
         const c = catalog.find(x => x.id === id);
-        return { id, label: c?.label || id, score: 0, fallback: true };
+        return { id, label: c?.label || id, score: 0, raw: 0, fallback: true };
       });
     }
-    // Normalize to 0–1 by dividing by max raw among catalog (or top)
-    const maxRaw = Math.max(top, 1e-9);
-    return rows.slice(0, count).map(r => ({
-      ...r,
-      score: Math.min(1, r.score / maxRaw),
-      fallback: false,
-    }));
+
+    // Absolute strength (asymptotic) × separation from #2. Hard-cap well below 100%.
+    // Tied or near-tied leaders stay low-confidence even if raw is large.
+    const strength = topRaw / (topRaw + refHalf);
+    const margin = Math.max(0, (topRaw - secondRaw) / (topRaw + secondRaw + 1e-9));
+    const confidence = Math.min(0.82, strength * (0.45 + 0.55 * margin));
+
+    return rows.slice(0, count).map((r, i) => {
+      const rStrength = r.raw <= 0 ? 0 : r.raw / (r.raw + refHalf);
+      return {
+        id: r.id,
+        label: r.label,
+        raw: r.raw,
+        // #1 carries calibrated confidence for pre-select / UI; others soft absolute strength
+        score: i === 0 ? confidence : Math.min(0.75, rStrength),
+        fallback: false,
+      };
+    });
   }
 
   function rankStrategiesForCommander(commander) {
     const text = _oracleBlob(commander) + ' ' + String(commander?.name || '');
     const scores = _rankFromRules(text, PLAN_STRATEGY_ORACLE_RULES, 3);
-    return _topRanked(scores, PLAN_STRATEGIES, PLAN_STRATEGY_FALLBACK_IDS, PLAN_PRIMARY_OPTIONS_COUNT);
+    // Max oracle hits × weight ≈ 1.5; half-strength around one solid keyword hit
+    return _topRanked(scores, PLAN_STRATEGIES, PLAN_STRATEGY_FALLBACK_IDS, PLAN_PRIMARY_OPTIONS_COUNT, { refHalf: 1.0 });
   }
 
   function rankWinConditionsForCommander(commander) {
     const text = _oracleBlob(commander) + ' ' + String(commander?.name || '');
     const scores = _rankFromRules(text, PLAN_WINCON_ORACLE_RULES, 3);
-    return _topRanked(scores, PLAN_WINCONS, PLAN_WINCON_FALLBACK_IDS, Math.min(5, PLAN_PRIMARY_OPTIONS_COUNT));
+    return _topRanked(scores, PLAN_WINCONS, PLAN_WINCON_FALLBACK_IDS, Math.min(5, PLAN_PRIMARY_OPTIONS_COUNT), { refHalf: 1.0 });
   }
 
   function _deckTypeRatios(deck) {
@@ -303,19 +319,18 @@
     const W = PLAN_TAG_SIGNAL_WEIGHT;
     for (const s of PLAN_STRATEGIES) {
       let raw = _tagSignal(counts, PLAN_STRATEGY_PROJECT_TAGS[s.id] || [], W);
-      if (s.id === 'strategy.spellslinger') raw += ratios.instSorShare * 8 * W;
-      if (s.id === 'strategy.artifacts') raw += ratios.artifactShare * 8 * W;
-      if (s.id === 'strategy.enchantress') raw += ratios.enchantShare * 8 * W;
-      if (s.id === 'strategy.superfriends') raw += ratios.walkerShare * 20 * W;
-      if (s.id === 'strategy.tribal' && ratios.creatureShare > 0.4) raw += 4 * W;
+      // Light type-ratio nudges — keep well below dedicated tag stacks so "has instants"
+      // does not read as a confident spellslinger call.
+      if (s.id === 'strategy.spellslinger') raw += ratios.instSorShare * 2.5 * W;
+      if (s.id === 'strategy.artifacts') raw += ratios.artifactShare * 2.5 * W;
+      if (s.id === 'strategy.enchantress') raw += ratios.enchantShare * 2.5 * W;
+      if (s.id === 'strategy.superfriends') raw += ratios.walkerShare * 8 * W;
+      if (s.id === 'strategy.tribal' && ratios.creatureShare > 0.4) raw += 2 * W;
       if (s.id === 'strategy.control') raw += ((counts['Counterspell'] || 0) + (counts['Removal'] || 0) + (counts['Card Draw'] || 0)) * 0.15 * W;
       scores[s.id] = raw;
     }
-    // Normalize by max attainable-ish scale for this deck
-    const maxRaw = Math.max(...Object.values(scores), 1e-9);
-    const normalized = Object.create(null);
-    for (const id of Object.keys(scores)) normalized[id] = scores[id] / maxRaw;
-    return _topRanked(normalized, PLAN_STRATEGIES, PLAN_STRATEGY_FALLBACK_IDS, PLAN_PRIMARY_OPTIONS_COUNT);
+    // refHalf ≈ a handful of on-theme tagged cards; huge stacks still soft-cap confidence
+    return _topRanked(scores, PLAN_STRATEGIES, PLAN_STRATEGY_FALLBACK_IDS, PLAN_PRIMARY_OPTIONS_COUNT, { refHalf: 4 });
   }
 
   function rankWinConditionsForDeck(deck) {
@@ -325,7 +340,7 @@
     const W = PLAN_TAG_SIGNAL_WEIGHT;
     for (const w of PLAN_WINCONS) {
       let raw = _tagSignal(counts, PLAN_WINCON_PROJECT_TAGS[w.id] || [], W);
-      if (w.id === 'wincon.combat') raw += ratios.creatureShare * 6 * W;
+      if (w.id === 'wincon.combat') raw += ratios.creatureShare * 3 * W;
       if (w.id === 'wincon.commander_damage') {
         raw += _tagSignal(counts, PLAN_STRATEGY_PROJECT_TAGS['strategy.voltron'], W);
       }
@@ -334,10 +349,7 @@
       }
       scores[w.id] = raw;
     }
-    const maxRaw = Math.max(...Object.values(scores), 1e-9);
-    const normalized = Object.create(null);
-    for (const id of Object.keys(scores)) normalized[id] = scores[id] / maxRaw;
-    return _topRanked(normalized, PLAN_WINCONS, PLAN_WINCON_FALLBACK_IDS, Math.min(5, PLAN_PRIMARY_OPTIONS_COUNT));
+    return _topRanked(scores, PLAN_WINCONS, PLAN_WINCON_FALLBACK_IDS, Math.min(5, PLAN_PRIMARY_OPTIONS_COUNT), { refHalf: 4 });
   }
 
   function strategyMatch(card, strategyId, deck) {

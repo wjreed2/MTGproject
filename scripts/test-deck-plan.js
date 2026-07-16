@@ -26,6 +26,7 @@ const {
   };
   const ranked = rankStrategiesForCommander(korvold);
   assert.ok(ranked.some(r => r.id === 'strategy.sacrifice'), 'case2: sacrifice in top strategies for Korvold');
+  assert.ok(!ranked[0] || ranked[0].score < 0.95, 'confidence: top guess must not claim near-100% confidence');
   console.log('[case2] Korvold strategies:', ranked.map(r => `${r.id}:${r.score.toFixed(2)}`).join(', '));
 }
 
