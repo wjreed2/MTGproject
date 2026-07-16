@@ -36,14 +36,14 @@ re-pop) isolated from other deck-builder render PRs. **23** (user categories) la
 | **4** | Collection / All Cards pool toggle | **Completed** | Cuts/Adds 6 | **Do not run before #2.** Prefer after #1. Safe to parallel #3. |
 | **5** | Adds excludes tokens from Plan-count + never recommends tokens | **Completed** | Cuts/Adds 2 | Prefer after #2 (Plan deficit for Entry 13). Safe to parallel #3 if Plan-count vs curve don’t collide. |
 | **6** | Manual Tag State Control in Card Inspector | **Completed** | Partner / tags | Foundation for Primary/Secondary/Default + remove/suppress. Blocks most tag consumers. |
-| **7** | Role-Tag Badge Priority Fix | Ready | Partner / tags | Badge display uses P → S → default; needs #6 model. |
-| **8** | Auto-tag primary and secondary from default tags | Ready | Partner / tags | Display fallback + “(auto)”; share resolution order with #7. |
-| **9** | Tag Modal: Remember Last Selected Tag Filter | Ready | Partner / tags | UI pref on tag modal; after toggles from #6 exist. |
+| **7** | Role-Tag Badge Priority Fix | **Completed** | Partner / tags | Badge display uses P → S → default; needs #6 model. |
+| **8** | Auto-tag primary and secondary from default tags | **Completed** | Partner / tags | Display fallback + “(auto)”; share resolution order with #7. |
+| **9** | Tag Modal: Remember Last Selected Tag Filter | **Completed** | Partner / tags | UI pref on tag modal; after toggles from #6 exist. |
 | **10** | Early Ramp CMC threshold + info popup | Ready | Partner / Gameplan | Bug fix + establish reveal-popup pattern for Gameplan. |
 | **11** | Commander Gameplan stat bullets clickable | Ready | Partner / Gameplan | Generalizes #10’s reveal pattern; resolve structural vs simulation cards first. |
-| **12** | Commander Gameplan Tag Pills & Filter | Ready | Partner / Gameplan | Needs stable P/S/D from #6–8; preserve “Land in hand”. |
-| **13** | Similarity count fix & Spicy Picks Cuts exclusion | Ready | Partner / Adds&Cuts UX | Cluster with other planning-board fixes; don’t rewrite scoring from #1. |
-| **14** | Cut button on Spicy Picks → Cuts list | Ready | Partner / Adds&Cuts UX | Same Adds/Cuts state model as #13 — run back-to-back. |
+| **12** | Commander Gameplan Tag Pills & Filter | **Completed** | Partner / Gameplan | Needs stable P/S/D from #6–8; preserve “Land in hand”. |
+| **13** | Similarity count fix & Spicy Picks Cuts exclusion | **Completed** | Partner / Adds&Cuts UX | Cluster with other planning-board fixes; don’t rewrite scoring from #1. |
+| **14** | Cut button on Spicy Picks → Cuts list | **Completed** | Partner / Adds&Cuts UX | Same Adds/Cuts state model as #13 — run back-to-back. |
 | **15** | Adds section missing Suggested Replacements | Ready | Partner / Adds&Cuts UX | Inspector path for Adds-section cards. |
 | **16** | Adds & Cuts hover preview | Ready | Partner / Adds&Cuts UX | Reuse deck-builder hover mechanism. |
 | **17** | Card Inspector: show add/cut quantity | Ready | Partner / Adds&Cuts UX | Surface planning qty inside inspector. |
@@ -939,6 +939,8 @@ Area: imperative summary.
 
 # Prompt 7 of 23 — Role-Tag Badge Priority Fix
 
+**Status:** Completed
+
 ```
 # Role-Tag Badge Priority Fix
 
@@ -969,6 +971,8 @@ After JS changes: npm run build:bundle; commit dist/bundle.js.
 ---
 
 # Prompt 8 of 23 — Auto-tag primary and secondary from default tags
+
+**Status:** Completed
 
 ```
 # Auto-tag primary and secondary from default tags
@@ -1004,6 +1008,8 @@ Prereq: Prefer Prompts 6–7 so badge and cycle share one resolution order.
 ---
 
 # Prompt 9 of 23 — Tag Modal: Remember Last Selected Tag Filter
+
+**Status:** Completed
 
 ```
 # Tag Modal: Remember Last Selected Tag Filter
@@ -1106,6 +1112,8 @@ Prereq: Prefer Prompt 10 so Early Ramp popup pattern can be reused.
 
 # Prompt 12 of 23 — Commander Gameplan Tag Pills & Filter
 
+**Status:** Completed
+
 ```
 # MTG Archive — Commander Gameplan Tag Pills & Filter
 
@@ -1138,6 +1146,7 @@ Prereq: Prefer Prompts 6–8 so Primary/Secondary filter modes are meaningful.
 
 # Prompt 13 of 23 — Similarity count fix & Spicy Picks Cuts exclusion
 
+**Status:** Completed
 ```
 # Deck Builder: Similarity Count Fix & Spicy Picks Cuts Exclusion
 
@@ -1177,6 +1186,8 @@ Do not rewrite Suggested Adds/Cuts **scoring formulas** from Prompts 1–5.
 
 ```
 # Cut Button on Spicy Picks Should Move Cards to the Cuts List
+
+**Status:** Completed
 
 ## Context
 In Adds & Cuts, Spicy Picks suggestions that are currently in-deck have a “-” button.

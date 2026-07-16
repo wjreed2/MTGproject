@@ -1228,7 +1228,8 @@ const _SCRY_AUTO_LABEL_SET = new Set(SCRYFALL_AUTO_TAGS.map(t => t.label));
 // ─── Default-tag badges ──────────────────────────────────────────────────────
 // Each protected/role tag (Land, Commander + the Scryfall auto tags) gets a
 // distinct color and an inline line icon. The deck viewer paints a small badge
-// for a card's FIRST role tag — see _roleTagsForCard() for the ordering.
+// for one role tag per card — see _badgeTagForCard() for Primary → Secondary →
+// default priority (_roleTagsForCard() order is the "first listed" tie-break).
 // Icons are 24×24 line icons (stroke=currentColor) to match the app's SVG style.
 const DEFAULT_TAG_BADGE = {
   'Land':          { color: '#8a6f3e', icon: '<path d="M3 19l6-9 4 5 2-3 6 7z"/>' },
@@ -1275,13 +1276,35 @@ function _tagBadgeSvg(inner) {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
 }
 
-/** Badge HTML for a card's first role/default tag (Land > Commander > Scryfall auto). */
-function _defaultTagBadgeHtml(card, opts = {}) {
-  let tag = null;
+/**
+ * Role tag chosen for the single per-card badge (and Badge sort).
+ * Priority: manually-set primary → manually-set secondary → default role-tag
+ * order from `_roleTagsForCard` (Land → Commander → Scryfall auto). "First
+ * listed" among multiple primaries/secondaries means that same array order.
+ * Only explicit stored tiers count as manual (`_getCardCustomTagTierRaw`).
+ */
+function _badgeTagForCard(card) {
+  let roles = [];
   try {
-    const roles = (typeof _roleTagsForCard === 'function') ? _roleTagsForCard(card) : [];
-    tag = (roles && roles.length) ? roles[0] : null;
-  } catch (_) {}
+    roles = (typeof _roleTagsForCard === 'function') ? (_roleTagsForCard(card) || []) : [];
+  } catch (_) {
+    roles = [];
+  }
+  if (!roles.length) return null;
+  if (typeof _getCardCustomTagTierRaw === 'function') {
+    for (const tag of roles) {
+      if (_getCardCustomTagTierRaw(card, tag) === 'primary') return tag;
+    }
+    for (const tag of roles) {
+      if (_getCardCustomTagTierRaw(card, tag) === 'secondary') return tag;
+    }
+  }
+  return roles[0] || null;
+}
+
+/** Badge HTML for a card's role tag (Primary → Secondary → default role order). */
+function _defaultTagBadgeHtml(card, opts = {}) {
+  const tag = _badgeTagForCard(card);
   const meta = tag ? DEFAULT_TAG_BADGE[tag] : null;
   if (!meta) return '';
   if (!deckTagBadgesEnabled) return '';
@@ -1689,13 +1712,9 @@ function _deckCardSortPrice(c) {
   return Number(c?.priceTCG) || 0;
 }
 
-/** Sort key for "Badge" sort — a card's first role tag; un-badged cards sort last. */
+/** Sort key for "Badge" sort — same tag as the painted badge; un-badged last. */
 function _deckCardBadgeSortKey(card) {
-  let tag = '';
-  try {
-    const roles = (typeof _roleTagsForCard === 'function') ? _roleTagsForCard(card) : [];
-    tag = (roles && roles.length) ? roles[0] : '';
-  } catch (_) {}
+  const tag = (typeof _badgeTagForCard === 'function' ? _badgeTagForCard(card) : null) || '';
   // Prefix so badged cards ('0…') always sort before un-badged ('1'), locale-safe.
   return tag ? '0' + tag : '1';
 }
@@ -8771,6 +8790,91 @@ function _customReqCards(deck, group) {
 }
 let _cmdCustomEditorOpen = false;
 let _cmdOrPickerGroup = null; // group id whose "+ or" picker is currently open
+/** Custom gameplan pill filter: all | default | primary | secondary */
+let _cmdCustomTagFilter = 'all';
+
+// ─── Gameplan Custom dynamic tag pills + tier filter ─────────────────────────
+// Kill switch: set to false (and rebuild bundle) to restore the pre-feature
+// hardcoded pill list and hide the All/Default/Primary/Secondary filter.
+const CMD_GP_DYNAMIC_TAG_PILLS = true;
+
+/** Pre-feature hardcoded requirement pills (used when kill switch is off). */
+const _CMD_GP_LEGACY_TAG_PILLS = [
+  ['Protection', 'Protection'],
+  ['Counterspell', 'Counterspell'],
+  ['Removal', 'Removal'],
+  ['Tutor', 'Tutor'],
+  ['Card Draw', 'Card Draw'],
+  ['Ramp', 'Ramp'],
+  ['Board Wipe', 'Board Wipe'],
+  ['Recursion', 'Recursion'],
+  ['Land', 'Land in hand'],
+];
+
+function setCmdCustomTagFilter(val) {
+  if (!CMD_GP_DYNAMIC_TAG_PILLS) return;
+  const allowed = new Set(['all', 'default', 'primary', 'secondary']);
+  _cmdCustomTagFilter = allowed.has(val) ? val : 'all';
+  const deck = getActiveDeck();
+  if (deck) renderCommanderGameplan(deck);
+}
+
+/** Display label for a custom-req tag pill. Land keeps its special "Land in hand" wording. */
+function _cmdCustomReqTagLabel(tag) {
+  if (tag === 'Land') return 'Land in hand';
+  return String(tag || '');
+}
+
+/**
+ * Tags available as Custom gameplan requirement pills for this deck + filter.
+ * Reflects tags actually present on deck cards (not a hardcoded subset).
+ * Filter modes mirror deck Group-by: All / Default / Primary / Secondary.
+ * When CMD_GP_DYNAMIC_TAG_PILLS is false, returns the legacy hardcoded list.
+ */
+function _cmdCustomReqTagOptions(deck, filter) {
+  if (!CMD_GP_DYNAMIC_TAG_PILLS) {
+    const out = [];
+    for (const [tag, label] of _CMD_GP_LEGACY_TAG_PILLS) {
+      const { K } = _customReqCards(deck, { id: '_', parts: [{ type: 'tag', value: tag }] });
+      if (!K) continue;
+      out.push({ tag, label, K });
+    }
+    return out;
+  }
+  const mode = filter || 'all';
+  const groupTier = mode === 'default' ? 'tag_default'
+    : mode === 'primary' ? 'tag_primary'
+    : mode === 'secondary' ? 'tag_secondary'
+    : 'tag_all';
+  const seen = new Map(); // lower key → { tag, label }
+  for (const c of (deck.cards || [])) {
+    let tags;
+    if (mode === 'all') {
+      // Match requirement scoring (_probTagsOnCard) so every usable tag can be picked.
+      tags = _probTagsOnCard(c, deck);
+    } else if (typeof _tagsOnCardForGroupTier === 'function') {
+      tags = _tagsOnCardForGroupTier(c, groupTier);
+    } else {
+      tags = _probTagsOnCard(c, deck);
+    }
+    for (const raw of tags || []) {
+      const tag = String(raw || '').trim();
+      if (!tag || tag === 'Commander') continue;
+      const key = tag.toLowerCase();
+      if (!seen.has(key)) seen.set(key, { tag, label: _cmdCustomReqTagLabel(tag) });
+    }
+  }
+  const out = [];
+  for (const { tag, label } of seen.values()) {
+    const { K } = _customReqCards(deck, { id: '_', parts: [{ type: 'tag', value: tag }] });
+    if (!K) continue;
+    out.push({ tag, label, K });
+  }
+  out.sort((a, b) => a.label.localeCompare(b.label));
+  return out;
+}
+// ─── End Gameplan Custom dynamic tag pills ───────────────────────────────────
+
 function toggleCmdCustomEditor() {
   _cmdCustomEditorOpen = !_cmdCustomEditorOpen;
   _cmdOrPickerGroup = null;
@@ -9347,23 +9451,30 @@ function renderCommanderGameplan(deck) {
         <div class="cmdr-gp-custom-editor-inner">
           <div class="cmdr-gp-custom-desc">Add cards you need in hand. Groups joined by <em>or</em> are treated as one slot; separate groups are each required (AND).</div>
           ${(() => {
-            const ALL_TAGS = [
-              ['Protection','Protection'],['Counterspell','Counterspell'],['Removal','Removal'],
-              ['Tutor','Tutor'],['Card Draw','Card Draw'],['Ramp','Ramp'],
-              ['Board Wipe','Board Wipe'],['Recursion','Recursion'],
-              ['Land','Land in hand'],
-            ];
-            // tagBtns: onclickGen(tag, label) → full onclick string
-            const tagBtns = (onclickGen, excludeValues) => ALL_TAGS
-              .filter(([tag]) => !excludeValues.has(tag))
-              .map(([tag, label]) => {
-                const { K } = _customReqCards(deck, { id:'_', parts:[{ type:'tag', value:tag }] });
-                if (!K) return '';
-                return `<button class="cmdr-gp-custom-tag-btn" onclick="${onclickGen(tag, label)}">${label} <span class="cmdr-gp-custom-tag-count">${K}</span></button>`;
+            const dynamic = !!CMD_GP_DYNAMIC_TAG_PILLS;
+            const filter = dynamic ? (_cmdCustomTagFilter || 'all') : 'all';
+            const available = _cmdCustomReqTagOptions(deck, filter);
+            const escOnclick = s => String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+            // tagBtns: onclickGen(tag, label) → full onclick string (tag/label already escaped)
+            const tagBtns = (onclickGen, excludeValues) => available
+              .filter(({ tag }) => !excludeValues.has(tag))
+              .map(({ tag, label, K }) => {
+                return `<button type="button" class="cmdr-gp-custom-tag-btn" onclick="${onclickGen(escOnclick(tag), escOnclick(label))}">${escapeHtml(label)} <span class="cmdr-gp-custom-tag-count">${K}</span></button>`;
               }).join('');
 
             // All tag values already used (across all groups) — for the "Add new" section
             const usedTags = new Set(savedReqs.flatMap(g => g.parts.map(p => p.value)));
+
+            const filterRow = dynamic ? `
+            <div class="cmdr-gp-custom-filter-row">
+              <label for="cmdGpTagFilter" class="cmdr-gp-custom-filter-label">Tags</label>
+              <select id="cmdGpTagFilter" class="deck-select cmdr-gp-custom-filter" onchange="setCmdCustomTagFilter(this.value)" title="Filter requirement pills by tag tier">
+                <option value="all"${filter === 'all' ? ' selected' : ''}>All Tags</option>
+                <option value="default"${filter === 'default' ? ' selected' : ''}>Default Tags</option>
+                <option value="primary"${filter === 'primary' ? ' selected' : ''}>Primary Tags</option>
+                <option value="secondary"${filter === 'secondary' ? ' selected' : ''}>Secondary Tags</option>
+              </select>
+            </div>` : '';
 
             const groupsHtml = savedReqs.length ? `
             <div class="cmdr-gp-custom-list">
@@ -9379,12 +9490,12 @@ function renderCommanderGameplan(deck) {
                       ${group.parts.map((p, i) => `
                         ${i > 0 ? '<span class="cmdr-gp-or-sep">or</span>' : ''}
                         <span class="cmdr-gp-part-chip">
-                          ${p.label}
-                          <button class="cmdr-gp-part-chip-x" onclick="removeCmdCustomReqPart('${deck.id}','${safeid}','${p.value}')" title="Remove">×</button>
+                          ${escapeHtml(p.label)}
+                          <button type="button" class="cmdr-gp-part-chip-x" onclick="removeCmdCustomReqPart('${deck.id}','${safeid}','${escOnclick(p.value)}')" title="Remove">×</button>
                         </span>`).join('')}
                     </span>
                     <span class="cmdr-gp-custom-item-meta">${K} in deck · avg MV ${avgCMC.toFixed(1)}</span>
-                    <button class="cmdr-gp-or-add-btn${orPickerOpen ? ' cmdr-gp-or-add-btn--open' : ''}" onclick="toggleCmdOrPicker('${safeid}')" title="Add OR alternative">+ or</button>
+                    <button type="button" class="cmdr-gp-or-add-btn${orPickerOpen ? ' cmdr-gp-or-add-btn--open' : ''}" onclick="toggleCmdOrPicker('${safeid}')" title="Add OR alternative">+ or</button>
                   </div>
                   ${orPickerOpen && orBtns ? `<div class="cmdr-gp-or-picker">${orBtns}</div>` : ''}
                 </div>`;
@@ -9392,13 +9503,16 @@ function renderCommanderGameplan(deck) {
             </div>` : '';
 
             const addBtns = tagBtns((tag, label) => `addCmdCustomReq('${deck.id}','tag','${tag}','${label}')`, usedTags);
-            const addSection = addBtns ? `
+            const emptyMsg = dynamic
+              ? '<span class="cmdr-gp-custom-empty">No tags in this filter.</span>'
+              : '';
+            const addSection = (addBtns || dynamic) ? `
             <div class="cmdr-gp-custom-add-section">
               <span class="cmdr-gp-custom-add-label">Add requirement:</span>
-              <div class="cmdr-gp-custom-tag-btns">${addBtns}</div>
+              <div class="cmdr-gp-custom-tag-btns">${addBtns || emptyMsg}</div>
             </div>` : '';
 
-            return groupsHtml + addSection;
+            return filterRow + groupsHtml + addSection;
           })()}
         </div>
       </div>
@@ -9844,6 +9958,20 @@ async function simAddToMaybe(btn, name) {
 }
 
 function simRemoveFromDeck(btn, uid) {
+  // With Adds & Cuts on, Spicy "−" plans a cut (card stays in the deck) — same
+  // model as Suggested Cuts — instead of removing the mainboard copy.
+  if (_deckSwapsEnabled()) {
+    const deck = getActiveDeck();
+    if (!deck) return;
+    const card = (deck.cards || []).find(c => getCardInventoryKey(c) === uid || c.uid === uid);
+    if (!card) return;
+    const key = getCardInventoryKey(card);
+    const beforeQty = _plannedCutQtyForDeckSlot(_deckPlannedCuts(deck), key);
+    markPlannedCut(uid);
+    const afterQty = _plannedCutQtyForDeckSlot(_deckPlannedCuts(deck), key);
+    if (afterQty > beforeQty) btn.closest('.sim-chip')?.remove();
+    return;
+  }
   removeFromDeck(uid);
   btn.closest('.sim-chip')?.remove();
 }
@@ -13281,6 +13409,57 @@ function _simJaccard(setA, setB) {
   return intersection / (setA.size + setB.size - intersection);
 }
 
+/**
+ * Non-commander, non-land cards that count toward similarity / EDHREC alignment.
+ * Includes planned Adds when the feature is on. Deduped by lowercase name so a
+ * card present in both mainboard and Adds is counted once.
+ */
+function _simDeckCardsForCompare(deck) {
+  const byName = new Map(); // lower name → card (prefer mainboard entry)
+  for (const c of (deck.cards || [])) {
+    if (!c || c.isCommander || _simIsLand(c)) continue;
+    const key = String(c.name || '').trim().toLowerCase();
+    if (!key || byName.has(key)) continue;
+    byName.set(key, c);
+  }
+  if (typeof _deckSwapsEnabled === 'function' && _deckSwapsEnabled()
+      && typeof _deckPlannedAdds === 'function') {
+    for (const c of _deckPlannedAdds(deck)) {
+      if (!c || c.isCommander || _simIsLand(c)) continue;
+      const key = String(c.name || '').trim().toLowerCase();
+      if (!key || byName.has(key)) continue;
+      byName.set(key, c);
+    }
+  }
+  return [...byName.values()];
+}
+
+function _simDeckNameSet(deck) {
+  return new Set(_simDeckCardsForCompare(deck).map(c => String(c.name || '').toLowerCase()));
+}
+
+/** Inventory keys for planned Cuts — Cuts stay on the mainboard until applied. */
+function _simPlannedCutKeys(deck) {
+  const keys = new Set();
+  if (!(typeof _deckSwapsEnabled === 'function' && _deckSwapsEnabled())) return keys;
+  if (typeof _deckPlannedCuts !== 'function') return keys;
+  for (const c of _deckPlannedCuts(deck)) {
+    const k = typeof getCardInventoryKey === 'function'
+      ? getCardInventoryKey(c)
+      : (c?.uid || c?.scryfallId || '');
+    if (k) keys.add(k);
+  }
+  return keys;
+}
+
+function _simCardInPlannedCuts(card, cutKeys) {
+  if (!card || !cutKeys?.size) return false;
+  const k = typeof getCardInventoryKey === 'function'
+    ? getCardInventoryKey(card)
+    : (card.uid || card.scryfallId || '');
+  return !!(k && cutKeys.has(k));
+}
+
 function _simRenderHTML(deck, commander, edhrecData, archiveData) {
   const parts = [];
 
@@ -13289,7 +13468,7 @@ function _simRenderHTML(deck, commander, edhrecData, archiveData) {
     parts.push(`<div class="sim-section"><div class="sim-section-title">EDHREC</div><p class="sim-note">${edhrecData.error}</p></div>`);
   } else if (edhrecData?.cards) {
     const edhrecMap  = new Map(edhrecData.cards.map(c => [c.name.toLowerCase(), c]));
-    const nonLands   = deck.cards.filter(c => !c.isCommander && !_simIsLand(c));
+    const nonLands   = _simDeckCardsForCompare(deck);
     const deckNames  = new Set(nonLands.map(c => c.name.toLowerCase()));
     const found      = nonLands.map(c => edhrecMap.get(c.name.toLowerCase())).filter(Boolean);
     const score      = found.length ? Math.round(found.reduce((s, c) => s + c.inclusion, 0) / found.length) : 0;
@@ -13299,7 +13478,13 @@ function _simRenderHTML(deck, commander, edhrecData, archiveData) {
     const missing = edhrecData.cards
       .filter(c => c.inclusion >= 30 && !deckNames.has(c.name.toLowerCase()))
       .slice(0, 8);
-    const spice = nonLands.filter(c => !edhrecMap.has(c.name.toLowerCase()));
+    // Spicy = mainboard non-lands not in EDHREC; exclude planned Cuts (inventory key).
+    // Cuts remain on the mainboard until applied, so they must be filtered explicitly.
+    const cutKeys = _simPlannedCutKeys(deck);
+    const spice = (deck.cards || [])
+      .filter(c => !c.isCommander && !_simIsLand(c)
+        && !edhrecMap.has(String(c.name || '').toLowerCase())
+        && !_simCardInPlannedCuts(c, cutKeys));
 
     parts.push(`
 <div class="sim-section">
@@ -13321,8 +13506,13 @@ function _simRenderHTML(deck, commander, edhrecData, archiveData) {
   ${spice.length ? `
   <div class="sim-subsection-title">Your spicy picks <span class="sim-meta">(not in EDHREC data)</span></div>
   <div class="sim-chip-row">${spice.map(c => {
-    const id = (c.uid || c.scryfallId || '').replace(/'/g, "\\'");
-    return `<span class="sim-chip sim-chip--spice"><span style="cursor:pointer" onclick="openCardDetail('${id}')">${escapeHtml(c.name)}</span><button class="sim-chip-btn sim-chip-btn--remove" onclick="simRemoveFromDeck(this,'${id}')" title="Remove from deck">−</button></span>`;
+    const id = (typeof getCardInventoryKey === 'function' ? getCardInventoryKey(c) : (c.uid || c.scryfallId || '')).replace(/'/g, "\\'");
+    const detailId = (c.uid || c.scryfallId || '').replace(/'/g, "\\'");
+    const swapsOn = _deckSwapsEnabled(deck);
+    const cutTitle = swapsOn
+      ? 'Mark as a planned cut — stays in the deck until you apply swaps'
+      : 'Remove from deck';
+    return `<span class="sim-chip sim-chip--spice"><span style="cursor:pointer" onclick="openCardDetail('${detailId}')">${escapeHtml(c.name)}</span><button class="sim-chip-btn sim-chip-btn--remove" onclick="simRemoveFromDeck(this,'${id}')" title="${cutTitle}">−</button></span>`;
   }).join('')}</div>` : ''}
 </div>`);
   }
@@ -13331,7 +13521,7 @@ function _simRenderHTML(deck, commander, edhrecData, archiveData) {
   if (archiveData?.error) {
     parts.push(`<div class="sim-section"><div class="sim-section-title">Archive</div><p class="sim-note">${archiveData.error}</p></div>`);
   } else if (archiveData) {
-    const mySet = new Set(deck.cards.filter(c => !c.isCommander && !_simIsLand(c)).map(c => c.name.toLowerCase()));
+    const mySet = _simDeckNameSet(deck);
     const scored = (archiveData.decks ?? []).map(d => {
       const theirSet = new Set((d.card_names ?? []).map(n => n.toLowerCase()));
       return { ...d, similarity: _simJaccard(mySet, theirSet), shared: [...mySet].filter(n => theirSet.has(n)).length };
