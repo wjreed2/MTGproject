@@ -1919,12 +1919,18 @@ function _getCardCustomTagTier(card, tag, oracleId) {
   return _getCardCustomTagTierRaw(card, tag, oracleId) || 'primary';
 }
 
+// ─── Auto primary/secondary from default tags ────────────────────────────────
+// Kill switch: set to false (and rebuild bundle) to restore pre-feature behavior.
+// All auto-tier logic flows through `_autoDisplayTierForDefaultTag`, so this one
+// flag disables pills, grouping, sorting, and MY TAGS inclusion for auto tiers.
+const AUTO_DEFAULT_TAG_TIERS = true;
+
 /**
  * Default tags in inspector order (Land → Scryfall auto, alpha in DB), excluding
  * Commander. Index 0 / 1 are the candidates for auto primary / secondary.
  */
 function _defaultTagsForAutoTier(card) {
-  if (!card) return [];
+  if (!AUTO_DEFAULT_TAG_TIERS || !card) return [];
   let tags = [];
   try {
     tags = (typeof _defaultTagsForCardInspector === 'function'
@@ -1959,6 +1965,7 @@ function _cardHasExplicitTier(card, tier, oracleId) {
  * @returns {'primary'|'secondary'|null}
  */
 function _autoDisplayTierForDefaultTag(card, tag, oracleId) {
+  if (!AUTO_DEFAULT_TAG_TIERS) return null;
   const t = String(tag || '').trim();
   if (!card || !t || t === 'Commander') return null;
   if (typeof _isProtectedDeckTag === 'function' && !_isProtectedDeckTag(t)) return null;
@@ -1993,6 +2000,7 @@ function _getCardEffectiveTagTier(card, tag, oracleId) {
   if (_isProtectedDeckTag(String(tag || ''))) return 'default';
   return 'primary';
 }
+// ─── End auto primary/secondary from default tags ────────────────────────────
 
 function _setCardCustomTagTier(card, tag, tier) {
   if (!card || !tag) return;
