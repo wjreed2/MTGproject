@@ -766,6 +766,7 @@
             <option value="voltron">Voltron</option>
             <option value="custom">Custom</option>
           </select>
+          <button type="button" id="deckPlanWizardBtn" onclick="openDeckPlanWizard()" class="deck-cut-threshold-btn" title="Deck plan (strategy &amp; win condition)" aria-label="Deck plan">Plan</button>
           <button type="button" id="deckAddThresholdBtn" onclick="_toggleAddThresholdEditor()" class="deck-cut-threshold-btn" title="Customize role targets" aria-label="Customize role targets" aria-pressed="false">⚙</button>
           <button onclick="_toggleAddPanel()" class="decklist-collapse-btn" id="deckAddCollapseBtn" title="Toggle">▾</button>
         </div>
@@ -1845,7 +1846,22 @@
   </div>
 </div>
 
-<!-- CONFIRM MODAL -->
+<!-- DECK PLAN WIZARD (Entry 13) -->
+<div class="modal-overlay" id="deckPlanWizardModal">
+  <div class="modal plan-wizard-modal" style="width:min(520px,96vw);max-height:min(88vh,720px);display:flex;flex-direction:column">
+    <button type="button" class="btn btn-ghost btn-icon" style="position:absolute;top:0.75rem;right:0.75rem" onclick="closeDeckPlanWizard()" aria-label="Close">✕</button>
+    <div class="modal-title" id="deckPlanWizardTitle" style="flex-shrink:0;padding-right:2rem">Deck plan</div>
+    <div id="deckPlanWizardBody" style="flex:1;min-height:0;overflow-y:auto;margin-top:0.5rem"></div>
+    <div style="flex-shrink:0;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:1rem;padding-top:0.75rem;border-top:1px solid var(--border)">
+      <button type="button" class="btn btn-outline" id="deckPlanWizardBackBtn" style="display:none;margin-right:auto" onclick="_pwBack()">Back</button>
+      <button type="button" class="btn btn-outline" onclick="closeDeckPlanWizard()">Cancel</button>
+      <button type="button" class="btn btn-ghost btn-sm" id="deckPlanWizardSkipBudgetBtn" style="display:none" onclick="_pwSkipBudgetStep()">Skip budget</button>
+      <button type="button" class="btn btn-primary" id="deckPlanWizardPrimaryBtn">Continue</button>
+    </div>
+  </div>
+</div>
+
+<!-- WHAT'S NEW MODAL -->
 <div class="modal-overlay" id="whatsNewModal">
   <div class="modal whats-new-modal" style="max-height:min(88vh,760px);display:flex;flex-direction:column">
     <div class="modal-title" style="flex-shrink:0">What you’ve missed</div>

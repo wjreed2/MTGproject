@@ -6986,55 +6986,126 @@ async function _renderAddSuggestions(deck) {
 
   // ── Unowned candidates (local DB), only if owned can't fill all slots ──
   let unownedScored = [];
-  // Only fetch unowned fillers when there are genuine ROLE deficits — tribes alone
-  // no longer pull in a pool of on-tribe cards (that over-tuned suggestions to tribe).
-  if (ownedScored.length < _ADD_SUGGESTION_COUNT && deficitRoles.length) {
+  const deckPlan = typeof getDeckPlan === 'function' ? getDeckPlan(deck) : null;
+  const planOnlyBackfill = typeof shouldFetchPlanOnlyBackfill === 'function'
+    && shouldFetchPlanOnlyBackfill(ctx, deckPlan);
+  // Role deficits (existing) OR Plan-only deficit with declared plan (Entry 5).
+  // tribes: [] intentional; when plan declared, archetype is ignored on this backfill path.
+  const fetchRoles = deficitRoles.length
+    ? deficitRoles
+    : (planOnlyBackfill && typeof planBackfillRoles === 'function' ? planBackfillRoles(deckPlan) : []);
+  if (ownedScored.length < _ADD_SUGGESTION_COUNT && fetchRoles.length) {
     try {
+      if (typeof logDeckPlan === 'function') {
+        logDeckPlan('unowned-fetch', {
+          deficitRoles, planOnlyBackfill, fetchRoles,
+          planDeclared: typeof isPlanDeclared === 'function' && isPlanDeclared(deckPlan),
+        });
+      }
       const res = await fetch('/api/cards/by-roles', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          // tribes dropped from the query so the pool isn't flooded with on-tribe cards;
-          // on-tribe role-fillers still surface via their role tags (+ a small tribal bonus).
-          colors: [...cmdCI], roles: deficitRoles, tribes: [],
+          colors: [...cmdCI], roles: fetchRoles, tribes: [],
           exclude: [...inDeckNames, ...ownedNames], limit: 60,
         }),
       });
       const data = await res.json();
-      if (token !== _addSuggestToken) return; // superseded by a newer render
+      if (token !== _addSuggestToken) return;
       for (const c of (data.cards || [])) {
         const nm = (c.name || '').toLowerCase();
         if (inDeckNames.has(nm) || ownedNames.has(nm)) continue;
-        if (_isTokenTypeDeckCard(c)) continue; // belt-and-suspenders token guard
+        if (_isTokenTypeDeckCard(c)) continue;
         const s = _scoreAddCandidate(c, c.roleTags || [], ctx);
-        if (s.score <= 0) continue;
+        if (planOnlyBackfill && typeof planMatchScore === 'function') {
+          s.planMatch = planMatchScore(c, deckPlan, deck);
+          if (typeof logDeckPlan === 'function' && s.planMatch > 0) {
+            logDeckPlan('planMatch', c.name, s.planMatch, s.score);
+          }
+        } else {
+          s.planMatch = 0;
+        }
+        // Plan-only path: keep theme cards even if roleFit score is low/zero
+        if (s.score <= 0 && !(planOnlyBackfill && s.planMatch > 0)) continue;
         unownedScored.push({ card: c, owned: false, s });
       }
-      unownedScored.sort((a, b) => b.s.score - a.s.score);
+      unownedScored.sort((a, b) => {
+        if (planOnlyBackfill) {
+          const pm = (b.s.planMatch || 0) - (a.s.planMatch || 0);
+          if (pm) return pm;
+        }
+        return b.s.score - a.s.score;
+      });
     } catch (_) { /* offline — owned only */ }
   }
   if (token !== _addSuggestToken) return;
 
   // ── Conditional-keyword gate, then owned-first selection ──
   const gate = it => _ckEvaluateCandidate(it.card, deck).ok;
-  const picks = ownedScored.filter(gate).slice(0, _ADD_SUGGESTION_COUNT);
-  if (picks.length < _ADD_SUGGESTION_COUNT) {
-    picks.push(...unownedScored.filter(gate).slice(0, _ADD_SUGGESTION_COUNT - picks.length));
+  let pool = [
+    ...ownedScored.filter(gate),
+    ...unownedScored.filter(gate),
+  ];
+  // Soft deck-budget note (informational only) when declared rough max exists
+  if (deckPlan && deckPlan.roughMaxDeckBudgetUsd != null) {
+    let total = 0;
+    for (const c of (deck.cards || [])) {
+      const usd = typeof planUsdPrice === 'function' ? planUsdPrice(c) : Number(c.priceTCG);
+      if (Number.isFinite(usd) && usd > 0) total += usd * (c.qty || 1);
+    }
+    if (total > Number(deckPlan.roughMaxDeckBudgetUsd) && typeof logDeckPlan === 'function') {
+      logDeckPlan('deck-budget-exceeded', { total, max: deckPlan.roughMaxDeckBudgetUsd });
+    }
+  }
+  // Budget-aware filter (Entry 13) when per-card limit set; else take owned-first top N
+  let picks;
+  if (typeof applyPlanBudgetToAddsPicks === 'function' && deckPlan
+      && deckPlan.roughMaxPerCardBudgetUsd != null) {
+    // Prefer owned first within budget helper by sorting owned ahead at equal score
+    pool.sort((a, b) => {
+      if (a.owned !== b.owned) return a.owned ? -1 : 1;
+      if (planOnlyBackfill) {
+        const pm = (b.s.planMatch || 0) - (a.s.planMatch || 0);
+        if (pm) return pm;
+      }
+      return (b.s.score || 0) - (a.s.score || 0);
+    });
+    const budgeted = applyPlanBudgetToAddsPicks(pool, deckPlan, _ADD_SUGGESTION_COUNT);
+    picks = budgeted.picks;
+    if (typeof logDeckPlan === 'function') logDeckPlan('budget-filter', budgeted.log);
+  } else {
+    picks = ownedScored.filter(gate).slice(0, _ADD_SUGGESTION_COUNT);
+    if (picks.length < _ADD_SUGGESTION_COUNT) {
+      picks.push(...unownedScored.filter(gate).slice(0, _ADD_SUGGESTION_COUNT - picks.length));
+    }
+  }
+
+  // Plan status line above suggestions
+  let planBanner = '';
+  if (typeof isPlanDeclared === 'function' && isPlanDeclared(deckPlan)) {
+    const ps = typeof strategyLabel === 'function' ? strategyLabel(deckPlan.primaryStrategyId) : deckPlan.primaryStrategyId;
+    const wc = typeof winconLabel === 'function' ? winconLabel(deckPlan.winConditionId) : deckPlan.winConditionId;
+    planBanner = `<div class="deck-plan-banner" style="padding:.45rem .85rem;font-size:.72rem;color:var(--text3);border-bottom:1px solid var(--border)">Plan: ${escapeHtml(ps)} · ${escapeHtml(wc)} <button type="button" class="btn btn-ghost btn-sm" style="padding:0 6px;font-size:.7rem" onclick="openDeckPlanWizard()">Edit</button></div>`;
+  } else {
+    planBanner = `<div class="deck-plan-banner" style="padding:.45rem .85rem;font-size:.72rem;color:var(--text3);border-bottom:1px solid var(--border)">No deck plan — Plan-only suggestions stay closed. <button type="button" class="btn btn-ghost btn-sm" style="padding:0 6px;font-size:.7rem" onclick="openDeckPlanWizard()">Set plan</button></div>`;
   }
 
   if (!picks.length) {
-    body.innerHTML = '<div class="deck-tab-muted" style="padding:.75rem 1rem">No add suggestions — your role targets look met. Lower a target with ⚙ on Suggested Cuts, or adjust the playstyle slider.</div>';
+    body.innerHTML = planBanner + '<div class="deck-tab-muted" style="padding:.75rem 1rem">No add suggestions — your role targets look met. Lower a target with ⚙ on Suggested Cuts, set a deck plan for Plan-only themes, or adjust the playstyle slider.</div>';
     return;
   }
 
   // With Adds & Cuts on, suggestions land in the planned-adds section instead of the deck.
   const swapsOn = _deckSwapsEnabled(deck);
-  body.innerHTML = picks.map(({ card, owned, s }) => {
+  body.innerHTML = planBanner + picks.map(({ card, owned, s }) => {
     const id = (card.id || card.scryfallId || card.uid || '').replace(/'/g, "\\'");
     const name = card.name || '';
     const safeName = name.replace(/'/g, "\\'");
     const displayName = escapeHtml(name);
     const score = (s.score || 0).toFixed(1);
     const whyLines = _buildAddWhyLines(s, ctx);
+    if ((s.planMatch || 0) > 0) {
+      whyLines.push({ text: `Matches your declared plan`, val: _fmtWhyVal(s.planMatch) });
+    }
     const footer = `Role tags: ${s.roles && s.roles.length ? escapeHtml(s.roles.join(', ')) : '—'} · ${owned ? 'In your collection' : 'Not in your collection'}`;
     const why = _suggestWhyDetailHtml('Why suggested', score, whyLines, footer);
     const ownTag = owned

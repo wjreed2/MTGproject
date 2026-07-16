@@ -116,6 +116,7 @@ const _modalCloseMap = {
   deckCardTagModal:      () => closeDeckCardTagPicker(),
   skeletonBuilderModal:  () => closeSkeletonBuilderModal(),
   changeDeckFormatModal:   () => closeChangeDeckFormatModal(),
+  deckPlanWizardModal:     () => closeDeckPlanWizard(),
   collectionShareModal:       () => closeCollectionShareModal(),
   commanderPickerModal:  () => closeCommanderEdit(),
   whatsNewModal:         () => { void closeWhatsNewModal(); },

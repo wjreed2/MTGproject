@@ -1387,6 +1387,31 @@ main {
   text-transform: uppercase;
 }
 
+/* Deck plan wizard (Entry 13) */
+.plan-opt-grid {
+  display: flex; flex-wrap: wrap; gap: 8px;
+}
+.plan-opt-grid--compact .plan-opt { font-size: 0.78rem; padding: 6px 10px; }
+.plan-opt {
+  background: var(--bg3); border: 1px solid var(--border2); color: var(--text2);
+  border-radius: var(--radius); padding: 8px 12px; cursor: pointer;
+  font-family: 'Crimson Pro', serif; font-size: 0.9rem; text-align: left;
+}
+.plan-opt:hover { border-color: var(--gold); color: var(--text); }
+.plan-opt--selected {
+  border-color: var(--gold); color: var(--gold);
+  background: rgba(201, 162, 39, 0.08);
+}
+.plan-chip-row {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  padding: 0.55rem 0; border-bottom: 1px solid var(--border);
+}
+.plan-chip-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+.plan-budget-label {
+  display: block; font-size: 0.72rem; letter-spacing: 0.06em;
+  color: var(--text3); text-transform: uppercase; margin-bottom: 6px;
+}
+
 /* FIRST-TIME WELCOME MODAL */
 .welcome-modal { padding-top: 1.75rem; }
 .welcome-hero {
