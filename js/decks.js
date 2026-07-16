@@ -3974,6 +3974,180 @@ async function _saveGlobalCustomTags(oracleId) {
   }
 }
 
+function _ensureTagOverrideRow(oracleId, cardName) {
+  const oid = _normalizeTagOracleId(oracleId);
+  if (!oid) return null;
+  if (!_tagOverridesByOracleId.has(oid)) {
+    _tagOverridesByOracleId.set(oid, {
+      addTags: [],
+      removeTags: [],
+      customTags: [],
+      customTagTiers: {},
+      updatedAt: Date.now(),
+      cardName: cardName || null,
+    });
+  }
+  const ov = _tagOverridesByOracleId.get(oid);
+  if (!Array.isArray(ov.addTags)) ov.addTags = [];
+  if (!Array.isArray(ov.removeTags)) ov.removeTags = [];
+  if (!Array.isArray(ov.customTags)) ov.customTags = [];
+  if (!ov.customTagTiers || typeof ov.customTagTiers !== 'object') ov.customTagTiers = {};
+  if (!ov.cardName && cardName) ov.cardName = cardName;
+  return ov;
+}
+
+/** Algorithm/default tags for a card before account overrides are applied. */
+function _baseRoleTagsWithoutOverrides(card, oracleId) {
+  const tags = [];
+  if (typeof _isLandDeckCard === 'function' ? _isLandDeckCard(card) : false) tags.push('Land');
+  if (card?.isCommander) tags.push('Commander');
+  const oid = _normalizeTagOracleId(oracleId || _oracleIdForMyTags(card));
+  if (oid && _scryTagsByOracleId.has(oid)) tags.push(...(_scryTagsByOracleId.get(oid) || []));
+  return [...new Set(tags.filter(Boolean))];
+}
+
+function _forEachMatchingOracleCard(card, oracleId, fn) {
+  if (!fn) return;
+  const oid = _normalizeTagOracleId(oracleId);
+  const nameLower = (card?.name || '').toLowerCase();
+  const touch = c => {
+    if (!c) return;
+    const cOid = _normalizeTagOracleId(c.oracleId || _scryOracleByPrintId.get(c.scryfallId || '') || '');
+    if ((oid && cOid === oid) || (nameLower && (c.name || '').toLowerCase() === nameLower) || c === card) fn(c);
+  };
+  touch(card);
+  (collection || []).forEach(touch);
+  [...(decks || []), ...(sharedDecks || [])].forEach(d => {
+    _deckAllZoneCards(d).forEach(touch);
+  });
+}
+
+/**
+ * Card-inspector tag chip actions. Persists via existing /tag-overrides.
+ * @param {'cycle'|'primary'|'secondary'|'default'|'removeEntirely'} action
+ * @param {{ kind?: 'default'|'my' }} opts
+ */
+async function applyInspectorCardTagAction(card, tag, action, opts = {}) {
+  tag = String(tag || '').trim();
+  if (!card || !tag || tag === 'Commander') return;
+  const kind = opts.kind === 'my' ? 'my' : 'default';
+
+  await loadTagOverrides();
+  let oracleId = _normalizeTagOracleId(card.oracleId || '');
+  if (!oracleId) {
+    oracleId = _normalizeTagOracleId(await _resolveOracleIdForCard(card));
+  }
+  if (!oracleId) {
+    showNotif('Could not resolve this card for tags — try again in a moment', true);
+    return;
+  }
+  card.oracleId = oracleId;
+  const sid = String(card.scryfallId || '').trim().toLowerCase();
+  if (sid) _scryOracleByPrintId.set(sid, oracleId);
+
+  const ov = _ensureTagOverrideRow(oracleId, card.name);
+  if (!ov) return;
+
+  let nextAction = action;
+  if (nextAction === 'cycle') {
+    const raw = _getCardCustomTagTierRaw(card, tag, oracleId);
+    if (!raw) nextAction = 'primary';
+    else if (raw === 'primary') nextAction = 'secondary';
+    else nextAction = 'default';
+  }
+
+  if (nextAction === 'primary' || nextAction === 'secondary') {
+    _setOverrideCustomTagTier(ov, tag, nextAction);
+    // Ensure the tag is present: my tags live in customTags; default tags stay
+    // algorithm-backed (or force-on via addTags when not in the base set).
+    if (kind === 'my') {
+      if (!_customTagsHas(ov.customTags, tag)) {
+        ov.customTags = _dedupeCustomTags([...ov.customTags, tag]);
+      }
+      ov.removeTags = ov.removeTags.filter(t => normalizeDeckTagName(t).toLowerCase() !== tag.toLowerCase());
+      ov.addTags = ov.addTags.filter(t => normalizeDeckTagName(t).toLowerCase() !== tag.toLowerCase());
+    } else {
+      ov.removeTags = ov.removeTags.filter(t => normalizeDeckTagName(t).toLowerCase() !== tag.toLowerCase());
+      const base = _baseRoleTagsWithoutOverrides(card, oracleId);
+      const onBase = base.some(t => normalizeDeckTagName(t).toLowerCase() === tag.toLowerCase());
+      if (!onBase && !_customTagsHas(ov.addTags, tag)) {
+        ov.addTags = [...ov.addTags, tag].sort((a, b) => a.localeCompare(b));
+      }
+    }
+  } else if (nextAction === 'default') {
+    _removeOverrideCustomTagTier(ov, tag);
+    if (kind === 'my') {
+      // My Tags stay assigned; Default only clears the primary/secondary override
+      // (untiered My Tags still render as primary — existing visual treatment).
+    } else {
+      const base = _baseRoleTagsWithoutOverrides(card, oracleId);
+      const onBase = base.some(t => normalizeDeckTagName(t).toLowerCase() === tag.toLowerCase());
+      if (!onBase) {
+        ov.addTags = ov.addTags.filter(t => normalizeDeckTagName(t).toLowerCase() !== tag.toLowerCase());
+      }
+      // Clearing a prior "remove entirely" is not needed for visible chips, but
+      // Default means fall back to the algorithm — drop suppressions for this tag.
+      ov.removeTags = ov.removeTags.filter(t => normalizeDeckTagName(t).toLowerCase() !== tag.toLowerCase());
+    }
+  } else if (nextAction === 'removeEntirely') {
+    _removeOverrideCustomTagTier(ov, tag);
+    if (kind === 'my') {
+      ov.customTags = ov.customTags.filter(t => normalizeDeckTagName(t).toLowerCase() !== tag.toLowerCase());
+      ov.addTags = ov.addTags.filter(t => normalizeDeckTagName(t).toLowerCase() !== tag.toLowerCase());
+    } else {
+      ov.addTags = ov.addTags.filter(t => normalizeDeckTagName(t).toLowerCase() !== tag.toLowerCase());
+      if (!_customTagsHas(ov.removeTags, tag)) {
+        ov.removeTags = [...ov.removeTags, tag].sort((a, b) => a.localeCompare(b));
+      }
+      // If this protected name was also stored as a My Tag, drop that too.
+      ov.customTags = ov.customTags.filter(t => normalizeDeckTagName(t).toLowerCase() !== tag.toLowerCase());
+    }
+  } else {
+    return;
+  }
+
+  ov.customTags = _dedupeCustomTags(ov.customTags);
+  ov.customTagTiers = _normalizeCustomTagTiers(ov.customTagTiers);
+  ov.updatedAt = Date.now();
+
+  try {
+    await _saveGlobalCustomTags(oracleId);
+  } catch (e) {
+    showNotif(e.message || 'Could not save tag', true);
+    return;
+  }
+
+  const tierNow = ov.customTagTiers[_tagTierKey(tag)] || null;
+  const myStillOn = _customTagsHas(ov.customTags, tag);
+  _forEachMatchingOracleCard(card, oracleId, c => {
+    if (kind === 'my' || nextAction === 'removeEntirely') {
+      if (myStillOn) {
+        if (!_customTagsHas(c.customTags, tag)) _setCardCustomTags(c, [...(c.customTags || []), tag]);
+      } else if (_customTagsHas(c.customTags, tag)) {
+        _setCardCustomTags(c, (c.customTags || []).filter(t => normalizeDeckTagName(t).toLowerCase() !== tag.toLowerCase()));
+      }
+    }
+    if (tierNow) _setCardCustomTagTier(c, tag, tierNow);
+    else _removeCardCustomTagTier(c, tag);
+    if (typeof syncDeckCardAutoRoleTags === 'function') syncDeckCardAutoRoleTags(c);
+  });
+
+  if ((collection || []).some(c => _normalizeTagOracleId(c.oracleId || _scryOracleByPrintId.get(c.scryfallId || '') || '') === oracleId)) {
+    save('collection');
+  }
+  save('decks');
+
+  if (typeof _loadCardDetailMyTags === 'function') void _loadCardDetailMyTags(card);
+  else if (typeof patchOpenCardDetailMyTags === 'function') patchOpenCardDetailMyTags();
+  if (typeof _loadCardDetailDefaultTags === 'function') void _loadCardDetailDefaultTags(card);
+  if (_deckCardTagPickerTarget) renderDeckCardTagPicker();
+  const active = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+  if (active) {
+    try { renderDeckList(active); }
+    catch (e) { console.error('renderDeckList failed after inspector tag change', e); }
+  }
+}
+
 /**
  * Toggle a My Tag on a card of a collaborator's (shared) deck. The tag is the deck
  * OWNER's: it lives on the card and persists to the owner via the deck save — it does
