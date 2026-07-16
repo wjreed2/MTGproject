@@ -2010,6 +2010,12 @@ function dedupeDeckCardTags(tags) {
   return [...seen.values()];
 }
 
+/**
+ * Prevent stale clients from wiping collaborator Adds/Cuts plans.
+ * See lib/deck-planning-merge.js.
+ */
+const { mergeDeckPlanningZonesForWrite } = require('./lib/deck-planning-merge');
+
 function normalizeDeckForStorage(deck) {
   const seen = new Map();
   (deck.cards || []).forEach((c, idx) => {
@@ -2031,7 +2037,8 @@ function normalizeDeckForStorage(deck) {
   });
   // Never persist the share token into the JSON blob — the share_token column is
   // authoritative, and the blob is exposed by the public/browse endpoints.
-  const { shareToken, ...rest } = deck;
+  // clearAddsCuts is a write-only flag for mergeDeckPlanningZonesForWrite.
+  const { shareToken, clearAddsCuts, ...rest } = deck;
   return { ...rest, cards: [...seen.values()] };
 }
 
@@ -2796,7 +2803,7 @@ app.get('/api/decks', requireAuth, async (req, res) => {
   try {
     const accountId = req.accountId;
     const [rows] = await db().query(
-      'SELECT id, data, share_token FROM decks WHERE account_id = ? ORDER BY created_at ASC',
+      'SELECT id, data, share_token, updated_at FROM decks WHERE account_id = ? ORDER BY created_at ASC',
       [accountId]
     );
     if (!rows.length) return res.json([]);
@@ -2837,8 +2844,9 @@ app.get('/api/decks', requireAuth, async (req, res) => {
     const out = rows.map(r => {
       const deck = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
       const cards = byDeck.get(r.id);
-      // share_token is column-authoritative; overwrite any stale value in the JSON blob.
+      // share_token / updated_at are column-authoritative.
       deck.shareToken = r.share_token || null;
+      deck.updatedAt = Number(r.updated_at) || Number(deck.updatedAt) || 0;
       if (Array.isArray(cards) && cards.length) return { ...deck, cards };
       return deck;
     });
@@ -3010,14 +3018,38 @@ app.put('/api/decks', requireAuth, async (req, res) => {
   if (!Array.isArray(decks)) return res.status(400).json({ error: 'Expected array' });
   const accountId = req.accountId;
   try {
-    const normDecks = decks.map(normalizeDeckForStorage);
+    let updatedAtById = {};
     const conn = await db().getConnection();
     try {
       await conn.beginTransaction();
 
+      const incomingIds = decks.map(d => d?.id).filter(Boolean);
+      const existingById = new Map();
+      if (incomingIds.length) {
+        const idph = incomingIds.map(() => '?').join(',');
+        const [existingRows] = await conn.query(
+          `SELECT id, data, updated_at FROM decks WHERE account_id=? AND id IN (${idph})`,
+          [accountId, ...incomingIds]
+        );
+        for (const row of existingRows) {
+          const data = typeof row.data === 'string' ? JSON.parse(row.data) : row.data;
+          existingById.set(row.id, { data, updatedAt: Number(row.updated_at) || 0 });
+        }
+      }
+
+      const now = Date.now();
+      updatedAtById = {};
+      const normDecks = decks.map(raw => {
+        const existing = raw?.id ? existingById.get(raw.id) : null;
+        if (existing) mergeDeckPlanningZonesForWrite(existing.data, existing.updatedAt, raw);
+        const d = normalizeDeckForStorage(raw);
+        d.updatedAt = now;
+        if (d.id) updatedAtById[d.id] = now;
+        return d;
+      });
+
       // 1. Upsert deck rows first — data always exists even if cards fail below
       if (normDecks.length) {
-        const now = Date.now();
         const ph = normDecks.map(() => '(?,?,?,?,?,?,?,?)').join(',');
         const vals = normDecks.flatMap(d => [
           accountId,
@@ -3089,7 +3121,7 @@ app.put('/api/decks', requireAuth, async (req, res) => {
     invalidateTradelistCache(accountId);
     // Deck contents drive deck-needed wishlist entries.
     void reconcileAccountWishlist(accountId);
-    res.json({ ok: true, count: decks.length });
+    res.json({ ok: true, count: decks.length, updatedAtById });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
@@ -3112,7 +3144,7 @@ app.get('/api/decks/shared', requireAuth, async (req, res) => {
     const deckIds = collabRows.map(r => r.deck_id);
     const ph = deckIds.map(() => '?').join(',');
     const [deckRows] = await db().query(
-      `SELECT d.id, d.data, d.account_id, a.email
+      `SELECT d.id, d.data, d.account_id, d.updated_at, a.email
        FROM decks d JOIN accounts a ON a.id = d.account_id
        WHERE d.id IN (${ph})`,
       deckIds
@@ -3180,6 +3212,7 @@ app.get('/api/decks/shared', requireAuth, async (req, res) => {
       deck.ownerId = r.account_id;
       deck.ownerCustomTags = [...(catalogByOwner.get(r.account_id) || [])].sort((a, b) => a.localeCompare(b));
       deck.userPermission = permByDeck.get(r.id) || 'edit';
+      deck.updatedAt = Number(r.updated_at) || Number(deck.updatedAt) || 0;
       return deck;
     });
     await attachPriceLogPricesToDeckCards(out.flatMap(d => d.cards || []));
@@ -3195,10 +3228,12 @@ app.patch('/api/decks/:id', requireAuth, async (req, res) => {
   const deckId = req.params.id;
   const accountId = req.accountId;
   try {
-    const [deckRows] = await db().query('SELECT account_id FROM decks WHERE id = ?', [deckId]);
+    const [deckRows] = await db().query('SELECT account_id, data, updated_at FROM decks WHERE id = ?', [deckId]);
     if (!deckRows.length) return res.status(404).json({ error: 'Deck not found' });
 
     const ownerId = Number(deckRows[0].account_id);
+    const existingUpdatedAt = Number(deckRows[0].updated_at) || 0;
+    const existingData = typeof deckRows[0].data === 'string' ? JSON.parse(deckRows[0].data) : deckRows[0].data;
     const isOwner = ownerId === Number(accountId);
     if (!isOwner) {
       const [cr] = await db().query(
@@ -3221,19 +3256,22 @@ app.patch('/api/decks/:id', requireAuth, async (req, res) => {
       if (printingChanged) return res.status(403).json({ error: 'Collaborators cannot change card printings' });
     }
 
+    mergeDeckPlanningZonesForWrite(existingData, existingUpdatedAt, req.body);
+    const now = Date.now();
     const deck = normalizeDeckForStorage(req.body);
+    deck.updatedAt = now;
     const conn = await db().getConnection();
     try {
       await conn.beginTransaction();
       if (isOwner) {
         await conn.query(
-          'UPDATE decks SET name=?, format=?, data=?, is_public=? WHERE id=?',
-          [(deck.name || '').slice(0, 255), (deck.format || '').slice(0, 50), JSON.stringify(deck), deck.isPublic ? 1 : 0, deckId]
+          'UPDATE decks SET name=?, format=?, data=?, is_public=?, updated_at=? WHERE id=?',
+          [(deck.name || '').slice(0, 255), (deck.format || '').slice(0, 50), JSON.stringify(deck), deck.isPublic ? 1 : 0, now, deckId]
         );
       } else {
         await conn.query(
-          'UPDATE decks SET name=?, format=?, data=? WHERE id=?',
-          [(deck.name || '').slice(0, 255), (deck.format || '').slice(0, 50), JSON.stringify(deck), deckId]
+          'UPDATE decks SET name=?, format=?, data=?, updated_at=? WHERE id=?',
+          [(deck.name || '').slice(0, 255), (deck.format || '').slice(0, 50), JSON.stringify(deck), now, deckId]
         );
       }
 
@@ -3273,7 +3311,7 @@ app.patch('/api/decks/:id', requireAuth, async (req, res) => {
     } finally {
       conn.release();
     }
-    res.json({ ok: true });
+    res.json({ ok: true, updatedAt: now });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
@@ -5429,6 +5467,11 @@ async function ensureScryfallTagCacheTable() {
       // face's name/type/text/mana + image_uris so the card inspector can flip DFCs without a
       // Scryfall round-trip. NULL for single-faced cards. Backfills on the next cards re-import.
       `ALTER TABLE scryfall_oracle_cards ADD COLUMN faces_json JSON NULL`,
+      // Adds scoring (Prompt 1): EDHREC rank + commander legality for E percentiles.
+      // IDs/labels may change with partner tag work — percentiles keyed by current role labels.
+      `ALTER TABLE scryfall_oracle_cards ADD COLUMN edhrec_rank INT NULL`,
+      `ALTER TABLE scryfall_oracle_cards ADD COLUMN commander_legal TINYINT(1) NULL`,
+      `ALTER TABLE scryfall_oracle_cards ADD COLUMN edhrec_pct_json JSON NULL`,
     ];
     for (const sql of newCols) { try { await conn.query(sql); } catch (_) {} }
     const newIdxs = [
@@ -5436,6 +5479,7 @@ async function ensureScryfallTagCacheTable() {
       `CREATE INDEX idx_soc_cmc    ON scryfall_oracle_cards (cmc)`,
       `CREATE INDEX idx_soc_rarity ON scryfall_oracle_cards (rarity)`,
       `CREATE INDEX idx_soc_set    ON scryfall_oracle_cards (set_code)`,
+      `CREATE INDEX idx_soc_edhrec ON scryfall_oracle_cards (edhrec_rank)`,
     ];
     for (const sql of newIdxs) { try { await conn.query(sql); } catch (_) {} }
     await conn.query(`
@@ -5465,6 +5509,93 @@ async function ensureScryfallTagCacheTable() {
         INDEX idx_stqc_fetched (fetched_at)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
+  } finally {
+    conn.release();
+  }
+}
+
+/**
+ * Precompute per-role EDHREC percentiles into scryfall_oracle_cards.edhrec_pct_json.
+ * Population = cards with the role tag, non-null edhrec_rank, and commander-legal when
+ * legality is known. Min population 8 — below that, no percentile for that role.
+ * Never call this per suggestion; only from import / cron / admin.
+ */
+async function recomputeEdhrecRolePercentiles({ schemaVersion = '4' } = {}) {
+  const E_POPULATION_FLOOR = 8;
+  const conn = await db().getConnection();
+  try {
+    const [[rankRow]] = await conn.query(
+      `SELECT COUNT(*) AS n FROM scryfall_oracle_cards WHERE edhrec_rank IS NOT NULL`
+    );
+    if (!Number(rankRow?.n || 0)) {
+      console.log('[edhrec-pct] skip — no edhrec_rank values (re-import oracle cards to populate)');
+      return { roles: 0, updated: 0 };
+    }
+
+    // Role label → [{ oracle_id, rank }]
+    const byRole = new Map();
+    const [rows] = await conn.query(
+      `SELECT c.oracle_id, c.edhrec_rank, c.commander_legal, t.tags_json
+         FROM scryfall_oracle_cards c
+         JOIN scryfall_oracle_tags t ON t.oracle_id = c.oracle_id AND t.schema_version = ?
+        WHERE c.edhrec_rank IS NOT NULL`,
+      [schemaVersion]
+    );
+    const parseArr = v => Array.isArray(v) ? v : (() => { try { return JSON.parse(v) || []; } catch (_) { return []; } })();
+    for (const r of rows) {
+      // When legality exists, require commander-legal; NULL legality → include (legacy rows).
+      if (r.commander_legal != null && Number(r.commander_legal) !== 1) continue;
+      const tags = parseArr(r.tags_json);
+      const rank = Number(r.edhrec_rank);
+      if (!Number.isFinite(rank)) continue;
+      for (const tag of tags) {
+        if (!tag || tag === 'Land' || tag === 'Commander') continue;
+        if (!byRole.has(tag)) byRole.set(tag, []);
+        byRole.get(tag).push({ oracle_id: r.oracle_id, rank });
+      }
+    }
+
+    // oracle_id → { role: p }
+    const pctByOracle = new Map();
+    let rolesUsed = 0;
+    for (const [role, list] of byRole.entries()) {
+      if (list.length < E_POPULATION_FLOOR) continue;
+      rolesUsed++;
+      // Lower edhrec_rank = more popular. Sort ascending; p=1 for best.
+      list.sort((a, b) => a.rank - b.rank || String(a.oracle_id).localeCompare(String(b.oracle_id)));
+      const n = list.length;
+      const denom = Math.max(1, n - 1);
+      list.forEach((item, i) => {
+        const p = 1 - (i / denom);
+        if (!pctByOracle.has(item.oracle_id)) pctByOracle.set(item.oracle_id, {});
+        pctByOracle.get(item.oracle_id)[role] = Math.round(p * 1e5) / 1e5;
+      });
+    }
+
+    // Clear then write (cards with no qualifying roles get NULL).
+    await conn.query('UPDATE scryfall_oracle_cards SET edhrec_pct_json = NULL');
+    const entries = [...pctByOracle.entries()];
+    const CHUNK = 200;
+    let updated = 0;
+    for (let i = 0; i < entries.length; i += CHUNK) {
+      const chunk = entries.slice(i, i + CHUNK);
+      const ph = chunk.map(() => '?').join(',');
+      const cases = chunk.map(() => 'WHEN oracle_id = ? THEN CAST(? AS JSON)').join(' ');
+      const params = [];
+      for (const [oid, map] of chunk) {
+        params.push(oid, JSON.stringify(map));
+      }
+      params.push(...chunk.map(([oid]) => oid));
+      await conn.query(
+        `UPDATE scryfall_oracle_cards
+            SET edhrec_pct_json = CASE ${cases} END
+          WHERE oracle_id IN (${ph})`,
+        params
+      );
+      updated += chunk.length;
+    }
+    console.log(`[edhrec-pct] roles=${rolesUsed} cards=${updated}`);
+    return { roles: rolesUsed, updated };
   } finally {
     conn.release();
   }
@@ -6192,7 +6323,8 @@ async function importScryfallOracleBulkToDb({
     const CARD_BATCH = 200;
     const cardInsertSql = `INSERT INTO scryfall_oracle_cards
       (oracle_id, name, type_line, oracle_text, colors_json, mana_cost, cmc, imported_at,
-       scryfall_id, color_identity_json, rarity, set_code, image_small, image_normal, power, toughness, loyalty, games_json, faces_json)
+       scryfall_id, color_identity_json, rarity, set_code, image_small, image_normal, power, toughness, loyalty, games_json, faces_json,
+       edhrec_rank, commander_legal)
      VALUES {VALS}
      ON DUPLICATE KEY UPDATE
        name=VALUES(name), type_line=VALUES(type_line), oracle_text=VALUES(oracle_text),
@@ -6201,7 +6333,8 @@ async function importScryfallOracleBulkToDb({
        rarity=VALUES(rarity), set_code=VALUES(set_code),
        image_small=VALUES(image_small), image_normal=VALUES(image_normal),
        power=VALUES(power), toughness=VALUES(toughness), loyalty=VALUES(loyalty), games_json=VALUES(games_json),
-       faces_json=VALUES(faces_json)`;
+       faces_json=VALUES(faces_json),
+       edhrec_rank=VALUES(edhrec_rank), commander_legal=VALUES(commander_legal)`;
 
     // Compact per-face payload — only when the card actually has >1 face. We keep each face's
     // image_uris so the inspector can flip; for layouts with no per-face art (split/adventure/
@@ -6224,6 +6357,10 @@ async function importScryfallOracleBulkToDb({
       const imgs = c?.image_uris || c?.card_faces?.[0]?.image_uris || {};
       const n = Number(c?.cmc);
       const cmcVal = Number.isFinite(n) && n >= 0 ? Math.min(n, 99999999.99) : null;
+      const rankRaw = Number(c?.edhrec_rank);
+      const edhrecRank = Number.isFinite(rankRaw) && rankRaw > 0 ? Math.floor(rankRaw) : null;
+      const leg = c?.legalities?.commander;
+      const commanderLegal = leg == null ? null : (leg === 'legal' ? 1 : 0);
       return [
         oid, String(c?.name || ''), c?.type_line || null, c?.oracle_text || null,
         JSON.stringify(c?.colors || []), c?.mana_cost || null, cmcVal, now,
@@ -6233,6 +6370,8 @@ async function importScryfallOracleBulkToDb({
         c?.power || null, c?.toughness || null, c?.loyalty || null,
         JSON.stringify(Array.isArray(c?.games) ? c.games : ['paper']),
         facesToJson(c),
+        edhrecRank,
+        commanderLegal,
       ];
     };
 
@@ -6242,7 +6381,7 @@ async function importScryfallOracleBulkToDb({
       const seen = new Set();
       const flushBatch = async () => {
         if (!batch.length) return;
-        const ph = batch.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').join(',');
+        const ph = batch.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').join(',');
         await conn.query(cardInsertSql.replace('{VALS}', ph), batch.flat());
         imported += batch.length;
         totalOracleRows = imported;
@@ -6332,6 +6471,13 @@ async function importScryfallOracleBulkToDb({
 
   if (typeof onProgress === 'function') {
     onProgress({ phase: 'completed', totalOracleRows, importedRows: imported, taggedRows: tagged, totalTagRows, totalQueries, completedQueries });
+  }
+  // Refresh E-term percentiles after cards/tags land (no-op if edhrec_rank not yet imported).
+  try {
+    if (typeof onProgress === 'function') onProgress({ phase: 'edhrec-percentiles' });
+    await recomputeEdhrecRolePercentiles({ schemaVersion });
+  } catch (e) {
+    console.warn('[edhrec-pct] recompute after import failed:', e.message);
   }
   return { imported, tagged, totalOracleRows, totalTagRows, totalQueries, completedQueries, sourceUpdatedAt };
 }
@@ -6898,8 +7044,8 @@ app.post('/api/cards/by-roles', async (req, res) => {
     params.push(500); // pool cap before JS filtering
 
     const [rows] = await db().query(
-      `SELECT c.name, c.scryfall_id, c.type_line, c.oracle_text, c.cmc,
-              c.color_identity_json, c.image_small, c.image_normal, t.tags_json
+      `SELECT c.name, c.scryfall_id, c.type_line, c.oracle_text, c.cmc, c.mana_cost, c.oracle_id,
+              c.color_identity_json, c.image_small, c.image_normal, c.edhrec_pct_json, t.tags_json
          FROM scryfall_oracle_cards c
          LEFT JOIN scryfall_oracle_tags t ON t.oracle_id = c.oracle_id AND t.schema_version = '4'
         WHERE (${matchParts.join(' OR ')}) ${ciClause}
@@ -6910,6 +7056,7 @@ app.post('/api/cards/by-roles', async (req, res) => {
 
     // mysql2 auto-parses JSON columns to JS values; tolerate both array and string forms.
     const parseArr = v => Array.isArray(v) ? v : (() => { try { return JSON.parse(v) || []; } catch (_) { return []; } })();
+    const parseObj = v => (v && typeof v === 'object' && !Array.isArray(v)) ? v : (() => { try { const o = JSON.parse(v); return o && typeof o === 'object' ? o : null; } catch (_) { return null; } })();
     // Non-deck / un-set card types that shouldn't be suggested.
     const JUNK_TYPE_RE = /\b(Contraption|Attraction|Sticker|Stickers|Plane|Phenomenon|Scheme|Vanguard|Conspiracy|Dungeon|Emblem|Token)\b/i;
 
@@ -6921,15 +7068,122 @@ app.post('/api/cards/by-roles', async (req, res) => {
       if (JUNK_TYPE_RE.test(r.type_line || '')) continue;
       const roleTags = parseArr(r.tags_json);
       const ci = parseArr(r.color_identity_json);
+      const edhrecRolePct = parseObj(r.edhrec_pct_json);
       out.push({
-        name: r.name, id: r.scryfall_id, type_line: r.type_line || '', oracle_text: r.oracle_text || '',
+        name: r.name, id: r.scryfall_id, oracleId: r.oracle_id || null,
+        type_line: r.type_line || '', oracle_text: r.oracle_text || '',
+        mana_cost: r.mana_cost || '', mana: r.mana_cost || '',
         cmc: parseFloat(r.cmc) || 0, color_identity: ci,
         image_small: r.image_small || null, image_normal: r.image_normal || null,
         roleTags,
+        edhrecRolePct: edhrecRolePct || undefined,
       });
       if (out.length >= limit) break;
     }
+    // Attach USD prices from price log when available (E price bands); never live-scrape.
+    await attachPriceLogPrices(out);
+    for (const c of out) {
+      if (c.prices?.usd != null) {
+        const usd = parseFloat(c.prices.usd);
+        if (Number.isFinite(usd)) c.priceTCG = usd;
+      }
+    }
     res.json({ cards: out });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Full local-DB candidate pool for Adds "All Cards" mode (Entry 6): commander-legal cards within
+// color identity, excluding lands/tokens/junk. No role filter, no live Scryfall.
+app.post('/api/cards/adds-catalog', async (req, res) => {
+  try {
+    const colors = (Array.isArray(req.body?.colors) ? req.body.colors : []).filter(c => /^[WUBRG]$/.test(c));
+    const exclude = new Set((Array.isArray(req.body?.exclude) ? req.body.exclude : []).map(n => String(n).toLowerCase()));
+    const limit = Math.min(Math.max(parseInt(req.body?.limit || 8000, 10) || 8000, 1), 10000);
+
+    const params = [];
+    let ciClause = '';
+    const disallowed = ['W', 'U', 'B', 'R', 'G'].filter(c => !colors.includes(c));
+    if (disallowed.length) {
+      ciClause = 'AND NOT JSON_OVERLAPS(c.color_identity_json, CAST(? AS JSON))';
+      params.push(JSON.stringify(disallowed));
+    }
+    params.push(limit);
+
+    const JUNK_TYPE_RE = /\b(Contraption|Attraction|Sticker|Stickers|Plane|Phenomenon|Scheme|Vanguard|Conspiracy|Dungeon|Emblem|Token)\b/i;
+    const parseArr = v => Array.isArray(v) ? v : (() => { try { return JSON.parse(v) || []; } catch (_) { return []; } })();
+    const parseObj = v => (v && typeof v === 'object' && !Array.isArray(v)) ? v : (() => { try { const o = JSON.parse(v); return o && typeof o === 'object' ? o : null; } catch (_) { return null; } })();
+
+    const [rows] = await db().query(
+      `SELECT c.name, c.scryfall_id, c.type_line, c.oracle_text, c.cmc, c.mana_cost, c.oracle_id,
+              c.color_identity_json, c.image_small, c.image_normal, c.edhrec_pct_json, t.tags_json
+         FROM scryfall_oracle_cards c
+         LEFT JOIN scryfall_oracle_tags t ON t.oracle_id = c.oracle_id AND t.schema_version = '4'
+        WHERE (c.commander_legal IS NULL OR c.commander_legal = 1)
+          AND c.type_line NOT LIKE '%Land%'
+          AND c.type_line NOT LIKE '%Token%'
+          AND c.type_line NOT LIKE '%Emblem%'
+          ${ciClause}
+        ORDER BY c.name
+        LIMIT ?`,
+      params
+    );
+
+    const out = [];
+    for (const r of rows) {
+      if (exclude.has(String(r.name).toLowerCase())) continue;
+      if (/^A-/.test(r.name || '')) continue;
+      if (JUNK_TYPE_RE.test(r.type_line || '')) continue;
+      const roleTags = parseArr(r.tags_json);
+      const ci = parseArr(r.color_identity_json);
+      const edhrecRolePct = parseObj(r.edhrec_pct_json);
+      out.push({
+        name: r.name, id: r.scryfall_id, oracleId: r.oracle_id || null,
+        type_line: r.type_line || '', oracle_text: r.oracle_text || '',
+        mana_cost: r.mana_cost || '', mana: r.mana_cost || '',
+        cmc: parseFloat(r.cmc) || 0, color_identity: ci,
+        image_small: r.image_small || null, image_normal: r.image_normal || null,
+        roleTags,
+        edhrecRolePct: edhrecRolePct || undefined,
+      });
+      if (out.length >= limit) break;
+    }
+    await attachPriceLogPrices(out);
+    for (const c of out) {
+      if (c.prices?.usd != null) {
+        const usd = parseFloat(c.prices.usd);
+        if (Number.isFinite(usd)) c.priceTCG = usd;
+      }
+    }
+    res.json({ cards: out, capped: rows.length >= limit });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Batch EDHREC role percentiles for owned-collection Adds scoring (never live-scrape).
+app.post('/api/cards/edhrec-percentiles', async (req, res) => {
+  try {
+    const ids = (Array.isArray(req.body?.oracleIds) ? req.body.oracleIds : [])
+      .map(id => String(id || '').toLowerCase())
+      .filter(id => /^[0-9a-f-]{36}$/.test(id))
+      .slice(0, 200);
+    if (!ids.length) return res.json({ byOracleId: {} });
+    const ph = ids.map(() => '?').join(',');
+    const [rows] = await db().query(
+      `SELECT oracle_id, edhrec_pct_json FROM scryfall_oracle_cards WHERE oracle_id IN (${ph})`,
+      ids
+    );
+    const byOracleId = {};
+    for (const r of rows) {
+      let map = r.edhrec_pct_json;
+      if (typeof map === 'string') {
+        try { map = JSON.parse(map); } catch (_) { map = null; }
+      }
+      if (map && typeof map === 'object') byOracleId[String(r.oracle_id).toLowerCase()] = map;
+    }
+    res.json({ byOracleId });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

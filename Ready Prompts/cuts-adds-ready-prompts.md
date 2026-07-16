@@ -37,8 +37,8 @@ re-pop) isolated from other deck-builder render PRs. **23** (user categories) la
 | **5** | Adds excludes tokens from Plan-count + never recommends tokens | **Completed** | Cuts/Adds 2 | Prefer after #2 (Plan deficit for Entry 13). Safe to parallel #3 if Plan-count vs curve don’t collide. |
 | **6** | Manual Tag State Control in Card Inspector | **Completed** | Partner / tags | Foundation for Primary/Secondary/Default + remove/suppress. Blocks most tag consumers. |
 | **7** | Role-Tag Badge Priority Fix | **Completed** | Partner / tags | Badge display uses P → S → default; needs #6 model. |
-| **8** | Auto-tag primary and secondary from default tags | Ready | Partner / tags | Display fallback + “(auto)”; share resolution order with #7. |
-| **9** | Tag Modal: Remember Last Selected Tag Filter | Ready | Partner / tags | UI pref on tag modal; after toggles from #6 exist. |
+| **8** | Auto-tag primary and secondary from default tags | **Completed** | Partner / tags | Display fallback + “(auto)”; share resolution order with #7. |
+| **9** | Tag Modal: Remember Last Selected Tag Filter | **Completed** | Partner / tags | UI pref on tag modal; after toggles from #6 exist. |
 | **10** | Early Ramp CMC threshold + info popup | Ready | Partner / Gameplan | Bug fix + establish reveal-popup pattern for Gameplan. |
 | **11** | Commander Gameplan stat bullets clickable | Ready | Partner / Gameplan | Generalizes #10’s reveal pattern; resolve structural vs simulation cards first. |
 | **12** | Commander Gameplan Tag Pills & Filter | **Completed** | Partner / Gameplan | Needs stable P/S/D from #6–8; preserve “Land in hand”. |
@@ -972,6 +972,8 @@ After JS changes: npm run build:bundle; commit dist/bundle.js.
 
 # Prompt 8 of 23 — Auto-tag primary and secondary from default tags
 
+**Status:** Completed
+
 ```
 # Auto-tag primary and secondary from default tags
 
@@ -1006,6 +1008,8 @@ Prereq: Prefer Prompts 6–7 so badge and cycle share one resolution order.
 ---
 
 # Prompt 9 of 23 — Tag Modal: Remember Last Selected Tag Filter
+
+**Status:** Completed
 
 ```
 # Tag Modal: Remember Last Selected Tag Filter

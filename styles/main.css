@@ -171,6 +171,7 @@
 .deck-valid-ok    { background: rgba(61,184,160,0.15);  color: var(--teal); border: 1.5px solid rgba(61,184,160,0.4); }
 .deck-valid-error { background: rgba(212,90,74,0.15);   color: var(--red);  border: 1.5px solid rgba(212,90,74,0.4);  cursor: pointer; }
 .deck-valid-warn  { background: rgba(200,168,74,0.15);  color: var(--gold); border: 1.5px solid rgba(200,168,74,0.4); cursor: pointer; }
+.deck-valid-circle svg { width: 16px; height: 16px; display: block; }
 .deck-valid-tooltip {
   display: none;
   position: absolute;
@@ -1387,6 +1388,31 @@ main {
   text-transform: uppercase;
 }
 
+/* Deck plan wizard (Entry 13) */
+.plan-opt-grid {
+  display: flex; flex-wrap: wrap; gap: 8px;
+}
+.plan-opt-grid--compact .plan-opt { font-size: 0.78rem; padding: 6px 10px; }
+.plan-opt {
+  background: var(--bg3); border: 1px solid var(--border2); color: var(--text2);
+  border-radius: var(--radius); padding: 8px 12px; cursor: pointer;
+  font-family: 'Crimson Pro', serif; font-size: 0.9rem; text-align: left;
+}
+.plan-opt:hover { border-color: var(--gold); color: var(--text); }
+.plan-opt--selected {
+  border-color: var(--gold); color: var(--gold);
+  background: rgba(201, 162, 39, 0.08);
+}
+.plan-chip-row {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  padding: 0.55rem 0; border-bottom: 1px solid var(--border);
+}
+.plan-chip-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+.plan-budget-label {
+  display: block; font-size: 0.72rem; letter-spacing: 0.06em;
+  color: var(--text3); text-transform: uppercase; margin-bottom: 6px;
+}
+
 /* FIRST-TIME WELCOME MODAL */
 .welcome-modal { padding-top: 1.75rem; }
 .welcome-hero {
@@ -2597,6 +2623,56 @@ img.stack-main.loaded { opacity: 1; }
 }
 .card-detail-actions { margin-bottom: 0.75rem; }
 .card-detail-actions .btn-danger { margin-left: auto; }
+.cd-tag-chip--interactive {
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+}
+.cd-tag-chip--interactive:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+.cd-tag-ctx-menu {
+  position: fixed;
+  z-index: 2000;
+  min-width: 188px;
+  max-width: min(280px, 92vw);
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius2);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
+  padding: 4px 0;
+}
+.cd-tag-ctx-header {
+  padding: 7px 13px 5px;
+  font-size: 0.7rem;
+  color: var(--text3);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cd-tag-ctx-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 7px 13px;
+  font-size: 0.8rem;
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cd-tag-ctx-item:hover,
+.cd-tag-ctx-item:focus-visible { background: var(--bg3); }
+.cd-tag-ctx-item--danger { color: var(--red, #e07070); }
+.cd-tag-ctx-sep { height: 1px; background: var(--border); margin: 3px 0; }
+.cd-tag-ctx-submenu { padding: 2px 0 2px 8px; }
+.cd-tag-ctx-remove-toggle::after { content: ' ▸'; opacity: 0.7; }
+.cd-tag-ctx-remove-toggle[aria-expanded="true"]::after { content: ' ▾'; }
+
 .card-detail-stat {
   font-family: 'JetBrains Mono', monospace; font-size: 0.85rem;
   color: var(--text2); margin-bottom: 0.75rem;
@@ -3185,6 +3261,7 @@ img.stack-main.loaded { opacity: 1; }
 }
 .deck-card-valid-dot--error { background: rgba(212,90,74,0.2); color: var(--red); border: 1.5px solid rgba(212,90,74,0.5); }
 .deck-card-valid-dot--warn  { background: rgba(200,168,74,0.2); color: var(--gold); border: 1.5px solid rgba(200,168,74,0.5); }
+.deck-card-valid-dot svg { width: 11px; height: 11px; display: block; }
 .deck-grid-badge {
   margin-left: auto;
   font-size: 0.6rem;
@@ -4493,6 +4570,7 @@ img.stack-main.loaded { opacity: 1; }
 .tag-scryfall { background: rgba(74,143,212,0.16); color: var(--blue2); border: 1px solid rgba(74,143,212,0.35); }
 .tag-primary { background: rgba(0, 200, 170, 0.18); color: var(--teal); border: 1px solid rgba(0, 200, 170, 0.4); }
 .tag-secondary { background: rgba(212, 175, 55, 0.16); color: var(--gold); border: 1px solid rgba(212, 175, 55, 0.38); }
+.tag-auto-suffix { opacity: 0.72; font-weight: 400; }
 .tag-deck-disabled { opacity: 0.42; filter: grayscale(0.85); text-decoration: line-through; text-decoration-color: var(--text3); }
 .btn-primary-tag { background: rgba(0, 200, 170, 0.18); border-color: rgba(0, 200, 170, 0.4); color: var(--teal); }
 .btn-primary-tag:hover { background: rgba(0, 200, 170, 0.28); border-color: rgba(0, 200, 170, 0.55); }
@@ -7940,6 +8018,11 @@ select:focus { outline: none; border-color: rgba(200,168,74,0.6); box-shadow: 0 
    being clipped at its rounded boundary (same treatment as Suggested Cuts). */
 #deckCutSuggestionsPanel,
 #deckAddSuggestionsPanel { overflow: visible; }
+.deck-adds-pool-toggle button {
+  padding: 2px 8px;
+  font-size: .72rem;
+  white-space: nowrap;
+}
 .cut-candidate-row {
   display: flex;
   align-items: center;
