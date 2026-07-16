@@ -8307,7 +8307,26 @@ let _cmdOrPickerGroup = null; // group id whose "+ or" picker is currently open
 /** Custom gameplan pill filter: all | default | primary | secondary */
 let _cmdCustomTagFilter = 'all';
 
+// ─── Gameplan Custom dynamic tag pills + tier filter ─────────────────────────
+// Kill switch: set to false (and rebuild bundle) to restore the pre-feature
+// hardcoded pill list and hide the All/Default/Primary/Secondary filter.
+const CMD_GP_DYNAMIC_TAG_PILLS = true;
+
+/** Pre-feature hardcoded requirement pills (used when kill switch is off). */
+const _CMD_GP_LEGACY_TAG_PILLS = [
+  ['Protection', 'Protection'],
+  ['Counterspell', 'Counterspell'],
+  ['Removal', 'Removal'],
+  ['Tutor', 'Tutor'],
+  ['Card Draw', 'Card Draw'],
+  ['Ramp', 'Ramp'],
+  ['Board Wipe', 'Board Wipe'],
+  ['Recursion', 'Recursion'],
+  ['Land', 'Land in hand'],
+];
+
 function setCmdCustomTagFilter(val) {
+  if (!CMD_GP_DYNAMIC_TAG_PILLS) return;
   const allowed = new Set(['all', 'default', 'primary', 'secondary']);
   _cmdCustomTagFilter = allowed.has(val) ? val : 'all';
   const deck = getActiveDeck();
@@ -8324,8 +8343,18 @@ function _cmdCustomReqTagLabel(tag) {
  * Tags available as Custom gameplan requirement pills for this deck + filter.
  * Reflects tags actually present on deck cards (not a hardcoded subset).
  * Filter modes mirror deck Group-by: All / Default / Primary / Secondary.
+ * When CMD_GP_DYNAMIC_TAG_PILLS is false, returns the legacy hardcoded list.
  */
 function _cmdCustomReqTagOptions(deck, filter) {
+  if (!CMD_GP_DYNAMIC_TAG_PILLS) {
+    const out = [];
+    for (const [tag, label] of _CMD_GP_LEGACY_TAG_PILLS) {
+      const { K } = _customReqCards(deck, { id: '_', parts: [{ type: 'tag', value: tag }] });
+      if (!K) continue;
+      out.push({ tag, label, K });
+    }
+    return out;
+  }
   const mode = filter || 'all';
   const groupTier = mode === 'default' ? 'tag_default'
     : mode === 'primary' ? 'tag_primary'
@@ -8358,6 +8387,7 @@ function _cmdCustomReqTagOptions(deck, filter) {
   out.sort((a, b) => a.label.localeCompare(b.label));
   return out;
 }
+// ─── End Gameplan Custom dynamic tag pills ───────────────────────────────────
 
 function toggleCmdCustomEditor() {
   _cmdCustomEditorOpen = !_cmdCustomEditorOpen;
@@ -8935,7 +8965,8 @@ function renderCommanderGameplan(deck) {
         <div class="cmdr-gp-custom-editor-inner">
           <div class="cmdr-gp-custom-desc">Add cards you need in hand. Groups joined by <em>or</em> are treated as one slot; separate groups are each required (AND).</div>
           ${(() => {
-            const filter = _cmdCustomTagFilter || 'all';
+            const dynamic = !!CMD_GP_DYNAMIC_TAG_PILLS;
+            const filter = dynamic ? (_cmdCustomTagFilter || 'all') : 'all';
             const available = _cmdCustomReqTagOptions(deck, filter);
             const escOnclick = s => String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
             // tagBtns: onclickGen(tag, label) → full onclick string (tag/label already escaped)
@@ -8948,7 +8979,7 @@ function renderCommanderGameplan(deck) {
             // All tag values already used (across all groups) — for the "Add new" section
             const usedTags = new Set(savedReqs.flatMap(g => g.parts.map(p => p.value)));
 
-            const filterRow = `
+            const filterRow = dynamic ? `
             <div class="cmdr-gp-custom-filter-row">
               <label for="cmdGpTagFilter" class="cmdr-gp-custom-filter-label">Tags</label>
               <select id="cmdGpTagFilter" class="deck-select cmdr-gp-custom-filter" onchange="setCmdCustomTagFilter(this.value)" title="Filter requirement pills by tag tier">
@@ -8957,7 +8988,7 @@ function renderCommanderGameplan(deck) {
                 <option value="primary"${filter === 'primary' ? ' selected' : ''}>Primary Tags</option>
                 <option value="secondary"${filter === 'secondary' ? ' selected' : ''}>Secondary Tags</option>
               </select>
-            </div>`;
+            </div>` : '';
 
             const groupsHtml = savedReqs.length ? `
             <div class="cmdr-gp-custom-list">
@@ -8986,11 +9017,14 @@ function renderCommanderGameplan(deck) {
             </div>` : '';
 
             const addBtns = tagBtns((tag, label) => `addCmdCustomReq('${deck.id}','tag','${tag}','${label}')`, usedTags);
-            const addSection = `
+            const emptyMsg = dynamic
+              ? '<span class="cmdr-gp-custom-empty">No tags in this filter.</span>'
+              : '';
+            const addSection = (addBtns || dynamic) ? `
             <div class="cmdr-gp-custom-add-section">
               <span class="cmdr-gp-custom-add-label">Add requirement:</span>
-              <div class="cmdr-gp-custom-tag-btns">${addBtns || '<span class="cmdr-gp-custom-empty">No tags in this filter.</span>'}</div>
-            </div>`;
+              <div class="cmdr-gp-custom-tag-btns">${addBtns || emptyMsg}</div>
+            </div>` : '';
 
             return filterRow + groupsHtml + addSection;
           })()}
