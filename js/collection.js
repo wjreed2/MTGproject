@@ -793,7 +793,15 @@ function _inspectorTagChipHtml(tag, opts = {}) {
   let cls = 'tag-primary';
   if (typeof _tagClassForTier === 'function') cls = _tagClassForTier(tag, { card });
   else if (kind === 'default') cls = 'tag-scryfall';
-  return `<span class="tag ${cls} cd-tag-chip--interactive" style="font-size:0.84rem" data-cd-tag="${safe}" data-cd-tag-kind="${kind}" role="button" tabindex="0" title="Click to change importance · long-press or right-click for options">${safe}</span>`;
+  const isAuto = !!(card && typeof _isAutoDisplayTierForDefaultTag === 'function'
+    && _isAutoDisplayTierForDefaultTag(card, tag));
+  const label = isAuto
+    ? `${safe}<span class="tag-auto-suffix"> (auto)</span>`
+    : safe;
+  const title = isAuto
+    ? 'Auto-assigned from default tags · click to set manually · long-press or right-click for options'
+    : 'Click to change importance · long-press or right-click for options';
+  return `<span class="tag ${cls} cd-tag-chip--interactive" style="font-size:0.84rem" data-cd-tag="${safe}" data-cd-tag-kind="${kind}" role="button" tabindex="0" title="${title}">${label}</span>`;
 }
 
 /** @deprecated Use _inspectorTagChipHtml — kept for any external callers. */

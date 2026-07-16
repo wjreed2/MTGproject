@@ -1920,6 +1920,64 @@ function _getCardCustomTagTier(card, tag, oracleId) {
   return _getCardCustomTagTierRaw(card, tag, oracleId) || 'primary';
 }
 
+/**
+ * Default tags in inspector order (Land → Scryfall auto, alpha in DB), excluding
+ * Commander. Index 0 / 1 are the candidates for auto primary / secondary.
+ */
+function _defaultTagsForAutoTier(card) {
+  if (!card) return [];
+  let tags = [];
+  try {
+    tags = (typeof _defaultTagsForCardInspector === 'function'
+      ? _defaultTagsForCardInspector(card)
+      : (typeof _roleTagsForCard === 'function' ? _roleTagsForCard(card) : [])) || [];
+  } catch (_) {}
+  return tags.filter(t => t && t !== 'Commander');
+}
+
+/** True when any tag on this card/oracle has an explicit stored primary or secondary tier. */
+function _cardHasExplicitTier(card, tier, oracleId) {
+  const want = tier === 'secondary' ? 'secondary' : 'primary';
+  const check = (tiers) => {
+    if (!tiers || typeof tiers !== 'object') return false;
+    for (const v of Object.values(tiers)) {
+      if ((v === 'secondary' ? 'secondary' : 'primary') === want) return true;
+    }
+    return false;
+  };
+  if (card && check(card.customTagTiers)) return true;
+  const oid = _normalizeTagOracleId(oracleId || (card ? _oracleIdForMyTags(card) : ''));
+  if (oid && _tagOverridesByOracleId.has(oid)) {
+    return check(_tagOverridesByOracleId.get(oid).customTagTiers);
+  }
+  return false;
+}
+
+/**
+ * Display-only fallback tier for a default tag when the primary/secondary slot is
+ * empty. Does not write to storage — first click/cycle still promotes to a real tier.
+ * @returns {'primary'|'secondary'|null}
+ */
+function _autoDisplayTierForDefaultTag(card, tag, oracleId) {
+  const t = String(tag || '').trim();
+  if (!card || !t || t === 'Commander') return null;
+  if (typeof _isProtectedDeckTag === 'function' && !_isProtectedDeckTag(t)) return null;
+  if (_getCardCustomTagTierRaw(card, tag, oracleId)) return null;
+  const defaults = _defaultTagsForAutoTier(card);
+  if (!defaults.length) return null;
+  const key = _tagTierKey(t);
+  const idx = defaults.findIndex(x => _tagTierKey(x) === key);
+  if (idx < 0) return null;
+  if (idx === 0 && !_cardHasExplicitTier(card, 'primary', oracleId)) return 'primary';
+  if (idx === 1 && !_cardHasExplicitTier(card, 'secondary', oracleId)) return 'secondary';
+  return null;
+}
+
+/** True when this tag pill is primary/secondary via auto fallback (not a manual tier). */
+function _isAutoDisplayTierForDefaultTag(card, tag, oracleId) {
+  return !!_autoDisplayTierForDefaultTag(card, tag, oracleId);
+}
+
 function _setCardCustomTagTier(card, tag, tier) {
   if (!card || !tag) return;
   const tiers = _ensureCardCustomTagTiers(card);
@@ -2084,9 +2142,12 @@ function _getUserTagTier(tag, opts = {}) {
   const t = String(tag || '');
   if (opts.card || opts.oracleId) {
     // A default tag the user marked primary/secondary in place shows its tier color;
-    // an untiered default tag stays 'default' (purple); a My Tag defaults to primary.
+    // otherwise the 1st/2nd default may fill those slots as display-only auto tiers;
+    // remaining untiered defaults stay 'default'; a My Tag defaults to primary.
     const raw = _getCardCustomTagTierRaw(opts.card, tag, opts.oracleId);
     if (raw) return raw;
+    const auto = _autoDisplayTierForDefaultTag(opts.card, tag, opts.oracleId);
+    if (auto) return auto;
     if (_isProtectedDeckTag(t)) return 'default';
     return 'primary';
   }

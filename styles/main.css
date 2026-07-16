@@ -4543,6 +4543,7 @@ img.stack-main.loaded { opacity: 1; }
 .tag-scryfall { background: rgba(74,143,212,0.16); color: var(--blue2); border: 1px solid rgba(74,143,212,0.35); }
 .tag-primary { background: rgba(0, 200, 170, 0.18); color: var(--teal); border: 1px solid rgba(0, 200, 170, 0.4); }
 .tag-secondary { background: rgba(212, 175, 55, 0.16); color: var(--gold); border: 1px solid rgba(212, 175, 55, 0.38); }
+.tag-auto-suffix { opacity: 0.72; font-weight: 400; }
 .tag-deck-disabled { opacity: 0.42; filter: grayscale(0.85); text-decoration: line-through; text-decoration-color: var(--text3); }
 .btn-primary-tag { background: rgba(0, 200, 170, 0.18); border-color: rgba(0, 200, 170, 0.4); color: var(--teal); }
 .btn-primary-tag:hover { background: rgba(0, 200, 170, 0.28); border-color: rgba(0, 200, 170, 0.55); }
