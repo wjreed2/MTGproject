@@ -82,15 +82,16 @@ const {
   console.log('[case3] planMatch', a, 'vs', b);
 }
 
-// Cases 8–10: budget filter
+// Cases 8–12: budget filter
 {
   const mk = (name, score, usd) => ({ card: { name, priceTCG: usd }, owned: true, s: { score } });
   const pool = [
     mk('Cheap', 5, 1),
     mk('Mid', 4.5, 4),
-    mk('Buster', 9, 40),
-    mk('AlsoBuster', 8.5, 30),
-    mk('Junk', 1, 50),
+    mk('Buster', 9, 12),       // 2.4× of $5 — eligible buster
+    mk('AlsoBuster', 8.5, 18), // 3.6× — eligible
+    mk('WayOver', 10, 200),    // 40× — never a buster
+    mk('Junk', 1, 20),
     mk('Ok', 3, 2),
   ];
   const planOff = normalizeDeckPlan({
@@ -112,11 +113,37 @@ const {
   const { picks: on, log } = applyPlanBudgetToAddsPicks(pool, planOn, 8);
   const busters = on.filter(p => (p.card.priceTCG || 0) > 5);
   assert.ok(busters.length <= 2, `case9: ≤2 busters, got ${busters.length}`);
+  assert.ok(busters.length >= 1, 'case9: at least one elite buster when opted in');
+  assert.ok(!on.some(p => p.card.name === 'WayOver'), 'case9: way-over ceiling excluded');
   console.log('[case9] busters', busters.map(p => p.card.name).join(', ') || '(none)', log);
 
   const planSkip = emptyPlan();
   const { picks: skip } = applyPlanBudgetToAddsPicks(pool, planSkip, 8);
   assert.strictEqual(skip.length, Math.min(8, pool.length), 'case10: no budget → unchanged pool slice');
+
+  // Unknown / missing / zero prices must not slip through as "free" when a limit is set
+  const poolNoPrice = [
+    mk('PricedOk', 5, 1),
+    mk('Missing', 9, null),
+    mk('Zero', 8, 0),
+    mk('Expensive', 7, 200),
+  ];
+  const { picks: noPx } = applyPlanBudgetToAddsPicks(poolNoPrice, planOff, 8);
+  assert.ok(noPx.every(p => p.card.name === 'PricedOk'), 'case11: unknown/zero price excluded when budget set');
+  assert.strictEqual(noPx.length, 1, 'case11: only priced in-budget card kept');
+  console.log('[case11] no-price exclusion', noPx.map(p => p.card.name).join(', '));
+
+  // Many over-budget elites still capped at 2 busters (large pool so top-15% covers several ranks)
+  const manyBusters = [
+    mk('A', 10, 12), mk('B', 9.5, 15), mk('C', 9, 14), mk('D', 8.5, 16),
+    mk('Cheap1', 2, 1), mk('Cheap2', 1.5, 2),
+    ...Array.from({ length: 20 }, (_, i) => mk(`Pad${i}`, 0.1 + i * 0.01, 1)),
+  ];
+  const { picks: capped } = applyPlanBudgetToAddsPicks(manyBusters, planOn, 8);
+  const over = capped.filter(p => (p.card.priceTCG || 0) > 5);
+  assert.strictEqual(over.length, 2, `case12: exactly 2 busters max, got ${over.length}`);
+  assert.ok(capped.some(p => (p.card.priceTCG || 0) <= 5), 'case12: still fills with in-budget');
+  console.log('[case12] capped busters', over.map(p => p.card.name).join(', '));
 }
 
 console.log('deck-plan: ok');

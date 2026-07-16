@@ -22,6 +22,8 @@
   const PLAN_ORACLE_SIGNAL_WEIGHT = 0.5;
   const PLAN_BUDGET_BUSTER_MAX = 2;
   const PLAN_BUDGET_BUSTER_MIN_SCORE_PERCENTILE = 0.85;
+  /** Over-budget "busters" may not exceed this × per-card limit (blocks $200 picks on a $3 budget). */
+  const PLAN_BUDGET_BUSTER_MAX_PRICE_MULTIPLIER = 5;
 
   const PLAN_STRATEGIES = Object.freeze([
     { id: 'strategy.tokens', label: 'Tokens / Go-wide' },
@@ -418,6 +420,10 @@
   /**
    * Filter/sort scored Adds picks with budget rules.
    * scoredItems: [{ card, owned, s }] already scored; returns filtered topN list.
+   *
+   * With allowBudgetBusters: at most PLAN_BUDGET_BUSTER_MAX over-budget cards may appear
+   * in the final top-N, and only if they are elite by score percentile and within
+   * PLAN_BUDGET_BUSTER_MAX_PRICE_MULTIPLIER × the per-card limit.
    */
   function applyPlanBudgetToAddsPicks(scoredItems, plan, topN) {
     const p = normalizeDeckPlan(plan);
@@ -427,40 +433,51 @@
       return { picks: scoredItems.slice(0, topN), log: ['budget: skipped / no per-card limit'] };
     }
     const maxUsd = Number(limit);
+    const busterCeiling = maxUsd * PLAN_BUDGET_BUSTER_MAX_PRICE_MULTIPLIER;
     const sorted = scoredItems.slice().sort((a, b) => (b.s?.score || 0) - (a.s?.score || 0));
     const nAll = sorted.length || 1;
-    const inBudget = [];
-    const overBudget = [];
-    for (const it of sorted) {
-      const usd = planUsdPrice(it.card);
-      if (usd == null || usd <= maxUsd) inBudget.push(it);
-      else overBudget.push(it);
-    }
-    const picks = inBudget.slice(0, topN);
     const allowBusters = !!p.allowBudgetBusters;
-    if (!allowBusters) {
-      log.push(`budget: hard-exclude over $${maxUsd}; kept ${picks.length}`);
-      return { picks, log };
-    }
-    // Busters: over-budget cards in top (1 - percentile) of all scores
+    const picks = [];
     let busters = 0;
-    for (const it of overBudget) {
-      if (picks.length >= topN || busters >= PLAN_BUDGET_BUSTER_MAX) break;
-      const rank = sorted.indexOf(it);
-      const percentileFromTop = 1 - (rank / nAll);
-      if (percentileFromTop >= PLAN_BUDGET_BUSTER_MIN_SCORE_PERCENTILE) {
-        picks.push(it);
-        busters++;
-        log.push(`budget-buster: ${it.card?.name} usd=${planUsdPrice(it.card)} pct=${percentileFromTop.toFixed(2)}`);
-      }
-    }
-    // Fill remaining from in-budget if needed
-    for (const it of inBudget) {
+    let skippedNoPrice = 0;
+    let skippedWayOver = 0;
+
+    for (let rank = 0; rank < sorted.length; rank++) {
       if (picks.length >= topN) break;
-      if (!picks.includes(it)) picks.push(it);
+      const it = sorted[rank];
+      const usd = planUsdPrice(it.card);
+      if (usd == null) {
+        skippedNoPrice++;
+        continue;
+      }
+      if (usd <= maxUsd) {
+        picks.push(it);
+        continue;
+      }
+      // Over budget
+      if (!allowBusters) continue;
+      if (busters >= PLAN_BUDGET_BUSTER_MAX) continue;
+      if (usd > busterCeiling) {
+        skippedWayOver++;
+        continue;
+      }
+      const percentileFromTop = 1 - (rank / nAll);
+      if (percentileFromTop < PLAN_BUDGET_BUSTER_MIN_SCORE_PERCENTILE) continue;
+      picks.push(it);
+      busters++;
+      log.push(`budget-buster: ${it.card?.name} usd=${usd} pct=${percentileFromTop.toFixed(2)}`);
     }
-    picks.sort((a, b) => (b.s?.score || 0) - (a.s?.score || 0));
-    return { picks: picks.slice(0, topN), log };
+
+    if (!allowBusters) {
+      log.push(`budget: hard-exclude over $${maxUsd}; kept ${picks.length}`
+        + (skippedNoPrice ? `; skipped ${skippedNoPrice} with no price` : ''));
+    } else {
+      log.push(`budget: ≤${PLAN_BUDGET_BUSTER_MAX} busters under $${busterCeiling.toFixed(0)}`
+        + ` (${PLAN_BUDGET_BUSTER_MAX_PRICE_MULTIPLIER}×); kept ${picks.length}, busters ${busters}`
+        + (skippedNoPrice ? `; skipped ${skippedNoPrice} with no price` : '')
+        + (skippedWayOver ? `; skipped ${skippedWayOver} way over ceiling` : ''));
+    }
+    return { picks, log };
   }
 
   /** Mild deck-budget tie-break: subtract tiny amount when deck over rough max. */
@@ -510,6 +527,7 @@
     PLAN_ORACLE_SIGNAL_WEIGHT,
     PLAN_BUDGET_BUSTER_MAX,
     PLAN_BUDGET_BUSTER_MIN_SCORE_PERCENTILE,
+    PLAN_BUDGET_BUSTER_MAX_PRICE_MULTIPLIER,
     PLAN_STRATEGIES,
     PLAN_WINCONS,
     PLAN_STRATEGY_FALLBACK_IDS,

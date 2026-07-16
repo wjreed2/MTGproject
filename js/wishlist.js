@@ -377,14 +377,20 @@ function _renderWishlistSearchGrid() {
       image: img,
       imageLarge: large,
       type: c.type_line,
-      priceTCG: parseFloat(c.prices?.usd || 0),
-      priceTCGFoil: parseFloat(c.prices?.usd_foil || 0),
-      priceCK: parseFloat(c.prices?.usd || 0) * 0.88,
-      priceCKFoil: parseFloat(c.prices?.usd_foil || 0) * 0.88,
+      priceTCG: typeof _parseScryfallPriceField === 'function'
+        ? _parseScryfallPriceField(c.prices?.usd)
+        : (parseFloat(c.prices?.usd) > 0 ? parseFloat(c.prices.usd) : null),
+      priceTCGFoil: typeof _parseScryfallPriceField === 'function'
+        ? _parseScryfallPriceField(c.prices?.usd_foil)
+        : (parseFloat(c.prices?.usd_foil) > 0 ? parseFloat(c.prices.usd_foil) : null),
+      priceCK: null,
+      priceCKFoil: null,
       colors: c.colors || [],
       cmc: c.cmc || 0,
       rarity: c.rarity
     };
+    if (payload.priceTCG != null) payload.priceCK = payload.priceTCG * 0.88;
+    if (payload.priceTCGFoil != null) payload.priceCKFoil = payload.priceTCGFoil * 0.88;
     _wishlistResultPayloads.push(payload);
     return _wishlistTile(c.name, img, !!collectionByScryId[c.id], payload, _wishlistResultPayloads.length - 1);
   }).join('');

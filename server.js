@@ -7085,7 +7085,8 @@ app.post('/api/cards/by-roles', async (req, res) => {
     for (const c of out) {
       if (c.prices?.usd != null) {
         const usd = parseFloat(c.prices.usd);
-        if (Number.isFinite(usd)) c.priceTCG = usd;
+        // 0 / NaN are not valid market prices — leave priceTCG unset.
+        if (Number.isFinite(usd) && usd > 0) c.priceTCG = usd;
       }
     }
     res.json({ cards: out });
@@ -7153,7 +7154,7 @@ app.post('/api/cards/adds-catalog', async (req, res) => {
     for (const c of out) {
       if (c.prices?.usd != null) {
         const usd = parseFloat(c.prices.usd);
-        if (Number.isFinite(usd)) c.priceTCG = usd;
+        if (Number.isFinite(usd) && usd > 0) c.priceTCG = usd;
       }
     }
     res.json({ cards: out, capped: rows.length >= limit });

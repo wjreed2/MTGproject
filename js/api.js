@@ -345,9 +345,11 @@ function applyEntryMetadataToCard(card, entry) {
   if (entry.scryfallId) card.scryfallId = entry.scryfallId;
 }
 
+/** Scryfall null/missing/"0" are not valid market prices — return null, never 0. */
 function _parseScryfallPriceField(v) {
+  if (v == null || v === '') return null;
   const n = parseFloat(v);
-  return Number.isFinite(n) && n > 0 ? n : 0;
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 function cardToEntry(card, qty = 1) {
@@ -391,8 +393,8 @@ function cardToEntry(card, qty = 1) {
     cardFaces,
     priceTCG: usd,
     priceTCGFoil: usdFoil,
-    priceCK: usd * 0.88,
-    priceCKFoil: usdFoil * 0.88,
+    priceCK: usd != null ? usd * 0.88 : null,
+    priceCKFoil: usdFoil != null ? usdFoil * 0.88 : null,
     oracleText: card.oracle_text || faceText || '',
     power: card.power || creatureFace?.power || null,
     toughness: card.toughness || creatureFace?.toughness || null,
