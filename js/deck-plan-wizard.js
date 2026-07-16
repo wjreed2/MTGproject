@@ -1,11 +1,12 @@
 /**
- * Deck plan wizard UI (Entry 13 v1) — Path A (<80) and Path B (>=80).
- * Depends on js/deck-plan.js globals and deck save helpers.
+ * Deck plan wizard UI (Entry 13 v1).
+ * Same question sequence for all deck sizes. Path A/B only chooses the ranker
+ * (commander vs deck); inference pre-selects suggestions and never skips questions.
  */
 (function () {
   'use strict';
 
-  let _planWizard = null; // { deckId, draft, steps, stepIdx, path, ranked, chips, showMore }
+  let _planWizard = null; // { deckId, draft, steps, stepIdx, path, ranked, showMore }
 
   function _pwDeck() {
     if (typeof getActiveDeck !== 'function') return null;
@@ -21,6 +22,18 @@
       if (ctx?.primary) return ctx.primary;
     }
     return (deck.cards || []).find(c => c.isCommander || (deck.commander && c.name === deck.commander)) || null;
+  }
+
+  function _pwMinConfidence() {
+    return typeof PLAN_INFERENCE_CONFIDENCE_MIN === 'number' ? PLAN_INFERENCE_CONFIDENCE_MIN : 0.35;
+  }
+
+  /** Top ranked option when trustworthy; otherwise null (no auto-pick). */
+  function _pwSuggested(rankedList) {
+    const top = rankedList && rankedList[0];
+    if (!top || top.fallback) return null;
+    if ((top.score || 0) < _pwMinConfidence()) return null;
+    return top;
   }
 
   function openDeckPlanWizard() {
@@ -47,33 +60,29 @@
     };
     if (typeof logDeckPlan === 'function') logDeckPlan('open-wizard', { path, count, ranked });
 
-    const chips = [];
-    const min = typeof PLAN_INFERENCE_CONFIDENCE_MIN === 'number' ? PLAN_INFERENCE_CONFIDENCE_MIN : 0.35;
-    if (path === 'B') {
-      const topW = ranked.wincons[0];
-      const topS = ranked.strategies[0];
-      if (topW && !topW.fallback && topW.score >= min) chips.push({ kind: 'wincon', id: topW.id, label: topW.label, score: topW.score });
-      if (topS && !topS.fallback && topS.score >= min) chips.push({ kind: 'strategy', id: topS.id, label: topS.label, score: topS.score });
-      // Optional archetype hint chip
-      if (typeof _autoDetectArchetype === 'function' && typeof _archetypeLabel === 'function') {
-        const arch = _autoDetectArchetype(deck);
-        const label = _archetypeLabel(arch);
-        if (label && label !== 'Goodstuff') chips.push({ kind: 'archetype', id: label, label: `Archetype: ${label}`, score: 0.5 });
-      }
-      while (chips.length > (typeof PLAN_CHIP_MAX === 'number' ? PLAN_CHIP_MAX : 3)) chips.pop();
+    // Pre-select suggestions only when fields are still empty (never skip questions).
+    const nextDraft = JSON.parse(JSON.stringify(draft));
+    const sugW = _pwSuggested(ranked.wincons);
+    const sugS = _pwSuggested(ranked.strategies);
+    if (!nextDraft.winConditionId && sugW) {
+      nextDraft.winConditionId = sugW.id;
+      nextDraft.fieldSources = nextDraft.fieldSources || {};
+      if (!nextDraft.fieldSources.winConditionId) nextDraft.fieldSources.winConditionId = 'formal';
+    }
+    if (!nextDraft.primaryStrategyId && sugS) {
+      nextDraft.primaryStrategyId = sugS.id;
+      nextDraft.fieldSources = nextDraft.fieldSources || {};
+      if (!nextDraft.fieldSources.primaryStrategyId) nextDraft.fieldSources.primaryStrategyId = 'formal';
     }
 
     _planWizard = {
       deckId: deck.id,
-      draft: JSON.parse(JSON.stringify(draft)),
+      draft: nextDraft,
       path,
       ranked,
-      chips,
-      chipState: {}, // kind -> confirm|correct|skip
       showMore: { wincon: false, strategy: false, secondary: false },
-      skipFormal: { wincon: false, strategy: false },
       stepIdx: 0,
-      steps: _pwBuildSteps(path, deck, chips),
+      steps: _pwBuildSteps(deck),
     };
     document.getElementById('deckPlanWizardModal')?.classList.add('open');
     _pwRender();
@@ -84,15 +93,11 @@
     _planWizard = null;
   }
 
-  function _pwBuildSteps(path, deck, chips) {
+  /** Same core sequence for every deck; commander only if missing. */
+  function _pwBuildSteps(deck) {
     const steps = [];
-    if (path === 'A') {
-      if (!deck.commander) steps.push('commander');
-      steps.push('wincon', 'strategy', 'secondary', 'budget');
-    } else {
-      if (chips.length) steps.push('chips');
-      steps.push('wincon', 'strategy', 'secondary', 'budget');
-    }
+    if (!deck.commander) steps.push('commander');
+    steps.push('wincon', 'strategy', 'secondary', 'budget');
     return steps;
   }
 
@@ -115,6 +120,12 @@
     }).join('');
   }
 
+  function _pwSuggestHint(sug) {
+    if (!sug) return '';
+    const pct = Math.round((sug.score || 0) * 100);
+    return `<p class="deck-tab-muted" style="margin-bottom:.65rem">Suggested: <strong>${escapeHtml(sug.label)}</strong>${pct ? ` (${pct}%)` : ''} - change it below if that is wrong.</p>`;
+  }
+
   function _pwRender() {
     const body = document.getElementById('deckPlanWizardBody');
     const title = document.getElementById('deckPlanWizardTitle');
@@ -131,7 +142,7 @@
     if (skipBudgetBtn) skipBudgetBtn.style.display = step === 'budget' ? '' : 'none';
 
     if (step === 'commander') {
-      if (title) title.textContent = 'Deck plan — Commander';
+      if (title) title.textContent = 'Deck plan - Commander';
       body.innerHTML = `<p class="deck-tab-muted" style="margin-bottom:.75rem">This deck needs a commander before we can rank strategies.</p>
         <button type="button" class="btn btn-primary" id="planWizardPickCommanderBtn">Choose commander</button>`;
       document.getElementById('planWizardPickCommanderBtn')?.addEventListener('click', () => {
@@ -142,39 +153,14 @@
       return;
     }
 
-    if (step === 'chips') {
-      if (title) title.textContent = 'Deck plan — Confirm observations';
-      body.innerHTML = `<p class="deck-tab-muted" style="margin-bottom:.75rem">Based on your list (≥80 cards). Confirm, correct, or skip each chip.</p>`
-        + _planWizard.chips.map((ch, i) => {
-          const st = _planWizard.chipState[ch.kind] || '';
-          return `<div class="plan-chip-row" data-chip-kind="${ch.kind}">
-            <div class="plan-chip-label"><strong>${escapeHtml(ch.label)}</strong>${ch.score ? ` <span class="deck-tab-muted">(${(ch.score * 100).toFixed(0)}%)</span>` : ''}</div>
-            <div class="plan-chip-actions">
-              <button type="button" class="btn btn-sm ${st === 'confirm' ? 'btn-primary' : 'btn-outline'}" onclick="_pwChipAction('${ch.kind}','confirm',${i})">Confirm</button>
-              <button type="button" class="btn btn-sm ${st === 'correct' ? 'btn-primary' : 'btn-outline'}" onclick="_pwChipAction('${ch.kind}','correct',${i})">Correct</button>
-              <button type="button" class="btn btn-sm ${st === 'skip' ? 'btn-primary' : 'btn-outline'}" onclick="_pwChipAction('${ch.kind}','skip',${i})">Skip</button>
-            </div>
-          </div>`;
-        }).join('')
-        + `<div id="planChipCorrectPicker" style="margin-top:.75rem"></div>`;
-      if (primaryBtn) { primaryBtn.textContent = 'Continue'; primaryBtn.onclick = () => _pwFinishChips(); }
-      return;
-    }
-
     if (step === 'wincon') {
-      if (_planWizard.skipFormal.wincon && draft.winConditionId) {
-        _pwNext();
-        return;
-      }
       if (title) title.textContent = 'How does this deck usually win?';
+      const sug = _pwSuggested(_planWizard.ranked.wincons);
       const top = showAll('wincon')
         ? (typeof PLAN_WINCONS !== 'undefined' ? PLAN_WINCONS : [])
         : _planWizard.ranked.wincons;
-      // Pre-fill hint
-      const pref = !_planWizard.ranked.wincons[0]?.fallback && (_planWizard.ranked.wincons[0]?.score || 0) >= 0.35
-        ? _planWizard.ranked.wincons[0].id : null;
-      if (!draft.winConditionId && pref && !_planWizard.chipState.wincon) draft.winConditionId = draft.winConditionId || pref;
-      body.innerHTML = `<div class="plan-opt-grid">${_pwOptionButtons(top, draft.winConditionId, 'onclick="_pwPickWincon(this.dataset.planPick)"')}</div>
+      body.innerHTML = `${_pwSuggestHint(sug)}
+        <div class="plan-opt-grid">${_pwOptionButtons(top, draft.winConditionId, 'onclick="_pwPickWincon(this.dataset.planPick)"')}</div>
         <button type="button" class="btn btn-ghost btn-sm" style="margin-top:.5rem" onclick="_pwToggleMore('wincon')">${showAll('wincon') ? 'Show top suggestions' : 'Show more options'}</button>`;
       if (primaryBtn) {
         primaryBtn.textContent = 'Continue';
@@ -189,18 +175,13 @@
     }
 
     if (step === 'strategy') {
-      if (_planWizard.skipFormal.strategy && draft.primaryStrategyId) {
-        _pwNext();
-        return;
-      }
       if (title) title.textContent = 'What is the main strategy or theme?';
+      const sug = _pwSuggested(_planWizard.ranked.strategies);
       const top = showAll('strategy')
         ? (typeof PLAN_STRATEGIES !== 'undefined' ? PLAN_STRATEGIES : [])
         : _planWizard.ranked.strategies;
-      const pref = !_planWizard.ranked.strategies[0]?.fallback && (_planWizard.ranked.strategies[0]?.score || 0) >= 0.35
-        ? _planWizard.ranked.strategies[0].id : null;
-      if (!draft.primaryStrategyId && pref && !_planWizard.chipState.strategy) draft.primaryStrategyId = draft.primaryStrategyId || pref;
-      body.innerHTML = `<div class="plan-opt-grid">${_pwOptionButtons(top, draft.primaryStrategyId, 'onclick="_pwPickStrategy(this.dataset.planPick)"')}</div>
+      body.innerHTML = `${_pwSuggestHint(sug)}
+        <div class="plan-opt-grid">${_pwOptionButtons(top, draft.primaryStrategyId, 'onclick="_pwPickStrategy(this.dataset.planPick)"')}</div>
         <button type="button" class="btn btn-ghost btn-sm" style="margin-top:.5rem" onclick="_pwToggleMore('strategy')">${showAll('strategy') ? 'Show top suggestions' : 'Show more options'}</button>`;
       if (primaryBtn) {
         primaryBtn.textContent = 'Continue';
@@ -219,7 +200,8 @@
       const list = showAll('secondary')
         ? (typeof PLAN_STRATEGIES !== 'undefined' ? PLAN_STRATEGIES : [])
         : _planWizard.ranked.strategies.filter(s => s.id !== draft.primaryStrategyId);
-      body.innerHTML = `<div class="plan-opt-grid">${_pwOptionButtons(list, draft.secondaryStrategyId, 'onclick="_pwPickSecondary(this.dataset.planPick)"')}</div>
+      body.innerHTML = `<p class="deck-tab-muted" style="margin-bottom:.65rem">Optional - pick one or continue to skip.</p>
+        <div class="plan-opt-grid">${_pwOptionButtons(list, draft.secondaryStrategyId, 'onclick="_pwPickSecondary(this.dataset.planPick)"')}</div>
         <button type="button" class="btn btn-ghost btn-sm" style="margin-top:.5rem" onclick="_pwToggleMore('secondary')">${showAll('secondary') ? 'Show fewer' : 'Show more options'}</button>`;
       if (primaryBtn) {
         primaryBtn.textContent = 'Continue';
@@ -252,13 +234,13 @@
         <div id="planCustomCardBudget" style="margin:.4rem 0 ${draft.fieldSources?.roughMaxPerCardBudgetUsd === 'custom' ? '' : ';display:none'}">
           <input type="number" min="1" step="1" id="planCustomCardUsd" class="deck-select" style="width:100%" placeholder="Custom USD" value="${draft.roughMaxPerCardBudgetUsd || ''}" onchange="_pwCustomCardUsd(this.value)">
         </div>
-        <label class="plan-budget-label" style="margin-top:.85rem">OK with a few over-budget “real winners”?</label>
+        <label class="plan-budget-label" style="margin-top:.85rem">OK with a few over-budget "real winners"?</label>
         <div class="plan-opt-grid plan-opt-grid--compact">
           <button type="button" class="plan-opt${draft.allowBudgetBusters === true && draft.fieldSources?.allowBudgetBusters === 'budget.busters.yes' ? ' plan-opt--selected' : ''}" onclick="_pwPickBusters('yes')">Yes</button>
           <button type="button" class="plan-opt${draft.allowBudgetBusters === false && draft.fieldSources?.allowBudgetBusters === 'budget.busters.no' ? ' plan-opt--selected' : ''}" onclick="_pwPickBusters('no')">No</button>
           <button type="button" class="plan-opt${draft.fieldSources?.allowBudgetBusters === 'skipped' ? ' plan-opt--selected' : ''}" onclick="_pwPickBusters('skip')">Skip</button>
         </div>
-        <p class="deck-tab-muted" style="margin-top:.75rem;font-size:.75rem">Skip the whole budget step with the button below — Adds ranking stays unchanged.</p>`;
+        <p class="deck-tab-muted" style="margin-top:.75rem;font-size:.75rem">Skip the whole budget step with the button below - Adds ranking stays unchanged.</p>`;
       if (primaryBtn) {
         primaryBtn.textContent = 'Save plan';
         primaryBtn.onclick = () => _pwFinishBudget(false);
@@ -286,7 +268,6 @@
     if (!_planWizard) return;
     if (_planWizard.stepIdx < _planWizard.steps.length - 1) {
       _planWizard.stepIdx++;
-      // Skip formal steps already satisfied by chips
       _pwRender();
     } else {
       _pwFinishBudget(true);
@@ -324,85 +305,6 @@
     _planWizard.draft.secondaryStrategyId = id;
     _planWizard.draft.fieldSources = _planWizard.draft.fieldSources || {};
     _planWizard.draft.fieldSources.secondaryStrategyId = 'formal';
-    _pwRender();
-  }
-
-  function _pwChipAction(kind, action, idx) {
-    if (!_planWizard) return;
-    const ch = _planWizard.chips[idx];
-    _planWizard.chipState[kind] = action;
-    if (typeof logDeckPlan === 'function') logDeckPlan('chip', kind, action, ch?.id);
-    if (kind === 'archetype') {
-      _pwRender();
-      return;
-    }
-    if (action === 'confirm' && ch) {
-      if (kind === 'wincon') {
-        _planWizard.draft.winConditionId = ch.id;
-        _planWizard.draft.fieldSources.winConditionId = 'chip-confirmed';
-        _planWizard.skipFormal.wincon = true;
-      }
-      if (kind === 'strategy') {
-        _planWizard.draft.primaryStrategyId = ch.id;
-        _planWizard.draft.fieldSources.primaryStrategyId = 'chip-confirmed';
-        _planWizard.skipFormal.strategy = true;
-      }
-      document.getElementById('planChipCorrectPicker') && (document.getElementById('planChipCorrectPicker').innerHTML = '');
-    } else if (action === 'skip') {
-      if (kind === 'wincon') _planWizard.skipFormal.wincon = false;
-      if (kind === 'strategy') _planWizard.skipFormal.strategy = false;
-      document.getElementById('planChipCorrectPicker') && (document.getElementById('planChipCorrectPicker').innerHTML = '');
-    } else if (action === 'correct') {
-      const catalog = kind === 'wincon'
-        ? (typeof PLAN_WINCONS !== 'undefined' ? PLAN_WINCONS : [])
-        : (typeof PLAN_STRATEGIES !== 'undefined' ? PLAN_STRATEGIES : []);
-      const el = document.getElementById('planChipCorrectPicker');
-      if (el) {
-        el.innerHTML = `<div class="plan-opt-grid">${catalog.map(o =>
-          `<button type="button" class="plan-opt" onclick="_pwChipCorrectPick('${kind}','${o.id}')">${escapeHtml(o.label)}</button>`
-        ).join('')}</div>`;
-      }
-    }
-    _pwRender();
-  }
-
-  function _pwChipCorrectPick(kind, id) {
-    if (!_planWizard) return;
-    if (kind === 'wincon') {
-      _planWizard.draft.winConditionId = id;
-      _planWizard.draft.fieldSources.winConditionId = 'chip-corrected';
-      _planWizard.skipFormal.wincon = true;
-    }
-    if (kind === 'strategy') {
-      _planWizard.draft.primaryStrategyId = id;
-      _planWizard.draft.fieldSources.primaryStrategyId = 'chip-corrected';
-      _planWizard.skipFormal.strategy = true;
-    }
-    _planWizard.chipState[kind] = 'correct';
-    const el = document.getElementById('planChipCorrectPicker');
-    if (el) el.innerHTML = '';
-    _pwRender();
-  }
-
-  function _pwFinishChips() {
-    if (!_planWizard) return;
-    // Rebuild steps: drop formal Qs that were confirmed/corrected
-    const deck = _pwDeck();
-    _planWizard.steps = _pwBuildSteps('B', deck, _planWizard.chips);
-    // If wincon/strategy confirmed, remove those formal steps
-    _planWizard.steps = _planWizard.steps.filter(s => {
-      if (s === 'chips') return false;
-      if (s === 'wincon' && _planWizard.skipFormal.wincon) return false;
-      if (s === 'strategy' && _planWizard.skipFormal.strategy) return false;
-      return true;
-    });
-    _planWizard.stepIdx = 0;
-    if (!_planWizard.steps.length) {
-      _pwPersist();
-      closeDeckPlanWizard();
-      if (typeof showNotif === 'function') showNotif('Deck plan saved');
-      return;
-    }
     _pwRender();
   }
 
@@ -505,7 +407,6 @@
     _pwFinishBudget(false);
   }
 
-  // Expose
   window.openDeckPlanWizard = openDeckPlanWizard;
   window.closeDeckPlanWizard = closeDeckPlanWizard;
   window._pwBack = _pwBack;
@@ -513,13 +414,10 @@
   window._pwPickWincon = _pwPickWincon;
   window._pwPickStrategy = _pwPickStrategy;
   window._pwPickSecondary = _pwPickSecondary;
-  window._pwChipAction = _pwChipAction;
-  window._pwChipCorrectPick = _pwChipCorrectPick;
   window._pwPickDeckBudget = _pwPickDeckBudget;
   window._pwPickCardBudget = _pwPickCardBudget;
   window._pwCustomDeckUsd = _pwCustomDeckUsd;
   window._pwCustomCardUsd = _pwCustomCardUsd;
   window._pwPickBusters = _pwPickBusters;
   window._pwSkipBudgetStep = _pwSkipBudgetStep;
-  window._pwFinishChips = _pwFinishChips;
 })();
