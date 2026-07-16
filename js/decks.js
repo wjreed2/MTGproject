@@ -1205,7 +1205,8 @@ const _SCRY_AUTO_LABEL_SET = new Set(SCRYFALL_AUTO_TAGS.map(t => t.label));
 // ─── Default-tag badges ──────────────────────────────────────────────────────
 // Each protected/role tag (Land, Commander + the Scryfall auto tags) gets a
 // distinct color and an inline line icon. The deck viewer paints a small badge
-// for a card's FIRST role tag — see _roleTagsForCard() for the ordering.
+// for one role tag per card — see _badgeTagForCard() for Primary → Secondary →
+// default priority (_roleTagsForCard() order is the "first listed" tie-break).
 // Icons are 24×24 line icons (stroke=currentColor) to match the app's SVG style.
 const DEFAULT_TAG_BADGE = {
   'Land':          { color: '#8a6f3e', icon: '<path d="M3 19l6-9 4 5 2-3 6 7z"/>' },
@@ -1252,13 +1253,35 @@ function _tagBadgeSvg(inner) {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
 }
 
-/** Badge HTML for a card's first role/default tag (Land > Commander > Scryfall auto). */
-function _defaultTagBadgeHtml(card, opts = {}) {
-  let tag = null;
+/**
+ * Role tag chosen for the single per-card badge (and Badge sort).
+ * Priority: manually-set primary → manually-set secondary → default role-tag
+ * order from `_roleTagsForCard` (Land → Commander → Scryfall auto). "First
+ * listed" among multiple primaries/secondaries means that same array order.
+ * Only explicit stored tiers count as manual (`_getCardCustomTagTierRaw`).
+ */
+function _badgeTagForCard(card) {
+  let roles = [];
   try {
-    const roles = (typeof _roleTagsForCard === 'function') ? _roleTagsForCard(card) : [];
-    tag = (roles && roles.length) ? roles[0] : null;
-  } catch (_) {}
+    roles = (typeof _roleTagsForCard === 'function') ? (_roleTagsForCard(card) || []) : [];
+  } catch (_) {
+    roles = [];
+  }
+  if (!roles.length) return null;
+  if (typeof _getCardCustomTagTierRaw === 'function') {
+    for (const tag of roles) {
+      if (_getCardCustomTagTierRaw(card, tag) === 'primary') return tag;
+    }
+    for (const tag of roles) {
+      if (_getCardCustomTagTierRaw(card, tag) === 'secondary') return tag;
+    }
+  }
+  return roles[0] || null;
+}
+
+/** Badge HTML for a card's role tag (Primary → Secondary → default role order). */
+function _defaultTagBadgeHtml(card, opts = {}) {
+  const tag = _badgeTagForCard(card);
   const meta = tag ? DEFAULT_TAG_BADGE[tag] : null;
   if (!meta) return '';
   if (!deckTagBadgesEnabled) return '';
@@ -1658,13 +1681,9 @@ function _deckCardSortPrice(c) {
   return Number(c?.priceTCG) || 0;
 }
 
-/** Sort key for "Badge" sort — a card's first role tag; un-badged cards sort last. */
+/** Sort key for "Badge" sort — same tag as the painted badge; un-badged last. */
 function _deckCardBadgeSortKey(card) {
-  let tag = '';
-  try {
-    const roles = (typeof _roleTagsForCard === 'function') ? _roleTagsForCard(card) : [];
-    tag = (roles && roles.length) ? roles[0] : '';
-  } catch (_) {}
+  const tag = (typeof _badgeTagForCard === 'function' ? _badgeTagForCard(card) : null) || '';
   // Prefix so badged cards ('0…') always sort before un-badged ('1'), locale-safe.
   return tag ? '0' + tag : '1';
 }

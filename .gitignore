@@ -13,3 +13,6 @@ data/MagicCompRules*.pdf
 data/mtg_conditional_keywords.csv
 fingerprints.sql.gz
 *.sql.gz
+
+# Nested Archive-Suggestions repo (has its own .git) — keep local for agents; do not nest
+Ready Prompts/Archive-Suggestions/
