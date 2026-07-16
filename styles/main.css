@@ -4938,6 +4938,30 @@ textarea.deck-import:focus { outline: none; border-color: var(--gold); }
   color: var(--text3);
   line-height: 1.45;
 }
+.cmdr-gp-custom-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.cmdr-gp-custom-filter-label {
+  font-size: calc(0.7rem + var(--dl-fs));
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+.cmdr-gp-custom-filter {
+  width: auto;
+  min-width: 9.5rem;
+  padding: 4px 8px;
+  font-size: calc(0.75rem + var(--dl-fs));
+}
+.cmdr-gp-custom-empty {
+  font-size: calc(0.72rem + var(--dl-fs));
+  color: var(--text3);
+  font-style: italic;
+}
 .cmdr-gp-custom-list {
   display: flex;
   flex-direction: column;

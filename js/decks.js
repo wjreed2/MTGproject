@@ -8304,6 +8304,61 @@ function _customReqCards(deck, group) {
 }
 let _cmdCustomEditorOpen = false;
 let _cmdOrPickerGroup = null; // group id whose "+ or" picker is currently open
+/** Custom gameplan pill filter: all | default | primary | secondary */
+let _cmdCustomTagFilter = 'all';
+
+function setCmdCustomTagFilter(val) {
+  const allowed = new Set(['all', 'default', 'primary', 'secondary']);
+  _cmdCustomTagFilter = allowed.has(val) ? val : 'all';
+  const deck = getActiveDeck();
+  if (deck) renderCommanderGameplan(deck);
+}
+
+/** Display label for a custom-req tag pill. Land keeps its special "Land in hand" wording. */
+function _cmdCustomReqTagLabel(tag) {
+  if (tag === 'Land') return 'Land in hand';
+  return String(tag || '');
+}
+
+/**
+ * Tags available as Custom gameplan requirement pills for this deck + filter.
+ * Reflects tags actually present on deck cards (not a hardcoded subset).
+ * Filter modes mirror deck Group-by: All / Default / Primary / Secondary.
+ */
+function _cmdCustomReqTagOptions(deck, filter) {
+  const mode = filter || 'all';
+  const groupTier = mode === 'default' ? 'tag_default'
+    : mode === 'primary' ? 'tag_primary'
+    : mode === 'secondary' ? 'tag_secondary'
+    : 'tag_all';
+  const seen = new Map(); // lower key → { tag, label }
+  for (const c of (deck.cards || [])) {
+    let tags;
+    if (mode === 'all') {
+      // Match requirement scoring (_probTagsOnCard) so every usable tag can be picked.
+      tags = _probTagsOnCard(c, deck);
+    } else if (typeof _tagsOnCardForGroupTier === 'function') {
+      tags = _tagsOnCardForGroupTier(c, groupTier);
+    } else {
+      tags = _probTagsOnCard(c, deck);
+    }
+    for (const raw of tags || []) {
+      const tag = String(raw || '').trim();
+      if (!tag || tag === 'Commander') continue;
+      const key = tag.toLowerCase();
+      if (!seen.has(key)) seen.set(key, { tag, label: _cmdCustomReqTagLabel(tag) });
+    }
+  }
+  const out = [];
+  for (const { tag, label } of seen.values()) {
+    const { K } = _customReqCards(deck, { id: '_', parts: [{ type: 'tag', value: tag }] });
+    if (!K) continue;
+    out.push({ tag, label, K });
+  }
+  out.sort((a, b) => a.label.localeCompare(b.label));
+  return out;
+}
+
 function toggleCmdCustomEditor() {
   _cmdCustomEditorOpen = !_cmdCustomEditorOpen;
   _cmdOrPickerGroup = null;
@@ -8880,23 +8935,29 @@ function renderCommanderGameplan(deck) {
         <div class="cmdr-gp-custom-editor-inner">
           <div class="cmdr-gp-custom-desc">Add cards you need in hand. Groups joined by <em>or</em> are treated as one slot; separate groups are each required (AND).</div>
           ${(() => {
-            const ALL_TAGS = [
-              ['Protection','Protection'],['Counterspell','Counterspell'],['Removal','Removal'],
-              ['Tutor','Tutor'],['Card Draw','Card Draw'],['Ramp','Ramp'],
-              ['Board Wipe','Board Wipe'],['Recursion','Recursion'],
-              ['Land','Land in hand'],
-            ];
-            // tagBtns: onclickGen(tag, label) → full onclick string
-            const tagBtns = (onclickGen, excludeValues) => ALL_TAGS
-              .filter(([tag]) => !excludeValues.has(tag))
-              .map(([tag, label]) => {
-                const { K } = _customReqCards(deck, { id:'_', parts:[{ type:'tag', value:tag }] });
-                if (!K) return '';
-                return `<button class="cmdr-gp-custom-tag-btn" onclick="${onclickGen(tag, label)}">${label} <span class="cmdr-gp-custom-tag-count">${K}</span></button>`;
+            const filter = _cmdCustomTagFilter || 'all';
+            const available = _cmdCustomReqTagOptions(deck, filter);
+            const escOnclick = s => String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+            // tagBtns: onclickGen(tag, label) → full onclick string (tag/label already escaped)
+            const tagBtns = (onclickGen, excludeValues) => available
+              .filter(({ tag }) => !excludeValues.has(tag))
+              .map(({ tag, label, K }) => {
+                return `<button type="button" class="cmdr-gp-custom-tag-btn" onclick="${onclickGen(escOnclick(tag), escOnclick(label))}">${escapeHtml(label)} <span class="cmdr-gp-custom-tag-count">${K}</span></button>`;
               }).join('');
 
             // All tag values already used (across all groups) — for the "Add new" section
             const usedTags = new Set(savedReqs.flatMap(g => g.parts.map(p => p.value)));
+
+            const filterRow = `
+            <div class="cmdr-gp-custom-filter-row">
+              <label for="cmdGpTagFilter" class="cmdr-gp-custom-filter-label">Tags</label>
+              <select id="cmdGpTagFilter" class="deck-select cmdr-gp-custom-filter" onchange="setCmdCustomTagFilter(this.value)" title="Filter requirement pills by tag tier">
+                <option value="all"${filter === 'all' ? ' selected' : ''}>All Tags</option>
+                <option value="default"${filter === 'default' ? ' selected' : ''}>Default Tags</option>
+                <option value="primary"${filter === 'primary' ? ' selected' : ''}>Primary Tags</option>
+                <option value="secondary"${filter === 'secondary' ? ' selected' : ''}>Secondary Tags</option>
+              </select>
+            </div>`;
 
             const groupsHtml = savedReqs.length ? `
             <div class="cmdr-gp-custom-list">
@@ -8912,12 +8973,12 @@ function renderCommanderGameplan(deck) {
                       ${group.parts.map((p, i) => `
                         ${i > 0 ? '<span class="cmdr-gp-or-sep">or</span>' : ''}
                         <span class="cmdr-gp-part-chip">
-                          ${p.label}
-                          <button class="cmdr-gp-part-chip-x" onclick="removeCmdCustomReqPart('${deck.id}','${safeid}','${p.value}')" title="Remove">×</button>
+                          ${escapeHtml(p.label)}
+                          <button type="button" class="cmdr-gp-part-chip-x" onclick="removeCmdCustomReqPart('${deck.id}','${safeid}','${escOnclick(p.value)}')" title="Remove">×</button>
                         </span>`).join('')}
                     </span>
                     <span class="cmdr-gp-custom-item-meta">${K} in deck · avg MV ${avgCMC.toFixed(1)}</span>
-                    <button class="cmdr-gp-or-add-btn${orPickerOpen ? ' cmdr-gp-or-add-btn--open' : ''}" onclick="toggleCmdOrPicker('${safeid}')" title="Add OR alternative">+ or</button>
+                    <button type="button" class="cmdr-gp-or-add-btn${orPickerOpen ? ' cmdr-gp-or-add-btn--open' : ''}" onclick="toggleCmdOrPicker('${safeid}')" title="Add OR alternative">+ or</button>
                   </div>
                   ${orPickerOpen && orBtns ? `<div class="cmdr-gp-or-picker">${orBtns}</div>` : ''}
                 </div>`;
@@ -8925,13 +8986,13 @@ function renderCommanderGameplan(deck) {
             </div>` : '';
 
             const addBtns = tagBtns((tag, label) => `addCmdCustomReq('${deck.id}','tag','${tag}','${label}')`, usedTags);
-            const addSection = addBtns ? `
+            const addSection = `
             <div class="cmdr-gp-custom-add-section">
               <span class="cmdr-gp-custom-add-label">Add requirement:</span>
-              <div class="cmdr-gp-custom-tag-btns">${addBtns}</div>
-            </div>` : '';
+              <div class="cmdr-gp-custom-tag-btns">${addBtns || '<span class="cmdr-gp-custom-empty">No tags in this filter.</span>'}</div>
+            </div>`;
 
-            return groupsHtml + addSection;
+            return filterRow + groupsHtml + addSection;
           })()}
         </div>
       </div>
