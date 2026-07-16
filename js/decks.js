@@ -887,7 +887,19 @@ let deckGroupBy  = (() => {
   return saved || 'type';
 })();
 let deckCardSize = Math.max(120, Math.min(280, parseInt(localStorage.getItem('mtg_deck_card_size')) || 220));
-let deckTagCatalogFilter = 'all';
+const _DECK_TAG_CATALOG_FILTERS = new Set(['all', 'default', 'primary', 'secondary']);
+const DECK_TAG_CATALOG_FILTER_KEY = 'mtg_deck_tag_catalog_filter';
+function _loadDeckTagCatalogFilter() {
+  try {
+    const saved = localStorage.getItem(DECK_TAG_CATALOG_FILTER_KEY);
+    if (_DECK_TAG_CATALOG_FILTERS.has(saved)) return saved;
+  } catch { /* private mode / quota */ }
+  return 'all';
+}
+function _saveDeckTagCatalogFilter(filter) {
+  try { localStorage.setItem(DECK_TAG_CATALOG_FILTER_KEY, filter); } catch { /* private mode / quota */ }
+}
+let deckTagCatalogFilter = _loadDeckTagCatalogFilter();
 
 function _applyDeckCardSize() {
   const px = deckCardSize + 'px';
@@ -2228,7 +2240,8 @@ function _tagsForCatalogFilter(filter) {
 }
 
 function setDeckTagCatalogFilter(filter) {
-  deckTagCatalogFilter = filter || 'all';
+  deckTagCatalogFilter = _DECK_TAG_CATALOG_FILTERS.has(filter) ? filter : 'all';
+  _saveDeckTagCatalogFilter(deckTagCatalogFilter);
   document.querySelectorAll('[data-deck-tag-filter]').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.deckTagFilter === deckTagCatalogFilter);
   });
@@ -3883,7 +3896,8 @@ async function openDeckCardTagPicker(_deckId, cardUid) {
   let card = _findCardForTagPicker(cardUid);
   if (!card) return;
   _bindDeckCardTagPickerClicks();
-  deckTagCatalogFilter = 'all';
+  // Restore last-used filter/mode (global UI pref) — not per-card.
+  deckTagCatalogFilter = _loadDeckTagCatalogFilter();
   const ownerScope = _resolveTagPickerOwnerScope(card, cardUid);
   // In shared scope, act on the owner's deck slot, not a same-printing collection copy.
   if (ownerScope.kind === 'shared') {
