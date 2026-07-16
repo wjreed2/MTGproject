@@ -6723,6 +6723,17 @@ function _isLandCardSafe(c) {
   return tl.toLowerCase().includes('land');
 }
 
+// Non-land CMC bucket counts (0–7+). Matches Cuts: include commander CMC.
+// Plan-count still excludes the commander separately in `_computeAddContext`.
+function _addCurveBucketCounts(cards) {
+  const buckets = [0, 1, 2, 3, 4, 5, 6, 7];
+  const nonLands = (cards || []).filter(c => !_isLandCardSafe(c));
+  return buckets.map(b =>
+    nonLands
+      .filter(c => Math.min(Math.floor(_effCmcSafe(c)), 7) === b)
+      .reduce((s, c) => s + (c.qty || 1), 0));
+}
+
 // Role deficits + curve deficits for the active deck (uses the shared cut thresholds).
 function _computeAddContext(deck) {
   const cards = deck.cards || [];
@@ -6731,9 +6742,10 @@ function _computeAddContext(deck) {
   for (const card of cards) {
     for (const tag of _probTagsOnCard(card, deck)) roleCount[tag] = (roleCount[tag] || 0) + (card.qty || 1);
   }
-  const nonLandCmdr = cards.filter(c =>
+  // Plan / role pool: exclude commander (unchanged). Curve pool: include commander (match Cuts).
+  const nonLandNonCmd = cards.filter(c =>
     !(c.isCommander || (deck.commander && c.name === deck.commander)) && !_isLandCardSafe(c));
-  const planCount = nonLandCmdr.reduce((s, c) => {
+  const planCount = nonLandNonCmd.reduce((s, c) => {
     const t = _probTagsOnCard(c, deck).filter(x => x !== 'Land' && x !== 'Commander');
     return t.length === 0 ? s + (c.qty || 1) : s;
   }, 0);
@@ -6743,15 +6755,14 @@ function _computeAddContext(deck) {
     deficits[tag] = Math.max(0, thr - have);
   }
   const buckets = [0, 1, 2, 3, 4, 5, 6, 7];
-  const curveCounts = buckets.map(b =>
-    nonLandCmdr.filter(c => Math.min(Math.floor(_effCmcSafe(c)), 7) === b).reduce((s, c) => s + (c.qty || 1), 0));
+  const curveCounts = _addCurveBucketCounts(cards);
   const curveTotal = curveCounts.reduce((s, n) => s + n, 0) || 1;
   const { idealWeights } = typeof _computeIdealManaCurveContext === 'function'
     ? _computeIdealManaCurveContext(deck, curveCounts)
     : { idealWeights: [0.06, 0.13, 0.20, 0.20, 0.16, 0.12, 0.08, 0.05] };
   const curveDeficit = buckets.map((_, i) => Math.max(0, idealWeights[i] - (curveCounts[i] / curveTotal)));
   return {
-    thresholds, roleCount, planCount, deficits, curveDeficit,
+    thresholds, roleCount, planCount, deficits, curveDeficit, curveCounts,
     // Same deck context the replacement scorer uses: commander-driven tribal types,
     // commander cast-trigger themes, and spell-type counts for gating "whenever you cast …".
     tribes: _deckTribalTypes(deck),
