@@ -37,58 +37,73 @@
 
   /**
    * Semantic → project role-tag label map (transitional IDs).
-   * Entry 11 Tier 1/2 lists were not in-repo; efficiency set = interaction roles
-   * plus locked Tier 3 subset (Tutor, Bite). Exclusions follow Ready Prompt.
+   * Source: Archive-Suggestions/cuts-adds-backlog.md entry 11 + Ready Prompt Tier 3 lock
+   * (Tutor + Bite in; Recursion/Reanimate/cantrip-draw out). IDs may change with partner
+   * tag work — keep lookups centralized here.
    */
   const ADD_ROLE_SEMANTIC_MAP = Object.freeze({
+    // Tier 1
     ramp: 'Ramp',
-    draw: 'Card Draw',
     removal: 'Removal',
-    boardWipe: 'Board Wipe',
-    tutor: 'Tutor',
-    counterspell: 'Counterspell',
     protection: 'Protection',
-    bounce: 'Bounce',
-    control: 'Control',
-    burn: 'Burn',
-    stax: 'Stax',
-    hatebear: 'Hatebear',
-    anthem: 'Anthem',
     combatTrick: 'Combat Trick',
+    pump: 'Pump',
+    // Tier 2
+    counterspell: 'Counterspell',
+    burn: 'Burn',
+    bounce: 'Bounce',
+    discard: 'Discard',
+    // Tier 2 with no project tag yet: fog / silence — map when labels exist
+    // Tier 3 subset (Ready Prompt locked in)
+    tutor: 'Tutor',
     bite: 'Bite',
     fightBite: 'Bite',
+    // Exclusions / other
+    draw: 'Card Draw',
+    boardWipe: 'Board Wipe',
+    anthem: 'Anthem',
+    groupSlug: 'Group Slug',
     recursion: 'Recursion',
     reanimate: 'Reanimate',
-    discard: 'Discard',
+    control: 'Control',
+    stax: 'Stax',
+    hatebear: 'Hatebear',
   });
 
-  /** L on / C off — interaction + Tutor + Bite. IDs may change. */
+  /**
+   * L on / C off — backlog Tier 1 + Tier 2, plus Ready Prompt locked Tier 3 (Tutor, Bite).
+   * Project has no Fog/Silence tags yet (Tier 2 combat-fog / silence) — omit until mapped.
+   * Lands never get L even if Ramp-tagged (land-ramp exclusion).
+   */
   const EFFICIENCY_MODE_PROJECT_TAGS = Object.freeze(new Set([
+    // Tier 1
+    'Ramp',
     'Removal',
-    'Bounce',
-    'Counterspell',
     'Protection',
     'Combat Trick',
-    'Bite',
-    'Tutor',
-    'Stax',
-    'Hatebear',
+    'Pump',
+    // Tier 2
+    'Counterspell',
     'Burn',
+    'Bounce',
     'Discard',
-    'Control',
+    // Tier 3 subset (locked by Ready Prompt)
+    'Tutor',
+    'Bite',
   ]));
 
-  /** Explicit normal-C roles (document exclusions; also anything not in efficiency set). */
+  /** Explicit normal-C roles from entry 11 exclusion table (+ Tier 3 out). */
   const EFFICIENCY_MODE_EXCLUSIONS = Object.freeze(new Set([
     'Board Wipe',
     'Card Draw',
-    'Ramp',
     'Anthem',
-    'Pump',
-    'Evasion',
-    'Extra Combat',
+    'Group Slug',
     'Recursion',
     'Reanimate',
+    'Plan',
+    // Not Tier 1/2 — keep normal C (listed for clarity; absence from EFFICIENCY set is enough)
+    'Evasion',
+    'Extra Combat',
     'Token Maker',
     'Blink',
     'Copy',
@@ -103,8 +118,9 @@
     'Death Trigger',
     'Drain',
     'Sac Synergy',
-    'Group Slug',
-    'Plan',
+    'Control',
+    'Stax',
+    'Hatebear',
   ]));
 
   function _clamp01(x) {

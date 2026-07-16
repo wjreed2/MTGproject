@@ -178,7 +178,7 @@ const wipeOnlyCtx = {
   console.log('[soft-6] skipped — no in-repo spellslinger archetype detection (_autoDetectArchetype has no isSpellslinger)');
 }
 
-// Sanity: Removal uses L; constants exported
+// Sanity: Removal + Ramp use L; Board Wipe does not; constants exported
 {
   const rem = score(path, ['Removal'], {
     deficits: { Removal: 4 },
@@ -187,7 +187,17 @@ const wipeOnlyCtx = {
   assert.ok(rem.terms.efficiencyMode, 'Removal should be efficiency-mode');
   assert.ok(rem.terms.L > 0, 'Removal CMC1 should get L');
   assert.strictEqual(rem.terms.C_eff, 0, 'efficiency mode turns C off');
+
+  const tvRamp = score(threeVisits, ['Ramp'], rampOnlyCtx);
+  assert.ok(tvRamp.terms.efficiencyMode, 'Ramp is Tier 1 efficiency-mode per backlog entry 11');
+  assert.ok(tvRamp.terms.L > 0, 'Ramp spells should get L (lands still excluded via type check)');
+  assert.strictEqual(tvRamp.terms.C_eff, 0);
+
   assert.ok(EFFICIENCY_MODE_PROJECT_TAGS.has('Removal'));
+  assert.ok(EFFICIENCY_MODE_PROJECT_TAGS.has('Ramp'));
+  assert.ok(EFFICIENCY_MODE_PROJECT_TAGS.has('Pump'));
+  assert.ok(!EFFICIENCY_MODE_PROJECT_TAGS.has('Board Wipe'));
+  assert.ok(!EFFICIENCY_MODE_PROJECT_TAGS.has('Stax'));
   assert.strictEqual(CMC_REF, 4);
   assert.deepStrictEqual(D_SUBLINEAR_WEIGHTS, [1.0, 0.5, 0.25]);
   assert.strictEqual(K_E, 0.5 * K_L);
