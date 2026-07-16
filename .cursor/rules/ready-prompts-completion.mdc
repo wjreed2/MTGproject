@@ -1,0 +1,33 @@
+---
+description: Mark Ready Prompts as Completed in cuts-adds-ready-prompts.md when finished
+alwaysApply: true
+---
+
+# Ready Prompts — mark Completed when done
+
+When you finish implementing a prompt from `Ready Prompts/cuts-adds-ready-prompts.md`
+(or its twin files under `Ready Prompts/`), **update that doc before ending the turn**.
+Do this even if another agent started the work and you finished it, or if you only
+did follow-up fixes that close out the prompt.
+
+## What to update (same commit or same session as the implementation)
+
+1. **Implementation order table** — set that prompt’s **Status** column to `Completed`
+   (and optional short note: date or commit SHA if useful).
+2. **Prompt heading** — change e.g. `# Prompt N of 23 — …` to include
+   `**(Completed)**` immediately after the prompt number/title line, or add a line
+   under the heading: `**Status:** Completed`.
+3. **Do not delete** the prompt body until the user (or backlog process) archives it
+   (`cuts-adds-archive.md` / backlog **Shipped**). Marking Completed ≠ removing the text.
+
+## When “done” means
+
+Treat as Completed when the prompt’s deliverables are implemented and verified enough
+to hand back (tests/PR notes as the prompt requires) — not only after a remote merge.
+If the user later reopens scope, change Status back to `In progress` or leave a note.
+
+## Also
+
+- If you complete only part of a multi-entry prompt, do **not** mark Completed; note
+  partial progress in the Status column (e.g. `In progress — scoring done, E pending`).
+- Partner prompts (6+) follow the same Status marking in this file.

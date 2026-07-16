@@ -1,8 +1,8 @@
 # Cuts/Adds — Ready implementation prompts
 
-**Purpose:** Only prompts at status **Prompt drafted**. Copy one prompt at a time to an
-agent that has the **main deck-builder repo** (`decks.js`). Do not run these in
-Archive-Suggestions (docs only).
+**Purpose:** Copy one prompt at a time to an agent that has the **main deck-builder
+repo** (`decks.js`). Skip rows marked **Completed** unless reopening. Do not run these
+in Archive-Suggestions (docs only).
 
 **Hard rule for every Cuts/Adds scoring prompt (1–5):** Deliverable is **deterministic
 algorithm code** — no runtime AI/LLM. Partner UI/tag prompts (6+) follow the main app’s
@@ -28,31 +28,31 @@ agent if that agent avoids `_scoreAddCandidate` / threshold / plan-wizard surfac
 **1–5** are stable. Keep **6–9** (tag model) serialized with each other. Keep **22** (image
 re-pop) isolated from other deck-builder render PRs. **23** (user categories) last.
 
-| Order | Prompt | Track / backlog | Why this order |
-|------:|--------|-----------------|----------------|
-| **1** | Coordinated Adds scoring rebalance | Cuts/Adds 7, 9, 10, 11, 12 | Rebuilds how Adds **ranks** cards. Foundation for plan backfill ranking. |
-| **2** | Deck plan wizard + plan-aware backfill | Cuts/Adds 13 v1 (+ 5) | Wizard + plan schema + Plan-only unowned fetch. Better after #1. |
-| **3** | Adds curve includes commander CMC | Cuts/Adds 1 | Isolated curve-bucket fix. Prefer after #1; safe to parallel #2 if curve edits don’t collide. |
-| **4** | Collection / All Cards pool toggle | Cuts/Adds 6 | **Do not run before #2.** Prefer after #1. Safe to parallel #3. |
-| **5** | Adds excludes tokens from Plan-count + never recommends tokens | Cuts/Adds 2 | Prefer after #2 (Plan deficit for Entry 13). Safe to parallel #3 if Plan-count vs curve don’t collide. |
-| **6** | Manual Tag State Control in Card Inspector | Partner / tags | Foundation for Primary/Secondary/Default + remove/suppress. Blocks most tag consumers. |
-| **7** | Role-Tag Badge Priority Fix | Partner / tags | Badge display uses P → S → default; needs #6 model. |
-| **8** | Auto-tag primary and secondary from default tags | Partner / tags | Display fallback + “(auto)”; share resolution order with #7. |
-| **9** | Tag Modal: Remember Last Selected Tag Filter | Partner / tags | UI pref on tag modal; after toggles from #6 exist. |
-| **10** | Early Ramp CMC threshold + info popup | Partner / Gameplan | Bug fix + establish reveal-popup pattern for Gameplan. |
-| **11** | Commander Gameplan stat bullets clickable | Partner / Gameplan | Generalizes #10’s reveal pattern; resolve structural vs simulation cards first. |
-| **12** | Commander Gameplan Tag Pills & Filter | Partner / Gameplan | Needs stable P/S/D from #6–8; preserve “Land in hand”. |
-| **13** | Similarity count fix & Spicy Picks Cuts exclusion | Partner / Adds&Cuts UX | Cluster with other planning-board fixes; don’t rewrite scoring from #1. |
-| **14** | Cut button on Spicy Picks → Cuts list | Partner / Adds&Cuts UX | Same Adds/Cuts state model as #13 — run back-to-back. |
-| **15** | Adds section missing Suggested Replacements | Partner / Adds&Cuts UX | Inspector path for Adds-section cards. |
-| **16** | Adds & Cuts hover preview | Partner / Adds&Cuts UX | Reuse deck-builder hover mechanism. |
-| **17** | Card Inspector: show add/cut quantity | Partner / Adds&Cuts UX | Surface planning qty inside inspector. |
-| **18** | Add Cards popup — remember destination | Partner / Adds&Cuts UX | localStorage destination pref. |
-| **19** | Card Search Bug — “Bounty of the Hunt” | Partner / search | Isolated search/DB bug; can parallel earlier if a second agent is free. |
-| **20** | Trade window: card image opens inspector | Partner / trade | Isolated inspector wiring. |
-| **21** | Collection tab: deck membership in inspector | Partner / collection | Isolated; distinct from prompt #4 pool toggle. |
-| **22** | Deck Builder: fix card image re-pop | Partner / render | Keep isolated — render/cache investigation; don’t interleave with #13–18. |
-| **23** | User-defined deck categories | Partner / tags (large) | Last — needs settled tag model; design Qs before code. |
+| Order | Prompt | Status | Track / backlog | Why this order |
+|------:|--------|--------|-----------------|----------------|
+| **1** | Coordinated Adds scoring rebalance | **Completed** | Cuts/Adds 7, 9, 10, 11, 12 | Rebuilds how Adds **ranks** cards. Foundation for plan backfill ranking. |
+| **2** | Deck plan wizard + plan-aware backfill | **Completed** | Cuts/Adds 13 v1 (+ 5) | Wizard + plan schema + Plan-only unowned fetch. Better after #1. |
+| **3** | Adds curve includes commander CMC | Ready | Cuts/Adds 1 | Isolated curve-bucket fix. Prefer after #1; safe to parallel #2 if curve edits don’t collide. |
+| **4** | Collection / All Cards pool toggle | Ready | Cuts/Adds 6 | **Do not run before #2.** Prefer after #1. Safe to parallel #3. |
+| **5** | Adds excludes tokens from Plan-count + never recommends tokens | Ready | Cuts/Adds 2 | Prefer after #2 (Plan deficit for Entry 13). Safe to parallel #3 if Plan-count vs curve don’t collide. |
+| **6** | Manual Tag State Control in Card Inspector | Ready | Partner / tags | Foundation for Primary/Secondary/Default + remove/suppress. Blocks most tag consumers. |
+| **7** | Role-Tag Badge Priority Fix | Ready | Partner / tags | Badge display uses P → S → default; needs #6 model. |
+| **8** | Auto-tag primary and secondary from default tags | Ready | Partner / tags | Display fallback + “(auto)”; share resolution order with #7. |
+| **9** | Tag Modal: Remember Last Selected Tag Filter | Ready | Partner / tags | UI pref on tag modal; after toggles from #6 exist. |
+| **10** | Early Ramp CMC threshold + info popup | Ready | Partner / Gameplan | Bug fix + establish reveal-popup pattern for Gameplan. |
+| **11** | Commander Gameplan stat bullets clickable | Ready | Partner / Gameplan | Generalizes #10’s reveal pattern; resolve structural vs simulation cards first. |
+| **12** | Commander Gameplan Tag Pills & Filter | Ready | Partner / Gameplan | Needs stable P/S/D from #6–8; preserve “Land in hand”. |
+| **13** | Similarity count fix & Spicy Picks Cuts exclusion | Ready | Partner / Adds&Cuts UX | Cluster with other planning-board fixes; don’t rewrite scoring from #1. |
+| **14** | Cut button on Spicy Picks → Cuts list | Ready | Partner / Adds&Cuts UX | Same Adds/Cuts state model as #13 — run back-to-back. |
+| **15** | Adds section missing Suggested Replacements | Ready | Partner / Adds&Cuts UX | Inspector path for Adds-section cards. |
+| **16** | Adds & Cuts hover preview | Ready | Partner / Adds&Cuts UX | Reuse deck-builder hover mechanism. |
+| **17** | Card Inspector: show add/cut quantity | Ready | Partner / Adds&Cuts UX | Surface planning qty inside inspector. |
+| **18** | Add Cards popup — remember destination | Ready | Partner / Adds&Cuts UX | localStorage destination pref. |
+| **19** | Card Search Bug — “Bounty of the Hunt” | Ready | Partner / search | Isolated search/DB bug; can parallel earlier if a second agent is free. |
+| **20** | Trade window: card image opens inspector | Ready | Partner / trade | Isolated inspector wiring. |
+| **21** | Collection tab: deck membership in inspector | Ready | Partner / collection | Isolated; distinct from prompt #4 pool toggle. |
+| **22** | Deck Builder: fix card image re-pop | Ready | Partner / render | Keep isolated — render/cache investigation; don’t interleave with #13–18. |
+| **23** | User-defined deck categories | Ready | Partner / tags (large) | Last — needs settled tag model; design Qs before code. |
 
 ### Deliberately excluded from this queue (do not send)
 
@@ -76,15 +76,22 @@ re-pop) isolated from other deck-builder render PRs. **23** (user categories) la
 ## How to use
 
 1. Open the **main app repo** (partner) in Cursor / cloud agent.
-2. Copy **one** fenced prompt block below (start at `# …` inside the fence).
+2. Copy **one** fenced prompt block below (start at `# …` inside the fence). Prefer the
+   next **Ready** row in the order table (skip **Completed**).
 3. Paste into the agent. Say start / implement.
-4. After merge: for backlog-linked prompts (1–5), mark that backlog entry **Shipped** and
-   move full write-up to `cuts-adds-archive.md`; remove or strike that prompt from this
-   file. For partner prompts (6+), strike/remove here and note shipped in archive or PR.
+4. **When implementation is done** (this session / agent — not waiting for merge): set
+   that row’s **Status** to **Completed** and add `**Status:** Completed` under the
+   prompt heading. Agents must do this every time (see `.cursor/rules/ready-prompts-completion.mdc`).
+5. After merge / backlog close: for backlog-linked prompts (1–5), mark that backlog entry
+   **Shipped** and move full write-up to `cuts-adds-archive.md`; then remove or strike
+   that prompt from this file. For partner prompts (6+), strike/remove here and note
+   shipped in archive or PR.
 
 ---
 
 # Prompt 1 of 23 — Coordinated Adds scoring rebalance (entries 7 / 9 / 10 / 11 / 12)
+
+**Status:** Completed
 
 ```
 # Adds scoring rebalance — entries 7, 9, 10, 11, 12 (single coordinated pass)
@@ -286,6 +293,8 @@ term logs (off in normal production UX). Soft cases use logs + PR notes.
 ---
 
 # Prompt 2 of 23 — Entry 13 v1 + Entry 5 (plan wizard + plan-aware backfill)
+
+**Status:** Completed
 
 Canonical twin file (keep in sync): [`entry-13-v1-implementation-prompt.md`](./entry-13-v1-implementation-prompt.md)
 
@@ -1442,5 +1451,5 @@ Prereq: Prompts 6–8 (and ideally 12) settled so tag categories don’t thrash 
 
 ---
 
-*End of ready-prompts catalog (23 prompts). Add new Prompt drafted items here in queue
-order; remove when Shipped.*
+*End of ready-prompts catalog (23 prompts). Add new Ready items here in queue order;
+mark **Completed** when implemented; remove when backlog/archive Shipped.*
