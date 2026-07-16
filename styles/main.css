@@ -171,6 +171,7 @@
 .deck-valid-ok    { background: rgba(61,184,160,0.15);  color: var(--teal); border: 1.5px solid rgba(61,184,160,0.4); }
 .deck-valid-error { background: rgba(212,90,74,0.15);   color: var(--red);  border: 1.5px solid rgba(212,90,74,0.4);  cursor: pointer; }
 .deck-valid-warn  { background: rgba(200,168,74,0.15);  color: var(--gold); border: 1.5px solid rgba(200,168,74,0.4); cursor: pointer; }
+.deck-valid-circle svg { width: 16px; height: 16px; display: block; }
 .deck-valid-tooltip {
   display: none;
   position: absolute;
@@ -3260,6 +3261,7 @@ img.stack-main.loaded { opacity: 1; }
 }
 .deck-card-valid-dot--error { background: rgba(212,90,74,0.2); color: var(--red); border: 1.5px solid rgba(212,90,74,0.5); }
 .deck-card-valid-dot--warn  { background: rgba(200,168,74,0.2); color: var(--gold); border: 1.5px solid rgba(200,168,74,0.5); }
+.deck-card-valid-dot svg { width: 11px; height: 11px; display: block; }
 .deck-grid-badge {
   margin-left: auto;
   font-size: 0.6rem;
@@ -7992,6 +7994,11 @@ select:focus { outline: none; border-color: rgba(200,168,74,0.6); box-shadow: 0 
    being clipped at its rounded boundary (same treatment as Suggested Cuts). */
 #deckCutSuggestionsPanel,
 #deckAddSuggestionsPanel { overflow: visible; }
+.deck-adds-pool-toggle button {
+  padding: 2px 8px;
+  font-size: .72rem;
+  white-space: nowrap;
+}
 .cut-candidate-row {
   display: flex;
   align-items: center;

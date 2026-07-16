@@ -741,10 +741,16 @@
               <strong>Suggested adds</strong> finds cards that fill the roles your deck is short on
               (ramp, draw, removal, etc.) versus targets for your archetype, plus thin spots on your mana curve.
               It scores cards you own first, then fills remaining slots with cards from the database in your colors.
+              Use <strong>Collection</strong> / <strong>All Cards</strong> to restrict suggestions to your collection
+              or search the full local card database in your colors.
               Shares the archetype and playstyle targets with Suggested Cuts. Add puts one copy in the deck.
             </span>
           </span>
           <div class="deck-suggest-spacer" style="flex:1"></div>
+          <div class="view-toggle deck-adds-pool-toggle" role="group" aria-label="Adds candidate pool" title="Collection = owned cards only. All Cards = full local database in your colors.">
+            <button type="button" id="deckAddsPoolCollectionBtn" class="active" style="padding:2px 8px;font-size:.72rem" aria-pressed="true" onclick="setAddsPoolMode('collection')">Collection</button>
+            <button type="button" id="deckAddsPoolAllBtn" style="padding:2px 8px;font-size:.72rem" aria-pressed="false" onclick="setAddsPoolMode('all')">All Cards</button>
+          </div>
           <div class="cut-playstyle-wrap" title="Playstyle — shared with Suggested Cuts (Aggro lowers ramp/removal targets, Control raises them)">
             <span class="cut-playstyle-label cut-playstyle-aggro">Aggro</span>
             <input type="range" id="deckAddPlaystyleSlider" min="-7" max="7" step="1" value="0"

@@ -620,6 +620,17 @@ function _deckCardValidationClass(c, errorNames) {
   return errorNames.has(String(c?.name || '').toLowerCase()) ? ' has-validation-error' : '';
 }
 
+/** Inline SVG for deck validity badges — avoids UTF-8 symbol corruption in minified bundle. */
+function _deckValidIconSvg(kind) {
+  if (kind === 'ok') {
+    return '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8.5l3 3 6-6"/></svg>';
+  }
+  if (kind === 'error') {
+    return '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>';
+  }
+  return '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3.2l5.5 9.4H2.5z"/><line x1="8" y1="7" x2="8" y2="10"/><circle cx="8" cy="12.1" r="0.55" fill="currentColor" stroke="none"/></svg>';
+}
+
 function renderDeckValidation(deck) {
   const badge = document.getElementById('deckValidBadge');
   const panel = document.getElementById('deckValidationPanel');
@@ -631,13 +642,13 @@ function renderDeckValidation(deck) {
   const warnings = issues.filter(i => i.severity === 'warning');
 
   if (issues.length === 0) {
-    badge.innerHTML = `<span class="deck-valid-circle deck-valid-ok" title="Valid">✓</span>`;
+    badge.innerHTML = `<span class="deck-valid-circle deck-valid-ok" title="Valid">${_deckValidIconSvg('ok')}</span>`;
     return;
   }
 
   const hasErrors = errors.length > 0;
   const circleClass = hasErrors ? 'deck-valid-error' : 'deck-valid-warn';
-  const circleIcon  = hasErrors ? '✕' : '⚠';
+  const circleIcon  = _deckValidIconSvg(hasErrors ? 'error' : 'warn');
 
   window.__deckValidationIssues = issues;
   const rows = issues.map((i, idx) => {
@@ -2815,8 +2826,8 @@ function _deckGridCard(d, isShared) {
   const issues = validateDeck(d);
   const hasErrors = issues.some(i => i.severity === 'error');
   const validBadge = hasErrors
-    ? `<span class="deck-card-valid-dot deck-card-valid-dot--error" title="Invalid deck">✕</span>`
-    : issues.length ? `<span class="deck-card-valid-dot deck-card-valid-dot--warn" title="Deck has warnings">⚠</span>` : '';
+    ? `<span class="deck-card-valid-dot deck-card-valid-dot--error" title="Invalid deck">${_deckValidIconSvg('error')}</span>`
+    : issues.length ? `<span class="deck-card-valid-dot deck-card-valid-dot--warn" title="Deck has warnings">${_deckValidIconSvg('warn')}</span>` : '';
   const pubBadge = !isShared && d.isPublic
     ? `<span class="deck-grid-badge deck-grid-badge-public">🌐</span>`
     : '';
@@ -2875,8 +2886,8 @@ function _deckSidebarItem(d) {
   const total  = d.cards.reduce((s,c)=>s+c.qty,0);
   const issues = validateDeck(d);
   const badge  = issues.some(i => i.severity === 'error')
-    ? `<span class="deck-card-valid-dot deck-card-valid-dot--error" title="Invalid deck">✕</span>`
-    : issues.length ? `<span class="deck-card-valid-dot deck-card-valid-dot--warn" title="Deck has warnings">⚠</span>` : '';
+    ? `<span class="deck-card-valid-dot deck-card-valid-dot--error" title="Invalid deck">${_deckValidIconSvg('error')}</span>`
+    : issues.length ? `<span class="deck-card-valid-dot deck-card-valid-dot--warn" title="Deck has warnings">${_deckValidIconSvg('warn')}</span>` : '';
   return `
   <div class="deck-sidebar-item ${activeDeckId === d.id ? 'active' : ''}" onclick="selectDeck('${d.id}')">
     ${_deckImage(d)
@@ -6708,13 +6719,92 @@ function _renderCutSuggestions(deck) {
 
 // ── Suggested Adds ───────────────────────────────────────────────────────────
 // Inverse of Suggested Cuts: scores candidates by how well they fill the deck's UNDER-target
-// roles. Shares the same archetype/playstyle/threshold model (_computeCutThresholds). Candidate
-// pool is "owned first" — collection cards that fit, then unowned cards from the local oracle DB
-// (/api/cards/by-roles). Suggestions that fail the conditional-keyword gate are dropped.
-// Commander-tribal decks (_deckTribalTypes) boost on-tribe candidates, and role credit gated
-// on an under-supported "whenever you cast …" trigger is discounted (_replCastTriggerFactor).
+// roles. Shares the same archetype/playstyle/threshold model (_computeCutThresholds).
+// Entry 6 pool modes:
+//   Collection — owned collection only; never calls /api/cards/by-roles backfill.
+//   All Cards — full local DB ∩ commander CI via /api/cards/adds-catalog; score-only top 8.
+// Suggestions that fail the conditional-keyword gate are dropped.
 const _ADD_SUGGESTION_COUNT = 8;
 let _addSuggestToken = 0;
+
+// Entry 6 — Adds candidate pool: Collection (owned only) vs All Cards (full local DB ∩ CI).
+const ADDS_POOL_MODE_KEY = 'mtg_adds_pool_mode';
+let _addsPoolMode = (() => {
+  try {
+    const v = localStorage.getItem(ADDS_POOL_MODE_KEY);
+    return v === 'all' ? 'all' : 'collection';
+  } catch { return 'collection'; }
+})();
+
+function getAddsPoolMode() { return _addsPoolMode; }
+
+function applyAddsPrefsFromServer(prefs) {
+  const v = prefs?.adds_pool_mode;
+  if (v === 'all' || v === 'collection') {
+    _addsPoolMode = v;
+    try { localStorage.setItem(ADDS_POOL_MODE_KEY, v); } catch { /* quota */ }
+  }
+  _syncAddsPoolToggleUI();
+}
+
+function setAddsPoolMode(mode) {
+  if (mode !== 'all' && mode !== 'collection') return;
+  if (_addsPoolMode === mode) return;
+  _addsPoolMode = mode;
+  try { localStorage.setItem(ADDS_POOL_MODE_KEY, mode); } catch { /* quota */ }
+  _syncAddsPoolToggleUI();
+  save('prefs');
+  const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+  if (deck) _renderAddSuggestions(deck);
+}
+
+function _syncAddsPoolToggleUI() {
+  const coll = document.getElementById('deckAddsPoolCollectionBtn');
+  const all = document.getElementById('deckAddsPoolAllBtn');
+  if (!coll || !all) return;
+  const isAll = _addsPoolMode === 'all';
+  coll.classList.toggle('active', !isAll);
+  all.classList.toggle('active', isAll);
+  coll.setAttribute('aria-pressed', String(!isAll));
+  all.setAttribute('aria-pressed', String(isAll));
+}
+
+/** Score-only sort for All Cards; owned-first for Collection backfill path. */
+function _addsCompareScored(a, b, { planOnlyBackfill, scoreOnly }) {
+  if (!scoreOnly && a.owned !== b.owned) return a.owned ? -1 : 1;
+  if (planOnlyBackfill) {
+    const pm = (b.s.planMatch || 0) - (a.s.planMatch || 0);
+    if (pm) return pm;
+  }
+  return (b.s.score || 0) - (a.s.score || 0);
+}
+
+/** Pick top Adds suggestions after CK gate (testable). */
+function _addsSelectTopPicks(ownedScored, unownedScored, opts) {
+  const {
+    gate, deckPlan, planOnlyBackfill, scoreOnly, count = _ADD_SUGGESTION_COUNT,
+  } = opts || {};
+  const gateFn = gate || (() => true);
+  const pool = [
+    ...ownedScored.filter(gateFn),
+    ...unownedScored.filter(gateFn),
+  ];
+  if (typeof applyPlanBudgetToAddsPicks === 'function' && deckPlan
+      && deckPlan.roughMaxPerCardBudgetUsd != null) {
+    pool.sort((a, b) => _addsCompareScored(a, b, { planOnlyBackfill, scoreOnly }));
+    const budgeted = applyPlanBudgetToAddsPicks(pool, deckPlan, count);
+    return budgeted.picks;
+  }
+  if (scoreOnly) {
+    pool.sort((a, b) => _addsCompareScored(a, b, { planOnlyBackfill, scoreOnly: true }));
+    return pool.slice(0, count);
+  }
+  const picks = ownedScored.filter(gateFn).slice(0, count);
+  if (picks.length < count) {
+    picks.push(...unownedScored.filter(gateFn).slice(0, count - picks.length));
+  }
+  return picks;
+}
 
 function _effCmcSafe(c) { return typeof _effectiveCmc === 'function' ? _effectiveCmc(c) : (c.cmc || 0); }
 function _isLandCardSafe(c) {
@@ -6919,7 +7009,7 @@ async function _renderAddSuggestions(deck) {
   const body = document.getElementById('deckAddSuggestionsBody');
   if (!panel || !body) return;
 
-  // Sync the shared controls (slider + archetype) onto this panel
+  // Sync the shared controls (slider + archetype + pool toggle) onto this panel
   const psSlider = document.getElementById('deckAddPlaystyleSlider');
   if (psSlider) psSlider.value = _deckCutPlaystyleStep;
   const sel = document.getElementById('deckAddArchetypeSelect');
@@ -6927,136 +7017,122 @@ async function _renderAddSuggestions(deck) {
     if (sel.options[0]) sel.options[0].text = `Auto: ${_archetypeLabel(_autoDetectArchetype(deck))}`;
     sel.value = _deckCutArchetypeOverride;
   }
+  _syncAddsPoolToggleUI();
 
   if (!deck || !(deck.cards || []).length) { panel.style.display = 'none'; return; }
   panel.style.display = '';
 
   const ctx = _computeAddContext(deck);
-  const deficitRoles = Object.entries(ctx.deficits)
-    .filter(([t, v]) => v > 0 && t !== 'Plan').map(([t]) => t);
+  const isAllCards = _addsPoolMode === 'all';
+  const deckPlan = typeof getDeckPlan === 'function' ? getDeckPlan(deck) : null;
+  const planOnlyBackfill = !isAllCards && typeof shouldFetchPlanOnlyBackfill === 'function'
+    && shouldFetchPlanOnlyBackfill(ctx, deckPlan);
 
   const token = ++_addSuggestToken;
   await _ckEnsureLoaded();
 
-  // ── Owned candidates (collection minus deck, color-legal, non-land) ──
   // Resolve the commander's color identity robustly (commanderColorIdentity can be stale/empty).
   const cmdCtx = typeof _resolveCommanderContextForEdhrec === 'function' ? _resolveCommanderContextForEdhrec(deck) : null;
   const ciColors = (cmdCtx && cmdCtx.colors && cmdCtx.colors.length)
     ? cmdCtx.colors
     : ((deck.commanderColorIdentity && deck.commanderColorIdentity.length) ? deck.commanderColorIdentity : (deck.colors || []));
   const cmdCI = new Set(ciColors);
-  // A card is color-legal iff its color identity is a subset of the commander's.
   const ciOk = arr => !cmdCI.size || !(arr || []).some(x => !cmdCI.has(x));
   const inDeckNames = new Set((deck.cards || []).map(c => (c.name || '').toLowerCase()));
-  const ownedPool = [];
   const ownedNames = new Set();
   for (const c of _ownershipCollection()) {
     const nm = (c.name || '').toLowerCase();
-    if (!nm || inDeckNames.has(nm) || ownedNames.has(nm)) continue;
-    if (_isLandCardSafe(c)) continue;
-    if (_isTokenTypeDeckCard(c)) continue; // tokens aren't real cards — never suggest them
-    const cci = c.colorIdentity?.length ? c.colorIdentity : (c.colors?.length ? c.colors : []);
-    if (!ciOk(cci)) continue;
-    if (typeof getInventoryBreakdown === 'function' && getInventoryBreakdown(c, deck.id).available <= 0) continue;
-    ownedNames.add(nm);
-    ownedPool.push(c);
+    if (nm) ownedNames.add(nm);
   }
-  // Batch-attach precomputed E percentiles (never live EDHREC/Scrape).
-  try {
-    const oracleIds = [...new Set(ownedPool.map(c => {
-      const raw = (typeof resolveCardOracleId === 'function' ? resolveCardOracleId(c) : null) || c.oracleId || '';
-      return String(raw).toLowerCase();
-    }).filter(id => /^[0-9a-f-]{36}$/.test(id)))];
-    const by = {};
-    for (let i = 0; i < oracleIds.length; i += 200) {
-      const chunk = oracleIds.slice(i, i + 200);
-      const res = await fetch('/api/cards/edhrec-percentiles', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ oracleIds: chunk }),
-      });
-      if (!res.ok) break;
-      const data = await res.json();
-      Object.assign(by, data.byOracleId || {});
-    }
-    for (const c of ownedPool) {
-      const raw = (typeof resolveCardOracleId === 'function' ? resolveCardOracleId(c) : null) || c.oracleId || '';
-      const oid = String(raw).toLowerCase();
-      if (by[oid]) c.edhrecRolePct = by[oid];
-    }
-  } catch (_) { /* offline — E stays 0 */ }
-  if (token !== _addSuggestToken) return;
 
-  const ownedScored = [];
-  for (const c of ownedPool) {
-    const roles = _probTagsOnCard(c, deck);
-    const s = _scoreAddCandidate(c, roles, ctx);
-    if (s.score <= 0) continue;
-    ownedScored.push({ card: c, owned: true, s });
-  }
-  ownedScored.sort((a, b) => b.s.score - a.s.score);
-
-  // ── Unowned candidates (local DB), only if owned can't fill all slots ──
+  let ownedScored = [];
   let unownedScored = [];
-  const deckPlan = typeof getDeckPlan === 'function' ? getDeckPlan(deck) : null;
-  const planOnlyBackfill = typeof shouldFetchPlanOnlyBackfill === 'function'
-    && shouldFetchPlanOnlyBackfill(ctx, deckPlan);
-  // Role deficits (existing) OR Plan-only deficit with declared plan (Entry 5).
-  // tribes: [] intentional; when plan declared, archetype is ignored on this backfill path.
-  const fetchRoles = deficitRoles.length
-    ? deficitRoles
-    : (planOnlyBackfill && typeof planBackfillRoles === 'function' ? planBackfillRoles(deckPlan) : []);
-  if (ownedScored.length < _ADD_SUGGESTION_COUNT && fetchRoles.length) {
+
+  if (isAllCards) {
+    body.innerHTML = '<div class="deck-tab-muted" style="padding:.75rem 1rem">Loading catalog…</div>';
     try {
-      if (typeof logDeckPlan === 'function') {
-        logDeckPlan('unowned-fetch', {
-          deficitRoles, planOnlyBackfill, fetchRoles,
-          planDeclared: typeof isPlanDeclared === 'function' && isPlanDeclared(deckPlan),
-        });
-      }
-      const res = await fetch('/api/cards/by-roles', {
+      const res = await fetch('/api/cards/adds-catalog', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          colors: [...cmdCI], roles: fetchRoles, tribes: [],
-          exclude: [...inDeckNames, ...ownedNames], limit: 60,
+          colors: [...cmdCI], exclude: [...inDeckNames], limit: 8000,
         }),
       });
       const data = await res.json();
       if (token !== _addSuggestToken) return;
       for (const c of (data.cards || [])) {
         const nm = (c.name || '').toLowerCase();
-        if (inDeckNames.has(nm) || ownedNames.has(nm)) continue;
+        if (inDeckNames.has(nm)) continue;
         if (_isTokenTypeDeckCard(c)) continue;
-        const s = _scoreAddCandidate(c, c.roleTags || [], ctx);
+        const roles = c.roleTags || [];
+        const s = _scoreAddCandidate(c, roles, ctx);
         if (planOnlyBackfill && typeof planMatchScore === 'function') {
           s.planMatch = planMatchScore(c, deckPlan, deck);
-          if (typeof logDeckPlan === 'function' && s.planMatch > 0) {
-            logDeckPlan('planMatch', c.name, s.planMatch, s.score);
-          }
         } else {
           s.planMatch = 0;
         }
-        // Plan-only path: keep theme cards even if roleFit score is low/zero
         if (s.score <= 0 && !(planOnlyBackfill && s.planMatch > 0)) continue;
-        unownedScored.push({ card: c, owned: false, s });
+        const owned = ownedNames.has(nm);
+        const entry = { card: c, owned, s };
+        if (owned) ownedScored.push(entry);
+        else unownedScored.push(entry);
       }
-      unownedScored.sort((a, b) => {
-        if (planOnlyBackfill) {
-          const pm = (b.s.planMatch || 0) - (a.s.planMatch || 0);
-          if (pm) return pm;
-        }
-        return b.s.score - a.s.score;
-      });
-    } catch (_) { /* offline — owned only */ }
+      ownedScored.sort((a, b) => b.s.score - a.s.score);
+      unownedScored.sort((a, b) => b.s.score - a.s.score);
+    } catch (_) {
+      if (token !== _addSuggestToken) return;
+      body.innerHTML = '<div class="deck-tab-muted" style="padding:.75rem 1rem">Could not load catalog — check your connection.</div>';
+      return;
+    }
+  } else {
+    // ── Collection mode: owned candidates only (no server backfill) ──
+    const ownedPool = [];
+    const poolNames = new Set();
+    for (const c of _ownershipCollection()) {
+      const nm = (c.name || '').toLowerCase();
+      if (!nm || inDeckNames.has(nm) || poolNames.has(nm)) continue;
+      if (_isLandCardSafe(c)) continue;
+      if (_isTokenTypeDeckCard(c)) continue;
+      const cci = c.colorIdentity?.length ? c.colorIdentity : (c.colors?.length ? c.colors : []);
+      if (!ciOk(cci)) continue;
+      if (typeof getInventoryBreakdown === 'function' && getInventoryBreakdown(c, deck.id).available <= 0) continue;
+      poolNames.add(nm);
+      ownedPool.push(c);
+    }
+    try {
+      const oracleIds = [...new Set(ownedPool.map(c => {
+        const raw = (typeof resolveCardOracleId === 'function' ? resolveCardOracleId(c) : null) || c.oracleId || '';
+        return String(raw).toLowerCase();
+      }).filter(id => /^[0-9a-f-]{36}$/.test(id)))];
+      const by = {};
+      for (let i = 0; i < oracleIds.length; i += 200) {
+        const chunk = oracleIds.slice(i, i + 200);
+        const res = await fetch('/api/cards/edhrec-percentiles', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ oracleIds: chunk }),
+        });
+        if (!res.ok) break;
+        const data = await res.json();
+        Object.assign(by, data.byOracleId || {});
+      }
+      for (const c of ownedPool) {
+        const raw = (typeof resolveCardOracleId === 'function' ? resolveCardOracleId(c) : null) || c.oracleId || '';
+        const oid = String(raw).toLowerCase();
+        if (by[oid]) c.edhrecRolePct = by[oid];
+      }
+    } catch (_) { /* offline — E stays 0 */ }
+    if (token !== _addSuggestToken) return;
+
+    for (const c of ownedPool) {
+      const roles = _probTagsOnCard(c, deck);
+      const s = _scoreAddCandidate(c, roles, ctx);
+      if (s.score <= 0) continue;
+      ownedScored.push({ card: c, owned: true, s });
+    }
+    ownedScored.sort((a, b) => b.s.score - a.s.score);
   }
   if (token !== _addSuggestToken) return;
 
-  // ── Conditional-keyword gate, then owned-first selection ──
   const gate = it => _ckEvaluateCandidate(it.card, deck).ok;
-  let pool = [
-    ...ownedScored.filter(gate),
-    ...unownedScored.filter(gate),
-  ];
-  // Soft deck-budget note (informational only) when declared rough max exists
   if (deckPlan && deckPlan.roughMaxDeckBudgetUsd != null) {
     let total = 0;
     for (const c of (deck.cards || [])) {
@@ -7067,27 +7143,15 @@ async function _renderAddSuggestions(deck) {
       logDeckPlan('deck-budget-exceeded', { total, max: deckPlan.roughMaxDeckBudgetUsd });
     }
   }
-  // Budget-aware filter (Entry 13) when per-card limit set; else take owned-first top N
-  let picks;
+  const picks = _addsSelectTopPicks(ownedScored, unownedScored, {
+    gate,
+    deckPlan,
+    planOnlyBackfill,
+    scoreOnly: isAllCards,
+  });
   if (typeof applyPlanBudgetToAddsPicks === 'function' && deckPlan
-      && deckPlan.roughMaxPerCardBudgetUsd != null) {
-    // Prefer owned first within budget helper by sorting owned ahead at equal score
-    pool.sort((a, b) => {
-      if (a.owned !== b.owned) return a.owned ? -1 : 1;
-      if (planOnlyBackfill) {
-        const pm = (b.s.planMatch || 0) - (a.s.planMatch || 0);
-        if (pm) return pm;
-      }
-      return (b.s.score || 0) - (a.s.score || 0);
-    });
-    const budgeted = applyPlanBudgetToAddsPicks(pool, deckPlan, _ADD_SUGGESTION_COUNT);
-    picks = budgeted.picks;
-    if (typeof logDeckPlan === 'function') logDeckPlan('budget-filter', budgeted.log);
-  } else {
-    picks = ownedScored.filter(gate).slice(0, _ADD_SUGGESTION_COUNT);
-    if (picks.length < _ADD_SUGGESTION_COUNT) {
-      picks.push(...unownedScored.filter(gate).slice(0, _ADD_SUGGESTION_COUNT - picks.length));
-    }
+      && deckPlan.roughMaxPerCardBudgetUsd != null && typeof logDeckPlan === 'function') {
+    logDeckPlan('budget-filter', { poolMode: _addsPoolMode, pickCount: picks.length });
   }
 
   // Plan status line above suggestions
@@ -7101,7 +7165,10 @@ async function _renderAddSuggestions(deck) {
   }
 
   if (!picks.length) {
-    body.innerHTML = planBanner + '<div class="deck-tab-muted" style="padding:.75rem 1rem">No add suggestions — your role targets look met. Lower a target with ⚙ on Suggested Cuts, set a deck plan for Plan-only themes, or adjust the playstyle slider.</div>';
+    const hint = isAllCards
+      ? 'No add suggestions from the catalog — your role targets look met, or no cards passed the conditional-keyword gate.'
+      : 'No add suggestions — your role targets look met. Lower a target with ⚙ on Suggested Cuts, switch to All Cards for catalog picks, or adjust the playstyle slider.';
+    body.innerHTML = planBanner + `<div class="deck-tab-muted" style="padding:.75rem 1rem">${hint}</div>`;
     return;
   }
 

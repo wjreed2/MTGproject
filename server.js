@@ -7094,6 +7094,74 @@ app.post('/api/cards/by-roles', async (req, res) => {
   }
 });
 
+// Full local-DB candidate pool for Adds "All Cards" mode (Entry 6): commander-legal cards within
+// color identity, excluding lands/tokens/junk. No role filter, no live Scryfall.
+app.post('/api/cards/adds-catalog', async (req, res) => {
+  try {
+    const colors = (Array.isArray(req.body?.colors) ? req.body.colors : []).filter(c => /^[WUBRG]$/.test(c));
+    const exclude = new Set((Array.isArray(req.body?.exclude) ? req.body.exclude : []).map(n => String(n).toLowerCase()));
+    const limit = Math.min(Math.max(parseInt(req.body?.limit || 8000, 10) || 8000, 1), 10000);
+
+    const params = [];
+    let ciClause = '';
+    const disallowed = ['W', 'U', 'B', 'R', 'G'].filter(c => !colors.includes(c));
+    if (disallowed.length) {
+      ciClause = 'AND NOT JSON_OVERLAPS(c.color_identity_json, CAST(? AS JSON))';
+      params.push(JSON.stringify(disallowed));
+    }
+    params.push(limit);
+
+    const JUNK_TYPE_RE = /\b(Contraption|Attraction|Sticker|Stickers|Plane|Phenomenon|Scheme|Vanguard|Conspiracy|Dungeon|Emblem|Token)\b/i;
+    const parseArr = v => Array.isArray(v) ? v : (() => { try { return JSON.parse(v) || []; } catch (_) { return []; } })();
+    const parseObj = v => (v && typeof v === 'object' && !Array.isArray(v)) ? v : (() => { try { const o = JSON.parse(v); return o && typeof o === 'object' ? o : null; } catch (_) { return null; } })();
+
+    const [rows] = await db().query(
+      `SELECT c.name, c.scryfall_id, c.type_line, c.oracle_text, c.cmc, c.mana_cost, c.oracle_id,
+              c.color_identity_json, c.image_small, c.image_normal, c.edhrec_pct_json, t.tags_json
+         FROM scryfall_oracle_cards c
+         LEFT JOIN scryfall_oracle_tags t ON t.oracle_id = c.oracle_id AND t.schema_version = '4'
+        WHERE (c.commander_legal IS NULL OR c.commander_legal = 1)
+          AND c.type_line NOT LIKE '%Land%'
+          AND c.type_line NOT LIKE '%Token%'
+          AND c.type_line NOT LIKE '%Emblem%'
+          ${ciClause}
+        ORDER BY c.name
+        LIMIT ?`,
+      params
+    );
+
+    const out = [];
+    for (const r of rows) {
+      if (exclude.has(String(r.name).toLowerCase())) continue;
+      if (/^A-/.test(r.name || '')) continue;
+      if (JUNK_TYPE_RE.test(r.type_line || '')) continue;
+      const roleTags = parseArr(r.tags_json);
+      const ci = parseArr(r.color_identity_json);
+      const edhrecRolePct = parseObj(r.edhrec_pct_json);
+      out.push({
+        name: r.name, id: r.scryfall_id, oracleId: r.oracle_id || null,
+        type_line: r.type_line || '', oracle_text: r.oracle_text || '',
+        mana_cost: r.mana_cost || '', mana: r.mana_cost || '',
+        cmc: parseFloat(r.cmc) || 0, color_identity: ci,
+        image_small: r.image_small || null, image_normal: r.image_normal || null,
+        roleTags,
+        edhrecRolePct: edhrecRolePct || undefined,
+      });
+      if (out.length >= limit) break;
+    }
+    await attachPriceLogPrices(out);
+    for (const c of out) {
+      if (c.prices?.usd != null) {
+        const usd = parseFloat(c.prices.usd);
+        if (Number.isFinite(usd)) c.priceTCG = usd;
+      }
+    }
+    res.json({ cards: out, capped: rows.length >= limit });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Batch EDHREC role percentiles for owned-collection Adds scoring (never live-scrape).
 app.post('/api/cards/edhrec-percentiles', async (req, res) => {
   try {

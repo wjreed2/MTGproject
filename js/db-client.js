@@ -278,6 +278,7 @@ window.addEventListener('beforeunload', () => {
     deck_custom_tags: deckCustomTags || [],
     deck_primary_tags: deckPrimaryTags || [],
     deck_secondary_tags: deckSecondaryTags || [],
+    adds_pool_mode: typeof getAddsPoolMode === 'function' ? getAddsPoolMode() : 'collection',
   }) }).catch(() => {});
 });
 
@@ -361,6 +362,7 @@ async function _flushSave() {
       deck_custom_tags: deckCustomTags || [],
       deck_primary_tags: deckPrimaryTags || [],
       deck_secondary_tags: deckSecondaryTags || [],
+      adds_pool_mode: typeof getAddsPoolMode === 'function' ? getAddsPoolMode() : 'collection',
     }));
     if (ops.length) await Promise.all(ops);
     if (_isOffline) _setOnline();

@@ -153,6 +153,9 @@ async function loadAppDataAfterAuth() {
         deckCustomTags = [...new Set([...deckPrimaryTags, ...deckSecondaryTags])].sort((a, b) => a.localeCompare(b));
       }
     }
+    if (typeof applyAddsPrefsFromServer === 'function') {
+      applyAddsPrefsFromServer(data.prefs || {});
+    }
 
     // Drop any collection entries that have no scryfallId and no image — these are
     // unidentified cards that slipped in from a failed import enrichment.

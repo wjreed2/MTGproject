@@ -33,7 +33,7 @@ re-pop) isolated from other deck-builder render PRs. **23** (user categories) la
 | **1** | Coordinated Adds scoring rebalance | **Completed** | Cuts/Adds 7, 9, 10, 11, 12 | Rebuilds how Adds **ranks** cards. Foundation for plan backfill ranking. |
 | **2** | Deck plan wizard + plan-aware backfill | **Completed** | Cuts/Adds 13 v1 (+ 5) | Wizard + plan schema + Plan-only unowned fetch. Better after #1. |
 | **3** | Adds curve includes commander CMC | **Completed** | Cuts/Adds 1 | Isolated curve-bucket fix. Prefer after #1; safe to parallel #2 if curve edits don’t collide. |
-| **4** | Collection / All Cards pool toggle | Ready | Cuts/Adds 6 | **Do not run before #2.** Prefer after #1. Safe to parallel #3. |
+| **4** | Collection / All Cards pool toggle | **Completed** | Cuts/Adds 6 | **Do not run before #2.** Prefer after #1. Safe to parallel #3. |
 | **5** | Adds excludes tokens from Plan-count + never recommends tokens | Ready | Cuts/Adds 2 | Prefer after #2 (Plan deficit for Entry 13). Safe to parallel #3 if Plan-count vs curve don’t collide. |
 | **6** | Manual Tag State Control in Card Inspector | Ready | Partner / tags | Foundation for Primary/Secondary/Default + remove/suppress. Blocks most tag consumers. |
 | **7** | Role-Tag Badge Priority Fix | Ready | Partner / tags | Badge display uses P → S → default; needs #6 model. |
@@ -673,6 +673,8 @@ Step 0.
 ---
 
 # Prompt 4 of 23 — Collection / All Cards pool toggle (entry 6)
+
+**Status:** Completed
 
 ```
 # Adds pool toggle — Collection / All Cards (entry 6)
