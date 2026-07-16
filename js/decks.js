@@ -12806,6 +12806,57 @@ function _simJaccard(setA, setB) {
   return intersection / (setA.size + setB.size - intersection);
 }
 
+/**
+ * Non-commander, non-land cards that count toward similarity / EDHREC alignment.
+ * Includes planned Adds when the feature is on. Deduped by lowercase name so a
+ * card present in both mainboard and Adds is counted once.
+ */
+function _simDeckCardsForCompare(deck) {
+  const byName = new Map(); // lower name → card (prefer mainboard entry)
+  for (const c of (deck.cards || [])) {
+    if (!c || c.isCommander || _simIsLand(c)) continue;
+    const key = String(c.name || '').trim().toLowerCase();
+    if (!key || byName.has(key)) continue;
+    byName.set(key, c);
+  }
+  if (typeof _deckSwapsEnabled === 'function' && _deckSwapsEnabled()
+      && typeof _deckPlannedAdds === 'function') {
+    for (const c of _deckPlannedAdds(deck)) {
+      if (!c || c.isCommander || _simIsLand(c)) continue;
+      const key = String(c.name || '').trim().toLowerCase();
+      if (!key || byName.has(key)) continue;
+      byName.set(key, c);
+    }
+  }
+  return [...byName.values()];
+}
+
+function _simDeckNameSet(deck) {
+  return new Set(_simDeckCardsForCompare(deck).map(c => String(c.name || '').toLowerCase()));
+}
+
+/** Inventory keys for planned Cuts — Cuts stay on the mainboard until applied. */
+function _simPlannedCutKeys(deck) {
+  const keys = new Set();
+  if (!(typeof _deckSwapsEnabled === 'function' && _deckSwapsEnabled())) return keys;
+  if (typeof _deckPlannedCuts !== 'function') return keys;
+  for (const c of _deckPlannedCuts(deck)) {
+    const k = typeof getCardInventoryKey === 'function'
+      ? getCardInventoryKey(c)
+      : (c?.uid || c?.scryfallId || '');
+    if (k) keys.add(k);
+  }
+  return keys;
+}
+
+function _simCardInPlannedCuts(card, cutKeys) {
+  if (!card || !cutKeys?.size) return false;
+  const k = typeof getCardInventoryKey === 'function'
+    ? getCardInventoryKey(card)
+    : (card.uid || card.scryfallId || '');
+  return !!(k && cutKeys.has(k));
+}
+
 function _simRenderHTML(deck, commander, edhrecData, archiveData) {
   const parts = [];
 
@@ -12814,7 +12865,7 @@ function _simRenderHTML(deck, commander, edhrecData, archiveData) {
     parts.push(`<div class="sim-section"><div class="sim-section-title">EDHREC</div><p class="sim-note">${edhrecData.error}</p></div>`);
   } else if (edhrecData?.cards) {
     const edhrecMap  = new Map(edhrecData.cards.map(c => [c.name.toLowerCase(), c]));
-    const nonLands   = deck.cards.filter(c => !c.isCommander && !_simIsLand(c));
+    const nonLands   = _simDeckCardsForCompare(deck);
     const deckNames  = new Set(nonLands.map(c => c.name.toLowerCase()));
     const found      = nonLands.map(c => edhrecMap.get(c.name.toLowerCase())).filter(Boolean);
     const score      = found.length ? Math.round(found.reduce((s, c) => s + c.inclusion, 0) / found.length) : 0;
@@ -12824,7 +12875,13 @@ function _simRenderHTML(deck, commander, edhrecData, archiveData) {
     const missing = edhrecData.cards
       .filter(c => c.inclusion >= 30 && !deckNames.has(c.name.toLowerCase()))
       .slice(0, 8);
-    const spice = nonLands.filter(c => !edhrecMap.has(c.name.toLowerCase()));
+    // Spicy = mainboard non-lands not in EDHREC; exclude planned Cuts (inventory key).
+    // Cuts remain on the mainboard until applied, so they must be filtered explicitly.
+    const cutKeys = _simPlannedCutKeys(deck);
+    const spice = (deck.cards || [])
+      .filter(c => !c.isCommander && !_simIsLand(c)
+        && !edhrecMap.has(String(c.name || '').toLowerCase())
+        && !_simCardInPlannedCuts(c, cutKeys));
 
     parts.push(`
 <div class="sim-section">
@@ -12856,7 +12913,7 @@ function _simRenderHTML(deck, commander, edhrecData, archiveData) {
   if (archiveData?.error) {
     parts.push(`<div class="sim-section"><div class="sim-section-title">Archive</div><p class="sim-note">${archiveData.error}</p></div>`);
   } else if (archiveData) {
-    const mySet = new Set(deck.cards.filter(c => !c.isCommander && !_simIsLand(c)).map(c => c.name.toLowerCase()));
+    const mySet = _simDeckNameSet(deck);
     const scored = (archiveData.decks ?? []).map(d => {
       const theirSet = new Set((d.card_names ?? []).map(n => n.toLowerCase()));
       return { ...d, similarity: _simJaccard(mySet, theirSet), shared: [...mySet].filter(n => theirSet.has(n)).length };
