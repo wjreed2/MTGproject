@@ -5467,6 +5467,11 @@ async function ensureScryfallTagCacheTable() {
       // face's name/type/text/mana + image_uris so the card inspector can flip DFCs without a
       // Scryfall round-trip. NULL for single-faced cards. Backfills on the next cards re-import.
       `ALTER TABLE scryfall_oracle_cards ADD COLUMN faces_json JSON NULL`,
+      // Adds scoring (Prompt 1): EDHREC rank + commander legality for E percentiles.
+      // IDs/labels may change with partner tag work — percentiles keyed by current role labels.
+      `ALTER TABLE scryfall_oracle_cards ADD COLUMN edhrec_rank INT NULL`,
+      `ALTER TABLE scryfall_oracle_cards ADD COLUMN commander_legal TINYINT(1) NULL`,
+      `ALTER TABLE scryfall_oracle_cards ADD COLUMN edhrec_pct_json JSON NULL`,
     ];
     for (const sql of newCols) { try { await conn.query(sql); } catch (_) {} }
     const newIdxs = [
@@ -5474,6 +5479,7 @@ async function ensureScryfallTagCacheTable() {
       `CREATE INDEX idx_soc_cmc    ON scryfall_oracle_cards (cmc)`,
       `CREATE INDEX idx_soc_rarity ON scryfall_oracle_cards (rarity)`,
       `CREATE INDEX idx_soc_set    ON scryfall_oracle_cards (set_code)`,
+      `CREATE INDEX idx_soc_edhrec ON scryfall_oracle_cards (edhrec_rank)`,
     ];
     for (const sql of newIdxs) { try { await conn.query(sql); } catch (_) {} }
     await conn.query(`
@@ -5503,6 +5509,93 @@ async function ensureScryfallTagCacheTable() {
         INDEX idx_stqc_fetched (fetched_at)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
+  } finally {
+    conn.release();
+  }
+}
+
+/**
+ * Precompute per-role EDHREC percentiles into scryfall_oracle_cards.edhrec_pct_json.
+ * Population = cards with the role tag, non-null edhrec_rank, and commander-legal when
+ * legality is known. Min population 8 — below that, no percentile for that role.
+ * Never call this per suggestion; only from import / cron / admin.
+ */
+async function recomputeEdhrecRolePercentiles({ schemaVersion = '4' } = {}) {
+  const E_POPULATION_FLOOR = 8;
+  const conn = await db().getConnection();
+  try {
+    const [[rankRow]] = await conn.query(
+      `SELECT COUNT(*) AS n FROM scryfall_oracle_cards WHERE edhrec_rank IS NOT NULL`
+    );
+    if (!Number(rankRow?.n || 0)) {
+      console.log('[edhrec-pct] skip — no edhrec_rank values (re-import oracle cards to populate)');
+      return { roles: 0, updated: 0 };
+    }
+
+    // Role label → [{ oracle_id, rank }]
+    const byRole = new Map();
+    const [rows] = await conn.query(
+      `SELECT c.oracle_id, c.edhrec_rank, c.commander_legal, t.tags_json
+         FROM scryfall_oracle_cards c
+         JOIN scryfall_oracle_tags t ON t.oracle_id = c.oracle_id AND t.schema_version = ?
+        WHERE c.edhrec_rank IS NOT NULL`,
+      [schemaVersion]
+    );
+    const parseArr = v => Array.isArray(v) ? v : (() => { try { return JSON.parse(v) || []; } catch (_) { return []; } })();
+    for (const r of rows) {
+      // When legality exists, require commander-legal; NULL legality → include (legacy rows).
+      if (r.commander_legal != null && Number(r.commander_legal) !== 1) continue;
+      const tags = parseArr(r.tags_json);
+      const rank = Number(r.edhrec_rank);
+      if (!Number.isFinite(rank)) continue;
+      for (const tag of tags) {
+        if (!tag || tag === 'Land' || tag === 'Commander') continue;
+        if (!byRole.has(tag)) byRole.set(tag, []);
+        byRole.get(tag).push({ oracle_id: r.oracle_id, rank });
+      }
+    }
+
+    // oracle_id → { role: p }
+    const pctByOracle = new Map();
+    let rolesUsed = 0;
+    for (const [role, list] of byRole.entries()) {
+      if (list.length < E_POPULATION_FLOOR) continue;
+      rolesUsed++;
+      // Lower edhrec_rank = more popular. Sort ascending; p=1 for best.
+      list.sort((a, b) => a.rank - b.rank || String(a.oracle_id).localeCompare(String(b.oracle_id)));
+      const n = list.length;
+      const denom = Math.max(1, n - 1);
+      list.forEach((item, i) => {
+        const p = 1 - (i / denom);
+        if (!pctByOracle.has(item.oracle_id)) pctByOracle.set(item.oracle_id, {});
+        pctByOracle.get(item.oracle_id)[role] = Math.round(p * 1e5) / 1e5;
+      });
+    }
+
+    // Clear then write (cards with no qualifying roles get NULL).
+    await conn.query('UPDATE scryfall_oracle_cards SET edhrec_pct_json = NULL');
+    const entries = [...pctByOracle.entries()];
+    const CHUNK = 200;
+    let updated = 0;
+    for (let i = 0; i < entries.length; i += CHUNK) {
+      const chunk = entries.slice(i, i + CHUNK);
+      const ph = chunk.map(() => '?').join(',');
+      const cases = chunk.map(() => 'WHEN oracle_id = ? THEN CAST(? AS JSON)').join(' ');
+      const params = [];
+      for (const [oid, map] of chunk) {
+        params.push(oid, JSON.stringify(map));
+      }
+      params.push(...chunk.map(([oid]) => oid));
+      await conn.query(
+        `UPDATE scryfall_oracle_cards
+            SET edhrec_pct_json = CASE ${cases} END
+          WHERE oracle_id IN (${ph})`,
+        params
+      );
+      updated += chunk.length;
+    }
+    console.log(`[edhrec-pct] roles=${rolesUsed} cards=${updated}`);
+    return { roles: rolesUsed, updated };
   } finally {
     conn.release();
   }
@@ -6230,7 +6323,8 @@ async function importScryfallOracleBulkToDb({
     const CARD_BATCH = 200;
     const cardInsertSql = `INSERT INTO scryfall_oracle_cards
       (oracle_id, name, type_line, oracle_text, colors_json, mana_cost, cmc, imported_at,
-       scryfall_id, color_identity_json, rarity, set_code, image_small, image_normal, power, toughness, loyalty, games_json, faces_json)
+       scryfall_id, color_identity_json, rarity, set_code, image_small, image_normal, power, toughness, loyalty, games_json, faces_json,
+       edhrec_rank, commander_legal)
      VALUES {VALS}
      ON DUPLICATE KEY UPDATE
        name=VALUES(name), type_line=VALUES(type_line), oracle_text=VALUES(oracle_text),
@@ -6239,7 +6333,8 @@ async function importScryfallOracleBulkToDb({
        rarity=VALUES(rarity), set_code=VALUES(set_code),
        image_small=VALUES(image_small), image_normal=VALUES(image_normal),
        power=VALUES(power), toughness=VALUES(toughness), loyalty=VALUES(loyalty), games_json=VALUES(games_json),
-       faces_json=VALUES(faces_json)`;
+       faces_json=VALUES(faces_json),
+       edhrec_rank=VALUES(edhrec_rank), commander_legal=VALUES(commander_legal)`;
 
     // Compact per-face payload — only when the card actually has >1 face. We keep each face's
     // image_uris so the inspector can flip; for layouts with no per-face art (split/adventure/
@@ -6262,6 +6357,10 @@ async function importScryfallOracleBulkToDb({
       const imgs = c?.image_uris || c?.card_faces?.[0]?.image_uris || {};
       const n = Number(c?.cmc);
       const cmcVal = Number.isFinite(n) && n >= 0 ? Math.min(n, 99999999.99) : null;
+      const rankRaw = Number(c?.edhrec_rank);
+      const edhrecRank = Number.isFinite(rankRaw) && rankRaw > 0 ? Math.floor(rankRaw) : null;
+      const leg = c?.legalities?.commander;
+      const commanderLegal = leg == null ? null : (leg === 'legal' ? 1 : 0);
       return [
         oid, String(c?.name || ''), c?.type_line || null, c?.oracle_text || null,
         JSON.stringify(c?.colors || []), c?.mana_cost || null, cmcVal, now,
@@ -6271,6 +6370,8 @@ async function importScryfallOracleBulkToDb({
         c?.power || null, c?.toughness || null, c?.loyalty || null,
         JSON.stringify(Array.isArray(c?.games) ? c.games : ['paper']),
         facesToJson(c),
+        edhrecRank,
+        commanderLegal,
       ];
     };
 
@@ -6280,7 +6381,7 @@ async function importScryfallOracleBulkToDb({
       const seen = new Set();
       const flushBatch = async () => {
         if (!batch.length) return;
-        const ph = batch.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').join(',');
+        const ph = batch.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').join(',');
         await conn.query(cardInsertSql.replace('{VALS}', ph), batch.flat());
         imported += batch.length;
         totalOracleRows = imported;
@@ -6370,6 +6471,13 @@ async function importScryfallOracleBulkToDb({
 
   if (typeof onProgress === 'function') {
     onProgress({ phase: 'completed', totalOracleRows, importedRows: imported, taggedRows: tagged, totalTagRows, totalQueries, completedQueries });
+  }
+  // Refresh E-term percentiles after cards/tags land (no-op if edhrec_rank not yet imported).
+  try {
+    if (typeof onProgress === 'function') onProgress({ phase: 'edhrec-percentiles' });
+    await recomputeEdhrecRolePercentiles({ schemaVersion });
+  } catch (e) {
+    console.warn('[edhrec-pct] recompute after import failed:', e.message);
   }
   return { imported, tagged, totalOracleRows, totalTagRows, totalQueries, completedQueries, sourceUpdatedAt };
 }
@@ -6936,8 +7044,8 @@ app.post('/api/cards/by-roles', async (req, res) => {
     params.push(500); // pool cap before JS filtering
 
     const [rows] = await db().query(
-      `SELECT c.name, c.scryfall_id, c.type_line, c.oracle_text, c.cmc,
-              c.color_identity_json, c.image_small, c.image_normal, t.tags_json
+      `SELECT c.name, c.scryfall_id, c.type_line, c.oracle_text, c.cmc, c.mana_cost, c.oracle_id,
+              c.color_identity_json, c.image_small, c.image_normal, c.edhrec_pct_json, t.tags_json
          FROM scryfall_oracle_cards c
          LEFT JOIN scryfall_oracle_tags t ON t.oracle_id = c.oracle_id AND t.schema_version = '4'
         WHERE (${matchParts.join(' OR ')}) ${ciClause}
@@ -6948,6 +7056,7 @@ app.post('/api/cards/by-roles', async (req, res) => {
 
     // mysql2 auto-parses JSON columns to JS values; tolerate both array and string forms.
     const parseArr = v => Array.isArray(v) ? v : (() => { try { return JSON.parse(v) || []; } catch (_) { return []; } })();
+    const parseObj = v => (v && typeof v === 'object' && !Array.isArray(v)) ? v : (() => { try { const o = JSON.parse(v); return o && typeof o === 'object' ? o : null; } catch (_) { return null; } })();
     // Non-deck / un-set card types that shouldn't be suggested.
     const JUNK_TYPE_RE = /\b(Contraption|Attraction|Sticker|Stickers|Plane|Phenomenon|Scheme|Vanguard|Conspiracy|Dungeon|Emblem|Token)\b/i;
 
@@ -6959,15 +7068,54 @@ app.post('/api/cards/by-roles', async (req, res) => {
       if (JUNK_TYPE_RE.test(r.type_line || '')) continue;
       const roleTags = parseArr(r.tags_json);
       const ci = parseArr(r.color_identity_json);
+      const edhrecRolePct = parseObj(r.edhrec_pct_json);
       out.push({
-        name: r.name, id: r.scryfall_id, type_line: r.type_line || '', oracle_text: r.oracle_text || '',
+        name: r.name, id: r.scryfall_id, oracleId: r.oracle_id || null,
+        type_line: r.type_line || '', oracle_text: r.oracle_text || '',
+        mana_cost: r.mana_cost || '', mana: r.mana_cost || '',
         cmc: parseFloat(r.cmc) || 0, color_identity: ci,
         image_small: r.image_small || null, image_normal: r.image_normal || null,
         roleTags,
+        edhrecRolePct: edhrecRolePct || undefined,
       });
       if (out.length >= limit) break;
     }
+    // Attach USD prices from price log when available (E price bands); never live-scrape.
+    await attachPriceLogPrices(out);
+    for (const c of out) {
+      if (c.prices?.usd != null) {
+        const usd = parseFloat(c.prices.usd);
+        if (Number.isFinite(usd)) c.priceTCG = usd;
+      }
+    }
     res.json({ cards: out });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Batch EDHREC role percentiles for owned-collection Adds scoring (never live-scrape).
+app.post('/api/cards/edhrec-percentiles', async (req, res) => {
+  try {
+    const ids = (Array.isArray(req.body?.oracleIds) ? req.body.oracleIds : [])
+      .map(id => String(id || '').toLowerCase())
+      .filter(id => /^[0-9a-f-]{36}$/.test(id))
+      .slice(0, 200);
+    if (!ids.length) return res.json({ byOracleId: {} });
+    const ph = ids.map(() => '?').join(',');
+    const [rows] = await db().query(
+      `SELECT oracle_id, edhrec_pct_json FROM scryfall_oracle_cards WHERE oracle_id IN (${ph})`,
+      ids
+    );
+    const byOracleId = {};
+    for (const r of rows) {
+      let map = r.edhrec_pct_json;
+      if (typeof map === 'string') {
+        try { map = JSON.parse(map); } catch (_) { map = null; }
+      }
+      if (map && typeof map === 'object') byOracleId[String(r.oracle_id).toLowerCase()] = map;
+    }
+    res.json({ byOracleId });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

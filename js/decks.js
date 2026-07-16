@@ -6761,31 +6761,17 @@ function _computeAddContext(deck) {
 }
 
 function _scoreAddCandidate(card, roles, ctx) {
-  let roleFit = 0, topRole = '', topVal = -1;
-  const real = roles.filter(t => t !== 'Land' && t !== 'Commander');
-  if (!real.length) {
-    // Plan deficits can hit 20+ in a well-tagged deck; uncapped they'd make any roleless
-    // card outrank genuine role-fillers (whose deficits top out around 5-10). Cap at 3 so
-    // "theme slot open" is a nudge, and let tribal/commander-theme bonuses pick the card.
-    roleFit = Math.min(ctx.deficits['Plan'] || 0, 3);
-    if (roleFit > 0) { topRole = 'Plan'; topVal = roleFit; }
-  } else {
-    for (const t of real) {
-      const d = ctx.deficits[t] || 0;
-      roleFit += d;
-      if (d > topVal) { topVal = d; topRole = t; }
-    }
-  }
-  // Same gates as card replacements: role credit locked behind a cast-trigger the deck
-  // under-supports shrinks; on-tribe cards get a boost in commander-tribal decks.
+  // Score = (D × M) + C_eff + L + E + B − P + V + T + K
+  // Pure term math lives in js/adds-scoring.js (deterministic; no runtime AI).
   const blob = _replacementOracleBlob(card);
+  const real = (roles || []).filter(t => t !== 'Land' && t !== 'Commander');
+  // Gate uses pre-gate deficit presence (same cast-trigger shrink as replacements).
   let gate = { factor: 1 };
-  if (roleFit > 0) {
-    gate = _replCastTriggerFactor(blob, ctx.metricCounts || {});
-    roleFit *= gate.factor;
-  }
-  // Tribal is a light tiebreaker among role-fillers, NOT a primary driver — the
-  // old +2/+1 made it rival genuine role-fit and over-tuned suggestions to tribe.
+  const anyDeficit = !real.length
+    ? (ctx.deficits?.Plan || 0) > 0
+    : real.some(t => (ctx.deficits?.[t] || 0) > 0);
+  if (anyDeficit) gate = _replCastTriggerFactor(blob, ctx.metricCounts || {});
+
   let tribal = 0, tribe = '';
   if (ctx.tribes && ctx.tribes.length) {
     const subs = _ckCandidateTribes(card);
@@ -6795,17 +6781,26 @@ function _scoreAddCandidate(card, roles, ctx) {
     if (mention) tribal += 0.5;
     tribe = sharedTribe || mention || '';
   }
-  // Commander cast-theme synergy (e.g. Helga: creatures MV 4+).
   const theme = (ctx.castThemes || []).find(t => t.test(card));
   const themeBonus = theme ? 2 : 0;
+
+  // No in-repo spellslinger archetype hook — do not invent one; B gating stays off.
+  const scored = typeof scoreAddCandidateTerms === 'function'
+    ? scoreAddCandidateTerms(card, roles, ctx, { gate, tribal, tribe, theme, themeBonus })
+    : null;
+  if (scored) {
+    if (typeof logAddScoreTerms === 'function' && typeof isAddsScoreDebugEnabled === 'function'
+        && isAddsScoreDebugEnabled()) {
+      logAddScoreTerms(card?.name || '?', scored, true);
+    }
+    return scored;
+  }
+  // Fallback if adds-scoring.js failed to load (should not happen in bundled builds).
   const bucket = Math.min(Math.floor(_effCmcSafe(card)), 7);
-  const curveBonus = Math.min((ctx.curveDeficit[bucket] || 0) * 5, 1.5);
-  const versatility = Math.max(0, real.length - 1) * 0.3;
   return {
-    score: roleFit + curveBonus + versatility + tribal + themeBonus,
-    topRole, topVal, bucket, roles: real, gate, tribal, tribe, theme,
-    // Component values surfaced in the "why" breakdown.
-    roleFit, curveBonus, versatility, themeBonus,
+    score: tribal + themeBonus,
+    topRole: '', topVal: -1, bucket, roles: real, gate, tribal, tribe, theme,
+    roleFit: 0, curveBonus: 0, versatility: 0, themeBonus,
   };
 }
 
@@ -6860,8 +6855,16 @@ function _toggleSuggestWhy(btn) {
 
 function _buildAddWhyLines(s, ctx) {
   const lines = [];
+  const t = s.terms || null;
   if (s.topRole === 'Plan' && !s.roles.length) {
     lines.push({ text: `Adds a theme/identity card — deck under its ${ctx.thresholds['Plan']}-card plan target`, val: _fmtWhyVal(s.roleFit) });
+  } else if (t && Array.isArray(t.matched) && t.matched.length) {
+    for (const m of t.matched) {
+      lines.push({
+        text: `Fills ${escapeHtml(m.role)} — deck has ${ctx.roleCount[m.role] || 0}, target ${ctx.thresholds[m.role]}${m.weight < 1 ? ` (×${m.weight})` : ''}`,
+        val: _fmtWhyVal(m.deficit * m.weight),
+      });
+    }
   } else {
     for (const r of s.roles) {
       const d = ctx.deficits[r] || 0;
@@ -6872,7 +6875,13 @@ function _buildAddWhyLines(s, ctx) {
   if (s.gate && s.gate.factor < 1) {
     lines.push({ text: `Conditional payoff — needs ${escapeHtml(s.gate.label)} (deck has ${s.gate.have})`, val: `×${s.gate.factor.toFixed(2)}`, neg: true });
   }
-  if (s.curveBonus > 0.01) lines.push({ text: `Fills a thin curve spot at ${s.bucket}${s.bucket === 7 ? '+' : ''} MV`, val: _fmtWhyVal(s.curveBonus) });
+  if ((s.C_eff ?? s.curveBonus) > 0.01) {
+    lines.push({ text: `Fills a thin curve spot at ${s.bucket}${s.bucket === 7 ? '+' : ''} MV`, val: _fmtWhyVal(s.C_eff ?? s.curveBonus) });
+  }
+  if ((s.L || 0) > 0.01) lines.push({ text: `Efficient CMC for interaction`, val: _fmtWhyVal(s.L) });
+  if ((s.E || 0) > 0.01) lines.push({ text: `Popular ${escapeHtml(t?.eRole || s.topRole || 'pick')} (EDHREC)`, val: _fmtWhyVal(s.E) });
+  if ((s.B || 0) > 0.01) lines.push({ text: `Creature body fills a role`, val: _fmtWhyVal(s.B) });
+  if ((s.P || 0) > 0.01) lines.push({ text: `Colored mana commitment`, val: _fmtWhyVal(-(s.P || 0)), neg: true });
   if (s.versatility > 0.01) lines.push({ text: `Versatile — fills ${s.roles.length} roles`, val: _fmtWhyVal(s.versatility) });
   if (s.tribal > 0.01) lines.push({ text: `Fits your ${escapeHtml(_capWord(s.tribe))} theme`, val: _fmtWhyVal(s.tribal) });
   if (s.themeBonus > 0.01 && s.theme) lines.push({ text: `Feeds your commander's trigger (${escapeHtml(s.theme.label)})`, val: _fmtWhyVal(s.themeBonus) });
@@ -6928,7 +6937,7 @@ async function _renderAddSuggestions(deck) {
   // A card is color-legal iff its color identity is a subset of the commander's.
   const ciOk = arr => !cmdCI.size || !(arr || []).some(x => !cmdCI.has(x));
   const inDeckNames = new Set((deck.cards || []).map(c => (c.name || '').toLowerCase()));
-  const ownedScored = [];
+  const ownedPool = [];
   const ownedNames = new Set();
   for (const c of _ownershipCollection()) {
     const nm = (c.name || '').toLowerCase();
@@ -6938,10 +6947,39 @@ async function _renderAddSuggestions(deck) {
     const cci = c.colorIdentity?.length ? c.colorIdentity : (c.colors?.length ? c.colors : []);
     if (!ciOk(cci)) continue;
     if (typeof getInventoryBreakdown === 'function' && getInventoryBreakdown(c, deck.id).available <= 0) continue;
+    ownedNames.add(nm);
+    ownedPool.push(c);
+  }
+  // Batch-attach precomputed E percentiles (never live EDHREC/Scrape).
+  try {
+    const oracleIds = [...new Set(ownedPool.map(c => {
+      const raw = (typeof resolveCardOracleId === 'function' ? resolveCardOracleId(c) : null) || c.oracleId || '';
+      return String(raw).toLowerCase();
+    }).filter(id => /^[0-9a-f-]{36}$/.test(id)))];
+    const by = {};
+    for (let i = 0; i < oracleIds.length; i += 200) {
+      const chunk = oracleIds.slice(i, i + 200);
+      const res = await fetch('/api/cards/edhrec-percentiles', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ oracleIds: chunk }),
+      });
+      if (!res.ok) break;
+      const data = await res.json();
+      Object.assign(by, data.byOracleId || {});
+    }
+    for (const c of ownedPool) {
+      const raw = (typeof resolveCardOracleId === 'function' ? resolveCardOracleId(c) : null) || c.oracleId || '';
+      const oid = String(raw).toLowerCase();
+      if (by[oid]) c.edhrecRolePct = by[oid];
+    }
+  } catch (_) { /* offline — E stays 0 */ }
+  if (token !== _addSuggestToken) return;
+
+  const ownedScored = [];
+  for (const c of ownedPool) {
     const roles = _probTagsOnCard(c, deck);
     const s = _scoreAddCandidate(c, roles, ctx);
     if (s.score <= 0) continue;
-    ownedNames.add(nm);
     ownedScored.push({ card: c, owned: true, s });
   }
   ownedScored.sort((a, b) => b.s.score - a.s.score);
