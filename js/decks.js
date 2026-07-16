@@ -5935,8 +5935,12 @@ function _deckTokensFingerprint(deck) {
   return [...new Set(ids)].sort().join('|');
 }
 
+/** Token-type cards (not token generators). Shared predicate: Cuts candidate pool + Adds Plan-count/pool. */
 function _isTokenTypeDeckCard(c) {
-  const tl = String(c?.type || c?.typeLine || c?.type_line || '').toLowerCase();
+  const tl = String(
+    (typeof resolveCardTypeLine === 'function' ? resolveCardTypeLine(c) : null)
+    || c?.type || c?.typeLine || c?.type_line || ''
+  ).toLowerCase();
   return /\btoken\b/.test(tl) || c?.layout === 'token';
 }
 
@@ -6814,7 +6818,7 @@ function _isLandCardSafe(c) {
 }
 
 // Non-land CMC bucket counts (0–7+). Matches Cuts: include commander CMC.
-// Plan-count still excludes the commander separately in `_computeAddContext`.
+// Plan-count excludes commander + tokens (match Cuts candidate pool); curve includes commander.
 function _addCurveBucketCounts(cards) {
   const buckets = [0, 1, 2, 3, 4, 5, 6, 7];
   const nonLands = (cards || []).filter(c => !_isLandCardSafe(c));
@@ -6832,9 +6836,11 @@ function _computeAddContext(deck) {
   for (const card of cards) {
     for (const tag of _probTagsOnCard(card, deck)) roleCount[tag] = (roleCount[tag] || 0) + (card.qty || 1);
   }
-  // Plan / role pool: exclude commander (unchanged). Curve pool: include commander (match Cuts).
+  // Plan-count pool: match Cuts candidates — exclude commander, tokens, and lands.
   const nonLandNonCmd = cards.filter(c =>
-    !(c.isCommander || (deck.commander && c.name === deck.commander)) && !_isLandCardSafe(c));
+    !(c.isCommander || (deck.commander && c.name === deck.commander))
+    && !_isLandCardSafe(c)
+    && !_isTokenTypeDeckCard(c));
   const planCount = nonLandNonCmd.reduce((s, c) => {
     const t = _probTagsOnCard(c, deck).filter(x => x !== 'Land' && x !== 'Commander');
     return t.length === 0 ? s + (c.qty || 1) : s;
