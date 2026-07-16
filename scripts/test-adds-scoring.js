@@ -89,11 +89,14 @@ const path = {
 };
 
 const simicCtx = {
-  deficits: { Ramp: 6, 'Card Draw': 2, Removal: 0, 'Board Wipe': 0 },
+  // Ramp hole with draw already filled (ramp deficit > draw). GS still carries a
+  // Card Draw tag for V, but must not get a second-role D boost that forces L to
+  // be oversized just so Three Visits can win (that overfit set K_L=2.0).
+  deficits: { Ramp: 6, 'Card Draw': 0, Removal: 0, 'Board Wipe': 0 },
   // Thin early curve — CMC 1 picks get a real C edge (specialist ramp).
   curveDeficit: [0.02, 0.22, 0.02, 0.02, 0.01, 0, 0, 0],
   thresholds: { Ramp: 10, 'Card Draw': 10, Removal: 10, 'Board Wipe': 3, Plan: 30 },
-  roleCount: { Ramp: 4, 'Card Draw': 8 },
+  roleCount: { Ramp: 4, 'Card Draw': 10 },
 };
 
 const rampOnlyCtx = {
@@ -142,24 +145,21 @@ const wipeOnlyCtx = {
 }
 
 {
-  // Term isolation: E favors TV over GS, but equalizing D/C/L/B/P/V leaves E alone
-  // unable to overcome a constructed multi-deficit D lead for GS.
-  const tv = score(threeVisits, ['Ramp'], simicCtx);
-  const gs = score(growthSpiral, ['Ramp', 'Card Draw'], simicCtx);
+  // Term isolation: construct a multi-deficit D lead for GS; E alone must not flip #1.
+  const multiDefCtx = {
+    ...simicCtx,
+    deficits: { Ramp: 6, 'Card Draw': 2, Removal: 0, 'Board Wipe': 0 },
+    roleCount: { Ramp: 4, 'Card Draw': 8 },
+  };
+  const tv = score(threeVisits, ['Ramp'], multiDefCtx);
+  const gs = score(growthSpiral, ['Ramp', 'Card Draw'], multiDefCtx);
   assert.ok(tv.terms.E > gs.terms.E, 'hard-7: E should favor Three Visits over Growth Spiral');
-  const eOnlyFlip = (gs.terms.D * gs.terms.M) + gs.terms.C_eff + gs.terms.L + tv.terms.E + gs.terms.B - gs.terms.P + gs.terms.V;
-  const gsBaseNoE = (gs.terms.D * gs.terms.M) + gs.terms.C_eff + gs.terms.L + 0 + gs.terms.B - gs.terms.P + gs.terms.V;
-  // If GS leads before E, injecting TV's E alone must not flip GS ahead of that baseline+TV.E vs TV full score path —
-  // Locked rule: E cannot alone flip #1. Compare: GS with TV's E still below TV's full score is the real #1;
-  // isolation check: GS_D lead > E_delta.
   const dLead = (gs.terms.D * gs.terms.M) - (tv.terms.D * tv.terms.M);
   const eDelta = tv.terms.E - gs.terms.E;
-  assert.ok(dLead > eDelta || tv.score > gs.score,
-    'hard-7: E favors TV but must not be the sole reason #1 holds when D also differs');
-  assert.ok(eDelta < dLead || dLead <= 0,
+  assert.ok(dLead > 0, 'hard-7: fixture must give GS a D lead from secondary draw deficit');
+  assert.ok(eDelta < dLead,
     `hard-7 isolation: E delta (${eDelta.toFixed(3)}) must not alone overcome GS D lead (${dLead.toFixed(3)})`);
   console.log(`[hard-7] E_TV=${tv.terms.E.toFixed(3)} E_GS=${gs.terms.E.toFixed(3)} delta=${eDelta.toFixed(3)} D_lead_GS=${dLead.toFixed(3)}`);
-  void eOnlyFlip; void gsBaseNoE;
 }
 
 // Soft case 4 — either may win; just log
