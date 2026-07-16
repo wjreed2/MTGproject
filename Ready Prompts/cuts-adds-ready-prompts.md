@@ -42,7 +42,7 @@ re-pop) isolated from other deck-builder render PRs. **23** (user categories) la
 | **10** | Early Ramp CMC threshold + info popup | Ready | Partner / Gameplan | Bug fix + establish reveal-popup pattern for Gameplan. |
 | **11** | Commander Gameplan stat bullets clickable | Ready | Partner / Gameplan | Generalizes #10’s reveal pattern; resolve structural vs simulation cards first. |
 | **12** | Commander Gameplan Tag Pills & Filter | **Completed** | Partner / Gameplan | Needs stable P/S/D from #6–8; preserve “Land in hand”. |
-| **13** | Similarity count fix & Spicy Picks Cuts exclusion | Ready | Partner / Adds&Cuts UX | Cluster with other planning-board fixes; don’t rewrite scoring from #1. |
+| **13** | Similarity count fix & Spicy Picks Cuts exclusion | **Completed** | Partner / Adds&Cuts UX | Cluster with other planning-board fixes; don’t rewrite scoring from #1. |
 | **14** | Cut button on Spicy Picks → Cuts list | **Completed** | Partner / Adds&Cuts UX | Same Adds/Cuts state model as #13 — run back-to-back. |
 | **15** | Adds section missing Suggested Replacements | Ready | Partner / Adds&Cuts UX | Inspector path for Adds-section cards. |
 | **16** | Adds & Cuts hover preview | Ready | Partner / Adds&Cuts UX | Reuse deck-builder hover mechanism. |
@@ -1142,6 +1142,7 @@ Prereq: Prefer Prompts 6–8 so Primary/Secondary filter modes are meaningful.
 
 # Prompt 13 of 23 — Similarity count fix & Spicy Picks Cuts exclusion
 
+**Status:** Completed
 ```
 # Deck Builder: Similarity Count Fix & Spicy Picks Cuts Exclusion
 
