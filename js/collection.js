@@ -2487,7 +2487,7 @@ function patchOpenCardDetailMyTags() {
   const myTags = card && typeof _getGlobalCustomTagsForCard === 'function'
     ? _getGlobalCustomTagsForCard(card)
     : [];
-  // Default/role tags the user tiered (primary/secondary) also belong in this row.
+  // Default/role tags with a primary/secondary tier (manual or auto) also belong here.
   const tieredDefaults = card && typeof _tieredDefaultTagsForCard === 'function'
     ? _tieredDefaultTagsForCard(card)
     : [];

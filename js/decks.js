@@ -1741,8 +1741,7 @@ function _tagsOnCardForGroupTier(card, tier) {
   }
   const userTags = _tagsOnCardForGrouping(card);
   if (tier === 'tag_primary' || tier === 'tag_secondary') {
-    // Default tags the user tiered in place count as primary/secondary here too —
-    // the picker and inspector both present them as manual primary/secondary tags.
+    // Default tags with a manual or auto primary/secondary tier count here too.
     const tieredDefaults = typeof _tieredDefaultTagsForCard === 'function' ? _tieredDefaultTagsForCard(card) : [];
     return [...new Set([...userTags, ...tieredDefaults])].filter(t => _tagMatchesDeckGroupTier(card, t, tier));
   }
@@ -1954,8 +1953,9 @@ function _cardHasExplicitTier(card, tier, oracleId) {
 }
 
 /**
- * Display-only fallback tier for a default tag when the primary/secondary slot is
- * empty. Does not write to storage — first click/cycle still promotes to a real tier.
+ * Fallback tier for a default tag when the primary/secondary slot has no manual
+ * value. Not written to storage — first click/cycle still promotes to a real tier —
+ * but it counts for display, grouping, and sorting the same as a manual tier.
  * @returns {'primary'|'secondary'|null}
  */
 function _autoDisplayTierForDefaultTag(card, tag, oracleId) {
@@ -1973,9 +1973,25 @@ function _autoDisplayTierForDefaultTag(card, tag, oracleId) {
   return null;
 }
 
-/** True when this tag pill is primary/secondary via auto fallback (not a manual tier). */
+/** True when this tag's primary/secondary comes from auto fallback (not a manual tier). */
 function _isAutoDisplayTierForDefaultTag(card, tag, oracleId) {
   return !!_autoDisplayTierForDefaultTag(card, tag, oracleId);
+}
+
+/**
+ * Effective importance for a tag on a card: manual tier → auto fallback →
+ * My Tag default (primary) / untiered default tag (default).
+ * Use for display, grouping, and sorting. Prefer `_getCardCustomTagTierRaw` when
+ * deciding what to persist on click/cycle.
+ * @returns {'primary'|'secondary'|'default'}
+ */
+function _getCardEffectiveTagTier(card, tag, oracleId) {
+  const raw = _getCardCustomTagTierRaw(card, tag, oracleId);
+  if (raw) return raw;
+  const auto = _autoDisplayTierForDefaultTag(card, tag, oracleId);
+  if (auto) return auto;
+  if (_isProtectedDeckTag(String(tag || ''))) return 'default';
+  return 'primary';
 }
 
 function _setCardCustomTagTier(card, tag, tier) {
@@ -2141,15 +2157,7 @@ function _seedUserTagCatalogFromUsage() {
 function _getUserTagTier(tag, opts = {}) {
   const t = String(tag || '');
   if (opts.card || opts.oracleId) {
-    // A default tag the user marked primary/secondary in place shows its tier color;
-    // otherwise the 1st/2nd default may fill those slots as display-only auto tiers;
-    // remaining untiered defaults stay 'default'; a My Tag defaults to primary.
-    const raw = _getCardCustomTagTierRaw(opts.card, tag, opts.oracleId);
-    if (raw) return raw;
-    const auto = _autoDisplayTierForDefaultTag(opts.card, tag, opts.oracleId);
-    if (auto) return auto;
-    if (_isProtectedDeckTag(t)) return 'default';
-    return 'primary';
+    return _getCardEffectiveTagTier(opts.card, tag, opts.oracleId);
   }
   if (_isProtectedDeckTag(t)) return 'default';
   if (opts.filter === 'secondary' || deckTagCatalogFilter === 'secondary') return 'secondary';
@@ -2158,7 +2166,7 @@ function _getUserTagTier(tag, opts = {}) {
 
 /** Sort key: primary on card first, then secondary, then alpha. */
 function _userTagTierSortRank(tag, card) {
-  if (card) return _getCardCustomTagTier(card, tag) === 'secondary' ? 1 : 0;
+  if (card) return _getCardEffectiveTagTier(card, tag) === 'secondary' ? 1 : 0;
   return 0;
 }
 
@@ -2182,8 +2190,9 @@ function _compareDeckTagGroupKeys(a, b) {
 function _tagMatchesDeckGroupTier(card, tag, groupTier) {
   const t = String(tag || '');
   if (groupTier === 'tag_default') return _isProtectedDeckTag(t);
-  if (groupTier === 'tag_primary') return _getCardCustomTagTier(card, tag) === 'primary';
-  if (groupTier === 'tag_secondary') return _getCardCustomTagTier(card, tag) === 'secondary';
+  // Effective tier includes auto primary/secondary fallbacks from default tags.
+  if (groupTier === 'tag_primary') return _getCardEffectiveTagTier(card, tag) === 'primary';
+  if (groupTier === 'tag_secondary') return _getCardEffectiveTagTier(card, tag) === 'secondary';
   return true;
 }
 
@@ -3991,9 +4000,9 @@ function _getGlobalCustomTagsForCard(card) {
 }
 
 /**
- * Default/role tags on a card that the user gave a primary/secondary tier. These show
- * in the MY TAGS row too (in addition to the DEFAULT TAGS row) so a tiered default tag
- * appears in both sections.
+ * Default/role tags on a card that have a primary/secondary tier — either manually
+ * set, or via the auto fallback (1st/2nd default). These show in the MY TAGS row too
+ * (in addition to DEFAULT TAGS) and count for primary/secondary deck grouping.
  */
 function _tieredDefaultTagsForCard(card) {
   if (!card) return [];
@@ -4003,7 +4012,7 @@ function _tieredDefaultTagsForCard(card) {
   const out = [];
   for (const t of roleTags) {
     if (!_isProtectedDeckTag(t) || t === 'Commander') continue;
-    if (_getCardCustomTagTierRaw(card, t, oid)) out.push(t);
+    if (_getCardCustomTagTierRaw(card, t, oid) || _autoDisplayTierForDefaultTag(card, t, oid)) out.push(t);
   }
   return out;
 }
