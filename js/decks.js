@@ -9377,6 +9377,20 @@ async function simAddToMaybe(btn, name) {
 }
 
 function simRemoveFromDeck(btn, uid) {
+  // With Adds & Cuts on, Spicy "−" plans a cut (card stays in the deck) — same
+  // model as Suggested Cuts — instead of removing the mainboard copy.
+  if (_deckSwapsEnabled()) {
+    const deck = getActiveDeck();
+    if (!deck) return;
+    const card = (deck.cards || []).find(c => getCardInventoryKey(c) === uid || c.uid === uid);
+    if (!card) return;
+    const key = getCardInventoryKey(card);
+    const beforeQty = _plannedCutQtyForDeckSlot(_deckPlannedCuts(deck), key);
+    markPlannedCut(uid);
+    const afterQty = _plannedCutQtyForDeckSlot(_deckPlannedCuts(deck), key);
+    if (afterQty > beforeQty) btn.closest('.sim-chip')?.remove();
+    return;
+  }
   removeFromDeck(uid);
   btn.closest('.sim-chip')?.remove();
 }
@@ -12846,8 +12860,13 @@ function _simRenderHTML(deck, commander, edhrecData, archiveData) {
   ${spice.length ? `
   <div class="sim-subsection-title">Your spicy picks <span class="sim-meta">(not in EDHREC data)</span></div>
   <div class="sim-chip-row">${spice.map(c => {
-    const id = (c.uid || c.scryfallId || '').replace(/'/g, "\\'");
-    return `<span class="sim-chip sim-chip--spice"><span style="cursor:pointer" onclick="openCardDetail('${id}')">${escapeHtml(c.name)}</span><button class="sim-chip-btn sim-chip-btn--remove" onclick="simRemoveFromDeck(this,'${id}')" title="Remove from deck">−</button></span>`;
+    const id = (typeof getCardInventoryKey === 'function' ? getCardInventoryKey(c) : (c.uid || c.scryfallId || '')).replace(/'/g, "\\'");
+    const detailId = (c.uid || c.scryfallId || '').replace(/'/g, "\\'");
+    const swapsOn = _deckSwapsEnabled(deck);
+    const cutTitle = swapsOn
+      ? 'Mark as a planned cut — stays in the deck until you apply swaps'
+      : 'Remove from deck';
+    return `<span class="sim-chip sim-chip--spice"><span style="cursor:pointer" onclick="openCardDetail('${detailId}')">${escapeHtml(c.name)}</span><button class="sim-chip-btn sim-chip-btn--remove" onclick="simRemoveFromDeck(this,'${id}')" title="${cutTitle}">−</button></span>`;
   }).join('')}</div>` : ''}
 </div>`);
   }
