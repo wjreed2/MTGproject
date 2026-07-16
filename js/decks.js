@@ -1469,6 +1469,14 @@ function _deckPlannedCuts(deck) {
   return deck.cuts;
 }
 
+/** Mark intentional empty plan so the server won't treat the write as a stale wipe. */
+function _flagClearedPlanningIfEmpty(deck) {
+  if (!deck) return;
+  const adds = Array.isArray(deck.adds) ? deck.adds : [];
+  const cuts = Array.isArray(deck.cuts) ? deck.cuts : [];
+  if (!adds.length && !cuts.length) deck.clearAddsCuts = true;
+}
+
 function _deckSwapsEnabled() {
   return typeof deckSwapsFeatureEnabled === 'undefined' || deckSwapsFeatureEnabled !== false;
 }
@@ -9811,6 +9819,7 @@ function _removeFromDeckZone(deck, uid, zone) {
   if (!c) return;
   if (c.qty > 1) { c.qty--; if (!planning) recordDeckEvent('qty_change_sb', c); }
   else { if (!planning) recordDeckEvent('remove_sb', c); const i = pool.indexOf(c); if (i >= 0) pool.splice(i, 1); }
+  if (planning) _flagClearedPlanningIfEmpty(deck);
   saveActiveDeck(deck);
   renderActiveDeck();
 }
@@ -9845,6 +9854,7 @@ function _adjustDeckZoneQtyByUid(uid, delta, zone) {
     const i = pool.indexOf(card);
     if (i >= 0) pool.splice(i, 1);
   }
+  if (planning) _flagClearedPlanningIfEmpty(deck);
   saveActiveDeck(deck);
   renderActiveDeck();
   if (typeof _patchCardDetailDeckQty === 'function') _patchCardDetailDeckQty(uid);
@@ -9979,6 +9989,7 @@ function unmarkPlannedCut(uid) {
   if (!slot) return;
   if ((slot.qty || 1) > 1) slot.qty--;
   else { const i = pool.indexOf(slot); if (i >= 0) pool.splice(i, 1); }
+  _flagClearedPlanningIfEmpty(deck);
   saveActiveDeck(deck);
   renderActiveDeck();
   showNotif(slot.name + ' kept — cut marker removed');
@@ -10002,6 +10013,7 @@ function commitPlannedAdd(uid) {
     deck.cards.push(c);
     recordDeckEvent('add', c);
   }
+  _flagClearedPlanningIfEmpty(deck);
   saveActiveDeck(deck);
   renderActiveDeck();
   scheduleEDHRECRefresh();
@@ -10023,6 +10035,9 @@ function _movePlanningZoneCard(uid, fromZone, toZone) {
   const existing = _findDeckZoneSlot(deck, toZone, snap);
   if (existing) existing.qty++;
   else _deckZonePool(deck, toZone).push({ ...snap, qty: 1 });
+  if (fromZone === 'add' || toZone === 'add' || fromZone === 'cut' || toZone === 'cut') {
+    _flagClearedPlanningIfEmpty(deck);
+  }
   saveActiveDeck(deck);
   renderActiveDeck();
   showNotif(snap.name + ' moved to ' + (_DECK_ZONE_LABELS[toZone] || toZone));
@@ -10095,6 +10110,7 @@ async function applyDeckSwaps() {
   }
   deck.adds = [];
   deck.cuts = [];
+  deck.clearAddsCuts = true;
   saveActiveDeck(deck);
   renderActiveDeck();
   scheduleEDHRECRefresh();

@@ -295,7 +295,9 @@ function scheduleSaveSharedDeck(deck) {
   _sharedSaveTimers[id] = setTimeout(async () => {
     _sharedSaveInFlight[id] = true;
     try {
-      await apiPatch('/decks/' + id, deck);
+      const res = await apiPatch('/decks/' + id, deck);
+      if (res && res.updatedAt) deck.updatedAt = res.updatedAt;
+      delete deck.clearAddsCuts;
     } catch (e) {
       console.error('[db] shared deck save failed:', e);
     } finally {
@@ -340,7 +342,18 @@ async function _flushSave() {
   try {
     const ops = [];
     if (toSave.has('collection')) ops.push(apiPut('/collection', collection));
-    if (toSave.has('decks'))      ops.push(apiPut('/decks', decks));
+    if (toSave.has('decks'))      ops.push(apiPut('/decks', decks).then(res => {
+      const map = res && res.updatedAtById;
+      if (map && Array.isArray(decks)) {
+        for (const d of decks) {
+          if (d && d.id != null && map[d.id] != null) {
+            d.updatedAt = map[d.id];
+            delete d.clearAddsCuts;
+          }
+        }
+      }
+      return res;
+    }));
     if (toSave.has('games'))      ops.push(apiPut('/games', games));
     if (toSave.has('wishlist'))   ops.push(apiPut('/wishlist', wishlist));
     if (toSave.has('prefs'))      ops.push(apiPut('/preferences', {

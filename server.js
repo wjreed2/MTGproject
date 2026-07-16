@@ -2010,6 +2010,12 @@ function dedupeDeckCardTags(tags) {
   return [...seen.values()];
 }
 
+/**
+ * Prevent stale clients from wiping collaborator Adds/Cuts plans.
+ * See lib/deck-planning-merge.js.
+ */
+const { mergeDeckPlanningZonesForWrite } = require('./lib/deck-planning-merge');
+
 function normalizeDeckForStorage(deck) {
   const seen = new Map();
   (deck.cards || []).forEach((c, idx) => {
@@ -2031,7 +2037,8 @@ function normalizeDeckForStorage(deck) {
   });
   // Never persist the share token into the JSON blob — the share_token column is
   // authoritative, and the blob is exposed by the public/browse endpoints.
-  const { shareToken, ...rest } = deck;
+  // clearAddsCuts is a write-only flag for mergeDeckPlanningZonesForWrite.
+  const { shareToken, clearAddsCuts, ...rest } = deck;
   return { ...rest, cards: [...seen.values()] };
 }
 
@@ -2796,7 +2803,7 @@ app.get('/api/decks', requireAuth, async (req, res) => {
   try {
     const accountId = req.accountId;
     const [rows] = await db().query(
-      'SELECT id, data, share_token FROM decks WHERE account_id = ? ORDER BY created_at ASC',
+      'SELECT id, data, share_token, updated_at FROM decks WHERE account_id = ? ORDER BY created_at ASC',
       [accountId]
     );
     if (!rows.length) return res.json([]);
@@ -2837,8 +2844,9 @@ app.get('/api/decks', requireAuth, async (req, res) => {
     const out = rows.map(r => {
       const deck = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
       const cards = byDeck.get(r.id);
-      // share_token is column-authoritative; overwrite any stale value in the JSON blob.
+      // share_token / updated_at are column-authoritative.
       deck.shareToken = r.share_token || null;
+      deck.updatedAt = Number(r.updated_at) || Number(deck.updatedAt) || 0;
       if (Array.isArray(cards) && cards.length) return { ...deck, cards };
       return deck;
     });
@@ -3010,14 +3018,38 @@ app.put('/api/decks', requireAuth, async (req, res) => {
   if (!Array.isArray(decks)) return res.status(400).json({ error: 'Expected array' });
   const accountId = req.accountId;
   try {
-    const normDecks = decks.map(normalizeDeckForStorage);
+    let updatedAtById = {};
     const conn = await db().getConnection();
     try {
       await conn.beginTransaction();
 
+      const incomingIds = decks.map(d => d?.id).filter(Boolean);
+      const existingById = new Map();
+      if (incomingIds.length) {
+        const idph = incomingIds.map(() => '?').join(',');
+        const [existingRows] = await conn.query(
+          `SELECT id, data, updated_at FROM decks WHERE account_id=? AND id IN (${idph})`,
+          [accountId, ...incomingIds]
+        );
+        for (const row of existingRows) {
+          const data = typeof row.data === 'string' ? JSON.parse(row.data) : row.data;
+          existingById.set(row.id, { data, updatedAt: Number(row.updated_at) || 0 });
+        }
+      }
+
+      const now = Date.now();
+      updatedAtById = {};
+      const normDecks = decks.map(raw => {
+        const existing = raw?.id ? existingById.get(raw.id) : null;
+        if (existing) mergeDeckPlanningZonesForWrite(existing.data, existing.updatedAt, raw);
+        const d = normalizeDeckForStorage(raw);
+        d.updatedAt = now;
+        if (d.id) updatedAtById[d.id] = now;
+        return d;
+      });
+
       // 1. Upsert deck rows first — data always exists even if cards fail below
       if (normDecks.length) {
-        const now = Date.now();
         const ph = normDecks.map(() => '(?,?,?,?,?,?,?,?)').join(',');
         const vals = normDecks.flatMap(d => [
           accountId,
@@ -3089,7 +3121,7 @@ app.put('/api/decks', requireAuth, async (req, res) => {
     invalidateTradelistCache(accountId);
     // Deck contents drive deck-needed wishlist entries.
     void reconcileAccountWishlist(accountId);
-    res.json({ ok: true, count: decks.length });
+    res.json({ ok: true, count: decks.length, updatedAtById });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
@@ -3112,7 +3144,7 @@ app.get('/api/decks/shared', requireAuth, async (req, res) => {
     const deckIds = collabRows.map(r => r.deck_id);
     const ph = deckIds.map(() => '?').join(',');
     const [deckRows] = await db().query(
-      `SELECT d.id, d.data, d.account_id, a.email
+      `SELECT d.id, d.data, d.account_id, d.updated_at, a.email
        FROM decks d JOIN accounts a ON a.id = d.account_id
        WHERE d.id IN (${ph})`,
       deckIds
@@ -3180,6 +3212,7 @@ app.get('/api/decks/shared', requireAuth, async (req, res) => {
       deck.ownerId = r.account_id;
       deck.ownerCustomTags = [...(catalogByOwner.get(r.account_id) || [])].sort((a, b) => a.localeCompare(b));
       deck.userPermission = permByDeck.get(r.id) || 'edit';
+      deck.updatedAt = Number(r.updated_at) || Number(deck.updatedAt) || 0;
       return deck;
     });
     await attachPriceLogPricesToDeckCards(out.flatMap(d => d.cards || []));
@@ -3195,10 +3228,12 @@ app.patch('/api/decks/:id', requireAuth, async (req, res) => {
   const deckId = req.params.id;
   const accountId = req.accountId;
   try {
-    const [deckRows] = await db().query('SELECT account_id FROM decks WHERE id = ?', [deckId]);
+    const [deckRows] = await db().query('SELECT account_id, data, updated_at FROM decks WHERE id = ?', [deckId]);
     if (!deckRows.length) return res.status(404).json({ error: 'Deck not found' });
 
     const ownerId = Number(deckRows[0].account_id);
+    const existingUpdatedAt = Number(deckRows[0].updated_at) || 0;
+    const existingData = typeof deckRows[0].data === 'string' ? JSON.parse(deckRows[0].data) : deckRows[0].data;
     const isOwner = ownerId === Number(accountId);
     if (!isOwner) {
       const [cr] = await db().query(
@@ -3221,19 +3256,22 @@ app.patch('/api/decks/:id', requireAuth, async (req, res) => {
       if (printingChanged) return res.status(403).json({ error: 'Collaborators cannot change card printings' });
     }
 
+    mergeDeckPlanningZonesForWrite(existingData, existingUpdatedAt, req.body);
+    const now = Date.now();
     const deck = normalizeDeckForStorage(req.body);
+    deck.updatedAt = now;
     const conn = await db().getConnection();
     try {
       await conn.beginTransaction();
       if (isOwner) {
         await conn.query(
-          'UPDATE decks SET name=?, format=?, data=?, is_public=? WHERE id=?',
-          [(deck.name || '').slice(0, 255), (deck.format || '').slice(0, 50), JSON.stringify(deck), deck.isPublic ? 1 : 0, deckId]
+          'UPDATE decks SET name=?, format=?, data=?, is_public=?, updated_at=? WHERE id=?',
+          [(deck.name || '').slice(0, 255), (deck.format || '').slice(0, 50), JSON.stringify(deck), deck.isPublic ? 1 : 0, now, deckId]
         );
       } else {
         await conn.query(
-          'UPDATE decks SET name=?, format=?, data=? WHERE id=?',
-          [(deck.name || '').slice(0, 255), (deck.format || '').slice(0, 50), JSON.stringify(deck), deckId]
+          'UPDATE decks SET name=?, format=?, data=?, updated_at=? WHERE id=?',
+          [(deck.name || '').slice(0, 255), (deck.format || '').slice(0, 50), JSON.stringify(deck), now, deckId]
         );
       }
 
@@ -3273,7 +3311,7 @@ app.patch('/api/decks/:id', requireAuth, async (req, res) => {
     } finally {
       conn.release();
     }
-    res.json({ ok: true });
+    res.json({ ok: true, updatedAt: now });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
