@@ -7188,23 +7188,32 @@ async function _renderAddSuggestions(deck) {
     logDeckPlan('budget-filter', { poolMode: _addsPoolMode, pickCount: picks.length });
   }
 
+  // Re-read plan from the live deck for the banner. getDeckPlan() returns a snapshot, so a
+  // render that started before the wizard saved would otherwise keep painting "No deck plan"
+  // even after deck.plan was written. Also abort if a newer render superseded us before paint.
+  if (token !== _addSuggestToken) return;
+  const livePlan = typeof getDeckPlan === 'function' ? getDeckPlan(deck) : deckPlan;
+
   // Plan status line above suggestions
   let planBanner = '';
-  if (typeof isPlanDeclared === 'function' && isPlanDeclared(deckPlan)) {
-    const ps = typeof strategyLabel === 'function' ? strategyLabel(deckPlan.primaryStrategyId) : deckPlan.primaryStrategyId;
-    const wc = typeof winconLabel === 'function' ? winconLabel(deckPlan.winConditionId) : deckPlan.winConditionId;
+  if (typeof isPlanDeclared === 'function' && isPlanDeclared(livePlan)) {
+    const ps = typeof strategyLabel === 'function' ? strategyLabel(livePlan.primaryStrategyId) : livePlan.primaryStrategyId;
+    const wc = typeof winconLabel === 'function' ? winconLabel(livePlan.winConditionId) : livePlan.winConditionId;
     planBanner = `<div class="deck-plan-banner" style="padding:.45rem .85rem;font-size:.72rem;color:var(--text3);border-bottom:1px solid var(--border)">Plan: ${escapeHtml(ps)} · ${escapeHtml(wc)} <button type="button" class="btn btn-ghost btn-sm" style="padding:0 6px;font-size:.7rem" onclick="openDeckPlanWizard()">Edit</button></div>`;
   } else {
     planBanner = `<div class="deck-plan-banner" style="padding:.45rem .85rem;font-size:.72rem;color:var(--text3);border-bottom:1px solid var(--border)">No deck plan — Plan-only suggestions stay closed. <button type="button" class="btn btn-ghost btn-sm" style="padding:0 6px;font-size:.7rem" onclick="openDeckPlanWizard()">Set plan</button></div>`;
   }
 
   if (!picks.length) {
+    if (token !== _addSuggestToken) return;
     const hint = isAllCards
       ? 'No add suggestions from the catalog — your role targets look met, tagged fillers are scarce, or no cards passed the conditional-keyword gate.'
       : 'No add suggestions — your role targets look met, or no tagged cards in your collection scored. Lower a target with ⚙ on Suggested Cuts, switch to All Cards for catalog picks, or adjust the playstyle slider.';
     body.innerHTML = planBanner + `<div class="deck-tab-muted" style="padding:.75rem 1rem">${hint}</div>`;
     return;
   }
+
+  if (token !== _addSuggestToken) return;
 
   // With Adds & Cuts on, suggestions land in the planned-adds section instead of the deck.
   const swapsOn = _deckSwapsEnabled(deck);

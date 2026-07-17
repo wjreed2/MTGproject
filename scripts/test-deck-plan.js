@@ -15,6 +15,7 @@ const {
   PLAN_INFERENCE_CONFIDENCE_MIN,
   emptyPlan,
   normalizeDeckPlan,
+  getDeckPlan,
   deckPlanCardCount,
 } = plan;
 
@@ -69,6 +70,19 @@ const {
   assert.strictEqual(shouldFetchPlanOnlyBackfill(ctxPlanOnly, declared), true, 'case3: plan declared → fetch');
   const ctxRampLarger = { deficits: { Plan: 5, Ramp: 8 } };
   assert.strictEqual(shouldFetchPlanOnlyBackfill(ctxRampLarger, declared), false, 'Plan not largest → role path instead');
+}
+
+// Banner must re-read live deck.plan — getDeckPlan() snapshots, so a stale Adds
+// render that started before the wizard saved would otherwise keep "No deck plan".
+{
+  const deck = { plan: null };
+  const snap = getDeckPlan(deck);
+  deck.plan = normalizeDeckPlan({
+    winConditionId: 'wincon.combat',
+    primaryStrategyId: 'strategy.tokens',
+  });
+  assert.strictEqual(isPlanDeclared(snap), false, 'stale snapshot stays undeclared after save');
+  assert.strictEqual(isPlanDeclared(getDeckPlan(deck)), true, 'live re-read sees saved plan');
 }
 
 // planMatchScore elevates on-theme
