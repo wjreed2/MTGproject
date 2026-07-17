@@ -1676,7 +1676,7 @@ function renderDeckSwapsSettingBtn() {
 // only). Bulk PUT/PATCH races and render-time prune must not wipe cut markers.
 function saveActiveDeck(deck, opts) {
   if (opts && opts.planningOnly && typeof scheduleSaveSharedDeckPlanning === 'function') {
-    scheduleSaveSharedDeckPlanning(deck);
+    scheduleSaveSharedDeckPlanning(deck, opts.planningImmediate ? { immediate: true } : undefined);
     return;
   }
   if (activeDeckIsShared) {
@@ -7463,7 +7463,7 @@ function renderDeckList(deck) {
       : '') +
     (swapsOn
       ? _renderDeckExtraZoneList(deck, 'add', 'Adds', plannedAdds, 'No planned adds — drag cards here from search or the maybe board', validationErrorNames) +
-        _renderDeckExtraZoneList(deck, 'cut', 'Cuts (fix attempt 1)', plannedCuts, 'No planned cuts — drag deck cards here to mark them', validationErrorNames)
+        _renderDeckExtraZoneList(deck, 'cut', 'Cuts', plannedCuts, 'No planned cuts — drag deck cards here to mark them', validationErrorNames)
       : '');
   const extraListHtml = _deckExtraZonesWrapOpenHtml(deck, listZoneInner + applySwapsHtml, 'deck-extra-zones-wrap--list');
   el.onclick = e => {
@@ -10336,7 +10336,7 @@ function markPlannedCut(uid) {
   } else {
     _deckPlannedCuts(deck).push({ ...card, uid: getCardInventoryKey(card), qty: 1 });
   }
-  saveActiveDeck(deck, { planningOnly: true });
+  saveActiveDeck(deck, { planningOnly: true, planningImmediate: true });
   renderActiveDeck();
   showNotif(card.name + ' marked as a cut');
 }
@@ -10354,7 +10354,7 @@ function unmarkPlannedCut(uid) {
   if ((slot.qty || 1) > 1) slot.qty--;
   else { const i = pool.indexOf(slot); if (i >= 0) pool.splice(i, 1); }
   _flagClearedPlanningIfEmpty(deck);
-  saveActiveDeck(deck, { planningOnly: true });
+  saveActiveDeck(deck, { planningOnly: true, planningImmediate: true });
   renderActiveDeck();
   showNotif(slot.name + ' kept — cut marker removed');
 }
