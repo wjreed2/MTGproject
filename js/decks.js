@@ -3542,7 +3542,7 @@ function renderActiveDeck() {
   countEl.style.color = countOk ? 'var(--teal)' : 'var(--red)';
   if (_deckSwapsEnabled(deck)) {
     const addQty = _deckPlannedAdds(deck).reduce((s, c) => s + (c.qty || 1), 0);
-    const cutQty = _deckPlannedCuts(deck).reduce((s, c) => s + (c.qty || 1), 0);
+    const cutQty = _displayPlannedCuts(deck).reduce((s, c) => s + (c.qty || 1), 0);
     if (addQty || cutQty) {
       const projected = total + addQty - cutQty;
       countEl.innerHTML = `${total} / ${max || target} <span class="deck-swaps-projected" title="Deck size if all planned adds and cuts were applied">→ ${projected} after swaps</span>`;
@@ -4881,6 +4881,31 @@ function getCardInventoryKey(card) {
   return (card.name || '').toLowerCase() + (card.foil ? '_f' : '_n');
 }
 
+/** Normalize card names for cut/add matching (DFC face, spacing). */
+function _deckCardNameKey(name) {
+  return String(name || '').trim().toLowerCase().replace(/\s+/g, ' ').split(' // ')[0].trim();
+}
+
+/** Match a planning slot to a mainboard/extra card — uid, scryfall id, or name. */
+function _deckCardMatchesSlot(slot, card) {
+  if (!slot || !card) return false;
+  const a = getCardInventoryKey(slot);
+  const b = getCardInventoryKey(card);
+  if (a && b && a === b) return true;
+  const stripFoil = k => (k || '').replace(/_[fn]$/, '');
+  if (slot.scryfallId && card.scryfallId && slot.scryfallId === card.scryfallId) return true;
+  if (stripFoil(a) && stripFoil(b) && stripFoil(a) === stripFoil(b)) return true;
+  const sn = _deckCardNameKey(slot.name);
+  const cn = _deckCardNameKey(card.name);
+  return !!(sn && cn && sn === cn);
+}
+
+function _deckZoneSlotMatches(slot, card) {
+  if (!slot || !card) return false;
+  if (getCardInventoryKey(slot) === getCardInventoryKey(card)) return true;
+  return _deckCardMatchesSlot(slot, card);
+}
+
 function _deckCardDragKey(card) {
   return getCardInventoryKey(card) || '';
 }
@@ -5088,7 +5113,7 @@ function _stackTile(c, zone = 'main', poolHints = null) {
     : '';
   const isPlannedAdd = !!c._plannedAdd;
   const cutQty = zone === 'main' && !isPlannedAdd && poolHints?.cuts
-    ? _plannedCutQtyForDeckSlot(poolHints.cuts, cardKey)
+    ? _plannedCutQtyForDeckSlot(poolHints.cuts, cardKey, c)
     : 0;
   const cutBadge = cutQty > 0 || zone === 'cut'
     ? `<div class="stack-cut-flag" title="Planned cut — still in the deck">CUT${(zone === 'main' && cutQty > 0 && qty > 1) ? ` ×${cutQty}` : ''}</div>`
@@ -7288,9 +7313,7 @@ function renderDeckList(deck) {
   const matchSideboard = _deckMatchSideboardEnabled(deck) ? _deckMatchSideboard(deck) : [];
   const swapsOn = _deckSwapsEnabled(deck);
   const plannedAdds = swapsOn ? _deckPlannedAdds(deck) : [];
-  // Display-only filter — never mutate deck.cuts during render (that raced debounced
-  // planning saves and dropped markers before they reached the server).
-  const plannedCuts = swapsOn ? _filterPlannedCuts(deck) : [];
+  const plannedCuts = swapsOn ? _displayPlannedCuts(deck) : [];
   // Ghost copies of planned adds — shown in their deck-list groups but never counted
   const addGhosts = swapsOn
     ? _applyDeckListFilter(plannedAdds).map(c => ({ ...c, isCommander: false, _plannedAdd: true }))
@@ -7331,7 +7354,7 @@ function renderDeckList(deck) {
         const key = getCardInventoryKey(c);
         if (seen.has(key)) continue;
         seen.add(key);
-        cutQty += _plannedCutQtyForDeckSlot(plannedCuts, key);
+        cutQty += _plannedCutQtyForDeckSlot(plannedCuts, key, c);
       }
     }
     if (!addQty && !cutQty) return '';
@@ -7497,7 +7520,7 @@ function renderDeckList(deck) {
       }
       const mbRow = _maybeBoardQtyForDeckSlot(maybeboard, getCardInventoryKey(c));
       const sbRow = _matchSideboardQtyForDeckSlot(matchSideboard, getCardInventoryKey(c));
-      const cutRow = swapsOn ? _plannedCutQtyForDeckSlot(plannedCuts, getCardInventoryKey(c)) : 0;
+      const cutRow = swapsOn ? _plannedCutQtyForDeckSlot(plannedCuts, getCardInventoryKey(c), c) : 0;
       const mbRowHtml = mbRow > 0
         ? `<span class="deck-row-mb-pool" title="Same printing on maybe board">MB ×${mbRow}</span>`
         : '';
@@ -10058,7 +10081,7 @@ function _deckZonePool(deck, zone) {
 
 function _findDeckZoneSlot(deck, zone, card) {
   const key = getCardInventoryKey(card);
-  return _deckZonePool(deck, zone).find(c => getCardInventoryKey(c) === key);
+  return _deckZonePool(deck, zone).find(c => _deckZoneSlotMatches(c, card) || getCardInventoryKey(c) === key);
 }
 
 /** When tagging a collection card to a deck (TAG TO DECK), mirror one copy in that deck’s maybe board. */
@@ -10292,25 +10315,63 @@ function _deckMainboardQtyForKey(deck, key) {
     .reduce((s, c) => s + (c.qty || 1), 0);
 }
 
-function _plannedCutQtyForDeckSlot(pool, cardKey) {
-  if (!cardKey || !pool?.length) return 0;
-  return pool
-    .filter(c => getCardInventoryKey(c) === cardKey)
-    .reduce((s, c) => s + (c.qty || 1), 0);
+function _plannedCutQtyForDeckSlot(pool, cardKey, card) {
+  if (!pool?.length) return 0;
+  let sum = 0;
+  for (const slot of pool) {
+    if (cardKey && getCardInventoryKey(slot) === cardKey) sum += (slot.qty || 1);
+    else if (card && _deckCardMatchesSlot(slot, card)) sum += (slot.qty || 1);
+  }
+  return sum;
 }
 
-/** Cut markers whose mainboard card is gone are omitted; clamp qty to mainboard copies. */
+/** Cuts/adds slots aligned to current mainboard printings for display + highlighting. */
+function _displayPlannedCuts(deck) {
+  const cuts = _deckPlannedCuts(deck);
+  if (!cuts.length) return [];
+  const out = [];
+  for (const slot of cuts) {
+    const main = (deck.cards || []).find(c => !c.isCommander && _deckCardMatchesSlot(slot, c));
+    if (!main) { out.push(slot); continue; }
+    const q = Math.min(slot.qty || 1, main.qty || 1);
+    const key = getCardInventoryKey(main);
+    if (slot.uid === key && getCardInventoryKey(slot) === key && (slot.qty || 1) === q) out.push(slot);
+    else out.push({ ...main, uid: key, qty: q });
+  }
+  return out;
+}
+
+/** Rewrite cut marker uids to match current deck_cards rows (fixes post-reload drift). */
+function _resyncPlannedCutsToMainboard(deck) {
+  const cuts = _deckPlannedCuts(deck);
+  if (!cuts.length) return false;
+  let changed = false;
+  for (let i = 0; i < cuts.length; i++) {
+    const slot = cuts[i];
+    const main = (deck.cards || []).find(c => !c.isCommander && _deckCardMatchesSlot(slot, c));
+    if (!main) continue;
+    const key = getCardInventoryKey(main);
+    const q = Math.min(slot.qty || 1, main.qty || 1);
+    if (getCardInventoryKey(slot) !== key || slot.uid !== key || (slot.qty || 1) !== q || slot.scryfallId !== main.scryfallId) {
+      cuts[i] = { ...main, uid: key, qty: q };
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+/** Cut markers whose mainboard card is gone are omitted; clamp qty and re-point to the current printing. */
 function _filterPlannedCuts(deck) {
   const cuts = _deckPlannedCuts(deck);
   if (!cuts.length) return [];
   const kept = [];
   for (const slot of cuts) {
-    const key = getCardInventoryKey(slot);
-    let main = (deck.cards || []).find(c => getCardInventoryKey(c) === key);
-    if (!main) main = (deck.cards || []).find(c => !c.isCommander && (c.name || '').toLowerCase() === (slot.name || '').toLowerCase());
+    let main = (deck.cards || []).find(c => _deckCardMatchesSlot(slot, c));
+    if (!main) main = (deck.cards || []).find(c => !c.isCommander && _deckCardNameKey(c.name) === _deckCardNameKey(slot.name));
     if (!main || main.isCommander) continue;
     const q = Math.min(slot.qty || 1, main.qty || 1);
-    if (getCardInventoryKey(main) !== key) kept.push({ ...main, uid: getCardInventoryKey(main), qty: q });
+    const key = getCardInventoryKey(main);
+    if (key !== getCardInventoryKey(slot)) kept.push({ ...main, uid: key, qty: q });
     else if (q !== (slot.qty || 1)) kept.push({ ...slot, qty: q });
     else kept.push(slot);
   }
@@ -10323,7 +10384,7 @@ function _prunePlannedCuts(deck) {
 }
 
 /** Mark one copy of a mainboard card as a planned cut — the card stays in the deck. */
-function markPlannedCut(uid) {
+async function markPlannedCut(uid) {
   const deck = getActiveDeck();
   if (!deck || !_deckSwapsEnabled()) return;
   if (typeof canEditActiveDeck === 'function' && !canEditActiveDeck()) {
@@ -10341,12 +10402,18 @@ function markPlannedCut(uid) {
   } else {
     _deckPlannedCuts(deck).push({ ...card, uid: getCardInventoryKey(card), qty: 1 });
   }
-  saveActiveDeck(deck, { planningOnly: true, planningImmediate: true });
+  try {
+    if (typeof saveDeckPlanningNow === 'function') await saveDeckPlanningNow(deck);
+    else saveActiveDeck(deck, { planningOnly: true, planningImmediate: true });
+  } catch (e) {
+    showNotif('Could not save cut — ' + (e?.message || 'server error'), true);
+    return;
+  }
   renderActiveDeck();
   showNotif(card.name + ' marked as a cut');
 }
 
-function unmarkPlannedCut(uid) {
+async function unmarkPlannedCut(uid) {
   const deck = getActiveDeck();
   if (!deck) return;
   if (typeof canEditActiveDeck === 'function' && !canEditActiveDeck()) {
@@ -10354,12 +10421,19 @@ function unmarkPlannedCut(uid) {
     return;
   }
   const pool = _deckPlannedCuts(deck);
-  const slot = pool.find(c => getCardInventoryKey(c) === uid || c.uid === uid);
+  const slot = pool.find(c => getCardInventoryKey(c) === uid || c.uid === uid
+    || _deckCardMatchesSlot(c, deck.cards.find(x => getCardInventoryKey(x) === uid || x.uid === uid)));
   if (!slot) return;
   if ((slot.qty || 1) > 1) slot.qty--;
   else { const i = pool.indexOf(slot); if (i >= 0) pool.splice(i, 1); }
   _flagClearedPlanningIfEmpty(deck);
-  saveActiveDeck(deck, { planningOnly: true, planningImmediate: true });
+  try {
+    if (typeof saveDeckPlanningNow === 'function') await saveDeckPlanningNow(deck);
+    else saveActiveDeck(deck, { planningOnly: true, planningImmediate: true });
+  } catch (e) {
+    showNotif('Could not save — ' + (e?.message || 'server error'), true);
+    return;
+  }
   renderActiveDeck();
   showNotif(slot.name + ' kept — cut marker removed');
 }

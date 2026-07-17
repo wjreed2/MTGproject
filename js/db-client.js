@@ -594,6 +594,13 @@ function getRealtimeSocket() {
 function mergeDeckSnapshot(fresh) {
   if (!fresh?.id) return false;
   if (typeof _ensureDeckZones === 'function') _ensureDeckZones(fresh);
+  let resyncedCuts = false;
+  if (typeof _resyncPlannedCutsToMainboard === 'function') {
+    resyncedCuts = _resyncPlannedCutsToMainboard(fresh);
+  }
+  if (resyncedCuts && !_sharedPlanningDirty.has(fresh.id)) {
+    scheduleSaveSharedDeckPlanning(fresh, { immediate: true });
+  }
   let idx = typeof decks !== 'undefined' ? decks.findIndex(d => d.id === fresh.id) : -1;
   if (idx >= 0) {
     decks[idx] = fresh;
@@ -607,6 +614,25 @@ function mergeDeckSnapshot(fresh) {
     }
   }
   return false;
+}
+
+async function saveDeckPlanningNow(deck) {
+  if (!deck?.id) return;
+  const id = deck.id;
+  _sharedPlanningLatest[id] = deck;
+  _sharedPlanningPayloadLatest[id] = _planningPayloadFromDeck(deck);
+  _sharedPlanningDirty.add(id);
+  if (_sharedPlanningInFlight[id]) {
+    _sharedPlanningPending[id] = deck;
+    _sharedPlanningPayloadLatest[id] = _planningPayloadFromDeck(deck);
+    while (_sharedPlanningInFlight[id]) {
+      await new Promise(r => setTimeout(r, 25));
+    }
+    if (!_sharedPlanningDirty.has(id)) return;
+  }
+  clearTimeout(_sharedPlanningTimers[id]);
+  delete _sharedPlanningTimers[id];
+  await _runDeckPlanningSave(id);
 }
 
 async function refreshDeckFromRemote(msg) {
@@ -690,9 +716,13 @@ function leaveDeckRoom() {
 /** Pull one shared deck from the server (bypasses stale IndexedDB / JSON blob cards). */
 async function refreshSharedDeckFromServer(deckId, opts) {
   if (!deckId) return null;
+  if (_sharedPlanningDirty.has(deckId)) return null;
   const silent = opts && opts.silent;
   try {
     const fresh = await apiFetch('/decks/' + deckId);
+    if (typeof _resyncPlannedCutsToMainboard === 'function') {
+      _resyncPlannedCutsToMainboard(fresh);
+    }
     if (!mergeDeckSnapshot(fresh)) return null;
     if (typeof sharedDecks !== 'undefined') {
       cacheSet('sharedDecks', sharedDecks).catch(() => {});
@@ -716,9 +746,12 @@ async function refreshAllSharedDecksFromServer(opts) {
   if (!list.length) return;
   const silent = opts && opts.silent;
   await Promise.all(list.map(async d => {
-    if (!d?.id) return;
+    if (!d?.id || _sharedPlanningDirty.has(d.id)) return;
     try {
       const fresh = await apiFetch('/decks/' + d.id);
+      if (typeof _resyncPlannedCutsToMainboard === 'function') {
+        _resyncPlannedCutsToMainboard(fresh);
+      }
       mergeDeckSnapshot(fresh);
     } catch (_) {}
   }));
