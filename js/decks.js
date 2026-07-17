@@ -6177,7 +6177,7 @@ function _renderDeckTokensSection(deck, tokens, opts = {}) {
   };
 }
 
-const _DECK_ZONE_SHORT_LABELS = { mb: 'MB', sb: 'SB', add: 'ADDS', cut: 'CUTS' };
+const _DECK_ZONE_SHORT_LABELS = { mb: 'MB', sb: 'SB', add: 'ADDS', cut: 'CUTS (fix attempt 1)' };
 
 function _renderDeckExtraZoneGrid(deck, zone, label, cards, orientClass, emptyHint, poolHints = null) {
   const collapsed = _deckZoneCollapsed(zone);
