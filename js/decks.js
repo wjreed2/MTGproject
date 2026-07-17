@@ -3536,22 +3536,18 @@ function renderActiveDeck() {
   if (topValueEl) topValueEl.textContent = `$${totalTcg.toFixed(2)}`;
   const target = FORMAT_RULES[deck.format]?.min || 60;
   const max    = FORMAT_RULES[deck.format]?.max;
-  let addQty = 0;
-  let cutQty = 0;
-  if (_deckSwapsEnabled(deck)) {
-    addQty = _deckPlannedAdds(deck).reduce((s, c) => s + (c.qty || 1), 0);
-    cutQty = _deckPlannedCuts(deck).reduce((s, c) => s + (c.qty || 1), 0);
-  }
-  const effective = total + addQty - cutQty;
-  const countOk = effective >= target && (!max || effective <= max);
+  const countOk = total >= target && (!max || total <= max);
   const countEl = document.getElementById('deckListCount');
-  if (addQty || cutQty) {
-    countEl.innerHTML = `${effective} / ${max || target}`
-      + ` <span class="deck-swaps-projected" title="Mainboard ${total}; planned adds +${addQty}, cuts −${cutQty}">(${total} in deck)</span>`;
-  } else {
-    countEl.textContent = total + ' / ' + (max || target);
-  }
+  countEl.textContent = total + ' / ' + (max || target);
   countEl.style.color = countOk ? 'var(--teal)' : 'var(--red)';
+  if (_deckSwapsEnabled(deck)) {
+    const addQty = _deckPlannedAdds(deck).reduce((s, c) => s + (c.qty || 1), 0);
+    const cutQty = _deckPlannedCuts(deck).reduce((s, c) => s + (c.qty || 1), 0);
+    if (addQty || cutQty) {
+      const projected = total + addQty - cutQty;
+      countEl.innerHTML = `${total} / ${max || target} <span class="deck-swaps-projected" title="Deck size if all planned adds and cuts were applied">→ ${projected} after swaps</span>`;
+    }
+  }
   const isCommanderFmt = ['Commander','Brawl','Oathbreaker'].includes(deck.format);
   const cmdEl = document.getElementById('activeDeckCommander');
   if (cmdEl) { cmdEl.textContent = deck.commander || ''; cmdEl.style.display = deck.commander ? '' : 'none'; }
