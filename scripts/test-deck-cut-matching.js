@@ -1,5 +1,5 @@
 /**
- * Planned-cut slot matching — uid drift between deck_cards and cuts[] in JSON blob.
+ * Planned-cut slot matching — uid drift, orphans, dedupe.
  */
 const assert = require('assert');
 
@@ -25,19 +25,32 @@ function _deckCardMatchesSlot(slot, card) {
   return !!(sn && cn && sn === cn);
 }
 
-function _displayPlannedCuts(deck) {
-  const cuts = deck.cuts || [];
-  if (!cuts.length) return [];
-  const out = [];
-  for (const slot of cuts) {
+function _deckPlannedCuts(deck) {
+  return deck.cuts || [];
+}
+
+function _effectivePlannedCuts(deck) {
+  const raw = _deckPlannedCuts(deck);
+  if (!raw.length) return [];
+  const byKey = new Map();
+  for (const slot of raw) {
     const main = (deck.cards || []).find(c => !c.isCommander && _deckCardMatchesSlot(slot, c));
-    if (!main) { out.push(slot); continue; }
-    const q = Math.min(slot.qty || 1, main.qty || 1);
+    if (!main) continue;
     const key = getCardInventoryKey(main);
-    if (slot.uid === key && getCardInventoryKey(slot) === key && (slot.qty || 1) === q) out.push(slot);
-    else out.push({ ...main, uid: key, qty: q });
+    const mainQty = main.qty || 1;
+    const addQty = Math.min(slot.qty || 1, mainQty);
+    const prev = byKey.get(key);
+    const mergedQty = Math.min(mainQty, (prev?.qty || 0) + addQty);
+    byKey.set(key, { ...main, uid: key, qty: mergedQty });
   }
-  return out;
+  return [...byKey.values()];
+}
+
+function _pruneStalePlannedCuts(deck) {
+  if (!_deckPlannedCuts(deck).length) return false;
+  const before = JSON.stringify(_deckPlannedCuts(deck));
+  deck.cuts = _effectivePlannedCuts(deck);
+  return JSON.stringify(deck.cuts) !== before;
 }
 
 // Cut stored with stale uid from JSON blob; mainboard from deck_cards with different uid.
@@ -46,7 +59,7 @@ function _displayPlannedCuts(deck) {
     cards: [{ name: 'Season of Weaving', scryfallId: 'abc123', uid: 'abc123_n', qty: 1 }],
     cuts: [{ name: 'Season of Weaving', scryfallId: 'abc123', uid: 'old_stale_uid_n', qty: 1 }],
   };
-  const displayed = _displayPlannedCuts(deck);
+  const displayed = _effectivePlannedCuts(deck);
   assert.strictEqual(displayed.length, 1);
   assert.strictEqual(displayed[0].name, 'Season of Weaving');
   assert.strictEqual(displayed[0].uid, 'abc123_n');
@@ -58,7 +71,7 @@ function _displayPlannedCuts(deck) {
     cards: [{ name: 'Delver of Secrets // Insectile Aberration', scryfallId: 'delver', uid: 'delver_n', qty: 1 }],
     cuts: [{ name: 'Delver of Secrets', scryfallId: 'delver', uid: 'wrong_n', qty: 1 }],
   };
-  assert.strictEqual(_displayPlannedCuts(deck).length, 1);
+  assert.strictEqual(_effectivePlannedCuts(deck).length, 1);
 }
 
 // Strict uid-only filter would drop this cut (no scryfallId on stored marker).
@@ -69,7 +82,39 @@ function _displayPlannedCuts(deck) {
   };
   const strict = (deck.cuts || []).filter(c => getCardInventoryKey(c) === getCardInventoryKey(deck.cards[0]));
   assert.strictEqual(strict.length, 0, 'strict uid match fails on drift');
-  assert.strictEqual(_displayPlannedCuts(deck).length, 1, 'flexible match keeps cut visible');
+  assert.strictEqual(_effectivePlannedCuts(deck).length, 1, 'flexible match keeps cut visible');
+}
+
+// Orphan cut (card left deck) must not inflate swap count — Murder artifact case.
+{
+  const deck = {
+    cards: [{ name: 'Season of Weaving', scryfallId: 'abc', uid: 'abc_n', qty: 1 }],
+    cuts: [
+      { name: 'Murder', uid: 'murder_n', qty: 1 },
+      { name: 'Season of Weaving', scryfallId: 'abc', uid: 'abc_n', qty: 1 },
+    ],
+  };
+  const rawQty = deck.cuts.reduce((s, c) => s + (c.qty || 1), 0);
+  const effQty = _effectivePlannedCuts(deck).reduce((s, c) => s + (c.qty || 1), 0);
+  assert.strictEqual(rawQty, 2, 'raw cuts include orphan');
+  assert.strictEqual(effQty, 1, 'effective cuts exclude orphan Murder');
+  assert.strictEqual(_effectivePlannedCuts(deck).length, 1);
+  assert.strictEqual(_pruneStalePlannedCuts(deck), true);
+  assert.strictEqual(deck.cuts.length, 1);
+  assert.strictEqual(deck.cuts[0].name, 'Season of Weaving');
+}
+
+// Duplicate markers for the same card merge to one slot.
+{
+  const deck = {
+    cards: [{ name: 'Sol Ring', scryfallId: 'sr', uid: 'sr_n', qty: 1 }],
+    cuts: [
+      { name: 'Sol Ring', scryfallId: 'sr', uid: 'sr_n', qty: 1 },
+      { name: 'Sol Ring', uid: 'legacy_n', qty: 1 },
+    ],
+  };
+  assert.strictEqual(_effectivePlannedCuts(deck).length, 1);
+  assert.strictEqual(_effectivePlannedCuts(deck)[0].qty, 1);
 }
 
 console.log('deck-cut-matching: ok');

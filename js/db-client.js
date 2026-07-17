@@ -594,11 +594,13 @@ function getRealtimeSocket() {
 function mergeDeckSnapshot(fresh) {
   if (!fresh?.id) return false;
   if (typeof _ensureDeckZones === 'function') _ensureDeckZones(fresh);
-  let resyncedCuts = false;
-  if (typeof _resyncPlannedCutsToMainboard === 'function') {
-    resyncedCuts = _resyncPlannedCutsToMainboard(fresh);
+  let planningChanged = false;
+  if (typeof _pruneStalePlannedCuts === 'function') {
+    planningChanged = _pruneStalePlannedCuts(fresh);
+  } else if (typeof _resyncPlannedCutsToMainboard === 'function') {
+    planningChanged = _resyncPlannedCutsToMainboard(fresh);
   }
-  if (resyncedCuts && !_sharedPlanningDirty.has(fresh.id)) {
+  if (planningChanged && !_sharedPlanningDirty.has(fresh.id)) {
     scheduleSaveSharedDeckPlanning(fresh, { immediate: true });
   }
   let idx = typeof decks !== 'undefined' ? decks.findIndex(d => d.id === fresh.id) : -1;
@@ -720,9 +722,6 @@ async function refreshSharedDeckFromServer(deckId, opts) {
   const silent = opts && opts.silent;
   try {
     const fresh = await apiFetch('/decks/' + deckId);
-    if (typeof _resyncPlannedCutsToMainboard === 'function') {
-      _resyncPlannedCutsToMainboard(fresh);
-    }
     if (!mergeDeckSnapshot(fresh)) return null;
     if (typeof sharedDecks !== 'undefined') {
       cacheSet('sharedDecks', sharedDecks).catch(() => {});
@@ -749,9 +748,6 @@ async function refreshAllSharedDecksFromServer(opts) {
     if (!d?.id || _sharedPlanningDirty.has(d.id)) return;
     try {
       const fresh = await apiFetch('/decks/' + d.id);
-      if (typeof _resyncPlannedCutsToMainboard === 'function') {
-        _resyncPlannedCutsToMainboard(fresh);
-      }
       mergeDeckSnapshot(fresh);
     } catch (_) {}
   }));
