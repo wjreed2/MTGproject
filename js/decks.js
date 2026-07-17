@@ -6886,11 +6886,16 @@ function _computeAddContext(deck) {
   };
 }
 
+/** Utility role tags for Suggested Adds — Land/Commander do not count. */
+function _utilityAddRoles(roles) {
+  return (roles || []).filter(t => t && t !== 'Land' && t !== 'Commander');
+}
+
 function _scoreAddCandidate(card, roles, ctx) {
   // Score = (D × M) + C_eff + L + E + B − P + V + T + K
   // Pure term math lives in js/adds-scoring.js (deterministic; no runtime AI).
   const blob = _replacementOracleBlob(card);
-  const real = (roles || []).filter(t => t !== 'Land' && t !== 'Commander');
+  const real = _utilityAddRoles(roles);
   // Gate uses pre-gate deficit presence (same cast-trigger shrink as replacements).
   let gate = { factor: 1 };
   const anyDeficit = !real.length
@@ -7089,6 +7094,8 @@ async function _renderAddSuggestions(deck) {
         if (inDeckNames.has(nm)) continue;
         if (_isTokenTypeDeckCard(c)) continue;
         const roles = c.roleTags || [];
+        // Never suggest roleless cards — Plan-only / curve / EDHREC alone is not enough.
+        if (!_utilityAddRoles(roles).length) continue;
         const s = _scoreAddCandidate(c, roles, ctx);
         if (planOnlyBackfill && typeof planMatchScore === 'function') {
           s.planMatch = planMatchScore(c, deckPlan, deck);
@@ -7149,6 +7156,8 @@ async function _renderAddSuggestions(deck) {
 
     for (const c of ownedPool) {
       const roles = _probTagsOnCard(c, deck);
+      // Never suggest roleless cards — Plan-only / curve / EDHREC alone is not enough.
+      if (!_utilityAddRoles(roles).length) continue;
       const s = _scoreAddCandidate(c, roles, ctx);
       if (s.score <= 0) continue;
       ownedScored.push({ card: c, owned: true, s });
@@ -7191,8 +7200,8 @@ async function _renderAddSuggestions(deck) {
 
   if (!picks.length) {
     const hint = isAllCards
-      ? 'No add suggestions from the catalog — your role targets look met, or no cards passed the conditional-keyword gate.'
-      : 'No add suggestions — your role targets look met. Lower a target with ⚙ on Suggested Cuts, switch to All Cards for catalog picks, or adjust the playstyle slider.';
+      ? 'No add suggestions from the catalog — your role targets look met, tagged fillers are scarce, or no cards passed the conditional-keyword gate.'
+      : 'No add suggestions — your role targets look met, or no tagged cards in your collection scored. Lower a target with ⚙ on Suggested Cuts, switch to All Cards for catalog picks, or adjust the playstyle slider.';
     body.innerHTML = planBanner + `<div class="deck-tab-muted" style="padding:.75rem 1rem">${hint}</div>`;
     return;
   }
