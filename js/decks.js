@@ -3439,6 +3439,7 @@ function closeNewDeckModal() {
 }
 
 function selectDeck(id) {
+  if (typeof leaveDeckRoom === 'function') leaveDeckRoom();
   activeDeckId = id;
   activeDeckIsShared = !decks.some(d => d.id === id);
   if (typeof clearDeckOwnerCollectionLookup === 'function') clearDeckOwnerCollectionLookup();
@@ -3448,6 +3449,7 @@ function selectDeck(id) {
     document.getElementById('deckListPanel')?.classList.remove('deck-history-active');
     document.getElementById('deckHistoryBtn')?.classList.remove('active');
   }
+  if (typeof joinDeckRoom === 'function') joinDeckRoom(id);
   renderDecks();
   _enrichMissingDeckImages();
 }

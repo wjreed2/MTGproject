@@ -213,6 +213,7 @@ async function loadAppDataAfterAuth() {
         if (typeof activeDeckIsShared !== 'undefined') {
           activeDeckIsShared = !decks.some(d => d.id === savedDeckId);
         }
+        if (typeof joinDeckRoom === 'function') joinDeckRoom(savedDeckId);
       } else {
         localStorage.removeItem('mtg_active_deck_id');
       }
