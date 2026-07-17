@@ -258,25 +258,33 @@ Keep V as a **small positive** for paper multi-tag breadth.
 
 ## Verification
 
+Card matchups (Three Visits vs Growth Spiral, STE vs Rampant Growth, etc.) are
+**calibration examples**, not CI gates. Hard-asserting those orderings overfit
+constants (especially `K_L`) and made Efficient CMC dominate real score deltas.
+
 ### Hard (automated asserts + term log) — must pass
 | # | Case | Expected |
 |---|------|----------|
-| 1 | Simic, ramp deficit > draw deficit | Three Visits > Growth Spiral |
-| 2 | Ramp deficit active | Three Visits > Cultivate |
-| 3 | Non-spellslinger green ramp deck | Sakura-Tribe Elder > Rampant Growth |
-| 5 | Board-wipe deficit only | Sweepers still get C (L not applied) |
-| 7 | Term isolation | E favors TV over GS in ramp context but cannot alone flip #1 |
+| mode | Board-wipe deficit only | Sweepers still get C (L not applied) |
+| mode | Removal / Ramp tagged | Efficiency mode on; C_eff off; L > 0 for CMC &lt; 4 |
+| scale | `K_L × CMC_REF` | Max L ≤ C_eff cap (1.5) so L stays secondary to D |
+| consts | Named constants | `CMC_REF=4`, `K_E = 0.5 × K_L`, D weights `[1, 0.5, 0.25]`, tag set membership |
 
-### Soft (debug log + PR write-up — do not hard-fail forever)
+### Soft vignettes (debug log only — do not hard-fail)
 | # | Case | Expectation |
 |---|------|-------------|
+| 1 | Ramp hole, draw filled | Three Visits **often** beats Growth Spiral |
+| 1b | Ramp + draw both short | Growth Spiral **may** beat Three Visits on D — OK |
+| 2 | Ramp deficit active | Three Visits often beats Cultivate |
+| 3 | Non-spellslinger green ramp | Sakura-Tribe Elder often beats Rampant Growth |
 | 4 | WE vs Rampant Growth | **Either may win.** L’s CMC edge can favor RG; B must not force WE always. |
-| 6 | Spellslinger deck | Only if existing detection exists: B = 0; RG may beat STE. If undetectable, document and skip soft assert. |
+| 6 | Spellslinger deck | Only if existing detection exists: B = 0; RG may beat STE. If undetectable, document and skip. |
+| 7 | Term isolation | E favors TV over GS; E alone should rarely overturn a real multi-role D lead |
 
-Log `D, M, C_eff, L, E, B, P, V, T, K` for every verification pair.
+Log `D, M, C_eff, L, E, B, P, V, T, K` for every vignette pair.
 
-**Verification delivery:** pre-ship automated checks for hard cases **and** a debug flag for
-term logs (off in normal production UX). Soft cases use logs + PR notes.
+**Verification delivery:** structural hard asserts **and** a debug flag for term logs
+(off in normal production UX). Soft vignettes use logs + PR notes.
 
 ## Deliverables
 - Code + named constants (`D_SUBLINEAR_WEIGHTS`, `CMC_REF`, `K_L`, `K_E`, `K_P`, `K_B`,
