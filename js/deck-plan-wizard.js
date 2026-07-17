@@ -9,9 +9,9 @@
   let _planWizard = null; // { deckId, draft, steps, stepIdx, path, ranked, showMore }
 
   function _pwDeck() {
-    if (typeof getActiveDeck !== 'function') return null;
+    if (typeof getActiveDeck !== 'function' || !_planWizard) return null;
     const d = getActiveDeck();
-    if (!d || !_planWizard || d.id !== _planWizard.deckId) return d;
+    if (!d || d.id !== _planWizard.deckId) return null;
     return d;
   }
 
@@ -103,14 +103,17 @@
 
   function _pwPersist() {
     const deck = _pwDeck();
-    if (!deck || !_planWizard) return;
+    if (!deck || !_planWizard) return false;
     deck.plan = typeof normalizeDeckPlan === 'function'
       ? normalizeDeckPlan(_planWizard.draft)
       : _planWizard.draft;
     if (typeof logDeckPlan === 'function') logDeckPlan('persist', deck.plan);
     if (typeof saveActiveDeck === 'function') saveActiveDeck(deck);
     else if (typeof save === 'function') save('decks');
+    // Invalidate any in-flight Adds render that snapped an empty plan, then refresh.
+    if (typeof _addSuggestToken === 'number') _addSuggestToken++;
     if (typeof _renderAddSuggestions === 'function') _renderAddSuggestions(deck);
+    return true;
   }
 
   function _pwOptionButtons(list, selectedId, onPickAttr) {
@@ -390,9 +393,11 @@
       if (typeof showNotif === 'function') showNotif('Win condition and primary strategy are required for a complete plan');
       return;
     }
-    _pwPersist();
+    const ok = _pwPersist();
     closeDeckPlanWizard();
-    if (typeof showNotif === 'function') showNotif('Deck plan saved');
+    if (typeof showNotif === 'function') {
+      showNotif(ok ? 'Deck plan saved' : 'Could not save deck plan — reopen the deck and try again');
+    }
   }
 
   function _pwSkipBudgetStep() {
