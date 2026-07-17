@@ -10307,6 +10307,10 @@ function _prunePlannedCuts(deck) {
 function markPlannedCut(uid) {
   const deck = getActiveDeck();
   if (!deck || !_deckSwapsEnabled()) return;
+  if (typeof canEditActiveDeck === 'function' && !canEditActiveDeck()) {
+    showNotif('You have view-only access to this deck', true);
+    return;
+  }
   const card = deck.cards.find(c => getCardInventoryKey(c) === uid || c.uid === uid);
   if (!card) return;
   if (card.isCommander) { showNotif("The commander can't be marked as a cut", true); return; }
@@ -10326,6 +10330,10 @@ function markPlannedCut(uid) {
 function unmarkPlannedCut(uid) {
   const deck = getActiveDeck();
   if (!deck) return;
+  if (typeof canEditActiveDeck === 'function' && !canEditActiveDeck()) {
+    showNotif('You have view-only access to this deck', true);
+    return;
+  }
   const pool = _deckPlannedCuts(deck);
   const slot = pool.find(c => getCardInventoryKey(c) === uid || c.uid === uid);
   if (!slot) return;

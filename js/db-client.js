@@ -260,7 +260,21 @@ window.addEventListener('offline', () => _setOffline());
 
 // Flush any pending save when the user navigates away or refreshes.
 // fetch with keepalive:true tells the browser to complete the request even after unload.
-window.addEventListener('beforeunload', () => {
+function _flushPendingSavesOnUnload() {
+  // Shared (collaborator) decks use PATCH per deck — previously only owned PUTs
+  // were flushed, so Adds/Cuts marked right before refresh never reached the server.
+  for (const id of Object.keys(_sharedSaveTimers)) {
+    clearTimeout(_sharedSaveTimers[id]);
+    delete _sharedSaveTimers[id];
+  }
+  if (_sharedDirty.size) {
+    for (const id of [..._sharedDirty]) {
+      const deck = _sharedSaveLatest[id];
+      if (deck) _flushSharedDeckKeepalive(deck);
+    }
+    _sharedDirty.clear();
+  }
+
   if (!_saveTimer && !_dirty.size) return;
   clearTimeout(_saveTimer);
   _saveTimer = null;
@@ -280,27 +294,68 @@ window.addEventListener('beforeunload', () => {
     deck_secondary_tags: deckSecondaryTags || [],
     adds_pool_mode: typeof getAddsPoolMode === 'function' ? getAddsPoolMode() : 'collection',
   }) }).catch(() => {});
-});
+}
+window.addEventListener('beforeunload', _flushPendingSavesOnUnload);
+window.addEventListener('pagehide', _flushPendingSavesOnUnload);
 
 // ── Debounced per-deck save for shared (collaborator) decks
 const _sharedSaveTimers = {};
 const _sharedSaveInFlight = {};
 const _sharedSavePending = {};
+const _sharedSaveLatest = {};
+const _sharedDirty = new Set();
+let _sharedSaveErrorNotified = false;
+
+function _flushSharedDeckKeepalive(deck) {
+  if (!deck?.id) return;
+  const root = mtgApiRoot();
+  fetch(root + '/decks/' + deck.id, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    keepalive: true,
+    body: JSON.stringify(deck),
+  }).catch(() => {});
+}
+
 function scheduleSaveSharedDeck(deck) {
+  if (!deck?.id) return;
   const id = deck.id;
+  _sharedSaveLatest[id] = deck;
+  _sharedDirty.add(id);
   if (_sharedSaveInFlight[id]) {
     _sharedSavePending[id] = deck;
     return;
   }
   clearTimeout(_sharedSaveTimers[id]);
   _sharedSaveTimers[id] = setTimeout(async () => {
+    delete _sharedSaveTimers[id];
     _sharedSaveInFlight[id] = true;
+    const toSend = _sharedSaveLatest[id] || deck;
     try {
-      const res = await apiPatch('/decks/' + id, deck);
-      if (res && res.updatedAt) deck.updatedAt = res.updatedAt;
-      delete deck.clearAddsCuts;
+      const res = await apiPatch('/decks/' + id, toSend);
+      if (res && res.updatedAt) toSend.updatedAt = res.updatedAt;
+      delete toSend.clearAddsCuts;
+      if (!_sharedSavePending[id] && _sharedSaveLatest[id] === toSend) {
+        _sharedDirty.delete(id);
+      }
+      _sharedSaveErrorNotified = false;
     } catch (e) {
       console.error('[db] shared deck save failed:', e);
+      // Keep dirty so a later retry / unload flush can still persist Adds/Cuts.
+      if (!_sharedSaveErrorNotified) {
+        _sharedSaveErrorNotified = true;
+        if (typeof showNotif === 'function') {
+          showNotif('Could not save shared deck changes — keep this tab open so they aren\'t lost. (' + (e?.message || 'server error') + ')', true);
+        }
+      }
+      clearTimeout(_sharedSaveTimers[id]);
+      _sharedSaveTimers[id] = setTimeout(() => {
+        delete _sharedSaveTimers[id];
+        if (_sharedDirty.has(id) && !_sharedSaveInFlight[id] && _sharedSaveLatest[id]) {
+          scheduleSaveSharedDeck(_sharedSaveLatest[id]);
+        }
+      }, 2000);
     } finally {
       _sharedSaveInFlight[id] = false;
       const pending = _sharedSavePending[id];

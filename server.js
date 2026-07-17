@@ -2015,6 +2015,7 @@ function dedupeDeckCardTags(tags) {
  * See lib/deck-planning-merge.js.
  */
 const { mergeDeckPlanningZonesForWrite } = require('./lib/deck-planning-merge');
+const { collaboratorChangesPrintings } = require('./lib/deck-collaborator-printings');
 
 function normalizeDeckForStorage(deck) {
   const seen = new Map();
@@ -3242,18 +3243,17 @@ app.patch('/api/decks/:id', requireAuth, async (req, res) => {
       );
       if (!cr.length) return res.status(403).json({ error: 'Access denied' });
       if ((cr[0].permission || 'edit') === 'view') return res.status(403).json({ error: 'You have view-only access to this deck' });
-      // Block printing changes — compare incoming scryfallIds against stored cards by name
+      // Block real printing swaps. Allow multiple existing printings of the same
+      // name (basics) and null/unknown stored ids — the old Map-by-name check
+      // rejected those and silently dropped collaborator Adds/Cuts saves.
       const [storedCards] = await db().query(
         'SELECT card_name, scryfall_id FROM deck_cards WHERE account_id=? AND deck_id=?',
         [ownerId, deckId]
       );
-      const storedById = new Map(storedCards.map(r => [String(r.card_name).toLowerCase(), r.scryfall_id]));
       const incoming = Array.isArray(req.body?.cards) ? req.body.cards : [];
-      const printingChanged = incoming.some(c => {
-        const stored = storedById.get(String(c.name || '').toLowerCase());
-        return stored !== undefined && c.scryfallId && stored !== c.scryfallId;
-      });
-      if (printingChanged) return res.status(403).json({ error: 'Collaborators cannot change card printings' });
+      if (collaboratorChangesPrintings(storedCards, incoming)) {
+        return res.status(403).json({ error: 'Collaborators cannot change card printings' });
+      }
     }
 
     mergeDeckPlanningZonesForWrite(existingData, existingUpdatedAt, req.body);
