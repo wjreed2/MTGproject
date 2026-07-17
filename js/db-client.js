@@ -323,6 +323,7 @@ const _sharedPlanningTimers = {};
 const _sharedPlanningInFlight = {};
 const _sharedPlanningPending = {};
 const _sharedPlanningLatest = {};
+const _sharedPlanningPayloadLatest = {};
 const _sharedPlanningDirty = new Set();
 
 function _planningPayloadFromDeck(deck) {
@@ -357,12 +358,13 @@ function _flushSharedDeckKeepalive(deck) {
 function _flushSharedPlanningKeepalive(deck) {
   if (!deck?.id) return;
   const root = mtgApiRoot();
+  const payload = _sharedPlanningPayloadLatest[deck.id] || _planningPayloadFromDeck(deck);
   fetch(root + '/decks/' + deck.id + '/planning', {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
     keepalive: true,
-    body: JSON.stringify(_planningPayloadFromDeck(deck)),
+    body: JSON.stringify(payload),
   }).catch(() => {});
 }
 
@@ -415,53 +417,75 @@ function scheduleSaveSharedDeck(deck) {
   }, 500);
 }
 
-/** Persist only adds/cuts for a shared deck (fast path for mark cut / mark add). */
-function scheduleSaveSharedDeckPlanning(deck) {
+async function _runDeckPlanningSave(id) {
+  if (_sharedPlanningInFlight[id]) return;
+  _sharedPlanningInFlight[id] = true;
+  const live = _sharedPlanningLatest[id];
+  const payload = _sharedPlanningPayloadLatest[id] || _planningPayloadFromDeck(live);
+  try {
+    const res = await apiPatch('/decks/' + id + '/planning', payload);
+    if (live) _applyPlanningResponse(live, res);
+    delete _sharedPlanningPayloadLatest[id];
+    if (!_sharedPlanningPending[id] && _sharedPlanningLatest[id] === live) {
+      _sharedPlanningDirty.delete(id);
+    }
+    _sharedSaveErrorNotified = false;
+    if (typeof cacheSet === 'function') {
+      const cacheKey = (typeof activeDeckIsShared !== 'undefined' && activeDeckIsShared)
+        ? 'sharedDecks'
+        : 'decks';
+      const cacheVal = cacheKey === 'sharedDecks'
+        ? (typeof sharedDecks !== 'undefined' ? sharedDecks : [])
+        : (typeof decks !== 'undefined' ? decks : []);
+      cacheSet(cacheKey, cacheVal).catch(() => {});
+    }
+  } catch (e) {
+    console.error('[db] deck planning save failed:', e);
+    if (!_sharedSaveErrorNotified) {
+      _sharedSaveErrorNotified = true;
+      if (typeof showNotif === 'function') {
+        showNotif('Could not save deck cuts/adds — keep this tab open so they aren\'t lost. (' + (e?.message || 'server error') + ')', true);
+      }
+    }
+    clearTimeout(_sharedPlanningTimers[id]);
+    _sharedPlanningTimers[id] = setTimeout(() => {
+      delete _sharedPlanningTimers[id];
+      if (_sharedPlanningDirty.has(id) && !_sharedPlanningInFlight[id] && _sharedPlanningLatest[id]) {
+        scheduleSaveSharedDeckPlanning(_sharedPlanningLatest[id]);
+      }
+    }, 2000);
+  } finally {
+    _sharedPlanningInFlight[id] = false;
+    const pending = _sharedPlanningPending[id];
+    if (pending) {
+      delete _sharedPlanningPending[id];
+      scheduleSaveSharedDeckPlanning(pending);
+    }
+  }
+}
+
+/** Persist only adds/cuts (owner or collaborator) — fast path for mark cut / mark add. */
+function scheduleSaveSharedDeckPlanning(deck, opts) {
   if (!deck?.id) return;
   const id = deck.id;
   _sharedPlanningLatest[id] = deck;
+  _sharedPlanningPayloadLatest[id] = _planningPayloadFromDeck(deck);
   _sharedPlanningDirty.add(id);
   if (_sharedPlanningInFlight[id]) {
     _sharedPlanningPending[id] = deck;
+    _sharedPlanningPayloadLatest[id] = _planningPayloadFromDeck(deck);
     return;
   }
   clearTimeout(_sharedPlanningTimers[id]);
-  // Short debounce so rapid +/- qty coalesces, but much faster than full-deck save.
-  _sharedPlanningTimers[id] = setTimeout(async () => {
+  if (opts && opts.immediate) {
     delete _sharedPlanningTimers[id];
-    _sharedPlanningInFlight[id] = true;
-    const live = _sharedPlanningLatest[id] || deck;
-    const payload = _planningPayloadFromDeck(live);
-    try {
-      const res = await apiPatch('/decks/' + id + '/planning', payload);
-      _applyPlanningResponse(live, res);
-      if (!_sharedPlanningPending[id] && _sharedPlanningLatest[id] === live) {
-        _sharedPlanningDirty.delete(id);
-      }
-      _sharedSaveErrorNotified = false;
-    } catch (e) {
-      console.error('[db] shared deck planning save failed:', e);
-      if (!_sharedSaveErrorNotified) {
-        _sharedSaveErrorNotified = true;
-        if (typeof showNotif === 'function') {
-          showNotif('Could not save shared deck cuts/adds — keep this tab open so they aren\'t lost. (' + (e?.message || 'server error') + ')', true);
-        }
-      }
-      clearTimeout(_sharedPlanningTimers[id]);
-      _sharedPlanningTimers[id] = setTimeout(() => {
-        delete _sharedPlanningTimers[id];
-        if (_sharedPlanningDirty.has(id) && !_sharedPlanningInFlight[id] && _sharedPlanningLatest[id]) {
-          scheduleSaveSharedDeckPlanning(_sharedPlanningLatest[id]);
-        }
-      }, 2000);
-    } finally {
-      _sharedPlanningInFlight[id] = false;
-      const pending = _sharedPlanningPending[id];
-      if (pending) {
-        delete _sharedPlanningPending[id];
-        scheduleSaveSharedDeckPlanning(pending);
-      }
-    }
+    void _runDeckPlanningSave(id);
+    return;
+  }
+  // Short debounce so rapid +/- qty coalesces, but much faster than full-deck save.
+  _sharedPlanningTimers[id] = setTimeout(() => {
+    delete _sharedPlanningTimers[id];
+    void _runDeckPlanningSave(id);
   }, 100);
 }
 
