@@ -1672,13 +1672,15 @@ function renderDeckSwapsSettingBtn() {
 }
 
 // Routes save to the right path depending on ownership.
-// opts.planningOnly → shared decks use the planning endpoint (adds/cuts only),
-// which is what mark-cut / mark-add need to survive reload.
+// opts.planningOnly → owner or collaborator uses PATCH /decks/:id/planning (adds/cuts
+// only). Bulk PUT/PATCH races and render-time prune must not wipe cut markers.
 function saveActiveDeck(deck, opts) {
+  if (opts && opts.planningOnly && typeof scheduleSaveSharedDeckPlanning === 'function') {
+    scheduleSaveSharedDeckPlanning(deck);
+    return;
+  }
   if (activeDeckIsShared) {
-    if (opts && opts.planningOnly && typeof scheduleSaveSharedDeckPlanning === 'function') {
-      scheduleSaveSharedDeckPlanning(deck);
-    } else if (typeof scheduleSaveSharedDeck === 'function') {
+    if (typeof scheduleSaveSharedDeck === 'function') {
       scheduleSaveSharedDeck(deck);
     }
   } else {
@@ -6177,7 +6179,7 @@ function _renderDeckTokensSection(deck, tokens, opts = {}) {
   };
 }
 
-const _DECK_ZONE_SHORT_LABELS = { mb: 'MB', sb: 'SB', add: 'ADDS', cut: 'CUTS (fix attempt 1)' };
+const _DECK_ZONE_SHORT_LABELS = { mb: 'MB', sb: 'SB', add: 'ADDS', cut: 'CUTS' };
 
 function _renderDeckExtraZoneGrid(deck, zone, label, cards, orientClass, emptyHint, poolHints = null) {
   const collapsed = _deckZoneCollapsed(zone);
@@ -7280,11 +7282,10 @@ function renderDeckList(deck) {
   const maybeboard = _deckMaybeBoard(deck);
   const matchSideboard = _deckMatchSideboardEnabled(deck) ? _deckMatchSideboard(deck) : [];
   const swapsOn = _deckSwapsEnabled(deck);
-  // Mutating prune on shared decks can drop server-backed cuts during render if
-  // identity briefly doesn't line up; only prune (and persist) on owned decks.
-  if (swapsOn && !activeDeckIsShared) _prunePlannedCuts(deck);
   const plannedAdds = swapsOn ? _deckPlannedAdds(deck) : [];
-  const plannedCuts = swapsOn ? _deckPlannedCuts(deck) : [];
+  // Display-only filter — never mutate deck.cuts during render (that raced debounced
+  // planning saves and dropped markers before they reached the server).
+  const plannedCuts = swapsOn ? _filterPlannedCuts(deck) : [];
   // Ghost copies of planned adds — shown in their deck-list groups but never counted
   const addGhosts = swapsOn
     ? _applyDeckListFilter(plannedAdds).map(c => ({ ...c, isCommander: false, _plannedAdd: true }))
@@ -7370,7 +7371,7 @@ function renderDeckList(deck) {
         : '') +
       (swapsOn
         ? _renderDeckExtraZoneGrid(deck, 'add', 'Adds', plannedAdds, ' vertical', 'No planned adds — drag cards here from search or the maybe board', poolHints) +
-          _renderDeckExtraZoneGrid(deck, 'cut', 'Cuts (fix attempt 1)', plannedCuts, ' vertical', 'No planned cuts — drag deck cards here to mark them', poolHints)
+          _renderDeckExtraZoneGrid(deck, 'cut', 'Cuts', plannedCuts, ' vertical', 'No planned cuts — drag deck cards here to mark them', poolHints)
         : '');
     const extraZonesHtml = _deckExtraZonesWrapOpenHtml(deck, zoneInner + applySwapsHtml);
     const layout = _deckStackZoneLayout(el, deck, isVertical);
@@ -10293,10 +10294,10 @@ function _plannedCutQtyForDeckSlot(pool, cardKey) {
     .reduce((s, c) => s + (c.qty || 1), 0);
 }
 
-/** Drop cut markers whose mainboard card is gone; clamp qty and re-point to the current printing. */
-function _prunePlannedCuts(deck) {
+/** Cut markers whose mainboard card is gone are omitted; clamp qty to mainboard copies. */
+function _filterPlannedCuts(deck) {
   const cuts = _deckPlannedCuts(deck);
-  if (!cuts.length) return;
+  if (!cuts.length) return [];
   const kept = [];
   for (const slot of cuts) {
     const key = getCardInventoryKey(slot);
@@ -10308,7 +10309,12 @@ function _prunePlannedCuts(deck) {
     else if (q !== (slot.qty || 1)) kept.push({ ...slot, qty: q });
     else kept.push(slot);
   }
-  deck.cuts = kept;
+  return kept;
+}
+
+/** Persistable prune — only call before apply swaps or an explicit save. */
+function _prunePlannedCuts(deck) {
+  deck.cuts = _filterPlannedCuts(deck);
 }
 
 /** Mark one copy of a mainboard card as a planned cut — the card stays in the deck. */
