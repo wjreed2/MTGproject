@@ -20,10 +20,11 @@
   const D_SUBLINEAR_WEIGHTS = [1.0, 0.5, 0.25];
   const CMC_REF = 4;
   /**
-   * Meaningful 1-CMC L step. Kept near C_eff's scale (C_eff caps at 1.5) so L
-   * stays secondary to D per weight order (D > L > E). K_L=2.0 made max L=8 and
-   * dominated role-fit lines (~+1) on cheap interaction — ~10× too high in UI.
-   * K_E = 0.5 × K_L per locked relative rule.
+   * L = K_L × max(0, CMC_REF − CMC). Each mana below 4 MV is worth K_L on
+   * efficiency-mode cards (interaction/ramp/etc.); CMC ≥ 4 → L = 0.
+   * Keep K_L near C_eff's scale (cap 1.5) so L stays secondary to D.
+   * Do not retune K_L to force card matchups (TV>GS etc.) — those are soft
+   * vignettes only. K_E = 0.5 × K_L (relative rule).
    */
   const K_L = 0.2;
   const K_E = 0.5 * K_L; // 0.1 — max E at p_adjusted=1
