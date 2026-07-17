@@ -2014,8 +2014,31 @@ function dedupeDeckCardTags(tags) {
  * Prevent stale clients from wiping collaborator Adds/Cuts plans.
  * See lib/deck-planning-merge.js.
  */
-const { mergeDeckPlanningZonesForWrite } = require('./lib/deck-planning-merge');
+const {
+  mergeDeckPlanningZonesForWrite,
+  applyDeckPlanningWrite,
+} = require('./lib/deck-planning-merge');
 const { collaboratorChangesPrintings } = require('./lib/deck-collaborator-printings');
+
+async function assertCanEditDeck(deckId, accountId) {
+  const [deckRows] = await db().query('SELECT account_id, data, updated_at FROM decks WHERE id = ?', [deckId]);
+  if (!deckRows.length) return { error: { status: 404, message: 'Deck not found' } };
+  const ownerId = Number(deckRows[0].account_id);
+  const existingUpdatedAt = Number(deckRows[0].updated_at) || 0;
+  const existingData = typeof deckRows[0].data === 'string' ? JSON.parse(deckRows[0].data) : deckRows[0].data;
+  const isOwner = ownerId === Number(accountId);
+  if (!isOwner) {
+    const [cr] = await db().query(
+      'SELECT permission FROM deck_collaborators WHERE deck_id = ? AND collaborator_id = ?',
+      [deckId, accountId]
+    );
+    if (!cr.length) return { error: { status: 403, message: 'Access denied' } };
+    if ((cr[0].permission || 'edit') === 'view') {
+      return { error: { status: 403, message: 'You have view-only access to this deck' } };
+    }
+  }
+  return { ownerId, isOwner, existingUpdatedAt, existingData };
+}
 
 function normalizeDeckForStorage(deck) {
   const seen = new Map();
@@ -3312,6 +3335,43 @@ app.patch('/api/decks/:id', requireAuth, async (req, res) => {
       conn.release();
     }
     res.json({ ok: true, updatedAt: now });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Planning-only write (adds/cuts) — owner or collaborator.
+// Does not rewrite deck_cards, so collaborator cut/add markers cannot be blocked
+// by the printing-change guard or a failed card re-insert.
+app.patch('/api/decks/:id/planning', requireAuth, async (req, res) => {
+  const deckId = req.params.id;
+  const accountId = req.accountId;
+  try {
+    const access = await assertCanEditDeck(deckId, accountId);
+    if (access.error) return res.status(access.error.status).json({ error: access.error.message });
+
+    const nextData = applyDeckPlanningWrite(access.existingData, access.existingUpdatedAt, req.body || {});
+    const now = Date.now();
+    nextData.updatedAt = now;
+    // Keep collaborator/client-only fields out of the persisted blob.
+    delete nextData.shareToken;
+    delete nextData.clearAddsCuts;
+    delete nextData.ownerEmail;
+    delete nextData.ownerId;
+    delete nextData.ownerCustomTags;
+    delete nextData.userPermission;
+
+    await db().query(
+      'UPDATE decks SET data=?, updated_at=? WHERE id=?',
+      [JSON.stringify(nextData), now, deckId]
+    );
+    res.json({
+      ok: true,
+      updatedAt: now,
+      adds: Array.isArray(nextData.adds) ? nextData.adds : [],
+      cuts: Array.isArray(nextData.cuts) ? nextData.cuts : [],
+    });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
