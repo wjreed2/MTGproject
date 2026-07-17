@@ -1515,6 +1515,16 @@ function _deckSwapsEnabled() {
   return typeof deckSwapsFeatureEnabled === 'undefined' || deckSwapsFeatureEnabled !== false;
 }
 
+/** Swap projection label — plain text (iOS can mangle the → glyph in tight headers). */
+function _deckSwapsProjectedLabel(projected) {
+  return `(after swaps: ${projected})`;
+}
+
+function _deckSwapsProjectedHtml(projected, title) {
+  const tip = title || 'Deck size if all planned adds and cuts were applied';
+  return ` <span class="deck-swaps-projected" title="${tip}">${_deckSwapsProjectedLabel(projected)}</span>`;
+}
+
 function _deckZoneIsPlanning(zone) {
   return zone === 'add' || zone === 'cut';
 }
@@ -3450,10 +3460,15 @@ function selectDeck(id) {
     document.getElementById('deckHistoryBtn')?.classList.remove('active');
   }
   if (typeof joinDeckRoom === 'function') joinDeckRoom(id);
-  renderDecks();
+  void _selectDeckRefreshAndRender(id);
+}
+
+async function _selectDeckRefreshAndRender(id) {
   if (activeDeckIsShared && typeof refreshSharedDeckFromServer === 'function') {
-    refreshSharedDeckFromServer(id).catch(() => {});
+    await refreshSharedDeckFromServer(id, { silent: true }).catch(() => {});
   }
+  if (activeDeckId !== id) return;
+  renderDecks();
   _enrichMissingDeckImages();
 }
 
@@ -3508,6 +3523,9 @@ function _backfillDeckCardTypeLines(deck) {
 function renderActiveDeck() {
   const deck = getActiveDeck();
   if (!deck) return;
+  if (activeDeckIsShared && deck.id && typeof ensureSharedDeckFresh === 'function') {
+    ensureSharedDeckFresh(deck.id);
+  }
   if (typeof _pruneStalePlannedCuts === 'function' && _pruneStalePlannedCuts(deck)) {
     if (typeof saveDeckPlanningNow === 'function') {
       saveDeckPlanningNow(deck).catch(() => {});
@@ -3552,7 +3570,7 @@ function renderActiveDeck() {
     const cutQty = _effectivePlannedCuts(deck).reduce((s, c) => s + (c.qty || 1), 0);
     if (addQty || cutQty) {
       const projected = total + addQty - cutQty;
-      countEl.innerHTML = `${total} / ${max || target} <span class="deck-swaps-projected" title="Deck size if all planned adds and cuts were applied">→ ${projected} after swaps</span>`;
+      countEl.innerHTML = `${total} / ${max || target}${_deckSwapsProjectedHtml(projected)}`;
     }
   }
   const isCommanderFmt = ['Commander','Brawl','Oathbreaker'].includes(deck.format);
@@ -7367,7 +7385,7 @@ function renderDeckList(deck) {
       }
     }
     if (!addQty && !cutQty) return '';
-    return ` <span class="deck-swaps-projected" title="Cards in this group if all planned adds and cuts were applied">→ ${total + addQty - cutQty} after swaps</span>`;
+    return _deckSwapsProjectedHtml(total + addQty - cutQty, 'Cards in this group if all planned adds and cuts were applied');
   };
 
   if (!deck.cards.length && !hasExtra) {

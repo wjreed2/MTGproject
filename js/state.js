@@ -219,10 +219,10 @@ async function loadAppDataAfterAuth() {
       }
     }
     if (!fromCache && typeof refreshAllSharedDecksFromServer === 'function' && sharedDecks.length) {
-      refreshAllSharedDecksFromServer({ silent: true }).catch(() => {});
+      await refreshAllSharedDecksFromServer({ silent: true }).catch(() => {});
     } else if (fromCache && typeof refreshAllSharedDecksFromServer === 'function' && sharedDecks.length) {
-      // Safari vs Home Screen PWA keep separate IndexedDB — revalidate when we had to use cache.
-      refreshAllSharedDecksFromServer({ silent: false }).catch(() => {});
+      // Safari vs Home Screen PWA keep separate IndexedDB — always revalidate cached shared decks.
+      await refreshAllSharedDecksFromServer({ silent: true }).catch(() => {});
     }
   if (typeof loadTagOverrides === 'function') {
     try {

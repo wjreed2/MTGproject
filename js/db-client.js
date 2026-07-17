@@ -715,6 +715,8 @@ function leaveDeckRoom() {
   _joinedDeckRoom = null;
 }
 
+const _sharedDeckLastFetch = {};
+
 /** Pull one shared deck from the server (bypasses stale IndexedDB / JSON blob cards). */
 async function refreshSharedDeckFromServer(deckId, opts) {
   if (!deckId) return null;
@@ -723,10 +725,12 @@ async function refreshSharedDeckFromServer(deckId, opts) {
   try {
     const fresh = await apiFetch('/decks/' + deckId);
     if (!mergeDeckSnapshot(fresh)) return null;
+    _sharedDeckLastFetch[deckId] = Date.now();
     if (typeof sharedDecks !== 'undefined') {
       cacheSet('sharedDecks', sharedDecks).catch(() => {});
     }
-    if (!silent && typeof activeDeckId !== 'undefined' && activeDeckId === deckId) {
+    // Always re-render the active deck when fresh data merged — silent only skips toasts.
+    if (typeof activeDeckId !== 'undefined' && activeDeckId === deckId) {
       if (typeof renderActiveDeck === 'function') renderActiveDeck();
       else if (typeof renderDecks === 'function') renderDecks();
     } else if (!silent && typeof renderDecks === 'function') {
@@ -739,6 +743,14 @@ async function refreshSharedDeckFromServer(deckId, opts) {
   }
 }
 
+/** Debounced pull so Safari vs Home Screen PWA never sit on divergent cut markers. */
+function ensureSharedDeckFresh(deckId) {
+  if (!deckId || _sharedPlanningDirty.has(deckId)) return;
+  const last = _sharedDeckLastFetch[deckId] || 0;
+  if (Date.now() - last < 4000) return;
+  refreshSharedDeckFromServer(deckId, { silent: true }).catch(() => {});
+}
+
 /** Refresh every shared deck on login / tab focus — Safari vs PWA keep separate offline caches. */
 async function refreshAllSharedDecksFromServer(opts) {
   const list = typeof sharedDecks !== 'undefined' ? sharedDecks : [];
@@ -749,24 +761,28 @@ async function refreshAllSharedDecksFromServer(opts) {
     try {
       const fresh = await apiFetch('/decks/' + d.id);
       mergeDeckSnapshot(fresh);
+      _sharedDeckLastFetch[d.id] = Date.now();
     } catch (_) {}
   }));
   cacheSet('sharedDecks', list).catch(() => {});
-  if (!silent) {
-    if (typeof activeDeckId !== 'undefined' && list.some(d => d.id === activeDeckId)) {
-      if (typeof renderActiveDeck === 'function') renderActiveDeck();
-    } else if (typeof renderDecks === 'function') {
-      renderDecks();
-    }
+  if (typeof activeDeckId !== 'undefined' && list.some(d => d.id === activeDeckId)) {
+    if (typeof renderActiveDeck === 'function') renderActiveDeck();
+  } else if (!silent && typeof renderDecks === 'function') {
+    renderDecks();
   }
 }
 
 if (typeof document !== 'undefined') {
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState !== 'visible') return;
+  const _refreshActiveSharedDeck = () => {
+    if (document.visibilityState && document.visibilityState !== 'visible') return;
     if (typeof _isOffline !== 'undefined' && _isOffline) return;
     if (typeof activeDeckIsShared !== 'undefined' && activeDeckIsShared && activeDeckId) {
       refreshSharedDeckFromServer(activeDeckId, { silent: true }).catch(() => {});
     }
+  };
+  document.addEventListener('visibilitychange', _refreshActiveSharedDeck);
+  window.addEventListener('focus', _refreshActiveSharedDeck);
+  window.addEventListener('pageshow', ev => {
+    if (ev.persisted) _refreshActiveSharedDeck();
   });
 }
