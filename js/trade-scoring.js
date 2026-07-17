@@ -38,6 +38,8 @@ async function computeDeckWantedCards(deck) {
       const cci = c.colorIdentity?.length ? c.colorIdentity : (c.colors?.length ? c.colors : []);
       if (!ciOk(cci)) continue;
       const roles = typeof _probTagsOnCard === 'function' ? _probTagsOnCard(c, deck) : (c.roleTags || []);
+      if (typeof _utilityAddRoles === 'function' ? !_utilityAddRoles(roles).length
+          : !(roles || []).filter(t => t && t !== 'Land' && t !== 'Commander').length) continue;
       const s = _scoreAddCandidate(c, roles, ctx);
       if (!s || s.score <= 0) continue;
       ownedNames.add(nm);
@@ -58,7 +60,10 @@ async function computeDeckWantedCards(deck) {
           const nm = (c.name || '').toLowerCase();
           if (inDeckNames.has(nm) || ownedNames.has(nm)) continue;
           if (typeof _isTokenTypeDeckCard === 'function' && _isTokenTypeDeckCard(c)) continue;
-          const s = _scoreAddCandidate(c, c.roleTags || [], ctx);
+          const roles = c.roleTags || [];
+          if (typeof _utilityAddRoles === 'function' ? !_utilityAddRoles(roles).length
+              : !roles.filter(t => t && t !== 'Land' && t !== 'Commander').length) continue;
+          const s = _scoreAddCandidate(c, roles, ctx);
           if (!s || s.score <= 0) continue;
           ownedNames.add(nm);
           scored.push({ name: c.name, score: s.score, topRole: s.topRole || null });
