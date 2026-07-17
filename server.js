@@ -37,15 +37,16 @@ app.use('/api', (_req, res, next) => {
 });
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
-const ALLOWED_ORIGINS = new Set(
-  process.env.ALLOWED_ORIGIN
-    ? [process.env.ALLOWED_ORIGIN]
-    : ['http://localhost:3001', 'https://localhost:3001', 'capacitor://localhost', 'ionic://localhost']
-);
+const {
+  parseAllowedOrigins,
+  isAllowedOrigin,
+} = require(path.join(__dirname, 'lib', 'cors-origins.js'));
+const ALLOWED_ORIGINS = parseAllowedOrigins();
 app.use(cors({
   origin: (origin, cb) => {
-    if (!origin || ALLOWED_ORIGINS.has(origin)) return cb(null, true);
-    cb(new Error('CORS: origin not allowed'));
+    // Reflect allowed origins; reject quietly (no Error → Express 500).
+    // For LAN phone testing, add the IP to ALLOWED_ORIGIN in .env (comma-separated).
+    cb(null, isAllowedOrigin(origin, { allowedOrigins: ALLOWED_ORIGINS }));
   },
   credentials: true,
 }));

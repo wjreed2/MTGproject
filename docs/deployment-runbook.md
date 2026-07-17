@@ -11,7 +11,7 @@ In the Railway project → your **Node/web service** → **Variables**, confirm 
 | `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASS`, `DB_NAME` | MySQL (Railway plugin or external) |
 | `SESSION_SECRET` | Long random string (32+ chars); **required** in production |
 | `SESSION_SECURE` | Set to `1` when the app is served over **HTTPS** so cookies work |
-| `ALLOWED_ORIGIN` | Your public site origin, e.g. `https://yourdomain.com` (CORS + cookies) |
+| `ALLOWED_ORIGIN` | Your public site origin(s), e.g. `https://yourdomain.com` (comma-separated OK; CORS + cookies). Local phone-on-LAN: include that origin too, e.g. `https://localhost:3001,https://192.168.0.20:3001`. |
 | `APP_URL` | Public base URL (password reset links, etc.) |
 | `CHANGELOG_INGEST_SECRET` | Long random string; **same idea as `SESSION_SECRET`** — used by `POST /api/internal/changelog-ingest` and by `npm run changelog:add` locally/CI |
 
