@@ -7370,7 +7370,7 @@ function renderDeckList(deck) {
         : '') +
       (swapsOn
         ? _renderDeckExtraZoneGrid(deck, 'add', 'Adds', plannedAdds, ' vertical', 'No planned adds — drag cards here from search or the maybe board', poolHints) +
-          _renderDeckExtraZoneGrid(deck, 'cut', 'Cuts', plannedCuts, ' vertical', 'No planned cuts — drag deck cards here to mark them', poolHints)
+          _renderDeckExtraZoneGrid(deck, 'cut', 'Cuts (fix attempt 1)', plannedCuts, ' vertical', 'No planned cuts — drag deck cards here to mark them', poolHints)
         : '');
     const extraZonesHtml = _deckExtraZonesWrapOpenHtml(deck, zoneInner + applySwapsHtml);
     const layout = _deckStackZoneLayout(el, deck, isVertical);
@@ -7462,7 +7462,7 @@ function renderDeckList(deck) {
       : '') +
     (swapsOn
       ? _renderDeckExtraZoneList(deck, 'add', 'Adds', plannedAdds, 'No planned adds — drag cards here from search or the maybe board', validationErrorNames) +
-        _renderDeckExtraZoneList(deck, 'cut', 'Cuts', plannedCuts, 'No planned cuts — drag deck cards here to mark them', validationErrorNames)
+        _renderDeckExtraZoneList(deck, 'cut', 'Cuts (fix attempt 1)', plannedCuts, 'No planned cuts — drag deck cards here to mark them', validationErrorNames)
       : '');
   const extraListHtml = _deckExtraZonesWrapOpenHtml(deck, listZoneInner + applySwapsHtml, 'deck-extra-zones-wrap--list');
   el.onclick = e => {
