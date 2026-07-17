@@ -267,6 +267,17 @@ function _flushPendingSavesOnUnload() {
     clearTimeout(_sharedSaveTimers[id]);
     delete _sharedSaveTimers[id];
   }
+  for (const id of Object.keys(_sharedPlanningTimers)) {
+    clearTimeout(_sharedPlanningTimers[id]);
+    delete _sharedPlanningTimers[id];
+  }
+  if (_sharedPlanningDirty.size) {
+    for (const id of [..._sharedPlanningDirty]) {
+      const deck = _sharedPlanningLatest[id];
+      if (deck) _flushSharedPlanningKeepalive(deck);
+    }
+    _sharedPlanningDirty.clear();
+  }
   if (_sharedDirty.size) {
     for (const id of [..._sharedDirty]) {
       const deck = _sharedSaveLatest[id];
@@ -306,6 +317,31 @@ const _sharedSaveLatest = {};
 const _sharedDirty = new Set();
 let _sharedSaveErrorNotified = false;
 
+// Planning-only saves (adds/cuts) — separate from full-deck PATCH so cut markers
+// persist even when a concurrent owner save bumped updated_at or card rewrite fails.
+const _sharedPlanningTimers = {};
+const _sharedPlanningInFlight = {};
+const _sharedPlanningPending = {};
+const _sharedPlanningLatest = {};
+const _sharedPlanningDirty = new Set();
+
+function _planningPayloadFromDeck(deck) {
+  return {
+    adds: Array.isArray(deck?.adds) ? deck.adds : [],
+    cuts: Array.isArray(deck?.cuts) ? deck.cuts : [],
+    updatedAt: Number(deck?.updatedAt) || 0,
+    clearAddsCuts: !!deck?.clearAddsCuts,
+  };
+}
+
+function _applyPlanningResponse(deck, res) {
+  if (!deck || !res) return;
+  if (res.updatedAt) deck.updatedAt = res.updatedAt;
+  if (Array.isArray(res.adds)) deck.adds = res.adds;
+  if (Array.isArray(res.cuts)) deck.cuts = res.cuts;
+  delete deck.clearAddsCuts;
+}
+
 function _flushSharedDeckKeepalive(deck) {
   if (!deck?.id) return;
   const root = mtgApiRoot();
@@ -315,6 +351,18 @@ function _flushSharedDeckKeepalive(deck) {
     credentials: 'include',
     keepalive: true,
     body: JSON.stringify(deck),
+  }).catch(() => {});
+}
+
+function _flushSharedPlanningKeepalive(deck) {
+  if (!deck?.id) return;
+  const root = mtgApiRoot();
+  fetch(root + '/decks/' + deck.id + '/planning', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    keepalive: true,
+    body: JSON.stringify(_planningPayloadFromDeck(deck)),
   }).catch(() => {});
 }
 
@@ -365,6 +413,56 @@ function scheduleSaveSharedDeck(deck) {
       }
     }
   }, 500);
+}
+
+/** Persist only adds/cuts for a shared deck (fast path for mark cut / mark add). */
+function scheduleSaveSharedDeckPlanning(deck) {
+  if (!deck?.id) return;
+  const id = deck.id;
+  _sharedPlanningLatest[id] = deck;
+  _sharedPlanningDirty.add(id);
+  if (_sharedPlanningInFlight[id]) {
+    _sharedPlanningPending[id] = deck;
+    return;
+  }
+  clearTimeout(_sharedPlanningTimers[id]);
+  // Short debounce so rapid +/- qty coalesces, but much faster than full-deck save.
+  _sharedPlanningTimers[id] = setTimeout(async () => {
+    delete _sharedPlanningTimers[id];
+    _sharedPlanningInFlight[id] = true;
+    const live = _sharedPlanningLatest[id] || deck;
+    const payload = _planningPayloadFromDeck(live);
+    try {
+      const res = await apiPatch('/decks/' + id + '/planning', payload);
+      _applyPlanningResponse(live, res);
+      if (!_sharedPlanningPending[id] && _sharedPlanningLatest[id] === live) {
+        _sharedPlanningDirty.delete(id);
+      }
+      _sharedSaveErrorNotified = false;
+    } catch (e) {
+      console.error('[db] shared deck planning save failed:', e);
+      if (!_sharedSaveErrorNotified) {
+        _sharedSaveErrorNotified = true;
+        if (typeof showNotif === 'function') {
+          showNotif('Could not save shared deck cuts/adds — keep this tab open so they aren\'t lost. (' + (e?.message || 'server error') + ')', true);
+        }
+      }
+      clearTimeout(_sharedPlanningTimers[id]);
+      _sharedPlanningTimers[id] = setTimeout(() => {
+        delete _sharedPlanningTimers[id];
+        if (_sharedPlanningDirty.has(id) && !_sharedPlanningInFlight[id] && _sharedPlanningLatest[id]) {
+          scheduleSaveSharedDeckPlanning(_sharedPlanningLatest[id]);
+        }
+      }, 2000);
+    } finally {
+      _sharedPlanningInFlight[id] = false;
+      const pending = _sharedPlanningPending[id];
+      if (pending) {
+        delete _sharedPlanningPending[id];
+        scheduleSaveSharedDeckPlanning(pending);
+      }
+    }
+  }, 100);
 }
 
 const _dirty = new Set();

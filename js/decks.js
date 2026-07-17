@@ -1671,10 +1671,16 @@ function renderDeckSwapsSettingBtn() {
   btn.style.borderColor = on ? 'var(--teal)' : '';
 }
 
-// Routes save to the right path depending on ownership
-function saveActiveDeck(deck) {
+// Routes save to the right path depending on ownership.
+// opts.planningOnly → shared decks use the planning endpoint (adds/cuts only),
+// which is what mark-cut / mark-add need to survive reload.
+function saveActiveDeck(deck, opts) {
   if (activeDeckIsShared) {
-    scheduleSaveSharedDeck(deck);
+    if (opts && opts.planningOnly && typeof scheduleSaveSharedDeckPlanning === 'function') {
+      scheduleSaveSharedDeckPlanning(deck);
+    } else if (typeof scheduleSaveSharedDeck === 'function') {
+      scheduleSaveSharedDeck(deck);
+    }
   } else {
     save('decks');
   }
@@ -7274,7 +7280,9 @@ function renderDeckList(deck) {
   const maybeboard = _deckMaybeBoard(deck);
   const matchSideboard = _deckMatchSideboardEnabled(deck) ? _deckMatchSideboard(deck) : [];
   const swapsOn = _deckSwapsEnabled(deck);
-  if (swapsOn) _prunePlannedCuts(deck);
+  // Mutating prune on shared decks can drop server-backed cuts during render if
+  // identity briefly doesn't line up; only prune (and persist) on owned decks.
+  if (swapsOn && !activeDeckIsShared) _prunePlannedCuts(deck);
   const plannedAdds = swapsOn ? _deckPlannedAdds(deck) : [];
   const plannedCuts = swapsOn ? _deckPlannedCuts(deck) : [];
   // Ghost copies of planned adds — shown in their deck-list groups but never counted
@@ -10083,7 +10091,7 @@ function _addCardToDeckZone(deck, card, zone, notifyLabel) {
     pool.push(c);
     if (!planning) recordDeckEvent('add_sb', c);
   }
-  saveActiveDeck(deck);
+  saveActiveDeck(deck, planning ? { planningOnly: true } : undefined);
   renderActiveDeck();
   showNotif('Added ' + card.name + ' to ' + notifyLabel);
 }
@@ -10162,7 +10170,7 @@ function _removeFromDeckZone(deck, uid, zone) {
   if (c.qty > 1) { c.qty--; if (!planning) recordDeckEvent('qty_change_sb', c); }
   else { if (!planning) recordDeckEvent('remove_sb', c); const i = pool.indexOf(c); if (i >= 0) pool.splice(i, 1); }
   if (planning) _flagClearedPlanningIfEmpty(deck);
-  saveActiveDeck(deck);
+  saveActiveDeck(deck, planning ? { planningOnly: true } : undefined);
   renderActiveDeck();
 }
 
@@ -10197,7 +10205,7 @@ function _adjustDeckZoneQtyByUid(uid, delta, zone) {
     if (i >= 0) pool.splice(i, 1);
   }
   if (planning) _flagClearedPlanningIfEmpty(deck);
-  saveActiveDeck(deck);
+  saveActiveDeck(deck, planning ? { planningOnly: true } : undefined);
   renderActiveDeck();
   if (typeof _patchCardDetailDeckQty === 'function') _patchCardDetailDeckQty(uid);
 }
@@ -10322,7 +10330,7 @@ function markPlannedCut(uid) {
   } else {
     _deckPlannedCuts(deck).push({ ...card, uid: getCardInventoryKey(card), qty: 1 });
   }
-  saveActiveDeck(deck);
+  saveActiveDeck(deck, { planningOnly: true });
   renderActiveDeck();
   showNotif(card.name + ' marked as a cut');
 }
@@ -10340,7 +10348,7 @@ function unmarkPlannedCut(uid) {
   if ((slot.qty || 1) > 1) slot.qty--;
   else { const i = pool.indexOf(slot); if (i >= 0) pool.splice(i, 1); }
   _flagClearedPlanningIfEmpty(deck);
-  saveActiveDeck(deck);
+  saveActiveDeck(deck, { planningOnly: true });
   renderActiveDeck();
   showNotif(slot.name + ' kept — cut marker removed');
 }
@@ -10388,7 +10396,8 @@ function _movePlanningZoneCard(uid, fromZone, toZone) {
   if (fromZone === 'add' || toZone === 'add' || fromZone === 'cut' || toZone === 'cut') {
     _flagClearedPlanningIfEmpty(deck);
   }
-  saveActiveDeck(deck);
+  const planningOnly = _deckZoneIsPlanning(fromZone) && _deckZoneIsPlanning(toZone);
+  saveActiveDeck(deck, planningOnly ? { planningOnly: true } : undefined);
   renderActiveDeck();
   showNotif(snap.name + ' moved to ' + (_DECK_ZONE_LABELS[toZone] || toZone));
 }
