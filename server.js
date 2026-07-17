@@ -3145,6 +3145,16 @@ app.put('/api/decks', requireAuth, async (req, res) => {
     invalidateTradelistCache(accountId);
     // Deck contents drive deck-needed wishlist entries.
     void reconcileAccountWishlist(accountId);
+    const collabIds = await deckIdsWithCollaborators(normDecks.map(d => d.id));
+    for (const d of normDecks) {
+      if (collabIds.has(d.id)) {
+        _broadcastDeck(d.id, await deckBroadcastMeta(accountId, {
+          kind: 'full',
+          deckId: d.id,
+          updatedAt: updatedAtById[d.id] || d.updatedAt,
+        }));
+      }
+    }
     res.json({ ok: true, count: decks.length, updatedAtById });
   } catch (e) {
     console.error(e);
@@ -3153,6 +3163,112 @@ app.put('/api/decks', requireAuth, async (req, res) => {
 });
 
 // ── Deck collaboration ────────────────────────────────────────────────────────
+
+/** Load deck_cards (+ tags) for one deck; returns card objects like GET /decks/shared. */
+async function loadDeckCardsForOwner(ownerAccountId, deckId) {
+  const [cardRows] = await db().query(
+    `SELECT dc.card_uid, dc.card_data, dc.sort_order, dct.tag_name
+     FROM deck_cards dc
+     LEFT JOIN deck_card_tags dct
+       ON dct.account_id = dc.account_id AND dct.deck_id = dc.deck_id AND dct.card_uid = dc.card_uid
+     WHERE dc.account_id = ? AND dc.deck_id = ?
+     ORDER BY dc.sort_order ASC`,
+    [ownerAccountId, deckId]
+  );
+  const byCardKey = new Map();
+  const cards = [];
+  cardRows.forEach(r => {
+    const key = r.card_uid;
+    if (!byCardKey.has(key)) {
+      const parsed = typeof r.card_data === 'string' ? JSON.parse(r.card_data) : r.card_data;
+      const cardUid = parsed.uid || r.card_uid;
+      const card = {
+        ...parsed,
+        uid: cardUid,
+        foil: parsed.foil != null ? !!parsed.foil : cardUid.endsWith('_f'),
+        customTags: [],
+      };
+      byCardKey.set(key, card);
+      cards.push(card);
+    }
+    if (r.tag_name) {
+      const card = byCardKey.get(key);
+      if (!card.customTags.some(t => String(t).toLowerCase() === String(r.tag_name).toLowerCase())) {
+        card.customTags.push(r.tag_name);
+      }
+    }
+  });
+  return cards;
+}
+
+async function loadOwnerDeckTagCatalog(ownerAccountId) {
+  const [prefRows] = await db().query(
+    `SELECT key_name, value FROM preferences
+     WHERE account_id = ? AND key_name IN ('deck_custom_tags','deck_primary_tags','deck_secondary_tags')`,
+    [ownerAccountId]
+  );
+  const set = new Set();
+  prefRows.forEach(r => {
+    let arr = [];
+    try { arr = Array.isArray(r.value) ? r.value : JSON.parse(r.value || '[]'); } catch (_) { arr = []; }
+    if (!Array.isArray(arr)) arr = [];
+    arr.forEach(t => { const s = String(t || '').trim(); if (s) set.add(s); });
+  });
+  return [...set].sort((a, b) => a.localeCompare(b));
+}
+
+/** Single-deck fetch for owner or collaborator (used by REST + realtime refresh). */
+async function loadDeckForViewer(viewerAccountId, deckId) {
+  const access = await resolveDeckAccessForViewer(viewerAccountId, deckId);
+  if (!access) return null;
+  const [deckRows] = await db().query(
+    `SELECT d.id, d.data, d.account_id, d.updated_at, d.share_token, a.email
+     FROM decks d LEFT JOIN accounts a ON a.id = d.account_id
+     WHERE d.id = ?`,
+    [deckId]
+  );
+  if (!deckRows.length) return null;
+  const r = deckRows[0];
+  const deck = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
+  const cards = await loadDeckCardsForOwner(access.ownerId, deckId);
+  if (cards.length) deck.cards = cards;
+  deck.updatedAt = Number(r.updated_at) || Number(deck.updatedAt) || 0;
+  const viewerId = Number(viewerAccountId);
+  if (access.ownerId === viewerId) {
+    deck.shareToken = r.share_token || null;
+  } else {
+    deck.ownerEmail = r.email;
+    deck.ownerId = r.account_id;
+    deck.ownerCustomTags = await loadOwnerDeckTagCatalog(access.ownerId);
+    const [cr] = await db().query(
+      'SELECT permission FROM deck_collaborators WHERE deck_id = ? AND collaborator_id = ?',
+      [deckId, viewerId]
+    );
+    deck.userPermission = cr.length ? (cr[0].permission || 'edit') : 'edit';
+  }
+  await attachPriceLogPricesToDeckCards(deck.cards || []);
+  return deck;
+}
+
+async function deckIdsWithCollaborators(deckIds) {
+  const ids = [...new Set((deckIds || []).filter(Boolean))];
+  if (!ids.length) return new Set();
+  const ph = ids.map(() => '?').join(',');
+  const [rows] = await db().query(
+    `SELECT DISTINCT deck_id FROM deck_collaborators WHERE deck_id IN (${ph})`,
+    ids
+  );
+  return new Set(rows.map(r => r.deck_id));
+}
+
+async function deckBroadcastMeta(accountId, base) {
+  const [rows] = await db().query('SELECT email FROM accounts WHERE id = ?', [accountId]);
+  return {
+    ...base,
+    actorAccountId: accountId,
+    actorEmail: rows.length ? String(rows[0].email || '') : null,
+  };
+}
 
 // Decks shared with the current user (as collaborator)
 app.get('/api/decks/shared', requireAuth, async (req, res) => {
@@ -3247,6 +3363,18 @@ app.get('/api/decks/shared', requireAuth, async (req, res) => {
   }
 });
 
+// Owner or collaborator — lightweight refresh for realtime sync.
+app.get('/api/decks/:id', requireAuth, async (req, res) => {
+  try {
+    const deck = await loadDeckForViewer(req.accountId, req.params.id);
+    if (!deck) return res.status(404).json({ error: 'Deck not found' });
+    res.json(deck);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Update a single deck — owner or collaborator
 app.patch('/api/decks/:id', requireAuth, async (req, res) => {
   const deckId = req.params.id;
@@ -3334,6 +3462,11 @@ app.patch('/api/decks/:id', requireAuth, async (req, res) => {
     } finally {
       conn.release();
     }
+    _broadcastDeck(deckId, await deckBroadcastMeta(accountId, {
+      kind: 'full',
+      deckId,
+      updatedAt: now,
+    }));
     res.json({ ok: true, updatedAt: now });
   } catch (e) {
     console.error(e);
@@ -3366,6 +3499,13 @@ app.patch('/api/decks/:id/planning', requireAuth, async (req, res) => {
       'UPDATE decks SET data=?, updated_at=? WHERE id=?',
       [JSON.stringify(nextData), now, deckId]
     );
+    _broadcastDeck(deckId, await deckBroadcastMeta(accountId, {
+      kind: 'planning',
+      deckId,
+      updatedAt: now,
+      adds: Array.isArray(nextData.adds) ? nextData.adds : [],
+      cuts: Array.isArray(nextData.cuts) ? nextData.cuts : [],
+    }));
     res.json({
       ok: true,
       updatedAt: now,
@@ -4315,6 +4455,10 @@ function _broadcastTrade(tradeId, event, payload) {
   if (_io) _io.to(`trade:${tradeId}`).emit(event, payload);
 }
 
+function _broadcastDeck(deckId, payload) {
+  if (_io) _io.to(`deck:${deckId}`).emit('deck:updated', payload);
+}
+
 /**
  * Apply one granular edit to a trade with optimistic concurrency. Enforces
  * per-side ownership: a participant may only mutate cards on THEIR side
@@ -4399,6 +4543,15 @@ function attachRealtime(httpServer) {
       if (result.error) { socket.emit('trade:error', { error: result.error }); return; }
       _io.to(`trade:${tradeId}`).emit('trade:state', result.doc);
     });
+    socket.on('deck:join', async ({ deckId } = {}) => {
+      try {
+        if (!deckId) return;
+        const access = await resolveDeckAccessForViewer(socket.accountId, deckId);
+        if (!access) return;
+        socket.join(`deck:${deckId}`);
+      } catch (_) {}
+    });
+    socket.on('deck:leave', ({ deckId } = {}) => { if (deckId) socket.leave(`deck:${deckId}`); });
   });
   console.log('[realtime] socket.io attached');
 }

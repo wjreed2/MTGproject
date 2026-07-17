@@ -573,3 +573,116 @@ async function _flushSave() {
     }
   }
 }
+
+// ── Realtime shared-deck sync (socket.io) ───────────────────────────────────
+
+let _realtimeSocket = null;
+let _joinedDeckRoom = null;
+const _deckRemoteRefreshTimers = {};
+
+function getRealtimeSocket() {
+  if (_realtimeSocket) return _realtimeSocket;
+  if (typeof io === 'undefined' || window._noSocketIo) return null;
+  try {
+    _realtimeSocket = io({ path: '/socket.io', withCredentials: true });
+  } catch (_) {
+    _realtimeSocket = null;
+  }
+  return _realtimeSocket;
+}
+
+function mergeDeckSnapshot(fresh) {
+  if (!fresh?.id) return false;
+  if (typeof _ensureDeckZones === 'function') _ensureDeckZones(fresh);
+  let idx = typeof decks !== 'undefined' ? decks.findIndex(d => d.id === fresh.id) : -1;
+  if (idx >= 0) {
+    decks[idx] = fresh;
+    return true;
+  }
+  if (typeof sharedDecks !== 'undefined') {
+    idx = sharedDecks.findIndex(d => d.id === fresh.id);
+    if (idx >= 0) {
+      sharedDecks[idx] = fresh;
+      return true;
+    }
+  }
+  return false;
+}
+
+async function refreshDeckFromRemote(msg) {
+  if (!msg?.deckId) return;
+  if (typeof currentUser !== 'undefined' && currentUser?.id != null
+      && Number(msg.actorAccountId) === Number(currentUser.id)) return;
+
+  const local = (typeof decks !== 'undefined' ? decks.find(d => d.id === msg.deckId) : null)
+    || (typeof sharedDecks !== 'undefined' ? sharedDecks.find(d => d.id === msg.deckId) : null);
+  if (local && msg.updatedAt && Number(local.updatedAt) >= Number(msg.updatedAt)) return;
+
+  if (msg.kind === 'planning' && local) {
+    _applyPlanningResponse(local, msg);
+    if (local.updatedAt == null || Number(msg.updatedAt) > Number(local.updatedAt)) {
+      local.updatedAt = msg.updatedAt;
+    }
+  } else {
+    try {
+      const fresh = await apiFetch('/decks/' + msg.deckId);
+      if (!mergeDeckSnapshot(fresh)) return;
+    } catch (e) {
+      console.warn('[deck-realtime] refresh failed:', e);
+      return;
+    }
+  }
+
+  try {
+    const cacheKey = (typeof sharedDecks !== 'undefined' && sharedDecks.some(d => d.id === msg.deckId))
+      ? 'sharedDecks'
+      : 'decks';
+    const cacheVal = cacheKey === 'sharedDecks'
+      ? (typeof sharedDecks !== 'undefined' ? sharedDecks : [])
+      : (typeof decks !== 'undefined' ? decks : []);
+    cacheSet(cacheKey, cacheVal).catch(() => {});
+  } catch (_) {}
+
+  if (typeof activeDeckId !== 'undefined' && activeDeckId === msg.deckId) {
+    if (typeof renderActiveDeck === 'function') renderActiveDeck();
+    else if (typeof renderDecks === 'function') renderDecks();
+  } else if (typeof renderDecks === 'function') {
+    renderDecks();
+  }
+
+  if (msg.actorEmail && typeof showNotif === 'function') {
+    const who = String(msg.actorEmail).split('@')[0] || msg.actorEmail;
+    showNotif('Deck updated by ' + who);
+  }
+}
+
+function ensureDeckRealtimeHandlers() {
+  const s = getRealtimeSocket();
+  if (!s || s.__deckHandlersBound) return;
+  s.__deckHandlersBound = true;
+  s.on('deck:updated', msg => {
+    if (!msg?.deckId) return;
+    clearTimeout(_deckRemoteRefreshTimers[msg.deckId]);
+    _deckRemoteRefreshTimers[msg.deckId] = setTimeout(() => {
+      delete _deckRemoteRefreshTimers[msg.deckId];
+      refreshDeckFromRemote(msg).catch(() => {});
+    }, 120);
+  });
+}
+
+function joinDeckRoom(deckId) {
+  if (!deckId) return;
+  ensureDeckRealtimeHandlers();
+  const s = getRealtimeSocket();
+  if (!s) return;
+  if (_joinedDeckRoom === deckId) return;
+  if (_joinedDeckRoom) s.emit('deck:leave', { deckId: _joinedDeckRoom });
+  _joinedDeckRoom = deckId;
+  s.emit('deck:join', { deckId });
+}
+
+function leaveDeckRoom() {
+  const s = _realtimeSocket;
+  if (s && _joinedDeckRoom) s.emit('deck:leave', { deckId: _joinedDeckRoom });
+  _joinedDeckRoom = null;
+}
