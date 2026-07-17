@@ -218,6 +218,12 @@ async function loadAppDataAfterAuth() {
         localStorage.removeItem('mtg_active_deck_id');
       }
     }
+    if (!fromCache && typeof refreshAllSharedDecksFromServer === 'function' && sharedDecks.length) {
+      refreshAllSharedDecksFromServer({ silent: true }).catch(() => {});
+    } else if (fromCache && typeof refreshAllSharedDecksFromServer === 'function' && sharedDecks.length) {
+      // Safari vs Home Screen PWA keep separate IndexedDB — revalidate when we had to use cache.
+      refreshAllSharedDecksFromServer({ silent: false }).catch(() => {});
+    }
   if (typeof loadTagOverrides === 'function') {
     try {
       await loadTagOverrides(true);

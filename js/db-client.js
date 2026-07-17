@@ -686,3 +686,58 @@ function leaveDeckRoom() {
   if (s && _joinedDeckRoom) s.emit('deck:leave', { deckId: _joinedDeckRoom });
   _joinedDeckRoom = null;
 }
+
+/** Pull one shared deck from the server (bypasses stale IndexedDB / JSON blob cards). */
+async function refreshSharedDeckFromServer(deckId, opts) {
+  if (!deckId) return null;
+  const silent = opts && opts.silent;
+  try {
+    const fresh = await apiFetch('/decks/' + deckId);
+    if (!mergeDeckSnapshot(fresh)) return null;
+    if (typeof sharedDecks !== 'undefined') {
+      cacheSet('sharedDecks', sharedDecks).catch(() => {});
+    }
+    if (!silent && typeof activeDeckId !== 'undefined' && activeDeckId === deckId) {
+      if (typeof renderActiveDeck === 'function') renderActiveDeck();
+      else if (typeof renderDecks === 'function') renderDecks();
+    } else if (!silent && typeof renderDecks === 'function') {
+      renderDecks();
+    }
+    return fresh;
+  } catch (e) {
+    if (!silent) console.warn('[deck-realtime] shared deck refresh failed:', e);
+    return null;
+  }
+}
+
+/** Refresh every shared deck on login / tab focus — Safari vs PWA keep separate offline caches. */
+async function refreshAllSharedDecksFromServer(opts) {
+  const list = typeof sharedDecks !== 'undefined' ? sharedDecks : [];
+  if (!list.length) return;
+  const silent = opts && opts.silent;
+  await Promise.all(list.map(async d => {
+    if (!d?.id) return;
+    try {
+      const fresh = await apiFetch('/decks/' + d.id);
+      mergeDeckSnapshot(fresh);
+    } catch (_) {}
+  }));
+  cacheSet('sharedDecks', list).catch(() => {});
+  if (!silent) {
+    if (typeof activeDeckId !== 'undefined' && list.some(d => d.id === activeDeckId)) {
+      if (typeof renderActiveDeck === 'function') renderActiveDeck();
+    } else if (typeof renderDecks === 'function') {
+      renderDecks();
+    }
+  }
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return;
+    if (typeof _isOffline !== 'undefined' && _isOffline) return;
+    if (typeof activeDeckIsShared !== 'undefined' && activeDeckIsShared && activeDeckId) {
+      refreshSharedDeckFromServer(activeDeckId, { silent: true }).catch(() => {});
+    }
+  });
+}

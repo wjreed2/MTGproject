@@ -2867,11 +2867,10 @@ app.get('/api/decks', requireAuth, async (req, res) => {
 
     const out = rows.map(r => {
       const deck = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
-      const cards = byDeck.get(r.id);
+      applyDeckCardsFromTable(deck, r.id, byDeck);
       // share_token / updated_at are column-authoritative.
       deck.shareToken = r.share_token || null;
       deck.updatedAt = Number(r.updated_at) || Number(deck.updatedAt) || 0;
-      if (Array.isArray(cards) && cards.length) return { ...deck, cards };
       return deck;
     });
     await attachPriceLogPricesToDeckCards(out.flatMap(d => d.cards || []));
@@ -3217,6 +3216,16 @@ async function loadOwnerDeckTagCatalog(ownerAccountId) {
   return [...set].sort((a, b) => a.localeCompare(b));
 }
 
+/** Prefer deck_cards rows over stale cards[] left in the decks.data JSON blob. */
+function applyDeckCardsFromTable(deck, deckId, byDeck) {
+  if (byDeck && byDeck.has(deckId)) {
+    deck.cards = byDeck.get(deckId) || [];
+  } else if (!Array.isArray(deck.cards)) {
+    deck.cards = [];
+  }
+  return deck;
+}
+
 /** Single-deck fetch for owner or collaborator (used by REST + realtime refresh). */
 async function loadDeckForViewer(viewerAccountId, deckId) {
   const access = await resolveDeckAccessForViewer(viewerAccountId, deckId);
@@ -3231,7 +3240,12 @@ async function loadDeckForViewer(viewerAccountId, deckId) {
   const r = deckRows[0];
   const deck = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
   const cards = await loadDeckCardsForOwner(access.ownerId, deckId);
-  if (cards.length) deck.cards = cards;
+  const [cntRows] = await db().query(
+    'SELECT COUNT(*) AS c FROM deck_cards WHERE account_id=? AND deck_id=?',
+    [access.ownerId, deckId]
+  );
+  if ((cntRows[0]?.c || 0) > 0) deck.cards = cards;
+  else if (!Array.isArray(deck.cards)) deck.cards = [];
   deck.updatedAt = Number(r.updated_at) || Number(deck.updatedAt) || 0;
   const viewerId = Number(viewerAccountId);
   if (access.ownerId === viewerId) {
@@ -3346,8 +3360,7 @@ app.get('/api/decks/shared', requireAuth, async (req, res) => {
 
     const out = deckRows.map(r => {
       const deck = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
-      const cards = byDeck.get(r.id);
-      if (Array.isArray(cards) && cards.length) deck.cards = cards;
+      applyDeckCardsFromTable(deck, r.id, byDeck);
       deck.ownerEmail = r.email;
       deck.ownerId = r.account_id;
       deck.ownerCustomTags = [...(catalogByOwner.get(r.account_id) || [])].sort((a, b) => a.localeCompare(b));
