@@ -6953,7 +6953,15 @@ function _buildAddReason(name, s, ctx, owned) {
 // role deficits/surpluses it hits (with deck-vs-target numbers), curve, tribal,
 // theme, conditional-keyword gating, etc.
 function _fmtWhyVal(v) {
-  const r = Math.round(v * 10) / 10;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return '+0';
+  // After K_L/K_E retune, E tops out at ~0.1 — one decimal rounds mid-range E to "+0".
+  const abs = Math.abs(n);
+  if (abs > 0 && abs < 0.1) {
+    const r = Math.round(n * 100) / 100;
+    return (r >= 0 ? '+' : '') + r.toFixed(2);
+  }
+  const r = Math.round(n * 10) / 10;
   return (r >= 0 ? '+' : '') + r;
 }
 function _capWord(s) { s = String(s || ''); return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''; }
@@ -6977,6 +6985,24 @@ function _toggleSuggestWhy(btn) {
   detail.toggleAttribute('hidden', !willOpen);
   btn.setAttribute('aria-expanded', String(willOpen));
   btn.classList.toggle('is-open', willOpen);
+}
+
+function _edhrecWhyLine(s) {
+  const t = s.terms || null;
+  const E = Number(s.E) || 0;
+  // Show whenever EDHREC contributed. Old threshold (>0.01) hid most lines after
+  // K_E shrank to 0.1 (max E ≈ 0.1; mid-range popularity rounded to "+0").
+  if (!(E > 0)) return null;
+  const role = escapeHtml(t?.eRole || s.topRole || 'pick');
+  let pctNote = '';
+  if (t && t.p != null && Number.isFinite(t.p)) {
+    const pct = Math.max(0, Math.min(100, Math.round(Number(t.p) * 100)));
+    pctNote = ` · ${pct}th pct`;
+  }
+  return {
+    text: `Popular ${role} (EDHREC${pctNote})`,
+    val: _fmtWhyVal(E),
+  };
 }
 
 function _buildAddWhyLines(s, ctx) {
@@ -7004,8 +7030,10 @@ function _buildAddWhyLines(s, ctx) {
   if ((s.C_eff ?? s.curveBonus) > 0.01) {
     lines.push({ text: `Fills a thin curve spot at ${s.bucket}${s.bucket === 7 ? '+' : ''} MV`, val: _fmtWhyVal(s.C_eff ?? s.curveBonus) });
   }
-  if ((s.L || 0) > 0.01) lines.push({ text: `Efficient CMC for interaction`, val: _fmtWhyVal(s.L) });
-  if ((s.E || 0) > 0.01) lines.push({ text: `Popular ${escapeHtml(t?.eRole || s.topRole || 'pick')} (EDHREC)`, val: _fmtWhyVal(s.E) });
+  // L shares E's small scale after K_L retune — show any positive contribution.
+  if ((s.L || 0) > 0) lines.push({ text: `Efficient CMC for interaction`, val: _fmtWhyVal(s.L) });
+  const edh = _edhrecWhyLine(s);
+  if (edh) lines.push(edh);
   if ((s.B || 0) > 0.01) lines.push({ text: `Creature body fills a role`, val: _fmtWhyVal(s.B) });
   if ((s.P || 0) > 0.01) lines.push({ text: `Colored mana commitment`, val: _fmtWhyVal(-(s.P || 0)), neg: true });
   if (s.versatility > 0.01) lines.push({ text: `Versatile — fills ${s.roles.length} roles`, val: _fmtWhyVal(s.versatility) });
