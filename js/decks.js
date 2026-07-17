@@ -7213,13 +7213,16 @@ async function _renderAddSuggestions(deck) {
     const name = card.name || '';
     const safeName = name.replace(/'/g, "\\'");
     const displayName = escapeHtml(name);
-    const score = (s.score || 0).toFixed(1);
+    const score = (typeof formatAddDisplayScore === 'function')
+      ? formatAddDisplayScore(s.score)
+      : (s.score || 0).toFixed(1);
+    const scoreLabel = (typeof formatAddDisplayScore === 'function') ? `${score}/10` : score;
     const whyLines = _buildAddWhyLines(s, ctx);
     if ((s.planMatch || 0) > 0) {
       whyLines.push({ text: `Matches your declared plan`, val: _fmtWhyVal(s.planMatch) });
     }
     const footer = `Role tags: ${s.roles && s.roles.length ? escapeHtml(s.roles.join(', ')) : '—'} · ${owned ? 'In your collection' : 'Not in your collection'}`;
-    const why = _suggestWhyDetailHtml('Why suggested', score, whyLines, footer);
+    const why = _suggestWhyDetailHtml('Why suggested', scoreLabel, whyLines, footer);
     const ownTag = owned
       ? '<span class="tag" style="background:rgba(61,184,160,0.15);color:var(--teal);font-size:.62rem;margin:0 .4rem">owned</span>'
       : '<span class="tag" style="background:var(--bg3);color:var(--text3);font-size:.62rem;margin:0 .4rem">unowned</span>';
@@ -7229,7 +7232,7 @@ async function _renderAddSuggestions(deck) {
       : `<button class="btn btn-outline btn-sm" style="padding:2px 10px;font-size:.7rem"${addTitle} onclick="${swapsOn ? `addScryfallCardToAdds('${id}')` : `addScryfallCardToDeck('${id}')`}">+ Add</button>`;
     return `<div class="suggest-item">
       <div class="cut-candidate-row">
-        <button type="button" class="cut-score-badge cut-why-toggle" aria-expanded="false" aria-label="Why suggested · score ${score}" onclick="_toggleSuggestWhy(this)">${score}<span class="cut-why-caret" aria-hidden="true">⌄</span></button>
+        <button type="button" class="cut-score-badge add-score-badge cut-why-toggle" aria-expanded="false" aria-label="Why suggested · score ${scoreLabel}" onclick="_toggleSuggestWhy(this)">${scoreLabel}<span class="cut-why-caret" aria-hidden="true">⌄</span></button>
         <span class="cut-card-name" onclick="openCardDetail('${id}','deck')">${displayName}</span>
         ${ownTag}
         ${addBtn}

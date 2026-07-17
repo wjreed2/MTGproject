@@ -18,6 +18,10 @@ const {
   CMC_REF,
   D_SUBLINEAR_WEIGHTS,
   EFFICIENCY_MODE_PROJECT_TAGS,
+  ADD_SCORE_RAW_CEILING,
+  ADD_SCORE_DISPLAY_MAX,
+  addDisplayScore,
+  formatAddDisplayScore,
 } = scoring;
 
 function score(card, roles, ctx, extras) {
@@ -222,8 +226,42 @@ const wipeOnlyCtx = {
   assert.ok(!EFFICIENCY_MODE_PROJECT_TAGS.has('Stax'));
   assert.strictEqual(CMC_REF, 4);
   assert.deepStrictEqual(D_SUBLINEAR_WEIGHTS, [1.0, 0.5, 0.25]);
-  assert.strictEqual(K_E, 0.5 * K_L);
+  // E must outrank B so unpopular creature-tagged fillers don't beat staples.
+  assert.ok(K_E > K_B, `K_E (${K_E}) should exceed K_B (${K_B})`);
+  assert.ok(K_E >= 1.5, `K_E (${K_E}) should be large enough to reorder same-role picks`);
+  // Soft guide: E alone (~max K_E) should not dwarf a multi-card D lead.
+  assert.ok(K_E <= 3.0 + 1e-9, `K_E (${K_E}) should stay ≤ ~3 so multi-card D still wins`);
   console.log(`[constants] K_L=${K_L} K_E=${K_E} K_B=${K_B} K_P=${K_P} maxL=${maxL}`);
+}
+
+{
+  // Same-role popularity must beat body-bonus junk when deficits match.
+  const elite = score(threeVisits, ['Ramp'], rampOnlyCtx);
+  const junkCreature = score({
+    name: 'Obscure Ramp Critter',
+    cmc: 3,
+    mana: '{2}{G}',
+    type_line: 'Creature — Beast',
+    priceTCG: 0.2,
+    edhrecRolePct: { Ramp: 0.12 },
+  }, ['Ramp'], rampOnlyCtx);
+  assert.ok(elite.terms.E > junkCreature.terms.E + 1.0,
+    `elite E (${elite.terms.E}) should beat junk E (${junkCreature.terms.E}) by >1`);
+  assert.ok(elite.score > junkCreature.score,
+    `elite ramp (${elite.score.toFixed(2)}) should outscore low-EDHREC creature (${junkCreature.score.toFixed(2)})`);
+  console.log(`[edhrec-weight] TV=${elite.score.toFixed(2)} (E=${elite.terms.E.toFixed(2)}) vs junk=${junkCreature.score.toFixed(2)} (E=${junkCreature.terms.E.toFixed(2)} B=${junkCreature.terms.B})`);
+}
+
+{
+  assert.strictEqual(ADD_SCORE_RAW_CEILING, 12);
+  assert.strictEqual(ADD_SCORE_DISPLAY_MAX, 10);
+  assert.strictEqual(addDisplayScore(0), 0);
+  assert.strictEqual(addDisplayScore(-1), 0);
+  assert.strictEqual(addDisplayScore(6), 5);
+  assert.strictEqual(addDisplayScore(12), 10);
+  assert.strictEqual(addDisplayScore(18), 10);
+  assert.strictEqual(formatAddDisplayScore(4), '3.3');
+  console.log('[display] raw 4 →', formatAddDisplayScore(4) + '/10', '; raw 12 →', formatAddDisplayScore(12) + '/10');
 }
 
 console.log('adds-scoring: ok');

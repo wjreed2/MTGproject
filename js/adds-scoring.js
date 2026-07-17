@@ -24,14 +24,23 @@
    * efficiency-mode cards (interaction/ramp/etc.); CMC ≥ 4 → L = 0.
    * Keep K_L near C_eff's scale (cap 1.5) so L stays secondary to D.
    * Do not retune K_L to force card matchups (TV>GS etc.) — those are soft
-   * vignettes only. K_E = 0.5 × K_L (relative rule).
+   * vignettes only.
+   *
+   * E is independent of K_L: after L was retuned down (2.0 → 0.2), the old
+   * "K_E = 0.5 × K_L" rule left max E at 0.1 — smaller than B (0.55), so
+   * unpopular creatures could beat staples on body bonus alone. K_E = 2.0
+   * restores E as a real same-role differentiator (~2 deficit-card units at
+   * p_adjusted=1) without overturning multi-card D leads by itself.
    */
   const K_L = 0.2;
-  const K_E = 0.5 * K_L; // 0.1 — max E at p_adjusted=1
+  const K_E = 2.0; // max E at p_adjusted=1
   const K_B = 0.55;
   const K_P = 0.15;
   const V_PER_EXTRA_TAG = 0.15;
   const V_SECOND_PLUS_DAMPEN = 0.5;
+  /** Raw score at/above this maps to a full 10 on the Suggested Adds badge (UI only). */
+  const ADD_SCORE_RAW_CEILING = 12;
+  const ADD_SCORE_DISPLAY_MAX = 10;
   const E_POPULATION_FLOOR = 8;
   const E_PRICE_BAND_DELTAS = [
     { max: 0.75, delta: -0.05 },
@@ -389,6 +398,17 @@
     return false;
   }
 
+  /** Scale a raw Adds score onto 0–10 for the UI. Ranking still uses the raw score. */
+  function addDisplayScore(raw) {
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n <= 0) return 0;
+    return Math.min(ADD_SCORE_DISPLAY_MAX, (n / ADD_SCORE_RAW_CEILING) * ADD_SCORE_DISPLAY_MAX);
+  }
+
+  function formatAddDisplayScore(raw) {
+    return addDisplayScore(raw).toFixed(1);
+  }
+
   return {
     D_SUBLINEAR_WEIGHTS,
     CMC_REF,
@@ -396,6 +416,8 @@
     K_E,
     K_B,
     K_P,
+    ADD_SCORE_RAW_CEILING,
+    ADD_SCORE_DISPLAY_MAX,
     E_POPULATION_FLOOR,
     E_PRICE_BAND_DELTAS,
     ADD_ROLE_SEMANTIC_MAP,
@@ -411,5 +433,7 @@
     scoreAddCandidateTerms,
     logAddScoreTerms,
     isAddsScoreDebugEnabled,
+    addDisplayScore,
+    formatAddDisplayScore,
   };
 });
