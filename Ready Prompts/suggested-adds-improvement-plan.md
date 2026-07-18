@@ -166,9 +166,13 @@ display = min(10, raw / ADD_SCORE_RAW_CEILING * 10)   // DO NOT SHIP
 That mapping made typical raw ~5–6 look like **6–7/10**. Removing the display layer
 removes that confusion; users see raw ~5.4 and read Why lines for context.
 
-### Optional ≥7/10 floor (retired)
+### Optional ≥7/10 floor (retired — remove if present in code)
 
-`ADD_SCORE_DISPLAY_MIN` hid weak picks — also do not ship.
+`ADD_SCORE_DISPLAY_MIN = 7` and `meetsAddDisplayFloor()` hid any suggestion whose
+display score was below 7/10 — leaving Collection empty or only showing ~7.0 picks.
+**Do not ship.** A0 must delete these helpers and any `_addsSelectTopPicks` /
+pool filter that drops candidates for low display score. Ranking/filter stays:
+score > 0 (and role-tag gate, CK gate, budget rules) only.
 
 ---
 
@@ -188,7 +192,7 @@ removes that confusion; users see raw ~5.4 and read Why lines for context.
 | # | Decision | Status |
 |---|----------|--------|
 | D1 | Badge = **raw score only** (no `/10`) | **Locked** (U1) |
-| D2 | No ceiling, floor, or list-relative badge scaling | **Locked** (U1, U2) |
+| D2 | No ceiling, floor, or list-relative badge scaling; **no min 7/10 suggestion filter** | **Locked** (U1, U2, U4) |
 | D3 | **No S term** | **Locked** (U3) |
 | D4 | Plan term **H** when plan declared | Proposed |
 | D5 | H = `K_H × (planMatchScore / 4)`; `K_H = 2.0` | Proposed |
@@ -209,7 +213,8 @@ explains tags/deficits/plan; V retains value for multi-role cards.
 ### A0. Revert display + S (first PR slice)
 
 1. Remove `addDisplayScore`, `formatAddDisplayScore`, `ADD_SCORE_RAW_CEILING`,
-   `ADD_SCORE_DISPLAY_MAX`, `/10` strings from `decks.js`.
+   `ADD_SCORE_DISPLAY_MAX`, **`ADD_SCORE_DISPLAY_MIN`**, **`meetsAddDisplayFloor`**, and
+   any filter that drops suggestions for “below 7/10 display”, plus `/10` strings from `decks.js`.
 2. Remove **S** term and Why line for “focused pick”.
 3. Badge + Why header use `(s.score).toFixed(1)` only.
 4. Tests: no display helpers; assert **V > 0** beats equal-D single-tag when
@@ -248,6 +253,7 @@ Require ≥1 utility role tag (D9).
 | 4 | Path, Removal only, Removal deficit 4 | Strong raw, **V = 0**, no S term |
 | 5 | Badge text | Raw number only — no `/10` substring |
 | 6 | Roleless card | Not in top picks |
+| 7 | Low raw score | Still listed if score > 0 — **never** hidden for “&lt; 7/10 display” |
 
 Soft vignettes (log only): K_E tuning; integer D feel.
 
@@ -285,7 +291,7 @@ Do **not** start B until A’s H term is stable.
 ## 8. What we will not do
 
 - Runtime LLM “explain my deck” or embedding similarity
-- **Any `/10` display score, ceiling, or display floor** (U1, U2)
+- **Any `/10` display score, ceiling, display floor, or min-7/10 suggestion filter** (U1, U2, U4)
 - **S / single-role focus bonus** (U3)
 - List-relative badges that force #1 → 10/10
 - Rewriting Cuts scoring inside Phase A
@@ -306,17 +312,87 @@ Do **not** start B until A’s H term is stable.
 
 ---
 
-## 10. Open questions for the user
+## 10. Open questions — interview (plain English)
 
-1. **Integer D:** Is count-based deficit (missing 4 ramp → +4 D) OK if Why shows
-   the breakdown, or do you want softer D (e.g. sqrt) in a later pass?  
-2. **How hard to lean on plan:** Is `K_H = 2.0` + `α=0.35` enough?  
-3. **Roleless Plan fillers:** Drop entirely (D9)?  
-4. **Mixed backfill (Phase C):** Unowned on-plan cards while Ramp/Draw holes exist?  
-5. **Raw score scale:** If a great Path shows ~5.4 raw, is that acceptable with
-   good Why lines, or should we tune K_E upward so “staple single-role” raw lands
-   higher (still no display remap)?  
-6. **Primary tier priority:** ~~Option A/B/C~~ → **Option A locked** (`W_S = 0`). Soft W_S only if needed.
+Answer in your own words; we’ll lock each before implementation.
+
+---
+
+### Q1 — Integer role counts in scoring — **Locked: A**
+
+**Answer:** Integer deficit — missing 4 ramp = +4 D; strip/Why show real counts (`6/10`, short 4). No softened D for v1.
+
+---
+
+### Q2 — How hard should your deck plan steer suggestions?
+
+**Context:** Today the wizard plan barely affects ranking unless you’re only
+short on “Plan” cards. We’re proposing a **plan fit** boost (H) and slightly
+stronger credit for cards that match your declared strategy (sacrifice, tokens,
+etc.) and weaker credit for off-plan role fills.
+
+**Question:** Should a card that clearly fits your stated plan (e.g. Sac Outlet
+in a sacrifice deck) beat a generic ramp spell when you’re only slightly short on
+sacrifice pieces but very short on ramp? How “loyal” should Adds be to the plan
+vs filling obvious staple holes?
+
+---
+
+### Q3 — Roleless “theme” cards
+
+**Context:** Some cards have no utility role tag (not Ramp, Removal, etc.). They
+count toward “Plan” — generic theme/filler slots. A stricter rule would never
+suggest a card unless it has at least one real utility tag.
+
+**Question:** Should Suggested Adds **only** recommend tagged utility cards, and
+stop suggesting untagged “theme” fillers entirely?
+
+---
+
+### Q4 — Catalog backfill while staples are still short
+
+**Context:** In Collection mode you only see owned cards. “All Cards” can pull
+from the full database. We could also fetch unowned cards that match your **plan**
+even when you still need ramp/draw/removal — or wait until staples are filled.
+
+**Question:** While you’re still short on Ramp, Draw, or Removal, should Adds
+still be allowed to surface **unowned** plan-themed cards from the catalog, or
+should catalog/plan backfill wait until the three primaries are at target?
+
+---
+
+### Q5 — Raw number on the suggestion badge
+
+**Context:** With no `/10` display layer, a strong Path to Exile might show
+something like **5.4** on the badge — the actual formula output. That’s not a
+grade out of 10; it’s an internal fit score.
+
+**Question:** Is that fine if Why explains the pieces (fills Removal, EDHREC,
+efficient CMC)? Or do you want us to tune constants (e.g. EDHREC weight) so
+obvious staples show **higher raw numbers**, without bringing back a second
+display scale?
+
+---
+
+### Q6 — Strict “staples first” (already locked, confirm)
+
+**Context:** Option A means while any of Ramp / Draw / Removal is below target,
+cards that **only** fill secondary roles (Tutor, Board Wipe, etc.) get **zero**
+deficit credit — they won’t appear until all three primaries are met. We could
+relax to 25% secondary credit if that feels too harsh.
+
+**Question:** Confirm **strict zero** for secondary until all three primaries
+are at target, or do you want the softer fallback built in from day one?
+
+---
+
+### Locked without interview (for reference)
+
+- Raw score on suggestion badges only (no `/10` on cards)  
+- **No** hiding suggestions unless “7/10 display or better”  
+- **No** S bonus; V handles multi-role  
+- Primary strip: literal `have/target` including **12/10**  
+- Option A primary tier with `W_S = 0` (pending Q6 confirm)  
 
 ---
 
