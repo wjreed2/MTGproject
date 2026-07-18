@@ -159,7 +159,28 @@ async function loadAllData() {
   return { collection: col, decks: dks, games: gms, wishlist: wl, prefs, sharedDecks: sharedDks, history: hist, sharedCollections: sharedCols, sharedWishlists: sharedWl };
 }
 
+// True only after a successful server load this session. Fresh iOS Home Screen
+// PWAs have a separate empty IndexedDB from Safari — until this flips true we
+// must not treat collection=[] as authoritative or PUT it back to MySQL.
+let _appDataSynced = false;
+/** One-shot: next collection PUT may send [] (Settings → Clear Collection). */
+let _allowEmptyCollectionPut = false;
+
+function isAppDataSynced() {
+  return _appDataSynced;
+}
+
+function markAppDataSynced(synced) {
+  _appDataSynced = !!synced;
+}
+
+function allowNextEmptyCollectionPut() {
+  _allowEmptyCollectionPut = true;
+}
+
 // ── IndexedDB offline cache ───────────────────────────────────────────────
+// Safari and Home Screen PWAs keep separate IndexedDB origins. Cache is keyed
+// by account id so a reinstall/login never hydrates another user's snapshot.
 
 let _idb = null;
 function _openIDB() {
@@ -196,8 +217,10 @@ async function cacheGet(key) {
   } catch (_) { return null; }
 }
 
-async function cacheSaveAll(data) {
+async function cacheSaveAll(data, accountId) {
+  const aid = accountId != null ? accountId : (typeof currentUser !== 'undefined' ? currentUser?.id : null);
   await Promise.all([
+    cacheSet('accountId',        aid),
     cacheSet('collection',       data.collection       || []),
     cacheSet('decks',            data.decks            || []),
     cacheSet('games',            data.games            || []),
@@ -210,7 +233,15 @@ async function cacheSaveAll(data) {
   ]);
 }
 
-async function cacheLoadAll() {
+async function cacheLoadAll(accountId) {
+  const aid = accountId != null ? accountId : (typeof currentUser !== 'undefined' ? currentUser?.id : null);
+  if (aid != null) {
+    const cachedAid = await cacheGet('accountId');
+    if (cachedAid != null && String(cachedAid) !== String(aid)) {
+      console.warn('[cache] Ignoring IndexedDB snapshot for a different account');
+      return null;
+    }
+  }
   const keys = ['collection','decks','games','wishlist','prefs','sharedDecks','history','sharedCollections','sharedWishlists'];
   const vals = await Promise.all(keys.map(k => cacheGet(k)));
   if (vals.every(v => v === null)) return null;
@@ -252,11 +283,34 @@ function _setOnline() {
   document.getElementById('offlineBanner')?.style.setProperty('display', 'none');
   clearInterval(_reconnectTimer);
   _reconnectTimer = null;
-  if (_dirty.size) _flushSave();
+  // If we never got a successful server load (fresh PWA / timed-out login),
+  // reload authoritative data instead of only flushing dirty local empties.
+  if (!_appDataSynced && typeof resyncAppDataFromServer === 'function') {
+    resyncAppDataFromServer({ reason: 'reconnect' }).catch(() => {});
+  } else if (_dirty.size) {
+    _flushSave();
+  }
 }
 
 window.addEventListener('online',  () => { if (_isOffline) _setOnline(); });
 window.addEventListener('offline', () => _setOffline());
+
+if (typeof document !== 'undefined') {
+  const _maybeResyncOnForeground = () => {
+    if (document.visibilityState && document.visibilityState !== 'visible') return;
+    if (_isOffline) return;
+    if (_appDataSynced) return;
+    if (typeof currentUser === 'undefined' || !currentUser) return;
+    if (typeof resyncAppDataFromServer === 'function') {
+      resyncAppDataFromServer({ reason: 'foreground' }).catch(() => {});
+    }
+  };
+  document.addEventListener('visibilitychange', _maybeResyncOnForeground);
+  window.addEventListener('focus', _maybeResyncOnForeground);
+  window.addEventListener('pageshow', ev => {
+    if (ev.persisted) _maybeResyncOnForeground();
+  });
+}
 
 // Flush any pending save when the user navigates away or refreshes.
 // fetch with keepalive:true tells the browser to complete the request even after unload.
@@ -265,12 +319,23 @@ window.addEventListener('beforeunload', () => {
   clearTimeout(_saveTimer);
   _saveTimer = null;
   if (!_dirty.size) return;
+  // Never keepalive-PUT an unsynced empty collection — that is how PWA reinstalls
+  // used to wipe MySQL while Safari still showed a warm IndexedDB cache.
+  if (!_appDataSynced) {
+    _dirty.clear();
+    return;
+  }
   const toSave = new Set(_dirty);
   _dirty.clear();
   const root = mtgApiRoot();
   const ko   = { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', keepalive: true };
   if (toSave.has('decks'))      fetch(root + '/decks',       { ...ko, body: JSON.stringify(decks) }).catch(() => {});
-  if (toSave.has('collection')) fetch(root + '/collection',  { ...ko, body: JSON.stringify(collection) }).catch(() => {});
+  if (toSave.has('collection')) {
+    const allow = _allowEmptyCollectionPut;
+    _allowEmptyCollectionPut = false;
+    const path = allow ? '/collection?allowEmpty=1' : '/collection';
+    fetch(root + path, { ...ko, body: JSON.stringify(collection) }).catch(() => {});
+  }
   if (toSave.has('games'))      fetch(root + '/games',       { ...ko, body: JSON.stringify(games) }).catch(() => {});
   if (toSave.has('wishlist'))   fetch(root + '/wishlist',    { ...ko, body: JSON.stringify(wishlist) }).catch(() => {});
   if (toSave.has('prefs'))      fetch(root + '/preferences', { ...ko, body: JSON.stringify({
@@ -314,11 +379,23 @@ function scheduleSaveSharedDeck(deck) {
 
 const _dirty = new Set();
 function markDirty(...domains) {
-  if (!domains.length) {
-    ['collection', 'decks', 'games', 'wishlist', 'prefs'].forEach(d => _dirty.add(d));
-  } else {
-    domains.forEach(d => _dirty.add(d));
+  const list = domains.length
+    ? domains.slice()
+    : ['collection', 'decks', 'games', 'wishlist', 'prefs'];
+  // Until the server load succeeds, local arrays may be [] from a cold PWA cache
+  // miss — do not queue those for upload.
+  if (!_appDataSynced) {
+    const blocked = list.filter(d => d === 'collection' || d === 'decks' || d === 'games' || d === 'wishlist');
+    if (blocked.length) {
+      console.warn('[db] Skipping save for unsynced domains:', blocked.join(', '));
+    }
+    list.forEach(d => {
+      if (d === 'collection' || d === 'decks' || d === 'games' || d === 'wishlist') return;
+      _dirty.add(d);
+    });
+    return;
   }
+  list.forEach(d => _dirty.add(d));
 }
 
 // Debounced save — called by save() in state.js
@@ -337,12 +414,24 @@ setInterval(() => { if (_dirty.size && !_saveInFlight) _flushSave(); }, 30_000);
 async function _flushSave() {
   if (_saveInFlight) return;
   if (!_dirty.size) return;
+  if (!_appDataSynced) {
+    // Drop inventory domains; keep prefs if any (prefs are safe and small).
+    for (const d of [..._dirty]) {
+      if (d === 'collection' || d === 'decks' || d === 'games' || d === 'wishlist') _dirty.delete(d);
+    }
+    if (!_dirty.size) return;
+  }
   _saveInFlight = true;
   const toSave = new Set(_dirty);
   _dirty.clear();
   try {
     const ops = [];
-    if (toSave.has('collection')) ops.push(apiPut('/collection', collection));
+    if (toSave.has('collection')) {
+      const allow = _allowEmptyCollectionPut;
+      _allowEmptyCollectionPut = false;
+      const path = allow ? '/collection?allowEmpty=1' : '/collection';
+      ops.push(apiPut(path, collection));
+    }
     if (toSave.has('decks'))      ops.push(apiPut('/decks', decks).then(res => {
       const map = res && res.updatedAtById;
       if (map && Array.isArray(decks)) {
