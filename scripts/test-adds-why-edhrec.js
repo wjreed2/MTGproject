@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Regression: EDHREC rank must appear in Adds "Why suggested".
- * Helpers mirrored from js/decks.js (_fmtWhyVal / _edhrecWhyLines).
+ * Regression: EDHREC rank score (percentile × 4) in Adds "Why suggested".
+ * Helpers mirrored from js/decks.js (_fmtWhyVal / _edhrecWhyLine).
  */
 'use strict';
 
@@ -26,33 +26,20 @@ function _fmtWhyVal(v) {
   return (r >= 0 ? '+' : '') + r;
 }
 
-function _edhrecWhyLines(s) {
+function _edhrecWhyLine(s) {
   const t = s.terms || null;
-  const E = Number(s.E) || 0;
-  const rankRaw = Number(s.edhrecRank ?? t?.edhrecRank);
-  const rank = Number.isFinite(rankRaw) && rankRaw > 0 ? Math.floor(rankRaw) : null;
-  const role = escapeHtml(t?.eRole || s.topRole || '');
-  const lines = [];
-  if (rank != null) {
-    lines.push({
-      text: role ? `EDHREC rank · ${role}` : 'EDHREC rank',
-      val: `#${rank}`,
-    });
-  }
-  if (E > 0) {
-    let pctNote = '';
-    if (t && t.p != null && Number.isFinite(t.p)) {
-      const pct = Math.max(0, Math.min(100, Math.round(Number(t.p) * 100)));
-      pctNote = ` · ${pct}th pct`;
-    }
-    const labelRole = role || 'pick';
-    lines.push({
-      text: `Popular ${labelRole} (EDHREC${pctNote})`,
-      val: _fmtWhyVal(E),
-    });
-  }
-  return lines;
+  const p = t && t.p != null && Number.isFinite(Number(t.p)) ? Number(t.p) : null;
+  if (p == null) return null;
+  const edhScore = p * (typeof scoring.K_E === 'number' ? scoring.K_E : 4);
+  if (!(edhScore > 0)) return null;
+  const role = escapeHtml(t?.eRole || s.topRole || 'pick');
+  return {
+    text: `EDHREC rank · ${role}`,
+    val: _fmtWhyVal(edhScore),
+  };
 }
+
+assert.strictEqual(scoring.K_E, 4, 'EDHREC max / scale is 4 (raised from 2)');
 
 const card = {
   name: 'Three Visits',
@@ -60,7 +47,6 @@ const card = {
   cmc: 2,
   mana: '{1}{G}',
   priceTCG: 5,
-  edhrecRank: 42,
   edhrecRolePct: { Ramp: 0.98 },
 };
 const scored = scoring.scoreAddCandidateTerms(
@@ -68,26 +54,26 @@ const scored = scoring.scoreAddCandidateTerms(
   ['Ramp'],
   { deficits: { Ramp: 6 }, curveDeficit: [0, 0, 0, 0, 0, 0, 0, 0] },
 );
-assert.strictEqual(scored.edhrecRank, 42);
-assert.ok(scored.E > 0, 'E should be positive for elite Ramp EDHREC pct');
+assert.ok(scored.terms.p != null);
+assert.ok(Math.abs(scored.E - scored.terms.pAdjusted * 4) < 1e-9, 'E = percentile_adjusted × 4');
 
-const lines = _edhrecWhyLines(scored);
-assert.ok(lines.some(l => l.text === 'EDHREC rank · Ramp' && l.val === '#42'),
-  'why panel must show EDHREC rank #42');
-assert.ok(lines.some(l => /Popular Ramp \(EDHREC/.test(l.text) && l.val.startsWith('+')),
-  'E contribution line still shown when E > 0');
+const line = _edhrecWhyLine(scored);
+assert.ok(line, 'EDHREC why line must render when percentile exists');
+assert.strictEqual(line.text, 'EDHREC rank · Ramp');
+// Display uses raw percentile × 4 (0.98 × 4 = 3.92 → +3.9)
+assert.strictEqual(line.val, _fmtWhyVal(0.98 * 4));
+assert.strictEqual(line.val, '+3.9');
 
-// Rank-only: no percentile map → E=0, but rank must still display.
-const rankOnly = scoring.scoreAddCandidateTerms(
-  { ...card, edhrecRolePct: undefined, edhrecRank: 1200 },
+// Mid percentile: 0.25 × 4 = 1.0
+const mid = scoring.scoreAddCandidateTerms(
+  { ...card, edhrecRolePct: { Ramp: 0.25 }, priceTCG: 2 },
   ['Ramp'],
   { deficits: { Ramp: 4 }, curveDeficit: [0, 0, 0, 0, 0, 0, 0, 0] },
 );
-assert.strictEqual(rankOnly.E, 0);
-assert.strictEqual(rankOnly.edhrecRank, 1200);
-const rankLines = _edhrecWhyLines(rankOnly);
-assert.deepStrictEqual(rankLines, [{ text: 'EDHREC rank · Ramp', val: '#1200' }]);
+const midLine = _edhrecWhyLine(mid);
+assert.strictEqual(midLine.val, '+1');
+assert.ok(Math.abs(mid.E - 0.25 * 4) < 1e-9);
 
-assert.deepStrictEqual(_edhrecWhyLines({ E: 0, edhrecRank: null, terms: {} }), []);
+assert.strictEqual(_edhrecWhyLine({ E: 0, terms: { p: null } }), null);
 
 console.log('test-adds-why-edhrec: ok');

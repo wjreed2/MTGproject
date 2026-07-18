@@ -24,10 +24,13 @@
    * efficiency-mode cards (interaction/ramp/etc.); CMC ≥ 4 → L = 0.
    * Keep K_L near C_eff's scale (cap 1.5) so L stays secondary to D.
    * Do not retune K_L to force card matchups (TV>GS etc.) — those are soft
-   * vignettes only. K_E = 0.5 × K_L (relative rule).
+   * vignettes only.
+   *
+   * E (EDHREC): score = percentile × K_E. Max raised 2 → 4 so a top-percentile
+   * card contributes +4 on the why breakdown / score (E = K_E × p_adjusted).
    */
   const K_L = 0.2;
-  const K_E = 0.5 * K_L; // 0.1 — max E at p_adjusted=1
+  const K_E = 4; // max E at p_adjusted=1 (was 2)
   const K_B = 0.55;
   const K_P = 0.15;
   const V_PER_EXTRA_TAG = 0.15;

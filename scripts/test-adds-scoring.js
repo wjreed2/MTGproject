@@ -222,7 +222,7 @@ const wipeOnlyCtx = {
   assert.ok(!EFFICIENCY_MODE_PROJECT_TAGS.has('Stax'));
   assert.strictEqual(CMC_REF, 4);
   assert.deepStrictEqual(D_SUBLINEAR_WEIGHTS, [1.0, 0.5, 0.25]);
-  assert.strictEqual(K_E, 0.5 * K_L);
+  assert.strictEqual(K_E, 4, 'EDHREC scale/max is 4 (percentile × 4)');
   console.log(`[constants] K_L=${K_L} K_E=${K_E} K_B=${K_B} K_P=${K_P} maxL=${maxL}`);
 }
 
