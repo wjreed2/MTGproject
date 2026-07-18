@@ -2014,8 +2014,32 @@ function dedupeDeckCardTags(tags) {
  * Prevent stale clients from wiping collaborator Adds/Cuts plans.
  * See lib/deck-planning-merge.js.
  */
-const { mergeDeckPlanningZonesForWrite } = require('./lib/deck-planning-merge');
+const {
+  mergeDeckPlanningZonesForWrite,
+  applyDeckPlanningWrite,
+} = require('./lib/deck-planning-merge');
+const { collaboratorChangesPrintings } = require('./lib/deck-collaborator-printings');
 const { shouldBlockEmptyCollectionReplace } = require('./lib/collection-wipe-guard');
+
+async function assertCanEditDeck(deckId, accountId) {
+  const [deckRows] = await db().query('SELECT account_id, data, updated_at FROM decks WHERE id = ?', [deckId]);
+  if (!deckRows.length) return { error: { status: 404, message: 'Deck not found' } };
+  const ownerId = Number(deckRows[0].account_id);
+  const existingUpdatedAt = Number(deckRows[0].updated_at) || 0;
+  const existingData = typeof deckRows[0].data === 'string' ? JSON.parse(deckRows[0].data) : deckRows[0].data;
+  const isOwner = ownerId === Number(accountId);
+  if (!isOwner) {
+    const [cr] = await db().query(
+      'SELECT permission FROM deck_collaborators WHERE deck_id = ? AND collaborator_id = ?',
+      [deckId, accountId]
+    );
+    if (!cr.length) return { error: { status: 403, message: 'Access denied' } };
+    if ((cr[0].permission || 'edit') === 'view') {
+      return { error: { status: 403, message: 'You have view-only access to this deck' } };
+    }
+  }
+  return { ownerId, isOwner, existingUpdatedAt, existingData };
+}
 
 function normalizeDeckForStorage(deck) {
   const seen = new Map();
@@ -2866,11 +2890,10 @@ app.get('/api/decks', requireAuth, async (req, res) => {
 
     const out = rows.map(r => {
       const deck = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
-      const cards = byDeck.get(r.id);
+      applyDeckCardsFromTable(deck, r.id, byDeck);
       // share_token / updated_at are column-authoritative.
       deck.shareToken = r.share_token || null;
       deck.updatedAt = Number(r.updated_at) || Number(deck.updatedAt) || 0;
-      if (Array.isArray(cards) && cards.length) return { ...deck, cards };
       return deck;
     });
     await attachPriceLogPricesToDeckCards(out.flatMap(d => d.cards || []));
@@ -3144,6 +3167,16 @@ app.put('/api/decks', requireAuth, async (req, res) => {
     invalidateTradelistCache(accountId);
     // Deck contents drive deck-needed wishlist entries.
     void reconcileAccountWishlist(accountId);
+    const collabIds = await deckIdsWithCollaborators(normDecks.map(d => d.id));
+    for (const d of normDecks) {
+      if (collabIds.has(d.id)) {
+        _broadcastDeck(d.id, await deckBroadcastMeta(accountId, {
+          kind: 'full',
+          deckId: d.id,
+          updatedAt: updatedAtById[d.id] || d.updatedAt,
+        }));
+      }
+    }
     res.json({ ok: true, count: decks.length, updatedAtById });
   } catch (e) {
     console.error(e);
@@ -3152,6 +3185,127 @@ app.put('/api/decks', requireAuth, async (req, res) => {
 });
 
 // ── Deck collaboration ────────────────────────────────────────────────────────
+
+/** Load deck_cards (+ tags) for one deck; returns card objects like GET /decks/shared. */
+async function loadDeckCardsForOwner(ownerAccountId, deckId) {
+  const [cardRows] = await db().query(
+    `SELECT dc.card_uid, dc.card_data, dc.sort_order, dct.tag_name
+     FROM deck_cards dc
+     LEFT JOIN deck_card_tags dct
+       ON dct.account_id = dc.account_id AND dct.deck_id = dc.deck_id AND dct.card_uid = dc.card_uid
+     WHERE dc.account_id = ? AND dc.deck_id = ?
+     ORDER BY dc.sort_order ASC`,
+    [ownerAccountId, deckId]
+  );
+  const byCardKey = new Map();
+  const cards = [];
+  cardRows.forEach(r => {
+    const key = r.card_uid;
+    if (!byCardKey.has(key)) {
+      const parsed = typeof r.card_data === 'string' ? JSON.parse(r.card_data) : r.card_data;
+      const cardUid = parsed.uid || r.card_uid;
+      const card = {
+        ...parsed,
+        uid: cardUid,
+        foil: parsed.foil != null ? !!parsed.foil : cardUid.endsWith('_f'),
+        customTags: [],
+      };
+      byCardKey.set(key, card);
+      cards.push(card);
+    }
+    if (r.tag_name) {
+      const card = byCardKey.get(key);
+      if (!card.customTags.some(t => String(t).toLowerCase() === String(r.tag_name).toLowerCase())) {
+        card.customTags.push(r.tag_name);
+      }
+    }
+  });
+  return cards;
+}
+
+async function loadOwnerDeckTagCatalog(ownerAccountId) {
+  const [prefRows] = await db().query(
+    `SELECT key_name, value FROM preferences
+     WHERE account_id = ? AND key_name IN ('deck_custom_tags','deck_primary_tags','deck_secondary_tags')`,
+    [ownerAccountId]
+  );
+  const set = new Set();
+  prefRows.forEach(r => {
+    let arr = [];
+    try { arr = Array.isArray(r.value) ? r.value : JSON.parse(r.value || '[]'); } catch (_) { arr = []; }
+    if (!Array.isArray(arr)) arr = [];
+    arr.forEach(t => { const s = String(t || '').trim(); if (s) set.add(s); });
+  });
+  return [...set].sort((a, b) => a.localeCompare(b));
+}
+
+/** Prefer deck_cards rows over stale cards[] left in the decks.data JSON blob. */
+function applyDeckCardsFromTable(deck, deckId, byDeck) {
+  if (byDeck && byDeck.has(deckId)) {
+    deck.cards = byDeck.get(deckId) || [];
+  } else if (!Array.isArray(deck.cards)) {
+    deck.cards = [];
+  }
+  return deck;
+}
+
+/** Single-deck fetch for owner or collaborator (used by REST + realtime refresh). */
+async function loadDeckForViewer(viewerAccountId, deckId) {
+  const access = await resolveDeckAccessForViewer(viewerAccountId, deckId);
+  if (!access) return null;
+  const [deckRows] = await db().query(
+    `SELECT d.id, d.data, d.account_id, d.updated_at, d.share_token, a.email
+     FROM decks d LEFT JOIN accounts a ON a.id = d.account_id
+     WHERE d.id = ?`,
+    [deckId]
+  );
+  if (!deckRows.length) return null;
+  const r = deckRows[0];
+  const deck = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
+  const cards = await loadDeckCardsForOwner(access.ownerId, deckId);
+  const [cntRows] = await db().query(
+    'SELECT COUNT(*) AS c FROM deck_cards WHERE account_id=? AND deck_id=?',
+    [access.ownerId, deckId]
+  );
+  if ((cntRows[0]?.c || 0) > 0) deck.cards = cards;
+  else if (!Array.isArray(deck.cards)) deck.cards = [];
+  deck.updatedAt = Number(r.updated_at) || Number(deck.updatedAt) || 0;
+  const viewerId = Number(viewerAccountId);
+  if (access.ownerId === viewerId) {
+    deck.shareToken = r.share_token || null;
+  } else {
+    deck.ownerEmail = r.email;
+    deck.ownerId = r.account_id;
+    deck.ownerCustomTags = await loadOwnerDeckTagCatalog(access.ownerId);
+    const [cr] = await db().query(
+      'SELECT permission FROM deck_collaborators WHERE deck_id = ? AND collaborator_id = ?',
+      [deckId, viewerId]
+    );
+    deck.userPermission = cr.length ? (cr[0].permission || 'edit') : 'edit';
+  }
+  await attachPriceLogPricesToDeckCards(deck.cards || []);
+  return deck;
+}
+
+async function deckIdsWithCollaborators(deckIds) {
+  const ids = [...new Set((deckIds || []).filter(Boolean))];
+  if (!ids.length) return new Set();
+  const ph = ids.map(() => '?').join(',');
+  const [rows] = await db().query(
+    `SELECT DISTINCT deck_id FROM deck_collaborators WHERE deck_id IN (${ph})`,
+    ids
+  );
+  return new Set(rows.map(r => r.deck_id));
+}
+
+async function deckBroadcastMeta(accountId, base) {
+  const [rows] = await db().query('SELECT email FROM accounts WHERE id = ?', [accountId]);
+  return {
+    ...base,
+    actorAccountId: accountId,
+    actorEmail: rows.length ? String(rows[0].email || '') : null,
+  };
+}
 
 // Decks shared with the current user (as collaborator)
 app.get('/api/decks/shared', requireAuth, async (req, res) => {
@@ -3229,8 +3383,7 @@ app.get('/api/decks/shared', requireAuth, async (req, res) => {
 
     const out = deckRows.map(r => {
       const deck = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
-      const cards = byDeck.get(r.id);
-      if (Array.isArray(cards) && cards.length) deck.cards = cards;
+      applyDeckCardsFromTable(deck, r.id, byDeck);
       deck.ownerEmail = r.email;
       deck.ownerId = r.account_id;
       deck.ownerCustomTags = [...(catalogByOwner.get(r.account_id) || [])].sort((a, b) => a.localeCompare(b));
@@ -3240,6 +3393,18 @@ app.get('/api/decks/shared', requireAuth, async (req, res) => {
     });
     await attachPriceLogPricesToDeckCards(out.flatMap(d => d.cards || []));
     res.json(out);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Owner or collaborator — lightweight refresh for realtime sync.
+app.get('/api/decks/:id', requireAuth, async (req, res) => {
+  try {
+    const deck = await loadDeckForViewer(req.accountId, req.params.id);
+    if (!deck) return res.status(404).json({ error: 'Deck not found' });
+    res.json(deck);
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
@@ -3265,18 +3430,17 @@ app.patch('/api/decks/:id', requireAuth, async (req, res) => {
       );
       if (!cr.length) return res.status(403).json({ error: 'Access denied' });
       if ((cr[0].permission || 'edit') === 'view') return res.status(403).json({ error: 'You have view-only access to this deck' });
-      // Block printing changes — compare incoming scryfallIds against stored cards by name
+      // Block real printing swaps. Allow multiple existing printings of the same
+      // name (basics) and null/unknown stored ids — the old Map-by-name check
+      // rejected those and silently dropped collaborator Adds/Cuts saves.
       const [storedCards] = await db().query(
         'SELECT card_name, scryfall_id FROM deck_cards WHERE account_id=? AND deck_id=?',
         [ownerId, deckId]
       );
-      const storedById = new Map(storedCards.map(r => [String(r.card_name).toLowerCase(), r.scryfall_id]));
       const incoming = Array.isArray(req.body?.cards) ? req.body.cards : [];
-      const printingChanged = incoming.some(c => {
-        const stored = storedById.get(String(c.name || '').toLowerCase());
-        return stored !== undefined && c.scryfallId && stored !== c.scryfallId;
-      });
-      if (printingChanged) return res.status(403).json({ error: 'Collaborators cannot change card printings' });
+      if (collaboratorChangesPrintings(storedCards, incoming)) {
+        return res.status(403).json({ error: 'Collaborators cannot change card printings' });
+      }
     }
 
     mergeDeckPlanningZonesForWrite(existingData, existingUpdatedAt, req.body);
@@ -3334,7 +3498,56 @@ app.patch('/api/decks/:id', requireAuth, async (req, res) => {
     } finally {
       conn.release();
     }
+    _broadcastDeck(deckId, await deckBroadcastMeta(accountId, {
+      kind: 'full',
+      deckId,
+      updatedAt: now,
+    }));
     res.json({ ok: true, updatedAt: now });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Planning-only write (adds/cuts) — owner or collaborator.
+// Does not rewrite deck_cards, so collaborator cut/add markers cannot be blocked
+// by the printing-change guard or a failed card re-insert.
+app.patch('/api/decks/:id/planning', requireAuth, async (req, res) => {
+  const deckId = req.params.id;
+  const accountId = req.accountId;
+  try {
+    const access = await assertCanEditDeck(deckId, accountId);
+    if (access.error) return res.status(access.error.status).json({ error: access.error.message });
+
+    const nextData = applyDeckPlanningWrite(access.existingData, access.existingUpdatedAt, req.body || {});
+    const now = Date.now();
+    nextData.updatedAt = now;
+    // Keep collaborator/client-only fields out of the persisted blob.
+    delete nextData.shareToken;
+    delete nextData.clearAddsCuts;
+    delete nextData.ownerEmail;
+    delete nextData.ownerId;
+    delete nextData.ownerCustomTags;
+    delete nextData.userPermission;
+
+    await db().query(
+      'UPDATE decks SET data=?, updated_at=? WHERE id=?',
+      [JSON.stringify(nextData), now, deckId]
+    );
+    _broadcastDeck(deckId, await deckBroadcastMeta(accountId, {
+      kind: 'planning',
+      deckId,
+      updatedAt: now,
+      adds: Array.isArray(nextData.adds) ? nextData.adds : [],
+      cuts: Array.isArray(nextData.cuts) ? nextData.cuts : [],
+    }));
+    res.json({
+      ok: true,
+      updatedAt: now,
+      adds: Array.isArray(nextData.adds) ? nextData.adds : [],
+      cuts: Array.isArray(nextData.cuts) ? nextData.cuts : [],
+    });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
@@ -4278,6 +4491,10 @@ function _broadcastTrade(tradeId, event, payload) {
   if (_io) _io.to(`trade:${tradeId}`).emit(event, payload);
 }
 
+function _broadcastDeck(deckId, payload) {
+  if (_io) _io.to(`deck:${deckId}`).emit('deck:updated', payload);
+}
+
 /**
  * Apply one granular edit to a trade with optimistic concurrency. Enforces
  * per-side ownership: a participant may only mutate cards on THEIR side
@@ -4362,6 +4579,15 @@ function attachRealtime(httpServer) {
       if (result.error) { socket.emit('trade:error', { error: result.error }); return; }
       _io.to(`trade:${tradeId}`).emit('trade:state', result.doc);
     });
+    socket.on('deck:join', async ({ deckId } = {}) => {
+      try {
+        if (!deckId) return;
+        const access = await resolveDeckAccessForViewer(socket.accountId, deckId);
+        if (!access) return;
+        socket.join(`deck:${deckId}`);
+      } catch (_) {}
+    });
+    socket.on('deck:leave', ({ deckId } = {}) => { if (deckId) socket.leave(`deck:${deckId}`); });
   });
   console.log('[realtime] socket.io attached');
 }
@@ -5540,11 +5766,10 @@ async function ensureScryfallTagCacheTable() {
 /**
  * Precompute per-role EDHREC percentiles into scryfall_oracle_cards.edhrec_pct_json.
  * Population = cards with the role tag, non-null edhrec_rank, and commander-legal when
- * legality is known. Min population 8 — below that, no percentile for that role.
+ * legality is known. Any role with ≥1 ranked card gets percentiles (no min-population floor).
  * Never call this per suggestion; only from import / cron / admin.
  */
 async function recomputeEdhrecRolePercentiles({ schemaVersion = '4' } = {}) {
-  const E_POPULATION_FLOOR = 8;
   const conn = await db().getConnection();
   try {
     const [[rankRow]] = await conn.query(
@@ -5552,7 +5777,7 @@ async function recomputeEdhrecRolePercentiles({ schemaVersion = '4' } = {}) {
     );
     if (!Number(rankRow?.n || 0)) {
       console.log('[edhrec-pct] skip — no edhrec_rank values (re-import oracle cards to populate)');
-      return { roles: 0, updated: 0 };
+      return { roles: 0, updated: 0, withRank: 0 };
     }
 
     // Role label → [{ oracle_id, rank }]
@@ -5582,9 +5807,10 @@ async function recomputeEdhrecRolePercentiles({ schemaVersion = '4' } = {}) {
     const pctByOracle = new Map();
     let rolesUsed = 0;
     for (const [role, list] of byRole.entries()) {
-      if (list.length < E_POPULATION_FLOOR) continue;
+      if (!list.length) continue;
       rolesUsed++;
       // Lower edhrec_rank = more popular. Sort ascending; p=1 for best.
+      // n=1 → denom=1 → sole card gets p=1.
       list.sort((a, b) => a.rank - b.rank || String(a.oracle_id).localeCompare(String(b.oracle_id)));
       const n = list.length;
       const denom = Math.max(1, n - 1);
@@ -5618,10 +5844,37 @@ async function recomputeEdhrecRolePercentiles({ schemaVersion = '4' } = {}) {
       updated += chunk.length;
     }
     console.log(`[edhrec-pct] roles=${rolesUsed} cards=${updated}`);
-    return { roles: rolesUsed, updated };
+    return { roles: rolesUsed, updated, withRank: Number(rankRow?.n || 0) };
   } finally {
     conn.release();
   }
+}
+
+/**
+ * One-shot / repair: if ranks exist but edhrec_pct_json was never filled (e.g. cards
+ * imported before recompute ran, or recompute was skipped), compute percentiles on boot.
+ * No-op when coverage already looks healthy.
+ */
+async function backfillEdhrecPercentilesIfNeeded() {
+  const [[row]] = await db().query(`
+    SELECT
+      SUM(edhrec_rank IS NOT NULL) AS withRank,
+      SUM(edhrec_pct_json IS NOT NULL) AS withPct
+    FROM scryfall_oracle_cards`);
+  const withRank = Number(row?.withRank || 0);
+  const withPct = Number(row?.withPct || 0);
+  if (!withRank) {
+    console.log('[edhrec-pct] boot backfill skip — no edhrec_rank values');
+    return;
+  }
+  // Healthy: most ranked cards already have a pct map.
+  if (withPct > 0 && withPct >= withRank * 0.5) {
+    console.log(`[edhrec-pct] boot backfill skip — coverage ok (rank=${withRank} pct=${withPct})`);
+    return;
+  }
+  console.log(`[edhrec-pct] boot backfill starting (rank=${withRank} pct=${withPct})`);
+  const result = await recomputeEdhrecRolePercentiles({ schemaVersion: '4' });
+  console.log(`[edhrec-pct] boot backfill done roles=${result.roles} updated=${result.updated}`);
 }
 
 // Printing-level perceptual-hash fingerprints used by the card scanner (see
@@ -7186,6 +7439,25 @@ app.post('/api/cards/adds-catalog', async (req, res) => {
   }
 });
 
+/** Public coverage probe — diagnose empty EDHREC Why lines without admin auth. */
+app.get('/api/cards/edhrec-coverage', async (_req, res) => {
+  try {
+    const [[row]] = await db().query(`
+      SELECT
+        COUNT(*) AS total,
+        SUM(edhrec_rank IS NOT NULL) AS withRank,
+        SUM(edhrec_pct_json IS NOT NULL) AS withPct
+      FROM scryfall_oracle_cards`);
+    res.json({
+      total: Number(row?.total || 0),
+      withRank: Number(row?.withRank || 0),
+      withPct: Number(row?.withPct || 0),
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Batch EDHREC role percentiles for owned-collection Adds scoring (never live-scrape).
 app.post('/api/cards/edhrec-percentiles', async (req, res) => {
   try {
@@ -7767,12 +8039,31 @@ app.get('/api/admin/scryfall/import-status', requireAuth, requireAdminRole, asyn
   try {
     const [[cardsRow]] = await db().query('SELECT COUNT(*) AS n FROM scryfall_oracle_cards');
     const [[tagsRow]] = await db().query('SELECT COUNT(*) AS n, MAX(fetched_at) AS latest FROM scryfall_oracle_tags');
+    const [[edhRow]] = await db().query(`
+      SELECT
+        SUM(edhrec_rank IS NOT NULL) AS withRank,
+        SUM(edhrec_pct_json IS NOT NULL) AS withPct
+      FROM scryfall_oracle_cards`);
     res.json({
       oracleCards: Number(cardsRow?.n || 0),
       oracleTags: Number(tagsRow?.n || 0),
       latestTagUpdate: Number(tagsRow?.latest || 0) || null,
+      edhrecWithRank: Number(edhRow?.withRank || 0),
+      edhrecWithPct: Number(edhRow?.withPct || 0),
       activeImport: _scryfallImportProgress,
     });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Recompute edhrec_pct_json from existing edhrec_rank + tags (no Scryfall download). */
+app.post('/api/admin/scryfall/recompute-edhrec-pct', requireAuth, requireAdminRole, async (req, res) => {
+  try {
+    const schemaVersion = String(req.body?.schemaVersion || '4').slice(0, 16);
+    const result = await recomputeEdhrecRolePercentiles({ schemaVersion });
+    res.json({ ok: true, schemaVersion, ...result });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
@@ -8354,6 +8645,7 @@ async function start() {
       await ensureScryfallTagCacheTable();
       await ensurePrintFingerprintsTable();
       await backfillDeckCardsIfEmpty();
+      await backfillEdhrecPercentilesIfNeeded();
     } catch (e) {
       console.error('[db] schema/backfill warning:', e.message);
     }
@@ -8374,7 +8666,13 @@ async function start() {
   app.use('/js',     express.static(path.join(__dirname, 'js')));
   app.use('/styles', express.static(path.join(__dirname, 'styles')));
   app.use('/vendor', express.static(path.join(__dirname, 'vendor')));
-  app.use('/dist',   express.static(path.join(__dirname, 'dist')));
+  app.use('/dist',   express.static(path.join(__dirname, 'dist'), {
+    setHeaders(res) {
+      // Index stamps ?v=SHA on bundle URLs; allow long cache for a given version,
+      // but always revalidate so a Home Screen PWA never sticks on a stale hash-less URL.
+      res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+    },
+  }));
   app.use('/sounds', express.static(path.join(__dirname, 'sounds')));
   app.use('/icons',  express.static(path.join(__dirname, 'icons')));
   app.get('/manifest.webmanifest', (_req, res) => res.sendFile(path.join(__dirname, 'manifest.webmanifest')));

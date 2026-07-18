@@ -144,9 +144,14 @@ async function authLogout() {
   await fetch(mtgApiRoot() + '/auth/logout', { method: 'POST', credentials: 'include' });
 }
 
+/**
+ * Load account data. Collection is fetched first and is required; secondary
+ * endpoints use allSettled so a slow/failing shared/history call cannot make a
+ * cold Home Screen PWA look like "could not connect" with an empty collection.
+ */
 async function loadAllData() {
-  const [col, dks, gms, wl, prefs, sharedDks, hist, sharedCols, sharedWl] = await Promise.all([
-    apiFetch('/collection'),
+  const collection = await apiFetch('/collection');
+  const settled = await Promise.allSettled([
     apiFetch('/decks'),
     apiFetch('/games'),
     apiFetch('/wishlist'),
@@ -156,7 +161,23 @@ async function loadAllData() {
     apiFetch('/collection/shared'),
     apiFetch('/wishlist/shared'),
   ]);
-  return { collection: col, decks: dks, games: gms, wishlist: wl, prefs, sharedDecks: sharedDks, history: hist, sharedCollections: sharedCols, sharedWishlists: sharedWl };
+  const take = (i, fallback, label) => {
+    const r = settled[i];
+    if (r.status === 'fulfilled') return r.value;
+    console.warn('[db] Secondary load failed (' + label + '):', r.reason);
+    return fallback;
+  };
+  return {
+    collection,
+    decks: take(0, [], 'decks'),
+    games: take(1, [], 'games'),
+    wishlist: take(2, [], 'wishlist'),
+    prefs: take(3, {}, 'preferences'),
+    sharedDecks: take(4, [], 'decks/shared'),
+    history: take(5, [], 'history'),
+    sharedCollections: take(6, [], 'collection/shared'),
+    sharedWishlists: take(7, [], 'wishlist/shared'),
+  };
 }
 
 // True only after a successful server load this session. Fresh iOS Home Screen
@@ -314,7 +335,32 @@ if (typeof document !== 'undefined') {
 
 // Flush any pending save when the user navigates away or refreshes.
 // fetch with keepalive:true tells the browser to complete the request even after unload.
-window.addEventListener('beforeunload', () => {
+function _flushPendingSavesOnUnload() {
+  // Shared (collaborator) decks use PATCH per deck — previously only owned PUTs
+  // were flushed, so Adds/Cuts marked right before refresh never reached the server.
+  for (const id of Object.keys(_sharedSaveTimers)) {
+    clearTimeout(_sharedSaveTimers[id]);
+    delete _sharedSaveTimers[id];
+  }
+  for (const id of Object.keys(_sharedPlanningTimers)) {
+    clearTimeout(_sharedPlanningTimers[id]);
+    delete _sharedPlanningTimers[id];
+  }
+  if (_sharedPlanningDirty.size) {
+    for (const id of [..._sharedPlanningDirty]) {
+      const deck = _sharedPlanningLatest[id];
+      if (deck) _flushSharedPlanningKeepalive(deck);
+    }
+    _sharedPlanningDirty.clear();
+  }
+  if (_sharedDirty.size) {
+    for (const id of [..._sharedDirty]) {
+      const deck = _sharedSaveLatest[id];
+      if (deck) _flushSharedDeckKeepalive(deck);
+    }
+    _sharedDirty.clear();
+  }
+
   if (!_saveTimer && !_dirty.size) return;
   clearTimeout(_saveTimer);
   _saveTimer = null;
@@ -344,28 +390,109 @@ window.addEventListener('beforeunload', () => {
     deck_primary_tags: deckPrimaryTags || [],
     deck_secondary_tags: deckSecondaryTags || [],
     adds_pool_mode: typeof getAddsPoolMode === 'function' ? getAddsPoolMode() : 'collection',
+    deck_swaps_enabled: typeof deckSwapsFeatureEnabled !== 'undefined' ? !!deckSwapsFeatureEnabled : true,
   }) }).catch(() => {});
-});
+}
+window.addEventListener('beforeunload', _flushPendingSavesOnUnload);
+window.addEventListener('pagehide', _flushPendingSavesOnUnload);
 
 // ── Debounced per-deck save for shared (collaborator) decks
 const _sharedSaveTimers = {};
 const _sharedSaveInFlight = {};
 const _sharedSavePending = {};
+const _sharedSaveLatest = {};
+const _sharedDirty = new Set();
+let _sharedSaveErrorNotified = false;
+
+// Planning-only saves (adds/cuts) — separate from full-deck PATCH so cut markers
+// persist even when a concurrent owner save bumped updated_at or card rewrite fails.
+const _sharedPlanningTimers = {};
+const _sharedPlanningInFlight = {};
+const _sharedPlanningPending = {};
+const _sharedPlanningLatest = {};
+const _sharedPlanningPayloadLatest = {};
+const _sharedPlanningDirty = new Set();
+
+function _planningPayloadFromDeck(deck) {
+  return {
+    adds: Array.isArray(deck?.adds) ? deck.adds : [],
+    cuts: Array.isArray(deck?.cuts) ? deck.cuts : [],
+    updatedAt: Number(deck?.updatedAt) || 0,
+    clearAddsCuts: !!deck?.clearAddsCuts,
+  };
+}
+
+function _applyPlanningResponse(deck, res) {
+  if (!deck || !res) return;
+  if (res.updatedAt) deck.updatedAt = res.updatedAt;
+  if (Array.isArray(res.adds)) deck.adds = res.adds;
+  if (Array.isArray(res.cuts)) deck.cuts = res.cuts;
+  delete deck.clearAddsCuts;
+}
+
+function _flushSharedDeckKeepalive(deck) {
+  if (!deck?.id) return;
+  const root = mtgApiRoot();
+  fetch(root + '/decks/' + deck.id, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    keepalive: true,
+    body: JSON.stringify(deck),
+  }).catch(() => {});
+}
+
+function _flushSharedPlanningKeepalive(deck) {
+  if (!deck?.id) return;
+  const root = mtgApiRoot();
+  const payload = _sharedPlanningPayloadLatest[deck.id] || _planningPayloadFromDeck(deck);
+  fetch(root + '/decks/' + deck.id + '/planning', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    keepalive: true,
+    body: JSON.stringify(payload),
+  }).catch(() => {});
+}
+
 function scheduleSaveSharedDeck(deck) {
+  if (!deck?.id) return;
   const id = deck.id;
+  _sharedSaveLatest[id] = deck;
+  _sharedDirty.add(id);
   if (_sharedSaveInFlight[id]) {
     _sharedSavePending[id] = deck;
     return;
   }
   clearTimeout(_sharedSaveTimers[id]);
   _sharedSaveTimers[id] = setTimeout(async () => {
+    delete _sharedSaveTimers[id];
     _sharedSaveInFlight[id] = true;
+    const toSend = _sharedSaveLatest[id] || deck;
     try {
-      const res = await apiPatch('/decks/' + id, deck);
-      if (res && res.updatedAt) deck.updatedAt = res.updatedAt;
-      delete deck.clearAddsCuts;
+      const res = await apiPatch('/decks/' + id, toSend);
+      if (res && res.updatedAt) toSend.updatedAt = res.updatedAt;
+      delete toSend.clearAddsCuts;
+      if (!_sharedSavePending[id] && _sharedSaveLatest[id] === toSend) {
+        _sharedDirty.delete(id);
+      }
+      _sharedSaveErrorNotified = false;
     } catch (e) {
       console.error('[db] shared deck save failed:', e);
+      // Keep dirty so a later retry / unload flush can still persist Adds/Cuts.
+      if (!_sharedSaveErrorNotified) {
+        _sharedSaveErrorNotified = true;
+        if (typeof showNotif === 'function') {
+          showNotif('Could not save shared deck changes — keep this tab open so they aren\'t lost. (' + (e?.message || 'server error') + ')', true);
+        }
+      }
+      clearTimeout(_sharedSaveTimers[id]);
+      _sharedSaveTimers[id] = setTimeout(() => {
+        delete _sharedSaveTimers[id];
+        if (_sharedDirty.has(id) && !_sharedSaveInFlight[id] && _sharedSaveLatest[id]) {
+          scheduleSaveSharedDeck(_sharedSaveLatest[id]);
+        }
+      }, 2000);
     } finally {
       _sharedSaveInFlight[id] = false;
       const pending = _sharedSavePending[id];
@@ -375,6 +502,78 @@ function scheduleSaveSharedDeck(deck) {
       }
     }
   }, 500);
+}
+
+async function _runDeckPlanningSave(id) {
+  if (_sharedPlanningInFlight[id]) return;
+  _sharedPlanningInFlight[id] = true;
+  const live = _sharedPlanningLatest[id];
+  const payload = _sharedPlanningPayloadLatest[id] || _planningPayloadFromDeck(live);
+  try {
+    const res = await apiPatch('/decks/' + id + '/planning', payload);
+    if (live) _applyPlanningResponse(live, res);
+    delete _sharedPlanningPayloadLatest[id];
+    if (!_sharedPlanningPending[id] && _sharedPlanningLatest[id] === live) {
+      _sharedPlanningDirty.delete(id);
+    }
+    _sharedSaveErrorNotified = false;
+    if (typeof cacheSet === 'function') {
+      const cacheKey = (typeof activeDeckIsShared !== 'undefined' && activeDeckIsShared)
+        ? 'sharedDecks'
+        : 'decks';
+      const cacheVal = cacheKey === 'sharedDecks'
+        ? (typeof sharedDecks !== 'undefined' ? sharedDecks : [])
+        : (typeof decks !== 'undefined' ? decks : []);
+      cacheSet(cacheKey, cacheVal).catch(() => {});
+    }
+  } catch (e) {
+    console.error('[db] deck planning save failed:', e);
+    if (!_sharedSaveErrorNotified) {
+      _sharedSaveErrorNotified = true;
+      if (typeof showNotif === 'function') {
+        showNotif('Could not save deck cuts/adds — keep this tab open so they aren\'t lost. (' + (e?.message || 'server error') + ')', true);
+      }
+    }
+    clearTimeout(_sharedPlanningTimers[id]);
+    _sharedPlanningTimers[id] = setTimeout(() => {
+      delete _sharedPlanningTimers[id];
+      if (_sharedPlanningDirty.has(id) && !_sharedPlanningInFlight[id] && _sharedPlanningLatest[id]) {
+        scheduleSaveSharedDeckPlanning(_sharedPlanningLatest[id]);
+      }
+    }, 2000);
+  } finally {
+    _sharedPlanningInFlight[id] = false;
+    const pending = _sharedPlanningPending[id];
+    if (pending) {
+      delete _sharedPlanningPending[id];
+      scheduleSaveSharedDeckPlanning(pending);
+    }
+  }
+}
+
+/** Persist only adds/cuts (owner or collaborator) — fast path for mark cut / mark add. */
+function scheduleSaveSharedDeckPlanning(deck, opts) {
+  if (!deck?.id) return;
+  const id = deck.id;
+  _sharedPlanningLatest[id] = deck;
+  _sharedPlanningPayloadLatest[id] = _planningPayloadFromDeck(deck);
+  _sharedPlanningDirty.add(id);
+  if (_sharedPlanningInFlight[id]) {
+    _sharedPlanningPending[id] = deck;
+    _sharedPlanningPayloadLatest[id] = _planningPayloadFromDeck(deck);
+    return;
+  }
+  clearTimeout(_sharedPlanningTimers[id]);
+  if (opts && opts.immediate) {
+    delete _sharedPlanningTimers[id];
+    void _runDeckPlanningSave(id);
+    return;
+  }
+  // Short debounce so rapid +/- qty coalesces, but much faster than full-deck save.
+  _sharedPlanningTimers[id] = setTimeout(() => {
+    delete _sharedPlanningTimers[id];
+    void _runDeckPlanningSave(id);
+  }, 100);
 }
 
 const _dirty = new Set();
@@ -415,7 +614,6 @@ async function _flushSave() {
   if (_saveInFlight) return;
   if (!_dirty.size) return;
   if (!_appDataSynced) {
-    // Drop inventory domains; keep prefs if any (prefs are safe and small).
     for (const d of [..._dirty]) {
       if (d === 'collection' || d === 'decks' || d === 'games' || d === 'wishlist') _dirty.delete(d);
     }
@@ -452,6 +650,7 @@ async function _flushSave() {
       deck_primary_tags: deckPrimaryTags || [],
       deck_secondary_tags: deckSecondaryTags || [],
       adds_pool_mode: typeof getAddsPoolMode === 'function' ? getAddsPoolMode() : 'collection',
+      deck_swaps_enabled: typeof deckSwapsFeatureEnabled !== 'undefined' ? !!deckSwapsFeatureEnabled : true,
     }));
     if (ops.length) await Promise.all(ops);
     if (_isOffline) _setOnline();
@@ -484,4 +683,217 @@ async function _flushSave() {
       _saveTimer = setTimeout(_flushSave, _saveRetryDelay);
     }
   }
+}
+
+// ── Realtime shared-deck sync (socket.io) ───────────────────────────────────
+
+let _realtimeSocket = null;
+let _joinedDeckRoom = null;
+const _deckRemoteRefreshTimers = {};
+
+function getRealtimeSocket() {
+  if (_realtimeSocket) return _realtimeSocket;
+  if (typeof io === 'undefined' || window._noSocketIo) return null;
+  try {
+    _realtimeSocket = io({ path: '/socket.io', withCredentials: true });
+  } catch (_) {
+    _realtimeSocket = null;
+  }
+  return _realtimeSocket;
+}
+
+function mergeDeckSnapshot(fresh) {
+  if (!fresh?.id) return false;
+  if (typeof _ensureDeckZones === 'function') _ensureDeckZones(fresh);
+  let planningChanged = false;
+  if (typeof _pruneStalePlannedCuts === 'function') {
+    planningChanged = _pruneStalePlannedCuts(fresh);
+  } else if (typeof _resyncPlannedCutsToMainboard === 'function') {
+    planningChanged = _resyncPlannedCutsToMainboard(fresh);
+  }
+  if (planningChanged && !_sharedPlanningDirty.has(fresh.id)) {
+    scheduleSaveSharedDeckPlanning(fresh, { immediate: true });
+  }
+  let idx = typeof decks !== 'undefined' ? decks.findIndex(d => d.id === fresh.id) : -1;
+  if (idx >= 0) {
+    decks[idx] = fresh;
+    return true;
+  }
+  if (typeof sharedDecks !== 'undefined') {
+    idx = sharedDecks.findIndex(d => d.id === fresh.id);
+    if (idx >= 0) {
+      sharedDecks[idx] = fresh;
+      return true;
+    }
+  }
+  return false;
+}
+
+async function saveDeckPlanningNow(deck) {
+  if (!deck?.id) return;
+  const id = deck.id;
+  _sharedPlanningLatest[id] = deck;
+  _sharedPlanningPayloadLatest[id] = _planningPayloadFromDeck(deck);
+  _sharedPlanningDirty.add(id);
+  if (_sharedPlanningInFlight[id]) {
+    _sharedPlanningPending[id] = deck;
+    _sharedPlanningPayloadLatest[id] = _planningPayloadFromDeck(deck);
+    while (_sharedPlanningInFlight[id]) {
+      await new Promise(r => setTimeout(r, 25));
+    }
+    if (!_sharedPlanningDirty.has(id)) return;
+  }
+  clearTimeout(_sharedPlanningTimers[id]);
+  delete _sharedPlanningTimers[id];
+  await _runDeckPlanningSave(id);
+}
+
+async function refreshDeckFromRemote(msg) {
+  if (!msg?.deckId) return;
+  if (typeof currentUser !== 'undefined' && currentUser?.id != null
+      && Number(msg.actorAccountId) === Number(currentUser.id)) return;
+
+  const local = (typeof decks !== 'undefined' ? decks.find(d => d.id === msg.deckId) : null)
+    || (typeof sharedDecks !== 'undefined' ? sharedDecks.find(d => d.id === msg.deckId) : null);
+  if (local && msg.updatedAt && Number(local.updatedAt) >= Number(msg.updatedAt)) return;
+
+  if (msg.kind === 'planning' && local) {
+    _applyPlanningResponse(local, msg);
+    if (local.updatedAt == null || Number(msg.updatedAt) > Number(local.updatedAt)) {
+      local.updatedAt = msg.updatedAt;
+    }
+  } else {
+    try {
+      const fresh = await apiFetch('/decks/' + msg.deckId);
+      if (!mergeDeckSnapshot(fresh)) return;
+    } catch (e) {
+      console.warn('[deck-realtime] refresh failed:', e);
+      return;
+    }
+  }
+
+  try {
+    const cacheKey = (typeof sharedDecks !== 'undefined' && sharedDecks.some(d => d.id === msg.deckId))
+      ? 'sharedDecks'
+      : 'decks';
+    const cacheVal = cacheKey === 'sharedDecks'
+      ? (typeof sharedDecks !== 'undefined' ? sharedDecks : [])
+      : (typeof decks !== 'undefined' ? decks : []);
+    cacheSet(cacheKey, cacheVal).catch(() => {});
+  } catch (_) {}
+
+  if (typeof activeDeckId !== 'undefined' && activeDeckId === msg.deckId) {
+    if (typeof renderActiveDeck === 'function') renderActiveDeck();
+    else if (typeof renderDecks === 'function') renderDecks();
+  } else if (typeof renderDecks === 'function') {
+    renderDecks();
+  }
+
+  if (msg.actorEmail && typeof showNotif === 'function') {
+    const who = String(msg.actorEmail).split('@')[0] || msg.actorEmail;
+    showNotif('Deck updated by ' + who);
+  }
+}
+
+function ensureDeckRealtimeHandlers() {
+  const s = getRealtimeSocket();
+  if (!s || s.__deckHandlersBound) return;
+  s.__deckHandlersBound = true;
+  s.on('deck:updated', msg => {
+    if (!msg?.deckId) return;
+    clearTimeout(_deckRemoteRefreshTimers[msg.deckId]);
+    _deckRemoteRefreshTimers[msg.deckId] = setTimeout(() => {
+      delete _deckRemoteRefreshTimers[msg.deckId];
+      refreshDeckFromRemote(msg).catch(() => {});
+    }, 120);
+  });
+}
+
+function joinDeckRoom(deckId) {
+  if (!deckId) return;
+  ensureDeckRealtimeHandlers();
+  const s = getRealtimeSocket();
+  if (!s) return;
+  if (_joinedDeckRoom === deckId) return;
+  if (_joinedDeckRoom) s.emit('deck:leave', { deckId: _joinedDeckRoom });
+  _joinedDeckRoom = deckId;
+  s.emit('deck:join', { deckId });
+}
+
+function leaveDeckRoom() {
+  const s = _realtimeSocket;
+  if (s && _joinedDeckRoom) s.emit('deck:leave', { deckId: _joinedDeckRoom });
+  _joinedDeckRoom = null;
+}
+
+const _sharedDeckLastFetch = {};
+
+/** Pull one shared deck from the server (bypasses stale IndexedDB / JSON blob cards). */
+async function refreshSharedDeckFromServer(deckId, opts) {
+  if (!deckId) return null;
+  if (_sharedPlanningDirty.has(deckId)) return null;
+  const silent = opts && opts.silent;
+  try {
+    const fresh = await apiFetch('/decks/' + deckId);
+    if (!mergeDeckSnapshot(fresh)) return null;
+    _sharedDeckLastFetch[deckId] = Date.now();
+    if (typeof sharedDecks !== 'undefined') {
+      cacheSet('sharedDecks', sharedDecks).catch(() => {});
+    }
+    // Always re-render the active deck when fresh data merged — silent only skips toasts.
+    if (typeof activeDeckId !== 'undefined' && activeDeckId === deckId) {
+      if (typeof renderActiveDeck === 'function') renderActiveDeck();
+      else if (typeof renderDecks === 'function') renderDecks();
+    } else if (!silent && typeof renderDecks === 'function') {
+      renderDecks();
+    }
+    return fresh;
+  } catch (e) {
+    if (!silent) console.warn('[deck-realtime] shared deck refresh failed:', e);
+    return null;
+  }
+}
+
+/** Debounced pull so Safari vs Home Screen PWA never sit on divergent cut markers. */
+function ensureSharedDeckFresh(deckId) {
+  if (!deckId || _sharedPlanningDirty.has(deckId)) return;
+  const last = _sharedDeckLastFetch[deckId] || 0;
+  if (Date.now() - last < 4000) return;
+  refreshSharedDeckFromServer(deckId, { silent: true }).catch(() => {});
+}
+
+/** Refresh every shared deck on login / tab focus — Safari vs PWA keep separate offline caches. */
+async function refreshAllSharedDecksFromServer(opts) {
+  const list = typeof sharedDecks !== 'undefined' ? sharedDecks : [];
+  if (!list.length) return;
+  const silent = opts && opts.silent;
+  await Promise.all(list.map(async d => {
+    if (!d?.id || _sharedPlanningDirty.has(d.id)) return;
+    try {
+      const fresh = await apiFetch('/decks/' + d.id);
+      mergeDeckSnapshot(fresh);
+      _sharedDeckLastFetch[d.id] = Date.now();
+    } catch (_) {}
+  }));
+  cacheSet('sharedDecks', list).catch(() => {});
+  if (typeof activeDeckId !== 'undefined' && list.some(d => d.id === activeDeckId)) {
+    if (typeof renderActiveDeck === 'function') renderActiveDeck();
+  } else if (!silent && typeof renderDecks === 'function') {
+    renderDecks();
+  }
+}
+
+if (typeof document !== 'undefined') {
+  const _refreshActiveSharedDeck = () => {
+    if (document.visibilityState && document.visibilityState !== 'visible') return;
+    if (typeof _isOffline !== 'undefined' && _isOffline) return;
+    if (typeof activeDeckIsShared !== 'undefined' && activeDeckIsShared && activeDeckId) {
+      refreshSharedDeckFromServer(activeDeckId, { silent: true }).catch(() => {});
+    }
+  };
+  document.addEventListener('visibilitychange', _refreshActiveSharedDeck);
+  window.addEventListener('focus', _refreshActiveSharedDeck);
+  window.addEventListener('pageshow', ev => {
+    if (ev.persisted) _refreshActiveSharedDeck();
+  });
 }

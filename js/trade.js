@@ -504,21 +504,35 @@ let _tradeSocket = null;
 let _joinedTradeRoom = null;
 
 function _getTradeSocket() {
+  if (typeof getRealtimeSocket === 'function') {
+    const s = getRealtimeSocket();
+    if (s) {
+      _bindTradeSocketHandlers(s);
+      _tradeSocket = s;
+      return s;
+    }
+  }
   if (_tradeSocket) return _tradeSocket;
   if (typeof io === 'undefined' || window._noSocketIo) return null;
   try {
     _tradeSocket = io({ path: '/socket.io', withCredentials: true });
-    // Live updates from the other trader. Marked fromSocket so we DON'T re-join
-    // the room (re-joining echoes another trade:state → infinite render loop /
-    // the mobile flicker).
-    _tradeSocket.on('trade:state', doc => {
-      if (_calc && doc && _calc.id === doc.id) _applyTradeDocToCalc(doc, { fromSocket: true });
-    });
-    _tradeSocket.on('trade:updated', doc => {
-      if (_calc && doc && _calc.id === doc.id) _applyTradeDocToCalc(doc, { fromSocket: true });
-    });
+    _bindTradeSocketHandlers(_tradeSocket);
   } catch (_) { _tradeSocket = null; }
   return _tradeSocket;
+}
+
+function _bindTradeSocketHandlers(s) {
+  if (!s || s.__tradeHandlersBound) return;
+  s.__tradeHandlersBound = true;
+  // Live updates from the other trader. Marked fromSocket so we DON'T re-join
+  // the room (re-joining echoes another trade:state → infinite render loop /
+  // the mobile flicker).
+  s.on('trade:state', doc => {
+    if (_calc && doc && _calc.id === doc.id) _applyTradeDocToCalc(doc, { fromSocket: true });
+  });
+  s.on('trade:updated', doc => {
+    if (_calc && doc && _calc.id === doc.id) _applyTradeDocToCalc(doc, { fromSocket: true });
+  });
 }
 
 function joinTradeRoom(tradeId) {

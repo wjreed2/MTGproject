@@ -140,6 +140,9 @@ function hydrateAppData(data) {
   if (typeof applyAddsPrefsFromServer === 'function') {
     applyAddsPrefsFromServer(data.prefs || {});
   }
+  if (typeof applyDeckSwapsPrefsFromServer === 'function') {
+    applyDeckSwapsPrefsFromServer(data.prefs || {});
+  }
 
   // Drop any collection entries that have no scryfallId and no image — these are
   // unidentified cards that slipped in from a failed import enrichment.
@@ -196,6 +199,7 @@ function hydrateAppData(data) {
       if (typeof activeDeckIsShared !== 'undefined') {
         activeDeckIsShared = !decks.some(d => d.id === savedDeckId);
       }
+      if (typeof joinDeckRoom === 'function') joinDeckRoom(savedDeckId);
     } else {
       localStorage.removeItem('mtg_active_deck_id');
     }
@@ -239,6 +243,9 @@ async function resyncAppDataFromServer(opts) {
       applyHydrateSaveFlags(flags, true);
       if (typeof _isOffline !== 'undefined' && _isOffline && typeof _setOnline === 'function') {
         _setOnline();
+      }
+      if (typeof refreshAllSharedDecksFromServer === 'function' && sharedDecks.length) {
+        await refreshAllSharedDecksFromServer({ silent: true }).catch(() => {});
       }
       if (typeof loadTagOverrides === 'function') {
         try {
@@ -292,7 +299,6 @@ async function _awaitLoadWithBudget(loadPromise, budgetMs) {
     new Promise(resolve => setTimeout(() => resolve({ ok: false, err: new Error('timeout'), pending: true }), budgetMs)),
   ]);
   if (raced.pending && !settled) {
-    // Keep waiting in the background — caller can attach via the same promise.
     outcome.then(result => {
       if (!result.ok) return;
       if (typeof isAppDataSynced === 'function' && isAppDataSynced()) return;
@@ -302,6 +308,9 @@ async function _awaitLoadWithBudget(loadPromise, budgetMs) {
       applyHydrateSaveFlags(flags, true);
       if (typeof _isOffline !== 'undefined' && _isOffline && typeof _setOnline === 'function') {
         _setOnline();
+      }
+      if (typeof refreshAllSharedDecksFromServer === 'function' && sharedDecks.length) {
+        refreshAllSharedDecksFromServer({ silent: true }).catch(() => {});
       }
       renderHydratedAppShell();
       if (typeof showNotif === 'function') showNotif('Collection synced.');
@@ -321,7 +330,7 @@ async function loadAppDataAfterAuth() {
   let fromCache = false;
   let fromServer = false;
   let data;
-  // Keep a single in-flight Promise.all so a race timeout does not abandon work —
+  // Keep a single in-flight load so a race timeout does not abandon work —
   // cold WebKit + large collections often exceed the old 8s budget on PWA reinstall.
   const loadPromise = loadAllData();
   try {
@@ -338,7 +347,6 @@ async function loadAppDataAfterAuth() {
     data = await cacheLoadAll(currentUser?.id);
     if (data) {
       fromCache = true;
-      // Still apply the in-flight server payload if it finishes later.
       loadPromise.then(async serverData => {
         if (typeof isAppDataSynced === 'function' && isAppDataSynced()) return;
         await cacheSaveAll(serverData, currentUser?.id);
@@ -347,6 +355,9 @@ async function loadAppDataAfterAuth() {
         applyHydrateSaveFlags(flags, true);
         if (typeof _isOffline !== 'undefined' && _isOffline && typeof _setOnline === 'function') {
           _setOnline();
+        }
+        if (typeof refreshAllSharedDecksFromServer === 'function' && sharedDecks.length) {
+          await refreshAllSharedDecksFromServer({ silent: true }).catch(() => {});
         }
         renderHydratedAppShell();
         if (typeof showNotif === 'function') showNotif('Collection synced.');
@@ -360,12 +371,12 @@ async function loadAppDataAfterAuth() {
         fromServer = true;
         await cacheSaveAll(data, currentUser?.id);
       } else {
+        const detail = (second.err || e)?.message || 'timeout';
         console.error('[db] No cache and server load failed:', second.err || e);
         if (typeof showNotif === 'function') {
-          showNotif('Could not sync your collection yet — pull to refresh or reopen the app.', true);
+          showNotif('Could not sync your collection yet (' + detail + '). Reopen the app in a moment.', true);
         }
         data = _emptyAppDataShell();
-        // Schedule background retries (foreground/reconnect hooks also call resync).
         setTimeout(() => {
           if (typeof resyncAppDataFromServer === 'function') {
             resyncAppDataFromServer({ reason: 'retry' }).catch(() => {});
@@ -378,14 +389,17 @@ async function loadAppDataAfterAuth() {
   if (fromCache) _setOffline();
 
   const hydrateFlags = hydrateAppData(data);
-  // Mark synced after in-memory hydrate, before any cleanup PUTs.
   if (fromServer && typeof markAppDataSynced === 'function') markAppDataSynced(true);
   applyHydrateSaveFlags(hydrateFlags, fromServer);
+
+  if (typeof refreshAllSharedDecksFromServer === 'function' && sharedDecks.length) {
+    // Safari vs Home Screen PWA keep separate IndexedDB — always revalidate shared decks.
+    await refreshAllSharedDecksFromServer({ silent: true }).catch(() => {});
+  }
 
   if (typeof loadTagOverrides === 'function') {
     try {
       await loadTagOverrides(true);
-      // Retroactively apply global custom tags to all existing deck cards
       if (typeof _applyGlobalCustomTagsToCard === 'function') {
         let dirty = false;
         [...decks, ...sharedDecks].forEach(d =>

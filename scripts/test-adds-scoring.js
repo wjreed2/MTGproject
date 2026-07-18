@@ -18,6 +18,12 @@ const {
   CMC_REF,
   D_SUBLINEAR_WEIGHTS,
   EFFICIENCY_MODE_PROJECT_TAGS,
+  ADD_SCORE_RAW_CEILING,
+  ADD_SCORE_DISPLAY_MAX,
+  ADD_SCORE_DISPLAY_MIN,
+  addDisplayScore,
+  formatAddDisplayScore,
+  meetsAddDisplayFloor,
 } = scoring;
 
 function score(card, roles, ctx, extras) {
@@ -222,8 +228,53 @@ const wipeOnlyCtx = {
   assert.ok(!EFFICIENCY_MODE_PROJECT_TAGS.has('Stax'));
   assert.strictEqual(CMC_REF, 4);
   assert.deepStrictEqual(D_SUBLINEAR_WEIGHTS, [1.0, 0.5, 0.25]);
-  assert.strictEqual(K_E, 0.5 * K_L);
+  // E still edges B so unpopular creature-tagged fillers don't rely on body alone.
+  assert.ok(K_E > K_B, `K_E (${K_E}) should exceed K_B (${K_B})`);
+  assert.strictEqual(K_E, 1.0);
+  assert.strictEqual(K_B, 0.3);
+  // Sanity: 80th percentile × K_E = 0.8
+  assert.ok(Math.abs(K_E * 0.8 - 0.8) < 1e-9);
   console.log(`[constants] K_L=${K_L} K_E=${K_E} K_B=${K_B} K_P=${K_P} maxL=${maxL}`);
+}
+
+{
+  // Same-role popularity must beat body-bonus junk when deficits match.
+  const elite = score(threeVisits, ['Ramp'], rampOnlyCtx);
+  const junkCreature = score({
+    name: 'Obscure Ramp Critter',
+    cmc: 3,
+    mana: '{2}{G}',
+    type_line: 'Creature — Beast',
+    priceTCG: 0.2,
+    edhrecRolePct: { Ramp: 0.12 },
+  }, ['Ramp'], rampOnlyCtx);
+  assert.ok(elite.terms.E > junkCreature.terms.E,
+    `elite E (${elite.terms.E}) should beat junk E (${junkCreature.terms.E})`);
+  assert.ok(elite.score > junkCreature.score,
+    `elite ramp (${elite.score.toFixed(2)}) should outscore low-EDHREC creature (${junkCreature.score.toFixed(2)})`);
+  console.log(`[edhrec-weight] TV=${elite.score.toFixed(2)} (E=${elite.terms.E.toFixed(2)}) vs junk=${junkCreature.score.toFixed(2)} (E=${junkCreature.terms.E.toFixed(2)} B=${junkCreature.terms.B})`);
+}
+
+{
+  assert.strictEqual(ADD_SCORE_RAW_CEILING, 8);
+  assert.strictEqual(ADD_SCORE_DISPLAY_MAX, 10);
+  assert.strictEqual(ADD_SCORE_DISPLAY_MIN, 7);
+  assert.strictEqual(addDisplayScore(0), 0);
+  assert.strictEqual(addDisplayScore(-1), 0);
+  // Absolute: 10/10 = best-card ceiling, not list rank
+  assert.strictEqual(addDisplayScore(4), 5);
+  assert.strictEqual(addDisplayScore(8), 10);
+  assert.strictEqual(addDisplayScore(18), 10);
+  assert.strictEqual(formatAddDisplayScore(4), '5.0');
+  assert.ok(addDisplayScore(2.8) < 4, 'weak raw must not display as elite');
+  // Floor: 7/10 → raw 5.6; below that is not suggested
+  assert.ok(!meetsAddDisplayFloor(5.5));
+  assert.ok(meetsAddDisplayFloor(5.6));
+  assert.ok(meetsAddDisplayFloor(8));
+  console.log('[display] raw 4 →', formatAddDisplayScore(4) + '/10',
+    '; raw 8 →', formatAddDisplayScore(8) + '/10',
+    '; raw 2.8 →', formatAddDisplayScore(2.8) + '/10',
+    '; floor=7');
 }
 
 console.log('adds-scoring: ok');

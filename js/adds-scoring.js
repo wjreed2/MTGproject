@@ -24,15 +24,28 @@
    * efficiency-mode cards (interaction/ramp/etc.); CMC ≥ 4 → L = 0.
    * Keep K_L near C_eff's scale (cap 1.5) so L stays secondary to D.
    * Do not retune K_L to force card matchups (TV>GS etc.) — those are soft
-   * vignettes only. K_E = 0.5 × K_L (relative rule).
+   * vignettes only.
+   *
+   * E is independent of K_L. E = K_E × p_adjusted, where p_adjusted is the
+   * role EDHREC percentile in [0, 1] after a small price-band tweak.
+   * K_E = 1.0 → an 80th-percentile card gets E ≈ 0.8; a perfect percentile
+   * gets the full 1.0 (kept below major D/role terms).
    */
   const K_L = 0.2;
-  const K_E = 0.5 * K_L; // 0.1 — max E at p_adjusted=1
-  const K_B = 0.55;
+  const K_E = 1.0; // max E at p_adjusted=1
+  const K_B = 0.3;
   const K_P = 0.15;
   const V_PER_EXTRA_TAG = 0.15;
   const V_SECOND_PLUS_DAMPEN = 0.5;
-  const E_POPULATION_FLOOR = 8;
+  /**
+   * Absolute badge scale (UI only — ranking uses raw score).
+   * 10/10 = a top-tier fit for this deck (raw ≥ ceiling), NOT “#1 in the
+   * current suggestion list.” Ceiling retuned after K_E 4→1.
+   * Suggestions below ADD_SCORE_DISPLAY_MIN are not shown.
+   */
+  const ADD_SCORE_RAW_CEILING = 8;
+  const ADD_SCORE_DISPLAY_MAX = 10;
+  const ADD_SCORE_DISPLAY_MIN = 7;
   const E_PRICE_BAND_DELTAS = [
     { max: 0.75, delta: -0.05 },
     { max: 5, delta: 0 },
@@ -237,21 +250,17 @@
   }
 
   /**
-   * Role for E: largest active deficit magnitude among deficits the candidate
-   * could use. Equal-largest tie: prefer a tied role the candidate matches;
-   * if several, lexicographically smallest project role-tag ID; if none, null.
+   * Preferred role for E: largest *active* deficit among the candidate's roles.
+   * Tie → lexicographically smallest. Plan / Land / Commander never used for E.
+   * No active deficit → null (popular staples for unneeded roles must not float up).
    */
   function pickERole(roles, deficits) {
-    const real = (roles || []).filter(t => t !== 'Land' && t !== 'Commander');
-    const entries = Object.entries(deficits || {})
-      .filter(([t, v]) => v > 0 && t !== 'Plan')
-      .map(([role, deficit]) => ({ role, deficit }));
-    if (!entries.length) return null;
-    const maxD = Math.max(...entries.map(e => e.deficit));
-    const tied = entries.filter(e => e.deficit === maxD).map(e => e.role).sort((a, b) => a.localeCompare(b));
-    const matchedTied = tied.filter(t => real.includes(t));
-    if (matchedTied.length) return matchedTied[0];
-    return null;
+    const real = (roles || []).filter(t => t !== 'Land' && t !== 'Commander' && t !== 'Plan');
+    const ordered = real
+      .map(role => ({ role, deficit: Number(deficits?.[role]) || 0 }))
+      .filter(e => e.deficit > 0)
+      .sort((a, b) => b.deficit - a.deficit || a.role.localeCompare(b.role));
+    return ordered.length ? ordered[0].role : null;
   }
 
   function resolveEdhrecPercentile(card, role) {
@@ -264,11 +273,29 @@
     return null;
   }
 
+  /**
+   * Pick E role + percentile. Only roles with an active deck deficit qualify —
+   * a high-EDHREC Recursion staple must not score E when the deck does not need
+   * Recursion. Among active deficits, prefer largest hole, then try other
+   * matched roles until a stored percentile is found.
+   */
+  function pickERoleWithPercentile(card, roles, deficits) {
+    const real = (roles || []).filter(t => t !== 'Land' && t !== 'Commander' && t !== 'Plan');
+    const ordered = real
+      .map(role => ({ role, deficit: Number(deficits?.[role]) || 0 }))
+      .filter(e => e.deficit > 0)
+      .sort((a, b) => b.deficit - a.deficit || a.role.localeCompare(b.role));
+    if (!ordered.length) return { role: null, p: null };
+    for (const { role } of ordered) {
+      const p = resolveEdhrecPercentile(card, role);
+      if (p != null) return { role, p };
+    }
+    return { role: ordered[0].role, p: null };
+  }
+
   function computeETerm(card, roles, deficits) {
-    const role = pickERole(roles, deficits);
-    if (!role) return { E: 0, eRole: null, p: null, pAdjusted: null };
-    const p = resolveEdhrecPercentile(card, role);
-    if (p == null) return { E: 0, eRole: role, p: null, pAdjusted: null };
+    const { role, p } = pickERoleWithPercentile(card, roles, deficits);
+    if (!role || p == null) return { E: 0, eRole: role, p: null, pAdjusted: null };
     const usd = cardUsdPrice(card);
     const delta = usd == null ? 0 : priceBandDelta(usd);
     const pAdjusted = _clamp01(p + delta);
@@ -389,6 +416,22 @@
     return false;
   }
 
+  /** Scale a raw Adds score onto 0–10 for the UI. Ranking still uses the raw score. */
+  function addDisplayScore(raw) {
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n <= 0) return 0;
+    return Math.min(ADD_SCORE_DISPLAY_MAX, (n / ADD_SCORE_RAW_CEILING) * ADD_SCORE_DISPLAY_MAX);
+  }
+
+  function formatAddDisplayScore(raw) {
+    return addDisplayScore(raw).toFixed(1);
+  }
+
+  /** True when raw score maps to at least ADD_SCORE_DISPLAY_MIN / 10 on the badge. */
+  function meetsAddDisplayFloor(raw) {
+    return addDisplayScore(raw) + 1e-9 >= ADD_SCORE_DISPLAY_MIN;
+  }
+
   return {
     D_SUBLINEAR_WEIGHTS,
     CMC_REF,
@@ -396,7 +439,9 @@
     K_E,
     K_B,
     K_P,
-    E_POPULATION_FLOOR,
+    ADD_SCORE_RAW_CEILING,
+    ADD_SCORE_DISPLAY_MAX,
+    ADD_SCORE_DISPLAY_MIN,
     E_PRICE_BAND_DELTAS,
     ADD_ROLE_SEMANTIC_MAP,
     EFFICIENCY_MODE_PROJECT_TAGS,
@@ -408,8 +453,13 @@
     usesEfficiencyMode,
     computeDeficitTermD,
     pickERole,
+    pickERoleWithPercentile,
+    resolveEdhrecPercentile,
     scoreAddCandidateTerms,
     logAddScoreTerms,
     isAddsScoreDebugEnabled,
+    addDisplayScore,
+    formatAddDisplayScore,
+    meetsAddDisplayFloor,
   };
 });
