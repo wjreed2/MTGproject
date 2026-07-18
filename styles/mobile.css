@@ -34,68 +34,92 @@
   /* ── Safe-area background — status bar shows app BG, not bleed ───────── */
   body {
     background-color: var(--bg);
-    /* Inset all tab content below the status bar (battery/wifi/clock). On a
-       notched iPhone env() reports ~47-59px; in contexts where env() resolves
-       to 0 (Safari portrait, non-standalone), floor it at 44px — the same
-       status-bar zone height the floating account button uses — so content
-       never tucks under the status bar. */
-    padding-top: max(env(safe-area-inset-top), 44px);
+    /* Topbar owns the status-bar inset (PWA translucent + notched devices).
+       Do not pad the body here or content double-offsets under the bar. */
+    padding-top: 0;
   }
   [data-theme="light"] body { background-color: #f4f1ec; }
 
   /* ── CSS variable overrides ───────────────────────────────────────────── */
   :root {
     --bottom-nav-h: 56px;
-    --topbar-h: 0px; /* topbar is gone on mobile */
+    /* Compact bar + notch/status inset so fixed chrome clears the status bar */
+    --topbar-h: calc(52px + env(safe-area-inset-top, 0px));
   }
 
-  /* ── Hide desktop chrome ──────────────────────────────────────────────── */
-  .sidebar  { display: none !important; }
-  .topbar   { display: none !important; }
+  /* ── Hide sidebar chrome; keep the top account banner ───────────────────
+     Previously `.topbar { display:none }` hid the whole header — including
+     #topbarUserRow (username, notifications, What’s new, settings/sign-out).
+     A “floating user button” override could not win: children of display:none
+     never paint. Restore the topbar; only the sidebar toggle stays hidden. */
+  .sidebar        { display: none !important; }
+  .topbar-toggle  { display: none !important; }
 
-  /* ── Floating user button — sits in status bar safe area, top-right ───── */
-  #topbarUserRow {
-    position: fixed !important;
-    top: 0 !important;
-    right: 0.75rem !important;
-    height: env(safe-area-inset-top) !important;
-    min-height: 44px !important;
-    z-index: 400;
+  .topbar {
     display: flex !important;
-    align-items: center;
+    height: var(--topbar-h);
+    padding-top: env(safe-area-inset-top, 0px);
+    box-sizing: border-box;
+    z-index: 400;
+    /* Toggle is hidden; pin brand left so it never collides with the account cluster */
+    justify-content: flex-start;
+    padding-left: 0.75rem;
+    padding-right: 0.5rem;
+  }
+  .topbar-brand {
+    font-size: 0.92rem;
+    gap: 8px;
+    min-width: 0;
+  }
+  .topbar-user {
+    right: 0.5rem;
+    gap: 2px;
+    max-width: calc(100% - 7.5rem);
   }
   #topbarUser {
-    font-size: 0 !important;
-    padding: 6px !important;
-    width: 32px; height: 32px;
-    display: flex !important;
-    align-items: center; justify-content: center;
-    color: var(--text3) !important;
+    max-width: min(148px, 38vw);
+    padding: 5px 7px !important;
   }
-  #topbarUser svg { width: 16px !important; height: 16px !important; }
-  #topbarUserRow > div { position: relative; }
+  #topbarUser span {
+    font-size: 0.78rem !important;
+  }
+  #topbarNotifBtn,
   #topbarWhatsNewIconBtn {
-    padding: 6px !important;
+    padding: 5px 7px !important;
     min-width: 34px;
     min-height: 34px;
     align-items: center;
     justify-content: center;
   }
-  #topbarWhatsNewIconBtn svg { width: 17px !important; height: 17px !important; }
+  #topbarNotifBtn svg,
+  #topbarWhatsNewIconBtn svg,
+  #topbarUser svg {
+    width: 18px !important;
+    height: 18px !important;
+  }
   #topbarUserRow .topbar-user-menu-cluster {
-    gap: 4px !important;
+    gap: 2px !important;
+  }
+  /* Anchor panels to the taller safe-area topbar, not a hard-coded 52px */
+  .notif-panel {
+    top: calc(100% - 4px) !important;
+    right: 0.5rem !important;
+  }
+  .settings-dropdown:not(.settings-as-page) {
+    top: 100%;
+    right: 0.5rem;
   }
 
-  /* ── Main content — below safe area, above bottom nav ────────────────── */
+  /* ── Main content — below topbar, above bottom nav ────────────────────── */
   main {
     margin-left: 0 !important;
-    padding: 0.75rem 0.75rem
+    padding: calc(var(--topbar-h) + 0.75rem) 0.75rem
              calc(var(--bottom-nav-h) + env(safe-area-inset-bottom) + 1rem);
   }
 
-  /* ── Offline banner sits at very top below safe area ─────────────────── */
+  /* ── Offline banner sits just under the topbar ───────────────────────── */
   .offline-banner {
-    top: max(env(safe-area-inset-top), 44px) !important;
+    top: var(--topbar-h) !important;
   }
 
   /* ── Bottom nav ───────────────────────────────────────────────────────── */
@@ -373,10 +397,10 @@
   .deck-stats-grid .deck-draw-accel-panel { grid-column: auto !important; }
 
   /* ── Settings page — the web settings dropdown rendered as a full page ──
-     #settingsDropdown normally lives in the (mobile-hidden) topbar, so showTab()
-     moves the live element into #tab-settings and adds .settings-as-page. One
-     element → no duplicated IDs or split state; display is forced so the inner
-     buttons' toggleSettingsDropdown() calls can't collapse the page. */
+     #settingsDropdown normally lives in the topbar, so showTab() moves the live
+     element into #tab-settings and adds .settings-as-page. One element → no
+     duplicated IDs or split state; display is forced so the inner buttons'
+     toggleSettingsDropdown() calls can't collapse the page. */
   .settings-dropdown.settings-as-page {
     display: block !important;
     position: static;
