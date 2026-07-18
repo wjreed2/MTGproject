@@ -53,6 +53,7 @@ re-pop) isolated from other deck-builder render PRs. **23** (user categories) la
 | **21** | Collection tab: deck membership in inspector | Ready | Partner / collection | Isolated; distinct from prompt #4 pool toggle. |
 | **22** | Deck Builder: fix card image re-pop | Ready | Partner / render | Keep isolated — render/cache investigation; don’t interleave with #13–18. |
 | **23** | User-defined deck categories | Ready | Partner / tags (large) | Last — needs settled tag model; design Qs before code. |
+| **24** | Suggested Adds plan term H + badge + role gate | **Design** — see plan | Cuts/Adds 13 v2 Phase A | After design sign-off. Canonical: `suggested-adds-improvement-plan.md`. |
 
 ### Deliberately excluded from this queue (do not send)
 
@@ -65,11 +66,19 @@ re-pop) isolated from other deck-builder render PRs. **23** (user categories) la
 | Card Inspector Swipe/Arrow Navigation (Adds & Cuts order) | Partner asked to ignore. |
 | Part 1 / Part 2 Cuts/Adds technical write-up | Docs only — already covered by backlog / this file; not an implement prompt. |
 
-### Not in this doc yet (not Prompt drafted)
+### Design plan (drafted; split into implement prompts next)
 
 | Entry | Status | Note |
 |-------|--------|------|
-| 13 v2 / Cuts plan / hybrid modifiers | Design only | After 13 v1 ships. |
+| Suggested Adds improvement + Entry 13 v2 | **Design drafted** | Canonical plan: [`suggested-adds-improvement-plan.md`](./suggested-adds-improvement-plan.md). Phase A = plan term **H** + hybrid D + `/10` badge recal + role-tag gate. Phase B = wizard v2 / Cuts shielding. |
+
+### Not in this doc yet (implement prompt text not pasted below)
+
+| Entry | Status | Note |
+|-------|--------|------|
+| Phase A — plan term H + badge + role gate | Ready to draft from plan §5 | After design sign-off on locked decisions D1–D12. |
+| Phase B — 13 v2 wizard / Cuts shielding | Blocked on A | Plan §6. |
+| Phase C — mixed plan-aware backfill | Optional after A | Plan §7. |
 
 ---
 
@@ -1478,5 +1487,67 @@ Prereq: Prompts 6–8 (and ideally 12) settled so tag categories don’t thrash 
 
 ---
 
-*End of ready-prompts catalog (23 prompts). Add new Ready items here in queue order;
+---
+
+# Prompt 24 of 24 — Suggested Adds Phase A (plan term H + badge + role gate)
+
+**Status:** Design (do not implement until D1–D12 in the plan are confirmed)
+
+Canonical design: [`suggested-adds-improvement-plan.md`](./suggested-adds-improvement-plan.md) §4–§5.
+
+```
+# Suggested Adds Phase A — plan-aware score + absolute /10 badge + role-tag gate
+
+**Prereq:** Entry 13 v1 (Prompt 2) shipped. Read suggested-adds-improvement-plan.md first.
+
+## Hard constraint
+Deterministic only — no runtime AI/LLM.
+
+## Problem (user-facing)
+1. Declared deck plan barely affects ranking (only Plan-only backfill sort).
+2. Users cannot tell how a card was identified (role tags / deficits).
+3. Absolute /10 badges cluster ≤7 because ceiling + missing plan term under-score
+   on-plan staples; a ≥7 hard floor empties weak pools.
+
+## Goal
+Implement Phase A from the plan:
+- Score term H + hybrid D modifiers when plan declared (D4–D8)
+- Absolute /10 badge with recalibrated ceiling; NO hard display min floor (D1–D3)
+- Why panel shows Identified-as tags + plan fit (A3)
+- Require ≥1 utility role tag (D9)
+
+## Do not implement in this prompt
+Cuts shielding, tertiary strategy, free-text notes, mixed backfill (Phases B/C).
+
+## Anchors (verify; may have drifted)
+- js/adds-scoring.js — scoreAddCandidateTerms, computeDeficitTermD
+- js/decks.js — _scoreAddCandidate, _renderAddSuggestions, _buildAddWhyLines
+- js/deck-plan.js — planMatchScore, PLAN_*_PROJECT_TAGS, getDeckPlan
+
+## Locked constants (from plan; do not reopen without note)
+K_H = 2.0
+planMatchNormalized = planMatchScore / 4
+α = 0.35 (plan-aligned D boost), β = 0.15 (off-plan D soft dampen)
+multipliers clamped to [0.5, 1.75]
+ADD_SCORE_RAW_CEILING = 10 (re-vignette; adjust only with logged soft cases)
+ADD_SCORE_DISPLAY_MAX = 10
+No ADD_SCORE_DISPLAY_MIN hard filter
+
+## Verification
+Hard cases in plan §5 A5. Soft vignettes log-only.
+npm run build:bundle; commit dist/bundle.js if js/ changed.
+Add/extend scripts/test-adds-scoring.js + plan-match tests.
+
+## Deliverables
+- H term + hybrid D in adds-scoring
+- deckPlan passed into scoring always when present
+- Absolute badge helpers + UI N/10
+- Why identity + plan lines
+- Role-tag gate + tests
+- Mark this prompt Completed in the order table when done
+```
+
+---
+
+*End of ready-prompts catalog. Add new Ready items here in queue order;
 mark **Completed** when implemented; remove when backlog/archive Shipped.*
