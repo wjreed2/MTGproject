@@ -20,8 +20,10 @@ const {
   EFFICIENCY_MODE_PROJECT_TAGS,
   ADD_SCORE_RAW_CEILING,
   ADD_SCORE_DISPLAY_MAX,
+  ADD_SCORE_DISPLAY_MIN,
   addDisplayScore,
   formatAddDisplayScore,
+  meetsAddDisplayFloor,
 } = scoring;
 
 function score(card, roles, ctx, extras) {
@@ -229,6 +231,7 @@ const wipeOnlyCtx = {
   // E still edges B so unpopular creature-tagged fillers don't rely on body alone.
   assert.ok(K_E > K_B, `K_E (${K_E}) should exceed K_B (${K_B})`);
   assert.strictEqual(K_E, 1.0);
+  assert.strictEqual(K_B, 0.3);
   // Sanity: 80th percentile × K_E = 0.8
   assert.ok(Math.abs(K_E * 0.8 - 0.8) < 1e-9);
   console.log(`[constants] K_L=${K_L} K_E=${K_E} K_B=${K_B} K_P=${K_P} maxL=${maxL}`);
@@ -255,6 +258,7 @@ const wipeOnlyCtx = {
 {
   assert.strictEqual(ADD_SCORE_RAW_CEILING, 8);
   assert.strictEqual(ADD_SCORE_DISPLAY_MAX, 10);
+  assert.strictEqual(ADD_SCORE_DISPLAY_MIN, 7);
   assert.strictEqual(addDisplayScore(0), 0);
   assert.strictEqual(addDisplayScore(-1), 0);
   // Absolute: 10/10 = best-card ceiling, not list rank
@@ -263,9 +267,14 @@ const wipeOnlyCtx = {
   assert.strictEqual(addDisplayScore(18), 10);
   assert.strictEqual(formatAddDisplayScore(4), '5.0');
   assert.ok(addDisplayScore(2.8) < 4, 'weak raw must not display as elite');
+  // Floor: 7/10 → raw 5.6; below that is not suggested
+  assert.ok(!meetsAddDisplayFloor(5.5));
+  assert.ok(meetsAddDisplayFloor(5.6));
+  assert.ok(meetsAddDisplayFloor(8));
   console.log('[display] raw 4 →', formatAddDisplayScore(4) + '/10',
     '; raw 8 →', formatAddDisplayScore(8) + '/10',
-    '; raw 2.8 →', formatAddDisplayScore(2.8) + '/10');
+    '; raw 2.8 →', formatAddDisplayScore(2.8) + '/10',
+    '; floor=7');
 }
 
 console.log('adds-scoring: ok');

@@ -22,23 +22,27 @@ function addsCompareScored(a, b, { planOnlyBackfill, scoreOnly }) {
   return (b.s.score || 0) - (a.s.score || 0);
 }
 
+const scoring = require('../js/adds-scoring.js');
+
 /** Mirrors decks.js `_addsSelectTopPicks` (budget helper omitted — tested separately). */
 function addsSelectTopPicks(ownedScored, unownedScored, opts) {
   const {
     gate, planOnlyBackfill, scoreOnly, count = _ADD_SUGGESTION_COUNT,
   } = opts || {};
   const gateFn = gate || (() => true);
+  const strong = (list) => (list || []).filter(gateFn)
+    .filter(it => scoring.meetsAddDisplayFloor(it?.s?.score));
   const pool = [
-    ...ownedScored.filter(gateFn),
-    ...unownedScored.filter(gateFn),
+    ...strong(ownedScored),
+    ...strong(unownedScored),
   ];
   if (scoreOnly) {
     pool.sort((a, b) => addsCompareScored(a, b, { planOnlyBackfill, scoreOnly: true }));
     return pool.slice(0, count);
   }
-  const picks = ownedScored.filter(gateFn).slice(0, count);
+  const picks = strong(ownedScored).slice(0, count);
   if (picks.length < count) {
-    picks.push(...unownedScored.filter(gateFn).slice(0, count - picks.length));
+    picks.push(...strong(unownedScored).slice(0, count - picks.length));
   }
   return picks;
 }
@@ -56,11 +60,13 @@ const validModes = new Set(['collection', 'all']);
 assert.ok(validModes.has('all') && validModes.has('collection'), 'case4: valid modes');
 
 // Hard 2: All Cards — higher-scoring unowned outranks lower-scoring owned
+// Raw scores must clear the ≥7/10 floor (ceiling 8 → raw ≥ 5.6).
 const ownedLow = { card: { name: 'Owned Bad' }, owned: true, s: { score: 3 } };
 const unownedHigh = { card: { name: 'Catalog Good' }, owned: false, s: { score: 9 } };
 const ownedA = { card: { name: 'A' }, owned: true, s: { score: 10 } };
 const unownedB = { card: { name: 'B' }, owned: false, s: { score: 99 } };
 const allPicks = addsSelectTopPicks([ownedLow], [unownedHigh], { scoreOnly: true });
+assert.strictEqual(allPicks.length, 1, 'case2: weak owned filtered by 7/10 floor');
 assert.strictEqual(allPicks[0].card.name, 'Catalog Good', 'case2: score-only ranks unowned first when higher');
 
 // Hard 1: Collection render path keeps unownedScored empty — pick helper with no unowned
@@ -72,6 +78,14 @@ assert.strictEqual(collPicks[0].owned, true, 'case1: collection pick is owned');
 // Collection mode in _renderAddSuggestions never populates unownedScored.
 const ownedFirst = addsSelectTopPicks([ownedA], [unownedB], { scoreOnly: false });
 assert.strictEqual(ownedFirst[0].card.name, 'A', 'case1b: owned-first when both pools present');
+
+// Below-floor picks are dropped entirely
+const weakOnly = addsSelectTopPicks(
+  [{ card: { name: 'Weak' }, owned: true, s: { score: 4 } }],
+  [],
+  { scoreOnly: true },
+);
+assert.strictEqual(weakOnly.length, 0, 'case-floor: nothing below 7/10 is returned');
 
 // Hard 5: score-only comparator ignores ownership at equal scores
 const cmp = addsCompareScored(

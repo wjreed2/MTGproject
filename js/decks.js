@@ -6967,29 +6967,38 @@ function _addsCompareScored(a, b, { planOnlyBackfill, scoreOnly }) {
   return (b.s.score || 0) - (a.s.score || 0);
 }
 
-/** Pick top Adds suggestions after CK gate (testable). */
+/** True when a scored Add meets the ≥7/10 display floor (absolute scale). */
+function _addsMeetsDisplayFloor(entry) {
+  const raw = Number(entry?.s?.score);
+  if (typeof meetsAddDisplayFloor === 'function') return meetsAddDisplayFloor(raw);
+  if (typeof addDisplayScore === 'function') return addDisplayScore(raw) + 1e-9 >= 7;
+  return Number.isFinite(raw) && raw > 0;
+}
+
+/** Pick top Adds suggestions after CK gate (testable). Never returns below 7/10. */
 function _addsSelectTopPicks(ownedScored, unownedScored, opts) {
   const {
     gate, deckPlan, planOnlyBackfill, scoreOnly, count = _ADD_SUGGESTION_COUNT,
   } = opts || {};
   const gateFn = gate || (() => true);
+  const strong = (list) => (list || []).filter(gateFn).filter(_addsMeetsDisplayFloor);
   const pool = [
-    ...ownedScored.filter(gateFn),
-    ...unownedScored.filter(gateFn),
+    ...strong(ownedScored),
+    ...strong(unownedScored),
   ];
   if (typeof applyPlanBudgetToAddsPicks === 'function' && deckPlan
       && deckPlan.roughMaxPerCardBudgetUsd != null) {
     pool.sort((a, b) => _addsCompareScored(a, b, { planOnlyBackfill, scoreOnly }));
     const budgeted = applyPlanBudgetToAddsPicks(pool, deckPlan, count);
-    return budgeted.picks;
+    return (budgeted.picks || []).filter(_addsMeetsDisplayFloor);
   }
   if (scoreOnly) {
     pool.sort((a, b) => _addsCompareScored(a, b, { planOnlyBackfill, scoreOnly: true }));
     return pool.slice(0, count);
   }
-  const picks = ownedScored.filter(gateFn).slice(0, count);
+  const picks = strong(ownedScored).slice(0, count);
   if (picks.length < count) {
-    picks.push(...unownedScored.filter(gateFn).slice(0, count - picks.length));
+    picks.push(...strong(unownedScored).slice(0, count - picks.length));
   }
   return picks;
 }
@@ -7356,6 +7365,55 @@ async function _renderAddSuggestions(deck) {
   }
   if (token !== _addSuggestToken) return;
 
+  // Keep trying: Collection with no ≥7/10 picks → search All Cards catalog.
+  let usedCatalogFallback = false;
+  if (!isAllCards) {
+    const collectionStrong = _addsSelectTopPicks(ownedScored, unownedScored, {
+      gate: () => true,
+      deckPlan,
+      planOnlyBackfill,
+      scoreOnly: false,
+    });
+    if (!collectionStrong.length) {
+      usedCatalogFallback = true;
+      body.innerHTML = '<div class="deck-tab-muted" style="padding:.75rem 1rem">No strong collection picks — searching All Cards…</div>';
+      try {
+        const res = await fetch('/api/cards/adds-catalog', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            colors: [...cmdCI], exclude: [...inDeckNames], limit: 8000,
+          }),
+        });
+        const data = await res.json();
+        if (token !== _addSuggestToken) return;
+        ownedScored = [];
+        unownedScored = [];
+        for (const c of (data.cards || [])) {
+          const nm = (c.name || '').toLowerCase();
+          if (inDeckNames.has(nm)) continue;
+          if (_isTokenTypeDeckCard(c)) continue;
+          const roles = c.roleTags || [];
+          if (!_utilityAddRoles(roles).length) continue;
+          const s = _scoreAddCandidate(c, roles, ctx);
+          s.planMatch = 0;
+          const fillsHole = (Number(s.terms?.D) || Number(s.roleFit) || 0) > 0;
+          if (!fillsHole || s.score <= 0) continue;
+          const owned = ownedNames.has(nm);
+          const entry = { card: c, owned, s };
+          if (owned) ownedScored.push(entry);
+          else unownedScored.push(entry);
+        }
+        ownedScored.sort((a, b) => b.s.score - a.s.score);
+        unownedScored.sort((a, b) => b.s.score - a.s.score);
+      } catch (_) {
+        if (token !== _addSuggestToken) return;
+        body.innerHTML = '<div class="deck-tab-muted" style="padding:.75rem 1rem">Could not load catalog — check your connection.</div>';
+        return;
+      }
+    }
+  }
+  if (token !== _addSuggestToken) return;
+
   const gate = it => _ckEvaluateCandidate(it.card, deck).ok;
   if (deckPlan && deckPlan.roughMaxDeckBudgetUsd != null) {
     let total = 0;
@@ -7370,8 +7428,8 @@ async function _renderAddSuggestions(deck) {
   const picks = _addsSelectTopPicks(ownedScored, unownedScored, {
     gate,
     deckPlan,
-    planOnlyBackfill,
-    scoreOnly: isAllCards,
+    planOnlyBackfill: usedCatalogFallback ? false : planOnlyBackfill,
+    scoreOnly: isAllCards || usedCatalogFallback,
   });
   if (typeof applyPlanBudgetToAddsPicks === 'function' && deckPlan
       && deckPlan.roughMaxPerCardBudgetUsd != null && typeof logDeckPlan === 'function') {
@@ -7396,9 +7454,9 @@ async function _renderAddSuggestions(deck) {
 
   if (!picks.length) {
     if (token !== _addSuggestToken) return;
-    const hint = isAllCards
-      ? 'No add suggestions from the catalog — your role targets look met, tagged fillers are scarce, or no cards passed the conditional-keyword gate.'
-      : 'No add suggestions — your role targets look met, or no tagged cards in your collection scored. Lower a target with ⚙ on Suggested Cuts, switch to All Cards for catalog picks, or adjust the playstyle slider.';
+    const hint = (isAllCards || usedCatalogFallback)
+      ? 'No suggestions at 7/10 or better — role targets may be met, or no catalog cards cleared the score floor / keyword gate.'
+      : 'No suggestions at 7/10 or better in your collection. Switch to All Cards, or raise role targets with ⚙.';
     body.innerHTML = planBanner + `<div class="deck-tab-muted" style="padding:.75rem 1rem">${hint}</div>`;
     return;
   }

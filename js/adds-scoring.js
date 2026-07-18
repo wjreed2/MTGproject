@@ -33,7 +33,7 @@
    */
   const K_L = 0.2;
   const K_E = 1.0; // max E at p_adjusted=1
-  const K_B = 0.55;
+  const K_B = 0.3;
   const K_P = 0.15;
   const V_PER_EXTRA_TAG = 0.15;
   const V_SECOND_PLUS_DAMPEN = 0.5;
@@ -41,9 +41,11 @@
    * Absolute badge scale (UI only — ranking uses raw score).
    * 10/10 = a top-tier fit for this deck (raw ≥ ceiling), NOT “#1 in the
    * current suggestion list.” Ceiling retuned after K_E 4→1.
+   * Suggestions below ADD_SCORE_DISPLAY_MIN are not shown.
    */
   const ADD_SCORE_RAW_CEILING = 8;
   const ADD_SCORE_DISPLAY_MAX = 10;
+  const ADD_SCORE_DISPLAY_MIN = 7;
   const E_PRICE_BAND_DELTAS = [
     { max: 0.75, delta: -0.05 },
     { max: 5, delta: 0 },
@@ -425,6 +427,11 @@
     return addDisplayScore(raw).toFixed(1);
   }
 
+  /** True when raw score maps to at least ADD_SCORE_DISPLAY_MIN / 10 on the badge. */
+  function meetsAddDisplayFloor(raw) {
+    return addDisplayScore(raw) + 1e-9 >= ADD_SCORE_DISPLAY_MIN;
+  }
+
   return {
     D_SUBLINEAR_WEIGHTS,
     CMC_REF,
@@ -434,6 +441,7 @@
     K_P,
     ADD_SCORE_RAW_CEILING,
     ADD_SCORE_DISPLAY_MAX,
+    ADD_SCORE_DISPLAY_MIN,
     E_PRICE_BAND_DELTAS,
     ADD_ROLE_SEMANTIC_MAP,
     EFFICIENCY_MODE_PROJECT_TAGS,
@@ -452,5 +460,6 @@
     isAddsScoreDebugEnabled,
     addDisplayScore,
     formatAddDisplayScore,
+    meetsAddDisplayFloor,
   };
 });
