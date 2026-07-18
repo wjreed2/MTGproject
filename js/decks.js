@@ -7407,15 +7407,14 @@ async function _renderAddSuggestions(deck) {
 
   // With Adds & Cuts on, suggestions land in the planned-adds section instead of the deck.
   const swapsOn = _deckSwapsEnabled(deck);
-  // Badge is list-relative: the #1 pick always reads 10/10. Order still uses raw score.
-  const listMaxRaw = picks.reduce((m, it) => Math.max(m, Number(it?.s?.score) || 0), 0);
+  // Badge is absolute: 10/10 = top-tier fit (raw ≥ ceiling), not “first in this list.”
   body.innerHTML = planBanner + picks.map(({ card, owned, s }) => {
     const id = (card.id || card.scryfallId || card.uid || '').replace(/'/g, "\\'");
     const name = card.name || '';
     const safeName = name.replace(/'/g, "\\'");
     const displayName = escapeHtml(name);
     const score = (typeof formatAddDisplayScore === 'function')
-      ? formatAddDisplayScore(s.score, listMaxRaw)
+      ? formatAddDisplayScore(s.score)
       : (s.score || 0).toFixed(1);
     const scoreLabel = (typeof formatAddDisplayScore === 'function') ? `${score}/10` : score;
     const whyLines = _buildAddWhyLines(s, ctx);

@@ -38,8 +38,9 @@
   const V_PER_EXTRA_TAG = 0.15;
   const V_SECOND_PLUS_DAMPEN = 0.5;
   /**
-   * Absolute fallback for the Suggested Adds badge (UI only — ranking uses raw).
-   * List rendering passes listMaxRaw so the #1 pick always displays as 10/10.
+   * Absolute badge scale (UI only — ranking uses raw score).
+   * 10/10 = a top-tier fit for this deck (raw ≥ ceiling), NOT “#1 in the
+   * current suggestion list.” Ceiling retuned after K_E 4→1.
    */
   const ADD_SCORE_RAW_CEILING = 8;
   const ADD_SCORE_DISPLAY_MAX = 10;
@@ -413,21 +414,15 @@
     return false;
   }
 
-  /**
-   * Scale a raw Adds score onto 0–10 for the UI. Ranking still uses the raw score.
-   * @param {number} raw
-   * @param {number} [listMaxRaw] — when set (suggestion list), #1 maps to 10/10
-   */
-  function addDisplayScore(raw, listMaxRaw) {
+  /** Scale a raw Adds score onto 0–10 for the UI. Ranking still uses the raw score. */
+  function addDisplayScore(raw) {
     const n = Number(raw);
     if (!Number.isFinite(n) || n <= 0) return 0;
-    const peak = Number(listMaxRaw);
-    const denom = (Number.isFinite(peak) && peak > 0) ? peak : ADD_SCORE_RAW_CEILING;
-    return Math.min(ADD_SCORE_DISPLAY_MAX, (n / denom) * ADD_SCORE_DISPLAY_MAX);
+    return Math.min(ADD_SCORE_DISPLAY_MAX, (n / ADD_SCORE_RAW_CEILING) * ADD_SCORE_DISPLAY_MAX);
   }
 
-  function formatAddDisplayScore(raw, listMaxRaw) {
-    return addDisplayScore(raw, listMaxRaw).toFixed(1);
+  function formatAddDisplayScore(raw) {
+    return addDisplayScore(raw).toFixed(1);
   }
 
   return {
