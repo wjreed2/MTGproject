@@ -19,11 +19,23 @@ function _fmtWhyVal(v) {
   if (!Number.isFinite(n)) return '+0';
   const abs = Math.abs(n);
   if (abs > 0 && abs < 0.1) {
-    const r = Math.round(n * 100) / 100;
-    return (r >= 0 ? '+' : '') + r.toFixed(2);
+    const r = Math.round(n * 10000) / 10000;
+    return (r >= 0 ? '+' : '') + r.toFixed(4);
   }
   const r = Math.round(n * 10) / 10;
   return (r >= 0 ? '+' : '') + r;
+}
+
+function _ordinalSuffix(n) {
+  const v = Math.abs(Math.round(Number(n) || 0));
+  const mod100 = v % 100;
+  if (mod100 >= 11 && mod100 <= 13) return 'th';
+  switch (v % 10) {
+    case 1: return 'st';
+    case 2: return 'nd';
+    case 3: return 'rd';
+    default: return 'th';
+  }
 }
 
 function _edhrecWhyLine(s) {
@@ -34,7 +46,7 @@ function _edhrecWhyLine(s) {
   let pctNote = '';
   if (t && t.p != null && Number.isFinite(t.p)) {
     const pct = Math.max(0, Math.min(100, Math.round(Number(t.p) * 100)));
-    pctNote = ` · ${pct}th pct`;
+    pctNote = ` · ${pct}${_ordinalSuffix(pct)} pct`;
   }
   return {
     text: `Popular ${role} (EDHREC${pctNote})`,
@@ -42,11 +54,18 @@ function _edhrecWhyLine(s) {
   };
 }
 
-// Old 1-decimal formatter hid mid-range E as "+0".
-assert.strictEqual(_fmtWhyVal(0.03), '+0.03');
+// Small E deltas use 4 decimal places (was 2).
+assert.strictEqual(_fmtWhyVal(0.03), '+0.0300');
 assert.strictEqual(_fmtWhyVal(0.1), '+0.1');
-assert.strictEqual(_fmtWhyVal(0.098), '+0.10');
+assert.strictEqual(_fmtWhyVal(0.098), '+0.0980');
+assert.strictEqual(_fmtWhyVal(0.008), '+0.0080');
 assert.strictEqual(_fmtWhyVal(1.2), '+1.2');
+assert.strictEqual(_ordinalSuffix(1), 'st');
+assert.strictEqual(_ordinalSuffix(2), 'nd');
+assert.strictEqual(_ordinalSuffix(3), 'rd');
+assert.strictEqual(_ordinalSuffix(11), 'th');
+assert.strictEqual(_ordinalSuffix(21), 'st');
+assert.strictEqual(_ordinalSuffix(98), 'th');
 
 const card = {
   name: 'Three Visits',
@@ -68,6 +87,8 @@ const line = _edhrecWhyLine(scored);
 assert.ok(line, 'EDHREC why line must render when E > 0');
 assert.match(line.text, /Popular Ramp \(EDHREC · 98th pct\)/);
 assert.notStrictEqual(line.val, '+0', 'EDHREC contribution must not round to +0');
+// Max E (=K_E=0.1) uses the ≥0.1 one-decimal path; sub-0.1 values use 4 decimals.
+assert.strictEqual(line.val, '+0.1');
 assert.ok(line.val.startsWith('+'), 'EDHREC val is a positive score delta');
 
 // Low-mid popularity: E = 0.1 × 0.08 = 0.008 — failed old >0.01 gate entirely.
@@ -80,7 +101,12 @@ assert.ok(mid.E > 0 && mid.E <= 0.01, 'low-mid E is positive but ≤ old UI gate
 const midLine = _edhrecWhyLine(mid);
 assert.ok(midLine, 'low-mid EDHREC still shown after retune');
 assert.match(midLine.text, /8th pct/);
-assert.notStrictEqual(midLine.val, '+0');
+assert.strictEqual(midLine.val, '+0.0080');
+
+// 1st / 2nd / 3rd ordinals
+assert.match(_edhrecWhyLine({ E: 0.01, topRole: 'Ramp', terms: { eRole: 'Ramp', p: 0.01 } }).text, /1st pct/);
+assert.match(_edhrecWhyLine({ E: 0.01, topRole: 'Ramp', terms: { eRole: 'Ramp', p: 0.02 } }).text, /2nd pct/);
+assert.match(_edhrecWhyLine({ E: 0.01, topRole: 'Ramp', terms: { eRole: 'Ramp', p: 0.03 } }).text, /3rd pct/);
 
 assert.strictEqual(_edhrecWhyLine({ E: 0, terms: { p: null } }), null);
 

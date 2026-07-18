@@ -6956,15 +6956,28 @@ function _fmtWhyVal(v) {
   const n = Number(v);
   if (!Number.isFinite(n)) return '+0';
   // After K_L/K_E retune, E tops out at ~0.1 — one decimal rounds mid-range E to "+0".
+  // Small deltas use 4 decimal places so EDHREC contributions stay readable.
   const abs = Math.abs(n);
   if (abs > 0 && abs < 0.1) {
-    const r = Math.round(n * 100) / 100;
-    return (r >= 0 ? '+' : '') + r.toFixed(2);
+    const r = Math.round(n * 10000) / 10000;
+    return (r >= 0 ? '+' : '') + r.toFixed(4);
   }
   const r = Math.round(n * 10) / 10;
   return (r >= 0 ? '+' : '') + r;
 }
 function _capWord(s) { s = String(s || ''); return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''; }
+
+function _ordinalSuffix(n) {
+  const v = Math.abs(Math.round(Number(n) || 0));
+  const mod100 = v % 100;
+  if (mod100 >= 11 && mod100 <= 13) return 'th';
+  switch (v % 10) {
+    case 1: return 'st';
+    case 2: return 'nd';
+    case 3: return 'rd';
+    default: return 'th';
+  }
+}
 
 function _suggestWhyDetailHtml(title, score, lines, footer) {
   const rows = lines.length
@@ -6997,7 +7010,7 @@ function _edhrecWhyLine(s) {
   let pctNote = '';
   if (t && t.p != null && Number.isFinite(t.p)) {
     const pct = Math.max(0, Math.min(100, Math.round(Number(t.p) * 100)));
-    pctNote = ` · ${pct}th pct`;
+    pctNote = ` · ${pct}${_ordinalSuffix(pct)} pct`;
   }
   return {
     text: `Popular ${role} (EDHREC${pctNote})`,
