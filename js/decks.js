@@ -1452,6 +1452,7 @@ function _ensureDeckZones(deck) {
   if (!deck) return deck;
   if (!Array.isArray(deck.adds)) deck.adds = [];
   if (!Array.isArray(deck.cuts)) deck.cuts = [];
+  if (typeof _dedupeDeckMainboardCards === 'function') _dedupeDeckMainboardCards(deck);
   if (deck.zoneLayout === 2) {
     if (!Array.isArray(deck.maybeboard)) deck.maybeboard = [];
     if (!Array.isArray(deck.sideboard)) deck.sideboard = [];
@@ -1513,6 +1514,16 @@ function _flagClearedPlanningIfEmpty(deck) {
 
 function _deckSwapsEnabled() {
   return typeof deckSwapsFeatureEnabled === 'undefined' || deckSwapsFeatureEnabled !== false;
+}
+
+/** Swap projection label — plain text (iOS can mangle the → glyph in tight headers). */
+function _deckSwapsProjectedLabel(projected) {
+  return `(after swaps: ${projected})`;
+}
+
+function _deckSwapsProjectedHtml(projected, title) {
+  const tip = title || 'Deck size if all planned adds and cuts were applied';
+  return ` <span class="deck-swaps-projected" title="${tip}">${_deckSwapsProjectedLabel(projected)}</span>`;
 }
 
 function _deckZoneIsPlanning(zone) {
@@ -1650,16 +1661,34 @@ function _syncDeckSideboardToggle() {
   if (show) renderDeckSideboardEnabledBtn();
 }
 
-/** User-wide Adds & Cuts toggle — mirrors the deck-ownership setting. Data is never cleared. */
+/**
+ * User-wide Adds & Cuts toggle. Synced to the account (via /api/preferences),
+ * not just localStorage — otherwise Safari and a Home Screen PWA (separate
+ * localStorage per browser/app) can disagree on whether the whole Adds/Cuts
+ * UI (zones, CUT/ADD badges, "after swaps" counts) even shows for the same
+ * deck, which looks like a data bug but is really just this setting drifting
+ * per device. Data (deck.adds/deck.cuts) is never cleared by this toggle.
+ */
 function toggleDeckSwapsSetting() {
   deckSwapsFeatureEnabled = !deckSwapsFeatureEnabled;
   localStorage.setItem('mtg_deck_swaps', deckSwapsFeatureEnabled ? '1' : '0');
   renderDeckSwapsSettingBtn();
   if (typeof renderDecks === 'function') renderDecks();
   if (typeof _renderDeckSearchGrid === 'function') _renderDeckSearchGrid();
+  if (typeof save === 'function') save('prefs');
   showNotif(deckSwapsFeatureEnabled
-    ? 'Adds & Cuts planning enabled for all decks'
+    ? 'Adds & Cuts planning enabled for all decks (syncs across your devices)'
     : 'Adds & Cuts planning hidden — your planned adds and cuts are kept and come back when you re-enable it');
+}
+
+/** Apply the account's Adds & Cuts preference on login — server value wins over local cache. */
+function applyDeckSwapsPrefsFromServer(prefs) {
+  const v = prefs?.deck_swaps_enabled;
+  if (typeof v !== 'boolean') return; // never saved server-side yet — keep local default
+  if (deckSwapsFeatureEnabled === v) return;
+  deckSwapsFeatureEnabled = v;
+  try { localStorage.setItem('mtg_deck_swaps', v ? '1' : '0'); } catch { /* quota */ }
+  renderDeckSwapsSettingBtn();
 }
 
 function renderDeckSwapsSettingBtn() {
@@ -3450,10 +3479,15 @@ function selectDeck(id) {
     document.getElementById('deckHistoryBtn')?.classList.remove('active');
   }
   if (typeof joinDeckRoom === 'function') joinDeckRoom(id);
-  renderDecks();
+  void _selectDeckRefreshAndRender(id);
+}
+
+async function _selectDeckRefreshAndRender(id) {
   if (activeDeckIsShared && typeof refreshSharedDeckFromServer === 'function') {
-    refreshSharedDeckFromServer(id).catch(() => {});
+    await refreshSharedDeckFromServer(id, { silent: true }).catch(() => {});
   }
+  if (activeDeckId !== id) return;
+  renderDecks();
   _enrichMissingDeckImages();
 }
 
@@ -3508,6 +3542,16 @@ function _backfillDeckCardTypeLines(deck) {
 function renderActiveDeck() {
   const deck = getActiveDeck();
   if (!deck) return;
+  if (activeDeckIsShared && deck.id && typeof ensureSharedDeckFresh === 'function') {
+    ensureSharedDeckFresh(deck.id);
+  }
+  if (typeof _pruneStalePlannedCuts === 'function' && _pruneStalePlannedCuts(deck)) {
+    if (typeof saveDeckPlanningNow === 'function') {
+      saveDeckPlanningNow(deck).catch(() => {});
+    } else {
+      saveActiveDeck(deck, { planningOnly: true, planningImmediate: true });
+    }
+  }
   _backfillDeckCardTypeLines(deck);
   _ensureDeckDisabledTags(deck);
   const gbSel = document.getElementById('deckGroupBySelect');
@@ -3542,10 +3586,10 @@ function renderActiveDeck() {
   countEl.style.color = countOk ? 'var(--teal)' : 'var(--red)';
   if (_deckSwapsEnabled(deck)) {
     const addQty = _deckPlannedAdds(deck).reduce((s, c) => s + (c.qty || 1), 0);
-    const cutQty = _deckPlannedCuts(deck).reduce((s, c) => s + (c.qty || 1), 0);
+    const cutQty = _effectivePlannedCuts(deck).reduce((s, c) => s + (c.qty || 1), 0);
     if (addQty || cutQty) {
       const projected = total + addQty - cutQty;
-      countEl.innerHTML = `${total} / ${max || target} <span class="deck-swaps-projected" title="Deck size if all planned adds and cuts were applied">→ ${projected} after swaps</span>`;
+      countEl.innerHTML = `${total} / ${max || target}${_deckSwapsProjectedHtml(projected)}`;
     }
   }
   const isCommanderFmt = ['Commander','Brawl','Oathbreaker'].includes(deck.format);
@@ -4749,6 +4793,32 @@ async function addAndAssignDeckTagFromPicker() {
   }
 }
 
+/** Mainboard cards only — planned-add ghosts in a group must not inflate the header count. */
+function _deckGroupCardCount(cards) {
+  return (cards || []).reduce((s, c) => s + (c._plannedAdd ? 0 : (c.qty || 1)), 0);
+}
+
+/** Collapse duplicate mainboard rows (stale JSON blob + deck_cards drift on one client). */
+function _dedupeDeckMainboardCards(deck) {
+  if (!deck?.cards?.length) return false;
+  const byKey = new Map();
+  for (const c of deck.cards) {
+    const inv = getCardInventoryKey(c);
+    const key = (c.isCommander ? 'cmd:' : 'card:') + inv;
+    const prev = byKey.get(key);
+    if (prev) {
+      prev.qty = (prev.qty || 1) + (c.qty || 1);
+    } else {
+      byKey.set(key, c);
+    }
+  }
+  const next = [...byKey.values()];
+  const changed = next.length !== deck.cards.length
+    || next.some((c, i) => c !== deck.cards[i]);
+  if (changed) deck.cards = next;
+  return changed;
+}
+
 function _buildDeckGroups(cards, groupBy) {
   // Commander always gets its own group regardless of sort mode
   const commanderCards = cards.filter(c => c.isCommander);
@@ -4775,9 +4845,14 @@ function _buildDeckGroups(cards, groupBy) {
     rest.forEach(c => {
       const tags = _tagsOnCardForGroupTier(c, groupBy);
       if (!tags.length) { groups.Untagged.push(c); return; }
+      const seenTagKeys = new Set();
       tags.forEach(t => {
-        if (!groups[t]) groups[t] = [];
-        groups[t].push(c);
+        const tagKey = _tagTierKey(t);
+        if (!tagKey || seenTagKeys.has(tagKey)) return;
+        seenTagKeys.add(tagKey);
+        const label = normalizeDeckTagName(t) || t;
+        if (!groups[label]) groups[label] = [];
+        groups[label].push(c);
       });
     });
     const ordered = {};
@@ -4879,6 +4954,31 @@ function getCardInventoryKey(card) {
   if (card.uid) return card.uid;
   if (card.scryfallId) return card.scryfallId + (card.foil ? '_f' : '_n');
   return (card.name || '').toLowerCase() + (card.foil ? '_f' : '_n');
+}
+
+/** Normalize card names for cut/add matching (DFC face, spacing). */
+function _deckCardNameKey(name) {
+  return String(name || '').trim().toLowerCase().replace(/\s+/g, ' ').split(' // ')[0].trim();
+}
+
+/** Match a planning slot to a mainboard/extra card — uid, scryfall id, or name. */
+function _deckCardMatchesSlot(slot, card) {
+  if (!slot || !card) return false;
+  const a = getCardInventoryKey(slot);
+  const b = getCardInventoryKey(card);
+  if (a && b && a === b) return true;
+  const stripFoil = k => (k || '').replace(/_[fn]$/, '');
+  if (slot.scryfallId && card.scryfallId && slot.scryfallId === card.scryfallId) return true;
+  if (stripFoil(a) && stripFoil(b) && stripFoil(a) === stripFoil(b)) return true;
+  const sn = _deckCardNameKey(slot.name);
+  const cn = _deckCardNameKey(card.name);
+  return !!(sn && cn && sn === cn);
+}
+
+function _deckZoneSlotMatches(slot, card) {
+  if (!slot || !card) return false;
+  if (getCardInventoryKey(slot) === getCardInventoryKey(card)) return true;
+  return _deckCardMatchesSlot(slot, card);
 }
 
 function _deckCardDragKey(card) {
@@ -5088,7 +5188,7 @@ function _stackTile(c, zone = 'main', poolHints = null) {
     : '';
   const isPlannedAdd = !!c._plannedAdd;
   const cutQty = zone === 'main' && !isPlannedAdd && poolHints?.cuts
-    ? _plannedCutQtyForDeckSlot(poolHints.cuts, cardKey)
+    ? _plannedCutQtyForDeckSlot(poolHints.cuts, cardKey, c)
     : 0;
   const cutBadge = cutQty > 0 || zone === 'cut'
     ? `<div class="stack-cut-flag" title="Planned cut — still in the deck">CUT${(zone === 'main' && cutQty > 0 && qty > 1) ? ` ×${cutQty}` : ''}</div>`
@@ -5108,7 +5208,8 @@ function _stackTile(c, zone = 'main', poolHints = null) {
   const dragKey = _deckCardDragKey(c).replace(/"/g, '&quot;');
 
   const swapBtns = zone === 'cut'
-    ? `<button class="stack-swap" draggable="false" data-uid="${dragKey}" data-swap-zone="cut" title="Remove the cut marker — the card stays in the deck">Keep</button>`
+    ? `<button class="stack-swap stack-swap--keep" draggable="false" data-uid="${dragKey}" data-swap-zone="cut" data-swap-action="keep" title="Remove the cut marker — the card stays in the deck">Keep</button>` +
+      `<button class="stack-swap stack-swap--cut" draggable="false" data-uid="${dragKey}" data-swap-zone="cut" data-swap-action="commit" title="Remove this card from the deck now">→ Cut</button>`
     : zone === 'add'
     ? `<button class="stack-swap" draggable="false" data-uid="${dragKey}" data-swap-zone="add" title="Move into the deck now">→ Main</button>`
     : isExtra
@@ -5380,7 +5481,7 @@ function _deckPointerDragUnbind() {
 
 function _deckZoneCardPointerDown(e) {
   if (_deckIsPhone()) return; // phone: zone moves via card/inspector buttons only
-  if (typeof activeDeckIsShared !== 'undefined' && activeDeckIsShared) return;
+  if (typeof canEditActiveDeck === 'function' && !canEditActiveDeck()) return;
   if (e.button !== 0) return;
   const tile = e.currentTarget;
   if (!tile?.classList?.contains('deck-zone-draggable')) return;
@@ -5411,7 +5512,7 @@ window._deckZoneCardPointerDown = _deckZoneCardPointerDown;
 /** Drag a search-result tile into the deck list (mainboard, MB, SB, or planned adds). */
 function _deckSearchTilePointerDown(e) {
   if (_deckIsPhone()) return;
-  if (typeof activeDeckIsShared !== 'undefined' && activeDeckIsShared) return;
+  if (typeof canEditActiveDeck === 'function' && !canEditActiveDeck()) return;
   if (e.button !== 0) return;
   const tile = e.target?.closest?.('.deck-search-tile');
   if (!tile?.dataset?.add) return;
@@ -5857,7 +5958,7 @@ function _estimateGroupHeight(cards) {
 
 /** Gray stack boxes only — paired with _renderGroup(..., { cardsOnly: true }) for zone layering. */
 function _renderStackGroupBackplate([grp, cards]) {
-  const total = cards.reduce((s, c) => s + (c.qty || 1), 0);
+  const total = _deckGroupCardCount(cards);
   const backdropH = Math.max(280, _estimateGroupHeight(cards) - 52);
   const grpAttr = _deckStackGroupAttr(grp);
   return `
@@ -6220,7 +6321,8 @@ function _renderDeckExtraZoneList(deck, zone, label, cards, emptyHint, validatio
       const dk = _deckCardDragKey(c).replace(/'/g, "\\'");
       const own = _deckCardOwnership(c);
       const mainBtn = zone === 'cut'
-        ? `<button class="btn btn-ghost btn-sm" title="Remove the cut marker — the card stays in the deck" style="font-size:0.65rem;padding:1px 6px" onclick="event.stopPropagation();unmarkPlannedCut('${dk}')">Keep</button>`
+        ? `<button class="btn btn-ghost btn-sm" title="Remove the cut marker — the card stays in the deck" style="font-size:0.65rem;padding:1px 6px" onclick="event.stopPropagation();unmarkPlannedCut('${dk}')">Keep</button>` +
+          `<button class="btn btn-ghost btn-sm" title="Remove this card from the deck now" style="font-size:0.65rem;padding:1px 6px;color:var(--red)" onclick="event.stopPropagation();commitPlannedCut('${dk}')">→ Cut</button>`
         : zone === 'add'
         ? `<button class="btn btn-ghost btn-sm" title="Move into the deck now" style="font-size:0.65rem;padding:1px 6px" onclick="event.stopPropagation();commitPlannedAdd('${dk}')">→ Main</button>`
         : `<button class="btn btn-ghost btn-sm" title="Move to mainboard" style="font-size:0.65rem;padding:1px 6px" onclick="event.stopPropagation();moveToMainboard('${dk}','${zone}')">→ Main</button>`;
@@ -6740,7 +6842,7 @@ function _renderCutSuggestions(deck) {
     const why = _suggestWhyDetailHtml('Why cut this', score, whyLines, footer);
     const cutOnclick = swapsOn ? `markPlannedCut('${uid}')` : `adjustDeckCardQtyByUid('${uid}',-1)`;
     const cutTitle = swapsOn
-      ? 'Mark as a planned cut — stays in the deck until you apply swaps'
+      ? 'Mark as a planned cut — cut individually from Cuts or apply all swaps'
       : 'Remove one copy from the deck';
     return `<div class="suggest-item">
       <div class="cut-candidate-row">
@@ -7248,7 +7350,7 @@ async function _renderAddSuggestions(deck) {
     const ownTag = owned
       ? '<span class="tag" style="background:rgba(61,184,160,0.15);color:var(--teal);font-size:.62rem;margin:0 .4rem">owned</span>'
       : '<span class="tag" style="background:var(--bg3);color:var(--text3);font-size:.62rem;margin:0 .4rem">unowned</span>';
-    const addTitle = swapsOn ? ' title="Add to planned adds — not counted until you apply swaps"' : '';
+    const addTitle = swapsOn ? ' title="Add to planned adds — use → Main or apply all swaps when ready"' : '';
     const addBtn = owned
       ? `<button class="btn btn-primary btn-sm" style="padding:2px 10px;font-size:.7rem"${addTitle} onclick="${swapsOn ? `addOwnedRecommendationToAdds('${safeName}')` : `addOwnedRecommendation('${safeName}')`}">+ Add</button>`
       : `<button class="btn btn-outline btn-sm" style="padding:2px 10px;font-size:.7rem"${addTitle} onclick="${swapsOn ? `addScryfallCardToAdds('${id}')` : `addScryfallCardToDeck('${id}')`}">+ Add</button>`;
@@ -7288,9 +7390,7 @@ function renderDeckList(deck) {
   const matchSideboard = _deckMatchSideboardEnabled(deck) ? _deckMatchSideboard(deck) : [];
   const swapsOn = _deckSwapsEnabled(deck);
   const plannedAdds = swapsOn ? _deckPlannedAdds(deck) : [];
-  // Display-only filter — never mutate deck.cuts during render (that raced debounced
-  // planning saves and dropped markers before they reached the server).
-  const plannedCuts = swapsOn ? _filterPlannedCuts(deck) : [];
+  const plannedCuts = swapsOn ? _effectivePlannedCuts(deck) : [];
   // Ghost copies of planned adds — shown in their deck-list groups but never counted
   const addGhosts = swapsOn
     ? _applyDeckListFilter(plannedAdds).map(c => ({ ...c, isCommander: false, _plannedAdd: true }))
@@ -7306,7 +7406,7 @@ function renderDeckList(deck) {
     validationErrorNames,
   };
   const applySwapsHtml = swapsOn && !activeDeckIsShared && (plannedAdds.length || plannedCuts.length)
-    ? `<button type="button" class="deck-swaps-apply-btn" onclick="applyDeckSwaps()" title="Move all planned adds into the deck and remove all planned cuts">Apply swaps</button>`
+    ? `<button type="button" class="deck-swaps-apply-btn" onclick="applyDeckSwaps()" title="Apply every planned add and cut at once (optional — you can also move cards one at a time)">Apply all swaps</button>`
     : '';
   const mergeAddGhostGroups = groups => {
     if (!addGhosts.length) return groups;
@@ -7331,11 +7431,11 @@ function renderDeckList(deck) {
         const key = getCardInventoryKey(c);
         if (seen.has(key)) continue;
         seen.add(key);
-        cutQty += _plannedCutQtyForDeckSlot(plannedCuts, key);
+        cutQty += _plannedCutQtyForDeckSlot(plannedCuts, key, c);
       }
     }
     if (!addQty && !cutQty) return '';
-    return ` <span class="deck-swaps-projected" title="Cards in this group if all planned adds and cuts were applied">→ ${total + addQty - cutQty} after swaps</span>`;
+    return _deckSwapsProjectedHtml(total + addQty - cutQty, 'Cards in this group if all planned adds and cuts were applied');
   };
 
   if (!deck.cards.length && !hasExtra) {
@@ -7359,7 +7459,7 @@ function renderDeckList(deck) {
     const orientClass = isVertical ? ' vertical' : '';
 
     function _renderGroup([grp, cards], opts = {}) {
-      const total = cards.reduce((s, c) => s + (c._plannedAdd ? 0 : (c.qty || 1)), 0);
+      const total = _deckGroupCardCount(cards);
       const sorted = _deckStackSortCards(cards);
       const cardsCls = opts.cardsOnly ? ' deck-stack-group--cards' : '';
       const grpAttr = _deckStackGroupAttr(grp);
@@ -7433,7 +7533,10 @@ function renderDeckList(deck) {
         const fromZone = swapBtn.dataset.swapZone;
         const tileZone = swapBtn.closest('.deck-stack-card')?.dataset?.zone;
         if (tileZone === 'add') commitPlannedAdd(uid);
-        else if (tileZone === 'cut') unmarkPlannedCut(uid);
+        else if (tileZone === 'cut') {
+          if (swapBtn.dataset.swapAction === 'commit') commitPlannedCut(uid);
+          else unmarkPlannedCut(uid);
+        }
         else if (tileZone && tileZone !== 'main') moveToMainboard(uid, tileZone);
         else if (fromZone === 'sb') moveToMatchSideboard(uid);
         else moveToSideboard(uid);
@@ -7476,7 +7579,7 @@ function renderDeckList(deck) {
     if (_handleDeckExtraZoneToggleClick(e)) return;
   };
   const mainListHtml = (Object.entries(groups).filter(([, v]) => v.length > 0).map(([grp, cards]) => {
-    const groupTotal = cards.reduce((s,c)=>s+(c._plannedAdd?0:c.qty),0);
+    const groupTotal = _deckGroupCardCount(cards);
     return `
     <div class="deck-list-group-head deck-list-group-head--main">${escapeHtml(grp)} (${groupTotal})${groupProjectedHtml(cards, groupTotal)}</div>
     ${_deckStackSortCards(cards).map(c => {
@@ -7497,7 +7600,7 @@ function renderDeckList(deck) {
       }
       const mbRow = _maybeBoardQtyForDeckSlot(maybeboard, getCardInventoryKey(c));
       const sbRow = _matchSideboardQtyForDeckSlot(matchSideboard, getCardInventoryKey(c));
-      const cutRow = swapsOn ? _plannedCutQtyForDeckSlot(plannedCuts, getCardInventoryKey(c)) : 0;
+      const cutRow = swapsOn ? _plannedCutQtyForDeckSlot(plannedCuts, getCardInventoryKey(c), c) : 0;
       const mbRowHtml = mbRow > 0
         ? `<span class="deck-row-mb-pool" title="Same printing on maybe board">MB ×${mbRow}</span>`
         : '';
@@ -9971,6 +10074,7 @@ function removeFromDeck(uid) {
   if (!c) return;
   if (c.qty > 1) { c.qty--; recordDeckEvent('qty_change', c); }
   else { recordDeckEvent('remove', c); deck.cards = deck.cards.filter(card => card !== c); }
+  _removePlannedCutMarkersForCard(deck, c);
   saveActiveDeck(deck); renderActiveDeck();
   scheduleEDHRECRefresh();
 }
@@ -10022,9 +10126,11 @@ function adjustDeckCardQtyByUid(uid, delta) {
   } else if ((card.qty || 1) > 1) {
     card.qty += delta;
     recordDeckEvent('qty_change', card);
+    if (typeof _pruneStalePlannedCuts === 'function') _pruneStalePlannedCuts(deck);
   } else {
     recordDeckEvent('remove', card);
     deck.cards = deck.cards.filter(c => c !== card);
+    _removePlannedCutMarkersForCard(deck, card);
   }
   saveActiveDeck(deck);
   renderActiveDeck();
@@ -10058,7 +10164,7 @@ function _deckZonePool(deck, zone) {
 
 function _findDeckZoneSlot(deck, zone, card) {
   const key = getCardInventoryKey(card);
-  return _deckZonePool(deck, zone).find(c => getCardInventoryKey(c) === key);
+  return _deckZonePool(deck, zone).find(c => _deckZoneSlotMatches(c, card) || getCardInventoryKey(c) === key);
 }
 
 /** When tagging a collection card to a deck (TAG TO DECK), mirror one copy in that deck’s maybe board. */
@@ -10292,29 +10398,55 @@ function _deckMainboardQtyForKey(deck, key) {
     .reduce((s, c) => s + (c.qty || 1), 0);
 }
 
-function _plannedCutQtyForDeckSlot(pool, cardKey) {
-  if (!cardKey || !pool?.length) return 0;
-  return pool
-    .filter(c => getCardInventoryKey(c) === cardKey)
-    .reduce((s, c) => s + (c.qty || 1), 0);
+function _plannedCutQtyForDeckSlot(pool, cardKey, card) {
+  if (!pool?.length) return 0;
+  let sum = 0;
+  for (const slot of pool) {
+    if (cardKey && getCardInventoryKey(slot) === cardKey) sum += (slot.qty || 1);
+    else if (card && _deckCardMatchesSlot(slot, card)) sum += (slot.qty || 1);
+  }
+  return sum;
 }
 
-/** Cut markers whose mainboard card is gone are omitted; clamp qty to mainboard copies. */
-function _filterPlannedCuts(deck) {
-  const cuts = _deckPlannedCuts(deck);
-  if (!cuts.length) return [];
-  const kept = [];
-  for (const slot of cuts) {
-    const key = getCardInventoryKey(slot);
-    let main = (deck.cards || []).find(c => getCardInventoryKey(c) === key);
-    if (!main) main = (deck.cards || []).find(c => !c.isCommander && (c.name || '').toLowerCase() === (slot.name || '').toLowerCase());
-    if (!main || main.isCommander) continue;
-    const q = Math.min(slot.qty || 1, main.qty || 1);
-    if (getCardInventoryKey(main) !== key) kept.push({ ...main, uid: getCardInventoryKey(main), qty: q });
-    else if (q !== (slot.qty || 1)) kept.push({ ...slot, qty: q });
-    else kept.push(slot);
+/** Planned cuts that match a mainboard card — deduped, qty-clamped, uid-aligned. */
+function _effectivePlannedCuts(deck) {
+  const raw = _deckPlannedCuts(deck);
+  if (!raw.length) return [];
+  const byKey = new Map();
+  for (const slot of raw) {
+    const main = (deck.cards || []).find(c => !c.isCommander && _deckCardMatchesSlot(slot, c));
+    if (!main) continue;
+    const key = getCardInventoryKey(main);
+    const mainQty = main.qty || 1;
+    const addQty = Math.min(slot.qty || 1, mainQty);
+    const prev = byKey.get(key);
+    const mergedQty = Math.min(mainQty, (prev?.qty || 0) + addQty);
+    byKey.set(key, { ...main, uid: key, qty: mergedQty });
   }
-  return kept;
+  return [...byKey.values()];
+}
+
+/** @deprecated alias — use _effectivePlannedCuts */
+function _displayPlannedCuts(deck) {
+  return _effectivePlannedCuts(deck);
+}
+
+/** Drop orphan/duplicate cut markers; realign uids to current mainboard printings. */
+function _pruneStalePlannedCuts(deck) {
+  if (!_deckPlannedCuts(deck).length) return false;
+  const before = JSON.stringify(_deckPlannedCuts(deck));
+  deck.cuts = _effectivePlannedCuts(deck);
+  return JSON.stringify(deck.cuts) !== before;
+}
+
+/** @deprecated — use _pruneStalePlannedCuts */
+function _resyncPlannedCutsToMainboard(deck) {
+  return _pruneStalePlannedCuts(deck);
+}
+
+/** Cut markers whose mainboard card is gone are omitted; clamp qty and re-point to the current printing. */
+function _filterPlannedCuts(deck) {
+  return _effectivePlannedCuts(deck);
 }
 
 /** Persistable prune — only call before apply swaps or an explicit save. */
@@ -10322,8 +10454,19 @@ function _prunePlannedCuts(deck) {
   deck.cuts = _filterPlannedCuts(deck);
 }
 
+/** Remove planned-cut markers when a mainboard copy leaves the deck. */
+function _removePlannedCutMarkersForCard(deck, card) {
+  if (!deck || !card) return false;
+  const pool = _deckPlannedCuts(deck);
+  if (!pool.length) return false;
+  const before = pool.length;
+  deck.cuts = pool.filter(slot => !_deckCardMatchesSlot(slot, card));
+  if (deck.cuts.length !== before) _flagClearedPlanningIfEmpty(deck);
+  return deck.cuts.length !== before;
+}
+
 /** Mark one copy of a mainboard card as a planned cut — the card stays in the deck. */
-function markPlannedCut(uid) {
+async function markPlannedCut(uid) {
   const deck = getActiveDeck();
   if (!deck || !_deckSwapsEnabled()) return;
   if (typeof canEditActiveDeck === 'function' && !canEditActiveDeck()) {
@@ -10341,12 +10484,18 @@ function markPlannedCut(uid) {
   } else {
     _deckPlannedCuts(deck).push({ ...card, uid: getCardInventoryKey(card), qty: 1 });
   }
-  saveActiveDeck(deck, { planningOnly: true, planningImmediate: true });
+  try {
+    if (typeof saveDeckPlanningNow === 'function') await saveDeckPlanningNow(deck);
+    else saveActiveDeck(deck, { planningOnly: true, planningImmediate: true });
+  } catch (e) {
+    showNotif('Could not save cut — ' + (e?.message || 'server error'), true);
+    return;
+  }
   renderActiveDeck();
   showNotif(card.name + ' marked as a cut');
 }
 
-function unmarkPlannedCut(uid) {
+async function unmarkPlannedCut(uid) {
   const deck = getActiveDeck();
   if (!deck) return;
   if (typeof canEditActiveDeck === 'function' && !canEditActiveDeck()) {
@@ -10354,12 +10503,19 @@ function unmarkPlannedCut(uid) {
     return;
   }
   const pool = _deckPlannedCuts(deck);
-  const slot = pool.find(c => getCardInventoryKey(c) === uid || c.uid === uid);
+  const slot = pool.find(c => getCardInventoryKey(c) === uid || c.uid === uid
+    || _deckCardMatchesSlot(c, deck.cards.find(x => getCardInventoryKey(x) === uid || x.uid === uid)));
   if (!slot) return;
   if ((slot.qty || 1) > 1) slot.qty--;
   else { const i = pool.indexOf(slot); if (i >= 0) pool.splice(i, 1); }
   _flagClearedPlanningIfEmpty(deck);
-  saveActiveDeck(deck, { planningOnly: true, planningImmediate: true });
+  try {
+    if (typeof saveDeckPlanningNow === 'function') await saveDeckPlanningNow(deck);
+    else saveActiveDeck(deck, { planningOnly: true, planningImmediate: true });
+  } catch (e) {
+    showNotif('Could not save — ' + (e?.message || 'server error'), true);
+    return;
+  }
   renderActiveDeck();
   showNotif(slot.name + ' kept — cut marker removed');
 }
@@ -10387,6 +10543,36 @@ function commitPlannedAdd(uid) {
   renderActiveDeck();
   scheduleEDHRECRefresh();
   showNotif(snap.name + ' added to deck');
+}
+
+/** Remove one planned cut from the deck for real (mirror of commitPlannedAdd). */
+function commitPlannedCut(uid) {
+  const deck = getActiveDeck();
+  if (!deck) return;
+  if (typeof canEditActiveDeck === 'function' && !canEditActiveDeck()) {
+    showNotif('You have view-only access to this deck', true);
+    return;
+  }
+  const pool = _deckPlannedCuts(deck);
+  const mainRef = (deck.cards || []).find(c => getCardInventoryKey(c) === uid || c.uid === uid);
+  const slot = pool.find(c => getCardInventoryKey(c) === uid || c.uid === uid
+    || (mainRef && _deckCardMatchesSlot(c, mainRef)));
+  if (!slot) return;
+  const snap = { ...slot };
+  const cutQty = slot.qty || 1;
+  if ((slot.qty || 1) > 1) slot.qty--;
+  else { const i = pool.indexOf(slot); if (i >= 0) pool.splice(i, 1); }
+  const main = (deck.cards || []).find(c => !c.isCommander && _deckCardMatchesSlot(snap, c));
+  if (main) {
+    const remaining = (main.qty || 1) - cutQty;
+    if (remaining > 0) { main.qty = remaining; recordDeckEvent('qty_change', main); }
+    else { recordDeckEvent('remove', main); deck.cards = deck.cards.filter(c => c !== main); }
+  }
+  _flagClearedPlanningIfEmpty(deck);
+  saveActiveDeck(deck);
+  renderActiveDeck();
+  scheduleEDHRECRefresh();
+  showNotif(snap.name + ' removed from deck');
 }
 
 /** Move a card between the planned-adds pool and the maybe board / sideboard (no history — planning only). */
@@ -10454,7 +10640,7 @@ async function applyDeckSwaps() {
   if (addQty) parts.push(`add ${addQty} card${addQty === 1 ? '' : 's'}`);
   if (cutQty) parts.push(`cut ${cutQty} card${cutQty === 1 ? '' : 's'}`);
   const ok = await showConfirmModal({
-    title: 'Apply swaps',
+    title: 'Apply all swaps',
     body: `This will ${parts.join(' and ')} and clear both sections. Apply now?`,
     okLabel: 'Apply',
   });
@@ -10515,16 +10701,22 @@ function _htmlCardDetailSwapActionsInner(ctx) {
   const inMb = findSlot(_deckMaybeBoard(deck));
   const inSb = _deckMatchSideboardEnabled(deck) ? findSlot(_deckMatchSideboard(deck)) : null;
   const inAdds = findSlot(_deckPlannedAdds(deck));
-  const cutSlot = findSlot(_deckPlannedCuts(deck));
+  const cutSlot = inMain
+    ? _findDeckZoneSlot(deck, 'cut', inMain)
+    : findSlot(_deckPlannedCuts(deck));
   const cutQty = cutSlot ? (cutSlot.qty || 1) : 0;
   const btns = [];
   if (inMain) {
     if (cutQty < (inMain.qty || 1)) {
-      btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--red);border-color:var(--red)" title="Plan to cut this card — it stays in the deck until you apply swaps" onclick="markPlannedCutFromDetail('${ref(inMain)}')">${_SWAP_CUT_ICON} Mark as cut</button>`);
+      btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--red);border-color:var(--red)" title="Plan to cut this card — it stays in the deck until you cut it or apply all swaps" onclick="markPlannedCutFromDetail('${ref(inMain)}')">${_SWAP_CUT_ICON} Mark as cut</button>`);
     }
     if (cutQty > 0) {
-      btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--green);border-color:var(--green)" title="Remove the cut marker" onclick="unmarkPlannedCutFromDetail('${ref(cutSlot)}')">${_SWAP_KEEP_ICON} Keep in deck</button>`);
+      btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--red);border-color:var(--red)" title="Remove this card from the deck now" onclick="commitPlannedCutFromDetail('${ref(cutSlot || inMain)}')">${_SWAP_CUT_ICON} Cut from deck</button>`);
+      btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--green);border-color:var(--green)" title="Remove the cut marker — the card stays in the deck" onclick="unmarkPlannedCutFromDetail('${ref(cutSlot || inMain)}')">${_SWAP_KEEP_ICON} Keep in deck</button>`);
     }
+  }
+  if (cutSlot && !inMain) {
+    btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--red);border-color:var(--red)" title="Remove this cut marker" onclick="unmarkPlannedCutFromDetail('${ref(cutSlot)}')">${_SWAP_KEEP_ICON} Clear cut marker</button>`);
   }
   if (inMb) btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--green);border-color:var(--green)" title="Move from the maybe board to planned adds" onclick="movePoolToAddsFromDetail('${ref(inMb)}','mb')">${_SWAP_ADD_ICON} To Adds</button>`);
   if (inSb) btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--green);border-color:var(--green)" title="Move from the sideboard to planned adds" onclick="movePoolToAddsFromDetail('${ref(inSb)}','sb')">${_SWAP_ADD_ICON} To Adds</button>`);
@@ -10532,7 +10724,7 @@ function _htmlCardDetailSwapActionsInner(ctx) {
     btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--green);border-color:var(--green)" title="Move into the deck now" onclick="commitPlannedAddFromDetail('${ref(inAdds)}')">${_SWAP_ADD_ICON} Adds → Main</button>`);
     btns.push(`<button class="btn btn-outline btn-sm" title="Remove from planned adds" onclick="removeFromPlannedAddsFromDetail('${ref(inAdds)}')">Remove from Adds</button>`);
   } else if (!inMainAny && !inMb && !inSb) {
-    btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--green);border-color:var(--green)" title="Plan to add this card — it shows in the deck list but isn't counted until you apply swaps" onclick="addToAddsFromDetail('${esc}')">${_SWAP_ADD_ICON} To Adds</button>`);
+    btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--green);border-color:var(--green)" title="Plan to add this card — commit from Adds when ready, or apply all swaps" onclick="addToAddsFromDetail('${esc}')">${_SWAP_ADD_ICON} To Adds</button>`);
   }
   return btns.join('\n               ');
 }
@@ -10545,6 +10737,7 @@ function markPlannedCutFromDetail(uid) { markPlannedCut(uid); _refreshCardDetail
 function unmarkPlannedCutFromDetail(uid) { unmarkPlannedCut(uid); _refreshCardDetailAfterSwapAction(uid); }
 function movePoolToAddsFromDetail(uid, fromZone) { _movePlanningZoneCard(uid, fromZone, 'add'); _refreshCardDetailAfterSwapAction(uid); }
 function commitPlannedAddFromDetail(uid) { commitPlannedAdd(uid); _refreshCardDetailAfterSwapAction(uid); }
+function commitPlannedCutFromDetail(uid) { commitPlannedCut(uid); _refreshCardDetailAfterSwapAction(uid); }
 function removeFromPlannedAddsFromDetail(uid) { removeFromPlannedAdds(uid); _refreshCardDetailAfterSwapAction(uid); }
 
 /** "To Adds" for a card that isn't in the deck yet — owned copy preferred, Scryfall fallback. */
@@ -13559,7 +13752,7 @@ function _simRenderHTML(deck, commander, edhrecData, archiveData) {
     const detailId = (c.uid || c.scryfallId || '').replace(/'/g, "\\'");
     const swapsOn = _deckSwapsEnabled(deck);
     const cutTitle = swapsOn
-      ? 'Mark as a planned cut — stays in the deck until you apply swaps'
+      ? 'Mark as a planned cut — cut from Cuts zone or apply all swaps'
       : 'Remove from deck';
     return `<span class="sim-chip sim-chip--spice"><span style="cursor:pointer" onclick="openCardDetail('${detailId}')">${escapeHtml(c.name)}</span><button class="sim-chip-btn sim-chip-btn--remove" onclick="simRemoveFromDeck(this,'${id}')" title="${cutTitle}">−</button></span>`;
   }).join('')}</div>` : ''}

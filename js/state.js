@@ -156,6 +156,9 @@ async function loadAppDataAfterAuth() {
     if (typeof applyAddsPrefsFromServer === 'function') {
       applyAddsPrefsFromServer(data.prefs || {});
     }
+    if (typeof applyDeckSwapsPrefsFromServer === 'function') {
+      applyDeckSwapsPrefsFromServer(data.prefs || {});
+    }
 
     // Drop any collection entries that have no scryfallId and no image — these are
     // unidentified cards that slipped in from a failed import enrichment.
@@ -219,10 +222,10 @@ async function loadAppDataAfterAuth() {
       }
     }
     if (!fromCache && typeof refreshAllSharedDecksFromServer === 'function' && sharedDecks.length) {
-      refreshAllSharedDecksFromServer({ silent: true }).catch(() => {});
+      await refreshAllSharedDecksFromServer({ silent: true }).catch(() => {});
     } else if (fromCache && typeof refreshAllSharedDecksFromServer === 'function' && sharedDecks.length) {
-      // Safari vs Home Screen PWA keep separate IndexedDB — revalidate when we had to use cache.
-      refreshAllSharedDecksFromServer({ silent: false }).catch(() => {});
+      // Safari vs Home Screen PWA keep separate IndexedDB — always revalidate cached shared decks.
+      await refreshAllSharedDecksFromServer({ silent: true }).catch(() => {});
     }
   if (typeof loadTagOverrides === 'function') {
     try {
