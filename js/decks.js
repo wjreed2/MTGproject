@@ -6374,6 +6374,11 @@ function _readAllCutPrefs() {
   } catch { return {}; }
 }
 
+function _parseThresholdNumber(val) {
+  const n = typeof val === 'number' ? val : Number(val);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
 function _loadCutPrefsForDeck(deckId) {
   if (!deckId) return { archetype: '', thresholds: {} };
   const p = _readAllCutPrefs()[deckId];
@@ -6382,7 +6387,10 @@ function _loadCutPrefsForDeck(deckId) {
   const thresholds = {};
   if (p.thresholds && typeof p.thresholds === 'object') {
     for (const [tag, val] of Object.entries(p.thresholds)) {
-      if (Number.isFinite(val) && val >= 0) thresholds[tag] = val;
+      const n = _parseThresholdNumber(val);
+      // Keep explicit 0 — Number.isFinite alone is fine for numbers, but coerce
+      // string "0" from older/localStorage shapes so Recursion:0 is not dropped.
+      if (n != null) thresholds[tag] = n;
     }
   }
   return { archetype, thresholds };
@@ -6393,6 +6401,33 @@ function _applyCutPrefsToState(prefs) {
   _deckCutThresholdOverrides = _deckCutArchetypeOverride === 'custom'
     ? { ...prefs.thresholds }
     : {};
+}
+
+/** Load per-deck cut/add targets when the active deck changes (Cuts or Adds path). */
+function _ensureCutPrefsForDeck(deck) {
+  if (!deck || !deck.id) return;
+  if (deck.id === _deckCutLastDeckId) return;
+  _deckCutLastDeckId = deck.id;
+  _applyCutPrefsToState(_loadCutPrefsForDeck(deck.id));
+  // Close both editors so stale typed values cannot disagree with scoring.
+  for (const id of ['deckCutThresholdEditor', 'deckAddThresholdEditor']) {
+    const editorEl = document.getElementById(id);
+    if (editorEl) editorEl.style.display = 'none';
+  }
+  for (const btnId of ['deckCutThresholdBtn', 'deckAddThresholdBtn']) {
+    const threshBtn = document.getElementById(btnId);
+    if (threshBtn) {
+      threshBtn.classList.remove('active');
+      threshBtn.setAttribute('aria-pressed', 'false');
+    }
+  }
+}
+
+function _syncCutArchetypeSelects() {
+  for (const id of ['deckCutArchetypeSelect', 'deckAddArchetypeSelect']) {
+    const sel = document.getElementById(id);
+    if (sel) sel.value = _deckCutArchetypeOverride;
+  }
 }
 
 function _saveCutPrefsForDeck(deckId) {
@@ -6511,11 +6546,13 @@ function _renderThresholdEditorInto(deck, elId) {
     ${tags.map(tag => {
       const delta = effective[tag] - base[tag];
       const hint = delta !== 0 ? ` title="Slider adjusts to ${effective[tag]} (${delta > 0 ? '+' : ''}${delta})"` : '';
+      const safeTag = String(tag).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
       return `<label class="cut-threshold-cell">
         <span class="cut-threshold-label">${tag}${delta !== 0 ? `<span class="cut-threshold-delta">${delta > 0 ? '+' : ''}${delta}</span>` : ''}</span>
         <input type="number" min="0" max="60" value="${base[tag]}"
           class="cut-threshold-input"${hint}
-          oninput="_setCutThreshold('${tag}',+this.value||0)">
+          oninput="_onCutThresholdInput('${safeTag}', this)"
+          onchange="_onCutThresholdInput('${safeTag}', this)">
       </label>`;
     }).join('')}
   </div>
@@ -6540,15 +6577,23 @@ function _toggleAddThresholdEditor() {
   const btn = document.getElementById('deckAddThresholdBtn');
   if (!el) return;
   const open = el.style.display !== 'none';
-  el.style.display = open ? 'none' : '';
+  if (open) {
+    el.style.display = 'none';
+    if (btn) {
+      btn.classList.remove('active');
+      btn.setAttribute('aria-pressed', 'false');
+    }
+    return;
+  }
+  // Load prefs before opening — _ensureCutPrefsForDeck may close editors on deck change.
+  const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+  if (deck) _ensureCutPrefsForDeck(deck);
+  el.style.display = '';
   if (btn) {
-    btn.classList.toggle('active', !open);
-    btn.setAttribute('aria-pressed', open ? 'false' : 'true');
+    btn.classList.add('active');
+    btn.setAttribute('aria-pressed', 'true');
   }
-  if (!open) {
-    const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
-    if (deck) _renderAddThresholdEditorContent(deck);
-  }
+  if (deck) _renderAddThresholdEditorContent(deck);
 }
 
 function setDeckCutPlaystyleStep(step) {
@@ -6566,23 +6611,38 @@ function _toggleCutThresholdEditor() {
   const btn = document.getElementById('deckCutThresholdBtn');
   if (!el) return;
   const open = el.style.display !== 'none';
-  el.style.display = open ? 'none' : '';
+  if (open) {
+    el.style.display = 'none';
+    if (btn) {
+      btn.classList.remove('active');
+      btn.setAttribute('aria-pressed', 'false');
+    }
+    return;
+  }
+  const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+  if (deck) _ensureCutPrefsForDeck(deck);
+  el.style.display = '';
   if (btn) {
-    btn.classList.toggle('active', !open);
-    btn.setAttribute('aria-pressed', open ? 'false' : 'true');
+    btn.classList.add('active');
+    btn.setAttribute('aria-pressed', 'true');
   }
-  if (!open) {
-    const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
-    if (deck) _renderCutThresholdEditorContent(deck);
-  }
+  if (deck) _renderCutThresholdEditorContent(deck);
+}
+
+/** Commit a role-target field (oninput + onchange — iOS number inputs can miss one). */
+function _onCutThresholdInput(tag, el) {
+  const raw = el && el.value;
+  const n = raw === '' || raw == null ? 0 : Number(raw);
+  if (!Number.isFinite(n) || n < 0) return;
+  _setCutThreshold(tag, Math.min(60, Math.floor(n)));
 }
 
 function _setCutThreshold(tag, val) {
-  if (Number.isFinite(val) && val >= 0) _deckCutThresholdOverrides[tag] = val;
+  const n = _parseThresholdNumber(val);
+  if (n != null) _deckCutThresholdOverrides[tag] = n;
   else delete _deckCutThresholdOverrides[tag];
   _deckCutArchetypeOverride = 'custom';
-  const sel = document.getElementById('deckCutArchetypeSelect');
-  if (sel) sel.value = 'custom';
+  _syncCutArchetypeSelects();
   const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
   if (deck) {
     _saveCutPrefsForDeck(deck.id);
@@ -6594,8 +6654,7 @@ function _setCutThreshold(tag, val) {
 function _resetCutThresholds() {
   _deckCutThresholdOverrides = {};
   _deckCutArchetypeOverride = '';
-  const sel = document.getElementById('deckCutArchetypeSelect');
-  if (sel) sel.value = '';
+  _syncCutArchetypeSelects();
   const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
   if (deck) {
     const all = _readAllCutPrefs();
@@ -6628,9 +6687,10 @@ function _computeBaseThresholds(deck) {
   if (a.isControl)   { t['Counterspell'] = 8; t['Removal'] = 11; t['Board Wipe'] = 5; }
   if (a.isCombo)     { t['Tutor'] = 7; t['Counterspell'] = 5; t['Ramp'] = 12; t['Board Wipe'] = 2; }
   if (a.isVoltron)   { t['Protection'] = 8; t['Board Wipe'] = 1; t['Removal'] = 9; }
-  // Custom user values sit on top of archetype
+  // Custom user values sit on top of archetype (0 is meaningful — do not use || defaults)
   for (const [tag, val] of Object.entries(_deckCutThresholdOverrides)) {
-    if (Number.isFinite(val) && val >= 0) t[tag] = val;
+    const n = _parseThresholdNumber(val);
+    if (n != null) t[tag] = n;
   }
   return t;
 }
@@ -6796,17 +6856,7 @@ function _renderCutSuggestions(deck) {
   const badge = document.getElementById('deckCutOverBadge');
   if (!panel || !body) return;
 
-  if (deck.id !== _deckCutLastDeckId) {
-    _deckCutLastDeckId = deck.id;
-    _applyCutPrefsToState(_loadCutPrefsForDeck(deck.id));
-    const editorEl = document.getElementById('deckCutThresholdEditor');
-    if (editorEl) editorEl.style.display = 'none';
-    const threshBtn = document.getElementById('deckCutThresholdBtn');
-    if (threshBtn) {
-      threshBtn.classList.remove('active');
-      threshBtn.setAttribute('aria-pressed', 'false');
-    }
-  }
+  _ensureCutPrefsForDeck(deck);
 
   const total = (deck.cards || []).reduce((s, c) => s + (c.qty || 1), 0);
   if (total <= 100) { panel.style.display = 'none'; return; }
@@ -6983,6 +7033,8 @@ function _computeAddContext(deck) {
   }, 0);
   const deficits = {};
   for (const [tag, thr] of Object.entries(thresholds)) {
+    // Target 0 = "I don't want this role" — never create a fill deficit.
+    if (!(thr > 0)) { deficits[tag] = 0; continue; }
     const have = tag === 'Plan' ? planCount : (roleCount[tag] || 0);
     deficits[tag] = Math.max(0, thr - have);
   }
@@ -7108,16 +7160,22 @@ function _buildAddWhyLines(s, ctx) {
     lines.push({ text: `Adds a theme/identity card — deck under its ${ctx.thresholds['Plan']}-card plan target`, val: _fmtWhyVal(s.roleFit) });
   } else if (t && Array.isArray(t.matched) && t.matched.length) {
     for (const m of t.matched) {
+      // Prefer live ctx over scored matched[] so a target of 0 never shows as a fill
+      // (guards desync if suggestions were scored before the latest target edit).
+      const thr = ctx.thresholds[m.role];
+      const d = ctx.deficits[m.role] || 0;
+      if (!(thr > 0) || d <= 0) continue;
       lines.push({
-        text: `Fills ${escapeHtml(m.role)} — deck has ${ctx.roleCount[m.role] || 0}, target ${ctx.thresholds[m.role]}${m.weight < 1 ? ` (×${m.weight})` : ''}`,
-        val: _fmtWhyVal(m.deficit * m.weight),
+        text: `Fills ${escapeHtml(m.role)} — deck has ${ctx.roleCount[m.role] || 0}, target ${thr}${m.weight < 1 ? ` (×${m.weight})` : ''}`,
+        val: _fmtWhyVal(d * (m.weight || 1)),
       });
     }
   } else {
     for (const r of s.roles) {
+      const thr = ctx.thresholds[r];
       const d = ctx.deficits[r] || 0;
-      if (d <= 0) continue;
-      lines.push({ text: `Fills ${escapeHtml(r)} — deck has ${ctx.roleCount[r] || 0}, target ${ctx.thresholds[r]}`, val: _fmtWhyVal(d) });
+      if (!(thr > 0) || d <= 0) continue;
+      lines.push({ text: `Fills ${escapeHtml(r)} — deck has ${ctx.roleCount[r] || 0}, target ${thr}`, val: _fmtWhyVal(d) });
     }
   }
   if (s.gate && s.gate.factor < 1) {
@@ -7165,6 +7223,9 @@ async function _renderAddSuggestions(deck) {
   const panel = document.getElementById('deckAddSuggestionsPanel');
   const body = document.getElementById('deckAddSuggestionsBody');
   if (!panel || !body) return;
+
+  // Cuts panel may never run (≤100 cards) — still load shared role targets here.
+  if (deck) _ensureCutPrefsForDeck(deck);
 
   // Sync the shared controls (slider + archetype + pool toggle) onto this panel
   const psSlider = document.getElementById('deckAddPlaystyleSlider');
