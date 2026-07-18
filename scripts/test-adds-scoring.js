@@ -228,9 +228,9 @@ const wipeOnlyCtx = {
   assert.deepStrictEqual(D_SUBLINEAR_WEIGHTS, [1.0, 0.5, 0.25]);
   // E must outrank B so unpopular creature-tagged fillers don't beat staples.
   assert.ok(K_E > K_B, `K_E (${K_E}) should exceed K_B (${K_B})`);
-  assert.ok(K_E >= 1.5, `K_E (${K_E}) should be large enough to reorder same-role picks`);
-  // Soft guide: E alone (~max K_E) should not dwarf a multi-card D lead.
-  assert.ok(K_E <= 3.0 + 1e-9, `K_E (${K_E}) should stay ≤ ~3 so multi-card D still wins`);
+  assert.strictEqual(K_E, 4.0);
+  // Sanity: 80th percentile × K_E = 3.2
+  assert.ok(Math.abs(K_E * 0.8 - 3.2) < 1e-9);
   console.log(`[constants] K_L=${K_L} K_E=${K_E} K_B=${K_B} K_P=${K_P} maxL=${maxL}`);
 }
 

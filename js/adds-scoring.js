@@ -28,12 +28,13 @@
    *
    * E is independent of K_L: after L was retuned down (2.0 → 0.2), the old
    * "K_E = 0.5 × K_L" rule left max E at 0.1 — smaller than B (0.55), so
-   * unpopular creatures could beat staples on body bonus alone. K_E = 2.0
-   * restores E as a real same-role differentiator (~2 deficit-card units at
-   * p_adjusted=1) without overturning multi-card D leads by itself.
+   * unpopular creatures could beat staples on body bonus alone.
+   * E = K_E × p_adjusted, where p_adjusted is the role EDHREC percentile in
+   * [0, 1] after a small price-band tweak. K_E = 4.0 → an 80th-percentile
+   * card gets E ≈ 3.2; a perfect percentile gets the full 4.0.
    */
   const K_L = 0.2;
-  const K_E = 2.0; // max E at p_adjusted=1
+  const K_E = 4.0; // max E at p_adjusted=1
   const K_B = 0.55;
   const K_P = 0.15;
   const V_PER_EXTRA_TAG = 0.15;
