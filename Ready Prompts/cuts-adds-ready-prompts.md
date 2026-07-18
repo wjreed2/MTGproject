@@ -214,8 +214,12 @@ Else if candidate is a **Creature** AND fills **any** active utility-role defici
 Else `B = 0`.
 
 Tune `K_B` so **Sakura-Tribe Elder > Rampant Growth** on a non-spellslinger green ramp
-fixture. **Do not** calibrate so Wood Elves always beats Rampant Growth — CMC still
-matters; either card can win depending on curve/deficits.
+fixture. Current calibration: **`K_B = 0.3`** (body is a small nudge, not a major term).
+**Do not** calibrate so Wood Elves always beats Rampant Growth — CMC still matters;
+either card can win depending on curve/deficits.
+
+Suggested Adds UI only shows candidates at **≥ 7/10** on the absolute badge scale
+(keep searching Collection → All Cards rather than surfacing weaker fills).
 
 ### P — colored pip restrictiveness (entry 9)
 `P = K_P × pip_restrictiveness_score` from parsed mana cost (locked weights):
