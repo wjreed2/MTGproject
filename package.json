@@ -40,16 +40,19 @@
     "helmet": "8.1.0",
     "mysql2": "3.22.2",
     "node-cron": "^3.0.3",
-    "nodemailer": "8.0.7",
+    "nodemailer": "9.0.3",
     "onnxruntime-web": "1.17.3",
     "socket.io": "^4.8.3",
     "stream-json": "2.1.0",
     "three": "0.184.0"
   },
   "devDependencies": {
-    "esbuild": "0.28.0",
+    "esbuild": "0.28.1",
     "nodemon": "3.1.14",
     "sharp": "^0.35.1",
     "socket.io-client": "^4.8.3"
+  },
+  "overrides": {
+    "uuid": "11.1.1"
   }
 }
