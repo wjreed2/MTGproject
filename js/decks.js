@@ -6673,9 +6673,7 @@ function _computeBaseThresholds(deck) {
   const t = {
     'Ramp': 10, 'Card Draw': 10, 'Removal': 10,
     'Board Wipe': 3, 'Plan': 30, 'Tutor': 2, 'Counterspell': 3,
-    // Recursion stays 0 unless the archetype actually wants graveyard packages —
-    // a default of 3 was floating Recursion staples to #1 on decks that don't want them.
-    'Protection': 3, 'Recursion': 0,
+    'Protection': 3, 'Recursion': 3,
   };
   const a = _detectDeckArchetype(deck);
   if (a.isGraveyard) { t['Recursion'] = 8; t['Board Wipe'] = 2; t['Removal'] = 7; }
