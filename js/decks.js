@@ -1661,16 +1661,34 @@ function _syncDeckSideboardToggle() {
   if (show) renderDeckSideboardEnabledBtn();
 }
 
-/** User-wide Adds & Cuts toggle — mirrors the deck-ownership setting. Data is never cleared. */
+/**
+ * User-wide Adds & Cuts toggle. Synced to the account (via /api/preferences),
+ * not just localStorage — otherwise Safari and a Home Screen PWA (separate
+ * localStorage per browser/app) can disagree on whether the whole Adds/Cuts
+ * UI (zones, CUT/ADD badges, "after swaps" counts) even shows for the same
+ * deck, which looks like a data bug but is really just this setting drifting
+ * per device. Data (deck.adds/deck.cuts) is never cleared by this toggle.
+ */
 function toggleDeckSwapsSetting() {
   deckSwapsFeatureEnabled = !deckSwapsFeatureEnabled;
   localStorage.setItem('mtg_deck_swaps', deckSwapsFeatureEnabled ? '1' : '0');
   renderDeckSwapsSettingBtn();
   if (typeof renderDecks === 'function') renderDecks();
   if (typeof _renderDeckSearchGrid === 'function') _renderDeckSearchGrid();
+  if (typeof save === 'function') save('prefs');
   showNotif(deckSwapsFeatureEnabled
-    ? 'Adds & Cuts planning enabled for all decks'
+    ? 'Adds & Cuts planning enabled for all decks (syncs across your devices)'
     : 'Adds & Cuts planning hidden — your planned adds and cuts are kept and come back when you re-enable it');
+}
+
+/** Apply the account's Adds & Cuts preference on login — server value wins over local cache. */
+function applyDeckSwapsPrefsFromServer(prefs) {
+  const v = prefs?.deck_swaps_enabled;
+  if (typeof v !== 'boolean') return; // never saved server-side yet — keep local default
+  if (deckSwapsFeatureEnabled === v) return;
+  deckSwapsFeatureEnabled = v;
+  try { localStorage.setItem('mtg_deck_swaps', v ? '1' : '0'); } catch { /* quota */ }
+  renderDeckSwapsSettingBtn();
 }
 
 function renderDeckSwapsSettingBtn() {

@@ -156,6 +156,9 @@ async function loadAppDataAfterAuth() {
     if (typeof applyAddsPrefsFromServer === 'function') {
       applyAddsPrefsFromServer(data.prefs || {});
     }
+    if (typeof applyDeckSwapsPrefsFromServer === 'function') {
+      applyDeckSwapsPrefsFromServer(data.prefs || {});
+    }
 
     // Drop any collection entries that have no scryfallId and no image — these are
     // unidentified cards that slipped in from a failed import enrichment.
