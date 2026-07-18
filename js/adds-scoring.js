@@ -1,7 +1,7 @@
 /**
  * Suggested Adds scoring — pure deterministic terms (Prompt 1 / entries 7,9,10,11,12).
  *
- * Score = (D × M) + C_eff + L + E + B − P + V + T + K
+ * Score = (D × M) + C_eff + L + E + B − P + V + T + K + S
  *
  * IDs in EFFICIENCY_MODE_PROJECT_TAGS / ADD_ROLE_SEMANTIC_MAP may change when partner
  * tag work renames labels — keep lookups centralized here; do not scatter hard-coded
@@ -34,15 +34,22 @@
   const K_L = 0.2;
   const K_E = 1.0; // max E at p_adjusted=1
   const K_B = 0.55;
+  /**
+   * S — single-role focus bonus. When a card fills exactly one active deficit,
+   * reward doing one job well (no multi-tag V required to reach 8+/10 display).
+   * S = K_S × min(deficit, 4); only when matched.length === 1 and deficit ≥ 2.
+   */
+  const K_S = 0.5;
   const K_P = 0.15;
   const V_PER_EXTRA_TAG = 0.15;
   const V_SECOND_PLUS_DAMPEN = 0.5;
   /**
    * Absolute badge scale (UI only — ranking uses raw score).
    * 10/10 = a top-tier fit for this deck (raw ≥ ceiling), NOT “#1 in the
-   * current suggestion list.” Ceiling retuned after K_E 4→1.
+   * current suggestion list.” Ceiling tuned so a strong single-role staple
+   * (D≈4–5 + E + L + S) lands 8–10/10 without needing versatility.
    */
-  const ADD_SCORE_RAW_CEILING = 8;
+  const ADD_SCORE_RAW_CEILING = 7;
   const ADD_SCORE_DISPLAY_MAX = 10;
   const E_PRICE_BAND_DELTAS = [
     { max: 0.75, delta: -0.05 },
@@ -361,11 +368,13 @@
     const V = computeVTerm(real);
     const T = Number(extras?.tribal) || 0;
     const K = Number(extras?.themeBonus) || 0;
+    const singleFocus = matched.length === 1 && topVal >= 2;
+    const S = singleFocus ? K_S * Math.min(topVal, 4) : 0;
 
-    const score = (D * M) + C_eff + L + eTerm.E + bTerm.B - P + V + T + K;
+    const score = (D * M) + C_eff + L + eTerm.E + bTerm.B - P + V + T + K + S;
 
     const terms = {
-      D, M, C_eff, L, E: eTerm.E, B: bTerm.B, P, V, T, K,
+      D, M, C_eff, L, E: eTerm.E, B: bTerm.B, P, V, T, K, S,
       eRole: eTerm.eRole, p: eTerm.p, pAdjusted: eTerm.pAdjusted,
       bReason: bTerm.bReason, efficiencyMode: eff, cmc, pipScore, matched,
     };
@@ -401,7 +410,7 @@
     // eslint-disable-next-line no-console
     console.log('[adds-score]', cardName, {
       score: result.score,
-      D: t.D, M: t.M, C_eff: t.C_eff, L: t.L, E: t.E, B: t.B, P: t.P, V: t.V, T: t.T, K: t.K,
+      D: t.D, M: t.M, C_eff: t.C_eff, L: t.L, E: t.E, B: t.B, P: t.P, V: t.V, T: t.T, K: t.K, S: t.S,
       eRole: t.eRole, efficiencyMode: t.efficiencyMode, cmc: t.cmc,
     });
   }
@@ -431,6 +440,7 @@
     K_L,
     K_E,
     K_B,
+    K_S,
     K_P,
     ADD_SCORE_RAW_CEILING,
     ADD_SCORE_DISPLAY_MAX,

@@ -7199,6 +7199,7 @@ function _buildAddWhyLines(s, ctx) {
   if (s.versatility > 0.01) lines.push({ text: `Versatile — fills ${s.roles.length} roles`, val: _fmtWhyVal(s.versatility) });
   if (s.tribal > 0.01) lines.push({ text: `Fits your ${escapeHtml(_capWord(s.tribe))} theme`, val: _fmtWhyVal(s.tribal) });
   if (s.themeBonus > 0.01 && s.theme) lines.push({ text: `Feeds your commander's trigger (${escapeHtml(s.theme.label)})`, val: _fmtWhyVal(s.themeBonus) });
+  if ((s.terms?.S || 0) > 0.01) lines.push({ text: `Focused pick — one clear role for this deck`, val: _fmtWhyVal(s.terms.S) });
   return lines;
 }
 

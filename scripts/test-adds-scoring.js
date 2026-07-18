@@ -14,6 +14,7 @@ const {
   K_L,
   K_E,
   K_B,
+  K_S,
   K_P,
   CMC_REF,
   D_SUBLINEAR_WEIGHTS,
@@ -253,19 +254,38 @@ const wipeOnlyCtx = {
 }
 
 {
-  assert.strictEqual(ADD_SCORE_RAW_CEILING, 8);
+  assert.strictEqual(ADD_SCORE_RAW_CEILING, 7);
   assert.strictEqual(ADD_SCORE_DISPLAY_MAX, 10);
   assert.strictEqual(addDisplayScore(0), 0);
   assert.strictEqual(addDisplayScore(-1), 0);
   // Absolute: 10/10 = best-card ceiling, not list rank
-  assert.strictEqual(addDisplayScore(4), 5);
-  assert.strictEqual(addDisplayScore(8), 10);
+  assert.strictEqual(addDisplayScore(3.5), 5);
+  assert.strictEqual(addDisplayScore(7), 10);
   assert.strictEqual(addDisplayScore(18), 10);
-  assert.strictEqual(formatAddDisplayScore(4), '5.0');
+  assert.strictEqual(formatAddDisplayScore(3.5), '5.0');
   assert.ok(addDisplayScore(2.8) < 4, 'weak raw must not display as elite');
-  console.log('[display] raw 4 →', formatAddDisplayScore(4) + '/10',
-    '; raw 8 →', formatAddDisplayScore(8) + '/10',
+  console.log('[display] raw 3.5 →', formatAddDisplayScore(3.5) + '/10',
+    '; raw 7 →', formatAddDisplayScore(7) + '/10',
     '; raw 2.8 →', formatAddDisplayScore(2.8) + '/10');
+}
+
+{
+  // Single-role staples filling a real hole should reach 8+/10 without multi-tag V.
+  const path = score({
+    name: 'Path to Exile', cmc: 1, mana: '{W}', type_line: 'Instant',
+    priceTCG: 1, edhrecRolePct: { Removal: 0.97 },
+  }, ['Removal'], {
+    deficits: { Removal: 4, Ramp: 6 },
+    curveDeficit: [0, 0.1, 0, 0, 0, 0, 0, 0],
+  });
+  assert.ok(path.terms.S > 0, 'single-role Removal should get S');
+  assert.ok(addDisplayScore(path.score) >= 8,
+    `Path (1 role) display ${formatAddDisplayScore(path.score)}/10 should be ≥8 (raw=${path.score.toFixed(2)} S=${path.terms.S})`);
+
+  const gs = score(growthSpiral, ['Ramp', 'Card Draw'], simicBothShortCtx);
+  assert.strictEqual(gs.terms.S || 0, 0, 'multi-role candidate should not get S');
+  console.log('[single-role-8] Path', formatAddDisplayScore(path.score) + '/10',
+    'S=' + path.terms.S, 'GS S=' + (gs.terms.S || 0));
 }
 
 console.log('adds-scoring: ok');
