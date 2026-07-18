@@ -9,6 +9,7 @@ const esbuild = require('esbuild');
 
 const ROOT = path.join(__dirname, '..');
 const SOURCES = [
+  'js/deck-ops.js',
   'js/db-client.js',
   'js/auth.js',
   'js/state.js',

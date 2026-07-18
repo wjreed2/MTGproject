@@ -204,6 +204,13 @@ function hydrateAppData(data) {
       localStorage.removeItem('mtg_active_deck_id');
     }
   }
+  // Op-sync shadows: record the just-loaded state as "server-acked" so later
+  // deck edits diff against it. Must run after the zone/tag normalization above,
+  // or the normalization itself would show up as phantom ops.
+  if (typeof seedDeckShadows === 'function') {
+    seedDeckShadows(decks);
+    seedDeckShadows(sharedDecks);
+  }
   return flags;
 }
 
