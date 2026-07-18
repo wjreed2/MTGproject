@@ -247,21 +247,17 @@
   }
 
   /**
-   * Role for E: largest active deficit magnitude among deficits the candidate
-   * could use. Equal-largest tie: prefer a tied role the candidate matches;
-   * if several, lexicographically smallest project role-tag ID; if none, null.
+   * Role for E: largest active deficit among roles the candidate actually has.
+   * (Not the deck's global largest hole — that left most suggestions with E=0
+   * and hid EDHREC from Why suggested.) Tie → lexicographically smallest role.
    */
   function pickERole(roles, deficits) {
     const real = (roles || []).filter(t => t !== 'Land' && t !== 'Commander');
-    const entries = Object.entries(deficits || {})
-      .filter(([t, v]) => v > 0 && t !== 'Plan')
-      .map(([role, deficit]) => ({ role, deficit }));
-    if (!entries.length) return null;
-    const maxD = Math.max(...entries.map(e => e.deficit));
-    const tied = entries.filter(e => e.deficit === maxD).map(e => e.role).sort((a, b) => a.localeCompare(b));
-    const matchedTied = tied.filter(t => real.includes(t));
-    if (matchedTied.length) return matchedTied[0];
-    return null;
+    const matched = real
+      .map(role => ({ role, deficit: Number(deficits?.[role]) || 0 }))
+      .filter(e => e.deficit > 0 && e.role !== 'Plan')
+      .sort((a, b) => b.deficit - a.deficit || a.role.localeCompare(b.role));
+    return matched.length ? matched[0].role : null;
   }
 
   function resolveEdhrecPercentile(card, role) {
@@ -274,11 +270,24 @@
     return null;
   }
 
+  /** Prefer pickERole; if that role lacks a percentile, try other matched deficits. */
+  function pickERoleWithPercentile(card, roles, deficits) {
+    const real = (roles || []).filter(t => t !== 'Land' && t !== 'Commander');
+    const ordered = real
+      .map(role => ({ role, deficit: Number(deficits?.[role]) || 0 }))
+      .filter(e => e.deficit > 0 && e.role !== 'Plan')
+      .sort((a, b) => b.deficit - a.deficit || a.role.localeCompare(b.role));
+    if (!ordered.length) return { role: null, p: null };
+    for (const { role } of ordered) {
+      const p = resolveEdhrecPercentile(card, role);
+      if (p != null) return { role, p };
+    }
+    return { role: ordered[0].role, p: null };
+  }
+
   function computeETerm(card, roles, deficits) {
-    const role = pickERole(roles, deficits);
-    if (!role) return { E: 0, eRole: null, p: null, pAdjusted: null };
-    const p = resolveEdhrecPercentile(card, role);
-    if (p == null) return { E: 0, eRole: role, p: null, pAdjusted: null };
+    const { role, p } = pickERoleWithPercentile(card, roles, deficits);
+    if (!role || p == null) return { E: 0, eRole: role, p: null, pAdjusted: null };
     const usd = cardUsdPrice(card);
     const delta = usd == null ? 0 : priceBandDelta(usd);
     const pAdjusted = _clamp01(p + delta);
