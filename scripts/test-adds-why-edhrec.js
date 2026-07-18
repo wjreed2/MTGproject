@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * EDHREC why metric: display percentile × K_E (4).
+ * EDHREC why metric: percentile × K_E (4) must appear for cards that fill a
+ * deficit — even when some *other* deck hole is larger.
  */
 'use strict';
 
@@ -30,7 +31,38 @@ function edhrecWhyVal(s) {
 
 assert.strictEqual(scoring.K_E, 4);
 
+// Regression from production screenshot: Counterspell suggestion while Ramp is
+// the larger deck hole — EDHREC must still score + show on Why suggested.
+const wanderer = {
+  name: 'Mausoleum Wanderer',
+  type: 'Creature — Spirit',
+  cmc: 1,
+  mana: '{U}',
+  priceTCG: 2,
+  edhrecRolePct: { Counterspell: 0.72, Evasion: 0.4, Pump: 0.1 },
+};
+const ctx = {
+  // Ramp hole bigger than Counterspell — old pickERole returned null → E=0.
+  deficits: { Ramp: 8, Counterspell: 3, Evasion: 1, Removal: 2 },
+  curveDeficit: [0, 0.2, 0, 0, 0, 0, 0, 0],
+};
 const scored = scoring.scoreAddCandidateTerms(
+  wanderer,
+  ['Counterspell', 'Evasion', 'Pump'],
+  ctx,
+);
+assert.ok(scored.E > 0, 'E must apply for Counterspell even when Ramp deficit is larger');
+assert.strictEqual(scored.terms.eRole, 'Counterspell');
+assert.ok(Math.abs(scored.terms.p - 0.72) < 1e-9);
+
+const line = edhrecWhyVal(scored);
+assert.ok(line, 'Why suggested must include EDHREC rank line');
+assert.strictEqual(line.text, 'EDHREC rank · Counterspell');
+// 0.72 × 4 = 2.88 → +2.9
+assert.strictEqual(line.val, '+2.9');
+
+// Elite staple still works
+const tv = scoring.scoreAddCandidateTerms(
   {
     name: 'Three Visits',
     type: 'Sorcery',
@@ -42,12 +74,6 @@ const scored = scoring.scoreAddCandidateTerms(
   ['Ramp'],
   { deficits: { Ramp: 6 }, curveDeficit: [0, 0, 0, 0, 0, 0, 0, 0] },
 );
-
-const line = edhrecWhyVal(scored);
-assert.ok(line);
-assert.strictEqual(line.text, 'EDHREC rank · Ramp');
-// 0.98 × 4 = 3.92 → +3.9
-assert.strictEqual(line.val, '+3.9');
-assert.ok(scored.E > 0);
+assert.strictEqual(edhrecWhyVal(tv).val, '+3.9');
 
 console.log('test-adds-why-edhrec: ok');
