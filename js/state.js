@@ -88,135 +88,300 @@ function save(...domains) {
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 
+let _appDataResyncInFlight = null;
+
+/**
+ * Apply a loaded payload into globals. Does not render or save — caller marks
+ * synced (when appropriate) then persists any returned cleanup flags.
+ * @param {object} data
+ * @returns {{ saveCollection: boolean, saveDecks: boolean }}
+ */
+function hydrateAppData(data) {
+  const flags = { saveCollection: false, saveDecks: false };
+  collection = data.collection || [];
+  collectionHistory = data.history || [];
+  decks = data.decks || [];
+  games = data.games || [];
+  wishlist = data.wishlist || [];
+
+  if (data.prefs?.starred_sets) {
+    starredSets = new Set(data.prefs.starred_sets);
+  } else {
+    const stored = localStorage.getItem('mtg_starred_sets');
+    starredSets = new Set(stored ? JSON.parse(stored) : []);
+  }
+  if (typeof applyDeckTagPrefsFromServer === 'function') {
+    applyDeckTagPrefsFromServer(data.prefs || {});
+  } else {
+    const storedPri = localStorage.getItem('mtg_deck_primary_tags');
+    const storedSec = localStorage.getItem('mtg_deck_secondary_tags');
+    const storedTags = localStorage.getItem('mtg_deck_custom_tags');
+    if (storedPri || storedSec) {
+      try {
+        deckPrimaryTags = storedPri ? JSON.parse(storedPri) : [];
+        deckSecondaryTags = storedSec ? JSON.parse(storedSec) : [];
+      } catch (_) {
+        deckPrimaryTags = [];
+        deckSecondaryTags = [];
+      }
+    } else if (Array.isArray(data.prefs?.deck_custom_tags)) {
+      deckPrimaryTags = data.prefs.deck_custom_tags.filter(Boolean);
+      deckSecondaryTags = [];
+    } else {
+      const parsed = storedTags ? JSON.parse(storedTags) : [];
+      deckPrimaryTags = Array.isArray(parsed) ? parsed : [];
+      deckSecondaryTags = [];
+    }
+    if (typeof normalizeDeckTagPrefs === 'function') normalizeDeckTagPrefs();
+    else {
+      deckCustomTags = [...new Set([...deckPrimaryTags, ...deckSecondaryTags])].sort((a, b) => a.localeCompare(b));
+    }
+  }
+  if (typeof applyAddsPrefsFromServer === 'function') {
+    applyAddsPrefsFromServer(data.prefs || {});
+  }
+
+  // Drop any collection entries that have no scryfallId and no image — these are
+  // unidentified cards that slipped in from a failed import enrichment.
+  const before = collection.length;
+  collection = collection.filter(c => c.scryfallId || c.image);
+  if (collection.length < before) {
+    console.warn(`Removed ${before - collection.length} unidentified card(s) from collection`);
+    flags.saveCollection = true;
+  }
+
+  collection.forEach(c => {
+    if (!c.uid) c.uid = c.scryfallId + (c.foil ? '_f' : '_n');
+    if (typeof c.priceCKFoil !== 'number') c.priceCKFoil = c.priceTCGFoil ? c.priceTCGFoil * 0.88 : 0;
+    if (!c.addedAt) {
+      c.addedAt = Date.now();
+      flags.saveCollection = true;
+    }
+  });
+  wishlist.forEach(c => {
+    if (typeof c.priceCKFoil !== 'number') c.priceCKFoil = c.priceTCGFoil ? c.priceTCGFoil * 0.88 : 0;
+  });
+  decks.forEach(d => {
+    if (typeof _ensureDeckZones === 'function') _ensureDeckZones(d);
+    if (!Array.isArray(d.disabledTags)) d.disabledTags = [];
+    const zoneCards = typeof _deckAllZoneCards === 'function'
+      ? _deckAllZoneCards(d)
+      : [...(d.cards || []), ...(d.maybeboard || d.sideboard || [])];
+    zoneCards.forEach(c => {
+      if (!Array.isArray(c.customTags)) c.customTags = [];
+    });
+  });
+  sharedDecks = data.sharedDecks || [];
+  sharedCollections = data.sharedCollections || [];
+  sharedWishlists = data.sharedWishlists || [];
+  sharedDecks.forEach(d => {
+    if (typeof _ensureDeckZones === 'function') _ensureDeckZones(d);
+    if (!Array.isArray(d.disabledTags)) d.disabledTags = [];
+    const zoneCards = typeof _deckAllZoneCards === 'function'
+      ? _deckAllZoneCards(d)
+      : [...(d.cards || []), ...(d.maybeboard || d.sideboard || [])];
+    zoneCards.forEach(c => {
+      if (!Array.isArray(c.customTags)) c.customTags = [];
+    });
+  });
+  if (typeof sanitizeAllDeckCustomTags === 'function' && sanitizeAllDeckCustomTags()) {
+    flags.saveDecks = true;
+    flags.saveCollection = true;
+  }
+  if (typeof deckGroupBy !== 'undefined' && deckGroupBy === 'custom_tag') deckGroupBy = 'tag_all';
+  const savedDeckId = localStorage.getItem('mtg_active_deck_id');
+  if (savedDeckId) {
+    if (decks.some(d => d.id === savedDeckId) || sharedDecks.some(d => d.id === savedDeckId)) {
+      activeDeckId = savedDeckId;
+      if (typeof activeDeckIsShared !== 'undefined') {
+        activeDeckIsShared = !decks.some(d => d.id === savedDeckId);
+      }
+    } else {
+      localStorage.removeItem('mtg_active_deck_id');
+    }
+  }
+  return flags;
+}
+
+/** Persist hydrate cleanup only after the session is marked server-synced. */
+function applyHydrateSaveFlags(flags, fromServer) {
+  if (!fromServer || !flags) return;
+  if (flags.saveDecks && flags.saveCollection) save('decks', 'collection');
+  else if (flags.saveDecks) save('decks');
+  else if (flags.saveCollection) save('collection');
+}
+
+function renderHydratedAppShell() {
+  if (typeof renderCollection === 'function') renderCollection();
+  if (typeof updateStats === 'function') updateStats();
+  if (typeof loadSets === 'function') loadSets();
+  if (typeof renderGames === 'function') renderGames();
+  if (typeof renderDecks === 'function') renderDecks();
+  if (typeof renderWishlist === 'function') renderWishlist();
+  if (typeof refreshMissingCollectionPrices === 'function') refreshMissingCollectionPrices();
+}
+
+/**
+ * Pull authoritative data after a cold PWA / timed-out login. Safe to call
+ * repeatedly — coalesces concurrent calls.
+ */
+async function resyncAppDataFromServer(opts) {
+  if (typeof isAppDataSynced === 'function' && isAppDataSynced()) return true;
+  if (_appDataResyncInFlight) return _appDataResyncInFlight;
+  const reason = (opts && opts.reason) || 'manual';
+  _appDataResyncInFlight = (async () => {
+    try {
+      console.info('[db] Resyncing app data from server (' + reason + ')…');
+      const data = await loadAllData();
+      await cacheSaveAll(data, currentUser?.id);
+      const flags = hydrateAppData(data);
+      if (typeof markAppDataSynced === 'function') markAppDataSynced(true);
+      applyHydrateSaveFlags(flags, true);
+      if (typeof _isOffline !== 'undefined' && _isOffline && typeof _setOnline === 'function') {
+        _setOnline();
+      }
+      if (typeof loadTagOverrides === 'function') {
+        try {
+          await loadTagOverrides(true);
+          if (typeof _applyGlobalCustomTagsToCard === 'function') {
+            let dirty = false;
+            [...decks, ...sharedDecks].forEach(d =>
+              (d.cards || []).forEach(c => { if (_applyGlobalCustomTagsToCard(c)) dirty = true; })
+            );
+            if (dirty) save('decks');
+          }
+        } catch (_) {}
+      }
+      renderHydratedAppShell();
+      if (typeof showNotif === 'function' && (collection?.length || decks?.length)) {
+        showNotif('Collection synced.');
+      }
+      return true;
+    } catch (e) {
+      console.warn('[db] Resync failed:', e);
+      return false;
+    } finally {
+      _appDataResyncInFlight = null;
+    }
+  })();
+  return _appDataResyncInFlight;
+}
+
+function _emptyAppDataShell() {
+  return {
+    collection: [],
+    decks: [],
+    games: [],
+    wishlist: [],
+    prefs: {},
+    sharedDecks: [],
+    history: [],
+    sharedCollections: [],
+    sharedWishlists: [],
+  };
+}
+
+/** Wait for an in-flight load with a hard cap; never abandon a late success silently. */
+async function _awaitLoadWithBudget(loadPromise, budgetMs) {
+  let settled = false;
+  const outcome = loadPromise
+    .then(d => { settled = true; return { ok: true, data: d }; })
+    .catch(err => { settled = true; return { ok: false, err }; });
+  const raced = await Promise.race([
+    outcome,
+    new Promise(resolve => setTimeout(() => resolve({ ok: false, err: new Error('timeout'), pending: true }), budgetMs)),
+  ]);
+  if (raced.pending && !settled) {
+    // Keep waiting in the background — caller can attach via the same promise.
+    outcome.then(result => {
+      if (!result.ok) return;
+      if (typeof isAppDataSynced === 'function' && isAppDataSynced()) return;
+      cacheSaveAll(result.data, currentUser?.id).catch(() => {});
+      const flags = hydrateAppData(result.data);
+      if (typeof markAppDataSynced === 'function') markAppDataSynced(true);
+      applyHydrateSaveFlags(flags, true);
+      if (typeof _isOffline !== 'undefined' && _isOffline && typeof _setOnline === 'function') {
+        _setOnline();
+      }
+      renderHydratedAppShell();
+      if (typeof showNotif === 'function') showNotif('Collection synced.');
+    }).catch(() => {});
+  }
+  return raced;
+}
+
 /** Load collection / decks / etc. after a valid session exists. */
 async function loadAppDataAfterAuth() {
   const body = document.body;
   body.style.opacity = '0.5';
   body.style.pointerEvents = 'none';
 
+  if (typeof markAppDataSynced === 'function') markAppDataSynced(false);
+
   let fromCache = false;
+  let fromServer = false;
   let data;
+  // Keep a single in-flight Promise.all so a race timeout does not abandon work —
+  // cold WebKit + large collections often exceed the old 8s budget on PWA reinstall.
+  const loadPromise = loadAllData();
   try {
-    const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 8000));
-    data = await Promise.race([loadAllData(), timeout]);
-    cacheSaveAll(data);
+    const first = await _awaitLoadWithBudget(loadPromise, 20000);
+    if (first.ok) {
+      data = first.data;
+      fromServer = true;
+      await cacheSaveAll(data, currentUser?.id);
+    } else {
+      throw first.err || new Error('timeout');
+    }
   } catch (e) {
-    console.warn('[db] Server unreachable, trying cache:', e);
-    data = await cacheLoadAll();
+    console.warn('[db] Server unreachable or slow, trying cache:', e);
+    data = await cacheLoadAll(currentUser?.id);
     if (data) {
       fromCache = true;
+      // Still apply the in-flight server payload if it finishes later.
+      loadPromise.then(async serverData => {
+        if (typeof isAppDataSynced === 'function' && isAppDataSynced()) return;
+        await cacheSaveAll(serverData, currentUser?.id);
+        const flags = hydrateAppData(serverData);
+        if (typeof markAppDataSynced === 'function') markAppDataSynced(true);
+        applyHydrateSaveFlags(flags, true);
+        if (typeof _isOffline !== 'undefined' && _isOffline && typeof _setOnline === 'function') {
+          _setOnline();
+        }
+        renderHydratedAppShell();
+        if (typeof showNotif === 'function') showNotif('Collection synced.');
+      }).catch(() => {});
     } else {
-      console.error('[db] No cache available:', e);
-      showNotif('Could not connect to server — data will not be saved', true);
-      data = { collection: [], decks: [], games: [], wishlist: [], prefs: {}, sharedDecks: [], history: [] };
+      // Fresh Home Screen PWA: empty IndexedDB. Wait longer instead of showing 0 cards.
+      if (typeof showNotif === 'function') showNotif('Syncing your collection…');
+      const second = await _awaitLoadWithBudget(loadPromise, 45000);
+      if (second.ok) {
+        data = second.data;
+        fromServer = true;
+        await cacheSaveAll(data, currentUser?.id);
+      } else {
+        console.error('[db] No cache and server load failed:', second.err || e);
+        if (typeof showNotif === 'function') {
+          showNotif('Could not sync your collection yet — pull to refresh or reopen the app.', true);
+        }
+        data = _emptyAppDataShell();
+        // Schedule background retries (foreground/reconnect hooks also call resync).
+        setTimeout(() => {
+          if (typeof resyncAppDataFromServer === 'function') {
+            resyncAppDataFromServer({ reason: 'retry' }).catch(() => {});
+          }
+        }, 3000);
+      }
     }
   }
 
   if (fromCache) _setOffline();
 
-  collection = data.collection || [];
-    collectionHistory = data.history || [];
-    decks = data.decks || [];
-    games = data.games || [];
-    wishlist = data.wishlist || [];
+  const hydrateFlags = hydrateAppData(data);
+  // Mark synced after in-memory hydrate, before any cleanup PUTs.
+  if (fromServer && typeof markAppDataSynced === 'function') markAppDataSynced(true);
+  applyHydrateSaveFlags(hydrateFlags, fromServer);
 
-    if (data.prefs?.starred_sets) {
-      starredSets = new Set(data.prefs.starred_sets);
-    } else {
-      const stored = localStorage.getItem('mtg_starred_sets');
-      starredSets = new Set(stored ? JSON.parse(stored) : []);
-    }
-    if (typeof applyDeckTagPrefsFromServer === 'function') {
-      applyDeckTagPrefsFromServer(data.prefs || {});
-    } else {
-      const storedPri = localStorage.getItem('mtg_deck_primary_tags');
-      const storedSec = localStorage.getItem('mtg_deck_secondary_tags');
-      const storedTags = localStorage.getItem('mtg_deck_custom_tags');
-      if (storedPri || storedSec) {
-        try {
-          deckPrimaryTags = storedPri ? JSON.parse(storedPri) : [];
-          deckSecondaryTags = storedSec ? JSON.parse(storedSec) : [];
-        } catch (_) {
-          deckPrimaryTags = [];
-          deckSecondaryTags = [];
-        }
-      } else if (Array.isArray(data.prefs?.deck_custom_tags)) {
-        deckPrimaryTags = data.prefs.deck_custom_tags.filter(Boolean);
-        deckSecondaryTags = [];
-      } else {
-        const parsed = storedTags ? JSON.parse(storedTags) : [];
-        deckPrimaryTags = Array.isArray(parsed) ? parsed : [];
-        deckSecondaryTags = [];
-      }
-      if (typeof normalizeDeckTagPrefs === 'function') normalizeDeckTagPrefs();
-      else {
-        deckCustomTags = [...new Set([...deckPrimaryTags, ...deckSecondaryTags])].sort((a, b) => a.localeCompare(b));
-      }
-    }
-    if (typeof applyAddsPrefsFromServer === 'function') {
-      applyAddsPrefsFromServer(data.prefs || {});
-    }
-
-    // Drop any collection entries that have no scryfallId and no image — these are
-    // unidentified cards that slipped in from a failed import enrichment.
-    const before = collection.length;
-    collection = collection.filter(c => c.scryfallId || c.image);
-    if (collection.length < before) {
-      console.warn(`Removed ${before - collection.length} unidentified card(s) from collection`);
-      save('collection');
-    }
-
-    let backfilledAddedAt = false;
-    collection.forEach(c => {
-      if (!c.uid) c.uid = c.scryfallId + (c.foil ? '_f' : '_n');
-      if (typeof c.priceCKFoil !== 'number') c.priceCKFoil = c.priceTCGFoil ? c.priceTCGFoil * 0.88 : 0;
-      if (!c.addedAt) {
-        c.addedAt = Date.now();
-        backfilledAddedAt = true;
-      }
-    });
-    if (backfilledAddedAt) save('collection');
-    wishlist.forEach(c => {
-      if (typeof c.priceCKFoil !== 'number') c.priceCKFoil = c.priceTCGFoil ? c.priceTCGFoil * 0.88 : 0;
-    });
-    decks.forEach(d => {
-      if (typeof _ensureDeckZones === 'function') _ensureDeckZones(d);
-      if (!Array.isArray(d.disabledTags)) d.disabledTags = [];
-      const zoneCards = typeof _deckAllZoneCards === 'function'
-        ? _deckAllZoneCards(d)
-        : [...(d.cards || []), ...(d.maybeboard || d.sideboard || [])];
-      zoneCards.forEach(c => {
-        if (!Array.isArray(c.customTags)) c.customTags = [];
-      });
-    });
-    sharedDecks = data.sharedDecks || [];
-    sharedCollections = data.sharedCollections || [];
-    sharedWishlists = data.sharedWishlists || [];
-    sharedDecks.forEach(d => {
-      if (typeof _ensureDeckZones === 'function') _ensureDeckZones(d);
-      if (!Array.isArray(d.disabledTags)) d.disabledTags = [];
-      const zoneCards = typeof _deckAllZoneCards === 'function'
-        ? _deckAllZoneCards(d)
-        : [...(d.cards || []), ...(d.maybeboard || d.sideboard || [])];
-      zoneCards.forEach(c => {
-        if (!Array.isArray(c.customTags)) c.customTags = [];
-      });
-    });
-    if (typeof sanitizeAllDeckCustomTags === 'function' && sanitizeAllDeckCustomTags()) {
-      save('decks', 'collection');
-    }
-    if (typeof deckGroupBy !== 'undefined' && deckGroupBy === 'custom_tag') deckGroupBy = 'tag_all';
-    const savedDeckId = localStorage.getItem('mtg_active_deck_id');
-    if (savedDeckId) {
-      if (decks.some(d => d.id === savedDeckId) || sharedDecks.some(d => d.id === savedDeckId)) {
-        activeDeckId = savedDeckId;
-        if (typeof activeDeckIsShared !== 'undefined') {
-          activeDeckIsShared = !decks.some(d => d.id === savedDeckId);
-        }
-      } else {
-        localStorage.removeItem('mtg_active_deck_id');
-      }
-    }
   if (typeof loadTagOverrides === 'function') {
     try {
       await loadTagOverrides(true);
@@ -239,11 +404,7 @@ async function loadAppDataAfterAuth() {
     if (me) currentUser = me;
   } catch (_) {}
 
-  renderCollection();
-  updateStats();
-  loadSets();
-  renderGames();
-  refreshMissingCollectionPrices();
+  renderHydratedAppShell();
 
   void maybeShowWhatsNewDigest();
 

@@ -2015,6 +2015,7 @@ function dedupeDeckCardTags(tags) {
  * See lib/deck-planning-merge.js.
  */
 const { mergeDeckPlanningZonesForWrite } = require('./lib/deck-planning-merge');
+const { shouldBlockEmptyCollectionReplace } = require('./lib/collection-wipe-guard');
 
 function normalizeDeckForStorage(deck) {
   const seen = new Map();
@@ -2702,7 +2703,29 @@ app.put('/api/collection', requireAuth, async (req, res) => {
   const cards = req.body;
   if (!Array.isArray(cards)) return res.status(400).json({ error: 'Expected array' });
   const accountId = req.accountId;
+  const allowEmpty =
+    req.query.allowEmpty === '1' ||
+    String(req.headers['x-allow-empty-collection'] || '') === '1';
   try {
+    // Fresh Home Screen PWAs have a separate empty IndexedDB. If the first load
+    // times out, the client used to hydrate collection=[] and a later PUT would
+    // full-replace MySQL with nothing. Block that unless the user confirmed clear.
+    if (cards.length === 0) {
+      const [[row]] = await db().query(
+        'SELECT COUNT(*) AS cnt FROM collection WHERE account_id = ?',
+        [accountId]
+      );
+      const existingCount = Number(row?.cnt) || 0;
+      if (shouldBlockEmptyCollectionReplace(cards.length, existingCount, allowEmpty)) {
+        return res.status(409).json({
+          error:
+            'Refusing to replace a non-empty collection with an empty list. Re-sync and retry, or confirm clear.',
+          code: 'COLLECTION_EMPTY_WIPE_BLOCKED',
+          existingCount,
+        });
+      }
+    }
+
     const needOracle = cards.filter(
       c => c?.scryfallId && !ORACLE_UUID_RE.test(String(c?.oracleId || ''))
     );

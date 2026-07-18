@@ -936,6 +936,9 @@ async function clearCollection() {
   });
   if (!ok) return;
   collection.length = 0;
+  // Server refuses empty PUTs that would wipe a non-empty collection unless
+  // allowEmpty is set — required after the PWA empty-sync guard landed.
+  if (typeof allowNextEmptyCollectionPut === 'function') allowNextEmptyCollectionPut();
   save('collection'); renderCollection(); updateStats();
   showNotif('Collection cleared');
 }
