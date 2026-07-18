@@ -1510,7 +1510,7 @@ Deterministic only — no runtime AI/LLM.
 ## Goal
 1. A0: Raw score badge only.
 2. A1: **Option A** — `W_S = 0` on secondary D while any primary deficit ≥ 1.
-3. A1b: **Primary strength strip** — Ramp/Draw/Removal “N/10” (recipe progress, not card score).
+3. A1b: **Primary strength strip** — literal `have/target` (12/10 when over); “strong at” when met.
 4. A1: Plan term H + hybrid D when plan declared.
 5. V must matter; Growth Spiral beats TV when both Ramp and Draw short.
 

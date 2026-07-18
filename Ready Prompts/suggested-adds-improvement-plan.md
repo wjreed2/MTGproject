@@ -197,9 +197,8 @@ removes that confusion; users see raw ~5.4 and read Why lines for context.
 | D9 | Require ≥1 utility role tag | Proposed |
 | D10 | Cuts shielding | Phase B |
 | D11 | Wizard v2 extras | Phase B/C |
-| D12 | Tune K_E via vignettes only — not display/S | Proposed |
-
----
+| D13 | **Option A** primary tier: `W_S = 0` while `hasPrimaryNeed` | **Locked** |
+| D14 | Primary strength strip: Ramp/Draw/Removal **N/10** = have÷target (not card score) | **Locked** |
 
 ## 5. Phase A — Plan-aware ranking + raw badge + Why (implement next)
 
@@ -215,14 +214,17 @@ explains tags/deficits/plan; V retains value for multi-role cards.
 4. Tests: no display helpers; assert **V > 0** beats equal-D single-tag when
    second role also has deficit (Growth Spiral vignette).
 
-### A1. Score term H + hybrid D modifiers
+### A1. Score term H + hybrid D modifiers + **Option A primary tier**
 
-(Same as before — plan fit in the **ranking** formula, not a display trick.)
+1. `ADDS_PRIMARY_ROLES`, `hasPrimaryNeed`, weighted D (`W_S = 0`).
+2. Plan term H + hybrid D when plan declared (D4–D8).
+3. Wire `deckPlan` into scoring; tier map on E role pick.
 
-1. Compute `planFit` from `planMatchScore` (0–4 → 0–1).
-2. `score += H`; hybrid D scaling for plan-aligned roles (D4–D8).
-3. Wire `deckPlan` into `_scoreAddCandidate` always when declared.
-4. Why: “Matches your Sacrifice plan” when H &gt; 0.
+### A1b. Primary role strength strip
+
+1. `_renderPrimaryRoleStrengthStrip(ctx)` above suggestion list.
+2. Ramp / Card Draw / Removal: `N/10` + “strong at” when met; deficit hint when short.
+3. One line when all primaries met: secondary suggestions unlocked.
 
 ### A2. Identity UX (light)
 
@@ -295,7 +297,8 @@ Do **not** start B until A’s H term is stable.
 | Order | Prompt | Depends on |
 |------:|--------|------------|
 | **A0** | Revert display + S; raw badge only | — |
-| **A** | Plan term H + hybrid D + Why identity | A0 |
+| **A1** | Option A weighted D + plan H + hybrid D | A0 |
+| **A1b** | Primary role strength strip (N/10) | A1 (same PR OK) |
 | **A′** | Require utility role tag | May merge with A |
 | **B** | Entry 13 v2 wizard + Cuts shielding | A |
 | **C** | Mixed plan-aware backfill | A |
@@ -312,7 +315,7 @@ Do **not** start B until A’s H term is stable.
 5. **Raw score scale:** If a great Path shows ~5.4 raw, is that acceptable with
    good Why lines, or should we tune K_E upward so “staple single-role” raw lands
    higher (still no display remap)?  
-6. **Primary tier priority:** Option A (weighted D), B (sort tier), or C (boost term)? Hard `W_S=0` vs soft `0.25`?
+6. **Primary tier priority:** ~~Option A/B/C~~ → **Option A locked** (`W_S = 0`). Soft W_S only if needed.
 
 ---
 
@@ -380,29 +383,34 @@ only if playtesting blocks all secondary picks too aggressively.
 ### Primary role strength strip (UI — v1)
 
 Show deck status for the three **primary** roles so users see when a staple
-tier is filled vs still driving suggestions. This **`N/10` is recipe progress**
-(have vs target) — **not** the suggestion card score (still raw-only per §0).
+tier is filled vs still driving suggestions. Display is **`have/target`** (actual
+counts) — e.g. **12/10** when over target — **not** the suggestion card score
+(still raw-only per §0).
 
 **Roles shown:** Ramp · Card Draw · Removal only.
 
-**Formula** (from existing `_computeAddContext`):
+**Display** (from existing `_computeAddContext`):
 
 ```text
 target = thresholds[role]          // e.g. 10 (0 = role disabled — hide row)
 have   = roleCount[role] || 0
-strength10 = target > 0 ? min(10, round(10 * have / target)) : null
+label  = `${have}/${target}`       // always literal — 12/10, not capped to 10/10
 deficit = max(0, target - have)
+surplus = max(0, have - target)
 ```
 
-**Copy templates** (pick one tone in implement):
+**Copy templates** (locked: show real ratio):
 
 | State | Example |
 |-------|---------|
-| `deficit > 0` | **Ramp — 6/10** · short 4 (Adds prioritize ramp) |
-| `deficit === 0`, `have <= target` | **Ramp — strong at 10/10** |
-| `have > target` | **Ramp — strong at 10/10** (+2 over target) |
+| `deficit > 0` | **Ramp — 6/10** · short 4 |
+| `have === target` | **Ramp — strong at 10/10** |
+| `have > target` | **Ramp — strong at 12/10** (not “10/10 (+2)”) |
 
-Shorter chip variant: `Ramp 6/10` · `Draw 10/10 ✓` · `Removal 8/10`
+Shorter chip variant: `Ramp 6/10` · `Draw 10/10 ✓` · `Ramp 12/10 ✓`
+
+**“Strong at” rule:** `have >= target` → prefix “strong at”; use **`have/target`**
+verbatim in the fraction (so surplus reads **12/10**, **11/10**, etc.).
 
 **Placement:** New strip in Suggested Adds panel, **below** plan banner, **above**
 suggestion list — `deckAddPrimaryRolesStrip` inside `#deckAddSuggestionsBody`
@@ -411,26 +419,27 @@ suggestion list — `deckAddPrimaryRolesStrip` inside `#deckAddSuggestionsBody`
 
 **Optional v1.1:** Mirror strip on Suggested Cuts header (same thresholds).
 
-**Why this pairs with Option A:** When Ramp shows **10/10 strong**, `hasPrimaryNeed`
-may still be true if Draw or Removal is short — strip makes it obvious *which*
-primary is done vs still pulling Adds. When **all three** are 10/10, secondary
-roles unlock (`W_S = 1`) and strip can note “Staples filled — tuning tutors, wipes, etc.”
+**Why this pairs with Option A:** When Ramp shows **strong at 12/10**, ramp no
+longer adds to `hasPrimaryNeed` for that role; if Draw is **6/10**, Adds still
+prioritize draw. When **all three** have `have >= target`, secondary roles unlock
+(`W_S = 1`) — strip can note “Staples filled — tuning tutors, wipes, etc.”
 
 **Do not:** Reuse suggestion `addDisplayScore` / ceiling for this strip.
+**Do not:** Cap display at `10/10` when `have > target`.
 
 **Implement helpers** (plan names):
 
 - `ADDS_PRIMARY_ROLES = ['Ramp', 'Card Draw', 'Removal']`
-- `primaryRoleStrength(have, target) → { strength10, deficit, status: 'short'|'met'|'over' }`
+- `primaryRoleStrength(have, target) → { have, target, label, deficit, surplus, isStrong: have >= target }`
 - `_renderPrimaryRoleStrengthStrip(ctx) → html`
 
 **Verification:**
 
-| have | target | strength10 | status |
-|-----:|-------:|-----------:|--------|
-| 6 | 10 | 6 | short |
-| 10 | 10 | 10 | met → “strong at 10/10” |
-| 12 | 10 | 10 | over (+2) |
+| have | target | label | copy |
+|-----:|-------:|-------|------|
+| 6 | 10 | 6/10 | short 4 |
+| 10 | 10 | 10/10 | strong at 10/10 |
+| 12 | 10 | **12/10** | strong at 12/10 |
 | 8 | 0 | (hidden) | role disabled via ⚙ target 0 |
 
 ---
