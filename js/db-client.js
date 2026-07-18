@@ -399,7 +399,8 @@ const _deckRevisions = {};        // deckId → server revision
 const _deckOpsDirty = new Set();  // decks with local edits not yet acked
 const _deckOpsTimers = {};
 const _deckOpsInFlight = {};
-const _deckOpsPendingFlush = new Set();
+const _deckOpsSeq = {};        // bumped on every edit; acks only clear dirty if unchanged
+const _deckOpsRetryDelay = {}; // per-deck exponential backoff for transient failures
 const _deckOpsBlocked = new Set(); // permission-rejected — no retries until reseeded
 let _sharedSaveErrorNotified = false;
 
@@ -469,6 +470,7 @@ function scheduleDeckOpsSave(deck, opts) {
   const id = deck.id;
   if (_deckOpsBlocked.has(id)) return;
   _deckOpsDirty.add(id);
+  _deckOpsSeq[id] = (_deckOpsSeq[id] || 0) + 1;
   clearTimeout(_deckOpsTimers[id]);
   if (opts && opts.immediate) {
     delete _deckOpsTimers[id];
@@ -481,23 +483,23 @@ function scheduleDeckOpsSave(deck, opts) {
   }, 250);
 }
 
+/** @returns true when the deck is settled (saved, no-op, or terminally handled);
+ *  false only on a transient failure that left the deck dirty for retry. */
 async function _flushDeckOps(id) {
-  if (_deckOpsInFlight[id]) {
-    _deckOpsPendingFlush.add(id);
-    return;
-  }
+  // Already saving: dirty + seq are set; the active flight's finally re-flushes.
+  if (_deckOpsInFlight[id]) return true;
   if (_deckOpsBlocked.has(id)) {
     _deckOpsDirty.delete(id);
-    return;
+    return true;
   }
   const live = _liveDeckById(id);
   if (!live) {
     _deckOpsDirty.delete(id);
-    return;
+    return true;
   }
   const isCreate = !(id in _deckShadows);
   // Never re-create decks from a cold cache boot — only after a server sync.
-  if (isCreate && !_appDataSynced) return;
+  if (isCreate && !_appDataSynced) return true;
 
   let body;
   if (isCreate) {
@@ -506,27 +508,39 @@ async function _flushDeckOps(id) {
     const ops = DeckOps.diffDecks(_deckShadows[id], live);
     if (!ops.length) {
       _deckOpsDirty.delete(id);
-      return;
+      return true;
     }
     body = { ops, baseRevision: _deckRevisions[id] || 0 };
   }
   const sentSnapshot = DeckOps.snapshotDeck(live);
   const baseRevision = _deckRevisions[id] || 0;
+  const seqAtSend = _deckOpsSeq[id] || 0;
   _deckOpsInFlight[id] = true;
+  let settled = true;
   try {
     const res = await _postDeckOps(id, body);
-    _deckShadows[id] = sentSnapshot;
-    _deckOpsDirty.delete(id);
-    if (res && res.updatedAt) live.updatedAt = res.updatedAt;
-    if (res && res.revision != null) {
-      _deckRevisions[id] = Number(res.revision) || 0;
-      live.revision = _deckRevisions[id];
-      if (!isCreate && Number(res.revision) !== baseRevision + 1) {
-        // Someone else's writes were merged beneath ours — pull the merged truth.
-        setTimeout(() => { refreshSharedDeckFromServer(id, { silent: true }).catch(() => {}); }, 0);
+    if ((_deckRevisions[id] || 0) === baseRevision) {
+      _deckShadows[id] = sentSnapshot;
+      // Only mark clean if no edit landed while the POST was in flight — the
+      // old unconditional delete let mid-flight edits be dropped by a refresh.
+      if ((_deckOpsSeq[id] || 0) === seqAtSend) _deckOpsDirty.delete(id);
+      if (res && res.updatedAt) live.updatedAt = res.updatedAt;
+      if (res && res.revision != null) {
+        _deckRevisions[id] = Number(res.revision) || 0;
+        live.revision = _deckRevisions[id];
+        if (!isCreate && Number(res.revision) !== baseRevision + 1) {
+          // Someone else's writes were merged beneath ours — pull the merged truth.
+          setTimeout(() => { refreshSharedDeckFromServer(id, { silent: true }).catch(() => {}); }, 0);
+        }
       }
+    } else {
+      // A broadcast/refresh advanced this deck while our POST was in flight.
+      // Overwriting the shadow with our pre-broadcast snapshot would regress it
+      // and re-assert stale values — reconcile from the server instead.
+      setTimeout(() => { refreshSharedDeckFromServer(id, { silent: true }).catch(() => {}); }, 0);
     }
     _sharedSaveErrorNotified = false;
+    delete _deckOpsRetryDelay[id];
     _cacheDeckListFor(id);
   } catch (e) {
     console.error('[db] deck ops save failed:', e);
@@ -555,7 +569,9 @@ async function _flushDeckOps(id) {
       _cacheDeckListFor(id);
       if (typeof renderDecks === 'function') renderDecks();
     } else {
-      // Transient failure — keep dirty and retry; notify once until recovery.
+      // Transient failure — keep dirty and retry with per-deck exponential
+      // backoff (fixed-interval retries hammered an already-failing server).
+      settled = false;
       const isNetwork = (e instanceof TypeError)
         || /Failed to fetch|NetworkError|load failed/i.test(e?.message || '');
       if (isNetwork && typeof _setOffline === 'function') _setOffline();
@@ -565,19 +581,25 @@ async function _flushDeckOps(id) {
           showNotif('Could not save deck changes — keep this tab open so they aren\'t lost. (' + (e?.message || 'server error') + ')', true);
         }
       }
+      const delay = Math.min((_deckOpsRetryDelay[id] || 1250) * 2, 30_000);
+      _deckOpsRetryDelay[id] = delay;
       clearTimeout(_deckOpsTimers[id]);
       _deckOpsTimers[id] = setTimeout(() => {
         delete _deckOpsTimers[id];
         if (_deckOpsDirty.has(id)) void _flushDeckOps(id);
-      }, 2500);
+      }, delay);
     }
   } finally {
     _deckOpsInFlight[id] = false;
-    if (_deckOpsPendingFlush.has(id)) {
-      _deckOpsPendingFlush.delete(id);
-      if (_deckOpsDirty.has(id)) void _flushDeckOps(id);
+    // Edits that arrived mid-flight left the deck dirty — pick them up promptly.
+    if (settled && _deckOpsDirty.has(id) && !_deckOpsTimers[id]) {
+      _deckOpsTimers[id] = setTimeout(() => {
+        delete _deckOpsTimers[id];
+        void _flushDeckOps(id);
+      }, 50);
     }
   }
+  return settled;
 }
 
 /** Flush one deck's pending ops now (awaits any in-flight save first). */
@@ -593,30 +615,40 @@ async function flushDeckOpsNow(deck) {
   await _flushDeckOps(id);
 }
 
-/** Flush every owned deck through the op layer (bulk save('decks') path). */
+/** Flush every owned deck through the op layer (bulk save('decks') path).
+ *  @returns {{failed: number}} count of decks left dirty by transient failures. */
 async function _flushAllOwnedDeckOps() {
   const list = typeof decks !== 'undefined' ? decks : [];
-  await Promise.all(list.map(d => {
-    if (!d?.id) return null;
+  const results = await Promise.all(list.map(d => {
+    if (!d?.id) return true;
     _deckOpsDirty.add(d.id);
     return _flushDeckOps(d.id);
   }));
+  return { failed: results.filter(r => r === false).length };
 }
 
 /** keepalive variant for unload — fire-and-forget, diff computed synchronously. */
 function _flushDeckOpsKeepalive(id) {
   const live = _liveDeckById(id);
   if (!live || typeof DeckOps === 'undefined') return;
-  if (!(id in _deckShadows)) return; // unsynced create — no safe keepalive path
-  const ops = DeckOps.diffDecks(_deckShadows[id], live);
-  if (!ops.length) return;
-  fetch(mtgApiRoot() + '/decks/' + id + '/ops', {
+  const root = mtgApiRoot() + '/decks/' + id + '/ops';
+  const ko = {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
     keepalive: true,
-    body: JSON.stringify({ ops, baseRevision: _deckRevisions[id] || 0 }),
-  }).catch(() => {});
+  };
+  if (!(id in _deckShadows)) {
+    // Never-acked create — send the whole snapshot. The server converges a
+    // duplicate create (row already exists) by diffing against current state,
+    // so racing the in-flight create POST is safe.
+    if (!_appDataSynced) return;
+    fetch(root, { ...ko, body: JSON.stringify({ create: _deckCreatePayload(live) }) }).catch(() => {});
+    return;
+  }
+  const ops = DeckOps.diffDecks(_deckShadows[id], live);
+  if (!ops.length) return;
+  fetch(root, { ...ko, body: JSON.stringify({ ops, baseRevision: _deckRevisions[id] || 0 }) }).catch(() => {});
 }
 
 // Legacy-named entry points — call sites across decks.js/collection.js keep
@@ -684,7 +716,13 @@ async function _flushSave() {
       ops.push(apiPut(path, collection));
     }
     // Decks go through the op layer — per-deck granular diffs, no snapshot PUT.
-    if (toSave.has('decks'))      ops.push(_flushAllOwnedDeckOps());
+    // _flushDeckOps swallows its own errors (it owns retries), so track failures
+    // explicitly: a failed deck flush must not flip the app back "online" or
+    // fire the "saved" recovery toast.
+    let deckFlushFailed = false;
+    if (toSave.has('decks')) {
+      ops.push(_flushAllOwnedDeckOps().then(r => { deckFlushFailed = !!(r && r.failed); }));
+    }
     if (toSave.has('games'))      ops.push(apiPut('/games', games));
     if (toSave.has('wishlist'))   ops.push(apiPut('/wishlist', wishlist));
     if (toSave.has('prefs'))      ops.push(apiPut('/preferences', {
@@ -696,11 +734,13 @@ async function _flushSave() {
       deck_swaps_enabled: typeof deckSwapsFeatureEnabled !== 'undefined' ? !!deckSwapsFeatureEnabled : true,
     }));
     if (ops.length) await Promise.all(ops);
-    if (_isOffline) _setOnline();
-    _saveRetryDelay = 100;
-    if (_saveErrorNotified) {
-      _saveErrorNotified = false;
-      if (typeof showNotif === 'function') showNotif('Your changes are saved.');
+    if (!deckFlushFailed) {
+      if (_isOffline) _setOnline();
+      _saveRetryDelay = 100;
+      if (_saveErrorNotified) {
+        _saveErrorNotified = false;
+        if (typeof showNotif === 'function') showNotif('Your changes are saved.');
+      }
     }
   } catch (e) {
     console.warn('[db] save failed — queued for retry:', e);

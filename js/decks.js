@@ -10910,14 +10910,24 @@ async function deleteDeck() {
   activeDeckId = null;
   activeDeckIsShared = false;
   localStorage.removeItem('mtg_active_deck_id');
-  // Explicit server delete — deck removal no longer rides on the bulk snapshot PUT.
-  try {
-    await apiDelete('/decks/' + deckId);
-    if (typeof dropDeckShadow === 'function') dropDeckShadow(deckId);
-  } catch (e) {
-    showNotif('Could not delete the deck on the server — it may reappear after a reload. (' + (e?.message || 'server error') + ')', true);
-  }
+  if (typeof dropDeckShadow === 'function') dropDeckShadow(deckId);
+  // Keep the offline cache in step or a cache-first boot resurrects the deck.
+  if (typeof cacheSet === 'function') cacheSet('decks', decks).catch(() => {});
   renderDecks();
+  // Explicit server delete — deck removal no longer rides on the bulk snapshot
+  // PUT, so retry a few times before giving up (a blip used to be retried
+  // indefinitely by the dirty-flag machinery).
+  let lastErr = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await apiDelete('/decks/' + deckId);
+      return;
+    } catch (e) {
+      lastErr = e;
+      if (attempt < 2) await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
+    }
+  }
+  showNotif('Could not delete the deck on the server — it may reappear after a reload. (' + (lastErr?.message || 'server error') + ')', true);
 }
 
 function changeActiveDeckFormat() {
