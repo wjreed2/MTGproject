@@ -7125,7 +7125,17 @@ function _buildAddWhyLines(s, ctx) {
     lines.push({ text: `Fills a thin curve spot at ${s.bucket}${s.bucket === 7 ? '+' : ''} MV`, val: _fmtWhyVal(s.C_eff ?? s.curveBonus) });
   }
   if ((s.L || 0) > 0.01) lines.push({ text: `Efficient CMC for interaction`, val: _fmtWhyVal(s.L) });
-  if ((s.E || 0) > 0.01) lines.push({ text: `Popular ${escapeHtml(t?.eRole || s.topRole || 'pick')} (EDHREC)`, val: _fmtWhyVal(s.E) });
+  // EDHREC rank score = role percentile × K_E (4). Prefer raw percentile × 4 when
+  // present; fall back to scored E (K_E × p_adjusted) so the line still appears.
+  {
+    const scale = typeof K_E === 'number' ? K_E : 4;
+    const p = t && t.p != null && Number.isFinite(Number(t.p)) ? Number(t.p) : null;
+    const edhScore = p != null ? p * scale : (Number(s.E) || 0);
+    if (edhScore > 0) {
+      const role = escapeHtml(t?.eRole || s.topRole || 'pick');
+      lines.push({ text: `EDHREC rank · ${role}`, val: _fmtWhyVal(edhScore) });
+    }
+  }
   if ((s.B || 0) > 0.01) lines.push({ text: `Creature body fills a role`, val: _fmtWhyVal(s.B) });
   if ((s.P || 0) > 0.01) lines.push({ text: `Colored mana commitment`, val: _fmtWhyVal(-(s.P || 0)), neg: true });
   if (s.versatility > 0.01) lines.push({ text: `Versatile — fills ${s.roles.length} roles`, val: _fmtWhyVal(s.versatility) });
