@@ -37,8 +37,11 @@
   const K_P = 0.15;
   const V_PER_EXTRA_TAG = 0.15;
   const V_SECOND_PLUS_DAMPEN = 0.5;
-  /** Raw score at/above this maps to a full 10 on the Suggested Adds badge (UI only). */
-  const ADD_SCORE_RAW_CEILING = 12;
+  /**
+   * Absolute fallback for the Suggested Adds badge (UI only — ranking uses raw).
+   * List rendering passes listMaxRaw so the #1 pick always displays as 10/10.
+   */
+  const ADD_SCORE_RAW_CEILING = 8;
   const ADD_SCORE_DISPLAY_MAX = 10;
   const E_PRICE_BAND_DELTAS = [
     { max: 0.75, delta: -0.05 },
@@ -244,17 +247,17 @@
   }
 
   /**
-   * Preferred role label for E when no percentile map is available:
-   * largest deck deficit among the candidate's roles (incl. zero), then
-   * lexicographically smallest. Plan / Land / Commander are never used for E.
+   * Preferred role for E: largest *active* deficit among the candidate's roles.
+   * Tie → lexicographically smallest. Plan / Land / Commander never used for E.
+   * No active deficit → null (popular staples for unneeded roles must not float up).
    */
   function pickERole(roles, deficits) {
     const real = (roles || []).filter(t => t !== 'Land' && t !== 'Commander' && t !== 'Plan');
-    if (!real.length) return null;
     const ordered = real
       .map(role => ({ role, deficit: Number(deficits?.[role]) || 0 }))
+      .filter(e => e.deficit > 0)
       .sort((a, b) => b.deficit - a.deficit || a.role.localeCompare(b.role));
-    return ordered[0].role;
+    return ordered.length ? ordered[0].role : null;
   }
 
   function resolveEdhrecPercentile(card, role) {
@@ -268,17 +271,18 @@
   }
 
   /**
-   * Pick the E role + percentile for a candidate.
-   * Order: candidate roles by largest deck deficit first (zeros allowed), then
-   * name. Use the first role that has a stored percentile. E does not require
-   * an active deficit — a filled role can still contribute EDHREC score.
+   * Pick E role + percentile. Only roles with an active deck deficit qualify —
+   * a high-EDHREC Recursion staple must not score E when the deck does not need
+   * Recursion. Among active deficits, prefer largest hole, then try other
+   * matched roles until a stored percentile is found.
    */
   function pickERoleWithPercentile(card, roles, deficits) {
     const real = (roles || []).filter(t => t !== 'Land' && t !== 'Commander' && t !== 'Plan');
-    if (!real.length) return { role: null, p: null };
     const ordered = real
       .map(role => ({ role, deficit: Number(deficits?.[role]) || 0 }))
+      .filter(e => e.deficit > 0)
       .sort((a, b) => b.deficit - a.deficit || a.role.localeCompare(b.role));
+    if (!ordered.length) return { role: null, p: null };
     for (const { role } of ordered) {
       const p = resolveEdhrecPercentile(card, role);
       if (p != null) return { role, p };
@@ -409,15 +413,21 @@
     return false;
   }
 
-  /** Scale a raw Adds score onto 0–10 for the UI. Ranking still uses the raw score. */
-  function addDisplayScore(raw) {
+  /**
+   * Scale a raw Adds score onto 0–10 for the UI. Ranking still uses the raw score.
+   * @param {number} raw
+   * @param {number} [listMaxRaw] — when set (suggestion list), #1 maps to 10/10
+   */
+  function addDisplayScore(raw, listMaxRaw) {
     const n = Number(raw);
     if (!Number.isFinite(n) || n <= 0) return 0;
-    return Math.min(ADD_SCORE_DISPLAY_MAX, (n / ADD_SCORE_RAW_CEILING) * ADD_SCORE_DISPLAY_MAX);
+    const peak = Number(listMaxRaw);
+    const denom = (Number.isFinite(peak) && peak > 0) ? peak : ADD_SCORE_RAW_CEILING;
+    return Math.min(ADD_SCORE_DISPLAY_MAX, (n / denom) * ADD_SCORE_DISPLAY_MAX);
   }
 
-  function formatAddDisplayScore(raw) {
-    return addDisplayScore(raw).toFixed(1);
+  function formatAddDisplayScore(raw, listMaxRaw) {
+    return addDisplayScore(raw, listMaxRaw).toFixed(1);
   }
 
   return {

@@ -6614,7 +6614,9 @@ function _computeBaseThresholds(deck) {
   const t = {
     'Ramp': 10, 'Card Draw': 10, 'Removal': 10,
     'Board Wipe': 3, 'Plan': 30, 'Tutor': 2, 'Counterspell': 3,
-    'Protection': 3, 'Recursion': 3,
+    // Recursion stays 0 unless the archetype actually wants graveyard packages —
+    // a default of 3 was floating Recursion staples to #1 on decks that don't want them.
+    'Protection': 3, 'Recursion': 0,
   };
   const a = _detectDeckArchetype(deck);
   if (a.isGraveyard) { t['Recursion'] = 8; t['Board Wipe'] = 2; t['Removal'] = 7; }
@@ -7227,6 +7229,9 @@ async function _renderAddSuggestions(deck) {
         } else {
           s.planMatch = 0;
         }
+        // Must fill an active role/Plan hole — don't surface popular off-role cards.
+        const fillsHole = (Number(s.terms?.D) || Number(s.roleFit) || 0) > 0;
+        if (!fillsHole && !(planOnlyBackfill && s.planMatch > 0)) continue;
         if (s.score <= 0 && !(planOnlyBackfill && s.planMatch > 0)) continue;
         const owned = ownedNames.has(nm);
         const entry = { card: c, owned, s };
@@ -7284,7 +7289,8 @@ async function _renderAddSuggestions(deck) {
       // Never suggest roleless cards — Plan-only / curve / EDHREC alone is not enough.
       if (!_utilityAddRoles(roles).length) continue;
       const s = _scoreAddCandidate(c, roles, ctx);
-      if (s.score <= 0) continue;
+      const fillsHole = (Number(s.terms?.D) || Number(s.roleFit) || 0) > 0;
+      if (!fillsHole || s.score <= 0) continue;
       ownedScored.push({ card: c, owned: true, s });
     }
     ownedScored.sort((a, b) => b.s.score - a.s.score);
@@ -7342,13 +7348,15 @@ async function _renderAddSuggestions(deck) {
 
   // With Adds & Cuts on, suggestions land in the planned-adds section instead of the deck.
   const swapsOn = _deckSwapsEnabled(deck);
+  // Badge is list-relative: the #1 pick always reads 10/10. Order still uses raw score.
+  const listMaxRaw = picks.reduce((m, it) => Math.max(m, Number(it?.s?.score) || 0), 0);
   body.innerHTML = planBanner + picks.map(({ card, owned, s }) => {
     const id = (card.id || card.scryfallId || card.uid || '').replace(/'/g, "\\'");
     const name = card.name || '';
     const safeName = name.replace(/'/g, "\\'");
     const displayName = escapeHtml(name);
     const score = (typeof formatAddDisplayScore === 'function')
-      ? formatAddDisplayScore(s.score)
+      ? formatAddDisplayScore(s.score, listMaxRaw)
       : (s.score || 0).toFixed(1);
     const scoreLabel = (typeof formatAddDisplayScore === 'function') ? `${score}/10` : score;
     const whyLines = _buildAddWhyLines(s, ctx);
