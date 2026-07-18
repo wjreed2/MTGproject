@@ -2019,6 +2019,7 @@ const {
   applyDeckPlanningWrite,
 } = require('./lib/deck-planning-merge');
 const { collaboratorChangesPrintings } = require('./lib/deck-collaborator-printings');
+const { shouldBlockEmptyCollectionReplace } = require('./lib/collection-wipe-guard');
 
 async function assertCanEditDeck(deckId, accountId) {
   const [deckRows] = await db().query('SELECT account_id, data, updated_at FROM decks WHERE id = ?', [deckId]);
@@ -2726,7 +2727,29 @@ app.put('/api/collection', requireAuth, async (req, res) => {
   const cards = req.body;
   if (!Array.isArray(cards)) return res.status(400).json({ error: 'Expected array' });
   const accountId = req.accountId;
+  const allowEmpty =
+    req.query.allowEmpty === '1' ||
+    String(req.headers['x-allow-empty-collection'] || '') === '1';
   try {
+    // Fresh Home Screen PWAs have a separate empty IndexedDB. If the first load
+    // times out, the client used to hydrate collection=[] and a later PUT would
+    // full-replace MySQL with nothing. Block that unless the user confirmed clear.
+    if (cards.length === 0) {
+      const [[row]] = await db().query(
+        'SELECT COUNT(*) AS cnt FROM collection WHERE account_id = ?',
+        [accountId]
+      );
+      const existingCount = Number(row?.cnt) || 0;
+      if (shouldBlockEmptyCollectionReplace(cards.length, existingCount, allowEmpty)) {
+        return res.status(409).json({
+          error:
+            'Refusing to replace a non-empty collection with an empty list. Re-sync and retry, or confirm clear.',
+          code: 'COLLECTION_EMPTY_WIPE_BLOCKED',
+          existingCount,
+        });
+      }
+    }
+
     const needOracle = cards.filter(
       c => c?.scryfallId && !ORACLE_UUID_RE.test(String(c?.oracleId || ''))
     );
@@ -8577,7 +8600,13 @@ async function start() {
   app.use('/js',     express.static(path.join(__dirname, 'js')));
   app.use('/styles', express.static(path.join(__dirname, 'styles')));
   app.use('/vendor', express.static(path.join(__dirname, 'vendor')));
-  app.use('/dist',   express.static(path.join(__dirname, 'dist')));
+  app.use('/dist',   express.static(path.join(__dirname, 'dist'), {
+    setHeaders(res) {
+      // Index stamps ?v=SHA on bundle URLs; allow long cache for a given version,
+      // but always revalidate so a Home Screen PWA never sticks on a stale hash-less URL.
+      res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+    },
+  }));
   app.use('/sounds', express.static(path.join(__dirname, 'sounds')));
   app.use('/icons',  express.static(path.join(__dirname, 'icons')));
   app.get('/manifest.webmanifest', (_req, res) => res.sendFile(path.join(__dirname, 'manifest.webmanifest')));
