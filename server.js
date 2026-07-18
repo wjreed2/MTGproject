@@ -37,15 +37,16 @@ app.use('/api', (_req, res, next) => {
 });
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
-const ALLOWED_ORIGINS = new Set(
-  process.env.ALLOWED_ORIGIN
-    ? [process.env.ALLOWED_ORIGIN]
-    : ['http://localhost:3001', 'https://localhost:3001', 'capacitor://localhost', 'ionic://localhost']
-);
+const {
+  parseAllowedOrigins,
+  isAllowedOrigin,
+} = require(path.join(__dirname, 'lib', 'cors-origins.js'));
+const ALLOWED_ORIGINS = parseAllowedOrigins();
 app.use(cors({
   origin: (origin, cb) => {
-    if (!origin || ALLOWED_ORIGINS.has(origin)) return cb(null, true);
-    cb(new Error('CORS: origin not allowed'));
+    // Reflect allowed origins; reject quietly (no Error → Express 500).
+    // For LAN phone testing, add the IP to ALLOWED_ORIGIN in .env (comma-separated).
+    cb(null, isAllowedOrigin(origin, { allowedOrigins: ALLOWED_ORIGINS }));
   },
   credentials: true,
 }));
@@ -1923,6 +1924,11 @@ async function ensureNormalizedDeckSchema() {
     if (!(await columnExists(conn, 'decks', 'updated_at'))) {
       await conn.query('ALTER TABLE decks ADD COLUMN updated_at BIGINT NOT NULL DEFAULT 0');
     }
+    // Monotonic per-deck revision — bumped by every write path; clients use it to
+    // apply op broadcasts in order and detect gaps (→ full refetch).
+    if (!(await columnExists(conn, 'decks', 'revision'))) {
+      await conn.query('ALTER TABLE decks ADD COLUMN revision BIGINT NOT NULL DEFAULT 0');
+    }
     // Unguessable per-deck "anyone with the link can view" token (independent of is_public).
     // NULL = no active link. MySQL allows multiple NULLs under a UNIQUE index.
     if (!(await columnExists(conn, 'decks', 'share_token'))) {
@@ -2020,12 +2026,15 @@ const {
 } = require('./lib/deck-planning-merge');
 const { collaboratorChangesPrintings } = require('./lib/deck-collaborator-printings');
 const { shouldBlockEmptyCollectionReplace } = require('./lib/collection-wipe-guard');
+// Granular op-based deck sync (shared with the browser bundle).
+const DeckOps = require('./js/deck-ops');
 
 async function assertCanEditDeck(deckId, accountId) {
-  const [deckRows] = await db().query('SELECT account_id, data, updated_at FROM decks WHERE id = ?', [deckId]);
+  const [deckRows] = await db().query('SELECT account_id, data, updated_at, revision FROM decks WHERE id = ?', [deckId]);
   if (!deckRows.length) return { error: { status: 404, message: 'Deck not found' } };
   const ownerId = Number(deckRows[0].account_id);
   const existingUpdatedAt = Number(deckRows[0].updated_at) || 0;
+  const existingRevision = Number(deckRows[0].revision) || 0;
   const existingData = typeof deckRows[0].data === 'string' ? JSON.parse(deckRows[0].data) : deckRows[0].data;
   const isOwner = ownerId === Number(accountId);
   if (!isOwner) {
@@ -2038,7 +2047,7 @@ async function assertCanEditDeck(deckId, accountId) {
       return { error: { status: 403, message: 'You have view-only access to this deck' } };
     }
   }
-  return { ownerId, isOwner, existingUpdatedAt, existingData };
+  return { ownerId, isOwner, existingUpdatedAt, existingRevision, existingData };
 }
 
 function normalizeDeckForStorage(deck) {
@@ -2850,7 +2859,7 @@ app.get('/api/decks', requireAuth, async (req, res) => {
   try {
     const accountId = req.accountId;
     const [rows] = await db().query(
-      'SELECT id, data, share_token, updated_at FROM decks WHERE account_id = ? ORDER BY created_at ASC',
+      'SELECT id, data, share_token, updated_at, revision FROM decks WHERE account_id = ? ORDER BY created_at ASC',
       [accountId]
     );
     if (!rows.length) return res.json([]);
@@ -2891,9 +2900,10 @@ app.get('/api/decks', requireAuth, async (req, res) => {
     const out = rows.map(r => {
       const deck = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
       applyDeckCardsFromTable(deck, r.id, byDeck);
-      // share_token / updated_at are column-authoritative.
+      // share_token / updated_at / revision are column-authoritative.
       deck.shareToken = r.share_token || null;
       deck.updatedAt = Number(r.updated_at) || Number(deck.updatedAt) || 0;
+      deck.revision = Number(r.revision) || 0;
       return deck;
     });
     await attachPriceLogPricesToDeckCards(out.flatMap(d => d.cards || []));
@@ -3065,6 +3075,12 @@ app.put('/api/decks', requireAuth, async (req, res) => {
   const accountId = req.accountId;
   try {
     let updatedAtById = {};
+    // Declared here, not inside the transaction block: the broadcast loop below
+    // reads these after the txn. (They used to be inner-scoped — every PUT threw
+    // ReferenceError AFTER commit, so owner saves 500ed + retried forever and the
+    // collaborator broadcast never fired. Root trigger of the prod divergence.)
+    let normDecks = [];
+    let staleSkippedIds = [];
     const conn = await db().getConnection();
     try {
       await conn.beginTransaction();
@@ -3085,14 +3101,25 @@ app.put('/api/decks', requireAuth, async (req, res) => {
 
       const now = Date.now();
       updatedAtById = {};
-      const normDecks = decks.map(raw => {
+      // Snapshot uploads can carry a deck another client has written to since this
+      // client loaded it — writing it would clobber those edits (this reverted
+      // collaborator decklists in prod). Skip stale decks; op-sync clients don't
+      // PUT decks at all, so this only affects old cached bundles.
+      for (const raw of decks) {
         const existing = raw?.id ? existingById.get(raw.id) : null;
+        if (existing && Number(raw?.updatedAt) > 0 && Number(raw.updatedAt) < existing.updatedAt) {
+          staleSkippedIds.push(raw.id);
+          continue;
+        }
         if (existing) mergeDeckPlanningZonesForWrite(existing.data, existing.updatedAt, raw);
         const d = normalizeDeckForStorage(raw);
         d.updatedAt = now;
         if (d.id) updatedAtById[d.id] = now;
-        return d;
-      });
+        normDecks.push(d);
+      }
+      if (staleSkippedIds.length) {
+        console.warn('[decks] PUT skipped stale snapshot(s):', staleSkippedIds.join(', '));
+      }
 
       // 1. Upsert deck rows first — data always exists even if cards fail below
       if (normDecks.length) {
@@ -3109,7 +3136,7 @@ app.put('/api/decks', requireAuth, async (req, res) => {
         ]);
         await conn.query(
           `INSERT INTO decks (account_id, id, name, format, data, created_at, is_public, updated_at) VALUES ${ph}
-           ON DUPLICATE KEY UPDATE name=VALUES(name), format=VALUES(format), data=VALUES(data), is_public=VALUES(is_public), updated_at=VALUES(updated_at)`,
+           ON DUPLICATE KEY UPDATE name=VALUES(name), format=VALUES(format), data=VALUES(data), is_public=VALUES(is_public), updated_at=VALUES(updated_at), revision=revision+1`,
           vals
         );
       }
@@ -3148,10 +3175,12 @@ app.put('/api/decks', requireAuth, async (req, res) => {
         }
       }
 
-      // 3. Delete decks no longer in the client state (FK cascade cleans up cards+tags)
-      if (newDeckIds.length) {
-        const idph = newDeckIds.map(() => '?').join(',');
-        await conn.query(`DELETE FROM decks WHERE account_id=? AND id NOT IN (${idph})`, [accountId, ...newDeckIds]);
+      // 3. Delete decks no longer in the client state (FK cascade cleans up cards+tags).
+      // Stale-skipped decks stay — the client still has them; they just weren't written.
+      const keepIds = [...newDeckIds, ...staleSkippedIds];
+      if (keepIds.length) {
+        const idph = keepIds.map(() => '?').join(',');
+        await conn.query(`DELETE FROM decks WHERE account_id=? AND id NOT IN (${idph})`, [accountId, ...keepIds]);
       } else {
         await conn.query('DELETE FROM decks WHERE account_id=?', [accountId]);
       }
@@ -3254,7 +3283,7 @@ async function loadDeckForViewer(viewerAccountId, deckId) {
   const access = await resolveDeckAccessForViewer(viewerAccountId, deckId);
   if (!access) return null;
   const [deckRows] = await db().query(
-    `SELECT d.id, d.data, d.account_id, d.updated_at, d.share_token, a.email
+    `SELECT d.id, d.data, d.account_id, d.updated_at, d.revision, d.share_token, a.email
      FROM decks d LEFT JOIN accounts a ON a.id = d.account_id
      WHERE d.id = ?`,
     [deckId]
@@ -3270,6 +3299,7 @@ async function loadDeckForViewer(viewerAccountId, deckId) {
   if ((cntRows[0]?.c || 0) > 0) deck.cards = cards;
   else if (!Array.isArray(deck.cards)) deck.cards = [];
   deck.updatedAt = Number(r.updated_at) || Number(deck.updatedAt) || 0;
+  deck.revision = Number(r.revision) || 0;
   const viewerId = Number(viewerAccountId);
   if (access.ownerId === viewerId) {
     deck.shareToken = r.share_token || null;
@@ -3321,7 +3351,7 @@ app.get('/api/decks/shared', requireAuth, async (req, res) => {
     const deckIds = collabRows.map(r => r.deck_id);
     const ph = deckIds.map(() => '?').join(',');
     const [deckRows] = await db().query(
-      `SELECT d.id, d.data, d.account_id, d.updated_at, a.email
+      `SELECT d.id, d.data, d.account_id, d.updated_at, d.revision, a.email
        FROM decks d JOIN accounts a ON a.id = d.account_id
        WHERE d.id IN (${ph})`,
       deckIds
@@ -3389,6 +3419,7 @@ app.get('/api/decks/shared', requireAuth, async (req, res) => {
       deck.ownerCustomTags = [...(catalogByOwner.get(r.account_id) || [])].sort((a, b) => a.localeCompare(b));
       deck.userPermission = permByDeck.get(r.id) || 'edit';
       deck.updatedAt = Number(r.updated_at) || Number(deck.updatedAt) || 0;
+      deck.revision = Number(r.revision) || 0;
       return deck;
     });
     await attachPriceLogPricesToDeckCards(out.flatMap(d => d.cards || []));
@@ -3416,13 +3447,23 @@ app.patch('/api/decks/:id', requireAuth, async (req, res) => {
   const deckId = req.params.id;
   const accountId = req.accountId;
   try {
-    const [deckRows] = await db().query('SELECT account_id, data, updated_at FROM decks WHERE id = ?', [deckId]);
+    const [deckRows] = await db().query('SELECT account_id, data, updated_at, revision FROM decks WHERE id = ?', [deckId]);
     if (!deckRows.length) return res.status(404).json({ error: 'Deck not found' });
 
     const ownerId = Number(deckRows[0].account_id);
     const existingUpdatedAt = Number(deckRows[0].updated_at) || 0;
     const existingData = typeof deckRows[0].data === 'string' ? JSON.parse(deckRows[0].data) : deckRows[0].data;
     const isOwner = ownerId === Number(accountId);
+    // Stale-snapshot guard (same as PUT): a legacy full-deck PATCH carrying an
+    // updatedAt older than the row means another client wrote since this one
+    // loaded — writing it would revert those edits. Skip; op-sync clients never
+    // PATCH decks, so this only affects old cached bundles. Deliberately omit
+    // updatedAt from the response so the stale client stays guarded.
+    const incomingUpdatedAt = Number(req.body?.updatedAt) || 0;
+    if (incomingUpdatedAt > 0 && incomingUpdatedAt < existingUpdatedAt) {
+      console.warn('[decks] PATCH skipped stale snapshot:', deckId);
+      return res.json({ ok: true, skippedStale: true });
+    }
     if (!isOwner) {
       const [cr] = await db().query(
         'SELECT permission FROM deck_collaborators WHERE deck_id = ? AND collaborator_id = ?',
@@ -3447,20 +3488,26 @@ app.patch('/api/decks/:id', requireAuth, async (req, res) => {
     const now = Date.now();
     const deck = normalizeDeckForStorage(req.body);
     deck.updatedAt = now;
+    let nextRevision = 0;
     const conn = await db().getConnection();
     try {
       await conn.beginTransaction();
       if (isOwner) {
         await conn.query(
-          'UPDATE decks SET name=?, format=?, data=?, is_public=?, updated_at=? WHERE id=?',
+          'UPDATE decks SET name=?, format=?, data=?, is_public=?, updated_at=?, revision=revision+1 WHERE id=?',
           [(deck.name || '').slice(0, 255), (deck.format || '').slice(0, 50), JSON.stringify(deck), deck.isPublic ? 1 : 0, now, deckId]
         );
       } else {
         await conn.query(
-          'UPDATE decks SET name=?, format=?, data=?, updated_at=? WHERE id=?',
+          'UPDATE decks SET name=?, format=?, data=?, updated_at=?, revision=revision+1 WHERE id=?',
           [(deck.name || '').slice(0, 255), (deck.format || '').slice(0, 50), JSON.stringify(deck), now, deckId]
         );
       }
+      // Broadcast the revision the UPDATE actually produced (row is locked until
+      // commit). A pre-read +1 raced concurrent writers and could announce a
+      // duplicate revision, which op-sync clients drop as already-seen.
+      const [revRows] = await conn.query('SELECT revision FROM decks WHERE id=?', [deckId]);
+      nextRevision = Number(revRows[0]?.revision) || 0;
 
       await conn.query('DELETE FROM deck_card_tags WHERE account_id=? AND deck_id=?', [ownerId, deckId]);
       await conn.query('DELETE FROM deck_cards WHERE account_id=? AND deck_id=?', [ownerId, deckId]);
@@ -3502,8 +3549,9 @@ app.patch('/api/decks/:id', requireAuth, async (req, res) => {
       kind: 'full',
       deckId,
       updatedAt: now,
+      revision: nextRevision,
     }));
-    res.json({ ok: true, updatedAt: now });
+    res.json({ ok: true, updatedAt: now, revision: nextRevision });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
@@ -3532,22 +3580,291 @@ app.patch('/api/decks/:id/planning', requireAuth, async (req, res) => {
     delete nextData.userPermission;
 
     await db().query(
-      'UPDATE decks SET data=?, updated_at=? WHERE id=?',
+      'UPDATE decks SET data=?, updated_at=?, revision=revision+1 WHERE id=?',
       [JSON.stringify(nextData), now, deckId]
     );
+    // Read back the stored revision rather than pre-read+1: under concurrency a
+    // stale +1 announces a duplicate revision that op-sync clients drop. A read
+    // that races a later write can only over-claim, which triggers a refetch —
+    // the safe direction.
+    const [revRows] = await db().query('SELECT revision FROM decks WHERE id=?', [deckId]);
+    const nextRevision = Number(revRows[0]?.revision) || ((Number(access.existingRevision) || 0) + 1);
     _broadcastDeck(deckId, await deckBroadcastMeta(accountId, {
       kind: 'planning',
       deckId,
       updatedAt: now,
+      revision: nextRevision,
       adds: Array.isArray(nextData.adds) ? nextData.adds : [],
       cuts: Array.isArray(nextData.cuts) ? nextData.cuts : [],
     }));
     res.json({
       ok: true,
       updatedAt: now,
+      revision: nextRevision,
       adds: Array.isArray(nextData.adds) ? nextData.adds : [],
       cuts: Array.isArray(nextData.cuts) ? nextData.cuts : [],
     });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Rewrite deck_cards + deck_card_tags for one deck from a merged card list (call inside a txn). */
+async function rewriteDeckCardsRows(conn, ownerId, deckId, cardsList) {
+  await conn.query('DELETE FROM deck_card_tags WHERE account_id=? AND deck_id=?', [ownerId, deckId]);
+  await conn.query('DELETE FROM deck_cards WHERE account_id=? AND deck_id=?', [ownerId, deckId]);
+  const cards = (cardsList || []).map((c, idx) => ({
+    uid: c.uid,
+    scryfallId: c.scryfallId || null,
+    name: (c.name || '').slice(0, 255),
+    qty: c.qty ?? 1,
+    isCommander: c.isCommander ? 1 : 0,
+    sortOrder: idx,
+    data: JSON.stringify(c),
+    tags: dedupeDeckCardTags(c.customTags),
+  }));
+  if (!cards.length) return;
+  const cph = cards.map(() => '(?,?,?,?,?,?,?,?,?)').join(',');
+  const cvals = cards.flatMap(c => [ownerId, deckId, c.uid, c.scryfallId, c.name, c.qty, c.isCommander, c.sortOrder, c.data]);
+  await conn.query(
+    `INSERT INTO deck_cards (account_id,deck_id,card_uid,scryfall_id,card_name,qty,is_commander,sort_order,card_data) VALUES ${cph}`,
+    cvals
+  );
+  const tags = cards.flatMap(c => c.tags.map(tag => [ownerId, deckId, c.uid, tag]));
+  if (tags.length) {
+    const tph = tags.map(() => '(?,?,?,?)').join(',');
+    await conn.query(`INSERT INTO deck_card_tags (account_id,deck_id,card_uid,tag_name) VALUES ${tph}`, tags.flat());
+  }
+}
+
+// Recently applied op batches — dedupes a client retry after a LOST RESPONSE
+// (the batch committed but the ack never arrived). Re-applying such a batch
+// would re-assert its absolute values over collaborator edits that landed in
+// the retry window. In-memory is sufficient: the window is the client's
+// seconds-scale backoff, and a restart merely downgrades to idempotent re-apply.
+const _recentDeckOpsBatches = new Map(); // `${deckId}:${accountId}` → { batchId }
+
+// ── Granular op-based deck writes (owner or collaborator) ────────────────────
+// The client diffs its live deck against the last server-acked shadow and sends
+// only the resulting ops (js/deck-ops.js). Ops merge onto the server's CURRENT
+// state under a row lock, so a stale client can only affect cards/fields it
+// actually touched — never revert another collaborator's concurrent edits.
+app.post('/api/decks/:id/ops', requireAuth, async (req, res) => {
+  const deckId = req.params.id;
+  const accountId = req.accountId;
+  const body = req.body || {};
+  const ops = Array.isArray(body.ops) ? body.ops : [];
+  const createSnapshot = body.create && typeof body.create === 'object' ? body.create : null;
+  if (!ops.length && !createSnapshot) return res.status(400).json({ error: 'No ops' });
+  if (ops.length > 4000) return res.status(400).json({ error: 'Too many ops' });
+  try {
+    const now = Date.now();
+    let result;
+    const conn = await db().getConnection();
+    try {
+      await conn.beginTransaction();
+      const [rows] = await conn.query(
+        'SELECT account_id, data, updated_at, revision FROM decks WHERE id = ? FOR UPDATE',
+        [deckId]
+      );
+
+      if (!rows.length) {
+        // New deck — creator becomes the owner; snapshot required.
+        if (!createSnapshot) {
+          await conn.rollback();
+          conn.release();
+          return res.status(404).json({ error: 'Deck not found' });
+        }
+        const deck = normalizeDeckForStorage({ ...createSnapshot, id: deckId });
+        delete deck.ownerEmail; delete deck.ownerId; delete deck.ownerCustomTags;
+        delete deck.userPermission; delete deck.revision;
+        if (ops.length) DeckOps.applyOps(deck, ops);
+        deck.updatedAt = now;
+        await conn.query(
+          `INSERT INTO decks (account_id, id, name, format, data, created_at, is_public, updated_at, revision)
+           VALUES (?,?,?,?,?,?,?,?,1)
+           ON DUPLICATE KEY UPDATE name=VALUES(name), format=VALUES(format), data=VALUES(data),
+             is_public=VALUES(is_public), updated_at=VALUES(updated_at), revision=revision+1`,
+          [accountId, deckId, (deck.name || '').slice(0, 255), (deck.format || '').slice(0, 50),
+           JSON.stringify(deck), parseInt(deckId) || now, deck.isPublic ? 1 : 0, now]
+        );
+        await rewriteDeckCardsRows(conn, accountId, deckId, deck.cards || []);
+        // ON DUPLICATE KEY can fire when two sessions race the same create —
+        // read the actual stored revision instead of assuming 1.
+        const [revRows] = await conn.query(
+          'SELECT revision FROM decks WHERE account_id=? AND id=?',
+          [accountId, deckId]
+        );
+        await conn.commit();
+        result = { revision: Number(revRows[0]?.revision) || 1, ownerId: Number(accountId), ops, cardsChanged: true };
+      } else {
+        const ownerId = Number(rows[0].account_id);
+        const isOwner = ownerId === Number(accountId);
+        let effectiveOps = ops;
+        if (!isOwner) {
+          const [cr] = await conn.query(
+            'SELECT permission FROM deck_collaborators WHERE deck_id = ? AND collaborator_id = ?',
+            [deckId, accountId]
+          );
+          if (!cr.length) {
+            await conn.rollback(); conn.release();
+            return res.status(403).json({ error: 'Access denied' });
+          }
+          if ((cr[0].permission || 'edit') === 'view') {
+            await conn.rollback(); conn.release();
+            return res.status(403).json({ error: 'You have view-only access to this deck' });
+          }
+        }
+
+        // Retry of a batch whose ack was lost: it already committed — do not
+        // re-apply it over collaborator writes that landed since. Return the
+        // CURRENT revision so the client's gap check still triggers a refetch
+        // when others wrote in between.
+        const batchId = typeof body.batchId === 'string' && body.batchId ? body.batchId : null;
+        const dedupeKey = deckId + ':' + accountId;
+        if (batchId && _recentDeckOpsBatches.get(dedupeKey)?.batchId === batchId) {
+          await conn.rollback(); conn.release();
+          return res.json({
+            ok: true,
+            deduped: true,
+            revision: Number(rows[0].revision) || 0,
+            updatedAt: Number(rows[0].updated_at) || now,
+          });
+        }
+
+        const deck = typeof rows[0].data === 'string' ? JSON.parse(rows[0].data) : (rows[0].data || {});
+        // deck_cards (+ tag fast-path rows) are authoritative over blob cards[],
+        // but the join is only needed when this batch can touch the mainboard —
+        // planning/meta-only batches (rapid cut marking) must not pay for a full
+        // card materialization while holding the row lock. Skipping it leaves
+        // stale blob cards[] behind, which every GET path already overrides.
+        const touchesCards = !!createSnapshot || ops.some(o => o && o.z === 'cards');
+        if (touchesCards) {
+          const [cardRows] = await conn.query(
+            `SELECT dc.card_uid, dc.card_data, dct.tag_name
+             FROM deck_cards dc
+             LEFT JOIN deck_card_tags dct
+               ON dct.account_id = dc.account_id AND dct.deck_id = dc.deck_id AND dct.card_uid = dc.card_uid
+             WHERE dc.account_id = ? AND dc.deck_id = ?
+             ORDER BY dc.sort_order ASC`,
+            [ownerId, deckId]
+          );
+          if (cardRows.length) {
+            const byUid = new Map();
+            for (const r of cardRows) {
+              let card = byUid.get(r.card_uid);
+              if (!card) {
+                card = typeof r.card_data === 'string' ? JSON.parse(r.card_data) : r.card_data;
+                if (!Array.isArray(card.customTags)) card.customTags = [];
+                byUid.set(r.card_uid, card);
+              }
+              if (r.tag_name && !card.customTags.some(t => String(t).toLowerCase() === String(r.tag_name).toLowerCase())) {
+                card.customTags.push(r.tag_name);
+              }
+            }
+            deck.cards = [...byUid.values()];
+          }
+        }
+
+        // Create-retry after a lost response: the row exists but the client
+        // still thinks it's creating. Silently ignoring the snapshot used to
+        // ack edits the server never stored — instead converge by diffing the
+        // current server state against the snapshot (which includes any edits
+        // the client made while retrying).
+        if (createSnapshot && !ops.length) {
+          const snap = { ...createSnapshot, id: deckId };
+          delete snap.ownerEmail; delete snap.ownerId; delete snap.ownerCustomTags;
+          delete snap.userPermission; delete snap.revision; delete snap.shareToken;
+          effectiveOps = DeckOps.diffDecks(DeckOps.snapshotDeck(deck), snap);
+        }
+        if (!isOwner) {
+          // Owner-only deck fields stay owner-only on the op path.
+          effectiveOps = effectiveOps.filter(o => !(o && o.t === 'meta' && o.f === 'isPublic'));
+          const cardSets = effectiveOps.filter(o => o && o.t === 'set' && o.z === 'cards' && o.card);
+          if (cardSets.length) {
+            const stored = (deck.cards || []).map(c => ({ card_name: c.name, scryfall_id: c.scryfallId || null }));
+            if (collaboratorChangesPrintings(stored, cardSets.map(o => o.card))) {
+              await conn.rollback(); conn.release();
+              return res.status(403).json({ error: 'Collaborators cannot change card printings' });
+            }
+          }
+        }
+
+        const applied = DeckOps.applyOps(deck, effectiveOps);
+        const merged = normalizeDeckForStorage({ ...deck, id: deckId });
+        delete merged.ownerEmail; delete merged.ownerId; delete merged.ownerCustomTags;
+        delete merged.userPermission; delete merged.revision;
+        merged.updatedAt = now;
+        const nextRevision = (Number(rows[0].revision) || 0) + 1;
+        await conn.query(
+          'UPDATE decks SET name=?, format=?, data=?, is_public=?, updated_at=?, revision=? WHERE account_id=? AND id=?',
+          [(merged.name || '').slice(0, 255), (merged.format || '').slice(0, 50), JSON.stringify(merged),
+           merged.isPublic ? 1 : 0, now, nextRevision, ownerId, deckId]
+        );
+        // A cuts/adds/meta-only batch touches no mainboard rows — skip the full
+        // deck_cards DELETE+INSERT so the row lock isn't held for ~2N writes.
+        const cardsChanged = applied.changedZones.includes('cards');
+        if (cardsChanged) {
+          await rewriteDeckCardsRows(conn, ownerId, deckId, merged.cards || []);
+        }
+        await conn.commit();
+        if (batchId) {
+          _recentDeckOpsBatches.delete(dedupeKey);
+          _recentDeckOpsBatches.set(dedupeKey, { batchId });
+          if (_recentDeckOpsBatches.size > 1000) {
+            _recentDeckOpsBatches.delete(_recentDeckOpsBatches.keys().next().value);
+          }
+        }
+        result = { revision: nextRevision, ownerId, ops: effectiveOps, cardsChanged };
+      }
+      conn.release();
+    } catch (e) {
+      try { await conn.rollback(); } catch (_) {}
+      conn.release();
+      throw e;
+    }
+    // Tradelist surplus and deck-needed wishlist entries derive from the
+    // mainboard only — planning/meta batches (rapid cut marking) must not fire
+    // an account-wide wishlist reconciliation per keystroke.
+    if (result.cardsChanged) {
+      invalidateTradelistCache(result.ownerId);
+      void reconcileAccountWishlist(result.ownerId);
+    }
+    _broadcastDeck(deckId, await deckBroadcastMeta(accountId, {
+      kind: 'ops',
+      deckId,
+      ops: result.ops,
+      revision: result.revision,
+      updatedAt: now,
+    }));
+    res.json({ ok: true, revision: result.revision, updatedAt: now });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Explicit deck deletion (owner only) — op-sync clients no longer rely on the
+// legacy PUT's "NOT IN snapshot → delete" behavior.
+app.delete('/api/decks/:id', requireAuth, async (req, res) => {
+  const deckId = req.params.id;
+  const accountId = req.accountId;
+  try {
+    const [rows] = await db().query('SELECT account_id FROM decks WHERE id = ?', [deckId]);
+    if (!rows.length) return res.json({ ok: true, alreadyGone: true });
+    if (Number(rows[0].account_id) !== Number(accountId)) {
+      return res.status(403).json({ error: 'Only the owner can delete a deck' });
+    }
+    await db().query('DELETE FROM decks WHERE account_id=? AND id=?', [accountId, deckId]);
+    invalidateTradelistCache(accountId);
+    void reconcileAccountWishlist(accountId);
+    _broadcastDeck(deckId, await deckBroadcastMeta(accountId, {
+      kind: 'deleted',
+      deckId,
+      updatedAt: Date.now(),
+    }));
+    res.json({ ok: true });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });

@@ -11,8 +11,9 @@
     "build:bundle": "node scripts/build-bundle.js",
     "build:ml": "npx esbuild js/scanner-card-yolo-onnx.js --bundle --minify --format=iife --global-name=ScnCardYolo --outfile=dist/scanner-card-yolo.js",
     "build:icons": "node scripts/generate-icons.js",
-    "test": "node scripts/engine-smoke-test.js && node scripts/engine-integration-test.js && node scripts/phash-smoke-test.js && node scripts/warp-smoke-test.js && node scripts/test-adds-scoring.js && node scripts/test-adds-why-edhrec.js && node scripts/test-adds-curve-commander.js && node scripts/test-adds-pool-toggle.js && node scripts/test-adds-token-exclusion.js && node scripts/test-adds-require-role-tag.js && node scripts/test-adds-zero-role-target.js && node scripts/test-deck-plan.js && node scripts/test-deck-cut-matching.js && node scripts/test-deck-planning-persist.js && node scripts/test-collection-wipe-guard.js && node scripts/test-deck-planning-merge.js",
+    "test": "node scripts/engine-smoke-test.js && node scripts/engine-integration-test.js && node scripts/phash-smoke-test.js && node scripts/warp-smoke-test.js && node scripts/test-adds-scoring.js && node scripts/test-adds-why-edhrec.js && node scripts/test-adds-curve-commander.js && node scripts/test-adds-pool-toggle.js && node scripts/test-adds-token-exclusion.js && node scripts/test-adds-require-role-tag.js && node scripts/test-adds-zero-role-target.js && node scripts/test-deck-plan.js && node scripts/test-deck-cut-matching.js && node scripts/test-deck-planning-persist.js && node scripts/test-collection-wipe-guard.js && node scripts/test-deck-planning-merge.js && node scripts/test-deck-ops.js && node scripts/test-deck-op-clobber.js && node scripts/test-cors-origins.js",
     "test:phash": "node scripts/phash-smoke-test.js",
+    "test:e2e": "node scripts/e2e-deck-op-sync.js",
     "build:fingerprints": "node scripts/build-print-fingerprints.js",
     "build:watch": "npm run build && nodemon --watch js --ext js --exec 'npm run build'",
     "cap:sim": "node scripts/update-cap-ip.js --sim && npx cap sync",
@@ -40,16 +41,19 @@
     "helmet": "8.1.0",
     "mysql2": "3.22.2",
     "node-cron": "^3.0.3",
-    "nodemailer": "8.0.7",
+    "nodemailer": "9.0.3",
     "onnxruntime-web": "1.17.3",
     "socket.io": "^4.8.3",
     "stream-json": "2.1.0",
     "three": "0.184.0"
   },
   "devDependencies": {
-    "esbuild": "0.28.0",
+    "esbuild": "0.28.1",
     "nodemon": "3.1.14",
     "sharp": "^0.35.1",
     "socket.io-client": "^4.8.3"
+  },
+  "overrides": {
+    "uuid": "11.1.1"
   }
 }
