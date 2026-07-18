@@ -1,14 +1,23 @@
 # Suggested Adds — Improvement Plan (Entry 13 v2 + scoring/UX)
 
-**Status:** Design (ready to draft implementation prompts)  
-**Date:** 2026-07-18  
+**Status:** Design (planning — no implementation until decisions below are confirmed)  
+**Date:** 2026-07-18 (revised after user review)  
 **Audience:** Product + implementer agents  
 **Hard constraint:** Deterministic algorithm only — no runtime AI/LLM.
 
 This document explains **how Suggested Adds works today**, why it feels wrong
-(plan ignored, opaque picks, scores stuck ≤7/10), and a **phased fix plan**.
-Implementation should be split into Ready Prompts after the locked decisions below
-are accepted (or explicitly overridden).
+(plan ignored, opaque picks), and a **phased fix plan**. Implementation waits
+until locked decisions (§4) are confirmed.
+
+### User feedback (2026-07-18) — overrides badge/S experiments
+
+| # | Feedback | Plan response |
+|---|----------|---------------|
+| **U1** | Remove display score | Badge = **raw score** only; drop display helpers/ceiling. |
+| **U2** | Dislike stepped raw→badge mapping | No remap; one continuous raw number. |
+| **U3** | No S bonus | **No S**; multi-role value via **V** + sublinear **D**. |
+
+**Rejected:** `/10` badges, display floor, S term.
 
 Related code:
 - `js/adds-scoring.js` — formula `(D × M) + C_eff + L + E + B − P + V + T + K`
@@ -95,46 +104,70 @@ bug.
 
 ---
 
-## 2. Why nothing feels above 7/10
+## 2. Score presentation — raw only (no display layer)
+
+### 2.1 What we are removing
+
+Recent branches added a **display score**: raw run through `raw / ceiling × 10`,
+shown as `7.5/10`. That layer:
+
+- Hides the same number used for sorting (confusing when debugging)
+- Required arbitrary ceiling tuning (felt like a lookup table)
+- Created a false “nothing above 7” problem that was **UI calibration**, not ranking
+
+**Plan:** badge = **raw score**, one decimal (e.g. `5.4`), everywhere — list badge,
+Why header, aria-label. Ranking unchanged (already used raw).
+
+### 2.2 What still feels “stepped” (and is separate from display)
+
+Even with raw-only badges, parts of the **formula** are chunky:
+
+| Source | Why it feels stepped | Options (plan — pick later) |
+|--------|----------------------|-----------------------------|
+| **D** uses integer **deficits** | Missing 4 ramp → D += 4, not 3.7 | Keep integers (recipe is count-based); or soften with `sqrt(deficit)` ( bigger change) |
+| **Sublinear D weights** | 2nd/3rd matched role at 50%/25% | Keep — this is how **V**’s value is preserved vs one-tag spam |
+| **M gate** | ×1 or ×0.5-style shrink | Keep — binary-ish but role-specific |
+| **E, L, B, P, V** | Already continuous floats | No change |
+
+User dislike of “stepped tables” was aimed at the **display remap**, not necessarily
+at integer deficits. If raw integers still feel wrong in UX, prefer **Why breakdown
+lines** (per-term +/−) over inventing a second score scale.
+
+### 2.3 No S term — how single-role vs multi-role should work
+
+```
+Score = (D × M) + C_eff + L + E + B − P + V + T + K     // no S
+```
+
+- **Single-role card** (e.g. Path, one Removal tag): earns via **D** on that hole,
+  plus **E** / **L** if it’s a efficient popular pick. **V = 0** — correct.
+- **Multi-role card** (e.g. Growth Spiral, Ramp + Draw): **D** uses sublinear sum
+  across both holes; **V > 0** for the extra tag. Should beat a single-role card
+  **when both holes are real deficits** — not because of a parallel “focus” bonus.
+
+Do **not** add a shortcut that lets single-role cards bypass V’s purpose.
+
+If raw scores feel too low for strong single-role staples, tune **K_E**, **K_L**,
+**K_B**, or deficit visibility in Why — **not** a display ceiling or S.
+
+---
+
+## 2-old. Why “7/10” came up (historical — display layer retired)
 
 Two separate systems got mixed in recent agent work:
 
-### 2.1 Absolute badge scale (UI)
-
-Branches introduced:
+### Display scale (retired per U1)
 
 ```text
-display = min(10, raw / ADD_SCORE_RAW_CEILING * 10)
+display = min(10, raw / ADD_SCORE_RAW_CEILING * 10)   // DO NOT SHIP
 ```
 
-Examples of ceilings used historically: **12**, then **8** (after `K_E` retunes).
+That mapping made typical raw ~5–6 look like **6–7/10**. Removing the display layer
+removes that confusion; users see raw ~5.4 and read Why lines for context.
 
-With `CEILING = 8`:
+### Optional ≥7/10 floor (retired)
 
-| Raw score | Badge |
-|----------:|------:|
-| 4.0 | 5.0/10 |
-| 5.6 | **7.0/10** |
-| 6.4 | 8.0/10 |
-| ≥8.0 | 10/10 |
-
-A typical “fills a 3-card Ramp hole + creature + mild EDHREC” candidate lands
-around raw **4–6** → badge **5–7.5/10**. Hitting **9–10/10** needs a large D,
-commander-theme bonus (`K = 2`), multi-deficit, or a high E after weight retunes.
-So “nothing above 7/10” is often **calibration**, not “no good cards exist.”
-
-### 2.2 Optional ≥7/10 floor (filter)
-
-`adds-min-score-kb-ac44` adds `ADD_SCORE_DISPLAY_MIN = 7` and hides anything below.
-Combined with a tight ceiling, Collection mode can look empty or only show ~7.0
-picks — which reads as “broken” rather than “strict quality bar.”
-
-### 2.3 Manford vs display branches
-
-Current Manford tip still shows **raw** scores (`4.5`), not `N/10`. If the user
-sees `/10`, they are on a build that includes the absolute-display PRs. The plan
-below assumes we **keep** absolute `/10` badges and fix the calibration + plan
-term so 8–10 become achievable for true on-plan staples.
+`ADD_SCORE_DISPLAY_MIN` hid weak picks — also do not ship.
 
 ---
 
@@ -142,83 +175,78 @@ term so 8–10 become achievable for true on-plan staples.
 
 1. **Plan-aware ranking** — declared strategy/wincon changes *which* cards win,
    not only Plan-only backfill sort order.
-2. **Legible identity** — user can see *why this card was considered* (tags,
-   deficits, plan match) without reading the formula.
-3. **Honest 0–10 badges** — 10 = top-tier fit for *this* deck; strong on-plan
-   staples routinely reach 8–10; weak fillers stay ≤5.
-4. **No runtime AI** — tables, tags, formulas only.
+2. **Legible identity** — tags, deficits, plan match in Why (no second score scale).
+3. **One honest number** — raw score on badge; Why breaks down terms.
+4. **V matters** — multi-tag cards earn via **V**; no S shortcut.
+5. **No runtime AI** — tables, tags, formulas only.
 
 ---
 
-## 4. Locked design decisions (propose; confirm before coding)
+## 4. Locked design decisions (plan — confirm before coding)
 
-| # | Decision | Proposal |
-|---|----------|----------|
-| D1 | Badge style | **Absolute** `/10` (not list-relative). 10 = raw ≥ ceiling. |
-| D2 | Ceiling | Recalibrate after adding plan term **H**. Start `ADD_SCORE_RAW_CEILING = 10` once H ships; re-vignette with Three Visits / on-plan staple / off-plan staple. |
-| D3 | Display floor | **No hard hide** at 7/10. Optional soft UI hint (“weak fit”) below 5/10. Do not empty the list. |
-| D4 | Plan in score | New term **H** (hybrid/plan fit) added to ranking formula when plan declared. |
-| D5 | H formula | `H = K_H × planMatchNormalized` with `planMatchNormalized = planMatchScore / 4` (max primary+secondary+wincon = 4). Locked `K_H = 2.0` (same order as commander theme K). |
-| D6 | Hybrid role modifiers | When plan declared, multiply matched **D** deficits for plan-aligned roles by `1 + α` and off-plan utility deficits by `1 − β` (defaults `α=0.35`, `β=0.15`, clamp multipliers to `[0.5, 1.75]`). Persist in `deck.plan.hybridRoleModifiers` (schema hook already exists). |
-| D7 | Plan-aligned roles | Union of `PLAN_STRATEGY_PROJECT_TAGS[primary|secondary]` ∪ `PLAN_WINCON_PROJECT_TAGS[wincon]`. |
-| D8 | When no plan | H = 0; hybrid multipliers off; behavior = today’s deficit recipe (v1). |
-| D9 | Roleless candidates | Require ≥1 utility role tag for suggestions (land/commander don’t count). Plan deficit still counted for deck health, but Adds won’t recommend untagged blanks. |
-| D10 | Cuts plan shielding | **Phase B** — do not block Phase A Adds work. |
-| D11 | Wizard v2 extras | Tertiary strategy, free-text notes, beginner copy — **Phase B/C**; not required for H. |
-| D12 | EDHREC weight | Keep Manford’s current `K_E` / `K_L` / `K_B` unless vignettes prove E still swamps D; retune only with logged soft vignettes. |
+| # | Decision | Status |
+|---|----------|--------|
+| D1 | Badge = **raw score only** (no `/10`) | **Locked** (U1) |
+| D2 | No ceiling, floor, or list-relative badge scaling | **Locked** (U1, U2) |
+| D3 | **No S term** | **Locked** (U3) |
+| D4 | Plan term **H** when plan declared | Proposed |
+| D5 | H = `K_H × (planMatchScore / 4)`; `K_H = 2.0` | Proposed |
+| D6 | Hybrid D (plan-aligned α / off-plan β) | Proposed |
+| D7 | Plan-aligned roles = strategy + wincon tag maps | Proposed |
+| D8 | No plan → H = 0 | Proposed |
+| D9 | Require ≥1 utility role tag | Proposed |
+| D10 | Cuts shielding | Phase B |
+| D11 | Wizard v2 extras | Phase B/C |
+| D12 | Tune K_E via vignettes only — not display/S | Proposed |
 
 ---
 
-## 5. Phase A — Make Adds respect the plan + fix the badge (implement next)
+## 5. Phase A — Plan-aware ranking + raw badge + Why (implement next)
 
-**Outcome:** On-plan cards outrank off-plan role-fillers; badges can reach 9–10;
-Why panel explains identity.
+**Outcome:** On-plan cards outrank off-plan fillers; badge is raw score; Why
+explains tags/deficits/plan; V retains value for multi-role cards.
+
+### A0. Revert display + S (first PR slice)
+
+1. Remove `addDisplayScore`, `formatAddDisplayScore`, `ADD_SCORE_RAW_CEILING`,
+   `ADD_SCORE_DISPLAY_MAX`, `/10` strings from `decks.js`.
+2. Remove **S** term and Why line for “focused pick”.
+3. Badge + Why header use `(s.score).toFixed(1)` only.
+4. Tests: no display helpers; assert **V > 0** beats equal-D single-tag when
+   second role also has deficit (Growth Spiral vignette).
 
 ### A1. Score term H + hybrid D modifiers
 
-Files: `js/adds-scoring.js`, `js/deck-plan.js`, `js/decks.js`
+(Same as before — plan fit in the **ranking** formula, not a display trick.)
 
-1. Compute `planFit` from existing `planMatchScore` (0–4 → 0–1).
-2. Apply D1–D8: `score += H`; scale matched deficit rows that are plan-aligned /
-   off-plan per D6 **before** sublinear weights (document order in PR).
-3. Wire `_scoreAddCandidate` to pass `deckPlan` into term scoring always (not only
-   Plan-only backfill).
-4. Surface H in `_buildAddWhyLines` (“Matches your Sacrifice plan”, etc.).
+1. Compute `planFit` from `planMatchScore` (0–4 → 0–1).
+2. `score += H`; hybrid D scaling for plan-aligned roles (D4–D8).
+3. Wire `deckPlan` into `_scoreAddCandidate` always when declared.
+4. Why: “Matches your Sacrifice plan” when H &gt; 0.
 
-### A2. Absolute display recalibration
+### A2. Identity UX (light)
 
-1. Land `addDisplayScore` / `formatAddDisplayScore` on Manford if missing.
-2. Set ceiling per D2; **no** `ADD_SCORE_DISPLAY_MIN` hard filter.
-3. Badge copy: `7.5/10` with tooltip “Absolute fit for this deck (not rank in list).”
-
-### A3. Identity UX (light)
-
-In Why suggested footer / new first line:
-
-- `Identified as: Ramp, Sac Outlet` (utility tags used for scoring)
+- `Identified as: Ramp, Sac Outlet`
 - `Fills: Ramp (have 6 / want 10)`
-- `Plan fit: Sacrifice + Life drain` when H &gt; 0
+- Per-term lines already in Why (D, E, L, V, …) — **this** is the readable
+  breakdown; no second score.
 
-Optional one-line legend under the panel header explaining pool mode + plan status
-(already partly present via plan banner).
+### A3. Role-tag gate
 
-### A4. Role-tag gate
+Require ≥1 utility role tag (D9).
 
-Port `adds-require-role-tag` behavior (D9) with tests.
-
-### A5. Verification (hard)
+### A4. Verification (hard)
 
 | # | Case | Expect |
 |---|------|--------|
-| 1 | Declared sacrifice + life drain; candidate Sac Outlet vs generic Ramp when both deficits exist | Sac Outlet ranks above equal-D Ramp unless Ramp hole is much larger (document threshold) |
-| 2 | No plan declared | Rank order matches pre-H baseline on fixtures |
-| 3 | On-plan staple with D≥3 and H&gt;0 | Badge ≥ 8.0/10 with ceiling=10 |
-| 4 | Off-plan weak filler D≤1, H=0 | Badge ≤ 5.0/10 |
-| 5 | Why panel lists tags + plan fit text | Present for plan-declared decks |
-| 6 | Roleless card | Never appears in top picks |
+| 1 | Sacrifice plan; Sac Outlet vs generic Ramp (both deficits) | On-plan wins when holes comparable |
+| 2 | No plan | Same order as pre-H fixtures |
+| 3 | Growth Spiral vs Three Visits when **both** Ramp and Draw short | GS wins on D + **V** (no S on TV) |
+| 4 | Path, Removal only, Removal deficit 4 | Strong raw, **V = 0**, no S term |
+| 5 | Badge text | Raw number only — no `/10` substring |
+| 6 | Roleless card | Not in top picks |
 
-Soft vignettes (log only): Three Visits vs Growth Spiral; on-plan aristocrat piece
-vs random efficient removal.
+Soft vignettes (log only): K_E tuning; integer D feel.
 
 ---
 
@@ -254,8 +282,9 @@ Do **not** start B until A’s H term is stable.
 ## 8. What we will not do
 
 - Runtime LLM “explain my deck” or embedding similarity
-- List-relative badges that force #1 → 10/10 (hides bad pools)
-- Hard ≥7/10 filter that blanks Collection
+- **Any `/10` display score, ceiling, or display floor** (U1, U2)
+- **S / single-role focus bonus** (U3)
+- List-relative badges that force #1 → 10/10
 - Rewriting Cuts scoring inside Phase A
 - Live Scryfall/EDHREC scrape at suggestion time
 
@@ -265,27 +294,24 @@ Do **not** start B until A’s H term is stable.
 
 | Order | Prompt | Depends on |
 |------:|--------|------------|
-| **A** | Adds plan term H + hybrid D modifiers + Why lines | Prompt 2 (v1) shipped |
-| **A′** | Absolute `/10` badge recalibration (no min floor) | May merge with A |
-| **A″** | Require utility role tag | May merge with A |
-| **B** | Entry 13 v2 wizard + `hybridRoleModifiers` presets + Cuts shielding | A |
-| **C** | Mixed plan-aware backfill beyond Plan-only gate | A |
-
-Update `cuts-adds-ready-prompts.md` when A is accepted: move “13 v2” from
-“Design only” to a drafted Prompt with Status Ready/In progress.
+| **A0** | Revert display + S; raw badge only | — |
+| **A** | Plan term H + hybrid D + Why identity | A0 |
+| **A′** | Require utility role tag | May merge with A |
+| **B** | Entry 13 v2 wizard + Cuts shielding | A |
+| **C** | Mixed plan-aware backfill | A |
 
 ---
 
 ## 10. Open questions for the user
 
-1. **Badge floor:** Confirm soft hint only (no hide below 7/10)?  
-2. **How hard to lean on plan:** Is `K_H = 2.0` + `α=0.35` enough, or should plan
-   sometimes beat a larger off-plan Ramp hole?  
-3. **Roleless Plan fillers:** Drop entirely (D9) or keep for under-built themes?  
-4. **Mixed backfill (Phase C):** Want unowned on-plan tutors/engines even while
-   Ramp/Draw deficits exist?
-
----
+1. **Integer D:** Is count-based deficit (missing 4 ramp → +4 D) OK if Why shows
+   the breakdown, or do you want softer D (e.g. sqrt) in a later pass?  
+2. **How hard to lean on plan:** Is `K_H = 2.0` + `α=0.35` enough?  
+3. **Roleless Plan fillers:** Drop entirely (D9)?  
+4. **Mixed backfill (Phase C):** Unowned on-plan cards while Ramp/Draw holes exist?  
+5. **Raw score scale:** If a great Path shows ~5.4 raw, is that acceptable with
+   good Why lines, or should we tune K_E upward so “staple single-role” raw lands
+   higher (still no display remap)?
 
 ## 11. Immediate reading list for the implementer
 
