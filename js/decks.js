@@ -6987,22 +6987,34 @@ function _toggleSuggestWhy(btn) {
   btn.classList.toggle('is-open', willOpen);
 }
 
-function _edhrecWhyLine(s) {
+function _edhrecWhyLines(s) {
   const t = s.terms || null;
   const E = Number(s.E) || 0;
-  // Show whenever EDHREC contributed. Old threshold (>0.01) hid most lines after
-  // K_E shrank to 0.1 (max E ≈ 0.1; mid-range popularity rounded to "+0").
-  if (!(E > 0)) return null;
-  const role = escapeHtml(t?.eRole || s.topRole || 'pick');
-  let pctNote = '';
-  if (t && t.p != null && Number.isFinite(t.p)) {
-    const pct = Math.max(0, Math.min(100, Math.round(Number(t.p) * 100)));
-    pctNote = ` · ${pct}th pct`;
+  const rankRaw = Number(s.edhrecRank ?? t?.edhrecRank);
+  const rank = Number.isFinite(rankRaw) && rankRaw > 0 ? Math.floor(rankRaw) : null;
+  const role = escapeHtml(t?.eRole || s.topRole || '');
+  const lines = [];
+  // Rank is the player-facing metric — show whenever we have a local edhrec_rank.
+  if (rank != null) {
+    lines.push({
+      text: role ? `EDHREC rank · ${role}` : 'EDHREC rank',
+      val: `#${rank}`,
+    });
   }
-  return {
-    text: `Popular ${role} (EDHREC${pctNote})`,
-    val: _fmtWhyVal(E),
-  };
+  // E score contribution (price-aware percentile) when it actually moved the score.
+  if (E > 0) {
+    let pctNote = '';
+    if (t && t.p != null && Number.isFinite(t.p)) {
+      const pct = Math.max(0, Math.min(100, Math.round(Number(t.p) * 100)));
+      pctNote = ` · ${pct}th pct`;
+    }
+    const labelRole = role || 'pick';
+    lines.push({
+      text: `Popular ${labelRole} (EDHREC${pctNote})`,
+      val: _fmtWhyVal(E),
+    });
+  }
+  return lines;
 }
 
 function _buildAddWhyLines(s, ctx) {
@@ -7032,8 +7044,7 @@ function _buildAddWhyLines(s, ctx) {
   }
   // L shares E's small scale after K_L retune — show any positive contribution.
   if ((s.L || 0) > 0) lines.push({ text: `Efficient CMC for interaction`, val: _fmtWhyVal(s.L) });
-  const edh = _edhrecWhyLine(s);
-  if (edh) lines.push(edh);
+  for (const edh of _edhrecWhyLines(s)) lines.push(edh);
   if ((s.B || 0) > 0.01) lines.push({ text: `Creature body fills a role`, val: _fmtWhyVal(s.B) });
   if ((s.P || 0) > 0.01) lines.push({ text: `Colored mana commitment`, val: _fmtWhyVal(-(s.P || 0)), neg: true });
   if (s.versatility > 0.01) lines.push({ text: `Versatile — fills ${s.roles.length} roles`, val: _fmtWhyVal(s.versatility) });
@@ -7157,6 +7168,7 @@ async function _renderAddSuggestions(deck) {
         return String(raw).toLowerCase();
       }).filter(id => /^[0-9a-f-]{36}$/.test(id)))];
       const by = {};
+      const ranks = {};
       for (let i = 0; i < oracleIds.length; i += 200) {
         const chunk = oracleIds.slice(i, i + 200);
         const res = await fetch('/api/cards/edhrec-percentiles', {
@@ -7166,11 +7178,13 @@ async function _renderAddSuggestions(deck) {
         if (!res.ok) break;
         const data = await res.json();
         Object.assign(by, data.byOracleId || {});
+        Object.assign(ranks, data.rankByOracleId || {});
       }
       for (const c of ownedPool) {
         const raw = (typeof resolveCardOracleId === 'function' ? resolveCardOracleId(c) : null) || c.oracleId || '';
         const oid = String(raw).toLowerCase();
         if (by[oid]) c.edhrecRolePct = by[oid];
+        if (ranks[oid]) c.edhrecRank = ranks[oid];
       }
     } catch (_) { /* offline — E stays 0 */ }
     if (token !== _addSuggestToken) return;

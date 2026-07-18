@@ -7068,7 +7068,7 @@ app.post('/api/cards/by-roles', async (req, res) => {
 
     const [rows] = await db().query(
       `SELECT c.name, c.scryfall_id, c.type_line, c.oracle_text, c.cmc, c.mana_cost, c.oracle_id,
-              c.color_identity_json, c.image_small, c.image_normal, c.edhrec_pct_json, t.tags_json
+              c.color_identity_json, c.image_small, c.image_normal, c.edhrec_pct_json, c.edhrec_rank, t.tags_json
          FROM scryfall_oracle_cards c
          LEFT JOIN scryfall_oracle_tags t ON t.oracle_id = c.oracle_id AND t.schema_version = '4'
         WHERE (${matchParts.join(' OR ')}) ${ciClause}
@@ -7092,6 +7092,8 @@ app.post('/api/cards/by-roles', async (req, res) => {
       const roleTags = parseArr(r.tags_json);
       const ci = parseArr(r.color_identity_json);
       const edhrecRolePct = parseObj(r.edhrec_pct_json);
+      const rankRaw = Number(r.edhrec_rank);
+      const edhrecRank = Number.isFinite(rankRaw) && rankRaw > 0 ? Math.floor(rankRaw) : null;
       out.push({
         name: r.name, id: r.scryfall_id, oracleId: r.oracle_id || null,
         type_line: r.type_line || '', oracle_text: r.oracle_text || '',
@@ -7100,6 +7102,7 @@ app.post('/api/cards/by-roles', async (req, res) => {
         image_small: r.image_small || null, image_normal: r.image_normal || null,
         roleTags,
         edhrecRolePct: edhrecRolePct || undefined,
+        edhrecRank: edhrecRank || undefined,
       });
       if (out.length >= limit) break;
     }
@@ -7141,7 +7144,7 @@ app.post('/api/cards/adds-catalog', async (req, res) => {
 
     const [rows] = await db().query(
       `SELECT c.name, c.scryfall_id, c.type_line, c.oracle_text, c.cmc, c.mana_cost, c.oracle_id,
-              c.color_identity_json, c.image_small, c.image_normal, c.edhrec_pct_json, t.tags_json
+              c.color_identity_json, c.image_small, c.image_normal, c.edhrec_pct_json, c.edhrec_rank, t.tags_json
          FROM scryfall_oracle_cards c
          LEFT JOIN scryfall_oracle_tags t ON t.oracle_id = c.oracle_id AND t.schema_version = '4'
         WHERE (c.commander_legal IS NULL OR c.commander_legal = 1)
@@ -7162,6 +7165,8 @@ app.post('/api/cards/adds-catalog', async (req, res) => {
       const roleTags = parseArr(r.tags_json);
       const ci = parseArr(r.color_identity_json);
       const edhrecRolePct = parseObj(r.edhrec_pct_json);
+      const rankRaw = Number(r.edhrec_rank);
+      const edhrecRank = Number.isFinite(rankRaw) && rankRaw > 0 ? Math.floor(rankRaw) : null;
       out.push({
         name: r.name, id: r.scryfall_id, oracleId: r.oracle_id || null,
         type_line: r.type_line || '', oracle_text: r.oracle_text || '',
@@ -7170,6 +7175,7 @@ app.post('/api/cards/adds-catalog', async (req, res) => {
         image_small: r.image_small || null, image_normal: r.image_normal || null,
         roleTags,
         edhrecRolePct: edhrecRolePct || undefined,
+        edhrecRank: edhrecRank || undefined,
       });
       if (out.length >= limit) break;
     }
@@ -7193,21 +7199,25 @@ app.post('/api/cards/edhrec-percentiles', async (req, res) => {
       .map(id => String(id || '').toLowerCase())
       .filter(id => /^[0-9a-f-]{36}$/.test(id))
       .slice(0, 200);
-    if (!ids.length) return res.json({ byOracleId: {} });
+    if (!ids.length) return res.json({ byOracleId: {}, rankByOracleId: {} });
     const ph = ids.map(() => '?').join(',');
     const [rows] = await db().query(
-      `SELECT oracle_id, edhrec_pct_json FROM scryfall_oracle_cards WHERE oracle_id IN (${ph})`,
+      `SELECT oracle_id, edhrec_pct_json, edhrec_rank FROM scryfall_oracle_cards WHERE oracle_id IN (${ph})`,
       ids
     );
     const byOracleId = {};
+    const rankByOracleId = {};
     for (const r of rows) {
+      const oid = String(r.oracle_id).toLowerCase();
       let map = r.edhrec_pct_json;
       if (typeof map === 'string') {
         try { map = JSON.parse(map); } catch (_) { map = null; }
       }
-      if (map && typeof map === 'object') byOracleId[String(r.oracle_id).toLowerCase()] = map;
+      if (map && typeof map === 'object') byOracleId[oid] = map;
+      const rankRaw = Number(r.edhrec_rank);
+      if (Number.isFinite(rankRaw) && rankRaw > 0) rankByOracleId[oid] = Math.floor(rankRaw);
     }
-    res.json({ byOracleId });
+    res.json({ byOracleId, rankByOracleId });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

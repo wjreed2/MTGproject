@@ -339,9 +339,13 @@
 
     const score = (D * M) + C_eff + L + eTerm.E + bTerm.B - P + V + T + K;
 
+    const rankRaw = Number(card?.edhrecRank ?? card?.edhrec_rank);
+    const edhrecRank = Number.isFinite(rankRaw) && rankRaw > 0 ? Math.floor(rankRaw) : null;
+
     const terms = {
       D, M, C_eff, L, E: eTerm.E, B: bTerm.B, P, V, T, K,
       eRole: eTerm.eRole, p: eTerm.p, pAdjusted: eTerm.pAdjusted,
+      edhrecRank,
       bReason: bTerm.bReason, efficiencyMode: eff, cmc, pipScore, matched,
     };
 
@@ -367,6 +371,7 @@
       B: bTerm.B,
       P,
       C_eff,
+      edhrecRank,
     };
   }
 

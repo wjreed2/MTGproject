@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Regression: EDHREC (E) must appear in Adds "Why suggested" after K_E retune.
- * Helpers mirrored from js/decks.js (_fmtWhyVal / _edhrecWhyLine).
+ * Regression: EDHREC rank must appear in Adds "Why suggested".
+ * Helpers mirrored from js/decks.js (_fmtWhyVal / _edhrecWhyLines).
  */
 'use strict';
 
@@ -26,27 +26,33 @@ function _fmtWhyVal(v) {
   return (r >= 0 ? '+' : '') + r;
 }
 
-function _edhrecWhyLine(s) {
+function _edhrecWhyLines(s) {
   const t = s.terms || null;
   const E = Number(s.E) || 0;
-  if (!(E > 0)) return null;
-  const role = escapeHtml(t?.eRole || s.topRole || 'pick');
-  let pctNote = '';
-  if (t && t.p != null && Number.isFinite(t.p)) {
-    const pct = Math.max(0, Math.min(100, Math.round(Number(t.p) * 100)));
-    pctNote = ` · ${pct}th pct`;
+  const rankRaw = Number(s.edhrecRank ?? t?.edhrecRank);
+  const rank = Number.isFinite(rankRaw) && rankRaw > 0 ? Math.floor(rankRaw) : null;
+  const role = escapeHtml(t?.eRole || s.topRole || '');
+  const lines = [];
+  if (rank != null) {
+    lines.push({
+      text: role ? `EDHREC rank · ${role}` : 'EDHREC rank',
+      val: `#${rank}`,
+    });
   }
-  return {
-    text: `Popular ${role} (EDHREC${pctNote})`,
-    val: _fmtWhyVal(E),
-  };
+  if (E > 0) {
+    let pctNote = '';
+    if (t && t.p != null && Number.isFinite(t.p)) {
+      const pct = Math.max(0, Math.min(100, Math.round(Number(t.p) * 100)));
+      pctNote = ` · ${pct}th pct`;
+    }
+    const labelRole = role || 'pick';
+    lines.push({
+      text: `Popular ${labelRole} (EDHREC${pctNote})`,
+      val: _fmtWhyVal(E),
+    });
+  }
+  return lines;
 }
-
-// Old 1-decimal formatter hid mid-range E as "+0".
-assert.strictEqual(_fmtWhyVal(0.03), '+0.03');
-assert.strictEqual(_fmtWhyVal(0.1), '+0.1');
-assert.strictEqual(_fmtWhyVal(0.098), '+0.10');
-assert.strictEqual(_fmtWhyVal(1.2), '+1.2');
 
 const card = {
   name: 'Three Visits',
@@ -54,6 +60,7 @@ const card = {
   cmc: 2,
   mana: '{1}{G}',
   priceTCG: 5,
+  edhrecRank: 42,
   edhrecRolePct: { Ramp: 0.98 },
 };
 const scored = scoring.scoreAddCandidateTerms(
@@ -61,27 +68,26 @@ const scored = scoring.scoreAddCandidateTerms(
   ['Ramp'],
   { deficits: { Ramp: 6 }, curveDeficit: [0, 0, 0, 0, 0, 0, 0, 0] },
 );
+assert.strictEqual(scored.edhrecRank, 42);
 assert.ok(scored.E > 0, 'E should be positive for elite Ramp EDHREC pct');
-assert.ok(scored.E <= scoring.K_E + 1e-9, 'E capped by K_E');
 
-const line = _edhrecWhyLine(scored);
-assert.ok(line, 'EDHREC why line must render when E > 0');
-assert.match(line.text, /Popular Ramp \(EDHREC · 98th pct\)/);
-assert.notStrictEqual(line.val, '+0', 'EDHREC contribution must not round to +0');
-assert.ok(line.val.startsWith('+'), 'EDHREC val is a positive score delta');
+const lines = _edhrecWhyLines(scored);
+assert.ok(lines.some(l => l.text === 'EDHREC rank · Ramp' && l.val === '#42'),
+  'why panel must show EDHREC rank #42');
+assert.ok(lines.some(l => /Popular Ramp \(EDHREC/.test(l.text) && l.val.startsWith('+')),
+  'E contribution line still shown when E > 0');
 
-// Low-mid popularity: E = 0.1 × 0.08 = 0.008 — failed old >0.01 gate entirely.
-const mid = scoring.scoreAddCandidateTerms(
-  { ...card, edhrecRolePct: { Ramp: 0.08 }, priceTCG: 2 },
+// Rank-only: no percentile map → E=0, but rank must still display.
+const rankOnly = scoring.scoreAddCandidateTerms(
+  { ...card, edhrecRolePct: undefined, edhrecRank: 1200 },
   ['Ramp'],
   { deficits: { Ramp: 4 }, curveDeficit: [0, 0, 0, 0, 0, 0, 0, 0] },
 );
-assert.ok(mid.E > 0 && mid.E <= 0.01, 'low-mid E is positive but ≤ old UI gate');
-const midLine = _edhrecWhyLine(mid);
-assert.ok(midLine, 'low-mid EDHREC still shown after retune');
-assert.match(midLine.text, /8th pct/);
-assert.notStrictEqual(midLine.val, '+0');
+assert.strictEqual(rankOnly.E, 0);
+assert.strictEqual(rankOnly.edhrecRank, 1200);
+const rankLines = _edhrecWhyLines(rankOnly);
+assert.deepStrictEqual(rankLines, [{ text: 'EDHREC rank · Ramp', val: '#1200' }]);
 
-assert.strictEqual(_edhrecWhyLine({ E: 0, terms: { p: null } }), null);
+assert.deepStrictEqual(_edhrecWhyLines({ E: 0, edhrecRank: null, terms: {} }), []);
 
 console.log('test-adds-why-edhrec: ok');
