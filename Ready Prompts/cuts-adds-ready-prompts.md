@@ -1506,6 +1506,7 @@ Deterministic only — no runtime AI/LLM.
 ## User-locked (do NOT ship)
 - NO addDisplayScore / `/10` on **suggestion badges** (raw score only)
 - NO S term
+- NO `ADD_SCORE_DISPLAY_MIN` / **no “7/10 or better” suggestion filter**
 
 ## Goal
 1. A0: Raw score badge only.

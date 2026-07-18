@@ -16,8 +16,9 @@ until locked decisions (§4) are confirmed.
 | **U1** | Remove display score | Badge = **raw score** only; drop display helpers/ceiling. |
 | **U2** | Dislike stepped raw→badge mapping | No remap; one continuous raw number. |
 | **U3** | No S bonus | **No S**; multi-role value via **V** + sublinear **D**. |
+| **U4** | No “7/10 or better” filter | **Remove** `ADD_SCORE_DISPLAY_MIN`, `meetsAddDisplayFloor`, and any logic that hides suggestions unless display ≥ 7/10. Show all picks that pass normal score > 0 + gates. |
 
-**Rejected:** `/10` badges, display floor, S term.
+**Rejected:** `/10` badges on suggestions, display ceiling, display floor / min 7/10, S term.
 
 Related code:
 - `js/adds-scoring.js` — formula `(D × M) + C_eff + L + E + B − P + V + T + K`
@@ -198,7 +199,7 @@ removes that confusion; users see raw ~5.4 and read Why lines for context.
 | D10 | Cuts shielding | Phase B |
 | D11 | Wizard v2 extras | Phase B/C |
 | D13 | **Option A** primary tier: `W_S = 0` while `hasPrimaryNeed` | **Locked** |
-| D14 | Primary strength strip: Ramp/Draw/Removal **N/10** = have÷target (not card score) | **Locked** |
+| D14 | Primary strength strip: literal **`have/target`** (e.g. 12/10); “strong at” when have ≥ target | **Locked** |
 
 ## 5. Phase A — Plan-aware ranking + raw badge + Why (implement next)
 
