@@ -3637,6 +3637,13 @@ async function rewriteDeckCardsRows(conn, ownerId, deckId, cardsList) {
   }
 }
 
+// Recently applied op batches — dedupes a client retry after a LOST RESPONSE
+// (the batch committed but the ack never arrived). Re-applying such a batch
+// would re-assert its absolute values over collaborator edits that landed in
+// the retry window. In-memory is sufficient: the window is the client's
+// seconds-scale backoff, and a restart merely downgrades to idempotent re-apply.
+const _recentDeckOpsBatches = new Map(); // `${deckId}:${accountId}` → { batchId }
+
 // ── Granular op-based deck writes (owner or collaborator) ────────────────────
 // The client diffs its live deck against the last server-acked shadow and sends
 // only the resulting ops (js/deck-ops.js). Ops merge onto the server's CURRENT
@@ -3657,7 +3664,7 @@ app.post('/api/decks/:id/ops', requireAuth, async (req, res) => {
     try {
       await conn.beginTransaction();
       const [rows] = await conn.query(
-        'SELECT account_id, data, revision FROM decks WHERE id = ? FOR UPDATE',
+        'SELECT account_id, data, updated_at, revision FROM decks WHERE id = ? FOR UPDATE',
         [deckId]
       );
 
@@ -3689,7 +3696,7 @@ app.post('/api/decks/:id/ops', requireAuth, async (req, res) => {
           [accountId, deckId]
         );
         await conn.commit();
-        result = { revision: Number(revRows[0]?.revision) || 1, ownerId: Number(accountId), ops };
+        result = { revision: Number(revRows[0]?.revision) || 1, ownerId: Number(accountId), ops, cardsChanged: true };
       } else {
         const ownerId = Number(rows[0].account_id);
         const isOwner = ownerId === Number(accountId);
@@ -3709,31 +3716,54 @@ app.post('/api/decks/:id/ops', requireAuth, async (req, res) => {
           }
         }
 
+        // Retry of a batch whose ack was lost: it already committed — do not
+        // re-apply it over collaborator writes that landed since. Return the
+        // CURRENT revision so the client's gap check still triggers a refetch
+        // when others wrote in between.
+        const batchId = typeof body.batchId === 'string' && body.batchId ? body.batchId : null;
+        const dedupeKey = deckId + ':' + accountId;
+        if (batchId && _recentDeckOpsBatches.get(dedupeKey)?.batchId === batchId) {
+          await conn.rollback(); conn.release();
+          return res.json({
+            ok: true,
+            deduped: true,
+            revision: Number(rows[0].revision) || 0,
+            updatedAt: Number(rows[0].updated_at) || now,
+          });
+        }
+
         const deck = typeof rows[0].data === 'string' ? JSON.parse(rows[0].data) : (rows[0].data || {});
-        // deck_cards (+ tag fast-path rows) are authoritative over blob cards[].
-        const [cardRows] = await conn.query(
-          `SELECT dc.card_uid, dc.card_data, dct.tag_name
-           FROM deck_cards dc
-           LEFT JOIN deck_card_tags dct
-             ON dct.account_id = dc.account_id AND dct.deck_id = dc.deck_id AND dct.card_uid = dc.card_uid
-           WHERE dc.account_id = ? AND dc.deck_id = ?
-           ORDER BY dc.sort_order ASC`,
-          [ownerId, deckId]
-        );
-        if (cardRows.length) {
-          const byUid = new Map();
-          for (const r of cardRows) {
-            let card = byUid.get(r.card_uid);
-            if (!card) {
-              card = typeof r.card_data === 'string' ? JSON.parse(r.card_data) : r.card_data;
-              if (!Array.isArray(card.customTags)) card.customTags = [];
-              byUid.set(r.card_uid, card);
+        // deck_cards (+ tag fast-path rows) are authoritative over blob cards[],
+        // but the join is only needed when this batch can touch the mainboard —
+        // planning/meta-only batches (rapid cut marking) must not pay for a full
+        // card materialization while holding the row lock. Skipping it leaves
+        // stale blob cards[] behind, which every GET path already overrides.
+        const touchesCards = !!createSnapshot || ops.some(o => o && o.z === 'cards');
+        if (touchesCards) {
+          const [cardRows] = await conn.query(
+            `SELECT dc.card_uid, dc.card_data, dct.tag_name
+             FROM deck_cards dc
+             LEFT JOIN deck_card_tags dct
+               ON dct.account_id = dc.account_id AND dct.deck_id = dc.deck_id AND dct.card_uid = dc.card_uid
+             WHERE dc.account_id = ? AND dc.deck_id = ?
+             ORDER BY dc.sort_order ASC`,
+            [ownerId, deckId]
+          );
+          if (cardRows.length) {
+            const byUid = new Map();
+            for (const r of cardRows) {
+              let card = byUid.get(r.card_uid);
+              if (!card) {
+                card = typeof r.card_data === 'string' ? JSON.parse(r.card_data) : r.card_data;
+                if (!Array.isArray(card.customTags)) card.customTags = [];
+                byUid.set(r.card_uid, card);
+              }
+              if (r.tag_name && !card.customTags.some(t => String(t).toLowerCase() === String(r.tag_name).toLowerCase())) {
+                card.customTags.push(r.tag_name);
+              }
             }
-            if (r.tag_name && !card.customTags.some(t => String(t).toLowerCase() === String(r.tag_name).toLowerCase())) {
-              card.customTags.push(r.tag_name);
-            }
+            deck.cards = [...byUid.values()];
           }
-          deck.cards = [...byUid.values()];
         }
 
         // Create-retry after a lost response: the row exists but the client
@@ -3773,11 +3803,19 @@ app.post('/api/decks/:id/ops', requireAuth, async (req, res) => {
         );
         // A cuts/adds/meta-only batch touches no mainboard rows — skip the full
         // deck_cards DELETE+INSERT so the row lock isn't held for ~2N writes.
-        if (applied.changedZones.includes('cards')) {
+        const cardsChanged = applied.changedZones.includes('cards');
+        if (cardsChanged) {
           await rewriteDeckCardsRows(conn, ownerId, deckId, merged.cards || []);
         }
         await conn.commit();
-        result = { revision: nextRevision, ownerId, ops: effectiveOps };
+        if (batchId) {
+          _recentDeckOpsBatches.delete(dedupeKey);
+          _recentDeckOpsBatches.set(dedupeKey, { batchId });
+          if (_recentDeckOpsBatches.size > 1000) {
+            _recentDeckOpsBatches.delete(_recentDeckOpsBatches.keys().next().value);
+          }
+        }
+        result = { revision: nextRevision, ownerId, ops: effectiveOps, cardsChanged };
       }
       conn.release();
     } catch (e) {
@@ -3785,8 +3823,13 @@ app.post('/api/decks/:id/ops', requireAuth, async (req, res) => {
       conn.release();
       throw e;
     }
-    invalidateTradelistCache(result.ownerId);
-    void reconcileAccountWishlist(result.ownerId);
+    // Tradelist surplus and deck-needed wishlist entries derive from the
+    // mainboard only — planning/meta batches (rapid cut marking) must not fire
+    // an account-wide wishlist reconciliation per keystroke.
+    if (result.cardsChanged) {
+      invalidateTradelistCache(result.ownerId);
+      void reconcileAccountWishlist(result.ownerId);
+    }
     _broadcastDeck(deckId, await deckBroadcastMeta(accountId, {
       kind: 'ops',
       deckId,

@@ -439,6 +439,21 @@ function _deckCreatePayload(deck) {
   return snap;
 }
 
+/** Content hash identifying one logical op batch — stable across retries of the
+ *  same payload, different the moment the diff changes. The server dedupes on it
+ *  so a retry after a lost ack can't re-assert stale values over collaborator
+ *  edits that landed in the retry window. */
+function _deckOpsBatchId(ops, baseRevision) {
+  const s = baseRevision + '|' + JSON.stringify(ops);
+  let h1 = 5381, h2 = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    h1 = ((h1 << 5) + h1 + c) | 0;
+    h2 = ((h2 * 65599) + c) | 0;
+  }
+  return (h1 >>> 0).toString(36) + '-' + (h2 >>> 0).toString(36) + '-' + s.length.toString(36);
+}
+
 async function _postDeckOps(id, body) {
   const res = await fetch(mtgApiRoot() + '/decks/' + id + '/ops', {
     method: 'POST',
@@ -510,7 +525,8 @@ async function _flushDeckOps(id) {
       _deckOpsDirty.delete(id);
       return true;
     }
-    body = { ops, baseRevision: _deckRevisions[id] || 0 };
+    const baseRev = _deckRevisions[id] || 0;
+    body = { ops, baseRevision: baseRev, batchId: _deckOpsBatchId(ops, baseRev) };
   }
   const sentSnapshot = DeckOps.snapshotDeck(live);
   const baseRevision = _deckRevisions[id] || 0;
@@ -648,7 +664,11 @@ function _flushDeckOpsKeepalive(id) {
   }
   const ops = DeckOps.diffDecks(_deckShadows[id], live);
   if (!ops.length) return;
-  fetch(root, { ...ko, body: JSON.stringify({ ops, baseRevision: _deckRevisions[id] || 0 }) }).catch(() => {});
+  const baseRev = _deckRevisions[id] || 0;
+  fetch(root, {
+    ...ko,
+    body: JSON.stringify({ ops, baseRevision: baseRev, batchId: _deckOpsBatchId(ops, baseRev) }),
+  }).catch(() => {});
 }
 
 // Legacy-named entry points — call sites across decks.js/collection.js keep
