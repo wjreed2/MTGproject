@@ -5850,6 +5850,33 @@ async function recomputeEdhrecRolePercentiles({ schemaVersion = '4' } = {}) {
   }
 }
 
+/**
+ * One-shot / repair: if ranks exist but edhrec_pct_json was never filled (e.g. cards
+ * imported before recompute ran, or recompute was skipped), compute percentiles on boot.
+ * No-op when coverage already looks healthy.
+ */
+async function backfillEdhrecPercentilesIfNeeded() {
+  const [[row]] = await db().query(`
+    SELECT
+      SUM(edhrec_rank IS NOT NULL) AS withRank,
+      SUM(edhrec_pct_json IS NOT NULL) AS withPct
+    FROM scryfall_oracle_cards`);
+  const withRank = Number(row?.withRank || 0);
+  const withPct = Number(row?.withPct || 0);
+  if (!withRank) {
+    console.log('[edhrec-pct] boot backfill skip — no edhrec_rank values');
+    return;
+  }
+  // Healthy: most ranked cards already have a pct map.
+  if (withPct > 0 && withPct >= withRank * 0.5) {
+    console.log(`[edhrec-pct] boot backfill skip — coverage ok (rank=${withRank} pct=${withPct})`);
+    return;
+  }
+  console.log(`[edhrec-pct] boot backfill starting (rank=${withRank} pct=${withPct})`);
+  const result = await recomputeEdhrecRolePercentiles({ schemaVersion: '4' });
+  console.log(`[edhrec-pct] boot backfill done roles=${result.roles} updated=${result.updated}`);
+}
+
 // Printing-level perceptual-hash fingerprints used by the card scanner (see
 // scripts/build-print-fingerprints.js, which populates this table; keep the schema identical).
 async function ensurePrintFingerprintsTable() {
@@ -8618,6 +8645,7 @@ async function start() {
       await ensureScryfallTagCacheTable();
       await ensurePrintFingerprintsTable();
       await backfillDeckCardsIfEmpty();
+      await backfillEdhrecPercentilesIfNeeded();
     } catch (e) {
       console.error('[db] schema/backfill warning:', e.message);
     }
