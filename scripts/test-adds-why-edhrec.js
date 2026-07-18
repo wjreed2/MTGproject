@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * EDHREC why metric: percentile × K_E (4) must appear when a card has stored
+ * EDHREC why metric: percentile × K_E (1) must appear when a card has stored
  * role percentiles — including when the deck's largest hole is a different role,
  * and when the card's roles have zero active deficit.
  */
@@ -22,7 +22,7 @@ function _fmtWhyVal(v) {
 
 function edhrecWhyVal(s) {
   const t = s.terms || null;
-  const scale = typeof scoring.K_E === 'number' ? scoring.K_E : 4;
+  const scale = typeof scoring.K_E === 'number' ? scoring.K_E : 1;
   const p = t && t.p != null && Number.isFinite(Number(t.p)) ? Number(t.p) : null;
   const edhScore = p != null ? p * scale : (Number(s.E) || 0);
   if (!(edhScore > 0)) return null;
@@ -30,7 +30,7 @@ function edhrecWhyVal(s) {
   return { text: `EDHREC rank · ${role}`, val: _fmtWhyVal(edhScore) };
 }
 
-assert.strictEqual(scoring.K_E, 4);
+assert.strictEqual(scoring.K_E, 1);
 assert.strictEqual(scoring.E_POPULATION_FLOOR, undefined, 'population floor rule removed');
 
 // #5 fallback: preferred deficit role lacks pct → use next role that has one.
@@ -77,8 +77,8 @@ assert.ok(Math.abs(scored.terms.p - 0.72) < 1e-9);
 const line = edhrecWhyVal(scored);
 assert.ok(line, 'Why suggested must include EDHREC rank line');
 assert.strictEqual(line.text, 'EDHREC rank · Counterspell');
-// 0.72 × 4 = 2.88 → +2.9
-assert.strictEqual(line.val, '+2.9');
+// 0.72 × 1 = 0.72 → +0.7
+assert.strictEqual(line.val, '+0.7');
 
 // No active deficit on the card's roles — E still applies (#4 removed).
 {
@@ -112,6 +112,7 @@ const tv = scoring.scoreAddCandidateTerms(
   ['Ramp'],
   { deficits: { Ramp: 6 }, curveDeficit: [0, 0, 0, 0, 0, 0, 0, 0] },
 );
-assert.strictEqual(edhrecWhyVal(tv).val, '+3.9');
+// 0.98 × 1 = 0.98 → +1.0
+assert.strictEqual(edhrecWhyVal(tv).val, '+1');
 
 console.log('test-adds-why-edhrec: ok');

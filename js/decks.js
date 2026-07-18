@@ -7125,10 +7125,10 @@ function _buildAddWhyLines(s, ctx) {
     lines.push({ text: `Fills a thin curve spot at ${s.bucket}${s.bucket === 7 ? '+' : ''} MV`, val: _fmtWhyVal(s.C_eff ?? s.curveBonus) });
   }
   if ((s.L || 0) > 0.01) lines.push({ text: `Efficient CMC for interaction`, val: _fmtWhyVal(s.L) });
-  // EDHREC rank score = role percentile × K_E (4). Always show in this panel when
+  // EDHREC rank score = role percentile × K_E (1). Always show in this panel when
   // scoring produced a percentile (or E contribution).
   {
-    const scale = typeof K_E === 'number' ? K_E : 4;
+    const scale = typeof K_E === 'number' ? K_E : 1;
     const p = t && t.p != null && Number.isFinite(Number(t.p)) ? Number(t.p) : null;
     const edhScore = p != null ? p * scale : (Number(s.E) || 0);
     if (edhScore > 0) {

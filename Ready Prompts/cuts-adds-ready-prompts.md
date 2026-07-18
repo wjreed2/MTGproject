@@ -200,10 +200,9 @@ Use **discrete steps** at band edges (not smooth interpolation inside a band).
 - Do NOT sum E per tag. Do NOT use EDHREC category APIs or scrape edhrec.com.
 - Three Visits (rank ~42) must remain elite after price adjust.
 
-**`K_E`:** independent constant (no longer `0.5 × K_L`). After `K_L` was retuned to
-`0.2`, that relative rule left max E at `0.1` (below `K_B`), so unpopular creatures
-could beat staples. Current calibration: **`K_E = 4.0`** — `E = K_E × p_adjusted`, so
-an 80th-percentile role card gets ≈ 3.2 and a top-percentile card gets the full 4.0.
+**`K_E`:** independent constant (no longer `0.5 × K_L`). Current calibration:
+**`K_E = 1.0`** — `E = K_E × p_adjusted`, so an 80th-percentile role card gets ≈ 0.8
+and a top-percentile card gets the full 1.0.
 
 ### B — creature body bonus (entry 12)
 STE / Wood Elves / Rampant Growth were **examples**, not “B is ramp-only.”
@@ -268,7 +267,7 @@ constants (especially `K_L`) and made Efficient CMC dominate real score deltas.
 | mode | Board-wipe deficit only | Sweepers still get C (L not applied) |
 | mode | Removal / Ramp tagged | Efficiency mode on; C_eff off; L > 0 for CMC &lt; 4 |
 | scale | `K_L × CMC_REF` | Max L ≤ C_eff cap (1.5) so L stays secondary to D |
-| consts | Named constants | `CMC_REF=4`, `K_E = 4.0` (independent; `K_E > K_B`), D weights `[1, 0.5, 0.25]`, tag set membership |
+| consts | Named constants | `CMC_REF=4`, `K_E = 1.0` (independent; `K_E > K_B`), D weights `[1, 0.5, 0.25]`, tag set membership |
 
 ### Soft vignettes (debug log only — do not hard-fail)
 | # | Case | Expectation |
