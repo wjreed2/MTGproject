@@ -3545,11 +3545,15 @@ function renderActiveDeck() {
   if (activeDeckIsShared && deck.id && typeof ensureSharedDeckFresh === 'function') {
     ensureSharedDeckFresh(deck.id);
   }
-  if (typeof _pruneStalePlannedCuts === 'function' && _pruneStalePlannedCuts(deck)) {
-    if (typeof saveDeckPlanningNow === 'function') {
-      saveDeckPlanningNow(deck).catch(() => {});
-    } else {
-      saveActiveDeck(deck, { planningOnly: true, planningImmediate: true });
+  // Prune cut markers only when this user can persist the cleanup — a view-only
+  // collaborator's auto-save used to 403 forever and block the deck's refreshes.
+  if (typeof canEditActiveDeck !== 'function' || canEditActiveDeck()) {
+    if (typeof _pruneStalePlannedCuts === 'function' && _pruneStalePlannedCuts(deck)) {
+      if (typeof saveDeckPlanningNow === 'function') {
+        saveDeckPlanningNow(deck).catch(() => {});
+      } else {
+        saveActiveDeck(deck, { planningOnly: true, planningImmediate: true });
+      }
     }
   }
   _backfillDeckCardTypeLines(deck);
@@ -10901,11 +10905,29 @@ async function deleteDeck() {
     okClass: 'btn-danger',
   });
   if (!ok) return;
-  decks = decks.filter(d => d.id !== activeDeckId);
+  const deckId = activeDeckId;
+  decks = decks.filter(d => d.id !== deckId);
   activeDeckId = null;
   activeDeckIsShared = false;
   localStorage.removeItem('mtg_active_deck_id');
-  save('decks'); renderDecks();
+  if (typeof dropDeckShadow === 'function') dropDeckShadow(deckId);
+  // Keep the offline cache in step or a cache-first boot resurrects the deck.
+  if (typeof cacheSet === 'function') cacheSet('decks', decks).catch(() => {});
+  renderDecks();
+  // Explicit server delete — deck removal no longer rides on the bulk snapshot
+  // PUT, so retry a few times before giving up (a blip used to be retried
+  // indefinitely by the dirty-flag machinery).
+  let lastErr = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await apiDelete('/decks/' + deckId);
+      return;
+    } catch (e) {
+      lastErr = e;
+      if (attempt < 2) await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
+    }
+  }
+  showNotif('Could not delete the deck on the server — it may reappear after a reload. (' + (lastErr?.message || 'server error') + ')', true);
 }
 
 function changeActiveDeckFormat() {
