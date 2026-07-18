@@ -80,7 +80,8 @@ assert.strictEqual(line.text, 'EDHREC rank · Counterspell');
 // 0.72 × 1 = 0.72 → +0.7
 assert.strictEqual(line.val, '+0.7');
 
-// No active deficit on the card's roles — E still applies (#4 removed).
+// No active deficit on the card's roles — E stays 0 (popular off-role cards
+// must not float up; e.g. Recursion staples on a deck that doesn't want Recursion).
 {
   const filled = scoring.scoreAddCandidateTerms(
     {
@@ -94,9 +95,27 @@ assert.strictEqual(line.val, '+0.7');
     ['Ramp'],
     { deficits: { Ramp: 0, Removal: 4 }, curveDeficit: [0, 0, 0, 0, 0, 0, 0, 0] },
   );
-  assert.ok(filled.E > 0, 'E must not require an active deficit');
-  assert.strictEqual(filled.terms.eRole, 'Ramp');
-  assert.ok(edhrecWhyVal(filled), 'Why line when deficits are already filled');
+  assert.strictEqual(filled.E, 0, 'E requires an active deficit on a card role');
+  assert.strictEqual(filled.terms.eRole, null);
+  assert.strictEqual(edhrecWhyVal(filled), null);
+}
+
+// Recursion staple with only Recursion tag: no E / weak D when Recursion deficit is 0.
+{
+  const rec = scoring.scoreAddCandidateTerms(
+    {
+      name: 'Eternal Witness',
+      type: 'Creature — Human Shaman',
+      cmc: 3,
+      mana: '{1}{G}{G}',
+      priceTCG: 2,
+      edhrecRolePct: { Recursion: 0.99 },
+    },
+    ['Recursion'],
+    { deficits: { Recursion: 0, Ramp: 5, Removal: 3 }, curveDeficit: [0, 0, 0, 0, 0, 0, 0, 0] },
+  );
+  assert.strictEqual(rec.terms.D, 0, 'Recursion-only card gets D=0 when Recursion is filled/unwanted');
+  assert.strictEqual(rec.E, 0, 'Recursion staple gets no E without a Recursion hole');
 }
 
 // Elite staple still works

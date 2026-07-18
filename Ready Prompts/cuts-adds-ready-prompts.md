@@ -193,9 +193,10 @@ Use **discrete steps** at band edges (not smooth interpolation inside a band).
 **Score-time E:**
 - `p_adjusted = clamp(p + Δp, 0, 1)`
 - **Linear** curve (locked): `E = K_E × p_adjusted`
-- **One E per candidate** — among the candidate's roles, prefer the largest deck deficit
-  (zeros allowed — E does **not** require an active hole), then try other roles until a
-  stored percentile is found; tie-break lexicographically. No percentile on any role → E = 0.
+- **One E per candidate** — among the candidate's roles with an **active deficit**, prefer
+  the largest hole, then try other matched roles until a stored percentile is found;
+  tie-break lexicographically. No active deficit / no percentile → E = 0 (popular
+  off-role staples must not float up).
 - **No multi-tag dampening inside E** (locked — do not add).
 - Do NOT sum E per tag. Do NOT use EDHREC category APIs or scrape edhrec.com.
 - Three Visits (rank ~42) must remain elite after price adjust.

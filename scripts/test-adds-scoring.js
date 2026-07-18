@@ -253,15 +253,20 @@ const wipeOnlyCtx = {
 }
 
 {
-  assert.strictEqual(ADD_SCORE_RAW_CEILING, 12);
+  assert.strictEqual(ADD_SCORE_RAW_CEILING, 8);
   assert.strictEqual(ADD_SCORE_DISPLAY_MAX, 10);
   assert.strictEqual(addDisplayScore(0), 0);
   assert.strictEqual(addDisplayScore(-1), 0);
-  assert.strictEqual(addDisplayScore(6), 5);
-  assert.strictEqual(addDisplayScore(12), 10);
+  assert.strictEqual(addDisplayScore(4), 5);
+  assert.strictEqual(addDisplayScore(8), 10);
   assert.strictEqual(addDisplayScore(18), 10);
-  assert.strictEqual(formatAddDisplayScore(4), '3.3');
-  console.log('[display] raw 4 →', formatAddDisplayScore(4) + '/10', '; raw 12 →', formatAddDisplayScore(12) + '/10');
+  assert.strictEqual(formatAddDisplayScore(4), '5.0');
+  // List-relative: #1 is always 10/10
+  assert.strictEqual(addDisplayScore(2.8, 2.8), 10);
+  assert.strictEqual(formatAddDisplayScore(2.8, 2.8), '10.0');
+  assert.ok(Math.abs(addDisplayScore(1.4, 2.8) - 5) < 1e-9);
+  console.log('[display] raw 4 →', formatAddDisplayScore(4) + '/10',
+    '; list-top 2.8 →', formatAddDisplayScore(2.8, 2.8) + '/10');
 }
 
 console.log('adds-scoring: ok');
