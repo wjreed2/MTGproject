@@ -311,7 +311,70 @@ Do **not** start B until A’s H term is stable.
 4. **Mixed backfill (Phase C):** Unowned on-plan cards while Ramp/Draw holes exist?  
 5. **Raw score scale:** If a great Path shows ~5.4 raw, is that acceptable with
    good Why lines, or should we tune K_E upward so “staple single-role” raw lands
-   higher (still no display remap)?
+   higher (still no display remap)?  
+6. **Primary tier priority:** Option A (weighted D), B (sort tier), or C (boost term)? Hard `W_S=0` vs soft `0.25`?
+
+---
+
+## 12. v1 — Two-tier role priority (planning)
+
+**User rule:** When the deck has a primary need (Ramp, Card Draw, or Removal
+deficit ≥ 1), those roles beat secondary roles (Board Wipe, Tutor, Counterspell,
+Protection, Recursion, Plan, …) in Suggested Adds.
+
+**Trigger:** `hasPrimaryNeed = max(deficits.Ramp, deficits['Card Draw'], deficits.Removal) >= 1`
+
+### Option A — Weighted D in `computeDeficitTermD` (recommended default)
+
+Scale each matched deficit before sublinear weights:
+
+| Tier | Roles | When `hasPrimaryNeed` |
+|------|-------|------------------------|
+| **Primary (P)** | Ramp, Card Draw, Removal | `effective = deficit × 1.0` |
+| **Secondary (S)** | All other scored roles + Plan | `effective = deficit × W_S` |
+
+- **Strict v1:** `W_S = 0` — secondary tags add nothing to D while any primary hole remains.
+- **Soft fallback:** `W_S = 0.25` — Tutor/Wipe can still appear if elite, but lose to equal primary picks.
+
+Apply the same tier map to **E** role selection so EDHREC doesn’t favor Tutor percentile while Ramp is short.
+
+**Pros:** One place in the formula; Why can say “Primary staples prioritized.”  
+**Cons:** Strict mode hides all secondary-only picks until primaries are met.
+
+---
+
+### Option B — Sort tier, then raw score (pool level)
+
+Leave D unchanged. In `_addsCompareScored` / `_addsSelectTopPicks`:
+
+1. Bucket **A** = candidate fills ≥1 primary deficit; **B** = secondary-only.
+2. If `hasPrimaryNeed`, sort all of A above all of B (each bucket by raw score).
+
+Optional: reserve 1 of 8 slots for bucket B so a critical Tutor isn’t invisible.
+
+**Pros:** No formula change; easy to tune slot cap.  
+**Cons:** Same raw score in different buckets ignores secondary D magnitude unless B is capped.
+
+---
+
+### Option C — Additive primary boost **G** (middle ground)
+
+`G = K_G` (e.g. 2–3) when `hasPrimaryNeed` and candidate matches ≥1 primary deficit; else `0`.
+
+Secondary-only cards keep their secondary D but start behind unless the secondary hole is much larger.
+
+**Pros:** Soft; desperate Tutor can still climb.  
+**Cons:** Another constant; overlaps Option A if both ship.
+
+---
+
+### v1 recommendation
+
+**Option A** with **`W_S = 0`**, revisit **`W_S = 0.25`** if “no Tutor until curve fixed” feels too harsh.
+
+**Test vignette:** Short 4 Ramp, short 2 Tutor → ramp spells above Demonic Tutor until Ramp need clears.
+
+---
 
 ## 11. Immediate reading list for the implementer
 
