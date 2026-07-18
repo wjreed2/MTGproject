@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
- * EDHREC why metric: percentile × K_E (4) must appear for cards that fill a
- * deficit — even when some *other* deck hole is larger.
+ * EDHREC why metric: percentile × K_E (4) must appear when a card has stored
+ * role percentiles — including when the deck's largest hole is a different role,
+ * and when the card's roles have zero active deficit.
  */
 'use strict';
 
@@ -30,9 +31,28 @@ function edhrecWhyVal(s) {
 }
 
 assert.strictEqual(scoring.K_E, 4);
+assert.strictEqual(scoring.E_POPULATION_FLOOR, undefined, 'population floor rule removed');
 
-// Regression from production screenshot: Counterspell suggestion while Ramp is
-// the larger deck hole — EDHREC must still score + show on Why suggested.
+// #5 fallback: preferred deficit role lacks pct → use next role that has one.
+{
+  const card = {
+    name: 'Dual Role',
+    type: 'Instant',
+    cmc: 2,
+    mana: '{1}{U}',
+    priceTCG: 2,
+    edhrecRolePct: { Counterspell: 0.72 }, // no Evasion pct
+  };
+  const pick = scoring.pickERoleWithPercentile(
+    card,
+    ['Evasion', 'Counterspell'],
+    { Evasion: 5, Counterspell: 3 },
+  );
+  assert.strictEqual(pick.role, 'Counterspell');
+  assert.ok(Math.abs(pick.p - 0.72) < 1e-9);
+}
+
+// Regression: Counterspell suggestion while Ramp is the larger deck hole.
 const wanderer = {
   name: 'Mausoleum Wanderer',
   type: 'Creature — Spirit',
@@ -42,7 +62,6 @@ const wanderer = {
   edhrecRolePct: { Counterspell: 0.72, Evasion: 0.4, Pump: 0.1 },
 };
 const ctx = {
-  // Ramp hole bigger than Counterspell — old pickERole returned null → E=0.
   deficits: { Ramp: 8, Counterspell: 3, Evasion: 1, Removal: 2 },
   curveDeficit: [0, 0.2, 0, 0, 0, 0, 0, 0],
 };
@@ -60,6 +79,25 @@ assert.ok(line, 'Why suggested must include EDHREC rank line');
 assert.strictEqual(line.text, 'EDHREC rank · Counterspell');
 // 0.72 × 4 = 2.88 → +2.9
 assert.strictEqual(line.val, '+2.9');
+
+// No active deficit on the card's roles — E still applies (#4 removed).
+{
+  const filled = scoring.scoreAddCandidateTerms(
+    {
+      name: 'Filled Ramp Staple',
+      type: 'Sorcery',
+      cmc: 1,
+      mana: '{G}',
+      priceTCG: 6,
+      edhrecRolePct: { Ramp: 0.9 },
+    },
+    ['Ramp'],
+    { deficits: { Ramp: 0, Removal: 4 }, curveDeficit: [0, 0, 0, 0, 0, 0, 0, 0] },
+  );
+  assert.ok(filled.E > 0, 'E must not require an active deficit');
+  assert.strictEqual(filled.terms.eRole, 'Ramp');
+  assert.ok(edhrecWhyVal(filled), 'Why line when deficits are already filled');
+}
 
 // Elite staple still works
 const tv = scoring.scoreAddCandidateTerms(

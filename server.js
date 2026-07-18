@@ -5766,11 +5766,10 @@ async function ensureScryfallTagCacheTable() {
 /**
  * Precompute per-role EDHREC percentiles into scryfall_oracle_cards.edhrec_pct_json.
  * Population = cards with the role tag, non-null edhrec_rank, and commander-legal when
- * legality is known. Min population 8 — below that, no percentile for that role.
+ * legality is known. Any role with ≥1 ranked card gets percentiles (no min-population floor).
  * Never call this per suggestion; only from import / cron / admin.
  */
 async function recomputeEdhrecRolePercentiles({ schemaVersion = '4' } = {}) {
-  const E_POPULATION_FLOOR = 8;
   const conn = await db().getConnection();
   try {
     const [[rankRow]] = await conn.query(
@@ -5778,7 +5777,7 @@ async function recomputeEdhrecRolePercentiles({ schemaVersion = '4' } = {}) {
     );
     if (!Number(rankRow?.n || 0)) {
       console.log('[edhrec-pct] skip — no edhrec_rank values (re-import oracle cards to populate)');
-      return { roles: 0, updated: 0 };
+      return { roles: 0, updated: 0, withRank: 0 };
     }
 
     // Role label → [{ oracle_id, rank }]
@@ -5808,9 +5807,10 @@ async function recomputeEdhrecRolePercentiles({ schemaVersion = '4' } = {}) {
     const pctByOracle = new Map();
     let rolesUsed = 0;
     for (const [role, list] of byRole.entries()) {
-      if (list.length < E_POPULATION_FLOOR) continue;
+      if (!list.length) continue;
       rolesUsed++;
       // Lower edhrec_rank = more popular. Sort ascending; p=1 for best.
+      // n=1 → denom=1 → sole card gets p=1.
       list.sort((a, b) => a.rank - b.rank || String(a.oracle_id).localeCompare(String(b.oracle_id)));
       const n = list.length;
       const denom = Math.max(1, n - 1);
@@ -5844,7 +5844,7 @@ async function recomputeEdhrecRolePercentiles({ schemaVersion = '4' } = {}) {
       updated += chunk.length;
     }
     console.log(`[edhrec-pct] roles=${rolesUsed} cards=${updated}`);
-    return { roles: rolesUsed, updated };
+    return { roles: rolesUsed, updated, withRank: Number(rankRow?.n || 0) };
   } finally {
     conn.release();
   }
@@ -7412,6 +7412,25 @@ app.post('/api/cards/adds-catalog', async (req, res) => {
   }
 });
 
+/** Public coverage probe — diagnose empty EDHREC Why lines without admin auth. */
+app.get('/api/cards/edhrec-coverage', async (_req, res) => {
+  try {
+    const [[row]] = await db().query(`
+      SELECT
+        COUNT(*) AS total,
+        SUM(edhrec_rank IS NOT NULL) AS withRank,
+        SUM(edhrec_pct_json IS NOT NULL) AS withPct
+      FROM scryfall_oracle_cards`);
+    res.json({
+      total: Number(row?.total || 0),
+      withRank: Number(row?.withRank || 0),
+      withPct: Number(row?.withPct || 0),
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Batch EDHREC role percentiles for owned-collection Adds scoring (never live-scrape).
 app.post('/api/cards/edhrec-percentiles', async (req, res) => {
   try {
@@ -7993,12 +8012,31 @@ app.get('/api/admin/scryfall/import-status', requireAuth, requireAdminRole, asyn
   try {
     const [[cardsRow]] = await db().query('SELECT COUNT(*) AS n FROM scryfall_oracle_cards');
     const [[tagsRow]] = await db().query('SELECT COUNT(*) AS n, MAX(fetched_at) AS latest FROM scryfall_oracle_tags');
+    const [[edhRow]] = await db().query(`
+      SELECT
+        SUM(edhrec_rank IS NOT NULL) AS withRank,
+        SUM(edhrec_pct_json IS NOT NULL) AS withPct
+      FROM scryfall_oracle_cards`);
     res.json({
       oracleCards: Number(cardsRow?.n || 0),
       oracleTags: Number(tagsRow?.n || 0),
       latestTagUpdate: Number(tagsRow?.latest || 0) || null,
+      edhrecWithRank: Number(edhRow?.withRank || 0),
+      edhrecWithPct: Number(edhRow?.withPct || 0),
       activeImport: _scryfallImportProgress,
     });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Recompute edhrec_pct_json from existing edhrec_rank + tags (no Scryfall download). */
+app.post('/api/admin/scryfall/recompute-edhrec-pct', requireAuth, requireAdminRole, async (req, res) => {
+  try {
+    const schemaVersion = String(req.body?.schemaVersion || '4').slice(0, 16);
+    const result = await recomputeEdhrecRolePercentiles({ schemaVersion });
+    res.json({ ok: true, schemaVersion, ...result });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });

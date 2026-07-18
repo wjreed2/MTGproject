@@ -175,7 +175,7 @@ Use printed CMC (with `{X}` = 3 convention below).
 - Per role tag: population = local cards with that tag, non-null `edhrec_rank`, and
   **Commander-legal when legality exists** (do not split by deck color identity for the
   tables).
-- Min population **8**; below → store no percentile; at score time **E = 0**.
+- No min-population floor — any role with ≥1 ranked card stores percentiles (`n=1` → `p=1`).
 - Raw rank → percentile `p` in **[0, 1]** (higher = more popular / better rank).
 
 **Price bands (locked; USD from existing local card price field):**
@@ -193,10 +193,9 @@ Use **discrete steps** at band edges (not smooth interpolation inside a band).
 **Score-time E:**
 - `p_adjusted = clamp(p + Δp, 0, 1)`
 - **Linear** curve (locked): `E = K_E × p_adjusted`
-- **One E per candidate** — percentile for the role of the **largest active deficit**.
-- **Equal-largest deficit tie (default):** among tied top magnitudes, prefer a tied role
-  the candidate actually matches; if several match, pick the lexicographically smallest
-  project role-tag ID; if none match, E = 0.
+- **One E per candidate** — among the candidate's roles, prefer the largest deck deficit
+  (zeros allowed — E does **not** require an active hole), then try other roles until a
+  stored percentile is found; tie-break lexicographically. No percentile on any role → E = 0.
 - **No multi-tag dampening inside E** (locked — do not add).
 - Do NOT sum E per tag. Do NOT use EDHREC category APIs or scrape edhrec.com.
 - Three Visits (rank ~42) must remain elite after price adjust.
@@ -289,7 +288,7 @@ Log `D, M, C_eff, L, E, B, P, V, T, K` for every vignette pair.
 
 ## Deliverables
 - Code + named constants (`D_SUBLINEAR_WEIGHTS`, `CMC_REF`, `K_L`, `K_E`, `K_P`, `K_B`,
-  E price band deltas, population floor 8)
+  E price band deltas; no E population floor)
 - Central `EFFICIENCY_MODE_PROJECT_TAGS` (+ exclusion list) with mapping comments and
   “IDs may change” note
 - Formula comment block in `_scoreAddCandidate`
