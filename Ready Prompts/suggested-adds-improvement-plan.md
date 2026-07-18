@@ -204,6 +204,7 @@ score > 0 (and role-tag gate, CK gate, budget rules) only.
 | D11 | Wizard v2 extras | Phase B/C |
 | D13 | **Option A** primary tier: `W_S = 0` while `hasPrimaryNeed` | **Locked** |
 | D14 | Primary strength strip: literal **`have/target`** (e.g. 12/10); “strong at” when have ≥ target | **Locked** |
+| D15 | Integer D — deficit maps 1:1 to D (no sqrt/cap v1) | **Locked** (Q1=A) |
 
 ## 5. Phase A — Plan-aware ranking + raw badge + Why (implement next)
 
@@ -327,14 +328,19 @@ Answer in your own words; we’ll lock each before implementation.
 ### Q2 — How hard should your deck plan steer suggestions?
 
 **Context:** Today the wizard plan barely affects ranking unless you’re only
-short on “Plan” cards. We’re proposing a **plan fit** boost (H) and slightly
-stronger credit for cards that match your declared strategy (sacrifice, tokens,
-etc.) and weaker credit for off-plan role fills.
+short on “Plan” cards. We’re proposing a **plan fit** boost (**H**) and hybrid
+**D** modifiers (stronger credit for on-plan role fills, weaker for off-plan).
 
 **Question:** Should a card that clearly fits your stated plan (e.g. Sac Outlet
 in a sacrifice deck) beat a generic ramp spell when you’re only slightly short on
-sacrifice pieces but very short on ramp? How “loyal” should Adds be to the plan
-vs filling obvious staple holes?
+sacrifice pieces but very short on ramp?
+
+| | Option |
+|---|--------|
+| **A** | **Staples first** — modest plan influence (`K_H ≈ 1.0`, small hybrid bumps). Big Ramp/Draw/Removal holes almost always beat on-plan secondaries. |
+| **B** | **Balanced (draft default)** — `K_H = 2.0`, hybrid α=0.35 / β=0.15. On-plan cards can win when deficits are comparable; large primary holes still win. |
+| **C** | **Plan-forward** — strong loyalty (`K_H ≈ 3.0`, higher α). On-plan pieces often beat off-plan staples even when the primary hole is bigger. |
+| **D** | **Tie-breaker only** — **H** nudges ranking only when two candidates are within ~0.5 raw score; otherwise deficit terms decide. |
 
 ---
 
