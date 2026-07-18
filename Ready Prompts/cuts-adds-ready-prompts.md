@@ -1504,16 +1504,15 @@ Canonical design: [`suggested-adds-improvement-plan.md`](./suggested-adds-improv
 Deterministic only — no runtime AI/LLM.
 
 ## User-locked (do NOT ship)
-- NO addDisplayScore / formatAddDisplayScore / ADD_SCORE_RAW_CEILING / `/10` badge
-- NO S / single-role focus bonus
-- NO display floor hiding weak picks
+- NO addDisplayScore / `/10` on **suggestion badges** (raw score only)
+- NO S term
 
 ## Goal
-1. A0: Badge shows raw score only (same number as ranking).
-2. A1: Plan term H + hybrid D when plan declared.
-3. A2: Why identity lines (tags, deficits, plan).
-4. A3: Require ≥1 utility role tag.
-5. V must matter: Growth Spiral beats Three Visits when Ramp AND Draw both short.
+1. A0: Raw score badge only.
+2. A1: **Option A** — `W_S = 0` on secondary D while any primary deficit ≥ 1.
+3. A1b: **Primary strength strip** — Ramp/Draw/Removal “N/10” (recipe progress, not card score).
+4. A1: Plan term H + hybrid D when plan declared.
+5. V must matter; Growth Spiral beats TV when both Ramp and Draw short.
 
 ## Anchors
 - js/adds-scoring.js — scoreAddCandidateTerms (no S in formula)

@@ -370,9 +370,68 @@ Secondary-only cards keep their secondary D but start behind unless the secondar
 
 ### v1 recommendation
 
-**Option A** with **`W_S = 0`**, revisit **`W_S = 0.25`** if “no Tutor until curve fixed” feels too harsh.
+**Locked (user): Option A** with **`W_S = 0`** while `hasPrimaryNeed`. Revisit **`W_S = 0.25`**
+only if playtesting blocks all secondary picks too aggressively.
 
 **Test vignette:** Short 4 Ramp, short 2 Tutor → ramp spells above Demonic Tutor until Ramp need clears.
+
+---
+
+### Primary role strength strip (UI — v1)
+
+Show deck status for the three **primary** roles so users see when a staple
+tier is filled vs still driving suggestions. This **`N/10` is recipe progress**
+(have vs target) — **not** the suggestion card score (still raw-only per §0).
+
+**Roles shown:** Ramp · Card Draw · Removal only.
+
+**Formula** (from existing `_computeAddContext`):
+
+```text
+target = thresholds[role]          // e.g. 10 (0 = role disabled — hide row)
+have   = roleCount[role] || 0
+strength10 = target > 0 ? min(10, round(10 * have / target)) : null
+deficit = max(0, target - have)
+```
+
+**Copy templates** (pick one tone in implement):
+
+| State | Example |
+|-------|---------|
+| `deficit > 0` | **Ramp — 6/10** · short 4 (Adds prioritize ramp) |
+| `deficit === 0`, `have <= target` | **Ramp — strong at 10/10** |
+| `have > target` | **Ramp — strong at 10/10** (+2 over target) |
+
+Shorter chip variant: `Ramp 6/10` · `Draw 10/10 ✓` · `Removal 8/10`
+
+**Placement:** New strip in Suggested Adds panel, **below** plan banner, **above**
+suggestion list — `deckAddPrimaryRolesStrip` inside `#deckAddSuggestionsBody`
+(or sibling under header). Re-render on every `_renderAddSuggestions` (same
+`ctx` as scoring).
+
+**Optional v1.1:** Mirror strip on Suggested Cuts header (same thresholds).
+
+**Why this pairs with Option A:** When Ramp shows **10/10 strong**, `hasPrimaryNeed`
+may still be true if Draw or Removal is short — strip makes it obvious *which*
+primary is done vs still pulling Adds. When **all three** are 10/10, secondary
+roles unlock (`W_S = 1`) and strip can note “Staples filled — tuning tutors, wipes, etc.”
+
+**Do not:** Reuse suggestion `addDisplayScore` / ceiling for this strip.
+
+**Implement helpers** (plan names):
+
+- `ADDS_PRIMARY_ROLES = ['Ramp', 'Card Draw', 'Removal']`
+- `primaryRoleStrength(have, target) → { strength10, deficit, status: 'short'|'met'|'over' }`
+- `_renderPrimaryRoleStrengthStrip(ctx) → html`
+
+**Verification:**
+
+| have | target | strength10 | status |
+|-----:|-------:|-----------:|--------|
+| 6 | 10 | 6 | short |
+| 10 | 10 | 10 | met → “strong at 10/10” |
+| 12 | 10 | 10 | over (+2) |
+| 8 | 0 | (hidden) | role disabled via ⚙ target 0 |
 
 ---
 
