@@ -42,7 +42,6 @@
   /** Raw score at/above this maps to a full 10 on the Suggested Adds badge (UI only). */
   const ADD_SCORE_RAW_CEILING = 12;
   const ADD_SCORE_DISPLAY_MAX = 10;
-  const E_POPULATION_FLOOR = 8;
   const E_PRICE_BAND_DELTAS = [
     { max: 0.75, delta: -0.05 },
     { max: 5, delta: 0 },
@@ -247,17 +246,17 @@
   }
 
   /**
-   * Role for E: largest active deficit among roles the candidate actually has.
-   * (Not the deck's global largest hole — that left most suggestions with E=0
-   * and hid EDHREC from Why suggested.) Tie → lexicographically smallest role.
+   * Preferred role label for E when no percentile map is available:
+   * largest deck deficit among the candidate's roles (incl. zero), then
+   * lexicographically smallest. Plan / Land / Commander are never used for E.
    */
   function pickERole(roles, deficits) {
-    const real = (roles || []).filter(t => t !== 'Land' && t !== 'Commander');
-    const matched = real
+    const real = (roles || []).filter(t => t !== 'Land' && t !== 'Commander' && t !== 'Plan');
+    if (!real.length) return null;
+    const ordered = real
       .map(role => ({ role, deficit: Number(deficits?.[role]) || 0 }))
-      .filter(e => e.deficit > 0 && e.role !== 'Plan')
       .sort((a, b) => b.deficit - a.deficit || a.role.localeCompare(b.role));
-    return matched.length ? matched[0].role : null;
+    return ordered[0].role;
   }
 
   function resolveEdhrecPercentile(card, role) {
@@ -270,14 +269,18 @@
     return null;
   }
 
-  /** Prefer pickERole; if that role lacks a percentile, try other matched deficits. */
+  /**
+   * Pick the E role + percentile for a candidate.
+   * Order: candidate roles by largest deck deficit first (zeros allowed), then
+   * name. Use the first role that has a stored percentile. E does not require
+   * an active deficit — a filled role can still contribute EDHREC score.
+   */
   function pickERoleWithPercentile(card, roles, deficits) {
-    const real = (roles || []).filter(t => t !== 'Land' && t !== 'Commander');
+    const real = (roles || []).filter(t => t !== 'Land' && t !== 'Commander' && t !== 'Plan');
+    if (!real.length) return { role: null, p: null };
     const ordered = real
       .map(role => ({ role, deficit: Number(deficits?.[role]) || 0 }))
-      .filter(e => e.deficit > 0 && e.role !== 'Plan')
       .sort((a, b) => b.deficit - a.deficit || a.role.localeCompare(b.role));
-    if (!ordered.length) return { role: null, p: null };
     for (const { role } of ordered) {
       const p = resolveEdhrecPercentile(card, role);
       if (p != null) return { role, p };
@@ -428,7 +431,6 @@
     K_P,
     ADD_SCORE_RAW_CEILING,
     ADD_SCORE_DISPLAY_MAX,
-    E_POPULATION_FLOOR,
     E_PRICE_BAND_DELTAS,
     ADD_ROLE_SEMANTIC_MAP,
     EFFICIENCY_MODE_PROJECT_TAGS,
@@ -440,6 +442,8 @@
     usesEfficiencyMode,
     computeDeficitTermD,
     pickERole,
+    pickERoleWithPercentile,
+    resolveEdhrecPercentile,
     scoreAddCandidateTerms,
     logAddScoreTerms,
     isAddsScoreDebugEnabled,
