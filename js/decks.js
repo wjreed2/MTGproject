@@ -1452,6 +1452,7 @@ function _ensureDeckZones(deck) {
   if (!deck) return deck;
   if (!Array.isArray(deck.adds)) deck.adds = [];
   if (!Array.isArray(deck.cuts)) deck.cuts = [];
+  if (typeof _dedupeDeckMainboardCards === 'function') _dedupeDeckMainboardCards(deck);
   if (deck.zoneLayout === 2) {
     if (!Array.isArray(deck.maybeboard)) deck.maybeboard = [];
     if (!Array.isArray(deck.sideboard)) deck.sideboard = [];
@@ -4774,6 +4775,32 @@ async function addAndAssignDeckTagFromPicker() {
   }
 }
 
+/** Mainboard cards only — planned-add ghosts in a group must not inflate the header count. */
+function _deckGroupCardCount(cards) {
+  return (cards || []).reduce((s, c) => s + (c._plannedAdd ? 0 : (c.qty || 1)), 0);
+}
+
+/** Collapse duplicate mainboard rows (stale JSON blob + deck_cards drift on one client). */
+function _dedupeDeckMainboardCards(deck) {
+  if (!deck?.cards?.length) return false;
+  const byKey = new Map();
+  for (const c of deck.cards) {
+    const inv = getCardInventoryKey(c);
+    const key = (c.isCommander ? 'cmd:' : 'card:') + inv;
+    const prev = byKey.get(key);
+    if (prev) {
+      prev.qty = (prev.qty || 1) + (c.qty || 1);
+    } else {
+      byKey.set(key, c);
+    }
+  }
+  const next = [...byKey.values()];
+  const changed = next.length !== deck.cards.length
+    || next.some((c, i) => c !== deck.cards[i]);
+  if (changed) deck.cards = next;
+  return changed;
+}
+
 function _buildDeckGroups(cards, groupBy) {
   // Commander always gets its own group regardless of sort mode
   const commanderCards = cards.filter(c => c.isCommander);
@@ -4800,9 +4827,14 @@ function _buildDeckGroups(cards, groupBy) {
     rest.forEach(c => {
       const tags = _tagsOnCardForGroupTier(c, groupBy);
       if (!tags.length) { groups.Untagged.push(c); return; }
+      const seenTagKeys = new Set();
       tags.forEach(t => {
-        if (!groups[t]) groups[t] = [];
-        groups[t].push(c);
+        const tagKey = _tagTierKey(t);
+        if (!tagKey || seenTagKeys.has(tagKey)) return;
+        seenTagKeys.add(tagKey);
+        const label = normalizeDeckTagName(t) || t;
+        if (!groups[label]) groups[label] = [];
+        groups[label].push(c);
       });
     });
     const ordered = {};
@@ -5908,7 +5940,7 @@ function _estimateGroupHeight(cards) {
 
 /** Gray stack boxes only — paired with _renderGroup(..., { cardsOnly: true }) for zone layering. */
 function _renderStackGroupBackplate([grp, cards]) {
-  const total = cards.reduce((s, c) => s + (c.qty || 1), 0);
+  const total = _deckGroupCardCount(cards);
   const backdropH = Math.max(280, _estimateGroupHeight(cards) - 52);
   const grpAttr = _deckStackGroupAttr(grp);
   return `
@@ -7409,7 +7441,7 @@ function renderDeckList(deck) {
     const orientClass = isVertical ? ' vertical' : '';
 
     function _renderGroup([grp, cards], opts = {}) {
-      const total = cards.reduce((s, c) => s + (c._plannedAdd ? 0 : (c.qty || 1)), 0);
+      const total = _deckGroupCardCount(cards);
       const sorted = _deckStackSortCards(cards);
       const cardsCls = opts.cardsOnly ? ' deck-stack-group--cards' : '';
       const grpAttr = _deckStackGroupAttr(grp);
@@ -7529,7 +7561,7 @@ function renderDeckList(deck) {
     if (_handleDeckExtraZoneToggleClick(e)) return;
   };
   const mainListHtml = (Object.entries(groups).filter(([, v]) => v.length > 0).map(([grp, cards]) => {
-    const groupTotal = cards.reduce((s,c)=>s+(c._plannedAdd?0:c.qty),0);
+    const groupTotal = _deckGroupCardCount(cards);
     return `
     <div class="deck-list-group-head deck-list-group-head--main">${escapeHtml(grp)} (${groupTotal})${groupProjectedHtml(cards, groupTotal)}</div>
     ${_deckStackSortCards(cards).map(c => {

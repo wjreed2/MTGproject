@@ -53,6 +53,26 @@ function _pruneStalePlannedCuts(deck) {
   return JSON.stringify(deck.cuts) !== before;
 }
 
+function _deckGroupCardCount(cards) {
+  return (cards || []).reduce((s, c) => s + (c._plannedAdd ? 0 : (c.qty || 1)), 0);
+}
+
+function _dedupeDeckMainboardCards(deck) {
+  if (!deck?.cards?.length) return false;
+  const byKey = new Map();
+  for (const c of deck.cards) {
+    const inv = getCardInventoryKey(c);
+    const key = (c.isCommander ? 'cmd:' : 'card:') + inv;
+    const prev = byKey.get(key);
+    if (prev) prev.qty = (prev.qty || 1) + (c.qty || 1);
+    else byKey.set(key, c);
+  }
+  const next = [...byKey.values()];
+  const changed = next.length !== deck.cards.length;
+  if (changed) deck.cards = next;
+  return changed;
+}
+
 // Cut stored with stale uid from JSON blob; mainboard from deck_cards with different uid.
 {
   const deck = {
@@ -115,6 +135,27 @@ function _pruneStalePlannedCuts(deck) {
   };
   assert.strictEqual(_effectivePlannedCuts(deck).length, 1);
   assert.strictEqual(_effectivePlannedCuts(deck)[0].qty, 1);
+}
+
+// Duplicate mainboard rows collapse to one slot.
+{
+  const deck = {
+    cards: [
+      { name: 'Lightning Bolt', scryfallId: 'bolt', uid: 'bolt_n', qty: 1 },
+      { name: 'Lightning Bolt', scryfallId: 'bolt', uid: 'bolt_n', qty: 1 },
+    ],
+  };
+  assert.strictEqual(_dedupeDeckMainboardCards(deck), true);
+  assert.strictEqual(deck.cards.length, 1);
+  assert.strictEqual(deck.cards[0].qty, 2);
+}
+
+// Group header count must ignore planned-add ghosts (14 main + 14 ghosts = 14, not 28).
+{
+  const main = { name: 'Murder', scryfallId: 'm', uid: 'm_n', qty: 1 };
+  const ghost = { name: 'Murder', scryfallId: 'm', uid: 'm_n', qty: 1, _plannedAdd: true };
+  assert.strictEqual(_deckGroupCardCount([main, ghost, ghost]), 1);
+  assert.strictEqual(_deckGroupCardCount([main, main]), 2);
 }
 
 console.log('deck-cut-matching: ok');
