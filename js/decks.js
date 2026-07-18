@@ -3545,11 +3545,15 @@ function renderActiveDeck() {
   if (activeDeckIsShared && deck.id && typeof ensureSharedDeckFresh === 'function') {
     ensureSharedDeckFresh(deck.id);
   }
-  if (typeof _pruneStalePlannedCuts === 'function' && _pruneStalePlannedCuts(deck)) {
-    if (typeof saveDeckPlanningNow === 'function') {
-      saveDeckPlanningNow(deck).catch(() => {});
-    } else {
-      saveActiveDeck(deck, { planningOnly: true, planningImmediate: true });
+  // Prune cut markers only when this user can persist the cleanup — a view-only
+  // collaborator's auto-save used to 403 forever and block the deck's refreshes.
+  if (typeof canEditActiveDeck !== 'function' || canEditActiveDeck()) {
+    if (typeof _pruneStalePlannedCuts === 'function' && _pruneStalePlannedCuts(deck)) {
+      if (typeof saveDeckPlanningNow === 'function') {
+        saveDeckPlanningNow(deck).catch(() => {});
+      } else {
+        saveActiveDeck(deck, { planningOnly: true, planningImmediate: true });
+      }
     }
   }
   _backfillDeckCardTypeLines(deck);
@@ -10901,11 +10905,19 @@ async function deleteDeck() {
     okClass: 'btn-danger',
   });
   if (!ok) return;
-  decks = decks.filter(d => d.id !== activeDeckId);
+  const deckId = activeDeckId;
+  decks = decks.filter(d => d.id !== deckId);
   activeDeckId = null;
   activeDeckIsShared = false;
   localStorage.removeItem('mtg_active_deck_id');
-  save('decks'); renderDecks();
+  // Explicit server delete — deck removal no longer rides on the bulk snapshot PUT.
+  try {
+    await apiDelete('/decks/' + deckId);
+    if (typeof dropDeckShadow === 'function') dropDeckShadow(deckId);
+  } catch (e) {
+    showNotif('Could not delete the deck on the server — it may reappear after a reload. (' + (e?.message || 'server error') + ')', true);
+  }
+  renderDecks();
 }
 
 function changeActiveDeckFormat() {

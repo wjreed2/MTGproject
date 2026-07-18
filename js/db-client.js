@@ -336,30 +336,21 @@ if (typeof document !== 'undefined') {
 // Flush any pending save when the user navigates away or refreshes.
 // fetch with keepalive:true tells the browser to complete the request even after unload.
 function _flushPendingSavesOnUnload() {
-  // Shared (collaborator) decks use PATCH per deck — previously only owned PUTs
-  // were flushed, so Adds/Cuts marked right before refresh never reached the server.
-  for (const id of Object.keys(_sharedSaveTimers)) {
-    clearTimeout(_sharedSaveTimers[id]);
-    delete _sharedSaveTimers[id];
+  // Deck edits (owned + shared) flush as keepalive op batches — granular, so a
+  // last-second save can't clobber concurrent collaborator edits either.
+  for (const id of Object.keys(_deckOpsTimers)) {
+    clearTimeout(_deckOpsTimers[id]);
+    delete _deckOpsTimers[id];
   }
-  for (const id of Object.keys(_sharedPlanningTimers)) {
-    clearTimeout(_sharedPlanningTimers[id]);
-    delete _sharedPlanningTimers[id];
+  const deckIdsToFlush = new Set(_deckOpsDirty);
+  if (_dirty.has('decks') && _appDataSynced && typeof decks !== 'undefined') {
+    decks.forEach(d => { if (d?.id) deckIdsToFlush.add(d.id); });
+    _dirty.delete('decks');
   }
-  if (_sharedPlanningDirty.size) {
-    for (const id of [..._sharedPlanningDirty]) {
-      const deck = _sharedPlanningLatest[id];
-      if (deck) _flushSharedPlanningKeepalive(deck);
-    }
-    _sharedPlanningDirty.clear();
+  for (const id of deckIdsToFlush) {
+    if (!_deckOpsBlocked.has(id)) _flushDeckOpsKeepalive(id);
   }
-  if (_sharedDirty.size) {
-    for (const id of [..._sharedDirty]) {
-      const deck = _sharedSaveLatest[id];
-      if (deck) _flushSharedDeckKeepalive(deck);
-    }
-    _sharedDirty.clear();
-  }
+  _deckOpsDirty.clear();
 
   if (!_saveTimer && !_dirty.size) return;
   clearTimeout(_saveTimer);
@@ -375,7 +366,7 @@ function _flushPendingSavesOnUnload() {
   _dirty.clear();
   const root = mtgApiRoot();
   const ko   = { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', keepalive: true };
-  if (toSave.has('decks'))      fetch(root + '/decks',       { ...ko, body: JSON.stringify(decks) }).catch(() => {});
+  // ('decks' was translated into keepalive op batches above — no snapshot PUT.)
   if (toSave.has('collection')) {
     const allow = _allowEmptyCollectionPut;
     _allowEmptyCollectionPut = false;
@@ -396,184 +387,246 @@ function _flushPendingSavesOnUnload() {
 window.addEventListener('beforeunload', _flushPendingSavesOnUnload);
 window.addEventListener('pagehide', _flushPendingSavesOnUnload);
 
-// ── Debounced per-deck save for shared (collaborator) decks
-const _sharedSaveTimers = {};
-const _sharedSaveInFlight = {};
-const _sharedSavePending = {};
-const _sharedSaveLatest = {};
-const _sharedDirty = new Set();
+// ── Op-based deck sync (js/deck-ops.js) ──────────────────────────────────────
+// Every deck write — owned or shared — diffs the live deck against the last
+// server-acked shadow and POSTs only the resulting granular ops. The server
+// merges ops onto its CURRENT state under a row lock, so a stale client can
+// only affect what it actually touched; it can no longer revert another
+// collaborator's concurrent edits (whole-snapshot PUT/PATCH did exactly that).
+
+const _deckShadows = {};          // deckId → DeckOps.snapshotDeck of last acked state
+const _deckRevisions = {};        // deckId → server revision
+const _deckOpsDirty = new Set();  // decks with local edits not yet acked
+const _deckOpsTimers = {};
+const _deckOpsInFlight = {};
+const _deckOpsPendingFlush = new Set();
+const _deckOpsBlocked = new Set(); // permission-rejected — no retries until reseeded
 let _sharedSaveErrorNotified = false;
 
-// Planning-only saves (adds/cuts) — separate from full-deck PATCH so cut markers
-// persist even when a concurrent owner save bumped updated_at or card rewrite fails.
-const _sharedPlanningTimers = {};
-const _sharedPlanningInFlight = {};
-const _sharedPlanningPending = {};
-const _sharedPlanningLatest = {};
-const _sharedPlanningPayloadLatest = {};
-const _sharedPlanningDirty = new Set();
-
-function _planningPayloadFromDeck(deck) {
-  return {
-    adds: Array.isArray(deck?.adds) ? deck.adds : [],
-    cuts: Array.isArray(deck?.cuts) ? deck.cuts : [],
-    updatedAt: Number(deck?.updatedAt) || 0,
-    clearAddsCuts: !!deck?.clearAddsCuts,
-  };
+function _liveDeckById(id) {
+  return (typeof decks !== 'undefined' ? decks.find(d => d.id === id) : null)
+    || (typeof sharedDecks !== 'undefined' ? sharedDecks.find(d => d.id === id) : null);
 }
 
-function _applyPlanningResponse(deck, res) {
-  if (!deck || !res) return;
-  if (res.updatedAt) deck.updatedAt = res.updatedAt;
-  if (Array.isArray(res.adds)) deck.adds = res.adds;
-  if (Array.isArray(res.cuts)) deck.cuts = res.cuts;
-  delete deck.clearAddsCuts;
+/** Record the server-acked state of a deck; diffs are computed against this. */
+function seedDeckShadow(deck) {
+  if (!deck?.id || typeof DeckOps === 'undefined') return;
+  _deckShadows[deck.id] = DeckOps.snapshotDeck(deck);
+  if (deck.revision != null) _deckRevisions[deck.id] = Number(deck.revision) || 0;
+  _deckOpsBlocked.delete(deck.id);
 }
 
-function _flushSharedDeckKeepalive(deck) {
-  if (!deck?.id) return;
-  const root = mtgApiRoot();
-  fetch(root + '/decks/' + deck.id, {
-    method: 'PATCH',
+function seedDeckShadows(list) {
+  (list || []).forEach(seedDeckShadow);
+}
+
+function dropDeckShadow(id) {
+  delete _deckShadows[id];
+  delete _deckRevisions[id];
+  _deckOpsDirty.delete(id);
+  _deckOpsBlocked.delete(id);
+}
+
+const _CLIENT_DECK_STRIP_FIELDS = [
+  'shareToken', 'ownerEmail', 'ownerId', 'ownerCustomTags', 'userPermission',
+  'revision', 'clearAddsCuts',
+];
+
+function _deckCreatePayload(deck) {
+  const snap = JSON.parse(JSON.stringify(deck));
+  for (const f of _CLIENT_DECK_STRIP_FIELDS) delete snap[f];
+  return snap;
+}
+
+async function _postDeckOps(id, body) {
+  const res = await fetch(mtgApiRoot() + '/decks/' + id + '/ops', {
+    method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
-    keepalive: true,
-    body: JSON.stringify(deck),
-  }).catch(() => {});
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(data.error || ('deck ops → ' + res.status));
+    err.status = res.status;
+    throw err;
+  }
+  return data;
 }
 
-function _flushSharedPlanningKeepalive(deck) {
-  if (!deck?.id) return;
-  const root = mtgApiRoot();
-  const payload = _sharedPlanningPayloadLatest[deck.id] || _planningPayloadFromDeck(deck);
-  fetch(root + '/decks/' + deck.id + '/planning', {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    keepalive: true,
-    body: JSON.stringify(payload),
-  }).catch(() => {});
+function _cacheDeckListFor(id) {
+  try {
+    const isShared = typeof sharedDecks !== 'undefined' && sharedDecks.some(d => d.id === id);
+    const key = isShared ? 'sharedDecks' : 'decks';
+    const val = isShared ? sharedDecks : (typeof decks !== 'undefined' ? decks : []);
+    cacheSet(key, val).catch(() => {});
+  } catch (_) {}
 }
 
-function scheduleSaveSharedDeck(deck) {
+/** Queue a deck for an op flush (debounced; opts.immediate flushes now). */
+function scheduleDeckOpsSave(deck, opts) {
   if (!deck?.id) return;
   const id = deck.id;
-  _sharedSaveLatest[id] = deck;
-  _sharedDirty.add(id);
-  if (_sharedSaveInFlight[id]) {
-    _sharedSavePending[id] = deck;
+  if (_deckOpsBlocked.has(id)) return;
+  _deckOpsDirty.add(id);
+  clearTimeout(_deckOpsTimers[id]);
+  if (opts && opts.immediate) {
+    delete _deckOpsTimers[id];
+    void _flushDeckOps(id);
     return;
   }
-  clearTimeout(_sharedSaveTimers[id]);
-  _sharedSaveTimers[id] = setTimeout(async () => {
-    delete _sharedSaveTimers[id];
-    _sharedSaveInFlight[id] = true;
-    const toSend = _sharedSaveLatest[id] || deck;
-    try {
-      const res = await apiPatch('/decks/' + id, toSend);
-      if (res && res.updatedAt) toSend.updatedAt = res.updatedAt;
-      delete toSend.clearAddsCuts;
-      if (!_sharedSavePending[id] && _sharedSaveLatest[id] === toSend) {
-        _sharedDirty.delete(id);
-      }
-      _sharedSaveErrorNotified = false;
-    } catch (e) {
-      console.error('[db] shared deck save failed:', e);
-      // Keep dirty so a later retry / unload flush can still persist Adds/Cuts.
-      if (!_sharedSaveErrorNotified) {
-        _sharedSaveErrorNotified = true;
-        if (typeof showNotif === 'function') {
-          showNotif('Could not save shared deck changes — keep this tab open so they aren\'t lost. (' + (e?.message || 'server error') + ')', true);
-        }
-      }
-      clearTimeout(_sharedSaveTimers[id]);
-      _sharedSaveTimers[id] = setTimeout(() => {
-        delete _sharedSaveTimers[id];
-        if (_sharedDirty.has(id) && !_sharedSaveInFlight[id] && _sharedSaveLatest[id]) {
-          scheduleSaveSharedDeck(_sharedSaveLatest[id]);
-        }
-      }, 2000);
-    } finally {
-      _sharedSaveInFlight[id] = false;
-      const pending = _sharedSavePending[id];
-      if (pending) {
-        delete _sharedSavePending[id];
-        scheduleSaveSharedDeck(pending);
-      }
-    }
-  }, 500);
+  _deckOpsTimers[id] = setTimeout(() => {
+    delete _deckOpsTimers[id];
+    void _flushDeckOps(id);
+  }, 250);
 }
 
-async function _runDeckPlanningSave(id) {
-  if (_sharedPlanningInFlight[id]) return;
-  _sharedPlanningInFlight[id] = true;
-  const live = _sharedPlanningLatest[id];
-  const payload = _sharedPlanningPayloadLatest[id] || _planningPayloadFromDeck(live);
+async function _flushDeckOps(id) {
+  if (_deckOpsInFlight[id]) {
+    _deckOpsPendingFlush.add(id);
+    return;
+  }
+  if (_deckOpsBlocked.has(id)) {
+    _deckOpsDirty.delete(id);
+    return;
+  }
+  const live = _liveDeckById(id);
+  if (!live) {
+    _deckOpsDirty.delete(id);
+    return;
+  }
+  const isCreate = !(id in _deckShadows);
+  // Never re-create decks from a cold cache boot — only after a server sync.
+  if (isCreate && !_appDataSynced) return;
+
+  let body;
+  if (isCreate) {
+    body = { create: _deckCreatePayload(live) };
+  } else {
+    const ops = DeckOps.diffDecks(_deckShadows[id], live);
+    if (!ops.length) {
+      _deckOpsDirty.delete(id);
+      return;
+    }
+    body = { ops, baseRevision: _deckRevisions[id] || 0 };
+  }
+  const sentSnapshot = DeckOps.snapshotDeck(live);
+  const baseRevision = _deckRevisions[id] || 0;
+  _deckOpsInFlight[id] = true;
   try {
-    const res = await apiPatch('/decks/' + id + '/planning', payload);
-    if (live) _applyPlanningResponse(live, res);
-    delete _sharedPlanningPayloadLatest[id];
-    if (!_sharedPlanningPending[id] && _sharedPlanningLatest[id] === live) {
-      _sharedPlanningDirty.delete(id);
+    const res = await _postDeckOps(id, body);
+    _deckShadows[id] = sentSnapshot;
+    _deckOpsDirty.delete(id);
+    if (res && res.updatedAt) live.updatedAt = res.updatedAt;
+    if (res && res.revision != null) {
+      _deckRevisions[id] = Number(res.revision) || 0;
+      live.revision = _deckRevisions[id];
+      if (!isCreate && Number(res.revision) !== baseRevision + 1) {
+        // Someone else's writes were merged beneath ours — pull the merged truth.
+        setTimeout(() => { refreshSharedDeckFromServer(id, { silent: true }).catch(() => {}); }, 0);
+      }
     }
     _sharedSaveErrorNotified = false;
-    if (typeof cacheSet === 'function') {
-      const cacheKey = (typeof activeDeckIsShared !== 'undefined' && activeDeckIsShared)
-        ? 'sharedDecks'
-        : 'decks';
-      const cacheVal = cacheKey === 'sharedDecks'
-        ? (typeof sharedDecks !== 'undefined' ? sharedDecks : [])
-        : (typeof decks !== 'undefined' ? decks : []);
-      cacheSet(cacheKey, cacheVal).catch(() => {});
-    }
+    _cacheDeckListFor(id);
   } catch (e) {
-    console.error('[db] deck planning save failed:', e);
-    if (!_sharedSaveErrorNotified) {
-      _sharedSaveErrorNotified = true;
+    console.error('[db] deck ops save failed:', e);
+    if (e && e.status === 403) {
+      // Permission rejection is not transient. The old code retried forever and
+      // its stuck dirty flag suppressed every refresh for the deck — don't.
+      _deckOpsDirty.delete(id);
+      _deckOpsBlocked.add(id);
       if (typeof showNotif === 'function') {
-        showNotif('Could not save deck cuts/adds — keep this tab open so they aren\'t lost. (' + (e?.message || 'server error') + ')', true);
+        showNotif(e.message || 'You do not have permission to edit this deck', true);
       }
+      // Local state may have diverged from the server — pull truth (reseeds + unblocks).
+      setTimeout(() => { refreshSharedDeckFromServer(id, { silent: true }).catch(() => {}); }, 0);
+    } else if (e && e.status === 404 && !isCreate) {
+      // Deck deleted from another session — drop it locally rather than resurrect.
+      _deckOpsDirty.delete(id);
+      dropDeckShadow(id);
+      if (typeof decks !== 'undefined') {
+        const i = decks.findIndex(d => d.id === id);
+        if (i >= 0) decks.splice(i, 1);
+      }
+      if (typeof sharedDecks !== 'undefined') {
+        const i = sharedDecks.findIndex(d => d.id === id);
+        if (i >= 0) sharedDecks.splice(i, 1);
+      }
+      _cacheDeckListFor(id);
+      if (typeof renderDecks === 'function') renderDecks();
+    } else {
+      // Transient failure — keep dirty and retry; notify once until recovery.
+      const isNetwork = (e instanceof TypeError)
+        || /Failed to fetch|NetworkError|load failed/i.test(e?.message || '');
+      if (isNetwork && typeof _setOffline === 'function') _setOffline();
+      if (!isNetwork && !_sharedSaveErrorNotified) {
+        _sharedSaveErrorNotified = true;
+        if (typeof showNotif === 'function') {
+          showNotif('Could not save deck changes — keep this tab open so they aren\'t lost. (' + (e?.message || 'server error') + ')', true);
+        }
+      }
+      clearTimeout(_deckOpsTimers[id]);
+      _deckOpsTimers[id] = setTimeout(() => {
+        delete _deckOpsTimers[id];
+        if (_deckOpsDirty.has(id)) void _flushDeckOps(id);
+      }, 2500);
     }
-    clearTimeout(_sharedPlanningTimers[id]);
-    _sharedPlanningTimers[id] = setTimeout(() => {
-      delete _sharedPlanningTimers[id];
-      if (_sharedPlanningDirty.has(id) && !_sharedPlanningInFlight[id] && _sharedPlanningLatest[id]) {
-        scheduleSaveSharedDeckPlanning(_sharedPlanningLatest[id]);
-      }
-    }, 2000);
   } finally {
-    _sharedPlanningInFlight[id] = false;
-    const pending = _sharedPlanningPending[id];
-    if (pending) {
-      delete _sharedPlanningPending[id];
-      scheduleSaveSharedDeckPlanning(pending);
+    _deckOpsInFlight[id] = false;
+    if (_deckOpsPendingFlush.has(id)) {
+      _deckOpsPendingFlush.delete(id);
+      if (_deckOpsDirty.has(id)) void _flushDeckOps(id);
     }
   }
 }
 
-/** Persist only adds/cuts (owner or collaborator) — fast path for mark cut / mark add. */
-function scheduleSaveSharedDeckPlanning(deck, opts) {
+/** Flush one deck's pending ops now (awaits any in-flight save first). */
+async function flushDeckOpsNow(deck) {
   if (!deck?.id) return;
   const id = deck.id;
-  _sharedPlanningLatest[id] = deck;
-  _sharedPlanningPayloadLatest[id] = _planningPayloadFromDeck(deck);
-  _sharedPlanningDirty.add(id);
-  if (_sharedPlanningInFlight[id]) {
-    _sharedPlanningPending[id] = deck;
-    _sharedPlanningPayloadLatest[id] = _planningPayloadFromDeck(deck);
-    return;
+  _deckOpsDirty.add(id);
+  clearTimeout(_deckOpsTimers[id]);
+  delete _deckOpsTimers[id];
+  while (_deckOpsInFlight[id]) {
+    await new Promise(r => setTimeout(r, 25));
   }
-  clearTimeout(_sharedPlanningTimers[id]);
-  if (opts && opts.immediate) {
-    delete _sharedPlanningTimers[id];
-    void _runDeckPlanningSave(id);
-    return;
-  }
-  // Short debounce so rapid +/- qty coalesces, but much faster than full-deck save.
-  _sharedPlanningTimers[id] = setTimeout(() => {
-    delete _sharedPlanningTimers[id];
-    void _runDeckPlanningSave(id);
-  }, 100);
+  await _flushDeckOps(id);
+}
+
+/** Flush every owned deck through the op layer (bulk save('decks') path). */
+async function _flushAllOwnedDeckOps() {
+  const list = typeof decks !== 'undefined' ? decks : [];
+  await Promise.all(list.map(d => {
+    if (!d?.id) return null;
+    _deckOpsDirty.add(d.id);
+    return _flushDeckOps(d.id);
+  }));
+}
+
+/** keepalive variant for unload — fire-and-forget, diff computed synchronously. */
+function _flushDeckOpsKeepalive(id) {
+  const live = _liveDeckById(id);
+  if (!live || typeof DeckOps === 'undefined') return;
+  if (!(id in _deckShadows)) return; // unsynced create — no safe keepalive path
+  const ops = DeckOps.diffDecks(_deckShadows[id], live);
+  if (!ops.length) return;
+  fetch(mtgApiRoot() + '/decks/' + id + '/ops', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    keepalive: true,
+    body: JSON.stringify({ ops, baseRevision: _deckRevisions[id] || 0 }),
+  }).catch(() => {});
+}
+
+// Legacy-named entry points — call sites across decks.js/collection.js keep
+// working; everything funnels into the op scheduler now.
+function scheduleSaveSharedDeck(deck) {
+  scheduleDeckOpsSave(deck);
+}
+
+function scheduleSaveSharedDeckPlanning(deck, opts) {
+  scheduleDeckOpsSave(deck, opts && opts.immediate ? { immediate: true } : undefined);
 }
 
 const _dirty = new Set();
@@ -630,18 +683,8 @@ async function _flushSave() {
       const path = allow ? '/collection?allowEmpty=1' : '/collection';
       ops.push(apiPut(path, collection));
     }
-    if (toSave.has('decks'))      ops.push(apiPut('/decks', decks).then(res => {
-      const map = res && res.updatedAtById;
-      if (map && Array.isArray(decks)) {
-        for (const d of decks) {
-          if (d && d.id != null && map[d.id] != null) {
-            d.updatedAt = map[d.id];
-            delete d.clearAddsCuts;
-          }
-        }
-      }
-      return res;
-    }));
+    // Decks go through the op layer — per-deck granular diffs, no snapshot PUT.
+    if (toSave.has('decks'))      ops.push(_flushAllOwnedDeckOps());
     if (toSave.has('games'))      ops.push(apiPut('/games', games));
     if (toSave.has('wishlist'))   ops.push(apiPut('/wishlist', wishlist));
     if (toSave.has('prefs'))      ops.push(apiPut('/preferences', {
@@ -689,7 +732,7 @@ async function _flushSave() {
 
 let _realtimeSocket = null;
 let _joinedDeckRoom = null;
-const _deckRemoteRefreshTimers = {};
+const _deckMsgChains = {}; // deckId → promise chain: broadcasts apply strictly in order
 
 function getRealtimeSocket() {
   if (_realtimeSocket) return _realtimeSocket;
@@ -705,22 +748,38 @@ function getRealtimeSocket() {
 function mergeDeckSnapshot(fresh) {
   if (!fresh?.id) return false;
   if (typeof _ensureDeckZones === 'function') _ensureDeckZones(fresh);
+  const id = fresh.id;
+
+  // Preserve local unsent edits: seed the shadow from server truth, then replay
+  // the pending diff on top so the user's un-flushed changes stay visible AND
+  // diffable against the new shadow.
+  let pending = null;
+  if (typeof DeckOps !== 'undefined' && _deckOpsDirty.has(id) && _deckShadows[id]) {
+    const oldLive = _liveDeckById(id);
+    if (oldLive) pending = DeckOps.diffDecks(_deckShadows[id], oldLive);
+  }
+  seedDeckShadow(fresh);
+  if (pending && pending.length) DeckOps.applyOps(fresh, pending);
+  else _deckOpsDirty.delete(id);
+
+  // Drop cut markers whose mainboard card is gone. Persist the cleanup only with
+  // edit rights — a view-only collaborator's auto-save used to 403-loop and
+  // permanently wedge every refresh for the deck.
   let planningChanged = false;
   if (typeof _pruneStalePlannedCuts === 'function') {
     planningChanged = _pruneStalePlannedCuts(fresh);
-  } else if (typeof _resyncPlannedCutsToMainboard === 'function') {
-    planningChanged = _resyncPlannedCutsToMainboard(fresh);
   }
-  if (planningChanged && !_sharedPlanningDirty.has(fresh.id)) {
-    scheduleSaveSharedDeckPlanning(fresh, { immediate: true });
+  if (planningChanged && fresh.userPermission !== 'view') {
+    scheduleDeckOpsSave(fresh);
   }
-  let idx = typeof decks !== 'undefined' ? decks.findIndex(d => d.id === fresh.id) : -1;
+
+  let idx = typeof decks !== 'undefined' ? decks.findIndex(d => d.id === id) : -1;
   if (idx >= 0) {
     decks[idx] = fresh;
     return true;
   }
   if (typeof sharedDecks !== 'undefined') {
-    idx = sharedDecks.findIndex(d => d.id === fresh.id);
+    idx = sharedDecks.findIndex(d => d.id === id);
     if (idx >= 0) {
       sharedDecks[idx] = fresh;
       return true;
@@ -730,41 +789,65 @@ function mergeDeckSnapshot(fresh) {
 }
 
 async function saveDeckPlanningNow(deck) {
-  if (!deck?.id) return;
-  const id = deck.id;
-  _sharedPlanningLatest[id] = deck;
-  _sharedPlanningPayloadLatest[id] = _planningPayloadFromDeck(deck);
-  _sharedPlanningDirty.add(id);
-  if (_sharedPlanningInFlight[id]) {
-    _sharedPlanningPending[id] = deck;
-    _sharedPlanningPayloadLatest[id] = _planningPayloadFromDeck(deck);
-    while (_sharedPlanningInFlight[id]) {
-      await new Promise(r => setTimeout(r, 25));
-    }
-    if (!_sharedPlanningDirty.has(id)) return;
-  }
-  clearTimeout(_sharedPlanningTimers[id]);
-  delete _sharedPlanningTimers[id];
-  await _runDeckPlanningSave(id);
+  await flushDeckOpsNow(deck);
 }
 
 async function refreshDeckFromRemote(msg) {
   if (!msg?.deckId) return;
   if (typeof currentUser !== 'undefined' && currentUser?.id != null
       && Number(msg.actorAccountId) === Number(currentUser.id)) return;
+  const id = msg.deckId;
+  const local = _liveDeckById(id);
 
-  const local = (typeof decks !== 'undefined' ? decks.find(d => d.id === msg.deckId) : null)
-    || (typeof sharedDecks !== 'undefined' ? sharedDecks.find(d => d.id === msg.deckId) : null);
-  if (local && msg.updatedAt && Number(local.updatedAt) >= Number(msg.updatedAt)) return;
+  if (msg.kind === 'deleted') {
+    if (typeof decks !== 'undefined') {
+      const i = decks.findIndex(d => d.id === id);
+      if (i >= 0) decks.splice(i, 1);
+    }
+    if (typeof sharedDecks !== 'undefined') {
+      const i = sharedDecks.findIndex(d => d.id === id);
+      if (i >= 0) sharedDecks.splice(i, 1);
+    }
+    dropDeckShadow(id);
+    if (typeof activeDeckId !== 'undefined' && activeDeckId === id) {
+      activeDeckId = null;
+      try { localStorage.removeItem('mtg_active_deck_id'); } catch (_) {}
+    }
+    _cacheDeckListFor(id);
+    if (typeof renderDecks === 'function') renderDecks();
+    if (msg.actorEmail && typeof showNotif === 'function') {
+      showNotif('Deck deleted by ' + (String(msg.actorEmail).split('@')[0] || msg.actorEmail));
+    }
+    return;
+  }
 
-  if (msg.kind === 'planning' && local) {
-    _applyPlanningResponse(local, msg);
-    if (local.updatedAt == null || Number(msg.updatedAt) > Number(local.updatedAt)) {
-      local.updatedAt = msg.updatedAt;
+  const localRev = _deckRevisions[id] || 0;
+  if (msg.revision != null && Number(msg.revision) <= localRev) return; // already have it
+
+  if (msg.kind === 'ops' && local && typeof DeckOps !== 'undefined'
+      && Number(msg.revision) === localRev + 1) {
+    // Contiguous op broadcast — apply directly, no refetch round trip.
+    DeckOps.applyOps(local, msg.ops || []);
+    if (msg.updatedAt) local.updatedAt = msg.updatedAt;
+    local.revision = Number(msg.revision);
+    _deckRevisions[id] = Number(msg.revision);
+    if (_deckOpsDirty.has(id) && _deckShadows[id]) {
+      // Local unsent edits exist — advance the shadow by the remote ops only,
+      // so our pending changes still diff out on the next flush.
+      _deckShadows[id] = DeckOps.applyOpsToSnapshot(_deckShadows[id], msg.ops || []);
+    } else {
+      _deckShadows[id] = DeckOps.snapshotDeck(local);
     }
   } else {
+    // Legacy write, revision gap, or unknown deck → flush our pending ops first
+    // (granular, cannot clobber), then pull the merged truth.
+    if (local && msg.revision == null && msg.updatedAt
+        && Number(local.updatedAt) >= Number(msg.updatedAt)) return;
+    if (_deckOpsDirty.has(id)) {
+      try { await _flushDeckOps(id); } catch (_) {}
+    }
     try {
-      const fresh = await apiFetch('/decks/' + msg.deckId);
+      const fresh = await apiFetch('/decks/' + id);
       if (!mergeDeckSnapshot(fresh)) return;
     } catch (e) {
       console.warn('[deck-realtime] refresh failed:', e);
@@ -772,17 +855,9 @@ async function refreshDeckFromRemote(msg) {
     }
   }
 
-  try {
-    const cacheKey = (typeof sharedDecks !== 'undefined' && sharedDecks.some(d => d.id === msg.deckId))
-      ? 'sharedDecks'
-      : 'decks';
-    const cacheVal = cacheKey === 'sharedDecks'
-      ? (typeof sharedDecks !== 'undefined' ? sharedDecks : [])
-      : (typeof decks !== 'undefined' ? decks : []);
-    cacheSet(cacheKey, cacheVal).catch(() => {});
-  } catch (_) {}
+  _cacheDeckListFor(id);
 
-  if (typeof activeDeckId !== 'undefined' && activeDeckId === msg.deckId) {
+  if (typeof activeDeckId !== 'undefined' && activeDeckId === id) {
     if (typeof renderActiveDeck === 'function') renderActiveDeck();
     else if (typeof renderDecks === 'function') renderDecks();
   } else if (typeof renderDecks === 'function') {
@@ -801,11 +876,13 @@ function ensureDeckRealtimeHandlers() {
   s.__deckHandlersBound = true;
   s.on('deck:updated', msg => {
     if (!msg?.deckId) return;
-    clearTimeout(_deckRemoteRefreshTimers[msg.deckId]);
-    _deckRemoteRefreshTimers[msg.deckId] = setTimeout(() => {
-      delete _deckRemoteRefreshTimers[msg.deckId];
-      refreshDeckFromRemote(msg).catch(() => {});
-    }, 120);
+    // Strictly ordered per-deck queue. The old 120ms coalescer REPLACED a pending
+    // 'full' refresh with a later 'planning' one — card changes were silently
+    // dropped and the two collaborators' decklists diverged.
+    const id = msg.deckId;
+    _deckMsgChains[id] = (_deckMsgChains[id] || Promise.resolve())
+      .then(() => refreshDeckFromRemote(msg))
+      .catch(() => {});
   });
 }
 
@@ -828,18 +905,20 @@ function leaveDeckRoom() {
 
 const _sharedDeckLastFetch = {};
 
-/** Pull one shared deck from the server (bypasses stale IndexedDB / JSON blob cards). */
+/** Pull one deck (owned or shared) from the server. Pending local ops are
+ *  flushed first — they're granular so they can't clobber; then the merged
+ *  truth replaces local state (a leftover diff is replayed by mergeDeckSnapshot). */
 async function refreshSharedDeckFromServer(deckId, opts) {
   if (!deckId) return null;
-  if (_sharedPlanningDirty.has(deckId)) return null;
+  if (_deckOpsDirty.has(deckId)) {
+    await _flushDeckOps(deckId).catch(() => {});
+  }
   const silent = opts && opts.silent;
   try {
     const fresh = await apiFetch('/decks/' + deckId);
     if (!mergeDeckSnapshot(fresh)) return null;
     _sharedDeckLastFetch[deckId] = Date.now();
-    if (typeof sharedDecks !== 'undefined') {
-      cacheSet('sharedDecks', sharedDecks).catch(() => {});
-    }
+    _cacheDeckListFor(deckId);
     // Always re-render the active deck when fresh data merged — silent only skips toasts.
     if (typeof activeDeckId !== 'undefined' && activeDeckId === deckId) {
       if (typeof renderActiveDeck === 'function') renderActiveDeck();
@@ -856,7 +935,7 @@ async function refreshSharedDeckFromServer(deckId, opts) {
 
 /** Debounced pull so Safari vs Home Screen PWA never sit on divergent cut markers. */
 function ensureSharedDeckFresh(deckId) {
-  if (!deckId || _sharedPlanningDirty.has(deckId)) return;
+  if (!deckId) return;
   const last = _sharedDeckLastFetch[deckId] || 0;
   if (Date.now() - last < 4000) return;
   refreshSharedDeckFromServer(deckId, { silent: true }).catch(() => {});
@@ -868,7 +947,10 @@ async function refreshAllSharedDecksFromServer(opts) {
   if (!list.length) return;
   const silent = opts && opts.silent;
   await Promise.all(list.map(async d => {
-    if (!d?.id || _sharedPlanningDirty.has(d.id)) return;
+    if (!d?.id) return;
+    if (_deckOpsDirty.has(d.id)) {
+      await _flushDeckOps(d.id).catch(() => {});
+    }
     try {
       const fresh = await apiFetch('/decks/' + d.id);
       mergeDeckSnapshot(fresh);
