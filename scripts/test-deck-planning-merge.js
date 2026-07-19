@@ -1,5 +1,8 @@
 const assert = require('assert');
-const { mergeDeckPlanningZonesForWrite } = require('../lib/deck-planning-merge');
+const {
+  mergeDeckPlanningZonesForWrite,
+  applyDeckPlanningWrite,
+} = require('../lib/deck-planning-merge');
 
 const existing = {
   adds: [{ name: 'Sol Ring', qty: 1 }],
@@ -32,16 +35,18 @@ const existing = {
   assert.strictEqual(incoming.clearAddsCuts, undefined);
 }
 
-// Stale non-empty plan loses to newer server plan
+// Stale collaborator cut must still stick when server plan is non-empty / newer.
+// (This was the shared-deck bug: owner bumped updated_at, collaborator cut discarded.)
 {
   const incoming = {
-    adds: [{ name: 'Old Add' }],
-    cuts: [],
+    adds: [{ name: 'Sol Ring', qty: 1 }],
+    cuts: [{ name: 'Lightning Bolt', qty: 1 }],
     updatedAt: 100,
   };
   mergeDeckPlanningZonesForWrite(existing, 200, incoming);
   assert.strictEqual(incoming.adds[0].name, 'Sol Ring');
-  assert.strictEqual(incoming.cuts[0].name, 'Rampant Growth');
+  assert.strictEqual(incoming.cuts.length, 1);
+  assert.strictEqual(incoming.cuts[0].name, 'Lightning Bolt');
 }
 
 // Fresher non-empty incoming plan wins
@@ -54,6 +59,26 @@ const existing = {
   mergeDeckPlanningZonesForWrite(existing, 200, incoming);
   assert.strictEqual(incoming.adds[0].name, 'Lightning Greaves');
   assert.strictEqual(incoming.cuts.length, 0);
+}
+
+// Planning-only write merges into stored blob without touching cards
+{
+  const stored = {
+    id: 'd1',
+    name: 'Test',
+    cards: [{ name: 'Forest', uid: 'f_n', qty: 1 }],
+    adds: [],
+    cuts: [],
+  };
+  const next = applyDeckPlanningWrite(stored, 100, {
+    adds: [],
+    cuts: [{ name: 'Forest', uid: 'f_n', qty: 1 }],
+    updatedAt: 50,
+  });
+  assert.strictEqual(next.cards[0].name, 'Forest');
+  assert.strictEqual(next.cuts.length, 1);
+  assert.strictEqual(next.cuts[0].name, 'Forest');
+  assert.strictEqual(stored.cuts.length, 0); // original not mutated via cuts ref
 }
 
 console.log('deck-planning-merge: ok');

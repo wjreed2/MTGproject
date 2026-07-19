@@ -37,15 +37,16 @@ app.use('/api', (_req, res, next) => {
 });
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
-const ALLOWED_ORIGINS = new Set(
-  process.env.ALLOWED_ORIGIN
-    ? [process.env.ALLOWED_ORIGIN]
-    : ['http://localhost:3001', 'https://localhost:3001', 'capacitor://localhost', 'ionic://localhost']
-);
+const {
+  parseAllowedOrigins,
+  isAllowedOrigin,
+} = require(path.join(__dirname, 'lib', 'cors-origins.js'));
+const ALLOWED_ORIGINS = parseAllowedOrigins();
 app.use(cors({
   origin: (origin, cb) => {
-    if (!origin || ALLOWED_ORIGINS.has(origin)) return cb(null, true);
-    cb(new Error('CORS: origin not allowed'));
+    // Reflect allowed origins; reject quietly (no Error → Express 500).
+    // For LAN phone testing, add the IP to ALLOWED_ORIGIN in .env (comma-separated).
+    cb(null, isAllowedOrigin(origin, { allowedOrigins: ALLOWED_ORIGINS }));
   },
   credentials: true,
 }));
@@ -1923,6 +1924,11 @@ async function ensureNormalizedDeckSchema() {
     if (!(await columnExists(conn, 'decks', 'updated_at'))) {
       await conn.query('ALTER TABLE decks ADD COLUMN updated_at BIGINT NOT NULL DEFAULT 0');
     }
+    // Monotonic per-deck revision — bumped by every write path; clients use it to
+    // apply op broadcasts in order and detect gaps (→ full refetch).
+    if (!(await columnExists(conn, 'decks', 'revision'))) {
+      await conn.query('ALTER TABLE decks ADD COLUMN revision BIGINT NOT NULL DEFAULT 0');
+    }
     // Unguessable per-deck "anyone with the link can view" token (independent of is_public).
     // NULL = no active link. MySQL allows multiple NULLs under a UNIQUE index.
     if (!(await columnExists(conn, 'decks', 'share_token'))) {
@@ -2014,7 +2020,35 @@ function dedupeDeckCardTags(tags) {
  * Prevent stale clients from wiping collaborator Adds/Cuts plans.
  * See lib/deck-planning-merge.js.
  */
-const { mergeDeckPlanningZonesForWrite } = require('./lib/deck-planning-merge');
+const {
+  mergeDeckPlanningZonesForWrite,
+  applyDeckPlanningWrite,
+} = require('./lib/deck-planning-merge');
+const { collaboratorChangesPrintings } = require('./lib/deck-collaborator-printings');
+const { shouldBlockEmptyCollectionReplace } = require('./lib/collection-wipe-guard');
+// Granular op-based deck sync (shared with the browser bundle).
+const DeckOps = require('./js/deck-ops');
+
+async function assertCanEditDeck(deckId, accountId) {
+  const [deckRows] = await db().query('SELECT account_id, data, updated_at, revision FROM decks WHERE id = ?', [deckId]);
+  if (!deckRows.length) return { error: { status: 404, message: 'Deck not found' } };
+  const ownerId = Number(deckRows[0].account_id);
+  const existingUpdatedAt = Number(deckRows[0].updated_at) || 0;
+  const existingRevision = Number(deckRows[0].revision) || 0;
+  const existingData = typeof deckRows[0].data === 'string' ? JSON.parse(deckRows[0].data) : deckRows[0].data;
+  const isOwner = ownerId === Number(accountId);
+  if (!isOwner) {
+    const [cr] = await db().query(
+      'SELECT permission FROM deck_collaborators WHERE deck_id = ? AND collaborator_id = ?',
+      [deckId, accountId]
+    );
+    if (!cr.length) return { error: { status: 403, message: 'Access denied' } };
+    if ((cr[0].permission || 'edit') === 'view') {
+      return { error: { status: 403, message: 'You have view-only access to this deck' } };
+    }
+  }
+  return { ownerId, isOwner, existingUpdatedAt, existingRevision, existingData };
+}
 
 function normalizeDeckForStorage(deck) {
   const seen = new Map();
@@ -2702,7 +2736,29 @@ app.put('/api/collection', requireAuth, async (req, res) => {
   const cards = req.body;
   if (!Array.isArray(cards)) return res.status(400).json({ error: 'Expected array' });
   const accountId = req.accountId;
+  const allowEmpty =
+    req.query.allowEmpty === '1' ||
+    String(req.headers['x-allow-empty-collection'] || '') === '1';
   try {
+    // Fresh Home Screen PWAs have a separate empty IndexedDB. If the first load
+    // times out, the client used to hydrate collection=[] and a later PUT would
+    // full-replace MySQL with nothing. Block that unless the user confirmed clear.
+    if (cards.length === 0) {
+      const [[row]] = await db().query(
+        'SELECT COUNT(*) AS cnt FROM collection WHERE account_id = ?',
+        [accountId]
+      );
+      const existingCount = Number(row?.cnt) || 0;
+      if (shouldBlockEmptyCollectionReplace(cards.length, existingCount, allowEmpty)) {
+        return res.status(409).json({
+          error:
+            'Refusing to replace a non-empty collection with an empty list. Re-sync and retry, or confirm clear.',
+          code: 'COLLECTION_EMPTY_WIPE_BLOCKED',
+          existingCount,
+        });
+      }
+    }
+
     const needOracle = cards.filter(
       c => c?.scryfallId && !ORACLE_UUID_RE.test(String(c?.oracleId || ''))
     );
@@ -2803,7 +2859,7 @@ app.get('/api/decks', requireAuth, async (req, res) => {
   try {
     const accountId = req.accountId;
     const [rows] = await db().query(
-      'SELECT id, data, share_token, updated_at FROM decks WHERE account_id = ? ORDER BY created_at ASC',
+      'SELECT id, data, share_token, updated_at, revision FROM decks WHERE account_id = ? ORDER BY created_at ASC',
       [accountId]
     );
     if (!rows.length) return res.json([]);
@@ -2843,11 +2899,11 @@ app.get('/api/decks', requireAuth, async (req, res) => {
 
     const out = rows.map(r => {
       const deck = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
-      const cards = byDeck.get(r.id);
-      // share_token / updated_at are column-authoritative.
+      applyDeckCardsFromTable(deck, r.id, byDeck);
+      // share_token / updated_at / revision are column-authoritative.
       deck.shareToken = r.share_token || null;
       deck.updatedAt = Number(r.updated_at) || Number(deck.updatedAt) || 0;
-      if (Array.isArray(cards) && cards.length) return { ...deck, cards };
+      deck.revision = Number(r.revision) || 0;
       return deck;
     });
     await attachPriceLogPricesToDeckCards(out.flatMap(d => d.cards || []));
@@ -3019,6 +3075,12 @@ app.put('/api/decks', requireAuth, async (req, res) => {
   const accountId = req.accountId;
   try {
     let updatedAtById = {};
+    // Declared here, not inside the transaction block: the broadcast loop below
+    // reads these after the txn. (They used to be inner-scoped — every PUT threw
+    // ReferenceError AFTER commit, so owner saves 500ed + retried forever and the
+    // collaborator broadcast never fired. Root trigger of the prod divergence.)
+    let normDecks = [];
+    let staleSkippedIds = [];
     const conn = await db().getConnection();
     try {
       await conn.beginTransaction();
@@ -3039,14 +3101,25 @@ app.put('/api/decks', requireAuth, async (req, res) => {
 
       const now = Date.now();
       updatedAtById = {};
-      const normDecks = decks.map(raw => {
+      // Snapshot uploads can carry a deck another client has written to since this
+      // client loaded it — writing it would clobber those edits (this reverted
+      // collaborator decklists in prod). Skip stale decks; op-sync clients don't
+      // PUT decks at all, so this only affects old cached bundles.
+      for (const raw of decks) {
         const existing = raw?.id ? existingById.get(raw.id) : null;
+        if (existing && Number(raw?.updatedAt) > 0 && Number(raw.updatedAt) < existing.updatedAt) {
+          staleSkippedIds.push(raw.id);
+          continue;
+        }
         if (existing) mergeDeckPlanningZonesForWrite(existing.data, existing.updatedAt, raw);
         const d = normalizeDeckForStorage(raw);
         d.updatedAt = now;
         if (d.id) updatedAtById[d.id] = now;
-        return d;
-      });
+        normDecks.push(d);
+      }
+      if (staleSkippedIds.length) {
+        console.warn('[decks] PUT skipped stale snapshot(s):', staleSkippedIds.join(', '));
+      }
 
       // 1. Upsert deck rows first — data always exists even if cards fail below
       if (normDecks.length) {
@@ -3063,7 +3136,7 @@ app.put('/api/decks', requireAuth, async (req, res) => {
         ]);
         await conn.query(
           `INSERT INTO decks (account_id, id, name, format, data, created_at, is_public, updated_at) VALUES ${ph}
-           ON DUPLICATE KEY UPDATE name=VALUES(name), format=VALUES(format), data=VALUES(data), is_public=VALUES(is_public), updated_at=VALUES(updated_at)`,
+           ON DUPLICATE KEY UPDATE name=VALUES(name), format=VALUES(format), data=VALUES(data), is_public=VALUES(is_public), updated_at=VALUES(updated_at), revision=revision+1`,
           vals
         );
       }
@@ -3102,10 +3175,12 @@ app.put('/api/decks', requireAuth, async (req, res) => {
         }
       }
 
-      // 3. Delete decks no longer in the client state (FK cascade cleans up cards+tags)
-      if (newDeckIds.length) {
-        const idph = newDeckIds.map(() => '?').join(',');
-        await conn.query(`DELETE FROM decks WHERE account_id=? AND id NOT IN (${idph})`, [accountId, ...newDeckIds]);
+      // 3. Delete decks no longer in the client state (FK cascade cleans up cards+tags).
+      // Stale-skipped decks stay — the client still has them; they just weren't written.
+      const keepIds = [...newDeckIds, ...staleSkippedIds];
+      if (keepIds.length) {
+        const idph = keepIds.map(() => '?').join(',');
+        await conn.query(`DELETE FROM decks WHERE account_id=? AND id NOT IN (${idph})`, [accountId, ...keepIds]);
       } else {
         await conn.query('DELETE FROM decks WHERE account_id=?', [accountId]);
       }
@@ -3121,6 +3196,16 @@ app.put('/api/decks', requireAuth, async (req, res) => {
     invalidateTradelistCache(accountId);
     // Deck contents drive deck-needed wishlist entries.
     void reconcileAccountWishlist(accountId);
+    const collabIds = await deckIdsWithCollaborators(normDecks.map(d => d.id));
+    for (const d of normDecks) {
+      if (collabIds.has(d.id)) {
+        _broadcastDeck(d.id, await deckBroadcastMeta(accountId, {
+          kind: 'full',
+          deckId: d.id,
+          updatedAt: updatedAtById[d.id] || d.updatedAt,
+        }));
+      }
+    }
     res.json({ ok: true, count: decks.length, updatedAtById });
   } catch (e) {
     console.error(e);
@@ -3129,6 +3214,128 @@ app.put('/api/decks', requireAuth, async (req, res) => {
 });
 
 // ── Deck collaboration ────────────────────────────────────────────────────────
+
+/** Load deck_cards (+ tags) for one deck; returns card objects like GET /decks/shared. */
+async function loadDeckCardsForOwner(ownerAccountId, deckId) {
+  const [cardRows] = await db().query(
+    `SELECT dc.card_uid, dc.card_data, dc.sort_order, dct.tag_name
+     FROM deck_cards dc
+     LEFT JOIN deck_card_tags dct
+       ON dct.account_id = dc.account_id AND dct.deck_id = dc.deck_id AND dct.card_uid = dc.card_uid
+     WHERE dc.account_id = ? AND dc.deck_id = ?
+     ORDER BY dc.sort_order ASC`,
+    [ownerAccountId, deckId]
+  );
+  const byCardKey = new Map();
+  const cards = [];
+  cardRows.forEach(r => {
+    const key = r.card_uid;
+    if (!byCardKey.has(key)) {
+      const parsed = typeof r.card_data === 'string' ? JSON.parse(r.card_data) : r.card_data;
+      const cardUid = parsed.uid || r.card_uid;
+      const card = {
+        ...parsed,
+        uid: cardUid,
+        foil: parsed.foil != null ? !!parsed.foil : cardUid.endsWith('_f'),
+        customTags: [],
+      };
+      byCardKey.set(key, card);
+      cards.push(card);
+    }
+    if (r.tag_name) {
+      const card = byCardKey.get(key);
+      if (!card.customTags.some(t => String(t).toLowerCase() === String(r.tag_name).toLowerCase())) {
+        card.customTags.push(r.tag_name);
+      }
+    }
+  });
+  return cards;
+}
+
+async function loadOwnerDeckTagCatalog(ownerAccountId) {
+  const [prefRows] = await db().query(
+    `SELECT key_name, value FROM preferences
+     WHERE account_id = ? AND key_name IN ('deck_custom_tags','deck_primary_tags','deck_secondary_tags')`,
+    [ownerAccountId]
+  );
+  const set = new Set();
+  prefRows.forEach(r => {
+    let arr = [];
+    try { arr = Array.isArray(r.value) ? r.value : JSON.parse(r.value || '[]'); } catch (_) { arr = []; }
+    if (!Array.isArray(arr)) arr = [];
+    arr.forEach(t => { const s = String(t || '').trim(); if (s) set.add(s); });
+  });
+  return [...set].sort((a, b) => a.localeCompare(b));
+}
+
+/** Prefer deck_cards rows over stale cards[] left in the decks.data JSON blob. */
+function applyDeckCardsFromTable(deck, deckId, byDeck) {
+  if (byDeck && byDeck.has(deckId)) {
+    deck.cards = byDeck.get(deckId) || [];
+  } else if (!Array.isArray(deck.cards)) {
+    deck.cards = [];
+  }
+  return deck;
+}
+
+/** Single-deck fetch for owner or collaborator (used by REST + realtime refresh). */
+async function loadDeckForViewer(viewerAccountId, deckId) {
+  const access = await resolveDeckAccessForViewer(viewerAccountId, deckId);
+  if (!access) return null;
+  const [deckRows] = await db().query(
+    `SELECT d.id, d.data, d.account_id, d.updated_at, d.revision, d.share_token, a.email
+     FROM decks d LEFT JOIN accounts a ON a.id = d.account_id
+     WHERE d.id = ?`,
+    [deckId]
+  );
+  if (!deckRows.length) return null;
+  const r = deckRows[0];
+  const deck = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
+  const cards = await loadDeckCardsForOwner(access.ownerId, deckId);
+  const [cntRows] = await db().query(
+    'SELECT COUNT(*) AS c FROM deck_cards WHERE account_id=? AND deck_id=?',
+    [access.ownerId, deckId]
+  );
+  if ((cntRows[0]?.c || 0) > 0) deck.cards = cards;
+  else if (!Array.isArray(deck.cards)) deck.cards = [];
+  deck.updatedAt = Number(r.updated_at) || Number(deck.updatedAt) || 0;
+  deck.revision = Number(r.revision) || 0;
+  const viewerId = Number(viewerAccountId);
+  if (access.ownerId === viewerId) {
+    deck.shareToken = r.share_token || null;
+  } else {
+    deck.ownerEmail = r.email;
+    deck.ownerId = r.account_id;
+    deck.ownerCustomTags = await loadOwnerDeckTagCatalog(access.ownerId);
+    const [cr] = await db().query(
+      'SELECT permission FROM deck_collaborators WHERE deck_id = ? AND collaborator_id = ?',
+      [deckId, viewerId]
+    );
+    deck.userPermission = cr.length ? (cr[0].permission || 'edit') : 'edit';
+  }
+  await attachPriceLogPricesToDeckCards(deck.cards || []);
+  return deck;
+}
+
+async function deckIdsWithCollaborators(deckIds) {
+  const ids = [...new Set((deckIds || []).filter(Boolean))];
+  if (!ids.length) return new Set();
+  const ph = ids.map(() => '?').join(',');
+  const [rows] = await db().query(
+    `SELECT DISTINCT deck_id FROM deck_collaborators WHERE deck_id IN (${ph})`,
+    ids
+  );
+  return new Set(rows.map(r => r.deck_id));
+}
+
+async function deckBroadcastMeta(accountId, base) {
+  const [rows] = await db().query('SELECT email FROM accounts WHERE id = ?', [accountId]);
+  return {
+    ...base,
+    actorAccountId: accountId,
+    actorEmail: rows.length ? String(rows[0].email || '') : null,
+  };
+}
 
 // Decks shared with the current user (as collaborator)
 app.get('/api/decks/shared', requireAuth, async (req, res) => {
@@ -3144,7 +3351,7 @@ app.get('/api/decks/shared', requireAuth, async (req, res) => {
     const deckIds = collabRows.map(r => r.deck_id);
     const ph = deckIds.map(() => '?').join(',');
     const [deckRows] = await db().query(
-      `SELECT d.id, d.data, d.account_id, d.updated_at, a.email
+      `SELECT d.id, d.data, d.account_id, d.updated_at, d.revision, a.email
        FROM decks d JOIN accounts a ON a.id = d.account_id
        WHERE d.id IN (${ph})`,
       deckIds
@@ -3206,17 +3413,29 @@ app.get('/api/decks/shared', requireAuth, async (req, res) => {
 
     const out = deckRows.map(r => {
       const deck = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
-      const cards = byDeck.get(r.id);
-      if (Array.isArray(cards) && cards.length) deck.cards = cards;
+      applyDeckCardsFromTable(deck, r.id, byDeck);
       deck.ownerEmail = r.email;
       deck.ownerId = r.account_id;
       deck.ownerCustomTags = [...(catalogByOwner.get(r.account_id) || [])].sort((a, b) => a.localeCompare(b));
       deck.userPermission = permByDeck.get(r.id) || 'edit';
       deck.updatedAt = Number(r.updated_at) || Number(deck.updatedAt) || 0;
+      deck.revision = Number(r.revision) || 0;
       return deck;
     });
     await attachPriceLogPricesToDeckCards(out.flatMap(d => d.cards || []));
     res.json(out);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Owner or collaborator — lightweight refresh for realtime sync.
+app.get('/api/decks/:id', requireAuth, async (req, res) => {
+  try {
+    const deck = await loadDeckForViewer(req.accountId, req.params.id);
+    if (!deck) return res.status(404).json({ error: 'Deck not found' });
+    res.json(deck);
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
@@ -3228,13 +3447,23 @@ app.patch('/api/decks/:id', requireAuth, async (req, res) => {
   const deckId = req.params.id;
   const accountId = req.accountId;
   try {
-    const [deckRows] = await db().query('SELECT account_id, data, updated_at FROM decks WHERE id = ?', [deckId]);
+    const [deckRows] = await db().query('SELECT account_id, data, updated_at, revision FROM decks WHERE id = ?', [deckId]);
     if (!deckRows.length) return res.status(404).json({ error: 'Deck not found' });
 
     const ownerId = Number(deckRows[0].account_id);
     const existingUpdatedAt = Number(deckRows[0].updated_at) || 0;
     const existingData = typeof deckRows[0].data === 'string' ? JSON.parse(deckRows[0].data) : deckRows[0].data;
     const isOwner = ownerId === Number(accountId);
+    // Stale-snapshot guard (same as PUT): a legacy full-deck PATCH carrying an
+    // updatedAt older than the row means another client wrote since this one
+    // loaded — writing it would revert those edits. Skip; op-sync clients never
+    // PATCH decks, so this only affects old cached bundles. Deliberately omit
+    // updatedAt from the response so the stale client stays guarded.
+    const incomingUpdatedAt = Number(req.body?.updatedAt) || 0;
+    if (incomingUpdatedAt > 0 && incomingUpdatedAt < existingUpdatedAt) {
+      console.warn('[decks] PATCH skipped stale snapshot:', deckId);
+      return res.json({ ok: true, skippedStale: true });
+    }
     if (!isOwner) {
       const [cr] = await db().query(
         'SELECT permission FROM deck_collaborators WHERE deck_id = ? AND collaborator_id = ?',
@@ -3242,38 +3471,43 @@ app.patch('/api/decks/:id', requireAuth, async (req, res) => {
       );
       if (!cr.length) return res.status(403).json({ error: 'Access denied' });
       if ((cr[0].permission || 'edit') === 'view') return res.status(403).json({ error: 'You have view-only access to this deck' });
-      // Block printing changes — compare incoming scryfallIds against stored cards by name
+      // Block real printing swaps. Allow multiple existing printings of the same
+      // name (basics) and null/unknown stored ids — the old Map-by-name check
+      // rejected those and silently dropped collaborator Adds/Cuts saves.
       const [storedCards] = await db().query(
         'SELECT card_name, scryfall_id FROM deck_cards WHERE account_id=? AND deck_id=?',
         [ownerId, deckId]
       );
-      const storedById = new Map(storedCards.map(r => [String(r.card_name).toLowerCase(), r.scryfall_id]));
       const incoming = Array.isArray(req.body?.cards) ? req.body.cards : [];
-      const printingChanged = incoming.some(c => {
-        const stored = storedById.get(String(c.name || '').toLowerCase());
-        return stored !== undefined && c.scryfallId && stored !== c.scryfallId;
-      });
-      if (printingChanged) return res.status(403).json({ error: 'Collaborators cannot change card printings' });
+      if (collaboratorChangesPrintings(storedCards, incoming)) {
+        return res.status(403).json({ error: 'Collaborators cannot change card printings' });
+      }
     }
 
     mergeDeckPlanningZonesForWrite(existingData, existingUpdatedAt, req.body);
     const now = Date.now();
     const deck = normalizeDeckForStorage(req.body);
     deck.updatedAt = now;
+    let nextRevision = 0;
     const conn = await db().getConnection();
     try {
       await conn.beginTransaction();
       if (isOwner) {
         await conn.query(
-          'UPDATE decks SET name=?, format=?, data=?, is_public=?, updated_at=? WHERE id=?',
+          'UPDATE decks SET name=?, format=?, data=?, is_public=?, updated_at=?, revision=revision+1 WHERE id=?',
           [(deck.name || '').slice(0, 255), (deck.format || '').slice(0, 50), JSON.stringify(deck), deck.isPublic ? 1 : 0, now, deckId]
         );
       } else {
         await conn.query(
-          'UPDATE decks SET name=?, format=?, data=?, updated_at=? WHERE id=?',
+          'UPDATE decks SET name=?, format=?, data=?, updated_at=?, revision=revision+1 WHERE id=?',
           [(deck.name || '').slice(0, 255), (deck.format || '').slice(0, 50), JSON.stringify(deck), now, deckId]
         );
       }
+      // Broadcast the revision the UPDATE actually produced (row is locked until
+      // commit). A pre-read +1 raced concurrent writers and could announce a
+      // duplicate revision, which op-sync clients drop as already-seen.
+      const [revRows] = await conn.query('SELECT revision FROM decks WHERE id=?', [deckId]);
+      nextRevision = Number(revRows[0]?.revision) || 0;
 
       await conn.query('DELETE FROM deck_card_tags WHERE account_id=? AND deck_id=?', [ownerId, deckId]);
       await conn.query('DELETE FROM deck_cards WHERE account_id=? AND deck_id=?', [ownerId, deckId]);
@@ -3311,7 +3545,326 @@ app.patch('/api/decks/:id', requireAuth, async (req, res) => {
     } finally {
       conn.release();
     }
-    res.json({ ok: true, updatedAt: now });
+    _broadcastDeck(deckId, await deckBroadcastMeta(accountId, {
+      kind: 'full',
+      deckId,
+      updatedAt: now,
+      revision: nextRevision,
+    }));
+    res.json({ ok: true, updatedAt: now, revision: nextRevision });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Planning-only write (adds/cuts) — owner or collaborator.
+// Does not rewrite deck_cards, so collaborator cut/add markers cannot be blocked
+// by the printing-change guard or a failed card re-insert.
+app.patch('/api/decks/:id/planning', requireAuth, async (req, res) => {
+  const deckId = req.params.id;
+  const accountId = req.accountId;
+  try {
+    const access = await assertCanEditDeck(deckId, accountId);
+    if (access.error) return res.status(access.error.status).json({ error: access.error.message });
+
+    const nextData = applyDeckPlanningWrite(access.existingData, access.existingUpdatedAt, req.body || {});
+    const now = Date.now();
+    nextData.updatedAt = now;
+    // Keep collaborator/client-only fields out of the persisted blob.
+    delete nextData.shareToken;
+    delete nextData.clearAddsCuts;
+    delete nextData.ownerEmail;
+    delete nextData.ownerId;
+    delete nextData.ownerCustomTags;
+    delete nextData.userPermission;
+
+    await db().query(
+      'UPDATE decks SET data=?, updated_at=?, revision=revision+1 WHERE id=?',
+      [JSON.stringify(nextData), now, deckId]
+    );
+    // Read back the stored revision rather than pre-read+1: under concurrency a
+    // stale +1 announces a duplicate revision that op-sync clients drop. A read
+    // that races a later write can only over-claim, which triggers a refetch —
+    // the safe direction.
+    const [revRows] = await db().query('SELECT revision FROM decks WHERE id=?', [deckId]);
+    const nextRevision = Number(revRows[0]?.revision) || ((Number(access.existingRevision) || 0) + 1);
+    _broadcastDeck(deckId, await deckBroadcastMeta(accountId, {
+      kind: 'planning',
+      deckId,
+      updatedAt: now,
+      revision: nextRevision,
+      adds: Array.isArray(nextData.adds) ? nextData.adds : [],
+      cuts: Array.isArray(nextData.cuts) ? nextData.cuts : [],
+    }));
+    res.json({
+      ok: true,
+      updatedAt: now,
+      revision: nextRevision,
+      adds: Array.isArray(nextData.adds) ? nextData.adds : [],
+      cuts: Array.isArray(nextData.cuts) ? nextData.cuts : [],
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Rewrite deck_cards + deck_card_tags for one deck from a merged card list (call inside a txn). */
+async function rewriteDeckCardsRows(conn, ownerId, deckId, cardsList) {
+  await conn.query('DELETE FROM deck_card_tags WHERE account_id=? AND deck_id=?', [ownerId, deckId]);
+  await conn.query('DELETE FROM deck_cards WHERE account_id=? AND deck_id=?', [ownerId, deckId]);
+  const cards = (cardsList || []).map((c, idx) => ({
+    uid: c.uid,
+    scryfallId: c.scryfallId || null,
+    name: (c.name || '').slice(0, 255),
+    qty: c.qty ?? 1,
+    isCommander: c.isCommander ? 1 : 0,
+    sortOrder: idx,
+    data: JSON.stringify(c),
+    tags: dedupeDeckCardTags(c.customTags),
+  }));
+  if (!cards.length) return;
+  const cph = cards.map(() => '(?,?,?,?,?,?,?,?,?)').join(',');
+  const cvals = cards.flatMap(c => [ownerId, deckId, c.uid, c.scryfallId, c.name, c.qty, c.isCommander, c.sortOrder, c.data]);
+  await conn.query(
+    `INSERT INTO deck_cards (account_id,deck_id,card_uid,scryfall_id,card_name,qty,is_commander,sort_order,card_data) VALUES ${cph}`,
+    cvals
+  );
+  const tags = cards.flatMap(c => c.tags.map(tag => [ownerId, deckId, c.uid, tag]));
+  if (tags.length) {
+    const tph = tags.map(() => '(?,?,?,?)').join(',');
+    await conn.query(`INSERT INTO deck_card_tags (account_id,deck_id,card_uid,tag_name) VALUES ${tph}`, tags.flat());
+  }
+}
+
+// Recently applied op batches — dedupes a client retry after a LOST RESPONSE
+// (the batch committed but the ack never arrived). Re-applying such a batch
+// would re-assert its absolute values over collaborator edits that landed in
+// the retry window. In-memory is sufficient: the window is the client's
+// seconds-scale backoff, and a restart merely downgrades to idempotent re-apply.
+const _recentDeckOpsBatches = new Map(); // `${deckId}:${accountId}` → { batchId }
+
+// ── Granular op-based deck writes (owner or collaborator) ────────────────────
+// The client diffs its live deck against the last server-acked shadow and sends
+// only the resulting ops (js/deck-ops.js). Ops merge onto the server's CURRENT
+// state under a row lock, so a stale client can only affect cards/fields it
+// actually touched — never revert another collaborator's concurrent edits.
+app.post('/api/decks/:id/ops', requireAuth, async (req, res) => {
+  const deckId = req.params.id;
+  const accountId = req.accountId;
+  const body = req.body || {};
+  const ops = Array.isArray(body.ops) ? body.ops : [];
+  const createSnapshot = body.create && typeof body.create === 'object' ? body.create : null;
+  if (!ops.length && !createSnapshot) return res.status(400).json({ error: 'No ops' });
+  if (ops.length > 4000) return res.status(400).json({ error: 'Too many ops' });
+  try {
+    const now = Date.now();
+    let result;
+    const conn = await db().getConnection();
+    try {
+      await conn.beginTransaction();
+      const [rows] = await conn.query(
+        'SELECT account_id, data, updated_at, revision FROM decks WHERE id = ? FOR UPDATE',
+        [deckId]
+      );
+
+      if (!rows.length) {
+        // New deck — creator becomes the owner; snapshot required.
+        if (!createSnapshot) {
+          await conn.rollback();
+          conn.release();
+          return res.status(404).json({ error: 'Deck not found' });
+        }
+        const deck = normalizeDeckForStorage({ ...createSnapshot, id: deckId });
+        delete deck.ownerEmail; delete deck.ownerId; delete deck.ownerCustomTags;
+        delete deck.userPermission; delete deck.revision;
+        if (ops.length) DeckOps.applyOps(deck, ops);
+        deck.updatedAt = now;
+        await conn.query(
+          `INSERT INTO decks (account_id, id, name, format, data, created_at, is_public, updated_at, revision)
+           VALUES (?,?,?,?,?,?,?,?,1)
+           ON DUPLICATE KEY UPDATE name=VALUES(name), format=VALUES(format), data=VALUES(data),
+             is_public=VALUES(is_public), updated_at=VALUES(updated_at), revision=revision+1`,
+          [accountId, deckId, (deck.name || '').slice(0, 255), (deck.format || '').slice(0, 50),
+           JSON.stringify(deck), parseInt(deckId) || now, deck.isPublic ? 1 : 0, now]
+        );
+        await rewriteDeckCardsRows(conn, accountId, deckId, deck.cards || []);
+        // ON DUPLICATE KEY can fire when two sessions race the same create —
+        // read the actual stored revision instead of assuming 1.
+        const [revRows] = await conn.query(
+          'SELECT revision FROM decks WHERE account_id=? AND id=?',
+          [accountId, deckId]
+        );
+        await conn.commit();
+        result = { revision: Number(revRows[0]?.revision) || 1, ownerId: Number(accountId), ops, cardsChanged: true };
+      } else {
+        const ownerId = Number(rows[0].account_id);
+        const isOwner = ownerId === Number(accountId);
+        let effectiveOps = ops;
+        if (!isOwner) {
+          const [cr] = await conn.query(
+            'SELECT permission FROM deck_collaborators WHERE deck_id = ? AND collaborator_id = ?',
+            [deckId, accountId]
+          );
+          if (!cr.length) {
+            await conn.rollback(); conn.release();
+            return res.status(403).json({ error: 'Access denied' });
+          }
+          if ((cr[0].permission || 'edit') === 'view') {
+            await conn.rollback(); conn.release();
+            return res.status(403).json({ error: 'You have view-only access to this deck' });
+          }
+        }
+
+        // Retry of a batch whose ack was lost: it already committed — do not
+        // re-apply it over collaborator writes that landed since. Return the
+        // CURRENT revision so the client's gap check still triggers a refetch
+        // when others wrote in between.
+        const batchId = typeof body.batchId === 'string' && body.batchId ? body.batchId : null;
+        const dedupeKey = deckId + ':' + accountId;
+        if (batchId && _recentDeckOpsBatches.get(dedupeKey)?.batchId === batchId) {
+          await conn.rollback(); conn.release();
+          return res.json({
+            ok: true,
+            deduped: true,
+            revision: Number(rows[0].revision) || 0,
+            updatedAt: Number(rows[0].updated_at) || now,
+          });
+        }
+
+        const deck = typeof rows[0].data === 'string' ? JSON.parse(rows[0].data) : (rows[0].data || {});
+        // deck_cards (+ tag fast-path rows) are authoritative over blob cards[],
+        // but the join is only needed when this batch can touch the mainboard —
+        // planning/meta-only batches (rapid cut marking) must not pay for a full
+        // card materialization while holding the row lock. Skipping it leaves
+        // stale blob cards[] behind, which every GET path already overrides.
+        const touchesCards = !!createSnapshot || ops.some(o => o && o.z === 'cards');
+        if (touchesCards) {
+          const [cardRows] = await conn.query(
+            `SELECT dc.card_uid, dc.card_data, dct.tag_name
+             FROM deck_cards dc
+             LEFT JOIN deck_card_tags dct
+               ON dct.account_id = dc.account_id AND dct.deck_id = dc.deck_id AND dct.card_uid = dc.card_uid
+             WHERE dc.account_id = ? AND dc.deck_id = ?
+             ORDER BY dc.sort_order ASC`,
+            [ownerId, deckId]
+          );
+          if (cardRows.length) {
+            const byUid = new Map();
+            for (const r of cardRows) {
+              let card = byUid.get(r.card_uid);
+              if (!card) {
+                card = typeof r.card_data === 'string' ? JSON.parse(r.card_data) : r.card_data;
+                if (!Array.isArray(card.customTags)) card.customTags = [];
+                byUid.set(r.card_uid, card);
+              }
+              if (r.tag_name && !card.customTags.some(t => String(t).toLowerCase() === String(r.tag_name).toLowerCase())) {
+                card.customTags.push(r.tag_name);
+              }
+            }
+            deck.cards = [...byUid.values()];
+          }
+        }
+
+        // Create-retry after a lost response: the row exists but the client
+        // still thinks it's creating. Silently ignoring the snapshot used to
+        // ack edits the server never stored — instead converge by diffing the
+        // current server state against the snapshot (which includes any edits
+        // the client made while retrying).
+        if (createSnapshot && !ops.length) {
+          const snap = { ...createSnapshot, id: deckId };
+          delete snap.ownerEmail; delete snap.ownerId; delete snap.ownerCustomTags;
+          delete snap.userPermission; delete snap.revision; delete snap.shareToken;
+          effectiveOps = DeckOps.diffDecks(DeckOps.snapshotDeck(deck), snap);
+        }
+        if (!isOwner) {
+          // Owner-only deck fields stay owner-only on the op path.
+          effectiveOps = effectiveOps.filter(o => !(o && o.t === 'meta' && o.f === 'isPublic'));
+          const cardSets = effectiveOps.filter(o => o && o.t === 'set' && o.z === 'cards' && o.card);
+          if (cardSets.length) {
+            const stored = (deck.cards || []).map(c => ({ card_name: c.name, scryfall_id: c.scryfallId || null }));
+            if (collaboratorChangesPrintings(stored, cardSets.map(o => o.card))) {
+              await conn.rollback(); conn.release();
+              return res.status(403).json({ error: 'Collaborators cannot change card printings' });
+            }
+          }
+        }
+
+        const applied = DeckOps.applyOps(deck, effectiveOps);
+        const merged = normalizeDeckForStorage({ ...deck, id: deckId });
+        delete merged.ownerEmail; delete merged.ownerId; delete merged.ownerCustomTags;
+        delete merged.userPermission; delete merged.revision;
+        merged.updatedAt = now;
+        const nextRevision = (Number(rows[0].revision) || 0) + 1;
+        await conn.query(
+          'UPDATE decks SET name=?, format=?, data=?, is_public=?, updated_at=?, revision=? WHERE account_id=? AND id=?',
+          [(merged.name || '').slice(0, 255), (merged.format || '').slice(0, 50), JSON.stringify(merged),
+           merged.isPublic ? 1 : 0, now, nextRevision, ownerId, deckId]
+        );
+        // A cuts/adds/meta-only batch touches no mainboard rows — skip the full
+        // deck_cards DELETE+INSERT so the row lock isn't held for ~2N writes.
+        const cardsChanged = applied.changedZones.includes('cards');
+        if (cardsChanged) {
+          await rewriteDeckCardsRows(conn, ownerId, deckId, merged.cards || []);
+        }
+        await conn.commit();
+        if (batchId) {
+          _recentDeckOpsBatches.delete(dedupeKey);
+          _recentDeckOpsBatches.set(dedupeKey, { batchId });
+          if (_recentDeckOpsBatches.size > 1000) {
+            _recentDeckOpsBatches.delete(_recentDeckOpsBatches.keys().next().value);
+          }
+        }
+        result = { revision: nextRevision, ownerId, ops: effectiveOps, cardsChanged };
+      }
+      conn.release();
+    } catch (e) {
+      try { await conn.rollback(); } catch (_) {}
+      conn.release();
+      throw e;
+    }
+    // Tradelist surplus and deck-needed wishlist entries derive from the
+    // mainboard only — planning/meta batches (rapid cut marking) must not fire
+    // an account-wide wishlist reconciliation per keystroke.
+    if (result.cardsChanged) {
+      invalidateTradelistCache(result.ownerId);
+      void reconcileAccountWishlist(result.ownerId);
+    }
+    _broadcastDeck(deckId, await deckBroadcastMeta(accountId, {
+      kind: 'ops',
+      deckId,
+      ops: result.ops,
+      revision: result.revision,
+      updatedAt: now,
+    }));
+    res.json({ ok: true, revision: result.revision, updatedAt: now });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Explicit deck deletion (owner only) — op-sync clients no longer rely on the
+// legacy PUT's "NOT IN snapshot → delete" behavior.
+app.delete('/api/decks/:id', requireAuth, async (req, res) => {
+  const deckId = req.params.id;
+  const accountId = req.accountId;
+  try {
+    const [rows] = await db().query('SELECT account_id FROM decks WHERE id = ?', [deckId]);
+    if (!rows.length) return res.json({ ok: true, alreadyGone: true });
+    if (Number(rows[0].account_id) !== Number(accountId)) {
+      return res.status(403).json({ error: 'Only the owner can delete a deck' });
+    }
+    await db().query('DELETE FROM decks WHERE account_id=? AND id=?', [accountId, deckId]);
+    invalidateTradelistCache(accountId);
+    void reconcileAccountWishlist(accountId);
+    _broadcastDeck(deckId, await deckBroadcastMeta(accountId, {
+      kind: 'deleted',
+      deckId,
+      updatedAt: Date.now(),
+    }));
+    res.json({ ok: true });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
@@ -4255,6 +4808,10 @@ function _broadcastTrade(tradeId, event, payload) {
   if (_io) _io.to(`trade:${tradeId}`).emit(event, payload);
 }
 
+function _broadcastDeck(deckId, payload) {
+  if (_io) _io.to(`deck:${deckId}`).emit('deck:updated', payload);
+}
+
 /**
  * Apply one granular edit to a trade with optimistic concurrency. Enforces
  * per-side ownership: a participant may only mutate cards on THEIR side
@@ -4339,6 +4896,15 @@ function attachRealtime(httpServer) {
       if (result.error) { socket.emit('trade:error', { error: result.error }); return; }
       _io.to(`trade:${tradeId}`).emit('trade:state', result.doc);
     });
+    socket.on('deck:join', async ({ deckId } = {}) => {
+      try {
+        if (!deckId) return;
+        const access = await resolveDeckAccessForViewer(socket.accountId, deckId);
+        if (!access) return;
+        socket.join(`deck:${deckId}`);
+      } catch (_) {}
+    });
+    socket.on('deck:leave', ({ deckId } = {}) => { if (deckId) socket.leave(`deck:${deckId}`); });
   });
   console.log('[realtime] socket.io attached');
 }
@@ -5517,11 +6083,10 @@ async function ensureScryfallTagCacheTable() {
 /**
  * Precompute per-role EDHREC percentiles into scryfall_oracle_cards.edhrec_pct_json.
  * Population = cards with the role tag, non-null edhrec_rank, and commander-legal when
- * legality is known. Min population 8 — below that, no percentile for that role.
+ * legality is known. Any role with ≥1 ranked card gets percentiles (no min-population floor).
  * Never call this per suggestion; only from import / cron / admin.
  */
 async function recomputeEdhrecRolePercentiles({ schemaVersion = '4' } = {}) {
-  const E_POPULATION_FLOOR = 8;
   const conn = await db().getConnection();
   try {
     const [[rankRow]] = await conn.query(
@@ -5529,7 +6094,7 @@ async function recomputeEdhrecRolePercentiles({ schemaVersion = '4' } = {}) {
     );
     if (!Number(rankRow?.n || 0)) {
       console.log('[edhrec-pct] skip — no edhrec_rank values (re-import oracle cards to populate)');
-      return { roles: 0, updated: 0 };
+      return { roles: 0, updated: 0, withRank: 0 };
     }
 
     // Role label → [{ oracle_id, rank }]
@@ -5559,9 +6124,10 @@ async function recomputeEdhrecRolePercentiles({ schemaVersion = '4' } = {}) {
     const pctByOracle = new Map();
     let rolesUsed = 0;
     for (const [role, list] of byRole.entries()) {
-      if (list.length < E_POPULATION_FLOOR) continue;
+      if (!list.length) continue;
       rolesUsed++;
       // Lower edhrec_rank = more popular. Sort ascending; p=1 for best.
+      // n=1 → denom=1 → sole card gets p=1.
       list.sort((a, b) => a.rank - b.rank || String(a.oracle_id).localeCompare(String(b.oracle_id)));
       const n = list.length;
       const denom = Math.max(1, n - 1);
@@ -5595,10 +6161,37 @@ async function recomputeEdhrecRolePercentiles({ schemaVersion = '4' } = {}) {
       updated += chunk.length;
     }
     console.log(`[edhrec-pct] roles=${rolesUsed} cards=${updated}`);
-    return { roles: rolesUsed, updated };
+    return { roles: rolesUsed, updated, withRank: Number(rankRow?.n || 0) };
   } finally {
     conn.release();
   }
+}
+
+/**
+ * One-shot / repair: if ranks exist but edhrec_pct_json was never filled (e.g. cards
+ * imported before recompute ran, or recompute was skipped), compute percentiles on boot.
+ * No-op when coverage already looks healthy.
+ */
+async function backfillEdhrecPercentilesIfNeeded() {
+  const [[row]] = await db().query(`
+    SELECT
+      SUM(edhrec_rank IS NOT NULL) AS withRank,
+      SUM(edhrec_pct_json IS NOT NULL) AS withPct
+    FROM scryfall_oracle_cards`);
+  const withRank = Number(row?.withRank || 0);
+  const withPct = Number(row?.withPct || 0);
+  if (!withRank) {
+    console.log('[edhrec-pct] boot backfill skip — no edhrec_rank values');
+    return;
+  }
+  // Healthy: most ranked cards already have a pct map.
+  if (withPct > 0 && withPct >= withRank * 0.5) {
+    console.log(`[edhrec-pct] boot backfill skip — coverage ok (rank=${withRank} pct=${withPct})`);
+    return;
+  }
+  console.log(`[edhrec-pct] boot backfill starting (rank=${withRank} pct=${withPct})`);
+  const result = await recomputeEdhrecRolePercentiles({ schemaVersion: '4' });
+  console.log(`[edhrec-pct] boot backfill done roles=${result.roles} updated=${result.updated}`);
 }
 
 // Printing-level perceptual-hash fingerprints used by the card scanner (see
@@ -7163,6 +7756,25 @@ app.post('/api/cards/adds-catalog', async (req, res) => {
   }
 });
 
+/** Public coverage probe — diagnose empty EDHREC Why lines without admin auth. */
+app.get('/api/cards/edhrec-coverage', async (_req, res) => {
+  try {
+    const [[row]] = await db().query(`
+      SELECT
+        COUNT(*) AS total,
+        SUM(edhrec_rank IS NOT NULL) AS withRank,
+        SUM(edhrec_pct_json IS NOT NULL) AS withPct
+      FROM scryfall_oracle_cards`);
+    res.json({
+      total: Number(row?.total || 0),
+      withRank: Number(row?.withRank || 0),
+      withPct: Number(row?.withPct || 0),
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Batch EDHREC role percentiles for owned-collection Adds scoring (never live-scrape).
 app.post('/api/cards/edhrec-percentiles', async (req, res) => {
   try {
@@ -7744,12 +8356,31 @@ app.get('/api/admin/scryfall/import-status', requireAuth, requireAdminRole, asyn
   try {
     const [[cardsRow]] = await db().query('SELECT COUNT(*) AS n FROM scryfall_oracle_cards');
     const [[tagsRow]] = await db().query('SELECT COUNT(*) AS n, MAX(fetched_at) AS latest FROM scryfall_oracle_tags');
+    const [[edhRow]] = await db().query(`
+      SELECT
+        SUM(edhrec_rank IS NOT NULL) AS withRank,
+        SUM(edhrec_pct_json IS NOT NULL) AS withPct
+      FROM scryfall_oracle_cards`);
     res.json({
       oracleCards: Number(cardsRow?.n || 0),
       oracleTags: Number(tagsRow?.n || 0),
       latestTagUpdate: Number(tagsRow?.latest || 0) || null,
+      edhrecWithRank: Number(edhRow?.withRank || 0),
+      edhrecWithPct: Number(edhRow?.withPct || 0),
       activeImport: _scryfallImportProgress,
     });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Recompute edhrec_pct_json from existing edhrec_rank + tags (no Scryfall download). */
+app.post('/api/admin/scryfall/recompute-edhrec-pct', requireAuth, requireAdminRole, async (req, res) => {
+  try {
+    const schemaVersion = String(req.body?.schemaVersion || '4').slice(0, 16);
+    const result = await recomputeEdhrecRolePercentiles({ schemaVersion });
+    res.json({ ok: true, schemaVersion, ...result });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
@@ -8331,6 +8962,7 @@ async function start() {
       await ensureScryfallTagCacheTable();
       await ensurePrintFingerprintsTable();
       await backfillDeckCardsIfEmpty();
+      await backfillEdhrecPercentilesIfNeeded();
     } catch (e) {
       console.error('[db] schema/backfill warning:', e.message);
     }
@@ -8351,7 +8983,13 @@ async function start() {
   app.use('/js',     express.static(path.join(__dirname, 'js')));
   app.use('/styles', express.static(path.join(__dirname, 'styles')));
   app.use('/vendor', express.static(path.join(__dirname, 'vendor')));
-  app.use('/dist',   express.static(path.join(__dirname, 'dist')));
+  app.use('/dist',   express.static(path.join(__dirname, 'dist'), {
+    setHeaders(res) {
+      // Index stamps ?v=SHA on bundle URLs; allow long cache for a given version,
+      // but always revalidate so a Home Screen PWA never sticks on a stale hash-less URL.
+      res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+    },
+  }));
   app.use('/sounds', express.static(path.join(__dirname, 'sounds')));
   app.use('/icons',  express.static(path.join(__dirname, 'icons')));
   app.get('/manifest.webmanifest', (_req, res) => res.sendFile(path.join(__dirname, 'manifest.webmanifest')));

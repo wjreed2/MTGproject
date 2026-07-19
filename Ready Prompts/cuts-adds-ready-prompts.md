@@ -184,7 +184,7 @@ Use printed CMC (with `{X}` = 3 convention below).
 - Per role tag: population = local cards with that tag, non-null `edhrec_rank`, and
   **Commander-legal when legality exists** (do not split by deck color identity for the
   tables).
-- Min population **8**; below → store no percentile; at score time **E = 0**.
+- No min-population floor — any role with ≥1 ranked card stores percentiles (`n=1` → `p=1`).
 - Raw rank → percentile `p` in **[0, 1]** (higher = more popular / better rank).
 
 **Price bands (locked; USD from existing local card price field):**
@@ -202,17 +202,17 @@ Use **discrete steps** at band edges (not smooth interpolation inside a band).
 **Score-time E:**
 - `p_adjusted = clamp(p + Δp, 0, 1)`
 - **Linear** curve (locked): `E = K_E × p_adjusted`
-- **One E per candidate** — percentile for the role of the **largest active deficit**.
-- **Equal-largest deficit tie (default):** among tied top magnitudes, prefer a tied role
-  the candidate actually matches; if several match, pick the lexicographically smallest
-  project role-tag ID; if none match, E = 0.
+- **One E per candidate** — among the candidate's roles with an **active deficit**, prefer
+  the largest hole, then try other matched roles until a stored percentile is found;
+  tie-break lexicographically. No active deficit / no percentile → E = 0 (popular
+  off-role staples must not float up).
 - **No multi-tag dampening inside E** (locked — do not add).
 - Do NOT sum E per tag. Do NOT use EDHREC category APIs or scrape edhrec.com.
 - Three Visits (rank ~42) must remain elite after price adjust.
 
-**`K_E` (locked relative rule):** after `K_L` is set, choose `K_E` so max E (`p_adjusted=1`)
-≈ **half of a meaningful 1-CMC L step** (i.e. ≈ `0.5 × K_L` when CMC_REF gaps differ by 1).
-Document both values in the PR.
+**`K_E`:** independent constant (no longer `0.5 × K_L`). Current calibration:
+**`K_E = 1.0`** — `E = K_E × p_adjusted`, so an 80th-percentile role card gets ≈ 0.8
+and a top-percentile card gets the full 1.0.
 
 ### B — creature body bonus (entry 12)
 STE / Wood Elves / Rampant Growth were **examples**, not “B is ramp-only.”
@@ -223,8 +223,12 @@ Else if candidate is a **Creature** AND fills **any** active utility-role defici
 Else `B = 0`.
 
 Tune `K_B` so **Sakura-Tribe Elder > Rampant Growth** on a non-spellslinger green ramp
-fixture. **Do not** calibrate so Wood Elves always beats Rampant Growth — CMC still
-matters; either card can win depending on curve/deficits.
+fixture. Current calibration: **`K_B = 0.3`** (body is a small nudge, not a major term).
+**Do not** calibrate so Wood Elves always beats Rampant Growth — CMC still matters;
+either card can win depending on curve/deficits.
+
+Suggested Adds UI only shows candidates at **≥ 7/10** on the absolute badge scale
+(keep searching Collection → All Cards rather than surfacing weaker fills).
 
 ### P — colored pip restrictiveness (entry 9)
 `P = K_P × pip_restrictiveness_score` from parsed mana cost (locked weights):
@@ -277,7 +281,7 @@ constants (especially `K_L`) and made Efficient CMC dominate real score deltas.
 | mode | Board-wipe deficit only | Sweepers still get C (L not applied) |
 | mode | Removal / Ramp tagged | Efficiency mode on; C_eff off; L > 0 for CMC &lt; 4 |
 | scale | `K_L × CMC_REF` | Max L ≤ C_eff cap (1.5) so L stays secondary to D |
-| consts | Named constants | `CMC_REF=4`, `K_E = 0.5 × K_L`, D weights `[1, 0.5, 0.25]`, tag set membership |
+| consts | Named constants | `CMC_REF=4`, `K_E = 1.0` (independent; `K_E > K_B`), D weights `[1, 0.5, 0.25]`, tag set membership |
 
 ### Soft vignettes (debug log only — do not hard-fail)
 | # | Case | Expectation |
@@ -297,7 +301,7 @@ Log `D, M, C_eff, L, E, B, P, V, T, K` for every vignette pair.
 
 ## Deliverables
 - Code + named constants (`D_SUBLINEAR_WEIGHTS`, `CMC_REF`, `K_L`, `K_E`, `K_P`, `K_B`,
-  E price band deltas, population floor 8)
+  E price band deltas; no E population floor)
 - Central `EFFICIENCY_MODE_PROJECT_TAGS` (+ exclusion list) with mapping comments and
   “IDs may change” note
 - Formula comment block in `_scoreAddCandidate`

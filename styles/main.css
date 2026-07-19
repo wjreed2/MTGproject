@@ -8048,6 +8048,10 @@ select:focus { outline: none; border-color: rgba(200,168,74,0.6); box-shadow: 0 
   cursor: default;
   flex-shrink: 0;
 }
+/* Suggested Adds shows N/10 — needs a bit more room than Cuts' raw score. */
+.add-score-badge {
+  min-width: 3.6rem;
+}
 /* Score badge doubles as the "why" toggle button. */
 .cut-why-toggle {
   border: 1px solid transparent;
