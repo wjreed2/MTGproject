@@ -1,0 +1,143 @@
+{
+  "oracle_tag_count": 4494,
+  "archetype_count": 55,
+  "row_count": 614,
+  "build_stats": {
+    "exact": 614,
+    "skipped_missing": 43,
+    "skipped_dup": 2
+  },
+  "skipped_missing_tags": {
+    "Tribal (Dragons)": [
+      "affinity-for-dragons",
+      "affinity-for-dragon"
+    ],
+    "Tribal (Elves)": [
+      "affinity-for-elfs",
+      "affinity-for-elf"
+    ],
+    "Tribal (Goblins)": [
+      "seek-creature-goblin",
+      "affinity-for-goblins",
+      "affinity-for-goblin"
+    ],
+    "Tribal (Humans)": [
+      "tutor-creature-human",
+      "seek-creature-human",
+      "affinity-for-human"
+    ],
+    "Tribal (Merfolk)": [
+      "affinity-for-merfolks",
+      "affinity-for-merfolk"
+    ],
+    "Tribal (Slivers)": [
+      "impulse-creature-sliver",
+      "seek-creature-sliver",
+      "affinity-for-sliver"
+    ],
+    "Tribal (Vampires)": [
+      "impulse-creature-vampire",
+      "affinity-for-vampires",
+      "affinity-for-vampire"
+    ],
+    "Tribal (Wizards)": [
+      "impulse-creature-wizard",
+      "seek-creature-wizard",
+      "affinity-for-wizards",
+      "affinity-for-wizard"
+    ],
+    "Tribal (Zombies)": [
+      "seek-creature-zombie",
+      "affinity-for-zombies",
+      "affinity-for-zombie"
+    ],
+    "Tribal (Angels)": [
+      "tutor-creature-angel",
+      "seek-creature-angel",
+      "affinity-for-angels",
+      "affinity-for-angel"
+    ],
+    "Tribal (Demons)": [
+      "seek-creature-demon",
+      "affinity-for-demons",
+      "affinity-for-demon"
+    ],
+    "Tribal (Cats)": [
+      "tutor-creature-cat",
+      "impulse-creature-cat",
+      "seek-creature-cat",
+      "affinity-for-cat"
+    ],
+    "Tribal (Rats)": [
+      "affinity-for-rats",
+      "affinity-for-rat"
+    ],
+    "Tribal (Pirates)": [
+      "affinity-for-pirates",
+      "affinity-for-pirate"
+    ],
+    "Tribal (Dinosaurs)": [
+      "seek-creature-dinosaur",
+      "affinity-for-dinosaurs",
+      "affinity-for-dinosaur"
+    ]
+  },
+  "rows_per_archetype": {
+    "Control/Pillowfort": 16,
+    "Spellslinger/Storm": 16,
+    "Tokens (Go-Wide)": 16,
+    "Tribal (Dragons)": 15,
+    "Voltron (Go-Tall)": 15,
+    "Combo": 14,
+    "Tribal (Elves)": 14,
+    "Tribal (Goblins)": 14,
+    "Tribal (Humans)": 14,
+    "Tribal (Merfolk)": 14,
+    "Tribal (Pirates)": 14,
+    "Tribal (Rats)": 14,
+    "Tribal (Slivers)": 14,
+    "Aggro": 13,
+    "Aristocrats": 13,
+    "Copy/Clone": 13,
+    "Graveyard/Reanimator": 13,
+    "Tribal (Demons)": 13,
+    "Tribal (Dinosaurs)": 13,
+    "Tribal (Vampires)": 13,
+    "Tribal (Zombies)": 13,
+    "Artifacts": 12,
+    "Equipment": 12,
+    "Landfall": 12,
+    "Ramp": 12,
+    "Stax": 12,
+    "Tribal (Angels)": 12,
+    "Tribal (Cats)": 12,
+    "Tribal (Wizards)": 12,
+    "Enchantments / Auras": 11,
+    "Enchantress": 11,
+    "Theft": 11,
+    "Big Mana / X Spells": 10,
+    "Doubling / Copy Effects": 10,
+    "Infect/Poison": 10,
+    "Legends Matter / Historic": 10,
+    "Sacrifice": 10,
+    "Vehicles": 10,
+    "Wheel": 10,
+    "Counters (+1/+1)": 9,
+    "Counters (-1/-1)": 9,
+    "Lifegain": 9,
+    "Mill": 9,
+    "Superfriends": 9,
+    "Blink/Flicker": 8,
+    "Chaos": 8,
+    "Cascade/Discover": 7,
+    "Extra Combats": 7,
+    "Extra Turns": 7,
+    "Group Slug": 7,
+    "Kindred / Typal Payoffs": 7,
+    "Monarch / Goad Politics": 7,
+    "Devotion": 6,
+    "Group Hug": 6,
+    "Party": 6
+  },
+  "unique_tags": 305
+}
