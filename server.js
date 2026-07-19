@@ -167,15 +167,25 @@ function db() {
 
 // Last-resort net so a transient DB/socket blip can never take the process down.
 // (Before this the app had no handlers at all — any stray connection error was fatal,
-// and Railway would 404/502 every request during the restart window.)
+// and Railway would 404/502 every request during the restart window.) We only swallow
+// *transient connection* errors; genuine bugs still crash, so the failure stays visible
+// and Railway restarts cleanly instead of the app limping on in an unknown state.
 const _TRANSIENT_CONN_ERR = /closed state|PROTOCOL_CONNECTION_LOST|ECONNRESET|EPIPE|ETIMEDOUT|Pool is closed/i;
+function _isTransientConnError(err) {
+  const code = err && err.code;
+  return _TRANSIENT_CONN_ERR.test((err && err.message) || '') ||
+    ['PROTOCOL_CONNECTION_LOST', 'ECONNRESET', 'EPIPE', 'ETIMEDOUT'].includes(code);
+}
 process.on('unhandledRejection', (reason) => {
-  console.error('[unhandledRejection]', reason);
+  if (_isTransientConnError(reason)) {
+    console.error('[unhandledRejection] recovered from transient DB/connection error:', (reason && reason.message) || reason);
+    return; // keep serving; pooled connections re-establish on the next query
+  }
+  console.error('[unhandledRejection] fatal:', reason);
+  process.exit(1); // preserve Node's crash-on-genuine-bug behavior (Railway will restart)
 });
 process.on('uncaughtException', (err) => {
-  const code = err && err.code;
-  if (_TRANSIENT_CONN_ERR.test((err && err.message) || '') ||
-      ['PROTOCOL_CONNECTION_LOST', 'ECONNRESET', 'EPIPE', 'ETIMEDOUT'].includes(code)) {
+  if (_isTransientConnError(err)) {
     console.error('[uncaughtException] recovered from transient DB/connection error:', (err && err.message) || err);
     return; // keep serving; pooled connections re-establish on the next query
   }
