@@ -52,3 +52,19 @@ before trusting a row.
 Note: Scryfall search accepts some **aliases** with different punctuation
 (`otag:board-wipe` → `sweeper`, `otag:self-mill` → `mill-self`). The verified CSV
 emits the **canonical slug** from bulk data.
+
+
+## Codebase vocabulary (project role tags)
+
+The app does **not** store raw Scryfall otags on cards. It stores **project role-tag
+labels** (`Ramp`, `Sac Outlet`, `Token Maker`, …) from `js/project-role-tags.js`.
+
+| File | Role |
+|------|------|
+| `js/project-role-tags.js` | Canonical ~36 project labels + Scryfall backing (`otag` or `query`) |
+| `js/archetype-role-bridge.js` | Sheet archetype → plan strategy → **project labels**; enrichment otags kept separate |
+| `archetype-project-role-bridge.csv` | Sheet-import form of that bridge |
+| `archetype-scryfall-tags.csv` | Verified Scryfall research catalog (otags) — **not** written into `tags_json` as-is |
+
+Plan / Adds consume `PLAN_STRATEGY_PROJECT_TAGS` from the bridge (via `js/deck-plan.js`).
+Enrichment otags are for research / future ingest only — never treat them as role tags.

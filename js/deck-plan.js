@@ -5,13 +5,26 @@
  * Project role-tag labels are transitional; keep semantic→ID maps centralized here.
  */
 (function (root, factory) {
-  const api = factory();
+  const api = factory(root);
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (root) {
     for (const [k, v] of Object.entries(api)) root[k] = v;
   }
-})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : null), function () {
+})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : null), function (root) {
   'use strict';
+
+  // Strategy/wincon → project role labels live in archetype-role-bridge.js so the
+  // research sheet and Adds plan path share one vocabulary (project labels, not otags).
+  let bridge = root && root.PLAN_STRATEGY_PROJECT_TAGS ? root : null;
+  if (typeof require === 'function') {
+    try { bridge = require('./archetype-role-bridge.js'); } catch (_) { /* bundled */ }
+  }
+  if (!bridge || !bridge.PLAN_STRATEGY_PROJECT_TAGS) {
+    throw new Error('deck-plan: archetype-role-bridge.js required (project role-tag map)');
+  }
+  if (Array.isArray(bridge.BRIDGE_LABEL_ERRORS) && bridge.BRIDGE_LABEL_ERRORS.length) {
+    throw new Error('deck-plan: bridge has non-project labels: ' + bridge.BRIDGE_LABEL_ERRORS.join('; '));
+  }
 
   // ── Named constants ───────────────────────────────────────────────────────
   const PLAN_WIZARD_ANALYZE_THRESHOLD = 80;
@@ -82,35 +95,9 @@
     { id: 'budget.card.custom', usd: null, label: 'Custom…' },
   ]);
 
-  /** Strategy/wincon → project role-tag labels (SCRYFALL_AUTO_TAGS). */
-  const PLAN_STRATEGY_PROJECT_TAGS = Object.freeze({
-    'strategy.tokens': ['Token Maker', 'Treasure'],
-    'strategy.sacrifice': ['Sac Outlet', 'Death Trigger', 'Sac Synergy', 'Drain'],
-    'strategy.spellslinger': ['Card Draw', 'Tutor', 'Counterspell'],
-    'strategy.reanimator': ['Recursion', 'Reanimate', 'Graveyard Cast', 'Self-Mill'],
-    'strategy.voltron': ['Pump', 'Evasion', 'Protection', 'Anthem'],
-    'strategy.counters': ['Pump', 'Anthem'],
-    'strategy.landfall': ['Landfall', 'Ramp'],
-    'strategy.tribal': [],
-    'strategy.artifacts': ['Treasure', 'Tutor'],
-    'strategy.enchantress': ['Card Draw', 'Anthem'],
-    'strategy.control': ['Counterspell', 'Removal', 'Board Wipe', 'Card Draw'],
-    'strategy.blink': ['Blink'],
-    'strategy.superfriends': ['Protection', 'Tutor'],
-    'strategy.theft': ['Control', 'Bounce'],
-    'strategy.other': [],
-  });
-
-  const PLAN_WINCON_PROJECT_TAGS = Object.freeze({
-    'wincon.combat': ['Anthem', 'Pump', 'Evasion', 'Token Maker', 'Extra Combat'],
-    'wincon.commander_damage': ['Pump', 'Evasion', 'Protection'],
-    'wincon.combo': ['Tutor', 'Recursion'],
-    'wincon.mill': ['Mill', 'Self-Mill'],
-    'wincon.life_drain': ['Drain', 'Lifegain'],
-    'wincon.lock': ['Stax', 'Hatebear'],
-    'wincon.value': ['Card Draw', 'Removal', 'Recursion'],
-    'wincon.other': [],
-  });
+  /** Strategy/wincon → project role-tag labels (from archetype-role-bridge). */
+  const PLAN_STRATEGY_PROJECT_TAGS = bridge.PLAN_STRATEGY_PROJECT_TAGS;
+  const PLAN_WINCON_PROJECT_TAGS = bridge.PLAN_WINCON_PROJECT_TAGS;
 
   const PLAN_STRATEGY_ORACLE_RULES = Object.freeze([
     { id: 'strategy.sacrifice', patterns: [/\bsacrific(?:e|es|ing)\b/i, /\bdies\b/i] },
