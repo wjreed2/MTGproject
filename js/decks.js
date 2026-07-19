@@ -1179,7 +1179,9 @@ function canEditActiveDeck() {
   return activeDeckPermission() !== 'view';
 }
 
-const SCRYFALL_AUTO_TAGS = [
+const SCRYFALL_AUTO_TAGS = (typeof PROJECT_ROLE_TAGS !== 'undefined' && Array.isArray(PROJECT_ROLE_TAGS))
+  ? PROJECT_ROLE_TAGS
+  : [
   { label: 'Ramp',           otag: 'ramp' },
   { label: 'Card Draw',      otag: 'draw' },
   { label: 'Removal',        otag: 'removal' },
