@@ -6971,38 +6971,29 @@ function _addsCompareScored(a, b, { planOnlyBackfill, scoreOnly }) {
   return (b.s.score || 0) - (a.s.score || 0);
 }
 
-/** True when a scored Add meets the ≥7/10 display floor (absolute scale). */
-function _addsMeetsDisplayFloor(entry) {
-  const raw = Number(entry?.s?.score);
-  if (typeof meetsAddDisplayFloor === 'function') return meetsAddDisplayFloor(raw);
-  if (typeof addDisplayScore === 'function') return addDisplayScore(raw) + 1e-9 >= 7;
-  return Number.isFinite(raw) && raw > 0;
-}
-
-/** Pick top Adds suggestions after CK gate (testable). Never returns below 7/10. */
+/** Pick top Adds suggestions after CK gate (testable). */
 function _addsSelectTopPicks(ownedScored, unownedScored, opts) {
   const {
     gate, deckPlan, planOnlyBackfill, scoreOnly, count = _ADD_SUGGESTION_COUNT,
   } = opts || {};
   const gateFn = gate || (() => true);
-  const strong = (list) => (list || []).filter(gateFn).filter(_addsMeetsDisplayFloor);
   const pool = [
-    ...strong(ownedScored),
-    ...strong(unownedScored),
+    ...ownedScored.filter(gateFn),
+    ...unownedScored.filter(gateFn),
   ];
   if (typeof applyPlanBudgetToAddsPicks === 'function' && deckPlan
       && deckPlan.roughMaxPerCardBudgetUsd != null) {
     pool.sort((a, b) => _addsCompareScored(a, b, { planOnlyBackfill, scoreOnly }));
     const budgeted = applyPlanBudgetToAddsPicks(pool, deckPlan, count);
-    return (budgeted.picks || []).filter(_addsMeetsDisplayFloor);
+    return budgeted.picks;
   }
   if (scoreOnly) {
     pool.sort((a, b) => _addsCompareScored(a, b, { planOnlyBackfill, scoreOnly: true }));
     return pool.slice(0, count);
   }
-  const picks = strong(ownedScored).slice(0, count);
+  const picks = ownedScored.filter(gateFn).slice(0, count);
   if (picks.length < count) {
-    picks.push(...strong(unownedScored).slice(0, count - picks.length));
+    picks.push(...unownedScored.filter(gateFn).slice(0, count - picks.length));
   }
   return picks;
 }
@@ -7212,6 +7203,7 @@ function _buildAddWhyLines(s, ctx) {
   if (s.versatility > 0.01) lines.push({ text: `Versatile — fills ${s.roles.length} roles`, val: _fmtWhyVal(s.versatility) });
   if (s.tribal > 0.01) lines.push({ text: `Fits your ${escapeHtml(_capWord(s.tribe))} theme`, val: _fmtWhyVal(s.tribal) });
   if (s.themeBonus > 0.01 && s.theme) lines.push({ text: `Feeds your commander's trigger (${escapeHtml(s.theme.label)})`, val: _fmtWhyVal(s.themeBonus) });
+  if ((s.terms?.S || 0) > 0.01) lines.push({ text: `Focused pick — one clear role for this deck`, val: _fmtWhyVal(s.terms.S) });
   return lines;
 }
 
