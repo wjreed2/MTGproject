@@ -5926,49 +5926,12 @@ app.get('/api/mtgjson/deck/:fileName', async (req, res) => {
 // ── Scryfall proxy with TCG enrichment ────────────────────────────────────────
 let _scryfallLastRequestAt = 0;
 let _scryfallQueue = Promise.resolve(); // serializes concurrent requests to prevent 429 bursts
-const SCRYFALL_AUTO_TAGS = [
-  { label: 'Ramp', otag: 'ramp' },
-  { label: 'Card Draw', otag: 'draw' },
-  { label: 'Removal', otag: 'removal' },
-  { label: 'Board Wipe', otag: 'board-wipe' },
-  { label: 'Tutor', otag: 'tutor' },
-  { label: 'Counterspell', otag: 'counterspell' },
-  { label: 'Protection', query: '(o:"protection from" or o:hexproof or o:indestructible or o:"phase out")' },
-  { label: 'Bounce', otag: 'bounce' },
-  { label: 'Control', query: '(o:"gain control" or o:"exchange control")' },
-  { label: 'Burn', otag: 'burn' },
-  { label: 'Group Slug', otag: 'group-slug' },
-  { label: 'Stax', otag: 'tax' },
-  { label: 'Hatebear', otag: 'hatebear' },
-  { label: 'Anthem', otag: 'anthem' },
-  { label: 'Evasion', otag: 'evasion' },
-  { label: 'Pump', query: '(o:"target creature gets +" or o:"creatures you control get +" or (o:"gets +" and o:"until end of turn"))' },
-  { label: 'Combat Trick', otag: 'combat-trick' },
-  { label: 'Bite', otag: 'bite' },
-  { label: 'Extra Combat', otag: 'extra-combat' },
-  { label: 'Token Maker', query: '(o:create o:token)' },
-  { label: 'Blink', otag: 'blink' },
-  { label: 'Copy', otag: 'copy' },
-  { label: 'Treasure', query: 'o:"treasure token"' },
-  { label: 'Lifegain', otag: 'lifegain' },
-  { label: 'Discard', otag: 'discard' },
-  { label: 'Mill', otag: 'mill' },
-  { label: 'Wheel', otag: 'wheel' },
-  { label: 'Landfall', otag: 'landfall' },
-  { label: 'Recursion', otag: 'recursion' },
-  { label: 'Reanimate', otag: 'reanimate' },
-  { label: 'Graveyard Cast', otag: 'synergy-graveyard-cast' },
-  { label: 'Self-Mill', otag: 'self-mill' },
-  { label: 'Sac Outlet', otag: 'sacrifice-outlet' },
-  { label: 'Death Trigger', otag: 'death-trigger' },
-  { label: 'Drain', otag: 'drain-life' },
-  { label: 'Sac Synergy', otag: 'synergy-sacrifice' },
-];
+const {
+  PROJECT_ROLE_TAGS: SCRYFALL_AUTO_TAGS,
+  OTAG_TO_PROJECT_LABEL: _OTAG_TO_LABEL,
+} = require('./js/project-role-tags.js');
 // Scryfall tagger slug → the label we store in scryfall_oracle_tags. Lets the local search
 // engine resolve `otag:removal` against the local tag table (which stores "Removal").
-const _OTAG_TO_LABEL = new Map(
-  SCRYFALL_AUTO_TAGS.filter(t => t.otag).map(t => [t.otag.toLowerCase(), t.label])
-);
 function _sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
