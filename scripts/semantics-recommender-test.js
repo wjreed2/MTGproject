@@ -95,5 +95,68 @@ console.log('cuts — shields and dead weight');
   check('cut reasons render', reasons.length > 0 && typeof reasons[0] === 'string', JSON.stringify(reasons));
 }
 
+console.log('adds — param-aware matching (tribes, tokens, curve)');
+{
+  // Vampire-tribal deck: chose-a-type support (generic tribal.synergy needers), a real
+  // vampire lord demand, and a token doubler that wants token production.
+  const pIR = (provides, needs, extra) => ({
+    provides: (provides || []).map(([axis, param, w, rate]) => ({ axis, param: param || null, rate: rate || 'once', weight: w || 3 })),
+    needs: (needs || []).map(([axis, param, w, crit]) => ({ axis, param: param || null, criticality: crit || 'wants', weight: w || 3 })),
+    anti: [], roles: [], wincon: null, tribal: { types: [], lord_of: [] }, faces: [], ...extra,
+  });
+  const vampDeck = [
+    { name: 'Vamp Lord A', qty: 1, cmc: 3, typeLine: 'Creature — Vampire', ir: pIR([['tribal.lord', 'Vampire', 4, 'static']], [['tribal.synergy', 'Vampire', 4]], { tribal: { types: ['Vampire'], lord_of: ['Vampire'] } }) },
+    { name: 'Vamp Lord B', qty: 1, cmc: 3, typeLine: 'Creature — Vampire', ir: pIR([['tribal.lord', 'Vampire', 4, 'static']], [['tribal.synergy', 'Vampire', 4]], { tribal: { types: ['Vampire'], lord_of: ['Vampire'] } }) },
+    { name: 'Chose-a-Type Horn', qty: 1, cmc: 3, typeLine: 'Artifact', ir: pIR([], [['tribal.synergy', null, 3]]) },
+    { name: 'Token Doubler Wanter', qty: 1, cmc: 2, typeLine: 'Sorcery', ir: pIR([['token.creature', 'Goblin', 3, 'once']], [['token.doubler', null, 3]]) },
+    ...Array.from({ length: 12 }, (_, i) => ({ name: `Vamp Body ${i}`, qty: 1, cmc: 2, typeLine: 'Creature — Vampire', ir: pIR([['tribal.synergy', 'Vampire', 2, 'static']], [], { tribal: { types: ['Vampire'], lord_of: [] } }) })),
+    { name: 'Vamp Land', qty: 30, cmc: 0, typeLine: 'Basic Land — Swamp', ir: pIR([], [], { roles: ['land'] }) },
+  ];
+  const vampCommander = { name: 'Vampire Boss', ir: pIR([['tribal.lord', 'Vampire', 4, 'static']], [['tribal.synergy', 'Vampire', 4]], { tribal: { types: ['Vampire'], lord_of: ['Vampire'] } }) };
+  const vGoals = inferGoals(vampDeck, vampCommander, {});
+  check('tribal goal inferred for the harness deck', vGoals.goals[0]?.goal === 'tribal:Vampire', JSON.stringify(vGoals.goals.slice(0, 2)));
+  const vCtx = {
+    deckCards: vampDeck, commander: vampCommander, goals: vGoals.goals,
+    thresholds: th.computeThresholds({ goal: vGoals.goals[0]?.goal }),
+    roleCounts: th.countRoles(vampDeck), hist: vGoals.histogram, templates,
+  };
+  const vCands = [
+    { name: 'Goblin Token Maker', ir: pIR([['token.creature', 'Goblin', 3, 'once'], ['tribal.synergy', 'Goblin', 2, 'once']]), cmc: 2, price: 1, owned: false, edhrecRank: 900 },
+    { name: 'Vampire Support', ir: pIR([['tribal.synergy', 'Vampire', 3, 'static']]), cmc: 2, price: 1, owned: false, edhrecRank: 900 },
+    { name: 'Artifact Token Doubler', ir: pIR([['token.doubler', 'Treasure', 4, 'static']]), cmc: 3, price: 1, owned: false, edhrecRank: 900 },
+    { name: 'Utility Land', ir: pIR([['mana.color_fix', null, 2, 'repeatable']], [], { roles: ['land'] }), cmc: 0, typeLine: 'Land', price: 1, owned: false, edhrecRank: 900 },
+  ];
+  const vAdds = rec.scoreAdds({ ...vCtx, candidates: vCands, budget: { maxCardPrice: null, flagAbove: 5 } });
+  const byName = n => vAdds.find(a => a.name === n);
+  const feedsNames = a => (a?.trace || []).filter(t => t.kind === 'feeds' || t.kind === 'fills_axis').flatMap(t => t.needers || t.names || []);
+  check('goblin provider does not feed vampire-param needers',
+    !feedsNames(byName('Goblin Token Maker')).some(n => n.startsWith('Vamp')),
+    JSON.stringify(byName('Goblin Token Maker')?.trace));
+  check('off-tribe tribal provider gets no chose-a-type credit',
+    !feedsNames(byName('Goblin Token Maker')).includes('Chose-a-Type Horn'),
+    JSON.stringify(byName('Goblin Token Maker')?.trace));
+  check('on-tribe provider outranks off-tribe token maker',
+    (byName('Vampire Support')?.score || 0) > (byName('Goblin Token Maker')?.score || 0),
+    JSON.stringify(vAdds.map(a => [a.name, a.score])));
+  // Provider param vs generic needer stays matched on non-tribal axes (Anointed
+  // Procession pattern): the Treasure doubler still counts as feeding the generic
+  // token.doubler need — the param is disclosed in the trace for the reason string.
+  check('param provider still matches generic non-tribal needer',
+    feedsNames(byName('Artifact Token Doubler')).includes('Token Doubler Wanter'),
+    JSON.stringify(byName('Artifact Token Doubler')?.trace));
+  check('land candidate earns no curve_fill trace',
+    !(byName('Utility Land')?.trace || []).some(t => t.kind === 'curve_fill'),
+    JSON.stringify(byName('Utility Land')?.trace));
+}
+
+console.log('goals — land types are not tribes');
+{
+  const mountainIR = { provides: [], needs: [], anti: [], roles: [], wincon: null, tribal: { types: ['Mountain', 'Goblin'], lord_of: ['Mountain'] }, faces: [] };
+  const deck3 = Array.from({ length: 14 }, (_, i) => ({ name: `Walker ${i}`, qty: 1, cmc: 2, typeLine: 'Creature — Goblin', ir: mountainIR }));
+  const g3 = inferGoals(deck3, null, {});
+  check('no tribal:Mountain hypothesis', !g3.goals.some(x => x.goal === 'tribal:Mountain'), JSON.stringify(g3.goals.map(x => x.goal)));
+  check('real tribe still detected', g3.goals.some(x => x.goal === 'tribal:Goblin'), JSON.stringify(g3.goals.map(x => x.goal)));
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

@@ -49,11 +49,11 @@ function addReasons(add) {
     switch (t.kind) {
       case 'fills_axis':
         out.push(t.needers && t.needers.length
-          ? `Feeds ${listNames(t.needers)} (${axisLabel(t.axis)})`
+          ? `Feeds ${listNames(t.needers)} (${axisLabel(t.axis)}${t.param ? `: ${t.param}` : ''})`
           : `Adds ${axisLabel(t.axis)} the deck plan wants more of`);
         break;
       case 'feeds':
-        out.push(`Feeds ${listNames(t.names)} (${axisLabel(t.axis)})`);
+        out.push(`Feeds ${listNames(t.names)} (${axisLabel(t.axis)}${t.param ? `: ${t.param}` : ''})`);
         break;
       case 'role_deficit':
         out.push(`Fills the ${t.cat} deficit (${t.deficit} short of target)`);

@@ -7,7 +7,7 @@
 //   scoreCuts(ctx)  → ranked cut candidates (lowest contribution first)
 //   scoreAdds(ctx)  → ranked add candidates (best fit first)
 
-const { computeInteractions, synergyDegree } = require('./interactions');
+const { computeInteractions, synergyDegree, paramOk } = require('./interactions');
 const th = require('./thresholds');
 
 const CUT_COUNT = 8;
@@ -19,40 +19,108 @@ function isLandCard(c) {
 
 function bucketOf(cmc) { return Math.min(Math.max(Math.floor(Number(cmc) || 0), 0), 7); }
 
-// Index the deck's capability layer once for candidate joins.
+// Index the deck's capability layer once for candidate joins. Keeps per-param
+// sub-entries so joins can respect param compatibility — a Goblin token maker must not
+// read as feeding Vampire-tribal payoffs (the interaction engine already enforces this
+// via paramOk; the index-based joins here have to as well).
 function deckAxisIndex(deckCards, commander) {
-  const provides = new Map(); // axis → {count, names[]}
-  const needs = new Map();    // axis → {count, weight, names[]}
+  const provides = new Map(); // axis → {count, names[], entries: [{param, count, names[]}]}
+  const needs = new Map();    // axis → {count, weight, names[], entries: [{param, count, weight, names[]}]}
   const all = commander?.ir ? [...deckCards, { ...commander, qty: 1 }] : deckCards;
+  const subEntry = (rec, param) => {
+    const key = param == null ? null : String(param).toLowerCase();
+    let e = rec.entries.find(x => x.key === key);
+    if (!e) { e = { key, param: param ?? null, count: 0, weight: 0, names: [] }; rec.entries.push(e); }
+    return e;
+  };
   for (const c of all) {
     for (const p of c.ir?.provides || []) {
-      const e = provides.get(p.axis) || { count: 0, names: [] };
+      const rec = provides.get(p.axis) || { count: 0, names: [], entries: [] };
+      rec.count += c.qty || 1;
+      if (rec.names.length < 6) rec.names.push(c.name);
+      const e = subEntry(rec, p.param);
       e.count += c.qty || 1;
       if (e.names.length < 6) e.names.push(c.name);
-      provides.set(p.axis, e);
+      provides.set(p.axis, rec);
     }
     for (const nd of c.ir?.needs || []) {
-      const e = needs.get(nd.axis) || { count: 0, weight: 0, names: [] };
+      const rec = needs.get(nd.axis) || { count: 0, weight: 0, names: [], entries: [] };
+      rec.count += c.qty || 1;
+      rec.weight += (nd.weight || 1) * (c.qty || 1);
+      if (rec.names.length < 6) rec.names.push(c.name);
+      const e = subEntry(rec, nd.param);
       e.count += c.qty || 1;
       e.weight += (nd.weight || 1) * (c.qty || 1);
       if (e.names.length < 6) e.names.push(c.name);
-      needs.set(nd.axis, e);
+      needs.set(nd.axis, rec);
     }
   }
   return { provides, needs };
 }
 
+// Tribes the deck plausibly plays, from the goal hypotheses (tribal:X entries).
+function deckTribeSet(goals) {
+  const s = new Set();
+  for (const g of goals || []) {
+    const key = String(g?.goal || '');
+    if (key.startsWith('tribal:')) s.add(key.slice(7).toLowerCase());
+  }
+  return s;
+}
+
+// Generic tribal.* entries (chose-a-type cards like Cavern of Souls or Herald's Horn)
+// are set to the deck's own tribe in practice — so a parameterized tribal entry for a
+// tribe the deck doesn't play can only interact via EXACT param matches, even though
+// paramOk's wildcard would allow the generic match (a Goblin token maker must not read
+// as feeding a Vampire deck's Herald's Horn).
+function tribalBound(tribes, axis, param) {
+  return !!(param != null && String(axis).startsWith('tribal.') &&
+    !tribes.has(String(param).toLowerCase()));
+}
+
+// Slice of an index record param-compatible with `param` (paramOk semantics: equal, or
+// either side unparameterized). `exactOnly` drops the wildcard — only same-param entries
+// match. Returns the whole record on the fast paths, null when nothing compatible remains.
+function matchParam(rec, param, exactOnly) {
+  if (!rec) return null;
+  if (!exactOnly && (param == null || !rec.entries.some(e => e.param != null))) return rec;
+  const key = param == null ? null : String(param).toLowerCase();
+  let count = 0, weight = 0;
+  const names = [];
+  for (const e of rec.entries) {
+    if (exactOnly ? e.key !== key : !paramOk(param, e.param)) continue;
+    count += e.count;
+    weight += e.weight || 0;
+    for (const n of e.names) if (names.length < 6 && !names.includes(n)) names.push(n);
+  }
+  return count ? { count, weight, names } : null;
+}
+
 // Axes the deck WANTS more of: goal core groups below target + needed-but-underfed axes.
+// Entries may carry `params` (only param-compatible providers earn the fill credit) and
+// `neederParams` (gates whether the needers name-list applies to a given provider).
 function wantedAxes(goal, hist, index, templates) {
-  const wanted = new Map(); // axis → {why, gap}
+  const wanted = new Map(); // axis → {why, gap, params?, needers?, neederParams?}
+  const tribalMatch = /^tribal:(.+)$/.exec(String(goal || ''));
   const tpl = templates.find(t => t.key === (goal || '').replace(/^tribal:.*/, 'tribal')) ||
     templates.find(t => t.key === goal);
   for (const group of tpl?.core || []) {
-    const got = (group.axes || []).reduce((s, ax) => s + (hist.providers[ax] || 0), 0);
+    // type-density groups (enchantress/artifacts) count card types like scoreTemplate does
+    const got = (group.axes || []).reduce((s, ax) => s + (hist.providers[ax] || 0), 0)
+      + (group.types || []).reduce((s, t) => s + (hist.typeCounts?.[t] || 0), 0);
     if (got < group.min) {
       for (const ax of group.axes || []) {
         if (!wanted.has(ax)) wanted.set(ax, { why: 'goal_core', gap: group.min - got });
       }
+    }
+  }
+  // Tribal goals have no template: want lords, tribal payoffs, and anthems for the tribe.
+  // params bind the credit to the tribe at scoring time (generic providers still fit).
+  if (tribalMatch) {
+    const tribe = tribalMatch[1];
+    for (const [ax, min] of [['tribal.lord', 2], ['tribal.synergy', 3], ['anthem.global', 2]]) {
+      const have = matchParam(index.provides.get(ax), tribe)?.count || 0;
+      if (have < min && !wanted.has(ax)) wanted.set(ax, { why: 'goal_core', gap: min - have, params: [tribe] });
     }
   }
   // Even when the goal's core is saturated, keep suggestions ON PLAN: under-provided
@@ -63,12 +131,26 @@ function wantedAxes(goal, hist, index, templates) {
   }
   // Unmet needs of cards already in the deck — but only when the demand is real
   // (multiple needers or a hard requirement), so one fringe card can't steer the deck.
-  for (const [axis, e] of index.needs) {
-    const have = index.provides.get(axis)?.count || 0;
-    if (have < 2 && e.weight >= 5) {
-      const prev = wanted.get(axis);
-      if (prev) prev.needers = e.names; // wanted axis that live cards also need — name them
-      else wanted.set(axis, { why: 'unmet_need', gap: 2 - have, needers: e.names });
+  // Checked per param group: Vampire-tribal demand isn't satisfied by Goblin providers,
+  // and a matching entry records WHICH params the demand carries so scoring can hold
+  // candidates to it.
+  for (const [axis, rec] of index.needs) {
+    for (const grp of rec.entries) {
+      const have = matchParam(index.provides.get(axis), grp.param)?.count || 0;
+      if (have < 2 && grp.weight >= 5) {
+        const prev = wanted.get(axis);
+        if (prev) {
+          // wanted axis that live cards also need — name them, but gate the name-list on
+          // the needers' params (the goal-derived credit itself stays generic)
+          prev.needers = grp.names;
+          (prev.neederParams = prev.neederParams || []).push(grp.param);
+        } else {
+          wanted.set(axis, {
+            why: 'unmet_need', gap: 2 - have,
+            needers: grp.names, params: [grp.param], neederParams: [grp.param],
+          });
+        }
+      }
     }
   }
   return wanted;
@@ -91,6 +173,7 @@ function scoreCuts({ deckCards, commander, goals, thresholds, roleCounts }) {
   const goalCoreAxes = new Set((topGoal?.evidence?.axes || []).map(a => a.axis));
   const commanderNeeds = new Set((commander?.ir?.needs || []).map(n => n.axis));
   const tribalType = topGoal?.goal?.startsWith('tribal:') ? topGoal.goal.slice(7) : null;
+  const tribes = deckTribeSet(goals);
 
   const scored = [];
   for (const c of nonLand) {
@@ -117,10 +200,10 @@ function scoreCuts({ deckCards, commander, goals, thresholds, roleCounts }) {
     const goalHits = (c.ir.provides || []).filter(p => goalCoreAxes.has(p.axis));
     if (goalHits.length) { score += goalHits.length * 3; trace.push({ kind: 'goal_fit', axes: goalHits.map(p => p.axis) }); }
 
-    // dead needs: requires an axis the deck barely provides
+    // dead needs: requires an axis the deck barely provides (param-compatible only)
     for (const nd of c.ir.needs || []) {
       if (nd.criticality !== 'requires') continue;
-      const have = index.provides.get(nd.axis)?.count || 0;
+      const have = matchParam(index.provides.get(nd.axis), nd.param, tribalBound(tribes, nd.axis, nd.param))?.count || 0;
       if (have < 2) { score -= have === 0 ? 6 : 2; trace.push({ kind: 'dead_need', axis: nd.axis, have }); }
     }
 
@@ -152,6 +235,7 @@ function scoreCuts({ deckCards, commander, goals, thresholds, roleCounts }) {
 // color-legal, commander-legal, and not in the deck (SQL enforces; re-checked here).
 function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCounts, hist, budget, templates }) {
   const topGoal = goals?.[0] || null;
+  const tribes = deckTribeSet(goals);
   const index = deckAxisIndex(deckCards, commander);
   const wanted = wantedAxes(topGoal?.goal, hist, index, templates);
   const deckNames = new Set(deckCards.map(c => c.name).concat(commander ? [commander.name] : []));
@@ -174,19 +258,24 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
 
     // capability fill: provides an axis the deck wants
     for (const p of cand.ir.provides || []) {
-      const w = wanted.get(p.axis);
+      const bound = tribalBound(tribes, p.axis, p.param);
+      const w0 = !bound ? wanted.get(p.axis) : null;
+      // `params` gates the credit itself; `neederParams` gates only the "feeds X" names.
+      const paramFits = !w0?.params || w0.params.some(par => paramOk(p.param, par));
+      const neederFits = !w0?.neederParams || w0.neederParams.some(par => paramOk(p.param, par));
+      const w = w0 && paramFits ? w0 : null;
       if (w) {
         score += (p.weight || 1) * (1 + Math.min(3, w.gap) * 0.5);
-        trace.push({ kind: 'fills_axis', axis: p.axis, why: w.why, needers: w.needers || null });
+        trace.push({ kind: 'fills_axis', axis: p.axis, param: p.param || null, why: w.why, needers: (neederFits && w.needers) || null });
       }
-      // feeds existing payoffs even when not formally "wanted"
-      const needers = index.needs.get(p.axis);
-      if (needers && !w) { score += Math.min(4, needers.count); trace.push({ kind: 'feeds', axis: p.axis, names: needers.names }); }
+      // feeds existing payoffs even when not formally "wanted" (param-compatible only)
+      const needers = matchParam(index.needs.get(p.axis), p.param, bound);
+      if (needers && !w) { score += Math.min(4, needers.count); trace.push({ kind: 'feeds', axis: p.axis, param: p.param || null, names: needers.names }); }
     }
     // its own needs are already fed here (card won't be dead)
     let fedNeeds = 0, deadNeeds = 0;
     for (const nd of cand.ir.needs || []) {
-      const have = index.provides.get(nd.axis)?.count || 0;
+      const have = matchParam(index.provides.get(nd.axis), nd.param, tribalBound(tribes, nd.axis, nd.param))?.count || 0;
       if (have >= 2) fedNeeds++;
       else if (nd.criticality === 'requires') deadNeeds++;
     }
@@ -200,10 +289,14 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
       if (deficit > 0) { score += Math.min(deficit, 5); trace.push({ kind: 'role_deficit', cat, deficit }); }
     }
 
-    // curve deficit
-    const b = bucketOf(cand.cmc);
-    const underBy = idealW[b] - (curveCounts[b] / curveTotal);
-    if (underBy > 0.02) { score += Math.min(underBy * 15, 1.5); trace.push({ kind: 'curve_fill', bucket: b }); }
+    // curve deficit — lands don't occupy a curve slot, so no bucket-0 credit for them
+    // (the curve model itself excludes lands; crediting land candidates against the
+    // near-always-underfilled 0 bucket printed a bogus reason on every land suggestion)
+    if (!isLandCard(cand)) {
+      const b = bucketOf(cand.cmc);
+      const underBy = idealW[b] - (curveCounts[b] / curveTotal);
+      if (underBy > 0.02) { score += Math.min(underBy * 15, 1.5); trace.push({ kind: 'curve_fill', bucket: b }); }
+    }
 
     // meta-popularity as a weak prior
     if (cand.edhrecRank != null && cand.edhrecRank < 2000) score += 0.75;
@@ -228,4 +321,4 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
   return scored.slice(0, ADD_COUNT);
 }
 
-module.exports = { scoreCuts, scoreAdds, deckAxisIndex, wantedAxes, isLandCard, bucketOf, CUT_COUNT, ADD_COUNT };
+module.exports = { scoreCuts, scoreAdds, deckAxisIndex, wantedAxes, matchParam, isLandCard, bucketOf, CUT_COUNT, ADD_COUNT };

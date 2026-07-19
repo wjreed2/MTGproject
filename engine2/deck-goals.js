@@ -90,14 +90,18 @@ function synergyClusters(cards, interactions) {
     .sort((a, b) => b.size - a.size);
 }
 
+// Land types leak into extracted tribal fields (mountainwalk lords, lands-matter cards)
+// but are never creature tribes — without this filter Krenko reads as "tribal:Mountain".
+const NON_TRIBES = new Set(['Plains', 'Island', 'Swamp', 'Mountain', 'Forest', 'Wastes', 'Land']);
+
 function tribalDetection(deckCards, commander) {
   const bodies = {}; // subtype → qty of creatures carrying it
   const lords = {};  // subtype → lord count
   const all = commander ? [...deckCards, { ...commander, qty: 1 }] : deckCards;
   for (const c of all) {
     const qty = c.qty || 1;
-    for (const t of c.ir?.tribal?.types || []) bodies[t] = (bodies[t] || 0) + qty;
-    for (const t of c.ir?.tribal?.lord_of || []) lords[t] = (lords[t] || 0) + qty;
+    for (const t of c.ir?.tribal?.types || []) { if (!NON_TRIBES.has(t)) bodies[t] = (bodies[t] || 0) + qty; }
+    for (const t of c.ir?.tribal?.lord_of || []) { if (!NON_TRIBES.has(t)) lords[t] = (lords[t] || 0) + qty; }
   }
   const hits = [];
   for (const [type, n] of Object.entries(bodies)) {
