@@ -9,7 +9,7 @@ const path = require('path');
 const vocab = require('./vocab');
 const irSchema = require('./ir-schema');
 
-const PROMPT_VERSION = 'p1';
+const PROMPT_VERSION = 'p2'; // p2: explicit param discipline on provides AND needs
 
 // Few-shot examples come straight from the golden fixtures so prompt and validator can
 // never disagree about what "good" looks like.
@@ -76,7 +76,11 @@ Effect: { op, n?, target?, zone_from?, zone_to?, duration?, counter_kind?, keywo
 - provides: what the card GIVES a deck. 2–6 entries typically. rate: once | per_turn | repeatable | static. weight 1–5 (5 = format staple at this job).
 - needs: what must already be in a deck for this card to function. criticality: requires (dead without it) | wants (much better with it) | helps (mild). A French-vanilla creature can have zero needs and zero-to-one provides — emptiness is correct, do not pad.
 - Resource axes are JOIN TOKENS between enablers and payoffs: a sac outlet PROVIDES creatures_dying, Blood Artist NEEDS creatures_dying. Blink engines NEED etb_value; strong ETB cards PROVIDE etb_value. Spellslinger payoffs NEED cast.instant_sorcery_volume; cheap cantrips PROVIDE it.
-- param narrows an axis (tribal type like "Goblin", spell class, counter kind). Leave param null when unrestricted.
+- param narrows an axis (tribal type like "Goblin", spell class, counter kind, card class like "creature"/"land"). Apply it on BOTH sides of the join, and only where the card itself is restricted:
+  - provides: param states what is actually supplied. A card that doubles only artifact tokens provides \`token.doubler\` param "artifact"; a lands-only reanimator provides \`gy.reanimate\` param "land"; a Goblin token maker provides \`token.creature\` param "Goblin".
+  - needs: param states what is actually consumed. A card whose creature tokens want doubling needs \`token.doubler\` param "creature" — NOT null. A card that fills the graveyard hoping its creatures get reanimated needs \`gy.reanimate\` param "creature". A Vampire payoff needs \`tribal.synergy\` param "Vampire".
+  - Leave param null ONLY when genuinely any provider serves: a token doubler that doubles all tokens provides param null; a "choose a creature type" card (Cavern of Souls, Herald's Horn) needs \`tribal.synergy\` param null because it adapts to any tribe.
+  - An unrestricted need matched by a restricted provider is a WRONG suggestion downstream ("this land reanimator feeds your Entomb") — when in doubt, carry the restriction.
 - anti: axes the card actively hates, with scope (all_players/opponents/you) — e.g. Rest in Peace: anti gy.recursion/gy.reanimate/gy.self_fill/gy.matters scope all_players.
 - roles: coarse deckbuilding buckets from the list; wincon only for cards that actually close games.
 - power_level_hint 1–5: rough staple-ness in Commander (5 = Sol Ring tier). confidence 0–1: YOUR certainty the encoding is complete and correct — use < 0.8 when text is genuinely ambiguous so the card gets escalated.
