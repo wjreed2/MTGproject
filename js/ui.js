@@ -12,8 +12,8 @@ function showTab(t) {
   const mobItem = document.querySelector(`.mob-nav-item[data-tab="${t}"]`);
   if (mobItem) mobItem.classList.add('active');
   // Settings tab (mobile): host the web settings dropdown as a full page. The
-  // element lives in the (mobile-hidden) topbar, so move it into the page here
-  // and move it back when leaving so the desktop dropdown keeps working.
+  // element lives in the topbar dropdown; move it into the page here and move
+  // it back when leaving so the topbar menu keeps working on phone and desktop.
   const _settingsDropdown = document.getElementById('settingsDropdown');
   if (_settingsDropdown) {
     if (t === 'settings') {
@@ -116,6 +116,7 @@ const _modalCloseMap = {
   deckCardTagModal:      () => closeDeckCardTagPicker(),
   skeletonBuilderModal:  () => closeSkeletonBuilderModal(),
   changeDeckFormatModal:   () => closeChangeDeckFormatModal(),
+  deckPlanWizardModal:     () => closeDeckPlanWizard(),
   collectionShareModal:       () => closeCollectionShareModal(),
   commanderPickerModal:  () => closeCommanderEdit(),
   whatsNewModal:         () => { void closeWhatsNewModal(); },

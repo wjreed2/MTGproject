@@ -779,16 +779,34 @@ async function _deferredHydrateCardDetail(card, openSession, actionUid, isOwned)
   } catch (_) {}
 }
 
-/** True when a default/role tag has been given a primary/secondary tier (so it moves to MY TAGS). */
+/** True when a default/role tag has been given a primary/secondary tier (also shown in MY TAGS). */
 function _cardDetailDefaultTagIsTiered(card, t) {
   return typeof _getCardCustomTagTierRaw === 'function'
     && !!_getCardCustomTagTierRaw(card, t, card && card.oracleId);
 }
 
-/** Default-tag chip for the inspector (tiered ones are shown in the MY TAGS row instead). */
+/** Interactive inspector chip for DEFAULT TAGS / MY TAGS rows. */
+function _inspectorTagChipHtml(tag, opts = {}) {
+  const kind = opts.kind === 'my' ? 'my' : 'default';
+  const card = opts.card;
+  const safe = escapeHtml(tag);
+  let cls = 'tag-primary';
+  if (typeof _tagClassForTier === 'function') cls = _tagClassForTier(tag, { card });
+  else if (kind === 'default') cls = 'tag-scryfall';
+  const isAuto = !!(card && typeof _isAutoDisplayTierForDefaultTag === 'function'
+    && _isAutoDisplayTierForDefaultTag(card, tag));
+  const label = isAuto
+    ? `${safe}<span class="tag-auto-suffix"> (auto)</span>`
+    : safe;
+  const title = isAuto
+    ? 'Auto-assigned from default tags · click to set manually · long-press or right-click for options'
+    : 'Click to change importance · long-press or right-click for options';
+  return `<span class="tag ${cls} cd-tag-chip--interactive" style="font-size:0.84rem" data-cd-tag="${safe}" data-cd-tag-kind="${kind}" role="button" tabindex="0" title="${title}">${label}</span>`;
+}
+
+/** @deprecated Use _inspectorTagChipHtml — kept for any external callers. */
 function _cardDetailDefaultTagChipHtml(card, t) {
-  const prot = typeof _isProtectedDeckTag === 'function' && _isProtectedDeckTag(t);
-  return `<span class="tag ${prot ? 'tag-scryfall' : 'tag-purple'}" style="font-size:0.84rem">${escapeHtml(t)}</span>`;
+  return _inspectorTagChipHtml(t, { kind: 'default', card });
 }
 
 function _renderCardDetailDefaultTagsInitialHtml(card) {
@@ -798,9 +816,10 @@ function _renderCardDetailDefaultTagsInitialHtml(card) {
   const tags = typeof _defaultTagsForCardInspector === 'function'
     ? _defaultTagsForCardInspector(card)
     : (typeof _roleTagsForCard === 'function' ? _roleTagsForCard(card) : []);
-  const shown = tags.filter(t => !_cardDetailDefaultTagIsTiered(card, t));
+  // Tiered defaults stay in this row AND appear under MY TAGS (additional categories).
+  const shown = (tags || []).filter(t => t && t !== 'Commander');
   if (shown.length) {
-    return shown.map(t => _cardDetailDefaultTagChipHtml(card, t)).join('');
+    return shown.map(t => _inspectorTagChipHtml(t, { kind: 'default', card })).join('');
   }
   return '<span class="card-detail-tags-pending" aria-hidden="true"></span>';
 }
@@ -1759,10 +1778,15 @@ function _htmlOpenCardDetailRightColumn(ctx) {
   const tieredDefaults = typeof _tieredDefaultTagsForCard === 'function' ? _tieredDefaultTagsForCard(card) : [];
   let globalCustomTags = [...new Set([...myTags, ...tieredDefaults])];
   if (typeof _sortUserTagsForDisplay === 'function') globalCustomTags = _sortUserTagsForDisplay(globalCustomTags, card);
+  const tieredSet = new Set(tieredDefaults.map(t => String(t || '').toLowerCase()));
+  const mySet = new Set(myTags.map(t => String(t || '').toLowerCase()));
   const myTagsChipsHtml = globalCustomTags.length
-    ? globalCustomTags.map(t => (typeof _deckTagChipHtml === 'function'
-      ? _deckTagChipHtml(t, { interactive: false, size: '0.84rem', card })
-      : `<span class="tag tag-primary" style="font-size:0.84rem">${escapeHtml(t)}</span>`)).join('')
+    ? globalCustomTags.map(t => {
+      const key = String(t || '').toLowerCase();
+      const kind = (tieredSet.has(key) || (typeof _isProtectedDeckTag === 'function' && _isProtectedDeckTag(t) && !mySet.has(key)))
+        ? 'default' : 'my';
+      return _inspectorTagChipHtml(t, { kind, card });
+    }).join('')
     : '<span class="card-detail-row-hint">No tags yet</span>';
   const actionUidRef = (actionUid || '').replace(/'/g, "\\'");
   const _naturalPips = typeof _parseManaSymbols === 'function' ? _parseManaSymbols(card.mana || '') : { W: 0, U: 0, B: 0, R: 0, G: 0 };
@@ -2160,6 +2184,7 @@ async function openCardDetail(uid, navMode, opts) {
 
   _cardDetailCurrentUid = actionUid;
   _cardDetailCurrentCard = card;
+  if (typeof _cdTagCloseMenu === 'function') _cdTagCloseMenu();
   const detailCtx = {
     card,
     isOwned,
@@ -2240,12 +2265,12 @@ async function _loadCardDetailDefaultTags(card) {
       ? _defaultTagsForCardInspector(card)
       : _roleTagsForCard(card);
     if (!modal.classList.contains('open') || document.getElementById('cardDetailDefaultTags') !== el) return;
-    const shown = tags.filter(t => !_cardDetailDefaultTagIsTiered(card, t));
+    const shown = (tags || []).filter(t => t && t !== 'Commander');
     if (!shown.length) {
       el.innerHTML = '<span style="font-size:0.72rem;color:var(--text3)">None</span>';
       return;
     }
-    el.innerHTML = shown.map(t => _cardDetailDefaultTagChipHtml(card, t)).join('');
+    el.innerHTML = shown.map(t => _inspectorTagChipHtml(t, { kind: 'default', card })).join('');
     if (typeof activeDeckId !== 'undefined' && activeDeckId && typeof getActiveDeck === 'function') {
       const deck = getActiveDeck();
       if (deck && (deck.cards || []).some(c => c === card || c.uid === card.uid || c.scryfallId === card.scryfallId)) {
@@ -2352,6 +2377,7 @@ function closeCardDetail() {
   if (typeof returnToSetBrowseFromDetail === 'function' && returnToSetBrowseFromDetail()) {
     return;
   }
+  if (typeof _cdTagCloseMenu === 'function') _cdTagCloseMenu();
   document.getElementById('cardDetailModal').classList.remove('open');
   if (typeof _destroyInspectorPriceChart === 'function') _destroyInspectorPriceChart();
   _cardDetailOpenSession++;
@@ -2461,16 +2487,21 @@ function patchOpenCardDetailMyTags() {
   const myTags = card && typeof _getGlobalCustomTagsForCard === 'function'
     ? _getGlobalCustomTagsForCard(card)
     : [];
-  // Default/role tags the user tiered (primary/secondary) also belong in this row.
+  // Default/role tags with a primary/secondary tier (manual or auto) also belong here.
   const tieredDefaults = card && typeof _tieredDefaultTagsForCard === 'function'
     ? _tieredDefaultTagsForCard(card)
     : [];
   let globalTags = [...new Set([...myTags, ...tieredDefaults])];
   if (typeof _sortUserTagsForDisplay === 'function') globalTags = _sortUserTagsForDisplay(globalTags, card);
+  const tieredSet = new Set(tieredDefaults.map(t => String(t || '').toLowerCase()));
+  const mySet = new Set(myTags.map(t => String(t || '').toLowerCase()));
   const chipsHtml = globalTags.length
-    ? globalTags.map(t => (typeof _deckTagChipHtml === 'function'
-      ? _deckTagChipHtml(t, { interactive: false, size: '0.84rem', card })
-      : `<span class="tag tag-primary" style="font-size:0.84rem">${escapeHtml(t)}</span>`)).join('')
+    ? globalTags.map(t => {
+      const key = String(t || '').toLowerCase();
+      const kind = (tieredSet.has(key) || (typeof _isProtectedDeckTag === 'function' && _isProtectedDeckTag(t) && !mySet.has(key)))
+        ? 'default' : 'my';
+      return _inspectorTagChipHtml(t, { kind, card });
+    }).join('')
     : '<span style="font-size:0.72rem;color:var(--text3)">No tags yet</span>';
   const ref = String(
     (card && typeof getCardInventoryKey === 'function' ? getCardInventoryKey(card) : null)
@@ -2496,6 +2527,206 @@ async function _loadCardDetailMyTags(card) {
     }
   }
   if (typeof patchOpenCardDetailMyTags === 'function') patchOpenCardDetailMyTags();
+}
+
+// ── Inspector tag chip interactions (click cycle + long-press / right-click menu) ──
+let _cdTagLp = null; // { timer, el, tag, kind, x, y }
+let _cdTagSuppressClick = false;
+let _cdTagCtxOutside = null;
+
+function _cdTagResolveCard() {
+  if (_cardDetailCurrentCard) return _cardDetailCurrentCard;
+  if (!_cardDetailCurrentUid) return null;
+  if (typeof _findCardForTagPicker === 'function') return _findCardForTagPicker(_cardDetailCurrentUid);
+  return (collection || []).find(c => c.uid === _cardDetailCurrentUid || c.scryfallId === _cardDetailCurrentUid) || null;
+}
+
+function _cdTagCloseMenu() {
+  document.getElementById('cdTagCtxMenu')?.remove();
+  if (_cdTagCtxOutside) {
+    document.removeEventListener('pointerdown', _cdTagCtxOutside, true);
+    _cdTagCtxOutside = null;
+  }
+}
+
+function _cdTagCancelLongPress() {
+  if (_cdTagLp?.timer) clearTimeout(_cdTagLp.timer);
+  _cdTagLp = null;
+}
+
+async function _cdTagRunAction(tag, kind, action) {
+  _cdTagCloseMenu();
+  const card = _cdTagResolveCard();
+  if (!card || typeof applyInspectorCardTagAction !== 'function') return;
+  try {
+    await applyInspectorCardTagAction(card, tag, action, { kind });
+  } catch (e) {
+    showNotif(e?.message || 'Could not update tag', true);
+  }
+}
+
+function _cdTagShowMenu(clientX, clientY, tag, kind) {
+  _cdTagCloseMenu();
+  const menu = document.createElement('div');
+  menu.id = 'cdTagCtxMenu';
+  menu.className = 'cd-tag-ctx-menu';
+  menu.setAttribute('role', 'menu');
+  const escTag = escapeHtml(tag);
+  const items = [
+    { action: 'primary', label: 'Primary' },
+    { action: 'secondary', label: 'Secondary' },
+    { action: 'default', label: 'Default' },
+  ];
+  let html = items.map(it =>
+    `<button type="button" class="cd-tag-ctx-item" data-cd-tag-action="${it.action}" role="menuitem">${it.label}</button>`
+  ).join('');
+  html += '<div class="cd-tag-ctx-sep"></div>';
+  if (kind === 'my') {
+    html += `<button type="button" class="cd-tag-ctx-item cd-tag-ctx-item--danger" data-cd-tag-action="removeEntirely" role="menuitem">Remove entirely</button>`;
+  } else {
+    html += `
+      <div class="cd-tag-ctx-remove-wrap">
+        <button type="button" class="cd-tag-ctx-item cd-tag-ctx-remove-toggle" aria-expanded="false">Remove</button>
+        <div class="cd-tag-ctx-submenu" hidden>
+          <button type="button" class="cd-tag-ctx-item" data-cd-tag-action="default" role="menuitem">Remove manual override</button>
+          <button type="button" class="cd-tag-ctx-item cd-tag-ctx-item--danger" data-cd-tag-action="removeEntirely" role="menuitem">Remove entirely</button>
+        </div>
+      </div>`;
+  }
+  menu.innerHTML = `<div class="cd-tag-ctx-header">${escTag}</div>${html}`;
+  document.body.appendChild(menu);
+
+  const pad = 8;
+  const rect = menu.getBoundingClientRect();
+  let left = clientX;
+  let top = clientY;
+  if (left + rect.width > window.innerWidth - pad) left = window.innerWidth - rect.width - pad;
+  if (top + rect.height > window.innerHeight - pad) top = window.innerHeight - rect.height - pad;
+  if (left < pad) left = pad;
+  if (top < pad) top = pad;
+  menu.style.left = `${Math.round(left)}px`;
+  menu.style.top = `${Math.round(top)}px`;
+
+  menu.addEventListener('click', e => {
+    const toggle = e.target.closest('.cd-tag-ctx-remove-toggle');
+    if (toggle && menu.contains(toggle)) {
+      e.preventDefault();
+      e.stopPropagation();
+      const sub = menu.querySelector('.cd-tag-ctx-submenu');
+      if (sub) {
+        const open = sub.hasAttribute('hidden');
+        if (open) sub.removeAttribute('hidden');
+        else sub.setAttribute('hidden', '');
+        toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      }
+      return;
+    }
+    const btn = e.target.closest('[data-cd-tag-action]');
+    if (!btn || !menu.contains(btn)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    void _cdTagRunAction(tag, kind, btn.getAttribute('data-cd-tag-action'));
+  });
+
+  _cdTagCtxOutside = ev => {
+    if (menu.contains(ev.target)) return;
+    _cdTagCloseMenu();
+  };
+  // Defer so the opening pointer event doesn't immediately close the menu.
+  setTimeout(() => {
+    if (_cdTagCtxOutside) document.addEventListener('pointerdown', _cdTagCtxOutside, true);
+  }, 0);
+}
+
+function _bindCardDetailTagChipInteractions() {
+  const modal = document.getElementById('cardDetailModal');
+  if (!modal || modal.dataset.tagChipsBound === '1') return;
+  modal.dataset.tagChipsBound = '1';
+
+  const chipFromEvent = e => {
+    const el = e.target.closest?.('.cd-tag-chip--interactive');
+    if (!el || !modal.contains(el)) return null;
+    const tag = el.getAttribute('data-cd-tag');
+    if (!tag) return null;
+    const kind = el.getAttribute('data-cd-tag-kind') === 'my' ? 'my' : 'default';
+    return { el, tag, kind };
+  };
+
+  modal.addEventListener('click', e => {
+    if (_cdTagSuppressClick) {
+      _cdTagSuppressClick = false;
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    const hit = chipFromEvent(e);
+    if (!hit) return;
+    e.preventDefault();
+    e.stopPropagation();
+    void _cdTagRunAction(hit.tag, hit.kind, 'cycle');
+  });
+
+  modal.addEventListener('contextmenu', e => {
+    const hit = chipFromEvent(e);
+    if (!hit) return;
+    e.preventDefault();
+    e.stopPropagation();
+    _cdTagCancelLongPress();
+    _cdTagShowMenu(e.clientX, e.clientY, hit.tag, hit.kind);
+  });
+
+  modal.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const hit = chipFromEvent(e);
+    if (!hit) return;
+    _cdTagCancelLongPress();
+    const x = e.clientX;
+    const y = e.clientY;
+    _cdTagLp = {
+      el: hit.el,
+      tag: hit.tag,
+      kind: hit.kind,
+      x,
+      y,
+      timer: setTimeout(() => {
+        const lp = _cdTagLp;
+        _cdTagLp = null;
+        if (!lp) return;
+        _cdTagSuppressClick = true;
+        _cdTagShowMenu(lp.x, lp.y, lp.tag, lp.kind);
+      }, 480),
+    };
+  });
+
+  const endLp = e => {
+    if (!_cdTagLp) return;
+    if (e.type === 'pointermove') {
+      const dx = e.clientX - _cdTagLp.x;
+      const dy = e.clientY - _cdTagLp.y;
+      if (dx * dx + dy * dy > 100) _cdTagCancelLongPress();
+      return;
+    }
+    _cdTagCancelLongPress();
+  };
+  modal.addEventListener('pointermove', endLp);
+  modal.addEventListener('pointerup', endLp);
+  modal.addEventListener('pointercancel', endLp);
+  modal.addEventListener('lostpointercapture', endLp);
+
+  modal.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const hit = chipFromEvent(e);
+    if (!hit) return;
+    e.preventDefault();
+    void _cdTagRunAction(hit.tag, hit.kind, 'cycle');
+  });
+}
+
+// Bind once DOM is ready (script may load after the modal markup).
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', _bindCardDetailTagChipInteractions);
+} else {
+  _bindCardDetailTagChipInteractions();
 }
 
 function refreshOpenCardDetail() {

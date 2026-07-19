@@ -15,5 +15,7 @@
 # then install with:  pip install --require-hashes -r scripts/requirements.txt
 
 ultralytics==8.4.46
-onnx==1.19.1
+# 1.22.0 clears GHSA advisories for symlink/hardlink traversal, TOCTOU external-data
+# writes, hub.load silent=True, and the Upsample version-converter null deref.
+onnx==1.22.0
 onnxruntime==1.19.2
