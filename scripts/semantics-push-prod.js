@@ -10,7 +10,9 @@
  *
  * Setup (mirrors the changelog ingest pattern — see docs/deployment-runbook.md):
  *   Railway → set SEMANTICS_INGEST_SECRET (long random string; openssl rand -base64 48)
- *   Local   → same secret in .env, plus MTG_API_URL=https://yourdomain.com
+ *   Local   → same secret in .env, plus SEMANTICS_PUSH_URL=https://yourdomain.com
+ *             (dedicated var — MTG_API_URL commonly points at the local dev server for
+ *              changelog testing and is only used here as a fallback)
  *
  * Usage:
  *   node scripts/semantics-push-prod.js --dry-run          # show what would be pushed
@@ -27,7 +29,7 @@ function parseArgs(argv) {
   const a = argv.slice(2);
   const val = (name, dflt) => { const i = a.indexOf(name); return i >= 0 && a[i + 1] != null ? a[i + 1] : dflt; };
   return {
-    api: val('--api', process.env.MTG_API_URL || ''),
+    api: val('--api', process.env.SEMANTICS_PUSH_URL || process.env.MTG_API_URL || ''),
     full: a.includes('--full'),
     dryRun: a.includes('--dry-run'),
     insecure: a.includes('--insecure'),
@@ -39,7 +41,7 @@ function parseArgs(argv) {
 async function main() {
   const opts = parseArgs(process.argv);
   const secret = String(process.env.SEMANTICS_INGEST_SECRET || '').trim();
-  if (!opts.api) { console.error('Set MTG_API_URL (or pass --api https://…) — the deployed server to push to.'); process.exit(1); }
+  if (!opts.api) { console.error('Set SEMANTICS_PUSH_URL (or MTG_API_URL, or pass --api https://…) — the deployed server to push to.'); process.exit(1); }
   if (!secret) { console.error('Set SEMANTICS_INGEST_SECRET in .env (must match the value on the target server).'); process.exit(1); }
   if (opts.insecure) process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'; // local self-signed only
   const base = opts.api.replace(/\/$/, '');

@@ -41,7 +41,9 @@ calls an LLM. Finished rows move to prod through an authenticated ingest endpoin
 mirroring the changelog pipeline:
 
 1. Railway → add `SEMANTICS_INGEST_SECRET` (long random string; `openssl rand -base64 48`).
-2. Local `.env` → the same `SEMANTICS_INGEST_SECRET`, plus `MTG_API_URL=https://yourdomain.com`.
+2. Local `.env` → the same `SEMANTICS_INGEST_SECRET`, plus `SEMANTICS_PUSH_URL=https://yourdomain.com`
+   (dedicated variable — `MTG_API_URL` often points at the local dev server for changelog testing
+   and is only used as a fallback).
 3. First load and every incremental load thereafter:
 
    ```bash
