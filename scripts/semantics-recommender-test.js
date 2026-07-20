@@ -302,6 +302,90 @@ console.log('adds — off-plan soft-want aggregates do not steer the plan');
   check('off-plan etb_value aggregate is not a wanted axis', !wanted.has('etb_value'), JSON.stringify([...wanted.keys()]));
 }
 
+console.log('adds — tribal context: generic anthems serve, off-context roles do not');
+{
+  const pIR = (provides, needs, extra) => ({
+    provides: (provides || []).map(([axis, param, w, rate]) => ({ axis, param: param || null, rate: rate || 'once', weight: w || 3 })),
+    needs: (needs || []).map(([axis, param, w, crit]) => ({ axis, param: param || null, criticality: crit || 'wants', weight: w || 3 })),
+    anti: [], roles: [], wincon: null, tribal: { types: [], lord_of: [] }, faces: [], ...extra,
+  });
+  const ratDeck = [
+    ...Array.from({ length: 13 }, (_, i) => ({ name: `Rat ${i}`, qty: 1, cmc: 2, typeLine: 'Creature — Rat', ir: pIR([['tribal.synergy', 'Rat', 2, 'static']], [], { tribal: { types: ['Rat'], lord_of: [] } }) })),
+    { name: 'Rat Lord', qty: 1, cmc: 3, typeLine: 'Creature — Rat', ir: pIR([['tribal.lord', 'Rat', 4, 'static']], [], { tribal: { types: ['Rat'], lord_of: ['Rat'] } }) },
+    { name: 'Rat Land', qty: 30, cmc: 0, typeLine: 'Basic Land — Swamp', ir: pIR([], [], { roles: ['land'] }) },
+  ];
+  const ratCmd = { name: 'Rat Boss', ir: pIR([['tribal.lord', 'Rat', 4, 'static']], [['tribal.synergy', 'Rat', 4]], { tribal: { types: ['Rat'], lord_of: ['Rat'] } }) };
+  const goals = inferGoals(ratDeck, ratCmd, {});
+  check('rat tribal inferred', goals.goals[0]?.goal === 'tribal:Rat', JSON.stringify(goals.goals.slice(0, 2)));
+  const ctx = {
+    deckCards: ratDeck, commander: ratCmd, goals: goals.goals,
+    thresholds: th.computeThresholds({ goal: goals.goals[0]?.goal }),
+    roleCounts: th.countRoles(ratDeck), hist: goals.histogram, templates,
+  };
+  const cands = [
+    { name: 'Generic Anthem Banner', ir: pIR([['anthem.global', null, 3, 'static']], [], { roles: ['anthem'] }), cmc: 3, price: 1, owned: false, edhrecRank: 700 },
+    { name: 'Vampire Anthem', ir: pIR([['anthem.global', 'Vampire', 3, 'static']]), cmc: 3, price: 1, owned: false, edhrecRank: 700 },
+    { name: 'Ninja Tutor', ir: pIR([['tutor.creature', 'Ninja', 4, 'repeatable']], [], { roles: ['tutor'] }), cmc: 4, price: 1, owned: false, edhrecRank: 700 },
+  ];
+  const adds = rec.scoreAdds({ ...ctx, candidates: cands, budget: { maxCardPrice: null, flagAbove: 5 } });
+  const byName = n => adds.find(a => a.name === n);
+  check('generic anthem earns the tribal anthem want',
+    (byName('Generic Anthem Banner')?.trace || []).some(t => t.kind === 'fills_axis' && t.axis === 'anthem.global'),
+    JSON.stringify(byName('Generic Anthem Banner')?.trace));
+  const vamp = byName('Vampire Anthem');
+  check('off-tribe anthem earns no anthem credit',
+    !vamp || !(vamp.trace || []).some(t => (t.kind === 'fills_axis' || t.kind === 'feeds') && t.axis === 'anthem.global'),
+    JSON.stringify(vamp?.trace));
+  const ninja = byName('Ninja Tutor');
+  check('off-context tutor role earns no Tutor deficit credit',
+    !ninja || !(ninja.trace || []).some(t => t.kind === 'role_deficit' && t.cat === 'Tutor'),
+    JSON.stringify(ninja?.trace));
+}
+
+console.log('adds — confident secondary goals contribute wanted axes');
+{
+  const pIR = (provides, needs, extra) => ({
+    provides: (provides || []).map(([axis, param, w, rate]) => ({ axis, param: param || null, rate: rate || 'once', weight: w || 3 })),
+    needs: (needs || []).map(([axis, param, w, crit]) => ({ axis, param: param || null, criticality: crit || 'wants', weight: w || 3 })),
+    anti: [], roles: [], wincon: null, tribal: { types: [], lord_of: [] }, faces: [], ...extra,
+  });
+  // Rat-tribal deck with a heavy aristocrats package (death payoffs, outlets) but NO
+  // sac fodder engine: aristocrats rides confident, and its core gap (creatures_dying /
+  // sac.fodder / token.creature group) must surface as wanted despite tribal on top.
+  const deck = [
+    ...Array.from({ length: 14 }, (_, i) => ({ name: `Rat ${i}`, qty: 1, cmc: 2, typeLine: 'Creature — Rat', ir: pIR([['tribal.synergy', 'Rat', 2, 'static']], [], { tribal: { types: ['Rat'], lord_of: [] } }) })),
+    { name: 'Outlet A', qty: 1, cmc: 1, typeLine: 'Creature — Rat', ir: pIR([['sac.outlet_free', null, 5, 'repeatable']], [], { tribal: { types: ['Rat'], lord_of: [] } }) },
+    { name: 'Outlet B', qty: 1, cmc: 2, typeLine: 'Artifact', ir: pIR([['sac.outlet_cost', null, 4, 'repeatable']]) },
+    { name: 'Drain A', qty: 1, cmc: 2, typeLine: 'Creature — Rat', ir: pIR([['trigger.death_payoff', null, 4, 'repeatable']], [['creatures_dying', null, 5, 'requires']], { tribal: { types: ['Rat'], lord_of: [] } }) },
+    { name: 'Drain B', qty: 1, cmc: 2, typeLine: 'Creature — Rat', ir: pIR([['trigger.death_payoff', null, 4, 'repeatable']], [['creatures_dying', null, 5, 'requires']], { tribal: { types: ['Rat'], lord_of: [] } }) },
+    // partial fodder (2 of the core-group min 4) + support so aristocrats rides ≥0.8
+    // while its fodder core group still gaps
+    { name: 'Fodder A', qty: 1, cmc: 2, typeLine: 'Sorcery', ir: pIR([['token.creature', null, 3, 'once']]) },
+    { name: 'Fodder B', qty: 1, cmc: 2, typeLine: 'Sorcery', ir: pIR([['token.creature', null, 3, 'once']]) },
+    { name: 'Recur A', qty: 1, cmc: 2, typeLine: 'Creature — Rat', ir: pIR([['gy.recursion', null, 3, 'repeatable']], [], { tribal: { types: ['Rat'], lord_of: [] } }) },
+    { name: 'Recur B', qty: 1, cmc: 3, typeLine: 'Enchantment', ir: pIR([['loop.death_recursion', null, 3, 'repeatable']]) },
+    { name: 'Lifegain A', qty: 1, cmc: 2, typeLine: 'Creature — Rat', ir: pIR([['lifegain.source', null, 2, 'repeatable']], [], { tribal: { types: ['Rat'], lord_of: [] } }) },
+    { name: 'Lifegain B', qty: 1, cmc: 2, typeLine: 'Creature — Rat', ir: pIR([['lifegain.source', null, 2, 'repeatable']], [], { tribal: { types: ['Rat'], lord_of: [] } }) },
+    { name: 'Swampy', qty: 30, cmc: 0, typeLine: 'Basic Land — Swamp', ir: pIR([], [], { roles: ['land'] }) },
+  ];
+  const cmd = { name: 'Rat Aristocrat', ir: pIR([['tribal.lord', 'Rat', 4, 'static'], ['sac.outlet_free', null, 4, 'repeatable']], [['sac.fodder', null, 4]], { tribal: { types: ['Rat'], lord_of: ['Rat'] } }) };
+  const goals = inferGoals(deck, cmd, {});
+  const aristo = goals.goals.find(g => g.goal === 'aristocrats');
+  check('aristocrats rides confident behind tribal', !!aristo && (aristo.confidence || 0) >= 0.8, JSON.stringify(goals.goals.slice(0, 3)));
+  const wanted = rec.wantedAxes(goals.goals[0]?.goal, goals.histogram, rec.deckAxisIndex(deck, cmd), templates, goals.goals);
+  check('secondary-goal core gap becomes wanted',
+    wanted.has('sac.fodder') || wanted.has('token.creature') || wanted.has('creatures_dying'),
+    JSON.stringify([...wanted.keys()]));
+}
+
+console.log('explain — price note never stands alone');
+{
+  const reasons = explain.addReasons({ trace: [], priceFlag: 'expensive', price: 32.8 });
+  check('fallback reason precedes the price note',
+    reasons[0] === 'Strong general fit for the deck plan' && reasons[1] === 'Pricier pick at $32.80',
+    JSON.stringify(reasons));
+}
+
 console.log('explain — fractional role deficits render as whole cards');
 {
   const reasons = explain.addReasons({ trace: [{ kind: 'role_deficit', cat: 'Ramp', deficit: 1.5714285714285712 }] });

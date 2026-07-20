@@ -71,8 +71,9 @@ function addReasons(add) {
     }
     if (out.length >= 3) break;
   }
-  if (add.priceFlag === 'expensive' && add.price != null) out.push(`Pricier pick at $${Number(add.price).toFixed(2)}`);
+  // fallback BEFORE the price note — "Pricier pick at $32.80" must never stand alone
   if (!out.length) out.push('Strong general fit for the deck plan');
+  if (add.priceFlag === 'expensive' && add.price != null) out.push(`Pricier pick at $${Number(add.price).toFixed(2)}`);
   return out;
 }
 

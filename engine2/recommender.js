@@ -13,6 +13,14 @@ const th = require('./thresholds');
 const CUT_COUNT = 8;
 const ADD_COUNT = 24;
 
+// Role category → the provides-axis prefix that backs it (for the context gate above
+// role-deficit credit; categories without a clean family are always credited).
+const _ROLE_AXIS_FAMILY = {
+  Tutor: 'tutor.', Ramp: 'mana.', 'Card Draw': 'card_advantage.',
+  Removal: 'removal.', 'Board Wipe': 'removal.', Counterspell: 'control.',
+  Protection: 'protection.', Recursion: 'gy.',
+};
+
 function isLandCard(c) {
   return /\bLand\b/.test(String(c.typeLine || '')) || (c.ir?.roles || []).includes('land');
 }
@@ -110,9 +118,27 @@ function deckTribeSet(goals) {
 // tribe the deck doesn't play can only interact via EXACT param matches, even though
 // paramOk's wildcard would allow the generic match (a Goblin token maker must not read
 // as feeding a Vampire deck's Herald's Horn).
+//
+// The same context rule extends to CONSUMER-RESTRICTED axes: a creature-type param on
+// a tutor/anthem/evasion axis restricts what the ability can even touch (Higure tutors
+// only Ninjas — worthless in a Rat deck), unlike output params (Faerie tokens are still
+// tokens for any sac outlet). Token/fodder axes are deliberately NOT in this list.
+function _consumerRestricted(axis) {
+  const a = String(axis);
+  return a.startsWith('tribal.') || a.startsWith('tutor.') || a === 'anthem.global' || a === 'evasion.grant';
+}
+
+// A single capitalized word param is a creature-type restriction ("Ninja", "Rat") as
+// opposed to class params like "creature"/"land" or token kinds like "Treasure" (which
+// only appear on output axes anyway).
+function _isTypeParam(param) {
+  return param != null && /^[A-Z][a-z]+$/.test(String(param));
+}
+
 function tribalBound(tribes, axis, param) {
-  return !!(param != null && String(axis).startsWith('tribal.') &&
-    !tribes.has(String(param).toLowerCase()));
+  if (param == null || !_consumerRestricted(axis)) return false;
+  if (String(axis).startsWith('tribal.')) return !tribes.has(String(param).toLowerCase());
+  return _isTypeParam(param) && !tribes.has(String(param).toLowerCase());
 }
 
 // A parameterized DEMAND is only served by a provider that explicitly supplies that
@@ -159,35 +185,46 @@ function matchParam(rec, param, mode) {
 // `goals` (optional, full hypothesis list) scopes unmet-need wants to the deck's plan:
 // a trio of blink tricks "wanting" etb_value must not make a rat deck recruit ETB cards.
 function wantedAxes(goal, hist, index, templates, goals) {
-  const wanted = new Map(); // axis → {why, gap, params?, needers?, neederParams?}
-  const goalAxes = deckPlanAxes(goals && goals.length ? goals : [{ goal, confidence: 1 }], templates);
-  const tribalMatch = /^tribal:(.+)$/.exec(String(goal || ''));
-  const tpl = templates.find(t => t.key === (goal || '').replace(/^tribal:.*/, 'tribal')) ||
-    templates.find(t => t.key === goal);
-  for (const group of tpl?.core || []) {
-    // type-density groups (enchantress/artifacts) count card types like scoreTemplate does
-    const got = (group.axes || []).reduce((s, ax) => s + (hist.providers[ax] || 0), 0)
-      + (group.types || []).reduce((s, t) => s + (hist.typeCounts?.[t] || 0), 0);
-    if (got < group.min) {
-      for (const ax of group.axes || []) {
-        if (!wanted.has(ax)) wanted.set(ax, { why: 'goal_core', gap: group.min - got });
+  const wanted = new Map(); // axis → {why, gap, params?, permissive?, needers?, neederParams?}
+  const all = goals && goals.length ? goals : [{ goal, confidence: 1 }];
+  const goalAxes = deckPlanAxes(all, templates); // ≥0.8 set — gates unmet-need wants
+  // Core/support gaps only for CO-PRIMARY goals (top, plus ≥0.95 — a rat deck with
+  // aristocrats at 0.98 wants aristocrats pieces too). Merely-confident hypotheses
+  // (voltron at 0.91 in a swarm deck) may gate claims but must not steer the pool —
+  // goal-inference noise amplifies badly through the 8-slot wanted budget.
+  const coPrimary = all.filter((g, i) => i === 0 || (g.confidence || 0) >= 0.95);
+  for (const g of coPrimary) {
+    const key = String(g?.goal || goal || '');
+    const tribalMatch = /^tribal:(.+)$/.exec(key);
+    if (tribalMatch) {
+      // Tribal goals have no template: want lords, tribal payoffs, and anthems for the
+      // tribe. params bind the credit to the tribe permissively — generic providers
+      // (a chosen-color anthem in a mono-color deck) fully serve; only explicit
+      // OTHER-tribe params are excluded.
+      const tribe = tribalMatch[1];
+      for (const [ax, min] of [['tribal.lord', 2], ['tribal.synergy', 3], ['anthem.global', 2]]) {
+        const have = matchParam(index.provides.get(ax), tribe)?.count || 0;
+        if (have < min && !wanted.has(ax)) wanted.set(ax, { why: 'goal_core', gap: min - have, params: [tribe], permissive: true });
+      }
+      continue;
+    }
+    const tpl = templates.find(t => t.key === key);
+    for (const group of tpl?.core || []) {
+      // type-density groups (enchantress/artifacts) count card types like scoreTemplate does
+      const got = (group.axes || []).reduce((s, ax) => s + (hist.providers[ax] || 0), 0)
+        + (group.types || []).reduce((s, t) => s + (hist.typeCounts?.[t] || 0), 0);
+      if (got < group.min) {
+        for (const ax of group.axes || []) {
+          if (!wanted.has(ax)) wanted.set(ax, { why: 'goal_core', gap: group.min - got });
+        }
       }
     }
-  }
-  // Tribal goals have no template: want lords, tribal payoffs, and anthems for the tribe.
-  // params bind the credit to the tribe at scoring time (generic providers still fit).
-  if (tribalMatch) {
-    const tribe = tribalMatch[1];
-    for (const [ax, min] of [['tribal.lord', 2], ['tribal.synergy', 3], ['anthem.global', 2]]) {
-      const have = matchParam(index.provides.get(ax), tribe)?.count || 0;
-      if (have < min && !wanted.has(ax)) wanted.set(ax, { why: 'goal_core', gap: min - have, params: [tribe] });
+    // Even when a goal's core is saturated, keep suggestions ON PLAN: under-provided
+    // support axes come before fringe-card wishes.
+    for (const ax of tpl?.support || []) {
+      const have = hist.providers[ax] || 0;
+      if (have < 3 && !wanted.has(ax)) wanted.set(ax, { why: 'goal_support', gap: 3 - have });
     }
-  }
-  // Even when the goal's core is saturated, keep suggestions ON PLAN: under-provided
-  // support axes of the top goal come before fringe-card wishes.
-  for (const ax of tpl?.support || []) {
-    const have = hist.providers[ax] || 0;
-    if (have < 3 && !wanted.has(ax)) wanted.set(ax, { why: 'goal_support', gap: 3 - have });
   }
   // Unmet needs of cards already in the deck — but only when the demand is real
   // (multiple needers or a hard requirement), so one fringe card can't steer the deck.
@@ -332,8 +369,11 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
       const bound = tribalBound(tribes, p.axis, p.param);
       const w0 = !bound ? wanted.get(p.axis) : null;
       // `params` gates the credit itself; `neederParams` gates only the "feeds X" names.
-      const paramFits = !w0?.params || w0.params.some(par => paramServes(p.param, par));
-      const neederFits = !w0?.neederParams || w0.neederParams.some(par => paramServes(p.param, par));
+      // Permissive entries (tribal wants) accept generic providers; strict entries
+      // (unmet param'd demands) require an explicitly matching supply.
+      const fit = (par) => w0?.permissive ? paramOk(p.param, par) : paramServes(p.param, par);
+      const paramFits = !w0?.params || w0.params.some(fit);
+      const neederFits = !w0?.neederParams || w0.neederParams.some(fit);
       const w = w0 && paramFits ? w0 : null;
       if (w) {
         score += (p.weight || 1) * (1 + Math.min(3, w.gap) * 0.5);
@@ -375,9 +415,16 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
     if (fedNeeds) { score += fedNeeds * 1.5; trace.push({ kind: 'needs_fed', count: fedNeeds }); }
     if (deadNeeds) { score -= deadNeeds * 6; trace.push({ kind: 'would_be_dead', count: deadNeeds }); }
 
-    // role deficits
+    // role deficits — but roles are param-blind, so a role whose backing axes are ALL
+    // context-excluded earns nothing (Higure's 'tutor' role is tutor.creature(Ninja);
+    // in a Rat deck he tutors nothing and must not fill the Tutor deficit).
     const cats = new Set((cand.ir.roles || []).map(r => th.ROLE_TO_CATEGORY[r]).filter(Boolean));
     for (const cat of cats) {
+      const family = _ROLE_AXIS_FAMILY[cat];
+      if (family) {
+        const inFamily = (cand.ir.provides || []).filter(p => String(p.axis).startsWith(family));
+        if (inFamily.length && inFamily.every(p => tribalBound(tribes, p.axis, p.param))) continue;
+      }
       const deficit = (thresholds[cat] || 0) - (roleCounts[cat] || 0);
       if (deficit > 0) { score += Math.min(deficit, 5); trace.push({ kind: 'role_deficit', cat, deficit }); }
     }
