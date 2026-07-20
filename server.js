@@ -109,6 +109,12 @@ const sessionMiddleware = session({
     checkExpirationInterval: 15 * 60 * 1000,
     expiration:         7 * 24 * 60 * 60 * 1000,
     createDatabaseTable: true,
+    // Recycle idle session-store connections before Railway/MySQL reaps them, so the
+    // 15-min clearExpired sweep and per-request session reads never fire on a dead
+    // socket. (idleTimeout + maxIdle are the resilience keys express-mysql-session
+    // forwards to mysql2; enableKeepAlive defaults to true in mysql2 3.x.)
+    idleTimeout:        parseInt(process.env.DB_IDLE_TIMEOUT_MS || '60000', 10),
+    maxIdle:            2,
   }),
   cookie: {
     maxAge: 7 * 24 * 60 * 60 * 1000,
@@ -132,14 +138,61 @@ const DB_CONFIG = {
   timezone:         'Z',
   /** Fail fast instead of hanging startup when MySQL is down (Capacitor would sit on “Loading app…”). */
   connectTimeout:   parseInt(process.env.DB_CONNECT_TIMEOUT_MS || '12000', 10),
+  // ── Resilience on Railway ──────────────────────────────────────────────────
+  // MySQL (and the network in front of it) silently drops idle connections. Recycle
+  // our own idle sockets *before* the server reaps them and keep TCP alive, so we
+  // never hand a dead connection to a query (the "Can't add new command when
+  // connection is in closed state" error). idleTimeout must stay well under MySQL's
+  // wait_timeout.
+  enableKeepAlive:       true,
+  keepAliveInitialDelay: 10000,
+  idleTimeout:           parseInt(process.env.DB_IDLE_TIMEOUT_MS || '60000', 10),
+  maxIdle:               5,
 };
 // ─────────────────────────────────────────────────────────────────────────────
 
 let pool;
 function db() {
-  if (!pool) pool = mysql.createPool(DB_CONFIG);
+  if (!pool) {
+    pool = mysql.createPool(DB_CONFIG);
+    // Without this listener, a fatal error on an *idle* pooled connection surfaces as
+    // an unhandled 'error' event and crashes the whole process. mysql2 has already
+    // evicted the dead connection by the time this fires, so the next query opens a
+    // fresh one — we only need to log and stay alive.
+    pool.on('error', (err) => {
+      console.error('[db] pool connection error (recovered):', err?.code || err?.message || err);
+    });
+  }
   return pool;
 }
+
+// Last-resort net so a transient DB/socket blip can never take the process down.
+// (Before this the app had no handlers at all — any stray connection error was fatal,
+// and Railway would 404/502 every request during the restart window.) We only swallow
+// *transient connection* errors; genuine bugs still crash, so the failure stays visible
+// and Railway restarts cleanly instead of the app limping on in an unknown state.
+const _TRANSIENT_CONN_ERR = /closed state|PROTOCOL_CONNECTION_LOST|ECONNRESET|EPIPE|ETIMEDOUT|Pool is closed/i;
+function _isTransientConnError(err) {
+  const code = err && err.code;
+  return _TRANSIENT_CONN_ERR.test((err && err.message) || '') ||
+    ['PROTOCOL_CONNECTION_LOST', 'ECONNRESET', 'EPIPE', 'ETIMEDOUT'].includes(code);
+}
+process.on('unhandledRejection', (reason) => {
+  if (_isTransientConnError(reason)) {
+    console.error('[unhandledRejection] recovered from transient DB/connection error:', (reason && reason.message) || reason);
+    return; // keep serving; pooled connections re-establish on the next query
+  }
+  console.error('[unhandledRejection] fatal:', reason);
+  process.exit(1); // preserve Node's crash-on-genuine-bug behavior (Railway will restart)
+});
+process.on('uncaughtException', (err) => {
+  if (_isTransientConnError(err)) {
+    console.error('[uncaughtException] recovered from transient DB/connection error:', (err && err.message) || err);
+    return; // keep serving; pooled connections re-establish on the next query
+  }
+  console.error('[uncaughtException] fatal:', err);
+  process.exit(1);
+});
 
 const ORACLE_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -3431,6 +3484,99 @@ app.get('/api/decks/shared', requireAuth, async (req, res) => {
   }
 });
 
+// ── Deck similarity (EDHREC + your archive) ──────────────────────────────────
+// These two literal routes MUST be registered before the `/api/decks/:id` param
+// route below. Express matches in registration order, so if `:id` came first it
+// would swallow "edhrec-similarity"/"archive-similarity" as a deck id and return
+// 404 "Deck not found" (that regression is exactly what this fix undoes).
+
+// Convert a commander name to the slug EDHREC uses in its URL
+function edhrecSlug(name) {
+  return name.toLowerCase()
+    .replace(/['']/g, '')          // curly apostrophes
+    .replace(/[^a-z0-9\s-]/g, '') // strip everything else except spaces/hyphens
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-');
+}
+
+app.get('/api/decks/edhrec-similarity', requireAuth, async (req, res) => {
+  const { commander } = req.query;
+  if (!commander) return res.status(400).json({ error: 'commander required' });
+  const slug = edhrecSlug(commander);
+  try {
+    const upstream = await fetch(`https://json.edhrec.com/pages/commanders/${slug}.json`, {
+      headers: { 'User-Agent': 'MTGArchive/1.0' },
+    });
+    if (!upstream.ok) return res.status(404).json({ error: `Commander not found on EDHREC (tried slug: ${slug})` });
+    const data = await upstream.json();
+
+    const cardMap = new Map(); // name → {num_decks, potential_decks}
+    const cardlists = data?.container?.json_dict?.cardlists ?? [];
+    for (const list of cardlists) {
+      if (list.tag === 'lands') continue; // skip basic/nonbasic land lists
+      for (const cv of (list.cardviews ?? [])) {
+        if (!cardMap.has(cv.name)) {
+          cardMap.set(cv.name, {
+            name: cv.name,
+            num_decks: cv.num_decks,
+            potential_decks: cv.potential_decks,
+            inclusion: Math.round((cv.num_decks / cv.potential_decks) * 100),
+          });
+        }
+      }
+    }
+
+    res.json({
+      slug,
+      num_decks: data.num_decks_avg ?? 0,
+      cards: Array.from(cardMap.values()).sort((a, b) => b.inclusion - a.inclusion),
+    });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to fetch EDHREC data: ' + e.message });
+  }
+});
+
+app.get('/api/decks/archive-similarity', requireAuth, async (req, res) => {
+  const { commander, deckId } = req.query;
+  if (!commander) return res.status(400).json({ error: 'commander required' });
+  const accountId = req.accountId;
+  try {
+    // Find all decks (own + public) with matching commander card, excluding the current deck
+    const [rows] = await db().query(`
+      SELECT d.account_id, d.id AS deck_id, d.name AS deck_name, a.email AS owner_email,
+             GROUP_CONCAT(
+               CASE WHEN dc.is_commander = 0 THEN dc.card_name END
+               ORDER BY dc.card_name SEPARATOR '|||'
+             ) AS card_names
+      FROM decks d
+      JOIN accounts a ON d.account_id = a.id
+      JOIN deck_cards dc ON d.account_id = dc.account_id AND d.id = dc.deck_id
+      WHERE (d.account_id = ? OR JSON_EXTRACT(d.data, '$.isPublic') = true)
+        AND NOT (d.account_id = ? AND d.id = ?)
+        AND EXISTS (
+          SELECT 1 FROM deck_cards dc2
+          WHERE dc2.account_id = d.account_id AND dc2.deck_id = d.id
+            AND dc2.card_name = ? AND dc2.is_commander = 1
+        )
+      GROUP BY d.account_id, d.id, d.name, a.email
+      LIMIT 30
+    `, [accountId, accountId, deckId ?? '', commander]);
+
+    res.json({
+      decks: rows.map(r => ({
+        deck_id: r.deck_id,
+        deck_name: r.deck_name,
+        owner_email: r.owner_email,
+        is_own: Number(r.account_id) === Number(accountId),
+        card_names: r.card_names ? r.card_names.split('|||') : [],
+      })),
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Owner or collaborator — lightweight refresh for realtime sync.
 app.get('/api/decks/:id', requireAuth, async (req, res) => {
   try {
@@ -4023,53 +4169,6 @@ app.delete('/api/collection/shares/:viewerId', requireAuth, async (req, res) => 
 
 // ── Deck Similarity ───────────────────────────────────────────────────────────
 
-// Convert a commander name to the slug EDHREC uses in its URL
-function edhrecSlug(name) {
-  return name.toLowerCase()
-    .replace(/['']/g, '')          // curly apostrophes
-    .replace(/[^a-z0-9\s-]/g, '') // strip everything else except spaces/hyphens
-    .trim()
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-');
-}
-
-app.get('/api/decks/edhrec-similarity', requireAuth, async (req, res) => {
-  const { commander } = req.query;
-  if (!commander) return res.status(400).json({ error: 'commander required' });
-  const slug = edhrecSlug(commander);
-  try {
-    const upstream = await fetch(`https://json.edhrec.com/pages/commanders/${slug}.json`, {
-      headers: { 'User-Agent': 'MTGArchive/1.0' },
-    });
-    if (!upstream.ok) return res.status(404).json({ error: `Commander not found on EDHREC (tried slug: ${slug})` });
-    const data = await upstream.json();
-
-    const cardMap = new Map(); // name → {num_decks, potential_decks}
-    const cardlists = data?.container?.json_dict?.cardlists ?? [];
-    for (const list of cardlists) {
-      if (list.tag === 'lands') continue; // skip basic/nonbasic land lists
-      for (const cv of (list.cardviews ?? [])) {
-        if (!cardMap.has(cv.name)) {
-          cardMap.set(cv.name, {
-            name: cv.name,
-            num_decks: cv.num_decks,
-            potential_decks: cv.potential_decks,
-            inclusion: Math.round((cv.num_decks / cv.potential_decks) * 100),
-          });
-        }
-      }
-    }
-
-    res.json({
-      slug,
-      num_decks: data.num_decks_avg ?? 0,
-      cards: Array.from(cardMap.values()).sort((a, b) => b.inclusion - a.inclusion),
-    });
-  } catch (e) {
-    res.status(500).json({ error: 'Failed to fetch EDHREC data: ' + e.message });
-  }
-});
-
 // Conditional-keyword reference (CR 702 keyword abilities / 207.2c ability words) used by
 // the card-suggestion gate: a card carrying one of these terms is only suggested when the
 // deck has enough cards that can satisfy its condition. Static reference data, cached in memory.
@@ -4091,45 +4190,6 @@ app.get('/api/conditional-keywords', async (req, res) => {
   }
 });
 
-app.get('/api/decks/archive-similarity', requireAuth, async (req, res) => {
-  const { commander, deckId } = req.query;
-  if (!commander) return res.status(400).json({ error: 'commander required' });
-  const accountId = req.accountId;
-  try {
-    // Find all decks (own + public) with matching commander card, excluding the current deck
-    const [rows] = await db().query(`
-      SELECT d.account_id, d.id AS deck_id, d.name AS deck_name, a.email AS owner_email,
-             GROUP_CONCAT(
-               CASE WHEN dc.is_commander = 0 THEN dc.card_name END
-               ORDER BY dc.card_name SEPARATOR '|||'
-             ) AS card_names
-      FROM decks d
-      JOIN accounts a ON d.account_id = a.id
-      JOIN deck_cards dc ON d.account_id = dc.account_id AND d.id = dc.deck_id
-      WHERE (d.account_id = ? OR JSON_EXTRACT(d.data, '$.isPublic') = true)
-        AND NOT (d.account_id = ? AND d.id = ?)
-        AND EXISTS (
-          SELECT 1 FROM deck_cards dc2
-          WHERE dc2.account_id = d.account_id AND dc2.deck_id = d.id
-            AND dc2.card_name = ? AND dc2.is_commander = 1
-        )
-      GROUP BY d.account_id, d.id, d.name, a.email
-      LIMIT 30
-    `, [accountId, accountId, deckId ?? '', commander]);
-
-    res.json({
-      decks: rows.map(r => ({
-        deck_id: r.deck_id,
-        deck_name: r.deck_name,
-        owner_email: r.owner_email,
-        is_own: Number(r.account_id) === Number(accountId),
-        card_names: r.card_names ? r.card_names.split('|||') : [],
-      })),
-    });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
 
 // ── engine2 deck analysis (docs/engine2-plan.md §7.1) ─────────────────────────
 // Deterministic adds/cuts + goal inference from precomputed card semantics. The decklist
