@@ -123,7 +123,9 @@ console.log('adds — param-aware matching (tribes, tokens, curve)');
   const vCands = [
     { name: 'Goblin Token Maker', ir: pIR([['token.creature', 'Goblin', 3, 'once'], ['tribal.synergy', 'Goblin', 2, 'once']]), cmc: 2, price: 1, owned: false, edhrecRank: 900 },
     { name: 'Vampire Support', ir: pIR([['tribal.synergy', 'Vampire', 3, 'static']]), cmc: 2, price: 1, owned: false, edhrecRank: 900 },
-    { name: 'Artifact Token Doubler', ir: pIR([['token.doubler', 'Treasure', 4, 'static']]), cmc: 3, price: 1, owned: false, edhrecRank: 900 },
+    // mana.rock provides + role keep it above the list's quality floor so its
+    // token.doubler citation behavior stays observable
+    { name: 'Artifact Token Doubler', ir: pIR([['token.doubler', 'Treasure', 4, 'static'], ['mana.rock', null, 3, 'repeatable']], [], { roles: ['mana_rock'] }), cmc: 3, price: 1, owned: false, edhrecRank: 900 },
     { name: 'Utility Land', ir: pIR([['mana.color_fix', null, 2, 'repeatable']], [], { roles: ['land'] }), cmc: 0, typeLine: 'Land', price: 1, owned: false, edhrecRank: 900 },
   ];
   const vAdds = rec.scoreAdds({ ...vCtx, candidates: vCands, budget: { maxCardPrice: null, flagAbove: 5 } });
@@ -206,7 +208,8 @@ console.log('adds — plan relevance gates which Feeds edges headline');
     { name: 'Lone Blink Trick', qty: 1, cmc: 2, typeLine: 'Instant', ir: pIR([['protection.single', null, 3, 'once']], [['etb_value', null, 4, 'wants']]) },
     { name: 'Sword Carrier A', qty: 1, cmc: 2, typeLine: 'Creature — Human', ir: pIR([], [['voltron.aura_equipment', null, 4, 'wants']]) },
     { name: 'Sword Carrier B', qty: 1, cmc: 2, typeLine: 'Creature — Human', ir: pIR([], [['voltron.aura_equipment', null, 4, 'wants']]) },
-    // Two swords already in-deck: the axis is supplied (not "wanted"), so a third sword
+    { name: 'Sword Carrier C', qty: 1, cmc: 2, typeLine: 'Creature — Human', ir: pIR([], [['voltron.aura_equipment', null, 4, 'wants']]) },
+    // Two swords already in-deck: the axis is supplied (not "wanted"), so another sword
     // exercises the feeds path rather than the wanted/fills_axis path.
     { name: 'Old Sword A', qty: 1, cmc: 2, typeLine: 'Artifact — Equipment', ir: pIR([['voltron.aura_equipment', null, 3, 'static']]) },
     { name: 'Old Sword B', qty: 1, cmc: 2, typeLine: 'Artifact — Equipment', ir: pIR([['voltron.aura_equipment', null, 3, 'static']]) },
@@ -376,6 +379,45 @@ console.log('adds — confident secondary goals contribute wanted axes');
   check('secondary-goal core gap becomes wanted',
     wanted.has('sac.fodder') || wanted.has('token.creature') || wanted.has('creatures_dying'),
     JSON.stringify([...wanted.keys()]));
+}
+
+console.log('adds — negated params and the quality floor');
+{
+  const pIR = (provides, needs, extra) => ({
+    provides: (provides || []).map(([axis, param, w, rate]) => ({ axis, param: param || null, rate: rate || 'once', weight: w || 3 })),
+    needs: (needs || []).map(([axis, param, w, crit]) => ({ axis, param: param || null, criticality: crit || 'wants', weight: w || 3 })),
+    anti: [], roles: [], wincon: null, tribal: { types: [], lord_of: [] }, faces: [], ...extra,
+  });
+  // Ogre Slumlord pattern: a payoff that requires NONTOKEN deaths. A token engine's
+  // deaths (param 'token') must not feed it; a generic sac outlet's deaths do.
+  const deck = [
+    { name: 'Nontoken Payoff', qty: 1, cmc: 4, typeLine: 'Creature — Ogre', ir: pIR([['token.creature', 'Rat', 3, 'per_turn']], [['creatures_dying', 'nontoken', 4, 'requires']]) },
+    { name: 'Some Land', qty: 33, cmc: 0, typeLine: 'Basic Land — Swamp', ir: pIR([], [], { roles: ['land'] }) },
+  ];
+  const cmd = { name: 'Cmdr', ir: pIR([['card_advantage.draw', null, 2, 'per_turn']]) };
+  const goals = inferGoals(deck, cmd, {});
+  const ctx = {
+    deckCards: deck, commander: cmd, goals: goals.goals,
+    thresholds: th.computeThresholds({ goal: goals.goals[0]?.goal }),
+    roleCounts: th.countRoles(deck), hist: goals.histogram, templates,
+  };
+  const cands = [
+    { name: 'Token Death Engine', ir: pIR([['creatures_dying', 'token', 3, 'per_turn'], ['mana.rock', null, 3, 'repeatable']], [], { roles: ['mana_rock'] }), cmc: 2, price: 1, owned: false, edhrecRank: 500 },
+    { name: 'Generic Sac Outlet', ir: pIR([['creatures_dying', null, 4, 'repeatable'], ['sac.outlet_free', null, 4, 'repeatable']], [], { roles: [] }), cmc: 2, price: 1, owned: false, edhrecRank: 500 },
+    { name: 'Barely Anything', ir: pIR([['lifegain.source', null, 1, 'once']]), cmc: 5, price: 1, owned: false, edhrecRank: 90000 },
+  ];
+  const adds = rec.scoreAdds({ ...ctx, candidates: cands, budget: { maxCardPrice: null, flagAbove: 5 } });
+  const byName = n => adds.find(a => a.name === n);
+  const cites = a => (a?.trace || []).filter(t => t.kind === 'feeds' || t.kind === 'fills_axis').flatMap(t => t.names || t.needers || []);
+  check('token-death engine does not feed a nontoken payoff',
+    !cites(byName('Token Death Engine')).includes('Nontoken Payoff'),
+    JSON.stringify(byName('Token Death Engine')?.trace));
+  check('generic outlet feeds the nontoken payoff',
+    cites(byName('Generic Sac Outlet')).includes('Nontoken Payoff'),
+    JSON.stringify(byName('Generic Sac Outlet')?.trace));
+  check('quality floor drops near-zero filler from the list',
+    !byName('Barely Anything'),
+    JSON.stringify(adds.map(a => [a.name, a.score])));
 }
 
 console.log('explain — price note never stands alone');

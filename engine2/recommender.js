@@ -144,10 +144,16 @@ function tribalBound(tribes, axis, param) {
 // A parameterized DEMAND is only served by a provider that explicitly supplies that
 // param — "any creature" fodder does not sac to Marrow-Gnawer's "Sacrifice a Rat".
 // The reverse stays permissive: a parameterized provider serves a generic demand
-// (Anointed Procession doubles any tokens).
+// (Anointed Procession doubles any tokens). Negated demands ("nontoken") are the
+// exception: they are served by anything EXCEPT the negated param — a generic sac
+// outlet feeds Ogre Slumlord's nontoken-deaths trigger, a token engine does not.
 function paramServes(providerParam, demandParam) {
   if (demandParam == null) return true;
-  return providerParam != null && String(providerParam).toLowerCase() === String(demandParam).toLowerCase();
+  const d = String(demandParam).toLowerCase();
+  const p = providerParam == null ? null : String(providerParam).toLowerCase();
+  const neg = /^non[- ]?(.+)$/.exec(d);
+  if (neg) return p !== neg[1];
+  return p != null && p === d;
 }
 
 // Slice of an index record param-compatible with `param`. Modes:
@@ -166,7 +172,7 @@ function matchParam(rec, param, mode) {
   const names = [], strongNames = [];
   for (const e of rec.entries) {
     const ok = mode === 'exact' ? e.key === key
-      : mode === 'serves' ? (e.key == null || (key != null && e.key === key))
+      : mode === 'serves' ? paramServes(param, e.param)
       : paramOk(param, e.param);
     if (!ok) continue;
     count += e.count;
@@ -459,7 +465,12 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
   }
 
   scored.sort((a, b) => b.score - a.score || String(a.name).localeCompare(b.name));
-  return scored.slice(0, ADD_COUNT);
+  // Quality floor: don't pad the list with filler the engine barely believes in —
+  // suggestions below ~30% of the leader (min 3) read as noise to the user. Thin
+  // pools with a modest leader keep their few genuine picks.
+  const top = scored[0]?.score || 0;
+  const floor = Math.max(3, top * 0.3);
+  return scored.filter(s => s.score >= floor).slice(0, ADD_COUNT);
 }
 
 module.exports = { scoreCuts, scoreAdds, deckAxisIndex, wantedAxes, matchParam, deckPlanAxes, isLandCard, bucketOf, CUT_COUNT, ADD_COUNT };
