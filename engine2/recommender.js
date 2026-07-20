@@ -19,18 +19,25 @@ function isLandCard(c) {
 
 function bucketOf(cmc) { return Math.min(Math.max(Math.floor(Number(cmc) || 0), 0), 7); }
 
+// A need strong enough to headline a "Feeds X" suggestion: hard requirements always,
+// soft wants only with real weight. helps-level appetites (an X spell mildly "wants"
+// ramp) may nudge scores but never read as one card feeding another.
+function strongNeed(criticality, weight) {
+  return criticality === 'requires' || (criticality === 'wants' && (weight || 1) >= 3);
+}
+
 // Index the deck's capability layer once for candidate joins. Keeps per-param
 // sub-entries so joins can respect param compatibility — a Goblin token maker must not
 // read as feeding Vampire-tribal payoffs (the interaction engine already enforces this
 // via paramOk; the index-based joins here have to as well).
 function deckAxisIndex(deckCards, commander) {
   const provides = new Map(); // axis → {count, names[], entries: [{param, count, names[]}]}
-  const needs = new Map();    // axis → {count, weight, names[], entries: [{param, count, weight, names[]}]}
+  const needs = new Map();    // axis → {count, weight, strong, names[], strongNames[], entries: [...]}
   const all = commander?.ir ? [...deckCards, { ...commander, qty: 1 }] : deckCards;
   const subEntry = (rec, param) => {
     const key = param == null ? null : String(param).toLowerCase();
     let e = rec.entries.find(x => x.key === key);
-    if (!e) { e = { key, param: param ?? null, count: 0, weight: 0, names: [] }; rec.entries.push(e); }
+    if (!e) { e = { key, param: param ?? null, count: 0, weight: 0, strong: 0, names: [], strongNames: [] }; rec.entries.push(e); }
     return e;
   };
   for (const c of all) {
@@ -44,7 +51,7 @@ function deckAxisIndex(deckCards, commander) {
       provides.set(p.axis, rec);
     }
     for (const nd of c.ir?.needs || []) {
-      const rec = needs.get(nd.axis) || { count: 0, weight: 0, names: [], entries: [] };
+      const rec = needs.get(nd.axis) || { count: 0, weight: 0, strong: 0, names: [], strongNames: [], entries: [] };
       rec.count += c.qty || 1;
       rec.weight += (nd.weight || 1) * (c.qty || 1);
       if (rec.names.length < 6) rec.names.push(c.name);
@@ -52,6 +59,12 @@ function deckAxisIndex(deckCards, commander) {
       e.count += c.qty || 1;
       e.weight += (nd.weight || 1) * (c.qty || 1);
       if (e.names.length < 6) e.names.push(c.name);
+      if (strongNeed(nd.criticality, nd.weight)) {
+        rec.strong += c.qty || 1;
+        e.strong += c.qty || 1;
+        if (rec.strongNames.length < 6) rec.strongNames.push(c.name);
+        if (e.strongNames.length < 6) e.strongNames.push(c.name);
+      }
       needs.set(nd.axis, rec);
     }
   }
@@ -85,15 +98,17 @@ function matchParam(rec, param, exactOnly) {
   if (!rec) return null;
   if (!exactOnly && (param == null || !rec.entries.some(e => e.param != null))) return rec;
   const key = param == null ? null : String(param).toLowerCase();
-  let count = 0, weight = 0;
-  const names = [];
+  let count = 0, weight = 0, strong = 0;
+  const names = [], strongNames = [];
   for (const e of rec.entries) {
     if (exactOnly ? e.key !== key : !paramOk(param, e.param)) continue;
     count += e.count;
     weight += e.weight || 0;
+    strong += e.strong || 0;
     for (const n of e.names) if (names.length < 6 && !names.includes(n)) names.push(n);
+    for (const n of e.strongNames || []) if (strongNames.length < 6 && !strongNames.includes(n)) strongNames.push(n);
   }
-  return count ? { count, weight, names } : null;
+  return count ? { count, weight, strong, names, strongNames } : null;
 }
 
 // Axes the deck WANTS more of: goal core groups below target + needed-but-underfed axes.
@@ -138,16 +153,20 @@ function wantedAxes(goal, hist, index, templates) {
     for (const grp of rec.entries) {
       const have = matchParam(index.provides.get(axis), grp.param)?.count || 0;
       if (have < 2 && grp.weight >= 5) {
+        // Weak wants may aggregate into real demand (three X spells each mildly wanting
+        // ramp), but only STRONG needers get cited by name — otherwise the reason reads
+        // "Feeds <X spell>" for a card that merely likes having more mana around.
+        const cite = grp.strongNames && grp.strongNames.length ? grp.strongNames : null;
         const prev = wanted.get(axis);
         if (prev) {
-          // wanted axis that live cards also need — name them, but gate the name-list on
-          // the needers' params (the goal-derived credit itself stays generic)
-          prev.needers = grp.names;
-          (prev.neederParams = prev.neederParams || []).push(grp.param);
+          if (cite) {
+            prev.needers = cite; // wanted axis that live cards also hard-need — name them
+            (prev.neederParams = prev.neederParams || []).push(grp.param);
+          }
         } else {
           wanted.set(axis, {
             why: 'unmet_need', gap: 2 - have,
-            needers: grp.names, params: [grp.param], neederParams: [grp.param],
+            needers: cite, params: [grp.param], neederParams: cite ? [grp.param] : null,
           });
         }
       }
@@ -268,9 +287,19 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
         score += (p.weight || 1) * (1 + Math.min(3, w.gap) * 0.5);
         trace.push({ kind: 'fills_axis', axis: p.axis, param: p.param || null, why: w.why, needers: (neederFits && w.needers) || null });
       }
-      // feeds existing payoffs even when not formally "wanted" (param-compatible only)
+      // feeds existing payoffs even when not formally "wanted" (param-compatible only).
+      // Only strong demand earns the +4-class score and the "Feeds X" claim; helps-level
+      // appetites add a capped nudge with no headline (Solemn Simulacrum must not read
+      // as "feeding" an X spell that mildly wants ramp).
       const needers = matchParam(index.needs.get(p.axis), p.param, bound);
-      if (needers && !w) { score += Math.min(4, needers.count); trace.push({ kind: 'feeds', axis: p.axis, param: p.param || null, names: needers.names }); }
+      if (needers && !w) {
+        if (needers.strong) {
+          score += Math.min(4, needers.strong);
+          trace.push({ kind: 'feeds', axis: p.axis, param: p.param || null, names: needers.strongNames });
+        } else {
+          score += Math.min(1, needers.count * 0.25);
+        }
+      }
     }
     // its own needs are already fed here (card won't be dead)
     let fedNeeds = 0, deadNeeds = 0;

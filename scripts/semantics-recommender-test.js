@@ -149,6 +149,44 @@ console.log('adds — param-aware matching (tribes, tokens, curve)');
     JSON.stringify(byName('Utility Land')?.trace));
 }
 
+console.log('adds — weak demand never headlines a "Feeds" claim');
+{
+  const pIR = (provides, needs, extra) => ({
+    provides: (provides || []).map(([axis, param, w, rate]) => ({ axis, param: param || null, rate: rate || 'once', weight: w || 3 })),
+    needs: (needs || []).map(([axis, param, w, crit]) => ({ axis, param: param || null, criticality: crit || 'wants', weight: w || 3 })),
+    anti: [], roles: [], wincon: null, tribal: { types: [], lord_of: [] }, faces: [], ...extra,
+  });
+  // Zero Point Ballad pattern: an X spell that mildly wants ramp (wants w2) must not
+  // read as being FED by a ramp card; a hard requirement (requires w5) still does.
+  const deck = [
+    { name: 'X Wipe', qty: 1, cmc: 2, typeLine: 'Sorcery', ir: pIR([['removal.wipe', null, 4]], [['mana.ramp_land', null, 2, 'wants']]) },
+    { name: 'Madness Payoff', qty: 1, cmc: 3, typeLine: 'Creature — Vampire', ir: pIR([], [['discard.outlet', null, 5, 'requires']]) },
+    { name: 'Some Land', qty: 32, cmc: 0, typeLine: 'Basic Land — Swamp', ir: pIR([], [], { roles: ['land'] }) },
+  ];
+  const cmd = { name: 'Cmdr', ir: pIR([['card_advantage.draw', 2, 'per_turn']]) };
+  const goals = inferGoals(deck, cmd, {});
+  const ctx = {
+    deckCards: deck, commander: cmd, goals: goals.goals,
+    thresholds: th.computeThresholds({ goal: goals.goals[0]?.goal }),
+    roleCounts: th.countRoles(deck), hist: goals.histogram, templates,
+  };
+  const cands = [
+    { name: 'Ramp Robot', ir: pIR([['mana.ramp_land', null, 4, 'once']], [], { roles: ['ramp'] }), cmc: 4, price: 1, owned: false, edhrecRank: 300 },
+    { name: 'Looter', ir: pIR([['discard.outlet', null, 3, 'repeatable']]), cmc: 2, price: 1, owned: false, edhrecRank: 900 },
+  ];
+  const adds = rec.scoreAdds({ ...ctx, candidates: cands, budget: { maxCardPrice: null, flagAbove: 5 } });
+  const byName = n => adds.find(a => a.name === n);
+  // "Feeds X" reasons render from both feeds.names and fills_axis.needers
+  const feedsOf = a => (a?.trace || []).filter(t => t.kind === 'feeds' || t.kind === 'fills_axis')
+    .flatMap(t => t.names || t.needers || []);
+  check('helps/weak-wants needer produces no Feeds claim',
+    !feedsOf(byName('Ramp Robot')).includes('X Wipe'),
+    JSON.stringify(byName('Ramp Robot')?.trace));
+  check('requires-level needer still headlines a Feeds claim',
+    feedsOf(byName('Looter')).includes('Madness Payoff'),
+    JSON.stringify(byName('Looter')?.trace));
+}
+
 console.log('goals — land types are not tribes');
 {
   const mountainIR = { provides: [], needs: [], anti: [], roles: [], wincon: null, tribal: { types: ['Mountain', 'Goblin'], lord_of: ['Mountain'] }, faces: [] };
