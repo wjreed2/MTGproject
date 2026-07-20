@@ -226,10 +226,15 @@ function wantedAxes(goal, hist, index, templates, goals) {
       }
     }
     // Even when a goal's core is saturated, keep suggestions ON PLAN: under-provided
-    // support axes come before fringe-card wishes.
+    // support axes come before fringe-card wishes — but support may only REINFORCE a
+    // sub-theme the deck already plays (≥2 providers: a pair is a theme, a singleton
+    // is a coincidence), never introduce one. Without this, a protection package
+    // saturating voltron dragged artifact tutors into a big-creature deck with zero
+    // artifact synergy (Enlightened Tutor at #1), and one energy card made the deck
+    // "want" more energy (Guide of Souls).
     for (const ax of tpl?.support || []) {
       const have = hist.providers[ax] || 0;
-      if (have < 3 && !wanted.has(ax)) wanted.set(ax, { why: 'goal_support', gap: 3 - have });
+      if (have >= 2 && have < 3 && !wanted.has(ax)) wanted.set(ax, { why: 'goal_support', gap: 3 - have });
     }
   }
   // Unmet needs of cards already in the deck — but only when the demand is real
