@@ -250,8 +250,9 @@ console.log('adds — param demands are only served explicitly');
   // Marrow-Gnawer pattern: an outlet that requires RAT fodder specifically. Generic
   // fodder must not be cited as feeding it; rat fodder feeds both it and generic outlets.
   const deck = [
-    { name: 'Rat Sac Boss', qty: 1, cmc: 3, typeLine: 'Creature — Rat', ir: pIR([['tribal.lord', 'Rat', 5, 'static']], [['sac.fodder', 'Rat', 4, 'requires']], { tribal: { types: ['Rat'], lord_of: ['Rat'] } }) },
+    { name: 'Rat Sac Boss', qty: 1, cmc: 3, typeLine: 'Creature — Rat', ir: pIR([['tribal.lord', 'Rat', 5, 'static']], [['sac.fodder', 'Rat', 5, 'requires']], { tribal: { types: ['Rat'], lord_of: ['Rat'] } }) },
     { name: 'Any Outlet', qty: 1, cmc: 2, typeLine: 'Creature — Vampire', ir: pIR([['sac.outlet_free', null, 4, 'repeatable']], [['sac.fodder', null, 4, 'requires']]) },
+    { name: 'Any Outlet B', qty: 1, cmc: 2, typeLine: 'Artifact', ir: pIR([['sac.outlet_free', null, 4, 'repeatable']], [['sac.fodder', null, 4, 'requires']]) },
     { name: 'Some Land', qty: 32, cmc: 0, typeLine: 'Basic Land — Swamp', ir: pIR([], [], { roles: ['land'] }) },
   ];
   const cmd = { name: 'Cmdr', ir: pIR([['card_advantage.draw', null, 2, 'per_turn']]) };
@@ -261,9 +262,11 @@ console.log('adds — param demands are only served explicitly');
     thresholds: th.computeThresholds({ goal: goals.goals[0]?.goal }),
     roleCounts: th.countRoles(deck), hist: goals.histogram, templates,
   };
+  // fodder candidates carry a fed need (two free outlets in-deck) so their fit clears
+  // the quality floor and the citation behavior stays observable
   const cands = [
-    { name: 'Generic Fodder', ir: pIR([['sac.fodder', null, 4, 'per_turn']]), cmc: 1, price: 1, owned: false, edhrecRank: 500 },
-    { name: 'Rat Fodder', ir: pIR([['sac.fodder', 'Rat', 4, 'per_turn']]), cmc: 1, price: 1, owned: false, edhrecRank: 500 },
+    { name: 'Generic Fodder', ir: pIR([['sac.fodder', null, 4, 'per_turn']], [['sac.outlet_free', null, 3, 'wants']]), cmc: 1, price: 1, owned: false, edhrecRank: 500 },
+    { name: 'Rat Fodder', ir: pIR([['sac.fodder', 'Rat', 4, 'per_turn']], [['sac.outlet_free', null, 3, 'wants']]), cmc: 1, price: 1, owned: false, edhrecRank: 500 },
   ];
   const adds = rec.scoreAdds({ ...ctx, candidates: cands, budget: { maxCardPrice: null, flagAbove: 5 } });
   const byName = n => adds.find(a => a.name === n);
@@ -391,7 +394,8 @@ console.log('adds — negated params and the quality floor');
   // Ogre Slumlord pattern: a payoff that requires NONTOKEN deaths. A token engine's
   // deaths (param 'token') must not feed it; a generic sac outlet's deaths do.
   const deck = [
-    { name: 'Nontoken Payoff', qty: 1, cmc: 4, typeLine: 'Creature — Ogre', ir: pIR([['token.creature', 'Rat', 3, 'per_turn']], [['creatures_dying', 'nontoken', 4, 'requires']]) },
+    // also hard-needs a free outlet so the generic outlet candidate clears the fit floor
+    { name: 'Nontoken Payoff', qty: 1, cmc: 4, typeLine: 'Creature — Ogre', ir: pIR([['token.creature', 'Rat', 3, 'per_turn']], [['creatures_dying', 'nontoken', 4, 'requires'], ['sac.outlet_free', null, 5, 'requires']]) },
     { name: 'Some Land', qty: 33, cmc: 0, typeLine: 'Basic Land — Swamp', ir: pIR([], [], { roles: ['land'] }) },
   ];
   const cmd = { name: 'Cmdr', ir: pIR([['card_advantage.draw', null, 2, 'per_turn']]) };
@@ -405,6 +409,8 @@ console.log('adds — negated params and the quality floor');
     { name: 'Token Death Engine', ir: pIR([['creatures_dying', 'token', 3, 'per_turn'], ['mana.rock', null, 3, 'repeatable']], [], { roles: ['mana_rock'] }), cmc: 2, price: 1, owned: false, edhrecRank: 500 },
     { name: 'Generic Sac Outlet', ir: pIR([['creatures_dying', null, 4, 'repeatable'], ['sac.outlet_free', null, 4, 'repeatable']], [], { roles: [] }), cmc: 2, price: 1, owned: false, edhrecRank: 500 },
     { name: 'Barely Anything', ir: pIR([['lifegain.source', null, 1, 'once']]), cmc: 5, price: 1, owned: false, edhrecRank: 90000 },
+    // owned + popular, still filler: preference nudges must not clear the floor
+    { name: 'Owned Filler', ir: pIR([['lifegain.source', null, 1, 'once']]), cmc: 5, price: 1, owned: true, edhrecRank: 300 },
   ];
   const adds = rec.scoreAdds({ ...ctx, candidates: cands, budget: { maxCardPrice: null, flagAbove: 5 } });
   const byName = n => adds.find(a => a.name === n);
@@ -417,6 +423,9 @@ console.log('adds — negated params and the quality floor');
     JSON.stringify(byName('Generic Sac Outlet')?.trace));
   check('quality floor drops near-zero filler from the list',
     !byName('Barely Anything'),
+    JSON.stringify(adds.map(a => [a.name, a.score])));
+  check('owned/popularity nudges cannot lift filler over the floor',
+    !byName('Owned Filler'),
     JSON.stringify(adds.map(a => [a.name, a.score])));
   check('trace pts sum to the score (full-breakdown invariant)',
     adds.every(a => Math.abs((a.trace || []).reduce((s, t) => s + (t.pts || 0), 0) - a.score) < 0.01),
