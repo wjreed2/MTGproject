@@ -269,6 +269,25 @@ function wantedAxes(goal, hist, index, templates, goals) {
       }
     }
   }
+  // A deck that saturates its plan still deserves suggestions: fall back to
+  // REINFORCEMENT — the top goal's core axes at a nominal gap, i.e. shop for better
+  // versions and redundancy of what the plan already does, instead of returning an
+  // empty list ("no adds to suggest" for a fully-built Treebeard Food deck).
+  if (!wanted.size) {
+    const m2 = /^tribal:(.+)$/.exec(String(goal || ''));
+    if (m2) {
+      for (const ax of ['tribal.lord', 'tribal.synergy', 'anthem.global']) {
+        wanted.set(ax, { why: 'goal_reinforce', gap: 1, params: [m2[1]], permissive: true });
+      }
+    } else {
+      const tpl2 = templates.find(t => t.key === String(goal || ''));
+      for (const grp of tpl2?.core || []) {
+        for (const ax of grp.axes || []) {
+          if (!wanted.has(ax)) wanted.set(ax, { why: 'goal_reinforce', gap: 1 });
+        }
+      }
+    }
+  }
   return wanted;
 }
 

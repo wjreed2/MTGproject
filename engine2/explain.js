@@ -32,6 +32,8 @@ const AXIS_LABELS = {
   'trigger.cast_payoff': 'cast payoffs',
   'token.creature': 'creature tokens',
   'token.creature_wide': 'token swarms',
+  'token.food': 'Food tokens',
+  'token.treasure': 'Treasure tokens',
   'gy.self_fill': 'graveyard filling',
   'gy.recursion': 'recursion',
   'gy.reanimate': 'reanimation',
@@ -90,7 +92,9 @@ function addReasons(add) {
       case 'fills_axis':
         out.push(t.needers && t.needers.length
           ? `Feeds ${listNames(t.needers)} (${axisLabel(t.axis)}${t.param ? `: ${t.param}` : ''})`
-          : `Adds ${axisLabel(t.axis)} the deck plan wants more of`);
+          : t.why === 'goal_reinforce'
+            ? `Deepens the deck's ${axisLabel(t.axis)} package`
+            : `Adds ${axisLabel(t.axis)} the deck plan wants more of`);
         break;
       case 'feeds':
         out.push(`Feeds ${listNames(t.names)} (${axisLabel(t.axis)}${t.param ? `: ${t.param}` : ''})`);
