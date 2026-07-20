@@ -21,6 +21,7 @@
     "cap:sync": "npx cap sync",
     "setup:https": "bash scripts/setup-https.sh",
     "changelog:add": "node scripts/changelog-add.js",
+    "semantics:push": "node scripts/semantics-push-prod.js",
     "changelog:sync": "node scripts/sync-changelog.js",
     "changelog:sync:apply": "CHANGELOG_SYNC_APPLY=1 node scripts/sync-changelog.js"
   },
