@@ -237,6 +237,71 @@ console.log('adds — plan relevance gates which Feeds edges headline');
     JSON.stringify(byName('Nice Sword')?.trace));
 }
 
+console.log('adds — param demands are only served explicitly');
+{
+  const pIR = (provides, needs, extra) => ({
+    provides: (provides || []).map(([axis, param, w, rate]) => ({ axis, param: param || null, rate: rate || 'once', weight: w || 3 })),
+    needs: (needs || []).map(([axis, param, w, crit]) => ({ axis, param: param || null, criticality: crit || 'wants', weight: w || 3 })),
+    anti: [], roles: [], wincon: null, tribal: { types: [], lord_of: [] }, faces: [], ...extra,
+  });
+  // Marrow-Gnawer pattern: an outlet that requires RAT fodder specifically. Generic
+  // fodder must not be cited as feeding it; rat fodder feeds both it and generic outlets.
+  const deck = [
+    { name: 'Rat Sac Boss', qty: 1, cmc: 3, typeLine: 'Creature — Rat', ir: pIR([['tribal.lord', 'Rat', 5, 'static']], [['sac.fodder', 'Rat', 4, 'requires']], { tribal: { types: ['Rat'], lord_of: ['Rat'] } }) },
+    { name: 'Any Outlet', qty: 1, cmc: 2, typeLine: 'Creature — Vampire', ir: pIR([['sac.outlet_free', null, 4, 'repeatable']], [['sac.fodder', null, 4, 'requires']]) },
+    { name: 'Some Land', qty: 32, cmc: 0, typeLine: 'Basic Land — Swamp', ir: pIR([], [], { roles: ['land'] }) },
+  ];
+  const cmd = { name: 'Cmdr', ir: pIR([['card_advantage.draw', null, 2, 'per_turn']]) };
+  const goals = inferGoals(deck, cmd, {});
+  const ctx = {
+    deckCards: deck, commander: cmd, goals: goals.goals,
+    thresholds: th.computeThresholds({ goal: goals.goals[0]?.goal }),
+    roleCounts: th.countRoles(deck), hist: goals.histogram, templates,
+  };
+  const cands = [
+    { name: 'Generic Fodder', ir: pIR([['sac.fodder', null, 4, 'per_turn']]), cmc: 1, price: 1, owned: false, edhrecRank: 500 },
+    { name: 'Rat Fodder', ir: pIR([['sac.fodder', 'Rat', 4, 'per_turn']]), cmc: 1, price: 1, owned: false, edhrecRank: 500 },
+  ];
+  const adds = rec.scoreAdds({ ...ctx, candidates: cands, budget: { maxCardPrice: null, flagAbove: 5 } });
+  const byName = n => adds.find(a => a.name === n);
+  const cited = a => (a?.trace || []).filter(t => t.kind === 'feeds' || t.kind === 'fills_axis').flatMap(t => t.names || t.needers || []);
+  check('generic fodder does not claim to feed a Rat-restricted outlet',
+    !cited(byName('Generic Fodder')).includes('Rat Sac Boss'),
+    JSON.stringify(byName('Generic Fodder')?.trace));
+  check('generic fodder still feeds the unrestricted outlet',
+    cited(byName('Generic Fodder')).includes('Any Outlet'),
+    JSON.stringify(byName('Generic Fodder')?.trace));
+  check('rat fodder feeds the Rat-restricted outlet',
+    cited(byName('Rat Fodder')).includes('Rat Sac Boss'),
+    JSON.stringify(byName('Rat Fodder')?.trace));
+}
+
+console.log('adds — off-plan soft-want aggregates do not steer the plan');
+{
+  const pIR = (provides, needs, extra) => ({
+    provides: (provides || []).map(([axis, param, w, rate]) => ({ axis, param: param || null, rate: rate || 'once', weight: w || 3 })),
+    needs: (needs || []).map(([axis, param, w, crit]) => ({ axis, param: param || null, criticality: crit || 'wants', weight: w || 3 })),
+    anti: [], roles: [], wincon: null, tribal: { types: [], lord_of: [] }, faces: [], ...extra,
+  });
+  // Three blink tricks each softly wanting etb_value (aggregate weight 8 ≥ 5) in an
+  // aristocrats deck: etb_value is off-plan with no hard need, so it must NOT become
+  // a wanted axis and candidates must get no 'wants more of' credit for it.
+  const deck = [
+    { name: 'Sac Outlet', qty: 1, cmc: 1, typeLine: 'Creature', ir: pIR([['sac.outlet_free', null, 5, 'repeatable'], ['creatures_dying', null, 4, 'repeatable']]) },
+    { name: 'Drainer A', qty: 1, cmc: 2, typeLine: 'Creature', ir: pIR([['trigger.death_payoff', null, 4, 'repeatable']], [['creatures_dying', null, 5, 'requires']]) },
+    { name: 'Drainer B', qty: 1, cmc: 2, typeLine: 'Creature', ir: pIR([['trigger.death_payoff', null, 4, 'repeatable']], [['creatures_dying', null, 5, 'requires']]) },
+    { name: 'Fodder Maker', qty: 1, cmc: 2, typeLine: 'Sorcery', ir: pIR([['token.creature', null, 3, 'per_turn'], ['sac.fodder', null, 3, 'per_turn']]) },
+    { name: 'Blink A', qty: 1, cmc: 2, typeLine: 'Instant', ir: pIR([['protection.single', null, 3, 'once']], [['etb_value', null, 3, 'wants']]) },
+    { name: 'Blink B', qty: 1, cmc: 2, typeLine: 'Instant', ir: pIR([['protection.single', null, 3, 'once']], [['etb_value', null, 3, 'wants']]) },
+    { name: 'Blink C', qty: 1, cmc: 2, typeLine: 'Instant', ir: pIR([['protection.single', null, 2, 'once']], [['etb_value', null, 2, 'wants']]) },
+    { name: 'Some Land', qty: 32, cmc: 0, typeLine: 'Basic Land — Swamp', ir: pIR([], [], { roles: ['land'] }) },
+  ];
+  const cmd = { name: 'Aristo Cmdr', ir: pIR([['sac.outlet_free', null, 4, 'repeatable']], [['sac.fodder', null, 4]]) };
+  const goals = inferGoals(deck, cmd, {});
+  const wanted = rec.wantedAxes(goals.goals[0]?.goal, goals.histogram, rec.deckAxisIndex(deck, cmd), templates, goals.goals);
+  check('off-plan etb_value aggregate is not a wanted axis', !wanted.has('etb_value'), JSON.stringify([...wanted.keys()]));
+}
+
 console.log('explain — fractional role deficits render as whole cards');
 {
   const reasons = explain.addReasons({ trace: [{ kind: 'role_deficit', cat: 'Ramp', deficit: 1.5714285714285712 }] });

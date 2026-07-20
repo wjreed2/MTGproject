@@ -115,17 +115,34 @@ function tribalBound(tribes, axis, param) {
     !tribes.has(String(param).toLowerCase()));
 }
 
-// Slice of an index record param-compatible with `param` (paramOk semantics: equal, or
-// either side unparameterized). `exactOnly` drops the wildcard — only same-param entries
-// match. Returns the whole record on the fast paths, null when nothing compatible remains.
-function matchParam(rec, param, exactOnly) {
+// A parameterized DEMAND is only served by a provider that explicitly supplies that
+// param — "any creature" fodder does not sac to Marrow-Gnawer's "Sacrifice a Rat".
+// The reverse stays permissive: a parameterized provider serves a generic demand
+// (Anointed Procession doubles any tokens).
+function paramServes(providerParam, demandParam) {
+  if (demandParam == null) return true;
+  return providerParam != null && String(providerParam).toLowerCase() === String(demandParam).toLowerCase();
+}
+
+// Slice of an index record param-compatible with `param`. Modes:
+//   undefined — permissive paramOk wildcard (either side null matches)
+//   'serves'  — entries are DEMAND groups, `param` is the provider's: a param'd demand
+//               group only matches an explicitly equal provider param
+//   'exact'   — same-param entries only (off-context tribal binding)
+// Returns the whole record on the permissive fast path, null when nothing matches.
+function matchParam(rec, param, mode) {
   if (!rec) return null;
-  if (!exactOnly && (param == null || !rec.entries.some(e => e.param != null))) return rec;
+  const hasParams = rec.entries.some(e => e.param != null);
+  if (mode !== 'exact' && mode !== 'serves' && (param == null || !hasParams)) return rec;
+  if (mode === 'serves' && !hasParams) return rec;
   const key = param == null ? null : String(param).toLowerCase();
   let count = 0, weight = 0, strong = 0, hard = 0;
   const names = [], strongNames = [];
   for (const e of rec.entries) {
-    if (exactOnly ? e.key !== key : !paramOk(param, e.param)) continue;
+    const ok = mode === 'exact' ? e.key === key
+      : mode === 'serves' ? (e.key == null || (key != null && e.key === key))
+      : paramOk(param, e.param);
+    if (!ok) continue;
     count += e.count;
     weight += e.weight || 0;
     strong += e.strong || 0;
@@ -139,8 +156,11 @@ function matchParam(rec, param, exactOnly) {
 // Axes the deck WANTS more of: goal core groups below target + needed-but-underfed axes.
 // Entries may carry `params` (only param-compatible providers earn the fill credit) and
 // `neederParams` (gates whether the needers name-list applies to a given provider).
-function wantedAxes(goal, hist, index, templates) {
+// `goals` (optional, full hypothesis list) scopes unmet-need wants to the deck's plan:
+// a trio of blink tricks "wanting" etb_value must not make a rat deck recruit ETB cards.
+function wantedAxes(goal, hist, index, templates, goals) {
   const wanted = new Map(); // axis → {why, gap, params?, needers?, neederParams?}
+  const goalAxes = deckPlanAxes(goals && goals.length ? goals : [{ goal, confidence: 1 }], templates);
   const tribalMatch = /^tribal:(.+)$/.exec(String(goal || ''));
   const tpl = templates.find(t => t.key === (goal || '').replace(/^tribal:.*/, 'tribal')) ||
     templates.find(t => t.key === goal);
@@ -177,7 +197,9 @@ function wantedAxes(goal, hist, index, templates) {
   for (const [axis, rec] of index.needs) {
     for (const grp of rec.entries) {
       const have = matchParam(index.provides.get(axis), grp.param)?.count || 0;
-      if (have < 2 && grp.weight >= 5) {
+      // Unmet demand steers suggestions only when it's on-plan or a hard dependency —
+      // off-plan soft wants (however many) stay out of the wanted set entirely.
+      if (have < 2 && grp.weight >= 5 && (goalAxes.has(axis) || (grp.hard || 0) >= 1)) {
         // Weak wants may aggregate into real demand (three X spells each mildly wanting
         // ramp), but only STRONG needers get cited by name — otherwise the reason reads
         // "Feeds <X spell>" for a card that merely likes having more mana around.
@@ -250,7 +272,7 @@ function scoreCuts({ deckCards, commander, goals, thresholds, roleCounts }) {
     // dead needs: requires an axis the deck barely provides (param-compatible only)
     for (const nd of c.ir.needs || []) {
       if (nd.criticality !== 'requires') continue;
-      const have = matchParam(index.provides.get(nd.axis), nd.param, tribalBound(tribes, nd.axis, nd.param))?.count || 0;
+      const have = matchParam(index.provides.get(nd.axis), nd.param, tribalBound(tribes, nd.axis, nd.param) ? 'exact' : undefined)?.count || 0;
       if (have < 2) { score -= have === 0 ? 6 : 2; trace.push({ kind: 'dead_need', axis: nd.axis, have }); }
     }
 
@@ -284,7 +306,7 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
   const topGoal = goals?.[0] || null;
   const tribes = deckTribeSet(goals);
   const index = deckAxisIndex(deckCards, commander);
-  const wanted = wantedAxes(topGoal?.goal, hist, index, templates);
+  const wanted = wantedAxes(topGoal?.goal, hist, index, templates, goals);
   const planAxes = deckPlanAxes(goals, templates);
   const deckNames = new Set(deckCards.map(c => c.name).concat(commander ? [commander.name] : []));
 
@@ -310,8 +332,8 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
       const bound = tribalBound(tribes, p.axis, p.param);
       const w0 = !bound ? wanted.get(p.axis) : null;
       // `params` gates the credit itself; `neederParams` gates only the "feeds X" names.
-      const paramFits = !w0?.params || w0.params.some(par => paramOk(p.param, par));
-      const neederFits = !w0?.neederParams || w0.neederParams.some(par => paramOk(p.param, par));
+      const paramFits = !w0?.params || w0.params.some(par => paramServes(p.param, par));
+      const neederFits = !w0?.neederParams || w0.neederParams.some(par => paramServes(p.param, par));
       const w = w0 && paramFits ? w0 : null;
       if (w) {
         score += (p.weight || 1) * (1 + Math.min(3, w.gap) * 0.5);
@@ -329,7 +351,7 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
       // gated by plan relevance: off-plan edges headline only with ≥2 strong needers
       // (real aggregate demand); a lone off-plan payoff still scores but is not cited —
       // and when it is cited, it queues behind the on-plan reasons.
-      const needers = matchParam(index.needs.get(p.axis), p.param, bound);
+      const needers = matchParam(index.needs.get(p.axis), p.param, bound ? 'exact' : 'serves');
       if (needers && !w) {
         if (needers.strong) {
           score += Math.min(4, needers.strong);
@@ -346,7 +368,7 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
     // its own needs are already fed here (card won't be dead)
     let fedNeeds = 0, deadNeeds = 0;
     for (const nd of cand.ir.needs || []) {
-      const have = matchParam(index.provides.get(nd.axis), nd.param, tribalBound(tribes, nd.axis, nd.param))?.count || 0;
+      const have = matchParam(index.provides.get(nd.axis), nd.param, tribalBound(tribes, nd.axis, nd.param) ? 'exact' : undefined)?.count || 0;
       if (have >= 2) fedNeeds++;
       else if (nd.criticality === 'requires') deadNeeds++;
     }
