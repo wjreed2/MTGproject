@@ -477,6 +477,38 @@ console.log('goals — stompy template + axis labels');
     explain.axisLabel('counters.plus1'));
 }
 
+console.log('adds — support wants reinforce, never recruit');
+{
+  const pIR = (provides, needs, extra) => ({
+    provides: (provides || []).map(([axis, param, w, rate]) => ({ axis, param: param || null, rate: rate || 'once', weight: w || 3 })),
+    needs: (needs || []).map(([axis, param, w, crit]) => ({ axis, param: param || null, criticality: crit || 'wants', weight: w || 3 })),
+    anti: [], roles: [], wincon: null, tribal: { types: [], lord_of: [] }, faces: [], ...extra,
+  });
+  // Voltron saturates off a protection/equipment package, but the deck plays ZERO
+  // tutors: voltron's tutor.artifact/tutor.enchantment support must not become wanted
+  // axes (the Enlightened Tutor / Fabricate / Idyllic Tutor failure in Helga).
+  const deck = [
+    ...Array.from({ length: 4 }, (_, i) => ({ name: `Aura ${i}`, qty: 1, cmc: 2, typeLine: 'Enchantment — Aura', ir: pIR([['voltron.aura_equipment', null, 3, 'static']]) })),
+    { name: 'Carrier', qty: 1, cmc: 3, typeLine: 'Creature', ir: pIR([['voltron.carrier', null, 3, 'static'], ['body.evasive', null, 3, 'static']]) },
+    { name: 'Protector', qty: 1, cmc: 1, typeLine: 'Instant', ir: pIR([['protection.single', null, 3, 'once']]) },
+    { name: 'Protector B', qty: 1, cmc: 2, typeLine: 'Instant', ir: pIR([['protection.single', null, 3, 'once']]) },
+    { name: 'Lone Artifact Tutor', qty: 1, cmc: 2, typeLine: 'Sorcery', ir: pIR([['tutor.artifact', null, 3, 'once']]) },
+    { name: 'Plainsy', qty: 33, cmc: 0, typeLine: 'Basic Land — Plains', ir: pIR([], [], { roles: ['land'] }) },
+  ];
+  const cmd = { name: 'Suited Cmdr', ir: pIR([['body.evasive', null, 3, 'static']]) };
+  const g = inferGoals(deck, cmd, {});
+  const wanted = rec.wantedAxes(g.goals[0]?.goal, g.histogram, rec.deckAxisIndex(deck, cmd), templates, g.goals);
+  check('zero-provider support axes are not wanted',
+    !wanted.has('tutor.enchantment'),
+    JSON.stringify([...wanted.keys()]));
+  check('a lone support provider is a coincidence, not a wanted theme',
+    !wanted.has('tutor.artifact'),
+    JSON.stringify([...wanted.keys()]));
+  check('a support PAIR is a theme and still wanted',
+    wanted.has('protection.single'),
+    JSON.stringify([...wanted.keys()]));
+}
+
 console.log('goals — land types are not tribes');
 {
   const mountainIR = { provides: [], needs: [], anti: [], roles: [], wincon: null, tribal: { types: ['Mountain', 'Goblin'], lord_of: ['Mountain'] }, faces: [] };
