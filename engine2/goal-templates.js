@@ -59,6 +59,16 @@ module.exports = [
     support: ['token.creature', 'card_advantage.draw', 'gy.recursion'],
   },
   {
+    key: 'lifegain', label: 'Lifegain',
+    verb: 'gain life constantly and convert it into cards, counters, and damage',
+    core: [
+      { axes: ['lifegain.source'], min: 6 },
+      { axes: ['lifegain.payoff'], min: 3 },
+    ],
+    // token.food is deferred lifegain — a Treebeard Food deck IS a lifegain deck
+    support: ['token.food', 'drain.incremental', 'life.payment_engine', 'lifeloss.payoff'],
+  },
+  {
     key: 'stompy', label: 'Big creatures',
     verb: 'ramp into oversized creatures and cash in their cast and enter payoffs',
     // Ahead of 'counters' on purpose: big-creature decks incidentally carry lots of
@@ -106,15 +116,6 @@ module.exports = [
       { axes: ['artifacts.source', 'token.treasure'], types: ['Artifact'], min: 18 },
     ],
     support: ['mana.cost_reduction', 'tutor.artifact', 'card_advantage.draw_engine'],
-  },
-  {
-    key: 'lifegain', label: 'Lifegain',
-    verb: 'gain life constantly and convert it into cards, counters, and damage',
-    core: [
-      { axes: ['lifegain.source'], min: 6 },
-      { axes: ['lifegain.payoff'], min: 3 },
-    ],
-    support: ['drain.incremental', 'life.payment_engine', 'lifeloss.payoff'],
   },
   {
     key: 'control', label: 'Control',
