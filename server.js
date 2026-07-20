@@ -4202,12 +4202,12 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
     const roleCounts = engine2.thresholds.countRoles(deckCards);
 
     const cuts = engine2.recommender.scoreCuts({ deckCards, commander, goals: goalsRes.goals, thresholds, roleCounts })
-      .map(c => ({ ...c, reasons: engine2.explain.cutReasons(c) }));
+      .map(c => ({ ...c, reasons: engine2.explain.cutReasons(c), breakdown: engine2.explain.cutBreakdown(c) }));
 
     // ── add candidates: commander-legal cards providing the deck's wanted axes ──
     const templates = engine2.goalTemplates;
     const index = engine2.recommender.deckAxisIndex(deckCards, commander);
-    const wanted = [...engine2.recommender.wantedAxes(topGoal?.goal, goalsRes.histogram, index, templates).keys()].slice(0, 8);
+    const wanted = [...engine2.recommender.wantedAxes(topGoal?.goal, goalsRes.histogram, index, templates, goalsRes.goals).keys()].slice(0, 8);
     let adds = [];
     if (wanted.length) {
       let ciColors = [];
@@ -4263,7 +4263,7 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
       adds = engine2.recommender.scoreAdds({
         candidates, deckCards, commander, goals: goalsRes.goals, thresholds, roleCounts,
         hist: goalsRes.histogram, budget: body.budget, templates,
-      }).map(a => ({ ...a, reasons: engine2.explain.addReasons(a) }));
+      }).map(a => ({ ...a, reasons: engine2.explain.addReasons(a), breakdown: engine2.explain.addBreakdown(a) }));
     }
 
     res.json({
@@ -9335,16 +9335,30 @@ async function start() {
   app.use('/js',     express.static(path.join(__dirname, 'js')));
   app.use('/styles', express.static(path.join(__dirname, 'styles')));
   app.use('/vendor', express.static(path.join(__dirname, 'vendor')));
-  app.use('/dist',   express.static(path.join(__dirname, 'dist'), {
+  // Index stamps ?v=SHA on bundle URLs — those exact URLs never change content,
+  // so they cache forever (no revalidation round-trip for a ~1.4MB bundle on
+  // every refresh). Unversioned /dist requests (e.g. a Home Screen PWA holding
+  // a stale hash-less URL) must still revalidate every time.
+  app.use('/dist', (req, res, next) => {
+    if (req.query.v) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    next();
+  }, express.static(path.join(__dirname, 'dist'), {
+    cacheControl: false,
     setHeaders(res) {
-      // Index stamps ?v=SHA on bundle URLs; allow long cache for a given version,
-      // but always revalidate so a Home Screen PWA never sticks on a stale hash-less URL.
-      res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+      if (!res.getHeader('Cache-Control')) {
+        res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+      }
     },
   }));
   app.use('/sounds', express.static(path.join(__dirname, 'sounds')));
   app.use('/icons',  express.static(path.join(__dirname, 'icons')));
   app.get('/manifest.webmanifest', (_req, res) => res.sendFile(path.join(__dirname, 'manifest.webmanifest')));
+  // Card-image cache worker (see sw.js) — served from the root so its scope
+  // covers the whole app. no-cache so a deploy can update caching logic fast.
+  app.get('/sw.js', (_req, res) => {
+    res.set('Cache-Control', 'no-cache');
+    res.sendFile(path.join(__dirname, 'sw.js'));
+  });
   // Serve index.html with a per-deploy version stamped onto the bundle URLs so a new deploy always
   // busts the browser cache (no more stale dist/bundle.js after shipping). Cached in memory; the
   // process restarts on deploy, recomputing the version.

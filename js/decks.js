@@ -1674,8 +1674,8 @@ function toggleDeckGoalSetting() {
   const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
   if (deck && typeof renderDeckList === 'function') renderDeckList(deck);
   showNotif(deckGoalFeatureEnabled
-    ? 'Deck goal analysis enabled — suggestions use the semantic engine'
-    : 'Deck goal analysis hidden — suggestions fall back to the classic role heuristics');
+    ? 'Deck goal analysis enabled — pick Classic or Semantic in the suggestion panels'
+    : 'Deck goal analysis hidden — suggestions use the classic role heuristics');
 }
 
 function renderDeckGoalSettingBtn() {
@@ -5252,7 +5252,7 @@ function _stackTile(c, zone = 'main', poolHints = null) {
     <div class="deck-stack-card deck-zone-draggable${notOwned ? ' not-owned' : ''}${isGameChanger ? ' is-game-changer' : ''}${validCls}${swapCls}" data-uid="${dragKey}" data-zone="${isPlannedAdd ? 'add' : zone}" data-sid="${c.scryfallId || ''}" data-name="${safeName}" data-card-key="${cardKey}" data-card-name-key="${nameKey.replace(/"/g, '&quot;')}" onpointerdown="_deckZoneCardPointerDown(event)">
       <div class="stack-wrap">
         ${img
-          ? `<img src="${escapeHtml(img)}" draggable="false" class="stack-main${c.isCommander ? ' is-commander' : ''}" alt="${escapeHtml(c.name)}" loading="lazy" decoding="async" onload="this.classList.add('loaded')" onerror="this.classList.add('loaded')" style="${imgStyle}">`
+          ? `<img src="${escapeHtml(img)}" draggable="false" class="stack-main${c.isCommander ? ' is-commander' : ''}${imgFadeLoadedCls(img) ? ' loaded' : ''}" alt="${escapeHtml(c.name)}" loading="lazy" decoding="async" onload="this.classList.add('loaded');imgFadeSeenMark(this)" onerror="this.classList.add('loaded')" style="${imgStyle}">`
           : `<div class="stack-main stack-face-fallback${c.isCommander ? ' is-commander' : ''}"
                style="aspect-ratio:0.715;background:var(--bg4);display:flex;align-items:center;justify-content:center;color:var(--text3);padding:4px;text-align:center;${imgStyle}">${escapeHtml(c.name)}</div>`}
         <div class="stack-qty">×${qty}</div>
@@ -6246,7 +6246,7 @@ function _deckTokenTileHtml(t) {
   return `<div class="deck-stack-card deck-token-card" data-sid="${t.id}">
       <div class="stack-wrap">
         ${img
-          ? `<img src="${escapeHtml(img)}" class="stack-main" alt="${safeName}" loading="lazy" decoding="async" onload="this.classList.add('loaded')" onerror="this.classList.add('loaded')">`
+          ? `<img src="${escapeHtml(img)}" class="stack-main${imgFadeLoadedCls(img) ? ' loaded' : ''}" alt="${safeName}" loading="lazy" decoding="async" onload="this.classList.add('loaded');imgFadeSeenMark(this)" onerror="this.classList.add('loaded')">`
           : `<div class="stack-main stack-face-fallback" style="aspect-ratio:0.715;background:var(--bg4);display:flex;align-items:center;justify-content:center;color:var(--text3);padding:4px;text-align:center;font-size:0.62rem">${safeName}</div>`}
       </div>
     </div>`;
@@ -6878,19 +6878,67 @@ function _toggleCutPanel() {
   if (btn) btn.classList.toggle('is-rotated', collapsed);
 }
 
+// ── suggestion engine mode (Classic ↔ Semantic) ───────────────────────────────
+// Explicit per-user toggle rendered in both Suggested Adds/Cuts headers. Semantic mode
+// uses POST /api/decks/analyze exclusively and reports when analysis is unavailable —
+// no silent fallback; Classic mode never calls the endpoint. The Settings-level Deck
+// Goal toggle stays the master switch: when off, the header toggle hides and Classic
+// is forced.
+const SUGGEST_ALGO_KEY = 'mtg_suggest_algo';
+let _suggestAlgoMode = (() => {
+  try { return localStorage.getItem(SUGGEST_ALGO_KEY) === 'classic' ? 'classic' : 'semantic'; }
+  catch { return 'semantic'; }
+})();
+
+function _semanticModeOn() { return _deckGoalEnabled() && _suggestAlgoMode !== 'classic'; }
+
+function setSuggestAlgoMode(mode) {
+  const next = mode === 'classic' ? 'classic' : 'semantic';
+  if (_suggestAlgoMode === next) return;
+  _suggestAlgoMode = next;
+  try { localStorage.setItem(SUGGEST_ALGO_KEY, next); } catch { /* quota */ }
+  _syncSuggestAlgoUI();
+  const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+  if (deck) { _renderCutSuggestions(deck); _renderAddSuggestions(deck); }
+}
+
+// Active-state on both header toggles + hide the classic-only header controls
+// (pool toggle, playstyle sliders, archetype selects, Plan, ⚙) in semantic mode.
+function _syncSuggestAlgoUI() {
+  const semantic = _semanticModeOn();
+  for (const [clsId, semId] of [
+    ['deckCutAlgoClassicBtn', 'deckCutAlgoSemanticBtn'],
+    ['deckAddAlgoClassicBtn', 'deckAddAlgoSemanticBtn'],
+  ]) {
+    const c = document.getElementById(clsId), s = document.getElementById(semId);
+    if (!c || !s) continue;
+    if (c.parentElement) c.parentElement.style.display = _deckGoalEnabled() ? '' : 'none';
+    c.classList.toggle('active', !semantic);
+    s.classList.toggle('active', semantic);
+    c.setAttribute('aria-pressed', String(!semantic));
+    s.setAttribute('aria-pressed', String(semantic));
+  }
+  document.querySelectorAll('#tab-decks .suggest-classic-only').forEach(el => {
+    el.style.display = semantic ? 'none' : '';
+  });
+}
+
+const _SUGGEST_E2_UNAVAILABLE_HTML =
+  '<div class="deck-tab-muted" style="padding:.75rem 1rem">Semantic analysis is unavailable for this deck' +
+  ' (offline, or too many of its cards have no semantics data yet) — switch to Classic for role-tag suggestions.</div>';
+
 // ── engine2 semantic analysis client (POST /api/decks/analyze) ────────────────
 // Deterministic server-side analysis over precomputed card semantics: deck goal,
-// synergy-aware cuts, and on-plan adds. Falls back to the classic role-tag heuristics
-// whenever the endpoint errors, semantics coverage is low, or the toggle is off.
+// synergy-aware cuts, and on-plan adds. Only called in semantic mode.
 let _e2AnalysisCache = { key: null, data: null, promise: null };
 
 function _e2AnalysisKey(deck) {
   const cards = (deck.cards || []).map(c => `${c.name}x${c.qty || 1}`).sort().join('|');
-  return `${deck.id}::${cards}::${_deckCutPlaystyleStep}`;
+  return `${deck.id}::${cards}`;
 }
 
 async function _e2Analyze(deck) {
-  if (!_deckGoalEnabled()) return null;
+  if (!_semanticModeOn()) return null;
   const key = _e2AnalysisKey(deck);
   if (_e2AnalysisCache.key === key) {
     return _e2AnalysisCache.promise ? _e2AnalysisCache.promise : _e2AnalysisCache.data;
@@ -6911,7 +6959,9 @@ async function _e2Analyze(deck) {
         body: JSON.stringify({
           cards: (deck.cards || []).map(c => ({ name: c.name, count: c.qty || 1, isCommander: !!c.isCommander })),
           commander,
-          playstyleStep: _deckCutPlaystyleStep,
+          // Semantic mode ignores the classic playstyle slider (it's hidden in this
+          // mode) — a saved slider position must not invisibly shift the targets.
+          playstyleStep: 0,
           ownedNames,
           budget: { maxCardPrice: null, flagAbove: 5 },
         }),
@@ -6937,7 +6987,7 @@ function _renderDeckGoalReadout(deck, e2) {
   if (!panel || !panel.parentNode) return;
   let el = document.getElementById('deckGoalReadout');
   const top = e2 && e2.goals && e2.goals[0];
-  if (!_deckGoalEnabled() || !top) { if (el) el.style.display = 'none'; return; }
+  if (!_semanticModeOn() || !top) { if (el) el.style.display = 'none'; return; }
   if (!el) {
     el = document.createElement('div');
     el.id = 'deckGoalReadout';
@@ -6971,6 +7021,7 @@ async function _renderCutSuggestions(deck) {
 
   panel.style.display = '';
   if (badge) badge.textContent = `${total - 100} over`;
+  _syncSuggestAlgoUI();
 
   // Sync playstyle slider
   const psSlider = document.getElementById('deckCutPlaystyleSlider');
@@ -6983,38 +7034,46 @@ async function _renderCutSuggestions(deck) {
     sel.value = _deckCutArchetypeOverride;
   }
 
-  // Server-first: semantic engine cuts (same panel, same buttons); classic heuristics
-  // remain the fallback for offline / low-coverage / toggle-off.
-  if (_deckGoalEnabled()) {
+  // Explicit engine selection via the Classic/Semantic header toggle — semantic mode
+  // renders only semantic results (or says why it can't); no silent fallback.
+  if (_semanticModeOn()) {
     const e2 = await _e2Analyze(deck);
-    if (e2 && Array.isArray(e2.cuts) && e2.cuts.length) {
-      const swapsOnE2 = _deckSwapsEnabled(deck);
-      const byName = new Map((deck.cards || []).map(c => [c.name, c]));
-      const items = e2.cuts.map(cut => ({ cut, card: byName.get(cut.name) })).filter(x => x.card);
-      if (items.length) {
-        body.innerHTML = items.map(({ cut, card }) => {
-          const uid = (card.uid || card.scryfallId || '').replace(/'/g, "\\'");
-          const sid = card.scryfallId || card.uid || '';
-          const displayName = escapeHtml(card.name);
-          const score = Number(cut.score || 0).toFixed(1);
-          const whyLines = (cut.reasons || []).map(r => ({ text: escapeHtml(r), val: '' }));
-          const why = _suggestWhyDetailHtml('Why cut this', score, whyLines, 'Semantic engine analysis');
-          const cutOnclick = swapsOnE2 ? `markPlannedCut('${uid}')` : `adjustDeckCardQtyByUid('${uid}',-1)`;
-          const cutTitle = swapsOnE2
-            ? 'Mark as a planned cut — stays in the deck until you apply swaps'
-            : 'Remove one copy from the deck';
-          return `<div class="suggest-item">
-            <div class="cut-candidate-row">
-              <button type="button" class="cut-score-badge cut-why-toggle" aria-expanded="false" aria-label="Why cut · score ${score}" onclick="_toggleSuggestWhy(this)">${score}<span class="cut-why-caret" aria-hidden="true">⌄</span></button>
-              <span class="cut-card-name" onclick="openCardDetail('${sid}','deck')">${displayName}</span>
-              <button class="btn-danger-ghost" title="${cutTitle}" onclick="${cutOnclick}">Cut</button>
-            </div>
-            ${why}
-          </div>`;
-        }).join('');
-        return;
-      }
+    const swapsOnE2 = _deckSwapsEnabled(deck);
+    const byName = new Map((deck.cards || []).map(c => [c.name, c]));
+    const items = (e2 && Array.isArray(e2.cuts) ? e2.cuts : [])
+      .map(cut => ({ cut, card: byName.get(cut.name) })).filter(x => x.card);
+    if (!items.length) {
+      body.innerHTML = e2
+        ? '<div class="deck-tab-muted" style="padding:.75rem 1rem">The semantic engine found no cuts to suggest.</div>'
+        : _SUGGEST_E2_UNAVAILABLE_HTML;
+      return;
     }
+    body.innerHTML = items.map(({ cut, card }) => {
+      const uid = (card.uid || card.scryfallId || '').replace(/'/g, "\\'");
+      const sid = card.scryfallId || card.uid || '';
+      const displayName = escapeHtml(card.name);
+      const score = Number(cut.score || 0).toFixed(1);
+      // Full scoring breakdown when the engine provides it (every ± contribution);
+      // reasons remain the fallback for older responses.
+      const whyLines = (cut.breakdown && cut.breakdown.length)
+        ? cut.breakdown.map(bd => ({ text: escapeHtml(bd.text), val: escapeHtml(bd.val || '') }))
+        : (cut.reasons || []).map(r => ({ text: escapeHtml(r), val: '' }));
+      const why = _suggestWhyDetailHtml('Why cut this', score, whyLines,
+        'Semantic engine analysis — positive = reasons to keep, negative = reasons to cut');
+      const cutOnclick = swapsOnE2 ? `markPlannedCut('${uid}')` : `adjustDeckCardQtyByUid('${uid}',-1)`;
+      const cutTitle = swapsOnE2
+        ? 'Mark as a planned cut — stays in the deck until you apply swaps'
+        : 'Remove one copy from the deck';
+      return `<div class="suggest-item">
+        <div class="cut-candidate-row">
+          <button type="button" class="cut-score-badge cut-why-toggle" aria-expanded="false" aria-label="Why cut · score ${score}" onclick="_toggleSuggestWhy(this)">${score}<span class="cut-why-caret" aria-hidden="true">⌄</span></button>
+          <span class="cut-card-name" onclick="openCardDetail('${sid}','deck')">${displayName}</span>
+          <button class="btn-danger-ghost" title="${cutTitle}" onclick="${cutOnclick}">Cut</button>
+        </div>
+        ${why}
+      </div>`;
+    }).join('');
+    return;
   }
 
   const cuts = _suggestCardsToCut(deck);
@@ -7056,7 +7115,7 @@ async function _renderCutSuggestions(deck) {
 //   Collection — owned collection only; never calls /api/cards/by-roles backfill.
 //   All Cards — full local DB ∩ commander CI via /api/cards/adds-catalog; score-only top 8.
 // Suggestions that fail the conditional-keyword gate are dropped.
-const _ADD_SUGGESTION_COUNT = 8;
+const _ADD_SUGGESTION_COUNT = 16;
 let _addSuggestToken = 0;
 
 // Entry 6 — Adds candidate pool: Collection (owned only) vs All Cards (full local DB ∩ CI).
@@ -7390,15 +7449,23 @@ async function _renderAddSuggestions(deck) {
 
   if (!deck || !(deck.cards || []).length) { panel.style.display = 'none'; return; }
   panel.style.display = '';
+  _syncSuggestAlgoUI();
 
-  // Server-first: semantic engine adds + Deck Goal readout; classic heuristics below
-  // remain the fallback for offline / low-coverage / toggle-off.
-  if (_deckGoalEnabled()) {
+  // Explicit engine selection via the Classic/Semantic header toggle — semantic mode
+  // renders only semantic results + the Deck Goal readout (or says why it can't);
+  // no silent fallback to the classic heuristics below.
+  if (_semanticModeOn()) {
     const e2Token = ++_addSuggestToken;
     const e2 = await _e2Analyze(deck);
     if (e2Token !== _addSuggestToken) return;
     _renderDeckGoalReadout(deck, e2);
-    if (e2 && Array.isArray(e2.adds) && e2.adds.length) {
+    if (!e2 || !Array.isArray(e2.adds) || !e2.adds.length) {
+      body.innerHTML = e2
+        ? '<div class="deck-tab-muted" style="padding:.75rem 1rem">The semantic engine has no adds to suggest for this deck.</div>'
+        : _SUGGEST_E2_UNAVAILABLE_HTML;
+      return;
+    }
+    {
       const swapsOnE2 = _deckSwapsEnabled(deck);
       body.innerHTML = e2.adds.slice(0, _ADD_SUGGESTION_COUNT).map(a => {
         const name = a.name || '';
@@ -7406,7 +7473,11 @@ async function _renderAddSuggestions(deck) {
         const displayName = escapeHtml(name);
         const sid = String(a.scryfallId || '').replace(/'/g, "\\'");
         const score = Number(a.score || 0).toFixed(1);
-        const whyLines = (a.reasons || []).map(r => ({ text: escapeHtml(r), val: '' }));
+        // Full scoring breakdown when provided (every ± contribution sums to the score);
+        // reasons remain the fallback for older responses.
+        const whyLines = (a.breakdown && a.breakdown.length)
+          ? a.breakdown.map(b => ({ text: escapeHtml(b.text), val: escapeHtml(b.val || '') }))
+          : (a.reasons || []).map(r => ({ text: escapeHtml(r), val: '' }));
         const priceBit = a.price != null ? ` · $${Number(a.price).toFixed(2)}` : '';
         const why = _suggestWhyDetailHtml('Why suggested', score, whyLines,
           `Semantic engine analysis · ${a.owned ? 'In your collection' : 'Not in your collection'}${priceBit}`);
@@ -10193,7 +10264,7 @@ function _cardTile(name, img, inDeck, inCollection, inv, addFn, inMaybeBoard = f
       <div class="deck-search-art" style="aspect-ratio:0.715;overflow:hidden;border-radius:6px;border:${border};
         transition:border-color 0.15s;position:relative">
         ${img
-          ? `<img src="${escapeHtml(img)}" style="width:100%;height:100%;object-fit:cover;${filter}" alt="${escapeHtml(name)}" loading="lazy" decoding="async" onload="this.classList.add('loaded')" onerror="this.classList.add('loaded')">`
+          ? `<img src="${escapeHtml(img)}" class="${imgFadeLoadedCls(img)}" style="width:100%;height:100%;object-fit:cover;${filter}" alt="${escapeHtml(name)}" loading="lazy" decoding="async" onload="this.classList.add('loaded');imgFadeSeenMark(this)" onerror="this.classList.add('loaded')">`
           : `<div style="width:100%;height:100%;background:var(--bg3);display:flex;align-items:center;
               justify-content:center;font-size:0.6rem;padding:4px;text-align:center;color:var(--text2)">${escapeHtml(name)}</div>`}
         ${inDeck ? `<div style="position:absolute;bottom:2px;right:2px;background:var(--teal);color:#000;
