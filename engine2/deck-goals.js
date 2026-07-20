@@ -13,6 +13,7 @@
 // with evidence. No DB, no network, no randomness.
 
 const { computeInteractions } = require('./interactions');
+const { axisLabel } = require('./explain');
 const TEMPLATES = require('./goal-templates');
 
 const COMMANDER_WEIGHT = 3;
@@ -138,7 +139,7 @@ function summarize(goal, hist, tribalHit) {
   }
   const tpl = TEMPLATES.find(t => t.key === goal.goal);
   const coreBits = (goal.evidence.axes || []).slice(0, 3)
-    .map(a => `${a.count} ${a.axis.replace(/[._]/g, ' ')}`);
+    .map(a => `${a.count} ${axisLabel(a.axis)}`);
   return `This deck wants to ${tpl?.verb || goal.goal}` + (coreBits.length ? ` — ${coreBits.join(', ')}.` : '.');
 }
 
@@ -202,7 +203,11 @@ function inferGoals(deckCards, commander, opts = {}) {
     g.confidence = Math.round(Math.min(1, sortKey) * 100) / 100;
   }
 
-  goals.sort((a, b) => b._sortKey - a._sortKey || a.goal.localeCompare(b.goal));
+  // Exact-score ties break by TEMPLATE ORDER (tribal first) — deliberate editorial
+  // ranking (stompy ahead of counters, aristocrats ahead of graveyard), not the
+  // accident of alphabetical keys.
+  const tplIdx = (key) => key.startsWith('tribal:') ? -1 : TEMPLATES.findIndex(t => t.key === key);
+  goals.sort((a, b) => b._sortKey - a._sortKey || tplIdx(a.goal) - tplIdx(b.goal) || a.goal.localeCompare(b.goal));
   for (const g of goals) delete g._sortKey;
   for (const g of goals) {
     g.summary = summarize(g, hist, g._tribalHit || tribal[0] || { type: '?', bodies: 0, lords: 0 });
