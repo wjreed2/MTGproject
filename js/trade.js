@@ -1271,7 +1271,7 @@ function _tradeCardImgHtml(c) {
   const big = c.imageLarge || c.image || (typeof wishlistCardImgUrl === 'function' ? wishlistCardImgUrl(c) : '');
   if (!big) return `<div class="card-img-placeholder">${escapeHtml((c.set || '').toUpperCase() || c.name || '?')}</div>`;
   const attrs = cardThumbAttrs({ image: c.image || big, imageLarge: big }, 'large');
-  return `<img ${attrs} alt="${escapeHtml(c.name || '')}" onload="this.classList.add('loaded')" onerror="this.classList.add('loaded')">`;
+  return `<img ${attrs} alt="${escapeHtml(c.name || '')}" onload="this.classList.add('loaded');imgFadeSeenMark(this)" onerror="this.classList.add('loaded')">`;
 }
 
 function _tradelistCardHtml(c) {

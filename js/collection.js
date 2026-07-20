@@ -459,7 +459,7 @@ function renderCollection() {
       return `
       <div class="card-item" onclick="openCardDetail('${c.uid}')">
         <div class="card-img-wrap${c.foil ? ' foil' : ''}">
-          ${tileImg ? `<img ${cardThumbAttrs(c, currentView)} alt="${escapeHtml(c.name)}" onload="this.classList.add('loaded')" onerror="this.classList.add('loaded')">` : '<div class="card-img-placeholder">?</div>'}
+          ${tileImg ? `<img ${cardThumbAttrs(c, currentView)} alt="${escapeHtml(c.name)}" onload="this.classList.add('loaded');imgFadeSeenMark(this)" onerror="this.classList.add('loaded')">` : '<div class="card-img-placeholder">?</div>'}
           ${c.foil ? `<div class="card-foil-overlay"></div><div class="card-foil-badge">✦ FOIL</div>` : ''}
           ${!isSharedView && isRecentlyAdded(c) ? `<div class="card-new-badge" title="New card"></div>` : ''}
           ${!isSharedView ? `<button type="button" class="collection-card-star${c.starred ? ' is-starred' : ''}" data-card-uid="${c.uid}" onclick="toggleCardStar('${c.uid}',event)" aria-pressed="${c.starred ? 'true' : 'false'}" aria-label="${c.starred ? 'Unstar card' : 'Star card'}">${c.starred ? '★' : '☆'}</button>` : ''}
@@ -483,7 +483,7 @@ function renderCollection() {
       return `
       <div class="card-item" onclick="openCardDetail('${c.uid}')">
         <div class="card-img-wrap${c.foil ? ' foil' : ''}">
-          ${tileImg ? `<img ${cardThumbAttrs(c, currentView)} alt="${escapeHtml(c.name)}" onload="this.classList.add('loaded')" onerror="this.classList.add('loaded')">` : `<div class="card-img-placeholder"><svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="1"><rect x="2" y="2" width="20" height="20" rx="2"/><path d="M8 12h8M12 8v8"/></svg><span>${c.set.toUpperCase()}</span></div>`}
+          ${tileImg ? `<img ${cardThumbAttrs(c, currentView)} alt="${escapeHtml(c.name)}" onload="this.classList.add('loaded');imgFadeSeenMark(this)" onerror="this.classList.add('loaded')">` : `<div class="card-img-placeholder"><svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="1"><rect x="2" y="2" width="20" height="20" rx="2"/><path d="M8 12h8M12 8v8"/></svg><span>${c.set.toUpperCase()}</span></div>`}
           ${c.foil ? `<div class="card-foil-overlay"></div><div class="card-foil-badge">✦ FOIL</div>` : ''}
           ${!isSharedView && isRecentlyAdded(c) ? `<div class="card-new-badge" title="New card"></div>` : ''}
           ${!isSharedView ? `<button type="button" class="collection-card-star${c.starred ? ' is-starred' : ''}" data-card-uid="${c.uid}" onclick="toggleCardStar('${c.uid}',event)" aria-pressed="${c.starred ? 'true' : 'false'}" aria-label="${c.starred ? 'Unstar card' : 'Star card'}">${c.starred ? '★' : '☆'}</button>` : ''}

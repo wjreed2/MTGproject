@@ -1,0 +1,83 @@
+{
+  "row": {
+    "oracle_id": "00000000-0000-4000-8000-000000000014",
+    "name": "Demonic Consultation",
+    "type_line": "Instant",
+    "oracle_text": "Name a card. Exile the top six cards of your library, then reveal cards from the top of your library until you reveal the named card. Put that card into your hand and exile all other cards revealed this way.",
+    "mana_cost": "{B}",
+    "cmc": 1,
+    "colors_json": ["B"],
+    "color_identity_json": ["B"],
+    "power": null,
+    "toughness": null,
+    "loyalty": null,
+    "keywords_json": [],
+    "layout": "normal",
+    "produced_mana_json": [],
+    "faces_json": null
+  },
+  "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "00000000-0000-4000-8000-000000000014",
+    "name": "Demonic Consultation",
+    "layout": "normal",
+    "faces": [
+      {
+        "face_name": "Demonic Consultation",
+        "types": { "super": [], "card": ["Instant"], "sub": [] },
+        "mana_cost": "{B}",
+        "mana_value": 1,
+        "colors": ["B"],
+        "pt": null,
+        "loyalty": null,
+        "defense": null,
+        "costs": { "additional": [], "alternative": [] },
+        "keywords": [],
+        "abilities": [
+          {
+            "kind": "static",
+            "layer": null,
+            "effects": [
+              {
+                "op": "exile",
+                "n": { "kind": "fixed", "value": 6 },
+                "target": { "who": "you", "object": { "zone": "library" } },
+                "zone_from": "library",
+                "text": "Exile the top six cards of your library"
+              },
+              {
+                "op": "reveal",
+                "target": { "who": "you", "object": { "zone": "library" } },
+                "text": "reveal cards from the top of your library until you reveal the named card"
+              },
+              {
+                "op": "search_library",
+                "n": { "kind": "fixed", "value": 1 },
+                "target": { "who": "you", "object": { "named": "the named card", "zone": "library" } },
+                "zone_to": "hand",
+                "text": "Put that card into your hand and exile all other cards revealed this way"
+              }
+            ],
+            "text": "Name a card. Exile the top six cards of your library, then reveal cards from the top of your library until you reveal the named card. Put that card into your hand and exile all other cards revealed this way."
+          }
+        ],
+        "restrictions": [],
+        "cdf": null
+      }
+    ],
+    "provides": [
+      { "axis": "tutor.any", "param": null, "rate": "once", "weight": 4 },
+      { "axis": "self_exile_library", "param": "large", "rate": "once", "weight": 4 }
+    ],
+    "needs": [
+      { "axis": "wincon.alt", "param": "empty_library", "criticality": "helps", "weight": 3 }
+    ],
+    "roles": ["tutor"],
+    "anti": [],
+    "wincon": null,
+    "tribal": { "types": [], "lord_of": [] },
+    "power_level_hint": 5,
+    "confidence": 0.95
+  }
+}

@@ -1,0 +1,71 @@
+{
+  "row": {
+    "oracle_id": "00000000-0000-4000-8000-000000000017",
+    "name": "Bitterblossom",
+    "type_line": "Kindred Enchantment — Faerie",
+    "oracle_text": "At the beginning of your upkeep, you lose 1 life and create a 1/1 black Faerie Rogue creature token with flying.",
+    "mana_cost": "{1}{B}",
+    "cmc": 2,
+    "colors_json": ["B"],
+    "color_identity_json": ["B"],
+    "power": null,
+    "toughness": null,
+    "loyalty": null,
+    "keywords_json": [],
+    "layout": "normal",
+    "produced_mana_json": [],
+    "faces_json": null
+  },
+  "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "00000000-0000-4000-8000-000000000017",
+    "name": "Bitterblossom",
+    "layout": "normal",
+    "faces": [
+      {
+        "face_name": "Bitterblossom",
+        "types": { "super": [], "card": ["Kindred", "Enchantment"], "sub": ["Faerie"] },
+        "mana_cost": "{1}{B}",
+        "mana_value": 2,
+        "colors": ["B"],
+        "pt": null,
+        "loyalty": null,
+        "defense": null,
+        "costs": { "additional": [], "alternative": [] },
+        "keywords": [],
+        "abilities": [
+          {
+            "kind": "triggered",
+            "trigger": { "event": "upkeep", "controller_scope": "you", "condition": null, "once_each_turn": false },
+            "effects": [
+              { "op": "lose_life", "n": { "kind": "fixed", "value": 1 }, "target": { "who": "you" } },
+              {
+                "op": "create_token",
+                "n": { "kind": "fixed", "value": 1 },
+                "token": { "name": "Faerie Rogue", "types": "Creature — Faerie Rogue", "pt": "1/1", "colors": ["B"], "abilities_text": "flying", "predefined": false }
+              }
+            ],
+            "text": "At the beginning of your upkeep, you lose 1 life and create a 1/1 black Faerie Rogue creature token with flying."
+          }
+        ],
+        "restrictions": [],
+        "cdf": null
+      }
+    ],
+    "provides": [
+      { "axis": "token.creature", "param": null, "rate": "per_turn", "weight": 4 },
+      { "axis": "sac.fodder", "param": null, "rate": "per_turn", "weight": 3 },
+      { "axis": "tribal.body", "param": "Faerie", "rate": "static", "weight": 1 }
+    ],
+    "needs": [
+      { "axis": "token.payoff", "param": null, "criticality": "helps", "weight": 2 }
+    ],
+    "roles": ["token_maker"],
+    "anti": [],
+    "wincon": null,
+    "tribal": { "types": ["Faerie"], "lord_of": [] },
+    "power_level_hint": 4,
+    "confidence": 0.98
+  }
+}
