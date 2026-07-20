@@ -59,6 +59,18 @@ module.exports = [
     support: ['token.creature', 'card_advantage.draw', 'gy.recursion'],
   },
   {
+    key: 'stompy', label: 'Big creatures',
+    verb: 'ramp into oversized creatures and cash in their cast and enter payoffs',
+    // Ahead of 'counters' on purpose: big-creature decks incidentally carry lots of
+    // +1/+1 counter sources (hydras enter with counters), and on saturation ties the
+    // earlier template wins — a Helga deck is stompy first, counters as a sub-theme.
+    core: [
+      { axes: ['body.big'], min: 7 },
+      { axes: ['mana.rock', 'mana.dork', 'mana.ramp_land', 'mana.ritual', 'mana.extra_land_drop'], min: 5 },
+    ],
+    support: ['card_advantage.draw_engine', 'mana.big_mana_payoff', 'evasion.grant', 'protection.single', 'etb_value'],
+  },
+  {
     key: 'counters', label: '+1/+1 counters',
     verb: 'grow the team with +1/+1 counters and counter payoffs',
     core: [

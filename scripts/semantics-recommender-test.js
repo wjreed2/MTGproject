@@ -451,6 +451,32 @@ console.log('explain — fractional role deficits render as whole cards');
   check('sub-1 deficit still reads as 1 short', tiny[0] === 'Fills the Removal deficit (1 short of target)', JSON.stringify(tiny));
 }
 
+console.log('goals — stompy template + axis labels');
+{
+  const pIR = (provides, needs, extra) => ({
+    provides: (provides || []).map(([axis, param, w, rate]) => ({ axis, param: param || null, rate: rate || 'once', weight: w || 3 })),
+    needs: (needs || []).map(([axis, param, w, crit]) => ({ axis, param: param || null, criticality: crit || 'wants', weight: w || 3 })),
+    anti: [], roles: [], wincon: null, tribal: { types: [], lord_of: [] }, faces: [], ...extra,
+  });
+  // Helga-shaped deck: fat bodies + ramp + big-cast payoffs, with the counter sub-theme
+  // riding along (hydras enter with counters) — stompy must outrank counters.
+  const deck = [
+    ...Array.from({ length: 8 }, (_, i) => ({ name: `Fatty ${i}`, qty: 1, cmc: 5, typeLine: 'Creature — Beast', ir: pIR([['body.big', null, 3, 'static'], ['counters.plus1', null, 2, 'once']]) })),
+    ...Array.from({ length: 6 }, (_, i) => ({ name: `Ramp ${i}`, qty: 1, cmc: 2, typeLine: 'Artifact', ir: pIR([['mana.rock', null, 3, 'repeatable']], [], { roles: ['mana_rock', 'ramp'] }) })),
+    { name: 'Uprising-ish', qty: 1, cmc: 3, typeLine: 'Enchantment', ir: pIR([['card_advantage.draw_engine', null, 4, 'repeatable'], ['evasion.grant', null, 3, 'static']], [['body.big', null, 4, 'wants']]) },
+    { name: 'Beanstalk-ish', qty: 1, cmc: 2, typeLine: 'Enchantment', ir: pIR([['card_advantage.draw_engine', null, 3, 'repeatable']], [['mana.big_mana_payoff', null, 2, 'wants']]) },
+    { name: 'Big Land', qty: 32, cmc: 0, typeLine: 'Basic Land — Forest', ir: pIR([], [], { roles: ['land'] }) },
+  ];
+  const cmd = { name: 'Helga-ish', ir: pIR([['card_advantage.draw_engine', null, 3, 'repeatable'], ['mana.dork', null, 3, 'repeatable']], [['body.big', null, 5, 'requires']]) };
+  const g = inferGoals(deck, cmd, {});
+  check('stompy is the top goal for a big-creature deck', g.goals[0]?.goal === 'stompy', JSON.stringify(g.goals.slice(0, 3).map(x => x.goal + '@' + x.confidence)));
+  check('summary uses human axis labels (no raw tokens)',
+    !/plus1|body\.big|[a-z]_[a-z]/.test(g.goals[0]?.summary || ''),
+    JSON.stringify(g.goals[0]?.summary));
+  check('axisLabel curates common tokens', explain.axisLabel('counters.plus1') === '+1/+1 counter sources' && explain.axisLabel('body.big') === 'big creatures (power 4+)',
+    explain.axisLabel('counters.plus1'));
+}
+
 console.log('goals — land types are not tribes');
 {
   const mountainIR = { provides: [], needs: [], anti: [], roles: [], wincon: null, tribal: { types: ['Mountain', 'Goblin'], lord_of: ['Mountain'] }, faces: [] };
