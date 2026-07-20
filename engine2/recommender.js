@@ -246,20 +246,19 @@ function wantedAxes(goal, hist, index, templates, goals) {
         // Weak wants may aggregate into real demand (three X spells each mildly wanting
         // ramp), but only STRONG needers get cited by name — otherwise the reason reads
         // "Feeds <X spell>" for a card that merely likes having more mana around.
-        const cite = grp.strongNames && grp.strongNames.length ? grp.strongNames : null;
+        // Groups stay structured per param so scoring can cite exactly the needers a
+        // given provider actually serves (a Rat provider cites both the Rat outlet and
+        // generic outlets; a generic provider cites only the generic ones).
+        const group = grp.strongNames && grp.strongNames.length
+          ? { param: grp.param, names: grp.strongNames, strong: grp.strong || 0, hard: grp.hard || 0 }
+          : null;
         const prev = wanted.get(axis);
         if (prev) {
-          if (cite) {
-            prev.needers = cite; // wanted axis that live cards also hard-need — name them
-            prev.neederStrong = grp.strong || 0;
-            prev.neederHard = grp.hard || 0;
-            (prev.neederParams = prev.neederParams || []).push(grp.param);
-          }
+          if (group) (prev.neederGroups = prev.neederGroups || []).push(group);
         } else {
           wanted.set(axis, {
             why: 'unmet_need', gap: 2 - have,
-            needers: cite, params: [grp.param], neederParams: cite ? [grp.param] : null,
-            neederStrong: grp.strong || 0, neederHard: grp.hard || 0,
+            params: [grp.param], neederGroups: group ? [group] : [],
           });
         }
       }
@@ -374,22 +373,26 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
     for (const p of cand.ir.provides || []) {
       const bound = tribalBound(tribes, p.axis, p.param);
       const w0 = !bound ? wanted.get(p.axis) : null;
-      // `params` gates the credit itself; `neederParams` gates only the "feeds X" names.
-      // Permissive entries (tribal wants) accept generic providers; strict entries
-      // (unmet param'd demands) require an explicitly matching supply.
+      // `params` gates the credit itself; needer GROUPS gate the "feeds X" names —
+      // only groups this provider's param actually serves get cited. Permissive
+      // entries (tribal wants) accept generic providers; strict entries (unmet
+      // param'd demands) require an explicitly matching supply.
       const fit = (par) => w0?.permissive ? paramOk(p.param, par) : paramServes(p.param, par);
       const paramFits = !w0?.params || w0.params.some(fit);
-      const neederFits = !w0?.neederParams || w0.neederParams.some(fit);
       const w = w0 && paramFits ? w0 : null;
       if (w) {
         const pts = (p.weight || 1) * (1 + Math.min(3, w.gap) * 0.5);
         score += pts;
         // Name the needers only when the claim carries real weight: on-plan axis, a
-        // hard (requires) dependency, or ≥2 strong needers. A lone off-plan soft want
-        // (Essence Flux's etb appetite in a rat deck) renders as the generic line.
-        const citeOk = neederFits &&
-          (planAxes.has(p.axis) || (w.neederHard || 0) >= 1 || (w.neederStrong || 0) >= 2);
-        trace.push({ kind: 'fills_axis', axis: p.axis, param: p.param || null, why: w.why, needers: (citeOk && w.needers) || null, pts });
+        // hard (requires) dependency, or ≥2 strong needers among the groups served.
+        // A lone off-plan soft want (Essence Flux's etb appetite) stays generic.
+        const served = (w.neederGroups || []).filter(g => paramServes(p.param, g.param));
+        const servedHard = served.reduce((s, g) => s + g.hard, 0);
+        const servedStrong = served.reduce((s, g) => s + g.strong, 0);
+        const citeOk = served.length &&
+          (planAxes.has(p.axis) || servedHard >= 1 || servedStrong >= 2);
+        const names = citeOk ? [...new Set(served.flatMap(g => g.names))].slice(0, 6) : null;
+        trace.push({ kind: 'fills_axis', axis: p.axis, param: p.param || null, why: w.why, needers: names, pts });
       }
       // feeds existing payoffs even when not formally "wanted" (param-compatible only).
       // Only strong demand earns the +4-class score and the "Feeds X" claim; helps-level
@@ -465,20 +468,25 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
 
     if (score <= 0.5) continue;
     trace.push(...offPlanFeeds); // off-plan feeds render last, after on-plan reasons
+    // Fit = score minus preference nudges (owned / popularity / price). Preferences
+    // may reorder genuinely good cards but must not lift filler over the quality
+    // floor — an owned Bitterblossom is still a weak fit for a rat deck.
+    const PREF_KINDS = new Set(['owned', 'meta_prior', 'price_soft']);
+    const fit = score - trace.reduce((s, t) => s + (PREF_KINDS.has(t.kind) ? (t.pts || 0) : 0), 0);
     scored.push({
-      name: cand.name, score: Math.round(score * 100) / 100,
+      name: cand.name, score: Math.round(score * 100) / 100, fit,
       owned: !!cand.owned, price: cand.price != null ? cand.price : null, priceFlag,
       scryfallId: cand.scryfallId || null, trace,
     });
   }
 
   scored.sort((a, b) => b.score - a.score || String(a.name).localeCompare(b.name));
-  // Quality floor: don't pad the list with filler the engine barely believes in —
-  // suggestions below ~30% of the leader (min 3) read as noise to the user. Thin
+  // Quality floor on FIT: don't pad the list with filler the engine barely believes
+  // in — fit below ~30% of the best fit (min 3) reads as noise to the user. Thin
   // pools with a modest leader keep their few genuine picks.
-  const top = scored[0]?.score || 0;
-  const floor = Math.max(3, top * 0.3);
-  return scored.filter(s => s.score >= floor).slice(0, ADD_COUNT);
+  const topFit = scored.reduce((m, s) => Math.max(m, s.fit), 0);
+  const floor = Math.max(3, topFit * 0.3);
+  return scored.filter(s => s.fit >= floor).slice(0, ADD_COUNT).map(({ fit, ...s }) => s);
 }
 
 module.exports = { scoreCuts, scoreAdds, deckAxisIndex, wantedAxes, matchParam, deckPlanAxes, isLandCard, bucketOf, CUT_COUNT, ADD_COUNT };
