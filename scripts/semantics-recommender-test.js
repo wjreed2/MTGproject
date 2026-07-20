@@ -509,6 +509,35 @@ console.log('adds — support wants reinforce, never recruit');
     JSON.stringify([...wanted.keys()]));
 }
 
+console.log('adds — saturated decks get reinforcement, not silence');
+{
+  const pIR = (provides, needs, extra) => ({
+    provides: (provides || []).map(([axis, param, w, rate]) => ({ axis, param: param || null, rate: rate || 'once', weight: w || 3 })),
+    needs: (needs || []).map(([axis, param, w, crit]) => ({ axis, param: param || null, criticality: crit || 'wants', weight: w || 3 })),
+    anti: [], roles: [], wincon: null, tribal: { types: [], lord_of: [] }, faces: [], ...extra,
+  });
+  // Food/lifegain deck saturating the lifegain goal on every axis: wanted must fall
+  // back to reinforcing the goal's core rather than returning an empty list.
+  const deck = [
+    ...Array.from({ length: 7 }, (_, i) => ({ name: `Soul Sister ${i}`, qty: 1, cmc: 2, typeLine: 'Creature — Cleric', ir: pIR([['lifegain.source', null, 3, 'repeatable']]) })),
+    ...Array.from({ length: 6 }, (_, i) => ({ name: `Food Maker ${i}`, qty: 1, cmc: 2, typeLine: 'Creature — Halfling', ir: pIR([['token.food', null, 3, 'per_turn'], ['lifegain.source', null, 2, 'repeatable']]) })),
+    ...Array.from({ length: 3 }, (_, i) => ({ name: `Payoff ${i}`, qty: 1, cmc: 3, typeLine: 'Creature — Treefolk', ir: pIR([['lifegain.payoff', null, 4, 'repeatable']], [['lifegain.source', null, 3, 'wants']]) })),
+    { name: 'Greenwood', qty: 33, cmc: 0, typeLine: 'Basic Land — Forest', ir: pIR([], [], { roles: ['land'] }) },
+  ];
+  const cmd = { name: 'Treebeard-ish', ir: pIR([['token.food', null, 3, 'per_turn'], ['lifegain.payoff', null, 3, 'repeatable']], [['lifegain.source', null, 5, 'requires']]) };
+  const g = inferGoals(deck, cmd, {});
+  check('food deck reads lifegain first', g.goals[0]?.goal === 'lifegain', JSON.stringify(g.goals.slice(0, 3).map(x => x.goal + '@' + x.confidence)));
+  const wanted = rec.wantedAxes(g.goals[0]?.goal, g.histogram, rec.deckAxisIndex(deck, cmd), templates, g.goals);
+  check('saturated plan falls back to core reinforcement', wanted.size > 0 && [...wanted.values()].some(w => w.why === 'goal_reinforce'), JSON.stringify([...wanted.keys()]));
+  const cands = [
+    { name: 'Better Lifegain Piece', ir: pIR([['lifegain.source', null, 4, 'repeatable'], ['lifegain.payoff', null, 4, 'repeatable']]), cmc: 2, price: 1, owned: false, edhrecRank: 400 },
+  ];
+  const adds = rec.scoreAdds({ deckCards: deck, commander: cmd, goals: g.goals, thresholds: th.computeThresholds({ goal: g.goals[0]?.goal }), roleCounts: th.countRoles(deck), hist: g.histogram, candidates: cands, budget: { maxCardPrice: null, flagAbove: 5 }, templates });
+  check('reinforcement produces suggestions with the Deepens wording',
+    adds.length === 1 && explain.addReasons(adds[0]).some(r => r.startsWith('Deepens')),
+    JSON.stringify(adds[0] && explain.addReasons(adds[0])));
+}
+
 console.log('goals — land types are not tribes');
 {
   const mountainIR = { provides: [], needs: [], anti: [], roles: [], wincon: null, tribal: { types: ['Mountain', 'Goblin'], lord_of: ['Mountain'] }, faces: [] };
