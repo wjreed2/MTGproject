@@ -1,0 +1,333 @@
+{
+  "name": "Average Sythis, Harvest's Hand deck (EDHREC)",
+  "commander": "Sythis, Harvest's Hand",
+  "source": "edhrec-average",
+  "source_url": "https://json.edhrec.com/pages/average-decks/sythis-harvests-hand.json",
+  "cards": [
+    {
+      "name": "Abundant Growth",
+      "qty": 1
+    },
+    {
+      "name": "Ajani's Chosen",
+      "qty": 1
+    },
+    {
+      "name": "All That Glitters",
+      "qty": 1
+    },
+    {
+      "name": "Alseid of Life's Bounty",
+      "qty": 1
+    },
+    {
+      "name": "Ancestral Mask",
+      "qty": 1
+    },
+    {
+      "name": "Arcane Signet",
+      "qty": 1
+    },
+    {
+      "name": "Archon of Sun's Grace",
+      "qty": 1
+    },
+    {
+      "name": "Argothian Enchantress",
+      "qty": 1
+    },
+    {
+      "name": "Aura of Silence",
+      "qty": 1
+    },
+    {
+      "name": "Austere Command",
+      "qty": 1
+    },
+    {
+      "name": "Authority of the Consuls",
+      "qty": 1
+    },
+    {
+      "name": "Blind Obedience",
+      "qty": 1
+    },
+    {
+      "name": "Bountiful Promenade",
+      "qty": 1
+    },
+    {
+      "name": "Branchloft Pathway",
+      "qty": 1
+    },
+    {
+      "name": "Brushland",
+      "qty": 1
+    },
+    {
+      "name": "Calix, Guided by Fate",
+      "qty": 1
+    },
+    {
+      "name": "Canopy Vista",
+      "qty": 1
+    },
+    {
+      "name": "Command Tower",
+      "qty": 1
+    },
+    {
+      "name": "Composer of Spring",
+      "qty": 1
+    },
+    {
+      "name": "Courser of Kruphix",
+      "qty": 1
+    },
+    {
+      "name": "Darksteel Mutation",
+      "qty": 1
+    },
+    {
+      "name": "Destiny Spinner",
+      "qty": 1
+    },
+    {
+      "name": "Dryad of the Ilysian Grove",
+      "qty": 1
+    },
+    {
+      "name": "Eidolon of Blossoms",
+      "qty": 1
+    },
+    {
+      "name": "Eladamri's Call",
+      "qty": 1
+    },
+    {
+      "name": "Enchantress's Presence",
+      "qty": 1
+    },
+    {
+      "name": "Enlightened Tutor",
+      "qty": 1
+    },
+    {
+      "name": "Ethereal Armor",
+      "qty": 1
+    },
+    {
+      "name": "Exploration",
+      "qty": 1
+    },
+    {
+      "name": "Fertile Ground",
+      "qty": 1
+    },
+    {
+      "name": "Flickering Ward",
+      "qty": 1
+    },
+    {
+      "name": "Forest",
+      "qty": 9
+    },
+    {
+      "name": "Fortified Village",
+      "qty": 1
+    },
+    {
+      "name": "Ghostly Prison",
+      "qty": 1
+    },
+    {
+      "name": "Grasp of Fate",
+      "qty": 1
+    },
+    {
+      "name": "Hall of Heliod's Generosity",
+      "qty": 1
+    },
+    {
+      "name": "Hallowed Haunting",
+      "qty": 1
+    },
+    {
+      "name": "Heliod, Sun-Crowned",
+      "qty": 1
+    },
+    {
+      "name": "Herald of the Pantheon",
+      "qty": 1
+    },
+    {
+      "name": "Heroic Intervention",
+      "qty": 1
+    },
+    {
+      "name": "Idyllic Tutor",
+      "qty": 1
+    },
+    {
+      "name": "Jukai Naturalist",
+      "qty": 1
+    },
+    {
+      "name": "Kenrith's Transformation",
+      "qty": 1
+    },
+    {
+      "name": "Mesa Enchantress",
+      "qty": 1
+    },
+    {
+      "name": "Mirari's Wake",
+      "qty": 1
+    },
+    {
+      "name": "Moon-Blessed Cleric",
+      "qty": 1
+    },
+    {
+      "name": "Overgrown Farmland",
+      "qty": 1
+    },
+    {
+      "name": "Overgrowth",
+      "qty": 1
+    },
+    {
+      "name": "Path to Exile",
+      "qty": 1
+    },
+    {
+      "name": "Plains",
+      "qty": 11
+    },
+    {
+      "name": "Privileged Position",
+      "qty": 1
+    },
+    {
+      "name": "Rancor",
+      "qty": 1
+    },
+    {
+      "name": "Reliquary Tower",
+      "qty": 1
+    },
+    {
+      "name": "Resurgent Belief",
+      "qty": 1
+    },
+    {
+      "name": "Sanctum Weaver",
+      "qty": 1
+    },
+    {
+      "name": "Satyr Enchanter",
+      "qty": 1
+    },
+    {
+      "name": "Seal of Cleansing",
+      "qty": 1
+    },
+    {
+      "name": "Seal of Primordium",
+      "qty": 1
+    },
+    {
+      "name": "Setessan Champion",
+      "qty": 1
+    },
+    {
+      "name": "Sigil of the Empty Throne",
+      "qty": 1
+    },
+    {
+      "name": "Smothering Tithe",
+      "qty": 1
+    },
+    {
+      "name": "Sol Ring",
+      "qty": 1
+    },
+    {
+      "name": "Solitary Confinement",
+      "qty": 1
+    },
+    {
+      "name": "Sphere of Safety",
+      "qty": 1
+    },
+    {
+      "name": "Starfield Mystic",
+      "qty": 1
+    },
+    {
+      "name": "Sterling Grove",
+      "qty": 1
+    },
+    {
+      "name": "Strength of the Harvest",
+      "qty": 1
+    },
+    {
+      "name": "Sungrass Prairie",
+      "qty": 1
+    },
+    {
+      "name": "Sunpetal Grove",
+      "qty": 1
+    },
+    {
+      "name": "Swords to Plowshares",
+      "qty": 1
+    },
+    {
+      "name": "Temple Garden",
+      "qty": 1
+    },
+    {
+      "name": "Temple of Plenty",
+      "qty": 1
+    },
+    {
+      "name": "Thought Vessel",
+      "qty": 1
+    },
+    {
+      "name": "Utopia Sprawl",
+      "qty": 1
+    },
+    {
+      "name": "Verduran Enchantress",
+      "qty": 1
+    },
+    {
+      "name": "Weaver of Harmony",
+      "qty": 1
+    },
+    {
+      "name": "Whip Silk",
+      "qty": 1
+    },
+    {
+      "name": "Wild Growth",
+      "qty": 1
+    },
+    {
+      "name": "Winds of Rath",
+      "qty": 1
+    },
+    {
+      "name": "Windswept Heath",
+      "qty": 1
+    },
+    {
+      "name": "Yenna, Redtooth Regent",
+      "qty": 1
+    }
+  ],
+  "archetype_expected": "enchantress"
+}

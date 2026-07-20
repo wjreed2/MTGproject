@@ -1,0 +1,389 @@
+{
+  "name": "Average The Ur-Dragon deck (EDHREC)",
+  "commander": "The Ur-Dragon",
+  "source": "edhrec-average",
+  "source_url": "https://json.edhrec.com/pages/average-decks/the-ur-dragon.json",
+  "cards": [
+    {
+      "name": "Ancient Copper Dragon",
+      "qty": 1
+    },
+    {
+      "name": "Ancient Gold Dragon",
+      "qty": 1
+    },
+    {
+      "name": "Ancient Silver Dragon",
+      "qty": 1
+    },
+    {
+      "name": "Arcane Signet",
+      "qty": 1
+    },
+    {
+      "name": "Arid Mesa",
+      "qty": 1
+    },
+    {
+      "name": "Atarka, World Render",
+      "qty": 1
+    },
+    {
+      "name": "Balefire Dragon",
+      "qty": 1
+    },
+    {
+      "name": "Birds of Paradise",
+      "qty": 1
+    },
+    {
+      "name": "Bladewing the Risen",
+      "qty": 1
+    },
+    {
+      "name": "Blood Crypt",
+      "qty": 1
+    },
+    {
+      "name": "Bloodstained Mire",
+      "qty": 1
+    },
+    {
+      "name": "Breeding Pool",
+      "qty": 1
+    },
+    {
+      "name": "Call the Spirit Dragons",
+      "qty": 1
+    },
+    {
+      "name": "Cavern of Souls",
+      "qty": 1
+    },
+    {
+      "name": "Chromatic Lantern",
+      "qty": 1
+    },
+    {
+      "name": "Command Tower",
+      "qty": 1
+    },
+    {
+      "name": "Counterspell",
+      "qty": 1
+    },
+    {
+      "name": "Crux of Fate",
+      "qty": 1
+    },
+    {
+      "name": "Cultivate",
+      "qty": 1
+    },
+    {
+      "name": "Cyclonic Rift",
+      "qty": 1
+    },
+    {
+      "name": "Demonic Tutor",
+      "qty": 1
+    },
+    {
+      "name": "Dracogenesis",
+      "qty": 1
+    },
+    {
+      "name": "Dragon Tempest",
+      "qty": 1
+    },
+    {
+      "name": "Dragon's Hoard",
+      "qty": 1
+    },
+    {
+      "name": "Dragonlord Dromoka",
+      "qty": 1
+    },
+    {
+      "name": "Dragonlord's Servant",
+      "qty": 1
+    },
+    {
+      "name": "Dragonspeaker Shaman",
+      "qty": 1
+    },
+    {
+      "name": "Exotic Orchard",
+      "qty": 1
+    },
+    {
+      "name": "Farseek",
+      "qty": 1
+    },
+    {
+      "name": "Fellwar Stone",
+      "qty": 1
+    },
+    {
+      "name": "Flooded Strand",
+      "qty": 1
+    },
+    {
+      "name": "Forest",
+      "qty": 2
+    },
+    {
+      "name": "Garruk's Uprising",
+      "qty": 1
+    },
+    {
+      "name": "Goldspan Dragon",
+      "qty": 1
+    },
+    {
+      "name": "Haven of the Spirit Dragon",
+      "qty": 1
+    },
+    {
+      "name": "Hellkite Courser",
+      "qty": 1
+    },
+    {
+      "name": "Herald's Horn",
+      "qty": 1
+    },
+    {
+      "name": "Heroic Intervention",
+      "qty": 1
+    },
+    {
+      "name": "Island",
+      "qty": 2
+    },
+    {
+      "name": "Ketria Triome",
+      "qty": 1
+    },
+    {
+      "name": "Klauth, Unrivaled Ancient",
+      "qty": 1
+    },
+    {
+      "name": "Kodama's Reach",
+      "qty": 1
+    },
+    {
+      "name": "Lathliss, Dragon Queen",
+      "qty": 1
+    },
+    {
+      "name": "Lightning Greaves",
+      "qty": 1
+    },
+    {
+      "name": "Maelstrom of the Spirit Dragon",
+      "qty": 1
+    },
+    {
+      "name": "Miirym, Sentinel Wyrm",
+      "qty": 1
+    },
+    {
+      "name": "Misty Rainforest",
+      "qty": 1
+    },
+    {
+      "name": "Morophon, the Boundless",
+      "qty": 1
+    },
+    {
+      "name": "Mountain",
+      "qty": 2
+    },
+    {
+      "name": "Mox Jasper",
+      "qty": 1
+    },
+    {
+      "name": "Nature's Lore",
+      "qty": 1
+    },
+    {
+      "name": "Old Gnawbone",
+      "qty": 1
+    },
+    {
+      "name": "Overgrown Tomb",
+      "qty": 1
+    },
+    {
+      "name": "Path of Ancestry",
+      "qty": 1
+    },
+    {
+      "name": "Path to Exile",
+      "qty": 1
+    },
+    {
+      "name": "Plains",
+      "qty": 1
+    },
+    {
+      "name": "Ramos, Dragon Engine",
+      "qty": 1
+    },
+    {
+      "name": "Reflecting Pool",
+      "qty": 1
+    },
+    {
+      "name": "Rhystic Study",
+      "qty": 1
+    },
+    {
+      "name": "Rhythm of the Wild",
+      "qty": 1
+    },
+    {
+      "name": "Rith, Liberated Primeval",
+      "qty": 1
+    },
+    {
+      "name": "Rivaz of the Claw",
+      "qty": 1
+    },
+    {
+      "name": "Sacred Foundry",
+      "qty": 1
+    },
+    {
+      "name": "Sarkhan Unbroken",
+      "qty": 1
+    },
+    {
+      "name": "Sarkhan, Soul Aflame",
+      "qty": 1
+    },
+    {
+      "name": "Sarkhan's Triumph",
+      "qty": 1
+    },
+    {
+      "name": "Savage Ventmaw",
+      "qty": 1
+    },
+    {
+      "name": "Scalding Tarn",
+      "qty": 1
+    },
+    {
+      "name": "Scalelord Reckoner",
+      "qty": 1
+    },
+    {
+      "name": "Scion of Draco",
+      "qty": 1
+    },
+    {
+      "name": "Scion of the Ur-Dragon",
+      "qty": 1
+    },
+    {
+      "name": "Scourge of Valkas",
+      "qty": 1
+    },
+    {
+      "name": "Silumgar, the Drifting Death",
+      "qty": 1
+    },
+    {
+      "name": "Smothering Tithe",
+      "qty": 1
+    },
+    {
+      "name": "Sol Ring",
+      "qty": 1
+    },
+    {
+      "name": "Steam Vents",
+      "qty": 1
+    },
+    {
+      "name": "Stomping Ground",
+      "qty": 1
+    },
+    {
+      "name": "Swamp",
+      "qty": 2
+    },
+    {
+      "name": "Swords to Plowshares",
+      "qty": 1
+    },
+    {
+      "name": "Teferi's Protection",
+      "qty": 1
+    },
+    {
+      "name": "Temple Garden",
+      "qty": 1
+    },
+    {
+      "name": "Temur Ascendancy",
+      "qty": 1
+    },
+    {
+      "name": "Terror of the Peaks",
+      "qty": 1
+    },
+    {
+      "name": "The World Tree",
+      "qty": 1
+    },
+    {
+      "name": "Three Visits",
+      "qty": 1
+    },
+    {
+      "name": "Tiamat",
+      "qty": 1
+    },
+    {
+      "name": "Twinflame Tyrant",
+      "qty": 1
+    },
+    {
+      "name": "Unclaimed Territory",
+      "qty": 1
+    },
+    {
+      "name": "Ureni of the Unwritten",
+      "qty": 1
+    },
+    {
+      "name": "Urza's Incubator",
+      "qty": 1
+    },
+    {
+      "name": "Utvara Hellkite",
+      "qty": 1
+    },
+    {
+      "name": "Verdant Catacombs",
+      "qty": 1
+    },
+    {
+      "name": "Windswept Heath",
+      "qty": 1
+    },
+    {
+      "name": "Wooded Foothills",
+      "qty": 1
+    },
+    {
+      "name": "Ziatora's Proving Ground",
+      "qty": 1
+    }
+  ],
+  "archetype_expected": "tribal:Dragon"
+}
