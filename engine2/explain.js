@@ -55,9 +55,12 @@ function addReasons(add) {
       case 'feeds':
         out.push(`Feeds ${listNames(t.names)} (${axisLabel(t.axis)}${t.param ? `: ${t.param}` : ''})`);
         break;
-      case 'role_deficit':
-        out.push(`Fills the ${t.cat} deficit (${t.deficit} short of target)`);
+      case 'role_deficit': {
+        // deficits can be fractional (playstyle-scaled targets) — display whole cards
+        const short = Math.max(1, Math.round(Number(t.deficit) || 0));
+        out.push(`Fills the ${t.cat} deficit (${short} short of target)`);
         break;
+      }
       case 'curve_fill':
         out.push('Lands in an under-filled spot on the curve');
         break;

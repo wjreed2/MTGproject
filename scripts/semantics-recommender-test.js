@@ -139,10 +139,11 @@ console.log('adds — param-aware matching (tribes, tokens, curve)');
     (byName('Vampire Support')?.score || 0) > (byName('Goblin Token Maker')?.score || 0),
     JSON.stringify(vAdds.map(a => [a.name, a.score])));
   // Provider param vs generic needer stays matched on non-tribal axes (Anointed
-  // Procession pattern): the Treasure doubler still counts as feeding the generic
-  // token.doubler need — the param is disclosed in the trace for the reason string.
-  check('param provider still matches generic non-tribal needer',
-    feedsNames(byName('Artifact Token Doubler')).includes('Token Doubler Wanter'),
+  // Procession pattern): the Treasure doubler still SCORES for feeding the generic
+  // token.doubler need — but token.doubler is off-plan for a tribal:Vampire deck and
+  // there is only one strong needer, so the edge must not headline as a "Feeds" claim.
+  check('off-plan single-needer edge scores without a Feeds citation',
+    !!byName('Artifact Token Doubler') && !feedsNames(byName('Artifact Token Doubler')).includes('Token Doubler Wanter'),
     JSON.stringify(byName('Artifact Token Doubler')?.trace));
   check('land candidate earns no curve_fill trace',
     !(byName('Utility Land')?.trace || []).some(t => t.kind === 'curve_fill'),
@@ -185,6 +186,63 @@ console.log('adds — weak demand never headlines a "Feeds" claim');
   check('requires-level needer still headlines a Feeds claim',
     feedsOf(byName('Looter')).includes('Madness Payoff'),
     JSON.stringify(byName('Looter')?.trace));
+}
+
+console.log('adds — plan relevance gates which Feeds edges headline');
+{
+  const pIR = (provides, needs, extra) => ({
+    provides: (provides || []).map(([axis, param, w, rate]) => ({ axis, param: param || null, rate: rate || 'once', weight: w || 3 })),
+    needs: (needs || []).map(([axis, param, w, crit]) => ({ axis, param: param || null, criticality: crit || 'wants', weight: w || 3 })),
+    anti: [], roles: [], wincon: null, tribal: { types: [], lord_of: [] }, faces: [], ...extra,
+  });
+  // Aristocrats-leaning deck: death payoff demand is ON plan; a lone blink card's
+  // etb_value appetite is OFF plan (Essence Flux pattern). Two off-plan equipment
+  // needers demonstrate the ≥2 aggregate-demand escape hatch.
+  const deck = [
+    { name: 'Sac Outlet', qty: 1, cmc: 1, typeLine: 'Creature — Vampire', ir: pIR([['sac.outlet_free', 5, 'repeatable'], ['creatures_dying', null, 4, 'repeatable']]) },
+    { name: 'Drainer A', qty: 1, cmc: 2, typeLine: 'Creature — Vampire', ir: pIR([['trigger.death_payoff', null, 4, 'repeatable']], [['creatures_dying', null, 5, 'requires']]) },
+    { name: 'Drainer B', qty: 1, cmc: 2, typeLine: 'Creature — Vampire', ir: pIR([['trigger.death_payoff', null, 4, 'repeatable']], [['creatures_dying', null, 5, 'requires']]) },
+    { name: 'Fodder Maker', qty: 1, cmc: 2, typeLine: 'Sorcery', ir: pIR([['token.creature', null, 3, 'per_turn'], ['sac.fodder', null, 3, 'per_turn']]) },
+    { name: 'Lone Blink Trick', qty: 1, cmc: 2, typeLine: 'Instant', ir: pIR([['protection.single', null, 3, 'once']], [['etb_value', null, 4, 'wants']]) },
+    { name: 'Sword Carrier A', qty: 1, cmc: 2, typeLine: 'Creature — Human', ir: pIR([], [['voltron.aura_equipment', null, 4, 'wants']]) },
+    { name: 'Sword Carrier B', qty: 1, cmc: 2, typeLine: 'Creature — Human', ir: pIR([], [['voltron.aura_equipment', null, 4, 'wants']]) },
+    // Two swords already in-deck: the axis is supplied (not "wanted"), so a third sword
+    // exercises the feeds path rather than the wanted/fills_axis path.
+    { name: 'Old Sword A', qty: 1, cmc: 2, typeLine: 'Artifact — Equipment', ir: pIR([['voltron.aura_equipment', null, 3, 'static']]) },
+    { name: 'Old Sword B', qty: 1, cmc: 2, typeLine: 'Artifact — Equipment', ir: pIR([['voltron.aura_equipment', null, 3, 'static']]) },
+    { name: 'Basic Swamp', qty: 30, cmc: 0, typeLine: 'Basic Land — Swamp', ir: pIR([], [], { roles: ['land'] }) },
+  ];
+  const cmd = { name: 'Aristo Cmdr', ir: pIR([['sac.outlet_free', null, 4, 'repeatable']], [['sac.fodder', null, 4]]) };
+  const goals = inferGoals(deck, cmd, {});
+  const ctx = {
+    deckCards: deck, commander: cmd, goals: goals.goals,
+    thresholds: th.computeThresholds({ goal: goals.goals[0]?.goal }),
+    roleCounts: th.countRoles(deck), hist: goals.histogram, templates,
+  };
+  const cands = [
+    { name: 'ETB Value Guy', ir: pIR([['etb_value', null, 4, 'repeatable'], ['sac.fodder', null, 2, 'once']]), cmc: 3, price: 1, owned: false, edhrecRank: 400 },
+    { name: 'Nice Sword', ir: pIR([['voltron.aura_equipment', null, 4, 'static']]), cmc: 2, price: 1, owned: false, edhrecRank: 400 },
+  ];
+  const adds = rec.scoreAdds({ ...ctx, candidates: cands, budget: { maxCardPrice: null, flagAbove: 5 } });
+  const byName = n => adds.find(a => a.name === n);
+  const feedCites = a => (a?.trace || []).filter(t => t.kind === 'feeds').map(t => t.axis);
+  check('lone off-plan strong needer (etb_value) is not cited',
+    !feedCites(byName('ETB Value Guy')).includes('etb_value'),
+    JSON.stringify(byName('ETB Value Guy')?.trace));
+  check('two off-plan strong needers still earn a citation (aggregate demand)',
+    feedCites(byName('Nice Sword')).includes('voltron.aura_equipment'),
+    JSON.stringify(byName('Nice Sword')?.trace));
+  check('off-plan citation queues after on-plan trace entries',
+    (() => { const t = byName('Nice Sword')?.trace || []; const i = t.findIndex(x => x.kind === 'feeds' && x.axis === 'voltron.aura_equipment'); return i === t.length - 1; })(),
+    JSON.stringify(byName('Nice Sword')?.trace));
+}
+
+console.log('explain — fractional role deficits render as whole cards');
+{
+  const reasons = explain.addReasons({ trace: [{ kind: 'role_deficit', cat: 'Ramp', deficit: 1.5714285714285712 }] });
+  check('deficit is rounded for display', reasons[0] === 'Fills the Ramp deficit (2 short of target)', JSON.stringify(reasons));
+  const tiny = explain.addReasons({ trace: [{ kind: 'role_deficit', cat: 'Removal', deficit: 0.43 }] });
+  check('sub-1 deficit still reads as 1 short', tiny[0] === 'Fills the Removal deficit (1 short of target)', JSON.stringify(tiny));
 }
 
 console.log('goals — land types are not tribes');

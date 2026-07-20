@@ -9,7 +9,7 @@ const path = require('path');
 const vocab = require('./vocab');
 const irSchema = require('./ir-schema');
 
-const PROMPT_VERSION = 'p2'; // p2: explicit param discipline on provides AND needs
+const PROMPT_VERSION = 'p3'; // p3: needs = real dependencies only; ramp = net-positive; self-ref never named
 
 // Few-shot examples come straight from the golden fixtures so prompt and validator can
 // never disagree about what "good" looks like.
@@ -58,7 +58,7 @@ Effect: { op, n?, target?, zone_from?, zone_to?, duration?, counter_kind?, keywo
 2. Every ability's and restriction's "text" is the VERBATIM oracle-text clause it encodes (you may normalize whitespace, nothing else). Cover at least 80% of the oracle text's sentences with anchors.
 3. "keywords" must contain EXACTLY the card's keyword abilities (the Scryfall keyword list you are given) — no more, no fewer. Parameterized keywords carry the parameter verbatim: ward → param "{2}", protection → param "from red".
 4. Use ONLY the vocabulary tokens listed below for ops, axes, trigger events, zones, durations, roles, cost kinds. If nothing fits, use the closest op and put the residue in "text" — never invent a token.
-5. Never reference card names that do not appear in the oracle text.
+5. Never reference card names that do not appear in the oracle text. The card itself is NEVER a named reference — encode self-reference with ObjectFilter \`or_self\` / subject "this"; never write the literal string "this card" as a name.
 6. faces mirrors the card's faces in order; single-faced cards emit exactly one face. face_name and per-face mana_cost/type line must match the card data exactly.
 
 # Encoding conventions
@@ -75,6 +75,8 @@ Effect: { op, n?, target?, zone_from?, zone_to?, duration?, counter_kind?, keywo
 # Capability layer (the synergy summary — think like a deckbuilder)
 - provides: what the card GIVES a deck. 2–6 entries typically. rate: once | per_turn | repeatable | static. weight 1–5 (5 = format staple at this job).
 - needs: what must already be in a deck for this card to function. criticality: requires (dead without it) | wants (much better with it) | helps (mild). A French-vanilla creature can have zero needs and zero-to-one provides — emptiness is correct, do not pad.
+- needs are MEANINGFUL DECKBUILDING DEPENDENCIES only — things a deckbuilder adds cards specifically to support. NEVER generic preferences: an X spell does not need \`mana.ramp_land\`, a creature does not need \`anthem.global\`, an expensive card does not need \`mana.rock\`, a good card does not need \`card_advantage.draw\`. If every deck would "want" it, it is not a need.
+- \`mana.ramp_land\` (and the \`ramp\` role) require a NET-POSITIVE land or mana count: lands fetched minus lands sacrificed (counting the card itself if it is a land). Sacrificing a land to fetch exactly one land is land TUTORING (\`tutor.land\` / \`tutor.to_battlefield\` param "land"), NOT ramp — Crop Rotation and Urza's Cave are tutors; Myriad Landscape (two basics for itself), Harrow (two for one), and Sakura-Tribe Elder / Wayfarer's Bauble (nonland sacrificed) are ramp.
 - Resource axes are JOIN TOKENS between enablers and payoffs: a sac outlet PROVIDES creatures_dying, Blood Artist NEEDS creatures_dying. Blink engines NEED etb_value; strong ETB cards PROVIDE etb_value. Spellslinger payoffs NEED cast.instant_sorcery_volume; cheap cantrips PROVIDE it.
 - param narrows an axis (tribal type like "Goblin", spell class, counter kind, card class like "creature"/"land"). Apply it on BOTH sides of the join, and only where the card itself is restricted:
   - provides: param states what is actually supplied. A card that doubles only artifact tokens provides \`token.doubler\` param "artifact"; a lands-only reanimator provides \`gy.reanimate\` param "land"; a Goblin token maker provides \`token.creature\` param "Goblin".

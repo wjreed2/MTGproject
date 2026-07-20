@@ -19,3 +19,6 @@ Ready Prompts/Archive-Suggestions/
 
 # engine2 p3 prompt working notes — local only, batched into prompt.js at next full iteration
 docs/engine2-p3-notes.md
+
+# targeted-rerun fixtures are generated from DB state — regenerate, do not version
+engine2/fixtures/reruns/

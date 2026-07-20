@@ -65,10 +65,34 @@ function deckAxisIndex(deckCards, commander) {
         if (rec.strongNames.length < 6) rec.strongNames.push(c.name);
         if (e.strongNames.length < 6) e.strongNames.push(c.name);
       }
+      if (nd.criticality === 'requires') { rec.hard = (rec.hard || 0) + (c.qty || 1); e.hard = (e.hard || 0) + (c.qty || 1); }
       needs.set(nd.axis, rec);
     }
   }
   return { provides, needs };
+}
+
+// Axes that belong to the deck's PLAN: core/support axes of every confident goal
+// hypothesis (top goal always; others at confidence ≥ 0.8 — a 0.98 secondary like
+// Vren's aristocrats is co-primary in practice), plus the tribal staples for tribal
+// goals. Used to decide which "Feeds X" edges deserve headline space: an on-plan edge
+// explains why the card fits the deck; an off-plan one (Solemn "feeding" a lone
+// protection-role Essence Flux) is real but not a reason. Deliberately does NOT
+// include the wanted set — unmet-need wants are what this gate is judging.
+function deckPlanAxes(goals, templates) {
+  const axes = new Set();
+  const confident = (goals || []).filter((g, i) => i === 0 || (g.confidence || 0) >= 0.8);
+  for (const g of confident) {
+    const key = String(g?.goal || '');
+    if (key.startsWith('tribal:')) {
+      for (const ax of ['tribal.lord', 'tribal.synergy', 'tribal.body', 'anthem.global']) axes.add(ax);
+      continue;
+    }
+    const tpl = (templates || []).find(t => t.key === key);
+    for (const grp of tpl?.core || []) for (const ax of grp.axes || []) axes.add(ax);
+    for (const ax of tpl?.support || []) axes.add(ax);
+  }
+  return axes;
 }
 
 // Tribes the deck plausibly plays, from the goal hypotheses (tribal:X entries).
@@ -98,17 +122,18 @@ function matchParam(rec, param, exactOnly) {
   if (!rec) return null;
   if (!exactOnly && (param == null || !rec.entries.some(e => e.param != null))) return rec;
   const key = param == null ? null : String(param).toLowerCase();
-  let count = 0, weight = 0, strong = 0;
+  let count = 0, weight = 0, strong = 0, hard = 0;
   const names = [], strongNames = [];
   for (const e of rec.entries) {
     if (exactOnly ? e.key !== key : !paramOk(param, e.param)) continue;
     count += e.count;
     weight += e.weight || 0;
     strong += e.strong || 0;
+    hard += e.hard || 0;
     for (const n of e.names) if (names.length < 6 && !names.includes(n)) names.push(n);
     for (const n of e.strongNames || []) if (strongNames.length < 6 && !strongNames.includes(n)) strongNames.push(n);
   }
-  return count ? { count, weight, strong, names, strongNames } : null;
+  return count ? { count, weight, strong, hard, names, strongNames } : null;
 }
 
 // Axes the deck WANTS more of: goal core groups below target + needed-but-underfed axes.
@@ -161,12 +186,15 @@ function wantedAxes(goal, hist, index, templates) {
         if (prev) {
           if (cite) {
             prev.needers = cite; // wanted axis that live cards also hard-need — name them
+            prev.neederStrong = grp.strong || 0;
+            prev.neederHard = grp.hard || 0;
             (prev.neederParams = prev.neederParams || []).push(grp.param);
           }
         } else {
           wanted.set(axis, {
             why: 'unmet_need', gap: 2 - have,
             needers: cite, params: [grp.param], neederParams: cite ? [grp.param] : null,
+            neederStrong: grp.strong || 0, neederHard: grp.hard || 0,
           });
         }
       }
@@ -257,6 +285,7 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
   const tribes = deckTribeSet(goals);
   const index = deckAxisIndex(deckCards, commander);
   const wanted = wantedAxes(topGoal?.goal, hist, index, templates);
+  const planAxes = deckPlanAxes(goals, templates);
   const deckNames = new Set(deckCards.map(c => c.name).concat(commander ? [commander.name] : []));
 
   const nonLand = deckCards.filter(c => !isLandCard(c) && !c.isCommander);
@@ -273,6 +302,7 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
     if (!cand.ir || deckNames.has(cand.name)) continue;
     if (maxPrice != null && cand.price != null && cand.price > maxPrice) continue; // hard cap only when set
     const trace = [];
+    const offPlanFeeds = [];
     let score = 0;
 
     // capability fill: provides an axis the deck wants
@@ -285,17 +315,29 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
       const w = w0 && paramFits ? w0 : null;
       if (w) {
         score += (p.weight || 1) * (1 + Math.min(3, w.gap) * 0.5);
-        trace.push({ kind: 'fills_axis', axis: p.axis, param: p.param || null, why: w.why, needers: (neederFits && w.needers) || null });
+        // Name the needers only when the claim carries real weight: on-plan axis, a
+        // hard (requires) dependency, or ≥2 strong needers. A lone off-plan soft want
+        // (Essence Flux's etb appetite in a rat deck) renders as the generic line.
+        const citeOk = neederFits &&
+          (planAxes.has(p.axis) || (w.neederHard || 0) >= 1 || (w.neederStrong || 0) >= 2);
+        trace.push({ kind: 'fills_axis', axis: p.axis, param: p.param || null, why: w.why, needers: (citeOk && w.needers) || null });
       }
       // feeds existing payoffs even when not formally "wanted" (param-compatible only).
       // Only strong demand earns the +4-class score and the "Feeds X" claim; helps-level
       // appetites add a capped nudge with no headline (Solemn Simulacrum must not read
-      // as "feeding" an X spell that mildly wants ramp).
+      // as "feeding" an X spell that mildly wants ramp). The claim itself is further
+      // gated by plan relevance: off-plan edges headline only with ≥2 strong needers
+      // (real aggregate demand); a lone off-plan payoff still scores but is not cited —
+      // and when it is cited, it queues behind the on-plan reasons.
       const needers = matchParam(index.needs.get(p.axis), p.param, bound);
       if (needers && !w) {
         if (needers.strong) {
           score += Math.min(4, needers.strong);
-          trace.push({ kind: 'feeds', axis: p.axis, param: p.param || null, names: needers.strongNames });
+          if (planAxes.has(p.axis) || (needers.hard || 0) >= 1) {
+            trace.push({ kind: 'feeds', axis: p.axis, param: p.param || null, names: needers.strongNames });
+          } else if (needers.strong >= 2) {
+            offPlanFeeds.push({ kind: 'feeds', axis: p.axis, param: p.param || null, names: needers.strongNames });
+          }
         } else {
           score += Math.min(1, needers.count * 0.25);
         }
@@ -339,6 +381,7 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
     }
 
     if (score <= 0.5) continue;
+    trace.push(...offPlanFeeds); // off-plan feeds render last, after on-plan reasons
     scored.push({
       name: cand.name, score: Math.round(score * 100) / 100,
       owned: !!cand.owned, price: cand.price != null ? cand.price : null, priceFlag,
@@ -350,4 +393,4 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
   return scored.slice(0, ADD_COUNT);
 }
 
-module.exports = { scoreCuts, scoreAdds, deckAxisIndex, wantedAxes, matchParam, isLandCard, bucketOf, CUT_COUNT, ADD_COUNT };
+module.exports = { scoreCuts, scoreAdds, deckAxisIndex, wantedAxes, matchParam, deckPlanAxes, isLandCard, bucketOf, CUT_COUNT, ADD_COUNT };
