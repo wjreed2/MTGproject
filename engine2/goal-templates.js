@@ -138,7 +138,9 @@ module.exports = [
     key: 'voltron', label: 'Voltron',
     verb: 'suit up one threat and eliminate players with commander damage',
     core: [
-      { axes: ['voltron.aura_equipment'], min: 4 },
+      // Density is the point: 3-4 boots/blades is every deck's utility-protection
+      // package, not a voltron plan (Helga read as voltron@1.0 off exactly that).
+      { axes: ['voltron.aura_equipment'], min: 8 },
       { axes: ['voltron.carrier', 'body.evasive', 'evasion.grant'], min: 2 },
     ],
     support: ['protection.single', 'tutor.artifact', 'tutor.enchantment'],
