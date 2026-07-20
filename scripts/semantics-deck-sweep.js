@@ -33,6 +33,9 @@ function pool() {
 const ACCEPT = {
   'tokens-wide': ['tokens-wide', 'tribal:Goblin'],
   graveyard: ['graveyard', 'reanimator'],
+  // Meren is a saturated aristocrats/graveyard/reanimator hybrid — all three score 1.0
+  // and tie-order drifts with data updates; graveyard is an accepted read of the deck.
+  reanimator: ['reanimator', 'graveyard'],
   blink: ['blink'],
 };
 

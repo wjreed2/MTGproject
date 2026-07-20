@@ -356,8 +356,8 @@ console.log('adds — confident secondary goals contribute wanted axes');
     ...Array.from({ length: 14 }, (_, i) => ({ name: `Rat ${i}`, qty: 1, cmc: 2, typeLine: 'Creature — Rat', ir: pIR([['tribal.synergy', 'Rat', 2, 'static']], [], { tribal: { types: ['Rat'], lord_of: [] } }) })),
     { name: 'Outlet A', qty: 1, cmc: 1, typeLine: 'Creature — Rat', ir: pIR([['sac.outlet_free', null, 5, 'repeatable']], [], { tribal: { types: ['Rat'], lord_of: [] } }) },
     { name: 'Outlet B', qty: 1, cmc: 2, typeLine: 'Artifact', ir: pIR([['sac.outlet_cost', null, 4, 'repeatable']]) },
-    { name: 'Drain A', qty: 1, cmc: 2, typeLine: 'Creature — Rat', ir: pIR([['trigger.death_payoff', null, 4, 'repeatable']], [['creatures_dying', null, 5, 'requires']], { tribal: { types: ['Rat'], lord_of: [] } }) },
-    { name: 'Drain B', qty: 1, cmc: 2, typeLine: 'Creature — Rat', ir: pIR([['trigger.death_payoff', null, 4, 'repeatable']], [['creatures_dying', null, 5, 'requires']], { tribal: { types: ['Rat'], lord_of: [] } }) },
+    { name: 'Drain A', qty: 1, cmc: 2, typeLine: 'Creature — Rat', ir: pIR([['trigger.death_payoff', null, 4, 'repeatable'], ['drain.incremental', null, 3, 'repeatable']], [['creatures_dying', null, 5, 'requires']], { tribal: { types: ['Rat'], lord_of: [] } }) },
+    { name: 'Drain B', qty: 1, cmc: 2, typeLine: 'Creature — Rat', ir: pIR([['trigger.death_payoff', null, 4, 'repeatable'], ['drain.incremental', null, 3, 'repeatable']], [['creatures_dying', null, 5, 'requires']], { tribal: { types: ['Rat'], lord_of: [] } }) },
     // partial fodder (2 of the core-group min 4) + support so aristocrats rides ≥0.8
     // while its fodder core group still gaps
     { name: 'Fodder A', qty: 1, cmc: 2, typeLine: 'Sorcery', ir: pIR([['token.creature', null, 3, 'once']]) },

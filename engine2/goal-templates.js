@@ -14,6 +14,10 @@ module.exports = [
     core: [
       { axes: ['sac.outlet_free', 'sac.outlet_cost'], min: 2 },
       { axes: ['trigger.death_payoff', 'drain.incremental'], min: 2 },
+      // The DRAIN wincon is what separates aristocrats from sac-for-value shells: a
+      // tribal deck whose commander converts deaths into bodies (Vren) has outlets and
+      // death payoffs but no drain package — it is not an aristocrats deck.
+      { axes: ['drain.incremental', 'lifeloss.payoff'], min: 2 },
       { axes: ['creatures_dying', 'sac.fodder', 'token.creature'], min: 4 },
     ],
     support: ['gy.recursion', 'loop.death_recursion', 'token.creature_wide', 'lifegain.source'],
