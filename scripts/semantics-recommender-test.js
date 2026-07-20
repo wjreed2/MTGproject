@@ -418,6 +418,12 @@ console.log('adds — negated params and the quality floor');
   check('quality floor drops near-zero filler from the list',
     !byName('Barely Anything'),
     JSON.stringify(adds.map(a => [a.name, a.score])));
+  check('trace pts sum to the score (full-breakdown invariant)',
+    adds.every(a => Math.abs((a.trace || []).reduce((s, t) => s + (t.pts || 0), 0) - a.score) < 0.01),
+    JSON.stringify(adds.map(a => [a.name, a.score, (a.trace || []).reduce((s, t) => s + (t.pts || 0), 0)])));
+  check('breakdown renders a line per trace event',
+    adds.every(a => explain.addBreakdown(a).length === (a.trace || []).length),
+    JSON.stringify(explain.addBreakdown(adds[0] || { trace: [] })));
 }
 
 console.log('explain — price note never stands alone');

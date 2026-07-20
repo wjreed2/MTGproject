@@ -77,4 +77,85 @@ function addReasons(add) {
   return out;
 }
 
-module.exports = { cutReasons, addReasons, axisLabel };
+// ── full scoring breakdowns ───────────────────────────────────────────────────
+// Every trace event as a {text, val} line (val = signed points), summing to the score.
+// Debugging-grade transparency for the expandable "Why" panel.
+
+function fmtPts(pts) {
+  const n = Number(pts) || 0;
+  return (n >= 0 ? '+' : '−') + Math.abs(n).toFixed(2);
+}
+
+function addBreakdown(add) {
+  const out = [];
+  for (const t of add.trace || []) {
+    const val = fmtPts(t.pts);
+    const ax = t.axis ? axisLabel(t.axis) + (t.param ? `: ${t.param}` : '') : '';
+    switch (t.kind) {
+      case 'fills_axis':
+        out.push({ text: `Fills wanted axis — ${ax}${t.needers && t.needers.length ? ` (for ${listNames(t.needers)})` : ''} [${t.why}]`, val });
+        break;
+      case 'feeds':
+        out.push({ text: `Feeds ${listNames(t.names)} — ${ax}`, val });
+        break;
+      case 'feeds_offplan':
+        out.push({ text: `Off-plan synergy — ${ax}`, val });
+        break;
+      case 'feeds_weak':
+        out.push({ text: `Weak demand nudge — ${ax}`, val });
+        break;
+      case 'needs_fed':
+        out.push({ text: `Own needs met in this deck (${t.count})`, val });
+        break;
+      case 'would_be_dead':
+        out.push({ text: `Hard requirement unmet here (${t.count})`, val });
+        break;
+      case 'role_deficit':
+        out.push({ text: `${t.cat} deficit (${Math.max(1, Math.round(Number(t.deficit) || 0))} short)`, val });
+        break;
+      case 'curve_fill':
+        out.push({ text: `Under-filled curve spot (MV ${t.bucket})`, val });
+        break;
+      case 'meta_prior':
+        out.push({ text: `EDHREC popularity prior (#${t.rank})`, val });
+        break;
+      case 'owned':
+        out.push({ text: 'In your collection', val });
+        break;
+      case 'price_soft':
+        out.push({ text: `Price preference ($${Number(t.price).toFixed(2)})`, val });
+        break;
+      default:
+        if (t.pts != null) out.push({ text: t.kind, val });
+        break;
+    }
+  }
+  return out;
+}
+
+// Cut traces score the card's CONTRIBUTION to the deck (positive = reasons to keep,
+// negative = reasons to cut); the cut badge shows the inverse. Lines keep the
+// contribution sign so shields read positive.
+function cutBreakdown(cut) {
+  const out = [];
+  for (const t of cut.trace || []) {
+    const val = fmtPts(t.pts);
+    switch (t.kind) {
+      case 'synergy': out.push({ text: `Synergy edges in deck (degree ${Number(t.value).toFixed(1)})`, val }); break;
+      case 'role_protects': out.push({ text: `Protects ${t.cat} target (${t.have}/${Math.round(t.need)})`, val }); break;
+      case 'role_surplus': out.push({ text: `${t.cat} surplus (${t.have} vs ≤${Math.round(t.need)})`, val }); break;
+      case 'goal_fit': out.push({ text: `On-plan provides (${(t.axes || []).map(axisLabel).join(', ')})`, val }); break;
+      case 'dead_need': out.push({ text: `Needs ${axisLabel(t.axis)} — deck has ${t.have || 'none'}`, val }); break;
+      case 'curve_over': out.push({ text: `Overstuffed curve spot (MV ${t.bucket})`, val }); break;
+      case 'shield_staple': out.push({ text: `Staple shield (power hint ${t.hint})`, val }); break;
+      case 'shield_tribe': out.push({ text: `On-tribe shield (${t.type})`, val }); break;
+      case 'shield_commander': out.push({ text: 'Feeds the commander', val }); break;
+      case 'shield_wincon': out.push({ text: `Wincon shield (${t.wc})`, val }); break;
+      case 'nonbo': out.push({ text: `Anti-synergy with ${t.other}`, val }); break;
+      default: if (t.pts != null) out.push({ text: t.kind, val }); break;
+    }
+  }
+  return out;
+}
+
+module.exports = { cutReasons, addReasons, addBreakdown, cutBreakdown, axisLabel };

@@ -295,7 +295,7 @@ function scoreCuts({ deckCards, commander, goals, thresholds, roleCounts }) {
 
     const syn = synergyDegree(c.name, interactions);
     score += Math.min(syn, 40) * 0.35;
-    trace.push({ kind: 'synergy', value: syn, edges: interactions.edges
+    trace.push({ kind: 'synergy', value: syn, pts: Math.min(syn, 40) * 0.35, edges: interactions.edges
       .filter(e => (e.a === c.name || e.b === c.name) && e.type !== 'redundancy').slice(0, 4) });
 
     // role fill: does this card protect a threshold?
@@ -304,35 +304,35 @@ function scoreCuts({ deckCards, commander, goals, thresholds, roleCounts }) {
       const have = roleCounts[cat] || 0;
       const need = thresholds[cat] || 0;
       const afterCut = have - (c.qty || 1);
-      if (afterCut < need) { score += Math.min(need - afterCut, 4) * 2; trace.push({ kind: 'role_protects', cat, have, need }); }
-      else { score -= Math.min(3, afterCut - need) * 0.5; trace.push({ kind: 'role_surplus', cat, have, need }); }
+      if (afterCut < need) { const pts = Math.min(need - afterCut, 4) * 2; score += pts; trace.push({ kind: 'role_protects', cat, have, need, pts }); }
+      else { const pts = -Math.min(3, afterCut - need) * 0.5; score += pts; trace.push({ kind: 'role_surplus', cat, have, need, pts }); }
     }
 
     // goal alignment: provides toward the top goal's axes
     const goalHits = (c.ir.provides || []).filter(p => goalCoreAxes.has(p.axis));
-    if (goalHits.length) { score += goalHits.length * 3; trace.push({ kind: 'goal_fit', axes: goalHits.map(p => p.axis) }); }
+    if (goalHits.length) { score += goalHits.length * 3; trace.push({ kind: 'goal_fit', axes: goalHits.map(p => p.axis), pts: goalHits.length * 3 }); }
 
     // dead needs: requires an axis the deck barely provides (param-compatible only)
     for (const nd of c.ir.needs || []) {
       if (nd.criticality !== 'requires') continue;
       const have = matchParam(index.provides.get(nd.axis), nd.param, tribalBound(tribes, nd.axis, nd.param) ? 'exact' : undefined)?.count || 0;
-      if (have < 2) { score -= have === 0 ? 6 : 2; trace.push({ kind: 'dead_need', axis: nd.axis, have }); }
+      if (have < 2) { const pts = -(have === 0 ? 6 : 2); score += pts; trace.push({ kind: 'dead_need', axis: nd.axis, have, pts }); }
     }
 
     // curve: cards in over-stuffed buckets are slightly more cuttable
     const b = bucketOf(c.cmc);
     const over = (curveCounts[b] / curveTotal) - idealW[b];
-    if (over > 0.03) { score -= over * 20; trace.push({ kind: 'curve_over', bucket: b, over: Math.round(over * 100) / 100 }); }
+    if (over > 0.03) { score -= over * 20; trace.push({ kind: 'curve_over', bucket: b, over: Math.round(over * 100) / 100, pts: -over * 20 }); }
 
     // shields
     const staple = Number(c.ir.power_level_hint) || 0;
-    if (staple >= 5) { score += 8; trace.push({ kind: 'shield_staple', hint: staple }); }
-    else if (staple >= 4) { score += 4; trace.push({ kind: 'shield_staple', hint: staple }); }
-    if (tribalType && (c.ir.tribal?.types || []).includes(tribalType)) { score += 5; trace.push({ kind: 'shield_tribe', type: tribalType }); }
-    if ((c.ir.provides || []).some(p => commanderNeeds.has(p.axis))) { score += 4; trace.push({ kind: 'shield_commander' }); }
-    if (c.ir.wincon) { score += 4; trace.push({ kind: 'shield_wincon', wc: c.ir.wincon.kind }); }
+    if (staple >= 5) { score += 8; trace.push({ kind: 'shield_staple', hint: staple, pts: 8 }); }
+    else if (staple >= 4) { score += 4; trace.push({ kind: 'shield_staple', hint: staple, pts: 4 }); }
+    if (tribalType && (c.ir.tribal?.types || []).includes(tribalType)) { score += 5; trace.push({ kind: 'shield_tribe', type: tribalType, pts: 5 }); }
+    if ((c.ir.provides || []).some(p => commanderNeeds.has(p.axis))) { score += 4; trace.push({ kind: 'shield_commander', pts: 4 }); }
+    if (c.ir.wincon) { score += 4; trace.push({ kind: 'shield_wincon', wc: c.ir.wincon.kind, pts: 4 }); }
     for (const e of interactions.edges) {
-      if (e.type === 'nonbo' && (e.a === c.name || e.b === c.name)) { score -= 5; trace.push({ kind: 'nonbo', axis: e.axis, other: e.a === c.name ? e.b : e.a }); break; }
+      if (e.type === 'nonbo' && (e.a === c.name || e.b === c.name)) { score -= 5; trace.push({ kind: 'nonbo', axis: e.axis, other: e.a === c.name ? e.b : e.a, pts: -5 }); break; }
     }
 
     scored.push({ name: c.name, contribution: Math.round(score * 100) / 100, trace });
@@ -382,13 +382,14 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
       const neederFits = !w0?.neederParams || w0.neederParams.some(fit);
       const w = w0 && paramFits ? w0 : null;
       if (w) {
-        score += (p.weight || 1) * (1 + Math.min(3, w.gap) * 0.5);
+        const pts = (p.weight || 1) * (1 + Math.min(3, w.gap) * 0.5);
+        score += pts;
         // Name the needers only when the claim carries real weight: on-plan axis, a
         // hard (requires) dependency, or ≥2 strong needers. A lone off-plan soft want
         // (Essence Flux's etb appetite in a rat deck) renders as the generic line.
         const citeOk = neederFits &&
           (planAxes.has(p.axis) || (w.neederHard || 0) >= 1 || (w.neederStrong || 0) >= 2);
-        trace.push({ kind: 'fills_axis', axis: p.axis, param: p.param || null, why: w.why, needers: (citeOk && w.needers) || null });
+        trace.push({ kind: 'fills_axis', axis: p.axis, param: p.param || null, why: w.why, needers: (citeOk && w.needers) || null, pts });
       }
       // feeds existing payoffs even when not formally "wanted" (param-compatible only).
       // Only strong demand earns the +4-class score and the "Feeds X" claim; helps-level
@@ -400,14 +401,19 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
       const needers = matchParam(index.needs.get(p.axis), p.param, bound ? 'exact' : 'serves');
       if (needers && !w) {
         if (needers.strong) {
-          score += Math.min(4, needers.strong);
+          const pts = Math.min(4, needers.strong);
+          score += pts;
           if (planAxes.has(p.axis) || (needers.hard || 0) >= 1) {
-            trace.push({ kind: 'feeds', axis: p.axis, param: p.param || null, names: needers.strongNames });
+            trace.push({ kind: 'feeds', axis: p.axis, param: p.param || null, names: needers.strongNames, pts });
           } else if (needers.strong >= 2) {
-            offPlanFeeds.push({ kind: 'feeds', axis: p.axis, param: p.param || null, names: needers.strongNames });
+            offPlanFeeds.push({ kind: 'feeds', axis: p.axis, param: p.param || null, names: needers.strongNames, pts });
+          } else {
+            trace.push({ kind: 'feeds_offplan', axis: p.axis, param: p.param || null, pts });
           }
         } else {
-          score += Math.min(1, needers.count * 0.25);
+          const pts = Math.min(1, needers.count * 0.25);
+          score += pts;
+          trace.push({ kind: 'feeds_weak', axis: p.axis, param: p.param || null, pts });
         }
       }
     }
@@ -418,8 +424,8 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
       if (have >= 2) fedNeeds++;
       else if (nd.criticality === 'requires') deadNeeds++;
     }
-    if (fedNeeds) { score += fedNeeds * 1.5; trace.push({ kind: 'needs_fed', count: fedNeeds }); }
-    if (deadNeeds) { score -= deadNeeds * 6; trace.push({ kind: 'would_be_dead', count: deadNeeds }); }
+    if (fedNeeds) { score += fedNeeds * 1.5; trace.push({ kind: 'needs_fed', count: fedNeeds, pts: fedNeeds * 1.5 }); }
+    if (deadNeeds) { score -= deadNeeds * 6; trace.push({ kind: 'would_be_dead', count: deadNeeds, pts: -deadNeeds * 6 }); }
 
     // role deficits — but roles are param-blind, so a role whose backing axes are ALL
     // context-excluded earns nothing (Higure's 'tutor' role is tutor.creature(Ninja);
@@ -432,7 +438,7 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
         if (inFamily.length && inFamily.every(p => tribalBound(tribes, p.axis, p.param))) continue;
       }
       const deficit = (thresholds[cat] || 0) - (roleCounts[cat] || 0);
-      if (deficit > 0) { score += Math.min(deficit, 5); trace.push({ kind: 'role_deficit', cat, deficit }); }
+      if (deficit > 0) { const pts = Math.min(deficit, 5); score += pts; trace.push({ kind: 'role_deficit', cat, deficit, pts }); }
     }
 
     // curve deficit — lands don't occupy a curve slot, so no bucket-0 credit for them
@@ -441,17 +447,19 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
     if (!isLandCard(cand)) {
       const b = bucketOf(cand.cmc);
       const underBy = idealW[b] - (curveCounts[b] / curveTotal);
-      if (underBy > 0.02) { score += Math.min(underBy * 15, 1.5); trace.push({ kind: 'curve_fill', bucket: b }); }
+      if (underBy > 0.02) { const pts = Math.min(underBy * 15, 1.5); score += pts; trace.push({ kind: 'curve_fill', bucket: b, pts }); }
     }
 
     // meta-popularity as a weak prior
-    if (cand.edhrecRank != null && cand.edhrecRank < 2000) score += 0.75;
+    if (cand.edhrecRank != null && cand.edhrecRank < 2000) { score += 0.75; trace.push({ kind: 'meta_prior', rank: cand.edhrecRank, pts: 0.75 }); }
 
     // collection preference + soft price behavior
-    if (cand.owned) { score += 1.5; trace.push({ kind: 'owned' }); }
+    if (cand.owned) { score += 1.5; trace.push({ kind: 'owned', pts: 1.5 }); }
     let priceFlag = null;
     if (cand.price != null) {
-      score -= Math.min(1, cand.price / 60) * 0.4; // prefer cheaper when scores are close
+      const pts = -Math.min(1, cand.price / 60) * 0.4; // prefer cheaper when scores are close
+      score += pts;
+      trace.push({ kind: 'price_soft', price: cand.price, pts });
       if (flagAbove != null && cand.price > flagAbove) priceFlag = 'expensive';
     }
 
