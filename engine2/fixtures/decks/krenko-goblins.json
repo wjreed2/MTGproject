@@ -1,0 +1,293 @@
+{
+  "name": "Average Krenko, Mob Boss deck (EDHREC)",
+  "commander": "Krenko, Mob Boss",
+  "source": "edhrec-average",
+  "source_url": "https://json.edhrec.com/pages/average-decks/krenko-mob-boss.json",
+  "cards": [
+    {
+      "name": "Abrade",
+      "qty": 1
+    },
+    {
+      "name": "Arcane Signet",
+      "qty": 1
+    },
+    {
+      "name": "Arena of Glory",
+      "qty": 1
+    },
+    {
+      "name": "Battle Cry Goblin",
+      "qty": 1
+    },
+    {
+      "name": "Battle Hymn",
+      "qty": 1
+    },
+    {
+      "name": "Beetleback Chief",
+      "qty": 1
+    },
+    {
+      "name": "Blasphemous Act",
+      "qty": 1
+    },
+    {
+      "name": "Blood Moon",
+      "qty": 1
+    },
+    {
+      "name": "Boggart Shenanigans",
+      "qty": 1
+    },
+    {
+      "name": "Brightstone Ritual",
+      "qty": 1
+    },
+    {
+      "name": "Castle Embereth",
+      "qty": 1
+    },
+    {
+      "name": "Chaos Warp",
+      "qty": 1
+    },
+    {
+      "name": "Coat of Arms",
+      "qty": 1
+    },
+    {
+      "name": "Conspicuous Snoop",
+      "qty": 1
+    },
+    {
+      "name": "Den of the Bugbear",
+      "qty": 1
+    },
+    {
+      "name": "Dragon Fodder",
+      "qty": 1
+    },
+    {
+      "name": "Faithless Looting",
+      "qty": 1
+    },
+    {
+      "name": "Gempalm Incinerator",
+      "qty": 1
+    },
+    {
+      "name": "General Kreat, the Boltbringer",
+      "qty": 1
+    },
+    {
+      "name": "Goblin Bombardment",
+      "qty": 1
+    },
+    {
+      "name": "Goblin Chieftain",
+      "qty": 1
+    },
+    {
+      "name": "Goblin Chirurgeon",
+      "qty": 1
+    },
+    {
+      "name": "Goblin Grenade",
+      "qty": 1
+    },
+    {
+      "name": "Goblin Instigator",
+      "qty": 1
+    },
+    {
+      "name": "Goblin King",
+      "qty": 1
+    },
+    {
+      "name": "Goblin Lackey",
+      "qty": 1
+    },
+    {
+      "name": "Goblin Matron",
+      "qty": 1
+    },
+    {
+      "name": "Goblin Piledriver",
+      "qty": 1
+    },
+    {
+      "name": "Goblin Recruiter",
+      "qty": 1
+    },
+    {
+      "name": "Goblin Ringleader",
+      "qty": 1
+    },
+    {
+      "name": "Goblin Trashmaster",
+      "qty": 1
+    },
+    {
+      "name": "Goblin War Strike",
+      "qty": 1
+    },
+    {
+      "name": "Goblin Warchief",
+      "qty": 1
+    },
+    {
+      "name": "Grenzo, Havoc Raiser",
+      "qty": 1
+    },
+    {
+      "name": "Hazoret's Monument",
+      "qty": 1
+    },
+    {
+      "name": "Hexing Squelcher",
+      "qty": 1
+    },
+    {
+      "name": "Hobgoblin Bandit Lord",
+      "qty": 1
+    },
+    {
+      "name": "Hordeling Outburst",
+      "qty": 1
+    },
+    {
+      "name": "Howlsquad Heavy",
+      "qty": 1
+    },
+    {
+      "name": "Impact Tremors",
+      "qty": 1
+    },
+    {
+      "name": "Kiki-Jiki, Mirror Breaker",
+      "qty": 1
+    },
+    {
+      "name": "Krenko, Tin Street Kingpin",
+      "qty": 1
+    },
+    {
+      "name": "Krenko's Command",
+      "qty": 1
+    },
+    {
+      "name": "Legion Warboss",
+      "qty": 1
+    },
+    {
+      "name": "Lightning Bolt",
+      "qty": 1
+    },
+    {
+      "name": "Lightning Greaves",
+      "qty": 1
+    },
+    {
+      "name": "Massive Raid",
+      "qty": 1
+    },
+    {
+      "name": "Mogg War Marshal",
+      "qty": 1
+    },
+    {
+      "name": "Mountain",
+      "qty": 29
+    },
+    {
+      "name": "Muxus, Goblin Grandee",
+      "qty": 1
+    },
+    {
+      "name": "Pashalik Mons",
+      "qty": 1
+    },
+    {
+      "name": "Path of Ancestry",
+      "qty": 1
+    },
+    {
+      "name": "Patriar's Seal",
+      "qty": 1
+    },
+    {
+      "name": "Purphoros, God of the Forge",
+      "qty": 1
+    },
+    {
+      "name": "Quest for the Goblin Lord",
+      "qty": 1
+    },
+    {
+      "name": "Raid Bombardment",
+      "qty": 1
+    },
+    {
+      "name": "Ruby Medallion",
+      "qty": 1
+    },
+    {
+      "name": "Rundvelt Hordemaster",
+      "qty": 1
+    },
+    {
+      "name": "Shared Animosity",
+      "qty": 1
+    },
+    {
+      "name": "Siege-Gang Commander",
+      "qty": 1
+    },
+    {
+      "name": "Skirk Prospector",
+      "qty": 1
+    },
+    {
+      "name": "Skullclamp",
+      "qty": 1
+    },
+    {
+      "name": "Sol Ring",
+      "qty": 1
+    },
+    {
+      "name": "Staff of Domination",
+      "qty": 1
+    },
+    {
+      "name": "Sting, the Glinting Dagger",
+      "qty": 1
+    },
+    {
+      "name": "Swiftfoot Boots",
+      "qty": 1
+    },
+    {
+      "name": "Thousand-Year Elixir",
+      "qty": 1
+    },
+    {
+      "name": "Three Tree City",
+      "qty": 1
+    },
+    {
+      "name": "Thrill of Possibility",
+      "qty": 1
+    },
+    {
+      "name": "Vandalblast",
+      "qty": 1
+    },
+    {
+      "name": "Warren Instigator",
+      "qty": 1
+    }
+  ],
+  "archetype_expected": "tokens-wide"
+}

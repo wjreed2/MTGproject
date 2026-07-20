@@ -1,0 +1,68 @@
+{
+  "row": {
+    "oracle_id": "00000000-0000-4000-8000-000000000005",
+    "name": "Viscera Seer",
+    "type_line": "Creature — Vampire Wizard",
+    "oracle_text": "Sacrifice a creature: Scry 1. (Look at the top card of your library. You may put that card on the bottom of your library.)",
+    "mana_cost": "{B}",
+    "cmc": 1,
+    "colors_json": ["B"],
+    "color_identity_json": ["B"],
+    "power": "1",
+    "toughness": "1",
+    "loyalty": null,
+    "keywords_json": [],
+    "layout": "normal",
+    "produced_mana_json": [],
+    "faces_json": null
+  },
+  "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "00000000-0000-4000-8000-000000000005",
+    "name": "Viscera Seer",
+    "layout": "normal",
+    "faces": [
+      {
+        "face_name": "Viscera Seer",
+        "types": { "super": [], "card": ["Creature"], "sub": ["Vampire", "Wizard"] },
+        "mana_cost": "{B}",
+        "mana_value": 1,
+        "colors": ["B"],
+        "pt": { "power": "1", "toughness": "1" },
+        "loyalty": null,
+        "defense": null,
+        "costs": { "additional": [], "alternative": [] },
+        "keywords": [],
+        "abilities": [
+          {
+            "kind": "activated",
+            "cost": { "mana": null, "tap": false, "sacrifice": { "types": ["creature"], "controller": "you" }, "life": null, "discard": null },
+            "activation_limit": "any_time",
+            "layer": null,
+            "effects": [
+              { "op": "scry", "n": { "kind": "fixed", "value": 1 }, "target": { "who": "you" } }
+            ],
+            "text": "Sacrifice a creature: Scry 1."
+          }
+        ],
+        "restrictions": [],
+        "cdf": null
+      }
+    ],
+    "provides": [
+      { "axis": "sac.outlet_free", "param": null, "rate": "repeatable", "weight": 5 },
+      { "axis": "creatures_dying", "param": null, "rate": "repeatable", "weight": 4 },
+      { "axis": "topdeck.manipulation", "param": null, "rate": "repeatable", "weight": 1 }
+    ],
+    "needs": [
+      { "axis": "sac.fodder", "param": null, "criticality": "wants", "weight": 4 }
+    ],
+    "roles": ["sac_outlet"],
+    "anti": [],
+    "wincon": null,
+    "tribal": { "types": ["Vampire", "Wizard"], "lord_of": [] },
+    "power_level_hint": 3,
+    "confidence": 0.98
+  }
+}

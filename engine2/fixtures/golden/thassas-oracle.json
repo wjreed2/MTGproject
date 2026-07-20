@@ -1,0 +1,80 @@
+{
+  "row": {
+    "oracle_id": "00000000-0000-4000-8000-000000000013",
+    "name": "Thassa's Oracle",
+    "type_line": "Creature — Merfolk Wizard",
+    "oracle_text": "When Thassa's Oracle enters, look at the top X cards of your library, where X is your devotion to blue. Put up to one of them on top of your library and the rest on the bottom of your library in a random order. If X is greater than or equal to the number of cards in your library, you win the game. (Each {U} in the mana costs of permanents you control counts toward your devotion to blue.)",
+    "mana_cost": "{U}{U}",
+    "cmc": 2,
+    "colors_json": ["U"],
+    "color_identity_json": ["U"],
+    "power": "1",
+    "toughness": "3",
+    "loyalty": null,
+    "keywords_json": [],
+    "layout": "normal",
+    "produced_mana_json": [],
+    "faces_json": null
+  },
+  "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "00000000-0000-4000-8000-000000000013",
+    "name": "Thassa's Oracle",
+    "layout": "normal",
+    "faces": [
+      {
+        "face_name": "Thassa's Oracle",
+        "types": { "super": [], "card": ["Creature"], "sub": ["Merfolk", "Wizard"] },
+        "mana_cost": "{U}{U}",
+        "mana_value": 2,
+        "colors": ["U"],
+        "pt": { "power": "1", "toughness": "3" },
+        "loyalty": null,
+        "defense": null,
+        "costs": { "additional": [], "alternative": [] },
+        "keywords": [],
+        "abilities": [
+          {
+            "kind": "triggered",
+            "trigger": { "event": "etb", "subject": { "or_self": true }, "controller_scope": "you", "condition": null, "once_each_turn": false },
+            "effects": [
+              {
+                "op": "look_at",
+                "n": { "kind": "x", "formula": "your devotion to blue" },
+                "target": { "who": "you" },
+                "text": "look at the top X cards of your library, where X is your devotion to blue"
+              },
+              {
+                "op": "tuck",
+                "target": { "who": "you", "object": { "zone": "library" } },
+                "text": "Put up to one of them on top of your library and the rest on the bottom of your library in a random order"
+              },
+              {
+                "op": "branch",
+                "condition": { "text": "If X is greater than or equal to the number of cards in your library", "metric": "devotion_blue>=library_size" },
+                "sub": [ { "op": "win_game", "target": { "who": "you" } } ]
+              }
+            ],
+            "text": "When Thassa's Oracle enters, look at the top X cards of your library, where X is your devotion to blue. Put up to one of them on top of your library and the rest on the bottom of your library in a random order. If X is greater than or equal to the number of cards in your library, you win the game."
+          }
+        ],
+        "restrictions": [],
+        "cdf": null
+      }
+    ],
+    "provides": [
+      { "axis": "wincon.alt", "param": "empty_library", "rate": "once", "weight": 5 },
+      { "axis": "topdeck.manipulation", "param": null, "rate": "once", "weight": 1 }
+    ],
+    "needs": [
+      { "axis": "self_exile_library", "param": null, "criticality": "wants", "weight": 5 }
+    ],
+    "roles": ["wincon"],
+    "anti": [],
+    "wincon": { "kind": "alt_win", "detail": "wins on resolution when library is empty (or devotion covers it)" },
+    "tribal": { "types": ["Merfolk", "Wizard"], "lord_of": [] },
+    "power_level_hint": 5,
+    "confidence": 0.96
+  }
+}

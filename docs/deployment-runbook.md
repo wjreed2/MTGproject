@@ -34,6 +34,30 @@ openssl rand -base64 48
 
 Use a **new** value for production; do not reuse dev secrets in prod if you want blast-radius isolation (optional but recommended).
 
+## 1b. Engine2 semantics data (dev → prod sync)
+
+All CardIR extraction runs **dev-side only** (`scripts/semantics-extract.js`); prod never
+calls an LLM. Finished rows move to prod through an authenticated ingest endpoint,
+mirroring the changelog pipeline:
+
+1. Railway → add `SEMANTICS_INGEST_SECRET` (long random string; `openssl rand -base64 48`).
+2. Local `.env` → the same `SEMANTICS_INGEST_SECRET`, plus `MTG_API_URL=https://yourdomain.com`.
+3. First load and every incremental load thereafter:
+
+   ```bash
+   node scripts/semantics-push-prod.js --dry-run   # preview what would move
+   node scripts/semantics-push-prod.js             # incremental (updated_at watermark)
+   node scripts/semantics-push-prod.js --full      # re-push everything (idempotent upserts)
+   ```
+
+   Incremental is automatic: the script reads the target's `updated_at` watermark from
+   `GET /api/internal/semantics-ingest/status` and pushes only rows extracted or patched
+   since the last sync — so the workflow is simply "run extraction locally, then run the
+   push". Batches of 150 cards inside a transaction; axes rows are replaced per card.
+
+4. Prod also needs the oracle catalog current (admin **import-oracle** endpoint) so the
+   new `scryfall_oracle_cards` columns are populated — the analyze route joins on them.
+
 ## 2. Deploy
 
 1. Push to the branch Railway deploys from (often `main`).
