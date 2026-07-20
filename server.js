@@ -586,6 +586,26 @@ async function tryInsertAppChangelog(body) {
   return { ok: true, publishedAt: at };
 }
 
+// Semantics ingest (engine2): same bearer-secret pattern as changelog ingest.
+// All semantic extraction happens dev-side; prod only ever RECEIVES finished
+// CardIR rows through this endpoint (scripts/semantics-push-prod.js).
+function requireSemanticsIngestSecret(req, res, next) {
+  const secret = String(process.env.SEMANTICS_INGEST_SECRET || '').trim();
+  if (!secret) {
+    return res.status(503).json({
+      error: 'SEMANTICS_INGEST_SECRET is not set — semantics ingest is disabled',
+    });
+  }
+  const auth = String(req.headers.authorization || '');
+  const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
+  const tokenBuf = Buffer.from(token);
+  const secretBuf = Buffer.from(secret);
+  if (tokenBuf.length !== secretBuf.length || !crypto.timingSafeEqual(tokenBuf, secretBuf)) {
+    return res.status(401).json({ error: 'Invalid or missing Authorization: Bearer <SEMANTICS_INGEST_SECRET>' });
+  }
+  next();
+}
+
 function requireChangelogIngestSecret(req, res, next) {
   const secret = String(process.env.CHANGELOG_INGEST_SECRET || '').trim();
   if (!secret) {
@@ -9312,6 +9332,78 @@ app.post('/api/internal/changelog-ingest', requireChangelogIngestSecret, async (
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Semantics ingest (engine2 dev→prod sync) ─────────────────────────────────
+// Extraction NEVER runs in prod. scripts/semantics-push-prod.js reads the dev DB
+// and pushes finished CardIR rows here in batches; `status` exposes the
+// updated_at watermark that makes the sync incremental.
+
+/** Watermark + row counts — the push script diffs against this. */
+app.get('/api/internal/semantics-ingest/status', requireSemanticsIngestSecret, async (req, res) => {
+  try {
+    const [[row]] = await db().query(
+      `SELECT COUNT(*) n, COALESCE(MAX(updated_at), 0) maxUpdatedAt FROM card_semantics`);
+    const [[ax]] = await db().query(`SELECT COUNT(*) n FROM card_semantics_axes`);
+    res.json({ cards: Number(row.n), axes: Number(ax.n), maxUpdatedAt: Number(row.maxUpdatedAt) });
+  } catch (e) {
+    console.error('[semantics-ingest]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Batch upsert of CardIR rows (card_semantics + replaced card_semantics_axes). */
+app.post('/api/internal/semantics-ingest', requireSemanticsIngestSecret, async (req, res) => {
+  const cards = Array.isArray(req.body?.cards) ? req.body.cards : null;
+  if (!cards || !cards.length) return res.status(400).json({ error: 'cards[] required' });
+  if (cards.length > 200) return res.status(400).json({ error: 'max 200 cards per batch' });
+  const AXIS_KINDS = new Set(['provides', 'needs', 'anti']);
+  for (const c of cards) {
+    if (!/^[0-9a-f-]{36}$/i.test(String(c?.oracle_id || ''))) return res.status(400).json({ error: `bad oracle_id: ${c?.oracle_id}` });
+    if (typeof c.ir_json !== 'string' || !c.ir_json.length || c.ir_json.length > 65000) return res.status(400).json({ error: `bad ir_json for ${c.oracle_id}` });
+    if (!Array.isArray(c.axes) || c.axes.length > 64 || c.axes.some(a => !AXIS_KINDS.has(a?.kind) || !a?.axis)) {
+      return res.status(400).json({ error: `bad axes for ${c.oracle_id}` });
+    }
+  }
+  const conn = await db().getConnection();
+  try {
+    await conn.beginTransaction();
+    for (const c of cards) {
+      await conn.query(
+        `INSERT INTO card_semantics
+           (oracle_id, ir_version, vocab_version, ir_json, roles_json, confidence, validation_score,
+            status, run_id, model, prompt_version, updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+         ON DUPLICATE KEY UPDATE
+           ir_version=VALUES(ir_version), vocab_version=VALUES(vocab_version), ir_json=VALUES(ir_json),
+           roles_json=VALUES(roles_json), confidence=VALUES(confidence), validation_score=VALUES(validation_score),
+           status=VALUES(status), run_id=VALUES(run_id), model=VALUES(model),
+           prompt_version=VALUES(prompt_version), updated_at=VALUES(updated_at)`,
+        [c.oracle_id, c.ir_version || 1, c.vocab_version || 1, c.ir_json,
+         c.roles_json != null ? (typeof c.roles_json === 'string' ? c.roles_json : JSON.stringify(c.roles_json)) : null,
+         Number(c.confidence) || 0, c.validation_score != null ? Number(c.validation_score) : null,
+         ['valid', 'flagged', 'review', 'manual'].includes(c.status) ? c.status : 'valid',
+         String(c.run_id || 'sync').slice(0, 40), String(c.model || 'sync').slice(0, 60),
+         String(c.prompt_version || '?').slice(0, 20), Number(c.updated_at) || Date.now()]);
+      await conn.query('DELETE FROM card_semantics_axes WHERE oracle_id = ?', [c.oracle_id]);
+      if (c.axes.length) {
+        await conn.query(
+          `INSERT IGNORE INTO card_semantics_axes (oracle_id, kind, axis, param, weight, rate)
+           VALUES ${c.axes.map(() => '(?,?,?,?,?,?)').join(',')}`,
+          c.axes.flatMap(a => [c.oracle_id, a.kind, String(a.axis).slice(0, 60),
+            a.param != null ? String(a.param).slice(0, 60) : null, Number(a.weight) || 1,
+            a.rate != null ? String(a.rate).slice(0, 12) : null]));
+      }
+    }
+    await conn.commit();
+    res.json({ ok: true, upserted: cards.length });
+  } catch (e) {
+    try { await conn.rollback(); } catch (_) { /* already gone */ }
+    console.error('[semantics-ingest]', e);
+    res.status(500).json({ error: e.message });
+  } finally {
+    conn.release();
   }
 });
 
