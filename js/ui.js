@@ -1,6 +1,15 @@
 // Tab navigation and shared UI utilities
 
-function showTab(t) {
+function _renderGamesTab() {
+  if (!window.THREE) {
+    import('/vendor/three.module.min.js').then(m => { window.THREE = m; renderAllLifeDice3D(); });
+  }
+  renderGames();
+}
+
+/** @param opts.skipRender — set the active tab chrome only; the caller renders
+ *  the content itself (boot paint uses this to avoid double-rendering). */
+function showTab(t, opts) {
   document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.mob-nav-item').forEach(el => el.classList.remove('active'));
@@ -26,6 +35,7 @@ function showTab(t) {
     }
   }
   if (t !== 'collection' && typeof exitSharedCollectionView === 'function' && typeof _viewingSharedCollOwnerId !== 'undefined' && _viewingSharedCollOwnerId) exitSharedCollectionView();
+  if (opts && opts.skipRender) return;
   if (t === 'collection') renderCollection();
   if (t === 'sets') loadSets();
   if (t === 'decks') renderDecks();
@@ -33,12 +43,31 @@ function showTab(t) {
   if (t === 'wishlist') renderWishlist();
   if (t === 'trade') renderTrade();
   if (t === 'stats') renderStats();
-  if (t === 'games') {
-    if (!window.THREE) {
-      import('/vendor/three.module.min.js').then(m => { window.THREE = m; renderAllLifeDice3D(); });
-    }
-    renderGames();
-  }
+  if (t === 'games') _renderGamesTab();
+}
+
+// ── Boot splash ───────────────────────────────────────────────────────────────
+// Full-screen overlay defined in index.html; covers the app shell until the
+// first data paint. Also reused as the loading state for gate logins.
+
+function bootSplashStatus(msg) {
+  const el = document.getElementById('bootSplashStatus');
+  if (el && msg) el.textContent = msg;
+}
+
+function bootSplashShow(msg) {
+  const s = document.getElementById('bootSplash');
+  if (!s) return;
+  s.style.display = 'flex';
+  s.style.opacity = '1';
+  if (msg) bootSplashStatus(msg);
+}
+
+function bootSplashDone() {
+  const s = document.getElementById('bootSplash');
+  if (!s || s.style.display === 'none') return;
+  s.style.opacity = '0';
+  setTimeout(() => { s.style.display = 'none'; }, 300);
 }
 
 // ── Custom confirm dialog ─────────────────────────────────────────────────────
@@ -204,6 +233,28 @@ function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => _HTML_ESCAPE_MAP[c]);
 }
 
+// ── Card-image fade bookkeeping ───────────────────────────────────────────────
+// Card grids fade images in on first decode (.card-img-wrap img / .stack-main /
+// .deck-search-art img CSS). Grids re-render via innerHTML, which recreates
+// every <img> and used to replay that fade — reading as a full "reload" of all
+// card art on each edit. URLs that have already faded in once this session are
+// tracked here so rebuilt tiles render with .loaded (visible) immediately.
+const _imgFadeSeen = new Set();
+
+/** onload hook for card <img> tags: record that this URL has been shown. */
+function imgFadeSeenMark(el) {
+  const u = el && (el.currentSrc || el.src);
+  if (u) _imgFadeSeen.add(u);
+}
+
+/** Render-time check: 'loaded' when any candidate URL already faded in. */
+function imgFadeLoadedCls(...urls) {
+  for (const u of urls) {
+    if (u && _imgFadeSeen.has(u)) return 'loaded';
+  }
+  return '';
+}
+
 /**
  * Build the src/srcset/loading/decoding attributes for a card thumbnail.
  * Cards carry both `image` (Scryfall small ~146px) and `imageLarge` (normal ~488px).
@@ -211,6 +262,8 @@ function escapeHtml(s) {
  * normal on hi-DPR screens via the 2x descriptor — big bandwidth/decode win, no
  * visible quality loss. The 'large' view (220px tiles) needs normal even at 1x.
  * Returns '' when the card has no image (caller should render its placeholder).
+ * Includes class="loaded" for already-seen images (fade bookkeeping above), so
+ * callers must not add their own class attribute.
  */
 function cardThumbAttrs(card, view) {
   const small = card && card.image;
@@ -221,7 +274,8 @@ function cardThumbAttrs(card, view) {
   const src = useSmall ? lil : big;
   const srcset = (useSmall && lil && big && lil !== big)
     ? ` srcset="${escapeHtml(lil)} 1x, ${escapeHtml(big)} 2x"` : '';
-  return `src="${escapeHtml(src)}"${srcset} loading="lazy" decoding="async"`;
+  const seen = imgFadeLoadedCls(src, srcset ? big : '');
+  return `src="${escapeHtml(src)}"${srcset} loading="lazy" decoding="async"${seen ? ' class="loaded"' : ''}`;
 }
 
 function _escapeWhatsNewHtml(s) {
