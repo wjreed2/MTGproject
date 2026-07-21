@@ -538,6 +538,56 @@ console.log('adds — saturated decks get reinforcement, not silence');
     JSON.stringify(adds[0] && explain.addReasons(adds[0])));
 }
 
+console.log('adds — emergent sub-archetypes (demand pool + dominant reinforcement)');
+{
+  const pIR = (provides, needs, extra) => ({
+    provides: (provides || []).map(([axis, param, w, rate]) => ({ axis, param: param || null, rate: rate || 'once', weight: w || 3 })),
+    needs: (needs || []).map(([axis, param, w, crit]) => ({ axis, param: param || null, criticality: crit || 'wants', weight: w || 3 })),
+    anti: [], roles: [], wincon: null, tribal: { types: [], lord_of: [] }, faces: [], ...extra,
+  });
+  // Saturated Food/lifegain deck: token.food is both a dominant axis (9 producers)
+  // and a standing demand (two strong eaters) — it must reach the pool and the
+  // reinforcement set even though every template requirement is satisfied.
+  const deck = [
+    ...Array.from({ length: 7 }, (_, i) => ({ name: `Sister ${i}`, qty: 1, cmc: 2, typeLine: 'Creature — Cleric', ir: pIR([['lifegain.source', null, 3, 'repeatable']]) })),
+    ...Array.from({ length: 9 }, (_, i) => ({ name: `Chef ${i}`, qty: 1, cmc: 2, typeLine: 'Creature — Halfling', ir: pIR([['token.food', null, 3, 'per_turn'], ['lifegain.source', null, 2, 'repeatable']]) })),
+    ...Array.from({ length: 3 }, (_, i) => ({ name: `Payoff ${i}`, qty: 1, cmc: 3, typeLine: 'Creature — Treefolk', ir: pIR([['lifegain.payoff', null, 4, 'repeatable']], [['lifegain.source', null, 3, 'wants']]) })),
+    { name: 'Eater A', qty: 1, cmc: 2, typeLine: 'Creature — Hobbit', ir: pIR([['counters.plus1', null, 3, 'once']], [['token.food', null, 4, 'wants']]) },
+    { name: 'Eater B', qty: 1, cmc: 3, typeLine: 'Enchantment', ir: pIR([['wincon.alt', null, 3, 'once']], [['token.food', null, 4, 'wants']]) },
+    { name: 'Greenwood', qty: 30, cmc: 0, typeLine: 'Basic Land — Forest', ir: pIR([], [], { roles: ['land'] }) },
+  ];
+  const cmd = { name: 'Host', ir: pIR([['token.food', null, 3, 'per_turn'], ['lifegain.payoff', null, 3, 'repeatable']], [['lifegain.source', null, 5, 'requires']]) };
+  const g = inferGoals(deck, cmd, {});
+  const index = rec.deckAxisIndex(deck, cmd);
+  const wanted = rec.wantedAxes(g.goals[0]?.goal, g.histogram, index, templates, g.goals);
+  check('dominant axis reaches the reinforcement set', wanted.has('token.food'), JSON.stringify([...wanted.keys()]));
+  const pool = rec.poolAxes(wanted, index, 12);
+  check('standing demand reaches the pool axes', pool.includes('token.food'), JSON.stringify(pool));
+  check('wanted axes lead the pool list', [...wanted.keys()].every(ax => pool.includes(ax)), JSON.stringify(pool));
+  // A Manufactor-shaped candidate (only Food value) now scores and cites the eaters
+  const cands = [
+    { name: 'Food Tripler', ir: pIR([['token.food', null, 4, 'static']], [['token.food', null, 3, 'wants']]), cmc: 3, price: 1, owned: false, edhrecRank: 300 },
+  ];
+  const adds = rec.scoreAdds({ deckCards: deck, commander: cmd, goals: g.goals, thresholds: th.computeThresholds({ goal: g.goals[0]?.goal }), roleCounts: th.countRoles(deck), hist: g.histogram, candidates: cands, budget: { maxCardPrice: null, flagAbove: 5 }, templates });
+  check('food-only candidate scores above the floor', adds.length === 1, JSON.stringify(adds.map(a => [a.name, a.score])));
+  // Doubler-substrate scaling: a Food-kind doubler in this 10-Food deck earns big
+  // credit; the same doubler must earn nothing without matching substrate.
+  const doubler = { name: 'Food Tripler 9000', ir: pIR([['token.doubler', 'Clue, Food, or Treasure', 3, 'static']]), cmc: 3, price: 1, owned: false, edhrecRank: 300 };
+  const dAdds = rec.scoreAdds({ deckCards: deck, commander: cmd, goals: g.goals, thresholds: th.computeThresholds({ goal: g.goals[0]?.goal }), roleCounts: th.countRoles(deck), hist: g.histogram, candidates: [doubler], budget: { maxCardPrice: null, flagAbove: 5 }, templates });
+  check('doubler scales with matching substrate',
+    dAdds.length === 1 && (dAdds[0].trace || []).some(t => t.kind === 'doubler_scale' && t.substrate >= 9),
+    JSON.stringify(dAdds[0]?.trace));
+  const creatureDeck = [
+    ...Array.from({ length: 9 }, (_, i) => ({ name: `Tok ${i}`, qty: 1, cmc: 2, typeLine: 'Creature', ir: pIR([['token.creature', null, 3, 'per_turn']]) })),
+    { name: 'Landz', qty: 30, cmc: 0, typeLine: 'Basic Land — Forest', ir: pIR([], [], { roles: ['land'] }) },
+  ];
+  const g2 = inferGoals(creatureDeck, cmd, {});
+  const cAdds = rec.scoreAdds({ deckCards: creatureDeck, commander: cmd, goals: g2.goals, thresholds: th.computeThresholds({ goal: g2.goals[0]?.goal }), roleCounts: th.countRoles(creatureDeck), hist: g2.histogram, candidates: [doubler], budget: { maxCardPrice: null, flagAbove: 5 }, templates });
+  check('param-restricted doubler ignores mismatched substrate',
+    !(cAdds[0]?.trace || []).some(t => t.kind === 'doubler_scale'),
+    JSON.stringify(cAdds[0]?.trace || 'filtered out entirely'));
+}
+
 console.log('goals — land types are not tribes');
 {
   const mountainIR = { provides: [], needs: [], anti: [], roles: [], wincon: null, tribal: { types: ['Mountain', 'Goblin'], lord_of: ['Mountain'] }, faces: [] };
