@@ -57,7 +57,8 @@ async function main() {
       .map(c => ({ ...c, reasons: engine2.explain.cutReasons(c) }));
 
     const index = engine2.recommender.deckAxisIndex(deckCards, commander);
-    const wanted = [...engine2.recommender.wantedAxes(topGoal?.goal, goalsRes.histogram, index, engine2.goalTemplates, goalsRes.goals).keys()].slice(0, 8);
+    const wantedMap = engine2.recommender.wantedAxes(topGoal?.goal, goalsRes.histogram, index, engine2.goalTemplates, goalsRes.goals);
+    const wanted = engine2.recommender.poolAxes(wantedMap, index, 12);
     let adds = [];
     if (wanted.length) {
       const [[cRow]] = await db.query(
