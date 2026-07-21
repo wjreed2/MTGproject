@@ -59,6 +59,28 @@ module.exports = [
     support: ['token.creature', 'card_advantage.draw', 'gy.recursion'],
   },
   {
+    key: 'lifegain', label: 'Lifegain',
+    verb: 'gain life constantly and convert it into cards, counters, and damage',
+    core: [
+      { axes: ['lifegain.source'], min: 6 },
+      { axes: ['lifegain.payoff'], min: 3 },
+    ],
+    // token.food is deferred lifegain — a Treebeard Food deck IS a lifegain deck
+    support: ['token.food', 'drain.incremental', 'life.payment_engine', 'lifeloss.payoff'],
+  },
+  {
+    key: 'stompy', label: 'Big creatures',
+    verb: 'ramp into oversized creatures and cash in their cast and enter payoffs',
+    // Ahead of 'counters' on purpose: big-creature decks incidentally carry lots of
+    // +1/+1 counter sources (hydras enter with counters), and on saturation ties the
+    // earlier template wins — a Helga deck is stompy first, counters as a sub-theme.
+    core: [
+      { axes: ['body.big'], min: 7 },
+      { axes: ['mana.rock', 'mana.dork', 'mana.ramp_land', 'mana.ritual', 'mana.extra_land_drop'], min: 5 },
+    ],
+    support: ['card_advantage.draw_engine', 'mana.big_mana_payoff', 'evasion.grant', 'protection.single', 'etb_value'],
+  },
+  {
     key: 'counters', label: '+1/+1 counters',
     verb: 'grow the team with +1/+1 counters and counter payoffs',
     core: [
@@ -96,15 +118,6 @@ module.exports = [
     support: ['mana.cost_reduction', 'tutor.artifact', 'card_advantage.draw_engine'],
   },
   {
-    key: 'lifegain', label: 'Lifegain',
-    verb: 'gain life constantly and convert it into cards, counters, and damage',
-    core: [
-      { axes: ['lifegain.source'], min: 6 },
-      { axes: ['lifegain.payoff'], min: 3 },
-    ],
-    support: ['drain.incremental', 'life.payment_engine', 'lifeloss.payoff'],
-  },
-  {
     key: 'control', label: 'Control',
     verb: 'answer everything and win late with card advantage',
     core: [
@@ -126,7 +139,9 @@ module.exports = [
     key: 'voltron', label: 'Voltron',
     verb: 'suit up one threat and eliminate players with commander damage',
     core: [
-      { axes: ['voltron.aura_equipment'], min: 4 },
+      // Density is the point: 3-4 boots/blades is every deck's utility-protection
+      // package, not a voltron plan (Helga read as voltron@1.0 off exactly that).
+      { axes: ['voltron.aura_equipment'], min: 8 },
       { axes: ['voltron.carrier', 'body.evasive', 'evasion.grant'], min: 2 },
     ],
     support: ['protection.single', 'tutor.artifact', 'tutor.enchantment'],

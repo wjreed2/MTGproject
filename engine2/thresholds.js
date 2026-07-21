@@ -39,6 +39,7 @@ const GOAL_ADJUSTMENTS = {
   control: { Counterspell: 4, 'Board Wipe': 2, Removal: 2, Plan: -8 },
   stax: { Plan: -5, Protection: 2 },
   voltron: { Protection: 3, Tutor: 2, 'Board Wipe': -1 },
+  stompy: { Ramp: 2, Plan: 5 }, // big-creature decks legitimately run more "plan" bodies
   'big-mana': { Ramp: 4, 'Card Draw': 1 },
   combo: { Tutor: 3, Counterspell: 2, Protection: 2 },
   wheels: { 'Card Draw': -4 },
@@ -92,7 +93,7 @@ const DEFAULT_CURVE = [0.06, 0.13, 0.20, 0.20, 0.16, 0.12, 0.08, 0.05];
 const SPEED_BY_GOAL = {
   'tokens-wide': 35, aristocrats: 42, spellslinger: 40, tribal: 45, blink: 50,
   counters: 50, lifegain: 50, enchantress: 52, artifacts: 52, graveyard: 55,
-  landfall: 55, wheels: 55, voltron: 48, combo: 45, reanimator: 58,
+  landfall: 55, wheels: 55, voltron: 48, combo: 45, reanimator: 58, stompy: 62,
   'group-slug': 55, stax: 60, control: 70, 'big-mana': 75,
 };
 
