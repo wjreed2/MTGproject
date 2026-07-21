@@ -4287,7 +4287,8 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
     // ── add candidates: commander-legal cards providing the deck's wanted axes ──
     const templates = engine2.goalTemplates;
     const index = engine2.recommender.deckAxisIndex(deckCards, commander);
-    const wanted = [...engine2.recommender.wantedAxes(topGoal?.goal, goalsRes.histogram, index, templates, goalsRes.goals).keys()].slice(0, 8);
+    const wantedMap = engine2.recommender.wantedAxes(topGoal?.goal, goalsRes.histogram, index, templates, goalsRes.goals);
+      const wanted = engine2.recommender.poolAxes(wantedMap, index, 12);
     let adds = [];
     if (wanted.length) {
       let ciColors = [];

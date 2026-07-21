@@ -105,6 +105,9 @@ function addReasons(add) {
         out.push(`Fills the ${t.cat} deficit (${short} short of target)`);
         break;
       }
+      case 'doubler_scale':
+        out.push(`Multiplies the deck's ${t.axis === 'counters.doubler' ? '+1/+1 counter' : 'token'} output (${t.substrate} sources)`);
+        break;
       case 'curve_fill':
         out.push('Lands in an under-filled spot on the curve');
         break;
@@ -156,6 +159,9 @@ function addBreakdown(add) {
         break;
       case 'role_deficit':
         out.push({ text: `${t.cat} deficit (${Math.max(1, Math.round(Number(t.deficit) || 0))} short)`, val });
+        break;
+      case 'doubler_scale':
+        out.push({ text: `Doubler substrate — ${ax} × ${t.substrate} sources`, val });
         break;
       case 'curve_fill':
         out.push({ text: `Under-filled curve spot (MV ${t.bucket})`, val });
