@@ -71,8 +71,11 @@ assert.ok(!scored.terms.matched.some(m => m.role === 'Recursion'),
   'Why/D must not match Recursion when target is 0');
 assert.notStrictEqual(scored.topRole, 'Recursion');
 
-// Default Recursion 3 with 0 owned → still fills.
-const defaultDefs = computeDeficits(base, { Recursion: 0 });
+// Default Recursion 3 with 0 owned → still fills (no primary hole so secondary D credit applies).
+const defaultDefs = computeDeficits(
+  { Recursion: 3, Tutor: 2, Counterspell: 3 },
+  { Recursion: 0 },
+);
 assert.strictEqual(defaultDefs.Recursion, 3);
 const scoredDefault = scoring.scoreAddCandidateTerms(
   welder,
@@ -81,4 +84,16 @@ const scoredDefault = scoring.scoreAddCandidateTerms(
 );
 assert.ok(scoredDefault.terms.matched.some(m => m.role === 'Recursion'));
 
+// Option A: while a primary hole remains, Recursion alone does not enter matched.
+{
+  const primaryOpen = computeDeficits(base, { Recursion: 0 });
+  assert.ok(primaryOpen.Ramp >= 1);
+  const scoredPrimaryOpen = scoring.scoreAddCandidateTerms(
+    welder,
+    ['Recursion'],
+    { deficits: primaryOpen, curveDeficit: [0, 0, 0, 0, 0, 0, 0, 0] },
+  );
+  assert.ok(!scoredPrimaryOpen.terms.matched.some(m => m.role === 'Recursion'),
+    'Recursion must not match while primary Ramp/Draw/Removal holes remain');
+}
 console.log('test-adds-zero-role-target: ok');

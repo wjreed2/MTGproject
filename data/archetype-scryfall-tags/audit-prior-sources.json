@@ -1,0 +1,41 @@
+[
+  {
+    "file": "mtg_new_archetypes_2003.csv",
+    "rows": 133,
+    "exact": 78,
+    "norm": 13,
+    "miss": 42
+  },
+  {
+    "file": "mtg_new_archetypes_pass2_af77.csv",
+    "rows": 40,
+    "miss": 29,
+    "exact": 8,
+    "norm": 3
+  },
+  {
+    "file": "mtg_new_archetypes_pass3_89cb.csv",
+    "rows": 38,
+    "miss": 35,
+    "exact": 3
+  },
+  {
+    "file": "mtg_new_tribes_pass4_26aa.csv",
+    "rows": 60,
+    "miss": 43,
+    "exact": 11,
+    "norm": 6
+  },
+  {
+    "file": "google-sheet-commander-typal-tags.csv",
+    "rows": 811,
+    "miss": 667,
+    "exact": 107,
+    "norm": 37
+  },
+  {
+    "file": "archetype-scryfall-tags.csv (verified)",
+    "rows": 614,
+    "exact": 614
+  }
+]

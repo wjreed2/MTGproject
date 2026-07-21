@@ -166,7 +166,7 @@ function renderWishlist() {
       <div class="card-img-wrap" style="position:relative">
         <div class="wishlist-priority wishlist-priority--on-card priority-${c.priority||'med'}"></div>
         ${src
-          ? `<img src="${escapeHtml(src)}" class="${imgFadeLoadedCls(src)}" alt="" loading="lazy" decoding="async" onload="this.classList.add('loaded');imgFadeSeenMark(this)" onerror="this.classList.add('loaded')"${c.foil ? ` style="filter:drop-shadow(0 0 6px rgba(201,168,76,0.5))"` : ''}>`
+          ? `<img src="${escapeHtml(src)}" class="${imgFadeLoadedCls(src)}" alt="" loading="${imgFadeLoadingAttr(src)}" decoding="async" onload="this.classList.add('loaded');imgFadeSeenMark(this)" onerror="this.classList.add('loaded')"${c.foil ? ` style="filter:drop-shadow(0 0 6px rgba(201,168,76,0.5))"` : ''}>`
           : `<div class="card-img-placeholder"><span>${escapeHtml((c.set||'?').toUpperCase())}</span></div>`}
         ${foilStrip}
       </div>

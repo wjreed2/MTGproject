@@ -37,15 +37,15 @@
   const K_P = 0.15;
   const V_PER_EXTRA_TAG = 0.15;
   const V_SECOND_PLUS_DAMPEN = 0.5;
-  /**
-   * Absolute badge scale (UI only — ranking uses raw score).
-   * 10/10 = a top-tier fit for this deck (raw ≥ ceiling), NOT “#1 in the
-   * current suggestion list.” Ceiling retuned after K_E 4→1.
-   * Suggestions below ADD_SCORE_DISPLAY_MIN are not shown.
-   */
-  const ADD_SCORE_RAW_CEILING = 8;
-  const ADD_SCORE_DISPLAY_MAX = 10;
-  const ADD_SCORE_DISPLAY_MIN = 7;
+  // Badge = raw score only (Prompt 24 / U1–U4). No display remap, ceiling, or min-7 filter.
+  // Prompt 26 — primary tier + plan H
+  const ADDS_PRIMARY_ROLES = Object.freeze(['Ramp', 'Card Draw', 'Removal']);
+  const W_S_PRIMARY_NEED = 0; // Option A: secondary D credit while primary hole remains
+  const K_H = 2.0;
+  const HYBRID_ALPHA = 0.35;
+  const HYBRID_BETA = 0.15;
+  const HYBRID_MULT_MIN = 0.5;
+  const HYBRID_MULT_MAX = 1.75;
   const E_PRICE_BAND_DELTAS = [
     { max: 0.75, delta: -0.05 },
     { max: 5, delta: 0 },
@@ -217,36 +217,69 @@
     return (roles || []).some(t => EFFICIENCY_MODE_PROJECT_TAGS.has(t));
   }
 
+  function hasPrimaryNeed(deficits) {
+    return ADDS_PRIMARY_ROLES.some(r => (Number(deficits?.[r]) || 0) >= 1);
+  }
+
+  function isPrimaryRole(role) {
+    return ADDS_PRIMARY_ROLES.includes(role);
+  }
+
   /**
    * Sublinear multi-deficit D + topRole selection for E.
-   * Returns { D, topRole, topVal, matched: [{role, deficit, weight}] }
+   * Option A: while hasPrimaryNeed, secondary roles contribute deficit × W_S (0).
+   * Returns { D, topRole, topVal, matched: [{role, deficit, weight, effective}] }
    */
-  function computeDeficitTermD(roles, deficits) {
+  function computeDeficitTermD(roles, deficits, opts) {
+    const primaryNeed = !!(opts && opts.hasPrimaryNeed);
+    const wS = primaryNeed ? (opts.W_S != null ? opts.W_S : W_S_PRIMARY_NEED) : 1;
     const real = (roles || []).filter(t => t !== 'Land' && t !== 'Commander');
     const matched = [];
     if (!real.length) {
-      const plan = Math.min(deficits?.Plan || 0, 3);
+      const planRaw = Math.min(deficits?.Plan || 0, 3);
+      const plan = primaryNeed ? planRaw * wS : planRaw;
       if (plan > 0) {
-        matched.push({ role: 'Plan', deficit: plan, weight: 1 });
-        return { D: plan, topRole: 'Plan', topVal: plan, matched };
+        matched.push({ role: 'Plan', deficit: planRaw, effective: plan, weight: 1 });
+        return { D: plan, topRole: 'Plan', topVal: plan, matched, hasPrimaryNeed: primaryNeed };
       }
-      return { D: 0, topRole: '', topVal: -1, matched };
+      return { D: 0, topRole: '', topVal: -1, matched, hasPrimaryNeed: primaryNeed };
     }
     for (const t of real) {
       const d = deficits?.[t] || 0;
-      if (d > 0) matched.push({ role: t, deficit: d, weight: 1 });
+      if (d > 0) {
+        const effective = isPrimaryRole(t) ? d : d * wS;
+        if (effective > 0) matched.push({ role: t, deficit: d, effective, weight: 1 });
+      }
     }
-    matched.sort((a, b) => b.deficit - a.deficit || String(a.role).localeCompare(String(b.role)));
+    matched.sort((a, b) => b.effective - a.effective || String(a.role).localeCompare(String(b.role)));
     let D = 0;
     matched.forEach((m, i) => {
       const w = i === 0 ? D_SUBLINEAR_WEIGHTS[0]
         : (i === 1 ? D_SUBLINEAR_WEIGHTS[1] : D_SUBLINEAR_WEIGHTS[2]);
       m.weight = w;
-      D += m.deficit * w;
+      D += m.effective * w;
     });
-    const topVal = matched.length ? matched[0].deficit : -1;
+    const topVal = matched.length ? matched[0].effective : -1;
     const topRole = matched.length ? matched[0].role : '';
-    return { D, topRole, topVal, matched };
+    return { D, topRole, topVal, matched, hasPrimaryNeed: primaryNeed };
+  }
+
+  /** Hybrid D multiplier when plan is confirmed (α on-plan bump / β off-plan shrink). */
+  function hybridDMultiplier(planMatch, mods) {
+    const alpha = mods?.alpha != null ? Number(mods.alpha) : HYBRID_ALPHA;
+    const beta = mods?.beta != null ? Number(mods.beta) : HYBRID_BETA;
+    const pm = Number(planMatch) || 0;
+    let mult = 1;
+    if (pm > 0) mult = 1 + alpha * Math.min(1, pm / 4);
+    else if (pm === 0 && mods && mods.applyOffPlan) mult = 1 - beta;
+    return Math.max(HYBRID_MULT_MIN, Math.min(HYBRID_MULT_MAX, mult));
+  }
+
+  function computePlanTermH(planMatch, kH) {
+    const pm = Number(planMatch) || 0;
+    if (pm <= 0) return 0;
+    const k = kH != null ? Number(kH) : K_H;
+    return k * (pm / 4);
   }
 
   /**
@@ -280,11 +313,16 @@
    * matched roles until a stored percentile is found.
    */
   function pickERoleWithPercentile(card, roles, deficits) {
+    const primaryNeed = hasPrimaryNeed(deficits);
     const real = (roles || []).filter(t => t !== 'Land' && t !== 'Commander' && t !== 'Plan');
-    const ordered = real
+    let ordered = real
       .map(role => ({ role, deficit: Number(deficits?.[role]) || 0 }))
-      .filter(e => e.deficit > 0)
-      .sort((a, b) => b.deficit - a.deficit || a.role.localeCompare(b.role));
+      .filter(e => e.deficit > 0);
+    if (primaryNeed) {
+      const prim = ordered.filter(e => isPrimaryRole(e.role));
+      ordered = prim.length ? prim : []; // no E from secondary-only while primary need
+    }
+    ordered.sort((a, b) => b.deficit - a.deficit || a.role.localeCompare(b.role));
     if (!ordered.length) return { role: null, p: null };
     for (const { role } of ordered) {
       const p = resolveEdhrecPercentile(card, role);
@@ -308,7 +346,13 @@
     if (opts && opts.isSpellslinger === true) return { B: 0, bReason: 'spellslinger' };
     if (!_isCreatureType(card)) return { B: 0, bReason: 'not-creature' };
     const real = (roles || []).filter(t => t !== 'Land' && t !== 'Commander');
-    const fills = real.some(t => (deficits?.[t] || 0) > 0);
+    const primaryNeed = hasPrimaryNeed(deficits);
+    const fills = real.some(t => {
+      const d = deficits?.[t] || 0;
+      if (d <= 0) return false;
+      if (primaryNeed && !isPrimaryRole(t)) return false;
+      return true;
+    });
     if (!fills) return { B: 0, bReason: 'no-deficit' };
     return { B: K_B, bReason: 'creature-utility' };
   }
@@ -327,19 +371,28 @@
 
   /**
    * Score one Adds candidate.
-   * @param {object} card
-   * @param {string[]} roles
-   * @param {object} ctx — deficits, curveDeficit, tribes helpers optional
-   * @param {object} [extras] — gate, tribal, tribe, theme, themeBonus, isSpellslinger
+   * Score = (D × M × hybridMult) + C_eff + L + E + B − P + V + T + K + H
    */
   function scoreAddCandidateTerms(card, roles, ctx, extras) {
     const deficits = ctx?.deficits || {};
-    const { D, topRole, topVal, matched } = computeDeficitTermD(roles, deficits);
+    const primaryNeed = hasPrimaryNeed(deficits);
+    const { D: D0, topRole, topVal, matched } = computeDeficitTermD(roles, deficits, {
+      hasPrimaryNeed: primaryNeed,
+      W_S: extras?.W_S,
+    });
     const real = (roles || []).filter(t => t !== 'Land' && t !== 'Commander');
 
     let M = 1;
     let gate = extras?.gate || { factor: 1 };
-    if (D > 0 && gate && Number.isFinite(gate.factor)) M = gate.factor;
+    if (D0 > 0 && gate && Number.isFinite(gate.factor)) M = gate.factor;
+
+    const planMatch = Number(extras?.planMatch) || 0;
+    const hybridMods = extras?.hybridRoleModifiers || ctx?.hybridRoleModifiers || null;
+    const applyHybrid = !!(extras?.planConfirmed || ctx?.planConfirmed);
+    const hybridMult = applyHybrid
+      ? hybridDMultiplier(planMatch, { ...(hybridMods || {}), applyOffPlan: planMatch <= 0 && !!extras?.planDeclared })
+      : 1;
+    const D = D0 * hybridMult;
 
     const cmc = scoringCmcForAdds(card);
     const bucket = Math.min(Math.floor(cmc), 7);
@@ -363,13 +416,17 @@
     const V = computeVTerm(real);
     const T = Number(extras?.tribal) || 0;
     const K = Number(extras?.themeBonus) || 0;
+    const H = (extras?.planConfirmed || ctx?.planConfirmed)
+      ? computePlanTermH(planMatch, extras?.K_H)
+      : 0;
 
-    const score = (D * M) + C_eff + L + eTerm.E + bTerm.B - P + V + T + K;
+    const score = (D * M) + C_eff + L + eTerm.E + bTerm.B - P + V + T + K + H;
 
     const terms = {
-      D, M, C_eff, L, E: eTerm.E, B: bTerm.B, P, V, T, K,
+      D, D0, M, hybridMult, C_eff, L, E: eTerm.E, B: bTerm.B, P, V, T, K, H,
       eRole: eTerm.eRole, p: eTerm.p, pAdjusted: eTerm.pAdjusted,
       bReason: bTerm.bReason, efficiencyMode: eff, cmc, pipScore, matched,
+      hasPrimaryNeed: primaryNeed, planMatch,
     };
 
     return {
@@ -382,18 +439,18 @@
       tribal: T,
       tribe: extras?.tribe || '',
       theme: extras?.theme || null,
-      // Back-compat fields used by "why" UI
+      planMatch,
       roleFit: D * M,
       curveBonus: C_eff,
       versatility: V,
       themeBonus: K,
-      // New term surfaces
       terms,
       L,
       E: eTerm.E,
       B: bTerm.B,
       P,
       C_eff,
+      H,
     };
   }
 
@@ -416,22 +473,6 @@
     return false;
   }
 
-  /** Scale a raw Adds score onto 0–10 for the UI. Ranking still uses the raw score. */
-  function addDisplayScore(raw) {
-    const n = Number(raw);
-    if (!Number.isFinite(n) || n <= 0) return 0;
-    return Math.min(ADD_SCORE_DISPLAY_MAX, (n / ADD_SCORE_RAW_CEILING) * ADD_SCORE_DISPLAY_MAX);
-  }
-
-  function formatAddDisplayScore(raw) {
-    return addDisplayScore(raw).toFixed(1);
-  }
-
-  /** True when raw score maps to at least ADD_SCORE_DISPLAY_MIN / 10 on the badge. */
-  function meetsAddDisplayFloor(raw) {
-    return addDisplayScore(raw) + 1e-9 >= ADD_SCORE_DISPLAY_MIN;
-  }
-
   return {
     D_SUBLINEAR_WEIGHTS,
     CMC_REF,
@@ -439,9 +480,11 @@
     K_E,
     K_B,
     K_P,
-    ADD_SCORE_RAW_CEILING,
-    ADD_SCORE_DISPLAY_MAX,
-    ADD_SCORE_DISPLAY_MIN,
+    K_H,
+    ADDS_PRIMARY_ROLES,
+    W_S_PRIMARY_NEED,
+    HYBRID_ALPHA,
+    HYBRID_BETA,
     E_PRICE_BAND_DELTAS,
     ADD_ROLE_SEMANTIC_MAP,
     EFFICIENCY_MODE_PROJECT_TAGS,
@@ -451,15 +494,16 @@
     priceBandDelta,
     cardUsdPrice,
     usesEfficiencyMode,
+    hasPrimaryNeed,
+    isPrimaryRole,
     computeDeficitTermD,
+    hybridDMultiplier,
+    computePlanTermH,
     pickERole,
     pickERoleWithPercentile,
     resolveEdhrecPercentile,
     scoreAddCandidateTerms,
     logAddScoreTerms,
     isAddsScoreDebugEnabled,
-    addDisplayScore,
-    formatAddDisplayScore,
-    meetsAddDisplayFloor,
   };
 });

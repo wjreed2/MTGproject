@@ -7,9 +7,89 @@ function _renderGamesTab() {
   renderGames();
 }
 
+function _currentShowTabId() {
+  const id = document.querySelector('.tab-content.active')?.id || '';
+  return id.startsWith('tab-') ? id.slice(4) : '';
+}
+
+/** True when showTab was invoked from the bottom nav or sidebar for tab `t`. */
+function _isNavChromeTabPress(t) {
+  const tgt = (typeof event !== 'undefined' && event) ? event.currentTarget : null;
+  if (!tgt || !tgt.classList) return false;
+  if (tgt.classList.contains('mob-nav-item')) return tgt.getAttribute('data-tab') === t;
+  if (tgt.classList.contains('sidebar-item')) {
+    const oc = tgt.getAttribute('onclick') || '';
+    return oc.includes(`'${t}'`) || oc.includes(`"${t}"`);
+  }
+  return false;
+}
+
+/**
+ * Re-tapping the active tab icon should pop nested navigation back to that
+ * tab's root list (e.g. All Decks). Already-at-root is a no-op. Does not run
+ * for programmatic showTab calls (shared-view openers, boot paint, etc.).
+ */
+function _resetActiveTabToRoot(t) {
+  const cardModal = document.getElementById('cardDetailModal');
+  if (cardModal?.classList.contains('open') && typeof closeCardDetail === 'function') closeCardDetail();
+
+  if (t === 'decks') {
+    if (typeof activeDeckId !== 'undefined' && activeDeckId != null && typeof closeDeckDetail === 'function') {
+      closeDeckDetail();
+    }
+    return;
+  }
+  if (t === 'sets') {
+    if (typeof activeSetCode !== 'undefined' && activeSetCode != null && typeof closeSetDetail === 'function') {
+      closeSetDetail();
+    }
+    return;
+  }
+  if (t === 'games') {
+    if (typeof tabletViewGameId !== 'undefined' && tabletViewGameId && typeof closeTabletView === 'function') {
+      closeTabletView();
+    }
+    if (typeof activeGameId !== 'undefined' && activeGameId != null) {
+      activeGameId = null;
+      const detail = document.getElementById('gameDetailArea');
+      const active = document.getElementById('activeGameArea');
+      if (detail) detail.style.display = 'none';
+      if (active) active.style.display = 'none';
+      if (typeof renderGames === 'function') renderGames();
+    }
+    return;
+  }
+  if (t === 'collection') {
+    if (typeof _viewingSharedCollOwnerId !== 'undefined' && _viewingSharedCollOwnerId && typeof exitSharedCollectionView === 'function') {
+      exitSharedCollectionView();
+    }
+    if (typeof _historyVisible !== 'undefined' && _historyVisible && typeof toggleCollectionHistory === 'function') {
+      toggleCollectionHistory();
+    }
+    return;
+  }
+  if (t === 'wishlist') {
+    if (typeof _viewingSharedWishlistOwnerId !== 'undefined' && _viewingSharedWishlistOwnerId && typeof exitSharedWishlistView === 'function') {
+      exitSharedWishlistView();
+    }
+    return;
+  }
+  if (t === 'browse') {
+    if (document.getElementById('publicDeckModal')?.classList.contains('open') && typeof closePublicDeckModal === 'function') {
+      closePublicDeckModal();
+    }
+  }
+}
+
 /** @param opts.skipRender — set the active tab chrome only; the caller renders
  *  the content itself (boot paint uses this to avoid double-rendering). */
 function showTab(t, opts) {
+  opts = opts || {};
+  // Same-tab re-tap from nav chrome → pop to that tab's root view.
+  if (!opts.skipRender && _currentShowTabId() === t && _isNavChromeTabPress(t)) {
+    _resetActiveTabToRoot(t);
+    return;
+  }
   document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.mob-nav-item').forEach(el => el.classList.remove('active'));
@@ -35,7 +115,7 @@ function showTab(t, opts) {
     }
   }
   if (t !== 'collection' && typeof exitSharedCollectionView === 'function' && typeof _viewingSharedCollOwnerId !== 'undefined' && _viewingSharedCollOwnerId) exitSharedCollectionView();
-  if (opts && opts.skipRender) return;
+  if (opts.skipRender) return;
   if (t === 'collection') renderCollection();
   if (t === 'sets') loadSets();
   if (t === 'decks') renderDecks();
@@ -239,20 +319,42 @@ function escapeHtml(s) {
 // every <img> and used to replay that fade — reading as a full "reload" of all
 // card art on each edit. URLs that have already faded in once this session are
 // tracked here so rebuilt tiles render with .loaded (visible) immediately.
+// Already-seen URLs also use loading=eager: keeping lazy under .loaded left blank
+// tiles until near-viewport decode (inspector exit / scroll read as a re-pop).
 const _imgFadeSeen = new Set();
+
+/** Normalize so el.src (absolute) matches the URL string we put in markup. */
+function _imgFadeNormUrl(u) {
+  if (!u) return '';
+  try {
+    const x = new URL(String(u), typeof location !== 'undefined' ? location.href : 'https://local.invalid/');
+    return x.origin + x.pathname;
+  } catch (_) {
+    return String(u);
+  }
+}
+
+function imgFadeHasSeen(...urls) {
+  for (const u of urls) {
+    if (u && _imgFadeSeen.has(_imgFadeNormUrl(u))) return true;
+  }
+  return false;
+}
 
 /** onload hook for card <img> tags: record that this URL has been shown. */
 function imgFadeSeenMark(el) {
   const u = el && (el.currentSrc || el.src);
-  if (u) _imgFadeSeen.add(u);
+  if (u) _imgFadeSeen.add(_imgFadeNormUrl(u));
 }
 
 /** Render-time check: 'loaded' when any candidate URL already faded in. */
 function imgFadeLoadedCls(...urls) {
-  for (const u of urls) {
-    if (u && _imgFadeSeen.has(u)) return 'loaded';
-  }
-  return '';
+  return imgFadeHasSeen(...urls) ? 'loaded' : '';
+}
+
+/** Prefer eager for already-shown art so rebuilds paint immediately. */
+function imgFadeLoadingAttr(...urls) {
+  return imgFadeHasSeen(...urls) ? 'eager' : 'lazy';
 }
 
 /**
@@ -274,8 +376,8 @@ function cardThumbAttrs(card, view) {
   const src = useSmall ? lil : big;
   const srcset = (useSmall && lil && big && lil !== big)
     ? ` srcset="${escapeHtml(lil)} 1x, ${escapeHtml(big)} 2x"` : '';
-  const seen = imgFadeLoadedCls(src, srcset ? big : '');
-  return `src="${escapeHtml(src)}"${srcset} loading="lazy" decoding="async"${seen ? ' class="loaded"' : ''}`;
+  const seen = imgFadeHasSeen(src, srcset ? big : '');
+  return `src="${escapeHtml(src)}"${srcset} loading="${seen ? 'eager' : 'lazy'}" decoding="async"${seen ? ' class="loaded"' : ''}`;
 }
 
 function _escapeWhatsNewHtml(s) {
