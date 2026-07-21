@@ -348,15 +348,17 @@ Do **not** start B until A’s H term is stable.
 
 ## 9. Implementation order (Ready Prompts to draft)
 
-| Order | Prompt | Depends on |
-|------:|--------|------------|
-| **A0** | Revert display + S; raw badge only | — |
-| **A1.5** | Plan envelope + sub-tag deficits + planned-cut exclusion | A0 |
-| **A1** | Option A weighted D + plan H + hybrid D | A0, A1.5 |
-| **A1b** | Primary role strength strip (N/10) + Plan/sub-tag rows | A1.5 |
-| **A′** | Require utility role tag | May merge with A |
-| **B** | Entry 13 v2 wizard + Cuts shielding | A |
-| **C** | Mixed plan-aware backfill | A |
+| Order | Prompt | Depends on | Ready Prompt |
+|------:|--------|------------|--------------|
+| **A0** | Revert display + S; raw badge only | — | **24** |
+| **A1.5** | Plan envelope + sub-tag deficits + planned-cut exclusion + semantics handoff | A0 | **25** |
+| **A1** | Option A weighted D + plan H + hybrid D | A0, A1.5 | **24** (remainder) |
+| **A1b** | Primary role strength strip (N/10) + Plan/sub-tag rows | A1.5 | **24** / **25** |
+| **A′** | Require utility role tag | May merge with A | |
+| **B** | Entry 13 v2 wizard + Cuts shielding | A | |
+| **C** | Mixed plan-aware backfill | A | |
+
+**Interview paused** after §15 accepted; type/kind inference → partner semantics (§16). Resume theme interviews later if needed.
 
 ---
 
@@ -671,4 +673,18 @@ may use a temporary rule (e.g. typal Scryfall otags + lords) and document it as 
 
 **Remaining themes** (Control, Artifacts, Landfall, Blink, Theft, Goodstuff, …): defaults TBD in theme interviews; same checkbox + Expand UX.
 
-**Interview process:** Agent proposes defaults from archetype DB + EDH heuristics; user vetoes or tweaks.
+**Interview process:** Agent proposes defaults from archetype DB + EDH heuristics; user vetoes or tweaks. **Type/kind inference and “what counts” for dense themes** → partner semantics engine (§14).
+
+---
+
+## 16. Semantics engine handoff (partner)
+
+Work that should **not** be reinvented in deterministic Adds Phase A:
+
+1. Infer strategy/type/kind from deck contents (top-N suggestions for type pickers)
+2. Tribal density vs lords/payoffs (Tr1)
+3. Enchantress aura vs non-aura default (E1 and peers)
+4. Richer “is this card on-plan for theme X” than project role tags alone
+
+Adds Phase A still owns: Plan envelope, sub-tag targets/caps, primary tier, raw badge,
+planned-cut exclusion, checkbox UI, applying a **user-confirmed** type filter.
