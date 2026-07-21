@@ -1,7 +1,8 @@
 # Suggested Adds — Improvement Plan (Entry 13 v2 + scoring/UX)
 
-**Status:** Design (planning — no implementation until decisions below are confirmed)  
-**Date:** 2026-07-18 (revised after user review)  
+**Status:** Design (interview in progress — locked items in §13–§15; implementation waits)  
+**Date:** 2026-07-21 (Plan envelope + theme defaults added)  
+**Branch:** `Manford`  
 **Audience:** Product + implementer agents  
 **Hard constraint:** Deterministic algorithm only — no runtime AI/LLM.
 
@@ -102,6 +103,33 @@ Only when **Plan is the largest active deficit** and the wizard plan is declared
 If the deck still needs Ramp/Draw/Removal, those deficits dominate and the plan is
 effectively ignored for ranking. That is the main “it doesn’t understand my plan”
 bug.
+
+### 1.5 Plan envelope + theme sub-tags (locked — supersedes “replace Plan”)
+
+**Problem:** Wizard strategy maps (`PLAN_STRATEGY_PROJECT_TAGS`, archetype DB) exist
+but Adds scoring uses only generic role deficits; Sac Outlet never becomes a target.
+
+**Model:**
+
+| Layer | Behavior |
+|-------|----------|
+| **Plan (parent)** | Stays in recipe (default target **30**). Not zeroed when plan declared. |
+| **Theme sub-tags** | Strategy/wincon projected tags live **inside** Plan — visible on strip, Why, wizard, threshold editor. |
+| **Cap** | Sum of active sub-tag suggested targets **≤ Plan target** (warn if user exceeds). |
+| **Scoring (D)** | Sub-tag credit only when **Plan has deficit** AND **sub-tag under its cap** (P6′). |
+| **Primary tier** | Ramp/Draw/Removal still strict first (`W_S = 0` on Plan sub-tags until primaries met); sub-tags **visible** on strip with “unlocks after staples” (P7-C). |
+| **Planned cuts** | Mainboard qty **minus** planned-cut qty for all role/plan counts (P6″) — **required; not in code today**. |
+| **Merged map** | One object per strategy: `tag → { target }` in code + `data/archetype-scryfall-tags/` bridge. |
+| **Defaults** | Suggested targets pre-filled; user overrides in shared threshold editor (P2-D). |
+| **Wincon overlap** | Overlapping tag defaults **sum** (P3-B). Secondary strategy **half weight** on defaults (P5-B). |
+| **Inference** | `rankStrategiesForDeck` etc. pre-fill wizard; targets apply only after user **confirms** (P4-C). |
+| **Staple overlap** | Tags that already have generic rows (Removal, Draw, …) **merge** — one row, strategy adjusts default (G8-A). |
+
+**Wizard UX (all themes):** Sub-tags = **checkbox list** (short defaults pre-checked) +
+**Expand** (full archetype list) + **search/autocomplete**. Type-picker themes also get
+inference **top 4** + autocomplete (§14).
+
+**Data:** `data/archetype-scryfall-tags/`, `js/archetype-role-bridge.js`, `js/project-role-tags.js`.
 
 ---
 
@@ -205,6 +233,16 @@ score > 0 (and role-tag gate, CK gate, budget rules) only.
 | D13 | **Option A** primary tier: `W_S = 0` while `hasPrimaryNeed` | **Locked** |
 | D14 | Primary strength strip: literal **`have/target`** (e.g. 12/10); “strong at” when have ≥ target | **Locked** |
 | D15 | Integer D — deficit maps 1:1 to D (no sqrt/cap v1) | **Locked** (Q1=A) |
+| D16 | **Plan envelope** — sub-tags inside Plan; cap ≤ Plan target | **Locked** (§1.5) |
+| D17 | Sub-tag D only when Plan deficit + sub-tag under cap | **Locked** (P6′) |
+| D18 | Planned cuts excluded from role/plan counts | **Locked** (P6″) |
+| D19 | Merged map + editable suggested defaults | **Locked** (P2-D, P8) |
+| D20 | Wincon sum on overlap; secondary half on defaults | **Locked** (P3-B, P5-B) |
+| D21 | Inferred plan requires confirm before targets apply | **Locked** (P4-C) |
+| D22 | No deck-size scaling of targets (100-card decks) | **Locked** (P8) |
+| D23 | `strategy.stax` primary; **delete** `wincon.lock` | **Locked** (G4) |
+| D24 | `strategy.combo` + `wincon.combo` (assembly vs win line) | **Locked** (G5-C) |
+| D25 | Add **`strategy.goodstuff`** only from Cuts-only trio | **Locked** (G7) |
 
 ## 5. Phase A — Plan-aware ranking + raw badge + Why (implement next)
 
@@ -226,6 +264,14 @@ explains tags/deficits/plan; V retains value for multi-role cards.
 1. `ADDS_PRIMARY_ROLES`, `hasPrimaryNeed`, weighted D (`W_S = 0`).
 2. Plan term H + hybrid D when plan declared (D4–D8).
 3. Wire `deckPlan` into scoring; tier map on E role pick.
+
+### A1.5. Plan envelope + sub-tag deficits (before / with A1)
+
+1. `_computeAddContext`: effective have subtracts planned cuts; Plan parent + sub-tag rows from merged map when plan declared/confirmed.
+2. Sub-tag deficits capped so sum of targets ≤ Plan; G8 merge for staple tags.
+3. Strip: Plan `have/target` + indented sub-tag rows; primary strip unchanged.
+4. Wizard: checkbox + Expand + search; type-picker sub-steps (§14).
+5. Tests: planned cut excluded; P6′ gating; cap enforcement.
 
 ### A1b. Primary role strength strip
 
@@ -305,17 +351,18 @@ Do **not** start B until A’s H term is stable.
 | Order | Prompt | Depends on |
 |------:|--------|------------|
 | **A0** | Revert display + S; raw badge only | — |
-| **A1** | Option A weighted D + plan H + hybrid D | A0 |
-| **A1b** | Primary role strength strip (N/10) | A1 (same PR OK) |
+| **A1.5** | Plan envelope + sub-tag deficits + planned-cut exclusion | A0 |
+| **A1** | Option A weighted D + plan H + hybrid D | A0, A1.5 |
+| **A1b** | Primary role strength strip (N/10) + Plan/sub-tag rows | A1.5 |
 | **A′** | Require utility role tag | May merge with A |
 | **B** | Entry 13 v2 wizard + Cuts shielding | A |
 | **C** | Mixed plan-aware backfill | A |
 
 ---
 
-## 10. Open questions — interview (plain English)
+## 10. Open questions — interview (legacy Q2–Q6)
 
-Answer in your own words; we’ll lock each before implementation.
+Superseded in part by §13–§15 (Plan envelope). Still open unless marked locked below.
 
 ---
 
@@ -533,4 +580,72 @@ prioritize draw. When **all three** have `have >= target`, secondary roles unloc
 2. `js/decks.js` — `_renderAddSuggestions` (~7032), `_buildAddWhyLines`  
 3. `js/deck-plan.js` — `planMatchScore`, `PLAN_*_PROJECT_TAGS`, `shouldFetchPlanOnlyBackfill`  
 4. Ready Prompt 2 (Entry 13 v1) — out-of-scope list that this plan promotes to v2  
-5. Soft vignettes in `scripts/test-adds-scoring.js`
+5. Soft vignettes in `scripts/test-adds-scoring.js`  
+6. `data/archetype-scryfall-tags/` + `js/archetype-role-bridge.js`
+
+---
+
+## 13. Gap-track interview — **locked**
+
+| ID | Decision |
+|----|----------|
+| **G1** | Tribal: top 4 creature types + autocomplete + commander pre-highlight (E) |
+| **G2** | Sacrifice: one label; tag-group checkboxes (Outlets / Triggers / Drain) |
+| **G3** | Reanimator: one label; tag-group checkboxes (Reanimate, Recursion, Self-Mill, Yard cast) |
+| **G4** | Stax = **primary strategy**; delete `wincon.lock` |
+| **G5** | Combo = **strategy.combo** (assembly) + **wincon.combo** (win line) |
+| **G5b** | Universal wizard shell: top 4 + autocomplete + inference pre-highlight (A) |
+| **G6** | Voltron: one label; tag groups (Pump, Evasion, Protection, Equipment, Auras) |
+| **G7** | From Cuts-only trio: add **Goodstuff** to wizard only (not Ramp-heavy, not Lifegain) |
+| **G8** | Overlap with staples: **merge** one row per tag (A) |
+
+**Sub-tag UX (all themes):** checkbox list + **Expand** + search/autocomplete; all targets customizable.
+
+---
+
+## 14. Type-picker strategies — **locked**
+
+T1-D + T2-A (inference top 4, strict type filter) apply when primary **or** secondary:
+
+| # | Strategy | Type dimension |
+|---|----------|----------------|
+| 1 | Tokens | Token type |
+| 2 | Tribal | Creature type |
+| 4 | Enchantress | Aura vs non-aura enchantments |
+| 6 | **Counters** (rename wizard label) | Counter kind (+1/+1, proliferate, poison, −1/−1, …) |
+| 7 | Spellslinger | Spell kind (Instant, Sorcery, …) |
+| 8 | Voltron | Equipment vs Aura vs both (+ G6 groups) |
+| 9 | Sacrifice | Fodder type — default **D**: artifact cmd → Artifacts; token deck → Tokens; else Creatures |
+| 10 | Reanimator | Reanimation target (creatures, permanents, MV band) |
+| 11 | Superfriends | Planeswalker focus / colors |
+| 14 | Stax | Tax axis (mana, lands, spells, attacks) |
+| 16 | Mill | Opponents vs self |
+
+**Counters kind fallback quartet:** +1/+1, Proliferate, Poison, −1/−1.
+
+**Tokens type fallback quartet:** Creature, Treasure, Food, Clue.
+
+---
+
+## 15. Theme default Plan sub-tags (agent-proposed — veto in interview)
+
+Plan parent default **30**. Sub-tag sums leave headroom for Expand/extra tags.
+Implementer maps labels → project role tags + Scryfall otags via archetype bridge.
+
+| Strategy | Sub-tags (default target) | Sum |
+|----------|---------------------------|----:|
+| **Tokens** | Type makers **10**, Anthem **4**, Type payoffs **6** | 20 |
+| **Sacrifice** | Outlets **10**, Triggers **8**, Drain **4** | 22 |
+| **Counters** | Counter makers **10**, Payoffs **8**, Proliferate **3** | 21 |
+| **Tribal** | Typal payoffs **8**, Lords/anthems **5**, Type finishers **3** | 16 |
+| **Enchantress** | Type enchantments/auras **14**, Enchantress draw **4**, Protection **3** | 21 |
+| **Spellslinger** | Spell payoffs **8**, Copy **3**, Burn/finish **4** | 15 |
+| **Voltron** | Type equip/auras **8**, Pump **4**, Evasion **3**, Protection **3** | 18 |
+| **Reanimator** | Reanimate **6**, Recursion **4**, Self-mill **5**, Yard cast **3** | 18 |
+| **Stax** | Tax **10**, Hatebears **4**, Resource denial **4** | 18 |
+| **Mill** | Mill **12**, Support **4** | 16 |
+| **Superfriends** | Walker payoffs **6**, Protection **4**, Proliferate/loyalty **3** | 13 |
+
+**Remaining themes** (Control, Artifacts, Landfall, Blink, Theft, Goodstuff, …): defaults TBD in theme interviews; same checkbox + Expand UX.
+
+**Interview process:** Agent proposes defaults from archetype DB + EDH heuristics; user vetoes or tweaks.
