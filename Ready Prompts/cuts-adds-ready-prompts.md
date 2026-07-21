@@ -51,7 +51,7 @@ re-pop) isolated from other deck-builder render PRs. **23** (user categories) la
 | **19** | Card Search Bug â€” â€œBounty of the Huntâ€ | Ready | Partner / search | Isolated search/DB bug; can parallel earlier if a second agent is free. |
 | **20** | Trade window: card image opens inspector | Ready | Partner / trade | Isolated inspector wiring. |
 | **21** | Collection tab: deck membership in inspector | Ready | Partner / collection | Isolated; distinct from prompt #4 pool toggle. |
-| **22** | Deck Builder: fix card image re-pop | Ready | Partner / render | Keep isolated â€” render/cache investigation; donâ€™t interleave with #13â€“18. |
+| **22** | Deck Builder: fix card image re-pop | **Completed** | Partner / render | Keep isolated — render/cache investigation; don’t interleave with #13–18. |
 | **23** | User-defined deck categories | Ready | Partner / tags (large) | Last â€” needs settled tag model; design Qs before code. |
 | **24** | Suggested Adds A0 â€” raw badge, no S, no min-7 display filter | **Completed** | Cuts/Adds 13 v2 Phase A | First slice of Phase A. Do before **25**. |
 | **25** | A1.5 â€” Plan envelope + sub-tags + planned-cut exclusion + checkbox/Expand + `engine2.1wizard` creature-type suggest (degraded if missing) | **Completed** | Cuts/Adds 13 v2 Phase A | After **24**. Full prompt below. |
@@ -1417,7 +1417,9 @@ inspector entry points.
 
 ---
 
-# Prompt 22 of 23 â€” Deck Builder: fix card image re-pop
+# Prompt 22 of 23 — Deck Builder: fix card image re-pop
+
+**Status:** Completed
 
 ```
 # Deck Builder: Fix Card Image Re-pop on Inspector Exit and Scroll
@@ -1450,7 +1452,7 @@ Keep this PR isolated from Prompts 13â€“18 render churn.
 
 ---
 
-# Prompt 23 of 23 â€” User-defined deck categories
+# Prompt 23 of 23 — User-defined deck categories
 
 ```
 # User-Defined Deck Categories with Tag-Based Auto-Assignment

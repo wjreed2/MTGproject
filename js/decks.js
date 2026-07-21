@@ -5254,7 +5254,7 @@ function _stackTile(c, zone = 'main', poolHints = null) {
     <div class="deck-stack-card deck-zone-draggable${notOwned ? ' not-owned' : ''}${isGameChanger ? ' is-game-changer' : ''}${validCls}${swapCls}" data-uid="${dragKey}" data-zone="${isPlannedAdd ? 'add' : zone}" data-sid="${c.scryfallId || ''}" data-name="${safeName}" data-card-key="${cardKey}" data-card-name-key="${nameKey.replace(/"/g, '&quot;')}" onpointerdown="_deckZoneCardPointerDown(event)">
       <div class="stack-wrap">
         ${img
-          ? `<img src="${escapeHtml(img)}" draggable="false" class="stack-main${c.isCommander ? ' is-commander' : ''}${imgFadeLoadedCls(img) ? ' loaded' : ''}" alt="${escapeHtml(c.name)}" loading="lazy" decoding="async" onload="this.classList.add('loaded');imgFadeSeenMark(this)" onerror="this.classList.add('loaded')" style="${imgStyle}">`
+          ? `<img src="${escapeHtml(img)}" draggable="false" class="stack-main${c.isCommander ? ' is-commander' : ''}${imgFadeLoadedCls(img) ? ' loaded' : ''}" alt="${escapeHtml(c.name)}" loading="${imgFadeLoadingAttr(img)}" decoding="async" onload="this.classList.add('loaded');imgFadeSeenMark(this)" onerror="this.classList.add('loaded')" style="${imgStyle}">`
           : `<div class="stack-main stack-face-fallback${c.isCommander ? ' is-commander' : ''}"
                style="aspect-ratio:0.715;background:var(--bg4);display:flex;align-items:center;justify-content:center;color:var(--text3);padding:4px;text-align:center;${imgStyle}">${escapeHtml(c.name)}</div>`}
         <div class="stack-qty">×${qty}</div>
@@ -6248,7 +6248,7 @@ function _deckTokenTileHtml(t) {
   return `<div class="deck-stack-card deck-token-card" data-sid="${t.id}">
       <div class="stack-wrap">
         ${img
-          ? `<img src="${escapeHtml(img)}" class="stack-main${imgFadeLoadedCls(img) ? ' loaded' : ''}" alt="${safeName}" loading="lazy" decoding="async" onload="this.classList.add('loaded');imgFadeSeenMark(this)" onerror="this.classList.add('loaded')">`
+          ? `<img src="${escapeHtml(img)}" class="stack-main${imgFadeLoadedCls(img) ? ' loaded' : ''}" alt="${safeName}" loading="${imgFadeLoadingAttr(img)}" decoding="async" onload="this.classList.add('loaded');imgFadeSeenMark(this)" onerror="this.classList.add('loaded')">`
           : `<div class="stack-main stack-face-fallback" style="aspect-ratio:0.715;background:var(--bg4);display:flex;align-items:center;justify-content:center;color:var(--text3);padding:4px;text-align:center;font-size:0.62rem">${safeName}</div>`}
       </div>
     </div>`;
@@ -7979,6 +7979,13 @@ function _toggleAddPanel() {
 function renderDeckList(deck) {
   const el = document.getElementById('deckCardList');
   if (!el) return;
+  // innerHTML rebuilds wipe scrollTop; keep the list where the user left it so
+  // inspector tag refresh / ownership redraws don't jump to top and re-lazy-load.
+  const prevScroll = el.scrollTop;
+  const restoreScroll = () => {
+    el.scrollTop = prevScroll;
+    requestAnimationFrame(() => { el.scrollTop = prevScroll; });
+  };
   _renderCutSuggestions(deck);
   _renderAddSuggestions(deck);
   _bindDeckTagGroupHoverLinking(el, false);
@@ -8041,12 +8048,14 @@ function renderDeckList(deck) {
     el.innerHTML = '<div class="deck-list-muted-center">No cards yet — search for cards above to add them</div>';
     el.onclick = null;
     _scheduleDeckTokensRefresh(deck);
+    restoreScroll();
     return;
   }
   if (!filteredCards.length && !hasExtra) {
     el.innerHTML = '<div class="deck-list-muted-center">No matching cards in this deck list</div>';
     el.onclick = null;
     _scheduleDeckTokensRefresh(deck);
+    restoreScroll();
     return;
   }
 
@@ -8156,6 +8165,7 @@ function renderDeckList(deck) {
     _bindSwapZoneHoverLinking(el, swapsOn);
     _syncDeckStackLayoutResetBtn(deck);
     _scheduleDeckTokensRefresh(deck);
+    restoreScroll();
     return;
   }
 
@@ -8245,6 +8255,7 @@ function renderDeckList(deck) {
   _bindSwapZoneHoverLinking(el, swapsOn);
   _syncDeckStackLayoutResetBtn(deck);
   _scheduleDeckTokensRefresh(deck);
+  restoreScroll();
 }
 
 /** CMC-bucket (0–7+) non-land mana curve targets by format — normalized in caller. */
@@ -10468,7 +10479,7 @@ function _cardTile(name, img, inDeck, inCollection, inv, addFn, inMaybeBoard = f
       <div class="deck-search-art" style="aspect-ratio:0.715;overflow:hidden;border-radius:6px;border:${border};
         transition:border-color 0.15s;position:relative">
         ${img
-          ? `<img src="${escapeHtml(img)}" class="${imgFadeLoadedCls(img)}" style="width:100%;height:100%;object-fit:cover;${filter}" alt="${escapeHtml(name)}" loading="lazy" decoding="async" onload="this.classList.add('loaded');imgFadeSeenMark(this)" onerror="this.classList.add('loaded')">`
+          ? `<img src="${escapeHtml(img)}" class="${imgFadeLoadedCls(img)}" style="width:100%;height:100%;object-fit:cover;${filter}" alt="${escapeHtml(name)}" loading="${imgFadeLoadingAttr(img)}" decoding="async" onload="this.classList.add('loaded');imgFadeSeenMark(this)" onerror="this.classList.add('loaded')">`
           : `<div style="width:100%;height:100%;background:var(--bg3);display:flex;align-items:center;
               justify-content:center;font-size:0.6rem;padding:4px;text-align:center;color:var(--text2)">${escapeHtml(name)}</div>`}
         ${inDeck ? `<div style="position:absolute;bottom:2px;right:2px;background:var(--teal);color:#000;
