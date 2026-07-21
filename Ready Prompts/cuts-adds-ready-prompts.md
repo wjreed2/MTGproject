@@ -1,17 +1,17 @@
-# Cuts/Adds — Ready implementation prompts
+﻿# Cuts/Adds â€” Ready implementation prompts
 
 **Purpose:** Copy one prompt at a time to an agent that has the **main deck-builder
 repo** (`decks.js`). Skip rows marked **Completed** unless reopening. Do not run these
 in Archive-Suggestions (docs only).
 
-**Hard rule for every Cuts/Adds scoring prompt (1–5):** Deliverable is **deterministic
-algorithm code** — no runtime AI/LLM. Partner UI/tag prompts (6+) follow the main app’s
+**Hard rule for every Cuts/Adds scoring prompt (1â€“5):** Deliverable is **deterministic
+algorithm code** â€” no runtime AI/LLM. Partner UI/tag prompts (6+) follow the main appâ€™s
 existing conventions; still no runtime AI unless that prompt says otherwise.
 
 **Source backlog:** `cuts-adds-backlog.md`  
 **Closed/shipped history:** `cuts-adds-archive.md` (not for ready work)  
 **Partner UI/tag prompts (6+):** From the 2026-07-15 partner prompt dump; not all have matching
-backlog entry IDs — treat shipped status in PR notes / archive as usual.
+backlog entry IDs â€” treat shipped status in PR notes / archive as usual.
 
 ---
 
@@ -20,94 +20,94 @@ backlog entry IDs — treat shipped status in PR notes / archive as usual.
 Run in this order. Do not start the next prompt until the previous PR is merged (or you
 explicitly intend parallel work).
 
-**Priority:** Prompts **1–5** (Cuts/Adds scoring / pool) stay first — they do not depend on
+**Priority:** Prompts **1â€“5** (Cuts/Adds scoring / pool) stay first â€” they do not depend on
 the partner tag/UI track, and later Adds & Cuts UX prompts should not rewrite scoring.
 
 **Parallel notes:** After **1** ships, **3** can parallel **2**; **6+** can start on a second
 agent if that agent avoids `_scoreAddCandidate` / threshold / plan-wizard surfaces until
-**1–5** are stable. Keep **6–9** (tag model) serialized with each other. Keep **22** (image
+**1â€“5** are stable. Keep **6â€“9** (tag model) serialized with each other. Keep **22** (image
 re-pop) isolated from other deck-builder render PRs. **23** (user categories) last.
 
 | Order | Prompt | Status | Track / backlog | Why this order |
 |------:|--------|--------|-----------------|----------------|
 | **1** | Coordinated Adds scoring rebalance | **Completed** | Cuts/Adds 7, 9, 10, 11, 12 | Rebuilds how Adds **ranks** cards. Foundation for plan backfill ranking. |
 | **2** | Deck plan wizard + plan-aware backfill | **Completed** | Cuts/Adds 13 v1 (+ 5) | Wizard + plan schema + Plan-only unowned fetch. Better after #1. |
-| **3** | Adds curve includes commander CMC | **Completed** | Cuts/Adds 1 | Isolated curve-bucket fix. Prefer after #1; safe to parallel #2 if curve edits don’t collide. |
+| **3** | Adds curve includes commander CMC | **Completed** | Cuts/Adds 1 | Isolated curve-bucket fix. Prefer after #1; safe to parallel #2 if curve edits donâ€™t collide. |
 | **4** | Collection / All Cards pool toggle | **Completed** | Cuts/Adds 6 | **Do not run before #2.** Prefer after #1. Safe to parallel #3. |
-| **5** | Adds excludes tokens from Plan-count + never recommends tokens | **Completed** | Cuts/Adds 2 | Prefer after #2 (Plan deficit for Entry 13). Safe to parallel #3 if Plan-count vs curve don’t collide. |
+| **5** | Adds excludes tokens from Plan-count + never recommends tokens | **Completed** | Cuts/Adds 2 | Prefer after #2 (Plan deficit for Entry 13). Safe to parallel #3 if Plan-count vs curve donâ€™t collide. |
 | **6** | Manual Tag State Control in Card Inspector | **Completed** | Partner / tags | Foundation for Primary/Secondary/Default + remove/suppress. Blocks most tag consumers. |
-| **7** | Role-Tag Badge Priority Fix | **Completed** | Partner / tags | Badge display uses P → S → default; needs #6 model. |
-| **8** | Auto-tag primary and secondary from default tags | **Completed** | Partner / tags | Display fallback + “(auto)”; share resolution order with #7. |
+| **7** | Role-Tag Badge Priority Fix | **Completed** | Partner / tags | Badge display uses P â†’ S â†’ default; needs #6 model. |
+| **8** | Auto-tag primary and secondary from default tags | **Completed** | Partner / tags | Display fallback + â€œ(auto)â€; share resolution order with #7. |
 | **9** | Tag Modal: Remember Last Selected Tag Filter | **Completed** | Partner / tags | UI pref on tag modal; after toggles from #6 exist. |
 | **10** | Early Ramp CMC threshold + info popup | Ready | Partner / Gameplan | Bug fix + establish reveal-popup pattern for Gameplan. |
-| **11** | Commander Gameplan stat bullets clickable | Ready | Partner / Gameplan | Generalizes #10’s reveal pattern; resolve structural vs simulation cards first. |
-| **12** | Commander Gameplan Tag Pills & Filter | **Completed** | Partner / Gameplan | Needs stable P/S/D from #6–8; preserve “Land in hand”. |
-| **13** | Similarity count fix & Spicy Picks Cuts exclusion | **Completed** | Partner / Adds&Cuts UX | Cluster with other planning-board fixes; don’t rewrite scoring from #1. |
-| **14** | Cut button on Spicy Picks → Cuts list | **Completed** | Partner / Adds&Cuts UX | Same Adds/Cuts state model as #13 — run back-to-back. |
+| **11** | Commander Gameplan stat bullets clickable | Ready | Partner / Gameplan | Generalizes #10â€™s reveal pattern; resolve structural vs simulation cards first. |
+| **12** | Commander Gameplan Tag Pills & Filter | **Completed** | Partner / Gameplan | Needs stable P/S/D from #6â€“8; preserve â€œLand in handâ€. |
+| **13** | Similarity count fix & Spicy Picks Cuts exclusion | **Completed** | Partner / Adds&Cuts UX | Cluster with other planning-board fixes; donâ€™t rewrite scoring from #1. |
+| **14** | Cut button on Spicy Picks â†’ Cuts list | **Completed** | Partner / Adds&Cuts UX | Same Adds/Cuts state model as #13 â€” run back-to-back. |
 | **15** | Adds section missing Suggested Replacements | Ready | Partner / Adds&Cuts UX | Inspector path for Adds-section cards. |
 | **16** | Adds & Cuts hover preview | Ready | Partner / Adds&Cuts UX | Reuse deck-builder hover mechanism. |
 | **17** | Card Inspector: show add/cut quantity | Ready | Partner / Adds&Cuts UX | Surface planning qty inside inspector. |
-| **18** | Add Cards popup — remember destination | Ready | Partner / Adds&Cuts UX | localStorage destination pref. |
-| **19** | Card Search Bug — “Bounty of the Hunt” | Ready | Partner / search | Isolated search/DB bug; can parallel earlier if a second agent is free. |
+| **18** | Add Cards popup â€” remember destination | Ready | Partner / Adds&Cuts UX | localStorage destination pref. |
+| **19** | Card Search Bug â€” â€œBounty of the Huntâ€ | Ready | Partner / search | Isolated search/DB bug; can parallel earlier if a second agent is free. |
 | **20** | Trade window: card image opens inspector | Ready | Partner / trade | Isolated inspector wiring. |
 | **21** | Collection tab: deck membership in inspector | Ready | Partner / collection | Isolated; distinct from prompt #4 pool toggle. |
-| **22** | Deck Builder: fix card image re-pop | Ready | Partner / render | Keep isolated — render/cache investigation; don’t interleave with #13–18. |
-| **23** | User-defined deck categories | Ready | Partner / tags (large) | Last — needs settled tag model; design Qs before code. |
-| **24** | Suggested Adds A0 — raw badge, no S, no min-7 display filter | **Completed** | Cuts/Adds 13 v2 Phase A | First slice of Phase A. Do before **25**. |
-| **25** | A1.5 — Plan envelope + sub-tags + planned-cut exclusion + checkbox/Expand + `engine2.1wizard` creature-type suggest (degraded if missing) | **Completed** | Cuts/Adds 13 v2 Phase A | After **24**. Full prompt below. |
-| **26** | A1 / A1b — plan term H + Option A primary tier + strength strip | **Completed** | Cuts/Adds 13 v2 Phase A | After **25**. Classic plan-aware ranking. |
-| **27** | Hybrid Suggested Adds — Classic staples + `engine2.1wizard` theme/synergy rows | **Completed** | Full merge stage | After **26**. Partner `engine2/` untouched. |
-| **28** | Bidirectional loop — confirmed plan + planned Adds/Cuts into sandbox scoring | **Completed** | Full merge stage | After **27**. Completes wizard↔engine marriage. |
+| **22** | Deck Builder: fix card image re-pop | Ready | Partner / render | Keep isolated â€” render/cache investigation; donâ€™t interleave with #13â€“18. |
+| **23** | User-defined deck categories | Ready | Partner / tags (large) | Last â€” needs settled tag model; design Qs before code. |
+| **24** | Suggested Adds A0 â€” raw badge, no S, no min-7 display filter | **Completed** | Cuts/Adds 13 v2 Phase A | First slice of Phase A. Do before **25**. |
+| **25** | A1.5 â€” Plan envelope + sub-tags + planned-cut exclusion + checkbox/Expand + `engine2.1wizard` creature-type suggest (degraded if missing) | **Completed** | Cuts/Adds 13 v2 Phase A | After **24**. Full prompt below. |
+| **26** | A1 / A1b â€” plan term H + Option A primary tier + strength strip | **Completed** | Cuts/Adds 13 v2 Phase A | After **25**. Classic plan-aware ranking. |
+| **27** | Hybrid Suggested Adds â€” Classic staples + `engine2.1wizard` theme/synergy rows | **Completed** | Full merge stage | After **26**. Partner `engine2/` untouched. |
+| **28** | Bidirectional loop â€” confirmed plan + planned Adds/Cuts into sandbox scoring | **Completed** | Full merge stage | After **27**. Completes wizardâ†”engine marriage. |
 
 ### Full merge track (memory aid)
 
 Goal: marry Plan wizard + Classic Suggested Adds with sandbox [`engine2.1wizard/`](../engine2.1wizard/) (never edit partner [`engine2/`](../engine2/)).  
 Canonical design: [`suggested-adds-improvement-plan.md`](./suggested-adds-improvement-plan.md).  
-Run **24 → 25 → 26 → 27 → 28** in order. Each prompt marks itself **Completed** when done so the next agent keeps going.
+Run **24 â†’ 25 â†’ 26 â†’ 27 â†’ 28** in order. Each prompt marks itself **Completed** when done so the next agent keeps going.
 
 ### Deliberately excluded from this queue (do not send)
 
 | Prompt | Reason |
 |--------|--------|
-| Manual Tag Grouping / missing “Added” section cards | Partner asked to ignore (live grouping bug — separate). |
+| Manual Tag Grouping / missing â€œAddedâ€ section cards | Partner asked to ignore (live grouping bug â€” separate). |
 | Fix Card Spacing in Adds & Cuts Sections | Partner asked to ignore. |
 | Post-Swap Delta on Adds & Cuts Category Headers | Partner asked to ignore. |
-| Aggro-Control Slider: Add 8 New Checkpoints | Partner asked to ignore; playstyle already documented as `∈ [−7, 7]`. |
+| Aggro-Control Slider: Add 8 New Checkpoints | Partner asked to ignore; playstyle already documented as `âˆˆ [âˆ’7, 7]`. |
 | Card Inspector Swipe/Arrow Navigation (Adds & Cuts order) | Partner asked to ignore. |
-| Part 1 / Part 2 Cuts/Adds technical write-up | Docs only — already covered by backlog / this file; not an implement prompt. |
+| Part 1 / Part 2 Cuts/Adds technical write-up | Docs only â€” already covered by backlog / this file; not an implement prompt. |
 
 ### Design plan
 
 | Entry | Status | Note |
 |-------|--------|------|
-| Suggested Adds improvement + Entry 13 v2 | **In Ready Prompts 24–28** | Canonical: [`suggested-adds-improvement-plan.md`](./suggested-adds-improvement-plan.md). Badge = raw only (no `/10`). Full merge via sandbox `engine2.1wizard`. |
-| Phase B — 13 v2 wizard extras / Cuts shielding | Later | Plan §6 — after 24–28. |
-| Phase C — mixed plan-aware backfill | Optional | Plan §7. |
+| Suggested Adds improvement + Entry 13 v2 | **In Ready Prompts 24â€“28** | Canonical: [`suggested-adds-improvement-plan.md`](./suggested-adds-improvement-plan.md). Badge = raw only (no `/10`). Full merge via sandbox `engine2.1wizard`. |
+| Phase B â€” 13 v2 wizard extras / Cuts shielding | Later | Plan Â§6 â€” after 24â€“28. |
+| Phase C â€” mixed plan-aware backfill | Optional | Plan Â§7. |
 
 ---
 
 ## How to use
 
 1. Open the **main app repo** (partner) in Cursor / cloud agent.
-2. Copy **one** fenced prompt block below (start at `# …` inside the fence). Prefer the
+2. Copy **one** fenced prompt block below (start at `# â€¦` inside the fence). Prefer the
    next **Ready** row in the order table (skip **Completed**).
 3. Paste into the agent. Say start / implement.
-4. **When implementation is done** (this session / agent — not waiting for merge): set
-   that row’s **Status** to **Completed** and add `**Status:** Completed` under the
+4. **When implementation is done** (this session / agent â€” not waiting for merge): set
+   that rowâ€™s **Status** to **Completed** and add `**Status:** Completed` under the
    prompt heading. Agents must do this every time (see `.cursor/rules/ready-prompts-completion.mdc`).
-5. After merge / backlog close: for backlog-linked prompts (1–5), mark that backlog entry
+5. After merge / backlog close: for backlog-linked prompts (1â€“5), mark that backlog entry
    **Shipped** and move full write-up to `cuts-adds-archive.md`; then remove or strike
    that prompt from this file. For partner prompts (6+), strike/remove here and note
    shipped in archive or PR.
 
 ---
 
-# Prompt 1 of 23 — Coordinated Adds scoring rebalance (entries 7 / 9 / 10 / 11 / 12)
+# Prompt 1 of 23 â€” Coordinated Adds scoring rebalance (entries 7 / 9 / 10 / 11 / 12)
 
 **Status:** Completed
 
 ```
-# Adds scoring rebalance — entries 7, 9, 10, 11, 12 (single coordinated pass)
+# Adds scoring rebalance â€” entries 7, 9, 10, 11, 12 (single coordinated pass)
 
 ## Context
 Update **Suggested Adds only**. Verify line anchors before editing (may have drifted):
@@ -115,64 +115,64 @@ Update **Suggested Adds only**. Verify line anchors before editing (may have dri
 - `_computeAddContext` (~decks.js:6274)
 - `_renderAddSuggestions` (~decks.js:6623)
 
-Current score (approx): `(D × M) + C + V + T + K` — no E, P, L, or B terms; D likely
+Current score (approx): `(D Ã— M) + C + V + T + K` â€” no E, P, L, or B terms; D likely
 sums full credit per matched deficit; C applies uniformly.
 
 ## Goal
 Implement coordinated scoring changes so **hard** verification cases pass and **soft**
 cases are evidenced with term logs (see Verification).
 
-**Hard constraint:** Deterministic algorithm only — no runtime AI/LLM/ML inference.
+**Hard constraint:** Deterministic algorithm only â€” no runtime AI/LLM/ML inference.
 
 ## Locked design decisions (do not re-open)
 These were decided in a design interview. Prefer them over older backlog TBD wording.
 
-## Step 0 — Repo discovery (do first; document in PR)
-1. Read `_scoreAddCandidate` — confirm current D, M, C, V, T, K math and constants.
+## Step 0 â€” Repo discovery (do first; document in PR)
+1. Read `_scoreAddCandidate` â€” confirm current D, M, C, V, T, K math and constants.
 2. Locate project **role-tag IDs/names** (~36 utility tags). Build a **single centralized
-   semantic→ID map** for efficiency-mode / exclusions / B / E role selection.
+   semanticâ†’ID map** for efficiency-mode / exclusions / B / E role selection.
    - Do NOT assume Scryfall `otag:` slugs match project IDs.
-   - **Partner tag work (outside this repo’s docs) may rename/replace IDs soon.** Keep
+   - **Partner tag work (outside this repoâ€™s docs) may rename/replace IDs soon.** Keep
      the map in one place; treat IDs as transitional; do not scatter hard-coded tag
      strings. Do not block waiting for that partner work.
 3. Locate **existing** archetype/spellslinger detection for B gating. Document the hook.
-   - Use what exists only — **do not invent** a new spellslinger heuristic.
+   - Use what exists only â€” **do not invent** a new spellslinger heuristic.
    - Treat this gate as **temporary wiring**; partner archetype/tag work may change it.
 4. Confirm `edhrec_rank` and USD price fields on local card objects.
-5. Confirm Adds already **excludes cards outside the commander’s color identity**. If
-   missing, fix that pool filter — never “score away” off-color cards. Do not broaden
+5. Confirm Adds already **excludes cards outside the commanderâ€™s color identity**. If
+   missing, fix that pool filter â€” never â€œscore awayâ€ off-color cards. Do not broaden
    owned/backfill scope (entry 6).
 6. Add term-breakdown logging (debug flag) **and** automated checks for hard cases.
 
 ## Term changes
 
-### D — sublinear multi-deficit scaling (entry 10, PRIMARY)
+### D â€” sublinear multi-deficit scaling (entry 10, PRIMARY)
 When candidate matches multiple **active** deficits:
 - Collect matched deficit magnitudes; sort descending.
-- `D = Σ deficit_i × weight_i` with locked weights
+- `D = Î£ deficit_i Ã— weight_i` with locked weights
   `D_SUBLINEAR_WEIGHTS = [1.0, 0.50, 0.25]` for 1st / 2nd / 3rd+.
 - Single-deficit candidates: unchanged (weight 1.0 only).
-- **D owns multi-need credit.** Do not retarget V to “active deficits only” (that would
+- **D owns multi-need credit.** Do not retarget V to â€œactive deficits onlyâ€ (that would
   double-count D).
 
-### L + C_eff — CMC efficiency for interaction roles (entry 11)
+### L + C_eff â€” CMC efficiency for interaction roles (entry 11)
 Build `EFFICIENCY_MODE_PROJECT_TAGS` from backlog entry 11:
 
 **In efficiency mode (L on, C off):**
 - Tier 1 + Tier 2 semantic roles from entry 11
-- **Plus** tutors and fight/bite (Tier 3 subset — locked)
+- **Plus** tutors and fight/bite (Tier 3 subset â€” locked)
 
 **Keep normal C, do NOT apply L:**
 - Board Wipe, Card Draw (general), draw engines, Plan/untagged, land-ramp, anthems/
   finishers (entry 11 exclusion table)
-- **Plus** recursion/reanimate and cantrip / pure-draw–style draw (Tier 3 excluded)
+- **Plus** recursion/reanimate and cantrip / pure-drawâ€“style draw (Tier 3 excluded)
 
 Exclude **lands** from L even if tagged ramp.
 
-If candidate has ≥1 efficiency-mode tag AND is not a land:
+If candidate has â‰¥1 efficiency-mode tag AND is not a land:
 - `C_eff = 0`
-- `L = K_L × max(0, CMC_REF − CMC)` with locked `CMC_REF = 4`
-- Tune `K_L` in repo (simple arithmetic — must not add live network/DB work per
+- `L = K_L Ã— max(0, CMC_REF âˆ’ CMC)` with locked `CMC_REF = 4`
+- Tune `K_L` in repo (simple arithmetic â€” must not add live network/DB work per
   suggestion)
 Else:
 - `C_eff = C` (existing curve-gap bonus)
@@ -181,61 +181,61 @@ Else:
 **No ETB-effective-CMC exception** (e.g. do not pretend Wood Elves is CMC 2 for L).
 Use printed CMC (with `{X}` = 3 convention below).
 
-### E — price-aware EDHREC percentile (entry 7)
+### E â€” price-aware EDHREC percentile (entry 7)
 **Precompute in this same prompt** if missing (no prior prompt owns this):
-- Server-side / migration or periodic job only — **never** compute percentiles live per
+- Server-side / migration or periodic job only â€” **never** compute percentiles live per
   suggestion.
 - Per role tag: population = local cards with that tag, non-null `edhrec_rank`, and
   **Commander-legal when legality exists** (do not split by deck color identity for the
   tables).
-- No min-population floor — any role with ≥1 ranked card stores percentiles (`n=1` → `p=1`).
-- Raw rank → percentile `p` in **[0, 1]** (higher = more popular / better rank).
+- No min-population floor â€” any role with â‰¥1 ranked card stores percentiles (`n=1` â†’ `p=1`).
+- Raw rank â†’ percentile `p` in **[0, 1]** (higher = more popular / better rank).
 
 **Price bands (locked; USD from existing local card price field):**
 Apply **additive** deltas to `p`, then clamp to **[0, 1]** (defaults locked):
-| USD price | Δp |
+| USD price | Î”p |
 |----------:|---:|
-| `< 0.75` | −0.05 (cheap bulk tax) |
-| `0.75 ≤ price < 5` | 0 |
-| `5 ≤ price < 20` | +0.05 |
-| `20 ≤ price < 50` | +0.10 (peak rescue — hard-swap zone) |
-| `≥ 50` | +0.05 (mild only — often proxied; do not escalate) |
+| `< 0.75` | âˆ’0.05 (cheap bulk tax) |
+| `0.75 â‰¤ price < 5` | 0 |
+| `5 â‰¤ price < 20` | +0.05 |
+| `20 â‰¤ price < 50` | +0.10 (peak rescue â€” hard-swap zone) |
+| `â‰¥ 50` | +0.05 (mild only â€” often proxied; do not escalate) |
 
 Use **discrete steps** at band edges (not smooth interpolation inside a band).
 
 **Score-time E:**
-- `p_adjusted = clamp(p + Δp, 0, 1)`
-- **Linear** curve (locked): `E = K_E × p_adjusted`
-- **One E per candidate** — among the candidate's roles with an **active deficit**, prefer
+- `p_adjusted = clamp(p + Î”p, 0, 1)`
+- **Linear** curve (locked): `E = K_E Ã— p_adjusted`
+- **One E per candidate** â€” among the candidate's roles with an **active deficit**, prefer
   the largest hole, then try other matched roles until a stored percentile is found;
-  tie-break lexicographically. No active deficit / no percentile → E = 0 (popular
+  tie-break lexicographically. No active deficit / no percentile â†’ E = 0 (popular
   off-role staples must not float up).
-- **No multi-tag dampening inside E** (locked — do not add).
+- **No multi-tag dampening inside E** (locked â€” do not add).
 - Do NOT sum E per tag. Do NOT use EDHREC category APIs or scrape edhrec.com.
 - Three Visits (rank ~42) must remain elite after price adjust.
 
-**`K_E`:** independent constant (no longer `0.5 × K_L`). Current calibration:
-**`K_E = 1.0`** — `E = K_E × p_adjusted`, so an 80th-percentile role card gets ≈ 0.8
+**`K_E`:** independent constant (no longer `0.5 Ã— K_L`). Current calibration:
+**`K_E = 1.0`** â€” `E = K_E Ã— p_adjusted`, so an 80th-percentile role card gets â‰ˆ 0.8
 and a top-percentile card gets the full 1.0.
 
-### B — creature body bonus (entry 12)
-STE / Wood Elves / Rampant Growth were **examples**, not “B is ramp-only.”
+### B â€” creature body bonus (entry 12)
+STE / Wood Elves / Rampant Growth were **examples**, not â€œB is ramp-only.â€
 
-If existing detection says spellslinger → `B = 0`.
+If existing detection says spellslinger â†’ `B = 0`.
 Else if candidate is a **Creature** AND fills **any** active utility-role deficit:
-- `B = K_B` (single flat constant for all qualifying roles — **no `K_B_RAMP`**)
+- `B = K_B` (single flat constant for all qualifying roles â€” **no `K_B_RAMP`**)
 Else `B = 0`.
 
 Tune `K_B` so **Sakura-Tribe Elder > Rampant Growth** on a non-spellslinger green ramp
-fixture. **Do not** calibrate so Wood Elves always beats Rampant Growth — CMC still
+fixture. **Do not** calibrate so Wood Elves always beats Rampant Growth â€” CMC still
 matters; either card can win depending on curve/deficits.
 
-### P — colored pip restrictiveness (entry 9)
-`P = K_P × pip_restrictiveness_score` from parsed mana cost (locked weights):
+### P â€” colored pip restrictiveness (entry 9)
+`P = K_P Ã— pip_restrictiveness_score` from parsed mana cost (locked weights):
 - W/U/B/R/G: **1.0** each
 - Hybrid (e.g. `{G/U}`): **0.5** each
-- Phyrexian (e.g. `{G/P}`): **−0.5** each (flexibility bonus)
-- `{C}`, generic `{1}`/`{2}`/…, `{X}`: **0**
+- Phyrexian (e.g. `{G/P}`): **âˆ’0.5** each (flexibility bonus)
+- `{C}`, generic `{1}`/`{2}`/â€¦, `{X}`: **0**
 
 Subtract `P` from total. Penalize regardless of on-color status (identity legality is a
 pool filter, not P). Tune `K_P` so same-CMC fights (Growth Spiral vs Three Visits) feel
@@ -244,7 +244,7 @@ P, while weight order keeps P below E and B.
 **Effective CMC for C_eff/L (not P):** treat `{X}` as **X = 3** anywhere CMC-based scoring
 reads CMC.
 
-### V — versatility (entry 10, tertiary)
+### V â€” versatility (entry 10, tertiary)
 Keep V as a **small positive** for paper multi-tag breadth.
 - Dampen **2nd+ utility-tag contribution inside V by ~50%**.
 - Do **not** redefine V as active-deficit-only (D already owns needed multi-role credit).
@@ -252,7 +252,7 @@ Keep V as a **small positive** for paper multi-tag breadth.
 - Weight order keeps V near the bottom so unused tags cannot beat better-in-role cards.
 
 ## Final formula
-`Score = (D × M) + C_eff + L + E + B − P + V + T + K`
+`Score = (D Ã— M) + C_eff + L + E + B âˆ’ P + V + T + K`
 
 ## Weight order (calibration guide)
 `D, M` > `C or L` > `E` > `B` > `P` > `V` > `T, K`
@@ -264,8 +264,8 @@ Keep V as a **small positive** for paper multi-tag breadth.
 - `tribes: []` on backfill (intentional)
 - `CK_REQUIRED_ENABLERS` (15)
 - Entry 1 commander CMC curve fix (unless user says bundle)
-- Entry 13 plan wizard (prompt 2 — run after this ships)
-- Player-facing “dismiss / bad recommendation / learn” UI (future backlog — out of scope)
+- Entry 13 plan wizard (prompt 2 â€” run after this ships)
+- Player-facing â€œdismiss / bad recommendation / learnâ€ UI (future backlog â€” out of scope)
 - Inventing spellslinger detection when none exists
 - Live Scryfall / EDHREC scrape
 
@@ -275,22 +275,22 @@ Card matchups (Three Visits vs Growth Spiral, STE vs Rampant Growth, etc.) are
 **calibration examples**, not CI gates. Hard-asserting those orderings overfit
 constants (especially `K_L`) and made Efficient CMC dominate real score deltas.
 
-### Hard (automated asserts + term log) — must pass
+### Hard (automated asserts + term log) â€” must pass
 | # | Case | Expected |
 |---|------|----------|
 | mode | Board-wipe deficit only | Sweepers still get C (L not applied) |
 | mode | Removal / Ramp tagged | Efficiency mode on; C_eff off; L > 0 for CMC &lt; 4 |
-| scale | `K_L × CMC_REF` | Max L ≤ C_eff cap (1.5) so L stays secondary to D |
+| scale | `K_L Ã— CMC_REF` | Max L â‰¤ C_eff cap (1.5) so L stays secondary to D |
 | consts | Named constants | `CMC_REF=4`, `K_E = 1.0` (independent; `K_E > K_B`), D weights `[1, 0.5, 0.25]`, tag set membership |
 
-### Soft vignettes (debug log only — do not hard-fail)
+### Soft vignettes (debug log only â€” do not hard-fail)
 | # | Case | Expectation |
 |---|------|-------------|
 | 1 | Ramp hole, draw filled | Three Visits **often** beats Growth Spiral |
-| 1b | Ramp + draw both short | Growth Spiral **may** beat Three Visits on D — OK |
+| 1b | Ramp + draw both short | Growth Spiral **may** beat Three Visits on D â€” OK |
 | 2 | Ramp deficit active | Three Visits often beats Cultivate |
 | 3 | Non-spellslinger green ramp | Sakura-Tribe Elder often beats Rampant Growth |
-| 4 | WE vs Rampant Growth | **Either may win.** L’s CMC edge can favor RG; B must not force WE always. |
+| 4 | WE vs Rampant Growth | **Either may win.** Lâ€™s CMC edge can favor RG; B must not force WE always. |
 | 6 | Spellslinger deck | Only if existing detection exists: B = 0; RG may beat STE. If undetectable, document and skip. |
 | 7 | Term isolation | E favors TV over GS; E alone should rarely overturn a real multi-role D lead |
 
@@ -303,7 +303,7 @@ Log `D, M, C_eff, L, E, B, P, V, T, K` for every vignette pair.
 - Code + named constants (`D_SUBLINEAR_WEIGHTS`, `CMC_REF`, `K_L`, `K_E`, `K_P`, `K_B`,
   E price band deltas; no E population floor)
 - Central `EFFICIENCY_MODE_PROJECT_TAGS` (+ exclusion list) with mapping comments and
-  “IDs may change” note
+  â€œIDs may changeâ€ note
 - Formula comment block in `_scoreAddCandidate`
 - Precompute job/migration for E percentiles if not present
 - Hard-case automated verification + debug term logging
@@ -313,28 +313,28 @@ Log `D, M, C_eff, L, E, B, P, V, T, K` for every vignette pair.
 
 ---
 
-# Prompt 2 of 23 — Entry 13 v1 + Entry 5 (plan wizard + plan-aware backfill)
+# Prompt 2 of 23 â€” Entry 13 v1 + Entry 5 (plan wizard + plan-aware backfill)
 
 **Status:** Completed
 
 Canonical twin file (keep in sync): [`entry-13-v1-implementation-prompt.md`](./entry-13-v1-implementation-prompt.md)
 
 ```
-# Entry 13 v1 — deck plan wizard + plan-aware Adds backfill
+# Entry 13 v1 â€” deck plan wizard + plan-aware Adds backfill
 
 **Prereq:** Prefer Prompt 1 (entries 7/9/10/11/12) already merged so `_scoreAddCandidate`
 uses the new formula. If running without Prompt 1, still ship planMatchScore ordering;
 do not reinvent hybrid Plan role weights (v2).
 
 ## Hard constraint
-Deterministic algorithm only — no runtime LLM, embeddings, or other AI/ML inference.
+Deterministic algorithm only â€” no runtime LLM, embeddings, or other AI/ML inference.
 Multiple-choice answers, lookup tables, keyword rules, and formulas only.
 
 ## Goal
 Ship **Entry 13 v1**: guided deck-plan wizard storing structured plan data, plus
 **plan-aware Adds backfill** (Entry 5) so Plan-only deficits fetch on-theme cards.
 
-**Out of scope (v2 — do not implement):**
+**Out of scope (v2 â€” do not implement):**
 - Hybrid functional-role weight modifiers
 - Cuts plan-awareness / shielding
 - Tertiary strategy slot
@@ -343,17 +343,17 @@ Ship **Entry 13 v1**: guided deck-plan wizard storing structured plan data, plus
 - Multi-role recommendation explanation UI
 - Large commander affinity DB / catalog expansion beyond v1 tables below
 
-## Step 0 — Repo discovery (do first; document in PR)
+## Step 0 â€” Repo discovery (do first; document in PR)
 1. Locate `decks.js` (or equivalent). Verify / update anchors (may have drifted):
    - Adds unowned / Plan-only deficit gate (~6679)
    - `_renderAddSuggestions` (~6623)
    - `_scoreAddCandidate` (~6489)
    - Plan-count / Plan deficit logic (~6294)
    - `_computeAddContext` (~6274)
-   - `_suggestCardsToCut` (~6254) — read only; do not change Cuts
-2. Find deck JSON / metadata persistence — add plan fields.
-3. Find existing archetype detection / override — plan overrides for plan-backfill path only.
-4. Enumerate project role-tag IDs (~36). Map every semantic signal below to real IDs —
+   - `_suggestCardsToCut` (~6254) â€” read only; do not change Cuts
+2. Find deck JSON / metadata persistence â€” add plan fields.
+3. Find existing archetype detection / override â€” plan overrides for plan-backfill path only.
+4. Enumerate project role-tag IDs (~36). Map every semantic signal below to real IDs â€”
    do NOT assume Scryfall `otag:` slugs match.
 5. Find `/api/cards/by-roles` (or successor) for plan-aware Plan backfill filters
    (local DB only; never live Scryfall).
@@ -362,9 +362,9 @@ Ship **Entry 13 v1**: guided deck-plan wizard storing structured plan data, plus
 
 ## Current behavior (verify, then change)
 - Recipe includes Plan 30 as "cards with no utility role tag."
-- Unowned Adds backfill requires a non-Plan deficit → Plan-only deficit stalls suggestions.
+- Unowned Adds backfill requires a non-Plan deficit â†’ Plan-only deficit stalls suggestions.
 - No positive Plan definition / wizard / declared strategy+win condition.
-- Archetype + Aggro↔Control slider adjust recipe; do not rewrite Cuts.
+- Archetype + Aggroâ†”Control slider adjust recipe; do not rewrite Cuts.
 
 ## Plan schema (persist on deck)
 {
@@ -388,10 +388,10 @@ Ship **Entry 13 v1**: guided deck-plan wizard storing structured plan data, plus
 }
 - Required for "plan declared": winConditionId + primaryStrategyId
 - secondaryStrategyId optional / skippable
-- Budget fields optional / skippable — null USD = no limit for that dimension
+- Budget fields optional / skippable â€” null USD = no limit for that dimension
 - allowBudgetBusters: user opted in to a few over-budget suggestions when justified
-- fieldSources: chip-confirmed | chip-corrected | formal | skipped→formal | skipped
-- Last three fields: v2 hooks — nullable, unused in v1
+- fieldSources: chip-confirmed | chip-corrected | formal | skippedâ†’formal | skipped
+- Last three fields: v2 hooks â€” nullable, unused in v1
 
 ## Wizard questions
 
@@ -399,32 +399,32 @@ Plan/strategy questions: multiple choice. Stable IDs from catalogs. Show More Op
 Budget questions: tier pickers (+ optional custom USD). All questions skippable.
 User can navigate back and edit any prior answer anytime.
 
-### Path A — deckCardCount < 80
-1. Commander — confirm/set if missing
-2. Win condition — "How does this deck usually win?"
+### Path A â€” deckCardCount < 80
+1. Commander â€” confirm/set if missing
+2. Win condition â€” "How does this deck usually win?"
    Top 6 from rankWinConditionsForCommander, else static fallback; full catalog in Show More
-3. Primary strategy — "What is the main strategy or theme?"
+3. Primary strategy â€” "What is the main strategy or theme?"
    Top 6 from rankStrategiesForCommander, else static fallback; full catalog in Show More
-4. Secondary strategy (optional) — skippable
-5. Budget preferences (optional) — entire step skippable; each sub-question skippable
-   a. Rough max deck budget — "About how much do you want to spend on this deck total?"
-      Tier picker (budget.deck.*) + optional custom USD; Skip → roughMaxDeckBudgetUsd = null
-   b. Rough max per-card budget — "Rough max for a single suggested card?"
-      Tier picker (budget.card.*) + optional custom USD; Skip → roughMaxPerCardBudgetUsd = null
-   c. Budget busters — "OK with a few suggestions above your per-card budget if they're
+4. Secondary strategy (optional) â€” skippable
+5. Budget preferences (optional) â€” entire step skippable; each sub-question skippable
+   a. Rough max deck budget â€” "About how much do you want to spend on this deck total?"
+      Tier picker (budget.deck.*) + optional custom USD; Skip â†’ roughMaxDeckBudgetUsd = null
+   b. Rough max per-card budget â€” "Rough max for a single suggested card?"
+      Tier picker (budget.card.*) + optional custom USD; Skip â†’ roughMaxPerCardBudgetUsd = null
+   c. Budget busters â€” "OK with a few suggestions above your per-card budget if they're
       real winners?" Yes (budget.busters.yes) / No (budget.busters.no) / Skip
       (defaults to No when per-card budget set; No effect when per-card budget skipped)
 
-### Path B — deckCardCount >= 80
+### Path B â€” deckCardCount >= 80
 1. Run rankStrategiesForDeck + rankWinConditionsForDeck (+ archetype hint)
 2. At most 3 chips: suggested wincon, primary strategy, optional archetype
    (chip only if score >= PLAN_INFERENCE_CONFIDENCE_MIN)
 3. Per chip Confirm / Correct / Skip
-   - Confirm or Correct → skip corresponding formal Q
-   - Skip or missing → formal Q; pre-fill if score >= min
+   - Confirm or Correct â†’ skip corresponding formal Q
+   - Skip or missing â†’ formal Q; pre-fill if score >= min
 4. Correct opens SAME shared picker as formal Q (including Show More)
 5. Optional secondary strategy at end
-6. Budget preferences (optional) — same as Path A step 5
+6. Budget preferences (optional) â€” same as Path A step 5
 
 ## Catalogs (exact IDs)
 
@@ -450,20 +450,20 @@ Static fallback top 5: combat, commander_damage, combo, life_drain, value
 ### Budget tiers (store resolved USD on deck; tier ID in fieldSources when not custom)
 
 Deck rough max (budget.deck.*):
-- budget.deck.skip → null
-- budget.deck.50 → 50; budget.deck.100 → 100; budget.deck.200 → 200
-- budget.deck.500 → 500; budget.deck.1000 → 1000
-- budget.deck.custom → user-entered rough USD (positive number)
+- budget.deck.skip â†’ null
+- budget.deck.50 â†’ 50; budget.deck.100 â†’ 100; budget.deck.200 â†’ 200
+- budget.deck.500 â†’ 500; budget.deck.1000 â†’ 1000
+- budget.deck.custom â†’ user-entered rough USD (positive number)
 
 Per-card rough max (budget.card.*):
-- budget.card.skip → null
-- budget.card.1 → 1; budget.card.3 → 3; budget.card.5 → 5
-- budget.card.10 → 10; budget.card.25 → 25
-- budget.card.custom → user-entered rough USD (positive number)
+- budget.card.skip â†’ null
+- budget.card.1 â†’ 1; budget.card.3 â†’ 3; budget.card.5 â†’ 5
+- budget.card.10 â†’ 10; budget.card.25 â†’ 25
+- budget.card.custom â†’ user-entered rough USD (positive number)
 
 Budget busters (budget.busters.*):
-- budget.busters.no → allowBudgetBusters = false
-- budget.busters.yes → allowBudgetBusters = true
+- budget.busters.no â†’ allowBudgetBusters = false
+- budget.busters.yes â†’ allowBudgetBusters = true
 
 ## Named constants
 PLAN_WIZARD_ANALYZE_THRESHOLD = 80
@@ -475,58 +475,58 @@ PLAN_ORACLE_SIGNAL_WEIGHT = 0.5
 PLAN_BUDGET_BUSTER_MAX = 2
 PLAN_BUDGET_BUSTER_MIN_SCORE_PERCENTILE = 0.85
 
-PLAN_INFERENCE_CONFIDENCE_MIN is a normalized 0–1 match-score cutoff (not "35% feature
-confidence"). Below 0.35 → static fallback; do not trust chips/pre-fill.
+PLAN_INFERENCE_CONFIDENCE_MIN is a normalized 0â€“1 match-score cutoff (not "35% feature
+confidence"). Below 0.35 â†’ static fallback; do not trust chips/pre-fill.
 
 PLAN_BUDGET_BUSTER_MIN_SCORE_PERCENTILE: over-budget card must rank in the top
-(1 − value) of scored Adds candidates for that render to qualify as a "real winner."
+(1 âˆ’ value) of scored Adds candidates for that render to qualify as a "real winner."
 
-## rankForCommander(commander) — Path A
+## rankForCommander(commander) â€” Path A
 Case-insensitive oracle substring hits; each hit += PLAN_ORACLE_SIGNAL_WEIGHT (cap 3/ID).
-Top 6; if top < 0.35 → static fallback.
+Top 6; if top < 0.35 â†’ static fallback.
 
-Strategy keywords → ID:
-- sacrifice/sacrifices/dies → strategy.sacrifice
-- token/tokens → strategy.tokens
-- cast/instant/sorcery/magecraft/storm → strategy.spellslinger
-- graveyard/reanimate → strategy.reanimator
-- commander damage/equipped/aura → strategy.voltron
-- +1/+1 counter/proliferate → strategy.counters
-- landfall/land enters → strategy.landfall
-- tribal / dominant creature type → strategy.tribal
-- artifact → strategy.artifacts
-- enchantment → strategy.enchantress
-- counter target / control draw cues → strategy.control
-- flicker/exile+return/ETB → strategy.blink
-- planeswalker/loyalty → strategy.superfriends
-- gain control/steal → strategy.theft
+Strategy keywords â†’ ID:
+- sacrifice/sacrifices/dies â†’ strategy.sacrifice
+- token/tokens â†’ strategy.tokens
+- cast/instant/sorcery/magecraft/storm â†’ strategy.spellslinger
+- graveyard/reanimate â†’ strategy.reanimator
+- commander damage/equipped/aura â†’ strategy.voltron
+- +1/+1 counter/proliferate â†’ strategy.counters
+- landfall/land enters â†’ strategy.landfall
+- tribal / dominant creature type â†’ strategy.tribal
+- artifact â†’ strategy.artifacts
+- enchantment â†’ strategy.enchantress
+- counter target / control draw cues â†’ strategy.control
+- flicker/exile+return/ETB â†’ strategy.blink
+- planeswalker/loyalty â†’ strategy.superfriends
+- gain control/steal â†’ strategy.theft
 
-Wincon keywords → ID (weaker; more fallbacks expected):
-- mill → wincon.mill
-- lose life/drain/lifelink → wincon.life_drain
-- infinite/win the game/you win → wincon.combo
-- can't/prevent/skip phase → wincon.lock
-- commander damage → wincon.commander_damage
-- combat damage → wincon.combat
+Wincon keywords â†’ ID (weaker; more fallbacks expected):
+- mill â†’ wincon.mill
+- lose life/drain/lifelink â†’ wincon.life_drain
+- infinite/win the game/you win â†’ wincon.combo
+- can't/prevent/skip phase â†’ wincon.lock
+- commander damage â†’ wincon.commander_damage
+- combat damage â†’ wincon.combat
 
-## rankForDeck(deck) — Path B (>=80)
+## rankForDeck(deck) â€” Path B (>=80)
 1. Signal vector from role-tag counts + card-type ratios
-2. Score strategies/wincons via signal tables × PLAN_TAG_SIGNAL_WEIGHT
-3. Normalize 0–1; top 6; if top < 0.35 → static fallback
+2. Score strategies/wincons via signal tables Ã— PLAN_TAG_SIGNAL_WEIGHT
+3. Normalize 0â€“1; top 6; if top < 0.35 â†’ static fallback
 4. Chip = rank #1 only if score >= 0.35
 
 Strategy deck signals (map semantics to project tag IDs in Step 0):
-tokens←token/go-wide; sacrifice←outlets/dies/aristocrats; spellslinger←I/S density/cast/
-prowess; reanimator←recursion; voltron←equipment/auras; counters←+1/+1/proliferate;
-landfall←landfall; tribal←creature-type share>~40%; artifacts; enchantress; control←
-counter/removal/draw; blink←ETB/flicker; superfriends←planeswalkers; theft←steal
+tokensâ†token/go-wide; sacrificeâ†outlets/dies/aristocrats; spellslingerâ†I/S density/cast/
+prowess; reanimatorâ†recursion; voltronâ†equipment/auras; countersâ†+1/+1/proliferate;
+landfallâ†landfall; tribalâ†creature-type share>~40%; artifacts; enchantress; controlâ†
+counter/removal/draw; blinkâ†ETB/flicker; superfriendsâ†planeswalkers; theftâ†steal
 
-Wincon deck signals (sparse): combat←creatures/combat keywords; commander_damage←voltron;
-combo←tutors/enablers; mill; life_drain←drain/lifelink/ping; lock←stax; value←draw+removal
+Wincon deck signals (sparse): combatâ†creatures/combat keywords; commander_damageâ†voltron;
+comboâ†tutors/enablers; mill; life_drainâ†drain/lifelink/ping; lockâ†stax; valueâ†draw+removal
 
 ## Plan-aware backfill (Entry 5)
 Gate: allow unowned fetch when largest active deficit is Plan AND winConditionId +
-primaryStrategyId are set. If plan not declared → no Plan-only fetch (current behavior).
+primaryStrategyId are set. If plan not declared â†’ no Plan-only fetch (current behavior).
 
 planMatchScore(card) =
   2 * strategyMatch(card, primaryStrategyId)
@@ -534,7 +534,7 @@ planMatchScore(card) =
   + 1 * winconMatch(card, winConditionId)
 
 Rank Plan pool by planMatchScore desc, then existing Adds score.
-Equal-weight Plan role only — no hybrid modifiers.
+Equal-weight Plan role only â€” no hybrid modifiers.
 When plan set: do not use archetype on this backfill path.
 
 ## Budget-aware Adds filtering
@@ -554,9 +554,9 @@ When roughMaxDeckBudgetUsd is set (optional soft signal):
 - Use as tie-break / mild deprioritization when comparing near-equal Adds scores
 - UI may show informational note when current deck total already exceeds declared rough max
 
-## Answers → data
-MC pick → store ID on deck (winConditionId / primaryStrategyId / secondaryStrategyId).
-Budget tier → resolve and store USD number (or null on skip); store tier ID or "custom"
+## Answers â†’ data
+MC pick â†’ store ID on deck (winConditionId / primaryStrategyId / secondaryStrategyId).
+Budget tier â†’ resolve and store USD number (or null on skip); store tier ID or "custom"
 in fieldSources. allowBudgetBusters stored as boolean.
 No free-text parse beyond optional custom USD number. Labels are UI; IDs/numbers are scoreable.
 
@@ -569,16 +569,16 @@ No free-text parse beyond optional custom USD number. Labels are UI; IDs/numbers
 - Do not redo Prompt 1 scoring terms here
 
 ## Verification
-1. >=80 sacrifice deck → chips suggest strategy.sacrifice + sensible wincon when score>=0.35
-2. <80 Korvold (or sacrifice commander) → strategy.sacrifice in top 6
-3. Plan-only deficit + plan declared → unowned fetch; on-theme planMatchScore elevated
-4. Plan-only deficit + no plan → no unowned fetch
-5. All scores < 0.35 → static fallback; no overconfident chip
-6. Skip chip → formal Q pre-filled if score >= 0.35
+1. >=80 sacrifice deck â†’ chips suggest strategy.sacrifice + sensible wincon when score>=0.35
+2. <80 Korvold (or sacrifice commander) â†’ strategy.sacrifice in top 6
+3. Plan-only deficit + plan declared â†’ unowned fetch; on-theme planMatchScore elevated
+4. Plan-only deficit + no plan â†’ no unowned fetch
+5. All scores < 0.35 â†’ static fallback; no overconfident chip
+6. Skip chip â†’ formal Q pre-filled if score >= 0.35
 7. Back navigation edits persist correctly
-8. Per-card budget set, busters off → no suggestions above limit in top 8
-9. Per-card budget set, busters on → ≤2 over-budget cards only when score percentile qualifies
-10. Budget step skipped entirely → Adds behavior unchanged vs no budget fields
+8. Per-card budget set, busters off â†’ no suggestions above limit in top 8
+9. Per-card budget set, busters on â†’ â‰¤2 over-budget cards only when score percentile qualifies
+10. Budget step skipped entirely â†’ Adds behavior unchanged vs no budget fields
 
 Log inference scores, chip actions, fieldSources, planMatchScore, budget filter actions.
 
@@ -588,11 +588,11 @@ Log inference scores, chip actions, fieldSources, planMatchScore, budget filter 
 - Shared picker + Show More + back nav
 - Optional budget preferences step (deck + per-card limits, budget busters)
 - rankForCommander / rankForDeck + named constants
-- Semantic→project tag ID map in code
+- Semanticâ†’project tag ID map in code
 - Entry 5 gate + planMatchScore
 - Budget-aware Adds filtering when limits set
 - Archetype ignored on plan-backfill when plan declared
-- Cases 1–10 evidenced in PR
+- Cases 1â€“10 evidenced in PR
 - Step 0 findings in PR notes
 
 ## Build order inside this prompt
@@ -605,12 +605,12 @@ Log inference scores, chip actions, fieldSources, planMatchScore, budget filter 
 
 ---
 
-# Prompt 3 of 23 — Adds curve includes commander CMC (entry 1)
+# Prompt 3 of 23 â€” Adds curve includes commander CMC (entry 1)
 
 **Status:** Completed
 
 ```
-# Adds curve — include commander CMC (entry 1)
+# Adds curve â€” include commander CMC (entry 1)
 
 ## Context
 **Confirmed bug** (project quirk #2): Cuts includes the commander when building mana-curve
@@ -618,40 +618,40 @@ buckets; Adds excludes it. Curve-gap bonus (C / C_eff) therefore sees a differen
 than Cuts for the same deck.
 
 Verify line anchors before editing (may have drifted):
-- Adds curve / `_computeAddContext` (~decks.js:6274) — where Adds builds CMC buckets
-- Cuts curve construction (~decks.js:6460–6473) — reference for “include commander CMC”
+- Adds curve / `_computeAddContext` (~decks.js:6274) â€” where Adds builds CMC buckets
+- Cuts curve construction (~decks.js:6460â€“6473) â€” reference for â€œinclude commander CMCâ€
 - Ideal curve helper if shared: `_computeIdealManaCurveContext` (~decks.js:7126)
-- C term use: `_scoreAddCandidate` (~decks.js:6489) — read-only for this task
+- C term use: `_scoreAddCandidate` (~decks.js:6489) â€” read-only for this task
 
 ## Goal
-Make **Adds** include the commander’s CMC in the same curve-bucket construction Cuts uses,
-so Adds’ curve-gap scoring reflects the full deck the same way Cuts does.
+Make **Adds** include the commanderâ€™s CMC in the same curve-bucket construction Cuts uses,
+so Addsâ€™ curve-gap scoring reflects the full deck the same way Cuts does.
 
-**Hard constraint:** Deterministic algorithm only — no runtime AI/LLM/ML inference.
+**Hard constraint:** Deterministic algorithm only â€” no runtime AI/LLM/ML inference.
 
 ## Locked design decisions (do not re-open)
 - **Adds should match Cuts** on commander inclusion in curve calc (user-directed).
 - Touch **only** Adds curve-bucket construction (in / feeding `_computeAddContext`).
 - Do **not** change Cuts curve logic.
 - Do **not** change other Adds scoring terms (D, M, L, E, B, P, V, T, K) or their weights.
-- Do **not** retarget who “owns” multi-need credit — this is curve input only, not D/V.
+- Do **not** retarget who â€œownsâ€ multi-need credit â€” this is curve input only, not D/V.
 
-## Step 0 — Repo discovery (do first; document in PR)
-1. Read Cuts’ curve-bucket construction — how/where commander CMC is added to buckets.
-2. Read Adds’ `_computeAddContext` curve construction — confirm commander CMC is omitted.
+## Step 0 â€” Repo discovery (do first; document in PR)
+1. Read Cutsâ€™ curve-bucket construction â€” how/where commander CMC is added to buckets.
+2. Read Addsâ€™ `_computeAddContext` curve construction â€” confirm commander CMC is omitted.
 3. Confirm whether both sides share `_computeIdealManaCurveContext` or duplicate logic.
 4. Note the exact CMC bucketing rules (land exclusion, tokens, X-costs, commander zone
-   source). Match Cuts’ existing rules; do not invent new bucket semantics.
+   source). Match Cutsâ€™ existing rules; do not invent new bucket semantics.
 5. Confirm C / C_eff still consumes the curve-gap context this function builds (after
    Prompt 1 if already merged).
 
 ## Change
-1. In Adds’ curve-bucket construction, **count the commander’s CMC** into the appropriate
+1. In Addsâ€™ curve-bucket construction, **count the commanderâ€™s CMC** into the appropriate
    bucket, using the **same inclusion rules Cuts already uses** (same CMC value source,
    same X handling if Cuts has one, same commander object lookup).
 2. Prefer a shared helper if Cuts/Adds already share one and Adds simply skips the
-   commander argument — fix by passing/including commander consistently.
-3. If Adds duplicates Cuts’ loop and omits commander: add the commander CMC bucket step
+   commander argument â€” fix by passing/including commander consistently.
+3. If Adds duplicates Cutsâ€™ loop and omits commander: add the commander CMC bucket step
    to match Cuts line-for-line in behavior (not necessarily copy-paste structure).
 4. Leave scoring-term formulas untouched; only the curve context feeding C changes.
 
@@ -671,14 +671,14 @@ so Adds’ curve-gap scoring reflects the full deck the same way Cuts does.
 | # | Case | Expected |
 |---|------|----------|
 | 1 | Commander CMC = 4, non-land list otherwise identical | Adds curve bucket for CMC 4 is **+1** vs pre-fix (commander counted once) |
-| 2 | Same deck, Compare Adds vs Cuts curve buckets for non-land CMCs | **Commander CMC bucket matches** Cuts’ inclusion of commander (same count contribution) |
+| 2 | Same deck, Compare Adds vs Cuts curve buckets for non-land CMCs | **Commander CMC bucket matches** Cutsâ€™ inclusion of commander (same count contribution) |
 | 3 | High-CMC commander (e.g. 6+) on a curve short at that slot | C / C_eff for a candidate filling that slot **moves** vs pre-fix in the direction implied by the corrected gap (document before/after term log) |
 
 ### Soft (PR write-up)
 | # | Case | Expectation |
 |---|------|-------------|
 | 4 | Partner already merged Prompt 1 (C_eff / L) | C_eff still uses corrected buckets; L / efficiency-mode tagging unchanged |
-| 5 | Token / land / multi-faced edge cases | Follow Cuts’ existing treatment; document any remaining intentional asymmetry |
+| 5 | Token / land / multi-faced edge cases | Follow Cutsâ€™ existing treatment; document any remaining intentional asymmetry |
 
 **Verification delivery:** before/after curve-bucket dump (debug or test) for at least one
 fixed test deck; assert commander CMC counted once on Adds; note line anchors found in
@@ -688,26 +688,26 @@ Step 0.
 - Adds curve-bucket construction includes commander CMC, matching Cuts behavior
 - No Cuts / other scoring-term edits
 - Step 0 findings (anchors + whether shared helper existed) in PR notes
-- Hard cases 1–3 evidenced (test or logged before/after)
+- Hard cases 1â€“3 evidenced (test or logged before/after)
 ```
 
 ---
 
-# Prompt 4 of 23 — Collection / All Cards pool toggle (entry 6)
+# Prompt 4 of 23 â€” Collection / All Cards pool toggle (entry 6)
 
 **Status:** Completed
 
 ```
-# Adds pool toggle — Collection / All Cards (entry 6)
+# Adds pool toggle â€” Collection / All Cards (entry 6)
 
 **Prereq:** Prefer Prompt 1 merged (better All Cards rankings). Prefer Prompt 2 merged
 so Entry 5's plan-aware hybrid backfill exists before this prompt replaces the hybrid
-owned→backfill gathering UX with an explicit toggle. **Do not start this before Prompt 2
-if Prompt 2 is still in flight** — Entry 6 must not rewrite Prompt 2's wizard/schema/Entry 5
+ownedâ†’backfill gathering UX with an explicit toggle. **Do not start this before Prompt 2
+if Prompt 2 is still in flight** â€” Entry 6 must not rewrite Prompt 2's wizard/schema/Entry 5
 gate text; it layers pool modes afterward. Safe to parallel Prompt 3 (commander CMC curve).
 
 ## Hard constraint
-Deterministic algorithm only — no runtime LLM, embeddings, or other AI/ML inference.
+Deterministic algorithm only â€” no runtime LLM, embeddings, or other AI/ML inference.
 
 ## Context
 Today Adds is owned-focused: owned collection first, then deficit-gated unowned backfill
@@ -718,32 +718,32 @@ Entry 6 replaces that hybrid gathering UX with an explicit Adds-panel toggle:
 | UI label | Pool behavior |
 |----------|----------------|
 | **Collection** | Owned collection only. **Never** call server backfill, regardless of deficits. |
-| **All Cards** | Always score **full local DB ∩ format + commander color identity** (plus existing "not already in deck" / free-copy style filters). **No** live Scryfall. **No** deficit-gated server backfill in this mode. Rank by **score only** (no owned-first). |
+| **All Cards** | Always score **full local DB âˆ© format + commander color identity** (plus existing "not already in deck" / free-copy style filters). **No** live Scryfall. **No** deficit-gated server backfill in this mode. Rank by **score only** (no owned-first). |
 
 Verify line anchors before editing (may have drifted):
-- `_renderAddSuggestions` (~decks.js:6623) — pool assembly, owned-first, backfill gate
-- Unowned / Plan-only deficit gate (~decks.js:6679) — Prompt 2 may have changed this
-- `/api/cards/by-roles` (or successor) — backfill endpoint (local DB)
+- `_renderAddSuggestions` (~decks.js:6623) â€” pool assembly, owned-first, backfill gate
+- Unowned / Plan-only deficit gate (~decks.js:6679) â€” Prompt 2 may have changed this
+- `/api/cards/by-roles` (or successor) â€” backfill endpoint (local DB)
 - Existing user preference / settings persistence patterns (for toggle memory)
 
-## Locked design decisions (Entry 6 interview — do not re-open)
+## Locked design decisions (Entry 6 interview â€” do not re-open)
 1. All Cards = local DB catalog only (not live Scryfall; not "every printed card offline").
-2. All Cards ranks by score only — disable owned-first / owned boost.
+2. All Cards ranks by score only â€” disable owned-first / owned boost.
 3. Remember last choice; first-ever visit defaults to **Collection**.
 4. Persist preference: **server-synced per-user** if the app already has that pattern;
    else **per-user global** client persistence. Not per-deck. Not session-only.
 5. Do **not** change Prompt 1 scoring terms or Prompt 2 wizard/Entry 5 hybrid gate
    as a dependency of this work. This prompt implements the toggle layer; if Prompt 2
    already shipped, Collection simply never backfills and All Cards uses the full local
-   pool (Entry 5's Plan-only fetch gate may become unused while All Cards is active —
+   pool (Entry 5's Plan-only fetch gate may become unused while All Cards is active â€”
    document that; do not rip out plan schema / wizard / planMatchScore).
 6. UI labels: **Collection** / **All Cards**.
 
 ## Goal
 Ship the Collection / All Cards toggle on the Adds panel with the pool + persistence
-behaviors above. Candidate-pool change only — do not retune scoring formulas.
+behaviors above. Candidate-pool change only â€” do not retune scoring formulas.
 
-## Step 0 — Repo discovery (do first; document in PR)
+## Step 0 â€” Repo discovery (do first; document in PR)
 1. Trace how Adds currently builds the candidate list (owned filter, owned-first sort,
    deficit gate, `/api/cards/by-roles` backfill).
 2. Confirm local DB access path for "all format + CI legal cards" without live Scryfall.
@@ -758,7 +758,7 @@ behaviors above. Candidate-pool change only — do not retune scoring formulas.
 ### UI
 - Adds panel control with two modes labeled **Collection** and **All Cards**.
 - Switching modes recomputes suggestions with the matching pool rules.
-- Persist selection per interview #3–4; first paint = Collection until a stored choice
+- Persist selection per interview #3â€“4; first paint = Collection until a stored choice
   exists.
 
 ### Collection mode
@@ -768,9 +768,9 @@ behaviors above. Candidate-pool change only — do not retune scoring formulas.
   when every candidate is owned).
 
 ### All Cards mode
-- Candidate pool = local DB ∩ format legality ∩ commander color identity ∩ not already
+- Candidate pool = local DB âˆ© format legality âˆ© commander color identity âˆ© not already
   in deck (and any other existing non-ownership legality filters).
-- **Do not** use deficit-gated backfill to grow the pool — the local DB **is** the pool.
+- **Do not** use deficit-gated backfill to grow the pool â€” the local DB **is** the pool.
 - **Do not** apply owned-first sort or owned boost; sort by Adds score only (top 8).
 - Still never live Scryfall. Keep `tribes: []` if any residual by-roles call remains;
   prefer not calling backfill at all in this mode.
@@ -783,11 +783,11 @@ behaviors above. Candidate-pool change only — do not retune scoring formulas.
 
 ## Do NOT touch
 - Prompt 1 scoring formulas/constants (except consuming them as-is)
-- Prompt 2 deck-plan wizard, plan schema, or Entry 5 gate implementation details —
+- Prompt 2 deck-plan wizard, plan schema, or Entry 5 gate implementation details â€”
   do not reopen or rewrite that prompt; only adapt pool gathering for the new modes
 - Cuts scoring / Cuts UI
 - Entry 1 curve-bucket logic (Prompt 3) unless an unavoidable shared helper conflict
-  appears — prefer not
+  appears â€” prefer not
 - Live Scryfall / EDHREC scrape
 - `tribes: []` intentional empty send
 - Runtime AI/LLM
@@ -797,7 +797,7 @@ behaviors above. Candidate-pool change only — do not retune scoring formulas.
 ### Hard (must pass)
 | # | Case | Expected |
 |---|------|----------|
-| 1 | Mode = Collection, Plan-only or role deficit | Suggestions ⊆ owned; **no** `/api/cards/by-roles` (or successor) backfill call |
+| 1 | Mode = Collection, Plan-only or role deficit | Suggestions âŠ† owned; **no** `/api/cards/by-roles` (or successor) backfill call |
 | 2 | Mode = All Cards | Top 8 may include unowned local-DB cards; order is score-only (owned card must not outrank higher-scoring unowned solely due to ownership) |
 | 3 | First-ever user (no saved pref) | Control initializes to **Collection** |
 | 4 | User selects All Cards, reloads Adds | Mode restores to **All Cards** (synced pref if available, else per-user global) |
@@ -814,17 +814,17 @@ behaviors above. Candidate-pool change only — do not retune scoring formulas.
 - Pool behavior per mode (including no backfill in Collection; full local DB in All Cards)
 - Preference persistence (server-synced per-user if possible, else per-user global)
 - Step 0 findings (anchors, prefs path chosen, Prompt 2 interaction notes)
-- Hard cases 1–5 evidenced in PR
+- Hard cases 1â€“5 evidenced in PR
 ```
 
 ---
 
-# Prompt 5 of 23 — Adds token exclusion (entry 2)
+# Prompt 5 of 23 â€” Adds token exclusion (entry 2)
 
 **Status:** Completed
 
 ```
-# Adds — exclude tokens from Plan-count; never recommend tokens (entry 2)
+# Adds â€” exclude tokens from Plan-count; never recommend tokens (entry 2)
 
 ## Context
 **Confirmed bug** (project quirk #1): Cuts excludes token cards from its candidate pool, so
@@ -832,36 +832,36 @@ tokens never enter Plan-count math on the Cuts side. Adds' Plan-count / deficit 
 mirror that exclusion, and Adds may surface token cards as suggestions.
 
 **User decision (2026-07-14):** Token cards should **never** count toward Plan and should
-**never** be recommended — tokens are byproducts of other cards' abilities, not real 99
+**never** be recommended â€” tokens are byproducts of other cards' abilities, not real 99
 slots. **Token generators** (regular non-token cards that create tokens) are **different**
 and must not be conflated.
 
 Verify line anchors before editing (may have drifted):
 - Adds Plan-count / deficit logic (~decks.js:6294) in `_computeAddContext` (~6274)
 - Adds candidate pool assembly (~decks.js:6623 `_renderAddSuggestions`)
-- Cuts token exclusion (~decks.js:6254 `_suggestCardsToCut`) — **read-only reference**
+- Cuts token exclusion (~decks.js:6254 `_suggestCardsToCut`) â€” **read-only reference**
 - Any shared `isToken` / card-type helper Cuts already uses
 
 ## Goal
-1. **Plan-count:** Adds excludes **token cards** from Plan tally — same predicate Cuts uses.
+1. **Plan-count:** Adds excludes **token cards** from Plan tally â€” same predicate Cuts uses.
 2. **Recommendations:** Adds must **never** recommend token cards (owned, catalog, backfill).
 3. **Token generators stay:** non-token cards that create tokens remain valid candidates and
    normal role/Plan math.
 
-**Hard constraint:** Deterministic algorithm only — no runtime AI/LLM/ML inference.
+**Hard constraint:** Deterministic algorithm only â€” no runtime AI/LLM/ML inference.
 
 ## Locked design decisions (do not re-open)
-- Match Cuts' token detection (`isToken` / type line) — **not** oracle "creates tokens" text.
-- **Adds-only** — do not change Cuts.
+- Match Cuts' token detection (`isToken` / type line) â€” **not** oracle "creates tokens" text.
+- **Adds-only** â€” do not change Cuts.
 - Token generators (e.g. Parallel Lives, Young Pyromancer) are **in scope as normal cards**.
 - Only **token-type cards** are excluded from Plan-count and from the Adds candidate pool.
 
-## Step 0 — Repo discovery (do first; document in PR)
-1. Locate Cuts' token exclusion predicate — reuse or share it; do not invent a second rule.
-2. Read Adds Plan-count path in `_computeAddContext` — confirm tokens are currently counted.
+## Step 0 â€” Repo discovery (do first; document in PR)
+1. Locate Cuts' token exclusion predicate â€” reuse or share it; do not invent a second rule.
+2. Read Adds Plan-count path in `_computeAddContext` â€” confirm tokens are currently counted.
 3. Audit Adds candidate gathering (owned, local DB / catalog, `/api/cards/by-roles` backfill):
    confirm whether token cards can appear today; note every path that must filter them out.
-4. Audit other Adds "deck cards for recipe" tallies — apply consistent token exclusion if any
+4. Audit other Adds "deck cards for recipe" tallies â€” apply consistent token exclusion if any
    other count mirrors Plan logic.
 5. Document one token card and one token-generator card from the local DB for verification.
 
@@ -879,7 +879,7 @@ Verify line anchors before editing (may have drifted):
 
 ## Do NOT touch
 - Cuts scoring / Cuts candidate pool (read as reference only)
-- Token **generator** cards — must remain suggestable
+- Token **generator** cards â€” must remain suggestable
 - Scoring formulas (D, M, C, L, E, B, P, V, T, K) and weights
 - Entry 13 plan wizard / plan schema (except Plan deficit now excludes tokens correctly)
 - `tribes: []`, `CK_REQUIRED_ENABLERS`
@@ -892,7 +892,7 @@ Verify line anchors before editing (may have drifted):
 | # | Case | Expected |
 |---|------|----------|
 | 1 | Deck with 5 untagged **token** cards + 35 other untagged non-tokens | Adds Plan count = **35** (tokens excluded), matching Cuts-side semantics |
-| 2 | Same deck, Plan deficit active | Adds Plan deficit **≥** pre-fix (tokens no longer inflate Plan count) |
+| 2 | Same deck, Plan deficit active | Adds Plan deficit **â‰¥** pre-fix (tokens no longer inflate Plan count) |
 | 3 | Adds suggestion run (any pool mode) | **No** suggested card is a token (type-line token / `isToken`) |
 | 4 | Deck with token **generator** (e.g. Parallel Lives) not in deck | Generator **can** appear in Adds suggestions when it scores highly |
 | 5 | Token generator in deck, untagged | Counts toward Plan (or role tags) like any other non-token card |
@@ -907,12 +907,12 @@ Verify line anchors before editing (may have drifted):
 - Shared or mirrored token predicate (document anchor)
 - Plan-count fix in `_computeAddContext` (or equivalent)
 - Candidate-pool token filter on all Adds gather paths
-- Step 0 findings + hard cases 1–5 evidenced in PR
+- Step 0 findings + hard cases 1â€“5 evidenced in PR
 ```
 
 ---
 
-# Prompt 6 of 23 — Manual Tag State Control in Card Inspector
+# Prompt 6 of 23 â€” Manual Tag State Control in Card Inspector
 
 **Status:** Completed
 
@@ -920,34 +920,34 @@ Verify line anchors before editing (may have drifted):
 # Manual Tag State Control in Card Inspector
 
 ## Context
-Tags on a card have three states — Default (algorithm-assigned), Primary (manual),
+Tags on a card have three states â€” Default (algorithm-assigned), Primary (manual),
 Secondary (manual). Users can also manually add tags themselves, separate from the
-algorithm’s assignments.
+algorithmâ€™s assignments.
 
 ## Goal
 Add manual tag state control to the card inspector.
-- Click/tap a tag: Default → Primary. Primary → Secondary. Secondary → reverts to Default
-  (clears manual override; algorithm assignment restored — or removed if the algorithm
-  doesn’t currently assign that tag).
+- Click/tap a tag: Default â†’ Primary. Primary â†’ Secondary. Secondary â†’ reverts to Default
+  (clears manual override; algorithm assignment restored â€” or removed if the algorithm
+  doesnâ€™t currently assign that tag).
 - Long-press (mobile) / right-click (desktop): context menu with Primary, Secondary,
   Default, and Remove. Remove expands to:
-  - Remove manual override — same as Default; clears manual state and falls back to what
-    the algorithm currently assigns (tag disappears if algorithm doesn’t assign it, or if
+  - Remove manual override â€” same as Default; clears manual state and falls back to what
+    the algorithm currently assigns (tag disappears if algorithm doesnâ€™t assign it, or if
     it was a user-added tag with no algorithmic backing).
-  - Remove entirely — deletes the tag from the card and suppresses the algorithm from
+  - Remove entirely â€” deletes the tag from the card and suppresses the algorithm from
     re-adding it until/unless the user re-adds it manually.
-- A card can have multiple Primary tags and multiple Secondary tags simultaneously —
+- A card can have multiple Primary tags and multiple Secondary tags simultaneously â€”
   no singular constraint.
-- No visual/styling changes — existing Default/Primary/Secondary treatment stays as-is.
+- No visual/styling changes â€” existing Default/Primary/Secondary treatment stays as-is.
   Interaction/state logic only.
 
-## Before implementing — ask if unclear
+## Before implementing â€” ask if unclear
 - Is there already an endpoint and/or table for card tags, or does this need a new one?
   Check the codebase and report findings; if ambiguous, ask before schema/route decisions.
-- If “Remove entirely” suppression needs new state (e.g. per-card exclusion list), confirm
+- If â€œRemove entirelyâ€ suppression needs new state (e.g. per-card exclusion list), confirm
   whether that model already exists or must be created.
 - If this needs a new/modified client API call via apiFetch/apiPut/apiPatch/apiDelete/
-  apiPostJson and auth failure handling isn’t covered nearby, ask how to handle it (or
+  apiPostJson and auth failure handling isnâ€™t covered nearby, ask how to handle it (or
   match the nearest existing caller).
 - If anything else about the current tag implementation is ambiguous, ask before building.
 
@@ -958,7 +958,7 @@ Area: imperative summary.
 
 ---
 
-# Prompt 7 of 23 — Role-Tag Badge Priority Fix
+# Prompt 7 of 23 â€” Role-Tag Badge Priority Fix
 
 **Status:** Completed
 
@@ -973,14 +973,14 @@ Update the role-tag badge selection logic so the single badge shown per card fol
 3. If neither exists, fall back to current default-tag logic (first-listed if multiple).
 
 Find the existing code that chooses which tag badge to render on a card (collection and
-deck views) and update it to this hierarchy only — do not change how tags are stored,
+deck views) and update it to this hierarchy only â€” do not change how tags are stored,
 added, or removed.
 
 ## Before making changes, confirm
 - Where primary vs secondary vs default are distinguished in the data model. If that
-  distinction doesn’t exist, ask before inventing schema.
-- Whether “first listed” means creation order, existing sort order, or array order from
-  the DB — ask if unambiguous from code.
+  distinction doesnâ€™t exist, ask before inventing schema.
+- Whether â€œfirst listedâ€ means creation order, existing sort order, or array order from
+  the DB â€” ask if unambiguous from code.
 - If this requires new/changed client API calls, ask about auth failures unless a nearby
   caller already establishes the pattern.
 - If anything else about tag data or rendering is unclear, ask before implementing.
@@ -991,7 +991,7 @@ After JS changes: npm run build:bundle; commit dist/bundle.js.
 
 ---
 
-# Prompt 8 of 23 — Auto-tag primary and secondary from default tags
+# Prompt 8 of 23 â€” Auto-tag primary and secondary from default tags
 
 **Status:** Completed
 
@@ -1003,32 +1003,32 @@ Tag system: Default / Primary / Secondary with click cycling and context menu. T
 card only shows primary or secondary if the user manually set one.
 
 ## Fix requirements
-- If no manually set primary but ≥1 default tag: treat the **first** default as primary
-  for **display only** — do not write manual Primary into storage.
-- If no manually set secondary but ≥2 default tags: treat the **second** default as
+- If no manually set primary but â‰¥1 default tag: treat the **first** default as primary
+  for **display only** â€” do not write manual Primary into storage.
+- If no manually set secondary but â‰¥2 default tags: treat the **second** default as
   secondary the same way.
 - Does not override real manual primary/secondary.
-- When shown via this fallback, append “(auto)” after the tag label in the pill.
+- When shown via this fallback, append â€œ(auto)â€ after the tag label in the pill.
 
 ## Investigation / confirmation before building
-- Where default tags are stored and in what order; whether “first”/“second” is already
+- Where default tags are stored and in what order; whether â€œfirstâ€/â€œsecondâ€ is already
   defined or needs a tiebreaker.
 - If algorithm assigns defaults with no stable order, ask whether to introduce one.
 - Confirm whether clicking an auto-filled pill promotes it to a real manual state (and
-  “(auto)” disappears) — match existing cycle behavior unless told otherwise.
+  â€œ(auto)â€ disappears) â€” match existing cycle behavior unless told otherwise.
 
 ## Verification
-- Card with ≥2 defaults, no manual P/S → first two show as primary/secondary with “(auto)”.
-- Manual primary, no manual secondary → auto-secondary still applies.
-- Clicking auto pill converts to real manual and removes “(auto)”.
+- Card with â‰¥2 defaults, no manual P/S â†’ first two show as primary/secondary with â€œ(auto)â€.
+- Manual primary, no manual secondary â†’ auto-secondary still applies.
+- Clicking auto pill converts to real manual and removes â€œ(auto)â€.
 - npm run build:bundle; commit dist/bundle.js if js/ changed.
 
-Prereq: Prefer Prompts 6–7 so badge and cycle share one resolution order.
+Prereq: Prefer Prompts 6â€“7 so badge and cycle share one resolution order.
 ```
 
 ---
 
-# Prompt 9 of 23 — Tag Modal: Remember Last Selected Tag Filter
+# Prompt 9 of 23 â€” Tag Modal: Remember Last Selected Tag Filter
 
 **Status:** Completed
 
@@ -1036,23 +1036,23 @@ Prereq: Prefer Prompts 6–7 so badge and cycle share one resolution order.
 # Tag Modal: Remember Last Selected Tag Filter
 
 ## Context
-Card inspector tag editing modal has four toggles: “All tags,” “Default tags,”
-“Apply as primary,” “Apply as secondary.” They reset every open today.
+Card inspector tag editing modal has four toggles: â€œAll tags,â€ â€œDefault tags,â€
+â€œApply as primary,â€ â€œApply as secondary.â€ They reset every open today.
 
 ## Fix
 - Persist last-selected toggle state in localStorage (mtg_snake_case key; UI pref only).
-- Global preference — not per-card / per-oracle-id.
+- Global preference â€” not per-card / per-oracle-id.
 - On open for any card, restore last-saved state instead of hardcoded default.
 - Update preference whenever the user changes the toggle.
-- Reuse existing modal/button state logic — no parallel mechanism.
+- Reuse existing modal/button state logic â€” no parallel mechanism.
 
 ## Confirmation before building
-- If “All/Default” and “Apply as primary/secondary” are two independent groups, ask whether
+- If â€œAll/Defaultâ€ and â€œApply as primary/secondaryâ€ are two independent groups, ask whether
   both should be remembered independently or only one group.
 - If the modal intentionally resets on open for a reason, flag before persisting.
 
 ## Verification
-- Change toggle on card A, open tag modal on card B → same state restored.
+- Change toggle on card A, open tag modal on card B â†’ same state restored.
 - Survives full page reload.
 - No disturbance to assignment / tier cycling / filtering.
 - npm run build:bundle; commit dist/bundle.js.
@@ -1062,31 +1062,31 @@ Prereq: Prefer Prompt 6 so the modal toggles exist as described.
 
 ---
 
-# Prompt 10 of 23 — Early Ramp CMC threshold + info popup
+# Prompt 10 of 23 â€” Early Ramp CMC threshold + info popup
 
 ```
 # Fix/Verify Early Ramp CMC Threshold + Add Info Popup to Commander Gameplan
 
 ## Context
-In Commander Gameplan, “early ramp” may undercount (e.g. “Xyris Snakes” by
+In Commander Gameplan, â€œearly rampâ€ may undercount (e.g. â€œXyris Snakesâ€ by
 manfordf@gmail.com showing 2). Possible causes: wrong CMC cutoff (fixed vs scaled to
 commander CMC), and/or ramp tagging/identification failures.
 
 ## Investigate root cause first
 - Check commander CMC + decklist ground truth vs the code path that computes the stat.
-- Don’t assume which bug; it may be one, the other, or both.
+- Donâ€™t assume which bug; it may be one, the other, or both.
 
 ## If threshold needs fixing
-Early ramp threshold = commander’s CMC − 2.
-Any ramp card with CMC ≤ that threshold counts as early ramp.
-Examples: CMC 5 commander → ramp ≤ 3; CMC 6 → ramp ≤ 4.
-Watch edge cases (threshold ≤ 0) — floor at 0 or 1 and document reasoning.
-If threshold is already correct, don’t rewrite it; focus on tagging and/or the popup.
+Early ramp threshold = commanderâ€™s CMC âˆ’ 2.
+Any ramp card with CMC â‰¤ that threshold counts as early ramp.
+Examples: CMC 5 commander â†’ ramp â‰¤ 3; CMC 6 â†’ ramp â‰¤ 4.
+Watch edge cases (threshold â‰¤ 0) â€” floor at 0 or 1 and document reasoning.
+If threshold is already correct, donâ€™t rewrite it; focus on tagging and/or the popup.
 
 ## New feature (always): info popup on Early Ramp
-Add an “i” info icon next to Early Ramp. Click opens a popup explaining:
-- What “early ramp” means in plain terms
-- Formula with this deck’s numbers (e.g. “Commander CMC: 5 → ramp CMC ≤ 3”)
+Add an â€œiâ€ info icon next to Early Ramp. Click opens a popup explaining:
+- What â€œearly rampâ€ means in plain terms
+- Formula with this deckâ€™s numbers (e.g. â€œCommander CMC: 5 â†’ ramp CMC â‰¤ 3â€)
 - Ideally the counted cards (name + CMC), and if feasible CMC-eligible-but-not-tagged
 
 Conventions: existing modal pattern; inline SVG line icon (fill="none"
@@ -1100,7 +1100,7 @@ After changes: npm run build:bundle; commit dist/bundle.js; npm run changelog:ad
 
 ---
 
-# Prompt 11 of 23 — Commander Gameplan stat bullets clickable
+# Prompt 11 of 23 â€” Commander Gameplan stat bullets clickable
 
 ```
 # Make Commander Gameplan Stat Bullets Clickable to Reveal Contributing Cards
@@ -1116,11 +1116,11 @@ clickable. Click reveals which specific cards count toward that stat.
    global, with ids for which stat + deck context.
 3. Show contributing cards in existing modal patterns; escapeHtml() names;
    cardThumbAttrs(card, view) thumbnails.
-4. Style with existing CSS vars / .panel / .tag / .btn — no hardcoded colors.
+4. Style with existing CSS vars / .panel / .tag / .btn â€” no hardcoded colors.
 5. npm run build:bundle; commit dist/bundle.js.
 
 ## Ask before building
-Does “which cards count” mean:
+Does â€œwhich cards countâ€ mean:
 (a) every deck card that structurally satisfies the condition, or
 (b) cards that came up in the simulation runs behind the percentage?
 These imply different implementations. Also flag if the calc currently only outputs a
@@ -1131,12 +1131,12 @@ Prereq: Prefer Prompt 10 so Early Ramp popup pattern can be reused.
 
 ---
 
-# Prompt 12 of 23 — Commander Gameplan Tag Pills & Filter
+# Prompt 12 of 23 â€” Commander Gameplan Tag Pills & Filter
 
 **Status:** Completed
 
 ```
-# MTG Archive — Commander Gameplan Tag Pills & Filter
+# MTG Archive â€” Commander Gameplan Tag Pills & Filter
 
 Follow established vanilla-JS conventions exactly (no frameworks/ES modules, template
 innerHTML, escapeHtml(), .tag/.filter-chip/.panel, CSS custom properties, inline SVG).
@@ -1150,22 +1150,22 @@ In Commander Gameplan Custom section:
 
 ## Constraints
 - Do not break unrelated gameplan logic/scoring/rendering.
-- Preserve “Land in hand” pill special-case behavior exactly — do not fold it into generic
+- Preserve â€œLand in handâ€ pill special-case behavior exactly â€” do not fold it into generic
   tag-pill logic if that would change behavior.
-- Only add pills/filtering — don’t remove/restructure unrelated Custom-section elements.
+- Only add pills/filtering â€” donâ€™t remove/restructure unrelated Custom-section elements.
 - Match camelCase ids, kebab-case classes, -- CSS variables, no hardcoded colors.
 - After js/ changes: npm run build:bundle; commit dist/bundle.js.
 
 ## Before writing code
-Investigate Default/Primary/Secondary modeling and pill generation. If unclear (or “Land
-in hand” rules unclear), ask before changing.
+Investigate Default/Primary/Secondary modeling and pill generation. If unclear (or â€œLand
+in handâ€ rules unclear), ask before changing.
 
-Prereq: Prefer Prompts 6–8 so Primary/Secondary filter modes are meaningful.
+Prereq: Prefer Prompts 6â€“8 so Primary/Secondary filter modes are meaningful.
 ```
 
 ---
 
-# Prompt 13 of 23 — Similarity count fix & Spicy Picks Cuts exclusion
+# Prompt 13 of 23 â€” Similarity count fix & Spicy Picks Cuts exclusion
 
 **Status:** Completed
 ```
@@ -1173,22 +1173,22 @@ Prereq: Prefer Prompts 6–8 so Primary/Secondary filter modes are meaningful.
 
 Two Adds & Cuts planning-board issues:
 
-## Issue 1 — Similarity container not counting Adds
+## Issue 1 â€” Similarity container not counting Adds
 - Locate similarity container logic; identify card-count source.
-- Locate Adds list state; why Adds aren’t included.
+- Locate Adds list state; why Adds arenâ€™t included.
 - Fix so Adds are counted without breaking Cuts / main deck counting.
 - Avoid double-counting if a card exists in both main deck and Adds.
 
-## Issue 2 — Spicy Picks showing cards in Cuts
+## Issue 2 â€” Spicy Picks showing cards in Cuts
 - Locate Spicy Picks generation/filter; exclude any card present in Cuts.
 - Confirm identity key: scryfall_id vs oracle_id vs uid (_f/_n).
-- Don’t break existing Spicy scoring/sorting (including CMC factors if any).
+- Donâ€™t break existing Spicy scoring/sorting (including CMC factors if any).
 
 ## Conventions
 Vanilla JS, camelCase globals, _ private helpers, escapeHtml(), CSS custom properties,
 existing UI primitives. No frameworks/TS/ES modules.
 
-## Before changes — ask if unclear
+## Before changes â€” ask if unclear
 - Adds/Cuts state shape; whether similarity counts total vs unique vs weighted; foil
   distinctions; where Spicy candidate pool is sourced today.
 
@@ -1198,12 +1198,12 @@ existing UI primitives. No frameworks/TS/ES modules.
 - Commit style: Deck builder: <imperative summary> (one commit per issue or combined).
 - npm run changelog:add for user-visible fixes.
 
-Do not rewrite Suggested Adds/Cuts **scoring formulas** from Prompts 1–5.
+Do not rewrite Suggested Adds/Cuts **scoring formulas** from Prompts 1â€“5.
 ```
 
 ---
 
-# Prompt 14 of 23 — Cut button on Spicy Picks → Cuts list
+# Prompt 14 of 23 â€” Cut button on Spicy Picks â†’ Cuts list
 
 ```
 # Cut Button on Spicy Picks Should Move Cards to the Cuts List
@@ -1211,15 +1211,15 @@ Do not rewrite Suggested Adds/Cuts **scoring formulas** from Prompts 1–5.
 **Status:** Completed
 
 ## Context
-In Adds & Cuts, Spicy Picks suggestions that are currently in-deck have a “-” button.
-Clicking it should move the card from “in deck” to the “cuts” list on the planning board.
+In Adds & Cuts, Spicy Picks suggestions that are currently in-deck have a â€œ-â€ button.
+Clicking it should move the card from â€œin deckâ€ to the â€œcutsâ€ list on the planning board.
 
 ## Task
 Locate Spicy Picks + Adds & Cuts render/handlers (likely js/decks.js). Confirm how in-deck
-vs cuts state is tracked/persisted. Update “-” so it moves the card into cuts using
-existing save() / state-update patterns — no new persistence mechanism.
+vs cuts state is tracked/persisted. Update â€œ-â€ so it moves the card into cuts using
+existing save() / state-update patterns â€” no new persistence mechanism.
 
-Ask before implementing if current “-” behavior, storage of in-deck/cuts, or post-move UI
+Ask before implementing if current â€œ-â€ behavior, storage of in-deck/cuts, or post-move UI
 refresh is ambiguous.
 
 Prereq: Prefer Prompt 13 so Cuts identity/filtering is settled.
@@ -1228,25 +1228,25 @@ After: npm run build:bundle; commit dist/bundle.js as needed.
 
 ---
 
-# Prompt 15 of 23 — Adds section missing Suggested Replacements
+# Prompt 15 of 23 â€” Adds section missing Suggested Replacements
 
 ```
 # Adds Section Missing Suggested Replacements
 
 ## Bug
-Card inspector shows “Suggested Replacements” for in-deck cards, but not when opened from
+Card inspector shows â€œSuggested Replacementsâ€ for in-deck cards, but not when opened from
 the Adds & Cuts **Adds** section. It should appear there too.
 
-## Before code — confirm cause
+## Before code â€” confirm cause
 1. Where inspector decides to render suggested replacements.
 2. Trace open-from-Adds vs open-from-in-deck; what context differs.
-3. Confirm whether logic works but isn’t invoked, vs needs new Adds-context logic.
-Do not assume — read both paths first.
+3. Confirm whether logic works but isnâ€™t invoked, vs needs new Adds-context logic.
+Do not assume â€” read both paths first.
 
 ## Fix
 Targeted: Adds-section cards get the same suggested-replacements section using existing
-logic/rendering — no second implementation. If Adds card data lacks what’s needed, stop
-and ask. Don’t change already-working in-deck behavior.
+logic/rendering â€” no second implementation. If Adds card data lacks whatâ€™s needed, stop
+and ask. Donâ€™t change already-working in-deck behavior.
 
 After: npm run build:bundle; commit with source; npm test; npm run changelog:add.
 Commit: Adds & Cuts: <imperative summary>.
@@ -1254,21 +1254,21 @@ Commit: Adds & Cuts: <imperative summary>.
 
 ---
 
-# Prompt 16 of 23 — Adds & Cuts hover preview
+# Prompt 16 of 23 â€” Adds & Cuts hover preview
 
 ```
 # Adds & Cuts: fix card hover preview to match deck builder behavior
 
 ## Context
-Desktop deck builder: hover card thumbnail → large preview stays tied to that card.
+Desktop deck builder: hover card thumbnail â†’ large preview stays tied to that card.
 Adds & Cuts board is missing or broken for the same behavior.
 
 ## Task
 1. Locate deck-builder hover-preview functions/CSS (cardThumbAttrs / shared helper) and
-   how it’s wired (listeners, attributes, CSS).
-2. Apply the **same** mechanism to Adds & Cuts thumbnails — do not invent a parallel
+   how itâ€™s wired (listeners, attributes, CSS).
+2. Apply the **same** mechanism to Adds & Cuts thumbnails â€” do not invent a parallel
    preview system.
-3. If Adds & Cuts render path can’t cleanly share the helper without duplication, ask
+3. If Adds & Cuts render path canâ€™t cleanly share the helper without duplication, ask
    before proceeding.
 
 Ask any markup/structure clarifying questions before changing.
@@ -1277,14 +1277,14 @@ After: npm run build:bundle; commit dist/bundle.js if js/ changed.
 
 ---
 
-# Prompt 17 of 23 — Card Inspector: show add/cut quantity
+# Prompt 17 of 23 â€” Card Inspector: show add/cut quantity
 
 ```
 # Card Inspector: Show Add/Cut Quantity Without Closing
 
 ## Context
 Adds & Cuts can mark quantity > 1 for adds/cuts. Qty is visible on the board but not
-inside the open inspector — user must close the modal to see it.
+inside the open inspector â€” user must close the modal to see it.
 
 ## Investigate first
 How add/cut qty is stored/rendered on the board; whether inspector already has that
@@ -1293,12 +1293,12 @@ state when opened; missing data vs missing UI.
 ## Fix
 Reuse existing qty data + badge/tag/count patterns. Show indicator in inspector only when
 add or cut count > 1. JetBrains Mono for numbers; CSS custom properties; no hardcoded hex.
-Don’t alter modal for cards without multi-copy add/cut. Don’t touch unrelated board/modal
+Donâ€™t alter modal for cards without multi-copy add/cut. Donâ€™t touch unrelated board/modal
 behavior.
 
 ## Ask before building
 - Placement in inspector layout if not obvious.
-- Whether add+cut can apply to one card simultaneously (mutually exclusive?) — affects label.
+- Whether add+cut can apply to one card simultaneously (mutually exclusive?) â€” affects label.
 
 ## Verification
 Multi-copy add and multi-copy cut match board; single/no qty leaves modal unchanged.
@@ -1307,24 +1307,24 @@ After: rebuild/commit if needed.
 
 ---
 
-# Prompt 18 of 23 — Add Cards popup remember destination
+# Prompt 18 of 23 â€” Add Cards popup remember destination
 
 ```
-# Add Cards Popup — Remember Last Selected Destination Container
+# Add Cards Popup â€” Remember Last Selected Destination Container
 
 ## Investigate first
 Find add-cards popup; locate destination control (deck vs adds); confirm element id and
-where default (“deck”) is set.
+where default (â€œdeckâ€) is set.
 
 ## Task
 Remember last-selected destination; pre-select on next open.
-- Persist with localStorage, mtg_snake_case key (UI pref — not save()/apiFetch).
+- Persist with localStorage, mtg_snake_case key (UI pref â€” not save()/apiFetch).
 - Store the option **value string**, not an index.
-- If stored value is among current options, select it; else fall back to “deck”.
+- If stored value is among current options, select it; else fall back to â€œdeckâ€.
 - Update stored value on selection change (not only submit), including close-without-add.
 - Reuse existing remembered-pref patterns in this or similar popups.
 
-If control isn’t a simple dropdown or partial persistence already exists, ask before
+If control isnâ€™t a simple dropdown or partial persistence already exists, ask before
 proceeding.
 
 After: npm run build:bundle; commit dist/bundle.js with source.
@@ -1332,21 +1332,21 @@ After: npm run build:bundle; commit dist/bundle.js with source.
 
 ---
 
-# Prompt 19 of 23 — Card Search Bug — “Bounty of the Hunt”
+# Prompt 19 of 23 â€” Card Search Bug â€” â€œBounty of the Huntâ€
 
 ```
-# Card Search Bug — "Bounty of the Hunt" Not Found in Deck Builder
+# Card Search Bug â€” "Bounty of the Hunt" Not Found in Deck Builder
 
 ## Bug
-Searching “Bounty of the Hunt” in deck-builder add flow returns no results though the
+Searching â€œBounty of the Huntâ€ in deck-builder add flow returns no results though the
 card should exist in Scryfall / local data.
 
 ## Investigate and fix root cause
-Trace end to end: client search → apiFetch wrappers (js/db-client.js) → server route →
+Trace end to end: client search â†’ apiFetch wrappers (js/db-client.js) â†’ server route â†’
 scryfall_oracle_cards mirror and/or /api/scryfall/* proxy. Check name normalization,
 DFC/split handling, whether the card exists in the mirror, filtering (legality, type,
 etc.), and whether this is one card vs broader search bug. Confirm failure point with
-logging or direct DB/API queries before patching — no speculative special-case for one card.
+logging or direct DB/API queries before patching â€” no speculative special-case for one card.
 
 Conventions: vanilla JS, escapeHtml(), cardToEntry(), no direct browser calls to
 api.scryfall.com.
@@ -1357,7 +1357,7 @@ changelog:add if user-visible. Ask if scope/expected behavior is unclear.
 
 ---
 
-# Prompt 20 of 23 — Trade window: card image opens inspector
+# Prompt 20 of 23 â€” Trade window: card image opens inspector
 
 ```
 # Trade window: card image opens inspector
@@ -1365,18 +1365,18 @@ changelog:add if user-visible. Ask if scope/expected behavior is unclear.
 ## Goal
 In the trade builder modal, clicking a card **thumbnail image** opens the card inspector
 for that card in You Give, You Receive, Cards They Want, and Suggested for Their Decks.
-Only the image — quantity, condition, remove, and row background keep current behavior.
+Only the image â€” quantity, condition, remove, and row background keep current behavior.
 
 ## Investigate
 Find row rendering (shared helper vs separate paths); existing click handlers; existing
 inspector open fn and expected args (scryfall_id / uid / card).
 
 ## Fix
-Image-only click → existing inspector. stopPropagation if row has its own handler.
-Reuse existing inspector — no second implementation.
+Image-only click â†’ existing inspector. stopPropagation if row has its own handler.
+Reuse existing inspector â€” no second implementation.
 
 ## Confirm before building
-If four sections use different render paths, implement per path and confirm that’s OK
+If four sections use different render paths, implement per path and confirm thatâ€™s OK
 rather than forced shared-renderer refactor. Flag row-level select handlers that would
 conflict with stopPropagation.
 
@@ -1386,7 +1386,7 @@ Thumbnail opens correct card in all four sections; other controls unaffected.
 
 ---
 
-# Prompt 21 of 23 — Collection tab: deck membership in inspector
+# Prompt 21 of 23 â€” Collection tab: deck membership in inspector
 
 ```
 # Collection Tab: Show Deck Membership In Card Inspector
@@ -1397,17 +1397,17 @@ decks (and copy count when > 1).
 
 ## Investigate
 Collection-context inspector path; what data is already loaded vs needs fetch; whether
-matching uses scryfall_id or oracle_id elsewhere — follow existing convention. Reuse any
-existing “used in deck(s)” UI if present.
+matching uses scryfall_id or oracle_id elsewhere â€” follow existing convention. Reuse any
+existing â€œused in deck(s)â€ UI if present.
 
 ## Fix
 Scoped to Collection-tab inspector context when possible. Reuse tag/chip/list/panel-row
-markup. Don’t alter deck-builder / Adds & Cuts inspector unless the shared renderer can’t
+markup. Donâ€™t alter deck-builder / Adds & Cuts inspector unless the shared renderer canâ€™t
 be conditional without duplication.
 
 ## Ask before building
 - Printing vs oracle matching if unclear.
-- Commander decks: same list vs flag “Commander” when the card is the designated commander.
+- Commander decks: same list vs flag â€œCommanderâ€ when the card is the designated commander.
 - Layout slot if no obvious place.
 
 ## Verification
@@ -1417,20 +1417,20 @@ inspector entry points.
 
 ---
 
-# Prompt 22 of 23 — Deck Builder: fix card image re-pop
+# Prompt 22 of 23 â€” Deck Builder: fix card image re-pop
 
 ```
 # Deck Builder: Fix Card Image Re-pop on Inspector Exit and Scroll
 
 ## Context
-Leaving card inspector or scrolling bottom→top in deck builder causes thumbnail images to
-“pop in” / reload (empty flash then image). Confirmed mobile; check desktop. Fix the
+Leaving card inspector or scrolling bottomâ†’top in deck builder causes thumbnail images to
+â€œpop inâ€ / reload (empty flash then image). Confirmed mobile; check desktop. Fix the
 underlying cause, not only these two triggers.
 
 ## Investigate
 Trace cardThumbAttrs and list/grid re-render on inspector close and scroll. Full
 innerHTML replace vs toggle? Lazy-load / intersection observer? Other triggers (tab,
-sort, resize)? Don’t assume network reload vs CSS/DOM flash.
+sort, resize)? Donâ€™t assume network reload vs CSS/DOM flash.
 
 ## Fix
 At the source so no re-render/re-observe path forces reload/flash. Reuse existing
@@ -1439,18 +1439,18 @@ the issue is elsewhere.
 
 ## Ask before building
 If root cause ambiguous (cache vs re-render vs lazy-load), ask. If other triggers found,
-confirm they’re in scope.
+confirm theyâ€™re in scope.
 
 ## Verification
-Inspector exit + bottom→top scroll no visible pop-in on mobile and desktop if testable.
+Inspector exit + bottomâ†’top scroll no visible pop-in on mobile and desktop if testable.
 No unrelated deck-builder regressions (sort/filter/hover).
 
-Keep this PR isolated from Prompts 13–18 render churn.
+Keep this PR isolated from Prompts 13â€“18 render churn.
 ```
 
 ---
 
-# Prompt 23 of 23 — User-defined deck categories
+# Prompt 23 of 23 â€” User-defined deck categories
 
 ```
 # User-Defined Deck Categories with Tag-Based Auto-Assignment
@@ -1465,18 +1465,18 @@ consumers, tag editor UI placement). Client vs server matching. Source of the **
 tag list for the category dropdown (not deck- or collection-scoped).
 
 ## Feature requirements
-- User-defined categories: reusable user-wide list; per-deck select; “custom” typed option
+- User-defined categories: reusable user-wide list; per-deck select; â€œcustomâ€ typed option
   if nothing fits (Archidekt-like spirit).
 - Dropdown options = complete global tag set in the app.
 - Category management control **next to** existing tags control in deck builder.
 - Deck shows only categories selected for it.
 - Auto-place cards into active categories from existing tags.
-- Manual override from card inspector scoped to that deck’s deck_cards row only — never
+- Manual override from card inspector scoped to that deckâ€™s deck_cards row only â€” never
   leaks across decks.
 
 ## Ask before writing code (open design)
 - Global categories table + per-deck join, vs simpler per-deck rows from the start?
-- Tag→category mapping configured per category (X/Y/Z tags), or 1:1 name equality given
+- Tagâ†’category mapping configured per category (X/Y/Z tags), or 1:1 name equality given
   categories sourced from the global tag list?
 - Can a card appear in more than one category, or exclusive placement?
 
@@ -1486,32 +1486,32 @@ override isolation; Adds & Cuts + Gameplan Custom OK with zero custom categories
 to existing tag behavior); control sits beside tags UI with existing styling.
 npm run build:bundle; commit dist/bundle.js if js/ changed.
 
-Prereq: Prompts 6–8 (and ideally 12) settled so tag categories don’t thrash a changing model.
+Prereq: Prompts 6â€“8 (and ideally 12) settled so tag categories donâ€™t thrash a changing model.
 ```
 
 ---
 
 ---
 
-# Prompt 24 of 28 — Suggested Adds A0 (raw badge; no S; no min-7 filter)
+# Prompt 24 of 28 â€” Suggested Adds A0 (raw badge; no S; no min-7 filter)
 
 **Status:** Completed
 
-Canonical design: [`suggested-adds-improvement-plan.md`](./suggested-adds-improvement-plan.md) §2, §5 A0.
+Canonical design: [`suggested-adds-improvement-plan.md`](./suggested-adds-improvement-plan.md) Â§2, Â§5 A0.
 
 ```
-# Suggested Adds A0 — raw score badge only
+# Suggested Adds A0 â€” raw score badge only
 
-**Prereq:** Entry 13 v1 (Prompt 2) shipped. Read suggested-adds-improvement-plan.md §0 / U1–U4.
+**Prereq:** Entry 13 v1 (Prompt 2) shipped. Read suggested-adds-improvement-plan.md Â§0 / U1â€“U4.
 
 ## Hard constraint
-Deterministic only — no runtime AI/LLM.
+Deterministic only â€” no runtime AI/LLM.
 Do NOT edit engine2/ or engine2.1wizard/ in this prompt.
 
 ## User-locked (do NOT ship)
 - NO addDisplayScore / `/10` on suggestion badges (raw score only)
 - NO S term
-- NO ADD_SCORE_DISPLAY_MIN / no “7/10 or better” suggestion filter
+- NO ADD_SCORE_DISPLAY_MIN / no â€œ7/10 or betterâ€ suggestion filter
 - NO display ceiling helpers used for badges
 
 ## Goal
@@ -1522,68 +1522,68 @@ Do NOT edit engine2/ or engine2.1wizard/ in this prompt.
 
 ## Anchors
 - js/adds-scoring.js
-- js/decks.js — _renderAddSuggestions, _buildAddWhyLines
+- js/decks.js â€” _renderAddSuggestions, _buildAddWhyLines
 - scripts/test-adds-scoring.js (or equivalent)
 
 ## Out of scope
-Plan envelope, H term, primary tier strip, engine2 — those are Prompts 25–26.
+Plan envelope, H term, primary tier strip, engine2 â€” those are Prompts 25â€“26.
 
 ## Verification
-Plan §5 A4 cases 3, 5, 7. npm run build:bundle if js/ changed.
+Plan Â§5 A4 cases 3, 5, 7. npm run build:bundle if js/ changed.
 Mark Prompt 24 Completed in the order table when done. Next: Prompt 25.
 ```
 
 ---
 
-# Prompt 25 of 28 — A1.5 Plan envelope + wizard UI + engine2.1wizard creature-type suggest
+# Prompt 25 of 28 â€” A1.5 Plan envelope + wizard UI + engine2.1wizard creature-type suggest
 
 **Status:** Completed
 
-Canonical design: [`suggested-adds-improvement-plan.md`](./suggested-adds-improvement-plan.md) §1.5, §5 A1.5, §14–§15.
+Canonical design: [`suggested-adds-improvement-plan.md`](./suggested-adds-improvement-plan.md) Â§1.5, Â§5 A1.5, Â§14â€“Â§15.
 
-**Full merge note:** This is stage 2 of 24→28. Narrow on purpose; hybrid list merge is Prompt 27.
+**Full merge note:** This is stage 2 of 24â†’28. Narrow on purpose; hybrid list merge is Prompt 27.
 
 ```
-# A1.5 — Plan envelope + sub-tags + planned cuts + type suggest handoff
+# A1.5 â€” Plan envelope + sub-tags + planned cuts + type suggest handoff
 
-**Prereq:** Prompt 24 (A0) Completed. Read suggested-adds-improvement-plan.md §1.5, §14, §15.
+**Prereq:** Prompt 24 (A0) Completed. Read suggested-adds-improvement-plan.md Â§1.5, Â§14, Â§15.
 Sandbox folder engine2.1wizard/ already exists (copy of engine2). NEVER modify engine2/.
 
 ## Hard constraint
-Deterministic only — no runtime AI/LLM at suggestion/wizard time.
+Deterministic only â€” no runtime AI/LLM at suggestion/wizard time.
 
 ## Goal
 1. Plan envelope in Classic Adds context:
    - Plan parent stays in recipe (default target 30).
-   - Theme sub-tags inside Plan from merged strategy map (§15 defaults).
-   - Cap: sum of active sub-tag targets ≤ Plan target.
-   - Sub-tag D credit only when Plan has deficit AND sub-tag under cap (P6′).
-   - Planned cuts: subtract planned-cut qty from mainboard have for all role/plan counts (P6″).
+   - Theme sub-tags inside Plan from merged strategy map (Â§15 defaults).
+   - Cap: sum of active sub-tag targets â‰¤ Plan target.
+   - Sub-tag D credit only when Plan has deficit AND sub-tag under cap (P6â€²).
+   - Planned cuts: subtract planned-cut qty from mainboard have for all role/plan counts (P6â€³).
    - G8: staple-overlapping tags merge to one row.
 2. Wizard UX for sub-tags: checkbox list (defaults pre-checked) + Expand + search/autocomplete.
 3. Type-picker (Tribal / creature types only for semantics handoff):
-   - UI: top 4 + autocomplete + confirm (§14).
+   - UI: top 4 + autocomplete + confirm (Â§14).
    - Inference: call engine2.1wizard suggestTypePicks for creature types when available.
    - Degraded if missing: empty top 4 or static fallback; autocomplete still works. Never hard-fail the wizard.
 4. Confirmed plan still required before targets apply (D21).
-5. Do NOT implement full hybrid suggestion ranking or H term here (Prompts 26–27).
+5. Do NOT implement full hybrid suggestion ranking or H term here (Prompts 26â€“27).
 
 ## engine2.1wizard work (sandbox only)
 - Add suggestTypePicks (or equivalent) that returns ranked creature types for a deck from CardIR / tribal signals.
 - Export from engine2.1wizard/index.js.
 - Optional thin authenticated route for wizard fetch OR server helper used only when a feature flag is on.
 - Partner require('./engine2') and POST /api/decks/analyze must keep using engine2/ unchanged.
-- If semantics coverage is low or call fails → return degraded empty/static picks; UI continues.
+- If semantics coverage is low or call fails â†’ return degraded empty/static picks; UI continues.
 
 ## Anchors
-- js/decks.js — _computeAddContext, strength strip hooks
+- js/decks.js â€” _computeAddContext, strength strip hooks
 - js/deck-plan.js / js/deck-plan-wizard.js
 - js/archetype-role-bridge.js, data/archetype-scryfall-tags/
 - engine2.1wizard/ (deck-goals.js, recommender.js, new bridge module)
 
 ## Verification
 - Planned cut excluded from have counts.
-- Sub-tag cap enforced; P6′ gating.
+- Sub-tag cap enforced; P6â€² gating.
 - Wizard checkbox + Expand works offline / without semantics.
 - With semantics: Tribal type step shows up to 4 creature types from sandbox; without: degraded path.
 - npm run build:bundle if js/ changed.
@@ -1592,56 +1592,56 @@ Mark Prompt 25 Completed. Next: Prompt 26.
 
 ---
 
-# Prompt 26 of 28 — A1 / A1b plan term H + primary tier + strength strip
+# Prompt 26 of 28 â€” A1 / A1b plan term H + primary tier + strength strip
 
 **Status:** Completed
 
-Canonical design: [`suggested-adds-improvement-plan.md`](./suggested-adds-improvement-plan.md) §5 A1, A1b, §12 Option A.
+Canonical design: [`suggested-adds-improvement-plan.md`](./suggested-adds-improvement-plan.md) Â§5 A1, A1b, Â§12 Option A.
 
 ```
-# A1 / A1b — plan-aware Classic ranking + primary strength strip
+# A1 / A1b â€” plan-aware Classic ranking + primary strength strip
 
 **Prereq:** Prompts 24 and 25 Completed.
 
 ## Hard constraint
-Deterministic only — no runtime AI/LLM.
+Deterministic only â€” no runtime AI/LLM.
 Do NOT edit engine2/. Prefer not to expand engine2.1wizard except if Prompt 25 left a TODO.
 
 ## Goal
-1. Option A: W_S = 0 on secondary/Plan-subtag D while any primary deficit ≥ 1.
+1. Option A: W_S = 0 on secondary/Plan-subtag D while any primary deficit â‰¥ 1.
 2. Plan term H + hybrid D when plan declared/confirmed (locked constants from plan).
 3. Primary strength strip: Ramp/Draw/Removal literal have/target; Plan + indented sub-tag rows from Prompt 25.
 4. Wire deckPlan into scoring; Why lines include H / plan identity.
-5. Role-tag gate if still outstanding (plan D9 / A3) — may merge here.
+5. Role-tag gate if still outstanding (plan D9 / A3) â€” may merge here.
 
 ## Locked constants
-K_H = 2.0; α = 0.35; β = 0.15; hybrid multipliers clamp [0.5, 1.75]
+K_H = 2.0; Î± = 0.35; Î² = 0.15; hybrid multipliers clamp [0.5, 1.75]
 
 ## Anchors
 - js/adds-scoring.js
-- js/decks.js — _scoreAddCandidate, _renderAddSuggestions, strip render
-- js/deck-plan.js — planMatchScore, getDeckPlan
+- js/decks.js â€” _scoreAddCandidate, _renderAddSuggestions, strip render
+- js/deck-plan.js â€” planMatchScore, getDeckPlan
 
 ## Verification
-Plan §5 A4 cases 1–4, 6. npm run build:bundle if js/ changed.
+Plan Â§5 A4 cases 1â€“4, 6. npm run build:bundle if js/ changed.
 Mark Prompt 26 Completed. Next: Prompt 27 (hybrid merge).
 ```
 
 ---
 
-# Prompt 27 of 28 — Hybrid Suggested Adds (Classic staples + engine2.1wizard theme)
+# Prompt 27 of 28 â€” Hybrid Suggested Adds (Classic staples + engine2.1wizard theme)
 
 **Status:** Completed
 
 Full merge stage. Partner engine2/ stays untouched.
 
 ```
-# Hybrid Suggested Adds — Classic staples + sandbox theme/synergy
+# Hybrid Suggested Adds â€” Classic staples + sandbox theme/synergy
 
-**Prereq:** Prompts 24–26 Completed. Sandbox engine2.1wizard has suggestTypePicks from 25.
+**Prereq:** Prompts 24â€“26 Completed. Sandbox engine2.1wizard has suggestTypePicks from 25.
 
 ## Hard constraint
-Deterministic only — no runtime AI/LLM.
+Deterministic only â€” no runtime AI/LLM.
 NEVER modify engine2/. All semantics ranking changes go in engine2.1wizard/.
 
 ## Goal
@@ -1650,45 +1650,45 @@ NEVER modify engine2/. All semantics ranking changes go in engine2.1wizard/.
    - Sandbox half: plan/theme/synergy candidates from engine2.1wizard scoreAdds (or thin wrapper), constrained by confirmed wizard plan.
 2. Merge/dedupe by card name; cap total suggestions (keep existing count unless plan says otherwise).
 3. Why: Classic term breakdown for staple rows; sandbox breakdown/reasons for theme rows.
-4. Feature flag or explicit “Hybrid” path so Classic-only and partner Semantic (engine2) remain available.
-5. If sandbox coverage low → Classic-only list (degraded), same spirit as Prompt 25.
+4. Feature flag or explicit â€œHybridâ€ path so Classic-only and partner Semantic (engine2) remain available.
+5. If sandbox coverage low â†’ Classic-only list (degraded), same spirit as Prompt 25.
 
 ## Anchors
-- js/decks.js — _renderAddSuggestions / cut render
+- js/decks.js â€” _renderAddSuggestions / cut render
 - engine2.1wizard/recommender.js, explain.js, new wizard-bridge if needed
-- server.js — new or flagged route requiring ./engine2.1wizard (do not change engine2 analyze behavior)
+- server.js â€” new or flagged route requiring ./engine2.1wizard (do not change engine2 analyze behavior)
 
 ## Verification
 - Deck short on Ramp: Classic staple still appears.
 - Confirmed Tribal/Tokens/Sacrifice plan: theme picks appear from sandbox when coverage OK.
-- engine2/ git diff empty for this prompt’s commits.
+- engine2/ git diff empty for this promptâ€™s commits.
 - npm run build:bundle if js/ changed.
 Mark Prompt 27 Completed. Next: Prompt 28.
 ```
 
 ---
 
-# Prompt 28 of 28 — Bidirectional loop (confirmed plan + planning board → sandbox)
+# Prompt 28 of 28 â€” Bidirectional loop (confirmed plan + planning board â†’ sandbox)
 
 **Status:** Completed
 
-Completes wizard ↔ engine marriage.
+Completes wizard â†” engine marriage.
 
 ```
-# Bidirectional loop — user plan steers sandbox; sandbox keeps teaching wizard
+# Bidirectional loop â€” user plan steers sandbox; sandbox keeps teaching wizard
 
 **Prereq:** Prompt 27 Completed.
 
 ## Hard constraint
-Deterministic only — no runtime AI/LLM.
+Deterministic only â€” no runtime AI/LLM.
 NEVER modify engine2/.
 
 ## Goal
 1. Pass confirmed wizard plan (strategy, wincon, sub-tags, type picks, thresholds) into engine2.1wizard scoring as hard/soft constraints.
 2. Treat planned Adds as in-deck and planned Cuts as absent for sandbox analyze (align with Classic planning-board semantics).
 3. Wizard pre-fill continues to use sandbox goals/types; user confirm remains required (D21).
-4. Optional: surface sandbox goal evidence in wizard (“why we suggested this strategy”) without auto-applying targets.
-5. Document how to refresh sandbox from partner engine2 if they ship fixes (re-copy or cherry-pick) — do not auto-overwrite without a human.
+4. Optional: surface sandbox goal evidence in wizard (â€œwhy we suggested this strategyâ€) without auto-applying targets.
+5. Document how to refresh sandbox from partner engine2 if they ship fixes (re-copy or cherry-pick) â€” do not auto-overwrite without a human.
 
 ## Anchors
 - js/deck-plan-wizard.js, js/deck-plan.js
@@ -1697,123 +1697,9 @@ NEVER modify engine2/.
 
 ## Verification
 - Changing confirmed plan changes hybrid theme suggestions without breaking staple Classic half.
-- Planned cut removes a card from “have” in sandbox path.
+- Planned cut removes a card from â€œhaveâ€ in sandbox path.
 - Partner Semantic toggle still hits engine2/ analyze unchanged.
-Mark Prompt 28 Completed. Full merge track done — update suggested-adds-improvement-plan.md status note.
-```
-
----
-
----
-
-# Prompt 25 of 25 — Suggested Adds Phase A1.5 (Plan envelope + semantics handoff)
-
-**Status:** Ready (interview paused — implement from locked plan §1.5, §13–§16)
-
-Canonical design: [`suggested-adds-improvement-plan.md`](./suggested-adds-improvement-plan.md)
-
-```
-# Suggested Adds Phase A1.5 — Plan envelope + theme sub-tags + semantics handoff
-
-**Prereq:** Prompt 2 (Entry 13 v1) shipped. Prefer Prompt 24 A0 (raw badge, no 7/10 floor) first
-or same PR if you also delete display-floor filters. Read plan §1.5, §13–§16, D16–D25.
-
-**Hard constraint:** Deterministic algorithm only — no runtime AI/LLM in Adds scoring.
-Partner semantics engine (`engine2/`) may supply **suggestions**; Adds must still score
-from confirmed plan fields + tags/tables.
-
-## Problem
-Declared deck plan barely affects Adds. Strategy tag maps exist but do not create
-deficits. Generic “Plan” (untagged filler) is too coarse. Type/kind inference (Elf vs
-Dragon, Treasure vs Food, +1/+1 vs poison) belongs to the partner semantics engine —
-do not reinvent deep deck reading in this prompt.
-
-## Locked product model (do not reopen)
-1. **Plan parent** stays (default target 30). Sub-tags live **inside** Plan.
-2. Sum of active sub-tag suggested targets **≤ Plan target** (warn if user exceeds).
-3. **D** for a sub-tag only when Plan has deficit AND that sub-tag is under its cap.
-4. Primary tier: Ramp / Card Draw / Removal first (`W_S = 0` on Plan/sub-tags while short).
-5. Sub-tags **visible**: strip, Why, threshold editor, wizard checkboxes + Expand + search.
-6. **Planned cuts** excluded from role/plan have counts (qty − cut markers).
-7. Merged map: strategy → `tag → { target }`; wincon overlap **sums**; secondary **½** on defaults.
-8. Inferred plan / type suggestions require **user confirm** before targets apply.
-9. G8: staple tags (Removal, Draw, …) **merge** into one generic row — not duplicated under Plan.
-10. Type-picker strategies (plan §14): Tokens, Tribal, Enchantress, Counters, Spellslinger,
-    Voltron, Sacrifice, Reanimator, Superfriends, Stax, Mill — UI shell here; **inference → engine2**.
-
-## Goal — implement
-### A. Plan envelope in `_computeAddContext` / Adds scoring
-1. When plan declared (or confirmed inferred): load default sub-tags from merged map
-   (plan §15 table + `js/archetype-role-bridge.js` / `data/archetype-scryfall-tags/`).
-2. Effective `have` = mainboard qty − planned-cut qty (swaps on).
-3. Plan deficit + per-sub-tag deficits; enforce sum(sub targets) ≤ Plan target for defaults.
-4. Wire into `computeDeficitTermD` / scoring so sub-tags can earn D under P6′ rules.
-5. G8 merge when strategy projects a tag that already has a generic threshold.
-
-### B. UX (minimal viable)
-1. Strength strip: Plan `have/target` + indented active sub-tags (and primary Ramp/Draw/Removal).
-2. Why: “Fills Plan …” + “Identified as: …” + sub-tag have/target when relevant.
-3. Threshold editor: Plan + sub-tag rows; editable; override persistence like cut prefs.
-4. Wizard (or post-wizard panel): checkbox list of default sub-tags + Expand + search/autocomplete
-   for more tags. Type picker shell (top 4 + autocomplete) when strategy is type-based —
-   **populate top 4 from semantics API if available**, else empty/provisional fallback only.
-
-### C. Semantics handoff (do not block A/B on full engine)
-Define a small, stable contract so partner engine2 can plug in without rewriting Adds:
-
-```js
-// Suggested shape — adjust names to match engine2 exports if they already exist
-{
-  // Optional: ranked strategy / type / kind suggestions for wizard
-  suggestPlanTypes(deck, strategyId) → [{ id, label, score, source: 'semantics' }]
-  // Optional: confidence for pre-select (≥ 0.35 gate, same as wizard inference)
-}
-```
-
-Rules:
-- Adds **never** auto-writes `deck.plan` type filters from semantics without confirm.
-- If `engine2` / semantics module missing or throws → Adds still works with user-picked
-  types + tag maps only (degraded mode).
-- Document Tribal Tr1 (“what counts as typal payoff”) as **provisional**: tag/otag lords
-  until semantics owns typal density (plan §15 note).
-- Do **not** call live Scryfall/LLM at suggestion time.
-
-### D. Catalog / IDs (wizard schema)
-1. Add `strategy.stax` if missing; remove or stop using `wincon.lock`.
-2. Add `strategy.combo` alongside `wincon.combo` (assembly vs win line).
-3. Add `strategy.goodstuff` (G7); leave Ramp-heavy / Lifegain as Cuts-only.
-4. Rename Counters wizard label from “+1/+1 Counters” → **Counters**.
-
-## Anchors
-- `Ready Prompts/suggested-adds-improvement-plan.md` §1.5, §5 A1.5, §13–§16
-- `js/decks.js` — `_computeAddContext`, `_renderAddSuggestions`, `_addsSelectTopPicks`, planned cuts
-- `js/adds-scoring.js` — `computeDeficitTermD`, `scoreAddCandidateTerms`
-- `js/deck-plan.js` / `js/archetype-role-bridge.js` / `js/project-role-tags.js`
-- `data/archetype-scryfall-tags/`
-- `engine2/` — handoff only (suggestPlanTypes or agreed export); see `docs/engine2-plan.md`
-
-## Default sub-tag targets (locked unless user later overrides)
-See plan §15 table (Tokens 20, Sacrifice 22, Counters 21, Tribal 16, …). Persist user edits.
-
-## Out of scope (this prompt)
-- Full wizard v2 / Cuts shielding (Phase B)
-- Runtime AI
-- Replacing partner semantics with custom tribal/enchantress classifiers
-- Deck-size scaling of targets
-
-## Verification
-1. Declared sacrifice plan: Sac Outlet / Triggers / Drain rows visible; sum ≤ Plan; D only if Plan short + sub-tag under cap.
-2. Planned cut of a Ramp card → Ramp have drops before apply-swaps.
-3. Primaries short → Plan sub-tags visible but W_S = 0 (no D) until Ramp/Draw/Removal met.
-4. No semantics module → Adds still runs; type top 4 empty or provisional.
-5. With mock semantics suggestions → UI shows them; confirm required before filter applies.
-6. Badge still raw (no /10); no min-7/10 filter.
-7. `npm run build:bundle` if js/ changed; add/extend unit tests for envelope + cut exclusion.
-
-## Done when
-- A–D above shipped or explicitly deferred in PR notes with follow-up.
-- Mark Prompt **25** Completed in the order table.
-- Optional: `npm run changelog:add` if user-visible (Plan strip / sub-tags).
+Mark Prompt 28 Completed. Full merge track done â€” update suggested-adds-improvement-plan.md status note.
 ```
 
 ---
