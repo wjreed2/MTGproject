@@ -6,8 +6,50 @@
 // nothing is claimed that the engine didn't actually compute. Rendering is plain text —
 // the client escapes on insertion (escapeHtml) per the project's XSS convention.
 
+// Curated labels for the axes users actually see; generic dot-to-space fallback for
+// the tail ("counters plus1" in a sentence is not a phrase a deckbuilder would say).
+const AXIS_LABELS = {
+  'counters.plus1': '+1/+1 counter sources',
+  'counters.plus1_mass': 'mass +1/+1 counters',
+  'counters.proliferate': 'proliferate',
+  'protection.single': 'single-target protection',
+  'protection.mass': 'mass protection',
+  'body.big': 'big creatures (power 4+)',
+  'body.evasive': 'evasive bodies',
+  'card_advantage.draw': 'card draw',
+  'card_advantage.draw_engine': 'draw engines',
+  'card_advantage.wheel': 'wheels',
+  'mana.ramp_land': 'land ramp',
+  'mana.rock': 'mana rocks',
+  'mana.dork': 'mana dorks',
+  'mana.big_mana_payoff': 'big-mana payoffs',
+  'sac.outlet_free': 'free sac outlets',
+  'sac.outlet_cost': 'sac outlets',
+  'sac.fodder': 'sac fodder',
+  'creatures_dying': 'death triggers',
+  'trigger.death_payoff': 'death payoffs',
+  'trigger.etb_payoff': 'ETB payoffs',
+  'trigger.cast_payoff': 'cast payoffs',
+  'token.creature': 'creature tokens',
+  'token.creature_wide': 'token swarms',
+  'token.food': 'Food tokens',
+  'token.treasure': 'Treasure tokens',
+  'gy.self_fill': 'graveyard filling',
+  'gy.recursion': 'recursion',
+  'gy.reanimate': 'reanimation',
+  'tribal.synergy': 'tribal synergy',
+  'tribal.lord': 'tribal lords',
+  'anthem.global': 'anthems',
+  'evasion.grant': 'evasion granting',
+  'removal.spot': 'spot removal',
+  'removal.wipe': 'board wipes',
+  'control.counter': 'counterspells',
+  'lifegain.source': 'lifegain',
+  'etb_value': 'ETB value',
+};
+
 function axisLabel(axis) {
-  return String(axis || '').replace(/[._]/g, ' ');
+  return AXIS_LABELS[axis] || String(axis || '').replace(/[._]/g, ' ');
 }
 
 function listNames(names, max) {
@@ -50,7 +92,9 @@ function addReasons(add) {
       case 'fills_axis':
         out.push(t.needers && t.needers.length
           ? `Feeds ${listNames(t.needers)} (${axisLabel(t.axis)}${t.param ? `: ${t.param}` : ''})`
-          : `Adds ${axisLabel(t.axis)} the deck plan wants more of`);
+          : t.why === 'goal_reinforce'
+            ? `Deepens the deck's ${axisLabel(t.axis)} package`
+            : `Adds ${axisLabel(t.axis)} the deck plan wants more of`);
         break;
       case 'feeds':
         out.push(`Feeds ${listNames(t.names)} (${axisLabel(t.axis)}${t.param ? `: ${t.param}` : ''})`);
@@ -61,6 +105,9 @@ function addReasons(add) {
         out.push(`Fills the ${t.cat} deficit (${short} short of target)`);
         break;
       }
+      case 'doubler_scale':
+        out.push(`Multiplies the deck's ${t.axis === 'counters.doubler' ? '+1/+1 counter' : 'token'} output (${t.substrate} sources)`);
+        break;
       case 'curve_fill':
         out.push('Lands in an under-filled spot on the curve');
         break;
@@ -112,6 +159,9 @@ function addBreakdown(add) {
         break;
       case 'role_deficit':
         out.push({ text: `${t.cat} deficit (${Math.max(1, Math.round(Number(t.deficit) || 0))} short)`, val });
+        break;
+      case 'doubler_scale':
+        out.push({ text: `Doubler substrate — ${ax} × ${t.substrate} sources`, val });
         break;
       case 'curve_fill':
         out.push({ text: `Under-filled curve spot (MV ${t.bucket})`, val });

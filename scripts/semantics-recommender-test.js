@@ -451,6 +451,143 @@ console.log('explain — fractional role deficits render as whole cards');
   check('sub-1 deficit still reads as 1 short', tiny[0] === 'Fills the Removal deficit (1 short of target)', JSON.stringify(tiny));
 }
 
+console.log('goals — stompy template + axis labels');
+{
+  const pIR = (provides, needs, extra) => ({
+    provides: (provides || []).map(([axis, param, w, rate]) => ({ axis, param: param || null, rate: rate || 'once', weight: w || 3 })),
+    needs: (needs || []).map(([axis, param, w, crit]) => ({ axis, param: param || null, criticality: crit || 'wants', weight: w || 3 })),
+    anti: [], roles: [], wincon: null, tribal: { types: [], lord_of: [] }, faces: [], ...extra,
+  });
+  // Helga-shaped deck: fat bodies + ramp + big-cast payoffs, with the counter sub-theme
+  // riding along (hydras enter with counters) — stompy must outrank counters.
+  const deck = [
+    ...Array.from({ length: 8 }, (_, i) => ({ name: `Fatty ${i}`, qty: 1, cmc: 5, typeLine: 'Creature — Beast', ir: pIR([['body.big', null, 3, 'static'], ['counters.plus1', null, 2, 'once']]) })),
+    ...Array.from({ length: 6 }, (_, i) => ({ name: `Ramp ${i}`, qty: 1, cmc: 2, typeLine: 'Artifact', ir: pIR([['mana.rock', null, 3, 'repeatable']], [], { roles: ['mana_rock', 'ramp'] }) })),
+    { name: 'Uprising-ish', qty: 1, cmc: 3, typeLine: 'Enchantment', ir: pIR([['card_advantage.draw_engine', null, 4, 'repeatable'], ['evasion.grant', null, 3, 'static']], [['body.big', null, 4, 'wants']]) },
+    { name: 'Beanstalk-ish', qty: 1, cmc: 2, typeLine: 'Enchantment', ir: pIR([['card_advantage.draw_engine', null, 3, 'repeatable']], [['mana.big_mana_payoff', null, 2, 'wants']]) },
+    { name: 'Big Land', qty: 32, cmc: 0, typeLine: 'Basic Land — Forest', ir: pIR([], [], { roles: ['land'] }) },
+  ];
+  const cmd = { name: 'Helga-ish', ir: pIR([['card_advantage.draw_engine', null, 3, 'repeatable'], ['mana.dork', null, 3, 'repeatable']], [['body.big', null, 5, 'requires']]) };
+  const g = inferGoals(deck, cmd, {});
+  check('stompy is the top goal for a big-creature deck', g.goals[0]?.goal === 'stompy', JSON.stringify(g.goals.slice(0, 3).map(x => x.goal + '@' + x.confidence)));
+  check('summary uses human axis labels (no raw tokens)',
+    !/plus1|body\.big|[a-z]_[a-z]/.test(g.goals[0]?.summary || ''),
+    JSON.stringify(g.goals[0]?.summary));
+  check('axisLabel curates common tokens', explain.axisLabel('counters.plus1') === '+1/+1 counter sources' && explain.axisLabel('body.big') === 'big creatures (power 4+)',
+    explain.axisLabel('counters.plus1'));
+}
+
+console.log('adds — support wants reinforce, never recruit');
+{
+  const pIR = (provides, needs, extra) => ({
+    provides: (provides || []).map(([axis, param, w, rate]) => ({ axis, param: param || null, rate: rate || 'once', weight: w || 3 })),
+    needs: (needs || []).map(([axis, param, w, crit]) => ({ axis, param: param || null, criticality: crit || 'wants', weight: w || 3 })),
+    anti: [], roles: [], wincon: null, tribal: { types: [], lord_of: [] }, faces: [], ...extra,
+  });
+  // Voltron saturates off a protection/equipment package, but the deck plays ZERO
+  // tutors: voltron's tutor.artifact/tutor.enchantment support must not become wanted
+  // axes (the Enlightened Tutor / Fabricate / Idyllic Tutor failure in Helga).
+  const deck = [
+    ...Array.from({ length: 4 }, (_, i) => ({ name: `Aura ${i}`, qty: 1, cmc: 2, typeLine: 'Enchantment — Aura', ir: pIR([['voltron.aura_equipment', null, 3, 'static']]) })),
+    { name: 'Carrier', qty: 1, cmc: 3, typeLine: 'Creature', ir: pIR([['voltron.carrier', null, 3, 'static'], ['body.evasive', null, 3, 'static']]) },
+    { name: 'Protector', qty: 1, cmc: 1, typeLine: 'Instant', ir: pIR([['protection.single', null, 3, 'once']]) },
+    { name: 'Protector B', qty: 1, cmc: 2, typeLine: 'Instant', ir: pIR([['protection.single', null, 3, 'once']]) },
+    { name: 'Lone Artifact Tutor', qty: 1, cmc: 2, typeLine: 'Sorcery', ir: pIR([['tutor.artifact', null, 3, 'once']]) },
+    { name: 'Plainsy', qty: 33, cmc: 0, typeLine: 'Basic Land — Plains', ir: pIR([], [], { roles: ['land'] }) },
+  ];
+  const cmd = { name: 'Suited Cmdr', ir: pIR([['body.evasive', null, 3, 'static']]) };
+  const g = inferGoals(deck, cmd, {});
+  const wanted = rec.wantedAxes(g.goals[0]?.goal, g.histogram, rec.deckAxisIndex(deck, cmd), templates, g.goals);
+  check('zero-provider support axes are not wanted',
+    !wanted.has('tutor.enchantment'),
+    JSON.stringify([...wanted.keys()]));
+  check('a lone support provider is a coincidence, not a wanted theme',
+    !wanted.has('tutor.artifact'),
+    JSON.stringify([...wanted.keys()]));
+  check('a support PAIR is a theme and still wanted',
+    wanted.has('protection.single'),
+    JSON.stringify([...wanted.keys()]));
+}
+
+console.log('adds — saturated decks get reinforcement, not silence');
+{
+  const pIR = (provides, needs, extra) => ({
+    provides: (provides || []).map(([axis, param, w, rate]) => ({ axis, param: param || null, rate: rate || 'once', weight: w || 3 })),
+    needs: (needs || []).map(([axis, param, w, crit]) => ({ axis, param: param || null, criticality: crit || 'wants', weight: w || 3 })),
+    anti: [], roles: [], wincon: null, tribal: { types: [], lord_of: [] }, faces: [], ...extra,
+  });
+  // Food/lifegain deck saturating the lifegain goal on every axis: wanted must fall
+  // back to reinforcing the goal's core rather than returning an empty list.
+  const deck = [
+    ...Array.from({ length: 7 }, (_, i) => ({ name: `Soul Sister ${i}`, qty: 1, cmc: 2, typeLine: 'Creature — Cleric', ir: pIR([['lifegain.source', null, 3, 'repeatable']]) })),
+    ...Array.from({ length: 6 }, (_, i) => ({ name: `Food Maker ${i}`, qty: 1, cmc: 2, typeLine: 'Creature — Halfling', ir: pIR([['token.food', null, 3, 'per_turn'], ['lifegain.source', null, 2, 'repeatable']]) })),
+    ...Array.from({ length: 3 }, (_, i) => ({ name: `Payoff ${i}`, qty: 1, cmc: 3, typeLine: 'Creature — Treefolk', ir: pIR([['lifegain.payoff', null, 4, 'repeatable']], [['lifegain.source', null, 3, 'wants']]) })),
+    { name: 'Greenwood', qty: 33, cmc: 0, typeLine: 'Basic Land — Forest', ir: pIR([], [], { roles: ['land'] }) },
+  ];
+  const cmd = { name: 'Treebeard-ish', ir: pIR([['token.food', null, 3, 'per_turn'], ['lifegain.payoff', null, 3, 'repeatable']], [['lifegain.source', null, 5, 'requires']]) };
+  const g = inferGoals(deck, cmd, {});
+  check('food deck reads lifegain first', g.goals[0]?.goal === 'lifegain', JSON.stringify(g.goals.slice(0, 3).map(x => x.goal + '@' + x.confidence)));
+  const wanted = rec.wantedAxes(g.goals[0]?.goal, g.histogram, rec.deckAxisIndex(deck, cmd), templates, g.goals);
+  check('saturated plan falls back to core reinforcement', wanted.size > 0 && [...wanted.values()].some(w => w.why === 'goal_reinforce'), JSON.stringify([...wanted.keys()]));
+  const cands = [
+    { name: 'Better Lifegain Piece', ir: pIR([['lifegain.source', null, 4, 'repeatable'], ['lifegain.payoff', null, 4, 'repeatable']]), cmc: 2, price: 1, owned: false, edhrecRank: 400 },
+  ];
+  const adds = rec.scoreAdds({ deckCards: deck, commander: cmd, goals: g.goals, thresholds: th.computeThresholds({ goal: g.goals[0]?.goal }), roleCounts: th.countRoles(deck), hist: g.histogram, candidates: cands, budget: { maxCardPrice: null, flagAbove: 5 }, templates });
+  check('reinforcement produces suggestions with the Deepens wording',
+    adds.length === 1 && explain.addReasons(adds[0]).some(r => r.startsWith('Deepens')),
+    JSON.stringify(adds[0] && explain.addReasons(adds[0])));
+}
+
+console.log('adds — emergent sub-archetypes (demand pool + dominant reinforcement)');
+{
+  const pIR = (provides, needs, extra) => ({
+    provides: (provides || []).map(([axis, param, w, rate]) => ({ axis, param: param || null, rate: rate || 'once', weight: w || 3 })),
+    needs: (needs || []).map(([axis, param, w, crit]) => ({ axis, param: param || null, criticality: crit || 'wants', weight: w || 3 })),
+    anti: [], roles: [], wincon: null, tribal: { types: [], lord_of: [] }, faces: [], ...extra,
+  });
+  // Saturated Food/lifegain deck: token.food is both a dominant axis (9 producers)
+  // and a standing demand (two strong eaters) — it must reach the pool and the
+  // reinforcement set even though every template requirement is satisfied.
+  const deck = [
+    ...Array.from({ length: 7 }, (_, i) => ({ name: `Sister ${i}`, qty: 1, cmc: 2, typeLine: 'Creature — Cleric', ir: pIR([['lifegain.source', null, 3, 'repeatable']]) })),
+    ...Array.from({ length: 9 }, (_, i) => ({ name: `Chef ${i}`, qty: 1, cmc: 2, typeLine: 'Creature — Halfling', ir: pIR([['token.food', null, 3, 'per_turn'], ['lifegain.source', null, 2, 'repeatable']]) })),
+    ...Array.from({ length: 3 }, (_, i) => ({ name: `Payoff ${i}`, qty: 1, cmc: 3, typeLine: 'Creature — Treefolk', ir: pIR([['lifegain.payoff', null, 4, 'repeatable']], [['lifegain.source', null, 3, 'wants']]) })),
+    { name: 'Eater A', qty: 1, cmc: 2, typeLine: 'Creature — Hobbit', ir: pIR([['counters.plus1', null, 3, 'once']], [['token.food', null, 4, 'wants']]) },
+    { name: 'Eater B', qty: 1, cmc: 3, typeLine: 'Enchantment', ir: pIR([['wincon.alt', null, 3, 'once']], [['token.food', null, 4, 'wants']]) },
+    { name: 'Greenwood', qty: 30, cmc: 0, typeLine: 'Basic Land — Forest', ir: pIR([], [], { roles: ['land'] }) },
+  ];
+  const cmd = { name: 'Host', ir: pIR([['token.food', null, 3, 'per_turn'], ['lifegain.payoff', null, 3, 'repeatable']], [['lifegain.source', null, 5, 'requires']]) };
+  const g = inferGoals(deck, cmd, {});
+  const index = rec.deckAxisIndex(deck, cmd);
+  const wanted = rec.wantedAxes(g.goals[0]?.goal, g.histogram, index, templates, g.goals);
+  check('dominant axis reaches the reinforcement set', wanted.has('token.food'), JSON.stringify([...wanted.keys()]));
+  const pool = rec.poolAxes(wanted, index, 12);
+  check('standing demand reaches the pool axes', pool.includes('token.food'), JSON.stringify(pool));
+  check('wanted axes lead the pool list', [...wanted.keys()].every(ax => pool.includes(ax)), JSON.stringify(pool));
+  // A Manufactor-shaped candidate (only Food value) now scores and cites the eaters
+  const cands = [
+    { name: 'Food Tripler', ir: pIR([['token.food', null, 4, 'static']], [['token.food', null, 3, 'wants']]), cmc: 3, price: 1, owned: false, edhrecRank: 300 },
+  ];
+  const adds = rec.scoreAdds({ deckCards: deck, commander: cmd, goals: g.goals, thresholds: th.computeThresholds({ goal: g.goals[0]?.goal }), roleCounts: th.countRoles(deck), hist: g.histogram, candidates: cands, budget: { maxCardPrice: null, flagAbove: 5 }, templates });
+  check('food-only candidate scores above the floor', adds.length === 1, JSON.stringify(adds.map(a => [a.name, a.score])));
+  // Doubler-substrate scaling: a Food-kind doubler in this 10-Food deck earns big
+  // credit; the same doubler must earn nothing without matching substrate.
+  const doubler = { name: 'Food Tripler 9000', ir: pIR([['token.doubler', 'Clue, Food, or Treasure', 3, 'static']]), cmc: 3, price: 1, owned: false, edhrecRank: 300 };
+  const dAdds = rec.scoreAdds({ deckCards: deck, commander: cmd, goals: g.goals, thresholds: th.computeThresholds({ goal: g.goals[0]?.goal }), roleCounts: th.countRoles(deck), hist: g.histogram, candidates: [doubler], budget: { maxCardPrice: null, flagAbove: 5 }, templates });
+  check('doubler scales with matching substrate',
+    dAdds.length === 1 && (dAdds[0].trace || []).some(t => t.kind === 'doubler_scale' && t.substrate >= 9),
+    JSON.stringify(dAdds[0]?.trace));
+  const creatureDeck = [
+    ...Array.from({ length: 9 }, (_, i) => ({ name: `Tok ${i}`, qty: 1, cmc: 2, typeLine: 'Creature', ir: pIR([['token.creature', null, 3, 'per_turn']]) })),
+    { name: 'Landz', qty: 30, cmc: 0, typeLine: 'Basic Land — Forest', ir: pIR([], [], { roles: ['land'] }) },
+  ];
+  const g2 = inferGoals(creatureDeck, cmd, {});
+  const cAdds = rec.scoreAdds({ deckCards: creatureDeck, commander: cmd, goals: g2.goals, thresholds: th.computeThresholds({ goal: g2.goals[0]?.goal }), roleCounts: th.countRoles(creatureDeck), hist: g2.histogram, candidates: [doubler], budget: { maxCardPrice: null, flagAbove: 5 }, templates });
+  check('param-restricted doubler ignores mismatched substrate',
+    !(cAdds[0]?.trace || []).some(t => t.kind === 'doubler_scale'),
+    JSON.stringify(cAdds[0]?.trace || 'filtered out entirely'));
+}
+
 console.log('goals — land types are not tribes');
 {
   const mountainIR = { provides: [], needs: [], anti: [], roles: [], wincon: null, tribal: { types: ['Mountain', 'Goblin'], lord_of: ['Mountain'] }, faces: [] };

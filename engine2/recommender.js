@@ -13,6 +13,12 @@ const th = require('./thresholds');
 const CUT_COUNT = 8;
 const ADD_COUNT = 24;
 
+// Doubler axis → predicate over provides axes that count as its substrate.
+const _DOUBLER_SUBSTRATE = {
+  'token.doubler': (ax) => ax.startsWith('token.') && ax !== 'token.doubler' && ax !== 'token.payoff',
+  'counters.doubler': (ax) => ax === 'counters.plus1' || ax === 'counters.plus1_mass',
+};
+
 // Role category → the provides-axis prefix that backs it (for the context gate above
 // role-deficit credit; categories without a clean family are always credited).
 const _ROLE_AXIS_FAMILY = {
@@ -226,10 +232,15 @@ function wantedAxes(goal, hist, index, templates, goals) {
       }
     }
     // Even when a goal's core is saturated, keep suggestions ON PLAN: under-provided
-    // support axes come before fringe-card wishes.
+    // support axes come before fringe-card wishes — but support may only REINFORCE a
+    // sub-theme the deck already plays (≥2 providers: a pair is a theme, a singleton
+    // is a coincidence), never introduce one. Without this, a protection package
+    // saturating voltron dragged artifact tutors into a big-creature deck with zero
+    // artifact synergy (Enlightened Tutor at #1), and one energy card made the deck
+    // "want" more energy (Guide of Souls).
     for (const ax of tpl?.support || []) {
       const have = hist.providers[ax] || 0;
-      if (have < 3 && !wanted.has(ax)) wanted.set(ax, { why: 'goal_support', gap: 3 - have });
+      if (have >= 2 && have < 3 && !wanted.has(ax)) wanted.set(ax, { why: 'goal_support', gap: 3 - have });
     }
   }
   // Unmet needs of cards already in the deck — but only when the demand is real
@@ -264,7 +275,55 @@ function wantedAxes(goal, hist, index, templates, goals) {
       }
     }
   }
+  // A deck that saturates its plan still deserves suggestions: fall back to
+  // REINFORCEMENT — the top goal's core axes at a nominal gap, i.e. shop for better
+  // versions and redundancy of what the plan already does, instead of returning an
+  // empty list ("no adds to suggest" for a fully-built Treebeard Food deck).
+  if (!wanted.size) {
+    const m2 = /^tribal:(.+)$/.exec(String(goal || ''));
+    if (m2) {
+      for (const ax of ['tribal.lord', 'tribal.synergy', 'anthem.global']) {
+        wanted.set(ax, { why: 'goal_reinforce', gap: 1, params: [m2[1]], permissive: true });
+      }
+    } else {
+      const tpl2 = templates.find(t => t.key === String(goal || ''));
+      for (const grp of tpl2?.core || []) {
+        for (const ax of grp.axes || []) {
+          if (!wanted.has(ax)) wanted.set(ax, { why: 'goal_reinforce', gap: 1 });
+        }
+      }
+    }
+    // Plus the deck's DOMINANT axes — sub-archetype identity is emergent from the
+    // data: 17 Food producers say "Food deck" louder than any template. Density ≥8
+    // keeps incidental axes out; top 2 keeps the reinforcement focused.
+    const dominant = Object.entries(hist.providers || {})
+      .filter(([ax, n]) => n >= 8 && !wanted.has(ax))
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 2);
+    for (const [ax] of dominant) wanted.set(ax, { why: 'goal_reinforce', gap: 1 });
+  }
   return wanted;
+}
+
+// Axes worth QUERYING candidates for: everything wanted, plus the deck's strongest
+// standing DEMANDS even when satisfied — half of deckbuilding is "more of what feeds
+// what I already have". The pool used to be wanted-only, so a card whose whole value
+// is feeding existing payoffs (Academy Manufactor in a Food deck with 17 producers)
+// could never enter the pool to receive the feeds credit the scorer already gives.
+// Demand qualifies with ≥2 strong needers or any hard requirement, ranked by strong
+// needer count then aggregate weight.
+function poolAxes(wanted, index, cap = 12) {
+  const axes = [...wanted.keys()];
+  const seen = new Set(axes);
+  const demands = [...index.needs.entries()]
+    .filter(([ax, rec]) => !seen.has(ax) && ((rec.strong || 0) >= 2 || (rec.hard || 0) >= 1))
+    .sort((a, b) => (b[1].strong || 0) - (a[1].strong || 0) || (b[1].weight || 0) - (a[1].weight || 0))
+    .map(([ax]) => ax);
+  for (const ax of demands) {
+    if (axes.length >= cap) break;
+    axes.push(ax);
+  }
+  return axes;
 }
 
 // ── cuts ─────────────────────────────────────────────────────────────────────
@@ -420,6 +479,28 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
         }
       }
     }
+    // Doublers scale with their SUBSTRATE: Anointed Procession is only as good as the
+    // deck's token production, Academy Manufactor's Clue/Food/Treasure tripling only
+    // as good as its Food engine. Credit = capped fraction of matching substrate
+    // density, param-aware ("Clue, Food, or Treasure" only counts those token kinds).
+    for (const p of cand.ir.provides || []) {
+      const match = _DOUBLER_SUBSTRATE[p.axis];
+      if (!match) continue;
+      const kinds = p.param
+        ? String(p.param).toLowerCase().split(/,|\bor\b|\//).map(s => s.trim()).filter(Boolean)
+        : null;
+      let substrate = 0;
+      for (const [ax, rec] of index.provides) {
+        if (!match(ax)) continue;
+        if (kinds && !kinds.some(k => ax.startsWith('token.' + k))) continue;
+        substrate += rec.count;
+      }
+      if (substrate >= 3) {
+        const pts = Math.min(5, substrate * 0.3);
+        score += pts;
+        trace.push({ kind: 'doubler_scale', axis: p.axis, param: p.param || null, substrate, pts });
+      }
+    }
     // its own needs are already fed here (card won't be dead)
     let fedNeeds = 0, deadNeeds = 0;
     for (const nd of cand.ir.needs || []) {
@@ -489,4 +570,4 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
   return scored.filter(s => s.fit >= floor).slice(0, ADD_COUNT).map(({ fit, ...s }) => s);
 }
 
-module.exports = { scoreCuts, scoreAdds, deckAxisIndex, wantedAxes, matchParam, deckPlanAxes, isLandCard, bucketOf, CUT_COUNT, ADD_COUNT };
+module.exports = { scoreCuts, scoreAdds, deckAxisIndex, wantedAxes, poolAxes, matchParam, deckPlanAxes, isLandCard, bucketOf, CUT_COUNT, ADD_COUNT };
