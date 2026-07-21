@@ -1704,5 +1704,119 @@ Mark Prompt 28 Completed. Full merge track done — update suggested-adds-improv
 
 ---
 
+---
+
+# Prompt 25 of 25 — Suggested Adds Phase A1.5 (Plan envelope + semantics handoff)
+
+**Status:** Ready (interview paused — implement from locked plan §1.5, §13–§16)
+
+Canonical design: [`suggested-adds-improvement-plan.md`](./suggested-adds-improvement-plan.md)
+
+```
+# Suggested Adds Phase A1.5 — Plan envelope + theme sub-tags + semantics handoff
+
+**Prereq:** Prompt 2 (Entry 13 v1) shipped. Prefer Prompt 24 A0 (raw badge, no 7/10 floor) first
+or same PR if you also delete display-floor filters. Read plan §1.5, §13–§16, D16–D25.
+
+**Hard constraint:** Deterministic algorithm only — no runtime AI/LLM in Adds scoring.
+Partner semantics engine (`engine2/`) may supply **suggestions**; Adds must still score
+from confirmed plan fields + tags/tables.
+
+## Problem
+Declared deck plan barely affects Adds. Strategy tag maps exist but do not create
+deficits. Generic “Plan” (untagged filler) is too coarse. Type/kind inference (Elf vs
+Dragon, Treasure vs Food, +1/+1 vs poison) belongs to the partner semantics engine —
+do not reinvent deep deck reading in this prompt.
+
+## Locked product model (do not reopen)
+1. **Plan parent** stays (default target 30). Sub-tags live **inside** Plan.
+2. Sum of active sub-tag suggested targets **≤ Plan target** (warn if user exceeds).
+3. **D** for a sub-tag only when Plan has deficit AND that sub-tag is under its cap.
+4. Primary tier: Ramp / Card Draw / Removal first (`W_S = 0` on Plan/sub-tags while short).
+5. Sub-tags **visible**: strip, Why, threshold editor, wizard checkboxes + Expand + search.
+6. **Planned cuts** excluded from role/plan have counts (qty − cut markers).
+7. Merged map: strategy → `tag → { target }`; wincon overlap **sums**; secondary **½** on defaults.
+8. Inferred plan / type suggestions require **user confirm** before targets apply.
+9. G8: staple tags (Removal, Draw, …) **merge** into one generic row — not duplicated under Plan.
+10. Type-picker strategies (plan §14): Tokens, Tribal, Enchantress, Counters, Spellslinger,
+    Voltron, Sacrifice, Reanimator, Superfriends, Stax, Mill — UI shell here; **inference → engine2**.
+
+## Goal — implement
+### A. Plan envelope in `_computeAddContext` / Adds scoring
+1. When plan declared (or confirmed inferred): load default sub-tags from merged map
+   (plan §15 table + `js/archetype-role-bridge.js` / `data/archetype-scryfall-tags/`).
+2. Effective `have` = mainboard qty − planned-cut qty (swaps on).
+3. Plan deficit + per-sub-tag deficits; enforce sum(sub targets) ≤ Plan target for defaults.
+4. Wire into `computeDeficitTermD` / scoring so sub-tags can earn D under P6′ rules.
+5. G8 merge when strategy projects a tag that already has a generic threshold.
+
+### B. UX (minimal viable)
+1. Strength strip: Plan `have/target` + indented active sub-tags (and primary Ramp/Draw/Removal).
+2. Why: “Fills Plan …” + “Identified as: …” + sub-tag have/target when relevant.
+3. Threshold editor: Plan + sub-tag rows; editable; override persistence like cut prefs.
+4. Wizard (or post-wizard panel): checkbox list of default sub-tags + Expand + search/autocomplete
+   for more tags. Type picker shell (top 4 + autocomplete) when strategy is type-based —
+   **populate top 4 from semantics API if available**, else empty/provisional fallback only.
+
+### C. Semantics handoff (do not block A/B on full engine)
+Define a small, stable contract so partner engine2 can plug in without rewriting Adds:
+
+```js
+// Suggested shape — adjust names to match engine2 exports if they already exist
+{
+  // Optional: ranked strategy / type / kind suggestions for wizard
+  suggestPlanTypes(deck, strategyId) → [{ id, label, score, source: 'semantics' }]
+  // Optional: confidence for pre-select (≥ 0.35 gate, same as wizard inference)
+}
+```
+
+Rules:
+- Adds **never** auto-writes `deck.plan` type filters from semantics without confirm.
+- If `engine2` / semantics module missing or throws → Adds still works with user-picked
+  types + tag maps only (degraded mode).
+- Document Tribal Tr1 (“what counts as typal payoff”) as **provisional**: tag/otag lords
+  until semantics owns typal density (plan §15 note).
+- Do **not** call live Scryfall/LLM at suggestion time.
+
+### D. Catalog / IDs (wizard schema)
+1. Add `strategy.stax` if missing; remove or stop using `wincon.lock`.
+2. Add `strategy.combo` alongside `wincon.combo` (assembly vs win line).
+3. Add `strategy.goodstuff` (G7); leave Ramp-heavy / Lifegain as Cuts-only.
+4. Rename Counters wizard label from “+1/+1 Counters” → **Counters**.
+
+## Anchors
+- `Ready Prompts/suggested-adds-improvement-plan.md` §1.5, §5 A1.5, §13–§16
+- `js/decks.js` — `_computeAddContext`, `_renderAddSuggestions`, `_addsSelectTopPicks`, planned cuts
+- `js/adds-scoring.js` — `computeDeficitTermD`, `scoreAddCandidateTerms`
+- `js/deck-plan.js` / `js/archetype-role-bridge.js` / `js/project-role-tags.js`
+- `data/archetype-scryfall-tags/`
+- `engine2/` — handoff only (suggestPlanTypes or agreed export); see `docs/engine2-plan.md`
+
+## Default sub-tag targets (locked unless user later overrides)
+See plan §15 table (Tokens 20, Sacrifice 22, Counters 21, Tribal 16, …). Persist user edits.
+
+## Out of scope (this prompt)
+- Full wizard v2 / Cuts shielding (Phase B)
+- Runtime AI
+- Replacing partner semantics with custom tribal/enchantress classifiers
+- Deck-size scaling of targets
+
+## Verification
+1. Declared sacrifice plan: Sac Outlet / Triggers / Drain rows visible; sum ≤ Plan; D only if Plan short + sub-tag under cap.
+2. Planned cut of a Ramp card → Ramp have drops before apply-swaps.
+3. Primaries short → Plan sub-tags visible but W_S = 0 (no D) until Ramp/Draw/Removal met.
+4. No semantics module → Adds still runs; type top 4 empty or provisional.
+5. With mock semantics suggestions → UI shows them; confirm required before filter applies.
+6. Badge still raw (no /10); no min-7/10 filter.
+7. `npm run build:bundle` if js/ changed; add/extend unit tests for envelope + cut exclusion.
+
+## Done when
+- A–D above shipped or explicitly deferred in PR notes with follow-up.
+- Mark Prompt **25** Completed in the order table.
+- Optional: `npm run changelog:add` if user-visible (Plan strip / sub-tags).
+```
+
+---
+
 *End of ready-prompts catalog. Add new Ready items here in queue order;
 mark **Completed** when implemented; remove when backlog/archive Shipped.*
