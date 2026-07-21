@@ -18,12 +18,6 @@ const {
   CMC_REF,
   D_SUBLINEAR_WEIGHTS,
   EFFICIENCY_MODE_PROJECT_TAGS,
-  ADD_SCORE_RAW_CEILING,
-  ADD_SCORE_DISPLAY_MAX,
-  ADD_SCORE_DISPLAY_MIN,
-  addDisplayScore,
-  formatAddDisplayScore,
-  meetsAddDisplayFloor,
 } = scoring;
 
 function score(card, roles, ctx, extras) {
@@ -256,25 +250,25 @@ const wipeOnlyCtx = {
 }
 
 {
-  assert.strictEqual(ADD_SCORE_RAW_CEILING, 8);
-  assert.strictEqual(ADD_SCORE_DISPLAY_MAX, 10);
-  assert.strictEqual(ADD_SCORE_DISPLAY_MIN, 7);
-  assert.strictEqual(addDisplayScore(0), 0);
-  assert.strictEqual(addDisplayScore(-1), 0);
-  // Absolute: 10/10 = best-card ceiling, not list rank
-  assert.strictEqual(addDisplayScore(4), 5);
-  assert.strictEqual(addDisplayScore(8), 10);
-  assert.strictEqual(addDisplayScore(18), 10);
-  assert.strictEqual(formatAddDisplayScore(4), '5.0');
-  assert.ok(addDisplayScore(2.8) < 4, 'weak raw must not display as elite');
-  // Floor: 7/10 → raw 5.6; below that is not suggested
-  assert.ok(!meetsAddDisplayFloor(5.5));
-  assert.ok(meetsAddDisplayFloor(5.6));
-  assert.ok(meetsAddDisplayFloor(8));
-  console.log('[display] raw 4 →', formatAddDisplayScore(4) + '/10',
-    '; raw 8 →', formatAddDisplayScore(8) + '/10',
-    '; raw 2.8 →', formatAddDisplayScore(2.8) + '/10',
-    '; floor=7');
+  // Prompt 24: no display remap / floor — badge is raw score only.
+  assert.strictEqual(scoring.addDisplayScore, undefined);
+  assert.strictEqual(scoring.formatAddDisplayScore, undefined);
+  assert.strictEqual(scoring.meetsAddDisplayFloor, undefined);
+  assert.strictEqual(scoring.ADD_SCORE_RAW_CEILING, undefined);
+  assert.strictEqual(scoring.ADD_SCORE_DISPLAY_MIN, undefined);
+  // V must still matter for multi-role when both holes are open (no S term).
+  const bothShort = {
+    deficits: { Ramp: 4, 'Card Draw': 4, Removal: 0, Plan: 0 },
+    curveDeficit: [0, 0, 0.1, 0, 0, 0, 0, 0],
+  };
+  const gs = score(growthSpiral, ['Ramp', 'Card Draw'], bothShort);
+  const tv = score(threeVisits, ['Ramp'], bothShort);
+  assert.ok(gs.terms.V > 0, 'Growth Spiral should earn V for second role');
+  assert.ok(!(gs.terms.S > 0), 'S term must not exist');
+  assert.ok(gs.score > tv.score,
+    `Growth Spiral (${gs.score.toFixed(2)}) should beat Three Visits (${tv.score.toFixed(2)}) when Ramp+Draw short`);
+  console.log('[raw-badge] GS', gs.score.toFixed(2), 'V=', gs.terms.V.toFixed(2),
+    'vs TV', tv.score.toFixed(2), '(no /10 display layer)');
 }
 
 console.log('adds-scoring: ok');

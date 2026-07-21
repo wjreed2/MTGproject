@@ -1,7 +1,7 @@
 # Suggested Adds — Improvement Plan (Entry 13 v2 + scoring/UX)
 
-**Status:** Design (interview in progress — locked items in §13–§15; implementation waits)  
-**Date:** 2026-07-21 (Plan envelope + theme defaults added)  
+**Status:** Staged Ready Prompts **24–28** in `cuts-adds-ready-prompts.md` (full merge via `engine2.1wizard` sandbox; partner `engine2/` untouched)  
+**Date:** 2026-07-21 (Plan envelope + theme defaults added; merge track 2026-07-20)  
 **Branch:** `Manford`  
 **Audience:** Product + implementer agents  
 **Hard constraint:** Deterministic algorithm only — no runtime AI/LLM.

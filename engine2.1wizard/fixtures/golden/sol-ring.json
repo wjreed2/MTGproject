@@ -1,0 +1,62 @@
+{
+  "row": {
+    "oracle_id": "00000000-0000-4000-8000-000000000008",
+    "name": "Sol Ring",
+    "type_line": "Artifact",
+    "oracle_text": "{T}: Add {C}{C}.",
+    "mana_cost": "{1}",
+    "cmc": 1,
+    "colors_json": [],
+    "color_identity_json": [],
+    "power": null,
+    "toughness": null,
+    "loyalty": null,
+    "keywords_json": [],
+    "layout": "normal",
+    "produced_mana_json": ["C"],
+    "faces_json": null
+  },
+  "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "00000000-0000-4000-8000-000000000008",
+    "name": "Sol Ring",
+    "layout": "normal",
+    "faces": [
+      {
+        "face_name": "Sol Ring",
+        "types": { "super": [], "card": ["Artifact"], "sub": [] },
+        "mana_cost": "{1}",
+        "mana_value": 1,
+        "colors": [],
+        "pt": null,
+        "loyalty": null,
+        "defense": null,
+        "costs": { "additional": [], "alternative": [] },
+        "keywords": [],
+        "abilities": [
+          {
+            "kind": "mana",
+            "cost": { "mana": null, "tap": true },
+            "activation_limit": "any_time",
+            "layer": null,
+            "effects": [
+              { "op": "add_mana", "mana": "{C}{C}" }
+            ],
+            "text": "{T}: Add {C}{C}."
+          }
+        ],
+        "restrictions": [],
+        "cdf": null
+      }
+    ],
+    "provides": [ { "axis": "mana.rock", "param": null, "rate": "repeatable", "weight": 5 } ],
+    "needs": [],
+    "roles": ["mana_rock", "ramp"],
+    "anti": [],
+    "wincon": null,
+    "tribal": { "types": [], "lord_of": [] },
+    "power_level_hint": 5,
+    "confidence": 0.99
+  }
+}

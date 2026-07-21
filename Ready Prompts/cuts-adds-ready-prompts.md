@@ -53,7 +53,17 @@ re-pop) isolated from other deck-builder render PRs. **23** (user categories) la
 | **21** | Collection tab: deck membership in inspector | Ready | Partner / collection | Isolated; distinct from prompt #4 pool toggle. |
 | **22** | Deck Builder: fix card image re-pop | Ready | Partner / render | Keep isolated — render/cache investigation; don’t interleave with #13–18. |
 | **23** | User-defined deck categories | Ready | Partner / tags (large) | Last — needs settled tag model; design Qs before code. |
-| **24** | Suggested Adds Phase A (revert display/S + plan H + Why) | **Design** | Cuts/Adds 13 v2 Phase A | See `suggested-adds-improvement-plan.md` §0, §5. |
+| **24** | Suggested Adds A0 — raw badge, no S, no min-7 display filter | **Completed** | Cuts/Adds 13 v2 Phase A | First slice of Phase A. Do before **25**. |
+| **25** | A1.5 — Plan envelope + sub-tags + planned-cut exclusion + checkbox/Expand + `engine2.1wizard` creature-type suggest (degraded if missing) | **Completed** | Cuts/Adds 13 v2 Phase A | After **24**. Full prompt below. |
+| **26** | A1 / A1b — plan term H + Option A primary tier + strength strip | **Completed** | Cuts/Adds 13 v2 Phase A | After **25**. Classic plan-aware ranking. |
+| **27** | Hybrid Suggested Adds — Classic staples + `engine2.1wizard` theme/synergy rows | **Completed** | Full merge stage | After **26**. Partner `engine2/` untouched. |
+| **28** | Bidirectional loop — confirmed plan + planned Adds/Cuts into sandbox scoring | **Completed** | Full merge stage | After **27**. Completes wizard↔engine marriage. |
+
+### Full merge track (memory aid)
+
+Goal: marry Plan wizard + Classic Suggested Adds with sandbox [`engine2.1wizard/`](../engine2.1wizard/) (never edit partner [`engine2/`](../engine2/)).  
+Canonical design: [`suggested-adds-improvement-plan.md`](./suggested-adds-improvement-plan.md).  
+Run **24 → 25 → 26 → 27 → 28** in order. Each prompt marks itself **Completed** when done so the next agent keeps going.
 
 ### Deliberately excluded from this queue (do not send)
 
@@ -66,19 +76,13 @@ re-pop) isolated from other deck-builder render PRs. **23** (user categories) la
 | Card Inspector Swipe/Arrow Navigation (Adds & Cuts order) | Partner asked to ignore. |
 | Part 1 / Part 2 Cuts/Adds technical write-up | Docs only — already covered by backlog / this file; not an implement prompt. |
 
-### Design plan (drafted; split into implement prompts next)
+### Design plan
 
 | Entry | Status | Note |
 |-------|--------|------|
-| Suggested Adds improvement + Entry 13 v2 | **Design drafted** | Canonical plan: [`suggested-adds-improvement-plan.md`](./suggested-adds-improvement-plan.md). Phase A = plan term **H** + hybrid D + `/10` badge recal + role-tag gate. Phase B = wizard v2 / Cuts shielding. |
-
-### Not in this doc yet (implement prompt text not pasted below)
-
-| Entry | Status | Note |
-|-------|--------|------|
-| Phase A — plan term H + badge + role gate | Ready to draft from plan §5 | After design sign-off on locked decisions D1–D12. |
-| Phase B — 13 v2 wizard / Cuts shielding | Blocked on A | Plan §6. |
-| Phase C — mixed plan-aware backfill | Optional after A | Plan §7. |
+| Suggested Adds improvement + Entry 13 v2 | **In Ready Prompts 24–28** | Canonical: [`suggested-adds-improvement-plan.md`](./suggested-adds-improvement-plan.md). Badge = raw only (no `/10`). Full merge via sandbox `engine2.1wizard`. |
+| Phase B — 13 v2 wizard extras / Cuts shielding | Later | Plan §6 — after 24–28. |
+| Phase C — mixed plan-aware backfill | Optional | Plan §7. |
 
 ---
 
@@ -1489,43 +1493,213 @@ Prereq: Prompts 6–8 (and ideally 12) settled so tag categories don’t thrash 
 
 ---
 
-# Prompt 24 of 24 — Suggested Adds Phase A (raw badge + plan H; no display/S)
+# Prompt 24 of 28 — Suggested Adds A0 (raw badge; no S; no min-7 filter)
 
-**Status:** Design (do not implement until §0 + §4 in plan are confirmed)
+**Status:** Completed
 
-Canonical design: [`suggested-adds-improvement-plan.md`](./suggested-adds-improvement-plan.md)
+Canonical design: [`suggested-adds-improvement-plan.md`](./suggested-adds-improvement-plan.md) §2, §5 A0.
 
 ```
-# Suggested Adds Phase A — raw score badge + plan-aware ranking
+# Suggested Adds A0 — raw score badge only
 
-**Prereq:** Entry 13 v1 (Prompt 2) shipped. Read suggested-adds-improvement-plan.md §0 first.
+**Prereq:** Entry 13 v1 (Prompt 2) shipped. Read suggested-adds-improvement-plan.md §0 / U1–U4.
 
 ## Hard constraint
 Deterministic only — no runtime AI/LLM.
+Do NOT edit engine2/ or engine2.1wizard/ in this prompt.
 
 ## User-locked (do NOT ship)
-- NO addDisplayScore / `/10` on **suggestion badges** (raw score only)
+- NO addDisplayScore / `/10` on suggestion badges (raw score only)
 - NO S term
-- NO `ADD_SCORE_DISPLAY_MIN` / **no “7/10 or better” suggestion filter**
+- NO ADD_SCORE_DISPLAY_MIN / no “7/10 or better” suggestion filter
+- NO display ceiling helpers used for badges
 
 ## Goal
-1. A0: Raw score badge only.
-2. A1: **Option A** — `W_S = 0` on secondary D while any primary deficit ≥ 1.
-3. A1b: **Primary strength strip** — literal `have/target` (12/10 when over); “strong at” when met.
-4. A1: Plan term H + hybrid D when plan declared.
-5. V must matter; Growth Spiral beats TV when both Ramp and Draw short.
+1. Remove display-score helpers and any filter that hides suggestions for low display score.
+2. Remove S term and its Why line.
+3. Badge + Why header use raw `(s.score).toFixed(1)` only.
+4. Growth Spiral vignette: V still matters when Ramp and Draw both short.
 
 ## Anchors
-- js/adds-scoring.js — scoreAddCandidateTerms (no S in formula)
+- js/adds-scoring.js
 - js/decks.js — _renderAddSuggestions, _buildAddWhyLines
-- js/deck-plan.js — planMatchScore, getDeckPlan
+- scripts/test-adds-scoring.js (or equivalent)
 
-## Locked constants (plan term only)
-K_H = 2.0; α = 0.35; β = 0.15; hybrid multipliers clamp [0.5, 1.75]
+## Out of scope
+Plan envelope, H term, primary tier strip, engine2 — those are Prompts 25–26.
 
 ## Verification
-Plan §5 A4. npm run build:bundle if js/ changed.
-Mark Completed when done.
+Plan §5 A4 cases 3, 5, 7. npm run build:bundle if js/ changed.
+Mark Prompt 24 Completed in the order table when done. Next: Prompt 25.
+```
+
+---
+
+# Prompt 25 of 28 — A1.5 Plan envelope + wizard UI + engine2.1wizard creature-type suggest
+
+**Status:** Completed
+
+Canonical design: [`suggested-adds-improvement-plan.md`](./suggested-adds-improvement-plan.md) §1.5, §5 A1.5, §14–§15.
+
+**Full merge note:** This is stage 2 of 24→28. Narrow on purpose; hybrid list merge is Prompt 27.
+
+```
+# A1.5 — Plan envelope + sub-tags + planned cuts + type suggest handoff
+
+**Prereq:** Prompt 24 (A0) Completed. Read suggested-adds-improvement-plan.md §1.5, §14, §15.
+Sandbox folder engine2.1wizard/ already exists (copy of engine2). NEVER modify engine2/.
+
+## Hard constraint
+Deterministic only — no runtime AI/LLM at suggestion/wizard time.
+
+## Goal
+1. Plan envelope in Classic Adds context:
+   - Plan parent stays in recipe (default target 30).
+   - Theme sub-tags inside Plan from merged strategy map (§15 defaults).
+   - Cap: sum of active sub-tag targets ≤ Plan target.
+   - Sub-tag D credit only when Plan has deficit AND sub-tag under cap (P6′).
+   - Planned cuts: subtract planned-cut qty from mainboard have for all role/plan counts (P6″).
+   - G8: staple-overlapping tags merge to one row.
+2. Wizard UX for sub-tags: checkbox list (defaults pre-checked) + Expand + search/autocomplete.
+3. Type-picker (Tribal / creature types only for semantics handoff):
+   - UI: top 4 + autocomplete + confirm (§14).
+   - Inference: call engine2.1wizard suggestTypePicks for creature types when available.
+   - Degraded if missing: empty top 4 or static fallback; autocomplete still works. Never hard-fail the wizard.
+4. Confirmed plan still required before targets apply (D21).
+5. Do NOT implement full hybrid suggestion ranking or H term here (Prompts 26–27).
+
+## engine2.1wizard work (sandbox only)
+- Add suggestTypePicks (or equivalent) that returns ranked creature types for a deck from CardIR / tribal signals.
+- Export from engine2.1wizard/index.js.
+- Optional thin authenticated route for wizard fetch OR server helper used only when a feature flag is on.
+- Partner require('./engine2') and POST /api/decks/analyze must keep using engine2/ unchanged.
+- If semantics coverage is low or call fails → return degraded empty/static picks; UI continues.
+
+## Anchors
+- js/decks.js — _computeAddContext, strength strip hooks
+- js/deck-plan.js / js/deck-plan-wizard.js
+- js/archetype-role-bridge.js, data/archetype-scryfall-tags/
+- engine2.1wizard/ (deck-goals.js, recommender.js, new bridge module)
+
+## Verification
+- Planned cut excluded from have counts.
+- Sub-tag cap enforced; P6′ gating.
+- Wizard checkbox + Expand works offline / without semantics.
+- With semantics: Tribal type step shows up to 4 creature types from sandbox; without: degraded path.
+- npm run build:bundle if js/ changed.
+Mark Prompt 25 Completed. Next: Prompt 26.
+```
+
+---
+
+# Prompt 26 of 28 — A1 / A1b plan term H + primary tier + strength strip
+
+**Status:** Completed
+
+Canonical design: [`suggested-adds-improvement-plan.md`](./suggested-adds-improvement-plan.md) §5 A1, A1b, §12 Option A.
+
+```
+# A1 / A1b — plan-aware Classic ranking + primary strength strip
+
+**Prereq:** Prompts 24 and 25 Completed.
+
+## Hard constraint
+Deterministic only — no runtime AI/LLM.
+Do NOT edit engine2/. Prefer not to expand engine2.1wizard except if Prompt 25 left a TODO.
+
+## Goal
+1. Option A: W_S = 0 on secondary/Plan-subtag D while any primary deficit ≥ 1.
+2. Plan term H + hybrid D when plan declared/confirmed (locked constants from plan).
+3. Primary strength strip: Ramp/Draw/Removal literal have/target; Plan + indented sub-tag rows from Prompt 25.
+4. Wire deckPlan into scoring; Why lines include H / plan identity.
+5. Role-tag gate if still outstanding (plan D9 / A3) — may merge here.
+
+## Locked constants
+K_H = 2.0; α = 0.35; β = 0.15; hybrid multipliers clamp [0.5, 1.75]
+
+## Anchors
+- js/adds-scoring.js
+- js/decks.js — _scoreAddCandidate, _renderAddSuggestions, strip render
+- js/deck-plan.js — planMatchScore, getDeckPlan
+
+## Verification
+Plan §5 A4 cases 1–4, 6. npm run build:bundle if js/ changed.
+Mark Prompt 26 Completed. Next: Prompt 27 (hybrid merge).
+```
+
+---
+
+# Prompt 27 of 28 — Hybrid Suggested Adds (Classic staples + engine2.1wizard theme)
+
+**Status:** Completed
+
+Full merge stage. Partner engine2/ stays untouched.
+
+```
+# Hybrid Suggested Adds — Classic staples + sandbox theme/synergy
+
+**Prereq:** Prompts 24–26 Completed. Sandbox engine2.1wizard has suggestTypePicks from 25.
+
+## Hard constraint
+Deterministic only — no runtime AI/LLM.
+NEVER modify engine2/. All semantics ranking changes go in engine2.1wizard/.
+
+## Goal
+1. Hybrid list for Suggested Adds (and mirror for Cuts if straightforward):
+   - Classic half: fill primary staple holes (Ramp / Card Draw / Removal, etc.).
+   - Sandbox half: plan/theme/synergy candidates from engine2.1wizard scoreAdds (or thin wrapper), constrained by confirmed wizard plan.
+2. Merge/dedupe by card name; cap total suggestions (keep existing count unless plan says otherwise).
+3. Why: Classic term breakdown for staple rows; sandbox breakdown/reasons for theme rows.
+4. Feature flag or explicit “Hybrid” path so Classic-only and partner Semantic (engine2) remain available.
+5. If sandbox coverage low → Classic-only list (degraded), same spirit as Prompt 25.
+
+## Anchors
+- js/decks.js — _renderAddSuggestions / cut render
+- engine2.1wizard/recommender.js, explain.js, new wizard-bridge if needed
+- server.js — new or flagged route requiring ./engine2.1wizard (do not change engine2 analyze behavior)
+
+## Verification
+- Deck short on Ramp: Classic staple still appears.
+- Confirmed Tribal/Tokens/Sacrifice plan: theme picks appear from sandbox when coverage OK.
+- engine2/ git diff empty for this prompt’s commits.
+- npm run build:bundle if js/ changed.
+Mark Prompt 27 Completed. Next: Prompt 28.
+```
+
+---
+
+# Prompt 28 of 28 — Bidirectional loop (confirmed plan + planning board → sandbox)
+
+**Status:** Completed
+
+Completes wizard ↔ engine marriage.
+
+```
+# Bidirectional loop — user plan steers sandbox; sandbox keeps teaching wizard
+
+**Prereq:** Prompt 27 Completed.
+
+## Hard constraint
+Deterministic only — no runtime AI/LLM.
+NEVER modify engine2/.
+
+## Goal
+1. Pass confirmed wizard plan (strategy, wincon, sub-tags, type picks, thresholds) into engine2.1wizard scoring as hard/soft constraints.
+2. Treat planned Adds as in-deck and planned Cuts as absent for sandbox analyze (align with Classic planning-board semantics).
+3. Wizard pre-fill continues to use sandbox goals/types; user confirm remains required (D21).
+4. Optional: surface sandbox goal evidence in wizard (“why we suggested this strategy”) without auto-applying targets.
+5. Document how to refresh sandbox from partner engine2 if they ship fixes (re-copy or cherry-pick) — do not auto-overwrite without a human.
+
+## Anchors
+- js/deck-plan-wizard.js, js/deck-plan.js
+- engine2.1wizard/ (recommender, deck-goals, wizard-bridge)
+- server sandbox/hybrid analyze route from Prompt 27
+
+## Verification
+- Changing confirmed plan changes hybrid theme suggestions without breaking staple Classic half.
+- Planned cut removes a card from “have” in sandbox path.
+- Partner Semantic toggle still hits engine2/ analyze unchanged.
+Mark Prompt 28 Completed. Full merge track done — update suggested-adds-improvement-plan.md status note.
 ```
 
 ---

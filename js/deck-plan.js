@@ -144,6 +144,12 @@
       tertiaryStrategyId: null,
       hybridRoleModifiers: null,
       cutsShielding: null,
+      // Prompt 25 — Plan envelope
+      planConfirmed: false,
+      /** @type {Record<string, {enabled:boolean,target:number}>} subTagId → state */
+      planSubTags: {},
+      /** @type {string[]} creature type ids chosen in Tribal type step */
+      typePicks: [],
     };
   }
 
@@ -154,6 +160,11 @@
     out.tertiaryStrategyId = out.tertiaryStrategyId ?? null;
     out.hybridRoleModifiers = out.hybridRoleModifiers ?? null;
     out.cutsShielding = out.cutsShielding ?? null;
+    out.planConfirmed = !!out.planConfirmed;
+    out.planSubTags = (out.planSubTags && typeof out.planSubTags === 'object') ? out.planSubTags : {};
+    out.typePicks = Array.isArray(out.typePicks)
+      ? out.typePicks.map(t => String(t || '').toLowerCase()).filter(Boolean)
+      : [];
     return out;
   }
 
@@ -164,6 +175,135 @@
   function isPlanDeclared(plan) {
     const p = normalizeDeckPlan(plan);
     return !!(p.winConditionId && p.primaryStrategyId);
+  }
+
+  /** Targets from confirmed plan only (D21). Declared-but-unconfirmed does not apply sub-tag targets. */
+  function isPlanConfirmed(plan) {
+    const p = normalizeDeckPlan(plan);
+    return isPlanDeclared(p) && !!p.planConfirmed;
+  }
+
+  /**
+   * §15 theme default Plan sub-tags (strategy → rows).
+   * Labels map to project role tags where possible; custom ids count via planSubTagHave later.
+   */
+  const PLAN_THEME_SUBTAG_DEFAULTS = Object.freeze({
+    'strategy.tokens': Object.freeze([
+      { id: 'tokens.makers', label: 'Type makers', target: 10, projectTags: ['Token Maker'] },
+      { id: 'tokens.anthem', label: 'Anthem', target: 4, projectTags: ['Anthem'] },
+      { id: 'tokens.payoffs', label: 'Type payoffs', target: 6, projectTags: ['Token Maker', 'Anthem'] },
+    ]),
+    'strategy.sacrifice': Object.freeze([
+      { id: 'sac.outlets', label: 'Outlets', target: 10, projectTags: ['Sac Outlet'] },
+      { id: 'sac.triggers', label: 'Triggers', target: 8, projectTags: ['Death Trigger', 'Sac Synergy'] },
+      { id: 'sac.drain', label: 'Drain', target: 4, projectTags: ['Drain'] },
+    ]),
+    'strategy.counters': Object.freeze([
+      { id: 'counters.makers', label: 'Counter makers', target: 10, projectTags: ['Pump'] },
+      { id: 'counters.payoffs', label: 'Payoffs', target: 8, projectTags: ['Pump', 'Anthem'] },
+      { id: 'counters.proliferate', label: 'Proliferate', target: 3, projectTags: ['Pump'] },
+    ]),
+    'strategy.tribal': Object.freeze([
+      { id: 'tribal.payoffs', label: 'Typal payoffs', target: 8, projectTags: ['Anthem', 'Token Maker'] },
+      { id: 'tribal.lords', label: 'Lords/anthems', target: 5, projectTags: ['Anthem'] },
+      { id: 'tribal.finishers', label: 'Type finishers', target: 3, projectTags: ['Evasion'] },
+    ]),
+    'strategy.enchantress': Object.freeze([
+      { id: 'ench.type', label: 'Type enchantments/auras', target: 14, projectTags: [] },
+      { id: 'ench.draw', label: 'Enchantress draw', target: 4, projectTags: ['Card Draw'] },
+      { id: 'ench.prot', label: 'Protection', target: 3, projectTags: ['Protection'] },
+    ]),
+    'strategy.spellslinger': Object.freeze([
+      { id: 'ss.payoffs', label: 'Spell payoffs', target: 8, projectTags: [] },
+      { id: 'ss.copy', label: 'Copy', target: 3, projectTags: ['Copy'] },
+      { id: 'ss.finish', label: 'Burn/finish', target: 4, projectTags: ['Burn'] },
+    ]),
+    'strategy.voltron': Object.freeze([
+      { id: 'vol.equip', label: 'Type equip/auras', target: 8, projectTags: [] },
+      { id: 'vol.pump', label: 'Pump', target: 4, projectTags: ['Pump'] },
+      { id: 'vol.evasion', label: 'Evasion', target: 3, projectTags: ['Evasion'] },
+      { id: 'vol.prot', label: 'Protection', target: 3, projectTags: ['Protection'] },
+    ]),
+    'strategy.reanimator': Object.freeze([
+      { id: 'rean.reanimate', label: 'Reanimate', target: 6, projectTags: ['Reanimate'] },
+      { id: 'rean.recursion', label: 'Recursion', target: 4, projectTags: ['Recursion'] },
+      { id: 'rean.mill', label: 'Self-mill', target: 5, projectTags: ['Self-Mill'] },
+      { id: 'rean.yard', label: 'Yard cast', target: 3, projectTags: ['Graveyard Cast'] },
+    ]),
+    'strategy.stax': Object.freeze([
+      { id: 'stax.tax', label: 'Tax', target: 10, projectTags: ['Stax'] },
+      { id: 'stax.hate', label: 'Hatebears', target: 4, projectTags: ['Hatebear'] },
+      { id: 'stax.deny', label: 'Resource denial', target: 4, projectTags: ['Stax'] },
+    ]),
+    'strategy.superfriends': Object.freeze([
+      { id: 'sf.payoffs', label: 'Walker payoffs', target: 6, projectTags: [] },
+      { id: 'sf.prot', label: 'Protection', target: 4, projectTags: ['Protection'] },
+      { id: 'sf.prolif', label: 'Proliferate/loyalty', target: 3, projectTags: ['Pump'] },
+    ]),
+  });
+
+  const PLAN_PARENT_DEFAULT_TARGET = 30;
+
+  /** Default sub-tag rows for a strategy (half weight when secondary). */
+  function planThemeSubtagDefaults(strategyId, { secondary } = {}) {
+    const rows = PLAN_THEME_SUBTAG_DEFAULTS[strategyId] || [];
+    const scale = secondary ? 0.5 : 1;
+    return rows.map(r => ({
+      id: r.id,
+      label: r.label,
+      target: Math.max(1, Math.round(r.target * scale)),
+      projectTags: [...(r.projectTags || [])],
+    }));
+  }
+
+  /**
+   * Merge primary (+ secondary half) defaults; G8-style: one row per id.
+   * Caps so sum of targets ≤ planParentTarget.
+   */
+  function mergedPlanSubtagDefaults(plan, planParentTarget) {
+    const p = normalizeDeckPlan(plan);
+    const cap = Math.max(1, Number(planParentTarget) || PLAN_PARENT_DEFAULT_TARGET);
+    const byId = new Map();
+    for (const row of planThemeSubtagDefaults(p.primaryStrategyId)) {
+      byId.set(row.id, { ...row });
+    }
+    for (const row of planThemeSubtagDefaults(p.secondaryStrategyId, { secondary: true })) {
+      const prev = byId.get(row.id);
+      if (!prev) byId.set(row.id, { ...row });
+      else {
+        byId.set(row.id, {
+          ...prev,
+          target: prev.target + row.target,
+          projectTags: [...new Set([...(prev.projectTags || []), ...(row.projectTags || [])])],
+        });
+      }
+    }
+    let rows = [...byId.values()];
+    let sum = rows.reduce((s, r) => s + r.target, 0);
+    if (sum > cap && sum > 0) {
+      const scale = cap / sum;
+      rows = rows.map(r => ({ ...r, target: Math.max(1, Math.round(r.target * scale)) }));
+      sum = rows.reduce((s, r) => s + r.target, 0);
+      while (sum > cap && rows.length) {
+        rows.sort((a, b) => b.target - a.target);
+        if (rows[0].target <= 1) break;
+        rows[0] = { ...rows[0], target: rows[0].target - 1 };
+        sum--;
+      }
+    }
+    return rows;
+  }
+
+  /** Active sub-tags after user checkbox state (defaults enabled when missing). */
+  function activePlanSubTags(plan, planParentTarget) {
+    const p = normalizeDeckPlan(plan);
+    const defaults = mergedPlanSubtagDefaults(p, planParentTarget);
+    return defaults.map(d => {
+      const st = p.planSubTags[d.id];
+      const enabled = st && typeof st.enabled === 'boolean' ? st.enabled : true;
+      const target = st && Number.isFinite(Number(st.target)) ? Math.max(0, Number(st.target)) : d.target;
+      return { ...d, enabled, target };
+    }).filter(r => r.enabled && r.target > 0);
   }
 
   /** Mainboard qty sum (lands + commander); excludes sideboard/maybeboard/planned adds. */
@@ -527,6 +667,12 @@
     normalizeDeckPlan,
     getDeckPlan,
     isPlanDeclared,
+    isPlanConfirmed,
+    PLAN_THEME_SUBTAG_DEFAULTS,
+    PLAN_PARENT_DEFAULT_TARGET,
+    planThemeSubtagDefaults,
+    mergedPlanSubtagDefaults,
+    activePlanSubTags,
     deckPlanCardCount,
     strategyLabel,
     winconLabel,
