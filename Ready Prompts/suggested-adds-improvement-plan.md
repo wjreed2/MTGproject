@@ -627,10 +627,11 @@ T1-D + T2-A (inference top 4, strict type filter) apply when primary **or** seco
 
 ---
 
-## 15. Theme default Plan sub-tags (agent-proposed — veto in interview)
+## 15. Theme default Plan sub-tags — **Accepted** (2026-07-21)
 
 Plan parent default **30**. Sub-tag sums leave headroom for Expand/extra tags.
 Implementer maps labels → project role tags + Scryfall otags via archetype bridge.
+User may still tweak later; treat table as **locked defaults** until overridden.
 
 | Strategy | Sub-tags (default target) | Sum |
 |----------|---------------------------|----:|
