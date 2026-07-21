@@ -603,9 +603,24 @@ prioritize draw. When **all three** have `have >= target`, secondary roles unloc
 
 ---
 
-## 14. Type-picker strategies — **locked**
+## 14. Type-picker strategies — **locked** (UI shell); **inference → semantics engine**
 
-T1-D + T2-A (inference top 4, strict type filter) apply when primary **or** secondary:
+T1-D + T2-A describe the **wizard UX** (top 4 + autocomplete + strict filter when a type is chosen).
+**Choosing / ranking those types is not Phase A tag heuristics** — deferred to partner
+**semantics engine** (`engine2/`: deck IR, goals, recommender). Same for Enchantress
+aura vs non-aura, Counters kind, Sacrifice fodder, Tribal creature type, etc.
+
+| Layer | Owner |
+|-------|--------|
+| Type picker **UI** (show top 4, autocomplete, confirm) | Adds / wizard (this plan) |
+| **Which** types to suggest / pre-highlight | Semantics engine |
+| Strict filter **once type confirmed** | Adds scoring (this plan) |
+| Tribal “what counts as typal payoff” (Tr1) | Semantics engine |
+
+Until semantics is wired: wizard can show empty top 4 + autocomplete only, or a **provisional**
+static fallback quartet (Tokens / Counters already listed below) marked temporary.
+
+T1-D + T2-A apply when primary **or** secondary for:
 
 | # | Strategy | Type dimension |
 |---|----------|----------------|
