@@ -647,6 +647,13 @@ User may still tweak later; treat table as **locked defaults** until overridden.
 | **Mill** | Mill **12**, Support **4** | 16 |
 | **Superfriends** | Walker payoffs **6**, Protection **4**, Proliferate/loyalty **3** | 13 |
 
+**Tribal counting (Tr1) — deferred / partner note:** What counts as “typal payoffs”
+(on-type creatures without utility tags vs role-tagged lords only) is **hard under
+deterministic role tags alone**. Prefer resolving after partner **semantics engine**
+(`engine2/`, deck IR / recommender) can identify typal density and payoffs from
+card semantics — not forced in Phase A1.5 tag-only counting. Until then, implementer
+may use a temporary rule (e.g. typal Scryfall otags + lords) and document it as provisional.
+
 **Remaining themes** (Control, Artifacts, Landfall, Blink, Theft, Goodstuff, …): defaults TBD in theme interviews; same checkbox + Expand UX.
 
 **Interview process:** Agent proposes defaults from archetype DB + EDH heuristics; user vetoes or tweaks.
