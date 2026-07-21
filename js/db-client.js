@@ -145,13 +145,15 @@ async function authLogout() {
 }
 
 /**
- * Load account data. Collection is fetched first and is required; secondary
- * endpoints use allSettled so a slow/failing shared/history call cannot make a
+ * Load account data. All endpoints fetch concurrently (collection used to go
+ * first on its own, adding a full round-trip to every boot). Collection is
+ * still required — its failure fails the whole load — while secondary
+ * endpoints fall back so a slow/failing shared/history call cannot make a
  * cold Home Screen PWA look like "could not connect" with an empty collection.
  */
 async function loadAllData() {
-  const collection = await apiFetch('/collection');
   const settled = await Promise.allSettled([
+    apiFetch('/collection'),
     apiFetch('/decks'),
     apiFetch('/games'),
     apiFetch('/wishlist'),
@@ -161,6 +163,7 @@ async function loadAllData() {
     apiFetch('/collection/shared'),
     apiFetch('/wishlist/shared'),
   ]);
+  if (settled[0].status === 'rejected') throw settled[0].reason;
   const take = (i, fallback, label) => {
     const r = settled[i];
     if (r.status === 'fulfilled') return r.value;
@@ -168,15 +171,15 @@ async function loadAllData() {
     return fallback;
   };
   return {
-    collection,
-    decks: take(0, [], 'decks'),
-    games: take(1, [], 'games'),
-    wishlist: take(2, [], 'wishlist'),
-    prefs: take(3, {}, 'preferences'),
-    sharedDecks: take(4, [], 'decks/shared'),
-    history: take(5, [], 'history'),
-    sharedCollections: take(6, [], 'collection/shared'),
-    sharedWishlists: take(7, [], 'wishlist/shared'),
+    collection: settled[0].value,
+    decks: take(1, [], 'decks'),
+    games: take(2, [], 'games'),
+    wishlist: take(3, [], 'wishlist'),
+    prefs: take(4, {}, 'preferences'),
+    sharedDecks: take(5, [], 'decks/shared'),
+    history: take(6, [], 'history'),
+    sharedCollections: take(7, [], 'collection/shared'),
+    sharedWishlists: take(8, [], 'wishlist/shared'),
   };
 }
 

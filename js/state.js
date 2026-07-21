@@ -17,6 +17,8 @@ let pendingCard   = null;
 let deckOwnershipEnabled = localStorage.getItem('mtg_deck_ownership') !== '0';
 /** User-wide Adds & Cuts planning toggle — on for all decks or none; per-deck adds/cuts data persists either way. */
 let deckSwapsFeatureEnabled = localStorage.getItem('mtg_deck_swaps') !== '0';
+/** User-wide Deck Goal / semantic-suggestions toggle (engine2) — hides the readout and falls back to classic heuristics when off. */
+let deckGoalFeatureEnabled = localStorage.getItem('mtg_deck_goal') !== '0';
 
 // Shared SVG icon strings used across voice.js and collection.js
 var SVG_PIN         = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px;flex-shrink:0"><path d="M5.5 1.5h5v1.5L9 5.5v3.5l2.5 1v1h-7v-1l2.5-1V5.5L5.5 3z"/><line x1="8" y1="11" x2="8" y2="15"/></svg>`;
@@ -222,28 +224,110 @@ function applyHydrateSaveFlags(flags, fromServer) {
   else if (flags.saveCollection) save('collection');
 }
 
-function renderHydratedAppShell() {
-  if (typeof renderCollection === 'function') renderCollection();
-  if (typeof updateStats === 'function') updateStats();
-  if (typeof loadSets === 'function') loadSets();
-  if (typeof renderGames === 'function') renderGames();
-  if (typeof renderDecks === 'function') renderDecks();
-  if (typeof renderWishlist === 'function') renderWishlist();
-  if (typeof refreshMissingCollectionPrices === 'function') refreshMissingCollectionPrices();
+const _APP_SHELL_TABS = new Set(['collection', 'sets', 'decks', 'browse', 'wishlist', 'games']);
+
+function _activeAppTabId() {
+  const id = document.querySelector('.tab-content.active')?.id || '';
+  const t = id.startsWith('tab-') ? id.slice(4) : '';
+  return _APP_SHELL_TABS.has(t) ? t : '';
 }
 
 /**
- * Pull authoritative data after a cold PWA / timed-out login. Safe to call
+ * Render the VISIBLE tab from the hydrated globals, plus the always-visible
+ * topbar stats. Hidden tabs render on entry via showTab — the boot path used
+ * to render every tab up front, which took seconds on large collections.
+ * Trade/stats/settings are intentionally left alone (parity with the old
+ * shell render, which never touched them).
+ */
+function renderHydratedAppShell() {
+  const t = _activeAppTabId();
+  if (t === 'collection' && typeof renderCollection === 'function') renderCollection();
+  else if (t === 'sets' && typeof loadSets === 'function') loadSets();
+  else if (t === 'decks' && typeof renderDecks === 'function') renderDecks();
+  else if (t === 'browse' && typeof renderBrowseDecks === 'function') renderBrowseDecks();
+  else if (t === 'wishlist' && typeof renderWishlist === 'function') renderWishlist();
+  else if (t === 'games' && typeof _renderGamesTab === 'function') _renderGamesTab();
+  if (typeof updateStats === 'function') updateStats();
+  _scheduleMissingPriceRefresh();
+}
+
+/** First paint after hydrate: restore the saved tab, then render its content. */
+function _paintHydratedApp() {
+  const saved = localStorage.getItem('mtg_active_tab');
+  // 'stats' (Analytics) nav removed for now, and 'settings' is a transient mobile
+  // page — neither auto-restores; fall back to the default tab instead.
+  if (saved && _APP_SHELL_TABS.has(saved) && typeof showTab === 'function') {
+    try { showTab(saved, { skipRender: true }); } catch (_) {}
+  }
+  renderHydratedAppShell();
+}
+
+let _priceRefreshKicked = false;
+/**
+ * Kick refreshMissingCollectionPrices once per session, after the server
+ * snapshot is in (pre-sync price writes would be dropped by the unsynced-save
+ * guard anyway) and clear of the boot network burst.
+ */
+function _scheduleMissingPriceRefresh() {
+  if (_priceRefreshKicked) return;
+  _priceRefreshKicked = true;
+  let tries = 0;
+  const tick = () => {
+    if (typeof isAppDataSynced === 'function' && !isAppDataSynced()) {
+      if (++tries < 60) setTimeout(tick, 3000); // keeps waiting out an offline start
+      return;
+    }
+    if (typeof refreshMissingCollectionPrices === 'function') void refreshMissingCollectionPrices();
+  };
+  setTimeout(tick, 3500);
+}
+
+/**
+ * Post-paint housekeeping: refresh the session profile (role/ack timestamps),
+ * then the What's-new badge and the first-run mobile welcome. Runs from every
+ * auth entry point — page-load session restore AND fresh gate logins (which
+ * don't reload the page) — and never blocks the first paint.
+ */
+function _postPaintSessionRefresh() {
+  void (async () => {
+    const hadUserId = currentUser?.id != null;
+    try {
+      const me = await authMe();
+      if (me) currentUser = me;
+    } catch (_) {}
+    // Gate logins paint before the profile arrives (the login response has no
+    // id): re-render anything user-dependent and stamp the offline snapshot
+    // with the real account id so the next boot's ownership check can use it.
+    if (!hadUserId && currentUser?.id != null) {
+      if (typeof cacheSet === 'function') cacheSet('accountId', currentUser.id).catch(() => {});
+      renderHydratedAppShell();
+    }
+    void maybeShowWhatsNewDigest();
+    // The device + server-flag checks inside maybeShowWelcome decide whether
+    // it actually appears.
+    if (typeof maybeShowWelcome === 'function') setTimeout(maybeShowWelcome, 500);
+  })();
+}
+
+/**
+ * Pull authoritative data after a cold PWA / timed-out login, or apply the
+ * background revalidation behind a cache-first boot paint. Safe to call
  * repeatedly — coalesces concurrent calls.
+ * @param opts.loadPromise — reuse an already in-flight loadAllData() instead
+ *   of fetching again (the boot path starts the load before painting).
+ * @param opts.quiet — skip the "Collection synced." toast (every ordinary
+ *   refresh revalidates now; the toast would be noise).
  */
 async function resyncAppDataFromServer(opts) {
   if (typeof isAppDataSynced === 'function' && isAppDataSynced()) return true;
   if (_appDataResyncInFlight) return _appDataResyncInFlight;
   const reason = (opts && opts.reason) || 'manual';
+  const quiet = !!(opts && opts.quiet);
+  const pendingLoad = (opts && opts.loadPromise) || null;
   _appDataResyncInFlight = (async () => {
     try {
       console.info('[db] Resyncing app data from server (' + reason + ')…');
-      const data = await loadAllData();
+      const data = await (pendingLoad || loadAllData());
       await cacheSaveAll(data, currentUser?.id);
       const flags = hydrateAppData(data);
       if (typeof markAppDataSynced === 'function') markAppDataSynced(true);
@@ -267,7 +351,7 @@ async function resyncAppDataFromServer(opts) {
         } catch (_) {}
       }
       renderHydratedAppShell();
-      if (typeof showNotif === 'function' && (collection?.length || decks?.length)) {
+      if (typeof showNotif === 'function' && !quiet && (collection?.length || decks?.length)) {
         showNotif('Collection synced.');
       }
       return true;
@@ -326,20 +410,52 @@ async function _awaitLoadWithBudget(loadPromise, budgetMs) {
   return raced;
 }
 
-/** Load collection / decks / etc. after a valid session exists. */
+/**
+ * Load collection / decks / etc. after a valid session exists.
+ *
+ * Resolves at the FIRST PAINT, not at full sync: when this account has an
+ * IndexedDB snapshot the app renders from it immediately and the server load
+ * is applied in the background (resyncAppDataFromServer — pre-sync saves stay
+ * blocked by the unsynced-domain guard, so a stale snapshot can never be PUT
+ * back). Without a snapshot — first login on a device — it waits for the
+ * server exactly like before.
+ */
 async function loadAppDataAfterAuth() {
-  const body = document.body;
-  body.style.opacity = '0.5';
-  body.style.pointerEvents = 'none';
-
   if (typeof markAppDataSynced === 'function') markAppDataSynced(false);
+  bootSplashShow('Loading your collection…');
+
+  // Single in-flight server load on every path — started before the cache
+  // probe so background revalidation costs no extra request, and kept so a
+  // race timeout never abandons work (cold WebKit + large collections often
+  // exceed short budgets).
+  const loadPromise = loadAllData();
+  loadPromise.catch(() => {}); // every path below consumes it; silence early rejection
+
+  // Instant paint from the offline snapshot (stale-while-revalidate). Needs a
+  // known account id: cacheLoadAll's ownership check keys on it, and it is
+  // only missing for fresh gate logins — where the snapshot may belong to a
+  // previously signed-in account and must not be shown.
+  if (currentUser?.id != null) {
+    let cached = null;
+    try { cached = await cacheLoadAll(currentUser.id); } catch (_) { cached = null; }
+    if (cached) {
+      // Cleanup flags are dropped on purpose — saves are blocked until synced.
+      hydrateAppData(cached);
+      _paintHydratedApp();
+      bootSplashDone();
+      _postPaintSessionRefresh();
+      resyncAppDataFromServer({ reason: 'boot-revalidate', quiet: true, loadPromise })
+        .then(ok => {
+          if (!ok && typeof _setOffline === 'function') _setOffline();
+        })
+        .catch(() => {});
+      return;
+    }
+  }
 
   let fromCache = false;
   let fromServer = false;
   let data;
-  // Keep a single in-flight load so a race timeout does not abandon work —
-  // cold WebKit + large collections often exceed the old 8s budget on PWA reinstall.
-  const loadPromise = loadAllData();
   try {
     const first = await _awaitLoadWithBudget(loadPromise, 20000);
     if (first.ok) {
@@ -371,7 +487,7 @@ async function loadAppDataAfterAuth() {
       }).catch(() => {});
     } else {
       // Fresh Home Screen PWA: empty IndexedDB. Wait longer instead of showing 0 cards.
-      if (typeof showNotif === 'function') showNotif('Syncing your collection…');
+      bootSplashStatus('Still syncing — large collections can take a moment…');
       const second = await _awaitLoadWithBudget(loadPromise, 45000);
       if (second.ok) {
         data = second.data;
@@ -400,8 +516,9 @@ async function loadAppDataAfterAuth() {
   applyHydrateSaveFlags(hydrateFlags, fromServer);
 
   if (typeof refreshAllSharedDecksFromServer === 'function' && sharedDecks.length) {
-    // Safari vs Home Screen PWA keep separate IndexedDB — always revalidate shared decks.
-    await refreshAllSharedDecksFromServer({ silent: true }).catch(() => {});
+    // Safari vs Home Screen PWA keep separate IndexedDB — always revalidate
+    // shared decks. Fire-and-forget: it re-renders the open deck views itself.
+    refreshAllSharedDecksFromServer({ silent: true }).catch(() => {});
   }
 
   if (typeof loadTagOverrides === 'function') {
@@ -417,23 +534,9 @@ async function loadAppDataAfterAuth() {
     } catch (_) {}
   }
 
-  body.style.opacity = '';
-  body.style.pointerEvents = '';
-
-  try {
-    const me = await authMe();
-    if (me) currentUser = me;
-  } catch (_) {}
-
-  renderHydratedAppShell();
-
-  void maybeShowWhatsNewDigest();
-
-  // First-time mobile welcome. Runs from every auth entry point — page-load
-  // session restore AND fresh login/register via the gate (which don't reload
-  // the page) — because currentUser is set here. The device + server-flag
-  // checks inside maybeShowWelcome decide whether it actually appears.
-  if (typeof maybeShowWelcome === 'function') setTimeout(maybeShowWelcome, 500);
+  _paintHydratedApp();
+  bootSplashDone();
+  _postPaintSessionRefresh();
 }
 
 async function maybeShowWhatsNewDigest() {
@@ -528,16 +631,38 @@ async function refreshMissingCollectionPrices() {
   showNotif(`Updated prices for ${updated} card${updated === 1 ? '' : 's'}.`);
 }
 
+/**
+ * Register the card-image cache worker (sw.js) — cache-first for Scryfall art
+ * so grids paint from disk on every visit. Skipped outside secure contexts
+ * (plain-http LAN hosts) and on capacitor:// native wrappers.
+ */
+function _registerImageCacheWorker() {
+  try {
+    if (!('serviceWorker' in navigator)) return;
+    const proto = String(location.protocol || '');
+    if (proto !== 'https:' && proto !== 'http:') return;
+    if (proto === 'http:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') return;
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  } catch (_) {}
+}
+
 async function initApp() {
+  _registerImageCacheWorker();
+
   // Public deck share link (/d/<token>) — read-only view, works without an account.
   // Handle before the auth gate so logged-out visitors can see the shared deck.
   const _shareToken = typeof _publicDeckTokenFromPath === 'function' ? _publicDeckTokenFromPath() : null;
   if (_shareToken) {
-    document.body.style.opacity = '1';
-    if (typeof renderPublicDeckView === 'function') await renderPublicDeckView(_shareToken);
+    bootSplashStatus('Loading shared deck…');
+    try {
+      if (typeof renderPublicDeckView === 'function') await renderPublicDeckView(_shareToken);
+    } finally {
+      bootSplashDone();
+    }
     return;
   }
 
+  bootSplashStatus('Checking session…');
   let me = null;
   try {
     me = await authMe();
@@ -547,8 +672,8 @@ async function initApp() {
 
   if (!me) {
     document.body.classList.add('auth-pending');
-    document.body.style.opacity = '1';
     if (typeof showAuthGate === 'function') showAuthGate();
+    bootSplashDone();
     return;
   }
 
@@ -557,10 +682,6 @@ async function initApp() {
   currentUser = me;
   if (typeof refreshAuthUserLabel === 'function') refreshAuthUserLabel(me.email, me.role);
 
+  // Resolves at the first paint; restores the saved tab itself (_paintHydratedApp).
   await loadAppDataAfterAuth();
-  const savedTab = localStorage.getItem('mtg_active_tab');
-  // 'stats' (Analytics) nav removed for now, and 'settings' is a transient mobile
-  // page — neither auto-restores; fall back to the default tab instead.
-  const validTabs = new Set(['collection', 'sets', 'decks', 'browse', 'wishlist', 'games']);
-  if (savedTab && validTabs.has(savedTab) && typeof showTab === 'function') showTab(savedTab);
 }

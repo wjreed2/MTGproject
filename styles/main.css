@@ -3474,6 +3474,17 @@ img.stack-main.loaded { opacity: 1; }
   border-color: rgba(200, 168, 74, 0.55);
   background: var(--gold-dim);
 }
+/* The Plan button shares the gear button's frame but holds text, not a 1.55rem glyph */
+#tab-decks .deck-cut-threshold-btn.deck-plan-btn {
+  font-size: 0.74rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+/* Classic ↔ Semantic engine toggle in the Suggested Adds/Cuts headers */
+#tab-decks .deck-algo-toggle {
+  margin-right: 6px;
+  flex-shrink: 0;
+}
 
 /* Collection controls sizing parity */
 #tab-collection .view-controls .search-box,

@@ -1,0 +1,78 @@
+{
+  "row": {
+    "oracle_id": "00000000-0000-4000-8000-000000000012",
+    "name": "Cryptic Command",
+    "type_line": "Instant",
+    "oracle_text": "Choose two —\n• Counter target spell.\n• Return target permanent to its owner's hand.\n• Tap all creatures your opponents control.\n• Draw a card.",
+    "mana_cost": "{1}{U}{U}{U}",
+    "cmc": 4,
+    "colors_json": ["U"],
+    "color_identity_json": ["U"],
+    "power": null,
+    "toughness": null,
+    "loyalty": null,
+    "keywords_json": [],
+    "layout": "normal",
+    "produced_mana_json": [],
+    "faces_json": null
+  },
+  "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "00000000-0000-4000-8000-000000000012",
+    "name": "Cryptic Command",
+    "layout": "normal",
+    "faces": [
+      {
+        "face_name": "Cryptic Command",
+        "types": { "super": [], "card": ["Instant"], "sub": [] },
+        "mana_cost": "{1}{U}{U}{U}",
+        "mana_value": 4,
+        "colors": ["U"],
+        "pt": null,
+        "loyalty": null,
+        "defense": null,
+        "costs": { "additional": [], "alternative": [] },
+        "keywords": [],
+        "abilities": [
+          {
+            "kind": "static",
+            "layer": null,
+            "effects": [
+              {
+                "op": "modal",
+                "modes": {
+                  "choose": 2,
+                  "options": [
+                    [ { "op": "counter_spell", "target": { "who": "any", "object": { "types": ["spell"] }, "n_targets": 1 } } ],
+                    [ { "op": "bounce", "target": { "who": "any", "object": { "types": ["permanent"] }, "n_targets": 1 }, "zone_to": "hand" } ],
+                    [ { "op": "tap", "target": { "who": "any", "object": { "types": ["creature"], "controller": "opp", "all": true } } } ],
+                    [ { "op": "draw", "n": { "kind": "fixed", "value": 1 }, "target": { "who": "you" } } ]
+                  ]
+                }
+              }
+            ],
+            "text": "Choose two —\n• Counter target spell.\n• Return target permanent to its owner's hand.\n• Tap all creatures your opponents control.\n• Draw a card."
+          }
+        ],
+        "restrictions": [],
+        "cdf": null
+      }
+    ],
+    "provides": [
+      { "axis": "control.counter", "param": null, "rate": "once", "weight": 3 },
+      { "axis": "removal.spot", "param": "bounce", "rate": "once", "weight": 2 },
+      { "axis": "card_advantage.draw", "param": null, "rate": "once", "weight": 1 },
+      { "axis": "combat.fog_like", "param": null, "rate": "once", "weight": 1 }
+    ],
+    "needs": [
+      { "axis": "cast.instant_sorcery_volume", "param": null, "criticality": "helps", "weight": 1 }
+    ],
+    "roles": ["counterspell", "spot_removal"],
+    "anti": [],
+    "wincon": null,
+    "tribal": { "types": [], "lord_of": [] },
+    "power_level_hint": 4,
+    "confidence": 0.96
+  }
+}

@@ -14,6 +14,7 @@ const rateLimit   = require('express-rate-limit');
 const helmet      = require('helmet');
 const nodemailer  = require('nodemailer');
 const cron        = require('node-cron');
+const engine2     = require('./engine2'); // semantics/interaction engine (docs/engine2-plan.md)
 const { Server: SocketIOServer } = require('socket.io');
 const MySQLStore  = require('express-mysql-session')(session);
 // Shared trade value/condition math — same module the browser bundles, so the
@@ -108,6 +109,12 @@ const sessionMiddleware = session({
     checkExpirationInterval: 15 * 60 * 1000,
     expiration:         7 * 24 * 60 * 60 * 1000,
     createDatabaseTable: true,
+    // Recycle idle session-store connections before Railway/MySQL reaps them, so the
+    // 15-min clearExpired sweep and per-request session reads never fire on a dead
+    // socket. (idleTimeout + maxIdle are the resilience keys express-mysql-session
+    // forwards to mysql2; enableKeepAlive defaults to true in mysql2 3.x.)
+    idleTimeout:        parseInt(process.env.DB_IDLE_TIMEOUT_MS || '60000', 10),
+    maxIdle:            2,
   }),
   cookie: {
     maxAge: 7 * 24 * 60 * 60 * 1000,
@@ -131,14 +138,61 @@ const DB_CONFIG = {
   timezone:         'Z',
   /** Fail fast instead of hanging startup when MySQL is down (Capacitor would sit on “Loading app…”). */
   connectTimeout:   parseInt(process.env.DB_CONNECT_TIMEOUT_MS || '12000', 10),
+  // ── Resilience on Railway ──────────────────────────────────────────────────
+  // MySQL (and the network in front of it) silently drops idle connections. Recycle
+  // our own idle sockets *before* the server reaps them and keep TCP alive, so we
+  // never hand a dead connection to a query (the "Can't add new command when
+  // connection is in closed state" error). idleTimeout must stay well under MySQL's
+  // wait_timeout.
+  enableKeepAlive:       true,
+  keepAliveInitialDelay: 10000,
+  idleTimeout:           parseInt(process.env.DB_IDLE_TIMEOUT_MS || '60000', 10),
+  maxIdle:               5,
 };
 // ─────────────────────────────────────────────────────────────────────────────
 
 let pool;
 function db() {
-  if (!pool) pool = mysql.createPool(DB_CONFIG);
+  if (!pool) {
+    pool = mysql.createPool(DB_CONFIG);
+    // Without this listener, a fatal error on an *idle* pooled connection surfaces as
+    // an unhandled 'error' event and crashes the whole process. mysql2 has already
+    // evicted the dead connection by the time this fires, so the next query opens a
+    // fresh one — we only need to log and stay alive.
+    pool.on('error', (err) => {
+      console.error('[db] pool connection error (recovered):', err?.code || err?.message || err);
+    });
+  }
   return pool;
 }
+
+// Last-resort net so a transient DB/socket blip can never take the process down.
+// (Before this the app had no handlers at all — any stray connection error was fatal,
+// and Railway would 404/502 every request during the restart window.) We only swallow
+// *transient connection* errors; genuine bugs still crash, so the failure stays visible
+// and Railway restarts cleanly instead of the app limping on in an unknown state.
+const _TRANSIENT_CONN_ERR = /closed state|PROTOCOL_CONNECTION_LOST|ECONNRESET|EPIPE|ETIMEDOUT|Pool is closed/i;
+function _isTransientConnError(err) {
+  const code = err && err.code;
+  return _TRANSIENT_CONN_ERR.test((err && err.message) || '') ||
+    ['PROTOCOL_CONNECTION_LOST', 'ECONNRESET', 'EPIPE', 'ETIMEDOUT'].includes(code);
+}
+process.on('unhandledRejection', (reason) => {
+  if (_isTransientConnError(reason)) {
+    console.error('[unhandledRejection] recovered from transient DB/connection error:', (reason && reason.message) || reason);
+    return; // keep serving; pooled connections re-establish on the next query
+  }
+  console.error('[unhandledRejection] fatal:', reason);
+  process.exit(1); // preserve Node's crash-on-genuine-bug behavior (Railway will restart)
+});
+process.on('uncaughtException', (err) => {
+  if (_isTransientConnError(err)) {
+    console.error('[uncaughtException] recovered from transient DB/connection error:', (err && err.message) || err);
+    return; // keep serving; pooled connections re-establish on the next query
+  }
+  console.error('[uncaughtException] fatal:', err);
+  process.exit(1);
+});
 
 const ORACLE_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -530,6 +584,26 @@ async function tryInsertAppChangelog(body) {
     throw e;
   }
   return { ok: true, publishedAt: at };
+}
+
+// Semantics ingest (engine2): same bearer-secret pattern as changelog ingest.
+// All semantic extraction happens dev-side; prod only ever RECEIVES finished
+// CardIR rows through this endpoint (scripts/semantics-push-prod.js).
+function requireSemanticsIngestSecret(req, res, next) {
+  const secret = String(process.env.SEMANTICS_INGEST_SECRET || '').trim();
+  if (!secret) {
+    return res.status(503).json({
+      error: 'SEMANTICS_INGEST_SECRET is not set — semantics ingest is disabled',
+    });
+  }
+  const auth = String(req.headers.authorization || '');
+  const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
+  const tokenBuf = Buffer.from(token);
+  const secretBuf = Buffer.from(secret);
+  if (tokenBuf.length !== secretBuf.length || !crypto.timingSafeEqual(tokenBuf, secretBuf)) {
+    return res.status(401).json({ error: 'Invalid or missing Authorization: Bearer <SEMANTICS_INGEST_SECRET>' });
+  }
+  next();
 }
 
 function requireChangelogIngestSecret(req, res, next) {
@@ -3430,6 +3504,99 @@ app.get('/api/decks/shared', requireAuth, async (req, res) => {
   }
 });
 
+// ── Deck similarity (EDHREC + your archive) ──────────────────────────────────
+// These two literal routes MUST be registered before the `/api/decks/:id` param
+// route below. Express matches in registration order, so if `:id` came first it
+// would swallow "edhrec-similarity"/"archive-similarity" as a deck id and return
+// 404 "Deck not found" (that regression is exactly what this fix undoes).
+
+// Convert a commander name to the slug EDHREC uses in its URL
+function edhrecSlug(name) {
+  return name.toLowerCase()
+    .replace(/['']/g, '')          // curly apostrophes
+    .replace(/[^a-z0-9\s-]/g, '') // strip everything else except spaces/hyphens
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-');
+}
+
+app.get('/api/decks/edhrec-similarity', requireAuth, async (req, res) => {
+  const { commander } = req.query;
+  if (!commander) return res.status(400).json({ error: 'commander required' });
+  const slug = edhrecSlug(commander);
+  try {
+    const upstream = await fetch(`https://json.edhrec.com/pages/commanders/${slug}.json`, {
+      headers: { 'User-Agent': 'MTGArchive/1.0' },
+    });
+    if (!upstream.ok) return res.status(404).json({ error: `Commander not found on EDHREC (tried slug: ${slug})` });
+    const data = await upstream.json();
+
+    const cardMap = new Map(); // name → {num_decks, potential_decks}
+    const cardlists = data?.container?.json_dict?.cardlists ?? [];
+    for (const list of cardlists) {
+      if (list.tag === 'lands') continue; // skip basic/nonbasic land lists
+      for (const cv of (list.cardviews ?? [])) {
+        if (!cardMap.has(cv.name)) {
+          cardMap.set(cv.name, {
+            name: cv.name,
+            num_decks: cv.num_decks,
+            potential_decks: cv.potential_decks,
+            inclusion: Math.round((cv.num_decks / cv.potential_decks) * 100),
+          });
+        }
+      }
+    }
+
+    res.json({
+      slug,
+      num_decks: data.num_decks_avg ?? 0,
+      cards: Array.from(cardMap.values()).sort((a, b) => b.inclusion - a.inclusion),
+    });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to fetch EDHREC data: ' + e.message });
+  }
+});
+
+app.get('/api/decks/archive-similarity', requireAuth, async (req, res) => {
+  const { commander, deckId } = req.query;
+  if (!commander) return res.status(400).json({ error: 'commander required' });
+  const accountId = req.accountId;
+  try {
+    // Find all decks (own + public) with matching commander card, excluding the current deck
+    const [rows] = await db().query(`
+      SELECT d.account_id, d.id AS deck_id, d.name AS deck_name, a.email AS owner_email,
+             GROUP_CONCAT(
+               CASE WHEN dc.is_commander = 0 THEN dc.card_name END
+               ORDER BY dc.card_name SEPARATOR '|||'
+             ) AS card_names
+      FROM decks d
+      JOIN accounts a ON d.account_id = a.id
+      JOIN deck_cards dc ON d.account_id = dc.account_id AND d.id = dc.deck_id
+      WHERE (d.account_id = ? OR JSON_EXTRACT(d.data, '$.isPublic') = true)
+        AND NOT (d.account_id = ? AND d.id = ?)
+        AND EXISTS (
+          SELECT 1 FROM deck_cards dc2
+          WHERE dc2.account_id = d.account_id AND dc2.deck_id = d.id
+            AND dc2.card_name = ? AND dc2.is_commander = 1
+        )
+      GROUP BY d.account_id, d.id, d.name, a.email
+      LIMIT 30
+    `, [accountId, accountId, deckId ?? '', commander]);
+
+    res.json({
+      decks: rows.map(r => ({
+        deck_id: r.deck_id,
+        deck_name: r.deck_name,
+        owner_email: r.owner_email,
+        is_own: Number(r.account_id) === Number(accountId),
+        card_names: r.card_names ? r.card_names.split('|||') : [],
+      })),
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Owner or collaborator — lightweight refresh for realtime sync.
 app.get('/api/decks/:id', requireAuth, async (req, res) => {
   try {
@@ -4022,53 +4189,6 @@ app.delete('/api/collection/shares/:viewerId', requireAuth, async (req, res) => 
 
 // ── Deck Similarity ───────────────────────────────────────────────────────────
 
-// Convert a commander name to the slug EDHREC uses in its URL
-function edhrecSlug(name) {
-  return name.toLowerCase()
-    .replace(/['']/g, '')          // curly apostrophes
-    .replace(/[^a-z0-9\s-]/g, '') // strip everything else except spaces/hyphens
-    .trim()
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-');
-}
-
-app.get('/api/decks/edhrec-similarity', requireAuth, async (req, res) => {
-  const { commander } = req.query;
-  if (!commander) return res.status(400).json({ error: 'commander required' });
-  const slug = edhrecSlug(commander);
-  try {
-    const upstream = await fetch(`https://json.edhrec.com/pages/commanders/${slug}.json`, {
-      headers: { 'User-Agent': 'MTGArchive/1.0' },
-    });
-    if (!upstream.ok) return res.status(404).json({ error: `Commander not found on EDHREC (tried slug: ${slug})` });
-    const data = await upstream.json();
-
-    const cardMap = new Map(); // name → {num_decks, potential_decks}
-    const cardlists = data?.container?.json_dict?.cardlists ?? [];
-    for (const list of cardlists) {
-      if (list.tag === 'lands') continue; // skip basic/nonbasic land lists
-      for (const cv of (list.cardviews ?? [])) {
-        if (!cardMap.has(cv.name)) {
-          cardMap.set(cv.name, {
-            name: cv.name,
-            num_decks: cv.num_decks,
-            potential_decks: cv.potential_decks,
-            inclusion: Math.round((cv.num_decks / cv.potential_decks) * 100),
-          });
-        }
-      }
-    }
-
-    res.json({
-      slug,
-      num_decks: data.num_decks_avg ?? 0,
-      cards: Array.from(cardMap.values()).sort((a, b) => b.inclusion - a.inclusion),
-    });
-  } catch (e) {
-    res.status(500).json({ error: 'Failed to fetch EDHREC data: ' + e.message });
-  }
-});
-
 // Conditional-keyword reference (CR 702 keyword abilities / 207.2c ability words) used by
 // the card-suggestion gate: a card carrying one of these terms is only suggested when the
 // deck has enough cards that can satisfy its condition. Static reference data, cached in memory.
@@ -4090,42 +4210,151 @@ app.get('/api/conditional-keywords', async (req, res) => {
   }
 });
 
-app.get('/api/decks/archive-similarity', requireAuth, async (req, res) => {
-  const { commander, deckId } = req.query;
-  if (!commander) return res.status(400).json({ error: 'commander required' });
-  const accountId = req.accountId;
+
+// ── engine2 deck analysis (docs/engine2-plan.md §7.1) ─────────────────────────
+// Deterministic adds/cuts + goal inference from precomputed card semantics. The decklist
+// arrives in the body (decks live client-side in the decks.data JSON blob); no LLM here.
+
+const _e2AnalyzeLast = new Map(); // accountId → ts (light rate limit; analysis is CPU-bound)
+
+async function _e2ResolveCards(names) {
+  const found = new Map(); // name → {row, ir}
+  const uniq = [...new Set(names)].filter(Boolean);
+  for (let i = 0; i < uniq.length; i += 400) {
+    const chunk = uniq.slice(i, i + 400);
+    const [rows] = await db().query(
+      `SELECT c.oracle_id, c.name, c.type_line, c.cmc, c.edhrec_rank, s.ir_json
+       FROM scryfall_oracle_cards c
+       LEFT JOIN card_semantics s ON s.oracle_id = c.oracle_id AND s.status IN ('valid','flagged','manual')
+       WHERE c.name IN (${chunk.map(() => '?').join(',')})`, chunk);
+    for (const r of rows) if (!found.has(r.name)) found.set(r.name, r);
+  }
+  // front-face fallback for DFC names ("Malakir Rebirth" → "Malakir Rebirth // …")
+  for (const n of uniq) {
+    if (found.has(n)) continue;
+    const [rows] = await db().query(
+      `SELECT c.oracle_id, c.name, c.type_line, c.cmc, c.edhrec_rank, s.ir_json
+       FROM scryfall_oracle_cards c
+       LEFT JOIN card_semantics s ON s.oracle_id = c.oracle_id AND s.status IN ('valid','flagged','manual')
+       WHERE c.name LIKE ? LIMIT 1`, [`${n} // %`]);
+    if (rows.length) found.set(n, rows[0]);
+  }
+  return found;
+}
+
+app.post('/api/decks/analyze', requireAuth, async (req, res) => {
   try {
-    // Find all decks (own + public) with matching commander card, excluding the current deck
-    const [rows] = await db().query(`
-      SELECT d.account_id, d.id AS deck_id, d.name AS deck_name, a.email AS owner_email,
-             GROUP_CONCAT(
-               CASE WHEN dc.is_commander = 0 THEN dc.card_name END
-               ORDER BY dc.card_name SEPARATOR '|||'
-             ) AS card_names
-      FROM decks d
-      JOIN accounts a ON d.account_id = a.id
-      JOIN deck_cards dc ON d.account_id = dc.account_id AND d.id = dc.deck_id
-      WHERE (d.account_id = ? OR JSON_EXTRACT(d.data, '$.isPublic') = true)
-        AND NOT (d.account_id = ? AND d.id = ?)
-        AND EXISTS (
-          SELECT 1 FROM deck_cards dc2
-          WHERE dc2.account_id = d.account_id AND dc2.deck_id = d.id
-            AND dc2.card_name = ? AND dc2.is_commander = 1
-        )
-      GROUP BY d.account_id, d.id, d.name, a.email
-      LIMIT 30
-    `, [accountId, accountId, deckId ?? '', commander]);
+    const last = _e2AnalyzeLast.get(req.accountId) || 0;
+    if (Date.now() - last < 1000) return res.status(429).json({ error: 'analyze rate limit — retry in a second' });
+    _e2AnalyzeLast.set(req.accountId, Date.now());
+
+    const body = req.body || {};
+    const cardsIn = Array.isArray(body.cards) ? body.cards.slice(0, 400) : [];
+    if (!cardsIn.length) return res.status(400).json({ error: 'expected {cards:[{name,count}]}' });
+    const commanderName = String(body.commander || '').trim() ||
+      cardsIn.find(c => c.isCommander)?.name || null;
+
+    const allNames = cardsIn.map(c => String(c.name || '')).concat(commanderName ? [commanderName] : []);
+    const resolved = await _e2ResolveCards(allNames);
+    const parseIR = (r) => { try { return r?.ir_json ? JSON.parse(r.ir_json) : null; } catch (_) { return null; } };
+
+    const deckCards = [];
+    for (const c of cardsIn) {
+      if (commanderName && c.name === commanderName && !c.isCommander) { /* keep in 99 if duplicated */ }
+      if (c.isCommander || c.name === commanderName) continue;
+      const r = resolved.get(String(c.name));
+      deckCards.push({
+        name: String(c.name), qty: Math.max(1, parseInt(c.count) || 1),
+        ir: parseIR(r), cmc: r ? Number(r.cmc) : 0, typeLine: r ? r.type_line : '',
+      });
+    }
+    const cr = commanderName ? resolved.get(commanderName) : null;
+    const commander = commanderName ? { name: commanderName, ir: parseIR(cr) } : null;
+
+    const withIR = deckCards.filter(c => c.ir).length;
+    const coverage = deckCards.length ? Math.round((withIR / deckCards.length) * 100) / 100 : 0;
+
+    const goalsRes = engine2.deckGoals.inferGoals(deckCards, commander, { edhrecTheme: body.edhrecTheme });
+    const topGoal = goalsRes.goals[0] || null;
+    const thresholds = engine2.thresholds.computeThresholds({
+      goal: topGoal?.goal, playstyleStep: body.playstyleStep, overrides: body.thresholdOverrides,
+    });
+    const roleCounts = engine2.thresholds.countRoles(deckCards);
+
+    const cuts = engine2.recommender.scoreCuts({ deckCards, commander, goals: goalsRes.goals, thresholds, roleCounts })
+      .map(c => ({ ...c, reasons: engine2.explain.cutReasons(c), breakdown: engine2.explain.cutBreakdown(c) }));
+
+    // ── add candidates: commander-legal cards providing the deck's wanted axes ──
+    const templates = engine2.goalTemplates;
+    const index = engine2.recommender.deckAxisIndex(deckCards, commander);
+    const wanted = [...engine2.recommender.wantedAxes(topGoal?.goal, goalsRes.histogram, index, templates, goalsRes.goals).keys()].slice(0, 8);
+    let adds = [];
+    if (wanted.length) {
+      let ciColors = [];
+      if (commanderName) {
+        const [[cRow]] = await db().query(
+          `SELECT color_identity_json FROM scryfall_oracle_cards WHERE name = ? OR name LIKE ? LIMIT 1`,
+          [commanderName, `${commanderName} // %`]);
+        try { ciColors = typeof cRow?.color_identity_json === 'string' ? JSON.parse(cRow.color_identity_json) : (cRow?.color_identity_json || []); } catch (_) {}
+      }
+      const disallowed = ['W', 'U', 'B', 'R', 'G'].filter(x => !ciColors.includes(x));
+      const ciSql = disallowed.length
+        ? `AND NOT (${disallowed.map(() => `JSON_CONTAINS(c.color_identity_json, ?)`).join(' OR ')})`
+        : '';
+      const [candRows] = await db().query(
+        `SELECT DISTINCT c.oracle_id, c.name, c.type_line, c.cmc, c.edhrec_rank, c.scryfall_id, s.ir_json
+         FROM card_semantics_axes x
+         JOIN scryfall_oracle_cards c ON c.oracle_id = x.oracle_id
+         JOIN card_semantics s ON s.oracle_id = x.oracle_id AND s.status IN ('valid','flagged','manual')
+         WHERE x.kind = 'provides' AND x.axis IN (${wanted.map(() => '?').join(',')})
+           AND c.legal_commander = 1
+           ${ciSql}
+         ORDER BY (c.edhrec_rank IS NULL), c.edhrec_rank
+         LIMIT 400`,
+        [...wanted, ...disallowed.map(d => JSON.stringify(d))]);
+
+      // prices (best normal finish across printings at the latest snapshot) — optional
+      const prices = new Map();
+      try {
+        const candNames = candRows.map(r => r.name);
+        if (candNames.length) {
+          const [[{ d }]] = await db().query(`SELECT MAX(snapshot_date) d FROM card_price_daily`);
+          if (d) {
+            for (let i = 0; i < candNames.length; i += 300) {
+              const chunk = candNames.slice(i, i + 300);
+              const [priceRows] = await db().query(
+                `SELECT pr.name, MIN(cpd.tcg_normal) price
+                 FROM mtgjson_printing pr JOIN card_price_daily cpd ON cpd.uuid = pr.uuid AND cpd.snapshot_date = ?
+                 WHERE pr.name IN (${chunk.map(() => '?').join(',')}) AND cpd.tcg_normal IS NOT NULL
+                 GROUP BY pr.name`, [d, ...chunk]);
+              for (const p of priceRows) prices.set(p.name, Number(p.price));
+            }
+          }
+        }
+      } catch (_) { /* price tables optional — adds still work without them */ }
+
+      const ownedNames = new Set((Array.isArray(body.ownedNames) ? body.ownedNames : []).map(n => String(n).toLowerCase()));
+      const candidates = candRows.map(r => ({
+        name: r.name, ir: parseIR(r), cmc: Number(r.cmc) || 0, typeLine: r.type_line,
+        edhrecRank: r.edhrec_rank, scryfallId: r.scryfall_id || null,
+        price: prices.has(r.name) ? prices.get(r.name) : null,
+        owned: ownedNames.has(String(r.name).toLowerCase()),
+      }));
+      adds = engine2.recommender.scoreAdds({
+        candidates, deckCards, commander, goals: goalsRes.goals, thresholds, roleCounts,
+        hist: goalsRes.histogram, budget: body.budget, templates,
+      }).map(a => ({ ...a, reasons: engine2.explain.addReasons(a), breakdown: engine2.explain.addBreakdown(a) }));
+    }
 
     res.json({
-      decks: rows.map(r => ({
-        deck_id: r.deck_id,
-        deck_name: r.deck_name,
-        owner_email: r.owner_email,
-        is_own: Number(r.account_id) === Number(accountId),
-        card_names: r.card_names ? r.card_names.split('|||') : [],
-      })),
+      goals: goalsRes.goals,
+      thresholds, roleCounts,
+      cuts, adds,
+      combos: goalsRes.interactions.combos,
+      coverage: { semantics: coverage },
     });
   } catch (e) {
+    console.error('[analyze]', e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -5996,9 +6225,18 @@ async function ensureScryfallTagCacheTable() {
       // face's name/type/text/mana + image_uris so the card inspector can flip DFCs without a
       // Scryfall round-trip. NULL for single-faced cards. Backfills on the next cards re-import.
       `ALTER TABLE scryfall_oracle_cards ADD COLUMN faces_json JSON NULL`,
-      // Adds scoring (Prompt 1): EDHREC rank + commander legality for E percentiles.
-      // IDs/labels may change with partner tag work — percentiles keyed by current role labels.
+      // Columns for the engine2 semantics pipeline (added 2026-07). All backfill on the next
+      // oracle re-import; legal_commander is materialized from legalities at import time so
+      // add-candidate pools can filter on an indexed plain column.
+      `ALTER TABLE scryfall_oracle_cards ADD COLUMN keywords_json JSON NULL`,
+      `ALTER TABLE scryfall_oracle_cards ADD COLUMN legalities_json JSON NULL`,
+      `ALTER TABLE scryfall_oracle_cards ADD COLUMN layout VARCHAR(30) NULL`,
       `ALTER TABLE scryfall_oracle_cards ADD COLUMN edhrec_rank INT NULL`,
+      `ALTER TABLE scryfall_oracle_cards ADD COLUMN produced_mana_json JSON NULL`,
+      `ALTER TABLE scryfall_oracle_cards ADD COLUMN legal_commander TINYINT(1) NOT NULL DEFAULT 0`,
+      // Adds scoring (Prompt 1): commander legality + EDHREC percentiles for E scoring.
+      // commander_legal is the legacy adds-scoring column; engine2 reads legal_commander.
+      // IDs/labels may change with partner tag work — percentiles keyed by current role labels.
       `ALTER TABLE scryfall_oracle_cards ADD COLUMN commander_legal TINYINT(1) NULL`,
       `ALTER TABLE scryfall_oracle_cards ADD COLUMN edhrec_pct_json JSON NULL`,
     ];
@@ -6009,6 +6247,7 @@ async function ensureScryfallTagCacheTable() {
       `CREATE INDEX idx_soc_rarity ON scryfall_oracle_cards (rarity)`,
       `CREATE INDEX idx_soc_set    ON scryfall_oracle_cards (set_code)`,
       `CREATE INDEX idx_soc_edhrec ON scryfall_oracle_cards (edhrec_rank)`,
+      `CREATE INDEX idx_soc_cmdr   ON scryfall_oracle_cards (legal_commander)`,
     ];
     for (const sql of newIdxs) { try { await conn.query(sql); } catch (_) {} }
     await conn.query(`
@@ -6036,6 +6275,92 @@ async function ensureScryfallTagCacheTable() {
         fetched_at     BIGINT        NOT NULL,
         PRIMARY KEY (schema_version, query_key),
         INDEX idx_stqc_fetched (fetched_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+  } finally {
+    conn.release();
+  }
+}
+
+// engine2 card-semantics tables (see docs/engine2-plan.md). card_semantics holds one CardIR
+// document per oracle card, extracted by the dev-side pipeline (scripts/semantics-extract.js)
+// and cross-checked by engine2/validator.js. card_semantics_axes is the flattened
+// provides/needs/anti projection — the hot query path for add-candidate pools. The runs/items
+// tables are the pipeline's resumable state; the review queue holds rejected extractions.
+async function ensureCardSemanticsTables() {
+  const conn = await db().getConnection();
+  try {
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS card_semantics (
+        oracle_id        CHAR(36)     NOT NULL,
+        ir_version       SMALLINT     NOT NULL,
+        vocab_version    SMALLINT     NOT NULL,
+        ir_json          MEDIUMTEXT   NOT NULL,
+        roles_json       JSON         NULL,
+        confidence       DECIMAL(4,3) NOT NULL DEFAULT 0,
+        validation_score DECIMAL(4,3) NULL,
+        status           ENUM('valid','flagged','review','manual') NOT NULL DEFAULT 'valid',
+        run_id           VARCHAR(40)  NOT NULL,
+        model            VARCHAR(60)  NOT NULL,
+        prompt_version   VARCHAR(20)  NOT NULL,
+        updated_at       BIGINT       NOT NULL,
+        PRIMARY KEY (oracle_id),
+        KEY idx_cs_status (status)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS card_semantics_axes (
+        id        BIGINT AUTO_INCREMENT PRIMARY KEY,
+        oracle_id CHAR(36)    NOT NULL,
+        kind      ENUM('provides','needs','anti') NOT NULL,
+        axis      VARCHAR(60) NOT NULL,
+        param     VARCHAR(60) NULL,
+        weight    TINYINT     NOT NULL DEFAULT 1,
+        rate      VARCHAR(12) NULL,
+        UNIQUE KEY uq_csa (oracle_id, kind, axis, param),
+        KEY idx_csa_axis (kind, axis, param)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS semantics_runs (
+        run_id         VARCHAR(40)  NOT NULL,
+        model          VARCHAR(60)  NOT NULL,
+        prompt_version VARCHAR(20)  NOT NULL,
+        ir_version     SMALLINT     NOT NULL,
+        status         ENUM('running','done','aborted') NOT NULL DEFAULT 'running',
+        total_cards    INT NOT NULL DEFAULT 0,
+        succeeded      INT NOT NULL DEFAULT 0,
+        failed         INT NOT NULL DEFAULT 0,
+        est_cost_usd   DECIMAL(10,2) NULL,
+        started_at     BIGINT NOT NULL,
+        finished_at    BIGINT NULL,
+        PRIMARY KEY (run_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS semantics_run_items (
+        run_id     VARCHAR(40) NOT NULL,
+        oracle_id  CHAR(36)    NOT NULL,
+        status     ENUM('pending','submitted','succeeded','invalid','requeued','review','failed') NOT NULL DEFAULT 'pending',
+        batch_id   VARCHAR(80) NULL,
+        attempt    TINYINT     NOT NULL DEFAULT 0,
+        flags_json JSON        NULL,
+        updated_at BIGINT      NOT NULL,
+        PRIMARY KEY (run_id, oracle_id),
+        KEY idx_sri_status (run_id, status)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS semantics_review_queue (
+        id         BIGINT AUTO_INCREMENT PRIMARY KEY,
+        oracle_id  CHAR(36)    NOT NULL,
+        run_id     VARCHAR(40) NOT NULL,
+        ir_json    MEDIUMTEXT  NOT NULL,
+        flags_json JSON        NOT NULL,
+        status     ENUM('open','fixed','dismissed') NOT NULL DEFAULT 'open',
+        created_at BIGINT NOT NULL,
+        KEY idx_srq_status (status),
+        KEY idx_srq_oracle (oracle_id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
   } finally {
@@ -6880,7 +7205,7 @@ async function importScryfallOracleBulkToDb({
     const cardInsertSql = `INSERT INTO scryfall_oracle_cards
       (oracle_id, name, type_line, oracle_text, colors_json, mana_cost, cmc, imported_at,
        scryfall_id, color_identity_json, rarity, set_code, image_small, image_normal, power, toughness, loyalty, games_json, faces_json,
-       edhrec_rank, commander_legal)
+       keywords_json, legalities_json, layout, edhrec_rank, produced_mana_json, legal_commander, commander_legal)
      VALUES {VALS}
      ON DUPLICATE KEY UPDATE
        name=VALUES(name), type_line=VALUES(type_line), oracle_text=VALUES(oracle_text),
@@ -6890,7 +7215,9 @@ async function importScryfallOracleBulkToDb({
        image_small=VALUES(image_small), image_normal=VALUES(image_normal),
        power=VALUES(power), toughness=VALUES(toughness), loyalty=VALUES(loyalty), games_json=VALUES(games_json),
        faces_json=VALUES(faces_json),
-       edhrec_rank=VALUES(edhrec_rank), commander_legal=VALUES(commander_legal)`;
+       keywords_json=VALUES(keywords_json), legalities_json=VALUES(legalities_json), layout=VALUES(layout),
+       edhrec_rank=VALUES(edhrec_rank), produced_mana_json=VALUES(produced_mana_json), legal_commander=VALUES(legal_commander),
+       commander_legal=VALUES(commander_legal)`;
 
     // Compact per-face payload — only when the card actually has >1 face. We keep each face's
     // image_uris so the inspector can flip; for layouts with no per-face art (split/adventure/
@@ -6926,7 +7253,12 @@ async function importScryfallOracleBulkToDb({
         c?.power || null, c?.toughness || null, c?.loyalty || null,
         JSON.stringify(Array.isArray(c?.games) ? c.games : ['paper']),
         facesToJson(c),
+        JSON.stringify(Array.isArray(c?.keywords) ? c.keywords : []),
+        JSON.stringify(c?.legalities || {}),
+        c?.layout || null,
         edhrecRank,
+        JSON.stringify(Array.isArray(c?.produced_mana) ? c.produced_mana : []),
+        c?.legalities?.commander === 'legal' ? 1 : 0,
         commanderLegal,
       ];
     };
@@ -6937,7 +7269,7 @@ async function importScryfallOracleBulkToDb({
       const seen = new Set();
       const flushBatch = async () => {
         if (!batch.length) return;
-        const ph = batch.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').join(',');
+        const ph = batch.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').join(',');
         await conn.query(cardInsertSql.replace('{VALS}', ph), batch.flat());
         imported += batch.length;
         totalOracleRows = imported;
@@ -8257,6 +8589,105 @@ app.post('/api/admin/scryfall/rebuild-tags', requireAuth, requireAdminRole, asyn
   runScryfallImportEndpoint(req, res, 'tags')
 );
 
+// ── engine2 semantics review queue (see docs/engine2-plan.md §2.2) ──
+// Rejected pipeline extractions land in semantics_review_queue; these endpoints let an admin
+// inspect them and either accept a (possibly hand-edited) CardIR into card_semantics as
+// status='manual', or dismiss the item. Axis rows are rebuilt on accept so the flattened
+// provides/needs projection stays in sync with the stored IR.
+app.get('/api/admin/semantics/review', requireAuth, requireAdminRole, async (req, res) => {
+  try {
+    const status = ['open', 'fixed', 'dismissed'].includes(req.query.status) ? req.query.status : 'open';
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 200);
+    const [rows] = await db().query(
+      `SELECT q.id, q.oracle_id, q.run_id, q.ir_json, q.flags_json, q.status, q.created_at, c.name, c.oracle_text
+       FROM semantics_review_queue q
+       LEFT JOIN scryfall_oracle_cards c ON c.oracle_id = q.oracle_id
+       WHERE q.status = ? ORDER BY q.id LIMIT ?`,
+      [status, limit]
+    );
+    const [[counts]] = await db().query(
+      `SELECT
+         (SELECT COUNT(*) FROM semantics_review_queue WHERE status='open') AS openItems,
+         (SELECT COUNT(*) FROM card_semantics) AS totalSemantics,
+         (SELECT COUNT(*) FROM card_semantics WHERE status='valid') AS validSemantics`
+    );
+    res.json({ ok: true, items: rows, counts });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/admin/semantics/review/:id', requireAuth, requireAdminRole, async (req, res) => {
+  const id = parseInt(req.params.id);
+  const action = req.body?.action;
+  if (!Number.isFinite(id) || !['accept', 'dismiss'].includes(action)) {
+    return res.status(400).json({ error: 'expected {action: "accept"|"dismiss"} and a numeric id' });
+  }
+  const conn = await db().getConnection();
+  try {
+    const [[item]] = await conn.query('SELECT * FROM semantics_review_queue WHERE id = ?', [id]);
+    if (!item) return res.status(404).json({ error: 'review item not found' });
+    if (action === 'dismiss') {
+      await conn.query(`UPDATE semantics_review_queue SET status='dismissed' WHERE id = ?`, [id]);
+      return res.json({ ok: true, dismissed: id });
+    }
+    // accept: prefer a hand-edited IR from the request body, else the stored candidate
+    let ir;
+    try {
+      ir = req.body?.ir && typeof req.body.ir === 'object' ? req.body.ir : JSON.parse(item.ir_json);
+    } catch (_) {
+      return res.status(400).json({ error: 'stored candidate IR is unparsable; supply an edited ir in the body' });
+    }
+    if (String(ir?.oracle_id || '') !== String(item.oracle_id)) {
+      return res.status(400).json({ error: 'ir.oracle_id does not match the review item' });
+    }
+    await conn.beginTransaction();
+    const now = Date.now();
+    await conn.query(
+      `INSERT INTO card_semantics
+         (oracle_id, ir_version, vocab_version, ir_json, roles_json, confidence, validation_score,
+          status, run_id, model, prompt_version, updated_at)
+       VALUES (?,?,?,?,?,?,?, 'manual', ?, 'manual', ?, ?)
+       ON DUPLICATE KEY UPDATE
+         ir_version=VALUES(ir_version), vocab_version=VALUES(vocab_version), ir_json=VALUES(ir_json),
+         roles_json=VALUES(roles_json), confidence=VALUES(confidence), validation_score=VALUES(validation_score),
+         status='manual', run_id=VALUES(run_id), model='manual', prompt_version=VALUES(prompt_version),
+         updated_at=VALUES(updated_at)`,
+      [
+        item.oracle_id, parseInt(ir.ir_version) || 1, parseInt(ir.vocab_version) || 1,
+        JSON.stringify(ir), JSON.stringify(Array.isArray(ir.roles) ? ir.roles : []),
+        Number(ir.confidence) || 0, null, item.run_id, String(ir?._prov?.prompt_version || 'manual'), now,
+      ]
+    );
+    await conn.query('DELETE FROM card_semantics_axes WHERE oracle_id = ?', [item.oracle_id]);
+    const axisRows = [];
+    for (const [kind, list] of [['provides', ir.provides], ['needs', ir.needs], ['anti', ir.anti]]) {
+      for (const a of Array.isArray(list) ? list : []) {
+        if (!a || typeof a.axis !== 'string') continue;
+        axisRows.push([
+          item.oracle_id, kind, a.axis.slice(0, 60), a.param ? String(a.param).slice(0, 60) : null,
+          Math.min(Math.max(parseInt(a.weight) || 1, 1), 5), a.rate ? String(a.rate).slice(0, 12) : null,
+        ]);
+      }
+    }
+    if (axisRows.length) {
+      await conn.query(
+        `INSERT IGNORE INTO card_semantics_axes (oracle_id, kind, axis, param, weight, rate)
+         VALUES ${axisRows.map(() => '(?,?,?,?,?,?)').join(',')}`,
+        axisRows.flat()
+      );
+    }
+    await conn.query(`UPDATE semantics_review_queue SET status='fixed' WHERE id = ?`, [id]);
+    await conn.commit();
+    res.json({ ok: true, accepted: id, oracleId: item.oracle_id, axes: axisRows.length });
+  } catch (e) {
+    try { await conn.rollback(); } catch (_) {}
+    res.status(500).json({ error: e.message });
+  } finally {
+    conn.release();
+  }
+});
+
 // ── Scanner fingerprint DB admin: build/refresh (spawns scripts/build-print-fingerprints.js) ──
 let _fpBuildProc = null;
 let _fpBuildProgress = { running: false, lastLine: '', startedAt: 0, endedAt: 0, exitCode: null };
@@ -8867,6 +9298,78 @@ app.post('/api/internal/changelog-ingest', requireChangelogIngestSecret, async (
   }
 });
 
+// ── Semantics ingest (engine2 dev→prod sync) ─────────────────────────────────
+// Extraction NEVER runs in prod. scripts/semantics-push-prod.js reads the dev DB
+// and pushes finished CardIR rows here in batches; `status` exposes the
+// updated_at watermark that makes the sync incremental.
+
+/** Watermark + row counts — the push script diffs against this. */
+app.get('/api/internal/semantics-ingest/status', requireSemanticsIngestSecret, async (req, res) => {
+  try {
+    const [[row]] = await db().query(
+      `SELECT COUNT(*) n, COALESCE(MAX(updated_at), 0) maxUpdatedAt FROM card_semantics`);
+    const [[ax]] = await db().query(`SELECT COUNT(*) n FROM card_semantics_axes`);
+    res.json({ cards: Number(row.n), axes: Number(ax.n), maxUpdatedAt: Number(row.maxUpdatedAt) });
+  } catch (e) {
+    console.error('[semantics-ingest]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Batch upsert of CardIR rows (card_semantics + replaced card_semantics_axes). */
+app.post('/api/internal/semantics-ingest', requireSemanticsIngestSecret, async (req, res) => {
+  const cards = Array.isArray(req.body?.cards) ? req.body.cards : null;
+  if (!cards || !cards.length) return res.status(400).json({ error: 'cards[] required' });
+  if (cards.length > 200) return res.status(400).json({ error: 'max 200 cards per batch' });
+  const AXIS_KINDS = new Set(['provides', 'needs', 'anti']);
+  for (const c of cards) {
+    if (!/^[0-9a-f-]{36}$/i.test(String(c?.oracle_id || ''))) return res.status(400).json({ error: `bad oracle_id: ${c?.oracle_id}` });
+    if (typeof c.ir_json !== 'string' || !c.ir_json.length || c.ir_json.length > 65000) return res.status(400).json({ error: `bad ir_json for ${c.oracle_id}` });
+    if (!Array.isArray(c.axes) || c.axes.length > 64 || c.axes.some(a => !AXIS_KINDS.has(a?.kind) || !a?.axis)) {
+      return res.status(400).json({ error: `bad axes for ${c.oracle_id}` });
+    }
+  }
+  const conn = await db().getConnection();
+  try {
+    await conn.beginTransaction();
+    for (const c of cards) {
+      await conn.query(
+        `INSERT INTO card_semantics
+           (oracle_id, ir_version, vocab_version, ir_json, roles_json, confidence, validation_score,
+            status, run_id, model, prompt_version, updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+         ON DUPLICATE KEY UPDATE
+           ir_version=VALUES(ir_version), vocab_version=VALUES(vocab_version), ir_json=VALUES(ir_json),
+           roles_json=VALUES(roles_json), confidence=VALUES(confidence), validation_score=VALUES(validation_score),
+           status=VALUES(status), run_id=VALUES(run_id), model=VALUES(model),
+           prompt_version=VALUES(prompt_version), updated_at=VALUES(updated_at)`,
+        [c.oracle_id, c.ir_version || 1, c.vocab_version || 1, c.ir_json,
+         c.roles_json != null ? (typeof c.roles_json === 'string' ? c.roles_json : JSON.stringify(c.roles_json)) : null,
+         Number(c.confidence) || 0, c.validation_score != null ? Number(c.validation_score) : null,
+         ['valid', 'flagged', 'review', 'manual'].includes(c.status) ? c.status : 'valid',
+         String(c.run_id || 'sync').slice(0, 40), String(c.model || 'sync').slice(0, 60),
+         String(c.prompt_version || '?').slice(0, 20), Number(c.updated_at) || Date.now()]);
+      await conn.query('DELETE FROM card_semantics_axes WHERE oracle_id = ?', [c.oracle_id]);
+      if (c.axes.length) {
+        await conn.query(
+          `INSERT IGNORE INTO card_semantics_axes (oracle_id, kind, axis, param, weight, rate)
+           VALUES ${c.axes.map(() => '(?,?,?,?,?,?)').join(',')}`,
+          c.axes.flatMap(a => [c.oracle_id, a.kind, String(a.axis).slice(0, 60),
+            a.param != null ? String(a.param).slice(0, 60) : null, Number(a.weight) || 1,
+            a.rate != null ? String(a.rate).slice(0, 12) : null]));
+      }
+    }
+    await conn.commit();
+    res.json({ ok: true, upserted: cards.length });
+  } catch (e) {
+    try { await conn.rollback(); } catch (_) { /* already gone */ }
+    console.error('[semantics-ingest]', e);
+    res.status(500).json({ error: e.message });
+  } finally {
+    conn.release();
+  }
+});
+
 // ── Start ─────────────────────────────────────────────────────────────────────
 
 const PORT = process.env.PORT || 3001;
@@ -8923,6 +9426,7 @@ async function start() {
       await ensureTagOverrideTables();
       await ensureCollectionRoleTagsColumns();
       await ensureScryfallTagCacheTable();
+      await ensureCardSemanticsTables();
       await ensurePrintFingerprintsTable();
       await backfillDeckCardsIfEmpty();
       await backfillEdhrecPercentilesIfNeeded();
@@ -8946,16 +9450,30 @@ async function start() {
   app.use('/js',     express.static(path.join(__dirname, 'js')));
   app.use('/styles', express.static(path.join(__dirname, 'styles')));
   app.use('/vendor', express.static(path.join(__dirname, 'vendor')));
-  app.use('/dist',   express.static(path.join(__dirname, 'dist'), {
+  // Index stamps ?v=SHA on bundle URLs — those exact URLs never change content,
+  // so they cache forever (no revalidation round-trip for a ~1.4MB bundle on
+  // every refresh). Unversioned /dist requests (e.g. a Home Screen PWA holding
+  // a stale hash-less URL) must still revalidate every time.
+  app.use('/dist', (req, res, next) => {
+    if (req.query.v) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    next();
+  }, express.static(path.join(__dirname, 'dist'), {
+    cacheControl: false,
     setHeaders(res) {
-      // Index stamps ?v=SHA on bundle URLs; allow long cache for a given version,
-      // but always revalidate so a Home Screen PWA never sticks on a stale hash-less URL.
-      res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+      if (!res.getHeader('Cache-Control')) {
+        res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+      }
     },
   }));
   app.use('/sounds', express.static(path.join(__dirname, 'sounds')));
   app.use('/icons',  express.static(path.join(__dirname, 'icons')));
   app.get('/manifest.webmanifest', (_req, res) => res.sendFile(path.join(__dirname, 'manifest.webmanifest')));
+  // Card-image cache worker (see sw.js) — served from the root so its scope
+  // covers the whole app. no-cache so a deploy can update caching logic fast.
+  app.get('/sw.js', (_req, res) => {
+    res.set('Cache-Control', 'no-cache');
+    res.sendFile(path.join(__dirname, 'sw.js'));
+  });
   // Serve index.html with a per-deploy version stamped onto the bundle URLs so a new deploy always
   // busts the browser cache (no more stale dist/bundle.js after shipping). Cached in memory; the
   // process restarts on deploy, recomputing the version.

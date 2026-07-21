@@ -146,6 +146,7 @@ function refreshAuthUserLabel(email, role) {
   });
   if (typeof renderDeckOwnershipBtn === 'function') renderDeckOwnershipBtn();
   if (typeof renderDeckSwapsSettingBtn === 'function') renderDeckSwapsSettingBtn();
+  if (typeof renderDeckGoalSettingBtn === 'function') renderDeckGoalSettingBtn();
   renderValueExcludeSlider();
   applyRoleVisibility();
   if (email && typeof refreshWhatsNewUpdateBadge === 'function') void refreshWhatsNewUpdateBadge();
