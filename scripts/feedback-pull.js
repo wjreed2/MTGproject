@@ -27,7 +27,8 @@ function fmt(r) {
   if (typeof ctx === 'string') { try { ctx = JSON.parse(ctx); } catch (_) { ctx = null; } }
   if (ctx) {
     out += `\n  · rank ${ctx.rank}/${ctx.of} · basis ${ctx.basis} · goals ${(ctx.goals || []).map(g => `${g.goal}@${Number(g.confidence).toFixed(2)}`).join(' ')}`;
-    for (const b of ctx.breakdown || []) out += `\n    ${b.val ? b.val + '  ' : ''}${b.text}`;
+    // line numbers match the Why panel's visible numbering
+    (ctx.breakdown || []).forEach((b, i) => { out += `\n    ${b.n || i + 1}. ${b.val ? b.val + '  ' : ''}${b.text}`; });
   }
   return out;
 }

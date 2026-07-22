@@ -8099,6 +8099,22 @@ select:focus { outline: none; border-color: rgba(200,168,74,0.6); box-shadow: 0 
   padding: 2px 0;
   line-height: 1.35;
 }
+.why-line-num {
+  flex-shrink: 0;
+  min-width: 1.2em;
+  text-align: right;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.9em;
+  color: var(--text3);
+}
+.suggest-rank {
+  flex-shrink: 0;
+  min-width: 1.4em;
+  text-align: right;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.68rem;
+  color: var(--text3);
+}
 .why-line-text { flex: 1; min-width: 0; }
 .why-line-val {
   flex-shrink: 0;
