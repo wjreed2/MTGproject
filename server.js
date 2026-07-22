@@ -9576,6 +9576,19 @@ app.get('/api/internal/suggestion-feedback', requireSemanticsIngestSecret, async
   }
 });
 
+/** Remove a feedback row (moderation/test cleanup — dev-side via the ingest secret). */
+app.delete('/api/internal/suggestion-feedback/:id', requireSemanticsIngestSecret, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'bad id' });
+    const [r] = await db().query(`DELETE FROM suggestion_feedback WHERE id = ? AND source = 'local'`, [id]);
+    res.json({ ok: true, deleted: r.affectedRows });
+  } catch (e) {
+    console.error('[suggestion-feedback]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 /** Batch upsert of CardIR rows (card_semantics + replaced card_semantics_axes). */
 app.post('/api/internal/semantics-ingest', requireSemanticsIngestSecret, async (req, res) => {
   const cards = Array.isArray(req.body?.cards) ? req.body.cards : null;
