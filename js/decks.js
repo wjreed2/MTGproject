@@ -1689,6 +1689,36 @@ function renderDeckGoalSettingBtn() {
   btn.style.borderColor = on ? 'var(--teal)' : '';
 }
 
+// Developer/admin kill switch for the Hybrid (wizard) suggestion mode. Off removes
+// the Hybrid option from the suggestion-panel toggles entirely; anyone parked on
+// Hybrid is coerced to Semantic. Data (deck plans, wizard prefs) is never cleared.
+function _hybridFeatureEnabled() {
+  try { return localStorage.getItem('mtg_hybrid_adds') !== '0'; }
+  catch { return true; }
+}
+
+function toggleHybridAddsSetting() {
+  const next = !_hybridFeatureEnabled();
+  try { localStorage.setItem('mtg_hybrid_adds', next ? '1' : '0'); } catch { /* quota */ }
+  if (!next && _suggestAlgoMode === 'hybrid') setSuggestAlgoMode('semantic');
+  renderHybridAddsSettingBtn();
+  _syncSuggestAlgoUI();
+  const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+  if (deck) { _renderCutSuggestions(deck); _renderAddSuggestions(deck); }
+  showNotif(next
+    ? 'Hybrid (wizard) suggestions enabled'
+    : 'Hybrid (wizard) suggestions disabled — panels offer Classic and Semantic only');
+}
+
+function renderHybridAddsSettingBtn() {
+  const btn = document.getElementById('settingsHybridAddsBtn');
+  if (!btn) return;
+  const on = _hybridFeatureEnabled();
+  btn.innerHTML = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M6 2h4M7 2v4.5L3.5 12a1.5 1.5 0 0 0 1.3 2.2h6.4a1.5 1.5 0 0 0 1.3-2.2L9 6.5V2"/><path d="M5 10.5h6"/></svg>${on ? ' Hybrid adds: on' : ' Hybrid adds: off'}`;
+  btn.style.color = on ? 'var(--teal)' : '';
+  btn.style.borderColor = on ? 'var(--teal)' : '';
+}
+
 /**
  * User-wide Adds & Cuts toggle. Synced to the account (via /api/preferences),
  * not just localStorage — otherwise Safari and a Home Screen PWA (separate
@@ -6899,10 +6929,11 @@ let _suggestAlgoMode = (() => {
 })();
 
 function _semanticModeOn() { return _deckGoalEnabled() && _suggestAlgoMode === 'semantic'; }
-function _hybridModeOn() { return _deckGoalEnabled() && _suggestAlgoMode === 'hybrid'; }
+function _hybridModeOn() { return _deckGoalEnabled() && _hybridFeatureEnabled() && _suggestAlgoMode === 'hybrid'; }
 
 function setSuggestAlgoMode(mode) {
-  const next = _normalizeSuggestAlgoMode(mode);
+  let next = _normalizeSuggestAlgoMode(mode);
+  if (next === 'hybrid' && !_hybridFeatureEnabled()) next = 'semantic'; // dev switch off
   if (_suggestAlgoMode === next) return;
   _suggestAlgoMode = next;
   try { localStorage.setItem(SUGGEST_ALGO_KEY, next); } catch { /* quota */ }
@@ -6938,6 +6969,12 @@ function _syncSuggestAlgoUI() {
   document.querySelectorAll('#tab-decks .suggest-classic-only').forEach(el => {
     el.style.display = semantic ? 'none' : '';
   });
+  // Developer switch: with Hybrid disabled, remove its option from the mode toggles.
+  const hybridOn = _hybridFeatureEnabled();
+  for (const id of ['deckCutAlgoHybridBtn', 'deckAddAlgoHybridBtn']) {
+    const b = document.getElementById(id);
+    if (b) b.style.display = hybridOn ? '' : 'none';
+  }
   // Analysis-basis toggle (Now / After swaps): semantic-only, and only when the deck
   // actually has planned swaps to project.
   const projWrap = document.getElementById('deckAnalyzeProjToggle');
