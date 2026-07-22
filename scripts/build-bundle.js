@@ -19,6 +19,8 @@ const SOURCES = [
   'js/ownership.js',
   'js/collection.js',
   'js/sets.js',
+  'js/project-role-tags.js',
+  'js/archetype-role-bridge.js',
   'js/adds-scoring.js',
   'js/deck-plan.js',
   'js/deck-plan-wizard.js',

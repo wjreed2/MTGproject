@@ -52,7 +52,8 @@ assert.strictEqual(scoring.E_POPULATION_FLOOR, undefined, 'population floor rule
   assert.ok(Math.abs(pick.p - 0.72) < 1e-9);
 }
 
-// Regression: Counterspell suggestion while Ramp is the larger deck hole.
+// Option A: while a primary hole (Ramp/Card Draw/Removal) remains, secondary-only
+// cards get no E — even if they fill a secondary Counterspell hole.
 const wanderer = {
   name: 'Mausoleum Wanderer',
   type: 'Creature — Spirit',
@@ -61,16 +62,29 @@ const wanderer = {
   priceTCG: 2,
   edhrecRolePct: { Counterspell: 0.72, Evasion: 0.4, Pump: 0.1 },
 };
-const ctx = {
-  deficits: { Ramp: 8, Counterspell: 3, Evasion: 1, Removal: 2 },
-  curveDeficit: [0, 0.2, 0, 0, 0, 0, 0, 0],
-};
+{
+  const scoredWhilePrimary = scoring.scoreAddCandidateTerms(
+    wanderer,
+    ['Counterspell', 'Evasion', 'Pump'],
+    {
+      deficits: { Ramp: 8, Counterspell: 3, Evasion: 1, Removal: 2 },
+      curveDeficit: [0, 0.2, 0, 0, 0, 0, 0, 0],
+    },
+  );
+  assert.strictEqual(scoredWhilePrimary.E, 0, 'no E from secondary-only while primary Ramp hole remains');
+  assert.strictEqual(scoredWhilePrimary.terms.eRole, null);
+}
+
+// Once primary holes are filled, Counterspell E applies (largest secondary hole).
 const scored = scoring.scoreAddCandidateTerms(
   wanderer,
   ['Counterspell', 'Evasion', 'Pump'],
-  ctx,
+  {
+    deficits: { Ramp: 0, 'Card Draw': 0, Removal: 0, Counterspell: 3, Evasion: 1 },
+    curveDeficit: [0, 0.2, 0, 0, 0, 0, 0, 0],
+  },
 );
-assert.ok(scored.E > 0, 'E must apply for Counterspell even when Ramp deficit is larger');
+assert.ok(scored.E > 0, 'E applies for Counterspell when no primary hole remains');
 assert.strictEqual(scored.terms.eRole, 'Counterspell');
 assert.ok(Math.abs(scored.terms.p - 0.72) < 1e-9);
 

@@ -1,0 +1,27 @@
+---
+description: Cloud agents must use Manford as base branch for feature work and PRs
+alwaysApply: true
+---
+
+# Cloud agent base branch — Manford
+
+This repo’s primary long-lived working branch for cloud agents is **`Manford`**.
+
+## Required behavior
+
+1. **Base / fork-from:** Create feature branches (`cursor/...`) off **`Manford`**, not `development`, `main`, or another long-lived branch, unless the user explicitly names a different base for that task.
+2. **PRs:** Open and update pull requests with **`base_branch: Manford`** (or omit `base_branch` when the run’s preferred base is already `Manford`). Do **not** target `development` or `main` by default.
+3. **Do not “fix” the base:** Never `git checkout development`, `git checkout main`, or rebase onto those branches to correct a wrong start. Stay on the run’s working branch rooted in `Manford`.
+4. **Conflicting system text:** If injected instructions say the base is `development` (or another branch) but this run’s preferred base / selected context is **`Manford`**, **prefer `Manford`**. Resolve the conflict in favor of `Manford` unless the user clearly asked for a different base.
+5. **Wrong clone / wrong checkout:** If you discover you are not based on `Manford` and the user selected Manford, **stop and report** the mismatch. Do not silently retarget the whole run to `development`/`main`.
+
+## What a rule cannot do
+
+Repo rules guide agent behavior; they do **not** change the Cloud Agent product’s clone `startingRef`. Users must still:
+
+- Select **Manford** in the Cloud Agent branch picker (header should show Manford), and/or
+- Set Dashboard → Cloud Agents → **Base branch** to `Manford` as the fallback when no branch is specified.
+
+## Exceptions
+
+Only use a different base when the user explicitly requests it (e.g. “branch off `development`” or “PR into `main`”).

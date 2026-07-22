@@ -80,10 +80,13 @@
       draft: nextDraft,
       path,
       ranked,
-      showMore: { wincon: false, strategy: false, secondary: false },
+      showMore: { wincon: false, strategy: false, secondary: false, subtags: false },
       stepIdx: 0,
-      steps: _pwBuildSteps(deck),
+      steps: null,
+      typeSuggest: null,
+      _typeFetchStarted: false,
     };
+    _planWizard.steps = _pwBuildSteps(deck);
     document.getElementById('deckPlanWizardModal')?.classList.add('open');
     _pwRender();
   }
@@ -93,17 +96,33 @@
     _planWizard = null;
   }
 
-  /** Same core sequence for every deck; commander only if missing. */
+  /** Same core sequence for every deck; commander only if missing. Plan envelope steps after themes. */
   function _pwBuildSteps(deck) {
     const steps = [];
     if (!deck.commander) steps.push('commander');
-    steps.push('wincon', 'strategy', 'secondary', 'budget');
+    steps.push('wincon', 'strategy', 'secondary', 'subtags');
+    // Tribal creature-type picker when primary or secondary is tribal.
+    const draft = _planWizard?.draft;
+    const ids = [draft?.primaryStrategyId, draft?.secondaryStrategyId].filter(Boolean);
+    if (ids.includes('strategy.tribal')) steps.push('tribaltypes');
+    steps.push('budget');
     return steps;
+  }
+
+  function _pwRebuildStepsKeepIndex() {
+    if (!_planWizard) return;
+    const deck = _pwDeck();
+    if (!deck) return;
+    const cur = _planWizard.steps[_planWizard.stepIdx];
+    _planWizard.steps = _pwBuildSteps(deck);
+    const idx = _planWizard.steps.indexOf(cur);
+    _planWizard.stepIdx = idx >= 0 ? idx : Math.min(_planWizard.stepIdx, _planWizard.steps.length - 1);
   }
 
   function _pwPersist() {
     const deck = _pwDeck();
     if (!deck || !_planWizard) return false;
+    _planWizard.draft.planConfirmed = true;
     deck.plan = typeof normalizeDeckPlan === 'function'
       ? normalizeDeckPlan(_planWizard.draft)
       : _planWizard.draft;
@@ -212,8 +231,78 @@
           draft.fieldSources = draft.fieldSources || {};
           if (draft.secondaryStrategyId) draft.fieldSources.secondaryStrategyId = draft.fieldSources.secondaryStrategyId || 'formal';
           else draft.fieldSources.secondaryStrategyId = 'skipped';
+          _pwRebuildStepsKeepIndex();
           _pwNext();
         };
+      }
+      return;
+    }
+
+    if (step === 'subtags') {
+      if (title) title.textContent = 'Plan theme pieces (optional)';
+      const planThr = typeof PLAN_PARENT_DEFAULT_TARGET === 'number' ? PLAN_PARENT_DEFAULT_TARGET : 30;
+      const defaults = typeof mergedPlanSubtagDefaults === 'function'
+        ? mergedPlanSubtagDefaults(draft, planThr)
+        : [];
+      const expand = !!_planWizard.showMore.subtags;
+      const shown = expand ? defaults : defaults.slice(0, Math.min(6, defaults.length));
+      if (!draft.planSubTags) draft.planSubTags = {};
+      for (const row of defaults) {
+        if (!draft.planSubTags[row.id]) {
+          draft.planSubTags[row.id] = { enabled: true, target: row.target };
+        }
+      }
+      const rowsHtml = shown.length
+        ? shown.map(row => {
+          const st = draft.planSubTags[row.id] || { enabled: true, target: row.target };
+          const checked = st.enabled !== false ? 'checked' : '';
+          const tgt = Number.isFinite(Number(st.target)) ? Number(st.target) : row.target;
+          return `<label class="plan-subtag-row" style="display:flex;align-items:center;gap:.5rem;margin:.35rem 0;font-size:.8rem">
+            <input type="checkbox" ${checked} onchange="_pwToggleSubtag('${row.id}', this.checked)">
+            <span style="flex:1">${escapeHtml(row.label)}</span>
+            <input type="number" min="0" max="40" value="${tgt}" style="width:3.2rem" onchange="_pwSubtagTarget('${row.id}', this.value)" title="Target count">
+          </label>`;
+        }).join('')
+        : '<p class="deck-tab-muted">No theme defaults for this strategy — continue.</p>';
+      body.innerHTML = `<p class="deck-tab-muted" style="margin-bottom:.65rem">These sit inside Plan (cap ${planThr}). Uncheck pieces you do not want counted.</p>
+        ${rowsHtml}
+        ${defaults.length > 6
+          ? `<button type="button" class="btn btn-ghost btn-sm" style="margin-top:.5rem" onclick="_pwToggleMore('subtags')">${expand ? 'Show fewer' : 'Expand full list'}</button>`
+          : ''}`;
+      if (primaryBtn) {
+        primaryBtn.textContent = 'Continue';
+        primaryBtn.onclick = () => { _pwRebuildStepsKeepIndex(); _pwNext(); };
+      }
+      return;
+    }
+
+    if (step === 'tribaltypes') {
+      if (title) title.textContent = 'Which creature types matter?';
+      const picks = Array.isArray(_planWizard.typeSuggest?.picks) ? _planWizard.typeSuggest.picks : [];
+      const source = _planWizard.typeSuggest?.source || 'degraded';
+      const selected = new Set((draft.typePicks || []).map(t => String(t).toLowerCase()));
+      const topHtml = picks.length
+        ? `<div class="plan-opt-grid">${picks.map(p => {
+          const on = selected.has(p.id) ? ' plan-opt--selected' : '';
+          return `<button type="button" class="plan-opt${on}" onclick="_pwToggleTypePick('${escapeHtml(p.id)}')">${escapeHtml(p.label)} <span class="deck-tab-muted" style="font-size:.65rem">(${p.bodies})</span></button>`;
+        }).join('')}</div>
+        <p class="deck-tab-muted" style="font-size:.7rem;margin-top:.4rem">Source: ${escapeHtml(source)}</p>`
+        : `<p class="deck-tab-muted">No automatic type suggestions (offline or no tribal signal). Type a creature type below, or continue.</p>`;
+      body.innerHTML = `${topHtml}
+        <label class="plan-budget-label" style="margin-top:.75rem">Add creature type</label>
+        <div style="display:flex;gap:.4rem">
+          <input type="text" id="planTypePickInput" class="deck-select" style="flex:1" placeholder="e.g. Goblin" list="planTypePickList">
+          <button type="button" class="btn btn-outline btn-sm" onclick="_pwAddTypePickFromInput()">Add</button>
+        </div>
+        <datalist id="planTypePickList">${picks.map(p => `<option value="${escapeHtml(p.label)}">`).join('')}</datalist>
+        <p class="deck-tab-muted" style="margin-top:.5rem;font-size:.75rem">Selected: ${(draft.typePicks || []).map(t => escapeHtml(t)).join(', ') || 'none'}</p>`;
+      if (!_planWizard._typeFetchStarted) {
+        _planWizard._typeFetchStarted = true;
+        _pwFetchTypeSuggestions();
+      }
+      if (primaryBtn) {
+        primaryBtn.textContent = 'Continue';
+        primaryBtn.onclick = () => _pwNext();
       }
       return;
     }
@@ -301,6 +390,9 @@
     _planWizard.draft.primaryStrategyId = id;
     _planWizard.draft.fieldSources = _planWizard.draft.fieldSources || {};
     _planWizard.draft.fieldSources.primaryStrategyId = 'formal';
+    _planWizard._typeFetchStarted = false;
+    _planWizard.typeSuggest = null;
+    _pwRebuildStepsKeepIndex();
     _pwRender();
   }
   function _pwPickSecondary(id) {
@@ -308,7 +400,77 @@
     _planWizard.draft.secondaryStrategyId = id;
     _planWizard.draft.fieldSources = _planWizard.draft.fieldSources || {};
     _planWizard.draft.fieldSources.secondaryStrategyId = 'formal';
+    _planWizard._typeFetchStarted = false;
+    _planWizard.typeSuggest = null;
+    _pwRebuildStepsKeepIndex();
     _pwRender();
+  }
+
+  function _pwToggleSubtag(id, enabled) {
+    if (!_planWizard) return;
+    _planWizard.draft.planSubTags = _planWizard.draft.planSubTags || {};
+    const prev = _planWizard.draft.planSubTags[id] || { enabled: true, target: 1 };
+    _planWizard.draft.planSubTags[id] = { ...prev, enabled: !!enabled };
+  }
+  function _pwSubtagTarget(id, value) {
+    if (!_planWizard) return;
+    _planWizard.draft.planSubTags = _planWizard.draft.planSubTags || {};
+    const prev = _planWizard.draft.planSubTags[id] || { enabled: true, target: 1 };
+    const n = parseInt(value, 10);
+    _planWizard.draft.planSubTags[id] = { ...prev, target: Number.isFinite(n) && n >= 0 ? n : prev.target };
+  }
+  function _pwToggleTypePick(id) {
+    if (!_planWizard || !id) return;
+    const key = String(id).toLowerCase();
+    const cur = Array.isArray(_planWizard.draft.typePicks) ? _planWizard.draft.typePicks.slice() : [];
+    const i = cur.indexOf(key);
+    if (i >= 0) cur.splice(i, 1);
+    else cur.push(key);
+    _planWizard.draft.typePicks = cur;
+    _pwRender();
+  }
+  function _pwAddTypePickFromInput() {
+    const el = document.getElementById('planTypePickInput');
+    const raw = String(el?.value || '').trim();
+    if (!raw) return;
+    _pwToggleTypePick(raw.toLowerCase());
+    if (el) el.value = '';
+  }
+  async function _pwFetchTypeSuggestions() {
+    const deck = _pwDeck();
+    if (!deck || !_planWizard) return;
+    try {
+      const res = await fetch('/api/decks/suggest-types', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cards: (deck.cards || []).map(c => ({
+            name: c.name, count: c.qty || 1, isCommander: !!c.isCommander,
+            typeLine: c.type || c.typeLine || c.type_line || '',
+          })),
+          commander: deck.commander || null,
+          limit: 4,
+        }),
+      });
+      if (!res.ok) throw new Error('suggest-types ' + res.status);
+      const data = await res.json();
+      if (!_planWizard) return;
+      _planWizard.typeSuggest = {
+        picks: Array.isArray(data.picks) ? data.picks : [],
+        source: data.source || 'degraded',
+      };
+    } catch (_) {
+      if (!_planWizard) return;
+      // Degraded: classic tribal types from deck heuristics if available
+      const tribes = typeof _deckTribalTypes === 'function' ? (_deckTribalTypes(deck) || []) : [];
+      _planWizard.typeSuggest = {
+        picks: tribes.slice(0, 4).map((t, i) => ({
+          id: String(t).toLowerCase(), label: t, score: 4 - i, bodies: 0, lords: 0, rank: i + 1,
+        })),
+        source: tribes.length ? 'type-line' : 'degraded',
+      };
+    }
+    if (_planWizard.steps[_planWizard.stepIdx] === 'tribaltypes') _pwRender();
   }
 
   function _pwPickDeckBudget(tierId) {
@@ -419,6 +581,10 @@
   window._pwPickWincon = _pwPickWincon;
   window._pwPickStrategy = _pwPickStrategy;
   window._pwPickSecondary = _pwPickSecondary;
+  window._pwToggleSubtag = _pwToggleSubtag;
+  window._pwSubtagTarget = _pwSubtagTarget;
+  window._pwToggleTypePick = _pwToggleTypePick;
+  window._pwAddTypePickFromInput = _pwAddTypePickFromInput;
   window._pwPickDeckBudget = _pwPickDeckBudget;
   window._pwPickCardBudget = _pwPickCardBudget;
   window._pwCustomDeckUsd = _pwCustomDeckUsd;

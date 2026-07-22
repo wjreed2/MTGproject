@@ -15,6 +15,7 @@ const helmet      = require('helmet');
 const nodemailer  = require('nodemailer');
 const cron        = require('node-cron');
 const engine2     = require('./engine2'); // semantics/interaction engine (docs/engine2-plan.md)
+const engine21w   = require('./engine2.1wizard'); // sandbox — wizard type picks / hybrid (do not replace engine2)
 const { Server: SocketIOServer } = require('socket.io');
 const MySQLStore  = require('express-mysql-session')(session);
 // Shared trade value/condition math — same module the browser bundles, so the
@@ -4211,6 +4212,44 @@ app.get('/api/conditional-keywords', async (req, res) => {
 });
 
 
+// ── engine2.1wizard type suggestions (Prompt 25) — sandbox only; partner analyze unchanged ──
+app.post('/api/decks/suggest-types', requireAuth, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const cardsIn = Array.isArray(body.cards) ? body.cards.slice(0, 400) : [];
+    const commanderName = String(body.commander || '').trim()
+      || cardsIn.find(c => c.isCommander)?.name || null;
+    const allNames = cardsIn.map(c => String(c.name || '')).concat(commanderName ? [commanderName] : []);
+    let resolved = new Map();
+    try {
+      resolved = await _e2ResolveCards(allNames);
+    } catch (_) { resolved = new Map(); }
+    const parseIR = (r) => { try { return r?.ir_json ? JSON.parse(r.ir_json) : null; } catch (_) { return null; } };
+    const deckCards = [];
+    for (const c of cardsIn) {
+      if (c.isCommander || (commanderName && c.name === commanderName)) continue;
+      const r = resolved.get(String(c.name));
+      deckCards.push({
+        name: String(c.name),
+        qty: Math.max(1, parseInt(c.count, 10) || 1),
+        ir: parseIR(r),
+        typeLine: r ? r.type_line : (c.typeLine || ''),
+      });
+    }
+    const cr = commanderName ? resolved.get(commanderName) : null;
+    const commander = commanderName
+      ? { name: commanderName, ir: parseIR(cr), typeLine: cr ? cr.type_line : '' }
+      : null;
+    const out = engine21w.wizardBridge.suggestTypePicks({
+      deckCards, commander, limit: body.limit,
+    });
+    res.json(out);
+  } catch (e) {
+    console.error('[suggest-types]', e);
+    res.json({ picks: [], source: 'degraded', error: e.message });
+  }
+});
+
 // ── engine2 deck analysis (docs/engine2-plan.md §7.1) ─────────────────────────
 // Deterministic adds/cuts + goal inference from precomputed card semantics. The decklist
 // arrives in the body (decks live client-side in the decks.data JSON blob); no LLM here.
@@ -4356,6 +4395,141 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
     });
   } catch (e) {
     console.error('[analyze]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── engine2.1wizard hybrid analyze (Prompts 27–28) — sandbox only ─────────────
+// Applies planned Adds/Cuts and optional confirmed-plan goal hint. Partner /analyze untouched.
+app.post('/api/decks/analyze-wizard', requireAuth, async (req, res) => {
+  try {
+    const last = _e2AnalyzeLast.get(req.accountId) || 0;
+    if (Date.now() - last < 1000) return res.status(429).json({ error: 'analyze rate limit — retry in a second' });
+    _e2AnalyzeLast.set(req.accountId, Date.now());
+
+    const body = req.body || {};
+    const eng = engine21w;
+    let cardsIn = Array.isArray(body.cards) ? body.cards.slice(0, 400) : [];
+    if (!cardsIn.length) return res.status(400).json({ error: 'expected {cards:[{name,count}]}' });
+
+    // Prompt 28: planned Adds count as in-deck; planned Cuts reduce/remove.
+    const cutMap = new Map();
+    for (const c of (Array.isArray(body.plannedCuts) ? body.plannedCuts : [])) {
+      const nm = String(c.name || '').toLowerCase();
+      if (nm) cutMap.set(nm, (cutMap.get(nm) || 0) + Math.max(1, parseInt(c.count, 10) || 1));
+    }
+    if (cutMap.size) {
+      cardsIn = cardsIn.map(c => {
+        const nm = String(c.name || '').toLowerCase();
+        const cut = cutMap.get(nm) || 0;
+        if (!cut) return c;
+        const qty = Math.max(0, (parseInt(c.count, 10) || 1) - cut);
+        return qty > 0 ? { ...c, count: qty } : null;
+      }).filter(Boolean);
+    }
+    for (const c of (Array.isArray(body.plannedAdds) ? body.plannedAdds : [])) {
+      if (!c?.name) continue;
+      cardsIn.push({ name: c.name, count: Math.max(1, parseInt(c.count, 10) || 1) });
+    }
+
+    const commanderName = String(body.commander || '').trim() ||
+      cardsIn.find(c => c.isCommander)?.name || null;
+    const allNames = cardsIn.map(c => String(c.name || '')).concat(commanderName ? [commanderName] : []);
+    const resolved = await _e2ResolveCards(allNames);
+    const parseIR = (r) => { try { return r?.ir_json ? JSON.parse(r.ir_json) : null; } catch (_) { return null; } };
+
+    const deckCards = [];
+    for (const c of cardsIn) {
+      if (c.isCommander || c.name === commanderName) continue;
+      const r = resolved.get(String(c.name));
+      deckCards.push({
+        name: String(c.name), qty: Math.max(1, parseInt(c.count, 10) || 1),
+        ir: parseIR(r), cmc: r ? Number(r.cmc) : 0, typeLine: r ? r.type_line : '',
+      });
+    }
+    const cr = commanderName ? resolved.get(commanderName) : null;
+    const commander = commanderName ? { name: commanderName, ir: parseIR(cr) } : null;
+    const withIR = deckCards.filter(c => c.ir).length;
+    const coverage = deckCards.length ? Math.round((withIR / deckCards.length) * 100) / 100 : 0;
+
+    const goalsRes = eng.deckGoals.inferGoals(deckCards, commander, { edhrecTheme: body.edhrecTheme });
+    // Prompt 28: prefer confirmed wizard strategy when it maps to a known goal key.
+    const plan = body.plan || {};
+    const strat = String(plan.primaryStrategyId || '');
+    const stratKey = strat.replace(/^strategy\./, '');
+    if (plan.planConfirmed && stratKey) {
+      const hit = goalsRes.goals.find(g =>
+        g.goal === stratKey || g.goal.startsWith(stratKey) || String(g.label || '').toLowerCase().includes(stratKey));
+      if (hit) {
+        goalsRes.goals = [hit, ...goalsRes.goals.filter(g => g !== hit)];
+      }
+      // Tribal type picks: prefer tribal:Type goal when selected
+      const typePick = Array.isArray(plan.typePicks) ? plan.typePicks[0] : null;
+      if (typePick) {
+        const tg = goalsRes.goals.find(g => g.goal === `tribal:${typePick}` || g.goal.toLowerCase() === `tribal:${String(typePick).toLowerCase()}`);
+        if (tg) goalsRes.goals = [tg, ...goalsRes.goals.filter(g => g !== tg)];
+      }
+    }
+    const topGoal = goalsRes.goals[0] || null;
+    const thresholds = eng.thresholds.computeThresholds({
+      goal: topGoal?.goal, playstyleStep: body.playstyleStep, overrides: body.thresholdOverrides,
+    });
+    const roleCounts = eng.thresholds.countRoles(deckCards);
+    const cuts = eng.recommender.scoreCuts({ deckCards, commander, goals: goalsRes.goals, thresholds, roleCounts })
+      .map(c => ({ ...c, reasons: eng.explain.cutReasons(c), breakdown: eng.explain.cutBreakdown(c) }));
+
+    const templates = eng.goalTemplates;
+    const index = eng.recommender.deckAxisIndex(deckCards, commander);
+    const wantedMap = eng.recommender.wantedAxes(topGoal?.goal, goalsRes.histogram, index, templates, goalsRes.goals);
+    const wanted = typeof eng.recommender.poolAxes === 'function'
+      ? eng.recommender.poolAxes(wantedMap, index, 12)
+      : [...wantedMap.keys()].slice(0, 8);
+    let adds = [];
+    if (wanted.length) {
+      let ciColors = [];
+      if (commanderName) {
+        const [[cRow]] = await db().query(
+          `SELECT color_identity_json FROM scryfall_oracle_cards WHERE name = ? OR name LIKE ? LIMIT 1`,
+          [commanderName, `${commanderName} // %`]);
+        try { ciColors = typeof cRow?.color_identity_json === 'string' ? JSON.parse(cRow.color_identity_json) : (cRow?.color_identity_json || []); } catch (_) {}
+      }
+      const disallowed = ['W', 'U', 'B', 'R', 'G'].filter(x => !ciColors.includes(x));
+      const ciSql = disallowed.length
+        ? `AND NOT (${disallowed.map(() => `JSON_CONTAINS(c.color_identity_json, ?)`).join(' OR ')})`
+        : '';
+      const [candRows] = await db().query(
+        `SELECT DISTINCT c.oracle_id, c.name, c.type_line, c.cmc, c.edhrec_rank, c.scryfall_id, s.ir_json
+         FROM card_semantics_axes x
+         JOIN scryfall_oracle_cards c ON c.oracle_id = x.oracle_id
+         JOIN card_semantics s ON s.oracle_id = x.oracle_id AND s.status IN ('valid','flagged','manual')
+         WHERE x.kind = 'provides' AND x.axis IN (${wanted.map(() => '?').join(',')})
+           AND c.legal_commander = 1
+           ${ciSql}
+         ORDER BY (c.edhrec_rank IS NULL), c.edhrec_rank
+         LIMIT 400`,
+        [...wanted, ...disallowed.map(d => JSON.stringify(d))]);
+      const ownedNames = new Set((Array.isArray(body.ownedNames) ? body.ownedNames : []).map(n => String(n).toLowerCase()));
+      const candidates = candRows.map(r => ({
+        name: r.name, ir: parseIR(r), cmc: Number(r.cmc) || 0, typeLine: r.type_line,
+        edhrecRank: r.edhrec_rank, scryfallId: r.scryfall_id || null,
+        price: null, owned: ownedNames.has(String(r.name).toLowerCase()),
+      }));
+      adds = eng.recommender.scoreAdds({
+        candidates, deckCards, commander, goals: goalsRes.goals, thresholds, roleCounts,
+        hist: goalsRes.histogram, budget: body.budget, templates,
+      }).map(a => ({ ...a, reasons: eng.explain.addReasons(a), breakdown: eng.explain.addBreakdown(a), source: 'sandbox' }));
+    }
+
+    res.json({
+      engine: 'engine2.1wizard',
+      goals: goalsRes.goals,
+      thresholds, roleCounts,
+      cuts, adds,
+      combos: goalsRes.interactions.combos,
+      coverage: { semantics: coverage },
+    });
+  } catch (e) {
+    console.error('[analyze-wizard]', e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -6156,49 +6330,12 @@ app.get('/api/mtgjson/deck/:fileName', async (req, res) => {
 // ── Scryfall proxy with TCG enrichment ────────────────────────────────────────
 let _scryfallLastRequestAt = 0;
 let _scryfallQueue = Promise.resolve(); // serializes concurrent requests to prevent 429 bursts
-const SCRYFALL_AUTO_TAGS = [
-  { label: 'Ramp', otag: 'ramp' },
-  { label: 'Card Draw', otag: 'draw' },
-  { label: 'Removal', otag: 'removal' },
-  { label: 'Board Wipe', otag: 'board-wipe' },
-  { label: 'Tutor', otag: 'tutor' },
-  { label: 'Counterspell', otag: 'counterspell' },
-  { label: 'Protection', query: '(o:"protection from" or o:hexproof or o:indestructible or o:"phase out")' },
-  { label: 'Bounce', otag: 'bounce' },
-  { label: 'Control', query: '(o:"gain control" or o:"exchange control")' },
-  { label: 'Burn', otag: 'burn' },
-  { label: 'Group Slug', otag: 'group-slug' },
-  { label: 'Stax', otag: 'tax' },
-  { label: 'Hatebear', otag: 'hatebear' },
-  { label: 'Anthem', otag: 'anthem' },
-  { label: 'Evasion', otag: 'evasion' },
-  { label: 'Pump', query: '(o:"target creature gets +" or o:"creatures you control get +" or (o:"gets +" and o:"until end of turn"))' },
-  { label: 'Combat Trick', otag: 'combat-trick' },
-  { label: 'Bite', otag: 'bite' },
-  { label: 'Extra Combat', otag: 'extra-combat' },
-  { label: 'Token Maker', query: '(o:create o:token)' },
-  { label: 'Blink', otag: 'blink' },
-  { label: 'Copy', otag: 'copy' },
-  { label: 'Treasure', query: 'o:"treasure token"' },
-  { label: 'Lifegain', otag: 'lifegain' },
-  { label: 'Discard', otag: 'discard' },
-  { label: 'Mill', otag: 'mill' },
-  { label: 'Wheel', otag: 'wheel' },
-  { label: 'Landfall', otag: 'landfall' },
-  { label: 'Recursion', otag: 'recursion' },
-  { label: 'Reanimate', otag: 'reanimate' },
-  { label: 'Graveyard Cast', otag: 'synergy-graveyard-cast' },
-  { label: 'Self-Mill', otag: 'self-mill' },
-  { label: 'Sac Outlet', otag: 'sacrifice-outlet' },
-  { label: 'Death Trigger', otag: 'death-trigger' },
-  { label: 'Drain', otag: 'drain-life' },
-  { label: 'Sac Synergy', otag: 'synergy-sacrifice' },
-];
+const {
+  PROJECT_ROLE_TAGS: SCRYFALL_AUTO_TAGS,
+  OTAG_TO_PROJECT_LABEL: _OTAG_TO_LABEL,
+} = require('./js/project-role-tags.js');
 // Scryfall tagger slug → the label we store in scryfall_oracle_tags. Lets the local search
 // engine resolve `otag:removal` against the local tag table (which stores "Removal").
-const _OTAG_TO_LABEL = new Map(
-  SCRYFALL_AUTO_TAGS.filter(t => t.otag).map(t => [t.otag.toLowerCase(), t.label])
-);
 function _sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }

@@ -1,0 +1,67 @@
+{
+  "row": {
+    "oracle_id": "00000000-0000-4000-8000-000000000009",
+    "name": "Wrath of God",
+    "type_line": "Sorcery",
+    "oracle_text": "Destroy all creatures. They can't be regenerated.",
+    "mana_cost": "{2}{W}{W}",
+    "cmc": 4,
+    "colors_json": ["W"],
+    "color_identity_json": ["W"],
+    "power": null,
+    "toughness": null,
+    "loyalty": null,
+    "keywords_json": [],
+    "layout": "normal",
+    "produced_mana_json": [],
+    "faces_json": null
+  },
+  "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "00000000-0000-4000-8000-000000000009",
+    "name": "Wrath of God",
+    "layout": "normal",
+    "faces": [
+      {
+        "face_name": "Wrath of God",
+        "types": { "super": [], "card": ["Sorcery"], "sub": [] },
+        "mana_cost": "{2}{W}{W}",
+        "mana_value": 4,
+        "colors": ["W"],
+        "pt": null,
+        "loyalty": null,
+        "defense": null,
+        "costs": { "additional": [], "alternative": [] },
+        "keywords": [],
+        "abilities": [
+          {
+            "kind": "static",
+            "layer": null,
+            "effects": [
+              {
+                "op": "destroy",
+                "target": { "who": "any", "object": { "types": ["creature"], "all": true } },
+                "text": "They can't be regenerated."
+              }
+            ],
+            "text": "Destroy all creatures. They can't be regenerated."
+          }
+        ],
+        "restrictions": [],
+        "cdf": null
+      }
+    ],
+    "provides": [
+      { "axis": "removal.wipe", "param": null, "rate": "once", "weight": 4 },
+      { "axis": "creatures_dying", "param": null, "rate": "once", "weight": 3 }
+    ],
+    "needs": [],
+    "roles": ["board_wipe"],
+    "anti": [],
+    "wincon": null,
+    "tribal": { "types": [], "lord_of": [] },
+    "power_level_hint": 4,
+    "confidence": 0.99
+  }
+}
