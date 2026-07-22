@@ -1689,6 +1689,36 @@ function renderDeckGoalSettingBtn() {
   btn.style.borderColor = on ? 'var(--teal)' : '';
 }
 
+// Developer/admin kill switch for the Hybrid (wizard) suggestion mode. Off removes
+// the Hybrid option from the suggestion-panel toggles entirely; anyone parked on
+// Hybrid is coerced to Semantic. Data (deck plans, wizard prefs) is never cleared.
+function _hybridFeatureEnabled() {
+  try { return localStorage.getItem('mtg_hybrid_adds') !== '0'; }
+  catch { return true; }
+}
+
+function toggleHybridAddsSetting() {
+  const next = !_hybridFeatureEnabled();
+  try { localStorage.setItem('mtg_hybrid_adds', next ? '1' : '0'); } catch { /* quota */ }
+  if (!next && _suggestAlgoMode === 'hybrid') setSuggestAlgoMode('semantic');
+  renderHybridAddsSettingBtn();
+  _syncSuggestAlgoUI();
+  const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+  if (deck) { _renderCutSuggestions(deck); _renderAddSuggestions(deck); }
+  showNotif(next
+    ? 'Hybrid (wizard) suggestions enabled'
+    : 'Hybrid (wizard) suggestions disabled — panels offer Classic and Semantic only');
+}
+
+function renderHybridAddsSettingBtn() {
+  const btn = document.getElementById('settingsHybridAddsBtn');
+  if (!btn) return;
+  const on = _hybridFeatureEnabled();
+  btn.innerHTML = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M6 2h4M7 2v4.5L3.5 12a1.5 1.5 0 0 0 1.3 2.2h6.4a1.5 1.5 0 0 0 1.3-2.2L9 6.5V2"/><path d="M5 10.5h6"/></svg>${on ? ' Hybrid adds: on' : ' Hybrid adds: off'}`;
+  btn.style.color = on ? 'var(--teal)' : '';
+  btn.style.borderColor = on ? 'var(--teal)' : '';
+}
+
 /**
  * User-wide Adds & Cuts toggle. Synced to the account (via /api/preferences),
  * not just localStorage — otherwise Safari and a Home Screen PWA (separate
@@ -6767,7 +6797,8 @@ function _buildCutReason(card, tags, surplusTag, roleCount, thresholds, cmdCmc, 
 }
 
 function _suggestCardsToCut(deck) {
-  const cards = deck.cards || [];
+  // planned cuts are already leaving — don't re-flag them or count them toward roles
+  const cards = (deck.cards || []).filter(c => !_isPlannedCutCard(deck, c));
   const commanderCard = cards.find(c => c.isCommander || (deck.commander && c.name === deck.commander));
   const cmdCmc = commanderCard?.cmc ?? 4;
   const thresholds = _computeCutThresholds(deck);
@@ -6898,10 +6929,11 @@ let _suggestAlgoMode = (() => {
 })();
 
 function _semanticModeOn() { return _deckGoalEnabled() && _suggestAlgoMode === 'semantic'; }
-function _hybridModeOn() { return _deckGoalEnabled() && _suggestAlgoMode === 'hybrid'; }
+function _hybridModeOn() { return _deckGoalEnabled() && _hybridFeatureEnabled() && _suggestAlgoMode === 'hybrid'; }
 
 function setSuggestAlgoMode(mode) {
-  const next = _normalizeSuggestAlgoMode(mode);
+  let next = _normalizeSuggestAlgoMode(mode);
+  if (next === 'hybrid' && !_hybridFeatureEnabled()) next = 'semantic'; // dev switch off
   if (_suggestAlgoMode === next) return;
   _suggestAlgoMode = next;
   try { localStorage.setItem(SUGGEST_ALGO_KEY, next); } catch { /* quota */ }
@@ -6937,11 +6969,124 @@ function _syncSuggestAlgoUI() {
   document.querySelectorAll('#tab-decks .suggest-classic-only').forEach(el => {
     el.style.display = semantic ? 'none' : '';
   });
+  // Developer switch: with Hybrid disabled, remove its option from the mode toggles.
+  const hybridOn = _hybridFeatureEnabled();
+  for (const id of ['deckCutAlgoHybridBtn', 'deckAddAlgoHybridBtn']) {
+    const b = document.getElementById(id);
+    if (b) b.style.display = hybridOn ? '' : 'none';
+  }
+  // Analysis-basis toggle (Now / After swaps): semantic-only, and only when the deck
+  // actually has planned swaps to project.
+  const projWrap = document.getElementById('deckAnalyzeProjToggle');
+  if (projWrap) {
+    const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+    const show = semantic && deck && _deckSwapsEnabled(deck)
+      && !!(((deck.adds || []).length) || ((deck.cuts || []).length));
+    projWrap.style.display = show ? '' : 'none';
+    const proj = _analyzeProjMode === 'projected';
+    const nowB = document.getElementById('deckAnalyzeNowBtn');
+    const projB = document.getElementById('deckAnalyzeProjBtn');
+    if (nowB) { nowB.classList.toggle('active', !proj); nowB.setAttribute('aria-pressed', String(!proj)); }
+    if (projB) { projB.classList.toggle('active', proj); projB.setAttribute('aria-pressed', String(proj)); }
+  }
 }
 
 const _SUGGEST_E2_UNAVAILABLE_HTML =
   '<div class="deck-tab-muted" style="padding:.75rem 1rem">Semantic analysis is unavailable for this deck' +
   ' (offline, or too many of its cards have no semantics data yet) — switch to Classic for role-tag suggestions.</div>';
+
+// ── suggestion feedback (speech-bubble on semantic adds) ─────────────────────
+function _toggleSuggestFeedback(btn) {
+  const item = btn.closest('.suggest-item');
+  const strip = item && item.querySelector('.suggest-feedback');
+  if (!strip) return;
+  const open = strip.style.display !== 'none';
+  strip.style.display = open ? 'none' : 'flex';
+  if (!open) { const inp = strip.querySelector('input'); if (inp) inp.focus(); }
+}
+
+async function _sendSuggestFeedback(btn) {
+  const strip = btn.closest('.suggest-feedback');
+  const input = strip && strip.querySelector('input');
+  const text = (input && input.value || '').trim();
+  if (!text) { showNotif('Type a little feedback first', true); return; }
+  const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+  btn.disabled = true;
+  try {
+    const res = await fetch(mtgApiRoot() + '/decks/suggestion-feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        deckId: deck && deck.id != null ? deck.id : null,
+        cardName: strip.dataset.card || '',
+        score: Number(strip.dataset.score) || null,
+        goal: strip.dataset.goal || null,
+        engine: 'semantic',
+        feedback: text,
+      }),
+    });
+    if (!res.ok) throw new Error('save failed');
+    input.value = '';
+    strip.style.display = 'none';
+    showNotif('Feedback saved — thanks');
+  } catch (_) {
+    showNotif('Could not save feedback', true);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ── planning-zone awareness ───────────────────────────────────────────────────
+// Names on the planned-adds board — never re-suggest what the user already decided.
+function _plannedAddNames(deck) {
+  const s = new Set();
+  for (const a of deck?.adds || []) { const n = String(a?.name || '').toLowerCase(); if (n) s.add(n); }
+  return s;
+}
+
+function _isPlannedCutCard(deck, card) {
+  return (deck?.cuts || []).some(slot => _deckCardMatchesSlot(slot, card));
+}
+
+// Projected list: main deck minus planned cuts plus planned adds — the deck as it
+// will be once swaps are applied. Each cut slot removes one copy of its match.
+function _projectedDeckCards(deck) {
+  const out = (deck?.cards || []).map(c => ({ ...c }));
+  for (const slot of deck?.cuts || []) {
+    const hit = out.find(c => (c.qty || 1) > 0 && _deckCardMatchesSlot(slot, c));
+    if (hit) hit.qty = (hit.qty || 1) - 1;
+  }
+  const kept = out.filter(c => (c.qty || 1) > 0);
+  for (const a of deck?.adds || []) {
+    if (!a?.name) continue;
+    kept.push({ ...a, qty: a.qty || 1, isCommander: false });
+  }
+  return kept;
+}
+
+// Analysis basis: the deck as-is ('now') or after applying planned swaps ('projected').
+const ANALYZE_PROJ_KEY = 'mtg_analyze_projected';
+let _analyzeProjMode = (() => {
+  try { return localStorage.getItem(ANALYZE_PROJ_KEY) === 'projected' ? 'projected' : 'now'; }
+  catch { return 'now'; }
+})();
+
+function _analyzeProjected(deck) {
+  return _analyzeProjMode === 'projected' && _semanticModeOn() && _deckSwapsEnabled(deck)
+    && !!(((deck?.adds || []).length) || ((deck?.cuts || []).length));
+}
+
+function setAnalyzeProjMode(mode) {
+  const next = mode === 'projected' ? 'projected' : 'now';
+  if (_analyzeProjMode === next) return;
+  _analyzeProjMode = next;
+  try { localStorage.setItem(ANALYZE_PROJ_KEY, next); } catch { /* quota */ }
+  _e2AnalysisCache = { key: null, data: null, promise: null };
+  _syncSuggestAlgoUI();
+  const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+  if (deck) { _renderCutSuggestions(deck); _renderAddSuggestions(deck); }
+}
 
 // ── engine2 semantic analysis client (POST /api/decks/analyze) ────────────────
 // Deterministic server-side analysis over precomputed card semantics: deck goal,
@@ -6949,8 +7094,9 @@ const _SUGGEST_E2_UNAVAILABLE_HTML =
 let _e2AnalysisCache = { key: null, data: null, promise: null };
 
 function _e2AnalysisKey(deck) {
-  const cards = (deck.cards || []).map(c => `${c.name}x${c.qty || 1}`).sort().join('|');
-  return `${deck.id}::${cards}`;
+  const list = _analyzeProjected(deck) ? _projectedDeckCards(deck) : (deck.cards || []);
+  const cards = list.map(c => `${c.name}x${c.qty || 1}`).sort().join('|');
+  return `${deck.id}::${_analyzeProjected(deck) ? 'proj' : 'now'}::${cards}`;
 }
 
 async function _e2Analyze(deck) {
@@ -6961,7 +7107,8 @@ async function _e2Analyze(deck) {
   }
   const promise = (async () => {
     try {
-      const commander = (deck.cards || []).find(c => c.isCommander)?.name || deck.commander || null;
+      const list = _analyzeProjected(deck) ? _projectedDeckCards(deck) : (deck.cards || []);
+      const commander = list.find(c => c.isCommander)?.name || deck.commander || null;
       const ownedNames = [];
       if (typeof _ownershipCollection === 'function') {
         const seen = new Set();
@@ -6973,7 +7120,7 @@ async function _e2Analyze(deck) {
       const res = await fetch('/api/decks/analyze', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          cards: (deck.cards || []).map(c => ({ name: c.name, count: c.qty || 1, isCommander: !!c.isCommander })),
+          cards: list.map(c => ({ name: c.name, count: c.qty || 1, isCommander: !!c.isCommander })),
           commander,
           // Semantic mode ignores the classic playstyle slider (it's hidden in this
           // mode) — a saved slider position must not invisibly shift the targets.
@@ -7019,8 +7166,9 @@ function _renderDeckGoalReadout(deck, e2) {
   const second = e2.goals[1];
   const secondBit = second && (second.confidence || 0) >= 0.85
     ? ` <span style="color:var(--text3);font-size:.72rem">· secondary: ${escapeHtml(second.label || second.goal)}</span>` : '';
+  const projBit = _analyzeProjected(deck) ? ' <span style="color:var(--gold);font-size:.7rem">(after swaps)</span>' : '';
   el.innerHTML = `<div>${icon} Deck goal: <strong style="color:var(--teal)">${escapeHtml(top.label || top.goal)}</strong>` +
-    `<span style="color:var(--text3);font-size:.72rem"> · ${pct}% match</span>${secondBit}</div>` +
+    `<span style="color:var(--text3);font-size:.72rem"> · ${pct}% match</span>${projBit}${secondBit}</div>` +
     `<div style="color:var(--text3);font-size:.74rem;margin-top:2px">${escapeHtml(top.summary || '')}</div>` + comboHtml;
 }
 
@@ -7057,7 +7205,8 @@ async function _renderCutSuggestions(deck) {
     const swapsOnE2 = _deckSwapsEnabled(deck);
     const byName = new Map((deck.cards || []).map(c => [c.name, c]));
     const items = (e2 && Array.isArray(e2.cuts) ? e2.cuts : [])
-      .map(cut => ({ cut, card: byName.get(cut.name) })).filter(x => x.card);
+      .map(cut => ({ cut, card: byName.get(cut.name) })).filter(x => x.card)
+      .filter(x => !_isPlannedCutCard(deck, x.card)); // already decided — don't re-flag
     if (!items.length) {
       body.innerHTML = e2
         ? '<div class="deck-tab-muted" style="padding:.75rem 1rem">The semantic engine found no cuts to suggest.</div>'
@@ -7643,7 +7792,12 @@ async function _renderAddSuggestions(deck) {
     const e2 = await _e2Analyze(deck);
     if (e2Token !== _addSuggestToken) return;
     _renderDeckGoalReadout(deck, e2);
-    if (!e2 || !Array.isArray(e2.adds) || !e2.adds.length) {
+    // hygiene: never re-suggest a card already on the planned-adds board (in projected
+    // mode planned adds are part of the analyzed list, so the server excludes them)
+    const _plannedNow = _analyzeProjected(deck) ? new Set() : _plannedAddNames(deck);
+    const e2AddList = (e2 && Array.isArray(e2.adds) ? e2.adds : [])
+      .filter(a => !_plannedNow.has(String(a.name || '').toLowerCase()));
+    if (!e2 || !e2AddList.length) {
       body.innerHTML = e2
         ? '<div class="deck-tab-muted" style="padding:.75rem 1rem">The semantic engine has no adds to suggest for this deck.</div>'
         : _SUGGEST_E2_UNAVAILABLE_HTML;
@@ -7651,7 +7805,7 @@ async function _renderAddSuggestions(deck) {
     }
     {
       const swapsOnE2 = _deckSwapsEnabled(deck);
-      body.innerHTML = e2.adds.slice(0, _ADD_SUGGESTION_COUNT).map(a => {
+      body.innerHTML = e2AddList.slice(0, _ADD_SUGGESTION_COUNT).map(a => {
         const name = a.name || '';
         const safeName = name.replace(/'/g, "\\'");
         const displayName = escapeHtml(name);
@@ -7676,14 +7830,22 @@ async function _renderAddSuggestions(deck) {
           : (sid
             ? `<button class="btn btn-outline btn-sm" style="padding:2px 10px;font-size:.7rem"${addTitle} onclick="${swapsOnE2 ? `addScryfallCardToAdds('${sid}')` : `addScryfallCardToDeck('${sid}')`}">+ Add</button>`
             : '');
+        const goalKey = (e2.goals && e2.goals[0] && e2.goals[0].goal) || '';
+        const fbBtn = `<button type="button" class="btn btn-ghost btn-sm" title="Give feedback on this pick" aria-label="Give feedback on this pick" style="padding:2px 5px;flex-shrink:0" onclick="_toggleSuggestFeedback(this)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></svg></button>`;
+        const fbStrip = `<div class="suggest-feedback" data-card="${escapeHtml(name)}" data-score="${score}" data-goal="${escapeHtml(goalKey)}" style="display:none;gap:6px;align-items:center;padding:.3rem .75rem .5rem">
+            <input type="text" maxlength="500" placeholder="What's right or wrong about this pick?" style="flex:1;font-size:.74rem;padding:4px 8px;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;color:var(--text)" onkeydown="if(event.key==='Enter')_sendSuggestFeedback(this.parentNode.querySelector('button'))">
+            <button type="button" class="btn btn-outline btn-sm" style="padding:2px 10px;font-size:.7rem" onclick="_sendSuggestFeedback(this)">Send</button>
+          </div>`;
         return `<div class="suggest-item">
           <div class="cut-candidate-row">
             <button type="button" class="cut-score-badge cut-why-toggle" aria-expanded="false" aria-label="Why suggested · score ${score}" onclick="_toggleSuggestWhy(this)">${score}<span class="cut-why-caret" aria-hidden="true">⌄</span></button>
             <span class="cut-card-name" onclick="openCardDetail('${sid}','deck')">${displayName}</span>
             ${priceTag}${ownTag}
             ${addBtn}
+            ${fbBtn}
           </div>
           ${why}
+          ${fbStrip}
         </div>`;
       }).join('');
       return;
@@ -7709,6 +7871,7 @@ async function _renderAddSuggestions(deck) {
   const cmdCI = new Set(ciColors);
   const ciOk = arr => !cmdCI.size || !(arr || []).some(x => !cmdCI.has(x));
   const inDeckNames = new Set((deck.cards || []).map(c => (c.name || '').toLowerCase()));
+  for (const n of _plannedAddNames(deck)) inDeckNames.add(n); // planned adds: already decided
   const ownedNames = new Set();
   for (const c of _ownershipCollection()) {
     const nm = (c.name || '').toLowerCase();

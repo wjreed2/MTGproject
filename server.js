@@ -4534,6 +4534,45 @@ app.post('/api/decks/analyze-wizard', requireAuth, async (req, res) => {
   }
 });
 
+/** Save user feedback on a single suggestion (speech-bubble on semantic adds). */
+app.post('/api/decks/suggestion-feedback', requireAuth, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const feedback = String(b.feedback || '').trim().slice(0, 2000);
+    const cardName = String(b.cardName || '').trim().slice(0, 255);
+    if (!feedback || !cardName) return res.status(400).json({ error: 'cardName and feedback required' });
+    await db().query(
+      `INSERT INTO suggestion_feedback (account_id, deck_id, engine, goal, card_name, score, feedback, created_at)
+       VALUES (?,?,?,?,?,?,?,?)`,
+      [req.accountId,
+       b.deckId != null ? String(b.deckId).slice(0, 64) : null,
+       ['semantic', 'classic', 'hybrid'].includes(b.engine) ? b.engine : 'semantic',
+       b.goal != null ? String(b.goal).slice(0, 60) : null,
+       cardName,
+       Number.isFinite(Number(b.score)) ? Number(b.score) : null,
+       feedback, Date.now()]);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('[suggestion-feedback]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Review recent suggestion feedback (admin). */
+app.get('/api/admin/suggestion-feedback', requireAuth, requireAdminRole, async (req, res) => {
+  try {
+    const limit = Math.min(500, Math.max(1, parseInt(req.query.limit) || 100));
+    const [rows] = await db().query(
+      `SELECT f.id, f.deck_id, f.engine, f.goal, f.card_name, f.score, f.feedback, f.created_at, a.email
+         FROM suggestion_feedback f JOIN accounts a ON a.id = f.account_id
+        ORDER BY f.created_at DESC LIMIT ?`, [limit]);
+    res.json({ feedback: rows });
+  } catch (e) {
+    console.error('[suggestion-feedback]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Games ─────────────────────────────────────────────────────────────────────
 
 app.get('/api/games', requireAuth, async (req, res) => {
@@ -6455,6 +6494,36 @@ async function ensureScryfallTagCacheTable() {
   } finally {
     conn.release();
   }
+}
+
+// User feedback on individual suggestions (the little speech-bubble on semantic
+// adds). Free text plus enough context (deck, card, score, goal, engine) to review
+// misses later without asking the user anything.
+async function ensureSuggestionFeedbackTable() {
+  await db().query(`
+    CREATE TABLE IF NOT EXISTS suggestion_feedback (
+      id         BIGINT AUTO_INCREMENT PRIMARY KEY,
+      account_id INT          NOT NULL,
+      deck_id    VARCHAR(64)  NULL,
+      engine     VARCHAR(16)  NOT NULL DEFAULT 'semantic',
+      goal       VARCHAR(60)  NULL,
+      card_name  VARCHAR(255) NOT NULL,
+      score      DECIMAL(6,2) NULL,
+      feedback   TEXT         NOT NULL,
+      created_at BIGINT       NOT NULL,
+      source     VARCHAR(16)  NOT NULL DEFAULT 'local',
+      remote_id  BIGINT       NULL,
+      KEY idx_sf_created (created_at),
+      KEY idx_sf_account (account_id),
+      UNIQUE KEY uq_sf_remote (source, remote_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+  // guarded ALTERs for tables created before the prod→dev mirror existed
+  for (const sql of [
+    `ALTER TABLE suggestion_feedback ADD COLUMN source VARCHAR(16) NOT NULL DEFAULT 'local'`,
+    `ALTER TABLE suggestion_feedback ADD COLUMN remote_id BIGINT NULL`,
+    `ALTER TABLE suggestion_feedback ADD UNIQUE KEY uq_sf_remote (source, remote_id)`,
+  ]) { try { await db().query(sql); } catch (_) { /* exists */ } }
 }
 
 // engine2 card-semantics tables (see docs/engine2-plan.md). card_semantics holds one CardIR
@@ -9491,6 +9560,22 @@ app.get('/api/internal/semantics-ingest/status', requireSemanticsIngestSecret, a
   }
 });
 
+/** Export suggestion feedback for the dev-side review mirror (scripts/feedback-pull.js). */
+app.get('/api/internal/suggestion-feedback', requireSemanticsIngestSecret, async (req, res) => {
+  try {
+    const sinceId = Math.max(0, parseInt(req.query.sinceId) || 0);
+    const [rows] = await db().query(
+      `SELECT f.id, f.deck_id, f.engine, f.goal, f.card_name, f.score, f.feedback, f.created_at, a.email
+         FROM suggestion_feedback f JOIN accounts a ON a.id = f.account_id
+        WHERE f.id > ? AND f.source = 'local'
+        ORDER BY f.id LIMIT 500`, [sinceId]);
+    res.json({ feedback: rows, maxId: rows.length ? rows[rows.length - 1].id : sinceId });
+  } catch (e) {
+    console.error('[suggestion-feedback]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 /** Batch upsert of CardIR rows (card_semantics + replaced card_semantics_axes). */
 app.post('/api/internal/semantics-ingest', requireSemanticsIngestSecret, async (req, res) => {
   const cards = Array.isArray(req.body?.cards) ? req.body.cards : null;
@@ -9602,6 +9687,7 @@ async function start() {
       await ensureCollectionRoleTagsColumns();
       await ensureScryfallTagCacheTable();
       await ensureCardSemanticsTables();
+      await ensureSuggestionFeedbackTable();
       await ensurePrintFingerprintsTable();
       await backfillDeckCardsIfEmpty();
       await backfillEdhrecPercentilesIfNeeded();
