@@ -132,9 +132,19 @@ function scoreTemplate(tpl, hist, comboCount) {
   return coreAvg * 0.75 + supportOf() * 0.25;
 }
 
+// "Elfs" is not a word a deckbuilder would say.
+const _PLURAL_IRREGULAR = { Mouse: 'Mice', Ox: 'Oxen', Octopus: 'Octopuses', Sheep: 'Sheep', Moonfolk: 'Moonfolk', Merfolk: 'Merfolk', Kithkin: 'Kithkin', Fish: 'Fish' };
+function pluralizeType(t) {
+  if (_PLURAL_IRREGULAR[t]) return _PLURAL_IRREGULAR[t];
+  if (/(?:f|fe)$/.test(t)) return t.replace(/fe?$/, 'ves');     // Elf → Elves, Wolf → Wolves
+  if (/[^aeiou]y$/.test(t)) return t.replace(/y$/, 'ies');      // Harpy → Harpies
+  if (/(?:s|x|z|ch|sh)$/.test(t)) return t + 'es';              // Fox → Foxes
+  return t + 's';
+}
+
 function summarize(goal, hist, tribalHit) {
   if (goal.goal.startsWith('tribal:')) {
-    return `This deck wants to overwhelm with ${tribalHit.type}s — ${tribalHit.bodies} ${tribalHit.type} bodies` +
+    return `This deck wants to overwhelm with ${pluralizeType(tribalHit.type)} — ${tribalHit.bodies} ${tribalHit.type} bodies` +
       (tribalHit.lords ? ` and ${tribalHit.lords} lords/boosters` : '') + '.';
   }
   const tpl = TEMPLATES.find(t => t.key === goal.goal);
