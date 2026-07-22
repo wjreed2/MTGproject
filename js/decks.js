@@ -6995,6 +6995,48 @@ const _SUGGEST_E2_UNAVAILABLE_HTML =
   '<div class="deck-tab-muted" style="padding:.75rem 1rem">Semantic analysis is unavailable for this deck' +
   ' (offline, or too many of its cards have no semantics data yet) — switch to Classic for role-tag suggestions.</div>';
 
+// ── suggestion feedback (speech-bubble on semantic adds) ─────────────────────
+function _toggleSuggestFeedback(btn) {
+  const item = btn.closest('.suggest-item');
+  const strip = item && item.querySelector('.suggest-feedback');
+  if (!strip) return;
+  const open = strip.style.display !== 'none';
+  strip.style.display = open ? 'none' : 'flex';
+  if (!open) { const inp = strip.querySelector('input'); if (inp) inp.focus(); }
+}
+
+async function _sendSuggestFeedback(btn) {
+  const strip = btn.closest('.suggest-feedback');
+  const input = strip && strip.querySelector('input');
+  const text = (input && input.value || '').trim();
+  if (!text) { showNotif('Type a little feedback first', true); return; }
+  const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+  btn.disabled = true;
+  try {
+    const res = await fetch(mtgApiRoot() + '/decks/suggestion-feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        deckId: deck && deck.id != null ? deck.id : null,
+        cardName: strip.dataset.card || '',
+        score: Number(strip.dataset.score) || null,
+        goal: strip.dataset.goal || null,
+        engine: 'semantic',
+        feedback: text,
+      }),
+    });
+    if (!res.ok) throw new Error('save failed');
+    input.value = '';
+    strip.style.display = 'none';
+    showNotif('Feedback saved — thanks');
+  } catch (_) {
+    showNotif('Could not save feedback', true);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 // ── planning-zone awareness ───────────────────────────────────────────────────
 // Names on the planned-adds board — never re-suggest what the user already decided.
 function _plannedAddNames(deck) {
@@ -7788,14 +7830,22 @@ async function _renderAddSuggestions(deck) {
           : (sid
             ? `<button class="btn btn-outline btn-sm" style="padding:2px 10px;font-size:.7rem"${addTitle} onclick="${swapsOnE2 ? `addScryfallCardToAdds('${sid}')` : `addScryfallCardToDeck('${sid}')`}">+ Add</button>`
             : '');
+        const goalKey = (e2.goals && e2.goals[0] && e2.goals[0].goal) || '';
+        const fbBtn = `<button type="button" class="btn btn-ghost btn-sm" title="Give feedback on this pick" aria-label="Give feedback on this pick" style="padding:2px 5px;flex-shrink:0" onclick="_toggleSuggestFeedback(this)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></svg></button>`;
+        const fbStrip = `<div class="suggest-feedback" data-card="${escapeHtml(name)}" data-score="${score}" data-goal="${escapeHtml(goalKey)}" style="display:none;gap:6px;align-items:center;padding:.3rem .75rem .5rem">
+            <input type="text" maxlength="500" placeholder="What's right or wrong about this pick?" style="flex:1;font-size:.74rem;padding:4px 8px;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;color:var(--text)" onkeydown="if(event.key==='Enter')_sendSuggestFeedback(this.parentNode.querySelector('button'))">
+            <button type="button" class="btn btn-outline btn-sm" style="padding:2px 10px;font-size:.7rem" onclick="_sendSuggestFeedback(this)">Send</button>
+          </div>`;
         return `<div class="suggest-item">
           <div class="cut-candidate-row">
             <button type="button" class="cut-score-badge cut-why-toggle" aria-expanded="false" aria-label="Why suggested · score ${score}" onclick="_toggleSuggestWhy(this)">${score}<span class="cut-why-caret" aria-hidden="true">⌄</span></button>
             <span class="cut-card-name" onclick="openCardDetail('${sid}','deck')">${displayName}</span>
             ${priceTag}${ownTag}
             ${addBtn}
+            ${fbBtn}
           </div>
           ${why}
+          ${fbStrip}
         </div>`;
       }).join('');
       return;
