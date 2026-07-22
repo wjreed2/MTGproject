@@ -739,14 +739,15 @@
               along with mana curve and mana value compared to your commander.
               Choose an archetype or leave Auto; use ⚙ to adjust role targets.
               Cut removes one copy.
-              The Classic/Semantic toggle switches between these role-tag heuristics and the
-              semantic engine (deck goal &amp; synergy analysis).
+              The Classic / Hybrid / Semantic toggle switches engines: role-tag heuristics,
+              Classic staples plus sandbox theme, or the partner semantic engine.
             </span>
           </span>
           <span id="deckCutOverBadge" class="tag tag-red" style="margin-left:.5rem"></span>
           <div class="deck-suggest-spacer" style="flex:1"></div>
-          <div class="view-toggle deck-algo-toggle" role="group" aria-label="Suggestion engine" title="Classic = role-tag heuristics. Semantic = card-understanding engine (deck goal, synergies, real reasons).">
+          <div class="view-toggle deck-algo-toggle" role="group" aria-label="Suggestion engine" title="Classic = role-tag heuristics. Hybrid = Classic staples + sandbox theme. Semantic = partner card-understanding engine.">
             <button type="button" id="deckCutAlgoClassicBtn" style="padding:2px 8px;font-size:.72rem" aria-pressed="false" onclick="setSuggestAlgoMode('classic')">Classic</button>
+            <button type="button" id="deckCutAlgoHybridBtn" style="padding:2px 8px;font-size:.72rem" aria-pressed="false" onclick="setSuggestAlgoMode('hybrid')">Hybrid</button>
             <button type="button" id="deckCutAlgoSemanticBtn" class="active" style="padding:2px 8px;font-size:.72rem" aria-pressed="true" onclick="setSuggestAlgoMode('semantic')">Semantic</button>
           </div>
           <div class="cut-playstyle-wrap suggest-classic-only" title="Playstyle — shifts cut thresholds (Aggro lowers ramp/removal targets, Control raises them)">
@@ -790,13 +791,14 @@
               Use <strong>Collection</strong> / <strong>All Cards</strong> to restrict suggestions to your collection
               or search the full local card database in your colors.
               Shares the archetype and playstyle targets with Suggested Cuts. Add puts one copy in the deck.
-              The Classic/Semantic toggle switches between these role-tag heuristics and the
-              semantic engine (deck goal &amp; synergy analysis).
+              The Classic / Hybrid / Semantic toggle switches engines: role-tag heuristics,
+              Classic staples plus sandbox theme, or the partner semantic engine.
             </span>
           </span>
           <div class="deck-suggest-spacer" style="flex:1"></div>
-          <div class="view-toggle deck-algo-toggle" role="group" aria-label="Suggestion engine" title="Classic = role-tag heuristics. Semantic = card-understanding engine (deck goal, synergies, real reasons).">
+          <div class="view-toggle deck-algo-toggle" role="group" aria-label="Suggestion engine" title="Classic = role-tag heuristics. Hybrid = Classic staples + sandbox theme. Semantic = partner card-understanding engine.">
             <button type="button" id="deckAddAlgoClassicBtn" style="padding:2px 8px;font-size:.72rem" aria-pressed="false" onclick="setSuggestAlgoMode('classic')">Classic</button>
+            <button type="button" id="deckAddAlgoHybridBtn" style="padding:2px 8px;font-size:.72rem" aria-pressed="false" onclick="setSuggestAlgoMode('hybrid')">Hybrid</button>
             <button type="button" id="deckAddAlgoSemanticBtn" class="active" style="padding:2px 8px;font-size:.72rem" aria-pressed="true" onclick="setSuggestAlgoMode('semantic')">Semantic</button>
           </div>
           <div class="view-toggle deck-algo-toggle" id="deckAnalyzeProjToggle" role="group" aria-label="Analysis basis" title="Analyze the deck as it is now, or as it will be after applying your planned adds &amp; cuts." style="display:none">

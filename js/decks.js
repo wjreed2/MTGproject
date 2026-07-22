@@ -1179,7 +1179,9 @@ function canEditActiveDeck() {
   return activeDeckPermission() !== 'view';
 }
 
-const SCRYFALL_AUTO_TAGS = [
+const SCRYFALL_AUTO_TAGS = (typeof PROJECT_ROLE_TAGS !== 'undefined' && Array.isArray(PROJECT_ROLE_TAGS))
+  ? PROJECT_ROLE_TAGS
+  : [
   { label: 'Ramp',           otag: 'ramp' },
   { label: 'Card Draw',      otag: 'draw' },
   { label: 'Removal',        otag: 'removal' },
@@ -1674,7 +1676,7 @@ function toggleDeckGoalSetting() {
   const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
   if (deck && typeof renderDeckList === 'function') renderDeckList(deck);
   showNotif(deckGoalFeatureEnabled
-    ? 'Deck goal analysis enabled — pick Classic or Semantic in the suggestion panels'
+    ? 'Deck goal analysis enabled — pick Classic, Hybrid, or Semantic in the suggestion panels'
     : 'Deck goal analysis hidden — suggestions use the classic role heuristics');
 }
 
@@ -5252,7 +5254,7 @@ function _stackTile(c, zone = 'main', poolHints = null) {
     <div class="deck-stack-card deck-zone-draggable${notOwned ? ' not-owned' : ''}${isGameChanger ? ' is-game-changer' : ''}${validCls}${swapCls}" data-uid="${dragKey}" data-zone="${isPlannedAdd ? 'add' : zone}" data-sid="${c.scryfallId || ''}" data-name="${safeName}" data-card-key="${cardKey}" data-card-name-key="${nameKey.replace(/"/g, '&quot;')}" onpointerdown="_deckZoneCardPointerDown(event)">
       <div class="stack-wrap">
         ${img
-          ? `<img src="${escapeHtml(img)}" draggable="false" class="stack-main${c.isCommander ? ' is-commander' : ''}${imgFadeLoadedCls(img) ? ' loaded' : ''}" alt="${escapeHtml(c.name)}" loading="lazy" decoding="async" onload="this.classList.add('loaded');imgFadeSeenMark(this)" onerror="this.classList.add('loaded')" style="${imgStyle}">`
+          ? `<img src="${escapeHtml(img)}" draggable="false" class="stack-main${c.isCommander ? ' is-commander' : ''}${imgFadeLoadedCls(img) ? ' loaded' : ''}" alt="${escapeHtml(c.name)}" loading="${imgFadeLoadingAttr(img)}" decoding="async" onload="this.classList.add('loaded');imgFadeSeenMark(this)" onerror="this.classList.add('loaded')" style="${imgStyle}">`
           : `<div class="stack-main stack-face-fallback${c.isCommander ? ' is-commander' : ''}"
                style="aspect-ratio:0.715;background:var(--bg4);display:flex;align-items:center;justify-content:center;color:var(--text3);padding:4px;text-align:center;${imgStyle}">${escapeHtml(c.name)}</div>`}
         <div class="stack-qty">×${qty}</div>
@@ -6246,7 +6248,7 @@ function _deckTokenTileHtml(t) {
   return `<div class="deck-stack-card deck-token-card" data-sid="${t.id}">
       <div class="stack-wrap">
         ${img
-          ? `<img src="${escapeHtml(img)}" class="stack-main${imgFadeLoadedCls(img) ? ' loaded' : ''}" alt="${safeName}" loading="lazy" decoding="async" onload="this.classList.add('loaded');imgFadeSeenMark(this)" onerror="this.classList.add('loaded')">`
+          ? `<img src="${escapeHtml(img)}" class="stack-main${imgFadeLoadedCls(img) ? ' loaded' : ''}" alt="${safeName}" loading="${imgFadeLoadingAttr(img)}" decoding="async" onload="this.classList.add('loaded');imgFadeSeenMark(this)" onerror="this.classList.add('loaded')">`
           : `<div class="stack-main stack-face-fallback" style="aspect-ratio:0.715;background:var(--bg4);display:flex;align-items:center;justify-content:center;color:var(--text3);padding:4px;text-align:center;font-size:0.62rem">${safeName}</div>`}
       </div>
     </div>`;
@@ -6879,22 +6881,28 @@ function _toggleCutPanel() {
   if (btn) btn.classList.toggle('is-rotated', collapsed);
 }
 
-// ── suggestion engine mode (Classic ↔ Semantic) ───────────────────────────────
-// Explicit per-user toggle rendered in both Suggested Adds/Cuts headers. Semantic mode
-// uses POST /api/decks/analyze exclusively and reports when analysis is unavailable —
-// no silent fallback; Classic mode never calls the endpoint. The Settings-level Deck
-// Goal toggle stays the master switch: when off, the header toggle hides and Classic
-// is forced.
+// ── suggestion engine mode (Classic ↔ Hybrid ↔ Semantic) ─────────────────────
+// Explicit per-user toggle in Suggested Adds/Cuts headers.
+//   Classic  — role-tag heuristics only
+//   Hybrid   — Classic staples + engine2.1wizard theme (sandbox); partner engine2 untouched
+//   Semantic — partner POST /api/decks/analyze only (no silent fallback)
+// Settings Deck Goal toggle is master: when off, header toggle hides and Classic is forced.
 const SUGGEST_ALGO_KEY = 'mtg_suggest_algo';
+function _normalizeSuggestAlgoMode(raw) {
+  const v = String(raw || '').toLowerCase();
+  if (v === 'classic' || v === 'hybrid' || v === 'semantic') return v;
+  return 'semantic';
+}
 let _suggestAlgoMode = (() => {
-  try { return localStorage.getItem(SUGGEST_ALGO_KEY) === 'classic' ? 'classic' : 'semantic'; }
+  try { return _normalizeSuggestAlgoMode(localStorage.getItem(SUGGEST_ALGO_KEY)); }
   catch { return 'semantic'; }
 })();
 
-function _semanticModeOn() { return _deckGoalEnabled() && _suggestAlgoMode !== 'classic'; }
+function _semanticModeOn() { return _deckGoalEnabled() && _suggestAlgoMode === 'semantic'; }
+function _hybridModeOn() { return _deckGoalEnabled() && _suggestAlgoMode === 'hybrid'; }
 
 function setSuggestAlgoMode(mode) {
-  const next = mode === 'classic' ? 'classic' : 'semantic';
+  const next = _normalizeSuggestAlgoMode(mode);
   if (_suggestAlgoMode === next) return;
   _suggestAlgoMode = next;
   try { localStorage.setItem(SUGGEST_ALGO_KEY, next); } catch { /* quota */ }
@@ -6903,21 +6911,29 @@ function setSuggestAlgoMode(mode) {
   if (deck) { _renderCutSuggestions(deck); _renderAddSuggestions(deck); }
 }
 
-// Active-state on both header toggles + hide the classic-only header controls
-// (pool toggle, playstyle sliders, archetype selects, Plan, ⚙) in semantic mode.
+// Active-state on both header toggles + hide classic-only header controls
+// (pool toggle, playstyle sliders, archetype selects, Plan, ⚙) in pure Semantic mode.
+// Hybrid keeps classic controls visible (staple half still uses them).
 function _syncSuggestAlgoUI() {
-  const semantic = _semanticModeOn();
-  for (const [clsId, semId] of [
-    ['deckCutAlgoClassicBtn', 'deckCutAlgoSemanticBtn'],
-    ['deckAddAlgoClassicBtn', 'deckAddAlgoSemanticBtn'],
+  const mode = _deckGoalEnabled() ? _suggestAlgoMode : 'classic';
+  const semantic = mode === 'semantic';
+  for (const [clsId, hybId, semId] of [
+    ['deckCutAlgoClassicBtn', 'deckCutAlgoHybridBtn', 'deckCutAlgoSemanticBtn'],
+    ['deckAddAlgoClassicBtn', 'deckAddAlgoHybridBtn', 'deckAddAlgoSemanticBtn'],
   ]) {
-    const c = document.getElementById(clsId), s = document.getElementById(semId);
+    const c = document.getElementById(clsId);
+    const h = document.getElementById(hybId);
+    const s = document.getElementById(semId);
     if (!c || !s) continue;
     if (c.parentElement) c.parentElement.style.display = _deckGoalEnabled() ? '' : 'none';
-    c.classList.toggle('active', !semantic);
-    s.classList.toggle('active', semantic);
-    c.setAttribute('aria-pressed', String(!semantic));
-    s.setAttribute('aria-pressed', String(semantic));
+    c.classList.toggle('active', mode === 'classic');
+    s.classList.toggle('active', mode === 'semantic');
+    c.setAttribute('aria-pressed', String(mode === 'classic'));
+    s.setAttribute('aria-pressed', String(mode === 'semantic'));
+    if (h) {
+      h.classList.toggle('active', mode === 'hybrid');
+      h.setAttribute('aria-pressed', String(mode === 'hybrid'));
+    }
   }
   document.querySelectorAll('#tab-decks .suggest-classic-only').forEach(el => {
     el.style.display = semantic ? 'none' : '';
@@ -7240,38 +7256,29 @@ function _addsCompareScored(a, b, { planOnlyBackfill, scoreOnly }) {
   return (b.s.score || 0) - (a.s.score || 0);
 }
 
-/** True when a scored Add meets the ≥7/10 display floor (absolute scale). */
-function _addsMeetsDisplayFloor(entry) {
-  const raw = Number(entry?.s?.score);
-  if (typeof meetsAddDisplayFloor === 'function') return meetsAddDisplayFloor(raw);
-  if (typeof addDisplayScore === 'function') return addDisplayScore(raw) + 1e-9 >= 7;
-  return Number.isFinite(raw) && raw > 0;
-}
-
-/** Pick top Adds suggestions after CK gate (testable). Never returns below 7/10. */
+/** Pick top Adds suggestions after CK gate (testable). */
 function _addsSelectTopPicks(ownedScored, unownedScored, opts) {
   const {
     gate, deckPlan, planOnlyBackfill, scoreOnly, count = _ADD_SUGGESTION_COUNT,
   } = opts || {};
   const gateFn = gate || (() => true);
-  const strong = (list) => (list || []).filter(gateFn).filter(_addsMeetsDisplayFloor);
   const pool = [
-    ...strong(ownedScored),
-    ...strong(unownedScored),
+    ...ownedScored.filter(gateFn),
+    ...unownedScored.filter(gateFn),
   ];
   if (typeof applyPlanBudgetToAddsPicks === 'function' && deckPlan
       && deckPlan.roughMaxPerCardBudgetUsd != null) {
     pool.sort((a, b) => _addsCompareScored(a, b, { planOnlyBackfill, scoreOnly }));
     const budgeted = applyPlanBudgetToAddsPicks(pool, deckPlan, count);
-    return (budgeted.picks || []).filter(_addsMeetsDisplayFloor);
+    return budgeted.picks;
   }
   if (scoreOnly) {
     pool.sort((a, b) => _addsCompareScored(a, b, { planOnlyBackfill, scoreOnly: true }));
     return pool.slice(0, count);
   }
-  const picks = strong(ownedScored).slice(0, count);
+  const picks = ownedScored.filter(gateFn).slice(0, count);
   if (picks.length < count) {
-    picks.push(...strong(unownedScored).slice(0, count - picks.length));
+    picks.push(...unownedScored.filter(gateFn).slice(0, count - picks.length));
   }
   return picks;
 }
@@ -7295,12 +7302,26 @@ function _addCurveBucketCounts(cards) {
 }
 
 // Role deficits + curve deficits for the active deck (uses the shared cut thresholds).
+// Prompt 25: planned cuts subtract from have; confirmed plan adds Plan sub-tag deficits.
 function _computeAddContext(deck) {
   const cards = deck.cards || [];
   const thresholds = _computeCutThresholds(deck);
+  const swapsOn = typeof _deckSwapsEnabled === 'function' && _deckSwapsEnabled(deck);
+  const plannedCuts = swapsOn && typeof _effectivePlannedCuts === 'function'
+    ? _effectivePlannedCuts(deck) : [];
+  const cutQtyFor = (card) => {
+    if (!plannedCuts.length) return 0;
+    const key = typeof getCardInventoryKey === 'function' ? getCardInventoryKey(card) : '';
+    return typeof _plannedCutQtyForDeckSlot === 'function'
+      ? _plannedCutQtyForDeckSlot(plannedCuts, key, card) : 0;
+  };
+  const effectiveQty = (card) => Math.max(0, (card.qty || 1) - cutQtyFor(card));
+
   const roleCount = {};
   for (const card of cards) {
-    for (const tag of _probTagsOnCard(card, deck)) roleCount[tag] = (roleCount[tag] || 0) + (card.qty || 1);
+    const eq = effectiveQty(card);
+    if (eq <= 0) continue;
+    for (const tag of _probTagsOnCard(card, deck)) roleCount[tag] = (roleCount[tag] || 0) + eq;
   }
   // Plan-count pool: match Cuts candidates — exclude commander, tokens, and lands.
   const nonLandNonCmd = cards.filter(c =>
@@ -7308,8 +7329,10 @@ function _computeAddContext(deck) {
     && !_isLandCardSafe(c)
     && !_isTokenTypeDeckCard(c));
   const planCount = nonLandNonCmd.reduce((s, c) => {
+    const eq = effectiveQty(c);
+    if (eq <= 0) return s;
     const t = _probTagsOnCard(c, deck).filter(x => x !== 'Land' && x !== 'Commander');
-    return t.length === 0 ? s + (c.qty || 1) : s;
+    return t.length === 0 ? s + eq : s;
   }, 0);
   const deficits = {};
   for (const [tag, thr] of Object.entries(thresholds)) {
@@ -7318,6 +7341,35 @@ function _computeAddContext(deck) {
     const have = tag === 'Plan' ? planCount : (roleCount[tag] || 0);
     deficits[tag] = Math.max(0, thr - have);
   }
+
+  const plan = typeof getDeckPlan === 'function' ? getDeckPlan(deck) : null;
+  const planSubTagRows = [];
+  const planSubTagDeficits = {};
+  if (plan && typeof isPlanConfirmed === 'function' && isPlanConfirmed(plan)
+      && typeof activePlanSubTags === 'function') {
+    const planThr = thresholds.Plan || (typeof PLAN_PARENT_DEFAULT_TARGET === 'number' ? PLAN_PARENT_DEFAULT_TARGET : 30);
+    const active = activePlanSubTags(plan, planThr);
+    for (const row of active) {
+      let have = 0;
+      for (const tag of (row.projectTags || [])) have += roleCount[tag] || 0;
+      // Avoid double-counting cards that match multiple tags in the same row.
+      if ((row.projectTags || []).length > 1) {
+        have = 0;
+        for (const card of cards) {
+          const eq = effectiveQty(card);
+          if (eq <= 0) continue;
+          const tags = _probTagsOnCard(card, deck);
+          if ((row.projectTags || []).some(t => tags.includes(t))) have += eq;
+        }
+      }
+      const deficit = Math.max(0, row.target - have);
+      planSubTagRows.push({ ...row, have, deficit });
+      planSubTagDeficits[row.id] = deficit;
+      // P6′: only surface sub-tag deficit when Plan itself still has room.
+      if ((deficits.Plan || 0) <= 0) planSubTagDeficits[row.id] = 0;
+    }
+  }
+
   const buckets = [0, 1, 2, 3, 4, 5, 6, 7];
   const curveCounts = _addCurveBucketCounts(cards);
   const curveTotal = curveCounts.reduce((s, n) => s + n, 0) || 1;
@@ -7327,6 +7379,9 @@ function _computeAddContext(deck) {
   const curveDeficit = buckets.map((_, i) => Math.max(0, idealWeights[i] - (curveCounts[i] / curveTotal)));
   return {
     thresholds, roleCount, planCount, deficits, curveDeficit, curveCounts,
+    planSubTagRows, planSubTagDeficits,
+    deckPlan: plan,
+    deck,
     // Same deck context the replacement scorer uses: commander-driven tribal types,
     // commander cast-trigger themes, and spell-type counts for gating "whenever you cast …".
     tribes: _deckTribalTypes(deck),
@@ -7341,7 +7396,7 @@ function _utilityAddRoles(roles) {
 }
 
 function _scoreAddCandidate(card, roles, ctx) {
-  // Score = (D × M) + C_eff + L + E + B − P + V + T + K
+  // Score = (D × M × hybrid) + C_eff + L + E + B − P + V + T + K + H
   // Pure term math lives in js/adds-scoring.js (deterministic; no runtime AI).
   const blob = _replacementOracleBlob(card);
   const real = _utilityAddRoles(roles);
@@ -7364,11 +7419,24 @@ function _scoreAddCandidate(card, roles, ctx) {
   const theme = (ctx.castThemes || []).find(t => t.test(card));
   const themeBonus = theme ? 2 : 0;
 
+  const deckPlan = ctx.deckPlan || null;
+  const planDeclared = typeof isPlanDeclared === 'function' && isPlanDeclared(deckPlan);
+  const planConfirmed = typeof isPlanConfirmed === 'function' && isPlanConfirmed(deckPlan);
+  let planMatch = 0;
+  if (planDeclared && typeof planMatchScore === 'function' && ctx.deck) {
+    planMatch = planMatchScore(card, deckPlan, ctx.deck) || 0;
+  }
+
   // No in-repo spellslinger archetype hook — do not invent one; B gating stays off.
   const scored = typeof scoreAddCandidateTerms === 'function'
-    ? scoreAddCandidateTerms(card, roles, ctx, { gate, tribal, tribe, theme, themeBonus })
+    ? scoreAddCandidateTerms(card, roles, ctx, {
+      gate, tribal, tribe, theme, themeBonus,
+      planMatch, planDeclared, planConfirmed,
+      hybridRoleModifiers: deckPlan?.hybridRoleModifiers || null,
+    })
     : null;
   if (scored) {
+    scored.planMatch = planMatch;
     if (typeof logAddScoreTerms === 'function' && typeof isAddsScoreDebugEnabled === 'function'
         && isAddsScoreDebugEnabled()) {
       logAddScoreTerms(card?.name || '?', scored, true);
@@ -7481,7 +7549,123 @@ function _buildAddWhyLines(s, ctx) {
   if (s.versatility > 0.01) lines.push({ text: `Versatile — fills ${s.roles.length} roles`, val: _fmtWhyVal(s.versatility) });
   if (s.tribal > 0.01) lines.push({ text: `Fits your ${escapeHtml(_capWord(s.tribe))} theme`, val: _fmtWhyVal(s.tribal) });
   if (s.themeBonus > 0.01 && s.theme) lines.push({ text: `Feeds your commander's trigger (${escapeHtml(s.theme.label)})`, val: _fmtWhyVal(s.themeBonus) });
+  if ((s.H || s.terms?.H || 0) > 0.01) {
+    lines.push({ text: `Matches your confirmed deck plan`, val: _fmtWhyVal(s.H || s.terms.H) });
+  }
   return lines;
+}
+
+async function _fetchWizardThemeAdds(deck, plan) {
+  const commander = (deck.cards || []).find(c => c.isCommander)?.name || deck.commander || null;
+  const ownedNames = [];
+  if (typeof _ownershipCollection === 'function') {
+    const seen = new Set();
+    for (const c of _ownershipCollection()) {
+      const nm = (c.name || '').toLowerCase();
+      if (nm && !seen.has(nm)) { seen.add(nm); ownedNames.push(nm); }
+    }
+  }
+  const plannedCuts = (typeof _effectivePlannedCuts === 'function' ? _effectivePlannedCuts(deck) : [])
+    .map(c => ({ name: c.name, count: c.qty || 1 }));
+  const plannedAdds = (typeof _deckPlannedAdds === 'function' ? _deckPlannedAdds(deck) : (deck.adds || []))
+    .map(c => ({ name: c.name, count: c.qty || 1 }));
+  const res = await fetch('/api/decks/analyze-wizard', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      cards: (deck.cards || []).map(c => ({ name: c.name, count: c.qty || 1, isCommander: !!c.isCommander })),
+      commander,
+      ownedNames,
+      plannedCuts,
+      plannedAdds,
+      plan: plan || {},
+    }),
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+  if ((data.coverage?.semantics ?? 0) < 0.5) return [];
+  return Array.isArray(data.adds) ? data.adds : [];
+}
+
+/** Classic staple rows + sandbox theme rows; dedupe by name; cap at suggestion count. */
+function _mergeHybridAddPicks(classicPicks, wizardAdds, ctx) {
+  const primary = (typeof ADDS_PRIMARY_ROLES !== 'undefined' && ADDS_PRIMARY_ROLES.length)
+    ? ADDS_PRIMARY_ROLES : ['Ramp', 'Card Draw', 'Removal'];
+  const primaryNeed = typeof hasPrimaryNeed === 'function' && hasPrimaryNeed(ctx?.deficits);
+  const staple = [];
+  const restClassic = [];
+  for (const it of (classicPicks || [])) {
+    const roles = it.s?.roles || [];
+    const fillsPrimary = roles.some(r => primary.includes(r) && (ctx?.deficits?.[r] || 0) > 0);
+    if (primaryNeed && fillsPrimary) staple.push(it);
+    else restClassic.push(it);
+  }
+  const themeSlots = Math.min(6, Math.max(2, Math.floor(_ADD_SUGGESTION_COUNT / 2)));
+  const stapleSlots = _ADD_SUGGESTION_COUNT - themeSlots;
+  const seen = new Set();
+  const out = [];
+  const push = (it) => {
+    const nm = String(it.card?.name || it.name || '').toLowerCase();
+    if (!nm || seen.has(nm)) return;
+    seen.add(nm);
+    out.push(it);
+  };
+  for (const it of staple.slice(0, stapleSlots)) push(it);
+  for (const a of (wizardAdds || []).slice(0, themeSlots)) {
+    push({
+      card: {
+        name: a.name,
+        id: a.scryfallId || '',
+        scryfallId: a.scryfallId || '',
+        type: a.typeLine || '',
+      },
+      owned: !!a.owned,
+      s: {
+        score: Number(a.score) || 0,
+        roles: [],
+        terms: { H: 0 },
+        breakdown: a.breakdown,
+        reasons: a.reasons,
+        source: 'sandbox',
+        planMatch: 1,
+      },
+    });
+  }
+  for (const it of restClassic) {
+    if (out.length >= _ADD_SUGGESTION_COUNT) break;
+    push(it);
+  }
+  return out.slice(0, _ADD_SUGGESTION_COUNT);
+}
+
+function _renderPrimaryRoleStrengthStrip(ctx) {
+  const roles = (typeof ADDS_PRIMARY_ROLES !== 'undefined' && ADDS_PRIMARY_ROLES.length)
+    ? ADDS_PRIMARY_ROLES : ['Ramp', 'Card Draw', 'Removal'];
+  const bits = roles.map(role => {
+    const thr = ctx.thresholds?.[role] || 0;
+    const have = ctx.roleCount?.[role] || 0;
+    if (!(thr > 0)) return '';
+    const strong = have >= thr;
+    const label = strong
+      ? `${escapeHtml(role)} strong at ${have}/${thr}`
+      : `${escapeHtml(role)} ${have}/${thr}`;
+    return `<span class="add-strength-chip" style="margin-right:.55rem;font-size:.72rem;color:${strong ? 'var(--teal)' : 'var(--text2)'}">${label}</span>`;
+  }).filter(Boolean);
+  const planThr = ctx.thresholds?.Plan || 30;
+  const planHave = ctx.planCount || 0;
+  bits.push(`<span class="add-strength-chip" style="margin-right:.55rem;font-size:.72rem;color:var(--text3)">Plan ${planHave}/${planThr}</span>`);
+  for (const row of (ctx.planSubTagRows || []).slice(0, 6)) {
+    const unlocked = (ctx.deficits?.Plan || 0) > 0;
+    bits.push(`<span class="add-strength-chip" style="margin-right:.55rem;font-size:.68rem;color:var(--text3);padding-left:.35rem">↳ ${escapeHtml(row.label)} ${row.have}/${row.target}${unlocked ? '' : ' (after Plan)'}</span>`);
+  }
+  const primaryNeed = typeof hasPrimaryNeed === 'function'
+    ? hasPrimaryNeed(ctx.deficits)
+    : roles.some(r => (ctx.deficits?.[r] || 0) >= 1);
+  const unlock = primaryNeed
+    ? ''
+    : `<div style="font-size:.7rem;color:var(--text3);margin-top:.25rem">Staples filled — secondary roles unlocked.</div>`;
+  if (!bits.length) return '';
+  return `<div class="add-strength-strip" style="padding:.45rem .85rem;border-bottom:1px solid var(--border)">${bits.join('')}${unlock}</div>`;
 }
 
 function _buildCutWhyLines(b) {
@@ -7702,7 +7886,7 @@ async function _renderAddSuggestions(deck) {
   }
   if (token !== _addSuggestToken) return;
 
-  // Keep trying: Collection with no ≥7/10 picks → search All Cards catalog.
+  // Keep trying: Collection with no score>0 picks → search All Cards catalog.
   let usedCatalogFallback = false;
   if (!isAllCards) {
     const collectionStrong = _addsSelectTopPicks(ownedScored, unownedScored, {
@@ -7713,7 +7897,7 @@ async function _renderAddSuggestions(deck) {
     });
     if (!collectionStrong.length) {
       usedCatalogFallback = true;
-      body.innerHTML = '<div class="deck-tab-muted" style="padding:.75rem 1rem">No strong collection picks — searching All Cards…</div>';
+      body.innerHTML = '<div class="deck-tab-muted" style="padding:.75rem 1rem">No collection picks — searching All Cards…</div>';
       try {
         const res = await fetch('/api/cards/adds-catalog', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -7773,9 +7957,7 @@ async function _renderAddSuggestions(deck) {
     logDeckPlan('budget-filter', { poolMode: _addsPoolMode, pickCount: picks.length });
   }
 
-  // Re-read plan from the live deck for the banner. getDeckPlan() returns a snapshot, so a
-  // render that started before the wizard saved would otherwise keep painting "No deck plan"
-  // even after deck.plan was written. Also abort if a newer render superseded us before paint.
+  // Re-read plan from the live deck for the banner / hybrid gate.
   if (token !== _addSuggestToken) return;
   const livePlan = typeof getDeckPlan === 'function' ? getDeckPlan(deck) : deckPlan;
 
@@ -7784,16 +7966,30 @@ async function _renderAddSuggestions(deck) {
   if (typeof isPlanDeclared === 'function' && isPlanDeclared(livePlan)) {
     const ps = typeof strategyLabel === 'function' ? strategyLabel(livePlan.primaryStrategyId) : livePlan.primaryStrategyId;
     const wc = typeof winconLabel === 'function' ? winconLabel(livePlan.winConditionId) : livePlan.winConditionId;
-    planBanner = `<div class="deck-plan-banner" style="padding:.45rem .85rem;font-size:.72rem;color:var(--text3);border-bottom:1px solid var(--border)">Plan: ${escapeHtml(ps)} · ${escapeHtml(wc)} <button type="button" class="btn btn-ghost btn-sm" style="padding:0 6px;font-size:.7rem" onclick="openDeckPlanWizard()">Edit</button></div>`;
+    const confirmed = typeof isPlanConfirmed === 'function' && isPlanConfirmed(livePlan);
+    planBanner = `<div class="deck-plan-banner" style="padding:.45rem .85rem;font-size:.72rem;color:var(--text3);border-bottom:1px solid var(--border)">Plan: ${escapeHtml(ps)} · ${escapeHtml(wc)}${confirmed ? '' : ' (confirm in wizard for Hybrid theme)'} <button type="button" class="btn btn-ghost btn-sm" style="padding:0 6px;font-size:.7rem" onclick="openDeckPlanWizard()">Edit</button></div>`;
   } else {
-    planBanner = `<div class="deck-plan-banner" style="padding:.45rem .85rem;font-size:.72rem;color:var(--text3);border-bottom:1px solid var(--border)">No deck plan — Plan-only suggestions stay closed. <button type="button" class="btn btn-ghost btn-sm" style="padding:0 6px;font-size:.7rem" onclick="openDeckPlanWizard()">Set plan</button></div>`;
+    planBanner = `<div class="deck-plan-banner" style="padding:.45rem .85rem;font-size:.72rem;color:var(--text3);border-bottom:1px solid var(--border)">No deck plan — ${ _hybridModeOn() ? 'Hybrid theme picks need a saved plan. ' : 'Plan-only suggestions stay closed. '}<button type="button" class="btn btn-ghost btn-sm" style="padding:0 6px;font-size:.7rem" onclick="openDeckPlanWizard()">Set plan</button></div>`;
   }
 
-  if (!picks.length) {
+  // Hybrid mode: Classic staples + sandbox theme when plan is confirmed.
+  let hybridPicks = picks;
+  const planConfirmed = typeof isPlanConfirmed === 'function' && isPlanConfirmed(livePlan);
+  if (_hybridModeOn() && planConfirmed) {
+    try {
+      const wizardAdds = await _fetchWizardThemeAdds(deck, livePlan);
+      if (token !== _addSuggestToken) return;
+      if (wizardAdds && wizardAdds.length) {
+        hybridPicks = _mergeHybridAddPicks(picks, wizardAdds, ctx);
+      }
+    } catch (_) { /* degrade to classic-only list */ }
+  }
+
+  if (!hybridPicks.length) {
     if (token !== _addSuggestToken) return;
     const hint = (isAllCards || usedCatalogFallback)
-      ? 'No suggestions at 7/10 or better — role targets may be met, or no catalog cards cleared the score floor / keyword gate.'
-      : 'No suggestions at 7/10 or better in your collection. Switch to All Cards, or raise role targets with ⚙.';
+      ? 'No suggestions — role targets may be met, or no catalog cards cleared the score / keyword gate.'
+      : 'No suggestions in your collection. Switch to All Cards, or raise role targets with ⚙.';
     body.innerHTML = planBanner + `<div class="deck-tab-muted" style="padding:.75rem 1rem">${hint}</div>`;
     return;
   }
@@ -7802,21 +7998,29 @@ async function _renderAddSuggestions(deck) {
 
   // With Adds & Cuts on, suggestions land in the planned-adds section instead of the deck.
   const swapsOn = _deckSwapsEnabled(deck);
-  // Badge is absolute: 10/10 = top-tier fit (raw ≥ ceiling), not “first in this list.”
-  body.innerHTML = planBanner + picks.map(({ card, owned, s }) => {
+  // Badge = raw score only (Prompt 24) — no /10 display remap.
+  const strengthStrip = _renderPrimaryRoleStrengthStrip(ctx);
+  body.innerHTML = planBanner + strengthStrip + hybridPicks.map(({ card, owned, s }) => {
     const id = (card.id || card.scryfallId || card.uid || '').replace(/'/g, "\\'");
     const name = card.name || '';
     const safeName = name.replace(/'/g, "\\'");
     const displayName = escapeHtml(name);
-    const score = (typeof formatAddDisplayScore === 'function')
-      ? formatAddDisplayScore(s.score)
-      : (s.score || 0).toFixed(1);
-    const scoreLabel = (typeof formatAddDisplayScore === 'function') ? `${score}/10` : score;
-    const whyLines = _buildAddWhyLines(s, ctx);
-    if ((s.planMatch || 0) > 0) {
+    const scoreLabel = (Number(s.score) || 0).toFixed(1);
+    let whyLines = _buildAddWhyLines(s, ctx);
+    if (s.source === 'sandbox' && Array.isArray(s.breakdown) && s.breakdown.length) {
+      whyLines = s.breakdown.map(b => ({ text: escapeHtml(b.text || ''), val: escapeHtml(b.val || '') }));
+    } else if (s.source === 'sandbox' && Array.isArray(s.reasons) && s.reasons.length) {
+      whyLines = s.reasons.map(r => ({ text: escapeHtml(r), val: '' }));
+    }
+    if ((s.planMatch || 0) > 0 && s.source !== 'sandbox') {
       whyLines.push({ text: `Matches your declared plan`, val: _fmtWhyVal(s.planMatch) });
     }
-    const footer = `Role tags: ${s.roles && s.roles.length ? escapeHtml(s.roles.join(', ')) : '—'} · ${owned ? 'In your collection' : 'Not in your collection'}`;
+    const sourceTag = s.source === 'sandbox'
+      ? '<span class="tag" style="background:rgba(100,140,255,0.12);color:var(--text2);font-size:.62rem;margin:0 .4rem 0 0">theme</span>'
+      : '';
+    const footer = s.source === 'sandbox'
+      ? `Semantic theme fit · ${owned ? 'In your collection' : 'Not in your collection'}`
+      : `Role tags: ${s.roles && s.roles.length ? escapeHtml(s.roles.join(', ')) : '—'} · ${owned ? 'In your collection' : 'Not in your collection'}`;
     const why = _suggestWhyDetailHtml('Why suggested', scoreLabel, whyLines, footer);
     const ownTag = owned
       ? '<span class="tag" style="background:rgba(61,184,160,0.15);color:var(--teal);font-size:.62rem;margin:0 .4rem">owned</span>'
@@ -7829,7 +8033,7 @@ async function _renderAddSuggestions(deck) {
       <div class="cut-candidate-row">
         <button type="button" class="cut-score-badge add-score-badge cut-why-toggle" aria-expanded="false" aria-label="Why suggested · score ${scoreLabel}" onclick="_toggleSuggestWhy(this)">${scoreLabel}<span class="cut-why-caret" aria-hidden="true">⌄</span></button>
         <span class="cut-card-name" onclick="openCardDetail('${id}','deck')">${displayName}</span>
-        ${ownTag}
+        ${sourceTag}${ownTag}
         ${addBtn}
       </div>
       ${why}
@@ -7851,6 +8055,13 @@ function _toggleAddPanel() {
 function renderDeckList(deck) {
   const el = document.getElementById('deckCardList');
   if (!el) return;
+  // innerHTML rebuilds wipe scrollTop; keep the list where the user left it so
+  // inspector tag refresh / ownership redraws don't jump to top and re-lazy-load.
+  const prevScroll = el.scrollTop;
+  const restoreScroll = () => {
+    el.scrollTop = prevScroll;
+    requestAnimationFrame(() => { el.scrollTop = prevScroll; });
+  };
   _renderCutSuggestions(deck);
   _renderAddSuggestions(deck);
   _bindDeckTagGroupHoverLinking(el, false);
@@ -7913,12 +8124,14 @@ function renderDeckList(deck) {
     el.innerHTML = '<div class="deck-list-muted-center">No cards yet — search for cards above to add them</div>';
     el.onclick = null;
     _scheduleDeckTokensRefresh(deck);
+    restoreScroll();
     return;
   }
   if (!filteredCards.length && !hasExtra) {
     el.innerHTML = '<div class="deck-list-muted-center">No matching cards in this deck list</div>';
     el.onclick = null;
     _scheduleDeckTokensRefresh(deck);
+    restoreScroll();
     return;
   }
 
@@ -8028,6 +8241,7 @@ function renderDeckList(deck) {
     _bindSwapZoneHoverLinking(el, swapsOn);
     _syncDeckStackLayoutResetBtn(deck);
     _scheduleDeckTokensRefresh(deck);
+    restoreScroll();
     return;
   }
 
@@ -8117,6 +8331,7 @@ function renderDeckList(deck) {
   _bindSwapZoneHoverLinking(el, swapsOn);
   _syncDeckStackLayoutResetBtn(deck);
   _scheduleDeckTokensRefresh(deck);
+  restoreScroll();
 }
 
 /** CMC-bucket (0–7+) non-land mana curve targets by format — normalized in caller. */
@@ -10340,7 +10555,7 @@ function _cardTile(name, img, inDeck, inCollection, inv, addFn, inMaybeBoard = f
       <div class="deck-search-art" style="aspect-ratio:0.715;overflow:hidden;border-radius:6px;border:${border};
         transition:border-color 0.15s;position:relative">
         ${img
-          ? `<img src="${escapeHtml(img)}" class="${imgFadeLoadedCls(img)}" style="width:100%;height:100%;object-fit:cover;${filter}" alt="${escapeHtml(name)}" loading="lazy" decoding="async" onload="this.classList.add('loaded');imgFadeSeenMark(this)" onerror="this.classList.add('loaded')">`
+          ? `<img src="${escapeHtml(img)}" class="${imgFadeLoadedCls(img)}" style="width:100%;height:100%;object-fit:cover;${filter}" alt="${escapeHtml(name)}" loading="${imgFadeLoadingAttr(img)}" decoding="async" onload="this.classList.add('loaded');imgFadeSeenMark(this)" onerror="this.classList.add('loaded')">`
           : `<div style="width:100%;height:100%;background:var(--bg3);display:flex;align-items:center;
               justify-content:center;font-size:0.6rem;padding:4px;text-align:center;color:var(--text2)">${escapeHtml(name)}</div>`}
         ${inDeck ? `<div style="position:absolute;bottom:2px;right:2px;background:var(--teal);color:#000;

@@ -1,0 +1,369 @@
+{
+  "name": "Average Korvold, Fae-Cursed King deck (EDHREC)",
+  "commander": "Korvold, Fae-Cursed King",
+  "source": "edhrec-average",
+  "source_url": "https://json.edhrec.com/pages/average-decks/korvold-fae-cursed-king.json",
+  "cards": [
+    {
+      "name": "Abrupt Decay",
+      "qty": 1
+    },
+    {
+      "name": "Academy Manufactor",
+      "qty": 1
+    },
+    {
+      "name": "Arcane Signet",
+      "qty": 1
+    },
+    {
+      "name": "Ashnod's Altar",
+      "qty": 1
+    },
+    {
+      "name": "Assassin's Trophy",
+      "qty": 1
+    },
+    {
+      "name": "Awakening Zone",
+      "qty": 1
+    },
+    {
+      "name": "Beast Within",
+      "qty": 1
+    },
+    {
+      "name": "Birds of Paradise",
+      "qty": 1
+    },
+    {
+      "name": "Black Market Connections",
+      "qty": 1
+    },
+    {
+      "name": "Blasphemous Act",
+      "qty": 1
+    },
+    {
+      "name": "Blood Artist",
+      "qty": 1
+    },
+    {
+      "name": "Blood Crypt",
+      "qty": 1
+    },
+    {
+      "name": "Bloodstained Mire",
+      "qty": 1
+    },
+    {
+      "name": "Bootleggers' Stash",
+      "qty": 1
+    },
+    {
+      "name": "Boseiju, Who Endures",
+      "qty": 1
+    },
+    {
+      "name": "Braids, Arisen Nightmare",
+      "qty": 1
+    },
+    {
+      "name": "Chatterfang, Squirrel General",
+      "qty": 1
+    },
+    {
+      "name": "Cinder Glade",
+      "qty": 1
+    },
+    {
+      "name": "Command Tower",
+      "qty": 1
+    },
+    {
+      "name": "Crop Rotation",
+      "qty": 1
+    },
+    {
+      "name": "Culling Ritual",
+      "qty": 1
+    },
+    {
+      "name": "Cultivate",
+      "qty": 1
+    },
+    {
+      "name": "Dark Ritual",
+      "qty": 1
+    },
+    {
+      "name": "Deadly Dispute",
+      "qty": 1
+    },
+    {
+      "name": "Deflecting Swat",
+      "qty": 1
+    },
+    {
+      "name": "Delighted Halfling",
+      "qty": 1
+    },
+    {
+      "name": "Demonic Tutor",
+      "qty": 1
+    },
+    {
+      "name": "Diabolic Intent",
+      "qty": 1
+    },
+    {
+      "name": "Dragonskull Summit",
+      "qty": 1
+    },
+    {
+      "name": "Eldritch Evolution",
+      "qty": 1
+    },
+    {
+      "name": "Eternal Witness",
+      "qty": 1
+    },
+    {
+      "name": "Evolving Wilds",
+      "qty": 1
+    },
+    {
+      "name": "Exotic Orchard",
+      "qty": 1
+    },
+    {
+      "name": "Fabled Passage",
+      "qty": 1
+    },
+    {
+      "name": "Farseek",
+      "qty": 1
+    },
+    {
+      "name": "Forest",
+      "qty": 4
+    },
+    {
+      "name": "Goblin Bombardment",
+      "qty": 1
+    },
+    {
+      "name": "Goldspan Dragon",
+      "qty": 1
+    },
+    {
+      "name": "Harrow",
+      "qty": 1
+    },
+    {
+      "name": "Heroic Intervention",
+      "qty": 1
+    },
+    {
+      "name": "Ignoble Hierarch",
+      "qty": 1
+    },
+    {
+      "name": "Impulsive Pilferer",
+      "qty": 1
+    },
+    {
+      "name": "Juri, Master of the Revue",
+      "qty": 1
+    },
+    {
+      "name": "Lightning Greaves",
+      "qty": 1
+    },
+    {
+      "name": "Lotus Petal",
+      "qty": 1
+    },
+    {
+      "name": "Mahadi, Emporium Master",
+      "qty": 1
+    },
+    {
+      "name": "Mayhem Devil",
+      "qty": 1
+    },
+    {
+      "name": "Mirkwood Bats",
+      "qty": 1
+    },
+    {
+      "name": "Mountain",
+      "qty": 4
+    },
+    {
+      "name": "Nature's Lore",
+      "qty": 1
+    },
+    {
+      "name": "Old Gnawbone",
+      "qty": 1
+    },
+    {
+      "name": "Overgrown Tomb",
+      "qty": 1
+    },
+    {
+      "name": "Phyrexian Altar",
+      "qty": 1
+    },
+    {
+      "name": "Phyrexian Tower",
+      "qty": 1
+    },
+    {
+      "name": "Pitiless Plunderer",
+      "qty": 1
+    },
+    {
+      "name": "Professional Face-Breaker",
+      "qty": 1
+    },
+    {
+      "name": "Ragavan, Nimble Pilferer",
+      "qty": 1
+    },
+    {
+      "name": "Reanimate",
+      "qty": 1
+    },
+    {
+      "name": "Reassembling Skeleton",
+      "qty": 1
+    },
+    {
+      "name": "Reliquary Tower",
+      "qty": 1
+    },
+    {
+      "name": "Revel in Riches",
+      "qty": 1
+    },
+    {
+      "name": "Rhythm of the Wild",
+      "qty": 1
+    },
+    {
+      "name": "Ruthless Technomancer",
+      "qty": 1
+    },
+    {
+      "name": "Sakura-Tribe Elder",
+      "qty": 1
+    },
+    {
+      "name": "Savage Lands",
+      "qty": 1
+    },
+    {
+      "name": "Smoldering Marsh",
+      "qty": 1
+    },
+    {
+      "name": "Sol Ring",
+      "qty": 1
+    },
+    {
+      "name": "Springbloom Druid",
+      "qty": 1
+    },
+    {
+      "name": "Squee, the Immortal",
+      "qty": 1
+    },
+    {
+      "name": "Stomping Ground",
+      "qty": 1
+    },
+    {
+      "name": "Swamp",
+      "qty": 4
+    },
+    {
+      "name": "Swiftfoot Boots",
+      "qty": 1
+    },
+    {
+      "name": "Terramorphic Expanse",
+      "qty": 1
+    },
+    {
+      "name": "The Reaver Cleaver",
+      "qty": 1
+    },
+    {
+      "name": "Tireless Provisioner",
+      "qty": 1
+    },
+    {
+      "name": "Undergrowth Stadium",
+      "qty": 1
+    },
+    {
+      "name": "Underworld Breach",
+      "qty": 1
+    },
+    {
+      "name": "Vampiric Tutor",
+      "qty": 1
+    },
+    {
+      "name": "Verdant Catacombs",
+      "qty": 1
+    },
+    {
+      "name": "Victimize",
+      "qty": 1
+    },
+    {
+      "name": "Viscera Seer",
+      "qty": 1
+    },
+    {
+      "name": "Warren Soultrader",
+      "qty": 1
+    },
+    {
+      "name": "Windswept Heath",
+      "qty": 1
+    },
+    {
+      "name": "Wooded Foothills",
+      "qty": 1
+    },
+    {
+      "name": "Woodland Cemetery",
+      "qty": 1
+    },
+    {
+      "name": "Worldly Tutor",
+      "qty": 1
+    },
+    {
+      "name": "Xorn",
+      "qty": 1
+    },
+    {
+      "name": "Ziatora, the Incinerator",
+      "qty": 1
+    },
+    {
+      "name": "Ziatora's Proving Ground",
+      "qty": 1
+    },
+    {
+      "name": "Zulaport Cutthroat",
+      "qty": 1
+    }
+  ],
+  "archetype_expected": "aristocrats"
+}
