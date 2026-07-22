@@ -588,6 +588,37 @@ console.log('adds — emergent sub-archetypes (demand pool + dominant reinforcem
     JSON.stringify(cAdds[0]?.trace || 'filtered out entirely'));
 }
 
+console.log('adds — tribe affinity in tribal-primary decks');
+{
+  const pIR = (provides, needs, extra) => ({
+    provides: (provides || []).map(([axis, param, w, rate]) => ({ axis, param: param || null, rate: rate || 'once', weight: w || 3 })),
+    needs: (needs || []).map(([axis, param, w, crit]) => ({ axis, param: param || null, criticality: crit || 'wants', weight: w || 3 })),
+    anti: [], roles: [], wincon: null, tribal: { types: [], lord_of: [] }, faces: [], ...extra,
+  });
+  const elfDeck = [
+    ...Array.from({ length: 14 }, (_, i) => ({ name: `Elf ${i}`, qty: 1, cmc: 2, typeLine: 'Creature — Elf', ir: pIR([['tribal.synergy', 'Elf', 2, 'static']], [], { tribal: { types: ['Elf'], lord_of: [] } }) })),
+    { name: 'Elf Lord', qty: 1, cmc: 3, typeLine: 'Creature — Elf', ir: pIR([['tribal.lord', 'Elf', 4, 'static']], [], { tribal: { types: ['Elf'], lord_of: ['Elf'] } }) },
+    { name: 'Wide Payoff', qty: 1, cmc: 3, typeLine: 'Enchantment', ir: pIR([], [['token.creature_wide', null, 5, 'requires']]) },
+    { name: 'Elf Land', qty: 30, cmc: 0, typeLine: 'Basic Land — Forest', ir: pIR([], [], { roles: ['land'] }) },
+  ];
+  const cmd = { name: 'Elf Boss', ir: pIR([['token.creature_wide', 'Elf', 4, 'per_turn']], [['tribal.synergy', 'Elf', 4]], { tribal: { types: ['Elf'], lord_of: ['Elf'] } }) };
+  const g = inferGoals(elfDeck, cmd, {});
+  const mk = (name, param, types) => ({ name, ir: pIR([['token.creature_wide', param, 3, 'per_turn']], [], { tribal: { types: types || [], lord_of: [] } }), cmc: 3, price: 1, owned: false, edhrecRank: 500 });
+  const cands = [mk('Generic Swarm Engine', null), mk('Elf Swarm Engine', 'Elf'), mk('Squirrel Swarm Engine', 'Squirrel')];
+  const adds = rec.scoreAdds({ deckCards: elfDeck, commander: cmd, goals: g.goals, thresholds: th.computeThresholds({ goal: g.goals[0]?.goal }), roleCounts: th.countRoles(elfDeck), hist: g.histogram, candidates: cands, budget: { maxCardPrice: null, flagAbove: 5 }, templates });
+  const byName = n => adds.find(a => a.name === n);
+  check('elf-token maker outranks equivalent generic and off-tribe makers',
+    (byName('Elf Swarm Engine')?.score || 0) > (byName('Generic Swarm Engine')?.score || 0) &&
+    (byName('Elf Swarm Engine')?.score || 0) > (byName('Squirrel Swarm Engine')?.score || 0),
+    JSON.stringify(adds.map(a => [a.name, a.score])));
+  check('affinity trace present with makes flag',
+    (byName('Elf Swarm Engine')?.trace || []).some(t => t.kind === 'tribe_affinity' && t.makes === true),
+    JSON.stringify(byName('Elf Swarm Engine')?.trace));
+  check('no affinity outside tribal-primary decks',
+    (() => { const g2 = { goals: [{ goal: 'aristocrats', confidence: 1 }] }; const a2 = rec.scoreAdds({ deckCards: elfDeck, commander: cmd, goals: g2.goals, thresholds: th.computeThresholds({ goal: 'aristocrats' }), roleCounts: th.countRoles(elfDeck), hist: g.histogram, candidates: [mk('Elf Swarm Engine 2', 'Elf')], budget: { maxCardPrice: null, flagAbove: 5 }, templates }); return !(a2[0]?.trace || []).some(t => t.kind === 'tribe_affinity'); })(),
+    'affinity fired without tribal top goal');
+}
+
 console.log('goals — land types are not tribes');
 {
   const mountainIR = { provides: [], needs: [], anti: [], roles: [], wincon: null, tribal: { types: ['Mountain', 'Goblin'], lord_of: ['Mountain'] }, faces: [] };
