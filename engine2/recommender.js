@@ -432,6 +432,15 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
     // capability fill: provides an axis the deck wants
     for (const p of cand.ir.provides || []) {
       const bound = tribalBound(tribes, p.axis, p.param);
+      // In tribal-primary decks, off-tribe token OUTPUT is worth half: Gnome/Zombie
+      // tokens still tap for Cryptolith Rite, but they don't tap for Lathril, take no
+      // lord pumps, and aren't the plan — the sac engine should run on Elf fodder.
+      // (Generic doublers and the candidate's other axes are untouched; on-tribe
+      // bodies are never discounted.)
+      const offTribeOut = !!(topTribe && String(p.axis).startsWith('token.creature')
+        && _isTypeParam(p.param) && String(p.param).toLowerCase() !== topTribe.toLowerCase()
+        && !(cand.ir.tribal?.types || []).some(x => String(x).toLowerCase() === topTribe.toLowerCase()));
+      const outFactor = offTribeOut ? 0.5 : 1;
       const w0 = !bound ? wanted.get(p.axis) : null;
       // `params` gates the credit itself; needer GROUPS gate the "feeds X" names —
       // only groups this provider's param actually serves get cited. Permissive
@@ -441,7 +450,7 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
       const paramFits = !w0?.params || w0.params.some(fit);
       const w = w0 && paramFits ? w0 : null;
       if (w) {
-        const pts = (p.weight || 1) * (1 + Math.min(3, w.gap) * 0.5);
+        const pts = (p.weight || 1) * (1 + Math.min(3, w.gap) * 0.5) * outFactor;
         score += pts;
         // Name the needers only when the claim carries real weight: on-plan axis, a
         // hard (requires) dependency, or ≥2 strong needers among the groups served.
@@ -452,7 +461,7 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
         const citeOk = served.length &&
           (planAxes.has(p.axis) || servedHard >= 1 || servedStrong >= 2);
         const names = citeOk ? [...new Set(served.flatMap(g => g.names))].slice(0, 6) : null;
-        trace.push({ kind: 'fills_axis', axis: p.axis, param: p.param || null, why: w.why, needers: names, pts });
+        trace.push({ kind: 'fills_axis', axis: p.axis, param: p.param || null, why: w.why, needers: names, pts, offTribe: offTribeOut || undefined });
       }
       // feeds existing payoffs even when not formally "wanted" (param-compatible only).
       // Only strong demand earns the +4-class score and the "Feeds X" claim; helps-level
@@ -464,10 +473,10 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
       const needers = matchParam(index.needs.get(p.axis), p.param, bound ? 'exact' : 'serves');
       if (needers && !w) {
         if (needers.strong) {
-          const pts = Math.min(4, needers.strong);
+          const pts = Math.min(4, needers.strong) * outFactor;
           score += pts;
           if (planAxes.has(p.axis) || (needers.hard || 0) >= 1) {
-            trace.push({ kind: 'feeds', axis: p.axis, param: p.param || null, names: needers.strongNames, pts });
+            trace.push({ kind: 'feeds', axis: p.axis, param: p.param || null, names: needers.strongNames, pts, offTribe: offTribeOut || undefined });
           } else if (needers.strong >= 2) {
             offPlanFeeds.push({ kind: 'feeds', axis: p.axis, param: p.param || null, names: needers.strongNames, pts });
           } else {

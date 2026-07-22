@@ -143,10 +143,10 @@ function addBreakdown(add) {
     const ax = t.axis ? axisLabel(t.axis) + (t.param ? `: ${t.param}` : '') : '';
     switch (t.kind) {
       case 'fills_axis':
-        out.push({ text: `Fills wanted axis — ${ax}${t.needers && t.needers.length ? ` (for ${listNames(t.needers)})` : ''} [${t.why}]`, val });
+        out.push({ text: `Fills wanted axis — ${ax}${t.needers && t.needers.length ? ` (for ${listNames(t.needers)})` : ''} [${t.why}]${t.offTribe ? ' (off-tribe ×0.5)' : ''}`, val });
         break;
       case 'feeds':
-        out.push({ text: `Feeds ${listNames(t.names)} — ${ax}`, val });
+        out.push({ text: `Feeds ${listNames(t.names)} — ${ax}${t.offTribe ? ' (off-tribe ×0.5)' : ''}`, val });
         break;
       case 'feeds_offplan':
         out.push({ text: `Off-plan synergy — ${ax}`, val });

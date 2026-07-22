@@ -7011,6 +7011,21 @@ async function _sendSuggestFeedback(btn) {
   const text = (input && input.value || '').trim();
   if (!text) { showNotif('Type a little feedback first', true); return; }
   const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+  // attach the rendered recommendation snapshot: full score breakdown, rank among the
+  // shown adds, analysis basis (now/projected), and the co-shown list — so the feedback
+  // stays reviewable even after the deck or the semantics data changes
+  let context = null;
+  const ctx = _e2FeedbackCtx;
+  if (ctx && deck && String(ctx.deckId) === String(deck.id)) {
+    const mine = (ctx.adds || []).find(a => a.name === (strip.dataset.card || ''));
+    if (mine) {
+      context = {
+        basis: ctx.basis, goals: ctx.goals, rank: mine.rank, of: ctx.adds.length,
+        breakdown: mine.breakdown, reasons: mine.reasons,
+        shown: ctx.adds.map(a => ({ rank: a.rank, name: a.name, score: a.score })),
+      };
+    }
+  }
   btn.disabled = true;
   try {
     const res = await fetch(mtgApiRoot() + '/decks/suggestion-feedback', {
@@ -7024,12 +7039,14 @@ async function _sendSuggestFeedback(btn) {
         goal: strip.dataset.goal || null,
         engine: 'semantic',
         feedback: text,
+        context,
       }),
     });
     if (!res.ok) throw new Error('save failed');
+    const saved = await res.json().catch(() => null);
     input.value = '';
     strip.style.display = 'none';
-    showNotif('Feedback saved — thanks');
+    showNotif(saved && saved.id ? `Feedback #${saved.id} saved — thanks` : 'Feedback saved — thanks');
   } catch (_) {
     showNotif('Could not save feedback', true);
   } finally {
@@ -7282,6 +7299,8 @@ async function _renderCutSuggestions(deck) {
 // Suggestions that fail the conditional-keyword gate are dropped.
 const _ADD_SUGGESTION_COUNT = 16;
 let _addSuggestToken = 0;
+// last-rendered semantic adds, snapshotted for suggestion feedback (see _sendSuggestFeedback)
+let _e2FeedbackCtx = null;
 
 // Entry 6 — Adds candidate pool: Collection (owned only) vs All Cards (full local DB ∩ CI).
 const ADDS_POOL_MODE_KEY = 'mtg_adds_pool_mode';
@@ -7805,7 +7824,19 @@ async function _renderAddSuggestions(deck) {
     }
     {
       const swapsOnE2 = _deckSwapsEnabled(deck);
-      body.innerHTML = e2AddList.slice(0, _ADD_SUGGESTION_COUNT).map(a => {
+      const shownAdds = e2AddList.slice(0, _ADD_SUGGESTION_COUNT);
+      // snapshot what the user is looking at, so feedback can carry the exact
+      // recommendation context (breakdown, rank, basis) it was reacting to
+      _e2FeedbackCtx = {
+        deckId: deck.id != null ? deck.id : null,
+        basis: _analyzeProjected(deck) ? 'projected' : 'now',
+        goals: (e2.goals || []).map(g => ({ goal: g.goal, confidence: g.confidence })),
+        adds: shownAdds.map((a, i) => ({
+          rank: i + 1, name: a.name || '', score: a.score,
+          breakdown: a.breakdown || null, reasons: a.reasons || null,
+        })),
+      };
+      body.innerHTML = shownAdds.map(a => {
         const name = a.name || '';
         const safeName = name.replace(/'/g, "\\'");
         const displayName = escapeHtml(name);
