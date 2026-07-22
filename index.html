@@ -799,6 +799,10 @@
             <button type="button" id="deckAddAlgoClassicBtn" style="padding:2px 8px;font-size:.72rem" aria-pressed="false" onclick="setSuggestAlgoMode('classic')">Classic</button>
             <button type="button" id="deckAddAlgoSemanticBtn" class="active" style="padding:2px 8px;font-size:.72rem" aria-pressed="true" onclick="setSuggestAlgoMode('semantic')">Semantic</button>
           </div>
+          <div class="view-toggle deck-algo-toggle" id="deckAnalyzeProjToggle" role="group" aria-label="Analysis basis" title="Analyze the deck as it is now, or as it will be after applying your planned adds &amp; cuts." style="display:none">
+            <button type="button" id="deckAnalyzeNowBtn" class="active" style="padding:2px 8px;font-size:.72rem" aria-pressed="true" onclick="setAnalyzeProjMode('now')">Now</button>
+            <button type="button" id="deckAnalyzeProjBtn" style="padding:2px 8px;font-size:.72rem" aria-pressed="false" onclick="setAnalyzeProjMode('projected')">After swaps</button>
+          </div>
           <div class="view-toggle deck-adds-pool-toggle suggest-classic-only" role="group" aria-label="Adds candidate pool" title="Collection = owned cards only. All Cards = full local database in your colors.">
             <button type="button" id="deckAddsPoolCollectionBtn" class="active" style="padding:2px 8px;font-size:.72rem" aria-pressed="true" onclick="setAddsPoolMode('collection')">Collection</button>
             <button type="button" id="deckAddsPoolAllBtn" style="padding:2px 8px;font-size:.72rem" aria-pressed="false" onclick="setAddsPoolMode('all')">All Cards</button>
