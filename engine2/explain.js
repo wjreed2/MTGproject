@@ -108,6 +108,9 @@ function addReasons(add) {
       case 'doubler_scale':
         out.push(`Multiplies the deck's ${t.axis === 'counters.doubler' ? '+1/+1 counter' : 'token'} output (${t.substrate} sources)`);
         break;
+      case 'tribe_affinity':
+        out.push(t.makes ? `Makes ${t.tribe} tokens — on tribe` : `A ${t.tribe} itself — on tribe`);
+        break;
       case 'curve_fill':
         out.push('Lands in an under-filled spot on the curve');
         break;
@@ -162,6 +165,9 @@ function addBreakdown(add) {
         break;
       case 'doubler_scale':
         out.push({ text: `Doubler substrate — ${ax} × ${t.substrate} sources`, val });
+        break;
+      case 'tribe_affinity':
+        out.push({ text: t.makes ? `Makes ${t.tribe} tokens (on tribe)` : `On tribe (${t.tribe})`, val });
         break;
       case 'curve_fill':
         out.push({ text: `Under-filled curve spot (MV ${t.bucket})`, val });

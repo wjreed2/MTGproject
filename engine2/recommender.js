@@ -405,6 +405,7 @@ function scoreCuts({ deckCards, commander, goals, thresholds, roleCounts }) {
 // color-legal, commander-legal, and not in the deck (SQL enforces; re-checked here).
 function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCounts, hist, budget, templates }) {
   const topGoal = goals?.[0] || null;
+  const topTribe = topGoal?.goal?.startsWith('tribal:') ? topGoal.goal.slice(7) : null;
   const tribes = deckTribeSet(goals);
   const index = deckAxisIndex(deckCards, commander);
   const wanted = wantedAxes(topGoal?.goal, hist, index, templates, goals);
@@ -499,6 +500,20 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
         const pts = Math.min(5, substrate * 0.3);
         score += pts;
         trace.push({ kind: 'doubler_scale', axis: p.axis, param: p.param || null, substrate, pts });
+      }
+    }
+    // Tribe affinity: in a tribal-primary deck, a candidate that IS the tribe or MAKES
+    // the tribe's tokens beats an equivalent off-tribe card — Elvish Promenade over
+    // Bitterblossom for Lathril's swarm demand, even though both claims are true
+    // (off-tribe tokens still tap for Cryptolith Rite; they just aren't the plan).
+    if (topTribe) {
+      const t = topTribe.toLowerCase();
+      const isTribe = (cand.ir.tribal?.types || []).some(x => String(x).toLowerCase() === t);
+      const makesTribe = !isTribe && (cand.ir.provides || []).some(p =>
+        String(p.axis).startsWith('token.creature') && p.param && String(p.param).toLowerCase() === t);
+      if (isTribe || makesTribe) {
+        score += 4;
+        trace.push({ kind: 'tribe_affinity', tribe: topTribe, makes: makesTribe, pts: 4 });
       }
     }
     // its own needs are already fed here (card won't be dead)
