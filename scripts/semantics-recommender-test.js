@@ -614,6 +614,10 @@ console.log('adds — tribe affinity in tribal-primary decks');
   check('affinity trace present with makes flag',
     (byName('Elf Swarm Engine')?.trace || []).some(t => t.kind === 'tribe_affinity' && t.makes === true),
     JSON.stringify(byName('Elf Swarm Engine')?.trace));
+  check('off-tribe token output is discounted below generic output',
+    (byName('Squirrel Swarm Engine')?.score || 99) < (byName('Generic Swarm Engine')?.score || 0) &&
+    (byName('Squirrel Swarm Engine')?.trace || []).some(t => t.offTribe),
+    JSON.stringify(adds.map(a => [a.name, a.score])));
   check('no affinity outside tribal-primary decks',
     (() => { const g2 = { goals: [{ goal: 'aristocrats', confidence: 1 }] }; const a2 = rec.scoreAdds({ deckCards: elfDeck, commander: cmd, goals: g2.goals, thresholds: th.computeThresholds({ goal: 'aristocrats' }), roleCounts: th.countRoles(elfDeck), hist: g.histogram, candidates: [mk('Elf Swarm Engine 2', 'Elf')], budget: { maxCardPrice: null, flagAbove: 5 }, templates }); return !(a2[0]?.trace || []).some(t => t.kind === 'tribe_affinity'); })(),
     'affinity fired without tribal top goal');
