@@ -7602,8 +7602,9 @@ function _fmtWhyVal(v) {
 function _capWord(s) { s = String(s || ''); return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''; }
 
 function _suggestWhyDetailHtml(title, score, lines, footer) {
+  // lines are numbered so a specific factor is easy to cite in feedback ("line 3 is wrong")
   const rows = lines.length
-    ? lines.map(l => `<div class="why-line"><span class="why-line-text">${l.text}</span><span class="why-line-val${l.neg ? ' why-line-val--neg' : ''}">${l.val}</span></div>`).join('')
+    ? lines.map((l, i) => `<div class="why-line"><span class="why-line-num">${i + 1}</span><span class="why-line-text">${l.text}</span><span class="why-line-val${l.neg ? ' why-line-val--neg' : ''}">${l.val}</span></div>`).join('')
     : '<div class="why-line"><span class="why-line-text">No standout factors — a marginal pick.</span></div>';
   return `<div class="suggest-why-detail" hidden>
       <div class="why-head">${escapeHtml(title)} · score ${score}</div>
@@ -7856,10 +7857,13 @@ async function _renderAddSuggestions(deck) {
         goals: (e2.goals || []).map(g => ({ goal: g.goal, confidence: g.confidence })),
         adds: shownAdds.map((a, i) => ({
           rank: i + 1, name: a.name || '', score: a.score,
-          breakdown: a.breakdown || null, reasons: a.reasons || null,
+          // n mirrors the visible numbering in the Why panel, so "line 3" in a
+          // feedback note maps to exactly one stored entry
+          breakdown: a.breakdown ? a.breakdown.map((b, j) => ({ n: j + 1, text: b.text, val: b.val })) : null,
+          reasons: a.reasons ? a.reasons.map((r, j) => ({ n: j + 1, text: r })) : null,
         })),
       };
-      body.innerHTML = shownAdds.map(a => {
+      body.innerHTML = shownAdds.map((a, i) => {
         const name = a.name || '';
         const safeName = name.replace(/'/g, "\\'");
         const displayName = escapeHtml(name);
@@ -7892,6 +7896,7 @@ async function _renderAddSuggestions(deck) {
           </div>`;
         return `<div class="suggest-item">
           <div class="cut-candidate-row">
+            <span class="suggest-rank" title="Suggestion rank — matches the rank stored with feedback">${i + 1}</span>
             <button type="button" class="cut-score-badge cut-why-toggle" aria-expanded="false" aria-label="Why suggested · score ${score}" onclick="_toggleSuggestWhy(this)">${score}<span class="cut-why-caret" aria-hidden="true">⌄</span></button>
             <span class="cut-card-name" onclick="openCardDetail('${sid}','deck')">${displayName}</span>
             ${priceTag}${ownTag}
