@@ -6511,10 +6511,19 @@ async function ensureSuggestionFeedbackTable() {
       score      DECIMAL(6,2) NULL,
       feedback   TEXT         NOT NULL,
       created_at BIGINT       NOT NULL,
+      source     VARCHAR(16)  NOT NULL DEFAULT 'local',
+      remote_id  BIGINT       NULL,
       KEY idx_sf_created (created_at),
-      KEY idx_sf_account (account_id)
+      KEY idx_sf_account (account_id),
+      UNIQUE KEY uq_sf_remote (source, remote_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+  // guarded ALTERs for tables created before the prod→dev mirror existed
+  for (const sql of [
+    `ALTER TABLE suggestion_feedback ADD COLUMN source VARCHAR(16) NOT NULL DEFAULT 'local'`,
+    `ALTER TABLE suggestion_feedback ADD COLUMN remote_id BIGINT NULL`,
+    `ALTER TABLE suggestion_feedback ADD UNIQUE KEY uq_sf_remote (source, remote_id)`,
+  ]) { try { await db().query(sql); } catch (_) { /* exists */ } }
 }
 
 // engine2 card-semantics tables (see docs/engine2-plan.md). card_semantics holds one CardIR
@@ -9547,6 +9556,22 @@ app.get('/api/internal/semantics-ingest/status', requireSemanticsIngestSecret, a
     res.json({ cards: Number(row.n), axes: Number(ax.n), maxUpdatedAt: Number(row.maxUpdatedAt) });
   } catch (e) {
     console.error('[semantics-ingest]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Export suggestion feedback for the dev-side review mirror (scripts/feedback-pull.js). */
+app.get('/api/internal/suggestion-feedback', requireSemanticsIngestSecret, async (req, res) => {
+  try {
+    const sinceId = Math.max(0, parseInt(req.query.sinceId) || 0);
+    const [rows] = await db().query(
+      `SELECT f.id, f.deck_id, f.engine, f.goal, f.card_name, f.score, f.feedback, f.created_at, a.email
+         FROM suggestion_feedback f JOIN accounts a ON a.id = f.account_id
+        WHERE f.id > ? AND f.source = 'local'
+        ORDER BY f.id LIMIT 500`, [sinceId]);
+    res.json({ feedback: rows, maxId: rows.length ? rows[rows.length - 1].id : sinceId });
+  } catch (e) {
+    console.error('[suggestion-feedback]', e);
     res.status(500).json({ error: e.message });
   }
 });

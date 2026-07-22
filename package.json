@@ -22,6 +22,7 @@
     "setup:https": "bash scripts/setup-https.sh",
     "changelog:add": "node scripts/changelog-add.js",
     "semantics:push": "node --use-system-ca scripts/semantics-push-prod.js",
+    "feedback:pull": "node --use-system-ca scripts/feedback-pull.js",
     "changelog:sync": "node scripts/sync-changelog.js",
     "changelog:sync:apply": "CHANGELOG_SYNC_APPLY=1 node scripts/sync-changelog.js"
   },
