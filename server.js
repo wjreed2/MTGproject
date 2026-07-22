@@ -4541,17 +4541,26 @@ app.post('/api/decks/suggestion-feedback', requireAuth, async (req, res) => {
     const feedback = String(b.feedback || '').trim().slice(0, 2000);
     const cardName = String(b.cardName || '').trim().slice(0, 255);
     if (!feedback || !cardName) return res.status(400).json({ error: 'cardName and feedback required' });
-    await db().query(
-      `INSERT INTO suggestion_feedback (account_id, deck_id, engine, goal, card_name, score, feedback, created_at)
-       VALUES (?,?,?,?,?,?,?,?)`,
+    // snapshot of the recommendation at click time (score breakdown, rank, basis,
+    // co-shown recs) so feedback stays reviewable after the deck or data moves on
+    let contextJson = null;
+    if (b.context && typeof b.context === 'object') {
+      try {
+        const s = JSON.stringify(b.context);
+        if (s.length <= 20000) contextJson = s;
+      } catch (_) { /* unserializable — skip */ }
+    }
+    const [r] = await db().query(
+      `INSERT INTO suggestion_feedback (account_id, deck_id, engine, goal, card_name, score, feedback, context_json, created_at)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
       [req.accountId,
        b.deckId != null ? String(b.deckId).slice(0, 64) : null,
        ['semantic', 'classic', 'hybrid'].includes(b.engine) ? b.engine : 'semantic',
        b.goal != null ? String(b.goal).slice(0, 60) : null,
        cardName,
        Number.isFinite(Number(b.score)) ? Number(b.score) : null,
-       feedback, Date.now()]);
-    res.json({ ok: true });
+       feedback, contextJson, Date.now()]);
+    res.json({ ok: true, id: r.insertId });
   } catch (e) {
     console.error('[suggestion-feedback]', e);
     res.status(500).json({ error: e.message });
@@ -4563,7 +4572,7 @@ app.get('/api/admin/suggestion-feedback', requireAuth, requireAdminRole, async (
   try {
     const limit = Math.min(500, Math.max(1, parseInt(req.query.limit) || 100));
     const [rows] = await db().query(
-      `SELECT f.id, f.deck_id, f.engine, f.goal, f.card_name, f.score, f.feedback, f.created_at, a.email
+      `SELECT f.id, f.deck_id, f.engine, f.goal, f.card_name, f.score, f.feedback, f.context_json, f.created_at, a.email
          FROM suggestion_feedback f JOIN accounts a ON a.id = f.account_id
         ORDER BY f.created_at DESC LIMIT ?`, [limit]);
     res.json({ feedback: rows });
@@ -6510,6 +6519,7 @@ async function ensureSuggestionFeedbackTable() {
       card_name  VARCHAR(255) NOT NULL,
       score      DECIMAL(6,2) NULL,
       feedback   TEXT         NOT NULL,
+      context_json TEXT       NULL,
       created_at BIGINT       NOT NULL,
       source     VARCHAR(16)  NOT NULL DEFAULT 'local',
       remote_id  BIGINT       NULL,
@@ -6523,6 +6533,7 @@ async function ensureSuggestionFeedbackTable() {
     `ALTER TABLE suggestion_feedback ADD COLUMN source VARCHAR(16) NOT NULL DEFAULT 'local'`,
     `ALTER TABLE suggestion_feedback ADD COLUMN remote_id BIGINT NULL`,
     `ALTER TABLE suggestion_feedback ADD UNIQUE KEY uq_sf_remote (source, remote_id)`,
+    `ALTER TABLE suggestion_feedback ADD COLUMN context_json TEXT NULL`,
   ]) { try { await db().query(sql); } catch (_) { /* exists */ } }
 }
 
@@ -9565,7 +9576,7 @@ app.get('/api/internal/suggestion-feedback', requireSemanticsIngestSecret, async
   try {
     const sinceId = Math.max(0, parseInt(req.query.sinceId) || 0);
     const [rows] = await db().query(
-      `SELECT f.id, f.deck_id, f.engine, f.goal, f.card_name, f.score, f.feedback, f.created_at, a.email
+      `SELECT f.id, f.deck_id, f.engine, f.goal, f.card_name, f.score, f.feedback, f.context_json, f.created_at, a.email
          FROM suggestion_feedback f JOIN accounts a ON a.id = f.account_id
         WHERE f.id > ? AND f.source = 'local'
         ORDER BY f.id LIMIT 500`, [sinceId]);
