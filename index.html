@@ -200,6 +200,10 @@
       <div data-admin-only style="display:none">
         <div class="settings-divider"></div>
         <div class="settings-section-label">Developer</div>
+        <button type="button" id="settingsHybridAddsBtn" class="btn btn-ghost btn-sm" title="Developer: enable/disable the Hybrid (wizard) suggestion mode — off removes the Hybrid option from the suggestion panels; deck plans and wizard data are kept" style="width:100%;justify-content:flex-start;gap:7px;color:var(--text2)" onclick="toggleHybridAddsSetting()">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M6 2h4M7 2v4.5L3.5 12a1.5 1.5 0 0 0 1.3 2.2h6.4a1.5 1.5 0 0 0 1.3-2.2L9 6.5V2"/><path d="M5 10.5h6"/></svg>
+          Hybrid adds: on
+        </button>
         <button type="button" class="btn btn-ghost btn-sm" style="width:100%;justify-content:flex-start;gap:7px;color:var(--text2)" onclick="toggleSettingsDropdown();openUsersModal()">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><circle cx="6" cy="5.5" r="2.5"/><path d="M1.5 13.5c0-2.3 2-4 4.5-4s4.5 1.7 4.5 4"/><circle cx="11.8" cy="6.2" r="1.7"/><path d="M11 9.7c1.9 0 3.5 1.3 3.5 3.2"/></svg>
           User Accounts
@@ -800,6 +804,10 @@
             <button type="button" id="deckAddAlgoClassicBtn" style="padding:2px 8px;font-size:.72rem" aria-pressed="false" onclick="setSuggestAlgoMode('classic')">Classic</button>
             <button type="button" id="deckAddAlgoHybridBtn" style="padding:2px 8px;font-size:.72rem" aria-pressed="false" onclick="setSuggestAlgoMode('hybrid')">Hybrid</button>
             <button type="button" id="deckAddAlgoSemanticBtn" class="active" style="padding:2px 8px;font-size:.72rem" aria-pressed="true" onclick="setSuggestAlgoMode('semantic')">Semantic</button>
+          </div>
+          <div class="view-toggle deck-algo-toggle" id="deckAnalyzeProjToggle" role="group" aria-label="Analysis basis" title="Analyze the deck as it is now, or as it will be after applying your planned adds &amp; cuts." style="display:none">
+            <button type="button" id="deckAnalyzeNowBtn" class="active" style="padding:2px 8px;font-size:.72rem" aria-pressed="true" onclick="setAnalyzeProjMode('now')">Now</button>
+            <button type="button" id="deckAnalyzeProjBtn" style="padding:2px 8px;font-size:.72rem" aria-pressed="false" onclick="setAnalyzeProjMode('projected')">After swaps</button>
           </div>
           <div class="view-toggle deck-adds-pool-toggle suggest-classic-only" role="group" aria-label="Adds candidate pool" title="Collection = owned cards only. All Cards = full local database in your colors.">
             <button type="button" id="deckAddsPoolCollectionBtn" class="active" style="padding:2px 8px;font-size:.72rem" aria-pressed="true" onclick="setAddsPoolMode('collection')">Collection</button>

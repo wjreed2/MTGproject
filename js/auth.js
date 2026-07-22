@@ -147,6 +147,7 @@ function refreshAuthUserLabel(email, role) {
   if (typeof renderDeckOwnershipBtn === 'function') renderDeckOwnershipBtn();
   if (typeof renderDeckSwapsSettingBtn === 'function') renderDeckSwapsSettingBtn();
   if (typeof renderDeckGoalSettingBtn === 'function') renderDeckGoalSettingBtn();
+  if (typeof renderHybridAddsSettingBtn === 'function') renderHybridAddsSettingBtn();
   renderValueExcludeSlider();
   applyRoleVisibility();
   if (email && typeof refreshWhatsNewUpdateBadge === 'function') void refreshWhatsNewUpdateBadge();
