@@ -1489,8 +1489,9 @@ function _deckMatchSideboardEnabled(deck) {
 }
 
 // ── Adds & Cuts planning zones (deck.adds / deck.cuts, gated by the user-wide toggle) ──
-// Adds: cards planned to go in — shown in the deck list but never counted.
-// Cuts: copies of mainboard cards planned to come out — the real card stays in the deck.
+// Adds: cards planned to go in — shown in the deck list; deck-size count stays as-is until applied.
+// Cuts: copies of mainboard cards planned to come out — the real card stays in the deck until cut.
+// Commander Gameplan (and semantic "after swaps" analysis) treat adds as mainboard and cuts as out.
 // The toggle (Settings → Adds & Cuts, like deck ownership) only shows/hides the feature;
 // each deck's adds/cuts pools are kept, so turning it back on restores the plan.
 
@@ -7067,19 +7068,41 @@ function _isPlannedCutCard(deck, card) {
 }
 
 // Projected list: main deck minus planned cuts plus planned adds — the deck as it
-// will be once swaps are applied. Each cut slot removes one copy of its match.
+// will be once swaps are applied. Cut qty is respected (via effective planned cuts).
 function _projectedDeckCards(deck) {
-  const out = (deck?.cards || []).map(c => ({ ...c }));
-  for (const slot of deck?.cuts || []) {
-    const hit = out.find(c => (c.qty || 1) > 0 && _deckCardMatchesSlot(slot, c));
-    if (hit) hit.qty = (hit.qty || 1) - 1;
+  const qtyOf = c => (c?.qty == null || c.qty === '' ? 1 : Math.max(0, Number(c.qty) || 0));
+  const out = (deck?.cards || []).map(c => ({ ...c, qty: qtyOf(c) }));
+  const cuts = typeof _effectivePlannedCuts === 'function'
+    ? _effectivePlannedCuts(deck)
+    : (deck?.cuts || []);
+  for (const slot of cuts) {
+    let remaining = qtyOf(slot);
+    for (const c of out) {
+      if (remaining <= 0) break;
+      if (!(c.qty > 0 && _deckCardMatchesSlot(slot, c))) continue;
+      const take = Math.min(c.qty, remaining);
+      c.qty -= take;
+      remaining -= take;
+    }
   }
-  const kept = out.filter(c => (c.qty || 1) > 0);
+  const kept = out.filter(c => c.qty > 0);
   for (const a of deck?.adds || []) {
     if (!a?.name) continue;
-    kept.push({ ...a, qty: a.qty || 1, isCommander: false });
+    kept.push({ ...a, qty: qtyOf(a), isCommander: false });
   }
   return kept;
+}
+
+/**
+ * Deck view for Commander Gameplan: planned adds count as mainboard, planned cuts
+ * do not. When Adds & Cuts is off (or the plan is empty), returns the deck as-is.
+ */
+function _gameplanDeckView(deck) {
+  if (!deck) return deck;
+  if (typeof _deckSwapsEnabled === 'function' && !_deckSwapsEnabled(deck)) return deck;
+  const hasPlan = !!(((deck.adds || []).length) || ((deck.cuts || []).length));
+  if (!hasPlan) return deck;
+  return { ...deck, cards: _projectedDeckCards(deck), _gameplanAfterSwaps: true };
 }
 
 // Analysis basis: the deck as-is ('now') or after applying planned swaps ('projected').
@@ -7579,8 +7602,9 @@ function _fmtWhyVal(v) {
 function _capWord(s) { s = String(s || ''); return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''; }
 
 function _suggestWhyDetailHtml(title, score, lines, footer) {
+  // lines are numbered so a specific factor is easy to cite in feedback ("line 3 is wrong")
   const rows = lines.length
-    ? lines.map(l => `<div class="why-line"><span class="why-line-text">${l.text}</span><span class="why-line-val${l.neg ? ' why-line-val--neg' : ''}">${l.val}</span></div>`).join('')
+    ? lines.map((l, i) => `<div class="why-line"><span class="why-line-num">${i + 1}</span><span class="why-line-text">${l.text}</span><span class="why-line-val${l.neg ? ' why-line-val--neg' : ''}">${l.val}</span></div>`).join('')
     : '<div class="why-line"><span class="why-line-text">No standout factors — a marginal pick.</span></div>';
   return `<div class="suggest-why-detail" hidden>
       <div class="why-head">${escapeHtml(title)} · score ${score}</div>
@@ -7833,10 +7857,13 @@ async function _renderAddSuggestions(deck) {
         goals: (e2.goals || []).map(g => ({ goal: g.goal, confidence: g.confidence })),
         adds: shownAdds.map((a, i) => ({
           rank: i + 1, name: a.name || '', score: a.score,
-          breakdown: a.breakdown || null, reasons: a.reasons || null,
+          // n mirrors the visible numbering in the Why panel, so "line 3" in a
+          // feedback note maps to exactly one stored entry
+          breakdown: a.breakdown ? a.breakdown.map((b, j) => ({ n: j + 1, text: b.text, val: b.val })) : null,
+          reasons: a.reasons ? a.reasons.map((r, j) => ({ n: j + 1, text: r })) : null,
         })),
       };
-      body.innerHTML = shownAdds.map(a => {
+      body.innerHTML = shownAdds.map((a, i) => {
         const name = a.name || '';
         const safeName = name.replace(/'/g, "\\'");
         const displayName = escapeHtml(name);
@@ -7869,6 +7896,7 @@ async function _renderAddSuggestions(deck) {
           </div>`;
         return `<div class="suggest-item">
           <div class="cut-candidate-row">
+            <span class="suggest-rank" title="Suggestion rank — matches the rank stored with feedback">${i + 1}</span>
             <button type="button" class="cut-score-badge cut-why-toggle" aria-expanded="false" aria-label="Why suggested · score ${score}" onclick="_toggleSuggestWhy(this)">${score}<span class="cut-why-caret" aria-hidden="true">⌄</span></button>
             <span class="cut-card-name" onclick="openCardDetail('${sid}','deck')">${displayName}</span>
             ${priceTag}${ownTag}
@@ -10287,7 +10315,11 @@ async function _loadGameplanEdhrecRamp(cmdColors, deckCardNames, cmdCMC = 4) {
 function renderCommanderGameplan(deck) {
   const el = document.getElementById('commanderGameplan');
   if (!el) return;
-  const cmdCard = (deck.cards || []).find(c => c.isCommander);
+  // Gameplan treats planned adds as mainboard and planned cuts as not in the deck.
+  const gpDeck = typeof _gameplanDeckView === 'function' ? _gameplanDeckView(deck) : deck;
+  const afterSwaps = !!(gpDeck && gpDeck._gameplanAfterSwaps);
+  const cmdCard = (gpDeck.cards || []).find(c => c.isCommander)
+    || (deck.cards || []).find(c => c.isCommander);
   if (!cmdCard || !deck.commander) {
     el.innerHTML = '';
     el.style.display = 'none';
@@ -10299,7 +10331,7 @@ function renderCommanderGameplan(deck) {
   const savedReqs = _getCmdCustomReqs(deck.id);
   // Only apply custom requirements when the Custom toggle is active
   const customReqs = _cmdCustomEditorOpen ? savedReqs : [];
-  const probs = _cmdGameplanProbs(deck, cmdCard, customReqs);
+  const probs = _cmdGameplanProbs(gpDeck, cmdCard, customReqs);
   const { meta } = probs;
 
   const THRESHOLD = 0.85;
@@ -10327,7 +10359,7 @@ function renderCommanderGameplan(deck) {
       </div>`;
   };
 
-  const cards = deck.cards || [];
+  const cards = gpDeck.cards || [];
   const { cmdColors, hasGenericCost, adjustedCMC } = meta;
   const existingRamp = (cmcCap = adjustedCMC) => cards.filter(c => !_isLandDeckCard(c) && _probTagsOnCard(c).includes('Ramp') && _effectiveCmc(c) < cmcCap && _rampIsRelevant(c, cmdColors, hasGenericCost))
     .sort((a, b) => _effectiveCmc(a) - _effectiveCmc(b)).slice(0, 4).map(c => c.name);
@@ -10395,7 +10427,7 @@ function renderCommanderGameplan(deck) {
           ${(() => {
             const dynamic = !!CMD_GP_DYNAMIC_TAG_PILLS;
             const filter = dynamic ? (_cmdCustomTagFilter || 'all') : 'all';
-            const available = _cmdCustomReqTagOptions(deck, filter);
+            const available = _cmdCustomReqTagOptions(gpDeck, filter);
             const escOnclick = s => String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
             // tagBtns: onclickGen(tag, label) → full onclick string (tag/label already escaped)
             const tagBtns = (onclickGen, excludeValues) => available
@@ -10421,7 +10453,7 @@ function renderCommanderGameplan(deck) {
             const groupsHtml = savedReqs.length ? `
             <div class="cmdr-gp-custom-list">
               ${savedReqs.map(group => {
-                const { K, avgCMC } = _customReqCards(deck, group);
+                const { K, avgCMC } = _customReqCards(gpDeck, group);
                 const safeid = String(group.id).replace(/['"]/g,'');
                 const tagsInGroup = new Set(group.parts.map(p => p.value));
                 const orPickerOpen = String(_cmdOrPickerGroup) === String(group.id);
@@ -10459,7 +10491,7 @@ function renderCommanderGameplan(deck) {
         </div>
       </div>
       <div class="panel-body cmdr-gp-body">
-        <div class="cmdr-gp-meta">Playing <strong>${escapeHtml(deck.commander)}</strong> — MV&nbsp;${meta.cmdCMC} · ${meta.L} lands · ${meta.R} early ramp · ${meta.L_ut} untapped lands</div>
+        <div class="cmdr-gp-meta">Playing <strong>${escapeHtml(deck.commander)}</strong> — MV&nbsp;${meta.cmdCMC} · ${meta.L} lands · ${meta.R} early ramp · ${meta.L_ut} untapped lands${afterSwaps ? ' <span class="cmdr-gp-after-swaps" title="Counts planned adds as in the deck and planned cuts as out">· after planned adds/cuts</span>' : ''}</div>
         ${probs.preCurve ? scenarioHtml(probs.preCurve, 'Pre-curve', false) : ''}
         ${probs.onCurve ? scenarioHtml(probs.onCurve, 'On-curve', true) : ''}
         ${!probs.preCurve && !probs.onCurve ? '<div class="cmdr-gp-empty">Set a commander with a mana cost to see gameplan probabilities.</div>' : ''}
