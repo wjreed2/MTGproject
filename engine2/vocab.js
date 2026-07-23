@@ -7,7 +7,7 @@
 // cannot drift between pipeline runs. Additive changes bump VOCAB_VERSION; breaking shape
 // changes to the IR itself bump IR_VERSION (in ir-schema.js).
 
-const VOCAB_VERSION = 2; // v2: + pump.single capability axis (derived by backfill for pre-v2 rows)
+const VOCAB_VERSION = 3; // v3: + draw.group (each-player/opponent draw supply; derived by backfill for pre-v3 rows)
 
 // ── Effect AST ops ───────────────────────────────────────────────────────────
 // Each op's execution contract is specified in docs/engine2-ir-spec.md. The analysis layer
@@ -162,6 +162,7 @@ const AXES = {
   'card_advantage.impulse':     'impulse draw / exile-top-and-may-play',
   'card_advantage.loot':        'draw-then-discard or discard-then-draw filtering',
   'card_advantage.wheel':       'wheel effect — everyone discards and draws a new hand',
+  'draw.group':            'makes every player or your opponents draw (group hug, wheels, Howling Mine — feeds opponent-draw payoffs)',
   'card_advantage.draw_payoff': 'rewards drawing cards, especially extra draws (needs draw providers)',
 
   // tutors

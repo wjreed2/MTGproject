@@ -7262,9 +7262,18 @@ async function _renderCutSuggestions(deck) {
     const e2 = await _e2Analyze(deck);
     const swapsOnE2 = _deckSwapsEnabled(deck);
     const byName = new Map((deck.cards || []).map(c => [c.name, c]));
+    // On the projected basis the weakest cards are often the user's own planned
+    // adds — those cuts mean "don't add this" and must render, not silently drop
+    // (6 of 8 candidates vanished from a 115-card rebuild before this).
+    const addByName = new Map((deck.adds || []).map(s => [s.name, s]));
     const items = (e2 && Array.isArray(e2.cuts) ? e2.cuts : [])
-      .map(cut => ({ cut, card: byName.get(cut.name) })).filter(x => x.card)
-      .filter(x => !_isPlannedCutCard(deck, x.card)); // already decided — don't re-flag
+      .map(cut => {
+        const card = byName.get(cut.name);
+        if (card) return _isPlannedCutCard(deck, card) ? null : { cut, card, plannedAdd: false }; // already decided — don't re-flag
+        const slot = addByName.get(cut.name);
+        return slot ? { cut, card: slot, plannedAdd: true } : null;
+      })
+      .filter(Boolean);
     const basisNote = total <= 100 && projTotal > 100 && !_analyzeProjected(deck)
       ? '<div class="deck-tab-muted" style="padding:.4rem 1rem 0;font-size:.72rem">The overage comes from planned swaps — switch the analysis basis to “After swaps” for cuts on the planned build.</div>'
       : '';
@@ -7274,8 +7283,8 @@ async function _renderCutSuggestions(deck) {
         : _SUGGEST_E2_UNAVAILABLE_HTML;
       return;
     }
-    body.innerHTML = basisNote + items.map(({ cut, card }) => {
-      const uid = (card.uid || card.scryfallId || '').replace(/'/g, "\\'");
+    body.innerHTML = basisNote + items.map(({ cut, card, plannedAdd }) => {
+      const uid = (card.uid || card.scryfallId || card.name || '').replace(/'/g, "\\'");
       const sid = card.scryfallId || card.uid || '';
       const displayName = escapeHtml(card.name);
       const score = Number(cut.score || 0).toFixed(1);
@@ -7286,15 +7295,21 @@ async function _renderCutSuggestions(deck) {
         : (cut.reasons || []).map(r => ({ text: escapeHtml(r), val: '' }));
       const why = _suggestWhyDetailHtml('Why cut this', score, whyLines,
         'Semantic engine analysis — positive = reasons to keep, negative = reasons to cut');
-      const cutOnclick = swapsOnE2 ? `markPlannedCut('${uid}')` : `adjustDeckCardQtyByUid('${uid}',-1)`;
-      const cutTitle = swapsOnE2
-        ? 'Mark as a planned cut — stays in the deck until you apply swaps'
-        : 'Remove one copy from the deck';
+      const cutOnclick = plannedAdd ? `discardPlannedAdd('${uid}')`
+        : swapsOnE2 ? `markPlannedCut('${uid}')` : `adjustDeckCardQtyByUid('${uid}',-1)`;
+      const cutTitle = plannedAdd
+        ? 'Remove from planned adds — ranked weakest in the planned build'
+        : swapsOnE2
+          ? 'Mark as a planned cut — stays in the deck until you apply swaps'
+          : 'Remove one copy from the deck';
+      const addTag = plannedAdd
+        ? '<span class="tag" style="background:rgba(212,175,55,0.12);color:var(--gold);font-size:.62rem;margin:0 .4rem 0 0" title="This is one of your planned adds — cutting it just un-plans it">planned add</span>' : '';
       return `<div class="suggest-item">
         <div class="cut-candidate-row">
           <button type="button" class="cut-score-badge cut-why-toggle" aria-expanded="false" aria-label="Why cut · score ${score}" onclick="_toggleSuggestWhy(this)">${score}<span class="cut-why-caret" aria-hidden="true">⌄</span></button>
-          <span class="cut-card-name" onclick="openCardDetail('${sid}','deck')">${displayName}</span>
-          <button class="btn-danger-ghost" title="${cutTitle}" onclick="${cutOnclick}">Cut</button>
+          <span class="cut-card-name" onclick="${sid ? `openCardDetail('${sid}','deck')` : ''}">${displayName}</span>
+          ${addTag}
+          <button class="btn-danger-ghost" title="${cutTitle}" onclick="${cutOnclick}">${plannedAdd ? "Don't add" : 'Cut'}</button>
         </div>
         ${why}
       </div>`;
@@ -11406,6 +11421,28 @@ function commitPlannedAdd(uid) {
   renderActiveDeck();
   scheduleEDHRECRefresh();
   showNotif(snap.name + ' added to deck');
+}
+
+/** Drop a planned add without ever adding it — the suggested-cuts panel offers this
+ * when the engine ranks one of the user's own planned adds weakest in the projected
+ * build ("don't add this" rather than "remove this"). */
+function discardPlannedAdd(uid) {
+  const deck = getActiveDeck();
+  if (!deck) return;
+  if (typeof canEditActiveDeck === 'function' && !canEditActiveDeck()) {
+    showNotif('You have view-only access to this deck', true);
+    return;
+  }
+  const pool = _deckPlannedAdds(deck);
+  const slot = pool.find(c => getCardInventoryKey(c) === uid || c.uid === uid || String(c.name || '') === uid);
+  if (!slot) return;
+  const name = slot.name;
+  if ((slot.qty || 1) > 1) slot.qty--;
+  else { const i = pool.indexOf(slot); if (i >= 0) pool.splice(i, 1); }
+  _flagClearedPlanningIfEmpty(deck);
+  saveActiveDeck(deck, { planningOnly: true });
+  renderActiveDeck();
+  showNotif(name + ' removed from planned adds');
 }
 
 /** Remove one planned cut from the deck for real (mirror of commitPlannedAdd). */
