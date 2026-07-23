@@ -83,6 +83,15 @@ function deckAxisIndex(deckCards, commander) {
       needs.set(nd.axis, rec);
     }
   }
+  // Repeatable commander output — axes the command zone itself keeps supplying.
+  // Secondary-goal wants must not shop for parallel engines of these (Xyris makes
+  // the Snakes; the deck wants his triggers fed, not Krenko next to him).
+  const commanderProvides = new Map();
+  for (const p of commander?.ir?.provides || []) {
+    if (p.rate === 'repeatable' || p.rate === 'per_turn' || p.rate === 'static') {
+      commanderProvides.set(p.axis, { weight: p.weight || 1, rate: p.rate });
+    }
+  }
   // In Commander the designated carrier IS the commander — always castable, always
   // available. Synthesize the provide so suit-up demand (pump spells, equipment)
   // reads as fed, and mark the index so wants never shop for more carriers
@@ -97,7 +106,7 @@ function deckAxisIndex(deckCards, commander) {
     if (e.names.length < 6) e.names.push(commander.name);
     provides.set('voltron.carrier', rec);
   }
-  return { provides, needs, commanderCarrier };
+  return { provides, needs, commanderCarrier, commanderProvides };
 }
 
 // Axes that belong to the deck's PLAN: core/support axes of every confident goal
@@ -262,6 +271,13 @@ function wantedAxes(goal, hist, index, templates, goals) {
       const got = groupAxes.reduce((s, ax) => s + (hist.providers[ax] || 0), 0)
         + (group.types || []).reduce((s, t) => s + (hist.typeCounts?.[t] || 0), 0);
       if (got < groupMin) {
+        // A SECONDARY goal's core gap never shops for what the commander already
+        // supplies repeatably: pump-voltron Xyris makes the Snakes himself — the
+        // tokens-wide co-goal must want his triggers fed, not Krenko beside him.
+        // Group-level: one commander-supplied axis covers the group's concept.
+        // (Top-goal wants are untouched: a Krenko deck still shops for goblins.)
+        const isTop = g === coPrimary[0];
+        if (!isTop && groupAxes.some(ax => index.commanderProvides?.has(ax))) continue;
         for (const ax of groupAxes) {
           // never shop for carriers while a commander exists — the commander IS the carrier
           if (ax === 'voltron.carrier' && index.commanderCarrier) continue;
