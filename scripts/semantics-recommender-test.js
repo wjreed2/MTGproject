@@ -675,5 +675,28 @@ console.log('voltron mechanisms — equipment vs pump (Xyris feedback #4)');
   check('equipment voltron still wants equipment', wEq.has('voltron.aura_equipment'), JSON.stringify([...wEq.keys()]));
 }
 
+console.log('commander is the carrier — never shop for voltron carriers (Xyris follow-up)');
+{
+  // pump spells with hard carrier demand; the deck itself has no carrier card
+  const deck = [
+    ...Array.from({ length: 6 }, (_, i) => ({ name: `Trick ${i}`, qty: 1, cmc: 1, typeLine: 'Instant', ir: synIR([['pump.single', 2, 'once']], [['voltron.carrier', 3, 'requires']]) })),
+    { name: 'Some Land', qty: 30, cmc: 0, typeLine: 'Basic Land — Forest', ir: synIR([], [], { roles: ['land'] }) },
+  ];
+  const cmd = { name: 'Snake Boss', ir: synIR([['body.evasive', 2, 'static']]) };
+  const withCmd = rec.deckAxisIndex(deck, cmd);
+  check('commander synthesized as carrier provider',
+    (withCmd.provides.get('voltron.carrier')?.names || []).includes('Snake Boss'),
+    JSON.stringify(withCmd.provides.get('voltron.carrier')));
+  const gV = [{ goal: 'voltron', confidence: 1, mechanism: 'pump' }];
+  const hist = inferGoals(deck, cmd, {}).histogram;
+  const wCmd = rec.wantedAxes('voltron', hist, withCmd, templates, gV);
+  check('carrier never wanted while a commander exists', !wCmd.has('voltron.carrier'), JSON.stringify([...wCmd.keys()]));
+  // without a commander (or with an unextracted one) the demand still fires — the
+  // Sami case: an IR-less commander must keep surfacing carrier suggestions
+  const noCmd = rec.deckAxisIndex(deck, null);
+  const wNo = rec.wantedAxes('voltron', hist, noCmd, templates, gV);
+  check('carrier demand still fires with no commander IR', wNo.has('voltron.carrier'), JSON.stringify([...wNo.keys()]));
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
