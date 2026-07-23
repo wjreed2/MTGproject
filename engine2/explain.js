@@ -19,6 +19,7 @@ const AXIS_LABELS = {
   'card_advantage.draw': 'card draw',
   'card_advantage.draw_engine': 'draw engines',
   'card_advantage.wheel': 'wheels',
+  'draw.group': 'group draw',
   'mana.ramp_land': 'land ramp',
   'mana.rock': 'mana rocks',
   'mana.dork': 'mana dorks',

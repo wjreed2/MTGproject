@@ -439,7 +439,13 @@ function scoreCuts({ deckCards, commander, goals, thresholds, roleCounts }) {
   }
 
   scored.sort((a, b) => a.contribution - b.contribution);
-  return scored.slice(0, CUT_COUNT).map(s => ({ name: s.name, score: -s.contribution, trace: s.trace }));
+  // A deck 16 over needs at least 16 candidates — the fixed count only fits mild
+  // overages. Scale with how far over 100 the analyzed list is (cap keeps the
+  // panel reviewable; the analyzed list already includes planned adds when the
+  // caller analyzes the projected build).
+  const deckTotal = deckCards.reduce((s, c) => s + (c.qty || 1), 0) + (commander ? 1 : 0);
+  const cutCount = Math.max(CUT_COUNT, Math.min(24, (deckTotal - 100) + 4));
+  return scored.slice(0, cutCount).map(s => ({ name: s.name, score: -s.contribution, trace: s.trace }));
 }
 
 // ── adds ─────────────────────────────────────────────────────────────────────
