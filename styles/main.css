@@ -3721,6 +3721,15 @@ img.stack-main.loaded { opacity: 1; }
   display: flex; align-items: baseline; gap: 6px;
 }
 .deck-stack-group-count { font-family: 'JetBrains Mono', monospace; font-size: 0.68rem; opacity: 0.6; }
+/* stack columns are narrow — "(after swaps: N)" overlaps the title inline, so it
+   wraps to its own line under "CREATURE (24)" inside the bordered header */
+.deck-stack-group-label { flex-wrap: wrap; }
+.deck-stack-group-label .deck-swaps-projected {
+  flex-basis: 100%;
+  margin-left: 0;
+  font-size: 0.6rem;
+  letter-spacing: 0.05em;
+}
 .deck-stack-group-label--drag {
   cursor: grab;
   user-select: none;
