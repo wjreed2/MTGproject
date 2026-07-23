@@ -445,7 +445,10 @@ function scoreCuts({ deckCards, commander, goals, thresholds, roleCounts }) {
   // caller analyzes the projected build).
   const deckTotal = deckCards.reduce((s, c) => s + (c.qty || 1), 0) + (commander ? 1 : 0);
   const cutCount = Math.max(CUT_COUNT, Math.min(24, (deckTotal - 100) + 4));
-  return scored.slice(0, cutCount).map(s => ({ name: s.name, score: -s.contribution, trace: s.trace }));
+  // score IS the signed contribution (what the card does for this deck): most
+  // negative first = strongest cut. The breakdown lines sum to exactly this
+  // number — a "4.9" badge over lines summing to −4.9 read as a bug.
+  return scored.slice(0, cutCount).map(s => ({ name: s.name, score: s.contribution, trace: s.trace }));
 }
 
 // ── adds ─────────────────────────────────────────────────────────────────────
