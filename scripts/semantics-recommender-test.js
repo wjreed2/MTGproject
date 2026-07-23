@@ -735,5 +735,35 @@ console.log('castability — MV above the mana base is penalized (feedback #12/#
     JSON.stringify(big2?.trace));
 }
 
+console.log('commander is the engine — secondary goals never shop for his output');
+{
+  // voltron-pump top goal, tokens-wide co-primary; the commander himself is the
+  // repeatable token engine (Xyris). Secondary core gaps must not want token axes.
+  const deck = [
+    ...Array.from({ length: 8 }, (_, i) => ({ name: `Trick ${i}`, qty: 1, cmc: 1, typeLine: 'Instant', ir: synIR([['pump.single', 2, 'once'], ['protection.single', 3, 'once']]) })),
+    { name: 'Some Land', qty: 30, cmc: 0, typeLine: 'Basic Land — Forest', ir: synIR([], [], { roles: ['land'] }) },
+  ];
+  const cmdEngine = { name: 'Snake Engine Boss', ir: synIR([['token.creature_wide', 4, 'repeatable'], ['body.evasive', 2, 'static']]) };
+  const goals2 = [{ goal: 'voltron', confidence: 1, mechanism: 'pump' }, { goal: 'tokens-wide', confidence: 0.98 }];
+  const hist2 = inferGoals(deck, cmdEngine, {}).histogram;
+  const wEngine = rec.wantedAxes('voltron', hist2, rec.deckAxisIndex(deck, cmdEngine), templates, goals2);
+  check('secondary tokens-wide never wants the commander-supplied axis',
+    !wEngine.has('token.creature_wide') && !wEngine.has('token.creature'),
+    JSON.stringify([...wEngine.keys()]));
+  // without the commander engine, the same secondary core gap DOES want token production
+  const cmdPlain = { name: 'Plain Boss', ir: synIR([['body.evasive', 2, 'static']]) };
+  const wPlain = rec.wantedAxes('voltron', inferGoals(deck, cmdPlain, {}).histogram, rec.deckAxisIndex(deck, cmdPlain), templates, goals2);
+  check('secondary core gap still wants tokens without the commander engine',
+    wPlain.has('token.creature') || wPlain.has('token.creature_wide'),
+    JSON.stringify([...wPlain.keys()]));
+  // and when tokens-wide IS the top goal, commander output does not mute it —
+  // a Krenko deck still shops for token producers
+  const wTop = rec.wantedAxes('tokens-wide', hist2, rec.deckAxisIndex(deck, cmdEngine), templates,
+    [{ goal: 'tokens-wide', confidence: 1 }]);
+  check('top-goal token wants survive a token-engine commander',
+    wTop.has('token.creature') || wTop.has('token.creature_wide'),
+    JSON.stringify([...wTop.keys()]));
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
