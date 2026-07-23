@@ -9606,15 +9606,22 @@ app.get('/api/internal/deck/:id', requireSemanticsIngestSecret, async (req, res)
   try {
     const deckId = String(req.params.id || '').slice(0, 64);
     const [deckRows] = await db().query(
-      `SELECT d.id, d.name, d.format, d.account_id, d.updated_at, a.email
+      `SELECT d.id, d.name, d.format, d.account_id, d.updated_at, d.data, a.email
          FROM decks d JOIN accounts a ON a.id = d.account_id
         WHERE d.id = ? ORDER BY d.updated_at DESC LIMIT 1`, [deckId]);
     if (!deckRows.length) return res.status(404).json({ error: 'deck not found' });
     const deck = deckRows[0];
     const cards = await loadDeckCardsForOwner(deck.account_id, deckId);
+    // planning zones ride in the deck's data JSON — reviews need them to tell the
+    // mainboard from what the owner already decided to swap
+    let data = deck.data;
+    if (typeof data === 'string') { try { data = JSON.parse(data); } catch (_) { data = {}; } }
+    const slot = s => ({ name: String(s?.name || ''), qty: Math.max(1, Number(s?.qty) || 1) });
     res.json({
       deck: { id: deck.id, name: deck.name, format: deck.format, owner: deck.email, updated_at: deck.updated_at },
       cards: cards.map(c => ({ name: c.name, qty: c.qty || 1, isCommander: !!c.isCommander, type: c.type || null })),
+      planAdds: (Array.isArray(data?.adds) ? data.adds : []).map(slot).filter(s => s.name),
+      planCuts: (Array.isArray(data?.cuts) ? data.cuts : []).map(slot).filter(s => s.name),
     });
   } catch (e) {
     console.error('[internal-deck]', e);

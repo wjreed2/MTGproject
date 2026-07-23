@@ -30,13 +30,15 @@ async function main() {
     headers: { Authorization: `Bearer ${secret}` },
   });
   if (!res.ok) { console.error(`pull failed (${res.status}): ${(await res.text()).slice(0, 300)}`); process.exit(1); }
-  const { deck, cards } = await res.json();
+  const { deck, cards, planAdds = [], planCuts = [] } = await res.json();
   const commander = cards.find(c => c.isCommander);
   const rest = cards.filter(c => !c.isCommander);
   const total = cards.reduce((s, c) => s + (c.qty || 1), 0);
   console.log(`${deck.name} · ${deck.format || 'commander'} · ${deck.owner} · ${total} cards`);
   console.log(`commander: ${commander ? commander.name : '(none flagged)'}\n`);
   for (const c of rest) console.log(`${c.qty} ${c.name}`);
+  if (planAdds.length) console.log(`\nplanned ADDS (${planAdds.length}): ` + planAdds.map(s => `${s.qty > 1 ? s.qty + ' ' : ''}${s.name}`).join(', '));
+  if (planCuts.length) console.log(`planned CUTS (${planCuts.length}): ` + planCuts.map(s => `${s.qty > 1 ? s.qty + ' ' : ''}${s.name}`).join(', '));
 
   const slug = val('--fixture');
   if (slug) {
@@ -46,6 +48,7 @@ async function main() {
       name: deck.name, source: 'deck-pull', deck_id: deck.id,
       commander: commander ? commander.name : null,
       cards: rest.map(c => ({ name: c.name, qty: c.qty || 1 })),
+      planAdds, planCuts,
     };
     const out = path.join(outDir, `${slug}.json`);
     fs.writeFileSync(out, JSON.stringify(fx, null, 2));
