@@ -7206,7 +7206,14 @@ function _renderDeckGoalReadout(deck, e2) {
   const second = e2.goals[1];
   const secondBit = second && (second.confidence || 0) >= 0.85
     ? ` <span style="color:var(--text3);font-size:.72rem">· secondary: ${escapeHtml(second.label || second.goal)}</span>` : '';
-  const projBit = _analyzeProjected(deck) ? ' <span style="color:var(--gold);font-size:.7rem">(after swaps)</span>' : '';
+  // always disambiguate WHICH deck was analyzed once a planning board exists —
+  // "goal: wheels" while every wheel sits in the planned-cuts zone reads as a bug
+  const planCount = ((deck?.adds || []).length) + ((deck?.cuts || []).length);
+  const projBit = _analyzeProjected(deck)
+    ? ' <span style="color:var(--gold);font-size:.7rem">(after planned swaps)</span>'
+    : planCount > 0
+      ? ` <span style="color:var(--gold);font-size:.7rem">(current list — ${planCount} planned swap${planCount === 1 ? '' : 's'} not applied)</span>`
+      : '';
   el.innerHTML = `<div>${icon} Deck goal: <strong style="color:var(--teal)">${escapeHtml(top.label || top.goal)}</strong>` +
     `<span style="color:var(--text3);font-size:.72rem"> · ${pct}% match</span>${projBit}${secondBit}</div>` +
     `<div style="color:var(--text3);font-size:.74rem;margin-top:2px">${escapeHtml(top.summary || '')}</div>` + comboHtml;
