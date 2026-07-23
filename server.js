@@ -9600,6 +9600,28 @@ app.delete('/api/internal/suggestion-feedback/:id', requireSemanticsIngestSecret
   }
 });
 
+/** Fetch one deck's list by id (dev-side feedback review — resolves the deck_id that
+ * suggestion_feedback rows carry). Names/quantities only, not the full card blobs. */
+app.get('/api/internal/deck/:id', requireSemanticsIngestSecret, async (req, res) => {
+  try {
+    const deckId = String(req.params.id || '').slice(0, 64);
+    const [deckRows] = await db().query(
+      `SELECT d.id, d.name, d.format, d.account_id, d.updated_at, a.email
+         FROM decks d JOIN accounts a ON a.id = d.account_id
+        WHERE d.id = ? ORDER BY d.updated_at DESC LIMIT 1`, [deckId]);
+    if (!deckRows.length) return res.status(404).json({ error: 'deck not found' });
+    const deck = deckRows[0];
+    const cards = await loadDeckCardsForOwner(deck.account_id, deckId);
+    res.json({
+      deck: { id: deck.id, name: deck.name, format: deck.format, owner: deck.email, updated_at: deck.updated_at },
+      cards: cards.map(c => ({ name: c.name, qty: c.qty || 1, isCommander: !!c.isCommander, type: c.type || null })),
+    });
+  } catch (e) {
+    console.error('[internal-deck]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 /** Batch upsert of CardIR rows (card_semantics + replaced card_semantics_axes). */
 app.post('/api/internal/semantics-ingest', requireSemanticsIngestSecret, async (req, res) => {
   const cards = Array.isArray(req.body?.cards) ? req.body.cards : null;

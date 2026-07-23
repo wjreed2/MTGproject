@@ -28,7 +28,11 @@ async function main() {
   const slug = process.argv[2] && !process.argv[2].startsWith('--') ? process.argv[2] : 'korvold-aristocrats';
   const bIx = process.argv.indexOf('--budget');
   const budget = { maxCardPrice: bIx >= 0 ? Number(process.argv[bIx + 1]) : null, flagAbove: 5 };
-  const fx = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'engine2', 'fixtures', 'decks', `${slug}.json`), 'utf8'));
+  // slug, or a path to any fixture JSON (e.g. engine2/fixtures/pulled/<slug>.json from deck-pull)
+  const fxPath = slug.includes('/') || slug.endsWith('.json')
+    ? path.resolve(slug)
+    : path.join(__dirname, '..', 'engine2', 'fixtures', 'decks', `${slug}.json`);
+  const fx = JSON.parse(fs.readFileSync(fxPath, 'utf8'));
   const db = pool();
   try {
     const t0 = Date.now();
