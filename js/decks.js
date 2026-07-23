@@ -5346,6 +5346,20 @@ function _bindDeckTagGroupHoverLinking(el, enabled) {
 }
 
 /** Hovering a card in the Adds/Cuts zones emphasizes its counterpart(s) in the deck list — always on, unlike tag-group linking. */
+function _bindDeckCardHoverPreview(el) {
+  if (!el || (typeof _deckIsPhone === 'function' && _deckIsPhone())) return;
+  const constrain = document.getElementById('deckListPanel') || el;
+  el.querySelectorAll('.deck-stack-card .stack-main').forEach(imgEl => {
+    if (imgEl.dataset.hoverPreviewBound) return;
+    if (imgEl.classList.contains('stack-face-fallback')) return;
+    const src = imgEl.currentSrc || imgEl.src || imgEl.getAttribute('src');
+    if (!src) return;
+    imgEl.dataset.hoverPreviewBound = '1';
+    imgEl.addEventListener('mouseenter', () => _showCardHoverPreview(src, imgEl, constrain));
+    imgEl.addEventListener('mouseleave', _hideCardHoverPreview);
+  });
+}
+
 function _bindSwapZoneHoverLinking(el, enabled) {
   if (!el) return;
   el.onpointerover = null;
@@ -8163,6 +8177,7 @@ function renderDeckList(deck) {
     _attachDeckDragHandlers(el);
     _bindDeckTagGroupHoverLinking(el, _isTagGroupByMode(deckGroupBy));
     _bindSwapZoneHoverLinking(el, swapsOn);
+    _bindDeckCardHoverPreview(el);
     _syncDeckStackLayoutResetBtn(deck);
     _scheduleDeckTokensRefresh(deck);
     restoreScroll();
@@ -8253,6 +8268,7 @@ function renderDeckList(deck) {
   _attachDeckDragHandlers(el);
   _bindDeckTagGroupHoverLinking(el, _isTagGroupByMode(deckGroupBy));
   _bindSwapZoneHoverLinking(el, swapsOn);
+  _bindDeckCardHoverPreview(el);
   _syncDeckStackLayoutResetBtn(deck);
   _scheduleDeckTokensRefresh(deck);
   restoreScroll();
@@ -9781,15 +9797,33 @@ function _rampIsRelevant(card, cmdColors, hasGenericCost) {
   return false;
 }
 
-function _countEarlyRamp(deck, cmdColors, hasGenericCost, cmdCMC = 4) {
-  return (deck.cards || []).reduce((s, c) => {
-    if (_isLandDeckCard(c)) return s;
-    if (!_probTagsOnCard(c).includes('Ramp')) return s;
-    // "Early" = castable before the commander turn (CMC < cmdCMC)
-    if (_effectiveCmc(c) >= cmdCMC) return s;
-    if (cmdColors && !_rampIsRelevant(c, cmdColors, hasGenericCost)) return s;
-    return s + (c.qty || 1);
-  }, 0);
+/** Commander MV − 2, floored at 1 (MV 1–3 commanders still count MV≤1 ramp as "early"). */
+function _earlyRampCmcThreshold(cmdCMC) {
+  return Math.max(1, Math.round(cmdCMC) - 2);
+}
+
+function _earlyRampDeckCards(deck, cmdColors, hasGenericCost, cmcCap) {
+  return (deck.cards || []).filter(c => {
+    if (_isLandDeckCard(c)) return false;
+    if (!_probTagsOnCard(c).includes('Ramp')) return false;
+    if (_effectiveCmc(c) > cmcCap) return false;
+    if (cmdColors && !_rampIsRelevant(c, cmdColors, hasGenericCost)) return false;
+    return true;
+  });
+}
+
+function _countEarlyRamp(deck, cmdColors, hasGenericCost, cmcCap) {
+  return _earlyRampDeckCards(deck, cmdColors, hasGenericCost, cmcCap)
+    .reduce((s, c) => s + (c.qty || 1), 0);
+}
+
+/** Ramp pieces at or below cap that are not tagged Ramp — shown in the info popup. */
+function _nearMissEarlyRampCards(deck, cmcCap) {
+  return (deck.cards || []).filter(c => {
+    if (_isLandDeckCard(c)) return false;
+    if (_probTagsOnCard(c).includes('Ramp')) return false;
+    return _effectiveCmc(c) <= cmcCap;
+  }).sort((a, b) => _effectiveCmc(a) - _effectiveCmc(b) || a.name.localeCompare(b.name));
 }
 
 function _cmdGameplanProbs(deck, cmdCard, customReqs = []) {
@@ -9831,7 +9865,10 @@ function _cmdGameplanProbs(deck, cmdCard, customReqs = []) {
   const extraTurns = Math.round(_customDataRaw.reduce((s, v) => s + v, 0));
   const adjustedCMC = cmdCMC + extraTurns;
 
-  const R = _countEarlyRamp(deck, cmdColors, hasGenericCost, adjustedCMC);
+  const earlyRampCap = _earlyRampCmcThreshold(cmdCMC);
+  const onCurveRampCap = _earlyRampCmcThreshold(adjustedCMC);
+  const R = _countEarlyRamp(deck, cmdColors, hasGenericCost, earlyRampCap);
+  const R_on = _countEarlyRamp(deck, cmdColors, hasGenericCost, onCurveRampCap);
   const clamp01 = v => Math.max(0, Math.min(1, v));
   // Mulligan adjustment: P(success) = 1 - P(fail original hand) × P(fail mulligan hand)
   // Mulligan hand starts with 6 cards (bottom 1 after free redraw) + same turn draws = seen-1 total
@@ -9878,7 +9915,7 @@ function _cmdGameplanProbs(deck, cmdCard, customReqs = []) {
 
   // customGroups populated after customData is built below; placeholder here so meta reference is stable
   const customGroups = [];
-  const results = { onCurve: null, preCurve: null, meta: { N, L, L_ut, R, cmdCMC, adjustedCMC, extraTurns, cmdColors, colorSources, hasGenericCost, customGroups } };
+  const results = { onCurve: null, preCurve: null, meta: { N, L, L_ut, R, cmdCMC, adjustedCMC, extraTurns, cmdColors, colorSources, hasGenericCost, customGroups, earlyRampCap, onCurveRampCap } };
 
   // Build sorted card-name list for a given color — used in tooltip detail strings
   const colorSourceCards = col => {
@@ -9899,19 +9936,21 @@ function _cmdGameplanProbs(deck, cmdCard, customReqs = []) {
     return `${Math.round(S)} sources\n${cardList}`;
   };
 
-  const rampDetail = (cmcCap = adjustedCMC) => {
-    const rampRaw = (deck.cards || []).filter(c => {
-      if (_isLandDeckCard(c)) return false;
-      if (!_probTagsOnCard(c).includes('Ramp')) return false;
-      if (_effectiveCmc(c) >= cmcCap) return false;
-      return true;
-    }).map(c => ({ name: c.name, qty: c.qty || 1 }));
+  const rampDetail = (cmcCap = onCurveRampCap) => {
+    const rampRaw = _earlyRampDeckCards(deck, cmdColors, hasGenericCost, cmcCap)
+      .map(c => ({ name: c.name, qty: c.qty || 1, cmc: _effectiveCmc(c) }));
     const rampCards = _mergeEntriesByCardName(rampRaw)
       .sort((a, b) => a.name.localeCompare(b.name));
     const count = rampCards.reduce((s, c) => s + (c.qty || 1), 0);
-    const cardList = rampCards.map(c => c.qty > 1 ? `${c.name} ×${c.qty}` : c.name).join('\n');
-    return `${count} ramp pieces (MV<${cmcCap})\n${cardList}`;
+    const cardList = rampCards.map(c => {
+      const mv = c.cmc != null ? ` (MV ${c.cmc})` : '';
+      return c.qty > 1 ? `${c.name}${mv} ×${c.qty}` : `${c.name}${mv}`;
+    }).join('\n');
+    return `${count} ramp pieces (MV≤${cmcCap})\n${cardList}`;
   };
+
+  const landDeckCards = () => (deck.cards || []).filter(c => _isLandDeckCard(c))
+    .sort((a, b) => a.name.localeCompare(b.name));
 
 
 
@@ -9933,6 +9972,7 @@ function _cmdGameplanProbs(deck, cmdCard, customReqs = []) {
     label: `Drew ${d.groupLabel}`,
     p: mulP(d.K, sceneSeen, 1),
     detail: d.detail,
+    reqCards: d.cards || [],
   }));
   const customReqMul = (sceneSeen) => customData.reduce((s, d) => s * mulP(d.K, sceneSeen, 1), 1);
 
@@ -9942,9 +9982,9 @@ function _cmdGameplanProbs(deck, cmdCard, customReqs = []) {
     const seen = 7 + (turn - 1);
     // Ramp has until T(turn-1) to show up — cards seen by that turn
     const rampSeen = 7 + Math.max(0, turn - 2);
-    const p_ramp_0    = clamp01(1 - mulP(R, rampSeen, 1));
-    const p_ramp_1    = clamp01(mulP(R, rampSeen, 1) - mulP(R, rampSeen, 2));
-    const p_ramp_2plus = mulP(R, rampSeen, 2);
+    const p_ramp_0    = clamp01(1 - mulP(R_on, rampSeen, 1));
+    const p_ramp_1    = clamp01(mulP(R_on, rampSeen, 1) - mulP(R_on, rampSeen, 2));
+    const p_ramp_2plus = mulP(R_on, rampSeen, 2);
     // If user requires lands in hand, they need turn+N lands total (N played + N held)
     const landMinK = turn + extraLandsInHand;
     const p_land_natural = mulP(L, seen, landMinK);
@@ -9955,21 +9995,30 @@ function _cmdGameplanProbs(deck, cmdCard, customReqs = []) {
       p_ramp_1     * p_land_1ramp   +
       p_ramp_2plus * p_land_2ramp
     );
-    const p_ramp_any = mulP(R, rampSeen, 1);
+    const p_ramp_any = mulP(R_on, rampSeen, 1);
     const colorReqs = cmdColors.map(col => {
       const S = colorSources[col] || 0;
-      return { label: `${_COLOR_FULL[col]} source`, p: mulP(S, seen, 1), detail: colorSourceDetail(col) };
+      const srcCards = (deck.cards || []).filter(c => (_estimateManaSources(c, cmdColors, true)[col] || 0) > 0)
+        .sort((a, b) => a.name.localeCompare(b.name));
+      return {
+        label: `${_COLOR_FULL[col]} source`,
+        p: mulP(S, seen, 1),
+        detail: colorSourceDetail(col),
+        reqCards: srcCards,
+      };
     });
     const landLabel = extraLandsInHand > 0
       ? `≥${landMinK} lands by T${turn} (${extraLandsInHand} in hand)`
       : `≥${turn} lands by T${turn}`;
     const p_overall = clamp01(p_mana * pColorsJointMul(cmdColors, seen) * customReqMul(seen));
+    const landCardsList = landDeckCards();
+    const landReqCards = landCardsList.map(c => ({ ...c, qty: c.qty || 1 }));
     results.onCurve = {
-      turn, p: p_overall, rampCmcCap: adjustedCMC,
+      turn, p: p_overall, rampCmcCap: onCurveRampCap,
       requirements: [
-        { label: landLabel, p: p_land_natural, detail: `${L} lands` },
-        { label: `Early ramp by T${Math.max(1, turn - 1)} (saves land drops)`, p: p_ramp_any, detail: rampDetail(), bonus: true },
-        ...colorReqs.map(r => ({ label: r.label, p: r.p, detail: r.detail })),
+        { label: landLabel, p: p_land_natural, detail: `${L} lands`, reqCards: landReqCards },
+        { label: `Early ramp by T${Math.max(1, turn - 1)} (saves land drops)`, p: p_ramp_any, detail: rampDetail(onCurveRampCap), bonus: true, reqCards: _earlyRampDeckCards(deck, cmdColors, hasGenericCost, onCurveRampCap) },
+        ...colorReqs.map(r => ({ label: r.label, p: r.p, detail: r.detail, reqCards: r.reqCards })),
         ...customReqRows(seen),
       ],
     };
@@ -9982,7 +10031,14 @@ function _cmdGameplanProbs(deck, cmdCard, customReqs = []) {
     const p_lands = mulP(L, seen, preLandMinK);
     const colorReqs = cmdColors.map(col => {
       const S = colorSources[col] || 0;
-      return { label: `${_COLOR_FULL[col]} source`, p: mulP(S, seen, 1), detail: colorSourceDetail(col) };
+      const srcCards = (deck.cards || []).filter(c => (_estimateManaSources(c, cmdColors, true)[col] || 0) > 0)
+        .sort((a, b) => a.name.localeCompare(b.name));
+      return {
+        label: `${_COLOR_FULL[col]} source`,
+        p: mulP(S, seen, 1),
+        detail: colorSourceDetail(col),
+        reqCards: srcCards,
+      };
     });
     // Ramp + untapped land needed by T(turn-1) to accelerate into pre-curve.
     // Pre-curve ramp must be castable BEFORE the target turn, so CMC < turn (one stricter than on-curve).
@@ -10004,12 +10060,30 @@ function _cmdGameplanProbs(deck, cmdCard, customReqs = []) {
     const preLandLabel = extraLandsInHand > 0
       ? `≥${preLandMinK} lands by T${turn} (${extraLandsInHand} in hand)`
       : `≥${turn} lands by T${turn}`;
+    const preRampCards = _earlyRampDeckCards(deck, cmdColors, hasGenericCost, turn);
+    const preUtLandCards = cards.filter(c => {
+      if (!_isLandDeckCard(c)) return false;
+      if (!_isEtbTappedLand(c)) return true;
+      const txt = String(c.oracleText || '').toLowerCase();
+      if (txt.includes('pay 2 life')) return true;
+      if (txt.includes('unless you control')) {
+        for (const [type, col] of Object.entries(_FETCH_TYPE_COLOR)) {
+          if (txt.includes(type) && cmdColorSet.has(col)) return true;
+        }
+      }
+      return false;
+    });
     results.preCurve = {
       turn, p: p_overall, rampCmcCap: turn,
       requirements: [
-        { label: preLandLabel, p: p_lands, detail: `${L} lands` },
-        { label: `Untapped land + ramp by T${rampTurnLabel}`, p: p_ramp_ut, detail: rampDetail(turn) + `\n${L_ut} untapped lands` },
-        ...colorReqs.map(r => ({ label: r.label, p: r.p, detail: r.detail })),
+        { label: preLandLabel, p: p_lands, detail: `${L} lands`, reqCards: landDeckCards() },
+        {
+          label: `Untapped land + ramp by T${rampTurnLabel}`,
+          p: p_ramp_ut,
+          detail: rampDetail(turn) + `\n${L_ut} untapped lands`,
+          reqCards: [...preRampCards, ...preUtLandCards],
+        },
+        ...colorReqs.map(r => ({ label: r.label, p: r.p, detail: r.detail, reqCards: r.reqCards })),
         ...customReqRows(seen),
       ],
     };
@@ -10019,6 +10093,7 @@ function _cmdGameplanProbs(deck, cmdCard, customReqs = []) {
 }
 
 function _suggestRamp(cmdColors, hasGenericCost, deckCardNames, cmdCMC = 4) {
+  const rampCap = _earlyRampCmcThreshold(cmdCMC);
   const cmdColorSet = new Set(cmdColors);
   const inDeck = new Set(deckCardNames.map(n => n.toLowerCase()));
   const seen = new Set();
@@ -10027,7 +10102,7 @@ function _suggestRamp(cmdColors, hasGenericCost, deckCardNames, cmdCMC = 4) {
   const candidates = _ownershipCollection()
     .filter(c => {
       if (_isLandDeckCard(c)) return false;
-      if (_effectiveCmc(c) >= cmdCMC) return false;
+      if (_effectiveCmc(c) > rampCap) return false;
       // Check roleTags (pre-fetched from DB) first, then fall back to live _probTagsOnCard
       const tags = Array.isArray(c.roleTags) ? c.roleTags : _probTagsOnCard(c);
       if (!tags.includes('Ramp')) return false;
@@ -10052,13 +10127,14 @@ function _suggestRamp(cmdColors, hasGenericCost, deckCardNames, cmdCMC = 4) {
 async function _loadGameplanEdhrecRamp(cmdColors, deckCardNames, cmdCMC = 4) {
   const el = document.getElementById('cmdGpEdhrecSuggs');
   if (!el) return;
+  const rampCap = _earlyRampCmcThreshold(cmdCMC);
   const colors = sortColorsWUBRG(cmdColors);
   const key = colors.join('');
   let cards = _cmdGpEdhrecCache.get(key);
   if (!cards) {
     el.innerHTML = '<span style="color:var(--text3);font-size:0.75rem;padding:4px 0;display:block">Loading…</span>';
     const idQ = key ? `id<=${key}` : '';
-    const query = [idQ, `cmc<${cmdCMC}`, 'otag:ramp', '-t:land', 'not:extra'].filter(Boolean).join(' ');
+    const query = [idQ, `cmc<=${rampCap}`, 'otag:ramp', '-t:land', 'not:extra'].filter(Boolean).join(' ');
     try {
       const res = await fetch(`/api/scryfall/search?q=${encodeURIComponent(query)}&order=edhrec&unique=cards&skipTcg=1`);
       if (!res.ok) throw new Error(`${res.status}`);
@@ -10090,6 +10166,89 @@ async function _loadGameplanEdhrecRamp(cmdColors, deckCardNames, cmdCMC = 4) {
     </div>`;
 }
 
+let _cmdGpRenderCache = null;
+const _CMD_GP_INFO_ICON = '<svg class="cmdr-gp-info-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="8" cy="8" r="6.25"/><path d="M8 7.25v4M8 5.25h.01"/></svg>';
+
+function _ensureCmdGpCardsModal() {
+  let modal = document.getElementById('cmdGpCardsModal');
+  if (modal) return modal;
+  modal = document.createElement('div');
+  modal.id = 'cmdGpCardsModal';
+  modal.className = 'modal-overlay';
+  modal.innerHTML = `
+    <div class="modal panel cmdr-gp-cards-modal">
+      <button type="button" class="modal-close" onclick="closeCmdGpCardsModal()" aria-label="Close">×</button>
+      <div id="cmdGpCardsModalTitle" class="panel-title"></div>
+      <div id="cmdGpCardsModalBody" class="cmdr-gp-cards-modal-body"></div>
+    </div>`;
+  modal.addEventListener('click', e => { if (e.target === modal) closeCmdGpCardsModal(); });
+  document.body.appendChild(modal);
+  return modal;
+}
+
+function _cmdGpModalCardRows(cards) {
+  if (!cards?.length) return '<div class="cmdr-gp-empty">No matching cards in this deck.</div>';
+  return cards.map(c => {
+    const id = String(c.scryfallId || c.uid || '').replace(/'/g, "\\'");
+    const img = c.imageLarge || c.image || '';
+    const mv = c.cmc != null ? _effectiveCmc(c) : null;
+    const qty = c.qty > 1 ? ` <span class="cmdr-gp-card-qty">×${c.qty}</span>` : '';
+    const thumb = img
+      ? `<img src="${escapeHtml(img)}" class="cmdr-gp-card-thumb" alt="" loading="lazy">`
+      : '<div class="cmdr-gp-card-thumb cmdr-gp-card-thumb--empty">?</div>';
+    return `<button type="button" class="cmdr-gp-card-row" onclick="openCardDetail('${id}','deck')">
+      ${thumb}
+      <span class="cmdr-gp-card-name">${escapeHtml(c.name)}${qty}</span>
+      ${mv != null ? `<span class="cmdr-gp-card-cmc">MV ${mv}</span>` : ''}
+    </button>`;
+  }).join('');
+}
+
+function openCmdGpReqCards(scenarioKey, reqIdx) {
+  const cache = _cmdGpRenderCache;
+  if (!cache?.probs) return;
+  const scenario = scenarioKey === 'pre' ? cache.probs.preCurve : cache.probs.onCurve;
+  const req = scenario?.requirements?.[reqIdx];
+  if (!req) return;
+  const modal = _ensureCmdGpCardsModal();
+  document.getElementById('cmdGpCardsModalTitle').textContent = req.label;
+  document.getElementById('cmdGpCardsModalBody').innerHTML = _cmdGpModalCardRows(req.reqCards);
+  modal.classList.add('open');
+}
+globalThis.openCmdGpReqCards = openCmdGpReqCards;
+
+function closeCmdGpCardsModal() {
+  document.getElementById('cmdGpCardsModal')?.classList.remove('open');
+}
+globalThis.closeCmdGpCardsModal = closeCmdGpCardsModal;
+
+function openCmdGpEarlyRampInfo() {
+  const cache = _cmdGpRenderCache;
+  if (!cache?.probs?.meta) return;
+  const { meta } = cache.probs;
+  const deck = cache.deck;
+  const cap = meta.earlyRampCap;
+  const counted = _earlyRampDeckCards(deck, meta.cmdColors, meta.hasGenericCost, cap);
+  const nearMiss = _nearMissEarlyRampCards(deck, cap);
+  const modal = _ensureCmdGpCardsModal();
+  document.getElementById('cmdGpCardsModalTitle').textContent = 'Early ramp';
+  const intro = [
+    'Early ramp means mana acceleration you can cast well before your commander — freeing land drops for bigger spells.',
+    `This deck: Commander MV ${meta.cmdCMC} → early ramp MV ≤ ${cap}.`,
+    `${meta.R} tagged ramp piece${meta.R === 1 ? '' : 's'} count toward this stat.`,
+  ].join('\n\n');
+  let body = `<p class="cmdr-gp-info-intro">${escapeHtml(intro).replace(/\n\n/g, '</p><p class="cmdr-gp-info-intro">')}</p>`;
+  body += `<div class="cmdr-gp-info-section-label">Counted ramp (MV≤${cap})</div>`;
+  body += _cmdGpModalCardRows(counted);
+  if (nearMiss.length) {
+    body += `<div class="cmdr-gp-info-section-label">MV≤${cap} but not tagged Ramp</div>`;
+    body += _cmdGpModalCardRows(nearMiss);
+  }
+  document.getElementById('cmdGpCardsModalBody').innerHTML = body;
+  modal.classList.add('open');
+}
+globalThis.openCmdGpEarlyRampInfo = openCmdGpEarlyRampInfo;
+
 function renderCommanderGameplan(deck) {
   const el = document.getElementById('commanderGameplan');
   if (!el) return;
@@ -10107,6 +10266,7 @@ function renderCommanderGameplan(deck) {
   const customReqs = _cmdCustomEditorOpen ? savedReqs : [];
   const probs = _cmdGameplanProbs(deck, cmdCard, customReqs);
   const { meta } = probs;
+  _cmdGpRenderCache = { deck, probs };
 
   const THRESHOLD = 0.85;
   const pColor = p => p >= THRESHOLD ? '#3db85a' : p >= 0.65 ? '#d4a83a' : '#d44a4a';
@@ -10114,19 +10274,24 @@ function renderCommanderGameplan(deck) {
     const pct = Math.round(p * 100);
     return `<div class="cmdr-gp-bar"><div class="cmdr-gp-bar-fill" style="width:${pct}%;background:${pColor(p)}"></div></div>`;
   };
-  const reqRow = req => {
+  const reqRow = (req, scenarioKey, reqIdx) => {
     const pct = req.p >= 1 ? 100 : Math.min(99, Math.round(req.p * 100));
+    const clickable = Array.isArray(req.reqCards);
+    const clickAttr = clickable
+      ? ` onclick="openCmdGpReqCards('${scenarioKey}',${reqIdx})" role="button" tabindex="0" title="Show contributing cards"`
+      : '';
+    const rowCls = `cmdr-gp-req-row${req.bonus ? ' cmdr-gp-req-row--bonus' : ''}${clickable ? ' cmdr-gp-req-row--clickable' : ''}`;
     // Bonus rows (ramp on on-curve): helpful but not a hard requirement
     if (req.bonus) {
       return `
-        <div class="cmdr-gp-req-row cmdr-gp-req-row--bonus">
+        <div class="${rowCls}"${clickAttr}>
           <span class="cmdr-gp-req-dot" style="background:${pColor(req.p)};opacity:0.7"></span>
           <span class="cmdr-gp-req-label">${escapeHtml(req.label)}</span>
           <span class="cmdr-gp-req-pct" style="color:${pColor(req.p)}" data-tooltip="${escapeHtml(req.detail)}">${pct}%</span>
         </div>`;
     }
     return `
-      <div class="cmdr-gp-req-row">
+      <div class="${rowCls}"${clickAttr}>
         <span class="cmdr-gp-req-dot" style="background:${pColor(req.p)}"></span>
         <span class="cmdr-gp-req-label">${escapeHtml(req.label)}</span>
         <span class="cmdr-gp-req-pct" style="color:${pColor(req.p)}" data-tooltip="${escapeHtml(req.detail)}">${pct}%</span>
@@ -10135,7 +10300,7 @@ function renderCommanderGameplan(deck) {
 
   const cards = deck.cards || [];
   const { cmdColors, hasGenericCost, adjustedCMC } = meta;
-  const existingRamp = (cmcCap = adjustedCMC) => cards.filter(c => !_isLandDeckCard(c) && _probTagsOnCard(c).includes('Ramp') && _effectiveCmc(c) < cmcCap && _rampIsRelevant(c, cmdColors, hasGenericCost))
+  const existingRamp = (cmcCap = adjustedCMC) => cards.filter(c => !_isLandDeckCard(c) && _probTagsOnCard(c).includes('Ramp') && _effectiveCmc(c) <= _earlyRampCmcThreshold(cmcCap) && _rampIsRelevant(c, cmdColors, hasGenericCost))
     .sort((a, b) => _effectiveCmc(a) - _effectiveCmc(b)).slice(0, 4).map(c => c.name);
   const existingColorCards = col => cards.filter(c => (_estimateManaSources(c, null)[col] || 0) > 0)
     .slice(0, 3).map(c => c.name);
@@ -10143,17 +10308,17 @@ function renderCommanderGameplan(deck) {
   // Ramp suggestions — always computed, shown regardless of probability threshold
   const rampSuggestions = _suggestRamp(cmdColors, hasGenericCost, cards.map(c => c.name), adjustedCMC);
 
-  const scenarioHtml = (scenario, label, isPrimary) => {
+  const scenarioHtml = (scenario, label, isPrimary, scenarioKey) => {
     if (!scenario) return '';
     const pct = scenario.p >= 1 ? 100 : Math.min(99, Math.round(scenario.p * 100));
-    const reqs = scenario.requirements.map(reqRow).join('');
+    const reqs = scenario.requirements.map((r, i) => reqRow(r, scenarioKey, i)).join('');
     const recs = scenario.requirements.filter(r => r.p < THRESHOLD).map(r => {
       const lc = r.label.toLowerCase();
       if (lc.includes('ramp')) {
         const cap = scenario.rampCmcCap || adjustedCMC;
         const have = existingRamp(cap);
         const haveStr = have.length ? `have: ${escapeHtml(have.join(', '))}` : '';
-        return `<div class="cmdr-gp-rec">→ Add more MV&lt;${cap} ramp${haveStr ? ` — ${haveStr}` : ''}</div>`;
+        return `<div class="cmdr-gp-rec">→ Add more MV≤${_earlyRampCmcThreshold(cap)} ramp${haveStr ? ` — ${haveStr}` : ''}</div>`;
       }
       if (lc.includes('lands')) return meta.L >= 36 ? '' : `<div class="cmdr-gp-rec">→ Add more lands (target ≥36-38 for Commander)</div>`;
       for (const [col, name] of [['W','white'],['U','blue'],['B','black'],['R','red'],['G','green']]) {
@@ -10265,9 +10430,9 @@ function renderCommanderGameplan(deck) {
         </div>
       </div>
       <div class="panel-body cmdr-gp-body">
-        <div class="cmdr-gp-meta">Playing <strong>${escapeHtml(deck.commander)}</strong> — MV&nbsp;${meta.cmdCMC} · ${meta.L} lands · ${meta.R} early ramp · ${meta.L_ut} untapped lands</div>
-        ${probs.preCurve ? scenarioHtml(probs.preCurve, 'Pre-curve', false) : ''}
-        ${probs.onCurve ? scenarioHtml(probs.onCurve, 'On-curve', true) : ''}
+        <div class="cmdr-gp-meta">Playing <strong>${escapeHtml(deck.commander)}</strong> — MV&nbsp;${meta.cmdCMC} · ${meta.L} lands · ${meta.R} early ramp <button type="button" class="cmdr-gp-info-btn" onclick="openCmdGpEarlyRampInfo()" title="What counts as early ramp for this deck">${_CMD_GP_INFO_ICON}</button> · ${meta.L_ut} untapped lands</div>
+        ${probs.preCurve ? scenarioHtml(probs.preCurve, 'Pre-curve', false, 'pre') : ''}
+        ${probs.onCurve ? scenarioHtml(probs.onCurve, 'On-curve', true, 'on') : ''}
         ${!probs.preCurve && !probs.onCurve ? '<div class="cmdr-gp-empty">Set a commander with a mana cost to see gameplan probabilities.</div>' : ''}
         <div class="cmdr-gp-suggest">
           ${rampSuggestions.length ? `
@@ -10625,7 +10790,7 @@ async function runDeckSearch(q) {
     let apiCards = await searchCards(`!"${q}" -is:extra`, signal);
     if (!apiCards.length) {
       // Local oracle search via the DB-backed endpoint
-      const localRes = await fetch(`/api/cards/search?q=${encodeURIComponent(q)}&limit=20`, signal ? { signal } : undefined);
+      const localRes = await fetch(`/api/cards/search?q=${encodeURIComponent(q)}&limit=20&nameOnly=1`, signal ? { signal } : undefined);
       if (localRes.ok) {
         const localData = await localRes.json();
         apiCards = localData.data || [];

@@ -167,10 +167,12 @@ function _calcSuggItemHtml(it, side, inSide) {
     ? `<span class="calc-sugg-tag tag-${it.wantPriority || 'med'}">${wantWord} · ${escapeHtml(it.wantPriority || 'med')}</span>` : '';
   const deckTag = it.deckName ? `<span class="calc-sugg-tag tag-deck">${escapeHtml(it.deckName)}</span>` : '';
   const price = _suggUnitCents(it) > 0 ? fmtUsd(_suggUnitCents(it)) : '—';
+  const sid = escapeHtml(it.scryfallId || '');
+  const thumbClick = sid ? `onclick="event.stopPropagation();tradeCalcOpenCard('${sid}')"` : '';
   return `
     <button type="button" class="calc-sugg-item${added ? ' added' : ''}" ${added ? 'disabled' : ''}
       onclick="addCalcSuggestion('${side}','${escapeHtml(it.scryfallId)}',${it.foil ? 1 : 0})">
-      <span class="calc-sugg-thumb">${it.image ? `<img src="${escapeHtml(it.image)}" loading="lazy" alt="">` : ''}</span>
+      <span class="calc-sugg-thumb"${thumbClick ? ` ${thumbClick}` : ''}>${it.image ? `<img src="${escapeHtml(it.image)}" loading="lazy" alt=""${thumbClick ? ` ${thumbClick}` : ''}>` : ''}</span>
       <span class="calc-sugg-info">
         <span class="calc-sugg-name">${escapeHtml(it.name)}${it.foil ? ' <span class="calc-foil-tag">✦</span>' : ''}</span>
         <span class="calc-sugg-tags">${wishTag}${deckTag}</span>

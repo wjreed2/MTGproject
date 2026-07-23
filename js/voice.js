@@ -472,13 +472,14 @@ function renderVoiceDeckTargetBar() {
     && typeof _deckSwapsEnabled === 'function' && _deckSwapsEnabled(deck)
     && (typeof canEditActiveDeck !== 'function' || canEditActiveDeck());
   bar.style.display = show ? 'flex' : 'none';
-  if (!show) { voiceDeckAddTarget = 'deck'; return; }
+  if (!show) return;
   document.getElementById('voiceTargetDeckBtn')?.classList.toggle('active', voiceDeckAddTarget !== 'adds');
   document.getElementById('voiceTargetAddsBtn')?.classList.toggle('active', voiceDeckAddTarget === 'adds');
 }
 
 function setVoiceDeckAddTarget(target) {
   voiceDeckAddTarget = target === 'adds' ? 'adds' : 'deck';
+  try { localStorage.setItem('mtg_voice_deck_add_target', voiceDeckAddTarget); } catch { /* private mode */ }
   renderVoiceDeckTargetBar();
 }
 
@@ -557,7 +558,7 @@ function openVoice(options) {
   renderAutoPinBtn();
   renderVoiceDeckModeControls();
   renderVoiceDeckCollectionToggle();
-  voiceDeckAddTarget = 'deck';
+  voiceDeckAddTarget = typeof _loadVoiceDeckAddTarget === 'function' ? _loadVoiceDeckAddTarget() : 'deck';
   renderVoiceDeckTargetBar();
   if (voiceAddToActiveDeckMode && typeof activeDeckIsShared !== 'undefined' && activeDeckIsShared) {
     const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;

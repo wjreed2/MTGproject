@@ -1797,6 +1797,8 @@ function _htmlOpenCardDetailRightColumn(ctx) {
   const _cmcCustom = card.customCmc != null && card.customCmc !== (card.cmc ?? 0);
   const _hasAdvanced = card.customCmc != null || card.customPips != null;
   const showInDeckRow = !!(activeDeck && _isDeckBuilderMainTabActive());
+  const planningQtyHtml = _htmlCardDetailPlanningQtyRow(ctx);
+  const deckMembershipHtml = _htmlCardDetailDeckMembershipRow(ctx);
   const inDeckInner = showInDeckRow
     ? `<span class="card-detail-qty-row-label">In deck:</span>
           <div class="card-detail-qty-fill">${_htmlCardDetailDeckQtyCounter(ctx)}</div>`
@@ -1824,6 +1826,8 @@ function _htmlOpenCardDetailRightColumn(ctx) {
         <div id="cardDetailRowInDeck" class="card-detail-qty-row" style="display:${showInDeckRow ? 'flex' : 'none'}">
           ${inDeckInner}
         </div>
+        ${planningQtyHtml}
+        ${deckMembershipHtml}
         <div id="cardDetailRowPrimaryActions" class="card-detail-actions">
           ${_htmlCardDetailPrimaryActionsInner(ctx)}
         </div>
@@ -2019,7 +2023,65 @@ function _findActiveDeckSlotByCardKey(activeDeck, cardKey) {
   const hitMb = mb.find(match);
   if (hitMb) return hitMb;
   const sb = typeof _deckMatchSideboard === 'function' ? _deckMatchSideboard(activeDeck) : (activeDeck.sideboard || []);
-  return sb.find(match) || null;
+  const hitSb = sb.find(match);
+  if (hitSb) return hitSb;
+  if (typeof _deckSwapsEnabled === 'function' && _deckSwapsEnabled(activeDeck)) {
+    const adds = typeof _deckPlannedAdds === 'function' ? _deckPlannedAdds(activeDeck) : (activeDeck.adds || []);
+    const hitAdd = adds.find(match);
+    if (hitAdd) return hitAdd;
+  }
+  return null;
+}
+
+function _isCollectionTabActive() {
+  return !!document.getElementById('tab-collection')?.classList.contains('active');
+}
+
+function _htmlCardDetailPlanningQtyRow(ctx) {
+  const deck = ctx?.activeDeck;
+  const card = ctx?.card;
+  if (!deck || !card || typeof _isDeckBuilderMainTabActive !== 'function' || !_isDeckBuilderMainTabActive()) return '';
+  if (typeof _deckSwapsEnabled !== 'function' || !_deckSwapsEnabled(deck)) return '';
+  const key = (typeof getCardInventoryKey === 'function') ? getCardInventoryKey(card) : '';
+  const nameKey = String(card.name || '').trim().toLowerCase();
+  const findSlot = pool => (pool || []).find(c => getCardInventoryKey(c) === key)
+    || (nameKey ? (pool || []).find(c => String(c.name || '').trim().toLowerCase() === nameKey) : null);
+  const addSlot = findSlot(typeof _deckPlannedAdds === 'function' ? _deckPlannedAdds(deck) : (deck.adds || []));
+  const mainSlot = findSlot(deck.cards || []);
+  const cutSlot = mainSlot
+    ? (typeof _findDeckZoneSlot === 'function' ? _findDeckZoneSlot(deck, 'cut', mainSlot) : null)
+    : findSlot(typeof _deckPlannedCuts === 'function' ? _deckPlannedCuts(deck) : (deck.cuts || []));
+  const addQty = addSlot ? (addSlot.qty || 1) : 0;
+  const cutQty = cutSlot ? (cutSlot.qty || 1) : 0;
+  if (addQty <= 1 && cutQty <= 1) return '';
+  const chips = [];
+  if (addQty > 1) chips.push(`<span class="tag tag-green card-detail-plan-qty">Planned add ×<span class="card-detail-plan-qty-num">${addQty}</span></span>`);
+  if (cutQty > 1) chips.push(`<span class="tag tag-red card-detail-plan-qty">Planned cut ×<span class="card-detail-plan-qty-num">${cutQty}</span></span>`);
+  return `
+        <div id="cardDetailRowPlanningQty" class="card-detail-qty-row">
+          <span class="card-detail-qty-row-label">Planning:</span>
+          <div class="card-detail-chiprow">${chips.join('')}</div>
+        </div>`;
+}
+
+function _htmlCardDetailDeckMembershipRow(ctx) {
+  if (!_isCollectionTabActive()) return '';
+  const card = ctx?.card;
+  if (!card || typeof getDeckAllocationsForCard !== 'function') return '';
+  const allocs = getDeckAllocationsForCard(card);
+  if (!allocs.length) return '';
+  const chips = allocs.map(a => {
+    const deck = (typeof decks !== 'undefined' ? decks : []).find(d => d.id === a.deckId);
+    const isCmd = deck?.commander && String(deck.commander).toLowerCase() === String(card.name || '').toLowerCase();
+    const qty = a.qty > 1 ? ` ×${a.qty}` : '';
+    const cmd = isCmd ? ' · Commander' : '';
+    return `<span class="tag tag-teal">${escapeHtml(a.deckName)}${qty}${cmd}</span>`;
+  }).join('');
+  return `
+        <div id="cardDetailRowDeckMembership" class="card-detail-section">
+          <div class="card-detail-section-label">IN DECKS</div>
+          <div class="card-detail-chiprow">${chips}</div>
+        </div>`;
 }
 
 function _isDeckBuilderMainTabActive() {
@@ -2143,7 +2205,8 @@ async function openCardDetail(uid, navMode, opts) {
     ? getCardInventoryKey(card)
     : (card.uid || (card.scryfallId ? card.scryfallId + (card.foil ? '_f' : '_n') : ''));
   const activeDeckCard = _findActiveDeckSlotByCardKey(activeDeck, cardKey);
-  const inDeckQty = activeDeckCard?.qty || 0;
+  const replacementSlot = activeDeckCard;
+  const inDeckQty = (activeDeckCard && !(activeDeckCard._plannedAdd)) ? (activeDeckCard.qty || 0) : 0;
   const typeLine = typeof resolveCardTypeLine === 'function' ? resolveCardTypeLine(card) : String(card.type || '');
   const isLegendary = /Legendary/i.test(typeLine);
   const isCommanderCandidate = isLegendary && /Creature|Planeswalker/i.test(typeLine);
@@ -2199,7 +2262,7 @@ async function openCardDetail(uid, navMode, opts) {
   };
   const leftHtml = _htmlOpenCardDetailLeftColumn(card);
   const rightHtml = _htmlOpenCardDetailRightColumn(detailCtx);
-  const showReplacements = !!activeDeckCard && _isDeckBuilderMainTabActive();
+  const showReplacements = !!replacementSlot && _isDeckBuilderMainTabActive();
   const replacementsHtml = showReplacements ? _htmlOpenCardDetailReplacementsBlock() : '';
   const useInPlace = inspectorAlreadyOpen && fromArrowNav && _canCardDetailInspectorInPlace();
   let appliedInPlace = false;
@@ -2210,10 +2273,10 @@ async function openCardDetail(uid, navMode, opts) {
     _mountUniversalCardInspector(leftHtml, rightHtml, replacementsHtml, showReplacements);
   }
   modal.classList.add('open');
-  if (showReplacements && activeDeckCard && card.scryfallId && typeof _loadCardReplacements === 'function') {
+  if (showReplacements && replacementSlot && card.scryfallId && typeof _loadCardReplacements === 'function') {
     _loadCardReplacements(card, activeDeckId, 'cardReplacementsContainer', {
       skipSpinner: appliedInPlace,
-      deckSlot: activeDeckCard,
+      deckSlot: replacementSlot,
     });
   }
   _setupCardDetailFaces({

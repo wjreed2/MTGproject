@@ -39,18 +39,18 @@ re-pop) isolated from other deck-builder render PRs. **23** (user categories) la
 | **7** | Role-Tag Badge Priority Fix | **Completed** | Partner / tags | Badge display uses P â†’ S â†’ default; needs #6 model. |
 | **8** | Auto-tag primary and secondary from default tags | **Completed** | Partner / tags | Display fallback + â€œ(auto)â€; share resolution order with #7. |
 | **9** | Tag Modal: Remember Last Selected Tag Filter | **Completed** | Partner / tags | UI pref on tag modal; after toggles from #6 exist. |
-| **10** | Early Ramp CMC threshold + info popup | Ready | Partner / Gameplan | Bug fix + establish reveal-popup pattern for Gameplan. |
-| **11** | Commander Gameplan stat bullets clickable | Ready | Partner / Gameplan | Generalizes #10â€™s reveal pattern; resolve structural vs simulation cards first. |
+| **10** | Early Ramp CMC threshold + info popup | **Completed** | Partner / Gameplan | Bug fix + establish reveal-popup pattern for Gameplan. |
+| **11** | Commander Gameplan stat bullets clickable | **Completed** | Partner / Gameplan | Generalizes #10â€™s reveal pattern; structural card lists. |
 | **12** | Commander Gameplan Tag Pills & Filter | **Completed** | Partner / Gameplan | Needs stable P/S/D from #6â€“8; preserve â€œLand in handâ€. |
 | **13** | Similarity count fix & Spicy Picks Cuts exclusion | **Completed** | Partner / Adds&Cuts UX | Cluster with other planning-board fixes; donâ€™t rewrite scoring from #1. |
 | **14** | Cut button on Spicy Picks â†’ Cuts list | **Completed** | Partner / Adds&Cuts UX | Same Adds/Cuts state model as #13 â€” run back-to-back. |
-| **15** | Adds section missing Suggested Replacements | Ready | Partner / Adds&Cuts UX | Inspector path for Adds-section cards. |
-| **16** | Adds & Cuts hover preview | Ready | Partner / Adds&Cuts UX | Reuse deck-builder hover mechanism. |
-| **17** | Card Inspector: show add/cut quantity | Ready | Partner / Adds&Cuts UX | Surface planning qty inside inspector. |
-| **18** | Add Cards popup â€” remember destination | Ready | Partner / Adds&Cuts UX | localStorage destination pref. |
-| **19** | Card Search Bug â€” â€œBounty of the Huntâ€ | Ready | Partner / search | Isolated search/DB bug; can parallel earlier if a second agent is free. |
-| **20** | Trade window: card image opens inspector | Ready | Partner / trade | Isolated inspector wiring. |
-| **21** | Collection tab: deck membership in inspector | Ready | Partner / collection | Isolated; distinct from prompt #4 pool toggle. |
+| **15** | Adds section missing Suggested Replacements | **Completed** | Partner / Adds&Cuts UX | Inspector path for Adds-section cards. |
+| **16** | Adds & Cuts hover preview | **Completed** | Partner / Adds&Cuts UX | Reuse deck-builder hover mechanism. |
+| **17** | Card Inspector: show add/cut quantity | **Completed** | Partner / Adds&Cuts UX | Surface planning qty inside inspector. |
+| **18** | Add Cards popup â€” remember destination | **Completed** | Partner / Adds&Cuts UX | localStorage destination pref. |
+| **19** | Card Search Bug â€” â€œBounty of the Huntâ€ | **Completed** | Partner / search | nameOnly=1 on deck-add local search. |
+| **20** | Trade window: card image opens inspector | **Completed** | Partner / trade | Isolated inspector wiring. |
+| **21** | Collection tab: deck membership in inspector | **Completed** | Partner / collection | Isolated; distinct from prompt #4 pool toggle. |
 | **22** | Deck Builder: fix card image re-pop | **Completed** | Partner / render | Keep isolated — render/cache investigation; don’t interleave with #13–18. |
 | **23** | User-defined deck categories | Ready | Partner / tags (large) | Last â€” needs settled tag model; design Qs before code. |
 | **24** | Suggested Adds A0 â€” raw badge, no S, no min-7 display filter | **Completed** | Cuts/Adds 13 v2 Phase A | First slice of Phase A. Do before **25**. |
@@ -1062,7 +1062,9 @@ Prereq: Prefer Prompt 6 so the modal toggles exist as described.
 
 ---
 
-# Prompt 10 of 23 â€” Early Ramp CMC threshold + info popup
+# Prompt 10 of 23 â€” Early Ramp CMC threshold + info popup **(Completed)**
+
+**Status:** Completed
 
 ```
 # Fix/Verify Early Ramp CMC Threshold + Add Info Popup to Commander Gameplan
@@ -1100,7 +1102,9 @@ After changes: npm run build:bundle; commit dist/bundle.js; npm run changelog:ad
 
 ---
 
-# Prompt 11 of 23 â€” Commander Gameplan stat bullets clickable
+# Prompt 11 of 23 â€” Commander Gameplan stat bullets clickable **(Completed)**
+
+**Status:** Completed
 
 ```
 # Make Commander Gameplan Stat Bullets Clickable to Reveal Contributing Cards
@@ -1228,7 +1232,9 @@ After: npm run build:bundle; commit dist/bundle.js as needed.
 
 ---
 
-# Prompt 15 of 23 â€” Adds section missing Suggested Replacements
+# Prompt 15 of 23 â€” Adds section missing Suggested Replacements **(Completed)**
+
+**Status:** Completed
 
 ```
 # Adds Section Missing Suggested Replacements
@@ -1254,7 +1260,9 @@ Commit: Adds & Cuts: <imperative summary>.
 
 ---
 
-# Prompt 16 of 23 â€” Adds & Cuts hover preview
+# Prompt 16 of 23 â€” Adds & Cuts hover preview **(Completed)**
+
+**Status:** Completed
 
 ```
 # Adds & Cuts: fix card hover preview to match deck builder behavior
@@ -1277,7 +1285,9 @@ After: npm run build:bundle; commit dist/bundle.js if js/ changed.
 
 ---
 
-# Prompt 17 of 23 â€” Card Inspector: show add/cut quantity
+# Prompt 17 of 23 â€” Card Inspector: show add/cut quantity **(Completed)**
+
+**Status:** Completed
 
 ```
 # Card Inspector: Show Add/Cut Quantity Without Closing
@@ -1307,7 +1317,9 @@ After: rebuild/commit if needed.
 
 ---
 
-# Prompt 18 of 23 â€” Add Cards popup remember destination
+# Prompt 18 of 23 â€” Add Cards popup remember destination **(Completed)**
+
+**Status:** Completed
 
 ```
 # Add Cards Popup â€” Remember Last Selected Destination Container
@@ -1332,7 +1344,9 @@ After: npm run build:bundle; commit dist/bundle.js with source.
 
 ---
 
-# Prompt 19 of 23 â€” Card Search Bug â€” â€œBounty of the Huntâ€
+# Prompt 19 of 23 â€” Card Search Bug â€” â€œBounty of the Huntâ€ **(Completed)**
+
+**Status:** Completed
 
 ```
 # Card Search Bug â€” "Bounty of the Hunt" Not Found in Deck Builder
@@ -1357,7 +1371,9 @@ changelog:add if user-visible. Ask if scope/expected behavior is unclear.
 
 ---
 
-# Prompt 20 of 23 â€” Trade window: card image opens inspector
+# Prompt 20 of 23 â€” Trade window: card image opens inspector **(Completed)**
+
+**Status:** Completed
 
 ```
 # Trade window: card image opens inspector
@@ -1386,7 +1402,9 @@ Thumbnail opens correct card in all four sections; other controls unaffected.
 
 ---
 
-# Prompt 21 of 23 â€” Collection tab: deck membership in inspector
+# Prompt 21 of 23 â€” Collection tab: deck membership in inspector **(Completed)**
+
+**Status:** Completed
 
 ```
 # Collection Tab: Show Deck Membership In Card Inspector

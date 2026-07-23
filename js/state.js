@@ -53,7 +53,16 @@ let voiceDeckTargetId = localStorage.getItem('mtg_voice_deck_target_id') || '';
 /** When true, voice confirms add to collection and to the active (owned) deck — set only for the deck builder entry path. */
 let voiceAddToActiveDeckMode = false;
 /** Where deck adds land: 'deck' (mainboard) or 'adds' (planned adds — needs the deck's Adds & Cuts toggle on). */
-let voiceDeckAddTarget = 'deck';
+const VOICE_DECK_ADD_TARGET_KEY = 'mtg_voice_deck_add_target';
+function _loadVoiceDeckAddTarget() {
+  try {
+    const v = localStorage.getItem(VOICE_DECK_ADD_TARGET_KEY);
+    if (v === 'adds' || v === 'deck') return v;
+  } catch { /* private mode */ }
+  return 'deck';
+}
+globalThis._loadVoiceDeckAddTarget = _loadVoiceDeckAddTarget;
+let voiceDeckAddTarget = _loadVoiceDeckAddTarget();
 /** Deck-view voice mode preference: also add to collection when adding to active deck. */
 let voiceDeckAddToCollectionEnabled = localStorage.getItem('mtg_voice_deck_add_collection') !== '0';
 let voiceSetSettingsOpen = false;

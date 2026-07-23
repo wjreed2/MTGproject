@@ -4961,6 +4961,109 @@ textarea.deck-import:focus { outline: none; border-color: var(--gold); }
   position: relative;
   cursor: help;
 }
+.cmdr-gp-req-row--clickable {
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.12s;
+}
+.cmdr-gp-req-row--clickable:hover {
+  background: var(--bg3);
+}
+.cmdr-gp-info-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  margin: 0 0.1rem;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text3);
+  cursor: pointer;
+  vertical-align: middle;
+}
+.cmdr-gp-info-btn:hover,
+.cmdr-gp-info-btn:focus-visible {
+  color: var(--teal);
+  background: var(--bg3);
+}
+.cmdr-gp-info-icon {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+.cmdr-gp-cards-modal {
+  max-width: min(520px, 94vw);
+  max-height: 85vh;
+  overflow: auto;
+}
+.cmdr-gp-cards-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 0.75rem;
+}
+.cmdr-gp-info-intro {
+  font-size: calc(0.78rem + var(--dl-fs));
+  color: var(--text2);
+  line-height: 1.5;
+  margin: 0 0 0.75rem;
+}
+.cmdr-gp-info-section-label {
+  font-size: calc(0.68rem + var(--dl-fs));
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text3);
+  margin: 0.75rem 0 0.35rem;
+}
+.cmdr-gp-card-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border1);
+  border-radius: 6px;
+  background: var(--bg2);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+.cmdr-gp-card-row:hover {
+  border-color: var(--teal);
+  background: var(--bg3);
+}
+.cmdr-gp-card-thumb {
+  width: 36px;
+  height: 50px;
+  object-fit: cover;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.cmdr-gp-card-thumb--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg4);
+  color: var(--text3);
+  font-size: 0.7rem;
+}
+.cmdr-gp-card-name {
+  flex: 1;
+  font-size: calc(0.78rem + var(--dl-fs));
+}
+.cmdr-gp-card-cmc,
+.cmdr-gp-card-qty {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: calc(0.72rem + var(--dl-fs));
+  color: var(--text3);
+  flex-shrink: 0;
+}
+.card-detail-plan-qty-num {
+  font-family: 'JetBrains Mono', monospace;
+}
 .cmdr-gp-rec {
   font-size: calc(0.73rem + var(--dl-fs));
   color: var(--text2);
@@ -8387,7 +8490,7 @@ select:focus { outline: none; border-color: rgba(200,168,74,0.6); box-shadow: 0 
 .calc-sugg-item:hover { border-color: var(--teal); background: var(--bg3); }
 .calc-sugg-item.added { opacity: 0.5; cursor: default; }
 .calc-sugg-item.added:hover { border-color: var(--border); background: var(--bg); }
-.calc-sugg-thumb { flex: 0 0 auto; width: 30px; height: 42px; border-radius: 3px; overflow: hidden; background: var(--bg4); }
+.calc-sugg-thumb { flex: 0 0 auto; width: 30px; height: 42px; border-radius: 3px; overflow: hidden; background: var(--bg4); cursor: pointer; }
 .calc-sugg-thumb img { width: 100%; height: 100%; object-fit: cover; }
 .calc-sugg-info { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .calc-sugg-name { color: var(--text); font-size: 0.82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
