@@ -124,6 +124,8 @@ function addReasons(add) {
   }
   // fallback BEFORE the price note — "Pricier pick at $32.80" must never stand alone
   if (!out.length) out.push('Strong general fit for the deck plan');
+  const cast = (add.trace || []).find(t => t.kind === 'castability');
+  if (cast) out.push(`Tough cast here — MV ${cast.mv} vs the ~${cast.ceiling} this mana base supports`);
   if (add.priceFlag === 'expensive' && add.price != null) out.push(`Pricier pick at $${Number(add.price).toFixed(2)}`);
   return out;
 }
@@ -172,6 +174,9 @@ function addBreakdown(add) {
         break;
       case 'curve_fill':
         out.push({ text: `Under-filled curve spot (MV ${t.bucket})`, val });
+        break;
+      case 'castability':
+        out.push({ text: `Above what the mana base supports (MV ${t.mv}, deck supports ~${t.ceiling})`, val });
         break;
       case 'meta_prior':
         out.push({ text: `EDHREC popularity prior (#${t.rank})`, val });

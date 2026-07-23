@@ -698,5 +698,42 @@ console.log('commander is the carrier — never shop for voltron carriers (Xyris
   check('carrier demand still fires with no commander IR', wNo.has('voltron.carrier'), JSON.stringify([...wNo.keys()]));
 }
 
+console.log('castability — MV above the mana base is penalized (feedback #12/#14)');
+{
+  // thin ramp: Filler Rock is the shared deck context's only ramp piece
+  const bigAdd = { name: 'Huge Aura', ir: synIR([['sac.fodder', 4, 'per_turn']]), cmc: 8, price: 1, owned: false, edhrecRank: 500 };
+  const midAdd = { name: 'Chunky Piece', ir: synIR([['sac.fodder', 4, 'per_turn']]), cmc: 6, price: 1, owned: false, edhrecRank: 500 };
+  const cheapAdd = { name: 'Small Piece', ir: synIR([['sac.fodder', 4, 'per_turn']]), cmc: 2, price: 1, owned: false, edhrecRank: 500 };
+  const adds = rec.scoreAdds({ ...ctxBase, candidates: [bigAdd, midAdd, cheapAdd], budget: { maxCardPrice: null, flagAbove: 5 } });
+  check('MV 8 in a thin-ramp deck is culled entirely', !adds.some(a => a.name === 'Huge Aura'),
+    JSON.stringify(adds.map(a => [a.name, a.score])));
+  const mid = adds.find(a => a.name === 'Chunky Piece');
+  const castT = (mid?.trace || []).find(t => t.kind === 'castability');
+  check('MV 6 survives but carries the penalty', !!castT && castT.pts < 0, JSON.stringify(mid?.trace));
+  check('cheap equivalent outranks the hard cast',
+    (adds.find(a => a.name === 'Small Piece')?.score || 0) > (mid?.score || 99),
+    JSON.stringify(adds.map(a => [a.name, a.score])));
+  check('breakdown renders the ceiling', !!mid && explain.addBreakdown(mid).some(l => /mana base supports/.test(l.text)),
+    JSON.stringify(mid && explain.addBreakdown(mid)));
+
+  // heavy ramp + big-mana plan lifts the ceiling — same card, no penalty
+  const rampDeck = [
+    ...Array.from({ length: 16 }, (_, i) => ({ name: `Ramp ${i}`, qty: 1, cmc: 2, typeLine: 'Artifact', ir: synIR([['mana.rock', 3, 'repeatable']], [], { roles: ['mana_rock', 'ramp'] }) })),
+    { name: 'Payoff', qty: 1, cmc: 8, typeLine: 'Sorcery', ir: synIR([['mana.big_mana_payoff', 4, 'once']]) },
+    { name: 'Some Land', qty: 30, cmc: 0, typeLine: 'Basic Land — Forest', ir: synIR([], [], { roles: ['land'] }) },
+  ];
+  const gBig = inferGoals(rampDeck, null, {});
+  const addsBig = rec.scoreAdds({
+    deckCards: rampDeck, commander: null, goals: [{ goal: 'big-mana', confidence: 1 }],
+    thresholds: th.computeThresholds({ goal: 'big-mana' }), roleCounts: th.countRoles(rampDeck),
+    hist: gBig.histogram, candidates: [{ ...bigAdd, name: 'Huge Aura 2', ir: synIR([['mana.big_mana_payoff', 4, 'once']]) }],
+    budget: { maxCardPrice: null, flagAbove: 5 }, templates,
+  });
+  const big2 = addsBig.find(a => a.name === 'Huge Aura 2');
+  check('big-mana deck with 16 ramp takes MV 8 unpenalized',
+    !!big2 && !(big2.trace || []).some(t => t.kind === 'castability'),
+    JSON.stringify(big2?.trace));
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

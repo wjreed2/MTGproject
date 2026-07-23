@@ -463,6 +463,22 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
   const maxPrice = Number(budget?.maxCardPrice) || null;
   const flagAbove = Number(budget?.flagAbove) || null;
 
+  // Castability ceiling (feedback #12/#14 — Eldrazi Conscription, Kaldra Compleat):
+  // an on-theme card the deck can't realistically cast is a bad add. High MV is
+  // supportable when the deck ramps hard, reduces costs, cheats permanents into
+  // play, or explicitly plans around big mana; otherwise suggestions should live
+  // where the mana base does.
+  const confidentGoals = (goals || [])
+    .filter((g, i) => i === 0 || (g.confidence || 0) >= 0.8)
+    .map(g => String(g?.goal || ''));
+  let mvCeiling = 4.5 + Math.min(2, (roleCounts?.Ramp || 0) / 8);
+  if ((hist?.providers?.['mana.cost_reduction'] || 0) >= 3) mvCeiling += 1.5;
+  if ((hist?.providers?.['gy.reanimate'] || 0) >= 3) mvCeiling += 2;
+  if (confidentGoals.includes('big-mana')) mvCeiling += 2.5;
+  else if (confidentGoals.includes('reanimator')) mvCeiling += 2;
+  else if (confidentGoals.includes('stompy')) mvCeiling += 1.5;
+  mvCeiling = Math.round(mvCeiling * 10) / 10;
+
   const scored = [];
   for (const cand of candidates) {
     if (!cand.ir || deckNames.has(cand.name)) continue;
@@ -598,6 +614,14 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
       const b = bucketOf(cand.cmc);
       const underBy = idealW[b] - (curveCounts[b] / curveTotal);
       if (underBy > 0.02) { const pts = Math.min(underBy * 15, 1.5); score += pts; trace.push({ kind: 'curve_fill', bucket: b, pts }); }
+      // the inverse of curve_fill: cards above what the mana base supports lose
+      // 1.5 pts per MV over the ceiling — real quality signal, counts toward fit
+      const overCeil = (cand.cmc || 0) - mvCeiling;
+      if (overCeil > 0.5) {
+        const pts = -Math.min(6, Math.round(1.5 * overCeil * 100) / 100);
+        score += pts;
+        trace.push({ kind: 'castability', mv: cand.cmc, ceiling: mvCeiling, pts });
+      }
     }
 
     // meta-popularity as a weak prior
