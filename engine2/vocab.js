@@ -7,7 +7,7 @@
 // cannot drift between pipeline runs. Additive changes bump VOCAB_VERSION; breaking shape
 // changes to the IR itself bump IR_VERSION (in ir-schema.js).
 
-const VOCAB_VERSION = 1;
+const VOCAB_VERSION = 2; // v2: + pump.single capability axis (derived by backfill for pre-v2 rows)
 
 // ── Effect AST ops ───────────────────────────────────────────────────────────
 // Each op's execution contract is specified in docs/engine2-ir-spec.md. The analysis layer
@@ -210,6 +210,7 @@ const AXES = {
   'combat.fog_like':       'prevents or heavily deters combat damage against you',
   'voltron.aura_equipment':'aura/equipment that builds one big threat (param: aura|equipment)',
   'voltron.carrier':       'wants to be suited up — hexproof/protection bodies, commander-damage threats',
+  'pump.single':           'buffs a single creature (pump spells, targeted +1/+1 counters, exalted, Kessig-style activations)',
 
   // protection / interaction
   'protection.single':     'protects a single permanent (hexproof, indestructible, counters a targeted spell)',
