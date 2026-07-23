@@ -7228,10 +7228,21 @@ async function _renderCutSuggestions(deck) {
   _ensureCutPrefsForDeck(deck);
 
   const total = (deck.cards || []).reduce((s, c) => s + (c.qty || 1), 0);
-  if (total <= 100) { panel.style.display = 'none'; return; }
+  // over-100 can live in the CURRENT list or in the AFTER-SWAPS build — a 100-card
+  // deck with 40 planned adds and 25 planned cuts is 15 over once swaps apply, and
+  // hiding the panel there buried exactly the cuts guidance the user needs
+  const hasPlan = ((deck.adds || []).length + (deck.cuts || []).length) > 0;
+  const projTotal = hasPlan && _deckSwapsEnabled(deck) && typeof _projectedDeckCards === 'function'
+    ? _projectedDeckCards(deck).reduce((s, c) => s + (c.qty || 1), 0)
+    : total;
+  if (total <= 100 && projTotal <= 100) { panel.style.display = 'none'; return; }
 
   panel.style.display = '';
-  if (badge) badge.textContent = `${total - 100} over`;
+  if (badge) {
+    badge.textContent = total > 100 && projTotal > 100 && projTotal !== total
+      ? `${total - 100} over · ${projTotal - 100} after swaps`
+      : total > 100 ? `${total - 100} over` : `${projTotal - 100} over after swaps`;
+  }
   _syncSuggestAlgoUI();
 
   // Sync playstyle slider
@@ -7254,13 +7265,16 @@ async function _renderCutSuggestions(deck) {
     const items = (e2 && Array.isArray(e2.cuts) ? e2.cuts : [])
       .map(cut => ({ cut, card: byName.get(cut.name) })).filter(x => x.card)
       .filter(x => !_isPlannedCutCard(deck, x.card)); // already decided — don't re-flag
+    const basisNote = total <= 100 && projTotal > 100 && !_analyzeProjected(deck)
+      ? '<div class="deck-tab-muted" style="padding:.4rem 1rem 0;font-size:.72rem">The overage comes from planned swaps — switch the analysis basis to “After swaps” for cuts on the planned build.</div>'
+      : '';
     if (!items.length) {
       body.innerHTML = e2
-        ? '<div class="deck-tab-muted" style="padding:.75rem 1rem">The semantic engine found no cuts to suggest.</div>'
+        ? basisNote + '<div class="deck-tab-muted" style="padding:.75rem 1rem">The semantic engine found no cuts to suggest.</div>'
         : _SUGGEST_E2_UNAVAILABLE_HTML;
       return;
     }
-    body.innerHTML = items.map(({ cut, card }) => {
+    body.innerHTML = basisNote + items.map(({ cut, card }) => {
       const uid = (card.uid || card.scryfallId || '').replace(/'/g, "\\'");
       const sid = card.scryfallId || card.uid || '';
       const displayName = escapeHtml(card.name);
@@ -7285,6 +7299,12 @@ async function _renderCutSuggestions(deck) {
         ${why}
       </div>`;
     }).join('');
+    return;
+  }
+
+  if (total <= 100) {
+    // classic engine works off the current list only; the overage is in the planned build
+    body.innerHTML = `<div class="deck-tab-muted" style="padding:.75rem 1rem">The current list is at ${total} — the overage comes from planned swaps (${projTotal} after swaps). Switch to the Semantic engine with the “After swaps” basis for cut suggestions on the planned build.</div>`;
     return;
   }
 
