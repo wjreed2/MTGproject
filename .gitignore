@@ -30,3 +30,6 @@ docs/engine2-p3-notes.md
 
 # targeted-rerun fixtures are generated from DB state — regenerate, do not version
 engine2/fixtures/reruns/
+
+# decks pulled from prod for feedback review (scripts/deck-pull.js) — user data, never version
+engine2/fixtures/pulled/
