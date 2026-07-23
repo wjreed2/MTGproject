@@ -7287,14 +7287,19 @@ async function _renderCutSuggestions(deck) {
       const uid = (card.uid || card.scryfallId || card.name || '').replace(/'/g, "\\'");
       const sid = card.scryfallId || card.uid || '';
       const displayName = escapeHtml(card.name);
-      const score = Number(cut.score || 0).toFixed(1);
-      // Full scoring breakdown when the engine provides it (every ± contribution);
-      // reasons remain the fallback for older responses.
+      // signed contribution: negative = actively hurting the deck, and the breakdown
+      // lines sum to exactly this number (legacy responses sent it negated — normalize
+      // by sign of the breakdown sum so old cached analyses still read correctly)
+      const rawScore = Number(cut.score || 0);
+      const bdSum = (cut.breakdown || []).reduce((s, bd) => s + (parseFloat(String(bd.val || '').replace('−', '-')) || 0), 0);
+      const contribution = (cut.breakdown && cut.breakdown.length && Math.abs(bdSum + rawScore) < Math.abs(bdSum - rawScore))
+        ? -rawScore : rawScore;
+      const score = (contribution > 0 ? '+' : '') + contribution.toFixed(1);
       const whyLines = (cut.breakdown && cut.breakdown.length)
         ? cut.breakdown.map(bd => ({ text: escapeHtml(bd.text), val: escapeHtml(bd.val || '') }))
         : (cut.reasons || []).map(r => ({ text: escapeHtml(r), val: '' }));
-      const why = _suggestWhyDetailHtml('Why cut this', score, whyLines,
-        'Semantic engine analysis — positive = reasons to keep, negative = reasons to cut');
+      const why = _suggestWhyDetailHtml('Contribution to this deck', score, whyLines,
+        'Semantic engine analysis — positive lines = reasons to keep, negative = reasons to cut; the most negative totals are the strongest cuts');
       const cutOnclick = plannedAdd ? `discardPlannedAdd('${uid}')`
         : swapsOnE2 ? `markPlannedCut('${uid}')` : `adjustDeckCardQtyByUid('${uid}',-1)`;
       const cutTitle = plannedAdd
@@ -7306,7 +7311,7 @@ async function _renderCutSuggestions(deck) {
         ? '<span class="tag" style="background:rgba(212,175,55,0.12);color:var(--gold);font-size:.62rem;margin:0 .4rem 0 0" title="This is one of your planned adds — cutting it just un-plans it">planned add</span>' : '';
       return `<div class="suggest-item">
         <div class="cut-candidate-row">
-          <button type="button" class="cut-score-badge cut-why-toggle" aria-expanded="false" aria-label="Why cut · score ${score}" onclick="_toggleSuggestWhy(this)">${score}<span class="cut-why-caret" aria-hidden="true">⌄</span></button>
+          <button type="button" class="cut-score-badge cut-why-toggle" aria-expanded="false" aria-label="Contribution to this deck ${score}" onclick="_toggleSuggestWhy(this)">${score}<span class="cut-why-caret" aria-hidden="true">⌄</span></button>
           <span class="cut-card-name" onclick="${sid ? `openCardDetail('${sid}','deck')` : ''}">${displayName}</span>
           ${addTag}
           <button class="btn-danger-ghost" title="${cutTitle}" onclick="${cutOnclick}">${plannedAdd ? "Don't add" : 'Cut'}</button>
