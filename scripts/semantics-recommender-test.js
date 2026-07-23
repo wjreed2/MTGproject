@@ -632,5 +632,48 @@ console.log('goals — land types are not tribes');
   check('real tribe still detected', g3.goals.some(x => x.goal === 'tribal:Goblin'), JSON.stringify(g3.goals.map(x => x.goal)));
 }
 
+console.log('voltron mechanisms — equipment vs pump (Xyris feedback #4)');
+{
+  const shell = (extra) => [
+    { name: 'Carrier', qty: 1, cmc: 3, typeLine: 'Creature', ir: synIR([['voltron.carrier', 3, 'static'], ['body.evasive', 3, 'static']]) },
+    { name: 'Some Land', qty: 30, cmc: 0, typeLine: 'Basic Land — Plains', ir: synIR([], [], { roles: ['land'] }) },
+    ...extra,
+  ];
+  const pumpDeck = shell(Array.from({ length: 8 }, (_, i) => (
+    { name: `Trick ${i}`, qty: 1, cmc: 1, typeLine: 'Instant', ir: synIR([['pump.single', 2, 'once'], ['protection.single', 3, 'once']]) })));
+  const gPump = inferGoals(pumpDeck, null, {});
+  const vPump = gPump.goals.find(x => x.goal === 'voltron');
+  check('pump suite detects voltron', !!vPump && vPump.confidence >= 0.6, JSON.stringify(vPump && { c: vPump.confidence }));
+  check('mechanism recorded as pump', vPump?.mechanism === 'pump', vPump?.mechanism);
+
+  // protection + the ubiquitous boots alone must NOT read as voltron (the Xyris bug)
+  const protDeck = shell([
+    ...Array.from({ length: 10 }, (_, i) => ({ name: `Veil ${i}`, qty: 1, cmc: 1, typeLine: 'Instant', ir: synIR([['protection.single', 3, 'once']]) })),
+    ...Array.from({ length: 2 }, (_, i) => ({ name: `Boots ${i}`, qty: 1, cmc: 1, typeLine: 'Artifact — Equipment', ir: synIR([['voltron.aura_equipment', 2, 'static']]) })),
+  ]);
+  const gProt = inferGoals(protDeck, null, {});
+  const vProt = gProt.goals.find(x => x.goal === 'voltron');
+  check('protection package alone stays sub-voltron', !vProt || vProt.confidence < 0.4, JSON.stringify(vProt && { c: vProt.confidence }));
+
+  // wants follow the deck's mechanism: a pump voltron shops for pump, never swords
+  const pumpSix = shell(Array.from({ length: 6 }, (_, i) => (
+    { name: `Trick ${i}`, qty: 1, cmc: 1, typeLine: 'Instant', ir: synIR([['pump.single', 2, 'once'], ['protection.single', 3, 'once']]) })));
+  const gSix = inferGoals(pumpSix, null, {});
+  const w6 = rec.wantedAxes('voltron', gSix.histogram, rec.deckAxisIndex(pumpSix, null), templates,
+    [{ goal: 'voltron', confidence: 1, mechanism: 'pump' }]);
+  check('pump voltron wants more pump', w6.has('pump.single'), JSON.stringify([...w6.keys()]));
+  check('pump voltron never wants equipment', !w6.has('voltron.aura_equipment'), JSON.stringify([...w6.keys()]));
+
+  // equipment voltron is untouched: a short sword suite still wants equipment
+  const eqDeck = shell(Array.from({ length: 6 }, (_, i) => (
+    { name: `Sword ${i}`, qty: 1, cmc: 2, typeLine: 'Artifact — Equipment', ir: synIR([['voltron.aura_equipment', 3, 'static']]) })));
+  const gEq = inferGoals(eqDeck, null, {});
+  const vEq = gEq.goals.find(x => x.goal === 'voltron');
+  check('equipment mechanism recorded', vEq?.mechanism === 'equipment', vEq?.mechanism);
+  const wEq = rec.wantedAxes('voltron', gEq.histogram, rec.deckAxisIndex(eqDeck, null), templates,
+    [{ goal: 'voltron', confidence: 1, mechanism: 'equipment' }]);
+  check('equipment voltron still wants equipment', wEq.has('voltron.aura_equipment'), JSON.stringify([...wEq.keys()]));
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

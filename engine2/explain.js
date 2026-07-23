@@ -37,6 +37,7 @@ const AXIS_LABELS = {
   'gy.self_fill': 'graveyard filling',
   'gy.recursion': 'recursion',
   'gy.reanimate': 'reanimation',
+  'pump.single': 'single-target pump',
   'tribal.synergy': 'tribal synergy',
   'tribal.lord': 'tribal lords',
   'anthem.global': 'anthems',
