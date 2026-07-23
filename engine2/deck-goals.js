@@ -114,7 +114,27 @@ function tribalDetection(deckCards, commander) {
   return hits.filter(h => !IGNORE.has(h.type) || h.lords >= 3).sort((a, b) => (b.bodies + b.lords * 5) - (a.bodies + a.lords * 5));
 }
 
-function scoreTemplate(tpl, hist, comboCount) {
+// A core group is either {axes, types?, min} or {anyOf: [{key, axes, min}...]} —
+// alternatives model a goal reachable through different MECHANISMS (equipment voltron
+// vs pump voltron). The best-filled alternative counts; `defining: true` additionally
+// scales the template's WHOLE confidence by that fill, so softer signals (protection,
+// carriers) can't carry a goal whose defining mechanism is absent.
+function coreGroupFill(group, hist) {
+  if (Array.isArray(group.anyOf)) {
+    let best = { ratio: 0, mechanism: group.anyOf[0]?.key || null };
+    for (const alt of group.anyOf) {
+      const got = (alt.axes || []).reduce((s, ax) => s + (hist.providers[ax] || 0), 0);
+      const ratio = got === 0 ? 0 : Math.min(1, got / alt.min);
+      if (ratio > best.ratio) best = { ratio, mechanism: alt.key || null };
+    }
+    return best;
+  }
+  const got = (group.axes || []).reduce((s, ax) => s + (hist.providers[ax] || 0), 0)
+    + (group.types || []).reduce((s, t) => s + (hist.typeCounts[t] || 0), 0);
+  return { ratio: got === 0 ? 0 : Math.min(1, got / group.min), mechanism: null };
+}
+
+function scoreTemplate(tpl, hist, comboCount, out = {}) {
   const supportOf = () => Math.min(1, (tpl.support || []).reduce((s, ax) => s + (hist.providers[ax] || 0), 0) / 6);
   if (tpl.usesCombos) {
     // One incidental axis coincidence must not read as "combo deck" — confidence needs
@@ -123,13 +143,32 @@ function scoreTemplate(tpl, hist, comboCount) {
     return c * 0.7 + supportOf() * 0.3;
   }
   let coreSum = 0;
+  let defining = null;
   for (const group of tpl.core) {
-    const got = (group.axes || []).reduce((s, ax) => s + (hist.providers[ax] || 0), 0)
-      + (group.types || []).reduce((s, t) => s + (hist.typeCounts[t] || 0), 0);
-    coreSum += got === 0 ? 0 : Math.min(1, got / group.min);
+    const fill = coreGroupFill(group, hist);
+    coreSum += fill.ratio;
+    if (group.defining) defining = fill;
   }
   const coreAvg = coreSum / tpl.core.length;
-  return coreAvg * 0.75 + supportOf() * 0.25;
+  let score = coreAvg * 0.75 + supportOf() * 0.25;
+  if (defining) {
+    score *= defining.ratio;
+    if (defining.ratio > 0) out.mechanism = defining.mechanism;
+  }
+  return score;
+}
+
+// Axes of a core group, honoring a chosen mechanism for anyOf groups (all alternatives
+// when no mechanism is known — evidence display wants the union, wants want the choice).
+function coreGroupAxes(group, mechanism) {
+  if (Array.isArray(group.anyOf)) {
+    if (mechanism) {
+      const alt = group.anyOf.find(a => a.key === mechanism);
+      if (alt) return alt.axes || [];
+    }
+    return group.anyOf.flatMap(a => a.axes || []);
+  }
+  return group.axes || [];
 }
 
 // "Elfs" is not a word a deckbuilder would say.
@@ -150,7 +189,8 @@ function summarize(goal, hist, tribalHit) {
   const tpl = TEMPLATES.find(t => t.key === goal.goal);
   const coreBits = (goal.evidence.axes || []).slice(0, 3)
     .map(a => `${a.count} ${axisLabel(a.axis)}`);
-  return `This deck wants to ${tpl?.verb || goal.goal}` + (coreBits.length ? ` — ${coreBits.join(', ')}.` : '.');
+  const mech = goal.mechanism ? ` (${goal.mechanism}-based)` : '';
+  return `This deck wants to ${tpl?.verb || goal.goal}${mech}` + (coreBits.length ? ` — ${coreBits.join(', ')}.` : '.');
 }
 
 function inferGoals(deckCards, commander, opts = {}) {
@@ -163,19 +203,21 @@ function inferGoals(deckCards, commander, opts = {}) {
 
   const goals = [];
   for (const tpl of TEMPLATES) {
-    const score = scoreTemplate(tpl, hist, interactions.combos.length);
+    const mech = {};
+    const score = scoreTemplate(tpl, hist, interactions.combos.length, mech);
     if (score <= 0.15) continue;
-    const evidenceAxes = (tpl.core || []).flatMap(g => g.axes)
+    const evidenceAxes = (tpl.core || []).flatMap(g => coreGroupAxes(g, mech.mechanism))
       .concat(tpl.support || [])
       .map(ax => ({ axis: ax, count: hist.providers[ax] || 0 }))
       .filter(a => a.count > 0)
       .sort((a, b) => b.count - a.count)
       .slice(0, 6);
     const commanderAxes = (commander?.ir?.provides || []).map(p => p.axis)
-      .filter(ax => (tpl.core || []).some(g => g.axes.includes(ax)) || (tpl.support || []).includes(ax));
+      .filter(ax => (tpl.core || []).some(g => coreGroupAxes(g, mech.mechanism).includes(ax)) || (tpl.support || []).includes(ax));
     goals.push({
       goal: tpl.key, label: tpl.label,
       confidence: Math.round(score * 100) / 100,
+      mechanism: mech.mechanism || undefined,
       evidence: {
         axes: evidenceAxes,
         clusters: clusters.slice(0, 3).map(c => ({ axis: c.axis, size: c.size, sample: c.members.slice(0, 6) })),

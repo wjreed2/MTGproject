@@ -141,7 +141,17 @@ module.exports = [
     core: [
       // Density is the point: 3-4 boots/blades is every deck's utility-protection
       // package, not a voltron plan (Helga read as voltron@1.0 off exactly that).
-      { axes: ['voltron.aura_equipment'], min: 8 },
+      // Suit-up MECHANISMS are alternatives: aura/equipment voltron and pump voltron
+      // (Xyris-style buff/protection suites, exalted) are the same plan through
+      // different cards. `defining` scales the whole confidence by the best
+      // mechanism's fill, so protection + boots alone can never read as voltron.
+      {
+        defining: true,
+        anyOf: [
+          { key: 'equipment', axes: ['voltron.aura_equipment'], min: 8 },
+          { key: 'pump', axes: ['pump.single'], min: 8 },
+        ],
+      },
       { axes: ['voltron.carrier', 'body.evasive', 'evasion.grant'], min: 2 },
     ],
     support: ['protection.single', 'tutor.artifact', 'tutor.enchantment'],

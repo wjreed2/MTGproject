@@ -103,10 +103,29 @@ function deckPlanAxes(goals, templates) {
       continue;
     }
     const tpl = (templates || []).find(t => t.key === key);
-    for (const grp of tpl?.core || []) for (const ax of grp.axes || []) axes.add(ax);
+    for (const grp of tpl?.core || []) for (const ax of _coreAxes(grp, g?.mechanism)) axes.add(ax);
     for (const ax of tpl?.support || []) axes.add(ax);
   }
   return axes;
+}
+
+// Axes of a template core group. anyOf groups model alternative MECHANISMS (equipment
+// voltron vs pump voltron) — when the goal recorded which mechanism the deck plays,
+// only that alternative's axes count; a pump deck must never be steered toward swords.
+function _coreAxes(group, mechanism) {
+  if (Array.isArray(group.anyOf)) {
+    const alt = (mechanism && group.anyOf.find(a => a.key === mechanism)) || group.anyOf[0];
+    return alt?.axes || [];
+  }
+  return group.axes || [];
+}
+
+function _coreMin(group, mechanism) {
+  if (Array.isArray(group.anyOf)) {
+    const alt = (mechanism && group.anyOf.find(a => a.key === mechanism)) || group.anyOf[0];
+    return alt?.min || 1;
+  }
+  return group.min;
 }
 
 // Tribes the deck plausibly plays, from the goal hypotheses (tribal:X entries).
@@ -222,12 +241,15 @@ function wantedAxes(goal, hist, index, templates, goals) {
     }
     const tpl = templates.find(t => t.key === key);
     for (const group of tpl?.core || []) {
-      // type-density groups (enchantress/artifacts) count card types like scoreTemplate does
-      const got = (group.axes || []).reduce((s, ax) => s + (hist.providers[ax] || 0), 0)
+      // type-density groups (enchantress/artifacts) count card types like scoreTemplate does;
+      // anyOf groups count only the deck's recorded mechanism (pump voltron wants pump, not swords)
+      const groupAxes = _coreAxes(group, g.mechanism);
+      const groupMin = _coreMin(group, g.mechanism);
+      const got = groupAxes.reduce((s, ax) => s + (hist.providers[ax] || 0), 0)
         + (group.types || []).reduce((s, t) => s + (hist.typeCounts?.[t] || 0), 0);
-      if (got < group.min) {
-        for (const ax of group.axes || []) {
-          if (!wanted.has(ax)) wanted.set(ax, { why: 'goal_core', gap: group.min - got });
+      if (got < groupMin) {
+        for (const ax of groupAxes) {
+          if (!wanted.has(ax)) wanted.set(ax, { why: 'goal_core', gap: groupMin - got });
         }
       }
     }
@@ -288,7 +310,7 @@ function wantedAxes(goal, hist, index, templates, goals) {
     } else {
       const tpl2 = templates.find(t => t.key === String(goal || ''));
       for (const grp of tpl2?.core || []) {
-        for (const ax of grp.axes || []) {
+        for (const ax of _coreAxes(grp, all[0]?.mechanism)) {
           if (!wanted.has(ax)) wanted.set(ax, { why: 'goal_reinforce', gap: 1 });
         }
       }
