@@ -83,7 +83,21 @@ function deckAxisIndex(deckCards, commander) {
       needs.set(nd.axis, rec);
     }
   }
-  return { provides, needs };
+  // In Commander the designated carrier IS the commander — always castable, always
+  // available. Synthesize the provide so suit-up demand (pump spells, equipment)
+  // reads as fed, and mark the index so wants never shop for more carriers
+  // (Xyris got "pump carrier" recs while being the voltron piece itself).
+  const commanderCarrier = !!commander?.ir;
+  if (commanderCarrier && !(commander.ir.provides || []).some(p => p.axis === 'voltron.carrier')) {
+    const rec = provides.get('voltron.carrier') || { count: 0, names: [], entries: [] };
+    rec.count += 1;
+    if (rec.names.length < 6) rec.names.push(commander.name);
+    const e = subEntry(rec, null);
+    e.count += 1;
+    if (e.names.length < 6) e.names.push(commander.name);
+    provides.set('voltron.carrier', rec);
+  }
+  return { provides, needs, commanderCarrier };
 }
 
 // Axes that belong to the deck's PLAN: core/support axes of every confident goal
@@ -249,6 +263,8 @@ function wantedAxes(goal, hist, index, templates, goals) {
         + (group.types || []).reduce((s, t) => s + (hist.typeCounts?.[t] || 0), 0);
       if (got < groupMin) {
         for (const ax of groupAxes) {
+          // never shop for carriers while a commander exists — the commander IS the carrier
+          if (ax === 'voltron.carrier' && index.commanderCarrier) continue;
           if (!wanted.has(ax)) wanted.set(ax, { why: 'goal_core', gap: groupMin - got });
         }
       }
@@ -271,6 +287,9 @@ function wantedAxes(goal, hist, index, templates, goals) {
   // and a matching entry records WHICH params the demand carries so scoring can hold
   // candidates to it.
   for (const [axis, rec] of index.needs) {
+    // suit-up demand (pump spells, equipment) is fed by the commander itself — a
+    // voltron deck wants ONE carrier and always has it in the command zone
+    if (axis === 'voltron.carrier' && index.commanderCarrier) continue;
     for (const grp of rec.entries) {
       const have = matchParam(index.provides.get(axis), grp.param)?.count || 0;
       // Unmet demand steers suggestions only when it's on-plan or a hard dependency —
@@ -311,6 +330,7 @@ function wantedAxes(goal, hist, index, templates, goals) {
       const tpl2 = templates.find(t => t.key === String(goal || ''));
       for (const grp of tpl2?.core || []) {
         for (const ax of _coreAxes(grp, all[0]?.mechanism)) {
+          if (ax === 'voltron.carrier' && index.commanderCarrier) continue;
           if (!wanted.has(ax)) wanted.set(ax, { why: 'goal_reinforce', gap: 1 });
         }
       }
