@@ -2069,7 +2069,7 @@ function _getCardCustomTagTier(card, tag, oracleId) {
 // Kill switch: set to false (and rebuild bundle) to restore pre-feature behavior.
 // All auto-tier logic flows through `_autoDisplayTierForDefaultTag`, so this one
 // flag disables pills, grouping, sorting, and MY TAGS inclusion for auto tiers.
-const AUTO_DEFAULT_TAG_TIERS = true;
+const AUTO_DEFAULT_TAG_TIERS = false;
 
 /**
  * Default tags in inspector order (Land → Scryfall auto, alpha in DB), excluding
