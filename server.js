@@ -2374,33 +2374,17 @@ async function attachPriceLogPrices(cards) {
   try {
     const md = await _getPriceLogLatestDate();
     if (!md) return cards;
-    const ph = ids.map(() => '?').join(',');
-    const [rows] = await db().query(
-      `SELECT p.scryfall_id sid, c.tcg_normal, c.tcg_foil, c.ck_normal, c.ck_foil
-       FROM mtgjson_printing p
-       JOIN card_price_daily c ON c.uuid = p.uuid AND c.snapshot_date = ?
-       WHERE p.scryfall_id IN (${ph})`,
-      [md, ...ids]
-    );
-    const posMax = (a, b) => {
-      const x = parseFloat(a), y = parseFloat(b);
-      const m = Math.max(Number.isFinite(x) ? x : 0, Number.isFinite(y) ? y : 0);
-      return m > 0 ? m : null;
-    };
-    const byId = new Map();
-    for (const r of rows) {
-      const key = String(r.sid || '').toLowerCase();
-      const prev = byId.get(key) || {};
-      byId.set(key, {
-        usd: posMax(prev.usd, r.tcg_normal),
-        usd_foil: posMax(prev.usd_foil, r.tcg_foil),
-        usd_ck: posMax(prev.usd_ck, r.ck_normal),
-        usd_ck_foil: posMax(prev.usd_ck_foil, r.ck_foil),
-      });
-    }
+    // Uses last-real-day fallback when latest snapshot is missing a vendor column.
+    const byId = await getVendorPricesAtOrBefore(ids, md);
     for (const c of cards) {
       const p = byId.get(String(c.id || '').toLowerCase());
-      if (p) c.prices = { ...(c.prices || {}), ...p };
+      if (!p) continue;
+      const next = { ...(c.prices || {}) };
+      if (p.tcg_normal != null) next.usd = p.tcg_normal;
+      if (p.tcg_foil != null) next.usd_foil = p.tcg_foil;
+      if (p.ck_normal != null) next.usd_ck = p.ck_normal;
+      if (p.ck_foil != null) next.usd_ck_foil = p.ck_foil;
+      c.prices = next;
     }
   } catch (e) {
     // Price-history tables not present in this DB — degrade gracefully (search still works).
@@ -2427,27 +2411,15 @@ async function attachPriceLogPricesToDeckCards(cards) {
   try {
     const md = await _getPriceLogLatestDate();
     if (!md) return cards;
-    const ph = ids.map(() => '?').join(',');
-    const [rows] = await db().query(
-      `SELECT p.scryfall_id sid,
-              MAX(c.tcg_normal) tcg_normal, MAX(c.tcg_foil) tcg_foil,
-              MAX(c.ck_normal)  ck_normal,  MAX(c.ck_foil)  ck_foil
-         FROM mtgjson_printing p
-         JOIN card_price_daily c ON c.uuid = p.uuid AND c.snapshot_date = ?
-        WHERE p.scryfall_id IN (${ph})
-        GROUP BY p.scryfall_id`,
-      [md, ...ids]
-    );
-    const byId = new Map(rows.map(r => [String(r.sid || '').toLowerCase(), r]));
+    // Same last-real-day fallback as /api/cards/prices-at (null CK/TCG on latest day).
+    const byId = await getVendorPricesAtOrBefore(ids, md);
     for (const c of cards) {
       const p = byId.get(String(c?.scryfallId || '').toLowerCase());
       if (!p) continue;
-      const tcg = parseFloat(p.tcg_normal), tcgF = parseFloat(p.tcg_foil);
-      const ck = parseFloat(p.ck_normal), ckF = parseFloat(p.ck_foil);
-      if (Number.isFinite(tcg) && tcg > 0) c.priceTCG = tcg;
-      if (Number.isFinite(tcgF) && tcgF > 0) c.priceTCGFoil = tcgF;
-      if (Number.isFinite(ck) && ck > 0) c.priceCK = ck;
-      if (Number.isFinite(ckF) && ckF > 0) c.priceCKFoil = ckF;
+      if (p.tcg_normal != null && p.tcg_normal > 0) c.priceTCG = p.tcg_normal;
+      if (p.tcg_foil != null && p.tcg_foil > 0) c.priceTCGFoil = p.tcg_foil;
+      if (p.ck_normal != null && p.ck_normal > 0) c.priceCK = p.ck_normal;
+      if (p.ck_foil != null && p.ck_foil > 0) c.priceCKFoil = p.ck_foil;
     }
   } catch (e) {
     _priceLogUnavailable = true;
@@ -2751,30 +2723,32 @@ app.get('/api/collection', requireAuth, async (req, res) => {
         WHERE c.account_id = ? ORDER BY c.added_at ASC`,
       [req.accountId]
     );
-    res.json(
-      rows.map(r => {
-        const card = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
-        if (r.oracle_id) card.oracleId = card.oracleId || String(r.oracle_id).toLowerCase();
-        // Oracle text isn't always stored in the card blob (older rows; the server enrich
-        // path historically omitted it), which breaks the client-side `o:` oracle-text
-        // search. Backfill it from the local oracle catalog when missing.
-        if (!String(card.oracleText || '').trim() && r.catalog_oracle_text) {
-          card.oracleText = r.catalog_oracle_text;
-        }
-        if (r.role_tags_json != null) {
-          let rt = r.role_tags_json;
-          if (typeof rt === 'string') {
-            try {
-              rt = JSON.parse(rt);
-            } catch (_) {
-              rt = null;
-            }
+    const cards = rows.map(r => {
+      const card = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
+      if (r.oracle_id) card.oracleId = card.oracleId || String(r.oracle_id).toLowerCase();
+      // Oracle text isn't always stored in the card blob (older rows; the server enrich
+      // path historically omitted it), which breaks the client-side `o:` oracle-text
+      // search. Backfill it from the local oracle catalog when missing.
+      if (!String(card.oracleText || '').trim() && r.catalog_oracle_text) {
+        card.oracleText = r.catalog_oracle_text;
+      }
+      if (r.role_tags_json != null) {
+        let rt = r.role_tags_json;
+        if (typeof rt === 'string') {
+          try {
+            rt = JSON.parse(rt);
+          } catch (_) {
+            rt = null;
           }
-          if (Array.isArray(rt)) card.roleTags = rt;
         }
-        return card;
-      })
-    );
+        if (Array.isArray(rt)) card.roleTags = rt;
+      }
+      return card;
+    });
+    // Same price-log overlay as decks / card inspector — stored blob prices are often
+    // stale Scryfall snapshots, which made tile deltas disagree with the inspector.
+    await attachPriceLogPricesToDeckCards(cards);
+    res.json(cards);
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
@@ -4140,6 +4114,7 @@ app.get('/api/collection/shared', requireAuth, async (req, res) => {
       card.qty = r.qty;
       byOwner.get(r.account_id).push(card);
     }
+    for (const cards of byOwner.values()) await attachPriceLogPricesToDeckCards(cards);
     res.json(shareRows.map(r => ({
       ownerId: r.owner_id,
       ownerEmail: r.owner_email,
@@ -5485,6 +5460,209 @@ app.get('/api/cards/price-history/:scryfallId', requireAuth, async (req, res) =>
     res.json({ scryfallId: sid, points: rows });
   } catch (e) {
     console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+const _SCRYFALL_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const _ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function _numOrNull(v) {
+  if (v == null) return null;
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * For each vendor column still null on `out`, fill from the latest snapshot_date <= asOf
+ * where that column is non-null for the printing. Keeps TCG/CK independent so a missing
+ * CK on the latest day does not force a TCG×0.88 estimate — we use the last real CK day.
+ * @param {Map<string, { asOf, tcg_normal, tcg_foil, ck_normal, ck_foil }>} out
+ * @param {string} asOf YYYY-MM-DD
+ */
+async function _fillMissingVendorPricesFromPriorDays(out, asOf) {
+  if (!out.size || !asOf) return;
+  const COLS = ['tcg_normal', 'tcg_foil', 'ck_normal', 'ck_foil'];
+  const CH = 500;
+  for (const col of COLS) {
+    const need = [];
+    for (const [sid, row] of out) {
+      if (row[col] == null) need.push(sid);
+    }
+    if (!need.length) continue;
+    for (let i = 0; i < need.length; i += CH) {
+      const batch = need.slice(i, i + CH);
+      const ph = batch.map(() => '?').join(',');
+      // Per scryfall_id: last day <= asOf with a real value in this column.
+      const [rows] = await db().query(
+        `SELECT p.scryfall_id AS sid,
+                DATE_FORMAT(MAX(c.snapshot_date), '%Y-%m-%d') AS vendorAsOf,
+                MAX(c.\`${col}\`) AS val
+           FROM mtgjson_printing p
+           JOIN card_price_daily c ON c.uuid = p.uuid
+           JOIN (
+             SELECT p2.scryfall_id AS sid, MAX(c2.snapshot_date) AS md
+               FROM mtgjson_printing p2
+               JOIN card_price_daily c2 ON c2.uuid = p2.uuid
+              WHERE p2.scryfall_id IN (${ph})
+                AND c2.snapshot_date <= ?
+                AND c2.\`${col}\` IS NOT NULL
+              GROUP BY p2.scryfall_id
+           ) t ON t.sid = p.scryfall_id AND c.snapshot_date = t.md
+          WHERE p.scryfall_id IN (${ph})
+          GROUP BY p.scryfall_id`,
+        [...batch, asOf, ...batch]
+      );
+      for (const r of rows) {
+        const key = String(r.sid || '').toLowerCase();
+        const cur = out.get(key);
+        if (!cur || cur[col] != null) continue;
+        const n = _numOrNull(r.val);
+        if (n == null) continue;
+        cur[col] = n;
+      }
+    }
+  }
+}
+
+/**
+ * Batch vendor prices at (or nearest before) a snapshot date. Separate TCG/CK columns.
+ * Missing history before `date` falls back to the earliest available snapshot for that printing.
+ * Per-vendor nulls on that day fall back to the last prior day with a real value for that vendor.
+ *
+ * Fast path: resolve one global compare date (MAX snapshot_date <= requested), then a
+ * simple equality join — avoids a per-printing MAX scan over millions of price rows.
+ * @returns {Map<string, { asOf, tcg_normal, tcg_foil, ck_normal, ck_foil }>}
+ */
+async function getVendorPricesAtOrBefore(scryfallIds, date) {
+  const out = new Map();
+  if (!scryfallIds.length || !date) return out;
+  const uniq = [...new Set(scryfallIds.map(id => String(id || '').toLowerCase()).filter(id => _SCRYFALL_ID_RE.test(id)))];
+  if (!uniq.length) return out;
+
+  const [[asOfRow]] = await db().query(
+    `SELECT DATE_FORMAT(MAX(snapshot_date), '%Y-%m-%d') AS d
+       FROM card_price_daily
+      WHERE snapshot_date <= ?`,
+    [date]
+  );
+  let asOf = asOfRow?.d || null;
+  if (!asOf) {
+    const [[earliest]] = await db().query(
+      `SELECT DATE_FORMAT(MIN(snapshot_date), '%Y-%m-%d') AS d FROM card_price_daily`
+    );
+    asOf = earliest?.d || null;
+  }
+  if (!asOf) return out;
+
+  const CH = 500;
+  const missing = [];
+
+  for (let i = 0; i < uniq.length; i += CH) {
+    const batch = uniq.slice(i, i + CH);
+    const ph = batch.map(() => '?').join(',');
+    const [rows] = await db().query(
+      `SELECT p.scryfall_id sid,
+              ? AS asOf,
+              MAX(c.tcg_normal) tcg_normal, MAX(c.tcg_foil) tcg_foil,
+              MAX(c.ck_normal) ck_normal, MAX(c.ck_foil) ck_foil
+         FROM mtgjson_printing p
+         JOIN card_price_daily c ON c.uuid = p.uuid AND c.snapshot_date = ?
+        WHERE p.scryfall_id IN (${ph})
+        GROUP BY p.scryfall_id`,
+      [asOf, asOf, ...batch]
+    );
+    const found = new Set();
+    for (const r of rows) {
+      const key = String(r.sid || '').toLowerCase();
+      found.add(key);
+      out.set(key, {
+        asOf: r.asOf || asOf,
+        tcg_normal: _numOrNull(r.tcg_normal),
+        tcg_foil: _numOrNull(r.tcg_foil),
+        ck_normal: _numOrNull(r.ck_normal),
+        ck_foil: _numOrNull(r.ck_foil),
+      });
+    }
+    for (const id of batch) if (!found.has(id)) missing.push(id);
+  }
+
+  // Printings with no row on the global asOf date (rare gaps) — earliest snapshot each.
+  if (missing.length) {
+    for (let i = 0; i < missing.length; i += CH) {
+      const batch = missing.slice(i, i + CH);
+      const ph = batch.map(() => '?').join(',');
+      const [rows] = await db().query(
+        `SELECT p.scryfall_id sid,
+                DATE_FORMAT(c.snapshot_date, '%Y-%m-%d') AS asOf,
+                c.tcg_normal, c.tcg_foil, c.ck_normal, c.ck_foil
+           FROM mtgjson_printing p
+           JOIN card_price_daily c ON c.uuid = p.uuid
+           JOIN (
+             SELECT p2.uuid, MIN(c2.snapshot_date) AS md
+               FROM mtgjson_printing p2
+               JOIN card_price_daily c2 ON c2.uuid = p2.uuid
+              WHERE p2.scryfall_id IN (${ph})
+              GROUP BY p2.uuid
+           ) t ON t.uuid = p.uuid AND c.snapshot_date = t.md
+          WHERE p.scryfall_id IN (${ph})`,
+        [...batch, ...batch]
+      );
+      for (const r of rows) {
+        const key = String(r.sid || '').toLowerCase();
+        if (out.has(key)) continue;
+        out.set(key, {
+          asOf: r.asOf,
+          tcg_normal: _numOrNull(r.tcg_normal),
+          tcg_foil: _numOrNull(r.tcg_foil),
+          ck_normal: _numOrNull(r.ck_normal),
+          ck_foil: _numOrNull(r.ck_foil),
+        });
+      }
+    }
+  }
+
+  await _fillMissingVendorPricesFromPriorDays(out, asOf);
+  return out;
+}
+
+/**
+ * POST /api/cards/prices-at
+ * Body: { scryfallIds: string[], date: 'YYYY-MM-DD' }
+ *    or { items: [{ scryfallId, date }] }
+ * Returns { prices: { [scryfallId]: { asOf, tcg_normal, tcg_foil, ck_normal, ck_foil } } }
+ */
+app.post('/api/cards/prices-at', requireAuth, async (req, res) => {
+  try {
+    await ensurePriceHistorySchema();
+    const body = req.body || {};
+    const prices = {};
+
+    if (Array.isArray(body.items) && body.items.length) {
+      const byDate = new Map();
+      for (const it of body.items) {
+        const sid = String(it?.scryfallId || '').toLowerCase();
+        const date = String(it?.date || '');
+        if (!_SCRYFALL_ID_RE.test(sid) || !_ISO_DATE_RE.test(date)) continue;
+        if (!byDate.has(date)) byDate.set(date, []);
+        byDate.get(date).push(sid);
+      }
+      for (const [date, ids] of byDate) {
+        const map = await getVendorPricesAtOrBefore(ids, date);
+        for (const [sid, rec] of map) prices[sid] = rec;
+      }
+    } else {
+      const date = String(body.date || '');
+      if (!_ISO_DATE_RE.test(date)) return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
+      const ids = Array.isArray(body.scryfallIds) ? body.scryfallIds : [];
+      if (!ids.length) return res.json({ prices: {} });
+      const map = await getVendorPricesAtOrBefore(ids, date);
+      for (const [sid, rec] of map) prices[sid] = rec;
+    }
+
+    res.json({ prices });
+  } catch (e) {
+    console.error('[prices-at]', e);
     res.status(500).json({ error: e.message });
   }
 });

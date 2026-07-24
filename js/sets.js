@@ -607,7 +607,8 @@ async function examineSetCard(id, setCode, num) {
             <button class="btn btn-outline btn-sm btn-icon" onclick="adjustQtyInSet('${ownedUid}', 1)">+</button>
           ` : `<span style="font-family:'JetBrains Mono',monospace;font-size:0.9rem;color:var(--text3)">0</span>`}
         </div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap">
+        ${typeof _htmlPurchasePriceOptIn === 'function' ? _htmlPurchasePriceOptIn('setPurchase') : ''}
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:0.5rem">
           <button class="btn btn-primary btn-sm" onclick="addSetCardToCollection('${targetId}','${targetSetCode}','${targetNum}')">
             ${owned ? '+ Add Another Copy' : '+ Add to Collection'}
           </button>
@@ -665,8 +666,12 @@ function returnToSetBrowseFromDetail() {
 function adjustQtyInSet(uid, delta) {
   const card = collection.find(c => c.uid === uid);
   if (!card) return;
-  card.qty = Math.max(0, card.qty + delta);
-  if (card.qty === 0) collection = collection.filter(c => c.uid !== uid);
+  if (delta > 0 && typeof applyCollectionQtyAdd === 'function') {
+    applyCollectionQtyAdd(card, card, delta, {});
+  } else {
+    card.qty = Math.max(0, card.qty + delta);
+    if (card.qty === 0) collection = collection.filter(c => c.uid !== uid);
+  }
   save('collection');
   renderCollection();
   const el = document.getElementById('detailQty');
@@ -677,11 +682,17 @@ async function addSetCardToCollection(id, setCode, num) {
   const card = await fetchCard(setCode, num);
   if (!card) return;
   const existing = collection.find(c => c.uid === id + '_n');
-  if (existing) {
+  const opt = typeof readPurchasePriceOptIn === 'function' ? readPurchasePriceOptIn('setPurchase') : { price: null, manual: false };
+  if (typeof applyCollectionQtyAdd === 'function') {
+    if (existing) applyCollectionQtyAdd(existing, existing, 1, { purchasePrice: opt.price, manual: opt.manual });
+    else {
+      const entry = cardToEntry(card, 1);
+      applyCollectionQtyAdd(null, entry, 1, { purchasePrice: opt.price, manual: opt.manual });
+    }
+  } else if (existing) {
     existing.qty++;
     existing.addedAt = Date.now();
-  }
-  else {
+  } else {
     collection.push(cardToEntry(card, 1));
   }
   save('collection');

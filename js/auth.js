@@ -46,6 +46,7 @@ function toggleSettingsDropdown() {
   document.getElementById('settingsDropdown')?.classList.toggle('open');
   if (document.getElementById('settingsDropdown')?.classList.contains('open')) {
     renderValueExcludeSlider();
+    renderPriceChangeSettings();
   }
 }
 
@@ -88,6 +89,88 @@ function renderValueExcludeSlider() {
   const steps = Math.min(100, Math.max(0, Math.round(v * 10)));
   if (slider) slider.value = String(steps);
   if (label) label.textContent = v <= 0 ? 'Off' : ('$' + v.toFixed(2));
+}
+
+function onPriceChangeVendorToggle(vendor, checked) {
+  const key = vendor === 'ck' ? 'mtg_price_change_ck' : 'mtg_price_change_tcg';
+  const otherKey = vendor === 'ck' ? 'mtg_price_change_tcg' : 'mtg_price_change_ck';
+  if (!checked) {
+    const otherOn = localStorage.getItem(otherKey) !== '0';
+    if (!otherOn) {
+      // Keep at least one vendor enabled.
+      if (typeof showNotif === 'function') showNotif('Keep at least one price source on');
+      const el = document.getElementById(vendor === 'ck' ? 'settingsPriceChangeCk' : 'settingsPriceChangeTcg');
+      if (el) el.checked = true;
+      return;
+    }
+    localStorage.setItem(key, '0');
+  } else {
+    localStorage.removeItem(key);
+  }
+  if (typeof renderCollection === 'function') renderCollection();
+  else if (typeof updateStats === 'function') updateStats();
+  if (typeof _cardDetailCurrentCard !== 'undefined' && _cardDetailCurrentCard
+    && document.getElementById('cardDetailModal')?.classList.contains('open')
+    && typeof _patchCardDetailInspectorDom === 'function') {
+    const owned = !!(typeof collection !== 'undefined' ? collection : [])
+      .find(c => c.uid === (typeof _cardDetailCurrentUid !== 'undefined' ? _cardDetailCurrentUid : null));
+    _patchCardDetailInspectorDom(_cardDetailCurrentCard, owned);
+  }
+}
+
+function onPriceDeltaShowToggle(checked) {
+  if (checked) localStorage.removeItem('mtg_price_delta_show');
+  else localStorage.setItem('mtg_price_delta_show', '0');
+  if (typeof renderCollection === 'function') renderCollection();
+  else if (typeof updateStats === 'function') updateStats();
+  if (typeof _cardDetailCurrentCard !== 'undefined' && _cardDetailCurrentCard
+    && document.getElementById('cardDetailModal')?.classList.contains('open')
+    && typeof _patchCardDetailInspectorDom === 'function') {
+    const owned = !!(typeof collection !== 'undefined' ? collection : [])
+      .find(c => c.uid === (typeof _cardDetailCurrentUid !== 'undefined' ? _cardDetailCurrentUid : null));
+    _patchCardDetailInspectorDom(_cardDetailCurrentCard, owned);
+  }
+}
+
+function onPriceDeltaModeChange(v) {
+  const mode = v === 'usd' || v === 'both' ? v : 'pct';
+  localStorage.setItem('mtg_price_delta_mode', mode);
+  if (typeof renderCollection === 'function') renderCollection();
+}
+
+function onPriceDeltaTfChange(v) {
+  const tf = v || 'month';
+  localStorage.setItem('mtg_price_delta_tf', tf);
+  const custom = document.getElementById('settingsPriceDeltaCustom');
+  if (custom) custom.hidden = tf !== 'custom';
+  if (typeof renderCollection === 'function') renderCollection();
+}
+
+function onPriceDeltaCustomChange(v) {
+  const d = String(v || '').trim();
+  if (d) localStorage.setItem('mtg_price_delta_custom', d);
+  else localStorage.removeItem('mtg_price_delta_custom');
+  if (typeof renderCollection === 'function') renderCollection();
+}
+
+function renderPriceChangeSettings() {
+  const tcg = document.getElementById('settingsPriceChangeTcg');
+  const ck = document.getElementById('settingsPriceChangeCk');
+  if (tcg) tcg.checked = localStorage.getItem('mtg_price_change_tcg') !== '0';
+  if (ck) ck.checked = localStorage.getItem('mtg_price_change_ck') !== '0';
+  const showEl = document.getElementById('settingsPriceDeltaShow');
+  if (showEl) showEl.checked = localStorage.getItem('mtg_price_delta_show') !== '0';
+  const mode = document.getElementById('settingsPriceDeltaMode');
+  const storedMode = localStorage.getItem('mtg_price_delta_mode');
+  if (mode) mode.value = storedMode === 'usd' || storedMode === 'both' ? storedMode : 'pct';
+  const tf = document.getElementById('settingsPriceDeltaTf');
+  const tfVal = localStorage.getItem('mtg_price_delta_tf') || 'month';
+  if (tf) tf.value = tfVal;
+  const custom = document.getElementById('settingsPriceDeltaCustom');
+  if (custom) {
+    custom.hidden = tfVal !== 'custom';
+    custom.value = localStorage.getItem('mtg_price_delta_custom') || '';
+  }
 }
 
 document.addEventListener('click', e => {
@@ -149,6 +232,7 @@ function refreshAuthUserLabel(email, role) {
   if (typeof renderDeckGoalSettingBtn === 'function') renderDeckGoalSettingBtn();
   if (typeof renderHybridAddsSettingBtn === 'function') renderHybridAddsSettingBtn();
   renderValueExcludeSlider();
+  renderPriceChangeSettings();
   applyRoleVisibility();
   if (email && typeof refreshWhatsNewUpdateBadge === 'function') void refreshWhatsNewUpdateBadge();
   if (email && typeof refreshNotifications === 'function') void refreshNotifications();

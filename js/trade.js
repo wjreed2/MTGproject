@@ -1038,11 +1038,28 @@ const _TRADE_FILTER_PLACEHOLDER = 'Search… or use t: o: r: mv: is: s: qty:';
 // ── Shared collection-style filter/sort toolbar (Tradelist + Wishlist) ──────
 // Same controls, look, and logic as the Collection tab — reuses applyCardFilters
 // + sortCardList from collection.js. State is per-context ('tl' | 'wl').
-function _newTradeFilterState() {
-  return { searchQ: '', colors: new Set(), rarity: '', types: new Set(), flags: new Set(), cmcMin: null, cmcMax: null, sort: 'name', view: 'grid' };
+const _TF_SORT_KEYS = new Set(['name', 'cmc', 'price_tcg', 'price_ck', 'change_pct', 'change_usd', 'set', 'added']);
+const _TF_VIEW_KEYS = new Set(['grid', 'large', 'compact', 'list']);
+function _tfPersistKey(ctx, suffix) {
+  return ctx === 'wl' ? `mtg_wl_${suffix}` : `mtg_tl_${suffix}`;
 }
-const _tradeFilterStates = { tl: _newTradeFilterState(), wl: _newTradeFilterState() };
-function _tfState(ctx) { return _tradeFilterStates[ctx] || (_tradeFilterStates[ctx] = _newTradeFilterState()); }
+function _newTradeFilterState(ctx) {
+  const sortRaw = localStorage.getItem(_tfPersistKey(ctx || 'tl', 'sort')) || 'name';
+  const viewRaw = localStorage.getItem(_tfPersistKey(ctx || 'tl', 'view')) || 'grid';
+  return {
+    searchQ: '',
+    colors: new Set(),
+    rarity: '',
+    types: new Set(),
+    flags: new Set(),
+    cmcMin: null,
+    cmcMax: null,
+    sort: _TF_SORT_KEYS.has(sortRaw) ? sortRaw : 'name',
+    view: _TF_VIEW_KEYS.has(viewRaw) ? viewRaw : 'grid',
+  };
+}
+const _tradeFilterStates = { tl: _newTradeFilterState('tl'), wl: _newTradeFilterState('wl') };
+function _tfState(ctx) { return _tradeFilterStates[ctx] || (_tradeFilterStates[ctx] = _newTradeFilterState(ctx)); }
 function _tfFilterArg(ctx) {
   const s = _tfState(ctx);
   return { searchQ: s.searchQ, colors: s.colors, rarity: s.rarity, types: s.types, flags: s.flags, cmcMin: s.cmcMin, cmcMax: s.cmcMax };
@@ -1120,7 +1137,12 @@ function _tfUpdateClearBtn(ctx) { const b = document.getElementById(ctx + 'Clear
 // Typing-based controls re-render only the grid (keep input focus); click/toggle
 // controls re-render the section so the active chip/pill states refresh.
 function tfSearch(ctx, v) { _tfState(ctx).searchQ = v; _tfRerenderGrid(ctx); }
-function tfSort(ctx, v) { _tfState(ctx).sort = v; _tfRerenderGrid(ctx); }
+function tfSort(ctx, v) {
+  const s = _tfState(ctx);
+  s.sort = _TF_SORT_KEYS.has(v) ? v : 'name';
+  localStorage.setItem(_tfPersistKey(ctx, 'sort'), s.sort);
+  _tfRerenderGrid(ctx);
+}
 function tfCMC(ctx) {
   const s = _tfState(ctx);
   const mn = document.getElementById(ctx + 'CmcMin')?.value;
@@ -1130,7 +1152,12 @@ function tfCMC(ctx) {
   _tfRerenderGrid(ctx); _tfUpdateClearBtn(ctx);
 }
 function tfColor(ctx, c) { const s = _tfState(ctx).colors; s.has(c) ? s.delete(c) : s.add(c); _tfRerenderSection(ctx); }
-function tfView(ctx, v) { _tfState(ctx).view = v; _tfRerenderSection(ctx); }
+function tfView(ctx, v) {
+  const s = _tfState(ctx);
+  s.view = _TF_VIEW_KEYS.has(v) ? v : 'grid';
+  localStorage.setItem(_tfPersistKey(ctx, 'view'), s.view);
+  _tfRerenderSection(ctx);
+}
 function tfType(ctx, t) { const s = _tfState(ctx).types; s.has(t) ? s.delete(t) : s.add(t); _tfRerenderSection(ctx); }
 function tfFlag(ctx, f) { const s = _tfState(ctx).flags; if (f === 'foil') s.delete('nonfoil'); if (f === 'nonfoil') s.delete('foil'); s.has(f) ? s.delete(f) : s.add(f); _tfRerenderSection(ctx); }
 function tfRarity(ctx, v) { _tfState(ctx).rarity = v; _tfRerenderSection(ctx); }

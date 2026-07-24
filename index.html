@@ -180,7 +180,7 @@
       </button>
       <div class="settings-value-exclude-block" style="width:100%;padding:6px 2px 10px">
         <div style="font-size:0.72rem;color:var(--text3);letter-spacing:0.04em;margin-bottom:6px">VALUE TOTALS — EXCLUDE CHEAP CARDS</div>
-        <label for="settingsValueExcludeSlider" style="font-size:0.74rem;color:var(--text2);display:block;margin-bottom:6px;line-height:1.35">Omit rows under <strong id="settingsValueExcludeLabel" style="color:var(--gold)">Off</strong> per card (max TCG vs CK)</label>
+        <label for="settingsValueExcludeSlider" style="font-size:0.74rem;color:var(--text2);display:block;margin-bottom:6px;line-height:1.35">Omit rows under <strong id="settingsValueExcludeLabel" style="color:var(--gold)">Off</strong> per card (max of enabled vendors)</label>
         <input type="range" id="settingsValueExcludeSlider" min="0" max="100" step="1" value="0"
           aria-valuemin="0" aria-valuemax="10"
           style="width:100%;accent-color:var(--gold)"
@@ -188,6 +188,41 @@
         <div style="display:flex;justify-content:space-between;font-size:0.65rem;color:var(--text3);margin-top:4px">
           <span>Off</span><span>$10</span>
         </div>
+      </div>
+      <div class="settings-price-change-block" style="width:100%;padding:6px 2px 10px">
+        <div style="font-size:0.72rem;color:var(--text3);letter-spacing:0.04em;margin-bottom:8px">PRICE SOURCES</div>
+        <p style="font-size:0.68rem;color:var(--text3);margin:0 0 8px;line-height:1.35">Controls which vendors appear on cards and in value totals, and which are used for price-change deltas.</p>
+        <label style="font-size:0.74rem;color:var(--text2);display:flex;align-items:center;gap:8px;margin-bottom:6px;cursor:pointer">
+          <input type="checkbox" id="settingsPriceChangeTcg" checked onchange="onPriceChangeVendorToggle('tcg', this.checked)">
+          TCGPlayer
+        </label>
+        <label style="font-size:0.74rem;color:var(--text2);display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer">
+          <input type="checkbox" id="settingsPriceChangeCk" checked onchange="onPriceChangeVendorToggle('ck', this.checked)">
+          Card Kingdom
+        </label>
+        <label style="font-size:0.74rem;color:var(--text2);display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer">
+          <input type="checkbox" id="settingsPriceDeltaShow" checked onchange="onPriceDeltaShowToggle(this.checked)">
+          Show price change deltas
+        </label>
+        <label for="settingsPriceDeltaMode" style="font-size:0.74rem;color:var(--text2);display:block;margin-bottom:4px">Tile delta shows</label>
+        <select id="settingsPriceDeltaMode" onchange="onPriceDeltaModeChange(this.value)"
+          style="width:100%;margin-bottom:8px;font-size:0.75rem;padding:4px 6px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);border-radius:var(--radius)">
+          <option value="pct">Percent change</option>
+          <option value="usd">Dollar change</option>
+          <option value="both">Both</option>
+        </select>
+        <label for="settingsPriceDeltaTf" style="font-size:0.74rem;color:var(--text2);display:block;margin-bottom:4px">Tile delta timeframe</label>
+        <select id="settingsPriceDeltaTf" onchange="onPriceDeltaTfChange(this.value)"
+          style="width:100%;margin-bottom:6px;font-size:0.75rem;padding:4px 6px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);border-radius:var(--radius)">
+          <option value="day">Past day</option>
+          <option value="week">Past week</option>
+          <option value="month" selected>Past month</option>
+          <option value="year">Past year</option>
+          <option value="since_added">Since added</option>
+          <option value="custom">Custom date</option>
+        </select>
+        <input type="date" id="settingsPriceDeltaCustom" hidden onchange="onPriceDeltaCustomChange(this.value)"
+          style="width:100%;font-size:0.75rem;padding:4px 6px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);border-radius:var(--radius)">
       </div>
       <button type="button" class="btn btn-ghost btn-sm" style="width:100%;justify-content:flex-start;gap:7px;color:var(--text2)" onclick="toggleSettingsDropdown();openTagSettingsModal()">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M3 4.5h10M3 8h10M3 11.5h10"/><circle cx="5" cy="4.5" r="1"/><circle cx="11" cy="8" r="1"/><circle cx="7" cy="11.5" r="1"/></svg>
@@ -351,6 +386,10 @@
     <div class="stat-card"><div class="stat-val" id="statValue">$0</div><div class="stat-label">Est. Value (TCG)</div></div>
     <div class="stat-card"><div class="stat-val" id="statValueCK">$0</div><div class="stat-label">Est. Value (CK)</div></div>
   </div>
+  <div class="stat-card stat-card--movers" id="statTopMoversCard">
+    <div class="stat-movers" id="statTopMovers"><div class="stat-movers-empty">—</div></div>
+    <div class="stat-label" id="statTopMoversLabel">Top Movers</div>
+  </div>
 
   <!-- Shared collection banner — shown when viewing another user's collection -->
   <div id="sharedCollViewBanner" style="display:none;align-items:center;gap:10px;margin-bottom:0.75rem;padding:8px 12px;background:rgba(60,120,200,0.12);border:1px solid rgba(60,120,200,0.3);border-radius:var(--radius2)">
@@ -392,14 +431,31 @@
         <div class="color-pill tooltip-wrap" onclick="toggleColor('G',this)" data-c="G"><span class="tooltip">Green</span><img src="https://svgs.scryfall.io/card-symbols/G.svg" alt="G"></div>
         <div class="color-pill tooltip-wrap" onclick="toggleColor('C',this)" data-c="C"><span class="tooltip">Colorless</span><img src="https://svgs.scryfall.io/card-symbols/C.svg" alt="C"></div>
       </div>
-      <select onchange="sortCards(this.value)">
+      <select id="collectionSortSelect" onchange="sortCards(this.value)">
         <option value="name">Sort: Name</option>
         <option value="cmc">Sort: Mana Value</option>
         <option value="price_tcg">Sort: Price (TCG)</option>
         <option value="price_ck">Sort: Price (CK)</option>
+        <option value="change_pct">Sort: Value change %</option>
+        <option value="change_usd">Sort: Value change $</option>
         <option value="set">Sort: Set</option>
         <option value="added">Sort: Recently Added</option>
       </select>
+      <div id="collectionChangeSortControls" class="collection-change-sort-controls" hidden>
+        <select id="collectionChangeTf" onchange="onCollectionChangeTf(this.value)" title="Compare against">
+          <option value="day">Past day</option>
+          <option value="week">Past week</option>
+          <option value="month" selected>Past month</option>
+          <option value="year">Past year</option>
+          <option value="since_added">Since added</option>
+          <option value="custom">Custom</option>
+        </select>
+        <input type="date" id="collectionChangeCustomDate" hidden onchange="onCollectionChangeCustomDate(this.value)" title="Compare from date">
+        <select id="collectionChangeDir" onchange="onCollectionChangeDir(this.value)" title="Sort direction">
+          <option value="high" selected>High first</option>
+          <option value="low">Low first</option>
+        </select>
+      </div>
       <div class="view-toggle">
         <button class="active tooltip-wrap" onclick="setView('grid',this)"><span class="tooltip">Grid</span>⊞</button>
         <button class="tooltip-wrap" onclick="setView('large',this)"><span class="tooltip">Large</span>⊟</button>
@@ -997,7 +1053,8 @@
       <div class="panel">
         <div class="panel-header wishlist-panel-header">
           <span><span class="panel-title">Wishlist</span> <span id="wishlistTotal" style="font-size:0.78rem;color:var(--text3)"></span></span>
-          <div style="display:flex;align-items:center;gap:8px">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span id="wlPurchaseHost" class="purchase-price-optin-host"></span>
             <button class="btn btn-outline btn-sm" onclick="openWishlistShareModal()" style="white-space:nowrap;font-size:0.72rem;padding:3px 10px" title="Share wishlist / view shared wishlists">⇄ Share</button>
             <div class="view-toggle" role="group" aria-label="Wishlist layout">
               <button type="button" id="wishlistViewGrid" onclick="setWishlistViewMode('grid')">Grid</button>
@@ -1253,6 +1310,7 @@
           <button type="button" class="btn btn-ghost btn-sm" onclick="scnToggleScannedPanel(false)">Done</button>
         </div>
       </div>
+      <div id="scnPurchaseHost" class="purchase-price-optin-host" style="padding:6px 12px 0"></div>
       <div class="scn-scanned-panel-body" id="scnSessionList"></div>
     </aside>
 
@@ -1401,6 +1459,7 @@
             <button class="btn btn-outline" id="findFoilBtn" onclick="toggleFindFoil()" style="white-space:nowrap;display:inline-flex;align-items:center;gap:4px"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px;flex-shrink:0"><path d="M8 2L13.5 8L8 14L2.5 8Z"/></svg> Foil</button>
             <button class="btn btn-primary" onclick="runFindCard(document.getElementById('findCardInput').value)">Search</button>
           </div>
+          <div id="findPurchaseHost" class="purchase-price-optin-host" style="margin-bottom:8px"></div>
           <!-- Quick filters -->
           <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:8px">
             <div class="find-color-pill" id="fcp-W" onclick="toggleFindColorFilter('W')" title="White"><img src="https://svgs.scryfall.io/card-symbols/W.svg" alt="W"></div>

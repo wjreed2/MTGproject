@@ -140,14 +140,43 @@ function renderWishlist() {
   empty.style.display = 'none';
   total.textContent = items.length + ' cards';
 
-  const totalTCG = items.reduce((s,c) => s + getTCGPriceForCard(c), 0);
-  const totalCK = items.reduce((s,c) => s + getCKPriceForCard(c), 0);
-  document.getElementById('wlTCGLow').textContent = '$' + (totalTCG * 0.8).toFixed(2);
-  document.getElementById('wlTCGMid').textContent = '$' + totalTCG.toFixed(2);
-  document.getElementById('wlCK').textContent = '$' + totalCK.toFixed(2);
+  const vendors = typeof getPriceVendorEnabled === 'function'
+    ? getPriceVendorEnabled()
+    : { tcg: true, ck: true };
+  const totalTCG = vendors.tcg ? items.reduce((s,c) => s + getTCGPriceForCard(c), 0) : 0;
+  const totalCK = vendors.ck ? items.reduce((s,c) => s + getCKPriceForCard(c), 0) : 0;
+  const wlTcgLow = document.getElementById('wlTCGLow');
+  const wlTcgMid = document.getElementById('wlTCGMid');
+  const wlCk = document.getElementById('wlCK');
+  if (wlTcgLow) {
+    const row = wlTcgLow.closest('tr');
+    if (row) row.style.display = vendors.tcg ? '' : 'none';
+    wlTcgLow.textContent = vendors.tcg ? ('$' + (totalTCG * 0.8).toFixed(2)) : '—';
+  }
+  if (wlTcgMid) {
+    const row = wlTcgMid.closest('tr');
+    if (row) row.style.display = vendors.tcg ? '' : 'none';
+    wlTcgMid.textContent = vendors.tcg ? ('$' + totalTCG.toFixed(2)) : '—';
+  }
+  if (wlCk) {
+    const row = wlCk.closest('tr');
+    if (row) row.style.display = vendors.ck ? '' : 'none';
+    wlCk.textContent = vendors.ck ? ('$' + totalCK.toFixed(2)) : '—';
+  }
 
   // Shared-wishlist cards are cross-user data — escape every interpolated field.
   const sub = c => `${escapeHtml((c.set || '').toUpperCase())}${c.number ? ' #' + escapeHtml(String(c.number)) : ''}`;
+  const priceLabel = (c) => {
+    if (vendors.tcg) {
+      const t = getTCGPriceForCard(c);
+      if (t > 0) return `$${t.toFixed(2)}`;
+    }
+    if (vendors.ck) {
+      const k = getCKPriceForCard(c);
+      if (k > 0) return `$${k.toFixed(2)}`;
+    }
+    return '';
+  };
   const imgSrc = c => wishlistCardImgUrl(c);
   if (mode === 'grid') {
     el.innerHTML = items.map((c,i) => {
@@ -172,7 +201,7 @@ function renderWishlist() {
       </div>
       <div class="card-meta">
         <div class="card-name">${escapeHtml(c.name)}</div>
-        <div class="wishlist-grid-sub">${sub(c)} · $${getTCGPriceForCard(c).toFixed(2)}</div>
+        <div class="wishlist-grid-sub">${sub(c)}${priceLabel(c) ? ' · ' + priceLabel(c) : ''}</div>
         ${actions}
       </div>
     </div>`;
@@ -192,7 +221,7 @@ function renderWishlist() {
       ${src ? `<img class="wishlist-thumb" src="${escapeHtml(src)}" alt="" loading="lazy">` : ''}
       <div style="flex:1;min-width:0">
         <div style="font-size:0.88rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(c.name)}</div>
-        <div style="font-size:0.72rem;color:var(--text3)">${sub(c)}${c.foil ? ' ✦ Foil' : ''} • $${getTCGPriceForCard(c).toFixed(2)}</div>
+        <div style="font-size:0.72rem;color:var(--text3)">${sub(c)}${c.foil ? ' ✦ Foil' : ''}${priceLabel(c) ? ' • ' + priceLabel(c) : ''}</div>
       </div>
       ${actions}
     </div>`;
@@ -389,8 +418,6 @@ function _renderWishlistSearchGrid() {
       cmc: c.cmc || 0,
       rarity: c.rarity
     };
-    if (payload.priceTCG != null) payload.priceCK = payload.priceTCG * 0.88;
-    if (payload.priceTCGFoil != null) payload.priceCKFoil = payload.priceTCGFoil * 0.88;
     _wishlistResultPayloads.push(payload);
     return _wishlistTile(c.name, img, !!collectionByScryId[c.id], payload, _wishlistResultPayloads.length - 1);
   }).join('');
@@ -433,7 +460,20 @@ function moveWishlistToCollection(i) {
   const card = wishlist[i];
   const wUid = card.scryfallId + (card.foil ? '_f' : '_n');
   const existing = collection.find(c => c.uid === wUid);
-  if (existing) { existing.qty++; } else { collection.push({...card, uid: wUid, qty: 1, addedAt: Date.now()}); }
+  const opt = typeof readPurchasePriceOptIn === 'function' ? readPurchasePriceOptIn('wlPurchase') : { price: null, manual: false };
+  if (typeof applyCollectionQtyAdd === 'function') {
+    if (existing) applyCollectionQtyAdd(existing, existing, 1, { purchasePrice: opt.price, manual: opt.manual });
+    else {
+      const now = Date.now();
+      applyCollectionQtyAdd(null, { ...card, uid: wUid, qty: 1, addedAt: now, firstAddedAt: now }, 1, { purchasePrice: opt.price, manual: opt.manual });
+    }
+  } else if (existing) {
+    existing.qty++;
+    existing.addedAt = Date.now();
+  } else {
+    const now = Date.now();
+    collection.push({ ...card, uid: wUid, qty: 1, addedAt: now, firstAddedAt: now });
+  }
   wishlist.splice(i, 1); save('collection', 'wishlist'); renderWishlist(); renderCollection(); showNotif('Moved to collection!');
 }
 

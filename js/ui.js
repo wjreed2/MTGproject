@@ -109,6 +109,7 @@ function showTab(t, opts) {
       document.getElementById('tab-settings')?.appendChild(_settingsDropdown);
       _settingsDropdown.classList.add('settings-as-page');
       if (typeof renderValueExcludeSlider === 'function') renderValueExcludeSlider();
+      if (typeof renderPriceChangeSettings === 'function') renderPriceChangeSettings();
     } else if (_settingsDropdown.classList.contains('settings-as-page')) {
       _settingsDropdown.classList.remove('settings-as-page', 'open');
       document.querySelector('header.topbar')?.appendChild(_settingsDropdown);

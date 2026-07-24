@@ -66,6 +66,11 @@ async function fetchAllCardsByScryfallIds(ids) {
   return out;
 }
 
+/** Request date used to cache “latest” price-log rows (UTC today). */
+function getLatestPricesRequestDate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function getTCGPriceForCard(card) {
   if (!card) return 0;
   const nonFoil = parseFloat(card.priceTCG) || 0;
@@ -77,18 +82,27 @@ function getCKPriceForCard(card) {
   if (!card) return 0;
   const nonFoil = parseFloat(card.priceCK) || 0;
   const foil = parseFloat(card.priceCKFoil) || 0;
+  // Non-foil must not fall back to foil (foil finishes are often far more expensive).
   if (card.foil) return foil > 0 ? foil : nonFoil;
-  return nonFoil > 0 ? nonFoil : foil;
+  return nonFoil;
 }
 
-/** Max of TCG vs CK for the card’s foil state (same logic as price badges). */
+/** Max of enabled vendors (TCG / CK) for the card’s foil state. */
 function getUnitMarketMaxUsd(entry) {
   if (!entry) return 0;
-  const tcg = Number(getTCGPriceForCard(entry));
-  const ck = Number(getCKPriceForCard(entry));
-  const t = Number.isFinite(tcg) ? tcg : 0;
-  const c = Number.isFinite(ck) ? ck : 0;
-  return Math.max(t, c);
+  const vendors = typeof getPriceVendorEnabled === 'function'
+    ? getPriceVendorEnabled()
+    : { tcg: true, ck: true };
+  let max = 0;
+  if (vendors.tcg) {
+    const tcg = Number(getTCGPriceForCard(entry));
+    if (Number.isFinite(tcg) && tcg > max) max = tcg;
+  }
+  if (vendors.ck) {
+    const ck = Number(getCKPriceForCard(entry));
+    if (Number.isFinite(ck) && ck > max) max = ck;
+  }
+  return max;
 }
 
 /** Scryfall search card + foil toggle → same USD max as collection entries. */
@@ -355,6 +369,8 @@ function _parseScryfallPriceField(v) {
 function cardToEntry(card, qty = 1) {
   const usd = _parseScryfallPriceField(card.prices?.usd);
   const usdFoil = _parseScryfallPriceField(card.prices?.usd_foil);
+  const usdCk = _parseScryfallPriceField(card.prices?.usd_ck);
+  const usdCkFoil = _parseScryfallPriceField(card.prices?.usd_ck_foil);
   const rawFaces = _scryfallCardFaces(card);
   const cardFaces = rawFaces.map(face => ({
     name: face.name || '',
@@ -393,14 +409,420 @@ function cardToEntry(card, qty = 1) {
     cardFaces,
     priceTCG: usd,
     priceTCGFoil: usdFoil,
-    priceCK: usd != null ? usd * 0.88 : null,
-    priceCKFoil: usdFoil != null ? usdFoil * 0.88 : null,
+    // Real CK only — never invent TCG×0.88. Price-log fills last-real-day CK later.
+    priceCK: usdCk,
+    priceCKFoil: usdCkFoil,
     oracleText: card.oracle_text || faceText || '',
     power: card.power || creatureFace?.power || null,
     toughness: card.toughness || creatureFace?.toughness || null,
     loyalty: card.loyalty || null,
     qty: qty,
     foil: false,
-    addedAt: Date.now()
+    addedAt: Date.now(),
+    firstAddedAt: Date.now()
   };
+}
+
+/** UTC calendar date YYYY-MM-DD from ms epoch. */
+function msToUtcDateString(ms) {
+  const d = new Date(Number(ms) || Date.now());
+  if (!Number.isFinite(d.getTime())) return null;
+  return d.toISOString().slice(0, 10);
+}
+
+/** Resolve compare-from date for a fixed timeframe (not since_added). */
+function resolvePriceChangeCompareDate(timeframe, customDate) {
+  const tf = String(timeframe || 'month');
+  if (tf === 'custom') {
+    const c = String(customDate || '').trim();
+    return /^\d{4}-\d{2}-\d{2}$/.test(c) ? c : null;
+  }
+  const now = new Date();
+  const utc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const dayMs = 86400000;
+  let days = 30;
+  if (tf === 'day') days = 1;
+  else if (tf === 'week') days = 7;
+  else if (tf === 'month') days = 30;
+  else if (tf === 'year') days = 365;
+  else return null;
+  return new Date(utc - days * dayMs).toISOString().slice(0, 10);
+}
+
+function getPriceChangeVendorEnabled() {
+  return {
+    tcg: localStorage.getItem('mtg_price_change_tcg') !== '0',
+    ck: localStorage.getItem('mtg_price_change_ck') !== '0',
+  };
+}
+
+/** Alias — same prefs gate price display badges and price-change deltas. */
+function getPriceVendorEnabled() {
+  return getPriceChangeVendorEnabled();
+}
+
+function isPriceVendorEnabled(vendor) {
+  const v = getPriceVendorEnabled();
+  if (vendor === 'ck') return !!v.ck;
+  if (vendor === 'tcg') return !!v.tcg;
+  return false;
+}
+
+function getPriceDeltaDisplayPrefs() {
+  const storedMode = localStorage.getItem('mtg_price_delta_mode');
+  const mode = storedMode === 'usd' || storedMode === 'both' ? storedMode : 'pct';
+  const tf = localStorage.getItem('mtg_price_delta_tf') || 'month';
+  const custom = localStorage.getItem('mtg_price_delta_custom') || '';
+  const show = localStorage.getItem('mtg_price_delta_show') !== '0';
+  return { mode, timeframe: tf, customDate: custom, show };
+}
+
+/** Pick vendor unit price from a prices-at record (foil-aware, same fallback as badges). */
+function pickVendorThenPrice(rec, vendor, foil) {
+  if (!rec) return null;
+  if (vendor === 'tcg') {
+    const nonFoil = Number(rec.tcg_normal) || 0;
+    const foilPx = Number(rec.tcg_foil) || 0;
+    const v = foil ? (foilPx > 0 ? foilPx : nonFoil) : nonFoil;
+    return v > 0 ? v : null;
+  }
+  if (vendor === 'ck') {
+    const nonFoil = Number(rec.ck_normal) || 0;
+    const foilPx = Number(rec.ck_foil) || 0;
+    // Non-foil: never fall back to foil (avoids $20+ foil finishes skewing NF deltas).
+    const v = foil ? (foilPx > 0 ? foilPx : nonFoil) : nonFoil;
+    return v > 0 ? v : null;
+  }
+  return null;
+}
+
+function computePriceDelta(nowPx, thenPx) {
+  const now = Number(nowPx);
+  const then = Number(thenPx);
+  if (!Number.isFinite(now) || !Number.isFinite(then) || then <= 0) return null;
+  const usd = now - then;
+  const pct = (usd / then) * 100;
+  return { usd, pct };
+}
+
+/** In-memory cache: `${date}|${scryfallId}` → price record or null (fetched miss). */
+const _pricesAtCache = new Map();
+
+function _pricesAtCacheHas(scryfallId, date) {
+  return _pricesAtCache.has(`${date}|${String(scryfallId || '').toLowerCase()}`);
+}
+
+async function fetchPricesAt(scryfallIds, date) {
+  const ids = [...new Set((scryfallIds || []).map(id => String(id || '').toLowerCase()).filter(Boolean))];
+  if (!ids.length || !date) return new Map();
+  const need = ids.filter(id => !_pricesAtCache.has(`${date}|${id}`));
+  if (need.length) {
+    try {
+      const data = await apiPostJson('/cards/prices-at', { scryfallIds: need, date });
+      const prices = data?.prices || {};
+      for (const id of need) {
+        const rec = prices[id] || null;
+        _pricesAtCache.set(`${date}|${id}`, rec);
+      }
+    } catch (_) {
+      for (const id of need) {
+        if (!_pricesAtCache.has(`${date}|${id}`)) _pricesAtCache.set(`${date}|${id}`, null);
+      }
+    }
+  }
+  const out = new Map();
+  for (const id of ids) {
+    const rec = _pricesAtCache.get(`${date}|${id}`);
+    if (rec) out.set(id, rec);
+  }
+  return out;
+}
+
+async function fetchPricesAtItems(items) {
+  const list = (items || []).filter(it => it && it.scryfallId && it.date);
+  if (!list.length) return new Map();
+  const byDate = new Map();
+  for (const it of list) {
+    const sid = String(it.scryfallId).toLowerCase();
+    const date = String(it.date);
+    if (!byDate.has(date)) byDate.set(date, []);
+    byDate.get(date).push(sid);
+  }
+  const out = new Map();
+  for (const [date, ids] of byDate) {
+    const map = await fetchPricesAt(ids, date);
+    for (const [sid, rec] of map) out.set(`${date}|${sid}`, rec);
+  }
+  return out;
+}
+
+function getCachedPriceAt(scryfallId, date) {
+  if (!scryfallId || !date) return null;
+  return _pricesAtCache.get(`${date}|${String(scryfallId).toLowerCase()}`) || null;
+}
+
+function formatPriceDeltaText(delta, mode) {
+  if (!delta) return '';
+  const usdSign = delta.usd >= 0 ? '+' : '−';
+  const usdText = `${usdSign}$${Math.abs(delta.usd).toFixed(2)}`;
+  if (mode === 'usd') return usdText;
+  const pctSign = delta.pct >= 0 ? '+' : '−';
+  const abs = Math.abs(delta.pct);
+  const digits = abs >= 10 ? 0 : 1;
+  const pctText = `${pctSign}${abs.toFixed(digits)}%`;
+  if (mode === 'both') return `${usdText} (${pctText})`;
+  return pctText;
+}
+
+function priceDeltaClass(delta) {
+  if (!delta) return '';
+  if (delta.usd > 0.0001) return 'price-delta-up';
+  if (delta.usd < -0.0001) return 'price-delta-down';
+  return 'price-delta-flat';
+}
+
+/** Unit delta for one vendor — both “now” and “then” from the price-log (same source). */
+function getCardVendorDelta(card, vendor, thenRec) {
+  if (!card || !thenRec) return null;
+  const thenPx = pickVendorThenPrice(thenRec, vendor, !!card.foil);
+  if (thenPx == null) return null;
+  let nowPx = null;
+  let usedPriceLogNow = false;
+  if (card.scryfallId && typeof getLatestPricesRequestDate === 'function') {
+    const date = getLatestPricesRequestDate();
+    if (_pricesAtCacheHas(card.scryfallId, date)) {
+      usedPriceLogNow = true;
+      const nowRec = getCachedPriceAt(card.scryfallId, date);
+      // Server fills last day with a real vendor value when latest is null.
+      nowPx = pickVendorThenPrice(nowRec, vendor, !!card.foil);
+    }
+  }
+  // Do not fall back to blob estimates (e.g. CK = TCG×0.88) once price-log answered.
+  if (nowPx == null && !usedPriceLogNow) {
+    nowPx = vendor === 'tcg' ? getTCGPriceForCard(card) : getCKPriceForCard(card);
+  }
+  if (nowPx == null || !(Number(nowPx) > 0)) return null;
+  return computePriceDelta(nowPx, thenPx);
+}
+
+/**
+ * True when CK ≈ TCG×0.88 (legacy estimate used when Scryfall had no CK).
+ * Used to scrub stored blobs; real CK is almost never an exact 88% of TCG.
+ */
+function isLikelyTcgCkEstimate(tcg, ck) {
+  const t = Number(tcg);
+  const c = Number(ck);
+  if (!(t > 0) || !(c > 0)) return false;
+  return Math.abs(c - t * 0.88) < 0.02;
+}
+
+/** Clear legacy TCG×0.88 CK estimates on card blobs. @returns {number} fields cleared */
+function scrubEstimatedCkPrices(cards) {
+  if (!Array.isArray(cards) || !cards.length) return 0;
+  let n = 0;
+  for (const c of cards) {
+    if (!c) continue;
+    if (isLikelyTcgCkEstimate(c.priceTCG, c.priceCK)) {
+      c.priceCK = null;
+      n++;
+    }
+    if (isLikelyTcgCkEstimate(c.priceTCGFoil, c.priceCKFoil)) {
+      c.priceCKFoil = null;
+      n++;
+    }
+  }
+  return n;
+}
+
+/**
+ * Write latest price-log snapshot onto collection rows so tile prices match deltas
+ * (and the inspector after it hydrates from the same log).
+ * @returns {number} count of rows whose market fields changed
+ */
+function applyLatestPriceLogToCards(cards) {
+  if (!cards || !cards.length || typeof getCachedPriceAt !== 'function') return 0;
+  const date = getLatestPricesRequestDate();
+  let changed = 0;
+  for (const c of cards) {
+    if (!c?.scryfallId) continue;
+    const rec = getCachedPriceAt(c.scryfallId, date);
+    if (!rec) continue;
+    const tcg = Number(rec.tcg_normal);
+    const tcgF = Number(rec.tcg_foil);
+    const ck = Number(rec.ck_normal);
+    const ckF = Number(rec.ck_foil);
+    let rowChanged = false;
+    if (Number.isFinite(tcg) && tcg > 0 && Number(c.priceTCG) !== tcg) {
+      c.priceTCG = tcg; rowChanged = true;
+    }
+    if (Number.isFinite(tcgF) && tcgF > 0 && Number(c.priceTCGFoil) !== tcgF) {
+      c.priceTCGFoil = tcgF; rowChanged = true;
+    }
+    if (Number.isFinite(ck) && ck > 0) {
+      if (Number(c.priceCK) !== ck) { c.priceCK = ck; rowChanged = true; }
+    } else if (isLikelyTcgCkEstimate(c.priceTCG, c.priceCK)) {
+      c.priceCK = null; rowChanged = true;
+    }
+    if (Number.isFinite(ckF) && ckF > 0) {
+      if (Number(c.priceCKFoil) !== ckF) { c.priceCKFoil = ckF; rowChanged = true; }
+    } else if (isLikelyTcgCkEstimate(c.priceTCGFoil, c.priceCKFoil)) {
+      c.priceCKFoil = null; rowChanged = true;
+    }
+    if (rowChanged) changed++;
+  }
+  // Also scrub estimates on rows the price-log missed entirely.
+  if (scrubEstimatedCkPrices(cards)) changed += 1;
+  return changed;
+}
+
+/** Foil-aware market unit $ from enabled Price-change vendors (average if both). */
+function getMarketUnitPriceUsd(card) {
+  if (!card) return null;
+  const vendors = typeof getPriceChangeVendorEnabled === 'function'
+    ? getPriceChangeVendorEnabled()
+    : { tcg: true, ck: true };
+  const vals = [];
+  if (vendors.tcg) {
+    const t = getTCGPriceForCard(card);
+    if (t > 0) vals.push(t);
+  }
+  if (vendors.ck) {
+    const c = getCKPriceForCard(card);
+    if (c > 0) vals.push(c);
+  }
+  if (!vals.length) return null;
+  return vals.reduce((a, b) => a + b, 0) / vals.length;
+}
+
+/** Same averaging from a prices-at snapshot record. */
+function getMarketUnitPriceFromRec(rec, foil) {
+  if (!rec) return null;
+  const vendors = typeof getPriceChangeVendorEnabled === 'function'
+    ? getPriceChangeVendorEnabled()
+    : { tcg: true, ck: true };
+  const vals = [];
+  if (vendors.tcg) {
+    const t = pickVendorThenPrice(rec, 'tcg', !!foil);
+    if (t != null) vals.push(t);
+  }
+  if (vendors.ck) {
+    const c = pickVendorThenPrice(rec, 'ck', !!foil);
+    if (c != null) vals.push(c);
+  }
+  if (!vals.length) return null;
+  return vals.reduce((a, b) => a + b, 0) / vals.length;
+}
+
+async function resolveMarketUnitPriceAt(card, date) {
+  if (!card) return null;
+  if (card.scryfallId && date && typeof fetchPricesAt === 'function') {
+    await fetchPricesAt([card.scryfallId], date);
+    const rec = typeof getCachedPriceAt === 'function' ? getCachedPriceAt(card.scryfallId, date) : null;
+    const fromRec = getMarketUnitPriceFromRec(rec, !!card.foil);
+    if (fromRec != null) return fromRec;
+  }
+  return getMarketUnitPriceUsd(card);
+}
+
+function _roundUsd2(n) {
+  return Math.round(Number(n) * 100) / 100;
+}
+
+/**
+ * Blend `addQty` copies at `unitPrice` into row's running average purchasePrice.
+ * Call while `row.qty` is still the pre-add quantity.
+ */
+function blendPurchasePrice(row, addQty, unitPrice, opts) {
+  if (!row) return;
+  const d = Math.max(0, Math.trunc(Number(addQty) || 0));
+  if (d < 1) return;
+  let p = Number(unitPrice);
+  if (!Number.isFinite(p) || p < 0) {
+    p = getMarketUnitPriceUsd(row);
+    if (p == null) return;
+  }
+  const q = Math.max(0, Number(row.qty) || 0);
+  let a = Number(row.purchasePrice);
+  if (!Number.isFinite(a) || a < 0) {
+    a = getMarketUnitPriceUsd(row);
+    if (a == null) a = p;
+  }
+  const denom = q + d;
+  if (denom <= 0) return;
+  row.purchasePrice = _roundUsd2((a * q + p * d) / denom);
+  if (opts && opts.manual) row.purchasePriceManual = true;
+  else if (row.purchasePriceManual == null) row.purchasePriceManual = false;
+}
+
+/** Set purchase price on a newly created row (qty already set). */
+function initPurchasePriceOnCreate(row, unitPrice, manual) {
+  if (!row) return;
+  let p = Number(unitPrice);
+  const isManual = !!manual && Number.isFinite(p) && p >= 0;
+  if (!isManual) {
+    p = getMarketUnitPriceUsd(row);
+    if (p == null) {
+      row.purchasePrice = null;
+      row.purchasePriceManual = false;
+      return;
+    }
+  }
+  row.purchasePrice = _roundUsd2(p);
+  row.purchasePriceManual = isManual;
+}
+
+/** Stored average if set; otherwise null (caller may show implied market-at-firstAdded). */
+function getStoredPurchasePrice(card) {
+  const n = Number(card?.purchasePrice);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+function readPurchasePriceOptIn(idPrefix) {
+  const prefix = idPrefix || 'cdPurchase';
+  const cb = document.getElementById(prefix + 'OptIn');
+  const inp = document.getElementById(prefix + 'Input');
+  if (!cb || !cb.checked) return { price: null, manual: false };
+  const v = parseFloat(inp?.value);
+  if (!Number.isFinite(v) || v < 0) return { price: null, manual: false };
+  return { price: v, manual: true };
+}
+
+function _htmlPurchasePriceOptIn(idPrefix, extraClass) {
+  const prefix = idPrefix || 'cdPurchase';
+  const cls = extraClass ? ` ${extraClass}` : '';
+  return `<div class="purchase-price-optin${cls}" id="${prefix}Wrap">
+    <label class="purchase-price-optin-label">
+      <input type="checkbox" id="${prefix}OptIn"
+        onchange="(function(c){var w=document.getElementById('${prefix}InputWrap');if(w)w.hidden=!c.checked;})(this)">
+      Set purchase price
+    </label>
+    <span id="${prefix}InputWrap" class="purchase-price-optin-input" hidden>
+      $<input type="number" id="${prefix}Input" min="0" step="0.01" inputmode="decimal"
+        class="card-detail-num-input" style="width:5.5rem" placeholder="0.00">
+    </span>
+  </div>`;
+}
+
+/** Mount static opt-in hosts (find / wishlist / scanner) once DOM is ready. */
+function mountPurchasePriceOptInHosts() {
+  if (typeof _htmlPurchasePriceOptIn !== 'function') return;
+  const pairs = [
+    ['findPurchaseHost', 'findPurchase'],
+    ['wlPurchaseHost', 'wlPurchase'],
+    ['scnPurchaseHost', 'scnPurchase'],
+  ];
+  for (const [hostId, prefix] of pairs) {
+    const host = document.getElementById(hostId);
+    if (!host || host.dataset.purchaseMounted === '1') continue;
+    host.innerHTML = _htmlPurchasePriceOptIn(prefix);
+    host.dataset.purchaseMounted = '1';
+  }
+}
+
+if (typeof document !== 'undefined') {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', mountPurchasePriceOptInHosts);
+  } else {
+    mountPurchasePriceOptInHosts();
+  }
 }
