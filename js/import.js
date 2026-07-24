@@ -906,15 +906,23 @@ async function enrichCardsFromScryfall(cards) {
 function addDeckCardsToCollection(deck) {
   let added = 0, updated = 0, skipped = 0;
   for (const card of (deck.cards || [])) {
-    // Skip cards that couldn't be identified by Scryfall — they'd have no image/type/price
     if (!card.scryfallId) { skipped++; continue; }
     const uid = card.scryfallId + (card.foil ? '_f' : '_n');
     const existing = collection.find(c => c.uid === uid);
-    if (existing) {
-      existing.qty = (existing.qty || 1) + (card.qty || 1);
+    const qty = card.qty || 1;
+    if (typeof applyCollectionQtyAdd === 'function') {
+      if (existing) {
+        applyCollectionQtyAdd(existing, existing, qty, {});
+        updated++;
+      } else {
+        applyCollectionQtyAdd(null, { ...card, uid }, qty, {});
+        added++;
+      }
+    } else if (existing) {
+      existing.qty = (existing.qty || 1) + qty;
       updated++;
     } else {
-      collection.push({ ...card, uid, addedAt: Date.now() });
+      collection.push({ ...card, uid, addedAt: Date.now(), firstAddedAt: Date.now() });
       added++;
     }
   }
@@ -1032,7 +1040,7 @@ function downloadCSV() {
 
   const headers = ['name','set','set_name','number','qty','foil','rarity','type',
                    'mana','cmc','colors','tcg_price','tcg_foil_price','ck_price','ck_foil_price',
-                   'scryfall_id','image','image_large'];
+                   'scryfall_id','image','image_large','purchase_price'];
 
   const esc = v => {
     const s = String(v ?? '');
@@ -1045,7 +1053,8 @@ function downloadCSV() {
     c.rarity, c.type, c.mana || '', c.cmc || 0,
     (c.colors || []).join(''),
     (c.priceTCG || 0).toFixed(2), (c.priceTCGFoil || 0).toFixed(2), (c.priceCK || 0).toFixed(2), (c.priceCKFoil || 0).toFixed(2),
-    c.scryfallId, c.image || '', c.imageLarge || ''
+    c.scryfallId, c.image || '', c.imageLarge || '',
+    (c.purchasePrice != null && Number.isFinite(Number(c.purchasePrice))) ? Number(c.purchasePrice).toFixed(2) : ''
   ].map(esc).join(','));
 
   const csv = [headers.join(','), ...rows].join('\n');
@@ -1090,6 +1099,8 @@ async function importCSV(text) {
   const iRarity = idx('rarity'), iType = idx('type'), iMana = idx('mana'), iCmc = idx('cmc');
   const iColors = idx('colors'), iTCG = idx('tcg_price'), iTCGF = idx('tcg_foil_price');
   const iCK = idx('ck_price'), iCKF = idx('ck_foil_price'), iId = idx('scryfall_id'), iImg = idx('image'), iImgL = idx('image_large');
+  let iPurchase = idx('purchase_price');
+  if (iPurchase < 0) iPurchase = idx('purchaseprice');
 
   let added = 0, skipped = 0;
 
@@ -1102,12 +1113,36 @@ async function importCSV(text) {
 
     const qty = parseInt(get(iQty)) || 1;
     const scryfallId = get(iId);
+    const purchaseRaw = iPurchase >= 0 ? parseFloat(get(iPurchase)) : NaN;
+    const hasPurchase = Number.isFinite(purchaseRaw) && purchaseRaw >= 0;
+    const purchaseOpts = hasPurchase ? { purchasePrice: purchaseRaw, manual: true } : {};
 
     if (scryfallId) {
       const foil = get(iFoil) === '1' || get(iFoil).toLowerCase() === 'true';
       const uid = scryfallId + (foil ? '_f' : '_n');
       const existing = collection.find(c => c.uid === uid);
-      if (existing) {
+      if (typeof applyCollectionQtyAdd === 'function') {
+        if (existing) {
+          applyCollectionQtyAdd(existing, existing, qty, purchaseOpts);
+        } else {
+          const colorsRaw = get(iColors);
+          applyCollectionQtyAdd(null, {
+            id: scryfallId, scryfallId, uid,
+            name,
+            set: get(iSet), setName: get(iSetName), number: get(iNum),
+            rarity: get(iRarity), type: get(iType), mana: get(iMana),
+            cmc: parseFloat(get(iCmc)) || 0,
+            colors: colorsRaw ? colorsRaw.split('') : [],
+            colorIdentity: [],
+            image: get(iImg) || null, imageLarge: get(iImgL) || null,
+            priceTCG: parseFloat(get(iTCG)) || 0,
+            priceTCGFoil: parseFloat(get(iTCGF)) || 0,
+            priceCK: parseFloat(get(iCK)) || 0,
+            priceCKFoil: parseFloat(get(iCKF)) || 0,
+            qty, foil,
+          }, qty, purchaseOpts);
+        }
+      } else if (existing) {
         existing.qty += qty;
       } else {
         const colorsRaw = get(iColors);
@@ -1125,7 +1160,9 @@ async function importCSV(text) {
           priceCK: parseFloat(get(iCK)) || 0,
           priceCKFoil: parseFloat(get(iCKF)) || 0,
           qty, foil,
-          addedAt: Date.now()
+          addedAt: Date.now(),
+          firstAddedAt: Date.now(),
+          ...(hasPurchase ? { purchasePrice: purchaseRaw, purchasePriceManual: true } : {}),
         });
       }
       added++;
@@ -1138,7 +1175,17 @@ async function importCSV(text) {
       const foilFallback = get(iFoil) === '1' || get(iFoil).toLowerCase() === 'true';
       const uidFallback = card.id + (foilFallback ? '_f' : '_n');
       const existing = collection.find(c => c.uid === uidFallback);
-      if (existing) { existing.qty += qty; } else {
+      if (typeof applyCollectionQtyAdd === 'function') {
+        if (existing) applyCollectionQtyAdd(existing, existing, qty, purchaseOpts);
+        else {
+          const entry = cardToEntry(card, qty);
+          entry.foil = foilFallback;
+          entry.uid = uidFallback;
+          applyCollectionQtyAdd(null, entry, qty, purchaseOpts);
+        }
+      } else if (existing) {
+        existing.qty += qty;
+      } else {
         const entry = cardToEntry(card, qty);
         entry.foil = foilFallback;
         entry.uid = uidFallback;
@@ -1181,8 +1228,20 @@ async function importCollection() {
     if (!card) { card = await fetchCardByName(name); }
     if (!card) { failed++; continue; }
 
-    const existing = collection.find(c => c.uid === card.id + '_n');
-    if (existing) { existing.qty += qty; } else { collection.push(cardToEntry(card, qty)); }
+    const uid = card.id + '_n';
+    const existing = collection.find(c => c.uid === uid);
+    if (typeof applyCollectionQtyAdd === 'function') {
+      if (existing) applyCollectionQtyAdd(existing, existing, qty, {});
+      else {
+        const entry = cardToEntry(card, qty);
+        entry.uid = uid;
+        applyCollectionQtyAdd(null, entry, qty, {});
+      }
+    } else if (existing) {
+      existing.qty += qty;
+    } else {
+      collection.push(cardToEntry(card, qty));
+    }
     added++;
     await new Promise(r => setTimeout(r, 80));
   }

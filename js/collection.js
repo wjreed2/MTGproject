@@ -235,6 +235,24 @@ function applyCardFilters(cards, f) {
 
 /** Sort a card list by the collection's sort keys (returns a new array). */
 function sortCardList(cards, sortKey) {
+  if (sortKey === 'change_pct' || sortKey === 'change_usd') {
+    const mode = sortKey === 'change_pct' ? 'pct' : 'usd';
+    const dir = currentChangeDirection === 'low' ? 'low' : 'high';
+    const vendors = typeof getPriceChangeVendorEnabled === 'function'
+      ? getPriceChangeVendorEnabled()
+      : { tcg: true, ck: true };
+    return [...cards].sort((a, b) => {
+      const ka = _cardChangeSortKey(a, mode, vendors);
+      const kb = _cardChangeSortKey(b, mode, vendors);
+      const aMiss = ka == null;
+      const bMiss = kb == null;
+      if (aMiss && bMiss) return (a.name || '').localeCompare(b.name || '');
+      if (aMiss) return 1;
+      if (bMiss) return -1;
+      const cmp = dir === 'low' ? ka - kb : kb - ka;
+      return cmp || (a.name || '').localeCompare(b.name || '');
+    });
+  }
   const sorts = {
     name:      (a,b) => (a.name||'').localeCompare(b.name||''),
     cmc:       (a,b) => (a.cmc||0) - (b.cmc||0),
@@ -244,6 +262,224 @@ function sortCardList(cards, sortKey) {
     added:     (a,b) => (b.addedAt||0) - (a.addedAt||0),
   };
   return [...cards].sort(sorts[sortKey] || sorts.name);
+}
+
+function _cardCompareDateForTimeframe(card, timeframe, customDate) {
+  if (timeframe === 'since_added') {
+    return typeof msToUtcDateString === 'function'
+      ? msToUtcDateString(card?.firstAddedAt || card?.addedAt)
+      : null;
+  }
+  return typeof resolvePriceChangeCompareDate === 'function'
+    ? resolvePriceChangeCompareDate(timeframe, customDate)
+    : null;
+}
+
+function _cardChangeSortKey(card, mode, vendors) {
+  const date = _cardCompareDateForTimeframe(card, currentChangeTimeframe, currentChangeCustomDate);
+  if (!date || !card?.scryfallId) return null;
+  const rec = typeof getCachedPriceAt === 'function' ? getCachedPriceAt(card.scryfallId, date) : null;
+  if (!rec) return null;
+  const vals = [];
+  if (vendors.tcg) {
+    const d = getCardVendorDelta(card, 'tcg', rec);
+    if (d) vals.push(mode === 'pct' ? d.pct : d.usd);
+  }
+  if (vendors.ck) {
+    const d = getCardVendorDelta(card, 'ck', rec);
+    if (d) vals.push(mode === 'pct' ? d.pct : d.usd);
+  }
+  if (!vals.length) return null;
+  return currentChangeDirection === 'low' ? Math.min(...vals) : Math.max(...vals);
+}
+
+function _htmlVendorPriceDelta(card, vendor, timeframe, customDate, mode) {
+  const prefs = typeof getPriceDeltaDisplayPrefs === 'function'
+    ? getPriceDeltaDisplayPrefs()
+    : { show: true };
+  if (prefs.show === false) return '';
+  const vendors = typeof getPriceChangeVendorEnabled === 'function'
+    ? getPriceChangeVendorEnabled()
+    : { tcg: true, ck: true };
+  if (vendor === 'tcg' && !vendors.tcg) return '';
+  if (vendor === 'ck' && !vendors.ck) return '';
+  const date = _cardCompareDateForTimeframe(card, timeframe, customDate);
+  if (!date || !card?.scryfallId) return '';
+  const rec = typeof getCachedPriceAt === 'function' ? getCachedPriceAt(card.scryfallId, date) : null;
+  const delta = getCardVendorDelta(card, vendor, rec);
+  if (!delta) return '';
+  const cls = priceDeltaClass(delta);
+  const text = formatPriceDeltaText(delta, mode);
+  const titleTf = timeframe === 'custom' ? (customDate || 'custom')
+    : timeframe === 'since_added' ? 'since added' : `past ${timeframe}`;
+  return `<span class="price-delta ${cls}" title="${vendor.toUpperCase()} change (${titleTf})">${text}</span>`;
+}
+
+function _htmlCardPriceBadges(card) {
+  const vendors = typeof getPriceVendorEnabled === 'function'
+    ? getPriceVendorEnabled()
+    : { tcg: true, ck: true };
+  const dispPrice = vendors.tcg ? getTCGPriceForCard(card) : 0;
+  const ckPrice = vendors.ck ? getCKPriceForCard(card) : 0;
+  const prefs = typeof getPriceDeltaDisplayPrefs === 'function'
+    ? getPriceDeltaDisplayPrefs()
+    : { mode: 'pct', timeframe: 'month', customDate: '' };
+  const tcgDelta = dispPrice
+    ? _htmlVendorPriceDelta(card, 'tcg', prefs.timeframe, prefs.customDate, prefs.mode)
+    : '';
+  const ckDelta = ckPrice
+    ? _htmlVendorPriceDelta(card, 'ck', prefs.timeframe, prefs.customDate, prefs.mode)
+    : '';
+  return `
+    <div class="card-prices">
+      ${dispPrice ? `<span class="price-badge price-tcg">${card.foil ? '✦ ' : ''}$${dispPrice.toFixed(2)}${tcgDelta}</span>` : ''}
+      ${ckPrice ? `<span class="price-badge price-ck">$${ckPrice.toFixed(2)}${ckDelta}</span>` : ''}
+      ${card.qty > 1 ? `<span class="price-badge price-qty" style="margin-left:auto">x${card.qty}</span>` : ''}
+    </div>`;
+}
+
+let _priceChangeLoadGen = 0;
+
+/** Ensure compare prices are cached for display + optional sort timeframe. Re-renders when done. */
+async function ensureCollectionPriceChangeData(cards) {
+  const list = cards || _getCollectionSource() || [];
+  if (!list.length) return;
+  if (typeof fetchPricesAt !== 'function') return;
+  // Never compete with boot /collection hydrate — heavy price joins were starving loads
+  // and leaving the UI stuck on an empty collection shell.
+  if (typeof isAppDataSynced === 'function' && !isAppDataSynced()) return;
+
+  const gen = ++_priceChangeLoadGen;
+  const display = typeof getPriceDeltaDisplayPrefs === 'function'
+    ? getPriceDeltaDisplayPrefs()
+    : { mode: 'pct', timeframe: 'month', customDate: '' };
+  const needSort = currentSort === 'change_pct' || currentSort === 'change_usd';
+
+  const jobs = [];
+  let willFetch = false;
+
+  const cacheHas = (sid, date) => {
+    if (!sid || !date) return true;
+    if (typeof _pricesAtCacheHas === 'function') return _pricesAtCacheHas(String(sid).toLowerCase(), date);
+    return false;
+  };
+
+  const enqueueFixed = (tf, custom) => {
+    if (tf === 'since_added') return;
+    const date = resolvePriceChangeCompareDate(tf, custom);
+    if (!date) return;
+    const ids = list.map(c => c.scryfallId).filter(Boolean);
+    if (ids.some(id => !cacheHas(id, date))) willFetch = true;
+    jobs.push(fetchPricesAt(ids, date));
+  };
+
+  const enqueueSinceAdded = () => {
+    const items = list
+      .filter(c => c?.scryfallId)
+      .map(c => ({
+        scryfallId: c.scryfallId,
+        date: msToUtcDateString(c.firstAddedAt || c.addedAt),
+      }))
+      .filter(it => it.date);
+    if (!items.length) return;
+    if (items.some(it => !cacheHas(it.scryfallId, it.date))) willFetch = true;
+    jobs.push(fetchPricesAtItems(items));
+  };
+
+  // Always load latest snapshot prices so tile “now” matches the inspector / price-log
+  // (stored blob prices are often stale and inflated deltas).
+  if (typeof getLatestPricesRequestDate === 'function') {
+    enqueueFixed('custom', getLatestPricesRequestDate());
+  }
+
+  enqueueFixed(display.timeframe, display.customDate);
+  if (display.timeframe === 'since_added') enqueueSinceAdded();
+
+  if (needSort) {
+    if (currentChangeTimeframe === 'since_added') {
+      if (display.timeframe !== 'since_added') enqueueSinceAdded();
+    } else {
+      const sameAsDisplay = currentChangeTimeframe === display.timeframe
+        && (currentChangeTimeframe !== 'custom'
+          || currentChangeCustomDate === display.customDate);
+      if (!sameAsDisplay) enqueueFixed(currentChangeTimeframe, currentChangeCustomDate);
+    }
+  }
+
+  // Even when everything is already cached, still overlay latest prices onto rows and
+  // refresh movers/tiles — otherwise a mid-session hydrate can leave stale blob deltas.
+  const runApplyAndPaint = () => {
+    let changed = 0;
+    if (typeof applyLatestPriceLogToCards === 'function') {
+      changed = applyLatestPriceLogToCards(list);
+      if (changed > 0 && typeof save === 'function' && !_viewingSharedCollOwnerId) {
+        save('collection');
+      }
+    }
+    if (typeof renderCollection === 'function') renderCollection({ skipPriceFetch: true });
+    else if (typeof updateStats === 'function') updateStats();
+    if (_cardDetailCurrentCard && document.getElementById('cardDetailModal')?.classList.contains('open')) {
+      const owned = !!(collection || []).find(c => c.uid === _cardDetailCurrentUid);
+      if (typeof _patchCardDetailInspectorDom === 'function') {
+        _patchCardDetailInspectorDom(_cardDetailCurrentCard, owned);
+      }
+    }
+  };
+
+  if (!jobs.length) {
+    runApplyAndPaint();
+    return;
+  }
+  if (!willFetch) {
+    runApplyAndPaint();
+    return;
+  }
+
+  try {
+    await Promise.all(jobs);
+  } catch (_) { /* cache helpers swallow */ }
+  if (gen !== _priceChangeLoadGen) return;
+  runApplyAndPaint();
+}
+
+function syncCollectionChangeSortControls() {
+  const sortSel = document.getElementById('collectionSortSelect');
+  if (sortSel && sortSel.value !== currentSort) sortSel.value = currentSort;
+  const wrap = document.getElementById('collectionChangeSortControls');
+  if (!wrap) return;
+  const active = currentSort === 'change_pct' || currentSort === 'change_usd';
+  wrap.hidden = !active;
+  const tfSel = document.getElementById('collectionChangeTf');
+  if (tfSel && tfSel.value !== currentChangeTimeframe) tfSel.value = currentChangeTimeframe;
+  const dirSel = document.getElementById('collectionChangeDir');
+  if (dirSel && dirSel.value !== currentChangeDirection) dirSel.value = currentChangeDirection;
+  const custom = document.getElementById('collectionChangeCustomDate');
+  if (custom) {
+    custom.hidden = currentChangeTimeframe !== 'custom';
+    if (currentChangeCustomDate && custom.value !== currentChangeCustomDate) {
+      custom.value = currentChangeCustomDate;
+    }
+  }
+}
+
+function onCollectionChangeTf(v) {
+  currentChangeTimeframe = v || 'month';
+  localStorage.setItem('mtg_sort_change_tf', currentChangeTimeframe);
+  syncCollectionChangeSortControls();
+  renderCollection();
+}
+
+function onCollectionChangeDir(v) {
+  currentChangeDirection = v === 'low' ? 'low' : 'high';
+  localStorage.setItem('mtg_sort_change_dir', currentChangeDirection);
+  renderCollection();
+}
+
+function onCollectionChangeCustomDate(v) {
+  currentChangeCustomDate = String(v || '').trim();
+  if (currentChangeCustomDate) localStorage.setItem('mtg_sort_change_custom', currentChangeCustomDate);
+  else localStorage.removeItem('mtg_sort_change_custom');
+  renderCollection();
 }
 
 function getFilteredCollection() {
@@ -435,28 +671,42 @@ function _syncQuickFilterUI() {
   if (btn) { btn.style.display = total > 0 ? '' : 'none'; btn.textContent = `✕ Clear (${total})`; }
 }
 
-function renderCollection() {
+function renderCollection(opts) {
+  const skipPriceFetch = !!(opts && opts.skipPriceFetch);
   const grid = document.getElementById('cardGrid');
   const empty = document.getElementById('collectionEmpty');
-  const cards = getFilteredCollection();
+  if (!grid || !empty) return;
+
+  let cards;
+  try {
+    cards = getFilteredCollection();
+  } catch (e) {
+    console.warn('[collection] filter/sort failed, showing unsorted:', e);
+    cards = [...(_getCollectionSource() || [])];
+  }
   const isSharedView = !!_viewingSharedCollOwnerId;
   const source = _getCollectionSource();
 
-  if (source.length === 0) {
+  try {
+    syncCollectionChangeSortControls();
+    _syncCollectionViewControls();
+  } catch (_) {}
+
+  if (!source || source.length === 0) {
     grid.style.display = 'none';
     empty.style.display = isSharedView ? 'none' : 'block';
-    updateStats();
+    try { updateStats(); } catch (_) {}
     return;
   }
   grid.style.display = 'grid';
   empty.style.display = 'none';
 
-  if (currentView === 'list') {
-    grid.innerHTML = cards.map(c => {
-      const dispPrice = getTCGPriceForCard(c);
-      const ckPrice = getCKPriceForCard(c);
-      const tileImg = c.imageLarge || c.image;
-      return `
+  try {
+    if (currentView === 'list') {
+      grid.innerHTML = cards.map(c => {
+        const tileImg = c.imageLarge || c.image;
+        const setCode = String(c.set || '').toUpperCase();
+        return `
       <div class="card-item" onclick="openCardDetail('${c.uid}')">
         <div class="card-img-wrap${c.foil ? ' foil' : ''}">
           ${tileImg ? `<img ${cardThumbAttrs(c, currentView)} alt="${escapeHtml(c.name)}" onload="this.classList.add('loaded');imgFadeSeenMark(this)" onerror="this.classList.add('loaded')">` : '<div class="card-img-placeholder">?</div>'}
@@ -466,41 +716,39 @@ function renderCollection() {
         </div>
         <div class="card-meta">
           <div class="card-name">${escapeHtml(c.name)}</div>
-          <div style="font-size:0.78rem;color:var(--text3)">${c.set.toUpperCase()} • ${(typeof resolveCardTypeLine === 'function' ? resolveCardTypeLine(c) : (c.type || '')).split('—')[0].trim()}</div>
-          <div class="card-prices">
-            ${dispPrice ? `<span class="price-badge price-tcg">${c.foil ? '✦ ' : ''}$${dispPrice.toFixed(2)}</span>` : ''}
-            ${ckPrice ? `<span class="price-badge price-ck">$${ckPrice.toFixed(2)}</span>` : ''}
-            ${c.qty > 1 ? `<span class="price-badge price-qty" style="margin-left:auto">x${c.qty}</span>` : ''}
-          </div>
+          <div style="font-size:0.78rem;color:var(--text3)">${setCode} • ${(typeof resolveCardTypeLine === 'function' ? resolveCardTypeLine(c) : (c.type || '')).split('—')[0].trim()}</div>
+          ${_htmlCardPriceBadges(c)}
         </div>
       </div>`;
-    }).join('');
-  } else {
-    grid.innerHTML = cards.map(c => {
-      const dispPrice = getTCGPriceForCard(c);
-      const ckPrice = getCKPriceForCard(c);
-      const tileImg = c.imageLarge || c.image;
-      return `
+      }).join('');
+    } else {
+      grid.innerHTML = cards.map(c => {
+        const tileImg = c.imageLarge || c.image;
+        const setCode = String(c.set || '').toUpperCase();
+        return `
       <div class="card-item" onclick="openCardDetail('${c.uid}')">
         <div class="card-img-wrap${c.foil ? ' foil' : ''}">
-          ${tileImg ? `<img ${cardThumbAttrs(c, currentView)} alt="${escapeHtml(c.name)}" onload="this.classList.add('loaded');imgFadeSeenMark(this)" onerror="this.classList.add('loaded')">` : `<div class="card-img-placeholder"><svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="1"><rect x="2" y="2" width="20" height="20" rx="2"/><path d="M8 12h8M12 8v8"/></svg><span>${c.set.toUpperCase()}</span></div>`}
+          ${tileImg ? `<img ${cardThumbAttrs(c, currentView)} alt="${escapeHtml(c.name)}" onload="this.classList.add('loaded');imgFadeSeenMark(this)" onerror="this.classList.add('loaded')">` : `<div class="card-img-placeholder"><svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="1"><rect x="2" y="2" width="20" height="20" rx="2"/><path d="M8 12h8M12 8v8"/></svg><span>${setCode}</span></div>`}
           ${c.foil ? `<div class="card-foil-overlay"></div><div class="card-foil-badge">✦ FOIL</div>` : ''}
           ${!isSharedView && isRecentlyAdded(c) ? `<div class="card-new-badge" title="New card"></div>` : ''}
           ${!isSharedView ? `<button type="button" class="collection-card-star${c.starred ? ' is-starred' : ''}" data-card-uid="${c.uid}" onclick="toggleCardStar('${c.uid}',event)" aria-pressed="${c.starred ? 'true' : 'false'}" aria-label="${c.starred ? 'Unstar card' : 'Star card'}">${c.starred ? '★' : '☆'}</button>` : ''}
         </div>
         <div class="card-meta">
           <div class="card-name">${escapeHtml(c.name)}</div>
-          <div class="card-prices">
-            ${dispPrice ? `<span class="price-badge price-tcg">${c.foil ? '✦' : ''}$${dispPrice.toFixed(2)}</span>` : ''}
-            ${ckPrice ? `<span class="price-badge price-ck">$${ckPrice.toFixed(2)}</span>` : ''}
-            ${c.qty > 1 ? `<span class="price-badge price-qty" style="margin-left:auto">x${c.qty}</span>` : ''}
-          </div>
+          ${_htmlCardPriceBadges(c)}
         </div>
       </div>`;
-    }).join('');
+      }).join('');
+    }
+  } catch (e) {
+    console.error('[collection] render failed:', e);
   }
 
-  updateStats();
+  try { updateStats(); } catch (_) {}
+  if (!skipPriceFetch) {
+    // Defer so paint + collection hydrate aren't blocked by price-history work.
+    setTimeout(() => { void ensureCollectionPriceChangeData(source); }, 0);
+  }
 }
 
 /** One “unique” per printing: foil + non-foil of the same Scryfall card share one key. */
@@ -526,28 +774,138 @@ function _rowExcludedFromValueTotalsByThreshold(c) {
   return unit < floor;
 }
 
+function _priceChangeTfShortLabel(tf, customDate) {
+  const t = String(tf || 'month');
+  if (t === 'day') return '1 day';
+  if (t === 'week') return '1 week';
+  if (t === 'month') return '1 month';
+  if (t === 'year') return '1 year';
+  if (t === 'since_added') return 'Since added';
+  if (t === 'custom') return customDate || 'Custom';
+  return t;
+}
+
+/** Greatest enabled-vendor change for display prefs (High / max). */
+function _cardTopMoverChange(card, mode, vendors, timeframe, customDate) {
+  const date = _cardCompareDateForTimeframe(card, timeframe, customDate);
+  if (!date || !card?.scryfallId) return null;
+  const rec = typeof getCachedPriceAt === 'function' ? getCachedPriceAt(card.scryfallId, date) : null;
+  if (!rec) return null;
+  const deltas = [];
+  if (vendors.tcg) {
+    const d = getCardVendorDelta(card, 'tcg', rec);
+    if (d) deltas.push(d);
+  }
+  if (vendors.ck) {
+    const d = getCardVendorDelta(card, 'ck', rec);
+    if (d) deltas.push(d);
+  }
+  if (!deltas.length) return null;
+  let best = deltas[0];
+  let bestKey = mode === 'pct' ? best.pct : best.usd;
+  for (let i = 1; i < deltas.length; i++) {
+    const d = deltas[i];
+    const k = mode === 'pct' ? d.pct : d.usd;
+    if (k > bestKey) { best = d; bestKey = k; }
+  }
+  return { delta: best, key: bestKey };
+}
+
+let _topMoversResizeObs = null;
+
+function _topMoversRowHtml(card, delta, prefs, esc) {
+  const uid = card.uid || (card.scryfallId ? card.scryfallId + (card.foil ? '_f' : '_n') : '');
+  const name = card.name || 'Unknown';
+  const usdText = typeof formatPriceDeltaText === 'function' ? formatPriceDeltaText(delta, 'usd') : '';
+  const pctText = typeof formatPriceDeltaText === 'function' ? formatPriceDeltaText(delta, 'pct') : '';
+  const cls = typeof priceDeltaClass === 'function' ? priceDeltaClass(delta) : '';
+  const foil = card.foil ? ' ✦' : '';
+  const uidJs = String(uid).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  return `<div class="stat-mover-row" role="button" tabindex="0" title="${esc(name)}${foil}"
+    onclick="event.stopPropagation();openCardDetail('${uidJs}')"
+    onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openCardDetail('${uidJs}')}">
+    <span class="stat-mover-name">${esc(name)}${foil}</span>
+    <span class="stat-mover-figures">
+      <span class="stat-mover-delta">${esc(usdText)}</span>
+      <span class="stat-mover-pct ${cls}">${esc(pctText)}</span>
+    </span>
+  </div>`;
+}
+
+function _renderTopMoversStat(rows) {
+  const el = document.getElementById('statTopMovers');
+  const labelEl = document.getElementById('statTopMoversLabel');
+  if (!el) return;
+
+  const prefs = typeof getPriceDeltaDisplayPrefs === 'function'
+    ? getPriceDeltaDisplayPrefs()
+    : { mode: 'pct', timeframe: 'month', customDate: '', show: true };
+  const moversCard = el.closest('.stat-card--movers') || el.closest('.stat-card');
+  if (prefs.show === false) {
+    if (moversCard) moversCard.style.display = 'none';
+    el.innerHTML = '';
+    return;
+  }
+  if (moversCard) moversCard.style.display = '';
+
+  const vendors = typeof getPriceChangeVendorEnabled === 'function'
+    ? getPriceChangeVendorEnabled()
+    : { tcg: true, ck: true };
+  if (labelEl) {
+    labelEl.textContent = `Top Movers · ${_priceChangeTfShortLabel(prefs.timeframe, prefs.customDate)}`;
+  }
+
+  const scored = [];
+  for (const c of rows || []) {
+    const hit = _cardTopMoverChange(c, prefs.mode, vendors, prefs.timeframe, prefs.customDate);
+    if (!hit || hit.key == null || !Number.isFinite(hit.key)) continue;
+    scored.push({ card: c, ...hit });
+  }
+  scored.sort((a, b) => b.key - a.key || String(a.card.name || '').localeCompare(String(b.card.name || '')));
+  const top = scored.slice(0, 6);
+  if (!top.length) {
+    el.innerHTML = '<div class="stat-movers-empty">—</div>';
+    return;
+  }
+
+  const esc = typeof escapeHtml === 'function'
+    ? escapeHtml
+    : (s) => String(s ?? '').replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+  el.innerHTML = top.map(({ card, delta }) => _topMoversRowHtml(card, delta, prefs, esc)).join('');
+}
+
 function updateStats() {
   const rows = getFilteredCollection();
   const total = rows.reduce((s, c) => s + (c.qty || 1), 0);
   const unique = new Set(rows.map(_collectionUniqueCardKey).filter(Boolean)).size;
   const sets = new Set(rows.map(c => c.set)).size;
-  const valTCG = rows.reduce((s, c) => {
+  const vendors = typeof getPriceVendorEnabled === 'function'
+    ? getPriceVendorEnabled()
+    : { tcg: true, ck: true };
+  const valTCG = vendors.tcg ? rows.reduce((s, c) => {
     if (_rowExcludedFromValueTotalsByThreshold(c)) return s;
     return s + getTCGPriceForCard(c) * (c.qty || 1);
-  }, 0);
-  const valCK = rows.reduce((s, c) => {
+  }, 0) : 0;
+  const valCK = vendors.ck ? rows.reduce((s, c) => {
     if (_rowExcludedFromValueTotalsByThreshold(c)) return s;
     return s + getCKPriceForCard(c) * (c.qty || 1);
-  }, 0);
+  }, 0) : 0;
   document.getElementById('statCards').textContent = total.toLocaleString();
   document.getElementById('statUnique').textContent = unique.toLocaleString();
   document.getElementById('statSets').textContent = sets;
-  document.getElementById('statValue').textContent = '$' + valTCG.toFixed(0);
-  document.getElementById('statValueCK').textContent = '$' + valCK.toFixed(0);
-  const fullTcg = collection.reduce((s, c) => {
+  const tcgCard = document.getElementById('statValue')?.closest('.stat-card');
+  const ckCard = document.getElementById('statValueCK')?.closest('.stat-card');
+  if (tcgCard) tcgCard.style.display = vendors.tcg ? '' : 'none';
+  if (ckCard) ckCard.style.display = vendors.ck ? '' : 'none';
+  const tcgEl = document.getElementById('statValue');
+  const ckEl = document.getElementById('statValueCK');
+  if (tcgEl) tcgEl.textContent = '$' + valTCG.toFixed(0);
+  if (ckEl) ckEl.textContent = '$' + valCK.toFixed(0);
+  _renderTopMoversStat(rows);
+  const fullTcg = vendors.tcg ? collection.reduce((s, c) => {
     if (_rowExcludedFromValueTotalsByThreshold(c)) return s;
     return s + getTCGPriceForCard(c) * (c.qty || 1);
-  }, 0);
+  }, 0) : 0;
   recordValueSnapshot(fullTcg);
 }
 
@@ -568,7 +926,12 @@ function filterCards(q) {
   scheduleCollectionTagHydrateIfNeeded();
   scheduleOracleMatchFetch(q);
 }
-function sortCards(v) { currentSort = v; renderCollection(); }
+function sortCards(v) {
+  currentSort = (typeof _COLLECTION_SORT_KEYS !== 'undefined' && _COLLECTION_SORT_KEYS.has(v)) ? v : (v || 'name');
+  localStorage.setItem('mtg_collection_sort', currentSort);
+  syncCollectionChangeSortControls();
+  renderCollection();
+}
 function changeRarity(v) { currentRarity = v; renderCollection(); }
 
 function toggleColor(c, el) {
@@ -578,13 +941,26 @@ function toggleColor(c, el) {
 }
 
 function setView(v, btn) {
-  currentView = v;
-  document.querySelectorAll('.view-toggle button').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  const g = document.getElementById('cardGrid');
-  g.className = 'card-grid';
-  if (v !== 'grid') g.classList.add('view-' + v);
+  currentView = (typeof _COLLECTION_VIEW_KEYS !== 'undefined' && _COLLECTION_VIEW_KEYS.has(v)) ? v : (v || 'grid');
+  localStorage.setItem('mtg_collection_view', currentView);
+  _syncCollectionViewControls(btn);
   renderCollection();
+}
+
+function _syncCollectionViewControls(activeBtn) {
+  document.querySelectorAll('.view-toggle button').forEach(b => b.classList.remove('active'));
+  if (activeBtn) {
+    activeBtn.classList.add('active');
+  } else {
+    document.querySelectorAll('.view-toggle button').forEach(b => {
+      const onclick = b.getAttribute('onclick') || '';
+      if (onclick.includes(`'${currentView}'`) || onclick.includes(`"${currentView}"`)) b.classList.add('active');
+    });
+  }
+  const g = document.getElementById('cardGrid');
+  if (!g) return;
+  g.className = 'card-grid';
+  if (currentView !== 'grid') g.classList.add('view-' + currentView);
 }
 
 let _cardDetailFaces = [];
@@ -652,11 +1028,26 @@ function _prefetchCardDetailNeighborArts(uid) {
 
 function _htmlCardDetailPriceRows(card) {
   const foil = !!card.foil;
-  const tcgRow = foil
-    ? `<tr><td>TCGPlayer Foil</td><td style="color:var(--gold)">$${getTCGPriceForCard(card).toFixed(2)}</td></tr>`
-    : `<tr><td>TCGPlayer</td><td style="color:var(--blue2)">$${(card.priceTCG || 0).toFixed(2)}</td></tr>`;
-  const ckRow = `<tr><td>${foil ? 'Card Kingdom Foil' : 'Card Kingdom'}</td><td style="color:var(--green)">$${getCKPriceForCard(card).toFixed(2)}</td></tr>`;
-  return tcgRow + ckRow;
+  const vendors = typeof getPriceVendorEnabled === 'function'
+    ? getPriceVendorEnabled()
+    : { tcg: true, ck: true };
+  const prefs = typeof getPriceDeltaDisplayPrefs === 'function'
+    ? getPriceDeltaDisplayPrefs()
+    : { mode: 'pct', timeframe: 'month', customDate: '' };
+  let html = '';
+  if (vendors.tcg) {
+    const tcgDelta = _htmlVendorPriceDelta(card, 'tcg', prefs.timeframe, prefs.customDate, prefs.mode);
+    const tcgNow = getTCGPriceForCard(card);
+    html += foil
+      ? `<tr><td>TCGPlayer Foil</td><td style="color:var(--gold)">$${tcgNow.toFixed(2)}${tcgDelta}</td></tr>`
+      : `<tr><td>TCGPlayer</td><td style="color:var(--blue2)">$${tcgNow.toFixed(2)}${tcgDelta}</td></tr>`;
+  }
+  if (vendors.ck) {
+    const ckDelta = _htmlVendorPriceDelta(card, 'ck', prefs.timeframe, prefs.customDate, prefs.mode);
+    const ckNow = getCKPriceForCard(card);
+    html += `<tr><td>${foil ? 'Card Kingdom Foil' : 'Card Kingdom'}</td><td style="color:var(--green)">$${ckNow.toFixed(2)}${ckDelta}</td></tr>`;
+  }
+  return html;
 }
 
 function _mergeFetchedCardIntoDetailCard(card, entry) {
@@ -1795,7 +2186,9 @@ function _htmlOpenCardDetailRightColumn(ctx) {
     : _naturalPips;
   const _hasCustomPips = card.customPips != null;
   const _cmcCustom = card.customCmc != null && card.customCmc !== (card.cmc ?? 0);
-  const _hasAdvanced = card.customCmc != null || card.customPips != null;
+  const _hasAdvanced = card.customCmc != null || card.customPips != null || getStoredPurchasePrice(card) != null;
+  const _storedPurchase = typeof getStoredPurchasePrice === 'function' ? getStoredPurchasePrice(isOwned ? ownedCard || card : card) : null;
+  const _purchaseManual = !!(isOwned && (ownedCard || card)?.purchasePriceManual);
   const showInDeckRow = !!(activeDeck && _isDeckBuilderMainTabActive());
   const inDeckInner = showInDeckRow
     ? `<span class="card-detail-qty-row-label">In deck:</span>
@@ -1821,6 +2214,7 @@ function _htmlOpenCardDetailRightColumn(ctx) {
           <span class="card-detail-qty-row-label">In collection:</span>
           <div class="card-detail-qty-fill">${_htmlCardDetailCollectionRows(ctx)}</div>
         </div>
+        ${typeof _htmlPurchasePriceOptIn === 'function' ? _htmlPurchasePriceOptIn('cdPurchase', 'purchase-price-optin--inspector') : ''}
         <div id="cardDetailRowInDeck" class="card-detail-qty-row" style="display:${showInDeckRow ? 'flex' : 'none'}">
           ${inDeckInner}
         </div>
@@ -1844,7 +2238,19 @@ function _htmlOpenCardDetailRightColumn(ctx) {
           ${tagData.html}
         </div>
         <details id="cardDetailAdvanced" class="card-detail-disclosure"${_hasAdvanced ? ' open' : ''} ontoggle="_onInspectorAdvancedToggle(this)">
-          <summary>Advanced · price history, mana value &amp; pips</summary>
+          <summary>Advanced · purchase price, history, mana value &amp; pips</summary>
+          <div id="cardDetailPurchasePriceWrap" class="card-detail-cmc-row" style="flex-wrap:wrap;gap:6px">
+            <span class="card-detail-row-label">PURCHASE PRICE (AVG)</span>
+            <input type="number" id="cardDetailPurchasePriceInput" class="card-detail-num-input${_purchaseManual ? ' is-custom' : ''}"
+              min="0" step="0.01" inputmode="decimal"
+              value="${_storedPurchase != null ? _storedPurchase.toFixed(2) : ''}"
+              placeholder="Market at add"
+              ${isOwned ? '' : 'disabled'}
+              onchange="setCardPurchasePriceFromDetail(this.value)">
+            ${isOwned ? `<button type="button" class="btn btn-sm btn-outline" onclick="setCardPurchasePriceFromDetail('')" title="Clear to use market when first added">Clear</button>` : ''}
+            <span id="cardDetailPurchasePriceHint" class="card-detail-row-hint">${_purchaseManual ? 'Manual average' : 'Leave blank for market when first added'}</span>
+            <span id="cardDetailPurchasePriceImplied" class="card-detail-row-hint" style="width:100%"></span>
+          </div>
           <div id="cardDetailPriceChartWrap" class="cd-price-chart" data-sid="${card.scryfallId || ''}">
             <div class="card-detail-section-label">PRICE HISTORY</div>
             <div id="cardDetailPriceControls" class="cd-price-controls"></div>
@@ -1912,6 +2318,73 @@ function _destroyInspectorPriceChart() {
 
 // Called from openCardDetail (every open, incl. arrow-nav). Lazy: only fetches
 // when the Advanced pane is actually expanded.
+function _onInspectorAdvancedToggle(detailsEl) {
+  if (detailsEl && detailsEl.open) {
+    void _loadInspectorPriceChart();
+    void _syncInspectorPurchasePriceImplied();
+  }
+}
+
+async function _syncInspectorPurchasePriceImplied() {
+  const hint = document.getElementById('cardDetailPurchasePriceImplied');
+  if (!hint) return;
+  const card = _cardDetailCurrentCard;
+  const owned = card && collection.find(c => c.uid === card.uid
+    || (c.scryfallId === card.scryfallId && !!c.foil === !!card.foil));
+  const row = owned || card;
+  if (!row) { hint.textContent = ''; return; }
+  const stored = typeof getStoredPurchasePrice === 'function' ? getStoredPurchasePrice(row) : null;
+  if (stored != null && row.purchasePriceManual) {
+    hint.textContent = '';
+    return;
+  }
+  const date = typeof msToUtcDateString === 'function'
+    ? msToUtcDateString(row.firstAddedAt || row.addedAt)
+    : null;
+  let implied = null;
+  if (typeof resolveMarketUnitPriceAt === 'function' && date) {
+    try { implied = await resolveMarketUnitPriceAt(row, date); } catch (_) {}
+  }
+  if (implied == null && typeof getMarketUnitPriceUsd === 'function') implied = getMarketUnitPriceUsd(row);
+  hint.textContent = implied != null
+    ? `Implied from market when first added: $${Number(implied).toFixed(2)}`
+    : '';
+}
+
+function setCardPurchasePriceFromDetail(raw) {
+  const card = _cardDetailCurrentCard;
+  if (!card) return;
+  const row = collection.find(c => c.uid === card.uid
+    || (c.scryfallId === card.scryfallId && !!c.foil === !!card.foil));
+  if (!row) {
+    showNotif('Add the card to your collection first', true);
+    return;
+  }
+  const s = String(raw ?? '').trim();
+  if (!s) {
+    row.purchasePrice = null;
+    row.purchasePriceManual = false;
+  } else {
+    const v = parseFloat(s);
+    if (!Number.isFinite(v) || v < 0) {
+      showNotif('Enter a valid purchase price', true);
+      return;
+    }
+    row.purchasePrice = Math.round(v * 100) / 100;
+    row.purchasePriceManual = true;
+  }
+  save('collection');
+  const inp = document.getElementById('cardDetailPurchasePriceInput');
+  if (inp) {
+    inp.value = row.purchasePrice != null ? Number(row.purchasePrice).toFixed(2) : '';
+    inp.classList.toggle('is-custom', !!row.purchasePriceManual);
+  }
+  const label = document.getElementById('cardDetailPurchasePriceHint');
+  if (label) label.textContent = row.purchasePriceManual ? 'Manual average' : 'Leave blank for market when first added';
+  void _syncInspectorPurchasePriceImplied();
+  showNotif(row.purchasePriceManual ? 'Purchase price saved' : 'Purchase price cleared');
+}
+
 async function _syncInspectorPriceChart(scryfallId) {
   const wrap = document.getElementById('cardDetailPriceChartWrap');
   if (!wrap) return;
@@ -1919,11 +2392,10 @@ async function _syncInspectorPriceChart(scryfallId) {
   wrap.dataset.sid = sid;
   if (_priceChartState.sid !== sid) { _destroyInspectorPriceChart(); _priceChartState = { sid: null, points: null, finish: null, source: null }; }
   const details = document.getElementById('cardDetailAdvanced');
-  if (details && details.open) await _loadInspectorPriceChart();
-}
-
-function _onInspectorAdvancedToggle(detailsEl) {
-  if (detailsEl && detailsEl.open) void _loadInspectorPriceChart();
+  if (details && details.open) {
+    await _loadInspectorPriceChart();
+    void _syncInspectorPurchasePriceImplied();
+  }
 }
 
 async function _loadInspectorPriceChart() {
@@ -2313,20 +2785,68 @@ function _resolveDetailCard(uid) {
   return null;
 }
 
+/**
+ * Create or bump a collection row and maintain running-average purchasePrice.
+ * @param {object|null} existing — existing collection row or null
+ * @param {object} template — card fields for a new row (must include uid)
+ * @param {number} addQty
+ * @param {{ purchasePrice?: number|null, manual?: boolean }} [opts]
+ * @returns {object} the collection row
+ */
+function applyCollectionQtyAdd(existing, template, addQty, opts) {
+  const d = Math.max(1, Math.trunc(Number(addQty) || 1));
+  const o = opts || {};
+  let unitPrice = o.purchasePrice;
+  const manual = !!o.manual && unitPrice != null && Number.isFinite(Number(unitPrice)) && Number(unitPrice) >= 0;
+  if (!manual) unitPrice = null;
+
+  if (existing) {
+    const p = manual ? Number(unitPrice) : (typeof getMarketUnitPriceUsd === 'function' ? getMarketUnitPriceUsd(existing) : null);
+    if (typeof blendPurchasePrice === 'function') {
+      blendPurchasePrice(existing, d, p, { manual });
+    }
+    existing.qty = Math.max(0, Number(existing.qty) || 0) + d;
+    existing.addedAt = Date.now();
+    if (typeof recordCollectionEvent === 'function') recordCollectionEvent('add', existing, d);
+    return existing;
+  }
+
+  const now = Date.now();
+  const newCard = {
+    ...template,
+    qty: d,
+    addedAt: now,
+    firstAddedAt: template?.firstAddedAt || now,
+  };
+  if (!newCard.uid && newCard.scryfallId) {
+    newCard.uid = newCard.scryfallId + (newCard.foil ? '_f' : '_n');
+  }
+  if (typeof initPurchasePriceOnCreate === 'function') {
+    initPurchasePriceOnCreate(newCard, manual ? Number(unitPrice) : null, manual);
+  }
+  collection.push(newCard);
+  if (typeof recordCollectionEvent === 'function') recordCollectionEvent('add', newCard, d);
+  return newCard;
+}
+
 function addCardToCollectionFromDetail(uid) {
   const sourceCard = _resolveDetailCard(uid);
   if (!sourceCard) return;
   const targetUid = sourceCard.uid || (sourceCard.scryfallId + (sourceCard.foil ? '_f' : '_n'));
   const existing = collection.find(c => c.uid === targetUid);
+  const opt = typeof readPurchasePriceOptIn === 'function' ? readPurchasePriceOptIn('cdPurchase') : { price: null, manual: false };
   if (existing) {
-    existing.qty = (existing.qty || 0) + 1;
-    existing.addedAt = Date.now();
-    recordCollectionEvent('add', existing, 1);
+    applyCollectionQtyAdd(existing, existing, 1, { purchasePrice: opt.price, manual: opt.manual });
   } else {
-    // Reset star when copying out of a shared collection — the owner's star isn't mine.
-    const newCard = { ...sourceCard, uid: targetUid, qty: 1, starred: false, addedAt: Date.now() };
-    collection.push(newCard);
-    recordCollectionEvent('add', newCard, 1);
+    const now = Date.now();
+    applyCollectionQtyAdd(null, {
+      ...sourceCard,
+      uid: targetUid,
+      qty: 1,
+      starred: false,
+      addedAt: now,
+      firstAddedAt: now,
+    }, 1, { purchasePrice: opt.price, manual: opt.manual });
   }
   save('collection');
   renderCollection();
@@ -2996,12 +3516,17 @@ function adjustQty(uid, delta) {
   const card = collection.find(c => c.uid === uid);
   if (!card) return;
   const prevQty = card.qty || 1;
-  card.qty = Math.max(0, prevQty + delta);
-  if (card.qty === 0) {
-    recordCollectionEvent('remove', card, prevQty);
-    collection = collection.filter(c => c.uid !== uid);
+  if (delta > 0) {
+    const opt = typeof readPurchasePriceOptIn === 'function' ? readPurchasePriceOptIn('cdPurchase') : { price: null, manual: false };
+    applyCollectionQtyAdd(card, card, delta, { purchasePrice: opt.price, manual: opt.manual });
   } else {
-    recordCollectionEvent(delta > 0 ? 'add' : 'remove', card, Math.abs(delta));
+    card.qty = Math.max(0, prevQty + delta);
+    if (card.qty === 0) {
+      recordCollectionEvent('remove', card, prevQty);
+      collection = collection.filter(c => c.uid !== uid);
+    } else {
+      recordCollectionEvent('remove', card, Math.abs(delta));
+    }
   }
   save('collection');
   const elNf = document.getElementById('detailQty_nf');
@@ -3016,7 +3541,7 @@ function adjustQty(uid, delta) {
     }
   } else {
     const el = document.getElementById('detailQty');
-    if (el) el.textContent = String(card.qty);
+    if (el) el.textContent = String(card.qty || 0);
   }
   renderCollection();
   _refreshDeckListIfActive();
@@ -3038,10 +3563,9 @@ function adjustCollectionPrintingQtyFromDetail(scryfallIdEnc, wantFoil, delta) {
   let row = _findCollectionRowByPrinting(sid, foil);
 
   if (d > 0) {
+    const opt = typeof readPurchasePriceOptIn === 'function' ? readPurchasePriceOptIn('cdPurchase') : { price: null, manual: false };
     if (row) {
-      row.qty = Math.max(0, Number(row.qty || 0)) + d;
-      row.addedAt = Date.now();
-      recordCollectionEvent('add', row, d);
+      applyCollectionQtyAdd(row, row, d, { purchasePrice: opt.price, manual: opt.manual });
     } else {
       // Fall back to the card currently shown in the inspector — covers cards on the
       // maybe board / sideboard or in a shared deck, which _findTemplateCardForPrinting misses.
@@ -3053,15 +3577,12 @@ function adjustCollectionPrintingQtyFromDetail(scryfallIdEnc, wantFoil, delta) {
         showNotif('Could not add — try from search or wishlist first', true);
         return;
       }
-      const newCard = {
+      applyCollectionQtyAdd(null, {
         ...template,
         uid: targetUid,
         foil,
         qty: d,
-        addedAt: Date.now(),
-      };
-      collection.push(newCard);
-      recordCollectionEvent('add', newCard, d);
+      }, d, { purchasePrice: opt.price, manual: opt.manual });
     }
   } else {
     if (!row) return;
@@ -3607,8 +4128,11 @@ function _paintFindResults(el) {
     const border = '1px solid var(--border)';
 
     const pr = c.prices || {};
-    const tcgUsd = parseFloat(pr.usd) || 0;
-    const ckUsd = parseFloat(pr.usd_ck) || 0;
+    const vendors = typeof getPriceVendorEnabled === 'function'
+      ? getPriceVendorEnabled()
+      : { tcg: true, ck: true };
+    const tcgUsd = vendors.tcg ? (parseFloat(pr.usd) || 0) : 0;
+    const ckUsd = vendors.ck ? (parseFloat(pr.usd_ck) || 0) : 0;
     const priceBadges = (tcgUsd > 0 ? `<span class="price-badge price-tcg">$${tcgUsd.toFixed(2)}</span>` : '')
       + (ckUsd > 0 ? `<span class="price-badge price-ck">$${ckUsd.toFixed(2)}</span>` : '');
     const ownedBadges = !useSharedPool ? _findOwnedBadgesHtml(nfQtyDisplay, fQtyDisplay) : '';
@@ -3783,13 +4307,11 @@ function addCardToCollection(scryfallCard, qty, foil) {
     : true;
   if (addToCollectionThisRun) {
     const existing = collection.find(c => c.uid === entry.uid);
+    const opt = typeof readPurchasePriceOptIn === 'function' ? readPurchasePriceOptIn('findPurchase') : { price: null, manual: false };
     if (existing) {
-      existing.qty += qty;
-      existing.addedAt = Date.now();
-      recordCollectionEvent('add', existing, qty);
+      applyCollectionQtyAdd(existing, existing, qty, { purchasePrice: opt.price, manual: opt.manual });
     } else {
-      collection.push(entry);
-      recordCollectionEvent('add', entry, qty);
+      applyCollectionQtyAdd(null, entry, qty, { purchasePrice: opt.price, manual: opt.manual });
     }
   }
 
