@@ -109,6 +109,10 @@ function onPriceChangeVendorToggle(vendor, checked) {
   }
   if (typeof renderCollection === 'function') renderCollection();
   else if (typeof updateStats === 'function') updateStats();
+  const findEl = document.getElementById('findCardResults');
+  if (findEl && typeof _paintFindResults === 'function' && typeof _findResultCards !== 'undefined' && _findResultCards.length) {
+    _paintFindResults(findEl);
+  }
   if (typeof _cardDetailCurrentCard !== 'undefined' && _cardDetailCurrentCard
     && document.getElementById('cardDetailModal')?.classList.contains('open')
     && typeof _patchCardDetailInspectorDom === 'function') {

@@ -310,7 +310,7 @@ function _htmlVendorPriceDelta(card, vendor, timeframe, customDate, mode) {
   if (!delta) return '';
   const cls = priceDeltaClass(delta);
   const text = formatPriceDeltaText(delta, mode);
-  const titleTf = timeframe === 'custom' ? (customDate || 'custom')
+  const titleTf = timeframe === 'custom' ? (typeof escapeHtml === 'function' ? escapeHtml(customDate || 'custom') : String(customDate || 'custom'))
     : timeframe === 'since_added' ? 'since added' : `past ${timeframe}`;
   return `<span class="price-delta ${cls}" title="${vendor.toUpperCase()} change (${titleTf})">${text}</span>`;
 }

@@ -2428,6 +2428,14 @@ async function attachPriceLogPricesToDeckCards(cards) {
   return cards;
 }
 
+/** Remove owner cost-basis fields before serving a collection to a share viewer. */
+function stripCollectionPurchasePrices(card) {
+  if (!card || typeof card !== 'object') return card;
+  delete card.purchasePrice;
+  delete card.purchasePriceManual;
+  return card;
+}
+
 const _REPLACE_ALLOWED_TABLES = new Set(['collection', 'games', 'wishlist']);
 /** Full-replacement PUT for one account inside a transaction. */
 async function replaceAllForAccount(accountId, table, rows, insertFn) {
@@ -2745,9 +2753,9 @@ app.get('/api/collection', requireAuth, async (req, res) => {
       }
       return card;
     });
-    // Same price-log overlay as decks / card inspector — stored blob prices are often
-    // stale Scryfall snapshots, which made tile deltas disagree with the inspector.
-    await attachPriceLogPricesToDeckCards(cards);
+    // Price-log enrichment runs client-side via /api/cards/prices-at after hydrate
+    // (batched + cached). Doing it here on every GET duplicated heavy vendor-fallback
+    // joins and competed with collection load on prod.
     res.json(cards);
   } catch (e) {
     console.error(e);
@@ -4112,9 +4120,9 @@ app.get('/api/collection/shared', requireAuth, async (req, res) => {
       if (!byOwner.has(r.account_id)) byOwner.set(r.account_id, []);
       const card = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
       card.qty = r.qty;
+      stripCollectionPurchasePrices(card);
       byOwner.get(r.account_id).push(card);
     }
-    for (const cards of byOwner.values()) await attachPriceLogPricesToDeckCards(cards);
     res.json(shareRows.map(r => ({
       ownerId: r.owner_id,
       ownerEmail: r.owner_email,
@@ -5632,6 +5640,8 @@ async function getVendorPricesAtOrBefore(scryfallIds, date) {
  *    or { items: [{ scryfallId, date }] }
  * Returns { prices: { [scryfallId]: { asOf, tcg_normal, tcg_foil, ck_normal, ck_foil } } }
  */
+const _PRICES_AT_MAX_IDS = 300;
+
 app.post('/api/cards/prices-at', requireAuth, async (req, res) => {
   try {
     await ensurePriceHistorySchema();
@@ -5639,11 +5649,19 @@ app.post('/api/cards/prices-at', requireAuth, async (req, res) => {
     const prices = {};
 
     if (Array.isArray(body.items) && body.items.length) {
-      const byDate = new Map();
+      const normalized = [];
       for (const it of body.items) {
         const sid = String(it?.scryfallId || '').toLowerCase();
         const date = String(it?.date || '');
         if (!_SCRYFALL_ID_RE.test(sid) || !_ISO_DATE_RE.test(date)) continue;
+        normalized.push({ sid, date });
+      }
+      if (!normalized.length) return res.json({ prices: {} });
+      if (normalized.length > _PRICES_AT_MAX_IDS) {
+        return res.status(400).json({ error: `Too many items (max ${_PRICES_AT_MAX_IDS})` });
+      }
+      const byDate = new Map();
+      for (const { sid, date } of normalized) {
         if (!byDate.has(date)) byDate.set(date, []);
         byDate.get(date).push(sid);
       }
@@ -5654,8 +5672,13 @@ app.post('/api/cards/prices-at', requireAuth, async (req, res) => {
     } else {
       const date = String(body.date || '');
       if (!_ISO_DATE_RE.test(date)) return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
-      const ids = Array.isArray(body.scryfallIds) ? body.scryfallIds : [];
+      const ids = [...new Set((Array.isArray(body.scryfallIds) ? body.scryfallIds : [])
+        .map(id => String(id || '').toLowerCase())
+        .filter(id => _SCRYFALL_ID_RE.test(id)))];
       if (!ids.length) return res.json({ prices: {} });
+      if (ids.length > _PRICES_AT_MAX_IDS) {
+        return res.status(400).json({ error: `Too many scryfall IDs (max ${_PRICES_AT_MAX_IDS})` });
+      }
       const map = await getVendorPricesAtOrBefore(ids, date);
       for (const [sid, rec] of map) prices[sid] = rec;
     }
