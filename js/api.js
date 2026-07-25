@@ -507,6 +507,7 @@ function computePriceDelta(nowPx, thenPx) {
 
 /** In-memory cache: `${date}|${scryfallId}` → price record or null (fetched miss). */
 const _pricesAtCache = new Map();
+const _PRICES_AT_FETCH_CHUNK = 300;
 
 function _pricesAtCacheHas(scryfallId, date) {
   return _pricesAtCache.has(`${date}|${String(scryfallId || '').toLowerCase()}`);
@@ -518,11 +519,14 @@ async function fetchPricesAt(scryfallIds, date) {
   const need = ids.filter(id => !_pricesAtCache.has(`${date}|${id}`));
   if (need.length) {
     try {
-      const data = await apiPostJson('/cards/prices-at', { scryfallIds: need, date });
-      const prices = data?.prices || {};
-      for (const id of need) {
-        const rec = prices[id] || null;
-        _pricesAtCache.set(`${date}|${id}`, rec);
+      for (let i = 0; i < need.length; i += _PRICES_AT_FETCH_CHUNK) {
+        const chunk = need.slice(i, i + _PRICES_AT_FETCH_CHUNK);
+        const data = await apiPostJson('/cards/prices-at', { scryfallIds: chunk, date });
+        const prices = data?.prices || {};
+        for (const id of chunk) {
+          const rec = prices[id] || null;
+          _pricesAtCache.set(`${date}|${id}`, rec);
+        }
       }
     } catch (_) {
       for (const id of need) {
@@ -541,17 +545,26 @@ async function fetchPricesAt(scryfallIds, date) {
 async function fetchPricesAtItems(items) {
   const list = (items || []).filter(it => it && it.scryfallId && it.date);
   if (!list.length) return new Map();
-  const byDate = new Map();
-  for (const it of list) {
-    const sid = String(it.scryfallId).toLowerCase();
-    const date = String(it.date);
-    if (!byDate.has(date)) byDate.set(date, []);
-    byDate.get(date).push(sid);
-  }
   const out = new Map();
-  for (const [date, ids] of byDate) {
-    const map = await fetchPricesAt(ids, date);
-    for (const [sid, rec] of map) out.set(`${date}|${sid}`, rec);
+  for (let i = 0; i < list.length; i += _PRICES_AT_FETCH_CHUNK) {
+    const chunk = list.slice(i, i + _PRICES_AT_FETCH_CHUNK);
+    try {
+      const data = await apiPostJson('/cards/prices-at', { items: chunk });
+      const prices = data?.prices || {};
+      for (const it of chunk) {
+        const sid = String(it.scryfallId).toLowerCase();
+        const date = String(it.date);
+        const rec = prices[sid] || null;
+        _pricesAtCache.set(`${date}|${sid}`, rec);
+        if (rec) out.set(`${date}|${sid}`, rec);
+      }
+    } catch (_) {
+      for (const it of chunk) {
+        const sid = String(it.scryfallId).toLowerCase();
+        const date = String(it.date);
+        if (!_pricesAtCache.has(`${date}|${sid}`)) _pricesAtCache.set(`${date}|${sid}`, null);
+      }
+    }
   }
   return out;
 }
@@ -587,19 +600,22 @@ function getCardVendorDelta(card, vendor, thenRec) {
   const thenPx = pickVendorThenPrice(thenRec, vendor, !!card.foil);
   if (thenPx == null) return null;
   let nowPx = null;
-  let usedPriceLogNow = false;
   if (card.scryfallId && typeof getLatestPricesRequestDate === 'function') {
     const date = getLatestPricesRequestDate();
     if (_pricesAtCacheHas(card.scryfallId, date)) {
-      usedPriceLogNow = true;
       const nowRec = getCachedPriceAt(card.scryfallId, date);
       // Server fills last day with a real vendor value when latest is null.
       nowPx = pickVendorThenPrice(nowRec, vendor, !!card.foil);
     }
   }
-  // Do not fall back to blob estimates (e.g. CK = TCG×0.88) once price-log answered.
-  if (nowPx == null && !usedPriceLogNow) {
-    nowPx = vendor === 'tcg' ? getTCGPriceForCard(card) : getCKPriceForCard(card);
+  if (nowPx == null) {
+    const blobPx = vendor === 'tcg' ? getTCGPriceForCard(card) : getCKPriceForCard(card);
+    if (Number(blobPx) > 0) {
+      // Avoid legacy TCG×0.88 CK estimates; real stored CK is fine when the log missed.
+      if (vendor !== 'ck' || !isLikelyTcgCkEstimate(card.priceTCG, blobPx)) {
+        nowPx = blobPx;
+      }
+    }
   }
   if (nowPx == null || !(Number(nowPx) > 0)) return null;
   return computePriceDelta(nowPx, thenPx);

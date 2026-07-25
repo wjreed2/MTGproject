@@ -1040,7 +1040,7 @@ function downloadCSV() {
 
   const headers = ['name','set','set_name','number','qty','foil','rarity','type',
                    'mana','cmc','colors','tcg_price','tcg_foil_price','ck_price','ck_foil_price',
-                   'scryfall_id','image','image_large','purchase_price'];
+                   'scryfall_id','image','image_large','purchase_price','purchase_price_manual'];
 
   const esc = v => {
     const s = String(v ?? '');
@@ -1054,7 +1054,8 @@ function downloadCSV() {
     (c.colors || []).join(''),
     (c.priceTCG || 0).toFixed(2), (c.priceTCGFoil || 0).toFixed(2), (c.priceCK || 0).toFixed(2), (c.priceCKFoil || 0).toFixed(2),
     c.scryfallId, c.image || '', c.imageLarge || '',
-    (c.purchasePrice != null && Number.isFinite(Number(c.purchasePrice))) ? Number(c.purchasePrice).toFixed(2) : ''
+    (c.purchasePrice != null && Number.isFinite(Number(c.purchasePrice))) ? Number(c.purchasePrice).toFixed(2) : '',
+    c.purchasePriceManual ? 1 : 0
   ].map(esc).join(','));
 
   const csv = [headers.join(','), ...rows].join('\n');
@@ -1101,6 +1102,8 @@ async function importCSV(text) {
   const iCK = idx('ck_price'), iCKF = idx('ck_foil_price'), iId = idx('scryfall_id'), iImg = idx('image'), iImgL = idx('image_large');
   let iPurchase = idx('purchase_price');
   if (iPurchase < 0) iPurchase = idx('purchaseprice');
+  let iPurchaseManual = idx('purchase_price_manual');
+  if (iPurchaseManual < 0) iPurchaseManual = idx('purchasepricemanual');
 
   let added = 0, skipped = 0;
 
@@ -1115,7 +1118,9 @@ async function importCSV(text) {
     const scryfallId = get(iId);
     const purchaseRaw = iPurchase >= 0 ? parseFloat(get(iPurchase)) : NaN;
     const hasPurchase = Number.isFinite(purchaseRaw) && purchaseRaw >= 0;
-    const purchaseOpts = hasPurchase ? { purchasePrice: purchaseRaw, manual: true } : {};
+    const purchaseManual = iPurchaseManual >= 0
+      && (get(iPurchaseManual) === '1' || get(iPurchaseManual).toLowerCase() === 'true');
+    const purchaseOpts = hasPurchase ? { purchasePrice: purchaseRaw, manual: purchaseManual } : {};
 
     if (scryfallId) {
       const foil = get(iFoil) === '1' || get(iFoil).toLowerCase() === 'true';
@@ -1162,7 +1167,7 @@ async function importCSV(text) {
           qty, foil,
           addedAt: Date.now(),
           firstAddedAt: Date.now(),
-          ...(hasPurchase ? { purchasePrice: purchaseRaw, purchasePriceManual: true } : {}),
+          ...(hasPurchase ? { purchasePrice: purchaseRaw, purchasePriceManual: purchaseManual } : {}),
         });
       }
       added++;
