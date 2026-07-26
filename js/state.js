@@ -9,11 +9,25 @@ let deckCustomTags = [];
 let deckPrimaryTags = [];
 let deckSecondaryTags = [];
 let colorFilters  = new Set();
-let currentView   = 'grid';
-let currentSort   = 'name';
+const _COLLECTION_SORT_KEYS = new Set(['name', 'cmc', 'price_tcg', 'price_ck', 'change_pct', 'change_usd', 'set', 'added']);
+const _COLLECTION_VIEW_KEYS = new Set(['grid', 'large', 'compact', 'list']);
+function _loadCollectionSort() {
+  const s = localStorage.getItem('mtg_collection_sort') || 'name';
+  return _COLLECTION_SORT_KEYS.has(s) ? s : 'name';
+}
+function _loadCollectionView() {
+  const v = localStorage.getItem('mtg_collection_view') || 'grid';
+  return _COLLECTION_VIEW_KEYS.has(v) ? v : 'grid';
+}
+let currentView   = _loadCollectionView();
+let currentSort   = _loadCollectionSort();
 let currentRarity = '';
 let searchQ       = '';
 let pendingCard   = null;
+/** Sort timeframe when sorting by value change % / $ */
+let currentChangeTimeframe = localStorage.getItem('mtg_sort_change_tf') || 'month';
+let currentChangeCustomDate = localStorage.getItem('mtg_sort_change_custom') || '';
+let currentChangeDirection = localStorage.getItem('mtg_sort_change_dir') === 'low' ? 'low' : 'high';
 let deckOwnershipEnabled = localStorage.getItem('mtg_deck_ownership') !== '0';
 /** User-wide Adds & Cuts planning toggle — on for all decks or none; per-deck adds/cuts data persists either way. */
 let deckSwapsFeatureEnabled = localStorage.getItem('mtg_deck_swaps') !== '0';
@@ -99,7 +113,7 @@ let _appDataResyncInFlight = null;
  * @returns {{ saveCollection: boolean, saveDecks: boolean }}
  */
 function hydrateAppData(data) {
-  const flags = { saveCollection: false, saveDecks: false };
+  const flags = { saveCollection: false, saveDecks: false, saveWishlist: false };
   collection = data.collection || [];
   collectionHistory = data.history || [];
   decks = data.decks || [];
@@ -157,15 +171,43 @@ function hydrateAppData(data) {
 
   collection.forEach(c => {
     if (!c.uid) c.uid = c.scryfallId + (c.foil ? '_f' : '_n');
-    if (typeof c.priceCKFoil !== 'number') c.priceCKFoil = c.priceTCGFoil ? c.priceTCGFoil * 0.88 : 0;
+    if (typeof c.priceCKFoil !== 'number') c.priceCKFoil = null;
     if (!c.addedAt) {
       c.addedAt = Date.now();
       flags.saveCollection = true;
     }
+    if (!c.firstAddedAt) {
+      c.firstAddedAt = c.addedAt;
+      flags.saveCollection = true;
+    }
   });
+  if (typeof scrubEstimatedCkPrices === 'function' && scrubEstimatedCkPrices(collection)) {
+    flags.saveCollection = true;
+  }
+  // Refine firstAddedAt from earliest collection_history add for each uid.
+  if (Array.isArray(collectionHistory) && collectionHistory.length) {
+    const earliestAdd = new Map();
+    for (const ev of collectionHistory) {
+      if (!ev || ev.type !== 'add' || !ev.uid) continue;
+      const ts = Number(ev.ts) || 0;
+      if (!ts) continue;
+      const prev = earliestAdd.get(ev.uid);
+      if (prev == null || ts < prev) earliestAdd.set(ev.uid, ts);
+    }
+    for (const c of collection) {
+      const early = earliestAdd.get(c.uid);
+      if (early != null && early < Number(c.firstAddedAt || Infinity)) {
+        c.firstAddedAt = early;
+        flags.saveCollection = true;
+      }
+    }
+  }
   wishlist.forEach(c => {
-    if (typeof c.priceCKFoil !== 'number') c.priceCKFoil = c.priceTCGFoil ? c.priceTCGFoil * 0.88 : 0;
+    if (typeof c.priceCKFoil !== 'number') c.priceCKFoil = null;
   });
+  if (typeof scrubEstimatedCkPrices === 'function' && scrubEstimatedCkPrices(wishlist)) {
+    flags.saveWishlist = true;
+  }
   decks.forEach(d => {
     if (typeof _ensureDeckZones === 'function') _ensureDeckZones(d);
     if (!Array.isArray(d.disabledTags)) d.disabledTags = [];
@@ -175,6 +217,9 @@ function hydrateAppData(data) {
     zoneCards.forEach(c => {
       if (!Array.isArray(c.customTags)) c.customTags = [];
     });
+    if (typeof scrubEstimatedCkPrices === 'function' && scrubEstimatedCkPrices(zoneCards)) {
+      flags.saveDecks = true;
+    }
   });
   sharedDecks = data.sharedDecks || [];
   sharedCollections = data.sharedCollections || [];
@@ -219,9 +264,11 @@ function hydrateAppData(data) {
 /** Persist hydrate cleanup only after the session is marked server-synced. */
 function applyHydrateSaveFlags(flags, fromServer) {
   if (!fromServer || !flags) return;
-  if (flags.saveDecks && flags.saveCollection) save('decks', 'collection');
-  else if (flags.saveDecks) save('decks');
-  else if (flags.saveCollection) save('collection');
+  const domains = [];
+  if (flags.saveDecks) domains.push('decks');
+  if (flags.saveCollection) domains.push('collection');
+  if (flags.saveWishlist) domains.push('wishlist');
+  if (domains.length) save(...domains);
 }
 
 const _APP_SHELL_TABS = new Set(['collection', 'sets', 'decks', 'browse', 'wishlist', 'games']);
@@ -249,6 +296,12 @@ function renderHydratedAppShell() {
   else if (t === 'games' && typeof _renderGamesTab === 'function') _renderGamesTab();
   if (typeof updateStats === 'function') updateStats();
   _scheduleMissingPriceRefresh();
+  // Price deltas wait for sync; kick once after a successful server hydrate.
+  if (typeof isAppDataSynced === 'function' && isAppDataSynced()
+      && typeof ensureCollectionPriceChangeData === 'function'
+      && typeof collection !== 'undefined' && collection.length) {
+    setTimeout(() => { void ensureCollectionPriceChangeData(collection); }, 50);
+  }
 }
 
 /** First paint after hydrate: restore the saved tab, then render its content. */

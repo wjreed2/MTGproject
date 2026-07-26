@@ -1009,11 +1009,22 @@ async function lookupManual(source = 'manual') {
   pendingCard.foil = pendingFoil;
   pendingCard.uid = pendingCard.scryfallId + (pendingCard.foil ? '_f' : '_n');
   const ownedEntry = collection.find(c => c.uid === pendingCard.uid);
-  const displayPrice = getTCGPriceForCard(pendingCard);
-  const displayCKPrice = getCKPriceForCard(pendingCard);
+  const vendors = typeof getPriceVendorEnabled === 'function'
+    ? getPriceVendorEnabled()
+    : { tcg: true, ck: true };
+  const displayPrice = vendors.tcg ? getTCGPriceForCard(pendingCard) : 0;
+  const displayCKPrice = vendors.ck ? getCKPriceForCard(pendingCard) : 0;
   const collectionStatusHtml = ownedEntry
     ? `<span class="voice-owned-print-badge" title="This set · number · foil is already in your collection">In collection ×${ownedEntry.qty}</span>`
     : `<span class="voice-new-to-collection-badge" title="No copy of this printing in your collection yet">New to collection</span>`;
+  const priceBadgesHtml = [
+    displayPrice > 0
+      ? `<span class="price-badge price-tcg" style="font-size:0.68rem">${pendingCard.foil && pendingCard.priceTCGFoil > 0 ? 'Foil' : 'TCG'} $${displayPrice.toFixed(2)}</span>`
+      : '',
+    displayCKPrice > 0
+      ? `<span class="price-badge price-ck" style="font-size:0.68rem">${pendingCard.foil ? 'CK Foil' : 'CK'} $${displayCKPrice.toFixed(2)}</span>`
+      : '',
+  ].filter(Boolean).join('');
   el.innerHTML = `
     <div style="background:var(--bg3);border:1px solid ${pendingCard.foil ? 'var(--gold)' : 'var(--border2)'};border-radius:var(--radius2);padding:10px">
       <div style="position:relative;overflow:hidden;border-radius:6px;margin-bottom:8px">
@@ -1024,10 +1035,10 @@ async function lookupManual(source = 'manual') {
       <div style="font-size:0.72rem;color:var(--text2);margin-bottom:2px;font-style:italic">${pendingCard.set.toUpperCase()} · #${pendingCard.number}</div>
       <div style="margin-bottom:6px">${collectionStatusHtml}</div>
       <div style="font-size:0.7rem;color:var(--text2);margin-bottom:8px">${pendingCard.type}</div>
-      <div style="display:flex;gap:4px;flex-wrap:wrap">
-        <span class="price-badge price-tcg" style="font-size:0.68rem">${pendingCard.foil && pendingCard.priceTCGFoil > 0 ? 'Foil' : 'TCG'} $${displayPrice.toFixed(2)}</span>
-        <span class="price-badge price-ck" style="font-size:0.68rem">${pendingCard.foil ? 'CK Foil' : 'CK'} $${displayCKPrice.toFixed(2)}</span>
+      <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px">
+        ${priceBadgesHtml}
       </div>
+      ${typeof _htmlPurchasePriceOptIn === 'function' ? _htmlPurchasePriceOptIn('voicePurchase') : ''}
     </div>`;
   document.getElementById('voiceAddBtn').disabled = false;
   voiceMode = 'confirm';
@@ -1087,7 +1098,14 @@ function confirmVoiceAdd(fromSpeech) {
   const addToCollectionThisRun = voiceShouldAddCollectionInDeckMode();
   if (addToCollectionThisRun) {
     const existingCollection = collection.find(c => c.uid === pendingCard.uid);
-    if (existingCollection) {
+    const opt = typeof readPurchasePriceOptIn === 'function' ? readPurchasePriceOptIn('voicePurchase') : { price: null, manual: false };
+    if (typeof applyCollectionQtyAdd === 'function') {
+      if (existingCollection) {
+        applyCollectionQtyAdd(existingCollection, existingCollection, pendingCard.qty, { purchasePrice: opt.price, manual: opt.manual });
+      } else {
+        applyCollectionQtyAdd(null, pendingCard, pendingCard.qty, { purchasePrice: opt.price, manual: opt.manual });
+      }
+    } else if (existingCollection) {
       existingCollection.qty += pendingCard.qty;
       existingCollection.addedAt = Date.now();
       recordCollectionEvent('add', existingCollection, pendingCard.qty);

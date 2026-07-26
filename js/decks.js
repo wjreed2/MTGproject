@@ -3457,13 +3457,20 @@ function _addCommanderCopyToCollection(cardLike, scryfallId, foil) {
   const uid = scryfallId + (foil ? '_f' : '_n');
   const existing = collection.find(c => c.uid === uid
     || (c.scryfallId === scryfallId && !!c.foil === !!foil));
-  if (existing) {
+  if (typeof applyCollectionQtyAdd === 'function') {
+    if (existing) applyCollectionQtyAdd(existing, existing, 1, {});
+    else {
+      const { isCommander, qty, deckTags, ...rest } = cardLike;
+      applyCollectionQtyAdd(null, { ...rest, uid, scryfallId, foil: !!foil, qty: 1 }, 1, {});
+    }
+  } else if (existing) {
     existing.qty = (existing.qty || 0) + 1;
     existing.addedAt = Date.now();
     if (typeof recordCollectionEvent === 'function') recordCollectionEvent('add', existing, 1);
   } else {
     const { isCommander, qty, deckTags, ...rest } = cardLike;
-    const newCard = { ...rest, uid, scryfallId, foil: !!foil, qty: 1, addedAt: Date.now() };
+    const now = Date.now();
+    const newCard = { ...rest, uid, scryfallId, foil: !!foil, qty: 1, addedAt: now, firstAddedAt: now };
     collection.push(newCard);
     if (typeof recordCollectionEvent === 'function') recordCollectionEvent('add', newCard, 1);
   }
@@ -9985,8 +9992,10 @@ async function _openCardDetailFromScryfallSearch(sc, nameHint) {
           const foil = _parseScryfallPriceField(fresh.prices?.usd_foil);
           if (usd > 0) entry.priceTCG = usd;
           if (foil > 0) entry.priceTCGFoil = foil;
-          if (usd > 0) entry.priceCK = usd * 0.88;
-          if (foil > 0) entry.priceCKFoil = foil * 0.88;
+          const ck = _parseScryfallPriceField(fresh.prices?.usd_ck);
+          const ckF = _parseScryfallPriceField(fresh.prices?.usd_ck_foil);
+          if (ck > 0) entry.priceCK = ck;
+          if (ckF > 0) entry.priceCKFoil = ckF;
         }
       }
     } catch (_) {}
@@ -14442,6 +14451,7 @@ function _transferCollectionCopyForDeckReprint(oldSid, foil, sc, moveQty) {
     fresh.uid = newUid;
     fresh.qty = move;
     fresh.addedAt = Date.now();
+    fresh.firstAddedAt = Number(oldRow.firstAddedAt || oldRow.addedAt) || Date.now();
     // Carry over the user's metadata from the copies that moved.
     if (oldRow.customTags) fresh.customTags = oldRow.customTags;
     if (oldRow.roleTags) fresh.roleTags = oldRow.roleTags;
