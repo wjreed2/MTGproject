@@ -3068,8 +3068,14 @@ function _scnFpStreamAdd(card) {
   const entry = cardToEntry(card, 1);
   if (_scnFoilMode) { entry.foil = true; entry.uid = card.id + '_f'; }
   const existing = collection.find(c => c.uid === entry.uid);
-  if (existing) { existing.qty += 1; existing.addedAt = Date.now(); recordCollectionEvent('add', existing, 1); }
-  else { collection.push(entry); recordCollectionEvent('add', entry, 1); }
+  if (typeof applyCollectionQtyAdd === 'function') {
+    if (existing) applyCollectionQtyAdd(existing, existing, 1, {});
+    else applyCollectionQtyAdd(null, entry, 1, {});
+  } else if (existing) {
+    existing.qty += 1; existing.addedAt = Date.now(); recordCollectionEvent('add', existing, 1);
+  } else {
+    collection.push(entry); recordCollectionEvent('add', entry, 1);
+  }
   save('collection');
   renderCollection();
   updateStats();
@@ -3099,9 +3105,12 @@ function scnMatchPlusOne() {
   if (_scnStreamAdd) {
     const existing = collection.find(c => c.uid === uid);
     if (!existing) { _scnHidePlusOne(); return; }
-    existing.qty += 1;
-    existing.addedAt = Date.now();
-    recordCollectionEvent('add', existing, 1);
+    if (typeof applyCollectionQtyAdd === 'function') applyCollectionQtyAdd(existing, existing, 1, {});
+    else {
+      existing.qty += 1;
+      existing.addedAt = Date.now();
+      recordCollectionEvent('add', existing, 1);
+    }
     save('collection');
     renderCollection();
     updateStats();
@@ -4444,7 +4453,10 @@ async function _scnVoiceAddAndResume(card) {
   const entry = cardToEntry(card, 1);
   if (_scnFoilMode) { entry.foil = true; entry.uid = card.id + '_f'; }
   const existing = collection.find(c => c.uid === entry.uid);
-  if (existing) {
+  if (typeof applyCollectionQtyAdd === 'function') {
+    if (existing) applyCollectionQtyAdd(existing, existing, 1, {});
+    else applyCollectionQtyAdd(null, entry, 1, {});
+  } else if (existing) {
     existing.qty += 1;
     existing.addedAt = Date.now();
     recordCollectionEvent('add', existing, 1);
@@ -4723,15 +4735,20 @@ function scnAddPendingToCollection() {
     return;
   }
   const n = _scnPendingAuto.length;
+  const opt = typeof readPurchasePriceOptIn === 'function' ? readPurchasePriceOptIn('scnPurchase') : { price: null, manual: false };
   for (const entry of _scnPendingAuto) {
     const existing = collection.find(c => c.uid === entry.uid);
-    if (existing) {
-      existing.qty += entry.qty || 1;
+    const qty = entry.qty || 1;
+    if (typeof applyCollectionQtyAdd === 'function') {
+      if (existing) applyCollectionQtyAdd(existing, existing, qty, { purchasePrice: opt.price, manual: opt.manual });
+      else applyCollectionQtyAdd(null, entry, qty, { purchasePrice: opt.price, manual: opt.manual });
+    } else if (existing) {
+      existing.qty += qty;
       existing.addedAt = Date.now();
-      recordCollectionEvent('add', existing, entry.qty || 1);
+      recordCollectionEvent('add', existing, qty);
     } else {
       collection.push(entry);
-      recordCollectionEvent('add', entry, entry.qty || 1);
+      recordCollectionEvent('add', entry, qty);
     }
   }
   save('collection');
@@ -4745,7 +4762,10 @@ function scnAddPendingToCollection() {
 function _scnAdd(scryfallCard) {
   const entry = cardToEntry(scryfallCard, 1);
   const existing = collection.find(c => c.uid === entry.uid);
-  if (existing) {
+  if (typeof applyCollectionQtyAdd === 'function') {
+    if (existing) applyCollectionQtyAdd(existing, existing, 1, {});
+    else applyCollectionQtyAdd(null, entry, 1, {});
+  } else if (existing) {
     existing.qty += 1;
     existing.addedAt = Date.now();
     recordCollectionEvent('add', existing, 1);
@@ -4833,6 +4853,7 @@ function _scnClearSession() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  if (typeof mountPurchasePriceOptInHosts === 'function') mountPurchasePriceOptInHosts();
   _scnRefreshAutoModeUI();
   _scnRefreshVoiceModeUI();
   document.getElementById('scnZoomSlider')?.addEventListener('input', e => {
