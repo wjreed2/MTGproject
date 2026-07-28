@@ -1,0 +1,615 @@
+Archetype Name,Scryfall Tagger Category,Exact Tagger Tag,Scryfall Search Syntax,Tag Description
+Tokens (Go-Wide),Core Mechanic,repeatable-creature-tokens,otag:repeatable-creature-tokens,Repeatable creature-token generators — the engine of go-wide.
+Tokens (Go-Wide),Core Mechanic,synergy-token,otag:synergy-token,Cards that explicitly care about tokens.
+Tokens (Go-Wide),Core Mechanic,synergy-token-creature,otag:synergy-token-creature,Cards that care about creature tokens specifically.
+Tokens (Go-Wide),Core Mechanic,token-doubler,otag:token-doubler,Parallel Lives / Anointed Procession style doublers.
+Tokens (Go-Wide),Core Mechanic,convoke,otag:convoke,Tap creatures (often tokens) to help cast spells.
+Tokens (Go-Wide),Payoff,anthem,otag:anthem,Team-wide +N/+N buffs that scale with board width.
+Tokens (Go-Wide),Payoff,warlord,otag:warlord,P/T equal to creature count.
+Tokens (Go-Wide),Payoff,overrun,otag:overrun,Finishers that grant trample and a large pump.
+Tokens (Go-Wide),Payoff,tokenfall,otag:tokenfall,Triggers when tokens enter.
+Tokens (Go-Wide),Enabler,young-pyromancer-ability,otag:young-pyromancer-ability,Cast-instant/sorcery → create a creature token.
+Tokens (Go-Wide),Enabler,token-increaser,otag:token-increaser,Effects that increase the number of tokens created.
+Tokens (Go-Wide),Win Condition,gives-haste,otag:gives-haste,Haste so freshly made tokens can attack.
+Tokens (Go-Wide),Win Condition,gives-trample,otag:gives-trample,Trample to push wide boards through blockers.
+Tokens (Go-Wide),Synergy,sacrifice-outlet,otag:sacrifice-outlet,Sac outlets convert excess tokens into value.
+Tokens (Go-Wide),Synergy,death-trigger,otag:death-trigger,Death triggers turn traded tokens into advantage.
+Tokens (Go-Wide),Synergy,affinity-for-tokens,otag:affinity-for-tokens,Affinity / cost reduction for tokens.
+Combo,Core Mechanic,tutor,otag:tutor,Tutors assemble combo pieces.
+Combo,Core Mechanic,ritual,otag:ritual,Mana rituals accelerate combos.
+Combo,Core Mechanic,untapper,otag:untapper,Untappers enable infinite mana / activated-ability loops.
+Combo,Core Mechanic,alternate-win-condition,otag:alternate-win-condition,Explicit alternate win conditions (often combo payoffs).
+Combo,Payoff,extra-turn,otag:extra-turn,Extra-turn effects as combo finishers or enablers.
+Combo,Payoff,storm-count-matters,otag:storm-count-matters,Storm-count payoffs for spell-based combos.
+Combo,Enabler,cost-reducer,otag:cost-reducer,Cost reduction makes combo lines cheaper.
+Combo,Enabler,mana-rock,otag:mana-rock,Mana rocks for colorless acceleration.
+Combo,Enabler,mana-dork,otag:mana-dork,Mana dorks for green acceleration.
+Combo,Enabler,bottomless-mana-sink,otag:bottomless-mana-sink,Infinite-mana sinks that convert mana into a win.
+Combo,Protection,gives-hexproof,otag:gives-hexproof,Protect combo pieces.
+Combo,Protection,counterspell,otag:counterspell,Interaction to protect the combo turn.
+Combo,Synergy,copy,otag:copy,Copy effects can duplicate combo pieces or spells.
+Combo,Synergy,recursion,otag:recursion,Recursion recovers combo pieces from the yard.
+Control/Pillowfort,Core Mechanic,pillowfort,otag:pillowfort,Tax / disincentive effects that discourage attacks at you.
+Control/Pillowfort,Core Mechanic,tax,otag:tax,Resource taxes when opponents try to do things.
+Control/Pillowfort,Core Mechanic,tax-attack,otag:tax-attack,Costs to attack — classic pillowfort.
+Control/Pillowfort,Core Mechanic,cast-tax,otag:cast-tax,Taxes on casting spells.
+Control/Pillowfort,Core Mechanic,counterspell,otag:counterspell,Hard permission.
+Control/Pillowfort,Core Mechanic,removal,otag:removal,Spot and flexible removal.
+Control/Pillowfort,Core Mechanic,sweeper,otag:sweeper,Board wipes (Scryfall aliases include board-wipe / boardwipe).
+Control/Pillowfort,Payoff,fog,otag:fog,Prevent combat damage for a turn.
+Control/Pillowfort,Payoff,pseudo-fog,otag:pseudo-fog,Fog-like combat shutdowns.
+Control/Pillowfort,Payoff,damage-prevention,otag:damage-prevention,Prevent damage effects.
+Control/Pillowfort,Enabler,draw-engine,otag:draw-engine,Card advantage engines to outgrind the table.
+Control/Pillowfort,Enabler,spot-removal,otag:spot-removal,Efficient single-target removal.
+Control/Pillowfort,Protection,gives-player-hexproof,otag:gives-player-hexproof,Player hexproof / shroud-style protection.
+Control/Pillowfort,Win Condition,alternate-win-condition,otag:alternate-win-condition,Slow alternate wins while locked down.
+Control/Pillowfort,Synergy,hatebear,otag:hatebear,Low-curve hate creatures that lock lines of play.
+Control/Pillowfort,Synergy,lockdown-creature,otag:lockdown-creature,Keep opposing creatures tapped / locked.
+Artifacts,Core Mechanic,synergy-artifact,otag:synergy-artifact,Cards that care about artifacts.
+Artifacts,Core Mechanic,mana-rock,otag:mana-rock,Mana rocks — the backbone of artifact decks.
+Artifacts,Core Mechanic,affinity,otag:affinity,Affinity for artifacts.
+Artifacts,Core Mechanic,metalcraft,otag:metalcraft,Metalcraft thresholds.
+Artifacts,Payoff,cranial-plating,otag:cranial-plating,Buffs based on artifact / equipment count.
+Artifacts,Payoff,animate-artifact,otag:animate-artifact,Turn artifacts into creatures.
+Artifacts,Enabler,tutor-artifact-equipment,otag:tutor-artifact-equipment,Tutors for equipment (often artifact packages).
+Artifacts,Enabler,improvise,otag:improvise,Improvise as an artifact-casting enabler.
+Artifacts,Enabler,imprint,otag:imprint,Imprint value engines.
+Artifacts,Win Condition,repeatable-artifact-tokens,otag:repeatable-artifact-tokens,"Repeatable artifact-token makers (Clues, Treasures, etc.)."
+Artifacts,Synergy,sacrifice-outlet-artifact,otag:sacrifice-outlet-artifact,Artifact sac outlets.
+Artifacts,Synergy,cost-reducer,otag:cost-reducer,Cost reduction for expensive artifact payoffs.
+Landfall,Core Mechanic,landfall,otag:landfall,Landfall triggers — defining mechanic.
+Landfall,Core Mechanic,land-ramp,otag:land-ramp,Ramp that puts lands onto the battlefield.
+Landfall,Core Mechanic,lands-matter,otag:lands-matter,Cards that care about lands generally.
+Landfall,Core Mechanic,land-count-matters,otag:land-count-matters,Payoffs for high land counts.
+Landfall,Core Mechanic,extra-land,otag:extra-land,Extra land drops per turn.
+Landfall,Enabler,fetchland,otag:fetchland,Fetchlands that trigger landfall repeatedly.
+Landfall,Enabler,multi-land-ramp,otag:multi-land-ramp,Ramp that nets multiple lands.
+Landfall,Enabler,ramp,otag:ramp,General ramp effects.
+Landfall,Payoff,landfall-other,otag:landfall-other,Landfall-like triggers on others' lands / variants.
+Landfall,Payoff,tokenfall,otag:tokenfall,Token ETBs often paired with landfall token makers.
+Landfall,Win Condition,gives-haste,otag:gives-haste,Haste for landfall creature tokens.
+Landfall,Synergy,mana-dork,otag:mana-dork,Early mana to accelerate land drops and payoffs.
+Graveyard/Reanimator,Core Mechanic,reanimate,otag:reanimate,Put creatures from graveyard onto the battlefield.
+Graveyard/Reanimator,Core Mechanic,recursion,otag:recursion,Return cards from graveyard to hand / battlefield.
+Graveyard/Reanimator,Core Mechanic,castable-from-graveyard,otag:castable-from-graveyard,Flashback and other cast-from-yard effects.
+Graveyard/Reanimator,Core Mechanic,synergy-graveyard-cast,otag:synergy-graveyard-cast,Payoffs for casting from the graveyard.
+Graveyard/Reanimator,Core Mechanic,graveyard-fuel,otag:graveyard-fuel,Fill the graveyard intentionally.
+Graveyard/Reanimator,Enabler,mill-self,otag:mill-self,Self-mill to fuel the yard (alias: self-mill).
+Graveyard/Reanimator,Enabler,discard-outlet,otag:discard-outlet,Discard outlets to pitch reanimation targets.
+Graveyard/Reanimator,Enabler,surveil,otag:surveil,Surveil as selective self-mill.
+Graveyard/Reanimator,Payoff,regrowth,otag:regrowth,Return cards from yard to hand.
+Graveyard/Reanimator,Payoff,delve,otag:delve,Exile yard cards to help cast spells.
+Graveyard/Reanimator,Payoff,persist,otag:persist,Persist recursion loops.
+Graveyard/Reanimator,Synergy,death-trigger,otag:death-trigger,Death triggers in reanimator / aristocrats hybrids.
+Graveyard/Reanimator,Synergy,sacrifice-outlet,otag:sacrifice-outlet,Sac outlets to re-kill and reanimate.
+Aristocrats,Core Mechanic,sacrifice-outlet,otag:sacrifice-outlet,Ways to sacrifice permanents for value.
+Aristocrats,Core Mechanic,free-sacrifice-outlet,otag:free-sacrifice-outlet,Sac outlets with no extra cost.
+Aristocrats,Core Mechanic,death-trigger,otag:death-trigger,Triggers when creatures die.
+Aristocrats,Core Mechanic,synergy-sacrifice,otag:synergy-sacrifice,Cards that care about sacrificing.
+Aristocrats,Core Mechanic,martyr,otag:martyr,Creatures that sac themselves for benefit.
+Aristocrats,Payoff,drain-life,otag:drain-life,Drain / life-loss on death or sac.
+Aristocrats,Payoff,grave-pact,otag:grave-pact,Opponents sacrifice when your creatures die.
+Aristocrats,Enabler,repeatable-creature-tokens,otag:repeatable-creature-tokens,Token fodder for the sac engine.
+Aristocrats,Enabler,repeatable-sacrifice-outlet,otag:repeatable-sacrifice-outlet,Repeatable sac outlets.
+Aristocrats,Win Condition,bombard,otag:bombard,Sac a creature to deal damage.
+Aristocrats,Win Condition,fling,otag:fling,Sac a creature to deal its power as damage.
+Aristocrats,Synergy,plunder,otag:plunder,Sac to draw cards.
+Aristocrats,Synergy,sacrifice-outlet-creature,otag:sacrifice-outlet-creature,Creature-specific sac outlets.
+Spellslinger/Storm,Core Mechanic,synergy-instant,otag:synergy-instant,Cards that care about instants.
+Spellslinger/Storm,Core Mechanic,synergy-sorcery,otag:synergy-sorcery,Cards that care about sorceries.
+Spellslinger/Storm,Core Mechanic,magecraft,otag:magecraft,Magecraft — cast instant/sorcery triggers.
+Spellslinger/Storm,Core Mechanic,storm-count-matters,otag:storm-count-matters,Payoffs for high storm count.
+Spellslinger/Storm,Core Mechanic,cantrip,otag:cantrip,Cantrips to chain spells.
+Spellslinger/Storm,Payoff,copy-instant,otag:copy-instant,Copy instants.
+Spellslinger/Storm,Payoff,copy-sorcery,otag:copy-sorcery,Copy sorceries.
+Spellslinger/Storm,Payoff,copy-spell,otag:copy-spell,Copy spells generally.
+Spellslinger/Storm,Payoff,young-pyromancer-ability,otag:young-pyromancer-ability,Cast instant/sorcery → token.
+Spellslinger/Storm,Payoff,gives-prowess,otag:gives-prowess,Prowess grants for noncreature cast triggers.
+Spellslinger/Storm,Payoff,prowess-anthem,otag:prowess-anthem,Team prowess on noncreature casts.
+Spellslinger/Storm,Enabler,ritual,otag:ritual,Mana rituals for storm turns.
+Spellslinger/Storm,Enabler,cost-reducer-instant-sorcery,otag:cost-reducer-instant-sorcery,Make instants/sorceries cheaper.
+Spellslinger/Storm,Enabler,cast-trigger-you,otag:cast-trigger-you,"Whenever you cast X, do something."
+Spellslinger/Storm,Win Condition,storm-like,otag:storm-like,Storm-adjacent finishers.
+Spellslinger/Storm,Win Condition,burn-player,otag:burn-player,Burn that finishes after a big spell turn.
+Voltron (Go-Tall),Core Mechanic,synergy-equipment,otag:synergy-equipment,Cards that care about equipment.
+Voltron (Go-Tall),Core Mechanic,synergy-aura,otag:synergy-aura,Cards that care about auras.
+Voltron (Go-Tall),Core Mechanic,living-weapon,otag:living-weapon,Equipment that makes its own creature.
+Voltron (Go-Tall),Core Mechanic,quick-equip,otag:quick-equip,Non-equip attach / cheap attach effects.
+Voltron (Go-Tall),Core Mechanic,auto-equip,otag:auto-equip,Equipment that attaches itself on ETB.
+Voltron (Go-Tall),Payoff,sword-of-x-and-y,otag:sword-of-x-and-y,Protection swords and similar dual-protection equipment.
+Voltron (Go-Tall),Payoff,evasion,otag:evasion,Evasion so the Voltron attacker connects.
+Voltron (Go-Tall),Payoff,unblockable,otag:unblockable,True unblockable.
+Voltron (Go-Tall),Payoff,gives-trample,otag:gives-trample,Trample for commander damage.
+Voltron (Go-Tall),Enabler,tutor-artifact-equipment,otag:tutor-artifact-equipment,Equipment tutors.
+Voltron (Go-Tall),Enabler,tutor-enchantment-aura,otag:tutor-enchantment-aura,Aura tutors.
+Voltron (Go-Tall),Protection,gives-hexproof,otag:gives-hexproof,Protect the Voltron creature.
+Voltron (Go-Tall),Protection,gives-indestructible,otag:gives-indestructible,Indestructible on the Voltron creature.
+Voltron (Go-Tall),Protection,gives-protection,otag:gives-protection,Protection from color / quality.
+Voltron (Go-Tall),Win Condition,gives-double-strike,otag:gives-double-strike,Double strike doubles commander damage.
+Ramp,Core Mechanic,ramp,otag:ramp,Mana acceleration for current or later turns.
+Ramp,Core Mechanic,land-ramp,otag:land-ramp,Ramp that puts lands onto the battlefield.
+Ramp,Core Mechanic,mana-dork,otag:mana-dork,Creatures that tap for mana.
+Ramp,Core Mechanic,mana-rock,otag:mana-rock,Artifacts that tap for mana.
+Ramp,Core Mechanic,ritual,otag:ritual,Temporary mana bursts.
+Ramp,Payoff,mana-sink,otag:mana-sink,Ways to spend excess mana.
+Ramp,Payoff,bottomless-mana-sink,otag:bottomless-mana-sink,Sinks that scale with arbitrary mana.
+Ramp,Payoff,mana-increaser,otag:mana-increaser,Mana doublers / Wild Growth style increasers.
+Ramp,Enabler,multi-land-ramp,otag:multi-land-ramp,Multi-land ramp spells.
+Ramp,Enabler,combat-ramp,otag:combat-ramp,Ramp via combat damage / attacks.
+Ramp,Win Condition,gives-haste,otag:gives-haste,Haste for expensive threats cast with ramp.
+Ramp,Synergy,landfall,otag:landfall,Extra lands feed landfall payoffs.
+Aggro,Core Mechanic,gives-haste,otag:gives-haste,Haste so threats attack immediately.
+Aggro,Core Mechanic,combat-trick,otag:combat-trick,Combat tricks to win races.
+Aggro,Core Mechanic,evasion,otag:evasion,Evasion to connect for damage.
+Aggro,Payoff,overrun,otag:overrun,Overrun finishers.
+Aggro,Payoff,gives-double-strike,otag:gives-double-strike,Double strike for burst damage.
+Aggro,Payoff,gives-first-strike,otag:gives-first-strike,First strike in combat.
+Aggro,Payoff,gives-menace,otag:gives-menace,Menace as evasion.
+Aggro,Payoff,gives-trample,otag:gives-trample,Trample to push damage through.
+Aggro,Enabler,cost-reducer,otag:cost-reducer,Cheaper creatures for aggressive curves.
+Aggro,Enabler,ritual,otag:ritual,Burst mana for explosive turns.
+Aggro,Win Condition,burn-player,otag:burn-player,Burn to finish after combat.
+Aggro,Win Condition,burn-any,otag:burn-any,Flexible burn.
+Aggro,Synergy,anthem,otag:anthem,Anthems for go-wide aggro.
+Counters (+1/+1),Core Mechanic,counters-matter,otag:counters-matter,Cards that care about counters.
+Counters (+1/+1),Core Mechanic,counter-fuel-pt,otag:counter-fuel-pt,Sources of +1/+1 counters.
+Counters (+1/+1),Core Mechanic,counter-increaser,otag:counter-increaser,Hardened Scales style increasers.
+Counters (+1/+1),Core Mechanic,move-counters,otag:move-counters,Move counters (Ozolith patterns).
+Counters (+1/+1),Payoff,synergy-proliferate,otag:synergy-proliferate,Proliferate payoffs / enablers.
+Counters (+1/+1),Payoff,gives-trample,otag:gives-trample,Trample for oversized creatures.
+Counters (+1/+1),Enabler,outlast-mentor,otag:outlast-mentor,Outlast / mentor style counter builders.
+Counters (+1/+1),Enabler,pseudo-proliferate,otag:pseudo-proliferate,Proliferate-like effects.
+Counters (+1/+1),Win Condition,overrun,otag:overrun,Finishers once the board is grown.
+Counters (-1/-1),Core Mechanic,pp-counters-matter,otag:pp-counters-matter,Cards that care about -1/-1 counters.
+Counters (-1/-1),Core Mechanic,counters-matter,otag:counters-matter,General counters-matter payoffs.
+Counters (-1/-1),Core Mechanic,gives-wither,otag:gives-wither,Wither spreads -1/-1 via combat.
+Counters (-1/-1),Payoff,synergy-wither,otag:synergy-wither,Wither synergy.
+Counters (-1/-1),Payoff,synergy-infect,otag:synergy-infect,Infect synergy (poison + -1/-1 overlap).
+Counters (-1/-1),Enabler,synergy-proliferate,otag:synergy-proliferate,Proliferate spreads -1/-1 counters.
+Counters (-1/-1),Enabler,pseudo-proliferate,otag:pseudo-proliferate,Proliferate-like spread.
+Counters (-1/-1),Win Condition,poison-opponents,otag:poison-opponents,Direct poison as a parallel win path.
+Counters (-1/-1),Synergy,counter-increaser,otag:counter-increaser,Increasers that amplify -1/-1 placement.
+Infect/Poison,Core Mechanic,poisonous,otag:poisonous,Poisonous / poison-on-damage creatures.
+Infect/Poison,Core Mechanic,synergy-poison,otag:synergy-poison,Cards that care about poison counters.
+Infect/Poison,Core Mechanic,poison-mechanics,otag:poison-mechanics,Effects that interact with poison by name.
+Infect/Poison,Core Mechanic,poison-opponents,otag:poison-opponents,Give poison without connecting in combat.
+Infect/Poison,Core Mechanic,gives-infect,otag:gives-infect,Grant infect.
+Infect/Poison,Core Mechanic,synergy-infect,otag:synergy-infect,Infect synergy.
+Infect/Poison,Payoff,gives-wither,otag:gives-wither,Wither as a related counter strategy.
+Infect/Poison,Enabler,synergy-proliferate,otag:synergy-proliferate,Proliferate poison.
+Infect/Poison,Enabler,evasion,otag:evasion,Evasion so infect creatures connect.
+Infect/Poison,Win Condition,alternate-win-condition,otag:alternate-win-condition,Poison is an alternate win path.
+Wheel,Core Mechanic,wheel,otag:wheel,"Discard hand, draw a new hand."
+Wheel,Core Mechanic,wheel-symmetrical,otag:wheel-symmetrical,Each-player wheels.
+Wheel,Core Mechanic,wheel-one-sided,otag:wheel-one-sided,One-sided (usually you) wheels.
+Wheel,Core Mechanic,miniwheel,otag:miniwheel,"Discard hand, draw fewer than seven."
+Wheel,Payoff,opponent-discard-matters,otag:opponent-discard-matters,Payoffs when opponents discard.
+Wheel,Payoff,draw-matters,otag:draw-matters,Payoffs when you draw.
+Wheel,Payoff,discard-symmetrical,otag:discard-symmetrical,Force discards without drawing back up.
+Wheel,Enabler,whirlpool,otag:whirlpool,Wheel into the library variants.
+Wheel,Win Condition,rack-effect,otag:rack-effect,Punish small hands after wheels.
+Wheel,Synergy,group-slug,otag:group-slug,Damage while hands are cycled.
+Lifegain,Core Mechanic,lifegain,otag:lifegain,Gain life.
+Lifegain,Core Mechanic,lifegain-matters,otag:lifegain-matters,Payoffs for gaining life.
+Lifegain,Core Mechanic,repeatable-lifegain,otag:repeatable-lifegain,Repeatable life gain.
+Lifegain,Payoff,drain-life,otag:drain-life,Drain opponents while gaining life.
+Lifegain,Payoff,alternate-win-condition,otag:alternate-win-condition,Felidar Sovereign style life wins.
+Lifegain,Payoff,soul-warden-ability,otag:soul-warden-ability,ETB / creature life-gain triggers.
+Lifegain,Enabler,gives-lifelink,otag:gives-lifelink,Grant lifelink.
+Lifegain,Synergy,synergy-lifelink,otag:synergy-lifelink,Lifelink synergy.
+Lifegain,Win Condition,burn-player,otag:burn-player,Burn finishers after racing life totals.
+Superfriends,Core Mechanic,synergy-planeswalker,otag:synergy-planeswalker,Cards that care about planeswalkers.
+Superfriends,Core Mechanic,tutor-planeswalker,otag:tutor-planeswalker,Planeswalker tutors.
+Superfriends,Core Mechanic,protects-planeswalker,otag:protects-planeswalker,Protect planeswalkers from attack / removal.
+Superfriends,Payoff,copy-planeswalker,otag:copy-planeswalker,Copy planeswalkers.
+Superfriends,Enabler,synergy-proliferate,otag:synergy-proliferate,Proliferate loyalty.
+Superfriends,Enabler,counter-fuel-loyalty,otag:counter-fuel-loyalty,Add loyalty counters.
+Superfriends,Protection,damage-prevention-planeswalker,otag:damage-prevention-planeswalker,Prevent damage to planeswalkers.
+Superfriends,Synergy,reanimate-planeswalker,otag:reanimate-planeswalker,Recur planeswalkers.
+Superfriends,Synergy,passive-ability,otag:passive-ability,Planeswalkers with static / non-loyalty abilities.
+Group Hug,Core Mechanic,group-hug,otag:group-hug,Effects that benefit other players.
+Group Hug,Core Mechanic,selective-group-hug,otag:selective-group-hug,Hug that benefits only some opponents.
+Group Hug,Enabler,force-draw,otag:force-draw,Force opponents to draw.
+Group Hug,Enabler,donate-token,otag:donate-token,Create tokens for opponents.
+Group Hug,Synergy,catch-up,otag:catch-up,Help players who are behind.
+Group Hug,Win Condition,alternate-win-condition,otag:alternate-win-condition,Hug decks often pivot to alternate wins.
+Group Slug,Core Mechanic,group-slug,otag:group-slug,Damage or effects that hit multiple players.
+Group Slug,Core Mechanic,burn-player-each,otag:burn-player-each,Damage each player.
+Group Slug,Core Mechanic,burn-player,otag:burn-player,Player-directed burn.
+Group Slug,Payoff,rack-effect,otag:rack-effect,Punish small hands.
+Group Slug,Enabler,synergy-burn,otag:synergy-burn,Burn synergy.
+Group Slug,Win Condition,burn-any,otag:burn-any,Flexible burn.
+Group Slug,Synergy,group-hug,otag:group-hug,Sometimes mixed politics tables.
+Chaos,Core Mechanic,coin-flip,otag:coin-flip,Coin flip effects.
+Chaos,Core Mechanic,dice-roll,otag:dice-roll,Dice roll effects.
+Chaos,Core Mechanic,synergy-dice,otag:synergy-dice,Dice synergy.
+Chaos,Core Mechanic,coin-flips-matter,otag:coin-flips-matter,Payoffs for coin flips.
+Chaos,Payoff,random-card,otag:random-card,Random card selection effects.
+Chaos,Payoff,conjure-random,otag:conjure-random,Conjure random cards.
+Chaos,Enabler,dice-reroll,otag:dice-reroll,Reroll dice.
+Chaos,Synergy,wish,otag:wish,Sideboard / wish tutoring as chaos value.
+Blink/Flicker,Core Mechanic,flicker,otag:flicker,Blink / flicker (alias: blink).
+Blink/Flicker,Core Mechanic,flicker-self,otag:flicker-self,Permanents that flicker themselves.
+Blink/Flicker,Core Mechanic,flicker-slow,otag:flicker-slow,"Exile and return later (end of turn, etc.)."
+Blink/Flicker,Payoff,creaturefall,otag:creaturefall,ETB triggers on creatures — the blink payoff.
+Blink/Flicker,Payoff,enchantmentfall,otag:enchantmentfall,Enchantment ETBs (constellation).
+Blink/Flicker,Enabler,flicker-enchantment,otag:flicker-enchantment,Flicker enchantments.
+Blink/Flicker,Synergy,death-trigger,otag:death-trigger,Sometimes paired with sac-blink loops.
+Blink/Flicker,Protection,gives-hexproof,otag:gives-hexproof,Protect key ETB pieces.
+Enchantress,Core Mechanic,synergy-enchantment,otag:synergy-enchantment,Cards that care about enchantments.
+Enchantress,Core Mechanic,enchantmentfall,otag:enchantmentfall,Constellation / enchantment ETBs.
+Enchantress,Core Mechanic,enchantment-engine,otag:enchantment-engine,Repeatable enchantment value engines.
+Enchantress,Core Mechanic,synergy-aura,otag:synergy-aura,Aura synergies inside enchantress.
+Enchantress,Payoff,draw-engine,otag:draw-engine,Enchantress draw engines.
+Enchantress,Enabler,tutor-enchantment,otag:tutor-enchantment,Enchantment tutors.
+Enchantress,Enabler,tutor-enchantment-aura,otag:tutor-enchantment-aura,Aura tutors.
+Enchantress,Enabler,cost-reducer-enchantment,otag:cost-reducer-enchantment,Cheaper enchantments.
+Enchantress,Synergy,affinity-for-enchantments,otag:affinity-for-enchantments,Affinity for enchantments.
+Enchantress,Synergy,synergy-enchantment-creature,otag:synergy-enchantment-creature,Enchantment creatures.
+Enchantress,Protection,protects-enchantment,otag:protects-enchantment,Protect your enchantments.
+Stax,Core Mechanic,tax,otag:tax,Tax opponents' actions.
+Stax,Core Mechanic,cast-tax,otag:cast-tax,Tax on casts.
+Stax,Core Mechanic,tax-attack,otag:tax-attack,Tax on attacks.
+Stax,Core Mechanic,hatebear,otag:hatebear,Low-curve hate creatures.
+Stax,Core Mechanic,hatebird,otag:hatebird,Flying hate creatures (higher curve mirrors).
+Stax,Payoff,lockdown-creature,otag:lockdown-creature,Keep creatures locked down.
+Stax,Payoff,lockdown-artifact,otag:lockdown-artifact,Lock artifacts.
+Stax,Payoff,lockdown-land,otag:lockdown-land,Lock lands.
+Stax,Payoff,freeze-creature,otag:freeze-creature,Prevent untapping.
+Stax,Enabler,pillowfort,otag:pillowfort,Attack disincentives while locking the table.
+Stax,Win Condition,alternate-win-condition,otag:alternate-win-condition,Win under a lock.
+Stax,Synergy,spot-removal,otag:spot-removal,Clean up what slips through.
+Theft,Core Mechanic,theft,otag:theft,Steal cards and resources.
+Theft,Core Mechanic,threaten,otag:threaten,Gain control until end of turn.
+Theft,Core Mechanic,theft-mass,otag:theft-mass,Mass theft effects.
+Theft,Core Mechanic,nightveil-theft,otag:nightveil-theft,Exile and cast opponents' cards.
+Theft,Core Mechanic,synergy-theft,otag:synergy-theft,Theft synergy.
+Theft,Payoff,theft-land,otag:theft-land,Steal lands.
+Theft,Payoff,theft-equipment,otag:theft-equipment,Steal equipment.
+Theft,Payoff,theft-enchantment,otag:theft-enchantment,Steal enchantments.
+Theft,Payoff,theft-planeswalker,otag:theft-planeswalker,Steal planeswalkers.
+Theft,Enabler,theft-spell,otag:theft-spell,Steal / cast opponents' spells.
+Theft,Synergy,copy-creature,otag:copy-creature,Copy as a soft-theft plan.
+Legends Matter / Historic,Core Mechanic,synergy-legendary,otag:synergy-legendary,Cards that care about legendary permanents.
+Legends Matter / Historic,Core Mechanic,synergy-historic,otag:synergy-historic,Cards that care about historic.
+Legends Matter / Historic,Core Mechanic,legendary-team-up,otag:legendary-team-up,Legendary partner / team-up designs.
+Legends Matter / Historic,Payoff,copy-legendary,otag:copy-legendary,Copy legendary permanents (often with legend-rule care).
+Legends Matter / Historic,Payoff,mirror-gallery,otag:mirror-gallery,Bypass the legend rule.
+Legends Matter / Historic,Enabler,tutor-legendary,otag:tutor-legendary,Tutor legendary cards.
+Legends Matter / Historic,Enabler,tutor-creature-legendary,otag:tutor-creature-legendary,Tutor legendary creatures.
+Legends Matter / Historic,Enabler,impulse-historic,otag:impulse-historic,Impulse historic cards.
+Legends Matter / Historic,Synergy,synergy-equipment-legendary,otag:synergy-equipment-legendary,Legendary equipment synergies.
+Legends Matter / Historic,Synergy,cost-reducer-historic,otag:cost-reducer-historic,Cost reduction for historic.
+Mill,Core Mechanic,mill-opponent,otag:mill-opponent,Mill opponents.
+Mill,Core Mechanic,mill-any,otag:mill-any,Mill any library.
+Mill,Core Mechanic,mill-self,otag:mill-self,Self-mill (also fuels your own yard).
+Mill,Core Mechanic,synergy-mill,otag:synergy-mill,Mill payoffs.
+Mill,Core Mechanic,mill-exile,otag:mill-exile,Exile from top of library.
+Mill,Payoff,alternate-win-condition,otag:alternate-win-condition,Mill-out / empty-library wins.
+Mill,Enabler,surveil,otag:surveil,Selective mill / setup.
+Mill,Enabler,graveyard-fuel,otag:graveyard-fuel,Fill yards intentionally.
+Mill,Synergy,hand-disruption,otag:hand-disruption,Combine mill with hand attack.
+Extra Combats,Core Mechanic,extra-combat-phase,otag:extra-combat-phase,Extra combat phases (alias: extra-combat).
+Extra Combats,Payoff,gives-haste,otag:gives-haste,Haste so new attackers can use extra combats.
+Extra Combats,Payoff,gives-double-strike,otag:gives-double-strike,Double strike with extra combats.
+Extra Combats,Payoff,overrun,otag:overrun,Combat finishers.
+Extra Combats,Enabler,untapper,otag:untapper,Untap attackers between combats.
+Extra Combats,Synergy,combat-trick,otag:combat-trick,Tricks during multiple combat steps.
+Extra Combats,Synergy,evasion,otag:evasion,Ensure attackers connect each combat.
+Extra Turns,Core Mechanic,extra-turn,otag:extra-turn,Take extra turns.
+Extra Turns,Payoff,alternate-win-condition,otag:alternate-win-condition,Win during locked extra-turn loops.
+Extra Turns,Enabler,tutor,otag:tutor,Find extra-turn spells.
+Extra Turns,Enabler,recursion,otag:recursion,Recur extra-turn spells.
+Extra Turns,Enabler,castable-from-graveyard,otag:castable-from-graveyard,Cast extra turns from the yard.
+Extra Turns,Protection,counterspell,otag:counterspell,Protect the extra-turn turn.
+Extra Turns,Synergy,prevent-extra-turns,otag:prevent-extra-turns,Hate for opposing extra turns (sideboard mindset).
+Equipment,Core Mechanic,synergy-equipment,otag:synergy-equipment,Equipment matters.
+Equipment,Core Mechanic,living-weapon,otag:living-weapon,Living weapon equipment.
+Equipment,Core Mechanic,quick-equip,otag:quick-equip,Cheap / alternate attach.
+Equipment,Core Mechanic,auto-equip,otag:auto-equip,Self-attaching equipment.
+Equipment,Payoff,french-vanilla-equipment,otag:french-vanilla-equipment,Simple keyword/stat equipment.
+Equipment,Payoff,cranial-plating,otag:cranial-plating,Artifact-count buffs.
+Equipment,Payoff,sword-of-x-and-y,otag:sword-of-x-and-y,Dual-protection swords.
+Equipment,Enabler,tutor-artifact-equipment,otag:tutor-artifact-equipment,Equipment tutors.
+Equipment,Enabler,impulse-artifact-equipment,otag:impulse-artifact-equipment,Impulse equipment.
+Equipment,Synergy,copy-equipment,otag:copy-equipment,Copy equipment.
+Equipment,Synergy,reanimate-equipment,otag:reanimate-equipment,Recur equipment.
+Equipment,Protection,gives-hexproof,otag:gives-hexproof,Protect the equipped creature.
+Vehicles,Core Mechanic,crew,otag:crew,Crew keyword / crewed vehicles.
+Vehicles,Core Mechanic,synergy-vehicle,otag:synergy-vehicle,Vehicle matters.
+Vehicles,Core Mechanic,bring-your-own-crew,otag:bring-your-own-crew,Vehicles that come with pilots.
+Vehicles,Core Mechanic,crewless-vehicle,otag:crewless-vehicle,Vehicles that animate without crewing.
+Vehicles,Core Mechanic,alternative-crewing,otag:alternative-crewing,Alternate self-animation.
+Vehicles,Payoff,animate-vehicle,otag:animate-vehicle,Turn vehicles into creatures without crew.
+Vehicles,Payoff,animate-artifact,otag:animate-artifact,Animate artifacts including vehicles.
+Vehicles,Enabler,impulse-artifact-vehicle,otag:impulse-artifact-vehicle,Impulse vehicles.
+Vehicles,Synergy,reanimate-vehicle,otag:reanimate-vehicle,Recur vehicles.
+Vehicles,Synergy,flicker-vehicle,otag:flicker-vehicle,Flicker vehicles.
+Copy/Clone,Core Mechanic,clone,otag:clone,Clone creatures.
+Copy/Clone,Core Mechanic,copy-creature,otag:copy-creature,Copy creatures.
+Copy/Clone,Core Mechanic,copy-permanent,otag:copy-permanent,Copy permanents.
+Copy/Clone,Core Mechanic,copy-spell,otag:copy-spell,Copy spells.
+Copy/Clone,Core Mechanic,copy-self,otag:copy-self,Permanents that copy themselves / make copies of self.
+Copy/Clone,Payoff,copy-token,otag:copy-token,Copy tokens.
+Copy/Clone,Payoff,copy-legendary,otag:copy-legendary,Copy legendaries.
+Copy/Clone,Payoff,polymorph,otag:polymorph,Polymorph effects.
+Copy/Clone,Enabler,copy-instant,otag:copy-instant,Copy instants.
+Copy/Clone,Enabler,copy-sorcery,otag:copy-sorcery,Copy sorceries.
+Copy/Clone,Synergy,copy-artifact,otag:copy-artifact,Copy artifacts.
+Copy/Clone,Synergy,copy-enchantment,otag:copy-enchantment,Copy enchantments.
+Copy/Clone,Synergy,mirror-gallery,otag:mirror-gallery,Legend-rule bypass for copies.
+Devotion,Core Mechanic,affinity-for-devotion,otag:affinity-for-devotion,Effects keyed to devotion.
+Devotion,Payoff,mana-sink,otag:mana-sink,Spend mana produced by devotion engines.
+Devotion,Enabler,mana-dork,otag:mana-dork,Colored pips for devotion.
+Devotion,Enabler,mana-rock,otag:mana-rock,Rocks that still support the plan.
+Devotion,Synergy,synergy-enchantment,otag:synergy-enchantment,Enchantments often carry colored pips.
+Devotion,Synergy,cost-reducer,otag:cost-reducer,Cost reduction alongside devotion payoffs.
+Cascade/Discover,Core Mechanic,gives-cascade,otag:gives-cascade,Grant cascade.
+Cascade/Discover,Core Mechanic,synergy-cascade,otag:synergy-cascade,Cascade synergy.
+Cascade/Discover,Core Mechanic,synergy-discover,otag:synergy-discover,Discover synergy.
+Cascade/Discover,Payoff,gains-cascade,otag:gains-cascade,Permanents that gain cascade.
+Cascade/Discover,Enabler,cost-reducer,otag:cost-reducer,Manipulate MV for cascade hits.
+Cascade/Discover,Enabler,ritual,otag:ritual,Ritual into cascade spells.
+Cascade/Discover,Synergy,cast-trigger-you,otag:cast-trigger-you,Cast triggers in cascade shells.
+Big Mana / X Spells,Core Mechanic,mana-sink,otag:mana-sink,Spend large amounts of mana.
+Big Mana / X Spells,Core Mechanic,bottomless-mana-sink,otag:bottomless-mana-sink,Arbitrary-mana sinks.
+Big Mana / X Spells,Core Mechanic,mana-increaser,otag:mana-increaser,Mana doublers / increasers.
+Big Mana / X Spells,Core Mechanic,ramp,otag:ramp,Acceleration into X spells.
+Big Mana / X Spells,Payoff,burn-any,otag:burn-any,X burn.
+Big Mana / X Spells,Enabler,mana-rock,otag:mana-rock,Rocks for big mana.
+Big Mana / X Spells,Enabler,mana-dork,otag:mana-dork,Dorks for big mana.
+Big Mana / X Spells,Enabler,land-ramp,otag:land-ramp,Land ramp into X.
+Big Mana / X Spells,Enabler,ritual,otag:ritual,Ritual into X.
+Big Mana / X Spells,Synergy,cost-reducer,otag:cost-reducer,Reduce X costs.
+Sacrifice,Core Mechanic,synergy-sacrifice,otag:synergy-sacrifice,Sacrifice matters.
+Sacrifice,Core Mechanic,sacrifice-outlet,otag:sacrifice-outlet,Sac outlets.
+Sacrifice,Core Mechanic,free-sacrifice-outlet,otag:free-sacrifice-outlet,Free sac outlets.
+Sacrifice,Core Mechanic,repeatable-sacrifice-outlet,otag:repeatable-sacrifice-outlet,Repeatable sac.
+Sacrifice,Payoff,death-trigger,otag:death-trigger,Death triggers.
+Sacrifice,Payoff,drain-life,otag:drain-life,Drain on sac/death.
+Sacrifice,Enabler,martyr,otag:martyr,Self-sac creatures.
+Sacrifice,Enabler,repeatable-creature-tokens,otag:repeatable-creature-tokens,Fodder.
+Sacrifice,Win Condition,bombard,otag:bombard,Sac for damage.
+Sacrifice,Synergy,plunder,otag:plunder,Sac for cards.
+Party,Core Mechanic,synergy-party,otag:synergy-party,Party matters (alias: typal-party).
+Party,Core Mechanic,affinity-for-party,otag:affinity-for-party,Affinity / cost care for party.
+Party,Core Mechanic,multiclass-party-member,otag:multiclass-party-member,Creatures that fill multiple party roles.
+Party,Payoff,anthem,otag:anthem,Party-wide buffs.
+Party,Enabler,tutor,otag:tutor,Assemble the party.
+Party,Synergy,typal-creature,otag:typal-creature,Typal care overlapping party classes.
+Kindred / Typal Payoffs,Core Mechanic,typal-creature,otag:typal-creature,General creature-type matters.
+Kindred / Typal Payoffs,Core Mechanic,anthem,otag:anthem,Lords / anthems (alias: lord).
+Kindred / Typal Payoffs,Core Mechanic,changeling,otag:changeling,All creature types.
+Kindred / Typal Payoffs,Payoff,warlord,otag:warlord,P/T = creature count.
+Kindred / Typal Payoffs,Enabler,tutor,otag:tutor,Fetch tribal pieces.
+Kindred / Typal Payoffs,Synergy,creaturefall,otag:creaturefall,ETB when creatures enter.
+Kindred / Typal Payoffs,Synergy,affinity-for-tokens,otag:affinity-for-tokens,Often overlaps go-wide tribal.
+Enchantments / Auras,Core Mechanic,synergy-enchantment,otag:synergy-enchantment,Enchantment matters.
+Enchantments / Auras,Core Mechanic,synergy-aura,otag:synergy-aura,Aura matters.
+Enchantments / Auras,Core Mechanic,enchantmentfall,otag:enchantmentfall,Constellation / enchantment ETB.
+Enchantments / Auras,Payoff,parasitic-aura,otag:parasitic-aura,Auras that harm the enchanted permanent's controller.
+Enchantments / Auras,Payoff,french-vanilla-aura,otag:french-vanilla-aura,Simple pump/keyword auras.
+Enchantments / Auras,Enabler,tutor-enchantment,otag:tutor-enchantment,Enchantment tutors.
+Enchantments / Auras,Enabler,tutor-enchantment-aura,otag:tutor-enchantment-aura,Aura tutors.
+Enchantments / Auras,Enabler,tutor-aura-curse,otag:tutor-aura-curse,Curse tutors.
+Enchantments / Auras,Synergy,synergy-curse,otag:synergy-curse,Curse synergies.
+Enchantments / Auras,Synergy,copy-aura,otag:copy-aura,Copy auras.
+Enchantments / Auras,Protection,protects-enchantment,otag:protects-enchantment,Protect enchantments.
+Doubling / Copy Effects,Core Mechanic,token-doubler,otag:token-doubler,Double tokens created.
+Doubling / Copy Effects,Core Mechanic,counter-increaser,otag:counter-increaser,Increase counters placed.
+Doubling / Copy Effects,Core Mechanic,copy,otag:copy,Copy effects.
+Doubling / Copy Effects,Core Mechanic,copy-token,otag:copy-token,Copy tokens.
+Doubling / Copy Effects,Payoff,exponential,otag:exponential,Exponential growth effects.
+Doubling / Copy Effects,Payoff,mana-increaser,otag:mana-increaser,Mana doubling.
+Doubling / Copy Effects,Enabler,copy-permanent,otag:copy-permanent,Copy permanents.
+Doubling / Copy Effects,Enabler,copy-spell,otag:copy-spell,Copy spells.
+Doubling / Copy Effects,Synergy,synergy-token,otag:synergy-token,Token synergy with doublers.
+Doubling / Copy Effects,Synergy,counters-matter,otag:counters-matter,Counters matter with increasers.
+Monarch / Goad Politics,Core Mechanic,monarch-matters,otag:monarch-matters,Cards that care about the monarch.
+Monarch / Goad Politics,Core Mechanic,synergy-goad,otag:synergy-goad,Goad synergy.
+Monarch / Goad Politics,Payoff,group-slug,otag:group-slug,Multiplayer pressure.
+Monarch / Goad Politics,Payoff,selective-group-hug,otag:selective-group-hug,Political hug.
+Monarch / Goad Politics,Enabler,threaten,otag:threaten,Temporary control / goad-adjacent.
+Monarch / Goad Politics,Synergy,pillowfort,otag:pillowfort,Stay safe while politics happen.
+Monarch / Goad Politics,Synergy,combat-arbiter,otag:combat-arbiter,Limit attacks/blocks.
+Tribal (Dragons),Core Mechanic,typal-dragon,otag:typal-dragon,Cards that care about Dragon creatures.
+Tribal (Dragons),Tutor/Selection,tutor-creature-dragon,otag:tutor-creature-dragon,Tutors that specifically fetch Dragon cards.
+Tribal (Dragons),Tutor/Selection,impulse-creature-dragon,otag:impulse-creature-dragon,Impulse-draw effects that can hit Dragon cards.
+Tribal (Dragons),Tutor/Selection,seek-creature-dragon,otag:seek-creature-dragon,Seek effects that find Dragon cards.
+Tribal (Dragons),Synergy,typal-elder-dragon,otag:typal-elder-dragon,Elder Dragon typal care.
+Tribal (Dragons),Core Mechanic,anthem,otag:anthem,Lords and anthems that buff your creature type (Scryfall alias: lord).
+Tribal (Dragons),Core Mechanic,typal-creature,otag:typal-creature,Cards that care about creature types in general.
+Tribal (Dragons),Payoff,warlord,otag:warlord,Power/toughness equal to creature count — classic tribal finisher shape.
+Tribal (Dragons),Enabler,changeling,otag:changeling,All-creature-types enablers that count for every typal payoff.
+Tribal (Dragons),Tutor/Selection,tutor,otag:tutor,Generic tutors; combine with t:creature type filters in search.
+Tribal (Dragons),Combat,gives-haste,otag:gives-haste,Haste enablers so tribal boards can attack immediately.
+Tribal (Dragons),Combat,evasion,otag:evasion,Evasion keywords that help tribal armies connect.
+Tribal (Dragons),Protection,gives-hexproof,otag:gives-hexproof,Hexproof grants protect key tribal pieces.
+Tribal (Dragons),Protection,gives-indestructible,otag:gives-indestructible,Indestructible grants protect the board from wipes.
+Tribal (Dragons),Synergy,creaturefall,otag:creaturefall,ETB-on-creature triggers common in go-wide tribal shells.
+Tribal (Elves),Core Mechanic,typal-elf,otag:typal-elf,Cards that care about Elf creatures.
+Tribal (Elves),Tutor/Selection,tutor-creature-elf,otag:tutor-creature-elf,Tutors that specifically fetch Elf cards.
+Tribal (Elves),Tutor/Selection,impulse-creature-elf,otag:impulse-creature-elf,Impulse-draw effects that can hit Elf cards.
+Tribal (Elves),Tutor/Selection,seek-creature-elf,otag:seek-creature-elf,Seek effects that find Elf cards.
+Tribal (Elves),Core Mechanic,anthem,otag:anthem,Lords and anthems that buff your creature type (Scryfall alias: lord).
+Tribal (Elves),Core Mechanic,typal-creature,otag:typal-creature,Cards that care about creature types in general.
+Tribal (Elves),Payoff,warlord,otag:warlord,Power/toughness equal to creature count — classic tribal finisher shape.
+Tribal (Elves),Enabler,changeling,otag:changeling,All-creature-types enablers that count for every typal payoff.
+Tribal (Elves),Tutor/Selection,tutor,otag:tutor,Generic tutors; combine with t:creature type filters in search.
+Tribal (Elves),Combat,gives-haste,otag:gives-haste,Haste enablers so tribal boards can attack immediately.
+Tribal (Elves),Combat,evasion,otag:evasion,Evasion keywords that help tribal armies connect.
+Tribal (Elves),Protection,gives-hexproof,otag:gives-hexproof,Hexproof grants protect key tribal pieces.
+Tribal (Elves),Protection,gives-indestructible,otag:gives-indestructible,Indestructible grants protect the board from wipes.
+Tribal (Elves),Synergy,creaturefall,otag:creaturefall,ETB-on-creature triggers common in go-wide tribal shells.
+Tribal (Goblins),Core Mechanic,typal-goblin,otag:typal-goblin,Cards that care about Goblin creatures.
+Tribal (Goblins),Tutor/Selection,tutor-creature-goblin,otag:tutor-creature-goblin,Tutors that specifically fetch Goblin cards.
+Tribal (Goblins),Tutor/Selection,impulse-creature-goblin,otag:impulse-creature-goblin,Impulse-draw effects that can hit Goblin cards.
+Tribal (Goblins),Synergy,typal-goblin-orc,otag:typal-goblin-orc,Goblin/Orc typal overlap.
+Tribal (Goblins),Core Mechanic,anthem,otag:anthem,Lords and anthems that buff your creature type (Scryfall alias: lord).
+Tribal (Goblins),Core Mechanic,typal-creature,otag:typal-creature,Cards that care about creature types in general.
+Tribal (Goblins),Payoff,warlord,otag:warlord,Power/toughness equal to creature count — classic tribal finisher shape.
+Tribal (Goblins),Enabler,changeling,otag:changeling,All-creature-types enablers that count for every typal payoff.
+Tribal (Goblins),Tutor/Selection,tutor,otag:tutor,Generic tutors; combine with t:creature type filters in search.
+Tribal (Goblins),Combat,gives-haste,otag:gives-haste,Haste enablers so tribal boards can attack immediately.
+Tribal (Goblins),Combat,evasion,otag:evasion,Evasion keywords that help tribal armies connect.
+Tribal (Goblins),Protection,gives-hexproof,otag:gives-hexproof,Hexproof grants protect key tribal pieces.
+Tribal (Goblins),Protection,gives-indestructible,otag:gives-indestructible,Indestructible grants protect the board from wipes.
+Tribal (Goblins),Synergy,creaturefall,otag:creaturefall,ETB-on-creature triggers common in go-wide tribal shells.
+Tribal (Humans),Core Mechanic,typal-human,otag:typal-human,Cards that care about Human creatures.
+Tribal (Humans),Tutor/Selection,impulse-creature-human,otag:impulse-creature-human,Impulse-draw effects that can hit Human cards.
+Tribal (Humans),Payoff,affinity-for-humans,otag:affinity-for-humans,Cost reduction / affinity for Humans.
+Tribal (Humans),Synergy,typal-non-human,otag:typal-non-human,Effects that care about non-Humans (hate / mirror).
+Tribal (Humans),Core Mechanic,anthem,otag:anthem,Lords and anthems that buff your creature type (Scryfall alias: lord).
+Tribal (Humans),Core Mechanic,typal-creature,otag:typal-creature,Cards that care about creature types in general.
+Tribal (Humans),Payoff,warlord,otag:warlord,Power/toughness equal to creature count — classic tribal finisher shape.
+Tribal (Humans),Enabler,changeling,otag:changeling,All-creature-types enablers that count for every typal payoff.
+Tribal (Humans),Tutor/Selection,tutor,otag:tutor,Generic tutors; combine with t:creature type filters in search.
+Tribal (Humans),Combat,gives-haste,otag:gives-haste,Haste enablers so tribal boards can attack immediately.
+Tribal (Humans),Combat,evasion,otag:evasion,Evasion keywords that help tribal armies connect.
+Tribal (Humans),Protection,gives-hexproof,otag:gives-hexproof,Hexproof grants protect key tribal pieces.
+Tribal (Humans),Protection,gives-indestructible,otag:gives-indestructible,Indestructible grants protect the board from wipes.
+Tribal (Humans),Synergy,creaturefall,otag:creaturefall,ETB-on-creature triggers common in go-wide tribal shells.
+Tribal (Merfolk),Core Mechanic,typal-merfolk,otag:typal-merfolk,Cards that care about Merfolk creatures.
+Tribal (Merfolk),Tutor/Selection,tutor-creature-merfolk,otag:tutor-creature-merfolk,Tutors that specifically fetch Merfolk cards.
+Tribal (Merfolk),Tutor/Selection,impulse-creature-merfolk,otag:impulse-creature-merfolk,Impulse-draw effects that can hit Merfolk cards.
+Tribal (Merfolk),Tutor/Selection,seek-creature-merfolk,otag:seek-creature-merfolk,Seek effects that find Merfolk cards.
+Tribal (Merfolk),Core Mechanic,anthem,otag:anthem,Lords and anthems that buff your creature type (Scryfall alias: lord).
+Tribal (Merfolk),Core Mechanic,typal-creature,otag:typal-creature,Cards that care about creature types in general.
+Tribal (Merfolk),Payoff,warlord,otag:warlord,Power/toughness equal to creature count — classic tribal finisher shape.
+Tribal (Merfolk),Enabler,changeling,otag:changeling,All-creature-types enablers that count for every typal payoff.
+Tribal (Merfolk),Tutor/Selection,tutor,otag:tutor,Generic tutors; combine with t:creature type filters in search.
+Tribal (Merfolk),Combat,gives-haste,otag:gives-haste,Haste enablers so tribal boards can attack immediately.
+Tribal (Merfolk),Combat,evasion,otag:evasion,Evasion keywords that help tribal armies connect.
+Tribal (Merfolk),Protection,gives-hexproof,otag:gives-hexproof,Hexproof grants protect key tribal pieces.
+Tribal (Merfolk),Protection,gives-indestructible,otag:gives-indestructible,Indestructible grants protect the board from wipes.
+Tribal (Merfolk),Synergy,creaturefall,otag:creaturefall,ETB-on-creature triggers common in go-wide tribal shells.
+Tribal (Slivers),Core Mechanic,typal-sliver,otag:typal-sliver,Cards that care about Sliver creatures.
+Tribal (Slivers),Tutor/Selection,tutor-creature-sliver,otag:tutor-creature-sliver,Tutors that specifically fetch Sliver cards.
+Tribal (Slivers),Payoff,affinity-for-slivers,otag:affinity-for-slivers,Cost reduction / affinity for Slivers.
+Tribal (Slivers),Payoff,sliver-stackable,otag:sliver-stackable,Sliver abilities that stack with multiples.
+Tribal (Slivers),Core Mechanic,anthem,otag:anthem,Lords and anthems that buff your creature type (Scryfall alias: lord).
+Tribal (Slivers),Core Mechanic,typal-creature,otag:typal-creature,Cards that care about creature types in general.
+Tribal (Slivers),Payoff,warlord,otag:warlord,Power/toughness equal to creature count — classic tribal finisher shape.
+Tribal (Slivers),Enabler,changeling,otag:changeling,All-creature-types enablers that count for every typal payoff.
+Tribal (Slivers),Tutor/Selection,tutor,otag:tutor,Generic tutors; combine with t:creature type filters in search.
+Tribal (Slivers),Combat,gives-haste,otag:gives-haste,Haste enablers so tribal boards can attack immediately.
+Tribal (Slivers),Combat,evasion,otag:evasion,Evasion keywords that help tribal armies connect.
+Tribal (Slivers),Protection,gives-hexproof,otag:gives-hexproof,Hexproof grants protect key tribal pieces.
+Tribal (Slivers),Protection,gives-indestructible,otag:gives-indestructible,Indestructible grants protect the board from wipes.
+Tribal (Slivers),Synergy,creaturefall,otag:creaturefall,ETB-on-creature triggers common in go-wide tribal shells.
+Tribal (Vampires),Core Mechanic,typal-vampire,otag:typal-vampire,Cards that care about Vampire creatures.
+Tribal (Vampires),Tutor/Selection,tutor-creature-vampire,otag:tutor-creature-vampire,Tutors that specifically fetch Vampire cards.
+Tribal (Vampires),Tutor/Selection,seek-creature-vampire,otag:seek-creature-vampire,Seek effects that find Vampire cards.
+Tribal (Vampires),Core Mechanic,anthem,otag:anthem,Lords and anthems that buff your creature type (Scryfall alias: lord).
+Tribal (Vampires),Core Mechanic,typal-creature,otag:typal-creature,Cards that care about creature types in general.
+Tribal (Vampires),Payoff,warlord,otag:warlord,Power/toughness equal to creature count — classic tribal finisher shape.
+Tribal (Vampires),Enabler,changeling,otag:changeling,All-creature-types enablers that count for every typal payoff.
+Tribal (Vampires),Tutor/Selection,tutor,otag:tutor,Generic tutors; combine with t:creature type filters in search.
+Tribal (Vampires),Combat,gives-haste,otag:gives-haste,Haste enablers so tribal boards can attack immediately.
+Tribal (Vampires),Combat,evasion,otag:evasion,Evasion keywords that help tribal armies connect.
+Tribal (Vampires),Protection,gives-hexproof,otag:gives-hexproof,Hexproof grants protect key tribal pieces.
+Tribal (Vampires),Protection,gives-indestructible,otag:gives-indestructible,Indestructible grants protect the board from wipes.
+Tribal (Vampires),Synergy,creaturefall,otag:creaturefall,ETB-on-creature triggers common in go-wide tribal shells.
+Tribal (Wizards),Core Mechanic,typal-wizard,otag:typal-wizard,Cards that care about Wizard creatures.
+Tribal (Wizards),Tutor/Selection,tutor-creature-wizard,otag:tutor-creature-wizard,Tutors that specifically fetch Wizard cards.
+Tribal (Wizards),Core Mechanic,anthem,otag:anthem,Lords and anthems that buff your creature type (Scryfall alias: lord).
+Tribal (Wizards),Core Mechanic,typal-creature,otag:typal-creature,Cards that care about creature types in general.
+Tribal (Wizards),Payoff,warlord,otag:warlord,Power/toughness equal to creature count — classic tribal finisher shape.
+Tribal (Wizards),Enabler,changeling,otag:changeling,All-creature-types enablers that count for every typal payoff.
+Tribal (Wizards),Tutor/Selection,tutor,otag:tutor,Generic tutors; combine with t:creature type filters in search.
+Tribal (Wizards),Combat,gives-haste,otag:gives-haste,Haste enablers so tribal boards can attack immediately.
+Tribal (Wizards),Combat,evasion,otag:evasion,Evasion keywords that help tribal armies connect.
+Tribal (Wizards),Protection,gives-hexproof,otag:gives-hexproof,Hexproof grants protect key tribal pieces.
+Tribal (Wizards),Protection,gives-indestructible,otag:gives-indestructible,Indestructible grants protect the board from wipes.
+Tribal (Wizards),Synergy,creaturefall,otag:creaturefall,ETB-on-creature triggers common in go-wide tribal shells.
+Tribal (Zombies),Core Mechanic,typal-zombie,otag:typal-zombie,Cards that care about Zombie creatures.
+Tribal (Zombies),Tutor/Selection,tutor-creature-zombie,otag:tutor-creature-zombie,Tutors that specifically fetch Zombie cards.
+Tribal (Zombies),Tutor/Selection,impulse-creature-zombie,otag:impulse-creature-zombie,Impulse-draw effects that can hit Zombie cards.
+Tribal (Zombies),Core Mechanic,anthem,otag:anthem,Lords and anthems that buff your creature type (Scryfall alias: lord).
+Tribal (Zombies),Core Mechanic,typal-creature,otag:typal-creature,Cards that care about creature types in general.
+Tribal (Zombies),Payoff,warlord,otag:warlord,Power/toughness equal to creature count — classic tribal finisher shape.
+Tribal (Zombies),Enabler,changeling,otag:changeling,All-creature-types enablers that count for every typal payoff.
+Tribal (Zombies),Tutor/Selection,tutor,otag:tutor,Generic tutors; combine with t:creature type filters in search.
+Tribal (Zombies),Combat,gives-haste,otag:gives-haste,Haste enablers so tribal boards can attack immediately.
+Tribal (Zombies),Combat,evasion,otag:evasion,Evasion keywords that help tribal armies connect.
+Tribal (Zombies),Protection,gives-hexproof,otag:gives-hexproof,Hexproof grants protect key tribal pieces.
+Tribal (Zombies),Protection,gives-indestructible,otag:gives-indestructible,Indestructible grants protect the board from wipes.
+Tribal (Zombies),Synergy,creaturefall,otag:creaturefall,ETB-on-creature triggers common in go-wide tribal shells.
+Tribal (Angels),Core Mechanic,typal-angel,otag:typal-angel,Cards that care about Angel creatures.
+Tribal (Angels),Tutor/Selection,impulse-creature-angel,otag:impulse-creature-angel,Impulse-draw effects that can hit Angel cards.
+Tribal (Angels),Core Mechanic,anthem,otag:anthem,Lords and anthems that buff your creature type (Scryfall alias: lord).
+Tribal (Angels),Core Mechanic,typal-creature,otag:typal-creature,Cards that care about creature types in general.
+Tribal (Angels),Payoff,warlord,otag:warlord,Power/toughness equal to creature count — classic tribal finisher shape.
+Tribal (Angels),Enabler,changeling,otag:changeling,All-creature-types enablers that count for every typal payoff.
+Tribal (Angels),Tutor/Selection,tutor,otag:tutor,Generic tutors; combine with t:creature type filters in search.
+Tribal (Angels),Combat,gives-haste,otag:gives-haste,Haste enablers so tribal boards can attack immediately.
+Tribal (Angels),Combat,evasion,otag:evasion,Evasion keywords that help tribal armies connect.
+Tribal (Angels),Protection,gives-hexproof,otag:gives-hexproof,Hexproof grants protect key tribal pieces.
+Tribal (Angels),Protection,gives-indestructible,otag:gives-indestructible,Indestructible grants protect the board from wipes.
+Tribal (Angels),Synergy,creaturefall,otag:creaturefall,ETB-on-creature triggers common in go-wide tribal shells.
+Tribal (Demons),Core Mechanic,typal-demon,otag:typal-demon,Cards that care about Demon creatures.
+Tribal (Demons),Tutor/Selection,tutor-creature-demon,otag:tutor-creature-demon,Tutors that specifically fetch Demon cards.
+Tribal (Demons),Tutor/Selection,impulse-creature-demon,otag:impulse-creature-demon,Impulse-draw effects that can hit Demon cards.
+Tribal (Demons),Core Mechanic,anthem,otag:anthem,Lords and anthems that buff your creature type (Scryfall alias: lord).
+Tribal (Demons),Core Mechanic,typal-creature,otag:typal-creature,Cards that care about creature types in general.
+Tribal (Demons),Payoff,warlord,otag:warlord,Power/toughness equal to creature count — classic tribal finisher shape.
+Tribal (Demons),Enabler,changeling,otag:changeling,All-creature-types enablers that count for every typal payoff.
+Tribal (Demons),Tutor/Selection,tutor,otag:tutor,Generic tutors; combine with t:creature type filters in search.
+Tribal (Demons),Combat,gives-haste,otag:gives-haste,Haste enablers so tribal boards can attack immediately.
+Tribal (Demons),Combat,evasion,otag:evasion,Evasion keywords that help tribal armies connect.
+Tribal (Demons),Protection,gives-hexproof,otag:gives-hexproof,Hexproof grants protect key tribal pieces.
+Tribal (Demons),Protection,gives-indestructible,otag:gives-indestructible,Indestructible grants protect the board from wipes.
+Tribal (Demons),Synergy,creaturefall,otag:creaturefall,ETB-on-creature triggers common in go-wide tribal shells.
+Tribal (Cats),Core Mechanic,typal-cat,otag:typal-cat,Cards that care about Cat creatures.
+Tribal (Cats),Payoff,affinity-for-cats,otag:affinity-for-cats,Cost reduction / affinity for Cats.
+Tribal (Cats),Core Mechanic,anthem,otag:anthem,Lords and anthems that buff your creature type (Scryfall alias: lord).
+Tribal (Cats),Core Mechanic,typal-creature,otag:typal-creature,Cards that care about creature types in general.
+Tribal (Cats),Payoff,warlord,otag:warlord,Power/toughness equal to creature count — classic tribal finisher shape.
+Tribal (Cats),Enabler,changeling,otag:changeling,All-creature-types enablers that count for every typal payoff.
+Tribal (Cats),Tutor/Selection,tutor,otag:tutor,Generic tutors; combine with t:creature type filters in search.
+Tribal (Cats),Combat,gives-haste,otag:gives-haste,Haste enablers so tribal boards can attack immediately.
+Tribal (Cats),Combat,evasion,otag:evasion,Evasion keywords that help tribal armies connect.
+Tribal (Cats),Protection,gives-hexproof,otag:gives-hexproof,Hexproof grants protect key tribal pieces.
+Tribal (Cats),Protection,gives-indestructible,otag:gives-indestructible,Indestructible grants protect the board from wipes.
+Tribal (Cats),Synergy,creaturefall,otag:creaturefall,ETB-on-creature triggers common in go-wide tribal shells.
+Tribal (Rats),Core Mechanic,typal-rat,otag:typal-rat,Cards that care about Rat creatures.
+Tribal (Rats),Tutor/Selection,tutor-creature-rat,otag:tutor-creature-rat,Tutors that specifically fetch Rat cards.
+Tribal (Rats),Tutor/Selection,impulse-creature-rat,otag:impulse-creature-rat,Impulse-draw effects that can hit Rat cards.
+Tribal (Rats),Tutor/Selection,seek-creature-rat,otag:seek-creature-rat,Seek effects that find Rat cards.
+Tribal (Rats),Core Mechanic,anthem,otag:anthem,Lords and anthems that buff your creature type (Scryfall alias: lord).
+Tribal (Rats),Core Mechanic,typal-creature,otag:typal-creature,Cards that care about creature types in general.
+Tribal (Rats),Payoff,warlord,otag:warlord,Power/toughness equal to creature count — classic tribal finisher shape.
+Tribal (Rats),Enabler,changeling,otag:changeling,All-creature-types enablers that count for every typal payoff.
+Tribal (Rats),Tutor/Selection,tutor,otag:tutor,Generic tutors; combine with t:creature type filters in search.
+Tribal (Rats),Combat,gives-haste,otag:gives-haste,Haste enablers so tribal boards can attack immediately.
+Tribal (Rats),Combat,evasion,otag:evasion,Evasion keywords that help tribal armies connect.
+Tribal (Rats),Protection,gives-hexproof,otag:gives-hexproof,Hexproof grants protect key tribal pieces.
+Tribal (Rats),Protection,gives-indestructible,otag:gives-indestructible,Indestructible grants protect the board from wipes.
+Tribal (Rats),Synergy,creaturefall,otag:creaturefall,ETB-on-creature triggers common in go-wide tribal shells.
+Tribal (Pirates),Core Mechanic,typal-pirate,otag:typal-pirate,Cards that care about Pirate creatures.
+Tribal (Pirates),Tutor/Selection,tutor-creature-pirate,otag:tutor-creature-pirate,Tutors that specifically fetch Pirate cards.
+Tribal (Pirates),Tutor/Selection,impulse-creature-pirate,otag:impulse-creature-pirate,Impulse-draw effects that can hit Pirate cards.
+Tribal (Pirates),Tutor/Selection,seek-creature-pirate,otag:seek-creature-pirate,Seek effects that find Pirate cards.
+Tribal (Pirates),Core Mechanic,anthem,otag:anthem,Lords and anthems that buff your creature type (Scryfall alias: lord).
+Tribal (Pirates),Core Mechanic,typal-creature,otag:typal-creature,Cards that care about creature types in general.
+Tribal (Pirates),Payoff,warlord,otag:warlord,Power/toughness equal to creature count — classic tribal finisher shape.
+Tribal (Pirates),Enabler,changeling,otag:changeling,All-creature-types enablers that count for every typal payoff.
+Tribal (Pirates),Tutor/Selection,tutor,otag:tutor,Generic tutors; combine with t:creature type filters in search.
+Tribal (Pirates),Combat,gives-haste,otag:gives-haste,Haste enablers so tribal boards can attack immediately.
+Tribal (Pirates),Combat,evasion,otag:evasion,Evasion keywords that help tribal armies connect.
+Tribal (Pirates),Protection,gives-hexproof,otag:gives-hexproof,Hexproof grants protect key tribal pieces.
+Tribal (Pirates),Protection,gives-indestructible,otag:gives-indestructible,Indestructible grants protect the board from wipes.
+Tribal (Pirates),Synergy,creaturefall,otag:creaturefall,ETB-on-creature triggers common in go-wide tribal shells.
+Tribal (Dinosaurs),Core Mechanic,typal-dinosaur,otag:typal-dinosaur,Cards that care about Dinosaur creatures.
+Tribal (Dinosaurs),Tutor/Selection,tutor-creature-dinosaur,otag:tutor-creature-dinosaur,Tutors that specifically fetch Dinosaur cards.
+Tribal (Dinosaurs),Tutor/Selection,impulse-creature-dinosaur,otag:impulse-creature-dinosaur,Impulse-draw effects that can hit Dinosaur cards.
+Tribal (Dinosaurs),Core Mechanic,anthem,otag:anthem,Lords and anthems that buff your creature type (Scryfall alias: lord).
+Tribal (Dinosaurs),Core Mechanic,typal-creature,otag:typal-creature,Cards that care about creature types in general.
+Tribal (Dinosaurs),Payoff,warlord,otag:warlord,Power/toughness equal to creature count — classic tribal finisher shape.
+Tribal (Dinosaurs),Enabler,changeling,otag:changeling,All-creature-types enablers that count for every typal payoff.
+Tribal (Dinosaurs),Tutor/Selection,tutor,otag:tutor,Generic tutors; combine with t:creature type filters in search.
+Tribal (Dinosaurs),Combat,gives-haste,otag:gives-haste,Haste enablers so tribal boards can attack immediately.
+Tribal (Dinosaurs),Combat,evasion,otag:evasion,Evasion keywords that help tribal armies connect.
+Tribal (Dinosaurs),Protection,gives-hexproof,otag:gives-hexproof,Hexproof grants protect key tribal pieces.
+Tribal (Dinosaurs),Protection,gives-indestructible,otag:gives-indestructible,Indestructible grants protect the board from wipes.
+Tribal (Dinosaurs),Synergy,creaturefall,otag:creaturefall,ETB-on-creature triggers common in go-wide tribal shells.

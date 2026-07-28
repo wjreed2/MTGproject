@@ -1,0 +1,357 @@
+{
+  "name": "Average Edgar Markov deck (EDHREC)",
+  "commander": "Edgar Markov",
+  "source": "edhrec-average",
+  "source_url": "https://json.edhrec.com/pages/average-decks/edgar-markov.json",
+  "cards": [
+    {
+      "name": "Anguished Unmaking",
+      "qty": 1
+    },
+    {
+      "name": "Anointed Procession",
+      "qty": 1
+    },
+    {
+      "name": "Arcane Signet",
+      "qty": 1
+    },
+    {
+      "name": "Blade of the Bloodchief",
+      "qty": 1
+    },
+    {
+      "name": "Blood Artist",
+      "qty": 1
+    },
+    {
+      "name": "Blood Crypt",
+      "qty": 1
+    },
+    {
+      "name": "Bloodletter of Aclazotz",
+      "qty": 1
+    },
+    {
+      "name": "Bloodline Keeper",
+      "qty": 1
+    },
+    {
+      "name": "Bloodstained Mire",
+      "qty": 1
+    },
+    {
+      "name": "Bloodthirsty Conqueror",
+      "qty": 1
+    },
+    {
+      "name": "Bojuka Bog",
+      "qty": 1
+    },
+    {
+      "name": "Boros Charm",
+      "qty": 1
+    },
+    {
+      "name": "Captivating Vampire",
+      "qty": 1
+    },
+    {
+      "name": "Cavern of Souls",
+      "qty": 1
+    },
+    {
+      "name": "Caves of Koilos",
+      "qty": 1
+    },
+    {
+      "name": "Champion of Dusk",
+      "qty": 1
+    },
+    {
+      "name": "Charismatic Conqueror",
+      "qty": 1
+    },
+    {
+      "name": "Clavileño, First of the Blessed",
+      "qty": 1
+    },
+    {
+      "name": "Command Tower",
+      "qty": 1
+    },
+    {
+      "name": "Cordial Vampire",
+      "qty": 1
+    },
+    {
+      "name": "Cruel Celebrant",
+      "qty": 1
+    },
+    {
+      "name": "Damn",
+      "qty": 1
+    },
+    {
+      "name": "Dark Ritual",
+      "qty": 1
+    },
+    {
+      "name": "Demonic Tutor",
+      "qty": 1
+    },
+    {
+      "name": "Dragonskull Summit",
+      "qty": 1
+    },
+    {
+      "name": "Drana, Liberator of Malakir",
+      "qty": 1
+    },
+    {
+      "name": "Edgar, Charmed Groom",
+      "qty": 1
+    },
+    {
+      "name": "Elenda, the Dusk Rose",
+      "qty": 1
+    },
+    {
+      "name": "Exotic Orchard",
+      "qty": 1
+    },
+    {
+      "name": "Exquisite Blood",
+      "qty": 1
+    },
+    {
+      "name": "Forerunner of the Legion",
+      "qty": 1
+    },
+    {
+      "name": "Godless Shrine",
+      "qty": 1
+    },
+    {
+      "name": "Herald's Horn",
+      "qty": 1
+    },
+    {
+      "name": "Indulgent Aristocrat",
+      "qty": 1
+    },
+    {
+      "name": "Isolated Chapel",
+      "qty": 1
+    },
+    {
+      "name": "Knight of the Ebon Legion",
+      "qty": 1
+    },
+    {
+      "name": "Legion Lieutenant",
+      "qty": 1
+    },
+    {
+      "name": "Luxury Suite",
+      "qty": 1
+    },
+    {
+      "name": "Malakir Bloodwitch",
+      "qty": 1
+    },
+    {
+      "name": "Markov Baron",
+      "qty": 1
+    },
+    {
+      "name": "Marsh Flats",
+      "qty": 1
+    },
+    {
+      "name": "Master of Dark Rites",
+      "qty": 1
+    },
+    {
+      "name": "Mavren Fein, Dusk Apostle",
+      "qty": 1
+    },
+    {
+      "name": "Mountain",
+      "qty": 3
+    },
+    {
+      "name": "New Blood",
+      "qty": 1
+    },
+    {
+      "name": "Nomad Outpost",
+      "qty": 1
+    },
+    {
+      "name": "Olivia's Wrath",
+      "qty": 1
+    },
+    {
+      "name": "Orzhov Signet",
+      "qty": 1
+    },
+    {
+      "name": "Pact of the Serpent",
+      "qty": 1
+    },
+    {
+      "name": "Path of Ancestry",
+      "qty": 1
+    },
+    {
+      "name": "Path to Exile",
+      "qty": 1
+    },
+    {
+      "name": "Patron of the Vein",
+      "qty": 1
+    },
+    {
+      "name": "Phyrexian Arena",
+      "qty": 1
+    },
+    {
+      "name": "Plains",
+      "qty": 5
+    },
+    {
+      "name": "Rakdos Signet",
+      "qty": 1
+    },
+    {
+      "name": "Ruinous Ultimatum",
+      "qty": 1
+    },
+    {
+      "name": "Sacred Foundry",
+      "qty": 1
+    },
+    {
+      "name": "Sanctum Seeker",
+      "qty": 1
+    },
+    {
+      "name": "Sanguine Bond",
+      "qty": 1
+    },
+    {
+      "name": "Savai Triome",
+      "qty": 1
+    },
+    {
+      "name": "Secluded Courtyard",
+      "qty": 1
+    },
+    {
+      "name": "Shared Animosity",
+      "qty": 1
+    },
+    {
+      "name": "Skullclamp",
+      "qty": 1
+    },
+    {
+      "name": "Sol Ring",
+      "qty": 1
+    },
+    {
+      "name": "Sorin, Imperious Bloodlord",
+      "qty": 1
+    },
+    {
+      "name": "Stensia Masquerade",
+      "qty": 1
+    },
+    {
+      "name": "Stromkirk Captain",
+      "qty": 1
+    },
+    {
+      "name": "Swamp",
+      "qty": 7
+    },
+    {
+      "name": "Swords to Plowshares",
+      "qty": 1
+    },
+    {
+      "name": "Talisman of Hierarchy",
+      "qty": 1
+    },
+    {
+      "name": "Teferi's Protection",
+      "qty": 1
+    },
+    {
+      "name": "Twilight Prophet",
+      "qty": 1
+    },
+    {
+      "name": "Unclaimed Territory",
+      "qty": 1
+    },
+    {
+      "name": "Vampire Nighthawk",
+      "qty": 1
+    },
+    {
+      "name": "Vampire of the Dire Moon",
+      "qty": 1
+    },
+    {
+      "name": "Vampire Socialite",
+      "qty": 1
+    },
+    {
+      "name": "Vampiric Tutor",
+      "qty": 1
+    },
+    {
+      "name": "Vanquisher's Banner",
+      "qty": 1
+    },
+    {
+      "name": "Vault of Champions",
+      "qty": 1
+    },
+    {
+      "name": "Vault of the Archangel",
+      "qty": 1
+    },
+    {
+      "name": "Vengeful Bloodwitch",
+      "qty": 1
+    },
+    {
+      "name": "Village Rites",
+      "qty": 1
+    },
+    {
+      "name": "Viscera Seer",
+      "qty": 1
+    },
+    {
+      "name": "Vito, Thorn of the Dusk Rose",
+      "qty": 1
+    },
+    {
+      "name": "Voldaren Estate",
+      "qty": 1
+    },
+    {
+      "name": "Welcoming Vampire",
+      "qty": 1
+    },
+    {
+      "name": "Yahenni, Undying Partisan",
+      "qty": 1
+    }
+  ],
+  "archetype_expected": "tribal:Vampire"
+}

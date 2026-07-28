@@ -1,0 +1,35 @@
+.env
+node_modules/
+.claude
+.vs
+ios/
+android/
+www/
+dist/certs/
+certs/
+vendor/playing_cards_yolov8.pt
+engine-gaps.txt
+data/MagicCompRules*.pdf
+data/mtg_conditional_keywords.csv
+# Scryfall bulk downloads (regenerate via scripts/fetch-scryfall-oracle-tags.py)
+data/scryfall/oracle-tags.json
+data/scryfall/oracle-tags-index.json
+data/scryfall/oracle-tags-index.tsv
+data/scryfall/diff-report.json
+data/scryfall/sheet-parsed.json
+data/scryfall/sheet-miss-tags.txt
+data/scryfall/oracle-tag-slugs.txt
+fingerprints.sql.gz
+*.sql.gz
+
+# Nested Archive-Suggestions repo (has its own .git) — keep local for agents; do not nest
+Ready Prompts/Archive-Suggestions/
+
+# engine2 p3 prompt working notes — local only, batched into prompt.js at next full iteration
+docs/engine2-p3-notes.md
+
+# targeted-rerun fixtures are generated from DB state — regenerate, do not version
+engine2/fixtures/reruns/
+
+# decks pulled from prod for feedback review (scripts/deck-pull.js) — user data, never version
+engine2/fixtures/pulled/

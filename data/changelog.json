@@ -1,0 +1,53 @@
+{
+  "entries": [
+    {
+      "id": "playstyle-slider-fine-steps-2026-07",
+      "at": 1783533600000,
+      "area": "Deck builder",
+      "title": "Finer playstyle slider",
+      "summary": "The Aggro–Control playstyle slider on Suggested Cuts and Suggested Adds now has seven stops per side instead of three, so you can tune suggestion targets more gradually between neutral and the same extremes. Your saved slider position carries over automatically."
+    },
+    {
+      "id": "deck-group-after-swaps-2026-07",
+      "at": 1783530000000,
+      "area": "Deck builder",
+      "title": "Category counts show your planned swaps",
+      "summary": "With Adds & Cuts planning, every category header in the deck list now shows what its count will become once your planned swaps are applied — e.g. ‘Card Draw (16) → 14 after swaps’. It works in both the visual and list views, updates live as you plan adds and cuts, and disappears for categories with no planned changes."
+    },
+    {
+      "id": "deck-share-links-2026-06",
+      "at": 1781460000000,
+      "area": "Deck builder",
+      "title": "Share a deck with a public link",
+      "summary": "Create a view-only link to any deck from the deck menu (⋯ → Share link). Anyone with the link can see the decklist, mana curve, prices and card details — no account needed. The deck stays out of Browse unless you also mark it Public, and you can disable or regenerate the link anytime."
+    },
+    {
+      "id": "card-inspector-refresh-2026-06",
+      "at": 1781456400000,
+      "area": "Cards",
+      "title": "Cleaner card inspector",
+      "summary": "The card detail view has a clearer layout: quantity and actions sit up top, the rarely-used mana-value and pip overrides moved into an ‘Advanced’ section, tap targets are larger, and on phones a ‹ name › bar lets you flip between cards."
+    },
+    {
+      "id": "deck-stack-balanced-columns-2026-06",
+      "at": 1781452800000,
+      "area": "Deck builder",
+      "title": "Tidier visual deck columns",
+      "summary": "The visual deck view now balances stack columns to even heights and floats larger stacks toward the top, so the grid reads more cleanly. Drag to rearrange or use ‘Reset stacks’ as before."
+    },
+    {
+      "id": "whats-new-digest-2026-05",
+      "at": 1778328000000,
+      "area": "General",
+      "title": "“What you’ve missed” on sign-in",
+      "summary": "After loading your data, you may see app release notes since you last dismissed this panel. Add entries by editing data/changelog.json on the server."
+    },
+    {
+      "id": "edhrec-land-toggle-2026-05",
+      "at": 1778241600000,
+      "area": "Deck builder",
+      "title": "EDHREC suggestions: lands / non-lands",
+      "summary": "Toggle whether commander suggestions show utility lands or hide them. Results are cached per query so revisiting a theme is faster."
+    }
+  ]
+}

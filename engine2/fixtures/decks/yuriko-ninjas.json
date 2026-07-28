@@ -1,0 +1,349 @@
+{
+  "name": "Average Yuriko, the Tiger's Shadow deck (EDHREC)",
+  "commander": "Yuriko, the Tiger's Shadow",
+  "source": "edhrec-average",
+  "source_url": "https://json.edhrec.com/pages/average-decks/yuriko-the-tigers-shadow.json",
+  "cards": [
+    {
+      "name": "Agadeem's Awakening",
+      "qty": 1
+    },
+    {
+      "name": "An Offer You Can't Refuse",
+      "qty": 1
+    },
+    {
+      "name": "Arcane Signet",
+      "qty": 1
+    },
+    {
+      "name": "Baleful Strix",
+      "qty": 1
+    },
+    {
+      "name": "Brainstorm",
+      "qty": 1
+    },
+    {
+      "name": "Changeling Outcast",
+      "qty": 1
+    },
+    {
+      "name": "Choked Estuary",
+      "qty": 1
+    },
+    {
+      "name": "Clearwater Pathway",
+      "qty": 1
+    },
+    {
+      "name": "Command Tower",
+      "qty": 1
+    },
+    {
+      "name": "Commandeer",
+      "qty": 1
+    },
+    {
+      "name": "Counterspell",
+      "qty": 1
+    },
+    {
+      "name": "Cover of Darkness",
+      "qty": 1
+    },
+    {
+      "name": "Dark Ritual",
+      "qty": 1
+    },
+    {
+      "name": "Darkwater Catacombs",
+      "qty": 1
+    },
+    {
+      "name": "Deadly Rollick",
+      "qty": 1
+    },
+    {
+      "name": "Demonic Tutor",
+      "qty": 1
+    },
+    {
+      "name": "Dig Through Time",
+      "qty": 1
+    },
+    {
+      "name": "Dimir Signet",
+      "qty": 1
+    },
+    {
+      "name": "Drowned Catacomb",
+      "qty": 1
+    },
+    {
+      "name": "Exotic Orchard",
+      "qty": 1
+    },
+    {
+      "name": "Faerie Seer",
+      "qty": 1
+    },
+    {
+      "name": "Fallen Shinobi",
+      "qty": 1
+    },
+    {
+      "name": "Fell the Profane",
+      "qty": 1
+    },
+    {
+      "name": "Fierce Guardianship",
+      "qty": 1
+    },
+    {
+      "name": "Flare of Denial",
+      "qty": 1
+    },
+    {
+      "name": "Gingerbrute",
+      "qty": 1
+    },
+    {
+      "name": "Higure, the Still Wind",
+      "qty": 1
+    },
+    {
+      "name": "Imperial Seal",
+      "qty": 1
+    },
+    {
+      "name": "Ingenious Infiltrator",
+      "qty": 1
+    },
+    {
+      "name": "Ink-Eyes, Servant of Oni",
+      "qty": 1
+    },
+    {
+      "name": "Island",
+      "qty": 9
+    },
+    {
+      "name": "Kaito, Bane of Nightmares",
+      "qty": 1
+    },
+    {
+      "name": "Lim-Dûl's Vault",
+      "qty": 1
+    },
+    {
+      "name": "Lotus Petal",
+      "qty": 1
+    },
+    {
+      "name": "Misdirection",
+      "qty": 1
+    },
+    {
+      "name": "Mist-Cloaked Herald",
+      "qty": 1
+    },
+    {
+      "name": "Mist-Syndicate Naga",
+      "qty": 1
+    },
+    {
+      "name": "Mistblade Shinobi",
+      "qty": 1
+    },
+    {
+      "name": "Moon-Circuit Hacker",
+      "qty": 1
+    },
+    {
+      "name": "Morphic Pool",
+      "qty": 1
+    },
+    {
+      "name": "Mothdust Changeling",
+      "qty": 1
+    },
+    {
+      "name": "Mystic Remora",
+      "qty": 1
+    },
+    {
+      "name": "Mystical Tutor",
+      "qty": 1
+    },
+    {
+      "name": "Nashi, Moon Sage's Scion",
+      "qty": 1
+    },
+    {
+      "name": "Negate",
+      "qty": 1
+    },
+    {
+      "name": "Ninja of the Deep Hours",
+      "qty": 1
+    },
+    {
+      "name": "Ornithopter",
+      "qty": 1
+    },
+    {
+      "name": "Otawara, Soaring City",
+      "qty": 1
+    },
+    {
+      "name": "Polluted Delta",
+      "qty": 1
+    },
+    {
+      "name": "Ponder",
+      "qty": 1
+    },
+    {
+      "name": "Prosperous Thief",
+      "qty": 1
+    },
+    {
+      "name": "Reliquary Tower",
+      "qty": 1
+    },
+    {
+      "name": "Rhystic Study",
+      "qty": 1
+    },
+    {
+      "name": "Rogue's Passage",
+      "qty": 1
+    },
+    {
+      "name": "Sakashima's Student",
+      "qty": 1
+    },
+    {
+      "name": "Satoru, the Infiltrator",
+      "qty": 1
+    },
+    {
+      "name": "Scroll Rack",
+      "qty": 1
+    },
+    {
+      "name": "Sea Gate Restoration",
+      "qty": 1
+    },
+    {
+      "name": "Sensei's Divining Top",
+      "qty": 1
+    },
+    {
+      "name": "Shadow of Mortality",
+      "qty": 1
+    },
+    {
+      "name": "Shizo, Death's Storehouse",
+      "qty": 1
+    },
+    {
+      "name": "Silent-Blade Oni",
+      "qty": 1
+    },
+    {
+      "name": "Silver-Fur Master",
+      "qty": 1
+    },
+    {
+      "name": "Sink into Stupor",
+      "qty": 1
+    },
+    {
+      "name": "Skullsnatcher",
+      "qty": 1
+    },
+    {
+      "name": "Slither Blade",
+      "qty": 1
+    },
+    {
+      "name": "Smoke Shroud",
+      "qty": 1
+    },
+    {
+      "name": "Snuff Out",
+      "qty": 1
+    },
+    {
+      "name": "Sol Ring",
+      "qty": 1
+    },
+    {
+      "name": "Spectral Sailor",
+      "qty": 1
+    },
+    {
+      "name": "Sunken Hollow",
+      "qty": 1
+    },
+    {
+      "name": "Swamp",
+      "qty": 7
+    },
+    {
+      "name": "Talisman of Dominance",
+      "qty": 1
+    },
+    {
+      "name": "Temporal Mastery",
+      "qty": 1
+    },
+    {
+      "name": "Temporal Trespass",
+      "qty": 1
+    },
+    {
+      "name": "Tetsuko Umezawa, Fugitive",
+      "qty": 1
+    },
+    {
+      "name": "Thousand-Faced Shadow",
+      "qty": 1
+    },
+    {
+      "name": "Throat Slitter",
+      "qty": 1
+    },
+    {
+      "name": "Tormented Soul",
+      "qty": 1
+    },
+    {
+      "name": "Treasure Cruise",
+      "qty": 1
+    },
+    {
+      "name": "Triton Shorestalker",
+      "qty": 1
+    },
+    {
+      "name": "Underground River",
+      "qty": 1
+    },
+    {
+      "name": "Vampiric Tutor",
+      "qty": 1
+    },
+    {
+      "name": "Watery Grave",
+      "qty": 1
+    },
+    {
+      "name": "Wingcrafter",
+      "qty": 1
+    }
+  ],
+  "archetype_expected": "tribal:Ninja"
+}

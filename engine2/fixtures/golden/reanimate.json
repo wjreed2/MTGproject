@@ -1,0 +1,74 @@
+{
+  "row": {
+    "oracle_id": "00000000-0000-4000-8000-000000000016",
+    "name": "Reanimate",
+    "type_line": "Sorcery",
+    "oracle_text": "Put target creature card from a graveyard onto the battlefield under your control. You lose life equal to its mana value.",
+    "mana_cost": "{B}",
+    "cmc": 1,
+    "colors_json": ["B"],
+    "color_identity_json": ["B"],
+    "power": null,
+    "toughness": null,
+    "loyalty": null,
+    "keywords_json": [],
+    "layout": "normal",
+    "produced_mana_json": [],
+    "faces_json": null
+  },
+  "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "00000000-0000-4000-8000-000000000016",
+    "name": "Reanimate",
+    "layout": "normal",
+    "faces": [
+      {
+        "face_name": "Reanimate",
+        "types": { "super": [], "card": ["Sorcery"], "sub": [] },
+        "mana_cost": "{B}",
+        "mana_value": 1,
+        "colors": ["B"],
+        "pt": null,
+        "loyalty": null,
+        "defense": null,
+        "costs": { "additional": [], "alternative": [] },
+        "keywords": [],
+        "abilities": [
+          {
+            "kind": "static",
+            "layer": null,
+            "effects": [
+              {
+                "op": "reanimate",
+                "target": { "who": "any", "object": { "types": ["creature"], "zone": "graveyard" }, "n_targets": 1 },
+                "zone_from": "graveyard",
+                "zone_to": "battlefield"
+              },
+              {
+                "op": "lose_life",
+                "n": { "kind": "variable", "formula": "mana value of the reanimated creature" },
+                "target": { "who": "you" },
+                "text": "You lose life equal to its mana value."
+              }
+            ],
+            "text": "Put target creature card from a graveyard onto the battlefield under your control. You lose life equal to its mana value."
+          }
+        ],
+        "restrictions": [],
+        "cdf": null
+      }
+    ],
+    "provides": [ { "axis": "gy.reanimate", "param": null, "rate": "once", "weight": 4 } ],
+    "needs": [
+      { "axis": "gy.self_fill", "param": null, "criticality": "wants", "weight": 4 },
+      { "axis": "etb_value", "param": null, "criticality": "helps", "weight": 2 }
+    ],
+    "roles": ["reanimator", "recursion"],
+    "anti": [],
+    "wincon": null,
+    "tribal": { "types": [], "lord_of": [] },
+    "power_level_hint": 4,
+    "confidence": 0.98
+  }
+}

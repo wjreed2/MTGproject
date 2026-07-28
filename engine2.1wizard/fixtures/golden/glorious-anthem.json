@@ -1,0 +1,63 @@
+{
+  "row": {
+    "oracle_id": "00000000-0000-4000-8000-000000000010",
+    "name": "Glorious Anthem",
+    "type_line": "Enchantment",
+    "oracle_text": "Creatures you control get +1/+1.",
+    "mana_cost": "{1}{W}{W}",
+    "cmc": 3,
+    "colors_json": ["W"],
+    "color_identity_json": ["W"],
+    "power": null,
+    "toughness": null,
+    "loyalty": null,
+    "keywords_json": [],
+    "layout": "normal",
+    "produced_mana_json": [],
+    "faces_json": null
+  },
+  "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "00000000-0000-4000-8000-000000000010",
+    "name": "Glorious Anthem",
+    "layout": "normal",
+    "faces": [
+      {
+        "face_name": "Glorious Anthem",
+        "types": { "super": [], "card": ["Enchantment"], "sub": [] },
+        "mana_cost": "{1}{W}{W}",
+        "mana_value": 3,
+        "colors": ["W"],
+        "pt": null,
+        "loyalty": null,
+        "defense": null,
+        "costs": { "additional": [], "alternative": [] },
+        "keywords": [],
+        "abilities": [
+          {
+            "kind": "static",
+            "layer": { "layer": 7, "sublayer": "c" },
+            "applies_to": { "types": ["creature"], "controller": "you", "all": true },
+            "effects": [
+              { "op": "pump", "pump": { "p": 1, "t": 1 }, "duration": "while_condition" }
+            ],
+            "text": "Creatures you control get +1/+1."
+          }
+        ],
+        "restrictions": [],
+        "cdf": null
+      }
+    ],
+    "provides": [ { "axis": "anthem.global", "param": null, "rate": "static", "weight": 3 } ],
+    "needs": [
+      { "axis": "token.creature_wide", "param": null, "criticality": "wants", "weight": 3 }
+    ],
+    "roles": ["anthem"],
+    "anti": [],
+    "wincon": null,
+    "tribal": { "types": [], "lord_of": [] },
+    "power_level_hint": 2,
+    "confidence": 0.99
+  }
+}

@@ -1,0 +1,337 @@
+{
+  "name": "Average Meren of Clan Nel Toth deck (EDHREC)",
+  "commander": "Meren of Clan Nel Toth",
+  "source": "edhrec-average",
+  "source_url": "https://json.edhrec.com/pages/average-decks/meren-of-clan-nel-toth.json",
+  "cards": [
+    {
+      "name": "Accursed Marauder",
+      "qty": 1
+    },
+    {
+      "name": "Animate Dead",
+      "qty": 1
+    },
+    {
+      "name": "Arcane Signet",
+      "qty": 1
+    },
+    {
+      "name": "Ashnod's Altar",
+      "qty": 1
+    },
+    {
+      "name": "Assassin's Trophy",
+      "qty": 1
+    },
+    {
+      "name": "Beast Within",
+      "qty": 1
+    },
+    {
+      "name": "Birds of Paradise",
+      "qty": 1
+    },
+    {
+      "name": "Blood Artist",
+      "qty": 1
+    },
+    {
+      "name": "Bojuka Bog",
+      "qty": 1
+    },
+    {
+      "name": "Braids, Arisen Nightmare",
+      "qty": 1
+    },
+    {
+      "name": "Buried Alive",
+      "qty": 1
+    },
+    {
+      "name": "Butcher of Malakir",
+      "qty": 1
+    },
+    {
+      "name": "Cankerbloom",
+      "qty": 1
+    },
+    {
+      "name": "Carrion Feeder",
+      "qty": 1
+    },
+    {
+      "name": "Cauldron of Essence",
+      "qty": 1
+    },
+    {
+      "name": "Caustic Caterpillar",
+      "qty": 1
+    },
+    {
+      "name": "Command Tower",
+      "qty": 1
+    },
+    {
+      "name": "Culling Ritual",
+      "qty": 1
+    },
+    {
+      "name": "Cultivate",
+      "qty": 1
+    },
+    {
+      "name": "Dark Ritual",
+      "qty": 1
+    },
+    {
+      "name": "Deathcap Glade",
+      "qty": 1
+    },
+    {
+      "name": "Deathrite Shaman",
+      "qty": 1
+    },
+    {
+      "name": "Diabolic Intent",
+      "qty": 1
+    },
+    {
+      "name": "Dictate of Erebos",
+      "qty": 1
+    },
+    {
+      "name": "Elvish Mystic",
+      "qty": 1
+    },
+    {
+      "name": "Entomb",
+      "qty": 1
+    },
+    {
+      "name": "Eternal Witness",
+      "qty": 1
+    },
+    {
+      "name": "Fleshbag Marauder",
+      "qty": 1
+    },
+    {
+      "name": "Forest",
+      "qty": 8
+    },
+    {
+      "name": "Golgari Rot Farm",
+      "qty": 1
+    },
+    {
+      "name": "Grave Pact",
+      "qty": 1
+    },
+    {
+      "name": "Gray Merchant of Asphodel",
+      "qty": 1
+    },
+    {
+      "name": "Grim Haruspex",
+      "qty": 1
+    },
+    {
+      "name": "Grisly Salvage",
+      "qty": 1
+    },
+    {
+      "name": "Haywire Mite",
+      "qty": 1
+    },
+    {
+      "name": "High Market",
+      "qty": 1
+    },
+    {
+      "name": "Insidious Roots",
+      "qty": 1
+    },
+    {
+      "name": "Journey to Eternity",
+      "qty": 1
+    },
+    {
+      "name": "Lightning Greaves",
+      "qty": 1
+    },
+    {
+      "name": "Liliana, Dreadhorde General",
+      "qty": 1
+    },
+    {
+      "name": "Living Death",
+      "qty": 1
+    },
+    {
+      "name": "Llanowar Elves",
+      "qty": 1
+    },
+    {
+      "name": "Llanowar Wastes",
+      "qty": 1
+    },
+    {
+      "name": "Massacre Wurm",
+      "qty": 1
+    },
+    {
+      "name": "Mikaeus, the Unhallowed",
+      "qty": 1
+    },
+    {
+      "name": "Moldervine Reclamation",
+      "qty": 1
+    },
+    {
+      "name": "Necroblossom Snarl",
+      "qty": 1
+    },
+    {
+      "name": "Overgrown Tomb",
+      "qty": 1
+    },
+    {
+      "name": "Phyrexian Tower",
+      "qty": 1
+    },
+    {
+      "name": "Plaguecrafter",
+      "qty": 1
+    },
+    {
+      "name": "Protean Hulk",
+      "qty": 1
+    },
+    {
+      "name": "Putrefy",
+      "qty": 1
+    },
+    {
+      "name": "Ravenous Chupacabra",
+      "qty": 1
+    },
+    {
+      "name": "Reanimate",
+      "qty": 1
+    },
+    {
+      "name": "Reclamation Sage",
+      "qty": 1
+    },
+    {
+      "name": "Rise of the Witch-king",
+      "qty": 1
+    },
+    {
+      "name": "Sakura-Tribe Elder",
+      "qty": 1
+    },
+    {
+      "name": "Satyr Wayfinder",
+      "qty": 1
+    },
+    {
+      "name": "Sheoldred, Whispering One",
+      "qty": 1
+    },
+    {
+      "name": "Shriekmaw",
+      "qty": 1
+    },
+    {
+      "name": "Skullclamp",
+      "qty": 1
+    },
+    {
+      "name": "Sol Ring",
+      "qty": 1
+    },
+    {
+      "name": "Solemn Simulacrum",
+      "qty": 1
+    },
+    {
+      "name": "Spore Frog",
+      "qty": 1
+    },
+    {
+      "name": "Swamp",
+      "qty": 11
+    },
+    {
+      "name": "Syr Konrad, the Grim",
+      "qty": 1
+    },
+    {
+      "name": "Tainted Wood",
+      "qty": 1
+    },
+    {
+      "name": "Temple of Malady",
+      "qty": 1
+    },
+    {
+      "name": "Toxic Deluge",
+      "qty": 1
+    },
+    {
+      "name": "Twilight Diviner",
+      "qty": 1
+    },
+    {
+      "name": "Twilight Mire",
+      "qty": 1
+    },
+    {
+      "name": "Undergrowth Stadium",
+      "qty": 1
+    },
+    {
+      "name": "Verdant Catacombs",
+      "qty": 1
+    },
+    {
+      "name": "Victimize",
+      "qty": 1
+    },
+    {
+      "name": "Village Rites",
+      "qty": 1
+    },
+    {
+      "name": "Viscera Seer",
+      "qty": 1
+    },
+    {
+      "name": "Warren Soultrader",
+      "qty": 1
+    },
+    {
+      "name": "Wight of the Reliquary",
+      "qty": 1
+    },
+    {
+      "name": "Wood Elves",
+      "qty": 1
+    },
+    {
+      "name": "Woodland Cemetery",
+      "qty": 1
+    },
+    {
+      "name": "Yawgmoth, Thran Physician",
+      "qty": 1
+    },
+    {
+      "name": "Zulaport Cutthroat",
+      "qty": 1
+    }
+  ],
+  "archetype_expected": "reanimator"
+}

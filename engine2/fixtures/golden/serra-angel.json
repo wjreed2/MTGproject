@@ -1,0 +1,51 @@
+{
+  "row": {
+    "oracle_id": "00000000-0000-4000-8000-000000000001",
+    "name": "Serra Angel",
+    "type_line": "Creature — Angel",
+    "oracle_text": "Flying, vigilance",
+    "mana_cost": "{3}{W}{W}",
+    "cmc": 5,
+    "colors_json": ["W"],
+    "color_identity_json": ["W"],
+    "power": "4",
+    "toughness": "4",
+    "loyalty": null,
+    "keywords_json": ["Flying", "Vigilance"],
+    "layout": "normal",
+    "produced_mana_json": [],
+    "faces_json": null
+  },
+  "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "00000000-0000-4000-8000-000000000001",
+    "name": "Serra Angel",
+    "layout": "normal",
+    "faces": [
+      {
+        "face_name": "Serra Angel",
+        "types": { "super": [], "card": ["Creature"], "sub": ["Angel"] },
+        "mana_cost": "{3}{W}{W}",
+        "mana_value": 5,
+        "colors": ["W"],
+        "pt": { "power": "4", "toughness": "4" },
+        "loyalty": null,
+        "defense": null,
+        "costs": { "additional": [], "alternative": [] },
+        "keywords": [ { "name": "Flying", "param": null }, { "name": "Vigilance", "param": null } ],
+        "abilities": [],
+        "restrictions": [],
+        "cdf": null
+      }
+    ],
+    "provides": [ { "axis": "body.evasive", "param": null, "rate": "static", "weight": 2 } ],
+    "needs": [],
+    "roles": [],
+    "anti": [],
+    "wincon": { "kind": "combat", "detail": "4-power evasive flier" },
+    "tribal": { "types": ["Angel"], "lord_of": [] },
+    "power_level_hint": 1,
+    "confidence": 0.99
+  }
+}

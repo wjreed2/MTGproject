@@ -1,0 +1,289 @@
+{
+  "name": "Average Talrand, Sky Summoner deck (EDHREC)",
+  "commander": "Talrand, Sky Summoner",
+  "source": "edhrec-average",
+  "source_url": "https://json.edhrec.com/pages/average-decks/talrand-sky-summoner.json",
+  "cards": [
+    {
+      "name": "Aetherize",
+      "qty": 1
+    },
+    {
+      "name": "Alandra, Sky Dreamer",
+      "qty": 1
+    },
+    {
+      "name": "An Offer You Can't Refuse",
+      "qty": 1
+    },
+    {
+      "name": "Anticipate",
+      "qty": 1
+    },
+    {
+      "name": "Arcane Denial",
+      "qty": 1
+    },
+    {
+      "name": "Arcane Signet",
+      "qty": 1
+    },
+    {
+      "name": "Archaeomancer",
+      "qty": 1
+    },
+    {
+      "name": "Archmage Emeritus",
+      "qty": 1
+    },
+    {
+      "name": "Archmage of Runes",
+      "qty": 1
+    },
+    {
+      "name": "Baral, Chief of Compliance",
+      "qty": 1
+    },
+    {
+      "name": "Bident of Thassa",
+      "qty": 1
+    },
+    {
+      "name": "Brainstorm",
+      "qty": 1
+    },
+    {
+      "name": "Consider",
+      "qty": 1
+    },
+    {
+      "name": "Counterspell",
+      "qty": 1
+    },
+    {
+      "name": "Curiosity Crafter",
+      "qty": 1
+    },
+    {
+      "name": "Curse of the Swine",
+      "qty": 1
+    },
+    {
+      "name": "Cyclonic Rift",
+      "qty": 1
+    },
+    {
+      "name": "Dig Through Time",
+      "qty": 1
+    },
+    {
+      "name": "Disdainful Stroke",
+      "qty": 1
+    },
+    {
+      "name": "Dispel",
+      "qty": 1
+    },
+    {
+      "name": "Fact or Fiction",
+      "qty": 1
+    },
+    {
+      "name": "Favorable Winds",
+      "qty": 1
+    },
+    {
+      "name": "Flood of Recollection",
+      "qty": 1
+    },
+    {
+      "name": "Frantic Search",
+      "qty": 1
+    },
+    {
+      "name": "Gitaxian Probe",
+      "qty": 1
+    },
+    {
+      "name": "Haughty Djinn",
+      "qty": 1
+    },
+    {
+      "name": "Heraldic Banner",
+      "qty": 1
+    },
+    {
+      "name": "High Tide",
+      "qty": 1
+    },
+    {
+      "name": "Hullbreaker Horror",
+      "qty": 1
+    },
+    {
+      "name": "Impulse",
+      "qty": 1
+    },
+    {
+      "name": "Island",
+      "qty": 30
+    },
+    {
+      "name": "Jace's Sanctum",
+      "qty": 1
+    },
+    {
+      "name": "Lonely Sandbar",
+      "qty": 1
+    },
+    {
+      "name": "Mana Leak",
+      "qty": 1
+    },
+    {
+      "name": "Mind Stone",
+      "qty": 1
+    },
+    {
+      "name": "Mocking Sprite",
+      "qty": 1
+    },
+    {
+      "name": "Murmuring Mystic",
+      "qty": 1
+    },
+    {
+      "name": "Myriad Landscape",
+      "qty": 1
+    },
+    {
+      "name": "Mystic Sanctuary",
+      "qty": 1
+    },
+    {
+      "name": "Negate",
+      "qty": 1
+    },
+    {
+      "name": "Opt",
+      "qty": 1
+    },
+    {
+      "name": "Ponder",
+      "qty": 1
+    },
+    {
+      "name": "Pongify",
+      "qty": 1
+    },
+    {
+      "name": "Preordain",
+      "qty": 1
+    },
+    {
+      "name": "Propaganda",
+      "qty": 1
+    },
+    {
+      "name": "Rapid Hybridization",
+      "qty": 1
+    },
+    {
+      "name": "Ravenform",
+      "qty": 1
+    },
+    {
+      "name": "Reality Shift",
+      "qty": 1
+    },
+    {
+      "name": "Reconnaissance Mission",
+      "qty": 1
+    },
+    {
+      "name": "Reliquary Tower",
+      "qty": 1
+    },
+    {
+      "name": "Resculpt",
+      "qty": 1
+    },
+    {
+      "name": "Rewind",
+      "qty": 1
+    },
+    {
+      "name": "Rhystic Study",
+      "qty": 1
+    },
+    {
+      "name": "Riptide Laboratory",
+      "qty": 1
+    },
+    {
+      "name": "Sapphire Medallion",
+      "qty": 1
+    },
+    {
+      "name": "Serum Visions",
+      "qty": 1
+    },
+    {
+      "name": "Sky Diamond",
+      "qty": 1
+    },
+    {
+      "name": "Sleight of Hand",
+      "qty": 1
+    },
+    {
+      "name": "Snap",
+      "qty": 1
+    },
+    {
+      "name": "Sol Ring",
+      "qty": 1
+    },
+    {
+      "name": "Spell Pierce",
+      "qty": 1
+    },
+    {
+      "name": "Swan Song",
+      "qty": 1
+    },
+    {
+      "name": "Think Twice",
+      "qty": 1
+    },
+    {
+      "name": "Thought Vessel",
+      "qty": 1
+    },
+    {
+      "name": "Treasure Cruise",
+      "qty": 1
+    },
+    {
+      "name": "Unsummon",
+      "qty": 1
+    },
+    {
+      "name": "Unwind",
+      "qty": 1
+    },
+    {
+      "name": "Wavebreak Hippocamp",
+      "qty": 1
+    },
+    {
+      "name": "Winged Words",
+      "qty": 1
+    },
+    {
+      "name": "Wizard's Retort",
+      "qty": 1
+    }
+  ],
+  "archetype_expected": "spellslinger"
+}

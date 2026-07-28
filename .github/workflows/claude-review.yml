@@ -1,0 +1,59 @@
+name: Claude PR Review
+
+# Automatically reviews every pull request and posts a summary comment ending in
+# an explicit "Recommendation: APPROVE" or "Recommendation: REQUEST CHANGES".
+# Advisory only — it is not a required status check and cannot block merges.
+#
+# Auth (one repo secret required, Settings → Secrets and variables → Actions):
+#   ANTHROPIC_API_KEY        — API key from console.anthropic.com  (used below)
+#   CLAUDE_CODE_OAUTH_TOKEN  — alternative for Claude Pro/Max subscribers:
+#                              run `claude setup-token` locally, save the token,
+#                              then swap the `anthropic_api_key` line for
+#                              `claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}`
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    # Fork PRs don't receive secrets; skip them (and drafts) instead of failing.
+    if: >
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            Review pull request #${{ github.event.pull_request.number }} in ${{ github.repository }}.
+
+            Focus on, in order of importance:
+            1. Correctness — logic errors, broken edge cases, regressions in existing behavior.
+            2. Security — this app renders user- and cross-user data; any value reaching an
+               HTML sink must go through the global escapeHtml() from js/ui.js. Flag raw
+               innerHTML interpolation. Also flag SQL built by string concatenation.
+            3. Project conventions — no emoji used as icons (inline SVG only); collection
+               oracle-text search must stay server-side; dist/bundle.js must be rebuilt when
+               js/ sources change (CI verifies this, but call it out if suspicious).
+            4. Performance — anything that adds per-request DB work on hot paths.
+
+            Post inline comments on specific problems, then ONE summary comment that ends
+            with exactly one of:
+              **Recommendation: APPROVE** — if there are no correctness or security concerns.
+              **Recommendation: REQUEST CHANGES** — followed by a short numbered list of blockers.
+            Keep it concise; do not restate the diff. Do not nitpick style that matches the
+            existing codebase.

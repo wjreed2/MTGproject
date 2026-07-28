@@ -1,0 +1,64 @@
+{
+  "row": {
+    "oracle_id": "00000000-0000-4000-8000-000000000004",
+    "name": "Lightning Bolt",
+    "type_line": "Instant",
+    "oracle_text": "Lightning Bolt deals 3 damage to any target.",
+    "mana_cost": "{R}",
+    "cmc": 1,
+    "colors_json": ["R"],
+    "color_identity_json": ["R"],
+    "power": null,
+    "toughness": null,
+    "loyalty": null,
+    "keywords_json": [],
+    "layout": "normal",
+    "produced_mana_json": [],
+    "faces_json": null
+  },
+  "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "00000000-0000-4000-8000-000000000004",
+    "name": "Lightning Bolt",
+    "layout": "normal",
+    "faces": [
+      {
+        "face_name": "Lightning Bolt",
+        "types": { "super": [], "card": ["Instant"], "sub": [] },
+        "mana_cost": "{R}",
+        "mana_value": 1,
+        "colors": ["R"],
+        "pt": null,
+        "loyalty": null,
+        "defense": null,
+        "costs": { "additional": [], "alternative": [] },
+        "keywords": [],
+        "abilities": [
+          {
+            "kind": "static",
+            "layer": null,
+            "effects": [
+              {
+                "op": "damage",
+                "n": { "kind": "fixed", "value": 3 },
+                "target": { "who": "any", "n_targets": 1 }
+              }
+            ],
+            "text": "Lightning Bolt deals 3 damage to any target."
+          }
+        ],
+        "restrictions": [],
+        "cdf": null
+      }
+    ],
+    "provides": [ { "axis": "removal.spot", "param": "damage", "rate": "once", "weight": 2 } ],
+    "needs": [],
+    "roles": ["spot_removal", "burn"],
+    "anti": [],
+    "wincon": null,
+    "tribal": { "types": [], "lord_of": [] },
+    "power_level_hint": 3,
+    "confidence": 0.99
+  }
+}

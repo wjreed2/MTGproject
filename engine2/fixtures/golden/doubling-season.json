@@ -1,0 +1,76 @@
+{
+  "row": {
+    "oracle_id": "00000000-0000-4000-8000-000000000006",
+    "name": "Doubling Season",
+    "type_line": "Enchantment",
+    "oracle_text": "If an effect would create one or more tokens under your control, it creates twice that many of those tokens instead.\nIf an effect would put one or more counters on a permanent you control, it puts twice that many of those counters on that permanent instead.",
+    "mana_cost": "{4}{G}",
+    "cmc": 5,
+    "colors_json": ["G"],
+    "color_identity_json": ["G"],
+    "power": null,
+    "toughness": null,
+    "loyalty": null,
+    "keywords_json": [],
+    "layout": "normal",
+    "produced_mana_json": [],
+    "faces_json": null
+  },
+  "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "00000000-0000-4000-8000-000000000006",
+    "name": "Doubling Season",
+    "layout": "normal",
+    "faces": [
+      {
+        "face_name": "Doubling Season",
+        "types": { "super": [], "card": ["Enchantment"], "sub": [] },
+        "mana_cost": "{4}{G}",
+        "mana_value": 5,
+        "colors": ["G"],
+        "pt": null,
+        "loyalty": null,
+        "defense": null,
+        "costs": { "additional": [], "alternative": [] },
+        "keywords": [],
+        "abilities": [
+          {
+            "kind": "replacement",
+            "replaces": { "event": "token_created", "scope": { "controller": "you" } },
+            "layer": null,
+            "effects": [
+              { "op": "create_token", "n": { "kind": "variable", "formula": "twice that many" } }
+            ],
+            "text": "If an effect would create one or more tokens under your control, it creates twice that many of those tokens instead."
+          },
+          {
+            "kind": "replacement",
+            "replaces": { "event": "counter_placed", "scope": { "controller": "you" } },
+            "layer": null,
+            "effects": [
+              { "op": "put_counter", "n": { "kind": "variable", "formula": "twice that many" } }
+            ],
+            "text": "If an effect would put one or more counters on a permanent you control, it puts twice that many of those counters on that permanent instead."
+          }
+        ],
+        "restrictions": [],
+        "cdf": null
+      }
+    ],
+    "provides": [
+      { "axis": "token.doubler", "param": null, "rate": "static", "weight": 5 },
+      { "axis": "counters.doubler", "param": null, "rate": "static", "weight": 5 }
+    ],
+    "needs": [
+      { "axis": "token.creature", "param": null, "criticality": "wants", "weight": 4 },
+      { "axis": "counters.plus1", "param": null, "criticality": "wants", "weight": 4 }
+    ],
+    "roles": ["utility"],
+    "anti": [],
+    "wincon": null,
+    "tribal": { "types": [], "lord_of": [] },
+    "power_level_hint": 4,
+    "confidence": 0.97
+  }
+}

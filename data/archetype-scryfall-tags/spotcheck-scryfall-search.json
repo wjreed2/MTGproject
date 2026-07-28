@@ -1,0 +1,130 @@
+{
+  "checked": 31,
+  "all_nonzero": true,
+  "results": [
+    {
+      "tag": "repeatable-creature-tokens",
+      "total_cards": 1402
+    },
+    {
+      "tag": "synergy-token",
+      "total_cards": 225
+    },
+    {
+      "tag": "synergy-token-creature",
+      "total_cards": 109
+    },
+    {
+      "tag": "token-doubler",
+      "total_cards": 16
+    },
+    {
+      "tag": "convoke",
+      "total_cards": 111
+    },
+    {
+      "tag": "anthem",
+      "total_cards": 436
+    },
+    {
+      "tag": "warlord",
+      "total_cards": 67
+    },
+    {
+      "tag": "overrun",
+      "total_cards": 71
+    },
+    {
+      "tag": "tokenfall",
+      "total_cards": 20
+    },
+    {
+      "tag": "young-pyromancer-ability",
+      "total_cards": 36
+    },
+    {
+      "tag": "token-increaser",
+      "total_cards": 31
+    },
+    {
+      "tag": "gives-haste",
+      "total_cards": 651
+    },
+    {
+      "tag": "gives-trample",
+      "total_cards": 506
+    },
+    {
+      "tag": "sacrifice-outlet",
+      "total_cards": 1437
+    },
+    {
+      "tag": "death-trigger",
+      "total_cards": 1585
+    },
+    {
+      "tag": "affinity-for-tokens",
+      "total_cards": 1
+    },
+    {
+      "tag": "tutor",
+      "total_cards": 1139
+    },
+    {
+      "tag": "ritual",
+      "total_cards": 65
+    },
+    {
+      "tag": "untapper",
+      "total_cards": 748
+    },
+    {
+      "tag": "alternate-win-condition",
+      "total_cards": 66
+    },
+    {
+      "tag": "extra-turn",
+      "total_cards": 58
+    },
+    {
+      "tag": "storm-count-matters",
+      "total_cards": 25
+    },
+    {
+      "tag": "cost-reducer",
+      "total_cards": 343
+    },
+    {
+      "tag": "mana-rock",
+      "total_cards": 384
+    },
+    {
+      "tag": "mana-dork",
+      "total_cards": 434
+    },
+    {
+      "tag": "sweeper",
+      "total_cards": 931
+    },
+    {
+      "tag": "mill-self",
+      "total_cards": 1001
+    },
+    {
+      "tag": "extra-combat-phase",
+      "total_cards": 45
+    },
+    {
+      "tag": "typal-dragon",
+      "total_cards": 137
+    },
+    {
+      "tag": "group-hug",
+      "total_cards": 392
+    },
+    {
+      "tag": "grave-pact",
+      "total_cards": 6
+    }
+  ]
+}

@@ -1,0 +1,72 @@
+{
+  "row": {
+    "oracle_id": "00000000-0000-4000-8000-000000000011",
+    "name": "Krenko, Mob Boss",
+    "type_line": "Legendary Creature — Goblin Warrior",
+    "oracle_text": "{T}: Create X 1/1 red Goblin creature tokens, where X is the number of Goblins you control.",
+    "mana_cost": "{2}{R}{R}",
+    "cmc": 4,
+    "colors_json": ["R"],
+    "color_identity_json": ["R"],
+    "power": "3",
+    "toughness": "3",
+    "loyalty": null,
+    "keywords_json": [],
+    "layout": "normal",
+    "produced_mana_json": [],
+    "faces_json": null
+  },
+  "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "00000000-0000-4000-8000-000000000011",
+    "name": "Krenko, Mob Boss",
+    "layout": "normal",
+    "faces": [
+      {
+        "face_name": "Krenko, Mob Boss",
+        "types": { "super": ["Legendary"], "card": ["Creature"], "sub": ["Goblin", "Warrior"] },
+        "mana_cost": "{2}{R}{R}",
+        "mana_value": 4,
+        "colors": ["R"],
+        "pt": { "power": "3", "toughness": "3" },
+        "loyalty": null,
+        "defense": null,
+        "costs": { "additional": [], "alternative": [] },
+        "keywords": [],
+        "abilities": [
+          {
+            "kind": "activated",
+            "cost": { "mana": null, "tap": true },
+            "activation_limit": "any_time",
+            "layer": null,
+            "effects": [
+              {
+                "op": "create_token",
+                "n": { "kind": "count", "of": { "types": ["creature"], "sub": ["Goblin"], "controller": "you" } },
+                "token": { "name": "Goblin", "types": "Creature — Goblin", "pt": "1/1", "colors": ["R"], "predefined": false }
+              }
+            ],
+            "text": "{T}: Create X 1/1 red Goblin creature tokens, where X is the number of Goblins you control."
+          }
+        ],
+        "restrictions": [],
+        "cdf": null
+      }
+    ],
+    "provides": [
+      { "axis": "token.creature_wide", "param": null, "rate": "repeatable", "weight": 5 },
+      { "axis": "tribal.body", "param": "Goblin", "rate": "static", "weight": 1 }
+    ],
+    "needs": [
+      { "axis": "tribal.body", "param": "Goblin", "criticality": "wants", "weight": 4 },
+      { "axis": "haste.enabler", "param": null, "criticality": "helps", "weight": 2 }
+    ],
+    "roles": ["token_maker", "wincon"],
+    "anti": [],
+    "wincon": { "kind": "combat", "detail": "exponential goblin swarm" },
+    "tribal": { "types": ["Goblin", "Warrior"], "lord_of": [] },
+    "power_level_hint": 4,
+    "confidence": 0.98
+  }
+}

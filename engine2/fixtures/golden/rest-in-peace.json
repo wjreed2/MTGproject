@@ -1,0 +1,74 @@
+{
+  "row": {
+    "oracle_id": "00000000-0000-4000-8000-000000000015",
+    "name": "Rest in Peace",
+    "type_line": "Enchantment",
+    "oracle_text": "When Rest in Peace enters, exile all graveyards.\nIf a card or token would be put into a graveyard from anywhere, exile it instead.",
+    "mana_cost": "{1}{W}",
+    "cmc": 2,
+    "colors_json": ["W"],
+    "color_identity_json": ["W"],
+    "power": null,
+    "toughness": null,
+    "loyalty": null,
+    "keywords_json": [],
+    "layout": "normal",
+    "produced_mana_json": [],
+    "faces_json": null
+  },
+  "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "00000000-0000-4000-8000-000000000015",
+    "name": "Rest in Peace",
+    "layout": "normal",
+    "faces": [
+      {
+        "face_name": "Rest in Peace",
+        "types": { "super": [], "card": ["Enchantment"], "sub": [] },
+        "mana_cost": "{1}{W}",
+        "mana_value": 2,
+        "colors": ["W"],
+        "pt": null,
+        "loyalty": null,
+        "defense": null,
+        "costs": { "additional": [], "alternative": [] },
+        "keywords": [],
+        "abilities": [
+          {
+            "kind": "triggered",
+            "trigger": { "event": "etb", "subject": { "or_self": true }, "controller_scope": "you", "condition": null, "once_each_turn": false },
+            "effects": [
+              { "op": "exile", "target": { "who": "each_player", "object": { "zone": "graveyard", "all": true } }, "zone_from": "graveyard" }
+            ],
+            "text": "When Rest in Peace enters, exile all graveyards."
+          },
+          {
+            "kind": "replacement",
+            "replaces": { "event": "dies", "scope": { "controller": "any" } },
+            "layer": null,
+            "effects": [
+              { "op": "exile", "target": { "who": "any" }, "zone_to": "exile", "text": "exile it instead" }
+            ],
+            "text": "If a card or token would be put into a graveyard from anywhere, exile it instead."
+          }
+        ],
+        "restrictions": [],
+        "cdf": null
+      }
+    ],
+    "provides": [ { "axis": "hate.graveyard", "param": null, "rate": "static", "weight": 5 } ],
+    "needs": [],
+    "roles": ["graveyard_hate", "stax"],
+    "anti": [
+      { "axis": "gy.recursion", "scope": "all_players", "note": "graveyards are emptied and stay empty" },
+      { "axis": "gy.reanimate", "scope": "all_players", "note": "nothing to reanimate" },
+      { "axis": "gy.self_fill", "scope": "all_players", "note": "self-mill exiles instead" },
+      { "axis": "gy.matters", "scope": "all_players", "note": "graveyard counts stay at zero" }
+    ],
+    "wincon": null,
+    "tribal": { "types": [], "lord_of": [] },
+    "power_level_hint": 3,
+    "confidence": 0.97
+  }
+}

@@ -1,0 +1,66 @@
+{
+  "row": {
+    "oracle_id": "00000000-0000-4000-8000-000000000007",
+    "name": "Rampant Growth",
+    "type_line": "Sorcery",
+    "oracle_text": "Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.",
+    "mana_cost": "{1}{G}",
+    "cmc": 2,
+    "colors_json": ["G"],
+    "color_identity_json": ["G"],
+    "power": null,
+    "toughness": null,
+    "loyalty": null,
+    "keywords_json": [],
+    "layout": "normal",
+    "produced_mana_json": [],
+    "faces_json": null
+  },
+  "ir": {
+    "ir_version": 1,
+    "vocab_version": 1,
+    "oracle_id": "00000000-0000-4000-8000-000000000007",
+    "name": "Rampant Growth",
+    "layout": "normal",
+    "faces": [
+      {
+        "face_name": "Rampant Growth",
+        "types": { "super": [], "card": ["Sorcery"], "sub": [] },
+        "mana_cost": "{1}{G}",
+        "mana_value": 2,
+        "colors": ["G"],
+        "pt": null,
+        "loyalty": null,
+        "defense": null,
+        "costs": { "additional": [], "alternative": [] },
+        "keywords": [],
+        "abilities": [
+          {
+            "kind": "static",
+            "layer": null,
+            "effects": [
+              {
+                "op": "search_library",
+                "n": { "kind": "fixed", "value": 1 },
+                "target": { "who": "you", "object": { "types": ["land"], "text": "basic land card" } },
+                "zone_to": "battlefield",
+                "text": "put it onto the battlefield tapped, then shuffle"
+              }
+            ],
+            "text": "Search your library for a basic land card, put it onto the battlefield tapped, then shuffle."
+          }
+        ],
+        "restrictions": [],
+        "cdf": null
+      }
+    ],
+    "provides": [ { "axis": "mana.ramp_land", "param": null, "rate": "once", "weight": 3 } ],
+    "needs": [],
+    "roles": ["ramp"],
+    "anti": [],
+    "wincon": null,
+    "tribal": { "types": [], "lord_of": [] },
+    "power_level_hint": 2,
+    "confidence": 0.99
+  }
+}
