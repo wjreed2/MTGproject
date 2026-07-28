@@ -4369,11 +4369,17 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
       }).map(a => ({ ...a, reasons: engine2.explain.addReasons(a), breakdown: engine2.explain.addBreakdown(a) }));
     }
 
+    // Strip internal reasoning tokens before they leave the server. The client
+    // renders only `reasons`/`breakdown` (English) + goal label/summary — it never
+    // reads raw `trace` (axis/param/weight tokens) or goal `evidence` (axes/clusters).
+    // Shipping those would expose the capability-axis layer to any logged-in user;
+    // the rendered English strings are the intended, non-machine-harvestable surface.
     res.json({
-      goals: goalsRes.goals,
+      goals: goalsRes.goals.map(({ evidence, ...g }) => g),
       thresholds, roleCounts,
-      cuts, adds,
-      combos: goalsRes.interactions.combos,
+      cuts: cuts.map(({ trace, ...c }) => c),
+      adds: adds.map(({ trace, ...a }) => a),
+      combos: goalsRes.interactions.combos.map(({ trace, ...c }) => c),
       coverage: { semantics: coverage },
     });
   } catch (e) {
@@ -4503,12 +4509,15 @@ app.post('/api/decks/analyze-wizard', requireAuth, async (req, res) => {
       }).map(a => ({ ...a, reasons: eng.explain.addReasons(a), breakdown: eng.explain.addBreakdown(a), source: 'sandbox' }));
     }
 
+    // Strip internal reasoning tokens (see /api/decks/analyze above) — client uses
+    // only the rendered reasons/breakdown + goal label/summary, never raw trace/evidence.
     res.json({
       engine: 'engine2.1wizard',
-      goals: goalsRes.goals,
+      goals: goalsRes.goals.map(({ evidence, ...g }) => g),
       thresholds, roleCounts,
-      cuts, adds,
-      combos: goalsRes.interactions.combos,
+      cuts: cuts.map(({ trace, ...c }) => c),
+      adds: adds.map(({ trace, ...a }) => a),
+      combos: goalsRes.interactions.combos.map(({ trace, ...c }) => c),
       coverage: { semantics: coverage },
     });
   } catch (e) {

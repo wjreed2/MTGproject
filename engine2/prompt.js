@@ -9,7 +9,7 @@ const path = require('path');
 const vocab = require('./vocab');
 const irSchema = require('./ir-schema');
 
-const PROMPT_VERSION = 'p6'; // p6: draw.group emitted natively (each-player/opponent draw supply; was backfill-derived under p5)
+const PROMPT_VERSION = 'p7'; // p7: per-event mass token creation is token.creature_wide (Xyris rule)
 
 // Few-shot examples come straight from the golden fixtures so prompt and validator can
 // never disagree about what "good" looks like.
@@ -87,6 +87,7 @@ Effect: { op, n?, target?, zone_from?, zone_to?, duration?, counter_kind?, keywo
   - An anthem or effect that boosts a CHOSEN color or creature type (Heraldic Banner, Shared Triumph) provides \`anthem.global\` with param "chosen color" / "chosen type" — not null and not a specific tribe — at full anthem weight: the deck picks the mode that covers its creatures.
 - A SINGLE-TARGET buff — a pump spell (Giant Growth), a targeted +1/+1 counter effect (Snakeskin Veil), a repeatable pump activation (Kessig Wolf Run), or the Exalted keyword — provides \`pump.single\` (weight 3 when repeatable, else 2). Mass/team buffs are NOT pump.single (those are anthem/mass-counter axes); negative pumps and opponent-only targets never qualify.
 - An effect that makes EVERY player or your OPPONENTS draw — group hug (Howling Mine, Rites of Flourishing), wheels, punisher-enablers (Forced Fruition) — provides \`draw.group\` (weight 3 on permanents, 2 on one-shot spells) IN ADDITION to its other axes. Opponent-draw payoffs (Nekusar-likes, Xyris, hate.draw punishers) NEED \`draw.group\` — the wheel axis alone is too narrow a join for these decks.
+- Token WIDTH follows the trigger rate, not the per-trigger count: a repeatable trigger creating a token PER EVENT on something that happens many times per turn cycle (Xyris — one Snake per card each opponent draws; a single wheel is 15+ Snakes) provides \`token.creature_wide\` (typed param). Narrow \`token.creature\` is for one-ish token per activation or turn.
   - An unrestricted need matched by a restricted provider is a WRONG suggestion downstream ("this land reanimator feeds your Entomb") — when in doubt, carry the restriction.
 - anti: axes the card actively hates, with scope (all_players/opponents/you) — e.g. Rest in Peace: anti gy.recursion/gy.reanimate/gy.self_fill/gy.matters scope all_players.
 - roles: coarse deckbuilding buckets from the list; wincon only for cards that actually close games.
