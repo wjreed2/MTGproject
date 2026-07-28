@@ -1,0 +1,17 @@
+---
+description: Git index guard — never commit through an emptied index
+alwaysApply: true
+---
+
+Before ANY `git commit` in this repo, run `git status --short | head -20` and read it.
+
+If long-tracked files (server.js, js/, engine2/, index.html…) show as untracked (`??`)
+or as mass staged deletions (`D`), STOP. The git index has been emptied — the working
+tree is fine, but committing in this state records the entire repo as deleted (this
+happened on 2026-07-27: a one-file `git add` + commit produced a 240-file deletion
+that reached the remote).
+
+Repair instead of committing: `git reset --mixed HEAD` rebuilds the index from the
+current commit without touching the working tree (use `HEAD~1` if a bad commit was
+already created). Then re-stage only the intended files and verify the commit stat
+looks like the change you meant to make before pushing.
