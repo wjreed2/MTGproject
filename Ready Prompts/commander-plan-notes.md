@@ -3,7 +3,7 @@
 **Status:** Notes only — not Ready Prompts yet; do not implement from this file alone.  
 **Date started:** 2026-08-03  
 **Informs:** Suggested Adds/Cuts role targets & scoring; Commander Gameplan (ramp / lands / early-ramp CMC).  
-**Interview rule:** When the product owner asks for questions on a topic below, ask clarifying design questions then. Do **not** interview proactively from this doc.
+**Interview rule:** When the product owner asks for questions on a topic below, ask the **Saved questions** for that theme (see also **Saved interview questions (master list)**). Do **not** interview proactively from this doc.
 
 ---
 
