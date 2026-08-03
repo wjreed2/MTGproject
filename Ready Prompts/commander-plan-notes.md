@@ -164,6 +164,60 @@ The algorithm must not silently overwrite a user’s confirmed role set without 
 
 ---
 
+## Theme E — Semantics CardIR (`provides` / `needs`) in wizard role ID
+
+### Vocabulary note
+
+In CardIR / engine2, cards expose:
+
+| Field | Plain meaning | Owner examples |
+|-------|---------------|----------------|
+| **`provides`** | Axes this card **feeds** into the deck (enablers, resources, events) | `sac.outlet_free`, `creatures_dying`, `token.creature`, `mana.rock` |
+| **`needs`** | Axes this card **wants fed** by other cards | Blood Artist **needs** `creatures_dying`; landfall payoff **needs** `landfall.enabler` |
+| **`roles`** | Coarse deckbuilding buckets on the IR (parallel to project tags) | `sac_outlet`, `ramp`, `protection`, … |
+
+**Matching rule (already shipped in sandbox):** interaction when `a.provides.axis === b.needs.axis` (+ param compatibility). Recommender already builds unmet-need / pool axes from deck IR (`engine2.1wizard/recommender.js`).
+
+There is no separate IR field named `feeds` — **provides ≈ feeds**.
+
+### How this plugs into “algo narrows, user decides” (proposed — not locked)
+
+1. **Coverage gate** — If deck CardIR coverage is low, degrade to today’s tag/commander signals (same pattern as `suggestTypePicks`: semantics → type-line → degraded).
+2. **Aggregate the 99 + commander (×3 seed)** — histogram of `provides` and `needs` (and IR `roles`).
+3. **Find gaps the algo thinks matter**
+   - Unmet / underfed `needs` (especially `requires` / high weight, on-plan).
+   - Commander `needs` not satisfied by enough `provides`.
+   - Goal-template core/support axes short vs density (existing deck-goals path).
+4. **Map axes → user-facing pick labels** — axis/IR-role → project role tag (or new labels like Ping) for the wizard shortlist.
+5. **Suggest “others”** — roles/axes that would **feed** existing strong `needs`, or **pay off** existing strong `provides` (reinforcement / “more of what feeds what you already have” — already in `poolAxes`).
+6. **User confirms** — shortlist is narrowed by the above; user final say unchanged.
+7. **After confirm** — confirmed roles (+ optional axis hints) constrain Classic Adds and/or `engine2.1wizard` hybrid scoring (Prompts 27–28 direction).
+
+### Baseline already in repo
+
+- Partner `engine2/` + sandbox `engine2.1wizard/`: CardIR, vocab axes, interactions, unmet needs, pool axes, hybrid Adds bridge, `suggestTypePicks`.
+- Plan improvement doc §14: type/kind inference **owned by semantics**; wizard UI only.
+- Classic client still mostly **project role tags**, not axis histograms — bridge still required.
+
+### Saved questions (ask later / interview — Theme E)
+
+1. Should semantics be the **primary** shortlist engine when coverage is good, with tags only as fallback — or a **blend** with tag counts / strategy bridges from day one?
+2. What does the user see — **project role labels** only, or also humanized **axis** chips (e.g. “feeds creatures dying”)?
+3. For “suggest others,” prefer roles that **feed unmet needs**, roles that **pay off surplus provides**, or both ranked together?
+4. Minimum CardIR coverage % before we trust semantics shortlists (else degraded)?
+5. Commander `needs`/`provides`: always ×3 seed (engine2 plan), or equal weight to the 99 for role ID?
+6. After user confirms roles, do we also persist **top deficit axes** for Adds SQL/`poolAxes`, or only role labels?
+7. Sandbox-only (`engine2.1wizard`) for v1 wizard role ID, or call partner `engine2` analyze?
+8. How to show “algo thinks X because Blood Artist needs creatures_dying” without drowning the wizard — one-line Why, expand, or hide until Advanced?
+
+### Interview status
+
+- **In progress** (owner requested interview 2026-08-03).
+- **CP-Q1** (roles vs key cards vs both) — parked; answer when ready.
+- **Current focus:** Theme E — semantics provides/needs in role shortlisting (**CP-Q2** below in conversation).
+
+---
+
 ## Saved interview questions (master list)
 
 **Rule:** Do not ask these until the owner says to interview (per theme or all). Copy from here into the conversation when requested.
@@ -212,11 +266,22 @@ The algorithm must not silently overwrite a user’s confirmed role set without 
 14. Persist on plan for Adds and Cuts, or Adds-only v1?
 15. Confirmed roles replace / seed strategy/wincon steps?
 
+### E — Semantics provides/needs in wizard role ID
+1. Semantics primary (tags fallback) vs blend with tags/bridges from day one?
+2. User sees role labels only, or also axis “feeds/needs” chips?
+3. Suggest others: feed unmet needs, pay off surplus provides, or both?
+4. Min CardIR coverage before trusting semantics shortlist?
+5. Commander axes ×3 for role ID, or equal to 99?
+6. Persist top deficit axes after confirm, or roles only?
+7. `engine2.1wizard` sandbox vs partner `engine2` for v1?
+8. How much Why/explain for unmet-need suggestions in the wizard UI?
+
 ### Cross-cutting
 1. Interview / implement order preference: D (role ID) → B (cast turn) → C (protection), or another order?
 2. One wizard pass collecting all of this, or separate panels (Gameplan vs Plan wizard)?
 3. Any roles from the inventory appendix to **exclude** from user-facing pick lists (too broad / junk)?
 4. When algo and user disagree (user rejects a high-confidence role), should we still show that role as a soft “optional” in Adds Why text, or fully ignore it?
+5. CP-Q1 still open: roles only / key cards only / both (order)?
 
 ---
 
@@ -336,8 +401,9 @@ Useful as **candidates to add** as project labels later (not all exist client-si
 
 | Surface | Likely impact |
 |---------|----------------|
-| **Plan wizard** | Role-ID step: algo-narrowed shortlist; user confirms roles the deck should have / feed |
-| **Suggested Adds** | Dynamic role deficits from **user-confirmed** roles; ramp/land from cast turn; protection typed to key pieces |
+| **Plan wizard** | Role-ID step: algo-narrowed shortlist (tags **and/or** CardIR provides/needs); user confirms |
+| **Semantics (`engine2` / `engine2.1wizard`)** | Aggregate provides/needs; unmet-need + reinforcement axes → mapped role suggestions (“feeds” = provides) |
+| **Suggested Adds** | Dynamic role deficits from **user-confirmed** roles; optional axis pool from semantics; ramp/land from cast turn; protection typed to key pieces |
 | **Suggested Cuts** | Thresholds / surplus roles become plan-dynamic from confirmed roles |
 | **Commander Gameplan** | Cast-turn input; early-ramp CMC band; land/ramp meta; protection / fed-role custom requirements |
 
@@ -353,3 +419,4 @@ Do not draft Ready Prompt bodies until interviews for the relevant theme are don
 | 2026-08-03 | Theme D: user picks X key cards **or** roles (clarify later). Wizard implies plan-fed roles from decklist. Full role inventory researched across project tags, thresholds, plan bridges, engine2. |
 | 2026-08-03 | Wrote concrete saved interview questions per theme A–D + cross-cutting master list (ask only when owner requests). |
 | 2026-08-03 | Locked UX: algo **narrows** role pick list, user has **final say**. Reframed Theme D as wizard role identification; expanded saved Qs for narrowing hardness, pre-select, stale-on-list-change, escape hatch, disagreement handling. |
+| 2026-08-03 | Interview started (CP-Q1 roles vs cards). Owner asked how to incorporate semantics provides/needs (“feeds”). Added Theme E + proposed pipeline; interview continues on semantics. |
