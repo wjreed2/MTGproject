@@ -83,6 +83,7 @@ Run **24 â†’ 25 â†’ 26 â†’ 27 â†’ 28** in order. Each prompt
 | Suggested Adds improvement + Entry 13 v2 | **In Ready Prompts 24â€“28** | Canonical: [`suggested-adds-improvement-plan.md`](./suggested-adds-improvement-plan.md). Badge = raw only (no `/10`). Full merge via sandbox `engine2.1wizard`. |
 | Phase B â€” 13 v2 wizard extras / Cuts shielding | Later | Plan Â§6 â€” after 24â€“28. |
 | Phase C â€” mixed plan-aware backfill | Optional | Plan Â§7. |
+| Commander plan â€” dynamic roles, cast turn, protection | **Notes only** | [`commander-plan-notes.md`](./commander-plan-notes.md). Informs Adds/Cuts + Gameplan; interview when owner asks; no Ready Prompts yet. |
 
 ---
 

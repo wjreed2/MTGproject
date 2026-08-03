@@ -360,6 +360,8 @@ Do **not** start B until A’s H term is stable.
 
 **Interview paused** after §15 accepted; type/kind inference → partner semantics (§16). Resume theme interviews later if needed.
 
+Related (not Phase A/B/C of this plan): commander-plan notes for **dynamic roles**, **target commander cast turn** (ramp/lands/ramp CMC), and **protection of key pieces** as a richer role type — see [`commander-plan-notes.md`](./commander-plan-notes.md). Interview only when the owner asks.
+
 ---
 
 ## 10. Open questions — interview (legacy Q2–Q6)
