@@ -9,11 +9,18 @@
 
 ## Intent
 
-Move the commander plan away from a **fixed set of roles and fixed on-curve assumptions** toward inputs that reflect how the player actually wants to play the deck. Those inputs drive:
+Help the **Plan wizard** identify **what roles a commander deck should have**, combining:
+
+1. What the **algorithm thinks** (narrowed candidate role list from commander + decklist + plan signals).
+2. What the **user identifies** (user picks from that narrowed list; **user has final say**).
+
+Those confirmed roles (plus later cast-turn and protection inputs) drive:
 
 1. Which roles matter and at what counts (Adds/Cuts thresholds & deficits) — including roles the deck’s plan must **feed**.
 2. How much ramp and how many lands, and which CMC band of ramp counts as “early.”
 3. How much / what kind of protection to recommend (new protection role framing).
+
+**Locked UX principle (2026-08-03):** Algorithm **narrows** the pick list; user **decides**. The algorithm does not silently lock roles without user confirmation.
 
 ---
 
@@ -30,16 +37,17 @@ Move the commander plan away from a **fixed set of roles and fixed on-curve assu
 
 - Roles used for plan / Adds / Cuts / Gameplan should become **dynamic** — which roles are in play is not always the same fixed set.
 - **Add roles** as part of that expansion (beyond today’s threshold keys / usage), not only reweight the current static list.
-- See **Theme D** for how the user declares which roles the plan feeds.
+- **Role identification model (locked direction):** algorithm proposes / narrows; user confirms / edits; user has final say. See **Theme D**.
 
 ### Saved questions (ask later — Theme A)
 
-1. Should the **active role set** for a deck be entirely user-chosen, inferred from decklist + commander, or a hybrid (inferred defaults the user can edit)?
+1. ~~Active role set entirely user / inferred / hybrid?~~ → **Partially locked:** hybrid (algo narrows, user final say). Remaining: are algo suggestions **pre-checked**, **highlighted only**, or **unordered shortlist** with no default selection?
 2. Do Ramp / Card Draw / Removal stay as always-on staples even when dynamic roles are live, or can a deck opt them out of the scored set?
 3. When we “add roles,” do you mean **new project labels** (e.g. Ping, Extra Turn), **promoting more existing labels into thresholds**, or both?
 4. Do Primary / Secondary / Default **card tags** stay independent of “roles the plan feeds,” or should picking a plan-fed role auto-promote matching tags?
 5. Should `_computeBaseThresholds` become a function of the fed-role list (only those roles get ideals), or keep a full table and only **boost** fed roles?
 6. Does strategy/wincon selection in the wizard still exist once users pick plan-fed roles, or do fed roles replace that step?
+7. If the user clears every algo-suggested role and picks none, what should Adds/Cuts fall back to — static thresholds, empty fed set, or block finish until ≥1 role?
 
 ---
 
@@ -85,7 +93,7 @@ Move the commander plan away from a **fixed set of roles and fixed on-curve assu
 - Identify **what card type(s)** those key pieces are (creature, enchantment, artifact, etc.).
 - Those answers determine the **level** and **type** of protection to add.
 - **Protection will be a new role type** in the dynamic-role sense (richer than today’s single flat Protection count) — even though a Protection label already exists in the tag list.
-- May overlap Theme D if “key pieces” are named cards vs role buckets — **clarify with owner** (see Theme D open clarification).
+- May overlap Theme D if “key pieces” are named cards vs role buckets — still open; see Theme D saved questions.
 
 ### Saved questions (ask later — Theme C)
 
@@ -99,37 +107,60 @@ Move the commander plan away from a **fixed set of roles and fixed on-curve assu
 
 ---
 
-## Theme D — Key cards / plan-fed roles (wizard picks what to feed)
+## Theme D — Wizard role identification (algo narrows, user decides)
 
-### Direction (product)
+### Goal (product — locked direction)
 
-- The user should identify **X** important things for the plan. **Open clarification (ask when owner requests interview):** is X **named key cards**, **card roles**, or **both** (e.g. pick roles first, optionally pin specific cards)?
-- Whatever is chosen tells the algorithm:
-  - Which **roles are important**
-  - Which **roles to feed** (deficit / Adds priority / plan-match weight)
-- **Wizard UX (stated example):** ask the user to pick from a **list the wizard implies from the decklist** (when a list is available) of roles that should be fed by the deck’s plan.
-  - Example picks: Sac Outlet, Ramp, Ping, Drain, Tutor, Protection, etc.
-  - Implication source: role tags already present / frequent on the decklist (and/or commander oracle signals), ranked so the wizard proposes likely plan-fed roles rather than a blank catalog.
-  - If no decklist yet: fall back to full role catalog and/or commander-only inference (details TBD in interview).
+Help the wizard identify **what roles the commander deck should have** using both:
+
+- **Algorithm judgment** — score / rank / shortlist roles from commander oracle, decklist role tags, strategy/wincon bridges, and related signals.
+- **User identification** — user reviews that shortlist and selects what the deck should actually have / feed.
+
+**Division of labor (locked):**
+
+| Actor | Job |
+|-------|-----|
+| Algorithm | **Narrow** the list the user picks from (and optionally rank / soft-recommend). |
+| User | **Final say** — accept, reject, add, or override; confirmed roles are authoritative. |
+
+The algorithm must not silently overwrite a user’s confirmed role set without an explicit re-run / re-confirm flow (details in saved questions).
+
+### Direction (product) — related details
+
+- Confirmed roles tell the algorithm which roles are **important** and which to **feed** (deficit / Adds priority / plan-match weight).
+- Shortlist examples the owner cited: Sac Outlet, Ramp, Ping, Drain, Tutor, Protection, etc. (see role inventory; Ping is a gap / candidate new label).
+- Implication / narrowing sources (candidate mix — not locked): role tags on the decklist, Primary tags, commander oracle rules, strategy/wincon bridge bundles.
+- Separately still open: whether the user also pins **named key cards** in addition to roles (saved Q below).
+- Empty deck / commander-only: how aggressively to narrow (saved Q below).
 
 ### Current baseline (related)
 
 - Deck cards already carry project **role tags**; Gameplan Custom pills can list tags used in the deck.
-- Plan wizard infers **strategy/wincon**, then Adds uses bundled role labels from that strategy — not a user multi-select of “roles to feed.”
+- Plan wizard infers **strategy/wincon**, then Adds uses bundled role labels from that strategy — not a user multi-select of “roles to feed” with algo-narrowed choices.
 - Adds primary-tier roles today are hard-coded: Ramp, Card Draw, Removal (`ADDS_PRIMARY_ROLES`).
 
 ### Saved questions (ask later — Theme D)
 
-1. Does the user pick **named key cards**, **roles to feed**, or **both** (and in what order)?
-2. What is **X** — fixed count (e.g. top 3), a range (2–5), unlimited multi-select, or “as many as you want” with a soft cap?
-3. Is the wizard’s decklist-implied list the **only** choices, or can the user open the **full role catalog** / add roles not yet in the list?
-4. How is the implied list built — roles by **count** on the list, by **Primary** tags, commander oracle signals, strategy-bridge defaults, or a weighted mix?
-5. What does **“feed”** mean in scoring — raise ideal thresholds, raise deficit weight (D), raise plan H / `planMatchScore`, demote non-fed roles, or all of the above?
-6. If the user picks **key cards**, do we treat those cards’ role tags as the fed roles automatically, or ask for roles separately?
-7. Should Ramp / Card Draw / Removal still be fed by default even if not picked, or only what’s picked?
-8. Owner example included **Ping** — confirm Ping as a **new project role** (vs alias of Burn/Drain/Group Slug)? Any other must-add roles from the gap table (Fog, Extra Turn, GY hate, mana rock/dork, …)?
-9. Empty / new deck with no list yet — show full catalog, commander-only implied roles, or skip this step until cards exist?
-10. Do plan-fed role picks **persist on the deck plan** and drive both Adds and Cuts, or Adds-only for v1?
+**Narrowing / final say**
+1. How hard does “narrow” cut — top **N** roles only, ranked full catalog with low ranks hidden behind “show more,” or soft highlight on a medium list (~8–12)?
+2. Can the user always **escape hatch** to the full role catalog (or search), or is the shortlist exclusive unless they toggle “advanced”?
+3. Are algo suggestions **pre-selected** for convenience, or unselected with the user opting in (final say without bias from defaults)?
+4. If the decklist changes after confirmation, does the algo **re-narrow automatically**, prompt “roles may be stale,” or never touch confirmed picks until the user reopens the step?
+5. Can the user **force-add** a role the algo scored near zero / omitted from the shortlist? Any warning copy?
+
+**What is being identified**
+6. Does this step identify **roles only**, **named key cards only**, or **both** (and in what order)?
+7. What is **X** / selection size — fixed count, range (e.g. 2–5), or uncapped multi-select with soft guidance?
+8. If the user picks **key cards**, do those cards’ role tags auto-join the fed-role set, or stay separate from role picks?
+
+**Signals & scoring meaning**
+9. How should the shortlist be built — decklist role **counts**, **Primary** tags, commander oracle, strategy-bridge defaults, wincon bridge, or a weighted mix (propose weights later)?
+10. What does **“should have” / “feed”** mean in scoring — raise ideal thresholds, raise deficit weight (D), raise plan H / `planMatchScore`, demote non-confirmed roles, or all of the above?
+11. Should Ramp / Card Draw / Removal still be treated as should-have if the user never picks them?
+12. Owner example included **Ping** — confirm Ping as a **new project role** (vs alias of Burn/Drain/Group Slug)? Any other must-add roles from the gap table?
+13. Empty / new deck with little or no list — commander-only shortlist, full catalog, or skip until enough cards exist?
+14. Do confirmed roles **persist on the deck plan** and drive both Adds and Cuts, or Adds-only for v1?
+15. After the user confirms, does the wizard still ask strategy/wincon, or can confirmed roles **replace or seed** those steps?
 
 ---
 
@@ -138,12 +169,13 @@ Move the commander plan away from a **fixed set of roles and fixed on-curve assu
 **Rule:** Do not ask these until the owner says to interview (per theme or all). Copy from here into the conversation when requested.
 
 ### A — Dynamic roles
-1. Active role set: user-chosen, inferred, or hybrid editable defaults?
+1. Algo suggestions: pre-checked, highlighted only, or unordered shortlist with no defaults? *(hybrid / user final say already locked)*
 2. Can Ramp / Card Draw / Removal be opted out of the scored set?
 3. “Add roles” = new labels, promote into thresholds, or both?
 4. Relationship between plan-fed roles and Primary/Secondary/Default card tags?
 5. Thresholds: only fed roles get ideals, or full table with boosts for fed roles?
 6. Keep strategy/wincon wizard step once fed-role picks exist?
+7. If user confirms zero roles — fallback static thresholds, empty set, or block finish?
 
 ### B — Commander cast turn
 1. Where is cast turn set (wizard / Gameplan / both synced)?
@@ -163,22 +195,28 @@ Move the commander plan away from a **fixed set of roles and fixed on-curve assu
 6. Same as Theme D “Protection” pick, or separate package?
 7. Prefer protection that matches chosen types/pieces?
 
-### D — Key cards / plan-fed roles
-1. Key cards, roles, or both (order)?
-2. What is X (fixed / range / uncapped)?
-3. Implied list only, or full catalog escape hatch?
-4. How to build the implied list from the decklist?
-5. Exact scoring meaning of “feed”?
-6. Key cards → auto-derive fed roles?
-7. Staples still fed if not picked?
-8. Confirm Ping (+ other gap roles) as new labels?
-9. Behavior with empty / no decklist?
-10. Persist on plan for Adds and Cuts, or Adds-only v1?
+### D — Wizard role identification (algo narrows, user decides)
+1. Narrowing hardness: top N vs ranked “show more” vs soft-highlight medium list?
+2. Full-catalog / search escape hatch always available?
+3. Pre-select algo picks vs opt-in only?
+4. Decklist changes after confirm: auto re-narrow, stale prompt, or leave until reopen?
+5. Force-add roles the algo omitted? Any warning?
+6. Roles only, key cards only, or both (order)?
+7. Selection size X: fixed / range / uncapped?
+8. Key cards → auto-derive fed roles?
+9. Shortlist signal mix (counts, Primary, commander, strategy/wincon bridges)?
+10. Scoring meaning of “should have” / “feed”?
+11. Staples still should-have if not picked?
+12. Confirm Ping (+ other gap roles) as new labels?
+13. Empty / thin decklist behavior?
+14. Persist on plan for Adds and Cuts, or Adds-only v1?
+15. Confirmed roles replace / seed strategy/wincon steps?
 
 ### Cross-cutting
-1. Interview / implement order preference: D (fed roles) → B (cast turn) → C (protection), or another order?
+1. Interview / implement order preference: D (role ID) → B (cast turn) → C (protection), or another order?
 2. One wizard pass collecting all of this, or separate panels (Gameplan vs Plan wizard)?
 3. Any roles from the inventory appendix to **exclude** from user-facing pick lists (too broad / junk)?
+4. When algo and user disagree (user rejects a high-confidence role), should we still show that role as a soft “optional” in Adds Why text, or fully ignore it?
 
 ---
 
@@ -298,9 +336,9 @@ Useful as **candidates to add** as project labels later (not all exist client-si
 
 | Surface | Likely impact |
 |---------|----------------|
-| **Plan wizard** | New step: pick X plan-fed roles (and/or key cards) from decklist-implied list |
-| **Suggested Adds** | Dynamic role deficits from fed roles; ramp/land from cast turn; protection typed to key pieces |
-| **Suggested Cuts** | Thresholds / surplus roles become plan-dynamic |
+| **Plan wizard** | Role-ID step: algo-narrowed shortlist; user confirms roles the deck should have / feed |
+| **Suggested Adds** | Dynamic role deficits from **user-confirmed** roles; ramp/land from cast turn; protection typed to key pieces |
+| **Suggested Cuts** | Thresholds / surplus roles become plan-dynamic from confirmed roles |
 | **Commander Gameplan** | Cast-turn input; early-ramp CMC band; land/ramp meta; protection / fed-role custom requirements |
 
 Do not draft Ready Prompt bodies until interviews for the relevant theme are done (or the owner explicitly says to draft from notes alone).
@@ -314,3 +352,4 @@ Do not draft Ready Prompt bodies until interviews for the relevant theme are don
 | 2026-08-03 | Initial notes: dynamic roles, cast turn, protection. Questions deferred. |
 | 2026-08-03 | Theme D: user picks X key cards **or** roles (clarify later). Wizard implies plan-fed roles from decklist. Full role inventory researched across project tags, thresholds, plan bridges, engine2. |
 | 2026-08-03 | Wrote concrete saved interview questions per theme A–D + cross-cutting master list (ask only when owner requests). |
+| 2026-08-03 | Locked UX: algo **narrows** role pick list, user has **final say**. Reframed Theme D as wizard role identification; expanded saved Qs for narrowing hardness, pre-select, stale-on-list-change, escape hatch, disagreement handling. |
