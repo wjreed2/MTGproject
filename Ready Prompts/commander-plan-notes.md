@@ -32,9 +32,14 @@ Move the commander plan away from a **fixed set of roles and fixed on-curve assu
 - **Add roles** as part of that expansion (beyond today’s threshold keys / usage), not only reweight the current static list.
 - See **Theme D** for how the user declares which roles the plan feeds.
 
-### Deferred questions
+### Saved questions (ask later — Theme A)
 
-Ask only when the owner requests an interview on dynamic roles. Topics to cover later may include: which roles enter/leave the active set, how the wizard or plan declares them, interaction with Primary/Secondary/Default tags, and migration from `_computeBaseThresholds`.
+1. Should the **active role set** for a deck be entirely user-chosen, inferred from decklist + commander, or a hybrid (inferred defaults the user can edit)?
+2. Do Ramp / Card Draw / Removal stay as always-on staples even when dynamic roles are live, or can a deck opt them out of the scored set?
+3. When we “add roles,” do you mean **new project labels** (e.g. Ping, Extra Turn), **promoting more existing labels into thresholds**, or both?
+4. Do Primary / Secondary / Default **card tags** stay independent of “roles the plan feeds,” or should picking a plan-fed role auto-promote matching tags?
+5. Should `_computeBaseThresholds` become a function of the fed-role list (only those roles get ideals), or keep a full table and only **boost** fed roles?
+6. Does strategy/wincon selection in the wizard still exist once users pick plan-fed roles, or do fed roles replace that step?
 
 ---
 
@@ -54,9 +59,15 @@ Ask only when the owner requests an interview on dynamic roles. Topics to cover 
   - Number of **lands**
   - What **CMC** the ramp package should sit at (what counts as early / useful before that turn)
 
-### Deferred questions
+### Saved questions (ask later — Theme B)
 
-Ask only when the owner requests an interview on commander cast turn. Topics to cover later may include: UI capture (wizard vs Gameplan), default vs override vs inferred, interaction with Prompt 10 early-ramp formula, and how Adds ramp/land deficits use the turn.
+1. Where does the user set target cast turn — **Plan wizard**, **Commander Gameplan**, both (synced), or elsewhere?
+2. What is the default if they skip it — commander CMC (on-curve), CMC−1, or no default / required field?
+3. Is the input a single integer turn (e.g. “turn 4”), a range (“turns 3–4”), or relative (“on curve” / “one turn early” / “two turns early”)?
+4. Should **early-ramp CMC** be `targetTurn − 1`, `targetTurn − 2` (Prompt 10 style), or something else?
+5. How should target turn map to **land count** and **ramp count** ideals — a formula you already have in mind, EDHREC-ish curves, or we propose options later?
+6. If the commander has partner / background / adventure / MDFC faces, which MV drives the default turn?
+7. Does changing cast turn retarget **only Gameplan probs**, or also Adds ramp/land deficits and Cuts surplus on Ramp?
 
 ---
 
@@ -76,9 +87,15 @@ Ask only when the owner requests an interview on commander cast turn. Topics to 
 - **Protection will be a new role type** in the dynamic-role sense (richer than today’s single flat Protection count) — even though a Protection label already exists in the tag list.
 - May overlap Theme D if “key pieces” are named cards vs role buckets — **clarify with owner** (see Theme D open clarification).
 
-### Deferred questions
+### Saved questions (ask later — Theme C)
 
-Ask only when the owner requests an interview on protection. Topics to cover later may include: importance scale, multi-type key pieces, commander vs non-commander protection, mapping to tag/query subtypes (hexproof vs indestructible vs counters vs bounce-save), and whether Protection becomes a primary-tier role when importance is high.
+1. What scale is “how important” — Low / Med / High, 1–5, or a single “protect these” on/off with intensity elsewhere?
+2. Are **key pieces** the commander only, named non-commander cards, card types (creature/enchantment/…), roles (Theme D), or a mix?
+3. If card **types**, can the user pick multiple (e.g. creatures + artifacts)? Does each type get its own protection weight?
+4. What **kinds** of protection should the algorithm distinguish — hexproof/shroud, indestructible, ward, counterspells, bounce-save, regenerate, phasing, pillowfort? Which matter for v1?
+5. When importance is high, should Protection become a **primary-tier** Adds role (alongside or instead of Ramp/Draw/Removal)?
+6. Is Theme C’s Protection the same pick as “Protection” in the Theme D plan-fed role list, or a separate richer package?
+7. Should protection suggestions prefer cards that protect the **chosen types/pieces** specifically (e.g. “target permanent you control” vs “creatures you control” vs commander-only)?
 
 ---
 
@@ -101,9 +118,67 @@ Ask only when the owner requests an interview on protection. Topics to cover lat
 - Plan wizard infers **strategy/wincon**, then Adds uses bundled role labels from that strategy — not a user multi-select of “roles to feed.”
 - Adds primary-tier roles today are hard-coded: Ramp, Card Draw, Removal (`ADDS_PRIMARY_ROLES`).
 
-### Deferred questions
+### Saved questions (ask later — Theme D)
 
-Ask only when the owner requests an interview on key cards / plan-fed roles. Must clarify cards vs roles vs both; also count of X, whether wizard-implied list is exclusive or additive to the full catalog, how “feed” maps to thresholds vs H/planMatchScore, and whether Protection here is the same Theme C protection package.
+1. Does the user pick **named key cards**, **roles to feed**, or **both** (and in what order)?
+2. What is **X** — fixed count (e.g. top 3), a range (2–5), unlimited multi-select, or “as many as you want” with a soft cap?
+3. Is the wizard’s decklist-implied list the **only** choices, or can the user open the **full role catalog** / add roles not yet in the list?
+4. How is the implied list built — roles by **count** on the list, by **Primary** tags, commander oracle signals, strategy-bridge defaults, or a weighted mix?
+5. What does **“feed”** mean in scoring — raise ideal thresholds, raise deficit weight (D), raise plan H / `planMatchScore`, demote non-fed roles, or all of the above?
+6. If the user picks **key cards**, do we treat those cards’ role tags as the fed roles automatically, or ask for roles separately?
+7. Should Ramp / Card Draw / Removal still be fed by default even if not picked, or only what’s picked?
+8. Owner example included **Ping** — confirm Ping as a **new project role** (vs alias of Burn/Drain/Group Slug)? Any other must-add roles from the gap table (Fog, Extra Turn, GY hate, mana rock/dork, …)?
+9. Empty / new deck with no list yet — show full catalog, commander-only implied roles, or skip this step until cards exist?
+10. Do plan-fed role picks **persist on the deck plan** and drive both Adds and Cuts, or Adds-only for v1?
+
+---
+
+## Saved interview questions (master list)
+
+**Rule:** Do not ask these until the owner says to interview (per theme or all). Copy from here into the conversation when requested.
+
+### A — Dynamic roles
+1. Active role set: user-chosen, inferred, or hybrid editable defaults?
+2. Can Ramp / Card Draw / Removal be opted out of the scored set?
+3. “Add roles” = new labels, promote into thresholds, or both?
+4. Relationship between plan-fed roles and Primary/Secondary/Default card tags?
+5. Thresholds: only fed roles get ideals, or full table with boosts for fed roles?
+6. Keep strategy/wincon wizard step once fed-role picks exist?
+
+### B — Commander cast turn
+1. Where is cast turn set (wizard / Gameplan / both synced)?
+2. Default if skipped?
+3. Single turn vs range vs relative (“on curve” / early)?
+4. Early-ramp CMC formula relative to target turn?
+5. How turn → land count and ramp count ideals?
+6. Partner / multi-face MV for default turn?
+7. Retarget Gameplan only, or Adds/Cuts ramp too?
+
+### C — Protection
+1. Importance scale (L/M/H, 1–5, on/off)?
+2. Key pieces = commander / named cards / types / roles / mix?
+3. Multiple types allowed? Per-type weights?
+4. Which protection kinds in v1 (hexproof, indestructible, ward, counters, bounce-save, …)?
+5. High importance → Protection as primary-tier Adds role?
+6. Same as Theme D “Protection” pick, or separate package?
+7. Prefer protection that matches chosen types/pieces?
+
+### D — Key cards / plan-fed roles
+1. Key cards, roles, or both (order)?
+2. What is X (fixed / range / uncapped)?
+3. Implied list only, or full catalog escape hatch?
+4. How to build the implied list from the decklist?
+5. Exact scoring meaning of “feed”?
+6. Key cards → auto-derive fed roles?
+7. Staples still fed if not picked?
+8. Confirm Ping (+ other gap roles) as new labels?
+9. Behavior with empty / no decklist?
+10. Persist on plan for Adds and Cuts, or Adds-only v1?
+
+### Cross-cutting
+1. Interview / implement order preference: D (fed roles) → B (cast turn) → C (protection), or another order?
+2. One wizard pass collecting all of this, or separate panels (Gameplan vs Plan wizard)?
+3. Any roles from the inventory appendix to **exclude** from user-facing pick lists (too broad / junk)?
 
 ---
 
@@ -238,3 +313,4 @@ Do not draft Ready Prompt bodies until interviews for the relevant theme are don
 |------|------|
 | 2026-08-03 | Initial notes: dynamic roles, cast turn, protection. Questions deferred. |
 | 2026-08-03 | Theme D: user picks X key cards **or** roles (clarify later). Wizard implies plan-fed roles from decklist. Full role inventory researched across project tags, thresholds, plan bridges, engine2. |
+| 2026-08-03 | Wrote concrete saved interview questions per theme A–D + cross-cutting master list (ask only when owner requests). |
