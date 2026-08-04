@@ -152,7 +152,8 @@ So land count **cannot** be set by “hit every land drop by T at 85%” alone. 
 - Importance = **Not important / Low / Med / High** (**CP-Q23/24**). Targets: **0 / 3 / 6 / 10** — one **shared** importance drives the Protection ideal count; optional types do **not** change that count (**CP-Q25 D**).
 - Precheck **High** + explanation for **Voltron**, or **combo when commander is in the combo**; else no precheck (**CP-Q23**).
 - Optional types are **suggestion-matching hints** only (prefer cards that protect commander and/or chosen types).
-- Protection **kinds in v1** = today’s project **Protection** tag query only (**CP-Q26 D**): `protection from` / hexproof / indestructible / phase out. Broad package (ward, shroud, counters, bounce-save, regenerate, pillowfort, protective blink) deferred — DB/codebase cannot deterministically cover that set today.
+- Protection **kinds / discovery in v1** = today’s project **Protection** tag query (**CP-Q26 D**): `protection from` / hexproof / indestructible / phase out. Do not hard-code a broader oracle kind list (ward/shroud/bounce-save/…) until data can support it.
+- **Counting rule (CP-Q26b):** a card counts toward the Protection ideal if **any** of: project tag **Protection**, CardIR role `protection`, or provides `protection.single` / `protection.mass`. (Today engine2 thresholds only count the role — implement the union.)
 - **Protection** remains a richer plan role than today’s flat count of 3; may still appear as the project label **Protection** in the confirmed-role list.
 - Theme D key cards are **not** auto protection targets (unless we add that later).
 
@@ -163,6 +164,7 @@ So land count **cannot** be set by “hit every land drop by T at 85%” alone. 
 2. ~~What to protect?~~ → **Locked CP-Q22:** **commander + optional types** (not auto key cards).
 3. ~~Optional types select/weight?~~ → **Locked CP-Q25: D** — multi-select; shared importance; types = matching hints only (do not change ideal count).
 4. ~~Protection kinds v1?~~ → **Locked CP-Q26: D** (A preferred if DB could; it cannot) — project Protection query only; expand later.
+4b. ~~What counts toward Protection ideal?~~ → **Locked CP-Q26b:** tag **or** role `protection` **or** `protection.single`/`protection.mass`.
 5. When importance is High, should Protection become a **primary-tier** / auto-confirmed role (like Ramp/Draw/Removal)?
 6. Is Theme C Protection the same confirmed-role label as project **Protection**, or a separate package?
 7. Matching detail: how strongly prefer commander-only vs type-scoped protectors (partially covered by CP-Q25 D)?
@@ -217,7 +219,8 @@ The algorithm must not silently overwrite a user’s confirmed role set without 
 | **CP-Q23** | **A — Low / Med / High + precheck** — Importance scale L/M/H (plus **Not important** via CP-Q24). Precheck **High** (+ short explanation) when strategy is **Voltron**, or **combo with the commander in the combo** (semantics/combo-finder); otherwise **no precheck**. | 2026-08-04 |
 | **CP-Q24** | **B + Not important** — Protection ideal targets: **Not important = 0 / Low = 3 / Med = 6 / High = 10**. | 2026-08-04 |
 | **CP-Q25** | **D — Multi-select types as matching hints** — User may multi-select optional permanent types. One **shared** importance sets the Protection ideal (0/3/6/10). Chosen types **do not** change that count; they steer **suggestion matching** only (prefer protectors that cover commander and/or those types). | 2026-08-04 |
-| **CP-Q26** | **D — Project Protection query (A if DB could; it cannot)** — v1 kinds = existing tag query: `o:"protection from" or o:hexproof or o:indestructible or o:"phase out"`. Owner preferred broad package **A** (ward/shroud/counters/bounce-save/regenerate/phasing/pillowfort) **if** DB could support it; Classic query does not; engine2 has no deterministic classifier for that set (and CardIR for protective blink is unverified). Expand when data can. | 2026-08-04 |
+| **CP-Q26** | **D — Project Protection query (A if DB could; it cannot)** — v1 kinds / discovery = existing tag query: `o:"protection from" or o:hexproof or o:indestructible or o:"phase out"`. Owner preferred broad package **A** if DB could; it cannot. Expand when data can. | 2026-08-04 |
+| **CP-Q26b** | **Count union** — A card counts toward the Protection ideal if **any** of: project tag **Protection**, CardIR role `protection`, or provides axis `protection.single` / `protection.mass`. One card still counts once toward the ideal. (Implement: engine2 `countRoles` today ignores axes.) | 2026-08-04 |
 
 ### Direction (product) — related details
 
@@ -338,6 +341,7 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 - **CP-Q24 — Locked: B + Not important** — Protection targets **Not important=0 / Low=3 / Med=6 / High=10**.
 - **CP-Q25 — Locked: D** — multi-select optional types; shared importance; types = suggestion-matching hints only (ideal count unchanged).
 - **CP-Q26 — Locked: D** — v1 kinds = project Protection query only (A deferred: DB cannot cover broad package today).
+- **CP-Q26b — Locked:** count = tag **or** role `protection` **or** `protection.single`/`mass` (union; once per card).
 - **Next:** High → auto-confirm Protection role?; same as project Protection label?; matching detail; combo gate.
 
 ---
@@ -373,6 +377,7 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 2. ~~What to protect?~~ → **CP-Q22 Locked:** commander + optional types.
 3. ~~Multi-type / weights?~~ → **CP-Q25 Locked: D** — multi-select; shared importance; types = matching hints only.
 4. ~~Protection kinds v1?~~ → **CP-Q26 Locked: D** — project Protection query; A deferred (DB cannot).
+4b. ~~What counts?~~ → **CP-Q26b Locked:** tag or role `protection` or `protection.single`/`mass`.
 5. High importance → Protection as primary/auto-confirmed role?
 6. Same as project Protection label, or separate package?
 7. Matching detail beyond CP-Q25 (commander-only vs type-scoped strength)?
@@ -436,6 +441,7 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 28. CP-Q24 **Locked: B + Not important** — Protection ideals **0 / 3 / 6 / 10**.
 29. CP-Q25 **Locked: D** — multi-select types; shared importance; types = suggestion-matching hints only.
 30. CP-Q26 **Locked: D** — v1 kinds = project Protection query (A if DB could; cannot today).
+31. CP-Q26b **Locked:** Protection count = tag or role `protection` or `protection.single`/`mass`.
 
 ---
 
@@ -601,3 +607,4 @@ Do not draft Ready Prompt bodies until interviews for the relevant theme are don
 | 2026-08-04 | **CP-Q24 Locked: B + Not important** — Protection targets **Not important=0 / Low=3 / Med=6 / High=10**. |
 | 2026-08-04 | **CP-Q25 Locked: D** — multi-select optional types; shared importance; types steer suggestion matching only (do not change Protection ideal count). |
 | 2026-08-04 | **CP-Q26 Locked: D** — owner preferred A if DB could; Classic Protection query + no deterministic broad-kind classifier → use project query (`protection from`/hexproof/indestructible/phase out); expand later. |
+| 2026-08-04 | **CP-Q26b Locked:** count toward Protection ideal if project tag **Protection** OR CardIR role `protection` OR provides `protection.single`/`protection.mass` (union; once per card). Engine2 must be updated — today only role counts. |
