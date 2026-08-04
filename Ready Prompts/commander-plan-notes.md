@@ -149,15 +149,15 @@ So land count **cannot** be set by “hit every land drop by T at 85%” alone. 
 ### Direction (product)
 
 - Protect the **commander** always; user may optionally add permanent **types** to protect (**CP-Q22**).
-- Importance = **Low / Med / High** (**CP-Q23 A**). Precheck **High** + explanation for **Voltron**, or **combo when commander is in the combo** (semantics/combo-finder); else no precheck.
+- Importance = **Not important / Low / Med / High** (**CP-Q23/24**). Targets: **0 / 3 / 6 / 10**. Precheck **High** + explanation for **Voltron**, or **combo when commander is in the combo**; else no precheck.
 - Kinds of protection still open — those set which cards to prefer.
 - **Protection** remains a richer plan role than today’s flat count of 3; may still appear as the project label **Protection** in the confirmed-role list.
 - Theme D key cards are **not** auto protection targets (unless we add that later).
 
 ### Saved questions (ask later — Theme C)
 
-1. ~~Importance scale?~~ → **Locked CP-Q23: A** — L/M/H; precheck High for Voltron or commander-in-combo; else no precheck.
-1b. Exact L/M/H → Protection target numbers (draft 4 / 7 / 10)?
+1. ~~Importance scale?~~ → **Locked CP-Q23: A** — L/M/H (+ **Not important** per CP-Q24); precheck High for Voltron or commander-in-combo; else no precheck.
+1b. ~~L/M/H → targets?~~ → **Locked CP-Q24: B + Not important** — **0 / 3 / 6 / 10**.
 2. ~~What to protect?~~ → **Locked CP-Q22:** **commander + optional types** (not auto key cards).
 3. Optional types: multi-select allowed? Shared weight vs per-type weight?
 4. What **kinds** of protection for v1 — hexproof/shroud, indestructible, ward, counters, bounce-save, regenerate, phasing, pillowfort?
