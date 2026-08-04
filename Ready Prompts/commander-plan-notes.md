@@ -124,7 +124,7 @@ So land count **cannot** be set by “hit every land drop by T at 85%” alone. 
 - **Slightly high** vs ScrollVault midrange sweet spot (**36–37**). Forcing **37–39 always** would over-land low-curve / high-ramp decks and under-serve avgMV ≥3.5 without enough ramp.  
 - **35** is reasonable with strong cheap ramp; **40** is in-band for high avgMV / low ramp / landfall — not “wrong.”
 
-**Proposed v1 land rule (for CP-Q21-C) — recommend locking this, not a flat 37–39:**
+**Locked v1 land rule (CP-Q21 A) — not a flat 37–39:**
 
 1. **avgMV** = average mana value of **non-land** mainboard cards (include commander once; exclude tokens).  
 2. **Bootstrap R_est** = current early-ramp count if deck exists, else confirmed Ramp target default (**10**), else **10**. (Karsten needs a ramp/draw term; option C solves R after L — bootstrap then optionally one iterate.)  
@@ -208,7 +208,6 @@ The algorithm must not silently overwrite a user’s confirmed role set without 
 | **CP-Q18** | **Both — Gameplan + Adds/Cuts** — **T** steers Gameplan and land/early-ramp ideals. Ideals from inverse hypergeometric “cast commander on T” (Theme B), not flat Ramp=10 alone. | 2026-08-04 |
 | **CP-Q19** | **Cards seen by turn T = 7 + T** — Opening 7, then one draw each turn including the cast turn. Turn 4 ⇒ **11**. Do not use Gameplan `7+(T−1)` for these ideals. | 2026-08-04 |
 | **CP-Q20** | **D — User-selectable consistency %; default 85% after free mulligan** — Solve L*/R* so P(cast on T) ≥ threshold. Default **85%** with free mulligan (Gameplan-style). User can change % in wizard/Gameplan. | 2026-08-04 |
-| **CP-Q21** | **A — Fix L* via Karsten, then solve R*** — `round(31.42 + 3.13×avgMV − 0.28×R_est)` + small T nudge; clamp **[35, 40]**; user-editable. Then solve early-ramp (CMC ≤ T−1) for consistency % (default 85% after free mulligan). | 2026-08-04 |
 
 ### Direction (product) — related details
 
@@ -323,7 +322,8 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 - **CP-Q18 — Locked: Both** — Gameplan + Adds/Cuts; L\*/R\* via inverse hypergeo toward cast-on-T.
 - **CP-Q19 — Locked:** cards seen by turn T = **7 + T** (include draw on cast turn; T4 ⇒ 11).
 - **CP-Q20 — Locked: D** — consistency % user-selectable; **default 85% after free mulligan**.
-- **Next:** how to solve L\* vs R\* (mixture / joint).
+- **CP-Q21 — Locked: A** — Karsten L\* clamped [35,40] then solve R\* for cast-on-T @ consistency %.
+- **Next:** Theme B leftovers (partner/MV) or Theme C protection.
 
 ---
 
