@@ -140,12 +140,14 @@ The algorithm must not silently overwrite a user’s confirmed role set without 
 | **CP-Q9b** | **Multi-role counting (all roles)** — A card that fills multiple roles counts **+qty toward each** matched role (e.g. Goblin Bombardment → Burn + Removal + Sac Outlet). Applies to base and user-confirmed roles. Matches current Classic + engine2 counting; do not change to single-bucket. | 2026-08-04 |
 | **CP-Q10** | **D — Default 10, user-editable** — Each user-confirmed plan role defaults to target **10** (mid of important 8–12). User can edit N per role in the wizard; soft warn / guidance if outside 8–12 (finish still allowed unless we harden later). Semantics does **not** pick 8 vs 12. | 2026-08-04 |
 | **CP-Q11** | **D — Staples auto-included, opt-out** — Ramp, Card Draw, and Removal are **pre-added** to the confirmed role list (checked). User may uncheck to drop them from roles-to-fill. While present, they follow confirmed-role rules (editable target, default 10 unless we keep table values — see follow-up if needed). | 2026-08-04 |
+| **CP-Q12** | **B — Seed strategy/wincon, still editable** — Infer strategy + wincon from key cards + confirmed roles (bridges / IR / heuristics); pre-select in wizard; user can change. Do not drop those steps. | 2026-08-04 |
 
 ### Direction (product) — related details
 
 - **Key-card step first:** user **searches with card-name autocomplete** and **chooses** ~2–5 cards that drive the plan (B4 guidance on count). Works with an empty / unset decklist. No algo-chosen key set; selection = pick a name from autocomplete (or confirm a chosen result), not a passive highlight.
 - **Role step second:** suggest editable roles via **CP-Q6** — tags always available; with CardIR, also IR roles + need-mapped feeders + provide-mapped payoffs. **Pre-checked (CP-Q7 A)**; user unchecks / adds from **full catalog (CP-Q8 A)**; user final say.
 - **Staples (CP-Q11 D):** Ramp / Card Draw / Removal start on the confirmed list (checked); user can opt out.
+- **Strategy/wincon (CP-Q12 B):** still asked; **seeded** from key cards + confirmed roles; user can edit.
 - **Confirmed roles = important / to-fill (CP-Q9 D):** added to the active role set with targets (**default 10**, editable — CP-Q10 D) and stronger D on shortfalls.
 - **Counting (CP-Q9b):** multi-role cards count toward **every** matched role spot.
 - Shortlist examples for roles once derived: Sac Outlet, Ramp, Ping, Drain, Tutor, Protection, etc. (Ping still a gap / candidate new label).
@@ -178,7 +180,7 @@ The algorithm must not silently overwrite a user’s confirmed role set without 
 12. Owner example included **Ping** — confirm Ping as a **new project role** (vs alias of Burn/Drain/Group Slug)? Any other must-add roles from the gap table?
 13. ~~Empty / new deck key-card entry?~~ → Covered by CP-Q5 (search + autocomplete works pre-decklist).
 14. Do confirmed roles **persist on the deck plan** and drive both Adds and Cuts, or Adds-only for v1?
-15. After the user confirms, does the wizard still ask strategy/wincon, or can confirmed roles **replace or seed** those steps?
+15. ~~Strategy/wincon after role confirm?~~ → **Locked CP-Q12: B** — keep both steps; seed from key cards + confirmed roles; user editable.
 
 ---
 
