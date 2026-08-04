@@ -169,6 +169,7 @@ The algorithm must not silently overwrite a user’s confirmed role set without 
 | **CP-Q15** | **A — Single integer turn + show commander CMC** — User enters one target turn (e.g. 4). UI **identifies/displays the commander’s CMC** so “on curve” is obvious; does not store a relative mode in v1 (presets that fill the integer can come later). | 2026-08-04 |
 | **CP-Q16** | **A — Default = commander CMC (on curve)** — If unset, effective target turn = commander MV (e.g. MV 5 → turn 5). | 2026-08-04 |
 | **CP-Q17** | **Early ramp CMC ≤ T − 1** — With target cast turn **T** (from CP-Q15/16), a ramp card counts as early if its CMC is **≤ T − 1**. Floor edge cases (T ≤ 1) at implement time. | 2026-08-04 |
+| **CP-Q18** | **Both — Gameplan + Adds/Cuts** — **T** steers Gameplan and land/early-ramp ideals. Ideals from inverse hypergeometric “cast commander on T” (Theme B), not flat Ramp=10 alone. | 2026-08-04 |
 
 ### Direction (product) — related details
 
