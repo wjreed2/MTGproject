@@ -322,7 +322,8 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 - **CP-Q19 — Locked:** cards seen by turn T = **7 + T** (include draw on cast turn; T4 ⇒ 11).
 - **CP-Q20 — Locked: D** — consistency % user-selectable; **default 85% after free mulligan**.
 - **CP-Q21 — Locked: A** — Karsten L\* clamped [35,40] then solve R\* for cast-on-T @ consistency %.
-- **Next:** Theme B leftovers (partner/MV) or Theme C protection.
+- **CP-Q22 — Locked:** protect **commander + optional types** (not auto Theme D key cards).
+- **Next:** protection importance scale; kinds of protection; multi-type weights.
 
 ---
 
