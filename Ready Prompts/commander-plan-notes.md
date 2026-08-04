@@ -130,10 +130,11 @@ The algorithm must not silently overwrite a user’s confirmed role set without 
 | ID | Decision | Date |
 |----|----------|------|
 | **CP-Q1** | **D** — Both, cards first: pin key cards; derive editable roles from those cards (IR + provides/needs). Algo narrows; user final say. | 2026-08-03 |
+| **CP-Q3** | **B + B4 guidance + band source A** — Soft target **2–5** key cards; UI highlights recommended tier; soft warning outside the band; finish always allowed. Band is a **fixed v1 default** (not semantics-derived); retune later. Semantics-derived band (former C) deferred. | 2026-08-04 |
 
 ### Direction (product) — related details
 
-- **Key-card step first:** wizard presents an algo-narrowed shortlist of important cards; user selects.
+- **Key-card step first:** wizard presents an algo-narrowed shortlist of important cards; user selects (**about 2–5**, B4 guidance).
 - **Role step second:** roles suggested from confirmed key cards’ IR `roles` + implied feed/need axes (mapped to project labels); user edits (add/remove).
 - Confirmed roles (after edit) tell the algorithm which roles are **important** and which to **feed**.
 - Shortlist examples for roles once derived: Sac Outlet, Ramp, Ping, Drain, Tutor, Protection, etc. (Ping still a gap / candidate new label).
@@ -156,7 +157,7 @@ The algorithm must not silently overwrite a user’s confirmed role set without 
 
 **What is being identified**
 6. ~~Roles only / key cards / both?~~ → **Locked CP-Q1: D** (cards first, then editable derived roles).
-7. What is **X** / selection size for **key cards** — fixed count, range (e.g. 2–5), or uncapped multi-select with soft guidance?
+7. ~~Key-card selection size / guidance / band source?~~ → **Locked CP-Q3:** soft **2–5**, guidance **B4** (highlight + soft warning), band source **A** (fixed v1 default; not semantics-derived).
 8. ~~If key cards, auto-join fed roles?~~ → **Locked direction under D:** derive role suggestions from key cards; user edits. Remaining: derive from IR only, tags only, or IR+tags+unmet axes?
 9. How should the **key-card** shortlist be built — semantics centrality (needs/edges), decklist Primary tags, commander synergy, EDHREC, or a weighted mix?
 10. What does **“should have” / “feed”** mean in scoring — raise ideal thresholds, raise deficit weight (D), raise plan H / `planMatchScore`, demote non-confirmed roles, or all of the above?
@@ -217,8 +218,9 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 ### Interview status
 
 - **In progress** (owner requested interview 2026-08-03).
-- **CP-Q1 — Locked: D** — Both, **cards first**: user pins key cards; roles are suggested from those cards (IR roles + provides/needs implications), then **user-editable**. Semantics narrows/ranks; user has final say on cards and on the derived role list.
-- **Next:** selection size / shortlist behavior for key cards, then semantics weight (former CP-Q2), etc.
+- **CP-Q1 — Locked: D** — cards first → editable derived roles.
+- **CP-Q3 — Locked: B + B4 + band A** — soft 2–5 key cards; highlight + soft warning; fixed v1 band (semantics-derived band deferred).
+- **Next:** how the **key-card shortlist** is ranked (semantics vs tags vs blend).
 
 ---
 
@@ -286,6 +288,7 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 3. Any roles from the inventory appendix to **exclude** from user-facing pick lists (too broad / junk)?
 4. When algo and user disagree (user rejects a high-confidence role), should we still show that role as a soft “optional” in Adds Why text, or fully ignore it?
 5. CP-Q1 **Locked: D** (cards first → editable derived roles).
+6. CP-Q3 **Locked: B+B4+band A** (soft 2–5; highlight + warning; fixed v1 default).
 
 ---
 
@@ -425,3 +428,4 @@ Do not draft Ready Prompt bodies until interviews for the relevant theme are don
 | 2026-08-03 | Locked UX: algo **narrows** role pick list, user has **final say**. Reframed Theme D as wizard role identification; expanded saved Qs for narrowing hardness, pre-select, stale-on-list-change, escape hatch, disagreement handling. |
 | 2026-08-03 | Interview started (CP-Q1 roles vs cards). Owner asked how to incorporate semantics provides/needs (“feeds”). Added Theme E + proposed pipeline; interview continues on semantics. |
 | 2026-08-03 | **CP-Q1 Locked: D** (key cards first → derive editable roles). Clarified semantics plugs into whichever Q1 shape without deciding Q1. Next: key-card count / shortlist ranking. |
+| 2026-08-04 | **CP-Q3 Locked: B+B4+band A** — soft 2–5 key cards, highlight + soft warning, fixed v1 band (not semantics-derived C). Discussed C risks; owner chose A for now. |
