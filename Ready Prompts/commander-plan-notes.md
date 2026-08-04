@@ -212,6 +212,8 @@ The algorithm must not silently overwrite a user’s confirmed role set without 
 | **CP-Q20** | **D — User-selectable consistency %; default 85% after free mulligan** — Solve L*/R* so P(cast on T) ≥ threshold. Default **85%** with free mulligan (Gameplan-style). User can change % in wizard/Gameplan. | 2026-08-04 |
 | **CP-Q21** | **A — Fix L\* via Karsten, then solve R\*** — `round(31.42 + 3.13×avgMV − 0.28×R_est)` + small T nudge; clamp **[35, 40]**; user-editable. Then solve early-ramp (CMC ≤ T−1) for consistency % (default 85% after free mulligan). | 2026-08-04 |
 | **CP-Q22** | **Commander + optional types** — Protection always covers the **commander**. User may optionally add permanent **types**. Does **not** auto-use Theme D key cards as protection targets. | 2026-08-04 |
+| **CP-Q23** | **A — Low / Med / High + precheck** — Importance scale L/M/H (plus **Not important** via CP-Q24). Precheck **High** (+ short explanation) when strategy is **Voltron**, or **combo with the commander in the combo** (semantics/combo-finder); otherwise **no precheck**. | 2026-08-04 |
+| **CP-Q24** | **B + Not important** — Protection ideal targets: **Not important = 0 / Low = 3 / Med = 6 / High = 10**. | 2026-08-04 |
 
 ### Direction (product) — related details
 
@@ -328,8 +330,9 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 - **CP-Q20 — Locked: D** — consistency % user-selectable; **default 85% after free mulligan**.
 - **CP-Q21 — Locked: A** — Karsten L\* clamped [35,40] then solve R\* for cast-on-T @ consistency %.
 - **CP-Q22 — Locked:** protect **commander + optional types** (not auto Theme D key cards).
-- **CP-Q23 — Locked: A** — L/M/H importance; precheck High for Voltron or commander-in-combo (+ explanation); else no precheck.
-- **Next:** L/M/H → targets; multi-type; protection kinds; High → auto-confirm Protection role?
+- **CP-Q23 — Locked: A** — L/M/H importance (+ Not important via CP-Q24); precheck High for Voltron or commander-in-combo (+ explanation); else no precheck.
+- **CP-Q24 — Locked: B + Not important** — Protection targets **Not important=0 / Low=3 / Med=6 / High=10**.
+- **Next:** multi-type select; protection kinds; High → auto-confirm Protection role?
 
 ---
 
@@ -359,8 +362,8 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 7. ~~Retarget Gameplan only vs Adds?~~ → covered by CP-Q18.
 
 ### C — Protection
-1. ~~Importance scale?~~ → **CP-Q23 Locked: A** — L/M/H; precheck High for Voltron or commander-in-combo; else none.
-1b. L/M/H → Protection target numbers?
+1. ~~Importance scale?~~ → **CP-Q23 Locked: A** (+ Not important).
+1b. ~~Targets?~~ → **CP-Q24 Locked:** **0 / 3 / 6 / 10** (Not important / Low / Med / High).
 2. ~~What to protect?~~ → **CP-Q22 Locked:** commander + optional types.
 3. Multi-type select? Per-type weights?
 4. Which protection kinds in v1?
@@ -424,6 +427,7 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 25. CP-Q21 **Locked: A** — Karsten L\* clamp [35,40]; then solve early-ramp R\*.
 26. CP-Q22 **Locked:** commander + optional types for protection.
 27. CP-Q23 **Locked: A** — L/M/H; precheck High for Voltron or commander-in-combo; else no precheck.
+28. CP-Q24 **Locked: B + Not important** — Protection ideals **0 / 3 / 6 / 10**.
 
 ---
 
@@ -586,3 +590,4 @@ Do not draft Ready Prompt bodies until interviews for the relevant theme are don
 | 2026-08-04 | **CP-Q21 Locked: A** — fix L\* via Karsten + T nudge, clamp [35,40], editable; then solve R\* for cast-on-T. |
 | 2026-08-04 | **CP-Q22 Locked:** protection targets = **commander + optional permanent types** (not auto key cards). |
 | 2026-08-04 | **CP-Q23 Locked: A** — Low/Med/High; precheck High (+ explanation) for Voltron or combo-with-commander-in-combo; else no precheck. |
+| 2026-08-04 | **CP-Q24 Locked: B + Not important** — Protection targets **Not important=0 / Low=3 / Med=6 / High=10**. |
