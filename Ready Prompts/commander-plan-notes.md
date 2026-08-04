@@ -310,7 +310,7 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 4. ~~Early-ramp CMC?~~ → **CP-Q17 Locked:** ≤ T − 1.
 5. ~~How turn → L/R ideals / scope?~~ → **CP-Q18 Locked: Both** + inverse hypergeo (Gameplan-inspired).
 5b. ~~Cards seen?~~ → **CP-Q19 Locked:** n = **7 + T** (T4 ⇒ 11; draw on cast turn included).
-5c. “Consistently” P threshold when solving K?
+5c. ~~Consistency P?~~ → **CP-Q20 Locked: D** — selectable; default **85% after free mulligan**.
 5d. Joint solve (L\*, R\*) vs Gameplan-style 0/1/2+ ramp mixtures?
 6. Partner / multi-face MV for default turn?
 7. ~~Retarget Gameplan only vs Adds?~~ → covered by CP-Q18.
@@ -375,6 +375,7 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 21. CP-Q17 **Locked:** early ramp CMC ≤ T − 1.
 22. CP-Q18 **Locked: Both** — Gameplan + Adds/Cuts; inverse hypergeo for L\*/R\*.
 23. CP-Q19 **Locked:** n = 7 + T (draw on cast turn; T4 ⇒ 11).
+24. CP-Q20 **Locked: D** — selectable consistency %; default 85% after free mulligan.
 
 ---
 
@@ -533,3 +534,4 @@ Do not draft Ready Prompt bodies until interviews for the relevant theme are don
 | 2026-08-04 | **CP-Q17 Locked:** early ramp = CMC ≤ targetTurn − 1. |
 | 2026-08-04 | **CP-Q18 Locked: Both** — T steers Gameplan + Adds/Cuts; L\*/R\* from inverse hypergeo “cast on T.” Reviewed Gameplan: good forward model; n may be 10 vs 11; must invert for targets. |
 | 2026-08-04 | **CP-Q19 Locked:** cards seen by turn T = **7 + T** (include draw on that turn). T4 ⇒ 11. Gameplan’s `7+(T−1)` is incorrect for this application. |
+| 2026-08-04 | **CP-Q20 Locked: D** — user-selectable consistency %; default **85% after free mulligan**. |
