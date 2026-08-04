@@ -151,7 +151,7 @@ So land count **cannot** be set by “hit every land drop by T at 85%” alone. 
 - Protect the **commander** always; user may optionally **multi-select** permanent **types** (**CP-Q22/25**).
 - Importance = **Not important / Low / Med / High** (**CP-Q23/24**). Targets: **0 / 3 / 6 / 10** — one **shared** importance drives the Protection ideal count; optional types do **not** change that count (**CP-Q25 D**).
 - Precheck **High** + explanation for **Voltron**, or **combo when commander is in the combo**; else no precheck (**CP-Q23**).
-- Optional types are **suggestion-matching hints** only (prefer cards that protect commander and/or chosen types).
+- Optional types are **suggestion-matching hints** only (do not change ideal count — **CP-Q25 D**). Ranking: prefer protectors that cover the **commander** (or “target permanent you control” / equipped creature); chosen types are **soft secondary** boosts (**CP-Q29 A**).
 - Protection **kinds / discovery in v1** = today’s project **Protection** tag query (**CP-Q26 D**): `protection from` / hexproof / indestructible / phase out. Do not hard-code a broader oracle kind list (ward/shroud/bounce-save/…) until data can support it.
 - **Counting rule (CP-Q26b):** a card counts toward the Protection ideal if **any** of: project tag **Protection**, CardIR role `protection`, or provides `protection.single` / `protection.mass`. (Today engine2 thresholds only count the role — implement the union.)
 - When importance is **High**, **Protection** is **pre-added** to the confirmed role list (checked), same pattern as Ramp/Draw/Removal; user may uncheck (**CP-Q27 A**). Ideal still follows CP-Q24 (High → 10) unless user edits.
@@ -168,7 +168,7 @@ So land count **cannot** be set by “hit every land drop by T at 85%” alone. 
 4b. ~~What counts toward Protection ideal?~~ → **Locked CP-Q26b:** tag **or** role `protection` **or** `protection.single`/`protection.mass`.
 5. ~~High → auto-confirm Protection?~~ → **Locked CP-Q27: A** — High pre-adds Protection (checked); user can uncheck.
 6. ~~Same label as project Protection?~~ → **Locked CP-Q28: A** — same label; Theme C configures Protection, not a new role.
-7. Matching detail: how strongly prefer commander-only vs type-scoped protectors (partially covered by CP-Q25 D)?
+7. ~~Matching detail?~~ → **Locked CP-Q29: A** — prefer commander-protecting cards; types = soft secondary boost.
 8. Combo precheck: which combo-finder API / confidence gate (engine2 combo-rules vs sandbox)?
 
 ---
@@ -224,6 +224,7 @@ The algorithm must not silently overwrite a user’s confirmed role set without 
 | **CP-Q26b** | **Count union** — A card counts toward the Protection ideal if **any** of: project tag **Protection**, CardIR role `protection`, or provides axis `protection.single` / `protection.mass`. One card still counts once toward the ideal. (Implement: engine2 `countRoles` today ignores axes.) | 2026-08-04 |
 | **CP-Q27** | **A — High auto-confirms Protection** — When protection importance is **High**, pre-add project label **Protection** to the confirmed role list (checked), same opt-out pattern as Ramp / Card Draw / Removal (CP-Q11). User may uncheck. Med / Low / Not important do **not** auto-add via this rule (precheck may still set High — CP-Q23). | 2026-08-04 |
 | **CP-Q28** | **A — Same project label** — Theme C is how **Protection** gets importance, ideal (0/3/6/10), optional type hints, and High auto-confirm. Not a separate role package or second label. | 2026-08-04 |
+| **CP-Q29** | **A — Prefer commander, types secondary** — Adds ranking prefers cards that protect the **commander** (or broad “target permanent you control” / equipped-creature style). Optional type picks give a **soft secondary** score boost only; they do not outrank commander fit. | 2026-08-04 |
 
 ### Direction (product) — related details
 
@@ -347,7 +348,8 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 - **CP-Q26b — Locked:** count = tag **or** role `protection` **or** `protection.single`/`mass` (union; once per card).
 - **CP-Q27 — Locked: A** — High importance pre-adds Protection (checked); user can uncheck.
 - **CP-Q28 — Locked: A** — same project label **Protection**; Theme C configures it (not a separate package).
-- **Next:** matching detail; combo precheck gate.
+- **CP-Q29 — Locked: A** — prefer commander-protecting suggestions; types = soft secondary boost.
+- **Next:** combo precheck gate (which combo-finder / confidence).
 
 ---
 
@@ -385,7 +387,7 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 4b. ~~What counts?~~ → **CP-Q26b Locked:** tag or role `protection` or `protection.single`/`mass`.
 5. ~~High → auto-confirm?~~ → **CP-Q27 Locked: A** — High pre-adds Protection (checked); opt-out.
 6. ~~Same label?~~ → **CP-Q28 Locked: A** — same project **Protection**; Theme C configures it.
-7. Matching detail beyond CP-Q25 (commander-only vs type-scoped strength)?
+7. ~~Matching?~~ → **CP-Q29 Locked: A** — prefer commander; types soft secondary.
 8. Combo precheck: which combo-finder + confidence gate?
 
 ### D — Wizard role identification (algo narrows, user decides)
@@ -449,6 +451,7 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 31. CP-Q26b **Locked:** Protection count = tag or role `protection` or `protection.single`/`mass`.
 32. CP-Q27 **Locked: A** — High importance pre-adds Protection (checked); user can uncheck.
 33. CP-Q28 **Locked: A** — Theme C uses same project label **Protection** (not a separate package).
+34. CP-Q29 **Locked: A** — prefer commander-protecting Adds; types = soft secondary boost.
 
 ---
 
@@ -617,3 +620,4 @@ Do not draft Ready Prompt bodies until interviews for the relevant theme are don
 | 2026-08-04 | **CP-Q26b Locked:** count toward Protection ideal if project tag **Protection** OR CardIR role `protection` OR provides `protection.single`/`protection.mass` (union; once per card). Engine2 must be updated — today only role counts. |
 | 2026-08-04 | **CP-Q27 Locked: A** — High protection importance pre-adds **Protection** to confirmed roles (checked); user may uncheck. |
 | 2026-08-04 | **CP-Q28 Locked: A** — Theme C configures the existing project label **Protection**; not a separate role package. |
+| 2026-08-04 | **CP-Q29 Locked: A** — protection Adds prefer commander coverage; optional types are soft secondary matching boosts. |
