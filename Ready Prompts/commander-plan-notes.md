@@ -436,3 +436,4 @@ Do not draft Ready Prompt bodies until interviews for the relevant theme are don
 | 2026-08-03 | **CP-Q1 Locked: D** (key cards first → derive editable roles). Clarified semantics plugs into whichever Q1 shape without deciding Q1. Next: key-card count / shortlist ranking. |
 | 2026-08-04 | **CP-Q3 Locked: B+B4+band A** — soft 2–5 key cards, highlight + soft warning, fixed v1 band (not semantics-derived C). Discussed C risks; owner chose A for now. |
 | 2026-08-04 | **CP-Q4 Locked:** user specifies 2–5 key cards that drive the plan; algo shortlist-of-cards dropped. Algo applies after (derive editable roles). |
+| 2026-08-04 | **CP-Q5 Locked: C + autocomplete** — free search auto-populates card names; user explicitly selects; works before decklist exists. |
