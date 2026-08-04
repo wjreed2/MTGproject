@@ -150,6 +150,7 @@ So land count **cannot** be set by “hit every land drop by T at 85%” alone. 
 
 - Protect the **commander** always; user may optionally **multi-select** permanent **types** (**CP-Q22/25**).
 - Importance = **Not important / Low / Med / High** (**CP-Q23/24**). Targets: **0 / 3 / 6 / 10** — one **shared** importance drives the Protection ideal count; optional types do **not** change that count (**CP-Q25 D**).
+- Precheck **High** + explanation for **Voltron**, or **combo when commander is in the combo**; else no precheck (**CP-Q23**).
 - Optional types are **suggestion-matching hints** only (prefer cards that protect commander and/or chosen types).
 - Kinds of protection still open — those also set which cards to prefer.
 - **Protection** remains a richer plan role than today’s flat count of 3; may still appear as the project label **Protection** in the confirmed-role list.
