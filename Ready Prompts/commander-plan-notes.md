@@ -260,7 +260,8 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 - **CP-Q14 — Locked: C** — cast turn in wizard + Gameplan, synced.
 - **CP-Q15 — Locked: A** — single integer turn; show commander CMC.
 - **CP-Q16 — Locked: A** — default cast turn = commander CMC (on curve).
-- **Next:** early-ramp CMC cutoff; land/ramp ideals from turn; partner/MV edge cases.
+- **CP-Q17 — Locked:** early ramp CMC ≤ **T − 1**.
+- **Next:** land/ramp count ideals from T; partner/MV; Gameplan vs Adds scope.
 
 ---
 
@@ -281,7 +282,7 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 1. ~~Where set?~~ → **CP-Q14 Locked: C** (wizard + Gameplan synced).
 2. ~~Default if skipped?~~ → **CP-Q16 Locked: A** — commander CMC (on curve).
 3. ~~Single / range / relative?~~ → **CP-Q15 Locked: A** — single integer; display commander CMC.
-4. Early-ramp CMC formula relative to target turn?
+4. ~~Early-ramp CMC?~~ → **CP-Q17 Locked:** ≤ T − 1.
 5. How turn → land count and ramp count ideals?
 6. Partner / multi-face MV for default turn?
 7. Retarget Gameplan only, or Adds/Cuts ramp too?
@@ -343,6 +344,7 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 18. CP-Q14 **Locked: C** — cast turn wizard + Gameplan synced.
 19. CP-Q15 **Locked: A** — single integer turn; show commander CMC.
 20. CP-Q16 **Locked: A** — default = commander CMC (on curve).
+21. CP-Q17 **Locked:** early ramp CMC ≤ T − 1.
 
 ---
 
@@ -498,3 +500,4 @@ Do not draft Ready Prompt bodies until interviews for the relevant theme are don
 | 2026-08-04 | **CP-Q14 Locked: C** — target cast turn in Plan wizard + Commander Gameplan, one synced field. |
 | 2026-08-04 | **CP-Q15 Locked: A** — single integer cast turn; UI identifies/displays commander CMC. |
 | 2026-08-04 | **CP-Q16 Locked: A** — unset cast turn defaults to commander CMC (on curve). |
+| 2026-08-04 | **CP-Q17 Locked:** early ramp = CMC ≤ targetTurn − 1. |
