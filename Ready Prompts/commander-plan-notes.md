@@ -154,7 +154,7 @@ The algorithm must not silently overwrite a user’s confirmed role set without 
 
 **Narrowing / final say**
 1. How hard does “narrow” cut — top **N** roles only, ranked full catalog with low ranks hidden behind “show more,” or soft highlight on a medium list (~8–12)?
-2. Can the user always **escape hatch** to the full role catalog (or search), or is the shortlist exclusive unless they toggle “advanced”?
+2. ~~Escape hatch beyond derived roles?~~ → **Locked CP-Q8: A** — full searchable project-role catalog always available to add roles.
 3. ~~Are algo role suggestions pre-selected?~~ → **Locked CP-Q7: A** — all suggested roles pre-checked; user unchecks to reject.
 4. If the decklist changes after confirmation, does the algo **re-narrow automatically**, prompt “roles may be stale,” or never touch confirmed picks until the user reopens the step?
 5. Can the user **force-add** a role the algo scored near zero / omitted from the shortlist? Any warning copy?
@@ -229,7 +229,8 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 - **CP-Q5 — Locked: C + autocomplete** — free card-name search that auto-populates names; user explicitly selects each card; works with no decklist.
 - **CP-Q6 — Locked: D with C expansions** — tags+IR fallback; IR adds roles + need-feeders + provide-payoffs; user edits.
 - **CP-Q7 — Locked: A** — derived roles start pre-checked; uncheck to reject.
-- **Next:** escape hatch to add roles not in the derived set; what “feed” means in scoring; staples if not derived.
+- **CP-Q8 — Locked: A** — full searchable role catalog always available to add roles.
+- **Next:** what confirmed roles mean for Adds/Cuts scoring (“feed”); Ramp/Draw/Removal if not confirmed; strategy/wincon step relationship.
 
 ---
 
@@ -302,6 +303,7 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 8. CP-Q5 **Locked: C + autocomplete** — free search auto-populates card names; user selects; works pre-decklist.
 9. CP-Q6 **Locked: D with C expansions** — tags+IR; IR expands needs/provides/roles; degrade to tags; user edits.
 10. CP-Q7 **Locked: A** — suggested roles pre-checked; uncheck to reject.
+11. CP-Q8 **Locked: A** — full role catalog always available to add.
 
 ---
 
@@ -446,3 +448,4 @@ Do not draft Ready Prompt bodies until interviews for the relevant theme are don
 | 2026-08-04 | **CP-Q5 Locked: C + autocomplete** — free search auto-populates card names; user explicitly selects; works before decklist exists. |
 | 2026-08-04 | **CP-Q6 Locked: D with C expansions** — role suggestions from tags+IR; when IR exists also need-feeders + provide-payoffs + IR roles; user edits. |
 | 2026-08-04 | **CP-Q7 Locked: A** — all derived role suggestions pre-checked; user unchecks to reject. |
+| 2026-08-04 | **CP-Q8 Locked: A** — full searchable project-role catalog always available to add roles beyond derived set. |
