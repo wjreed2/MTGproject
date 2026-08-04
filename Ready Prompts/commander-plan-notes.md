@@ -354,12 +354,12 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 
 ### C — Protection
 1. Importance scale (L/M/H, 1–5, on/off)?
-2. Key pieces = commander / named cards / types / roles / mix?
-3. Multiple types allowed? Per-type weights?
-4. Which protection kinds in v1 (hexproof, indestructible, ward, counters, bounce-save, …)?
-5. High importance → Protection as primary-tier Adds role?
-6. Same as Theme D “Protection” pick, or separate package?
-7. Prefer protection that matches chosen types/pieces?
+2. ~~What to protect?~~ → **CP-Q22 Locked:** commander + optional types.
+3. Multi-type select? Per-type weights?
+4. Which protection kinds in v1?
+5. High importance → Protection as primary/auto-confirmed role?
+6. Same as project Protection label, or separate package?
+7. Prefer protection matching commander vs chosen types?
 
 ### D — Wizard role identification (algo narrows, user decides)
 1. Narrowing hardness: top N vs ranked “show more” vs soft-highlight medium list?
@@ -414,6 +414,7 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 23. CP-Q19 **Locked:** n = 7 + T (draw on cast turn; T4 ⇒ 11).
 24. CP-Q20 **Locked: D** — selectable consistency %; default 85% after free mulligan.
 25. CP-Q21 **Locked: A** — Karsten L\* clamp [35,40]; then solve early-ramp R\*.
+26. CP-Q22 **Locked:** commander + optional types for protection.
 
 ---
 
@@ -574,3 +575,4 @@ Do not draft Ready Prompt bodies until interviews for the relevant theme are don
 | 2026-08-04 | **CP-Q19 Locked:** cards seen by turn T = **7 + T** (include draw on that turn). T4 ⇒ 11. Gameplan’s `7+(T−1)` is incorrect for this application. |
 | 2026-08-04 | **CP-Q20 Locked: D** — user-selectable consistency %; default **85% after free mulligan**. |
 | 2026-08-04 | **CP-Q21 Locked: A** — fix L\* via Karsten + T nudge, clamp [35,40], editable; then solve R\* for cast-on-T. |
+| 2026-08-04 | **CP-Q22 Locked:** protection targets = **commander + optional permanent types** (not auto key cards). |
