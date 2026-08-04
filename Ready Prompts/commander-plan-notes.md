@@ -134,11 +134,12 @@ The algorithm must not silently overwrite a user’s confirmed role set without 
 | **CP-Q4** | **User-specified key cards** — User names/selects the **2–5 cards that drive their plan**. Not an algo-ranked “pick from our shortlist” step. Algorithm’s job starts **after** those cards are set (derive/suggest editable roles from them via semantics/tags). | 2026-08-04 |
 | **CP-Q5** | **C — Free card search / choose + name autocomplete** — User types in a search field that **auto-populates / autocompletes card names**; user **explicitly selects** each key card from suggestions (not highlight-only). Must work **before a decklist exists**. In-deck state irrelevant for v1 entry. | 2026-08-04 |
 | **CP-Q6** | **D with C expansions** — Seed suggested roles from **project tags + CardIR** (D fallback). When IR exists, expand with **C**: IR `roles` + axes the key cards **need** (roles that should feed them) + axes they **provide** (payoff roles they enable). Merge/dedupe to project labels; user edits. No IR → tags only for that card. | 2026-08-04 |
+| **CP-Q7** | **A — Suggested roles pre-checked** — All derived role suggestions start checked; user unchecks to reject. Final say via edit, not opt-in from empty. | 2026-08-04 |
 
 ### Direction (product) — related details
 
 - **Key-card step first:** user **searches with card-name autocomplete** and **chooses** ~2–5 cards that drive the plan (B4 guidance on count). Works with an empty / unset decklist. No algo-chosen key set; selection = pick a name from autocomplete (or confirm a chosen result), not a passive highlight.
-- **Role step second:** suggest editable roles via **CP-Q6** — tags always available; with CardIR, also IR roles + need-mapped feeders + provide-mapped payoffs. User add/remove; user final say.
+- **Role step second:** suggest editable roles via **CP-Q6** — tags always available; with CardIR, also IR roles + need-mapped feeders + provide-mapped payoffs. **Pre-checked (CP-Q7 A)**; user unchecks / adds; user final say.
 - Confirmed roles (after edit) tell the algorithm which roles are **important** and which to **feed**.
 - Shortlist examples for roles once derived: Sac Outlet, Ramp, Ping, Drain, Tutor, Protection, etc. (Ping still a gap / candidate new label).
 
@@ -153,7 +154,7 @@ The algorithm must not silently overwrite a user’s confirmed role set without 
 **Narrowing / final say**
 1. How hard does “narrow” cut — top **N** roles only, ranked full catalog with low ranks hidden behind “show more,” or soft highlight on a medium list (~8–12)?
 2. Can the user always **escape hatch** to the full role catalog (or search), or is the shortlist exclusive unless they toggle “advanced”?
-3. Are algo suggestions **pre-selected** for convenience, or unselected with the user opting in (final say without bias from defaults)?
+3. ~~Are algo role suggestions pre-selected?~~ → **Locked CP-Q7: A** — all suggested roles pre-checked; user unchecks to reject.
 4. If the decklist changes after confirmation, does the algo **re-narrow automatically**, prompt “roles may be stale,” or never touch confirmed picks until the user reopens the step?
 5. Can the user **force-add** a role the algo scored near zero / omitted from the shortlist? Any warning copy?
 
@@ -226,7 +227,8 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 - **CP-Q4 — Locked: user-specified key cards** — user picks the plan drivers; algo derives roles afterward.
 - **CP-Q5 — Locked: C + autocomplete** — free card-name search that auto-populates names; user explicitly selects each card; works with no decklist.
 - **CP-Q6 — Locked: D with C expansions** — tags+IR fallback; IR adds roles + need-feeders + provide-payoffs; user edits.
-- **Next:** whether derived role suggestions are pre-selected; escape hatch to full role catalog; what “feed” means in Adds/Cuts scoring.
+- **CP-Q7 — Locked: A** — derived roles start pre-checked; uncheck to reject.
+- **Next:** escape hatch to add roles not in the derived set; what “feed” means in scoring; staples if not derived.
 
 ---
 
@@ -298,6 +300,7 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 7. CP-Q4 **Locked: user specifies** the 2–5 plan-driving key cards (algo does not pick them).
 8. CP-Q5 **Locked: C + autocomplete** — free search auto-populates card names; user selects; works pre-decklist.
 9. CP-Q6 **Locked: D with C expansions** — tags+IR; IR expands needs/provides/roles; degrade to tags; user edits.
+10. CP-Q7 **Locked: A** — suggested roles pre-checked; uncheck to reject.
 
 ---
 
@@ -441,3 +444,4 @@ Do not draft Ready Prompt bodies until interviews for the relevant theme are don
 | 2026-08-04 | **CP-Q4 Locked:** user specifies 2–5 key cards that drive the plan; algo shortlist-of-cards dropped. Algo applies after (derive editable roles). |
 | 2026-08-04 | **CP-Q5 Locked: C + autocomplete** — free search auto-populates card names; user explicitly selects; works before decklist exists. |
 | 2026-08-04 | **CP-Q6 Locked: D with C expansions** — role suggestions from tags+IR; when IR exists also need-feeders + provide-payoffs + IR roles; user edits. |
+| 2026-08-04 | **CP-Q7 Locked: A** — all derived role suggestions pre-checked; user unchecks to reject. |
