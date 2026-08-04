@@ -166,7 +166,7 @@ The algorithm must not silently overwrite a user’s confirmed role set without 
 1. How hard does “narrow” cut — top **N** roles only, ranked full catalog with low ranks hidden behind “show more,” or soft highlight on a medium list (~8–12)?
 2. ~~Escape hatch beyond derived roles?~~ → **Locked CP-Q8: A** — full searchable project-role catalog always available to add roles.
 3. ~~Are algo role suggestions pre-selected?~~ → **Locked CP-Q7: A** — all suggested roles pre-checked; user unchecks to reject.
-4. If the decklist changes after confirmation, does the algo **re-narrow automatically**, prompt “roles may be stale,” or never touch confirmed picks until the user reopens the step?
+4. ~~Decklist / key-card drift after confirm?~~ → **Locked CP-Q13: B** — stale banner + Re-derive; no silent overwrite.
 5. Can the user **force-add** a role the algo scored near zero / omitted from the shortlist? Any warning copy?
 
 **What is being identified**
@@ -247,7 +247,8 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 - **CP-Q10 — Locked: D** — confirmed role target default **10**, user-editable; soft warn outside 8–12.
 - **CP-Q11 — Locked: D** — Ramp / Card Draw / Removal pre-added (checked); user can opt out.
 - **CP-Q12 — Locked: B** — strategy/wincon kept; seeded from key cards + roles; user editable.
-- **Next:** stale roles when key cards change; Theme B cast turn; Theme C protection — when ready.
+- **CP-Q13 — Locked: B** — stale prompt + Re-derive; no silent overwrite.
+- **Theme D role-ID block largely locked.** **Next:** Theme B (commander cast turn) or Theme C (protection) — continuing with cast turn.
 
 ---
 
@@ -326,6 +327,7 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 14. CP-Q10 **Locked: D** — default target 10, user-editable; soft guidance outside 8–12.
 15. CP-Q11 **Locked: D** — Ramp/Draw/Removal auto-included (opt-out).
 16. CP-Q12 **Locked: B** — strategy/wincon seeded from key cards + roles; still editable.
+17. CP-Q13 **Locked: B** — stale banner + Re-derive; no silent overwrite.
 
 ---
 
@@ -477,3 +479,4 @@ Do not draft Ready Prompt bodies until interviews for the relevant theme are don
 | 2026-08-04 | **CP-Q10 Locked: D** — confirmed plan roles default target **10**, user-editable; soft guidance outside 8–12. |
 | 2026-08-04 | **CP-Q11 Locked: D** — Ramp / Card Draw / Removal pre-added to confirmed list (checked); user can uncheck. |
 | 2026-08-04 | **CP-Q12 Locked: B** — keep strategy/wincon; seed from key cards + confirmed roles; user can edit. |
+| 2026-08-04 | **CP-Q13 Locked: B** — stale prompt + Re-derive; never silently overwrite confirmed plan. Theme D core locked; next Theme B cast turn. |
