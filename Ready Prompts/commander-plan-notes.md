@@ -96,9 +96,45 @@ Those confirmed roles (plus later cast-turn and protection inputs) drive:
 5. ~~Scope?~~ → **Locked CP-Q18: Both** Gameplan + Adds/Cuts; inverse hypergeo for L\*/R\*
 5b. ~~Cards seen?~~ → **Locked CP-Q19:** **n = 7 + T** (draw on cast turn included; T4 ⇒ 11)
 5c. ~~Consistency P?~~ → **Locked CP-Q20: D** — user-selectable %; **default 85% after free mulligan**
-5d. Joint solve (L\*, R\*) vs table of mixtures like Gameplan’s 0/1/2+ ramp cases?
+5d. **Land-first (CP-Q21 lean C)** — fix **L\*** then solve **R\*** for early ramp. Land rule: research proposal below (not “always 37–39”).
 6. Partner / multi-face MV for displayed CMC / default T?
 7. ~~Retarget Adds?~~ covered by CP-Q18.
+
+### Research note — how many lands (35–40)? Truthful findings (2026-08-04)
+
+**Sources:** Frank Karsten 99-card regression (TCGPlayer / peasant-magic update); ScrollVault ~3.75M Commander Monte Carlo; local hypergeo checks with **n = 7+T**.
+
+**1. Karsten (canonical regression baseline)**  
+`L ≈ 31.42 + 3.13 × avgMV − 0.28 × (cheap ramp or draw)`  
+Examples: avgMV 3.0 + 10 ramp/draw ≈ **38**; avgMV 2.5 + 12 ≈ **36**; avgMV 3.5 + 8 ≈ **40**.  
+This formula does **not** take a user target cast turn **T**; it fits overall curve + ramp/draw density.
+
+**2. Large simulations (ScrollVault)**  
+- Midrange (~3.0 avgMV, ~10 ramp): sweet spot **36–37** (95%+ on-curve through 5MV); Karsten’s ~38 is close; gains from 37→40 are only ~1–3% per spell.  
+- cEDH / turbo: **29–32** works **only** with dense fast mana — not our casual default.  
+- Battlecruiser / high curve / landfall: **38–40+**.  
+- EDHREC community average ~**29** lands is **too low** for midrange reliability (sims show large miss rates on 5–6 drops).
+
+**3. Pure “≥T lands in 7+T cards” hypergeo (no ramp credit)** — does **not** support 35–40 as an 85% land-drop plan:  
+At T=4, n=11, need ≥4 lands: L=37 → ~65%, L=40 → ~73%. **Never hits 85%** in the 35–40 band.  
+So land count **cannot** be set by “hit every land drop by T at 85%” alone. Ramp (and Gameplan’s 0/1/2+ ramp mixture) **must** carry early casts. Mulligan helps but doesn’t close that gap by itself.
+
+**4. Vs owner intuition (err toward 37–39)**  
+- **Aligned** with Karsten midrange (~38) and “comfortable” battlecruiser-adjacent builds.  
+- **Slightly high** vs ScrollVault midrange sweet spot (**36–37**). Forcing **37–39 always** would over-land low-curve / high-ramp decks and under-serve avgMV ≥3.5 without enough ramp.  
+- **35** is reasonable with strong cheap ramp; **40** is in-band for high avgMV / low ramp / landfall — not “wrong.”
+
+**Proposed v1 land rule (for CP-Q21-C) — recommend locking this, not a flat 37–39:**
+
+1. **avgMV** = average mana value of **non-land** mainboard cards (include commander once; exclude tokens).  
+2. **Bootstrap R_est** = current early-ramp count if deck exists, else confirmed Ramp target default (**10**), else **10**. (Karsten needs a ramp/draw term; option C solves R after L — bootstrap then optionally one iterate.)  
+3. **L_raw = round(31.42 + 3.13×avgMV − 0.28×R_est)**  
+4. **Cast-turn nudge:** if **T < cmdCMC** (casting early), **+1** land; if **T > cmdCMC + 1**, **−1** land. (Small; early cast is mostly R’s job.)  
+5. **Clamp** to **[35, 40]** for v1 “casual midrange band”; soft-warn if raw wanted outside (don’t silently invent 29 or 44).  
+6. User may **edit L\*** like role targets.  
+7. Then **solve R\*** (early ramp CMC ≤ T−1) so Gameplan-style mixture P(cast on T) ≥ consistency % (**85%** default after free mulligan).
+
+**Empty / pre-decklist:** use commander CMC as avgMV proxy (or cmdCMC as stand-in) + R_est=10 → typically lands in the high 30s for MV 3–4 commanders.
 
 ---
 
