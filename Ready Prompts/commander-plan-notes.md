@@ -149,19 +149,22 @@ So land count **cannot** be set by “hit every land drop by T at 85%” alone. 
 ### Direction (product)
 
 - Protect the **commander** always; user may optionally add permanent **types** to protect (**CP-Q22**).
-- Importance / kinds of protection still open (saved Qs) — those set how hard we stock Protection and which cards to prefer.
+- Importance = **Low / Med / High** (**CP-Q23 A**). Precheck **High** + explanation for **Voltron**, or **combo when commander is in the combo** (semantics/combo-finder); else no precheck.
+- Kinds of protection still open — those set which cards to prefer.
 - **Protection** remains a richer plan role than today’s flat count of 3; may still appear as the project label **Protection** in the confirmed-role list.
 - Theme D key cards are **not** auto protection targets (unless we add that later).
 
 ### Saved questions (ask later — Theme C)
 
-1. What scale is “how important” — Low / Med / High, 1–5, or a single “protect these” on/off with intensity elsewhere?
+1. ~~Importance scale?~~ → **Locked CP-Q23: A** — L/M/H; precheck High for Voltron or commander-in-combo; else no precheck.
+1b. Exact L/M/H → Protection target numbers (draft 4 / 7 / 10)?
 2. ~~What to protect?~~ → **Locked CP-Q22:** **commander + optional types** (not auto key cards).
 3. Optional types: multi-select allowed? Shared weight vs per-type weight?
 4. What **kinds** of protection for v1 — hexproof/shroud, indestructible, ward, counters, bounce-save, regenerate, phasing, pillowfort?
-5. When importance is high, should Protection become a **primary-tier** / auto-confirmed role (like Ramp/Draw/Removal)?
+5. When importance is High, should Protection become a **primary-tier** / auto-confirmed role (like Ramp/Draw/Removal)?
 6. Is Theme C Protection the same confirmed-role label as project **Protection**, or a separate package?
 7. Prefer suggestions that match commander vs chosen types (e.g. “target permanent” / “creatures you control” / commander-only)?
+8. Combo precheck: which combo-finder API / confidence gate (engine2 combo-rules vs sandbox)?
 
 ---
 
@@ -209,7 +212,6 @@ The algorithm must not silently overwrite a user’s confirmed role set without 
 | **CP-Q20** | **D — User-selectable consistency %; default 85% after free mulligan** — Solve L*/R* so P(cast on T) ≥ threshold. Default **85%** with free mulligan (Gameplan-style). User can change % in wizard/Gameplan. | 2026-08-04 |
 | **CP-Q21** | **A — Fix L\* via Karsten, then solve R\*** — `round(31.42 + 3.13×avgMV − 0.28×R_est)` + small T nudge; clamp **[35, 40]**; user-editable. Then solve early-ramp (CMC ≤ T−1) for consistency % (default 85% after free mulligan). | 2026-08-04 |
 | **CP-Q22** | **Commander + optional types** — Protection always covers the **commander**. User may optionally add permanent **types**. Does **not** auto-use Theme D key cards as protection targets. | 2026-08-04 |
-| **CP-Q23** | **A — Low / Med / High importance** — Precheck **High** (+ explanation) when strategy is **Voltron**, or combo and **commander is in that combo** (semantics/combo-finder). Else **no precheck**. Exact L/M/H→target map open. | 2026-08-04 |
 
 ### Direction (product) — related details
 
@@ -326,7 +328,8 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 - **CP-Q20 — Locked: D** — consistency % user-selectable; **default 85% after free mulligan**.
 - **CP-Q21 — Locked: A** — Karsten L\* clamped [35,40] then solve R\* for cast-on-T @ consistency %.
 - **CP-Q22 — Locked:** protect **commander + optional types** (not auto Theme D key cards).
-- **Next:** protection importance scale; kinds of protection; multi-type weights.
+- **CP-Q23 — Locked: A** — L/M/H importance; precheck High for Voltron or commander-in-combo (+ explanation); else no precheck.
+- **Next:** L/M/H → targets; multi-type; protection kinds; High → auto-confirm Protection role?
 
 ---
 
@@ -356,13 +359,15 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 7. ~~Retarget Gameplan only vs Adds?~~ → covered by CP-Q18.
 
 ### C — Protection
-1. Importance scale (L/M/H, 1–5, on/off)?
+1. ~~Importance scale?~~ → **CP-Q23 Locked: A** — L/M/H; precheck High for Voltron or commander-in-combo; else none.
+1b. L/M/H → Protection target numbers?
 2. ~~What to protect?~~ → **CP-Q22 Locked:** commander + optional types.
 3. Multi-type select? Per-type weights?
 4. Which protection kinds in v1?
 5. High importance → Protection as primary/auto-confirmed role?
 6. Same as project Protection label, or separate package?
 7. Prefer protection matching commander vs chosen types?
+8. Combo precheck: which combo-finder + confidence gate?
 
 ### D — Wizard role identification (algo narrows, user decides)
 1. Narrowing hardness: top N vs ranked “show more” vs soft-highlight medium list?
@@ -418,6 +423,7 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 24. CP-Q20 **Locked: D** — selectable consistency %; default 85% after free mulligan.
 25. CP-Q21 **Locked: A** — Karsten L\* clamp [35,40]; then solve early-ramp R\*.
 26. CP-Q22 **Locked:** commander + optional types for protection.
+27. CP-Q23 **Locked: A** — L/M/H; precheck High for Voltron or commander-in-combo; else no precheck.
 
 ---
 
@@ -579,3 +585,4 @@ Do not draft Ready Prompt bodies until interviews for the relevant theme are don
 | 2026-08-04 | **CP-Q20 Locked: D** — user-selectable consistency %; default **85% after free mulligan**. |
 | 2026-08-04 | **CP-Q21 Locked: A** — fix L\* via Karsten + T nudge, clamp [35,40], editable; then solve R\* for cast-on-T. |
 | 2026-08-04 | **CP-Q22 Locked:** protection targets = **commander + optional permanent types** (not auto key cards). |
+| 2026-08-04 | **CP-Q23 Locked: A** — Low/Med/High; precheck High (+ explanation) for Voltron or combo-with-commander-in-combo; else no precheck. |
