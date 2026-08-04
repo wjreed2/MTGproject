@@ -209,6 +209,7 @@ The algorithm must not silently overwrite a user’s confirmed role set without 
 | **CP-Q20** | **D — User-selectable consistency %; default 85% after free mulligan** — Solve L*/R* so P(cast on T) ≥ threshold. Default **85%** with free mulligan (Gameplan-style). User can change % in wizard/Gameplan. | 2026-08-04 |
 | **CP-Q21** | **A — Fix L\* via Karsten, then solve R\*** — `round(31.42 + 3.13×avgMV − 0.28×R_est)` + small T nudge; clamp **[35, 40]**; user-editable. Then solve early-ramp (CMC ≤ T−1) for consistency % (default 85% after free mulligan). | 2026-08-04 |
 | **CP-Q22** | **Commander + optional types** — Protection always covers the **commander**. User may optionally add permanent **types**. Does **not** auto-use Theme D key cards as protection targets. | 2026-08-04 |
+| **CP-Q23** | **A — Low / Med / High importance** — Precheck **High** (+ explanation) when strategy is **Voltron**, or combo and **commander is in that combo** (semantics/combo-finder). Else **no precheck**. Exact L/M/H→target map open. | 2026-08-04 |
 
 ### Direction (product) — related details
 
