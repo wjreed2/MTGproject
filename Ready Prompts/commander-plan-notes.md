@@ -95,7 +95,7 @@ Those confirmed roles (plus later cast-turn and protection inputs) drive:
 4. ~~Early-ramp CMC?~~ → **Locked CP-Q17:** ≤ T − 1
 5. ~~Scope?~~ → **Locked CP-Q18: Both** Gameplan + Adds/Cuts; inverse hypergeo for L\*/R\*
 5b. ~~Cards seen?~~ → **Locked CP-Q19:** **n = 7 + T** (draw on cast turn included; T4 ⇒ 11)
-5c. “Consistently” = what P threshold (80% / 90% / other) when solving K?
+5c. ~~Consistency P?~~ → **Locked CP-Q20: D** — user-selectable %; **default 85% after free mulligan**
 5d. Joint solve (L\*, R\*) vs table of mixtures like Gameplan’s 0/1/2+ ramp cases?
 6. Partner / multi-face MV for displayed CMC / default T?
 7. ~~Retarget Adds?~~ covered by CP-Q18.
@@ -171,6 +171,7 @@ The algorithm must not silently overwrite a user’s confirmed role set without 
 | **CP-Q17** | **Early ramp CMC ≤ T − 1** — With target cast turn **T** (from CP-Q15/16), a ramp card counts as early if its CMC is **≤ T − 1**. Floor edge cases (T ≤ 1) at implement time. | 2026-08-04 |
 | **CP-Q18** | **Both — Gameplan + Adds/Cuts** — **T** steers Gameplan and land/early-ramp ideals. Ideals from inverse hypergeometric “cast commander on T” (Theme B), not flat Ramp=10 alone. | 2026-08-04 |
 | **CP-Q19** | **Cards seen by turn T = 7 + T** — Opening 7, then one draw each turn including the cast turn. Turn 4 ⇒ **11**. Do not use Gameplan `7+(T−1)` for these ideals. | 2026-08-04 |
+| **CP-Q20** | **D — User-selectable consistency %; default 85% after free mulligan** — Solve L*/R* so P(cast on T) ≥ threshold. Default **85%** with free mulligan (Gameplan-style). User can change % in wizard/Gameplan. | 2026-08-04 |
 
 ### Direction (product) — related details
 
