@@ -148,21 +148,20 @@ So land count **cannot** be set by “hit every land drop by T at 85%” alone. 
 
 ### Direction (product)
 
-- Identify **how important it is to protect key pieces**.
-- Identify **what card type(s)** those key pieces are (creature, enchantment, artifact, etc.).
-- Those answers determine the **level** and **type** of protection to add.
-- **Protection will be a new role type** in the dynamic-role sense (richer than today’s single flat Protection count) — even though a Protection label already exists in the tag list.
-- May overlap Theme D if “key pieces” are named cards vs role buckets — still open; see Theme D saved questions.
+- Protect the **commander** always; user may optionally add permanent **types** to protect (**CP-Q22**).
+- Importance / kinds of protection still open (saved Qs) — those set how hard we stock Protection and which cards to prefer.
+- **Protection** remains a richer plan role than today’s flat count of 3; may still appear as the project label **Protection** in the confirmed-role list.
+- Theme D key cards are **not** auto protection targets (unless we add that later).
 
 ### Saved questions (ask later — Theme C)
 
 1. What scale is “how important” — Low / Med / High, 1–5, or a single “protect these” on/off with intensity elsewhere?
-2. Are **key pieces** the commander only, named non-commander cards, card types (creature/enchantment/…), roles (Theme D), or a mix?
-3. If card **types**, can the user pick multiple (e.g. creatures + artifacts)? Does each type get its own protection weight?
-4. What **kinds** of protection should the algorithm distinguish — hexproof/shroud, indestructible, ward, counterspells, bounce-save, regenerate, phasing, pillowfort? Which matter for v1?
-5. When importance is high, should Protection become a **primary-tier** Adds role (alongside or instead of Ramp/Draw/Removal)?
-6. Is Theme C’s Protection the same pick as “Protection” in the Theme D plan-fed role list, or a separate richer package?
-7. Should protection suggestions prefer cards that protect the **chosen types/pieces** specifically (e.g. “target permanent you control” vs “creatures you control” vs commander-only)?
+2. ~~What to protect?~~ → **Locked CP-Q22:** **commander + optional types** (not auto key cards).
+3. Optional types: multi-select allowed? Shared weight vs per-type weight?
+4. What **kinds** of protection for v1 — hexproof/shroud, indestructible, ward, counters, bounce-save, regenerate, phasing, pillowfort?
+5. When importance is high, should Protection become a **primary-tier** / auto-confirmed role (like Ramp/Draw/Removal)?
+6. Is Theme C Protection the same confirmed-role label as project **Protection**, or a separate package?
+7. Prefer suggestions that match commander vs chosen types (e.g. “target permanent” / “creatures you control” / commander-only)?
 
 ---
 
