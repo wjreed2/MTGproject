@@ -66,10 +66,11 @@ Those confirmed roles (plus later cast-turn and protection inputs) drive:
   - Amount of **ramp** to aim for
   - Number of **lands**
   - What **CMC** the ramp package should sit at (what counts as early / useful before that turn)
+- **CP-Q14 Locked: C** — set in Plan wizard; editable on Commander Gameplan; **one synced field**.
 
 ### Saved questions (ask later — Theme B)
 
-1. Where does the user set target cast turn — **Plan wizard**, **Commander Gameplan**, both (synced), or elsewhere?
+1. ~~Where set?~~ → **Locked CP-Q14: C** (wizard + Gameplan, synced).
 2. What is the default if they skip it — commander CMC (on-curve), CMC−1, or no default / required field?
 3. Is the input a single integer turn (e.g. “turn 4”), a range (“turns 3–4”), or relative (“on curve” / “one turn early” / “two turns early”)?
 4. Should **early-ramp CMC** be `targetTurn − 1`, `targetTurn − 2` (Prompt 10 style), or something else?
@@ -249,7 +250,9 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 - **CP-Q11 — Locked: D** — Ramp / Card Draw / Removal pre-added (checked); user can opt out.
 - **CP-Q12 — Locked: B** — strategy/wincon kept; seeded from key cards + roles; user editable.
 - **CP-Q13 — Locked: B** — stale prompt + Re-derive; no silent overwrite.
-- **Theme D role-ID block largely locked.** **Next:** Theme B (commander cast turn) or Theme C (protection) — continuing with cast turn.
+- **Theme D role-ID block largely locked.**
+- **CP-Q14 — Locked: C** — cast turn in wizard + Gameplan, synced.
+- **Next:** cast-turn input shape / default (Theme B).
 
 ---
 
