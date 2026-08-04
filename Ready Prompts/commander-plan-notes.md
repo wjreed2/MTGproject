@@ -244,7 +244,8 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 - **CP-Q9b — Locked:** multi-role cards count +qty into **each** matched role (all roles).
 - **CP-Q10 — Locked: D** — confirmed role target default **10**, user-editable; soft warn outside 8–12.
 - **CP-Q11 — Locked: D** — Ramp / Card Draw / Removal pre-added (checked); user can opt out.
-- **Next:** staple target = table vs flat 10; strategy/wincon step; stale-on-list-change; cast turn / protection when ready.
+- **CP-Q12 — Locked: B** — strategy/wincon kept; seeded from key cards + roles; user editable.
+- **Next:** stale roles when key cards change; Theme B cast turn; Theme C protection — when ready.
 
 ---
 
@@ -322,6 +323,7 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 13. CP-Q9b **Locked:** multi-role count into each role (incl. base).
 14. CP-Q10 **Locked: D** — default target 10, user-editable; soft guidance outside 8–12.
 15. CP-Q11 **Locked: D** — Ramp/Draw/Removal auto-included (opt-out).
+16. CP-Q12 **Locked: B** — strategy/wincon seeded from key cards + roles; still editable.
 
 ---
 
@@ -472,3 +474,4 @@ Do not draft Ready Prompt bodies until interviews for the relevant theme are don
 | 2026-08-04 | Note: semantics **cannot reliably** choose 8 vs 12 for a role in v1; use fixed/mid/editable in band instead. |
 | 2026-08-04 | **CP-Q10 Locked: D** — confirmed plan roles default target **10**, user-editable; soft guidance outside 8–12. |
 | 2026-08-04 | **CP-Q11 Locked: D** — Ramp / Card Draw / Removal pre-added to confirmed list (checked); user can uncheck. |
+| 2026-08-04 | **CP-Q12 Locked: B** — keep strategy/wincon; seed from key cards + confirmed roles; user can edit. |
