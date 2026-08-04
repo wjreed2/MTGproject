@@ -135,11 +135,12 @@ The algorithm must not silently overwrite a user’s confirmed role set without 
 | **CP-Q5** | **C — Free card search / choose + name autocomplete** — User types in a search field that **auto-populates / autocompletes card names**; user **explicitly selects** each key card from suggestions (not highlight-only). Must work **before a decklist exists**. In-deck state irrelevant for v1 entry. | 2026-08-04 |
 | **CP-Q6** | **D with C expansions** — Seed suggested roles from **project tags + CardIR** (D fallback). When IR exists, expand with **C**: IR `roles` + axes the key cards **need** (roles that should feed them) + axes they **provide** (payoff roles they enable). Merge/dedupe to project labels; user edits. No IR → tags only for that card. | 2026-08-04 |
 | **CP-Q7** | **A — Suggested roles pre-checked** — All derived role suggestions start checked; user unchecks to reject. Final say via edit, not opt-in from empty. | 2026-08-04 |
+| **CP-Q8** | **A — Full role catalog always** — User can add any project role via searchable full catalog (“Add role”), not limited to the derived set. | 2026-08-04 |
 
 ### Direction (product) — related details
 
 - **Key-card step first:** user **searches with card-name autocomplete** and **chooses** ~2–5 cards that drive the plan (B4 guidance on count). Works with an empty / unset decklist. No algo-chosen key set; selection = pick a name from autocomplete (or confirm a chosen result), not a passive highlight.
-- **Role step second:** suggest editable roles via **CP-Q6** — tags always available; with CardIR, also IR roles + need-mapped feeders + provide-mapped payoffs. **Pre-checked (CP-Q7 A)**; user unchecks / adds; user final say.
+- **Role step second:** suggest editable roles via **CP-Q6** — tags always available; with CardIR, also IR roles + need-mapped feeders + provide-mapped payoffs. **Pre-checked (CP-Q7 A)**; user unchecks / adds from **full catalog (CP-Q8 A)**; user final say.
 - Confirmed roles (after edit) tell the algorithm which roles are **important** and which to **feed**.
 - Shortlist examples for roles once derived: Sac Outlet, Ramp, Ping, Drain, Tutor, Protection, etc. (Ping still a gap / candidate new label).
 
