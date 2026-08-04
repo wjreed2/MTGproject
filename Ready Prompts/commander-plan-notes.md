@@ -66,12 +66,12 @@ Those confirmed roles (plus later cast-turn and protection inputs) drive:
 - Early ramp CMC band: **≤ T − 1** (**CP-Q17**).
 - **L\*** / **R\*** chosen so the deck can **consistently cast the commander on T**, via hypergeometric math (N=100, solve for K), inspired by Commander Gameplan — see accuracy notes below.
 
-**Example (owner):** 5-MV commander, **T = 4** → early ramp **≤ 3 CMC**. Need enough lands + early ramp that by the cards seen on T you can hit drops / mana (sketch: e.g. 4 lands + 1 early ramp in ~11 cards). Exact `n` / success threshold still open.
+**Example (owner):** 5-MV commander, **T = 4** → early ramp **≤ 3 CMC**. By turn 4 the player has seen **11** cards (7 + draws on turns 1–4). Need L\* / R\* so that mixture (lands + early ramp) supports casting on T.
 
 **Hypergeometric framing:**
 - **N** = deck size (Commander **100**)
 - **K** = lands or early-ramp copies in deck — **solve for K** (targets)
-- **n** = cards seen by cast turn
+- **n** = cards seen by cast turn = **7 + T** (**CP-Q19**)
 - **x** = minimum successes needed in that sample
 
 **Gameplan code review (`_cmdGameplanProbs` / `_countEarlyRamp`) — inspire, don’t copy blind:**
@@ -80,12 +80,12 @@ Those confirmed roles (plus later cast-turn and protection inputs) drive:
 |-------|--------|-----|
 | Hypergeo P(X≥x) + free mulligan | Yes | **Keep** |
 | Turn | `cmdCMC` (+ custom shift) | Use user **T** |
-| Cards seen | `7+(turn−1)` → T4 = **10** | Owner sketch T4 = **11** (7+draws T1–T4). **Confirm before lock** |
+| Cards seen | `7+(turn−1)` → T4 = **10** | **Wrong for this app** — use **7+T** (T4 = **11**); Gameplan on-curve path should be updated to match when wired to T |
 | Land + ramp mixture | 0/1/2+ ramp → need turn / turn−1 / turn−2 lands | **Reuse conceptually** |
 | Early ramp | `CMC < cmdCMC` | Align to **≤ T−1** |
 | Output | P given current L,R | Need **inverse** solve for L\*, R\* — **not in code today** |
 
-**Verdict:** Forward hypergeo model is good inspiration; must retarget to **T**, fix/confirm **n**, apply CP-Q17 cutoff, and **invert** for ideals.
+**Verdict:** Forward hypergeo model is good inspiration; retarget to **T**, use **n = 7+T**, apply CP-Q17 cutoff, and **invert** for ideals.
 
 ### Saved questions (ask later — Theme B)
 
@@ -94,7 +94,7 @@ Those confirmed roles (plus later cast-turn and protection inputs) drive:
 3. ~~Input shape?~~ → **Locked CP-Q15: A** (+ show CMC)
 4. ~~Early-ramp CMC?~~ → **Locked CP-Q17:** ≤ T − 1
 5. ~~Scope?~~ → **Locked CP-Q18: Both** Gameplan + Adds/Cuts; inverse hypergeo for L\*/R\*
-5b. Cards seen by T: Gameplan **`7+(T−1)`** (10 @ T4) vs EDH-after-draw **`7+T`** (11 @ T4)?
+5b. ~~Cards seen?~~ → **Locked CP-Q19:** **n = 7 + T** (draw on cast turn included; T4 ⇒ 11)
 5c. “Consistently” = what P threshold (80% / 90% / other) when solving K?
 5d. Joint solve (L\*, R\*) vs table of mixtures like Gameplan’s 0/1/2+ ramp cases?
 6. Partner / multi-face MV for displayed CMC / default T?
@@ -170,6 +170,7 @@ The algorithm must not silently overwrite a user’s confirmed role set without 
 | **CP-Q16** | **A — Default = commander CMC (on curve)** — If unset, effective target turn = commander MV (e.g. MV 5 → turn 5). | 2026-08-04 |
 | **CP-Q17** | **Early ramp CMC ≤ T − 1** — With target cast turn **T** (from CP-Q15/16), a ramp card counts as early if its CMC is **≤ T − 1**. Floor edge cases (T ≤ 1) at implement time. | 2026-08-04 |
 | **CP-Q18** | **Both — Gameplan + Adds/Cuts** — **T** steers Gameplan and land/early-ramp ideals. Ideals from inverse hypergeometric “cast commander on T” (Theme B), not flat Ramp=10 alone. | 2026-08-04 |
+| **CP-Q19** | **Cards seen by turn T = 7 + T** — Opening 7, then one draw each turn including the cast turn. Turn 4 ⇒ **11**. Do not use Gameplan `7+(T−1)` for these ideals. | 2026-08-04 |
 
 ### Direction (product) — related details
 
@@ -281,7 +282,8 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 - **CP-Q15 — Locked: A** — single integer turn; show commander CMC.
 - **CP-Q16 — Locked: A** — default cast turn = commander CMC (on curve).
 - **CP-Q17 — Locked:** early ramp CMC ≤ **T − 1**.
-- **Next:** land/ramp count ideals from T; partner/MV; Gameplan vs Adds scope.
+- **CP-Q18 — Locked: Both** — Gameplan + Adds/Cuts; L\*/R\* via inverse hypergeo toward cast-on-T.
+- **Next:** lock cards-seen `n` (10 vs 11 @ T4) and consistency P threshold.
 
 ---
 
@@ -303,9 +305,9 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 2. ~~Default if skipped?~~ → **CP-Q16 Locked: A** — commander CMC (on curve).
 3. ~~Single / range / relative?~~ → **CP-Q15 Locked: A** — single integer; display commander CMC.
 4. ~~Early-ramp CMC?~~ → **CP-Q17 Locked:** ≤ T − 1.
-5. How turn → land count and ramp count ideals?
+5. ~~How turn → L/R ideals / scope?~~ → **CP-Q18 Locked: Both** + inverse hypergeo (Gameplan-inspired). Open: n (10 vs 11), P threshold, joint solve.
 6. Partner / multi-face MV for default turn?
-7. Retarget Gameplan only, or Adds/Cuts ramp too?
+7. ~~Retarget Gameplan only vs Adds?~~ → covered by CP-Q18.
 
 ### C — Protection
 1. Importance scale (L/M/H, 1–5, on/off)?
@@ -365,6 +367,7 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 19. CP-Q15 **Locked: A** — single integer turn; show commander CMC.
 20. CP-Q16 **Locked: A** — default = commander CMC (on curve).
 21. CP-Q17 **Locked:** early ramp CMC ≤ T − 1.
+22. CP-Q18 **Locked: Both** — Gameplan + Adds/Cuts; inverse hypergeo for L\*/R\*.
 
 ---
 
@@ -521,3 +524,4 @@ Do not draft Ready Prompt bodies until interviews for the relevant theme are don
 | 2026-08-04 | **CP-Q15 Locked: A** — single integer cast turn; UI identifies/displays commander CMC. |
 | 2026-08-04 | **CP-Q16 Locked: A** — unset cast turn defaults to commander CMC (on curve). |
 | 2026-08-04 | **CP-Q17 Locked:** early ramp = CMC ≤ targetTurn − 1. |
+| 2026-08-04 | **CP-Q18 Locked: Both** — T steers Gameplan + Adds/Cuts; L\*/R\* from inverse hypergeo “cast on T.” Reviewed Gameplan: good forward model; n may be 10 vs 11; must invert for targets. |
