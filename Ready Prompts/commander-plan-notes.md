@@ -69,13 +69,14 @@ Those confirmed roles (plus later cast-turn and protection inputs) drive:
 - **CP-Q14 Locked: C** — set in Plan wizard; editable on Commander Gameplan; **one synced field**.
 - **CP-Q15 Locked: A** — single integer target turn; **always show commander CMC** next to the control.
 - **CP-Q16 Locked: A** — default / unset → **commander CMC** (on curve).
+- **CP-Q17 Locked:** early ramp = CMC **≤ T − 1** (T = target cast turn).
 
 ### Saved questions (ask later — Theme B)
 
 1. ~~Where set?~~ → **Locked CP-Q14: C** (wizard + Gameplan, synced).
 2. ~~Default if skipped?~~ → **Locked CP-Q16: A** — commander CMC (on curve).
 3. ~~Input shape?~~ → **Locked CP-Q15: A** — single integer turn; display commander CMC.
-4. Should **early-ramp CMC** be `targetTurn − 1`, `targetTurn − 2` (Prompt 10 style), or something else?
+4. ~~Early-ramp CMC?~~ → **Locked CP-Q17:** ≤ **T − 1**.
 5. How should target turn map to **land count** and **ramp count** ideals — a formula you already have in mind, EDHREC-ish curves, or we propose options later?
 6. If the commander has partner / background / adventure / MDFC faces, which MV drives the displayed CMC / default turn?
 7. Does changing cast turn retarget **only Gameplan probs**, or also Adds ramp/land deficits and Cuts surplus on Ramp?
@@ -148,6 +149,7 @@ The algorithm must not silently overwrite a user’s confirmed role set without 
 | **CP-Q14** | **C — Wizard + Gameplan, synced** — Target commander cast turn is set in the Plan wizard and editable on Commander Gameplan; one shared stored field. | 2026-08-04 |
 | **CP-Q15** | **A — Single integer turn + show commander CMC** — User enters one target turn (e.g. 4). UI **identifies/displays the commander’s CMC** so “on curve” is obvious; does not store a relative mode in v1 (presets that fill the integer can come later). | 2026-08-04 |
 | **CP-Q16** | **A — Default = commander CMC (on curve)** — If unset, effective target turn = commander MV (e.g. MV 5 → turn 5). | 2026-08-04 |
+| **CP-Q17** | **Early ramp CMC ≤ T − 1** — With target cast turn **T** (from CP-Q15/16), a ramp card counts as early if its CMC is **≤ T − 1**. Floor edge cases (T ≤ 1) at implement time. | 2026-08-04 |
 
 ### Direction (product) — related details
 
