@@ -270,7 +270,7 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 7. If user confirms zero roles — fallback static thresholds, empty set, or block finish?
 
 ### B — Commander cast turn
-1. Where is cast turn set (wizard / Gameplan / both synced)?
+1. ~~Where set?~~ → **CP-Q14 Locked: C** (wizard + Gameplan synced).
 2. Default if skipped?
 3. Single turn vs range vs relative (“on curve” / early)?
 4. Early-ramp CMC formula relative to target turn?
@@ -332,6 +332,7 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 15. CP-Q11 **Locked: D** — Ramp/Draw/Removal auto-included (opt-out).
 16. CP-Q12 **Locked: B** — strategy/wincon seeded from key cards + roles; still editable.
 17. CP-Q13 **Locked: B** — stale banner + Re-derive; no silent overwrite.
+18. CP-Q14 **Locked: C** — cast turn wizard + Gameplan synced.
 
 ---
 
@@ -484,3 +485,4 @@ Do not draft Ready Prompt bodies until interviews for the relevant theme are don
 | 2026-08-04 | **CP-Q11 Locked: D** — Ramp / Card Draw / Removal pre-added to confirmed list (checked); user can uncheck. |
 | 2026-08-04 | **CP-Q12 Locked: B** — keep strategy/wincon; seed from key cards + confirmed roles; user can edit. |
 | 2026-08-04 | **CP-Q13 Locked: B** — stale prompt + Re-derive; never silently overwrite confirmed plan. Theme D core locked; next Theme B cast turn. |
+| 2026-08-04 | **CP-Q14 Locked: C** — target cast turn in Plan wizard + Commander Gameplan, one synced field. |
