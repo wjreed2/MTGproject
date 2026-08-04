@@ -283,7 +283,8 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 - **CP-Q16 — Locked: A** — default cast turn = commander CMC (on curve).
 - **CP-Q17 — Locked:** early ramp CMC ≤ **T − 1**.
 - **CP-Q18 — Locked: Both** — Gameplan + Adds/Cuts; L\*/R\* via inverse hypergeo toward cast-on-T.
-- **Next:** lock cards-seen `n` (10 vs 11 @ T4) and consistency P threshold.
+- **CP-Q19 — Locked:** cards seen by turn T = **7 + T** (include draw on cast turn; T4 ⇒ 11).
+- **Next:** consistency P threshold; how to solve L\* vs R\* jointly.
 
 ---
 
