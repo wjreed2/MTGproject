@@ -136,12 +136,15 @@ The algorithm must not silently overwrite a user’s confirmed role set without 
 | **CP-Q6** | **D with C expansions** — Seed suggested roles from **project tags + CardIR** (D fallback). When IR exists, expand with **C**: IR `roles` + axes the key cards **need** (roles that should feed them) + axes they **provide** (payoff roles they enable). Merge/dedupe to project labels; user edits. No IR → tags only for that card. | 2026-08-04 |
 | **CP-Q7** | **A — Suggested roles pre-checked** — All derived role suggestions start checked; user unchecks to reject. Final say via edit, not opt-in from empty. | 2026-08-04 |
 | **CP-Q8** | **A — Full role catalog always** — User can add any project role via searchable full catalog (“Add role”), not limited to the derived set. | 2026-08-04 |
+| **CP-Q9** | **D — Raise ideals + stronger D** — Confirmed roles join the **roles-to-fill** set: they get targets and shortfalls get stronger deficit weight. (Exact target rule → CP-Q10.) | 2026-08-04 |
+| **CP-Q9b** | **Multi-role counting (all roles)** — A card that fills multiple roles counts **+qty toward each** matched role (e.g. Goblin Bombardment → Burn + Removal + Sac Outlet). Applies to base and user-confirmed roles. Matches current Classic + engine2 counting; do not change to single-bucket. | 2026-08-04 |
 
 ### Direction (product) — related details
 
 - **Key-card step first:** user **searches with card-name autocomplete** and **chooses** ~2–5 cards that drive the plan (B4 guidance on count). Works with an empty / unset decklist. No algo-chosen key set; selection = pick a name from autocomplete (or confirm a chosen result), not a passive highlight.
 - **Role step second:** suggest editable roles via **CP-Q6** — tags always available; with CardIR, also IR roles + need-mapped feeders + provide-mapped payoffs. **Pre-checked (CP-Q7 A)**; user unchecks / adds from **full catalog (CP-Q8 A)**; user final say.
-- Confirmed roles (after edit) tell the algorithm which roles are **important** and which to **feed**.
+- **Confirmed roles = important / to-fill (CP-Q9 D):** added to the active role set with targets; shortfalls steer Adds via stronger D. Owner lean for importance band: about **8–12** (exact rule still CP-Q10).
+- **Counting (CP-Q9b):** multi-role cards count toward **every** matched role spot.
 - Shortlist examples for roles once derived: Sac Outlet, Ramp, Ping, Drain, Tutor, Protection, etc. (Ping still a gap / candidate new label).
 
 ### Current baseline (related)
@@ -165,7 +168,9 @@ The algorithm must not silently overwrite a user’s confirmed role set without 
 8. ~~If key cards, auto-join fed roles?~~ → **Locked CP-Q6: D with C expansions** — tags + IR; when IR present expand needs (feeders) + provides (payoffs) + IR roles; no IR → tags only; user edits.
 9. ~~How should the key-card shortlist be ranked?~~ → **Locked CP-Q4:** user specifies the 2–5 plan-driving cards; algo does not choose them.
 9b. ~~Key-card entry UX?~~ → **Locked CP-Q5: C + autocomplete** — free search with **auto-populating card names**; user selects each card; works with no decklist.
-10. What does **“should have” / “feed”** mean in scoring — raise ideal thresholds, raise deficit weight (D), raise plan H / `planMatchScore`, demote non-confirmed roles, or all of the above?
+10. What does **“should have” / “feed”** mean in scoring — ~~raise ideals / D / H?~~ → **Locked CP-Q9: D** — confirmed roles are roles-to-fill (ideals + stronger D). Target magnitude → CP-Q10.
+10b. ~~Multi-role counting?~~ → **Locked CP-Q9b:** one card counts toward **each** matched role (base + confirmed).
+10c. Target for user-confirmed important roles — owner lean **~8–12**; semantics 8-vs-12 reliability **no** for v1 (see interview). Exact rule still open (CP-Q10).
 11. Should Ramp / Card Draw / Removal still be treated as should-have if the user never picks them (and they weren’t derived)?
 12. Owner example included **Ping** — confirm Ping as a **new project role** (vs alias of Burn/Drain/Group Slug)? Any other must-add roles from the gap table?
 13. ~~Empty / new deck key-card entry?~~ → Covered by CP-Q5 (search + autocomplete works pre-decklist).
@@ -230,7 +235,10 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 - **CP-Q6 — Locked: D with C expansions** — tags+IR fallback; IR adds roles + need-feeders + provide-payoffs; user edits.
 - **CP-Q7 — Locked: A** — derived roles start pre-checked; uncheck to reject.
 - **CP-Q8 — Locked: A** — full searchable role catalog always available to add roles.
-- **Next:** what confirmed roles mean for Adds/Cuts scoring (“feed”); Ramp/Draw/Removal if not confirmed; strategy/wincon step relationship.
+- **CP-Q9 — Locked: D** — confirmed roles join roles-to-fill (raise ideals + stronger D).
+- **CP-Q9b — Locked:** multi-role cards count +qty into **each** matched role (all roles).
+- **CP-Q10 — Open:** exact target in the important **8–12** band (semantics cannot reliably pick 8 vs 12 in v1).
+- **Next:** lock CP-Q10 target rule inside 8–12.
 
 ---
 
@@ -304,6 +312,9 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 9. CP-Q6 **Locked: D with C expansions** — tags+IR; IR expands needs/provides/roles; degrade to tags; user edits.
 10. CP-Q7 **Locked: A** — suggested roles pre-checked; uncheck to reject.
 11. CP-Q8 **Locked: A** — full role catalog always available to add.
+12. CP-Q9 **Locked: D** — ideals + stronger D; confirmed = roles-to-fill.
+13. CP-Q9b **Locked:** multi-role count into each role (incl. base).
+14. CP-Q10 open — target in 8–12 band (not semantics 8-vs-12).
 
 ---
 
@@ -449,3 +460,6 @@ Do not draft Ready Prompt bodies until interviews for the relevant theme are don
 | 2026-08-04 | **CP-Q6 Locked: D with C expansions** — role suggestions from tags+IR; when IR exists also need-feeders + provide-payoffs + IR roles; user edits. |
 | 2026-08-04 | **CP-Q7 Locked: A** — all derived role suggestions pre-checked; user unchecks to reject. |
 | 2026-08-04 | **CP-Q8 Locked: A** — full searchable project-role catalog always available to add roles beyond derived set. |
+| 2026-08-04 | **CP-Q9 Locked: D** — confirmed roles are roles-to-fill (raise ideals + stronger D). Owner: important ≈ 8–12. |
+| 2026-08-04 | **CP-Q9b Locked:** multi-role cards count toward each matched role (Goblin Bombardment example); all roles. |
+| 2026-08-04 | Note: semantics **cannot reliably** choose 8 vs 12 for a role in v1; use fixed/mid/editable in band instead. |
