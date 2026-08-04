@@ -306,7 +306,10 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 2. ~~Default if skipped?~~ → **CP-Q16 Locked: A** — commander CMC (on curve).
 3. ~~Single / range / relative?~~ → **CP-Q15 Locked: A** — single integer; display commander CMC.
 4. ~~Early-ramp CMC?~~ → **CP-Q17 Locked:** ≤ T − 1.
-5. ~~How turn → L/R ideals / scope?~~ → **CP-Q18 Locked: Both** + inverse hypergeo (Gameplan-inspired). Open: n (10 vs 11), P threshold, joint solve.
+5. ~~How turn → L/R ideals / scope?~~ → **CP-Q18 Locked: Both** + inverse hypergeo (Gameplan-inspired).
+5b. ~~Cards seen?~~ → **CP-Q19 Locked:** n = **7 + T** (T4 ⇒ 11; draw on cast turn included).
+5c. “Consistently” P threshold when solving K?
+5d. Joint solve (L\*, R\*) vs Gameplan-style 0/1/2+ ramp mixtures?
 6. Partner / multi-face MV for default turn?
 7. ~~Retarget Gameplan only vs Adds?~~ → covered by CP-Q18.
 
@@ -369,6 +372,7 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 20. CP-Q16 **Locked: A** — default = commander CMC (on curve).
 21. CP-Q17 **Locked:** early ramp CMC ≤ T − 1.
 22. CP-Q18 **Locked: Both** — Gameplan + Adds/Cuts; inverse hypergeo for L\*/R\*.
+23. CP-Q19 **Locked:** n = 7 + T (draw on cast turn; T4 ⇒ 11).
 
 ---
 
@@ -526,3 +530,4 @@ Do not draft Ready Prompt bodies until interviews for the relevant theme are don
 | 2026-08-04 | **CP-Q16 Locked: A** — unset cast turn defaults to commander CMC (on curve). |
 | 2026-08-04 | **CP-Q17 Locked:** early ramp = CMC ≤ targetTurn − 1. |
 | 2026-08-04 | **CP-Q18 Locked: Both** — T steers Gameplan + Adds/Cuts; L\*/R\* from inverse hypergeo “cast on T.” Reviewed Gameplan: good forward model; n may be 10 vs 11; must invert for targets. |
+| 2026-08-04 | **CP-Q19 Locked:** cards seen by turn T = **7 + T** (include draw on that turn). T4 ⇒ 11. Gameplan’s `7+(T−1)` is incorrect for this application. |
