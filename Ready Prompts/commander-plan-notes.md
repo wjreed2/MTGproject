@@ -68,11 +68,12 @@ Those confirmed roles (plus later cast-turn and protection inputs) drive:
   - What **CMC** the ramp package should sit at (what counts as early / useful before that turn)
 - **CP-Q14 Locked: C** — set in Plan wizard; editable on Commander Gameplan; **one synced field**.
 - **CP-Q15 Locked: A** — single integer target turn; **always show commander CMC** next to the control.
+- **CP-Q16 Locked: A** — default / unset → **commander CMC** (on curve).
 
 ### Saved questions (ask later — Theme B)
 
 1. ~~Where set?~~ → **Locked CP-Q14: C** (wizard + Gameplan, synced).
-2. What is the default if they skip it — commander CMC (on-curve), CMC−1, or no default / required field?
+2. ~~Default if skipped?~~ → **Locked CP-Q16: A** — commander CMC (on curve).
 3. ~~Input shape?~~ → **Locked CP-Q15: A** — single integer turn; display commander CMC.
 4. Should **early-ramp CMC** be `targetTurn − 1`, `targetTurn − 2` (Prompt 10 style), or something else?
 5. How should target turn map to **land count** and **ramp count** ideals — a formula you already have in mind, EDHREC-ish curves, or we propose options later?
@@ -255,7 +256,8 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 - **Theme D role-ID block largely locked.**
 - **CP-Q14 — Locked: C** — cast turn in wizard + Gameplan, synced.
 - **CP-Q15 — Locked: A** — single integer turn; show commander CMC.
-- **Next:** default if skipped; early-ramp formula; land/ramp ideals.
+- **CP-Q16 — Locked: A** — default cast turn = commander CMC (on curve).
+- **Next:** early-ramp CMC cutoff; land/ramp ideals from turn; partner/MV edge cases.
 
 ---
 
@@ -274,7 +276,7 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 
 ### B — Commander cast turn
 1. ~~Where set?~~ → **CP-Q14 Locked: C** (wizard + Gameplan synced).
-2. Default if skipped?
+2. ~~Default if skipped?~~ → **CP-Q16 Locked: A** — commander CMC (on curve).
 3. ~~Single / range / relative?~~ → **CP-Q15 Locked: A** — single integer; display commander CMC.
 4. Early-ramp CMC formula relative to target turn?
 5. How turn → land count and ramp count ideals?
@@ -337,6 +339,7 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 17. CP-Q13 **Locked: B** — stale banner + Re-derive; no silent overwrite.
 18. CP-Q14 **Locked: C** — cast turn wizard + Gameplan synced.
 19. CP-Q15 **Locked: A** — single integer turn; show commander CMC.
+20. CP-Q16 **Locked: A** — default = commander CMC (on curve).
 
 ---
 
@@ -491,3 +494,4 @@ Do not draft Ready Prompt bodies until interviews for the relevant theme are don
 | 2026-08-04 | **CP-Q13 Locked: B** — stale prompt + Re-derive; never silently overwrite confirmed plan. Theme D core locked; next Theme B cast turn. |
 | 2026-08-04 | **CP-Q14 Locked: C** — target cast turn in Plan wizard + Commander Gameplan, one synced field. |
 | 2026-08-04 | **CP-Q15 Locked: A** — single integer cast turn; UI identifies/displays commander CMC. |
+| 2026-08-04 | **CP-Q16 Locked: A** — unset cast turn defaults to commander CMC (on curve). |
