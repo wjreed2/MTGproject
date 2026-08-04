@@ -67,15 +67,16 @@ Those confirmed roles (plus later cast-turn and protection inputs) drive:
   - Number of **lands**
   - What **CMC** the ramp package should sit at (what counts as early / useful before that turn)
 - **CP-Q14 Locked: C** — set in Plan wizard; editable on Commander Gameplan; **one synced field**.
+- **CP-Q15 Locked: A** — single integer target turn; **always show commander CMC** next to the control.
 
 ### Saved questions (ask later — Theme B)
 
 1. ~~Where set?~~ → **Locked CP-Q14: C** (wizard + Gameplan, synced).
 2. What is the default if they skip it — commander CMC (on-curve), CMC−1, or no default / required field?
-3. Is the input a single integer turn (e.g. “turn 4”), a range (“turns 3–4”), or relative (“on curve” / “one turn early” / “two turns early”)?
+3. ~~Input shape?~~ → **Locked CP-Q15: A** — single integer turn; display commander CMC.
 4. Should **early-ramp CMC** be `targetTurn − 1`, `targetTurn − 2` (Prompt 10 style), or something else?
 5. How should target turn map to **land count** and **ramp count** ideals — a formula you already have in mind, EDHREC-ish curves, or we propose options later?
-6. If the commander has partner / background / adventure / MDFC faces, which MV drives the default turn?
+6. If the commander has partner / background / adventure / MDFC faces, which MV drives the displayed CMC / default turn?
 7. Does changing cast turn retarget **only Gameplan probs**, or also Adds ramp/land deficits and Cuts surplus on Ramp?
 
 ---
@@ -144,6 +145,7 @@ The algorithm must not silently overwrite a user’s confirmed role set without 
 | **CP-Q12** | **B — Seed strategy/wincon, still editable** — Infer strategy + wincon from key cards + confirmed roles (bridges / IR / heuristics); pre-select in wizard; user can change. Do not drop those steps. | 2026-08-04 |
 | **CP-Q13** | **B — Stale prompt, no silent overwrite** — If key cards / list drift after confirm, show a stale banner and offer **Re-derive**; do not auto-overwrite confirmed roles or seeded strategy/wincon. | 2026-08-04 |
 | **CP-Q14** | **C — Wizard + Gameplan, synced** — Target commander cast turn is set in the Plan wizard and editable on Commander Gameplan; one shared stored field. | 2026-08-04 |
+| **CP-Q15** | **A — Single integer turn + show commander CMC** — User enters one target turn (e.g. 4). UI **identifies/displays the commander’s CMC** so “on curve” is obvious; does not store a relative mode in v1 (presets that fill the integer can come later). | 2026-08-04 |
 
 ### Direction (product) — related details
 
@@ -252,7 +254,8 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 - **CP-Q13 — Locked: B** — stale prompt + Re-derive; no silent overwrite.
 - **Theme D role-ID block largely locked.**
 - **CP-Q14 — Locked: C** — cast turn in wizard + Gameplan, synced.
-- **Next:** cast-turn input shape / default (Theme B).
+- **CP-Q15 — Locked: A** — single integer turn; show commander CMC.
+- **Next:** default if skipped; early-ramp formula; land/ramp ideals.
 
 ---
 
@@ -272,7 +275,7 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 ### B — Commander cast turn
 1. ~~Where set?~~ → **CP-Q14 Locked: C** (wizard + Gameplan synced).
 2. Default if skipped?
-3. Single turn vs range vs relative (“on curve” / early)?
+3. ~~Single / range / relative?~~ → **CP-Q15 Locked: A** — single integer; display commander CMC.
 4. Early-ramp CMC formula relative to target turn?
 5. How turn → land count and ramp count ideals?
 6. Partner / multi-face MV for default turn?
@@ -333,6 +336,7 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 16. CP-Q12 **Locked: B** — strategy/wincon seeded from key cards + roles; still editable.
 17. CP-Q13 **Locked: B** — stale banner + Re-derive; no silent overwrite.
 18. CP-Q14 **Locked: C** — cast turn wizard + Gameplan synced.
+19. CP-Q15 **Locked: A** — single integer turn; show commander CMC.
 
 ---
 
@@ -486,3 +490,4 @@ Do not draft Ready Prompt bodies until interviews for the relevant theme are don
 | 2026-08-04 | **CP-Q12 Locked: B** — keep strategy/wincon; seed from key cards + confirmed roles; user can edit. |
 | 2026-08-04 | **CP-Q13 Locked: B** — stale prompt + Re-derive; never silently overwrite confirmed plan. Theme D core locked; next Theme B cast turn. |
 | 2026-08-04 | **CP-Q14 Locked: C** — target cast turn in Plan wizard + Commander Gameplan, one synced field. |
+| 2026-08-04 | **CP-Q15 Locked: A** — single integer cast turn; UI identifies/displays commander CMC. |
