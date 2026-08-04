@@ -61,25 +61,44 @@ Those confirmed roles (plus later cast-turn and protection inputs) drive:
 
 ### Direction (product)
 
-- Identify **what turn the user wants to cast their commander**.
-- That target turn is a **signifier** for:
-  - Amount of **ramp** to aim for
-  - Number of **lands**
-  - What **CMC** the ramp package should sit at (what counts as early / useful before that turn)
-- **CP-Q14 Locked: C** — set in Plan wizard; editable on Commander Gameplan; **one synced field**.
-- **CP-Q15 Locked: A** — single integer target turn; **always show commander CMC** next to the control.
-- **CP-Q16 Locked: A** — default / unset → **commander CMC** (on curve).
-- **CP-Q17 Locked:** early ramp = CMC **≤ T − 1** (T = target cast turn).
+- Identify **what turn the user wants to cast their commander** (**T**).
+- **T** drives Gameplan **and** Adds/Cuts land + early-ramp ideals (**CP-Q18**).
+- Early ramp CMC band: **≤ T − 1** (**CP-Q17**).
+- **L\*** / **R\*** chosen so the deck can **consistently cast the commander on T**, via hypergeometric math (N=100, solve for K), inspired by Commander Gameplan — see accuracy notes below.
+
+**Example (owner):** 5-MV commander, **T = 4** → early ramp **≤ 3 CMC**. Need enough lands + early ramp that by the cards seen on T you can hit drops / mana (sketch: e.g. 4 lands + 1 early ramp in ~11 cards). Exact `n` / success threshold still open.
+
+**Hypergeometric framing:**
+- **N** = deck size (Commander **100**)
+- **K** = lands or early-ramp copies in deck — **solve for K** (targets)
+- **n** = cards seen by cast turn
+- **x** = minimum successes needed in that sample
+
+**Gameplan code review (`_cmdGameplanProbs` / `_countEarlyRamp`) — inspire, don’t copy blind:**
+
+| Piece | Today | Fit |
+|-------|--------|-----|
+| Hypergeo P(X≥x) + free mulligan | Yes | **Keep** |
+| Turn | `cmdCMC` (+ custom shift) | Use user **T** |
+| Cards seen | `7+(turn−1)` → T4 = **10** | Owner sketch T4 = **11** (7+draws T1–T4). **Confirm before lock** |
+| Land + ramp mixture | 0/1/2+ ramp → need turn / turn−1 / turn−2 lands | **Reuse conceptually** |
+| Early ramp | `CMC < cmdCMC` | Align to **≤ T−1** |
+| Output | P given current L,R | Need **inverse** solve for L\*, R\* — **not in code today** |
+
+**Verdict:** Forward hypergeo model is good inspiration; must retarget to **T**, fix/confirm **n**, apply CP-Q17 cutoff, and **invert** for ideals.
 
 ### Saved questions (ask later — Theme B)
 
-1. ~~Where set?~~ → **Locked CP-Q14: C** (wizard + Gameplan, synced).
-2. ~~Default if skipped?~~ → **Locked CP-Q16: A** — commander CMC (on curve).
-3. ~~Input shape?~~ → **Locked CP-Q15: A** — single integer turn; display commander CMC.
-4. ~~Early-ramp CMC?~~ → **Locked CP-Q17:** ≤ **T − 1**.
-5. How should target turn map to **land count** and **ramp count** ideals — a formula you already have in mind, EDHREC-ish curves, or we propose options later?
-6. If the commander has partner / background / adventure / MDFC faces, which MV drives the displayed CMC / default turn?
-7. Does changing cast turn retarget **only Gameplan probs**, or also Adds ramp/land deficits and Cuts surplus on Ramp?
+1. ~~Where set?~~ → **Locked CP-Q14: C**
+2. ~~Default?~~ → **Locked CP-Q16: A** (CMC on curve)
+3. ~~Input shape?~~ → **Locked CP-Q15: A** (+ show CMC)
+4. ~~Early-ramp CMC?~~ → **Locked CP-Q17:** ≤ T − 1
+5. ~~Scope?~~ → **Locked CP-Q18: Both** Gameplan + Adds/Cuts; inverse hypergeo for L\*/R\*
+5b. Cards seen by T: Gameplan **`7+(T−1)`** (10 @ T4) vs EDH-after-draw **`7+T`** (11 @ T4)?
+5c. “Consistently” = what P threshold (80% / 90% / other) when solving K?
+5d. Joint solve (L\*, R\*) vs table of mixtures like Gameplan’s 0/1/2+ ramp cases?
+6. Partner / multi-face MV for displayed CMC / default T?
+7. ~~Retarget Adds?~~ covered by CP-Q18.
 
 ---
 
