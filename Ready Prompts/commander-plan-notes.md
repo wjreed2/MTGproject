@@ -174,7 +174,7 @@ The algorithm must not silently overwrite a user’s confirmed role set without 
 10. What does **“should have” / “feed”** mean in scoring — ~~raise ideals / D / H?~~ → **Locked CP-Q9: D** — confirmed roles are roles-to-fill (ideals + stronger D). Target magnitude → CP-Q10.
 10b. ~~Multi-role counting?~~ → **Locked CP-Q9b:** one card counts toward **each** matched role (base + confirmed).
 10c. ~~Target for user-confirmed important roles?~~ → **Locked CP-Q10: D** — default **10**, user-editable per role; soft guidance if outside 8–12; semantics does not pick 8 vs 12.
-11. Should Ramp / Card Draw / Removal still be treated as should-have if the user never picks them (and they weren’t derived)?
+11. ~~Ramp / Draw / Removal if never confirmed?~~ → **Locked CP-Q11: D** — auto-include on confirmed list (checked); user may uncheck to opt out.
 12. Owner example included **Ping** — confirm Ping as a **new project role** (vs alias of Burn/Drain/Group Slug)? Any other must-add roles from the gap table?
 13. ~~Empty / new deck key-card entry?~~ → Covered by CP-Q5 (search + autocomplete works pre-decklist).
 14. Do confirmed roles **persist on the deck plan** and drive both Adds and Cuts, or Adds-only for v1?
@@ -241,7 +241,8 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 - **CP-Q9 — Locked: D** — confirmed roles join roles-to-fill (raise ideals + stronger D).
 - **CP-Q9b — Locked:** multi-role cards count +qty into **each** matched role (all roles).
 - **CP-Q10 — Locked: D** — confirmed role target default **10**, user-editable; soft warn outside 8–12.
-- **Next:** relationship to base Ramp/Draw/Removal if not confirmed; strategy/wincon step; cast turn / protection themes when ready.
+- **CP-Q11 — Locked: D** — Ramp / Card Draw / Removal pre-added (checked); user can opt out.
+- **Next:** staple target = table vs flat 10; strategy/wincon step; stale-on-list-change; cast turn / protection when ready.
 
 ---
 
@@ -318,6 +319,7 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 12. CP-Q9 **Locked: D** — ideals + stronger D; confirmed = roles-to-fill.
 13. CP-Q9b **Locked:** multi-role count into each role (incl. base).
 14. CP-Q10 **Locked: D** — default target 10, user-editable; soft guidance outside 8–12.
+15. CP-Q11 **Locked: D** — Ramp/Draw/Removal auto-included (opt-out).
 
 ---
 
@@ -467,3 +469,4 @@ Do not draft Ready Prompt bodies until interviews for the relevant theme are don
 | 2026-08-04 | **CP-Q9b Locked:** multi-role cards count toward each matched role (Goblin Bombardment example); all roles. |
 | 2026-08-04 | Note: semantics **cannot reliably** choose 8 vs 12 for a role in v1; use fixed/mid/editable in band instead. |
 | 2026-08-04 | **CP-Q10 Locked: D** — confirmed plan roles default target **10**, user-editable; soft guidance outside 8–12. |
+| 2026-08-04 | **CP-Q11 Locked: D** — Ramp / Card Draw / Removal pre-added to confirmed list (checked); user can uncheck. |
