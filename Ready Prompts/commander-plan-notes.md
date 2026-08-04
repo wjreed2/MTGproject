@@ -285,7 +285,8 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 - **CP-Q17 — Locked:** early ramp CMC ≤ **T − 1**.
 - **CP-Q18 — Locked: Both** — Gameplan + Adds/Cuts; L\*/R\* via inverse hypergeo toward cast-on-T.
 - **CP-Q19 — Locked:** cards seen by turn T = **7 + T** (include draw on cast turn; T4 ⇒ 11).
-- **Next:** consistency P threshold; how to solve L\* vs R\* jointly.
+- **CP-Q20 — Locked: D** — consistency % user-selectable; **default 85% after free mulligan**.
+- **Next:** how to solve L\* vs R\* (mixture / joint).
 
 ---
 
