@@ -142,6 +142,7 @@ The algorithm must not silently overwrite a user’s confirmed role set without 
 | **CP-Q11** | **D — Staples auto-included, opt-out** — Ramp, Card Draw, and Removal are **pre-added** to the confirmed role list (checked). User may uncheck to drop them from roles-to-fill. While present, they follow confirmed-role rules (editable target, default 10 unless we keep table values — see follow-up if needed). | 2026-08-04 |
 | **CP-Q12** | **B — Seed strategy/wincon, still editable** — Infer strategy + wincon from key cards + confirmed roles (bridges / IR / heuristics); pre-select in wizard; user can change. Do not drop those steps. | 2026-08-04 |
 | **CP-Q13** | **B — Stale prompt, no silent overwrite** — If key cards / list drift after confirm, show a stale banner and offer **Re-derive**; do not auto-overwrite confirmed roles or seeded strategy/wincon. | 2026-08-04 |
+| **CP-Q14** | **C — Wizard + Gameplan, synced** — Target commander cast turn is set in the Plan wizard and editable on Commander Gameplan; one shared stored field. | 2026-08-04 |
 
 ### Direction (product) — related details
 
