@@ -150,7 +150,7 @@ So land count **cannot** be set by “hit every land drop by T at 85%” alone. 
 
 - Protect the **commander** always; user may optionally **multi-select** permanent **types** (**CP-Q22/25**).
 - Importance = **Not important / Low / Med / High** (**CP-Q23/24**). Targets: **0 / 3 / 6 / 10** — one **shared** importance drives the Protection ideal count; optional types do **not** change that count (**CP-Q25 D**).
-- Precheck **High** + explanation for **Voltron**, or **combo when commander is in the combo**; else no precheck (**CP-Q23**).
+- Precheck **High** + explanation for **Voltron** only in v1 (**CP-Q23** + **CP-Q30 D**). Combo / commander-in-combo auto-High is **deferred** — combo users set importance manually.
 - Optional types are **suggestion-matching hints** only (do not change ideal count — **CP-Q25 D**). Ranking: prefer protectors that cover the **commander** (or “target permanent you control” / equipped creature); chosen types are **soft secondary** boosts (**CP-Q29 A**).
 - Protection **kinds / discovery in v1** = today’s project **Protection** tag query (**CP-Q26 D**): `protection from` / hexproof / indestructible / phase out. Do not hard-code a broader oracle kind list (ward/shroud/bounce-save/…) until data can support it.
 - **Counting rule (CP-Q26b):** a card counts toward the Protection ideal if **any** of: project tag **Protection**, CardIR role `protection`, or provides `protection.single` / `protection.mass`. (Today engine2 thresholds only count the role — implement the union.)
@@ -160,7 +160,7 @@ So land count **cannot** be set by “hit every land drop by T at 85%” alone. 
 
 ### Saved questions (ask later — Theme C)
 
-1. ~~Importance scale?~~ → **Locked CP-Q23: A** — L/M/H (+ **Not important** per CP-Q24); precheck High for Voltron or commander-in-combo; else no precheck.
+1. ~~Importance scale?~~ → **Locked CP-Q23: A** — L/M/H (+ **Not important** per CP-Q24); precheck High for Voltron (combo deferred — CP-Q30 D).
 1b. ~~L/M/H → targets?~~ → **Locked CP-Q24: B + Not important** — **0 / 3 / 6 / 10**.
 2. ~~What to protect?~~ → **Locked CP-Q22:** **commander + optional types** (not auto key cards).
 3. ~~Optional types select/weight?~~ → **Locked CP-Q25: D** — multi-select; shared importance; types = matching hints only (do not change ideal count).
@@ -169,7 +169,7 @@ So land count **cannot** be set by “hit every land drop by T at 85%” alone. 
 5. ~~High → auto-confirm Protection?~~ → **Locked CP-Q27: A** — High pre-adds Protection (checked); user can uncheck.
 6. ~~Same label as project Protection?~~ → **Locked CP-Q28: A** — same label; Theme C configures Protection, not a new role.
 7. ~~Matching detail?~~ → **Locked CP-Q29: A** — prefer commander-protecting cards; types = soft secondary boost.
-8. Combo precheck: which combo-finder API / confidence gate (engine2 combo-rules vs sandbox)?
+8. ~~Combo precheck gate?~~ → **Locked CP-Q30: D** — defer combo auto-High in v1; Voltron only.
 
 ---
 
@@ -217,7 +217,7 @@ The algorithm must not silently overwrite a user’s confirmed role set without 
 | **CP-Q20** | **D — User-selectable consistency %; default 85% after free mulligan** — Solve L*/R* so P(cast on T) ≥ threshold. Default **85%** with free mulligan (Gameplan-style). User can change % in wizard/Gameplan. | 2026-08-04 |
 | **CP-Q21** | **A — Fix L\* via Karsten, then solve R\*** — `round(31.42 + 3.13×avgMV − 0.28×R_est)` + small T nudge; clamp **[35, 40]**; user-editable. Then solve early-ramp (CMC ≤ T−1) for consistency % (default 85% after free mulligan). | 2026-08-04 |
 | **CP-Q22** | **Commander + optional types** — Protection always covers the **commander**. User may optionally add permanent **types**. Does **not** auto-use Theme D key cards as protection targets. | 2026-08-04 |
-| **CP-Q23** | **A — Low / Med / High + precheck** — Importance scale L/M/H (plus **Not important** via CP-Q24). Precheck **High** (+ short explanation) when strategy is **Voltron**, or **combo with the commander in the combo** (semantics/combo-finder); otherwise **no precheck**. | 2026-08-04 |
+| **CP-Q23** | **A — Low / Med / High + precheck** — Importance scale L/M/H (plus **Not important** via CP-Q24). Precheck **High** (+ short explanation) when strategy is **Voltron**. Combo / commander-in-combo auto-High deferred to later (**CP-Q30 D**). | 2026-08-04 |
 | **CP-Q24** | **B + Not important** — Protection ideal targets: **Not important = 0 / Low = 3 / Med = 6 / High = 10**. | 2026-08-04 |
 | **CP-Q25** | **D — Multi-select types as matching hints** — User may multi-select optional permanent types. One **shared** importance sets the Protection ideal (0/3/6/10). Chosen types **do not** change that count; they steer **suggestion matching** only (prefer protectors that cover commander and/or those types). | 2026-08-04 |
 | **CP-Q26** | **D — Project Protection query (A if DB could; it cannot)** — v1 kinds / discovery = existing tag query: `o:"protection from" or o:hexproof or o:indestructible or o:"phase out"`. Owner preferred broad package **A** if DB could; it cannot. Expand when data can. | 2026-08-04 |
@@ -225,6 +225,7 @@ The algorithm must not silently overwrite a user’s confirmed role set without 
 | **CP-Q27** | **A — High auto-confirms Protection** — When protection importance is **High**, pre-add project label **Protection** to the confirmed role list (checked), same opt-out pattern as Ramp / Card Draw / Removal (CP-Q11). User may uncheck. Med / Low / Not important do **not** auto-add via this rule (precheck may still set High — CP-Q23). | 2026-08-04 |
 | **CP-Q28** | **A — Same project label** — Theme C is how **Protection** gets importance, ideal (0/3/6/10), optional type hints, and High auto-confirm. Not a separate role package or second label. | 2026-08-04 |
 | **CP-Q29** | **A — Prefer commander, types secondary** — Adds ranking prefers cards that protect the **commander** (or broad “target permanent you control” / equipped-creature style). Optional type picks give a **soft secondary** score boost only; they do not outrank commander fit. | 2026-08-04 |
+| **CP-Q30** | **D — Defer combo precheck** — v1 auto-High only for **Voltron**. Combo / commander-in-combo users set protection importance manually. Revisit combo-rules / CardIR wincon gate later. | 2026-08-05 |
 
 ### Direction (product) — related details
 
@@ -341,7 +342,7 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 - **CP-Q20 — Locked: D** — consistency % user-selectable; **default 85% after free mulligan**.
 - **CP-Q21 — Locked: A** — Karsten L\* clamped [35,40] then solve R\* for cast-on-T @ consistency %.
 - **CP-Q22 — Locked:** protect **commander + optional types** (not auto Theme D key cards).
-- **CP-Q23 — Locked: A** — L/M/H importance (+ Not important via CP-Q24); precheck High for Voltron or commander-in-combo (+ explanation); else no precheck.
+- **CP-Q23 — Locked: A** — L/M/H importance (+ Not important via CP-Q24); precheck High for **Voltron** only in v1 (combo deferred — CP-Q30 D).
 - **CP-Q24 — Locked: B + Not important** — Protection targets **Not important=0 / Low=3 / Med=6 / High=10**.
 - **CP-Q25 — Locked: D** — multi-select optional types; shared importance; types = suggestion-matching hints only (ideal count unchanged).
 - **CP-Q26 — Locked: D** — v1 kinds = project Protection query only (A deferred: DB cannot cover broad package today).
@@ -349,7 +350,8 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 - **CP-Q27 — Locked: A** — High importance pre-adds Protection (checked); user can uncheck.
 - **CP-Q28 — Locked: A** — same project label **Protection**; Theme C configures it (not a separate package).
 - **CP-Q29 — Locked: A** — prefer commander-protecting suggestions; types = soft secondary boost.
-- **Next:** combo precheck gate (which combo-finder / confidence).
+- **CP-Q30 — Locked: D** — defer combo auto-High; v1 Voltron-only precheck.
+- **Theme C largely locked.** Leftovers: partner/multi-face edge cases elsewhere; expand protection kinds when DB can; combo precheck revisit.
 
 ---
 
@@ -379,7 +381,7 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 7. ~~Retarget Gameplan only vs Adds?~~ → covered by CP-Q18.
 
 ### C — Protection
-1. ~~Importance scale?~~ → **CP-Q23 Locked: A** (+ Not important).
+1. ~~Importance scale?~~ → **CP-Q23 Locked: A** (+ Not important; Voltron precheck; combo deferred CP-Q30).
 1b. ~~Targets?~~ → **CP-Q24 Locked:** **0 / 3 / 6 / 10** (Not important / Low / Med / High).
 2. ~~What to protect?~~ → **CP-Q22 Locked:** commander + optional types.
 3. ~~Multi-type / weights?~~ → **CP-Q25 Locked: D** — multi-select; shared importance; types = matching hints only.
@@ -388,7 +390,7 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 5. ~~High → auto-confirm?~~ → **CP-Q27 Locked: A** — High pre-adds Protection (checked); opt-out.
 6. ~~Same label?~~ → **CP-Q28 Locked: A** — same project **Protection**; Theme C configures it.
 7. ~~Matching?~~ → **CP-Q29 Locked: A** — prefer commander; types soft secondary.
-8. Combo precheck: which combo-finder + confidence gate?
+8. ~~Combo precheck?~~ → **CP-Q30 Locked: D** — defer; Voltron-only auto-High in v1.
 
 ### D — Wizard role identification (algo narrows, user decides)
 1. Narrowing hardness: top N vs ranked “show more” vs soft-highlight medium list?
@@ -444,7 +446,7 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 24. CP-Q20 **Locked: D** — selectable consistency %; default 85% after free mulligan.
 25. CP-Q21 **Locked: A** — Karsten L\* clamp [35,40]; then solve early-ramp R\*.
 26. CP-Q22 **Locked:** commander + optional types for protection.
-27. CP-Q23 **Locked: A** — L/M/H; precheck High for Voltron or commander-in-combo; else no precheck.
+27. CP-Q23 **Locked: A** — L/M/H; precheck High for Voltron (combo deferred — CP-Q30).
 28. CP-Q24 **Locked: B + Not important** — Protection ideals **0 / 3 / 6 / 10**.
 29. CP-Q25 **Locked: D** — multi-select types; shared importance; types = suggestion-matching hints only.
 30. CP-Q26 **Locked: D** — v1 kinds = project Protection query (A if DB could; cannot today).
@@ -452,6 +454,7 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 32. CP-Q27 **Locked: A** — High importance pre-adds Protection (checked); user can uncheck.
 33. CP-Q28 **Locked: A** — Theme C uses same project label **Protection** (not a separate package).
 34. CP-Q29 **Locked: A** — prefer commander-protecting Adds; types = soft secondary boost.
+35. CP-Q30 **Locked: D** — defer combo auto-High; v1 Voltron-only precheck.
 
 ---
 
@@ -613,7 +616,7 @@ Do not draft Ready Prompt bodies until interviews for the relevant theme are don
 | 2026-08-04 | **CP-Q20 Locked: D** — user-selectable consistency %; default **85% after free mulligan**. |
 | 2026-08-04 | **CP-Q21 Locked: A** — fix L\* via Karsten + T nudge, clamp [35,40], editable; then solve R\* for cast-on-T. |
 | 2026-08-04 | **CP-Q22 Locked:** protection targets = **commander + optional permanent types** (not auto key cards). |
-| 2026-08-04 | **CP-Q23 Locked: A** — Low/Med/High; precheck High (+ explanation) for Voltron or combo-with-commander-in-combo; else no precheck. |
+| 2026-08-04 | **CP-Q23 Locked: A** — Low/Med/High; precheck High (+ explanation) for Voltron (combo half later narrowed by CP-Q30). |
 | 2026-08-04 | **CP-Q24 Locked: B + Not important** — Protection targets **Not important=0 / Low=3 / Med=6 / High=10**. |
 | 2026-08-04 | **CP-Q25 Locked: D** — multi-select optional types; shared importance; types steer suggestion matching only (do not change Protection ideal count). |
 | 2026-08-04 | **CP-Q26 Locked: D** — owner preferred A if DB could; Classic Protection query + no deterministic broad-kind classifier → use project query (`protection from`/hexproof/indestructible/phase out); expand later. |
@@ -621,3 +624,4 @@ Do not draft Ready Prompt bodies until interviews for the relevant theme are don
 | 2026-08-04 | **CP-Q27 Locked: A** — High protection importance pre-adds **Protection** to confirmed roles (checked); user may uncheck. |
 | 2026-08-04 | **CP-Q28 Locked: A** — Theme C configures the existing project label **Protection**; not a separate role package. |
 | 2026-08-04 | **CP-Q29 Locked: A** — protection Adds prefer commander coverage; optional types are soft secondary matching boosts. |
+| 2026-08-05 | **CP-Q30 Locked: D** — defer combo/commander-in-combo auto-High; v1 precheck **Voltron only**; combo users set importance manually. |
