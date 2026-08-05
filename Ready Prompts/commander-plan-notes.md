@@ -1,6 +1,6 @@
 # Commander plan — design notes (roles, cast turn, protection)
 
-**Status:** Notes only — not Ready Prompts yet; do not implement from this file alone.  
+**Status:** Interview locks complete for Themes D/B/C — Ready Prompts **29–31** in [`cuts-adds-ready-prompts.md`](./cuts-adds-ready-prompts.md). Implement from those prompts (this file is the lock source of truth).  
 **Date started:** 2026-08-03  
 **Informs:** Suggested Adds/Cuts role targets & scoring; Commander Gameplan (ramp / lands / early-ramp CMC).  
 **Interview rule:** When the product owner asks for questions on a topic below, ask the **Saved questions** for that theme (see also **Saved interview questions (master list)**). Do **not** interview proactively from this doc.
@@ -580,7 +580,7 @@ Useful as **candidates to add** as project labels later (not all exist client-si
 | **Suggested Cuts** | Thresholds / surplus roles become plan-dynamic from confirmed roles |
 | **Commander Gameplan** | Cast-turn input; early-ramp CMC band; land/ramp meta; protection / fed-role custom requirements |
 
-Do not draft Ready Prompt bodies until interviews for the relevant theme are done (or the owner explicitly says to draft from notes alone).
+Ready Prompt bodies drafted 2026-08-05 as Prompts **29** (Theme D), **30** (Theme B), **31** (Theme C) in `cuts-adds-ready-prompts.md`.
 
 ---
 
@@ -625,3 +625,4 @@ Do not draft Ready Prompt bodies until interviews for the relevant theme are don
 | 2026-08-04 | **CP-Q28 Locked: A** — Theme C configures the existing project label **Protection**; not a separate role package. |
 | 2026-08-04 | **CP-Q29 Locked: A** — protection Adds prefer commander coverage; optional types are soft secondary matching boosts. |
 | 2026-08-05 | **CP-Q30 Locked: D** — defer combo/commander-in-combo auto-High; v1 precheck **Voltron only**; combo users set importance manually. |
+| 2026-08-05 | Ready Prompts **29–31** drafted in `cuts-adds-ready-prompts.md` (Theme D → B → C). |

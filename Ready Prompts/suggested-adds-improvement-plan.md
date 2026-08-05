@@ -360,7 +360,7 @@ Do **not** start B until A’s H term is stable.
 
 **Interview paused** after §15 accepted; type/kind inference → partner semantics (§16). Resume theme interviews later if needed.
 
-Related (not Phase A/B/C of this plan): commander-plan notes for **wizard role identification** (algorithm narrows shortlist, **user has final say**), **target commander cast turn**, and **protection of key pieces** — see [`commander-plan-notes.md`](./commander-plan-notes.md). Interview only when the owner asks.
+Related (not Phase A/B/C of this plan): commander-plan Ready Prompts **29–31** (Theme D role ID → Theme B cast turn → Theme C protection) — locks in [`commander-plan-notes.md`](./commander-plan-notes.md); implement prompts in [`cuts-adds-ready-prompts.md`](./cuts-adds-ready-prompts.md).
 
 ---
 

@@ -58,12 +58,21 @@ re-pop) isolated from other deck-builder render PRs. **23** (user categories) la
 | **26** | A1 / A1b â€” plan term H + Option A primary tier + strength strip | **Completed** | Cuts/Adds 13 v2 Phase A | After **25**. Classic plan-aware ranking. |
 | **27** | Hybrid Suggested Adds â€” Classic staples + `engine2.1wizard` theme/synergy rows | **Completed** | Full merge stage | After **26**. Partner `engine2/` untouched. |
 | **28** | Bidirectional loop â€” confirmed plan + planned Adds/Cuts into sandbox scoring | **Completed** | Full merge stage | After **27**. Completes wizardâ†”engine marriage. |
+| **29** | Commander plan Theme D — wizard key cards + role ID | Ready | Commander plan | After **28**. Locked CP-Q1–Q13. Source: [`commander-plan-notes.md`](./commander-plan-notes.md). |
+| **30** | Commander plan Theme B — cast turn → lands / early ramp | Ready | Commander plan | After **29** (plan fields). Locked CP-Q14–Q21. |
+| **31** | Commander plan Theme C — Protection importance + matching | Ready | Commander plan | After **29** (role list); can parallel **30** if plan schema agreed. Locked CP-Q22–Q30. |
 
 ### Full merge track (memory aid)
 
 Goal: marry Plan wizard + Classic Suggested Adds with sandbox [`engine2.1wizard/`](../engine2.1wizard/) (never edit partner [`engine2/`](../engine2/)).  
 Canonical design: [`suggested-adds-improvement-plan.md`](./suggested-adds-improvement-plan.md).  
 Run **24 â†’ 25 â†’ 26 â†’ 27 â†’ 28** in order. Each prompt marks itself **Completed** when done so the next agent keeps going.
+
+
+### Commander plan track (memory aid)
+
+Canonical locks: [`commander-plan-notes.md`](./commander-plan-notes.md).  
+Run **29 (Theme D) → 30 (Theme B) → 31 (Theme C)**. **30** and **31** may parallel after **29** if they only add fields to the shared plan schema.
 
 ### Deliberately excluded from this queue (do not send)
 
@@ -83,7 +92,7 @@ Run **24 â†’ 25 â†’ 26 â†’ 27 â†’ 28** in order. Each prompt
 | Suggested Adds improvement + Entry 13 v2 | **In Ready Prompts 24â€“28** | Canonical: [`suggested-adds-improvement-plan.md`](./suggested-adds-improvement-plan.md). Badge = raw only (no `/10`). Full merge via sandbox `engine2.1wizard`. |
 | Phase B â€” 13 v2 wizard extras / Cuts shielding | Later | Plan Â§6 â€” after 24â€“28. |
 | Phase C â€” mixed plan-aware backfill | Optional | Plan Â§7. |
-| Commander plan â€” dynamic roles, cast turn, protection, wizard role ID | **Notes only** | [`commander-plan-notes.md`](./commander-plan-notes.md). Algo narrows role shortlist, user final say; + cast turn + protection. Interview when owner asks; no Ready Prompts yet. |
+| Commander plan — dynamic roles, cast turn, protection, wizard role ID | **Ready Prompts 29–31** | Canonical locks: [`commander-plan-notes.md`](./commander-plan-notes.md). Order: **29** Theme D → **30** Theme B → **31** Theme C. |
 
 ---
 
@@ -1703,6 +1712,208 @@ NEVER modify engine2/.
 - Planned cut removes a card from â€œhaveâ€ in sandbox path.
 - Partner Semantic toggle still hits engine2/ analyze unchanged.
 Mark Prompt 28 Completed. Full merge track done â€” update suggested-adds-improvement-plan.md status note.
+```
+
+---
+
+
+# Prompt 29 of 31 — Commander plan Theme D (wizard key cards + role ID)
+
+**Status:** Ready
+
+Source locks: [`commander-plan-notes.md`](./commander-plan-notes.md) CP-Q1–Q13. UX: algo narrows; user final say.
+
+```
+# Commander plan Theme D — key cards → derived roles (wizard)
+
+**Prereq:** Prompt 28 Completed (plan schema + wizard exist). Prefer reading Ready Prompts/commander-plan-notes.md Locked from interview table before coding.
+
+## Hard constraint
+Deterministic algorithm only — no runtime AI/LLM for role derivation beyond reading stored CardIR.
+NEVER modify partner engine2/ (sandbox engine2.1wizard OK if needed for IR reads).
+
+## Goal
+Extend the Plan wizard so the user:
+1. Picks ~2–5 **key cards** that drive the plan (search + card-name autocomplete; works with empty decklist).
+2. Reviews **derived roles** (pre-checked) and confirms / edits them.
+3. Keeps strategy/wincon steps, **seeded** from key cards + confirmed roles.
+4. Persists confirmed roles on the deck plan so Adds/Cuts treat them as roles-to-fill.
+
+## Locked decisions (do not re-open)
+- CP-Q1 D: cards first → editable derived roles
+- CP-Q3: soft 2–5 key cards; highlight recommended tier; soft warn outside band; finish always allowed; fixed v1 band
+- CP-Q4: user specifies key cards (algo does not pick which are key)
+- CP-Q5: free search + autocomplete; explicit select; works pre-decklist
+- CP-Q6: seed roles from project tags + CardIR; with IR also IR roles + need-feeders + provide-payoffs; no IR → tags only; user edits
+- CP-Q7 A: derived roles start pre-checked; uncheck to reject
+- CP-Q8 A: full searchable project-role catalog always available ("Add role")
+- CP-Q9 D: confirmed roles = roles-to-fill (ideals + stronger D)
+- CP-Q9b: multi-role cards count +qty into each matched role
+- CP-Q10 D: confirmed role target default 10, editable; soft guidance outside 8–12
+- CP-Q11 D: Ramp / Card Draw / Removal pre-added (checked); user can opt out
+- CP-Q12 B: keep strategy/wincon; seed from key cards + roles; editable
+- CP-Q13 B: stale banner + Re-derive; never silently overwrite confirmed plan
+
+## Step 0 — discovery
+1. Locate plan wizard + plan persist schema (js/deck-plan-wizard.js, js/deck-plan.js, server plan fields).
+2. Locate card autocomplete used elsewhere; reuse for key-card picker.
+3. Locate CardIR join path used by hybrid Adds (do not invent a new semantics pipeline).
+4. Locate how thresholds / Adds D use role ideals today (_computeBaseThresholds / _scoreAddCandidate / adds-scoring.js).
+
+## Implementation
+1. **Wizard step — Key cards:** autocomplete search; store oracle ids/names on plan; soft 2–5 guidance (B4).
+2. **Derive roles:** for each key card, union project tags + (if IR) roles / need→feeder roles / provide→payoff roles; map to project labels; dedupe.
+3. **Role confirm UI:** pre-check derived set + Ramp/Draw/Removal; allow uncheck; "Add role" from full PROJECT_ROLE_TAGS catalog; per-role target default 10 editable.
+4. **Strategy/wincon:** seed from key cards + confirmed roles (existing bridges); user can change.
+5. **Persist** on deck plan; drive Adds/Cuts ideals + stronger D for shortfalls (CP-Q9/Q10).
+6. **Stale:** if key cards or list drift, banner + Re-derive (no silent overwrite).
+
+## Out of scope
+- Theme B cast turn / L*/R* (Prompt 30)
+- Theme C Protection importance (Prompt 31)
+- Adding new project labels (e.g. Ping) — document gap only
+- Partner engine2/ edits
+
+## Verification
+| # | Case | Expect |
+|---|------|--------|
+| 1 | Empty decklist, pick 3 key cards via autocomplete | Roles derive; staples pre-checked; finish allowed |
+| 2 | Uncheck a derived role | Role leaves roles-to-fill / ideals |
+| 3 | Add role from full catalog | Appears confirmed with target 10 |
+| 4 | Change key cards after confirm | Stale banner; Re-derive updates only on explicit action |
+| 5 | Multi-role card in 99 | Counts toward each matched confirmed role |
+| 6 | Confirmed role shortfall | Stronger D vs unconfirmed / static-only baseline |
+
+Mark Prompt 29 Completed when done.
+```
+
+---
+
+# Prompt 30 of 31 — Commander plan Theme B (cast turn → lands / early ramp)
+
+**Status:** Ready
+
+Source locks: [`commander-plan-notes.md`](./commander-plan-notes.md) CP-Q14–Q21.
+
+```
+# Commander plan Theme B — target cast turn → L* / early-ramp R*
+
+**Prereq:** Prompt 29 Completed (plan fields + wizard persist). Read commander-plan-notes.md Theme B + land rule.
+
+## Hard constraint
+Deterministic math only — no runtime AI/LLM.
+NEVER modify partner engine2/.
+
+## Goal
+1. User sets target commander **cast turn T** in Plan wizard and Commander Gameplan (one synced field).
+2. Early ramp = CMC ≤ T − 1.
+3. Solve / set land ideal L* and early-ramp ideal R* so P(cast on T) meets consistency % (default 85% after free mulligan).
+4. Steer Gameplan display and Adds/Cuts land/ramp ideals from those targets.
+
+## Locked decisions (do not re-open)
+- CP-Q14 C: wizard + Gameplan, one synced field
+- CP-Q15 A: single integer turn; show commander CMC
+- CP-Q16 A: default T = commander CMC (on curve)
+- CP-Q17: early ramp CMC ≤ T − 1
+- CP-Q18: Both Gameplan + Adds/Cuts; inverse hypergeo for L*/R*
+- CP-Q19: cards seen n = 7 + T (include draw on cast turn; T4 ⇒ 11). Do NOT use Gameplan 7+(T−1) for these ideals
+- CP-Q20 D: consistency % user-selectable; default 85% after free mulligan
+- CP-Q21 A: fix L* via Karsten then solve R*
+  - L_raw = round(31.42 + 3.13×avgMV − 0.28×R_est) + small T nudge
+  - clamp L* to [35, 40]; user-editable
+  - then solve early-ramp R* for cast-on-T @ consistency %
+
+## Step 0 — discovery
+1. Locate Gameplan _cmdGameplanProbs / _countEarlyRamp and Prompt 10 early-ramp CMC work.
+2. Locate land / ramp ideals in thresholds and Adds/Cuts.
+3. Confirm commander CMC source for default T and displayed CMC.
+
+## Implementation
+1. Persist targetCastTurn + consistencyPct on plan; sync wizard ↔ Gameplan UI.
+2. Default T = commander CMC when unset; display CMC beside the control.
+3. Retarget early-ramp counting to CMC ≤ T − 1 (Gameplan + Adds).
+4. Implement Karsten L* clamp [35,40] editable; invert hypergeo (n=7+T, free-mulligan model as Gameplan) for R*.
+5. Wire L*/R* into Gameplan meta and Adds/Cuts land/early-ramp deficits.
+
+## Out of scope
+- Theme D role ID (Prompt 29) and Theme C protection (Prompt 31)
+- Partner / multi-face MV edge cases — document and use primary-face CMC unless existing helper already resolves
+- Changing Prompt 10 popup pattern except where early-ramp band must update
+
+## Verification
+| # | Case | Expect |
+|---|------|--------|
+| 1 | Unset T, MV 5 commander | Effective T=5; UI shows CMC 5 |
+| 2 | Set T=4 | Early ramp ≤ 3; n=11 for math |
+| 3 | Consistency 85% default | L* in [35,40]; R* solved for cast-on-T |
+| 4 | Edit L* manually | Stored; R* re-solves (or document if you freeze R* until refresh) |
+| 5 | Gameplan + Adds | Both reflect new L*/R* / early band |
+
+Mark Prompt 30 Completed when done.
+```
+
+---
+
+# Prompt 31 of 31 — Commander plan Theme C (Protection)
+
+**Status:** Ready
+
+Source locks: [`commander-plan-notes.md`](./commander-plan-notes.md) CP-Q22–Q30.
+
+```
+# Commander plan Theme C — Protection importance + matching
+
+**Prereq:** Prompt 29 Completed (confirmed role list). Can parallel Prompt 30 if plan schema fields don't collide.
+
+## Hard constraint
+Deterministic only — no runtime AI/LLM.
+NEVER modify partner engine2/ (sandbox engine2.1wizard OK for count-union IR reads).
+
+## Goal
+Configure the existing project label **Protection** (not a new role) via Theme C plan fields:
+importance, optional types, ideals, High auto-confirm, and Adds matching preference.
+
+## Locked decisions (do not re-open)
+- CP-Q22: protect commander + optional permanent types (not auto Theme D key cards)
+- CP-Q23 A + CP-Q30 D: importance L/M/H (+ Not important); precheck High **Voltron only** in v1 (combo auto-High deferred)
+- CP-Q24: Not important=0 / Low=3 / Med=6 / High=10
+- CP-Q25 D: multi-select types; shared importance; types = matching hints only (do not change ideal count)
+- CP-Q26 D: v1 kinds/discovery = project Protection query (protection from / hexproof / indestructible / phase out)
+- CP-Q26b: count toward Protection if **any** of: project tag Protection, CardIR role `protection`, provides `protection.single` or `protection.mass` (once per card). Update engine2.1wizard countRoles if used; Classic tag path still counts tag
+- CP-Q27 A: High pre-adds Protection to confirmed roles (checked); user can uncheck
+- CP-Q28 A: same project label Protection
+- CP-Q29 A: Adds prefer commander-protecting cards; types soft secondary boost
+
+## Step 0 — discovery
+1. Locate Protection in PROJECT_ROLE_TAGS, thresholds, ADDS_PRIMARY_ROLES / confirmed-role wiring from Prompt 29.
+2. Locate Voltron strategy detection used by wizard / bridges.
+3. Locate CardIR role + provides axes access for count union.
+4. Locate Adds scoring hooks for soft matching boosts.
+
+## Implementation
+1. Plan fields: protectionImportance, protectionTypes[] (multi-select), shared with wizard.
+2. Ideal Protection target from importance map 0/3/6/10; user can still edit role target if on confirmed list.
+3. Voltron → precheck High + short explanation; else no precheck.
+4. When High → ensure Protection on confirmed list (checked); opt-out allowed.
+5. Count union for have/need (tag | role | single | mass).
+6. Adds: soft boost for commander-protecting text/effects; weaker boost for selected types; types never change ideal count.
+
+## Out of scope
+- Combo/commander-in-combo auto-High (deferred)
+- Broadening oracle kinds beyond project Protection query
+- Separate "Key-piece protection" role label
+
+## Verification
+| # | Case | Expect |
+|---|------|--------|
+| 1 | Importance Not important | Protection ideal 0 |
+| 2 | High | Ideal 10; Protection pre-checked on role list |
+| 3 | Voltron strategy | Importance prechecks High + explanation |
+| 4 | Combo strategy | No auto-High from combo path |
+| 5 | Types selected | Ideal unchanged; matching boost only |
+| 6 | Card with only protection.single (no tag) | Counts once toward Protection have (sandbox/Classic path you wire) |
+
+Mark Prompt 31 Completed when done.
 ```
 
 ---
