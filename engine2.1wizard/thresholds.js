@@ -73,6 +73,7 @@ function computeThresholds({ goal, playstyleStep, overrides } = {}) {
 
 // Count deck cards per category using IR roles (a card counts once per category, qty-aware).
 // Cards with no mapped role and no Land/Commander flag count toward "Plan".
+// CP-Q26b: Protection also counts provides protection.single / protection.mass.
 function countRoles(deckCards) {
   const counts = {};
   for (const k of Object.keys(BASE_THRESHOLDS)) counts[k] = 0;
@@ -81,6 +82,11 @@ function countRoles(deckCards) {
     const roles = Array.isArray(c.ir?.roles) ? c.ir.roles : [];
     const isLand = roles.includes('land') || /(^|\s)Land($|\s|\b)/.test(String(c.typeLine || ''));
     const cats = new Set(roles.map(r => ROLE_TO_CATEGORY[r]).filter(Boolean));
+    const provides = Array.isArray(c.ir?.provides) ? c.ir.provides : [];
+    for (const entry of provides) {
+      const axis = entry && typeof entry === 'object' ? entry.axis : entry;
+      if (axis === 'protection.single' || axis === 'protection.mass') cats.add('Protection');
+    }
     for (const cat of cats) counts[cat] += qty;
     if (!cats.size && !isLand && !c.isCommander) counts.Plan += qty;
   }

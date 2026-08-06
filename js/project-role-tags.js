@@ -29,6 +29,8 @@
     { label: 'Bounce', otag: 'bounce' },
     { label: 'Control', query: '(o:"gain control" or o:"exchange control")' },
     { label: 'Burn', otag: 'burn' },
+    // CP-Q32: 1 damage to a creature or player (aliases: poke, Tim, zap, pinger).
+    { label: 'Ping', query: '(o:"deals 1 damage" or o:"deal 1 damage")' },
     { label: 'Group Slug', otag: 'group-slug' },
     // Project label "Stax"; Scryfall otag is `tax`.
     { label: 'Stax', otag: 'tax' },

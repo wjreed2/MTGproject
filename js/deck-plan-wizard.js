@@ -96,16 +96,17 @@
     _planWizard = null;
   }
 
-  /** Same core sequence for every deck; commander only if missing. Plan envelope steps after themes. */
+  /** Same core sequence for every deck; commander only if missing. Plan envelope steps after themes.
+   * CP-Q34: one pass — key cards → roles → wincon/strategy… → cast turn → protection → budget. */
   function _pwBuildSteps(deck) {
     const steps = [];
     if (!deck.commander) steps.push('commander');
-    steps.push('wincon', 'strategy', 'secondary', 'subtags');
+    steps.push('keycards', 'roles', 'wincon', 'strategy', 'secondary', 'subtags');
     // Tribal creature-type picker when primary or secondary is tribal.
     const draft = _planWizard?.draft;
     const ids = [draft?.primaryStrategyId, draft?.secondaryStrategyId].filter(Boolean);
     if (ids.includes('strategy.tribal')) steps.push('tribaltypes');
-    steps.push('budget');
+    steps.push('castturn', 'protection', 'budget');
     return steps;
   }
 
@@ -300,6 +301,170 @@
         _planWizard._typeFetchStarted = true;
         _pwFetchTypeSuggestions();
       }
+      if (primaryBtn) {
+        primaryBtn.textContent = 'Continue';
+        primaryBtn.onclick = () => _pwNext();
+      }
+      return;
+    }
+
+    if (step === 'keycards') {
+      if (title) title.textContent = 'Key cards that drive your plan';
+      const keys = Array.isArray(draft.keyCards) ? draft.keyCards : [];
+      const n = keys.length;
+      const bandHint = n < 2 || n > 5
+        ? `<p class="deck-tab-muted" style="color:var(--warn, #b8860b)">Soft target is 2–5 key cards (you have ${n}). You can continue anyway.</p>`
+        : `<p class="deck-tab-muted">Soft target: 2–5 cards (${n} selected).</p>`;
+      body.innerHTML = `${bandHint}
+        <label class="plan-budget-label">Search cards</label>
+        <input type="text" id="planKeyCardSearch" class="deck-select" style="width:100%" placeholder="Type a card name…" autocomplete="off">
+        <div id="planKeyCardSuggest" class="plan-opt-grid" style="margin-top:.4rem"></div>
+        <p class="deck-tab-muted" style="margin-top:.65rem;font-size:.75rem">Selected</p>
+        <div id="planKeyCardList">${keys.map((k, i) =>
+          `<div style="display:flex;align-items:center;gap:.4rem;margin:.25rem 0;font-size:.8rem">
+            <span style="flex:1">${escapeHtml(k.name)}</span>
+            <button type="button" class="btn btn-ghost btn-sm" onclick="_pwRemoveKeyCard(${i})">Remove</button>
+          </div>`).join('') || '<p class="deck-tab-muted">None yet — search above.</p>'}</div>`;
+      const search = document.getElementById('planKeyCardSearch');
+      let _kcTimer = null;
+      search?.addEventListener('input', () => {
+        clearTimeout(_kcTimer);
+        _kcTimer = setTimeout(() => _pwKeyCardAutocomplete(search.value), 180);
+      });
+      if (primaryBtn) {
+        primaryBtn.textContent = 'Continue';
+        primaryBtn.onclick = () => {
+          draft.rolesStale = true;
+          _pwNext();
+        };
+      }
+      return;
+    }
+
+    if (step === 'roles') {
+      if (title) title.textContent = 'Roles this deck should fill';
+      if (!Array.isArray(draft.confirmedRoles) || draft.rolesStale || !draft.confirmedRoles.length) {
+        _pwDeriveRolesIntoDraft();
+      }
+      const roles = draft.confirmedRoles || [];
+      const missing = typeof uncheckedStaples === 'function' ? uncheckedStaples(roles) : [];
+      const warn = missing.length
+        ? `<p class="deck-tab-muted" style="color:var(--warn, #b8860b)">Unchecked staples: ${missing.map(escapeHtml).join(', ')}. Confirm to continue without them.</p>
+           <label style="display:flex;gap:.4rem;align-items:center;font-size:.8rem;margin:.35rem 0">
+             <input type="checkbox" id="planStapleAck" ${draft.stapleWarningAck ? 'checked' : ''} onchange="_planWizard.draft.stapleWarningAck=this.checked">
+             I understand — continue without ${missing.map(escapeHtml).join(' / ')}
+           </label>`
+        : '';
+      const roleRows = roles.map((r, i) => {
+        const checked = r.checked !== false ? 'checked' : '';
+        const t = Number(r.target) || 10;
+        const soft = (t < 8 || t > 12)
+          ? '<span class="deck-tab-muted" style="font-size:.65rem;color:var(--warn,#b8860b)" title="Soft guidance 8–12">outside 8–12</span>'
+          : '';
+        return `<label class="plan-subtag-row" style="display:flex;align-items:center;gap:.5rem;margin:.3rem 0;font-size:.8rem">
+          <input type="checkbox" ${checked} onchange="_pwToggleRole(${i}, this.checked)">
+          <span style="flex:1">${escapeHtml(r.label)} <span class="deck-tab-muted" style="font-size:.65rem">(${escapeHtml(r.source || 'user')})</span> ${soft}</span>
+          <input type="number" min="0" max="40" value="${t}" style="width:3.2rem"
+            onchange="_pwRoleTarget(${i}, this.value)" title="Target count">
+        </label>`;
+      }).join('');
+      body.innerHTML = `<p class="deck-tab-muted" style="margin-bottom:.5rem">Derived roles start checked. Uncheck to reject. Add any project role via search.</p>
+        ${warn}
+        <div style="max-height:14rem;overflow:auto;margin:.4rem 0">${roleRows || '<p class="deck-tab-muted">No roles yet.</p>'}</div>
+        <label class="plan-budget-label">Add role</label>
+        <input type="text" id="planRoleSearch" class="deck-select" style="width:100%" placeholder="Search roles…" autocomplete="off" list="planRoleList">
+        <datalist id="planRoleList">${_pwAllRoleLabels().map(l => `<option value="${escapeHtml(l)}">`).join('')}</datalist>
+        <button type="button" class="btn btn-outline btn-sm" style="margin-top:.35rem" onclick="_pwAddRoleFromSearch()">Add role</button>
+        ${draft.rolesStale ? '<p class="deck-tab-muted" style="margin-top:.5rem">Key cards changed — roles were re-derived.</p>' : ''}
+        <button type="button" class="btn btn-ghost btn-sm" style="margin-top:.35rem" onclick="_pwDeriveRolesIntoDraft();_pwRender()">Re-derive from key cards</button>`;
+      if (primaryBtn) {
+        primaryBtn.textContent = 'Continue';
+        primaryBtn.onclick = () => {
+          const miss = typeof uncheckedStaples === 'function' ? uncheckedStaples(draft.confirmedRoles) : [];
+          if (miss.length && !draft.stapleWarningAck) {
+            if (typeof showNotif === 'function') showNotif('Confirm the staple warning to continue without Ramp / Draw / Removal');
+            return;
+          }
+          draft.rolesStale = false;
+          _pwSeedStrategyFromKeys();
+          _pwNext();
+        };
+      }
+      return;
+    }
+
+    if (step === 'castturn') {
+      if (title) title.textContent = 'When do you want to cast your commander?';
+      const deck = _pwDeck();
+      const cmd = _pwCommanderCard(deck);
+      const cmc = Math.round(cmd?.cmc || 0);
+      const effT = typeof effectiveCastTurn === 'function'
+        ? effectiveCastTurn(draft, cmc)
+        : (draft.targetCastTurn != null ? draft.targetCastTurn : (cmc || 4));
+      if (draft.consistencyPct == null) draft.consistencyPct = 85;
+      _pwRefreshLandRampIdeals(deck, cmd);
+      body.innerHTML = `<p class="deck-tab-muted">Commander CMC: <strong>${cmc || '—'}</strong>. Default turn is on-curve (CMC).</p>
+        <label class="plan-budget-label">Target cast turn</label>
+        <input type="number" id="planCastTurn" class="deck-select" min="1" max="12" value="${effT}"
+          onchange="_pwSetCastTurn(this.value)" style="width:6rem">
+        <label class="plan-budget-label" style="margin-top:.5rem">Consistency %</label>
+        <input type="number" id="planConsistency" class="deck-select" min="50" max="99" value="${draft.consistencyPct || 85}"
+          onchange="_pwSetConsistency(this.value)" style="width:6rem">
+        <p class="deck-tab-muted" style="margin-top:.65rem;font-size:.78rem">
+          Early ramp CMC ≤ <strong>${Math.max(0, effT - 1)}</strong> ·
+          Cards seen n = <strong>${7 + effT}</strong> ·
+          Land ideal L* = <strong>${draft.landIdeal ?? '—'}</strong> ·
+          Early ramp R* = <strong>${draft.earlyRampIdeal ?? '—'}</strong>
+        </p>
+        <label class="plan-budget-label">Edit L* (lands)</label>
+        <input type="number" class="deck-select" min="30" max="45" value="${draft.landIdeal ?? 37}"
+          onchange="_pwSetLandIdeal(this.value)" style="width:6rem">`;
+      if (primaryBtn) {
+        primaryBtn.textContent = 'Continue';
+        primaryBtn.onclick = () => _pwNext();
+      }
+      return;
+    }
+
+    if (step === 'protection') {
+      if (title) title.textContent = 'How important is Protection?';
+      if (draft.protectionImportance == null) {
+        const sug = typeof defaultProtectionImportanceForStrategy === 'function'
+          ? defaultProtectionImportanceForStrategy(draft.primaryStrategyId)
+          : null;
+        if (sug) {
+          draft.protectionImportance = sug;
+          draft.confirmedRoles = typeof ensureProtectionRoleOnHigh === 'function'
+            ? ensureProtectionRoleOnHigh(draft.confirmedRoles, sug)
+            : draft.confirmedRoles;
+        }
+      }
+      const imp = draft.protectionImportance || '';
+      const ideal = typeof protectionIdeal === 'function' ? protectionIdeal(imp) : null;
+      const types = typeof PROTECTION_TYPE_OPTIONS !== 'undefined' ? PROTECTION_TYPE_OPTIONS : ['Creature', 'Artifact', 'Enchantment'];
+      const selected = new Set(draft.protectionTypes || []);
+      const voltronNote = draft.primaryStrategyId === 'strategy.voltron' && imp === 'high'
+        ? '<p class="deck-tab-muted">Voltron decks usually want High protection — prechecked.</p>'
+        : '';
+      body.innerHTML = `${voltronNote}
+        <p class="deck-tab-muted">Protects the commander (optional types are matching hints only).</p>
+        <div class="plan-opt-grid">
+          ${[
+            ['not_important', 'Not important (0)'],
+            ['low', 'Low (3)'],
+            ['med', 'Med (6)'],
+            ['high', 'High (10)'],
+          ].map(([id, lab]) =>
+            `<button type="button" class="plan-opt${imp === id ? ' plan-opt--selected' : ''}" onclick="_pwSetProtectionImportance('${id}')">${lab}</button>`
+          ).join('')}
+        </div>
+        <p class="deck-tab-muted" style="margin-top:.5rem;font-size:.75rem">Ideal target: <strong>${ideal == null ? '—' : ideal}</strong></p>
+        <label class="plan-budget-label" style="margin-top:.5rem">Also protect these types (optional)</label>
+        <div style="display:flex;flex-wrap:wrap;gap:.35rem">
+          ${types.map(t =>
+            `<label style="font-size:.75rem"><input type="checkbox" ${selected.has(t) ? 'checked' : ''} onchange="_pwToggleProtType('${t}', this.checked)"> ${escapeHtml(t)}</label>`
+          ).join('')}
+        </div>`;
       if (primaryBtn) {
         primaryBtn.textContent = 'Continue';
         primaryBtn.onclick = () => _pwNext();
@@ -538,6 +703,19 @@
 
   function _pwFinishBudget(fromSkipEntire) {
     if (!_planWizard) return;
+    const miss = typeof uncheckedStaples === 'function'
+      ? uncheckedStaples(_planWizard.draft.confirmedRoles) : [];
+    if (miss.length && !_planWizard.draft.stapleWarningAck) {
+      if (typeof showNotif === 'function') {
+        showNotif('Confirm skipping staples (' + miss.join(', ') + ') on the Roles step before finishing');
+      }
+      const rolesIdx = (_planWizard.steps || []).indexOf('roles');
+      if (rolesIdx >= 0) {
+        _planWizard.stepIdx = rolesIdx;
+        _pwRender();
+      }
+      return;
+    }
     if (fromSkipEntire) {
       _planWizard.draft.fieldSources = _planWizard.draft.fieldSources || {};
       if (_planWizard.draft.fieldSources.roughMaxDeckBudgetUsd == null) {
@@ -555,11 +733,20 @@
       if (typeof showNotif === 'function') showNotif('Win condition and primary strategy are required for a complete plan');
       return;
     }
+    // Ensure L*/R* filled before persist
+    const deck = _pwDeck();
+    _pwRefreshLandRampIdeals(deck, _pwCommanderCard(deck));
+    if (_planWizard.draft.protectionImportance === 'high') {
+      _planWizard.draft.confirmedRoles = typeof ensureProtectionRoleOnHigh === 'function'
+        ? ensureProtectionRoleOnHigh(_planWizard.draft.confirmedRoles, 'high')
+        : _planWizard.draft.confirmedRoles;
+    }
     const ok = _pwPersist();
     closeDeckPlanWizard();
     if (typeof showNotif === 'function') {
       showNotif(ok ? 'Deck plan saved' : 'Could not save deck plan — reopen the deck and try again');
     }
+    if (ok && deck && typeof renderCommanderGameplan === 'function') renderCommanderGameplan(deck);
   }
 
   function _pwSkipBudgetStep() {
@@ -573,6 +760,284 @@
     _planWizard.draft.fieldSources.allowBudgetBusters = 'skipped';
     _pwFinishBudget(false);
   }
+
+  function _pwAllRoleLabels() {
+    if (typeof PROJECT_ROLE_TAGS !== 'undefined' && Array.isArray(PROJECT_ROLE_TAGS)) {
+      return PROJECT_ROLE_TAGS.map(t => t.label);
+    }
+    return ['Ramp', 'Card Draw', 'Removal', 'Protection', 'Tutor', 'Ping'];
+  }
+
+  async function _pwKeyCardAutocomplete(q) {
+    const box = document.getElementById('planKeyCardSuggest');
+    if (!box) return;
+    const query = String(q || '').trim();
+    if (query.length < 2) { box.innerHTML = ''; return; }
+    try {
+      const res = await fetch(`/api/cards/autocomplete?q=${encodeURIComponent(query)}`);
+      if (!res.ok) { box.innerHTML = ''; return; }
+      const data = await res.json();
+      const names = Array.isArray(data?.data) ? data.data : (Array.isArray(data) ? data : []);
+      box.innerHTML = names.slice(0, 8).map(n => {
+        const name = typeof n === 'string' ? n : (n.name || '');
+        return `<button type="button" class="plan-opt" data-key-card-name="${escapeHtml(name)}">${escapeHtml(name)}</button>`;
+      }).join('');
+    } catch (_) {
+      box.innerHTML = '';
+    }
+  }
+
+  function _pwAddKeyCard(name) {
+    if (!_planWizard || !name) return;
+    const draft = _planWizard.draft;
+    draft.keyCards = Array.isArray(draft.keyCards) ? draft.keyCards : [];
+    if (draft.keyCards.some(k => k.name.toLowerCase() === String(name).toLowerCase())) return;
+    draft.keyCards.push({ name: String(name) });
+    draft.rolesStale = true;
+    draft.stapleWarningAck = false;
+    _pwRender();
+  }
+
+  function _pwRemoveKeyCard(idx) {
+    if (!_planWizard) return;
+    const draft = _planWizard.draft;
+    draft.keyCards = (draft.keyCards || []).filter((_, i) => i !== idx);
+    draft.rolesStale = true;
+    draft.stapleWarningAck = false;
+    _pwRender();
+  }
+
+  function _pwCardDetailsForKeys(deck, keyCards) {
+    const byName = new Map();
+    for (const c of (deck?.cards || [])) byName.set(String(c.name || '').toLowerCase(), c);
+    return (keyCards || []).map(k => {
+      const hit = byName.get(String(k.name || '').toLowerCase());
+      return {
+        name: k.name,
+        roleTags: hit?.roleTags || hit?.tags || [],
+        ir: hit?.ir || null,
+      };
+    });
+  }
+
+  function _pwDeriveRolesIntoDraft() {
+    if (!_planWizard) return;
+    const draft = _planWizard.draft;
+    const deck = _pwDeck();
+    const details = _pwCardDetailsForKeys(deck, draft.keyCards);
+    const derived = typeof deriveRolesFromKeyCards === 'function'
+      ? deriveRolesFromKeyCards(details)
+      : [];
+    draft.confirmedRoles = typeof buildConfirmedRolesFromDerive === 'function'
+      ? buildConfirmedRolesFromDerive(derived, draft.confirmedRoles)
+      : derived.map(label => ({ label, target: 10, checked: true, source: 'derived' }));
+    if (draft.protectionImportance === 'high' && typeof ensureProtectionRoleOnHigh === 'function') {
+      draft.confirmedRoles = ensureProtectionRoleOnHigh(draft.confirmedRoles, 'high');
+    }
+    draft.rolesDerivedAt = Date.now();
+    draft.rolesStale = false;
+    draft.stapleWarningAck = false;
+  }
+
+  /** CP-Q12: seed strategy/wincon from key cards + confirmed roles when still empty. */
+  function _pwSeedStrategyFromKeys() {
+    if (!_planWizard) return;
+    const draft = _planWizard.draft;
+    const deck = _pwDeck();
+    const cmd = _pwCommanderCard(deck);
+    const details = _pwCardDetailsForKeys(deck, draft.keyCards);
+    // Synthetic mini-deck from key cards (tags) + commander for ranking
+    const synCards = details.map(d => ({
+      name: d.name,
+      qty: 1,
+      roleTags: d.roleTags || [],
+      type_line: 'Creature',
+    }));
+    if (cmd) synCards.push({ ...cmd, isCommander: true, qty: 1 });
+    // Pad so path-B threshold isn't required — use commander rankers with key-card oracle blob boost
+    const keyBlob = details.map(d => {
+      const hit = (deck?.cards || []).find(c => String(c.name || '').toLowerCase() === String(d.name || '').toLowerCase());
+      return String(hit?.oracleText || hit?.oracle_text || '').toLowerCase();
+    }).join(' ');
+    const roleLabels = (draft.confirmedRoles || []).filter(r => r.checked !== false).map(r => r.label);
+    const boostId = (id) => {
+      let b = 0;
+      const lab = String(id || '').toLowerCase();
+      if (lab.includes('sacrifice') && (keyBlob.includes('sacrifice') || roleLabels.includes('Sac Outlet'))) b += 0.25;
+      if (lab.includes('token') && (keyBlob.includes('token') || roleLabels.includes('Token Maker'))) b += 0.25;
+      if (lab.includes('voltron') && (keyBlob.includes('equip') || keyBlob.includes('aura') || roleLabels.includes('Protection'))) b += 0.2;
+      if (lab.includes('lifegain') && (keyBlob.includes('life') || roleLabels.includes('Lifegain'))) b += 0.2;
+      if (lab.includes('reanimator') && (keyBlob.includes('return') || roleLabels.includes('Reanimate'))) b += 0.2;
+      if (lab.includes('spellslinger') && (roleLabels.includes('Prowess') || keyBlob.includes('instant') || keyBlob.includes('sorcery'))) b += 0.15;
+      if (lab.includes('landfall') && roleLabels.includes('Landfall')) b += 0.25;
+      if (lab.includes('drain') && roleLabels.includes('Drain')) b += 0.2;
+      return b;
+    };
+    if (typeof rankStrategiesForCommander === 'function' || typeof rankStrategiesForDeck === 'function') {
+      let ranked = _planWizard.path === 'B' && synCards.length >= 3 && typeof rankStrategiesForDeck === 'function'
+        ? rankStrategiesForDeck({ cards: synCards.concat(Array.from({ length: 80 }, (_, i) => ({ name: `Pad ${i}`, qty: 1, roleTags: [], type_line: 'Creature' }))) })
+        : (typeof rankStrategiesForCommander === 'function' ? rankStrategiesForCommander(cmd) : []);
+      ranked = (ranked || []).map(r => ({ ...r, score: (r.score || 0) + boostId(r.id) }))
+        .sort((a, b) => (b.score || 0) - (a.score || 0));
+      _planWizard.ranked.strategies = ranked;
+      const sugS = _pwSuggested(ranked);
+      if (!draft.primaryStrategyId && sugS) {
+        draft.primaryStrategyId = sugS.id;
+        draft.fieldSources = draft.fieldSources || {};
+        draft.fieldSources.primaryStrategyId = 'formal';
+      }
+    }
+    if (typeof rankWinConditionsForCommander === 'function' || typeof rankWinConditionsForDeck === 'function') {
+      let ranked = _planWizard.path === 'B' && typeof rankWinConditionsForDeck === 'function'
+        ? rankWinConditionsForDeck({ cards: synCards })
+        : (typeof rankWinConditionsForCommander === 'function' ? rankWinConditionsForCommander(cmd) : []);
+      ranked = (ranked || []).map(r => ({ ...r, score: (r.score || 0) + boostId(r.id) }))
+        .sort((a, b) => (b.score || 0) - (a.score || 0));
+      _planWizard.ranked.wincons = ranked;
+      const sugW = _pwSuggested(ranked);
+      if (!draft.winConditionId && sugW) {
+        draft.winConditionId = sugW.id;
+        draft.fieldSources = draft.fieldSources || {};
+        draft.fieldSources.winConditionId = 'formal';
+      }
+    }
+  }
+
+  function _pwToggleRole(idx, checked) {
+    if (!_planWizard?.draft?.confirmedRoles?.[idx]) return;
+    _planWizard.draft.confirmedRoles[idx].checked = !!checked;
+    _planWizard.draft.stapleWarningAck = false;
+    _pwRender();
+  }
+
+  function _pwRoleTarget(idx, val) {
+    if (!_planWizard?.draft?.confirmedRoles?.[idx]) return;
+    const n = parseInt(val, 10);
+    _planWizard.draft.confirmedRoles[idx].target = Number.isFinite(n) ? Math.max(0, Math.min(40, n)) : 10;
+  }
+
+  function _pwAddRoleFromSearch() {
+    if (!_planWizard) return;
+    const inp = document.getElementById('planRoleSearch');
+    const label = String(inp?.value || '').trim();
+    if (!label) return;
+    const known = _pwAllRoleLabels();
+    const match = known.find(l => l.toLowerCase() === label.toLowerCase())
+      || known.find(l => l.toLowerCase().startsWith(label.toLowerCase()));
+    if (!match) {
+      if (typeof showNotif === 'function') showNotif('Pick a project role from the list');
+      return;
+    }
+    draftEnsureRole(_planWizard.draft, match, 'user');
+    if (inp) inp.value = '';
+    _pwRender();
+  }
+
+  function draftEnsureRole(draft, label, source) {
+    draft.confirmedRoles = Array.isArray(draft.confirmedRoles) ? draft.confirmedRoles : [];
+    const hit = draft.confirmedRoles.find(r => r.label === label);
+    if (hit) { hit.checked = true; return; }
+    draft.confirmedRoles.push({ label, target: 10, checked: true, source: source || 'user' });
+  }
+
+  function _pwRefreshLandRampIdeals(deck, cmd) {
+    if (!_planWizard) return;
+    const draft = _planWizard.draft;
+    const cmc = Math.round(cmd?.cmc || 0);
+    const T = typeof effectiveCastTurn === 'function' ? effectiveCastTurn(draft, cmc) : (draft.targetCastTurn || cmc || 4);
+    const avgMV = typeof avgNonLandMv === 'function' ? avgNonLandMv(deck) : 3.2;
+    if (typeof solveLandAndEarlyRampIdeals === 'function') {
+      const solved = solveLandAndEarlyRampIdeals({
+        avgMV,
+        T,
+        consistencyPct: draft.consistencyPct || 85,
+        R_est: draft.earlyRampIdeal != null ? draft.earlyRampIdeal : 8,
+      });
+      if (draft.landIdeal == null) draft.landIdeal = solved.landIdeal;
+      draft.earlyRampIdeal = solved.earlyRampIdeal;
+      if (draft.targetCastTurn == null) draft.targetCastTurn = solved.targetCastTurn;
+    }
+  }
+
+  function _pwSetCastTurn(v) {
+    if (!_planWizard) return;
+    const n = parseInt(v, 10);
+    _planWizard.draft.targetCastTurn = Number.isFinite(n) ? Math.max(1, Math.min(12, n)) : null;
+    _planWizard.draft.landIdeal = null; // recompute
+    const deck = _pwDeck();
+    _pwRefreshLandRampIdeals(deck, _pwCommanderCard(deck));
+    _pwRender();
+  }
+
+  function _pwSetConsistency(v) {
+    if (!_planWizard) return;
+    const n = parseInt(v, 10);
+    _planWizard.draft.consistencyPct = Number.isFinite(n) ? Math.max(50, Math.min(99, n)) : 85;
+    _planWizard.draft.landIdeal = null;
+    const deck = _pwDeck();
+    _pwRefreshLandRampIdeals(deck, _pwCommanderCard(deck));
+    _pwRender();
+  }
+
+  function _pwSetLandIdeal(v) {
+    if (!_planWizard) return;
+    const n = parseInt(v, 10);
+    if (!Number.isFinite(n)) return;
+    _planWizard.draft.landIdeal = Math.max(30, Math.min(45, n));
+    // Re-solve R* with fixed L*
+    const deck = _pwDeck();
+    const cmd = _pwCommanderCard(deck);
+    const cmc = Math.round(cmd?.cmc || 0);
+    const T = typeof effectiveCastTurn === 'function' ? effectiveCastTurn(_planWizard.draft, cmc) : (_planWizard.draft.targetCastTurn || cmc || 4);
+    const avgMV = typeof avgNonLandMv === 'function' ? avgNonLandMv(deck) : 3.2;
+    if (typeof solveLandAndEarlyRampIdeals === 'function') {
+      const solved = solveLandAndEarlyRampIdeals({
+        avgMV, T, consistencyPct: _planWizard.draft.consistencyPct || 85,
+        R_est: 8,
+      });
+      // Keep user L*; take R* from a solve that respects user L via castConsistency loop
+      let R = 0;
+      const pct = (_planWizard.draft.consistencyPct || 85) / 100;
+      const L = _planWizard.draft.landIdeal;
+      if (typeof castConsistency === 'function') {
+        for (let cand = 0; cand <= 18; cand++) {
+          if (castConsistency(100, L, cand, T, true) + 1e-9 >= pct) { R = cand; break; }
+          R = cand;
+        }
+      } else {
+        R = solved.earlyRampIdeal;
+      }
+      _planWizard.draft.earlyRampIdeal = R;
+    }
+    _pwRender();
+  }
+
+  function _pwSetProtectionImportance(id) {
+    if (!_planWizard) return;
+    _planWizard.draft.protectionImportance = id;
+    _planWizard.draft.confirmedRoles = typeof ensureProtectionRoleOnHigh === 'function'
+      ? ensureProtectionRoleOnHigh(_planWizard.draft.confirmedRoles, id)
+      : _planWizard.draft.confirmedRoles;
+    _pwRender();
+  }
+
+  function _pwToggleProtType(typ, on) {
+    if (!_planWizard) return;
+    const set = new Set(_planWizard.draft.protectionTypes || []);
+    if (on) set.add(typ); else set.delete(typ);
+    _planWizard.draft.protectionTypes = [...set];
+  }
+
+  (function _pwBindKeyCardSuggestDelegation() {
+    const modal = document.getElementById('deckPlanWizardModal');
+    if (!modal || modal.dataset.keyCardDelegation) return;
+    modal.dataset.keyCardDelegation = '1';
+    modal.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-key-card-name]');
+      if (!btn) return;
+      _pwAddKeyCard(btn.getAttribute('data-key-card-name'));
+    });
+  })();
 
   window.openDeckPlanWizard = openDeckPlanWizard;
   window.closeDeckPlanWizard = closeDeckPlanWizard;
@@ -591,4 +1056,15 @@
   window._pwCustomCardUsd = _pwCustomCardUsd;
   window._pwPickBusters = _pwPickBusters;
   window._pwSkipBudgetStep = _pwSkipBudgetStep;
+  window._pwAddKeyCard = _pwAddKeyCard;
+  window._pwRemoveKeyCard = _pwRemoveKeyCard;
+  window._pwToggleRole = _pwToggleRole;
+  window._pwRoleTarget = _pwRoleTarget;
+  window._pwAddRoleFromSearch = _pwAddRoleFromSearch;
+  window._pwDeriveRolesIntoDraft = _pwDeriveRolesIntoDraft;
+  window._pwSetCastTurn = _pwSetCastTurn;
+  window._pwSetConsistency = _pwSetConsistency;
+  window._pwSetLandIdeal = _pwSetLandIdeal;
+  window._pwSetProtectionImportance = _pwSetProtectionImportance;
+  window._pwToggleProtType = _pwToggleProtType;
 })();
