@@ -4460,9 +4460,21 @@ app.post('/api/decks/analyze-wizard', requireAuth, async (req, res) => {
       }
     }
     const topGoal = goalsRes.goals[0] || null;
-    const thresholds = eng.thresholds.computeThresholds({
+    let thresholds = eng.thresholds.computeThresholds({
       goal: topGoal?.goal, playstyleStep: body.playstyleStep, overrides: body.thresholdOverrides,
     });
+    // Prompts 29–31: Classic/Hybrid plan fields enrich sandbox thresholds when confirmed.
+    if (plan.planConfirmed && Array.isArray(plan.confirmedRoles) && plan.confirmedRoles.length) {
+      try {
+        const ext = require('./js/commander-plan-ext.js');
+        if (typeof ext.thresholdsFromConfirmedPlan === 'function') {
+          thresholds = ext.thresholdsFromConfirmedPlan(plan, thresholds);
+          if (plan.earlyRampIdeal != null && thresholds.Ramp != null) {
+            thresholds.Ramp = Math.max(0, Math.round(Number(plan.earlyRampIdeal)) || 0);
+          }
+        }
+      } catch (_) { /* optional client helper */ }
+    }
     const roleCounts = eng.thresholds.countRoles(deckCards);
     const cuts = eng.recommender.scoreCuts({ deckCards, commander, goals: goalsRes.goals, thresholds, roleCounts })
       .map(c => ({ ...c, reasons: eng.explain.cutReasons(c), breakdown: eng.explain.cutBreakdown(c) }));

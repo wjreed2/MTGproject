@@ -126,6 +126,9 @@
   ]);
 
   function emptyPlan() {
+    const cmdExt = (root && typeof root.emptyCommanderPlanFields === 'function')
+      ? root.emptyCommanderPlanFields()
+      : {};
     return {
       winConditionId: null,
       primaryStrategyId: null,
@@ -150,6 +153,8 @@
       planSubTags: {},
       /** @type {string[]} creature type ids chosen in Tribal type step */
       typePicks: [],
+      // Prompts 29–31 — commander plan extensions (feeds Classic + Hybrid)
+      ...cmdExt,
     };
   }
 
@@ -165,6 +170,10 @@
     out.typePicks = Array.isArray(out.typePicks)
       ? out.typePicks.map(t => String(t || '').toLowerCase()).filter(Boolean)
       : [];
+    if (root && typeof root.normalizeCommanderPlanFields === 'function') {
+      const cmd = root.normalizeCommanderPlanFields(out);
+      Object.assign(out, cmd);
+    }
     return out;
   }
 

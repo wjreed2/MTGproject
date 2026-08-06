@@ -58,9 +58,9 @@ re-pop) isolated from other deck-builder render PRs. **23** (user categories) la
 | **26** | A1 / A1b â€” plan term H + Option A primary tier + strength strip | **Completed** | Cuts/Adds 13 v2 Phase A | After **25**. Classic plan-aware ranking. |
 | **27** | Hybrid Suggested Adds â€” Classic staples + `engine2.1wizard` theme/synergy rows | **Completed** | Full merge stage | After **26**. Partner `engine2/` untouched. |
 | **28** | Bidirectional loop â€” confirmed plan + planned Adds/Cuts into sandbox scoring | **Completed** | Full merge stage | After **27**. Completes wizardâ†”engine marriage. |
-| **29** | Commander plan Theme D — wizard key cards + role ID | Ready | Commander plan | After **28**. Locked CP-Q1–Q13. Source: [`commander-plan-notes.md`](./commander-plan-notes.md). |
-| **30** | Commander plan Theme B — cast turn → lands / early ramp | Ready | Commander plan | After **29** (plan fields). Locked CP-Q14–Q21. |
-| **31** | Commander plan Theme C — Protection importance + matching | Ready | Commander plan | After **29** (role list); can parallel **30** if plan schema agreed. Locked CP-Q22–Q30. |
+| **29** | Commander plan Theme D — wizard key cards + role ID | Completed | Commander plan | After **28**. Locked CP-Q1–Q13. Source: [`commander-plan-notes.md`](./commander-plan-notes.md). |
+| **30** | Commander plan Theme B — cast turn → lands / early ramp | Completed | Commander plan | After **29** (plan fields). Locked CP-Q14–Q21. |
+| **31** | Commander plan Theme C — Protection importance + matching | Completed | Commander plan | After **29** (role list); can parallel **30** if plan schema agreed. Locked CP-Q22–Q30. |
 
 ### Full merge track (memory aid)
 
@@ -1717,9 +1717,9 @@ Mark Prompt 28 Completed. Full merge track done â€” update suggested-adds-i
 ---
 
 
-# Prompt 29 of 31 — Commander plan Theme D (wizard key cards + role ID)
+# Prompt 29 of 31 — Commander plan Theme D (wizard key cards + role ID) **(Completed)**
 
-**Status:** Ready
+**Status:** Completed
 
 Source locks: [`commander-plan-notes.md`](./commander-plan-notes.md) CP-Q1–Q13. UX: algo narrows; user final say.
 
@@ -1798,9 +1798,9 @@ Mark Prompt 29 Completed when done.
 
 ---
 
-# Prompt 30 of 31 — Commander plan Theme B (cast turn → lands / early ramp)
+# Prompt 30 of 31 — Commander plan Theme B (cast turn → lands / early ramp) **(Completed)**
 
-**Status:** Ready
+**Status:** Completed
 
 Source locks: [`commander-plan-notes.md`](./commander-plan-notes.md) CP-Q14–Q21.
 
@@ -1863,9 +1863,9 @@ Mark Prompt 30 Completed when done.
 
 ---
 
-# Prompt 31 of 31 — Commander plan Theme C (Protection)
+# Prompt 31 of 31 — Commander plan Theme C (Protection) **(Completed)**
 
-**Status:** Ready
+**Status:** Completed
 
 Source locks: [`commander-plan-notes.md`](./commander-plan-notes.md) CP-Q22–Q30.
 
