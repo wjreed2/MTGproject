@@ -69,7 +69,9 @@ const {
   const L = karstenLandIdeal(3.2, 8, 4);
   assert.ok(L >= 35 && L <= 40);
   assert.ok(hypergeoAtLeast(100, 37, 11, 4) > 0.5);
-  assert.ok(castConsistency(100, 37, 8, 4, true) >= castConsistency(100, 37, 8, 4, false) - 1e-9);
+  const pNoMull = castConsistency(100, 37, 8, 4, false);
+  const pMull = castConsistency(100, 37, 8, 4, true);
+  assert.ok(pMull > pNoMull + 1e-9, `free mulligan should uplift consistency (${pMull} vs ${pNoMull})`);
   console.log('[30] cast turn / L* R*', solved);
 }
 
@@ -114,6 +116,11 @@ const {
     { protectionImportance: 'med', protectionTypes: ['Artifact'] },
   );
   assert.ok(boostTypesOnly > 0 && boostTypesOnly < boost);
+  const boostWard = protectionMatchBoost(
+    { oracleText: 'Ward—Pay 2 life.', type_line: 'Legendary Creature — Devil Rogue' },
+    { protectionImportance: 'high', protectionTypes: ['Creature'] },
+  );
+  assert.ok(boostWard > 1, `ward wording boost got ${boostWard}`);
   const noBoost = protectionMatchBoost(
     { oracleText: 'Draw a card.', type_line: 'Instant' },
     { protectionImportance: 'not_important', protectionTypes: ['Creature'] },

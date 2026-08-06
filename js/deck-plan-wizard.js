@@ -780,7 +780,7 @@
       const names = Array.isArray(data?.data) ? data.data : (Array.isArray(data) ? data : []);
       box.innerHTML = names.slice(0, 8).map(n => {
         const name = typeof n === 'string' ? n : (n.name || '');
-        return `<button type="button" class="plan-opt" onclick="_pwAddKeyCard(${JSON.stringify(name)})">${escapeHtml(name)}</button>`;
+        return `<button type="button" class="plan-opt" data-key-card-name="${escapeHtml(name)}">${escapeHtml(name)}</button>`;
       }).join('');
     } catch (_) {
       box.innerHTML = '';
@@ -913,7 +913,7 @@
   function _pwRoleTarget(idx, val) {
     if (!_planWizard?.draft?.confirmedRoles?.[idx]) return;
     const n = parseInt(val, 10);
-    _planWizard.draft.confirmedRoles[idx].target = Number.isFinite(n) ? Math.max(0, n) : 10;
+    _planWizard.draft.confirmedRoles[idx].target = Number.isFinite(n) ? Math.max(0, Math.min(40, n)) : 10;
   }
 
   function _pwAddRoleFromSearch() {
@@ -1027,6 +1027,17 @@
     if (on) set.add(typ); else set.delete(typ);
     _planWizard.draft.protectionTypes = [...set];
   }
+
+  (function _pwBindKeyCardSuggestDelegation() {
+    const modal = document.getElementById('deckPlanWizardModal');
+    if (!modal || modal.dataset.keyCardDelegation) return;
+    modal.dataset.keyCardDelegation = '1';
+    modal.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-key-card-name]');
+      if (!btn) return;
+      _pwAddKeyCard(btn.getAttribute('data-key-card-name'));
+    });
+  })();
 
   window.openDeckPlanWizard = openDeckPlanWizard;
   window.closeDeckPlanWizard = closeDeckPlanWizard;

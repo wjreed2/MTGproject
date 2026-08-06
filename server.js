@@ -4470,7 +4470,10 @@ app.post('/api/decks/analyze-wizard', requireAuth, async (req, res) => {
         if (typeof ext.thresholdsFromConfirmedPlan === 'function') {
           thresholds = ext.thresholdsFromConfirmedPlan(plan, thresholds);
           if (plan.earlyRampIdeal != null && thresholds.Ramp != null) {
-            thresholds.Ramp = Math.max(0, Math.round(Number(plan.earlyRampIdeal)) || 0);
+            const ramp = Number(plan.earlyRampIdeal);
+            if (Number.isFinite(ramp)) {
+              thresholds.Ramp = Math.max(0, Math.round(ramp));
+            }
           }
         }
       } catch (_) { /* optional client helper */ }

@@ -335,10 +335,9 @@
     const need = Math.max(1, T);
     let p = hypergeoAtLeast(N, K, n, need);
     if (afterMulligan) {
-      // Mild uplift: chance of shipping a 0-land opener then recovering
-      const pLandOpen = hypergeoAtLeast(N, L, 7, 1);
-      const p2 = hypergeoAtLeast(N, K, n, need);
-      p = pLandOpen * p + (1 - pLandOpen) * p2;
+      // Match Gameplan free mulligan: bottom 1 after redraw → seen-1 cards on mull hand.
+      const p2 = hypergeoAtLeast(N, K, Math.max(need, n - 1), need);
+      p = 1 - (1 - p) * (1 - p2);
     }
     return p;
   }
@@ -398,7 +397,7 @@
     const typeLine = String(card?.type_line || card?.type || '').toLowerCase();
     let boost = 0;
     // Commander-preferring patterns
-    if (/hexproof|indestructible|protection from|phase out|ward |shroud/.test(oracle)) boost += 1.5;
+    if (/hexproof|indestructible|protection from|phase out|\bward\b|shroud/.test(oracle)) boost += 1.5;
     if (/equipped creature|aura|target (permanent|creature) you control|commander/.test(oracle)) boost += 1.0;
     // Type secondary
     for (const typ of (p.protectionTypes || [])) {
