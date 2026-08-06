@@ -6760,6 +6760,20 @@ function _computeBaseThresholds(deck) {
     const n = _parseThresholdNumber(val);
     if (n != null) t[tag] = n;
   }
+  // CP-Q31: confirmed plan roles replace the static table (Modified A) when present.
+  try {
+    const plan = typeof getDeckPlan === 'function' ? getDeckPlan(deck) : null;
+    if (plan && typeof isPlanConfirmed === 'function' && isPlanConfirmed(plan)
+        && Array.isArray(plan.confirmedRoles) && plan.confirmedRoles.some(r => r && r.checked !== false)
+        && typeof thresholdsFromConfirmedPlan === 'function') {
+      const next = thresholdsFromConfirmedPlan(plan, t);
+      // Theme B: when R* is set and Ramp is an active ideal, prefer early-ramp R* for Ramp.
+      if (plan.earlyRampIdeal != null && next.Ramp != null) {
+        next.Ramp = Math.max(0, Math.round(Number(plan.earlyRampIdeal)) || 0);
+      }
+      return next;
+    }
+  } catch (_) { /* keep archetype table */ }
   return t;
 }
 
@@ -6821,6 +6835,18 @@ function _suggestCardsToCut(deck) {
   for (const card of cards) {
     const tags = _probTagsOnCard(card, deck);
     for (const tag of tags) roleCount[tag] = (roleCount[tag] || 0) + (card.qty || 1);
+  }
+  // CP-Q26b Protection union for Cuts surplus/deficit counting
+  if (typeof cardCountsAsProtection === 'function') {
+    let protHave = 0;
+    for (const card of cards) {
+      if (card.isCommander || (deck.commander && card.name === deck.commander)) continue;
+      const tags = _probTagsOnCard(card, deck);
+      if (tags.includes('Protection') || cardCountsAsProtection({ roleTags: tags, ir: card.ir })) {
+        protHave += (card.qty || 1);
+      }
+    }
+    roleCount.Protection = protHave;
   }
 
   // Mana curve excess per CMC bucket (0–7+), using the existing ideal-curve pipeline
@@ -7498,6 +7524,24 @@ function _computeAddContext(deck) {
     if (eq <= 0) continue;
     for (const tag of _probTagsOnCard(card, deck)) roleCount[tag] = (roleCount[tag] || 0) + eq;
   }
+  // CP-Q26b: Protection have = union of project tag | IR role | protection.single/mass
+  if (typeof cardCountsAsProtection === 'function') {
+    let protHave = 0;
+    for (const card of cards) {
+      const eq = effectiveQty(card);
+      if (eq <= 0) continue;
+      if (card.isCommander || (deck.commander && card.name === deck.commander)) continue;
+      if (_isLandCardSafe(card)) continue;
+      const tagged = _probTagsOnCard(card, deck).includes('Protection');
+      if (tagged || cardCountsAsProtection({
+        roleTags: _probTagsOnCard(card, deck),
+        ir: card.ir,
+      })) {
+        protHave += eq;
+      }
+    }
+    roleCount.Protection = protHave;
+  }
   // Plan-count pool: match Cuts candidates — exclude commander, tokens, and lands.
   const nonLandNonCmd = cards.filter(c =>
     !(c.isCommander || (deck.commander && c.name === deck.commander))
@@ -7601,17 +7645,22 @@ function _scoreAddCandidate(card, roles, ctx) {
   if (planDeclared && typeof planMatchScore === 'function' && ctx.deck) {
     planMatch = planMatchScore(card, deckPlan, ctx.deck) || 0;
   }
+  // CP-Q29 A: soft Protection matching boost (commander-preferring + type hints)
+  const protBoost = (planConfirmed && typeof protectionMatchBoost === 'function')
+    ? protectionMatchBoost(card, deckPlan)
+    : 0;
 
   // No in-repo spellslinger archetype hook — do not invent one; B gating stays off.
   const scored = typeof scoreAddCandidateTerms === 'function'
     ? scoreAddCandidateTerms(card, roles, ctx, {
-      gate, tribal, tribe, theme, themeBonus,
+      gate, tribal, tribe, theme, themeBonus: themeBonus + protBoost,
       planMatch, planDeclared, planConfirmed,
       hybridRoleModifiers: deckPlan?.hybridRoleModifiers || null,
     })
     : null;
   if (scored) {
     scored.planMatch = planMatch;
+    scored.protectionBoost = protBoost;
     if (typeof logAddScoreTerms === 'function' && typeof isAddsScoreDebugEnabled === 'function'
         && isAddsScoreDebugEnabled()) {
       logAddScoreTerms(card?.name || '?', scored, true);
@@ -7621,9 +7670,10 @@ function _scoreAddCandidate(card, roles, ctx) {
   // Fallback if adds-scoring.js failed to load (should not happen in bundled builds).
   const bucket = Math.min(Math.floor(_effCmcSafe(card)), 7);
   return {
-    score: tribal + themeBonus,
+    score: tribal + themeBonus + protBoost,
     topRole: '', topVal: -1, bucket, roles: real, gate, tribal, tribe, theme,
-    roleFit: 0, curveBonus: 0, versatility: 0, themeBonus,
+    roleFit: 0, curveBonus: 0, versatility: 0, themeBonus: themeBonus + protBoost,
+    protectionBoost: protBoost,
   };
 }
 
@@ -9957,6 +10007,62 @@ function toggleCmdFreeMulligan(checked) {
   if (deck) renderCommanderGameplan(deck);
 }
 
+/** CP-Q14: Gameplan ↔ wizard synced cast turn. */
+function setCmdPlanCastTurn(deckId, value) {
+  const deck = (typeof getActiveDeck === 'function' ? getActiveDeck() : null);
+  if (!deck || String(deck.id) !== String(deckId)) return;
+  const n = parseInt(value, 10);
+  deck.plan = typeof normalizeDeckPlan === 'function'
+    ? normalizeDeckPlan(deck.plan || {})
+    : (deck.plan || {});
+  deck.plan.targetCastTurn = Number.isFinite(n) ? Math.max(1, Math.min(12, n)) : null;
+  // Recompute L*/R* when T changes (keep user L* if previously edited? re-solve both when T changes)
+  const cmdCard = (deck.cards || []).find(c => c.isCommander)
+    || (deck.cards || []).find(c => deck.commander && c.name === deck.commander);
+  const cmc = Math.round(cmdCard?.cmc || 0);
+  const T = typeof effectiveCastTurn === 'function' ? effectiveCastTurn(deck.plan, cmc) : (deck.plan.targetCastTurn || cmc || 4);
+  const avgMV = typeof avgNonLandMv === 'function' ? avgNonLandMv(deck) : 3.2;
+  if (typeof solveLandAndEarlyRampIdeals === 'function') {
+    const solved = solveLandAndEarlyRampIdeals({
+      avgMV, T, consistencyPct: deck.plan.consistencyPct || 85, R_est: 8,
+    });
+    deck.plan.landIdeal = solved.landIdeal;
+    deck.plan.earlyRampIdeal = solved.earlyRampIdeal;
+  }
+  if (typeof saveActiveDeck === 'function') saveActiveDeck(deck);
+  else if (typeof save === 'function') save('decks');
+  renderCommanderGameplan(deck);
+  if (typeof _renderAddSuggestions === 'function') _renderAddSuggestions(deck);
+}
+
+function setCmdPlanLandIdeal(deckId, value) {
+  const deck = (typeof getActiveDeck === 'function' ? getActiveDeck() : null);
+  if (!deck || String(deck.id) !== String(deckId)) return;
+  const n = parseInt(value, 10);
+  if (!Number.isFinite(n)) return;
+  deck.plan = typeof normalizeDeckPlan === 'function'
+    ? normalizeDeckPlan(deck.plan || {})
+    : (deck.plan || {});
+  deck.plan.landIdeal = Math.max(30, Math.min(45, n));
+  const cmdCard = (deck.cards || []).find(c => c.isCommander)
+    || (deck.cards || []).find(c => deck.commander && c.name === deck.commander);
+  const cmc = Math.round(cmdCard?.cmc || 0);
+  const T = typeof effectiveCastTurn === 'function' ? effectiveCastTurn(deck.plan, cmc) : (deck.plan.targetCastTurn || cmc || 4);
+  const pct = (deck.plan.consistencyPct || 85) / 100;
+  const L = deck.plan.landIdeal;
+  let R = 0;
+  if (typeof castConsistency === 'function') {
+    for (let cand = 0; cand <= 18; cand++) {
+      if (castConsistency(100, L, cand, T, true) + 1e-9 >= pct) { R = cand; break; }
+      R = cand;
+    }
+  }
+  deck.plan.earlyRampIdeal = R;
+  if (typeof saveActiveDeck === 'function') saveActiveDeck(deck);
+  else if (typeof save === 'function') save('decks');
+  renderCommanderGameplan(deck);
+}
+
 async function openCardDetailByName(name) {
   const norm = String(name || '').trim();
   if (!norm) return;
@@ -10060,11 +10166,20 @@ function _rampIsRelevant(card, cmdColors, hasGenericCost) {
 }
 
 function _countEarlyRamp(deck, cmdColors, hasGenericCost, cmdCMC = 4) {
+  // CP-Q17: when plan sets target cast turn T, early = CMC ≤ T−1 (compare via cmc < T).
+  // Otherwise keep caller bound (often adjustedCMC including custom-req shift).
+  let earlyCmcExclusive = cmdCMC;
+  try {
+    const plan = typeof getDeckPlan === 'function' ? getDeckPlan(deck) : null;
+    if (plan && plan.targetCastTurn != null && typeof effectiveCastTurn === 'function') {
+      earlyCmcExclusive = effectiveCastTurn(plan, cmdCMC);
+    }
+  } catch (_) { /* keep */ }
   return (deck.cards || []).reduce((s, c) => {
     if (_isLandDeckCard(c)) return s;
     if (!_probTagsOnCard(c).includes('Ramp')) return s;
-    // "Early" = castable before the commander turn (CMC < cmdCMC)
-    if (_effectiveCmc(c) >= cmdCMC) return s;
+    // "Early" = castable before the commander cast turn (CMC < exclusive bound)
+    if (_effectiveCmc(c) >= earlyCmcExclusive) return s;
     if (cmdColors && !_rampIsRelevant(c, cmdColors, hasGenericCost)) return s;
     return s + (c.qty || 1);
   }, 0);
@@ -10156,7 +10271,27 @@ function _cmdGameplanProbs(deck, cmdCard, customReqs = []) {
 
   // customGroups populated after customData is built below; placeholder here so meta reference is stable
   const customGroups = [];
-  const results = { onCurve: null, preCurve: null, meta: { N, L, L_ut, R, cmdCMC, adjustedCMC, extraTurns, cmdColors, colorSources, hasGenericCost, customGroups } };
+  let planCastTurn = null;
+  let landIdeal = null;
+  let earlyRampIdeal = null;
+  try {
+    const plan = typeof getDeckPlan === 'function' ? getDeckPlan(deck) : null;
+    if (plan) {
+      if (plan.targetCastTurn != null && typeof effectiveCastTurn === 'function') {
+        planCastTurn = effectiveCastTurn(plan, cmdCMC);
+      }
+      if (plan.landIdeal != null) landIdeal = plan.landIdeal;
+      if (plan.earlyRampIdeal != null) earlyRampIdeal = plan.earlyRampIdeal;
+    }
+  } catch (_) { /* optional plan */ }
+  const results = {
+    onCurve: null,
+    preCurve: null,
+    meta: {
+      N, L, L_ut, R, cmdCMC, adjustedCMC, extraTurns, cmdColors, colorSources, hasGenericCost, customGroups,
+      planCastTurn, landIdeal, earlyRampIdeal,
+    },
+  };
 
   // Build sorted card-name list for a given color — used in tooltip detail strings
   const colorSourceCards = col => {
@@ -10215,8 +10350,10 @@ function _cmdGameplanProbs(deck, cmdCard, customReqs = []) {
   const customReqMul = (sceneSeen) => customData.reduce((s, d) => s * mulP(d.K, sceneSeen, 1), 1);
 
   if (cmdCMC >= 1) {
-    // Shift the target turn by the total avg CMC of custom requirements
-    const turn = cmdCMC + extraTurns;
+    // Shift the target turn by the total avg CMC of custom requirements.
+    // CP-Q14/Q16: when plan sets targetCastTurn, use that as the base (synced with wizard).
+    const turnBase = (results.meta.planCastTurn != null) ? results.meta.planCastTurn : cmdCMC;
+    const turn = turnBase + extraTurns;
     const seen = 7 + (turn - 1);
     // Ramp has until T(turn-1) to show up — cards seen by that turn
     const rampSeen = 7 + Math.max(0, turn - 2);
@@ -10253,8 +10390,9 @@ function _cmdGameplanProbs(deck, cmdCard, customReqs = []) {
     };
   }
 
-  if (adjustedCMC >= 3) {
-    const turn = cmdCMC + extraTurns - 1;
+  if (adjustedCMC >= 3 || (results.meta.planCastTurn != null && results.meta.planCastTurn >= 3)) {
+    const turnBase = (results.meta.planCastTurn != null) ? results.meta.planCastTurn : cmdCMC;
+    const turn = turnBase + extraTurns - 1;
     const seen = 7 + (turn - 1);
     const preLandMinK = turn + extraLandsInHand;
     const p_lands = mulP(L, seen, preLandMinK);
@@ -10548,6 +10686,21 @@ function renderCommanderGameplan(deck) {
       </div>
       <div class="panel-body cmdr-gp-body">
         <div class="cmdr-gp-meta">Playing <strong>${escapeHtml(deck.commander)}</strong> — MV&nbsp;${meta.cmdCMC} · ${meta.L} lands · ${meta.R} early ramp · ${meta.L_ut} untapped lands${afterSwaps ? ' <span class="cmdr-gp-after-swaps" title="Counts planned adds as in the deck and planned cuts as out">· after planned adds/cuts</span>' : ''}</div>
+        <div class="cmdr-gp-plan-sync" style="display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;margin:.35rem 0 .55rem;font-size:.75rem">
+          <label title="Synced with Plan wizard (CP-Q14)">Cast turn
+            <input type="number" min="1" max="12" style="width:3.2rem;margin-left:.25rem"
+              value="${meta.planCastTurn != null ? meta.planCastTurn : meta.cmdCMC}"
+              onchange="setCmdPlanCastTurn('${String(deck.id).replace(/'/g, "\\'")}', this.value)">
+          </label>
+          <span class="deck-tab-muted">CMC ${meta.cmdCMC}</span>
+          ${meta.landIdeal != null ? `<span title="Land ideal L*">L* ${meta.landIdeal}</span>` : ''}
+          ${meta.earlyRampIdeal != null ? `<span title="Early ramp ideal R*">R* ${meta.earlyRampIdeal}</span>` : ''}
+          ${meta.landIdeal != null ? `<label>Edit L*
+            <input type="number" min="30" max="45" style="width:3.2rem;margin-left:.25rem"
+              value="${meta.landIdeal}"
+              onchange="setCmdPlanLandIdeal('${String(deck.id).replace(/'/g, "\\'")}', this.value)">
+          </label>` : ''}
+        </div>
         ${probs.preCurve ? scenarioHtml(probs.preCurve, 'Pre-curve', false) : ''}
         ${probs.onCurve ? scenarioHtml(probs.onCurve, 'On-curve', true) : ''}
         ${!probs.preCurve && !probs.onCurve ? '<div class="cmdr-gp-empty">Set a commander with a mana cost to see gameplan probabilities.</div>' : ''}
