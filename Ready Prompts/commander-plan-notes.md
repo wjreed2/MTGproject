@@ -42,12 +42,12 @@ Those confirmed roles (plus later cast-turn and protection inputs) drive:
 ### Saved questions (ask later — Theme A)
 
 1. ~~Active role set entirely user / inferred / hybrid?~~ → **Partially locked:** hybrid (algo narrows, user final say). Remaining: are algo suggestions **pre-checked**, **highlighted only**, or **unordered shortlist** with no default selection?
-2. Do Ramp / Card Draw / Removal stay as always-on staples even when dynamic roles are live, or can a deck opt them out of the scored set?
+2. ~~Staples opt-out?~~ → **Locked CP-Q11 + CP-Q31** — can uncheck; finish warning + confirm if any of Ramp/Draw/Removal unchecked.
 3. When we “add roles,” do you mean **new project labels** (e.g. Ping, Extra Turn), **promoting more existing labels into thresholds**, or both?
-4. Do Primary / Secondary / Default **card tags** stay independent of “roles the plan feeds,” or should picking a plan-fed role auto-promote matching tags?
-5. Should `_computeBaseThresholds` become a function of the fed-role list (only those roles get ideals), or keep a full table and only **boost** fed roles?
+4. ~~P/S/D vs plan roles?~~ → **Locked CP-Q33:** independent (no auto-promote).
+5. ~~Thresholds only fed roles vs full table?~~ → **Locked CP-Q31: Modified A** — confirmed-only ideals; finish warning if Ramp/Draw/Removal unchecked.
 6. Does strategy/wincon selection in the wizard still exist once users pick plan-fed roles, or do fed roles replace that step?
-7. If the user clears every algo-suggested role and picks none, what should Adds/Cuts fall back to — static thresholds, empty fed set, or block finish until ≥1 role?
+7. ~~Zero / no staples?~~ → **Locked CP-Q31** — finish **warning** + explicit confirm (not hard block); ideals only for confirmed roles.
 
 ---
 
@@ -226,6 +226,11 @@ The algorithm must not silently overwrite a user’s confirmed role set without 
 | **CP-Q28** | **A — Same project label** — Theme C is how **Protection** gets importance, ideal (0/3/6/10), optional type hints, and High auto-confirm. Not a separate role package or second label. | 2026-08-04 |
 | **CP-Q29** | **A — Prefer commander, types secondary** — Adds ranking prefers cards that protect the **commander** (or broad “target permanent you control” / equipped-creature style). Optional type picks give a **soft secondary** score boost only; they do not outrank commander fit. | 2026-08-04 |
 | **CP-Q30** | **D — Defer combo precheck** — v1 auto-High only for **Voltron**. Combo / commander-in-combo users set protection importance manually. Revisit combo-rules / CardIR wincon gate later. | 2026-08-05 |
+| **CP-Q31** | **Modified A — Confirmed-only ideals + staple gate** — Only **confirmed** roles get ideals / roles-to-fill pressure. If Ramp, Card Draw, and/or Removal are unchecked, show a **finish warning** and require explicit confirm before leaving the role step. Role add uses **search + autocomplete** (extends CP-Q8). | 2026-08-06 |
+| **CP-Q32** | **Ping is a project role** — Definition: spell/permanent that deals **1 damage** to a creature or player (activated or otherwise). Canonical label **Ping**; aliases poke / Tim / zap / pinger (partner note to add). Distinct from broader Burn. | 2026-08-06 |
+| **CP-Q33** | **Plan roles ⊥ card P/S/D tags** — Confirmed plan roles do **not** auto-change Primary/Secondary/Default tags on cards. Independent layers. | 2026-08-06 |
+| **CP-Q34** | **One wizard pass** — Key cards → roles → strategy/wincon (seeded) → cast turn → protection in **one** Plan wizard flow. Cast turn remains editable on Gameplan too (CP-Q14). | 2026-08-06 |
+| **CP-Q35** | **Partner / multi-face CMC → v2** — Default T / displayed CMC uses existing primary-face helper for v1; partner/MDFC edge cases deferred. | 2026-08-06 |
 
 ### Direction (product) — related details
 
@@ -236,7 +241,10 @@ The algorithm must not silently overwrite a user’s confirmed role set without 
 - **Stale handling (CP-Q13 B):** prompt to re-derive; never silently overwrite confirmed plan.
 - **Confirmed roles = important / to-fill (CP-Q9 D):** added to the active role set with targets (**default 10**, editable — CP-Q10 D) and stronger D on shortfalls.
 - **Counting (CP-Q9b):** multi-role cards count toward **every** matched role spot.
-- Shortlist examples for roles once derived: Sac Outlet, Ramp, Ping, Drain, Tutor, Protection, etc. (Ping still a gap / candidate new label).
+- Shortlist examples: Sac Outlet, Ramp, Ping, Drain, Tutor, Protection, etc. (**Ping** locked as new project role — CP-Q32; partner to add.)
+- **Ideals (CP-Q31):** only confirmed roles; finish warning if Ramp/Draw/Removal unchecked.
+- **Tags (CP-Q33):** plan roles independent of card Primary/Secondary/Default.
+- **Wizard shell (CP-Q34):** one pass for key cards → roles → strategy/wincon → cast turn → protection.
 
 ### Current baseline (related)
 
@@ -251,7 +259,7 @@ The algorithm must not silently overwrite a user’s confirmed role set without 
 2. ~~Escape hatch beyond derived roles?~~ → **Locked CP-Q8: A** — full searchable project-role catalog always available to add roles.
 3. ~~Are algo role suggestions pre-selected?~~ → **Locked CP-Q7: A** — all suggested roles pre-checked; user unchecks to reject.
 4. ~~Decklist / key-card drift after confirm?~~ → **Locked CP-Q13: B** — stale banner + Re-derive; no silent overwrite.
-5. Can the user **force-add** a role the algo scored near zero / omitted from the shortlist? Any warning copy?
+5. ~~Force-add omitted roles?~~ → **Locked CP-Q8 + CP-Q31:** full catalog with **search + autocomplete**; no special warning beyond finish gate for staples.
 
 **What is being identified**
 6. ~~Roles only / key cards / both?~~ → **Locked CP-Q1: D** (cards first, then editable derived roles).
@@ -263,9 +271,9 @@ The algorithm must not silently overwrite a user’s confirmed role set without 
 10b. ~~Multi-role counting?~~ → **Locked CP-Q9b:** one card counts toward **each** matched role (base + confirmed).
 10c. ~~Target for user-confirmed important roles?~~ → **Locked CP-Q10: D** — default **10**, user-editable per role; soft guidance if outside 8–12; semantics does not pick 8 vs 12.
 11. ~~Ramp / Draw / Removal if never confirmed?~~ → **Locked CP-Q11: D** — auto-include on confirmed list (checked); user may uncheck to opt out.
-12. Owner example included **Ping** — confirm Ping as a **new project role** (vs alias of Burn/Drain/Group Slug)? Any other must-add roles from the gap table?
+12. ~~Ping?~~ → **Locked CP-Q32:** Ping is a new project role (1 dmg to creature/player). Other gap labels still open.
 13. ~~Empty / new deck key-card entry?~~ → Covered by CP-Q5 (search + autocomplete works pre-decklist).
-14. Do confirmed roles **persist on the deck plan** and drive both Adds and Cuts, or Adds-only for v1?
+14. ~~Persist Adds+Cuts?~~ → **Locked with Prompt 29:** both Adds and Cuts.
 15. ~~Strategy/wincon after role confirm?~~ → **Locked CP-Q12: B** — keep both steps; seed from key cards + confirmed roles; user editable.
 
 ---
@@ -351,7 +359,12 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 - **CP-Q28 — Locked: A** — same project label **Protection**; Theme C configures it (not a separate package).
 - **CP-Q29 — Locked: A** — prefer commander-protecting suggestions; types = soft secondary boost.
 - **CP-Q30 — Locked: D** — defer combo auto-High; v1 Voltron-only precheck.
-- **Theme C largely locked.** Leftovers: partner/multi-face edge cases elsewhere; expand protection kinds when DB can; combo precheck revisit.
+- **CP-Q31 — Locked: Modified A** — confirmed-only ideals; finish warning if Ramp/Draw/Removal unchecked; role search + autocomplete.
+- **CP-Q32 — Locked:** **Ping** is a new project role (1 damage to creature/player); partner to add.
+- **CP-Q33 — Locked:** plan roles independent of card P/S/D tags.
+- **CP-Q34 — Locked:** one Plan wizard pass (D+B+C fields).
+- **CP-Q35 — Locked:** partner/MDFC CMC deferred to v2.
+- **Themes D/B/C interview complete for v1.** Leftovers: Theme E semantics depth; expand protection kinds; combo precheck; Ping implementation with partner.
 
 ---
 
@@ -361,12 +374,12 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 
 ### A — Dynamic roles
 1. Algo suggestions: pre-checked, highlighted only, or unordered shortlist with no defaults? *(hybrid / user final say already locked)*
-2. Can Ramp / Card Draw / Removal be opted out of the scored set?
+2. ~~Staples opt-out?~~ → **CP-Q11 + CP-Q31** — yes with finish warning/confirm.
 3. “Add roles” = new labels, promote into thresholds, or both?
-4. Relationship between plan-fed roles and Primary/Secondary/Default card tags?
-5. Thresholds: only fed roles get ideals, or full table with boosts for fed roles?
+4. ~~P/S/D?~~ → **CP-Q33 Locked:** independent.
+5. ~~Thresholds?~~ → **CP-Q31 Locked: Modified A** — confirmed-only; staple finish warning.
 6. Keep strategy/wincon wizard step once fed-role picks exist?
-7. If user confirms zero roles — fallback static thresholds, empty set, or block finish?
+7. ~~Empty roles?~~ → **CP-Q31** — warn + confirm; ideals only for confirmed.
 
 ### B — Commander cast turn
 1. ~~Where set?~~ → **CP-Q14 Locked: C** (wizard + Gameplan synced).
@@ -377,7 +390,7 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 5b. ~~Cards seen?~~ → **CP-Q19 Locked:** n = **7 + T** (T4 ⇒ 11; draw on cast turn included).
 5c. ~~Consistency P?~~ → **CP-Q20 Locked: D** — selectable; default **85% after free mulligan**.
 5d. ~~Joint L/R?~~ → **CP-Q21 Locked: A** — Karsten L\* [35,40] then solve R\*.
-6. Partner / multi-face MV for default turn?
+6. ~~Partner/MDFC MV?~~ → **CP-Q35 Locked:** defer to v2.
 7. ~~Retarget Gameplan only vs Adds?~~ → covered by CP-Q18.
 
 ### C — Protection
@@ -404,7 +417,7 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 9. Shortlist signal mix (counts, Primary, commander, strategy/wincon bridges)?
 10. Scoring meaning of “should have” / “feed”?
 11. Staples still should-have if not picked?
-12. Confirm Ping (+ other gap roles) as new labels?
+12. ~~Ping?~~ → **CP-Q32 Locked:** Ping is a project role; other gaps still open.
 13. Empty / thin decklist behavior?
 14. Persist on plan for Adds and Cuts, or Adds-only v1?
 15. Confirmed roles replace / seed strategy/wincon steps?
@@ -421,7 +434,7 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 
 ### Cross-cutting
 1. Interview / implement order preference: D (role ID) → B (cast turn) → C (protection), or another order?
-2. One wizard pass collecting all of this, or separate panels (Gameplan vs Plan wizard)?
+2. ~~One pass vs panels?~~ → **Locked CP-Q34:** one Plan wizard pass; cast turn also on Gameplan (CP-Q14).
 3. Any roles from the inventory appendix to **exclude** from user-facing pick lists (too broad / junk)?
 4. When algo and user disagree (user rejects a high-confidence role), should we still show that role as a soft “optional” in Adds Why text, or fully ignore it?
 5. CP-Q1 **Locked: D** (cards first → editable derived roles).
@@ -455,6 +468,11 @@ There is no separate IR field named `feeds` — **provides ≈ feeds**.
 33. CP-Q28 **Locked: A** — Theme C uses same project label **Protection** (not a separate package).
 34. CP-Q29 **Locked: A** — prefer commander-protecting Adds; types = soft secondary boost.
 35. CP-Q30 **Locked: D** — defer combo auto-High; v1 Voltron-only precheck.
+36. CP-Q31 **Locked: Modified A** — confirmed-only ideals; staple finish warning; role search autocomplete.
+37. CP-Q32 **Locked:** Ping is a new project role (1 dmg).
+38. CP-Q33 **Locked:** plan roles ⊥ card P/S/D tags.
+39. CP-Q34 **Locked:** one Plan wizard pass.
+40. CP-Q35 **Locked:** partner/MDFC CMC → v2.
 
 ---
 
@@ -556,7 +574,7 @@ Useful as **candidates to add** as project labels later (not all exist client-si
 
 | Mentioned / common | Closest today | Gap note |
 |--------------------|---------------|----------|
-| **Ping** | Burn, Drain, Group Slug; enrichment otag `bombard` | **No project label “Ping”** yet — likely a role to **add** |
+| **Ping** | Burn, Drain, Group Slug; enrichment otag `bombard` | **Locked CP-Q32** — add project label **Ping** (1 damage to creature/player; aliases poke/Tim/zap/pinger) |
 | Fog / combat fog | engine2 axis `combat.fog_like` | No project tag (Adds notes already call this out) |
 | Silence / taxing cast | Stax / Hatebear | No dedicated Silence tag |
 | Extra turn | engine2 `extra_turn` | No project tag |

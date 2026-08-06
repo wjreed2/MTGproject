@@ -1753,6 +1753,11 @@ Extend the Plan wizard so the user:
 - CP-Q11 D: Ramp / Card Draw / Removal pre-added (checked); user can opt out
 - CP-Q12 B: keep strategy/wincon; seed from key cards + roles; editable
 - CP-Q13 B: stale banner + Re-derive; never silently overwrite confirmed plan
+- CP-Q31 Modified A: only confirmed roles get ideals; if Ramp/Card Draw/Removal unchecked → finish warning + explicit confirm; role add = search + autocomplete
+- CP-Q32: add project role **Ping** (1 damage to creature/player) — coordinate with partner; aliases poke/Tim/zap/pinger
+- CP-Q33: do not auto-change card Primary/Secondary/Default tags from plan roles
+- CP-Q34: one wizard pass (include cast turn + protection steps when Prompts 30–31 land; stub ok in 29)
+- CP-Q35: partner/MDFC CMC edge cases out of scope (v2)
 
 ## Step 0 — discovery
 1. Locate plan wizard + plan persist schema (js/deck-plan-wizard.js, js/deck-plan.js, server plan fields).
@@ -1763,7 +1768,9 @@ Extend the Plan wizard so the user:
 ## Implementation
 1. **Wizard step — Key cards:** autocomplete search; store oracle ids/names on plan; soft 2–5 guidance (B4).
 2. **Derive roles:** for each key card, union project tags + (if IR) roles / need→feeder roles / provide→payoff roles; map to project labels; dedupe.
-3. **Role confirm UI:** pre-check derived set + Ramp/Draw/Removal; allow uncheck; "Add role" from full PROJECT_ROLE_TAGS catalog; per-role target default 10 editable.
+3. **Role confirm UI:** pre-check derived set + Ramp/Draw/Removal; allow uncheck; **Add role** via searchable catalog with **name autocomplete**; per-role target default 10 editable.
+3b. **Staple finish gate (CP-Q31):** if any of Ramp / Card Draw / Removal is unchecked, show warning and require explicit confirm before leaving the role step (finish still allowed after confirm).
+3c. **Ideals:** only confirmed roles participate in Adds/Cuts ideals / stronger D (no full static table pressure for unconfirmed roles).
 4. **Strategy/wincon:** seed from key cards + confirmed roles (existing bridges); user can change.
 5. **Persist** on deck plan; drive Adds/Cuts ideals + stronger D for shortfalls (CP-Q9/Q10).
 6. **Stale:** if key cards or list drift, banner + Re-derive (no silent overwrite).
@@ -1771,7 +1778,7 @@ Extend the Plan wizard so the user:
 ## Out of scope
 - Theme B cast turn / L*/R* (Prompt 30)
 - Theme C Protection importance (Prompt 31)
-- Adding new project labels (e.g. Ping) — document gap only
+- Other new project labels beyond **Ping** (CP-Q32) — document only; Ping should be added (partner-owned PROJECT_ROLE_TAGS)
 - Partner engine2/ edits
 
 ## Verification
@@ -1779,6 +1786,8 @@ Extend the Plan wizard so the user:
 |---|------|--------|
 | 1 | Empty decklist, pick 3 key cards via autocomplete | Roles derive; staples pre-checked; finish allowed |
 | 2 | Uncheck a derived role | Role leaves roles-to-fill / ideals |
+| 2b | Uncheck Ramp (or Draw/Removal) and try continue | Warning + confirm required; after confirm, proceed |
+| 2c | Add role via autocomplete search | Role appears confirmed with target 10 |
 | 3 | Add role from full catalog | Appears confirmed with target 10 |
 | 4 | Change key cards after confirm | Stale banner; Re-derive updates only on explicit action |
 | 5 | Multi-role card in 99 | Counts toward each matched confirmed role |
