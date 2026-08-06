@@ -2,7 +2,7 @@
 
 **Status:** Staged Ready Prompts **24–28** in `cuts-adds-ready-prompts.md` (full merge via `engine2.1wizard` sandbox; partner `engine2/` untouched)  
 **Date:** 2026-07-21 (Plan envelope + theme defaults added; merge track 2026-07-20)  
-**Branch:** `Manford`  
+**Branch:** `development_manford` (formerly `Manford` — deleted; do not recreate)  
 **Audience:** Product + implementer agents  
 **Hard constraint:** Deterministic algorithm only — no runtime AI/LLM.
 
@@ -26,8 +26,9 @@ Related code:
 - `js/decks.js` — `_computeAddContext`, `_scoreAddCandidate`, `_renderAddSuggestions`
 - `js/deck-plan.js` — plan schema, `planMatchScore`, Plan-only backfill gate
 - `js/deck-plan-wizard.js` — Entry 13 v1 wizard UI
-- Prior branches (not all on Manford): `adds-absolute-display-ac44`,
+- Prior branches (historical): `adds-absolute-display-ac44`,
   `adds-min-score-kb-ac44`, `adds-require-role-tag-7d8f`, `adds-score-display-scale-db9e`
+  — new agent work uses `development_manford` only (see `AGENTS.md`)
 
 ---
 
