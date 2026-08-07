@@ -23,6 +23,9 @@ const MySQLStore  = require('express-mysql-session')(session);
 const tradeCore   = require(path.join(__dirname, 'js', 'trade-core.js'));
 // stream-json's exports map only exposes the root; use resolved path for sub-modules
 const { withParserAsStream: streamJsonArray } = require(path.join(__dirname, 'node_modules/stream-json/src/streamers/stream-array.js'));
+// Scryfall bulk downloads moved from a JSON array (.json) to gzip-compressed JSONL
+// (.jsonl.gz) in 2026; parse newline-delimited records instead of array elements.
+const { asStream: streamJsonl } = require(path.join(__dirname, 'node_modules/stream-json/src/jsonl/parser.js'));
 
 const app = express();
 app.set('trust proxy', 1);
@@ -7453,12 +7456,19 @@ async function importScryfallOracleBulkToDb({
     if (!bulkRes.ok) throw new Error('Could not fetch Scryfall bulk-data index');
     const bulk = await bulkRes.json();
     const bulkRow = (bulk?.data || []).find(r => r?.type === 'oracle_cards');
-    if (!bulkRow?.download_uri) throw new Error('oracle_cards bulk feed missing from Scryfall');
+    // Scryfall replaced the legacy JSON-array `download_uri` with a gzip-compressed
+    // JSONL `jsonl_download_uri`; prefer the new field, keep the old as a fallback.
+    const bulkUri = bulkRow?.jsonl_download_uri || bulkRow?.download_uri;
+    if (!bulkUri) throw new Error('oracle_cards bulk feed missing from Scryfall');
+    // Detect wire format from the URL so this survives future field renames: the JSONL
+    // feed is gzip-compressed (.jsonl.gz), the legacy feed was a plain .json array.
+    const bulkIsGz = /\.gz(\?|$)/i.test(bulkUri);
+    const bulkIsJsonl = /\.jsonl(\.gz)?(\?|$)/i.test(bulkUri);
     sourceUpdatedAt = bulkRow.updated_at || null;
-    // The oracle bulk file is ~150MB and is consumed via a streaming parse below, which
+    // The oracle bulk file is large and is consumed via a streaming parse below, which
     // takes far longer than the default 10s timeout. AbortSignal.timeout aborts the whole
     // request — including the streamed body read — so use a generous timeout (5 min) here.
-    const dataRes = await scryfallFetch(bulkRow.download_uri, { maxRetries: 2, timeoutMs: 300000 });
+    const dataRes = await scryfallFetch(bulkUri, { maxRetries: 2, timeoutMs: 300000 });
     if (!dataRes.ok) throw new Error('Could not download oracle_cards bulk data');
 
     // Stream-parse + batch-insert so we never accumulate all 30k cards in heap.
@@ -7542,8 +7552,11 @@ async function importScryfallOracleBulkToDb({
       };
 
       await new Promise((resolve, reject) => {
-        const nodeStream = require('stream').Readable.fromWeb(dataRes.body);
-        const arr = nodeStream.pipe(streamJsonArray());
+        const rawStream = require('stream').Readable.fromWeb(dataRes.body);
+        // Gunzip the compressed JSONL body before parsing; the legacy .json array
+        // path stays uncompressed. Parse JSONL line-by-line or array-element-wise.
+        const decoded = bulkIsGz ? rawStream.pipe(require('zlib').createGunzip()) : rawStream;
+        const arr = decoded.pipe(bulkIsJsonl ? streamJsonl() : streamJsonArray());
         arr.on('data', ({ value: c }) => {
           const oid = String(c?.oracle_id || '').toLowerCase();
           if (!/^[0-9a-f-]{36}$/i.test(oid) || seen.has(oid)) return;
@@ -7556,7 +7569,8 @@ async function importScryfallOracleBulkToDb({
         });
         arr.on('end', () => flushBatch().then(resolve).catch(reject));
         arr.on('error', reject);
-        nodeStream.on('error', reject);
+        rawStream.on('error', reject);
+        if (decoded !== rawStream) decoded.on('error', reject);
       });
     } finally {
       conn.release();
