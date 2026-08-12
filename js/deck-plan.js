@@ -607,7 +607,7 @@
     return { picks, source: 'inferred-deck' };
   }
 
-  /** Sacrifice fodder: artifact cmd → artifacts; token makers → tokens; else creatures. */
+  /** Sacrifice fodder: artifact cmd → artifacts; 4+ token makers → tokens; else creatures. */
   function inferSacrificeFodderFromDeck(deck) {
     const cmd = _commanderForInference(deck);
     const cmdTl = cmd ? _typeLine(cmd) : '';
@@ -626,7 +626,7 @@
         if (/\bcreature\b/.test(blob)) creatureSac += qty;
       }
     }
-    if (tokenMake >= 3) return { picks: ['token'], source: 'inferred-deck' };
+    if (tokenMake >= 4) return { picks: ['token'], source: 'inferred-deck' };
     const ranked = [
       ['creature', creatureSac],
       ['token', tokenSac],

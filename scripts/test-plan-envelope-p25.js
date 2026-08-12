@@ -68,6 +68,7 @@ const e21 = require('../engine2.1wizard');
       { name: 'Nest Invader', qty: 1, oracleText: 'create a 0/1 colorless Eldrazi Spawn creature token' },
       { name: 'Dragon Egg', qty: 1, oracleText: 'create a 2/2 red Dragon creature token with flying' },
       { name: 'Thopter Foundry', qty: 1, oracleText: 'create a 1/1 colorless Thopter artifact creature token' },
+      { name: 'Gilded Goose', qty: 1, oracleText: 'create a Food token' },
       { name: 'Viscera Seer', qty: 1, oracleText: 'Sacrifice a creature' },
     ],
   });
