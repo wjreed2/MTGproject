@@ -51,6 +51,47 @@ const e21 = require('../engine2.1wizard');
 }
 
 {
+  const inferred = plan.inferTokenTypePicksFromDeck({
+    cards: [
+      { name: 'Smothering Tithe', qty: 1, oracleText: 'create a Treasure token' },
+      { name: 'Brass Herald', qty: 1, oracleText: 'create a 1/1 colorless Golem artifact creature token' },
+    ],
+  });
+  assert.strictEqual(inferred.source, 'inferred-deck');
+  assert.ok(inferred.picks.includes('treasure'), inferred.picks.join(','));
+}
+
+{
+  const sac = plan.inferSacrificeFodderFromDeck({
+    commander: 'Korvold, Fae-Cursed King',
+    cards: [
+      { name: 'Nest Invader', qty: 1, oracleText: 'create a 0/1 colorless Eldrazi Spawn creature token' },
+      { name: 'Dragon Egg', qty: 1, oracleText: 'create a 2/2 red Dragon creature token with flying' },
+      { name: 'Thopter Foundry', qty: 1, oracleText: 'create a 1/1 colorless Thopter artifact creature token' },
+      { name: 'Viscera Seer', qty: 1, oracleText: 'Sacrifice a creature' },
+    ],
+  });
+  assert.strictEqual(sac.source, 'inferred-deck');
+  assert.ok(sac.picks.includes('token'), sac.picks.join(','));
+}
+
+{
+  const artRows = plan.mergedPlanSubtagDefaults({
+    winConditionId: 'wincon.combat',
+    primaryStrategyId: 'strategy.artifacts',
+    planConfirmed: true,
+  }, 30);
+  assert.ok(artRows.length >= 3, 'artifacts sub-tags');
+  assert.ok(artRows.some(r => r.id === 'art.rocks'));
+}
+
+{
+  const draft = plan.emptyPlan();
+  plan.setPlanTypePicks(draft, 'strategy.tokens', ['treasure'], 'inferred-deck');
+  assert.strictEqual(draft.planTypePickSources['strategy.tokens'], 'inferred-deck');
+}
+
+{
   const rows = plan.mergedPlanSubtagDefaults({
     winConditionId: 'wincon.combat',
     primaryStrategyId: 'strategy.sacrifice',

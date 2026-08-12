@@ -53,6 +53,9 @@
     { id: 'strategy.blink', label: 'Blink / ETB value' },
     { id: 'strategy.superfriends', label: 'Superfriends' },
     { id: 'strategy.theft', label: 'Theft / Steal' },
+    { id: 'strategy.stax', label: 'Stax / Resource denial' },
+    { id: 'strategy.mill', label: 'Mill' },
+    { id: 'strategy.goodstuff', label: 'Goodstuff / High power' },
     { id: 'strategy.other', label: 'Other / Hybrid' },
   ]);
 
@@ -114,6 +117,9 @@
     { id: 'strategy.blink', patterns: [/\bflicker\b/i, /\bexile .{0,30}return\b/i, /\benters the battlefield\b/i] },
     { id: 'strategy.superfriends', patterns: [/\bplaneswalker\b/i, /\bloyalty\b/i] },
     { id: 'strategy.theft', patterns: [/\bgain control\b/i, /\bsteal\b/i] },
+    { id: 'strategy.stax', patterns: [/\btax\b/i, /\bcan'?t\b/i, /\bprevent\b/i, /\bskip .{0,20}phase\b/i] },
+    { id: 'strategy.mill', patterns: [/\bmill\b/i] },
+    { id: 'strategy.goodstuff', patterns: [/\btutor\b/i, /\bremoval\b/i] },
   ]);
 
   const PLAN_WINCON_ORACLE_RULES = Object.freeze([
@@ -153,6 +159,8 @@
       planSubTags: {},
       /** @type {Record<string, string[]>} strategyId → chosen type/kind ids (§14 type dimensions) */
       planTypePicks: {},
+      /** @type {Record<string, string>} strategyId → formal | inferred-deck | suggested */
+      planTypePickSources: {},
       /** @type {string[]} legacy tribal mirror — kept in sync with planTypePicks['strategy.tribal'] */
       typePicks: [],
       // Prompts 29–31 — commander plan extensions (feeds Classic + Hybrid)
@@ -182,6 +190,9 @@
       out.planTypePicks['strategy.tribal'] = legacyTribal;
     }
     out.typePicks = out.planTypePicks['strategy.tribal'] || legacyTribal;
+    out.planTypePickSources = (out.planTypePickSources && typeof out.planTypePickSources === 'object')
+      ? { ...out.planTypePickSources }
+      : {};
     if (root && typeof root.normalizeCommanderPlanFields === 'function') {
       const cmd = root.normalizeCommanderPlanFields(out);
       Object.assign(out, cmd);
@@ -260,6 +271,44 @@
       { id: 'sf.payoffs', label: 'Walker payoffs', target: 6, projectTags: [] },
       { id: 'sf.prot', label: 'Protection', target: 4, projectTags: ['Protection'] },
       { id: 'sf.prolif', label: 'Proliferate/loyalty', target: 3, projectTags: ['Pump'] },
+    ]),
+    'strategy.mill': Object.freeze([
+      { id: 'mill.mill', label: 'Mill', target: 12, projectTags: ['Mill'] },
+      { id: 'mill.support', label: 'Support', target: 4, projectTags: ['Card Draw', 'Tutor'] },
+    ]),
+    'strategy.artifacts': Object.freeze([
+      { id: 'art.rocks', label: 'Mana rocks', target: 12, projectTags: ['Ramp', 'Treasure'] },
+      { id: 'art.tutors', label: 'Tutors', target: 4, projectTags: ['Tutor'] },
+      { id: 'art.payoffs', label: 'Artifact payoffs', target: 8, projectTags: ['Treasure'] },
+      { id: 'art.recursion', label: 'Recursion', target: 4, projectTags: ['Recursion'] },
+    ]),
+    'strategy.landfall': Object.freeze([
+      { id: 'land.triggers', label: 'Landfall triggers', target: 12, projectTags: ['Landfall'] },
+      { id: 'land.ramp', label: 'Land ramp', target: 8, projectTags: ['Ramp'] },
+      { id: 'land.payoffs', label: 'Payoffs', target: 6, projectTags: ['Landfall'] },
+    ]),
+    'strategy.blink': Object.freeze([
+      { id: 'blink.flicker', label: 'Blink/flicker', target: 10, projectTags: ['Blink'] },
+      { id: 'blink.etb', label: 'ETB payoffs', target: 8, projectTags: ['Copy'] },
+      { id: 'blink.utility', label: 'Utility', target: 4, projectTags: ['Blink'] },
+    ]),
+    'strategy.theft': Object.freeze([
+      { id: 'theft.steal', label: 'Steal effects', target: 10, projectTags: ['Control'] },
+      { id: 'theft.tempo', label: 'Tempo/bounce', target: 6, projectTags: ['Bounce'] },
+      { id: 'theft.payoffs', label: 'Payoffs', target: 4, projectTags: ['Control'] },
+    ]),
+    'strategy.control': Object.freeze([
+      { id: 'ctrl.counter', label: 'Counterspells', target: 6, projectTags: ['Counterspell'] },
+      { id: 'ctrl.removal', label: 'Removal', target: 8, projectTags: ['Removal'] },
+      { id: 'ctrl.draw', label: 'Card draw', target: 6, projectTags: ['Card Draw'] },
+      { id: 'ctrl.wipe', label: 'Board wipes', target: 3, projectTags: ['Board Wipe'] },
+      { id: 'ctrl.stax', label: 'Stax/tax', target: 4, projectTags: ['Stax'] },
+    ]),
+    'strategy.goodstuff': Object.freeze([
+      { id: 'gs.removal', label: 'Removal', target: 8, projectTags: ['Removal'] },
+      { id: 'gs.draw', label: 'Card draw', target: 6, projectTags: ['Card Draw'] },
+      { id: 'gs.ramp', label: 'Ramp', target: 6, projectTags: ['Ramp'] },
+      { id: 'gs.threats', label: 'Threats', target: 6, projectTags: ['Evasion'] },
     ]),
   });
 
@@ -377,13 +426,37 @@
         { id: 'loyalty', label: 'Loyalty synergies' },
       ]),
     }),
+    'strategy.stax': Object.freeze({
+      title: 'Which tax axis matters most?',
+      allowCustom: false,
+      multi: true,
+      useSuggestApi: false,
+      defaultPhrase: 'Tax',
+      options: Object.freeze([
+        { id: 'mana', label: 'Mana' },
+        { id: 'lands', label: 'Lands' },
+        { id: 'spells', label: 'Spells' },
+        { id: 'attacks', label: 'Attacks' },
+      ]),
+    }),
+    'strategy.mill': Object.freeze({
+      title: 'Mill opponents or yourself?',
+      allowCustom: false,
+      multi: false,
+      useSuggestApi: false,
+      defaultPhrase: 'Mill',
+      options: Object.freeze([
+        { id: 'opponents', label: 'Opponents' },
+        { id: 'self', label: 'Self-mill' },
+      ]),
+    }),
   });
 
   /** Stable order when multiple type-pick steps appear in one wizard pass. */
   const PLAN_TYPE_PICK_STRATEGY_ORDER = Object.freeze([
     'strategy.tokens', 'strategy.tribal', 'strategy.enchantress', 'strategy.counters',
     'strategy.spellslinger', 'strategy.voltron', 'strategy.sacrifice',
-    'strategy.reanimator', 'strategy.superfriends',
+    'strategy.reanimator', 'strategy.superfriends', 'strategy.stax', 'strategy.mill',
   ]);
 
   const SUBTAG_ID_STRATEGY_PREFIX = Object.freeze({
@@ -396,6 +469,14 @@
     sac: 'strategy.sacrifice',
     rean: 'strategy.reanimator',
     sf: 'strategy.superfriends',
+    stax: 'strategy.stax',
+    mill: 'strategy.mill',
+    art: 'strategy.artifacts',
+    land: 'strategy.landfall',
+    blink: 'strategy.blink',
+    theft: 'strategy.theft',
+    ctrl: 'strategy.control',
+    gs: 'strategy.goodstuff',
   });
 
   function _titleCaseWords(s) {
@@ -490,13 +571,136 @@
     return out;
   }
 
-  function setPlanTypePicks(plan, strategyId, picks) {
+  function planTypePickSource(plan, strategyId) {
     const p = normalizeDeckPlan(plan);
-    p.planTypePicks = { ...(p.planTypePicks || {}) };
-    p.planTypePicks[strategyId] = (Array.isArray(picks) ? picks : [])
+    return p.planTypePickSources?.[strategyId] || null;
+  }
+
+  function _deckCardsForInference(deck) {
+    return Array.isArray(deck?.cards) ? deck.cards : [];
+  }
+
+  function _commanderForInference(deck) {
+    if (!deck) return null;
+    const cards = _deckCardsForInference(deck);
+    return cards.find(c => c.isCommander || (deck.commander && c.name === deck.commander)) || null;
+  }
+
+  /** Rank token types from oracle text (treasure, food, clue, creature token). */
+  function inferTokenTypePicksFromDeck(deck) {
+    const counts = { creature: 0, treasure: 0, food: 0, clue: 0 };
+    const cards = _deckCardsForInference(deck);
+    const cmd = _commanderForInference(deck);
+    const all = cmd ? [...cards, cmd] : cards;
+    for (const card of all) {
+      const blob = _oracleBlob(card);
+      const qty = card.qty || card.count || 1;
+      if (/\bcreature token/.test(blob)) counts.creature += qty;
+      if (/\btreasure token/.test(blob)) counts.treasure += qty;
+      if (/\bfood token/.test(blob)) counts.food += qty;
+      if (/\bclue token/.test(blob)) counts.clue += qty;
+    }
+    const ranked = Object.entries(counts).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]);
+    if (!ranked.length) return { picks: [], source: 'degraded' };
+    const top = ranked[0][1];
+    const picks = ranked.filter(([, n]) => n >= Math.max(1, top * 0.5)).map(([k]) => k).slice(0, 2);
+    return { picks, source: 'inferred-deck' };
+  }
+
+  /** Sacrifice fodder: artifact cmd → artifacts; token makers → tokens; else creatures. */
+  function inferSacrificeFodderFromDeck(deck) {
+    const cmd = _commanderForInference(deck);
+    const cmdTl = cmd ? _typeLine(cmd) : '';
+    if (/\bartifact\b/.test(cmdTl)) return { picks: ['artifact'], source: 'inferred-deck' };
+    let creatureSac = 0;
+    let tokenSac = 0;
+    let artifactSac = 0;
+    let tokenMake = 0;
+    for (const card of _deckCardsForInference(deck)) {
+      const blob = _oracleBlob(card);
+      const qty = card.qty || card.count || 1;
+      if (/\bcreate\b/.test(blob) && /\btoken/.test(blob)) tokenMake += qty;
+      if (/\bsacrifice\b/.test(blob)) {
+        if (/\bartifact\b/.test(blob)) artifactSac += qty;
+        if (/\btoken\b/.test(blob)) tokenSac += qty;
+        if (/\bcreature\b/.test(blob)) creatureSac += qty;
+      }
+    }
+    if (tokenMake >= 3) return { picks: ['token'], source: 'inferred-deck' };
+    const ranked = [
+      ['creature', creatureSac],
+      ['token', tokenSac],
+      ['artifact', artifactSac],
+    ].filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]);
+    if (ranked.length) return { picks: [ranked[0][0]], source: 'inferred-deck' };
+    if (/\btoken\b/.test(cmdTl)) return { picks: ['token'], source: 'inferred-deck' };
+    return { picks: ['creature'], source: 'inferred-deck' };
+  }
+
+  function inferMillTargetFromDeck(deck) {
+    let oppMill = 0;
+    let selfMill = 0;
+    for (const card of _deckCardsForInference(deck)) {
+      const blob = _oracleBlob(card);
+      const qty = card.qty || card.count || 1;
+      if (/\bmill\b/.test(blob)) {
+        if (/\byou\b/.test(blob) && /\bmill\b/.test(blob)) selfMill += qty;
+        else oppMill += qty;
+      }
+      if (/\bself-mill\b/.test(blob) || /\bmill (?:two|three|four|five|cards)/.test(blob)) {
+        if (/\byou\b/.test(blob)) selfMill += qty;
+      }
+    }
+    if (selfMill > oppMill) return { picks: ['self'], source: 'inferred-deck' };
+    if (oppMill > 0) return { picks: ['opponents'], source: 'inferred-deck' };
+    return { picks: ['opponents'], source: 'inferred-deck' };
+  }
+
+  function inferStaxAxisFromDeck(deck) {
+    const counts = { mana: 0, lands: 0, spells: 0, attacks: 0 };
+    for (const card of _deckCardsForInference(deck)) {
+      const blob = _oracleBlob(card);
+      const qty = card.qty || card.count || 1;
+      if (/\bmana\b/.test(blob) && (/\btax\b/.test(blob) || /\bcan'?t\b/.test(blob) || /\bcosts?\b/.test(blob))) {
+        counts.mana += qty;
+      }
+      if (/\bland/.test(blob) && (/\bcan'?t\b/.test(blob) || /\bplay\b/.test(blob))) counts.lands += qty;
+      if (/\bspell/.test(blob) && (/\btax\b/.test(blob) || /\bcosts?\b/.test(blob))) counts.spells += qty;
+      if (/\battack/.test(blob) && (/\bcan'?t\b/.test(blob) || /\btax\b/.test(blob))) counts.attacks += qty;
+    }
+    const ranked = Object.entries(counts).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]);
+    if (!ranked.length) return { picks: ['mana'], source: 'inferred-deck' };
+    return { picks: ranked.slice(0, 2).map(([k]) => k), source: 'inferred-deck' };
+  }
+
+  /**
+   * Infer type/kind picks from deck contents for a strategy dimension.
+   * @returns {{ picks: string[], source: 'inferred-deck'|'suggested'|'degraded' }}
+   */
+  function inferPlanTypePicks(deck, strategyId) {
+    switch (strategyId) {
+      case 'strategy.tokens': return inferTokenTypePicksFromDeck(deck);
+      case 'strategy.sacrifice': return inferSacrificeFodderFromDeck(deck);
+      case 'strategy.mill': return inferMillTargetFromDeck(deck);
+      case 'strategy.stax': return inferStaxAxisFromDeck(deck);
+      case 'strategy.voltron': return { picks: ['both'], source: 'inferred-deck' };
+      case 'strategy.enchantress': return { picks: ['both'], source: 'inferred-deck' };
+      default: return { picks: [], source: 'degraded' };
+    }
+  }
+
+  function setPlanTypePicks(plan, strategyId, picks, source) {
+    if (!plan || typeof plan !== 'object') return plan;
+    plan.planTypePicks = { ...(plan.planTypePicks || {}) };
+    plan.planTypePickSources = { ...(plan.planTypePickSources || {}) };
+    plan.planTypePicks[strategyId] = (Array.isArray(picks) ? picks : [])
       .map(t => String(t || '').toLowerCase()).filter(Boolean);
-    if (strategyId === 'strategy.tribal') p.typePicks = p.planTypePicks[strategyId].slice();
-    return p;
+    if (source) plan.planTypePickSources[strategyId] = source;
+    else if (!plan.planTypePickSources[strategyId]) plan.planTypePickSources[strategyId] = 'formal';
+    if (strategyId === 'strategy.tribal') {
+      plan.typePicks = plan.planTypePicks[strategyId].slice();
+    }
+    return plan;
   }
 
   /** Default sub-tag rows for a strategy (half weight when secondary). */
@@ -933,7 +1137,11 @@
     planTypeDimension,
     strategiesNeedingTypePick,
     planTypePicksForStrategy,
+    planTypePickSource,
     planTypePhraseForStrategy,
+    inferPlanTypePicks,
+    inferTokenTypePicksFromDeck,
+    inferSacrificeFodderFromDeck,
     resolvePlanSubtagLabel,
     setPlanTypePicks,
     planThemeSubtagDefaults,

@@ -328,7 +328,15 @@
         const hit = options.find(o => String(o.id).toLowerCase() === String(id).toLowerCase());
         return hit ? hit.label : id;
       });
-      body.innerHTML = `${topHtml}${customBlock}
+      const pickSource = typeof planTypePickSource === 'function'
+        ? planTypePickSource(draft, themeStrategyId)
+        : (draft.planTypePickSources && draft.planTypePickSources[themeStrategyId]) || null;
+      const inferHint = pickSource === 'inferred-deck'
+        ? '<p class="deck-tab-muted" style="margin:.5rem 0;font-size:.75rem;color:var(--warn,#b8860b)">Inferred from your deck — change if wrong.</p>'
+        : pickSource === 'suggested'
+          ? '<p class="deck-tab-muted" style="margin:.5rem 0;font-size:.75rem">Suggested from deck analysis — confirm or change.</p>'
+          : '';
+      body.innerHTML = `${inferHint}${topHtml}${customBlock}
         <p class="deck-tab-muted" style="margin-top:.5rem;font-size:.75rem">Selected: ${selectedLabels.map(t => escapeHtml(t)).join(', ') || 'none (defaults will use generic labels)'}</p>`;
       if (_planWizard._typeFetchStartedFor !== themeStrategyId && dim?.useSuggestApi) {
         _planWizard._typeFetchStartedFor = themeStrategyId;
@@ -622,37 +630,42 @@
     const n = parseInt(value, 10);
     _planWizard.draft.planSubTags[id] = { ...prev, target: Number.isFinite(n) && n >= 0 ? n : prev.target };
   }
+  function _pwApplyTypePicks(strategyId, picks, source) {
+    if (!_planWizard) return;
+    if (typeof setPlanTypePicks === 'function') {
+      setPlanTypePicks(_planWizard.draft, strategyId, picks, source);
+    } else {
+      _planWizard.draft.planTypePicks = _planWizard.draft.planTypePicks || {};
+      _planWizard.draft.planTypePickSources = _planWizard.draft.planTypePickSources || {};
+      _planWizard.draft.planTypePicks[strategyId] = picks;
+      _planWizard.draft.planTypePickSources[strategyId] = source || 'formal';
+    }
+    if (strategyId === 'strategy.tribal') _pwSyncLegacyTribalTypePicks();
+  }
+
   function _pwSeedThemeTypePicks(strategyId) {
     if (!_planWizard) return;
     const existing = typeof planTypePicksForStrategy === 'function'
       ? planTypePicksForStrategy(_planWizard.draft, strategyId)
       : [];
     if (existing.length) return;
+    const deck = _pwDeck();
+    if (typeof inferPlanTypePicks === 'function' && deck) {
+      const inferred = inferPlanTypePicks(deck, strategyId);
+      if (inferred.picks?.length) {
+        _pwApplyTypePicks(strategyId, inferred.picks, inferred.source);
+        return;
+      }
+    }
     const dim = typeof planTypeDimension === 'function' ? planTypeDimension(strategyId) : null;
     if (!dim) return;
-    const deck = _pwDeck();
     let seed = [];
-    if (strategyId === 'strategy.sacrifice' && deck) {
-      const cmd = _pwCommanderCard(deck);
-      const tl = String(cmd?.type || cmd?.typeLine || '').toLowerCase();
-      if (/\bartifact\b/.test(tl)) seed = ['artifact'];
-      else if (/\btoken\b/.test(tl)) seed = ['token'];
-      else seed = ['creature'];
-    } else if (strategyId === 'strategy.voltron') {
-      seed = ['both'];
-    } else if (strategyId === 'strategy.enchantress') {
-      seed = ['both'];
-    } else if ((dim.options || []).length === 1) {
+    let source = 'inferred-deck';
+    if ((dim.options || []).length === 1) {
       seed = [dim.options[0].id];
     }
     if (!seed.length) return;
-    if (typeof setPlanTypePicks === 'function') {
-      setPlanTypePicks(_planWizard.draft, strategyId, seed);
-    } else {
-      _planWizard.draft.planTypePicks = _planWizard.draft.planTypePicks || {};
-      _planWizard.draft.planTypePicks[strategyId] = seed;
-    }
-    if (strategyId === 'strategy.tribal') _pwSyncLegacyTribalTypePicks();
+    _pwApplyTypePicks(strategyId, seed, source);
   }
 
   function _pwEnsurePlanTypePicks(strategyId) {
@@ -680,6 +693,8 @@
     } else if (i >= 0) cur.splice(i, 1);
     else cur.push(key);
     if (multi) _planWizard.draft.planTypePicks[strategyId] = cur;
+    _planWizard.draft.planTypePickSources = _planWizard.draft.planTypePickSources || {};
+    _planWizard.draft.planTypePickSources[strategyId] = 'formal';
     if (strategyId === 'strategy.tribal') _pwSyncLegacyTribalTypePicks();
     _pwRender();
   }
@@ -742,12 +757,7 @@
       : [];
     const top = _planWizard.typeSuggest?.picks?.[0];
     if (!existing.length && top?.id && sid === 'strategy.tribal') {
-      if (typeof setPlanTypePicks === 'function') setPlanTypePicks(_planWizard.draft, sid, [top.id]);
-      else {
-        _planWizard.draft.planTypePicks = _planWizard.draft.planTypePicks || {};
-        _planWizard.draft.planTypePicks[sid] = [String(top.id).toLowerCase()];
-      }
-      _pwSyncLegacyTribalTypePicks();
+      _pwApplyTypePicks(sid, [top.id], 'suggested');
     }
     const curStep = _planWizard.steps[_planWizard.stepIdx];
     if (curStep === ('themetypes:' + sid)) {
