@@ -84,7 +84,8 @@
       stepIdx: 0,
       steps: null,
       typeSuggest: null,
-      _typeFetchStarted: false,
+      _typeFetchStartedFor: null,
+      _typeSeededFor: null,
     };
     _planWizard.steps = _pwBuildSteps(deck);
     document.getElementById('deckPlanWizardModal')?.classList.add('open');
@@ -97,17 +98,24 @@
   }
 
   /** Same core sequence for every deck; commander only if missing. Plan envelope steps after themes.
-   * CP-Q34: one pass — key cards → roles → wincon/strategy… → cast turn → protection → budget. */
+   * CP-Q34: one pass — key cards → roles → wincon/strategy… → cast turn → protection → budget.
+   * Type-dimension pickers run before sub-tags so labels can show the chosen type. */
   function _pwBuildSteps(deck) {
     const steps = [];
     if (!deck.commander) steps.push('commander');
-    steps.push('keycards', 'roles', 'wincon', 'strategy', 'secondary', 'subtags');
-    // Tribal creature-type picker when primary or secondary is tribal.
+    steps.push('keycards', 'roles', 'wincon', 'strategy', 'secondary');
     const draft = _planWizard?.draft;
-    const ids = [draft?.primaryStrategyId, draft?.secondaryStrategyId].filter(Boolean);
-    if (ids.includes('strategy.tribal')) steps.push('tribaltypes');
-    steps.push('castturn', 'protection', 'budget');
+    const typeStrategies = typeof strategiesNeedingTypePick === 'function'
+      ? strategiesNeedingTypePick(draft || {})
+      : [];
+    for (const sid of typeStrategies) steps.push('themetypes:' + sid);
+    steps.push('subtags', 'castturn', 'protection', 'budget');
     return steps;
+  }
+
+  function _pwStepStrategyId(step) {
+    if (!step || !String(step).startsWith('themetypes:')) return null;
+    return String(step).slice('themetypes:'.length) || null;
   }
 
   function _pwRebuildStepsKeepIndex() {
@@ -277,29 +285,57 @@
       return;
     }
 
-    if (step === 'tribaltypes') {
-      if (title) title.textContent = 'Which creature types matter?';
+    const themeStrategyId = _pwStepStrategyId(step);
+    if (themeStrategyId) {
+      const dim = typeof planTypeDimension === 'function' ? planTypeDimension(themeStrategyId) : null;
+      if (title) title.textContent = dim?.title || 'Theme type';
       const picks = Array.isArray(_planWizard.typeSuggest?.picks) ? _planWizard.typeSuggest.picks : [];
       const source = _planWizard.typeSuggest?.source || 'degraded';
-      const selected = new Set((draft.typePicks || []).map(t => String(t).toLowerCase()));
-      const topHtml = picks.length
-        ? `<div class="plan-opt-grid">${picks.map(p => {
-          const on = selected.has(p.id) ? ' plan-opt--selected' : '';
-          return `<button type="button" class="plan-opt${on}" onclick="_pwToggleTypePick('${escapeHtml(p.id)}')">${escapeHtml(p.label)} <span class="deck-tab-muted" style="font-size:.65rem">(${p.bodies})</span></button>`;
+      const options = (dim?.options || []).length
+        ? dim.options
+        : picks.map(p => ({ id: p.id, label: p.label, bodies: p.bodies }));
+      const selected = new Set(
+        (typeof planTypePicksForStrategy === 'function'
+          ? planTypePicksForStrategy(draft, themeStrategyId)
+          : (draft.planTypePicks && draft.planTypePicks[themeStrategyId]) || draft.typePicks || [])
+          .map(t => String(t).toLowerCase())
+      );
+      const multi = dim?.multi !== false;
+      const topHtml = options.length
+        ? `<div class="plan-opt-grid">${options.map(opt => {
+          const on = selected.has(String(opt.id).toLowerCase()) ? ' plan-opt--selected' : '';
+          const extra = opt.bodies != null
+            ? ` <span class="deck-tab-muted" style="font-size:.65rem">(${opt.bodies})</span>`
+            : '';
+          return `<button type="button" class="plan-opt${on}" onclick="_pwToggleThemeTypePick('${escapeHtml(themeStrategyId)}','${escapeHtml(opt.id)}',${multi ? 'true' : 'false'})">${escapeHtml(opt.label)}${extra}</button>`;
         }).join('')}</div>
-        <p class="deck-tab-muted" style="font-size:.7rem;margin-top:.4rem">Source: ${escapeHtml(source)}</p>`
-        : `<p class="deck-tab-muted">No automatic type suggestions (offline or no tribal signal). Type a creature type below, or continue.</p>`;
-      body.innerHTML = `${topHtml}
-        <label class="plan-budget-label" style="margin-top:.75rem">Add creature type</label>
+        ${themeStrategyId === 'strategy.tribal' && picks.length
+          ? `<p class="deck-tab-muted" style="font-size:.7rem;margin-top:.4rem">Source: ${escapeHtml(source)}</p>`
+          : ''}`
+        : `<p class="deck-tab-muted">No automatic suggestions — type below or continue.</p>`;
+      const customBlock = dim?.allowCustom
+        ? `<label class="plan-budget-label" style="margin-top:.75rem">Add type</label>
         <div style="display:flex;gap:.4rem">
-          <input type="text" id="planTypePickInput" class="deck-select" style="flex:1" placeholder="e.g. Goblin" list="planTypePickList">
-          <button type="button" class="btn btn-outline btn-sm" onclick="_pwAddTypePickFromInput()">Add</button>
+          <input type="text" id="planTypePickInput" class="deck-select" style="flex:1" placeholder="${escapeHtml(dim.inputPlaceholder || 'Type a name')}" list="planTypePickList">
+          <button type="button" class="btn btn-outline btn-sm" onclick="_pwAddThemeTypePickFromInput('${escapeHtml(themeStrategyId)}')">Add</button>
         </div>
-        <datalist id="planTypePickList">${picks.map(p => `<option value="${escapeHtml(p.label)}">`).join('')}</datalist>
-        <p class="deck-tab-muted" style="margin-top:.5rem;font-size:.75rem">Selected: ${(draft.typePicks || []).map(t => escapeHtml(t)).join(', ') || 'none'}</p>`;
-      if (!_planWizard._typeFetchStarted) {
-        _planWizard._typeFetchStarted = true;
-        _pwFetchTypeSuggestions();
+        <datalist id="planTypePickList">${options.map(p => `<option value="${escapeHtml(p.label)}">`).join('')}</datalist>`
+        : '';
+      const curPicks = typeof planTypePicksForStrategy === 'function'
+        ? planTypePicksForStrategy(draft, themeStrategyId)
+        : [];
+      const selectedLabels = curPicks.map(id => {
+        const hit = options.find(o => String(o.id).toLowerCase() === String(id).toLowerCase());
+        return hit ? hit.label : id;
+      });
+      body.innerHTML = `${topHtml}${customBlock}
+        <p class="deck-tab-muted" style="margin-top:.5rem;font-size:.75rem">Selected: ${selectedLabels.map(t => escapeHtml(t)).join(', ') || 'none (defaults will use generic labels)'}</p>`;
+      if (_planWizard._typeFetchStartedFor !== themeStrategyId && dim?.useSuggestApi) {
+        _planWizard._typeFetchStartedFor = themeStrategyId;
+        _pwFetchTypeSuggestions(themeStrategyId);
+      } else if (_planWizard._typeSeededFor !== themeStrategyId) {
+        _planWizard._typeSeededFor = themeStrategyId;
+        _pwSeedThemeTypePicks(themeStrategyId);
       }
       if (primaryBtn) {
         primaryBtn.textContent = 'Continue';
@@ -555,7 +591,8 @@
     _planWizard.draft.primaryStrategyId = id;
     _planWizard.draft.fieldSources = _planWizard.draft.fieldSources || {};
     _planWizard.draft.fieldSources.primaryStrategyId = 'formal';
-    _planWizard._typeFetchStarted = false;
+    _planWizard._typeFetchStartedFor = null;
+    _planWizard._typeSeededFor = null;
     _planWizard.typeSuggest = null;
     _pwRebuildStepsKeepIndex();
     _pwRender();
@@ -565,7 +602,8 @@
     _planWizard.draft.secondaryStrategyId = id;
     _planWizard.draft.fieldSources = _planWizard.draft.fieldSources || {};
     _planWizard.draft.fieldSources.secondaryStrategyId = 'formal';
-    _planWizard._typeFetchStarted = false;
+    _planWizard._typeFetchStartedFor = null;
+    _planWizard._typeSeededFor = null;
     _planWizard.typeSuggest = null;
     _pwRebuildStepsKeepIndex();
     _pwRender();
@@ -584,26 +622,90 @@
     const n = parseInt(value, 10);
     _planWizard.draft.planSubTags[id] = { ...prev, target: Number.isFinite(n) && n >= 0 ? n : prev.target };
   }
-  function _pwToggleTypePick(id) {
-    if (!_planWizard || !id) return;
-    const key = String(id).toLowerCase();
-    const cur = Array.isArray(_planWizard.draft.typePicks) ? _planWizard.draft.typePicks.slice() : [];
+  function _pwSeedThemeTypePicks(strategyId) {
+    if (!_planWizard) return;
+    const existing = typeof planTypePicksForStrategy === 'function'
+      ? planTypePicksForStrategy(_planWizard.draft, strategyId)
+      : [];
+    if (existing.length) return;
+    const dim = typeof planTypeDimension === 'function' ? planTypeDimension(strategyId) : null;
+    if (!dim) return;
+    const deck = _pwDeck();
+    let seed = [];
+    if (strategyId === 'strategy.sacrifice' && deck) {
+      const cmd = _pwCommanderCard(deck);
+      const tl = String(cmd?.type || cmd?.typeLine || '').toLowerCase();
+      if (/\bartifact\b/.test(tl)) seed = ['artifact'];
+      else if (/\btoken\b/.test(tl)) seed = ['token'];
+      else seed = ['creature'];
+    } else if (strategyId === 'strategy.voltron') {
+      seed = ['both'];
+    } else if (strategyId === 'strategy.enchantress') {
+      seed = ['both'];
+    } else if ((dim.options || []).length === 1) {
+      seed = [dim.options[0].id];
+    }
+    if (!seed.length) return;
+    if (typeof setPlanTypePicks === 'function') {
+      setPlanTypePicks(_planWizard.draft, strategyId, seed);
+    } else {
+      _planWizard.draft.planTypePicks = _planWizard.draft.planTypePicks || {};
+      _planWizard.draft.planTypePicks[strategyId] = seed;
+    }
+    if (strategyId === 'strategy.tribal') _pwSyncLegacyTribalTypePicks();
+  }
+
+  function _pwEnsurePlanTypePicks(strategyId) {
+    if (!_planWizard) return [];
+    _planWizard.draft.planTypePicks = _planWizard.draft.planTypePicks || {};
+    if (!Array.isArray(_planWizard.draft.planTypePicks[strategyId])) {
+      _planWizard.draft.planTypePicks[strategyId] = [];
+    }
+    return _planWizard.draft.planTypePicks[strategyId];
+  }
+
+  function _pwSyncLegacyTribalTypePicks() {
+    if (!_planWizard) return;
+    const tribal = _planWizard.draft.planTypePicks?.['strategy.tribal'];
+    _planWizard.draft.typePicks = Array.isArray(tribal) ? tribal.slice() : [];
+  }
+
+  function _pwToggleThemeTypePick(strategyId, pickId, multi) {
+    if (!_planWizard || !strategyId || !pickId) return;
+    const key = String(pickId).toLowerCase();
+    const cur = _pwEnsurePlanTypePicks(strategyId).map(t => String(t).toLowerCase());
     const i = cur.indexOf(key);
-    if (i >= 0) cur.splice(i, 1);
+    if (!multi) {
+      _planWizard.draft.planTypePicks[strategyId] = i >= 0 ? [] : [key];
+    } else if (i >= 0) cur.splice(i, 1);
     else cur.push(key);
-    _planWizard.draft.typePicks = cur;
+    if (multi) _planWizard.draft.planTypePicks[strategyId] = cur;
+    if (strategyId === 'strategy.tribal') _pwSyncLegacyTribalTypePicks();
     _pwRender();
   }
-  function _pwAddTypePickFromInput() {
+
+  function _pwAddThemeTypePickFromInput(strategyId) {
     const el = document.getElementById('planTypePickInput');
     const raw = String(el?.value || '').trim();
-    if (!raw) return;
-    _pwToggleTypePick(raw.toLowerCase());
+    if (!raw || !strategyId) return;
+    _pwToggleThemeTypePick(strategyId, raw.toLowerCase(), true);
     if (el) el.value = '';
   }
-  async function _pwFetchTypeSuggestions() {
+
+  /** @deprecated use _pwToggleThemeTypePick */
+  function _pwToggleTypePick(id) {
+    _pwToggleThemeTypePick('strategy.tribal', id, true);
+  }
+
+  /** @deprecated use _pwAddThemeTypePickFromInput */
+  function _pwAddTypePickFromInput() {
+    _pwAddThemeTypePickFromInput('strategy.tribal');
+  }
+
+  async function _pwFetchTypeSuggestions(strategyId) {
     const deck = _pwDeck();
     if (!deck || !_planWizard) return;
+    const sid = strategyId || 'strategy.tribal';
     try {
       const res = await fetch('/api/decks/suggest-types', {
         method: 'POST',
@@ -635,7 +737,23 @@
         source: tribes.length ? 'type-line' : 'degraded',
       };
     }
-    if (_planWizard.steps[_planWizard.stepIdx] === 'tribaltypes') _pwRender();
+    const existing = typeof planTypePicksForStrategy === 'function'
+      ? planTypePicksForStrategy(_planWizard.draft, sid)
+      : [];
+    const top = _planWizard.typeSuggest?.picks?.[0];
+    if (!existing.length && top?.id && sid === 'strategy.tribal') {
+      if (typeof setPlanTypePicks === 'function') setPlanTypePicks(_planWizard.draft, sid, [top.id]);
+      else {
+        _planWizard.draft.planTypePicks = _planWizard.draft.planTypePicks || {};
+        _planWizard.draft.planTypePicks[sid] = [String(top.id).toLowerCase()];
+      }
+      _pwSyncLegacyTribalTypePicks();
+    }
+    const curStep = _planWizard.steps[_planWizard.stepIdx];
+    if (curStep === ('themetypes:' + sid)) {
+      _pwSeedThemeTypePicks(sid);
+      _pwRender();
+    }
   }
 
   function _pwPickDeckBudget(tierId) {
@@ -1050,6 +1168,8 @@
   window._pwSubtagTarget = _pwSubtagTarget;
   window._pwToggleTypePick = _pwToggleTypePick;
   window._pwAddTypePickFromInput = _pwAddTypePickFromInput;
+  window._pwToggleThemeTypePick = _pwToggleThemeTypePick;
+  window._pwAddThemeTypePickFromInput = _pwAddThemeTypePickFromInput;
   window._pwPickDeckBudget = _pwPickDeckBudget;
   window._pwPickCardBudget = _pwPickCardBudget;
   window._pwCustomDeckUsd = _pwCustomDeckUsd;

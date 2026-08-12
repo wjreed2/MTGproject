@@ -151,7 +151,9 @@
       planConfirmed: false,
       /** @type {Record<string, {enabled:boolean,target:number}>} subTagId → state */
       planSubTags: {},
-      /** @type {string[]} creature type ids chosen in Tribal type step */
+      /** @type {Record<string, string[]>} strategyId → chosen type/kind ids (§14 type dimensions) */
+      planTypePicks: {},
+      /** @type {string[]} legacy tribal mirror — kept in sync with planTypePicks['strategy.tribal'] */
       typePicks: [],
       // Prompts 29–31 — commander plan extensions (feeds Classic + Hybrid)
       ...cmdExt,
@@ -167,9 +169,19 @@
     out.cutsShielding = out.cutsShielding ?? null;
     out.planConfirmed = !!out.planConfirmed;
     out.planSubTags = (out.planSubTags && typeof out.planSubTags === 'object') ? out.planSubTags : {};
-    out.typePicks = Array.isArray(out.typePicks)
-      ? out.typePicks.map(t => String(t || '').toLowerCase()).filter(Boolean)
+    out.planTypePicks = (out.planTypePicks && typeof out.planTypePicks === 'object') ? { ...out.planTypePicks } : {};
+    for (const [k, v] of Object.entries(out.planTypePicks)) {
+      out.planTypePicks[k] = Array.isArray(v)
+        ? v.map(t => String(t || '').toLowerCase()).filter(Boolean)
+        : [];
+    }
+    const legacyTribal = Array.isArray(raw.typePicks)
+      ? raw.typePicks.map(t => String(t || '').toLowerCase()).filter(Boolean)
       : [];
+    if (legacyTribal.length && !(out.planTypePicks['strategy.tribal'] || []).length) {
+      out.planTypePicks['strategy.tribal'] = legacyTribal;
+    }
+    out.typePicks = out.planTypePicks['strategy.tribal'] || legacyTribal;
     if (root && typeof root.normalizeCommanderPlanFields === 'function') {
       const cmd = root.normalizeCommanderPlanFields(out);
       Object.assign(out, cmd);
@@ -253,6 +265,240 @@
 
   const PLAN_PARENT_DEFAULT_TARGET = 30;
 
+  /**
+   * §14 type dimensions — wizard picker config per strategy.
+   * `options`: { id, label }[]; free-text strategies also allow custom ids.
+   */
+  const PLAN_TYPE_DIMENSIONS = Object.freeze({
+    'strategy.tokens': Object.freeze({
+      title: 'Which token types matter?',
+      inputPlaceholder: 'e.g. Treasure',
+      allowCustom: true,
+      multi: true,
+      useSuggestApi: false,
+      defaultPhrase: 'Token',
+      options: Object.freeze([
+        { id: 'creature', label: 'Creature' },
+        { id: 'treasure', label: 'Treasure' },
+        { id: 'food', label: 'Food' },
+        { id: 'clue', label: 'Clue' },
+      ]),
+    }),
+    'strategy.tribal': Object.freeze({
+      title: 'Which creature types matter?',
+      inputPlaceholder: 'e.g. Goblin',
+      allowCustom: true,
+      multi: true,
+      useSuggestApi: true,
+      defaultPhrase: 'Typal',
+      options: Object.freeze([]),
+    }),
+    'strategy.enchantress': Object.freeze({
+      title: 'Aura enchantments, non-aura, or both?',
+      allowCustom: false,
+      multi: false,
+      useSuggestApi: false,
+      defaultPhrase: 'Enchantment',
+      options: Object.freeze([
+        { id: 'aura', label: 'Auras' },
+        { id: 'enchantment', label: 'Non-aura enchantments' },
+        { id: 'both', label: 'Both' },
+      ]),
+    }),
+    'strategy.counters': Object.freeze({
+      title: 'Which counter kinds matter?',
+      allowCustom: false,
+      multi: true,
+      useSuggestApi: false,
+      defaultPhrase: '+1/+1',
+      options: Object.freeze([
+        { id: '+1/+1', label: '+1/+1 counters' },
+        { id: 'proliferate', label: 'Proliferate' },
+        { id: 'poison', label: 'Poison' },
+        { id: '-1/-1', label: '−1/−1 counters' },
+      ]),
+    }),
+    'strategy.spellslinger': Object.freeze({
+      title: 'Which spell kinds matter?',
+      allowCustom: false,
+      multi: true,
+      useSuggestApi: false,
+      defaultPhrase: 'Spell',
+      options: Object.freeze([
+        { id: 'instant', label: 'Instants' },
+        { id: 'sorcery', label: 'Sorceries' },
+        { id: 'both', label: 'Both' },
+      ]),
+    }),
+    'strategy.voltron': Object.freeze({
+      title: 'Equipment, auras, or both?',
+      allowCustom: false,
+      multi: false,
+      useSuggestApi: false,
+      defaultPhrase: 'Equipment & auras',
+      options: Object.freeze([
+        { id: 'equipment', label: 'Equipment' },
+        { id: 'aura', label: 'Auras' },
+        { id: 'both', label: 'Both' },
+      ]),
+    }),
+    'strategy.sacrifice': Object.freeze({
+      title: 'What are you sacrificing?',
+      allowCustom: false,
+      multi: true,
+      useSuggestApi: false,
+      defaultPhrase: 'Sacrifice fodder',
+      options: Object.freeze([
+        { id: 'creature', label: 'Creatures' },
+        { id: 'token', label: 'Tokens' },
+        { id: 'artifact', label: 'Artifacts' },
+      ]),
+    }),
+    'strategy.reanimator': Object.freeze({
+      title: 'What are you reanimating?',
+      allowCustom: false,
+      multi: true,
+      useSuggestApi: false,
+      defaultPhrase: 'Reanimation target',
+      options: Object.freeze([
+        { id: 'creature', label: 'Creatures' },
+        { id: 'permanent', label: 'Any permanent' },
+        { id: 'high-mv', label: 'High mana value' },
+      ]),
+    }),
+    'strategy.superfriends': Object.freeze({
+      title: 'Planeswalker focus?',
+      allowCustom: false,
+      multi: true,
+      useSuggestApi: false,
+      defaultPhrase: 'Planeswalker',
+      options: Object.freeze([
+        { id: 'walkers', label: 'Core walkers' },
+        { id: 'loyalty', label: 'Loyalty synergies' },
+      ]),
+    }),
+  });
+
+  /** Stable order when multiple type-pick steps appear in one wizard pass. */
+  const PLAN_TYPE_PICK_STRATEGY_ORDER = Object.freeze([
+    'strategy.tokens', 'strategy.tribal', 'strategy.enchantress', 'strategy.counters',
+    'strategy.spellslinger', 'strategy.voltron', 'strategy.sacrifice',
+    'strategy.reanimator', 'strategy.superfriends',
+  ]);
+
+  const SUBTAG_ID_STRATEGY_PREFIX = Object.freeze({
+    tokens: 'strategy.tokens',
+    tribal: 'strategy.tribal',
+    ench: 'strategy.enchantress',
+    vol: 'strategy.voltron',
+    counters: 'strategy.counters',
+    ss: 'strategy.spellslinger',
+    sac: 'strategy.sacrifice',
+    rean: 'strategy.reanimator',
+    sf: 'strategy.superfriends',
+  });
+
+  function _titleCaseWords(s) {
+    return String(s || '').split(/[\s/]+/).filter(Boolean)
+      .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' ');
+  }
+
+  function planTypeDimension(strategyId) {
+    return PLAN_TYPE_DIMENSIONS[strategyId] || null;
+  }
+
+  function strategiesNeedingTypePick(plan) {
+    const p = normalizeDeckPlan(plan);
+    const active = new Set([p.primaryStrategyId, p.secondaryStrategyId].filter(Boolean));
+    return PLAN_TYPE_PICK_STRATEGY_ORDER.filter(id => active.has(id) && !!PLAN_TYPE_DIMENSIONS[id]);
+  }
+
+  function planTypePicksForStrategy(plan, strategyId) {
+    const p = normalizeDeckPlan(plan);
+    const picks = p.planTypePicks && p.planTypePicks[strategyId];
+    return Array.isArray(picks) ? picks.slice() : [];
+  }
+
+  function _optionLabelForPick(strategyId, pickId) {
+    const dim = PLAN_TYPE_DIMENSIONS[strategyId];
+    if (!dim) return _titleCaseWords(pickId);
+    const hit = (dim.options || []).find(o => o.id === pickId);
+    if (hit) return hit.label;
+    return _titleCaseWords(pickId);
+  }
+
+  /**
+   * Human phrase inserted into sub-tag labels (replaces leading "Type").
+   * Voltron/enchantress single-select uses the option label directly.
+   */
+  function planTypePhraseForStrategy(plan, strategyId) {
+    const picks = planTypePicksForStrategy(plan, strategyId);
+    const dim = PLAN_TYPE_DIMENSIONS[strategyId];
+    if (!dim) return 'Theme';
+    if (!picks.length) return dim.defaultPhrase || 'Theme';
+    if (!dim.multi && picks.length === 1) {
+      const one = _optionLabelForPick(strategyId, picks[0]);
+      if (strategyId === 'strategy.voltron' && picks[0] === 'both') return 'Equipment & auras';
+      if (strategyId === 'strategy.enchantress' && picks[0] === 'both') return 'Enchantment';
+      if (strategyId === 'strategy.enchantress' && picks[0] === 'enchantment') return 'Non-aura enchantment';
+      return one;
+    }
+    const labels = picks.map(id => _optionLabelForPick(strategyId, id));
+    if (labels.length === 1) return labels[0];
+    if (labels.length === 2) return `${labels[0]} & ${labels[1]}`;
+    return `${labels.slice(0, -1).join(', ')} & ${labels[labels.length - 1]}`;
+  }
+
+  function subtagStrategyId(subtagId) {
+    const prefix = String(subtagId || '').split('.')[0];
+    return SUBTAG_ID_STRATEGY_PREFIX[prefix] || null;
+  }
+
+  /** Replace "Type" placeholder in sub-tag labels; also enriches counter-kind labels. */
+  function resolvePlanSubtagLabel(rawLabel, subtagId, plan) {
+    const label = String(rawLabel || '');
+    const sid = subtagStrategyId(subtagId);
+    if (!sid) return label;
+
+    if (subtagId === 'vol.equip' && sid === 'strategy.voltron') {
+      const picks = planTypePicksForStrategy(plan, sid);
+      if (!picks.length) return 'Equipment & auras';
+      if (picks.includes('both') || (picks.includes('equipment') && picks.includes('aura'))) return 'Equipment & auras';
+      if (picks[0] === 'equipment') return 'Equipment';
+      if (picks[0] === 'aura') return 'Auras';
+      return planTypePhraseForStrategy(plan, sid);
+    }
+    if (subtagId === 'ench.type' && sid === 'strategy.enchantress') {
+      const picks = planTypePicksForStrategy(plan, sid);
+      if (!picks.length) return 'Enchantments & auras';
+      if (picks.includes('both')) return 'Enchantments & auras';
+      if (picks[0] === 'aura') return 'Auras';
+      if (picks[0] === 'enchantment') return 'Non-aura enchantments';
+      return planTypePhraseForStrategy(plan, sid);
+    }
+
+    let out = label;
+    if (/\bType\b/.test(out) && PLAN_TYPE_DIMENSIONS[sid]) {
+      const phrase = planTypePhraseForStrategy(plan, sid);
+      out = out.replace(/\bType\b/g, phrase);
+    }
+    if (sid === 'strategy.counters' && /\bCounter\b/.test(out) && planTypePicksForStrategy(plan, sid).length) {
+      const phrase = planTypePhraseForStrategy(plan, sid);
+      out = out.replace(/\bCounter\b/g, phrase);
+    }
+    return out;
+  }
+
+  function setPlanTypePicks(plan, strategyId, picks) {
+    const p = normalizeDeckPlan(plan);
+    p.planTypePicks = { ...(p.planTypePicks || {}) };
+    p.planTypePicks[strategyId] = (Array.isArray(picks) ? picks : [])
+      .map(t => String(t || '').toLowerCase()).filter(Boolean);
+    if (strategyId === 'strategy.tribal') p.typePicks = p.planTypePicks[strategyId].slice();
+    return p;
+  }
+
   /** Default sub-tag rows for a strategy (half weight when secondary). */
   function planThemeSubtagDefaults(strategyId, { secondary } = {}) {
     const rows = PLAN_THEME_SUBTAG_DEFAULTS[strategyId] || [];
@@ -287,7 +533,10 @@
         });
       }
     }
-    let rows = [...byId.values()];
+    let rows = [...byId.values()].map(r => ({
+      ...r,
+      label: resolvePlanSubtagLabel(r.label, r.id, p),
+    }));
     let sum = rows.reduce((s, r) => s + r.target, 0);
     if (sum > cap && sum > 0) {
       const scale = cap / sum;
@@ -678,7 +927,15 @@
     isPlanDeclared,
     isPlanConfirmed,
     PLAN_THEME_SUBTAG_DEFAULTS,
+    PLAN_TYPE_DIMENSIONS,
+    PLAN_TYPE_PICK_STRATEGY_ORDER,
     PLAN_PARENT_DEFAULT_TARGET,
+    planTypeDimension,
+    strategiesNeedingTypePick,
+    planTypePicksForStrategy,
+    planTypePhraseForStrategy,
+    resolvePlanSubtagLabel,
+    setPlanTypePicks,
     planThemeSubtagDefaults,
     mergedPlanSubtagDefaults,
     activePlanSubTags,

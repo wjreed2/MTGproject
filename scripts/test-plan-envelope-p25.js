@@ -9,7 +9,45 @@ const e21 = require('../engine2.1wizard');
   const p = plan.emptyPlan();
   assert.strictEqual(p.planConfirmed, false);
   assert.ok(p.planSubTags);
+  assert.ok(p.planTypePicks);
   assert.ok(Array.isArray(p.typePicks));
+}
+
+{
+  const norm = plan.normalizeDeckPlan({ typePicks: ['Goblin'] });
+  assert.deepStrictEqual(norm.planTypePicks['strategy.tribal'], ['goblin']);
+  assert.deepStrictEqual(norm.typePicks, ['goblin']);
+}
+
+{
+  const labeled = plan.mergedPlanSubtagDefaults({
+    winConditionId: 'wincon.combat',
+    primaryStrategyId: 'strategy.tokens',
+    secondaryStrategyId: 'strategy.voltron',
+    planConfirmed: true,
+    planTypePicks: {
+      'strategy.tokens': ['treasure'],
+      'strategy.voltron': ['equipment'],
+    },
+  }, 30);
+  const makers = labeled.find(r => r.id === 'tokens.makers');
+  const equip = labeled.find(r => r.id === 'vol.equip');
+  assert.ok(makers, 'token makers row');
+  assert.ok(equip, 'voltron equip row');
+  assert.ok(/Treasure makers/i.test(makers.label), makers.label);
+  assert.ok(/Equipment/i.test(equip.label), equip.label);
+  assert.ok(!/equip\/auras/i.test(equip.label) || /Equipment & auras/i.test(equip.label), equip.label);
+  assert.ok(!/Type makers/i.test(makers.label), makers.label);
+}
+
+{
+  const need = plan.strategiesNeedingTypePick({
+    primaryStrategyId: 'strategy.tokens',
+    secondaryStrategyId: 'strategy.tribal',
+  });
+  assert.ok(need.includes('strategy.tokens'));
+  assert.ok(need.includes('strategy.tribal'));
+  assert.ok(!need.includes('strategy.control'));
 }
 
 {
