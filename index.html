@@ -387,8 +387,12 @@
     <div class="stat-card"><div class="stat-val" id="statValueCK">$0</div><div class="stat-label">Est. Value (CK)</div></div>
   </div>
   <div class="stat-card stat-card--movers" id="statTopMoversCard">
+    <div class="stat-movers-preview" id="statTopMoversPreview" hidden></div>
     <div class="stat-movers" id="statTopMovers"><div class="stat-movers-empty">—</div></div>
-    <div class="stat-label" id="statTopMoversLabel">Top Movers</div>
+    <button type="button" class="stat-movers-label-btn" id="statTopMoversToggle" onclick="toggleTopMoversMobile()" aria-expanded="false">
+      <span class="stat-label" id="statTopMoversLabel">Top Movers</span>
+      <span class="stat-movers-chevron" aria-hidden="true">▸</span>
+    </button>
   </div>
 
   <!-- Shared collection banner — shown when viewing another user's collection -->

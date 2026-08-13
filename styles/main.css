@@ -2253,6 +2253,28 @@ img.stack-main.loaded { opacity: 1; }
   margin-bottom: 0;
   text-align: center;
 }
+.stat-movers-label-btn {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: default;
+  color: inherit;
+  font: inherit;
+  text-align: center;
+}
+.stat-movers-label-btn .stat-label {
+  margin-top: 0;
+}
+.stat-movers-chevron {
+  display: none;
+}
+.stat-movers-preview[hidden],
+.stat-movers[hidden] {
+  display: none !important;
+}
 .stat-movers {
   display: flex;
   flex-wrap: nowrap;
