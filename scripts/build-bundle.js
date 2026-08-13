@@ -26,6 +26,7 @@ const SOURCES = [
   'js/deck-plan.js',
   'js/deck-plan-wizard.js',
   'js/decks.js',
+  'js/deck-export.js',
   'js/trade-scoring.js',
   'js/browse.js',
   'js/wishlist.js',

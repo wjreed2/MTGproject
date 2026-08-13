@@ -225,6 +225,7 @@ const _modalCloseMap = {
   deckTagManagerModal:   () => closeDeckTagManager(),
   deckCardTagModal:      () => closeDeckCardTagPicker(),
   skeletonBuilderModal:  () => closeSkeletonBuilderModal(),
+  deckExportModal:       () => closeDeckExportModal(),
   changeDeckFormatModal:   () => closeChangeDeckFormatModal(),
   deckPlanWizardModal:     () => closeDeckPlanWizard(),
   collectionShareModal:       () => closeCollectionShareModal(),

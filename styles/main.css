@@ -1388,6 +1388,58 @@ main {
   text-transform: uppercase;
 }
 
+/* Deck export modal */
+.deck-export-modal .modal-title { margin-bottom: 0.75rem; }
+.deck-export-label {
+  display: block; font-size: 0.74rem; color: var(--text3);
+  letter-spacing: 0.05em; margin: 0.85rem 0 0.35rem;
+}
+.deck-export-label:first-child { margin-top: 0; }
+.deck-export-select {
+  width: 100%; background: var(--bg3); border: 1px solid var(--border2);
+  border-radius: var(--radius); color: var(--text); padding: 0.55rem 0.65rem;
+  font-size: 0.88rem;
+}
+.deck-export-checks { display: flex; flex-direction: column; gap: 0.45rem; margin-top: 0.55rem; }
+.deck-export-check {
+  display: flex; align-items: center; gap: 0.5rem;
+  font-size: 0.82rem; color: var(--text2); cursor: pointer; user-select: none;
+}
+.deck-export-check input { width: 15px; height: 15px; accent-color: var(--teal); flex-shrink: 0; }
+.deck-export-count { font-size: 0.76rem; color: var(--text3); margin: 0.5rem 0 0; }
+.deck-export-opt-actions { display: flex; gap: 0.35rem; margin-bottom: 0.35rem; }
+.deck-export-opt-list {
+  background: var(--bg3); border: 1px solid var(--border);
+  border-radius: var(--radius2); overflow: hidden;
+}
+.deck-export-opt {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+  padding: 0.55rem 0.7rem; font-size: 0.82rem; color: var(--text2);
+  border-bottom: 1px solid var(--border);
+}
+.deck-export-opt:last-child { border-bottom: none; }
+.deck-export-opt input { width: 15px; height: 15px; accent-color: var(--teal); flex-shrink: 0; }
+.deck-export-preview {
+  background: var(--bg3); border: 1px solid var(--border);
+  border-radius: var(--radius2); padding: 0.7rem 0.8rem;
+  font-family: 'JetBrains Mono', monospace; font-size: 0.76rem;
+  color: var(--text2); line-height: 1.55; white-space: pre-wrap;
+  margin: 0; max-height: 7.5rem; overflow: hidden;
+}
+.deck-export-actions {
+  display: flex; gap: 0.55rem; margin-top: 1rem; flex-shrink: 0;
+}
+.deck-export-btn {
+  flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
+  padding: 0.65rem 0.75rem; font-size: 0.88rem;
+}
+.deck-export-btn svg { width: 15px; height: 15px; flex-shrink: 0; }
+.deck-export-download {
+  background: var(--green, #2d8a4e); border-color: transparent; color: #fff;
+}
+.deck-export-download:hover { filter: brightness(1.08); }
+.deck-export-close { margin: 0.65rem auto 0; display: block; }
+
 /* Deck plan wizard (Entry 13) */
 .plan-opt-grid {
   display: flex; flex-wrap: wrap; gap: 8px;
@@ -2252,6 +2304,28 @@ img.stack-main.loaded { opacity: 1; }
   margin-top: 6px;
   margin-bottom: 0;
   text-align: center;
+}
+.stat-movers-label-btn {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: default;
+  color: inherit;
+  font: inherit;
+  text-align: center;
+}
+.stat-movers-label-btn .stat-label {
+  margin-top: 0;
+}
+.stat-movers-chevron {
+  display: none;
+}
+.stat-movers-preview[hidden],
+.stat-movers[hidden] {
+  display: none !important;
 }
 .stat-movers {
   display: flex;

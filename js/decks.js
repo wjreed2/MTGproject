@@ -10165,21 +10165,18 @@ function _rampIsRelevant(card, cmdColors, hasGenericCost) {
   return false;
 }
 
-function _countEarlyRamp(deck, cmdColors, hasGenericCost, cmdCMC = 4) {
-  // CP-Q17: when plan sets target cast turn T, early = CMC ≤ T−1 (compare via cmc < T).
-  // Otherwise keep caller bound (often adjustedCMC including custom-req shift).
-  let earlyCmcExclusive = cmdCMC;
-  try {
-    const plan = typeof getDeckPlan === 'function' ? getDeckPlan(deck) : null;
-    if (plan && plan.targetCastTurn != null && typeof effectiveCastTurn === 'function') {
-      earlyCmcExclusive = effectiveCastTurn(plan, cmdCMC);
-    }
-  } catch (_) { /* keep */ }
+/** Gameplan early-ramp band: ramp with MV ≤ commander MV − 2 (Prompt 10). */
+function _earlyRampCmcCap(commanderCmc) {
+  const cmc = Math.round(Number(commanderCmc) || 0);
+  return Math.max(0, cmc - 2);
+}
+
+function _countEarlyRamp(deck, cmdColors, hasGenericCost, maxInclusiveCmc) {
+  const cap = Math.max(0, Math.round(Number(maxInclusiveCmc) || 0));
   return (deck.cards || []).reduce((s, c) => {
     if (_isLandDeckCard(c)) return s;
     if (!_probTagsOnCard(c).includes('Ramp')) return s;
-    // "Early" = castable before the commander cast turn (CMC < exclusive bound)
-    if (_effectiveCmc(c) >= earlyCmcExclusive) return s;
+    if (_effectiveCmc(c) > cap) return s;
     if (cmdColors && !_rampIsRelevant(c, cmdColors, hasGenericCost)) return s;
     return s + (c.qty || 1);
   }, 0);
@@ -10224,7 +10221,8 @@ function _cmdGameplanProbs(deck, cmdCard, customReqs = []) {
   const extraTurns = Math.round(_customDataRaw.reduce((s, v) => s + v, 0));
   const adjustedCMC = cmdCMC + extraTurns;
 
-  const R = _countEarlyRamp(deck, cmdColors, hasGenericCost, adjustedCMC);
+  const earlyRampCap = _earlyRampCmcCap(cmdCMC);
+  const R = _countEarlyRamp(deck, cmdColors, hasGenericCost, earlyRampCap);
   const clamp01 = v => Math.max(0, Math.min(1, v));
   // Mulligan adjustment: P(success) = 1 - P(fail original hand) × P(fail mulligan hand)
   // Mulligan hand starts with 6 cards (bottom 1 after free redraw) + same turn draws = seen-1 total
@@ -10289,7 +10287,7 @@ function _cmdGameplanProbs(deck, cmdCard, customReqs = []) {
     preCurve: null,
     meta: {
       N, L, L_ut, R, cmdCMC, adjustedCMC, extraTurns, cmdColors, colorSources, hasGenericCost, customGroups,
-      planCastTurn, landIdeal, earlyRampIdeal,
+      planCastTurn, landIdeal, earlyRampIdeal, earlyRampCap,
     },
   };
 
@@ -10312,18 +10310,19 @@ function _cmdGameplanProbs(deck, cmdCard, customReqs = []) {
     return `${Math.round(S)} sources\n${cardList}`;
   };
 
-  const rampDetail = (cmcCap = adjustedCMC) => {
+  const rampDetail = (maxInclusiveCmc = earlyRampCap) => {
+    const cap = Math.max(0, Math.round(Number(maxInclusiveCmc) || 0));
     const rampRaw = (deck.cards || []).filter(c => {
       if (_isLandDeckCard(c)) return false;
       if (!_probTagsOnCard(c).includes('Ramp')) return false;
-      if (_effectiveCmc(c) >= cmcCap) return false;
+      if (_effectiveCmc(c) > cap) return false;
       return true;
     }).map(c => ({ name: c.name, qty: c.qty || 1 }));
     const rampCards = _mergeEntriesByCardName(rampRaw)
       .sort((a, b) => a.name.localeCompare(b.name));
     const count = rampCards.reduce((s, c) => s + (c.qty || 1), 0);
     const cardList = rampCards.map(c => c.qty > 1 ? `${c.name} ×${c.qty}` : c.name).join('\n');
-    return `${count} ramp pieces (MV<${cmcCap})\n${cardList}`;
+    return `${count} ramp pieces (MV≤${cap})\n${cardList}`;
   };
 
 
@@ -10380,7 +10379,7 @@ function _cmdGameplanProbs(deck, cmdCard, customReqs = []) {
       : `≥${turn} lands by T${turn}`;
     const p_overall = clamp01(p_mana * pColorsJointMul(cmdColors, seen) * customReqMul(seen));
     results.onCurve = {
-      turn, p: p_overall, rampCmcCap: adjustedCMC,
+      turn, p: p_overall, rampCmcCap: earlyRampCap,
       requirements: [
         { label: landLabel, p: p_land_natural, detail: `${L} lands` },
         { label: `Early ramp by T${Math.max(1, turn - 1)} (saves land drops)`, p: p_ramp_any, detail: rampDetail(), bonus: true },
@@ -10403,7 +10402,7 @@ function _cmdGameplanProbs(deck, cmdCard, customReqs = []) {
     // Ramp + untapped land needed by T(turn-1) to accelerate into pre-curve.
     // Pre-curve ramp must be castable BEFORE the target turn, so CMC < turn (one stricter than on-curve).
     // e.g. for a CMC 4 commander pre-curving to T3: only CMC 0-2 ramp helps (CMC 3 played on T3 = same turn, useless).
-    const R_pre = _countEarlyRamp(deck, cmdColors, hasGenericCost, turn);
+    const R_pre = _countEarlyRamp(deck, cmdColors, hasGenericCost, Math.max(0, turn - 1));
     const preCurveRampSeen = 7 + Math.max(0, turn - 2);
     const _incEx = (seenN) => {
       const pu = clamp01(_hypergeoAtLeast(N, L_ut, seenN, 1));
@@ -10421,10 +10420,10 @@ function _cmdGameplanProbs(deck, cmdCard, customReqs = []) {
       ? `≥${preLandMinK} lands by T${turn} (${extraLandsInHand} in hand)`
       : `≥${turn} lands by T${turn}`;
     results.preCurve = {
-      turn, p: p_overall, rampCmcCap: turn,
+      turn, p: p_overall, rampCmcCap: Math.max(0, turn - 1),
       requirements: [
         { label: preLandLabel, p: p_lands, detail: `${L} lands` },
-        { label: `Untapped land + ramp by T${rampTurnLabel}`, p: p_ramp_ut, detail: rampDetail(turn) + `\n${L_ut} untapped lands` },
+        { label: `Untapped land + ramp by T${rampTurnLabel}`, p: p_ramp_ut, detail: rampDetail(Math.max(0, turn - 1)) + `\n${L_ut} untapped lands` },
         ...colorReqs.map(r => ({ label: r.label, p: r.p, detail: r.detail })),
         ...customReqRows(seen),
       ],
@@ -10555,7 +10554,7 @@ function renderCommanderGameplan(deck) {
 
   const cards = gpDeck.cards || [];
   const { cmdColors, hasGenericCost, adjustedCMC } = meta;
-  const existingRamp = (cmcCap = adjustedCMC) => cards.filter(c => !_isLandDeckCard(c) && _probTagsOnCard(c).includes('Ramp') && _effectiveCmc(c) < cmcCap && _rampIsRelevant(c, cmdColors, hasGenericCost))
+  const existingRamp = (maxInclusiveCmc = meta.earlyRampCap ?? _earlyRampCmcCap(cmdCMC)) => cards.filter(c => !_isLandDeckCard(c) && _probTagsOnCard(c).includes('Ramp') && _effectiveCmc(c) <= maxInclusiveCmc && _rampIsRelevant(c, cmdColors, hasGenericCost))
     .sort((a, b) => _effectiveCmc(a) - _effectiveCmc(b)).slice(0, 4).map(c => c.name);
   const existingColorCards = col => cards.filter(c => (_estimateManaSources(c, null)[col] || 0) > 0)
     .slice(0, 3).map(c => c.name);
@@ -10573,7 +10572,7 @@ function renderCommanderGameplan(deck) {
         const cap = scenario.rampCmcCap || adjustedCMC;
         const have = existingRamp(cap);
         const haveStr = have.length ? `have: ${escapeHtml(have.join(', '))}` : '';
-        return `<div class="cmdr-gp-rec">→ Add more MV&lt;${cap} ramp${haveStr ? ` — ${haveStr}` : ''}</div>`;
+        return `<div class="cmdr-gp-rec">→ Add more MV≤${cap} ramp${haveStr ? ` — ${haveStr}` : ''}</div>`;
       }
       if (lc.includes('lands')) return meta.L >= 36 ? '' : `<div class="cmdr-gp-rec">→ Add more lands (target ≥36-38 for Commander)</div>`;
       for (const [col, name] of [['W','white'],['U','blue'],['B','black'],['R','red'],['G','green']]) {
@@ -12891,55 +12890,6 @@ async function buildSkeletonDeckFromCollection(templateOverride = null) {
   renderActiveDeck();
   const total = deck.cards.reduce((s, c) => s + (c.qty || 1), 0);
   showNotif(`Built skeleton: ${total}/${targetSize} cards`);
-}
-
-function _formatDeckExportLine(card, exactPrintings) {
-  const qty = Number(card?.qty) || 1;
-  const name = String(card?.name || '').trim();
-  if (!exactPrintings) return `${qty} ${name}`;
-  const set = String(card?.set || '').toUpperCase();
-  const num = String(card?.number || '').trim();
-  const isFoil = !!card?.foil || (card?.uid ? card.uid.endsWith('_f') : false);
-  const foil = isFoil ? ' foil' : '';
-  const printMeta = (set || num)
-    ? ` [${set || '?'} #${num || '?'}${foil}]`
-    : (foil ? ' [foil]' : '');
-  return `${qty} ${name}${printMeta}`;
-}
-
-async function exportDeck() {
-  const deck = getActiveDeck();
-  if (!deck) return;
-  let exactPrintings = false;
-  if (typeof showConfirmModal === 'function') {
-    const useExact = await showConfirmModal({
-      title: 'Export Deck',
-      body: 'Export with exact printings (set code, collector number, foil) so copies can be reconstructed exactly?',
-      okLabel: 'Exact Printings',
-      cancelLabel: 'Simple List',
-      okClass: 'btn-primary',
-    });
-    exactPrintings = !!useExact;
-  }
-  const lines = deck.cards.map(c => _formatDeckExportLine(c, exactPrintings));
-  const mb = _deckMaybeBoard(deck);
-  if (mb.length) {
-    lines.push('', '// Maybe board');
-    mb.forEach(c => lines.push(_formatDeckExportLine(c, exactPrintings)));
-  }
-  if (_deckMatchSideboardEnabled(deck)) {
-    const sb = _deckMatchSideboard(deck);
-    if (sb.length) {
-      lines.push('', '// Sideboard');
-      sb.forEach(c => lines.push(_formatDeckExportLine(c, exactPrintings)));
-    }
-  }
-  const text = lines.join('\n');
-  const blob = new Blob([text], {type:'text/plain'});
-  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-  a.download = deck.name.replace(/\s+/g,'_') + (exactPrintings ? '_exact' : '') + '.txt';
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
 let _edhrecAbort = null;
