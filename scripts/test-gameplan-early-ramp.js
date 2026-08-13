@@ -1,6 +1,11 @@
 /**
  * Commander Gameplan early-ramp CMC band: MV ≤ commander MV − 2 (Prompt 10).
- * Mirrors js/decks.js _earlyRampCmcCap / _countEarlyRamp.
+ *
+ * NOTE: This file mirrors js/decks.js _earlyRampCmcCap / _countEarlyRamp locally
+ * instead of importing them — decks.js is not a clean importable module today.
+ * That means this test documents the intended band math; it is not a regression
+ * guardrail if decks.js drifts. Keep the mirror in sync manually, or extract
+ * shared helpers in a follow-up so the suite can import the real implementation.
  */
 const assert = require('assert');
 
