@@ -811,7 +811,64 @@ function _cardTopMoverChange(card, mode, vendors, timeframe, customDate) {
   return { delta: best, key: bestKey };
 }
 
-let _topMoversResizeObs = null;
+let _topMoversMobileExpanded = false;
+
+function _isPhoneViewport() {
+  return typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 768px)').matches;
+}
+
+function toggleTopMoversMobile() {
+  if (!_isPhoneViewport()) return;
+  _topMoversMobileExpanded = !_topMoversMobileExpanded;
+  if (typeof getFilteredCollection === 'function') {
+    _renderTopMoversStat(getFilteredCollection());
+  } else {
+    _syncTopMoversMobileChrome();
+  }
+}
+
+function _syncTopMoversMobileChrome() {
+  const card = document.getElementById('statTopMoversCard');
+  const preview = document.getElementById('statTopMoversPreview');
+  const full = document.getElementById('statTopMovers');
+  const toggle = document.getElementById('statTopMoversToggle');
+  if (!card) return;
+
+  const phone = _isPhoneViewport();
+  card.classList.toggle('stat-card--movers-mobile', phone);
+  card.classList.toggle('is-expanded', phone && _topMoversMobileExpanded);
+
+  if (toggle) {
+    toggle.setAttribute('aria-expanded', phone && _topMoversMobileExpanded ? 'true' : 'false');
+    const chev = toggle.querySelector('.stat-movers-chevron');
+    if (chev) chev.textContent = phone && _topMoversMobileExpanded ? '▾' : '▸';
+  }
+
+  if (!preview || !full) return;
+  if (!phone) {
+    preview.hidden = true;
+    full.hidden = false;
+    return;
+  }
+  const empty = full.querySelector('.stat-movers-empty');
+  if (empty) {
+    preview.hidden = true;
+    full.hidden = false;
+    return;
+  }
+  preview.hidden = _topMoversMobileExpanded;
+  full.hidden = !_topMoversMobileExpanded;
+}
+
+function _topMoversRowAttrs(uid, name, foil, esc) {
+  const uidJs = String(uid).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  return {
+    uidJs,
+    title: `${esc(name)}${foil}`,
+    openHandlers: `onclick="event.stopPropagation();openCardDetail('${uidJs}')"
+    onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openCardDetail('${uidJs}')}"`,
+  };
+}
 
 function _topMoversRowHtml(card, delta, prefs, esc) {
   const uid = card.uid || (card.scryfallId ? card.scryfallId + (card.foil ? '_f' : '_n') : '');
@@ -820,10 +877,27 @@ function _topMoversRowHtml(card, delta, prefs, esc) {
   const pctText = typeof formatPriceDeltaText === 'function' ? formatPriceDeltaText(delta, 'pct') : '';
   const cls = typeof priceDeltaClass === 'function' ? priceDeltaClass(delta) : '';
   const foil = card.foil ? ' ✦' : '';
-  const uidJs = String(uid).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-  return `<div class="stat-mover-row" role="button" tabindex="0" title="${esc(name)}${foil}"
-    onclick="event.stopPropagation();openCardDetail('${uidJs}')"
-    onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openCardDetail('${uidJs}')}">
+  const { title, openHandlers } = _topMoversRowAttrs(uid, name, foil, esc);
+  return `<div class="stat-mover-row" role="button" tabindex="0" title="${title}"
+    ${openHandlers}>
+    <span class="stat-mover-name">${esc(name)}${foil}</span>
+    <span class="stat-mover-figures">
+      <span class="stat-mover-delta">${esc(usdText)}</span>
+      <span class="stat-mover-pct ${cls}">${esc(pctText)}</span>
+    </span>
+  </div>`;
+}
+
+function _topMoversListRowHtml(card, delta, prefs, esc) {
+  const uid = card.uid || (card.scryfallId ? card.scryfallId + (card.foil ? '_f' : '_n') : '');
+  const name = card.name || 'Unknown';
+  const usdText = typeof formatPriceDeltaText === 'function' ? formatPriceDeltaText(delta, 'usd') : '';
+  const pctText = typeof formatPriceDeltaText === 'function' ? formatPriceDeltaText(delta, 'pct') : '';
+  const cls = typeof priceDeltaClass === 'function' ? priceDeltaClass(delta) : '';
+  const foil = card.foil ? ' ✦' : '';
+  const { title, openHandlers } = _topMoversRowAttrs(uid, name, foil, esc);
+  return `<div class="stat-mover-row stat-mover-row--list" role="button" tabindex="0" title="${title}"
+    ${openHandlers}>
     <span class="stat-mover-name">${esc(name)}${foil}</span>
     <span class="stat-mover-figures">
       <span class="stat-mover-delta">${esc(usdText)}</span>
@@ -844,6 +918,8 @@ function _renderTopMoversStat(rows) {
   if (prefs.show === false) {
     if (moversCard) moversCard.style.display = 'none';
     el.innerHTML = '';
+    const previewHide = document.getElementById('statTopMoversPreview');
+    if (previewHide) previewHide.innerHTML = '';
     return;
   }
   if (moversCard) moversCard.style.display = '';
@@ -852,7 +928,11 @@ function _renderTopMoversStat(rows) {
     ? getPriceChangeVendorEnabled()
     : { tcg: true, ck: true };
   if (labelEl) {
-    labelEl.textContent = `Top Movers · ${_priceChangeTfShortLabel(prefs.timeframe, prefs.customDate)}`;
+    let label = `Top Movers · ${_priceChangeTfShortLabel(prefs.timeframe, prefs.customDate)}`;
+    if (_isPhoneViewport() && scored.length > 1 && !_topMoversMobileExpanded) {
+      label += ` (${Math.min(scored.length, 6)})`;
+    }
+    labelEl.textContent = label;
   }
 
   const scored = [];
@@ -863,16 +943,44 @@ function _renderTopMoversStat(rows) {
   }
   scored.sort((a, b) => b.key - a.key || String(a.card.name || '').localeCompare(String(b.card.name || '')));
   const top = scored.slice(0, 6);
+  const previewEl = document.getElementById('statTopMoversPreview');
   if (!top.length) {
     el.innerHTML = '<div class="stat-movers-empty">—</div>';
+    if (previewEl) previewEl.innerHTML = '';
+    _syncTopMoversMobileChrome();
     return;
   }
 
   const esc = typeof escapeHtml === 'function'
     ? escapeHtml
     : (s) => String(s ?? '').replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
-  el.innerHTML = top.map(({ card, delta }) => _topMoversRowHtml(card, delta, prefs, esc)).join('');
+  const phone = _isPhoneViewport();
+  if (phone) {
+    if (previewEl) {
+      previewEl.innerHTML = _topMoversListRowHtml(top[0].card, top[0].delta, prefs, esc);
+    }
+    el.innerHTML = top.map(({ card, delta }) => _topMoversListRowHtml(card, delta, prefs, esc)).join('');
+  } else {
+    if (previewEl) previewEl.innerHTML = '';
+    el.innerHTML = top.map(({ card, delta }) => _topMoversRowHtml(card, delta, prefs, esc)).join('');
+  }
+  _syncTopMoversMobileChrome();
 }
+
+(function _initTopMoversMobileMq() {
+  if (typeof window.matchMedia !== 'function') return;
+  const mq = window.matchMedia('(max-width: 768px)');
+  const onChange = () => {
+    if (!mq.matches) _topMoversMobileExpanded = false;
+    if (typeof getFilteredCollection === 'function') {
+      _renderTopMoversStat(getFilteredCollection());
+    } else {
+      _syncTopMoversMobileChrome();
+    }
+  };
+  if (typeof mq.addEventListener === 'function') mq.addEventListener('change', onChange);
+  else if (typeof mq.addListener === 'function') mq.addListener(onChange);
+})();
 
 function updateStats() {
   const rows = getFilteredCollection();
