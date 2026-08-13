@@ -2253,6 +2253,82 @@
   </div>
 </div>
 
+<!-- DECK EXPORT MODAL -->
+<div class="modal-overlay" id="deckExportModal">
+  <div class="modal deck-export-modal" style="width:min(520px,96vw);max-height:min(90vh,760px);display:flex;flex-direction:column;padding:1.5rem 1.25rem 1.25rem">
+    <button type="button" class="btn btn-ghost btn-icon" style="position:absolute;top:0.75rem;right:0.75rem" onclick="closeDeckExportModal()" aria-label="Close">✕</button>
+    <div class="modal-title" id="deckExportTitle" style="flex-shrink:0;margin-bottom:1rem;padding-right:2rem">Export deck</div>
+    <div class="deck-export-body" style="flex:1;min-height:0;overflow-y:auto;padding-right:2px">
+      <label class="deck-export-label">Select cards by</label>
+      <select id="deckExportCardSelect" class="deck-export-select" onchange="_deckExportOnChange()">
+        <option value="all">All cards</option>
+        <option value="including_adds" data-swaps-only="1">Including adds</option>
+        <option value="only_adds" data-swaps-only="1">Only adds</option>
+        <option value="excluding_cuts" data-swaps-only="1">Excluding cuts</option>
+        <option value="only_cuts" data-swaps-only="1">Only cuts</option>
+      </select>
+      <div class="deck-export-checks">
+        <label class="deck-export-check"><input type="checkbox" id="deckExportIncludeMaybe" onchange="_deckExportOnChange()"> Include maybe board</label>
+        <label class="deck-export-check" id="deckExportSideWrap"><input type="checkbox" id="deckExportIncludeSide" onchange="_deckExportOnChange()"> Include sideboard</label>
+      </div>
+      <p id="deckExportCount" class="deck-export-count">Selected cards: 0 (0 unique)</p>
+
+      <label class="deck-export-label">Export type</label>
+      <select id="deckExportType" class="deck-export-select" onchange="_deckExportOnChange()">
+        <option value="text">Text</option>
+        <option value="csv">CSV</option>
+      </select>
+
+      <div id="deckExportTextOpts">
+        <label class="deck-export-label">Format options</label>
+        <div class="deck-export-opt-actions">
+          <button type="button" class="btn btn-ghost btn-sm" onclick="_deckExportToggleAllOpts(true)">Check all</button>
+          <button type="button" class="btn btn-ghost btn-sm" onclick="_deckExportToggleAllOpts(false)">Uncheck all</button>
+        </div>
+        <div class="deck-export-opt-list">
+          <label class="deck-export-opt"><span>Include quantity prefix (1x)</span><input type="checkbox" id="deckExportOptQty" onchange="_deckExportOnChange()"></label>
+          <label class="deck-export-opt"><span>Include set code</span><input type="checkbox" id="deckExportOptSet" onchange="_deckExportOnChange()"></label>
+          <label class="deck-export-opt"><span>Include collector number</span><input type="checkbox" id="deckExportOptNum" onchange="_deckExportOnChange()"></label>
+          <label class="deck-export-opt"><span>Include foil indicator</span><input type="checkbox" id="deckExportOptFoil" onchange="_deckExportOnChange()"></label>
+          <label class="deck-export-opt"><span>Include categories</span><input type="checkbox" id="deckExportOptTags" onchange="_deckExportOnChange()"></label>
+          <label class="deck-export-opt"><span>Tag commander (*CMDR*)</span><input type="checkbox" id="deckExportOptCmdr" onchange="_deckExportOnChange()"></label>
+          <label class="deck-export-opt"><span>Use front face name for MDFCs</span><input type="checkbox" id="deckExportOptMdfc" onchange="_deckExportOnChange()"></label>
+        </div>
+      </div>
+
+      <label class="deck-export-label">Sort by</label>
+      <select id="deckExportSort" class="deck-export-select" onchange="_deckExportOnChange()">
+        <option value="name">Alphabet</option>
+        <option value="cmc">Mana value</option>
+        <option value="type">Type</option>
+        <option value="color">Color identity</option>
+        <option value="price">Price</option>
+      </select>
+
+      <label class="deck-export-label">Section headers</label>
+      <select id="deckExportSection" class="deck-export-select" onchange="_deckExportOnChange()">
+        <option value="none">No section headers</option>
+        <option value="type">Card type</option>
+        <option value="zone">Zone (mainboard, maybe board, …)</option>
+      </select>
+
+      <label class="deck-export-label">Preview</label>
+      <pre id="deckExportPreview" class="deck-export-preview">1x Example Card</pre>
+    </div>
+    <div class="deck-export-actions">
+      <button type="button" class="btn btn-primary deck-export-btn" onclick="copyDeckExport()">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 9.5a2.5 2.5 0 0 0 3.6.1l2-2a2.5 2.5 0 0 0-3.5-3.5l-1 1"/><path d="M9.5 6.5a2.5 2.5 0 0 0-3.6-.1l-2 2a2.5 2.5 0 0 0 3.5 3.5l1-1"/></svg>
+        Copy
+      </button>
+      <button type="button" class="btn deck-export-btn deck-export-download" onclick="downloadDeckExport()">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="8" y1="10" x2="8" y2="2"/><path d="M5 5L8 2 11 5"/><line x1="3" y1="14" x2="13" y2="14"/></svg>
+        Download
+      </button>
+    </div>
+    <button type="button" class="btn btn-ghost btn-sm deck-export-close" onclick="closeDeckExportModal()">Close</button>
+  </div>
+</div>
+
 <!-- NOTIFICATION -->
 <div class="notif" id="notif">
   <span class="notif-icon">✓</span>

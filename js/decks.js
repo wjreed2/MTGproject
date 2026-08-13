@@ -12892,55 +12892,6 @@ async function buildSkeletonDeckFromCollection(templateOverride = null) {
   showNotif(`Built skeleton: ${total}/${targetSize} cards`);
 }
 
-function _formatDeckExportLine(card, exactPrintings) {
-  const qty = Number(card?.qty) || 1;
-  const name = String(card?.name || '').trim();
-  if (!exactPrintings) return `${qty} ${name}`;
-  const set = String(card?.set || '').toUpperCase();
-  const num = String(card?.number || '').trim();
-  const isFoil = !!card?.foil || (card?.uid ? card.uid.endsWith('_f') : false);
-  const foil = isFoil ? ' foil' : '';
-  const printMeta = (set || num)
-    ? ` [${set || '?'} #${num || '?'}${foil}]`
-    : (foil ? ' [foil]' : '');
-  return `${qty} ${name}${printMeta}`;
-}
-
-async function exportDeck() {
-  const deck = getActiveDeck();
-  if (!deck) return;
-  let exactPrintings = false;
-  if (typeof showConfirmModal === 'function') {
-    const useExact = await showConfirmModal({
-      title: 'Export Deck',
-      body: 'Export with exact printings (set code, collector number, foil) so copies can be reconstructed exactly?',
-      okLabel: 'Exact Printings',
-      cancelLabel: 'Simple List',
-      okClass: 'btn-primary',
-    });
-    exactPrintings = !!useExact;
-  }
-  const lines = deck.cards.map(c => _formatDeckExportLine(c, exactPrintings));
-  const mb = _deckMaybeBoard(deck);
-  if (mb.length) {
-    lines.push('', '// Maybe board');
-    mb.forEach(c => lines.push(_formatDeckExportLine(c, exactPrintings)));
-  }
-  if (_deckMatchSideboardEnabled(deck)) {
-    const sb = _deckMatchSideboard(deck);
-    if (sb.length) {
-      lines.push('', '// Sideboard');
-      sb.forEach(c => lines.push(_formatDeckExportLine(c, exactPrintings)));
-    }
-  }
-  const text = lines.join('\n');
-  const blob = new Blob([text], {type:'text/plain'});
-  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-  a.download = deck.name.replace(/\s+/g,'_') + (exactPrintings ? '_exact' : '') + '.txt';
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-}
-
 let _edhrecAbort = null;
 let _edhrecRefreshTimer = null;
 let _ownedSuggestionCandidates = null;
