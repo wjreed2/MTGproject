@@ -1,0 +1,87 @@
+# Plan Wizard
+
+## Locked wizard structure
+
+The Plan wizard is one modal pass with Back/edit support. Optional steps can be skipped where specified.
+
+Current sequence:
+1. Commander — only if deck has none; may skip for now.
+2. Key cards — soft 2–5 band; finish always allowed.
+3. Roles — confirm/edit derived roles.
+4. Win condition — required.
+5. Primary strategy — required.
+6. Secondary strategy — optional/skippable.
+7. Theme type pickers — one per strategy needing types.
+8. Plan sub-tags — theme pieces inside the Plan envelope.
+9. Cast turn — target T, consistency %, L* / R*.
+10. Protection — importance + optional types.
+11. Budget — skippable.
+
+## Plan confirmation
+
+Minimum plan declaration:
+- `winConditionId`
+- `primaryStrategyId`
+
+After wizard completion:
+- `planConfirmed = true`
+- confirmed roles/targets apply only after confirmation
+
+Nothing silently overwrites a confirmed plan.
+
+## Wizard UX note
+
+The wizard should have these plain-language prompts:
+
+> **I will win by [win condition]**
+
+> **I will use [deck theme] to get there**
+
+Both selections should use:
+- searchable dropdowns
+- all available win conditions / deck themes
+- a scrollable selection experience on mobile
+
+This is a UX requirement/note; do not assume it is implemented unless implementation status is explicitly established.
+
+## Win-condition catalog
+
+- `wincon.combat`
+- `wincon.commander_damage`
+- `wincon.combo`
+- `wincon.mill`
+- `wincon.life_drain`
+- `wincon.lock`
+- `wincon.value`
+- `wincon.other`
+
+## Strategy catalog
+
+18 IDs:
+- `strategy.tokens`
+- `strategy.sacrifice`
+- `strategy.spellslinger`
+- `strategy.reanimator`
+- `strategy.voltron`
+- `strategy.counters`
+- `strategy.landfall`
+- `strategy.tribal`
+- `strategy.artifacts`
+- `strategy.enchantress`
+- `strategy.control`
+- `strategy.blink`
+- `strategy.superfriends`
+- `strategy.theft`
+- `strategy.stax`
+- `strategy.mill`
+- `strategy.goodstuff`
+- `strategy.other`
+
+## Plan envelope
+
+- Parent Plan target defaults to 30.
+- Theme sub-tags live inside Plan.
+- Sum of active sub-tag targets cannot exceed Plan target.
+- Sub-tag D credit occurs only when Plan itself has a deficit and the sub-tag remains under its cap.
+- Planned-cut quantity is subtracted from have counts for role/plan math.
+- Primary-tier rule: Ramp/Draw/Removal deficits block Plan sub-tag D while any primary deficit >= 1.
