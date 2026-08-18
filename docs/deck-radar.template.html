@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>engine2 · Deck Profiles (radar)</title>
+<style>
+  :root{
+    --surface:#f6f7f9; --panel:#ffffff; --ink:#151a21; --ink-2:#5a6472; --muted:#8b93a0;
+    --hair:#e4e7ec; --ring:#e9ebef; --accent:#1f7fc7;
+    --font:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    --mono:ui-monospace,"SF Mono",Menlo,monospace;
+    color-scheme:light dark;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{ --surface:#0e1116; --panel:#161b22; --ink:#eef2f7; --ink-2:#9aa6b3; --muted:#6b7480;
+           --hair:#232a33; --ring:#20262e; --accent:#5cc8ff; }
+  }
+  :root[data-theme="light"]{ --surface:#f6f7f9; --panel:#ffffff; --ink:#151a21; --ink-2:#5a6472; --muted:#8b93a0; --hair:#e4e7ec; --ring:#e9ebef; --accent:#1f7fc7; }
+  :root[data-theme="dark"]{ --surface:#0e1116; --panel:#161b22; --ink:#eef2f7; --ink-2:#9aa6b3; --muted:#6b7480; --hair:#232a33; --ring:#20262e; --accent:#5cc8ff; }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; }
+  body{ background:var(--surface); color:var(--ink); font-family:var(--font); }
+  .wrap{ max-width:1180px; margin:0 auto; padding:26px 22px 80px; }
+  header h1{ font-size:22px; font-weight:750; letter-spacing:-.01em; margin:0; }
+  header p{ margin:6px 0 0; color:var(--ink-2); font-size:14px; max-width:70ch; }
+  .themeBtn{ float:right; border:1px solid var(--hair); background:var(--panel); color:var(--ink);
+             border-radius:8px; width:34px; height:34px; cursor:pointer; font-size:15px; }
+
+  h2{ font-size:12px; text-transform:uppercase; letter-spacing:.09em; color:var(--muted);
+      margin:34px 0 12px; font-weight:650; }
+
+  /* ── Compare row ─────────────────────────────────────── */
+  .compare{ display:grid; grid-template-columns:minmax(0,1fr) 260px; gap:26px; align-items:start;
+            background:var(--panel); border:1px solid var(--hair); border-radius:16px; padding:20px; }
+  #bigWrap{ display:flex; justify-content:center; }
+  #big{ width:100%; max-width:520px; height:auto; }
+  .side .hint{ font-size:12px; color:var(--ink-2); margin:10px 0 12px; line-height:1.5; }
+  .scaleseg{ display:inline-flex; border:1px solid var(--hair); border-radius:8px; overflow:hidden; }
+  .scaleseg button{ border:0; background:var(--panel); color:var(--ink); font:inherit; font-size:12px;
+                    padding:6px 11px; cursor:pointer; }
+  .scaleseg button.on{ background:color-mix(in srgb,var(--panel) 45%,var(--accent) 55%); color:#fff; }
+  .key{ display:flex; gap:16px; font-size:12px; color:var(--ink-2); margin:10px 0 2px; }
+  .key i{ display:inline-block; width:16px; height:10px; margin-right:6px; vertical-align:middle; border-radius:2px; }
+  .key .fillsw{ background:color-mix(in srgb,var(--accent) 30%,transparent); border:1.5px solid var(--accent); }
+  .key .needsw{ border:1.5px dashed var(--ink-2); height:0; margin-bottom:4px; }
+  .legend{ display:flex; flex-direction:column; gap:2px; }
+  .lg{ display:flex; align-items:center; gap:9px; padding:6px 8px; border-radius:8px; cursor:pointer;
+       border:1px solid transparent; }
+  .lg:hover{ background:color-mix(in srgb,var(--surface) 60%,var(--muted) 40%); }
+  .lg.on{ border-color:var(--hair); background:color-mix(in srgb,var(--surface) 55%,var(--muted) 45%); }
+  .lg .sw{ width:12px; height:12px; border-radius:4px; flex:0 0 auto; box-shadow:0 0 0 1px var(--hair); }
+  .lg .nm{ font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .lg .ar{ font-size:11px; color:var(--muted); margin-left:auto; }
+  .lg.on .ar{ color:var(--accent); }
+
+  /* ── Small multiples ─────────────────────────────────── */
+  .grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:14px; }
+  .cell{ background:var(--panel); border:1px solid var(--hair); border-radius:14px; padding:12px 10px 14px;
+         cursor:pointer; transition:border-color .12s; }
+  .cell:hover{ border-color:var(--accent); }
+  .cell.sel{ border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) inset; }
+  .cell canvas{ width:100%; height:auto; display:block; }
+  .cell .cap{ text-align:center; margin-top:6px; }
+  .cell .cap .n{ font-size:13px; font-weight:650; }
+  .cell .cap .a{ font-size:11px; color:var(--muted); }
+
+  .note{ font-size:11.5px; color:var(--muted); margin-top:18px; line-height:1.5; }
+  .note code{ font-family:var(--mono); font-size:.92em; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <button class="themeBtn" id="themeBtn" title="Toggle light / dark">◑</button>
+      <h1>Deck Profiles — radar view</h1>
+      <p>Each deck's emphasis across fourteen theme categories, built from what its cards actually do.
+         Bigger spoke = the deck leans harder on that theme. Click any deck below to overlay its fingerprint in the comparison.</p>
+    </header>
+
+    <h2 id="bigTitle">Compare</h2>
+    <div class="compare">
+      <div id="bigWrap"><canvas id="big"></canvas></div>
+      <div class="side">
+        <div class="scaleseg" id="viewSeg" style="margin-bottom:4px">
+          <button data-v="compare" class="on">Compare</button>
+          <button data-v="solo">Solo</button>
+        </div>
+        <div id="compareCtl">
+          <div class="scaleseg" id="scaleSeg">
+            <button data-v="deck" class="on">per deck</button>
+            <button data-v="field">across decks</button>
+          </div>
+          <p class="hint" id="scaleHint"></p>
+        </div>
+        <div id="soloCtl" style="display:none">
+          <div class="key">
+            <span><i class="fillsw"></i>fills (provides)</span>
+            <span><i class="needsw"></i>wants (needs)</span>
+          </div>
+          <p class="hint">Pick a deck below. The <b>filled</b> shape is what it brings; the <b>dashed</b> outline is what it wants. Where the fill reaches the dashes, the deck satisfies its own plan.</p>
+        </div>
+        <div class="legend" id="legend"></div>
+      </div>
+    </div>
+
+    <h2 id="gridTitle">All decks</h2>
+    <div class="grid" id="grid"></div>
+
+    <p class="note" id="note"></p>
+  </div>
+
+<script>
+/*__DATA__*/
+</script>
+<script>
+(() => {
+  "use strict";
+  const { cats, decks, provides, needs } = window.RADAR;
+  const N = cats.length;
+  const values = provides.map((row,d)=> row.map((v,i)=> v + needs[d][i]));   // combined, for compare mode
+
+  // normalisation: 'deck' (each deck vs its own strongest theme) | 'field' (vs the deck that leads that theme)
+  let scaleMode = 'deck';
+  const maxCat = cats.map((_,i)=> Math.max(1e-9, ...values.map(r=>r[i])));
+  const maxDeck = values.map(r=> Math.max(1e-9, ...r));
+  const norm = (d,i)=> scaleMode==='deck' ? values[d][i]/maxDeck[d] : values[d][i]/maxCat[i];
+
+  // solo view: provides vs needs on a shared per-deck scale (so coverage reads directly)
+  let view = 'compare';                 // 'compare' | 'solo'
+  let soloDeck = 0;
+  const soloMax = d => Math.max(1e-9, ...provides[d], ...needs[d]);
+  // Categories a deck actually engages — drop spokes below 12% of its peak
+  // (keep ≥3 so the radar stays a polygon). Like re-fitting axes to the deck.
+  function soloCats(d){
+    const m = soloMax(d), score = i => Math.max(provides[d][i], needs[d][i]);
+    let idx = cats.map((_,i)=>i).filter(i => score(i) >= 0.12*m);
+    if (idx.length < 3) idx = cats.map((_,i)=>i).sort((a,b)=>score(b)-score(a)).slice(0,3).sort((a,b)=>a-b);
+    return idx;
+  }
+
+  const PAL_LIGHT = ['#2a78d6','#eb6834','#1baf7a','#e34948','#eda100','#6a4bd0',
+                     '#7a8b1f','#e87ba4','#008300','#0f9bd0','#a15a2b','#c04bbf'];
+  const PAL_DARK  = ['#3987e5','#d95926','#199e70','#e66767','#c98500','#9085e9',
+                     '#8a9a2e','#d55181','#3fa33f','#2a97bf','#a5673a','#b558c0'];
+  let PAL = PAL_LIGHT;
+  const col = i => PAL[i % PAL.length];
+
+  const MAXC = 4;
+  let compare = [];                       // deck ids overlaid in the big radar
+  const isOn = i => compare.includes(i);
+  function toggle(i){ const k=compare.indexOf(i); if(k>=0) compare.splice(k,1);
+    else { compare.push(i); if(compare.length>MAXC) compare.shift(); } }
+
+  const css = () => getComputedStyle(document.documentElement);
+  const hexA = (hex,a)=>{ const n=parseInt(hex.slice(1),16); return `rgba(${n>>16&255},${n>>8&255},${n&255},${a})`; };
+
+  // ── Draw one radar ────────────────────────────────────────────────────
+  // opts.cats = which category indices to show (default all). Lets the solo view
+  // drop spokes the deck doesn't use — like re-fitting axes to the selection.
+  function drawRadar(cv, R, series, opts={}) {
+    const c = css(), ring=c.getPropertyValue('--ring').trim(), muted=c.getPropertyValue('--muted').trim(),
+          hair=c.getPropertyValue('--hair').trim();
+    const CI = opts.cats || cats.map((_,i)=>i);   // display order → real category index
+    const n = CI.length;
+    const DPR=Math.min(2,window.devicePixelRatio||1);
+    const pad = opts.labels ? 74 : 12;
+    const size = (R+pad)*2;
+    cv.width=size*DPR; cv.height=size*DPR; cv.style.width=size+'px';
+    const ctx=cv.getContext('2d'); ctx.setTransform(DPR,0,0,DPR,0,0);
+    const cx=size/2, cy=size/2;
+    const ang=k=> -Math.PI/2 + k*2*Math.PI/n;
+    const pt=(k,r)=>[cx+Math.cos(ang(k))*r, cy+Math.sin(ang(k))*r];
+
+    // rings
+    ctx.strokeStyle=ring; ctx.lineWidth=1;
+    for (const f of [0.25,0.5,0.75,1]) {
+      ctx.beginPath(); for(let k=0;k<n;k++){ const [x,y]=pt(k,R*f); k?ctx.lineTo(x,y):ctx.moveTo(x,y);} ctx.closePath(); ctx.stroke();
+    }
+    // spokes
+    ctx.strokeStyle=hair;
+    for(let k=0;k<n;k++){ ctx.beginPath(); ctx.moveTo(cx,cy); const [x,y]=pt(k,R); ctx.lineTo(x,y); ctx.stroke(); }
+
+    // series polygons — each may supply its own value fn (vf), colour, fill, dash
+    for (const s of series) {
+      const color = s.color || col(s.deck);
+      const vf = s.vf || (i=>norm(s.deck,i));
+      ctx.beginPath();
+      for(let k=0;k<n;k++){ const [x,y]=pt(k, R*Math.max(0.001,vf(CI[k]))); k?ctx.lineTo(x,y):ctx.moveTo(x,y); }
+      ctx.closePath();
+      if (s.fill){ ctx.fillStyle=hexA(color, s.fillAlpha ?? (series.length>1?0.14:0.22)); ctx.fill(); }
+      ctx.setLineDash(s.dash?[4,3]:[]);
+      ctx.strokeStyle=color; ctx.lineWidth=s.lineWidth || (s.fill?2:1.8); ctx.lineJoin='round'; ctx.stroke();
+      ctx.setLineDash([]);
+      if (s.dots!==false && opts.dots!==false){ ctx.fillStyle=color;
+        for(let k=0;k<n;k++){ const [x,y]=pt(k,R*Math.max(0.001,vf(CI[k]))); ctx.beginPath(); ctx.arc(x,y,s.fill?2.6:2,0,7); ctx.fill(); } }
+    }
+
+    // labels
+    if (opts.labels) {
+      ctx.font='600 11.5px system-ui'; ctx.fillStyle=muted;
+      ctx.textBaseline='middle';
+      for(let k=0;k<n;k++){ const a=ang(k); const [x,y]=pt(k,R+13); const label=cats[CI[k]];
+        ctx.textAlign = Math.cos(a)>0.2?'left':(Math.cos(a)<-0.2?'right':'center');
+        const words=label.split(' '); let line1=label, line2='';
+        if (label.length>10 && words.length>1){ line1=words[0]; line2=words.slice(1).join(' '); }
+        const dy = Math.sin(a)>0.35?4:(Math.sin(a)<-0.35?-4:0);
+        if (line2){ ctx.fillText(line1, x, y-6+dy); ctx.fillText(line2, x, y+6+dy); }
+        else ctx.fillText(line1, x, y+dy);
+      }
+    }
+  }
+
+  // ── Big compare radar ─────────────────────────────────────────────────
+  const big=document.getElementById('big');
+  function renderBig(){
+    if (view==='solo'){
+      const m=soloMax(soloDeck), wants=css().getPropertyValue('--ink-2').trim();
+      drawRadar(big, 210, [
+        { deck:soloDeck, vf:i=>needs[soloDeck][i]/m, fill:false, dash:true, color:wants, lineWidth:1.6, dots:false },
+        { deck:soloDeck, vf:i=>provides[soloDeck][i]/m, fill:true, color:col(soloDeck), lineWidth:2, fillAlpha:0.2 },
+      ], {labels:true, cats:soloCats(soloDeck)});
+      return;
+    }
+    const series = compare.map(d=>({deck:d, fill:true}));
+    drawRadar(big, 210, series, {labels:true});
+    if (!compare.length){ // hint text in the middle when nothing selected
+      const ctx=big.getContext('2d'); const DPR=Math.min(2,window.devicePixelRatio||1);
+      ctx.setTransform(DPR,0,0,DPR,0,0); ctx.fillStyle=css().getPropertyValue('--muted').trim();
+      ctx.font='13px system-ui'; ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText('Select decks below to compare', big.width/(2*DPR), big.height/(2*DPR));
+    }
+  }
+
+  // ── Legend ────────────────────────────────────────────────────────────
+  function renderLegend(){
+    const el=document.getElementById('legend'); el.innerHTML='';
+    decks.forEach(d=>{
+      const on = view==='solo' ? soloDeck===d.id : isOn(d.id);
+      const row=document.createElement('div'); row.className='lg'+(on?' on':'');
+      row.innerHTML=`<span class="sw" style="background:${col(d.id)}"></span>`+
+        `<span class="nm">${esc(d.short)}</span>`+
+        `<span class="ar">${on?(view==='solo'?'solo':'shown'):d.archetype}</span>`;
+      row.onclick=()=>select(d.id);
+      el.appendChild(row);
+    });
+  }
+
+  // ── Small multiples ───────────────────────────────────────────────────
+  const grid=document.getElementById('grid');
+  const smalls=[];
+  function buildGrid(){
+    grid.innerHTML=''; smalls.length=0;
+    decks.forEach(d=>{
+      const cell=document.createElement('div'); cell.className='cell'; cell.dataset.d=d.id;
+      const cv=document.createElement('canvas');
+      cell.innerHTML=''; cell.appendChild(cv);
+      const cap=document.createElement('div'); cap.className='cap';
+      cap.innerHTML=`<div class="n" style="color:${col(d.id)}">${esc(d.short)}</div><div class="a">${esc(d.archetype)}</div>`;
+      cell.appendChild(cap);
+      cell.onclick=()=>select(d.id);
+      grid.appendChild(cell); smalls.push({d:d.id, cv, cell});
+    });
+    drawSmalls();
+  }
+  function drawSmalls(){
+    for(const s of smalls){ drawRadar(s.cv, 66, [{deck:s.d, fill:true}], {labels:false, dots:false});
+      s.cell.classList.toggle('sel', view==='solo'? soloDeck===s.d : isOn(s.d)); }
+  }
+
+  function select(i){ if (view==='solo') soloDeck=i; else toggle(i); renderBig(); renderLegend(); drawSmalls(); }
+
+  // ── Scale toggle ──────────────────────────────────────────────────────
+  function renderHint(){
+    document.getElementById('scaleHint').textContent = scaleMode==='deck'
+      ? "Per deck: each shape is scaled to that deck's own strongest theme — read its internal emphasis."
+      : "Across decks: each spoke is scaled to the deck that leads that theme — a full spoke means no deck does it more.";
+  }
+  document.querySelectorAll('#scaleSeg button').forEach(b=>{
+    b.onclick=()=>{ document.querySelectorAll('#scaleSeg button').forEach(x=>x.classList.remove('on'));
+      b.classList.add('on'); scaleMode=b.dataset.v; renderHint(); renderBig(); drawSmalls(); };
+  });
+  document.querySelectorAll('#viewSeg button').forEach(b=>{
+    b.onclick=()=>{ document.querySelectorAll('#viewSeg button').forEach(x=>x.classList.remove('on'));
+      b.classList.add('on'); view=b.dataset.v;
+      document.getElementById('compareCtl').style.display = view==='solo'?'none':'';
+      document.getElementById('soloCtl').style.display = view==='solo'?'':'none';
+      document.getElementById('bigTitle').textContent = view==='solo'? 'Solo — what it fills vs what it wants' : 'Compare';
+      renderBig(); renderLegend(); drawSmalls(); };
+  });
+
+  // ── Theme ─────────────────────────────────────────────────────────────
+  function applyTheme(m){ document.documentElement.setAttribute('data-theme',m);
+    PAL = m==='dark'?PAL_DARK:PAL_LIGHT; renderBig(); renderLegend(); buildGrid(); }
+  let theme = matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light';
+  document.getElementById('themeBtn').onclick=()=>{ theme=theme==='dark'?'light':'dark'; applyTheme(theme); };
+
+  function esc(s){ return String(s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }
+
+  document.getElementById('note').innerHTML =
+    `Categories aggregate the engine's ~110 fine-grained axes (e.g. <code>token.creature</code>, `+
+    `<code>sac.outlet_free</code>, <code>tribal.synergy</code>) into fourteen themes. Each deck's raw score in a `+
+    `category is the summed weight of its cards there, with the commander counted twice. The <b>per deck</b> / `+
+    `<b>across decks</b> toggle only changes how those raw scores are scaled for display.`;
+
+  // boot
+  compare = decks.slice(0, 2).map(d=>d.id);  // first two decks as an example overlay
+  document.getElementById('gridTitle').textContent = `All ${decks.length} decks`;
+  renderHint();
+  applyTheme(theme);
+  window.addEventListener('resize', ()=>{ renderBig(); drawSmalls(); });
+})();
+</script>
+</body>
+</html>

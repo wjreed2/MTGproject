@@ -1,0 +1,1543 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>engine2 · Deck Axis Ordination</title>
+<style>
+  :root {
+    --surface-1: #fcfcfb;
+    --page: #f9f9f7;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --muted: #898781;
+    --grid: #e1e0d9;
+    --axis: #c3c2b7;
+    --border: rgba(11,11,11,0.10);
+    --panel: #ffffff;
+    --accent: #2f7fd6;
+    --seg-track: #efeeea;
+    color-scheme: light dark;
+  }
+  :root[data-theme="dark"], html[data-theme="dark"] {
+    --surface-1: #1a1a19;
+    --page: #0d0d0d;
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --muted: #898781;
+    --grid: #2c2c2a;
+    --axis: #383835;
+    --border: rgba(255,255,255,0.12);
+    --panel: #202020;
+    --accent: #58a2f2;
+    --seg-track: #111111;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: var(--page);
+    color: var(--text-primary);
+    display: flex;
+    overflow: hidden;
+  }
+  /* ── Stage ─────────────────────────────────────────────────────────── */
+  #stage {
+    position: relative;
+    flex: 1 1 auto;
+    min-width: 0;
+    background:
+      radial-gradient(120% 120% at 50% 0%, color-mix(in srgb, var(--surface-1) 92%, #7a86ff 8%), var(--surface-1) 60%);
+  }
+  #plot { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
+  #plot.grabbing { cursor: grabbing; }
+  #overlayTitle {
+    position: absolute; top: 18px; left: 22px; pointer-events: none;
+  }
+  #overlayTitle h1 { font-size: 15px; margin: 0; letter-spacing: .2px; font-weight: 650; }
+  #overlayTitle p { margin: 3px 0 0; font-size: 12px; color: var(--text-secondary); max-width: 46ch; }
+  #hlCaption { display: none; margin-top: 9px; padding: 6px 10px; border-radius: 8px; max-width: 44ch;
+    font-size: 12px; line-height: 1.4; background: color-mix(in srgb, var(--panel) 90%, transparent);
+    border: 1px solid var(--border); pointer-events: none; }
+  #hlCaption.show { display: block; }
+  #hlCaption b { color: var(--text-primary); }
+  #hlCaption .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+  #varReadout {
+    position: absolute; bottom: 16px; left: 22px;
+    font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums;
+  }
+  #hint {
+    position: absolute; bottom: 16px; right: 20px; pointer-events: none;
+    font-size: 11px; color: var(--muted);
+  }
+  /* ── Tooltip ───────────────────────────────────────────────────────── */
+  #tip {
+    position: fixed; z-index: 40; pointer-events: auto; display: none;
+    max-width: 300px; padding: 9px 11px; border-radius: 9px;
+    background: color-mix(in srgb, var(--panel) 94%, transparent);
+    border: 1px solid var(--border);
+    box-shadow: 0 8px 26px rgba(0,0,0,0.28);
+    font-size: 12px; line-height: 1.45; backdrop-filter: blur(8px);
+  }
+  #tip.hasimg { width: 250px; }
+  #tip .cardimg { display: block; width: 100%; aspect-ratio: 488 / 680;
+    border-radius: 4.6% / 3.4%; margin-bottom: 7px; object-fit: cover;
+    background: color-mix(in srgb, var(--surface-1) 70%, var(--muted) 30%); }
+  #tip .name { font-weight: 650; margin-bottom: 2px; }
+  #tip .deck { font-size: 11px; font-weight: 600; margin-bottom: 5px; }
+  #tip .row { color: var(--text-secondary); font-size: 11px; }
+  #tip .row b { color: var(--text-primary); font-weight: 600; }
+  #tip .cmd { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+  /* ── Definition popovers ───────────────────────────────────────────── */
+  /* Anything with a dotted underline + help cursor has a definition. */
+  [data-def] {
+    text-decoration: underline dotted 1px;
+    text-decoration-color: color-mix(in srgb, var(--muted) 70%, transparent);
+    text-underline-offset: 2.5px;
+    cursor: help;
+  }
+  [data-def]:hover { text-decoration-color: var(--accent); }
+  #def {
+    position: fixed; z-index: 60; display: none; pointer-events: none;
+    max-width: 280px; padding: 9px 11px; border-radius: 9px;
+    background: color-mix(in srgb, var(--panel) 97%, transparent);
+    border: 1px solid var(--border);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.30);
+    font-size: 11.5px; line-height: 1.55; backdrop-filter: blur(8px);
+  }
+  #def .dt { font-weight: 650; font-size: 12px; color: var(--text-primary); margin-bottom: 3px; }
+  #def .db { color: var(--text-secondary); }
+  /* ── Sidebar ───────────────────────────────────────────────────────── */
+  #side {
+    flex: 0 0 320px; width: 320px; height: 100%; overflow-y: auto;
+    background: var(--surface-1); border-left: 1px solid var(--border);
+    padding: 16px 16px 40px;
+  }
+  #side h2 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .7px;
+    color: var(--muted); margin: 20px 0 9px; font-weight: 650;
+  }
+  #side h2:first-child { margin-top: 2px; }
+  .ctl-row { display: flex; align-items: center; gap: 8px; margin: 8px 0; font-size: 12.5px; }
+  .ctl-row > label:first-child { flex: 0 0 62px; color: var(--text-secondary); font-size: 11.5px; }
+  .ctl-row.pcrow > label:first-child { flex: 0 0 auto; }
+  .pcrow label { color: var(--text-secondary); font-size: 11.5px; }
+  .pcrow select { flex: 1 1 0; min-width: 0; }
+  select, button {
+    font: inherit; font-size: 12px; color: var(--text-primary);
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 8px; padding: 5px 9px; cursor: pointer;
+    transition: border-color .15s, background-color .15s, box-shadow .15s;
+  }
+  select {
+    appearance: none; -webkit-appearance: none; padding-right: 24px;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='%23898781' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+    background-repeat: no-repeat; background-position: right 8px center;
+  }
+  button:hover, select:hover { border-color: var(--muted); }
+  select:focus, button:focus-visible { outline: none; border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent); }
+  /* Segmented controls — recessed track, active option rides on a raised pill */
+  .seg {
+    display: flex; flex: 1 1 auto; min-width: 0;
+    background: var(--seg-track); border: 1px solid var(--border);
+    border-radius: 9px; padding: 2px; gap: 2px;
+  }
+  .seg button {
+    flex: 1 1 0; min-width: 0; border: 0; border-radius: 7px; background: transparent;
+    padding: 4.5px 5px; font-size: 11.5px; color: var(--text-secondary); font-weight: 550;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    transition: background-color .16s ease, color .16s ease, box-shadow .16s ease;
+  }
+  .seg button:hover:not(.on):not(:disabled) {
+    color: var(--text-primary);
+    background: color-mix(in srgb, var(--panel) 55%, transparent);
+  }
+  .seg button.on {
+    background: var(--panel); color: var(--accent); font-weight: 650;
+    box-shadow: 0 1px 2.5px rgba(0,0,0,.16), 0 0 0 1px var(--border);
+  }
+  .seg button:disabled { opacity: .35; cursor: default; }
+  #scaleSeg button { flex: 1 1 auto; }   /* "distinctive" is long — size to content */
+  .seg button:focus-visible { outline: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent); }
+  /* Checkboxes → small toggle switches */
+  .switch { display: inline-flex; gap: 7px; align-items: center; cursor: pointer; font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
+  .switch:hover { color: var(--text-primary); }
+  .switch input {
+    appearance: none; -webkit-appearance: none; margin: 0; cursor: pointer;
+    position: relative; width: 30px; height: 17px; border-radius: 10px;
+    background: var(--seg-track); border: 1px solid var(--border);
+    transition: background-color .18s ease, border-color .18s ease;
+  }
+  .switch input::after {
+    content: ''; position: absolute; top: 1.5px; left: 1.5px;
+    width: 12px; height: 12px; border-radius: 50%;
+    background: var(--panel); box-shadow: 0 1px 2px rgba(0,0,0,.28);
+    transition: transform .18s ease, background-color .18s ease;
+  }
+  .switch input:checked { background: var(--accent); border-color: var(--accent); }
+  .switch input:checked::after { transform: translateX(13px); background: #fff; }
+  .switch input:disabled { opacity: .4; cursor: default; }
+  .switch input:focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+  .switch.off { opacity: .4; }
+  .btn-row { display: flex; gap: 7px; flex-wrap: wrap; }
+  .btn-row button { flex: 1 1 auto; }
+  .btn-row button:hover { background: color-mix(in srgb, var(--panel) 88%, var(--muted) 12%); }
+  /* ── Category chips ────────────────────────────────────────────────── */
+  #catLegend { display: none; flex-wrap: wrap; gap: 4px; margin: 8px 0 2px; }
+  #catLegend.show { display: flex; }
+  .chip { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px 2px 5px;
+    border-radius: 20px; font-size: 10.5px; color: var(--text-secondary);
+    border: 1px solid var(--border); background: var(--panel); }
+  .chip i { width: 8px; height: 8px; border-radius: 50%; display: block; }
+  /* ── Card search ───────────────────────────────────────────────────── */
+  .search { position: relative; }
+  #cardSearch {
+    width: 100%; padding: 8px 28px 8px 11px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--panel);
+    color: var(--text-primary); font: inherit; font-size: 12.5px;
+  }
+  #cardSearch:focus { outline: none; border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+  #cardSearch::placeholder { color: var(--muted); }
+  #searchClear { position: absolute; right: 5px; top: 5px; width: 22px; height: 22px;
+    padding: 0; border: 0; background: transparent; color: var(--muted); font-size: 17px;
+    line-height: 1; display: none; }
+  #searchClear.show { display: block; }
+  #searchResults { display: flex; flex-direction: column; gap: 1px; margin-top: 5px;
+    max-height: 220px; overflow-y: auto; }
+  .sr { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px;
+    cursor: pointer; font-size: 12px; }
+  .sr:hover, .sr.active { background: color-mix(in srgb, var(--surface-1) 76%, var(--muted) 24%); }
+  .sr .nm { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sr .dks { margin-left: auto; display: flex; gap: 3px; flex: 0 0 auto; align-items: center; }
+  .sr .dks i { width: 8px; height: 8px; border-radius: 50%; display: block; box-shadow: 0 0 0 1px var(--border); }
+  .sr .dks em { font-style: normal; font-size: 10px; color: var(--muted); }
+  /* ── Legend ────────────────────────────────────────────────────────── */
+  #legend { display: flex; flex-direction: column; gap: 1px; }
+  .lg {
+    display: flex; align-items: center; gap: 9px; padding: 5px 7px; border-radius: 7px;
+    cursor: pointer; user-select: none; border: 1px solid transparent;
+  }
+  .lg:hover { background: color-mix(in srgb, var(--surface-1) 80%, var(--muted) 20%); }
+  .lg.dim { opacity: .38; }
+  .lg.solo { border-color: var(--border); background: color-mix(in srgb, var(--surface-1) 82%, var(--muted) 18%); }
+  .lg .sw { flex: 0 0 auto; width: 12px; height: 12px; border-radius: 3px; box-shadow: 0 0 0 1px var(--border); }
+  .lg .txt { min-width: 0; }
+  .lg .cmd { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lg .arch { font-size: 10.5px; color: var(--muted); }
+  .lg .n { margin-left: auto; font-size: 10.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .lg .pick { margin-left: auto; flex: 0 0 auto; width: 17px; height: 17px; border-radius: 50%;
+    display: grid; place-items: center; font-size: 10.5px; font-weight: 700; color: #fff;
+    background: var(--accent); }
+  .lg-hint { font-size: 10.5px; color: var(--muted); margin: 0 0 7px; }
+  /* ── Synergy-density bars ──────────────────────────────────────────── */
+  #density { display: flex; flex-direction: column; gap: 7px; }
+  .den { display: grid; grid-template-columns: 96px 1fr 34px; align-items: center; gap: 8px; font-size: 11.5px; }
+  .den .dn { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-secondary); }
+  .den .track { height: 8px; border-radius: 4px; overflow: hidden; display: flex; background: color-mix(in srgb, var(--surface-1) 62%, var(--muted) 38%); }
+  .den .fill { height: 100%; }
+  .den .fill.core { background: color-mix(in srgb, var(--surface-1) 45%, var(--muted) 55%); }
+  .den-legend { display: flex; gap: 14px; font-size: 10.5px; color: var(--muted); margin: 2px 0 8px; }
+  .den-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
+  .den .pct { text-align: right; color: var(--text-primary); font-variant-numeric: tabular-nums; font-weight: 600; }
+  .den.muted { opacity: .35; }
+  /* ── PC interpretation ─────────────────────────────────────────────── */
+  .pc-block { margin: 10px 0 4px; }
+  .pc-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 5px; }
+  .pc-head .lbl { font-size: 12px; font-weight: 650; }
+  .pc-head .ve { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .load { font-size: 11px; line-height: 1.5; color: var(--text-secondary); }
+  .load .pos b { color: #199e70; }
+  .load .neg b { color: #d55181; }
+  .load code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 10.5px;
+               background: color-mix(in srgb, var(--surface-1) 70%, var(--muted) 30%);
+               padding: 0 4px; border-radius: 4px; }
+  .load code.axtok { cursor: pointer; }
+  .load code.axtok:hover { background: color-mix(in srgb, var(--surface-1) 45%, var(--accent) 55%); color: #fff; }
+  .load code.axtok.pinned { background: var(--accent); color: #fff; }
+  .foot { font-size: 10.5px; color: var(--muted); margin-top: 22px; line-height: 1.5; }
+  .theme-toggle { position: absolute; top: 16px; right: 18px; }
+</style>
+</head>
+<body>
+  <div id="stage">
+    <button id="themeBtn" class="theme-toggle" title="Toggle light / dark">◑</button>
+    <div id="overlayTitle">
+      <h1>Deck Axis Ordination</h1>
+      <p>Every card placed in 3D by its semantic <b>provides / needs</b> axis profile. Cards near each other want the same things; deck clusters are the archetypes.</p>
+      <div id="hlCaption"></div>
+    </div>
+    <canvas id="plot"></canvas>
+    <div id="varReadout" data-def="variance"></div>
+    <div id="hint">drag to rotate · scroll to zoom · click up to 4 decks to compare</div>
+  </div>
+
+  <aside id="side">
+    <h2>Find a card</h2>
+    <div class="search">
+      <input id="cardSearch" type="text" placeholder="Search a card…" autocomplete="off" spellcheck="false">
+      <button id="searchClear" title="Clear search">×</button>
+      <div id="searchResults"></div>
+    </div>
+
+    <h2>View</h2>
+    <div class="ctl-row"><label><span data-def="space">Space</span></label>
+      <span class="seg" id="spaceSeg">
+        <button data-v="axes" class="on" data-def="fine-axes">fine axes</button>
+        <button data-v="themes" data-def="themes">themes</button>
+      </span></div>
+    <div class="ctl-row"><label><span data-def="basis">Basis</span></label>
+      <span class="seg" id="basisSeg">
+        <button data-v="global" class="on" data-def="global">global</button>
+        <button data-v="fit" data-def="fit-view">fit view</button>
+      </span></div>
+    <div class="ctl-row"><label><span data-def="colour">Colour</span></label>
+      <span class="seg" id="colorSeg">
+        <button data-v="deck" class="on">by deck</button>
+        <button data-v="theme" data-def="by-theme">by theme</button>
+      </span></div>
+    <div id="catLegend"></div>
+
+    <h2><span data-def="pca">Principal axes</span></h2>
+    <div class="ctl-row pcrow"><label>X</label><select id="pcX"></select>
+                         <label>Y</label><select id="pcY"></select>
+                         <label>Z</label><select id="pcZ"></select></div>
+    <div class="ctl-row" id="weightRow"><label><span data-def="weighting">Weighting</span></label>
+      <span class="seg" id="scaleSeg">
+        <button data-v="idf" class="on" data-def="distinctive">distinctive</button>
+        <button data-v="cov" data-def="raw">raw</button>
+        <button data-v="cor" data-def="z-scored">z-scored</button>
+      </span>
+    </div>
+    <div class="ctl-row"><label><span data-def="shape">Shape</span></label>
+      <span class="seg" id="shapeSeg">
+        <button data-v="points" class="on">points</button>
+        <button data-v="hull" data-def="hull">hull</button>
+        <button data-v="both">both</button>
+      </span>
+    </div>
+    <div class="ctl-row"><label><span data-def="highlight">Highlight</span></label>
+      <span class="seg" id="hlSeg">
+        <button data-v="off" class="on">off</button>
+        <button data-v="core" data-def="core">core</button>
+        <button data-v="tail" data-def="tail">tail</button>
+      </span>
+    </div>
+    <div class="ctl-row" style="gap:14px;flex-wrap:wrap">
+      <label class="switch"><input type="checkbox" id="spinChk"> auto-rotate</label>
+      <label class="switch"><input type="checkbox" id="centChk" checked> <span data-def="centroids">centroids</span></label>
+      <label class="switch"><input type="checkbox" id="gnomonChk" checked> <span data-def="gnomon">axes</span></label>
+      <label class="switch"><input type="checkbox" id="loadChk"> <span data-def="biplot">axis vectors</span></label>
+      <label class="switch"><input type="checkbox" id="lmChk" checked> <span data-def="landmarks">landmarks</span></label>
+      <label class="switch" id="cloudRow"><input type="checkbox" id="cloudChk"> <span data-def="cloud">collection cloud</span></label>
+    </div>
+    <div class="btn-row" style="margin-top:8px">
+      <button id="resetView">Reset view</button>
+      <button id="showAll">Show all decks</button>
+    </div>
+
+    <h2>Decks <span id="deckCount" style="text-transform:none;letter-spacing:0"></span></h2>
+    <div class="lg-hint">Click up to 4 decks to compare · numbers show pick order</div>
+    <label class="switch" id="fitSelRow" style="margin:2px 0 8px"><input type="checkbox" id="fitChk"> <span data-def="refit">re-fit axes to selection</span></label>
+    <div id="legend"></div>
+
+    <h2><span data-def="coretail">Core vs tail</span> <span style="text-transform:none;letter-spacing:0;color:var(--muted)">· deck make-up</span></h2>
+    <div class="lg-hint">How much of each deck is generic staples every deck runs (core) vs deck-defining signature cards (tail). Sorted by signature share.</div>
+    <div class="den-legend"><span data-def="core"><i style="background:color-mix(in srgb,var(--surface-1) 45%,var(--muted) 55%)"></i>core (staples)</span><span data-def="tail"><i style="background:var(--muted)"></i>tail (signature)</span></div>
+    <div id="density"></div>
+
+    <h2><span data-def="loadings">What the axes mean</span></h2>
+    <div class="lg-hint">Click an axis to pin it as a vector in the plot and see its fit below.</div>
+    <div id="pcInterp"></div>
+
+    <div id="axisfitWrap" style="display:none">
+      <h2><span data-def="axisfit">Axis fit</span> <span id="axisfitName" style="text-transform:none;letter-spacing:0;font-weight:400"></span></h2>
+      <div class="lg-hint">How tightly each deck's cards sit on the pinned axis — mean cos² over the cards that use it (100% = the axis is all a card does). Small number after each deck = how many of its cards use the axis.</div>
+      <div id="axisfit"></div>
+    </div>
+
+    <div class="foot" id="foot"></div>
+  </aside>
+
+  <div id="tip"></div>
+
+<script>
+/*__DATA__*/
+</script>
+<script>
+function __ordinationMain() {
+(() => {
+  "use strict";
+  const DATA = window.ORDINATION;
+  // Empty state: a fresh account with no extracted deck cards has nothing to
+  // ordinate — show a friendly message instead of a broken fit.
+  if (!DATA || !DATA.cards || DATA.cards.length < 4) {
+    document.getElementById('side').style.display = 'none';
+    document.getElementById('overlayTitle').innerHTML =
+      '<h1>Deck Map</h1><p>Not enough analysed cards yet. Build a deck or two and the map will light up — ' +
+      'cards get their semantic profile from the deck analysis engine.</p>';
+    return;
+  }
+  const { decks, cards } = DATA;
+  const FEATS = DATA.features;
+  const BGC = DATA.bg || [];                 // collection cloud cards {n, v}
+  const CATS = DATA.cats || [];
+  const NC = CATS.length;
+  const LMS = DATA.landmarks || [];          // theme landmark vectors {cat, n, v}
+  const K = 6;
+
+  // ── Palettes ──────────────────────────────────────────────────────────
+  // Deck palette cycles when there are more decks than colours; identity is
+  // reinforced by always-labelled centroids + click-to-isolate.
+  const PAL_LIGHT = ['#2a78d6','#eb6834','#1baf7a','#e34948','#eda100','#6a4bd0',
+                     '#7a8b1f','#e87ba4','#008300','#0f9bd0','#a15a2b','#c04bbf'];
+  const PAL_DARK  = ['#3987e5','#d95926','#199e70','#e66767','#c98500','#9085e9',
+                     '#8a9a2e','#d55181','#3fa33f','#2a97bf','#a5673a','#b558c0'];
+  let PAL = PAL_LIGHT;
+  decks.forEach((d,i)=> d.color = i % PAL_LIGHT.length);
+  // One colour per theme category (order matches CATS).
+  const CATPAL = ['#3fa33f','#8a9a2e','#eb6834','#1baf7a','#b03a2e','#8b5cf6',
+                  '#2a78d6','#0f9bd0','#e34948','#5b6d8f','#e87ba4','#a15a2b',
+                  '#c98500','#c04bbf'];
+  const catColor = c => c>=0 ? CATPAL[c % CATPAL.length] : '#8a8a8a';
+
+  // ── Spaces ────────────────────────────────────────────────────────────
+  // 'axes'   — every fine-grained provides/needs feature (what the engine sees)
+  // 'themes' — collapsed to provides/needs × the 14 theme categories
+  //            (index = cat for provides, NC+cat for needs)
+  function collapseVec(v) {
+    const acc = new Map();
+    for (const [j,val] of v) {
+      const f = FEATS[j]; if (f.cat == null || f.cat < 0) continue;
+      const idx = (f.kind==='P'?0:NC) + f.cat;
+      acc.set(idx, (acc.get(idx)||0) + val);
+    }
+    return [...acc.entries()].map(([j,val])=>[j, Math.round(val*100)/100]);
+  }
+  const themeFeats = [];
+  for (const kind of ['P','N']) CATS.forEach((c,ci)=> themeFeats.push({kind, axis:c, cat:ci}));
+
+  function makeSpace(feats, cardV, bgV, lmV) {
+    const M = feats.length;
+    // which deck each feature is most characteristic of (for biplot arrows)
+    const featDeck = new Int32Array(M).fill(-1);
+    const featOwn = new Float64Array(M);
+    const wByDeck = Array.from({length:M},()=>new Float64Array(decks.length));
+    cards.forEach((c,i)=>{ for (const [j,v] of cardV[i]) wByDeck[j][c.d]+=v; });
+    for (let j=0;j<M;j++){ let tot=0,best=-1,bestv=-1;
+      for (let d=0;d<decks.length;d++){ const w=wByDeck[j][d]; tot+=w; if(w>bestv){bestv=w;best=d;} }
+      featDeck[j]=best; featOwn[j]= tot>0? bestv/tot : 0; }
+    // per-card squared norm, for cos² fit to a pinned axis
+    const card2 = cardV.map(v=>{ let s=0; for (const [,x] of v) s+=x*x; return s; });
+    return { feats, M, cardV, bgV, lmV, featDeck, featOwn, card2 };
+  }
+  const SPACES = {
+    axes:   makeSpace(FEATS, cards.map(c=>c.v), BGC.map(b=>b.v), LMS.map(l=>l.v)),
+    themes: makeSpace(themeFeats, cards.map(c=>collapseVec(c.v)), BGC.map(b=>collapseVec(b.v)), LMS.map(l=>collapseVec(l.v))),
+  };
+  const SP = () => SPACES[space];
+
+  // Dominant theme per point (for "colour by theme" + tooltips).
+  function domOf(tv){ const tot=new Float64Array(NC);
+    for (const [j,v] of tv) tot[j%NC]+=v;
+    let mi=-1,mv=0; for (let c=0;c<NC;c++) if (tot[c]>mv){mv=tot[c];mi=c;} return mi; }
+  const domCatC = SPACES.themes.cardV.map(domOf);
+  const domCatB = SPACES.themes.bgV.map(domOf);
+
+  // ── Core vs tail ──────────────────────────────────────────────────────
+  // A card's axes are either things nearly EVERY deck runs (ramp, removal, card
+  // draw, fixing) or things specific to a few decks. "Commonness" = the card's
+  // axes' average prevalence across the shown decks. Always computed in the
+  // fine axis space — a card's role doesn't change with the view.
+  const Maxes = SPACES.axes.M;
+  const prev = new Float64Array(Maxes);
+  {
+    const seen = decks.map(()=>new Set());
+    for (const c of cards) for (const [j] of c.v) seen[c.d].add(j);
+    const df = new Float64Array(Maxes);
+    for (const s of seen) for (const j of s) df[j]++;
+    for (let j=0;j<Maxes;j++) prev[j] = df[j]/decks.length;
+  }
+  const commonness = new Float64Array(cards.length);
+  cards.forEach((c,i)=>{ let s=0,w=0; for (const [j,v] of c.v){ s+=v*prev[j]; w+=v; }
+    commonness[i] = w>0 ? s/w : 0; });
+  const CORE_T = 0.60;
+  const isCore = i => commonness[i] >= CORE_T;
+  const density = decks.map((d,di)=>{ let core=0,tail=0;
+    cards.forEach((c,i)=>{ if(c.d===di){ isCore(i)?core++:tail++; } });
+    return { di, core, tail }; });
+
+  // cos²(card i, feature j of the ACTIVE space)
+  function cardFit(i, j){ const s=SP();
+    let w=0; for (const [k2,v] of s.cardV[i]){ if(k2===j){ w=v; break; } }
+    return s.card2[i]>0 ? (w*w)/s.card2[i] : 0; }
+  function axisFit(j){
+    const per = decks.map((d,di)=>({ di, sum:0, cover:0, n:0 }));
+    for (let i=0;i<cards.length;i++){ const p=per[cards[i].d]; p.n++;
+      const f=cardFit(i,j); if (f>0){ p.sum+=f; p.cover++; } }
+    return per.map(p=>({ di:p.di, n:p.n, cover:p.cover, fit: p.cover? p.sum/p.cover : 0 }));
+  }
+
+  // ── Basis: global (baked loadings over every extracted card) or fitted ──
+  // live to the current view (all decks, or the compared selection).
+  let space='axes', basisMode='global', scaleMode='idf', fitSelection=false;
+  let colorMode='deck';
+  let B = null;                     // active basis {M, mean, scale, loadings, eig, totalSS, global, nDecks}
+  let lastSample = [];              // card indices the fitted basis (and range) uses
+  let scoresC=[], scoresB=[], scoresL=[], range=[];
+
+  function currentSample() {
+    if (basisMode==='fit' && fitSelection && compare.length) {
+      const set=new Set(compare), idx=[];
+      for (let i=0;i<cards.length;i++) if (set.has(cards[i].d)) idx.push(i);
+      if (idx.length>=4) return idx;
+    }
+    return cards.map((_,i)=>i);
+  }
+
+  // Fit PCA over the sample in the active space (dense over the compact set of
+  // features the sample actually uses, then expanded back to the full space).
+  // mode: 'idf' (distinctive) | 'cov' (raw) | 'cor' (z-scored)
+  function fitPCA(mode, sampleIdx) {
+    const s = SP();
+    const used = new Map();
+    for (const gi of sampleIdx) for (const [j] of s.cardV[gi]) if (!used.has(j)) used.set(j, used.size);
+    const m = Math.max(1, used.size);
+    const back = new Array(m); for (const [j,cj] of used) back[cj]=j;
+    const n = sampleIdx.length;
+    const X = sampleIdx.map(gi => { const a=new Float64Array(m); for (const [j,v] of s.cardV[gi]) a[used.get(j)]=v; return a; });
+    // per-sample IDF: how many of the SAMPLED decks use each feature
+    const perDeck = new Map();
+    for (const gi of sampleIdx){ const c=cards[gi]; let ds=perDeck.get(c.d); if(!ds){ds=new Set();perDeck.set(c.d,ds);}
+      for (const [j] of s.cardV[gi]) ds.add(used.get(j)); }
+    const nDecks = Math.max(1, perDeck.size);
+    const df = new Float64Array(m);
+    for (const ds of perDeck.values()) for (const j of ds) df[j]++;
+    const mean = new Float64Array(m);
+    for (const a of X) for (let j=0;j<m;j++) mean[j]+=a[j];
+    for (let j=0;j<m;j++) mean[j]/=n;
+    const scale = new Float64Array(m).fill(1);
+    if (mode==='cor') {
+      const varr = new Float64Array(m);
+      for (const a of X) for (let j=0;j<m;j++){ const d=a[j]-mean[j]; varr[j]+=d*d; }
+      for (let j=0;j<m;j++){ const sd=Math.sqrt(varr[j]/Math.max(1,n-1)); scale[j]= sd>1e-9? 1/sd : 0; }
+    } else if (mode==='idf') {
+      for (let j=0;j<m;j++) scale[j]=Math.log(1 + nDecks/Math.max(1,df[j]));
+    }
+    const R = X.map(a => { const b=new Float64Array(m); for (let j=0;j<m;j++) b[j]=(a[j]-mean[j])*scale[j]; return b; });
+    let totalSS = 0; for (const b of R) for (let j=0;j<m;j++) totalSS += b[j]*b[j];
+    const norm = v => { let sm=0; for (let j=0;j<v.length;j++) sm+=v[j]*v[j]; sm=Math.sqrt(sm)||1; for (let j=0;j<v.length;j++) v[j]/=sm; };
+    const loadings=[], eig=[];
+    const KK = Math.min(K, Math.max(1, n-1));
+    for (let k=0;k<KK;k++) {
+      let u=new Float64Array(m); for (let j=0;j<m;j++) u[j]=Math.sin(j*(k+1)*0.7)+0.11; norm(u);
+      for (let it=0; it<90; it++) {
+        const t=new Float64Array(n);
+        for (let i=0;i<n;i++){ const ri=R[i]; let sm=0; for (let j=0;j<m;j++) sm+=ri[j]*u[j]; t[i]=sm; }
+        const w=new Float64Array(m);
+        for (let i=0;i<n;i++){ const ri=R[i], ti=t[i]; for (let j=0;j<m;j++) w[j]+=ri[j]*ti; }
+        norm(w);
+        let dot=0; for (let j=0;j<m;j++) dot+=w[j]*u[j];
+        u=w; if (Math.abs(Math.abs(dot)-1) < 1e-8) break;
+      }
+      const t=new Float64Array(n); let ev=0;
+      for (let i=0;i<n;i++){ const ri=R[i]; let sm=0; for (let j=0;j<m;j++) sm+=ri[j]*u[j]; t[i]=sm; ev+=sm*sm; }
+      let mi=0; for (let j=1;j<m;j++) if (Math.abs(u[j])>Math.abs(u[mi])) mi=j;  // sign convention
+      if (u[mi] < 0) for (let j=0;j<m;j++) u[j]=-u[j];
+      loadings.push(u); eig.push(ev);
+      for (let i=0;i<n;i++){ const ri=R[i]; let ti=0; for (let j=0;j<m;j++) ti+=ri[j]*u[j];
+        for (let j=0;j<m;j++) ri[j]-=ti*u[j]; }
+    }
+    while (loadings.length<K){ loadings.push(new Float64Array(m)); eig.push(0); }
+    const expand = a => { const out=new Float64Array(s.M); for (let c=0;c<m;c++) out[back[c]]=a[c]; return out; };
+    return { M:s.M, mean:expand(mean), scale:expand(scale), loadings:loadings.map(expand),
+             eig, totalSS, nDecks, global:false };
+  }
+
+  function globalBasis() {
+    const g = space==='axes' ? DATA.basis.axes : DATA.basis.themes;
+    return { M:SP().M, mean:g.mean, scale:g.scale, loadings:g.loadings,
+             eig:g.eig, totalSS:g.totalSS, global:true, nGlobal:g.n };
+  }
+
+  // Project every card, collection-cloud point and landmark through the active
+  // basis, then normalise display range from the (sampled) deck cards.
+  function projectAll() {
+    const s = SP();
+    const offs = new Float64Array(K);
+    for (let k=0;k<K;k++){ const u=B.loadings[k]; let o=0;
+      for (let j=0;j<s.M;j++) o += B.mean[j]*B.scale[j]*u[j]; offs[k]=o; }
+    const proj1 = v => { const out=new Float64Array(K);
+      for (const [j,val] of v){ const x=val*B.scale[j];
+        for (let k=0;k<K;k++) out[k]+=x*B.loadings[k][j]; }
+      for (let k=0;k<K;k++) out[k]-=offs[k];
+      return out; };
+    scoresC = s.cardV.map(proj1);
+    scoresB = s.bgV.map(proj1);
+    scoresL = s.lmV.map(proj1);
+    // Robust display range: 2nd–98th percentile of the sampled deck cards, so a
+    // few extreme outliers can't crush the whole cloud into a blob (they just
+    // land outside the unit box, which is honest — they ARE outliers).
+    range = [];
+    for (let k=0;k<K;k++) {
+      const vals = lastSample.map(i=>scoresC[i][k]).sort((a,b)=>a-b);
+      const lo = vals[Math.floor(0.02*(vals.length-1))];
+      const hi = vals[Math.ceil(0.98*(vals.length-1))];
+      const half=Math.max(1e-6,(hi-lo)/2), mid=(hi+lo)/2;
+      range.push({ mid, half });
+    }
+  }
+  const scoreN = (i,k) => (scoresC[i][k]-range[k].mid)/range[k].half;
+  const bgN    = (i,k) => (scoresB[i][k]-range[k].mid)/range[k].half;
+  const lmN    = (i,k) => (scoresL[i][k]-range[k].mid)/range[k].half;
+
+  function rebuild() {
+    lastSample = currentSample();
+    B = basisMode==='global' ? globalBasis() : fitPCA(scaleMode, lastSample);
+    projectAll();
+    computeCentroids();
+    renderInterp();
+    renderVar();
+    syncCtl();
+  }
+
+  // ── Centroids per deck (in current PC space) ───────────────────────────
+  // Label position is a *distinctiveness-weighted* centroid: cards far from the
+  // origin (a deck's archetype-defining cards) count more than shared staples.
+  let centroids = [];
+  function computeCentroids() {
+    const acc = decks.map(()=>({x:0,y:0,z:0,w:0,n:0}));
+    for (let i=0;i<cards.length;i++){
+      const c=cards[i], a=acc[c.d];
+      const x=scoreN(i,axX), y=scoreN(i,axY), z=scoreN(i,axZ);
+      const w = 0.12 + (x*x+y*y+z*z);        // emphasise far (distinctive) cards
+      a.x+=x*w; a.y+=y*w; a.z+=z*w; a.w+=w; a.n++;
+    }
+    centroids = acc.map((a,di)=> a.n? {x:a.x/a.w,y:a.y/a.w,z:a.z/a.w,di} : null);
+    computeHulls();   // hull depends on the same projected axes — rebuild in lockstep
+  }
+
+  // ── View state ─────────────────────────────────────────────────────────
+  let axX=0, axY=1, axZ=2;
+  let yaw=0.6, pitch=-0.35, zoom=1, spin=false, showCent=true, showGnomon=true;
+  let shapeMode = 'points';        // 'points' | 'hull' | 'both'
+  let highlight = 'off';           // 'off' | 'core' (staples) | 'tail' (signature)
+  let showAxisVec = false;         // biplot: overlay the semantic axes composing the PCs
+  let showLandmarks = true;        // theme landmark labels in the plot
+  let showCloud = false;           // collection background cloud
+  const pinnedAxes = new Set();    // feature indices (of the active space) pinned
+  const MAXC = 4;
+  let compare = [];                // ordered deck ids being compared (0..4); [] = show all
+  const isActive = di => compare.length===0 || compare.includes(di);
+  function toggleCompare(di) {
+    const k = compare.indexOf(di);
+    if (k>=0) compare.splice(k,1);
+    else { compare.push(di); if (compare.length>MAXC) compare.shift(); } // FIFO cap at 4
+  }
+  let searchHits = new Set();      // card indices highlighted by the card search
+  let searchHitsBg = new Set();    // collection-cloud indices highlighted
+  let tick = 0;                    // frame counter driving beacon pulse
+  let beaconStart = 0;             // performance.now() when the current highlight began
+  const STROBE_MS = 1500;          // rings pulse only this long, then settle to a static marker
+  const now = () => performance.now();
+  const tween = { active:false, t:0, dur:42, y0:0,p0:0,z0:1, y1:0,p1:0,z1:1 };
+  // Turn the map so a point sits dead-centre facing the camera (Kamino fly-to).
+  function flyTo(x,y,z) {
+    const ty = Math.atan2(x, z);
+    const tp = Math.max(-1.4, Math.min(1.4, Math.atan2(y, Math.hypot(x,z))));
+    let dy = ((ty - yaw + Math.PI) % (2*Math.PI)); if (dy<0) dy+=2*Math.PI; dy-=Math.PI; // shortest turn
+    tween.y0=yaw; tween.y1=yaw+dy; tween.p0=pitch; tween.p1=tp; tween.z0=zoom; tween.z1=1.7;
+    tween.t=0; tween.active=true;
+  }
+
+  const cv = document.getElementById('plot');
+  const ctx = cv.getContext('2d');
+  let W=0, H=0, DPR=Math.min(2, window.devicePixelRatio||1);
+  function resize() {
+    const r = cv.getBoundingClientRect();
+    W=r.width; H=r.height;
+    cv.width=W*DPR; cv.height=H*DPR;
+    ctx.setTransform(DPR,0,0,DPR,0,0);
+  }
+
+  function rot(x,y,z) {
+    const cy=Math.cos(yaw), sy=Math.sin(yaw), cx=Math.cos(pitch), sx=Math.sin(pitch);
+    let X1 = x*cy - z*sy;
+    let Z1 = x*sy + z*cy;
+    let Y1 = y*cx - Z1*sx;
+    let Z2 = y*sx + Z1*cx;
+    return [X1, Y1, Z2];
+  }
+  const CAM = 3.4;
+  function project(x,y,z) {
+    const [rx,ry,rz] = rot(x,y,z);
+    const base = Math.min(W,H) * 0.30 * zoom;
+    const f = CAM / (CAM - rz*0.55);
+    return { sx: W/2 + rx*base*f, sy: H/2 - ry*base*f, depth: rz, f };
+  }
+
+  // colour of a deck-card point under the active colour mode
+  const pointColor = i => colorMode==='deck' ? PAL[decks[cards[i].d].color] : catColor(domCatC[i]);
+
+  // projected caches for hit-testing
+  let proj = [];
+  let bgProj = [];
+  function draw() {
+    ctx.clearRect(0,0,W,H);
+    const css = getComputedStyle(document.documentElement);
+    const axisCol = css.getPropertyValue('--axis').trim();
+    const muted = css.getPropertyValue('--muted').trim();
+    const ink = css.getPropertyValue('--text-primary').trim();
+
+    // gnomon (PC axes through origin)
+    if (showGnomon) {
+      const axes = [[[-1.15,0,0],[1.15,0,0],'PC'+(axX+1)],
+                    [[0,-1.15,0],[0,1.15,0],'PC'+(axY+1)],
+                    [[0,0,-1.15],[0,0,1.15],'PC'+(axZ+1)]];
+      ctx.lineWidth=1; ctx.strokeStyle=axisCol; ctx.font='11px system-ui'; ctx.fillStyle=muted;
+      for (const [a,b,lbl] of axes) {
+        const pa=project(...a), pb=project(...b);
+        ctx.beginPath(); ctx.moveTo(pa.sx,pa.sy); ctx.lineTo(pb.sx,pb.sy); ctx.stroke();
+        ctx.fillText(lbl, pb.sx+4, pb.sy+3);
+      }
+    }
+
+    // ── collection cloud (background context, drawn beneath everything) ──
+    bgProj = [];
+    if (showCloud) {
+      for (let i=0;i<BGC.length;i++){
+        const p = project(bgN(i,axX), bgN(i,axY), bgN(i,axZ));
+        bgProj.push({ i, sx:p.sx, sy:p.sy, depth:p.depth });
+        const t = (p.depth+1)/2;
+        ctx.globalAlpha = 0.10 + 0.14*t;
+        ctx.fillStyle = colorMode==='theme' ? catColor(domCatB[i]) : muted;
+        ctx.beginPath(); ctx.arc(p.sx, p.sy, 1.4 + 0.9*t, 0, 7); ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    // build point list w/ depth
+    proj = [];
+    for (let i=0;i<cards.length;i++){
+      const c=cards[i];
+      const p = project(scoreN(i,axX), scoreN(i,axY), scoreN(i,axZ));
+      proj.push({ i, d:c.d, cmd:c.c, sx:p.sx, sy:p.sy, depth:p.depth, f:p.f, active:isActive(c.d) });
+    }
+    proj.sort((a,b)=> a.depth-b.depth);
+
+    // ── deck footprint solids (3D convex hull of each deck's points) ──────
+    // The hull is a fixed polyhedron in axis-space (computed in computeHulls,
+    // NOT per-frame) so it rotates rigidly with the cloud and wraps every card.
+    // Faces are painted back-to-front (translucent) and the silhouette is
+    // outlined, so overlapping decks' shared volume reads directly.
+    if (shapeMode==='hull' || shapeMode==='both') {
+      const activeDecks = compare.length ? compare : decks.map(d=>d.id);
+      ctx.lineJoin='round';
+      for (const di of activeDecks) {
+        const h = hulls[di]; if (!h || !h.faces.length) continue;
+        const col = PAL[decks[di].color];
+        const P = h.pts.map(p => project(p[0],p[1],p[2]));
+        // front/back classification via rotated face normal (camera looks +depth)
+        const front = h.faces.map(f => {
+          const rn = rot(f.n[0], f.n[1], f.n[2]); return rn[2] > 0;
+        });
+        // translucent fills, far faces first
+        h.faces.map((f,fi)=>({fi, d:(P[f.v[0]].depth+P[f.v[1]].depth+P[f.v[2]].depth)/3}))
+          .sort((a,b)=> a.d-b.d)
+          .forEach(({fi})=>{
+            const f=h.faces[fi], a=P[f.v[0]], b=P[f.v[1]], c=P[f.v[2]];
+            ctx.beginPath(); ctx.moveTo(a.sx,a.sy); ctx.lineTo(b.sx,b.sy); ctx.lineTo(c.sx,c.sy); ctx.closePath();
+            ctx.globalAlpha = front[fi] ? 0.11 : 0.05; ctx.fillStyle=col; ctx.fill();
+          });
+        // silhouette: edges bordering one front + one back face (or a lone face)
+        ctx.globalAlpha=0.9; ctx.lineWidth=1.6; ctx.strokeStyle=col;
+        for (const [key, fis] of h.edges) {
+          const sil = fis.length===1 || (fis.length===2 && front[fis[0]]!==front[fis[1]]);
+          if (!sil) continue;
+          const [u,v] = key.split('_'); const A=P[+u], B2=P[+v];
+          ctx.beginPath(); ctx.moveTo(A.sx,A.sy); ctx.lineTo(B2.sx,B2.sy); ctx.stroke();
+        }
+      }
+      ctx.globalAlpha=1;
+    }
+
+    // ── points ──
+    const sActive = searchHits.size>0 || searchHitsBg.size>0;
+    if (shapeMode==='points' || shapeMode==='both') {
+      const surf = getComputedStyle(document.documentElement).getPropertyValue('--surface-1').trim();
+      for (const q of proj) {
+        const col = pointColor(q.i);
+        const hit = sActive && searchHits.has(q.i);
+        const dim = sActive ? !hit : !q.active;
+        const t = (q.depth+1)/2;                  // 0 far .. 1 near
+        let r = (q.cmd? 6.2 : 3.4) * (0.72 + 0.55*t) * (q.f*0.8+0.2);
+        if (shapeMode==='both') r *= 0.8;         // shrink dots so the polygon reads first
+        let alpha = (0.34 + 0.5*t) * (dim? 0.10 : (shapeMode==='both'?0.85:1));
+        // core/tail highlight: emphasise the chosen category, fade the other
+        const core = isCore(q.i);
+        const emph = highlight==='off' ? 1 : ((highlight==='core') === core ? 1 : 0);  // 1 = highlighted
+        if (highlight!=='off' && !dim) { r *= emph? 1.15 : 0.62; alpha *= emph? 1 : 0.16; }
+        ctx.globalAlpha = Math.min(1,alpha);
+        if (highlight!=='off' && !dim && !emph && !q.cmd) {   // faded category → hollow ring
+          ctx.lineWidth=1.1; ctx.strokeStyle=col; ctx.beginPath(); ctx.arc(q.sx,q.sy,r,0,7); ctx.stroke();
+          continue;
+        }
+        ctx.beginPath(); ctx.arc(q.sx,q.sy,r,0,7); ctx.fillStyle=col; ctx.fill();
+        if (highlight!=='off' && !dim && emph && !q.cmd) {    // highlighted category → soft glow
+          ctx.shadowColor=col; ctx.shadowBlur=8; ctx.beginPath(); ctx.arc(q.sx,q.sy,r*0.9,0,7); ctx.fill(); ctx.shadowBlur=0;
+        }
+        if (q.cmd && !dim) { ctx.globalAlpha=Math.min(1,alpha+0.2); ctx.lineWidth=1.6;
+          ctx.strokeStyle = surf; ctx.stroke();
+          ctx.lineWidth=1.4; ctx.strokeStyle=col; ctx.beginPath(); ctx.arc(q.sx,q.sy,r+2.4,0,7); ctx.stroke(); }
+      }
+    } else {
+      // hull-only mode still marks the commander so the deck's anchor is visible
+      for (const q of proj) { if (!q.cmd || !q.active) continue;
+        const col=PAL[decks[q.d].color]; ctx.globalAlpha=1;
+        ctx.beginPath(); ctx.arc(q.sx,q.sy,4.5,0,7); ctx.fillStyle=col; ctx.fill();
+        ctx.lineWidth=1.4; ctx.strokeStyle='#fff'; ctx.globalAlpha=0.85; ctx.stroke(); }
+    }
+    ctx.globalAlpha=1;
+
+    // centroids + labels on top
+    if (showCent) {
+      const items = centroids.filter(Boolean)
+        .filter(c => isActive(c.di))
+        .map(c => ({ c, p: project(c.x,c.y,c.z) }))
+        .sort((a,b)=> a.p.depth-b.p.depth);
+      const cDim = sActive ? 0.3 : 1;    // recede centroids while a card search is focused
+      // draw the marker dots
+      for (const {c,p} of items) {
+        const col = PAL[decks[c.di].color];
+        ctx.globalAlpha=0.95*cDim;
+        ctx.beginPath(); ctx.arc(p.sx,p.sy,7,0,7); ctx.fillStyle=col; ctx.fill();
+        ctx.lineWidth=2; ctx.strokeStyle='#fff'; ctx.globalAlpha=0.9*cDim; ctx.stroke();
+      }
+      // resolve label positions with a greedy vertical declutter so piled-up
+      // centroids don't overprint each other
+      ctx.font='600 12px system-ui';
+      const surf = getComputedStyle(document.documentElement).getPropertyValue('--surface-1').trim();
+      const placed = [];
+      const labels = items.map(({c,p}) => {
+        const lbl = decks[c.di].commander.split(',')[0];
+        const w = ctx.measureText(lbl).width + 10;
+        const dir = p.sy > H*0.72 ? -16 : 16;   // stack upward near the bottom edge
+        let lx = p.sx+11, ly = p.sy;
+        let guard=0;
+        while (guard++ < 60 && placed.some(q => lx < q.x+q.w && lx+w > q.x && Math.abs(ly-q.y) < 16)) ly += dir;
+        placed.push({x:lx,y:ly,w});
+        return { p, lbl, lx, ly, w, col: PAL[decks[c.di].color] };
+      });
+      for (const L of labels) {
+        // connector when the label was pushed away from its dot
+        if (Math.abs(L.ly - L.p.sy) > 4) {
+          ctx.globalAlpha=0.5*cDim; ctx.lineWidth=1; ctx.strokeStyle=L.col;
+          ctx.beginPath(); ctx.moveTo(L.p.sx+7, L.p.sy); ctx.lineTo(L.lx, L.ly); ctx.stroke();
+        }
+        ctx.globalAlpha=0.78*cDim; ctx.fillStyle=surf;
+        roundRect(L.lx-1, L.ly-9, L.w, 17, 5); ctx.fill();
+        ctx.globalAlpha=cDim; ctx.fillStyle=ink; ctx.fillText(L.lbl, L.lx+4, L.ly+3.5);
+      }
+    }
+    ctx.globalAlpha=1;
+
+    drawLandmarks();     // named theme anchors — "the graveyard corner", literally
+    drawAxisVectors();   // biplot arrows for the semantic axes composing the PCs
+    drawBeacons();       // holographic "you are here" markers for searched cards
+  }
+
+  // Theme landmarks: each theme's centroid projected through the active basis,
+  // drawn as a labelled diamond. This is what names the corners of the cloud —
+  // whatever the current axes turned out to mean.
+  function drawLandmarks() {
+    if (!showLandmarks || !scoresL.length) return;
+    const surf = getComputedStyle(document.documentElement).getPropertyValue('--surface-1').trim();
+    const items = LMS.map((l,li)=>({ l, p: project(lmN(li,axX), lmN(li,axY), lmN(li,axZ)) }))
+      .sort((a,b)=> a.p.depth-b.p.depth);
+    ctx.font='650 11px system-ui';
+    for (const {l,p} of items) {
+      const col = catColor(l.cat);
+      const t = (p.depth+1)/2, r = 4 + 2*t;
+      ctx.globalAlpha = 0.5 + 0.4*t;
+      ctx.fillStyle = col;
+      ctx.beginPath();                                        // diamond marker
+      ctx.moveTo(p.sx, p.sy-r); ctx.lineTo(p.sx+r, p.sy);
+      ctx.lineTo(p.sx, p.sy+r); ctx.lineTo(p.sx-r, p.sy); ctx.closePath(); ctx.fill();
+      ctx.lineWidth=1.3; ctx.strokeStyle=surf; ctx.stroke();
+      const lbl = CATS[l.cat];
+      const w = ctx.measureText(lbl).width + 8;
+      ctx.globalAlpha = 0.55 + 0.3*t; ctx.fillStyle = surf;
+      roundRect(p.sx+r+3, p.sy-8, w, 16, 5); ctx.fill();
+      ctx.globalAlpha = 0.75 + 0.25*t; ctx.fillStyle = col;
+      ctx.fillText(lbl, p.sx+r+7, p.sy+3.5);
+    }
+    ctx.globalAlpha=1;
+  }
+
+  // Biplot: draw the semantic axes that compose the shown PCs as arrows from the
+  // origin, coloured by the deck each axis is most characteristic of. Filtered to
+  // the compared decks when a comparison is active; pinned axes always show.
+  function drawAxisVectors() {
+    if (!showAxisVec && pinnedAxes.size===0) return;
+    const s = SP();
+    const css = getComputedStyle(document.documentElement);
+    const muted = css.getPropertyValue('--muted').trim();
+    const surf = css.getPropertyValue('--surface-1').trim();
+    const ink = css.getPropertyValue('--text-primary').trim();
+    const disp = j => [ B.loadings[axX][j]/range[axX].half,
+                        B.loadings[axY][j]/range[axY].half,
+                        B.loadings[axZ][j]/range[axZ].half ];
+    const mag = v => Math.hypot(v[0],v[1],v[2]);
+    let cand;
+    if (showAxisVec) {
+      let pool = s.feats.map((_,j)=>j);
+      if (compare.length) pool = pool.filter(j=> compare.includes(s.featDeck[j]));
+      pool.sort((a,b)=> mag(disp(b))-mag(disp(a)));
+      const limit = compare.length? Math.max(12, compare.length*4) : 12;
+      const seen=new Set(), res=[];      // dedupe provides/needs that share an axis label
+      for (const j of pool){ const ax=s.feats[j].axis; if(seen.has(ax)) continue; seen.add(ax); res.push(j); if(res.length>=limit) break; }
+      cand = [...new Set([...res, ...pinnedAxes])];
+    } else cand = [...pinnedAxes];
+    const vecs = cand.map(j=>({ j, v:disp(j) })).filter(x=> mag(x.v)>1e-6);
+    if (!vecs.length) return;
+    let maxm=1e-6; for (const {v} of vecs) maxm=Math.max(maxm, mag(v));
+    const scale = 1.05/maxm;
+    const o = project(0,0,0);
+    const items = vecs.map(({j,v})=>({ j, tip: project(v[0]*scale,v[1]*scale,v[2]*scale) }))
+      .sort((a,b)=> a.tip.depth-b.tip.depth);
+    ctx.lineJoin='round';
+    for (const {j,tip} of items) {
+      const owner = s.featDeck[j];
+      const col = (owner>=0 && s.featOwn[j]>=0.34) ? PAL[decks[owner].color] : muted;
+      const pinned = pinnedAxes.has(j);
+      // shaft
+      ctx.globalAlpha = pinned?1:0.8; ctx.lineWidth = pinned?2.4:1.6; ctx.strokeStyle=col;
+      ctx.beginPath(); ctx.moveTo(o.sx,o.sy); ctx.lineTo(tip.sx,tip.sy); ctx.stroke();
+      // arrowhead
+      const ang=Math.atan2(tip.sy-o.sy, tip.sx-o.sx), h=7;
+      ctx.beginPath(); ctx.moveTo(tip.sx,tip.sy);
+      ctx.lineTo(tip.sx-h*Math.cos(ang-0.4), tip.sy-h*Math.sin(ang-0.4));
+      ctx.moveTo(tip.sx,tip.sy);
+      ctx.lineTo(tip.sx-h*Math.cos(ang+0.4), tip.sy-h*Math.sin(ang+0.4)); ctx.stroke();
+      // label
+      const lbl = s.feats[j].axis;
+      ctx.font=(pinned?'700 ':'600 ')+'11px system-ui';
+      const w=ctx.measureText(lbl).width+8;
+      const lx = tip.sx + (tip.sx>=o.sx? 5 : -w-5), ly = tip.sy;
+      ctx.globalAlpha=0.82; ctx.fillStyle=surf; roundRect(lx,ly-8,w,16,5); ctx.fill();
+      ctx.globalAlpha=1; ctx.fillStyle= col===muted? ink : col; ctx.fillText(lbl, lx+4, ly+3.5);
+    }
+    ctx.globalAlpha=1;
+  }
+  function roundRect(x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r);
+    ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+
+  // Kamino-style locator: pulsing concentric rings + reticle + glowing core over
+  // every card the search matches, with the nearest one labelled.
+  function drawBeacons() {
+    if (!searchHits.size && !searchHitsBg.size) return;
+    const holo = '#7cd4ff';
+    const pts = [];
+    for (const i of searchHits) {
+      const p = project(scoreN(i,axX),scoreN(i,axY),scoreN(i,axZ));
+      pts.push({ p, col: pointColor(i), name: cards[i].n });
+    }
+    for (const i of searchHitsBg) {
+      const p = project(bgN(i,axX),bgN(i,axY),bgN(i,axZ));
+      pts.push({ p, col: '#9aa0a6', name: BGC[i].n, bg: true });
+    }
+    if (!pts.length) return;
+    pts.sort((a,b)=> a.p.depth-b.p.depth);           // nearer beacons on top
+    // strobe: full at selection, faded to nothing by STROBE_MS, then static marker only
+    const strobe = Math.max(0, 1 - (now()-beaconStart)/STROBE_MS);
+    const phase = (tick*0.02) % 1;
+    for (const {p,col} of pts) {
+      const t = (p.depth+1)/2, baseR = 5 + 3*t;
+      if (strobe > 0) {                               // expanding rings — only while strobing
+        for (let k=0;k<2;k++) {
+          const ph = (phase + k/2) % 1;
+          ctx.globalAlpha = (1-ph)*0.4*strobe; ctx.lineWidth=1.5; ctx.strokeStyle=holo;
+          ctx.beginPath(); ctx.arc(p.sx,p.sy, baseR + ph*18, 0, 7); ctx.stroke();
+        }
+      }
+      ctx.globalAlpha=0.85; ctx.strokeStyle=holo; ctx.lineWidth=1.4;  // persistent crosshair
+      const R=baseR+8;
+      for (const ang of [0,Math.PI/2,Math.PI,3*Math.PI/2]) { const c1=Math.cos(ang), s1=Math.sin(ang);
+        ctx.beginPath(); ctx.moveTo(p.sx+c1*R,p.sy+s1*R); ctx.lineTo(p.sx+c1*(R+6),p.sy+s1*(R+6)); ctx.stroke(); }
+      ctx.globalAlpha=1; ctx.shadowColor=holo; ctx.shadowBlur=8;      // glowing core
+      ctx.beginPath(); ctx.arc(p.sx,p.sy, baseR*0.6, 0, 7); ctx.fillStyle='#eaf7ff'; ctx.fill();
+      ctx.shadowBlur=0;
+      ctx.globalAlpha=0.95; ctx.lineWidth=2; ctx.strokeStyle=col;     // deck-colour ring
+      ctx.beginPath(); ctx.arc(p.sx,p.sy, baseR*0.6+2.5, 0, 7); ctx.stroke();
+    }
+    const near = pts[pts.length-1];                    // label the nearest instance
+    if (near) {
+      const uniq = new Set(pts.map(q=>q.name)).size;
+      const label = uniq>1 ? `${uniq} matches`
+                  : near.bg && pts.length===1 ? `${near.name} · collection`
+                  : pts.length>1 ? `${near.name} · in ${pts.length} decks` : near.name;
+      ctx.font='600 12.5px system-ui';
+      const w = ctx.measureText(label).width + 14;
+      const bx = near.p.sx+18, by = near.p.sy-24;
+      ctx.globalAlpha=0.6; ctx.strokeStyle=holo; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(near.p.sx,near.p.sy); ctx.lineTo(bx,by); ctx.stroke();
+      ctx.globalAlpha=0.9; ctx.fillStyle='rgba(9,18,28,0.85)'; roundRect(bx,by-12,w,20,6); ctx.fill();
+      ctx.globalAlpha=1; ctx.strokeStyle=holo; roundRect(bx,by-12,w,20,6); ctx.stroke();
+      ctx.fillStyle='#eaf7ff'; ctx.fillText(label, bx+7, by+2);
+    }
+    ctx.globalAlpha=1;
+  }
+
+  // ── 3D convex hull (incremental) ────────────────────────────────────────
+  // Returns { pts, faces:[{v:[i,j,k], n:[x,y,z]}], edges:Map } or null if the
+  // points are degenerate (collinear / coplanar). Winding is outward-facing.
+  const _sub=(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]];
+  const _cross=(a,b)=>[a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+  const _dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+  const _d2=(a,b)=>{const d=_sub(a,b);return _dot(d,d);};
+  function convexHull3D(pts) {
+    const n=pts.length, eps=1e-7;
+    if (n<4) return null;
+    // seed tetrahedron: two distant points, then max-area, then max-volume
+    let i0=0,i1=-1; for (let i=1;i<n;i++){ if(_d2(pts[0],pts[i])>eps){i1=i;break;} }
+    if (i1<0) return null;
+    const e01=_sub(pts[i1],pts[i0]);
+    let i2=-1,best=eps; for (let i=0;i<n;i++){ if(i===i0||i===i1)continue;
+      const cr=_cross(e01,_sub(pts[i],pts[i0])); const a=_dot(cr,cr); if(a>best){best=a;i2=i;} }
+    if (i2<0) return null;
+    const nrm=_cross(e01,_sub(pts[i2],pts[i0]));
+    let i3=-1; best=eps; for (let i=0;i<n;i++){ if(i===i0||i===i1||i===i2)continue;
+      const v=Math.abs(_dot(nrm,_sub(pts[i],pts[i0]))); if(v>best){best=v;i3=i;} }
+    if (i3<0) return null;
+    const interior=[(pts[i0][0]+pts[i1][0]+pts[i2][0]+pts[i3][0])/4,
+                    (pts[i0][1]+pts[i1][1]+pts[i2][1]+pts[i3][1])/4,
+                    (pts[i0][2]+pts[i1][2]+pts[i2][2]+pts[i3][2])/4];
+    const mkFace=(a,b,c)=>{ // orient so normal points away from interior
+      let nn=_cross(_sub(pts[b],pts[a]),_sub(pts[c],pts[a]));
+      if (_dot(nn,_sub(interior,pts[a]))>0){ const t=b;b=c;c=t; nn=_cross(_sub(pts[b],pts[a]),_sub(pts[c],pts[a])); }
+      return {v:[a,b,c], n:nn};
+    };
+    let faces=[mkFace(i0,i1,i2), mkFace(i0,i1,i3), mkFace(i0,i2,i3), mkFace(i1,i2,i3)];
+    const visible=(f,p)=> _dot(f.n,_sub(pts[p],pts[f.v[0]])) > eps;
+    for (let ip=0; ip<n; ip++){
+      if (ip===i0||ip===i1||ip===i2||ip===i3) continue;
+      const vis=faces.filter(f=>visible(f,ip));
+      if (!vis.length) continue;                       // inside the hull
+      const visSet=new Set(vis);
+      // horizon = directed edges of visible faces whose twin isn't also visible
+      const dirEdges=new Set();
+      for (const f of vis) for (let e=0;e<3;e++) dirEdges.add(f.v[e]+'_'+f.v[(e+1)%3]);
+      const horizon=[];
+      for (const key of dirEdges){ const [a,b]=key.split('_'); if(!dirEdges.has(b+'_'+a)) horizon.push([+a,+b]); }
+      faces=faces.filter(f=>!visSet.has(f));
+      for (const [a,b] of horizon) faces.push(mkFace(a,b,ip));
+    }
+    // undirected edge → incident face indices, for silhouette detection
+    const edges=new Map();
+    faces.forEach((f,fi)=>{ for(let e=0;e<3;e++){ const u=f.v[e],v=f.v[(e+1)%3];
+      const key=u<v?u+'_'+v:v+'_'+u; (edges.get(key)||edges.set(key,[]).get(key)).push(fi); }});
+    return { pts, faces, edges };
+  }
+
+  // Cache one hull polyhedron per deck; recomputed only when the projected
+  // axes / weighting change (via computeCentroids), never on rotation.
+  let hulls = [];
+  function computeHulls() {
+    const byDeck = decks.map(()=>[]);
+    for (let i=0;i<cards.length;i++){ const c=cards[i];
+      byDeck[c.d].push([scoreN(i,axX), scoreN(i,axY), scoreN(i,axZ)]); }
+    hulls = decks.map((d,di)=>{
+      const pts=byDeck[di]; const h = pts.length>=4 ? convexHull3D(pts) : null;
+      return h || { pts, faces:[], edges:new Map() };
+    });
+  }
+
+  // ── Animation loop ──────────────────────────────────────────────────────
+  let needsDraw = true;
+  function loop() {
+    tick++;
+    if (spin) { yaw += 0.0038; needsDraw = true; }
+    if (tween.active) {
+      const u = Math.min(1, ++tween.t / tween.dur);
+      const e = u<0.5 ? 2*u*u : 1 - Math.pow(-2*u+2,2)/2;   // easeInOutQuad
+      yaw   = tween.y0 + (tween.y1-tween.y0)*e;
+      pitch = tween.p0 + (tween.p1-tween.p0)*e;
+      zoom  = tween.z0 + (tween.z1-tween.z0)*e;
+      needsDraw = true;
+      if (u>=1) tween.active=false;
+    }
+    if ((searchHits.size||searchHitsBg.size) && (now()-beaconStart) < STROBE_MS+150) needsDraw = true; // pulse, then settle
+    if (needsDraw) { draw(); needsDraw = false; }
+    requestAnimationFrame(loop);
+  }
+
+  // ── Interaction ─────────────────────────────────────────────────────────
+  let dragging=false, lx=0, ly=0;
+  cv.addEventListener('pointerdown', e=>{ dragging=true; lx=e.clientX; ly=e.clientY; cv.classList.add('grabbing'); cv.setPointerCapture(e.pointerId); });
+  cv.addEventListener('pointerup', e=>{ dragging=false; cv.classList.remove('grabbing'); });
+  cv.addEventListener('pointermove', e=>{
+    if (dragging) {
+      yaw += (e.clientX-lx)*0.008; pitch += (e.clientY-ly)*0.008;
+      pitch=Math.max(-1.45,Math.min(1.45,pitch)); lx=e.clientX; ly=e.clientY; needsDraw=true;
+      hideTip();
+    } else hover(e);
+  });
+  cv.addEventListener('wheel', e=>{ e.preventDefault(); zoom*=Math.exp(-e.deltaY*0.0012);
+    zoom=Math.max(0.35,Math.min(4,zoom)); needsDraw=true; }, {passive:false});
+  cv.addEventListener('pointerleave', ()=> scheduleHide());
+
+  const tip = document.getElementById('tip');
+  // The card tip is hoverable (its terms have definitions), so hide on a short
+  // delay — long enough to travel from the point into the tip.
+  let hideTimer = null;
+  function scheduleHide(ms=220){ clearTimeout(hideTimer); hideTimer=setTimeout(hideTip, ms); }
+  function cancelHide(){ clearTimeout(hideTimer); hideTimer=null; }
+  tip.addEventListener('mouseenter', cancelHide);
+  tip.addEventListener('mouseleave', ()=>{ hideTip(); hideDef(); });
+  function hover(e) {
+    const r=cv.getBoundingClientRect(), mx=e.clientX-r.left, my=e.clientY-r.top;
+    let best=null, bd=1e9;
+    const dotsHidden = shapeMode==='hull';
+    for (let k=proj.length-1;k>=0;k--){ const q=proj[k]; if (!q.active) continue; if (dotsHidden && !q.cmd) continue;
+      const dx=q.sx-mx, dy=q.sy-my, d=dx*dx+dy*dy; if (d<bd){bd=d;best=q;} }
+    const rad = best && best.cmd? 12 : 8;
+    if (best && bd < rad*rad) { showTip(best, e); return; }
+    // fall back to the collection cloud when it's shown
+    if (showCloud && bgProj.length) {
+      let bb=null, bbd=36;                        // 6px pick radius
+      for (let k=bgProj.length-1;k>=0;k--){ const q=bgProj[k];
+        const dx=q.sx-mx, dy=q.sy-my, d=dx*dx+dy*dy; if (d<bbd){bbd=d;bb=q;} }
+      if (bb) { showTipBg(bb.i, e); return; }
+    }
+    scheduleHide();
+  }
+  function tipAxisLists(v) {                       // derive top provides/needs labels from a raw vector
+    const es = [...v].sort((a,b)=> b[1]-a[1]);
+    const p=[], q=[];
+    for (const [j] of es) {
+      const f=FEATS[j];
+      (f.kind==='P'? p : q).push(f.axis);
+      if (p.length>=4 && q.length>=4) break;
+    }
+    return { p: p.slice(0,4), q: q.slice(0,4) };
+  }
+  const cardImg = sid => sid
+    ? `<img class="cardimg" src="https://cards.scryfall.io/normal/front/${sid[0]}/${sid[1]}/${sid}.jpg" onerror="this.style.display='none'">`
+    : '';
+  // Keep the text block adjacent to the cursor and let the tall card image
+  // extend away from it (below the text when the tip opens downward, above
+  // when it opens upward), then clamp fully inside the viewport.
+  function placeTip(e) {
+    tip.style.display='block';
+    const pad=14, tw=tip.offsetWidth, th=tip.offsetHeight;
+    const below = e.clientY + pad + th <= innerHeight - 6;
+    const img = tip.querySelector('.cardimg');
+    if (img) {
+      if (below) tip.appendChild(img); else tip.insertBefore(img, tip.firstChild);
+      img.style.margin = below ? '7px 0 0' : '0 0 7px';
+    }
+    let x = e.clientX + pad;
+    let y = below ? e.clientY + pad : e.clientY - th - pad;
+    if (x + tw > innerWidth - 6) x = e.clientX - tw - pad;
+    x = Math.max(6, Math.min(x, innerWidth - tw - 6));
+    y = Math.max(6, Math.min(y, innerHeight - th - 6));
+    tip.style.left=x+'px'; tip.style.top=y+'px';
+  }
+  function showTip(q, e) {
+    cancelHide();
+    const c=cards[q.i], dk=decks[q.d], col=pointColor(q.i);
+    const s=SP();
+    tip.classList.toggle('hasimg', !!c.s);
+    tip.innerHTML =
+      cardImg(c.s) +
+      (c.c? `<div class="cmd">Commander</div>`:``) +
+      `<div class="name">${esc(c.n)}</div>` +
+      `<div class="deck" style="color:${PAL[dk.color]}">${esc(dk.commander)} · ${esc(dk.archetype)}</div>` +
+      (domCatC[q.i]>=0? `<div class="row"><b style="color:${catColor(domCatC[q.i])}">${esc(CATS[domCatC[q.i]])}</b> · <span data-def="domtheme">dominant theme</span></div>`:``) +
+      (c.p.length? `<div class="row"><b data-def="provides">provides</b> ${c.p.map(esc).join(', ')}</div>`:``) +
+      (c.q.length? `<div class="row"><b data-def="needs">needs</b> ${c.q.map(esc).join(', ')}</div>`:``) +
+      `<div class="row" style="margin-top:4px">${isCore(q.i)
+        ? `<b style="color:#9aa0a6" data-def="core">core</b> · generic staple`
+        : `<b style="color:${col}" data-def="tail">tail</b> · signature card`}`+
+        ` <span style="opacity:.6" data-def="common">(${Math.round(commonness[q.i]*100)}% common)</span></div>`+
+      (pinnedAxes.size ? (()=>{ const j=[...pinnedAxes][pinnedAxes.size-1]; const fit=cardFit(q.i,j);
+        return `<div class="row"><span data-def="cardfit">fit to</span> <code>${esc(s.feats[j].axis)}</code>: <b>${fit>0?Math.round(fit*100)+'%':'—'}</b></div>`; })() : ``);
+    placeTip(e);
+  }
+  function showTipBg(i, e) {
+    cancelHide();
+    const b=BGC[i], lists=tipAxisLists(b.v);
+    tip.classList.toggle('hasimg', !!b.s);
+    tip.innerHTML =
+      cardImg(b.s) +
+      `<div class="cmd"><span data-def="collection">Collection</span></div>` +
+      `<div class="name">${esc(b.n)}</div>` +
+      (domCatB[i]>=0? `<div class="row"><b style="color:${catColor(domCatB[i])}">${esc(CATS[domCatB[i]])}</b> · <span data-def="domtheme">dominant theme</span></div>`:``) +
+      (lists.p.length? `<div class="row"><b data-def="provides">provides</b> ${lists.p.map(esc).join(', ')}</div>`:``) +
+      (lists.q.length? `<div class="row"><b data-def="needs">needs</b> ${lists.q.map(esc).join(', ')}</div>`:``);
+    placeTip(e);
+  }
+  function hideTip(){ tip.style.display='none'; }
+  function esc(s){ return String(s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }
+
+  // ── Sidebar: PC selectors ───────────────────────────────────────────────
+  function fillPCs() {
+    for (const [sel,cur] of [[pcX,axX],[pcY,axY],[pcZ,axZ]]) {
+      sel.innerHTML=''; for (let k=0;k<K;k++){ const o=document.createElement('option');
+        o.value=k; o.textContent='PC'+(k+1); if (k===cur) o.selected=true; sel.appendChild(o); }
+    }
+  }
+  const pcX=document.getElementById('pcX'), pcY=document.getElementById('pcY'), pcZ=document.getElementById('pcZ');
+  pcX.onchange=()=>{ axX=+pcX.value; computeCentroids(); renderInterp(); renderVar(); needsDraw=true; };
+  pcY.onchange=()=>{ axY=+pcY.value; computeCentroids(); renderInterp(); renderVar(); needsDraw=true; };
+  pcZ.onchange=()=>{ axZ=+pcZ.value; computeCentroids(); renderInterp(); renderVar(); needsDraw=true; };
+
+  // ── Sidebar: legend ─────────────────────────────────────────────────────
+  const counts = decks.map(()=>0); for (const c of cards) counts[c.d]++;
+  function renderLegend() {
+    const el=document.getElementById('legend'); el.innerHTML='';
+    const comparing = compare.length>0;
+    decks.forEach(d=>{
+      const row=document.createElement('div'); row.className='lg';
+      const sel = compare.includes(d.id);
+      if (comparing && sel) row.classList.add('solo');
+      if (comparing && !sel) row.classList.add('dim');
+      const order = sel ? compare.indexOf(d.id)+1 : '';
+      row.innerHTML = `<span class="sw" style="background:${PAL[d.color]}"></span>`+
+        `<span class="txt"><div class="cmd">${esc(d.commander.split(',')[0])}</div>`+
+        `<div class="arch">${esc(d.archetype)}${d.coverage!=null? ` · <span data-def="extracted">${Math.round(d.coverage*100)}% extracted</span>`:''}</div></span>`+
+        (sel? `<span class="pick">${order}</span>` : `<span class="n">${counts[d.id]}</span>`);
+      row.onclick=()=>{ toggleCompare(d.id); renderLegend(); renderDensity(); renderAxisFit();
+        if (basisMode==='fit' && fitSelection) rebuild(); else { lastSample=currentSample(); computeCentroids(); }
+        needsDraw=true; };
+      el.appendChild(row);
+    });
+    document.getElementById('deckCount').textContent =
+      comparing ? `· comparing ${compare.length}/${MAXC}` : `· ${decks.length}`;
+  }
+
+  // ── Sidebar: synergy-density bars ───────────────────────────────────────
+  function renderDensity() {
+    const el=document.getElementById('density'); el.innerHTML='';
+    const comparing = compare.length>0;
+    const sig = d => d.tail/Math.max(1, d.core+d.tail);   // signature (tail) share
+    for (const d of density.slice().sort((a,b)=> sig(b)-sig(a))) {
+      const active = !comparing || compare.includes(d.di);
+      const div=document.createElement('div'); div.className='den'+(active?'':' muted');
+      const col=PAL[decks[d.di].color], s=sig(d);
+      // stacked: grey "core" segment on the left, deck-colour "tail" segment on the right
+      div.innerHTML =
+        `<span class="dn">${esc(decks[d.di].commander.split(',')[0])}</span>`+
+        `<span class="track"><span class="fill core" style="width:${((1-s)*100).toFixed(0)}%"></span>`+
+        `<span class="fill" style="width:${(s*100).toFixed(0)}%;background:${col}"></span></span>`+
+        `<span class="pct">${Math.round(s*100)}%</span>`;
+      div.title = `${d.tail} signature (tail) · ${d.core} staple (core) cards`;
+      div.onclick=()=>{ toggleCompare(d.di); renderLegend(); renderDensity(); renderAxisFit();
+        if (basisMode==='fit' && fitSelection) rebuild(); else { lastSample=currentSample(); computeCentroids(); }
+        needsDraw=true; };
+      el.appendChild(div);
+    }
+  }
+
+  // ── Sidebar: axis fit (cos² goodness-of-fit to the pinned semantic axis) ──
+  function renderAxisFit() {
+    const wrap=document.getElementById('axisfitWrap');
+    if (!pinnedAxes.size) { wrap.style.display='none'; return; }
+    wrap.style.display='';
+    const j=[...pinnedAxes][pinnedAxes.size-1];        // most-recently pinned axis
+    const f=SP().feats[j];
+    document.getElementById('axisfitName').innerHTML =
+      `<code>${esc(f.axis)}</code> <span style="opacity:.6">${KIND[f.kind]}</span>`+
+      (pinnedAxes.size>1? ` <span style="opacity:.5">(latest of ${pinnedAxes.size} pinned)</span>`:``);
+    const comparing=compare.length>0;
+    const rows=axisFit(j).filter(r=> !comparing || compare.includes(r.di))
+                         .sort((a,b)=> b.fit-a.fit || b.cover-a.cover);
+    const el=document.getElementById('axisfit'); el.innerHTML='';
+    for (const r of rows) {
+      const col=PAL[decks[r.di].color];
+      const div=document.createElement('div'); div.className='den'+(r.cover?'':' muted');
+      div.innerHTML =
+        `<span class="dn">${esc(decks[r.di].commander.split(',')[0])} <span style="opacity:.5">${r.cover||''}</span></span>`+
+        `<span class="track"><span class="fill" style="width:${(r.fit*100).toFixed(0)}%;background:${col}"></span></span>`+
+        `<span class="pct">${r.cover? Math.round(r.fit*100)+'%' : '—'}</span>`;
+      div.title = `${r.cover} of ${r.n} cards use this axis · mean cos² ${Math.round(r.fit*100)}% (0 = card is barely about this axis, 100 = it's all it does)`;
+      el.appendChild(div);
+    }
+  }
+
+  // ── Sidebar: PC interpretation ──────────────────────────────────────────
+  const KIND = { P:'provides', N:'needs' };
+  function topLoads(k, sign, n=5) {
+    const u=B.loadings[k];
+    return SP().feats.map((f,j)=>({f,j,w:u[j]}))
+      .filter(x=> sign>0? x.w>1e-9 : x.w<-1e-9)
+      .sort((a,b)=> Math.abs(b.w)-Math.abs(a.w)).slice(0,n);
+  }
+  function fmtFeat(x){ const pin=pinnedAxes.has(x.j);
+    return `<code class="axtok${pin?' pinned':''}" data-j="${x.j}" title="Pin this axis as a vector in the plot">${esc(x.f.axis)}</code> <span style="opacity:.6">${KIND[x.f.kind]}</span>`; }
+  function renderInterp() {
+    if (!B) return;
+    const el=document.getElementById('pcInterp'); el.innerHTML='';
+    const tot=B.totalSS;
+    for (const k of [axX,axY,axZ]) {
+      const ve = (B.eig[k]/tot*100);
+      const b=document.createElement('div'); b.className='pc-block';
+      const pos=topLoads(k,+1).map(fmtFeat).join(' · ');
+      const neg=topLoads(k,-1).map(fmtFeat).join(' · ');
+      b.innerHTML =
+        `<div class="pc-head"><span class="lbl">PC${k+1}</span><span class="ve">${ve.toFixed(1)}% variance</span></div>`+
+        `<div class="load pos">+ ${pos||'—'}</div>`+
+        (neg? `<div class="load neg" style="margin-top:3px">− ${neg}</div>`:'');
+      el.appendChild(b);
+    }
+  }
+  function renderVar() {
+    if (!B) return;
+    const tot=B.totalSS;
+    const s = [axX,axY,axZ].map(k=>`PC${k+1} ${(B.eig[k]/tot*100).toFixed(1)}%`).join('   ·   ');
+    const cum = [axX,axY,axZ].reduce((a,k)=>a+B.eig[k]/tot,0)*100;
+    const note = B.global
+      ? `      ·  global basis (${B.nGlobal.toLocaleString()} cards)${space==='themes'?' · theme space':''}`
+      : (fitSelection && compare.length && B.nDecks<decks.length)
+        ? `      ·  axes fit to ${B.nDecks} selected deck${B.nDecks>1?'s':''}${space==='themes'?' · theme space':''}`
+        : `      ·  axes fit to view${space==='themes'?' · theme space':''}`;
+    document.getElementById('varReadout').textContent = `${s}      —  ${cum.toFixed(0)}% of variance in view${note}`;
+  }
+
+  // ── Controls ───────────────────────────────────────────────────────────
+  function segWire(id, fn){
+    document.querySelectorAll('#'+id+' button').forEach(btn=>{
+      btn.onclick=()=>{ if (btn.disabled) return;
+        document.querySelectorAll('#'+id+' button').forEach(b=>b.classList.remove('on'));
+        btn.classList.add('on'); fn(btn.dataset.v); };
+    });
+  }
+  // Weighting + re-fit-to-selection only make sense when the basis is fitted live.
+  function syncCtl(){
+    const fitted = basisMode==='fit';
+    document.querySelectorAll('#scaleSeg button').forEach(b=> b.disabled=!fitted);
+    document.getElementById('fitChk').disabled = !fitted;
+    document.getElementById('fitSelRow').classList.toggle('off', !fitted);
+    document.getElementById('catLegend').classList.toggle('show', colorMode==='theme');
+  }
+  segWire('spaceSeg', v=>{ space=v; pinnedAxes.clear(); renderAxisFit(); rebuild(); needsDraw=true; });
+  segWire('basisSeg', v=>{ basisMode=v; rebuild(); needsDraw=true; });
+  segWire('colorSeg', v=>{ colorMode=v; syncCtl(); needsDraw=true; });
+  segWire('scaleSeg', v=>{ scaleMode=v; rebuild(); needsDraw=true; });
+  segWire('shapeSeg', v=>{ shapeMode=v; needsDraw=true; });
+  segWire('hlSeg', v=>{ highlight=v; updateHlCaption(); needsDraw=true; });
+
+  document.getElementById('spinChk').onchange=e=>{ spin=e.target.checked; };
+  document.getElementById('centChk').onchange=e=>{ showCent=e.target.checked; needsDraw=true; };
+  document.getElementById('gnomonChk').onchange=e=>{ showGnomon=e.target.checked; needsDraw=true; };
+  document.getElementById('loadChk').onchange=e=>{ showAxisVec=e.target.checked; needsDraw=true; };
+  document.getElementById('lmChk').onchange=e=>{ showLandmarks=e.target.checked; needsDraw=true; };
+  document.getElementById('cloudChk').onchange=e=>{ showCloud=e.target.checked; needsDraw=true; };
+  document.getElementById('pcInterp').addEventListener('click', e=>{
+    const el=e.target.closest('.axtok'); if(!el) return;
+    const j=+el.dataset.j; pinnedAxes.has(j)? pinnedAxes.delete(j) : pinnedAxes.add(j);
+    renderInterp(); renderAxisFit(); needsDraw=true;
+  });
+  function updateHlCaption(){
+    const el=document.getElementById('hlCaption');
+    if (highlight==='off'){ el.className=''; return; }
+    el.className='show';
+    el.innerHTML = highlight==='core'
+      ? `<span class="dot" style="background:#9aa0a6"></span><b>Core — generic staples.</b> The shell most decks run (ramp, fixing, removal, card draw). Signature cards are faded to hollow rings.`
+      : `<span class="dot" style="background:#7cd4ff"></span><b>Tail — signature cards.</b> Deck-defining pieces whose axes few other decks share. Generic staples are faded to hollow rings.`;
+  }
+  document.getElementById('resetView').onclick=()=>{ yaw=0.6; pitch=-0.35; zoom=1; needsDraw=true; };
+  document.getElementById('showAll').onclick=()=>{ compare=[]; renderLegend(); renderDensity(); renderAxisFit();
+    if (basisMode==='fit' && fitSelection) rebuild(); else { lastSample=currentSample(); computeCentroids(); }
+    needsDraw=true; };
+  document.getElementById('fitChk').onchange=e=>{ fitSelection=e.target.checked; rebuild(); needsDraw=true; };
+
+  // category chips (shown in "colour by theme" mode)
+  {
+    const el=document.getElementById('catLegend');
+    el.innerHTML = CATS.map((c,ci)=>`<span class="chip"><i style="background:${CATPAL[ci]}"></i>${esc(c)}</span>`).join('');
+  }
+
+  // ── Card search (decks + collection cloud) ──────────────────────────────
+  const nameMap = new Map(); // lower(name) → { name, idxs:[cardIndex], bgs:[bgIndex], decks:Set }
+  cards.forEach((c,i)=>{ const key=c.n.toLowerCase(); let e=nameMap.get(key);
+    if (!e){ e={name:c.n, idxs:[], bgs:[], decks:new Set()}; nameMap.set(key,e); }
+    e.idxs.push(i); e.decks.add(c.d); });
+  BGC.forEach((b,i)=>{ const key=b.n.toLowerCase(); let e=nameMap.get(key);
+    if (!e){ e={name:b.n, idxs:[], bgs:[], decks:new Set()}; nameMap.set(key,e); }
+    e.bgs.push(i); });
+  const nameList = [...nameMap.values()].sort((a,b)=> a.name.localeCompare(b.name));
+  const searchInput=document.getElementById('cardSearch');
+  const searchResults=document.getElementById('searchResults');
+  const searchClear=document.getElementById('searchClear');
+  let srMatches=[], srActive=-1;
+  function renderResults(){
+    searchResults.innerHTML='';
+    srMatches.forEach((e,k)=>{
+      const row=document.createElement('div'); row.className='sr'+(k===srActive?' active':'');
+      const dots=[...e.decks].map(di=>`<i style="background:${PAL[decks[di].color]}"></i>`).join('')
+        + (e.idxs.length===0 && e.bgs.length? `<em>collection</em>`:'');
+      row.innerHTML=`<span class="nm">${esc(e.name)}</span><span class="dks">${dots}</span>`;
+      row.onmousedown=(ev)=>{ ev.preventDefault(); selectCard(e); };
+      searchResults.appendChild(row);
+    });
+  }
+  function setHits(matches){
+    searchHits = new Set(); searchHitsBg = new Set();
+    for (const e of matches){ for (const i of e.idxs) searchHits.add(i); for (const i of e.bgs) searchHitsBg.add(i); }
+    beaconStart = now();
+  }
+  function runSearch(term){
+    term=term.trim().toLowerCase();
+    searchClear.classList.toggle('show', term.length>0);
+    if (term.length<2){ searchHits.clear(); searchHitsBg.clear(); srMatches=[]; srActive=-1; renderResults(); needsDraw=true; return; }
+    srMatches = nameList.filter(e=> e.name.toLowerCase().includes(term)).slice(0,12);
+    setHits(srMatches);
+    srActive = srMatches.length? 0 : -1;
+    renderResults(); needsDraw=true;
+  }
+  function selectCard(e){
+    searchInput.value=e.name; searchClear.classList.add('show');
+    setHits([e]); srMatches=[]; srActive=-1; renderResults();
+    if (e.bgs.length && !showCloud){ showCloud=true; document.getElementById('cloudChk').checked=true; }
+    let x=0,y=0,z=0,n=0;
+    for (const i of e.idxs){ x+=scoreN(i,axX); y+=scoreN(i,axY); z+=scoreN(i,axZ); n++; }
+    for (const i of e.bgs){ x+=bgN(i,axX); y+=bgN(i,axY); z+=bgN(i,axZ); n++; }
+    if (n){ flyTo(x/n, y/n, z/n); }
+    needsDraw=true;
+  }
+  function clearSearch(){ searchInput.value=''; searchHits.clear(); searchHitsBg.clear(); srMatches=[]; srActive=-1;
+    renderResults(); searchClear.classList.remove('show'); searchInput.focus(); needsDraw=true; }
+  searchInput.addEventListener('input', ()=> runSearch(searchInput.value));
+  searchInput.addEventListener('keydown', ev=>{
+    if (ev.key==='ArrowDown'){ srActive=Math.min(srMatches.length-1, srActive+1); renderResults(); ev.preventDefault(); }
+    else if (ev.key==='ArrowUp'){ srActive=Math.max(0, srActive-1); renderResults(); ev.preventDefault(); }
+    else if (ev.key==='Enter'){ if (srMatches[srActive]) selectCard(srMatches[srActive]); }
+    else if (ev.key==='Escape'){ clearSearch(); }
+  });
+  searchInput.addEventListener('blur', ()=> setTimeout(()=>{ srMatches=[]; renderResults(); }, 120));
+  searchClear.onclick=clearSearch;
+
+  // ── Theme ──────────────────────────────────────────────────────────────
+  function applyTheme(mode){
+    document.documentElement.setAttribute('data-theme', mode);
+    PAL = mode==='dark'? PAL_DARK : PAL_LIGHT;
+    renderLegend(); renderInterp(); renderDensity(); renderAxisFit(); needsDraw=true;
+  }
+  const qsTheme = new URLSearchParams(location.search).get('theme');
+  let theme = (qsTheme==='dark'||qsTheme==='light') ? qsTheme
+            : (matchMedia('(prefers-color-scheme: dark)').matches? 'dark':'light');
+  document.getElementById('themeBtn').onclick=()=>{ theme= theme==='dark'?'light':'dark'; applyTheme(theme); };
+
+  // ── Definition popovers ─────────────────────────────────────────────────
+  // Any element with data-def="key" gets a hover explanation. The dotted
+  // underline + help cursor (CSS on [data-def]) is the visual affordance.
+  const DEFS = {
+    'space':       { t:'Space', b:'What the 3D coordinates are built from. <b>Fine axes</b> uses every fine-grained mechanic tag the engine extracted from card text; <b>themes</b> collapses them into 14 broad categories.' },
+    'fine-axes':   { t:'Fine axes', b:'Each card is a bundle of ~550 fine-grained mechanic tags (like token.creature or gy.recursion). Richest detail, but individual directions can be hard to name.' },
+    'themes':      { t:'Themes', b:'The fine mechanic tags collapsed into 14 broad categories (Tokens, Graveyard, Ramp…). Coarser, but every direction of the map has an obvious name.' },
+    'basis':       { t:'Basis', b:'Which cards define the axes of the map — a fixed global reference frame, or axes re-fit to whatever is on screen.' },
+    'global':      { t:'Global basis', b:'Axes fit once over all ~13,000 extracted Magic cards. Every card keeps the same position in every view, so decks and views are directly comparable.' },
+    'fit-view':    { t:'Fit view', b:'Axes re-computed live from just the cards on screen (or the decks being compared). The best microscope for internal structure — but positions are not comparable across views.' },
+    'colour':      { t:'Colour', b:'What the point colours encode: which deck a card belongs to, or the card’s dominant theme.' },
+    'by-theme':    { t:'Colour by theme', b:'Each card coloured by its dominant theme — the category where its mechanics carry the most weight. The chip list below shows the palette.' },
+    'pca':         { t:'Principal components', b:'PCA finds the directions in which card profiles differ the most. PC1 is the strongest pattern, PC2 the next strongest (independent of PC1), and so on. Choose which three to display as X, Y and Z.' },
+    'weighting':   { t:'Weighting', b:'How mechanic tags are scaled before fitting the axes. Only applies when Basis is “fit view” — the global basis is pre-fit with distinctive weighting.' },
+    'distinctive': { t:'Distinctive (IDF)', b:'Down-weights tags that appear in nearly every deck (ramp, removal, draw), so the layout emphasises what makes decks different from each other.' },
+    'raw':         { t:'Raw', b:'No re-scaling — heavily weighted, common tags dominate the layout.' },
+    'z-scored':    { t:'Z-scored', b:'Every tag normalised to equal variance, so rare tags count as much as common ones. Can over-emphasise noise.' },
+    'shape':       { t:'Shape', b:'Draw each deck as individual card points, as a translucent solid wrapping all its cards (hull), or both at once.' },
+    'hull':        { t:'Hull', b:'The smallest convex solid that wraps every card in the deck. Where two decks’ hulls overlap, they occupy the same mechanical territory.' },
+    'highlight':   { t:'Highlight', b:'Fade the cloud to show only the generic staples (core) or only the deck-defining signature cards (tail).' },
+    'core':        { t:'Core · generic staple', b:'A card whose mechanics nearly every deck uses — ramp, fixing, removal, card draw. Measured by “commonness”: the weighted share of your decks that use the card’s tags. ≥60% reads as core.' },
+    'tail':        { t:'Tail · signature card', b:'A card whose mechanics few of your decks share — tribal payoffs, combo pieces, engine cards. These give a deck its identity. Commonness below 60% reads as tail.' },
+    'centroids':   { t:'Centroids', b:'The labelled dot at each deck’s centre of mass, weighted toward its distinctive cards so the label sits on the deck’s own lobe rather than the shared middle.' },
+    'gnomon':      { t:'Axes', b:'The three principal-component directions currently shown as X, Y and Z, drawn as lines through the origin.' },
+    'biplot':      { t:'Axis vectors', b:'Overlays the strongest underlying mechanic tags as labelled arrows (a biplot), showing which mechanics pull the layout in each direction. Coloured by the deck each tag is most characteristic of.' },
+    'landmarks':   { t:'Theme landmarks', b:'Each diamond is the centre of all cards dominated by one theme, projected into the current axes. They put names on the corners of the cloud — the “graveyard corner” is wherever the Graveyard diamond sits.' },
+    'cloud':       { t:'Collection cloud', b:'Every extracted card you own that isn’t in one of the shown decks, drawn faintly for context. Hover them like any other point; search finds them too.' },
+    'refit':       { t:'Re-fit axes to selection', b:'Re-runs the axis fit using only the decks you’re comparing, so the axes stretch to show THEIR differences. Requires Basis: fit view and at least one selected deck.' },
+    'variance':    { t:'% of variance', b:'How much of the total variation between card profiles the three displayed components capture. A low number (typical for fine axes + global basis) means differences are spread across many directions — normal for sparse data like card mechanics.' },
+    'extracted':   { t:'% extracted', b:'The share of this deck’s cards that have an engine-extracted semantic profile. Cards without one (mostly plain lands and very new cards) can’t be plotted or counted.' },
+    'coretail':    { t:'Core vs tail', b:'Each deck split into generic staples (core) vs signature cards (tail). A high signature share means more of the deck is doing something only that deck does.' },
+    'loadings':    { t:'What the axes mean', b:'The mechanic tags that push cards toward the positive (+) or negative (−) end of each displayed component. Click a tag to pin it as an arrow in the plot and see per-deck fit.' },
+    'axisfit':     { t:'Axis fit', b:'How tightly each deck’s cards sit on the pinned tag: the average cos² across the cards that use it. 100% means that tag is essentially all those cards do.' },
+    'domtheme':    { t:'Dominant theme', b:'The theme category where this card’s mechanics carry the most total weight — what the card is mostly “about”.' },
+    'provides':    { t:'Provides', b:'What the card supplies to a deck — its outputs: mana, tokens, card draw, a sacrifice outlet, evasion…' },
+    'needs':       { t:'Needs', b:'What the card wants the rest of the deck to supply — its inputs: creatures dying, a big hand, +1/+1 counters, spells being cast…' },
+    'common':      { t:'% common', b:'The card’s commonness: the weighted share of your decks that use the same mechanic tags this card uses. ≥60% reads as core (staple); below that, tail (signature). Relative to the decks shown, not all of Magic.' },
+    'cardfit':     { t:'Fit to axis', b:'How much of this card’s profile is just the pinned tag (cos² between card and tag). 100% = that tag is all the card does.' },
+    'collection':  { t:'Collection', b:'This card is in your collection but not in any of the decks shown here.' },
+  };
+  const defEl = document.createElement('div');
+  defEl.id = 'def';
+  document.body.appendChild(defEl);
+  function showDef(el){
+    const d = DEFS[el.dataset.def];
+    if (!d) return;
+    defEl.innerHTML = `<div class="dt">${d.t}</div><div class="db">${d.b}</div>`;
+    defEl.style.display = 'block';
+    const r = el.getBoundingClientRect();
+    const w = defEl.offsetWidth, h = defEl.offsetHeight;
+    let x = r.left + r.width/2 - w/2;
+    x = Math.max(8, Math.min(x, innerWidth - w - 8));
+    let y = r.bottom + 8;
+    if (y + h > innerHeight - 8) y = r.top - h - 8;
+    defEl.style.left = x + 'px';
+    defEl.style.top = Math.max(8, y) + 'px';
+  }
+  function hideDef(){ defEl.style.display = 'none'; }
+  document.addEventListener('mouseover', e => {
+    const t = e.target.closest ? e.target.closest('[data-def]') : null;
+    if (t) showDef(t); else hideDef();
+  });
+
+  // ── Boot ───────────────────────────────────────────────────────────────
+  document.getElementById('foot').innerHTML =
+    `${cards.length} deck cards · ${BGC.length} collection cards · ${SPACES.axes.M} axis features · ${decks.length} decks `+
+    `(source: ${esc(DATA.source||'fixtures')}). Coordinates are principal components of each card's weighted `+
+    `provides/needs vector. <b>Basis: global</b> projects onto axes fit over every extracted card `+
+    `(${(DATA.basis?.axes?.n||0).toLocaleString()}) so positions are comparable across views; <b>fit view</b> re-runs `+
+    `PCA live on the cards in view (or the compared decks). <b>Space: themes</b> collapses the fine axes to the `+
+    `14 theme categories — coarser but always nameable. Diamond landmarks mark each theme's centroid: the `+
+    `named corners of the cloud. The collection cloud paints every extracted card you own as context.`;
+  // Small hook for scripted captures (set an exact camera / read state).
+  window.__viz = {
+    set(o){ if(o.yaw!=null)yaw=o.yaw; if(o.pitch!=null)pitch=o.pitch; if(o.zoom!=null)zoom=o.zoom;
+            if(o.spin!=null)spin=o.spin; needsDraw=true; },
+    state(){ return {yaw,pitch,zoom,spin,W,H}; },
+    theme(m){ if (m==='dark'||m==='light'){ theme=m; applyTheme(m); } },   // host app sync
+  };
+  window.addEventListener('resize', ()=>{ resize(); needsDraw=true; });
+  resize();
+  fillPCs();
+  rebuild();
+  applyTheme(theme);
+  renderLegend();
+  renderDensity();
+  renderAxisFit();
+  loop();
+})();
+}
+// Boot: data is either inlined (dev docs build) or fetched from the
+// authenticated per-user API (app build sets window.ORDINATION_URL).
+(async () => {
+  if (!window.ORDINATION && window.ORDINATION_URL) {
+    try {
+      const r = await fetch(window.ORDINATION_URL, { credentials: 'same-origin' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      window.ORDINATION = await r.json();
+    } catch (e) {
+      document.getElementById('side').style.display = 'none';
+      document.getElementById('overlayTitle').innerHTML =
+        '<h1>Deck Map</h1><p>Couldn’t load your map (' +
+        String(e.message||e).replace(/[&<>"]/g,'') + '). Sign in and try again.</p>';
+      return;
+    }
+  }
+  __ordinationMain();
+})();
+</script>
+</body>
+</html>

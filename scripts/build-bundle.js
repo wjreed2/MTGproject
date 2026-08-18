@@ -31,6 +31,7 @@ const SOURCES = [
   'js/browse.js',
   'js/wishlist.js',
   'js/trade.js',
+  'js/deck-map.js',
   'js/import.js',
   'js/analytics.js',
   'js/voice.js',

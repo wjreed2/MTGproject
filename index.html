@@ -178,6 +178,10 @@
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="2.5"/><path d="M8 2v2M8 12v2M2 8h2M12 8h2"/></svg>
         Deck goal analysis
       </button>
+      <button type="button" id="settingsDeckMapBtn" class="btn btn-ghost btn-sm" title="3D map of your decks and collection by what each card does — turning this off hides the Deck Map tab" style="width:100%;justify-content:flex-start;gap:7px;color:var(--text2)" onclick="toggleDeckMapSetting()">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M2 2v12h12"/><circle cx="5.8" cy="10" r="1.1"/><circle cx="9.2" cy="5.6" r="1.1"/><circle cx="12.2" cy="10.8" r="1.1"/></svg>
+        Deck Map
+      </button>
       <div class="settings-value-exclude-block" style="width:100%;padding:6px 2px 10px">
         <div style="font-size:0.72rem;color:var(--text3);letter-spacing:0.04em;margin-bottom:6px">VALUE TOTALS — EXCLUDE CHEAP CARDS</div>
         <label for="settingsValueExcludeSlider" style="font-size:0.74rem;color:var(--text2);display:block;margin-bottom:6px;line-height:1.35">Omit rows under <strong id="settingsValueExcludeLabel" style="color:var(--gold)">Off</strong> per card (max of enabled vendors)</label>
@@ -326,6 +330,16 @@
         <path d="M3 5h8.5M9 2.5 11.5 5 9 7.5"/><path d="M13 11H4.5M7 8.5 4.5 11 7 13.5"/>
       </svg>
       <span class="sidebar-label">Trade</span>
+    </button>
+    <button class="sidebar-item" onclick="showTab('deckmap')" data-label="Deck Map">
+      <svg class="sidebar-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M2 2v12h12"/>
+        <circle cx="5.8" cy="10" r="1.1"/>
+        <circle cx="9.2" cy="5.6" r="1.1"/>
+        <circle cx="12.2" cy="10.8" r="1.1"/>
+        <path d="M6.7 9.1 8.4 6.7M10.3 6.4l1.2 3.3"/>
+      </svg>
+      <span class="sidebar-label">Deck Map</span>
     </button>
     <!-- Analytics nav removed for now (tab content kept dormant in #tab-stats)
     <button class="sidebar-item" onclick="showTab('stats')" data-label="Analytics">
@@ -1093,6 +1107,7 @@
 
 <!-- TRADE TAB -->
 <div id="tab-trade" class="tab-content"></div>
+<div id="tab-deckmap" class="tab-content"></div>
 
 <!-- GAME TRACKER TAB -->
 <div id="tab-games" class="tab-content">
@@ -2402,6 +2417,16 @@
       <path d="M3 5h8.5M9 2.5 11.5 5 9 7.5"/><path d="M13 11H4.5M7 8.5 4.5 11 7 13.5"/>
     </svg>
     <span class="mob-nav-label">Trade</span>
+  </button>
+  <button class="mob-nav-item" data-tab="deckmap" onclick="showTab('deckmap')">
+    <svg class="mob-nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M2 2v12h12"/>
+      <circle cx="5.8" cy="10" r="1.1"/>
+      <circle cx="9.2" cy="5.6" r="1.1"/>
+      <circle cx="12.2" cy="10.8" r="1.1"/>
+      <path d="M6.7 9.1 8.4 6.7M10.3 6.4l1.2 3.3"/>
+    </svg>
+    <span class="mob-nav-label">Map</span>
   </button>
   <button class="mob-nav-item" data-tab="settings" onclick="showTab('settings')">
     <svg class="mob-nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
