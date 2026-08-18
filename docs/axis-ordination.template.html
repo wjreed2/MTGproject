@@ -258,6 +258,43 @@
   .load code.axtok.pinned { background: var(--accent); color: #fff; }
   .foot { font-size: 10.5px; color: var(--muted); margin-top: 22px; line-height: 1.5; }
   .theme-toggle { position: absolute; top: 16px; right: 18px; }
+  /* ── Mobile: controls panel becomes a collapsible bottom sheet ─────── */
+  #sideToggle {
+    display: none; position: absolute; bottom: 16px; right: 16px; z-index: 46;
+    align-items: center; gap: 7px; padding: 10px 15px; border-radius: 22px;
+    background: var(--panel); border: 1px solid var(--border);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.28); font-weight: 600; font-size: 13px;
+  }
+  #sideToggle svg { width: 14px; height: 14px; }
+  #sideGrab { display: none; }
+  @media (max-width: 720px) {
+    body { display: block; }
+    #stage { position: fixed; inset: 0; }
+    #sideToggle { display: inline-flex; }
+    #hint { display: none; }
+    #overlayTitle p { font-size: 11px; max-width: 62vw; }
+    #varReadout { font-size: 10px; max-width: 55vw; }
+    #side {
+      position: fixed; z-index: 50; left: 0; right: 0; bottom: 0; top: auto;
+      width: 100%; max-height: 74vh; height: auto;
+      border-left: 0; border-top: 1px solid var(--border);
+      border-radius: 16px 16px 0 0; box-shadow: 0 -12px 34px rgba(0,0,0,0.35);
+      padding-bottom: max(24px, env(safe-area-inset-bottom));
+      transform: translateY(105%); transition: transform .28s cubic-bezier(.2,.8,.2,1);
+    }
+    #side.open { transform: translateY(0); }
+    #sideGrab {
+      display: flex; align-items: center; justify-content: center;
+      position: sticky; top: -16px; z-index: 5; margin: -16px -16px 10px;
+      padding: 11px 12px; background: var(--surface-1);
+      border-radius: 16px 16px 0 0; border-bottom: 1px solid var(--border);
+    }
+    #sideGrab i { width: 42px; height: 4.5px; border-radius: 3px; background: var(--muted); opacity: .55; }
+    #sideClose {
+      position: absolute; right: 8px; top: 5px; width: 30px; height: 30px;
+      border: 0; background: transparent; color: var(--muted); font-size: 21px; line-height: 1;
+    }
+  }
 </style>
 </head>
 <body>
@@ -271,9 +308,17 @@
     <canvas id="plot"></canvas>
     <div id="varReadout" data-def="variance"></div>
     <div id="hint">drag to rotate · scroll to zoom · click up to 4 decks to compare</div>
+    <button id="sideToggle" title="Open controls">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+        <line x1="2" y1="4.5" x2="14" y2="4.5"/><circle cx="6" cy="4.5" r="1.8" fill="var(--panel)"/>
+        <line x1="2" y1="11.5" x2="14" y2="11.5"/><circle cx="10.5" cy="11.5" r="1.8" fill="var(--panel)"/>
+      </svg>
+      Controls
+    </button>
   </div>
 
   <aside id="side">
+    <div id="sideGrab"><i></i><button id="sideClose" title="Close controls">×</button></div>
     <h2>Find a card</h2>
     <div class="search">
       <input id="cardSearch" type="text" placeholder="Search a card…" autocomplete="off" spellcheck="false">
@@ -374,6 +419,7 @@ function __ordinationMain() {
   // ordinate — show a friendly message instead of a broken fit.
   if (!DATA || !DATA.cards || DATA.cards.length < 4) {
     document.getElementById('side').style.display = 'none';
+    document.getElementById('sideToggle').style.display = 'none';
     document.getElementById('overlayTitle').innerHTML =
       '<h1>Deck Map</h1><p>Not enough analysed cards yet. Build a deck or two and the map will light up — ' +
       'cards get their semantic profile from the deck analysis engine.</p>';
@@ -1353,6 +1399,16 @@ function __ordinationMain() {
     needsDraw=true; };
   document.getElementById('fitChk').onchange=e=>{ fitSelection=e.target.checked; rebuild(); needsDraw=true; };
 
+  // Mobile bottom sheet: the controls panel slides up over the plot; the
+  // floating button opens it, × or touching the plot closes it. Desktop keeps
+  // the fixed sidebar (the toggle is hidden there).
+  {
+    const sideEl = document.getElementById('side');
+    document.getElementById('sideToggle').onclick = () => sideEl.classList.add('open');
+    document.getElementById('sideClose').onclick = () => sideEl.classList.remove('open');
+    cv.addEventListener('pointerdown', () => sideEl.classList.remove('open'));
+  }
+
   // category chips (shown in "colour by theme" mode)
   {
     const el=document.getElementById('catLegend');
@@ -1530,6 +1586,7 @@ function __ordinationMain() {
       window.ORDINATION = await r.json();
     } catch (e) {
       document.getElementById('side').style.display = 'none';
+      document.getElementById('sideToggle').style.display = 'none';
       document.getElementById('overlayTitle').innerHTML =
         '<h1>Deck Map</h1><p>Couldn’t load your map (' +
         String(e.message||e).replace(/[&<>"]/g,'') + '). Sign in and try again.</p>';
