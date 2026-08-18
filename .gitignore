@@ -33,3 +33,8 @@ engine2/fixtures/reruns/
 
 # decks pulled from prod for feedback review (scripts/deck-pull.js) — user data, never version
 engine2/fixtures/pulled/
+
+# Generated ordination dev pages — contain the builder's own deck/collection data (repo is public)
+docs/axis-ordination.html
+docs/deck-radar.html
+nohup.out

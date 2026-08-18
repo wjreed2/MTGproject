@@ -125,6 +125,7 @@ function showTab(t, opts) {
   if (t === 'trade') renderTrade();
   if (t === 'stats') renderStats();
   if (t === 'games') _renderGamesTab();
+  if (t === 'deckmap') renderDeckMap();
 }
 
 // ── Boot splash ───────────────────────────────────────────────────────────────
