@@ -1119,19 +1119,54 @@ function __ordinationMain() {
   }
 
   // ── Interaction ─────────────────────────────────────────────────────────
-  let dragging=false, lx=0, ly=0;
-  cv.addEventListener('pointerdown', e=>{ dragging=true; lx=e.clientX; ly=e.clientY; cv.classList.add('grabbing'); cv.setPointerCapture(e.pointerId); });
-  cv.addEventListener('pointerup', e=>{ dragging=false; cv.classList.remove('grabbing'); });
+  // Mouse: drag = rotate, hover = tooltip, wheel = zoom.
+  // Touch: drag = rotate (after a small dead zone so taps don't nudge the
+  // view), TAP = select a card (sticky tooltip), two-finger pinch = zoom.
+  let dragging=false, lx=0, ly=0, dragMoved=0;
+  const activePtrs = new Map();      // pointerId -> {x, y} (for pinch)
+  let pinchD = 0;
+  const ptrDist = () => { const [a,b]=[...activePtrs.values()]; return Math.hypot(a.x-b.x, a.y-b.y); };
+  cv.addEventListener('pointerdown', e=>{
+    try { cv.setPointerCapture(e.pointerId); } catch (_) {}   // stale/synthetic pointers must not kill the handler
+    activePtrs.set(e.pointerId, { x:e.clientX, y:e.clientY });
+    if (activePtrs.size === 2) {              // pinch begins — stop rotating
+      dragging=false; cv.classList.remove('grabbing');
+      pinchD = ptrDist(); hideTip();
+      return;
+    }
+    dragging=true; dragMoved=0; lx=e.clientX; ly=e.clientY; cv.classList.add('grabbing');
+  });
+  function endPointer(e){
+    activePtrs.delete(e.pointerId);
+    if (activePtrs.size < 2) pinchD = 0;
+    if (!dragging) return;
+    dragging=false; cv.classList.remove('grabbing');
+    if (dragMoved <= 6) tapSelect(e);         // a tap, not a drag
+  }
+  cv.addEventListener('pointerup', endPointer);
+  cv.addEventListener('pointercancel', e=>{ activePtrs.delete(e.pointerId); pinchD=0; dragging=false; cv.classList.remove('grabbing'); });
   cv.addEventListener('pointermove', e=>{
+    if (activePtrs.has(e.pointerId)) activePtrs.set(e.pointerId, { x:e.clientX, y:e.clientY });
+    if (activePtrs.size === 2) {              // pinch zoom
+      const d = ptrDist();
+      if (pinchD > 0 && d > 0) { zoom = Math.max(0.35, Math.min(4, zoom * d / pinchD)); needsDraw=true; }
+      pinchD = d;
+      return;
+    }
     if (dragging) {
-      yaw += (e.clientX-lx)*0.008; pitch += (e.clientY-ly)*0.008;
-      pitch=Math.max(-1.45,Math.min(1.45,pitch)); lx=e.clientX; ly=e.clientY; needsDraw=true;
-      hideTip();
-    } else hover(e);
+      const dx=e.clientX-lx, dy=e.clientY-ly;
+      dragMoved += Math.abs(dx)+Math.abs(dy);
+      if (dragMoved > 6) {                    // past the tap dead zone → rotate
+        yaw += dx*0.008; pitch += dy*0.008;
+        pitch=Math.max(-1.45,Math.min(1.45,pitch)); needsDraw=true;
+        hideTip();
+      }
+      lx=e.clientX; ly=e.clientY;
+    } else if (e.pointerType !== 'touch') hover(e);
   });
   cv.addEventListener('wheel', e=>{ e.preventDefault(); zoom*=Math.exp(-e.deltaY*0.0012);
     zoom=Math.max(0.35,Math.min(4,zoom)); needsDraw=true; }, {passive:false});
-  cv.addEventListener('pointerleave', ()=> scheduleHide());
+  cv.addEventListener('pointerleave', e=>{ if (e.pointerType !== 'touch') scheduleHide(); });
 
   const tip = document.getElementById('tip');
   // The card tip is hoverable (its terms have definitions), so hide on a short
@@ -1141,22 +1176,39 @@ function __ordinationMain() {
   function cancelHide(){ clearTimeout(hideTimer); hideTimer=null; }
   tip.addEventListener('mouseenter', cancelHide);
   tip.addEventListener('mouseleave', ()=>{ hideTip(); hideDef(); });
-  function hover(e) {
-    const r=cv.getBoundingClientRect(), mx=e.clientX-r.left, my=e.clientY-r.top;
+  // Shared hit-test: nearest deck-card point (then collection cloud) within a
+  // pick radius. `extra` widens the radius for fat-finger touch taps.
+  function pickAt(mx, my, extra) {
     let best=null, bd=1e9;
     const dotsHidden = shapeMode==='hull';
     for (let k=proj.length-1;k>=0;k--){ const q=proj[k]; if (!q.active) continue; if (dotsHidden && !q.cmd) continue;
       const dx=q.sx-mx, dy=q.sy-my, d=dx*dx+dy*dy; if (d<bd){bd=d;best=q;} }
-    const rad = best && best.cmd? 12 : 8;
-    if (best && bd < rad*rad) { showTip(best, e); return; }
+    const rad = (best && best.cmd? 12 : 8) + extra;
+    if (best && bd < rad*rad) return { card: best };
     // fall back to the collection cloud when it's shown
     if (showCloud && bgProj.length) {
-      let bb=null, bbd=36;                        // 6px pick radius
+      let bb=null, bbd=(6+extra)*(6+extra);
       for (let k=bgProj.length-1;k>=0;k--){ const q=bgProj[k];
         const dx=q.sx-mx, dy=q.sy-my, d=dx*dx+dy*dy; if (d<bbd){bbd=d;bb=q;} }
-      if (bb) { showTipBg(bb.i, e); return; }
+      if (bb) return { bg: bb.i };
     }
-    scheduleHide();
+    return null;
+  }
+  function hover(e) {
+    const r=cv.getBoundingClientRect();
+    const hit = pickAt(e.clientX-r.left, e.clientY-r.top, 0);
+    if (hit && hit.card) showTip(hit.card, e);
+    else if (hit && hit.bg != null) showTipBg(hit.bg, e);
+    else scheduleHide();
+  }
+  // Touch tap: generous radius, and the tip stays up until the next tap,
+  // drag, or pinch (there is no hover to keep it alive on touch).
+  function tapSelect(e) {
+    const r=cv.getBoundingClientRect();
+    const hit = pickAt(e.clientX-r.left, e.clientY-r.top, 12);
+    if (hit && hit.card) { showTip(hit.card, e); cancelHide(); }
+    else if (hit && hit.bg != null) { showTipBg(hit.bg, e); cancelHide(); }
+    else hideTip();
   }
   function tipAxisLists(v) {                       // derive top provides/needs labels from a raw vector
     const es = [...v].sort((a,b)=> b[1]-a[1]);
