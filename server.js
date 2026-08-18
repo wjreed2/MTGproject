@@ -2913,6 +2913,133 @@ app.put('/api/collection', requireAuth, async (req, res) => {
   }
 });
 
+// ── Deck Map (axis ordination) ───────────────────────────────────────────────
+// Per-user payload for the Deck Map visualization (dist/deck-map.html). Cards
+// are vectorized against the FIXED global basis in data/ordination-basis.json
+// (rebuild via scripts/build-ordination-basis.js after big extraction batches).
+// Client-facing feature entries carry English labels only — raw axis tokens
+// never leave the server (same rule as the analyze API).
+let _ordinationBasis = null;
+function ordinationBasis() {
+  if (_ordinationBasis === undefined) return null;               // load failed earlier
+  if (!_ordinationBasis) {
+    try {
+      _ordinationBasis = JSON.parse(fs.readFileSync(path.join(__dirname, 'data', 'ordination-basis.json'), 'utf8'));
+      _ordinationBasis.featIdx = new Map(_ordinationBasis.featKeys.map((k, i) => [k, i]));
+    } catch (e) {
+      console.error('deck-map: ordination basis missing/unreadable:', e.message);
+      _ordinationBasis = undefined;
+      return null;
+    }
+  }
+  return _ordinationBasis;
+}
+
+app.get('/api/deck-map', requireAuth, async (req, res) => {
+  try {
+    const basis = ordinationBasis();
+    if (!basis) return res.status(503).json({ error: 'Deck Map data is being rebuilt — try again later' });
+    const ordCore = require('./scripts/lib/ordination-core');
+    const accountId = req.accountId;
+    const MIN_CARDS = 8;
+    const featIdx = (k) => { const i = basis.featIdx.get(k); return i === undefined ? null : i; };
+
+    const [deckRows] = await db().query(
+      `SELECT d.id deck_id, d.name deck_name, dc.card_name, dc.is_commander
+       FROM decks d JOIN deck_cards dc ON dc.deck_id = d.id
+       WHERE d.account_id = ? ORDER BY d.created_at, dc.sort_order`, [accountId]);
+    const [colRows] = await db().query(
+      'SELECT DISTINCT name FROM collection WHERE account_id = ?', [accountId]);
+
+    // Resolve IRs for every name we might plot: exact-name batches, then a
+    // DFC front-face fallback pass for whatever is still unresolved.
+    const names = [...new Set([...deckRows.map(r => r.card_name), ...colRows.map(r => r.name)])];
+    const byName = new Map(), byFront = new Map();
+    const ingest = (rows, map, keyFn) => {
+      for (const r of rows) {
+        const ir = typeof r.ir_json === 'string' ? JSON.parse(r.ir_json) : r.ir_json;
+        const ent = ordCore.vectorize(ir, featIdx);
+        ent.sid = r.scryfall_id || undefined;
+        const key = keyFn(r.name);
+        if (!map.has(key)) map.set(key, ent);
+      }
+    };
+    for (let i = 0; i < names.length; i += 500) {
+      const chunk = names.slice(i, i + 500);
+      const [rows] = await db().query(
+        `SELECT c.name, c.scryfall_id, s.ir_json FROM scryfall_oracle_cards c
+         JOIN card_semantics s ON s.oracle_id = c.oracle_id
+         WHERE c.name IN (${chunk.map(() => '?').join(',')})`, chunk);
+      ingest(rows, byName, (n) => n);
+    }
+    const missing = names.filter(n => !byName.has(n));
+    for (let i = 0; i < missing.length; i += 100) {
+      const chunk = missing.slice(i, i + 100);
+      const [rows] = await db().query(
+        `SELECT c.name, c.scryfall_id, s.ir_json FROM scryfall_oracle_cards c
+         JOIN card_semantics s ON s.oracle_id = c.oracle_id
+         WHERE ${chunk.map(() => 'c.name LIKE ?').join(' OR ')}`,
+        chunk.map(n => `${n} // %`));
+      ingest(rows, byFront, (n) => n.split(' // ')[0]);
+    }
+    const lookup = (n) => byName.get(n) || byFront.get(n) || null;
+    const label = (tok) => ordCore.labelOf(tok);
+
+    const decks = [], cards = [];
+    const plotted = new Set();
+    const byDeck = new Map();
+    for (const r of deckRows) {
+      let g = byDeck.get(r.deck_id);
+      if (!g) { g = { name: r.deck_name, seen: new Set(), entries: [] }; byDeck.set(r.deck_id, g); }
+      if (g.seen.has(r.card_name)) continue;
+      g.seen.add(r.card_name);
+      g.entries.push({ name: r.card_name, isCmd: !!r.is_commander });
+    }
+    for (const g of byDeck.values()) {
+      if (g.entries.filter(e => lookup(e.name)).length < MIN_CARDS) continue;
+      const cmd = g.entries.find(e => e.isCmd);
+      g.entries.sort((a, b) => (b.isCmd ? 1 : 0) - (a.isCmd ? 1 : 0));   // commanders first
+      const di = decks.length;
+      let covered = 0;
+      for (const { name, isCmd } of g.entries) {
+        const ent = lookup(name);
+        if (!ent) continue;
+        covered++;
+        if (!ent.v.length) continue;             // no semantic signal (lands etc.)
+        plotted.add(name);
+        cards.push({ d: di, n: name, c: isCmd ? 1 : 0, v: ent.v, s: ent.sid,
+                     p: ent.provTip.slice(0, 6).map(label), q: ent.needTip.slice(0, 6).map(label) });
+      }
+      decks.push({ id: di, commander: cmd ? cmd.name : g.name, archetype: g.name, name: g.name,
+                   coverage: Math.round((covered / Math.max(1, g.entries.length)) * 100) / 100 });
+    }
+
+    const bg = [];
+    for (const r of colRows) {
+      if (plotted.has(r.name)) continue;
+      const ent = lookup(r.name);
+      if (!ent || !ent.v.length) continue;
+      bg.push({ n: r.name, v: ent.v, s: ent.sid });
+    }
+
+    res.set('Cache-Control', 'private, max-age=300');
+    res.json({
+      generated: 'deck-map',
+      source: 'your decks',
+      decks, cards, bg,
+      // English labels only — raw axis tokens stay server-side (vocab descs
+      // reference sibling tokens, so they stay server-side too).
+      features: basis.features.map(f => ({ kind: f.kind, axis: f.label, cat: f.cat })),
+      cats: basis.cats,
+      basis: basis.basis,
+      landmarks: basis.landmarks,
+    });
+  } catch (e) {
+    console.error('deck-map:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Decks ─────────────────────────────────────────────────────────────────────
 
 app.get('/api/decks', requireAuth, async (req, res) => {
