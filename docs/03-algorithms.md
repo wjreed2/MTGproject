@@ -2,23 +2,34 @@
 
 ## Current Adds score
 
-Current presentation/spec formula:
+Implemented in `js/adds-scoring.js` (wired from `_scoreAddCandidate`):
 
-`(D × M) + C_eff + L + E + B - P + V + T + K`
+`Score = (D × M) + C_eff + L + E + B − P + V + T + K + H`
 
-Terms:
-- `D` = deficits filled
-- `M` = referenced in the score; exact current interpretation should be verified in implementation before changing it
-- `C_eff` = effective curve-gap contribution
-- `L` = land / mana-related scoring contribution
-- `E` = EDHREC rank contribution
-- `B` = budget-related contribution/adjustment
-- `P` = pip restrictiveness penalty
-- `V` = versatility contribution
-- `T` = other existing scoring term; exact implementation should be verified
-- `K` = other existing scoring term / plan identity integration
+where `D` already includes `hybridMult` when the plan is confirmed (`D = D0 × hybridMult`).
 
-Older documentation used `(D × M) + C + E + V + T + K`. Do not merge old and new formulas without checking code.
+Terms (verify in `scoreAddCandidateTerms` before changing weights):
+
+| Term | Meaning |
+|------|---------|
+| **D** | Sublinear deficits filled. Weights `1.0 / 0.5 / 0.25`. While Ramp/Draw/Removal need remains, secondary roles get `W_S = 0`. Untagged Plan path caps raw Plan deficit at 3. |
+| **M** | Conditional-keyword gate (`_replCastTriggerFactor`); ×1 unless the card needs a payload the deck lacks. |
+| **hybridMult** | On confirmed plan: `1 + α·min(1, planMatch/4)` if on-plan, else `1 − β` if declared and off-plan. Clamped `[0.5, 1.75]`. Defaults `α=0.35`, `β=0.15`. This is **not** Hybrid suggestion mode. |
+| **C_eff** | Curve-gap bonus for non-efficiency-mode cards (cap 1.5). Efficiency-mode cards get 0 here. |
+| **L** | Efficiency CMC: `K_L × max(0, 4 − CMC)`, `K_L = 0.2`. Not land count; not `L*`. |
+| **E** | EDHREC role percentile × `K_E` (1.0), after a small price-band tweak. Only roles with an active deficit; while primary need remains, E is primary-roles only. |
+| **B** | Creature-body bonus `K_B = 0.3` when the creature fills an active (primary-tier) deficit. **Not budget.** Spellslinger gate exists but is unset (no in-repo archetype hook). |
+| **P** | Colored-pip restrictiveness `K_P × pipScore`, `K_P = 0.15`. |
+| **V** | Extra utility tags: `0.15` for the first extra tag, half that for further extras. |
+| **T** | Tribal overlap with the deck’s tribes. |
+| **K** | Commander cast-theme bonus (and Protection matching boost is folded into the extras `themeBonus` passed as K). |
+| **H** | Confirmed-plan identity: `K_H × (planMatch/4)`, `K_H = 2.0`. |
+
+Budget is a **soft filter / tie-break** (`applyPlanBudgetToAddsPicks`), not a score term.
+
+`{X}` spells are treated as X=3 for CMC-based Adds scoring where `scoringCmcForAdds` applies.
+
+Older notes that used `(D × M) + C + E + V + T + K` or called B “budget” are superseded by the table above.
 
 ## EDHREC rank
 
@@ -44,10 +55,7 @@ The intent is to distinguish technically strong but less-castable cards from car
 
 ## Versatility
 
-Proposed improvement:
-- sublinear D scaling
-- approximate weights: 1.0 / 0.40 / 0.20 for first / second / third deficits
-- dampen V because versatility was considered overweighted
+Implemented (Prompt 1): sublinear D (`1.0 / 0.5 / 0.25`) and dampened V as in the table above. A historical proposal used `1.0 / 0.40 / 0.20`; do not “fix” the code back to that without an explicit retune.
 
 ## Plan identity
 
@@ -59,10 +67,11 @@ When Plan is the largest deficit and the plan is declared:
 - candidates are first influenced by plan match
 - then sorted by existing Adds score
 
-Plan identity bonus:
-- `K_H = 2.0`
-- `alpha = 0.35`
-- `beta = 0.15`
+On a **confirmed** plan, Classic scoring also applies:
+- **H** = `K_H × (planMatch/4)` with `K_H = 2.0`
+- **hybridMult** on D uses `alpha = 0.35`, `beta = 0.15`
+
+Those Classic terms are independent of **Hybrid suggestion mode** (Classic list + sandbox theme rows). See [10-hybrid-suggestions.md](./10-hybrid-suggestions.md).
 
 ## Cast-turn math
 
@@ -139,3 +148,49 @@ The slider changes thresholds correctly in the documented pipeline, but its effe
 `Deficit = max(0, target - have)`
 
 `Surplus = max(0, have - target)`
+
+## Commander Gameplan vs Adds
+
+Two related systems exist and are **not** the same math.
+
+1. Forward analytical model in `js/decks.js` (`_cmdGameplanProbs`)
+2. Inverse L*/R* solve in `js/commander-plan-ext.js` (`solveLandAndEarlyRampIdeals`)
+
+Stored plan fields: `targetCastTurn`, `consistencyPct` (default 85), `landIdeal` (L*), `earlyRampIdeal` (R*), plus confirmed roles / protection fields.
+
+Forward model (on-curve):
+
+- `seen = 7 + (turn - 1)`
+- `rampSeen = 7 + max(0, turn - 2)`
+- land probability + ramp mixture
+- color probability via inclusion-exclusion
+- custom requirements multiplied
+- overall = mana × colors × custom
+- UI: green ≥85%, yellow ≥65%, red <65%
+
+Inverse model:
+
+- Karsten seed `L = round(31.42 + 3.13*avgMV - 0.28*R_est)`
+- if `T < avgMV`, add `round(avgMV - T)`
+- clamp L to 35–40
+- R* is smallest R in 0..18 meeting castConsistency at final L
+- solver `n = 7+T` (forward uses `7+(turn-1)` — known difference)
+- forward ramp cap: commander MV − 2; wizard early-ramp label is T−1
+
+Adds relationship:
+
+- **R\* → Ramp threshold** when `planConfirmed`
+- **L\* is not an Adds land deficit**
+- Gameplan probabilities do **not** currently feed `_scoreAddCandidate`
+
+Known implementation differences to preserve unless explicitly unifying: forward cards-seen vs inverse solver cards-seen; forward ramp cap vs wizard T−1 label.
+
+## Simulation limits
+
+Monte Carlo currently covers opening hands only (`js/goldfish.js`). There is no automated multi-game plan execution, win-rate, interaction timing, recovery, or A/B performance simulator. Interactive goldfish (`js/goldfish-engine.js` + `js/engine/*`) is incomplete / `manualQueue` dependent and is not an evaluator for Hybrid ranking.
+
+## Quality
+
+EDHREC rank is a signal, not the definition of best card. No unified Deck Need / Deck Fit score exists yet; there is no marginal-value-of-+1-ramp inside Gameplan feeding Adds. Card draw is not part of cast feasibility.
+
+Hybrid suggestion mode concatenates Classic and sandbox ranked lists; it does not add a third score. Design for feeding interaction-need / coverage / fit into that merge: [10-hybrid-suggestions.md](./10-hybrid-suggestions.md).

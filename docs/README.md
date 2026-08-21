@@ -22,6 +22,15 @@ This directory is the **persistent source of truth** for MTG Archive product con
 | [07-open-questions.md](./07-open-questions.md) | Unresolved design questions |
 | [09-reference.md](./09-reference.md) | Constants, verification checklist |
 
+## Hybrid suggestions & next design layer
+
+| File | Purpose |
+|------|---------|
+| [10-hybrid-suggestions.md](./10-hybrid-suggestions.md) | Classic / Hybrid / Semantic as implemented; what the merge does not do yet |
+| [11-interaction.md](./11-interaction.md) | Context-dependent interaction quantity/quality (design) |
+| [12-coverage.md](./12-coverage.md) | Shared-capacity coverage units (proposed) |
+| [13-deck-fit.md](./13-deck-fit.md) | Deck Context / Need / Fit and counterfactual replacement (design) |
+
 ## Related in-repo docs
 
 | File | Purpose |

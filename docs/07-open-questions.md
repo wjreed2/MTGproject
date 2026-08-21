@@ -69,9 +69,29 @@ Known:
 - Target approximately a 9th-grade reading level.
 - Exact final wording remains open.
 
+## Coverage units
+Exact definition, allocation formula, and weights. Shared capacity between interaction and protection is the motivating case. How coverage interacts with Classic role deficits (D) is open.
+
+## Interaction need (quantitative)
+How speed, power, strategy, win condition, commander, and curve change interaction **quantity** and **quality**. Quantity vs quality, timing weight, and free/alternate-cost valuation are separate sub-questions.
+
+## Unequal multi-role quality
+A card that is excellent at A and mediocre at B should not get the same split as a card that is good at both. Not modeled.
+
+## Redundancy and timing
+How extra copies and when a card can be used affect coverage. Not modeled.
+
+## Counterfactual orchestration
+Minimum layer needed to evaluate “replace X with Y” without changing CardIR. Whether a future simulator should **validate** rather than replace the deterministic model.
+
+## Seed / research schema
+How context → need curves are stored and versioned (deterministic lookup, not an LLM).
+
 ## Next investigation
 Define a formal deterministic `deck context` representation:
 1. Identify signals always available.
 2. Identify signals inferred.
 3. Identify signals user-confirmed.
 4. Map signals to candidate-card fit in an explainable way that does not homogenize decks.
+
+Do not assume a single score or a single static role target can capture deck identity. Hybrid already splits staple vs theme; extend that principle rather than replacing the merge wholesale.

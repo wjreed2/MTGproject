@@ -50,3 +50,5 @@ Ping = 1 damage to creature/player; it is a project role.
 - Sub-tag cap enforced.
 - Confirmed Tribal plan sandbox theme picks when coverage is adequate; Classic staples still appear when Ramp is short.
 - Changing confirmed plan changes hybrid theme suggestions.
+- Hybrid Adds: sandbox coverage below 0.5 degrades to Classic-only; theme slots 6 of 16; Cuts stay Classic in Hybrid mode.
+- Do not confuse Hybrid **mode**, Classic `hybridMult`, `plan.hybridRoleModifiers`, and hybrid mana costs.

@@ -1,12 +1,29 @@
 # Backlog
 
+## Current design work (Hybrid / Deck Fit)
+
+These are the live design frontier for Hybrid suggestions. They are **not** implemented as scoring. See [10-hybrid-suggestions.md](./10-hybrid-suggestions.md), [11-interaction.md](./11-interaction.md), [12-coverage.md](./12-coverage.md), [13-deck-fit.md](./13-deck-fit.md).
+
+- Define Deck Context variables and quantitative effects.
+- Define interaction need curves across context variables.
+- Define coverage units for shared-capacity multi-role cards.
+- Research and seed context → need relationships.
+- Build deterministic Deck Need / Deck Fit orchestration over existing systems (do not replace Classic-staple / sandbox-theme merge first).
+- Build counterfactual replacement evaluation.
+
+Do not mark these complete without checking source. Hybrid **mode** (Prompts 27–28) already ships as a list merge; that is not Deck Fit.
+
+## Historical Cuts/Adds scoring entries
+
+Ready Prompts **1–5** and **24–28** are **Completed** in `Ready Prompts/cuts-adds-ready-prompts.md`. The numbered entries below keep their original IDs for archive traceability. Do not re-open shipped scoring unless the user explicitly asks.
+
 ## Entry 1 — Adds curve calculation excludes commander CMC
-**Status:** DECIDED / FIX SCOPED
+**Status:** SHIPPED (Ready Prompt 3)
 
 Fix: include commander CMC bucket in Adds curve calculation.
 
-## Entry 2 — Plan-count token exclusion asymmetry
-**Status:** NEEDS INVESTIGATION
+## Entry 2 — Plan-count token exclusion / never recommend tokens
+**Status:** SHIPPED (Ready Prompt 5) — leftover asymmetry, if any, is NEEDS INVESTIGATION
 
 ## Entry 3 — `_deckSwapsEnabled(deck)` signature mismatch
 **Status:** FLAGGED
@@ -19,34 +36,35 @@ Flag only; no fix scope established.
 Intentional; do not fix.
 
 ## Entry 5 — Plan-only-deficit decks never fetch unowned cards
-**Status:** FIX DIRECTION DECIDED
+**Status:** SHIPPED (Ready Prompt 2 / plan-only backfill)
 
-Allow unowned fetch when Plan-only deficits qualify and plan is declared. Previously blocked on deck-plan identification.
+Allow unowned fetch when Plan-only deficits qualify and plan is declared.
 
 ## Entry 6 — Owned/All Cards toggle for Adds
-**Status:** FIX SCOPED
+**Status:** SHIPPED (Ready Prompt 4)
 
-Add UI toggle between Owned and All Cards modes.
+UI toggle between Owned and All Cards modes (`mtg_adds_pool_mode`).
 
 ## Entry 7 — EDHREC rank in Cuts/Adds scoring
-**Status:** NEEDS IMPLEMENTATION / INVESTIGATION
+**Status:** SHIPPED (Ready Prompt 1) as Classic **E**
 
-Normalize percentile per role, server-side precompute, floor 8 ranked cards, price dampening.
+Normalize percentile per role, server-side precompute, floor 8 ranked cards, price dampening. Exact coefficient vs future Deck Fit remains open.
 
 ## Entry 9 — Adds mana pip color restrictiveness
-**Status:** PROPOSED
-
-Add P pip-restrictiveness penalty to account for castability.
+**Status:** SHIPPED (Ready Prompt 1) as Classic **P**
 
 ## Entry 10 — Versatility overweight
-**Status:** PROPOSED
+**Status:** SHIPPED (Ready Prompt 1) as sublinear D `1.0 / 0.5 / 0.25` + dampened V
 
-Use sublinear D weights approximately 1.0 / 0.40 / 0.20 and dampen V.
+(A design note once proposed `1.0 / 0.40 / 0.20`; code uses 50%/25%.)
 
-## Entry 13 — Deck-plan identification
-**Status:** CURRENTLY CENTRAL / IMPLEMENTATION STATUS UNCERTAIN
+## Entry 11 / 12 — `{X}` as X=3; multi-tag one percentile per role
+**Status:** SHIPPED with Prompt 1 (verify in `adds-scoring.js` before retuning)
 
-Foundation for plan-aware downstream behavior. Wizard plan declaration, inference paths, and ranking are specified.
+## Entry 13 — Deck-plan identification + Hybrid merge
+**Status:** WIZARD + HYBRID MERGE SHIPPED (Ready Prompts 24–28, 29–31)
+
+Plan wizard, envelope, Hybrid Classic+sandbox Adds, bidirectional planning-board loop, commander-plan fields. Remaining: Deck Fit / coverage / interaction-need orchestration above that merge.
 
 ## Deferred / v2
 - Hybrid role-weight modifiers

@@ -5,9 +5,11 @@
 - `js/deck-plan.js` — plan schema, rankers, `planMatchScore`, plan-only backfill gate
 - `js/deck-plan-wizard.js` — wizard UI and step flow
 - `js/commander-plan-ext.js` — key-card role derivation, L* / R*, Protection helpers
-- `js/decks.js` — client-side playstyle slider and `_computeCutThresholds`
-- `engine2/thresholds.js` — server-side simplified threshold mirror
-- `engine2.1wizard/` — sandbox for hybrid engine integration; do not modify partner `engine2/`
+- `js/decks.js` — playstyle slider, `_computeCutThresholds`, Classic/Hybrid/Semantic suggestion UI, Hybrid merge
+- `js/adds-scoring.js` — Classic Adds term math
+- `engine2/` — partner Semantic analyze (do not modify)
+- `engine2.1wizard/` — sandbox copy for Hybrid / wizard marriage; never a substitute for editing `engine2/`
+- `server.js` — `/api/decks/analyze` (partner) and `/api/decks/analyze-wizard` (sandbox)
 
 ## Plan inference
 
@@ -69,16 +71,32 @@ Roles not touched by the slider:
 - Recursion
 - confirmed-plan-only roles
 
-## Hybrid
+## Hybrid suggestion mode
 
-Classic half handles staple holes:
-- Ramp
-- Draw
-- Removal
+See [10-hybrid-suggestions.md](./10-hybrid-suggestions.md) for the working spec.
 
-Sandbox half handles theme/synergy constrained by the confirmed plan.
+Classic half handles staple holes (Ramp / Card Draw / Removal). Sandbox half (`engine2.1wizard` via `/api/decks/analyze-wizard`) handles theme/synergy constrained by the confirmed plan. Merge/dedupe by name; degrade to Classic-only when CardIR coverage is below 50% or the fetch fails.
 
-Degrade to Classic-only when sandbox coverage is low.
+Cuts: Hybrid mode uses Classic `_cutScore`. Semantic mode uses partner engine2 (`{name, score, reasons, breakdown}`; lower score = stronger cut). User planned cuts live in `deck.cuts` and are not scored recommendations.
+
+`plan.hybridRoleModifiers` is a v2 hook for Classic D multiplier overrides. It is not the Hybrid UI toggle.
+
+## CardIR
+
+Stored in MySQL `card_semantics.ir_json`, joined by `oracle_id`.
+
+Top-level fields include: `ir_version`, `vocab_version`, `oracle_id`, `name`, `layout`, `faces`, `provides`, `needs`, `roles`, `anti`, `wincon`, `tribal`, `power_level_hint`, `confidence`, `_prov`.
+
+The capability layer used most by scoring: `provides`, `needs`, `roles`, `anti`, `wincon`, `tribal`, `power_level_hint`. Full rules/effect AST is in `faces[].abilities[]`.
+
+Engine2 (and the sandbox copy) is deterministic semantic analysis, not game simulation.
+
+## Goldfish / playtest
+
+- `js/goldfish.js` — opening-hand Monte Carlo (1000 trials) and interactive manual goldfish
+- `js/goldfish-engine.js` + `js/engine/*` — richer interactive playtest (mana, stack, triggers, combat, bot); incomplete / `manualQueue` dependent; **not** an automated Hybrid evaluator
+
+`docs/engine2-plan.md` still calls for future engine2 simulation milestones. Those must not silently become the suggestion engine.
 
 ## External data
 
