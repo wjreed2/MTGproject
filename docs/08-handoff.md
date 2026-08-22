@@ -50,7 +50,7 @@ Current major design frontier:
 
 ## Recommended next investigation
 
-Formalize the Foundation capability schema and a deterministic deck-context representation. Identify which signals are always available, inferred, and user-confirmed. Map those signals to candidate-card fit in an explainable way (strengths / deficiencies / vulnerabilities).
+Continue the Foundation interview in [15-foundation-interview.md](./15-foundation-interview.md). Formalize the capability schema and Deck Context only after those F-Q items are locked.
 
 Do not assume a single score or a single static role target can capture deck identity. Existing targets already change based on plan and playstyle; Hybrid already splits staple vs theme. Extend that principle carefully rather than replacing the existing system wholesale.
 

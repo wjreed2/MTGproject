@@ -4,7 +4,7 @@
 
 These are the live design frontier for Hybrid suggestions. They are **not** implemented as scoring. See [10-hybrid-suggestions.md](./10-hybrid-suggestions.md), [14-foundation-model.md](./14-foundation-model.md), [11-interaction.md](./11-interaction.md), [12-coverage.md](./12-coverage.md), [13-deck-fit.md](./13-deck-fit.md).
 
-- Formalize Foundation capability taxonomy/schema (philosophy is locked; schema is not).
+- Formalize Foundation capability taxonomy/schema (philosophy is locked; schema interview is [15-foundation-interview.md](./15-foundation-interview.md)).
 - Define Deck Context variables and quantitative effects.
 - Define interaction need curves and threat-type coverage (color vulnerability vs deficiency vs budget).
 - Define coverage units for shared-capacity multi-role cards.

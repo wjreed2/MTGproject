@@ -31,6 +31,7 @@ This directory is the **persistent source of truth** for MTG Archive product con
 | [12-coverage.md](./12-coverage.md) | Shared-capacity coverage units (proposed) |
 | [13-deck-fit.md](./13-deck-fit.md) | Deck Context / Need / Fit and counterfactual replacement (design) |
 | [14-foundation-model.md](./14-foundation-model.md) | Locked capability-based Foundation (2026-08-21/22); not yet scoring |
+| [15-foundation-interview.md](./15-foundation-interview.md) | Round 2 interview (schema / context / Hybrid wiring) — in progress |
 
 ## Related in-repo docs
 

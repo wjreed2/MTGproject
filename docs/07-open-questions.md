@@ -87,10 +87,6 @@ How context → need curves are stored and versioned (deterministic lookup, not 
 Formal variables and quantitative weighting curves for speed, competitiveness, strategy, win condition, commander, curve, and other context inputs.
 
 ## Next investigation
-Formalize the Foundation **capability schema** (still open) on top of the locked philosophy in [14-foundation-model.md](./14-foundation-model.md), and a deterministic `deck context` representation:
-1. Identify signals always available.
-2. Identify signals inferred.
-3. Identify signals user-confirmed.
-4. Map signals to candidate-card fit in an explainable way that does not homogenize decks.
+Round 2 interview is in [15-foundation-interview.md](./15-foundation-interview.md) (capability schema, Deck Context, Hybrid wiring, threat list, coverage v1). Philosophy in [14-foundation-model.md](./14-foundation-model.md) stays locked.
 
-Do not assume a single score or a single static role target can capture deck identity. Hybrid already splits staple vs theme; Classic counts still run. Extend that principle rather than replacing the merge wholesale.
+Until those F-Q items are answered, do not implement Foundation scoring or replace Classic thresholds.
