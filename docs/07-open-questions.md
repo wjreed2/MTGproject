@@ -1,27 +1,23 @@
 # Open Questions
 
 ## Foundation
-How should the algorithm formally represent Foundation functions?
+Philosophy is **locked** in [14-foundation-model.md](./14-foundation-model.md): capability-based, three input sources, explanatory output.
 
-Known:
-- The conceptual definition is established.
-- Exact taxonomy and implementation rules are not fully finalized.
-- Foundation means functions evaluated for every deck.
+Still open (implementation):
+- Exact Foundation capability taxonomy and formal capability schema.
+- Exact formulas for context-dependent need levels.
+- Quantity vs quality modeling for each capability.
+- Exact presentation/UI for overall evaluation, strengths, deficiencies, and vulnerabilities.
 
 ## Tutors
-How should tutors be classified?
+Philosophy is **locked**: no tutor quota; tutors are one consistency mechanism; user philosophy constrains the solution, not the need.
 
-Known:
-- Tutors improve consistency and may be crucial in high-power decks.
-- Some players intentionally avoid them.
-- Classification should account for deck philosophy/power/plan rather than assuming a universal tutor density.
+Still open: how to detect a consistency need quantitatively, and how to rank tutor vs redundancy vs draw vs selection.
 
 ## Protection
-How should Protection be classified conceptually?
+Philosophy is **locked**: part of resilience; evaluate what actually needs protecting; no universal quota.
 
-Known:
-- The Plan wizard has a Protection subsystem.
-- Its relationship to the broader Foundation model remains open.
+Still open: how wizard Protection importance maps onto capability coverage, and shared capacity with interaction.
 
 ## Deck fit
 How should the system determine deck fit?
@@ -73,25 +69,28 @@ Known:
 Exact definition, allocation formula, and weights. Shared capacity between interaction and protection is the motivating case. How coverage interacts with Classic role deficits (D) is open.
 
 ## Interaction need (quantitative)
-How speed, power, strategy, win condition, commander, and curve change interaction **quantity** and **quality**. Quantity vs quality, timing weight, and free/alternate-cost valuation are separate sub-questions.
+How speed, power, strategy, win condition, commander, and curve change interaction **quantity** and **quality**. Exact threat taxonomy. Quantity vs quality, timing weight, and free/alternate-cost valuation are separate sub-questions.
 
 ## Unequal multi-role quality
-A card that is excellent at A and mediocre at B should not get the same split as a card that is good at both. Not modeled.
+A card that is excellent at A and mediocre at B should not get the same split as a card that is good at both. Functional-equivalence scoring is not modeled.
 
-## Redundancy and timing
-How extra copies and when a card can be used affect coverage. Not modeled.
+## Redundancy and synergy detection
+How extra copies, timing, and explicit measurable synergy relationships are detected. Synergy must be deterministic (no runtime LLM). Rules are not specified.
 
 ## Counterfactual orchestration
 Minimum layer needed to evaluate “replace X with Y” without changing CardIR. Whether a future simulator should **validate** rather than replace the deterministic model.
 
 ## Seed / research schema
-How context → need curves are stored and versioned (deterministic lookup, not an LLM).
+How context → need curves are stored and versioned (deterministic lookup, not an LLM). Exact methodology is open.
+
+## Exact Deck Context schema
+Formal variables and quantitative weighting curves for speed, competitiveness, strategy, win condition, commander, curve, and other context inputs.
 
 ## Next investigation
-Define a formal deterministic `deck context` representation:
+Formalize the Foundation **capability schema** (still open) on top of the locked philosophy in [14-foundation-model.md](./14-foundation-model.md), and a deterministic `deck context` representation:
 1. Identify signals always available.
 2. Identify signals inferred.
 3. Identify signals user-confirmed.
 4. Map signals to candidate-card fit in an explainable way that does not homogenize decks.
 
-Do not assume a single score or a single static role target can capture deck identity. Hybrid already splits staple vs theme; extend that principle rather than replacing the merge wholesale.
+Do not assume a single score or a single static role target can capture deck identity. Hybrid already splits staple vs theme; Classic counts still run. Extend that principle rather than replacing the merge wholesale.

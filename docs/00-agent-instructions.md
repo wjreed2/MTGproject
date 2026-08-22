@@ -28,7 +28,7 @@ When a substantive decision is made:
 4. If it creates an unresolved question, update [07-open-questions.md](./07-open-questions.md).
 5. Keep this directory internally consistent.
 
-Hybrid suggestion work: start from [10-hybrid-suggestions.md](./10-hybrid-suggestions.md). Do not confuse Hybrid **mode** (Classic + `engine2.1wizard` merge) with Classic `hybridMult` or with hybrid mana costs.
+Hybrid suggestion work: start from [10-hybrid-suggestions.md](./10-hybrid-suggestions.md). Foundation philosophy (capability-based, not card-count quotas) is locked in [14-foundation-model.md](./14-foundation-model.md) — design only; Classic thresholds still run. Do not confuse Hybrid **mode** (Classic + `engine2.1wizard` merge) with Classic `hybridMult` or with hybrid mana costs.
 
 ## Important principle
 The algorithm narrows and suggests; the user has final say. Recommendations should improve consistency and deck fit without homogenizing decks.

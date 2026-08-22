@@ -18,7 +18,73 @@ The wizard is a single modal flow with Back/edit support.
 This is the current conceptual model.
 
 ## DECIDED — Foundation is not a mandatory checklist
-Foundation means fundamental functions evaluated for every deck. It does not imply every deck must contain a fixed amount of every function.
+Foundation means fundamental capabilities evaluated for every deck. It does not imply every deck must contain a fixed amount of every function. Classic role-count thresholds still run in Hybrid staples; they are not this model.
+
+## DECIDED — Foundation is capability-based
+Foundation is universal at the capability level. Strategy determines the specific requirements, weighting, and implementation. Avoid universal card-count quotas. Full lock: [14-foundation-model.md](./14-foundation-model.md).
+
+## DECIDED — Foundation weighting uses three sources
+Use strategy, Wizard/user intent, and actual deck composition together. Strategy establishes expectations → user establishes intent → deck provides evidence.
+
+## DECIDED — User disagreement becomes a tradeoff/vulnerability
+When the algorithm identifies a meaningful vulnerability that conflicts with user intent, identify it, explain it, and where appropriate allow explicit acceptance. Do not silently override the user.
+
+## DECIDED — Overall evaluation is competitiveness + effectiveness
+Evaluate how effectively the deck executes its intended plan at its intended level of competition. A casual deck can be excellent at being the deck it intends to be.
+
+## DECIDED — Output is explanatory, not an opaque score
+Report an overall evaluation plus strengths, deficiencies, vulnerabilities, and rationale. Do not collapse Hybrid or Foundation into a single unexplained number.
+
+## DECIDED — Tutors satisfy consistency need; no tutor quota
+First detect a consistency need. Tutors are one possible solution and are constrained by user philosophy. If tutors are unwanted, seek alternative consistency mechanisms rather than deleting the underlying need. **Need → solution → preference.**
+
+## DECIDED — Redundancy is strategy-dependent
+Redundancy is a consistency tool whose required importance varies by strategy. No universal redundancy quota.
+
+## DECIDED — Card selection is contextual consistency
+Selection quality is evaluated by how effectively it helps this deck execute its plan. No universal selection quota.
+
+## DECIDED — Recursion is multifunctional
+Recursion can serve consistency, resilience, strategy, combo/engine, or resource generation depending on context.
+
+## DECIDED — Protection is contextual resilience
+Protection is part of resilience and is evaluated against what the deck needs to protect (commander, key permanents, combo pieces, engines). No universal protection quota. Wizard importance remains a user-intent input.
+
+## DECIDED — Board wipes are contextual interaction
+No universal board-wipe target. Need depends on strategy/playstyle and board-state requirements. Zero wipes can be legitimate.
+
+## DECIDED — Ramp uses Commander Gameplan + broader mana demands
+R* establishes baseline early-ramp need; broader curve, strategy, expensive spells, and mana demands can modify it. Today only the R* → Ramp threshold copy is implemented.
+
+## DECIDED — Manabase has quantity and quality layers
+L* establishes land-count baseline; manabase quality separately evaluates color access, fixing, untapped sources, utility lands, and deck demands. Do not rename Manabase to Foundation.
+
+## DECIDED — Win condition is user-declared and algorithm-validated
+Wizard captures intended win condition; algorithm validates support, access, consistency, redundancy, mana, and strategy fit.
+
+## DECIDED — Card advantage is contextual
+Need depends on resource consumption, strategy, and playstyle; evaluate multiple mechanisms of usable resource generation, not only traditional draw.
+
+## DECIDED — Interaction requires threat-type coverage
+Evaluate whether the deck can reliably interact with relevant threat types within its colors and budget, not merely interaction counts.
+
+## DECIDED — Color limitations are vulnerabilities, not automatic deficiencies
+When a color identity lacks reliable answers to a threat type, identify the resulting vulnerability rather than demanding an impossible or poor-fit solution.
+
+## DECIDED — Resilience is an outcome
+Evaluate ability to continue executing the plan after disruption (recovery, redundancy, recursion, protection, resources, alternate routes, commander dependence). Expectations are strategy-relative.
+
+## DECIDED — Flexibility is secondary optimization
+Function comes first; flexibility then rewards efficient multi-role cards, especially for interaction and constrained roles.
+
+## DECIDED — Mana efficiency is contextual
+Use curve/Gameplan quantitatively but interpret efficiency relative to strategy and intended competitiveness. Low CMC is not universally better.
+
+## DECIDED — Synergy materially changes effective card strength
+Evaluate both broad strategic synergy and specific card/group interactions, deterministically. A weaker standalone card can be highly competitive in context.
+
+## DECIDED — Synergy can reshape, not erase, Foundation
+Synergy may satisfy or reduce a Foundation need when it has a clear functional relationship to that capability, but Foundation remains necessary.
 
 ## DECIDED — Win condition belongs in Foundation conceptually
 Specific threats/finishers/combos that execute the strategy belong in Payoffs.
@@ -79,6 +145,10 @@ If key cards drift, show a stale banner and offer explicit Re-derive. Never sile
 - Live Scryfall lookups during suggestion generation
 - EDHREC per-category endpoints / runtime scraping
 - Treating Foundation as a literal list every deck must have
+- Universal tutor / redundancy / board-wipe / protection / selection count quotas
+- Treating color-identity limitations as automatic deck deficiencies
+- Using synergy as a blanket excuse for unrelated Foundation gaps
+- Reducing Foundation evaluation to an opaque single score
 - Renaming the mana base to Foundation
 - Always recommending the highest EDHREC-ranked card
 - Silent role/plan updates

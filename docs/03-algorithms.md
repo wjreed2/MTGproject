@@ -179,8 +179,9 @@ Inverse model:
 
 Adds relationship:
 
-- **R\* → Ramp threshold** when `planConfirmed`
-- **L\* is not an Adds land deficit**
+- **R\* → Ramp threshold** when `planConfirmed` (implemented)
+- Locked design: broader mana curve, expensive spells, mana sinks, and strategy may **modify** that Ramp need; not implemented
+- **L\* is not an Adds land deficit.** Locked design: L\* is the land-**quantity** baseline; manabase **quality** (fixing, untapped, utility, colors) is a separate evaluation — not implemented as Adds scoring
 - Gameplan probabilities do **not** currently feed `_scoreAddCandidate`
 
 Known implementation differences to preserve unless explicitly unifying: forward cards-seen vs inverse solver cards-seen; forward ramp cap vs wizard T−1 label.

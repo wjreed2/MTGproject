@@ -39,7 +39,13 @@ Exact schema is open. Distinguish signals that are always available, inferred, a
 
 ## Deck Need
 
-The amount, type, and quality of a function the deck should have given its context. Foundation functions are evaluated for every deck; that does **not** mean every function has a universal required count.
+The amount, type, and quality of a capability the deck should have given its context. Foundation is evaluated for every deck at the **capability** level; that does **not** mean every function has a universal required count. Locked philosophy: [14-foundation-model.md](./14-foundation-model.md).
+
+## Overall evaluation (DECIDED shape)
+
+Ask how effectively the deck executes its **intended plan** at its **intended level of competition**. Output should be explanatory: overall evaluation plus strengths, deficiencies, vulnerabilities, and why — not an opaque number.
+
+When the algorithm disagrees with user intent, surface a vulnerability/tradeoff and allow explicit acceptance.
 
 ## Deck Fit
 
@@ -65,6 +71,6 @@ Goldfish / `js/engine/*` is not that layer: opening-hand Monte Carlo and interac
 
 ## How this should meet Hybrid (when implemented)
 
-Do not throw away the Classic-staple / sandbox-theme split. Use Deck Context → Deck Need to set or modulate targets and quality weights; use Deck Fit to rank candidates **inside** each half (and to break ties across halves) with explainable Why lines.
+Do not throw away the Classic-staple / sandbox-theme split. Use the locked Foundation model ([14-foundation-model.md](./14-foundation-model.md)) to set or modulate needs; use Deck Fit to rank candidates **inside** each half with Why lines that can cite strengths, deficiencies, and vulnerabilities.
 
 Orchestration minimum is still an open question: what can be done without changing CardIR.

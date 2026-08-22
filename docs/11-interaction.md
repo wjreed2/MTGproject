@@ -43,10 +43,24 @@ Do not rank these solely by printed mana value. Account for conditions and resou
 
 ## Board wipes
 
-Board wipes are recovery tools. In multiplayer they are especially efficient because one card can answer many threats. They are **not** a literal universal requirement for every deck; they help some decks recover so they can still execute the win condition.
+Board wipes are recovery tools and a form of **interaction**, not a universal Foundation quota. Identify a wipe need only when strategy/playstyle and board-state requirements make them useful. Consider whether the deck can recover from its own wipes. A deck can legitimately run zero board wipes without being deficient.
+
+## Threat-type coverage (DECIDED, 2026-08-21/22)
+
+The deck should have a way to reliably interact with relevant threat types possible within its **color identity** and **budget**. Evaluate coverage, not simple interaction counts.
+
+Relevant threat types may include: creatures, permanents, artifacts, enchantments, graveyards, the stack, lands, combos/engines, wide boards, other meaningful Commander threat classes.
+
+If the color identity lacks a reliable way to interact with a threat type, identify that as a **potential color-identity vulnerability**, not automatically a deck deficiency. Budget: seek a reasonable budget-compatible answer before calling the deck deficient.
+
+Conceptual flow:
+
+**Threat → color capability → budget → available answers → reliability → deck need.**
+
+Distinguish deck deficiency, color-identity vulnerability, budget constraint, and deliberate player choice.
 
 ## Open modeling problem
 
-Determine context-dependent interaction **need** and **quality**. Quantity vs quality, timing weight, and free/alternate-cost valuation are still open (see [07-open-questions.md](./07-open-questions.md)).
+Determine context-dependent interaction **need** and **quality**, plus the exact threat taxonomy and coverage-unit math. Quantity vs quality, timing weight, and free/alternate-cost valuation are still open (see [07-open-questions.md](./07-open-questions.md)).
 
-Prefer existing CardIR fields plus deterministic rules over regenerating CardIR.
+Prefer existing CardIR fields plus deterministic rules over regenerating CardIR. Full Foundation lock: [14-foundation-model.md](./14-foundation-model.md).

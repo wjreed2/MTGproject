@@ -78,7 +78,9 @@ It does **not** currently:
 - Recompute whole-deck metrics before vs after a candidate (counterfactual replacement)
 - Scale interaction need from speed + power + strategy as a single context model
 - Feed Commander Gameplan probabilities into `_scoreAddCandidate`
-- Treat `L*` as an Adds land deficit (`R*` does become Ramp threshold when the plan is confirmed)
+- Treat `L*` as an Adds land deficit (`R*` does become Ramp threshold when the plan is confirmed; broader mana-demand modifiers from the Foundation model are not applied yet)
+- Evaluate threat-type interaction coverage vs color/budget vulnerabilities
+- Report Foundation strengths / deficiencies / vulnerabilities (explanatory output is designed, not built)
 - Merge Cuts the same way as Adds
 
 ## Design intent for the next layer
@@ -99,9 +101,12 @@ Do not collapse those into “always pick the highest EDHREC card” or a single
 
 Related design (not yet implemented as scoring):
 
-- [11-interaction.md](./11-interaction.md) — context-dependent interaction quantity/quality
+- [14-foundation-model.md](./14-foundation-model.md) — locked capability-based Foundation (need → solution → preference; no universal quotas)
+- [11-interaction.md](./11-interaction.md) — context-dependent interaction quantity/quality and threat-type coverage
 - [12-coverage.md](./12-coverage.md) — shared-capacity multi-role credit
 - [13-deck-fit.md](./13-deck-fit.md) — deck-level need/fit and counterfactual replacement
+
+Future Hybrid Why lines should speak in strengths / deficiencies / vulnerabilities where the algorithm disagrees with intent, rather than only tag deficits. Do not replace the staple/theme split with a single opaque Foundation score.
 
 ## Hard constraints (repeat)
 

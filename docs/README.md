@@ -30,6 +30,7 @@ This directory is the **persistent source of truth** for MTG Archive product con
 | [11-interaction.md](./11-interaction.md) | Context-dependent interaction quantity/quality (design) |
 | [12-coverage.md](./12-coverage.md) | Shared-capacity coverage units (proposed) |
 | [13-deck-fit.md](./13-deck-fit.md) | Deck Context / Need / Fit and counterfactual replacement (design) |
+| [14-foundation-model.md](./14-foundation-model.md) | Locked capability-based Foundation (2026-08-21/22); not yet scoring |
 
 ## Related in-repo docs
 
