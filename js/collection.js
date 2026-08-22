@@ -927,14 +927,6 @@ function _renderTopMoversStat(rows) {
   const vendors = typeof getPriceChangeVendorEnabled === 'function'
     ? getPriceChangeVendorEnabled()
     : { tcg: true, ck: true };
-  if (labelEl) {
-    let label = `Top Movers · ${_priceChangeTfShortLabel(prefs.timeframe, prefs.customDate)}`;
-    if (_isPhoneViewport() && scored.length > 1 && !_topMoversMobileExpanded) {
-      label += ` (${Math.min(scored.length, 6)})`;
-    }
-    labelEl.textContent = label;
-  }
-
   const scored = [];
   for (const c of rows || []) {
     const hit = _cardTopMoverChange(c, prefs.mode, vendors, prefs.timeframe, prefs.customDate);
@@ -942,6 +934,14 @@ function _renderTopMoversStat(rows) {
     scored.push({ card: c, ...hit });
   }
   scored.sort((a, b) => b.key - a.key || String(a.card.name || '').localeCompare(String(b.card.name || '')));
+
+  if (labelEl) {
+    let label = `Top Movers · ${_priceChangeTfShortLabel(prefs.timeframe, prefs.customDate)}`;
+    if (_isPhoneViewport() && scored.length > 1 && !_topMoversMobileExpanded) {
+      label += ` (${Math.min(scored.length, 6)})`;
+    }
+    labelEl.textContent = label;
+  }
   const top = scored.slice(0, 6);
   const previewEl = document.getElementById('statTopMoversPreview');
   if (!top.length) {

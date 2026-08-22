@@ -33,6 +33,86 @@ const skipWords = new Set([
   'WON','WOO','YAM','YAP','YEP','YET','ZIP','ZOO'
 ]);
 
+// Set-code shaped token: 3 alphanumerics with at least one letter (MH3, BLB, 2XM…)
+const SET_CODE_TOKEN_SRC = '\\b([A-Z][A-Z0-9]{2}|[A-Z0-9][A-Z][A-Z0-9]|[A-Z0-9]{2}[A-Z])\\b';
+
+// Spoken letter names → letters. The recognizer usually transcribes spelled-out codes as
+// words ("em aitch three"), which the old single-char collapse never caught.
+const LETTER_WORDS = {
+  ay: 'A', aye: 'A', bee: 'B', be: 'B', cee: 'C', see: 'C', sea: 'C', si: 'C',
+  dee: 'D', ee: 'E', ef: 'F', eff: 'F', gee: 'G', jee: 'G', aitch: 'H', haitch: 'H',
+  eye: 'I', jay: 'J', kay: 'K', cay: 'K', el: 'L', ell: 'L', em: 'M', en: 'N',
+  oh: 'O', owe: 'O', pee: 'P', pea: 'P', cue: 'Q', queue: 'Q', are: 'R', arr: 'R',
+  es: 'S', ess: 'S', tee: 'T', tea: 'T', you: 'U', yew: 'U', ewe: 'U', vee: 'V',
+  ex: 'X', why: 'Y', zee: 'Z', zed: 'Z',
+};
+const DIGIT_WORDS = {
+  zero: '0', one: '1', two: '2', to: '2', too: '2', three: '3',
+  four: '4', for: '4', fore: '4', five: '5', six: '6', seven: '7',
+  eight: '8', ate: '8', nine: '9',
+};
+
+function _voiceCharToken(word) {
+  const w = String(word || '').toLowerCase().replace(/[.,!?;]/g, '');
+  if (/^[a-z0-9]$/.test(w)) return w.toUpperCase();
+  if (LETTER_WORDS[w]) return LETTER_WORDS[w];
+  if (DIGIT_WORDS[w] !== undefined) return DIGIT_WORDS[w];
+  return null;
+}
+
+/**
+ * Collapse runs of ≥3 spoken characters into a set code: "em aitch three" → "MH3",
+ * "bee el bee 261" → "BLB 261". The first 3 chars must contain a letter (so digit-by-digit
+ * collector numbers like "one two four" stay words for the number parser), and tokens past
+ * the first 3 are left as-is so "bee el bee one two four" → "BLB one two four".
+ */
+function collapseSpokenLetterRuns(text) {
+  const tokens = String(text || '').split(/\s+/).filter(Boolean);
+  const out = [];
+  let i = 0;
+  while (i < tokens.length) {
+    let j = i;
+    const chars = [];
+    while (j < tokens.length && chars.length < 3) {
+      const ch = _voiceCharToken(tokens[j]);
+      if (!ch) break;
+      chars.push(ch);
+      j++;
+    }
+    if (chars.length === 3 && /[A-Z]/.test(chars.join(''))) {
+      out.push(chars.join(''));
+      i = j;
+    } else {
+      out.push(tokens[i]);
+      i++;
+    }
+  }
+  return out.join(' ');
+}
+
+// Sound-alike letter groups (speech confusions): substitutions within a group cost 0.4
+// instead of 1 so "DLB"→"BLB" beats an unrelated code at the same plain edit distance.
+const VOICE_CONFUSION_GROUPS = ['BCDEGPTVZ', 'MN', 'SFX', 'AJK', 'IY', 'UQW'];
+const VOICE_CONFUSION = (() => {
+  const m = {};
+  for (const g of VOICE_CONFUSION_GROUPS)
+    for (const a of g) for (const b of g) if (a !== b) m[a + b] = true;
+  return m;
+})();
+
+function voiceWeightedDistance(a, b) {
+  const m = a.length, n = b.length;
+  const d = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = 0; i <= m; i++) d[i][0] = i;
+  for (let j = 0; j <= n; j++) d[0][j] = j;
+  for (let i = 1; i <= m; i++)
+    for (let j = 1; j <= n; j++) {
+      const sub = a[i - 1] === b[j - 1] ? 0 : (VOICE_CONFUSION[a[i - 1] + b[j - 1]] ? 0.4 : 1);
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + sub);
+    }
+  return d[m][n];
+}
+
 const VOICE_SET_PREFS_KEY = 'mtg_voice_set_prefs_v2';
 const VOICE_SET_PREFS_V1_KEY = 'mtg_voice_set_prefs_v1';
 const voiceSetPrefsDefault = {
@@ -120,6 +200,119 @@ function _voiceOwnedSetCodes() {
     out.add(code);
   }
   return out;
+}
+
+let _voiceOwnedCache = { key: '', set: new Set() };
+function _voiceOwnedSetCodesCached() {
+  const key = [
+    Array.isArray(collection) ? collection.length : 0,
+    voiceSetPrefs.excludeTokenSets, voiceSetPrefs.excludeArtCardSets,
+  ].join('|');
+  if (_voiceOwnedCache.key === key) return _voiceOwnedCache.set;
+  _voiceOwnedCache = { key, set: _voiceOwnedSetCodes() };
+  return _voiceOwnedCache.set;
+}
+
+/** Set codes eligible as voice-match candidates: allSets minus the user's token/art/owned-only exclusions. */
+let _voiceEligibleSetCache = { key: '', entries: [] };
+function _voiceEligibleSetEntries() {
+  if (!Array.isArray(allSets) || !allSets.length) return [];
+  const key = [
+    allSets.length, voiceSetPrefs.excludeTokenSets, voiceSetPrefs.excludeArtCardSets,
+    voiceSetPrefs.filterOwnedSetsOnly,
+    voiceSetPrefs.filterOwnedSetsOnly && Array.isArray(collection) ? collection.length : 0,
+  ].join('|');
+  if (_voiceEligibleSetCache.key === key) return _voiceEligibleSetCache.entries;
+  const owned = voiceSetPrefs.filterOwnedSetsOnly ? _voiceOwnedSetCodesCached() : null;
+  const entries = [];
+  for (const s of allSets) {
+    const code = String(s.code || '').toUpperCase();
+    if (!code) continue;
+    const setType = String(s.set_type || s.type || '').toLowerCase();
+    if (voiceSetPrefs.excludeTokenSets && (setType === 'token' || /\btoken\b/i.test(String(s.name || '')))) continue;
+    if (voiceSetPrefs.excludeArtCardSets && (setType === 'memorabilia' || /\bart series\b/i.test(String(s.name || '')))) continue;
+    if (owned && !owned.has(code)) continue;
+    entries.push({ code, releasedAt: s.released_at ? Date.parse(s.released_at) : 0 });
+  }
+  _voiceEligibleSetCache = { key, entries };
+  return entries;
+}
+
+/** Sets confirmed (card added) this modal session — a strong prior for what's being entered. */
+const voiceSessionConfirmedSets = new Set();
+
+/**
+ * Rank plausible set codes for a spoken candidate: confusion-weighted distance ≤ 2 against
+ * pref-filtered sets, minus priors (pinned/last-heard, confirmed this session, owned, recent).
+ * An exact code match always outranks fuzzy candidates.
+ */
+function matchVoiceSetCodeCandidates(candidate, k = 3) {
+  if (!candidate) return [];
+  const entries = _voiceEligibleSetEntries();
+  if (!entries.length) return [];
+  const owned = _voiceOwnedSetCodesCached();
+  const nowMs = Date.now();
+  const scored = [];
+  for (const ent of entries) {
+    const dist = ent.code === candidate ? 0 : voiceWeightedDistance(candidate, ent.code);
+    if (dist > 2) continue;
+    let bonus = 0;
+    if (ent.code === pinnedSetCode) bonus += 0.4;
+    if (ent.code === lastHeardSetCode) bonus += 0.2;
+    if (voiceSessionConfirmedSets.has(ent.code)) bonus += 0.3;
+    if (owned.has(ent.code)) bonus += 0.25;
+    if (ent.releasedAt && nowMs - ent.releasedAt < 3 * 365 * 86400000) bonus += 0.2;
+    scored.push({ code: ent.code, dist, score: dist - Math.min(bonus, 0.75) });
+  }
+  scored.sort((x, y) => (x.dist === 0 ? -1 : 0) - (y.dist === 0 ? -1 : 0) || x.score - y.score);
+  return scored.slice(0, k);
+}
+
+function matchVoiceSetCode(candidate) {
+  const cands = matchVoiceSetCodeCandidates(candidate, 1);
+  return cands.length ? cands[0].code : candidate;
+}
+
+// ── Session card-lookup cache + speculative prefetch from interim transcripts ──
+
+const voiceCardFetchCache = new Map();
+/** fetchCard with per-session dedupe; failures aren't cached so retries stay possible. */
+function fetchVoiceCardCached(setCode, num) {
+  const key = `${String(setCode).toUpperCase()}|${String(num).trim()}`;
+  if (voiceCardFetchCache.has(key)) return voiceCardFetchCache.get(key);
+  const p = fetchCard(setCode, num)
+    .catch(() => null)
+    .then(card => {
+      if (!card) voiceCardFetchCache.delete(key);
+      return card;
+    });
+  voiceCardFetchCache.set(key, p);
+  return p;
+}
+
+let _voicePrefetchLastKey = '';
+/** Kick off the card fetch as soon as an interim transcript already carries a known set + number. */
+function maybePrefetchFromInterim(text) {
+  if (!Array.isArray(allSets) || !allSets.length) return;
+  const t = collapseSpokenLetterRuns(normalizeVoiceTranscript(text));
+  const upper = t.toUpperCase();
+  const codes = [...upper.matchAll(new RegExp(SET_CODE_TOKEN_SRC, 'g'))]
+    .map(m => m[1]).filter(c => !skipWords.has(c));
+  let code = codes[0] || '';
+  code = PHONETIC_MAP[code] || code;
+  code = voiceCorrections[code] || code;
+  // Only prefetch exact known codes — no fuzzy guessing on unstable interim text
+  if (code && !_voiceEligibleSetEntries().some(e => e.code === code)) code = '';
+  if (!code) {
+    if (pinnedSetCode) code = pinnedSetCode;
+    else if (lastHeardSetCode && Date.now() - lastHeardSetTime < 8000) code = lastHeardSetCode;
+  }
+  const numMatch = upper.match(/\b(\d{1,4})\b/);
+  if (!code || !numMatch) return;
+  const key = `${code}|${numMatch[1]}`;
+  if (key === _voicePrefetchLastKey) return;
+  _voicePrefetchLastKey = key;
+  void fetchVoiceCardCached(code, numMatch[1]);
 }
 
 function voiceCardAllowedBySetPrefs(card) {
@@ -538,6 +731,15 @@ function openVoice(options) {
     }
   }
   document.getElementById('voiceModal').classList.add('open');
+  // Fuzzy set matching is a no-op until allSets loads — make sure it's loading now
+  if ((!Array.isArray(allSets) || !allSets.length) && typeof loadSets === 'function') {
+    loadSets().catch(() => {});
+  }
+  voiceCardFetchCache.clear();
+  _voicePrefetchLastKey = '';
+  voiceSessionConfirmedSets.clear();
+  lastSetCodeCandidates = [];
+  lastParseSpokenCode = '';
   toggleVoiceSearchSettings(false);
   renderVoiceSetSearchSettings();
   switchVoiceTab(voiceAddToActiveDeckMode ? 'search' : 'voice');
@@ -634,17 +836,30 @@ async function startRecording() {
   if (!recognition) {
     recognition = new SpeechRecognition();
     recognition.lang = 'en-US';
+    // Continuous: one long-lived session across utterances. Non-continuous mode killed the
+    // session after every final (incl. "yes"), and the teardown + restart + warm-up gap
+    // clipped the first words of the next card.
+    recognition.continuous = true;
     recognition.interimResults = true;
     recognition.maxAlternatives = 5;
+    let lastFinalText = '';
+    let lastFinalAt = 0;
     recognition.onresult = e => {
-      const lastResult = e.results[e.results.length - 1];
-      const priorText = Array.from(e.results).slice(0, -1).map(r => r[0].transcript).join('');
-      const rawChosen = (lastResult.isFinal && voiceMode === 'scan')
-        ? pickBestAlternative(Array.from({length: lastResult.length}, (_, i) => lastResult[i].transcript))
-        : lastResult[0].transcript;
-      const t = normalizeVoiceTranscript(priorText + rawChosen);
-      document.getElementById('voiceTranscript').textContent = t;
-      if (lastResult.isFinal) {
+      const transcriptEl = document.getElementById('voiceTranscript');
+      let interim = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const res = e.results[i];
+        if (!res.isFinal) { interim += res[0].transcript; continue; }
+        const raw = voiceMode === 'scan'
+          ? pickBestAlternative(Array.from({ length: res.length }, (_, k) => res[k].transcript))
+          : res[0].transcript;
+        const t = normalizeVoiceTranscript(raw).trim();
+        if (!t) continue;
+        // Android Chrome can duplicate finals in continuous mode — drop immediate repeats
+        if (t === lastFinalText && Date.now() - lastFinalAt < 1500) continue;
+        lastFinalText = t;
+        lastFinalAt = Date.now();
+        transcriptEl.textContent = t;
         bumpVoiceAccFinalUtterance();
         if (voiceMode === 'confirm') {
           handleVoiceConfirmation(t);
@@ -652,13 +867,17 @@ async function startRecording() {
           parseVoiceInput(t);
         }
       }
+      if (interim.trim()) {
+        transcriptEl.textContent = normalizeVoiceTranscript(interim);
+        maybePrefetchFromInterim(interim);
+      }
     };
     recognition.onerror = e => {
       isListening = false;
       document.getElementById('voiceOrb').classList.remove('listening');
       if (e.error === 'no-speech') {
         if (voiceAutoRestart && document.getElementById('voiceModal').classList.contains('open')) {
-          setTimeout(() => { if (voiceAutoRestart) startRecording(); }, 300);
+          setTimeout(() => { if (voiceAutoRestart) startRecording(); }, 100);
         }
       } else if (e.error === 'not-allowed') {
         voiceAutoRestart = false;
@@ -673,8 +892,8 @@ async function startRecording() {
       isListening = false;
       document.getElementById('voiceOrb').classList.remove('listening');
       if (voiceAutoRestart && document.getElementById('voiceModal').classList.contains('open')) {
-        const awaitingNumber = lastHeardSetCode && (Date.now() - lastHeardSetTime) < 8000;
-        setTimeout(() => { if (voiceAutoRestart) startRecording(); }, awaitingNumber ? 800 : 300);
+        // Continuous sessions still end on silence timeouts / network blips — restart fast
+        setTimeout(() => { if (voiceAutoRestart) startRecording(); }, 100);
       } else {
         document.getElementById('voiceStatus').textContent = 'Click orb to listen';
       }
@@ -703,19 +922,24 @@ function stopRecording() {
 function handleVoiceConfirmation(text) {
   text = normalizeVoiceTranscript(text);
   const lower = text.toLowerCase();
-  const yesWords = ['yes','yeah','yep','yup','correct','add','confirm','right','sure','ok','okay','do it','add it','that one','perfect','great'];
-  const noWords = ['no','nope','wrong','cancel','skip','next','redo','not that','not it','incorrect'];
+  // Word-boundary matching so "know"/"number nine" don't read as "no", "broken" as "ok", etc.
+  const noRe = /\b(no|nope|wrong|cancel|skip|next|redo|not\s+(that|it)|incorrect)\b/;
+  const yesRe = /\b(yes|yeah|yep|yup|correct|confirm|right|sure|ok|okay|do\s+it|add(\s+it)?|that\s+one|perfect|great)\b/;
   if (!pendingCard) return;
-  if (yesWords.some(w => lower.includes(w))) {
-    voicePendingYesCount++;
-    confirmVoiceAdd(true);
-  } else if (noWords.some(w => lower.includes(w))) {
+  const collapsed = collapseSpokenLetterRuns(text);
+  const hasDigits = /\b\d{1,4}\b/.test(collapsed);
+  const hasPotentialSet = new RegExp(
+    '\\b([A-Za-z0-9])\\s([A-Za-z0-9])\\s([A-Za-z0-9])\\b|' + SET_CODE_TOKEN_SRC, 'i',
+  ).test(collapsed);
+  const canUseBufferedOrPinned = !!(pinnedSetCode || (lastHeardSetCode && (Date.now() - lastHeardSetTime) < 8000));
+  if (noRe.test(lower)) {
     voicePendingYesCount = 0;
     if (voiceAcc) {
       voiceAcc.noSkips++;
       voiceAccNoteCardResolved();
     }
     lastRejectedCode = pendingCard ? pendingCard.set.toUpperCase() : '';
+    lastParseSpokenCode = '';
     pendingCard = null;
     clearCardPanel();
     document.getElementById('voiceParsed').innerHTML = '';
@@ -723,21 +947,18 @@ function handleVoiceConfirmation(text) {
     document.getElementById('manualCardNum').value = '';
     voiceMode = 'scan';
     document.getElementById('voiceTranscript').textContent = 'Skipped — say next card…';
-  } else {
-    // Allow immediate re-search while in confirm mode:
-    // speaking another set/number should replace the current candidate
-    // without requiring an explicit "no" first.
-    const hasDigits = /\b\d{1,4}\b/.test(text);
-    const hasPotentialSet = /\b([A-Za-z0-9])\s([A-Za-z0-9])\s([A-Za-z0-9])\b|\b([A-Z][A-Z0-9]{2}|[A-Z0-9][A-Z][A-Z0-9]|[A-Z0-9]{2}[A-Z])\b/i.test(text);
-    const canUseBufferedOrPinned = !!(pinnedSetCode || (lastHeardSetCode && (Date.now() - lastHeardSetTime) < 8000));
-    if (hasDigits && (hasPotentialSet || canUseBufferedOrPinned)) {
-      if (voiceAcc) {
-        voiceAcc.confirmReparses++;
-        renderVoiceAccPanel();
-      }
-      voiceMode = 'scan';
-      parseVoiceInput(text);
+  } else if (hasDigits && (hasPotentialSet || canUseBufferedOrPinned)) {
+    // Re-search wins over yes-words: "add BLB 42" means a new card, not "add this one".
+    // Speaking another set/number replaces the candidate without an explicit "no" first.
+    if (voiceAcc) {
+      voiceAcc.confirmReparses++;
+      renderVoiceAccPanel();
     }
+    voiceMode = 'scan';
+    parseVoiceInput(text);
+  } else if (yesRe.test(lower)) {
+    voicePendingYesCount++;
+    confirmVoiceAdd(true);
   }
 }
 
@@ -841,28 +1062,37 @@ function matchToSetCode(candidate) {
 // Falls back to alternative[0] when the set is already known (pinned/buffered) or no set data.
 function pickBestAlternative(alternatives) {
   if (alternatives.length <= 1 || !allSets.length) return normalizeVoiceTranscript(alternatives[0]);
-  const knownCodes = new Set(allSets.map(s => s.code.toUpperCase()));
+  const entries = _voiceEligibleSetEntries();
+  if (!entries.length) return normalizeVoiceTranscript(alternatives[0]);
+  const knownCodes = new Set(entries.map(e => e.code));
+  const codeRe = new RegExp(SET_CODE_TOKEN_SRC, 'g');
   let best = alternatives[0], bestScore = Infinity;
   for (const alt of alternatives) {
-    const norm = normalizeVoiceTranscript(alt).replace(/\b([A-Za-z0-9])\s([A-Za-z0-9])\s([A-Za-z0-9])\b/g,
-      (m, a, b, c) => /[A-Za-z]/.test(a + b + c) ? a + b + c : m);
-    const codes = [...norm.toUpperCase().matchAll(/\b([A-Z][A-Z0-9]{2}|[A-Z0-9][A-Z][A-Z0-9]|[A-Z0-9]{2}[A-Z])\b/g)]
+    const norm = collapseSpokenLetterRuns(normalizeVoiceTranscript(alt));
+    const codes = [...norm.toUpperCase().matchAll(codeRe)]
       .map(m => m[1]).filter(c => !skipWords.has(c));
     if (!codes.length) continue;
-    const score = Math.min(...codes.map(c => {
+    let score = Math.min(...codes.map(c => {
       if (knownCodes.has(c)) return 0;
       let min = Infinity;
-      for (const k of knownCodes) { const d = levenshtein(c, k); if (d < min) min = d; }
+      for (const e of entries) { const d = voiceWeightedDistance(c, e.code); if (d < min) min = d; }
       return min;
     }));
+    if (/\d/.test(norm)) score -= 0.05; // slight preference for alternatives that also carry a number
     if (score < bestScore) { bestScore = score; best = alt; }
   }
   return normalizeVoiceTranscript(best);
 }
 
+/** Ranked fuzzy candidates from the last voice parse (for auto-retry when the top pick 404s). */
+let lastSetCodeCandidates = [];
+/** Raw code heard on the last voice parse (pre-correction) — learning source for confirm/manual fixes. */
+let lastParseSpokenCode = '';
+
 function parseVoiceInput(text) {
   text = normalizeVoiceTranscript(text);
-  // Collapse spaced chars from speech recognition: "D M R" → "DMR", "M H 3" → "MH3"
+  // Collapse spelled-out codes: "em aitch three" → "MH3", "D M R" → "DMR"
+  text = collapseSpokenLetterRuns(text);
   text = text.replace(/\b([A-Za-z0-9])\s([A-Za-z0-9])\s([A-Za-z0-9])\b/g, (m, a, b, c) =>
     /[A-Za-z]/.test(a + b + c) ? a + b + c : m);
 
@@ -877,15 +1107,26 @@ function parseVoiceInput(text) {
     foilBtn.style.borderColor = pendingFoil ? 'var(--gold)' : '';
   }
 
-  const allCodes = [...upper.matchAll(/\b([A-Z][A-Z0-9]{2}|[A-Z0-9][A-Z][A-Z0-9]|[A-Z0-9]{2}[A-Z])\b/g)]
+  const allCodes = [...upper.matchAll(new RegExp(SET_CODE_TOKEN_SRC, 'g'))]
     .map(m => m[1])
     .filter(c => !skipWords.has(c));
   const spokenCode = allCodes[0] || '';
 
-  // Apply phonetic map first, then check learned corrections, then fuzzy-match
+  // Apply phonetic map first, then check learned corrections, then weighted fuzzy-match
+  // against pref-filtered sets (keep runners-up so a 404 can auto-retry them)
   const phonetic = PHONETIC_MAP[spokenCode] || spokenCode;
   const learned = phonetic && voiceCorrections[phonetic];         // key = what was heard
-  const matchedCode = learned ? learned : matchToSetCode(phonetic);
+  // An exact real set code always wins — even one the prefs exclude (the lookup will show
+  // the "filtered" message rather than silently remapping to a different set)
+  const exactAnySet = !!phonetic && Array.isArray(allSets) &&
+    allSets.some(s => String(s.code || '').toUpperCase() === phonetic);
+  const fuzzyCands = phonetic && !exactAnySet ? matchVoiceSetCodeCandidates(phonetic, 4) : [];
+  const fuzzyBest = fuzzyCands.length ? fuzzyCands[0].code : '';
+  const matchedCode = learned ? learned : (exactAnySet ? phonetic : (fuzzyBest || phonetic));
+  lastSetCodeCandidates = learned
+    ? [learned, ...fuzzyCands.map(c => c.code).filter(c => c !== learned)]
+    : fuzzyCands.map(c => c.code);
+  if (spokenCode) lastParseSpokenCode = spokenCode;
   const validatedCode = matchedCode;
   const fuzzyFixed = !!(phonetic && matchedCode && matchedCode !== phonetic && !learned);
   // Only record for auto-learning when fuzzy matching actually changed something
@@ -977,12 +1218,43 @@ async function lookupManual(source = 'manual') {
     else if (source === 'manual') voiceAcc.manualLookups++;
   }
 
+  // Manual set-code edits are a learning signal: the user heard something the recognizer
+  // garbled into a non-set, then typed the real code. Only learn when the spoken code
+  // wasn't itself a real set (so switching cards manually doesn't create bogus mappings).
+  if (source === 'manual' && lastParseSpokenCode) {
+    const manualUpper = setCode.toUpperCase();
+    const spokenWasRealSet = Array.isArray(allSets) &&
+      allSets.some(s => String(s.code || '').toUpperCase() === lastParseSpokenCode);
+    if (!spokenWasRealSet && manualUpper !== lastParseSpokenCode) {
+      lastRawSpokenCode = lastParseSpokenCode;
+    }
+  }
+
   voiceMode = 'confirm'; // lock before fetch so yes/no during load don't hit parseVoiceInput
   pendingCard = null;
   const el = document.getElementById('voiceLookupResult');
   el.innerHTML = '<div style="aspect-ratio:5/7;display:flex;align-items:center;justify-content:center;color:var(--text2);gap:8px"><div class="spinner"></div></div>';
 
-  const card = await fetchCard(setCode, num);
+  let card = await fetchVoiceCardCached(setCode, num);
+  if (!card && source === 'parse' && Array.isArray(lastSetCodeCandidates) && lastSetCodeCandidates.length) {
+    // Top fuzzy pick 404'd — try the runner-up candidates before giving up
+    const numInt = parseInt(num, 10);
+    for (const alt of lastSetCodeCandidates) {
+      if (!alt || alt.toUpperCase() === setCode.toUpperCase()) continue;
+      const meta = _voiceSetMeta(alt);
+      if (meta && meta.card_count && Number.isFinite(numInt) && numInt > meta.card_count) continue;
+      const altCard = await fetchVoiceCardCached(alt, num);
+      if (!altCard) continue;
+      card = altCard;
+      document.getElementById('manualSetCode').value = alt;
+      lastHeardSetCode = alt;
+      lastHeardSetTime = Date.now();
+      if (lastParseSpokenCode && lastParseSpokenCode !== alt) lastRawSpokenCode = lastParseSpokenCode;
+      const parsedEl = document.getElementById('voiceParsed');
+      if (parsedEl) parsedEl.innerHTML += `<div class="voice-tag" style="border-color:var(--teal);color:var(--teal)"><span>~ retried</span>${alt}</div>`;
+      break;
+    }
+  }
   if (!card) {
     if (voiceAcc) voiceAcc.failedLookups++;
     el.innerHTML = `<div style="aspect-ratio:5/7;display:flex;align-items:center;justify-content:center;border:1px dashed var(--red);border-radius:8px;color:var(--red);font-size:0.8rem;text-align:center;padding:8px">Not found:<br>${setCode} #${num}</div>`;
@@ -1057,7 +1329,9 @@ function confirmVoiceAdd(fromSpeech) {
     localStorage.setItem('mtg_voice_corrections', JSON.stringify(voiceCorrections));
   }
   lastRawSpokenCode = '';
+  lastParseSpokenCode = '';
   lastRejectedCode = '';
+  voiceSessionConfirmedSets.add(confirmedCode); // prior for fuzzy matching this session
 
   if (autoPinEnabled) {
     const cSet = confirmedCode;
