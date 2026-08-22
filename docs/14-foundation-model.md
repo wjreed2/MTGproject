@@ -114,20 +114,19 @@ A form of **interaction**, not a universal Foundation quota. Identify a wipe nee
 
 A deck can legitimately run **zero** board wipes without being deficient.
 
-### Ramp
+### Ramp / make mana on time
 
-Uses both Commander Gameplan and broader deck characteristics.
+Gameplan answers whether the deck can make enough mana **on time** for the jobs that matter (commander on T today; other x, y, z still to lock in round 3). That is a success test, not an L*/R* quota.
 
-- Gameplan establishes the **baseline** early-ramp requirement (target cast turn, consistency, L*/R*).
-- Broader mana curve, expensive spells, mana sinks, strategy, acceleration dependence, and other mana demands can **modify** that need.
+Hypergeo still counts real lands and ramp cards inside the formula. L*/R* may be shown as derived explanation. Quality-weighted coverage applies to how much each land/ramp piece contributes (untapped, colors, timing).
 
-Ramp is not a fixed ratio. Today, confirmed-plan Hybrid/Classic still copies **R\*** onto the Ramp threshold; the “modify from broader demands” layer is not implemented.
+Today, confirmed-plan Hybrid/Classic still copies **R\*** onto the Ramp threshold until cutover.
 
 ### Manabase
 
 Two layers. Do **not** rename the Manabase category to Foundation.
 
-1. **Land quantity** — L\* is the quantitative baseline (still not an Adds land deficit today).
+1. **On-time mana** — Gameplan-style success, not a land-count quota.
 2. **Manabase quality** — color access, fixing, untapped sources, utility lands, curve, spell requirements, deck-specific demands.
 
 An appropriate land count does not guarantee a good manabase.
@@ -148,7 +147,7 @@ Classic still uses a Card Draw role count. This capability view is the locked di
 
 Need is determined by strategy/playstyle **and** the threats the deck needs to answer. Evaluate **coverage**, not just counts. See [11-interaction.md](./11-interaction.md).
 
-Relevant threat types may include: creatures, permanents, artifacts, enchantments, graveyards, the stack, lands, combos/engines, wide boards, other meaningful Commander threat classes.
+Relevant threat types (v1, F-Q6 A): **Creature · Wide board · Artifact · Enchantment · Graveyard · Stack · Land**. Combo/engine is a reason you may need those answers, not its own type.
 
 **Threat → color capability → budget → available answers → reliability → deck need.**
 
@@ -189,10 +188,6 @@ Synergy can reduce or reshape an apparent Foundation deficit only when there is 
 
 ## Relation to Hybrid today
 
-Hybrid still concatenates Classic role-deficit staples and sandbox theme rows. The Foundation model is the intended **need/evaluation layer** above that merge:
+Hybrid (Classic staples + sandbox theme) is **implemented** and may keep running until cutover.
 
-- Classic counts remain until capability coverage can set or modulate targets.
-- Why lines should eventually speak in strengths / deficiencies / vulnerabilities, not only tag deficits.
-- Do not replace the staple/theme split with a single opaque score.
-
-Implementation taxonomy, formulas, and UI are still open — [07-open-questions.md](./07-open-questions.md).
+**Destination (F-Q5):** Foundation ranking **replaces Hybrid**, with a required explanatory readout. Not an opaque score. New layer over tags + CardIR + Gameplan (F-Q10). Schema locks: [15-foundation-interview.md](./15-foundation-interview.md).

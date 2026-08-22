@@ -33,7 +33,9 @@ Coverage should be:
 
 ## Not decided
 
-Exact coverage-unit definition, allocation formula, and weights are still open. Shared capacity between interaction and protection is the motivating case; other multi-role overlaps (Ramp+Draw, etc.) should use the same idea if the formula is general.
+Exact numeric split weights remain tunable. **Where** shared capacity applies in v1 is locked: competing-use pairs only; first pair **interaction ↔ protection** (F-Q7). Usable capacity 1.0; default 50/50 unless one need is larger; credit = quality × share. Ramp+Draw stay additive until proven competing.
+
+Ramp+Draw and similar should use the same idea later only if they actually compete.
 
 ## CardIR constraint
 
@@ -48,4 +50,4 @@ Prefer existing CardIR fields plus new deterministic rules. Do not redo CardIR u
 | Primary-tier **W_S = 0** | Secondary D is zero while Ramp/Draw/Removal remain short | Does not allocate shared interaction/protection capacity |
 | Confirmed-role have-counts | Multi-role cards add quantity to each matched role | Intentionally counts each role; coverage would sit above this |
 
-Do not replace D/V with coverage in a drive-by. Any implementation should be a new explainable layer, then wired into Classic/Hybrid ranking with verification cases.
+Do not replace D/V in a drive-by on the current Hybrid path. The **destination** engine uses coverage units (F-Q5, F-Q8). Hybrid may keep running until cutover.

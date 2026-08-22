@@ -1,8 +1,8 @@
 # Hybrid Suggested Adds
 
-**Status:** Implemented as a merge of Classic staples + sandbox theme rows (Ready Prompts 27–28). Deck Need / Deck Fit / coverage-unit scoring is **not** wired into this merge yet.
+**Status:** Implemented as a merge of Classic staples + sandbox theme rows (Ready Prompts 27–28). **Destination:** Foundation ranking replaces this merge (F-Q5), with a required explanatory readout. Hybrid may keep running until cutover.
 
-This file is the working context for improving Hybrid suggestions. Do not treat it as a license to replace Classic scoring, edit partner `engine2/`, or introduce runtime AI.
+This file describes **current** Hybrid behavior. Do not edit partner `engine2/` or introduce runtime AI.
 
 ## Name collisions — read first
 
@@ -106,7 +106,7 @@ Related design (not yet implemented as scoring):
 - [12-coverage.md](./12-coverage.md) — shared-capacity multi-role credit
 - [13-deck-fit.md](./13-deck-fit.md) — deck-level need/fit and counterfactual replacement
 
-Future Hybrid Why lines should speak in strengths / deficiencies / vulnerabilities where the algorithm disagrees with intent, rather than only tag deficits. Do not replace the staple/theme split with a single opaque Foundation score.
+Future Why lines should speak in strengths / deficiencies / vulnerabilities. Destination ranking **replaces** this merge (not an opaque score). See [15-foundation-interview.md](./15-foundation-interview.md).
 
 ## Hard constraints (repeat)
 

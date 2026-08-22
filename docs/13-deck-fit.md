@@ -69,8 +69,8 @@ Future Deck Fit should evaluate hypothetical replacements by recomputing relevan
 
 Goldfish / `js/engine/*` is not that layer: opening-hand Monte Carlo and interactive playtest are not an automated multi-game plan-execution simulator. A future simulator should **validate** the deterministic model, not replace it, and only if explicitly scoped.
 
-## How this should meet Hybrid (when implemented)
+## How this should meet Hybrid (destination)
 
-Do not throw away the Classic-staple / sandbox-theme split. Use the locked Foundation model ([14-foundation-model.md](./14-foundation-model.md)) to set or modulate needs; use Deck Fit to rank candidates **inside** each half with Why lines that can cite strengths, deficiencies, and vulnerabilities.
+Foundation ranking **replaces Hybrid** (F-Q5), with a required readout. Use the locked Foundation model ([14-foundation-model.md](./14-foundation-model.md), [15-foundation-interview.md](./15-foundation-interview.md)). Hybrid may keep running until cutover.
 
-Orchestration minimum is still an open question: what can be done without changing CardIR.
+Orchestration: new layer over tags + CardIR + Gameplan; no CardIR regen; partner `engine2/` untouched (F-Q10).

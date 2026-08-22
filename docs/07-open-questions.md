@@ -1,13 +1,13 @@
 # Open Questions
 
 ## Foundation
-Philosophy is **locked** in [14-foundation-model.md](./14-foundation-model.md): capability-based, three input sources, explanatory output.
+Philosophy locked in [14-foundation-model.md](./14-foundation-model.md). Schema locked in [15-foundation-interview.md](./15-foundation-interview.md).
 
-Still open (implementation):
-- Exact Foundation capability taxonomy and formal capability schema.
-- Exact formulas for context-dependent need levels.
-- Quantity vs quality modeling for each capability.
-- Exact presentation/UI for overall evaluation, strengths, deficiencies, and vulnerabilities.
+Still open:
+- Exact formulas for context-dependent need levels (round 3).
+- Quantity vs quality **weights** (units locked; numbers not).
+- Exact presentation/UI for overall evaluation (later round).
+- Wizard insert order for playstyle + competition.
 
 ## Tutors
 Philosophy is **locked**: no tutor quota; tutors are one consistency mechanism; user philosophy constrains the solution, not the need.
@@ -59,17 +59,13 @@ Known:
 - Complex edge cases and coverage limits remain an engineering concern.
 
 ## Public Foundation wording
-What exact public Foundation definition should be used?
-
-Known:
-- Target approximately a 9th-grade reading level.
-- Exact final wording remains open.
+**Locked F-Q9 A.** Working copy in [15-foundation-interview.md](./15-foundation-interview.md). Still editable as copy, not as meaning.
 
 ## Coverage units
-Exact definition, allocation formula, and weights. Shared capacity between interaction and protection is the motivating case. How coverage interacts with Classic role deficits (D) is open.
+**Where** is locked (F-Q7: competing pairs, first interaction↔protection). Exact numeric weights remain open.
 
 ## Interaction need (quantitative)
-How speed, power, strategy, win condition, commander, and curve change interaction **quantity** and **quality**. Exact threat taxonomy. Quantity vs quality, timing weight, and free/alternate-cost valuation are separate sub-questions.
+Threat **types** are locked (F-Q6). Still open: how competition, speed, and strategy set the **amount** of coverage needed per type.
 
 ## Unequal multi-role quality
 A card that is excellent at A and mediocre at B should not get the same split as a card that is good at both. Functional-equivalence scoring is not modeled.
@@ -84,9 +80,9 @@ Minimum layer needed to evaluate “replace X with Y” without changing CardIR.
 How context → need curves are stored and versioned (deterministic lookup, not an LLM). Exact methodology is open.
 
 ## Exact Deck Context schema
-Formal variables and quantitative weighting curves for speed, competitiveness, strategy, win condition, commander, curve, and other context inputs.
+v1 fields locked (F-Q4): list signals always on; wizard confirms strategy/wincon/T/protection/budget/roles/playstyle/competition; infer when Undecided; threat speed inferred. Quantitative **curves** still open (round 3).
 
 ## Next investigation
-Round 2 interview is in [15-foundation-interview.md](./15-foundation-interview.md) (capability schema, Deck Context, Hybrid wiring, threat list, coverage v1). Philosophy in [14-foundation-model.md](./14-foundation-model.md) stays locked.
+Round 2 is **locked** ([15-foundation-interview.md](./15-foundation-interview.md)). Round 3 is need-setting: mana-on-time x, y, z; how other-role target numbers are set; how competition/playstyle change needs.
 
-Until those F-Q items are answered, do not implement Foundation scoring or replace Classic thresholds.
+Do not implement the Hybrid-replacement engine until need-setting, mechanisms/synergy, and output/cutover are locked.

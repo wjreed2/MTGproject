@@ -4,7 +4,7 @@
 
 The Plan wizard is one modal pass with Back/edit support. Optional steps can be skipped where specified.
 
-Current sequence:
+Current sequence (planned additions from Foundation interview round 2 — exact insert order not locked):
 1. Commander — only if deck has none; may skip for now.
 2. Key cards — soft 2–5 band; finish always allowed.
 3. Roles — confirm/edit derived roles.
@@ -13,9 +13,11 @@ Current sequence:
 6. Secondary strategy — optional/skippable.
 7. Theme type pickers — one per strategy needing types.
 8. Plan sub-tags — theme pieces inside the Plan envelope.
-9. Cast turn — target T, consistency %, L* / R*.
+9. Cast turn — target T, consistency %, L* / R* (L*/R* are derived explanation, not Foundation quotas).
 10. Protection — importance + optional types.
 11. Budget — skippable.
+12. **Playstyle** — Aggro↔Control slider (S ∈ [−7, 7]); wizard field; same value as any later panel edit.
+13. **Competition** — skippable Casual / Focused / High / cEDH; Undecided allowed.
 
 ## Plan confirmation
 

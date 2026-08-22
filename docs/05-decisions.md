@@ -18,7 +18,37 @@ The wizard is a single modal flow with Back/edit support.
 This is the current conceptual model.
 
 ## DECIDED — Foundation is not a mandatory checklist
-Foundation means fundamental capabilities evaluated for every deck. It does not imply every deck must contain a fixed amount of every function. Classic role-count thresholds still run in Hybrid staples; they are not this model.
+Foundation means fundamental capabilities evaluated for every deck. It does not imply every deck must contain a fixed amount of every function. Classic Hybrid role-count staples remain until cutover; they are not the destination model.
+
+## DECIDED — Foundation layers (F-Q1 D)
+Capabilities (evaluated every deck) → mechanisms (need → solution) → outcomes/secondaries (resilience, flexibility, mana-efficiency). Tutors, wipes, and protection cards are mechanisms.
+
+## DECIDED — v1 capabilities (F-Q2 A)
+Close the game · Make mana on time · Generate resources · Interact with relevant threats · Keep going after disruption. Strategy/payoffs stay Strategy.
+
+## DECIDED — Competition field in wizard (F-Q3 A)
+Skippable Casual / Focused / High / **cEDH**. cEDH is its own category. Undecided allowed; infer-and-recommend, never silently overwrite.
+
+## DECIDED — Playstyle is a wizard field (F-Q4)
+Aggro↔Control slider (S ∈ [−7, 7]) is confirmed in the Plan wizard. Same stored value as any later panel edit.
+
+## DECIDED — Foundation engine replaces Hybrid (F-Q5 A+B)
+Destination suggestion engine is Foundation ranking plus an explanatory readout. Hybrid (Classic + sandbox merge) may run until cutover. Replacement with an **opaque** single score remains rejected.
+
+## DECIDED — v1 interaction threat types (F-Q6 A)
+Creature · Wide board · Artifact · Enchantment · Graveyard · Stack · Land. Combo/engine is a reason, not a type.
+
+## DECIDED — Shared capacity v1 (F-Q7 B)
+Competing-use pairs only. First pair: interaction ↔ protection. Capacity 1.0; default 50/50 unless one need is larger; credit = quality × share.
+
+## DECIDED — Coverage units and need amounts (F-Q8)
+Quality-weighted coverage units. Make mana on time is a Gameplan-style success test (enough mana for x, y, z on time), not an L*/R* quota. Hypergeo still counts real cards. L*/R* may be derived explanation. Other roles keep a per-deck target number filled by coverage units.
+
+## DECIDED — Public Foundation wording (F-Q9 A)
+“Foundation is whether your deck can do the basic jobs every Commander deck has to do — make mana, keep resources coming, answer threats, and finish the game — in a way that fits your plan. Your strategy is how you do those jobs.”
+
+## DECIDED — Foundation orchestration (F-Q10 A)
+New deterministic layer over existing tags + CardIR + Gameplan. No CardIR regen. Partner `engine2/` untouched.
 
 ## DECIDED — Foundation is capability-based
 Foundation is universal at the capability level. Strategy determines the specific requirements, weighting, and implementation. Avoid universal card-count quotas. Full lock: [14-foundation-model.md](./14-foundation-model.md).
@@ -53,11 +83,11 @@ Protection is part of resilience and is evaluated against what the deck needs to
 ## DECIDED — Board wipes are contextual interaction
 No universal board-wipe target. Need depends on strategy/playstyle and board-state requirements. Zero wipes can be legitimate.
 
-## DECIDED — Ramp uses Commander Gameplan + broader mana demands
-R* establishes baseline early-ramp need; broader curve, strategy, expensive spells, and mana demands can modify it. Today only the R* → Ramp threshold copy is implemented.
+## DECIDED — Ramp / mana-on-time uses Gameplan success, not an R* quota
+Make mana on time is whether the deck can pay its timed costs (commander on T today; other x, y, z still to lock). R*/L* are not Foundation scoring quotas. They may be shown as derived explanation. Hypergeo still counts real cards inside the formula.
 
-## DECIDED — Manabase has quantity and quality layers
-L* establishes land-count baseline; manabase quality separately evaluates color access, fixing, untapped sources, utility lands, and deck demands. Do not rename Manabase to Foundation.
+## DECIDED — Manabase quantity vs quality
+Land count and manabase quality remain distinct. L* is not an Adds land deficit and is not the mana-on-time need quota. Do not rename Manabase to Foundation.
 
 ## DECIDED — Win condition is user-declared and algorithm-validated
 Wizard captures intended win condition; algorithm validates support, access, consistency, redundancy, mana, and strategy fit.
@@ -120,7 +150,7 @@ A multi-role card cannot automatically be counted as a full card for every role 
 Do not redo CardIR for coverage/fit without an exceptionally strong reason and explicit approval. Prefer new deterministic rules over existing IR.
 
 ## PROPOSED — Coverage units
-Use shared-capacity coverage units for multi-role cards. Exact formula is not decided. See [12-coverage.md](./12-coverage.md).
+v1 **where** is locked (F-Q7: competing pairs, first interaction↔protection). Exact numeric weights remain tunable. See [12-coverage.md](./12-coverage.md).
 
 ## PROPOSED — Seeded research model
 Use research-backed seeded data/lookup tables for context-dependent need curves rather than regenerating CardIR.
@@ -152,5 +182,5 @@ If key cards drift, show a stale banner and offer explicit Re-derive. Never sile
 - Renaming the mana base to Foundation
 - Always recommending the highest EDHREC-ranked card
 - Silent role/plan updates
-- Replacing Hybrid’s Classic-staple / sandbox-theme split with a single opaque score before Deck Fit is specified
-- Editing partner `engine2/` to prototype Hybrid or Deck Fit
+- Replacing Hybrid with an **opaque** single score
+- Editing partner `engine2/` to prototype Foundation or Deck Fit

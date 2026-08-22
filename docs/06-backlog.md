@@ -2,18 +2,13 @@
 
 ## Current design work (Hybrid / Deck Fit)
 
-These are the live design frontier for Hybrid suggestions. They are **not** implemented as scoring. See [10-hybrid-suggestions.md](./10-hybrid-suggestions.md), [14-foundation-model.md](./14-foundation-model.md), [11-interaction.md](./11-interaction.md), [12-coverage.md](./12-coverage.md), [13-deck-fit.md](./13-deck-fit.md).
+These are the live design frontier. Hybrid still runs; Foundation **replaces** it after remaining interview rounds. Locks: [15-foundation-interview.md](./15-foundation-interview.md).
 
-- Formalize Foundation capability taxonomy/schema (philosophy is locked; schema interview is [15-foundation-interview.md](./15-foundation-interview.md)).
-- Define Deck Context variables and quantitative effects.
-- Define interaction need curves and threat-type coverage (color vulnerability vs deficiency vs budget).
-- Define coverage units for shared-capacity multi-role cards.
-- Research and seed context → need relationships.
-- Build deterministic Deck Need / Deck Fit orchestration over existing systems (do not replace Classic-staple / sandbox-theme merge first).
-- Explanatory overall evaluation (strengths / deficiencies / vulnerabilities) rather than an opaque score.
-- Build counterfactual replacement evaluation.
+- Round 3: need-setting (mana x,y,z; role targets; competition/playstyle).
+- Then: mechanisms/synergy; output/cutover.
+- Do not implement the replacement engine until those rounds lock.
 
-Do not mark these complete without checking source. Hybrid **mode** (Prompts 27–28) already ships as a list merge; that is not Deck Fit or Foundation evaluation.
+Do not mark these complete without checking source. Hybrid **mode** (Prompts 27–28) still ships as the running merge until cutover.
 
 ## Historical Cuts/Adds scoring entries
 
