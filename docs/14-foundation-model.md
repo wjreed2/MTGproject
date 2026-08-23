@@ -12,7 +12,11 @@ Internal definition:
 
 **Foundation is a collection of fundamental capabilities/functions that the algorithm evaluates for every deck.**
 
-Public wording should remain approximately 9th-grade readable. Working public sentence: F-Q9 A.
+Public wording should remain approximately 9th-grade readable. Working public sentence (F-Q9 A, copy refined 2026-08-23):
+
+**Foundation is whether your deck can perform the basic jobs a Commander deck needs to perform — make mana, keep resources coming, answer threats, and finish the game — in a way that fits your plan. Your strategy is how you do those jobs.**
+
+That does not mean equal mandatory quotas.
 
 ## Core principles
 
@@ -25,6 +29,7 @@ Public wording should remain approximately 9th-grade readable. Working public se
 - A mechanism may contribute to multiple Foundation capabilities when the deck actually uses it that way. Contributions must be functionally justified; do not award automatic full credit to every applicable role (recursion, tutors, selection, protection, synergistic engines, multi-role cards). Shared capacity still applies on competing-use pairs.
 - Do not impose universal ratios merely because a function is conventional in Commander.
 - Do not say every deck “has to do” the same degree of each capability. Foundation evaluates five capabilities for every deck; **degree varies**.
+- The five capabilities share a layer, not one formula. Mana access is a success/probability model; interaction is threat-type coverage; Keep Going is a derived outcome; close the game is wincon execution/accessibility; resources is a context-derived target plus quality-weighted coverage. Do not force all five into one numeric-target shape.
 
 Conceptually:
 
