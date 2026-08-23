@@ -7,9 +7,12 @@
 
   const STORAGE_KEY = 'foundation-lab-ratings-v1';
   const CAP_ORDER = ['closeGame', 'manaAccess', 'resources', 'interaction', 'keepGoing'];
+  const DEFAULT_EMAIL = (window.FOUNDATION_LAB_DEFAULT_ACCOUNT_EMAIL) || 'manfordf@gmail.com';
   const $ = (id) => document.getElementById(id);
 
   let index = [];
+  let accountFixtures = [];
+  let source = 'account';
   let current = null;
   let currentId = null;
   let focusKind = 'add';
@@ -65,16 +68,58 @@
     return 'bad';
   }
 
-  async function loadIndex() {
+  function fillDeckSelect(rows) {
+    const sel = $('deck');
+    sel.innerHTML = rows.map(d => `<option value="${esc(d.id)}">${esc(d.name)} (${esc(d.archetype || d.commander || '')})</option>`).join('');
+    if (rows[0]) sel.value = rows[0].id;
+  }
+
+  async function loadSyntheticIndex() {
     const res = await fetch('/fixtures/foundation/index.json', { credentials: 'include' });
     if (!res.ok) throw new Error(res.status === 404 || res.status === 401 ? 'Sign in as admin to load fixtures' : ('HTTP ' + res.status));
     index = await res.json();
-    const sel = $('deck');
-    sel.innerHTML = index.map(d => `<option value="${esc(d.id)}">${esc(d.name)} (${esc(d.archetype)})</option>`).join('');
-    if (index[0]) sel.value = index[0].id;
+    fillDeckSelect(index);
+  }
+
+  async function loadAccountIndex() {
+    const email = ($('email') && $('email').value.trim()) || DEFAULT_EMAIL;
+    const res = await fetch('/api/foundation-lab/user-fixtures?email=' + encodeURIComponent(email), { credentials: 'include' });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(res.status === 401 || res.status === 403
+        ? 'Admin session required for account decks'
+        : ('Account decks HTTP ' + res.status + ' ' + text.slice(0, 120)));
+    }
+    const data = await res.json();
+    if (data.error && !data.fixtures?.length) throw new Error(data.error);
+    accountFixtures = data.fixtures || [];
+    index = accountFixtures.map(f => ({ id: f.id, name: f.name, archetype: f.commander || f.archetype || 'account' }));
+    fillDeckSelect(index);
+    const cov = data.coverage || {};
+    $('meta').innerHTML = `<span class="muted">${esc(data.email || email)} · ${accountFixtures.length} decks · CardIR ${fmt(cov.uniqueWithIr)}/${fmt(cov.uniqueCards)} unique (${cov.irCoverage != null ? Math.round(cov.irCoverage * 100) + '%' : '—'})</span>`;
+  }
+
+  async function loadIndex() {
+    source = ($('source') && $('source').value) || 'account';
+    if (source === 'account') {
+      try {
+        await loadAccountIndex();
+        return;
+      } catch (err) {
+        $('meta').textContent = String(err && err.message || err) + ' — falling back to synthetic fixtures.';
+        if ($('source')) $('source').value = 'synthetic';
+        source = 'synthetic';
+      }
+    }
+    await loadSyntheticIndex();
   }
 
   async function loadFixture(id) {
+    if (source === 'account') {
+      const hit = accountFixtures.find(f => f.id === id);
+      if (!hit) throw new Error('Unknown account deck ' + id);
+      return hit;
+    }
     const res = await fetch('/fixtures/foundation/' + encodeURIComponent(id) + '.json', { credentials: 'include' });
     if (!res.ok) throw new Error('Could not load fixture ' + id);
     return res.json();
@@ -82,9 +127,14 @@
 
   async function runCurrent() {
     const id = $('deck').value;
+    if (!id) {
+      current = null;
+      $('meta').textContent = 'No decks in this source.';
+      return;
+    }
     currentId = id;
     const fixture = await loadFixture(id);
-    current = evaluateFoundationLab(fixture, { source: 'ui' }, window.FOUNDATION_CONFIG);
+    current = evaluateFoundationLab(fixture, { source }, window.FOUNDATION_CONFIG);
     focusKind = 'add';
     focusIndex = 0;
     render();
@@ -122,9 +172,10 @@
   function contribTable(rows) {
     if (!rows || !rows.length) return '<p class="muted">No contributing cards.</p>';
     return `<table>
-      <thead><tr><th>Card</th><th>Mechanism</th><th>Amount</th><th>Quality</th><th>Role</th><th>Why</th></tr></thead>
+      <thead><tr><th>Card</th><th>Mechanism</th><th>Evidence</th><th>Amount</th><th>Quality</th><th>Role</th><th>Why</th></tr></thead>
       <tbody>${rows.map(r => `<tr>
         <td>${esc(r.card)}</td><td>${esc(r.mechanism)}</td>
+        <td>${esc(r.evidenceSource || '—')}${r.cardIRAvailable ? ' · IR unused' : ''}${r.cardIRWouldSupport ? ' · IR would support' : ''}</td>
         <td>${fmt(r.amount)}</td><td>${fmt(r.quality)}</td>
         <td>${esc(r.role)}</td><td>${esc(r.explanation)}</td>
       </tr>`).join('')}</tbody>
@@ -195,7 +246,7 @@
   function render() {
     if (!current) return;
     $('meta').innerHTML = `<b>${esc(current.name)}</b> — ${esc(current.commander)}
-      · ${esc(current.archetype)} · health <span class="${current.health}">${esc(current.health)}</span>
+      · ${esc(current.archetype)} · ${esc(current.source || source)} · health <span class="${current.health}">${esc(current.health)}</span>
       · ${esc(current.engineVersion)}
       <div class="muted">${esc(current.explanations.overall || '')}</div>
       <div class="muted">${esc(current.notes || '')}</div>`;
@@ -239,6 +290,21 @@
       </tr>`).join('')}</tbody>
     </table>
     <p class="muted">Mechanisms are diagnostic. They are not Foundation capability quotas.</p>`;
+
+    if ($('cards')) {
+      $('cards').innerHTML = `<table>
+        <thead><tr><th>Card</th><th>Need (caps)</th><th>Mechanisms</th><th>Evidence</th><th>Contribution</th><th>Final</th><th>CardIR</th></tr></thead>
+        <tbody>${(current.cardDiagnostics || []).map(r => `<tr>
+          <td>${esc(r.card)}</td>
+          <td>${esc((r.need || []).join(', ') || '—')}</td>
+          <td>${esc((r.mechanisms || []).join(', ') || '—')}</td>
+          <td>${esc((r.evidenceSources || []).join(', ') || '—')}</td>
+          <td>${esc((r.coverageContribution || []).map(c => c.capability + ' ' + fmt(c.amount)).join('; ') || '—')}</td>
+          <td>${esc((r.finalEvaluation || []).map(c => c.capability + ' ' + (c.status || '')).join('; ') || '—')}</td>
+          <td>${r.cardIRAvailable ? 'present, unused for detection' : 'none'}</td>
+        </tr>`).join('')}</tbody>
+      </table>`;
+    }
 
     $('synergy').innerHTML = (current.synergy || []).map(s => `<article class="rec">
       <header><strong>${esc(s.card)}</strong> overlap ${esc(s.planOverlap)}</header>
@@ -377,6 +443,18 @@
 
   $('run').addEventListener('click', runCurrent);
   $('deck').addEventListener('change', runCurrent);
+  if ($('source')) {
+    $('source').addEventListener('change', () => {
+      loadIndex().then(runCurrent).catch(err => { $('meta').textContent = String(err && err.message || err); });
+    });
+  }
+  if ($('email')) {
+    $('email').addEventListener('change', () => {
+      if (($('source') && $('source').value) === 'account') {
+        loadIndex().then(runCurrent).catch(err => { $('meta').textContent = String(err && err.message || err); });
+      }
+    });
+  }
   $('next').addEventListener('click', () => nextDeck(1));
   $('prev').addEventListener('click', () => nextDeck(-1));
   $('export').addEventListener('click', () => { exportRatings(); });

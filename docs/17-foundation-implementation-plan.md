@@ -39,7 +39,7 @@ Existing deck data → Plan / Wizard (`js/deck-plan.js`, `js/deck-plan-wizard.js
 13–14. Target proposal + readout — done.  
 15–17. Adds, Cuts, Hybrid slot — done.  
 18. Deck suite (`scripts/test-foundation-deck-suite.js`) — done.  
-19. Calibration — **open**, config-only. Harness: [18-foundation-evaluation-lab.md](./18-foundation-evaluation-lab.md) (`npm run test:foundation`, `/foundation-lab.html`).  
+19. Calibration — **open**, config-only. Harness: [18-foundation-evaluation-lab.md](./18-foundation-evaluation-lab.md). Review **account decks** (`npm run test:foundation:user`), not the 23 synthetics. CardIR inventory: [19-foundation-cardir-audit.md](./19-foundation-cardir-audit.md). Synthetics remain Kind A recognition locks.  
 20. Release criteria for architecture — met; numerical tuning is not required to use Hybrid v2.
 
 Recommended code order matches the owner plan: model → config → needs → mana → resources → interaction → protection/shared capacity → Keep Going → close the game → synergy/multi-role → readout → Adds → Cuts → cutover → tests → calibration.

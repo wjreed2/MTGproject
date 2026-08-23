@@ -130,6 +130,7 @@
       produced_mana: c.produced_mana || c.producedMana || [],
       keywords: c.keywords || [],
       isCommander: isCmd,
+      oracleId: c.oracleId || c.oracle_id || null,
       ir: c.ir || c.cardIR || null,
     };
   }
@@ -201,6 +202,9 @@
       golden: Array.isArray(f.golden) ? f.golden.slice() : [],
       candidateAdds: (f.candidateAdds || []).map(c => normalizeLabCard(c, '')),
       candidateCuts: (f.candidateCuts || []).map(c => normalizeLabCard(c, '')),
+      source: f.source || 'fixture',
+      accountEmail: f.accountEmail || null,
+      liveDeckId: f.liveDeckId || f.id || null,
       cards,
       gameplan: f.gameplan || {
         N,

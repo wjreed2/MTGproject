@@ -7,6 +7,9 @@ function loadFoundationLab() {
   require('../foundation/foundation-suggest.js');
   require('./catalog.js');
   require('./normalize.js');
+  require('./evidence.js');
+  require('./cardir-inventory.js');
+  require('./live-decks.js');
   require('./adapter.js');
   require('./ratings.js');
   require('./compare.js');

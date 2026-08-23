@@ -4,7 +4,7 @@
 
 Foundation **interview is complete** (rounds 2–5). Do not reopen Foundation design questions. Hybrid (Classic staples + sandbox theme) is still the running suggestion merge. **Destination:** **Hybrid v2** — when v1 ships, Hybrid’s toggle slot becomes the Foundation engine + readout. Classic and Semantic stay. Locks: [14-foundation-model.md](./14-foundation-model.md), [15-foundation-interview.md](./15-foundation-interview.md), [16-foundation-interview-r3-r5.md](./16-foundation-interview-r3-r5.md) (includes 2026-08-23 drift preventers).
 
-**Architecture v1 is in the Hybrid slot** (evaluator, readout, Adds/Cuts ranking, wizard fields). Calibration uses the **Foundation Evaluation Lab** (`npm run test:foundation`, `/foundation-lab.html`) plus isolated coefficients in `js/foundation/foundation-config.js`. Plan: [17-foundation-implementation-plan.md](./17-foundation-implementation-plan.md). Lab map: [18-foundation-evaluation-lab.md](./18-foundation-evaluation-lab.md). Do not invent missing numbers or redesign the five capabilities.
+**Architecture v1 is in the Hybrid slot** (evaluator, readout, Adds/Cuts ranking, wizard fields). Calibration uses the **Foundation Evaluation Lab** (`npm run test:foundation`, `/foundation-lab.html`) plus isolated coefficients in `js/foundation/foundation-config.js`. Account-deck review for `manfordf@gmail.com` is the Lab **Account decks** source (`npm run test:foundation:user`), not the 23 synthetic fixtures. CardIR inventory: [19-foundation-cardir-audit.md](./19-foundation-cardir-audit.md). Plan: [17-foundation-implementation-plan.md](./17-foundation-implementation-plan.md). Lab map: [18-foundation-evaluation-lab.md](./18-foundation-evaluation-lab.md). Do not invent missing numbers or redesign the five capabilities.
 
 ## Settled (rounds 2–5 + 2026-08-23 wording)
 - deterministic-only; user final say; no live Scryfall/EDHREC; no partner `engine2/` edits; **no CardIR regen** (additive derived fields from existing CardIR are OK)
@@ -27,6 +27,6 @@ Foundation **interview is complete** (rounds 2–5). Do not reopen Foundation de
 
 ## Recommended next investigation
 
-Use the Foundation Evaluation Lab to rate the representative suite and compare config changes. Do not start a new Foundation interview round unless the owner asks. Do not reopen the five-capability model. Tune only `js/foundation/foundation-config.js`.
+Use the Foundation Evaluation Lab **Account decks** source (every site deck for `manfordf@gmail.com`) to rate real lists. The 23 synthetic fixtures are Kind A recognition locks only — do not calibrate coefficients from them. CardIR inventory: [19-foundation-cardir-audit.md](./19-foundation-cardir-audit.md). Do not start a new Foundation interview round unless the owner asks. Do not reopen the five-capability model. Tune only `js/foundation/foundation-config.js`. Do not invent missing CardIR.
 
 Do not revisit runtime AI, live Scryfall/EDHREC, partner engine2 modification, or CardIR **rewrite** unless the user explicitly asks. Additive use of existing CardIR is in scope.

@@ -119,6 +119,9 @@
         sorted.forEach((m, i) => {
           const amount = Math.round(credits[i] * qtyOf(card) * 1000) / 1000;
           sum += amount;
+          const ev = (root && typeof root.foundationLabEvidenceForMechanism === 'function')
+            ? root.foundationLabEvidenceForMechanism(card, m.id)
+            : {};
           contributions.push({
             card: card.name,
             mechanism: m.id,
@@ -127,8 +130,16 @@
             amount,
             quality: m.quality,
             role: roleLabel(i, m, shared && (INTERACTION_MECHS.has(m.id) || m.id === 'protection')),
+            evidenceSource: ev.evidenceSource || 'unknown',
+            cardIRAvailable: !!ev.cardIRAvailable,
+            cardIRUsed: false,
+            cardIRWouldSupport: !!ev.cardIRWouldSupport,
+            cardIRUnused: !!ev.cardIRUnused,
             explanation: `${card.name} contributes ${amount.toFixed(2)} to ${cap} via ${m.id}`
-              + (i > 0 ? ' (multi-role cap — not full credit for every role).' : '.'),
+              + (i > 0 ? ' (multi-role cap — not full credit for every role).' : '.')
+              + (ev.cardIRAvailable
+                ? ' Evidence: ' + (ev.evidenceSource || 'unknown') + '; CardIR present but unused for detection.'
+                : ' Evidence: ' + (ev.evidenceSource || 'unknown') + '.'),
           });
         });
         cardRow.independent[cap] = Math.round(sum * 1000) / 1000;
@@ -394,6 +405,43 @@
     });
   }
 
+  function cardDiagnostics(cards, contributions, evaluation) {
+    const byCard = new Map();
+    for (const row of contributions || []) {
+      if (!byCard.has(row.card)) byCard.set(row.card, []);
+      byCard.get(row.card).push(row);
+    }
+    const caps = (evaluation && evaluation.capabilities) || {};
+    const out = [];
+    for (const card of cards || []) {
+      if (!card || card.isCommander || isLand(card)) continue;
+      const rows = byCard.get(card.name) || [];
+      const available = !!(root && typeof root.foundationLabCardIRAvailable === 'function'
+        ? root.foundationLabCardIRAvailable(card)
+        : (card.ir && (card.ir.provides || card.ir.needs)));
+      out.push({
+        card: card.name,
+        qty: qtyOf(card),
+        need: [...new Set(rows.map(r => r.capability))],
+        mechanisms: [...new Set(rows.map(r => r.mechanism))],
+        evidenceSources: [...new Set(rows.map(r => r.evidenceSource).filter(Boolean))],
+        cardIRAvailable: available,
+        cardIRUsedForMechanisms: false,
+        coverageContribution: rows.map(r => ({
+          capability: r.capability,
+          mechanism: r.mechanism,
+          amount: r.amount,
+          evidenceSource: r.evidenceSource,
+        })),
+        finalEvaluation: [...new Set(rows.map(r => r.capability))].map(id => ({
+          capability: id,
+          status: (caps[id] && caps[id].status) || null,
+        })),
+      });
+    }
+    return out;
+  }
+
   function healthOf(evaluation, errors) {
     if (errors && errors.length) return 'suspicious';
     const n = (evaluation && evaluation.overall && evaluation.overall.belowProposalCount) || 0;
@@ -476,6 +524,7 @@
       adds,
       cuts,
       contributions,
+      cardDiagnostics: cardDiagnostics(f.cards, contributions, evaluation),
       synergy: synergyRowsFromCards(f.cards, f.plan, evaluation),
       interactionThreats: interactionView(evaluation),
       manaAccess: manaView(evaluation, f),
@@ -486,6 +535,9 @@
       health: 'normal',
       notes: f.notes || '',
       expected: f.expected || {},
+      source: f.source || 'fixture',
+      accountEmail: f.accountEmail || null,
+      liveDeckId: f.liveDeckId || null,
       context: context || null,
     };
     const structErrors = validateLabResult(result);

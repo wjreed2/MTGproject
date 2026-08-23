@@ -10,10 +10,16 @@
  *   npm run test:foundation -- --compare baseline.json current.json
  *   npm run test:foundation -- --ratings path.json
  *
- * Does not modify production scoring. Human ratings are evidence only.
+ *   npm run test:foundation -- --user
+ *   npm run test:foundation -- --user manfordf@gmail.com
+ *   npm run test:foundation -- --user-dir data/foundation-lab/user-decks
+ *
+ * Default (no --user) is the 23 synthetic fixtures (Kind A recognition lock).
+ * --user evaluates every site deck for that account (Kind B/C review), not the synthetics.
  */
 const fs = require('fs');
 const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const { loadFoundationLab } = require('../js/foundation-lab/load.js');
 const {
@@ -21,6 +27,12 @@ const {
   loadFoundationFixture,
   defaultDir,
 } = require('../js/foundation-lab/fixture-loader.js');
+const {
+  FOUNDATION_LAB_DEFAULT_ACCOUNT_EMAIL,
+  loadUserAccountFixtures,
+  writeUserAccountFixtures,
+  userDecksDir,
+} = require('../js/foundation-lab/account-source.js');
 
 loadFoundationLab();
 const {
@@ -42,6 +54,8 @@ function parseArgs(argv) {
     ratings: null,
     out: null,
     config: null,
+    user: null,
+    userDir: null,
   };
   const rest = argv.slice(2);
   for (let i = 0; i < rest.length; i++) {
@@ -55,6 +69,12 @@ function parseArgs(argv) {
     } else if (a === '--ratings') args.ratings = rest[++i];
     else if (a === '--out') args.out = rest[++i];
     else if (a === '--config') args.config = rest[++i];
+    else if (a === '--user-dir') args.userDir = rest[++i];
+    else if (a === '--user') {
+      const next = rest[i + 1];
+      if (next && !next.startsWith('--')) args.user = rest[++i];
+      else args.user = FOUNDATION_LAB_DEFAULT_ACCOUNT_EMAIL;
+    }
     else if (a === '--help' || a === '-h') args.help = true;
   }
   return args;
@@ -79,6 +99,7 @@ function runsDir() {
 }
 
 function deepClone(obj) {
+  if (typeof structuredClone === 'function') return structuredClone(obj);
   return JSON.parse(JSON.stringify(obj));
 }
 
@@ -133,7 +154,49 @@ function printHuman(run, ratings) {
   }
 }
 
-function main() {
+async function pullAccountFixtures(email) {
+  const api = (process.env.SEMANTICS_PUSH_URL || process.env.MTG_API_URL || '').replace(/\/+$/, '');
+  const secret = String(process.env.SEMANTICS_INGEST_SECRET || '').trim();
+  if (!api || !secret) return null;
+  const url = `${api}/api/internal/account-decks?email=${encodeURIComponent(email)}`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${secret}` } });
+  if (!res.ok) {
+    throw new Error(`account-decks pull failed (${res.status}): ${(await res.text()).slice(0, 300)}`);
+  }
+  const payload = await res.json();
+  writeUserAccountFixtures(payload);
+  return payload.fixtures || [];
+}
+
+async function resolveFixtures(args) {
+  if (args.userDir) {
+    const loaded = loadUserAccountFixtures(args.userDir);
+    return { fixtures: loaded.fixtures, source: 'account', email: loaded.email };
+  }
+  if (args.user) {
+    const email = args.user;
+    try {
+      const pulled = await pullAccountFixtures(email);
+      if (pulled && pulled.length) return { fixtures: pulled, source: 'account', email };
+    } catch (err) {
+      console.error(err.message);
+    }
+    const dumped = loadUserAccountFixtures(userDecksDir());
+    if (dumped.fixtures.length) {
+      return { fixtures: dumped.fixtures, source: 'account', email: dumped.email || email };
+    }
+    throw new Error(
+      'No account decks. Set SEMANTICS_PUSH_URL + SEMANTICS_INGEST_SECRET and run '
+      + '`npm run foundation:pull-user-decks`, or open Foundation Lab on the hosted app as admin.'
+    );
+  }
+  if (args.deck) {
+    return { fixtures: [loadFoundationFixture(args.deck, defaultDir())], source: 'synthetic' };
+  }
+  return { fixtures: loadFoundationFixtures(defaultDir()), source: 'synthetic' };
+}
+
+async function main() {
   const args = parseArgs(process.argv);
   if (args.help) {
     console.log(`Foundation Evaluation Lab
@@ -143,6 +206,9 @@ function main() {
   npm run test:foundation -- --all --json --report
   npm run test:foundation -- --compare baseline.json current.json
   npm run test:foundation -- --ratings ratings.json --report
+  npm run test:foundation -- --user
+  npm run test:foundation -- --user manfordf@gmail.com
+  npm run test:foundation -- --user-dir data/foundation-lab/user-decks
 `);
     return 0;
   }
@@ -159,16 +225,23 @@ function main() {
     return cmp.concerning ? 2 : 0;
   }
 
-  const fixtures = args.deck
-    ? [loadFoundationFixture(args.deck, defaultDir())]
-    : loadFoundationFixtures(defaultDir());
+  let resolved;
+  try {
+    resolved = await resolveFixtures(args);
+  } catch (err) {
+    console.error(String(err && err.message || err));
+    return 1;
+  }
+  const fixtures = resolved.fixtures;
   if (!fixtures.length) {
-    console.error('No Foundation fixtures in', defaultDir());
+    console.error('No Foundation fixtures');
     return 1;
   }
 
   const config = loadConfigOverride(args.config);
   const run = runSuite(fixtures, config);
+  run.source = resolved.source;
+  if (resolved.email) run.accountEmail = resolved.email;
   const ratings = loadRatings(args.ratings);
 
   const outPath = args.out || path.join(runsDir(), 'latest.json');
@@ -179,6 +252,9 @@ function main() {
   } else {
     printHuman(run, ratings);
     console.log('\nWrote', outPath);
+    if (resolved.source === 'account') {
+      console.log('Source: account decks' + (resolved.email ? ` (${resolved.email})` : ''));
+    }
   }
 
   if (args.report && !args.json) {
@@ -188,4 +264,7 @@ function main() {
   return run.errorCount ? 1 : 0;
 }
 
-process.exit(main());
+main().then(code => process.exit(code)).catch(err => {
+  console.error(err);
+  process.exit(1);
+});

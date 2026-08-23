@@ -43,3 +43,5 @@ nohup.out
 data/foundation-lab/runs/
 data/foundation-lab/ratings.json
 data/foundation-lab/ratings.jsonl
+# Live account deck dumps for Lab/audit — user data, never version
+data/foundation-lab/user-decks/

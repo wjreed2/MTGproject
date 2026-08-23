@@ -14,7 +14,8 @@ Ratings never write back into the engine.
 | Isolated coefficients | `js/foundation/foundation-config.js` |
 | Adds/Cuts ranking helpers | `js/foundation/foundation-suggest.js` |
 | Lab adapter / diagnostics | `js/foundation-lab/` |
-| Representative decks | `fixtures/foundation/*.json` |
+| Representative decks (Kind A lock) | `fixtures/foundation/*.json` |
+| Account decks (Kind B/C review) | Hosted app `GET /api/foundation-lab/user-fixtures` (admin); dump `data/foundation-lab/user-decks/` (gitignored) |
 | Batch runner | `scripts/test-foundation.js` (`npm run test:foundation`) |
 | Golden cases | `scripts/test-foundation-golden.js` |
 | Dev UI | `foundation-lab.html` → `/foundation-lab.html` |
@@ -24,9 +25,9 @@ Do not put Lab review chrome into the production deck-builder Hybrid slot.
 ## Pipeline
 
 ```
-Test deck fixtures
-    → evaluateFoundationLab(deck, context, config)
-    → Foundation evaluation result (diagnostics + adds/cuts)
+Account decks (manfordf@gmail.com)  ─┐
+Synthetic fixtures (Kind A lock)    ─┴→ evaluateFoundationLab(deck, context, config)
+    → Foundation evaluation result (diagnostics + adds/cuts + evidence sources)
     → CLI report and/or Lab UI
     → Human ratings (localStorage / JSON export)
     → Regression compare of two run JSON files
@@ -44,9 +45,17 @@ npm run test:foundation -- --json
 npm run test:foundation -- --out data/foundation-lab/runs/baseline.json
 npm run test:foundation -- --compare baseline.json current.json
 npm run test:foundation -- --ratings path/to/ratings.json --report
+npm run test:foundation -- --user
+npm run test:foundation -- --user manfordf@gmail.com
+npm run foundation:pull-user-decks
+npm run test:foundation:audit
 npm run test:foundation:golden
 npm run test:foundation:write-fixtures
 ```
+
+`--user` evaluates **every site deck** for that account (default `manfordf@gmail.com`). It does not use the 23 synthetic fixtures. Requires `SEMANTICS_PUSH_URL` + `SEMANTICS_INGEST_SECRET`, or a prior dump in `data/foundation-lab/user-decks/` (gitignored).
+
+Default `npm run test:foundation` (no flags) still runs the synthetics so CI keeps the Kind A recognition lock.
 
 Open the UI on a running app server: `/foundation-lab.html`.
 
@@ -61,6 +70,20 @@ Once this code is on the same host the phone app already uses (Railway / product
 3. Rate decks with the on-screen GOOD / OK / BAD buttons. Export uses the share sheet when available; Copy ratings works if Safari blocks downloads.
 
 The page and `/fixtures/foundation` require an admin session. They are not a public or regular-user mode.
+
+The Lab UI defaults to **Account decks** (`GET /api/foundation-lab/user-fixtures?email=manfordf@gmail.com`). Switch to **Synthetic fixtures** only for the recognition lock.
+
+Each contributor row shows **evidence source**: `role_tag`, `oracle_heuristic`, plus whether CardIR was present but unused for detection.
+
+## Test kinds
+
+| Kind | Meaning | Suite |
+|------|---------|--------|
+| A | Mathematical / structural | `npm run test:foundation` / `test:foundation:golden` on synthetics; config-isolation test |
+| B | Model / evidence | [19-foundation-cardir-audit.md](./19-foundation-cardir-audit.md); Lab evidence column on account decks |
+| C | Recommendation quality | Human GOOD/OK/BAD ratings — never auto-trained |
+
+Lab `--config` clones a patch onto the Lab run only. It cannot mutate frozen production `FOUNDATION_CONFIG`. Hybrid still calls `evaluateFoundation` without a config override.
 
 Keys: G good, O ok, B bad, N/P next/prev deck, A/C focus adds/cuts, J/K next/prev recommendation.
 
