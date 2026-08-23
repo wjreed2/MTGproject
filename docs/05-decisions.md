@@ -45,7 +45,7 @@ Competing-use pairs only. First pair: interaction ↔ protection. Capacity 1.0; 
 Quality-weighted coverage units. **Access the mana needed to execute the plan** is a Gameplan-style success test (commander on T + key cards + declared-wincon pieces), not an L*/R* quota. Broader than land drops. One-per-turn → max CMC; several-in-one-turn → sum CMC. Inspector CMC override wins; else printed/scoring CMC including alternate-cost mana spent. Hypergeo still counts real cards. L*/R* may be derived explanation. Other roles keep a per-deck target number filled by coverage units.
 
 ## DECIDED — Public Foundation wording (F-Q9 A)
-“Foundation is whether your deck can do the basic jobs every Commander deck has to do — make mana, keep resources coming, answer threats, and finish the game — in a way that fits your plan. Your strategy is how you do those jobs.”
+“Foundation is whether your deck can perform the basic jobs a Commander deck needs to perform — make mana, keep resources coming, answer threats, and finish the game — in a way that fits your plan. Your strategy is how you do those jobs.” Copy refinement 2026-08-23; not a design change. Does not imply equal mandatory quotas.
 
 ## DECIDED — Foundation orchestration (F-Q10 A)
 New deterministic layer over existing tags + CardIR + Gameplan. **No CardIR regen** (do not re-extract the catalog). Additive derived fields from CardIR already on disk are allowed. Partner `engine2/` untouched.
@@ -66,7 +66,10 @@ Foundation proposes per-deck targets. Wizard confirmed-role numbers are user int
 Competition = intensity (Casual / Focused / High / cEDH). Playstyle = mix (aggro vs control). Higher competition raises interaction, keep-going, and resources, and tightens mana-on-time. Coefficients open.
 
 ## DECIDED — Generate resources is one target (F3-Q7)
-One context-derived number; any resource mechanism can fill it (not only Draw). Tutors are not a resource quota.
+**Resources only:** one context-derived number + quality-weighted coverage; any resource mechanism can fill it (not only Draw). Tutors are not a resource quota. Do not apply this shape to the other four capabilities.
+
+## DECIDED — Five capabilities, five evaluation models
+Do not force all five into one generic numeric-target formula. Close the game = win-condition execution/accessibility. Mana access = success/probability (Gameplan-style). Resources = context-derived target + quality-weighted coverage. Interaction = threat-type coverage. Keep Going = outcome from contributing mechanisms (no resilience target).
 
 ## DECIDED — Close the game validates the user’s wincon (F3-Q8)
 Present wincon, necessary pieces, accessible (mana-on-time + resources), more redundancy at High/cEDH. Never replace the user’s wincon with EDHREC.

@@ -34,9 +34,17 @@ Owner-approved. These do **not** reopen the five-capability model. Pipeline: Cap
 
 **Overall evaluation** is how effectively the deck executes its intended plan at its intended level of competition. This is an **explanatory synthesis, not a single numerical score.**
 
-**Architecture first.** Isolate numbers so they can be tuned against real decks without rewriting the engine. Pipeline:
+**Architecture first.** Isolate numbers so they can be tuned against real decks without rewriting the engine. Do not invent missing coefficients or redesign the five capabilities. Pipeline:
 
 Deck → Strategy + Wizard intent + Competition + Playstyle → Determine Foundation needs → Evaluate mechanisms → Calculate capability coverage → Account for synergy / shared capacity / constraints → Identify strengths, deficiencies, vulnerabilities → Foundation readout → Suggested Adds / Cuts.
+
+**Five capabilities, five evaluation models.** Do not force all five into one generic numeric-target formula. “Calculate capability coverage” means each capability’s own model. F3-Q7’s “one context-derived target number” is **Resources only**.
+
+- Close the game → win-condition execution / accessibility (present, pieces, accessible, redundancy as locked).
+- Access the mana needed to execute the plan → success / probability model (Gameplan-style; commander on T + keys + wincon pieces; max vs sum CMC).
+- Generate resources → one context-derived target + quality-weighted coverage (any resource mechanism can fill it).
+- Interact with relevant threats → threat-type coverage (plus color-identity / budget / choice distinctions).
+- Continue executing the plan after disruption (Keep Going) → outcome derived from contributing mechanisms. No resilience target.
 
 ### Round 3 — need-setting (F3-Q1–F3-Q8)
 
@@ -46,9 +54,9 @@ Deck → Strategy + Wizard intent + Competition + Playstyle → Determine Founda
 | **F3-Q2 D** | Infer one-per-turn vs several-in-one-turn from **strategy + key-card types**; **show in wizard**; user can override; Undecided uses inference. |
 | **F3-Q3 A** | Higher **competition raises** interaction, “keep going,” and resources; **tightens** mana-on-time. Direction locked; coefficients open. |
 | **F3-Q4 A** | **Two axes.** Competition = intensity. Playstyle = mix (aggro vs control). |
-| **F3-Q5 A** | Foundation **proposes** per-deck targets. Wizard **confirmed-role numbers are user intent** and **win if edited**. Never silently overwrite. Going below the proposal is a vulnerability / tradeoff (see F5-Q2 for UI). |
+| **F3-Q5 A** | Foundation **proposes** per-deck needs in each capability’s own model (not one numeric target for all five). Where a capability uses a number (especially Resources, and Classic-style role counts the user edits), wizard **confirmed-role numbers are user intent** and **win if edited**. Never silently overwrite. Going below a proposal is a vulnerability / tradeoff (see F5-Q2 for UI). |
 | **F3-Q6 A** | Capability **Continue executing the plan after disruption** (Keep Going). **Evaluated as an outcome.** Not a fixed card category or quota. Coverage comes from mechanisms that let the deck continue after disruption (protect what matters, recursion/redundancy, resources, other paths). Protection importance is an input. **Do not implement a resilience target.** |
-| **F3-Q7 A** | **Generate resources:** one context-derived target number; **any** resource mechanism can fill it (not only Draw). Tutors are not a resource quota. |
+| **F3-Q7 A** | **Generate resources only:** one context-derived target number + quality-weighted coverage; **any** resource mechanism can fill it (not only Draw). Tutors are not a resource quota. Do not copy this “one target number” shape onto mana, interaction, Keep Going, or close-the-game. |
 | **F3-Q8 A** | **Close the game:** present wincon, necessary pieces, accessible (mana-on-time + resources), more redundancy at High/cEDH. **Never replace** the user’s wincon with EDHREC. |
 
 ### Round 4 — mechanisms and synergy (F4-Q1–F4-Q8)

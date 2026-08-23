@@ -59,7 +59,7 @@ Known:
 - Complex edge cases and coverage limits remain an engineering concern.
 
 ## Public Foundation wording
-**Locked F-Q9 A.** Working copy in [15-foundation-interview.md](./15-foundation-interview.md). Still editable as copy, not as meaning.
+**Locked F-Q9 A.** Copy refined 2026-08-23 in [15-foundation-interview.md](./15-foundation-interview.md). Meaning unchanged; not equal quotas.
 
 ## Coverage units
 **Where** is locked (F-Q7: competing pairs, first interaction↔protection). Exact numeric weights remain open.

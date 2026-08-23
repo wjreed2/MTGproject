@@ -20,7 +20,7 @@ Do not reopen these without an explicit ask. Rounds 3–5 are locked in [16-foun
 | **F-Q6 A** | v1 threat types: Creature · Wide board · Artifact · Enchantment · Graveyard · Stack · Land. Combo/engine is a *reason*, not a type. |
 | **F-Q7 B** | Shared capacity v1 only on competing-use pairs. First pair: **interaction ↔ protection**. Capacity 1.0, default 50/50 unless one need is larger; credit = quality × share. Ramp+Draw stay additive until proven competing. |
 | **F-Q8 B refined** | Quality-weighted coverage units. **Access the mana needed to execute the plan** is Gameplan-style success (commander on T + key cards + wincon pieces; broader than land drops), not an L*/R* quota. Hypergeo still counts real cards. L*/R* may be shown as derived explanation. **Other roles keep a per-deck target number**, filled by coverage units. |
-| **F-Q9 A** | Public copy: “Foundation is whether your deck can do the basic jobs every Commander deck has to do — make mana, keep resources coming, answer threats, and finish the game — in a way that fits your plan. Your strategy is how you do those jobs.” Editable later; this is the meaning. |
+| **F-Q9 A** | Public copy (refined 2026-08-23; meaning unchanged): “Foundation is whether your deck can perform the basic jobs a Commander deck needs to perform — make mana, keep resources coming, answer threats, and finish the game — in a way that fits your plan. Your strategy is how you do those jobs.” |
 | **F-Q10 A** | New deterministic layer over existing tags + CardIR + Gameplan. No CardIR regen. Partner `engine2/` untouched. Degrade when CardIR coverage is low. |
 
 ---

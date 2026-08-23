@@ -15,6 +15,7 @@ Foundation **interview is complete** (rounds 2–5). Do not reopen Foundation de
 - Interaction color-identity gaps are **vulnerabilities**, not automatic deficiencies
 - Overall evaluation is an **explanatory synthesis**, not a single numerical score
 - Pipeline: Capability → Need → Mechanism(s) → Coverage → Evaluation (not Role tag → target → deficit)
+- Five capabilities use **five evaluation models** (mana = success/probability; interaction = threat-type coverage; Keep Going = derived outcome; close the game = wincon execution; resources = one target + coverage). Do not invent coefficients or redesign the five.
 - Competition / playstyle / mana rules / proposal vs confirmed numbers / Cuts swaps / readout / wizard order as in [16-foundation-interview-r3-r5.md](./16-foundation-interview-r3-r5.md)
 
 ## Open (implementation, not interview)
