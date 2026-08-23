@@ -1,0 +1,85 @@
+{
+  "id": "omnath-budget",
+  "name": "Omnath Low-Budget",
+  "archetype": "low-budget",
+  "commander": "Omnath, Locus of Mana",
+  "colorIdentity": [
+    "G"
+  ],
+  "golden": [
+    "budget_constraint"
+  ],
+  "plan": {
+    "winConditionId": "wincon.combat",
+    "primaryStrategyId": "strategy.landfall",
+    "competition": "Casual",
+    "playstyleS": 0,
+    "targetCastTurn": 3,
+    "castingPattern": "one_per_turn",
+    "tutorPreference": "rather_not",
+    "protectionImportance": "low",
+    "roughMaxPerCardBudgetUsd": 3,
+    "keyCards": [
+      {
+        "name": "Rampant Growth"
+      }
+    ]
+  },
+  "notes": "Low-budget mono-green. Interaction gaps may be budget constraints when in-color answers exist above the cap.",
+  "expected": {
+    "closeGameMode": "combat"
+  },
+  "cards": [
+    {
+      "name": "Omnath, Locus of Mana",
+      "qty": 1,
+      "cmc": 3,
+      "type": "Legendary Creature",
+      "roleTags": [],
+      "oracleText": "",
+      "colors": [
+        "G"
+      ],
+      "isCommander": true
+    },
+    {
+      "name": "Rampant Growth",
+      "qty": 1,
+      "cmc": 2,
+      "type": "Sorcery",
+      "roleTags": [
+        "Ramp"
+      ],
+      "oracleText": "Search your library for a basic land card.",
+      "colors": [
+        "G"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Giant Growth",
+      "qty": 1,
+      "cmc": 1,
+      "type": "Instant",
+      "roleTags": [],
+      "oracleText": "Target creature gets +3/+3 until end of turn.",
+      "colors": [
+        "G"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Forest",
+      "qty": 38,
+      "cmc": 0,
+      "type": "Basic Land — Forest",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "G"
+      ]
+    }
+  ]
+}

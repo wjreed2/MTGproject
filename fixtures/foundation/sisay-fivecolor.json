@@ -1,0 +1,184 @@
+{
+  "id": "sisay-fivecolor",
+  "name": "Sisay Five-Color Legends",
+  "archetype": "five-color",
+  "commander": "Sisay, Weatherlight Captain",
+  "colorIdentity": [
+    "W",
+    "U",
+    "B",
+    "R",
+    "G"
+  ],
+  "plan": {
+    "winConditionId": "wincon.combat",
+    "primaryStrategyId": "strategy.goodstuff",
+    "competition": "High",
+    "playstyleS": 2,
+    "targetCastTurn": 3,
+    "castingPattern": "one_per_turn",
+    "tutorPreference": "fine",
+    "protectionImportance": "high",
+    "keyCards": [
+      {
+        "name": "Sisay, Weatherlight Captain"
+      }
+    ]
+  },
+  "notes": "Five-color identity should not invent color-identity stack vulnerabilities.",
+  "expected": {
+    "closeGameMode": "combat"
+  },
+  "cards": [
+    {
+      "name": "Sisay, Weatherlight Captain",
+      "qty": 1,
+      "cmc": 3,
+      "type": "Legendary Creature",
+      "roleTags": [],
+      "oracleText": "",
+      "colors": [
+        "W",
+        "U",
+        "B",
+        "R",
+        "G"
+      ],
+      "isCommander": true
+    },
+    {
+      "name": "Sol Ring",
+      "qty": 1,
+      "cmc": 1,
+      "type": "Artifact",
+      "roleTags": [
+        "Ramp",
+        "Mana Rock"
+      ],
+      "oracleText": "{T}: Add {C}{C}.",
+      "colors": [],
+      "ir": null
+    },
+    {
+      "name": "Rhystic Study",
+      "qty": 1,
+      "cmc": 3,
+      "type": "Enchantment",
+      "roleTags": [
+        "Card Draw"
+      ],
+      "oracleText": "Whenever an opponent casts a spell, you may draw a card unless that player pays {1}.",
+      "colors": [
+        "U"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Swords to Plowshares",
+      "qty": 1,
+      "cmc": 1,
+      "type": "Instant",
+      "roleTags": [
+        "Removal"
+      ],
+      "oracleText": "Exile target creature.",
+      "colors": [
+        "W"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Counterspell",
+      "qty": 1,
+      "cmc": 2,
+      "type": "Instant",
+      "roleTags": [
+        "Counterspell"
+      ],
+      "oracleText": "Counter target spell.",
+      "colors": [
+        "U"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Demonic Tutor",
+      "qty": 1,
+      "cmc": 2,
+      "type": "Sorcery",
+      "roleTags": [
+        "Tutor"
+      ],
+      "oracleText": "Search your library for a card, put that card into your hand.",
+      "colors": [
+        "B"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Plains",
+      "qty": 6,
+      "cmc": 0,
+      "type": "Basic Land — Plains",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "W"
+      ]
+    },
+    {
+      "name": "Island",
+      "qty": 6,
+      "cmc": 0,
+      "type": "Basic Land — Island",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "U"
+      ]
+    },
+    {
+      "name": "Swamp",
+      "qty": 6,
+      "cmc": 0,
+      "type": "Basic Land — Swamp",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "B"
+      ]
+    },
+    {
+      "name": "Mountain",
+      "qty": 6,
+      "cmc": 0,
+      "type": "Basic Land — Mountain",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "R"
+      ]
+    },
+    {
+      "name": "Forest",
+      "qty": 6,
+      "cmc": 0,
+      "type": "Basic Land — Forest",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "G"
+      ]
+    }
+  ]
+}

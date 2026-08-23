@@ -1,0 +1,133 @@
+{
+  "id": "gitrog-combo",
+  "name": "Gitrog Lands Combo",
+  "archetype": "combo",
+  "commander": "The Gitrog Monster",
+  "colorIdentity": [
+    "B",
+    "G"
+  ],
+  "golden": [
+    "declared_wincon_not_edhrec"
+  ],
+  "plan": {
+    "winConditionId": "wincon.combo",
+    "primaryStrategyId": "strategy.landfall",
+    "competition": "High",
+    "playstyleS": 3,
+    "targetCastTurn": 4,
+    "castingPattern": "several_in_one_turn",
+    "tutorPreference": "fine",
+    "protectionImportance": "high",
+    "keyCards": [
+      {
+        "name": "Dakmor Salvage"
+      },
+      {
+        "name": "Life from the Loam"
+      }
+    ]
+  },
+  "notes": "Declared combo wincon must not be replaced by EDHREC preferences.",
+  "expected": {
+    "closeGameMode": "combo",
+    "winConditionId": "wincon.combo"
+  },
+  "cards": [
+    {
+      "name": "The Gitrog Monster",
+      "qty": 1,
+      "cmc": 5,
+      "type": "Legendary Creature",
+      "roleTags": [],
+      "oracleText": "",
+      "colors": [
+        "B",
+        "G"
+      ],
+      "isCommander": true
+    },
+    {
+      "name": "Dakmor Salvage",
+      "qty": 1,
+      "cmc": 0,
+      "type": "Land",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "Dredge 2",
+      "colors": [
+        "B"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Life from the Loam",
+      "qty": 1,
+      "cmc": 2,
+      "type": "Sorcery",
+      "roleTags": [
+        "Recursion"
+      ],
+      "oracleText": "Return three land cards from your graveyard to your hand. Dredge 3.",
+      "colors": [
+        "G"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Dark Ritual",
+      "qty": 1,
+      "cmc": 1,
+      "type": "Instant",
+      "roleTags": [
+        "Ramp"
+      ],
+      "oracleText": "Add {B}{B}{B}.",
+      "colors": [
+        "B"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Eternal Witness",
+      "qty": 1,
+      "cmc": 3,
+      "type": "Creature",
+      "roleTags": [
+        "Recursion"
+      ],
+      "oracleText": "When this creature enters, return target card from your graveyard to your hand.",
+      "colors": [
+        "G"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Forest",
+      "qty": 18,
+      "cmc": 0,
+      "type": "Basic Land — Forest",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "G"
+      ]
+    },
+    {
+      "name": "Swamp",
+      "qty": 16,
+      "cmc": 0,
+      "type": "Basic Land — Swamp",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "B"
+      ]
+    }
+  ]
+}

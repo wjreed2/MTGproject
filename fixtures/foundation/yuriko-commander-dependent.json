@@ -1,0 +1,110 @@
+{
+  "id": "yuriko-commander-dependent",
+  "name": "Yuriko Commander-Dependent",
+  "archetype": "commander-dependent",
+  "commander": "Yuriko, the Tiger's Shadow",
+  "colorIdentity": [
+    "U",
+    "B"
+  ],
+  "plan": {
+    "winConditionId": "wincon.combat",
+    "primaryStrategyId": "strategy.control",
+    "competition": "High",
+    "playstyleS": 2,
+    "targetCastTurn": 3,
+    "castingPattern": "one_per_turn",
+    "tutorPreference": "fine",
+    "protectionImportance": "high",
+    "keyCards": [
+      {
+        "name": "Yuriko, the Tiger's Shadow"
+      }
+    ]
+  },
+  "notes": "Commander-dependent ninjutsu — Keep Going/protection should matter.",
+  "expected": {
+    "closeGameMode": "combat"
+  },
+  "cards": [
+    {
+      "name": "Yuriko, the Tiger's Shadow",
+      "qty": 1,
+      "cmc": 3,
+      "type": "Legendary Creature",
+      "roleTags": [],
+      "oracleText": "",
+      "colors": [
+        "U",
+        "B"
+      ],
+      "isCommander": true
+    },
+    {
+      "name": "Lightning Greaves",
+      "qty": 1,
+      "cmc": 2,
+      "type": "Artifact",
+      "roleTags": [
+        "Protection"
+      ],
+      "oracleText": "Equipped creature has haste and shroud.",
+      "colors": [],
+      "ir": null
+    },
+    {
+      "name": "Counterspell",
+      "qty": 1,
+      "cmc": 2,
+      "type": "Instant",
+      "roleTags": [
+        "Counterspell"
+      ],
+      "oracleText": "Counter target spell.",
+      "colors": [
+        "U"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Night's Whisper",
+      "qty": 1,
+      "cmc": 2,
+      "type": "Sorcery",
+      "roleTags": [
+        "Card Draw"
+      ],
+      "oracleText": "You draw two cards and you lose 2 life.",
+      "colors": [
+        "B"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Island",
+      "qty": 18,
+      "cmc": 0,
+      "type": "Basic Land — Island",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "U"
+      ]
+    },
+    {
+      "name": "Swamp",
+      "qty": 18,
+      "cmc": 0,
+      "type": "Basic Land — Swamp",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "B"
+      ]
+    }
+  ]
+}

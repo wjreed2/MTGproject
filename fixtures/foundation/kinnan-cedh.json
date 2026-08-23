@@ -1,0 +1,146 @@
+{
+  "id": "kinnan-cedh",
+  "name": "Kinnan Fast Combo cEDH",
+  "archetype": "fast-combo",
+  "commander": "Kinnan, Bonder Prodigy",
+  "colorIdentity": [
+    "G",
+    "U"
+  ],
+  "golden": [
+    "combo_keep_going_bump"
+  ],
+  "plan": {
+    "winConditionId": "wincon.combo",
+    "primaryStrategyId": "strategy.spellslinger",
+    "competition": "cEDH",
+    "playstyleS": 4,
+    "targetCastTurn": 2,
+    "castingPattern": "several_in_one_turn",
+    "tutorPreference": "fine",
+    "protectionImportance": "high",
+    "keyCards": [
+      {
+        "name": "Basalt Monolith"
+      },
+      {
+        "name": "Dramatic Reversal"
+      }
+    ]
+  },
+  "notes": "cEDH fast combo — Keep Going expectations should rise vs casual tokens.",
+  "expected": {
+    "closeGameMode": "combo",
+    "keepGoingExpectationBump": true
+  },
+  "cards": [
+    {
+      "name": "Kinnan, Bonder Prodigy",
+      "qty": 1,
+      "cmc": 2,
+      "type": "Legendary Creature",
+      "roleTags": [],
+      "oracleText": "",
+      "colors": [
+        "G",
+        "U"
+      ],
+      "isCommander": true
+    },
+    {
+      "name": "Basalt Monolith",
+      "qty": 1,
+      "cmc": 3,
+      "type": "Artifact",
+      "roleTags": [
+        "Ramp",
+        "Mana Rock"
+      ],
+      "oracleText": "{T}: Add {C}{C}{C}.",
+      "colors": [],
+      "ir": null
+    },
+    {
+      "name": "Dramatic Reversal",
+      "qty": 1,
+      "cmc": 2,
+      "type": "Instant",
+      "roleTags": [
+        "Combo"
+      ],
+      "oracleText": "Untap all nonland permanents you control. you win the game.",
+      "colors": [
+        "U"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Rhystic Study",
+      "qty": 1,
+      "cmc": 3,
+      "type": "Enchantment",
+      "roleTags": [
+        "Card Draw"
+      ],
+      "oracleText": "Whenever an opponent casts a spell, you may draw a card unless that player pays {1}.",
+      "colors": [
+        "U"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Swan Song",
+      "qty": 1,
+      "cmc": 1,
+      "type": "Instant",
+      "roleTags": [
+        "Counterspell"
+      ],
+      "oracleText": "Counter target enchantment, instant, or sorcery spell.",
+      "colors": [
+        "U"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Force of Will",
+      "qty": 1,
+      "cmc": 5,
+      "type": "Instant",
+      "roleTags": [
+        "Counterspell"
+      ],
+      "oracleText": "You may pay 1 life and exile a blue card from your hand rather than pay this spell's mana cost. Counter target spell.",
+      "colors": [
+        "U"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Island",
+      "qty": 16,
+      "cmc": 0,
+      "type": "Basic Land — Island",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "U"
+      ]
+    },
+    {
+      "name": "Forest",
+      "qty": 14,
+      "cmc": 0,
+      "type": "Basic Land — Forest",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "G"
+      ]
+    }
+  ]
+}

@@ -38,3 +38,8 @@ engine2/fixtures/pulled/
 docs/axis-ordination.html
 docs/deck-radar.html
 nohup.out
+
+# Foundation Evaluation Lab run dumps and local ratings (evidence, not engine input)
+data/foundation-lab/runs/
+data/foundation-lab/ratings.json
+data/foundation-lab/ratings.jsonl

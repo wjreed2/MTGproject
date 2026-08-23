@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Foundation Evaluation Lab</title>
+<style>
+  :root { --bg:#111; --fg:#eee; --muted:#9aa; --border:#333; --ok:#3c6; --warn:#c93; --bad:#e55; }
+  html,body { margin:0; background:var(--bg); color:var(--fg); font:13px/1.4 ui-sans-serif, system-ui, sans-serif; }
+  header.bar { position:sticky; top:0; background:#1a1a1a; border-bottom:1px solid var(--border); padding:8px 12px; display:flex; gap:8px; flex-wrap:wrap; align-items:center; z-index:2; }
+  select, button, input { font:inherit; background:#222; color:var(--fg); border:1px solid var(--border); padding:4px 8px; }
+  button.on { background:#345; border-color:#68a; }
+  main { display:grid; grid-template-columns: 1.4fr 1fr; gap:12px; padding:12px; }
+  section { border:1px solid var(--border); padding:10px; }
+  h2,h3,h4 { margin:0 0 8px; font-size:14px; }
+  .muted { color:var(--muted); }
+  .ok { color:var(--ok); } .warn { color:var(--warn); } .bad, .suspicious { color:var(--bad); } .review { color:var(--warn); } .normal { color:var(--ok); }
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  th,td { border-bottom:1px solid var(--border); padding:3px 4px; text-align:left; vertical-align:top; }
+  details.cap { border-top:1px solid var(--border); padding:6px 0; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:4px 12px; }
+  .rec { border:1px solid var(--border); padding:8px; margin:0 0 8px; }
+  .rec.focus { outline:1px solid #68a; }
+  .rec header { display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; }
+  .meta { display:grid; grid-template-columns:1fr 1fr; gap:2px 10px; margin:6px 0; color:var(--muted); }
+  .reasons label { display:block; }
+  .review-row { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin:6px 0; }
+  kbd { background:#222; border:1px solid var(--border); padding:0 4px; }
+</style>
+</head>
+<body>
+<header class="bar">
+  <strong>Foundation Evaluation Lab</strong>
+  <span class="muted">dev / calibration only — not a user-facing mode</span>
+  <select id="deck"></select>
+  <button type="button" id="run">Run</button>
+  <button type="button" id="prev">Prev</button>
+  <button type="button" id="next">Next</button>
+  <button type="button" id="export">Export ratings</button>
+  <label class="muted">Import <input type="file" id="import" accept="application/json"></label>
+  <span id="saved" class="muted"></span>
+</header>
+<p class="muted" style="padding:0 12px">
+  Keys: <kbd>G</kbd> good <kbd>O</kbd> ok <kbd>B</kbd> bad · <kbd>N</kbd>/<kbd>P</kbd> next/prev deck ·
+  <kbd>A</kbd>/<kbd>C</kbd> focus adds/cuts · <kbd>J</kbd>/<kbd>K</kbd> next/prev rec.
+  Ratings are local evidence and do not train the engine.
+</p>
+<div id="meta" style="padding:0 12px 8px"></div>
+<main>
+  <div>
+    <section>
+      <h2>Foundation capabilities</h2>
+      <div id="caps"></div>
+    </section>
+    <section>
+      <h2>Interaction by threat type</h2>
+      <div id="threats"></div>
+    </section>
+    <section>
+      <h2>Mana access diagnostics</h2>
+      <div id="mana"></div>
+    </section>
+    <section>
+      <h2>Keep Going (outcome)</h2>
+      <div id="keep"></div>
+    </section>
+    <section>
+      <h2>Mechanism breakdown</h2>
+      <div id="mechs"></div>
+    </section>
+    <section>
+      <h2>Synergy</h2>
+      <div id="synergy"></div>
+    </section>
+    <section>
+      <h2>Findings</h2>
+      <div id="findings"></div>
+    </section>
+  </div>
+  <div>
+    <section>
+      <h2>Suggested Adds</h2>
+      <div id="adds"></div>
+    </section>
+    <section>
+      <h2>Suggested Cuts</h2>
+      <div id="cuts"></div>
+    </section>
+  </div>
+</main>
+<script src="/js/foundation/foundation-config.js"></script>
+<script src="/js/foundation/foundation-engine.js"></script>
+<script src="/js/foundation/foundation-suggest.js"></script>
+<script src="/js/foundation-lab/catalog.js"></script>
+<script src="/js/foundation-lab/normalize.js"></script>
+<script src="/js/foundation-lab/adapter.js"></script>
+<script src="/js/foundation-lab/ratings.js"></script>
+<script src="/js/foundation-lab/lab-ui.js"></script>
+</body>
+</html>

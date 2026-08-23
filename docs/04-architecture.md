@@ -2,6 +2,8 @@
 
 ## Major files
 
+- `js/foundation/` — Hybrid v2 evaluator + isolated config (production path)
+- `js/foundation-lab/` — Evaluation Lab adapter (dev/calibration only; see [18-foundation-evaluation-lab.md](./18-foundation-evaluation-lab.md))
 - `js/deck-plan.js` — plan schema, rankers, `planMatchScore`, plan-only backfill gate
 - `js/deck-plan-wizard.js` — wizard UI and step flow
 - `js/commander-plan-ext.js` — key-card role derivation, L* / R*, Protection helpers

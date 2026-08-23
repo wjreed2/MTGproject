@@ -1,0 +1,127 @@
+{
+  "id": "sythis-enchantments",
+  "name": "Sythis Enchantress",
+  "archetype": "enchantment-focused",
+  "commander": "Sythis, Harvest's Hand",
+  "colorIdentity": [
+    "G",
+    "W"
+  ],
+  "plan": {
+    "winConditionId": "wincon.combat",
+    "primaryStrategyId": "strategy.enchantress",
+    "competition": "Focused",
+    "playstyleS": 0,
+    "targetCastTurn": 2,
+    "castingPattern": "one_per_turn",
+    "tutorPreference": "fine",
+    "protectionImportance": "med",
+    "keyCards": [
+      {
+        "name": "Enchantress's Presence"
+      }
+    ]
+  },
+  "notes": "Enchantment-focused value.",
+  "expected": {
+    "closeGameMode": "combat"
+  },
+  "cards": [
+    {
+      "name": "Sythis, Harvest's Hand",
+      "qty": 1,
+      "cmc": 2,
+      "type": "Legendary Enchantment Creature",
+      "roleTags": [],
+      "oracleText": "",
+      "colors": [
+        "G",
+        "W"
+      ],
+      "isCommander": true
+    },
+    {
+      "name": "Enchantress's Presence",
+      "qty": 1,
+      "cmc": 3,
+      "type": "Enchantment",
+      "roleTags": [
+        "Card Draw"
+      ],
+      "oracleText": "Whenever you cast an enchantment spell, draw a card.",
+      "colors": [
+        "G"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Sterling Grove",
+      "qty": 1,
+      "cmc": 2,
+      "type": "Enchantment",
+      "roleTags": [
+        "Protection",
+        "Tutor"
+      ],
+      "oracleText": "Other enchantments you control have hexproof.",
+      "colors": [
+        "G",
+        "W"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Swords to Plowshares",
+      "qty": 1,
+      "cmc": 1,
+      "type": "Instant",
+      "roleTags": [
+        "Removal"
+      ],
+      "oracleText": "Exile target creature.",
+      "colors": [
+        "W"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Sol Ring",
+      "qty": 1,
+      "cmc": 1,
+      "type": "Artifact",
+      "roleTags": [
+        "Ramp",
+        "Mana Rock"
+      ],
+      "oracleText": "{T}: Add {C}{C}.",
+      "colors": [],
+      "ir": null
+    },
+    {
+      "name": "Forest",
+      "qty": 16,
+      "cmc": 0,
+      "type": "Basic Land — Forest",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "G"
+      ]
+    },
+    {
+      "name": "Plains",
+      "qty": 12,
+      "cmc": 0,
+      "type": "Basic Land — Plains",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "W"
+      ]
+    }
+  ]
+}

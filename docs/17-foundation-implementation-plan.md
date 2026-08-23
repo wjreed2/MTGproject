@@ -39,7 +39,7 @@ Existing deck data → Plan / Wizard (`js/deck-plan.js`, `js/deck-plan-wizard.js
 13–14. Target proposal + readout — done.  
 15–17. Adds, Cuts, Hybrid slot — done.  
 18. Deck suite (`scripts/test-foundation-deck-suite.js`) — done.  
-19. Calibration — **open**, config-only.  
+19. Calibration — **open**, config-only. Harness: [18-foundation-evaluation-lab.md](./18-foundation-evaluation-lab.md) (`npm run test:foundation`, `/foundation-lab.html`).  
 20. Release criteria for architecture — met; numerical tuning is not required to use Hybrid v2.
 
 Recommended code order matches the owner plan: model → config → needs → mana → resources → interaction → protection/shared capacity → Keep Going → close the game → synergy/multi-role → readout → Adds → Cuts → cutover → tests → calibration.
@@ -55,3 +55,5 @@ A complete deterministic evaluator with **intentionally approximate** parameters
 | `js/foundation/foundation-config.js` | Isolated coefficients |
 | `js/foundation/foundation-engine.js` | Needs → mechanisms → coverage → evaluation |
 | `js/foundation/foundation-suggest.js` | Adds/Cuts ranking + compact/expand HTML |
+| `js/foundation-lab/` | Evaluation Lab adapter, fixtures loader, compare, ratings (dev only) |
+| `fixtures/foundation/` | Representative calibration decks |
