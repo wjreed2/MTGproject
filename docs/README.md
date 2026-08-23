@@ -33,6 +33,7 @@ This directory is the **persistent source of truth** for MTG Archive product con
 | [14-foundation-model.md](./14-foundation-model.md) | Locked capability-based Foundation (2026-08-21/22); not yet scoring |
 | [15-foundation-interview.md](./15-foundation-interview.md) | Round 2 interview — **locked** 2026-08-22 |
 | [16-foundation-interview-r3-r5.md](./16-foundation-interview-r3-r5.md) | Rounds 3–5 — **locked** 2026-08-22/23 (need-setting, mechanisms, Hybrid v2). Interview complete. |
+| [17-foundation-implementation-plan.md](./17-foundation-implementation-plan.md) | Phased architecture-first implementation plan + connection map |
 
 ## Related in-repo docs
 

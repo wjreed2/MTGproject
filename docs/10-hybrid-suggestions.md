@@ -1,6 +1,6 @@
 # Hybrid Suggested Adds
 
-**Status:** Implemented as a merge of Classic staples + sandbox theme rows (Ready Prompts 27–28). **Destination:** this merge **is replaced by Hybrid v2** (Foundation ranking + readout) when v1 ships (F-Q5, F5-Q4). Classic and Semantic stay. Current Hybrid may keep running until that cutover.
+**Status:** Hybrid **slot** now runs Foundation / Hybrid v2 architecture (`js/foundation/`) — evaluator + compact readout + Adds/Cuts ranking. Sandbox theme merge is off unless `FOUNDATION_CONFIG.includeSandboxThemeRows`. Classic and Semantic unchanged. Coefficients are approximate (calibration later). Plan: [17-foundation-implementation-plan.md](./17-foundation-implementation-plan.md).
 
 This file describes **current** Hybrid behavior. Do not edit partner `engine2/` or introduce runtime AI.
 
