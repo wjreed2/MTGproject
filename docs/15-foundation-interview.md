@@ -13,13 +13,13 @@ Do not reopen these without an explicit ask. Rounds 3–5 are locked in [16-foun
 | ID | Lock |
 |----|------|
 | **F-Q1 D** | Three layers: capabilities → mechanisms → outcomes/secondaries. |
-| **F-Q2 A** | v1 capabilities: Close the game · Make mana on time · Generate resources · Interact with relevant threats · Keep going after disruption. Strategy/payoffs stay Strategy. Tutors, wipes, protection cards, etc. are mechanisms. |
+| **F-Q2 A** | v1 capabilities (names refined 2026-08-23; model not reopened): Close the game · Access the mana needed to execute the plan · Generate resources · Interact with relevant threats · Continue executing the plan after disruption. Degree varies by deck. Strategy/payoffs stay Strategy. Tutors, wipes, protection cards, etc. are mechanisms. |
 | **F-Q3 A** | Skippable wizard **competition** field. Undecided allowed; algorithm may recommend, never silently overwrite. Categories: Casual / Focused / High / **cEDH**. **cEDH is its own thing**, not “cEDH-ish.” |
 | **F-Q4 A** | Deck Context table (always-on list signals; wizard confirms; infer when Undecided; opposing threat speed inferred). **Playstyle slider (S ∈ [−7, 7]) is a wizard field**, same stored value as any later panel edit. |
 | **F-Q5 A+B** | This work **replaces Hybrid** (Classic staples + sandbox theme merge) as the suggestion engine. Ranking from Foundation. **Explanatory readout required** (strengths / deficiencies / vulnerabilities). Not an opaque score. Hybrid may keep running until cutover. |
 | **F-Q6 A** | v1 threat types: Creature · Wide board · Artifact · Enchantment · Graveyard · Stack · Land. Combo/engine is a *reason*, not a type. |
 | **F-Q7 B** | Shared capacity v1 only on competing-use pairs. First pair: **interaction ↔ protection**. Capacity 1.0, default 50/50 unless one need is larger; credit = quality × share. Ramp+Draw stay additive until proven competing. |
-| **F-Q8 B refined** | Quality-weighted coverage units. **Make mana on time** is Gameplan-style success (“enough mana for x, y, z on time”), not an L*/R* quota. Hypergeo still counts real cards inside the formula. L*/R* may be shown as derived explanation. **Other roles keep a per-deck target number**, filled by coverage units. |
+| **F-Q8 B refined** | Quality-weighted coverage units. **Access the mana needed to execute the plan** is Gameplan-style success (commander on T + key cards + wincon pieces; broader than land drops), not an L*/R* quota. Hypergeo still counts real cards. L*/R* may be shown as derived explanation. **Other roles keep a per-deck target number**, filled by coverage units. |
 | **F-Q9 A** | Public copy: “Foundation is whether your deck can do the basic jobs every Commander deck has to do — make mana, keep resources coming, answer threats, and finish the game — in a way that fits your plan. Your strategy is how you do those jobs.” Editable later; this is the meaning. |
 | **F-Q10 A** | New deterministic layer over existing tags + CardIR + Gameplan. No CardIR regen. Partner `engine2/` untouched. Degrade when CardIR coverage is low. |
 
@@ -33,7 +33,7 @@ Do not reopen these without an explicit ask. Rounds 3–5 are locked in [16-foun
 
 ### F-Q2 — v1 first-class capabilities
 
-**Locked: A** (wording of “Make mana on time” is the capability name; L*/R* are not the need quota — see F-Q8.)
+**Locked: A.** Capability name refined 2026-08-23 to **Access the mana needed to execute the plan** (broader than land drops; Round 3 rules unchanged). L*/R* are not the need quota — see F-Q8.
 
 ### F-Q3 — Intended competitiveness / power
 

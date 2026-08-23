@@ -22,7 +22,9 @@ Public wording should remain approximately 9th-grade readable. Working public se
 - Synergy can materially change how Foundation is fulfilled.
 - Synergy can reduce or reshape a need when it has a clear functional relationship to that need, but it **cannot erase** the need for a functional Foundation.
 - The algorithm identifies needs first, then evaluates the mechanisms used to satisfy them.
+- A mechanism may contribute to multiple Foundation capabilities when the deck actually uses it that way. Contributions must be functionally justified; do not award automatic full credit to every applicable role (recursion, tutors, selection, protection, synergistic engines, multi-role cards). Shared capacity still applies on competing-use pairs.
 - Do not impose universal ratios merely because a function is conventional in Commander.
+- Do not say every deck “has to do” the same degree of each capability. Foundation evaluates five capabilities for every deck; **degree varies**.
 
 Conceptually:
 
@@ -45,6 +47,8 @@ Foundation weighting/requirements are determined from three sources together:
 The overall evaluation represents:
 
 **How effectively the deck executes its intended plan at its intended level of competition.**
+
+This is an **explanatory synthesis, not a single numerical score.**
 
 This separates:
 
@@ -114,9 +118,9 @@ A form of **interaction**, not a universal Foundation quota. Identify a wipe nee
 
 Proposed wipe band: **floor 1**, common **2–4**. A deck can legitimately run **zero** board wipes; that is an **explicit exception**, not the default (F4-Q4). Prefer selective / one-sided wipes if the self-board matters.
 
-### Ramp / make mana on time
+### Access the mana needed to execute the plan
 
-Gameplan answers whether the deck can make enough mana **on time** for the jobs that matter: commander on T (separate) + key cards + declared-wincon pieces (F3-Q1). One-per-turn → max CMC; several-in-one-turn → sum CMC. That is a success test, not an L*/R* quota.
+Capability name: **Access the mana needed to execute the plan** (broader than land drops). Gameplan answers whether the deck can access the mana needed: commander on T (separate) + key cards + declared-wincon pieces (F3-Q1). One-per-turn → max CMC; several-in-one-turn → sum CMC. That is a success test, not an L*/R* quota.
 
 Hypergeo still counts real lands and ramp cards inside the formula. L*/R* may be shown as derived explanation. Quality-weighted coverage applies to how much each land/ramp piece contributes (untapped, colors, timing).
 
@@ -151,15 +155,15 @@ Relevant threat types (v1, F-Q6 A): **Creature · Wide board · Artifact · Ench
 
 **Threat → color capability → budget → available answers → reliability → deck need.**
 
-If the color identity has no reliable answer to a threat type, that is a **potential color-identity vulnerability**, not automatically a deck deficiency. If an in-color answer exists but is outside budget, look for a reasonable budget-compatible answer before calling the deck deficient.
+**Named implementation rule:** Interaction must evaluate threat-type coverage against the deck’s color identity and budget. When the deck cannot reliably interact with a threat type because of its color identity, report that as a **color-identity vulnerability** rather than automatically treating it as a deck deficiency. Example: limited stack interaction in red is a potential color-identity vulnerability, not necessarily a failure to meet the deck’s interaction target. If an in-color answer exists but is outside budget, look for a reasonable budget-compatible answer before calling the deck deficient.
 
 Distinguish: deck deficiency, color-identity vulnerability, budget constraint, deliberate player choice.
 
 ### Resilience
 
-An **outcome**, not a card category. Evaluate how well the deck can continue executing its plan after disruption: withstand interaction, recover from removal and wipes, redundancy, recursion, protection, resource generation, alternative routes, commander dependence.
+Capability name: **Continue executing the plan after disruption** (Keep Going). **Evaluated as an outcome.** Not a card category and **not a quota**. Coverage comes from the mechanisms that allow the deck to continue executing its plan after disruption. **Do not implement a resilience target.**
 
-Relative to the actual strategy. A fragile combo deck and a grindy value deck should not have identical resilience expectations.
+Evaluate: withstand interaction, recover from removal and wipes, redundancy, recursion, protection, resource generation, alternative routes, commander dependence. Relative to the actual strategy. A fragile combo deck and a grindy value deck should not have identical Keep Going expectations.
 
 ### Flexibility
 

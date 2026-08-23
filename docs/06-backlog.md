@@ -4,7 +4,7 @@
 
 These are the live design frontier. Hybrid still runs; **Hybrid v2** replaces that merge when v1 ships. Interview complete: [15-foundation-interview.md](./15-foundation-interview.md), [16-foundation-interview-r3-r5.md](./16-foundation-interview-r3-r5.md).
 
-- **Implement Hybrid v1** (Foundation ranking + readout + wizard fields + Adds/Cuts). No further Foundation interview rounds unless the owner asks.
+- **Implement Hybrid v1 / Foundation v1 architecture** once the owner explicitly says to start. Pipeline and explainability first; isolate coefficients. No further Foundation interview rounds unless the owner asks. Do not reopen the five-capability model.
 - Later (not v1 blockers): coefficients / seed tables; Theme E CardIR wizard depth.
 
 Do not mark these complete without checking source. Hybrid **mode** (Prompts 27–28) still ships as the running merge until the Hybrid v2 cutover.

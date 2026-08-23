@@ -23,8 +23,8 @@ Foundation means fundamental capabilities evaluated for every deck. It does not 
 ## DECIDED — Foundation layers (F-Q1 D)
 Capabilities (evaluated every deck) → mechanisms (need → solution) → outcomes/secondaries (resilience, flexibility, mana-efficiency). Tutors, wipes, and protection cards are mechanisms.
 
-## DECIDED — v1 capabilities (F-Q2 A)
-Close the game · Make mana on time · Generate resources · Interact with relevant threats · Keep going after disruption. Strategy/payoffs stay Strategy.
+## DECIDED — v1 capabilities (F-Q2 A; names 2026-08-23)
+Five fundamental capabilities evaluated for every deck (degree varies; not “every deck must do each equally”): Close the game · Access the mana needed to execute the plan · Generate resources · Interact with relevant threats · Continue executing the plan after disruption. Strategy/payoffs stay Strategy. Do not reopen the five-capability model.
 
 ## DECIDED — Competition field in wizard (F-Q3 A)
 Skippable Casual / Focused / High / **cEDH**. cEDH is its own category. Undecided allowed; infer-and-recommend, never silently overwrite.
@@ -42,7 +42,7 @@ Creature · Wide board · Artifact · Enchantment · Graveyard · Stack · Land.
 Competing-use pairs only. First pair: interaction ↔ protection. Capacity 1.0; default 50/50 unless one need is larger; credit = quality × share.
 
 ## DECIDED — Coverage units and need amounts (F-Q8)
-Quality-weighted coverage units. Make mana on time is a Gameplan-style success test (commander on T + key cards + declared-wincon pieces on time), not an L*/R* quota. One-per-turn → max CMC; several-in-one-turn → sum CMC. Inspector CMC override wins; else printed/scoring CMC including alternate-cost mana spent. Hypergeo still counts real cards. L*/R* may be derived explanation. Other roles keep a per-deck target number filled by coverage units.
+Quality-weighted coverage units. **Access the mana needed to execute the plan** is a Gameplan-style success test (commander on T + key cards + declared-wincon pieces), not an L*/R* quota. Broader than land drops. One-per-turn → max CMC; several-in-one-turn → sum CMC. Inspector CMC override wins; else printed/scoring CMC including alternate-cost mana spent. Hypergeo still counts real cards. L*/R* may be derived explanation. Other roles keep a per-deck target number filled by coverage units.
 
 ## DECIDED — Public Foundation wording (F-Q9 A)
 “Foundation is whether your deck can do the basic jobs every Commander deck has to do — make mana, keep resources coming, answer threats, and finish the game — in a way that fits your plan. Your strategy is how you do those jobs.”
@@ -65,9 +65,6 @@ Foundation proposes per-deck targets. Wizard confirmed-role numbers are user int
 ## DECIDED — Competition and playstyle are two axes (F3-Q3, F3-Q4)
 Competition = intensity (Casual / Focused / High / cEDH). Playstyle = mix (aggro vs control). Higher competition raises interaction, keep-going, and resources, and tightens mana-on-time. Coefficients open.
 
-## DECIDED — Keep going is derived (F3-Q6)
-No resilience quota. Derived from protect-what-matters, recursion/redundancy, resources, and other paths. Protection importance is an input.
-
 ## DECIDED — Generate resources is one target (F3-Q7)
 One context-derived number; any resource mechanism can fill it (not only Draw). Tutors are not a resource quota.
 
@@ -81,7 +78,19 @@ Compact readout in the Adds/Cuts panel with expand. Sentences + numbers (proposa
 v1 is the replacement engine. Coefficients can be rough. Defer Theme E, `engine2/` edits, full CardIR regen, and deep per-threat polish.
 
 ## DECIDED — Overall evaluation is competitiveness + effectiveness
-Evaluate how effectively the deck executes its intended plan at its intended level of competition. A casual deck can be excellent at being the deck it intends to be.
+Evaluate how effectively the deck executes its intended plan at its intended level of competition. This is an **explanatory synthesis, not a single numerical score.** A casual deck can be excellent at being the deck it intends to be.
+
+## DECIDED — Mechanisms may contribute to multiple capabilities
+A mechanism may contribute to multiple Foundation capabilities when the deck actually uses it that way. Contributions must be functionally justified; do not award automatic full credit to every applicable role. Especially recursion, tutors, card selection, protection, synergistic engines, and multi-role cards. Shared capacity still applies on competing-use pairs.
+
+## DECIDED — Keep Going is an outcome, not a quota (F3-Q6)
+Keep Going / Continue executing the plan after disruption is evaluated as an **outcome**. It is not filled by a fixed card category or quota. Coverage comes from mechanisms that let the deck continue after disruption. **Do not implement a resilience target.**
+
+## DECIDED — Interaction color-identity vulnerability
+Interaction must evaluate threat-type coverage against the deck’s color identity and budget. When the deck cannot reliably interact with a threat type because of its color identity, report that as a **color-identity vulnerability**, not automatically a deck deficiency. Example: limited stack interaction in red is a potential color-identity vulnerability, not necessarily a failure to meet the interaction target.
+
+## DECIDED — Architecture first, numbers isolated
+v1 is the evaluation pipeline and explainability, not finalized scoring. Isolate coefficients/configuration. Do not finish the math before the architecture. Pipeline: Deck → Strategy + Wizard intent + Competition + Playstyle → Determine Foundation needs → Evaluate mechanisms → Calculate capability coverage → Account for synergy / shared capacity / constraints → Identify strengths, deficiencies, vulnerabilities → Foundation readout → Suggested Adds / Cuts. Implementation may begin once the owner explicitly says to start.
 
 ## DECIDED — Output is explanatory, not an opaque score
 Report an overall evaluation plus strengths, deficiencies, vulnerabilities, and rationale. Do not collapse Hybrid or Foundation into a single unexplained number.
@@ -105,7 +114,7 @@ Protection importance is an intent weight, not Classic 0/3/6/10 quota. Commander
 Need depends on strategy/playstyle and board-state. Proposed **floor 1**, common **2–4** (including Voltron/tokens). **Zero is an explicit exception.** Prefer selective / one-sided wipes if the self-board matters.
 
 ## DECIDED — Ramp / mana-on-time uses Gameplan success, not an R* quota
-Make mana on time is whether the deck can pay its timed costs: commander on T (separate job) + key cards + declared-wincon pieces. One-per-turn → max CMC; several-in-one-turn → sum CMC. R*/L* are not Foundation scoring quotas. They may be shown as derived explanation. Hypergeo still counts real cards inside the formula.
+Access the mana needed to execute the plan is whether the deck can pay its timed costs: commander on T (separate job) + key cards + declared-wincon pieces. Broader than land drops. One-per-turn → max CMC; several-in-one-turn → sum CMC. R*/L* are not Foundation scoring quotas. They may be shown as derived explanation. Hypergeo still counts real cards inside the formula.
 
 ## DECIDED — Manabase quantity vs quality
 Land count and manabase quality remain distinct. L* is not an Adds land deficit and is not the mana-on-time need quota. Do not rename Manabase to Foundation.

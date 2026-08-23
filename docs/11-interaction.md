@@ -49,7 +49,7 @@ Board wipes are recovery tools and a form of **interaction**, not a universal Fo
 
 v1 types (F-Q6 A): **Creature · Wide board · Artifact · Enchantment · Graveyard · Stack · Land**. Combo/engine is a *reason* you may need those answers, not its own type.
 
-If the color identity lacks a reliable way to interact with a threat type, identify that as a **potential color-identity vulnerability**, not automatically a deck deficiency. Budget: seek a reasonable budget-compatible answer before calling the deck deficient.
+**Named implementation rule:** Interaction must evaluate threat-type coverage against the deck’s color identity and budget. When the deck cannot reliably interact with a threat type because of its color identity, report that as a **color-identity vulnerability** rather than automatically treating it as a deck deficiency. Example: limited stack interaction in red is a potential color-identity vulnerability, not necessarily a failure to meet the deck’s interaction target. Budget: seek a reasonable budget-compatible answer before calling the deck deficient.
 
 Conceptual flow:
 

@@ -24,7 +24,7 @@ The system is intended to help a player turn a vague deck idea into a structured
 
 Deck categories (F5-Q4; not suggestion modes):
 1. **Mana Base** — lands and mana infrastructure
-2. **Foundation** — the five jobs (close the game, mana on time, resources, interact, keep going)
+2. **Foundation** — five fundamental capabilities evaluated for every deck (degree varies): close the game; access the mana needed to execute the plan; generate resources; interact with relevant threats; continue executing the plan after disruption
 3. **Strategy** — plan, theme, subtheme: *how* the deck does those jobs
 4. **Payoffs** — cards that cash in on that strategy (not a sixth Foundation job)
 
@@ -34,7 +34,7 @@ Foundation is the collection of fundamental **capabilities** the algorithm evalu
 
 Keep **internal** and **public** Foundation definitions separate. Public language targets approximately a 9th-grade reading level. Working public sentence: F-Q9 A in [15-foundation-interview.md](./15-foundation-interview.md).
 
-**Make mana on time** is a Foundation success test (commander on T + key cards + declared-wincon pieces). **Mana Base** remains its own category (infrastructure, quantity vs quality). Do not rename Mana Base to Foundation.
+**Access the mana needed to execute the plan** is a Foundation success test (commander on T + key cards + declared-wincon pieces; broader than land drops). **Mana Base** remains its own category (infrastructure, quantity vs quality). Do not rename Mana Base to Foundation.
 
 Board wipes are a form of interaction. Proposed floor 1, common 2–4; **zero is an explicit exception**, not the default.
 

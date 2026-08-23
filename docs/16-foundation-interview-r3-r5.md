@@ -4,22 +4,50 @@
 **Prereq:** [14-foundation-model.md](./14-foundation-model.md), [15-foundation-interview.md](./15-foundation-interview.md) (round 2).  
 **Interview style:** one multiple-choice question at a time; answer is locked unless the owner clarifies.
 
-The Foundation **interview** is done (five rounds). Do not implement until reading this file. Do not reopen these locks without an explicit ask. Remaining work is **Hybrid v1 implementation** (coefficients, seed tables, Theme E are later — not more interview rounds unless asked).
+The Foundation **interview** is done (five rounds). Do not reopen these locks without an explicit ask. The five-capability **model** is not reopened; names below were refined 2026-08-23 to prevent implementation drift.
+
+**Implementation may begin once the owner explicitly says to start implementation.** Build the **evaluation pipeline and explainability first**, with coefficients/configuration isolated. Do not try to finish the math before the architecture. v1 is the Foundation engine architecture, not a finalized scoring system.
+
+Remaining work after go-ahead: **Hybrid v1 / Foundation v1 architecture** (coefficients, seed tables, Theme E are later — not more interview rounds unless asked).
 
 ---
 
-## Locked summary
+## Implementation drift preventers (2026-08-23)
+
+Owner-approved. These do **not** reopen the five-capability model. Pipeline: Capability → Need → Mechanism(s) → Coverage → Evaluation. Not: Role tag → target number → deficit.
+
+**Capability names (use these; do not say “five jobs every deck has to do”):** Foundation is five fundamental capabilities evaluated for every deck. Not every deck needs the same **degree** of each capability.
+
+- Close the game
+- Access the mana needed to execute the plan
+- Generate resources
+- Interact with relevant threats
+- Continue executing the plan after disruption
+
+“Access the mana needed to execute the plan” is the capability name. Round 3 rules still define it (commander on T + key cards + declared-wincon pieces; max vs sum CMC). It is broader than land drops. Older docs may still say “Make mana on time” — treat that as this capability.
+
+**Keep Going is an outcome.** It is not filled by a fixed card category or quota. Its coverage comes from the mechanisms that allow the deck to continue executing its plan after disruption. Do not implement a “resilience target.”
+
+**Mechanisms may contribute to multiple capabilities** when the deck actually uses them that way. Contributions must be functionally justified; do not award automatic full credit to every applicable role. Especially: recursion, tutors, card selection, protection, synergistic engines, multi-role cards. Shared capacity still applies on competing-use pairs.
+
+**Interaction vulnerability rule.** Interaction must evaluate threat-type coverage against the deck’s color identity and budget. When the deck cannot reliably interact with a threat type because of its color identity, report that as a **color-identity vulnerability** rather than automatically treating it as a deck deficiency. Example: limited stack interaction in red is a potential color-identity vulnerability, not necessarily a failure to meet the deck’s interaction target.
+
+**Overall evaluation** is how effectively the deck executes its intended plan at its intended level of competition. This is an **explanatory synthesis, not a single numerical score.**
+
+**Architecture first.** Isolate numbers so they can be tuned against real decks without rewriting the engine. Pipeline:
+
+Deck → Strategy + Wizard intent + Competition + Playstyle → Determine Foundation needs → Evaluate mechanisms → Calculate capability coverage → Account for synergy / shared capacity / constraints → Identify strengths, deficiencies, vulnerabilities → Foundation readout → Suggested Adds / Cuts.
 
 ### Round 3 — need-setting (F3-Q1–F3-Q8)
 
 | ID | Lock |
 |----|------|
-| **F3-Q1** | Mana-on-time jobs = **commander on T** (separate) **+ key cards + declared-wincon pieces**. Not every high-CMC card. **One key card per turn** → cost is **max CMC**. **Several in one turn** (typical spellslinger combo: instants/sorceries) → cost is **sum CMC**. **Inspector CMC override wins.** Else printed/scoring CMC **including alternate-cost paths** (mana actually spent). Life/pitch are conditions, not extra mana. `{X}` as already defined in Adds. |
+| **F3-Q1** | Capability **Access the mana needed to execute the plan** (was “Make mana on time”). Jobs = **commander on T** (separate) **+ key cards + declared-wincon pieces**. Not every high-CMC card. Broader than land drops. **One key card per turn** → cost is **max CMC**. **Several in one turn** (typical spellslinger combo: instants/sorceries) → cost is **sum CMC**. **Inspector CMC override wins.** Else printed/scoring CMC **including alternate-cost paths** (mana actually spent). Life/pitch are conditions, not extra mana. `{X}` as already defined in Adds. |
 | **F3-Q2 D** | Infer one-per-turn vs several-in-one-turn from **strategy + key-card types**; **show in wizard**; user can override; Undecided uses inference. |
 | **F3-Q3 A** | Higher **competition raises** interaction, “keep going,” and resources; **tightens** mana-on-time. Direction locked; coefficients open. |
 | **F3-Q4 A** | **Two axes.** Competition = intensity. Playstyle = mix (aggro vs control). |
 | **F3-Q5 A** | Foundation **proposes** per-deck targets. Wizard **confirmed-role numbers are user intent** and **win if edited**. Never silently overwrite. Going below the proposal is a vulnerability / tradeoff (see F5-Q2 for UI). |
-| **F3-Q6 A** | **Keep going** is **derived** (protect what matters, recursion/redundancy, resources, other paths). Protection importance is an input. No resilience quota. |
+| **F3-Q6 A** | Capability **Continue executing the plan after disruption** (Keep Going). **Evaluated as an outcome.** Not a fixed card category or quota. Coverage comes from mechanisms that let the deck continue after disruption (protect what matters, recursion/redundancy, resources, other paths). Protection importance is an input. **Do not implement a resilience target.** |
 | **F3-Q7 A** | **Generate resources:** one context-derived target number; **any** resource mechanism can fill it (not only Draw). Tutors are not a resource quota. |
 | **F3-Q8 A** | **Close the game:** present wincon, necessary pieces, accessible (mana-on-time + resources), more redundancy at High/cEDH. **Never replace** the user’s wincon with EDHREC. |
 
@@ -44,11 +72,11 @@ The Foundation **interview** is done (five rounds). Do not implement until readi
 | **F5-Q2 refined** | **Show the warning** when below the Foundation proposal. **No** “I accept this tradeoff” control. If the user **sets a target** (confirmed-role number), Adds **stop** for that job once the set target is met — do not keep pushing the higher proposal. If they never set a target, Adds aim at the proposal. |
 | **F5-Q3 C** | Wizard insert: **competition + playstyle after strategy**. **Casting pattern** later, once wincon / key cards are declared. **Tutor preference last** with other skippable prefs. |
 | **F5-Q4 B** | This work **is Hybrid v2**. When v1 ships, Hybrid’s toggle slot **becomes** this engine. Classic and Semantic stay. No long-lived fourth mode. Dev-only flag while building. |
-| **Categories** | Deck anatomy (not modes): **1. Mana Base** · **2. Foundation** · **3. Strategy** (plan, theme, subtheme) · **4. Payoffs**. Payoffs are not a sixth Foundation job. Make mana on time is a Foundation success test; Mana Base is the infrastructure that serves it. |
+| **Categories** | Deck anatomy (not modes): **1. Mana Base** · **2. Foundation** (five fundamental capabilities evaluated for every deck; degree varies) · **3. Strategy** (plan, theme, subtheme) · **4. Payoffs**. Payoffs are not a sixth Foundation job. Access-the-mana is a Foundation success test; Mana Base is the infrastructure that serves it. |
 | **F5-Q5 refined** | Hybrid v2 ranks **Cuts** too (not Classic-only). **Over the role target** → Cut, **no swap**. **Poor fit** (job still needed) → Cut + better Add marked **direct swap / “replaces [card].”** At or under target and the card is doing the job → do not cut unless a swap is attached. Do not open a hole without a replacement. |
 | **F5-Q6 C** | Compact: short status + which jobs are short (and the below-proposal warning when a target is set). Expand: five jobs with **proposal vs user target vs coverage**, plus mana base / strategy / payoffs as context. No single mystery score. |
 | **F5-Q7 A** | One short why-line on **every** Add and Cut. Swap Adds and matching Cuts say **“replaces [card].”** |
-| **F5-Q8 A** | **v1 = the replacement engine** (wizard fields, proposed targets, readout, Adds/Cuts with why-lines and swaps). Coefficients can be rough. **In v1:** new deterministic layer over **existing** tags + CardIR + Gameplan; may **add derived fields** from CardIR already on disk. **Not in v1 / not a blocker:** full **CardIR regen** (re-extract the catalog), partner `engine2/` edits, Theme E (CardIR inside the wizard), deep per-threat polish. |
+| **F5-Q8 A** | **v1 = the replacement engine architecture** (wizard fields, proposed targets, readout, Adds/Cuts with why-lines and swaps). Not a finalized scoring system. Coefficients can be rough and **must be isolated/configurable**. Do not finish the math before the architecture. **In v1:** new deterministic layer over **existing** tags + CardIR + Gameplan; may **add derived fields** from CardIR already on disk. **Not in v1 / not a blocker:** full **CardIR regen** (re-extract the catalog), partner `engine2/` edits, Theme E (CardIR inside the wizard), deep per-threat polish. |
 
 ### CardIR regen vs additive pass
 
