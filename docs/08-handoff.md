@@ -4,7 +4,7 @@
 
 Foundation **interview is complete** (rounds 2–5). Do not reopen Foundation design questions. Hybrid (Classic staples + sandbox theme) is still the running suggestion merge. **Destination:** **Hybrid v2** — when v1 ships, Hybrid’s toggle slot becomes the Foundation engine + readout. Classic and Semantic stay. Locks: [14-foundation-model.md](./14-foundation-model.md), [15-foundation-interview.md](./15-foundation-interview.md), [16-foundation-interview-r3-r5.md](./16-foundation-interview-r3-r5.md) (includes 2026-08-23 drift preventers).
 
-**Implementation started** (owner go-ahead 2026-08-23). Architecture first; calibration later. Plan: [17-foundation-implementation-plan.md](./17-foundation-implementation-plan.md). Code: `js/foundation/`. Isolate coefficients. Do not finish the math before the architecture. Do not invent missing numbers or redesign the five capabilities.
+**Architecture v1 is in the Hybrid slot** (evaluator, readout, Adds/Cuts ranking, wizard fields). Calibration is later via `js/foundation/foundation-config.js` only. Plan: [17-foundation-implementation-plan.md](./17-foundation-implementation-plan.md). Do not invent missing numbers or redesign the five capabilities.
 
 ## Settled (rounds 2–5 + 2026-08-23 wording)
 - deterministic-only; user final say; no live Scryfall/EDHREC; no partner `engine2/` edits; **no CardIR regen** (additive derived fields from existing CardIR are OK)

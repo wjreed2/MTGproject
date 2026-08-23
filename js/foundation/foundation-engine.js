@@ -81,12 +81,26 @@
     return 0;
   }
 
+  function recommendFoundationCompetition(plan) {
+    const sid = plan && plan.primaryStrategyId;
+    const win = plan && plan.winConditionId;
+    if (win === 'wincon.combo' || sid === 'strategy.stax' || sid === 'strategy.goodstuff') {
+      return { value: 'High', note: 'Suggested from combo / stax / high-power strategy. cEDH is only set if you pick it.' };
+    }
+    if (sid === 'strategy.tokens' || sid === 'strategy.tribal' || sid === 'strategy.enchantress') {
+      return { value: 'Casual', note: 'Suggested from a typically casual strategy. Change it if this deck is Focused or higher.' };
+    }
+    return { value: 'Focused', note: 'Default recommendation when Undecided. Not a confirmed choice.' };
+  }
+
   function inferCastingPattern(plan) {
     if (plan && (plan.castingPattern === 'one_per_turn' || plan.castingPattern === 'several_in_one_turn')) {
       return plan.castingPattern;
     }
     const sid = plan && plan.primaryStrategyId;
-    if (sid === 'strategy.spellslinger' || (plan && plan.winConditionId === 'wincon.combo')) {
+    const types = (plan && plan.keyCardTypes) || [];
+    const spellish = types.some(t => /instant|sorcery/i.test(String(t || '')));
+    if (sid === 'strategy.spellslinger' || (plan && plan.winConditionId === 'wincon.combo') || spellish) {
       return 'several_in_one_turn';
     }
     return 'one_per_turn';
@@ -95,6 +109,8 @@
   function inferTutorPref(plan) {
     const p = plan && plan.tutorPreference;
     if (p === 'fine' || p === 'rather_not' || p === 'never') return p;
+    const rec = recommendFoundationCompetition(plan).value;
+    if ((plan && plan.competition) === 'Casual' || (!(plan && plan.competition) && rec === 'Casual')) return 'rather_not';
     return 'fine';
   }
 
@@ -674,6 +690,8 @@
     cardFoundationMechanisms: cardMechanisms,
     foundationCapabilityHole: capabilityHole,
     inferFoundationCastingPattern: inferCastingPattern,
+    recommendFoundationCompetition,
+    inferFoundationTutorPref: inferTutorPref,
     scoringCmcForFoundation: scoringCmc,
   };
 });

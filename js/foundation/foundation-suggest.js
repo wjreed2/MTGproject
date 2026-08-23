@@ -99,6 +99,26 @@
     };
   }
 
+  function attachFoundationSwapNotes(addPicks, cutCards, evaluation) {
+    const holes = openHoles(evaluation);
+    const poorFits = (cutCards || []).filter(c => {
+      const cls = c._foundationCut || classifyFoundationCut(c, evaluation, {}, {});
+      return cls.swap && holes.some(id => fillsCapability(c, id));
+    });
+    return (addPicks || []).map(pick => {
+      const card = pick.card || pick;
+      const match = poorFits.find(cut => holes.some(id => fillsCapability(cut, id) && fillsCapability(card, id)));
+      if (!match) return pick;
+      const why = `Replaces ${match.name} as a better fit for the same Foundation job.`;
+      const prev = (pick.s && pick.s.foundationWhy) || '';
+      return {
+        ...pick,
+        foundationSwapFor: match.name,
+        s: pick.s ? { ...pick.s, foundationWhy: prev ? `${why} ${prev}` : why } : pick.s,
+      };
+    });
+  }
+
   function rankAddPicks(picks, evaluation) {
     return (picks || []).map(p => rankAddPick(p, evaluation))
       .sort((a, b) => (Number(b.s && b.s.score) || 0) - (Number(a.s && a.s.score) || 0));
@@ -221,6 +241,7 @@
 
   return {
     rankFoundationAddPicks: rankAddPicks,
+    attachFoundationSwapNotes,
     classifyFoundationCut,
     applyFoundationCuts,
     compactFoundationReadoutHtml,

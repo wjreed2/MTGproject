@@ -6673,7 +6673,12 @@ function setDeckCutPlaystyleStep(step) {
   const deck = typeof activeDeckId !== 'undefined' && activeDeckId
     ? (typeof decks !== 'undefined' ? decks : []).find(d => d.id === activeDeckId)
     : null;
-  if (deck) { _renderCutSuggestions(deck); _renderAddSuggestions(deck); _refreshOpenThresholdEditors(deck); }
+  if (deck) {
+    if (typeof normalizeDeckPlan === 'function') {
+      deck.plan = normalizeDeckPlan({ ...(deck.plan || {}), playstyleS: s });
+    }
+    _renderCutSuggestions(deck); _renderAddSuggestions(deck); _refreshOpenThresholdEditors(deck);
+  }
 }
 
 function _toggleCutThresholdEditor() {
@@ -8283,6 +8288,12 @@ async function _renderAddSuggestions(deck) {
       foundationEval = _evaluateDeckFoundation(deck, ctx);
       if (foundationEval && typeof rankFoundationAddPicks === 'function') {
         hybridPicks = rankFoundationAddPicks(hybridPicks, foundationEval);
+        if (typeof attachFoundationSwapNotes === 'function' && typeof _suggestCardsToCut === 'function') {
+          try {
+            const cuts = _suggestCardsToCut(deck);
+            hybridPicks = attachFoundationSwapNotes(hybridPicks, cuts, foundationEval);
+          } catch (_) { /* optional swap notes */ }
+        }
       }
     } catch (_) { /* keep classic ranking */ }
     const wantSandbox = typeof FOUNDATION_CONFIG !== 'undefined' && FOUNDATION_CONFIG.includeSandboxThemeRows;
