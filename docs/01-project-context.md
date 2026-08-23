@@ -8,7 +8,7 @@ Current major focus:
 - deterministic deck-plan identification
 - Suggested Adds / Suggested Cuts (Classic, Hybrid, and Semantic modes)
 - Commander Gameplan
-- locked Foundation capability model (design) feeding future Hybrid / Deck Fit scoring
+- locked Foundation capability model (design) feeding **Hybrid v2** (interview complete; not yet scoring)
 
 The system is intended to help a player turn a vague deck idea into a structured, editable plan and then use that plan, actual deck contents, card roles, deck composition, and deterministic signals to recommend cards and identify cuts.
 
@@ -22,23 +22,21 @@ The system is intended to help a player turn a vague deck idea into a structured
 
 ## Current conceptual model
 
-The user currently likes:
-1. **Foundation**
-2. **Strategy**
-3. **Payoffs**
-4. **Manabase**
+Deck categories (F5-Q4; not suggestion modes):
+1. **Mana Base** — lands and mana infrastructure
+2. **Foundation** — the five jobs (close the game, mana on time, resources, interact, keep going)
+3. **Strategy** — plan, theme, subtheme: *how* the deck does those jobs
+4. **Payoffs** — cards that cash in on that strategy (not a sixth Foundation job)
 
-Foundation is the collection of fundamental **capabilities** the algorithm evaluates for every deck. It is universal at the capability level, not as a fixed set of card-count quotas. Locked detail: [14-foundation-model.md](./14-foundation-model.md).
+Foundation is the collection of fundamental **capabilities** the algorithm evaluates for every deck. It is universal at the capability level, not as a fixed set of card-count quotas. Locked detail: [14-foundation-model.md](./14-foundation-model.md), [16-foundation-interview-r3-r5.md](./16-foundation-interview-r3-r5.md).
 
-**Internal definition:** a collection of fundamental capabilities/functions evaluated for every deck. Win condition belongs in Foundation because a deck without a way to win cannot finish the game. Mana base and win condition are closest to universal necessities. Ramp, card advantage, interaction, and board wipes are **not** literal universal requirements; they help decks consistently execute the win condition.
+**Internal definition:** a collection of fundamental capabilities/functions evaluated for every deck. **Close the game** is a Foundation capability; the Wizard captures the intended win condition and the algorithm validates support. Specific threats, finishers, and combos that execute the strategy belong in **Payoffs**.
 
-Keep **internal** and **public** Foundation definitions separate. Public language targets approximately a 9th-grade reading level. Exact public wording is still open.
+Keep **internal** and **public** Foundation definitions separate. Public language targets approximately a 9th-grade reading level. Working public sentence: F-Q9 A in [15-foundation-interview.md](./15-foundation-interview.md).
 
-Win condition belongs conceptually in Foundation because a deck must ultimately close the game. The Wizard captures intended win condition; the algorithm should validate whether the deck actually supports it. Specific threats, finishers, and combos that execute the strategy belong in Payoffs.
+**Make mana on time** is a Foundation success test (commander on T + key cards + declared-wincon pieces). **Mana Base** remains its own category (infrastructure, quantity vs quality). Do not rename Mana Base to Foundation.
 
-Manabase/Landbase remains its own category (quantity via L\*; quality is a separate evaluation). Do not rename it to Foundation.
-
-Board wipes are a form of interaction, not a universal quota. A deck can run zero wipes without being deficient.
+Board wipes are a form of interaction. Proposed floor 1, common 2–4; **zero is an explicit exception**, not the default.
 
 Tutors are one possible consistency mechanism, not a Foundation quota. If the user dislikes tutors, the consistency need remains and other tools should be considered.
 

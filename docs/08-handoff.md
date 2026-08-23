@@ -2,38 +2,36 @@
 
 ## Current state
 
-Foundation **philosophy** and **round-2 schema** are locked. Hybrid (Classic staples + sandbox theme) is still the running suggestion merge. **Destination:** Foundation ranking replaces Hybrid, with a required explanatory readout. Locks: [14-foundation-model.md](./14-foundation-model.md), [15-foundation-interview.md](./15-foundation-interview.md).
+Foundation **interview is complete** (rounds 2–5). Hybrid (Classic staples + sandbox theme) is still the running suggestion merge. **Destination:** this work is **Hybrid v2** — when v1 ships, Hybrid’s toggle slot becomes the Foundation engine + readout. Classic and Semantic stay. Locks: [14-foundation-model.md](./14-foundation-model.md), [15-foundation-interview.md](./15-foundation-interview.md), [16-foundation-interview-r3-r5.md](./16-foundation-interview-r3-r5.md).
 
 Current major design frontier:
-- Round 3 — need-setting (mana x,y,z; per-deck role targets; competition/playstyle effects)
-- Then mechanisms/synergy, then output/cutover
+- **Implement Hybrid v1** (replacement engine). Interview is done — no more Foundation interview rounds unless the owner asks.
 - Preserve dynamic deck identity (do not homogenize via EDHREC)
+- Coefficients, seed tables, and Theme E are later; they do not block v1
 
-## Settled (includes round 2)
-- deterministic-only; user final say; no live Scryfall/EDHREC; no partner `engine2/` edits; no CardIR regen
+## Settled (rounds 2–5)
+- deterministic-only; user final say; no live Scryfall/EDHREC; no partner `engine2/` edits; **no CardIR regen** (additive derived fields from existing CardIR are OK)
 - Plan wizard + CP-Q locks; Undecided + inferred recommendations
+- Deck categories: **Mana Base · Foundation · Strategy · Payoffs**
 - Foundation capability-based; three layers; five v1 capabilities
-- Competition field: Casual / Focused / High / cEDH (cEDH distinct)
-- Playstyle slider in the wizard
-- Foundation engine **replaces Hybrid**; readout required (not opaque)
-- Threat types v1; shared capacity interaction↔protection
-- Mana-on-time = Gameplan success test, not L*/R* quota; other roles have per-deck targets + coverage units
-- Public Foundation wording (F-Q9 A)
-- New layer over tags + CardIR + Gameplan
+- Competition field: Casual / Focused / High / cEDH (cEDH distinct); playstyle slider in wizard
+- Two axes: competition = intensity; playstyle = mix
+- Mana-on-time = commander on T + key cards + declared-wincon pieces; max vs sum CMC; inspector override
+- Proposal vs confirmed-role numbers: confirmed wins; warn if below proposal; stop Adds at the set target
+- Keep going derived; one resource target; close-the-game validates the user’s wincon
+- Wipes: floor 1, common 2–4, zero is an exception; tutor pref field; measurable synergy
+- Hybrid v2 readout in Adds/Cuts (compact + expand); why-line on every card
+- Cuts: surplus = no swap; poor fit = named direct swap
+- Wizard order: competition + playstyle after strategy; casting pattern after wincon/key cards; tutor pref last
 
-## Open
-- what “x, y, z” are for mana-on-time besides commander on T
-- how per-deck role target numbers are set
-- how competition and playstyle change those needs
-- synergy **detection** rules
-- presentation/UI for readout and new wizard steps (exact order)
+## Open (implementation, not interview)
+- numeric coefficients / seed tables
 - Theme E CardIR wizard depth
-- seed tables / numeric curves
 - EDHREC vs fit coefficients
 - diagnosing current slider influence on Classic (legacy until cutover)
 
 ## Recommended next investigation
 
-Continue the Foundation interview (round 3: need-setting). Do not implement the replacement engine until need-setting, mechanisms/synergy, and output/cutover are locked.
+Implement Hybrid v1 per [16-foundation-interview-r3-r5.md](./16-foundation-interview-r3-r5.md). Do not start a new Foundation interview round unless the owner asks.
 
-Do not revisit runtime AI, live Scryfall/EDHREC, partner engine2 modification, or CardIR rewrite unless the user explicitly asks.
+Do not revisit runtime AI, live Scryfall/EDHREC, partner engine2 modification, or CardIR **rewrite** unless the user explicitly asks. Additive use of existing CardIR is in scope.

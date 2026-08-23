@@ -45,7 +45,7 @@ The amount, type, and quality of a capability the deck should have given its con
 
 Ask how effectively the deck executes its **intended plan** at its **intended level of competition**. Output should be explanatory: overall evaluation plus strengths, deficiencies, vulnerabilities, and why — not an opaque number.
 
-When the algorithm disagrees with user intent, surface a vulnerability/tradeoff and allow explicit acceptance.
+When the algorithm disagrees with user intent, surface a vulnerability/tradeoff in the readout. No accept-tradeoff control; respect a user-set target (F5-Q2).
 
 ## Deck Fit
 
@@ -71,6 +71,6 @@ Goldfish / `js/engine/*` is not that layer: opening-hand Monte Carlo and interac
 
 ## How this should meet Hybrid (destination)
 
-Foundation ranking **replaces Hybrid** (F-Q5), with a required readout. Use the locked Foundation model ([14-foundation-model.md](./14-foundation-model.md), [15-foundation-interview.md](./15-foundation-interview.md)). Hybrid may keep running until cutover.
+Foundation ranking **is Hybrid v2** and replaces today’s Hybrid merge when v1 ships (F-Q5, F5-Q4), with a required readout. Use the locked Foundation model ([14-foundation-model.md](./14-foundation-model.md), [15-foundation-interview.md](./15-foundation-interview.md), [16-foundation-interview-r3-r5.md](./16-foundation-interview-r3-r5.md)).
 
-Orchestration: new layer over tags + CardIR + Gameplan; no CardIR regen; partner `engine2/` untouched (F-Q10).
+Orchestration: new layer over tags + CardIR + Gameplan; no CardIR regen (additive derived fields OK); partner `engine2/` untouched (F-Q10).

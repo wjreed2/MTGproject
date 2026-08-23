@@ -59,6 +59,6 @@ Distinguish deck deficiency, color-identity vulnerability, budget constraint, an
 
 ## Open modeling problem
 
-Context-dependent **need amounts** and quality weights are still open (round 3). Threat **types** are locked. Shared-capacity **where** is locked (interaction↔protection). See [07-open-questions.md](./07-open-questions.md).
+Threat **types** are locked. Shared-capacity **where** is locked (interaction↔protection). **Direction** locked (F3-Q3): higher competition raises interaction. Fast combo may dip interaction slightly, never to zero (F4-Q8). Per-type **amounts** and quality weights remain open. See [07-open-questions.md](./07-open-questions.md), [16-foundation-interview-r3-r5.md](./16-foundation-interview-r3-r5.md).
 
 Prefer existing CardIR fields plus deterministic rules over regenerating CardIR. Full Foundation lock: [14-foundation-model.md](./14-foundation-model.md).

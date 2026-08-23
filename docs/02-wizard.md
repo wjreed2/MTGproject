@@ -4,20 +4,23 @@
 
 The Plan wizard is one modal pass with Back/edit support. Optional steps can be skipped where specified.
 
-Current sequence (planned additions from Foundation interview round 2 — exact insert order not locked):
+Locked insert order (F5-Q3 C). Competition + playstyle come **after strategy**. Casting pattern comes **after wincon / key cards are declared**. Tutor preference is **last**.
+
 1. Commander — only if deck has none; may skip for now.
 2. Key cards — soft 2–5 band; finish always allowed.
-3. Roles — confirm/edit derived roles.
+3. Roles — confirm/edit derived roles. Confirmed-role **numbers are user intent** and win over the Foundation proposal if edited (F3-Q5).
 4. Win condition — required.
 5. Primary strategy — required.
 6. Secondary strategy — optional/skippable.
 7. Theme type pickers — one per strategy needing types.
 8. Plan sub-tags — theme pieces inside the Plan envelope.
-9. Cast turn — target T, consistency %, L* / R* (L*/R* are derived explanation, not Foundation quotas).
-10. Protection — importance + optional types.
-11. Budget — skippable.
-12. **Playstyle** — Aggro↔Control slider (S ∈ [−7, 7]); wizard field; same value as any later panel edit.
-13. **Competition** — skippable Casual / Focused / High / cEDH; Undecided allowed.
+9. **Competition** — skippable Casual / Focused / High / cEDH; Undecided allowed. After strategy.
+10. **Playstyle** — Aggro↔Control slider (S ∈ [−7, 7]); wizard field; same value as any later panel edit. After strategy, with competition.
+11. Cast turn — target T, consistency %, L* / R* (L*/R* are derived explanation, not Foundation quotas).
+12. **Casting pattern** — one key card per turn vs several in one turn. Inferred from strategy + key-card types; shown; user can override; Undecided uses inference (F3-Q2).
+13. Protection — importance + optional types (importance is an intent weight, not a 0/3/6/10 quota — F4-Q5).
+14. Budget — skippable.
+15. **Tutor preference** — skippable per-deck: fine / rather not / never. Inference may be recommended; inference is not a confirmed “never” (F4-Q3). Last with other skippable prefs.
 
 ## Plan confirmation
 

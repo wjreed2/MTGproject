@@ -2,13 +2,12 @@
 
 ## Current design work (Hybrid / Deck Fit)
 
-These are the live design frontier. Hybrid still runs; Foundation **replaces** it after remaining interview rounds. Locks: [15-foundation-interview.md](./15-foundation-interview.md).
+These are the live design frontier. Hybrid still runs; **Hybrid v2** replaces that merge when v1 ships. Interview complete: [15-foundation-interview.md](./15-foundation-interview.md), [16-foundation-interview-r3-r5.md](./16-foundation-interview-r3-r5.md).
 
-- Round 3: need-setting (mana x,y,z; role targets; competition/playstyle).
-- Then: mechanisms/synergy; output/cutover.
-- Do not implement the replacement engine until those rounds lock.
+- **Implement Hybrid v1** (Foundation ranking + readout + wizard fields + Adds/Cuts). No further Foundation interview rounds unless the owner asks.
+- Later (not v1 blockers): coefficients / seed tables; Theme E CardIR wizard depth.
 
-Do not mark these complete without checking source. Hybrid **mode** (Prompts 27–28) still ships as the running merge until cutover.
+Do not mark these complete without checking source. Hybrid **mode** (Prompts 27–28) still ships as the running merge until the Hybrid v2 cutover.
 
 ## Historical Cuts/Adds scoring entries
 

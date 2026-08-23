@@ -1,23 +1,23 @@
 # Open Questions
 
 ## Foundation
-Philosophy locked in [14-foundation-model.md](./14-foundation-model.md). Schema locked in [15-foundation-interview.md](./15-foundation-interview.md).
+Philosophy locked in [14-foundation-model.md](./14-foundation-model.md). Interview complete: [15-foundation-interview.md](./15-foundation-interview.md), [16-foundation-interview-r3-r5.md](./16-foundation-interview-r3-r5.md).
 
-Still open:
-- Exact formulas for context-dependent need levels (round 3).
+Still open (implementation, not interview):
+- Numeric **coefficients** and seed tables (directions locked: competition raises interact / keep-going / resources and tightens mana-on-time).
 - Quantity vs quality **weights** (units locked; numbers not).
-- Exact presentation/UI for overall evaluation (later round).
-- Wizard insert order for playstyle + competition.
+
+Readout shape, wizard insert order, Hybrid v2 cutover, Cuts/swaps, and v1 scope are **locked** in round 5.
 
 ## Tutors
-Philosophy is **locked**: no tutor quota; tutors are one consistency mechanism; user philosophy constrains the solution, not the need.
+Philosophy is **locked**: no tutor quota; consistency need only if a plan-critical piece is present but unreliable; rank extra copies / selection / resources / tutors for that hole; drop tutors if the user dislikes them; skippable wizard field fine / rather not / never.
 
-Still open: how to detect a consistency need quantitatively, and how to rank tutor vs redundancy vs draw vs selection.
+Still open: exact quantitative unreliability test and ranking coefficients among those mechanisms.
 
 ## Protection
-Philosophy is **locked**: part of resilience; evaluate what actually needs protecting; no universal quota.
+Philosophy is **locked**: intent weight (not Classic 0/3/6/10 quota); commander is a protect-target; types are matching hints; shared capacity with interaction.
 
-Still open: how wizard Protection importance maps onto capability coverage, and shared capacity with interaction.
+Still open: exact mapping from importance weight onto coverage numbers.
 
 ## Deck fit
 How should the system determine deck fit?
@@ -65,13 +65,13 @@ Known:
 **Where** is locked (F-Q7: competing pairs, first interaction↔protection). Exact numeric weights remain open.
 
 ## Interaction need (quantitative)
-Threat **types** are locked (F-Q6). Still open: how competition, speed, and strategy set the **amount** of coverage needed per type.
+Threat **types** are locked (F-Q6). **Direction** locked (F3-Q3): higher competition raises interaction. Still open: per-type **amounts** and coefficients. Fast combo may dip interaction slightly, never to zero (F4-Q8).
 
 ## Unequal multi-role quality
 A card that is excellent at A and mediocre at B should not get the same split as a card that is good at both. Functional-equivalence scoring is not modeled.
 
 ## Redundancy and synergy detection
-How extra copies, timing, and explicit measurable synergy relationships are detected. Synergy must be deterministic (no runtime LLM). Rules are not specified.
+**Rules locked (F4-Q6–Q7):** measurable plan overlap + CardIR provides/needs and combo rules when coverage is good; else degrade to plan overlap. Synergy may reduce the same capability only; never zero; never a different hole. Still open: exact overlap / combo rule tables.
 
 ## Counterfactual orchestration
 Minimum layer needed to evaluate “replace X with Y” without changing CardIR. Whether a future simulator should **validate** rather than replace the deterministic model.
@@ -80,9 +80,7 @@ Minimum layer needed to evaluate “replace X with Y” without changing CardIR.
 How context → need curves are stored and versioned (deterministic lookup, not an LLM). Exact methodology is open.
 
 ## Exact Deck Context schema
-v1 fields locked (F-Q4): list signals always on; wizard confirms strategy/wincon/T/protection/budget/roles/playstyle/competition; infer when Undecided; threat speed inferred. Quantitative **curves** still open (round 3).
+v1 fields locked (F-Q4 + rounds 3–5): list signals always on; wizard confirms strategy/wincon/T/protection/budget/roles/playstyle/competition/casting pattern/tutor pref; infer when Undecided; threat speed inferred. Quantitative **curves / coefficients** still open.
 
 ## Next investigation
-Round 2 is **locked** ([15-foundation-interview.md](./15-foundation-interview.md)). Round 3 is need-setting: mana-on-time x, y, z; how other-role target numbers are set; how competition/playstyle change needs.
-
-Do not implement the Hybrid-replacement engine until need-setting, mechanisms/synergy, and output/cutover are locked.
+Foundation interview is **complete**. Implement Hybrid v1 per [16-foundation-interview-r3-r5.md](./16-foundation-interview-r3-r5.md). Do not start another interview round unless the owner asks.

@@ -1,6 +1,6 @@
 # Hybrid Suggested Adds
 
-**Status:** Implemented as a merge of Classic staples + sandbox theme rows (Ready Prompts 27–28). **Destination:** Foundation ranking replaces this merge (F-Q5), with a required explanatory readout. Hybrid may keep running until cutover.
+**Status:** Implemented as a merge of Classic staples + sandbox theme rows (Ready Prompts 27–28). **Destination:** this merge **is replaced by Hybrid v2** (Foundation ranking + readout) when v1 ships (F-Q5, F5-Q4). Classic and Semantic stay. Current Hybrid may keep running until that cutover.
 
 This file describes **current** Hybrid behavior. Do not edit partner `engine2/` or introduce runtime AI.
 
@@ -30,7 +30,9 @@ Master switches:
 - Deck Goal off → Classic is forced; engine toggles hide.
 - Settings **Hybrid adds** (`mtg_hybrid_adds !== '0'`) off → Hybrid option is removed; anyone parked on Hybrid is coerced to Semantic. Plan data is not cleared.
 
-Cuts do **not** get a Classic+sandbox merge. In Hybrid mode, Cuts use Classic `_cutScore`. Semantic Cuts use partner `engine2` (lower score = stronger cut). Planned cuts in `deck.cuts` are planning markers, not scored recommendations.
+Cuts do **not** get a Classic+sandbox merge today. In Hybrid mode, Cuts use Classic `_cutScore`. Semantic Cuts use partner `engine2` (lower score = stronger cut). Planned cuts in `deck.cuts` are planning markers, not scored recommendations.
+
+**Hybrid v2 (locked, not built):** Foundation ranks Cuts too. Surplus over a set target = Cut, no swap. Poor-fit Foundation card = Cut + better Add marked “replaces [card].” Do not open a hole without a replacement. See [16-foundation-interview-r3-r5.md](./16-foundation-interview-r3-r5.md).
 
 ## Adds merge (Prompt 27)
 
@@ -106,7 +108,7 @@ Related design (not yet implemented as scoring):
 - [12-coverage.md](./12-coverage.md) — shared-capacity multi-role credit
 - [13-deck-fit.md](./13-deck-fit.md) — deck-level need/fit and counterfactual replacement
 
-Future Why lines should speak in strengths / deficiencies / vulnerabilities. Destination ranking **replaces** this merge (not an opaque score). See [15-foundation-interview.md](./15-foundation-interview.md).
+Future Why lines: one short line on every Add and Cut; swaps say “replaces [card].” Destination ranking **is Hybrid v2** and replaces this merge (not an opaque score). See [15-foundation-interview.md](./15-foundation-interview.md), [16-foundation-interview-r3-r5.md](./16-foundation-interview-r3-r5.md).
 
 ## Hard constraints (repeat)
 

@@ -12,7 +12,7 @@ Internal definition:
 
 **Foundation is a collection of fundamental capabilities/functions that the algorithm evaluates for every deck.**
 
-Public wording should remain approximately 9th-grade readable. Exact public sentence is still open.
+Public wording should remain approximately 9th-grade readable. Working public sentence: F-Q9 A.
 
 ## Core principles
 
@@ -74,7 +74,7 @@ Definitions:
 | **Preference** | An intentional player choice. |
 | **Constraint** | A limit such as color identity or budget. |
 
-When the algorithm disagrees with user intent, identify the vulnerability, explain the tradeoff, and where appropriate allow the user to **explicitly accept** it. Do not silently override the user.
+When the algorithm disagrees with user intent, identify the vulnerability and explain the tradeoff in the readout. **Do not** require an “I accept this” control (F5-Q2). If the user sets a target, stop suggesting once that target is met. Do not silently override the user.
 
 ## Capability notes (locked direction)
 
@@ -112,11 +112,11 @@ Need depends on strategy, commander dependence, plan, and vulnerabilities. No un
 
 A form of **interaction**, not a universal Foundation quota. Identify a wipe need only when strategy/playstyle and board-state requirements make them useful. Consider whether the deck can recover from its own wipes and whether wipes conflict with its plan.
 
-A deck can legitimately run **zero** board wipes without being deficient.
+Proposed wipe band: **floor 1**, common **2–4**. A deck can legitimately run **zero** board wipes; that is an **explicit exception**, not the default (F4-Q4). Prefer selective / one-sided wipes if the self-board matters.
 
 ### Ramp / make mana on time
 
-Gameplan answers whether the deck can make enough mana **on time** for the jobs that matter (commander on T today; other x, y, z still to lock in round 3). That is a success test, not an L*/R* quota.
+Gameplan answers whether the deck can make enough mana **on time** for the jobs that matter: commander on T (separate) + key cards + declared-wincon pieces (F3-Q1). One-per-turn → max CMC; several-in-one-turn → sum CMC. That is a success test, not an L*/R* quota.
 
 Hypergeo still counts real lands and ramp cards inside the formula. L*/R* may be shown as derived explanation. Quality-weighted coverage applies to how much each land/ramp piece contributes (untapped, colors, timing).
 
@@ -188,6 +188,6 @@ Synergy can reduce or reshape an apparent Foundation deficit only when there is 
 
 ## Relation to Hybrid today
 
-Hybrid (Classic staples + sandbox theme) is **implemented** and may keep running until cutover.
+Hybrid (Classic staples + sandbox theme) is **implemented** and may keep running until the Hybrid v2 cutover.
 
-**Destination (F-Q5):** Foundation ranking **replaces Hybrid**, with a required explanatory readout. Not an opaque score. New layer over tags + CardIR + Gameplan (F-Q10). Schema locks: [15-foundation-interview.md](./15-foundation-interview.md).
+**Destination (F-Q5, F5-Q4):** this work **is Hybrid v2**. When v1 ships, Hybrid’s toggle slot becomes Foundation ranking plus a required explanatory readout. Classic and Semantic stay. Not an opaque score. New layer over tags + CardIR + Gameplan (F-Q10). Additive CardIR fields OK; no catalog regen. Schema locks: [15-foundation-interview.md](./15-foundation-interview.md), [16-foundation-interview-r3-r5.md](./16-foundation-interview-r3-r5.md).

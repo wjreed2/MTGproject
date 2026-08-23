@@ -4,7 +4,7 @@
 **Prereq:** [14-foundation-model.md](./14-foundation-model.md) philosophy.  
 **Interview style:** one multiple-choice question at a time; answer is locked unless the owner clarifies.
 
-Do not reopen these without an explicit ask. Round 3 (need-setting) is next; do not implement the replacement engine until remaining rounds lock need-setting, mechanisms/synergy, and output/cutover.
+Do not reopen these without an explicit ask. Rounds 3–5 are locked in [16-foundation-interview-r3-r5.md](./16-foundation-interview-r3-r5.md). The Foundation interview is complete. Next work is Hybrid v1 implementation.
 
 ---
 
