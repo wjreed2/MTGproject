@@ -50,6 +50,18 @@ npm run test:foundation:write-fixtures
 
 Open the UI on a running app server: `/foundation-lab.html`.
 
+## Phone (no desktop)
+
+The Lab is a page on the **hosted app**, not a separate native feature. A phone cannot run `npm run test:foundation`.
+
+Once this code is on the same host the phone app already uses (Railway / production):
+
+1. Sign in as **admin** in the app (Safari or the Capacitor build pointed at that host — not a LAN IP of a laptop).
+2. Settings → Developer → **Foundation Lab**.
+3. Rate decks with the on-screen GOOD / OK / BAD buttons. Export uses the share sheet when available; Copy ratings works if Safari blocks downloads.
+
+The page and `/fixtures/foundation` require an admin session. They are not a public or regular-user mode.
+
 Keys: G good, O ok, B bad, N/P next/prev deck, A/C focus adds/cuts, J/K next/prev recommendation.
 
 ## What the Lab does not do

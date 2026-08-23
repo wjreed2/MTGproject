@@ -66,7 +66,8 @@
   }
 
   async function loadIndex() {
-    const res = await fetch('/fixtures/foundation/index.json');
+    const res = await fetch('/fixtures/foundation/index.json', { credentials: 'include' });
+    if (!res.ok) throw new Error(res.status === 404 || res.status === 401 ? 'Sign in as admin to load fixtures' : ('HTTP ' + res.status));
     index = await res.json();
     const sel = $('deck');
     sel.innerHTML = index.map(d => `<option value="${esc(d.id)}">${esc(d.name)} (${esc(d.archetype)})</option>`).join('');
@@ -74,7 +75,8 @@
   }
 
   async function loadFixture(id) {
-    const res = await fetch('/fixtures/foundation/' + encodeURIComponent(id) + '.json');
+    const res = await fetch('/fixtures/foundation/' + encodeURIComponent(id) + '.json', { credentials: 'include' });
+    if (!res.ok) throw new Error('Could not load fixture ' + id);
     return res.json();
   }
 
@@ -337,17 +339,48 @@
     else if (k === 'k') { focusIndex = Math.max(0, focusIndex - 1); render(); }
   });
 
-  $('run').addEventListener('click', runCurrent);
-  $('deck').addEventListener('change', runCurrent);
-  $('next').addEventListener('click', () => nextDeck(1));
-  $('prev').addEventListener('click', () => nextDeck(-1));
-  $('export').addEventListener('click', () => {
-    const blob = new Blob([JSON.stringify({ ratings: ratings() }, null, 2)], { type: 'application/json' });
+  function ratingsJson() {
+    return JSON.stringify({ ratings: ratings() }, null, 2);
+  }
+
+  async function exportRatings() {
+    const text = ratingsJson();
+    const blob = new Blob([text], { type: 'application/json' });
+    const file = new File([blob], 'foundation-lab-ratings.json', { type: 'application/json' });
+    if (navigator.share) {
+      try {
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({ files: [file], title: 'Foundation Lab ratings' });
+          return;
+        }
+        await navigator.share({ text, title: 'Foundation Lab ratings' });
+        return;
+      } catch (err) {
+        if (err && err.name === 'AbortError') return;
+      }
+    }
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = 'foundation-lab-ratings.json';
     a.click();
-  });
+  }
+
+  async function copyRatings() {
+    const text = ratingsJson();
+    try {
+      await navigator.clipboard.writeText(text);
+      $('saved').textContent = 'Copied ratings JSON';
+    } catch (_) {
+      $('saved').textContent = 'Copy failed — use Export';
+    }
+  }
+
+  $('run').addEventListener('click', runCurrent);
+  $('deck').addEventListener('change', runCurrent);
+  $('next').addEventListener('click', () => nextDeck(1));
+  $('prev').addEventListener('click', () => nextDeck(-1));
+  $('export').addEventListener('click', () => { exportRatings(); });
+  $('copy').addEventListener('click', () => { copyRatings(); });
   $('import').addEventListener('change', async (ev) => {
     const file = ev.target.files && ev.target.files[0];
     if (!file) return;
