@@ -156,10 +156,59 @@
     },
   });
 
+  function restoreConfigRegexes(target, source) {
+    if (!source || typeof source !== 'object' || !target || typeof target !== 'object') return;
+    if (source instanceof RegExp || Array.isArray(source)) return;
+    for (const k of Object.keys(source)) {
+      if (source[k] instanceof RegExp) {
+        if (!(target[k] instanceof RegExp)) target[k] = source[k];
+      } else if (source[k] && typeof source[k] === 'object' && !Array.isArray(source[k])) {
+        if (!target[k] || typeof target[k] !== 'object') target[k] = {};
+        restoreConfigRegexes(target[k], source[k]);
+      }
+    }
+  }
+
+  function mergeFoundationConfigPatch(target, patch) {
+    if (!patch || typeof patch !== 'object') return target;
+    for (const [k, v] of Object.entries(patch)) {
+      const cur = target[k];
+      const bothObjects = v && typeof v === 'object' && !Array.isArray(v) && !(v instanceof RegExp)
+        && cur && typeof cur === 'object' && !Array.isArray(cur) && !(cur instanceof RegExp);
+      if (bothObjects) mergeFoundationConfigPatch(cur, v);
+      else target[k] = v;
+    }
+    return target;
+  }
+
+  /**
+   * Clone production FOUNDATION_CONFIG and optionally merge a JSON patch.
+   * The clone is mutable for Lab experiments. Production FOUNDATION_CONFIG is not modified.
+   */
+  function cloneFoundationConfig(patch) {
+    let clone;
+    if (typeof structuredClone === 'function') {
+      clone = structuredClone(FOUNDATION_CONFIG);
+    } else {
+      clone = JSON.parse(JSON.stringify(FOUNDATION_CONFIG));
+    }
+    restoreConfigRegexes(clone, FOUNDATION_CONFIG);
+    if (patch && typeof patch === 'object') mergeFoundationConfigPatch(clone, patch);
+    restoreConfigRegexes(clone, FOUNDATION_CONFIG);
+    return clone;
+  }
+
+  function resolveFoundationConfig(config) {
+    return config || FOUNDATION_CONFIG;
+  }
+
   return {
     FOUNDATION_CAPABILITY_IDS,
     FOUNDATION_CAPABILITY_LABELS,
     FOUNDATION_THREAT_TYPES,
     FOUNDATION_CONFIG,
+    cloneFoundationConfig,
+    resolveFoundationConfig,
+    mergeFoundationConfigPatch,
   };
 });

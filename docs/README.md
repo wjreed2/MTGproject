@@ -35,7 +35,7 @@ This directory is the **persistent source of truth** for MTG Archive product con
 | [16-foundation-interview-r3-r5.md](./16-foundation-interview-r3-r5.md) | Rounds 3–5 — **locked** 2026-08-22/23 (need-setting, mechanisms, Hybrid v2). Interview complete. |
 | [17-foundation-implementation-plan.md](./17-foundation-implementation-plan.md) | Phased architecture-first implementation plan + connection map |
 | [18-foundation-evaluation-lab.md](./18-foundation-evaluation-lab.md) | Dev/calibration Evaluation Lab (fixtures, CLI, ratings, regression) |
-| [19-foundation-cardir-audit.md](./19-foundation-cardir-audit.md) | CardIR schema vs what Foundation uses; account-deck coverage |
+| [20-foundation-calibration-infra.md](./20-foundation-calibration-infra.md) | CardIR in mechanism detection + Lab experimental config isolation |
 
 ## Related in-repo docs
 

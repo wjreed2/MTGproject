@@ -11,7 +11,8 @@ Ratings never write back into the engine.
 | Piece | Path |
 |-------|------|
 | Production evaluator (unchanged by the Lab) | `js/foundation/foundation-engine.js` |
-| Isolated coefficients | `js/foundation/foundation-config.js` |
+| Isolated coefficients | `js/foundation/foundation-config.js` (`cloneFoundationConfig` for Lab experiments) |
+| Mechanism detection | `js/foundation/foundation-mechanisms.js` (CardIR provides/roles + tags + oracle) |
 | Adds/Cuts ranking helpers | `js/foundation/foundation-suggest.js` |
 | Lab adapter / diagnostics | `js/foundation-lab/` |
 | Representative decks (Kind A lock) | `fixtures/foundation/*.json` |
@@ -73,7 +74,22 @@ The page and `/fixtures/foundation` require an admin session. They are not a pub
 
 The Lab UI defaults to **Account decks** (`GET /api/foundation-lab/user-fixtures?email=manfordf@gmail.com`). Switch to **Synthetic fixtures** only for the recognition lock.
 
-Each contributor row shows **evidence source**: `role_tag`, `oracle_heuristic`, plus whether CardIR was present but unused for detection.
+Each contributor row shows **evidence source**: `cardir`, `role_tag`, `oracle`, or `multiple` (when sources agree). The Evaluation pipeline table is Need → Mechanism → Card → Evidence → Coverage.
+
+## Isolated experimental configuration
+
+```
+Production Hybrid → evaluateFoundation(input) → frozen FOUNDATION_CONFIG
+Evaluation Lab    → evaluateFoundation(deck, context, experimentalConfig)
+```
+
+Same evaluator. Lab **Experimental config** (or CLI `--config`) clones production via `cloneFoundationConfig(patch)` and passes the clone in. Production `FOUNDATION_CONFIG` stays frozen. Hybrid does not pass a config override.
+
+Example patch (does not change live Hybrid):
+
+```json
+{ "version": "lab-experiment", "capabilities": { "interaction": { "adequate": 0.63 } } }
+```
 
 ## Test kinds
 
@@ -83,7 +99,7 @@ Each contributor row shows **evidence source**: `role_tag`, `oracle_heuristic`, 
 | B | Model / evidence | [19-foundation-cardir-audit.md](./19-foundation-cardir-audit.md); Lab evidence column on account decks |
 | C | Recommendation quality | Human GOOD/OK/BAD ratings — never auto-trained |
 
-Lab `--config` clones a patch onto the Lab run only. It cannot mutate frozen production `FOUNDATION_CONFIG`. Hybrid still calls `evaluateFoundation` without a config override.
+Lab `--config` / Experimental config clones a patch onto a **copy** of production `FOUNDATION_CONFIG`. It cannot mutate the frozen production object. Hybrid still calls `evaluateFoundation` without a config override.
 
 Keys: G good, O ok, B bad, N/P next/prev deck, A/C focus adds/cuts, J/K next/prev recommendation.
 

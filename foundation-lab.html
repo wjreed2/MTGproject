@@ -57,6 +57,17 @@
   <label class="muted">Import <input type="file" id="import" accept="application/json"></label>
   <span id="saved" class="muted"></span>
 </header>
+<details id="exp-config-box" style="padding:8px 12px;border-bottom:1px solid var(--border)">
+  <summary><strong>Experimental config</strong> <span class="muted">clone + JSON patch — does not change live Hybrid</span></summary>
+  <p class="muted">Merged onto a clone of production <code>FOUNDATION_CONFIG</code>. Production stays frozen. Example: <code>{"capabilities":{"interaction":{"adequate":0.63}}}</code></p>
+  <textarea id="exp-config" rows="5" style="width:100%;box-sizing:border-box;font:12px/1.4 ui-monospace,monospace" placeholder='{ "version": "lab-experiment", "capabilities": { "interaction": { "adequate": 0.63 } } }'></textarea>
+  <div class="review-row" style="margin-top:6px">
+    <label><input type="checkbox" id="use-exp-config"> Use experimental config</label>
+    <button type="button" id="apply-config">Apply &amp; re-run</button>
+    <button type="button" id="reset-config">Reset to production</button>
+    <span id="config-status" class="muted"></span>
+  </div>
+</details>
 <p class="muted" style="padding:0 12px">
   Tap GOOD / OK / BAD on Adds and Cuts. Ratings stay on this device until you Export or Copy.
   <span class="desk-only">Keys: <kbd>G</kbd> good <kbd>O</kbd> ok <kbd>B</kbd> bad · <kbd>N</kbd>/<kbd>P</kbd> next/prev deck.</span>
@@ -82,8 +93,13 @@
       <div id="keep"></div>
     </section>
     <section>
+      <h2>Evaluation pipeline</h2>
+      <p class="muted">Need → Mechanism → Card → Evidence source → Coverage contribution</p>
+      <div id="pipeline"></div>
+    </section>
+    <section>
       <h2>Card diagnostics</h2>
-      <p class="muted">Need → Mechanisms → Evidence source → Coverage contribution → Final evaluation. CardIR is not used to detect mechanisms.</p>
+      <p class="muted">Per-card view of the same pipeline. CardIR provides/roles feed detection when present; tags and oracle remain fallbacks.</p>
       <div id="cards"></div>
     </section>
     <section>
@@ -111,6 +127,7 @@
   </div>
 </main>
 <script src="/js/foundation/foundation-config.js"></script>
+<script src="/js/foundation/foundation-mechanisms.js"></script>
 <script src="/js/foundation/foundation-engine.js"></script>
 <script src="/js/foundation/foundation-suggest.js"></script>
 <script src="/js/foundation-lab/catalog.js"></script>

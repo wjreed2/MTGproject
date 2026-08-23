@@ -42,6 +42,7 @@ const {
   summarizeFoundationLab,
   formatFoundationCalibrationReport,
   FOUNDATION_CONFIG,
+  cloneFoundationConfig,
 } = globalThis;
 
 function parseArgs(argv) {
@@ -106,6 +107,7 @@ function deepClone(obj) {
 function loadConfigOverride(p) {
   if (!p) return FOUNDATION_CONFIG;
   const patch = loadJson(p);
+  if (typeof cloneFoundationConfig === 'function') return cloneFoundationConfig(patch);
   return Object.assign(deepClone(FOUNDATION_CONFIG), patch);
 }
 

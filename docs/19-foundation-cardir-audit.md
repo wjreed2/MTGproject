@@ -1,6 +1,6 @@
 # Foundation CardIR evidence audit
 
-**Status:** Inventory only. Do not treat missing CardIR as a scoring bug to patch in this pass.
+**Status:** Inventory from 2026-08-23. Mechanism detection **now consumes** existing CardIR provides/roles — see [20-foundation-calibration-infra.md](./20-foundation-calibration-infra.md). This file remains the schema / detectability map. Do not regenerate CardIR.
 
 **Kind B** (model / evidence). Kind A = golden/synthetics structural locks. Kind C = human recommendation ratings.
 
@@ -19,8 +19,8 @@ Axes are dotted tokens (`mana.rock`, `card_advantage.draw`, `gy.recursion`, `rem
 
 ## What Foundation actually uses
 
-- Mechanism detection: **role_tags_and_oracle_heuristics**
-- `cardMechanisms`: ignored — CardIR is collected onto mechanism rows but never read to detect mechanisms
+- Mechanism detection: **cardir_plus_role_tags_plus_oracle** (see [20](./20-foundation-calibration-infra.md))
+- `cardMechanisms`: provides axes + IR roles; needs are diagnostic only; missing IR degrades to tags/oracle
 - `applySynergy`: provides/needs JSON is string-matched against the strategy id, and only when ≥50% of non-commander cards have IR
 - Confidence: share of mechanism rows that have any ir object
 - Wizard plan roles (not Hybrid evaluator): js/commander-plan-ext.js AXIS_TO_PROJECT — not the Foundation Hybrid evaluator

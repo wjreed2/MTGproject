@@ -8,6 +8,7 @@
   const STORAGE_KEY = 'foundation-lab-ratings-v1';
   const CAP_ORDER = ['closeGame', 'manaAccess', 'resources', 'interaction', 'keepGoing'];
   const DEFAULT_EMAIL = (window.FOUNDATION_LAB_DEFAULT_ACCOUNT_EMAIL) || 'manfordf@gmail.com';
+  const CONFIG_KEY = 'foundation-lab-experimental-config-v1';
   const $ = (id) => document.getElementById(id);
 
   let index = [];
@@ -17,6 +18,7 @@
   let currentId = null;
   let focusKind = 'add';
   let focusIndex = 0;
+  let experimentalConfig = null;
 
   function ratings() {
     try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); }
@@ -125,6 +127,37 @@
     return res.json();
   }
 
+  function loadExperimentalPatch() {
+    try { return localStorage.getItem(CONFIG_KEY) || ''; }
+    catch (_) { return ''; }
+  }
+
+  function saveExperimentalPatch(text) {
+    try { localStorage.setItem(CONFIG_KEY, text || ''); }
+    catch (_) { /* ignore */ }
+  }
+
+  function activeConfig() {
+    const use = $('use-exp-config') && $('use-exp-config').checked;
+    if (!use) return window.FOUNDATION_CONFIG;
+    if (experimentalConfig) return experimentalConfig;
+    const raw = $('exp-config') && $('exp-config').value.trim();
+    if (!raw) return window.FOUNDATION_CONFIG;
+    const patch = JSON.parse(raw);
+    if (typeof window.cloneFoundationConfig === 'function') {
+      experimentalConfig = window.cloneFoundationConfig(patch);
+    } else {
+      experimentalConfig = Object.assign(structuredClone(window.FOUNDATION_CONFIG), patch);
+    }
+    return experimentalConfig;
+  }
+
+  function configStatus(text, ok) {
+    if (!$('config-status')) return;
+    $('config-status').textContent = text || '';
+    $('config-status').className = ok === false ? 'bad' : 'muted';
+  }
+
   async function runCurrent() {
     const id = $('deck').value;
     if (!id) {
@@ -133,8 +166,15 @@
       return;
     }
     currentId = id;
+    let cfg;
+    try {
+      cfg = activeConfig();
+    } catch (err) {
+      configStatus('Invalid experimental JSON: ' + (err && err.message), false);
+      return;
+    }
     const fixture = await loadFixture(id);
-    current = evaluateFoundationLab(fixture, { source }, window.FOUNDATION_CONFIG);
+    current = evaluateFoundationLab(fixture, { source }, cfg);
     focusKind = 'add';
     focusIndex = 0;
     render();
@@ -175,7 +215,7 @@
       <thead><tr><th>Card</th><th>Mechanism</th><th>Evidence</th><th>Amount</th><th>Quality</th><th>Role</th><th>Why</th></tr></thead>
       <tbody>${rows.map(r => `<tr>
         <td>${esc(r.card)}</td><td>${esc(r.mechanism)}</td>
-        <td>${esc(r.evidenceSource || '—')}${r.cardIRAvailable ? ' · IR unused' : ''}${r.cardIRWouldSupport ? ' · IR would support' : ''}</td>
+        <td>${esc(r.evidenceSource || '—')}${r.evidenceSources && r.evidenceSources.length > 1 ? ' (' + r.evidenceSources.join(' + ') + ')' : ''}</td>
         <td>${fmt(r.amount)}</td><td>${fmt(r.quality)}</td>
         <td>${esc(r.role)}</td><td>${esc(r.explanation)}</td>
       </tr>`).join('')}</tbody>
@@ -247,7 +287,7 @@
     if (!current) return;
     $('meta').innerHTML = `<b>${esc(current.name)}</b> — ${esc(current.commander)}
       · ${esc(current.archetype)} · ${esc(current.source || source)} · health <span class="${current.health}">${esc(current.health)}</span>
-      · ${esc(current.engineVersion)}
+      · ${esc(current.engineVersion)} · config ${esc(current.configVersion)}${current.experimentalConfig ? ' (experimental)' : ''}
       <div class="muted">${esc(current.explanations.overall || '')}</div>
       <div class="muted">${esc(current.notes || '')}</div>`;
 
@@ -291,6 +331,20 @@
     </table>
     <p class="muted">Mechanisms are diagnostic. They are not Foundation capability quotas.</p>`;
 
+    if ($('pipeline')) {
+      const rows = (current.pipeline || []).filter(r => r.card);
+      $('pipeline').innerHTML = rows.length ? `<table>
+        <thead><tr><th>Need</th><th>Mechanism</th><th>Card</th><th>Evidence</th><th>Coverage</th></tr></thead>
+        <tbody>${rows.map(r => `<tr>
+          <td>${esc(r.need)}</td>
+          <td>${esc(r.mechanism)}</td>
+          <td>${esc(r.card)}</td>
+          <td>${esc(r.evidenceSource || '—')}${r.evidenceSources && r.evidenceSources.length > 1 ? ' (' + r.evidenceSources.join(' + ') + ')' : ''}</td>
+          <td>${fmt(r.coverageContribution)}</td>
+        </tr>`).join('')}</tbody>
+      </table>` : '<p class="muted">No contributing cards for this evaluation.</p>';
+    }
+
     if ($('cards')) {
       $('cards').innerHTML = `<table>
         <thead><tr><th>Card</th><th>Need (caps)</th><th>Mechanisms</th><th>Evidence</th><th>Contribution</th><th>Final</th><th>CardIR</th></tr></thead>
@@ -301,7 +355,7 @@
           <td>${esc((r.evidenceSources || []).join(', ') || '—')}</td>
           <td>${esc((r.coverageContribution || []).map(c => c.capability + ' ' + fmt(c.amount)).join('; ') || '—')}</td>
           <td>${esc((r.finalEvaluation || []).map(c => c.capability + ' ' + (c.status || '')).join('; ') || '—')}</td>
-          <td>${r.cardIRAvailable ? 'present, unused for detection' : 'none'}</td>
+          <td>${r.cardIRUsedForMechanisms ? 'used' : (r.cardIRAvailable ? 'present, unused for this card' : 'none')}</td>
         </tr>`).join('')}</tbody>
       </table>`;
     }
@@ -443,6 +497,38 @@
 
   $('run').addEventListener('click', runCurrent);
   $('deck').addEventListener('change', runCurrent);
+  if ($('exp-config')) $('exp-config').value = loadExperimentalPatch();
+  if ($('apply-config')) {
+    $('apply-config').addEventListener('click', () => {
+      try {
+        const raw = ($('exp-config') && $('exp-config').value.trim()) || '';
+        saveExperimentalPatch(raw);
+        experimentalConfig = null;
+        if ($('use-exp-config')) $('use-exp-config').checked = true;
+        const cfg = activeConfig();
+        configStatus(cfg === window.FOUNDATION_CONFIG
+          ? 'Using production config (empty patch)'
+          : 'Using experimental clone · ' + (cfg.version || 'patched'), true);
+        runCurrent();
+      } catch (err) {
+        configStatus('Invalid experimental JSON: ' + (err && err.message), false);
+      }
+    });
+  }
+  if ($('reset-config')) {
+    $('reset-config').addEventListener('click', () => {
+      experimentalConfig = null;
+      if ($('use-exp-config')) $('use-exp-config').checked = false;
+      configStatus('Production FOUNDATION_CONFIG', true);
+      runCurrent();
+    });
+  }
+  if ($('use-exp-config')) {
+    $('use-exp-config').addEventListener('change', () => {
+      experimentalConfig = null;
+      runCurrent();
+    });
+  }
   if ($('source')) {
     $('source').addEventListener('change', () => {
       loadIndex().then(runCurrent).catch(err => { $('meta').textContent = String(err && err.message || err); });

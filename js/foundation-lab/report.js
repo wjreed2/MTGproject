@@ -22,10 +22,13 @@
     const health = { normal: 0, review: 0, suspicious: 0 };
     let addCount = 0;
     let cutCount = 0;
+    const evidence = { cardir: 0, role_tag: 0, oracle: 0, multiple: 0, unknown: 0 };
     for (const d of decks) {
       health[d.health] = (health[d.health] || 0) + 1;
       addCount += (d.adds || []).length;
       cutCount += (d.cuts || []).length;
+      const ev = d.evidenceSummary || {};
+      for (const k of Object.keys(evidence)) evidence[k] += ev[k] || 0;
     }
 
     function bucket(itemType, ratingField) {
@@ -85,6 +88,7 @@
       targets: { byCapability: targetByCap, disagreement },
       coverage: bucket('coverage'),
       humanRatingCount: recs.length,
+      evidence,
     };
   }
 
@@ -105,6 +109,15 @@
     lines.push(`  ${sum.recommendations.adds} adds evaluated`);
     lines.push(`  ${sum.recommendations.cuts} cuts evaluated`);
     lines.push('');
+    if (sum.evidence) {
+      lines.push('Mechanism evidence (contribution rows):');
+      lines.push(`  cardir ${sum.evidence.cardir || 0}`);
+      lines.push(`  role_tag ${sum.evidence.role_tag || 0}`);
+      lines.push(`  oracle ${sum.evidence.oracle || 0}`);
+      lines.push(`  multiple ${sum.evidence.multiple || 0}`);
+      if (sum.evidence.unknown) lines.push(`  unknown ${sum.evidence.unknown}`);
+      lines.push('');
+    }
     if (sum.humanRatingCount) {
       lines.push('Human ratings (not fed into the engine):');
       lines.push(`  Adds  good ${sum.adds.goodPct}%  ok ${sum.adds.okPct}%  bad ${sum.adds.badPct}%`);

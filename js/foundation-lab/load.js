@@ -3,6 +3,7 @@
  */
 function loadFoundationLab() {
   require('../foundation/foundation-config.js');
+  require('../foundation/foundation-mechanisms.js');
   require('../foundation/foundation-engine.js');
   require('../foundation/foundation-suggest.js');
   require('./catalog.js');

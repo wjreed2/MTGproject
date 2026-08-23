@@ -18,6 +18,8 @@ const {
   foundationLabEvidenceForMechanism,
   foundationCardIRInventory,
   liveDeckToLabFixture,
+  detectFoundationMechanisms,
+  cloneFoundationConfig,
 } = globalThis;
 
 const meren = evaluateFoundationLab(loadFoundationFixture('meren-reanimator'), {}, FOUNDATION_CONFIG);
@@ -61,26 +63,28 @@ console.log('compare ok');
     type: 'Enchantment',
     roleTags: ['Card Draw'],
     oracleText: 'Whenever an opponent casts a spell, you may draw a card.',
-    ir: { provides: [{ axis: 'card_advantage.draw_engine', rate: 'repeatable', weight: 5 }], needs: [], roles: ['draw'] },
+    ir: { provides: [{ axis: 'card_advantage.draw_engine', rate: 'repeatable', weight: 5 }], needs: [], roles: ['card_draw'] },
   };
   const ev = foundationLabEvidenceForMechanism(drawCard, 'draw');
-  assert.strictEqual(ev.evidenceSource, 'role_tag');
+  assert.strictEqual(ev.evidenceSource, 'multiple');
+  assert.ok(ev.evidenceSources.includes('cardir'));
+  assert.ok(ev.evidenceSources.includes('role_tag'));
   assert.strictEqual(ev.cardIRAvailable, true);
-  assert.strictEqual(ev.cardIRUsed, false);
-  assert.strictEqual(ev.cardIRWouldSupport, true);
+  assert.strictEqual(ev.cardIRUsed, true);
   const prot = foundationLabEvidenceForMechanism({
     name: 'Swiftfoot Boots',
     roleTags: [],
     oracleText: 'Equipped creature has hexproof and haste.',
   }, 'protection');
-  assert.strictEqual(prot.evidenceSource, 'oracle_heuristic');
+  assert.strictEqual(prot.evidenceSource, 'oracle');
+  assert.strictEqual(prot.cardIRUsed, false);
   console.log('evidence source labels ok');
 }
 
 {
   const inv = foundationCardIRInventory();
-  assert.strictEqual(inv.productionMechanismDetection, 'role_tags_and_oracle_heuristics');
-  assert.ok(inv.productionCardIRUses.cardMechanisms.includes('ignored'));
+  assert.strictEqual(inv.productionMechanismDetection, 'cardir_plus_role_tags_plus_oracle');
+  assert.ok(inv.productionCardIRUses.cardMechanisms.includes('provides'));
   assert.ok(inv.capabilities.keepGoing);
   assert.ok(inv.testKinds.A && inv.testKinds.B && inv.testKinds.C);
   console.log('cardir inventory ok');
@@ -104,8 +108,9 @@ console.log('compare ok');
   assert.strictEqual(fx.accountEmail, 'manfordf@gmail.com');
   assert.strictEqual(fx.cards[0].ir.provides[0].axis, 'mana.rock');
   const lab = evaluateFoundationLab(fx, { source: 'account' }, FOUNDATION_CONFIG);
-  assert.ok(lab.contributions.some(c => c.card === 'Sol Ring' && c.evidenceSource === 'role_tag'));
-  assert.ok(lab.cardDiagnostics.some(c => c.card === 'Sol Ring' && c.cardIRAvailable));
+  assert.ok(lab.contributions.some(c => c.card === 'Sol Ring' && c.evidenceSource === 'multiple'));
+  assert.ok(lab.cardDiagnostics.some(c => c.card === 'Sol Ring' && c.cardIRUsedForMechanisms));
+  assert.ok((lab.pipeline || []).some(r => r.card === 'Sol Ring' && r.mechanism === 'ramp'));
   console.log('live deck adapter ok');
 }
 
@@ -147,6 +152,66 @@ console.log('compare ok');
   assert.strictEqual(prod.version, beforeVersion);
   assert.strictEqual(FOUNDATION_CONFIG.capabilities.resources.qualityDraw, beforeDraw);
   console.log('lab config override isolation ok');
+}
+
+{
+  const irOnly = {
+    name: 'Sol Ring',
+    type: 'Artifact',
+    roleTags: [],
+    oracleText: '{T}: Add {C}{C}.',
+    ir: { provides: [{ axis: 'mana.rock' }], needs: [], roles: ['mana_rock'] },
+  };
+  const mechs = detectFoundationMechanisms(irOnly, FOUNDATION_CONFIG);
+  assert.ok(mechs.some(m => m.id === 'ramp' && m.evidenceSource === 'multiple' || (m.id === 'ramp' && m.evidenceSources.includes('cardir'))));
+  const ramp = mechs.find(m => m.id === 'ramp');
+  assert.ok(ramp.evidenceSources.includes('cardir'));
+
+  const tagOnly = detectFoundationMechanisms({
+    name: 'Cultivate', type: 'Sorcery', roleTags: ['Ramp'], oracleText: 'Search your library for two basic lands.',
+  }, FOUNDATION_CONFIG);
+  assert.ok(tagOnly.some(m => m.id === 'ramp' && m.evidenceSource === 'role_tag'));
+
+  const oracleOnly = detectFoundationMechanisms({
+    name: 'Swiftfoot Boots', type: 'Artifact', roleTags: [], oracleText: 'Equipped creature has hexproof and haste.',
+  }, FOUNDATION_CONFIG);
+  assert.ok(oracleOnly.some(m => m.id === 'protection' && m.evidenceSource === 'oracle'));
+
+  assert.doesNotThrow(() => detectFoundationMechanisms({ name: 'Forest', type: 'Basic Land', roleTags: ['Land'] }, FOUNDATION_CONFIG));
+  assert.doesNotThrow(() => detectFoundationMechanisms({ name: 'Broken', type: 'Instant', roleTags: ['Removal'], ir: 'not-an-object' }, FOUNDATION_CONFIG));
+  assert.doesNotThrow(() => detectFoundationMechanisms({ name: 'Empty', type: 'Instant', roleTags: ['Removal'], ir: {} }, FOUNDATION_CONFIG));
+  assert.doesNotThrow(() => evaluateFoundationLab({
+    id: 'no-ir', commander: 'Krenko', cards: [
+      { name: 'Krenko', isCommander: true, type: 'Creature', roleTags: [] },
+      { name: 'Lightning Bolt', type: 'Instant', roleTags: ['Burn'], oracleText: 'Deals 3 damage.' },
+    ],
+  }, {}, FOUNDATION_CONFIG));
+  console.log('cardir used when present; tags/oracle without IR; missing IR does not fail');
+}
+
+{
+  const plan = { winConditionId: 'wincon.combat', primaryStrategyId: 'strategy.tokens', competition: 'Focused' };
+  const deck = {
+    commander: 'Krenko, Mob Boss',
+    cards: [
+      { name: 'Krenko, Mob Boss', isCommander: true, type: 'Legendary Creature', roleTags: [], cmc: 3, colors: ['R'] },
+      { name: 'Lightning Bolt', qty: 1, type: 'Instant', roleTags: ['Burn', 'Removal'], oracleText: 'Lightning Bolt deals 3 damage to any target.' },
+      { name: 'Mountain', qty: 38, type: 'Basic Land — Mountain', roleTags: ['Land'] },
+    ],
+  };
+  const prodA = evaluateFoundation({ deck, plan, commanderCard: deck.cards[0], colors: ['R'] });
+  const exp = cloneFoundationConfig({ version: 'lab-experiment', capabilities: { resources: { qualityDraw: 0.02 } } });
+  evaluateFoundationLab({
+    id: 'iso-prod', commander: 'Krenko, Mob Boss', cards: deck.cards, plan,
+  }, { source: 'lab' }, exp);
+  const prodB = evaluateFoundation({ deck, plan, commanderCard: deck.cards[0], colors: ['R'] });
+  assert.strictEqual(FOUNDATION_CONFIG.version, 'v1-architecture');
+  assert.strictEqual(FOUNDATION_CONFIG.capabilities.resources.qualityDraw, 1);
+  assert.strictEqual(prodA.capabilities.interaction.overall, prodB.capabilities.interaction.overall);
+  assert.strictEqual(prodA.capabilities.resources.coverage, prodB.capabilities.resources.coverage);
+  const viaArgs = evaluateFoundation(deck, { plan, commanderCard: deck.cards[0], colors: ['R'] }, FOUNDATION_CONFIG);
+  assert.strictEqual(viaArgs.version, prodA.version);
+  console.log('production evaluation unchanged by lab config; 3-arg evaluateFoundation ok');
 }
 
 console.log('test-foundation-lab: all passed');

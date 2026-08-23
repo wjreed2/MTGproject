@@ -119,9 +119,14 @@
         sorted.forEach((m, i) => {
           const amount = Math.round(credits[i] * qtyOf(card) * 1000) / 1000;
           sum += amount;
-          const ev = (root && typeof root.foundationLabEvidenceForMechanism === 'function')
-            ? root.foundationLabEvidenceForMechanism(card, m.id)
+          const sources = Array.isArray(m.evidenceSources) && m.evidenceSources.length
+            ? m.evidenceSources.slice()
+            : (m.evidenceSource ? [m.evidenceSource] : []);
+          const labEv = (root && typeof root.foundationLabEvidenceForMechanism === 'function')
+            ? root.foundationLabEvidenceForMechanism(card, m.id, m)
             : {};
+          const evidenceSource = m.evidenceSource || labEv.evidenceSource || 'unknown';
+          const cardIRUsed = sources.includes('cardir') || !!labEv.cardIRUsed;
           contributions.push({
             card: card.name,
             mechanism: m.id,
@@ -130,16 +135,18 @@
             amount,
             quality: m.quality,
             role: roleLabel(i, m, shared && (INTERACTION_MECHS.has(m.id) || m.id === 'protection')),
-            evidenceSource: ev.evidenceSource || 'unknown',
-            cardIRAvailable: !!ev.cardIRAvailable,
-            cardIRUsed: false,
-            cardIRWouldSupport: !!ev.cardIRWouldSupport,
-            cardIRUnused: !!ev.cardIRUnused,
+            evidenceSource,
+            evidenceSources: sources.length ? sources : (labEv.evidenceSources || [evidenceSource]),
+            cardIRAvailable: !!(labEv.cardIRAvailable || cardIRUsed || (card.ir && (card.ir.provides || card.ir.roles))),
+            cardIRUsed,
+            cardIRWouldSupport: !!labEv.cardIRWouldSupport || cardIRUsed,
+            cardIRUnused: !!(labEv.cardIRAvailable && !cardIRUsed),
+            irAxes: Array.isArray(m.irAxes) ? m.irAxes.slice() : [],
             explanation: `${card.name} contributes ${amount.toFixed(2)} to ${cap} via ${m.id}`
               + (i > 0 ? ' (multi-role cap — not full credit for every role).' : '.')
-              + (ev.cardIRAvailable
-                ? ' Evidence: ' + (ev.evidenceSource || 'unknown') + '; CardIR present but unused for detection.'
-                : ' Evidence: ' + (ev.evidenceSource || 'unknown') + '.'),
+              + ' Evidence: ' + evidenceSource
+              + (sources.length > 1 ? ' (' + sources.join(' + ') + ')' : '')
+              + '.',
           });
         });
         cardRow.independent[cap] = Math.round(sum * 1000) / 1000;
@@ -183,14 +190,14 @@
     return 'LOW';
   }
 
-  function synergyRowsFromCards(cards, plan, evaluation) {
+  function synergyRowsFromCards(cards, plan, evaluation, cfg) {
     const measurable = evaluation && evaluation.synergy && evaluation.synergy.measurable || 0;
     const out = [];
     for (const card of cards || []) {
       if (!card || card.isCommander || isLand(card)) continue;
       const overlap = planOverlapLevel(card, plan);
       if (overlap === 'LOW' && !(card.ir && (card.ir.provides || card.ir.needs))) continue;
-      const mechs = mechsFor(card, cfgOf());
+      const mechs = mechsFor(card, cfg);
       const independent = {};
       for (const m of mechs) {
         for (const cap of m.capabilities || []) {
@@ -363,7 +370,7 @@
     });
   }
 
-  function suggestCuts(fixture, evaluation) {
+  function suggestCuts(fixture, evaluation, cfg) {
     const cards = (fixture.cards || []).filter(c => c && !c.isCommander && !isLand(c));
     const extra = fixture.candidateCuts || [];
     const all = extra.length ? extra : cards;
@@ -390,7 +397,7 @@
     }
     return classified.slice(0, 12).map(c => {
       const cls = c._foundationCut || {};
-      const mechs = mechsFor(c, cfgOf());
+      const mechs = mechsFor(c, cfg);
       const caps = [...new Set(mechs.flatMap(m => m.capabilities || []))];
       return {
         card: c.name,
@@ -424,9 +431,9 @@
         qty: qtyOf(card),
         need: [...new Set(rows.map(r => r.capability))],
         mechanisms: [...new Set(rows.map(r => r.mechanism))],
-        evidenceSources: [...new Set(rows.map(r => r.evidenceSource).filter(Boolean))],
+        evidenceSources: [...new Set(rows.flatMap(r => r.evidenceSources || [r.evidenceSource]).filter(Boolean))],
         cardIRAvailable: available,
-        cardIRUsedForMechanisms: false,
+        cardIRUsedForMechanisms: rows.some(r => r.cardIRUsed),
         coverageContribution: rows.map(r => ({
           capability: r.capability,
           mechanism: r.mechanism,
@@ -440,6 +447,50 @@
       });
     }
     return out;
+  }
+
+  function pipelineRows(capabilityCoverage, contributions) {
+    const out = [];
+    for (const id of capIds()) {
+      const cap = (capabilityCoverage && capabilityCoverage[id]) || {};
+      const rows = (contributions || []).filter(c => c.capability === id)
+        .sort((a, b) => b.amount - a.amount);
+      if (!rows.length) {
+        out.push({
+          need: cap.label || id,
+          capability: id,
+          mechanism: null,
+          card: null,
+          evidenceSource: null,
+          evidenceSources: [],
+          coverageContribution: 0,
+          status: cap.status || null,
+        });
+        continue;
+      }
+      for (const r of rows) {
+        out.push({
+          need: cap.label || id,
+          capability: id,
+          mechanism: r.mechanism,
+          card: r.card,
+          evidenceSource: r.evidenceSource,
+          evidenceSources: r.evidenceSources || [r.evidenceSource],
+          coverageContribution: r.amount,
+          status: cap.status || null,
+        });
+      }
+    }
+    return out;
+  }
+
+  function evidenceSummary(contributions) {
+    const counts = { cardir: 0, role_tag: 0, oracle: 0, multiple: 0, unknown: 0 };
+    for (const row of contributions || []) {
+      const k = row.evidenceSource || 'unknown';
+      counts[k] = (counts[k] || 0) + 1;
+    }
+    return counts;
   }
 
   function healthOf(evaluation, errors) {
@@ -494,12 +545,13 @@
     if (typeof root.evaluateFoundation !== 'function') {
       throw new Error('evaluateFoundation is not loaded');
     }
-    const evaluation = root.evaluateFoundation(input);
+    const evaluation = root.evaluateFoundation(input, context, cfg);
     const labels = labelsOf();
     const { contributions } = expandContributions(f.cards, cfg);
     const capabilityCoverage = capabilityView(evaluation, contributions, labels);
     const adds = suggestAdds(f, evaluation, cfg);
-    const cuts = suggestCuts(f, evaluation);
+    const cuts = suggestCuts(f, evaluation, cfg);
+    const pipeline = pipelineRows(capabilityCoverage, contributions);
     const result = {
       fixtureId: f.id,
       name: f.name,
@@ -507,6 +559,7 @@
       commander: f.commander,
       engineVersion: evaluation.version || cfg.version || 'v1-architecture',
       configVersion: cfg.version || 'v1-architecture',
+      experimentalConfig: !!(config && config !== (root && root.FOUNDATION_CONFIG)),
       needs: evaluation.needs,
       mechanisms: mechanismBreakdown(contributions),
       capabilityCoverage,
@@ -524,8 +577,10 @@
       adds,
       cuts,
       contributions,
+      pipeline,
+      evidenceSummary: evidenceSummary(contributions),
       cardDiagnostics: cardDiagnostics(f.cards, contributions, evaluation),
-      synergy: synergyRowsFromCards(f.cards, f.plan, evaluation),
+      synergy: synergyRowsFromCards(f.cards, f.plan, evaluation, cfg),
       interactionThreats: interactionView(evaluation),
       manaAccess: manaView(evaluation, f),
       keepGoing: keepGoingView(evaluation),

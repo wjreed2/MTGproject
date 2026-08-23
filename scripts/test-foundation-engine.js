@@ -160,4 +160,41 @@ function voltronDeck() {
   console.log('competition raises needs (direction) ok');
 }
 
+{
+  const { detectFoundationMechanisms } = require('../js/foundation/foundation-mechanisms.js');
+  const { cloneFoundationConfig } = configApi;
+  const irOnly = {
+    commander: 'Krenko',
+    cards: [
+      { name: 'Krenko', isCommander: true, cmc: 3, colors: ['R'], type: 'Legendary Creature', roleTags: [] },
+      { name: 'Sol Ring', qty: 1, cmc: 1, type: 'Artifact', roleTags: [], oracleText: '{T}: Add {C}{C}.',
+        ir: { provides: [{ axis: 'mana.rock' }], needs: [], roles: ['mana_rock'] } },
+      { name: 'Mountain', qty: 38, cmc: 0, type: 'Basic Land — Mountain', roleTags: ['Land'] },
+    ],
+  };
+  const mechs = detectFoundationMechanisms(irOnly.cards[1], FOUNDATION_CONFIG);
+  assert.ok(mechs.some(m => m.id === 'ramp' && m.evidenceSources.includes('cardir')));
+  const ev = evaluateFoundation({
+    deck: irOnly,
+    plan: { winConditionId: 'wincon.combat', primaryStrategyId: 'strategy.tokens' },
+    commanderCard: irOnly.cards[0],
+    colors: ['R'],
+    gameplan: { N: 40, L: 38, R: 0, cmdCMC: 3, commanderP: 0.7, targetCastTurn: 3 },
+  });
+  assert.ok(ev.mechanisms.some(m => m.name === 'Sol Ring' && m.ids.includes('ramp')));
+  assert.doesNotThrow(() => detectFoundationMechanisms({ name: 'X', ir: null, roleTags: [] }, FOUNDATION_CONFIG));
+  const cloned = cloneFoundationConfig({ version: 'lab-only' });
+  cloned.capabilities.resources.qualityDraw = 0.11;
+  assert.strictEqual(FOUNDATION_CONFIG.version, 'v1-architecture');
+  assert.strictEqual(FOUNDATION_CONFIG.capabilities.resources.qualityDraw, 1);
+  const viaArgs = evaluateFoundation(irOnly, {
+    plan: { winConditionId: 'wincon.combat', primaryStrategyId: 'strategy.tokens' },
+    commanderCard: irOnly.cards[0],
+    colors: ['R'],
+    gameplan: { N: 40, L: 38, R: 0, cmdCMC: 3, commanderP: 0.7, targetCastTurn: 3 },
+  }, cloned);
+  assert.strictEqual(viaArgs.version, 'lab-only');
+  console.log('cardir mechanism + cloneFoundationConfig isolation ok');
+}
+
 console.log('test-foundation-engine: all passed');

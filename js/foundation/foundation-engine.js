@@ -12,8 +12,20 @@
 })(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : null), function (root) {
   'use strict';
 
+  const detectMechs = (card, cfg) => {
+    const fn = (root && typeof root.detectFoundationMechanisms === 'function')
+      ? root.detectFoundationMechanisms
+      : (typeof require === 'function' ? require('./foundation-mechanisms.js').detectFoundationMechanisms : null);
+    if (typeof fn === 'function') return fn(card, cfg) || [];
+    return [];
+  };
+
   function cfgOf(input) {
-    return (input && input.config) || (root && root.FOUNDATION_CONFIG) || {};
+    if (input && input.config) return input.config;
+    if (root && typeof root.resolveFoundationConfig === 'function') {
+      return root.resolveFoundationConfig(null);
+    }
+    return (root && root.FOUNDATION_CONFIG) || {};
   }
 
   function labelsOf() {
@@ -145,42 +157,11 @@
 
   /** Mechanisms a card actually offers (functionally justified, not automatic full credit). */
   function cardMechanisms(card, cfg) {
-    const tags = cardTags(card);
-    const oracle = oracleOf(card);
-    const type = typeOf(card);
-    const mechs = [];
-    const add = (id, quality, caps) => {
-      mechs.push({ id, quality: clamp01(quality), capabilities: caps });
-    };
-    if (tags.includes('Ramp') || tags.includes('Mana Rock')) add('ramp', 0.85, ['manaAccess']);
-    if (tags.includes('Card Draw')) add('draw', cfg.capabilities.resources.qualityDraw, ['resources']);
-    if (tags.includes('Tutor')) add('tutor', cfg.capabilities.resources.qualityTutor, ['resources', 'closeGame']);
-    if (tags.includes('Recursion') || tags.includes('Reanimate')) {
-      add('recursion', cfg.capabilities.resources.qualityRecursion, ['resources', 'keepGoing']);
+    try {
+      return detectMechs(card, cfg);
+    } catch (_) {
+      return [];
     }
-    if (tags.includes('Protection')) add('protection', 0.8, ['keepGoing']);
-    if (tags.includes('Removal') || tags.includes('Bite') || tags.includes('Burn') || tags.includes('Bounce')) {
-      add('spotInteraction', 0.8, ['interaction']);
-    }
-    if (tags.includes('Board Wipe')) add('wipe', 0.85, ['interaction']);
-    if (tags.includes('Counterspell')) add('stack', 0.9, ['interaction']);
-    if (/\bscry\b|\bsurveil\b|\blook at the top/i.test(oracle) && !tags.includes('Card Draw')) {
-      add('selection', cfg.capabilities.resources.qualitySelection, ['resources']);
-    }
-    if (/\bwhenever you (cast|draw|sacrifice)/i.test(oracle) || tags.includes('Anthem')) {
-      add('engine', cfg.capabilities.resources.qualityEngine, ['resources', 'keepGoing']);
-    }
-    if (/\bhexproof\b|\bindestructible\b|\bward\b|\bshroud\b|\bprotection from/i.test(oracle) && !tags.includes('Protection')) {
-      add('protection', 0.7, ['keepGoing']);
-    }
-    if (/\byou win the game\b|\binfinite\b|\bcommander damage\b/i.test(oracle)) {
-      add('finisher', 0.85, ['closeGame']);
-    }
-    if (!mechs.length && tags.length && !isLand(card)) {
-      add('other', cfg.capabilities.resources.qualityOther, []);
-    }
-    void type;
-    return mechs;
   }
 
   function collectMechanisms(input, cfg) {
@@ -627,8 +608,25 @@
     return { strengths, deficiencies, vulnerabilities };
   }
 
-  function evaluateFoundation(input) {
-    const src = input || {};
+  function normalizeEvaluateArgs(inputOrDeck, context, config) {
+    const ctx = (context && typeof context === 'object') ? context : {};
+    const base = (inputOrDeck && typeof inputOrDeck === 'object') ? inputOrDeck : {};
+    let src;
+    if (base.deck) {
+      src = Object.assign({}, base, ctx);
+    } else if (Array.isArray(base.cards)) {
+      src = Object.assign({ deck: base }, ctx);
+      if (!src.plan && base.plan) src.plan = base.plan;
+    } else {
+      src = Object.assign({}, base, ctx);
+    }
+    const cfg = config || src.config || ctx.config || null;
+    if (cfg) src.config = cfg;
+    return src;
+  }
+
+  function evaluateFoundation(inputOrDeck, context, config) {
+    const src = normalizeEvaluateArgs(inputOrDeck, context, config);
     const cfg = cfgOf(src);
     const plan = src.plan || {};
     const needs = buildNeeds(src, cfg);
@@ -686,6 +684,7 @@
 
   return {
     evaluateFoundation,
+    normalizeFoundationEvaluateInput: normalizeEvaluateArgs,
     buildFoundationNeeds: buildNeeds,
     cardFoundationMechanisms: cardMechanisms,
     foundationCapabilityHole: capabilityHole,

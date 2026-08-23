@@ -23,6 +23,7 @@ const SOURCES = [
   'js/archetype-role-bridge.js',
   'js/adds-scoring.js',
   'js/foundation/foundation-config.js',
+  'js/foundation/foundation-mechanisms.js',
   'js/foundation/foundation-engine.js',
   'js/foundation/foundation-suggest.js',
   'js/commander-plan-ext.js',
