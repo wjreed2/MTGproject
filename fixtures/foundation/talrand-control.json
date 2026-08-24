@@ -1,0 +1,125 @@
+{
+  "id": "talrand-control",
+  "name": "Talrand Control",
+  "archetype": "control",
+  "commander": "Talrand, Sky Summoner",
+  "colorIdentity": [
+    "U"
+  ],
+  "plan": {
+    "winConditionId": "wincon.value",
+    "primaryStrategyId": "strategy.control",
+    "competition": "High",
+    "playstyleS": 5,
+    "targetCastTurn": 4,
+    "castingPattern": "one_per_turn",
+    "tutorPreference": "fine",
+    "protectionImportance": "med",
+    "keyCards": [
+      {
+        "name": "Rhystic Study"
+      }
+    ]
+  },
+  "notes": "Mono-blue control. Creature answers may be a color-identity vulnerability; stack should be a strength.",
+  "expected": {
+    "closeGameMode": "value"
+  },
+  "cards": [
+    {
+      "name": "Talrand, Sky Summoner",
+      "qty": 1,
+      "cmc": 4,
+      "type": "Legendary Creature",
+      "roleTags": [],
+      "oracleText": "",
+      "colors": [
+        "U"
+      ],
+      "isCommander": true
+    },
+    {
+      "name": "Counterspell",
+      "qty": 1,
+      "cmc": 2,
+      "type": "Instant",
+      "roleTags": [
+        "Counterspell"
+      ],
+      "oracleText": "Counter target spell.",
+      "colors": [
+        "U"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Force of Will",
+      "qty": 1,
+      "cmc": 5,
+      "type": "Instant",
+      "roleTags": [
+        "Counterspell"
+      ],
+      "oracleText": "You may pay 1 life and exile a blue card from your hand rather than pay this spell's mana cost. Counter target spell.",
+      "colors": [
+        "U"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Rhystic Study",
+      "qty": 1,
+      "cmc": 3,
+      "type": "Enchantment",
+      "roleTags": [
+        "Card Draw"
+      ],
+      "oracleText": "Whenever an opponent casts a spell, you may draw a card unless that player pays {1}.",
+      "colors": [
+        "U"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Cyclonic Rift",
+      "qty": 1,
+      "cmc": 2,
+      "type": "Instant",
+      "roleTags": [
+        "Board Wipe",
+        "Bounce"
+      ],
+      "oracleText": "Return target nonland permanent you don't control to its owner's hand. Overload {6}{U}",
+      "colors": [
+        "U"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Sol Ring",
+      "qty": 1,
+      "cmc": 1,
+      "type": "Artifact",
+      "roleTags": [
+        "Ramp",
+        "Mana Rock"
+      ],
+      "oracleText": "{T}: Add {C}{C}.",
+      "colors": [],
+      "ir": null
+    },
+    {
+      "name": "Island",
+      "qty": 36,
+      "cmc": 0,
+      "type": "Basic Land — Island",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "U"
+      ]
+    }
+  ]
+}

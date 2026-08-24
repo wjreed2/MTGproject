@@ -1,0 +1,142 @@
+{
+  "id": "korvold-midrange",
+  "name": "Korvold Midrange",
+  "archetype": "midrange",
+  "commander": "Korvold, Fae-Cursed King",
+  "colorIdentity": [
+    "B",
+    "R",
+    "G"
+  ],
+  "plan": {
+    "winConditionId": "wincon.value",
+    "primaryStrategyId": "strategy.sacrifice",
+    "competition": "Focused",
+    "playstyleS": 1,
+    "targetCastTurn": 4,
+    "castingPattern": "one_per_turn",
+    "tutorPreference": "fine",
+    "protectionImportance": "med",
+    "keyCards": [
+      {
+        "name": "Mayhem Devil"
+      }
+    ]
+  },
+  "notes": "Jund midrange / food-chain adjacent.",
+  "expected": {
+    "closeGameMode": "value"
+  },
+  "cards": [
+    {
+      "name": "Korvold, Fae-Cursed King",
+      "qty": 1,
+      "cmc": 5,
+      "type": "Legendary Creature",
+      "roleTags": [],
+      "oracleText": "",
+      "colors": [
+        "B",
+        "R",
+        "G"
+      ],
+      "isCommander": true
+    },
+    {
+      "name": "Mayhem Devil",
+      "qty": 1,
+      "cmc": 3,
+      "type": "Creature",
+      "roleTags": [
+        "Ping"
+      ],
+      "oracleText": "Whenever a player sacrifices a permanent, Mayhem Devil deals 1 damage to any target.",
+      "colors": [
+        "B",
+        "R"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Cultivate",
+      "qty": 1,
+      "cmc": 3,
+      "type": "Sorcery",
+      "roleTags": [
+        "Ramp"
+      ],
+      "oracleText": "Search your library for up to two basic land cards.",
+      "colors": [
+        "G"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Eternal Witness",
+      "qty": 1,
+      "cmc": 3,
+      "type": "Creature",
+      "roleTags": [
+        "Recursion"
+      ],
+      "oracleText": "When this creature enters, return target card from your graveyard to your hand.",
+      "colors": [
+        "G"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Beast Within",
+      "qty": 1,
+      "cmc": 3,
+      "type": "Instant",
+      "roleTags": [
+        "Removal"
+      ],
+      "oracleText": "Destroy target permanent.",
+      "colors": [
+        "G"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Forest",
+      "qty": 12,
+      "cmc": 0,
+      "type": "Basic Land — Forest",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "G"
+      ]
+    },
+    {
+      "name": "Swamp",
+      "qty": 12,
+      "cmc": 0,
+      "type": "Basic Land — Swamp",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "B"
+      ]
+    },
+    {
+      "name": "Mountain",
+      "qty": 12,
+      "cmc": 0,
+      "type": "Basic Land — Mountain",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "R"
+      ]
+    }
+  ]
+}

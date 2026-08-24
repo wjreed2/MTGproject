@@ -1,0 +1,127 @@
+{
+  "id": "sidisi-graveyard",
+  "name": "Sidisi Graveyard",
+  "archetype": "graveyard",
+  "commander": "Sidisi, Brood Tyrant",
+  "colorIdentity": [
+    "B",
+    "G",
+    "U"
+  ],
+  "plan": {
+    "winConditionId": "wincon.combat",
+    "primaryStrategyId": "strategy.reanimator",
+    "competition": "Focused",
+    "playstyleS": 2,
+    "targetCastTurn": 4,
+    "castingPattern": "one_per_turn",
+    "tutorPreference": "fine",
+    "protectionImportance": "med",
+    "keyCards": [
+      {
+        "name": "Life from the Loam"
+      }
+    ]
+  },
+  "notes": "Self-mill graveyard value, distinct from pure reanimator.",
+  "expected": {
+    "closeGameMode": "combat"
+  },
+  "cards": [
+    {
+      "name": "Sidisi, Brood Tyrant",
+      "qty": 1,
+      "cmc": 4,
+      "type": "Legendary Creature",
+      "roleTags": [],
+      "oracleText": "",
+      "colors": [
+        "B",
+        "G",
+        "U"
+      ],
+      "isCommander": true
+    },
+    {
+      "name": "Life from the Loam",
+      "qty": 1,
+      "cmc": 2,
+      "type": "Sorcery",
+      "roleTags": [
+        "Recursion"
+      ],
+      "oracleText": "Return up to three land cards from your graveyard to your hand. Dredge 3.",
+      "colors": [
+        "G"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Eternal Witness",
+      "qty": 1,
+      "cmc": 3,
+      "type": "Creature",
+      "roleTags": [
+        "Recursion"
+      ],
+      "oracleText": "When this creature enters, return target card from your graveyard to your hand.",
+      "colors": [
+        "G"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Counterspell",
+      "qty": 1,
+      "cmc": 2,
+      "type": "Instant",
+      "roleTags": [
+        "Counterspell"
+      ],
+      "oracleText": "Counter target spell.",
+      "colors": [
+        "U"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Island",
+      "qty": 12,
+      "cmc": 0,
+      "type": "Basic Land — Island",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "U"
+      ]
+    },
+    {
+      "name": "Swamp",
+      "qty": 12,
+      "cmc": 0,
+      "type": "Basic Land — Swamp",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "B"
+      ]
+    },
+    {
+      "name": "Forest",
+      "qty": 12,
+      "cmc": 0,
+      "type": "Basic Land — Forest",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "G"
+      ]
+    }
+  ]
+}

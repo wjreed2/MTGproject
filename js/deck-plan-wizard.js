@@ -74,6 +74,9 @@
       nextDraft.fieldSources = nextDraft.fieldSources || {};
       if (!nextDraft.fieldSources.primaryStrategyId) nextDraft.fieldSources.primaryStrategyId = 'formal';
     }
+    if (nextDraft.playstyleS == null && typeof _deckCutPlaystyleStep === 'number') {
+      nextDraft.playstyleS = _deckCutPlaystyleStep;
+    }
 
     _planWizard = {
       deckId: deck.id,
@@ -97,19 +100,14 @@
     _planWizard = null;
   }
 
-  /** Same core sequence for every deck; commander only if missing. Plan envelope steps after themes.
-   * CP-Q34: one pass — key cards → roles → wincon/strategy… → cast turn → protection → budget.
-   * Type-dimension pickers run before sub-tags so labels can show the chosen type. */
+  /** Locked order F5-Q3 C — see buildPlanWizardSteps in deck-plan.js. */
   function _pwBuildSteps(deck) {
+    const draft = _planWizard?.draft;
+    if (typeof buildPlanWizardSteps === 'function') return buildPlanWizardSteps(deck, draft || {});
     const steps = [];
     if (!deck.commander) steps.push('commander');
-    steps.push('keycards', 'roles', 'wincon', 'strategy', 'secondary');
-    const draft = _planWizard?.draft;
-    const typeStrategies = typeof strategiesNeedingTypePick === 'function'
-      ? strategiesNeedingTypePick(draft || {})
-      : [];
-    for (const sid of typeStrategies) steps.push('themetypes:' + sid);
-    steps.push('subtags', 'castturn', 'protection', 'budget');
+    steps.push('keycards', 'roles', 'wincon', 'strategy', 'secondary', 'subtags',
+      'competition', 'playstyle', 'castturn', 'castpattern', 'protection', 'budget', 'tutorpref');
     return steps;
   }
 
@@ -516,6 +514,90 @@
       return;
     }
 
+    if (step === 'competition') {
+      if (title) title.textContent = 'How competitive is this deck?';
+      const rec = typeof recommendFoundationCompetition === 'function'
+        ? recommendFoundationCompetition(draft)
+        : { value: 'Focused', note: '' };
+      const cur = draft.competition || '';
+      const opts = [
+        ['Casual', 'Casual'],
+        ['Focused', 'Focused'],
+        ['High', 'High'],
+        ['cEDH', 'cEDH'],
+      ];
+      body.innerHTML = `<p class="deck-tab-muted">Skippable. cEDH is its own category, not “cEDH-ish.”</p>
+        <p class="deck-tab-muted">Recommendation: <strong>${escapeHtml(rec.value)}</strong> — ${escapeHtml(rec.note || 'Not confirmed until you pick.')}</p>
+        <div class="plan-opt-grid">
+          ${opts.map(([id, lab]) =>
+            `<button type="button" class="plan-opt${cur === id ? ' plan-opt--selected' : ''}" onclick="_pwSetCompetition('${id}')">${lab}</button>`
+          ).join('')}
+          <button type="button" class="plan-opt${cur === '' ? ' plan-opt--selected' : ''}" onclick="_pwSetCompetition('')">Undecided</button>
+        </div>`;
+      if (primaryBtn) {
+        primaryBtn.textContent = 'Continue';
+        primaryBtn.onclick = () => _pwNext();
+      }
+      return;
+    }
+
+    if (step === 'playstyle') {
+      if (title) title.textContent = 'Playstyle — aggro to control';
+      if (draft.playstyleS == null && typeof _deckCutPlaystyleStep === 'number') draft.playstyleS = _deckCutPlaystyleStep;
+      const s = draft.playstyleS == null ? 0 : draft.playstyleS;
+      body.innerHTML = `<p class="deck-tab-muted">Same stored value as the Adds/Cuts playstyle slider (S from −7 to 7). This changes mix, not competition intensity.</p>
+        <label class="plan-budget-label">Aggro ← → Control (${s})</label>
+        <input type="range" id="planPlaystyleS" min="-7" max="7" step="1" value="${s}"
+          oninput="_pwSetPlaystyleS(this.value); const l=document.getElementById('planPlaystyleLabel'); if(l) l.textContent='Aggro ← → Control ('+this.value+')'">
+        <p id="planPlaystyleLabel" class="deck-tab-muted" style="margin-top:.35rem">Aggro ← → Control (${s})</p>`;
+      if (primaryBtn) {
+        primaryBtn.textContent = 'Continue';
+        primaryBtn.onclick = () => _pwNext();
+      }
+      return;
+    }
+
+    if (step === 'castpattern') {
+      if (title) title.textContent = 'How do key cards get cast?';
+      const inferred = typeof inferFoundationCastingPattern === 'function'
+        ? inferFoundationCastingPattern({ ...draft, castingPattern: null })
+        : 'one_per_turn';
+      const cur = draft.castingPattern || '';
+      const inferLab = inferred === 'several_in_one_turn' ? 'several in one turn (sum CMC)' : 'one key card per turn (max CMC)';
+      body.innerHTML = `<p class="deck-tab-muted">Inferred from strategy and key-card types: <strong>${escapeHtml(inferLab)}</strong>. Override if wrong. Undecided uses the inference.</p>
+        <div class="plan-opt-grid">
+          <button type="button" class="plan-opt${cur === 'one_per_turn' ? ' plan-opt--selected' : ''}" onclick="_pwSetCastPattern('one_per_turn')">One key card per turn</button>
+          <button type="button" class="plan-opt${cur === 'several_in_one_turn' ? ' plan-opt--selected' : ''}" onclick="_pwSetCastPattern('several_in_one_turn')">Several in one turn</button>
+          <button type="button" class="plan-opt${cur === '' ? ' plan-opt--selected' : ''}" onclick="_pwSetCastPattern('')">Undecided (use inference)</button>
+        </div>`;
+      if (primaryBtn) {
+        primaryBtn.textContent = 'Continue';
+        primaryBtn.onclick = () => _pwNext();
+      }
+      return;
+    }
+
+    if (step === 'tutorpref') {
+      if (title) title.textContent = 'Tutors for this deck';
+      const rec = typeof inferFoundationTutorPref === 'function'
+        ? inferFoundationTutorPref({ ...draft, tutorPreference: null })
+        : 'fine';
+      const cur = draft.tutorPreference || '';
+      body.innerHTML = `<p class="deck-tab-muted">Skippable. A recommendation is not a confirmed “never.” If you dislike tutors, the consistency need remains.</p>
+        <p class="deck-tab-muted">Recommendation: <strong>${escapeHtml(rec === 'rather_not' ? 'rather not' : rec)}</strong></p>
+        <div class="plan-opt-grid">
+          <button type="button" class="plan-opt${cur === 'fine' ? ' plan-opt--selected' : ''}" onclick="_pwSetTutorPref('fine')">Tutors are fine</button>
+          <button type="button" class="plan-opt${cur === 'rather_not' ? ' plan-opt--selected' : ''}" onclick="_pwSetTutorPref('rather_not')">Rather not</button>
+          <button type="button" class="plan-opt${cur === 'never' ? ' plan-opt--selected' : ''}" onclick="_pwSetTutorPref('never')">Never</button>
+          <button type="button" class="plan-opt${cur === '' ? ' plan-opt--selected' : ''}" onclick="_pwSetTutorPref('')">Undecided</button>
+        </div>`;
+      if (primaryBtn) {
+        primaryBtn.textContent = 'Save plan';
+        primaryBtn.onclick = () => _pwFinishBudget(false);
+      }
+      return;
+    }
+
     if (step === 'budget') {
       if (title) title.textContent = 'Budget preferences (optional)';
       const deckTiers = typeof PLAN_DECK_BUDGET_TIERS !== 'undefined' ? PLAN_DECK_BUDGET_TIERS : [];
@@ -543,8 +625,8 @@
         </div>
         <p class="deck-tab-muted" style="margin-top:.75rem;font-size:.75rem">Skip the whole budget step with the button below - Adds ranking stays unchanged.</p>`;
       if (primaryBtn) {
-        primaryBtn.textContent = 'Save plan';
-        primaryBtn.onclick = () => _pwFinishBudget(false);
+        primaryBtn.textContent = 'Continue';
+        primaryBtn.onclick = () => _pwNext();
       }
       return;
     }
@@ -886,7 +968,7 @@
     _planWizard.draft.fieldSources.roughMaxDeckBudgetUsd = 'skipped';
     _planWizard.draft.fieldSources.roughMaxPerCardBudgetUsd = 'skipped';
     _planWizard.draft.fieldSources.allowBudgetBusters = 'skipped';
-    _pwFinishBudget(false);
+    _pwNext();
   }
 
   function _pwAllRoleLabels() {
@@ -1149,6 +1231,27 @@
     _pwRender();
   }
 
+  function _pwSetCompetition(id) {
+    if (!_planWizard) return;
+    _planWizard.draft.competition = id || null;
+    _pwRender();
+  }
+  function _pwSetPlaystyleS(v) {
+    if (!_planWizard) return;
+    const s = Math.max(-7, Math.min(7, Math.round(Number(v) || 0)));
+    _planWizard.draft.playstyleS = s;
+    if (typeof setDeckCutPlaystyleStep === 'function') setDeckCutPlaystyleStep(s);
+  }
+  function _pwSetCastPattern(id) {
+    if (!_planWizard) return;
+    _planWizard.draft.castingPattern = id || null;
+    _pwRender();
+  }
+  function _pwSetTutorPref(id) {
+    if (!_planWizard) return;
+    _planWizard.draft.tutorPreference = id || null;
+    _pwRender();
+  }
   function _pwToggleProtType(typ, on) {
     if (!_planWizard) return;
     const set = new Set(_planWizard.draft.protectionTypes || []);
@@ -1197,4 +1300,8 @@
   window._pwSetLandIdeal = _pwSetLandIdeal;
   window._pwSetProtectionImportance = _pwSetProtectionImportance;
   window._pwToggleProtType = _pwToggleProtType;
+  window._pwSetCompetition = _pwSetCompetition;
+  window._pwSetPlaystyleS = _pwSetPlaystyleS;
+  window._pwSetCastPattern = _pwSetCastPattern;
+  window._pwSetTutorPref = _pwSetTutorPref;
 })();

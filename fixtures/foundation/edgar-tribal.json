@@ -1,0 +1,132 @@
+{
+  "id": "edgar-tribal",
+  "name": "Edgar Vampire Tribal",
+  "archetype": "tribal",
+  "commander": "Edgar Markov",
+  "colorIdentity": [
+    "W",
+    "B",
+    "R"
+  ],
+  "plan": {
+    "winConditionId": "wincon.combat",
+    "primaryStrategyId": "strategy.tribal",
+    "competition": "Casual",
+    "playstyleS": -3,
+    "targetCastTurn": 6,
+    "castingPattern": "one_per_turn",
+    "tutorPreference": "rather_not",
+    "protectionImportance": "med",
+    "keyCards": [
+      {
+        "name": "Captivating Vampire"
+      }
+    ],
+    "planTypePicks": {
+      "strategy.tribal": [
+        "vampire"
+      ]
+    }
+  },
+  "notes": "Tribal combat.",
+  "expected": {
+    "closeGameMode": "combat"
+  },
+  "cards": [
+    {
+      "name": "Edgar Markov",
+      "qty": 1,
+      "cmc": 6,
+      "type": "Legendary Creature",
+      "roleTags": [],
+      "oracleText": "",
+      "colors": [
+        "W",
+        "B",
+        "R"
+      ],
+      "isCommander": true
+    },
+    {
+      "name": "Captivating Vampire",
+      "qty": 1,
+      "cmc": 3,
+      "type": "Creature — Vampire",
+      "roleTags": [
+        "Anthem"
+      ],
+      "oracleText": "Other Vampire creatures you control get +1/+1.",
+      "colors": [
+        "B"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Swords to Plowshares",
+      "qty": 1,
+      "cmc": 1,
+      "type": "Instant",
+      "roleTags": [
+        "Removal"
+      ],
+      "oracleText": "Exile target creature.",
+      "colors": [
+        "W"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Faithless Looting",
+      "qty": 1,
+      "cmc": 1,
+      "type": "Sorcery",
+      "roleTags": [
+        "Card Draw"
+      ],
+      "oracleText": "Draw two cards, then discard two cards.",
+      "colors": [
+        "R"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Plains",
+      "qty": 12,
+      "cmc": 0,
+      "type": "Basic Land — Plains",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "W"
+      ]
+    },
+    {
+      "name": "Swamp",
+      "qty": 12,
+      "cmc": 0,
+      "type": "Basic Land — Swamp",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "B"
+      ]
+    },
+    {
+      "name": "Mountain",
+      "qty": 12,
+      "cmc": 0,
+      "type": "Basic Land — Mountain",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "R"
+      ]
+    }
+  ]
+}

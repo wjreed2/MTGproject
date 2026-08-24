@@ -3465,6 +3465,243 @@ function applyDeckCardsFromTable(deck, deckId, byDeck) {
   return deck;
 }
 
+const FOUNDATION_LAB_DEFAULT_ACCOUNT_EMAIL = String(process.env.FOUNDATION_LAB_DEFAULT_ACCOUNT || '').trim().toLowerCase();
+
+function parseJsonMaybe(value, fallback) {
+  if (value == null) return fallback;
+  if (typeof value === 'object') return value;
+  try { return JSON.parse(value); } catch (_) { return fallback; }
+}
+
+function slimStoredCardIR(ir) {
+  try {
+    const { slimCardIR } = require('./js/foundation-lab/live-decks.js');
+    return slimCardIR(ir);
+  } catch (_) {
+    return ir && typeof ir === 'object' ? ir : null;
+  }
+}
+
+/**
+ * Load every deck for an account as Foundation Lab fixtures, attaching stored
+ * CardIR from card_semantics (no regen). Admin / internal Lab use only.
+ */
+async function loadFoundationLabAccountFixtures(emailRaw) {
+  const email = String(emailRaw || FOUNDATION_LAB_DEFAULT_ACCOUNT_EMAIL).trim().toLowerCase();
+  if (!email || !email.includes('@') || email.length > 254) {
+    const err = new Error('invalid email');
+    err.status = 400;
+    throw err;
+  }
+  const [accRows] = await db().query('SELECT id, email FROM accounts WHERE email = ?', [email]);
+  if (!accRows.length) {
+    return {
+      email,
+      accountId: null,
+      deckCount: 0,
+      fixtures: [],
+      coverage: {
+        deckCount: 0, uniqueCards: 0, cardCopies: 0, uniqueWithIr: 0, irCoverage: 0,
+      },
+      error: 'account not found',
+    };
+  }
+  const accountId = accRows[0].id;
+  const [rows] = await db().query(
+    'SELECT id, data, share_token, updated_at, revision FROM decks WHERE account_id = ? ORDER BY created_at ASC',
+    [accountId]
+  );
+  const [cardRows] = await db().query(
+    `
+    SELECT dc.deck_id, dc.card_uid, dc.card_data, dc.sort_order, dct.tag_name
+    FROM deck_cards dc
+    LEFT JOIN deck_card_tags dct
+      ON dct.account_id = dc.account_id AND dct.deck_id = dc.deck_id AND dct.card_uid = dc.card_uid
+    WHERE dc.account_id = ?
+    ORDER BY dc.deck_id ASC, dc.sort_order ASC
+    `,
+    [accountId]
+  );
+  const byDeck = new Map();
+  const byCardKey = new Map();
+  const allCards = [];
+  cardRows.forEach(r => {
+    const deckId = r.deck_id;
+    if (!byDeck.has(deckId)) byDeck.set(deckId, []);
+    const cardKey = `${deckId}::${r.card_uid}`;
+    if (!byCardKey.has(cardKey)) {
+      const parsed = typeof r.card_data === 'string' ? JSON.parse(r.card_data) : r.card_data;
+      const cardUid = parsed.uid || r.card_uid;
+      const card = { ...parsed, uid: cardUid, foil: parsed.foil != null ? !!parsed.foil : cardUid.endsWith('_f'), customTags: [] };
+      byCardKey.set(cardKey, card);
+      byDeck.get(deckId).push(card);
+      allCards.push(card);
+    }
+    if (r.tag_name) {
+      const card = byCardKey.get(cardKey);
+      if (!card.customTags.some(t => String(t).toLowerCase() === String(r.tag_name).toLowerCase())) {
+        card.customTags.push(r.tag_name);
+      }
+    }
+  });
+
+  const oids = [...new Set(allCards.map(c => String(c.oracleId || c.oracle_id || '').toLowerCase())
+    .filter(id => /^[0-9a-f-]{36}$/i.test(id)))];
+  const names = [...new Set(allCards.map(c => String(c.name || '').trim()).filter(Boolean))];
+
+  const catalogByOid = new Map();
+  const catalogByName = new Map();
+  const irByOracle = {};
+
+  async function ingestCatalogRows(catRows) {
+    for (const r of catRows || []) {
+      const oid = String(r.oracle_id || '').toLowerCase();
+      catalogByOid.set(oid, r);
+      if (r.name && !catalogByName.has(r.name)) catalogByName.set(r.name, r);
+      if (r.ir_json) {
+        try { irByOracle[oid] = slimStoredCardIR(JSON.parse(r.ir_json)); }
+        catch (_) { /* ignore malformed stored IR */ }
+      }
+    }
+  }
+
+  for (let i = 0; i < oids.length; i += 400) {
+    const chunk = oids.slice(i, i + 400);
+    const ph = chunk.map(() => '?').join(',');
+    const [catRows] = await db().query(
+      `SELECT c.oracle_id, c.name, c.oracle_text, c.type_line, c.cmc, c.color_identity_json, s.ir_json
+         FROM scryfall_oracle_cards c
+         LEFT JOIN card_semantics s ON s.oracle_id = c.oracle_id AND s.status IN ('valid','flagged','manual')
+        WHERE c.oracle_id IN (${ph})`,
+      chunk
+    );
+    await ingestCatalogRows(catRows);
+  }
+
+  const unresolvedNames = names.filter(n => !catalogByName.has(n));
+  if (unresolvedNames.length) {
+    const resolved = await _e2ResolveCards(unresolvedNames);
+    const extraOids = [];
+    for (const [name, r] of resolved.entries()) {
+      catalogByName.set(name, r);
+      const oid = String(r.oracle_id || '').toLowerCase();
+      if (oid) {
+        catalogByOid.set(oid, r);
+        extraOids.push(oid);
+        oids.push(oid);
+      }
+      if (r.ir_json && oid && !irByOracle[oid]) {
+        try { irByOracle[oid] = slimStoredCardIR(JSON.parse(r.ir_json)); }
+        catch (_) { /* ignore */ }
+      }
+    }
+    const needText = [...new Set(extraOids.filter(oid => !(catalogByOid.get(oid) || {}).oracle_text))];
+    for (let i = 0; i < needText.length; i += 400) {
+      const chunk = needText.slice(i, i + 400);
+      const ph = chunk.map(() => '?').join(',');
+      const [catRows] = await db().query(
+        `SELECT c.oracle_id, c.name, c.oracle_text, c.type_line, c.cmc, c.color_identity_json, s.ir_json
+           FROM scryfall_oracle_cards c
+           LEFT JOIN card_semantics s ON s.oracle_id = c.oracle_id AND s.status IN ('valid','flagged','manual')
+          WHERE c.oracle_id IN (${ph})`,
+        chunk
+      );
+      await ingestCatalogRows(catRows);
+    }
+  }
+
+  const collByOid = new Map();
+  if (oids.length) {
+    for (let i = 0; i < oids.length; i += 400) {
+      const chunk = oids.slice(i, i + 400);
+      const ph = chunk.map(() => '?').join(',');
+      const [collRows] = await db().query(
+        `SELECT oracle_id, role_tags_json FROM collection
+          WHERE account_id = ? AND oracle_id IN (${ph})`,
+        [accountId, ...chunk]
+      );
+      for (const r of collRows || []) {
+        const oid = String(r.oracle_id || '').toLowerCase();
+        if (!collByOid.has(oid) && r.role_tags_json) collByOid.set(oid, parseJsonMaybe(r.role_tags_json, []));
+      }
+    }
+  }
+
+  for (const card of allCards) {
+    let oid = String(card.oracleId || card.oracle_id || '').toLowerCase();
+    const cat = (oid && catalogByOid.get(oid)) || catalogByName.get(String(card.name || '').trim());
+    if (cat) {
+      if (!oid && cat.oracle_id) {
+        oid = String(cat.oracle_id).toLowerCase();
+        card.oracleId = oid;
+      }
+      if (!String(card.oracleText || '').trim() && cat.oracle_text) card.oracleText = cat.oracle_text;
+      if (!String(card.type || card.type_line || '').trim() && cat.type_line) {
+        card.type = cat.type_line;
+        card.type_line = cat.type_line;
+      }
+      if (card.cmc == null && cat.cmc != null) card.cmc = Number(cat.cmc) || 0;
+      if ((!card.colorIdentity || !card.colorIdentity.length) && cat.color_identity_json) {
+        card.colorIdentity = parseJsonMaybe(cat.color_identity_json, []);
+      }
+    }
+    if ((!card.roleTags || !card.roleTags.length) && oid && collByOid.has(oid)) {
+      const tags = collByOid.get(oid);
+      if (Array.isArray(tags) && tags.length) card.roleTags = tags.slice();
+    }
+    if (oid && irByOracle[oid]) card.ir = irByOracle[oid];
+  }
+
+  const { liveDeckToLabFixture } = require('./js/foundation-lab/live-decks.js');
+  const fixtures = rows.map(r => {
+    const deck = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
+    applyDeckCardsFromTable(deck, r.id, byDeck);
+    deck.shareToken = r.share_token || null;
+    deck.updatedAt = Number(r.updated_at) || Number(deck.updatedAt) || 0;
+    deck.revision = Number(r.revision) || 0;
+    return liveDeckToLabFixture(deck, irByOracle, email);
+  });
+
+  let unique = 0;
+  let copies = 0;
+  let withIr = 0;
+  const seen = new Set();
+  const axisFreq = {};
+  for (const f of fixtures) {
+    for (const c of f.cards || []) {
+      copies += Math.max(1, Number(c.qty) || 1);
+      const key = String(c.oracleId || c.name || '').toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      unique += 1;
+      const ir = c.ir;
+      if (ir && ((ir.provides && ir.provides.length) || (ir.needs && ir.needs.length) || (ir.roles && ir.roles.length))) {
+        withIr += 1;
+        for (const entry of (ir.provides || [])) {
+          const axis = (entry && entry.axis) || entry;
+          if (!axis) continue;
+          axisFreq[axis] = (axisFreq[axis] || 0) + 1;
+        }
+      }
+    }
+  }
+
+  return {
+    email,
+    accountId,
+    deckCount: fixtures.length,
+    fixtures,
+    coverage: {
+      deckCount: fixtures.length,
+      uniqueCards: unique,
+      cardCopies: copies,
+      uniqueWithIr: withIr,
+      irCoverage: unique ? Math.round((withIr / unique) * 1000) / 1000 : 0,
+      provideAxisFrequencies: axisFreq,
+    },
+  };
+}
+
 /** Single-deck fetch for owner or collaborator (used by REST + realtime refresh). */
 async function loadDeckForViewer(viewerAccountId, deckId) {
   const access = await resolveDeckAccessForViewer(viewerAccountId, deckId);
@@ -9995,6 +10232,32 @@ app.get('/api/internal/deck/:id', requireSemanticsIngestSecret, async (req, res)
   }
 });
 
+/** All decks for an account as Foundation Lab fixtures (CardIR joined from card_semantics). */
+app.get('/api/internal/account-decks', requireSemanticsIngestSecret, async (req, res) => {
+  try {
+    const email = String(req.query.email || FOUNDATION_LAB_DEFAULT_ACCOUNT_EMAIL).trim();
+    const payload = await loadFoundationLabAccountFixtures(email);
+    res.json(payload);
+  } catch (e) {
+    const status = e.status || 500;
+    if (status >= 500) console.error('[internal-account-decks]', e);
+    res.status(status).json({ error: e.message });
+  }
+});
+
+/** Same payload as internal account-decks, for the Lab UI (admin session). */
+app.get('/api/foundation-lab/user-fixtures', requireAuth, requireAdminRole, async (req, res) => {
+  try {
+    const email = String(req.query.email || FOUNDATION_LAB_DEFAULT_ACCOUNT_EMAIL).trim();
+    const payload = await loadFoundationLabAccountFixtures(email);
+    res.json(payload);
+  } catch (e) {
+    const status = e.status || 500;
+    if (status >= 500) console.error('[foundation-lab-user-fixtures]', e);
+    res.status(status).json({ error: e.message });
+  }
+});
+
 /** Batch upsert of CardIR rows (card_semantics + replaced card_semantics_axes). */
 app.post('/api/internal/semantics-ingest', requireSemanticsIngestSecret, async (req, res) => {
   const cards = Array.isArray(req.body?.cards) ? req.body.cards : null;
@@ -10182,6 +10445,24 @@ async function start() {
   app.get('/d/:token', (_req, res) => serveIndex(res));
   // Dev harness: verify client(canvas) vs server(sharp) pHash parity for the scanner.
   app.get('/scanner-phash-parity.html', (_req, res) => res.sendFile(path.join(__dirname, 'scanner-phash-parity.html')));
+  // Dev/calibration only — Foundation Evaluation Lab (not a user-facing Hybrid mode).
+  // Admin session required so it can be opened from the phone app / hosted URL without a desktop.
+  function requireAdminPage(req, res, next) {
+    if (req.session?.accountId && req.session.userRole === 'admin') return next();
+    const url = String(req.originalUrl || req.path || '');
+    const wantsJson = /\.json(\?|$)/i.test(url) || req.path.endsWith('.json');
+    if (wantsJson) return res.status(401).json({ error: 'Admin session required' });
+    if (req.accepts('html')) return res.redirect('/');
+    return res.status(401).json({ error: 'Admin session required' });
+  }
+  app.get('/foundation-lab.html', requireAdminPage, (_req, res) => {
+    const file = path.join(__dirname, 'foundation-lab.html');
+    let html = fs.readFileSync(file, 'utf8');
+    const snippet = `<script>window.FOUNDATION_LAB_DEFAULT_ACCOUNT_EMAIL=${JSON.stringify(FOUNDATION_LAB_DEFAULT_ACCOUNT_EMAIL)};</script>\n`;
+    if (html.includes('</head>')) html = html.replace('</head>', snippet + '</head>');
+    res.type('html').send(html);
+  });
+  app.use('/fixtures', requireAdminPage, express.static(path.join(__dirname, 'fixtures')));
   // HTTPS if certs/server.pem + certs/server-key.pem exist (generated by mkcert)
   const certDir  = path.join(__dirname, 'certs');
   const certFile = path.join(certDir, 'server.pem');

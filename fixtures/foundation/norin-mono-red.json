@@ -1,0 +1,100 @@
+{
+  "id": "norin-mono-red",
+  "name": "Norin Mono-Red",
+  "archetype": "mono-color",
+  "commander": "Norin the Wary",
+  "colorIdentity": [
+    "R"
+  ],
+  "golden": [
+    "color_identity_stack_vulnerability"
+  ],
+  "plan": {
+    "winConditionId": "wincon.combat",
+    "primaryStrategyId": "strategy.goodstuff",
+    "competition": "Focused",
+    "playstyleS": -4,
+    "targetCastTurn": 1,
+    "castingPattern": "one_per_turn",
+    "tutorPreference": "fine",
+    "protectionImportance": "low",
+    "keyCards": [
+      {
+        "name": "Norin the Wary"
+      }
+    ]
+  },
+  "notes": "Mono-red: stack and graveyard interaction are color-identity vulnerabilities.",
+  "expected": {
+    "stackKind": "color_identity_vulnerability"
+  },
+  "cards": [
+    {
+      "name": "Norin the Wary",
+      "qty": 1,
+      "cmc": 1,
+      "type": "Legendary Creature",
+      "roleTags": [],
+      "oracleText": "",
+      "colors": [
+        "R"
+      ],
+      "isCommander": true
+    },
+    {
+      "name": "Chaos Warp",
+      "qty": 1,
+      "cmc": 3,
+      "type": "Instant",
+      "roleTags": [
+        "Removal"
+      ],
+      "oracleText": "Exile target permanent, then its owner reveals the top card of their library.",
+      "colors": [
+        "R"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Blasphemous Act",
+      "qty": 1,
+      "cmc": 9,
+      "type": "Sorcery",
+      "roleTags": [
+        "Board Wipe"
+      ],
+      "oracleText": "Blasphemous Act deals 13 damage to each creature.",
+      "colors": [
+        "R"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Faithless Looting",
+      "qty": 1,
+      "cmc": 1,
+      "type": "Sorcery",
+      "roleTags": [
+        "Card Draw"
+      ],
+      "oracleText": "Draw two cards, then discard two cards.",
+      "colors": [
+        "R"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Mountain",
+      "qty": 38,
+      "cmc": 0,
+      "type": "Basic Land — Mountain",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "R"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,151 @@
+{
+  "id": "rafiq-voltron",
+  "name": "Rafiq Voltron",
+  "archetype": "voltron",
+  "commander": "Rafiq of the Many",
+  "colorIdentity": [
+    "W",
+    "U",
+    "G"
+  ],
+  "golden": [
+    "shared_capacity",
+    "user_target_override"
+  ],
+  "plan": {
+    "winConditionId": "wincon.commander_damage",
+    "primaryStrategyId": "strategy.voltron",
+    "competition": "Focused",
+    "playstyleS": -2,
+    "targetCastTurn": 3,
+    "castingPattern": "one_per_turn",
+    "tutorPreference": "fine",
+    "protectionImportance": "high",
+    "keyCards": [
+      {
+        "name": "Rafiq of the Many"
+      }
+    ],
+    "confirmedRoles": [
+      {
+        "label": "Card Draw",
+        "target": 6,
+        "checked": true
+      }
+    ]
+  },
+  "notes": "Voltron: protection vs interaction share capacity. User Card Draw target 6 overrides the proposal.",
+  "expected": {
+    "closeGameMode": "commander_damage",
+    "userTarget": 6
+  },
+  "cards": [
+    {
+      "name": "Rafiq of the Many",
+      "qty": 1,
+      "cmc": 3,
+      "type": "Legendary Creature",
+      "roleTags": [],
+      "oracleText": "",
+      "colors": [
+        "W",
+        "U",
+        "G"
+      ],
+      "isCommander": true
+    },
+    {
+      "name": "Swiftfoot Boots",
+      "qty": 1,
+      "cmc": 2,
+      "type": "Artifact",
+      "roleTags": [
+        "Protection"
+      ],
+      "oracleText": "Equipped creature has hexproof and haste.",
+      "colors": [],
+      "ir": null
+    },
+    {
+      "name": "Swords to Plowshares",
+      "qty": 1,
+      "cmc": 1,
+      "type": "Instant",
+      "roleTags": [
+        "Removal"
+      ],
+      "oracleText": "Exile target creature.",
+      "colors": [
+        "W"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Rhystic Study",
+      "qty": 1,
+      "cmc": 3,
+      "type": "Enchantment",
+      "roleTags": [
+        "Card Draw"
+      ],
+      "oracleText": "Whenever an opponent casts a spell, you may draw a card.",
+      "colors": [
+        "U"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Cultivate",
+      "qty": 1,
+      "cmc": 3,
+      "type": "Sorcery",
+      "roleTags": [
+        "Ramp"
+      ],
+      "oracleText": "Search your library for up to two basic land cards.",
+      "colors": [
+        "G"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Forest",
+      "qty": 12,
+      "cmc": 0,
+      "type": "Basic Land — Forest",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "G"
+      ]
+    },
+    {
+      "name": "Plains",
+      "qty": 12,
+      "cmc": 0,
+      "type": "Basic Land — Plains",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "W"
+      ]
+    },
+    {
+      "name": "Island",
+      "qty": 12,
+      "cmc": 0,
+      "type": "Basic Land — Island",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "U"
+      ]
+    }
+  ]
+}

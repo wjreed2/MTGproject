@@ -1,0 +1,164 @@
+{
+  "id": "meren-reanimator",
+  "name": "Meren Reanimator",
+  "archetype": "reanimator",
+  "commander": "Meren of Clan Nel Toth",
+  "colorIdentity": [
+    "B",
+    "G"
+  ],
+  "golden": [
+    "reanimator_keep_going",
+    "no_full_multirole"
+  ],
+  "plan": {
+    "winConditionId": "wincon.combat",
+    "primaryStrategyId": "strategy.reanimator",
+    "competition": "Focused",
+    "playstyleS": 1,
+    "targetCastTurn": 5,
+    "castingPattern": "one_per_turn",
+    "tutorPreference": "fine",
+    "protectionImportance": "med",
+    "keyCards": [
+      {
+        "name": "Animate Dead"
+      }
+    ]
+  },
+  "notes": "Recursion should credit Keep Going and Resources, not full credit on every theoretical role.",
+  "expected": {
+    "closeGameMode": "combat",
+    "recursionKeepGoing": true
+  },
+  "cards": [
+    {
+      "name": "Meren of Clan Nel Toth",
+      "qty": 1,
+      "cmc": 5,
+      "type": "Legendary Creature",
+      "roleTags": [
+        "Recursion"
+      ],
+      "oracleText": "",
+      "colors": [
+        "B",
+        "G"
+      ],
+      "isCommander": true
+    },
+    {
+      "name": "Animate Dead",
+      "qty": 1,
+      "cmc": 2,
+      "type": "Enchantment",
+      "roleTags": [
+        "Reanimate",
+        "Recursion"
+      ],
+      "oracleText": "Return target creature card from a graveyard to the battlefield.",
+      "colors": [
+        "B"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Victimize",
+      "qty": 1,
+      "cmc": 3,
+      "type": "Sorcery",
+      "roleTags": [
+        "Reanimate",
+        "Recursion"
+      ],
+      "oracleText": "Sacrifice a creature. Return two creature cards from your graveyard to the battlefield.",
+      "colors": [
+        "B"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Eternal Witness",
+      "qty": 1,
+      "cmc": 3,
+      "type": "Creature",
+      "roleTags": [
+        "Recursion"
+      ],
+      "oracleText": "When this creature enters, return target card from your graveyard to your hand.",
+      "colors": [
+        "G"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Entomb",
+      "qty": 1,
+      "cmc": 1,
+      "type": "Instant",
+      "roleTags": [
+        "Tutor"
+      ],
+      "oracleText": "Search your library for a card, put that card into your graveyard.",
+      "colors": [
+        "B"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Phyrexian Reclamation",
+      "qty": 1,
+      "cmc": 1,
+      "type": "Enchantment",
+      "roleTags": [
+        "Recursion",
+        "Card Draw"
+      ],
+      "oracleText": "Pay life, return target creature card from your graveyard to your hand. Recurring value engine.",
+      "colors": [
+        "B"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Cultivate",
+      "qty": 1,
+      "cmc": 3,
+      "type": "Sorcery",
+      "roleTags": [
+        "Ramp"
+      ],
+      "oracleText": "Search your library for up to two basic land cards.",
+      "colors": [
+        "G"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Swamp",
+      "qty": 18,
+      "cmc": 0,
+      "type": "Basic Land — Swamp",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "B"
+      ]
+    },
+    {
+      "name": "Forest",
+      "qty": 18,
+      "cmc": 0,
+      "type": "Basic Land — Forest",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "G"
+      ]
+    }
+  ]
+}

@@ -14,6 +14,7 @@ In the Railway project → your **Node/web service** → **Variables**, confirm 
 | `ALLOWED_ORIGIN` | Your public site origin(s), e.g. `https://yourdomain.com` (comma-separated OK; CORS + cookies). Local phone-on-LAN: include that origin too, e.g. `https://localhost:3001,https://192.168.0.20:3001`. |
 | `APP_URL` | Public base URL (password reset links, etc.) |
 | `CHANGELOG_INGEST_SECRET` | Long random string; **same idea as `SESSION_SECRET`** — used by `POST /api/internal/changelog-ingest` and by `npm run changelog:add` locally/CI |
+| `FOUNDATION_LAB_DEFAULT_ACCOUNT` | Optional. Admin Foundation Lab default account-decks email. Injected into `/foundation-lab.html` only; leave unset if operators always type an email. |
 
 Optional but useful:
 

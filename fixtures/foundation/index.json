@@ -1,0 +1,163 @@
+[
+  {
+    "id": "azusa-lands",
+    "name": "Azusa Lands",
+    "archetype": "lands",
+    "commander": "Azusa, Lost but Seeking",
+    "file": "azusa-lands.json"
+  },
+  {
+    "id": "edgar-tribal",
+    "name": "Edgar Vampire Tribal",
+    "archetype": "tribal",
+    "commander": "Edgar Markov",
+    "file": "edgar-tribal.json"
+  },
+  {
+    "id": "gitrog-combo",
+    "name": "Gitrog Lands Combo",
+    "archetype": "combo",
+    "commander": "The Gitrog Monster",
+    "file": "gitrog-combo.json"
+  },
+  {
+    "id": "grand-arbiter-stax",
+    "name": "Grand Arbiter Stax",
+    "archetype": "stax",
+    "commander": "Grand Arbiter Augustin IV",
+    "file": "grand-arbiter-stax.json"
+  },
+  {
+    "id": "kenrith-cedh-high",
+    "name": "Kenrith High-Power",
+    "archetype": "cedh",
+    "commander": "Kenrith, the Returned King",
+    "file": "kenrith-cedh-high.json"
+  },
+  {
+    "id": "kinnan-cedh",
+    "name": "Kinnan Fast Combo cEDH",
+    "archetype": "fast-combo",
+    "commander": "Kinnan, Bonder Prodigy",
+    "file": "kinnan-cedh.json"
+  },
+  {
+    "id": "kinnan-two-color",
+    "name": "Kinnan Two-Color Value",
+    "archetype": "two-color",
+    "commander": "Kinnan, Bonder Prodigy",
+    "file": "kinnan-two-color.json"
+  },
+  {
+    "id": "korvold-midrange",
+    "name": "Korvold Midrange",
+    "archetype": "midrange",
+    "commander": "Korvold, Fae-Cursed King",
+    "file": "korvold-midrange.json"
+  },
+  {
+    "id": "krenko-aggro",
+    "name": "Krenko Aggro",
+    "archetype": "aggro",
+    "commander": "Krenko, Mob Boss",
+    "file": "krenko-aggro.json"
+  },
+  {
+    "id": "kykar-spellslinger",
+    "name": "Kykar Spellslinger",
+    "archetype": "spellslinger",
+    "commander": "Kykar, Wind's Fury",
+    "file": "kykar-spellslinger.json"
+  },
+  {
+    "id": "meren-reanimator",
+    "name": "Meren Reanimator",
+    "archetype": "reanimator",
+    "commander": "Meren of Clan Nel Toth",
+    "file": "meren-reanimator.json"
+  },
+  {
+    "id": "norin-mono-red",
+    "name": "Norin Mono-Red",
+    "archetype": "mono-color",
+    "commander": "Norin the Wary",
+    "file": "norin-mono-red.json"
+  },
+  {
+    "id": "omnath-budget",
+    "name": "Omnath Low-Budget",
+    "archetype": "low-budget",
+    "commander": "Omnath, Locus of Mana",
+    "file": "omnath-budget.json"
+  },
+  {
+    "id": "omnath-ramp",
+    "name": "Omnath Ramp-Heavy",
+    "archetype": "ramp-heavy",
+    "commander": "Omnath, Locus of Mana",
+    "file": "omnath-ramp.json"
+  },
+  {
+    "id": "rafiq-voltron",
+    "name": "Rafiq Voltron",
+    "archetype": "voltron",
+    "commander": "Rafiq of the Many",
+    "file": "rafiq-voltron.json"
+  },
+  {
+    "id": "rhys-tokens",
+    "name": "Rhys Tokens",
+    "archetype": "tokens",
+    "commander": "Rhys the Redeemed",
+    "file": "rhys-tokens.json"
+  },
+  {
+    "id": "sidisi-graveyard",
+    "name": "Sidisi Graveyard",
+    "archetype": "graveyard",
+    "commander": "Sidisi, Brood Tyrant",
+    "file": "sidisi-graveyard.json"
+  },
+  {
+    "id": "sisay-fivecolor",
+    "name": "Sisay Five-Color Legends",
+    "archetype": "five-color",
+    "commander": "Sisay, Weatherlight Captain",
+    "file": "sisay-fivecolor.json"
+  },
+  {
+    "id": "sythis-enchantments",
+    "name": "Sythis Enchantress",
+    "archetype": "enchantment-focused",
+    "commander": "Sythis, Harvest's Hand",
+    "file": "sythis-enchantments.json"
+  },
+  {
+    "id": "talrand-control",
+    "name": "Talrand Control",
+    "archetype": "control",
+    "commander": "Talrand, Sky Summoner",
+    "file": "talrand-control.json"
+  },
+  {
+    "id": "teysa-aristocrats",
+    "name": "Teysa Aristocrats",
+    "archetype": "aristocrats",
+    "commander": "Teysa Karlov",
+    "file": "teysa-aristocrats.json"
+  },
+  {
+    "id": "urza-artifacts",
+    "name": "Urza Artifacts",
+    "archetype": "artifact-focused",
+    "commander": "Urza, Lord High Artificer",
+    "file": "urza-artifacts.json"
+  },
+  {
+    "id": "yuriko-commander-dependent",
+    "name": "Yuriko Commander-Dependent",
+    "archetype": "commander-dependent",
+    "commander": "Yuriko, the Tiger's Shadow",
+    "file": "yuriko-commander-dependent.json"
+  }
+]

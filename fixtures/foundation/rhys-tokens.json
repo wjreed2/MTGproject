@@ -1,0 +1,126 @@
+{
+  "id": "rhys-tokens",
+  "name": "Rhys Tokens",
+  "archetype": "tokens",
+  "commander": "Rhys the Redeemed",
+  "colorIdentity": [
+    "W",
+    "G"
+  ],
+  "plan": {
+    "winConditionId": "wincon.combat",
+    "primaryStrategyId": "strategy.tokens",
+    "competition": "Casual",
+    "playstyleS": -2,
+    "targetCastTurn": 2,
+    "castingPattern": "one_per_turn",
+    "tutorPreference": "rather_not",
+    "protectionImportance": "med",
+    "keyCards": [
+      {
+        "name": "Secure the Wastes"
+      }
+    ]
+  },
+  "notes": "Casual tokens. Keep Going need should be lower than fast combo.",
+  "expected": {
+    "closeGameMode": "combat"
+  },
+  "cards": [
+    {
+      "name": "Rhys the Redeemed",
+      "qty": 1,
+      "cmc": 2,
+      "type": "Legendary Creature",
+      "roleTags": [
+        "Token Maker"
+      ],
+      "oracleText": "",
+      "colors": [
+        "W",
+        "G"
+      ],
+      "isCommander": true
+    },
+    {
+      "name": "Secure the Wastes",
+      "qty": 1,
+      "cmc": 1,
+      "type": "Instant",
+      "roleTags": [
+        "Token Maker"
+      ],
+      "oracleText": "Create X 1/1 white Warrior creature tokens.",
+      "colors": [
+        "W"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Wrath of God",
+      "qty": 1,
+      "cmc": 4,
+      "type": "Sorcery",
+      "roleTags": [
+        "Board Wipe"
+      ],
+      "oracleText": "Destroy all creatures.",
+      "colors": [
+        "W"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Swords to Plowshares",
+      "qty": 1,
+      "cmc": 1,
+      "type": "Instant",
+      "roleTags": [
+        "Removal"
+      ],
+      "oracleText": "Exile target creature.",
+      "colors": [
+        "W"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Skullclamp",
+      "qty": 1,
+      "cmc": 1,
+      "type": "Artifact",
+      "roleTags": [
+        "Card Draw"
+      ],
+      "oracleText": "Whenever equipped creature dies, draw two cards.",
+      "colors": [],
+      "ir": null
+    },
+    {
+      "name": "Plains",
+      "qty": 18,
+      "cmc": 0,
+      "type": "Basic Land — Plains",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "W"
+      ]
+    },
+    {
+      "name": "Forest",
+      "qty": 18,
+      "cmc": 0,
+      "type": "Basic Land — Forest",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "G"
+      ]
+    }
+  ]
+}

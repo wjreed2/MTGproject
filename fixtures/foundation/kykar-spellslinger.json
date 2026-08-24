@@ -1,0 +1,142 @@
+{
+  "id": "kykar-spellslinger",
+  "name": "Kykar Spellslinger",
+  "archetype": "spellslinger",
+  "commander": "Kykar, Wind's Fury",
+  "colorIdentity": [
+    "W",
+    "U",
+    "R"
+  ],
+  "plan": {
+    "winConditionId": "wincon.combat",
+    "primaryStrategyId": "strategy.spellslinger",
+    "competition": "Focused",
+    "playstyleS": 2,
+    "targetCastTurn": 4,
+    "castingPattern": "several_in_one_turn",
+    "tutorPreference": "fine",
+    "protectionImportance": "med",
+    "keyCards": [
+      {
+        "name": "Guttersnipe"
+      }
+    ]
+  },
+  "notes": "Several spells in one turn — mana access uses sum CMC for key cards.",
+  "expected": {
+    "closeGameMode": "combat",
+    "castingPattern": "several_in_one_turn"
+  },
+  "cards": [
+    {
+      "name": "Kykar, Wind's Fury",
+      "qty": 1,
+      "cmc": 4,
+      "type": "Legendary Creature",
+      "roleTags": [],
+      "oracleText": "",
+      "colors": [
+        "W",
+        "U",
+        "R"
+      ],
+      "isCommander": true
+    },
+    {
+      "name": "Brainstorm",
+      "qty": 1,
+      "cmc": 1,
+      "type": "Instant",
+      "roleTags": [
+        "Card Draw"
+      ],
+      "oracleText": "Draw three cards, then put two cards from your hand on top of your library.",
+      "colors": [
+        "U"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Guttersnipe",
+      "qty": 1,
+      "cmc": 3,
+      "type": "Creature",
+      "roleTags": [
+        "Ping"
+      ],
+      "oracleText": "Whenever you cast an instant or sorcery spell, Guttersnipe deals 2 damage to each opponent.",
+      "colors": [
+        "R"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Counterspell",
+      "qty": 1,
+      "cmc": 2,
+      "type": "Instant",
+      "roleTags": [
+        "Counterspell"
+      ],
+      "oracleText": "Counter target spell.",
+      "colors": [
+        "U"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Swords to Plowshares",
+      "qty": 1,
+      "cmc": 1,
+      "type": "Instant",
+      "roleTags": [
+        "Removal"
+      ],
+      "oracleText": "Exile target creature.",
+      "colors": [
+        "W"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Island",
+      "qty": 12,
+      "cmc": 0,
+      "type": "Basic Land — Island",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "U"
+      ]
+    },
+    {
+      "name": "Mountain",
+      "qty": 12,
+      "cmc": 0,
+      "type": "Basic Land — Mountain",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "R"
+      ]
+    },
+    {
+      "name": "Plains",
+      "qty": 12,
+      "cmc": 0,
+      "type": "Basic Land — Plains",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "W"
+      ]
+    }
+  ]
+}

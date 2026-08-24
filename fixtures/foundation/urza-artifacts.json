@@ -1,0 +1,109 @@
+{
+  "id": "urza-artifacts",
+  "name": "Urza Artifacts",
+  "archetype": "artifact-focused",
+  "commander": "Urza, Lord High Artificer",
+  "colorIdentity": [
+    "U"
+  ],
+  "plan": {
+    "winConditionId": "wincon.combo",
+    "primaryStrategyId": "strategy.goodstuff",
+    "competition": "High",
+    "playstyleS": 3,
+    "targetCastTurn": 4,
+    "castingPattern": "several_in_one_turn",
+    "tutorPreference": "fine",
+    "protectionImportance": "high",
+    "keyCards": [
+      {
+        "name": "Basalt Monolith"
+      }
+    ]
+  },
+  "notes": "Artifact-focused combo-control.",
+  "expected": {
+    "closeGameMode": "combo"
+  },
+  "cards": [
+    {
+      "name": "Urza, Lord High Artificer",
+      "qty": 1,
+      "cmc": 4,
+      "type": "Legendary Creature",
+      "roleTags": [],
+      "oracleText": "",
+      "colors": [
+        "U"
+      ],
+      "isCommander": true
+    },
+    {
+      "name": "Sol Ring",
+      "qty": 1,
+      "cmc": 1,
+      "type": "Artifact",
+      "roleTags": [
+        "Ramp",
+        "Mana Rock"
+      ],
+      "oracleText": "{T}: Add {C}{C}.",
+      "colors": [],
+      "ir": null
+    },
+    {
+      "name": "Basalt Monolith",
+      "qty": 1,
+      "cmc": 3,
+      "type": "Artifact",
+      "roleTags": [
+        "Ramp",
+        "Mana Rock"
+      ],
+      "oracleText": "{T}: Add {C}{C}{C}.",
+      "colors": [],
+      "ir": null
+    },
+    {
+      "name": "Rhystic Study",
+      "qty": 1,
+      "cmc": 3,
+      "type": "Enchantment",
+      "roleTags": [
+        "Card Draw"
+      ],
+      "oracleText": "Whenever an opponent casts a spell, you may draw a card unless that player pays {1}.",
+      "colors": [
+        "U"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Counterspell",
+      "qty": 1,
+      "cmc": 2,
+      "type": "Instant",
+      "roleTags": [
+        "Counterspell"
+      ],
+      "oracleText": "Counter target spell.",
+      "colors": [
+        "U"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Island",
+      "qty": 26,
+      "cmc": 0,
+      "type": "Basic Land — Island",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "U"
+      ]
+    }
+  ]
+}

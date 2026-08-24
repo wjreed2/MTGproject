@@ -1,5 +1,9 @@
 # Agent instructions (MTGproject)
 
+## Project context
+
+Persistent product context, settled decisions, and design notes live in [`docs/`](docs/README.md). Start with [`docs/00-agent-instructions.md`](docs/00-agent-instructions.md) and [`docs/08-handoff.md`](docs/08-handoff.md). Treat the repo as the source of truth — not ChatGPT threads or external Library documents.
+
 ## Branching (mandatory)
 
 Cloud / coding agents must use the existing branch **`development_manford` only**.

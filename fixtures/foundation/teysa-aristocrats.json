@@ -1,0 +1,129 @@
+{
+  "id": "teysa-aristocrats",
+  "name": "Teysa Aristocrats",
+  "archetype": "aristocrats",
+  "commander": "Teysa Karlov",
+  "colorIdentity": [
+    "W",
+    "B"
+  ],
+  "golden": [
+    "synergy_measurable"
+  ],
+  "plan": {
+    "winConditionId": "wincon.life_drain",
+    "primaryStrategyId": "strategy.sacrifice",
+    "competition": "Focused",
+    "playstyleS": 0,
+    "targetCastTurn": 4,
+    "castingPattern": "one_per_turn",
+    "tutorPreference": "fine",
+    "protectionImportance": "med",
+    "keyCards": [
+      {
+        "name": "Blood Artist"
+      }
+    ]
+  },
+  "notes": "Synergistic but independently modest drain pieces should show plan overlap.",
+  "expected": {
+    "closeGameMode": "life_drain"
+  },
+  "cards": [
+    {
+      "name": "Teysa Karlov",
+      "qty": 1,
+      "cmc": 4,
+      "type": "Legendary Creature",
+      "roleTags": [],
+      "oracleText": "",
+      "colors": [
+        "W",
+        "B"
+      ],
+      "isCommander": true
+    },
+    {
+      "name": "Viscera Seer",
+      "qty": 1,
+      "cmc": 1,
+      "type": "Creature",
+      "roleTags": [
+        "Sac Outlet"
+      ],
+      "oracleText": "Sacrifice a creature: Scry 1.",
+      "colors": [
+        "B"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Blood Artist",
+      "qty": 1,
+      "cmc": 2,
+      "type": "Creature",
+      "roleTags": [
+        "Drain"
+      ],
+      "oracleText": "Whenever Blood Artist or another creature dies, target player loses 1 life and you gain 1 life.",
+      "colors": [
+        "B"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Zulaport Cutthroat",
+      "qty": 1,
+      "cmc": 2,
+      "type": "Creature",
+      "roleTags": [
+        "Drain"
+      ],
+      "oracleText": "Whenever Zulaport Cutthroat or another creature you control dies, each opponent loses 1 life and you gain 1 life.",
+      "colors": [
+        "B"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Swords to Plowshares",
+      "qty": 1,
+      "cmc": 1,
+      "type": "Instant",
+      "roleTags": [
+        "Removal"
+      ],
+      "oracleText": "Exile target creature.",
+      "colors": [
+        "W"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Plains",
+      "qty": 18,
+      "cmc": 0,
+      "type": "Basic Land — Plains",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "W"
+      ]
+    },
+    {
+      "name": "Swamp",
+      "qty": 18,
+      "cmc": 0,
+      "type": "Basic Land — Swamp",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "B"
+      ]
+    }
+  ]
+}
