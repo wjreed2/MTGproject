@@ -1,0 +1,113 @@
+{
+  "id": "krenko-aggro",
+  "name": "Krenko Aggro",
+  "archetype": "aggro",
+  "commander": "Krenko, Mob Boss",
+  "colorIdentity": [
+    "R"
+  ],
+  "golden": [
+    "color_identity_stack_vulnerability"
+  ],
+  "plan": {
+    "winConditionId": "wincon.combat",
+    "primaryStrategyId": "strategy.tokens",
+    "competition": "Focused",
+    "playstyleS": -5,
+    "targetCastTurn": 3,
+    "castingPattern": "one_per_turn",
+    "tutorPreference": "fine",
+    "protectionImportance": "low",
+    "keyCards": [
+      {
+        "name": "Krenko, Mob Boss"
+      }
+    ]
+  },
+  "notes": "Mono-red aggro. Stack/graveyard gaps should be color-identity vulnerabilities, not blanket deficiencies.",
+  "expected": {
+    "closeGameMode": "combat",
+    "stackKind": "color_identity_vulnerability"
+  },
+  "cards": [
+    {
+      "name": "Krenko, Mob Boss",
+      "qty": 1,
+      "cmc": 3,
+      "type": "Legendary Creature",
+      "roleTags": [],
+      "oracleText": "Goblin tokens.",
+      "colors": [
+        "R"
+      ],
+      "isCommander": true
+    },
+    {
+      "name": "Lightning Bolt",
+      "qty": 1,
+      "cmc": 1,
+      "type": "Instant",
+      "roleTags": [
+        "Burn",
+        "Removal"
+      ],
+      "oracleText": "Lightning Bolt deals 3 damage to any target.",
+      "colors": [
+        "R"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Impact Tremors",
+      "qty": 1,
+      "cmc": 2,
+      "type": "Enchantment",
+      "roleTags": [
+        "Ping"
+      ],
+      "oracleText": "Whenever a creature enters the battlefield under your control, it deals 1 damage to each opponent.",
+      "colors": [
+        "R"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Sol Ring",
+      "qty": 1,
+      "cmc": 1,
+      "type": "Artifact",
+      "roleTags": [
+        "Ramp",
+        "Mana Rock"
+      ],
+      "oracleText": "{T}: Add {C}{C}.",
+      "colors": [],
+      "ir": null
+    },
+    {
+      "name": "Hoarding Dragon",
+      "qty": 1,
+      "cmc": 5,
+      "type": "Creature",
+      "roleTags": [],
+      "oracleText": "Flying. A slow beater off-plan for goblin aggro.",
+      "colors": [
+        "R"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Mountain",
+      "qty": 36,
+      "cmc": 0,
+      "type": "Basic Land — Mountain",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "R"
+      ]
+    }
+  ]
+}

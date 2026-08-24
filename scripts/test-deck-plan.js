@@ -17,6 +17,7 @@ const {
   normalizeDeckPlan,
   getDeckPlan,
   deckPlanCardCount,
+  buildPlanWizardSteps,
 } = plan;
 
 // Case 2: Korvold-like sacrifice commander → sacrifice in top 6
@@ -158,6 +159,14 @@ const {
   assert.strictEqual(over.length, 2, `case12: exactly 2 busters max, got ${over.length}`);
   assert.ok(capped.some(p => (p.card.priceTCG || 0) <= 5), 'case12: still fills with in-budget');
   console.log('[case12] capped busters', over.map(p => p.card.name).join(', '));
+}
+
+{
+  const steps = buildPlanWizardSteps({ commander: 'Rafiq' }, { primaryStrategyId: 'strategy.control' });
+  assert.ok(steps.includes('competition') && steps.includes('playstyle') && steps.includes('castpattern') && steps.includes('tutorpref'));
+  assert.ok(steps.indexOf('playstyle') === steps.indexOf('competition') + 1);
+  assert.strictEqual(steps[steps.length - 1], 'tutorpref');
+  console.log('[wizard] Foundation field order', steps.join(' → '));
 }
 
 console.log('deck-plan: ok');

@@ -472,6 +472,10 @@
      so it doesn't spawn a phantom second grid column. */
   .deck-stats-grid .deck-draw-accel-panel { grid-column: auto !important; }
 
+  .deck-themes-toggle { flex-wrap: wrap; row-gap: 2px; }
+  .deck-themes-name { flex: 1 1 60%; }
+  .deck-themes-band { min-width: 0; }
+
   /* ── Settings page — the web settings dropdown rendered as a full page ──
      #settingsDropdown normally lives in the topbar, so showTab() moves the live
      element into #tab-settings and adds .settings-as-page. One element → no

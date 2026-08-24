@@ -1,0 +1,98 @@
+{
+  "id": "azusa-lands",
+  "name": "Azusa Lands",
+  "archetype": "lands",
+  "commander": "Azusa, Lost but Seeking",
+  "colorIdentity": [
+    "G"
+  ],
+  "plan": {
+    "winConditionId": "wincon.combat",
+    "primaryStrategyId": "strategy.landfall",
+    "competition": "Focused",
+    "playstyleS": 0,
+    "targetCastTurn": 2,
+    "castingPattern": "one_per_turn",
+    "tutorPreference": "fine",
+    "protectionImportance": "med",
+    "keyCards": [
+      {
+        "name": "Azusa, Lost but Seeking"
+      }
+    ]
+  },
+  "notes": "Lands-matter. Mana access is execute-the-plan, not land count.",
+  "expected": {
+    "closeGameMode": "combat"
+  },
+  "cards": [
+    {
+      "name": "Azusa, Lost but Seeking",
+      "qty": 1,
+      "cmc": 3,
+      "type": "Legendary Creature",
+      "roleTags": [],
+      "oracleText": "",
+      "colors": [
+        "G"
+      ],
+      "isCommander": true
+    },
+    {
+      "name": "Exploration",
+      "qty": 1,
+      "cmc": 1,
+      "type": "Enchantment",
+      "roleTags": [
+        "Ramp"
+      ],
+      "oracleText": "You may play an additional land on each of your turns.",
+      "colors": [
+        "G"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Oracle of Mul Daya",
+      "qty": 1,
+      "cmc": 4,
+      "type": "Creature",
+      "roleTags": [
+        "Ramp",
+        "Card Draw"
+      ],
+      "oracleText": "You may play an additional land on each of your turns.",
+      "colors": [
+        "G"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Cultivate",
+      "qty": 1,
+      "cmc": 3,
+      "type": "Sorcery",
+      "roleTags": [
+        "Ramp"
+      ],
+      "oracleText": "Search your library for up to two basic land cards.",
+      "colors": [
+        "G"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Forest",
+      "qty": 28,
+      "cmc": 0,
+      "type": "Basic Land — Forest",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "G"
+      ]
+    }
+  ]
+}

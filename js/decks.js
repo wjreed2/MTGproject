@@ -6673,7 +6673,12 @@ function setDeckCutPlaystyleStep(step) {
   const deck = typeof activeDeckId !== 'undefined' && activeDeckId
     ? (typeof decks !== 'undefined' ? decks : []).find(d => d.id === activeDeckId)
     : null;
-  if (deck) { _renderCutSuggestions(deck); _renderAddSuggestions(deck); _refreshOpenThresholdEditors(deck); }
+  if (deck) {
+    if (typeof normalizeDeckPlan === 'function') {
+      deck.plan = normalizeDeckPlan({ ...(deck.plan || {}), playstyleS: s });
+    }
+    _renderCutSuggestions(deck); _renderAddSuggestions(deck); _refreshOpenThresholdEditors(deck);
+  }
 }
 
 function _toggleCutThresholdEditor() {
@@ -6948,7 +6953,7 @@ function _toggleCutPanel() {
 // ── suggestion engine mode (Classic ↔ Hybrid ↔ Semantic) ─────────────────────
 // Explicit per-user toggle in Suggested Adds/Cuts headers.
 //   Classic  — role-tag heuristics only
-//   Hybrid   — Classic staples + engine2.1wizard theme (sandbox); partner engine2 untouched
+//   Hybrid   — Foundation / Hybrid v2 (capability evaluator + readout). Classic + Semantic unchanged.
 //   Semantic — partner POST /api/decks/analyze only (no silent fallback)
 // Settings Deck Goal toggle is master: when off, header toggle hides and Classic is forced.
 const SUGGEST_ALGO_KEY = 'mtg_suggest_algo';
@@ -7361,7 +7366,20 @@ async function _renderCutSuggestions(deck) {
     return;
   }
 
-  const cuts = _suggestCardsToCut(deck);
+  let cuts = _suggestCardsToCut(deck);
+  let foundationEval = null;
+  if (_hybridModeOn() && typeof applyFoundationCuts === 'function') {
+    try {
+      const ctxCut = typeof _computeCutThresholds === 'function' ? _computeCutThresholds(deck) : {};
+      const roleCount = {};
+      for (const c of (deck.cards || [])) {
+        const tags = (typeof _probTagsOnCard === 'function' ? _probTagsOnCard(c, deck) : []).filter(t => t !== 'Land' && t !== 'Commander');
+        for (const t of tags) roleCount[t] = (roleCount[t] || 0) + (c.qty || 1);
+      }
+      foundationEval = _evaluateDeckFoundation(deck, { roleCount, thresholds: ctxCut });
+      cuts = applyFoundationCuts(cuts, foundationEval, roleCount, ctxCut).slice(0, 5);
+    } catch (_) { /* keep classic cuts */ }
+  }
   if (!cuts.length) {
     body.innerHTML = '<div class="deck-tab-muted" style="padding:.75rem 1rem">No obvious cuts found.</div>';
     return;
@@ -7369,13 +7387,19 @@ async function _renderCutSuggestions(deck) {
 
   // With Adds & Cuts on, "Cut" plans the cut (card stays in the deck) instead of removing it.
   const swapsOn = _deckSwapsEnabled(deck);
-  body.innerHTML = cuts.map(card => {
+  const foundationHtml = (_hybridModeOn() && foundationEval && typeof compactFoundationReadoutHtml === 'function')
+    ? compactFoundationReadoutHtml(foundationEval, escapeHtml)
+    : '';
+  body.innerHTML = foundationHtml + cuts.map(card => {
     const uid = (card.uid || card.scryfallId || '').replace(/'/g, "\\'");
     const sid = card.scryfallId || card.uid || '';
     const displayName = escapeHtml(card.name);
     const score = (card._cutScore || 0).toFixed(1);
     const b = card._cutBreakdown || {};
     const whyLines = _buildCutWhyLines(b);
+    if (card._foundationCut && card._foundationCut.why) {
+      whyLines.unshift({ text: escapeHtml(card._foundationCut.why), val: '' });
+    }
     const footer = `Role tags: ${(b.tagList && b.tagList.length) ? escapeHtml(b.tagList.join(', ')) : '—'}`;
     const why = _suggestWhyDetailHtml('Why cut this', score, whyLines, footer);
     const cutOnclick = swapsOn ? `markPlannedCut('${uid}')` : `adjustDeckCardQtyByUid('${uid}',-1)`;
@@ -7813,6 +7837,52 @@ async function _fetchWizardThemeAdds(deck, plan) {
   return Array.isArray(data.adds) ? data.adds : [];
 }
 
+function _evaluateDeckFoundation(deck, ctx) {
+  if (typeof evaluateFoundation !== 'function') return null;
+  // Production tags live in _probTagsOnCard (oracle-tag cache + customTags +
+  // per-deck disables). card.roleTags is only a DB-prefetch fallback and is
+  // often absent — clone cards with materialized tags so the evaluator sees
+  // Ramp/Draw/Removal/Wipe/Counterspell the same way the rest of Hybrid does.
+  const cards = (deck.cards || []).map((c) => {
+    const tags = typeof _probTagsOnCard === 'function'
+      ? _probTagsOnCard(c, deck)
+      : (c.roleTags || c.tags || []);
+    if (typeof withFoundationRoleTags === 'function') return withFoundationRoleTags(c, tags);
+    const list = Array.isArray(tags) ? tags.slice() : [];
+    return Object.assign({}, c, { roleTags: list, tags: list });
+  });
+  const evalDeck = Object.assign({}, deck, { cards });
+  const plan = (typeof getDeckPlan === 'function' ? getDeckPlan(evalDeck) : evalDeck.plan) || {};
+  const cmd = cards.find(c => c.isCommander) || null;
+  let gameplan = {};
+  try {
+    if (cmd && typeof _cmdGameplanProbs === 'function') {
+      const gp = _cmdGameplanProbs(deck, cmd, []);
+      const on = gp && gp.onCurve;
+      gameplan = {
+        N: gp && gp.meta && gp.meta.N,
+        L: gp && gp.meta && gp.meta.L,
+        R: gp && gp.meta && gp.meta.R,
+        cmdCMC: gp && gp.meta && gp.meta.cmdCMC,
+        commanderP: on && on.p != null ? on.p : null,
+        landIdeal: gp && gp.meta && gp.meta.landIdeal,
+        earlyRampIdeal: gp && gp.meta && gp.meta.earlyRampIdeal,
+        targetCastTurn: plan.targetCastTurn,
+      };
+    }
+  } catch (_) { /* optional */ }
+  return evaluateFoundation({
+    deck: evalDeck,
+    plan,
+    commanderCard: cmd,
+    playstyleS: plan.playstyleS != null ? plan.playstyleS : _deckCutPlaystyleStep,
+    roleCount: ctx && ctx.roleCount,
+    thresholds: ctx && ctx.thresholds,
+    gameplan,
+    colors: cmd && (cmd.colorIdentity || cmd.colors),
+  });
+}
+
 /** Classic staple rows + sandbox theme rows; dedupe by name; cap at suggestion count. */
 function _mergeHybridAddPicks(classicPicks, wizardAdds, ctx) {
   const primary = (typeof ADDS_PRIMARY_ROLES !== 'undefined' && ADDS_PRIMARY_ROLES.length)
@@ -8222,17 +8292,33 @@ async function _renderAddSuggestions(deck) {
     planBanner = `<div class="deck-plan-banner" style="padding:.45rem .85rem;font-size:.72rem;color:var(--text3);border-bottom:1px solid var(--border)">No deck plan — ${ _hybridModeOn() ? 'Hybrid theme picks need a saved plan. ' : 'Plan-only suggestions stay closed. '}<button type="button" class="btn btn-ghost btn-sm" style="padding:0 6px;font-size:.7rem" onclick="openDeckPlanWizard()">Set plan</button></div>`;
   }
 
-  // Hybrid mode: Classic staples + sandbox theme when plan is confirmed.
+  // Hybrid v2: Foundation ranking + readout. Sandbox theme rows only if config allows.
   let hybridPicks = picks;
+  let foundationEval = null;
   const planConfirmed = typeof isPlanConfirmed === 'function' && isPlanConfirmed(livePlan);
-  if (_hybridModeOn() && planConfirmed) {
+  if (_hybridModeOn()) {
     try {
-      const wizardAdds = await _fetchWizardThemeAdds(deck, livePlan);
-      if (token !== _addSuggestToken) return;
-      if (wizardAdds && wizardAdds.length) {
-        hybridPicks = _mergeHybridAddPicks(picks, wizardAdds, ctx);
+      foundationEval = _evaluateDeckFoundation(deck, ctx);
+      if (foundationEval && typeof rankFoundationAddPicks === 'function') {
+        hybridPicks = rankFoundationAddPicks(hybridPicks, foundationEval);
+        if (typeof attachFoundationSwapNotes === 'function' && typeof _suggestCardsToCut === 'function') {
+          try {
+            const cuts = _suggestCardsToCut(deck);
+            hybridPicks = attachFoundationSwapNotes(hybridPicks, cuts, foundationEval);
+          } catch (_) { /* optional swap notes */ }
+        }
       }
-    } catch (_) { /* degrade to classic-only list */ }
+    } catch (_) { /* keep classic ranking */ }
+    const wantSandbox = typeof FOUNDATION_CONFIG !== 'undefined' && FOUNDATION_CONFIG.includeSandboxThemeRows;
+    if (wantSandbox && planConfirmed) {
+      try {
+        const wizardAdds = await _fetchWizardThemeAdds(deck, livePlan);
+        if (token !== _addSuggestToken) return;
+        if (wizardAdds && wizardAdds.length) {
+          hybridPicks = _mergeHybridAddPicks(hybridPicks, wizardAdds, ctx);
+        }
+      } catch (_) { /* Foundation list only */ }
+    }
   }
 
   if (!hybridPicks.length) {
@@ -8250,13 +8336,19 @@ async function _renderAddSuggestions(deck) {
   const swapsOn = _deckSwapsEnabled(deck);
   // Badge = raw score only (Prompt 24) — no /10 display remap.
   const strengthStrip = _renderPrimaryRoleStrengthStrip(ctx);
-  body.innerHTML = planBanner + strengthStrip + hybridPicks.map(({ card, owned, s }) => {
+  const foundationHtml = (_hybridModeOn() && foundationEval && typeof compactFoundationReadoutHtml === 'function')
+    ? compactFoundationReadoutHtml(foundationEval, escapeHtml)
+    : '';
+  body.innerHTML = planBanner + foundationHtml + strengthStrip + hybridPicks.map(({ card, owned, s }) => {
     const id = (card.id || card.scryfallId || card.uid || '').replace(/'/g, "\\'");
     const name = card.name || '';
     const safeName = name.replace(/'/g, "\\'");
     const displayName = escapeHtml(name);
     const scoreLabel = (Number(s.score) || 0).toFixed(1);
     let whyLines = _buildAddWhyLines(s, ctx);
+    if (s.foundationWhy) {
+      whyLines.unshift({ text: escapeHtml(s.foundationWhy), val: '' });
+    }
     if (s.source === 'sandbox' && Array.isArray(s.breakdown) && s.breakdown.length) {
       whyLines = s.breakdown.map(b => ({ text: escapeHtml(b.text || ''), val: escapeHtml(b.val || '') }));
     } else if (s.source === 'sandbox' && Array.isArray(s.reasons) && s.reasons.length) {
@@ -8314,6 +8406,9 @@ function renderDeckList(deck) {
   };
   _renderCutSuggestions(deck);
   _renderAddSuggestions(deck);
+  if (typeof renderDeckThemesPanel === 'function') {
+    try { renderDeckThemesPanel(deck); } catch (err) { console.error('Deck themes failed:', err); }
+  }
   _bindDeckTagGroupHoverLinking(el, false);
   _bindSwapZoneHoverLinking(el, false);
   const filteredCards = _applyDeckListFilter(deck.cards || []);

@@ -1,0 +1,126 @@
+{
+  "id": "kinnan-two-color",
+  "name": "Kinnan Two-Color Value",
+  "archetype": "two-color",
+  "commander": "Kinnan, Bonder Prodigy",
+  "colorIdentity": [
+    "G",
+    "U"
+  ],
+  "plan": {
+    "winConditionId": "wincon.value",
+    "primaryStrategyId": "strategy.goodstuff",
+    "competition": "Focused",
+    "playstyleS": 1,
+    "targetCastTurn": 2,
+    "castingPattern": "one_per_turn",
+    "tutorPreference": "fine",
+    "protectionImportance": "med",
+    "keyCards": [
+      {
+        "name": "Kinnan, Bonder Prodigy"
+      }
+    ]
+  },
+  "notes": "Simic two-color, distinct from the cEDH combo list.",
+  "expected": {
+    "closeGameMode": "value"
+  },
+  "cards": [
+    {
+      "name": "Kinnan, Bonder Prodigy",
+      "qty": 1,
+      "cmc": 2,
+      "type": "Legendary Creature",
+      "roleTags": [],
+      "oracleText": "",
+      "colors": [
+        "G",
+        "U"
+      ],
+      "isCommander": true
+    },
+    {
+      "name": "Cultivate",
+      "qty": 1,
+      "cmc": 3,
+      "type": "Sorcery",
+      "roleTags": [
+        "Ramp"
+      ],
+      "oracleText": "Search your library for up to two basic land cards.",
+      "colors": [
+        "G"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Rhystic Study",
+      "qty": 1,
+      "cmc": 3,
+      "type": "Enchantment",
+      "roleTags": [
+        "Card Draw"
+      ],
+      "oracleText": "Whenever an opponent casts a spell, you may draw a card unless that player pays {1}.",
+      "colors": [
+        "U"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Counterspell",
+      "qty": 1,
+      "cmc": 2,
+      "type": "Instant",
+      "roleTags": [
+        "Counterspell"
+      ],
+      "oracleText": "Counter target spell.",
+      "colors": [
+        "U"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Beast Within",
+      "qty": 1,
+      "cmc": 3,
+      "type": "Instant",
+      "roleTags": [
+        "Removal"
+      ],
+      "oracleText": "Destroy target permanent.",
+      "colors": [
+        "G"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Forest",
+      "qty": 18,
+      "cmc": 0,
+      "type": "Basic Land — Forest",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "G"
+      ]
+    },
+    {
+      "name": "Island",
+      "qty": 18,
+      "cmc": 0,
+      "type": "Basic Land — Island",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "U"
+      ]
+    }
+  ]
+}

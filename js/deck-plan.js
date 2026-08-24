@@ -495,6 +495,21 @@
     return PLAN_TYPE_PICK_STRATEGY_ORDER.filter(id => active.has(id) && !!PLAN_TYPE_DIMENSIONS[id]);
   }
 
+  /**
+   * Locked wizard order (F5-Q3 C).
+   * competition + playstyle after strategy; casting pattern after wincon/key cards (after cast turn);
+   * tutor preference last.
+   */
+  function buildPlanWizardSteps(deck, draft) {
+    const steps = [];
+    if (!deck || !deck.commander) steps.push('commander');
+    steps.push('keycards', 'roles', 'wincon', 'strategy', 'secondary');
+    const typeStrategies = strategiesNeedingTypePick(draft || {});
+    for (const sid of typeStrategies) steps.push('themetypes:' + sid);
+    steps.push('subtags', 'competition', 'playstyle', 'castturn', 'castpattern', 'protection', 'budget', 'tutorpref');
+    return steps;
+  }
+
   function planTypePicksForStrategy(plan, strategyId) {
     const p = normalizeDeckPlan(plan);
     const picks = p.planTypePicks && p.planTypePicks[strategyId];
@@ -1136,6 +1151,7 @@
     PLAN_PARENT_DEFAULT_TARGET,
     planTypeDimension,
     strategiesNeedingTypePick,
+    buildPlanWizardSteps,
     planTypePicksForStrategy,
     planTypePickSource,
     planTypePhraseForStrategy,

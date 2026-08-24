@@ -102,6 +102,14 @@
       /** @type {string[]} permanent types (matching hints) */
       protectionTypes: [],
       stapleWarningAck: false,
+      /** Casual | Focused | High | cEDH | null (Undecided → infer Focused) */
+      competition: null,
+      /** Same stored S as the panel slider, ∈ [−7, 7] */
+      playstyleS: null,
+      /** one_per_turn | several_in_one_turn | null (infer) */
+      castingPattern: null,
+      /** fine | rather_not | never | null (infer, not a confirmed never) */
+      tutorPreference: null,
     };
   }
 
@@ -138,6 +146,14 @@
       ? [...new Set(raw.protectionTypes.map(x => String(x || '')).filter(Boolean))]
       : [];
     out.stapleWarningAck = !!raw.stapleWarningAck;
+    const COMP = { Casual: 1, Focused: 1, High: 1, cEDH: 1 };
+    out.competition = (raw.competition && COMP[raw.competition]) ? raw.competition : null;
+    const ps = raw.playstyleS;
+    out.playstyleS = (ps == null || ps === '') ? null : Math.max(-7, Math.min(7, Math.round(Number(ps) || 0)));
+    const cp = raw.castingPattern;
+    out.castingPattern = (cp === 'one_per_turn' || cp === 'several_in_one_turn') ? cp : null;
+    const tp = raw.tutorPreference;
+    out.tutorPreference = (tp === 'fine' || tp === 'rather_not' || tp === 'never') ? tp : null;
     return out;
   }
 

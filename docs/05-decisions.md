@@ -1,0 +1,219 @@
+# Decisions
+
+These are settled decisions. Do not reopen them unless the user explicitly asks.
+
+## DECIDED — Deterministic system, not AI
+The wizard and recommendation behavior must be deterministic, explainable, and reproducible. Runtime AI/LLM is rejected.
+
+## DECIDED — User has final say
+The algorithm narrows and suggests. Never silently overwrite a confirmed plan or user choice.
+
+## DECIDED — Plan confirmation gate
+Minimum declaration is `winConditionId + primaryStrategyId`. After wizard completion, `planConfirmed` becomes true.
+
+## DECIDED — One wizard pass
+The wizard is a single modal flow with Back/edit support.
+
+## DECIDED — Mana Base / Foundation / Strategy / Payoffs
+Deck categories (not suggestion modes): Mana Base · Foundation · Strategy (plan, theme, subtheme) · Payoffs. Payoffs are not a sixth Foundation job. Do not rename Mana Base to Foundation.
+
+## DECIDED — Foundation is not a mandatory checklist
+Foundation means fundamental capabilities evaluated for every deck. It does not imply every deck must contain a fixed amount of every function. Classic Hybrid role-count staples remain until cutover; they are not the destination model.
+
+## DECIDED — Foundation layers (F-Q1 D)
+Capabilities (evaluated every deck) → mechanisms (need → solution) → outcomes/secondaries (resilience, flexibility, mana-efficiency). Tutors, wipes, and protection cards are mechanisms.
+
+## DECIDED — v1 capabilities (F-Q2 A; names 2026-08-23)
+Five fundamental capabilities evaluated for every deck (degree varies; not “every deck must do each equally”): Close the game · Access the mana needed to execute the plan · Generate resources · Interact with relevant threats · Continue executing the plan after disruption. Strategy/payoffs stay Strategy. Do not reopen the five-capability model.
+
+## DECIDED — Competition field in wizard (F-Q3 A)
+Skippable Casual / Focused / High / **cEDH**. cEDH is its own category. Undecided allowed; infer-and-recommend, never silently overwrite.
+
+## DECIDED — Playstyle is a wizard field (F-Q4)
+Aggro↔Control slider (S ∈ [−7, 7]) is confirmed in the Plan wizard. Same stored value as any later panel edit.
+
+## DECIDED — Foundation engine replaces Hybrid (F-Q5 A+B, F5-Q4 B)
+This work is **Hybrid v2**. When v1 ships, Hybrid’s toggle slot becomes Foundation ranking plus an explanatory readout. Classic and Semantic stay. No long-lived fourth mode. Dev-only flag while building. Replacement with an **opaque** single score remains rejected.
+
+## DECIDED — v1 interaction threat types (F-Q6 A)
+Creature · Wide board · Artifact · Enchantment · Graveyard · Stack · Land. Combo/engine is a reason, not a type.
+
+## DECIDED — Shared capacity v1 (F-Q7 B)
+Competing-use pairs only. First pair: interaction ↔ protection. Capacity 1.0; default 50/50 unless one need is larger; credit = quality × share.
+
+## DECIDED — Coverage units and need amounts (F-Q8)
+Quality-weighted coverage units. **Access the mana needed to execute the plan** is a Gameplan-style success test (commander on T + key cards + declared-wincon pieces), not an L*/R* quota. Broader than land drops. One-per-turn → max CMC; several-in-one-turn → sum CMC. Inspector CMC override wins; else printed/scoring CMC including alternate-cost mana spent. Hypergeo still counts real cards. L*/R* may be derived explanation. Other roles keep a per-deck target number filled by coverage units.
+
+## DECIDED — Public Foundation wording (F-Q9 A)
+“Foundation is whether your deck can perform the basic jobs a Commander deck needs to perform — make mana, keep resources coming, answer threats, and finish the game — in a way that fits your plan. Your strategy is how you do those jobs.” Copy refinement 2026-08-23; not a design change. Does not imply equal mandatory quotas.
+
+## DECIDED — Foundation orchestration (F-Q10 A)
+New deterministic layer over existing tags + CardIR + Gameplan. **No CardIR regen** (do not re-extract the catalog). Additive derived fields from CardIR already on disk are allowed. Partner `engine2/` untouched.
+
+## DECIDED — Foundation is capability-based
+Foundation is universal at the capability level. Strategy determines the specific requirements, weighting, and implementation. Avoid universal card-count quotas. Full lock: [14-foundation-model.md](./14-foundation-model.md).
+
+## DECIDED — Foundation weighting uses three sources
+Use strategy, Wizard/user intent, and actual deck composition together. Strategy establishes expectations → user establishes intent → deck provides evidence.
+
+## DECIDED — User disagreement becomes a tradeoff/vulnerability (F5-Q2)
+When the algorithm identifies a meaningful vulnerability that conflicts with user intent, **show the warning** in the readout. **No** “I accept this” control. If the user **sets a target**, Adds stop for that job once the set target is met. If they never set a target, Adds aim at the proposal. Do not silently override the user.
+
+## DECIDED — Foundation proposes; confirmed numbers win (F3-Q5)
+Foundation proposes per-deck targets. Wizard confirmed-role numbers are user intent and win if edited. Never silently overwrite.
+
+## DECIDED — Competition and playstyle are two axes (F3-Q3, F3-Q4)
+Competition = intensity (Casual / Focused / High / cEDH). Playstyle = mix (aggro vs control). Higher competition raises interaction, keep-going, and resources, and tightens mana-on-time. Coefficients open.
+
+## DECIDED — Generate resources is one target (F3-Q7)
+**Resources only:** one context-derived number + quality-weighted coverage; any resource mechanism can fill it (not only Draw). Tutors are not a resource quota. Do not apply this shape to the other four capabilities.
+
+## DECIDED — Five capabilities, five evaluation models
+Do not force all five into one generic numeric-target formula. Close the game = win-condition execution/accessibility. Mana access = success/probability (Gameplan-style). Resources = context-derived target + quality-weighted coverage. Interaction = threat-type coverage. Keep Going = outcome from contributing mechanisms (no resilience target).
+
+## DECIDED — Close the game validates the user’s wincon (F3-Q8)
+Present wincon, necessary pieces, accessible (mana-on-time + resources), more redundancy at High/cEDH. Never replace the user’s wincon with EDHREC.
+
+## DECIDED — Hybrid v1 readout and Cuts (F5-Q1, Q5–Q7)
+Compact readout in the Adds/Cuts panel with expand. Sentences + numbers (proposal vs user target vs coverage). One why-line on every Add and Cut. Surplus over target = Cut, no swap. Poor fit = Cut + better Add marked “replaces [card].” Do not open a hole without a replacement.
+
+## DECIDED — Hybrid v1 scope (F5-Q8)
+v1 is the replacement engine. Coefficients can be rough. Defer Theme E, `engine2/` edits, full CardIR regen, and deep per-threat polish.
+
+## DECIDED — Overall evaluation is competitiveness + effectiveness
+Evaluate how effectively the deck executes its intended plan at its intended level of competition. This is an **explanatory synthesis, not a single numerical score.** A casual deck can be excellent at being the deck it intends to be.
+
+## DECIDED — Mechanisms may contribute to multiple capabilities
+A mechanism may contribute to multiple Foundation capabilities when the deck actually uses it that way. Contributions must be functionally justified; do not award automatic full credit to every applicable role. Especially recursion, tutors, card selection, protection, synergistic engines, and multi-role cards. Shared capacity still applies on competing-use pairs.
+
+## DECIDED — Keep Going is an outcome, not a quota (F3-Q6)
+Keep Going / Continue executing the plan after disruption is evaluated as an **outcome**. It is not filled by a fixed card category or quota. Coverage comes from mechanisms that let the deck continue after disruption. **Do not implement a resilience target.**
+
+## DECIDED — Interaction color-identity vulnerability
+Interaction must evaluate threat-type coverage against the deck’s color identity and budget. When the deck cannot reliably interact with a threat type because of its color identity, report that as a **color-identity vulnerability**, not automatically a deck deficiency. Example: limited stack interaction in red is a potential color-identity vulnerability, not necessarily a failure to meet the interaction target.
+
+## DECIDED — Architecture first, numbers isolated
+v1 is the evaluation pipeline and explainability, not finalized scoring. Isolate coefficients/configuration. Do not finish the math before the architecture. Pipeline: Deck → Strategy + Wizard intent + Competition + Playstyle → Determine Foundation needs → Evaluate mechanisms → Calculate capability coverage → Account for synergy / shared capacity / constraints → Identify strengths, deficiencies, vulnerabilities → Foundation readout → Suggested Adds / Cuts. Implementation may begin once the owner explicitly says to start.
+
+## DECIDED — Output is explanatory, not an opaque score
+Report an overall evaluation plus strengths, deficiencies, vulnerabilities, and rationale. Do not collapse Hybrid or Foundation into a single unexplained number.
+
+## DECIDED — Tutors satisfy consistency need; no tutor quota (F4-Q1–Q3)
+Consistency need only if a plan-critical piece is present but unreliable. Rank extra copies / selection / resources / tutors for that hole. If tutors are unwanted, drop tutors and keep the need. Skippable wizard field: fine / rather not / never. Inference is not a confirmed “never.” **Need → solution → preference.**
+
+## DECIDED — Redundancy is strategy-dependent
+Redundancy is a consistency tool whose required importance varies by strategy. No universal redundancy quota.
+
+## DECIDED — Card selection is contextual consistency
+Selection quality is evaluated by how effectively it helps this deck execute its plan. No universal selection quota.
+
+## DECIDED — Recursion is multifunctional
+Recursion can serve consistency, resilience, strategy, combo/engine, or resource generation depending on context.
+
+## DECIDED — Protection is contextual resilience (F4-Q5)
+Protection importance is an intent weight, not Classic 0/3/6/10 quota. Commander is still a protect-target. Types are matching hints. Shared capacity with interaction still applies.
+
+## DECIDED — Board wipes are contextual interaction (F4-Q4)
+Need depends on strategy/playstyle and board-state. Proposed **floor 1**, common **2–4** (including Voltron/tokens). **Zero is an explicit exception.** Prefer selective / one-sided wipes if the self-board matters.
+
+## DECIDED — Ramp / mana-on-time uses Gameplan success, not an R* quota
+Access the mana needed to execute the plan is whether the deck can pay its timed costs: commander on T (separate job) + key cards + declared-wincon pieces. Broader than land drops. One-per-turn → max CMC; several-in-one-turn → sum CMC. R*/L* are not Foundation scoring quotas. They may be shown as derived explanation. Hypergeo still counts real cards inside the formula.
+
+## DECIDED — Manabase quantity vs quality
+Land count and manabase quality remain distinct. L* is not an Adds land deficit and is not the mana-on-time need quota. Do not rename Manabase to Foundation.
+
+## DECIDED — Win condition is user-declared and algorithm-validated
+Wizard captures intended win condition; algorithm validates support, access, consistency, redundancy, mana, and strategy fit.
+
+## DECIDED — Card advantage is contextual
+Need depends on resource consumption, strategy, and playstyle; evaluate multiple mechanisms of usable resource generation, not only traditional draw.
+
+## DECIDED — Interaction requires threat-type coverage
+Evaluate whether the deck can reliably interact with relevant threat types within its colors and budget, not merely interaction counts.
+
+## DECIDED — Color limitations are vulnerabilities, not automatic deficiencies
+When a color identity lacks reliable answers to a threat type, identify the resulting vulnerability rather than demanding an impossible or poor-fit solution.
+
+## DECIDED — Resilience is an outcome
+Evaluate ability to continue executing the plan after disruption (recovery, redundancy, recursion, protection, resources, alternate routes, commander dependence). Expectations are strategy-relative.
+
+## DECIDED — Flexibility is secondary optimization
+Function comes first; flexibility then rewards efficient multi-role cards, especially for interaction and constrained roles.
+
+## DECIDED — Mana efficiency is contextual
+Use curve/Gameplan quantitatively but interpret efficiency relative to strategy and intended competitiveness. Low CMC is not universally better.
+
+## DECIDED — Synergy materially changes effective card strength
+Evaluate both broad strategic synergy and specific card/group interactions, deterministically. A weaker standalone card can be highly competitive in context.
+
+## DECIDED — Synergy can reshape, not erase, Foundation (F4-Q6–Q8)
+Synergy = measurable plan overlap + CardIR provides/needs and combo rules when coverage is good; else plan overlap. May reduce the **same** capability only; never zero; never a different hole. Fast combo raises keep-going; interaction may dip slightly, never to zero.
+
+## DECIDED — Win condition belongs in Foundation conceptually
+Specific threats/finishers/combos that execute the strategy belong in Payoffs.
+
+## DECIDED — Manabase remains separate
+Do not rename Manabase/Landbase to Foundation.
+
+## DECIDED — EDHREC rank is a signal, not the recommendation
+Do not turn the system into “pick the highest-ranked card.” Deck-specific fit remains essential.
+
+## DECIDED — Deck-level fit
+Evaluate candidate improvements at the whole-deck level, not merely as individually powerful cards.
+
+## DECIDED — Keep public/internal Foundation definitions
+Public Foundation wording should target roughly 9th-grade readability. Internal definition stays the function-evaluation model.
+
+## DECIDED — Interaction quantity depends on context
+Faster decks generally need less interaction; slower decks generally need more. Higher-power decks generally need more because opposing threats are earlier and more dangerous.
+
+## DECIDED — Interaction timing matters
+Instant/flash interaction is substantially more valuable than sorcery/non-flash in relevant contexts.
+
+## DECIDED — Alternate costs matter
+Free/alternate costs must be recognized as real usable interaction, especially in high-power decks. Do not rank those cards solely by printed mana value.
+
+## DECIDED — Protection is distinct from interaction
+Protection is separate from interaction. A counterspell cannot fully perform both jobs simultaneously.
+
+## DECIDED — Avoid naive double-counting
+A multi-role card cannot automatically be counted as a full card for every role because mutually exclusive uses compete for the same card.
+
+## DECIDED — Preserve CardIR
+Do not redo / regen CardIR (full catalog re-extract) without an exceptionally strong reason and explicit approval. Prefer a new deterministic layer over existing IR. Adding derived fields from CardIR already on disk is allowed and is in Hybrid v1 scope.
+
+## PROPOSED — Coverage units
+v1 **where** is locked (F-Q7: competing pairs, first interaction↔protection). Exact numeric weights remain tunable. See [12-coverage.md](./12-coverage.md).
+
+## PROPOSED — Seeded research model
+Use research-backed seeded data/lookup tables for context-dependent need curves rather than regenerating CardIR.
+
+## DECIDED — No live Scryfall / EDHREC scraping
+No live Scryfall at suggestion time. No EDHREC per-category endpoints or runtime scraping.
+
+## DECIDED — No partner engine2 edits
+Do not modify `engine2/`. Use `engine2.1wizard/` for allowed hybrid experimentation.
+
+## DECIDED — Confirmed roles behavior
+If a user unchecks a derived role, that role is fully ignored for confirmed-role ideals and stronger D scoring. Plan roles must not silently modify card Primary/Secondary/Default tags.
+
+## DECIDED — Budget is soft
+Budget is a preference/tie-breaker, never a hard blocker.
+
+## DECIDED — Stale plans require explicit action
+If key cards drift, show a stale banner and offer explicit Re-derive. Never silently overwrite.
+
+## REJECTED
+- Runtime AI/LLM for card recommendations or wizard decisions
+- Live Scryfall lookups during suggestion generation
+- EDHREC per-category endpoints / runtime scraping
+- Treating Foundation as a literal list every deck must have
+- Universal tutor / redundancy / board-wipe / protection / selection count quotas
+- Treating color-identity limitations as automatic deck deficiencies
+- Using synergy as a blanket excuse for unrelated Foundation gaps
+- Reducing Foundation evaluation to an opaque single score
+- Renaming the mana base to Foundation
+- Always recommending the highest EDHREC-ranked card
+- Silent role/plan updates
+- Replacing Hybrid with an **opaque** single score
+- Editing partner `engine2/` to prototype Foundation or Deck Fit

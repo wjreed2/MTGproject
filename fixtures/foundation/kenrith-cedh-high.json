@@ -1,0 +1,194 @@
+{
+  "id": "kenrith-cedh-high",
+  "name": "Kenrith High-Power",
+  "archetype": "cedh",
+  "commander": "Kenrith, the Returned King",
+  "colorIdentity": [
+    "W",
+    "U",
+    "B",
+    "R",
+    "G"
+  ],
+  "plan": {
+    "winConditionId": "wincon.combo",
+    "primaryStrategyId": "strategy.goodstuff",
+    "competition": "cEDH",
+    "playstyleS": 3,
+    "targetCastTurn": 5,
+    "castingPattern": "several_in_one_turn",
+    "tutorPreference": "fine",
+    "protectionImportance": "high",
+    "keyCards": [
+      {
+        "name": "Kenrith, the Returned King"
+      }
+    ]
+  },
+  "notes": "Five-color high-power / cEDH-adjacent. Interaction need should sit at the top of the suite.",
+  "expected": {
+    "closeGameMode": "combo"
+  },
+  "cards": [
+    {
+      "name": "Kenrith, the Returned King",
+      "qty": 1,
+      "cmc": 5,
+      "type": "Legendary Creature",
+      "roleTags": [],
+      "oracleText": "",
+      "colors": [
+        "W",
+        "U",
+        "B",
+        "R",
+        "G"
+      ],
+      "isCommander": true
+    },
+    {
+      "name": "Demonic Tutor",
+      "qty": 1,
+      "cmc": 2,
+      "type": "Sorcery",
+      "roleTags": [
+        "Tutor"
+      ],
+      "oracleText": "Search your library for a card, put that card into your hand.",
+      "colors": [
+        "B"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Force of Will",
+      "qty": 1,
+      "cmc": 5,
+      "type": "Instant",
+      "roleTags": [
+        "Counterspell"
+      ],
+      "oracleText": "You may pay 1 life and exile a blue card from your hand rather than pay this spell's mana cost. Counter target spell.",
+      "colors": [
+        "U"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Swords to Plowshares",
+      "qty": 1,
+      "cmc": 1,
+      "type": "Instant",
+      "roleTags": [
+        "Removal"
+      ],
+      "oracleText": "Exile target creature.",
+      "colors": [
+        "W"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Rhystic Study",
+      "qty": 1,
+      "cmc": 3,
+      "type": "Enchantment",
+      "roleTags": [
+        "Card Draw"
+      ],
+      "oracleText": "Whenever an opponent casts a spell, you may draw a card unless that player pays {1}.",
+      "colors": [
+        "U"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Lightning Greaves",
+      "qty": 1,
+      "cmc": 2,
+      "type": "Artifact",
+      "roleTags": [
+        "Protection"
+      ],
+      "oracleText": "Equipped creature has haste and shroud.",
+      "colors": [],
+      "ir": null
+    },
+    {
+      "name": "Command Tower",
+      "qty": 7,
+      "cmc": 0,
+      "type": "Land",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": []
+    },
+    {
+      "name": "Plains",
+      "qty": 6,
+      "cmc": 0,
+      "type": "Basic Land — Plains",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "W"
+      ]
+    },
+    {
+      "name": "Island",
+      "qty": 6,
+      "cmc": 0,
+      "type": "Basic Land — Island",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "U"
+      ]
+    },
+    {
+      "name": "Swamp",
+      "qty": 6,
+      "cmc": 0,
+      "type": "Basic Land — Swamp",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "B"
+      ]
+    },
+    {
+      "name": "Mountain",
+      "qty": 6,
+      "cmc": 0,
+      "type": "Basic Land — Mountain",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "R"
+      ]
+    },
+    {
+      "name": "Forest",
+      "qty": 6,
+      "cmc": 0,
+      "type": "Basic Land — Forest",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "G"
+      ]
+    }
+  ]
+}

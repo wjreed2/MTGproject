@@ -8278,6 +8278,140 @@ select:focus { outline: none; border-color: rgba(200,168,74,0.6); box-shadow: 0 
 .suggest-item { border-bottom: 1px solid var(--border1); }
 .suggest-item:last-child { border-bottom: none; }
 .suggest-item .cut-candidate-row { border-bottom: none; }
+
+/* ── Deck themes readout ─────────────────────────────────────────────── */
+#deckThemesPanel .panel-body { padding: .7rem .9rem 1rem; }
+.deck-themes-kicker {
+  font-size: .68rem;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--text3);
+  margin: .55rem 0 .35rem;
+}
+.deck-themes-plan {
+  font-size: .8rem;
+  color: var(--text2);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: .45rem;
+}
+.deck-themes-plan--unset { color: var(--text3); font-style: italic; }
+.deck-themes-plan-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: .74rem;
+  color: var(--text);
+}
+.deck-themes-plan-role { color: var(--text3); font-size: .66rem; }
+.deck-themes-plan-note { color: var(--gold); font-size: .7rem; }
+.deck-themes-fits { display: flex; flex-direction: column; gap: 4px; margin-bottom: .35rem; }
+.deck-themes-fit {
+  font-size: .76rem;
+  line-height: 1.4;
+  padding: .28rem .45rem;
+  border-radius: 6px;
+  border-left: 3px solid var(--border2);
+  background: var(--bg3);
+}
+.deck-themes-fit--jive { border-left-color: var(--teal); }
+.deck-themes-fit--thin { border-left-color: var(--gold); }
+.deck-themes-fit--clash { border-left-color: var(--red); }
+.deck-themes-fit--also { border-left-color: var(--text3); }
+.deck-themes-row { padding: .35rem 0; border-bottom: 1px solid var(--border1); }
+.deck-themes-row:last-child { border-bottom: none; }
+.deck-themes-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.deck-themes-name { flex: 1; min-width: 0; font-size: .86rem; font-weight: 600; }
+.deck-themes-yours {
+  margin-left: .35rem;
+  font-size: .62rem;
+  font-weight: 500;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--teal);
+}
+.deck-themes-count {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: .8rem;
+  min-width: 1.6rem;
+  text-align: right;
+  color: var(--text2);
+}
+.deck-themes-band {
+  font-size: .68rem;
+  min-width: 5.6rem;
+  text-align: right;
+  color: var(--text3);
+}
+.deck-themes-band--decent { color: var(--teal); }
+.deck-themes-band--focused,
+.deck-themes-band--very_focused { color: var(--gold); }
+.deck-themes-caret {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  color: var(--text3);
+  transition: transform .12s;
+}
+.deck-themes-caret svg { width: 12px; height: 12px; }
+.deck-themes-toggle.is-open .deck-themes-caret { transform: rotate(180deg); }
+.deck-themes-bar {
+  height: 6px;
+  background: var(--border2);
+  border-radius: 4px;
+  overflow: hidden;
+  margin: 5px 0 0;
+}
+.deck-themes-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: var(--text3);
+}
+.deck-themes-bar-fill.deck-themes-band--decent { background: var(--teal); }
+.deck-themes-bar-fill.deck-themes-band--focused,
+.deck-themes-bar-fill.deck-themes-band--very_focused { background: var(--gold); }
+.deck-themes-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: .45rem 0 .15rem;
+}
+.deck-themes-card {
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  color: var(--text2);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: .72rem;
+  cursor: pointer;
+}
+.deck-themes-card:hover { color: var(--text); border-color: var(--gold); }
+.deck-themes-qty { color: var(--text3); font-family: 'JetBrains Mono', monospace; font-size: .68rem; }
+.deck-themes-more { font-size: .7rem; color: var(--text3); align-self: center; }
+.deck-themes-legend { font-size: .68rem; color: var(--text3); margin-top: .55rem; }
+.deck-themes-empty { font-size: .8rem; color: var(--text3); font-style: italic; }
 .cut-score-badge {
   min-width: 2.4rem;
   text-align: center;

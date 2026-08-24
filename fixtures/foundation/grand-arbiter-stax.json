@@ -1,0 +1,127 @@
+{
+  "id": "grand-arbiter-stax",
+  "name": "Grand Arbiter Stax",
+  "archetype": "stax",
+  "commander": "Grand Arbiter Augustin IV",
+  "colorIdentity": [
+    "W",
+    "U"
+  ],
+  "plan": {
+    "winConditionId": "wincon.value",
+    "primaryStrategyId": "strategy.stax",
+    "competition": "High",
+    "playstyleS": 4,
+    "targetCastTurn": 3,
+    "castingPattern": "one_per_turn",
+    "tutorPreference": "fine",
+    "protectionImportance": "high",
+    "keyCards": [
+      {
+        "name": "Grand Arbiter Augustin IV"
+      }
+    ]
+  },
+  "notes": "Stax — interaction/keep-going needs should sit above casual tokens.",
+  "expected": {
+    "closeGameMode": "value"
+  },
+  "cards": [
+    {
+      "name": "Grand Arbiter Augustin IV",
+      "qty": 1,
+      "cmc": 4,
+      "type": "Legendary Creature",
+      "roleTags": [],
+      "oracleText": "",
+      "colors": [
+        "W",
+        "U"
+      ],
+      "isCommander": true
+    },
+    {
+      "name": "Counterspell",
+      "qty": 1,
+      "cmc": 2,
+      "type": "Instant",
+      "roleTags": [
+        "Counterspell"
+      ],
+      "oracleText": "Counter target spell.",
+      "colors": [
+        "U"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Swords to Plowshares",
+      "qty": 1,
+      "cmc": 1,
+      "type": "Instant",
+      "roleTags": [
+        "Removal"
+      ],
+      "oracleText": "Exile target creature.",
+      "colors": [
+        "W"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Smothering Tithe",
+      "qty": 1,
+      "cmc": 4,
+      "type": "Enchantment",
+      "roleTags": [
+        "Ramp",
+        "Card Draw"
+      ],
+      "oracleText": "Whenever an opponent draws a card, that player may pay {2}. If they don't, you create a Treasure token.",
+      "colors": [
+        "W"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Wrath of God",
+      "qty": 1,
+      "cmc": 4,
+      "type": "Sorcery",
+      "roleTags": [
+        "Board Wipe"
+      ],
+      "oracleText": "Destroy all creatures.",
+      "colors": [
+        "W"
+      ],
+      "ir": null
+    },
+    {
+      "name": "Plains",
+      "qty": 18,
+      "cmc": 0,
+      "type": "Basic Land — Plains",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "W"
+      ]
+    },
+    {
+      "name": "Island",
+      "qty": 18,
+      "cmc": 0,
+      "type": "Basic Land — Island",
+      "roleTags": [
+        "Land"
+      ],
+      "oracleText": "",
+      "colors": [
+        "U"
+      ]
+    }
+  ]
+}
