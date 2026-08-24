@@ -1,66 +1,153 @@
-# Deck themes readout
+# Deck themes readout — plan
 
-**Status:** Implemented (v1). Band numbers are starting values and may be retuned.
+**Status:** PROPOSED. Do not treat the 2026-08-24 sketch (`js/deck-themes.js` on `development_manford`) as locked. Implement / reshape only after this plan is nailed.
 
-On the open-deck page, **Themes** sits under Commander Gameplan. It answers two Strategy-category questions:
+**Category:** Strategy (plan, theme, subtheme). Not Foundation. Not Suggested Adds ranking.
 
-1. What themes are the cards already supporting, and how strong is that support?
-2. How do those themes jive or clash with the themes the user set in Plan?
+## What this is for
 
-This is not Foundation (capabilities) and not Suggested Adds. It does not change ranking.
+Two questions on the open-deck page:
 
-## Support count
+1. **Evidence** — which themes are the cards actually supporting, how many cards, and how good that support is.
+2. **Intent vs evidence** — which themes the user set in Plan, and whether the list jives with them, is thin for them, or clashes.
 
-A card supports a theme when any of these fire (union, qty-aware):
+The algorithm reports. The user has final say. This readout does not overwrite Plan and does not change Adds/Cuts ranking in v1.
 
-- a **distinctive** project role tag for that theme (Token Maker, Sac Outlet, Landfall, … — not generic Ramp / Card Draw / Removal / Pump)
-- distinctive Oracle patterns
-- CardIR `provides` axes when present (additive; no CardIR regen)
-- type line for a few themes (planeswalkers → Superfriends; Equipment/Aura → Voltron; creature subtypes → tribal)
+## Reference (Grimoire) — idea only
 
-Lands are skipped except Landfall and token-making lands.
+Source: Grimoire Improve → Deck health → **“Themes running through your deck.”** Screenshot is reference, not a mock to pixel-match.
 
-Instants/sorceries count as Spellslinger only when the deck already has at least three cast-payoff cards. The same payoff gate applies to counting every artifact as Artifacts-matter and every enchantment as Enchantress.
+What they show per theme:
 
-## Quality bands
-
-Isolated in `DECK_THEME_CONFIG` (`js/deck-themes.js`):
-
-| Cards supporting | Label |
+| Piece | Grimoire |
 | --- | --- |
-| 0 | None |
-| 1–4 | Trace |
-| 5–9 | Light |
-| **10–17** | **Decent** |
-| 18–29 | Focused |
-| **30+** | **Very focused** |
+| Section | Divider: “Themes running through your deck” (separate from “Roles with a target”) |
+| Title | Theme name |
+| Count | `N cards` (no target on themes) |
+| Verdict | Pill: **Thin** (≤4) · **Developing** (≤10) · **Strong** (>10) |
+| Hint | Short blurb for that synergy |
+| Cards | Art grid, strongest first, first 8 then expand |
 
-Detected themes weaker than Light (5) are hidden unless the user set that theme. The bar fills against a cap of 30.
+Roles in that same view use `have/target` + on-target/short. That is **not** the theme row. Our Foundation readout already covers capability/role health. Themes are the Strategy analog.
 
-## User-set themes
+**Do not copy:** parchment palette, display serif, foil chips, “bench it” language, their Optimize page chrome, or their card-art grid as a new visual system.
 
-Taken from the Plan envelope:
+## Our UI (locked direction unless you veto)
 
-- `primaryStrategyId` / `secondaryStrategyId`
-- tribal `typePicks`
-- related wincons: mill → Mill, commander damage → Voltron, lock → Stax, life drain → Lifegain
+Reuse the open-deck language we already have:
 
-Unconfirmed but declared plans still show; the panel notes they are not confirmed.
+- Container: existing `.panel` / `.panel-header` / `.panel-title` (Cinzel, gold, uppercase) — same family as Commander Gameplan and Similarity.
+- Help: existing `?` tooltip wrap, not a new overlay.
+- Count: JetBrains Mono, like Gameplan percentages.
+- Band: existing `.tag` colors (teal / gold / muted / red), not a foreign “verdict-pill.”
+- Supporting cards: existing `.sim-chip` or deck-card thumbs (`cardThumbAttrs`) that already open card detail. First ~8, then expand — same interaction idea as Suggested Adds why-toggle, not a new gallery.
+- Plan themes: chips in the same family as Similarity / owned tags, labeled as the user’s plan.
 
-## Jive / clash
+Proposed copy (9th-grade, public):
 
-- **Jive** — a user-set theme has decent-or-better support, or two set themes are a known cooperating pair (tokens + sacrifice, blink + control, …).
-- **Thin** — a user-set theme has fewer than 10 supporting cards.
-- **Clash** — known opposing pairs (voltron vs tokens, stax vs spellslinger, goodstuff vs a very-focused package) when both sides are focused, or the list is focused on a theme that opposes the plan.
-- **Also running** — a focused theme in the list that is not in the plan (not automatically a clash).
+- Panel title: **Themes**
+- Section kicker: **Running through this deck**
+- Count: **12 cards**
+- Band: **Decent** / **Focused** / **Very focused** (see numbers below)
+- Empty: **No named themes stood out yet.**
 
-Clash/jive pair tables are in `js/deck-themes.js` and can be extended without changing detection.
+## Placement (needs a lock)
 
-## Files
+**Proposal A (preferred):** own panel on the open-deck page, after Commander Gameplan and before the stats grid. Always visible in Classic / Hybrid / Semantic. Strategy sits next to mana/cast (Gameplan) and composition (stats).
 
-- `js/deck-themes.js` — analyzer, HTML, panel render
-- `js/decks.js` — `renderDeckList` calls `renderDeckThemesPanel`
-- `index.html` — `#deckThemesPanel`
-- `scripts/test-deck-themes.js`
+**Proposal B:** compact strip inside Suggested Adds, sibling to the Foundation readout (Hybrid). Weaker: Classic/Semantic users would not see it unless we special-case.
 
-Deterministic only. No runtime AI, no live Scryfall/EDHREC at readout time.
+**Proposal C:** tap-to-expand under the Plan button. Too hidden.
+
+Default if you do not pick: **A**.
+
+## Support quality bands (needs a lock)
+
+Your starting numbers, not Grimoire’s:
+
+| Cards supporting | Label | Grimoire closest |
+| --- | --- | --- |
+| 0 | None | — |
+| 1–4 | Trace | Thin (≤4) |
+| 5–9 | Light | Developing (≤10) |
+| **10–17** | **Decent** | Strong starts at 11 |
+| 18–29 | Focused | (they stop at Strong) |
+| **30+** | **Very focused** | (they have no 30 band) |
+
+Hide detected themes below Light (5) unless the user set that theme (always show intended themes, even at 0–4).
+
+Numbers live in one config object so they can be retuned without rewriting detection.
+
+## Theme catalog
+
+Use the **Plan strategy catalog** so user-set themes map 1:1:
+
+Tokens, Sacrifice/Aristocrats, Spellslinger, Reanimator/Graveyard, Voltron, +1/+1 Counters, Landfall, Tribal (+ type picks as `Goblin tribal`), Artifacts, Enchantress, Control, Blink, Superfriends, Theft, Stax, Mill, Goodstuff.
+
+Plus **Lifegain** as a running theme (common; maps from `wincon.life_drain` when that is the wincon).
+
+Do not show generic Ramp / Card Draw / Removal as “themes.” Those are Foundation / staple roles.
+
+## Detection (deterministic)
+
+A card supports a theme when any of these fire (qty-aware; union):
+
+- distinctive project role tags (Token Maker, Sac Outlet, Landfall, Blink, … — **not** Ramp/Draw/Removal/Pump)
+- distinctive Oracle patterns
+- existing CardIR `provides` axes when present (additive; no CardIR regen)
+- type line only where it is the theme (planeswalkers → Superfriends; Equipment/Aura → Voltron; creature subtypes → tribal)
+
+Lands skipped except Landfall and token-making lands.
+
+Type-density themes (every artifact = Artifacts, every instant = Spellslinger) only after a small payoff gate so Sol Ring does not create an Artifacts theme.
+
+No live Scryfall. No EDHREC. No runtime AI.
+
+## Intent vs evidence (jive / clash)
+
+User-set themes = Plan `primaryStrategyId` + optional secondary + tribal type picks + a short wincon alias (mill, commander damage, lock, life drain).
+
+| Kind | When | Tone |
+| --- | --- | --- |
+| **Jive** | Set theme has decent-or-better support, or two set themes are a known cooperating pair (tokens + sacrifice, etc.) | Confirm |
+| **Thin** | Set theme has fewer than 10 supporting cards | Warn, not scold |
+| **Also running** | Focused theme in the list that is not in Plan | Inform; not a clash by itself |
+| **Clash** | Short locked pair list, and both sides are at least focused — e.g. voltron vs tokens, stax vs spellslinger, goodstuff vs a very-focused package | Warn |
+
+v1 clash list stays short and editable. Do not build a full archetype politics engine.
+
+Unconfirmed but declared Plan still shows, with a “declared, not confirmed” note. Nothing overwrites Plan.
+
+## v1 / later
+
+**v1 (after this plan is locked)**
+
+- Evidence list + bands + expand-to-cards
+- Intent vs evidence lines
+- Our panel chrome only
+- No ranking change
+
+**Later (not v1)**
+
+- “Cards that would help” per theme (Grimoire’s second block) — that is Adds, already a separate panel
+- Using this readout to steer Hybrid/Foundation ranking
+- Retuning band numbers from real decks
+
+## Sketch already on the branch
+
+A first pass landed 2026-08-24 so the idea would not evaporate. Treat it as a disposable sketch:
+
+- Analyzer + tests in `js/deck-themes.js` / `scripts/test-deck-themes.js` are useful as a starting detection table.
+- The panel markup/CSS is **not** the locked UI. Reshape it to this plan (our `.panel`, `.tag`, `.sim-chip`) once you lock the items below.
+
+## Locks to nail
+
+Reply with A/B (or a veto) on these:
+
+1. **Placement** — A own panel (default) / B inside Adds / C under Plan.
+2. **Band labels** — Decent / Focused / Very focused at 10 / 18 / 30 (default) vs Grimoire Thin / Developing / Strong at 4 / 10.
+3. **Cards in a theme** — name chips (default) vs existing card-art thumbs.
+4. **Clash in v1** — short pair list (default) vs jive/thin/also-running only, clash later.
+5. **Sketch** — keep hidden until v1 / leave visible as a preview to react to.
+
+When these five are locked, implementation follows this file; update Status to DECIDED and then reshape the sketch.

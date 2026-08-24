@@ -6,7 +6,7 @@ Foundation **interview is complete** (rounds 2–5). Do not reopen Foundation de
 
 **Architecture v1 is in the Hybrid slot** (evaluator, readout, Adds/Cuts ranking, wizard fields). Mechanism detection now consumes **existing** CardIR provides/roles plus tags/oracle (`js/foundation/foundation-mechanisms.js`). Calibration uses the **Foundation Evaluation Lab** with isolated experimental config (`cloneFoundationConfig`). Account-deck review for `manfordf@gmail.com` is the Lab **Account decks** source. CardIR inventory: [19-foundation-cardir-audit.md](./19-foundation-cardir-audit.md). Infra: [20-foundation-calibration-infra.md](./20-foundation-calibration-infra.md). Do not invent missing numbers or redesign the five capabilities.
 
-**Deck themes readout (v1)** is on the open-deck page (`docs/21-deck-themes.md`): card-supported themes with count + quality band, plus jive/clash against the user's Plan. Band numbers may be retuned.
+**Deck themes readout (PROPOSED)** — plan in [21-deck-themes.md](./21-deck-themes.md). A detection sketch exists; do not treat the panel as shipped. Nail placement, bands, card display, and clash-in-v1 before implementation. Grimoire’s Improve themes section is the idea reference; our `.panel` / `.tag` / chips are the UI.
 
 ## Settled (rounds 2–5 + 2026-08-23 wording)
 - deterministic-only; user final say; no live Scryfall/EDHREC; no partner `engine2/` edits; **no CardIR regen** (additive derived fields from existing CardIR are OK)
