@@ -34,7 +34,7 @@ Roles in that view use `have/target`. That is **not** the theme row. Our Foundat
 
 C was easy to hear as “this belongs with Plan, not with mana charts.” That is still true as a *category* (Strategy). A just puts that readout in a panel instead of stuffing it under the Plan button.
 
-**Locked: A.** Owner allowed A when told it is easier. The 2026-08-24 sketch stays as the shell and is reshaped (chips, tags, clash 4A), not hidden.
+**Locked: A.** Owner allowed A when told it is easier. The 2026-08-24 sketch stays as the shell and is reshaped (chips, tags, clash 4A), not hidden. A user-wide Settings toggle (`mtg_deck_themes`, default on) can hide the panel without deleting detection.
 
 The Plan button still opens the wizard. The panel can link “Edit plan” / “Set plan” so intent stays one tap away.
 
@@ -42,7 +42,7 @@ The Plan button still opens the wizard. The panel can link “Edit plan” / “
 
 ### Placement — A, own panel
 
-`.panel` / `.panel-header` / `.panel-title` **Themes**, after Commander Gameplan, before the stats grid. Visible in Classic / Hybrid / Semantic. Evidence is not gated on a saved plan; intent lines wait until a strategy is set.
+`.panel` / `.panel-header` / `.panel-title` **Themes**, after Commander Gameplan, before the stats grid. Visible in Classic / Hybrid / Semantic unless Settings **Deck themes** is off (default on). Evidence is not gated on a saved plan; intent lines wait until a strategy is set.
 
 ### Band labels — yours; numbers not locked
 
@@ -135,8 +135,9 @@ No live Scryfall. No EDHREC. No runtime AI.
 
 - Own Themes panel (A)
 - Band labels as locked; placeholder numbers
-- Name chips, first ~8 then expand
+- Name chips, first ~8 then expand (`data-name` + delegated click; no inline `onclick`)
 - Jive / thin / also-running / clash (4A)
+- Settings **Deck themes** toggle, default on
 - Link to Set/Edit plan
 - No ranking change
 

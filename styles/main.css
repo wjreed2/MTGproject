@@ -8365,10 +8365,16 @@ select:focus { outline: none; border-color: rgba(200,168,74,0.6); box-shadow: 0 
 .deck-themes-band--focused,
 .deck-themes-band--very_focused { color: var(--gold); }
 .deck-themes-caret {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
   color: var(--text3);
-  font-size: .85rem;
   transition: transform .12s;
 }
+.deck-themes-caret svg { width: 12px; height: 12px; }
 .deck-themes-toggle.is-open .deck-themes-caret { transform: rotate(180deg); }
 .deck-themes-bar {
   height: 6px;
@@ -8402,6 +8408,7 @@ select:focus { outline: none; border-color: rgba(200,168,74,0.6); box-shadow: 0 
   cursor: pointer;
 }
 .deck-themes-card:hover { color: var(--text); border-color: var(--gold); }
+.deck-themes-qty { color: var(--text3); font-family: 'JetBrains Mono', monospace; font-size: .68rem; }
 .deck-themes-more { font-size: .7rem; color: var(--text3); align-self: center; }
 .deck-themes-legend { font-size: .68rem; color: var(--text3); margin-top: .55rem; }
 .deck-themes-empty { font-size: .8rem; color: var(--text3); font-style: italic; }

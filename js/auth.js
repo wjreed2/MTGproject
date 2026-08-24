@@ -47,6 +47,7 @@ function toggleSettingsDropdown() {
   if (document.getElementById('settingsDropdown')?.classList.contains('open')) {
     renderValueExcludeSlider();
     renderPriceChangeSettings();
+    if (typeof renderDeckThemesSettingBtn === 'function') renderDeckThemesSettingBtn();
   }
 }
 
@@ -235,6 +236,7 @@ function refreshAuthUserLabel(email, role) {
   if (typeof renderDeckSwapsSettingBtn === 'function') renderDeckSwapsSettingBtn();
   if (typeof renderDeckGoalSettingBtn === 'function') renderDeckGoalSettingBtn();
   if (typeof renderHybridAddsSettingBtn === 'function') renderHybridAddsSettingBtn();
+  if (typeof renderDeckThemesSettingBtn === 'function') renderDeckThemesSettingBtn();
   renderValueExcludeSlider();
   renderPriceChangeSettings();
   applyRoleVisibility();

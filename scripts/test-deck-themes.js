@@ -211,6 +211,45 @@ function fillers(n, prefix) {
   assert.ok(html.includes('Themes running through your deck'));
   assert.ok(html.includes('Tokens / Go-wide'));
   assert.ok(/decent/i.test(html));
+  assert.ok(!html.includes('onclick='), 'chips must not use inline onclick');
+  assert.ok(!html.includes('⌄'), 'caret must be SVG, not a unicode glyph');
+  assert.ok(html.includes('<svg'), 'caret uses inline SVG');
+}
+
+// XSS: quoted / entity card names stay inside data-name even if caller passes identity escaper
+{
+  const poison = 'A" onmouseover="alert(1)';
+  const entity = 'Foo&quot;Bar';
+  const deck = {
+    cards: [
+      card(poison, { roleTags: ['Token Maker'], oracleText: 'Create a 1/1 white Soldier creature token.' }),
+      card(entity, { roleTags: ['Token Maker'], oracleText: 'Create a 1/1 white Soldier creature token.' }),
+      ...Array.from({ length: 4 }, (_, i) =>
+        card(`Maker ${i}`, { roleTags: ['Token Maker'], oracleText: 'Create a 1/1 white Soldier creature token.' })),
+    ],
+  };
+  const html = themes.deckThemesHtml(themes.analyzeDeckThemes(deck), s => String(s));
+  assert.ok(html.includes('data-name='));
+  assert.ok(!html.includes('onclick='), 'no inline handler');
+  assert.ok(!html.includes('A" onmouseover'), 'raw quote must not appear in markup');
+  assert.ok(html.includes('data-name="A&quot;'), 'quote is HTML-escaped in data-name');
+  assert.ok(html.includes('Foo&amp;quot;Bar'), 'ampersand in the name is HTML-escaped');
+}
+
+// qty>1: count is copies; chips show ×N so they match
+{
+  const deck = {
+    cards: Array.from({ length: 6 }, (_, i) =>
+      card(`Twin ${i}`, { qty: 2, roleTags: ['Token Maker'], oracleText: 'Create a 1/1 white Soldier creature token.' })),
+  };
+  const a = themes.analyzeDeckThemes(deck);
+  const tok = a.themes.find(t => t.id === 'strategy.tokens');
+  assert.ok(tok && tok.supportCount === 12, `expected 12 copies, got ${tok && tok.supportCount}`);
+  assert.strictEqual(tok.cardNames.length, 6);
+  assert.strictEqual(tok.cardNames[0].qty, 2);
+  const html = themes.deckThemesHtml(a, s => String(s));
+  assert.ok(html.includes('×2'), 'chip shows copy count');
+  assert.ok(html.includes('>12<') || html.includes('deck-themes-count">12'), 'row count is copies');
 }
 
 console.log('test-deck-themes: all passed');

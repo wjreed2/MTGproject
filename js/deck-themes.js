@@ -379,16 +379,35 @@
       .map(([type, n]) => ({ type, bodies: n, id: tribalThemeId(type) }));
   }
 
-  function _payoffCount(cards, themeId) {
+  function _rowsForDeck(cards, deck) {
+    return (cards || []).map(card => ({
+      card,
+      qty: _qty(card),
+      ctx: _cardCtx(card, deck),
+    }));
+  }
+
+  function _payoffCountFromRows(rows, themeId) {
     let n = 0;
-    for (const card of cards) {
-      const ctx = _cardCtx(card);
+    for (const row of rows) {
+      const ctx = row.ctx;
       ctx.spellslingerPayoffs = false;
       ctx.artifactPayoffs = false;
       ctx.enchantPayoffs = false;
-      if (cardSupportsTheme(card, themeId, ctx)) n += _qty(card);
+      if (cardSupportsTheme(row.card, themeId, ctx)) n += row.qty;
     }
     return n;
+  }
+
+  function _supportersFromRows(rows, themeId) {
+    const supporters = [];
+    let count = 0;
+    for (const row of rows) {
+      if (!cardSupportsTheme(row.card, themeId, row.ctx)) continue;
+      count += row.qty;
+      supporters.push({ name: row.card.name, qty: row.qty });
+    }
+    return { count, supporters };
   }
 
   function userThemesFromPlan(plan) {
@@ -422,24 +441,21 @@
     const userThemes = userThemesFromPlan(resolvedPlan);
     const userIds = new Set(userThemes.map(t => t.id));
 
-    const spellPayoffs = _payoffCount(cards, 'strategy.spellslinger');
-    const artPayoffs = _payoffCount(cards, 'strategy.artifacts');
-    const enchPayoffs = _payoffCount(cards, 'strategy.enchantress');
+    // One context per card (tags + oracle + IR). Theme loops reuse it.
+    const rows = _rowsForDeck(cards, deck);
+    const spellPayoffs = _payoffCountFromRows(rows, 'strategy.spellslinger');
+    const artPayoffs = _payoffCountFromRows(rows, 'strategy.artifacts');
+    const enchPayoffs = _payoffCountFromRows(rows, 'strategy.enchantress');
+    for (const row of rows) {
+      row.ctx.spellslingerPayoffs = spellPayoffs >= 3;
+      row.ctx.artifactPayoffs = artPayoffs >= 3;
+      row.ctx.enchantPayoffs = enchPayoffs >= 3;
+    }
 
     const detected = [];
     for (const theme of THEME_CATALOG) {
       if (theme.id === 'strategy.goodstuff' || theme.id === 'strategy.other') continue;
-      const supporters = [];
-      let count = 0;
-      for (const card of cards) {
-        const ctx = _cardCtx(card, deck);
-        ctx.spellslingerPayoffs = spellPayoffs >= 3;
-        ctx.artifactPayoffs = artPayoffs >= 3;
-        ctx.enchantPayoffs = enchPayoffs >= 3;
-        if (!cardSupportsTheme(card, theme.id, ctx)) continue;
-        count += _qty(card);
-        supporters.push(card.name);
-      }
+      const { count, supporters } = _supportersFromRows(rows, theme.id);
       const band = supportBand(count);
       const userSet = userIds.has(theme.id);
       if (count < DECK_THEME_CONFIG.minListCount && !userSet) continue;
@@ -456,13 +472,7 @@
     const tribes = detectTribes(cards);
     for (const hit of tribes) {
       if (detected.some(t => t.id === hit.id)) continue;
-      const supporters = [];
-      let count = 0;
-      for (const card of cards) {
-        if (!cardSupportsTheme(card, hit.id, _cardCtx(card, deck))) continue;
-        count += _qty(card);
-        supporters.push(card.name);
-      }
+      const { count, supporters } = _supportersFromRows(rows, hit.id);
       const userSet = userIds.has(hit.id) || userIds.has('strategy.tribal');
       detected.push({
         id: hit.id,
@@ -488,13 +498,7 @@
         });
         continue;
       }
-      const supporters = [];
-      let count = 0;
-      for (const card of cards) {
-        if (!cardSupportsTheme(card, u.id, _cardCtx(card, deck))) continue;
-        count += _qty(card);
-        supporters.push(card.name);
-      }
+      const { count, supporters } = _supportersFromRows(rows, u.id);
       detected.push({
         id: u.id,
         label: u.label,
@@ -614,15 +618,26 @@
     });
   }
 
-  function _esc(escapeHtml, s) {
-    if (typeof escapeHtml === 'function') return escapeHtml(s);
+  function htmlEscape(s) {
     return String(s ?? '').replace(/[&<>"']/g, ch => ({
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
     }[ch]));
   }
 
-  function deckThemesHtml(analysis, escapeHtml) {
-    const esc = s => _esc(escapeHtml, s);
+  function cardChipName(entry) {
+    return typeof entry === 'string' ? entry : String(entry && entry.name || '');
+  }
+
+  function cardChipQty(entry) {
+    if (typeof entry === 'string') return 1;
+    const n = Number(entry && entry.qty);
+    return Number.isFinite(n) && n > 0 ? n : 1;
+  }
+
+  const CARET_SVG = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>';
+
+  function deckThemesHtml(analysis, _escapeHtml) {
+    const esc = htmlEscape;
     if (!analysis || !(analysis.themes || []).length) {
       return `<div class="deck-themes-empty">No named themes stood out yet. Add more on-theme cards, or set a plan to track a theme you intend.</div>`;
     }
@@ -641,20 +656,21 @@
       const pct = Math.max(4, Math.min(100, Math.round((t.supportCount / cap) * 100)));
       const bandCls = t.supportLevel.id;
       const userMark = t.userSet ? '<span class="deck-themes-yours">your plan</span>' : '';
-      const safeId = encodeURIComponent(t.id);
       const names = (t.cardNames || []).slice(0, DECK_THEME_CONFIG.maxShownCards);
       const extra = Math.max(0, (t.cardNames || []).length - names.length);
-      const cards = names.map(nm => {
-        const safe = String(nm).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-        return `<button type="button" class="deck-themes-card" onclick="openCardDetailByName('${safe}')">${esc(nm)}</button>`;
+      const cards = names.map(entry => {
+        const nm = cardChipName(entry);
+        const q = cardChipQty(entry);
+        const qtyBit = q > 1 ? ` <span class="deck-themes-qty">×${q}</span>` : '';
+        return `<button type="button" class="deck-themes-card" data-name="${esc(nm)}">${esc(nm)}${qtyBit}</button>`;
       }).join('');
       const more = extra ? `<span class="deck-themes-more">+${extra} more</span>` : '';
       return `<div class="deck-themes-row" data-theme-id="${esc(t.id)}">
-        <button type="button" class="deck-themes-toggle" aria-expanded="false" onclick="toggleDeckThemeCards(this)" data-theme="${esc(safeId)}">
+        <button type="button" class="deck-themes-toggle" aria-expanded="false">
           <span class="deck-themes-name">${esc(t.label)} ${userMark}</span>
           <span class="deck-themes-count">${t.supportCount}</span>
           <span class="deck-themes-band deck-themes-band--${esc(bandCls)}">${esc(t.supportLevel.label)}</span>
-          <span class="deck-themes-caret" aria-hidden="true">⌄</span>
+          <span class="deck-themes-caret" aria-hidden="true">${CARET_SVG}</span>
         </button>
         <div class="deck-themes-bar" aria-hidden="true"><span class="deck-themes-bar-fill deck-themes-band--${esc(bandCls)}" style="width:${pct}%"></span></div>
         <div class="deck-themes-cards" hidden>${cards || '<span class="deck-themes-more">No supporting cards detected.</span>'}${more}</div>
@@ -678,24 +694,86 @@
     btn.classList.toggle('is-open', hidden);
   }
 
+  function _openThemeCardByName(name) {
+    if (!name) return;
+    if (root && typeof root.openCardDetailByName === 'function') {
+      root.openCardDetailByName(name);
+      return;
+    }
+    if (typeof openCardDetailByName === 'function') openCardDetailByName(name);
+  }
+
+  function bindDeckThemesPanelClicks() {
+    const body = (typeof document !== 'undefined') ? document.getElementById('deckThemesBody') : null;
+    if (!body || body.dataset.deckThemesBound === '1') return;
+    body.dataset.deckThemesBound = '1';
+    body.addEventListener('click', (ev) => {
+      const cardBtn = ev.target.closest && ev.target.closest('.deck-themes-card[data-name]');
+      if (cardBtn) {
+        _openThemeCardByName(cardBtn.getAttribute('data-name'));
+        return;
+      }
+      const toggle = ev.target.closest && ev.target.closest('.deck-themes-toggle');
+      if (toggle) toggleDeckThemeCards(toggle);
+    });
+  }
+
+  function isDeckThemesEnabled() {
+    try { return localStorage.getItem('mtg_deck_themes') !== '0'; }
+    catch (_) { return true; }
+  }
+
+  function renderDeckThemesSettingBtn() {
+    const btn = (typeof document !== 'undefined') ? document.getElementById('settingsDeckThemesBtn') : null;
+    if (!btn) return;
+    const on = isDeckThemesEnabled();
+    btn.innerHTML = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M3 12.5 6.2 4h3.6L13 12.5"/><path d="M4.6 8.8h6.8"/></svg>${on ? ' Deck themes: on' : ' Deck themes: off'}`;
+    btn.style.color = on ? 'var(--teal)' : '';
+    btn.style.borderColor = on ? 'var(--teal)' : '';
+  }
+
+  function toggleDeckThemesSetting() {
+    const next = !isDeckThemesEnabled();
+    try { localStorage.setItem('mtg_deck_themes', next ? '1' : '0'); } catch (_) { /* quota */ }
+    renderDeckThemesSettingBtn();
+    const deck = root && typeof root.getActiveDeck === 'function' ? root.getActiveDeck() : null;
+    renderDeckThemesPanel(deck);
+    if (root && typeof root.showNotif === 'function') {
+      root.showNotif(next ? 'Deck themes panel shown' : 'Deck themes panel hidden');
+    }
+  }
+
   function renderDeckThemesPanel(deck) {
     const panel = (typeof document !== 'undefined') ? document.getElementById('deckThemesPanel') : null;
     const body = (typeof document !== 'undefined') ? document.getElementById('deckThemesBody') : null;
     if (!panel || !body) return null;
-    if (!deck || !((deck.cards || []).length)) {
+    bindDeckThemesPanelClicks();
+    if (!isDeckThemesEnabled() || !deck || !((deck.cards || []).length)) {
       panel.style.display = 'none';
       body.innerHTML = '';
+      delete panel.dataset.themeDeck;
       return null;
     }
-    const analysis = analyzeDeckThemes(deck);
-    const escFn = (root && typeof root.escapeHtml === 'function')
-      ? root.escapeHtml
-      : (typeof globalThis !== 'undefined' && typeof globalThis.escapeHtml === 'function'
-        ? globalThis.escapeHtml
-        : null);
-    panel.style.display = '';
-    body.innerHTML = deckThemesHtml(analysis, escFn);
-    return analysis;
+    const token = String(deck.id || '') + '\0' + String(deck.name || '') + '\0' + String((deck.cards || []).length);
+    panel.dataset.themeDeck = token;
+    try {
+      const analysis = analyzeDeckThemes(deck);
+      if (panel.dataset.themeDeck !== token) return null;
+      panel.style.display = '';
+      body.innerHTML = deckThemesHtml(analysis);
+      return analysis;
+    } catch (err) {
+      if (panel.dataset.themeDeck === token) {
+        panel.style.display = 'none';
+        body.innerHTML = '';
+      }
+      throw err;
+    }
+  }
+
+  if (typeof document !== 'undefined') {
+    if (document.readyState !== 'loading') renderDeckThemesSettingBtn();
+    else document.addEventListener('DOMContentLoaded', renderDeckThemesSettingBtn);
   }
 
   return {
@@ -710,6 +788,9 @@
     deckThemesHtml,
     toggleDeckThemeCards,
     renderDeckThemesPanel,
+    isDeckThemesEnabled,
+    toggleDeckThemesSetting,
+    renderDeckThemesSettingBtn,
     themeLabel,
     tribalThemeId,
   };
