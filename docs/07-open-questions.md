@@ -83,13 +83,11 @@ How context → need curves are stored and versioned (deterministic lookup, not 
 v1 fields locked (F-Q4 + rounds 3–5): list signals always on; wizard confirms strategy/wincon/T/protection/budget/roles/playstyle/competition/casting pattern/tutor pref; infer when Undecided; threat speed inferred. Quantitative **curves / coefficients** still open.
 
 ## Deck themes readout
-**PROPOSED (partial lock)** — [21-deck-themes.md](./21-deck-themes.md). Grimoire idea, our Plan-banner UI.
+**DECIDED v1 shape** — [21-deck-themes.md](./21-deck-themes.md). Grimoire idea, our panel UI.
 
-Locked: placement C (under Plan); band labels Decent / Focused / Very focused (thresholds not locked); supporting cards as name chips.
+Locked: placement A (own panel after Gameplan); band labels Decent / Focused / Very focused (thresholds not locked); name chips; clash in v1 (short pair list); reshape the existing sketch (do not hide).
 
-Still open:
-- Clash in v1 (short pair list) vs jive / thin / also-running only
-- Hide the 2026-08-24 standalone panel vs leave it as a detection preview
+Still open: exact band **numbers** (placeholders 10 / 18 / 30).
 
 ## Next investigation
 Foundation interview is **complete**. Implement Hybrid v1 per [16-foundation-interview-r3-r5.md](./16-foundation-interview-r3-r5.md). Do not start another interview round unless the owner asks.

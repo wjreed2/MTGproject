@@ -6,7 +6,7 @@ These are the live design frontier. Hybrid still runs; **Hybrid v2** replaces th
 
 - **Foundation / Hybrid v2 architecture** — shipped (evaluator, Hybrid slot, wizard fields, deck suite). Calibration is Phase 19 via the Evaluation Lab (`docs/18-foundation-evaluation-lab.md`) and `js/foundation/foundation-config.js` only. Plan: [17-foundation-implementation-plan.md](./17-foundation-implementation-plan.md).
 - Later (not v1 blockers): coefficients / seed tables; Theme E CardIR wizard depth.
-- **Deck themes readout** — **PROPOSED, partially locked** (`docs/21-deck-themes.md`). Placement C (under Plan), band *labels* (numbers not locked), name chips. Still open: clash-in-v1, whether to hide the 2026-08-24 sketch.
+- **Deck themes readout** — **DECIDED v1 shape** (`docs/21-deck-themes.md`). Placement A (own panel), band labels (numbers not locked), name chips, clash 4A. Reshape the existing sketch; do not hide it.
 
 Do not mark these complete without checking source. Hybrid **mode** (Prompts 27–28) still ships as the running merge until the Hybrid v2 cutover.
 

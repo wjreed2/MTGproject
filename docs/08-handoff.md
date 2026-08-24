@@ -6,7 +6,7 @@ Foundation **interview is complete** (rounds 2–5). Do not reopen Foundation de
 
 **Architecture v1 is in the Hybrid slot** (evaluator, readout, Adds/Cuts ranking, wizard fields). Mechanism detection now consumes **existing** CardIR provides/roles plus tags/oracle (`js/foundation/foundation-mechanisms.js`). Production eval materializes tags via `_probTagsOnCard` (oracle-tag cache + customTags + disables), not raw `card.roleTags`. Calibration uses the **Foundation Evaluation Lab** with isolated experimental config (`cloneFoundationConfig`). Lab **Account decks** default comes from env `FOUNDATION_LAB_DEFAULT_ACCOUNT` (injected into the admin Lab page — not hardcoded in public `/js`). CardIR inventory: [19-foundation-cardir-audit.md](./19-foundation-cardir-audit.md). Infra: [20-foundation-calibration-infra.md](./20-foundation-calibration-infra.md). Settled Hybrid v2 slot behavior: [10-hybrid-suggestions.md](./10-hybrid-suggestions.md). Do not invent missing numbers or redesign the five capabilities.
 
-**Deck themes readout (PROPOSED, partial lock)** — [21-deck-themes.md](./21-deck-themes.md). Placement **C** (under Plan), Decent/Focused/Very focused *labels* (numbers not locked), name chips. Remaining: clash in v1 vs facts-only; hide vs keep the Gameplan-adjacent sketch.
+**Deck themes readout (DECIDED v1 shape)** — [21-deck-themes.md](./21-deck-themes.md). Placement **A** (own panel after Gameplan; C withdrawn as “easiest”). Band labels locked, numbers not. Name chips. Clash **4A**. Reshape the existing sketch; do not hide it.
 
 ## Settled (rounds 2–5 + 2026-08-23 wording)
 - deterministic-only; user final say; no live Scryfall/EDHREC; no partner `engine2/` edits; **no CardIR regen** (additive derived fields from existing CardIR are OK)

@@ -52,7 +52,7 @@ The Plan envelope is a parent recipe target, default 30, with strategy/win-condi
 ### Theme / Subtheme
 Theme and subtheme describe specific identity pieces within the broader Plan envelope. Theme type pickers are used for strategies that require types, such as Tribal, Stax, or Mill.
 
-A **Themes** readout on the open-deck page is **PROPOSED** (not locked): report which strategies the list actually supports, and how that jives or clashes with Plan. See [21-deck-themes.md](./21-deck-themes.md).
+A **Themes** readout on the open-deck page is **DECIDED for v1 shape** (own panel; band *numbers* still tunable): report which strategies the list actually supports, and how that jives or clashes with Plan. See [21-deck-themes.md](./21-deck-themes.md).
 
 ### Role vs capability
 Role is a functional category used by the deck system (Ramp, Removal, …). CardIR capabilities (`provides` / `needs` / axes) are more detailed structured descriptions. Preserve the distinction.
