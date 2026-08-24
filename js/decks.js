@@ -7369,7 +7369,6 @@ async function _renderCutSuggestions(deck) {
   let cuts = _suggestCardsToCut(deck);
   let foundationEval = null;
   if (_hybridModeOn() && typeof applyFoundationCuts === 'function') {
-    foundationEval = _evaluateDeckFoundation(deck, null);
     try {
       const ctxCut = typeof _computeCutThresholds === 'function' ? _computeCutThresholds(deck) : {};
       const roleCount = {};
@@ -7377,6 +7376,7 @@ async function _renderCutSuggestions(deck) {
         const tags = (typeof _probTagsOnCard === 'function' ? _probTagsOnCard(c, deck) : []).filter(t => t !== 'Land' && t !== 'Commander');
         for (const t of tags) roleCount[t] = (roleCount[t] || 0) + (c.qty || 1);
       }
+      foundationEval = _evaluateDeckFoundation(deck, { roleCount, thresholds: ctxCut });
       cuts = applyFoundationCuts(cuts, foundationEval, roleCount, ctxCut).slice(0, 5);
     } catch (_) { /* keep classic cuts */ }
   }
@@ -7839,8 +7839,21 @@ async function _fetchWizardThemeAdds(deck, plan) {
 
 function _evaluateDeckFoundation(deck, ctx) {
   if (typeof evaluateFoundation !== 'function') return null;
-  const plan = (typeof getDeckPlan === 'function' ? getDeckPlan(deck) : deck.plan) || {};
-  const cmd = (deck.cards || []).find(c => c.isCommander) || null;
+  // Production tags live in _probTagsOnCard (oracle-tag cache + customTags +
+  // per-deck disables). card.roleTags is only a DB-prefetch fallback and is
+  // often absent — clone cards with materialized tags so the evaluator sees
+  // Ramp/Draw/Removal/Wipe/Counterspell the same way the rest of Hybrid does.
+  const cards = (deck.cards || []).map((c) => {
+    const tags = typeof _probTagsOnCard === 'function'
+      ? _probTagsOnCard(c, deck)
+      : (c.roleTags || c.tags || []);
+    if (typeof withFoundationRoleTags === 'function') return withFoundationRoleTags(c, tags);
+    const list = Array.isArray(tags) ? tags.slice() : [];
+    return Object.assign({}, c, { roleTags: list, tags: list });
+  });
+  const evalDeck = Object.assign({}, deck, { cards });
+  const plan = (typeof getDeckPlan === 'function' ? getDeckPlan(evalDeck) : evalDeck.plan) || {};
+  const cmd = cards.find(c => c.isCommander) || null;
   let gameplan = {};
   try {
     if (cmd && typeof _cmdGameplanProbs === 'function') {
@@ -7859,7 +7872,7 @@ function _evaluateDeckFoundation(deck, ctx) {
     }
   } catch (_) { /* optional */ }
   return evaluateFoundation({
-    deck,
+    deck: evalDeck,
     plan,
     commanderCard: cmd,
     playstyleS: plan.playstyleS != null ? plan.playstyleS : _deckCutPlaystyleStep,

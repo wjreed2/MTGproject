@@ -130,10 +130,10 @@
       }
     } else {
       lines.push('No human ratings loaded. Rate decks in the Evaluation Lab and pass --ratings.');
+    }
     lines.push('');
     lines.push('Sparse fixtures often show several weak capabilities; that is expected.');
     lines.push('suspicious = invalid output or every capability weak. review = 3–4 jobs short.');
-    }
     return lines.join('\n');
   }
 

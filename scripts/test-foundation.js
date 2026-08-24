@@ -11,11 +11,12 @@
  *   npm run test:foundation -- --ratings path.json
  *
  *   npm run test:foundation -- --user
- *   npm run test:foundation -- --user manfordf@gmail.com
+ *   npm run test:foundation -- --user you@example.com
  *   npm run test:foundation -- --user-dir data/foundation-lab/user-decks
  *
  * Default (no --user) is the 23 synthetic fixtures (Kind A recognition lock).
  * --user evaluates every site deck for that account (Kind B/C review), not the synthetics.
+ * Account email comes from --user <email> or env FOUNDATION_LAB_DEFAULT_ACCOUNT.
  */
 const fs = require('fs');
 const path = require('path');
@@ -56,6 +57,7 @@ function parseArgs(argv) {
     out: null,
     config: null,
     user: null,
+    userRequested: false,
     userDir: null,
   };
   const rest = argv.slice(2);
@@ -72,6 +74,7 @@ function parseArgs(argv) {
     else if (a === '--config') args.config = rest[++i];
     else if (a === '--user-dir') args.userDir = rest[++i];
     else if (a === '--user') {
+      args.userRequested = true;
       const next = rest[i + 1];
       if (next && !next.startsWith('--')) args.user = rest[++i];
       else args.user = FOUNDATION_LAB_DEFAULT_ACCOUNT_EMAIL;
@@ -175,8 +178,11 @@ async function resolveFixtures(args) {
     const loaded = loadUserAccountFixtures(args.userDir);
     return { fixtures: loaded.fixtures, source: 'account', email: loaded.email };
   }
-  if (args.user) {
-    const email = args.user;
+  if (args.userRequested) {
+    const email = String(args.user || '').trim().toLowerCase();
+    if (!email || !email.includes('@')) {
+      throw new Error('--user requires an email or FOUNDATION_LAB_DEFAULT_ACCOUNT in .env');
+    }
     try {
       const pulled = await pullAccountFixtures(email);
       if (pulled && pulled.length) return { fixtures: pulled, source: 'account', email };
@@ -209,7 +215,7 @@ async function main() {
   npm run test:foundation -- --compare baseline.json current.json
   npm run test:foundation -- --ratings ratings.json --report
   npm run test:foundation -- --user
-  npm run test:foundation -- --user manfordf@gmail.com
+  npm run test:foundation -- --user you@example.com
   npm run test:foundation -- --user-dir data/foundation-lab/user-decks
 `);
     return 0;

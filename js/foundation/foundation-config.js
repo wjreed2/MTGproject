@@ -28,7 +28,19 @@
     'creature', 'wideBoard', 'artifact', 'enchantment', 'graveyard', 'stack', 'land',
   ]);
 
-  const FOUNDATION_CONFIG = Object.freeze({
+  function deepFreeze(obj) {
+    if (!obj || typeof obj !== 'object') return obj;
+    Object.freeze(obj);
+    if (obj instanceof RegExp) return obj;
+    const keys = Object.keys(obj);
+    for (let i = 0; i < keys.length; i++) {
+      const v = obj[keys[i]];
+      if (v && typeof v === 'object' && !Object.isFrozen(v)) deepFreeze(v);
+    }
+    return obj;
+  }
+
+  const FOUNDATION_CONFIG = deepFreeze({
     version: 'v1-architecture',
     includeSandboxThemeRows: false,
     addRankWeight: 1.15,
@@ -176,7 +188,11 @@
       const bothObjects = v && typeof v === 'object' && !Array.isArray(v) && !(v instanceof RegExp)
         && cur && typeof cur === 'object' && !Array.isArray(cur) && !(cur instanceof RegExp);
       if (bothObjects) mergeFoundationConfigPatch(cur, v);
-      else target[k] = v;
+      else if (cur instanceof RegExp && typeof v === 'string') {
+        target[k] = new RegExp(v, 'i');
+      } else {
+        target[k] = v;
+      }
     }
     return target;
   }
@@ -184,6 +200,8 @@
   /**
    * Clone production FOUNDATION_CONFIG and optionally merge a JSON patch.
    * The clone is mutable for Lab experiments. Production FOUNDATION_CONFIG is not modified.
+   * Regex fields lost to JSON clone are restored *before* the patch so a Lab
+   * override is not silently reverted.
    */
   function cloneFoundationConfig(patch) {
     let clone;
@@ -194,7 +212,6 @@
     }
     restoreConfigRegexes(clone, FOUNDATION_CONFIG);
     if (patch && typeof patch === 'object') mergeFoundationConfigPatch(clone, patch);
-    restoreConfigRegexes(clone, FOUNDATION_CONFIG);
     return clone;
   }
 

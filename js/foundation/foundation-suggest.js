@@ -162,7 +162,7 @@
       let score = Number(card._cutScore) || 0;
       if (cls.action === 'keep_or_swap') score -= penalty;
       if (cls.action === 'cut' && !cls.swap) score += (cls.why.indexOf('Surplus') === 0 ? boost : 0.3);
-      return Object.assign(card, {
+      return Object.assign({}, card, {
         _cutScore: score,
         _foundationCut: cls,
         _cutReason: cls.why + (card._cutReason ? ` ${card._cutReason}` : ''),
@@ -170,16 +170,26 @@
     }).sort((a, b) => (b._cutScore || 0) - (a._cutScore || 0));
   }
 
-  function mark(status) {
-    if (status === 'strong') return '✓';
-    if (status === 'adequate') return '·';
-    return '⚠';
+  function htmlEscape(s) {
+    return String(s == null ? '' : s).replace(/[&<>"]/g, ch => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]
+    ));
+  }
+
+  function statusIcon(status) {
+    const wrap = (inner) =>
+      `<svg class="foundation-readout-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="width:11px;height:11px;vertical-align:-1px;flex-shrink:0">${inner}</svg>`;
+    if (status === 'strong') {
+      return wrap('<path d="M3.5 8.5l3 3 6-6"/>');
+    }
+    if (status === 'adequate') {
+      return wrap('<circle cx="8" cy="8" r="2.2"/>');
+    }
+    return wrap('<path d="M8 3.2l5.5 9.4H2.5z"/><line x1="8" y1="7" x2="8" y2="10"/><circle cx="8" cy="12.1" r="0.55" fill="currentColor" stroke="none"/>');
   }
 
   function compactFoundationReadoutHtml(evaluation, escapeHtml) {
-    const esc = escapeHtml || (s => String(s || '').replace(/[&<>"]/g, ch => (
-      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]
-    )));
+    const esc = escapeHtml || htmlEscape;
     if (!evaluation || !evaluation.capabilities) return '';
     const labs = {
       manaAccess: 'Mana access',
@@ -191,7 +201,7 @@
     const bits = CAP_ORDER.map(id => {
       const cap = evaluation.capabilities[id];
       if (!cap) return '';
-      return `${mark(cap.status)} ${labs[id]}`;
+      return `<span style="display:inline-flex;align-items:center;gap:.28rem;margin-right:.7rem;white-space:nowrap">${statusIcon(cap.status)} ${esc(labs[id])}</span>`;
     }).filter(Boolean);
     const n = evaluation.overall && evaluation.overall.belowProposalCount || 0;
     const warn = (evaluation.vulnerabilities || []).some(v => v.kind === 'user_target_below_proposal')
@@ -199,7 +209,7 @@
       : '';
     return `<div class="foundation-readout foundation-readout--compact" data-foundation-readout="compact" style="padding:.5rem .85rem;font-size:.72rem;color:var(--text2);border-bottom:1px solid var(--border)">
       <div style="font-weight:600;margin-bottom:.2rem">Foundation</div>
-      <div>${bits.map(b => esc(b)).join(' · ')}</div>
+      <div>${bits.join('')}</div>
       <div style="color:var(--text3);margin-top:.2rem">${n} ${n === 1 ? 'capability' : 'capabilities'} below proposal.${esc(warn)}</div>
       <button type="button" class="btn btn-ghost btn-sm" style="padding:0;font-size:.7rem;margin-top:.15rem" onclick="toggleFoundationReadoutExpand(this)">Expand</button>
       <div class="foundation-readout--expand" hidden>${expandFoundationReadoutHtml(evaluation, escapeHtml)}</div>
@@ -207,7 +217,7 @@
   }
 
   function expandFoundationReadoutHtml(evaluation, escapeHtml) {
-    const esc = escapeHtml || (s => String(s || ''));
+    const esc = escapeHtml || htmlEscape;
     if (!evaluation) return '';
     const labs = labels();
     const rows = CAP_ORDER.map(id => {
@@ -221,7 +231,9 @@
         ${user != null ? ` · you set ${user}` : ''}
         · coverage ${esc(cov)}<div style="color:var(--text3)">${esc(cap.explanation || '')}</div></div>`;
     }).join('');
-    const vulns = (evaluation.vulnerabilities || []).map(v => `<div>⚠ ${esc(v.text)}</div>`).join('');
+    const vulns = (evaluation.vulnerabilities || []).map(v =>
+      `<div style="display:flex;align-items:flex-start;gap:.35rem">${statusIcon('weak')}<span>${esc(v.text)}</span></div>`
+    ).join('');
     const synth = evaluation.overall && evaluation.overall.synthesis ? esc(evaluation.overall.synthesis) : '';
     return `<div class="foundation-readout-full" style="margin-top:.4rem">
       <div style="margin-bottom:.35rem">${synth}</div>

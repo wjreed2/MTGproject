@@ -62,7 +62,7 @@ function evalId(id) {
     const indep = Object.values(row.independent || {}).reduce((s, n) => s + n, 0);
     const synu = Object.values(row.synergy || {}).reduce((s, n) => s + n, 0);
     if (indep > 0 && synu > 0) {
-      assert.ok(synu < indep + 1e-6 || true, 'synergy is additive diagnostic, not automatic full extra credit');
+      assert.ok(synu < indep + 1e-6, 'synergy is additive diagnostic, not automatic full extra credit');
     }
   }
   console.log('golden: synergy recognition without automatic full credit ok');

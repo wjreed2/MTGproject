@@ -4,10 +4,11 @@
  * Pull every deck for an account from the hosted app into a gitignored Lab dump.
  *
  *   npm run foundation:pull-user-decks
- *   npm run foundation:pull-user-decks -- --email manfordf@gmail.com
+ *   npm run foundation:pull-user-decks -- --email you@example.com
  *   npm run foundation:pull-user-decks -- --api https://127.0.0.1:3001
  *
  * Uses SEMANTICS_PUSH_URL + SEMANTICS_INGEST_SECRET (same as deck:pull).
+ * Default email: env FOUNDATION_LAB_DEFAULT_ACCOUNT (do not hardcode a personal address).
  * Does not commit decklists. Does not regenerate CardIR.
  */
 const path = require('path');
@@ -21,7 +22,11 @@ const {
 async function main() {
   const args = process.argv.slice(2);
   const val = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : null; };
-  const email = (val('--email') || FOUNDATION_LAB_DEFAULT_ACCOUNT_EMAIL).trim().toLowerCase();
+  const email = (val('--email') || FOUNDATION_LAB_DEFAULT_ACCOUNT_EMAIL || '').trim().toLowerCase();
+  if (!email || !email.includes('@')) {
+    console.error('Pass --email or set FOUNDATION_LAB_DEFAULT_ACCOUNT in .env');
+    process.exit(1);
+  }
   const api = (val('--api') || process.env.SEMANTICS_PUSH_URL || process.env.MTG_API_URL || '').replace(/\/+$/, '');
   const secret = String(process.env.SEMANTICS_INGEST_SECRET || '').trim();
   if (!api || !secret) {

@@ -26,8 +26,8 @@ Do not put Lab review chrome into the production deck-builder Hybrid slot.
 ## Pipeline
 
 ```
-Account decks (manfordf@gmail.com)  ─┐
-Synthetic fixtures (Kind A lock)    ─┴→ evaluateFoundationLab(deck, context, config)
+Account decks (FOUNDATION_LAB_DEFAULT_ACCOUNT)  ─┐
+Synthetic fixtures (Kind A lock)               ─┴→ evaluateFoundationLab(deck, context, config)
     → Foundation evaluation result (diagnostics + adds/cuts + evidence sources)
     → CLI report and/or Lab UI
     → Human ratings (localStorage / JSON export)
@@ -47,14 +47,14 @@ npm run test:foundation -- --out data/foundation-lab/runs/baseline.json
 npm run test:foundation -- --compare baseline.json current.json
 npm run test:foundation -- --ratings path/to/ratings.json --report
 npm run test:foundation -- --user
-npm run test:foundation -- --user manfordf@gmail.com
+npm run test:foundation -- --user you@example.com
 npm run foundation:pull-user-decks
 npm run test:foundation:audit
 npm run test:foundation:golden
 npm run test:foundation:write-fixtures
 ```
 
-`--user` evaluates **every site deck** for that account (default `manfordf@gmail.com`). It does not use the 23 synthetic fixtures. Requires `SEMANTICS_PUSH_URL` + `SEMANTICS_INGEST_SECRET`, or a prior dump in `data/foundation-lab/user-decks/` (gitignored).
+`--user` evaluates **every site deck** for that account (email from `--user <email>` or env `FOUNDATION_LAB_DEFAULT_ACCOUNT`). It does not use the 23 synthetic fixtures. Requires `SEMANTICS_PUSH_URL` + `SEMANTICS_INGEST_SECRET`, or a prior dump in `data/foundation-lab/user-decks/` (gitignored).
 
 Default `npm run test:foundation` (no flags) still runs the synthetics so CI keeps the Kind A recognition lock.
 
@@ -72,7 +72,7 @@ Once this code is on the same host the phone app already uses (Railway / product
 
 The page and `/fixtures/foundation` require an admin session. They are not a public or regular-user mode.
 
-The Lab UI defaults to **Account decks** (`GET /api/foundation-lab/user-fixtures?email=manfordf@gmail.com`). Switch to **Synthetic fixtures** only for the recognition lock.
+The Lab UI defaults to **Account decks** (`GET /api/foundation-lab/user-fixtures?email=…`). The default email is injected by the server from `FOUNDATION_LAB_DEFAULT_ACCOUNT` (admin page only — not hardcoded in public `/js`). Switch to **Synthetic fixtures** only for the recognition lock.
 
 Each contributor row shows **evidence source**: `cardir`, `role_tag`, `oracle`, or `multiple` (when sources agree). The Evaluation pipeline table is Need → Mechanism → Card → Evidence → Coverage.
 

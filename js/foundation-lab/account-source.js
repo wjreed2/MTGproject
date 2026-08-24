@@ -4,7 +4,9 @@
 const fs = require('fs');
 const path = require('path');
 
-const DEFAULT_EMAIL = 'manfordf@gmail.com';
+function defaultLabAccountEmail() {
+  return String(process.env.FOUNDATION_LAB_DEFAULT_ACCOUNT || '').trim().toLowerCase();
+}
 
 function userDecksDir() {
   return path.join(__dirname, '..', '..', 'data', 'foundation-lab', 'user-decks');
@@ -117,7 +119,8 @@ function liveDecksToFixtures(decks, irByOracle, email) {
 }
 
 module.exports = {
-  FOUNDATION_LAB_DEFAULT_ACCOUNT_EMAIL: DEFAULT_EMAIL,
+  FOUNDATION_LAB_DEFAULT_ACCOUNT_EMAIL: defaultLabAccountEmail(),
+  defaultLabAccountEmail,
   userDecksDir,
   loadUserAccountFixtures,
   writeUserAccountFixtures,

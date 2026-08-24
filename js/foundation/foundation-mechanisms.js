@@ -73,15 +73,29 @@
     IR_ROLES_FOR_MECHANISM[id].forEach(role => { ROLE_TO_MECH[role] = id; });
   });
 
-  function clamp01(n) {
+  /** Mechanism quality may exceed 1 (e.g. qualityEngine: 1.15). Coverage/status clamp elsewhere. */
+  function qualityValue(n) {
     const x = Number(n);
-    if (!Number.isFinite(x)) return 0;
-    return Math.max(0, Math.min(1, x));
+    if (!Number.isFinite(x) || x < 0) return 0;
+    return x;
+  }
+
+  function normalizeTagList(tags) {
+    return Array.isArray(tags) ? tags.map(t => String(t || '').trim()).filter(Boolean) : [];
+  }
+
+  /**
+   * Copy a card with materialized role tags for Foundation eval.
+   * Does not mutate the live deck object.
+   */
+  function withFoundationRoleTags(card, tags) {
+    const list = normalizeTagList(tags);
+    return Object.assign({}, card, { roleTags: list, tags: list });
   }
 
   function cardTags(card) {
     const raw = (card && (card.roleTags || card.tags)) || [];
-    return Array.isArray(raw) ? raw.map(t => String(t || '').trim()).filter(Boolean) : [];
+    return normalizeTagList(raw);
   }
 
   function oracleOf(card) {
@@ -189,14 +203,14 @@
       if (!row) {
         row = {
           id,
-          quality: clamp01(quality),
+          quality: qualityValue(quality),
           capabilities: capsFor(id),
           evidenceSourceSet: new Set(),
           irAxes: [],
         };
         byId.set(id, row);
       } else {
-        row.quality = Math.max(row.quality, clamp01(quality));
+        row.quality = Math.max(row.quality, qualityValue(quality));
       }
       if (source) row.evidenceSourceSet.add(source);
       if (extra && extra.axis && !row.irAxes.includes(extra.axis)) row.irAxes.push(extra.axis);
@@ -264,6 +278,7 @@
 
   return {
     detectFoundationMechanisms,
+    withFoundationRoleTags,
     FOUNDATION_IR_AXES_FOR_MECHANISM: IR_AXES_FOR_MECHANISM,
     FOUNDATION_IR_ROLES_FOR_MECHANISM: IR_ROLES_FOR_MECHANISM,
     FOUNDATION_MECHANISM_SOURCE_ORDER: SOURCE_ORDER,

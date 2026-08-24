@@ -15,7 +15,7 @@
     "test:foundation": "node scripts/test-foundation.js",
     "test:foundation:golden": "node scripts/test-foundation-golden.js",
     "test:foundation:write-fixtures": "node scripts/write-foundation-fixtures.js",
-    "test:foundation:user": "node scripts/test-foundation.js --user manfordf@gmail.com --report",
+    "test:foundation:user": "node scripts/test-foundation.js --user --report",
     "foundation:pull-user-decks": "node --use-system-ca scripts/foundation-lab-pull-user-decks.js",
     "test:foundation:audit": "node scripts/foundation-cardir-audit.js --write",
     "test:phash": "node scripts/phash-smoke-test.js",

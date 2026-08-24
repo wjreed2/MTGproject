@@ -11,8 +11,6 @@
 })(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : null), function (root) {
   'use strict';
 
-  const FOUNDATION_LAB_DEFAULT_ACCOUNT_EMAIL = 'manfordf@gmail.com';
-
   function maps() {
     return {
       axes: (root && root.FOUNDATION_IR_AXES_FOR_MECHANISM) || {},
@@ -125,7 +123,6 @@
   }
 
   return {
-    FOUNDATION_LAB_DEFAULT_ACCOUNT_EMAIL,
     FOUNDATION_LAB_IR_AXES_FOR_MECHANISM: (root && root.FOUNDATION_IR_AXES_FOR_MECHANISM) || {},
     FOUNDATION_LAB_CAPABILITY_IR_AXES: {},
     foundationLabCardIRAvailable: cardIRAvailable,

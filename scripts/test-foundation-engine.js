@@ -187,6 +187,7 @@ function voltronDeck() {
   cloned.capabilities.resources.qualityDraw = 0.11;
   assert.strictEqual(FOUNDATION_CONFIG.version, 'v1-architecture');
   assert.strictEqual(FOUNDATION_CONFIG.capabilities.resources.qualityDraw, 1);
+  assert.ok(Object.isFrozen(FOUNDATION_CONFIG.capabilities.resources), 'FOUNDATION_CONFIG freeze is deep');
   const viaArgs = evaluateFoundation(irOnly, {
     plan: { winConditionId: 'wincon.combat', primaryStrategyId: 'strategy.tokens' },
     commanderCard: irOnly.cards[0],
@@ -195,6 +196,83 @@ function voltronDeck() {
   }, cloned);
   assert.strictEqual(viaArgs.version, 'lab-only');
   console.log('cardir mechanism + cloneFoundationConfig isolation ok');
+}
+
+{
+  const { detectFoundationMechanisms, withFoundationRoleTags } = require('../js/foundation/foundation-mechanisms.js');
+  const stub = {
+    name: 'Cultivate',
+    type: 'Sorcery',
+    oracleText: 'Search your library for up to two basic land cards, reveal those cards, put one onto the battlefield tapped and the other into your hand, then shuffle.',
+  };
+  const raw = detectFoundationMechanisms(stub, FOUNDATION_CONFIG);
+  assert.ok(!raw.some(m => m.id === 'ramp'), 'oracle-only Cultivate is not Ramp without tags');
+  const tagged = withFoundationRoleTags(stub, ['Ramp']);
+  const mechs = detectFoundationMechanisms(tagged, FOUNDATION_CONFIG);
+  assert.ok(mechs.some(m => m.id === 'ramp' && m.quality > 0), 'materialized Ramp tag grades as ramp');
+  assert.ok(!stub.roleTags, 'withFoundationRoleTags does not mutate the live card');
+  console.log('tag materialization helper ok');
+}
+
+{
+  const { detectFoundationMechanisms } = require('../js/foundation/foundation-mechanisms.js');
+  const { cloneFoundationConfig } = configApi;
+  const engineCard = {
+    name: "Cathars' Crusade",
+    type: 'Enchantment',
+    roleTags: ['Anthem'],
+    oracleText: 'Whenever a creature enters the battlefield under your control, put a +1/+1 counter on each creature you control.',
+  };
+  const eng = detectFoundationMechanisms(engineCard, FOUNDATION_CONFIG).find(m => m.id === 'engine');
+  assert.ok(eng, 'anthem is an engine');
+  assert.strictEqual(eng.quality, 1.15, 'qualityEngine 1.15 is not clamped to 1');
+  const patched = cloneFoundationConfig({ capabilities: { resources: { qualityEngine: 1.4 } } });
+  const patchedMech = detectFoundationMechanisms(engineCard, patched).find(m => m.id === 'engine');
+  assert.strictEqual(patchedMech.quality, 1.4, 'Lab qualityEngine patch above 1 is applied');
+  console.log('qualityEngine >1 not clamped ok');
+}
+
+{
+  const { applyFoundationCuts, compactFoundationReadoutHtml, expandFoundationReadoutHtml } = suggest;
+  const live = { name: 'Filler', _cutScore: 2, roleTags: [] };
+  const ranked = applyFoundationCuts([live], { capabilities: {} }, {}, {});
+  assert.ok(!live._foundationCut, 'applyFoundationCuts does not write onto live deck cards');
+  assert.notStrictEqual(ranked[0], live);
+  assert.ok(ranked[0]._foundationCut);
+  const html = compactFoundationReadoutHtml({
+    capabilities: {
+      manaAccess: { status: 'strong' },
+      resources: { status: 'adequate' },
+      interaction: { status: 'weak' },
+      keepGoing: { status: 'adequate' },
+      closeGame: { status: 'weak' },
+    },
+    overall: { belowProposalCount: 2 },
+    vulnerabilities: [{ kind: 'color_identity_vulnerability', text: 'stack gap' }],
+  });
+  assert.ok(html.includes('<svg'), 'compact readout uses inline SVG status icons');
+  assert.ok(!/[✓⚠]/.test(html), 'compact readout has no glyph status icons');
+  const exp = expandFoundationReadoutHtml({
+    capabilities: { manaAccess: { status: 'weak', explanation: '<b>x</b>' } },
+    vulnerabilities: [{ text: '<script>' }],
+    overall: { synthesis: 'ok' },
+  });
+  assert.ok(exp.includes('&lt;b&gt;'), 'expand readout escapes HTML by default');
+  assert.ok(!exp.includes('<script>'));
+  console.log('cuts copy + SVG readout ok');
+}
+
+{
+  const { cloneFoundationConfig } = configApi;
+  const patched = cloneFoundationConfig({
+    interaction: { threatTypes: { artifact: { oracle: 'zz-lab-only-token' } } },
+  });
+  assert.ok(patched.interaction.threatTypes.artifact.oracle instanceof RegExp);
+  assert.ok(patched.interaction.threatTypes.artifact.oracle.test('zz-lab-only-token'));
+  assert.ok(!patched.interaction.threatTypes.artifact.oracle.test('destroy target artifact'));
+  assert.ok(FOUNDATION_CONFIG.interaction.threatTypes.artifact.oracle.test('destroy target artifact'));
+  assert.ok(!FOUNDATION_CONFIG.interaction.threatTypes.artifact.oracle.test('zz-lab-only-token'));
+  console.log('lab regex string patch is not silently reverted ok');
 }
 
 console.log('test-foundation-engine: all passed');

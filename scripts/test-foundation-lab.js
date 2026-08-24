@@ -103,9 +103,9 @@ console.log('compare ok');
       cmc: 1,
       ir: { provides: [{ axis: 'mana.rock' }], needs: [], roles: ['mana_rock'] },
     }],
-  }, null, 'manfordf@gmail.com');
+  }, null, 'lab-review@example.com');
   assert.strictEqual(fx.source, 'account');
-  assert.strictEqual(fx.accountEmail, 'manfordf@gmail.com');
+  assert.strictEqual(fx.accountEmail, 'lab-review@example.com');
   assert.strictEqual(fx.cards[0].ir.provides[0].axis, 'mana.rock');
   const lab = evaluateFoundationLab(fx, { source: 'account' }, FOUNDATION_CONFIG);
   assert.ok(lab.contributions.some(c => c.card === 'Sol Ring' && c.evidenceSource === 'multiple'));
@@ -212,6 +212,32 @@ console.log('compare ok');
   const viaArgs = evaluateFoundation(deck, { plan, commanderCard: deck.cards[0], colors: ['R'] }, FOUNDATION_CONFIG);
   assert.strictEqual(viaArgs.version, prodA.version);
   console.log('production evaluation unchanged by lab config; 3-arg evaluateFoundation ok');
+}
+
+{
+  assert.deepStrictEqual(validateLabResult(null), ['result missing']);
+  const malformed = validateLabResult({ needs: {} });
+  assert.ok(malformed.includes('capabilityCoverage missing'));
+  assert.ok(malformed.includes('adds missing'));
+  assert.ok(malformed.every(e => typeof e === 'string'));
+  console.log('validateLabResult malformed path ok');
+}
+
+{
+  const { formatFoundationCalibrationReport, summarizeFoundationLab } = globalThis;
+  const sum = summarizeFoundationLab({
+    decks: [{ health: 'normal', adds: [], cuts: [], evidenceSummary: {} }],
+  }, []);
+  const text = formatFoundationCalibrationReport(sum, { decks: [{ health: 'normal', structErrors: [] }] });
+  assert.ok(text.includes('Sparse fixtures'), 'rated-report footer is not trapped in the else branch');
+  assert.ok(text.includes('No human ratings loaded'));
+  const rated = summarizeFoundationLab({
+    decks: [{ health: 'review', adds: [{}], cuts: [], evidenceSummary: { role_tag: 1 } }],
+  }, [{ itemType: 'add', rating: 'good' }]);
+  const ratedText = formatFoundationCalibrationReport(rated, { decks: [{ structErrors: [] }] });
+  assert.ok(ratedText.includes('Human ratings'));
+  assert.ok(ratedText.includes('Sparse fixtures'));
+  console.log('calibration report footer ok');
 }
 
 console.log('test-foundation-lab: all passed');

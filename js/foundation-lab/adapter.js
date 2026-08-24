@@ -505,9 +505,12 @@
     const errors = [];
     if (!result || typeof result !== 'object') return ['result missing'];
     if (!result.needs) errors.push('needs missing');
-    if (!result.capabilityCoverage) errors.push('capabilityCoverage missing');
-    for (const id of capIds()) {
-      if (!result.capabilityCoverage[id]) errors.push('capability ' + id + ' missing');
+    if (!result.capabilityCoverage || typeof result.capabilityCoverage !== 'object') {
+      errors.push('capabilityCoverage missing');
+    } else {
+      for (const id of capIds()) {
+        if (!result.capabilityCoverage[id]) errors.push('capability ' + id + ' missing');
+      }
     }
     if (!Array.isArray(result.adds)) errors.push('adds missing');
     if (!Array.isArray(result.cuts)) errors.push('cuts missing');
@@ -515,7 +518,8 @@
     if (!result.keepGoing || result.keepGoing.model !== 'derived_outcome') {
       errors.push('Keep Going must be a derived outcome, not a quota');
     }
-    if (result.capabilityCoverage.keepGoing && result.capabilityCoverage.keepGoing.proposedTarget != null) {
+    if (result.capabilityCoverage && result.capabilityCoverage.keepGoing
+        && result.capabilityCoverage.keepGoing.proposedTarget != null) {
       errors.push('Keep Going must not have a proposed numeric quota');
     }
     return errors;

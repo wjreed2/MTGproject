@@ -7,7 +7,7 @@
 
   const STORAGE_KEY = 'foundation-lab-ratings-v1';
   const CAP_ORDER = ['closeGame', 'manaAccess', 'resources', 'interaction', 'keepGoing'];
-  const DEFAULT_EMAIL = (window.FOUNDATION_LAB_DEFAULT_ACCOUNT_EMAIL) || 'manfordf@gmail.com';
+  const DEFAULT_EMAIL = String(window.FOUNDATION_LAB_DEFAULT_ACCOUNT_EMAIL || '').trim();
   const CONFIG_KEY = 'foundation-lab-experimental-config-v1';
   const $ = (id) => document.getElementById(id);
 
@@ -19,6 +19,14 @@
   let focusKind = 'add';
   let focusIndex = 0;
   let experimentalConfig = null;
+  let loadGen = 0;
+
+  function applyInjectedAccountDefault() {
+    const emailEl = $('email');
+    if (emailEl && DEFAULT_EMAIL && !emailEl.value) emailEl.value = DEFAULT_EMAIL;
+    const opt = $('source') && $('source').querySelector('option[value="account"]');
+    if (opt) opt.textContent = DEFAULT_EMAIL ? ('Account decks (' + DEFAULT_EMAIL + ')') : 'Account decks';
+  }
 
   function ratings() {
     try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); }
@@ -102,18 +110,22 @@
   }
 
   async function loadIndex() {
+    const gen = ++loadGen;
     source = ($('source') && $('source').value) || 'account';
     if (source === 'account') {
       try {
         await loadAccountIndex();
+        if (gen !== loadGen) return;
         return;
       } catch (err) {
+        if (gen !== loadGen) return;
         $('meta').textContent = String(err && err.message || err) + ' — falling back to synthetic fixtures.';
         if ($('source')) $('source').value = 'synthetic';
         source = 'synthetic';
       }
     }
     await loadSyntheticIndex();
+    if (gen !== loadGen) return;
   }
 
   async function loadFixture(id) {
@@ -397,8 +409,11 @@
   }
 
   function nextDeck(delta) {
+    if (!index.length) return;
     const i = index.findIndex(d => d.id === currentId);
-    const n = index[(i + delta + index.length) % index.length];
+    const start = i < 0 ? 0 : i;
+    const n = index[(start + delta + index.length) % index.length];
+    if (!n) return;
     $('deck').value = n.id;
     runCurrent();
   }
@@ -415,7 +430,7 @@
       card: btn.getAttribute('data-card') || null,
       field: btn.getAttribute('data-field') || null,
     });
-    if (rating === 'bad' && (itemType === 'add' || itemType === 'cut')) render();
+    render();
   });
 
   document.addEventListener('change', (ev) => {
@@ -547,13 +562,32 @@
   $('copy').addEventListener('click', () => { copyRatings(); });
   $('import').addEventListener('change', async (ev) => {
     const file = ev.target.files && ev.target.files[0];
+    ev.target.value = '';
     if (!file) return;
-    const raw = JSON.parse(await file.text());
-    const list = Array.isArray(raw) ? raw : (raw.ratings || []);
+    let raw;
+    try {
+      raw = JSON.parse(await file.text());
+    } catch (_) {
+      $('saved').textContent = 'Import failed: invalid JSON';
+      return;
+    }
+    const list = Array.isArray(raw) ? raw : (raw && raw.ratings);
+    if (!Array.isArray(list)) {
+      $('saved').textContent = 'Import failed: expected an array or { ratings: [] }';
+      return;
+    }
+    const existing = ratings();
+    if (existing.length && !window.confirm(
+      'Replace all ' + existing.length + ' local ratings with this file? Unexported ratings will be lost.'
+    )) {
+      return;
+    }
     saveRatings(list);
     if (current) render();
+    else renderRatingsHints();
   });
 
+  applyInjectedAccountDefault();
   loadIndex().then(runCurrent).catch(err => {
     $('meta').textContent = 'Failed to load fixtures: ' + err;
   });

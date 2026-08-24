@@ -55,7 +55,7 @@ Synthetics remain the Kind A recognition lock (`npm run test:foundation:golden`)
 
 These fixtures are almost entirely **role-tag + oracle stubs**. They have little or no CardIR, so the suite still reports mostly `role_tag` / `oracle` evidence. That is expected. CardIR-only detection is locked by unit tests (Sol Ring `mana.rock` without a Ramp tag).
 
-Live `manfordf@gmail.com` IR coverage still requires the hosted DB (this VM has none). Architecture no longer depends on that to proceed.
+Live Lab review-account IR coverage still requires the hosted DB (this VM has none). Architecture no longer depends on that to proceed.
 
 ## Stop — not tuned
 

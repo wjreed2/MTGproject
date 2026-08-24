@@ -39,7 +39,7 @@ Lab `--config` / a passed config object is cloned onto the Lab run only. Product
 
 ## Account decks (not the 23 synthetics)
 
-Live `manfordf@gmail.com` decks were **not** available in this environment (no MySQL / no `SEMANTICS_PUSH_URL` + `SEMANTICS_INGEST_SECRET`).
+Live Lab review-account decks were **not** available in this environment (no MySQL / no `SEMANTICS_PUSH_URL` + `SEMANTICS_INGEST_SECRET`).
 
 On the hosted app (admin): open Foundation Lab → source **Account decks**.
 From a machine with secrets:

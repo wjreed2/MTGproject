@@ -120,7 +120,7 @@ function formatMarkdown(user) {
   lines.push('## Account decks (not the 23 synthetics)');
   lines.push('');
   if (!user) {
-    lines.push('Live `manfordf@gmail.com` decks were **not** available in this environment (no MySQL / no `SEMANTICS_PUSH_URL` + `SEMANTICS_INGEST_SECRET`).');
+    lines.push('Live Lab review-account decks were **not** available in this environment (no MySQL / no `SEMANTICS_PUSH_URL` + `SEMANTICS_INGEST_SECRET`).');
     lines.push('');
     lines.push('On the hosted app (admin): open Foundation Lab → source **Account decks**.');
     lines.push('From a machine with secrets:');
