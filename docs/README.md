@@ -36,6 +36,7 @@ This directory is the **persistent source of truth** for MTG Archive product con
 | [17-foundation-implementation-plan.md](./17-foundation-implementation-plan.md) | Phased architecture-first implementation plan + connection map |
 | [18-foundation-evaluation-lab.md](./18-foundation-evaluation-lab.md) | Dev/calibration Evaluation Lab (fixtures, CLI, ratings, regression) |
 | [20-foundation-calibration-infra.md](./20-foundation-calibration-infra.md) | CardIR in mechanism detection + Lab experimental config isolation |
+| [21-deck-themes.md](./21-deck-themes.md) | Themes running through the deck + plan jive/clash readout |
 
 ## Related in-repo docs
 

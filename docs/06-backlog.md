@@ -6,6 +6,7 @@ These are the live design frontier. Hybrid still runs; **Hybrid v2** replaces th
 
 - **Foundation / Hybrid v2 architecture** — shipped (evaluator, Hybrid slot, wizard fields, deck suite). Calibration is Phase 19 via the Evaluation Lab (`docs/18-foundation-evaluation-lab.md`) and `js/foundation/foundation-config.js` only. Plan: [17-foundation-implementation-plan.md](./17-foundation-implementation-plan.md).
 - Later (not v1 blockers): coefficients / seed tables; Theme E CardIR wizard depth.
+- **Deck themes readout** — shipped v1 (`docs/21-deck-themes.md`). Band numbers and clash-pair table may be retuned.
 
 Do not mark these complete without checking source. Hybrid **mode** (Prompts 27–28) still ships as the running merge until the Hybrid v2 cutover.
 

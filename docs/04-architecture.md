@@ -6,6 +6,7 @@
 - `js/foundation-lab/` — Evaluation Lab adapter (dev/calibration only; see [18-foundation-evaluation-lab.md](./18-foundation-evaluation-lab.md))
 - `js/deck-plan.js` — plan schema, rankers, `planMatchScore`, plan-only backfill gate
 - `js/deck-plan-wizard.js` — wizard UI and step flow
+- `js/deck-themes.js` — themes running through the list + plan jive/clash (Strategy readout)
 - `js/commander-plan-ext.js` — key-card role derivation, L* / R*, Protection helpers
 - `js/decks.js` — playstyle slider, `_computeCutThresholds`, Classic/Hybrid/Semantic suggestion UI, Hybrid merge
 - `js/adds-scoring.js` — Classic Adds term math

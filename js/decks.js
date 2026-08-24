@@ -8393,6 +8393,9 @@ function renderDeckList(deck) {
   };
   _renderCutSuggestions(deck);
   _renderAddSuggestions(deck);
+  if (typeof renderDeckThemesPanel === 'function') {
+    try { renderDeckThemesPanel(deck); } catch (err) { console.error('Deck themes failed:', err); }
+  }
   _bindDeckTagGroupHoverLinking(el, false);
   _bindSwapZoneHoverLinking(el, false);
   const filteredCards = _applyDeckListFilter(deck.cards || []);

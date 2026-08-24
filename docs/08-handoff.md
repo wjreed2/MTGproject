@@ -6,6 +6,8 @@ Foundation **interview is complete** (rounds 2–5). Do not reopen Foundation de
 
 **Architecture v1 is in the Hybrid slot** (evaluator, readout, Adds/Cuts ranking, wizard fields). Mechanism detection now consumes **existing** CardIR provides/roles plus tags/oracle (`js/foundation/foundation-mechanisms.js`). Calibration uses the **Foundation Evaluation Lab** with isolated experimental config (`cloneFoundationConfig`). Account-deck review for `manfordf@gmail.com` is the Lab **Account decks** source. CardIR inventory: [19-foundation-cardir-audit.md](./19-foundation-cardir-audit.md). Infra: [20-foundation-calibration-infra.md](./20-foundation-calibration-infra.md). Do not invent missing numbers or redesign the five capabilities.
 
+**Deck themes readout (v1)** is on the open-deck page (`docs/21-deck-themes.md`): card-supported themes with count + quality band, plus jive/clash against the user's Plan. Band numbers may be retuned.
+
 ## Settled (rounds 2–5 + 2026-08-23 wording)
 - deterministic-only; user final say; no live Scryfall/EDHREC; no partner `engine2/` edits; **no CardIR regen** (additive derived fields from existing CardIR are OK)
 - Deck categories: **Mana Base · Foundation · Strategy · Payoffs**

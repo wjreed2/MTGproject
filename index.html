@@ -923,6 +923,23 @@
       <!-- Commander Gameplan Probability -->
       <div id="commanderGameplan" style="margin-bottom:1.25rem;display:none"></div>
 
+      <!-- Themes running through the deck (Strategy category) -->
+      <div id="deckThemesPanel" class="panel" style="display:none;margin-bottom:1.25rem">
+        <div class="panel-header">
+          <span class="panel-title">Themes</span>
+          <span class="deck-cut-help tooltip-wrap" tabindex="0" aria-label="How deck themes work">
+            <span class="deck-cut-help-icon" aria-hidden="true">?</span>
+            <span class="tooltip deck-cut-help-tooltip">
+              <strong>Themes running through your deck</strong> counts cards that support each strategy
+              (tokens, sacrifice, landfall, and so on) from role tags, card text, and type line.
+              Ten supporting cards is a decent package; thirty is very focused. Those numbers can be retuned later.
+              If you have set a plan, this also says whether the list jives with or clashes against that plan.
+            </span>
+          </span>
+        </div>
+        <div class="panel-body" id="deckThemesBody"></div>
+      </div>
+
       <!-- Bottom: Deck composition and mana profile -->
       <div class="deck-stats-grid">
         <div class="panel">
