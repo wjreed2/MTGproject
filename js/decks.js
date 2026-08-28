@@ -1035,7 +1035,7 @@ async function undoDeckHistoryEvent(historyId, ev) {
       }
     } else {
       // main → zone: undo by moving from that zone back to main
-      const tgtZone = (detail === 'mb' || detail === 'sb') ? detail : 'mb';
+      const tgtZone = (detail === 'mb' || detail === 'sb' || detail === 'add') ? detail : 'mb';
       const pool = _deckZonePool(deck, tgtZone);
       const slot = pool.find(c => c.uid === uid || c.name === name);
       if (slot) {
@@ -1043,6 +1043,7 @@ async function undoDeckHistoryEvent(historyId, ev) {
         if (slot.qty > 1) slot.qty--; else { const i = pool.indexOf(slot); pool.splice(i, 1); }
         const existing = findDeckCardSlot(deck, snap);
         if (existing) existing.qty++; else deck.cards.push({ ...snap, qty: 1 });
+        if (tgtZone === 'add') _flagClearedPlanningIfEmpty(deck);
         saveActiveDeck(deck); renderActiveDeck();
       }
     }
@@ -1122,8 +1123,9 @@ function renderDeckHistory() {
         const isTagEv = ev.type === 'tag_add' || ev.type === 'tag_remove';
         const badgeLabel = isTagEv && ev.detail
           ? `${ev.type === 'tag_add' ? '+' : '−'} ${ev.detail}`
+          : (ev.type === 'to_sb' && ev.detail === 'add') ? '→ Adds'
           : t.label;
-        const meta = !isTagEv && ev.detail ? String(ev.detail) : '';
+        const meta = !isTagEv && ev.detail && ev.detail !== 'add' ? String(ev.detail) : '';
         const aid = ev.actorAccountId != null ? Number(ev.actorAccountId) : null;
         const myId = currentUser?.id != null ? Number(currentUser.id) : null;
         const actorLabel = aid == null && !ev.actorEmail
@@ -11470,21 +11472,40 @@ function _moveMainToDeckZone(uid, zone, label) {
   const deck = getActiveDeck();
   if (!deck) return;
   if (zone === 'sb' && !_deckMatchSideboardEnabled(deck)) return;
+  if (zone === 'add' && !_deckSwapsEnabled()) return;
   const card = deck.cards.find(c => getCardInventoryKey(c) === uid || c.uid === uid);
   if (!card) return;
+  if (zone === 'add' && card.isCommander) {
+    showNotif("The commander can't be moved to adds", true);
+    return;
+  }
   const snapshot = { ...card };
   if (card.qty > 1) card.qty--; else deck.cards = deck.cards.filter(c => c !== card);
-  const findSlot = zone === 'sb' ? findMatchSideboardCardSlot : findMaybeBoardCardSlot;
-  const existing = findSlot(deck, snapshot);
-  if (existing) existing.qty++; else _deckZonePool(deck, zone).push({ ...snapshot, qty: 1 });
-  recordDeckEvent('to_sb', snapshot, zone); // detail = target zone ('mb' or 'sb')
+  if (zone === 'add') {
+    const existingAdd = _findDeckZoneSlot(deck, 'add', snapshot);
+    if (existingAdd) existingAdd.qty++;
+    else {
+      const c = { ...snapshot, uid: getCardInventoryKey(snapshot), qty: 1 };
+      delete c._plannedAdd;
+      _deckPlannedAdds(deck).push(c);
+    }
+    _flagClearedPlanningIfEmpty(deck);
+  } else {
+    const findSlot = zone === 'sb' ? findMatchSideboardCardSlot : findMaybeBoardCardSlot;
+    const existing = findSlot(deck, snapshot);
+    if (existing) existing.qty++; else _deckZonePool(deck, zone).push({ ...snapshot, qty: 1 });
+  }
+  _pruneStalePlannedCuts(deck);
+  recordDeckEvent('to_sb', snapshot, zone); // detail = target zone ('mb', 'sb', or 'add')
   saveActiveDeck(deck);
   renderActiveDeck();
+  if (zone === 'add') scheduleEDHRECRefresh();
   showNotif(snapshot.name + ' moved to ' + label);
 }
 
 function moveToSideboard(uid) { _moveMainToDeckZone(uid, 'mb', 'maybe board'); }
 function moveToMatchSideboard(uid) { _moveMainToDeckZone(uid, 'sb', 'sideboard'); }
+function moveMainToAdds(uid) { _moveMainToDeckZone(uid, 'add', 'planned adds'); }
 
 function moveToMainboard(uid, fromZone = 'mb') {
   const deck = getActiveDeck();
@@ -11841,10 +11862,10 @@ const _SWAP_CUT_ICON = '<svg class="tf-ic" viewBox="0 0 16 16" fill="none" strok
 const _SWAP_KEEP_ICON = '<svg class="tf-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.2 3.2L13 5"/></svg>';
 const _SWAP_ADD_ICON = '<svg class="tf-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>';
 
-/** Inspector buttons for the Adds & Cuts planning zones. Rendered by _htmlCardDetailPrimaryActionsInner. */
+/** Inspector buttons for mainboard zone moves and Adds & Cuts planning. Rendered by _htmlCardDetailPrimaryActionsInner. */
 function _htmlCardDetailSwapActionsInner(ctx) {
   const deck = ctx?.activeDeck;
-  if (!deck || !_isDeckBuilderMainTabActive() || !_deckSwapsEnabled()) return '';
+  if (!deck || !_isDeckBuilderMainTabActive()) return '';
   if (typeof canEditActiveDeck === 'function' && !canEditActiveDeck()) return '';
   const card = ctx.card;
   if (!card) return '';
@@ -11866,7 +11887,15 @@ function _htmlCardDetailSwapActionsInner(ctx) {
     ? _findDeckZoneSlot(deck, 'cut', inMain)
     : findSlot(_deckPlannedCuts(deck));
   const cutQty = cutSlot ? (cutSlot.qty || 1) : 0;
+  const swapsOn = _deckSwapsEnabled();
   const btns = [];
+  if (inMain) {
+    btns.push(`<button class="btn btn-outline btn-sm" title="Move this card from the mainboard to the maybe board" onclick="moveToMaybeboardFromDetail('${ref(inMain)}')">Move to maybeboard</button>`);
+    if (swapsOn) {
+      btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--green);border-color:var(--green)" title="Move this card from the mainboard to planned adds" onclick="moveMainToAddsFromDetail('${ref(inMain)}')">${_SWAP_ADD_ICON} Move to Adds</button>`);
+    }
+  }
+  if (!swapsOn) return btns.join('\n               ');
   if (inMain) {
     if (cutQty < (inMain.qty || 1)) {
       btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--red);border-color:var(--red)" title="Plan to cut this card — it stays in the deck until you cut it or apply all swaps" onclick="markPlannedCutFromDetail('${ref(inMain)}')">${_SWAP_CUT_ICON} Mark as cut</button>`);
@@ -11896,6 +11925,8 @@ function _refreshCardDetailAfterSwapAction(uid) {
 
 function markPlannedCutFromDetail(uid) { markPlannedCut(uid); _refreshCardDetailAfterSwapAction(uid); }
 function unmarkPlannedCutFromDetail(uid) { unmarkPlannedCut(uid); _refreshCardDetailAfterSwapAction(uid); }
+function moveToMaybeboardFromDetail(uid) { moveToSideboard(uid); _refreshCardDetailAfterSwapAction(uid); }
+function moveMainToAddsFromDetail(uid) { moveMainToAdds(uid); _refreshCardDetailAfterSwapAction(uid); }
 function movePoolToAddsFromDetail(uid, fromZone) { _movePlanningZoneCard(uid, fromZone, 'add'); _refreshCardDetailAfterSwapAction(uid); }
 function commitPlannedAddFromDetail(uid) { commitPlannedAdd(uid); _refreshCardDetailAfterSwapAction(uid); }
 function commitPlannedCutFromDetail(uid) { commitPlannedCut(uid); _refreshCardDetailAfterSwapAction(uid); }
