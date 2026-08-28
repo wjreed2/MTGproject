@@ -5723,7 +5723,14 @@ select:focus { outline: none; border-color: rgba(200,168,74,0.6); box-shadow: 0 
   padding: 10px 12px; border-radius: var(--radius);
   transition: background 0.12s;
 }
+.history-event--deck {
+  flex-wrap: nowrap;
+  position: relative;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
 .history-event:hover { background: var(--bg3); }
+.history-event--actions-open { background: var(--bg3); }
 .history-card-img {
   width: 56px; height: 78px; object-fit: cover; object-position: top;
   border-radius: 4px; flex-shrink: 0; box-shadow: 0 2px 8px rgba(0,0,0,0.25);
@@ -5768,13 +5775,42 @@ select:focus { outline: none; border-color: rgba(200,168,74,0.6); box-shadow: 0 
 .history-tag    { background: rgba(138,108,212,0.14); color: var(--purple); }
 .history-tag-badge { min-width: 0; text-align: left; white-space: normal; max-width: 120px; }
 .history-empty  { padding: 3rem 1rem; text-align: center; color: var(--text3); font-size: 0.85rem; }
-.history-undo-btn {
-  flex-shrink: 0; align-self: flex-start; margin-top: 2px;
-  background: none; border: 1px solid var(--border2); border-radius: 4px;
-  color: var(--text3); font-size: 0.85rem; padding: 2px 7px; cursor: pointer;
-  opacity: 0; transition: opacity 0.15s, color 0.15s;
+.history-event-quick-actions {
+  display: none;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: stretch;
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  max-width: min(320px, calc(100% - 76px));
+  padding: 6px;
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  box-shadow: 0 10px 28px rgba(0,0,0,0.4);
+  z-index: 4;
 }
-.history-event:hover .history-undo-btn { opacity: 1; }
+.history-event-quick-actions .history-row-btn {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: center;
+}
+.history-event-quick-actions .history-undo-btn {
+  opacity: 1;
+  margin-top: 0;
+  align-self: auto;
+}
+.history-move-btn--adds { color: var(--green) !important; border-color: rgba(61,184,160,0.45) !important; }
+.history-move-btn--cuts { color: var(--red) !important; border-color: rgba(212,90,74,0.45) !important; }
+/* Hover reveals Undo / Adds / Cuts / maybe board on devices that can hover.
+   Touch (hover: none) keeps sticky :hover from leaving the overlay stuck; tap
+   uses .history-event--actions-open instead. */
+.history-event:hover .history-event-quick-actions { display: flex; }
+@media (hover: none) {
+  .history-event:hover .history-event-quick-actions { display: none; }
+}
+.history-event--actions-open .history-event-quick-actions { display: flex; }
 .history-undo-btn:hover { color: var(--red); border-color: rgba(212,90,74,0.45); }
 
 /* Deck builder — history replaces deck list area (same pattern as collection tab) */

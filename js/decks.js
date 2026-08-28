@@ -1035,7 +1035,7 @@ async function undoDeckHistoryEvent(historyId, ev) {
       }
     } else {
       // main → zone: undo by moving from that zone back to main
-      const tgtZone = (detail === 'mb' || detail === 'sb') ? detail : 'mb';
+      const tgtZone = (detail === 'mb' || detail === 'sb' || detail === 'add') ? detail : 'mb';
       const pool = _deckZonePool(deck, tgtZone);
       const slot = pool.find(c => c.uid === uid || c.name === name);
       if (slot) {
@@ -1043,6 +1043,7 @@ async function undoDeckHistoryEvent(historyId, ev) {
         if (slot.qty > 1) slot.qty--; else { const i = pool.indexOf(slot); pool.splice(i, 1); }
         const existing = findDeckCardSlot(deck, snap);
         if (existing) existing.qty++; else deck.cards.push({ ...snap, qty: 1 });
+        if (tgtZone === 'add') _flagClearedPlanningIfEmpty(deck);
         saveActiveDeck(deck); renderActiveDeck();
       }
     }
@@ -1080,11 +1081,186 @@ function _escapeHistoryHtml(s) {
     .replace(/"/g, '&quot;');
 }
 
+/** Touch-primary (phone/tablet): tap shows row actions, double-tap opens inspector. */
+function _isDeckHistoryTouchUi() {
+  return typeof window !== 'undefined'
+    && typeof window.matchMedia === 'function'
+    && window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+}
+
+/**
+ * History row gesture. Mouse click opens the inspector (hover shows actions).
+ * Touch tap toggles actions; double-tap opens the inspector.
+ */
+function _historyEventGesture(kind, { onAction, isDoubleTap, hasActions } = {}) {
+  if (onAction) return 'action';
+  if (kind === 'touch') {
+    if (isDoubleTap) return 'inspector';
+    return hasActions === false ? 'inspector' : 'toggle-actions';
+  }
+  return 'inspector';
+}
+
+function _historyCardNameKey(name) {
+  return typeof _deckCardNameKey === 'function'
+    ? _deckCardNameKey(name)
+    : String(name || '').trim().toLowerCase();
+}
+
+function _historyCardMatchesEvent(card, ev) {
+  if (!card || !ev) return false;
+  const uid = ev.uid || '';
+  if (uid && (getCardInventoryKey(card) === uid || card.uid === uid)) return true;
+  const nameKey = _historyCardNameKey(ev.name);
+  if (!nameKey) return false;
+  return _historyCardNameKey(card.name) === nameKey;
+}
+
+/** Live non-commander mainboard copy of a history row's card, if any. */
+function _historyLiveMainSlot(ev, deck) {
+  deck = deck || (typeof getActiveDeck === 'function' ? getActiveDeck() : null);
+  if (!deck || !ev) return null;
+  return (deck.cards || []).find(c => c && !c.isCommander && _historyCardMatchesEvent(c, ev)) || null;
+}
+
+/** Any live deck copy (main / maybe / sideboard / adds, including commander) for the inspector. */
+function _historyLiveCard(ev, deck) {
+  deck = deck || (typeof getActiveDeck === 'function' ? getActiveDeck() : null);
+  if (!deck || !ev) return null;
+  const main = _historyLiveMainSlot(ev, deck);
+  if (main) return main;
+  const mb = typeof _deckMaybeBoard === 'function' ? _deckMaybeBoard(deck) : (deck.maybeboard || []);
+  const sb = (typeof _deckMatchSideboardEnabled === 'function' && _deckMatchSideboardEnabled(deck))
+    ? (typeof _deckMatchSideboard === 'function' ? _deckMatchSideboard(deck) : (deck.sideboard || []))
+    : [];
+  const adds = typeof _deckPlannedAdds === 'function' ? _deckPlannedAdds(deck) : (deck.adds || []);
+  const pools = [...(mb || []), ...(sb || []), ...(adds || []), ...(deck.cards || [])];
+  return pools.find(c => _historyCardMatchesEvent(c, ev)) || null;
+}
+
+function _htmlDeckHistoryQuickActions(opts) {
+  const canEdit = opts?.canEdit !== false;
+  if (!canEdit) return '';
+  const liveUid = opts?.liveUid ? String(opts.liveUid) : '';
+  const inMain = !!opts?.inMain && !!liveUid && !opts?.isCommander;
+  const swapsOn = opts?.swapsOn !== false;
+  const btns = [];
+  if (opts?.canUndo) {
+    btns.push('<button type="button" class="btn btn-outline btn-sm history-row-btn history-undo-btn" data-history-action="undo" title="Delete entry and undo this change">Undo</button>');
+  }
+  if (inMain) {
+    const uid = _escapeHistoryHtml(liveUid);
+    if (swapsOn) {
+      btns.push(`<button type="button" class="btn btn-outline btn-sm history-row-btn history-move-btn history-move-btn--adds" data-history-action="adds" data-live-uid="${uid}" title="Move this card from the mainboard to planned adds">Move to Adds</button>`);
+      btns.push(`<button type="button" class="btn btn-outline btn-sm history-row-btn history-move-btn history-move-btn--cuts" data-history-action="cuts" data-live-uid="${uid}" title="Move this card to planned cuts — it stays in the deck until you apply swaps">Move to Cuts</button>`);
+    }
+    btns.push(`<button type="button" class="btn btn-outline btn-sm history-row-btn history-move-btn" data-history-action="maybe" data-live-uid="${uid}" title="Move this card from the mainboard to the maybe board">Move to maybe board</button>`);
+  }
+  if (!btns.length) return '';
+  return `<div class="history-event-quick-actions">${btns.join('')}</div>`;
+}
+
+function _openDeckHistoryCardInspector(row) {
+  const inspectUid = row?.dataset?.inspectUid;
+  const name = row?.dataset?.cardName;
+  if (inspectUid && typeof openCardDetail === 'function') {
+    openCardDetail(inspectUid, 'deck');
+    return;
+  }
+  if (name && typeof openCardDetailByName === 'function') openCardDetailByName(name);
+}
+
+function _deckHistoryCloseActions(exceptRow) {
+  const panel = document.getElementById('deckHistoryPanel');
+  if (!panel) return;
+  panel.querySelectorAll('.history-event--actions-open').forEach(el => {
+    if (el !== exceptRow) el.classList.remove('history-event--actions-open');
+  });
+}
+
+let _deckHistoryTap = { t: 0, row: null };
+let _deckHistoryOutsideBound = false;
+const _DECK_HISTORY_DBL_MS = 450;
+
+function _ensureDeckHistoryOutsideClose() {
+  if (_deckHistoryOutsideBound || typeof document === 'undefined') return;
+  _deckHistoryOutsideBound = true;
+  document.addEventListener('click', e => {
+    if (e.target.closest('#deckHistoryPanel')) return;
+    _deckHistoryCloseActions();
+  });
+}
+
+async function _runDeckHistoryAction(btn) {
+  const action = btn?.getAttribute('data-history-action');
+  const row = btn?.closest('.history-event');
+  if (!action) return;
+  if (action === 'undo') {
+    const id = Number(row?.dataset.historyId);
+    if (!Number.isFinite(id)) return;
+    let ev = {};
+    try { ev = JSON.parse(row.dataset.ev || '{}'); } catch (_) { ev = {}; }
+    await undoDeckHistoryEvent(id, ev);
+    return;
+  }
+  const uid = btn.getAttribute('data-live-uid') || row?.dataset.liveUid;
+  if (!uid) {
+    showNotif('That card is not in the mainboard anymore', true);
+    return;
+  }
+  if (action === 'adds') moveMainToAdds(uid);
+  else if (action === 'cuts') await markPlannedCut(uid);
+  else if (action === 'maybe') moveToSideboard(uid);
+  if (_deckHistoryVisible) renderDeckHistory();
+}
+
+function _bindDeckHistoryPanel(panel) {
+  _ensureDeckHistoryOutsideClose();
+  panel.onclick = e => {
+    const actionBtn = e.target.closest('[data-history-action]');
+    if (actionBtn && panel.contains(actionBtn)) {
+      e.preventDefault();
+      e.stopPropagation();
+      _runDeckHistoryAction(actionBtn);
+      return;
+    }
+    if (e.target.closest('.history-event-quick-actions')) return;
+    const row = e.target.closest('.history-event[data-card-name]');
+    if (!row || !panel.contains(row)) {
+      _deckHistoryCloseActions();
+      return;
+    }
+    const kind = _isDeckHistoryTouchUi() ? 'touch' : 'mouse';
+    const now = Date.now();
+    const isDoubleTap = kind === 'touch'
+      && _deckHistoryTap.row === row
+      && (now - _deckHistoryTap.t) < _DECK_HISTORY_DBL_MS;
+    if (kind === 'touch') _deckHistoryTap = { t: now, row };
+    const gesture = _historyEventGesture(kind, {
+      onAction: false,
+      isDoubleTap,
+      hasActions: !!row.querySelector('.history-event-quick-actions'),
+    });
+    if (gesture === 'inspector') {
+      _deckHistoryCloseActions();
+      _openDeckHistoryCardInspector(row);
+      if (kind === 'touch') _deckHistoryTap = { t: 0, row: null };
+      return;
+    }
+    if (gesture === 'toggle-actions') {
+      const open = !row.classList.contains('history-event--actions-open');
+      _deckHistoryCloseActions(open ? row : null);
+      row.classList.toggle('history-event--actions-open', open);
+    }
+  };
+}
+
 function renderDeckHistory() {
   const panel = document.getElementById('deckHistoryPanel');
   if (!panel) return;
   if (!_deckHistory.length) {
     panel.innerHTML = '<div class="history-empty">No history for this deck yet. Changes are saved while you are signed in.</div>';
+    _bindDeckHistoryPanel(panel);
     return;
   }
   const todayKey = new Date().toDateString();
@@ -1106,6 +1282,9 @@ function renderDeckHistory() {
     tag_add:    { label: '+ Tag',   cls: 'history-tag'    },
     tag_remove: { label: '− Tag',   cls: 'history-tag'    },
   };
+  const canEdit = typeof canEditActiveDeck === 'function' ? canEditActiveDeck() : true;
+  const swapsOn = typeof _deckSwapsEnabled === 'function' ? _deckSwapsEnabled() : true;
+  const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
   panel.innerHTML = sortedDayKeys.map(key => {
     const events = days[key].slice().sort((a, b) => (Number(b.ts) || 0) - (Number(a.ts) || 0));
     const label = key === todayKey ? 'Today'
@@ -1122,8 +1301,9 @@ function renderDeckHistory() {
         const isTagEv = ev.type === 'tag_add' || ev.type === 'tag_remove';
         const badgeLabel = isTagEv && ev.detail
           ? `${ev.type === 'tag_add' ? '+' : '−'} ${ev.detail}`
+          : (ev.type === 'to_sb' && ev.detail === 'add') ? '→ Adds'
           : t.label;
-        const meta = !isTagEv && ev.detail ? String(ev.detail) : '';
+        const meta = !isTagEv && ev.detail && ev.detail !== 'add' ? String(ev.detail) : '';
         const aid = ev.actorAccountId != null ? Number(ev.actorAccountId) : null;
         const myId = currentUser?.id != null ? Number(currentUser.id) : null;
         const actorLabel = aid == null && !ev.actorEmail
@@ -1136,11 +1316,25 @@ function renderDeckHistory() {
           ? `<img class="history-card-img" src="${escapeHtml(ev.image)}" alt="" loading="lazy">`
           : `<div class="history-card-img-placeholder"></div>`;
         const evJson = JSON.stringify({ type: ev.type, uid: ev.uid, name: ev.name, foil: ev.foil, image: ev.image, detail: ev.detail }).replace(/"/g, '&quot;');
-        const undoBtn = ev.id != null
-          ? `<button class="history-undo-btn" title="Delete entry and undo this change" onclick="undoDeckHistoryEvent(${ev.id},JSON.parse(this.dataset.ev))" data-ev="${evJson}">↩</button>`
+        const liveMain = _historyLiveMainSlot(ev, deck);
+        const liveAny = _historyLiveCard(ev, deck);
+        const liveUid = liveMain ? (typeof _deckCardDragKey === 'function' ? _deckCardDragKey(liveMain) : (liveMain.uid || '')) : '';
+        const inspectUid = liveAny
+          ? (typeof _deckCardDragKey === 'function' ? _deckCardDragKey(liveAny) : (liveAny.uid || liveAny.scryfallId || ''))
           : '';
+        const actions = _htmlDeckHistoryQuickActions({
+          canEdit,
+          canUndo: ev.id != null && canEdit,
+          liveUid,
+          inMain: !!liveMain,
+          isCommander: !!(liveMain && liveMain.isCommander),
+          swapsOn,
+        });
         const safeName = (ev.name || '').replace(/"/g, '&quot;');
-        return `<div class="history-event" data-card-name="${safeName}" style="cursor:pointer" title="View ${_escapeHistoryHtml(ev.name)}">
+        const inspectAttr = inspectUid ? ` data-inspect-uid="${_escapeHistoryHtml(inspectUid)}"` : '';
+        const histIdAttr = ev.id != null ? ` data-history-id="${ev.id}"` : '';
+        const evAttr = ev.id != null ? ` data-ev="${evJson}"` : '';
+        return `<div class="history-event history-event--deck" data-card-name="${safeName}"${inspectAttr}${histIdAttr}${evAttr} style="cursor:pointer" title="View ${_escapeHistoryHtml(ev.name)}">
           ${img}
           <div class="history-event-info">
             <div class="history-event-name">${_escapeHistoryHtml(ev.name)}</div>
@@ -1149,17 +1343,13 @@ function renderDeckHistory() {
             ${actorLine}
           </div>
           <div class="history-event-badge ${t.cls}${isTagEv ? ' history-tag-badge' : ''}">${_escapeHistoryHtml(badgeLabel)}</div>
-          ${undoBtn}
+          ${actions}
         </div>`;
       }).join('')}
     </div>`;
   }).join('');
 
-  panel.onclick = e => {
-    if (e.target.closest('.history-undo-btn')) return; // let undo button handle itself
-    const row = e.target.closest('.history-event[data-card-name]');
-    if (row?.dataset.cardName) openCardDetailByName(row.dataset.cardName);
-  };
+  _bindDeckHistoryPanel(panel);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -11470,21 +11660,40 @@ function _moveMainToDeckZone(uid, zone, label) {
   const deck = getActiveDeck();
   if (!deck) return;
   if (zone === 'sb' && !_deckMatchSideboardEnabled(deck)) return;
+  if (zone === 'add' && !_deckSwapsEnabled()) return;
   const card = deck.cards.find(c => getCardInventoryKey(c) === uid || c.uid === uid);
   if (!card) return;
+  if (zone === 'add' && card.isCommander) {
+    showNotif("The commander can't be moved to adds", true);
+    return;
+  }
   const snapshot = { ...card };
   if (card.qty > 1) card.qty--; else deck.cards = deck.cards.filter(c => c !== card);
-  const findSlot = zone === 'sb' ? findMatchSideboardCardSlot : findMaybeBoardCardSlot;
-  const existing = findSlot(deck, snapshot);
-  if (existing) existing.qty++; else _deckZonePool(deck, zone).push({ ...snapshot, qty: 1 });
-  recordDeckEvent('to_sb', snapshot, zone); // detail = target zone ('mb' or 'sb')
+  if (zone === 'add') {
+    const existingAdd = _findDeckZoneSlot(deck, 'add', snapshot);
+    if (existingAdd) existingAdd.qty = (Number(existingAdd.qty) || 1) + 1;
+    else {
+      const c = { ...snapshot, uid: getCardInventoryKey(snapshot), qty: 1 };
+      delete c._plannedAdd;
+      _deckPlannedAdds(deck).push(c);
+    }
+    _flagClearedPlanningIfEmpty(deck);
+  } else {
+    const findSlot = zone === 'sb' ? findMatchSideboardCardSlot : findMaybeBoardCardSlot;
+    const existing = findSlot(deck, snapshot);
+    if (existing) existing.qty++; else _deckZonePool(deck, zone).push({ ...snapshot, qty: 1 });
+  }
+  _pruneStalePlannedCuts(deck);
+  recordDeckEvent('to_sb', snapshot, zone); // detail = target zone ('mb', 'sb', or 'add')
   saveActiveDeck(deck);
   renderActiveDeck();
+  if (zone === 'add') scheduleEDHRECRefresh();
   showNotif(snapshot.name + ' moved to ' + label);
 }
 
 function moveToSideboard(uid) { _moveMainToDeckZone(uid, 'mb', 'maybe board'); }
 function moveToMatchSideboard(uid) { _moveMainToDeckZone(uid, 'sb', 'sideboard'); }
+function moveMainToAdds(uid) { _moveMainToDeckZone(uid, 'add', 'planned adds'); }
 
 function moveToMainboard(uid, fromZone = 'mb') {
   const deck = getActiveDeck();
@@ -11841,10 +12050,10 @@ const _SWAP_CUT_ICON = '<svg class="tf-ic" viewBox="0 0 16 16" fill="none" strok
 const _SWAP_KEEP_ICON = '<svg class="tf-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.2 3.2L13 5"/></svg>';
 const _SWAP_ADD_ICON = '<svg class="tf-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>';
 
-/** Inspector buttons for the Adds & Cuts planning zones. Rendered by _htmlCardDetailPrimaryActionsInner. */
+/** Inspector buttons for mainboard zone moves and Adds & Cuts planning. Rendered by _htmlCardDetailPrimaryActionsInner. */
 function _htmlCardDetailSwapActionsInner(ctx) {
   const deck = ctx?.activeDeck;
-  if (!deck || !_isDeckBuilderMainTabActive() || !_deckSwapsEnabled()) return '';
+  if (!deck || !_isDeckBuilderMainTabActive()) return '';
   if (typeof canEditActiveDeck === 'function' && !canEditActiveDeck()) return '';
   const card = ctx.card;
   if (!card) return '';
@@ -11866,7 +12075,15 @@ function _htmlCardDetailSwapActionsInner(ctx) {
     ? _findDeckZoneSlot(deck, 'cut', inMain)
     : findSlot(_deckPlannedCuts(deck));
   const cutQty = cutSlot ? (cutSlot.qty || 1) : 0;
+  const swapsOn = _deckSwapsEnabled();
   const btns = [];
+  if (inMain) {
+    btns.push(`<button class="btn btn-outline btn-sm" title="Move this card from the mainboard to the maybe board" onclick="moveToMaybeboardFromDetail('${ref(inMain)}')">Move to maybeboard</button>`);
+    if (swapsOn) {
+      btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--green);border-color:var(--green)" title="Move this card from the mainboard to planned adds" onclick="moveMainToAddsFromDetail('${ref(inMain)}')">${_SWAP_ADD_ICON} Move to Adds</button>`);
+    }
+  }
+  if (!swapsOn) return btns.join('\n               ');
   if (inMain) {
     if (cutQty < (inMain.qty || 1)) {
       btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--red);border-color:var(--red)" title="Plan to cut this card — it stays in the deck until you cut it or apply all swaps" onclick="markPlannedCutFromDetail('${ref(inMain)}')">${_SWAP_CUT_ICON} Mark as cut</button>`);
@@ -11896,6 +12113,8 @@ function _refreshCardDetailAfterSwapAction(uid) {
 
 function markPlannedCutFromDetail(uid) { markPlannedCut(uid); _refreshCardDetailAfterSwapAction(uid); }
 function unmarkPlannedCutFromDetail(uid) { unmarkPlannedCut(uid); _refreshCardDetailAfterSwapAction(uid); }
+function moveToMaybeboardFromDetail(uid) { moveToSideboard(uid); _refreshCardDetailAfterSwapAction(uid); }
+function moveMainToAddsFromDetail(uid) { moveMainToAdds(uid); _refreshCardDetailAfterSwapAction(uid); }
 function movePoolToAddsFromDetail(uid, fromZone) { _movePlanningZoneCard(uid, fromZone, 'add'); _refreshCardDetailAfterSwapAction(uid); }
 function commitPlannedAddFromDetail(uid) { commitPlannedAdd(uid); _refreshCardDetailAfterSwapAction(uid); }
 function commitPlannedCutFromDetail(uid) { commitPlannedCut(uid); _refreshCardDetailAfterSwapAction(uid); }
