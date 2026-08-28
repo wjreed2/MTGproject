@@ -158,4 +158,19 @@ const sol = { uid: 'sol_n', name: 'Sol Ring', scryfallId: 'abc', qty: 1 };
   assert.strictEqual(deck.adds[0].qty, 2);
 }
 
+{
+  // Planned-add slots can omit qty (treated as 1 elsewhere). Increment must not become NaN.
+  const deck = {
+    cards: [{ uid: 'sol_n', name: 'Sol Ring', qty: 1 }],
+    maybeboard: [],
+    adds: [{ uid: 'sol_n', name: 'Sol Ring' }],
+    cuts: [],
+  };
+  runMove(deck, 'sol_n', 'add', 'planned adds');
+  assert.strictEqual(deck.cards.length, 0);
+  assert.strictEqual(deck.adds.length, 1);
+  assert.strictEqual(deck.adds[0].qty, 2);
+  assert.ok(Number.isFinite(deck.adds[0].qty));
+}
+
 console.log('test-inspector-mainboard-moves: ok');

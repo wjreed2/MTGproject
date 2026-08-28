@@ -11483,7 +11483,7 @@ function _moveMainToDeckZone(uid, zone, label) {
   if (card.qty > 1) card.qty--; else deck.cards = deck.cards.filter(c => c !== card);
   if (zone === 'add') {
     const existingAdd = _findDeckZoneSlot(deck, 'add', snapshot);
-    if (existingAdd) existingAdd.qty++;
+    if (existingAdd) existingAdd.qty = (Number(existingAdd.qty) || 1) + 1;
     else {
       const c = { ...snapshot, uid: getCardInventoryKey(snapshot), qty: 1 };
       delete c._plannedAdd;
