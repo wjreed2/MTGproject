@@ -5803,9 +5803,12 @@ select:focus { outline: none; border-color: rgba(200,168,74,0.6); box-shadow: 0 
 }
 .history-move-btn--adds { color: var(--green) !important; border-color: rgba(61,184,160,0.45) !important; }
 .history-move-btn--cuts { color: var(--red) !important; border-color: rgba(212,90,74,0.45) !important; }
-/* Desktop: hover reveals Undo / Adds / Cuts / maybe board. Touch uses .history-event--actions-open. */
-@media (hover: hover) and (pointer: fine) {
-  .history-event:hover .history-event-quick-actions { display: flex; }
+/* Hover reveals Undo / Adds / Cuts / maybe board on devices that can hover.
+   Touch (hover: none) keeps sticky :hover from leaving the overlay stuck; tap
+   uses .history-event--actions-open instead. */
+.history-event:hover .history-event-quick-actions { display: flex; }
+@media (hover: none) {
+  .history-event:hover .history-event-quick-actions { display: none; }
 }
 .history-event--actions-open .history-event-quick-actions { display: flex; }
 .history-undo-btn:hover { color: var(--red); border-color: rgba(212,90,74,0.45); }
