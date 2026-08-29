@@ -654,7 +654,8 @@
     margin-top: 8px !important;
   }
   #tab-decks .deck-stack-cards.vertical .deck-stack-card:hover ~ .deck-stack-card,
-  #tab-decks .deck-stack-cards.vertical .deck-stack-card:focus-within ~ .deck-stack-card {
+  #tab-decks .deck-stack-cards.vertical .deck-stack-card:focus-within ~ .deck-stack-card,
+  #tab-decks .deck-stack-cards.vertical .deck-stack-card.is-stack-peek ~ .deck-stack-card {
     transform: translateY(354px) !important;
   }
   #tab-decks .deck-stack-view > .deck-extra-zones-wrap .deck-stack-cards.vertical .deck-stack-card {
@@ -667,13 +668,18 @@
   #tab-decks .deck-stack-view > .deck-extra-zones-wrap .deck-stack-cards.vertical .deck-stack-card:first-child {
     margin-top: 8px !important;
   }
+  /* Extra zones (Adds / maybe board / Cuts / sideboard): same peek-open as
+     the mainboard — push following cards down so the tapped card is fully visible. */
   #tab-decks .deck-stack-view > .deck-extra-zones-wrap .deck-stack-cards.vertical .deck-stack-card:hover ~ .deck-stack-card,
   #tab-decks .deck-stack-view > .deck-extra-zones-wrap .deck-stack-cards.vertical .deck-stack-card:focus-within ~ .deck-stack-card,
+  #tab-decks .deck-stack-view > .deck-extra-zones-wrap .deck-stack-cards.vertical .deck-stack-card.is-stack-peek ~ .deck-stack-card,
   #tab-decks .deck-stack-view.vertical-orient > .deck-extra-zones-wrap .deck-stack-card:hover ~ .deck-stack-card,
   #tab-decks .deck-stack-view.vertical-orient > .deck-extra-zones-wrap .deck-stack-card:focus-within ~ .deck-stack-card,
+  #tab-decks .deck-stack-view.vertical-orient > .deck-extra-zones-wrap .deck-stack-card.is-stack-peek ~ .deck-stack-card,
   #tab-decks .deck-stack-view.vertical-orient > .deck-sideboard-section .deck-stack-card:hover ~ .deck-stack-card,
-  #tab-decks .deck-stack-view.vertical-orient > .deck-sideboard-section .deck-stack-card:focus-within ~ .deck-stack-card {
-    transform: none !important;
+  #tab-decks .deck-stack-view.vertical-orient > .deck-sideboard-section .deck-stack-card:focus-within ~ .deck-stack-card,
+  #tab-decks .deck-stack-view.vertical-orient > .deck-sideboard-section .deck-stack-card.is-stack-peek ~ .deck-stack-card {
+    transform: translateY(354px) !important;
   }
 
   /* Nudge the role-tag corner badge left of the right-edge controls. */
