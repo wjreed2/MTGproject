@@ -1055,12 +1055,21 @@ function setView(v, btn) {
   renderCollection();
 }
 
+/** Collection layout buttons only — never page-wide `.view-toggle` (Add Cards Deck/Adds, pool, deck list, …). */
+function _collectionViewToggleButtons() {
+  const byId = document.getElementById('collectionViewToggle');
+  if (byId) return byId.querySelectorAll('button');
+  const tab = document.getElementById('tab-collection');
+  return tab ? tab.querySelectorAll('.view-toggle button') : [];
+}
+
 function _syncCollectionViewControls(activeBtn) {
-  document.querySelectorAll('.view-toggle button').forEach(b => b.classList.remove('active'));
+  const buttons = _collectionViewToggleButtons();
+  buttons.forEach(b => b.classList.remove('active'));
   if (activeBtn) {
     activeBtn.classList.add('active');
   } else {
-    document.querySelectorAll('.view-toggle button').forEach(b => {
+    buttons.forEach(b => {
       const onclick = b.getAttribute('onclick') || '';
       if (onclick.includes(`'${currentView}'`) || onclick.includes(`"${currentView}"`)) b.classList.add('active');
     });
@@ -4460,6 +4469,8 @@ function addCardToCollection(scryfallCard, qty, foil) {
     renderCollection();
     updateStats();
   }
+  if (typeof renderVoiceDeckTargetBar === 'function') renderVoiceDeckTargetBar();
+  if (typeof renderVoiceDeckCollectionToggle === 'function') renderVoiceDeckCollectionToggle();
   _refreshDeckListIfActive();
   if (deckAddedName) {
     showNotif(
