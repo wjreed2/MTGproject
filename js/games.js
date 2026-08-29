@@ -407,6 +407,36 @@ function removeNewGamePlayer(i) {
   renderNewGamePlayersList();
 }
 
+function ngpMoveSeat(i, dir) {
+  if (typeof nudgeSeat !== 'function') return;
+  const result = nudgeSeat(newGamePlayers, i, dir, newGameFirstPlayerIdx, false);
+  if (!result.ok) return;
+  newGamePlayers = result.players;
+  newGameFirstPlayerIdx = result.activePlayerIdx;
+  renderNewGamePlayersList();
+}
+
+function moveGameSeat(gameId, playerId, dir, circular) {
+  const game = games.find(g => g.id === gameId);
+  if (!game || game.status !== 'active') return;
+  if (typeof nudgeSeat !== 'function') return;
+  const fromIdx = game.players.findIndex(p => p.id === playerId);
+  if (fromIdx < 0) return;
+  const result = nudgeSeat(game.players, fromIdx, dir, game.activePlayerIdx ?? 0, !!circular);
+  if (!result.ok) return;
+  game.players = result.players;
+  game.activePlayerIdx = result.activePlayerIdx;
+  addLog(game, {
+    type: 'note',
+    text: `Seat order: ${game.players.map(p => p.name).join(' → ')}`,
+  });
+  save('games');
+  document.querySelectorAll('.tablet-player-menu').forEach(m => m.remove());
+  if (tabletViewGameId) renderTabletView();
+  renderActiveGame(game);
+  renderGames();
+}
+
 function renderNewGamePlayersList() {
   const fmt = document.getElementById('newGameFormat')?.value || 'Commander';
   const el = document.getElementById('newGamePlayersList');
@@ -416,15 +446,16 @@ function renderNewGamePlayersList() {
   // Fixed columns so every row's inputs are the same width regardless of the remove
   // button or commander. The commander column is shown for commander-style formats.
   const isCmdFmt = fmt === 'Commander' || fmt === 'Brawl';
-  const cols = `10px 1fr 1fr${isCmdFmt ? ' 1fr' : ''} 86px 28px`;
+  const cols = `10px 22px 1fr 1fr${isCmdFmt ? ' 1fr' : ''} 86px 28px`;
 
   const header = document.getElementById('newGamePlayersHeader');
   if (header) {
     header.style.gridTemplateColumns = cols;
-    header.innerHTML = `<div></div><div>NAME</div><div>DECK</div>${isCmdFmt ? '<div>COMMANDER</div>' : ''}<div style="text-align:center">MULL</div><div></div>`;
+    header.innerHTML = `<div></div><div></div><div>NAME</div><div>DECK</div>${isCmdFmt ? '<div>COMMANDER</div>' : ''}<div style="text-align:center">MULL</div><div></div>`;
   }
 
   const mullBtn = 'background:var(--bg3);border:1px solid var(--border2);color:var(--text2);border-radius:5px;width:20px;height:22px;cursor:pointer;font-size:0.95rem;line-height:1;padding:0';
+  const lastSeat = newGamePlayers.length - 1;
 
   if (!Array.isArray(_allAppUsers)) _allAppUsers = [];
 
@@ -448,6 +479,10 @@ function renderNewGamePlayersList() {
     return `
     <div style="display:grid;grid-template-columns:${cols};gap:8px;align-items:center;padding:9px 0;border-bottom:1px solid var(--border)">
       <div style="width:10px;height:10px;border-radius:50%;background:${GAME_COLORS[i % GAME_COLORS.length]};flex-shrink:0"></div>
+      <div class="seat-nudge">
+        <button type="button" class="seat-nudge-btn" onclick="ngpMoveSeat(${i},-1)" ${i === 0 ? 'disabled' : ''} title="Earlier seat" aria-label="Earlier seat">▴</button>
+        <button type="button" class="seat-nudge-btn" onclick="ngpMoveSeat(${i},1)" ${i === lastSeat ? 'disabled' : ''} title="Later seat" aria-label="Later seat">▾</button>
+      </div>
       <select onchange="ngpUserSelect(${i}, this.value)" style="min-width:0">
         <option value="" ${!p.userId && !p.guest ? 'selected' : ''}>— select player —</option>
         <option value="guest" ${p.guest ? 'selected' : ''}>Guest</option>
@@ -460,7 +495,7 @@ function renderNewGamePlayersList() {
         <span style="min-width:14px;text-align:center;font-family:'JetBrains Mono',monospace;font-size:0.85rem">${p.mulligans || 0}</span>
         <button type="button" onclick="ngpMull(${i},1)" style="${mullBtn}">+</button>
       </div>
-      ${i >= 2 ? `<button class="btn btn-ghost btn-icon" onclick="removeNewGamePlayer(${i})" style="color:var(--red);padding:3px 5px;font-size:0.85rem">✕</button>` : '<div></div>'}
+      ${newGamePlayers.length > 2 ? `<button class="btn btn-ghost btn-icon" onclick="removeNewGamePlayer(${i})" style="color:var(--red);padding:3px 5px;font-size:0.85rem">✕</button>` : '<div></div>'}
     </div>`;
   }).join('');
 }
@@ -627,6 +662,9 @@ function renderPlayerCard(game, p) {
     : 'var(--teal)';
 
   const isActiveTurn = !p.eliminated && game.players.indexOf(p) === (game.activePlayerIdx ?? 0);
+  const seatIdx = game.players.indexOf(p);
+  const lastSeat = game.players.length - 1;
+  const canReorder = game.status === 'active' && game.players.length > 1;
   const inTargetMode = gameActionMode !== null && !p.eliminated;
   const isAllMode = gameActionMode === 'deal1all' || gameActionMode === 'dealXall';
   const targetLabel = isAllMode ? 'Tap to confirm' : 'Tap — deal damage';
@@ -658,10 +696,16 @@ function renderPlayerCard(game, p) {
         <div style="font-size:0.9rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(p.name)}</div>
         ${p.deckName ? `<div style="font-size:0.7rem;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(p.deckName)}${p.commander ? ' · ' + escapeHtml(p.commander) : ''}</div>` : ''}
       </div>
-      ${p.eliminated
+      <div style="display:flex;align-items:flex-start;gap:6px;flex-shrink:0">
+        ${canReorder ? `<div class="seat-nudge" onclick="event.stopPropagation()">
+          <button type="button" class="seat-nudge-btn" onclick="event.stopPropagation();moveGameSeat('${game.id}','${p.id}',-1)" ${seatIdx === 0 ? 'disabled' : ''} title="Earlier seat" aria-label="Earlier seat">▴</button>
+          <button type="button" class="seat-nudge-btn" onclick="event.stopPropagation();moveGameSeat('${game.id}','${p.id}',1)" ${seatIdx === lastSeat ? 'disabled' : ''} title="Later seat" aria-label="Later seat">▾</button>
+        </div>` : ''}
+        ${p.eliminated
         ? `<span style="font-size:0.65rem;padding:2px 7px;background:rgba(212,90,74,0.12);color:var(--red);border-radius:10px;white-space:nowrap;flex-shrink:0">#${p.placement || '?'} out</span>`
         : inTargetMode ? `<span style="font-size:0.65rem;padding:2px 7px;background:var(--gold-dim);color:var(--gold);border-radius:10px;white-space:nowrap;flex-shrink:0;animation:targetPulse 1s ease-in-out infinite">${targetLabel}</span>`
         : isActiveTurn ? `<span style="font-size:0.65rem;padding:2px 7px;background:rgba(${hexToRgb(p.color)},0.15);color:${p.color};border-radius:10px;white-space:nowrap;flex-shrink:0;letter-spacing:0.04em">▶ ACTIVE</span>` : ''}
+      </div>
     </div>
 
     <div style="text-align:center;margin:0.5rem 0 0.4rem">
@@ -1756,6 +1800,8 @@ function openTabletMenu(playerId, btn, e, rotated = false) {
     ` : ''}
     ${poisonRow}
     <div style="border-top:1px solid var(--border);margin:5px 0 4px"></div>
+    <button onclick="${cm};moveGameSeat('${game.id}','${playerId}',-1,true)" style="${mi}">↻ Move clockwise</button>
+    <button onclick="${cm};moveGameSeat('${game.id}','${playerId}',1,true)" style="${mi}">↺ Move counterclockwise</button>
     <button onclick="undoGameAction('${game.id}')" style="${mi}${hasUndo ? '' : 'opacity:0.4;'}">↶ Undo last action</button>
     <button onclick="${cm};nextTurn('${game.id}')" style="${mi}">→ Next Turn</button>`;
   document.body.appendChild(menu);
