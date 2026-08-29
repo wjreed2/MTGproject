@@ -1836,8 +1836,8 @@ ${f} untapped lands`},...H.map(de=>({label:de.label,p:de.p,detail:de.detail})),.
       </div>
       <div style="display:flex;align-items:flex-start;gap:6px;flex-shrink:0">
         ${s?`<div class="seat-nudge" onclick="event.stopPropagation()">
-          <button type="button" class="seat-nudge-btn" onclick="moveGameSeat('${e.id}','${t.id}',-1)" ${a===0?"disabled":""} title="Earlier seat" aria-label="Earlier seat">\u25B4</button>
-          <button type="button" class="seat-nudge-btn" onclick="moveGameSeat('${e.id}','${t.id}',1)" ${a===i?"disabled":""} title="Later seat" aria-label="Later seat">\u25BE</button>
+          <button type="button" class="seat-nudge-btn" onclick="event.stopPropagation();moveGameSeat('${e.id}','${t.id}',-1)" ${a===0?"disabled":""} title="Earlier seat" aria-label="Earlier seat">\u25B4</button>
+          <button type="button" class="seat-nudge-btn" onclick="event.stopPropagation();moveGameSeat('${e.id}','${t.id}',1)" ${a===i?"disabled":""} title="Later seat" aria-label="Later seat">\u25BE</button>
         </div>`:""}
         ${t.eliminated?`<span style="font-size:0.65rem;padding:2px 7px;background:rgba(212,90,74,0.12);color:var(--red);border-radius:10px;white-space:nowrap;flex-shrink:0">#${t.placement||"?"} out</span>`:c?`<span style="font-size:0.65rem;padding:2px 7px;background:var(--gold-dim);color:var(--gold);border-radius:10px;white-space:nowrap;flex-shrink:0;animation:targetPulse 1s ease-in-out infinite">${d}</span>`:r?`<span style="font-size:0.65rem;padding:2px 7px;background:rgba(${hexToRgb(t.color)},0.15);color:${t.color};border-radius:10px;white-space:nowrap;flex-shrink:0;letter-spacing:0.04em">\u25B6 ACTIVE</span>`:""}
       </div>
