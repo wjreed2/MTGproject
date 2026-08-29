@@ -650,6 +650,7 @@ function renderActiveGame(game) {
   // Respect a paused turn — otherwise any life/damage change would silently restart
   // the ticking clock (and the displayed time would jump to include the paused span).
   if (game.status === 'active' && !_turnPaused) startTurnTimer(game.id);
+  _syncGameWheels();
 }
 
 function renderPlayerCard(game, p) {
@@ -1067,9 +1068,11 @@ function setActionAmount(gameId, playerId, val) {
   const p = playerId ? game.players.find(pl => pl.id === playerId) : game.players[game.activePlayerIdx ?? 0];
   if (!p) return;
   p.actionAmount = Math.max(1, parseInt(val) || 1);
-  // Sync this player's visible stepper(s) immediately; debounce the persist + full
-  // re-render that refreshes the +X/−X button labels and "Deal X" hints.
-  document.querySelectorAll(`.x-stepper[data-pid="${p.id}"] .x-stepper-val`).forEach(s => { s.textContent = p.actionAmount; });
+  document.querySelectorAll(`.num-wheel--x[data-pid="${p.id}"]`).forEach(root => {
+    if (Number(root.dataset.value) !== p.actionAmount && typeof numWheelSetEl === 'function') {
+      numWheelSetEl(root, p.actionAmount, false);
+    }
+  });
   clearTimeout(_actionAmountTimer);
   _actionAmountTimer = setTimeout(() => {
     save('games');
@@ -1083,53 +1086,28 @@ function adjustActionAmount(gameId, playerId, delta) {
   if (p) setActionAmount(gameId, p.id, actAmt(p) + delta);
 }
 
-// ── X-amount stepper (scroll/drag, no keyboard) ────────────────────────────────
-// Compact, keyboard-free control for a player's X. Change by scrolling
-// (wheel/trackpad), dragging up/down, or the ± buttons. Pass a playerId to bind it
-// to that player; omit it to bind to the active player (the game-level deal bar).
+// ── X-amount number wheel (scroll/flick, no keyboard) ─────────────────────────
+// Pass a playerId to bind it to that player; omit it to bind to the active player.
 function xStepper(gameId, playerId) {
   const game = games.find(g => g.id === gameId);
   const p = !game ? null : (playerId ? game.players.find(pl => pl.id === playerId) : game.players[game.activePlayerIdx ?? 0]);
   const pid = p ? p.id : '';
-  return `<div class="x-stepper" data-pid="${pid}" onwheel="xStepperWheel(event,'${gameId}','${pid}')"
-      onpointerdown="xStepperPointerDown(event,'${gameId}','${pid}')" onclick="event.stopPropagation()"
-      title="Scroll or drag up/down to change">
-      <button type="button" class="x-stepper-btn" onclick="event.stopPropagation();adjustActionAmount('${gameId}','${pid}',-1)">−</button>
-      <span class="x-stepper-val">${actAmt(p)}</span>
-      <button type="button" class="x-stepper-btn" onclick="event.stopPropagation();adjustActionAmount('${gameId}','${pid}',1)">+</button>
-    </div>`;
+  return numWheelHtml({
+    min: 1, max: 40, value: actAmt(p), size: 'sm',
+    change: 'onGameXWheel',
+    gameId, playerId: pid,
+    className: 'num-wheel--x',
+  });
 }
 
-let _xStepDrag = null;
-function xStepperWheel(e, gameId, playerId) {
-  e.preventDefault(); e.stopPropagation();
-  adjustActionAmount(gameId, playerId, e.deltaY < 0 ? 1 : -1);
+function onGameXWheel(root, val) {
+  if (!root) return;
+  setActionAmount(root.dataset.game, root.dataset.pid, val);
 }
-function xStepperPointerDown(e, gameId, playerId) {
-  if (e.target.closest('button')) return;   // let the ± buttons handle their own taps
-  e.stopPropagation();
-  const el = e.currentTarget;
-  _xStepDrag = { gameId, playerId, pointerId: e.pointerId, lastY: e.clientY, acc: 0 };
-  try { el.setPointerCapture(e.pointerId); } catch (_) {}
-  el.onpointermove = xStepperPointerMove;
-  el.onpointerup = el.onpointercancel = xStepperPointerUp;
-}
-function xStepperPointerMove(e) {
-  if (!_xStepDrag || e.pointerId !== _xStepDrag.pointerId) return;
-  e.preventDefault();
-  _xStepDrag.acc += _xStepDrag.lastY - e.clientY;   // drag up = increase
-  _xStepDrag.lastY = e.clientY;
-  const STEP = 12;                                  // px of travel per ±1
-  while (Math.abs(_xStepDrag.acc) >= STEP) {
-    const dir = _xStepDrag.acc > 0 ? 1 : -1;
-    _xStepDrag.acc -= dir * STEP;
-    adjustActionAmount(_xStepDrag.gameId, _xStepDrag.playerId, dir);
-  }
-}
-function xStepperPointerUp(e) {
-  const el = e.currentTarget;
-  if (el) el.onpointermove = el.onpointerup = el.onpointercancel = null;
-  _xStepDrag = null;
+
+function onLogAmtWheel(_root, val) {
+  const hid = document.getElementById('logEvtAmount');
+  if (hid) hid.value = String(val);
 }
 
 // ── Undo (in-memory snapshot stack, one per game) ──────────────────────────────
@@ -1450,26 +1428,52 @@ function openLogEvent(gameId) {
     game.players.map(p => `<option value="${p.id}">${escapeHtml(p.name)}${p.eliminated ? ' ✕' : ''}</option>`).join('');
   document.getElementById('logEvtFrom').innerHTML = playerOpts;
   document.getElementById('logEvtTo').innerHTML = playerOpts;
-  document.getElementById('logEvtAmount').value = '';
   document.getElementById('logEvtType').value = 'damage';
   document.getElementById('logEvtCard').value = '';
   document.getElementById('logEvtNote').value = '';
-  updateLogEvtPlaceholder();
+  const hid = document.getElementById('logEvtAmount');
+  if (hid) hid.value = '1';
   document.getElementById('logEventModal').classList.add('open');
+  updateLogEvtPlaceholder();
 }
 
 function closeLogEventModal() {
   document.getElementById('logEventModal').classList.remove('open');
 }
 
+function _syncGameWheels() {
+  if (typeof numWheelSyncAll !== 'function') return;
+  numWheelSyncAll();
+  requestAnimationFrame(() => numWheelSyncAll());
+}
+
+function _renderLogAmtWheel(value) {
+  const host = document.getElementById('logEvtAmountWheelHost');
+  const hid = document.getElementById('logEvtAmount');
+  const type = document.getElementById('logEvtType')?.value;
+  const isLife = type === 'set_life';
+  const min = 0;
+  const max = isLife ? 99 : 40;
+  const val = typeof numWheelClamp === 'function' ? numWheelClamp(min, max, value) : Math.max(min, Math.min(max, Number(value) || 0));
+  if (hid) hid.value = String(val);
+  if (!host || typeof numWheelHtml !== 'function') return;
+  host.innerHTML = numWheelHtml({
+    id: 'logEvtAmountWheel',
+    min, max, value: val, size: 'lg',
+    change: 'onLogAmtWheel',
+  });
+  _syncGameWheels();
+}
+
 function updateLogEvtPlaceholder() {
   const type = document.getElementById('logEvtType')?.value;
-  const amtEl = document.getElementById('logEvtAmount');
-  if (!amtEl) return;
-  const labels = { damage: 'Damage amount', commander_damage: 'Damage amount', life_gain: 'Life gained', set_life: 'New life total' };
-  amtEl.placeholder = labels[type] || 'Amount';
   const amtWrap = document.getElementById('logEvtAmountWrap');
   if (amtWrap) amtWrap.style.display = type === 'note' ? 'none' : '';
+  if (type === 'note') return;
+  const hid = document.getElementById('logEvtAmount');
+  const cur = hid ? parseInt(hid.value, 10) : 1;
+  const next = type === 'set_life' ? (Number.isFinite(cur) && cur > 0 ? cur : 40) : (Number.isFinite(cur) && cur > 0 ? cur : 1);
+  _renderLogAmtWheel(next);
 }
 
 function submitLogEvent() {
@@ -1785,8 +1789,8 @@ function openTabletMenu(playerId, btn, e, rotated = false) {
   menu.style.cssText = 'position:fixed;z-index:700;background:color-mix(in oklab, var(--bg2) 94%, transparent);border:1px solid var(--border2);border-radius:12px;padding:8px;min-width:215px;max-width:min(300px,90vw);box-shadow:0 12px 40px rgba(0,0,0,0.35);visibility:hidden';
   const hasUndo = canUndo(game.id);
   menu.innerHTML = `
-    <div style="display:flex;align-items:center;gap:8px;padding:5px 8px 8px;border-bottom:1px solid var(--border);margin-bottom:4px">
-      <span style="font-size:0.72rem;color:var(--text3);flex:1">${player ? escapeHtml(player.name) + "'s" : ''} X =</span>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:5px 8px 8px;border-bottom:1px solid var(--border);margin-bottom:4px">
+      <span style="font-size:0.72rem;color:var(--text3);width:100%;text-align:left">${player ? escapeHtml(player.name) + "'s" : ''} X</span>
       ${xStepper(game.id, playerId)}
     </div>
     <button onclick="${cm};setActionMode('deal1','${game.id}')"    style="${mi}${gameActionMode==='deal1'    ? mia : ''}">${gameIcon('sword', 12, 'margin-right:5px')}Deal 1 → target</button>
@@ -1824,6 +1828,7 @@ function openTabletMenu(playerId, btn, e, rotated = false) {
   menu.style.left = left + 'px';
   menu.style.transform = rotated ? 'rotate(180deg)' : '';
   menu.style.visibility = 'visible';
+  _syncGameWheels();
 }
 
 function renderTabletView() {
@@ -1920,7 +1925,7 @@ function renderTabletView() {
     if (_tabletDragJustEnded) { _tabletDragJustEnded = false; return; }
     if (hadMenu) return;
     if (gameActionMode) return;
-    if (e.target.closest('button, input, a, select, textarea, .tablet-player-menu, .tablet-drag-menu, .tablet-center-box, .player-targetable')) return;
+    if (e.target.closest('button, input, a, select, textarea, .tablet-player-menu, .tablet-drag-menu, .tablet-center-box, .player-targetable, .num-wheel')) return;
     if (game.status !== 'active') return;
     nextTurn(game.id);
   };
@@ -1930,6 +1935,7 @@ function renderTabletView() {
   el.onpointerup     = tabletDragPointerUp;
   el.onpointercancel = tabletDragPointerUp;
   if (!_turnPaused) startTurnTimer(game.id);
+  _syncGameWheels();
 }
 
 function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
@@ -2251,6 +2257,7 @@ function _openDragDamageMenu(sourceId, targetIds, x, y, rotated) {
   menu.style.left = left + 'px';
   menu.style.top  = top  + 'px';
   menu.style.visibility = 'visible';
+  _syncGameWheels();
 
   // Close on any interaction outside the menu (added next tick so the opening gesture doesn't close it).
   setTimeout(() => {

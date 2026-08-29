@@ -41,6 +41,7 @@ const SOURCES = [
   'js/analytics.js',
   'js/voice.js',
   'js/game-seats.js',
+  'js/game-num-wheel.js',
   'js/games.js',
   'js/phash-core.js',
   'js/scanner-warp-core.js',

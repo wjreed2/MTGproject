@@ -3118,6 +3118,66 @@ img.stack-main.loaded { opacity: 1; }
   cursor: pointer; touch-action: manipulation;
 }
 .x-stepper-btn:active { background: var(--bg); transform: scale(0.92); }
+
+/* In-game number wheel — flick/scroll to pick an amount, no keyboard. */
+.num-wheel {
+  position: relative;
+  width: 72px;
+  flex-shrink: 0;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 28%, #000 72%, transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0%, #000 28%, #000 72%, transparent 100%);
+}
+.num-wheel--sm { height: 96px; width: 64px; }
+.num-wheel--lg { height: 180px; width: 100%; max-width: 220px; margin: 0 auto; }
+.num-wheel-vp {
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scroll-snap-type: y mandatory;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  touch-action: pan-y;
+  overscroll-behavior: contain;
+}
+.num-wheel-vp::-webkit-scrollbar { display: none; }
+.num-wheel--sm .num-wheel-vp { padding: 32px 0; }
+.num-wheel--lg .num-wheel-vp { padding: 72px 0; }
+.num-wheel-item {
+  scroll-snap-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600;
+  color: var(--text3);
+  line-height: 1;
+}
+.num-wheel--sm .num-wheel-item { height: 32px; font-size: 0.95rem; }
+.num-wheel--lg .num-wheel-item { height: 36px; font-size: 1.15rem; }
+.num-wheel-item.is-selected { color: var(--gold); font-weight: 700; font-size: 1.15rem; }
+.num-wheel--lg .num-wheel-item.is-selected { font-size: 1.45rem; }
+.num-wheel-frame {
+  position: absolute;
+  left: 6px; right: 6px;
+  top: 50%;
+  pointer-events: none;
+  border-radius: 8px;
+  border: 1px solid rgba(200, 168, 74, 0.35);
+  background: rgba(200, 168, 74, 0.08);
+  transform: translateY(-50%);
+}
+.num-wheel--sm .num-wheel-frame { height: 32px; }
+.num-wheel--lg .num-wheel-frame { height: 36px; }
+.tablet-player-menu .num-wheel--sm,
+.tablet-drag-menu .num-wheel--sm { width: 72px; height: 112px; }
+.tablet-player-menu .num-wheel--sm .num-wheel-item,
+.tablet-drag-menu .num-wheel--sm .num-wheel-item { height: 36px; font-size: 1.05rem; }
+.tablet-player-menu .num-wheel--sm .num-wheel-vp,
+.tablet-drag-menu .num-wheel--sm .num-wheel-vp { padding: 36px 0; }
+.tablet-player-menu .num-wheel--sm .num-wheel-frame,
+.tablet-drag-menu .num-wheel--sm .num-wheel-frame { height: 36px; }
 /* Bigger counter buttons inside the tablet ⋯ menu and the drag-to-deal menu (commander
    damage / poison / X) — same size in both so they're easy to tap. */
 .tablet-player-menu .x-stepper-btn,
