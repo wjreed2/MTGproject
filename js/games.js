@@ -275,8 +275,30 @@ function selectGame(id) {
 
 // ── New game modal ────────────────────────────────────────────────────────────
 
-let _allAppUsers = [];           // [{ id, email }]
+let _allAppUsers = [];           // [{ id, name }]
 let _userDecksCache = {};        // userId → [{ id, name, format, commander, commanderImage }]
+
+function _gameApiBase() {
+  if (typeof mtgApiRoot === 'function') return mtgApiRoot();
+  return document.querySelector('meta[name="mtg-api-base"]')?.content || 'http://localhost:3001/api';
+}
+
+function _summariesFromLocalDecks() {
+  if (!Array.isArray(decks)) return [];
+  return decks.map(d => ({
+    id: d.id,
+    name: d.name || 'Untitled',
+    format: d.format || '',
+    commander: d.commander || null,
+    commanderImage: d.commanderImage || null,
+    colorIdentity: d.commanderColorIdentity || d.colorIdentity || [],
+  }));
+}
+
+function _cachedUserDecks(userId) {
+  const cached = userId != null ? _userDecksCache[userId] : null;
+  return Array.isArray(cached) ? cached : [];
+}
 
 async function openNewGame() {
   // Pre-fill slot 0 with current user
@@ -292,12 +314,13 @@ async function openNewGame() {
   if (notesEl) notesEl.value = '';
 
   document.getElementById('newGameModal').classList.add('open');
+  if (me.id) _userDecksCache[me.id] = _summariesFromLocalDecks();
   renderNewGamePlayersList();
 
-  // Fetch users + current user's decks in parallel
-  const base = document.querySelector('meta[name="mtg-api-base"]')?.content || 'http://localhost:3001/api';
   try {
-    _allAppUsers = await fetch(`${base}/users`, { credentials: 'include' }).then(r => r.json());
+    const res = await fetch(`${_gameApiBase()}/users`, { credentials: 'include' });
+    const data = await res.json();
+    _allAppUsers = Array.isArray(data) ? data : [];
   } catch { _allAppUsers = []; }
 
   if (me.id) await _loadUserDecks(me.id);
@@ -341,11 +364,23 @@ function _displayName(email) {
 }
 
 async function _loadUserDecks(userId) {
-  if (_userDecksCache[userId]) return;
-  const base = document.querySelector('meta[name="mtg-api-base"]')?.content || 'http://localhost:3001/api';
+  if (userId == null || userId === '') return;
+  const isMe = typeof currentUser !== 'undefined' && currentUser
+    && Number(userId) === Number(currentUser.id);
+  if (isMe && !Array.isArray(_userDecksCache[userId])) {
+    _userDecksCache[userId] = _summariesFromLocalDecks();
+  }
   try {
-    _userDecksCache[userId] = await fetch(`${base}/users/${userId}/decks`, { credentials: 'include' }).then(r => r.json());
-  } catch { _userDecksCache[userId] = []; }
+    const res = await fetch(`${_gameApiBase()}/users/${encodeURIComponent(userId)}/decks`, { credentials: 'include' });
+    const data = await res.json().catch(() => null);
+    if (res.ok && Array.isArray(data)) {
+      _userDecksCache[userId] = data;
+      return;
+    }
+  } catch { /* fall through to local / empty */ }
+  if (!Array.isArray(_userDecksCache[userId])) {
+    _userDecksCache[userId] = isMe ? _summariesFromLocalDecks() : [];
+  }
 }
 
 function closeNewGameModal() {
@@ -391,18 +426,24 @@ function renderNewGamePlayersList() {
 
   const mullBtn = 'background:var(--bg3);border:1px solid var(--border2);color:var(--text2);border-radius:5px;width:20px;height:22px;cursor:pointer;font-size:0.95rem;line-height:1;padding:0';
 
+  if (!Array.isArray(_allAppUsers)) _allAppUsers = [];
+
   el.innerHTML = newGamePlayers.map((p, i) => {
     const userOpts = _allAppUsers.map(u =>
       `<option value="${u.id}" ${p.userId == u.id ? 'selected' : ''}>${escapeHtml(u.name || '')}</option>`
     ).join('');
 
-    const userDecks = p.userId ? (_userDecksCache[p.userId] || []) : [];
+    const userDecks = _cachedUserDecks(p.userId);
     const deckOpts = `<option value="">— no deck —</option>` + userDecks.map(d =>
-      `<option value="${d.id}" ${p.deckId === d.id ? 'selected' : ''}>${escapeHtml(d.name)}${d.format ? ' ('+escapeHtml(d.format)+')' : ''}</option>`
+      `<option value="${d.id}" ${String(p.deckId) === String(d.id) ? 'selected' : ''}>${escapeHtml(d.name)}${d.format ? ' ('+escapeHtml(d.format)+')' : ''}</option>`
     ).join('');
 
-    const showDeck  = userDecks.length > 0;
-    const selDeck   = userDecks.find(d => d.id === p.deckId);
+    const selDeck = userDecks.find(d => String(d.id) === String(p.deckId));
+    const deckCell = p.userId
+      ? `<select onchange="ngpDeckSelect(${i}, this.value)" style="min-width:0">${deckOpts}</select>`
+      : `<input type="text" value="${escapeHtml(p.deckName || '')}" placeholder="Deck (optional)"
+           onchange="ngpDeckTyped(${i}, this.value)" style="min-width:0">`;
+    const commanderLabel = selDeck?.commander || p.commander || '';
 
     return `
     <div style="display:grid;grid-template-columns:${cols};gap:8px;align-items:center;padding:9px 0;border-bottom:1px solid var(--border)">
@@ -412,8 +453,8 @@ function renderNewGamePlayersList() {
         <option value="guest" ${p.guest ? 'selected' : ''}>Guest</option>
         ${userOpts}
       </select>
-      ${showDeck ? `<select onchange="ngpDeckSelect(${i}, this.value)" style="min-width:0">${deckOpts}</select>` : `<div style="font-size:0.78rem;color:var(--text3);padding:4px 0">${p.userId ? 'No decks' : ''}</div>`}
-      ${isCmdFmt ? `<div style="font-size:0.78rem;color:var(--gold);font-family:'Cinzel',serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0">${escapeHtml(selDeck?.commander || '')}</div>` : ''}
+      ${deckCell}
+      ${isCmdFmt ? `<div style="font-size:0.78rem;color:var(--gold);font-family:'Cinzel',serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0">${escapeHtml(commanderLabel)}</div>` : ''}
       <div style="display:flex;align-items:center;gap:3px;justify-content:center" title="Mulligans taken before the game">
         <button type="button" onclick="ngpMull(${i},-1)" style="${mullBtn}">−</button>
         <span style="min-width:14px;text-align:center;font-family:'JetBrains Mono',monospace;font-size:0.85rem">${p.mulligans || 0}</span>
@@ -425,7 +466,7 @@ function renderNewGamePlayersList() {
 }
 
 async function ngpUserSelect(i, userIdStr) {
-  // "Guest" — an anonymous, account-less player (no deck list), like leaving the seat blank used to.
+  // "Guest" — an account-less player. They can still type a deck name.
   if (userIdStr === 'guest') {
     newGamePlayers[i].guest = true;
     newGamePlayers[i].userId = null;
@@ -444,27 +485,34 @@ async function ngpUserSelect(i, userIdStr) {
   newGamePlayers[i].deckId = '';
   newGamePlayers[i].deckName = '';
   newGamePlayers[i].commander = '';
+  renderNewGamePlayersList();
   if (userId) {
     await _loadUserDecks(userId);
     // Auto-select first deck if only one
-    const userDecks = _userDecksCache[userId] || [];
+    const userDecks = _cachedUserDecks(userId);
     if (userDecks.length === 1) {
       newGamePlayers[i].deckId = userDecks[0].id;
       newGamePlayers[i].deckName = userDecks[0].name;
       newGamePlayers[i].commander = userDecks[0].commander || '';
     }
+    renderNewGamePlayersList();
   }
-  renderNewGamePlayersList();
 }
 
 function ngpDeckSelect(i, deckId) {
-  const userId = newGamePlayers[i].userId;
-  const userDecks = userId ? (_userDecksCache[userId] || []) : [];
-  const deck = userDecks.find(d => d.id === deckId);
+  if (!newGamePlayers[i]) return;
+  const userDecks = _cachedUserDecks(newGamePlayers[i].userId);
+  const deck = userDecks.find(d => d.id === deckId || String(d.id) === String(deckId));
   newGamePlayers[i].deckId = deckId || '';
   newGamePlayers[i].deckName = deck?.name || '';
   newGamePlayers[i].commander = deck?.commander || '';
   renderNewGamePlayersList();
+}
+
+function ngpDeckTyped(i, name) {
+  if (!newGamePlayers[i]) return;
+  newGamePlayers[i].deckName = name || '';
+  newGamePlayers[i].deckId = '';
 }
 
 async function submitNewGame() {

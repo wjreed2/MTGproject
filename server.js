@@ -2698,22 +2698,26 @@ app.get('/api/users', requireAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Deck summaries for a specific user (for game tracker deck selection)
+// Deck summaries for a specific user (for game tracker deck selection).
+// Any signed-in player starting a game can pick a deck for any account that
+// appears in the player list — including playgroup members who are not signed
+// in on this device. Only names / format / commander are returned, never the
+// full list. `is_public` is a browse-tab flag, not a game-tracker gate.
 app.get('/api/users/:id/decks', requireAuth, async (req, res) => {
   try {
-    const userId = parseInt(req.params.id);
-    // A user may list their own decks (public or private), but only the
-    // PUBLIC decks of other accounts — never another user's private decks.
-    const isSelf = Number(userId) === Number(req.accountId);
+    const userId = parseInt(req.params.id, 10);
+    if (!Number.isFinite(userId) || userId <= 0) {
+      return res.status(400).json({ error: 'Invalid user id' });
+    }
     const [rows] = await db().query(
-      `SELECT id, data FROM decks WHERE account_id = ?${isSelf ? '' : ' AND is_public = 1'} ORDER BY created_at ASC`,
+      'SELECT id, data FROM decks WHERE account_id = ? ORDER BY created_at ASC',
       [userId]
     );
     const out = rows.map(r => {
-      const d = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
+      const d = typeof r.data === 'string' ? JSON.parse(r.data) : (r.data || {});
       const cmd = (d.cards || []).find(c => c.isCommander);
       return {
-        id: d.id,
+        id: d.id || String(r.id),
         name: d.name || 'Untitled',
         format: d.format || '',
         commander: d.commander || null,
