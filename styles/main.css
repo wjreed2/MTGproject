@@ -281,7 +281,8 @@
   transition: opacity 0.15s;
 }
 .deck-stack-card:hover .stack-game-changer,
-.deck-stack-card:focus-within .stack-game-changer { opacity: 1; }
+.deck-stack-card:focus-within .stack-game-changer,
+.deck-stack-card.is-stack-peek .stack-game-changer { opacity: 1; }
 .deck-gc-chip {
   flex-shrink: 0;
   font-size: 0.58rem;
@@ -2856,6 +2857,27 @@ img.stack-main.loaded { opacity: 1; }
   transition: border-color 0.2s;
 }
 .player-card:hover { border-color: var(--border2); }
+.seat-nudge {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  align-items: center;
+  flex-shrink: 0;
+}
+.seat-nudge-btn {
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  color: var(--text2);
+  border-radius: 5px;
+  width: 22px;
+  height: 18px;
+  padding: 0;
+  line-height: 1;
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+.seat-nudge-btn:hover:not(:disabled) { color: var(--gold); border-color: var(--gold); }
+.seat-nudge-btn:disabled { opacity: 0.28; cursor: default; }
 .player-eliminated {
   opacity: 0.5;
   filter: grayscale(40%);
@@ -2999,6 +3021,66 @@ img.stack-main.loaded { opacity: 1; }
   cursor: pointer; touch-action: manipulation;
 }
 .x-stepper-btn:active { background: var(--bg); transform: scale(0.92); }
+
+/* In-game number wheel — flick/scroll to pick an amount, no keyboard. */
+.num-wheel {
+  position: relative;
+  width: 72px;
+  flex-shrink: 0;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 28%, #000 72%, transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0%, #000 28%, #000 72%, transparent 100%);
+}
+.num-wheel--sm { height: 96px; width: 64px; }
+.num-wheel--lg { height: 180px; width: 100%; max-width: 220px; margin: 0 auto; }
+.num-wheel-vp {
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scroll-snap-type: y mandatory;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  touch-action: pan-y;
+  overscroll-behavior: contain;
+}
+.num-wheel-vp::-webkit-scrollbar { display: none; }
+.num-wheel--sm .num-wheel-vp { padding: 32px 0; }
+.num-wheel--lg .num-wheel-vp { padding: 72px 0; }
+.num-wheel-item {
+  scroll-snap-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600;
+  color: var(--text3);
+  line-height: 1;
+}
+.num-wheel--sm .num-wheel-item { height: 32px; font-size: 0.95rem; }
+.num-wheel--lg .num-wheel-item { height: 36px; font-size: 1.15rem; }
+.num-wheel-item.is-selected { color: var(--gold); font-weight: 700; font-size: 1.15rem; }
+.num-wheel--lg .num-wheel-item.is-selected { font-size: 1.45rem; }
+.num-wheel-frame {
+  position: absolute;
+  left: 6px; right: 6px;
+  top: 50%;
+  pointer-events: none;
+  border-radius: 8px;
+  border: 1px solid rgba(200, 168, 74, 0.35);
+  background: rgba(200, 168, 74, 0.08);
+  transform: translateY(-50%);
+}
+.num-wheel--sm .num-wheel-frame { height: 32px; }
+.num-wheel--lg .num-wheel-frame { height: 36px; }
+.tablet-player-menu .num-wheel--sm,
+.tablet-drag-menu .num-wheel--sm { width: 72px; height: 112px; }
+.tablet-player-menu .num-wheel--sm .num-wheel-item,
+.tablet-drag-menu .num-wheel--sm .num-wheel-item { height: 36px; font-size: 1.05rem; }
+.tablet-player-menu .num-wheel--sm .num-wheel-vp,
+.tablet-drag-menu .num-wheel--sm .num-wheel-vp { padding: 36px 0; }
+.tablet-player-menu .num-wheel--sm .num-wheel-frame,
+.tablet-drag-menu .num-wheel--sm .num-wheel-frame { height: 36px; }
 /* Bigger counter buttons inside the tablet ⋯ menu and the drag-to-deal menu (commander
    damage / poison / X) — same size in both so they're easy to tap. */
 .tablet-player-menu .x-stepper-btn,
@@ -3891,7 +3973,8 @@ img.stack-main.loaded { opacity: 1; }
 .deck-stack-card:first-child { margin-left: 8px; }
 .deck-stack-cards:hover .deck-stack-card { transform: translateX(0); }
 .deck-stack-cards:not(.vertical) .deck-stack-card:hover,
-.deck-stack-cards:not(.vertical) .deck-stack-card:focus-within {
+.deck-stack-cards:not(.vertical) .deck-stack-card:focus-within,
+.deck-stack-cards:not(.vertical) .deck-stack-card.is-stack-peek {
   z-index: 20;
   margin-right: calc(var(--deck-card-w, 220px) - 38px);
   transform: translateY(-6px) scale(1.05);
@@ -3976,7 +4059,7 @@ img.stack-main.loaded { opacity: 1; }
   z-index: 1;
   min-height: 0;
   min-width: 0;
-  overflow: hidden;
+  overflow: visible;
   border-top: none;
   border-left: none;
   padding: 0;
@@ -4082,38 +4165,38 @@ img.stack-main.loaded { opacity: 1; }
 .deck-stack-view > .deck-extra-zones-wrap .stack-main img {
   max-width: 100%;
 }
-/* Maybe board / sideboard: vertical peek stack, no hover fan-out (stable drag) */
+/* Maybe board / Adds / Cuts / sideboard: same vertical peek as the mainboard.
+   Hover/focus lifts the card (z-index + scale). Sibling push is phone-only
+   (mobile.css) so desktop drag targets stay put. */
 .deck-stack-view > .deck-extra-zones-wrap .deck-stack-cards.vertical {
   align-items: stretch;
   padding: 8px 2px 10px;
   overflow: visible;
+  position: relative;
+  isolation: isolate;
 }
 .deck-stack-view > .deck-extra-zones-wrap .deck-stack-cards.vertical .deck-stack-card {
   margin-left: 0 !important;
   margin-top: calc(-1 * (var(--deck-card-w, 220px) / 0.715 - 36px));
   width: 100% !important;
   max-width: 100% !important;
-  transform: none !important;
 }
 .deck-stack-view > .deck-extra-zones-wrap .deck-stack-cards.vertical .deck-stack-card:first-child {
   margin-top: 8px !important;
 }
-.deck-stack-view > .deck-extra-zones-wrap .deck-stack-cards:hover .deck-stack-card,
-.deck-stack-view > .deck-extra-zones-wrap .deck-stack-cards.vertical .deck-stack-card:hover,
-.deck-stack-view > .deck-extra-zones-wrap .deck-stack-cards.vertical .deck-stack-card:focus-within,
-.deck-stack-view > .deck-extra-zones-wrap .deck-stack-cards.vertical .deck-stack-card:hover ~ .deck-stack-card,
-.deck-stack-view > .deck-extra-zones-wrap .deck-stack-cards.vertical .deck-stack-card:focus-within ~ .deck-stack-card,
-.deck-stack-view.vertical-orient > .deck-extra-zones-wrap .deck-stack-card:hover,
-.deck-stack-view.vertical-orient > .deck-extra-zones-wrap .deck-stack-card:focus-within,
-.deck-stack-view.vertical-orient > .deck-extra-zones-wrap .deck-stack-card:hover ~ .deck-stack-card,
-.deck-stack-view.vertical-orient > .deck-extra-zones-wrap .deck-stack-card:focus-within ~ .deck-stack-card,
-.deck-stack-view.vertical-orient > .deck-sideboard-section .deck-stack-card:hover,
-.deck-stack-view.vertical-orient > .deck-sideboard-section .deck-stack-card:focus-within,
-.deck-stack-view.vertical-orient > .deck-sideboard-section .deck-stack-card:hover ~ .deck-stack-card,
-.deck-stack-view.vertical-orient > .deck-sideboard-section .deck-stack-card:focus-within ~ .deck-stack-card {
+.deck-stack-view > .deck-extra-zones-wrap .deck-extra-zone-section:has(.deck-stack-card:hover),
+.deck-stack-view > .deck-extra-zones-wrap .deck-extra-zone-section:has(.deck-stack-card:focus-within),
+.deck-stack-view > .deck-extra-zones-wrap .deck-extra-zone-section:has(.deck-stack-card.is-stack-peek) {
+  z-index: 4;
+}
+/* Keep stacks still while a card is being dragged between zones. */
+#deckCardList.is-deck-dragging .deck-extra-zones-wrap .deck-stack-card:hover,
+#deckCardList.is-deck-dragging .deck-extra-zones-wrap .deck-stack-card:focus-within,
+#deckCardList.is-deck-dragging .deck-extra-zones-wrap .deck-stack-card.is-stack-peek,
+#deckCardList.is-deck-dragging .deck-extra-zones-wrap .deck-stack-card:hover ~ .deck-stack-card,
+#deckCardList.is-deck-dragging .deck-extra-zones-wrap .deck-stack-card:focus-within ~ .deck-stack-card,
+#deckCardList.is-deck-dragging .deck-extra-zones-wrap .deck-stack-card.is-stack-peek ~ .deck-stack-card {
   transform: none !important;
-  margin-right: 0 !important;
-  z-index: auto !important;
 }
 #deckCardList .deck-zone-draggable {
   cursor: grab;
@@ -4169,7 +4252,8 @@ img.stack-main.loaded { opacity: 1; }
 }
 .deck-stack-cards.vertical .deck-stack-card:first-child { margin-top: 8px; }
 .deck-stack-cards.vertical .deck-stack-card:hover,
-.deck-stack-cards.vertical .deck-stack-card:focus-within {
+.deck-stack-cards.vertical .deck-stack-card:focus-within,
+.deck-stack-cards.vertical .deck-stack-card.is-stack-peek {
   z-index: 10;
   margin-right: 0;
   transform: translateX(6px) scale(1.05);
@@ -4177,7 +4261,8 @@ img.stack-main.loaded { opacity: 1; }
 }
 /* Peek stack: lift hovered card only — don't shove cards below (causes flicker with overlap) */
 .deck-stack-cards.vertical .deck-stack-card:hover ~ .deck-stack-card,
-.deck-stack-cards.vertical .deck-stack-card:focus-within ~ .deck-stack-card {
+.deck-stack-cards.vertical .deck-stack-card:focus-within ~ .deck-stack-card,
+.deck-stack-cards.vertical .deck-stack-card.is-stack-peek ~ .deck-stack-card {
   transform: none;
 }
 .deck-stack-cards.vertical::-webkit-scrollbar { display: none; }
@@ -4193,7 +4278,8 @@ img.stack-main.loaded { opacity: 1; }
   transition: border-color 0.15s, border-width 0.15s; cursor: pointer;
 }
 .deck-stack-card:hover .stack-main,
-.deck-stack-card:focus-within .stack-main {
+.deck-stack-card:focus-within .stack-main,
+.deck-stack-card.is-stack-peek .stack-main {
   border-color: var(--border2);
   border-width: 3px;
 }
@@ -4237,7 +4323,11 @@ img.stack-main.loaded { opacity: 1; }
 .deck-stack-card:focus-within .stack-remove,
 .deck-stack-card:focus-within .stack-version,
 .deck-stack-card:focus-within .stack-tag,
-.deck-stack-card:focus-within .stack-qty { opacity: 1; }
+.deck-stack-card:focus-within .stack-qty,
+.deck-stack-card.is-stack-peek .stack-remove,
+.deck-stack-card.is-stack-peek .stack-version,
+.deck-stack-card.is-stack-peek .stack-tag,
+.deck-stack-card.is-stack-peek .stack-qty { opacity: 1; }
 .stack-version:hover { background: rgba(200,168,74,0.85); color: #000; }
 .stack-remove:hover  { background: rgba(212,90,74,0.85); }
 .stack-tag:hover { background: rgba(138,108,212,0.85); color: #fff; }
@@ -4380,7 +4470,9 @@ img.stack-main.loaded { opacity: 1; }
 .deck-stack-card:hover .stack-not-owned,
 .deck-stack-card:hover .stack-foil-mismatch,
 .deck-stack-card:focus-within .stack-not-owned,
-.deck-stack-card:focus-within .stack-foil-mismatch { opacity: 1; }
+.deck-stack-card:focus-within .stack-foil-mismatch,
+.deck-stack-card.is-stack-peek .stack-not-owned,
+.deck-stack-card.is-stack-peek .stack-foil-mismatch { opacity: 1; }
 
 /* List-view row ownership indicators */
 .deck-card-row.not-owned .deck-card-name { color: var(--text3); opacity: 0.6; }
@@ -4580,7 +4672,8 @@ img.stack-main.loaded { opacity: 1; }
   white-space: nowrap;
 }
 .deck-stack-card:hover .stack-swap,
-.deck-stack-card:focus-within .stack-swap {
+.deck-stack-card:focus-within .stack-swap,
+.deck-stack-card.is-stack-peek .stack-swap {
   opacity: 1;
   transform: translateX(-50%);
 }
