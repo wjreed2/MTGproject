@@ -318,7 +318,8 @@ async function openNewGame() {
   renderNewGamePlayersList();
 
   try {
-    const res = await fetch(`${_gameApiBase()}/users`, { credentials: 'include' });
+    // scope=game: playgroup co-members sort first; all users remain selectable
+    const res = await fetch(`${_gameApiBase()}/users?scope=game`, { credentials: 'include' });
     const data = await res.json();
     _allAppUsers = Array.isArray(data) ? data : [];
   } catch { _allAppUsers = []; }
@@ -470,8 +471,13 @@ function renderNewGamePlayersList() {
     ).join('');
 
     const selDeck = userDecks.find(d => String(d.id) === String(p.deckId));
+    // Registered seat with no visible decks (not in your playgroup / nothing public):
+    // fall back to a typed deck name so the game can still be recorded.
     const deckCell = p.userId
-      ? `<select onchange="ngpDeckSelect(${i}, this.value)" style="min-width:0">${deckOpts}</select>`
+      ? (userDecks.length
+        ? `<select onchange="ngpDeckSelect(${i}, this.value)" style="min-width:0">${deckOpts}</select>`
+        : `<input type="text" value="${escapeHtml(p.deckName || '')}" placeholder="Deck name (join a playgroup to pick their decks)"
+             onchange="ngpDeckTyped(${i}, this.value)" style="min-width:0">`)
       : `<input type="text" value="${escapeHtml(p.deckName || '')}" placeholder="Deck (optional)"
            onchange="ngpDeckTyped(${i}, this.value)" style="min-width:0">`;
     const commanderLabel = selDeck?.commander || p.commander || '';
