@@ -208,6 +208,12 @@
           <input type="checkbox" id="settingsPriceChangeCk" checked onchange="onPriceChangeVendorToggle('ck', this.checked)">
           Card Kingdom
         </label>
+        <label for="settingsPricePrimaryVendor" style="font-size:0.74rem;color:var(--text2);display:block;margin-bottom:4px">Displayed price source</label>
+        <select id="settingsPricePrimaryVendor" onchange="onPricePrimaryVendorChange(this.value)"
+          style="width:100%;margin-bottom:8px;font-size:0.75rem;padding:4px 6px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);border-radius:var(--radius)">
+          <option value="tcg">TCGplayer</option>
+          <option value="ck">Card Kingdom</option>
+        </select>
         <label style="font-size:0.74rem;color:var(--text2);display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer">
           <input type="checkbox" id="settingsPriceDeltaShow" checked onchange="onPriceDeltaShowToggle(this.checked)">
           Show price change deltas
@@ -405,18 +411,11 @@
     <div class="stat-card"><div class="stat-val" id="statCards">0</div><div class="stat-label">Total Cards</div></div>
     <div class="stat-card"><div class="stat-val" id="statUnique">0</div><div class="stat-label">Unique Cards</div></div>
     <div class="stat-card"><div class="stat-val" id="statSets">0</div><div class="stat-label">Sets</div></div>
-    <div class="stat-card"><div class="stat-val" id="statValue">$0</div><div class="stat-label">Est. Value (TCG)</div></div>
-    <div class="stat-card"><div class="stat-val" id="statValueCK">$0</div><div class="stat-label">Est. Value (CK)</div></div>
+    <div class="stat-card stat-card--value" id="statValueCard" role="button" tabindex="0" aria-label="Collection value details" onclick="openPriceInfoModal(event)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openPriceInfoModal(event)}" title="Click for price details">
+      <div class="stat-val" id="statValue">$0</div>
+      <div class="stat-label" id="statValueLabel">Est. Value (TCG)</div>
+    </div>
   </div>
-  <div class="stat-card stat-card--movers" id="statTopMoversCard">
-    <div class="stat-movers-preview" id="statTopMoversPreview" hidden></div>
-    <div class="stat-movers" id="statTopMovers"><div class="stat-movers-empty">—</div></div>
-    <button type="button" class="stat-movers-label-btn" id="statTopMoversToggle" onclick="toggleTopMoversMobile()" aria-expanded="false">
-      <span class="stat-label" id="statTopMoversLabel">Top Movers</span>
-      <span class="stat-movers-chevron" aria-hidden="true">▸</span>
-    </button>
-  </div>
-
   <!-- Shared collection banner — shown when viewing another user's collection -->
   <div id="sharedCollViewBanner" style="display:none;align-items:center;gap:10px;margin-bottom:0.75rem;padding:8px 12px;background:rgba(60,120,200,0.12);border:1px solid rgba(60,120,200,0.3);border-radius:var(--radius2)">
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;flex-shrink:0;color:var(--blue)"><path d="M13 8A5 5 0 1 1 3 8a5 5 0 0 1 10 0z"/><path d="M8 6v2l1.5 1.5"/></svg>
@@ -491,8 +490,8 @@
       <button id="historyBtn" class="btn btn-outline btn-sm" onclick="toggleCollectionHistory()" style="white-space:nowrap;font-size:0.72rem;padding:3px 10px">◷ History</button>
       <button class="btn btn-outline btn-sm" onclick="openCollectionShareModal()" style="white-space:nowrap;font-size:0.72rem;padding:3px 10px" title="Share collection / view shared collections">⇄ Share</button>
     </div>
-    <!-- Row 2: quick-filter chips -->
-    <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px">
+    <!-- Row 2: quick-filter chips — single line, scrolls horizontally if cramped -->
+    <div id="quickFilterRow" style="display:flex;align-items:center;flex-wrap:nowrap;gap:5px;overflow-x:auto;padding-bottom:2px">
       <span style="font-size:0.68rem;color:var(--text3);white-space:nowrap;letter-spacing:0.04em;text-transform:uppercase">Type</span>
       <button class="filter-chip" data-qtype="creature"     onclick="toggleQuickType('creature',this)">Creature</button>
       <button class="filter-chip" data-qtype="instant"      onclick="toggleQuickType('instant',this)">Instant</button>
@@ -507,7 +506,7 @@
       <button class="filter-chip" data-qflag="nonfoil"   onclick="toggleQuickFlag('nonfoil',this)">Non-foil</button>
       <button class="filter-chip" data-qflag="new"       onclick="toggleQuickFlag('new',this)">New</button>
       <span style="width:1px;height:14px;background:var(--border2);flex-shrink:0"></span>
-      <span style="font-size:0.68rem;color:var(--text3);white-space:nowrap;letter-spacing:0.04em;text-transform:uppercase">Mana Value</span>
+      <span title="Mana Value" style="font-size:0.68rem;color:var(--text3);white-space:nowrap;letter-spacing:0.04em;text-transform:uppercase">MV</span>
       <input id="cmcMinInput" type="number" min="0" max="20" placeholder="Min"
         oninput="setQuickCMC()"
         style="width:46px;padding:3px 5px;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);color:var(--text);font-size:0.78rem;font-family:'JetBrains Mono',monospace">
@@ -547,7 +546,7 @@
   <div id="setTabTopBar" class="top-action-bar" style="display:none;align-items:center;gap:10px;margin-bottom:1.25rem;flex-wrap:wrap">
     <button id="backToSetsBtn" class="btn btn-ghost btn-sm" onclick="closeSetDetail()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><polyline points="15 18 9 12 15 6"/></svg> All Sets</button>
   </div>
-  <div class="view-controls">
+  <div class="view-controls" id="setViewControls">
     <input class="search-box" type="text" placeholder="Search sets…" oninput="filterSets()" id="setSearch">
     <select onchange="filterSetType()" id="setTypeFilter">
       <option value="">All Types</option>
@@ -578,18 +577,14 @@
     </div>
   </div>
   <div id="setDetailArea" style="display:none" class="set-detail-split">
-    <div class="set-detail-sidebar" id="setDetailSidebar"></div>
     <div id="setDetailMain" style="flex:1;min-width:0">
       <div class="top-action-bar" style="display:flex;align-items:center;gap:10px;margin-bottom:0.5rem;flex-wrap:wrap">
         <span id="activeSetName" class="panel-title" style="font-size:1.35rem"></span>
         <span id="activeSetCode" class="tag tag-blue"></span>
         <span id="activeSetMeta" class="tag tag-gold"></span>
         <div style="flex:1"></div>
-        <button id="toggleSetSidebarBtn" class="btn btn-outline btn-sm" onclick="toggleSetSidebar()" title="Show or hide set switcher">⇤ Sets</button>
       </div>
-      <div class="panel">
-        <div id="setDetailContent" style="padding:1rem"></div>
-      </div>
+      <div id="setDetailContent"></div>
     </div>
   </div>
 </div>
@@ -2131,6 +2126,15 @@
       <button class="btn btn-ghost btn-sm" style="margin-left:auto;color:var(--text2)" onclick="loadAdminUsers()">↻ Refresh</button>
     </div>
     <div id="usersModalList"></div>
+  </div>
+</div>
+
+<!-- PRICE INFO MODAL — value totals, top movers, price display settings -->
+<div class="modal-overlay" id="priceInfoModal" onclick="if(event.target===this)closePriceInfoModal()">
+  <div class="modal" style="width:min(560px,96vw);max-height:88vh;overflow-y:auto">
+    <button class="btn btn-ghost btn-icon" style="position:absolute;top:0.75rem;right:0.75rem" onclick="closePriceInfoModal()">✕</button>
+    <div class="modal-title">Collection Value</div>
+    <div id="priceInfoModalBody"></div>
   </div>
 </div>
 

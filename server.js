@@ -5990,7 +5990,13 @@ async function getVendorPricesAtOrBefore(scryfallIds, date) {
     for (const id of batch) if (!found.has(id)) missing.push(id);
   }
 
-  // Printings with no row on the global asOf date (rare gaps) — earliest snapshot each.
+  // Printings with no row on the global asOf date (e.g. a partial snapshot day):
+  // use each card's NEWEST snapshot at-or-before the requested date, falling back to
+  // its earliest row only when every snapshot postdates the request (card debuted
+  // later). One pass via conditional aggregation; rows ordered newest-first so a
+  // scryfall_id spanning several mtgjson uuids keeps the freshest uuid's price.
+  // (The old MIN(snapshot_date) fallback served launch-week hype prices to every
+  // card a partial snapshot missed — and clients then persisted those.)
   if (missing.length) {
     for (let i = 0; i < missing.length; i += CH) {
       const batch = missing.slice(i, i + CH);
@@ -6002,14 +6008,19 @@ async function getVendorPricesAtOrBefore(scryfallIds, date) {
            FROM mtgjson_printing p
            JOIN card_price_daily c ON c.uuid = p.uuid
            JOIN (
-             SELECT p2.uuid, MIN(c2.snapshot_date) AS md
+             SELECT p2.uuid,
+                    COALESCE(
+                      MAX(CASE WHEN c2.snapshot_date <= ? THEN c2.snapshot_date END),
+                      MIN(c2.snapshot_date)
+                    ) AS md
                FROM mtgjson_printing p2
                JOIN card_price_daily c2 ON c2.uuid = p2.uuid
               WHERE p2.scryfall_id IN (${ph})
               GROUP BY p2.uuid
            ) t ON t.uuid = p.uuid AND c.snapshot_date = t.md
-          WHERE p.scryfall_id IN (${ph})`,
-        [...batch, ...batch]
+          WHERE p.scryfall_id IN (${ph})
+          ORDER BY c.snapshot_date DESC`,
+        [date, ...batch, ...batch]
       );
       for (const r of rows) {
         const key = String(r.sid || '').toLowerCase();
@@ -10436,7 +10447,11 @@ async function start() {
       try {
         _indexHtmlCache = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8')
           .replace('/dist/bundle.js', `/dist/bundle.js?v=${_assetVersion}`)
-          .replace('/dist/scanner-card-yolo.js', `/dist/scanner-card-yolo.js?v=${_assetVersion}`);
+          .replace('/dist/scanner-card-yolo.js', `/dist/scanner-card-yolo.js?v=${_assetVersion}`)
+          // Stylesheets carry load-bearing layout (grid classes, modal styles) — bust
+          // them with the bundle so new markup never pairs with a stale cached CSS.
+          .replace('/styles/main.css', `/styles/main.css?v=${_assetVersion}`)
+          .replace('/styles/mobile.css', `/styles/mobile.css?v=${_assetVersion}`);
       } catch (_) {
         return res.sendFile(path.join(__dirname, 'index.html'));
       }

@@ -315,25 +315,22 @@ function _htmlVendorPriceDelta(card, vendor, timeframe, customDate, mode) {
   return `<span class="price-delta ${cls}" title="${vendor.toUpperCase()} change (${titleTf})">${text}</span>`;
 }
 
-function _htmlCardPriceBadges(card) {
-  const vendors = typeof getPriceVendorEnabled === 'function'
-    ? getPriceVendorEnabled()
-    : { tcg: true, ck: true };
-  const dispPrice = vendors.tcg ? getTCGPriceForCard(card) : 0;
-  const ckPrice = vendors.ck ? getCKPriceForCard(card) : 0;
-  const prefs = typeof getPriceDeltaDisplayPrefs === 'function'
+function _htmlCardPriceBadges(card, ctx) {
+  // Card badges show only the selected primary source (Settings → Displayed price source).
+  // `ctx` {primary, prefs} lets renderCollection resolve settings once per pass instead
+  // of several localStorage reads per card on the hottest render path.
+  const primary = ctx?.primary
+    || (typeof getPrimaryPriceVendor === 'function' ? getPrimaryPriceVendor() : 'tcg');
+  const price = primary === 'ck' ? getCKPriceForCard(card) : getTCGPriceForCard(card);
+  const prefs = ctx?.prefs || (typeof getPriceDeltaDisplayPrefs === 'function'
     ? getPriceDeltaDisplayPrefs()
-    : { mode: 'pct', timeframe: 'month', customDate: '' };
-  const tcgDelta = dispPrice
-    ? _htmlVendorPriceDelta(card, 'tcg', prefs.timeframe, prefs.customDate, prefs.mode)
-    : '';
-  const ckDelta = ckPrice
-    ? _htmlVendorPriceDelta(card, 'ck', prefs.timeframe, prefs.customDate, prefs.mode)
+    : { mode: 'pct', timeframe: 'month', customDate: '' });
+  const delta = price
+    ? _htmlVendorPriceDelta(card, primary, prefs.timeframe, prefs.customDate, prefs.mode)
     : '';
   return `
     <div class="card-prices">
-      ${dispPrice ? `<span class="price-badge price-tcg">${card.foil ? '✦ ' : ''}$${dispPrice.toFixed(2)}${tcgDelta}</span>` : ''}
-      ${ckPrice ? `<span class="price-badge price-ck">$${ckPrice.toFixed(2)}${ckDelta}</span>` : ''}
+      ${price ? `<span class="price-badge ${primary === 'ck' ? 'price-ck' : 'price-tcg'}">${card.foil ? '✦ ' : ''}$${price.toFixed(2)}${delta}</span>` : ''}
       ${card.qty > 1 ? `<span class="price-badge price-qty" style="margin-left:auto">x${card.qty}</span>` : ''}
     </div>`;
 }
@@ -701,6 +698,14 @@ function renderCollection(opts) {
   grid.style.display = 'grid';
   empty.style.display = 'none';
 
+  // Resolve price display settings once per render pass (see _htmlCardPriceBadges)
+  const _badgeCtx = {
+    primary: typeof getPrimaryPriceVendor === 'function' ? getPrimaryPriceVendor() : 'tcg',
+    prefs: typeof getPriceDeltaDisplayPrefs === 'function'
+      ? getPriceDeltaDisplayPrefs()
+      : { mode: 'pct', timeframe: 'month', customDate: '' },
+  };
+
   try {
     if (currentView === 'list') {
       grid.innerHTML = cards.map(c => {
@@ -717,7 +722,7 @@ function renderCollection(opts) {
         <div class="card-meta">
           <div class="card-name">${escapeHtml(c.name)}</div>
           <div style="font-size:0.78rem;color:var(--text3)">${setCode} • ${(typeof resolveCardTypeLine === 'function' ? resolveCardTypeLine(c) : (c.type || '')).split('—')[0].trim()}</div>
-          ${_htmlCardPriceBadges(c)}
+          ${_htmlCardPriceBadges(c, _badgeCtx)}
         </div>
       </div>`;
       }).join('');
@@ -735,7 +740,7 @@ function renderCollection(opts) {
         </div>
         <div class="card-meta">
           <div class="card-name">${escapeHtml(c.name)}</div>
-          ${_htmlCardPriceBadges(c)}
+          ${_htmlCardPriceBadges(c, _badgeCtx)}
         </div>
       </div>`;
       }).join('');
@@ -765,8 +770,10 @@ function _collectionUniqueCardKey(c) {
   return nm ? 'nm:' + nm : '';
 }
 
-function _rowExcludedFromValueTotalsByThreshold(c) {
-  const floor = typeof getValueExcludeBelowUsd === 'function' ? getValueExcludeBelowUsd() : 0;
+function _rowExcludedFromValueTotalsByThreshold(c, floorArg) {
+  const floor = floorArg !== undefined
+    ? floorArg
+    : (typeof getValueExcludeBelowUsd === 'function' ? getValueExcludeBelowUsd() : 0);
   if (!floor || floor <= 0) return false;
   const unit = typeof getUnitMarketMaxUsd === 'function'
     ? getUnitMarketMaxUsd(c)
@@ -811,176 +818,131 @@ function _cardTopMoverChange(card, mode, vendors, timeframe, customDate) {
   return { delta: best, key: bestKey };
 }
 
-let _topMoversMobileExpanded = false;
+let _statValueTotals = { tcg: 0, ck: 0, enabled: { tcg: true, ck: true } };
+let _priceModalSliderActive = false;
 
-function _isPhoneViewport() {
-  return typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 768px)').matches;
+function openPriceInfoModal(event) {
+  if (event) event.stopPropagation();
+  const modal = document.getElementById('priceInfoModal');
+  if (!modal) return;
+  // Refresh totals before opening (modal not yet open, so the updateStats hook no-ops)
+  if (typeof updateStats === 'function') { try { updateStats(); } catch (_) {} }
+  _renderPriceInfoModal();
+  modal.classList.add('open');
 }
 
-function toggleTopMoversMobile() {
-  if (!_isPhoneViewport()) return;
-  _topMoversMobileExpanded = !_topMoversMobileExpanded;
-  if (typeof getFilteredCollection === 'function') {
-    _renderTopMoversStat(getFilteredCollection());
-  } else {
-    _syncTopMoversMobileChrome();
-  }
+function closePriceInfoModal() {
+  document.getElementById('priceInfoModal')?.classList.remove('open');
 }
 
-function _syncTopMoversMobileChrome() {
-  const card = document.getElementById('statTopMoversCard');
-  const preview = document.getElementById('statTopMoversPreview');
-  const full = document.getElementById('statTopMovers');
-  const toggle = document.getElementById('statTopMoversToggle');
-  if (!card) return;
-
-  const phone = _isPhoneViewport();
-  card.classList.toggle('stat-card--movers-mobile', phone);
-  card.classList.toggle('is-expanded', phone && _topMoversMobileExpanded);
-
-  if (toggle) {
-    toggle.setAttribute('aria-expanded', phone && _topMoversMobileExpanded ? 'true' : 'false');
-    const chev = toggle.querySelector('.stat-movers-chevron');
-    if (chev) chev.textContent = phone && _topMoversMobileExpanded ? '▾' : '▸';
-  }
-
-  if (!preview || !full) return;
-  if (!phone) {
-    preview.hidden = true;
-    full.hidden = false;
-    return;
-  }
-  const empty = full.querySelector('.stat-movers-empty');
-  if (empty) {
-    preview.hidden = true;
-    full.hidden = false;
-    return;
-  }
-  preview.hidden = _topMoversMobileExpanded;
-  full.hidden = !_topMoversMobileExpanded;
+function _refreshPriceInfoModalIfOpen() {
+  if (_priceModalSliderActive) return; // don't rebuild the slider mid-drag
+  if (document.getElementById('priceInfoModal')?.classList.contains('open')) _renderPriceInfoModal();
 }
 
-function _topMoversRowAttrs(uid, name, foil, esc) {
-  const uidJs = String(uid).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-  return {
-    uidJs,
-    title: `${esc(name)}${foil}`,
-    openHandlers: `onclick="event.stopPropagation();openCardDetail('${uidJs}')"
-    onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openCardDetail('${uidJs}')}"`,
-  };
-}
-
-function _topMoversRowHtml(card, delta, prefs, esc) {
-  const uid = card.uid || (card.scryfallId ? card.scryfallId + (card.foil ? '_f' : '_n') : '');
-  const name = card.name || 'Unknown';
-  const usdText = typeof formatPriceDeltaText === 'function' ? formatPriceDeltaText(delta, 'usd') : '';
-  const pctText = typeof formatPriceDeltaText === 'function' ? formatPriceDeltaText(delta, 'pct') : '';
-  const cls = typeof priceDeltaClass === 'function' ? priceDeltaClass(delta) : '';
-  const foil = card.foil ? ' ✦' : '';
-  const { title, openHandlers } = _topMoversRowAttrs(uid, name, foil, esc);
-  return `<div class="stat-mover-row" role="button" tabindex="0" title="${title}"
-    ${openHandlers}>
-    <span class="stat-mover-name">${esc(name)}${foil}</span>
-    <span class="stat-mover-figures">
-      <span class="stat-mover-delta">${esc(usdText)}</span>
-      <span class="stat-mover-pct ${cls}">${esc(pctText)}</span>
-    </span>
-  </div>`;
-}
-
-function _topMoversListRowHtml(card, delta, prefs, esc) {
-  const uid = card.uid || (card.scryfallId ? card.scryfallId + (card.foil ? '_f' : '_n') : '');
-  const name = card.name || 'Unknown';
-  const usdText = typeof formatPriceDeltaText === 'function' ? formatPriceDeltaText(delta, 'usd') : '';
-  const pctText = typeof formatPriceDeltaText === 'function' ? formatPriceDeltaText(delta, 'pct') : '';
-  const cls = typeof priceDeltaClass === 'function' ? priceDeltaClass(delta) : '';
-  const foil = card.foil ? ' ✦' : '';
-  const { title, openHandlers } = _topMoversRowAttrs(uid, name, foil, esc);
-  return `<div class="stat-mover-row stat-mover-row--list" role="button" tabindex="0" title="${title}"
-    ${openHandlers}>
-    <span class="stat-mover-name">${esc(name)}${foil}</span>
-    <span class="stat-mover-figures">
-      <span class="stat-mover-delta">${esc(usdText)}</span>
-      <span class="stat-mover-pct ${cls}">${esc(pctText)}</span>
-    </span>
-  </div>`;
-}
-
-function _renderTopMoversStat(rows) {
-  const el = document.getElementById('statTopMovers');
-  const labelEl = document.getElementById('statTopMoversLabel');
-  if (!el) return;
-
-  const prefs = typeof getPriceDeltaDisplayPrefs === 'function'
-    ? getPriceDeltaDisplayPrefs()
-    : { mode: 'pct', timeframe: 'month', customDate: '', show: true };
-  const moversCard = el.closest('.stat-card--movers') || el.closest('.stat-card');
-  if (prefs.show === false) {
-    if (moversCard) moversCard.style.display = 'none';
-    el.innerHTML = '';
-    const previewHide = document.getElementById('statTopMoversPreview');
-    if (previewHide) previewHide.innerHTML = '';
-    return;
-  }
-  if (moversCard) moversCard.style.display = '';
-
-  const vendors = typeof getPriceChangeVendorEnabled === 'function'
-    ? getPriceChangeVendorEnabled()
-    : { tcg: true, ck: true };
+/** Top movers for the modal table, by current delta prefs. */
+function _priceModalMoverRows(limit) {
+  const rows = typeof getFilteredCollection === 'function' ? getFilteredCollection() : collection;
+  const prefs = getPriceDeltaDisplayPrefs();
+  const vendors = getPriceChangeVendorEnabled();
   const scored = [];
   for (const c of rows || []) {
     const hit = _cardTopMoverChange(c, prefs.mode, vendors, prefs.timeframe, prefs.customDate);
     if (!hit || hit.key == null || !Number.isFinite(hit.key)) continue;
-    scored.push({ card: c, ...hit });
+    scored.push({ card: c, delta: hit.delta, key: hit.key });
   }
   scored.sort((a, b) => b.key - a.key || String(a.card.name || '').localeCompare(String(b.card.name || '')));
-
-  if (labelEl) {
-    let label = `Top Movers · ${_priceChangeTfShortLabel(prefs.timeframe, prefs.customDate)}`;
-    if (_isPhoneViewport() && scored.length > 1 && !_topMoversMobileExpanded) {
-      label += ` (${Math.min(scored.length, 6)})`;
-    }
-    labelEl.textContent = label;
-  }
-  const top = scored.slice(0, 6);
-  const previewEl = document.getElementById('statTopMoversPreview');
-  if (!top.length) {
-    el.innerHTML = '<div class="stat-movers-empty">—</div>';
-    if (previewEl) previewEl.innerHTML = '';
-    _syncTopMoversMobileChrome();
-    return;
-  }
-
-  const esc = typeof escapeHtml === 'function'
-    ? escapeHtml
-    : (s) => String(s ?? '').replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
-  const phone = _isPhoneViewport();
-  if (phone) {
-    if (previewEl) {
-      previewEl.innerHTML = _topMoversListRowHtml(top[0].card, top[0].delta, prefs, esc);
-    }
-    el.innerHTML = top.map(({ card, delta }) => _topMoversListRowHtml(card, delta, prefs, esc)).join('');
-  } else {
-    if (previewEl) previewEl.innerHTML = '';
-    el.innerHTML = top.map(({ card, delta }) => _topMoversRowHtml(card, delta, prefs, esc)).join('');
-  }
-  _syncTopMoversMobileChrome();
+  return scored.slice(0, limit || 10);
 }
 
-(function _initTopMoversMobileMq() {
-  if (typeof window.matchMedia !== 'function') return;
-  const mq = window.matchMedia('(max-width: 768px)');
-  const onChange = () => {
-    if (!mq.matches) _topMoversMobileExpanded = false;
-    if (typeof getFilteredCollection === 'function') {
-      _renderTopMoversStat(getFilteredCollection());
-    } else {
-      _syncTopMoversMobileChrome();
-    }
-  };
-  if (typeof mq.addEventListener === 'function') mq.addEventListener('change', onChange);
-  else if (typeof mq.addListener === 'function') mq.addListener(onChange);
-})();
+function _renderPriceInfoModal() {
+  const body = document.getElementById('priceInfoModalBody');
+  if (!body) return;
+  const esc = typeof escapeHtml === 'function' ? escapeHtml : (s => String(s ?? ''));
+  const t = _statValueTotals;
+  const primary = typeof getPrimaryPriceVendor === 'function' ? getPrimaryPriceVendor() : 'tcg';
+  const prefs = getPriceDeltaDisplayPrefs();
+  const floor = typeof getValueExcludeBelowUsd === 'function' ? getValueExcludeBelowUsd() : 0;
+  const tfLabel = _priceChangeTfShortLabel(prefs.timeframe, prefs.customDate);
+
+  const valueRows = [];
+  if (t.enabled.tcg) valueRows.push({ key: 'tcg', name: 'TCGplayer', val: t.tcg });
+  if (t.enabled.ck) valueRows.push({ key: 'ck', name: 'Card Kingdom', val: t.ck });
+
+  // Deltas are scored across all enabled vendors (same as the old movers strip), so the
+  // table shows name + delta only — pairing a cross-vendor delta with the primary
+  // vendor's price read as broken data ($0.00 next to a real move).
+  const showDeltas = prefs.show !== false;
+  const movers = showDeltas ? _priceModalMoverRows(10) : [];
+  const moverRowsHtml = movers.map(({ card, delta }) => {
+    const uid = card.uid || (card.scryfallId ? card.scryfallId + (card.foil ? '_f' : '_n') : '');
+    const uidJs = esc(String(uid).replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
+    const usdText = typeof formatPriceDeltaText === 'function' ? formatPriceDeltaText(delta, 'usd') : '';
+    const pctText = typeof formatPriceDeltaText === 'function' ? formatPriceDeltaText(delta, 'pct') : '';
+    const cls = typeof priceDeltaClass === 'function' ? priceDeltaClass(delta) : '';
+    return `<tr class="price-modal-mover-row" onclick="closePriceInfoModal();openCardDetail('${uidJs}')">
+      <td>${esc(card.name || '')}${card.foil ? ' ✦' : ''}</td>
+      <td>${esc(usdText)}</td>
+      <td class="${cls}">${esc(pctText)}</td>
+    </tr>`;
+  }).join('');
+
+  body.innerHTML = `
+    <div class="price-modal-section-title">Estimated value</div>
+    <table class="price-table" style="margin-bottom:1.1rem">
+      ${valueRows.map(r => `
+        <tr>
+          <td>${r.name}${r.key === primary ? ' <span class="price-modal-shown-tag">shown</span>' : ''}</td>
+          <td>$${r.val.toFixed(2)}</td>
+        </tr>`).join('')}
+    </table>
+    ${showDeltas ? `<div class="price-modal-section-title">Top movers · ${esc(tfLabel)}</div>
+    ${movers.length ? `
+    <table class="price-table price-modal-movers" style="margin-bottom:1.1rem">
+      <tr class="price-modal-head"><td>Card</td><td>Δ $</td><td>Δ %</td></tr>
+      ${moverRowsHtml}
+    </table>` : '<div style="font-size:0.8rem;color:var(--text3);margin-bottom:1.1rem">No price-change data yet for this timeframe.</div>'}` : ''}
+    <div class="price-modal-section-title">Settings</div>
+    <div class="price-modal-settings">
+      <label>Displayed price source
+        <select onchange="onPricePrimaryVendorChange(this.value)">
+          <option value="tcg"${primary === 'tcg' ? ' selected' : ''}>TCGplayer</option>
+          <option value="ck"${primary === 'ck' ? ' selected' : ''}>Card Kingdom</option>
+        </select>
+      </label>
+      ${showDeltas ? `<label>Movers timeframe
+        <select onchange="onPriceDeltaTfChange(this.value)">
+          ${['day', 'week', 'month', 'year', 'since_added'].map(v =>
+            `<option value="${v}"${prefs.timeframe === v ? ' selected' : ''}>${_priceChangeTfShortLabel(v, '')}</option>`).join('')}
+          ${prefs.timeframe === 'custom' ? `<option value="custom" selected>${esc(_priceChangeTfShortLabel('custom', prefs.customDate))}</option>` : ''}
+        </select>
+      </label>` : ''}
+      <label>Minimum price — omit rows under <strong id="priceModalMinLabel">${floor <= 0 ? 'Off' : '$' + floor.toFixed(2)}</strong> from totals
+        <input type="range" min="0" max="100" step="1" value="${Math.min(100, Math.max(0, Math.round(floor * 10)))}"
+          oninput="onPriceModalMinPriceInput(this.value)">
+      </label>
+    </div>`;
+}
+
+let _priceModalSliderTimer = null;
+function onPriceModalMinPriceInput(sliderVal) {
+  if (typeof onValueExcludeThresholdInput === 'function') onValueExcludeThresholdInput(sliderVal);
+  if (typeof renderValueExcludeSlider === 'function') renderValueExcludeSlider(); // sync Settings menu copy
+  const v = typeof getValueExcludeBelowUsd === 'function' ? getValueExcludeBelowUsd() : 0;
+  const label = document.getElementById('priceModalMinLabel');
+  if (label) label.textContent = v <= 0 ? 'Off' : ('$' + v.toFixed(2));
+  // Debounce the stats pass: one recompute + modal refresh shortly after the drag
+  // settles. The flag pauses the modal-refresh hook so the slider node survives the
+  // drag; the timer ALWAYS clears it (a drag ending at its start value fires no
+  // change event, which previously left the flag stuck and refreshes disabled).
+  _priceModalSliderActive = true;
+  if (_priceModalSliderTimer) clearTimeout(_priceModalSliderTimer);
+  _priceModalSliderTimer = setTimeout(() => {
+    _priceModalSliderActive = false;
+    _priceModalSliderTimer = null;
+    if (typeof updateStats === 'function') updateStats();
+  }, 250);
+}
 
 function updateStats() {
   const rows = getFilteredCollection();
@@ -990,28 +952,30 @@ function updateStats() {
   const vendors = typeof getPriceVendorEnabled === 'function'
     ? getPriceVendorEnabled()
     : { tcg: true, ck: true };
+  // One localStorage read per stats pass, not one per card in the reduces below
+  const _floor = typeof getValueExcludeBelowUsd === 'function' ? getValueExcludeBelowUsd() : 0;
   const valTCG = vendors.tcg ? rows.reduce((s, c) => {
-    if (_rowExcludedFromValueTotalsByThreshold(c)) return s;
+    if (_rowExcludedFromValueTotalsByThreshold(c, _floor)) return s;
     return s + getTCGPriceForCard(c) * (c.qty || 1);
   }, 0) : 0;
   const valCK = vendors.ck ? rows.reduce((s, c) => {
-    if (_rowExcludedFromValueTotalsByThreshold(c)) return s;
+    if (_rowExcludedFromValueTotalsByThreshold(c, _floor)) return s;
     return s + getCKPriceForCard(c) * (c.qty || 1);
   }, 0) : 0;
   document.getElementById('statCards').textContent = total.toLocaleString();
   document.getElementById('statUnique').textContent = unique.toLocaleString();
   document.getElementById('statSets').textContent = sets;
-  const tcgCard = document.getElementById('statValue')?.closest('.stat-card');
-  const ckCard = document.getElementById('statValueCK')?.closest('.stat-card');
-  if (tcgCard) tcgCard.style.display = vendors.tcg ? '' : 'none';
-  if (ckCard) ckCard.style.display = vendors.ck ? '' : 'none';
-  const tcgEl = document.getElementById('statValue');
-  const ckEl = document.getElementById('statValueCK');
-  if (tcgEl) tcgEl.textContent = '$' + valTCG.toFixed(0);
-  if (ckEl) ckEl.textContent = '$' + valCK.toFixed(0);
-  _renderTopMoversStat(rows);
+  const valueCard = document.getElementById('statValueCard');
+  if (valueCard) valueCard.style.display = (vendors.tcg || vendors.ck) ? '' : 'none';
+  const primary = typeof getPrimaryPriceVendor === 'function' ? getPrimaryPriceVendor() : 'tcg';
+  const valEl = document.getElementById('statValue');
+  if (valEl) valEl.textContent = '$' + (primary === 'ck' ? valCK : valTCG).toFixed(0);
+  const labelEl = document.getElementById('statValueLabel');
+  if (labelEl) labelEl.textContent = `Est. Value (${primary === 'ck' ? 'CK' : 'TCG'})`;
+  _statValueTotals = { tcg: valTCG, ck: valCK, enabled: vendors };
+  _refreshPriceInfoModalIfOpen();
   const fullTcg = vendors.tcg ? collection.reduce((s, c) => {
-    if (_rowExcludedFromValueTotalsByThreshold(c)) return s;
+    if (_rowExcludedFromValueTotalsByThreshold(c, _floor)) return s;
     return s + getTCGPriceForCard(c) * (c.qty || 1);
   }, 0) : 0;
   recordValueSnapshot(fullTcg);
@@ -4245,13 +4209,12 @@ function _paintFindResults(el) {
     const border = '1px solid var(--border)';
 
     const pr = c.prices || {};
-    const vendors = typeof getPriceVendorEnabled === 'function'
-      ? getPriceVendorEnabled()
-      : { tcg: true, ck: true };
-    const tcgUsd = vendors.tcg ? (parseFloat(pr.usd) || 0) : 0;
-    const ckUsd = vendors.ck ? (parseFloat(pr.usd_ck) || 0) : 0;
-    const priceBadges = (tcgUsd > 0 ? `<span class="price-badge price-tcg">$${tcgUsd.toFixed(2)}</span>` : '')
-      + (ckUsd > 0 ? `<span class="price-badge price-ck">$${ckUsd.toFixed(2)}</span>` : '');
+    // Match collection tiles: show only the displayed (primary) price source
+    const primaryVendor = typeof getPrimaryPriceVendor === 'function' ? getPrimaryPriceVendor() : 'tcg';
+    const primaryUsd = primaryVendor === 'ck' ? (parseFloat(pr.usd_ck) || 0) : (parseFloat(pr.usd) || 0);
+    const priceBadges = primaryUsd > 0
+      ? `<span class="price-badge ${primaryVendor === 'ck' ? 'price-ck' : 'price-tcg'}">$${primaryUsd.toFixed(2)}</span>`
+      : '';
     const ownedBadges = !useSharedPool ? _findOwnedBadgesHtml(nfQtyDisplay, fQtyDisplay) : '';
 
     const div = document.createElement('div');
