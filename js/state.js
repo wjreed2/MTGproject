@@ -295,7 +295,10 @@ function renderHydratedAppShell() {
   else if (t === 'decks' && typeof renderDecks === 'function') renderDecks();
   else if (t === 'browse' && typeof renderBrowseDecks === 'function') renderBrowseDecks();
   else if (t === 'wishlist' && typeof renderWishlist === 'function') renderWishlist();
-  else if (t === 'games' && typeof _renderGamesTab === 'function') _renderGamesTab();
+  else if (t === 'games' && typeof _renderGamesTab === 'function') {
+    _renderGamesTab();
+    if (typeof loadPlaygroupsPanel === 'function') void loadPlaygroupsPanel();
+  }
   if (typeof updateStats === 'function') updateStats();
   _scheduleMissingPriceRefresh();
   // Price deltas wait for sync; kick once after a successful server hydrate.

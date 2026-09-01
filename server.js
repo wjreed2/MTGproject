@@ -1721,36 +1721,45 @@ async function ensurePlaygroupTables() {
       CREATE TABLE IF NOT EXISTS playgroup_members (
         playgroup_id BIGINT UNSIGNED NOT NULL,
         account_id   BIGINT UNSIGNED NOT NULL,
+        status       ENUM('invited','accepted') NOT NULL DEFAULT 'invited',
         added_at     BIGINT NOT NULL,
         PRIMARY KEY (playgroup_id, account_id),
-        INDEX idx_pgm_account (account_id),
+        INDEX idx_pgm_account (account_id, status),
         CONSTRAINT fk_pgm_group FOREIGN KEY (playgroup_id) REFERENCES playgroups(id) ON DELETE CASCADE,
         CONSTRAINT fk_pgm_account FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
+    if (!(await columnExists(conn, 'playgroup_members', 'status'))) {
+      await conn.query("ALTER TABLE playgroup_members ADD COLUMN status ENUM('invited','accepted') NOT NULL DEFAULT 'invited'");
+      // Pre-consent rows were added under the old model — treat them as accepted.
+      await conn.query("UPDATE playgroup_members SET status = 'accepted'");
+    }
   } finally {
     conn.release();
   }
 }
 
-/** True when the two accounts share at least one playgroup (self always true). */
+/** True when the two accounts share a playgroup BOTH have accepted (self always true).
+ *  Invited-but-not-accepted rows grant nothing — membership is consent-based. */
 async function accountsSharePlaygroup(aId, bId) {
   if (Number(aId) === Number(bId)) return true;
   const [rows] = await db().query(
     `SELECT 1 FROM playgroup_members m1
        JOIN playgroup_members m2 ON m2.playgroup_id = m1.playgroup_id
-      WHERE m1.account_id = ? AND m2.account_id = ? LIMIT 1`,
+      WHERE m1.account_id = ? AND m1.status = 'accepted'
+        AND m2.account_id = ? AND m2.status = 'accepted' LIMIT 1`,
     [aId, bId]
   );
   return rows.length > 0;
 }
 
-/** Account ids sharing any playgroup with `accountId` (excludes self). */
+/** Accepted co-member account ids across `accountId`'s accepted playgroups (excludes self). */
 async function playgroupCoMemberIds(accountId) {
   const [rows] = await db().query(
     `SELECT DISTINCT m2.account_id AS id FROM playgroup_members m1
        JOIN playgroup_members m2 ON m2.playgroup_id = m1.playgroup_id
-      WHERE m1.account_id = ? AND m2.account_id != ?`,
+      WHERE m1.account_id = ? AND m1.status = 'accepted'
+        AND m2.status = 'accepted' AND m2.account_id != ?`,
     [accountId, accountId]
   );
   return rows.map(r => Number(r.id));
@@ -2750,15 +2759,14 @@ app.get('/api/users', requireAuth, async (req, res) => {
       const at = email.indexOf('@');
       return { id: r.id, name: at > 0 ? email.slice(0, at) : email };
     });
-    // scope=game: the New Game picker. When the requester belongs to at least one
-    // playgroup, list self + co-members only; with no playgroups, keep the full
-    // list (deck visibility is still gated per-account by /api/users/:id/decks).
+    // scope=game: the New Game picker. Playgroup co-members (and self) sort to the
+    // top; everyone else stays selectable below them — one-off opponents can still
+    // be recorded (deck visibility is gated separately by /api/users/:id/decks).
     if (String(req.query.scope || '') === 'game') {
       const coIds = await playgroupCoMemberIds(req.accountId);
-      if (coIds.length) {
-        const allow = new Set([Number(req.accountId), ...coIds]);
-        users = users.filter(u => allow.has(Number(u.id)));
-      }
+      const top = new Set([Number(req.accountId), ...coIds]);
+      users.sort((a, b) => (top.has(Number(b.id)) ? 1 : 0) - (top.has(Number(a.id)) ? 1 : 0)
+        || String(a.name).localeCompare(String(b.name)));
     }
     res.json(users);
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -2769,19 +2777,22 @@ app.get('/api/users', requireAuth, async (req, res) => {
 /** My playgroups (owned or member of), each with its member list. */
 app.get('/api/playgroups', requireAuth, async (req, res) => {
   try {
+    // Owner is always inserted as a member row at create time, so membership
+    // alone determines visibility — no owner_id OR-branch needed.
     const [groups] = await db().query(
-      `SELECT DISTINCT g.id, g.name, g.owner_id, g.created_at
-         FROM playgroups g
-         LEFT JOIN playgroup_members m ON m.playgroup_id = g.id
-        WHERE g.owner_id = ? OR m.account_id = ?
+      `SELECT g.id, g.name, g.owner_id, g.created_at
+         FROM playgroup_members m
+         JOIN playgroups g ON g.id = m.playgroup_id
+        WHERE m.account_id = ?
         ORDER BY g.created_at ASC`,
-      [req.accountId, req.accountId]
+      [req.accountId]
     );
     if (!groups.length) return res.json({ playgroups: [] });
     const ids = groups.map(g => g.id);
     const ph = ids.map(() => '?').join(',');
     const [members] = await db().query(
-      `SELECT m.playgroup_id, m.account_id, a.email FROM playgroup_members m
+      `SELECT m.playgroup_id, m.account_id, m.status, a.email, a.username, a.display_name
+         FROM playgroup_members m
          JOIN accounts a ON a.id = m.account_id
         WHERE m.playgroup_id IN (${ph}) ORDER BY m.added_at ASC`,
       ids
@@ -2789,9 +2800,7 @@ app.get('/api/playgroups', requireAuth, async (req, res) => {
     const byGroup = new Map();
     for (const m of members) {
       if (!byGroup.has(m.playgroup_id)) byGroup.set(m.playgroup_id, []);
-      const email = String(m.email || '');
-      const at = email.indexOf('@');
-      byGroup.get(m.playgroup_id).push({ id: m.account_id, name: at > 0 ? email.slice(0, at) : email });
+      byGroup.get(m.playgroup_id).push({ id: m.account_id, name: publicAccountName(m), status: m.status });
     }
     res.json({
       playgroups: groups.map(g => ({
@@ -2807,22 +2816,36 @@ app.post('/api/playgroups', requireAuth, async (req, res) => {
     const name = String(req.body?.name || '').trim().slice(0, 80);
     if (!name) return res.status(400).json({ error: 'Name required' });
     const now = Date.now();
-    const [r] = await db().query(
-      'INSERT INTO playgroups (name, owner_id, created_at) VALUES (?,?,?)',
-      [name, req.accountId, now]
-    );
-    // owner is always a member
-    await db().query(
-      'INSERT INTO playgroup_members (playgroup_id, account_id, added_at) VALUES (?,?,?) ON DUPLICATE KEY UPDATE added_at = added_at',
-      [r.insertId, req.accountId, now]
-    );
-    res.json({ id: r.insertId, name });
+    // Transaction: group + owner-member row live or die together (membership rows
+    // are the single source of truth for listing/visibility).
+    const conn = await db().getConnection();
+    let groupId;
+    try {
+      await conn.beginTransaction();
+      const [r] = await conn.query(
+        'INSERT INTO playgroups (name, owner_id, created_at) VALUES (?,?,?)',
+        [name, req.accountId, now]
+      );
+      groupId = r.insertId;
+      await conn.query(
+        "INSERT INTO playgroup_members (playgroup_id, account_id, status, added_at) VALUES (?,?,'accepted',?)",
+        [groupId, req.accountId, now]
+      );
+      await conn.commit();
+    } catch (e) {
+      try { await conn.rollback(); } catch (_) {}
+      throw e;
+    } finally {
+      conn.release();
+    }
+    res.json({ id: groupId, name });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.delete('/api/playgroups/:id', requireAuth, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'Invalid playgroup id' });
     const [r] = await db().query('DELETE FROM playgroups WHERE id = ? AND owner_id = ?', [id, req.accountId]);
     if (!r.affectedRows) return res.status(403).json({ error: 'Only the owner can delete a playgroup' });
     res.json({ ok: true });
@@ -2832,21 +2855,42 @@ app.delete('/api/playgroups/:id', requireAuth, async (req, res) => {
 app.post('/api/playgroups/:id/members', requireAuth, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'Invalid playgroup id' });
     const memberId = parseInt(req.body?.userId, 10);
     if (!Number.isFinite(memberId) || memberId <= 0) return res.status(400).json({ error: 'userId required' });
     const [[g]] = await db().query('SELECT owner_id, name FROM playgroups WHERE id = ?', [id]);
     if (!g) return res.status(404).json({ error: 'Playgroup not found' });
-    if (Number(g.owner_id) !== Number(req.accountId)) return res.status(403).json({ error: 'Only the owner can add members' });
+    if (Number(g.owner_id) !== Number(req.accountId)) return res.status(403).json({ error: 'Only the owner can invite members' });
     const [[acct]] = await db().query('SELECT id FROM accounts WHERE id = ?', [memberId]);
     if (!acct) return res.status(404).json({ error: 'No such user' });
+    // Invited, not accepted: no visibility is granted until the member accepts.
     await db().query(
-      'INSERT INTO playgroup_members (playgroup_id, account_id, added_at) VALUES (?,?,?) ON DUPLICATE KEY UPDATE added_at = added_at',
+      "INSERT INTO playgroup_members (playgroup_id, account_id, status, added_at) VALUES (?,?,'invited',?) ON DUPLICATE KEY UPDATE added_at = added_at",
       [id, memberId, Date.now()]
     );
     if (memberId !== Number(req.accountId) && typeof createNotification === 'function') {
-      void createNotification(memberId, 'playgroup_added',
-        { playgroupId: id, playgroupName: g.name }, `pg-add-${id}-${memberId}`);
+      // title/body render via the generic notification template; timestamped dedup
+      // key so a remove-then-reinvite still notifies.
+      void createNotification(memberId, 'playgroup_invite', {
+        title: 'Playgroup invite',
+        body: `You've been invited to the playgroup "${g.name}". Open the Games tab to accept — members can pick each other's decks when starting a game.`,
+        playgroupId: id, playgroupName: g.name,
+      }, `pg-invite-${id}-${memberId}-${Date.now()}`);
     }
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+/** Accept my own pending invite. */
+app.post('/api/playgroups/:id/members/accept', requireAuth, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'Invalid playgroup id' });
+    const [r] = await db().query(
+      "UPDATE playgroup_members SET status = 'accepted' WHERE playgroup_id = ? AND account_id = ? AND status = 'invited'",
+      [id, req.accountId]
+    );
+    if (!r.affectedRows) return res.status(404).json({ error: 'No pending invite for this playgroup' });
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -2855,6 +2899,9 @@ app.delete('/api/playgroups/:id/members/:userId', requireAuth, async (req, res) 
   try {
     const id = parseInt(req.params.id, 10);
     const memberId = parseInt(req.params.userId, 10);
+    if (!Number.isFinite(id) || id <= 0 || !Number.isFinite(memberId) || memberId <= 0) {
+      return res.status(400).json({ error: 'Invalid id' });
+    }
     const [[g]] = await db().query('SELECT owner_id FROM playgroups WHERE id = ?', [id]);
     if (!g) return res.status(404).json({ error: 'Playgroup not found' });
     const isOwner = Number(g.owner_id) === Number(req.accountId);
@@ -2867,10 +2914,10 @@ app.delete('/api/playgroups/:id/members/:userId', requireAuth, async (req, res) 
 });
 
 // Deck summaries for a specific user (for game tracker deck selection).
-// Any signed-in player starting a game can pick a deck for any account that
-// appears in the player list — including playgroup members who are not signed
-// in on this device. Only names / format / commander are returned, never the
-// full list. `is_public` is a browse-tab flag, not a game-tracker gate.
+// Deck summaries (name / format / commander only — never card lists) for the
+// game-tracker picker. Private decks are returned only for yourself and for
+// accounts sharing a playgroup with the owner; everyone else gets is_public
+// decks. Guests and non-co-members can still type a deck name on their seat.
 app.get('/api/users/:id/decks', requireAuth, async (req, res) => {
   try {
     const userId = parseInt(req.params.id, 10);

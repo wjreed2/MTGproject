@@ -16,13 +16,16 @@ assert(nextRoute > start, 'expected /api/collection after users/:id/decks');
 const handler = serverSrc.slice(start, nextRoute);
 
 assert(handler.includes('requireAuth'), 'deck summaries still require a signed-in session');
+// Policy (playgroups): private decks are visible to self and playgroup
+// co-members; everyone else sees only is_public decks. The game-tracker use
+// case works inside a playgroup without exposing private decks app-wide.
 assert(
-  !/is_public\s*=\s*1/.test(handler),
-  'game-tracker deck list must not hide another player\'s private decks'
+  handler.includes('accountsSharePlaygroup'),
+  'deck visibility must consult playgroup co-membership'
 );
 assert(
-  handler.includes('SELECT id, data FROM decks WHERE account_id = ?'),
-  'deck summaries should list every deck owned by the selected account'
+  /canSeePrivate\s*\?\s*''\s*:\s*' AND is_public = 1'/.test(handler),
+  'non-co-members must see only public decks; co-members and self see all'
 );
 
 assert(
