@@ -318,7 +318,9 @@ async function openNewGame() {
   renderNewGamePlayersList();
 
   try {
-    const res = await fetch(`${_gameApiBase()}/users`, { credentials: 'include' });
+    // scope=game: playgroup co-members only (falls back to all users server-side
+    // when the account has no playgroups yet)
+    const res = await fetch(`${_gameApiBase()}/users?scope=game`, { credentials: 'include' });
     const data = await res.json();
     _allAppUsers = Array.isArray(data) ? data : [];
   } catch { _allAppUsers = []; }

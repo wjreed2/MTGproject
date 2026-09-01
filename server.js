@@ -1701,6 +1701,61 @@ async function ensureFriendshipsTable() {
   }
 }
 
+// ── Playgroups: named member groups gating deck visibility + game picker ─────
+
+async function ensurePlaygroupTables() {
+  const conn = await db().getConnection();
+  try {
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS playgroups (
+        id         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        name       VARCHAR(80) NOT NULL,
+        owner_id   BIGINT UNSIGNED NOT NULL,
+        created_at BIGINT NOT NULL,
+        PRIMARY KEY (id),
+        INDEX idx_pg_owner (owner_id),
+        CONSTRAINT fk_pg_owner FOREIGN KEY (owner_id) REFERENCES accounts(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS playgroup_members (
+        playgroup_id BIGINT UNSIGNED NOT NULL,
+        account_id   BIGINT UNSIGNED NOT NULL,
+        added_at     BIGINT NOT NULL,
+        PRIMARY KEY (playgroup_id, account_id),
+        INDEX idx_pgm_account (account_id),
+        CONSTRAINT fk_pgm_group FOREIGN KEY (playgroup_id) REFERENCES playgroups(id) ON DELETE CASCADE,
+        CONSTRAINT fk_pgm_account FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+  } finally {
+    conn.release();
+  }
+}
+
+/** True when the two accounts share at least one playgroup (self always true). */
+async function accountsSharePlaygroup(aId, bId) {
+  if (Number(aId) === Number(bId)) return true;
+  const [rows] = await db().query(
+    `SELECT 1 FROM playgroup_members m1
+       JOIN playgroup_members m2 ON m2.playgroup_id = m1.playgroup_id
+      WHERE m1.account_id = ? AND m2.account_id = ? LIMIT 1`,
+    [aId, bId]
+  );
+  return rows.length > 0;
+}
+
+/** Account ids sharing any playgroup with `accountId` (excludes self). */
+async function playgroupCoMemberIds(accountId) {
+  const [rows] = await db().query(
+    `SELECT DISTINCT m2.account_id AS id FROM playgroup_members m1
+       JOIN playgroup_members m2 ON m2.playgroup_id = m1.playgroup_id
+      WHERE m1.account_id = ? AND m2.account_id != ?`,
+    [accountId, accountId]
+  );
+  return rows.map(r => Number(r.id));
+}
+
 // ── Trade suggestion engine: precomputed deck-wants + dismissals ─────────────
 
 async function ensureDeckWantedCardsTable() {
@@ -2690,11 +2745,124 @@ app.get('/api/users', requireAuth, async (req, res) => {
     const [rows] = await db().query('SELECT id, email FROM accounts ORDER BY email ASC');
     // Expose only a display name (local-part), never the full email address,
     // to avoid leaking every account's email to any authenticated user.
-    res.json(rows.map(r => {
+    let users = rows.map(r => {
       const email = String(r.email || '');
       const at = email.indexOf('@');
       return { id: r.id, name: at > 0 ? email.slice(0, at) : email };
-    }));
+    });
+    // scope=game: the New Game picker. When the requester belongs to at least one
+    // playgroup, list self + co-members only; with no playgroups, keep the full
+    // list (deck visibility is still gated per-account by /api/users/:id/decks).
+    if (String(req.query.scope || '') === 'game') {
+      const coIds = await playgroupCoMemberIds(req.accountId);
+      if (coIds.length) {
+        const allow = new Set([Number(req.accountId), ...coIds]);
+        users = users.filter(u => allow.has(Number(u.id)));
+      }
+    }
+    res.json(users);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Playgroup CRUD (owner manages members; any member can leave) ─────────────
+
+/** My playgroups (owned or member of), each with its member list. */
+app.get('/api/playgroups', requireAuth, async (req, res) => {
+  try {
+    const [groups] = await db().query(
+      `SELECT DISTINCT g.id, g.name, g.owner_id, g.created_at
+         FROM playgroups g
+         LEFT JOIN playgroup_members m ON m.playgroup_id = g.id
+        WHERE g.owner_id = ? OR m.account_id = ?
+        ORDER BY g.created_at ASC`,
+      [req.accountId, req.accountId]
+    );
+    if (!groups.length) return res.json({ playgroups: [] });
+    const ids = groups.map(g => g.id);
+    const ph = ids.map(() => '?').join(',');
+    const [members] = await db().query(
+      `SELECT m.playgroup_id, m.account_id, a.email FROM playgroup_members m
+         JOIN accounts a ON a.id = m.account_id
+        WHERE m.playgroup_id IN (${ph}) ORDER BY m.added_at ASC`,
+      ids
+    );
+    const byGroup = new Map();
+    for (const m of members) {
+      if (!byGroup.has(m.playgroup_id)) byGroup.set(m.playgroup_id, []);
+      const email = String(m.email || '');
+      const at = email.indexOf('@');
+      byGroup.get(m.playgroup_id).push({ id: m.account_id, name: at > 0 ? email.slice(0, at) : email });
+    }
+    res.json({
+      playgroups: groups.map(g => ({
+        id: g.id, name: g.name, ownerId: g.owner_id, isOwner: Number(g.owner_id) === Number(req.accountId),
+        members: byGroup.get(g.id) || [],
+      })),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/playgroups', requireAuth, async (req, res) => {
+  try {
+    const name = String(req.body?.name || '').trim().slice(0, 80);
+    if (!name) return res.status(400).json({ error: 'Name required' });
+    const now = Date.now();
+    const [r] = await db().query(
+      'INSERT INTO playgroups (name, owner_id, created_at) VALUES (?,?,?)',
+      [name, req.accountId, now]
+    );
+    // owner is always a member
+    await db().query(
+      'INSERT INTO playgroup_members (playgroup_id, account_id, added_at) VALUES (?,?,?) ON DUPLICATE KEY UPDATE added_at = added_at',
+      [r.insertId, req.accountId, now]
+    );
+    res.json({ id: r.insertId, name });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/playgroups/:id', requireAuth, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const [r] = await db().query('DELETE FROM playgroups WHERE id = ? AND owner_id = ?', [id, req.accountId]);
+    if (!r.affectedRows) return res.status(403).json({ error: 'Only the owner can delete a playgroup' });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/playgroups/:id/members', requireAuth, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const memberId = parseInt(req.body?.userId, 10);
+    if (!Number.isFinite(memberId) || memberId <= 0) return res.status(400).json({ error: 'userId required' });
+    const [[g]] = await db().query('SELECT owner_id, name FROM playgroups WHERE id = ?', [id]);
+    if (!g) return res.status(404).json({ error: 'Playgroup not found' });
+    if (Number(g.owner_id) !== Number(req.accountId)) return res.status(403).json({ error: 'Only the owner can add members' });
+    const [[acct]] = await db().query('SELECT id FROM accounts WHERE id = ?', [memberId]);
+    if (!acct) return res.status(404).json({ error: 'No such user' });
+    await db().query(
+      'INSERT INTO playgroup_members (playgroup_id, account_id, added_at) VALUES (?,?,?) ON DUPLICATE KEY UPDATE added_at = added_at',
+      [id, memberId, Date.now()]
+    );
+    if (memberId !== Number(req.accountId) && typeof createNotification === 'function') {
+      void createNotification(memberId, 'playgroup_added',
+        { playgroupId: id, playgroupName: g.name }, `pg-add-${id}-${memberId}`);
+    }
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/playgroups/:id/members/:userId', requireAuth, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const memberId = parseInt(req.params.userId, 10);
+    const [[g]] = await db().query('SELECT owner_id FROM playgroups WHERE id = ?', [id]);
+    if (!g) return res.status(404).json({ error: 'Playgroup not found' });
+    const isOwner = Number(g.owner_id) === Number(req.accountId);
+    const isSelf = memberId === Number(req.accountId);
+    if (!isOwner && !isSelf) return res.status(403).json({ error: 'Only the owner can remove other members' });
+    if (isOwner && isSelf) return res.status(400).json({ error: 'Owner cannot leave their own playgroup — delete it instead' });
+    await db().query('DELETE FROM playgroup_members WHERE playgroup_id = ? AND account_id = ?', [id, memberId]);
+    res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -2709,8 +2877,12 @@ app.get('/api/users/:id/decks', requireAuth, async (req, res) => {
     if (!Number.isFinite(userId) || userId <= 0) {
       return res.status(400).json({ error: 'Invalid user id' });
     }
+    // Private decks are visible to yourself and to accounts sharing a playgroup
+    // with the deck owner; everyone else sees only is_public decks. (Restores the
+    // pre-game-tracker privacy contract with playgroups as the sharing mechanism.)
+    const canSeePrivate = await accountsSharePlaygroup(req.accountId, userId);
     const [rows] = await db().query(
-      'SELECT id, data FROM decks WHERE account_id = ? ORDER BY created_at ASC',
+      `SELECT id, data FROM decks WHERE account_id = ?${canSeePrivate ? '' : ' AND is_public = 1'} ORDER BY created_at ASC`,
       [userId]
     );
     const out = rows.map(r => {
@@ -10370,6 +10542,7 @@ async function start() {
       await ensurePriceHistorySchema();
       await ensurePriceWatchesTable();
       await ensureFriendshipsTable();
+      await ensurePlaygroupTables();
       await ensureDeckWantedCardsTable();
       await ensureTradeSuggestionDismissalsTable();
       await ensureTradeHistoryTable();
