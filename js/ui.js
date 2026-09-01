@@ -124,7 +124,10 @@ function showTab(t, opts) {
   if (t === 'wishlist') renderWishlist();
   if (t === 'trade') renderTrade();
   if (t === 'stats') renderStats();
-  if (t === 'games') _renderGamesTab();
+  if (t === 'games') {
+    _renderGamesTab();
+    if (typeof loadPlaygroupsPanel === 'function') void loadPlaygroupsPanel();
+  }
   if (t === 'deckmap') renderDeckMap();
 }
 

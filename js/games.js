@@ -275,8 +275,30 @@ function selectGame(id) {
 
 // ── New game modal ────────────────────────────────────────────────────────────
 
-let _allAppUsers = [];           // [{ id, email }]
+let _allAppUsers = [];           // [{ id, name }]
 let _userDecksCache = {};        // userId → [{ id, name, format, commander, commanderImage }]
+
+function _gameApiBase() {
+  if (typeof mtgApiRoot === 'function') return mtgApiRoot();
+  return document.querySelector('meta[name="mtg-api-base"]')?.content || 'http://localhost:3001/api';
+}
+
+function _summariesFromLocalDecks() {
+  if (!Array.isArray(decks)) return [];
+  return decks.map(d => ({
+    id: d.id,
+    name: d.name || 'Untitled',
+    format: d.format || '',
+    commander: d.commander || null,
+    commanderImage: d.commanderImage || null,
+    colorIdentity: d.commanderColorIdentity || d.colorIdentity || [],
+  }));
+}
+
+function _cachedUserDecks(userId) {
+  const cached = userId != null ? _userDecksCache[userId] : null;
+  return Array.isArray(cached) ? cached : [];
+}
 
 async function openNewGame() {
   // Pre-fill slot 0 with current user
@@ -292,12 +314,14 @@ async function openNewGame() {
   if (notesEl) notesEl.value = '';
 
   document.getElementById('newGameModal').classList.add('open');
+  if (me.id) _userDecksCache[me.id] = _summariesFromLocalDecks();
   renderNewGamePlayersList();
 
-  // Fetch users + current user's decks in parallel
-  const base = document.querySelector('meta[name="mtg-api-base"]')?.content || 'http://localhost:3001/api';
   try {
-    _allAppUsers = await fetch(`${base}/users`, { credentials: 'include' }).then(r => r.json());
+    // scope=game: playgroup co-members sort first; all users remain selectable
+    const res = await fetch(`${_gameApiBase()}/users?scope=game`, { credentials: 'include' });
+    const data = await res.json();
+    _allAppUsers = Array.isArray(data) ? data : [];
   } catch { _allAppUsers = []; }
 
   if (me.id) await _loadUserDecks(me.id);
@@ -341,11 +365,23 @@ function _displayName(email) {
 }
 
 async function _loadUserDecks(userId) {
-  if (_userDecksCache[userId]) return;
-  const base = document.querySelector('meta[name="mtg-api-base"]')?.content || 'http://localhost:3001/api';
+  if (userId == null || userId === '') return;
+  const isMe = typeof currentUser !== 'undefined' && currentUser
+    && Number(userId) === Number(currentUser.id);
+  if (isMe && !Array.isArray(_userDecksCache[userId])) {
+    _userDecksCache[userId] = _summariesFromLocalDecks();
+  }
   try {
-    _userDecksCache[userId] = await fetch(`${base}/users/${userId}/decks`, { credentials: 'include' }).then(r => r.json());
-  } catch { _userDecksCache[userId] = []; }
+    const res = await fetch(`${_gameApiBase()}/users/${encodeURIComponent(userId)}/decks`, { credentials: 'include' });
+    const data = await res.json().catch(() => null);
+    if (res.ok && Array.isArray(data)) {
+      _userDecksCache[userId] = data;
+      return;
+    }
+  } catch { /* fall through to local / empty */ }
+  if (!Array.isArray(_userDecksCache[userId])) {
+    _userDecksCache[userId] = isMe ? _summariesFromLocalDecks() : [];
+  }
 }
 
 function closeNewGameModal() {
@@ -372,6 +408,36 @@ function removeNewGamePlayer(i) {
   renderNewGamePlayersList();
 }
 
+function ngpMoveSeat(i, dir) {
+  if (typeof nudgeSeat !== 'function') return;
+  const result = nudgeSeat(newGamePlayers, i, dir, newGameFirstPlayerIdx, false);
+  if (!result.ok) return;
+  newGamePlayers = result.players;
+  newGameFirstPlayerIdx = result.activePlayerIdx;
+  renderNewGamePlayersList();
+}
+
+function moveGameSeat(gameId, playerId, dir, circular) {
+  const game = games.find(g => g.id === gameId);
+  if (!game || game.status !== 'active') return;
+  if (typeof nudgeSeat !== 'function') return;
+  const fromIdx = game.players.findIndex(p => p.id === playerId);
+  if (fromIdx < 0) return;
+  const result = nudgeSeat(game.players, fromIdx, dir, game.activePlayerIdx ?? 0, !!circular);
+  if (!result.ok) return;
+  game.players = result.players;
+  game.activePlayerIdx = result.activePlayerIdx;
+  addLog(game, {
+    type: 'note',
+    text: `Seat order: ${game.players.map(p => p.name).join(' → ')}`,
+  });
+  save('games');
+  document.querySelectorAll('.tablet-player-menu').forEach(m => m.remove());
+  if (tabletViewGameId) renderTabletView();
+  renderActiveGame(game);
+  renderGames();
+}
+
 function renderNewGamePlayersList() {
   const fmt = document.getElementById('newGameFormat')?.value || 'Commander';
   const el = document.getElementById('newGamePlayersList');
@@ -381,51 +447,67 @@ function renderNewGamePlayersList() {
   // Fixed columns so every row's inputs are the same width regardless of the remove
   // button or commander. The commander column is shown for commander-style formats.
   const isCmdFmt = fmt === 'Commander' || fmt === 'Brawl';
-  const cols = `10px 1fr 1fr${isCmdFmt ? ' 1fr' : ''} 86px 28px`;
+  const cols = `10px 22px 1fr 1fr${isCmdFmt ? ' 1fr' : ''} 86px 28px`;
 
   const header = document.getElementById('newGamePlayersHeader');
   if (header) {
     header.style.gridTemplateColumns = cols;
-    header.innerHTML = `<div></div><div>NAME</div><div>DECK</div>${isCmdFmt ? '<div>COMMANDER</div>' : ''}<div style="text-align:center">MULL</div><div></div>`;
+    header.innerHTML = `<div></div><div></div><div>NAME</div><div>DECK</div>${isCmdFmt ? '<div>COMMANDER</div>' : ''}<div style="text-align:center">MULL</div><div></div>`;
   }
 
   const mullBtn = 'background:var(--bg3);border:1px solid var(--border2);color:var(--text2);border-radius:5px;width:20px;height:22px;cursor:pointer;font-size:0.95rem;line-height:1;padding:0';
+  const lastSeat = newGamePlayers.length - 1;
+
+  if (!Array.isArray(_allAppUsers)) _allAppUsers = [];
 
   el.innerHTML = newGamePlayers.map((p, i) => {
     const userOpts = _allAppUsers.map(u =>
       `<option value="${u.id}" ${p.userId == u.id ? 'selected' : ''}>${escapeHtml(u.name || '')}</option>`
     ).join('');
 
-    const userDecks = p.userId ? (_userDecksCache[p.userId] || []) : [];
+    const userDecks = _cachedUserDecks(p.userId);
     const deckOpts = `<option value="">— no deck —</option>` + userDecks.map(d =>
-      `<option value="${d.id}" ${p.deckId === d.id ? 'selected' : ''}>${escapeHtml(d.name)}${d.format ? ' ('+escapeHtml(d.format)+')' : ''}</option>`
+      `<option value="${d.id}" ${String(p.deckId) === String(d.id) ? 'selected' : ''}>${escapeHtml(d.name)}${d.format ? ' ('+escapeHtml(d.format)+')' : ''}</option>`
     ).join('');
 
-    const showDeck  = userDecks.length > 0;
-    const selDeck   = userDecks.find(d => d.id === p.deckId);
+    const selDeck = userDecks.find(d => String(d.id) === String(p.deckId));
+    // Registered seat with no visible decks (not in your playgroup / nothing public):
+    // fall back to a typed deck name so the game can still be recorded.
+    const deckCell = p.userId
+      ? (userDecks.length
+        ? `<select onchange="ngpDeckSelect(${i}, this.value)" style="min-width:0">${deckOpts}</select>`
+        : `<input type="text" value="${escapeHtml(p.deckName || '')}" placeholder="Deck name (join a playgroup to pick their decks)"
+             onchange="ngpDeckTyped(${i}, this.value)" style="min-width:0">`)
+      : `<input type="text" value="${escapeHtml(p.deckName || '')}" placeholder="Deck (optional)"
+           onchange="ngpDeckTyped(${i}, this.value)" style="min-width:0">`;
+    const commanderLabel = selDeck?.commander || p.commander || '';
 
     return `
     <div style="display:grid;grid-template-columns:${cols};gap:8px;align-items:center;padding:9px 0;border-bottom:1px solid var(--border)">
       <div style="width:10px;height:10px;border-radius:50%;background:${GAME_COLORS[i % GAME_COLORS.length]};flex-shrink:0"></div>
+      <div class="seat-nudge">
+        <button type="button" class="seat-nudge-btn" onclick="ngpMoveSeat(${i},-1)" ${i === 0 ? 'disabled' : ''} title="Earlier seat" aria-label="Earlier seat">▴</button>
+        <button type="button" class="seat-nudge-btn" onclick="ngpMoveSeat(${i},1)" ${i === lastSeat ? 'disabled' : ''} title="Later seat" aria-label="Later seat">▾</button>
+      </div>
       <select onchange="ngpUserSelect(${i}, this.value)" style="min-width:0">
         <option value="" ${!p.userId && !p.guest ? 'selected' : ''}>— select player —</option>
         <option value="guest" ${p.guest ? 'selected' : ''}>Guest</option>
         ${userOpts}
       </select>
-      ${showDeck ? `<select onchange="ngpDeckSelect(${i}, this.value)" style="min-width:0">${deckOpts}</select>` : `<div style="font-size:0.78rem;color:var(--text3);padding:4px 0">${p.userId ? 'No decks' : ''}</div>`}
-      ${isCmdFmt ? `<div style="font-size:0.78rem;color:var(--gold);font-family:'Cinzel',serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0">${escapeHtml(selDeck?.commander || '')}</div>` : ''}
+      ${deckCell}
+      ${isCmdFmt ? `<div style="font-size:0.78rem;color:var(--gold);font-family:'Cinzel',serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0">${escapeHtml(commanderLabel)}</div>` : ''}
       <div style="display:flex;align-items:center;gap:3px;justify-content:center" title="Mulligans taken before the game">
         <button type="button" onclick="ngpMull(${i},-1)" style="${mullBtn}">−</button>
         <span style="min-width:14px;text-align:center;font-family:'JetBrains Mono',monospace;font-size:0.85rem">${p.mulligans || 0}</span>
         <button type="button" onclick="ngpMull(${i},1)" style="${mullBtn}">+</button>
       </div>
-      ${i >= 2 ? `<button class="btn btn-ghost btn-icon" onclick="removeNewGamePlayer(${i})" style="color:var(--red);padding:3px 5px;font-size:0.85rem">✕</button>` : '<div></div>'}
+      ${newGamePlayers.length > 2 ? `<button class="btn btn-ghost btn-icon" onclick="removeNewGamePlayer(${i})" style="color:var(--red);padding:3px 5px;font-size:0.85rem">✕</button>` : '<div></div>'}
     </div>`;
   }).join('');
 }
 
 async function ngpUserSelect(i, userIdStr) {
-  // "Guest" — an anonymous, account-less player (no deck list), like leaving the seat blank used to.
+  // "Guest" — an account-less player. They can still type a deck name.
   if (userIdStr === 'guest') {
     newGamePlayers[i].guest = true;
     newGamePlayers[i].userId = null;
@@ -444,27 +526,37 @@ async function ngpUserSelect(i, userIdStr) {
   newGamePlayers[i].deckId = '';
   newGamePlayers[i].deckName = '';
   newGamePlayers[i].commander = '';
-  if (userId) {
-    await _loadUserDecks(userId);
-    // Auto-select first deck if only one
-    const userDecks = _userDecksCache[userId] || [];
-    if (userDecks.length === 1) {
-      newGamePlayers[i].deckId = userDecks[0].id;
-      newGamePlayers[i].deckName = userDecks[0].name;
-      newGamePlayers[i].commander = userDecks[0].commander || '';
-    }
-  }
   renderNewGamePlayersList();
+  if (userId) {
+    const seatIdx = i;
+    const seatUserId = userId;
+    await _loadUserDecks(userId);
+    // Seat may have been reordered or reassigned while the fetch was in flight.
+    if (!newGamePlayers[seatIdx] || newGamePlayers[seatIdx].userId !== seatUserId) return;
+    const userDecks = _cachedUserDecks(seatUserId);
+    if (userDecks.length === 1) {
+      newGamePlayers[seatIdx].deckId = userDecks[0].id;
+      newGamePlayers[seatIdx].deckName = userDecks[0].name;
+      newGamePlayers[seatIdx].commander = userDecks[0].commander || '';
+    }
+    renderNewGamePlayersList();
+  }
 }
 
 function ngpDeckSelect(i, deckId) {
-  const userId = newGamePlayers[i].userId;
-  const userDecks = userId ? (_userDecksCache[userId] || []) : [];
-  const deck = userDecks.find(d => d.id === deckId);
+  if (!newGamePlayers[i]) return;
+  const userDecks = _cachedUserDecks(newGamePlayers[i].userId);
+  const deck = userDecks.find(d => d.id === deckId || String(d.id) === String(deckId));
   newGamePlayers[i].deckId = deckId || '';
   newGamePlayers[i].deckName = deck?.name || '';
   newGamePlayers[i].commander = deck?.commander || '';
   renderNewGamePlayersList();
+}
+
+function ngpDeckTyped(i, name) {
+  if (!newGamePlayers[i]) return;
+  newGamePlayers[i].deckName = name || '';
+  newGamePlayers[i].deckId = '';
 }
 
 async function submitNewGame() {
@@ -567,6 +659,7 @@ function renderActiveGame(game) {
   // Respect a paused turn — otherwise any life/damage change would silently restart
   // the ticking clock (and the displayed time would jump to include the paused span).
   if (game.status === 'active' && !_turnPaused) startTurnTimer(game.id);
+  _syncGameWheels();
 }
 
 function renderPlayerCard(game, p) {
@@ -579,6 +672,9 @@ function renderPlayerCard(game, p) {
     : 'var(--teal)';
 
   const isActiveTurn = !p.eliminated && game.players.indexOf(p) === (game.activePlayerIdx ?? 0);
+  const seatIdx = game.players.indexOf(p);
+  const lastSeat = game.players.length - 1;
+  const canReorder = game.status === 'active' && game.players.length > 1;
   const inTargetMode = gameActionMode !== null && !p.eliminated;
   const isAllMode = gameActionMode === 'deal1all' || gameActionMode === 'dealXall';
   const targetLabel = isAllMode ? 'Tap to confirm' : 'Tap — deal damage';
@@ -610,10 +706,16 @@ function renderPlayerCard(game, p) {
         <div style="font-size:0.9rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(p.name)}</div>
         ${p.deckName ? `<div style="font-size:0.7rem;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(p.deckName)}${p.commander ? ' · ' + escapeHtml(p.commander) : ''}</div>` : ''}
       </div>
-      ${p.eliminated
+      <div style="display:flex;align-items:flex-start;gap:6px;flex-shrink:0">
+        ${canReorder ? `<div class="seat-nudge" onclick="event.stopPropagation()">
+          <button type="button" class="seat-nudge-btn" onclick="event.stopPropagation();moveGameSeat('${game.id}','${p.id}',-1)" ${seatIdx === 0 ? 'disabled' : ''} title="Earlier seat" aria-label="Earlier seat">▴</button>
+          <button type="button" class="seat-nudge-btn" onclick="event.stopPropagation();moveGameSeat('${game.id}','${p.id}',1)" ${seatIdx === lastSeat ? 'disabled' : ''} title="Later seat" aria-label="Later seat">▾</button>
+        </div>` : ''}
+        ${p.eliminated
         ? `<span style="font-size:0.65rem;padding:2px 7px;background:rgba(212,90,74,0.12);color:var(--red);border-radius:10px;white-space:nowrap;flex-shrink:0">#${p.placement || '?'} out</span>`
         : inTargetMode ? `<span style="font-size:0.65rem;padding:2px 7px;background:var(--gold-dim);color:var(--gold);border-radius:10px;white-space:nowrap;flex-shrink:0;animation:targetPulse 1s ease-in-out infinite">${targetLabel}</span>`
         : isActiveTurn ? `<span style="font-size:0.65rem;padding:2px 7px;background:rgba(${hexToRgb(p.color)},0.15);color:${p.color};border-radius:10px;white-space:nowrap;flex-shrink:0;letter-spacing:0.04em">▶ ACTIVE</span>` : ''}
+      </div>
     </div>
 
     <div style="text-align:center;margin:0.5rem 0 0.4rem">
@@ -626,11 +728,11 @@ function renderPlayerCard(game, p) {
       <button onclick="selfLifeChange('${game.id}','${p.id}',1,false)"
         class="life-btn life-btn-pos" ${p.eliminated ? 'disabled' : ''}>+1</button>
       <button onclick="selfLifeChange('${game.id}','${p.id}',1,true)"
-        class="life-btn life-btn-pos" ${p.eliminated ? 'disabled' : ''}>+${actAmt(p)}</button>
+        class="life-btn life-btn-pos" ${p.eliminated ? 'disabled' : ''}>+${actAmt(p, game.id)}</button>
       <button onclick="selfLifeChange('${game.id}','${p.id}',-1,false)"
         class="life-btn life-btn-neg" ${p.eliminated ? 'disabled' : ''}>−1</button>
       <button onclick="selfLifeChange('${game.id}','${p.id}',-1,true)"
-        class="life-btn life-btn-neg" ${p.eliminated ? 'disabled' : ''}>−${actAmt(p)}</button>
+        class="life-btn life-btn-neg" ${p.eliminated ? 'disabled' : ''}>−${actAmt(p, game.id)}</button>
     </div>
 
     <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-top:1px solid var(--border);margin-top:4px;font-size:0.75rem" onclick="event.stopPropagation()">
@@ -963,81 +1065,79 @@ function cancelAction(gameId) {
 }
 
 let _actionAmountTimer = null;
+const GAME_X_MAX = 99;
+const GAME_LIFE_SET_MAX = 99;
 
 // X is per-player: each player carries their own step/attack amount in
 // player.actionAmount, falling back to the shared default for older games.
-function actAmt(p) { return Math.max(1, (p && p.actionAmount) || gameActionAmount); }
-function activeAmt(game) { return actAmt(game && game.players[game.activePlayerIdx ?? 0]); }
+function _readXWheelForPlayer(gameId, playerId) {
+  if (typeof numWheelReadEl !== 'function' || !gameId || !playerId) return null;
+  const root = document.querySelector(`.num-wheel--x[data-game="${gameId}"][data-pid="${playerId}"]`);
+  if (!root) return null;
+  if (typeof numWheelFlush === 'function') return numWheelFlush(root);
+  return numWheelReadEl(root);
+}
+
+function actAmt(p, gameId) {
+  if (p && gameId) {
+    const live = _readXWheelForPlayer(gameId, p.id);
+    if (live != null) return Math.max(1, Math.min(GAME_X_MAX, live));
+  }
+  const stored = (p && p.actionAmount) || gameActionAmount;
+  return Math.max(1, Math.min(GAME_X_MAX, stored));
+}
+
+function activeAmt(game) {
+  const p = game && game.players[game.activePlayerIdx ?? 0];
+  return actAmt(p, game?.id);
+}
 
 function setActionAmount(gameId, playerId, val) {
   const game = games.find(g => g.id === gameId);
   if (!game) return;
   const p = playerId ? game.players.find(pl => pl.id === playerId) : game.players[game.activePlayerIdx ?? 0];
   if (!p) return;
-  p.actionAmount = Math.max(1, parseInt(val) || 1);
-  // Sync this player's visible stepper(s) immediately; debounce the persist + full
-  // re-render that refreshes the +X/−X button labels and "Deal X" hints.
-  document.querySelectorAll(`.x-stepper[data-pid="${p.id}"] .x-stepper-val`).forEach(s => { s.textContent = p.actionAmount; });
+  const next = Math.max(1, Math.min(GAME_X_MAX, parseInt(val, 10) || 1));
+  if (p.actionAmount === next) return;
+  p.actionAmount = next;
+  document.querySelectorAll(`.num-wheel--x[data-pid="${p.id}"]`).forEach(root => {
+    if (Number(root.dataset.value) !== next && typeof numWheelSetEl === 'function') {
+      numWheelSetEl(root, next, false);
+    }
+  });
   clearTimeout(_actionAmountTimer);
-  _actionAmountTimer = setTimeout(() => {
-    save('games');
-    if (tabletViewGameId) renderTabletView(); else renderActiveGame(game);
-  }, 400);
+  _actionAmountTimer = setTimeout(() => save('games'), 400);
 }
+
 function adjustActionAmount(gameId, playerId, delta) {
   const game = games.find(g => g.id === gameId);
   if (!game) return;
   const p = playerId ? game.players.find(pl => pl.id === playerId) : game.players[game.activePlayerIdx ?? 0];
-  if (p) setActionAmount(gameId, p.id, actAmt(p) + delta);
+  if (p) setActionAmount(gameId, p.id, actAmt(p, gameId) + delta);
 }
 
-// ── X-amount stepper (scroll/drag, no keyboard) ────────────────────────────────
-// Compact, keyboard-free control for a player's X. Change by scrolling
-// (wheel/trackpad), dragging up/down, or the ± buttons. Pass a playerId to bind it
-// to that player; omit it to bind to the active player (the game-level deal bar).
+// ── X-amount number wheel (scroll/flick, no keyboard) ─────────────────────────
+// Pass a playerId to bind it to that player; omit it to bind to the active player.
 function xStepper(gameId, playerId) {
   const game = games.find(g => g.id === gameId);
   const p = !game ? null : (playerId ? game.players.find(pl => pl.id === playerId) : game.players[game.activePlayerIdx ?? 0]);
   const pid = p ? p.id : '';
-  return `<div class="x-stepper" data-pid="${pid}" onwheel="xStepperWheel(event,'${gameId}','${pid}')"
-      onpointerdown="xStepperPointerDown(event,'${gameId}','${pid}')" onclick="event.stopPropagation()"
-      title="Scroll or drag up/down to change">
-      <button type="button" class="x-stepper-btn" onclick="event.stopPropagation();adjustActionAmount('${gameId}','${pid}',-1)">−</button>
-      <span class="x-stepper-val">${actAmt(p)}</span>
-      <button type="button" class="x-stepper-btn" onclick="event.stopPropagation();adjustActionAmount('${gameId}','${pid}',1)">+</button>
-    </div>`;
+  return numWheelHtml({
+    min: 1, max: GAME_X_MAX, value: actAmt(p, gameId), size: 'sm',
+    change: 'onGameXWheel',
+    gameId, playerId: pid,
+    className: 'num-wheel--x',
+  });
 }
 
-let _xStepDrag = null;
-function xStepperWheel(e, gameId, playerId) {
-  e.preventDefault(); e.stopPropagation();
-  adjustActionAmount(gameId, playerId, e.deltaY < 0 ? 1 : -1);
+function onGameXWheel(root, val) {
+  if (!root) return;
+  setActionAmount(root.dataset.game, root.dataset.pid, val);
 }
-function xStepperPointerDown(e, gameId, playerId) {
-  if (e.target.closest('button')) return;   // let the ± buttons handle their own taps
-  e.stopPropagation();
-  const el = e.currentTarget;
-  _xStepDrag = { gameId, playerId, pointerId: e.pointerId, lastY: e.clientY, acc: 0 };
-  try { el.setPointerCapture(e.pointerId); } catch (_) {}
-  el.onpointermove = xStepperPointerMove;
-  el.onpointerup = el.onpointercancel = xStepperPointerUp;
-}
-function xStepperPointerMove(e) {
-  if (!_xStepDrag || e.pointerId !== _xStepDrag.pointerId) return;
-  e.preventDefault();
-  _xStepDrag.acc += _xStepDrag.lastY - e.clientY;   // drag up = increase
-  _xStepDrag.lastY = e.clientY;
-  const STEP = 12;                                  // px of travel per ±1
-  while (Math.abs(_xStepDrag.acc) >= STEP) {
-    const dir = _xStepDrag.acc > 0 ? 1 : -1;
-    _xStepDrag.acc -= dir * STEP;
-    adjustActionAmount(_xStepDrag.gameId, _xStepDrag.playerId, dir);
-  }
-}
-function xStepperPointerUp(e) {
-  const el = e.currentTarget;
-  if (el) el.onpointermove = el.onpointerup = el.onpointercancel = null;
-  _xStepDrag = null;
+
+function onLogAmtWheel(_root, val) {
+  const hid = document.getElementById('logEvtAmount');
+  if (hid) hid.value = String(val);
 }
 
 // ── Undo (in-memory snapshot stack, one per game) ──────────────────────────────
@@ -1156,7 +1256,7 @@ function selfLifeChange(gameId, playerId, direction, useX) {
   if (!game || game.status !== 'active') return;
   const player = game.players.find(p => p.id === playerId);
   if (!player || player.eliminated) return;
-  const amount = useX ? actAmt(player) : 1;
+  const amount = useX ? actAmt(player, gameId) : 1;
   _snapshotGame(game);
   const delta = direction > 0 ? amount : -amount;
   player.life = Math.max(-99, player.life + delta);
@@ -1358,26 +1458,77 @@ function openLogEvent(gameId) {
     game.players.map(p => `<option value="${p.id}">${escapeHtml(p.name)}${p.eliminated ? ' ✕' : ''}</option>`).join('');
   document.getElementById('logEvtFrom').innerHTML = playerOpts;
   document.getElementById('logEvtTo').innerHTML = playerOpts;
-  document.getElementById('logEvtAmount').value = '';
   document.getElementById('logEvtType').value = 'damage';
   document.getElementById('logEvtCard').value = '';
   document.getElementById('logEvtNote').value = '';
-  updateLogEvtPlaceholder();
+  const hid = document.getElementById('logEvtAmount');
+  if (hid) hid.value = '1';
   document.getElementById('logEventModal').classList.add('open');
+  updateLogEvtPlaceholder();
 }
 
 function closeLogEventModal() {
   document.getElementById('logEventModal').classList.remove('open');
 }
 
-function updateLogEvtPlaceholder() {
+function _syncGameWheels() {
+  if (typeof numWheelSyncAll !== 'function') return;
+  numWheelSyncAll();
+  requestAnimationFrame(() => numWheelSyncAll());
+}
+
+function _logEvtSetLifeDefault() {
+  const toId = document.getElementById('logEvtTo')?.value;
+  const game = games.find(g => g.id === logEventGameId);
+  const to = game && toId ? game.players.find(p => p.id === toId) : null;
+  return to ? to.life : 40;
+}
+
+function _readLogEvtAmount() {
+  const root = document.getElementById('logEvtAmountWheel')
+    || document.querySelector('#logEvtAmountWheelHost .num-wheel');
+  if (root && typeof numWheelFlush === 'function') return numWheelFlush(root);
+  if (root && typeof numWheelReadEl === 'function') return numWheelReadEl(root);
+  return parseInt(document.getElementById('logEvtAmount')?.value, 10) || 0;
+}
+
+function _renderLogAmtWheel(value) {
+  const host = document.getElementById('logEvtAmountWheelHost');
+  const hid = document.getElementById('logEvtAmount');
   const type = document.getElementById('logEvtType')?.value;
-  const amtEl = document.getElementById('logEvtAmount');
-  if (!amtEl) return;
-  const labels = { damage: 'Damage amount', commander_damage: 'Damage amount', life_gain: 'Life gained', set_life: 'New life total' };
-  amtEl.placeholder = labels[type] || 'Amount';
+  const isLife = type === 'set_life';
+  const min = 0;
+  const max = isLife ? GAME_LIFE_SET_MAX : GAME_X_MAX;
+  const val = typeof numWheelClamp === 'function' ? numWheelClamp(min, max, value) : Math.max(min, Math.min(max, Number(value) || 0));
+  if (hid) hid.value = String(val);
+  if (!host || typeof numWheelHtml !== 'function') return;
+  host.innerHTML = numWheelHtml({
+    id: 'logEvtAmountWheel',
+    min, max, value: val, size: 'lg',
+    change: 'onLogAmtWheel',
+  });
+  _syncGameWheels();
+}
+
+function updateLogEvtPlaceholder() {
+  const typeEl = document.getElementById('logEvtType');
+  const type = typeEl?.value;
+  const prevType = typeEl?.dataset.prevType || '';
+  if (typeEl) typeEl.dataset.prevType = type;
   const amtWrap = document.getElementById('logEvtAmountWrap');
   if (amtWrap) amtWrap.style.display = type === 'note' ? 'none' : '';
+  if (type === 'note') return;
+  const hid = document.getElementById('logEvtAmount');
+  const cur = hid ? parseInt(hid.value, 10) : NaN;
+  let next;
+  if (type === 'set_life') {
+    next = prevType === 'set_life' && Number.isFinite(cur) && cur >= 0
+      ? cur
+      : _logEvtSetLifeDefault();
+  } else {
+    next = Number.isFinite(cur) && cur > 0 ? cur : 1;
+  }
+  _renderLogAmtWheel(next);
 }
 
 function submitLogEvent() {
@@ -1385,8 +1536,10 @@ function submitLogEvent() {
   if (!game) return;
   const fromId = document.getElementById('logEvtFrom').value;
   const toId   = document.getElementById('logEvtTo').value;
-  const amount = parseInt(document.getElementById('logEvtAmount').value) || 0;
   const type   = document.getElementById('logEvtType').value;
+  const amount = type === 'set_life'
+    ? _readLogEvtAmount()
+    : Math.max(1, _readLogEvtAmount());
   const card   = document.getElementById('logEvtCard').value.trim();
   const note   = document.getElementById('logEvtNote').value.trim();
   const from   = game.players.find(p => p.id === fromId);
@@ -1408,7 +1561,7 @@ function submitLogEvent() {
   } else if (type === 'life_gain' && to && amount > 0) {
     to.life += amount;
     text = `${to.name} gained ${amount} life${from ? ' from ' + from.name : ''}${card ? ' (' + card + ')' : ''} → ${to.name}: ${to.life} life`;
-  } else if (type === 'set_life' && to) {
+  } else if (type === 'set_life' && to && Number.isFinite(amount)) {
     to.life = amount;
     text = `${to.name}'s life set to ${amount}`;
   } else if (type === 'note' && note) {
@@ -1693,8 +1846,8 @@ function openTabletMenu(playerId, btn, e, rotated = false) {
   menu.style.cssText = 'position:fixed;z-index:700;background:color-mix(in oklab, var(--bg2) 94%, transparent);border:1px solid var(--border2);border-radius:12px;padding:8px;min-width:215px;max-width:min(300px,90vw);box-shadow:0 12px 40px rgba(0,0,0,0.35);visibility:hidden';
   const hasUndo = canUndo(game.id);
   menu.innerHTML = `
-    <div style="display:flex;align-items:center;gap:8px;padding:5px 8px 8px;border-bottom:1px solid var(--border);margin-bottom:4px">
-      <span style="font-size:0.72rem;color:var(--text3);flex:1">${player ? escapeHtml(player.name) + "'s" : ''} X =</span>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:5px 8px 8px;border-bottom:1px solid var(--border);margin-bottom:4px">
+      <span style="font-size:0.72rem;color:var(--text3);width:100%;text-align:left">${player ? escapeHtml(player.name) + "'s" : ''} X</span>
       ${xStepper(game.id, playerId)}
     </div>
     <button onclick="${cm};setActionMode('deal1','${game.id}')"    style="${mi}${gameActionMode==='deal1'    ? mia : ''}">${gameIcon('sword', 12, 'margin-right:5px')}Deal 1 → target</button>
@@ -1708,6 +1861,8 @@ function openTabletMenu(playerId, btn, e, rotated = false) {
     ` : ''}
     ${poisonRow}
     <div style="border-top:1px solid var(--border);margin:5px 0 4px"></div>
+    <button onclick="${cm};moveGameSeat('${game.id}','${playerId}',-1,true)" style="${mi}">↻ Move clockwise</button>
+    <button onclick="${cm};moveGameSeat('${game.id}','${playerId}',1,true)" style="${mi}">↺ Move counterclockwise</button>
     <button onclick="undoGameAction('${game.id}')" style="${mi}${hasUndo ? '' : 'opacity:0.4;'}">↶ Undo last action</button>
     <button onclick="${cm};nextTurn('${game.id}')" style="${mi}">→ Next Turn</button>`;
   document.body.appendChild(menu);
@@ -1730,6 +1885,7 @@ function openTabletMenu(playerId, btn, e, rotated = false) {
   menu.style.left = left + 'px';
   menu.style.transform = rotated ? 'rotate(180deg)' : '';
   menu.style.visibility = 'visible';
+  _syncGameWheels();
 }
 
 function renderTabletView() {
@@ -1826,7 +1982,7 @@ function renderTabletView() {
     if (_tabletDragJustEnded) { _tabletDragJustEnded = false; return; }
     if (hadMenu) return;
     if (gameActionMode) return;
-    if (e.target.closest('button, input, a, select, textarea, .tablet-player-menu, .tablet-drag-menu, .tablet-center-box, .player-targetable')) return;
+    if (e.target.closest('button, input, a, select, textarea, .tablet-player-menu, .tablet-drag-menu, .tablet-center-box, .player-targetable, .num-wheel')) return;
     if (game.status !== 'active') return;
     nextTurn(game.id);
   };
@@ -1836,6 +1992,7 @@ function renderTabletView() {
   el.onpointerup     = tabletDragPointerUp;
   el.onpointercancel = tabletDragPointerUp;
   if (!_turnPaused) startTurnTimer(game.id);
+  _syncGameWheels();
 }
 
 function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
@@ -1934,9 +2091,9 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
     <div style="padding:clamp(5px,1.2vh,9px) clamp(8px,1.8vw,16px) 0;border-top:1px solid ${p.color}25" onclick="event.stopPropagation()">
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:clamp(3px,0.55vw,7px);margin-bottom:clamp(4px,0.8vh,7px)">
         <button onclick="selfLifeChange('${game.id}','${p.id}',1,false)"  class="tablet-life-btn tablet-life-btn-pos" ${p.eliminated ? 'disabled' : ''}>+1</button>
-        <button onclick="selfLifeChange('${game.id}','${p.id}',1,true)"   class="tablet-life-btn tablet-life-btn-pos" ${p.eliminated ? 'disabled' : ''}>+${actAmt(p)}</button>
+        <button onclick="selfLifeChange('${game.id}','${p.id}',1,true)"   class="tablet-life-btn tablet-life-btn-pos" ${p.eliminated ? 'disabled' : ''}>+${actAmt(p, game.id)}</button>
         <button onclick="selfLifeChange('${game.id}','${p.id}',-1,false)" class="tablet-life-btn tablet-life-btn-neg" ${p.eliminated ? 'disabled' : ''}>−1</button>
-        <button onclick="selfLifeChange('${game.id}','${p.id}',-1,true)"  class="tablet-life-btn tablet-life-btn-neg" ${p.eliminated ? 'disabled' : ''}>−${actAmt(p)}</button>
+        <button onclick="selfLifeChange('${game.id}','${p.id}',-1,true)"  class="tablet-life-btn tablet-life-btn-neg" ${p.eliminated ? 'disabled' : ''}>−${actAmt(p, game.id)}</button>
       </div>
       <!-- Status -->
       <div style="display:flex;gap:clamp(6px,1.2vw,12px);justify-content:center;align-items:center;padding-bottom:clamp(3px,0.7vh,6px);font-size:clamp(0.56rem,1.1vw,0.74rem)">
@@ -2157,6 +2314,7 @@ function _openDragDamageMenu(sourceId, targetIds, x, y, rotated) {
   menu.style.left = left + 'px';
   menu.style.top  = top  + 'px';
   menu.style.visibility = 'visible';
+  _syncGameWheels();
 
   // Close on any interaction outside the menu (added next tick so the opening gesture doesn't close it).
   setTimeout(() => {
@@ -2182,7 +2340,7 @@ function applyDragDamage(amount) {
   if (!ctx || !game || game.status !== 'active') return;
   const source = game.players.find(p => p.id === ctx.sourceId);
   const src = (source && !source.eliminated) ? source : null;
-  const amt = amount < 0 ? actAmt(source) : Math.max(1, amount | 0);   // -1 = use source's X
+  const amt = amount < 0 ? actAmt(source, game.id) : Math.max(1, amount | 0);   // -1 = use source's X
   _snapshotGame(game);
   ctx.targetIds.forEach(tid => {
     const target = game.players.find(p => p.id === tid);
@@ -2205,7 +2363,7 @@ function applyDragCommander(amount) {
   const targetId = ctx.targetIds[0];
   if (targetId === ctx.sourceId) return;                       // no commander damage to self
   const source = game.players.find(p => p.id === ctx.sourceId);
-  const amt = amount < 0 ? actAmt(source) : Math.max(1, amount | 0);   // -1 = use source's X
+  const amt = amount < 0 ? actAmt(source, game.id) : Math.max(1, amount | 0);   // -1 = use source's X
   changeCommanderDamage(game.id, targetId, ctx.sourceId, amt);
 }
 

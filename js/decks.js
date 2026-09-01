@@ -5598,6 +5598,56 @@ function _bindSwapZoneHoverLinking(el, enabled) {
   };
 }
 
+function _clearDeckStackPeek(root, keep) {
+  if (!root) return;
+  root.querySelectorAll('.deck-stack-card.is-stack-peek').forEach(n => {
+    if (n !== keep) n.classList.remove('is-stack-peek');
+  });
+}
+
+function _deckStackPeekCardFromEvent(e, root) {
+  const card = e.target?.closest?.('.deck-stack-card');
+  if (!card || !root?.contains(card)) return null;
+  return card;
+}
+
+function _onDeckStackPeekOver(e) {
+  const root = e.currentTarget;
+  const card = _deckStackPeekCardFromEvent(e, root);
+  if (!card) return;
+  if (card.classList.contains('is-stack-peek')) return;
+  _clearDeckStackPeek(root, card);
+  card.classList.add('is-stack-peek');
+}
+
+function _onDeckStackPeekDown(e) {
+  const root = e.currentTarget;
+  const card = _deckStackPeekCardFromEvent(e, root);
+  _clearDeckStackPeek(root, card);
+  if (card) card.classList.add('is-stack-peek');
+}
+
+function _onDeckStackPeekOut(e) {
+  if (typeof _deckIsPhone === 'function' && _deckIsPhone()) return;
+  const root = e.currentTarget;
+  const fromCard = e.target?.closest?.('.deck-stack-card');
+  if (!fromCard || !root.contains(fromCard)) return;
+  const toCard = e.relatedTarget?.closest?.('.deck-stack-card');
+  if (toCard && root.contains(toCard)) return;
+  fromCard.classList.remove('is-stack-peek');
+}
+
+/** Extra-zone (and mainboard) stacks: sticky peek class so tap/click lifts a card
+ *  the same way :hover does on the mainboard. Bound once on #deckCardList. */
+function _bindDeckStackPeek(el) {
+  if (!el || el.dataset.stackPeekBound === '1') return;
+  el.dataset.stackPeekBound = '1';
+  el.addEventListener('pointerover', _onDeckStackPeekOver);
+  el.addEventListener('pointerdown', _onDeckStackPeekDown, true);
+  el.addEventListener('focusin', _onDeckStackPeekOver);
+  el.addEventListener('pointerout', _onDeckStackPeekOut);
+}
+
 function _deckZoneSectionEl(root, zone) {
   if (!root || !zone) return null;
   return root.querySelector(`.deck-extra-zone-section[data-zone="${zone}"]`);
@@ -8587,6 +8637,7 @@ function _toggleAddPanel() {
 function renderDeckList(deck) {
   const el = document.getElementById('deckCardList');
   if (!el) return;
+  _bindDeckStackPeek(el);
   // innerHTML rebuilds wipe scrollTop; keep the list where the user left it so
   // inspector tag refresh / ownership redraws don't jump to top and re-lazy-load.
   const prevScroll = el.scrollTop;
@@ -8774,6 +8825,7 @@ function renderDeckList(deck) {
     _attachDeckDragHandlers(el);
     _bindDeckTagGroupHoverLinking(el, _isTagGroupByMode(deckGroupBy));
     _bindSwapZoneHoverLinking(el, swapsOn);
+    _bindDeckStackPeek(el);
     _syncDeckStackLayoutResetBtn(deck);
     _scheduleDeckTokensRefresh(deck);
     restoreScroll();
