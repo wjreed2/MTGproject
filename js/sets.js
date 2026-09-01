@@ -1,6 +1,5 @@
 // Set browser tab
 let activeSetCode = localStorage.getItem('mtg_active_set_code') || null;
-let setSidebarCollapsed = localStorage.getItem('mtg_set_sidebar_collapsed') === 'true';
 
 async function loadSets() {
   if (allSets.length > 0) { renderSets(); return; }
@@ -64,19 +63,6 @@ function _getFilteredSets() {
   return sets;
 }
 
-function applySetSidebarState() {
-  const area = document.getElementById('setDetailArea');
-  const btn = document.getElementById('toggleSetSidebarBtn');
-  if (area) area.classList.toggle('sidebar-collapsed', !!setSidebarCollapsed);
-  if (btn) btn.textContent = setSidebarCollapsed ? '⇥ Sets' : '⇤ Sets';
-}
-
-function toggleSetSidebar() {
-  setSidebarCollapsed = !setSidebarCollapsed;
-  localStorage.setItem('mtg_set_sidebar_collapsed', setSidebarCollapsed ? 'true' : 'false');
-  applySetSidebarState();
-}
-
 function renderSets() {
   const el = document.getElementById('setGrid');
   const empty = document.getElementById('setEmpty');
@@ -89,6 +75,9 @@ function renderSets() {
   const hasSelected = !!selected;
   const setTabTopBar = document.getElementById('setTabTopBar');
   if (setTabTopBar) setTabTopBar.style.display = hasSelected ? 'flex' : 'none';
+  // Set search/type/view filters only apply to the All Sets grid — hide inside a set
+  const viewControls = document.getElementById('setViewControls');
+  if (viewControls) viewControls.style.display = hasSelected ? 'none' : '';
 
   const gridArea = document.getElementById('setGridArea');
   const detailArea = document.getElementById('setDetailArea');
@@ -131,8 +120,6 @@ function renderSets() {
   }).join('');
 
   if (!selected) return;
-  renderSetSidebar(sets);
-  applySetSidebarState();
   const activeName = document.getElementById('activeSetName');
   const activeCode = document.getElementById('activeSetCode');
   const activeMeta = document.getElementById('activeSetMeta');
@@ -188,26 +175,6 @@ function closeSetDetail() {
   localStorage.removeItem('mtg_active_set_code');
   _setBrowseShowingCardDetail = false;
   renderSets();
-}
-
-function renderSetSidebar(sets) {
-  const el = document.getElementById('setDetailSidebar');
-  if (!el) return;
-  const rows = (sets || []).map(s => {
-    const owned = _ownedPrintingCountForSet(s.code);
-    const total = s.card_count || 1;
-    const pct = Math.min(100, Math.round((owned / total) * 100));
-    return `
-      <div class="set-sidebar-item ${activeSetCode === s.code ? 'active' : ''}" onclick="selectSet('${s.code}')">
-        <div style="display:flex;align-items:center;gap:7px">
-          ${_setIconMarkup(s.icon_svg_uri)}
-          <span style="font-family:'Cinzel',serif;font-size:0.76rem;line-height:1.2;flex:1">${s.name}</span>
-        </div>
-        <div class="meta">${s.code.toUpperCase()} · ${owned}/${total}</div>
-        <div class="set-sidebar-progress"><div class="set-sidebar-progress-fill" style="width:${pct}%;background:${_setCompletionColor(pct)}"></div></div>
-      </div>`;
-  }).join('');
-  el.innerHTML = rows || '<div style="padding:0.75rem;color:var(--text3);font-size:0.82rem">No sets match current filters.</div>';
 }
 
 function _collectorNumSortValue(card) {
@@ -466,7 +433,7 @@ function _renderSetBrowse() {
       ${searchQ ? `<button class="btn btn-sm btn-outline" onclick="_setSetSearchFilter('')">Clear</button>` : ''}
       <span style="font-size:0.72rem;color:var(--text3)">${cards.length} shown</span>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:10px;max-height:calc(82vh - 220px);overflow-y:auto;overflow-x:hidden;padding-right:6px;box-sizing:border-box">
+    <div class="card-grid set-browse-grid">
       ${cards.map(c => {
         const nameKey = String(c.name || '').trim().toLowerCase();
         const col = isTitleMode

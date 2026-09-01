@@ -468,6 +468,21 @@ function isPriceVendorEnabled(vendor) {
   return false;
 }
 
+/** The single vendor the UI displays (value tile + card badges). Default TCGplayer; falls back to an enabled vendor. */
+function getPrimaryPriceVendor() {
+  const stored = localStorage.getItem('mtg_price_primary_vendor') === 'ck' ? 'ck' : 'tcg';
+  const en = getPriceVendorEnabled();
+  if (stored === 'ck' && !en.ck) return 'tcg';
+  if (stored === 'tcg' && !en.tcg) return 'ck';
+  return stored;
+}
+
+/** Foil-aware unit price from the displayed (primary) vendor. */
+function getPrimaryPriceForCard(card, primary) {
+  const p = primary || getPrimaryPriceVendor();
+  return p === 'ck' ? getCKPriceForCard(card) : getTCGPriceForCard(card);
+}
+
 function getPriceDeltaDisplayPrefs() {
   const storedMode = localStorage.getItem('mtg_price_delta_mode');
   const mode = storedMode === 'usd' || storedMode === 'both' ? storedMode : 'pct';
