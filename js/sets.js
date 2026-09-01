@@ -433,7 +433,7 @@ function _renderSetBrowse() {
       ${searchQ ? `<button class="btn btn-sm btn-outline" onclick="_setSetSearchFilter('')">Clear</button>` : ''}
       <span style="font-size:0.72rem;color:var(--text3)">${cards.length} shown</span>
     </div>
-    <div class="set-browse-grid">
+    <div class="card-grid set-browse-grid">
       ${cards.map(c => {
         const nameKey = String(c.name || '').trim().toLowerCase();
         const col = isTitleMode

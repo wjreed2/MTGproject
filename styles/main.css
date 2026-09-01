@@ -2356,12 +2356,8 @@ img.stack-main.loaded { opacity: 1; }
   display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
   gap: 10px;
 }
-/* Set-detail card grid — same tile scale as the collection page (.card-grid) */
-.set-browse-grid {
-  display: grid;
-  gap: 12px;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-}
+/* Set-detail card grid reuses .card-grid for tile scale (single source of truth);
+   .set-browse-grid remains as a scoping hook only. */
 .set-detail-split { display: flex; gap: 1rem; align-items: flex-start; }
 .set-card {
   background: linear-gradient(145deg, var(--bg3), var(--bg4));

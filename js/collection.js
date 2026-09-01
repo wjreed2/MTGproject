@@ -315,13 +315,16 @@ function _htmlVendorPriceDelta(card, vendor, timeframe, customDate, mode) {
   return `<span class="price-delta ${cls}" title="${vendor.toUpperCase()} change (${titleTf})">${text}</span>`;
 }
 
-function _htmlCardPriceBadges(card) {
-  // Card badges show only the selected primary source (Settings → Displayed price source)
-  const primary = typeof getPrimaryPriceVendor === 'function' ? getPrimaryPriceVendor() : 'tcg';
+function _htmlCardPriceBadges(card, ctx) {
+  // Card badges show only the selected primary source (Settings → Displayed price source).
+  // `ctx` {primary, prefs} lets renderCollection resolve settings once per pass instead
+  // of several localStorage reads per card on the hottest render path.
+  const primary = ctx?.primary
+    || (typeof getPrimaryPriceVendor === 'function' ? getPrimaryPriceVendor() : 'tcg');
   const price = primary === 'ck' ? getCKPriceForCard(card) : getTCGPriceForCard(card);
-  const prefs = typeof getPriceDeltaDisplayPrefs === 'function'
+  const prefs = ctx?.prefs || (typeof getPriceDeltaDisplayPrefs === 'function'
     ? getPriceDeltaDisplayPrefs()
-    : { mode: 'pct', timeframe: 'month', customDate: '' };
+    : { mode: 'pct', timeframe: 'month', customDate: '' });
   const delta = price
     ? _htmlVendorPriceDelta(card, primary, prefs.timeframe, prefs.customDate, prefs.mode)
     : '';
@@ -695,6 +698,14 @@ function renderCollection(opts) {
   grid.style.display = 'grid';
   empty.style.display = 'none';
 
+  // Resolve price display settings once per render pass (see _htmlCardPriceBadges)
+  const _badgeCtx = {
+    primary: typeof getPrimaryPriceVendor === 'function' ? getPrimaryPriceVendor() : 'tcg',
+    prefs: typeof getPriceDeltaDisplayPrefs === 'function'
+      ? getPriceDeltaDisplayPrefs()
+      : { mode: 'pct', timeframe: 'month', customDate: '' },
+  };
+
   try {
     if (currentView === 'list') {
       grid.innerHTML = cards.map(c => {
@@ -711,7 +722,7 @@ function renderCollection(opts) {
         <div class="card-meta">
           <div class="card-name">${escapeHtml(c.name)}</div>
           <div style="font-size:0.78rem;color:var(--text3)">${setCode} • ${(typeof resolveCardTypeLine === 'function' ? resolveCardTypeLine(c) : (c.type || '')).split('—')[0].trim()}</div>
-          ${_htmlCardPriceBadges(c)}
+          ${_htmlCardPriceBadges(c, _badgeCtx)}
         </div>
       </div>`;
       }).join('');
@@ -729,7 +740,7 @@ function renderCollection(opts) {
         </div>
         <div class="card-meta">
           <div class="card-name">${escapeHtml(c.name)}</div>
-          ${_htmlCardPriceBadges(c)}
+          ${_htmlCardPriceBadges(c, _badgeCtx)}
         </div>
       </div>`;
       }).join('');
@@ -759,8 +770,10 @@ function _collectionUniqueCardKey(c) {
   return nm ? 'nm:' + nm : '';
 }
 
-function _rowExcludedFromValueTotalsByThreshold(c) {
-  const floor = typeof getValueExcludeBelowUsd === 'function' ? getValueExcludeBelowUsd() : 0;
+function _rowExcludedFromValueTotalsByThreshold(c, floorArg) {
+  const floor = floorArg !== undefined
+    ? floorArg
+    : (typeof getValueExcludeBelowUsd === 'function' ? getValueExcludeBelowUsd() : 0);
   if (!floor || floor <= 0) return false;
   const unit = typeof getUnitMarketMaxUsd === 'function'
     ? getUnitMarketMaxUsd(c)
@@ -812,6 +825,8 @@ function openPriceInfoModal(event) {
   if (event) event.stopPropagation();
   const modal = document.getElementById('priceInfoModal');
   if (!modal) return;
+  // Refresh totals before opening (modal not yet open, so the updateStats hook no-ops)
+  if (typeof updateStats === 'function') { try { updateStats(); } catch (_) {} }
   _renderPriceInfoModal();
   modal.classList.add('open');
 }
@@ -854,17 +869,19 @@ function _renderPriceInfoModal() {
   if (t.enabled.tcg) valueRows.push({ key: 'tcg', name: 'TCGplayer', val: t.tcg });
   if (t.enabled.ck) valueRows.push({ key: 'ck', name: 'Card Kingdom', val: t.ck });
 
-  const movers = _priceModalMoverRows(10);
+  // Deltas are scored across all enabled vendors (same as the old movers strip), so the
+  // table shows name + delta only — pairing a cross-vendor delta with the primary
+  // vendor's price read as broken data ($0.00 next to a real move).
+  const showDeltas = prefs.show !== false;
+  const movers = showDeltas ? _priceModalMoverRows(10) : [];
   const moverRowsHtml = movers.map(({ card, delta }) => {
     const uid = card.uid || (card.scryfallId ? card.scryfallId + (card.foil ? '_f' : '_n') : '');
-    const uidJs = String(uid).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const uidJs = esc(String(uid).replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
     const usdText = typeof formatPriceDeltaText === 'function' ? formatPriceDeltaText(delta, 'usd') : '';
     const pctText = typeof formatPriceDeltaText === 'function' ? formatPriceDeltaText(delta, 'pct') : '';
     const cls = typeof priceDeltaClass === 'function' ? priceDeltaClass(delta) : '';
-    const price = primary === 'ck' ? getCKPriceForCard(card) : getTCGPriceForCard(card);
     return `<tr class="price-modal-mover-row" onclick="closePriceInfoModal();openCardDetail('${uidJs}')">
       <td>${esc(card.name || '')}${card.foil ? ' ✦' : ''}</td>
-      <td>$${price.toFixed(2)}</td>
       <td>${esc(usdText)}</td>
       <td class="${cls}">${esc(pctText)}</td>
     </tr>`;
@@ -879,41 +896,52 @@ function _renderPriceInfoModal() {
           <td>$${r.val.toFixed(2)}</td>
         </tr>`).join('')}
     </table>
-    <div class="price-modal-section-title">Top movers · ${esc(tfLabel)}</div>
+    ${showDeltas ? `<div class="price-modal-section-title">Top movers · ${esc(tfLabel)}</div>
     ${movers.length ? `
     <table class="price-table price-modal-movers" style="margin-bottom:1.1rem">
-      <tr class="price-modal-head"><td>Card</td><td>Price</td><td>Δ $</td><td>Δ %</td></tr>
+      <tr class="price-modal-head"><td>Card</td><td>Δ $</td><td>Δ %</td></tr>
       ${moverRowsHtml}
-    </table>` : '<div style="font-size:0.8rem;color:var(--text3);margin-bottom:1.1rem">No price-change data yet for this timeframe.</div>'}
+    </table>` : '<div style="font-size:0.8rem;color:var(--text3);margin-bottom:1.1rem">No price-change data yet for this timeframe.</div>'}` : ''}
     <div class="price-modal-section-title">Settings</div>
     <div class="price-modal-settings">
       <label>Displayed price source
-        <select onchange="onPricePrimaryVendorChange(this.value);_renderPriceInfoModal()">
+        <select onchange="onPricePrimaryVendorChange(this.value)">
           <option value="tcg"${primary === 'tcg' ? ' selected' : ''}>TCGplayer</option>
           <option value="ck"${primary === 'ck' ? ' selected' : ''}>Card Kingdom</option>
         </select>
       </label>
-      <label>Movers timeframe
-        <select onchange="onPriceDeltaTfChange(this.value);_renderPriceInfoModal()">
+      ${showDeltas ? `<label>Movers timeframe
+        <select onchange="onPriceDeltaTfChange(this.value)">
           ${['day', 'week', 'month', 'year', 'since_added'].map(v =>
             `<option value="${v}"${prefs.timeframe === v ? ' selected' : ''}>${_priceChangeTfShortLabel(v, '')}</option>`).join('')}
+          ${prefs.timeframe === 'custom' ? `<option value="custom" selected>${esc(_priceChangeTfShortLabel('custom', prefs.customDate))}</option>` : ''}
         </select>
-      </label>
+      </label>` : ''}
       <label>Minimum price — omit rows under <strong id="priceModalMinLabel">${floor <= 0 ? 'Off' : '$' + floor.toFixed(2)}</strong> from totals
         <input type="range" min="0" max="100" step="1" value="${Math.min(100, Math.max(0, Math.round(floor * 10)))}"
-          oninput="onPriceModalMinPriceInput(this.value)" onchange="_priceModalSliderActive=false;_renderPriceInfoModal()">
+          oninput="onPriceModalMinPriceInput(this.value)">
       </label>
     </div>`;
 }
 
+let _priceModalSliderTimer = null;
 function onPriceModalMinPriceInput(sliderVal) {
-  _priceModalSliderActive = true;
   if (typeof onValueExcludeThresholdInput === 'function') onValueExcludeThresholdInput(sliderVal);
   if (typeof renderValueExcludeSlider === 'function') renderValueExcludeSlider(); // sync Settings menu copy
   const v = typeof getValueExcludeBelowUsd === 'function' ? getValueExcludeBelowUsd() : 0;
   const label = document.getElementById('priceModalMinLabel');
   if (label) label.textContent = v <= 0 ? 'Off' : ('$' + v.toFixed(2));
-  if (typeof updateStats === 'function') updateStats();
+  // Debounce the stats pass: one recompute + modal refresh shortly after the drag
+  // settles. The flag pauses the modal-refresh hook so the slider node survives the
+  // drag; the timer ALWAYS clears it (a drag ending at its start value fires no
+  // change event, which previously left the flag stuck and refreshes disabled).
+  _priceModalSliderActive = true;
+  if (_priceModalSliderTimer) clearTimeout(_priceModalSliderTimer);
+  _priceModalSliderTimer = setTimeout(() => {
+    _priceModalSliderActive = false;
+    _priceModalSliderTimer = null;
+    if (typeof updateStats === 'function') updateStats();
+  }, 250);
 }
 
 function updateStats() {
@@ -924,12 +952,14 @@ function updateStats() {
   const vendors = typeof getPriceVendorEnabled === 'function'
     ? getPriceVendorEnabled()
     : { tcg: true, ck: true };
+  // One localStorage read per stats pass, not one per card in the reduces below
+  const _floor = typeof getValueExcludeBelowUsd === 'function' ? getValueExcludeBelowUsd() : 0;
   const valTCG = vendors.tcg ? rows.reduce((s, c) => {
-    if (_rowExcludedFromValueTotalsByThreshold(c)) return s;
+    if (_rowExcludedFromValueTotalsByThreshold(c, _floor)) return s;
     return s + getTCGPriceForCard(c) * (c.qty || 1);
   }, 0) : 0;
   const valCK = vendors.ck ? rows.reduce((s, c) => {
-    if (_rowExcludedFromValueTotalsByThreshold(c)) return s;
+    if (_rowExcludedFromValueTotalsByThreshold(c, _floor)) return s;
     return s + getCKPriceForCard(c) * (c.qty || 1);
   }, 0) : 0;
   document.getElementById('statCards').textContent = total.toLocaleString();
@@ -945,7 +975,7 @@ function updateStats() {
   _statValueTotals = { tcg: valTCG, ck: valCK, enabled: vendors };
   _refreshPriceInfoModalIfOpen();
   const fullTcg = vendors.tcg ? collection.reduce((s, c) => {
-    if (_rowExcludedFromValueTotalsByThreshold(c)) return s;
+    if (_rowExcludedFromValueTotalsByThreshold(c, _floor)) return s;
     return s + getTCGPriceForCard(c) * (c.qty || 1);
   }, 0) : 0;
   recordValueSnapshot(fullTcg);
@@ -4170,13 +4200,12 @@ function _paintFindResults(el) {
     const border = '1px solid var(--border)';
 
     const pr = c.prices || {};
-    const vendors = typeof getPriceVendorEnabled === 'function'
-      ? getPriceVendorEnabled()
-      : { tcg: true, ck: true };
-    const tcgUsd = vendors.tcg ? (parseFloat(pr.usd) || 0) : 0;
-    const ckUsd = vendors.ck ? (parseFloat(pr.usd_ck) || 0) : 0;
-    const priceBadges = (tcgUsd > 0 ? `<span class="price-badge price-tcg">$${tcgUsd.toFixed(2)}</span>` : '')
-      + (ckUsd > 0 ? `<span class="price-badge price-ck">$${ckUsd.toFixed(2)}</span>` : '');
+    // Match collection tiles: show only the displayed (primary) price source
+    const primaryVendor = typeof getPrimaryPriceVendor === 'function' ? getPrimaryPriceVendor() : 'tcg';
+    const primaryUsd = primaryVendor === 'ck' ? (parseFloat(pr.usd_ck) || 0) : (parseFloat(pr.usd) || 0);
+    const priceBadges = primaryUsd > 0
+      ? `<span class="price-badge ${primaryVendor === 'ck' ? 'price-ck' : 'price-tcg'}">$${primaryUsd.toFixed(2)}</span>`
+      : '';
     const ownedBadges = !useSharedPool ? _findOwnedBadgesHtml(nfQtyDisplay, fQtyDisplay) : '';
 
     const div = document.createElement('div');

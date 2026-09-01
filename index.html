@@ -411,7 +411,7 @@
     <div class="stat-card"><div class="stat-val" id="statCards">0</div><div class="stat-label">Total Cards</div></div>
     <div class="stat-card"><div class="stat-val" id="statUnique">0</div><div class="stat-label">Unique Cards</div></div>
     <div class="stat-card"><div class="stat-val" id="statSets">0</div><div class="stat-label">Sets</div></div>
-    <div class="stat-card stat-card--value" id="statValueCard" onclick="openPriceInfoModal(event)" title="Click for price details">
+    <div class="stat-card stat-card--value" id="statValueCard" role="button" tabindex="0" aria-label="Collection value details" onclick="openPriceInfoModal(event)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openPriceInfoModal(event)}" title="Click for price details">
       <div class="stat-val" id="statValue">$0</div>
       <div class="stat-label" id="statValueLabel">Est. Value (TCG)</div>
     </div>

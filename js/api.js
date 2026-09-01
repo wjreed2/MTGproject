@@ -477,6 +477,12 @@ function getPrimaryPriceVendor() {
   return stored;
 }
 
+/** Foil-aware unit price from the displayed (primary) vendor. */
+function getPrimaryPriceForCard(card, primary) {
+  const p = primary || getPrimaryPriceVendor();
+  return p === 'ck' ? getCKPriceForCard(card) : getTCGPriceForCard(card);
+}
+
 function getPriceDeltaDisplayPrefs() {
   const storedMode = localStorage.getItem('mtg_price_delta_mode');
   const mode = storedMode === 'usd' || storedMode === 'both' ? storedMode : 'pct';
