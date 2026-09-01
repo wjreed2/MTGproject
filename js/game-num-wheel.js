@@ -65,16 +65,23 @@ function numWheelSetEl(root, value, smooth) {
   const h = numWheelItemHeight(root);
   if (!vp || !h) return;
   const top = numWheelScrollForValue(min, max, v, h);
+  root._numWheelSilent = true;
   if (smooth && typeof vp.scrollTo === 'function') vp.scrollTo({ top, behavior: 'smooth' });
   else vp.scrollTop = top;
   root.querySelectorAll('.num-wheel-item').forEach(el => {
     el.classList.toggle('is-selected', Number(el.dataset.n) === v);
   });
+  if (smooth) {
+    clearTimeout(root._numWheelSilentTimer);
+    root._numWheelSilentTimer = setTimeout(() => { root._numWheelSilent = false; }, 120);
+  } else {
+    root._numWheelSilent = false;
+  }
 }
 
 function numWheelOnScroll(vp) {
   const root = vp && vp.closest && vp.closest('.num-wheel');
-  if (!root) return;
+  if (!root || root._numWheelSilent) return;
   clearTimeout(root._numWheelSnap);
   const v = numWheelReadEl(root);
   root.querySelectorAll('.num-wheel-item').forEach(el => {
@@ -85,12 +92,26 @@ function numWheelOnScroll(vp) {
 
 function numWheelSnap(root) {
   if (!root) return;
+  root._numWheelSnap = null;
   const val = numWheelReadEl(root);
-  numWheelSetEl(root, val, true);
+  const prev = Number(root.dataset.value);
+  numWheelSetEl(root, val, false);
+  if (val === prev) return;
   const fn = root.dataset.change;
   if (fn && typeof window !== 'undefined' && typeof window[fn] === 'function') {
     window[fn](root, val);
   }
+}
+
+/** Cancel a pending debounce snap and align to the current scroll position. */
+function numWheelFlush(root) {
+  if (!root) return 0;
+  if (root._numWheelSnap) {
+    clearTimeout(root._numWheelSnap);
+    root._numWheelSnap = null;
+  }
+  numWheelSnap(root);
+  return numWheelReadEl(root);
 }
 
 function numWheelSyncAll() {
@@ -107,5 +128,8 @@ if (typeof module !== 'undefined' && module.exports) {
     numWheelScrollForValue,
     numWheelItemsHtml,
     numWheelHtml,
+    numWheelReadEl,
+    numWheelSnap,
+    numWheelFlush,
   };
 }

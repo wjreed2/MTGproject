@@ -522,13 +522,16 @@ async function ngpUserSelect(i, userIdStr) {
   newGamePlayers[i].commander = '';
   renderNewGamePlayersList();
   if (userId) {
+    const seatIdx = i;
+    const seatUserId = userId;
     await _loadUserDecks(userId);
-    // Auto-select first deck if only one
-    const userDecks = _cachedUserDecks(userId);
+    // Seat may have been reordered or reassigned while the fetch was in flight.
+    if (!newGamePlayers[seatIdx] || newGamePlayers[seatIdx].userId !== seatUserId) return;
+    const userDecks = _cachedUserDecks(seatUserId);
     if (userDecks.length === 1) {
-      newGamePlayers[i].deckId = userDecks[0].id;
-      newGamePlayers[i].deckName = userDecks[0].name;
-      newGamePlayers[i].commander = userDecks[0].commander || '';
+      newGamePlayers[seatIdx].deckId = userDecks[0].id;
+      newGamePlayers[seatIdx].deckName = userDecks[0].name;
+      newGamePlayers[seatIdx].commander = userDecks[0].commander || '';
     }
     renderNewGamePlayersList();
   }
@@ -719,11 +722,11 @@ function renderPlayerCard(game, p) {
       <button onclick="selfLifeChange('${game.id}','${p.id}',1,false)"
         class="life-btn life-btn-pos" ${p.eliminated ? 'disabled' : ''}>+1</button>
       <button onclick="selfLifeChange('${game.id}','${p.id}',1,true)"
-        class="life-btn life-btn-pos" ${p.eliminated ? 'disabled' : ''}>+${actAmt(p)}</button>
+        class="life-btn life-btn-pos" ${p.eliminated ? 'disabled' : ''}>+${actAmt(p, game.id)}</button>
       <button onclick="selfLifeChange('${game.id}','${p.id}',-1,false)"
         class="life-btn life-btn-neg" ${p.eliminated ? 'disabled' : ''}>−1</button>
       <button onclick="selfLifeChange('${game.id}','${p.id}',-1,true)"
-        class="life-btn life-btn-neg" ${p.eliminated ? 'disabled' : ''}>−${actAmt(p)}</button>
+        class="life-btn life-btn-neg" ${p.eliminated ? 'disabled' : ''}>−${actAmt(p, game.id)}</button>
     </div>
 
     <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-top:1px solid var(--border);margin-top:4px;font-size:0.75rem" onclick="event.stopPropagation()">
@@ -1056,34 +1059,55 @@ function cancelAction(gameId) {
 }
 
 let _actionAmountTimer = null;
+const GAME_X_MAX = 99;
+const GAME_LIFE_SET_MAX = 99;
 
 // X is per-player: each player carries their own step/attack amount in
 // player.actionAmount, falling back to the shared default for older games.
-function actAmt(p) { return Math.max(1, (p && p.actionAmount) || gameActionAmount); }
-function activeAmt(game) { return actAmt(game && game.players[game.activePlayerIdx ?? 0]); }
+function _readXWheelForPlayer(gameId, playerId) {
+  if (typeof numWheelReadEl !== 'function' || !gameId || !playerId) return null;
+  const root = document.querySelector(`.num-wheel--x[data-game="${gameId}"][data-pid="${playerId}"]`);
+  if (!root) return null;
+  if (typeof numWheelFlush === 'function') return numWheelFlush(root);
+  return numWheelReadEl(root);
+}
+
+function actAmt(p, gameId) {
+  if (p && gameId) {
+    const live = _readXWheelForPlayer(gameId, p.id);
+    if (live != null) return Math.max(1, Math.min(GAME_X_MAX, live));
+  }
+  const stored = (p && p.actionAmount) || gameActionAmount;
+  return Math.max(1, Math.min(GAME_X_MAX, stored));
+}
+
+function activeAmt(game) {
+  const p = game && game.players[game.activePlayerIdx ?? 0];
+  return actAmt(p, game?.id);
+}
 
 function setActionAmount(gameId, playerId, val) {
   const game = games.find(g => g.id === gameId);
   if (!game) return;
   const p = playerId ? game.players.find(pl => pl.id === playerId) : game.players[game.activePlayerIdx ?? 0];
   if (!p) return;
-  p.actionAmount = Math.max(1, parseInt(val) || 1);
+  const next = Math.max(1, Math.min(GAME_X_MAX, parseInt(val, 10) || 1));
+  if (p.actionAmount === next) return;
+  p.actionAmount = next;
   document.querySelectorAll(`.num-wheel--x[data-pid="${p.id}"]`).forEach(root => {
-    if (Number(root.dataset.value) !== p.actionAmount && typeof numWheelSetEl === 'function') {
-      numWheelSetEl(root, p.actionAmount, false);
+    if (Number(root.dataset.value) !== next && typeof numWheelSetEl === 'function') {
+      numWheelSetEl(root, next, false);
     }
   });
   clearTimeout(_actionAmountTimer);
-  _actionAmountTimer = setTimeout(() => {
-    save('games');
-    if (tabletViewGameId) renderTabletView(); else renderActiveGame(game);
-  }, 400);
+  _actionAmountTimer = setTimeout(() => save('games'), 400);
 }
+
 function adjustActionAmount(gameId, playerId, delta) {
   const game = games.find(g => g.id === gameId);
   if (!game) return;
   const p = playerId ? game.players.find(pl => pl.id === playerId) : game.players[game.activePlayerIdx ?? 0];
-  if (p) setActionAmount(gameId, p.id, actAmt(p) + delta);
+  if (p) setActionAmount(gameId, p.id, actAmt(p, gameId) + delta);
 }
 
 // ── X-amount number wheel (scroll/flick, no keyboard) ─────────────────────────
@@ -1093,7 +1117,7 @@ function xStepper(gameId, playerId) {
   const p = !game ? null : (playerId ? game.players.find(pl => pl.id === playerId) : game.players[game.activePlayerIdx ?? 0]);
   const pid = p ? p.id : '';
   return numWheelHtml({
-    min: 1, max: 40, value: actAmt(p), size: 'sm',
+    min: 1, max: GAME_X_MAX, value: actAmt(p, gameId), size: 'sm',
     change: 'onGameXWheel',
     gameId, playerId: pid,
     className: 'num-wheel--x',
@@ -1226,7 +1250,7 @@ function selfLifeChange(gameId, playerId, direction, useX) {
   if (!game || game.status !== 'active') return;
   const player = game.players.find(p => p.id === playerId);
   if (!player || player.eliminated) return;
-  const amount = useX ? actAmt(player) : 1;
+  const amount = useX ? actAmt(player, gameId) : 1;
   _snapshotGame(game);
   const delta = direction > 0 ? amount : -amount;
   player.life = Math.max(-99, player.life + delta);
@@ -1447,13 +1471,28 @@ function _syncGameWheels() {
   requestAnimationFrame(() => numWheelSyncAll());
 }
 
+function _logEvtSetLifeDefault() {
+  const toId = document.getElementById('logEvtTo')?.value;
+  const game = games.find(g => g.id === logEventGameId);
+  const to = game && toId ? game.players.find(p => p.id === toId) : null;
+  return to ? to.life : 40;
+}
+
+function _readLogEvtAmount() {
+  const root = document.getElementById('logEvtAmountWheel')
+    || document.querySelector('#logEvtAmountWheelHost .num-wheel');
+  if (root && typeof numWheelFlush === 'function') return numWheelFlush(root);
+  if (root && typeof numWheelReadEl === 'function') return numWheelReadEl(root);
+  return parseInt(document.getElementById('logEvtAmount')?.value, 10) || 0;
+}
+
 function _renderLogAmtWheel(value) {
   const host = document.getElementById('logEvtAmountWheelHost');
   const hid = document.getElementById('logEvtAmount');
   const type = document.getElementById('logEvtType')?.value;
   const isLife = type === 'set_life';
   const min = 0;
-  const max = isLife ? 99 : 40;
+  const max = isLife ? GAME_LIFE_SET_MAX : GAME_X_MAX;
   const val = typeof numWheelClamp === 'function' ? numWheelClamp(min, max, value) : Math.max(min, Math.min(max, Number(value) || 0));
   if (hid) hid.value = String(val);
   if (!host || typeof numWheelHtml !== 'function') return;
@@ -1466,13 +1505,23 @@ function _renderLogAmtWheel(value) {
 }
 
 function updateLogEvtPlaceholder() {
-  const type = document.getElementById('logEvtType')?.value;
+  const typeEl = document.getElementById('logEvtType');
+  const type = typeEl?.value;
+  const prevType = typeEl?.dataset.prevType || '';
+  if (typeEl) typeEl.dataset.prevType = type;
   const amtWrap = document.getElementById('logEvtAmountWrap');
   if (amtWrap) amtWrap.style.display = type === 'note' ? 'none' : '';
   if (type === 'note') return;
   const hid = document.getElementById('logEvtAmount');
-  const cur = hid ? parseInt(hid.value, 10) : 1;
-  const next = type === 'set_life' ? (Number.isFinite(cur) && cur > 0 ? cur : 40) : (Number.isFinite(cur) && cur > 0 ? cur : 1);
+  const cur = hid ? parseInt(hid.value, 10) : NaN;
+  let next;
+  if (type === 'set_life') {
+    next = prevType === 'set_life' && Number.isFinite(cur) && cur >= 0
+      ? cur
+      : _logEvtSetLifeDefault();
+  } else {
+    next = Number.isFinite(cur) && cur > 0 ? cur : 1;
+  }
   _renderLogAmtWheel(next);
 }
 
@@ -1481,8 +1530,10 @@ function submitLogEvent() {
   if (!game) return;
   const fromId = document.getElementById('logEvtFrom').value;
   const toId   = document.getElementById('logEvtTo').value;
-  const amount = parseInt(document.getElementById('logEvtAmount').value) || 0;
   const type   = document.getElementById('logEvtType').value;
+  const amount = type === 'set_life'
+    ? _readLogEvtAmount()
+    : Math.max(1, _readLogEvtAmount());
   const card   = document.getElementById('logEvtCard').value.trim();
   const note   = document.getElementById('logEvtNote').value.trim();
   const from   = game.players.find(p => p.id === fromId);
@@ -1504,7 +1555,7 @@ function submitLogEvent() {
   } else if (type === 'life_gain' && to && amount > 0) {
     to.life += amount;
     text = `${to.name} gained ${amount} life${from ? ' from ' + from.name : ''}${card ? ' (' + card + ')' : ''} → ${to.name}: ${to.life} life`;
-  } else if (type === 'set_life' && to) {
+  } else if (type === 'set_life' && to && Number.isFinite(amount)) {
     to.life = amount;
     text = `${to.name}'s life set to ${amount}`;
   } else if (type === 'note' && note) {
@@ -2034,9 +2085,9 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
     <div style="padding:clamp(5px,1.2vh,9px) clamp(8px,1.8vw,16px) 0;border-top:1px solid ${p.color}25" onclick="event.stopPropagation()">
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:clamp(3px,0.55vw,7px);margin-bottom:clamp(4px,0.8vh,7px)">
         <button onclick="selfLifeChange('${game.id}','${p.id}',1,false)"  class="tablet-life-btn tablet-life-btn-pos" ${p.eliminated ? 'disabled' : ''}>+1</button>
-        <button onclick="selfLifeChange('${game.id}','${p.id}',1,true)"   class="tablet-life-btn tablet-life-btn-pos" ${p.eliminated ? 'disabled' : ''}>+${actAmt(p)}</button>
+        <button onclick="selfLifeChange('${game.id}','${p.id}',1,true)"   class="tablet-life-btn tablet-life-btn-pos" ${p.eliminated ? 'disabled' : ''}>+${actAmt(p, game.id)}</button>
         <button onclick="selfLifeChange('${game.id}','${p.id}',-1,false)" class="tablet-life-btn tablet-life-btn-neg" ${p.eliminated ? 'disabled' : ''}>−1</button>
-        <button onclick="selfLifeChange('${game.id}','${p.id}',-1,true)"  class="tablet-life-btn tablet-life-btn-neg" ${p.eliminated ? 'disabled' : ''}>−${actAmt(p)}</button>
+        <button onclick="selfLifeChange('${game.id}','${p.id}',-1,true)"  class="tablet-life-btn tablet-life-btn-neg" ${p.eliminated ? 'disabled' : ''}>−${actAmt(p, game.id)}</button>
       </div>
       <!-- Status -->
       <div style="display:flex;gap:clamp(6px,1.2vw,12px);justify-content:center;align-items:center;padding-bottom:clamp(3px,0.7vh,6px);font-size:clamp(0.56rem,1.1vw,0.74rem)">
@@ -2283,7 +2334,7 @@ function applyDragDamage(amount) {
   if (!ctx || !game || game.status !== 'active') return;
   const source = game.players.find(p => p.id === ctx.sourceId);
   const src = (source && !source.eliminated) ? source : null;
-  const amt = amount < 0 ? actAmt(source) : Math.max(1, amount | 0);   // -1 = use source's X
+  const amt = amount < 0 ? actAmt(source, game.id) : Math.max(1, amount | 0);   // -1 = use source's X
   _snapshotGame(game);
   ctx.targetIds.forEach(tid => {
     const target = game.players.find(p => p.id === tid);
@@ -2306,7 +2357,7 @@ function applyDragCommander(amount) {
   const targetId = ctx.targetIds[0];
   if (targetId === ctx.sourceId) return;                       // no commander damage to self
   const source = game.players.find(p => p.id === ctx.sourceId);
-  const amt = amount < 0 ? actAmt(source) : Math.max(1, amount | 0);   // -1 = use source's X
+  const amt = amount < 0 ? actAmt(source, game.id) : Math.max(1, amount | 0);   // -1 = use source's X
   changeCommanderDamage(game.id, targetId, ctx.sourceId, amt);
 }
 
