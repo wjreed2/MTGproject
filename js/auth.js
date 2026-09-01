@@ -158,11 +158,38 @@ function onPriceDeltaCustomChange(v) {
   if (typeof renderCollection === 'function') renderCollection();
 }
 
+function onPricePrimaryVendorChange(v) {
+  const pick = v === 'ck' ? 'ck' : 'tcg';
+  const en = typeof getPriceVendorEnabled === 'function' ? getPriceVendorEnabled() : { tcg: true, ck: true };
+  if (!en[pick]) {
+    if (typeof showNotif === 'function') showNotif('Enable that price source above first');
+    renderPriceChangeSettings(); // snap selects back to the effective vendor
+    return;
+  }
+  if (pick === 'ck') localStorage.setItem('mtg_price_primary_vendor', 'ck');
+  else localStorage.removeItem('mtg_price_primary_vendor'); // default tcg
+  // renderCollection ends with updateStats, which also refreshes the price modal if open
+  if (typeof renderCollection === 'function') renderCollection();
+  renderPriceChangeSettings();
+  const findEl = document.getElementById('findCardResults');
+  if (findEl && typeof _paintFindResults === 'function' && typeof _findResultCards !== 'undefined' && _findResultCards.length) {
+    _paintFindResults(findEl);
+  }
+}
+
 function renderPriceChangeSettings() {
   const tcg = document.getElementById('settingsPriceChangeTcg');
   const ck = document.getElementById('settingsPriceChangeCk');
   if (tcg) tcg.checked = localStorage.getItem('mtg_price_change_tcg') !== '0';
   if (ck) ck.checked = localStorage.getItem('mtg_price_change_ck') !== '0';
+  // Show the EFFECTIVE vendor (stored pref + enabled-vendor fallback), so the select
+  // never claims a source the tiles/badges aren't actually displaying.
+  const primarySel = document.getElementById('settingsPricePrimaryVendor');
+  if (primarySel) {
+    primarySel.value = typeof getPrimaryPriceVendor === 'function'
+      ? getPrimaryPriceVendor()
+      : (localStorage.getItem('mtg_price_primary_vendor') === 'ck' ? 'ck' : 'tcg');
+  }
   const showEl = document.getElementById('settingsPriceDeltaShow');
   if (showEl) showEl.checked = localStorage.getItem('mtg_price_delta_show') !== '0';
   const mode = document.getElementById('settingsPriceDeltaMode');
