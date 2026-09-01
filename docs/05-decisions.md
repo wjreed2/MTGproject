@@ -203,6 +203,15 @@ Budget is a preference/tie-breaker, never a hard blocker.
 ## DECIDED — Stale plans require explicit action
 If key cards drift, show a stale banner and offer explicit Re-derive. Never silently overwrite.
 
+## DECIDED — Game tracker deck pick is not gated on `is_public`
+When starting a game, any account visible in the New Game player list can have **any of their decks** selected (name / format / commander summaries only — not the full list). `is_public` remains a Browse-tab flag. Playgroup members do not need to be signed in on this device. Guest / blank seats can type a deck name.
+
+## DECIDED — Game tracker seat order is user-set
+Players can reorder seats in the New Game list (before start) and on an active game (desktop cards and tablet ⋯ menu). Array order is the table; whose turn it is follows the player, not the slot. First player is still rolled at start.
+
+## DECIDED — Game tracker amounts use a number wheel
+In-game X and log-event amounts are chosen on a scroll-snap wheel, not a typed number field.
+
 ## REJECTED
 - Runtime AI/LLM for card recommendations or wizard decisions
 - Live Scryfall lookups during suggestion generation

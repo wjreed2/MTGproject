@@ -481,7 +481,7 @@
           <option value="low">Low first</option>
         </select>
       </div>
-      <div class="view-toggle">
+      <div id="collectionViewToggle" class="view-toggle" role="group" aria-label="Collection layout">
         <button class="active tooltip-wrap" onclick="setView('grid',this)"><span class="tooltip">Grid</span>⊞</button>
         <button class="tooltip-wrap" onclick="setView('large',this)"><span class="tooltip">Large</span>⊟</button>
         <button class="tooltip-wrap" onclick="setView('compact',this)"><span class="tooltip">Compact</span>⊠</button>
@@ -1772,7 +1772,7 @@
     <div id="newGamePlayersList" style="margin-bottom:0.85rem"></div>
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:0.9rem">
       <button class="btn btn-outline btn-sm" onclick="addNewGamePlayer()">+ Add Player</button>
-      <span style="font-size:0.74rem;color:var(--text3)">First player is chosen at random when you start.</span>
+      <span style="font-size:0.74rem;color:var(--text3)">↑↓ sets seat order around the table. First player is still rolled at start.</span>
     </div>
     <div style="display:flex;gap:8px">
       <button class="btn btn-primary" style="flex:1" onclick="submitNewGame()">Start Game</button>
@@ -1812,7 +1812,8 @@
       </div>
       <div id="logEvtAmountWrap">
         <label style="font-size:0.78rem;color:var(--text3);display:block;margin-bottom:4px;letter-spacing:0.04em">AMOUNT</label>
-        <input id="logEvtAmount" type="number" min="0" placeholder="Amount" style="width:100%">
+        <input type="hidden" id="logEvtAmount" value="1">
+        <div id="logEvtAmountWheelHost"></div>
       </div>
       <div>
         <label style="font-size:0.78rem;color:var(--text3);display:block;margin-bottom:4px;letter-spacing:0.04em">CARD NAME <span style="opacity:0.5">(optional)</span></label>
