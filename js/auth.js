@@ -158,11 +158,24 @@ function onPriceDeltaCustomChange(v) {
   if (typeof renderCollection === 'function') renderCollection();
 }
 
+function onPricePrimaryVendorChange(v) {
+  if (v === 'ck') localStorage.setItem('mtg_price_primary_vendor', 'ck');
+  else localStorage.removeItem('mtg_price_primary_vendor'); // default tcg
+  if (typeof renderCollection === 'function') renderCollection();
+  if (typeof updateStats === 'function') updateStats();
+  const findEl = document.getElementById('findCardResults');
+  if (findEl && typeof _paintFindResults === 'function' && typeof _findResultCards !== 'undefined' && _findResultCards.length) {
+    _paintFindResults(findEl);
+  }
+}
+
 function renderPriceChangeSettings() {
   const tcg = document.getElementById('settingsPriceChangeTcg');
   const ck = document.getElementById('settingsPriceChangeCk');
   if (tcg) tcg.checked = localStorage.getItem('mtg_price_change_tcg') !== '0';
   if (ck) ck.checked = localStorage.getItem('mtg_price_change_ck') !== '0';
+  const primarySel = document.getElementById('settingsPricePrimaryVendor');
+  if (primarySel) primarySel.value = localStorage.getItem('mtg_price_primary_vendor') === 'ck' ? 'ck' : 'tcg';
   const showEl = document.getElementById('settingsPriceDeltaShow');
   if (showEl) showEl.checked = localStorage.getItem('mtg_price_delta_show') !== '0';
   const mode = document.getElementById('settingsPriceDeltaMode');

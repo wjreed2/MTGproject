@@ -5986,37 +5986,51 @@ async function getVendorPricesAtOrBefore(scryfallIds, date) {
     for (const id of batch) if (!found.has(id)) missing.push(id);
   }
 
-  // Printings with no row on the global asOf date (rare gaps) — earliest snapshot each.
+  // Printings with no row on the global asOf date (e.g. a partial snapshot day):
+  // use each card's NEWEST snapshot at-or-before the requested date. The old
+  // MIN(snapshot_date) fallback served launch-week hype prices to every card a
+  // partial snapshot missed — and clients then persisted those onto collections.
   if (missing.length) {
-    for (let i = 0; i < missing.length; i += CH) {
-      const batch = missing.slice(i, i + CH);
-      const ph = batch.map(() => '?').join(',');
-      const [rows] = await db().query(
-        `SELECT p.scryfall_id sid,
-                DATE_FORMAT(c.snapshot_date, '%Y-%m-%d') AS asOf,
-                c.tcg_normal, c.tcg_foil, c.ck_normal, c.ck_foil
-           FROM mtgjson_printing p
-           JOIN card_price_daily c ON c.uuid = p.uuid
-           JOIN (
-             SELECT p2.uuid, MIN(c2.snapshot_date) AS md
-               FROM mtgjson_printing p2
-               JOIN card_price_daily c2 ON c2.uuid = p2.uuid
-              WHERE p2.scryfall_id IN (${ph})
-              GROUP BY p2.uuid
-           ) t ON t.uuid = p.uuid AND c.snapshot_date = t.md
-          WHERE p.scryfall_id IN (${ph})`,
-        [...batch, ...batch]
-      );
-      for (const r of rows) {
-        const key = String(r.sid || '').toLowerCase();
-        if (out.has(key)) continue;
-        out.set(key, {
-          asOf: r.asOf,
-          tcg_normal: _numOrNull(r.tcg_normal),
-          tcg_foil: _numOrNull(r.tcg_foil),
-          ck_normal: _numOrNull(r.ck_normal),
-          ck_foil: _numOrNull(r.ck_foil),
-        });
+    const fallbackQueries = [
+      // newest snapshot ≤ requested date (normal case)
+      { cmp: 'c2.snapshot_date <= ?', agg: 'MAX', dated: true },
+      // card's snapshots all start after the requested date (debuted later) — earliest row
+      { cmp: '1=1', agg: 'MIN', dated: false },
+    ];
+    for (const fq of fallbackQueries) {
+      const still = missing.filter(id => !out.has(id));
+      if (!still.length) break;
+      for (let i = 0; i < still.length; i += CH) {
+        const batch = still.slice(i, i + CH);
+        const ph = batch.map(() => '?').join(',');
+        const params = fq.dated ? [...batch, date, ...batch] : [...batch, ...batch];
+        const [rows] = await db().query(
+          `SELECT p.scryfall_id sid,
+                  DATE_FORMAT(c.snapshot_date, '%Y-%m-%d') AS asOf,
+                  c.tcg_normal, c.tcg_foil, c.ck_normal, c.ck_foil
+             FROM mtgjson_printing p
+             JOIN card_price_daily c ON c.uuid = p.uuid
+             JOIN (
+               SELECT p2.uuid, ${fq.agg}(c2.snapshot_date) AS md
+                 FROM mtgjson_printing p2
+                 JOIN card_price_daily c2 ON c2.uuid = p2.uuid
+                WHERE p2.scryfall_id IN (${ph})${fq.dated ? ' AND ' + fq.cmp : ''}
+                GROUP BY p2.uuid
+             ) t ON t.uuid = p.uuid AND c.snapshot_date = t.md
+            WHERE p.scryfall_id IN (${ph})`,
+          params
+        );
+        for (const r of rows) {
+          const key = String(r.sid || '').toLowerCase();
+          if (out.has(key)) continue;
+          out.set(key, {
+            asOf: r.asOf,
+            tcg_normal: _numOrNull(r.tcg_normal),
+            tcg_foil: _numOrNull(r.tcg_foil),
+            ck_normal: _numOrNull(r.ck_normal),
+            ck_foil: _numOrNull(r.ck_foil),
+          });
+        }
       }
     }
   }
