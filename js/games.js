@@ -43,8 +43,9 @@ function gameIcon(name, size = 12, style = '') {
 // ── Liquid glass skin ─────────────────────────────────────────────────────────
 // Pure styling toggle for the game tracker (main view): flips a class on
 // #tab-games that a scoped CSS section in main.css keys off. No behavior change.
-let glassMode = false;
-try { glassMode = localStorage.getItem('mtg_glass_mode') === '1'; } catch (_) { /* storage blocked */ }
+// Default ON: only an explicit toggle-off ('0') disables it.
+let glassMode = true;
+try { glassMode = localStorage.getItem('mtg_glass_mode') !== '0'; } catch (_) { /* storage blocked */ }
 
 function applyGlassMode() {
   const tab = document.getElementById('tab-games');
