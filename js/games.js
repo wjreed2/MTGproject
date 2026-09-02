@@ -2106,6 +2106,8 @@ function _tabletCenterBoxHtml(game, posStyle) {
 // Shared surface wiring for both tablet layouts: tap-to-advance, drag-to-deal
 // pointer handlers, and the running turn timer.
 function _wireTabletSurface(game, el) {
+  // Long-press is a gesture here (seat swap); keep the browser's context menu out.
+  el.oncontextmenu = (e) => { e.preventDefault(); };
   // Tap anywhere that isn't a control (name bar, life number, empty space) to advance the
   // turn — a big, forgiving hit target. Guards: a completed drag-to-deal gesture fires a
   // trailing click (swallow it via _tabletDragJustEnded); an open ⋯ menu just dismisses;
@@ -2236,6 +2238,101 @@ function _piePolygon(cx, cy, w, h, a0, a1) {
   return pts;
 }
 
+// ── Table-seating model ──────────────────────────────────────────────────────
+// Seats are chairs around a table: pairs share the long (top/bottom) edges and
+// extra players take the short-edge head/tail seats. Wedge boundaries are the
+// angular midlines between neighbouring chairs — so 2 players halves the screen
+// and 4 players quarters it exactly like the grid view; the pie shape only
+// really shows at odd counts (3, 5) where a lone seat gets its own slice.
+// rot faces the chair's screen edge: 0 bottom, 180 top, -90 right, 90 left.
+function _pieChairs(n, w, h) {
+  const B = f => ({ x: w * f, y: h, rot: 0 });     // bottom edge, upright
+  const T = f => ({ x: w * f, y: 0, rot: 180 });   // top edge, flipped
+  const R = { x: w, y: h / 2, rot: -90 };          // right edge (head of table)
+  const L = { x: 0, y: h / 2, rot: 90 };           // left edge (tail)
+  switch (n) {
+    case 2:  return [B(0.5), T(0.5)];
+    case 3:  return [B(0.28), B(0.72), T(0.5)];
+    case 4:  return [B(0.27), B(0.73), T(0.73), T(0.27)];
+    case 5:  return [B(0.27), B(0.73), R, T(0.73), T(0.27)];
+    case 6:  return [B(0.27), B(0.73), R, T(0.73), T(0.27), L];
+    default: return [B(0.5)];
+  }
+}
+
+// Per-seat wedge spans: sort chairs by their angle from the screen centre and
+// cut at the midlines between neighbours (with wraparound).
+function _pieSeatWedges(n, w, h) {
+  const cx = w / 2, cy = h / 2;
+  const chairs = _pieChairs(n, w, h);
+  if (chairs.length === 1) return [{ chair: chairs[0], a0: -Math.PI / 2, a1: Math.PI * 1.5 }];
+  const order = chairs
+    .map((c, seat) => ({ seat, ang: Math.atan2(c.y - cy, c.x - cx) }))
+    .sort((a, b) => a.ang - b.ang);
+  const out = new Array(chairs.length);
+  order.forEach((cur, k) => {
+    const prev = order[(k - 1 + order.length) % order.length];
+    const next = order[(k + 1) % order.length];
+    const prevAng = k === 0 ? prev.ang - Math.PI * 2 : prev.ang;
+    const nextAng = k === order.length - 1 ? next.ang + Math.PI * 2 : next.ang;
+    out[cur.seat] = { chair: chairs[cur.seat], a0: (prevAng + cur.ang) / 2, a1: (cur.ang + nextAng) / 2 };
+  });
+  return out;
+}
+
+function _pointInPoly(pts, x, y) {
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const xi = pts[i][0], yi = pts[i][1], xj = pts[j][0], yj = pts[j][1];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+// Largest content rect (axis-aligned in the seat's rotated frame) that hugs the
+// seat's table edge and stays inside its wedge polygon, the safe bounds and
+// clear of the centre hub. Width is binary-searched against the actual polygon,
+// which stays robust for any wedge shape (diagonal boundaries, head seats, odd
+// aspect ratios); a too-narrow wedge trades height for width.
+function _pieFitContent(polyPts, chair, cx, cy, bounds, hub) {
+  const d = chair.rot === 0 ? [0, 1] : chair.rot === 180 ? [0, -1]
+    : chair.rot === -90 ? [1, 0] : [-1, 0];                       // outward
+  const across = [-d[1], d[0]];
+  const uC = (chair.x - cx) * across[0] + (chair.y - cy) * across[1];
+  const vOut = d[0] === 1 ? bounds.bx1 - cx : d[0] === -1 ? cx - bounds.bx0
+    : d[1] === 1 ? bounds.by1 - cy : cy - bounds.by0;
+  const vIn = Math.abs(d[0]) * hub.w / 2 + Math.abs(d[1]) * hub.h / 2 + 14;
+  const pt = (u, v) => [cx + across[0] * u + d[0] * v, cy + across[1] * u + d[1] * v];
+  const ok = (x, y) => x >= bounds.bx0 - 0.5 && x <= bounds.bx1 + 0.5
+    && y >= bounds.by0 - 0.5 && y <= bounds.by1 + 0.5 && _pointInPoly(polyPts, x, y);
+  const rectOk = (W, H) => {
+    const vLo = vOut - H;
+    for (const u of [uC - W / 2 + 3, uC + W / 2 - 3]) {
+      for (const v of [vLo + 3, vOut - 3]) {
+        const p2 = pt(u, v);
+        if (!ok(p2[0], p2[1])) return false;
+      }
+    }
+    return true;
+  };
+  let H = Math.max(120, Math.min(vOut - vIn, 380));
+  let W = 150;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    let lo = 120, hi = 620;
+    if (rectOk(hi, H)) lo = hi;
+    else for (let i = 0; i < 9; i++) {
+      const mid = (lo + hi) / 2;
+      if (rectOk(mid, H)) lo = mid; else hi = mid;
+    }
+    W = Math.min(lo, 560);
+    if (W >= 150 || H <= 130) break;
+    H = Math.max(130, H * 0.82);   // narrow wedge: trade height for width
+  }
+  W = Math.max(150, W);
+  const a = pt(uC, vOut - H / 2);
+  return { ax: a[0], ay: a[1], contentW: W, contentH: H, rotDeg: chair.rot };
+}
+
 let _pieHubSize = null;   // centre hub's measured layout box, cached across renders
 
 function renderTabletPieView(game, el, _hubRetry = false) {
@@ -2246,7 +2343,6 @@ function renderTabletPieView(game, el, _hubRetry = false) {
   const w = el.clientWidth || window.innerWidth;
   const h = el.clientHeight || window.innerHeight;
   const cx = w / 2, cy = h / 2;
-  const step = (Math.PI * 2) / n;
   // Content must stay inside the safe area: #tabletView's padding carries the
   // notch/status-bar/home-indicator insets, but absolutely-positioned wedges
   // span the padding box, so the insets are re-applied to the content bounds.
@@ -2260,38 +2356,16 @@ function renderTabletPieView(game, el, _hubRetry = false) {
   // the hub, e.g. on phones), estimated before it — see the retry below.
   const hub = _pieHubSize || { w: 212, h: 184 };
 
-  const geoms = game.players.map((_, i) => {
-    const bis = Math.PI / 2 - i * step;          // seat 0 bottom, then counterclockwise
-    const a0 = bis - step / 2, a1 = bis + step / 2;
-    const bx = Math.cos(bis), by = Math.sin(bis);                    // outward
-    const ux = Math.cos(bis + Math.PI / 2), uy = Math.sin(bis + Math.PI / 2);  // across
-    // Content block sizing: its inner edge sits at innerR (the hub's box
-    // projected onto this bisector, plus a gap) and grows outward. Width is
-    // bound by the wedge chord at the inner edge AND the safe-area bounds;
-    // height by how far the block can grow before an outer corner leaves them.
-    // Inner corners sit at innerR ± W/2 across (independent of H), the outer
-    // corners at those points + H outward — so both bounds solve directly.
-    const innerR = Math.max(n >= 5 ? 150 : 132,
-      Math.abs(bx) * hub.w / 2 + Math.abs(by) * hub.h / 2 + 14);
-    const fit = (px, py, dx, dy) => _rayToRect(px, py, dx, dy, bx0, by0, bx1, by1);
-    const ix = cx + bx * innerR, iy = cy + by * innerR;              // inner-edge midpoint
-    const halfStep = step / 2;
-    const chord = halfStep >= Math.PI / 2 - 0.01
-      ? Infinity
-      : 2 * innerR * Math.tan(halfStep) * 0.95;
-    const maxW = 2 * Math.min(fit(ix, iy, ux, uy), fit(ix, iy, -ux, -uy));
-    const contentW = Math.max(150, Math.min(chord, maxW, 560, w * 0.92));
-    const contentH = Math.max(120, Math.min(
-      fit(ix + ux * contentW / 2, iy + uy * contentW / 2, bx, by),
-      fit(ix - ux * contentW / 2, iy - uy * contentW / 2, bx, by),
-      380));
-    const anchorR = innerR + contentH / 2;
-    const ax = cx + bx * anchorR;
-    const ay = cy + by * anchorR;
-    const rotDeg = Math.round(bis * 180 / Math.PI) - 90;
-    const poly = _piePolygon(cx, cy, w, h, a0, a1)
-      .map(pt => `${pt[0].toFixed(1)}px ${pt[1].toFixed(1)}px`).join(',');
-    return { ax, ay, rotDeg, contentW, contentH, poly, a0 };
+  const bounds = { bx0, by0, bx1, by1 };
+  const geoms = _pieSeatWedges(n, w, h).map(({ chair, a0, a1 }) => {
+    const polyPts = _piePolygon(cx, cy, w, h, a0, a1);
+    const fitted = _pieFitContent(polyPts, chair, cx, cy, bounds, hub);
+    return {
+      ...fitted,
+      poly: polyPts.map(pt => `${pt[0].toFixed(1)}px ${pt[1].toFixed(1)}px`).join(','),
+      polyRaw: polyPts.map(pt => `${pt[0].toFixed(1)},${pt[1].toFixed(1)}`).join(' '),
+      vw: w, vh: h, a0,
+    };
   });
 
   const dividers = `
@@ -2352,7 +2426,10 @@ function renderTabletPieCell(game, p, idx, g) {
            background:radial-gradient(circle ${glowR}px at ${g.ax.toFixed(1)}px ${g.ay.toFixed(1)}px,${p.color}${glowAlpha} 0%,transparent 75%),var(--bg2);
            ${inTargetMode ? 'cursor:crosshair;' : ''}"
     ${inTargetMode ? `onclick="applyGameAction('${game.id}','${p.id}')"` : ''}>
-    <div class="tablet-pie-content tablet-pie-anchor" style="left:${g.ax.toFixed(1)}px;top:${g.ay.toFixed(1)}px;width:${Math.round(g.contentW)}px;transform:translate(-50%,-50%) rotate(${g.rotDeg}deg);${isActiveTurn && !inTargetMode ? `box-shadow:0 0 0 3px ${p.color},0 0 34px ${p.color}55;` : ''}">
+    <svg viewBox="0 0 ${g.vw} ${g.vh}" preserveAspectRatio="none" style="position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none">
+      <polygon class="pie-outline" points="${g.polyRaw}" style="fill:none;stroke-width:7;stroke:${isActiveTurn && !inTargetMode ? p.color : 'transparent'}"/>
+    </svg>
+    <div class="tablet-pie-content tablet-pie-anchor" style="left:${g.ax.toFixed(1)}px;top:${g.ay.toFixed(1)}px;width:${Math.round(g.contentW)}px;transform:translate(-50%,-50%) rotate(${g.rotDeg}deg);">
       <div style="display:flex;align-items:center;justify-content:center;gap:7px;max-width:100%">
         <span class="tablet-total-time" data-pid="${p.id}" title="Total time this player has spent on turns"
           style="font-family:'JetBrains Mono',monospace;font-size:clamp(0.5rem,1.05vw,0.7rem);color:var(--text3);white-space:nowrap">${formatDuration(playerTotalTime(game, p.id))}</span>
@@ -2422,8 +2499,10 @@ const _TARGET_HIT = 0.5;
 function _targetCellAt(x, y) {
   const cell = _cellElAt(x, y);
   if (!cell) return null;
-  // Pie-layout cells span the whole screen (clipped to a wedge) — aim at their
-  // content block instead of the cell box. During a drag the zones cached at
+  // Pie layout: the entire wedge polygon is the hit box — elementFromPoint
+  // already resolved the clip-path, so landing anywhere in the wedge targets it.
+  if (cell.dataset.pie === '1') return cell;
+  // Grid cells keep the central aim zone; during a drag the zones cached at
   // pointerdown make this pure arithmetic (no per-move DOM queries).
   let z = _tabletDrag && _tabletDrag.zones && _tabletDrag.zones[cell.dataset.pid];
   if (!z) {
@@ -2466,19 +2545,79 @@ function tabletDragPointerDown(e) {
     // Seed currentPid with the source so sitting on your own cell at the start of
     // the drag doesn't auto-select you; leaving and returning still targets self.
     targets: [], anchors: [], currentPid: cell.dataset.pid,
+    mode: null, seatTargetPid: null,
   };
+  // Hold without moving on a wedge → seat-swap mode: drag the player onto
+  // another wedge to swap chairs. Moving early cancels the hold and the
+  // gesture becomes the usual drag-to-deal instead.
+  if (cell.dataset.pie === '1') {
+    _clearSeatHold();
+    _seatHoldTimer = setTimeout(_enterSeatDragMode, 450);
+  }
+}
+
+let _seatHoldTimer = null;
+function _clearSeatHold() {
+  if (_seatHoldTimer) { clearTimeout(_seatHoldTimer); _seatHoldTimer = null; }
+}
+
+function _enterSeatDragMode() {
+  _seatHoldTimer = null;
+  if (!_tabletDrag || _tabletDrag.dragging) return;
+  _tabletDrag.mode = 'seat';
+  _tabletDrag.dragging = true;
+  const tEl = document.getElementById('tabletView');
+  if (tEl && tEl.setPointerCapture) { try { tEl.setPointerCapture(_tabletDrag.pointerId); } catch (_) {} }
+  const srcCell = document.querySelector(`.tablet-cell[data-pid="${_tabletDrag.sourceId}"]`);
+  if (srcCell) srcCell.classList.add('tablet-seat-drag-source');
+  _ensureDragArrow();
+  _drawDragArrows(_tabletDrag.startX, _tabletDrag.startY);
+}
+
+// Track the wedge under the finger while dragging a seat; release performs the swap.
+function _seatDragMove(e) {
+  const cell = _cellElAt(e.clientX, e.clientY);
+  const pid = (cell && cell.dataset.pid !== _tabletDrag.sourceId) ? cell.dataset.pid : null;
+  if (pid !== _tabletDrag.seatTargetPid) {
+    _tabletDrag.seatTargetPid = pid;
+    document.querySelectorAll('.tablet-seat-drag-target').forEach(c => c.classList.remove('tablet-seat-drag-target'));
+    if (pid) cell.classList.add('tablet-seat-drag-target');
+  }
+  _drawDragArrows(e.clientX, e.clientY);
+}
+
+function swapTabletSeats(gameId, pidA, pidB) {
+  const game = games.find(g => g.id === gameId);
+  if (!game || game.status !== 'active' || typeof swapSeatPair !== 'function') return;
+  const i = game.players.findIndex(p => p.id === pidA);
+  const j = game.players.findIndex(p => p.id === pidB);
+  const result = swapSeatPair(game.players, i, j, game.activePlayerIdx ?? 0);
+  if (!result.ok) return;
+  game.players = result.players;
+  game.activePlayerIdx = result.activePlayerIdx;
+  addLog(game, {
+    type: 'note',
+    text: `Seat order: ${game.players.map(p => p.name).join(' → ')}`,
+  });
+  save('games');
+  document.querySelectorAll('.tablet-player-menu').forEach(m => m.remove());
+  if (tabletViewGameId) renderTabletView();
+  renderActiveGame(game);
+  renderGames();
 }
 
 function tabletDragPointerMove(e) {
   if (!_tabletDrag || e.pointerId !== _tabletDrag.pointerId) return;
   if (!_tabletDrag.dragging) {
     if (Math.hypot(e.clientX - _tabletDrag.startX, e.clientY - _tabletDrag.startY) < 16) return;
+    _clearSeatHold();          // moved before the hold fired: it's a deal-drag
     _tabletDrag.dragging = true;
     const tEl = document.getElementById('tabletView');
     if (tEl && tEl.setPointerCapture) { try { tEl.setPointerCapture(_tabletDrag.pointerId); } catch (_) {} }
     _ensureDragArrow();
   }
   e.preventDefault();
+  if (_tabletDrag.mode === 'seat') { _seatDragMove(e); return; }
   const cell = _targetCellAt(e.clientX, e.clientY);
   const pid = (cell && cell.dataset.pid && cell.dataset.elim !== '1') ? cell.dataset.pid : null;
   // Commit a target the first time the pointer sweeps near its life number (self included).
@@ -2497,9 +2636,19 @@ function tabletDragPointerMove(e) {
 
 function tabletDragPointerUp(e) {
   if (!_tabletDrag || e.pointerId !== _tabletDrag.pointerId) return;
+  _clearSeatHold();
   const drag = _tabletDrag;
   _tabletDrag = null;
   _removeDragArrow();
+  if (drag.mode === 'seat') {
+    document.querySelectorAll('.tablet-seat-drag-source, .tablet-seat-drag-target')
+      .forEach(c => c.classList.remove('tablet-seat-drag-source', 'tablet-seat-drag-target'));
+    _tabletDragJustEnded = true;   // swallow the trailing click so it can't advance the turn
+    const cell = _cellElAt(e.clientX, e.clientY);
+    const targetPid = cell && cell.dataset.pid;
+    if (targetPid && targetPid !== drag.sourceId) swapTabletSeats(tabletViewGameId, drag.sourceId, targetPid);
+    return;
+  }
   if (!drag.dragging) { _highlightDragTargets([]); return; }
   _tabletDragJustEnded = true;   // a click follows this drag — don't let it advance the turn
   // Include the cell the pointer is near at release (same central hitbox), then deal.
