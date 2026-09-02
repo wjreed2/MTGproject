@@ -9235,8 +9235,18 @@ select:focus { outline: none; border-color: rgba(200,168,74,0.6); box-shadow: 0 
    variables can't: blur, shadows, pill shapes, and the wallpaper.
    ══════════════════════════════════════════════════════════════════════════ */
 
-#tab-games.glass-mode {
-  position: relative;
+#tab-games.glass-mode { position: relative; }
+
+/* Variable remap shared by every glass surface: the games tab, the tablet-view
+   overlay, the tablet ⋯/drag menus (appended to <body>), and the three
+   game-flow modals. */
+#tab-games.glass-mode,
+body.glass-mode #tabletView,
+body.glass-mode .tablet-player-menu,
+body.glass-mode .tablet-drag-menu,
+body.glass-mode #newGameModal,
+body.glass-mode #logEventModal,
+body.glass-mode #endGameModal {
   /* Surfaces: translucent whites instead of opaque navy */
   --bg2: rgba(255,255,255,0.045);
   --bg3: rgba(255,255,255,0.075);
@@ -9407,7 +9417,13 @@ select:focus { outline: none; border-color: rgba(200,168,74,0.6); box-shadow: 0 
 }
 
 /* ── Light theme variant: bright milky glass over pastel wallpaper ── */
-[data-theme="light"] #tab-games.glass-mode {
+[data-theme="light"] #tab-games.glass-mode,
+[data-theme="light"] body.glass-mode #tabletView,
+[data-theme="light"] body.glass-mode .tablet-player-menu,
+[data-theme="light"] body.glass-mode .tablet-drag-menu,
+[data-theme="light"] body.glass-mode #newGameModal,
+[data-theme="light"] body.glass-mode #logEventModal,
+[data-theme="light"] body.glass-mode #endGameModal {
   --bg2: rgba(255,255,255,0.52);
   --bg3: rgba(255,255,255,0.60);
   --bg4: rgba(255,255,255,0.72);
@@ -9491,4 +9507,281 @@ select:focus { outline: none; border-color: rgba(200,168,74,0.6); box-shadow: 0 
 }
 [data-theme="light"] #tab-games.glass-mode .btn-primary:hover {
   background: linear-gradient(160deg, rgba(96,168,255,0.98), rgba(30,126,248,0.94));
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+   Glass: main-page leftovers — format heading, X wheel, steppers
+   ──────────────────────────────────────────────────────────────────────────── */
+#tab-games.glass-mode .gt-format {
+  font-family: 'Inter', system-ui, sans-serif !important;
+  color: var(--text) !important;
+  font-weight: 700;
+  letter-spacing: -0.01em !important;
+}
+#tab-games.glass-mode .x-stepper-btn,
+body.glass-mode :is(.tablet-player-menu, .tablet-drag-menu) .x-stepper-btn {
+  border-radius: 10px;
+  background: rgba(255,255,255,0.09);
+  border-color: rgba(255,255,255,0.18);
+}
+#tab-games.glass-mode .num-wheel-frame,
+body.glass-mode :is(.tablet-player-menu, .tablet-drag-menu) .num-wheel-frame {
+  border-color: rgba(255,255,255,0.35);
+  background: rgba(255,255,255,0.10);
+  border-radius: 10px;
+}
+#tab-games.glass-mode .num-wheel-item.is-selected,
+body.glass-mode :is(.tablet-player-menu, .tablet-drag-menu) .num-wheel-item.is-selected {
+  color: #fff;
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+   Glass: tablet view — same toggle (flipped from the main tracker header)
+   ──────────────────────────────────────────────────────────────────────────── */
+body.glass-mode #tabletView {
+  background:
+    radial-gradient(42% 38% at 16% 10%, rgba(90,162,255,0.30), transparent 70%),
+    radial-gradient(46% 42% at 84% 16%, rgba(168,140,255,0.24), transparent 70%),
+    radial-gradient(52% 48% at 76% 88%, rgba(79,216,189,0.18), transparent 70%),
+    radial-gradient(38% 34% at 10% 80%, rgba(255,170,110,0.14), transparent 70%),
+    linear-gradient(180deg, #0b1122 0%, #0d1428 55%, #0a0f1f 100%);
+  gap: clamp(6px, 0.9vh, 10px);
+}
+body.glass-mode #tabletView .tablet-cell {
+  -webkit-backdrop-filter: blur(22px) saturate(170%);
+  backdrop-filter: blur(22px) saturate(170%);
+  border-radius: 22px;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.13),
+    inset 0 0 0.5px rgba(255,255,255,0.09),
+    0 8px 28px rgba(0,0,0,0.30);
+}
+/* Pie wedges are clip-path'd full-screen cells — no corner rounding or outer
+   shadow (the wedge outline SVG draws the seams), blur still applies. */
+body.glass-mode #tabletView .tablet-cell--pie {
+  border-radius: 0;
+  box-shadow: none;
+}
+body.glass-mode .tablet-player-name {
+  font-family: 'Inter', system-ui, sans-serif !important;
+  font-weight: 600;
+  letter-spacing: 0 !important;
+}
+body.glass-mode .tablet-life-btn { border-radius: 14px; }
+body.glass-mode .tablet-life-btn-neg {
+  background: rgba(255,110,95,0.14);
+  border-color: rgba(255,122,107,0.35);
+}
+body.glass-mode .tablet-life-btn-neg:hover,
+body.glass-mode .tablet-life-btn-neg:active { background: rgba(255,110,95,0.30); }
+body.glass-mode .tablet-life-btn-pos {
+  background: rgba(79,216,189,0.14);
+  border-color: rgba(79,216,189,0.35);
+}
+body.glass-mode .tablet-life-btn-pos:hover,
+body.glass-mode .tablet-life-btn-pos:active { background: rgba(79,216,189,0.30); }
+
+/* Centre hub — floating frosted widget (inline-styled, hence the !important) */
+body.glass-mode .tablet-center-box {
+  background: rgba(16,22,40,0.42) !important;
+  -webkit-backdrop-filter: blur(26px) saturate(180%) !important;
+  backdrop-filter: blur(26px) saturate(180%) !important;
+  border-color: rgba(255,255,255,0.18) !important;
+  border-radius: 22px !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.18),
+    0 14px 44px rgba(0,0,0,0.45);
+}
+body.glass-mode .tablet-turn-btn { border-radius: 12px !important; }
+body.glass-mode .tablet-exit-btn,
+body.glass-mode #tabletView [onclick^="closeTabletView"] { border-radius: 999px !important; }
+
+/* Floating ⋯ player menu + drag-to-deal menu (both appended to <body>) */
+body.glass-mode .tablet-player-menu {
+  background: rgba(20,27,48,0.55) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  backdrop-filter: blur(28px) saturate(180%);
+  border-color: rgba(255,255,255,0.18) !important;
+  border-radius: 18px !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.16),
+    0 18px 60px rgba(0,0,0,0.5) !important;
+}
+body.glass-mode .tablet-drag-menu {
+  background: rgba(20,27,48,0.55);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  backdrop-filter: blur(28px) saturate(180%);
+  border-color: rgba(255,255,255,0.18);
+  border-radius: 18px;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.16),
+    0 18px 60px rgba(0,0,0,0.5);
+}
+body.glass-mode .tablet-drag-menu-head {
+  font-family: 'Inter', system-ui, sans-serif;
+  font-weight: 600;
+}
+body.glass-mode .tablet-drag-menu-row input { border-radius: 10px; }
+body.glass-mode .tablet-drag-deal {
+  border-radius: 12px;
+  background: rgba(255,110,95,0.16);
+  border-color: rgba(255,122,107,0.4);
+}
+body.glass-mode .tablet-drag-deal:hover,
+body.glass-mode .tablet-drag-deal:active { background: rgba(255,110,95,0.32); }
+body.glass-mode .tablet-drag-deal--cmd {
+  background: rgba(255,217,122,0.14);
+  border-color: rgba(255,217,122,0.4);
+}
+body.glass-mode .tablet-drag-deal--cmd:hover,
+body.glass-mode .tablet-drag-deal--cmd:active { background: rgba(255,217,122,0.28); }
+body.glass-mode .tablet-drag-cancel { border-radius: 12px; }
+
+/* ────────────────────────────────────────────────────────────────────────────
+   Glass: game-flow modals (new game / log event / end game)
+   ──────────────────────────────────────────────────────────────────────────── */
+body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .modal {
+  background: rgba(22,29,52,0.55);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  backdrop-filter: blur(30px) saturate(180%);
+  border: 1px solid rgba(255,255,255,0.16);
+  border-radius: 26px;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.16),
+    0 28px 90px rgba(0,0,0,0.6);
+}
+body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .modal-title {
+  font-family: 'Inter', system-ui, sans-serif;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: rgba(244,246,251,0.88);
+}
+body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .btn {
+  border-radius: 999px;
+  background: rgba(255,255,255,0.07);
+  border-color: rgba(255,255,255,0.16);
+  color: rgba(240,244,252,0.82);
+  -webkit-backdrop-filter: blur(12px) saturate(160%);
+  backdrop-filter: blur(12px) saturate(160%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 2px 10px rgba(0,0,0,0.22);
+}
+body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .btn-outline:hover {
+  color: #fff;
+  border-color: rgba(255,255,255,0.34);
+  background: rgba(255,255,255,0.14);
+}
+body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .btn-primary {
+  background: linear-gradient(160deg, rgba(70,150,255,0.92), rgba(10,110,240,0.85));
+  border-color: rgba(255,255,255,0.30);
+  color: #fff;
+  font-weight: 600;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.35), 0 4px 18px rgba(40,120,255,0.35);
+}
+body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .btn-primary:hover {
+  background: linear-gradient(160deg, rgba(96,168,255,0.95), rgba(30,126,248,0.9));
+}
+body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .btn-danger {
+  background: rgba(255,90,74,0.16);
+  border-color: rgba(255,122,107,0.4);
+  color: #ffa79c;
+}
+body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .btn-danger:hover {
+  background: rgba(255,90,74,0.3);
+}
+body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) :is(input, select, textarea) {
+  border-radius: 12px !important;
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+   Glass, light theme: tablet view + menus + modals
+   ──────────────────────────────────────────────────────────────────────────── */
+[data-theme="light"] body.glass-mode #tabletView {
+  background:
+    radial-gradient(42% 38% at 16% 10%, rgba(120,170,255,0.5), transparent 70%),
+    radial-gradient(46% 42% at 84% 16%, rgba(190,160,255,0.42), transparent 70%),
+    radial-gradient(52% 48% at 76% 88%, rgba(120,225,200,0.38), transparent 70%),
+    radial-gradient(38% 34% at 10% 80%, rgba(255,200,150,0.35), transparent 70%),
+    linear-gradient(180deg, #eef2fa 0%, #e8edf8 55%, #eaeef6 100%);
+}
+[data-theme="light"] body.glass-mode #tabletView .tablet-cell {
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.9),
+    0 8px 28px rgba(30,50,90,0.14);
+}
+[data-theme="light"] body.glass-mode #tabletView .tablet-cell--pie { box-shadow: none; }
+[data-theme="light"] body.glass-mode .tablet-center-box {
+  background: rgba(255,255,255,0.6) !important;
+  border-color: rgba(255,255,255,0.8) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.95),
+    0 14px 44px rgba(30,50,90,0.2);
+}
+[data-theme="light"] body.glass-mode .tablet-player-menu {
+  background: rgba(255,255,255,0.68) !important;
+  border-color: rgba(255,255,255,0.85) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.95),
+    0 18px 60px rgba(30,50,90,0.25) !important;
+}
+[data-theme="light"] body.glass-mode .tablet-drag-menu {
+  background: rgba(255,255,255,0.68);
+  border-color: rgba(255,255,255,0.85);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.95),
+    0 18px 60px rgba(30,50,90,0.25);
+}
+[data-theme="light"] body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .modal {
+  background: rgba(255,255,255,0.66);
+  border: 1px solid rgba(255,255,255,0.85);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.95),
+    0 28px 90px rgba(30,50,90,0.3);
+}
+[data-theme="light"] body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .modal-title {
+  color: rgba(23,32,46,0.9);
+}
+[data-theme="light"] body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .btn {
+  background: rgba(255,255,255,0.55);
+  border-color: rgba(255,255,255,0.75);
+  color: rgba(28,40,58,0.82);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 10px rgba(30,50,90,0.10);
+}
+[data-theme="light"] body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .btn-outline:hover {
+  color: #17202e;
+  background: rgba(255,255,255,0.8);
+  border-color: rgba(255,255,255,0.95);
+}
+[data-theme="light"] body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .btn-primary {
+  background: linear-gradient(160deg, rgba(70,150,255,0.95), rgba(10,110,240,0.9));
+  border-color: rgba(255,255,255,0.55);
+  color: #fff;
+}
+[data-theme="light"] body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .btn-danger {
+  background: rgba(216,74,58,0.10);
+  border-color: rgba(216,74,58,0.30);
+  color: #c23a2c;
+}
+[data-theme="light"] body.glass-mode .tablet-life-btn-neg {
+  background: rgba(216,74,58,0.10);
+  border-color: rgba(216,74,58,0.30);
+}
+[data-theme="light"] body.glass-mode .tablet-life-btn-pos {
+  background: rgba(15,154,128,0.10);
+  border-color: rgba(15,154,128,0.30);
+}
+[data-theme="light"] #tab-games.glass-mode .num-wheel-frame,
+[data-theme="light"] body.glass-mode :is(.tablet-player-menu, .tablet-drag-menu) .num-wheel-frame {
+  border-color: rgba(20,35,60,0.28);
+  background: rgba(255,255,255,0.55);
+}
+[data-theme="light"] #tab-games.glass-mode .num-wheel-item.is-selected,
+[data-theme="light"] body.glass-mode :is(.tablet-player-menu, .tablet-drag-menu) .num-wheel-item.is-selected {
+  color: #17202e;
+}
+[data-theme="light"] #tab-games.glass-mode .x-stepper-btn,
+[data-theme="light"] body.glass-mode :is(.tablet-player-menu, .tablet-drag-menu) .x-stepper-btn {
+  background: rgba(255,255,255,0.6);
+  border-color: rgba(20,35,60,0.16);
 }
