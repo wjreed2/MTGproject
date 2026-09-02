@@ -30,7 +30,8 @@ const GAME_ICON_PATHS = {
   x: '<line x1="4" y1="4" x2="12" y2="12"/><line x1="12" y1="4" x2="4" y2="12"/>',
   pause: '<line x1="6" y1="4" x2="6" y2="12"/><line x1="10" y1="4" x2="10" y2="12"/>',
   play: '<path d="M6 4.5l5 3.5-5 3.5z"/>',
-  undo: '<path d="M3.2 6.8h6.3a3.4 3.4 0 0 1 0 6.8H6.2"/><path d="M6.2 3.8l-3 3 3 3"/>'
+  undo: '<path d="M3.2 6.8h6.3a3.4 3.4 0 0 1 0 6.8H6.2"/><path d="M6.2 3.8l-3 3 3 3"/>',
+  droplet: '<path d="M8 1.9c2.5 3 4.3 5.4 4.3 7.5a4.3 4.3 0 0 1-8.6 0C3.7 7.3 5.5 4.9 8 1.9z"/><path d="M5.9 9.6a2.2 2.2 0 0 0 1.5 2.1"/>'
 };
 
 function gameIcon(name, size = 12, style = '') {
@@ -38,6 +39,28 @@ function gameIcon(name, size = 12, style = '') {
   if (!paths) return '';
   return `<svg class="gt-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:${size}px;height:${size}px;${style}">${paths}</svg>`;
 }
+
+// ── Liquid glass skin ─────────────────────────────────────────────────────────
+// Pure styling toggle for the game tracker (main view): flips a class on
+// #tab-games that a scoped CSS section in main.css keys off. No behavior change.
+let glassMode = false;
+try { glassMode = localStorage.getItem('mtg_glass_mode') === '1'; } catch (_) { /* storage blocked */ }
+
+function applyGlassMode() {
+  const tab = document.getElementById('tab-games');
+  if (tab) tab.classList.toggle('glass-mode', glassMode);
+}
+
+function toggleGlassMode() {
+  glassMode = !glassMode;
+  try { localStorage.setItem('mtg_glass_mode', glassMode ? '1' : '0'); } catch (_) { /* private mode */ }
+  applyGlassMode();
+  const btn = document.getElementById('glassModeBtn');
+  if (btn) btn.classList.toggle('active', glassMode);
+}
+
+if (document.readyState !== 'loading') applyGlassMode();
+else document.addEventListener('DOMContentLoaded', applyGlassMode);
 
 function _setLifeDiceDiag(msg) {
   _lifeDiceWebGLDiag = msg;
@@ -649,6 +672,7 @@ async function submitNewGame() {
 function renderActiveGame(game) {
   const el = document.getElementById('activeGameArea');
   if (!el) return;
+  applyGlassMode();
   const isCmd = game.format === 'Commander' || game.format === 'Brawl';
   const activePlayers = game.players.filter(p => !p.eliminated).length;
 
@@ -669,6 +693,7 @@ function renderActiveGame(game) {
       <button class="btn btn-outline btn-sm" onclick="nextTurn('${game.id}')">→ Next Turn</button>
       <button class="btn btn-outline btn-sm" onclick="openLogEvent('${game.id}')" style="display:inline-flex;align-items:center;gap:5px">${gameIcon('sword', 12)}Log Event</button>
       <button class="btn btn-outline btn-sm" onclick="openTabletView('${game.id}')" style="display:inline-flex;align-items:center;gap:5px">${gameIcon('tablet', 12)}Tablet View</button>
+      <button id="glassModeBtn" class="btn btn-outline btn-sm${glassMode ? ' active' : ''}" onclick="toggleGlassMode()" title="Toggle the liquid glass look" style="display:inline-flex;align-items:center;gap:5px">${gameIcon('droplet', 12)}Glass</button>
       <button class="btn btn-danger btn-sm" onclick="openEndGame('${game.id}')" style="display:inline-flex;align-items:center;gap:5px">${gameIcon('flag', 12)}End Game</button>
     </div>
     ${renderActionBar(game)}
@@ -1059,7 +1084,7 @@ function renderActionBar(game) {
   }[gameActionMode];
 
   return `
-  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius2)">
+  <div class="game-action-bar" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius2)">
     <div style="display:flex;align-items:center;gap:5px;flex-shrink:0">
       <span style="font-size:0.7rem;color:var(--text3)">X =</span>
       ${xStepper(game.id)}
@@ -1169,10 +1194,12 @@ function onLogAmtWheel(_root, val) {
 }
 
 // ── Undo (in-memory snapshot stack, one per game) ──────────────────────────────
-// Undo only reverts player tallies — life, poison, commander damage, and the
-// resulting elimination/game-end. Turn advancement and the timer are deliberately
-// NOT snapshotted, so undo never rewinds whose turn it is or the clock. History
-// lives only for the session (not persisted) to avoid bloat.
+// Undo reverts player tallies — life, poison, commander damage, the resulting
+// elimination/game-end — and turn passes: whose turn it is, the turn counter,
+// and the recorded turn durations. Undoing a turn pass hands the turn clock
+// back to the restored player at the time they'd already used; the total game
+// clock is wall-time (endedAt - date) and is never touched. History lives only
+// for the session (not persisted) to avoid bloat.
 const _undoStacks = {};
 function _snapshotGame(game) {
   const snap = JSON.stringify({
@@ -1181,6 +1208,9 @@ function _snapshotGame(game) {
       commanderDamage: p.commanderDamage, eliminated: p.eliminated, placement: p.placement,
     })),
     status: game.status, winner: game.winner, log: game.log,
+    activePlayerId: game.players[game.activePlayerIdx ?? 0]?.id,
+    currentTurn: game.currentTurn,
+    turnDurations: game.turnDurations || [],
   });
   const stack = _undoStacks[game.id] || (_undoStacks[game.id] = []);
   stack.push(snap);
@@ -1202,6 +1232,24 @@ function undoGameAction(gameId) {
   game.status = snap.status;
   game.winner = snap.winner;
   game.log = snap.log;
+  if (snap.activePlayerId != null) {
+    const idx = game.players.findIndex(p => p.id === snap.activePlayerId);
+    const turnChanged = (idx >= 0 && idx !== (game.activePlayerIdx ?? 0))
+      || snap.currentTurn !== game.currentTurn;
+    if (idx >= 0) game.activePlayerIdx = idx;
+    if (snap.currentTurn != null) game.currentTurn = snap.currentTurn;
+    if (turnChanged) {
+      // Rewinding a turn pass: give the restored player back the time nextTurn
+      // banked for them, so their turn clock resumes where it was rather than
+      // zeroing and shortchanging their total.
+      const cur = game.turnDurations || [];
+      const banked = cur.length > (snap.turnDurations || []).length
+        ? cur[cur.length - 1].duration : 0;
+      game.turnStartedAt = Date.now() - banked;
+      if (_turnPaused) _pausedElapsed = banked;
+    }
+    game.turnDurations = snap.turnDurations || game.turnDurations;
+  }
   save('games');
   if (tabletViewGameId) { renderTabletView(); _syncOpenMenuCmd(game); }
   renderActiveGame(game);
@@ -1374,6 +1422,7 @@ function autoEndGame(game, winner) {
 function nextTurn(gameId) {
   const game = games.find(g => g.id === gameId);
   if (!game) return;
+  _snapshotGame(game);
   const current = game.activePlayerIdx ?? 0;
   const total = game.players.length;
   // Turn passes clockwise around the table, which is the reverse of array order
@@ -2254,16 +2303,15 @@ function _pieChairs(n, w, h) {
   const L = { x: 0, y: h / 2, rot: 90 };           // left edge (tail)
   switch (n) {
     case 2:  return [B(0.5), T(0.5)];
-    case 3: {
-      // Three chairs around the table, everyone facing the middle — the bottom
-      // pair tilts toward the centre instead of sitting square.
-      const tilt = f => Math.round((Math.atan2(h / 2, w * f - w / 2) * 180 / Math.PI - 90) * 10) / 10;
+    case 3:
+      // Bottom pair sits head to head — each hugs a side edge of the lower
+      // half, tops pointing at each other across the vertical midline — with
+      // the third player across the top.
       return [
-        { x: w * 0.28, y: h, rot: tilt(0.28) },
-        { x: w * 0.72, y: h, rot: tilt(0.72) },
+        { x: 0, y: h, rot: 90 },
+        { x: w, y: h, rot: -90 },
         T(0.5),
       ];
-    }
     case 4:  return [B(0.27), B(0.73), T(0.73), T(0.27)];
     case 6:  return [B(0.27), B(0.73), R, T(0.73), T(0.27), L];
     default: return [B(0.5)];
