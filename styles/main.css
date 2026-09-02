@@ -10124,4 +10124,4 @@ body.glass-mode .stat-label {
 /* Card tiles keep card-like corners — exempt from the rounder --radius2 remap
    (real MTG cards have modest corner rounding; 18px reads as a blob). Also
    covers wishlist and set-detail grids, which reuse .card-item. */
-body.glass-mode .card-item { border-radius: 10px; }
+body.glass-mode .card-item { border-radius: 6px; }
