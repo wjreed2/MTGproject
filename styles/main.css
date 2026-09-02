@@ -9222,12 +9222,13 @@ select:focus { outline: none; border-color: rgba(200,168,74,0.6); box-shadow: 0 
 .cd-price-canvas-wrap { position: relative; height: 180px; }
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   LIQUID GLASS SKIN — game tracker (#tab-games.glass-mode)
+   LIQUID GLASS SKIN — app-wide (body.glass-mode)
    iOS-style frosted translucency inspired by deckcheck.co: near-transparent
    white surfaces over an ambient gradient wallpaper, heavy backdrop blur with
    a saturation boost, hairline light borders, specular top edges, pill
-   controls, and large continuous radii. Pure styling — toggled from the
-   tracker header (js/games.js toggleGlassMode), no functional changes.
+   controls, and large continuous radii. Pure styling — toggled from the game
+   tracker header (js/games.js toggleGlassMode), applied app-wide via a class
+   on <body>, no functional changes.
 
    Most of the skin works by remapping the CSS custom properties the tracker
    already uses (inline styles included), so surfaces/borders/text flip to
@@ -9235,18 +9236,12 @@ select:focus { outline: none; border-color: rgba(200,168,74,0.6); box-shadow: 0 
    variables can't: blur, shadows, pill shapes, and the wallpaper.
    ══════════════════════════════════════════════════════════════════════════ */
 
-#tab-games.glass-mode { position: relative; }
+body.glass-mode { position: relative; }
 
 /* Variable remap shared by every glass surface: the games tab, the tablet-view
    overlay, the tablet ⋯/drag menus (appended to <body>), and the three
    game-flow modals. */
-#tab-games.glass-mode,
-body.glass-mode #tabletView,
-body.glass-mode .tablet-player-menu,
-body.glass-mode .tablet-drag-menu,
-body.glass-mode #newGameModal,
-body.glass-mode #logEventModal,
-body.glass-mode #endGameModal {
+body.glass-mode {
   /* Surfaces: translucent whites instead of opaque navy */
   --bg2: rgba(255,255,255,0.045);
   --bg3: rgba(255,255,255,0.075);
@@ -9277,11 +9272,11 @@ body.glass-mode #endGameModal {
 }
 
 /* Ambient wallpaper the glass blurs — soft colour blobs on deep blue-black */
-#tab-games.glass-mode::before {
+body.glass-mode::before {
   content: '';
   position: fixed;
   inset: 0;
-  z-index: -1;
+  z-index: 0;
   pointer-events: none;
   background:
     radial-gradient(42% 38% at 16% 10%, rgba(90,162,255,0.30), transparent 70%),
@@ -9292,10 +9287,10 @@ body.glass-mode #endGameModal {
 }
 
 /* ── Frosted surfaces ── */
-#tab-games.glass-mode .panel,
-#tab-games.glass-mode .player-card,
-#tab-games.glass-mode .game-action-bar,
-#tab-games.glass-mode .empty-state {
+body.glass-mode .panel,
+body.glass-mode .player-card,
+body.glass-mode .game-action-bar,
+body.glass-mode .empty-state {
   background: rgba(255,255,255,0.05);
   -webkit-backdrop-filter: blur(22px) saturate(170%);
   backdrop-filter: blur(22px) saturate(170%);
@@ -9305,26 +9300,26 @@ body.glass-mode #endGameModal {
     inset 0 0 0.5px rgba(255,255,255,0.10),
     0 8px 28px rgba(0,0,0,0.35);
 }
-#tab-games.glass-mode .game-action-bar { border-radius: var(--radius2) !important; }
-#tab-games.glass-mode .panel { border-radius: 20px; }
-#tab-games.glass-mode .player-card {
+body.glass-mode .game-action-bar { border-radius: var(--radius2) !important; }
+body.glass-mode .panel { border-radius: 20px; }
+body.glass-mode .player-card {
   border-radius: 20px;
   transition: border-color 0.2s, box-shadow 0.25s var(--ease), transform 0.25s var(--ease);
 }
-#tab-games.glass-mode .player-card:hover {
+body.glass-mode .player-card:hover {
   border-color: rgba(255,255,255,0.24);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.2),
     0 12px 36px rgba(0,0,0,0.42);
 }
-#tab-games.glass-mode .player-active-turn {
+body.glass-mode .player-active-turn {
   background: linear-gradient(165deg, rgba(255,255,255,0.11), rgba(255,255,255,0.04)) !important;
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.24),
     0 0 0 1px rgba(255,255,255,0.14),
     0 10px 34px rgba(0,0,0,0.4);
 }
-#tab-games.glass-mode .player-targetable {
+body.glass-mode .player-targetable {
   border-color: rgba(255,217,122,0.65) !important;
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.18),
@@ -9333,66 +9328,64 @@ body.glass-mode #endGameModal {
 }
 
 /* ── Pill controls ── */
-#tab-games.glass-mode .btn {
+body.glass-mode .btn {
   border-radius: 999px;
   background: rgba(255,255,255,0.07);
   border-color: rgba(255,255,255,0.16);
   color: rgba(240,244,252,0.82);
-  -webkit-backdrop-filter: blur(12px) saturate(160%);
-  backdrop-filter: blur(12px) saturate(160%);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 2px 10px rgba(0,0,0,0.22);
 }
-#tab-games.glass-mode .top-action-bar .btn { border-radius: 999px; }
-#tab-games.glass-mode .btn-outline:hover {
+body.glass-mode .top-action-bar .btn { border-radius: 999px; }
+body.glass-mode .btn-outline:hover {
   color: #fff;
   border-color: rgba(255,255,255,0.34);
   background: rgba(255,255,255,0.14);
 }
-#tab-games.glass-mode .btn-outline.active {
+body.glass-mode .btn-outline.active {
   color: #fff;
   border-color: rgba(255,255,255,0.45);
   background: rgba(255,255,255,0.18);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.28), 0 2px 14px rgba(0,0,0,0.25);
 }
-#tab-games.glass-mode .btn-primary {
+body.glass-mode .btn-primary {
   background: linear-gradient(160deg, rgba(70,150,255,0.92), rgba(10,110,240,0.85));
   border-color: rgba(255,255,255,0.30);
   color: #fff;
   font-weight: 600;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.35), 0 4px 18px rgba(40,120,255,0.35);
 }
-#tab-games.glass-mode .btn-primary:hover {
+body.glass-mode .btn-primary:hover {
   background: linear-gradient(160deg, rgba(96,168,255,0.95), rgba(30,126,248,0.9));
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.4), 0 4px 22px rgba(40,120,255,0.5);
 }
-#tab-games.glass-mode .btn-danger {
+body.glass-mode .btn-danger {
   background: rgba(255,90,74,0.16);
   border-color: rgba(255,122,107,0.4);
   color: #ffa79c;
 }
-#tab-games.glass-mode .btn-danger:hover {
+body.glass-mode .btn-danger:hover {
   background: rgba(255,90,74,0.3);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.18), 0 0 16px rgba(255,90,74,0.28);
 }
-#tab-games.glass-mode .life-btn { border-radius: 11px; }
-#tab-games.glass-mode .life-btn-neg {
+body.glass-mode .life-btn { border-radius: 11px; }
+body.glass-mode .life-btn-neg {
   background: rgba(255,110,95,0.12);
   border-color: rgba(255,122,107,0.32);
 }
-#tab-games.glass-mode .life-btn-neg:hover:not(:disabled) { background: rgba(255,110,95,0.26); }
-#tab-games.glass-mode .life-btn-pos {
+body.glass-mode .life-btn-neg:hover:not(:disabled) { background: rgba(255,110,95,0.26); }
+body.glass-mode .life-btn-pos {
   background: rgba(79,216,189,0.12);
   border-color: rgba(79,216,189,0.32);
 }
-#tab-games.glass-mode .life-btn-pos:hover:not(:disabled) { background: rgba(79,216,189,0.26); }
-#tab-games.glass-mode .seat-nudge-btn {
+body.glass-mode .life-btn-pos:hover:not(:disabled) { background: rgba(79,216,189,0.26); }
+body.glass-mode .seat-nudge-btn {
   border-radius: 7px;
   background: rgba(255,255,255,0.08);
   border-color: rgba(255,255,255,0.18);
 }
 
 /* ── Type: iOS-flavoured panel titles (Inter, sentence case) ── */
-#tab-games.glass-mode .panel-title {
+body.glass-mode .panel-title {
   font-family: 'Inter', system-ui, sans-serif;
   text-transform: none;
   letter-spacing: 0;
@@ -9400,30 +9393,24 @@ body.glass-mode #endGameModal {
   font-weight: 600;
   color: rgba(244,246,251,0.86);
 }
-#tab-games.glass-mode .panel-header { border-bottom-color: rgba(255,255,255,0.10); }
+body.glass-mode .panel-header { border-bottom-color: rgba(255,255,255,0.10); }
 
 /* Tags/pills over glass */
-#tab-games.glass-mode .tag-blue {
+body.glass-mode .tag-blue {
   background: rgba(90,162,255,0.20);
   color: #b7d6ff;
   border: 1px solid rgba(142,194,255,0.35);
 }
 
 /* Empty state floats like a widget */
-#tab-games.glass-mode .empty-state { border-radius: 24px; }
-#tab-games.glass-mode .empty-state h2 {
+body.glass-mode .empty-state { border-radius: 24px; }
+body.glass-mode .empty-state h2 {
   font-family: 'Inter', system-ui, sans-serif;
   color: rgba(244,246,251,0.9);
 }
 
 /* ── Light theme variant: bright milky glass over pastel wallpaper ── */
-[data-theme="light"] #tab-games.glass-mode,
-[data-theme="light"] body.glass-mode #tabletView,
-[data-theme="light"] body.glass-mode .tablet-player-menu,
-[data-theme="light"] body.glass-mode .tablet-drag-menu,
-[data-theme="light"] body.glass-mode #newGameModal,
-[data-theme="light"] body.glass-mode #logEventModal,
-[data-theme="light"] body.glass-mode #endGameModal {
+[data-theme="light"] body.glass-mode {
   --bg2: rgba(255,255,255,0.52);
   --bg3: rgba(255,255,255,0.60);
   --bg4: rgba(255,255,255,0.72);
@@ -9445,7 +9432,7 @@ body.glass-mode #endGameModal {
   --green: #2f9e44;
   --purple:#7a5cd0;
 }
-[data-theme="light"] #tab-games.glass-mode::before {
+[data-theme="light"] body.glass-mode::before {
   background:
     radial-gradient(42% 38% at 16% 10%, rgba(120,170,255,0.5), transparent 70%),
     radial-gradient(46% 42% at 84% 16%, rgba(190,160,255,0.42), transparent 70%),
@@ -9453,84 +9440,84 @@ body.glass-mode #endGameModal {
     radial-gradient(38% 34% at 10% 80%, rgba(255,200,150,0.35), transparent 70%),
     linear-gradient(180deg, #eef2fa 0%, #e8edf8 55%, #eaeef6 100%);
 }
-[data-theme="light"] #tab-games.glass-mode .panel,
-[data-theme="light"] #tab-games.glass-mode .player-card,
-[data-theme="light"] #tab-games.glass-mode .game-action-bar,
-[data-theme="light"] #tab-games.glass-mode .empty-state {
+[data-theme="light"] body.glass-mode .panel,
+[data-theme="light"] body.glass-mode .player-card,
+[data-theme="light"] body.glass-mode .game-action-bar,
+[data-theme="light"] body.glass-mode .empty-state {
   background: rgba(255,255,255,0.5);
   border: 1px solid rgba(255,255,255,0.65);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.9),
     0 8px 28px rgba(30,50,90,0.14);
 }
-[data-theme="light"] #tab-games.glass-mode .player-active-turn {
+[data-theme="light"] body.glass-mode .player-active-turn {
   background: linear-gradient(165deg, rgba(255,255,255,0.78), rgba(255,255,255,0.5)) !important;
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.95),
     0 0 0 1px rgba(255,255,255,0.7),
     0 10px 34px rgba(30,50,90,0.18);
 }
-[data-theme="light"] #tab-games.glass-mode .btn {
+[data-theme="light"] body.glass-mode .btn {
   background: rgba(255,255,255,0.55);
   border-color: rgba(255,255,255,0.75);
   color: rgba(28,40,58,0.82);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 10px rgba(30,50,90,0.10);
 }
-[data-theme="light"] #tab-games.glass-mode .btn-outline:hover {
+[data-theme="light"] body.glass-mode .btn-outline:hover {
   color: #17202e;
   background: rgba(255,255,255,0.8);
   border-color: rgba(255,255,255,0.95);
 }
-[data-theme="light"] #tab-games.glass-mode .btn-outline.active {
+[data-theme="light"] body.glass-mode .btn-outline.active {
   color: #0a55c4;
   background: rgba(255,255,255,0.85);
   border-color: rgba(22,104,216,0.4);
 }
-[data-theme="light"] #tab-games.glass-mode .btn-danger {
+[data-theme="light"] body.glass-mode .btn-danger {
   background: rgba(216,74,58,0.10);
   border-color: rgba(216,74,58,0.30);
   color: #c23a2c;
 }
-[data-theme="light"] #tab-games.glass-mode .panel-title { color: rgba(23,32,46,0.88); }
-[data-theme="light"] #tab-games.glass-mode .panel-header { border-bottom-color: rgba(20,35,60,0.08); }
-[data-theme="light"] #tab-games.glass-mode .empty-state h2 { color: rgba(23,32,46,0.9); }
-[data-theme="light"] #tab-games.glass-mode .tag-blue {
+[data-theme="light"] body.glass-mode .panel-title { color: rgba(23,32,46,0.88); }
+[data-theme="light"] body.glass-mode .panel-header { border-bottom-color: rgba(20,35,60,0.08); }
+[data-theme="light"] body.glass-mode .empty-state h2 { color: rgba(23,32,46,0.9); }
+[data-theme="light"] body.glass-mode .tag-blue {
   background: rgba(22,104,216,0.10);
   color: #1668d8;
   border: 1px solid rgba(22,104,216,0.28);
 }
-[data-theme="light"] #tab-games.glass-mode .btn-primary {
+[data-theme="light"] body.glass-mode .btn-primary {
   background: linear-gradient(160deg, rgba(70,150,255,0.95), rgba(10,110,240,0.9));
   border-color: rgba(255,255,255,0.55);
   color: #fff;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.45), 0 4px 18px rgba(40,120,255,0.3);
 }
-[data-theme="light"] #tab-games.glass-mode .btn-primary:hover {
+[data-theme="light"] body.glass-mode .btn-primary:hover {
   background: linear-gradient(160deg, rgba(96,168,255,0.98), rgba(30,126,248,0.94));
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
    Glass: main-page leftovers — format heading, X wheel, steppers
    ──────────────────────────────────────────────────────────────────────────── */
-#tab-games.glass-mode .gt-format {
+body.glass-mode .gt-format {
   font-family: 'Inter', system-ui, sans-serif !important;
   color: var(--text) !important;
   font-weight: 700;
   letter-spacing: -0.01em !important;
 }
-#tab-games.glass-mode .x-stepper-btn,
+body.glass-mode .x-stepper-btn,
 body.glass-mode :is(.tablet-player-menu, .tablet-drag-menu) .x-stepper-btn {
   border-radius: 10px;
   background: rgba(255,255,255,0.09);
   border-color: rgba(255,255,255,0.18);
 }
-#tab-games.glass-mode .num-wheel-frame,
+body.glass-mode .num-wheel-frame,
 body.glass-mode :is(.tablet-player-menu, .tablet-drag-menu) .num-wheel-frame {
   border-color: rgba(255,255,255,0.35);
   background: rgba(255,255,255,0.10);
   border-radius: 10px;
 }
-#tab-games.glass-mode .num-wheel-item.is-selected,
+body.glass-mode .num-wheel-item.is-selected,
 body.glass-mode :is(.tablet-player-menu, .tablet-drag-menu) .num-wheel-item.is-selected {
   color: #fff;
 }
@@ -9715,7 +9702,7 @@ body.glass-mode .tablet-drag-cancel { border-radius: 12px; }
 /* ────────────────────────────────────────────────────────────────────────────
    Glass: game-flow modals (new game / log event / end game)
    ──────────────────────────────────────────────────────────────────────────── */
-body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .modal {
+body.glass-mode .modal {
   background: rgba(22,29,52,0.55);
   -webkit-backdrop-filter: blur(30px) saturate(180%);
   backdrop-filter: blur(30px) saturate(180%);
@@ -9725,7 +9712,7 @@ body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .modal {
     inset 0 1px 0 rgba(255,255,255,0.16),
     0 28px 90px rgba(0,0,0,0.6);
 }
-body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .modal-title {
+body.glass-mode .modal-title {
   font-family: 'Inter', system-ui, sans-serif;
   text-transform: none;
   letter-spacing: 0;
@@ -9733,39 +9720,37 @@ body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .modal-title {
   font-size: 1.05rem;
   color: rgba(244,246,251,0.88);
 }
-body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .btn {
+body.glass-mode .btn {
   border-radius: 999px;
   background: rgba(255,255,255,0.07);
   border-color: rgba(255,255,255,0.16);
   color: rgba(240,244,252,0.82);
-  -webkit-backdrop-filter: blur(12px) saturate(160%);
-  backdrop-filter: blur(12px) saturate(160%);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 2px 10px rgba(0,0,0,0.22);
 }
-body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .btn-outline:hover {
+body.glass-mode .btn-outline:hover {
   color: #fff;
   border-color: rgba(255,255,255,0.34);
   background: rgba(255,255,255,0.14);
 }
-body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .btn-primary {
+body.glass-mode .btn-primary {
   background: linear-gradient(160deg, rgba(70,150,255,0.92), rgba(10,110,240,0.85));
   border-color: rgba(255,255,255,0.30);
   color: #fff;
   font-weight: 600;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.35), 0 4px 18px rgba(40,120,255,0.35);
 }
-body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .btn-primary:hover {
+body.glass-mode .btn-primary:hover {
   background: linear-gradient(160deg, rgba(96,168,255,0.95), rgba(30,126,248,0.9));
 }
-body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .btn-danger {
+body.glass-mode .btn-danger {
   background: rgba(255,90,74,0.16);
   border-color: rgba(255,122,107,0.4);
   color: #ffa79c;
 }
-body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .btn-danger:hover {
+body.glass-mode .btn-danger:hover {
   background: rgba(255,90,74,0.3);
 }
-body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) :is(input, select, textarea) {
+body.glass-mode :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]), select, textarea) {
   border-radius: 12px !important;
 }
 
@@ -9830,33 +9815,33 @@ body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) :is(input, sel
     inset 0 1px 0 rgba(255,255,255,0.95),
     0 18px 60px rgba(30,50,90,0.25);
 }
-[data-theme="light"] body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .modal {
+[data-theme="light"] body.glass-mode .modal {
   background: rgba(255,255,255,0.66);
   border: 1px solid rgba(255,255,255,0.85);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.95),
     0 28px 90px rgba(30,50,90,0.3);
 }
-[data-theme="light"] body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .modal-title {
+[data-theme="light"] body.glass-mode .modal-title {
   color: rgba(23,32,46,0.9);
 }
-[data-theme="light"] body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .btn {
+[data-theme="light"] body.glass-mode .btn {
   background: rgba(255,255,255,0.55);
   border-color: rgba(255,255,255,0.75);
   color: rgba(28,40,58,0.82);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 10px rgba(30,50,90,0.10);
 }
-[data-theme="light"] body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .btn-outline:hover {
+[data-theme="light"] body.glass-mode .btn-outline:hover {
   color: #17202e;
   background: rgba(255,255,255,0.8);
   border-color: rgba(255,255,255,0.95);
 }
-[data-theme="light"] body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .btn-primary {
+[data-theme="light"] body.glass-mode .btn-primary {
   background: linear-gradient(160deg, rgba(70,150,255,0.95), rgba(10,110,240,0.9));
   border-color: rgba(255,255,255,0.55);
   color: #fff;
 }
-[data-theme="light"] body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .btn-danger {
+[data-theme="light"] body.glass-mode .btn-danger {
   background: rgba(216,74,58,0.10);
   border-color: rgba(216,74,58,0.30);
   color: #c23a2c;
@@ -9872,17 +9857,199 @@ body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) :is(input, sel
 [data-theme="light"] body.glass-mode .tablet-life-btn-neg:active,
 [data-theme="light"] body.glass-mode .tablet-life-btn-pos:hover,
 [data-theme="light"] body.glass-mode .tablet-life-btn-pos:active { background: rgba(255,255,255,0.85); }
-[data-theme="light"] #tab-games.glass-mode .num-wheel-frame,
+[data-theme="light"] body.glass-mode .num-wheel-frame,
 [data-theme="light"] body.glass-mode :is(.tablet-player-menu, .tablet-drag-menu) .num-wheel-frame {
   border-color: rgba(20,35,60,0.28);
   background: rgba(255,255,255,0.55);
 }
-[data-theme="light"] #tab-games.glass-mode .num-wheel-item.is-selected,
+[data-theme="light"] body.glass-mode .num-wheel-item.is-selected,
 [data-theme="light"] body.glass-mode :is(.tablet-player-menu, .tablet-drag-menu) .num-wheel-item.is-selected {
   color: #17202e;
 }
-[data-theme="light"] #tab-games.glass-mode .x-stepper-btn,
+[data-theme="light"] body.glass-mode .x-stepper-btn,
 [data-theme="light"] body.glass-mode :is(.tablet-player-menu, .tablet-drag-menu) .x-stepper-btn {
   background: rgba(255,255,255,0.6);
   border-color: rgba(20,35,60,0.16);
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+   Glass: app chrome — body base, topbar, sidebar, nav, dropdowns, toasts
+   ──────────────────────────────────────────────────────────────────────────── */
+body.glass-mode {
+  background: #0a0f1f;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+body.glass-mode .topbar {
+  background: rgba(10,14,28,0.45);
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+body.glass-mode .sidebar {
+  background: rgba(10,14,28,0.42);
+  border-right-color: rgba(255,255,255,0.08);
+}
+body.glass-mode .sidebar-label {
+  font-family: 'Inter', system-ui, sans-serif;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  text-transform: none;
+}
+body.glass-mode .sidebar-item { border-radius: 11px; }
+body.glass-mode .sidebar-item.active {
+  color: #fff;
+  background: rgba(255,255,255,0.12);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.14), inset 0 1px 0 rgba(255,255,255,0.10);
+}
+body.glass-mode .sidebar-action { border-radius: 11px; }
+body.glass-mode.sidebar-collapsed .sidebar-item:hover::after {
+  font-family: 'Inter', system-ui, sans-serif;
+  letter-spacing: 0.01em;
+}
+body.glass-mode .settings-dropdown,
+body.glass-mode .notif-panel {
+  background: rgba(20,27,48,0.60);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  backdrop-filter: blur(28px) saturate(180%);
+  border-color: rgba(255,255,255,0.16);
+  border-radius: 18px;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.14),
+    0 18px 60px rgba(0,0,0,0.5);
+}
+body.glass-mode .notif {
+  background: rgba(20,27,48,0.62);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+  border-color: rgba(255,255,255,0.18);
+  border-radius: 18px;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.16),
+    0 14px 48px rgba(0,0,0,0.5);
+}
+body.glass-mode .auth-card {
+  background: rgba(22,29,52,0.55);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  backdrop-filter: blur(30px) saturate(180%);
+  border-color: rgba(255,255,255,0.16);
+  border-radius: 24px;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.16),
+    0 24px 80px rgba(0,0,0,0.55);
+}
+body.glass-mode .auth-title {
+  font-family: 'Inter', system-ui, sans-serif;
+  letter-spacing: 0;
+  text-transform: none;
+}
+body.glass-mode ::-webkit-scrollbar { width: 6px; }
+body.glass-mode ::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.18);
+  border-radius: 999px;
+}
+body.glass-mode ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.30); }
+/* Mobile bottom nav (rule lives in mobile.css media query; background override
+   simply applies whenever the bar is displayed) */
+body.glass-mode .mobile-bottom-nav {
+  background: rgba(10,14,28,0.55);
+  border-top-color: rgba(255,255,255,0.10);
+}
+
+/* ── Light theme: app chrome ── */
+[data-theme="light"] body.glass-mode { background: #eaeef6; }
+[data-theme="light"] body.glass-mode .topbar {
+  background: rgba(255,255,255,0.45);
+  border-bottom-color: rgba(20,35,60,0.10);
+}
+[data-theme="light"] body.glass-mode .sidebar {
+  background: rgba(255,255,255,0.42);
+  border-right-color: rgba(20,35,60,0.10);
+}
+[data-theme="light"] body.glass-mode .sidebar-item.active {
+  color: #17202e;
+  background: rgba(255,255,255,0.85);
+  box-shadow: inset 0 0 0 1px rgba(20,35,60,0.10), inset 0 1px 0 rgba(255,255,255,0.95);
+}
+[data-theme="light"] body.glass-mode .settings-dropdown,
+[data-theme="light"] body.glass-mode .notif-panel {
+  background: rgba(255,255,255,0.70);
+  border-color: rgba(255,255,255,0.9);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.95),
+    0 18px 60px rgba(30,50,90,0.25);
+}
+[data-theme="light"] body.glass-mode .notif {
+  background: rgba(255,255,255,0.72);
+  border-color: rgba(255,255,255,0.9);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.95),
+    0 14px 48px rgba(30,50,90,0.22);
+}
+[data-theme="light"] body.glass-mode .auth-card {
+  background: rgba(255,255,255,0.66);
+  border-color: rgba(255,255,255,0.9);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.95),
+    0 24px 80px rgba(30,50,90,0.3);
+}
+[data-theme="light"] body.glass-mode ::-webkit-scrollbar-thumb { background: rgba(20,35,60,0.22); }
+[data-theme="light"] body.glass-mode ::-webkit-scrollbar-thumb:hover { background: rgba(20,35,60,0.38); }
+[data-theme="light"] body.glass-mode .mobile-bottom-nav {
+  background: rgba(255,255,255,0.55);
+  border-top-color: rgba(20,35,60,0.10);
+}
+
+/* Deck tiles: frosted art scrim instead of the flat black gradient, neutral
+   hover ring, Inter names. The mask fades the backdrop blur out toward the top
+   so the card art stays sharp above the caption. */
+body.glass-mode .deck-grid-card { border-radius: 16px; }
+body.glass-mode .deck-grid-card:hover {
+  box-shadow: 0 16px 48px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.35);
+}
+body.glass-mode .deck-grid-overlay {
+  background: linear-gradient(to top, rgba(10,14,28,0.78) 0%, rgba(10,14,28,0.40) 55%, transparent 100%);
+  -webkit-backdrop-filter: blur(12px) saturate(160%);
+  backdrop-filter: blur(12px) saturate(160%);
+  -webkit-mask-image: linear-gradient(to top, #000 62%, transparent 100%);
+  mask-image: linear-gradient(to top, #000 62%, transparent 100%);
+}
+body.glass-mode .deck-grid-name {
+  font-family: 'Inter', system-ui, sans-serif;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+[data-theme="light"] body.glass-mode .deck-grid-overlay {
+  background: linear-gradient(to top, rgba(255,255,255,0.82) 0%, rgba(255,255,255,0.45) 55%, transparent 100%);
+}
+[data-theme="light"] body.glass-mode .deck-grid-name {
+  color: #17202e;
+  text-shadow: none;
+}
+[data-theme="light"] body.glass-mode .deck-grid-card:hover {
+  box-shadow: 0 16px 48px rgba(30,50,90,0.25), 0 0 0 1px rgba(255,255,255,0.9);
+}
+
+/* Browse/deck-builder tiles (.browse-deck-card is the live tile component on
+   both pages): same frosted-scrim treatment. */
+body.glass-mode .browse-deck-card { border-radius: 16px; }
+body.glass-mode .browse-deck-card:hover {
+  box-shadow: 0 16px 48px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.35);
+}
+body.glass-mode .browse-deck-overlay {
+  background: linear-gradient(transparent, rgba(10,14,28,0.55) 30%, rgba(10,14,28,0.80) 100%);
+  -webkit-backdrop-filter: blur(12px) saturate(160%);
+  backdrop-filter: blur(12px) saturate(160%);
+  -webkit-mask-image: linear-gradient(to top, #000 70%, transparent 100%);
+  mask-image: linear-gradient(to top, #000 70%, transparent 100%);
+}
+body.glass-mode .browse-deck-name {
+  font-family: 'Inter', system-ui, sans-serif;
+  color: var(--text);
+  letter-spacing: 0;
+}
+body.glass-mode .deck-grid-placeholder { font-family: 'Inter', system-ui, sans-serif; }
+[data-theme="light"] body.glass-mode .browse-deck-overlay {
+  background: linear-gradient(transparent, rgba(255,255,255,0.60) 30%, rgba(255,255,255,0.85) 100%);
+}
+[data-theme="light"] body.glass-mode .browse-deck-name { color: #17202e; }
+[data-theme="light"] body.glass-mode .browse-deck-card:hover {
+  box-shadow: 0 16px 48px rgba(30,50,90,0.25), 0 0 0 1px rgba(255,255,255,0.9);
 }
