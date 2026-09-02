@@ -2064,7 +2064,7 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
 
   return `
   <div class="tablet-cell${inTargetMode ? ' player-targetable' : ''}"
-    data-pid="${p.id}" data-rotated="${rotated ? '1' : '0'}" data-elim="${p.eliminated ? '1' : '0'}"
+    data-pid="${p.id}" data-rotated="${rotated ? '1' : '0'}" data-elim="${p.eliminated ? '1' : '0'}" data-active="${isActiveTurn ? '1' : '0'}"
     style="${spanStyle}border-color:${inTargetMode ? p.color + '80' : isActiveTurn ? p.color : p.color + '30'};
            background:radial-gradient(ellipse at 50% ${rotated ? '60' : '40'}%,${p.color}${inTargetMode ? '14' : isActiveTurn ? '26' : '0a'} 0%,transparent 70%),var(--bg2);
            ${isActiveTurn && !inTargetMode ? `box-shadow:inset 0 0 0 4px ${p.color};` : ''}
@@ -2073,7 +2073,7 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
     ${inTargetMode ? `onclick="applyGameAction('${game.id}','${p.id}')"` : ''}>
 
     <!-- Name bar -->
-    <div style="text-align:${nameAlign};padding:${namePad};border-bottom:1px solid ${p.color}25;position:relative">
+    <div class="tablet-name-bar" style="text-align:${nameAlign};padding:${namePad};border-bottom:1px solid ${p.color}25;position:relative">
       <div class="tablet-player-name" style="font-family:'Cinzel',serif;font-size:clamp(0.85rem,2.2vw,1.3rem);color:${p.color};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:0.06em">${escapeHtml(p.name)}</div>
       ${p.deckName ? `<div style="font-size:clamp(0.55rem,1.2vw,0.78rem);color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px">${escapeHtml(p.deckName)}${p.commander ? ' · ' + escapeHtml(p.commander) : ''}</div>` : ''}
       ${inTargetMode
@@ -2097,7 +2097,7 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
     </div>
 
     <!-- Self-modification buttons: +1 +X −1 −X -->
-    <div style="padding:clamp(5px,1.2vh,9px) clamp(8px,1.8vw,16px) 0;border-top:1px solid ${p.color}25" onclick="event.stopPropagation()">
+    <div class="tablet-btn-bar" style="padding:clamp(5px,1.2vh,9px) clamp(8px,1.8vw,16px) 0;border-top:1px solid ${p.color}25" onclick="event.stopPropagation()">
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:clamp(3px,0.55vw,7px);margin-bottom:clamp(4px,0.8vh,7px)">
         ${_cellLifeBtns(game, p)}
       </div>
@@ -2125,10 +2125,10 @@ function _tabletCenterBoxHtml(game, posStyle) {
     <div class="tablet-center-box" onclick="event.stopPropagation()" style="position:fixed;${posStyle};z-index:10;
       background:color-mix(in oklab, var(--bg2) 90%, transparent);backdrop-filter:blur(16px);transition:transform 0.35s ease;
       border:1px solid var(--border2);border-radius:18px;padding:12px 24px;text-align:center;min-width:164px">
-      <div class="tablet-center-timer" style="font-family:'JetBrains Mono',monospace;font-size:clamp(2rem,4.5vw,3.2rem);font-weight:700;color:${_turnPaused ? 'var(--text3)' : 'var(--gold)'};line-height:1">
+      <div class="tablet-center-timer" style="font-family:'JetBrains Mono',monospace;font-size:clamp(2rem,4.5vw,3.2rem);font-weight:700;color:${_turnPaused ? 'var(--text3)' : (glassMode ? 'var(--text)' : 'var(--gold)')};line-height:1">
         <span id="tabletTurnTimerDisplay">${_turnPaused ? formatDuration(_pausedElapsed) : (game.turnStartedAt ? formatDuration(Date.now() - game.turnStartedAt) : '00:00')}</span>
       </div>
-      ${activePlayer ? `<div style="font-size:clamp(0.6rem,1.3vw,0.82rem);color:${activePlayer.color};margin-top:5px;font-family:'Inter',system-ui,sans-serif;letter-spacing:0.04em">T${game.currentTurn} · ${escapeHtml(activePlayer.name)}</div>` : ''}
+      ${activePlayer ? `<div class="tablet-center-turn" style="font-size:clamp(0.6rem,1.3vw,0.82rem);color:${activePlayer.color};margin-top:5px;font-family:'Inter',system-ui,sans-serif;letter-spacing:0.04em">T${game.currentTurn} · ${escapeHtml(activePlayer.name)}</div>` : ''}
       <div style="display:flex;gap:5px;margin-top:9px">
         <button onclick="undoGameAction('${game.id}')" class="tablet-turn-btn"
           title="Undo last action" aria-label="Undo last action"
@@ -2197,6 +2197,15 @@ function _wireTabletSurface(game, el) {
 // "move clockwise / counterclockwise" behaves the same in both layouts).
 
 function _cellLifeColor(p) {
+  if (glassMode) {
+    // Liquid glass ramp: white → yellow → orange → red (no blue/teal).
+    // Tokens are defined per-theme on body.glass-mode #tabletView in main.css.
+    return p.eliminated ? 'var(--text3)'
+      : p.life <= 5  ? 'var(--glass-life-crit)'
+      : p.life <= 10 ? 'var(--glass-life-low)'
+      : p.life <= (p.startingLife * 0.5) ? 'var(--glass-life-mid)'
+      : 'var(--glass-life-hi)';
+  }
   return p.eliminated ? 'rgba(255,255,255,0.15)'
     : p.life <= 0  ? 'var(--red)'
     : p.life <= 5  ? 'var(--red)'
@@ -2540,7 +2549,7 @@ function renderTabletPieCell(game, p, idx, g) {
 
   return `
   <div class="tablet-cell tablet-cell--pie${p.eliminated ? ' tablet-cell-eliminated' : ''}${inTargetMode ? ' player-targetable' : ''}"
-    data-pid="${p.id}" data-pie="1" data-rotdeg="${g.rotDeg}" data-elim="${p.eliminated ? '1' : '0'}"
+    data-pid="${p.id}" data-pie="1" data-rotdeg="${g.rotDeg}" data-elim="${p.eliminated ? '1' : '0'}" data-active="${isActiveTurn ? '1' : '0'}"
     style="clip-path:polygon(${g.poly});-webkit-clip-path:polygon(${g.poly});
            background:radial-gradient(circle ${glowR}px at ${g.ax.toFixed(1)}px ${g.ay.toFixed(1)}px,${p.color}${glowAlpha} 0%,transparent 75%),var(--bg2);
            ${inTargetMode ? 'cursor:crosshair;' : ''}"
