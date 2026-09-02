@@ -2983,6 +2983,8 @@ img.stack-main.loaded { opacity: 1; }
 #tabletView {
   background: var(--bg);
   overflow: hidden;
+  user-select: none;           /* press-drag gestures must never select text */
+  -webkit-user-select: none;
   transform: scale(var(--tablet-view-scale));
   transform-origin: top left;
   width: calc(100% / var(--tablet-view-scale));
