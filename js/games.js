@@ -29,7 +29,8 @@ const GAME_ICON_PATHS = {
   skull: '<path d="M8 2.5c-2.5 0-4.5 1.8-4.5 4.1 0 1.3.7 2.5 1.8 3.3V12h1.4v1.5h2.6V12h1.4V9.9c1.1-.8 1.8-2 1.8-3.3 0-2.3-2-4.1-4.5-4.1z"/><circle cx="6.5" cy="7" r="0.7"/><circle cx="9.5" cy="7" r="0.7"/><path d="M7 9.2h2"/>',
   x: '<line x1="4" y1="4" x2="12" y2="12"/><line x1="12" y1="4" x2="4" y2="12"/>',
   pause: '<line x1="6" y1="4" x2="6" y2="12"/><line x1="10" y1="4" x2="10" y2="12"/>',
-  play: '<path d="M6 4.5l5 3.5-5 3.5z"/>'
+  play: '<path d="M6 4.5l5 3.5-5 3.5z"/>',
+  undo: '<path d="M3.2 6.8h6.3a3.4 3.4 0 0 1 0 6.8H6.2"/><path d="M6.2 3.8l-3 3 3 3"/>'
 };
 
 function gameIcon(name, size = 12, style = '') {
@@ -2076,10 +2077,11 @@ function _tabletCenterBoxHtml(game, posStyle) {
       </div>
       ${activePlayer ? `<div style="font-size:clamp(0.6rem,1.3vw,0.82rem);color:${activePlayer.color};margin-top:5px;font-family:'Inter',system-ui,sans-serif;letter-spacing:0.04em">T${game.currentTurn} · ${escapeHtml(activePlayer.name)}</div>` : ''}
       <div style="display:flex;gap:5px;margin-top:9px">
-        <button onclick="nextTurn('${game.id}')" class="tablet-turn-btn"
+        <button onclick="undoGameAction('${game.id}')" class="tablet-turn-btn"
+          title="Undo last action" aria-label="Undo last action"
           style="flex:1;padding:9px 8px;background:var(--bg3);
             border:1px solid var(--border2);border-radius:8px;color:var(--text2);font-size:0.9rem;cursor:pointer;touch-action:manipulation">
-          → Next
+          ${gameIcon('undo', 16, 'vertical-align:middle')}
         </button>
         <button onclick="togglePauseTimer('${game.id}')" class="tablet-turn-btn"
           title="${_turnPaused ? 'Resume timer' : 'Pause timer'}" aria-label="${_turnPaused ? 'Resume timer' : 'Pause timer'}"
@@ -2252,9 +2254,17 @@ function _pieChairs(n, w, h) {
   const L = { x: 0, y: h / 2, rot: 90 };           // left edge (tail)
   switch (n) {
     case 2:  return [B(0.5), T(0.5)];
-    case 3:  return [B(0.28), B(0.72), T(0.5)];
+    case 3: {
+      // Three chairs around the table, everyone facing the middle — the bottom
+      // pair tilts toward the centre instead of sitting square.
+      const tilt = f => Math.round((Math.atan2(h / 2, w * f - w / 2) * 180 / Math.PI - 90) * 10) / 10;
+      return [
+        { x: w * 0.28, y: h, rot: tilt(0.28) },
+        { x: w * 0.72, y: h, rot: tilt(0.72) },
+        T(0.5),
+      ];
+    }
     case 4:  return [B(0.27), B(0.73), T(0.73), T(0.27)];
-    case 5:  return [B(0.27), B(0.73), R, T(0.73), T(0.27)];
     case 6:  return [B(0.27), B(0.73), R, T(0.73), T(0.27), L];
     default: return [B(0.5)];
   }
@@ -2262,8 +2272,49 @@ function _pieChairs(n, w, h) {
 
 // Per-seat wedge spans: sort chairs by their angle from the screen centre and
 // cut at the midlines between neighbours (with wraparound).
+function _polyArea(pts) {
+  let s = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i], b = pts[(i + 1) % pts.length];
+    s += a[0] * b[1] - b[0] * a[1];
+  }
+  return Math.abs(s) / 2;
+}
+
+// 5 players: 2 across from 2 plus a head seat. Midline boundaries would leave
+// the corner wedges ~50% bigger than the head, so the three distinct boundary
+// angles are solved for EQUAL wedge areas instead (exact for any aspect; the
+// left/right symmetry makes the fifth wedge equal automatically).
+function _pieFiveSeatWedges(w, h) {
+  const cx = w / 2, cy = h / 2, target = (w * h) / 5;
+  const areaTo = (a0, a1) => _polyArea(_piePolygon(cx, cy, w, h, a0, a1));
+  const solve = (a0, lo, hi, t) => {
+    for (let i = 0; i < 36; i++) {
+      const m = (lo + hi) / 2;
+      if (areaTo(a0, m) < t) lo = m; else hi = m;
+    }
+    return (lo + hi) / 2;
+  };
+  const b2 = solve(0, 0.03, Math.PI / 2, target / 2);        // head seat half-span
+  const b1 = solve(b2, b2 + 0.03, Math.PI - 0.03, target);   // corner-pair split
+  // Chairs sit at the middle of each wedge's share of the table edge.
+  const xb = ang => cx + (h - cy) * Math.cos(ang) / Math.sin(ang);   // ray → bottom-edge x
+  const cornerAng = Math.atan2(h - cy, w - cx);
+  const xEnd = b2 >= cornerAng ? xb(b2) : w;
+  const blx = Math.max(40, xb(b1) / 2);
+  const brx = Math.min(w - 40, (xb(b1) + xEnd) / 2);
+  return [
+    { chair: { x: blx, y: h, rot: 0 },     a0: b1,       a1: Math.PI },
+    { chair: { x: brx, y: h, rot: 0 },     a0: b2,       a1: b1 },
+    { chair: { x: w, y: h / 2, rot: -90 }, a0: -b2,      a1: b2 },
+    { chair: { x: brx, y: 0, rot: 180 },   a0: -b1,      a1: -b2 },
+    { chair: { x: blx, y: 0, rot: 180 },   a0: -Math.PI, a1: -b1 },
+  ];
+}
+
 function _pieSeatWedges(n, w, h) {
   const cx = w / 2, cy = h / 2;
+  if (n === 5) return _pieFiveSeatWedges(w, h);
   const chairs = _pieChairs(n, w, h);
   if (chairs.length === 1) return [{ chair: chairs[0], a0: -Math.PI / 2, a1: Math.PI * 1.5 }];
   const order = chairs
@@ -2295,19 +2346,18 @@ function _pointInPoly(pts, x, y) {
 // which stays robust for any wedge shape (diagonal boundaries, head seats, odd
 // aspect ratios); a too-narrow wedge trades height for width.
 function _pieFitContent(polyPts, chair, cx, cy, bounds, hub) {
-  const d = chair.rot === 0 ? [0, 1] : chair.rot === 180 ? [0, -1]
-    : chair.rot === -90 ? [1, 0] : [-1, 0];                       // outward
+  const outAng = (chair.rot + 90) * Math.PI / 180;                // outward angle
+  const d = [Math.cos(outAng), Math.sin(outAng)];
   const across = [-d[1], d[0]];
   const uC = (chair.x - cx) * across[0] + (chair.y - cy) * across[1];
-  const vOut = d[0] === 1 ? bounds.bx1 - cx : d[0] === -1 ? cx - bounds.bx0
-    : d[1] === 1 ? bounds.by1 - cy : cy - bounds.by0;
+  const vOut = _rayToRect(cx, cy, d[0], d[1], bounds.bx0, bounds.by0, bounds.bx1, bounds.by1);
   const vIn = Math.abs(d[0]) * hub.w / 2 + Math.abs(d[1]) * hub.h / 2 + 14;
   const pt = (u, v) => [cx + across[0] * u + d[0] * v, cy + across[1] * u + d[1] * v];
   const ok = (x, y) => x >= bounds.bx0 - 0.5 && x <= bounds.bx1 + 0.5
     && y >= bounds.by0 - 0.5 && y <= bounds.by1 + 0.5 && _pointInPoly(polyPts, x, y);
-  const rectOk = (W, H) => {
+  const rectOk = (W, H, u0) => {
     const vLo = vOut - H;
-    for (const u of [uC - W / 2 + 3, uC + W / 2 - 3]) {
+    for (const u of [u0 - W / 2 + 3, u0 + W / 2 - 3]) {
       for (const v of [vLo + 3, vOut - 3]) {
         const p2 = pt(u, v);
         if (!ok(p2[0], p2[1])) return false;
@@ -2315,21 +2365,33 @@ function _pieFitContent(polyPts, chair, cx, cy, bounds, hub) {
     }
     return true;
   };
-  let H = Math.max(120, Math.min(vOut - vIn, 380));
-  let W = 150;
-  for (let attempt = 0; attempt < 5; attempt++) {
-    let lo = 120, hi = 620;
-    if (rectOk(hi, H)) lo = hi;
-    else for (let i = 0; i < 9; i++) {
-      const mid = (lo + hi) / 2;
-      if (rectOk(mid, H)) lo = mid; else hi = mid;
+  // Some wedges are lopsided around their chair (a 5-player corner wedge can
+  // cross the vertical), and head seats narrow toward the hub. So the fitter
+  // scans a few heights AND a few across-offsets, keeping whichever placement
+  // maximises the life-number size the block can carry — with a mild preference
+  // for staying on the chair line.
+  const widthAt = (H2, u2) => {
+    let lo = 100, hi = 620;
+    if (rectOk(hi, H2, u2)) return 620;
+    for (let i = 0; i < 8; i++) {
+      const m = (lo + hi) / 2;
+      if (rectOk(m, H2, u2)) lo = m; else hi = m;
     }
-    W = Math.min(lo, 560);
-    if (W >= 150 || H <= 130) break;
-    H = Math.max(130, H * 0.82);   // narrow wedge: trade height for width
+    return lo;
+  };
+  const maxH = Math.max(120, Math.min(vOut - vIn, 380));
+  let H = maxH, W = 150, U = uC, best = -1;
+  for (const frac of [1, 0.93, 0.86, 0.79, 0.72, 0.65]) {
+    const Hc = Math.max(140, Math.round(maxH * frac));
+    for (const k of [0, -0.5, 0.5, -1, 1, -1.5, 1.5, -2, 2, -2.5, 2.5, -3, 3]) {
+      const u2 = uC + k * vOut / 6;
+      const Wc = Math.min(widthAt(Hc, u2), 560);
+      const score = Math.min(Hc - 170, Wc * 0.34, 148) - Math.abs(k) * 1.5;
+      if (score > best + 0.5) { best = score; H = Hc; W = Wc; U = u2; }
+    }
   }
   W = Math.max(150, W);
-  const a = pt(uC, vOut - H / 2);
+  const a = pt(U, vOut - H / 2);
   return { ax: a[0], ay: a[1], contentW: W, contentH: H, rotDeg: chair.rot };
 }
 
@@ -2367,6 +2429,11 @@ function renderTabletPieView(game, el, _hubRetry = false) {
       vw: w, vh: h, a0,
     };
   });
+  // One life-number size for every seat — the smallest that fits the tightest
+  // wedge — so no player's total reads bigger than another's.
+  const lifeFsAll = Math.round(Math.max(44, Math.min(148,
+    ...geoms.map(g => Math.min(g.contentH - 170, g.contentW * 0.34)))));
+  geoms.forEach(g => { g.lifeFs = lifeFsAll; });
 
   const dividers = `
     <svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="position:absolute;left:0;top:0;pointer-events:none;z-index:5;opacity:0.7">
@@ -2415,7 +2482,7 @@ function renderTabletPieCell(game, p, idx, g) {
   const targetLabel = isAllMode ? 'Tap to confirm' : 'Tap — deal damage';
   const maxCmdDmg = Math.max(...Object.values(p.commanderDamage || {}).map(Number), 0);
   const n = game.players.length;
-  const lifeFs = Math.round(Math.max(44, Math.min(g.contentH - 170, g.contentW * 0.34, 148)));
+  const lifeFs = g.lifeFs || Math.round(Math.max(44, Math.min(g.contentH - 170, g.contentW * 0.34, 148)));
   const glowAlpha = inTargetMode ? '14' : isActiveTurn ? '26' : '0d';
   const glowR = Math.round(Math.max(g.contentW, g.contentH) * 0.85);
 
