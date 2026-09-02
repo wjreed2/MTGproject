@@ -9546,40 +9546,105 @@ body.glass-mode #tabletView {
     radial-gradient(38% 34% at 10% 80%, rgba(255,170,110,0.14), transparent 70%),
     linear-gradient(180deg, #0b1122 0%, #0d1428 55%, #0a0f1f 100%);
   gap: clamp(6px, 0.9vh, 10px);
+  font-family: 'Inter', system-ui, sans-serif;
+  /* Single accent for the active player + the white→yellow→orange→red life
+     ramp (_cellLifeColor's glass branch reads these; light theme remaps them) */
+  --glass-accent: #7ab2ff;
+  --glass-life-hi: #f4f6fb;
+  --glass-life-mid: #ffd97a;
+  --glass-life-low: #ffa15e;
+  --glass-life-crit: #ff7a6b;
 }
+/* Neutral frosted cells: the per-player border colours and radial tints are
+   inline-styled, so the neutralising overrides need !important. Player identity
+   stays in the name/dots; "whose turn" is the one accent colour. */
 body.glass-mode #tabletView .tablet-cell {
   -webkit-backdrop-filter: blur(22px) saturate(170%);
   backdrop-filter: blur(22px) saturate(170%);
   border-radius: 22px;
+  border-color: rgba(255,255,255,0.13) !important;
+  background: rgba(255,255,255,0.05) !important;
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.13),
     inset 0 0 0.5px rgba(255,255,255,0.09),
     0 8px 28px rgba(0,0,0,0.30);
 }
+body.glass-mode #tabletView .tablet-cell[data-active="1"] {
+  border-color: rgba(122,178,255,0.60) !important;
+  background:
+    radial-gradient(120% 90% at 50% 45%, rgba(90,162,255,0.14) 0%, transparent 70%),
+    rgba(255,255,255,0.04) !important;
+  box-shadow:
+    inset 0 0 0 3px rgba(90,162,255,0.50),
+    inset 0 1px 0 rgba(255,255,255,0.13),
+    0 0 36px rgba(90,162,255,0.18),
+    0 8px 28px rgba(0,0,0,0.30) !important;
+}
+/* Transient action states must keep their own rings (they outrank inline styles
+   via !important in base CSS, which the neutral overrides above would beat). */
+body.glass-mode #tabletView .tablet-cell.player-targetable {
+  border-color: rgba(255,217,122,0.70) !important;
+  box-shadow:
+    inset 0 0 0 3px rgba(255,217,122,0.40),
+    0 0 30px rgba(255,217,122,0.15) !important;
+}
+body.glass-mode #tabletView .tablet-cell.tablet-drag-target {
+  border-color: var(--red) !important;
+  box-shadow:
+    inset 0 0 0 3px rgba(255,122,107,0.60),
+    0 0 30px rgba(255,122,107,0.25) !important;
+}
 /* Pie wedges are clip-path'd full-screen cells — no corner rounding or outer
    shadow (the wedge outline SVG draws the seams), blur still applies. */
 body.glass-mode #tabletView .tablet-cell--pie {
   border-radius: 0;
-  box-shadow: none;
+  box-shadow: none !important;
 }
+body.glass-mode .tablet-cell--pie[data-active="1"]:not(.tablet-drag-target):not(.tablet-seat-drag-source):not(.tablet-seat-drag-target) .pie-outline {
+  stroke: var(--glass-accent) !important;
+}
+body.glass-mode .tablet-name-bar { border-bottom-color: rgba(255,255,255,0.10) !important; }
+body.glass-mode .tablet-btn-bar { border-top-color: rgba(255,255,255,0.10) !important; }
 body.glass-mode .tablet-player-name {
   font-family: 'Inter', system-ui, sans-serif !important;
   font-weight: 600;
   letter-spacing: 0 !important;
+  color: var(--text) !important;
 }
-body.glass-mode .tablet-life-btn { border-radius: 14px; }
-body.glass-mode .tablet-life-btn-neg {
-  background: rgba(255,110,95,0.14);
-  border-color: rgba(255,122,107,0.35);
+body.glass-mode #tabletView .tablet-cell[data-active="1"] .tablet-player-name {
+  color: var(--glass-accent) !important;
+}
+body.glass-mode .tablet-dots-btn { color: var(--text3) !important; }
+/* iOS-flavoured numerals: Inter with tabular figures instead of JetBrains Mono,
+   neutral depth shadow instead of the per-player glow. */
+body.glass-mode .tablet-life-num {
+  font-family: 'Inter', system-ui, sans-serif !important;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 6px 28px rgba(0,0,0,0.28) !important;
+}
+body.glass-mode .tablet-total-time {
+  font-family: 'Inter', system-ui, sans-serif !important;
+  font-variant-numeric: tabular-nums;
+}
+/* Neutral frosted life buttons — labels (+1/−5) carry the meaning, not colour */
+body.glass-mode .tablet-life-btn {
+  border-radius: 999px;
+  font-family: 'Inter', system-ui, sans-serif;
+  font-weight: 600;
+}
+body.glass-mode .tablet-life-btn-neg,
+body.glass-mode .tablet-life-btn-pos {
+  background: rgba(255,255,255,0.08);
+  border-color: rgba(255,255,255,0.15);
+  color: rgba(244,246,251,0.92);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.10);
 }
 body.glass-mode .tablet-life-btn-neg:hover,
-body.glass-mode .tablet-life-btn-neg:active { background: rgba(255,110,95,0.30); }
-body.glass-mode .tablet-life-btn-pos {
-  background: rgba(79,216,189,0.14);
-  border-color: rgba(79,216,189,0.35);
-}
+body.glass-mode .tablet-life-btn-neg:active,
 body.glass-mode .tablet-life-btn-pos:hover,
-body.glass-mode .tablet-life-btn-pos:active { background: rgba(79,216,189,0.30); }
+body.glass-mode .tablet-life-btn-pos:active { background: rgba(255,255,255,0.18); }
 
 /* Centre hub — floating frosted widget (inline-styled, hence the !important) */
 body.glass-mode .tablet-center-box {
@@ -9592,7 +9657,17 @@ body.glass-mode .tablet-center-box {
     inset 0 1px 0 rgba(255,255,255,0.18),
     0 14px 44px rgba(0,0,0,0.45);
 }
-body.glass-mode .tablet-turn-btn { border-radius: 12px !important; }
+body.glass-mode .tablet-center-timer {
+  font-family: 'Inter', system-ui, sans-serif !important;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+body.glass-mode .tablet-center-turn {
+  color: var(--glass-accent) !important;
+  font-weight: 600;
+}
+body.glass-mode .tablet-turn-btn { border-radius: 999px !important; }
 body.glass-mode .tablet-exit-btn,
 body.glass-mode #tabletView [onclick^="closeTabletView"] { border-radius: 999px !important; }
 
@@ -9704,13 +9779,36 @@ body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) :is(input, sel
     radial-gradient(52% 48% at 76% 88%, rgba(120,225,200,0.38), transparent 70%),
     radial-gradient(38% 34% at 10% 80%, rgba(255,200,150,0.35), transparent 70%),
     linear-gradient(180deg, #eef2fa 0%, #e8edf8 55%, #eaeef6 100%);
+  --glass-accent: #1668d8;
+  --glass-life-hi: #17202e;
+  --glass-life-mid: #b07f1e;
+  --glass-life-low: #d0641e;
+  --glass-life-crit: #d84a3a;
 }
 [data-theme="light"] body.glass-mode #tabletView .tablet-cell {
+  border-color: rgba(255,255,255,0.65) !important;
+  background: rgba(255,255,255,0.50) !important;
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.9),
     0 8px 28px rgba(30,50,90,0.14);
 }
-[data-theme="light"] body.glass-mode #tabletView .tablet-cell--pie { box-shadow: none; }
+[data-theme="light"] body.glass-mode #tabletView .tablet-cell[data-active="1"] {
+  border-color: rgba(22,104,216,0.55) !important;
+  background:
+    radial-gradient(120% 90% at 50% 45%, rgba(90,162,255,0.18) 0%, transparent 70%),
+    rgba(255,255,255,0.50) !important;
+  box-shadow:
+    inset 0 0 0 3px rgba(22,104,216,0.45),
+    inset 0 1px 0 rgba(255,255,255,0.9),
+    0 0 36px rgba(22,104,216,0.15),
+    0 8px 28px rgba(30,50,90,0.14) !important;
+}
+[data-theme="light"] body.glass-mode #tabletView .tablet-cell--pie { box-shadow: none !important; }
+[data-theme="light"] body.glass-mode .tablet-name-bar { border-bottom-color: rgba(20,35,60,0.10) !important; }
+[data-theme="light"] body.glass-mode .tablet-btn-bar { border-top-color: rgba(20,35,60,0.10) !important; }
+[data-theme="light"] body.glass-mode .tablet-life-num {
+  text-shadow: 0 4px 18px rgba(30,50,90,0.15) !important;
+}
 [data-theme="light"] body.glass-mode .tablet-center-box {
   background: rgba(255,255,255,0.6) !important;
   border-color: rgba(255,255,255,0.8) !important;
@@ -9763,14 +9861,17 @@ body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) :is(input, sel
   border-color: rgba(216,74,58,0.30);
   color: #c23a2c;
 }
-[data-theme="light"] body.glass-mode .tablet-life-btn-neg {
-  background: rgba(216,74,58,0.10);
-  border-color: rgba(216,74,58,0.30);
-}
+[data-theme="light"] body.glass-mode .tablet-life-btn-neg,
 [data-theme="light"] body.glass-mode .tablet-life-btn-pos {
-  background: rgba(15,154,128,0.10);
-  border-color: rgba(15,154,128,0.30);
+  background: rgba(255,255,255,0.55);
+  border-color: rgba(20,35,60,0.14);
+  color: rgba(23,32,46,0.85);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9);
 }
+[data-theme="light"] body.glass-mode .tablet-life-btn-neg:hover,
+[data-theme="light"] body.glass-mode .tablet-life-btn-neg:active,
+[data-theme="light"] body.glass-mode .tablet-life-btn-pos:hover,
+[data-theme="light"] body.glass-mode .tablet-life-btn-pos:active { background: rgba(255,255,255,0.85); }
 [data-theme="light"] #tab-games.glass-mode .num-wheel-frame,
 [data-theme="light"] body.glass-mode :is(.tablet-player-menu, .tablet-drag-menu) .num-wheel-frame {
   border-color: rgba(20,35,60,0.28);

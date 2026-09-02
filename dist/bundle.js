@@ -2033,7 +2033,7 @@ ${f} untapped lands`},...H.map(de=>({label:de.label,p:de.p,detail:de.detail})),.
     ${c.map((p,g)=>{const y=r&&g<2||a&&g===0||o&&g===0,h=a&&g>0?g-1:g%2;return renderTabletCell(e,e.players[p],p,n,i,y,h)}).join("")}
     ${_tabletCenterBoxHtml(e,`left:50%;${m}`)}`,_wireTabletSurface(e,t)}function renderTabletCell(e,t,n,o,a,r=!1,i=1){const s=e.format==="Commander"||e.format==="Brawl",c=_cellLifeColor(t),l=o===2?"clamp(3.1rem,min(20vw,26vh),12.5rem)":o<=4?"clamp(3.1rem,12.5vw,8.2rem)":"clamp(3.1rem,9.4vw,6rem)",d=o===3&&n===0||o===5&&n===4?"grid-column: span 2;":"",u=!t.eliminated&&n===(e.activePlayerIdx??0),f=gameActionMode!==null&&!t.eliminated,p=gameActionMode==="deal1all"||gameActionMode==="dealXall"?"Tap to confirm":"Tap \u2014 deal damage",g=Math.max(...Object.values(t.commanderDamage||{}).map(Number),0),y=_cellCmdBadges(e,t,s),h=_cellPoisonBadge(t),v=o===2?r?"left":"right":"center",b=o===2?r?"right:8px":"left:8px":i===0!==r?"left:8px":"right:8px",w=o===2?r?"clamp(5px,1.2vh,10px) 30px clamp(3px,0.8vh,6px) 12px":"clamp(5px,1.2vh,10px) 12px clamp(3px,0.8vh,6px) 30px":i===0!==r?"clamp(5px,1.2vh,10px) 8px clamp(3px,0.8vh,6px) 30px":"clamp(5px,1.2vh,10px) 30px clamp(3px,0.8vh,6px) 8px";return`
   <div class="tablet-cell${f?" player-targetable":""}"
-    data-pid="${t.id}" data-rotated="${r?"1":"0"}" data-elim="${t.eliminated?"1":"0"}"
+    data-pid="${t.id}" data-rotated="${r?"1":"0"}" data-elim="${t.eliminated?"1":"0"}" data-active="${u?"1":"0"}"
     style="${d}border-color:${f?t.color+"80":u?t.color:t.color+"30"};
            background:radial-gradient(ellipse at 50% ${r?"60":"40"}%,${t.color}${f?"14":u?"26":"0a"} 0%,transparent 70%),var(--bg2);
            ${u&&!f?`box-shadow:inset 0 0 0 4px ${t.color};`:""}
@@ -2042,7 +2042,7 @@ ${f} untapped lands`},...H.map(de=>({label:de.label,p:de.p,detail:de.detail})),.
     ${f?`onclick="applyGameAction('${e.id}','${t.id}')"`:""}>
 
     <!-- Name bar -->
-    <div style="text-align:${v};padding:${w};border-bottom:1px solid ${t.color}25;position:relative">
+    <div class="tablet-name-bar" style="text-align:${v};padding:${w};border-bottom:1px solid ${t.color}25;position:relative">
       <div class="tablet-player-name" style="font-family:'Cinzel',serif;font-size:clamp(0.85rem,2.2vw,1.3rem);color:${t.color};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:0.06em">${escapeHtml(t.name)}</div>
       ${t.deckName?`<div style="font-size:clamp(0.55rem,1.2vw,0.78rem);color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px">${escapeHtml(t.deckName)}${t.commander?" \xB7 "+escapeHtml(t.commander):""}</div>`:""}
       ${f?`<div style="position:absolute;top:50%;right:8px;transform:translateY(-50%);font-size:clamp(0.6rem,1.3vw,0.78rem);color:var(--gold);animation:targetPulse 1s ease-in-out infinite">${p}</div>`:`<div class="tablet-corner ${b.startsWith("left")?"tablet-corner--left":"tablet-corner--right"}" style="position:absolute;top:50%;${b};transform:translateY(-50%);display:flex;align-items:center;gap:5px;flex-direction:${b.startsWith("left")?"row-reverse":"row"}">
@@ -2064,7 +2064,7 @@ ${f} untapped lands`},...H.map(de=>({label:de.label,p:de.p,detail:de.detail})),.
     </div>
 
     <!-- Self-modification buttons: +1 +X \u22121 \u2212X -->
-    <div style="padding:clamp(5px,1.2vh,9px) clamp(8px,1.8vw,16px) 0;border-top:1px solid ${t.color}25" onclick="event.stopPropagation()">
+    <div class="tablet-btn-bar" style="padding:clamp(5px,1.2vh,9px) clamp(8px,1.8vw,16px) 0;border-top:1px solid ${t.color}25" onclick="event.stopPropagation()">
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:clamp(3px,0.55vw,7px);margin-bottom:clamp(4px,0.8vh,7px)">
         ${_cellLifeBtns(e,t)}
       </div>
@@ -2078,10 +2078,10 @@ ${f} untapped lands`},...H.map(de=>({label:de.label,p:de.p,detail:de.detail})),.
     <div class="tablet-center-box" onclick="event.stopPropagation()" style="position:fixed;${t};z-index:10;
       background:color-mix(in oklab, var(--bg2) 90%, transparent);backdrop-filter:blur(16px);transition:transform 0.35s ease;
       border:1px solid var(--border2);border-radius:18px;padding:12px 24px;text-align:center;min-width:164px">
-      <div class="tablet-center-timer" style="font-family:'JetBrains Mono',monospace;font-size:clamp(2rem,4.5vw,3.2rem);font-weight:700;color:${_turnPaused?"var(--text3)":"var(--gold)"};line-height:1">
+      <div class="tablet-center-timer" style="font-family:'JetBrains Mono',monospace;font-size:clamp(2rem,4.5vw,3.2rem);font-weight:700;color:${_turnPaused?"var(--text3)":glassMode?"var(--text)":"var(--gold)"};line-height:1">
         <span id="tabletTurnTimerDisplay">${_turnPaused?formatDuration(_pausedElapsed):e.turnStartedAt?formatDuration(Date.now()-e.turnStartedAt):"00:00"}</span>
       </div>
-      ${o?`<div style="font-size:clamp(0.6rem,1.3vw,0.82rem);color:${o.color};margin-top:5px;font-family:'Inter',system-ui,sans-serif;letter-spacing:0.04em">T${e.currentTurn} \xB7 ${escapeHtml(o.name)}</div>`:""}
+      ${o?`<div class="tablet-center-turn" style="font-size:clamp(0.6rem,1.3vw,0.82rem);color:${o.color};margin-top:5px;font-family:'Inter',system-ui,sans-serif;letter-spacing:0.04em">T${e.currentTurn} \xB7 ${escapeHtml(o.name)}</div>`:""}
       <div style="display:flex;gap:5px;margin-top:9px">
         <button onclick="undoGameAction('${e.id}')" class="tablet-turn-btn"
           title="Undo last action" aria-label="Undo last action"
@@ -2108,7 +2108,7 @@ ${f} untapped lands`},...H.map(de=>({label:de.label,p:de.p,detail:de.detail})),.
           border:1px solid var(--border2);border-radius:8px;color:var(--text3);font-size:0.75rem;cursor:pointer">
         ${gameIcon("x",11,"margin-right:5px")}Exit Tablet
       </button>
-    </div>`}function _wireTabletSurface(e,t){t.oncontextmenu=n=>{n.preventDefault()},t.onclick=n=>{const o=document.querySelectorAll(".tablet-player-menu"),a=o.length>0;if(o.forEach(r=>r.remove()),_tabletDragJustEnded){_tabletDragJustEnded=!1;return}a||gameActionMode||n.target.closest("button, input, a, select, textarea, .tablet-player-menu, .tablet-drag-menu, .tablet-center-box, .player-targetable, .num-wheel")||e.status==="active"&&nextTurn(e.id)},t.onpointerdown=tabletDragPointerDown,t.onpointermove=tabletDragPointerMove,t.onpointerup=tabletDragPointerUp,t.onpointercancel=tabletDragPointerUp,_turnPaused||startTurnTimer(e.id),_syncGameWheels()}function _cellLifeColor(e){return e.eliminated?"rgba(255,255,255,0.15)":e.life<=0||e.life<=5?"var(--red)":e.life<=10?"#e07a3a":e.life<=e.startingLife*.5?"var(--text)":"var(--teal)"}function _cellCmdBadges(e,t,n){return n?e.players.filter(o=>o.id!==t.id).map(o=>{const a=(t.commanderDamage||{})[o.id]||0,r=a>=16;return`
+    </div>`}function _wireTabletSurface(e,t){t.oncontextmenu=n=>{n.preventDefault()},t.onclick=n=>{const o=document.querySelectorAll(".tablet-player-menu"),a=o.length>0;if(o.forEach(r=>r.remove()),_tabletDragJustEnded){_tabletDragJustEnded=!1;return}a||gameActionMode||n.target.closest("button, input, a, select, textarea, .tablet-player-menu, .tablet-drag-menu, .tablet-center-box, .player-targetable, .num-wheel")||e.status==="active"&&nextTurn(e.id)},t.onpointerdown=tabletDragPointerDown,t.onpointermove=tabletDragPointerMove,t.onpointerup=tabletDragPointerUp,t.onpointercancel=tabletDragPointerUp,_turnPaused||startTurnTimer(e.id),_syncGameWheels()}function _cellLifeColor(e){return glassMode?e.eliminated?"var(--text3)":e.life<=5?"var(--glass-life-crit)":e.life<=10?"var(--glass-life-low)":e.life<=e.startingLife*.5?"var(--glass-life-mid)":"var(--glass-life-hi)":e.eliminated?"rgba(255,255,255,0.15)":e.life<=0||e.life<=5?"var(--red)":e.life<=10?"#e07a3a":e.life<=e.startingLife*.5?"var(--text)":"var(--teal)"}function _cellCmdBadges(e,t,n){return n?e.players.filter(o=>o.id!==t.id).map(o=>{const a=(t.commanderDamage||{})[o.id]||0,r=a>=16;return`
         <span title="${escapeHtml(o.name)}: ${a}" style="display:inline-flex;align-items:center;gap:3px;padding:1px 4px;border-radius:999px;background:rgba(0,0,0,0.18);border:1px solid ${o.color}44;color:${r?"var(--red)":a>0?"var(--text2)":"var(--text3)"};font-family:'JetBrains Mono',monospace;font-size:0.6rem;line-height:1.2">
           <span style="width:5px;height:5px;border-radius:50%;background:${o.color};flex-shrink:0"></span>${a}
         </span>`}).join(""):""}function _rotDegOf(e){return e===!0?180:Number(e)||0}function _cellLifeBtns(e,t){return`
@@ -2129,7 +2129,7 @@ ${f} untapped lands`},...H.map(de=>({label:de.label,p:de.p,detail:de.detail})),.
     ${v}
     ${_tabletCenterBoxHtml(e,`left:50%;top:50%;transform:translate(-50%,-50%) rotate(${b?b.rotDeg:0}deg)`)}`,_wireTabletSurface(e,t),t.querySelectorAll(".tablet-pie-content").forEach((C,k)=>{const _=y[k];if(!_)return;const x=Math.min(1,_.contentH/Math.max(1,C.offsetHeight));x<.999&&(C.style.transform=`translate(-50%,-50%) rotate(${_.rotDeg}deg) scale(${x.toFixed(3)})`)});const w=t.querySelector(".tablet-center-box");if(w&&!n){const C={w:w.offsetWidth,h:w.offsetHeight},k=Math.abs(p.w-C.w)>4||Math.abs(p.h-C.h)>4;_pieHubSize=C,k&&renderTabletPieView(e,t,!0)}}function renderTabletPieCell(e,t,n,o){const a=e.format==="Commander"||e.format==="Brawl",r=_cellLifeColor(t),i=_cellCmdBadges(e,t,a),s=_cellPoisonBadge(t),c=!t.eliminated&&n===(e.activePlayerIdx??0),l=gameActionMode!==null&&!t.eliminated,u=gameActionMode==="deal1all"||gameActionMode==="dealXall"?"Tap to confirm":"Tap \u2014 deal damage",f=Math.max(...Object.values(t.commanderDamage||{}).map(Number),0),m=e.players.length,p=o.lifeFs||Math.round(Math.max(44,Math.min(o.contentH-170,o.contentW*.34,148))),g=l?"14":c?"26":"0d",y=Math.round(Math.max(o.contentW,o.contentH)*.85);return`
   <div class="tablet-cell tablet-cell--pie${t.eliminated?" tablet-cell-eliminated":""}${l?" player-targetable":""}"
-    data-pid="${t.id}" data-pie="1" data-rotdeg="${o.rotDeg}" data-elim="${t.eliminated?"1":"0"}"
+    data-pid="${t.id}" data-pie="1" data-rotdeg="${o.rotDeg}" data-elim="${t.eliminated?"1":"0"}" data-active="${c?"1":"0"}"
     style="clip-path:polygon(${o.poly});-webkit-clip-path:polygon(${o.poly});
            background:radial-gradient(circle ${y}px at ${o.ax.toFixed(1)}px ${o.ay.toFixed(1)}px,${t.color}${g} 0%,transparent 75%),var(--bg2);
            ${l?"cursor:crosshair;":""}"
