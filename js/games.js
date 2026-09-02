@@ -8,6 +8,7 @@ function hexToRgb(hex) {
 }
 let newGamePlayers = [];
 let newGameFirstPlayerIdx = null;
+let newGameTabletLayout = 'default';   // 'default' grid | 'pie' enhanced wedge layout
 let logEventGameId = null;
 const _lifeAnimState = {};
 let _lifeDiceRenderers = [];
@@ -20,12 +21,17 @@ const GAME_ICON_PATHS = {
   trophy: '<path d="M5 2.5h6v2.5a3 3 0 0 1-6 0z"/><path d="M6.5 11h3"/><path d="M8 8.5V11"/><path d="M5 4H3.5a1.5 1.5 0 0 0 1.5 1.8"/><path d="M11 4h1.5A1.5 1.5 0 0 1 11 5.8"/>',
   dice: '<rect x="2.5" y="2.5" width="11" height="11" rx="1.8"/><circle cx="5.3" cy="5.3" r="0.8"/><circle cx="8" cy="8" r="0.8"/><circle cx="10.7" cy="10.7" r="0.8"/>',
   tablet: '<rect x="3.5" y="1.8" width="9" height="12.4" rx="1.7"/><circle cx="8" cy="11.7" r="0.5"/>',
+  grid: '<rect x="2.5" y="2.5" width="4.6" height="4.6" rx="1"/><rect x="8.9" y="2.5" width="4.6" height="4.6" rx="1"/><rect x="2.5" y="8.9" width="4.6" height="4.6" rx="1"/><rect x="8.9" y="8.9" width="4.6" height="4.6" rx="1"/>',
+  pie: '<circle cx="8" cy="8" r="5.7"/><path d="M8 8V2.3"/><path d="M8 8l4.9 2.9"/><path d="M8 8l-4.9 2.9"/>',
+  cards: '<rect x="2.3" y="3.4" width="7.4" height="10.1" rx="1.2"/><path d="M10.5 12.8l2.2-.6a1.2 1.2 0 0 0 .85-1.47L11.5 3.4a1.2 1.2 0 0 0-1.47-.85l-2.3.62"/>',
   flag: '<path d="M3 2.5v11"/><path d="M4 3h7l-1.6 2L11 7H4z"/>',
   clock: '<circle cx="8" cy="8" r="5.7"/><path d="M8 5.2v3.1l2 1.2"/>',
   skull: '<path d="M8 2.5c-2.5 0-4.5 1.8-4.5 4.1 0 1.3.7 2.5 1.8 3.3V12h1.4v1.5h2.6V12h1.4V9.9c1.1-.8 1.8-2 1.8-3.3 0-2.3-2-4.1-4.5-4.1z"/><circle cx="6.5" cy="7" r="0.7"/><circle cx="9.5" cy="7" r="0.7"/><path d="M7 9.2h2"/>',
   x: '<line x1="4" y1="4" x2="12" y2="12"/><line x1="12" y1="4" x2="4" y2="12"/>',
   pause: '<line x1="6" y1="4" x2="6" y2="12"/><line x1="10" y1="4" x2="10" y2="12"/>',
-  play: '<path d="M6 4.5l5 3.5-5 3.5z"/>'
+  play: '<path d="M6 4.5l5 3.5-5 3.5z"/>',
+  undo: '<path d="M3.2 6.8h6.3a3.4 3.4 0 0 1 0 6.8H6.2"/><path d="M6.2 3.8l-3 3 3 3"/>',
+  droplet: '<path d="M8 1.9c2.5 3 4.3 5.4 4.3 7.5a4.3 4.3 0 0 1-8.6 0C3.7 7.3 5.5 4.9 8 1.9z"/><path d="M5.9 9.6a2.2 2.2 0 0 0 1.5 2.1"/>'
 };
 
 function gameIcon(name, size = 12, style = '') {
@@ -33,6 +39,28 @@ function gameIcon(name, size = 12, style = '') {
   if (!paths) return '';
   return `<svg class="gt-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:${size}px;height:${size}px;${style}">${paths}</svg>`;
 }
+
+// ── Liquid glass skin ─────────────────────────────────────────────────────────
+// Pure styling toggle for the game tracker (main view): flips a class on
+// #tab-games that a scoped CSS section in main.css keys off. No behavior change.
+let glassMode = false;
+try { glassMode = localStorage.getItem('mtg_glass_mode') === '1'; } catch (_) { /* storage blocked */ }
+
+function applyGlassMode() {
+  const tab = document.getElementById('tab-games');
+  if (tab) tab.classList.toggle('glass-mode', glassMode);
+}
+
+function toggleGlassMode() {
+  glassMode = !glassMode;
+  try { localStorage.setItem('mtg_glass_mode', glassMode ? '1' : '0'); } catch (_) { /* private mode */ }
+  applyGlassMode();
+  const btn = document.getElementById('glassModeBtn');
+  if (btn) btn.classList.toggle('active', glassMode);
+}
+
+if (document.readyState !== 'loading') applyGlassMode();
+else document.addEventListener('DOMContentLoaded', applyGlassMode);
 
 function _setLifeDiceDiag(msg) {
   _lifeDiceWebGLDiag = msg;
@@ -308,6 +336,10 @@ async function openNewGame() {
     { userId: null, name: '', deckName: '', deckId: '', commander: '', mulligans: 0 },
   ];
   newGameFirstPlayerIdx = null;
+  let _storedLayout = null;
+  try { _storedLayout = localStorage.getItem('mtg_tablet_layout'); } catch (_) { /* storage blocked */ }
+  newGameTabletLayout = _storedLayout === 'pie' ? 'pie' : 'default';
+  _syncNewGameLayoutBtns();
   const fmtEl = document.getElementById('newGameFormat');
   if (fmtEl) fmtEl.value = 'Commander';
   const notesEl = document.getElementById('newGameNotes');
@@ -386,6 +418,24 @@ async function _loadUserDecks(userId) {
 
 function closeNewGameModal() {
   document.getElementById('newGameModal').classList.remove('open');
+}
+
+// New-game modal: default (grid) vs enhanced (pie-wedge) tablet layout. The last
+// choice is remembered across games via localStorage.
+function setNewGameLayout(mode) {
+  newGameTabletLayout = mode === 'pie' ? 'pie' : 'default';
+  try { localStorage.setItem('mtg_tablet_layout', newGameTabletLayout); } catch (_) { /* private mode */ }
+  _syncNewGameLayoutBtns();
+}
+
+function _syncNewGameLayoutBtns() {
+  const base = 'flex:1;padding:8px 10px;border:1px solid;border-radius:8px;cursor:pointer;font-size:0.8rem;display:inline-flex;align-items:center;justify-content:center;gap:6px;';
+  const on  = 'background:rgba(200,168,74,0.14);border-color:rgba(200,168,74,0.5);color:var(--gold)';
+  const off = 'background:var(--bg3);border-color:var(--border2);color:var(--text3)';
+  const d = document.getElementById('ngLayoutDefault');
+  const p = document.getElementById('ngLayoutPie');
+  if (d) { d.style.cssText = base + (newGameTabletLayout === 'default' ? on : off); d.innerHTML = `${gameIcon('grid', 13)}Default`; }
+  if (p) { p.style.cssText = base + (newGameTabletLayout === 'pie' ? on : off); p.innerHTML = `${gameIcon('pie', 13)}Enhanced`; }
 }
 
 function addNewGamePlayer() {
@@ -596,6 +646,7 @@ async function submitNewGame() {
     activePlayerIdx: firstPlayerIdx,
     winner: null,
     notes,
+    tabletLayout: newGameTabletLayout,
     players,
     turnStartedAt: Date.now(),
     turnDurations: [],
@@ -621,6 +672,7 @@ async function submitNewGame() {
 function renderActiveGame(game) {
   const el = document.getElementById('activeGameArea');
   if (!el) return;
+  applyGlassMode();
   const isCmd = game.format === 'Commander' || game.format === 'Brawl';
   const activePlayers = game.players.filter(p => !p.eliminated).length;
 
@@ -641,6 +693,7 @@ function renderActiveGame(game) {
       <button class="btn btn-outline btn-sm" onclick="nextTurn('${game.id}')">→ Next Turn</button>
       <button class="btn btn-outline btn-sm" onclick="openLogEvent('${game.id}')" style="display:inline-flex;align-items:center;gap:5px">${gameIcon('sword', 12)}Log Event</button>
       <button class="btn btn-outline btn-sm" onclick="openTabletView('${game.id}')" style="display:inline-flex;align-items:center;gap:5px">${gameIcon('tablet', 12)}Tablet View</button>
+      <button id="glassModeBtn" class="btn btn-outline btn-sm${glassMode ? ' active' : ''}" onclick="toggleGlassMode()" title="Toggle the liquid glass look" style="display:inline-flex;align-items:center;gap:5px">${gameIcon('droplet', 12)}Glass</button>
       <button class="btn btn-danger btn-sm" onclick="openEndGame('${game.id}')" style="display:inline-flex;align-items:center;gap:5px">${gameIcon('flag', 12)}End Game</button>
     </div>
     ${renderActionBar(game)}
@@ -1031,7 +1084,7 @@ function renderActionBar(game) {
   }[gameActionMode];
 
   return `
-  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius2)">
+  <div class="game-action-bar" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius2)">
     <div style="display:flex;align-items:center;gap:5px;flex-shrink:0">
       <span style="font-size:0.7rem;color:var(--text3)">X =</span>
       ${xStepper(game.id)}
@@ -1141,10 +1194,12 @@ function onLogAmtWheel(_root, val) {
 }
 
 // ── Undo (in-memory snapshot stack, one per game) ──────────────────────────────
-// Undo only reverts player tallies — life, poison, commander damage, and the
-// resulting elimination/game-end. Turn advancement and the timer are deliberately
-// NOT snapshotted, so undo never rewinds whose turn it is or the clock. History
-// lives only for the session (not persisted) to avoid bloat.
+// Undo reverts player tallies — life, poison, commander damage, the resulting
+// elimination/game-end — and turn passes: whose turn it is, the turn counter,
+// and the recorded turn durations. Undoing a turn pass hands the turn clock
+// back to the restored player at the time they'd already used; the total game
+// clock is wall-time (endedAt - date) and is never touched. History lives only
+// for the session (not persisted) to avoid bloat.
 const _undoStacks = {};
 function _snapshotGame(game) {
   const snap = JSON.stringify({
@@ -1153,6 +1208,9 @@ function _snapshotGame(game) {
       commanderDamage: p.commanderDamage, eliminated: p.eliminated, placement: p.placement,
     })),
     status: game.status, winner: game.winner, log: game.log,
+    activePlayerId: game.players[game.activePlayerIdx ?? 0]?.id,
+    currentTurn: game.currentTurn,
+    turnDurations: game.turnDurations || [],
   });
   const stack = _undoStacks[game.id] || (_undoStacks[game.id] = []);
   stack.push(snap);
@@ -1174,6 +1232,24 @@ function undoGameAction(gameId) {
   game.status = snap.status;
   game.winner = snap.winner;
   game.log = snap.log;
+  if (snap.activePlayerId != null) {
+    const idx = game.players.findIndex(p => p.id === snap.activePlayerId);
+    const turnChanged = (idx >= 0 && idx !== (game.activePlayerIdx ?? 0))
+      || snap.currentTurn !== game.currentTurn;
+    if (idx >= 0) game.activePlayerIdx = idx;
+    if (snap.currentTurn != null) game.currentTurn = snap.currentTurn;
+    if (turnChanged) {
+      // Rewinding a turn pass: give the restored player back the time nextTurn
+      // banked for them, so their turn clock resumes where it was rather than
+      // zeroing and shortchanging their total.
+      const cur = game.turnDurations || [];
+      const banked = cur.length > (snap.turnDurations || []).length
+        ? cur[cur.length - 1].duration : 0;
+      game.turnStartedAt = Date.now() - banked;
+      if (_turnPaused) _pausedElapsed = banked;
+    }
+    game.turnDurations = snap.turnDurations || game.turnDurations;
+  }
   save('games');
   if (tabletViewGameId) { renderTabletView(); _syncOpenMenuCmd(game); }
   renderActiveGame(game);
@@ -1346,6 +1422,7 @@ function autoEndGame(game, winner) {
 function nextTurn(gameId) {
   const game = games.find(g => g.id === gameId);
   if (!game) return;
+  _snapshotGame(game);
   const current = game.activePlayerIdx ?? 0;
   const total = game.players.length;
   // Turn passes clockwise around the table, which is the reverse of array order
@@ -1801,6 +1878,9 @@ function openTabletMenu(playerId, btn, e, rotated = false) {
   const wasThisOne = existing && existing.dataset.pid === playerId;
   document.querySelectorAll('.tablet-player-menu').forEach(m => m.remove());
   if (wasThisOne) return;
+  const rotDeg = _rotDegOf(rotated);
+  const rotNorm = ((rotDeg % 360) + 360) % 360;
+  const rotFlip = rotNorm > 90 && rotNorm < 270;
 
   const game = games.find(g => g.id === tabletViewGameId);
   if (!game) return;
@@ -1876,14 +1956,23 @@ function openTabletMenu(playerId, btn, e, rotated = false) {
   if (left + menuW > window.innerWidth - pad) left = window.innerWidth - menuW - pad;
 
   // Prefer opening away from the tapped control direction.
-  let top = rotated ? (r.top - menuH - 8) : (r.bottom + 6);
+  let top = rotFlip ? (r.top - menuH - 8) : (r.bottom + 6);
   if (top < pad) top = r.bottom + 6;
   if (top + menuH > window.innerHeight - pad) top = r.top - menuH - 8;
   if (top < pad) top = pad;
 
-  menu.style.top  = top  + 'px';
-  menu.style.left = left + 'px';
-  menu.style.transform = rotated ? 'rotate(180deg)' : '';
+  // Clamp using the menu's VISUAL bounding box after rotation (rotate() spins it
+  // about its centre, so convert to centre coords, clamp, convert back). For
+  // 0/180 this matches the old behaviour; for pie side seats width/height swap.
+  const rad = rotDeg * Math.PI / 180;
+  const visW = Math.abs(menuW * Math.cos(rad)) + Math.abs(menuH * Math.sin(rad));
+  const visH = Math.abs(menuW * Math.sin(rad)) + Math.abs(menuH * Math.cos(rad));
+  let mcx = left + menuW / 2, mcy = top + menuH / 2;
+  mcx = Math.min(Math.max(mcx, pad + visW / 2), window.innerWidth  - pad - visW / 2);
+  mcy = Math.min(Math.max(mcy, pad + visH / 2), window.innerHeight - pad - visH / 2);
+  menu.style.left = (mcx - menuW / 2) + 'px';
+  menu.style.top  = (mcy - menuH / 2) + 'px';
+  menu.style.transform = rotDeg ? `rotate(${rotDeg}deg)` : '';
   menu.style.visibility = 'visible';
   _syncGameWheels();
 }
@@ -1892,6 +1981,7 @@ function renderTabletView() {
   const game = games.find(g => g.id === tabletViewGameId);
   if (!game) return;
   const el = document.getElementById('tabletView');
+  if (game.tabletLayout === 'pie') { renderTabletPieView(game, el); return; }
   const n = game.players.length;
   const is2p = n === 2;
   const is3p = n === 3;
@@ -1904,14 +1994,6 @@ function renderTabletView() {
   el.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
   el.classList.toggle('tv-2p', is2p);
 
-  const isAllMode = gameActionMode === 'deal1all' || gameActionMode === 'dealXall';
-  const actionHint = {
-    deal1:    '→ tap a player to deal 1 damage',
-    dealX:    `→ tap a player to deal ${activeAmt(game)} damage`,
-    deal1all: '→ deals 1 to all opponents — tap any player to confirm',
-    dealXall: `→ deals ${activeAmt(game)} to all opponents — tap any player to confirm`,
-  }[gameActionMode] || '';
-  const activePlayer = game.players[game.activePlayerIdx ?? 0];
 
   // 3p: one centered on top, two on bottom. 4p: quadrants [3,2,0,1], top row rotated.
   const playerOrder = is4p ? [3, 2, 0, 1] : game.players.map((_, i) => i);
@@ -1937,72 +2019,13 @@ function renderTabletView() {
       const col = is3p && orderIdx > 0 ? orderIdx - 1 : orderIdx % 2;
       return renderTabletCell(game, game.players[pi], pi, n, cols, rotated, col);
     }).join('')}
-    <!-- Center timer + turn controls -->
-    <div class="tablet-center-box" onclick="event.stopPropagation()" style="position:fixed;left:50%;${centerBoxV};z-index:10;
-      background:color-mix(in oklab, var(--bg2) 90%, transparent);backdrop-filter:blur(16px);transition:transform 0.35s ease;
-      border:1px solid var(--border2);border-radius:18px;padding:12px 24px;text-align:center;min-width:164px">
-      <div class="tablet-center-timer" style="font-family:'JetBrains Mono',monospace;font-size:clamp(2rem,4.5vw,3.2rem);font-weight:700;color:${_turnPaused ? 'var(--text3)' : 'var(--gold)'};line-height:1">
-        <span id="tabletTurnTimerDisplay">${_turnPaused ? formatDuration(_pausedElapsed) : (game.turnStartedAt ? formatDuration(Date.now() - game.turnStartedAt) : '00:00')}</span>
-      </div>
-      ${activePlayer ? `<div style="font-size:clamp(0.6rem,1.3vw,0.82rem);color:${activePlayer.color};margin-top:5px;font-family:'Inter',system-ui,sans-serif;letter-spacing:0.04em">T${game.currentTurn} · ${escapeHtml(activePlayer.name)}</div>` : ''}
-      <div style="display:flex;gap:5px;margin-top:9px">
-        <button onclick="nextTurn('${game.id}')" class="tablet-turn-btn"
-          style="flex:1;padding:9px 8px;background:var(--bg3);
-            border:1px solid var(--border2);border-radius:8px;color:var(--text2);font-size:0.9rem;cursor:pointer;touch-action:manipulation">
-          → Next
-        </button>
-        <button onclick="togglePauseTimer('${game.id}')" class="tablet-turn-btn"
-          title="${_turnPaused ? 'Resume timer' : 'Pause timer'}" aria-label="${_turnPaused ? 'Resume timer' : 'Pause timer'}"
-          style="flex:1;padding:9px 8px;background:${_turnPaused ? 'rgba(200,168,74,0.15)' : 'var(--bg3)'};
-            border:1px solid ${_turnPaused ? 'rgba(200,168,74,0.4)' : 'var(--border2)'};border-radius:8px;
-            color:${_turnPaused ? 'var(--gold)' : 'var(--text2)'};font-size:0.9rem;cursor:pointer;touch-action:manipulation">
-          ${_turnPaused ? gameIcon('play', 16, 'vertical-align:middle') : gameIcon('pause', 16, 'vertical-align:middle')}
-        </button>
-      </div>
-      ${gameActionMode ? `
-      <div style="margin-top:6px;padding:5px 8px;background:var(--gold-dim);border:1px solid rgba(200,168,74,0.35);
-        border-radius:8px;font-size:0.72rem;color:var(--gold);display:flex;align-items:center;gap:5px;justify-content:center">
-        <span style="flex:1">${actionHint}</span>
-        <button onclick="cancelAction('${game.id}')" style="background:none;border:none;color:var(--gold);cursor:pointer;font-size:0.95rem;line-height:1;padding:0;flex-shrink:0;display:inline-flex;align-items:center">${gameIcon('x', 12)}</button>
-      </div>` : ''}
-      <button onclick="closeTabletView()"
-        style="margin-top:6px;width:100%;padding:4px 10px;background:none;
-          border:1px solid var(--border2);border-radius:8px;color:var(--text3);font-size:0.75rem;cursor:pointer">
-        ${gameIcon('x', 11, 'margin-right:5px')}Exit Tablet
-      </button>
-    </div>`;
-  // Tap anywhere that isn't a control (name bar, life number, empty space) to advance the
-  // turn — a big, forgiving hit target. Guards: a completed drag-to-deal gesture fires a
-  // trailing click (swallow it via _tabletDragJustEnded); an open ⋯ menu just dismisses;
-  // action-mode taps are for targeting players; buttons and the centre box handle their own.
-  el.onclick = (e) => {
-    const menus = document.querySelectorAll('.tablet-player-menu');
-    const hadMenu = menus.length > 0;
-    menus.forEach(m => m.remove());
-    if (_tabletDragJustEnded) { _tabletDragJustEnded = false; return; }
-    if (hadMenu) return;
-    if (gameActionMode) return;
-    if (e.target.closest('button, input, a, select, textarea, .tablet-player-menu, .tablet-drag-menu, .tablet-center-box, .player-targetable, .num-wheel')) return;
-    if (game.status !== 'active') return;
-    nextTurn(game.id);
-  };
-  // Drag-to-deal-damage: press-hold a player and drag onto another (delegated; survives re-render).
-  el.onpointerdown   = tabletDragPointerDown;
-  el.onpointermove   = tabletDragPointerMove;
-  el.onpointerup     = tabletDragPointerUp;
-  el.onpointercancel = tabletDragPointerUp;
-  if (!_turnPaused) startTurnTimer(game.id);
-  _syncGameWheels();
+    ${_tabletCenterBoxHtml(game, `left:50%;${centerBoxV}`)}`;
+  _wireTabletSurface(game, el);
 }
 
 function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
   const isCmd = game.format === 'Commander' || game.format === 'Brawl';
-  const lifeColor = p.eliminated ? 'rgba(255,255,255,0.15)'
-    : p.life <= 0  ? 'var(--red)'
-    : p.life <= 5  ? 'var(--red)'
-    : p.life <= 10 ? '#e07a3a'
-    : p.life <= (p.startingLife * 0.5) ? 'var(--text)'
-    : 'var(--teal)';
+  const lifeColor = _cellLifeColor(p);
 
   // 2-player cells are full-width but half-height (stacked), so cap the life
   // number by viewport height too, to avoid overflow in landscape.
@@ -2016,26 +2039,8 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
   const isAllMode = gameActionMode === 'deal1all' || gameActionMode === 'dealXall';
   const targetLabel = isAllMode ? 'Tap to confirm' : 'Tap — deal damage';
   const maxCmdDmg = Math.max(...Object.values(p.commanderDamage || {}).map(Number), 0);
-  const opponents = isCmd ? game.players.filter(op => op.id !== p.id) : [];
-  const cmdBadges = isCmd
-    ? opponents.map(op => {
-        const dmg = (p.commanderDamage || {})[op.id] || 0;
-        const danger = dmg >= 16;
-        return `
-        <span title="${escapeHtml(op.name)}: ${dmg}" style="display:inline-flex;align-items:center;gap:3px;padding:1px 4px;border-radius:999px;background:rgba(0,0,0,0.18);border:1px solid ${op.color}44;color:${danger ? 'var(--red)' : (dmg > 0 ? 'var(--text2)' : 'var(--text3)')};font-family:'JetBrains Mono',monospace;font-size:0.6rem;line-height:1.2">
-          <span style="width:5px;height:5px;border-radius:50%;background:${op.color};flex-shrink:0"></span>${dmg}
-        </span>`;
-      }).join('')
-    : '';
-  // Poison is a single per-player total (10 = dead), shown right under commander damage.
-  const poisonColor = p.poison >= 8 ? 'var(--red)' : 'var(--purple)';
-  const poisonBadge = p.poison > 0
-    ? `<div style="display:flex;align-items:center;justify-content:center;min-height:16px">
-         <span title="Poison counters: ${p.poison} / 10" style="display:inline-flex;align-items:center;gap:4px;padding:1px 8px;border-radius:999px;background:rgba(0,0,0,0.18);border:1px solid ${poisonColor};color:${poisonColor};font-family:'JetBrains Mono',monospace;font-size:0.62rem;line-height:1.3">
-           ${gameIcon('skull', 10)}${p.poison} poison
-         </span>
-       </div>`
-    : '';
+  const cmdBadges = _cellCmdBadges(game, p, isCmd);
+  const poisonBadge = _cellPoisonBadge(p);
 
   // outer horizontal edge: col 0 = left side of screen, col 1 = right side.
   // rotation swaps left/right in screen space, so invert for rotated cells.
@@ -2090,22 +2095,500 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
     <!-- Self-modification buttons: +1 +X −1 −X -->
     <div style="padding:clamp(5px,1.2vh,9px) clamp(8px,1.8vw,16px) 0;border-top:1px solid ${p.color}25" onclick="event.stopPropagation()">
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:clamp(3px,0.55vw,7px);margin-bottom:clamp(4px,0.8vh,7px)">
-        <button onclick="selfLifeChange('${game.id}','${p.id}',1,false)"  class="tablet-life-btn tablet-life-btn-pos" ${p.eliminated ? 'disabled' : ''}>+1</button>
-        <button onclick="selfLifeChange('${game.id}','${p.id}',1,true)"   class="tablet-life-btn tablet-life-btn-pos" ${p.eliminated ? 'disabled' : ''}>+${actAmt(p, game.id)}</button>
-        <button onclick="selfLifeChange('${game.id}','${p.id}',-1,false)" class="tablet-life-btn tablet-life-btn-neg" ${p.eliminated ? 'disabled' : ''}>−1</button>
-        <button onclick="selfLifeChange('${game.id}','${p.id}',-1,true)"  class="tablet-life-btn tablet-life-btn-neg" ${p.eliminated ? 'disabled' : ''}>−${actAmt(p, game.id)}</button>
+        ${_cellLifeBtns(game, p)}
       </div>
       <!-- Status -->
       <div style="display:flex;gap:clamp(6px,1.2vw,12px);justify-content:center;align-items:center;padding-bottom:clamp(3px,0.7vh,6px);font-size:clamp(0.56rem,1.1vw,0.74rem)">
-        ${p.eliminated
-          ? `<span style="color:var(--red);letter-spacing:0.05em;display:inline-flex;align-items:center;gap:4px">${gameIcon('skull', 11)}ELIMINATED #${p.placement || '?'}</span>`
-          : `${maxCmdDmg > 0 ? `<span style="color:${maxCmdDmg >= 16 ? 'var(--red)' : 'var(--text3)'};display:inline-flex;align-items:center;gap:4px">${gameIcon('sword', 11)}${maxCmdDmg} cmd</span>` : ''}
-             ${p.mulligans > 0 ? `<span style="color:var(--text3);display:inline-flex;align-items:center;gap:4px" title="Mulligans">🃏${p.mulligans}</span>` : ''}
-             ${maxCmdDmg === 0 && !(p.mulligans > 0) ? `<span style="color:var(--text3);opacity:0.4">●</span>` : ''}`}
+        ${_cellStatusRow(p, maxCmdDmg)}
       </div>
     </div>
   </div>`;
 }
+
+// Centre hub (timer / next-turn / pause / action hint / exit) shared by both
+// tablet layouts. posStyle positions + orients it (the pie layout rotates it
+// to face whoever's turn it is).
+function _tabletCenterBoxHtml(game, posStyle) {
+  const actionHint = {
+    deal1:    '→ tap a player to deal 1 damage',
+    dealX:    `→ tap a player to deal ${activeAmt(game)} damage`,
+    deal1all: '→ deals 1 to all opponents — tap any player to confirm',
+    dealXall: `→ deals ${activeAmt(game)} to all opponents — tap any player to confirm`,
+  }[gameActionMode] || '';
+  const activePlayer = game.players[game.activePlayerIdx ?? 0];
+  return `
+    <!-- Center timer + turn controls -->
+    <div class="tablet-center-box" onclick="event.stopPropagation()" style="position:fixed;${posStyle};z-index:10;
+      background:color-mix(in oklab, var(--bg2) 90%, transparent);backdrop-filter:blur(16px);transition:transform 0.35s ease;
+      border:1px solid var(--border2);border-radius:18px;padding:12px 24px;text-align:center;min-width:164px">
+      <div class="tablet-center-timer" style="font-family:'JetBrains Mono',monospace;font-size:clamp(2rem,4.5vw,3.2rem);font-weight:700;color:${_turnPaused ? 'var(--text3)' : 'var(--gold)'};line-height:1">
+        <span id="tabletTurnTimerDisplay">${_turnPaused ? formatDuration(_pausedElapsed) : (game.turnStartedAt ? formatDuration(Date.now() - game.turnStartedAt) : '00:00')}</span>
+      </div>
+      ${activePlayer ? `<div style="font-size:clamp(0.6rem,1.3vw,0.82rem);color:${activePlayer.color};margin-top:5px;font-family:'Inter',system-ui,sans-serif;letter-spacing:0.04em">T${game.currentTurn} · ${escapeHtml(activePlayer.name)}</div>` : ''}
+      <div style="display:flex;gap:5px;margin-top:9px">
+        <button onclick="undoGameAction('${game.id}')" class="tablet-turn-btn"
+          title="Undo last action" aria-label="Undo last action"
+          style="flex:1;padding:9px 8px;background:var(--bg3);
+            border:1px solid var(--border2);border-radius:8px;color:var(--text2);font-size:0.9rem;cursor:pointer;touch-action:manipulation">
+          ${gameIcon('undo', 16, 'vertical-align:middle')}
+        </button>
+        <button onclick="togglePauseTimer('${game.id}')" class="tablet-turn-btn"
+          title="${_turnPaused ? 'Resume timer' : 'Pause timer'}" aria-label="${_turnPaused ? 'Resume timer' : 'Pause timer'}"
+          style="flex:1;padding:9px 8px;background:${_turnPaused ? 'rgba(200,168,74,0.15)' : 'var(--bg3)'};
+            border:1px solid ${_turnPaused ? 'rgba(200,168,74,0.4)' : 'var(--border2)'};border-radius:8px;
+            color:${_turnPaused ? 'var(--gold)' : 'var(--text2)'};font-size:0.9rem;cursor:pointer;touch-action:manipulation">
+          ${_turnPaused ? gameIcon('play', 16, 'vertical-align:middle') : gameIcon('pause', 16, 'vertical-align:middle')}
+        </button>
+      </div>
+      ${gameActionMode ? `
+      <div style="margin-top:6px;padding:5px 8px;background:var(--gold-dim);border:1px solid rgba(200,168,74,0.35);
+        border-radius:8px;font-size:0.72rem;color:var(--gold);display:flex;align-items:center;gap:5px;justify-content:center">
+        <span style="flex:1">${actionHint}</span>
+        <button onclick="cancelAction('${game.id}')" style="background:none;border:none;color:var(--gold);cursor:pointer;font-size:0.95rem;line-height:1;padding:0;flex-shrink:0;display:inline-flex;align-items:center">${gameIcon('x', 12)}</button>
+      </div>` : ''}
+      <button onclick="closeTabletView()"
+        style="margin-top:6px;width:100%;padding:4px 10px;background:none;
+          border:1px solid var(--border2);border-radius:8px;color:var(--text3);font-size:0.75rem;cursor:pointer">
+        ${gameIcon('x', 11, 'margin-right:5px')}Exit Tablet
+      </button>
+    </div>`;
+}
+
+// Shared surface wiring for both tablet layouts: tap-to-advance, drag-to-deal
+// pointer handlers, and the running turn timer.
+function _wireTabletSurface(game, el) {
+  // Long-press is a gesture here (seat swap); keep the browser's context menu out.
+  el.oncontextmenu = (e) => { e.preventDefault(); };
+  // Tap anywhere that isn't a control (name bar, life number, empty space) to advance the
+  // turn — a big, forgiving hit target. Guards: a completed drag-to-deal gesture fires a
+  // trailing click (swallow it via _tabletDragJustEnded); an open ⋯ menu just dismisses;
+  // action-mode taps are for targeting players; buttons and the centre box handle their own.
+  el.onclick = (e) => {
+    const menus = document.querySelectorAll('.tablet-player-menu');
+    const hadMenu = menus.length > 0;
+    menus.forEach(m => m.remove());
+    if (_tabletDragJustEnded) { _tabletDragJustEnded = false; return; }
+    if (hadMenu) return;
+    if (gameActionMode) return;
+    if (e.target.closest('button, input, a, select, textarea, .tablet-player-menu, .tablet-drag-menu, .tablet-center-box, .player-targetable, .num-wheel')) return;
+    if (game.status !== 'active') return;
+    nextTurn(game.id);
+  };
+  // Drag-to-deal-damage: press-hold a player and drag onto another (delegated; survives re-render).
+  el.onpointerdown   = tabletDragPointerDown;
+  el.onpointermove   = tabletDragPointerMove;
+  el.onpointerup     = tabletDragPointerUp;
+  el.onpointercancel = tabletDragPointerUp;
+  if (!_turnPaused) startTurnTimer(game.id);
+  _syncGameWheels();
+}
+
+// ── Enhanced (pie) tablet layout ─────────────────────────────────────────────
+// Every player gets an equal-angle wedge radiating from the screen centre — two
+// players halves the screen, five players five triangle-ish slices, and so on.
+// Each wedge is a full-screen cell clipped with a polygon; its content block
+// sits along the wedge bisector, rotated to face the player at that edge.
+// Seat 0 faces the bottom edge and later seats advance counterclockwise on
+// screen, matching the 4-player grid's seat progression (so the ⋯ menu's
+// "move clockwise / counterclockwise" behaves the same in both layouts).
+
+function _cellLifeColor(p) {
+  return p.eliminated ? 'rgba(255,255,255,0.15)'
+    : p.life <= 0  ? 'var(--red)'
+    : p.life <= 5  ? 'var(--red)'
+    : p.life <= 10 ? '#e07a3a'
+    : p.life <= (p.startingLife * 0.5) ? 'var(--text)'
+    : 'var(--teal)';
+}
+
+function _cellCmdBadges(game, p, isCmd) {
+  if (!isCmd) return '';
+  return game.players.filter(op => op.id !== p.id).map(op => {
+    const dmg = (p.commanderDamage || {})[op.id] || 0;
+    const danger = dmg >= 16;
+    return `
+        <span title="${escapeHtml(op.name)}: ${dmg}" style="display:inline-flex;align-items:center;gap:3px;padding:1px 4px;border-radius:999px;background:rgba(0,0,0,0.18);border:1px solid ${op.color}44;color:${danger ? 'var(--red)' : (dmg > 0 ? 'var(--text2)' : 'var(--text3)')};font-family:'JetBrains Mono',monospace;font-size:0.6rem;line-height:1.2">
+          <span style="width:5px;height:5px;border-radius:50%;background:${op.color};flex-shrink:0"></span>${dmg}
+        </span>`;
+  }).join('');
+}
+
+// Menu `rotated` args: the grid layout passes true/false (a 180° flip); the pie
+// layout passes the seat's rotation in degrees. One coercion for every consumer.
+function _rotDegOf(rotated) { return rotated === true ? 180 : (Number(rotated) || 0); }
+
+// The four self-life buttons — shared by the grid and pie cell templates.
+function _cellLifeBtns(game, p) {
+  return `
+        <button onclick="selfLifeChange('${game.id}','${p.id}',1,false)"  class="tablet-life-btn tablet-life-btn-pos" ${p.eliminated ? 'disabled' : ''}>+1</button>
+        <button onclick="selfLifeChange('${game.id}','${p.id}',1,true)"   class="tablet-life-btn tablet-life-btn-pos" ${p.eliminated ? 'disabled' : ''}>+${actAmt(p, game.id)}</button>
+        <button onclick="selfLifeChange('${game.id}','${p.id}',-1,false)" class="tablet-life-btn tablet-life-btn-neg" ${p.eliminated ? 'disabled' : ''}>−1</button>
+        <button onclick="selfLifeChange('${game.id}','${p.id}',-1,true)"  class="tablet-life-btn tablet-life-btn-neg" ${p.eliminated ? 'disabled' : ''}>−${actAmt(p, game.id)}</button>`;
+}
+
+// Status row under the life buttons: eliminated placement, max commander damage
+// taken, mulligans — with a dim placeholder so the row never appears/disappears
+// mid-game and shifts the layout. Shared by the grid and pie cell templates.
+function _cellStatusRow(p, maxCmdDmg) {
+  return p.eliminated
+    ? `<span style="color:var(--red);letter-spacing:0.05em;display:inline-flex;align-items:center;gap:4px">${gameIcon('skull', 11)}ELIMINATED #${p.placement || '?'}</span>`
+    : `${maxCmdDmg > 0 ? `<span style="color:${maxCmdDmg >= 16 ? 'var(--red)' : 'var(--text3)'};display:inline-flex;align-items:center;gap:4px">${gameIcon('sword', 11)}${maxCmdDmg} cmd</span>` : ''}
+             ${p.mulligans > 0 ? `<span style="color:var(--text3);display:inline-flex;align-items:center;gap:4px" title="Mulligans">${gameIcon('cards', 11)}${p.mulligans}</span>` : ''}
+             ${maxCmdDmg === 0 && !(p.mulligans > 0) ? `<span style="color:var(--text3);opacity:0.4">●</span>` : ''}`;
+}
+
+// Poison is a single per-player total (10 = dead), shown right under commander damage.
+function _cellPoisonBadge(p) {
+  const poisonColor = p.poison >= 8 ? 'var(--red)' : 'var(--purple)';
+  return p.poison > 0
+    ? `<div style="display:flex;align-items:center;justify-content:center;min-height:16px">
+         <span title="Poison counters: ${p.poison} / 10" style="display:inline-flex;align-items:center;gap:4px;padding:1px 8px;border-radius:999px;background:rgba(0,0,0,0.18);border:1px solid ${poisonColor};color:${poisonColor};font-family:'JetBrains Mono',monospace;font-size:0.62rem;line-height:1.3">
+           ${gameIcon('skull', 10)}${p.poison} poison
+         </span>
+       </div>`
+    : '';
+}
+
+// Distance from (px,py) along direction (dx,dy) to the edge of the rectangle
+// [x0,y0]–[x1,y1]; Infinity for a degenerate direction. Shared by the wedge
+// polygon/divider code and the content-block sizing so they can never diverge.
+function _rayToRect(px, py, dx, dy, x0, y0, x1, y1) {
+  let t = Infinity;
+  if (dx >  1e-9) t = Math.min(t, (x1 - px) / dx);
+  if (dx < -1e-9) t = Math.min(t, (x0 - px) / dx);
+  if (dy >  1e-9) t = Math.min(t, (y1 - py) / dy);
+  if (dy < -1e-9) t = Math.min(t, (y0 - py) / dy);
+  return t;
+}
+
+// Distance from (cx,cy) along angle `ang` (radians, screen coords, y down) to the
+// edge of a w×h rectangle.
+function _pieRayLength(cx, cy, w, h, ang) {
+  const t = _rayToRect(cx, cy, Math.cos(ang), Math.sin(ang), 0, 0, w, h);
+  return Number.isFinite(t) ? t : Math.max(w, h);
+}
+
+// Wedge polygon: centre → edge point at a0 → any screen corners inside the span
+// → edge point at a1 (radians, a1 > a0, walking clockwise in screen space).
+function _piePolygon(cx, cy, w, h, a0, a1) {
+  const edge = ang => {
+    const t = _pieRayLength(cx, cy, w, h, ang);
+    return [cx + Math.cos(ang) * t, cy + Math.sin(ang) * t];
+  };
+  const pts = [[cx, cy], edge(a0)];
+  [[w, h], [0, h], [0, 0], [w, 0]]
+    .map(c => {
+      let a = Math.atan2(c[1] - cy, c[0] - cx);
+      a -= Math.floor((a - a0) / (Math.PI * 2)) * (Math.PI * 2);   // normalize into [a0, a0+2π)
+      return { a, c };
+    })
+    .filter(x => x.a > a0 + 1e-6 && x.a < a1 - 1e-6)
+    .sort((x, y) => x.a - y.a)
+    .forEach(x => pts.push(x.c));
+  pts.push(edge(a1));
+  return pts;
+}
+
+// ── Table-seating model ──────────────────────────────────────────────────────
+// Seats are chairs around a table: pairs share the long (top/bottom) edges and
+// extra players take the short-edge head/tail seats. Wedge boundaries are the
+// angular midlines between neighbouring chairs — so 2 players halves the screen
+// and 4 players quarters it exactly like the grid view; the pie shape only
+// really shows at odd counts (3, 5) where a lone seat gets its own slice.
+// rot faces the chair's screen edge: 0 bottom, 180 top, -90 right, 90 left.
+function _pieChairs(n, w, h) {
+  const B = f => ({ x: w * f, y: h, rot: 0 });     // bottom edge, upright
+  const T = f => ({ x: w * f, y: 0, rot: 180 });   // top edge, flipped
+  const R = { x: w, y: h / 2, rot: -90 };          // right edge (head of table)
+  const L = { x: 0, y: h / 2, rot: 90 };           // left edge (tail)
+  switch (n) {
+    case 2:  return [B(0.5), T(0.5)];
+    case 3:
+      // Bottom pair sits head to head — each hugs a side edge of the lower
+      // half, tops pointing at each other across the vertical midline — with
+      // the third player across the top.
+      return [
+        { x: 0, y: h, rot: 90 },
+        { x: w, y: h, rot: -90 },
+        T(0.5),
+      ];
+    case 4:  return [B(0.27), B(0.73), T(0.73), T(0.27)];
+    case 6:  return [B(0.27), B(0.73), R, T(0.73), T(0.27), L];
+    default: return [B(0.5)];
+  }
+}
+
+// Per-seat wedge spans: sort chairs by their angle from the screen centre and
+// cut at the midlines between neighbours (with wraparound).
+function _polyArea(pts) {
+  let s = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i], b = pts[(i + 1) % pts.length];
+    s += a[0] * b[1] - b[0] * a[1];
+  }
+  return Math.abs(s) / 2;
+}
+
+// 5 players: 2 across from 2 plus a head seat. Midline boundaries would leave
+// the corner wedges ~50% bigger than the head, so the three distinct boundary
+// angles are solved for EQUAL wedge areas instead (exact for any aspect; the
+// left/right symmetry makes the fifth wedge equal automatically).
+function _pieFiveSeatWedges(w, h) {
+  const cx = w / 2, cy = h / 2, target = (w * h) / 5;
+  const areaTo = (a0, a1) => _polyArea(_piePolygon(cx, cy, w, h, a0, a1));
+  const solve = (a0, lo, hi, t) => {
+    for (let i = 0; i < 36; i++) {
+      const m = (lo + hi) / 2;
+      if (areaTo(a0, m) < t) lo = m; else hi = m;
+    }
+    return (lo + hi) / 2;
+  };
+  const b2 = solve(0, 0.03, Math.PI / 2, target / 2);        // head seat half-span
+  const b1 = solve(b2, b2 + 0.03, Math.PI - 0.03, target);   // corner-pair split
+  // Chairs sit at the middle of each wedge's share of the table edge.
+  const xb = ang => cx + (h - cy) * Math.cos(ang) / Math.sin(ang);   // ray → bottom-edge x
+  const cornerAng = Math.atan2(h - cy, w - cx);
+  const xEnd = b2 >= cornerAng ? xb(b2) : w;
+  const blx = Math.max(40, xb(b1) / 2);
+  const brx = Math.min(w - 40, (xb(b1) + xEnd) / 2);
+  return [
+    { chair: { x: blx, y: h, rot: 0 },     a0: b1,       a1: Math.PI },
+    { chair: { x: brx, y: h, rot: 0 },     a0: b2,       a1: b1 },
+    { chair: { x: w, y: h / 2, rot: -90 }, a0: -b2,      a1: b2 },
+    { chair: { x: brx, y: 0, rot: 180 },   a0: -b1,      a1: -b2 },
+    { chair: { x: blx, y: 0, rot: 180 },   a0: -Math.PI, a1: -b1 },
+  ];
+}
+
+function _pieSeatWedges(n, w, h) {
+  const cx = w / 2, cy = h / 2;
+  if (n === 5) return _pieFiveSeatWedges(w, h);
+  const chairs = _pieChairs(n, w, h);
+  if (chairs.length === 1) return [{ chair: chairs[0], a0: -Math.PI / 2, a1: Math.PI * 1.5 }];
+  const order = chairs
+    .map((c, seat) => ({ seat, ang: Math.atan2(c.y - cy, c.x - cx) }))
+    .sort((a, b) => a.ang - b.ang);
+  const out = new Array(chairs.length);
+  order.forEach((cur, k) => {
+    const prev = order[(k - 1 + order.length) % order.length];
+    const next = order[(k + 1) % order.length];
+    const prevAng = k === 0 ? prev.ang - Math.PI * 2 : prev.ang;
+    const nextAng = k === order.length - 1 ? next.ang + Math.PI * 2 : next.ang;
+    out[cur.seat] = { chair: chairs[cur.seat], a0: (prevAng + cur.ang) / 2, a1: (cur.ang + nextAng) / 2 };
+  });
+  return out;
+}
+
+function _pointInPoly(pts, x, y) {
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const xi = pts[i][0], yi = pts[i][1], xj = pts[j][0], yj = pts[j][1];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+// Largest content rect (axis-aligned in the seat's rotated frame) that hugs the
+// seat's table edge and stays inside its wedge polygon, the safe bounds and
+// clear of the centre hub. Width is binary-searched against the actual polygon,
+// which stays robust for any wedge shape (diagonal boundaries, head seats, odd
+// aspect ratios); a too-narrow wedge trades height for width.
+function _pieFitContent(polyPts, chair, cx, cy, bounds, hub) {
+  const outAng = (chair.rot + 90) * Math.PI / 180;                // outward angle
+  const d = [Math.cos(outAng), Math.sin(outAng)];
+  const across = [-d[1], d[0]];
+  const uC = (chair.x - cx) * across[0] + (chair.y - cy) * across[1];
+  const vOut = _rayToRect(cx, cy, d[0], d[1], bounds.bx0, bounds.by0, bounds.bx1, bounds.by1);
+  const vIn = Math.abs(d[0]) * hub.w / 2 + Math.abs(d[1]) * hub.h / 2 + 14;
+  const pt = (u, v) => [cx + across[0] * u + d[0] * v, cy + across[1] * u + d[1] * v];
+  const ok = (x, y) => x >= bounds.bx0 - 0.5 && x <= bounds.bx1 + 0.5
+    && y >= bounds.by0 - 0.5 && y <= bounds.by1 + 0.5 && _pointInPoly(polyPts, x, y);
+  const rectOk = (W, H, u0) => {
+    const vLo = vOut - H;
+    for (const u of [u0 - W / 2 + 3, u0 + W / 2 - 3]) {
+      for (const v of [vLo + 3, vOut - 3]) {
+        const p2 = pt(u, v);
+        if (!ok(p2[0], p2[1])) return false;
+      }
+    }
+    return true;
+  };
+  // Some wedges are lopsided around their chair (a 5-player corner wedge can
+  // cross the vertical), and head seats narrow toward the hub. So the fitter
+  // scans a few heights AND a few across-offsets, keeping whichever placement
+  // maximises the life-number size the block can carry — with a mild preference
+  // for staying on the chair line.
+  const widthAt = (H2, u2) => {
+    let lo = 100, hi = 620;
+    if (rectOk(hi, H2, u2)) return 620;
+    for (let i = 0; i < 8; i++) {
+      const m = (lo + hi) / 2;
+      if (rectOk(m, H2, u2)) lo = m; else hi = m;
+    }
+    return lo;
+  };
+  const maxH = Math.max(120, Math.min(vOut - vIn, 380));
+  let H = maxH, W = 150, U = uC, best = -1;
+  for (const frac of [1, 0.93, 0.86, 0.79, 0.72, 0.65]) {
+    const Hc = Math.max(140, Math.round(maxH * frac));
+    for (const k of [0, -0.5, 0.5, -1, 1, -1.5, 1.5, -2, 2, -2.5, 2.5, -3, 3]) {
+      const u2 = uC + k * vOut / 6;
+      const Wc = Math.min(widthAt(Hc, u2), 560);
+      const score = Math.min(Hc - 170, Wc * 0.34, 148) - Math.abs(k) * 1.5;
+      if (score > best + 0.5) { best = score; H = Hc; W = Wc; U = u2; }
+    }
+  }
+  W = Math.max(150, W);
+  const a = pt(U, vOut - H / 2);
+  return { ax: a[0], ay: a[1], contentW: W, contentH: H, rotDeg: chair.rot };
+}
+
+let _pieHubSize = null;   // centre hub's measured layout box, cached across renders
+
+function renderTabletPieView(game, el, _hubRetry = false) {
+  const n = game.players.length;
+  el.classList.remove('tv-2p');   // grid-only !important sizing must not clobber the fitted pie fonts
+  el.style.gridTemplateColumns = '';
+  el.style.gridTemplateRows = '';
+  const w = el.clientWidth || window.innerWidth;
+  const h = el.clientHeight || window.innerHeight;
+  const cx = w / 2, cy = h / 2;
+  // Content must stay inside the safe area: #tabletView's padding carries the
+  // notch/status-bar/home-indicator insets, but absolutely-positioned wedges
+  // span the padding box, so the insets are re-applied to the content bounds.
+  const cs = getComputedStyle(el);
+  const m = 10;
+  const bx0 = (parseFloat(cs.paddingLeft) || 0) + m;
+  const by0 = (parseFloat(cs.paddingTop)  || 0) + m;
+  const bx1 = w - (parseFloat(cs.paddingRight)  || 0) - m;
+  const by1 = h - (parseFloat(cs.paddingBottom) || 0) - m;
+  // Centre-hub clearance: measured after the first paint (media queries resize
+  // the hub, e.g. on phones), estimated before it — see the retry below.
+  const hub = _pieHubSize || { w: 212, h: 184 };
+
+  const bounds = { bx0, by0, bx1, by1 };
+  const geoms = _pieSeatWedges(n, w, h).map(({ chair, a0, a1 }) => {
+    const polyPts = _piePolygon(cx, cy, w, h, a0, a1);
+    const fitted = _pieFitContent(polyPts, chair, cx, cy, bounds, hub);
+    return {
+      ...fitted,
+      poly: polyPts.map(pt => `${pt[0].toFixed(1)}px ${pt[1].toFixed(1)}px`).join(','),
+      polyRaw: polyPts.map(pt => `${pt[0].toFixed(1)},${pt[1].toFixed(1)}`).join(' '),
+      vw: w, vh: h, a0,
+    };
+  });
+  // One life-number size for every seat — the smallest that fits the tightest
+  // wedge — so no player's total reads bigger than another's.
+  const lifeFsAll = Math.round(Math.max(44, Math.min(148,
+    ...geoms.map(g => Math.min(g.contentH - 170, g.contentW * 0.34)))));
+  geoms.forEach(g => { g.lifeFs = lifeFsAll; });
+
+  const dividers = `
+    <svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="position:absolute;left:0;top:0;pointer-events:none;z-index:5;opacity:0.7">
+      ${geoms.map(g => {
+        const t = _pieRayLength(cx, cy, w, h, g.a0);
+        return `<line x1="${cx}" y1="${cy}" x2="${(cx + Math.cos(g.a0) * t).toFixed(1)}" y2="${(cy + Math.sin(g.a0) * t).toFixed(1)}" style="stroke:var(--border2);stroke-width:1.5"/>`;
+      }).join('')}
+    </svg>`;
+
+  const activeG = geoms[game.activePlayerIdx ?? 0] || geoms[0];
+  el.innerHTML = `
+    ${game.players.map((p, i) => renderTabletPieCell(game, p, i, geoms[i])).join('')}
+    ${dividers}
+    ${_tabletCenterBoxHtml(game, `left:50%;top:50%;transform:translate(-50%,-50%) rotate(${activeG ? activeG.rotDeg : 0}deg)`)}`;
+  _wireTabletSurface(game, el);
+
+  // Auto-fit: a block's natural height can exceed the solved radial space on
+  // cramped screens (narrow phones, many players). Scale it down about its
+  // anchor so it can never spill over the hub or off-screen.
+  el.querySelectorAll('.tablet-pie-content').forEach((c, i) => {
+    const g = geoms[i];
+    if (!g) return;
+    const k = Math.min(1, g.contentH / Math.max(1, c.offsetHeight));
+    if (k < 0.999) c.style.transform = `translate(-50%,-50%) rotate(${g.rotDeg}deg) scale(${k.toFixed(3)})`;
+  });
+
+  // Measure the hub now it's rendered; if it differs from the size the wedges
+  // were solved with (first paint, or a media query resized it), re-solve once.
+  const hubEl = el.querySelector('.tablet-center-box');
+  if (hubEl && !_hubRetry) {
+    const hs = { w: hubEl.offsetWidth, h: hubEl.offsetHeight };
+    const stale = Math.abs(hub.w - hs.w) > 4 || Math.abs(hub.h - hs.h) > 4;
+    _pieHubSize = hs;
+    if (stale) renderTabletPieView(game, el, true);
+  }
+}
+
+function renderTabletPieCell(game, p, idx, g) {
+  const isCmd = game.format === 'Commander' || game.format === 'Brawl';
+  const lifeColor = _cellLifeColor(p);
+  const cmdBadges = _cellCmdBadges(game, p, isCmd);
+  const poisonBadge = _cellPoisonBadge(p);
+  const isActiveTurn = !p.eliminated && idx === (game.activePlayerIdx ?? 0);
+  const inTargetMode = gameActionMode !== null && !p.eliminated;
+  const isAllMode = gameActionMode === 'deal1all' || gameActionMode === 'dealXall';
+  const targetLabel = isAllMode ? 'Tap to confirm' : 'Tap — deal damage';
+  const maxCmdDmg = Math.max(...Object.values(p.commanderDamage || {}).map(Number), 0);
+  const n = game.players.length;
+  const lifeFs = g.lifeFs || Math.round(Math.max(44, Math.min(g.contentH - 170, g.contentW * 0.34, 148)));
+  const glowAlpha = inTargetMode ? '14' : isActiveTurn ? '26' : '0d';
+  const glowR = Math.round(Math.max(g.contentW, g.contentH) * 0.85);
+
+  return `
+  <div class="tablet-cell tablet-cell--pie${p.eliminated ? ' tablet-cell-eliminated' : ''}${inTargetMode ? ' player-targetable' : ''}"
+    data-pid="${p.id}" data-pie="1" data-rotdeg="${g.rotDeg}" data-elim="${p.eliminated ? '1' : '0'}"
+    style="clip-path:polygon(${g.poly});-webkit-clip-path:polygon(${g.poly});
+           background:radial-gradient(circle ${glowR}px at ${g.ax.toFixed(1)}px ${g.ay.toFixed(1)}px,${p.color}${glowAlpha} 0%,transparent 75%),var(--bg2);
+           ${inTargetMode ? 'cursor:crosshair;' : ''}"
+    ${inTargetMode ? `onclick="applyGameAction('${game.id}','${p.id}')"` : ''}>
+    <svg viewBox="0 0 ${g.vw} ${g.vh}" preserveAspectRatio="none" style="position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none">
+      <polygon class="pie-outline" points="${g.polyRaw}" style="fill:none;stroke-width:7;stroke:${isActiveTurn && !inTargetMode ? p.color : 'transparent'}"/>
+    </svg>
+    <div class="tablet-pie-content tablet-pie-anchor" style="left:${g.ax.toFixed(1)}px;top:${g.ay.toFixed(1)}px;width:${Math.round(g.contentW)}px;transform:translate(-50%,-50%) rotate(${g.rotDeg}deg);">
+      <div style="display:flex;align-items:center;justify-content:center;gap:7px;max-width:100%">
+        <span class="tablet-total-time" data-pid="${p.id}" title="Total time this player has spent on turns"
+          style="font-family:'JetBrains Mono',monospace;font-size:clamp(0.5rem,1.05vw,0.7rem);color:var(--text3);white-space:nowrap">${formatDuration(playerTotalTime(game, p.id))}</span>
+        <span style="font-family:'Cinzel',serif;font-size:${n >= 5 ? 'clamp(0.8rem,1.8vw,1.05rem)' : 'clamp(0.85rem,2.2vw,1.3rem)'};color:${p.color};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:0.06em;min-width:0">${escapeHtml(p.name)}</span>
+        ${inTargetMode
+          ? `<span style="font-size:clamp(0.6rem,1.3vw,0.78rem);color:var(--gold);animation:targetPulse 1s ease-in-out infinite;white-space:nowrap">${targetLabel}</span>`
+          : `<button class="tablet-dots-btn" onclick="openTabletMenu('${p.id}',this,event,${g.rotDeg})"
+               style="background:none;border:none;cursor:pointer;padding:2px 7px;font-size:clamp(1rem,2vw,1.3rem);line-height:1;letter-spacing:1px;color:${isActiveTurn ? p.color : 'var(--text3)'}">⋯</button>`}
+      </div>
+      ${p.deckName && n <= 4 ? `<div style="font-size:clamp(0.55rem,1.2vw,0.78rem);color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%">${escapeHtml(p.deckName)}${p.commander ? ' · ' + escapeHtml(p.commander) : ''}</div>` : ''}
+      <div class="tablet-life-num" style="font-family:'JetBrains Mono',monospace;font-size:${lifeFs}px;font-weight:700;line-height:1;color:${lifeColor};text-shadow:0 0 38px ${p.color}2e;transition:color 0.25s;user-select:none">${p.life}</div>
+      <div style="font-size:clamp(0.55rem,1.2vw,0.78rem);color:var(--text3)">of ${p.startingLife}</div>
+      ${isCmd && cmdBadges ? `<div style="display:flex;align-items:center;justify-content:center;gap:4px;flex-wrap:wrap;max-width:100%">${cmdBadges}</div>` : ''}
+      ${poisonBadge}
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:clamp(3px,0.55vw,7px);width:100%" onclick="event.stopPropagation()">
+        ${_cellLifeBtns(game, p)}
+      </div>
+      <div style="display:flex;gap:clamp(6px,1.2vw,12px);justify-content:center;align-items:center;font-size:clamp(0.56rem,1.1vw,0.74rem);min-height:14px">
+        ${_cellStatusRow(p, maxCmdDmg)}
+      </div>
+    </div>
+  </div>`;
+}
+
+// Pie wedges are computed in px from the current screen size — recompute on
+// resize / orientation change (the grid layout is pure CSS and doesn't need it).
+// Debounced: interactive resizes fire per frame, and a full re-render per event
+// is wasted work. Re-arms while a drag is in flight so the layout still settles,
+// and drops transient overlays that were anchored to the stale geometry.
+let _pieResizeTimer = null;
+function _pieResizeRerender() {
+  if (!tabletViewGameId) return;
+  if (_tabletDrag) { _pieResizeTimer = setTimeout(_pieResizeRerender, 200); return; }
+  const g = games.find(gg => gg.id === tabletViewGameId);
+  if (!g || g.tabletLayout !== 'pie') return;
+  _closeDragMenu();
+  document.querySelectorAll('.tablet-player-menu').forEach(mm => mm.remove());
+  renderTabletView();
+}
+window.addEventListener('resize', () => {
+  if (!tabletViewGameId) return;
+  clearTimeout(_pieResizeTimer);
+  _pieResizeTimer = setTimeout(_pieResizeRerender, 150);
+});
 
 // ── Drag-to-deal-damage (tablet view) ──────────────────────────────────────────
 // Press-and-hold a player cell and drag across one or more other players; each
@@ -2131,10 +2614,20 @@ const _TARGET_HIT = 0.5;
 function _targetCellAt(x, y) {
   const cell = _cellElAt(x, y);
   if (!cell) return null;
-  const r = cell.getBoundingClientRect();
-  const dx = (x - (r.left + r.width / 2)) / (r.width / 2);
-  const dy = (y - (r.top + r.height / 2)) / (r.height / 2);
-  return (dx * dx + dy * dy) <= _TARGET_HIT * _TARGET_HIT ? cell : null;
+  // Pie layout: the entire wedge polygon is the hit box — elementFromPoint
+  // already resolved the clip-path, so landing anywhere in the wedge targets it.
+  if (cell.dataset.pie === '1') return cell;
+  // Grid cells keep the central aim zone; during a drag the zones cached at
+  // pointerdown make this pure arithmetic (no per-move DOM queries).
+  let z = _tabletDrag && _tabletDrag.zones && _tabletDrag.zones[cell.dataset.pid];
+  if (!z) {
+    const anchor = cell.dataset.pie === '1' ? cell.querySelector('.tablet-pie-anchor') : null;
+    const r = (anchor || cell).getBoundingClientRect();
+    z = { x: r.left + r.width / 2, y: r.top + r.height / 2,
+      rx: r.width / 2, ry: r.height / 2, hit: anchor ? 0.85 : _TARGET_HIT };
+  }
+  const dx = (x - z.x) / z.rx, dy = (y - z.y) / z.ry;
+  return (dx * dx + dy * dy) <= z.hit * z.hit ? cell : null;
 }
 
 function tabletDragPointerDown(e) {
@@ -2146,28 +2639,100 @@ function tabletDragPointerDown(e) {
   if (!cell || !cell.dataset.pid || cell.dataset.elim === '1') return;
   const game = games.find(g => g.id === tabletViewGameId);
   if (!game || game.status !== 'active') return;
-  const r = cell.getBoundingClientRect();
+  // Pie cells span the whole screen — anchor the drag origin (and the deal
+  // menu's orientation) on the content block instead of the cell box. Every
+  // cell's aim zone is cached up front: anchors can't move mid-drag (the resize
+  // re-render skips while a drag is live), so per-move hit-testing stays cheap.
+  const zones = {};
+  document.querySelectorAll('#tabletView .tablet-cell').forEach(c => {
+    const a = c.dataset.pie === '1' ? c.querySelector('.tablet-pie-anchor') : null;
+    const rr = (a || c).getBoundingClientRect();
+    zones[c.dataset.pid] = { x: rr.left + rr.width / 2, y: rr.top + rr.height / 2,
+      rx: rr.width / 2, ry: rr.height / 2, hit: a ? 0.85 : _TARGET_HIT };
+  });
+  const z = zones[cell.dataset.pid];
   _tabletDrag = {
     sourceId: cell.dataset.pid, pointerId: e.pointerId, dragging: false,
-    sourceRotated: cell.dataset.rotated === '1',
+    sourceRotDeg: cell.dataset.rotdeg != null ? (parseFloat(cell.dataset.rotdeg) || 0)
+      : _rotDegOf(cell.dataset.rotated === '1'),
     startX: e.clientX, startY: e.clientY,
-    originX: r.left + r.width / 2, originY: r.top + r.height / 2,
+    originX: z.x, originY: z.y, zones,
     // Seed currentPid with the source so sitting on your own cell at the start of
     // the drag doesn't auto-select you; leaving and returning still targets self.
     targets: [], anchors: [], currentPid: cell.dataset.pid,
+    mode: null, seatTargetPid: null,
   };
+  // Hold without moving on a wedge → seat-swap mode: drag the player onto
+  // another wedge to swap chairs. Moving early cancels the hold and the
+  // gesture becomes the usual drag-to-deal instead.
+  if (cell.dataset.pie === '1') {
+    _clearSeatHold();
+    _seatHoldTimer = setTimeout(_enterSeatDragMode, 450);
+  }
+}
+
+let _seatHoldTimer = null;
+function _clearSeatHold() {
+  if (_seatHoldTimer) { clearTimeout(_seatHoldTimer); _seatHoldTimer = null; }
+}
+
+function _enterSeatDragMode() {
+  _seatHoldTimer = null;
+  if (!_tabletDrag || _tabletDrag.dragging) return;
+  _tabletDrag.mode = 'seat';
+  _tabletDrag.dragging = true;
+  const tEl = document.getElementById('tabletView');
+  if (tEl && tEl.setPointerCapture) { try { tEl.setPointerCapture(_tabletDrag.pointerId); } catch (_) {} }
+  const srcCell = document.querySelector(`.tablet-cell[data-pid="${_tabletDrag.sourceId}"]`);
+  if (srcCell) srcCell.classList.add('tablet-seat-drag-source');
+  _ensureDragArrow();
+  _drawDragArrows(_tabletDrag.startX, _tabletDrag.startY);
+}
+
+// Track the wedge under the finger while dragging a seat; release performs the swap.
+function _seatDragMove(e) {
+  const cell = _cellElAt(e.clientX, e.clientY);
+  const pid = (cell && cell.dataset.pid !== _tabletDrag.sourceId) ? cell.dataset.pid : null;
+  if (pid !== _tabletDrag.seatTargetPid) {
+    _tabletDrag.seatTargetPid = pid;
+    document.querySelectorAll('.tablet-seat-drag-target').forEach(c => c.classList.remove('tablet-seat-drag-target'));
+    if (pid) cell.classList.add('tablet-seat-drag-target');
+  }
+  _drawDragArrows(e.clientX, e.clientY);
+}
+
+function swapTabletSeats(gameId, pidA, pidB) {
+  const game = games.find(g => g.id === gameId);
+  if (!game || game.status !== 'active' || typeof swapSeatPair !== 'function') return;
+  const i = game.players.findIndex(p => p.id === pidA);
+  const j = game.players.findIndex(p => p.id === pidB);
+  const result = swapSeatPair(game.players, i, j, game.activePlayerIdx ?? 0);
+  if (!result.ok) return;
+  game.players = result.players;
+  game.activePlayerIdx = result.activePlayerIdx;
+  addLog(game, {
+    type: 'note',
+    text: `Seat order: ${game.players.map(p => p.name).join(' → ')}`,
+  });
+  save('games');
+  document.querySelectorAll('.tablet-player-menu').forEach(m => m.remove());
+  if (tabletViewGameId) renderTabletView();
+  renderActiveGame(game);
+  renderGames();
 }
 
 function tabletDragPointerMove(e) {
   if (!_tabletDrag || e.pointerId !== _tabletDrag.pointerId) return;
   if (!_tabletDrag.dragging) {
     if (Math.hypot(e.clientX - _tabletDrag.startX, e.clientY - _tabletDrag.startY) < 16) return;
+    _clearSeatHold();          // moved before the hold fired: it's a deal-drag
     _tabletDrag.dragging = true;
     const tEl = document.getElementById('tabletView');
     if (tEl && tEl.setPointerCapture) { try { tEl.setPointerCapture(_tabletDrag.pointerId); } catch (_) {} }
     _ensureDragArrow();
   }
   e.preventDefault();
+  if (_tabletDrag.mode === 'seat') { _seatDragMove(e); return; }
   const cell = _targetCellAt(e.clientX, e.clientY);
   const pid = (cell && cell.dataset.pid && cell.dataset.elim !== '1') ? cell.dataset.pid : null;
   // Commit a target the first time the pointer sweeps near its life number (self included).
@@ -2186,9 +2751,19 @@ function tabletDragPointerMove(e) {
 
 function tabletDragPointerUp(e) {
   if (!_tabletDrag || e.pointerId !== _tabletDrag.pointerId) return;
+  _clearSeatHold();
   const drag = _tabletDrag;
   _tabletDrag = null;
   _removeDragArrow();
+  if (drag.mode === 'seat') {
+    document.querySelectorAll('.tablet-seat-drag-source, .tablet-seat-drag-target')
+      .forEach(c => c.classList.remove('tablet-seat-drag-source', 'tablet-seat-drag-target'));
+    _tabletDragJustEnded = true;   // swallow the trailing click so it can't advance the turn
+    const cell = _cellElAt(e.clientX, e.clientY);
+    const targetPid = cell && cell.dataset.pid;
+    if (targetPid && targetPid !== drag.sourceId) swapTabletSeats(tabletViewGameId, drag.sourceId, targetPid);
+    return;
+  }
   if (!drag.dragging) { _highlightDragTargets([]); return; }
   _tabletDragJustEnded = true;   // a click follows this drag — don't let it advance the turn
   // Include the cell the pointer is near at release (same central hitbox), then deal.
@@ -2199,7 +2774,7 @@ function tabletDragPointerUp(e) {
   }
   if (!drag.targets.length) { _highlightDragTargets([]); return; }
   // Orient the menu 'up' for whoever started the drag, not where it was released.
-  _openDragDamageMenu(drag.sourceId, drag.targets.slice(), e.clientX, e.clientY, drag.sourceRotated);
+  _openDragDamageMenu(drag.sourceId, drag.targets.slice(), e.clientX, e.clientY, drag.sourceRotDeg);
 }
 
 function _highlightDragTargets(pids) {
@@ -2305,14 +2880,20 @@ function _openDragDamageMenu(sourceId, targetIds, x, y, rotated) {
     </div>` : ''}
     <button class="tablet-drag-cancel" onclick="_closeDragMenu()">Cancel</button>`;
   menu.style.cssText = 'position:fixed;z-index:710;visibility:hidden';
-  if (rotated) menu.style.transform = 'rotate(180deg)';
+  const rotDeg = _rotDegOf(rotated);
+  if (rotDeg) menu.style.transform = `rotate(${rotDeg}deg)`;
   document.body.appendChild(menu);
 
+  // Centre the menu on the release point, clamped by its rotated VISUAL box
+  // (rotate() spins it about its centre; for pie side seats width/height swap).
   const mw = menu.offsetWidth, mh = menu.offsetHeight, pad = 10;
-  let left = Math.max(pad, Math.min(x - mw / 2, window.innerWidth  - mw - pad));
-  let top  = Math.max(pad, Math.min(y - mh / 2, window.innerHeight - mh - pad));
-  menu.style.left = left + 'px';
-  menu.style.top  = top  + 'px';
+  const rad = rotDeg * Math.PI / 180;
+  const visW = Math.abs(mw * Math.cos(rad)) + Math.abs(mh * Math.sin(rad));
+  const visH = Math.abs(mw * Math.sin(rad)) + Math.abs(mh * Math.cos(rad));
+  const mcx = Math.min(Math.max(x, pad + visW / 2), window.innerWidth  - pad - visW / 2);
+  const mcy = Math.min(Math.max(y, pad + visH / 2), window.innerHeight - pad - visH / 2);
+  menu.style.left = (mcx - mw / 2) + 'px';
+  menu.style.top  = (mcy - mh / 2) + 'px';
   menu.style.visibility = 'visible';
   _syncGameWheels();
 
