@@ -3129,10 +3129,20 @@ img.stack-main.loaded { opacity: 1; }
   padding: 10px 12px;
   border-radius: 16px;
 }
-/* Drag-target highlight: the wedge's rect box is invisible, so ring the content
-   block instead (the base rule's inset shadow still glows the wedge's outer arc). */
-.tablet-cell--pie.tablet-drag-target .tablet-pie-content {
-  box-shadow: 0 0 0 3px rgba(212,90,74,0.7), 0 0 30px rgba(212,90,74,0.35) !important;
+/* Wedge outline: an SVG polygon traces the full wedge boundary. The stroke is
+   centred on the boundary and its outer half is clipped by the cell's clip-path,
+   leaving a crisp inner outline. Active turn = player colour (inline), drag
+   target = red, seat-drag = pulsing gold source / teal drop target. */
+.pie-outline { transition: stroke 0.15s; }
+.tablet-cell--pie.tablet-drag-target .pie-outline { stroke: var(--red) !important; }
+.tablet-cell--pie.tablet-seat-drag-source .pie-outline {
+  stroke: var(--gold) !important;
+  animation: seatDragPulse 0.9s ease-in-out infinite;
+}
+.tablet-cell--pie.tablet-seat-drag-target .pie-outline { stroke: var(--teal) !important; }
+@keyframes seatDragPulse {
+  0%, 100% { stroke-opacity: 1; }
+  50% { stroke-opacity: 0.35; }
 }
 
 /* Drag-to-deal-damage */
