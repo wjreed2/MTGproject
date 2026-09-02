@@ -1774,6 +1774,14 @@
         <input id="newGameNotes" type="text" placeholder="e.g. Friday night playgroup" style="width:100%">
       </div>
     </div>
+    <div style="margin-bottom:1rem">
+      <label style="font-size:0.78rem;color:var(--text3);display:block;margin-bottom:4px;letter-spacing:0.04em">TABLET LAYOUT</label>
+      <div style="display:flex;gap:8px">
+        <button type="button" id="ngLayoutDefault" onclick="setNewGameLayout('default')"></button>
+        <button type="button" id="ngLayoutPie" onclick="setNewGameLayout('pie')"></button>
+      </div>
+      <div style="font-size:0.72rem;color:var(--text3);margin-top:5px">Enhanced slices the screen into equal pie wedges — one per player, radiating from the centre timer and facing each seat.</div>
+    </div>
     <div style="font-size:0.78rem;color:var(--text3);margin-bottom:6px;letter-spacing:0.04em">PLAYERS</div>
     <div id="newGamePlayersHeader" style="display:grid;gap:8px;padding-bottom:6px;border-bottom:1px solid var(--border2);font-size:0.7rem;color:var(--text3);letter-spacing:0.04em"></div>
     <div id="newGamePlayersList" style="margin-bottom:0.85rem"></div>

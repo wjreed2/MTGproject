@@ -3110,6 +3110,31 @@ img.stack-main.loaded { opacity: 1; }
 }
 .tablet-cell-eliminated { opacity: 0.4; filter: grayscale(50%); }
 
+/* Enhanced (pie) tablet layout — each player is a full-screen cell clipped to a
+   wedge; its content block is absolutely positioned along the wedge bisector and
+   rotated to face that player's seat. */
+.tablet-cell--pie {
+  position: absolute;
+  inset: 0;
+  display: block;
+  border: none;
+}
+.tablet-pie-content {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(3px, 0.9vh, 9px);
+  padding: 10px 12px;
+  border-radius: 16px;
+}
+/* Drag-target highlight: the wedge's rect box is invisible, so ring the content
+   block instead (the base rule's inset shadow still glows the wedge's outer arc). */
+.tablet-cell--pie.tablet-drag-target .tablet-pie-content {
+  box-shadow: 0 0 0 3px rgba(212,90,74,0.7), 0 0 30px rgba(212,90,74,0.35) !important;
+}
+
 /* Drag-to-deal-damage */
 .tablet-drag-target {
   border-color: var(--red) !important;
@@ -3230,7 +3255,8 @@ img.stack-main.loaded { opacity: 1; }
 }
 /* Portrait phones: larger self-damage buttons (the primary interaction). */
 @media (orientation: portrait) and (max-width: 680px) {
-  #tabletView .tablet-life-btn {
+  /* Grid cells only — pie wedges size their own controls and auto-fit. */
+  #tabletView .tablet-cell:not(.tablet-cell--pie) .tablet-life-btn {
     font-size: clamp(0.95rem, 4.6vw, 1.5rem) !important;
     padding: clamp(12px, 2.8vh, 22px) 2px !important;
   }
@@ -3241,11 +3267,11 @@ img.stack-main.loaded { opacity: 1; }
 @media (max-width: 680px), (max-height: 500px) {
   #tabletView .tablet-corner--left  { left:  20px !important; }
   #tabletView .tablet-corner--right { right: 20px !important; }
-  #tabletView .tablet-dots-btn {
+  #tabletView .tablet-cell:not(.tablet-cell--pie) .tablet-dots-btn {
     font-size: clamp(2rem, 6.2vw, 2.7rem) !important;
     padding: 9px 16px !important;
   }
-  #tabletView .tablet-total-time { font-size: clamp(0.9rem, 3.3vw, 1.2rem) !important; }
+  #tabletView .tablet-cell:not(.tablet-cell--pie) .tablet-total-time { font-size: clamp(0.9rem, 3.3vw, 1.2rem) !important; }
   /* Bigger centre timer box + Next/Pause buttons so they're easy to tap on a phone.
      (2-player landscape keeps its own shrunk box via the higher-specificity .tv-2p rule.) */
   #tabletView .tablet-center-box { padding: 28px 40px !important; min-width: 300px !important; }
