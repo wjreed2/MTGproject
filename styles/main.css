@@ -9242,6 +9242,8 @@ body.glass-mode { position: relative; }
    overlay, the tablet ⋯/drag menus (appended to <body>), and the three
    game-flow modals. */
 body.glass-mode {
+  /* The one standard glass font: SF Pro on Apple platforms, Inter fallback */
+  --glass-font: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Inter', 'Segoe UI', system-ui, sans-serif;
   /* Surfaces: translucent whites instead of opaque navy */
   --bg2: rgba(255,255,255,0.045);
   --bg3: rgba(255,255,255,0.075);
@@ -9386,7 +9388,7 @@ body.glass-mode .seat-nudge-btn {
 
 /* ── Type: iOS-flavoured panel titles (Inter, sentence case) ── */
 body.glass-mode .panel-title {
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: var(--glass-font);
   text-transform: none;
   letter-spacing: 0;
   font-size: 0.92rem;
@@ -9405,7 +9407,7 @@ body.glass-mode .tag-blue {
 /* Empty state floats like a widget */
 body.glass-mode .empty-state { border-radius: 24px; }
 body.glass-mode .empty-state h2 {
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: var(--glass-font);
   color: rgba(244,246,251,0.9);
 }
 
@@ -9500,7 +9502,7 @@ body.glass-mode .empty-state h2 {
    Glass: main-page leftovers — format heading, X wheel, steppers
    ──────────────────────────────────────────────────────────────────────────── */
 body.glass-mode .gt-format {
-  font-family: 'Inter', system-ui, sans-serif !important;
+  font-family: var(--glass-font) !important;
   color: var(--text) !important;
   font-weight: 700;
   letter-spacing: -0.01em !important;
@@ -9533,7 +9535,7 @@ body.glass-mode #tabletView {
     radial-gradient(38% 34% at 10% 80%, rgba(255,170,110,0.14), transparent 70%),
     linear-gradient(180deg, #0b1122 0%, #0d1428 55%, #0a0f1f 100%);
   gap: clamp(6px, 0.9vh, 10px);
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: var(--glass-font);
   /* Single accent for the active player + the white→yellow→orange→red life
      ramp (_cellLifeColor's glass branch reads these; light theme remaps them) */
   --glass-accent: #7ab2ff;
@@ -9593,7 +9595,7 @@ body.glass-mode .tablet-cell--pie[data-active="1"]:not(.tablet-drag-target):not(
 body.glass-mode .tablet-name-bar { border-bottom-color: rgba(255,255,255,0.10) !important; }
 body.glass-mode .tablet-btn-bar { border-top-color: rgba(255,255,255,0.10) !important; }
 body.glass-mode .tablet-player-name {
-  font-family: 'Inter', system-ui, sans-serif !important;
+  font-family: var(--glass-font) !important;
   font-weight: 600;
   letter-spacing: 0 !important;
   color: var(--text) !important;
@@ -9605,20 +9607,20 @@ body.glass-mode .tablet-dots-btn { color: var(--text3) !important; }
 /* iOS-flavoured numerals: Inter with tabular figures instead of JetBrains Mono,
    neutral depth shadow instead of the per-player glow. */
 body.glass-mode .tablet-life-num {
-  font-family: 'Inter', system-ui, sans-serif !important;
+  font-family: var(--glass-font) !important;
   font-weight: 800;
   letter-spacing: -0.03em;
   font-variant-numeric: tabular-nums;
   text-shadow: 0 6px 28px rgba(0,0,0,0.28) !important;
 }
 body.glass-mode .tablet-total-time {
-  font-family: 'Inter', system-ui, sans-serif !important;
+  font-family: var(--glass-font) !important;
   font-variant-numeric: tabular-nums;
 }
 /* Neutral frosted life buttons — labels (+1/−5) carry the meaning, not colour */
 body.glass-mode .tablet-life-btn {
   border-radius: 999px;
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: var(--glass-font);
   font-weight: 600;
 }
 body.glass-mode .tablet-life-btn-neg,
@@ -9645,7 +9647,7 @@ body.glass-mode .tablet-center-box {
     0 14px 44px rgba(0,0,0,0.45);
 }
 body.glass-mode .tablet-center-timer {
-  font-family: 'Inter', system-ui, sans-serif !important;
+  font-family: var(--glass-font) !important;
   font-weight: 800;
   letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
@@ -9680,7 +9682,7 @@ body.glass-mode .tablet-drag-menu {
     0 18px 60px rgba(0,0,0,0.5);
 }
 body.glass-mode .tablet-drag-menu-head {
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: var(--glass-font);
   font-weight: 600;
 }
 body.glass-mode .tablet-drag-menu-row input { border-radius: 10px; }
@@ -9713,7 +9715,7 @@ body.glass-mode .modal {
     0 28px 90px rgba(0,0,0,0.6);
 }
 body.glass-mode .modal-title {
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: var(--glass-font);
   text-transform: none;
   letter-spacing: 0;
   font-weight: 700;
@@ -9877,7 +9879,7 @@ body.glass-mode :is(input:not([type="checkbox"]):not([type="radio"]):not([type="
    ──────────────────────────────────────────────────────────────────────────── */
 body.glass-mode {
   background: #0a0f1f;
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: var(--glass-font);
 }
 body.glass-mode .topbar {
   background: rgba(10,14,28,0.45);
@@ -9888,7 +9890,7 @@ body.glass-mode .sidebar {
   border-right-color: rgba(255,255,255,0.08);
 }
 body.glass-mode .sidebar-label {
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: var(--glass-font);
   font-weight: 600;
   letter-spacing: 0.01em;
   text-transform: none;
@@ -9901,7 +9903,7 @@ body.glass-mode .sidebar-item.active {
 }
 body.glass-mode .sidebar-action { border-radius: 11px; }
 body.glass-mode.sidebar-collapsed .sidebar-item:hover::after {
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: var(--glass-font);
   letter-spacing: 0.01em;
 }
 body.glass-mode .settings-dropdown,
@@ -9936,7 +9938,7 @@ body.glass-mode .auth-card {
     0 24px 80px rgba(0,0,0,0.55);
 }
 body.glass-mode .auth-title {
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: var(--glass-font);
   letter-spacing: 0;
   text-transform: none;
 }
@@ -10012,7 +10014,7 @@ body.glass-mode .deck-grid-overlay {
   mask-image: linear-gradient(to top, #000 62%, transparent 100%);
 }
 body.glass-mode .deck-grid-name {
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: var(--glass-font);
   font-weight: 600;
   letter-spacing: 0;
 }
@@ -10041,15 +10043,80 @@ body.glass-mode .browse-deck-overlay {
   mask-image: linear-gradient(to top, #000 70%, transparent 100%);
 }
 body.glass-mode .browse-deck-name {
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: var(--glass-font);
   color: var(--text);
   letter-spacing: 0;
 }
-body.glass-mode .deck-grid-placeholder { font-family: 'Inter', system-ui, sans-serif; }
+body.glass-mode .deck-grid-placeholder { font-family: var(--glass-font); }
 [data-theme="light"] body.glass-mode .browse-deck-overlay {
   background: linear-gradient(transparent, rgba(255,255,255,0.60) 30%, rgba(255,255,255,0.85) 100%);
 }
 [data-theme="light"] body.glass-mode .browse-deck-name { color: #17202e; }
 [data-theme="light"] body.glass-mode .browse-deck-card:hover {
   box-shadow: 0 16px 48px rgba(30,50,90,0.25), 0 0 0 1px rgba(255,255,255,0.9);
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+   Glass: collection KPI tiles — proper glass widgets
+   ──────────────────────────────────────────────────────────────────────────── */
+body.glass-mode .stat-card {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(150deg, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.04) 45%, rgba(255,255,255,0.07) 100%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid rgba(255,255,255,0.16);
+  border-radius: 20px;
+  padding: 1.05rem 1rem 0.95rem;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.22),
+    inset 0 0 0.5px rgba(255,255,255,0.12),
+    0 10px 32px rgba(0,0,0,0.30);
+}
+/* Static specular sheen across the face */
+body.glass-mode .stat-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(115deg, transparent 30%, rgba(255,255,255,0.10) 44%, rgba(255,255,255,0.02) 56%, transparent 70%);
+}
+body.glass-mode .stat-card:hover {
+  border-color: rgba(255,255,255,0.28);
+  transform: translateY(-2px);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.26),
+    0 14px 40px rgba(0,0,0,0.38);
+}
+body.glass-mode .stat-val {
+  font-family: var(--glass-font);
+  color: var(--text);
+  font-weight: 700;
+  font-size: 1.8rem;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+body.glass-mode .stat-label {
+  font-family: var(--glass-font);
+  text-transform: none;
+  letter-spacing: 0.01em;
+  font-size: 0.74rem;
+  font-weight: 500;
+  margin-top: 6px;
+}
+[data-theme="light"] body.glass-mode .stat-card {
+  background: linear-gradient(150deg, rgba(255,255,255,0.78) 0%, rgba(255,255,255,0.48) 45%, rgba(255,255,255,0.62) 100%);
+  border-color: rgba(255,255,255,0.88);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.95),
+    0 10px 32px rgba(30,50,90,0.14);
+}
+[data-theme="light"] body.glass-mode .stat-card::after {
+  background: linear-gradient(115deg, transparent 30%, rgba(255,255,255,0.55) 44%, rgba(255,255,255,0.12) 56%, transparent 70%);
+}
+[data-theme="light"] body.glass-mode .stat-card:hover {
+  border-color: rgba(20,35,60,0.16);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.98),
+    0 14px 40px rgba(30,50,90,0.20);
 }
