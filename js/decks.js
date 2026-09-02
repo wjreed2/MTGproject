@@ -1356,6 +1356,17 @@ function renderDeckHistory() {
 let deckListSearchQ = '';
 let _deckListFilter = { q: '', colors: new Set() };
 let deckSidebarCollapsed = localStorage.getItem('mtg_deck_sidebar_collapsed') === 'true';
+
+// "Shared With Me" sections (deck grid + deck sidebar) collapse together — user-wide.
+function _sharedDecksCollapsed() {
+  return localStorage.getItem('mtg_shared_decks_collapsed') === '1';
+}
+
+function toggleSharedDecksCollapsed() {
+  localStorage.setItem('mtg_shared_decks_collapsed', _sharedDecksCollapsed() ? '0' : '1');
+  renderDeckGrid();
+  renderDeckSidebar();
+}
 let _deckCardTagPickerTarget = null; // { deckId, cardUid }
 let activeDeckIsShared = false;
 
@@ -3182,8 +3193,14 @@ function renderDeckGrid() {
       : `<div class="deck-grid"><div class="deck-grid-empty" style="padding:2rem;text-align:center;color:var(--text3)">No decks yet — <button class="btn btn-primary btn-sm" onclick="createNewDeck()">+ Create Deck</button></div></div>`)
     + (sharedHtml ? `
       <div style="margin-top:1.75rem">
-        <div class="deck-section-label">Shared With Me</div>
-        <div class="deck-grid">${sharedHtml}</div>
+        <button type="button" class="deck-section-label" onclick="toggleSharedDecksCollapsed()"
+          aria-expanded="${_sharedDecksCollapsed() ? 'false' : 'true'}"
+          style="display:flex;align-items:center;gap:7px;background:none;border:none;cursor:pointer;padding:0;width:100%;text-align:left">
+          <span aria-hidden="true" style="font-size:0.8em;color:var(--text3)">${_sharedDecksCollapsed() ? '▸' : '▾'}</span>
+          Shared With Me
+          <span style="color:var(--text3);font-weight:400">(${sharedDecks.length})</span>
+        </button>
+        ${_sharedDecksCollapsed() ? '' : `<div class="deck-grid">${sharedHtml}</div>`}
       </div>` : '');
 }
 
@@ -3212,7 +3229,13 @@ function renderDeckSidebar() {
   const ownedItems = decks.map(d => _deckSidebarItem(d)).join('');
   const sharedItems = sharedDecks.map(d => _deckSidebarItem(d)).join('');
   sb.innerHTML = ownedItems
-    + (sharedItems ? `<div class="deck-sidebar-section-label">Shared</div>${sharedItems}` : '');
+    + (sharedItems ? `
+      <button type="button" class="deck-sidebar-section-label" onclick="toggleSharedDecksCollapsed()"
+        aria-expanded="${_sharedDecksCollapsed() ? 'false' : 'true'}"
+        style="display:flex;align-items:center;gap:6px;background:none;border:none;cursor:pointer;width:100%;text-align:left">
+        <span aria-hidden="true" style="font-size:0.8em;color:var(--text3)">${_sharedDecksCollapsed() ? '▸' : '▾'}</span>
+        Shared <span style="color:var(--text3);font-weight:400">(${sharedDecks.length})</span>
+      </button>${_sharedDecksCollapsed() ? '' : sharedItems}` : '');
 }
 
 function closeDeckDetail() {
