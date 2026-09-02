@@ -3110,6 +3110,31 @@ img.stack-main.loaded { opacity: 1; }
 }
 .tablet-cell-eliminated { opacity: 0.4; filter: grayscale(50%); }
 
+/* Enhanced (pie) tablet layout — each player is a full-screen cell clipped to a
+   wedge; its content block is absolutely positioned along the wedge bisector and
+   rotated to face that player's seat. */
+.tablet-cell--pie {
+  position: absolute;
+  inset: 0;
+  display: block;
+  border: none;
+}
+.tablet-pie-content {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(3px, 0.9vh, 9px);
+  padding: 10px 12px;
+  border-radius: 16px;
+}
+/* Drag-target highlight: the wedge's rect box is invisible, so ring the content
+   block instead (the base rule's inset shadow still glows the wedge's outer arc). */
+.tablet-cell--pie.tablet-drag-target .tablet-pie-content {
+  box-shadow: 0 0 0 3px rgba(212,90,74,0.7), 0 0 30px rgba(212,90,74,0.35) !important;
+}
+
 /* Drag-to-deal-damage */
 .tablet-drag-target {
   border-color: var(--red) !important;
