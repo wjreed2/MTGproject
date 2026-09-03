@@ -1109,26 +1109,23 @@ function _prefetchCardDetailNeighborArts(uid) {
 
 function _htmlCardDetailPriceRows(card) {
   const foil = !!card.foil;
-  const vendors = typeof getPriceVendorEnabled === 'function'
-    ? getPriceVendorEnabled()
-    : { tcg: true, ck: true };
   const prefs = typeof getPriceDeltaDisplayPrefs === 'function'
     ? getPriceDeltaDisplayPrefs()
     : { mode: 'pct', timeframe: 'month', customDate: '' };
-  let html = '';
-  if (vendors.tcg) {
-    const tcgDelta = _htmlVendorPriceDelta(card, 'tcg', prefs.timeframe, prefs.customDate, prefs.mode);
-    const tcgNow = getTCGPriceForCard(card);
-    html += foil
-      ? `<tr><td>TCGPlayer Foil</td><td style="color:var(--gold)">$${tcgNow.toFixed(2)}${tcgDelta}</td></tr>`
-      : `<tr><td>TCGPlayer</td><td style="color:var(--blue2)">$${tcgNow.toFixed(2)}${tcgDelta}</td></tr>`;
-  }
-  if (vendors.ck) {
+  // Only the displayed (primary) source renders here — picked in Settings,
+  // falls back to an enabled vendor. The vendor link buttons under the art
+  // still cover the other stores.
+  const primary = typeof getPrimaryPriceVendor === 'function' ? getPrimaryPriceVendor() : 'tcg';
+  if (primary === 'ck') {
     const ckDelta = _htmlVendorPriceDelta(card, 'ck', prefs.timeframe, prefs.customDate, prefs.mode);
     const ckNow = getCKPriceForCard(card);
-    html += `<tr><td>${foil ? 'Card Kingdom Foil' : 'Card Kingdom'}</td><td style="color:var(--green)">$${ckNow.toFixed(2)}${ckDelta}</td></tr>`;
+    return `<tr><td>${foil ? 'Card Kingdom Foil' : 'Card Kingdom'}</td><td style="color:var(--green)">$${ckNow.toFixed(2)}${ckDelta}</td></tr>`;
   }
-  return html;
+  const tcgDelta = _htmlVendorPriceDelta(card, 'tcg', prefs.timeframe, prefs.customDate, prefs.mode);
+  const tcgNow = getTCGPriceForCard(card);
+  return foil
+    ? `<tr><td>TCGPlayer Foil</td><td style="color:var(--gold)">$${tcgNow.toFixed(2)}${tcgDelta}</td></tr>`
+    : `<tr><td>TCGPlayer</td><td style="color:var(--blue2)">$${tcgNow.toFixed(2)}${tcgDelta}</td></tr>`;
 }
 
 function _mergeFetchedCardIntoDetailCard(card, entry) {

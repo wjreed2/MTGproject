@@ -37,9 +37,16 @@ CREATE TABLE IF NOT EXISTS mtgjson_printing (
   PRIMARY KEY (uuid), KEY idx_mp_scryfall (scryfall_id), KEY idx_mp_set (set_code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`;
 
-async function main() {
-  console.log(`[printings] streaming ${SRC} …`);
-  const db = pool();
+/**
+ * Stream AllIdentifiers into mtgjson_printing. Also exported as
+ * runPrintingsImport({ db?, log? }) so the server's daily price job can
+ * self-heal the scryfall→uuid map when a new set starts getting prices.
+ */
+async function runPrintingsImport(opts = {}) {
+  const log = opts.log || console.log;
+  log(`[printings] streaming ${SRC} …`);
+  const db = opts.db || pool();
+  const ownPool = !opts.db;
   const ph = '(' + COLS.map(() => '?').join(',') + ')';
   const upd = COLS.slice(1).map(c => `${c}=VALUES(${c})`).join(', ');
   const now = Date.now();
@@ -48,7 +55,7 @@ async function main() {
     if (!buf.length) return;
     await db.query(`INSERT INTO mtgjson_printing (${COLS.join(',')}) VALUES ${buf.map(() => ph).join(',')} ON DUPLICATE KEY UPDATE ${upd}`, buf.flat());
     total += buf.length; buf = [];
-    if (total % 20000 === 0) process.stdout.write(`\r[printings] upserted ${total.toLocaleString()}`);
+    if (total % 100000 === 0) log(`[printings] upserted ${total.toLocaleString()}`);
   }
   try {
     await db.query(PRINTING_SCHEMA);
@@ -66,9 +73,13 @@ async function main() {
       if (buf.length >= 1000) await flush();
     }
     await flush();
-    process.stdout.write('\n');
-    console.log(`[printings] done — ${total.toLocaleString()} printings, ${mapped.toLocaleString()} with scryfallId (${(100 * mapped / (total || 1)).toFixed(1)}%).`);
-  } finally { await db.end(); }
+    log(`[printings] done — ${total.toLocaleString()} printings, ${mapped.toLocaleString()} with scryfallId (${(100 * mapped / (total || 1)).toFixed(1)}%).`);
+    return { total, mapped };
+  } finally { if (ownPool) await db.end(); }
 }
 
-main().catch(e => { console.error('[printings] FAILED:', e.message); process.exit(1); });
+module.exports = { runPrintingsImport };
+
+if (require.main === module) {
+  runPrintingsImport().catch(e => { console.error('[printings] FAILED:', e.message); process.exit(1); });
+}

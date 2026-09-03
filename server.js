@@ -1541,7 +1541,8 @@ async function runDailyPriceJob({ skipSnapshot = false } = {}) {
     if (!skipSnapshot) {
       try {
         const { runSnapshot } = require(path.join(__dirname, 'scripts', 'mtgjson-price-snapshot.js'));
-        await runSnapshot({ db: db(), log: msg => console.log(msg) });
+        const snap = await runSnapshot({ db: db(), log: msg => console.log(msg) });
+        await refreshPrintingsIfStale(snap?.date);
       } catch (e) {
         console.error('[price-job] snapshot failed, skipping threshold pass:', e.message);
         return;
@@ -1555,6 +1556,36 @@ async function runDailyPriceJob({ skipSnapshot = false } = {}) {
     console.log(`[price-job] threshold pass done (today=${today}, prev=${prev || 'n/a'})`);
   } catch (e) {
     console.error('[price-job] failed:', e.message);
+  }
+}
+
+/**
+ * Self-heal the scryfall→uuid map after each snapshot: freshly priced uuids
+ * missing from mtgjson_printing mean AllIdentifiers hasn't been imported since
+ * a set released — exactly why new-set cards showed no price history. The
+ * refresh streams a large file, so it only fires on a real gap (a new set is
+ * hundreds of printings; day-to-day noise is a handful).
+ */
+async function refreshPrintingsIfStale(snapshotDate) {
+  if (!snapshotDate) return;
+  try {
+    const [[gap]] = await db().query(
+      `SELECT COUNT(*) AS n
+         FROM card_price_daily c
+         LEFT JOIN mtgjson_printing p ON p.uuid = c.uuid
+        WHERE c.snapshot_date = ? AND p.uuid IS NULL`,
+      [snapshotDate]
+    );
+    if (!gap || gap.n <= 200) {
+      if (gap && gap.n) console.log(`[price-job] ${gap.n} unmapped priced uuids (below refresh threshold)`);
+      return;
+    }
+    console.log(`[price-job] ${gap.n} priced uuids missing from mtgjson_printing — refreshing from AllIdentifiers…`);
+    const { runPrintingsImport } = require(path.join(__dirname, 'scripts', 'mtgjson-printings-import.js'));
+    const r = await runPrintingsImport({ db: db(), log: msg => console.log(msg) });
+    console.log(`[price-job] printings refresh done (${r.total.toLocaleString()} rows).`);
+  } catch (e) {
+    console.error('[price-job] printings refresh failed (will retry next daily run):', e.message);
   }
 }
 
