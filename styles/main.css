@@ -383,6 +383,10 @@
 }
 .theme-btn {
   flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   padding: 6px 4px;
   border-radius: var(--radius);
   border: 1px solid var(--border2);
@@ -396,6 +400,7 @@
   transition: border-color 0.15s, color 0.15s, background 0.15s;
   text-align: center;
 }
+.theme-btn svg { flex-shrink: 0; display: block; }
 .theme-btn:hover { color: var(--text); background: var(--bg4); }
 .theme-btn.active {
   border-color: var(--gold);
@@ -9293,9 +9298,11 @@ body.glass-mode .panel,
 body.glass-mode .player-card,
 body.glass-mode .game-action-bar,
 body.glass-mode .empty-state {
+  /* No backdrop-filter here: these sit on the smooth wallpaper gradient, where
+     blur is visually a no-op but costs a compositor layer per element (page
+     navigation jank). Blur stays on surfaces that overlay real content:
+     chrome, dropdowns, modals, tablet hub, tile art scrims. */
   background: rgba(255,255,255,0.05);
-  -webkit-backdrop-filter: blur(22px) saturate(170%);
-  backdrop-filter: blur(22px) saturate(170%);
   border: 1px solid rgba(255,255,255,0.13);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.16),   /* specular top edge */
@@ -9548,8 +9555,6 @@ body.glass-mode #tabletView {
    inline-styled, so the neutralising overrides need !important. Player identity
    stays in the name/dots; "whose turn" is the one accent colour. */
 body.glass-mode #tabletView .tablet-cell {
-  -webkit-backdrop-filter: blur(22px) saturate(170%);
-  backdrop-filter: blur(22px) saturate(170%);
   border-radius: 22px;
   border-color: rgba(255,255,255,0.13) !important;
   background: rgba(255,255,255,0.05) !important;
@@ -10063,8 +10068,6 @@ body.glass-mode .stat-card {
   position: relative;
   overflow: hidden;
   background: linear-gradient(150deg, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.04) 45%, rgba(255,255,255,0.07) 100%);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  backdrop-filter: blur(24px) saturate(180%);
   border: 1px solid rgba(255,255,255,0.16);
   border-radius: 20px;
   padding: 1.05rem 1rem 0.95rem;
