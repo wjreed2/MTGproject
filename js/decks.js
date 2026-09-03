@@ -1355,7 +1355,8 @@ function renderDeckHistory() {
 // ─────────────────────────────────────────────────────────────────────────────
 let deckListSearchQ = '';
 let _deckListFilter = { q: '', colors: new Set() };
-let deckSidebarCollapsed = localStorage.getItem('mtg_deck_sidebar_collapsed') === 'true';
+// Deck-switcher sidebar retired (2026-09-03): always collapsed, no toggle.
+let deckSidebarCollapsed = true;
 
 // "Shared With Me" sections (deck grid + deck sidebar) collapse together — user-wide.
 function _sharedDecksCollapsed() {
@@ -1979,20 +1980,25 @@ function saveActiveDeck(deck, opts) {
 
 function applyDeckSidebarState() {
   const detail = document.getElementById('deckDetailArea');
-  const btn = document.getElementById('toggleDeckSidebarBtn');
   if (!detail) return;
   detail.classList.toggle('sidebar-collapsed', deckSidebarCollapsed);
-  if (btn) {
-    btn.textContent = deckSidebarCollapsed ? '⇥ Decks' : '⇤ Decks';
-    btn.title = deckSidebarCollapsed ? 'Show deck switcher' : 'Hide deck switcher';
-  }
 }
 
-function toggleDeckSidebar() {
-  deckSidebarCollapsed = !deckSidebarCollapsed;
-  localStorage.setItem('mtg_deck_sidebar_collapsed', deckSidebarCollapsed ? 'true' : 'false');
-  applyDeckSidebarState();
+// Desktop puts the deck action cluster (Add cards / History / Manage Tags / ⋮)
+// on the always-visible top row next to "All Decks"; phones keep it in the deck
+// header bar. Moving the same nodes keeps ids, listeners, and the options
+// dropdown's anchor intact.
+function _placeDeckActionCluster() {
+  const cluster = document.getElementById('deckActionCluster');
+  if (!cluster) return;
+  cluster.style.display = activeDeckId ? 'flex' : 'none';
+  const phone = window.matchMedia('(max-width: 768px)').matches;
+  const target = phone ? document.getElementById('deckTopBar')
+                       : document.getElementById('deckBuilderTopBar');
+  if (target && cluster.parentElement !== target) target.appendChild(cluster);
+  cluster.style.marginLeft = phone ? '' : 'auto';
 }
+window.addEventListener('resize', _placeDeckActionCluster);
 
 function setDeckGroupBy(val) {
   if (val === 'custom_tag') val = 'tag_all';
@@ -3106,7 +3112,6 @@ function renderDecks() {
   });
   if (roleTagChanged) save('decks');
   const importWrap = document.getElementById('deckImportDropdownWrap');
-  const sidebarToggleBtn = document.getElementById('toggleDeckSidebarBtn');
   if (!activeDeckId) {
     // Show big grid, hide detail split
     document.getElementById('deckGridArea').style.display = '';
@@ -3114,7 +3119,6 @@ function renderDecks() {
     document.getElementById('backToDecksBtn').style.display = 'none';
     if (topNewDeckBtn) topNewDeckBtn.style.display = '';
     if (importWrap) importWrap.style.display = '';
-    if (sidebarToggleBtn) sidebarToggleBtn.style.display = 'none';
     renderDeckGrid();
   } else {
     // Show detail split, hide grid
@@ -3123,11 +3127,11 @@ function renderDecks() {
     document.getElementById('backToDecksBtn').style.display = '';
     if (topNewDeckBtn) topNewDeckBtn.style.display = 'none';
     if (importWrap) importWrap.style.display = 'none';
-    if (sidebarToggleBtn) sidebarToggleBtn.style.display = '';
     applyDeckSidebarState();
     renderDeckSidebar();
     renderActiveDeck();
   }
+  _placeDeckActionCluster();
 }
 
 // Always read the commander card's current image rather than the stale stored snapshot

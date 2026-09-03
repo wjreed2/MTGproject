@@ -254,7 +254,6 @@
   /* ── DECK BUILDER: hide deck list sidebar when viewing a deck ─────────── */
   #deckDetailArea .deck-detail-sidebar,
   #deckSidebar { display: none !important; }
-  #toggleDeckSidebarBtn { display: none !important; }
   /* backToDecksBtn is already shown/hidden by renderDecks() JS */
 
   /* ── Deck layout ──────────────────────────────────────────────────────── */
