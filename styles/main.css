@@ -10125,3 +10125,94 @@ body.glass-mode .stat-label {
    (real MTG cards have modest corner rounding; 18px reads as a blob). Also
    covers wishlist and set-detail grids, which reuse .card-item. */
 body.glass-mode .card-item { border-radius: 6px; }
+
+/* ────────────────────────────────────────────────────────────────────────────
+   Glass consistency sweep (2026-09-03)
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/* 1. One font everywhere. The nuclear flatten guarantees no Cinzel/serif/mono
+   stragglers in any template (inline styles included); the brand wordmark is
+   re-asserted below as the single exception. Tabular figures keep number
+   columns aligned where JetBrains Mono used to. */
+body.glass-mode,
+body.glass-mode * {
+  font-family: var(--glass-font) !important;
+}
+body.glass-mode { font-variant-numeric: tabular-nums; }
+body.glass-mode .topbar-brand,
+body.glass-mode .topbar-brand * { font-family: 'Cinzel', serif !important; }
+
+/* 2. Floating surfaces must be readable over any content: solidly frosted,
+   not see-through. Covers every popover/dropdown/tooltip/context-menu family
+   (they all shared background: var(--bg2), which glass makes nearly clear). */
+body.glass-mode :is(
+  .settings-dropdown, .notif-panel, .deck-options-dropdown,
+  .cd-tag-ctx-menu, .deck-valid-tooltip, .deck-gc-tooltip, .tooltip,
+  .tablet-player-menu, .tablet-drag-menu) {
+  background: rgba(23,30,52,0.82) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(180%) !important;
+  backdrop-filter: blur(28px) saturate(180%) !important;
+  border-color: rgba(255,255,255,0.17) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.14),
+    0 18px 60px rgba(0,0,0,0.55) !important;
+}
+[data-theme="light"] body.glass-mode :is(
+  .settings-dropdown, .notif-panel, .deck-options-dropdown,
+  .cd-tag-ctx-menu, .deck-valid-tooltip, .deck-gc-tooltip, .tooltip,
+  .tablet-player-menu, .tablet-drag-menu) {
+  background: rgba(255,255,255,0.90) !important;
+  border-color: rgba(255,255,255,0.95) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.98),
+    0 18px 60px rgba(30,50,90,0.28) !important;
+}
+/* Collapsed-sidebar hover tooltip (a pseudo-element, so listed separately) */
+body.glass-mode.sidebar-collapsed .sidebar-item:hover::after {
+  background: rgba(23,30,52,0.85);
+  border-color: rgba(255,255,255,0.17);
+}
+[data-theme="light"] body.glass-mode.sidebar-collapsed .sidebar-item:hover::after {
+  background: rgba(255,255,255,0.92);
+  border-color: rgba(20,35,60,0.14);
+}
+
+/* 3. Deck builder stack backplates: scaffolding rectangles that blended into
+   the flat dark theme but float visibly over the glass wallpaper. Make them
+   the section's actual glass panel instead of an accidental polygon. */
+body.glass-mode .deck-stack-group-backdrop {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 14px;
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  backdrop-filter: blur(18px) saturate(160%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.10);
+}
+[data-theme="light"] body.glass-mode .deck-stack-group-backdrop {
+  background: rgba(255,255,255,0.50);
+  border-color: rgba(255,255,255,0.70);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9);
+}
+
+/* 4. Page headings that were gold Cinzel become standard white headings
+   (gold stays for genuine accents: prices, warnings, foil, the brand). */
+body.glass-mode :is(.trade-title, .welcome-title) { color: var(--text); }
+
+/* 5. Button size normalization: consistent control heights in glass. Menu
+   rows opt out (deliberately compact). */
+body.glass-mode .btn:not(.deck-menu-item) { min-height: 34px; }
+body.glass-mode .btn-sm:not(.deck-menu-item) { min-height: 28px; }
+/* Menu rows read as an iOS menu: no pill chrome, frost on hover only */
+body.glass-mode .deck-menu-item {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 10px;
+}
+body.glass-mode .deck-menu-item:hover {
+  background: rgba(255,255,255,0.12);
+  border-color: transparent;
+}
+[data-theme="light"] body.glass-mode .deck-menu-item:hover {
+  background: rgba(20,35,60,0.08);
+}
