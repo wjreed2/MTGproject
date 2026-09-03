@@ -9710,7 +9710,7 @@ body.glass-mode .tablet-drag-cancel { border-radius: 12px; }
    Glass: game-flow modals (new game / log event / end game)
    ──────────────────────────────────────────────────────────────────────────── */
 body.glass-mode .modal {
-  background: rgba(22,29,52,0.55);
+  background: linear-gradient(165deg, rgba(34,44,74,0.92) 0%, rgba(20,27,48,0.90) 100%);
   -webkit-backdrop-filter: blur(30px) saturate(180%);
   backdrop-filter: blur(30px) saturate(180%);
   border: 1px solid rgba(255,255,255,0.16);
@@ -9823,7 +9823,7 @@ body.glass-mode :is(input:not([type="checkbox"]):not([type="radio"]):not([type="
     0 18px 60px rgba(30,50,90,0.25);
 }
 [data-theme="light"] body.glass-mode .modal {
-  background: rgba(255,255,255,0.66);
+  background: linear-gradient(165deg, rgba(255,255,255,0.95) 0%, rgba(243,247,255,0.90) 100%);
   border: 1px solid rgba(255,255,255,0.85);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.95),
@@ -10287,3 +10287,36 @@ body.glass-mode .deck-info-tooltip {
    normalizer at #tab-decks #deckHistoryBtn pins 8px with !important — that is
    correct for classic, but glass needs the pill, so out-gun its specificity. */
 body.glass-mode #tab-decks #deckHistoryBtn { border-radius: 999px !important; }
+
+/* ── Card inspector glass pass ─────────────────────────────────────────────
+   The old dim (72% black + 10px blur) starved the frosted sheet of any colour
+   to refract — everything averaged to gray. A lighter, heavier-blurred dim
+   lets the wallpaper hues glow through; the sheet itself got a richer,
+   near-opaque gradient (see body.glass-mode .modal above). */
+body.glass-mode .modal-overlay {
+  background: rgba(8,12,26,0.45);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
+  backdrop-filter: blur(24px) saturate(140%);
+}
+[data-theme="light"] body.glass-mode .modal-overlay {
+  background: rgba(230,236,248,0.50);
+}
+a.btn { text-decoration: none; }
+body.glass-mode .card-detail-name {
+  color: var(--text);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+body.glass-mode .card-detail-text {
+  background: rgba(255,255,255,0.06);
+  border-color: rgba(255,255,255,0.12);
+  border-radius: 14px;
+}
+[data-theme="light"] body.glass-mode .card-detail-text {
+  background: rgba(255,255,255,0.55);
+  border-color: rgba(20,35,60,0.12);
+}
+body.glass-mode .modal-edge-nav { color: rgba(244,246,251,0.65); }
+body.glass-mode .modal-edge-nav:hover { color: #fff; }
+[data-theme="light"] body.glass-mode .modal-edge-nav { color: rgba(23,32,46,0.55); }
+[data-theme="light"] body.glass-mode .modal-edge-nav:hover { color: #17202e; }

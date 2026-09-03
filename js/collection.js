@@ -2752,7 +2752,10 @@ async function openCardDetail(uid, navMode, opts) {
   };
   const leftHtml = _htmlOpenCardDetailLeftColumn(card);
   const rightHtml = _htmlOpenCardDetailRightColumn(detailCtx);
-  const showReplacements = !!activeDeckCard && _isDeckBuilderMainTabActive();
+  // Suggested Replacements hidden for now (2026-09-03): they predate the
+  // semantic engine — flip this flag to bring them back once semantics-driven.
+  const CARD_INSPECTOR_REPLACEMENTS = false;
+  const showReplacements = CARD_INSPECTOR_REPLACEMENTS && !!activeDeckCard && _isDeckBuilderMainTabActive();
   const replacementsHtml = showReplacements ? _htmlOpenCardDetailReplacementsBlock() : '';
   const useInPlace = inspectorAlreadyOpen && fromArrowNav && _canCardDetailInspectorInPlace();
   let appliedInPlace = false;
