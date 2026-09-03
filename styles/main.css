@@ -10245,7 +10245,7 @@ body.glass-mode .deck-menu-item:hover {
   padding: 0;
 }
 .deck-info-circle:hover { color: var(--text); }
-.deck-info-circle svg { width: 21px; height: 21px; display: block; }
+.deck-info-circle svg { width: 32px; height: 32px; display: block; }
 .deck-info-tooltip {
   display: none;
   position: absolute;
