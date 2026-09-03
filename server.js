@@ -10305,7 +10305,14 @@ app.get('/api/tag-overrides', requireAuth, async (req, res) => {
       let addTags = [], removeTags = [], customRaw = null;
       try { addTags = Array.isArray(r.add_tags_json) ? r.add_tags_json : JSON.parse(r.add_tags_json || '[]'); } catch (_) {}
       try { removeTags = Array.isArray(r.remove_tags_json) ? r.remove_tags_json : JSON.parse(r.remove_tags_json || '[]'); } catch (_) {}
-      try { customRaw = Array.isArray(r.custom_tags_json) ? r.custom_tags_json : JSON.parse(r.custom_tags_json || '[]'); } catch (_) {}
+      // custom_tags_json is a JSON column: mysql2 hands back the parsed value.
+      // The tiered form is an OBJECT ({tags, tiers}) — the old Array.isArray
+      // check fell through to JSON.parse(object), which throws, silently
+      // parsing every tiered row as empty (tags "not sticking").
+      try {
+        const rawCustom = r.custom_tags_json;
+        customRaw = (rawCustom && typeof rawCustom === 'object') ? rawCustom : JSON.parse(rawCustom || '[]');
+      } catch (_) {}
       const parsedCustom = parseTagOverrideCustomTags(customRaw);
       return {
         oracleId: String(r.oracle_id || '').toLowerCase(),

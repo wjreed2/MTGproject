@@ -2691,11 +2691,16 @@ function _normalizeTagOracleId(oracleId) {
 
 async function loadTagOverrides(force = false) {
   if (_tagOverridesLoaded && !force) return;
-  if (_tagOverridesLoadPromise && !force) return _tagOverridesLoadPromise;
+  // Never race two loads: a force reload racing an in-flight load would end
+  // last-writer-wins on the whole map. Chain behind the current one instead.
+  if (_tagOverridesLoadPromise) {
+    await _tagOverridesLoadPromise;
+    if (_tagOverridesLoaded && !force) return;
+  }
   _tagOverridesLoadPromise = (async () => {
     try {
       const rows = await apiFetch('/tag-overrides');
-      _tagOverridesByOracleId = new Map((rows || []).map(r => [
+      const fresh = new Map((rows || []).map(r => [
         String(r.oracleId || '').toLowerCase(),
         {
           addTags: Array.isArray(r.addTags) ? r.addTags.filter(Boolean) : [],
@@ -2706,10 +2711,35 @@ async function loadTagOverrides(force = false) {
           cardName: r.cardName || null,
         },
       ]));
+      // Merge, don't clobber: keep any local row newer than the server's copy.
+      // The boot resync force-reloads while the user may already be tagging —
+      // this GET's snapshot predates their PUT, and replacing the map wholesale
+      // silently erased just-added tags ("tag didn't stick").
+      for (const [oid, local] of _tagOverridesByOracleId) {
+        const srv = fresh.get(oid);
+        if ((Number(local.updatedAt) || 0) > (Number(srv?.updatedAt) || 0)) fresh.set(oid, local);
+      }
+      _tagOverridesByOracleId = fresh;
       _tagOverridesLoaded = true;
     } catch (_) {}
   })().finally(() => { _tagOverridesLoadPromise = null; });
   return _tagOverridesLoadPromise;
+}
+
+// Per-oracle background save queue: tag toggles apply locally + render first,
+// then persist here. Chaining serializes rapid clicks on the same card (each
+// save reads the latest override row when it runs), and failures surface as a
+// notif instead of freezing the picker on every click's network round-trip.
+const _tagSaveChains = new Map();
+function _queueGlobalCustomTagsSave(oracleId) {
+  const oid = _normalizeTagOracleId(oracleId);
+  if (!oid) return Promise.resolve();
+  const prev = _tagSaveChains.get(oid) || Promise.resolve();
+  const next = prev
+    .then(() => _saveGlobalCustomTags(oid))
+    .catch(e => showNotif((e && e.message) || 'Could not save tags — change may not persist', true));
+  _tagSaveChains.set(oid, next);
+  return next;
 }
 
 function _applyTagOverrides(oracleId, tags) {
@@ -4630,13 +4660,7 @@ async function applyInspectorCardTagAction(card, tag, action, opts = {}) {
   ov.customTags = _dedupeCustomTags(ov.customTags);
   ov.customTagTiers = _normalizeCustomTagTiers(ov.customTagTiers);
   ov.updatedAt = Date.now();
-
-  try {
-    await _saveGlobalCustomTags(oracleId);
-  } catch (e) {
-    showNotif(e.message || 'Could not save tag', true);
-    return;
-  }
+  void _queueGlobalCustomTagsSave(oracleId);
 
   const tierNow = ov.customTagTiers[_tagTierKey(tag)] || null;
   const myStillOn = _customTagsHas(ov.customTags, tag);
@@ -4750,13 +4774,10 @@ async function toggleDeckCardCustomTag(tag, opts = {}) {
     if (!_tagOverridesByOracleId.has(oracleId)) {
       _tagOverridesByOracleId.set(oracleId, { addTags: [], removeTags: [], customTags: [], customTagTiers: {}, updatedAt: Date.now(), cardName: card.name });
     }
-    _setOverrideCustomTagTier(_tagOverridesByOracleId.get(oracleId), tag, next);
-    try {
-      await _saveGlobalCustomTags(oracleId);
-    } catch (e) {
-      showNotif(e.message || 'Could not save My Tags', true);
-      return;
-    }
+    const cycOv = _tagOverridesByOracleId.get(oracleId);
+    _setOverrideCustomTagTier(cycOv, tag, next);
+    cycOv.updatedAt = Date.now();
+    void _queueGlobalCustomTagsSave(oracleId);
     const applyTier = c => { if (c) _setCardCustomTagTier(c, tag, next); };
     applyTier(card);
     const collCard = (collection || []).find(c => _cardMatchesRef(c, _deckCardTagPickerTarget.cardUid));
@@ -4803,12 +4824,8 @@ async function toggleDeckCardCustomTag(tag, opts = {}) {
     _removeOverrideCustomTagTier(ov, tag);
   }
   ov.customTags = _dedupeCustomTags(ov.customTags);
-  try {
-    await _saveGlobalCustomTags(oracleId);
-  } catch (e) {
-    showNotif(e.message || 'Could not save My Tags', true);
-    return;
-  }
+  ov.updatedAt = Date.now();
+  void _queueGlobalCustomTagsSave(oracleId);
 
   const collCard = (collection || []).find(c => _cardMatchesRef(c, _deckCardTagPickerTarget.cardUid));
   const touch = (c) => {
@@ -4974,30 +4991,26 @@ async function toggleDeckCardProtectedTagOverride(tag) {
   const nowOn = t.overrideAdd.has(tag) || (defOn && !t.overrideRemove.has(tag));
   const addTags = [...t.overrideAdd].sort((a, b) => a.localeCompare(b));
   const removeTags = [...t.overrideRemove].sort((a, b) => a.localeCompare(b));
-  try {
-    const ov = _tagOverridesByOracleId.get(t.oracleId) || {};
-    const customTags = Array.from(ov.customTags || []);
-    const customTagTiers = _normalizeCustomTagTiers(ov.customTagTiers);
-    if (!addTags.length && !removeTags.length && !customTags.length && !Object.keys(customTagTiers).length) {
-      await apiDelete(`/tag-overrides/${t.oracleId}`);
-    } else {
-      await apiPut(`/tag-overrides/${t.oracleId}`, { addTags, removeTags, customTags, customTagTiers });
-    }
-    const active = getActiveDeck();
-    const activeSlot = active && getDeckCardByUid(active, t.cardUid);
-    if (nowOn !== wasOn && activeSlot) recordDeckEvent(nowOn ? 'tag_add' : 'tag_remove', activeSlot, tag);
-    await loadTagOverrides(true);
-    renderTagOverridesList();
-    renderTagSettingsSearchResults();
-    if (active && syncDeckAutoRoleTags(active)) saveActiveDeck(active);
-    if (active) renderActiveDeck();
-    if (typeof patchOpenCardDetailMyTags === 'function') patchOpenCardDetailMyTags();
-    if (typeof _loadCardDetailDefaultTags === 'function' && card) void _loadCardDetailDefaultTags(card);
-    if (card) await _hydrateDeckCardTagPickerDefaults(card);
-    renderDeckCardTagPicker();
-  } catch (e) {
-    showNotif(e.message || 'Could not save protected tag override', true);
+  // Optimistic: commit to the local override row + UI immediately; the queued
+  // save persists in the background (no per-click network stall, no force
+  // reload — the merge in loadTagOverrides keeps newer local rows anyway).
+  const ovRow = _ensureTagOverrideRow(t.oracleId, card?.name);
+  if (ovRow) {
+    ovRow.addTags = addTags;
+    ovRow.removeTags = removeTags;
+    ovRow.updatedAt = Date.now();
   }
+  void _queueGlobalCustomTagsSave(t.oracleId);
+  const active = getActiveDeck();
+  const activeSlot = active && getDeckCardByUid(active, t.cardUid);
+  if (nowOn !== wasOn && activeSlot) recordDeckEvent(nowOn ? 'tag_add' : 'tag_remove', activeSlot, tag);
+  renderTagOverridesList();
+  renderTagSettingsSearchResults();
+  if (active && syncDeckAutoRoleTags(active)) saveActiveDeck(active);
+  if (active) renderActiveDeck();
+  if (typeof patchOpenCardDetailMyTags === 'function') patchOpenCardDetailMyTags();
+  if (typeof _loadCardDetailDefaultTags === 'function' && card) void _loadCardDetailDefaultTags(card);
+  renderDeckCardTagPicker();
 }
 
 /**
@@ -5062,13 +5075,7 @@ async function toggleDeckCardDefaultTagTier(tag, opts = {}) {
   ov.removeTags = [...t.overrideRemove].sort((a, b) => a.localeCompare(b));
   ov.updatedAt = Date.now();
   if (!ov.cardName) ov.cardName = card.name;
-
-  try {
-    await _saveGlobalCustomTags(oracleId);
-  } catch (e) {
-    showNotif(e.message || 'Could not save tag', true);
-    return;
-  }
+  void _queueGlobalCustomTagsSave(oracleId);
 
   // Mirror the tier onto in-memory card copies so deck-list / inspector colors update.
   const applyTier = c => {
