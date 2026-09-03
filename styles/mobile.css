@@ -75,6 +75,10 @@
     right: 0.5rem;
     gap: 2px;
     max-width: calc(100% - 7.5rem);
+    /* Absolute top:0 anchors to the padding box, i.e. under the notch — the
+       brand centers in the content area below the safe-area padding, so the
+       cluster must start there too or it rides up into the status bar. */
+    top: env(safe-area-inset-top, 0px);
   }
   #topbarUser {
     max-width: min(148px, 38vw);
