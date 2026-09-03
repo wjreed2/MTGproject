@@ -1190,28 +1190,11 @@ function _patchCardDetailInspectorDom(card, isOwned) {
   }
   const priceTable = document.getElementById('cardDetailPriceTable');
   if (priceTable) priceTable.innerHTML = _htmlCardDetailPriceRows(card);
-  const left = document.getElementById('cardDetailInspectorLeft');
-  if (left) {
-    const links = left.querySelectorAll('a.btn-outline');
-    const n = encodeURIComponent(card.name || '');
-    if (links[0]) links[0].href = `https://www.tcgplayer.com/search/all/product?q=${n}`;
-    if (links[1]) links[1].href = `https://www.cardkingdom.com/catalog/search?search=header&filter[search]=mtg_advanced&filter[tab]=mtg_card&filter[name]=${n}`;
-    const slug = String(card.name || '').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-    if (links[2]) links[2].href = `https://edhrec.com/cards/${slug}`;
-    if (links[3]) {
-      links[3].href = (card.set && card.number)
-        ? `https://scryfall.com/card/${card.set}/${card.number}`
-        : `https://scryfall.com/search?q=${encodeURIComponent(card.name || '')}`;
-    }
-  }
   const tagRow = document.getElementById('cardDetailPrintTags');
   if (tagRow) {
-    const r = card.rarity === 'mythic' ? 'red' : card.rarity === 'rare' ? 'gold' : card.rarity === 'uncommon' ? 'blue' : 'blue';
-    tagRow.innerHTML = `
-      <span class="tag tag-gold">${String(card.set || '').toUpperCase()} #${card.number || ''}</span>
-      <span class="tag tag-${r}">${card.rarity || ''}</span>
-      ${card.foil ? `<span class="tag tag-gold">✦ Foil</span>` : ''}
-      ${!isOwned ? '<span class="tag tag-red">Unowned</span>' : ''}`;
+    const chips = `${card.foil ? `<span class="tag tag-gold">✦ Foil</span>` : ''}${!isOwned ? '<span class="tag tag-red">Unowned</span>' : ''}`;
+    tagRow.innerHTML = chips;
+    tagRow.style.display = chips ? '' : 'none';
   }
   const cmcInput = document.getElementById('cardDetailCustomCmcInput');
   if (cmcInput) {
@@ -1477,7 +1460,7 @@ function _mountUniversalCardInspector(leftHtml, rightHtml, replacementsHtml, sho
 function _canCardDetailInspectorInPlace() {
   return !!(
     document.getElementById('cardDetailArtWrap') &&
-    document.getElementById('cardDetailVendorRow1') &&
+    document.getElementById('cardDetailUtilityRow') &&
     document.getElementById('cardDetailName') &&
     document.getElementById('cardDetailRowCollection') &&
     document.getElementById('cardDetailRowInDeck') &&
@@ -1487,11 +1470,10 @@ function _canCardDetailInspectorInPlace() {
   );
 }
 
-function _syncCardDetailLeftInPlace(card) {
+function _syncCardDetailLeftInPlace(card, ctx) {
   const wrap = document.getElementById('cardDetailArtWrap');
-  const row1 = document.getElementById('cardDetailVendorRow1');
-  const row2 = document.getElementById('cardDetailVendorRow2');
-  if (!wrap || !row1 || !row2) return false;
+  const util = document.getElementById('cardDetailUtilityRow');
+  if (!wrap || !util) return false;
   const hadImg = !!document.getElementById('cardDetailMainImg');
   const url = card.imageLarge || card.image || '';
   const hasImg = !!url;
@@ -1511,9 +1493,7 @@ function _syncCardDetailLeftInPlace(card) {
   } else {
     wrap.innerHTML = _htmlCardDetailArtSlotInner(card);
   }
-  const v = _htmlCardDetailVendorRows(card);
-  row1.innerHTML = v.row1;
-  row2.innerHTML = v.row2;
+  if (ctx) util.innerHTML = _htmlCardDetailUtilityIconsInner(ctx);
   return true;
 }
 
@@ -2105,23 +2085,20 @@ function _htmlCardDetailChangePrintingBtn() {
 
 // Shared by the full builder and the in-place sync so the two paths can't drift.
 function _htmlCardDetailPrimaryActionsInner(ctx) {
-  const { isOwned, isCommanderCandidate, actionUid, uid, isWishlisted, card } = ctx;
+  const { isOwned, isCommanderCandidate, actionUid, uid } = ctx;
   const printBtn = _showCardDetailChangePrinting(ctx) ? _htmlCardDetailChangePrintingBtn() : '';
   const swapBtns = typeof _htmlCardDetailSwapActionsInner === 'function' ? _htmlCardDetailSwapActionsInner(ctx) : '';
+  // Already in the open deck → no "+ Add to Deck" (the zone/swap buttons cover it).
+  const inOpenDeck = !!(ctx.activeDeckCard && (ctx.inDeckQty || 0) > 0);
   return isOwned
-    ? `<button class="btn btn-primary btn-sm" onclick="addToDeckFromDetail('${actionUid}')">+ Add to Deck</button>
+    ? `${inOpenDeck ? '' : `<button class="btn btn-primary btn-sm" onclick="addToDeckFromDetail('${actionUid}')">+ Add to Deck</button>`}
                ${printBtn}
                ${swapBtns}
                ${isCommanderCandidate ? `<button class="btn btn-outline btn-sm" onclick="buildSkeletonDeckFromInspectorCard('${actionUid}')">Build Skeleton Deck</button>` : ''}
-               <button class="btn btn-outline btn-sm" onclick="toggleWishlistFromDetail('${uid}')">${isWishlisted ? '♥ Wishlisted' : '♡ Wishlist'}</button>
-               <button class="btn btn-outline btn-sm" onclick="flagUpgradeTargetFromDetail('${actionUid}')" title="Want a better printing, foil, or condition"><svg class="tf-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13.5V5"/><path d="M4.5 8 8 4.5 11.5 8"/><path d="M4.5 2.5h7"/></svg> Upgrade</button>
-               <button class="btn btn-outline btn-sm" onclick="openPriceWatchModal('${escapeHtml(card.scryfallId || '')}', ${!!card.foil}, ${JSON.stringify(card.name || '').replace(/"/g, '&quot;')})" title="Set price alerts for this card"><svg class="tf-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6a4 4 0 0 0-8 0c0 4.5-2 5.5-2 5.5h12s-2-1-2-5.5"/><path d="M9.3 13.5a1.5 1.5 0 0 1-2.6 0"/></svg> Watch</button>
-               <button type="button" id="cardDetailStarBtn" class="btn btn-outline btn-sm" data-detail-uid="${actionUid}" onclick="toggleCardStar('${actionUid}',event)">${card.starred ? '★ Starred' : '☆ Star'}</button>
                <button class="btn btn-danger btn-sm" onclick="removeFromCollection('${actionUid}')">Remove</button>`
     : `<button class="btn btn-primary btn-sm" onclick="addCardToCollectionFromDetail('${uid}')">+ Add to Collection</button>
                ${printBtn}
-               ${swapBtns}
-               <button class="btn btn-outline btn-sm" onclick="toggleWishlistFromDetail('${uid}')">${isWishlisted ? '♥ Wishlisted' : '♡ Wishlist'}</button>`;
+               ${swapBtns}`;
 }
 
 function _syncCardDetailRowPrimaryActions(ctx) {
@@ -2185,7 +2162,7 @@ function _syncCardDetailReplacementsMount(showReplacements, replacementsHtml) {
 }
 
 function _syncCardDetailInspectorInPlace(card, ctx) {
-  if (!_syncCardDetailLeftInPlace(card)) return false;
+  if (!_syncCardDetailLeftInPlace(card, ctx)) return false;
   _patchCardDetailInspectorDom(card, ctx.isOwned);
   const tagsEl = document.getElementById('cardDetailDefaultTags');
   if (!tagsEl || !document.getElementById('cardDetailRowCollection')) return false;
@@ -2222,11 +2199,19 @@ function _htmlCardDetailVendorRows(card) {
   };
 }
 
-function _htmlOpenCardDetailLeftColumn(card) {
-  const v = _htmlCardDetailVendorRows(card);
+function _htmlCardDetailUtilityIconsInner(ctx) {
+  const { card, isOwned, actionUid, uid, isWishlisted } = ctx;
+  const icons = [];
+  icons.push(`<button class="btn btn-outline btn-sm card-detail-utility-btn${isWishlisted ? ' active' : ''}" onclick="toggleWishlistFromDetail('${uid}')" title="${isWishlisted ? 'Wishlisted — click to remove' : 'Add to wishlist'}" aria-label="Wishlist"><svg class="tf-ic" viewBox="0 0 16 16" fill="${isWishlisted ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13.5S2.5 10.2 2.5 6.4a3 3 0 0 1 5.5-1.7A3 3 0 0 1 13.5 6.4c0 3.8-5.5 7.1-5.5 7.1z"/></svg></button>`);
+  if (isOwned) icons.push(`<button class="btn btn-outline btn-sm card-detail-utility-btn" onclick="flagUpgradeTargetFromDetail('${actionUid}')" title="Want a better printing, foil, or condition" aria-label="Upgrade"><svg class="tf-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13.5V5"/><path d="M4.5 8 8 4.5 11.5 8"/><path d="M4.5 2.5h7"/></svg></button>`);
+  icons.push(`<button class="btn btn-outline btn-sm card-detail-utility-btn" onclick="openPriceWatchModal('${escapeHtml(card.scryfallId || '')}', ${!!card.foil}, ${JSON.stringify(card.name || '').replace(/"/g, '&quot;')})" title="Set price alerts for this card" aria-label="Watch price"><svg class="tf-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6a4 4 0 0 0-8 0c0 4.5-2 5.5-2 5.5h12s-2-1-2-5.5"/><path d="M9.3 13.5a1.5 1.5 0 0 1-2.6 0"/></svg></button>`);
+  if (isOwned) icons.push(`<button type="button" id="cardDetailStarBtn" class="btn btn-outline btn-sm card-detail-utility-btn${card.starred ? ' active' : ''}" data-detail-uid="${actionUid}" onclick="toggleCardStar('${actionUid}',event)" title="${card.starred ? 'Starred — click to unstar' : 'Star this card'}" aria-label="Star"><svg class="tf-ic" viewBox="0 0 16 16" fill="${card.starred ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z"/></svg></button>`);
+  return icons.join('');
+}
+
+function _htmlOpenCardDetailLeftColumn(card, ctx) {
   return `<div id="cardDetailArtWrap">${_htmlCardDetailArtSlotInner(card)}</div>
-        <div id="cardDetailVendorRow1" class="card-detail-vendor-row">${v.row1}</div>
-        <div id="cardDetailVendorRow2" class="card-detail-vendor-row">${v.row2}</div>`;
+        <div id="cardDetailUtilityRow" class="card-detail-utility-row">${ctx ? _htmlCardDetailUtilityIconsInner(ctx) : ''}</div>`;
 }
 
 function _htmlOpenCardDetailReplacementsBlock() {
@@ -2282,19 +2267,18 @@ function _htmlOpenCardDetailRightColumn(ctx) {
         <table id="cardDetailPriceTable" class="price-table" style="margin-bottom:1rem">
           ${_htmlCardDetailPriceRows(card)}
         </table>
-        <div id="cardDetailPrintTags" class="card-detail-chiprow" style="margin-bottom:1rem">
-          <span class="tag tag-gold">${(card.set || '').toUpperCase()} #${card.number || ''}</span>
-          <span class="tag tag-${card.rarity === 'mythic' ? 'red' : card.rarity === 'rare' ? 'gold' : card.rarity === 'uncommon' ? 'blue' : 'blue'}">${card.rarity}</span>
+        <div id="cardDetailPrintTags" class="card-detail-chiprow" style="margin-bottom:1rem${(card.foil || !isOwned) ? '' : ';display:none'}">
           ${card.foil ? `<span class="tag tag-gold">✦ Foil</span>` : ''}
           ${!isOwned ? `<span class="tag tag-red">Unowned</span>` : ''}
         </div>
-        <div id="cardDetailRowCollection" class="card-detail-qty-row">
-          <span class="card-detail-qty-row-label">In collection:</span>
-          <div class="card-detail-qty-fill">${_htmlCardDetailCollectionRows(ctx)}</div>
-        </div>
-        ${typeof _htmlPurchasePriceOptIn === 'function' ? _htmlPurchasePriceOptIn('cdPurchase', 'purchase-price-optin--inspector') : ''}
-        <div id="cardDetailRowInDeck" class="card-detail-qty-row" style="display:${showInDeckRow ? 'flex' : 'none'}">
-          ${inDeckInner}
+        <div class="card-detail-qty-grid">
+          <div id="cardDetailRowCollection" class="card-detail-qty-row">
+            <span class="card-detail-qty-row-label">In collection:</span>
+            <div class="card-detail-qty-fill">${_htmlCardDetailCollectionRows(ctx)}</div>
+          </div>
+          <div id="cardDetailRowInDeck" class="card-detail-qty-row" style="display:${showInDeckRow ? 'flex' : 'none'}">
+            ${inDeckInner}
+          </div>
         </div>
         <div id="cardDetailRowPrimaryActions" class="card-detail-actions">
           ${_htmlCardDetailPrimaryActionsInner(ctx)}
@@ -2747,7 +2731,7 @@ async function openCardDetail(uid, navMode, opts) {
     isCommanderCandidate,
     isWishlisted,
   };
-  const leftHtml = _htmlOpenCardDetailLeftColumn(card);
+  const leftHtml = _htmlOpenCardDetailLeftColumn(card, detailCtx);
   const rightHtml = _htmlOpenCardDetailRightColumn(detailCtx);
   // Suggested Replacements hidden for now (2026-09-03): they predate the
   // semantic engine — flip this flag to bring them back once semantics-driven.
@@ -3732,7 +3716,9 @@ function _syncCollectionStarDisplay(uid, starred) {
   }
   const detailBtn = document.getElementById('cardDetailStarBtn');
   if (detailBtn && String(detailBtn.getAttribute('data-detail-uid') || '') === String(uid)) {
-    detailBtn.textContent = starred ? '★ Starred' : '☆ Star';
+    detailBtn.classList.toggle('active', starred);
+    detailBtn.title = starred ? 'Starred — click to unstar' : 'Star this card';
+    detailBtn.querySelector('svg')?.setAttribute('fill', starred ? 'currentColor' : 'none');
   }
 }
 

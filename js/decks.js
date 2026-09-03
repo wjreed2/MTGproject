@@ -11837,11 +11837,34 @@ function _moveMainToDeckZone(uid, zone, label) {
     if (existing) existing.qty++; else _deckZonePool(deck, zone).push({ ...snapshot, qty: 1 });
   }
   _pruneStalePlannedCuts(deck);
+  if (zone === 'mb') _syncDeckTagForZoneMove(deck, snapshot, false);
   recordDeckEvent('to_sb', snapshot, zone); // detail = target zone ('mb', 'sb', or 'add')
   saveActiveDeck(deck);
   renderActiveDeck();
   if (zone === 'add') scheduleEDHRECRefresh();
   showNotif(snapshot.name + ' moved to ' + label);
+}
+
+/**
+ * Deck tags mirror the maybe-board lifecycle: graduating a tagged card to the
+ * mainboard clears its tag for this deck; sending it back to the maybe board
+ * re-tags it. Tag data lives on the owned collection card (card.deckTags).
+ */
+function _syncDeckTagForZoneMove(deck, cardLike, nowInMain) {
+  if (!deck || !cardLike || typeof collection === 'undefined') return;
+  const col = collection.find(c =>
+    (cardLike.scryfallId && c.scryfallId === cardLike.scryfallId && !!c.foil === !!cardLike.foil)
+    || (cardLike.uid && c.uid === cardLike.uid));
+  if (!col) return;
+  const tags = col.deckTags || (col.deckTags = []);
+  const has = tags.includes(deck.id);
+  if (nowInMain && has) {
+    tags.splice(tags.indexOf(deck.id), 1);
+    save('collection');
+  } else if (!nowInMain && !has) {
+    tags.push(deck.id);
+    save('collection');
+  }
 }
 
 function moveToSideboard(uid) { _moveMainToDeckZone(uid, 'mb', 'maybe board'); }
@@ -11858,6 +11881,7 @@ function moveToMainboard(uid, fromZone = 'mb') {
   if (card.qty > 1) card.qty--; else { const i = pool.indexOf(card); if (i >= 0) pool.splice(i, 1); }
   const existingMain = findDeckCardSlot(deck, snapshot);
   if (existingMain) existingMain.qty++; else deck.cards.push({ ...snapshot, qty: 1 });
+  if (fromZone === 'mb') _syncDeckTagForZoneMove(deck, snapshot, true);
   recordDeckEvent('to_main', snapshot, fromZone); // detail = source zone ('mb' or 'sb')
   saveActiveDeck(deck);
   renderActiveDeck();

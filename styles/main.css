@@ -2669,8 +2669,7 @@ img.stack-main.loaded { opacity: 1; }
 .card-detail-type { font-size: 0.9rem; color: var(--text2); margin-bottom: 0.75rem; font-style: italic; }
 .card-detail-text {
   font-size: 0.95rem; line-height: 1.7; color: var(--text);
-  background: var(--bg3); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 0.75rem; margin-bottom: 1rem;
+  margin-bottom: 1rem;
 }
 .card-detail-tags-pending {
   display: inline-block;
@@ -10320,3 +10319,37 @@ body.glass-mode .modal-edge-nav { color: rgba(244,246,251,0.65); }
 body.glass-mode .modal-edge-nav:hover { color: #fff; }
 [data-theme="light"] body.glass-mode .modal-edge-nav { color: rgba(23,32,46,0.55); }
 [data-theme="light"] body.glass-mode .modal-edge-nav:hover { color: #17202e; }
+
+/* ── Card inspector layout (2026-09-03 restructure) ────────────────────────
+   Counters sit side by side (collection | deck), each stacking its two
+   finish rows — a 2x2 grid when a deck is open. Utility actions live as
+   icon-only buttons under the card art. */
+.card-detail-qty-grid {
+  display: flex;
+  gap: 0.75rem 2.25rem;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.card-detail-qty-grid .card-detail-qty-row { flex: 1 1 300px; min-width: 0; }
+.card-detail-utility-row {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 10px;
+}
+.card-detail-utility-btn {
+  width: 40px;
+  min-width: 40px;
+  height: 34px;
+  padding: 0 !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.card-detail-utility-btn .tf-ic { width: 16px; height: 16px; display: block; }
+/* Glass: the frosted oracle box is retired along with the base box */
+body.glass-mode .card-detail-text {
+  background: none;
+  border: none;
+  border-radius: 0;
+}
