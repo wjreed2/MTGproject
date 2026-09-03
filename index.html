@@ -935,6 +935,7 @@
               If you have set a plan, this also says whether the list jives with or clashes against that plan.
             </span>
           </span>
+          <div style="flex:1"></div><button type="button" class="decklist-collapse-btn deck-info-collapse-btn" data-info-key="themes" onclick="toggleDeckInfoPanel('themes')" title="Toggle">▾</button>
         </div>
         <div class="panel-body" id="deckThemesBody"></div>
       </div>
@@ -942,32 +943,32 @@
       <!-- Bottom: Deck composition and mana profile -->
       <div class="deck-stats-grid">
         <div class="panel">
-          <div class="panel-header"><span class="panel-title">Mana Curve</span></div>
+          <div class="panel-header"><span class="panel-title">Mana Curve</span><button type="button" class="decklist-collapse-btn deck-info-collapse-btn" data-info-key="manacurve" onclick="toggleDeckInfoPanel('manacurve')" title="Toggle">▾</button></div>
           <div class="panel-body deck-mana-curve-panel">
             <div id="manaIdealControls" class="mana-ideal-controls"></div>
             <div class="mana-curve" id="manaCurve"></div>
           </div>
         </div>
         <div class="panel">
-          <div class="panel-header"><span class="panel-title">Type Breakdown</span></div>
+          <div class="panel-header"><span class="panel-title">Type Breakdown</span><button type="button" class="decklist-collapse-btn deck-info-collapse-btn" data-info-key="types" onclick="toggleDeckInfoPanel('types')" title="Toggle">▾</button></div>
           <div class="panel-body" id="typeBreakdown"></div>
         </div>
         <div class="panel">
-          <div class="panel-header"><span class="panel-title">Mana Cost</span></div>
+          <div class="panel-header"><span class="panel-title">Mana Cost</span><button type="button" class="decklist-collapse-btn deck-info-collapse-btn" data-info-key="manacost" onclick="toggleDeckInfoPanel('manacost')" title="Toggle">▾</button></div>
           <div class="panel-body" id="manaCostProfile"></div>
         </div>
         <div class="panel">
-          <div class="panel-header"><span class="panel-title">Mana Generation</span></div>
+          <div class="panel-header"><span class="panel-title">Mana Generation</span><button type="button" class="decklist-collapse-btn deck-info-collapse-btn" data-info-key="managen" onclick="toggleDeckInfoPanel('managen')" title="Toggle">▾</button></div>
           <div class="panel-body" id="manaGenerationProfile"></div>
         </div>
         <div class="panel">
-          <div class="panel-header"><span class="panel-title">Opening Hand Lands</span></div>
+          <div class="panel-header"><span class="panel-title">Opening Hand Lands</span><button type="button" class="decklist-collapse-btn deck-info-collapse-btn" data-info-key="openhand" onclick="toggleDeckInfoPanel('openhand')" title="Toggle">▾</button></div>
           <div class="panel-body deck-land-chart-panel">
             <canvas id="openingHandChart"></canvas>
           </div>
         </div>
         <div class="panel">
-          <div class="panel-header"><span class="panel-title">Land Drop Coverage</span></div>
+          <div class="panel-header"><span class="panel-title">Land Drop Coverage</span><button type="button" class="decklist-collapse-btn deck-info-collapse-btn" data-info-key="landdrops" onclick="toggleDeckInfoPanel('landdrops')" title="Toggle">▾</button></div>
           <div class="panel-body deck-land-chart-panel">
             <canvas id="landCoverageChart"></canvas>
           </div>
@@ -983,6 +984,7 @@
             <div style="display:flex;gap:3px;flex-shrink:0">
               <button class="btn btn-sm draw-mode-btn" data-mode="area" onclick="setDrawChartMode('area')">Area</button>
               <button class="btn btn-sm draw-mode-btn" data-mode="lines" onclick="setDrawChartMode('lines')">Lines</button>
+              <button type="button" class="decklist-collapse-btn deck-info-collapse-btn" data-info-key="drawaccel" onclick="toggleDeckInfoPanel('drawaccel')" title="Toggle">▾</button>
             </div>
           </div>
           <div class="panel-body deck-draw-accel-body">
@@ -1003,6 +1005,7 @@
             <span class="deck-tab-hint">Hand size</span>
             <input type="number" id="probHandSize" value="7" min="1" max="20" style="width:52px;padding:3px 6px" oninput="onProbHandSizeChange(this.value)">
           </div>
+          <button type="button" class="decklist-collapse-btn deck-info-collapse-btn" data-info-key="drawprob" onclick="toggleDeckInfoPanel('drawprob')" title="Toggle">▾</button>
         </div>
         <div class="panel-body prob-chart-panel-body">
           <!-- Chart first in DOM so the chip row (grid row 1) paints above any compositor bleed from the canvas -->
@@ -1021,6 +1024,7 @@
           <span class="panel-title">Similarity</span>
           <span class="deck-tab-hint" style="flex:1">EDHREC alignment &amp; archive comparison for this commander</span>
           <button class="btn btn-outline btn-sm" id="simAnalyzeBtn" onclick="loadDeckSimilarity()">Refresh</button>
+          <button type="button" class="decklist-collapse-btn deck-info-collapse-btn" data-info-key="similarity" onclick="toggleDeckInfoPanel('similarity')" title="Toggle">▾</button>
         </div>
         <div class="panel-body" id="simPanel">
           <p style="color:var(--text3);font-size:0.85rem;font-style:italic;margin:0">Loading…</p>
@@ -1032,6 +1036,7 @@
         <div class="panel-header">
           <span class="panel-title">Collaborators</span>
           <span class="deck-tab-hint">Manage access</span>
+          <div style="flex:1"></div><button type="button" class="decklist-collapse-btn deck-info-collapse-btn" data-info-key="collab" onclick="toggleDeckInfoPanel('collab')" title="Toggle">▾</button>
         </div>
         <div class="panel-body">
           <div id="collabList" style="margin-bottom:0.75rem"></div>

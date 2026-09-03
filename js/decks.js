@@ -3938,6 +3938,7 @@ function renderActiveDeck() {
   renderCollaboratorsPanel(deck);
   _simAutoLoad();
   scheduleEDHRECRefresh(0);
+  _applyDeckInfoCollapsed();
 }
 
 // ── Collaborators panel ───────────────────────────────────────────────────────
@@ -7210,7 +7211,8 @@ function _toggleCutPanel() {
   if (!body) return;
   const collapsed = body.style.display === 'none';
   body.style.display = collapsed ? '' : 'none';
-  if (btn) btn.classList.toggle('is-rotated', collapsed);
+  // Arrow points right (rotated) while collapsed — matches toggleDeckListCollapse.
+  if (btn) btn.classList.toggle('is-rotated', !collapsed);
 }
 
 // ── suggestion engine mode (Classic ↔ Hybrid ↔ Semantic) ─────────────────────
@@ -8652,7 +8654,31 @@ function _toggleAddPanel() {
   if (!body) return;
   const collapsed = body.style.display === 'none';
   body.style.display = collapsed ? '' : 'none';
-  if (btn) btn.classList.toggle('is-rotated', collapsed);
+  // Arrow points right (rotated) while collapsed — matches toggleDeckListCollapse.
+  if (btn) btn.classList.toggle('is-rotated', !collapsed);
+}
+
+// ── Collapsible info panels below the deck list ───────────────────────────────
+// Every info box below the deck list carries the same collapse arrow as the
+// Suggested Adds/Cuts headers. Default collapsed; each panel's choice persists
+// user-wide in localStorage.
+function _deckInfoCollapsed(key) {
+  try { return localStorage.getItem('mtg_deck_info_open_' + key) !== '1'; } catch (_) { return true; }
+}
+
+function toggleDeckInfoPanel(key) {
+  const opening = _deckInfoCollapsed(key);
+  try { localStorage.setItem('mtg_deck_info_open_' + key, opening ? '1' : '0'); } catch (_) { /* private mode */ }
+  _applyDeckInfoCollapsed();
+}
+
+function _applyDeckInfoCollapsed() {
+  document.querySelectorAll('#tab-decks .deck-info-collapse-btn[data-info-key]').forEach(btn => {
+    const collapsed = _deckInfoCollapsed(btn.dataset.infoKey);
+    const panel = btn.closest('.panel');
+    if (panel) panel.classList.toggle('info-collapsed', collapsed);
+    btn.classList.toggle('is-rotated', collapsed);
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -10973,6 +10999,7 @@ function renderCommanderGameplan(deck) {
         <div style="flex:1"></div>
         <button class="btn btn-outline btn-sm${_cmdFreeMulligan ? ' active' : ''}" onclick="toggleCmdFreeMulligan(!_cmdFreeMulligan)" title="Commander free mulligan: if your opening hand is bad, you may redraw 7 and bottom 1">Free mulligan</button>
         <button id="cmdGpCustomBtn" class="btn btn-outline btn-sm${_cmdCustomEditorOpen ? ' active' : ''}" onclick="toggleCmdCustomEditor()" title="Define cards you need in hand to execute your gameplan">Custom${savedReqs.length ? ` (${savedReqs.length})` : ''}</button>
+        <button type="button" class="decklist-collapse-btn deck-info-collapse-btn" data-info-key="gameplan" onclick="toggleDeckInfoPanel('gameplan')" title="Toggle">▾</button>
       </div>
       <div id="cmdGpCustomEditor" class="cmdr-gp-custom-editor" style="display:none">
         <div class="cmdr-gp-custom-editor-inner">
@@ -11088,6 +11115,7 @@ function renderCommanderGameplan(deck) {
     target.addEventListener('mouseenter', () => _showCmdrGpTooltip(target, target.dataset.tooltip));
     target.addEventListener('mouseleave', _hideCmdrGpTooltip);
   });
+  _applyDeckInfoCollapsed(); // this render rebuilt the panel's collapse button
 }
 
 function _initCmdrGpTooltip() {

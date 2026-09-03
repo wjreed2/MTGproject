@@ -10214,3 +10214,9 @@ body.glass-mode .deck-menu-item:hover {
 [data-theme="light"] body.glass-mode .deck-menu-item:hover {
   background: rgba(20,35,60,0.08);
 }
+
+/* ── Collapsible info panels below the deck list (all themes) ──────────────
+   Panels carrying a .deck-info-collapse-btn collapse to their header row;
+   grid panels top-align when collapsed so they don't stretch to row height. */
+#tab-decks .panel.info-collapsed > :not(.panel-header) { display: none !important; }
+#tab-decks .deck-stats-grid .panel.info-collapsed { align-self: start; }
