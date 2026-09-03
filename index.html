@@ -631,11 +631,17 @@
     <div id="activeDeckArea" style="flex:1;min-width:0">
       <div id="deckTopBar" class="top-action-bar" style="display:flex;align-items:center;gap:10px;margin-bottom:0.5rem;flex-wrap:wrap">
         <div class="deck-top-title-row" style="display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:wrap">
+          <span id="activeDeckName" class="panel-title" style="min-width:0;font-size:1.4rem;line-height:1.2"></span>
           <span id="deckValidBadge"></span>
+          <span id="deckInfoBadge">
+            <button type="button" class="deck-valid-circle deck-info-circle" onclick="toggleDeckInfoTooltip()" title="Deck info — format, value, game changers" aria-label="Deck info">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="8" cy="8" r="5.7"/><line x1="8" y1="7.4" x2="8" y2="11"/><line x1="8" y1="4.9" x2="8" y2="5.1" stroke-width="2"/></svg>
+            </button>
+            <div class="deck-info-tooltip" id="deckInfoTooltip"></div>
+          </span>
           <span id="deckGameChangerBadge"></span>
-          <span id="activeDeckName" class="panel-title" style="min-width:0"></span>
-          <span id="activeDeckFormat" class="tag tag-gold"></span>
-          <span id="activeDeckValue" class="tag tag-green" title="Total TCG value of main deck cards"></span>
+          <span id="activeDeckFormat" class="tag tag-gold" style="display:none"></span>
+          <span id="activeDeckValue" class="tag tag-green" style="display:none" title="Total TCG value of main deck cards"></span>
         </div><!-- /.deck-top-title-row -->
         <span id="deckScryTagSyncBadge" class="tag tag-scryfall" style="display:none">Syncing Scryfall tags…</span>
         <div class="deck-top-spacer" style="flex:1"></div>
@@ -714,6 +720,7 @@
       </div>
       <div id="deckValidationPanel"></div>
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:0.5rem;flex-wrap:wrap">
+        <span id="activeDeckCommanderLabel" style="display:none;color:var(--text3)">Commander:</span>
         <span id="activeDeckCommander" style="display:none;color:var(--gold);font-family:'Cinzel',serif"></span>
         <span id="activeDeckCommanderPips" style="display:flex;gap:5px;align-items:center"></span>
         <button id="activeDeckCommanderEditBtn" onclick="openCommanderEdit()" style="display:none;background:none;border:none;color:var(--text3);cursor:pointer;padding:2px 4px;border-radius:4px;line-height:1" title="Change commander">

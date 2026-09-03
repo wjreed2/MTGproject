@@ -14,6 +14,40 @@ function toggleDeckGameChangerTooltip() {
   document.getElementById('deckGameChangerBadge')?.classList.toggle('open');
 }
 
+// ⓘ badge next to the deck title — format, value, and game changers live here
+// now (the header pills and the standalone GC badge are retired from view).
+function toggleDeckInfoTooltip() {
+  const badge = document.getElementById('deckInfoBadge');
+  if (!badge) return;
+  if (!badge.classList.contains('open')) _renderDeckInfoTooltip();
+  badge.classList.toggle('open');
+}
+
+function _renderDeckInfoTooltip() {
+  const tip = document.getElementById('deckInfoTooltip');
+  const deck = getActiveDeck();
+  if (!tip || !deck) return;
+  const totalTcg = (deck.cards || []).reduce((sum, c) => {
+    const unit = typeof getTCGPriceForCard === 'function' ? getTCGPriceForCard(c) : (Number(c?.priceTCG) || 0);
+    return sum + (Number(unit) || 0) * (Number(c?.qty) || 1);
+  }, 0);
+  const gcFormat = _isCommanderFormatForGameChangers(deck);
+  const gcEntries = gcFormat && _gameChangerOracleIds ? _deckGameChangerEntries(deck) : null;
+  const gcCount = gcEntries ? gcEntries.length : (gcFormat ? '…' : '—');
+  const gcRows = (gcEntries && gcEntries.length) ? gcEntries.map(c => {
+    const safe = (c.name || '').replace(/'/g, "\\'");
+    return `<div class="deck-gc-row deck-gc-row-link" onclick="jumpToDeckIssue('${safe}')">
+      <span class="deck-gc-row-name">${escapeHtml(c.name)}</span>
+      <span style="color:var(--text3);font-size:0.7rem">view</span>
+    </div>`;
+  }).join('') : '';
+  tip.innerHTML = `
+    <div class="deck-info-row"><span class="deck-info-label">Format</span><span>${escapeHtml(deck.format || '—')}</span></div>
+    <div class="deck-info-row"><span class="deck-info-label">Value (TCG)</span><span>$${totalTcg.toFixed(2)}</span></div>
+    <div class="deck-info-row"><span class="deck-info-label">Game changers</span><span>${gcCount}</span></div>
+    ${gcRows}`;
+}
+
 document.addEventListener('click', e => {
   const btn = document.getElementById('deckOptionsBtn');
   const menu = document.getElementById('deckOptionsDropdown');
@@ -29,6 +63,11 @@ document.addEventListener('click', e => {
   const gcBadge = document.getElementById('deckGameChangerBadge');
   if (gcBadge && !gcBadge.contains(e.target)) {
     gcBadge.classList.remove('open');
+  }
+
+  const infoBadge = document.getElementById('deckInfoBadge');
+  if (infoBadge && !infoBadge.contains(e.target)) {
+    infoBadge.classList.remove('open');
   }
 });
 
@@ -3881,7 +3920,16 @@ function renderActiveDeck() {
   }
   const isCommanderFmt = ['Commander','Brawl','Oathbreaker'].includes(deck.format);
   const cmdEl = document.getElementById('activeDeckCommander');
-  if (cmdEl) { cmdEl.textContent = deck.commander || ''; cmdEl.style.display = deck.commander ? '' : 'none'; }
+  const cmdLabelEl = document.getElementById('activeDeckCommanderLabel');
+  if (cmdLabelEl) cmdLabelEl.style.display = deck.commander ? '' : 'none';
+  if (cmdEl) {
+    cmdEl.textContent = deck.commander || '';
+    cmdEl.style.display = deck.commander ? '' : 'none';
+    const canEditCmd = isCommanderFmt && !activeDeckIsShared;
+    cmdEl.onclick = canEditCmd ? openCommanderEdit : null;
+    cmdEl.style.cursor = canEditCmd ? 'pointer' : '';
+    cmdEl.title = canEditCmd ? 'Change commander' : '';
+  }
   const cmdPipsEl = document.getElementById('activeDeckCommanderPips');
   if (cmdPipsEl) cmdPipsEl.innerHTML = colorPips(deck.commanderColorIdentity || []);
   const cmdEditBtn = document.getElementById('activeDeckCommanderEditBtn');
