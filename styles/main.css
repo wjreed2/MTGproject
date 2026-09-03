@@ -10177,21 +10177,19 @@ body.glass-mode.sidebar-collapsed .sidebar-item:hover::after {
   border-color: rgba(20,35,60,0.14);
 }
 
-/* 3. Deck builder stack backplates: scaffolding rectangles that blended into
-   the flat dark theme but float visibly over the glass wallpaper. Make them
-   the section's actual glass panel instead of an accidental polygon. */
-body.glass-mode .deck-stack-group-backdrop {
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.10);
-  border-radius: 14px;
-  -webkit-backdrop-filter: blur(18px) saturate(160%);
-  backdrop-filter: blur(18px) saturate(160%);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.10);
-}
-[data-theme="light"] body.glass-mode .deck-stack-group-backdrop {
-  background: rgba(255,255,255,0.50);
-  border-color: rgba(255,255,255,0.70);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9);
+/* 3. Deck builder stack backplates: layout scaffolding that is effectively
+   invisible in the flat dark theme (bg2 on bg) but shows up as floating
+   rectangles once the variable remap makes bg2 translucent white. Glass mode
+   hides the plates entirely — both mechanisms: the backdrop element (grid
+   orientation) and the group ::before plate (vertical orientation). The
+   stacks and their labels carry the grouping on their own. */
+body.glass-mode .deck-stack-group-backdrop,
+body.glass-mode .deck-stack-view.vertical-orient .deck-stack-group::before {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 /* 4. Page headings that were gold Cinzel become standard white headings
