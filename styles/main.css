@@ -10231,14 +10231,21 @@ body.glass-mode .deck-menu-item:hover {
 #deckGameChangerBadge { display: none !important; }
 #deckInfoBadge { position: relative; display: inline-flex; align-items: center; }
 .deck-info-circle {
-  background: rgba(255,255,255,0.04);
+  /* Bare glyph, no chrome — 32px hit target matching the ✓/✗ circle */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  background: none;
   color: var(--text2);
-  border: 1.5px solid var(--border2);
+  border: none;
   cursor: pointer;
   padding: 0;
 }
-.deck-info-circle:hover { color: var(--text); border-color: var(--border3); }
-.deck-info-circle svg { width: 15px; height: 15px; display: block; }
+.deck-info-circle:hover { color: var(--text); }
+.deck-info-circle svg { width: 21px; height: 21px; display: block; }
 .deck-info-tooltip {
   display: none;
   position: absolute;

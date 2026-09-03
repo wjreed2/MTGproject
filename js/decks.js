@@ -3930,8 +3930,6 @@ function renderActiveDeck() {
     cmdEl.style.cursor = canEditCmd ? 'pointer' : '';
     cmdEl.title = canEditCmd ? 'Change commander' : '';
   }
-  const cmdPipsEl = document.getElementById('activeDeckCommanderPips');
-  if (cmdPipsEl) cmdPipsEl.innerHTML = colorPips(deck.commanderColorIdentity || []);
   const cmdEditBtn = document.getElementById('activeDeckCommanderEditBtn');
   if (cmdEditBtn) cmdEditBtn.style.display = isCommanderFmt && !activeDeckIsShared ? '' : 'none';
   closeCommanderEdit();
