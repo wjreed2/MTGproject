@@ -731,6 +731,7 @@
       <!-- Deck builder folder tabs — pages between sections; content is only hidden, never removed -->
       <div class="deck-folder-tabs" id="deckBuilderTabs" role="tablist" aria-label="Deck builder sections">
         <button type="button" class="deck-ftab active" id="deckFtab-list" role="tab" aria-selected="true" onclick="setDeckBuilderTab('list')">Deck List</button>
+        <button type="button" class="deck-ftab" id="deckFtab-adds" role="tab" aria-selected="false" onclick="setDeckBuilderTab('adds')">Suggested Adds</button>
         <button type="button" class="deck-ftab" id="deckFtab-charts" role="tab" aria-selected="false" onclick="setDeckBuilderTab('charts')">Graphs</button>
         <button type="button" class="deck-ftab" id="deckFtab-strategy" role="tab" aria-selected="false" onclick="setDeckBuilderTab('strategy')">Strategy</button>
         <button type="button" class="deck-ftab" id="deckFtab-sharing" role="tab" aria-selected="false" onclick="setDeckBuilderTab('sharing')">Sharing</button>
@@ -877,8 +878,10 @@
         <div id="deckCutThresholdEditor" style="display:none"></div>
         <div id="deckCutSuggestionsBody"></div>
       </div>
+      </div><!-- /deckTabPane-list -->
 
-      <!-- Suggested Adds (below deck list) — inverse of Suggested Cuts, shares its target model -->
+      <div id="deckTabPane-adds" class="deck-tab-pane">
+      <!-- Suggested Adds — inverse of Suggested Cuts, shares its target model -->
       <div id="deckAddSuggestionsPanel" class="panel" style="display:none;margin-bottom:1.25rem">
         <div class="panel-header deck-suggest-header">
           <span class="panel-title">Suggested Adds</span>
@@ -937,7 +940,7 @@
         <div id="deckAddThresholdEditor" style="display:none"></div>
         <div id="deckAddSuggestionsBody"></div>
       </div>
-      </div><!-- /deckTabPane-list -->
+      </div><!-- /deckTabPane-adds -->
 
       <div id="deckTabPane-charts" class="deck-tab-pane">
       <!-- Bottom: Deck composition and mana profile -->

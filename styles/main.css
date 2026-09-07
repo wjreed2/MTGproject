@@ -810,14 +810,16 @@ main {
   font-family: 'Inter', system-ui, sans-serif;
 }
 
-/* DECK BUILDER FOLDER TABS — file-folder tabs paging between builder sections */
+/* DECK BUILDER FOLDER TABS — overlapping file-drawer tabs growing out of the
+ * content panel below. The strip overhangs the pane by 1px so the active tab's
+ * background swallows the panel's top border and opens straight into it. */
 .deck-folder-tabs {
   display: flex;
   align-items: flex-end;
-  gap: 3px;
-  padding: 4px 10px 0;
-  border-bottom: 1px solid var(--border2);
-  margin-bottom: 1.25rem;
+  padding: 8px 14px 0;
+  margin-bottom: -1px;
+  position: relative;
+  z-index: 2;
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -827,7 +829,7 @@ main {
   flex-shrink: 0;
   border: none;
   background: none;
-  padding: 9px 22px 8px;
+  padding: 8px 26px 7px;
   font-family: 'Cinzel', serif;
   font-size: 0.78rem;
   font-weight: 600;
@@ -835,9 +837,16 @@ main {
   text-transform: uppercase;
   color: var(--text3);
   cursor: pointer;
-  z-index: 0;
-  transition: color 0.15s var(--ease);
+  transition: color 0.15s var(--ease), padding 0.15s var(--ease);
 }
+/* Overlap like folders in a drawer; earlier tabs sit in front of later ones */
+.deck-ftab + .deck-ftab { margin-left: -20px; }
+.deck-ftab:nth-child(1) { z-index: 6; }
+.deck-ftab:nth-child(2) { z-index: 5; }
+.deck-ftab:nth-child(3) { z-index: 4; }
+.deck-ftab:nth-child(4) { z-index: 3; }
+.deck-ftab:nth-child(5) { z-index: 2; }
+.deck-ftab:nth-child(6) { z-index: 1; }
 .deck-ftab::before {
   /* Trapezoid folder-tab shape: perspective tilt narrows the top edge while
    * keeping the 1px border crisp (clip-path would clip the border away). */
@@ -845,26 +854,33 @@ main {
   position: absolute;
   inset: 0;
   z-index: -1;
-  background: linear-gradient(to bottom, var(--bg2), var(--bg));
+  background: linear-gradient(to bottom, var(--bg3), var(--bg));
   border: 1px solid var(--border);
-  border-bottom: none;
   border-radius: 10px 10px 0 0;
   transform: perspective(9px) rotateX(1.15deg);
   transform-origin: bottom;
   transition: background 0.15s var(--ease);
 }
-.deck-ftab:hover { color: var(--text2); }
+.deck-ftab:hover { color: var(--text2); z-index: 8; }
 .deck-ftab.active {
   color: var(--gold);
-  z-index: 1;
+  z-index: 10;
+  padding: 10px 30px 8px; /* pulled to the front of the drawer, slightly expanded */
 }
 .deck-ftab.active::before {
-  background: var(--bg2);
+  background: var(--bg2); /* matches .panel so the tab opens into the content square */
   border-color: var(--border2);
-  box-shadow: 0 -6px 14px rgba(0,0,0,0.25);
+  border-bottom: none;
+  box-shadow: 0 -4px 10px rgba(0,0,0,0.3);
 }
 .deck-tab-pane { display: none; }
 .deck-tab-pane.active { display: block; }
+/* The tabs merge into the first panel's top edge — soften its top-left corner
+ * so the joint reads as one folder */
+.deck-tab-pane > .panel:first-child,
+.deck-tab-pane > .deck-stats-grid:first-child > .panel:first-child {
+  border-top-left-radius: 4px;
+}
 
 /* Deck view: mana curve + type + mana pies share a grid; bodies fill panel height */
 .deck-stats-grid {

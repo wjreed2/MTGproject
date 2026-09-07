@@ -8743,7 +8743,7 @@ function _applyDeckInfoCollapsed() {
 // File-folder tabs above the deck detail that page between section groups.
 // Panes only hide/show — every section keeps rendering into its usual DOM.
 // Choice persists user-wide, not per deck.
-const _DECK_BUILDER_TABS = ['list', 'charts', 'strategy', 'sharing'];
+const _DECK_BUILDER_TABS = ['list', 'adds', 'charts', 'strategy', 'sharing'];
 
 function _deckBuilderTab() {
   try {
@@ -8765,8 +8765,14 @@ function _applyDeckBuilderTab() {
   const sharingBtn = document.getElementById('deckFtab-sharing');
   if (sharingBtn) sharingBtn.style.display = sharingHidden ? 'none' : '';
 
+  // Suggested Adds hides itself for empty decks — hide its tab along with it.
+  const addsHidden = document.getElementById('deckAddSuggestionsPanel')?.style.display === 'none';
+  const addsBtn = document.getElementById('deckFtab-adds');
+  if (addsBtn) addsBtn.style.display = addsHidden ? 'none' : '';
+
   let active = _deckBuilderTab();
   if (active === 'sharing' && sharingHidden) active = 'list';
+  if (active === 'adds' && addsHidden) active = 'list';
 
   for (const key of _DECK_BUILDER_TABS) {
     const on = key === active;
