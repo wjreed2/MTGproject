@@ -8731,11 +8731,12 @@ function toggleDeckInfoPanel(key) {
 }
 
 function _applyDeckInfoCollapsed() {
+  // Folder tabs replaced per-section collapsing: sections on a tab page always
+  // render expanded (the arrows are hidden via CSS; stored prefs are ignored).
   document.querySelectorAll('#tab-decks .deck-info-collapse-btn[data-info-key]').forEach(btn => {
-    const collapsed = _deckInfoCollapsed(btn.dataset.infoKey);
     const panel = btn.closest('.panel');
-    if (panel) panel.classList.toggle('info-collapsed', collapsed);
-    btn.classList.toggle('is-rotated', collapsed);
+    if (panel) panel.classList.remove('info-collapsed');
+    btn.classList.remove('is-rotated');
   });
 }
 
