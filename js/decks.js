@@ -4019,6 +4019,7 @@ function renderActiveDeck() {
   _simAutoLoad();
   scheduleEDHRECRefresh(0);
   _applyDeckInfoCollapsed();
+  _applyDeckBuilderTab();
 }
 
 // ── Collaborators panel ───────────────────────────────────────────────────────
@@ -8738,11 +8739,70 @@ function _applyDeckInfoCollapsed() {
   });
 }
 
+// ── Deck builder folder tabs ──────────────────────────────────────────────────
+// File-folder tabs above the deck detail that page between section groups.
+// Panes only hide/show — every section keeps rendering into its usual DOM.
+// Choice persists user-wide, not per deck.
+const _DECK_BUILDER_TABS = ['list', 'charts', 'strategy', 'sharing'];
+
+function _deckBuilderTab() {
+  try {
+    const t = localStorage.getItem('mtg_deck_builder_tab');
+    return _DECK_BUILDER_TABS.includes(t) ? t : 'list';
+  } catch (_) { return 'list'; }
+}
+
+function setDeckBuilderTab(key) {
+  if (!_DECK_BUILDER_TABS.includes(key)) key = 'list';
+  try { localStorage.setItem('mtg_deck_builder_tab', key); } catch (_) { /* private mode */ }
+  _applyDeckBuilderTab();
+}
+
+function _applyDeckBuilderTab() {
+  // Sharing is owner-only (matches renderCollaboratorsPanel); shared decks
+  // hide the tab and fall back to the deck list without clobbering the pref.
+  const sharingHidden = !!activeDeckIsShared;
+  const sharingBtn = document.getElementById('deckFtab-sharing');
+  if (sharingBtn) sharingBtn.style.display = sharingHidden ? 'none' : '';
+
+  let active = _deckBuilderTab();
+  if (active === 'sharing' && sharingHidden) active = 'list';
+
+  for (const key of _DECK_BUILDER_TABS) {
+    const on = key === active;
+    const btn = document.getElementById('deckFtab-' + key);
+    const pane = document.getElementById('deckTabPane-' + key);
+    if (btn) { btn.classList.toggle('active', on); btn.setAttribute('aria-selected', on ? 'true' : 'false'); }
+    if (pane) pane.classList.toggle('active', on);
+  }
+
+  if (active === 'charts') {
+    // Chart.js canvases created while their pane was display:none have zero
+    // size — nudge them once the pane is visible.
+    requestAnimationFrame(() => {
+      [_probChartInst, _openingHandChartInst, _landCoverageChartInst, _cardDrawAccelChartInst]
+        .forEach(inst => { try { inst?.resize(); } catch (_) { /* destroyed */ } });
+    });
+  } else if (active === 'list' && _deckListRenderedHidden) {
+    // Stack layout measures the list container; a render that ran while the
+    // pane was display:none measured width 0 — redraw now that it has size.
+    _deckListRenderedHidden = false;
+    const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+    if (deck) renderDeckList(deck);
+  }
+}
+
+let _deckListRenderedHidden = false;
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 function renderDeckList(deck) {
   const el = document.getElementById('deckCardList');
   if (!el) return;
+  // Rendering into the hidden Deck List folder tab measures zero widths; note
+  // it so switching back to the tab redraws with real dimensions.
+  const _listPane = document.getElementById('deckTabPane-list');
+  if (_listPane && !_listPane.classList.contains('active')) _deckListRenderedHidden = true;
   _bindDeckStackPeek(el);
   // innerHTML rebuilds wipe scrollTop; keep the list where the user left it so
   // inspector tag refresh / ownership redraws don't jump to top and re-lazy-load.

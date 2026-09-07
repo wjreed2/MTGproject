@@ -394,6 +394,10 @@
      so it doesn't spawn a phantom second grid column. */
   .deck-stats-grid .deck-draw-accel-panel { grid-column: auto !important; }
 
+  /* Deck builder folder tabs — tighter tabs that scroll sideways on phones */
+  .deck-folder-tabs { padding: 2px 4px 0; margin-bottom: 0.85rem; }
+  .deck-ftab { padding: 7px 13px 6px; font-size: 0.68rem; letter-spacing: 0.06em; }
+
   .deck-themes-toggle { flex-wrap: wrap; row-gap: 2px; }
   .deck-themes-name { flex: 1 1 60%; }
   .deck-themes-band { min-width: 0; }

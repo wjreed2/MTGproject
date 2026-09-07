@@ -810,6 +810,62 @@ main {
   font-family: 'Inter', system-ui, sans-serif;
 }
 
+/* DECK BUILDER FOLDER TABS — file-folder tabs paging between builder sections */
+.deck-folder-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  padding: 4px 10px 0;
+  border-bottom: 1px solid var(--border2);
+  margin-bottom: 1.25rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.deck-folder-tabs::-webkit-scrollbar { display: none; }
+.deck-ftab {
+  position: relative;
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  padding: 9px 22px 8px;
+  font-family: 'Cinzel', serif;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text3);
+  cursor: pointer;
+  z-index: 0;
+  transition: color 0.15s var(--ease);
+}
+.deck-ftab::before {
+  /* Trapezoid folder-tab shape: perspective tilt narrows the top edge while
+   * keeping the 1px border crisp (clip-path would clip the border away). */
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(to bottom, var(--bg2), var(--bg));
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 10px 10px 0 0;
+  transform: perspective(9px) rotateX(1.15deg);
+  transform-origin: bottom;
+  transition: background 0.15s var(--ease);
+}
+.deck-ftab:hover { color: var(--text2); }
+.deck-ftab.active {
+  color: var(--gold);
+  z-index: 1;
+}
+.deck-ftab.active::before {
+  background: var(--bg2);
+  border-color: var(--border2);
+  box-shadow: 0 -6px 14px rgba(0,0,0,0.25);
+}
+.deck-tab-pane { display: none; }
+.deck-tab-pane.active { display: block; }
+
 /* Deck view: mana curve + type + mana pies share a grid; bodies fill panel height */
 .deck-stats-grid {
   display: grid;
