@@ -816,7 +816,8 @@ main {
 .deck-folder-tabs {
   display: flex;
   align-items: flex-end;
-  padding: 8px 14px 0;
+  /* No left padding: the page's left edge flows straight up into the first tab */
+  padding: 10px 14px 0 0;
   margin-bottom: -1px;
   position: relative;
   z-index: 2;
@@ -829,9 +830,9 @@ main {
   flex-shrink: 0;
   border: none;
   background: none;
-  padding: 8px 26px 7px;
+  padding: 11px 30px 9px;
   font-family: 'Inter', system-ui, sans-serif;
-  font-size: 0.82rem;
+  font-size: 0.9rem;
   font-weight: 500;
   letter-spacing: 0.02em;
   color: var(--text3);
@@ -855,7 +856,7 @@ main {
   z-index: -1;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 10px 10px 0 0;
+  border-radius: 12px 12px 0 0;
   transform: perspective(9px) rotateX(1.15deg);
   transform-origin: bottom;
   transition: background 0.15s var(--ease);
@@ -864,7 +865,7 @@ main {
 .deck-ftab.active {
   color: var(--gold);
   z-index: 10;
-  padding: 10px 30px 8px; /* pulled to the front of the drawer, slightly expanded */
+  padding: 13px 34px 10px; /* pulled to the front of the drawer, slightly expanded */
 }
 .deck-ftab.active::before {
   background: var(--bg2); /* matches the tab page so the tab opens into it */
@@ -9396,11 +9397,16 @@ body.glass-mode .panel { border-radius: 20px; }
 /* Deck builder folder tabs on glass: the tab page is the frosted surface and
    sections inside it go flat, so each tab reads as one continuous page. */
 body.glass-mode .deck-tab-pane {
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.13);
+  /* Slightly brighter at the top so the surface reads as lit glass; the active
+     tab uses the same top alpha so tab and page are one material. */
+  background: linear-gradient(180deg,
+    rgba(255,255,255,0.085) 0%,
+    rgba(255,255,255,0.05) 180px,
+    rgba(255,255,255,0.05) 100%);
+  border: 1px solid rgba(255,255,255,0.16);
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.16),
-    inset 0 0 0.5px rgba(255,255,255,0.10),
+    inset 0 1px 0 rgba(255,255,255,0.2),
+    inset 0 0 0.5px rgba(255,255,255,0.12),
     0 8px 28px rgba(0,0,0,0.35);
   border-radius: 0 20px 20px 20px;
 }
@@ -9411,13 +9417,17 @@ body.glass-mode .deck-tab-pane .panel {
   border-radius: 0;
 }
 body.glass-mode .deck-ftab::before {
-  background: rgba(255,255,255,0.02);
-  border-color: rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.035);
+  border-color: rgba(255,255,255,0.10);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.10);
 }
 body.glass-mode .deck-ftab.active::before {
-  background: rgba(255,255,255,0.05);
-  border-color: rgba(255,255,255,0.13);
+  background: rgba(255,255,255,0.085); /* = the page's top-edge alpha */
+  border-color: rgba(255,255,255,0.16);
   border-bottom: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.2),
+    inset 0 0 0.5px rgba(255,255,255,0.12);
 }
 body.glass-mode .player-card {
   border-radius: 20px;
@@ -9568,8 +9578,11 @@ body.glass-mode .empty-state h2 {
     0 8px 28px rgba(30,50,90,0.14);
 }
 [data-theme="light"] body.glass-mode .deck-tab-pane {
-  background: rgba(255,255,255,0.5);
-  border: 1px solid rgba(255,255,255,0.65);
+  background: linear-gradient(180deg,
+    rgba(255,255,255,0.62) 0%,
+    rgba(255,255,255,0.48) 180px,
+    rgba(255,255,255,0.48) 100%);
+  border: 1px solid rgba(255,255,255,0.7);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.9),
     0 8px 28px rgba(30,50,90,0.14);
@@ -9580,13 +9593,15 @@ body.glass-mode .empty-state h2 {
   box-shadow: none;
 }
 [data-theme="light"] body.glass-mode .deck-ftab::before {
-  background: rgba(255,255,255,0.28);
-  border-color: rgba(255,255,255,0.5);
+  background: rgba(255,255,255,0.32);
+  border-color: rgba(255,255,255,0.55);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.6);
 }
 [data-theme="light"] body.glass-mode .deck-ftab.active::before {
-  background: rgba(255,255,255,0.5);
-  border-color: rgba(255,255,255,0.65);
+  background: rgba(255,255,255,0.62); /* = the page's top-edge alpha */
+  border-color: rgba(255,255,255,0.7);
   border-bottom: none;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9);
 }
 [data-theme="light"] body.glass-mode .player-active-turn {
   background: linear-gradient(165deg, rgba(255,255,255,0.78), rgba(255,255,255,0.5)) !important;
