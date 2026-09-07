@@ -731,17 +731,16 @@
       <!-- Deck builder folder tabs — pages between sections; content is only hidden, never removed -->
       <div class="deck-folder-tabs" id="deckBuilderTabs" role="tablist" aria-label="Deck builder sections">
         <button type="button" class="deck-ftab active" id="deckFtab-list" role="tab" aria-selected="true" onclick="setDeckBuilderTab('list')">Deck List</button>
-        <button type="button" class="deck-ftab" id="deckFtab-adds" role="tab" aria-selected="false" onclick="setDeckBuilderTab('adds')">Suggested Adds</button>
-        <button type="button" class="deck-ftab" id="deckFtab-charts" role="tab" aria-selected="false" onclick="setDeckBuilderTab('charts')">Graphs</button>
-        <button type="button" class="deck-ftab" id="deckFtab-strategy" role="tab" aria-selected="false" onclick="setDeckBuilderTab('strategy')">Strategy</button>
-        <button type="button" class="deck-ftab" id="deckFtab-sharing" role="tab" aria-selected="false" onclick="setDeckBuilderTab('sharing')">Sharing</button>
+        <button type="button" class="deck-ftab" id="deckFtab-design" role="tab" aria-selected="false" onclick="setDeckBuilderTab('design')">Design</button>
+        <button type="button" class="deck-ftab" id="deckFtab-suggestions" role="tab" aria-selected="false" onclick="setDeckBuilderTab('suggestions')">Suggestions</button>
+        <button type="button" class="deck-ftab" id="deckFtab-analytics" role="tab" aria-selected="false" onclick="setDeckBuilderTab('analytics')">Analytics</button>
+        <button type="button" class="deck-ftab" id="deckFtab-share" role="tab" aria-selected="false" onclick="setDeckBuilderTab('share')">Share</button>
       </div>
 
       <div id="deckTabPane-list" class="deck-tab-pane active">
       <!-- Deck List -->
       <div class="panel" style="margin-bottom:1.25rem">
         <div id="deckListPanelHeader" class="panel-header" style="flex-wrap:wrap;gap:6px">
-          <span class="panel-title">Deck List</span>
           <span id="deckListCount"></span>
           <div class="deck-list-header-spacer" style="flex:1"></div>
           <span id="deckGroupByWrap" style="display:flex;align-items:center;gap:5px">
@@ -826,7 +825,9 @@
           </div>
         </div>
       </div>
+      </div><!-- /deckTabPane-list -->
 
+      <div id="deckTabPane-suggestions" class="deck-tab-pane">
       <!-- Suggested Cuts (shown when deck exceeds 100 cards) -->
       <div id="deckCutSuggestionsPanel" class="panel" style="display:none;margin-bottom:1.25rem">
         <div class="panel-header deck-suggest-header">
@@ -878,13 +879,10 @@
         <div id="deckCutThresholdEditor" style="display:none"></div>
         <div id="deckCutSuggestionsBody"></div>
       </div>
-      </div><!-- /deckTabPane-list -->
 
-      <div id="deckTabPane-adds" class="deck-tab-pane">
       <!-- Suggested Adds — inverse of Suggested Cuts, shares its target model -->
       <div id="deckAddSuggestionsPanel" class="panel" style="display:none;margin-bottom:1.25rem">
         <div class="panel-header deck-suggest-header">
-          <span class="panel-title">Suggested Adds</span>
           <span class="deck-cut-help tooltip-wrap" tabindex="0" aria-label="How suggested adds work">
             <span class="deck-cut-help-icon" aria-hidden="true">?</span>
             <span class="tooltip deck-cut-help-tooltip">
@@ -940,9 +938,9 @@
         <div id="deckAddThresholdEditor" style="display:none"></div>
         <div id="deckAddSuggestionsBody"></div>
       </div>
-      </div><!-- /deckTabPane-adds -->
+      </div><!-- /deckTabPane-suggestions -->
 
-      <div id="deckTabPane-charts" class="deck-tab-pane">
+      <div id="deckTabPane-analytics" class="deck-tab-pane">
       <!-- Bottom: Deck composition and mana profile -->
       <div class="deck-stats-grid">
         <div class="panel">
@@ -1020,9 +1018,9 @@
           </div>
         </div>
       </div>
-      </div><!-- /deckTabPane-charts -->
+      </div><!-- /deckTabPane-analytics -->
 
-      <div id="deckTabPane-strategy" class="deck-tab-pane">
+      <div id="deckTabPane-design" class="deck-tab-pane">
       <!-- Commander Gameplan Probability -->
       <div id="commanderGameplan" style="margin-bottom:1.25rem;display:none"></div>
 
@@ -1056,13 +1054,12 @@
           <p style="color:var(--text3);font-size:0.85rem;font-style:italic;margin:0">Loading…</p>
         </div>
       </div>
-      </div><!-- /deckTabPane-strategy -->
+      </div><!-- /deckTabPane-design -->
 
-      <div id="deckTabPane-sharing" class="deck-tab-pane">
+      <div id="deckTabPane-share" class="deck-tab-pane">
       <!-- Collaborators (owner only) -->
       <div id="deckCollaboratorsPanel" class="panel" style="display:none">
         <div class="panel-header">
-          <span class="panel-title">Collaborators</span>
           <span class="deck-tab-hint">Manage access</span>
           <div style="flex:1"></div><button type="button" class="decklist-collapse-btn deck-info-collapse-btn" data-info-key="collab" onclick="toggleDeckInfoPanel('collab')" title="Toggle">▾</button>
         </div>
@@ -1080,7 +1077,7 @@
           <div id="collabError" style="margin-top:6px"></div>
         </div>
       </div>
-      </div><!-- /deckTabPane-sharing -->
+      </div><!-- /deckTabPane-share -->
     </div>
 
     </div><!-- end deckDetailArea -->

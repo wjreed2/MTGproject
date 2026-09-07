@@ -8744,7 +8744,7 @@ function _applyDeckInfoCollapsed() {
 // File-folder tabs above the deck detail that page between section groups.
 // Panes only hide/show — every section keeps rendering into its usual DOM.
 // Choice persists user-wide, not per deck.
-const _DECK_BUILDER_TABS = ['list', 'adds', 'charts', 'strategy', 'sharing'];
+const _DECK_BUILDER_TABS = ['list', 'design', 'suggestions', 'analytics', 'share'];
 
 function _deckBuilderTab() {
   try {
@@ -8760,20 +8760,23 @@ function setDeckBuilderTab(key) {
 }
 
 function _applyDeckBuilderTab() {
-  // Sharing is owner-only (matches renderCollaboratorsPanel); shared decks
+  // Share is owner-only (matches renderCollaboratorsPanel); shared decks
   // hide the tab and fall back to the deck list without clobbering the pref.
-  const sharingHidden = !!activeDeckIsShared;
-  const sharingBtn = document.getElementById('deckFtab-sharing');
-  if (sharingBtn) sharingBtn.style.display = sharingHidden ? 'none' : '';
+  const shareHidden = !!activeDeckIsShared;
+  const shareBtn = document.getElementById('deckFtab-share');
+  if (shareBtn) shareBtn.style.display = shareHidden ? 'none' : '';
 
-  // Suggested Adds hides itself for empty decks — hide its tab along with it.
-  const addsHidden = document.getElementById('deckAddSuggestionsPanel')?.style.display === 'none';
-  const addsBtn = document.getElementById('deckFtab-adds');
-  if (addsBtn) addsBtn.style.display = addsHidden ? 'none' : '';
+  // Suggestions holds Suggested Cuts + Suggested Adds; hide the tab only when
+  // both panels hide themselves (adds: empty deck; cuts: deck at or under 100).
+  const suggestionsHidden =
+    document.getElementById('deckAddSuggestionsPanel')?.style.display === 'none'
+    && document.getElementById('deckCutSuggestionsPanel')?.style.display === 'none';
+  const suggestionsBtn = document.getElementById('deckFtab-suggestions');
+  if (suggestionsBtn) suggestionsBtn.style.display = suggestionsHidden ? 'none' : '';
 
   let active = _deckBuilderTab();
-  if (active === 'sharing' && sharingHidden) active = 'list';
-  if (active === 'adds' && addsHidden) active = 'list';
+  if (active === 'share' && shareHidden) active = 'list';
+  if (active === 'suggestions' && suggestionsHidden) active = 'list';
 
   for (const key of _DECK_BUILDER_TABS) {
     const on = key === active;
@@ -8783,7 +8786,7 @@ function _applyDeckBuilderTab() {
     if (pane) pane.classList.toggle('active', on);
   }
 
-  if (active === 'charts') {
+  if (active === 'analytics') {
     // Chart.js canvases created while their pane was display:none have zero
     // size — nudge them once the pane is visible.
     requestAnimationFrame(() => {

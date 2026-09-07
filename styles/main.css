@@ -830,10 +830,11 @@ main {
   flex-shrink: 0;
   border: none;
   background: none;
-  padding: 11px 30px 9px;
+  padding: 12px 32px 10px;
   font-family: 'Inter', system-ui, sans-serif;
-  font-size: 0.9rem;
-  font-weight: 500;
+  /* Same size as the deck panel titles the tabs replaced */
+  font-size: calc(0.85rem + var(--dl-fs, 2pt));
+  font-weight: 600;
   letter-spacing: 0.02em;
   color: var(--text3);
   cursor: pointer;
@@ -865,7 +866,7 @@ main {
 .deck-ftab.active {
   color: var(--gold);
   z-index: 10;
-  padding: 13px 34px 10px; /* pulled to the front of the drawer, slightly expanded */
+  padding: 14px 36px 11px; /* pulled to the front of the drawer, slightly expanded */
 }
 .deck-ftab.active::before {
   background: var(--bg2); /* matches the tab page so the tab opens into it */
@@ -9416,6 +9417,9 @@ body.glass-mode .deck-tab-pane .panel {
   border: none;
   box-shadow: none;
   border-radius: 0;
+}
+body.glass-mode .deck-ftab {
+  font-family: var(--glass-font); /* matches glass panel titles */
 }
 body.glass-mode .deck-ftab::before {
   background: rgba(255,255,255,0.035);
