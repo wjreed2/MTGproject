@@ -9408,27 +9408,9 @@ function renderManaCurve(deck) {
   const l1 = actualNorm.reduce((sum, n, i) => sum + Math.abs(n - idealWeights[i]), 0);
   const fit = Math.max(0, Math.min(1, 1 - (l1 / 2)));
   const fitPct = Math.round(fit * 100);
-  const _lerp = (a, b, t) => Math.round(a + (b - a) * t);
-  const gradeStops = [
-    { pct: 0,   rgb: [214, 58, 58] },
-    { pct: 50,  rgb: [214, 58, 58] },
-    { pct: 60,  rgb: [225, 118, 46] },
-    { pct: 70,  rgb: [214, 166, 42] },
-    { pct: 80,  rgb: [163, 180, 53] },
-    { pct: 90,  rgb: [98, 176, 72] },
-    { pct: 100, rgb: [58, 186, 92] },
-  ];
-  let fitColor = 'rgb(214, 58, 58)';
-  for (let i = 0; i < gradeStops.length - 1; i++) {
-    const a = gradeStops[i];
-    const b = gradeStops[i + 1];
-    if (fitPct >= a.pct && fitPct <= b.pct) {
-      const span = Math.max(1, b.pct - a.pct);
-      const t = (fitPct - a.pct) / span;
-      fitColor = `rgb(${_lerp(a.rgb[0], b.rgb[0], t)}, ${_lerp(a.rgb[1], b.rgb[1], t)}, ${_lerp(a.rgb[2], b.rgb[2], t)})`;
-      break;
-    }
-  }
+  // Fit grade on the liquid-glass scale: blue = tight fit, purple = poor fit.
+  // Fits below 50% are all "bad" — clamp so the scale spreads over 50-100.
+  const fitColor = _lgxVerdictColor((fitPct - 50) / 50);
   const labels = buckets.map(cmc => (cmc === 7 ? '7+' : String(cmc)));
   const dataMax = Math.max(...counts, ...(isFiltered ? [] : ideal), 0);
   // Cubic smoothing overshoots peaks and can dip below zero between points.
@@ -10081,6 +10063,16 @@ function _hypergeoAtLeast(N, K, n, minK) {
 // ── Opening hand land distribution ───────────────────────────────────────────
 
 let _openingHandChartInst = null;
+
+/** Verdict color on the liquid-glass scale: 1 = blue (good) → 0 = purple (bad), blended between. */
+function _lgxVerdictColor(t) {
+  const cs = getComputedStyle(document.documentElement);
+  const blue = (cs.getPropertyValue('--lgx1') || '110,168,255').trim().split(',').map(Number);
+  const purple = (cs.getPropertyValue('--lgx2') || '168,140,255').trim().split(',').map(Number);
+  const k = Math.max(0, Math.min(1, Number(t) || 0));
+  const mix = purple.map((v, i) => Math.round(v + (blue[i] - v) * k));
+  return `rgb(${mix[0]},${mix[1]},${mix[2]})`;
+}
 
 /** Liquid-glass bar fill: blue at the top melting into purple, per theme accents. */
 function _lgxBarGradient(context) {
@@ -11164,7 +11156,7 @@ function renderCommanderGameplan(deck) {
   const { meta } = probs;
 
   const THRESHOLD = 0.85;
-  const pColor = p => p >= THRESHOLD ? '#3db85a' : p >= 0.65 ? '#d4a83a' : '#d44a4a';
+  const pColor = p => _lgxVerdictColor(p); // blue = likely, purple = unlikely
   const pBar = p => {
     const pct = Math.round(p * 100);
     return `<div class="cmdr-gp-bar"><div class="cmdr-gp-bar-fill" style="width:${pct}%;background:${pColor(p)}"></div></div>`;
@@ -15442,7 +15434,7 @@ function _simRenderHTML(deck, commander, edhrecData, archiveData) {
     const found      = nonLands.map(c => edhrecMap.get(c.name.toLowerCase())).filter(Boolean);
     const score      = found.length ? Math.round(found.reduce((s, c) => s + c.inclusion, 0) / found.length) : 0;
     const coverage   = nonLands.length ? Math.round((found.length / nonLands.length) * 100) : 0;
-    const scoreColor = score >= 65 ? 'var(--green)' : score >= 40 ? 'var(--gold)' : 'var(--red)';
+    const scoreColor = _lgxVerdictColor(score / 100); // blue = aligned, purple = divergent
 
     const missing = edhrecData.cards
       .filter(c => c.inclusion >= 30 && !deckNames.has(c.name.toLowerCase()))
@@ -15509,7 +15501,7 @@ function _simRenderHTML(deck, commander, edhrecData, archiveData) {
     ? '<p class="sim-note">Be the trendsetter — no one else has built this commander here yet.</p>'
     : `<div class="sim-archive-list">${scored.map(d => {
         const pct = Math.round(d.similarity * 100);
-        const col = pct >= 60 ? 'var(--teal)' : pct >= 35 ? 'var(--gold)' : 'var(--text3)';
+        const col = _lgxVerdictColor(d.similarity); // blue = similar, purple = far apart
         const who = d.is_own ? '(you)' : escapeHtml(d.owner_email.replace(/@.*$/, '@…'));
         return `<div class="sim-archive-row">
           <div class="sim-archive-name">${escapeHtml(d.deck_name)} <span class="sim-meta">${who}</span></div>
