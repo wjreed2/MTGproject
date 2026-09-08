@@ -523,6 +523,21 @@ function computePriceDelta(nowPx, thenPx) {
 /** In-memory cache: `${date}|${scryfallId}` → price record or null (fetched miss). */
 const _pricesAtCache = new Map();
 const _PRICES_AT_FETCH_CHUNK = 300;
+// One entry per (date × card) — timeframe toggles and per-card since-added dates
+// multiply keys, and with no cap this grew 10+ MB over a session. FIFO eviction:
+// Map iterates in insertion order, so the oldest-fetched dates go first and an
+// evicted entry simply refetches.
+const _PRICES_AT_CACHE_MAX = 30000;
+function _pricesAtCacheSet(key, val) {
+  _pricesAtCache.set(key, val);
+  if (_pricesAtCache.size <= _PRICES_AT_CACHE_MAX) return;
+  const drop = Math.ceil(_PRICES_AT_CACHE_MAX / 4);
+  let i = 0;
+  for (const k of _pricesAtCache.keys()) {
+    _pricesAtCache.delete(k);
+    if (++i >= drop) break;
+  }
+}
 
 function _pricesAtCacheHas(scryfallId, date) {
   return _pricesAtCache.has(`${date}|${String(scryfallId || '').toLowerCase()}`);
@@ -540,12 +555,12 @@ async function fetchPricesAt(scryfallIds, date) {
         const prices = data?.prices || {};
         for (const id of chunk) {
           const rec = prices[id] || null;
-          _pricesAtCache.set(`${date}|${id}`, rec);
+          _pricesAtCacheSet(`${date}|${id}`, rec);
         }
       }
     } catch (_) {
       for (const id of need) {
-        if (!_pricesAtCache.has(`${date}|${id}`)) _pricesAtCache.set(`${date}|${id}`, null);
+        if (!_pricesAtCache.has(`${date}|${id}`)) _pricesAtCacheSet(`${date}|${id}`, null);
       }
     }
   }
@@ -570,14 +585,14 @@ async function fetchPricesAtItems(items) {
         const sid = String(it.scryfallId).toLowerCase();
         const date = String(it.date);
         const rec = prices[sid] || null;
-        _pricesAtCache.set(`${date}|${sid}`, rec);
+        _pricesAtCacheSet(`${date}|${sid}`, rec);
         if (rec) out.set(`${date}|${sid}`, rec);
       }
     } catch (_) {
       for (const it of chunk) {
         const sid = String(it.scryfallId).toLowerCase();
         const date = String(it.date);
-        if (!_pricesAtCache.has(`${date}|${sid}`)) _pricesAtCache.set(`${date}|${sid}`, null);
+        if (!_pricesAtCache.has(`${date}|${sid}`)) _pricesAtCacheSet(`${date}|${sid}`, null);
       }
     }
   }

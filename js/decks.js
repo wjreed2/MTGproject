@@ -14,6 +14,40 @@ function toggleDeckGameChangerTooltip() {
   document.getElementById('deckGameChangerBadge')?.classList.toggle('open');
 }
 
+// ⓘ badge next to the deck title — format, value, and game changers live here
+// now (the header pills and the standalone GC badge are retired from view).
+function toggleDeckInfoTooltip() {
+  const badge = document.getElementById('deckInfoBadge');
+  if (!badge) return;
+  if (!badge.classList.contains('open')) _renderDeckInfoTooltip();
+  badge.classList.toggle('open');
+}
+
+function _renderDeckInfoTooltip() {
+  const tip = document.getElementById('deckInfoTooltip');
+  const deck = getActiveDeck();
+  if (!tip || !deck) return;
+  const totalTcg = (deck.cards || []).reduce((sum, c) => {
+    const unit = typeof getTCGPriceForCard === 'function' ? getTCGPriceForCard(c) : (Number(c?.priceTCG) || 0);
+    return sum + (Number(unit) || 0) * (Number(c?.qty) || 1);
+  }, 0);
+  const gcFormat = _isCommanderFormatForGameChangers(deck);
+  const gcEntries = gcFormat && _gameChangerOracleIds ? _deckGameChangerEntries(deck) : null;
+  const gcCount = gcEntries ? gcEntries.length : (gcFormat ? '…' : '—');
+  const gcRows = (gcEntries && gcEntries.length) ? gcEntries.map(c => {
+    const safe = (c.name || '').replace(/'/g, "\\'");
+    return `<div class="deck-gc-row deck-gc-row-link" onclick="jumpToDeckIssue('${safe}')">
+      <span class="deck-gc-row-name">${escapeHtml(c.name)}</span>
+      <span style="color:var(--text3);font-size:0.7rem">view</span>
+    </div>`;
+  }).join('') : '';
+  tip.innerHTML = `
+    <div class="deck-info-row"><span class="deck-info-label">Format</span><span>${escapeHtml(deck.format || '—')}</span></div>
+    <div class="deck-info-row"><span class="deck-info-label">Value (TCG)</span><span>$${totalTcg.toFixed(2)}</span></div>
+    <div class="deck-info-row"><span class="deck-info-label">Game changers</span><span>${gcCount}</span></div>
+    ${gcRows}`;
+}
+
 document.addEventListener('click', e => {
   const btn = document.getElementById('deckOptionsBtn');
   const menu = document.getElementById('deckOptionsDropdown');
@@ -29,6 +63,11 @@ document.addEventListener('click', e => {
   const gcBadge = document.getElementById('deckGameChangerBadge');
   if (gcBadge && !gcBadge.contains(e.target)) {
     gcBadge.classList.remove('open');
+  }
+
+  const infoBadge = document.getElementById('deckInfoBadge');
+  if (infoBadge && !infoBadge.contains(e.target)) {
+    infoBadge.classList.remove('open');
   }
 });
 
@@ -1064,14 +1103,9 @@ async function undoDeckHistoryEvent(historyId, ev) {
   showNotif('Undid ' + (name || 'action'));
 }
 
-async function toggleDeckHistory() {
-  _deckHistoryVisible = !_deckHistoryVisible;
-  document.getElementById('deckListPanel')?.classList.toggle('deck-history-active', _deckHistoryVisible);
-  document.getElementById('deckHistoryBtn')?.classList.toggle('active', _deckHistoryVisible);
-  if (_deckHistoryVisible && activeDeckId) {
-    try { _deckHistory = await apiFetch('/deck-history/' + activeDeckId); } catch (_) { _deckHistory = []; }
-    renderDeckHistory();
-  }
+/** History is a folder tab now — this just pages to/from it. */
+function toggleDeckHistory() {
+  setDeckBuilderTab(_deckHistoryVisible ? 'list' : 'history');
 }
 
 function _escapeHistoryHtml(s) {
@@ -1355,7 +1389,8 @@ function renderDeckHistory() {
 // ─────────────────────────────────────────────────────────────────────────────
 let deckListSearchQ = '';
 let _deckListFilter = { q: '', colors: new Set() };
-let deckSidebarCollapsed = localStorage.getItem('mtg_deck_sidebar_collapsed') === 'true';
+// Deck-switcher sidebar retired (2026-09-03): always collapsed, no toggle.
+let deckSidebarCollapsed = true;
 
 // "Shared With Me" sections (deck grid + deck sidebar) collapse together — user-wide.
 function _sharedDecksCollapsed() {
@@ -1786,7 +1821,11 @@ function _deckExtraZonesExpanded(deck) {
 }
 
 function _deckExtraZoneColumnPx(deck) {
-  return _deckExtraZonesExpanded(deck) ? deckCardSize + 6 : _DECK_EXTRA_ZONE_PILL_W;
+  if (!_deckExtraZonesExpanded(deck)) return _DECK_EXTRA_ZONE_PILL_W;
+  // Desktop zones sit in glass boxes — widen the column by the box chrome
+  // (padding + border) so card tiles inside keep their full size. Phones keep
+  // the original bare zones (mobile.css reverts the boxes there).
+  return deckCardSize + 6 + (_deckIsPhone() ? 0 : 56);
 }
 
 /** Phone-width viewport — same breakpoint as mobile.css (tablets are 769px+). */
@@ -1979,20 +2018,25 @@ function saveActiveDeck(deck, opts) {
 
 function applyDeckSidebarState() {
   const detail = document.getElementById('deckDetailArea');
-  const btn = document.getElementById('toggleDeckSidebarBtn');
   if (!detail) return;
   detail.classList.toggle('sidebar-collapsed', deckSidebarCollapsed);
-  if (btn) {
-    btn.textContent = deckSidebarCollapsed ? '⇥ Decks' : '⇤ Decks';
-    btn.title = deckSidebarCollapsed ? 'Show deck switcher' : 'Hide deck switcher';
-  }
 }
 
-function toggleDeckSidebar() {
-  deckSidebarCollapsed = !deckSidebarCollapsed;
-  localStorage.setItem('mtg_deck_sidebar_collapsed', deckSidebarCollapsed ? 'true' : 'false');
-  applyDeckSidebarState();
+// Desktop puts the deck action cluster (Add cards / History / Manage Tags / ⋮)
+// on the always-visible top row next to "All Decks"; phones keep it in the deck
+// header bar. Moving the same nodes keeps ids, listeners, and the options
+// dropdown's anchor intact.
+function _placeDeckActionCluster() {
+  const cluster = document.getElementById('deckActionCluster');
+  if (!cluster) return;
+  cluster.style.display = activeDeckId ? 'flex' : 'none';
+  const phone = window.matchMedia('(max-width: 768px)').matches;
+  const target = phone ? document.getElementById('deckTopBar')
+                       : document.getElementById('deckBuilderTopBar');
+  if (target && cluster.parentElement !== target) target.appendChild(cluster);
+  cluster.style.marginLeft = phone ? '' : 'auto';
 }
+window.addEventListener('resize', _placeDeckActionCluster);
 
 function setDeckGroupBy(val) {
   if (val === 'custom_tag') val = 'tag_all';
@@ -2063,6 +2107,96 @@ function _syncDeckStackSortControls() {
   if (dirSel && dirSel.value !== deckStackSortDir) dirSel.value = deckStackSortDir;
 }
 
+// ── Glass dropdowns for the deck-list toolbar ─────────────────────────────────
+// The native <select>s stay in the DOM (hidden) as the source of truth — every
+// existing setter reads/writes their .value — and each gets a pill trigger
+// button plus a frosted menu. Labels resync on every renderDeckList.
+const _GLASS_DD_CARET = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:11px;height:11px;opacity:0.6;flex-shrink:0"><path d="M4 6.5 8 10.5 12 6.5"/></svg>';
+
+function _glassMenuCloseAll() {
+  document.querySelectorAll('.glass-menu').forEach(m => m.remove());
+}
+document.addEventListener('click', _glassMenuCloseAll);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') _glassMenuCloseAll(); });
+
+function _glassSelectSyncLabels() {
+  document.querySelectorAll('select[data-glass-label][data-glassified]').forEach(sel => {
+    const btn = document.getElementById(sel.id + 'GlassBtn');
+    if (!btn) return;
+    const opt = sel.options[sel.selectedIndex];
+    const prefix = sel.dataset.glassLabel;
+    btn.innerHTML = (prefix ? `<span class="glass-dd-prefix">${escapeHtml(prefix)}</span>` : '')
+      + `${escapeHtml(opt ? opt.text : '')} ${_GLASS_DD_CARET}`;
+    btn.disabled = sel.disabled;
+  });
+  const dirSel = document.getElementById('deckStackSortDirSelect');
+  const dirBtn = document.getElementById('deckStackSortDirGlassBtn');
+  if (dirSel && dirBtn) dirBtn.textContent = dirSel.value === 'desc' ? '↓' : '↑';
+}
+
+function _glassMenuOpen(sel, wrap) {
+  const menu = document.createElement('div');
+  menu.className = 'glass-menu';
+  for (const opt of sel.options) {
+    if (opt.hidden) continue;
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'glass-menu-item' + (opt.value === sel.value ? ' selected' : '');
+    item.textContent = opt.text;
+    item.addEventListener('click', () => {
+      _glassMenuCloseAll();
+      if (sel.value !== opt.value) {
+        sel.value = opt.value;
+        sel.dispatchEvent(new Event('change')); // runs the select's inline onchange
+      }
+      _glassSelectSyncLabels();
+    });
+    menu.appendChild(item);
+  }
+  wrap.appendChild(menu);
+}
+
+function _glassSelectEnsure() {
+  document.querySelectorAll('#tab-decks select[data-glass-label]:not([data-glassified])').forEach(sel => {
+    sel.dataset.glassified = '1';
+    const wrap = document.createElement('span');
+    wrap.className = 'glass-dd-wrap';
+    // Visibility toggles (e.g. classic-engine-only controls) target this class
+    // with style.display — carry it so the trigger hides with its select.
+    if (sel.classList.contains('suggest-classic-only')) wrap.classList.add('suggest-classic-only');
+    sel.parentNode.insertBefore(wrap, sel);
+    wrap.appendChild(sel);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn-outline btn-sm glass-dd-btn';
+    btn.id = sel.id + 'GlassBtn';
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const open = wrap.querySelector('.glass-menu');
+      _glassMenuCloseAll();
+      if (!open) _glassMenuOpen(sel, wrap);
+    });
+    wrap.appendChild(btn);
+  });
+  // Sort direction: two options — a click-to-flip pill instead of a menu.
+  const dirSel = document.getElementById('deckStackSortDirSelect');
+  if (dirSel && !dirSel.dataset.glassified) {
+    dirSel.dataset.glassified = '1';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn-outline btn-sm glass-dd-btn glass-dir-btn';
+    btn.id = 'deckStackSortDirGlassBtn';
+    btn.title = 'Sort direction';
+    btn.addEventListener('click', () => {
+      dirSel.value = dirSel.value === 'desc' ? 'asc' : 'desc';
+      dirSel.dispatchEvent(new Event('change'));
+      _glassSelectSyncLabels();
+    });
+    dirSel.parentNode.insertBefore(btn, dirSel.nextSibling);
+  }
+  _glassSelectSyncLabels();
+}
+
 function _isTagGroupByMode(groupBy) {
   return groupBy === 'tag_all' || groupBy === 'tag_default' || groupBy === 'tag_primary' || groupBy === 'tag_secondary';
 }
@@ -2099,12 +2233,19 @@ function _tagsOnCardForGroupTier(card, tier) {
   return userTags;
 }
 
+let _deckListSearchDebounce = null;
 function setDeckListSearch(q) {
   _deckListFilter.q = String(q || '').trim();
   deckListSearchQ = _deckListFilter.q.toLowerCase(); // legacy compat
   _updateDeckListFilterUI();
-  const deck = getActiveDeck();
-  if (deck) renderDeckList(deck);
+  // renderDeckList is heavy (suggestions passes + a full collection ownership
+  // re-index before it even filters) — debounce so fast typing pays once.
+  clearTimeout(_deckListSearchDebounce);
+  _deckListSearchDebounce = setTimeout(() => {
+    _deckListSearchDebounce = null;
+    const deck = getActiveDeck();
+    if (deck) renderDeckList(deck);
+  }, 150);
 }
 
 function toggleDeckListColorFilter(color) {
@@ -2646,11 +2787,16 @@ function _normalizeTagOracleId(oracleId) {
 
 async function loadTagOverrides(force = false) {
   if (_tagOverridesLoaded && !force) return;
-  if (_tagOverridesLoadPromise && !force) return _tagOverridesLoadPromise;
+  // Never race two loads: a force reload racing an in-flight load would end
+  // last-writer-wins on the whole map. Chain behind the current one instead.
+  if (_tagOverridesLoadPromise) {
+    await _tagOverridesLoadPromise;
+    if (_tagOverridesLoaded && !force) return;
+  }
   _tagOverridesLoadPromise = (async () => {
     try {
       const rows = await apiFetch('/tag-overrides');
-      _tagOverridesByOracleId = new Map((rows || []).map(r => [
+      const fresh = new Map((rows || []).map(r => [
         String(r.oracleId || '').toLowerCase(),
         {
           addTags: Array.isArray(r.addTags) ? r.addTags.filter(Boolean) : [],
@@ -2661,10 +2807,35 @@ async function loadTagOverrides(force = false) {
           cardName: r.cardName || null,
         },
       ]));
+      // Merge, don't clobber: keep any local row newer than the server's copy.
+      // The boot resync force-reloads while the user may already be tagging —
+      // this GET's snapshot predates their PUT, and replacing the map wholesale
+      // silently erased just-added tags ("tag didn't stick").
+      for (const [oid, local] of _tagOverridesByOracleId) {
+        const srv = fresh.get(oid);
+        if ((Number(local.updatedAt) || 0) > (Number(srv?.updatedAt) || 0)) fresh.set(oid, local);
+      }
+      _tagOverridesByOracleId = fresh;
       _tagOverridesLoaded = true;
     } catch (_) {}
   })().finally(() => { _tagOverridesLoadPromise = null; });
   return _tagOverridesLoadPromise;
+}
+
+// Per-oracle background save queue: tag toggles apply locally + render first,
+// then persist here. Chaining serializes rapid clicks on the same card (each
+// save reads the latest override row when it runs), and failures surface as a
+// notif instead of freezing the picker on every click's network round-trip.
+const _tagSaveChains = new Map();
+function _queueGlobalCustomTagsSave(oracleId) {
+  const oid = _normalizeTagOracleId(oracleId);
+  if (!oid) return Promise.resolve();
+  const prev = _tagSaveChains.get(oid) || Promise.resolve();
+  const next = prev
+    .then(() => _saveGlobalCustomTags(oid))
+    .catch(e => showNotif((e && e.message) || 'Could not save tags — change may not persist', true));
+  _tagSaveChains.set(oid, next);
+  return next;
 }
 
 function _applyTagOverrides(oracleId, tags) {
@@ -3106,7 +3277,6 @@ function renderDecks() {
   });
   if (roleTagChanged) save('decks');
   const importWrap = document.getElementById('deckImportDropdownWrap');
-  const sidebarToggleBtn = document.getElementById('toggleDeckSidebarBtn');
   if (!activeDeckId) {
     // Show big grid, hide detail split
     document.getElementById('deckGridArea').style.display = '';
@@ -3114,7 +3284,6 @@ function renderDecks() {
     document.getElementById('backToDecksBtn').style.display = 'none';
     if (topNewDeckBtn) topNewDeckBtn.style.display = '';
     if (importWrap) importWrap.style.display = '';
-    if (sidebarToggleBtn) sidebarToggleBtn.style.display = 'none';
     renderDeckGrid();
   } else {
     // Show detail split, hide grid
@@ -3123,11 +3292,11 @@ function renderDecks() {
     document.getElementById('backToDecksBtn').style.display = '';
     if (topNewDeckBtn) topNewDeckBtn.style.display = 'none';
     if (importWrap) importWrap.style.display = 'none';
-    if (sidebarToggleBtn) sidebarToggleBtn.style.display = '';
     applyDeckSidebarState();
     renderDeckSidebar();
     renderActiveDeck();
   }
+  _placeDeckActionCluster();
 }
 
 // Always read the commander card's current image rather than the stale stored snapshot
@@ -3242,11 +3411,7 @@ function closeDeckDetail() {
   activeDeckId = null;
   activeDeckIsShared = false;
   localStorage.removeItem('mtg_active_deck_id');
-  if (_deckHistoryVisible) {
-    _deckHistoryVisible = false;
-    document.getElementById('deckListPanel')?.classList.remove('deck-history-active');
-    document.getElementById('deckHistoryBtn')?.classList.remove('active');
-  }
+  _deckHistoryVisible = false; // next deck's render re-enters via _applyDeckBuilderTab
   renderDecks();
 }
 
@@ -3752,11 +3917,7 @@ function selectDeck(id) {
   activeDeckIsShared = !decks.some(d => d.id === id);
   if (typeof clearDeckOwnerCollectionLookup === 'function') clearDeckOwnerCollectionLookup();
   localStorage.setItem('mtg_active_deck_id', id);
-  if (_deckHistoryVisible) {
-    _deckHistoryVisible = false;
-    document.getElementById('deckListPanel')?.classList.remove('deck-history-active');
-    document.getElementById('deckHistoryBtn')?.classList.remove('active');
-  }
+  _deckHistoryVisible = false; // the render's _applyDeckBuilderTab refetches for this deck
   if (typeof joinDeckRoom === 'function') joinDeckRoom(id);
   void _selectDeckRefreshAndRender(id);
 }
@@ -3818,6 +3979,59 @@ function _backfillDeckCardTypeLines(deck) {
   if (changed && !activeDeckIsShared) saveActiveDeck(deck);
 }
 
+// ── Deck analysis charts ──────────────────────────────────────────────────────
+// One coalesced chart pass per frame instead of nine synchronous chart rebuilds
+// (several destroy() + new Chart()) on every renderActiveDeck call — which runs on
+// every single card add/remove. Skipped entirely while the Decks tab is hidden:
+// every path that shows the tab re-enters renderActiveDeck (showTab → renderDecks),
+// so charts catch up on activation.
+let _deckChartsRaf = null;
+function _renderDeckCharts(deck) {
+  const run = (fn, label) => {
+    try {
+      fn(deck);
+    } catch (err) {
+      console.error(`Deck chart failed (${label}):`, err);
+    }
+  };
+  run(renderManaCurve, 'mana curve');
+  run(renderCommanderGameplan, 'commander gameplan');
+  run(renderTypeBreakdown, 'type breakdown');
+  run(renderManaCostProfile, 'mana cost');
+  run(renderManaGenerationProfile, 'mana generation');
+  run(renderOpeningHandChart, 'opening hand');
+  run(renderLandCoverageChart, 'land coverage');
+  run(renderCardDrawAccelChart, 'card draw');
+  run(renderProbabilityChart, 'probability');
+}
+
+function _scheduleDeckChartsRender() {
+  if (_deckChartsRaf != null) return;
+  const raf = (typeof requestAnimationFrame === 'function')
+    ? requestAnimationFrame
+    : (cb) => setTimeout(cb, 16);
+  _deckChartsRaf = raf(() => {
+    _deckChartsRaf = null;
+    const tab = document.getElementById('tab-decks');
+    if (tab && !tab.classList.contains('active')) return;
+    // Deck grid view (no open deck) has no chart panes to fill.
+    if (document.getElementById('deckDetailArea')?.style.display === 'none') return;
+    const deck = getActiveDeck();
+    if (!deck) return;
+    // Chart.js loads on demand (no longer a blocking boot script). First deck
+    // open waits for it; if the CDN is unreachable, render anyway — the
+    // Chart-based panes fail per-chart (caught) and the HTML-based ones still draw.
+    if (typeof Chart === 'undefined' && typeof ensureChartJs === 'function') {
+      ensureChartJs().then(
+        () => _scheduleDeckChartsRender(),
+        () => _renderDeckCharts(deck)
+      );
+      return;
+    }
+    _renderDeckCharts(deck);
+  });
+}
+
 function renderActiveDeck() {
   const deck = getActiveDeck();
   if (!deck) return;
@@ -3866,7 +4080,8 @@ function renderActiveDeck() {
   const countOk = total >= target && (!max || total <= max);
   const countEl = document.getElementById('deckListCount');
   countEl.textContent = total + ' / ' + (max || target);
-  countEl.style.color = countOk ? 'var(--teal)' : 'var(--red)';
+  // Valid count wears the liquid-glass accent (same blend as the active tab); short/over stays red.
+  countEl.style.color = countOk ? 'color-mix(in oklab, rgb(var(--lgx1)) 55%, rgb(var(--lgx2)))' : 'var(--red)';
   if (_deckSwapsEnabled(deck)) {
     const addQty = _deckPlannedAdds(deck).reduce((s, c) => s + (c.qty || 1), 0);
     const cutQty = _effectivePlannedCuts(deck).reduce((s, c) => s + (c.qty || 1), 0);
@@ -3877,9 +4092,16 @@ function renderActiveDeck() {
   }
   const isCommanderFmt = ['Commander','Brawl','Oathbreaker'].includes(deck.format);
   const cmdEl = document.getElementById('activeDeckCommander');
-  if (cmdEl) { cmdEl.textContent = deck.commander || ''; cmdEl.style.display = deck.commander ? '' : 'none'; }
-  const cmdPipsEl = document.getElementById('activeDeckCommanderPips');
-  if (cmdPipsEl) cmdPipsEl.innerHTML = colorPips(deck.commanderColorIdentity || []);
+  const cmdLabelEl = document.getElementById('activeDeckCommanderLabel');
+  if (cmdLabelEl) cmdLabelEl.style.display = deck.commander ? '' : 'none';
+  if (cmdEl) {
+    cmdEl.textContent = deck.commander || '';
+    cmdEl.style.display = deck.commander ? '' : 'none';
+    const canEditCmd = isCommanderFmt && !activeDeckIsShared;
+    cmdEl.onclick = canEditCmd ? openCommanderEdit : null;
+    cmdEl.style.cursor = canEditCmd ? 'pointer' : '';
+    cmdEl.title = canEditCmd ? 'Change commander' : '';
+  }
   const cmdEditBtn = document.getElementById('activeDeckCommanderEditBtn');
   if (cmdEditBtn) cmdEditBtn.style.display = isCommanderFmt && !activeDeckIsShared ? '' : 'none';
   closeCommanderEdit();
@@ -3909,6 +4131,7 @@ function renderActiveDeck() {
       if (isDeckOwnershipEnabled()) _rebuildOwnershipMaps();
       renderDeckList(deck);
       renderCommanderGameplan(deck);
+      _glassSelectEnsure();
       if (typeof _renderDeckSearchGrid === 'function') _renderDeckSearchGrid();
       scheduleEDHRECRefresh(0);
     });
@@ -3917,27 +4140,15 @@ function renderActiveDeck() {
   _renderScryTagSyncBadge();
 
   renderDeckList(deck);
-  const _renderDeckChart = (fn, label) => {
-    try {
-      fn(deck);
-    } catch (err) {
-      console.error(`Deck chart failed (${label}):`, err);
-    }
-  };
-  _renderDeckChart(renderManaCurve, 'mana curve');
-  _renderDeckChart(renderCommanderGameplan, 'commander gameplan');
-  _renderDeckChart(renderTypeBreakdown, 'type breakdown');
-  _renderDeckChart(renderManaCostProfile, 'mana cost');
-  _renderDeckChart(renderManaGenerationProfile, 'mana generation');
-  _renderDeckChart(renderOpeningHandChart, 'opening hand');
-  _renderDeckChart(renderLandCoverageChart, 'land coverage');
-  _renderDeckChart(renderCardDrawAccelChart, 'card draw');
-  _renderDeckChart(renderProbabilityChart, 'probability');
+  _scheduleDeckChartsRender();
   renderDeckValidation(deck);
   scheduleDeckGameChangerRefresh(deck);
   renderCollaboratorsPanel(deck);
   _simAutoLoad();
   scheduleEDHRECRefresh(0);
+  _applyDeckInfoCollapsed();
+  _applyDeckBuilderTab();
+  _glassSelectEnsure(); // pick up any selects the renderers above recreated
 }
 
 // ── Collaborators panel ───────────────────────────────────────────────────────
@@ -4579,13 +4790,7 @@ async function applyInspectorCardTagAction(card, tag, action, opts = {}) {
   ov.customTags = _dedupeCustomTags(ov.customTags);
   ov.customTagTiers = _normalizeCustomTagTiers(ov.customTagTiers);
   ov.updatedAt = Date.now();
-
-  try {
-    await _saveGlobalCustomTags(oracleId);
-  } catch (e) {
-    showNotif(e.message || 'Could not save tag', true);
-    return;
-  }
+  void _queueGlobalCustomTagsSave(oracleId);
 
   const tierNow = ov.customTagTiers[_tagTierKey(tag)] || null;
   const myStillOn = _customTagsHas(ov.customTags, tag);
@@ -4699,13 +4904,10 @@ async function toggleDeckCardCustomTag(tag, opts = {}) {
     if (!_tagOverridesByOracleId.has(oracleId)) {
       _tagOverridesByOracleId.set(oracleId, { addTags: [], removeTags: [], customTags: [], customTagTiers: {}, updatedAt: Date.now(), cardName: card.name });
     }
-    _setOverrideCustomTagTier(_tagOverridesByOracleId.get(oracleId), tag, next);
-    try {
-      await _saveGlobalCustomTags(oracleId);
-    } catch (e) {
-      showNotif(e.message || 'Could not save My Tags', true);
-      return;
-    }
+    const cycOv = _tagOverridesByOracleId.get(oracleId);
+    _setOverrideCustomTagTier(cycOv, tag, next);
+    cycOv.updatedAt = Date.now();
+    void _queueGlobalCustomTagsSave(oracleId);
     const applyTier = c => { if (c) _setCardCustomTagTier(c, tag, next); };
     applyTier(card);
     const collCard = (collection || []).find(c => _cardMatchesRef(c, _deckCardTagPickerTarget.cardUid));
@@ -4752,12 +4954,8 @@ async function toggleDeckCardCustomTag(tag, opts = {}) {
     _removeOverrideCustomTagTier(ov, tag);
   }
   ov.customTags = _dedupeCustomTags(ov.customTags);
-  try {
-    await _saveGlobalCustomTags(oracleId);
-  } catch (e) {
-    showNotif(e.message || 'Could not save My Tags', true);
-    return;
-  }
+  ov.updatedAt = Date.now();
+  void _queueGlobalCustomTagsSave(oracleId);
 
   const collCard = (collection || []).find(c => _cardMatchesRef(c, _deckCardTagPickerTarget.cardUid));
   const touch = (c) => {
@@ -4923,30 +5121,26 @@ async function toggleDeckCardProtectedTagOverride(tag) {
   const nowOn = t.overrideAdd.has(tag) || (defOn && !t.overrideRemove.has(tag));
   const addTags = [...t.overrideAdd].sort((a, b) => a.localeCompare(b));
   const removeTags = [...t.overrideRemove].sort((a, b) => a.localeCompare(b));
-  try {
-    const ov = _tagOverridesByOracleId.get(t.oracleId) || {};
-    const customTags = Array.from(ov.customTags || []);
-    const customTagTiers = _normalizeCustomTagTiers(ov.customTagTiers);
-    if (!addTags.length && !removeTags.length && !customTags.length && !Object.keys(customTagTiers).length) {
-      await apiDelete(`/tag-overrides/${t.oracleId}`);
-    } else {
-      await apiPut(`/tag-overrides/${t.oracleId}`, { addTags, removeTags, customTags, customTagTiers });
-    }
-    const active = getActiveDeck();
-    const activeSlot = active && getDeckCardByUid(active, t.cardUid);
-    if (nowOn !== wasOn && activeSlot) recordDeckEvent(nowOn ? 'tag_add' : 'tag_remove', activeSlot, tag);
-    await loadTagOverrides(true);
-    renderTagOverridesList();
-    renderTagSettingsSearchResults();
-    if (active && syncDeckAutoRoleTags(active)) saveActiveDeck(active);
-    if (active) renderActiveDeck();
-    if (typeof patchOpenCardDetailMyTags === 'function') patchOpenCardDetailMyTags();
-    if (typeof _loadCardDetailDefaultTags === 'function' && card) void _loadCardDetailDefaultTags(card);
-    if (card) await _hydrateDeckCardTagPickerDefaults(card);
-    renderDeckCardTagPicker();
-  } catch (e) {
-    showNotif(e.message || 'Could not save protected tag override', true);
+  // Optimistic: commit to the local override row + UI immediately; the queued
+  // save persists in the background (no per-click network stall, no force
+  // reload — the merge in loadTagOverrides keeps newer local rows anyway).
+  const ovRow = _ensureTagOverrideRow(t.oracleId, card?.name);
+  if (ovRow) {
+    ovRow.addTags = addTags;
+    ovRow.removeTags = removeTags;
+    ovRow.updatedAt = Date.now();
   }
+  void _queueGlobalCustomTagsSave(t.oracleId);
+  const active = getActiveDeck();
+  const activeSlot = active && getDeckCardByUid(active, t.cardUid);
+  if (nowOn !== wasOn && activeSlot) recordDeckEvent(nowOn ? 'tag_add' : 'tag_remove', activeSlot, tag);
+  renderTagOverridesList();
+  renderTagSettingsSearchResults();
+  if (active && syncDeckAutoRoleTags(active)) saveActiveDeck(active);
+  if (active) renderActiveDeck();
+  if (typeof patchOpenCardDetailMyTags === 'function') patchOpenCardDetailMyTags();
+  if (typeof _loadCardDetailDefaultTags === 'function' && card) void _loadCardDetailDefaultTags(card);
+  renderDeckCardTagPicker();
 }
 
 /**
@@ -5011,13 +5205,7 @@ async function toggleDeckCardDefaultTagTier(tag, opts = {}) {
   ov.removeTags = [...t.overrideRemove].sort((a, b) => a.localeCompare(b));
   ov.updatedAt = Date.now();
   if (!ov.cardName) ov.cardName = card.name;
-
-  try {
-    await _saveGlobalCustomTags(oracleId);
-  } catch (e) {
-    showNotif(e.message || 'Could not save tag', true);
-    return;
-  }
+  void _queueGlobalCustomTagsSave(oracleId);
 
   // Mirror the tier onto in-memory card copies so deck-list / inspector colors update.
   const applyTier = c => {
@@ -7210,7 +7398,8 @@ function _toggleCutPanel() {
   if (!body) return;
   const collapsed = body.style.display === 'none';
   body.style.display = collapsed ? '' : 'none';
-  if (btn) btn.classList.toggle('is-rotated', collapsed);
+  // Arrow points right (rotated) while collapsed — matches toggleDeckListCollapse.
+  if (btn) btn.classList.toggle('is-rotated', !collapsed);
 }
 
 // ── suggestion engine mode (Classic ↔ Hybrid ↔ Semantic) ─────────────────────
@@ -8380,8 +8569,8 @@ async function _renderAddSuggestions(deck) {
   if (isAllCards) {
     body.innerHTML = '<div class="deck-tab-muted" style="padding:.75rem 1rem">Loading catalog…</div>';
     try {
-      const res = await fetch('/api/cards/adds-catalog', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+      const res = await fetch(`${typeof mtgApiRoot === 'function' ? mtgApiRoot() : '/api'}/cards/adds-catalog`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({
           colors: [...cmdCI], exclude: [...inDeckNames], limit: 8000,
         }),
@@ -8482,8 +8671,8 @@ async function _renderAddSuggestions(deck) {
       usedCatalogFallback = true;
       body.innerHTML = '<div class="deck-tab-muted" style="padding:.75rem 1rem">No collection picks — searching All Cards…</div>';
       try {
-        const res = await fetch('/api/cards/adds-catalog', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
+        const res = await fetch(`${typeof mtgApiRoot === 'function' ? mtgApiRoot() : '/api'}/cards/adds-catalog`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
           body: JSON.stringify({
             colors: [...cmdCI], exclude: [...inDeckNames], limit: 8000,
           }),
@@ -8652,14 +8841,121 @@ function _toggleAddPanel() {
   if (!body) return;
   const collapsed = body.style.display === 'none';
   body.style.display = collapsed ? '' : 'none';
-  if (btn) btn.classList.toggle('is-rotated', collapsed);
+  // Arrow points right (rotated) while collapsed — matches toggleDeckListCollapse.
+  if (btn) btn.classList.toggle('is-rotated', !collapsed);
 }
+
+// ── Collapsible info panels below the deck list ───────────────────────────────
+// Every info box below the deck list carries the same collapse arrow as the
+// Suggested Adds/Cuts headers. Default collapsed; each panel's choice persists
+// user-wide in localStorage.
+function _deckInfoCollapsed(key) {
+  try { return localStorage.getItem('mtg_deck_info_open_' + key) !== '1'; } catch (_) { return true; }
+}
+
+function toggleDeckInfoPanel(key) {
+  const opening = _deckInfoCollapsed(key);
+  try { localStorage.setItem('mtg_deck_info_open_' + key, opening ? '1' : '0'); } catch (_) { /* private mode */ }
+  _applyDeckInfoCollapsed();
+}
+
+function _applyDeckInfoCollapsed() {
+  // Folder tabs replaced per-section collapsing: sections on a tab page always
+  // render expanded (the arrows are hidden via CSS; stored prefs are ignored).
+  document.querySelectorAll('#tab-decks .deck-info-collapse-btn[data-info-key]').forEach(btn => {
+    const panel = btn.closest('.panel');
+    if (panel) panel.classList.remove('info-collapsed');
+    btn.classList.remove('is-rotated');
+  });
+}
+
+// ── Deck builder folder tabs ──────────────────────────────────────────────────
+// File-folder tabs above the deck detail that page between section groups.
+// Panes only hide/show — every section keeps rendering into its usual DOM.
+// Choice persists user-wide, not per deck.
+const _DECK_BUILDER_TABS = ['list', 'design', 'suggestions', 'analytics', 'history', 'share'];
+
+function _deckBuilderTab() {
+  try {
+    const t = localStorage.getItem('mtg_deck_builder_tab');
+    return _DECK_BUILDER_TABS.includes(t) ? t : 'list';
+  } catch (_) { return 'list'; }
+}
+
+function setDeckBuilderTab(key) {
+  if (!_DECK_BUILDER_TABS.includes(key)) key = 'list';
+  try { localStorage.setItem('mtg_deck_builder_tab', key); } catch (_) { /* private mode */ }
+  _applyDeckBuilderTab();
+}
+
+function _applyDeckBuilderTab() {
+  // Share is owner-only (matches renderCollaboratorsPanel); shared decks
+  // hide the tab and fall back to the deck list without clobbering the pref.
+  const shareHidden = !!activeDeckIsShared;
+  const shareBtn = document.getElementById('deckFtab-share');
+  if (shareBtn) shareBtn.style.display = shareHidden ? 'none' : '';
+
+  // Suggestions holds Suggested Cuts + Suggested Adds; hide the tab only when
+  // both panels hide themselves (adds: empty deck; cuts: deck at or under 100).
+  const suggestionsHidden =
+    document.getElementById('deckAddSuggestionsPanel')?.style.display === 'none'
+    && document.getElementById('deckCutSuggestionsPanel')?.style.display === 'none';
+  const suggestionsBtn = document.getElementById('deckFtab-suggestions');
+  if (suggestionsBtn) suggestionsBtn.style.display = suggestionsHidden ? 'none' : '';
+
+  let active = _deckBuilderTab();
+  if (active === 'share' && shareHidden) active = 'list';
+  if (active === 'suggestions' && suggestionsHidden) active = 'list';
+
+  for (const key of _DECK_BUILDER_TABS) {
+    const on = key === active;
+    const btn = document.getElementById('deckFtab-' + key);
+    const pane = document.getElementById('deckTabPane-' + key);
+    if (btn) { btn.classList.toggle('active', on); btn.setAttribute('aria-selected', on ? 'true' : 'false'); }
+    if (pane) pane.classList.toggle('active', on);
+  }
+
+  // History lives in its own tab: entering it fetches + renders, leaving it
+  // just clears the flag (event logging checks it before re-rendering).
+  const historyOn = active === 'history';
+  if (historyOn !== _deckHistoryVisible) {
+    _deckHistoryVisible = historyOn;
+    if (historyOn && activeDeckId) {
+      apiFetch('/deck-history/' + activeDeckId)
+        .then(h => { _deckHistory = h; })
+        .catch(() => { _deckHistory = []; })
+        .then(() => { if (_deckHistoryVisible) renderDeckHistory(); });
+    }
+  }
+
+  if (active === 'analytics') {
+    // Chart.js canvases created while their pane was display:none have zero
+    // size — nudge them once the pane is visible.
+    requestAnimationFrame(() => {
+      [_probChartInst, _openingHandChartInst, _landCoverageChartInst, _cardDrawAccelChartInst]
+        .forEach(inst => { try { inst?.resize(); } catch (_) { /* destroyed */ } });
+    });
+  } else if (active === 'list' && _deckListRenderedHidden) {
+    // Stack layout measures the list container; a render that ran while the
+    // pane was display:none measured width 0 — redraw now that it has size.
+    _deckListRenderedHidden = false;
+    const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+    if (deck) renderDeckList(deck);
+  }
+}
+
+let _deckListRenderedHidden = false;
 
 // ─────────────────────────────────────────────────────────────────────────────
 
 function renderDeckList(deck) {
   const el = document.getElementById('deckCardList');
   if (!el) return;
+  // Rendering into the hidden Deck List folder tab measures zero widths; note
+  // it so switching back to the tab redraws with real dimensions.
+  const _listPane = document.getElementById('deckTabPane-list');
+  if (_listPane && !_listPane.classList.contains('active')) _deckListRenderedHidden = true;
+  _glassSelectEnsure();
   _bindDeckStackPeek(el);
   // innerHTML rebuilds wipe scrollTop; keep the list where the user left it so
   // inspector tag refresh / ownership redraws don't jump to top and re-lazy-load.
@@ -9109,7 +9405,7 @@ function _renderManaIdealControls(deck) {
   const onchg = activeDeckIsShared ? '' : ' onchange="onManaIdealArchetypeChange(this.value)"';
   wrap.innerHTML = `
     <label for="manaIdealArchetypeSelect">Ideal curve</label>
-    <select id="manaIdealArchetypeSelect"${onchg}${disabled}>
+    <select id="manaIdealArchetypeSelect" data-glass-label=""${onchg}${disabled}>
       <option value="auto" ${mode === 'auto' ? 'selected' : ''}>Auto</option>
       <option value="aggro" ${mode === 'aggro' ? 'selected' : ''}>Aggro</option>
       <option value="balanced" ${mode === 'balanced' ? 'selected' : ''}>Balanced</option>
@@ -9117,6 +9413,7 @@ function _renderManaIdealControls(deck) {
       <option value="control" ${mode === 'control' ? 'selected' : ''}>Control</option>
     </select>
     <span class="mana-ideal-hint" title="${String(hint).replace(/"/g, '&quot;')}">${hint}${sharedNote}</span>`;
+  _glassSelectEnsure(); // this render recreated the select
 }
 
 function onManaIdealArchetypeChange(val) {
@@ -9156,27 +9453,9 @@ function renderManaCurve(deck) {
   const l1 = actualNorm.reduce((sum, n, i) => sum + Math.abs(n - idealWeights[i]), 0);
   const fit = Math.max(0, Math.min(1, 1 - (l1 / 2)));
   const fitPct = Math.round(fit * 100);
-  const _lerp = (a, b, t) => Math.round(a + (b - a) * t);
-  const gradeStops = [
-    { pct: 0,   rgb: [214, 58, 58] },
-    { pct: 50,  rgb: [214, 58, 58] },
-    { pct: 60,  rgb: [225, 118, 46] },
-    { pct: 70,  rgb: [214, 166, 42] },
-    { pct: 80,  rgb: [163, 180, 53] },
-    { pct: 90,  rgb: [98, 176, 72] },
-    { pct: 100, rgb: [58, 186, 92] },
-  ];
-  let fitColor = 'rgb(214, 58, 58)';
-  for (let i = 0; i < gradeStops.length - 1; i++) {
-    const a = gradeStops[i];
-    const b = gradeStops[i + 1];
-    if (fitPct >= a.pct && fitPct <= b.pct) {
-      const span = Math.max(1, b.pct - a.pct);
-      const t = (fitPct - a.pct) / span;
-      fitColor = `rgb(${_lerp(a.rgb[0], b.rgb[0], t)}, ${_lerp(a.rgb[1], b.rgb[1], t)}, ${_lerp(a.rgb[2], b.rgb[2], t)})`;
-      break;
-    }
-  }
+  // Fit grade on the liquid-glass scale: blue = tight fit, purple = poor fit.
+  // Fits below 50% are all "bad" — clamp so the scale spreads over 50-100.
+  const fitColor = _lgxVerdictColor((fitPct - 50) / 50);
   const labels = buckets.map(cmc => (cmc === 7 ? '7+' : String(cmc)));
   const dataMax = Math.max(...counts, ...(isFiltered ? [] : ideal), 0);
   // Cubic smoothing overshoots peaks and can dip below zero between points.
@@ -9267,11 +9546,20 @@ function renderManaCurve(deck) {
           <clipPath id="${plotClipId}">
             <rect x="${pad.l}" y="${pad.t}" width="${drawW}" height="${drawH}"></rect>
           </clipPath>
+          <linearGradient id="mcStrokeGrad" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" class="mc-grad-stop1"></stop>
+            <stop offset="1" class="mc-grad-stop2"></stop>
+          </linearGradient>
+          <linearGradient id="mcFillGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" class="mc-grad-stop1" stop-opacity="0.26"></stop>
+            <stop offset="1" class="mc-grad-stop2" stop-opacity="0"></stop>
+          </linearGradient>
         </defs>
         <line x1="${pad.l}" y1="${pad.t}" x2="${pad.l}" y2="${h - pad.b}" class="hist-axis-line"></line>
         ${yAxis}
         ${grid}
         <g clip-path="url(#${plotClipId})">
+          ${totalQty > 0 ? `<path class="hist-line-area" d="${actualPath} L ${xAt(labels.length - 1).toFixed(2)} ${yAt(0).toFixed(2)} L ${xAt(0).toFixed(2)} ${yAt(0).toFixed(2)} Z"></path>` : ''}
           ${idealPath ? `<path class="hist-line-ideal" d="${idealPath}"></path>` : ''}
           <path class="hist-line-main" d="${actualPath}"></path>
           ${points}
@@ -9363,9 +9651,11 @@ function _renderManaPie(containerId, chartRefName, counts, emptyText, breakdown)
       labels: present.map(c => names[c]),
       datasets: [{
         data: values,
-        backgroundColor: present.map(c => pieColors[c]),
-        borderColor: 'rgba(0,0,0,0.25)',
-        borderWidth: 1,
+        // Translucent slices with a luminous edge — glassy but the mana hues stay readable
+        backgroundColor: present.map(c => pieColors[c] + 'd9'),
+        borderColor: 'rgba(255,255,255,0.35)',
+        borderWidth: 1.5,
+        hoverOffset: 6,
       }],
     },
     options: {
@@ -9724,11 +10014,14 @@ function renderProbabilityChart(deck) {
         label,
         data,
         borderColor: col,
-        backgroundColor: col + '20',
+        backgroundColor: col + '26',
         fill: true,
         tension: 0.4,
         pointRadius: 4,
         pointHoverRadius: 6,
+        pointBackgroundColor: col,
+        pointBorderColor: 'rgba(255,255,255,0.85)',
+        pointBorderWidth: 1,
         borderWidth: 2.5,
       };
     });
@@ -9816,6 +10109,34 @@ function _hypergeoAtLeast(N, K, n, minK) {
 
 let _openingHandChartInst = null;
 
+/** Verdict rgb triplet ("r,g,b") on the glass scale: 1 = azure (good) → 0 = orchid (bad). */
+function _lgxVerdictRgb(t) {
+  const cs = getComputedStyle(document.documentElement);
+  const good = (cs.getPropertyValue('--lgx-good') || '86,196,255').trim().split(',').map(Number);
+  const bad = (cs.getPropertyValue('--lgx-bad') || '205,94,245').trim().split(',').map(Number);
+  const k = Math.max(0, Math.min(1, Number(t) || 0));
+  return bad.map((v, i) => Math.round(v + (good[i] - v) * k)).join(',');
+}
+
+function _lgxVerdictColor(t) {
+  return `rgb(${_lgxVerdictRgb(t)})`;
+}
+
+/** Verdict-colored glassy bar fill (vertical alpha fade in the verdict hue). */
+function _lgxVerdictBarGradient(context, t) {
+  const col = _lgxVerdictRgb(t);
+  const { ctx, chartArea } = context.chart;
+  if (!chartArea) return `rgba(${col},0.7)`;
+  const g = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+  g.addColorStop(0, `rgba(${col},0.92)`);
+  g.addColorStop(1, `rgba(${col},0.35)`);
+  return g;
+}
+
+const _GLASS_TICK = '#8a90a4';
+const _GLASS_TICK_DIM = '#6d7488';
+const _GLASS_GRID = 'rgba(255,255,255,0.05)';
+
 function renderOpeningHandChart(deck) {
   const el = document.getElementById('openingHandChart');
   if (!el) return;
@@ -9836,12 +10157,14 @@ function renderOpeningHandChart(deck) {
       labels: buckets.map(String),
       datasets: [{
         data,
-        backgroundColor: buckets.map(k => {
-          if (k <= 1 || k >= 5) return 'rgba(200,80,80,0.72)';
-          if (k === 2 || k === 4) return 'rgba(200,168,74,0.75)';
-          return 'rgba(60,160,90,0.75)';
-        }),
-        borderWidth: 0, borderRadius: 3,
+        // Verdict scale by bucket: 3 lands ideal (azure), extremes poor (orchid)
+        backgroundColor: ctx => {
+          const k = ctx.dataIndex;
+          const t = k === 3 ? 1 : (k === 2 || k === 4) ? 0.65 : (k === 1 || k === 5) ? 0.3 : 0;
+          return _lgxVerdictBarGradient(ctx, t);
+        },
+        borderColor: 'rgba(255,255,255,0.30)',
+        borderWidth: 1, borderRadius: 6,
       }]
     },
     options: {
@@ -9852,12 +10175,12 @@ function renderOpeningHandChart(deck) {
         title: {
           display: !empty,
           text: `Avg ${avg} lands  ·  ${K} lands / ${N} cards`,
-          color: '#9a9488', font: { size: 12 }, padding: { bottom: 4 },
+          color: _GLASS_TICK, font: { size: 12 }, padding: { bottom: 4 },
         },
       },
       scales: {
-        y: { beginAtZero: true, ticks: { color: '#6a6560', callback: v => v + '%', font: { size: 13 } }, grid: { color: 'rgba(255,255,255,0.04)' } },
-        x: { title: { display: true, text: 'Lands in opening hand', color: '#6a6560', font: { size: 12 } }, ticks: { color: '#9a9488', font: { size: 13 } }, grid: { display: false } },
+        y: { beginAtZero: true, ticks: { color: _GLASS_TICK_DIM, callback: v => v + '%', font: { size: 13 } }, grid: { color: _GLASS_GRID } },
+        x: { title: { display: true, text: 'Lands in opening hand', color: _GLASS_TICK_DIM, font: { size: 12 } }, ticks: { color: _GLASS_TICK, font: { size: 13 } }, grid: { display: false } },
       },
     },
   });
@@ -9887,12 +10210,10 @@ function renderLandCoverageChart(deck) {
       labels: turns.map(t => `T${t}`),
       datasets: [{
         data,
-        backgroundColor: data.map(p => {
-          if (p >= 85) return 'rgba(60,160,90,0.75)';
-          if (p >= 65) return 'rgba(200,168,74,0.75)';
-          return 'rgba(200,80,80,0.75)';
-        }),
-        borderWidth: 0, borderRadius: 3,
+        // Verdict scale by coverage: ≥100% azure, ≤40% orchid
+        backgroundColor: ctx => _lgxVerdictBarGradient(ctx, ((ctx.parsed?.y ?? 0) - 40) / 60),
+        borderColor: 'rgba(255,255,255,0.30)',
+        borderWidth: 1, borderRadius: 6,
       }]
     },
     options: {
@@ -9902,8 +10223,8 @@ function renderLandCoverageChart(deck) {
         tooltip: { callbacks: { label: ctx => ctx.parsed.y.toFixed(1) + '% to make land drop' } },
       },
       scales: {
-        y: { min: 0, max: 100, ticks: { color: '#6a6560', callback: v => v + '%', font: { size: 13 } }, grid: { color: 'rgba(255,255,255,0.04)' } },
-        x: { title: { display: true, text: 'Turn', color: '#6a6560', font: { size: 12 } }, ticks: { color: '#9a9488', font: { size: 13 } }, grid: { display: false } },
+        y: { min: 0, max: 100, ticks: { color: _GLASS_TICK_DIM, callback: v => v + '%', font: { size: 13 } }, grid: { color: _GLASS_GRID } },
+        x: { title: { display: true, text: 'Turn', color: _GLASS_TICK_DIM, font: { size: 12 } }, ticks: { color: _GLASS_TICK, font: { size: 13 } }, grid: { display: false } },
       },
     },
   });
@@ -10250,7 +10571,7 @@ function setCmdCustomTagFilter(val) {
   const allowed = new Set(['all', 'default', 'primary', 'secondary']);
   _cmdCustomTagFilter = allowed.has(val) ? val : 'all';
   const deck = getActiveDeck();
-  if (deck) renderCommanderGameplan(deck);
+  if (deck) { renderCommanderGameplan(deck); _glassSelectEnsure(); }
 }
 
 /** Display label for a custom-req tag pill. Land keeps its special "Land in hand" wording. */
@@ -10888,7 +11209,7 @@ function renderCommanderGameplan(deck) {
   const { meta } = probs;
 
   const THRESHOLD = 0.85;
-  const pColor = p => p >= THRESHOLD ? '#3db85a' : p >= 0.65 ? '#d4a83a' : '#d44a4a';
+  const pColor = p => _lgxVerdictColor(p); // blue = likely, purple = unlikely
   const pBar = p => {
     const pct = Math.round(p * 100);
     return `<div class="cmdr-gp-bar"><div class="cmdr-gp-bar-fill" style="width:${pct}%;background:${pColor(p)}"></div></div>`;
@@ -10973,6 +11294,7 @@ function renderCommanderGameplan(deck) {
         <div style="flex:1"></div>
         <button class="btn btn-outline btn-sm${_cmdFreeMulligan ? ' active' : ''}" onclick="toggleCmdFreeMulligan(!_cmdFreeMulligan)" title="Commander free mulligan: if your opening hand is bad, you may redraw 7 and bottom 1">Free mulligan</button>
         <button id="cmdGpCustomBtn" class="btn btn-outline btn-sm${_cmdCustomEditorOpen ? ' active' : ''}" onclick="toggleCmdCustomEditor()" title="Define cards you need in hand to execute your gameplan">Custom${savedReqs.length ? ` (${savedReqs.length})` : ''}</button>
+        <button type="button" class="decklist-collapse-btn deck-info-collapse-btn" data-info-key="gameplan" onclick="toggleDeckInfoPanel('gameplan')" title="Toggle">▾</button>
       </div>
       <div id="cmdGpCustomEditor" class="cmdr-gp-custom-editor" style="display:none">
         <div class="cmdr-gp-custom-editor-inner">
@@ -10995,7 +11317,7 @@ function renderCommanderGameplan(deck) {
             const filterRow = dynamic ? `
             <div class="cmdr-gp-custom-filter-row">
               <label for="cmdGpTagFilter" class="cmdr-gp-custom-filter-label">Tags</label>
-              <select id="cmdGpTagFilter" class="deck-select cmdr-gp-custom-filter" onchange="setCmdCustomTagFilter(this.value)" title="Filter requirement pills by tag tier">
+              <select id="cmdGpTagFilter" class="deck-select cmdr-gp-custom-filter" data-glass-label="" onchange="setCmdCustomTagFilter(this.value)" title="Filter requirement pills by tag tier">
                 <option value="all"${filter === 'all' ? ' selected' : ''}>All Tags</option>
                 <option value="default"${filter === 'default' ? ' selected' : ''}>Default Tags</option>
                 <option value="primary"${filter === 'primary' ? ' selected' : ''}>Primary Tags</option>
@@ -11088,6 +11410,7 @@ function renderCommanderGameplan(deck) {
     target.addEventListener('mouseenter', () => _showCmdrGpTooltip(target, target.dataset.tooltip));
     target.addEventListener('mouseleave', _hideCmdrGpTooltip);
   });
+  _applyDeckInfoCollapsed(); // this render rebuilt the panel's collapse button
 }
 
 function _initCmdrGpTooltip() {
@@ -11759,11 +12082,34 @@ function _moveMainToDeckZone(uid, zone, label) {
     if (existing) existing.qty++; else _deckZonePool(deck, zone).push({ ...snapshot, qty: 1 });
   }
   _pruneStalePlannedCuts(deck);
+  if (zone === 'mb') _syncDeckTagForZoneMove(deck, snapshot, false);
   recordDeckEvent('to_sb', snapshot, zone); // detail = target zone ('mb', 'sb', or 'add')
   saveActiveDeck(deck);
   renderActiveDeck();
   if (zone === 'add') scheduleEDHRECRefresh();
   showNotif(snapshot.name + ' moved to ' + label);
+}
+
+/**
+ * Deck tags mirror the maybe-board lifecycle: graduating a tagged card to the
+ * mainboard clears its tag for this deck; sending it back to the maybe board
+ * re-tags it. Tag data lives on the owned collection card (card.deckTags).
+ */
+function _syncDeckTagForZoneMove(deck, cardLike, nowInMain) {
+  if (!deck || !cardLike || typeof collection === 'undefined') return;
+  const col = collection.find(c =>
+    (cardLike.scryfallId && c.scryfallId === cardLike.scryfallId && !!c.foil === !!cardLike.foil)
+    || (cardLike.uid && c.uid === cardLike.uid));
+  if (!col) return;
+  const tags = col.deckTags || (col.deckTags = []);
+  const has = tags.includes(deck.id);
+  if (nowInMain && has) {
+    tags.splice(tags.indexOf(deck.id), 1);
+    save('collection');
+  } else if (!nowInMain && !has) {
+    tags.push(deck.id);
+    save('collection');
+  }
 }
 
 function moveToSideboard(uid) { _moveMainToDeckZone(uid, 'mb', 'maybe board'); }
@@ -11780,6 +12126,7 @@ function moveToMainboard(uid, fromZone = 'mb') {
   if (card.qty > 1) card.qty--; else { const i = pool.indexOf(card); if (i >= 0) pool.splice(i, 1); }
   const existingMain = findDeckCardSlot(deck, snapshot);
   if (existingMain) existingMain.qty++; else deck.cards.push({ ...snapshot, qty: 1 });
+  if (fromZone === 'mb') _syncDeckTagForZoneMove(deck, snapshot, true);
   recordDeckEvent('to_main', snapshot, fromZone); // detail = source zone ('mb' or 'sb')
   saveActiveDeck(deck);
   renderActiveDeck();
@@ -15140,7 +15487,7 @@ function _simRenderHTML(deck, commander, edhrecData, archiveData) {
     const found      = nonLands.map(c => edhrecMap.get(c.name.toLowerCase())).filter(Boolean);
     const score      = found.length ? Math.round(found.reduce((s, c) => s + c.inclusion, 0) / found.length) : 0;
     const coverage   = nonLands.length ? Math.round((found.length / nonLands.length) * 100) : 0;
-    const scoreColor = score >= 65 ? 'var(--green)' : score >= 40 ? 'var(--gold)' : 'var(--red)';
+    const scoreColor = _lgxVerdictColor(score / 100); // blue = aligned, purple = divergent
 
     const missing = edhrecData.cards
       .filter(c => c.inclusion >= 30 && !deckNames.has(c.name.toLowerCase()))
@@ -15207,7 +15554,7 @@ function _simRenderHTML(deck, commander, edhrecData, archiveData) {
     ? '<p class="sim-note">Be the trendsetter — no one else has built this commander here yet.</p>'
     : `<div class="sim-archive-list">${scored.map(d => {
         const pct = Math.round(d.similarity * 100);
-        const col = pct >= 60 ? 'var(--teal)' : pct >= 35 ? 'var(--gold)' : 'var(--text3)';
+        const col = _lgxVerdictColor(d.similarity); // blue = similar, purple = far apart
         const who = d.is_own ? '(you)' : escapeHtml(d.owner_email.replace(/@.*$/, '@…'));
         return `<div class="sim-archive-row">
           <div class="sim-archive-name">${escapeHtml(d.deck_name)} <span class="sim-meta">${who}</span></div>
