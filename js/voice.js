@@ -715,6 +715,13 @@ function switchVoiceTab(tab) {
   }
 }
 
+/** Inspector-style qty stepper: −/+ buttons around the numeric field. */
+function _voiceQtyStep(id, delta) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.value = Math.max(1, Math.min(99, (parseInt(el.value, 10) || 1) + delta));
+}
+
 function openVoice(options) {
   const opts = options && typeof options === 'object' ? options : {};
   voiceAddToActiveDeckMode = !!opts.addToActiveDeck;
@@ -731,6 +738,7 @@ function openVoice(options) {
     }
   }
   document.getElementById('voiceModal').classList.add('open');
+  if (typeof _glassSelectEnsure === 'function') _glassSelectEnsure(); // glass dropdowns in the modal
   // Fuzzy set matching is a no-op until allSets loads — make sure it's loading now
   if ((!Array.isArray(allSets) || !allSets.length) && typeof loadSets === 'function') {
     loadSets().catch(() => {});

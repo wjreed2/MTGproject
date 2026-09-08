@@ -2157,7 +2157,7 @@ function _glassMenuOpen(sel, wrap) {
 }
 
 function _glassSelectEnsure() {
-  document.querySelectorAll('#tab-decks select[data-glass-label]:not([data-glassified])').forEach(sel => {
+  document.querySelectorAll('#tab-decks select[data-glass-label]:not([data-glassified]), #voiceModal select[data-glass-label]:not([data-glassified])').forEach(sel => {
     sel.dataset.glassified = '1';
     const wrap = document.createElement('span');
     wrap.className = 'glass-dd-wrap';
