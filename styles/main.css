@@ -4429,14 +4429,8 @@ img.stack-main.loaded { opacity: 1; }
 #deckCardList.is-deck-dragging .deck-extra-zone-section.drag-over {
   z-index: 3;
 }
-.deck-stack-view.vertical-orient > .deck-extra-zones-wrap > .deck-extra-zone-section + .deck-extra-zone-section,
-.deck-stack-view.vertical-orient > .deck-extra-zones-wrap > .deck-sideboard-section + .deck-sideboard-section,
-.deck-stack-view > .deck-extra-zones-wrap > .deck-extra-zone-section + .deck-extra-zone-section {
-  padding-top: 0.75rem;
-  margin-top: 0;
-  border-left: none;
-  padding-left: 0;
-}
+/* (Sibling zone separators retired — each zone is its own glass box and the
+   zones-wrap flex gap spaces them.) */
 .deck-stack-view > .deck-extra-zones-wrap > .deck-extra-zone-section.is-collapsed,
 .deck-stack-view.vertical-orient > .deck-extra-zones-wrap > .deck-extra-zone-section.is-collapsed {
   min-height: 0;
@@ -4808,22 +4802,42 @@ img.stack-main.loaded { opacity: 1; }
   font-size: 0.72rem;
 }
 .deck-extra-zone-section.is-collapsed .deck-extra-zone-body { display: none; }
-/* Collapsed zone = a compact labeled pill ("▸ MB (3)"), not a bare arrow */
+/* Each zone lives in its own glass box; collapsing shrinks the box to a small
+   rectangle around "▸ MB (3)". */
+.deck-extra-zone-section {
+  border: 1px solid var(--border2);
+  border-radius: 12px;
+  background: var(--bg3);
+  padding: 10px 12px;
+  transition: border-color 0.15s var(--ease), background 0.15s var(--ease);
+}
+body.glass-mode .deck-extra-zone-section {
+  background: rgba(255,255,255,0.05);
+  border-color: rgba(255,255,255,0.13);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.10);
+}
+[data-theme="light"] body.glass-mode .deck-extra-zone-section {
+  background: rgba(255,255,255,0.45);
+  border-color: rgba(255,255,255,0.7);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.85);
+}
 .deck-extra-zone-section.is-collapsed {
-  padding-top: 0;
+  padding: 0;
   margin-top: 0;
   min-height: 0;
   align-self: flex-start;
-  width: auto;
-  border: none;
-  background: transparent;
-  border-radius: 0;
+  width: auto !important; /* inline width:100% otherwise keeps the box full-width */
+  border-radius: 10px;
+}
+.deck-extra-zone-section.is-collapsed:hover {
+  border-color: rgba(var(--lgx1), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14));
 }
 .deck-extra-zone-section.is-collapsed .deck-extra-zone-header,
 .deck-extra-zone-section.is-collapsed .deck-sideboard-header {
   margin-bottom: 0;
   width: auto;
-  padding: 6px 12px;
+  padding: 7px 12px;
   font-size: 0.72rem;
   line-height: 1;
   letter-spacing: 0.06em;
@@ -4831,40 +4845,13 @@ img.stack-main.loaded { opacity: 1; }
   align-items: center;
   gap: 6px;
   white-space: nowrap;
-  border: 1px solid var(--border2);
-  border-radius: 999px;
-  background: var(--bg3);
-  transition: border-color 0.15s var(--ease), background 0.15s var(--ease);
-}
-.deck-extra-zone-section.is-collapsed .deck-extra-zone-header:hover {
-  border-color: rgba(var(--lgx1), 0.55);
-  background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14));
+  border-bottom: none;
 }
 .deck-extra-zone-section.is-collapsed .deck-extra-zone-chevron {
   width: auto;
   font-size: 0.7rem;
 }
 .deck-extra-zone-section.is-collapsed .deck-stack-group-count { font-size: 0.68rem; }
-body.glass-mode .deck-extra-zone-section.is-collapsed .deck-extra-zone-header,
-body.glass-mode .deck-extra-zone-section.is-collapsed .deck-sideboard-header {
-  background: rgba(255,255,255,0.07);
-  border-color: rgba(255,255,255,0.16);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.10);
-}
-body.glass-mode .deck-extra-zone-section.is-collapsed .deck-extra-zone-header:hover {
-  background: linear-gradient(135deg, rgba(var(--lgx1), 0.16), rgba(var(--lgx2), 0.16));
-  border-color: rgba(var(--lgx1), 0.5);
-}
-[data-theme="light"] body.glass-mode .deck-extra-zone-section.is-collapsed .deck-extra-zone-header,
-[data-theme="light"] body.glass-mode .deck-extra-zone-section.is-collapsed .deck-sideboard-header {
-  background: rgba(255,255,255,0.55);
-  border-color: rgba(255,255,255,0.75);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9);
-}
-.deck-stack-view > .deck-extra-zones-wrap:has(.deck-extra-zone-section.is-collapsed) {
-  gap: 4px;
-  padding-left: 4px;
-}
 .deck-extra-zones-wrap--list {
   border-top: none;
   margin-top: 0.5rem;
