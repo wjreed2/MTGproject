@@ -2320,7 +2320,7 @@ function _htmlOpenCardDetailRightColumn(ctx) {
     : _naturalPips;
   const _hasCustomPips = card.customPips != null;
   const _cmcCustom = card.customCmc != null && card.customCmc !== (card.cmc ?? 0);
-  const _hasAdvanced = card.customCmc != null || card.customPips != null || getStoredPurchasePrice(card) != null;
+  // (Advanced always opens collapsed now, regardless of custom CMC/pips/purchase price.)
   const _storedPurchase = typeof getStoredPurchasePrice === 'function' ? getStoredPurchasePrice(isOwned ? ownedCard || card : card) : null;
   const _purchaseManual = !!(isOwned && (ownedCard || card)?.purchasePriceManual);
   const showInDeckRow = !!(activeDeck && _isDeckBuilderMainTabActive());
@@ -2361,7 +2361,7 @@ function _htmlOpenCardDetailRightColumn(ctx) {
           </div>
         </div>
         <div id="cardDetailMyTagsWrap" class="card-detail-section">
-          <div class="card-detail-section-label">MY TAGS <span class="card-detail-section-hint">· primary (teal) · secondary (gold)</span></div>
+          <div class="card-detail-section-label">MY TAGS <span class="card-detail-section-hint">· blue dot = primary · purple = secondary</span></div>
           <div id="cardDetailMyTagsChips" class="card-detail-chiprow">
             ${myTagsChipsHtml}
             <button class="btn btn-outline btn-sm" onclick="openGlobalTagPickerForCard('${actionUidRef}')">Edit Tags</button>
@@ -2370,7 +2370,7 @@ function _htmlOpenCardDetailRightColumn(ctx) {
         <div id="cardDetailTagToDeckWrap" class="card-detail-section" style="display:${tagData.show ? 'block' : 'none'}">
           ${tagData.html}
         </div>
-        <details id="cardDetailAdvanced" class="card-detail-disclosure"${_hasAdvanced ? ' open' : ''} ontoggle="_onInspectorAdvancedToggle(this)">
+        <details id="cardDetailAdvanced" class="card-detail-disclosure" ontoggle="_onInspectorAdvancedToggle(this)">
           <summary>Advanced · purchase price, history, mana value &amp; pips</summary>
           <div id="cardDetailPurchasePriceWrap" class="card-detail-cmc-row" style="flex-wrap:wrap;gap:6px">
             <span class="card-detail-row-label">PURCHASE PRICE (AVG)</span>
@@ -4322,9 +4322,15 @@ function _paintFindResults(el) {
     const footer = document.createElement('div');
     footer.className = 'find-load-more-row';
     footer.style.cssText = 'grid-column:1/-1;padding:0.75rem 0;display:flex;align-items:center;gap:12px;justify-content:center;font-size:0.78rem;color:var(--text3)';
+    // Once everything is fetched, report what's actually on screen. "2 of 3" was
+    // misleading when a card had been dropped by a client-side filter and there
+    // was nothing left to load.
+    const more = _findSearchOffset < total;
     footer.innerHTML = (_findResultPrintings
       ? `<span>${shown.toLocaleString()} printings from ${Number(total).toLocaleString()} cards</span>`
-      : `<span>${shown.toLocaleString()} of ${Number(total).toLocaleString()}</span>`) +
+      : more
+        ? `<span>${shown.toLocaleString()} of ${Number(total).toLocaleString()}</span>`
+        : `<span>${shown.toLocaleString()} ${shown === 1 ? 'card' : 'cards'}</span>`) +
       // Paging is by oracle cards fetched, so "more to load" must compare that —
       // with printings expanded, shown can exceed the card total.
       (_findSearchOffset < total ? `<button class="btn btn-outline btn-sm" onclick="runFindCard(null,true)">Load more</button>` : '');
