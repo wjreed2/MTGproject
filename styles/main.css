@@ -942,12 +942,14 @@ body.glass-mode #deckTabPane-design .panel {
      reads at a glance: bright azure vs vivid orchid */
   --lgx-good: 86,196,255;
   --lgx-bad: 205,94,245;
+  --lgx-green: 82,196,132; /* third glass accent — default/Scryfall tags */
 }
 [data-theme="light"] {
   --lgx1: 74,120,232;
   --lgx2: 138,102,224;
   --lgx-good: 20,105,225;
   --lgx-bad: 148,52,205;
+  --lgx-green: 22,140,86;
 }
 #tab-decks .glass-dd-wrap, #voiceModal .glass-dd-wrap { position: relative; display: inline-flex; }
 /* !important outranks the #tab-decks #deckGroupByWrap select sizing-parity rule */
@@ -3193,38 +3195,34 @@ img.stack-main.loaded { opacity: 1; }
 #cardDetailModal .cd-tag-group { display: contents; }
 #cardDetailModal .card-detail-tagrow { gap: 8px; row-gap: 8px; min-height: 1.75rem; }
 #cardDetailModal .cd-tags-empty { font-size: 0.75rem; color: var(--text3); }
+/* Tier is the whole tag's colour now — no border, no dot. Blue = primary,
+   purple = secondary, green = default. */
 #cardDetailModal .tag {
+  --cd-tag-rgb: var(--lgx1);
   position: relative;
   gap: 8px;
-  padding: 5px 12px 5px 20px;
+  padding: 5px 13px 5px 17px;
   /* Square tail with the buttons' 8px corners; the clip only cuts the left
      point (its edges run past the box, so the right corners keep their radius). */
   border-radius: 8px;
   clip-path: polygon(10px -20%, 120% -20%, 120% 120%, 10px 120%, 0 50%);
   font-size: 0.8rem !important;
   font-weight: 500;
-  /* Static appearance = a button's hover state (no hover change of its own) */
-  color: var(--text);
-  background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14));
-  border: 1px solid rgba(var(--lgx1), 0.55);
+  color: #fff;
+  background:
+    linear-gradient(135deg, rgba(var(--cd-tag-rgb), 0.42), rgba(var(--cd-tag-rgb), 0.20));
+  border: none;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.22);
 }
-/* The punch hole near the point — tier colour lives here */
-#cardDetailModal .tag::before {
-  content: '';
-  position: absolute;
-  left: 9px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--cd-tag-dot, rgb(var(--lgx1)));
-  box-shadow: 0 0 6px var(--cd-tag-dot, rgb(var(--lgx1)));
+#cardDetailModal .tag-primary { --cd-tag-rgb: var(--lgx1); }
+#cardDetailModal .tag-secondary { --cd-tag-rgb: var(--lgx2); }
+#cardDetailModal .tag-scryfall { --cd-tag-rgb: var(--lgx-green); }
+[data-theme="light"] #cardDetailModal .tag {
+  color: #12203a;
+  background:
+    linear-gradient(135deg, rgba(var(--cd-tag-rgb), 0.34), rgba(var(--cd-tag-rgb), 0.16));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.6);
 }
-#cardDetailModal .tag-primary { --cd-tag-dot: rgb(var(--lgx1)); }
-#cardDetailModal .tag-secondary { --cd-tag-dot: rgb(var(--lgx2)); }
-/* Default (Scryfall-derived) tags — green */
-#cardDetailModal .tag-scryfall { --cd-tag-dot: var(--green, #5ab85a); }
 #cardDetailModal .tag-deck-disabled { opacity: 0.4; filter: none; }
 .cd-tag-ctx-menu {
   position: fixed;
