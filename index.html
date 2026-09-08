@@ -2531,7 +2531,8 @@
   </button>
 </nav>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<!-- Chart.js is injected on demand by ensureChartJs() (js/lazy-chunks.js) — it was a render-blocking third-party script for panes that only exist after user interaction -->
+
 <!-- GOLDFISH PLAYTEST OVERLAY -->
 <div id="goldfishOverlay" style="display:none;position:fixed;inset:0;z-index:9000;flex-direction:column">
 
@@ -2958,7 +2959,8 @@
 </div>
 
 
-<script src="/dist/scanner-card-yolo.js"></script>
+<!-- scanner-card-yolo.js (onnxruntime-web, ~536 KB) is injected on demand by openScanner() — see js/scanner.js -->
+
 <!-- socket.io client for real-time trading (served by the socket.io server). Loaded
      defer so a missing/late server doesn't block the app; trade.js feature-detects `io`. -->
 <script src="/socket.io/socket.io.js" defer onerror="window._noSocketIo=true"></script>

@@ -468,12 +468,35 @@ async function openScanner() {
   _scnRefreshPauseScanUI();
   _scnRenderSession();
   if (typeof loadSets === 'function') void loadSets();
+  _scnInjectYolo();
   // Fingerprint mode never OCRs — don't pull the Tesseract CDN script + two workers for nothing.
   if (!_scnFingerprintMode) _scnInjectTesseract();
 }
 
+// The YOLO card-detector bundle (onnxruntime-web, ~536 KB) used to load as a
+// blocking <script> on every app boot. Only the scanner uses it, so inject it on
+// first open instead; the detect loop tolerates ScnCardYolo being absent for the
+// first frames (classic pipeline fallback) and picks up ML once loaded.
+let _scnYoloInjected = false;
+function _scnInjectYolo() {
+  if (_scnYoloInjected || globalThis.ScnCardYolo) { _scnYoloInjected = true; return; }
+  _scnYoloInjected = true;
+  // Reuse the bundle's ?v= stamp so the ML chunk gets the same immutable caching.
+  let stamp = '';
+  try {
+    const src = document.querySelector('script[src^="/dist/bundle.js"]')?.getAttribute('src') || '';
+    const q = src.split('?')[1];
+    if (q) stamp = '?' + q;
+  } catch (_) {}
+  const s = document.createElement('script');
+  s.src = '/dist/scanner-card-yolo.js' + stamp;
+  s.onerror = () => { _scnYoloInjected = false; }; // allow retry on next open
+  document.head.appendChild(s);
+}
+
 function _scnInjectTesseract() {
-  if (_scnTessLoaded) return;
+  // Script already present but workers torn down (scanner was closed): re-warm.
+  if (_scnTessLoaded) { if (!_scnWorkerReady) void _scnInitWorkers(); return; }
   if (window.Tesseract) {
     _scnTessLoaded = true;
     _scnInitWorkers();
@@ -493,6 +516,24 @@ function closeScanner() {
   scnToggleScannedPanel(false);
   _scnVoiceAbort();
   _scnHardStop();
+  _scnTerminateWorkers();
+}
+
+/**
+ * Free the two Tesseract workers (each holds a WASM heap + eng traineddata,
+ * ~10-15 MB) when the scanner closes. They used to stay resident for the life
+ * of the page after the first scan. Re-opening self-heals: _scnEnsureWorkers /
+ * _scnInjectTesseract re-create them whenever _scnWorkerReady is false.
+ */
+function _scnTerminateWorkers() {
+  const nameW = _scnNameWorker;
+  const setW = _scnSetWorker;
+  _scnNameWorker = null;
+  _scnSetWorker = null;
+  _scnWorkerReady = false;
+  for (const w of [nameW, setW]) {
+    try { void w?.terminate?.(); } catch (_) {}
+  }
 }
 
 function scnToggleScannedPanel(force) {
@@ -3077,8 +3118,7 @@ function _scnFpStreamAdd(card) {
     collection.push(entry); recordCollectionEvent('add', entry, 1);
   }
   save('collection');
-  renderCollection();
-  updateStats();
+  renderCollection(); // runs updateStats itself
   _scnFpLastQueuedUid = entry.uid;
   _scnSession.push(entry);
   _scnRenderSession();
@@ -3112,8 +3152,7 @@ function scnMatchPlusOne() {
       recordCollectionEvent('add', existing, 1);
     }
     save('collection');
-    renderCollection();
-    updateStats();
+    renderCollection(); // runs updateStats itself
     _scnSetOverlay(existing.name, `×${existing.qty} in collection`, 'match');
   } else {
     const e = _scnPendingAuto.find(x => x.uid === uid);
@@ -4465,8 +4504,7 @@ async function _scnVoiceAddAndResume(card) {
     recordCollectionEvent('add', entry, 1);
   }
   save('collection');
-  renderCollection();
-  updateStats();
+  renderCollection(); // runs updateStats itself
   _scnSession.push(entry);
   _scnRenderSession();
   _scnPlayScanBeep();
@@ -4752,8 +4790,7 @@ function scnAddPendingToCollection() {
     }
   }
   save('collection');
-  renderCollection();
-  updateStats();
+  renderCollection(); // runs updateStats itself
   _scnPendingAuto = [];
   _scnRenderSession();
   showNotif(`Added ${n} card${n !== 1 ? 's' : ''} to collection.`);
@@ -4774,8 +4811,7 @@ function _scnAdd(scryfallCard) {
     recordCollectionEvent('add', entry, 1);
   }
   save('collection');
-  renderCollection();
-  updateStats();
+  renderCollection(); // runs updateStats itself
   _scnSession.push(entry);
   _scnRenderSession();
   showNotif(`Added ${entry.name}`);
@@ -4852,7 +4888,14 @@ function _scnClearSession() {
   _scnRenderSession();
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+// One-time DOM wiring. The scanner ships as a lazy chunk loaded well after
+// DOMContentLoaded has fired, so this must run immediately in that case — a
+// bare DOMContentLoaded listener would never fire and the zoom slider /
+// Enter-to-search bindings would silently go dead.
+let _scnDomInitDone = false;
+function _scnDomInit() {
+  if (_scnDomInitDone) return;
+  _scnDomInitDone = true;
   if (typeof mountPurchasePriceOptInHosts === 'function') mountPurchasePriceOptInHosts();
   _scnRefreshAutoModeUI();
   _scnRefreshVoiceModeUI();
@@ -4862,4 +4905,9 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('scnNameInput')?.addEventListener('keydown', e => {
     if (e.key === 'Enter') scnSearchManual();
   });
-});
+}
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', _scnDomInit);
+} else {
+  _scnDomInit();
+}

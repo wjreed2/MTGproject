@@ -2233,12 +2233,19 @@ function _tagsOnCardForGroupTier(card, tier) {
   return userTags;
 }
 
+let _deckListSearchDebounce = null;
 function setDeckListSearch(q) {
   _deckListFilter.q = String(q || '').trim();
   deckListSearchQ = _deckListFilter.q.toLowerCase(); // legacy compat
   _updateDeckListFilterUI();
-  const deck = getActiveDeck();
-  if (deck) renderDeckList(deck);
+  // renderDeckList is heavy (suggestions passes + a full collection ownership
+  // re-index before it even filters) — debounce so fast typing pays once.
+  clearTimeout(_deckListSearchDebounce);
+  _deckListSearchDebounce = setTimeout(() => {
+    _deckListSearchDebounce = null;
+    const deck = getActiveDeck();
+    if (deck) renderDeckList(deck);
+  }, 150);
 }
 
 function toggleDeckListColorFilter(color) {
@@ -3972,6 +3979,59 @@ function _backfillDeckCardTypeLines(deck) {
   if (changed && !activeDeckIsShared) saveActiveDeck(deck);
 }
 
+// ── Deck analysis charts ──────────────────────────────────────────────────────
+// One coalesced chart pass per frame instead of nine synchronous chart rebuilds
+// (several destroy() + new Chart()) on every renderActiveDeck call — which runs on
+// every single card add/remove. Skipped entirely while the Decks tab is hidden:
+// every path that shows the tab re-enters renderActiveDeck (showTab → renderDecks),
+// so charts catch up on activation.
+let _deckChartsRaf = null;
+function _renderDeckCharts(deck) {
+  const run = (fn, label) => {
+    try {
+      fn(deck);
+    } catch (err) {
+      console.error(`Deck chart failed (${label}):`, err);
+    }
+  };
+  run(renderManaCurve, 'mana curve');
+  run(renderCommanderGameplan, 'commander gameplan');
+  run(renderTypeBreakdown, 'type breakdown');
+  run(renderManaCostProfile, 'mana cost');
+  run(renderManaGenerationProfile, 'mana generation');
+  run(renderOpeningHandChart, 'opening hand');
+  run(renderLandCoverageChart, 'land coverage');
+  run(renderCardDrawAccelChart, 'card draw');
+  run(renderProbabilityChart, 'probability');
+}
+
+function _scheduleDeckChartsRender() {
+  if (_deckChartsRaf != null) return;
+  const raf = (typeof requestAnimationFrame === 'function')
+    ? requestAnimationFrame
+    : (cb) => setTimeout(cb, 16);
+  _deckChartsRaf = raf(() => {
+    _deckChartsRaf = null;
+    const tab = document.getElementById('tab-decks');
+    if (tab && !tab.classList.contains('active')) return;
+    // Deck grid view (no open deck) has no chart panes to fill.
+    if (document.getElementById('deckDetailArea')?.style.display === 'none') return;
+    const deck = getActiveDeck();
+    if (!deck) return;
+    // Chart.js loads on demand (no longer a blocking boot script). First deck
+    // open waits for it; if the CDN is unreachable, render anyway — the
+    // Chart-based panes fail per-chart (caught) and the HTML-based ones still draw.
+    if (typeof Chart === 'undefined' && typeof ensureChartJs === 'function') {
+      ensureChartJs().then(
+        () => _scheduleDeckChartsRender(),
+        () => _renderDeckCharts(deck)
+      );
+      return;
+    }
+    _renderDeckCharts(deck);
+  });
+}
+
 function renderActiveDeck() {
   const deck = getActiveDeck();
   if (!deck) return;
@@ -4080,22 +4140,7 @@ function renderActiveDeck() {
   _renderScryTagSyncBadge();
 
   renderDeckList(deck);
-  const _renderDeckChart = (fn, label) => {
-    try {
-      fn(deck);
-    } catch (err) {
-      console.error(`Deck chart failed (${label}):`, err);
-    }
-  };
-  _renderDeckChart(renderManaCurve, 'mana curve');
-  _renderDeckChart(renderCommanderGameplan, 'commander gameplan');
-  _renderDeckChart(renderTypeBreakdown, 'type breakdown');
-  _renderDeckChart(renderManaCostProfile, 'mana cost');
-  _renderDeckChart(renderManaGenerationProfile, 'mana generation');
-  _renderDeckChart(renderOpeningHandChart, 'opening hand');
-  _renderDeckChart(renderLandCoverageChart, 'land coverage');
-  _renderDeckChart(renderCardDrawAccelChart, 'card draw');
-  _renderDeckChart(renderProbabilityChart, 'probability');
+  _scheduleDeckChartsRender();
   renderDeckValidation(deck);
   scheduleDeckGameChangerRefresh(deck);
   renderCollaboratorsPanel(deck);
@@ -8524,8 +8569,8 @@ async function _renderAddSuggestions(deck) {
   if (isAllCards) {
     body.innerHTML = '<div class="deck-tab-muted" style="padding:.75rem 1rem">Loading catalog…</div>';
     try {
-      const res = await fetch('/api/cards/adds-catalog', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+      const res = await fetch(`${typeof mtgApiRoot === 'function' ? mtgApiRoot() : '/api'}/cards/adds-catalog`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({
           colors: [...cmdCI], exclude: [...inDeckNames], limit: 8000,
         }),
@@ -8626,8 +8671,8 @@ async function _renderAddSuggestions(deck) {
       usedCatalogFallback = true;
       body.innerHTML = '<div class="deck-tab-muted" style="padding:.75rem 1rem">No collection picks — searching All Cards…</div>';
       try {
-        const res = await fetch('/api/cards/adds-catalog', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
+        const res = await fetch(`${typeof mtgApiRoot === 'function' ? mtgApiRoot() : '/api'}/cards/adds-catalog`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
           body: JSON.stringify({
             colors: [...cmdCI], exclude: [...inDeckNames], limit: 8000,
           }),
