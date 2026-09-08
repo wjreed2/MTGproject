@@ -4322,22 +4322,19 @@ img.stack-main.loaded { opacity: 1; }
   width: 100%;
   min-width: 0;
   max-width: 100%;
-  border-top: none;
-  border-left: none;
-  padding-top: 0;
-  padding-left: 0;
   margin-top: 0;
   align-self: flex-start;
   min-height: 0;
   overflow: visible;
   box-sizing: border-box;
+  /* padding/borders come from the glass-box rules; the old flush-layout
+     zeroing (border/padding top+left: 0) is retired */
 }
 .deck-stack-view > .deck-extra-zones-wrap.is-expanded > .deck-extra-zone-section:not(.is-collapsed) {
   min-height: 0;
 }
 .deck-stack-view > .deck-extra-zones-wrap .deck-sideboard-section {
   border-top: none;
-  padding-top: 0;
   margin-top: 0;
 }
 .deck-stack-view > .deck-extra-zones-wrap .deck-extra-zone-header,
@@ -4374,9 +4371,12 @@ img.stack-main.loaded { opacity: 1; }
   box-sizing: border-box;
 }
 .deck-stack-view > .deck-extra-zones-wrap .deck-stack-cards .deck-stack-card {
-  margin-left: 0 !important;
-  margin-right: 0 !important;
-  width: 100%;
+  /* Pin to the chosen card size and center — otherwise the tile stretches to
+     fill the glass box and swallows all the breathing room around the art. */
+  margin-left: auto !important;
+  margin-right: auto !important;
+  align-self: center;
+  width: var(--deck-card-w, 220px) !important;
   max-width: 100%;
 }
 .deck-stack-view > .deck-extra-zones-wrap .stack-main,
@@ -4387,16 +4387,18 @@ img.stack-main.loaded { opacity: 1; }
    Hover/focus lifts the card (z-index + scale). Sibling push is phone-only
    (mobile.css) so desktop drag targets stay put. */
 .deck-stack-view > .deck-extra-zones-wrap .deck-stack-cards.vertical {
-  align-items: stretch;
+  align-items: center; /* card tiles are narrower than the glass box — center them */
   padding: 8px 2px 10px;
   overflow: visible;
   position: relative;
   isolation: isolate;
 }
 .deck-stack-view > .deck-extra-zones-wrap .deck-stack-cards.vertical .deck-stack-card {
-  margin-left: 0 !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  align-self: center;
   margin-top: calc(-1 * (var(--deck-card-w, 220px) / 0.715 - 36px));
-  width: 100% !important;
+  width: var(--deck-card-w, 220px) !important;
   max-width: 100% !important;
 }
 .deck-stack-view > .deck-extra-zones-wrap .deck-stack-cards.vertical .deck-stack-card:first-child {
@@ -4815,6 +4817,18 @@ img.stack-main.loaded { opacity: 1; }
    original compact zones) */
 @media (min-width: 769px) {
   .deck-stack-view > .deck-extra-zones-wrap { gap: 1.1rem; }
+  /* Empty-zone hints center under the header like the cards do */
+  .deck-stack-view > .deck-extra-zones-wrap .deck-extra-zone-body .deck-list-quiet {
+    text-align: center;
+    padding: 10px 4px;
+  }
+  /* The box's own padding provides the top inset — drop the flush-layout
+     header compensation (phones keep it) */
+  .deck-stack-view > .deck-extra-zones-wrap .deck-extra-zone-header,
+  .deck-stack-view > .deck-extra-zones-wrap .deck-sideboard-header {
+    padding-top: 0;
+    margin-top: 0;
+  }
 }
 body.glass-mode .deck-extra-zone-section {
   /* Same lit blue→purple material as the tab page, so the boxes read as the
@@ -4938,7 +4952,6 @@ body.glass-mode .deck-extra-zone-section {
 }
 .deck-extra-zone-section.deck-sideboard-section {
   border-top: none;
-  padding-top: 0;
   margin-top: 0;
 }
 .deck-sideboard-header {
