@@ -468,8 +468,30 @@ async function openScanner() {
   _scnRefreshPauseScanUI();
   _scnRenderSession();
   if (typeof loadSets === 'function') void loadSets();
+  _scnInjectYolo();
   // Fingerprint mode never OCRs — don't pull the Tesseract CDN script + two workers for nothing.
   if (!_scnFingerprintMode) _scnInjectTesseract();
+}
+
+// The YOLO card-detector bundle (onnxruntime-web, ~536 KB) used to load as a
+// blocking <script> on every app boot. Only the scanner uses it, so inject it on
+// first open instead; the detect loop tolerates ScnCardYolo being absent for the
+// first frames (classic pipeline fallback) and picks up ML once loaded.
+let _scnYoloInjected = false;
+function _scnInjectYolo() {
+  if (_scnYoloInjected || globalThis.ScnCardYolo) { _scnYoloInjected = true; return; }
+  _scnYoloInjected = true;
+  // Reuse the bundle's ?v= stamp so the ML chunk gets the same immutable caching.
+  let stamp = '';
+  try {
+    const src = document.querySelector('script[src^="/dist/bundle.js"]')?.getAttribute('src') || '';
+    const q = src.split('?')[1];
+    if (q) stamp = '?' + q;
+  } catch (_) {}
+  const s = document.createElement('script');
+  s.src = '/dist/scanner-card-yolo.js' + stamp;
+  s.onerror = () => { _scnYoloInjected = false; }; // allow retry on next open
+  document.head.appendChild(s);
 }
 
 function _scnInjectTesseract() {

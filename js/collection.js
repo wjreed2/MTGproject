@@ -749,7 +749,7 @@ function renderCollection(opts) {
     console.error('[collection] render failed:', e);
   }
 
-  try { updateStats(); } catch (_) {}
+  try { updateStats(cards); } catch (_) {}
   if (!skipPriceFetch) {
     // Defer so paint + collection hydrate aren't blocked by price-history work.
     setTimeout(() => { void ensureCollectionPriceChangeData(source); }, 0);
@@ -944,8 +944,10 @@ function onPriceModalMinPriceInput(sliderVal) {
   }, 250);
 }
 
-function updateStats() {
-  const rows = getFilteredCollection();
+function updateStats(precomputedRows) {
+  // renderCollection passes the rows it just filtered/sorted so a render costs one
+  // getFilteredCollection() pass, not two.
+  const rows = precomputedRows || getFilteredCollection();
   const total = rows.reduce((s, c) => s + (c.qty || 1), 0);
   const unique = new Set(rows.map(_collectionUniqueCardKey).filter(Boolean)).size;
   const sets = new Set(rows.map(c => c.set)).size;
@@ -981,20 +983,33 @@ function updateStats() {
   recordValueSnapshot(fullTcg);
 }
 
+let _lastValueSnapshot = { date: '', value: 0 };
 function recordValueSnapshot(value) {
   if (!value || value <= 0) return;
   const today = new Date().toISOString().slice(0, 10);
+  // updateStats runs on every collection render — skip the synchronous localStorage
+  // JSON round-trip unless today's snapshot value actually changed.
+  if (_lastValueSnapshot.date === today && _lastValueSnapshot.value === value) return;
   let history = [];
   try { history = JSON.parse(localStorage.getItem('mtg_value_history') || '[]'); } catch (_) {}
   const idx = history.findIndex(h => h.date === today);
   if (idx >= 0) history[idx].value = value;
   else history.push({ date: today, value });
   localStorage.setItem('mtg_value_history', JSON.stringify(history.slice(-60)));
+  _lastValueSnapshot = { date: today, value };
 }
 
+let _filterCardsDebounce = null;
 function filterCards(q) {
   searchQ = q;
-  renderCollection();
+  // The full filter+sort+grid rebuild is the expensive part — debounce it so fast
+  // typing costs one render, not one per keystroke. The schedule* helpers below
+  // debounce themselves, so they can fire immediately.
+  clearTimeout(_filterCardsDebounce);
+  _filterCardsDebounce = setTimeout(() => {
+    _filterCardsDebounce = null;
+    renderCollection();
+  }, 150);
   scheduleCollectionTagHydrateIfNeeded();
   scheduleOracleMatchFetch(q);
 }
