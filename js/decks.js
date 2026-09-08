@@ -4011,7 +4011,8 @@ function renderActiveDeck() {
   const countOk = total >= target && (!max || total <= max);
   const countEl = document.getElementById('deckListCount');
   countEl.textContent = total + ' / ' + (max || target);
-  countEl.style.color = countOk ? 'var(--teal)' : 'var(--red)';
+  // Valid count wears the liquid-glass accent (same blend as the active tab); short/over stays red.
+  countEl.style.color = countOk ? 'color-mix(in oklab, rgb(var(--lgx1)) 55%, rgb(var(--lgx2)))' : 'var(--red)';
   if (_deckSwapsEnabled(deck)) {
     const addQty = _deckPlannedAdds(deck).reduce((s, c) => s + (c.qty || 1), 0);
     const cutQty = _effectivePlannedCuts(deck).reduce((s, c) => s + (c.qty || 1), 0);
