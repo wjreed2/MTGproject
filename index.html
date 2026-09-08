@@ -593,7 +593,7 @@
 <div id="tab-decks" class="tab-content">
 
   <!-- Top bar — always visible -->
-  <div class="top-action-bar" style="display:flex;align-items:center;gap:10px;margin-bottom:1.25rem;flex-wrap:wrap">
+  <div id="deckBuilderTopBar" class="top-action-bar" style="display:flex;align-items:center;gap:10px;margin-bottom:1.25rem;flex-wrap:wrap">
     <button id="backToDecksBtn" class="btn btn-ghost btn-sm" style="display:none" onclick="closeDeckDetail()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><polyline points="15 18 9 12 15 6"/></svg> All Decks</button>
     <button id="newDeckTopBtn" class="btn btn-primary btn-sm" onclick="createNewDeck()">+ New Deck</button>
     <div style="position:relative" id="deckImportDropdownWrap">
@@ -617,7 +617,6 @@
         </button>
       </div>
     </div>
-    <button id="toggleDeckSidebarBtn" class="btn btn-outline btn-sm" onclick="toggleDeckSidebar()" style="display:none" title="Show or hide deck switcher">⇤ Decks</button>
   </div>
 
   <!-- Deck grid — shown when no deck is selected -->
@@ -632,19 +631,25 @@
     <div id="activeDeckArea" style="flex:1;min-width:0">
       <div id="deckTopBar" class="top-action-bar" style="display:flex;align-items:center;gap:10px;margin-bottom:0.5rem;flex-wrap:wrap">
         <div class="deck-top-title-row" style="display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:wrap">
+          <span id="activeDeckName" class="panel-title" style="min-width:0;font-size:1.75rem;line-height:1.2"></span>
           <span id="deckValidBadge"></span>
+          <span id="deckInfoBadge">
+            <button type="button" class="deck-info-circle" onclick="toggleDeckInfoTooltip()" title="Deck info — format, value, game changers" aria-label="Deck info">
+              <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-linecap="round"><circle cx="16" cy="16" r="14.75" stroke-width="1.5"/><line x1="16" y1="14.6" x2="16" y2="22.4" stroke-width="2"/><line x1="16" y1="9.6" x2="16" y2="10" stroke-width="2.6"/></svg>
+            </button>
+            <div class="deck-info-tooltip" id="deckInfoTooltip"></div>
+          </span>
           <span id="deckGameChangerBadge"></span>
-          <span id="activeDeckName" class="panel-title" style="min-width:0"></span>
-          <span id="activeDeckFormat" class="tag tag-gold"></span>
-          <span id="activeDeckValue" class="tag tag-green" title="Total TCG value of main deck cards"></span>
+          <span id="activeDeckFormat" class="tag tag-gold" style="display:none"></span>
+          <span id="activeDeckValue" class="tag tag-green" style="display:none" title="Total TCG value of main deck cards"></span>
         </div><!-- /.deck-top-title-row -->
         <span id="deckScryTagSyncBadge" class="tag tag-scryfall" style="display:none">Syncing Scryfall tags…</span>
         <div class="deck-top-spacer" style="flex:1"></div>
+        <div id="deckActionCluster" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <button id="deckBuilderVoiceBtn" type="button" class="btn btn-outline btn-sm" onclick="openVoice({ addToActiveDeck: true })" title="Add cards — voice, search, or manual" style="display:inline-flex;align-items:center;gap:5px;white-space:nowrap">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" style="width:13px;height:13px;flex-shrink:0"><line x1="8" y1="2" x2="8" y2="14"/><line x1="2" y1="8" x2="14" y2="8"/></svg>
           Add cards
         </button>
-        <button id="deckHistoryBtn" type="button" class="btn btn-outline btn-sm" onclick="toggleDeckHistory()" style="white-space:nowrap" title="Adds, removals, main↔maybe board, tag changes">◷ History</button>
         <button class="btn btn-outline btn-sm" onclick="openDeckTagManager()" title="Manage reusable deck tags">Manage Tags</button>
         <div id="deckTopMenuWrap" style="position:relative;flex-shrink:0">
           <button class="btn btn-outline btn-sm" onclick="toggleDeckOptionsDropdown()" id="deckOptionsBtn" title="More options" style="padding:2px 10px">
@@ -707,27 +712,37 @@
             </button>
           </div>
         </div>
+        </div><!-- /#deckActionCluster -->
       </div>
       <div id="deckValidationPanel"></div>
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:0.5rem;flex-wrap:wrap">
-        <span id="activeDeckCommander" style="display:none;color:var(--gold);font-family:'Cinzel',serif"></span>
-        <span id="activeDeckCommanderPips" style="display:flex;gap:5px;align-items:center"></span>
+        <span id="activeDeckCommanderLabel" style="display:none;color:var(--text3)">Commander:</span>
+        <span id="activeDeckCommander" style="display:none;color:color-mix(in oklab, rgb(var(--lgx1)) 55%, rgb(var(--lgx2)));font-family:'Cinzel',serif"></span>
         <button id="activeDeckCommanderEditBtn" onclick="openCommanderEdit()" style="display:none;background:none;border:none;color:var(--text3);cursor:pointer;padding:2px 4px;border-radius:4px;line-height:1" title="Change commander">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;display:block"><path d="M2.5 13.5l.8-3L11 2.5 13.5 5 5.8 12.8l-3.3.7z"/><line x1="10.5" y1="3" x2="13" y2="5.5"/></svg>
         </button>
         <span id="activeDeckNotes" style="display:none;color:var(--text3);font-style:italic"></span>
       </div>
 
+      <!-- Deck builder folder tabs — pages between sections; content is only hidden, never removed -->
+      <div class="deck-folder-tabs" id="deckBuilderTabs" role="tablist" aria-label="Deck builder sections">
+        <button type="button" class="deck-ftab active" id="deckFtab-list" role="tab" aria-selected="true" onclick="setDeckBuilderTab('list')">Deck List</button>
+        <button type="button" class="deck-ftab" id="deckFtab-design" role="tab" aria-selected="false" onclick="setDeckBuilderTab('design')">Design</button>
+        <button type="button" class="deck-ftab" id="deckFtab-suggestions" role="tab" aria-selected="false" onclick="setDeckBuilderTab('suggestions')">Suggestions</button>
+        <button type="button" class="deck-ftab" id="deckFtab-analytics" role="tab" aria-selected="false" onclick="setDeckBuilderTab('analytics')">Analytics</button>
+        <button type="button" class="deck-ftab" id="deckFtab-history" role="tab" aria-selected="false" onclick="setDeckBuilderTab('history')" title="Adds, removals, main↔maybe board, tag changes">History</button>
+        <button type="button" class="deck-ftab" id="deckFtab-share" role="tab" aria-selected="false" onclick="setDeckBuilderTab('share')">Share</button>
+      </div>
+
+      <div id="deckTabPane-list" class="deck-tab-pane active">
       <!-- Deck List -->
       <div class="panel" style="margin-bottom:1.25rem">
         <div id="deckListPanelHeader" class="panel-header" style="flex-wrap:wrap;gap:6px">
-          <span class="panel-title">Deck List</span>
           <span id="deckListCount"></span>
           <div class="deck-list-header-spacer" style="flex:1"></div>
           <span id="deckGroupByWrap" style="display:flex;align-items:center;gap:5px">
             <button id="deckListFilterToggleBtn" class="btn btn-outline btn-sm" onclick="toggleDeckListFilterBar()" title="Filter deck list">⌕ Filter</button>
-            <span class="deck-list-group-hint dlh-group">Group</span>
-            <select id="deckGroupBySelect" class="deck-select" onchange="setDeckGroupBy(this.value)">
+            <select id="deckGroupBySelect" class="deck-select" data-glass-label="Group" onchange="setDeckGroupBy(this.value)">
               <option value="type">Type</option>
               <option value="subtype">Subtype</option>
               <option value="tag_all">All tags</option>
@@ -737,8 +752,7 @@
               <option value="color">Color</option>
               <option value="cmc">Mana Value</option>
             </select>
-            <span class="deck-list-group-hint dlh-sort">Sort</span>
-            <select id="deckStackSortSelect" class="deck-select" onchange="setDeckStackSort(this.value)">
+            <select id="deckStackSortSelect" class="deck-select" data-glass-label="Sort" onchange="setDeckStackSort(this.value)">
               <option value="name">Name</option>
               <option value="cmc">Mana Value</option>
               <option value="price">Price</option>
@@ -749,14 +763,16 @@
               <option value="desc">↓</option>
             </select>
           </span>
-          <div id="deckCardSizeWrap" style="display:flex;align-items:center;gap:5px">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px;opacity:0.5;flex-shrink:0"><rect x="2" y="1.5" width="7" height="10" rx="1"/><rect x="7" y="4.5" width="7" height="10" rx="1"/></svg>
+          <div id="deckCardSizeWrap" class="btn btn-outline btn-sm dl-size-pill" title="Card size">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><rect x="2" y="1.5" width="7" height="10" rx="1"/><rect x="7" y="4.5" width="7" height="10" rx="1"/></svg>
+            Size
             <input type="range" id="deckCardSizeSlider" min="120" max="280" step="10" value="220"
               oninput="setDeckCardSize(+this.value)"
-              style="width:72px;cursor:pointer;accent-color:var(--gold)" title="Card size">
+              style="width:72px;cursor:pointer" title="Card size">
           </div>
-          <button id="deckTagBadgeToggleBtn" class="btn btn-outline btn-sm active" onclick="toggleDeckTagBadges()" title="Hide role-tag badges" aria-pressed="true" style="display:flex;align-items:center;padding:3px 7px">
+          <button id="deckTagBadgeToggleBtn" class="btn btn-outline btn-sm active" onclick="toggleDeckTagBadges()" title="Hide role-tag badges" aria-pressed="true">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><path d="M8 1.8l5 1.8v3.4c0 3.3-2.3 5.3-5 6.2-2.7-.9-5-2.9-5-6.2V3.6z"/></svg>
+            Badges
           </button>
           <button id="deckStackLayoutResetBtn" class="btn btn-outline btn-sm" onclick="resetDeckStackLayout()" style="display:none" title="Restore automatic stack column layout">Reset stacks</button>
           <div id="deckStackOrientToggle" class="view-toggle">
@@ -797,7 +813,6 @@
           </div>
         </div>
         <div id="deckListPanel" class="deck-list-panel-wrap">
-          <div id="deckHistoryPanel" class="deck-history-panel-inner" aria-live="polite"></div>
           <div id="deckCardList" style="overflow-y:auto"></div>
           <div id="deckTokensSection" class="deck-tokens-section" hidden>
             <div class="deck-tokens-inner">
@@ -809,7 +824,9 @@
           </div>
         </div>
       </div>
+      </div><!-- /deckTabPane-list -->
 
+      <div id="deckTabPane-suggestions" class="deck-tab-pane">
       <!-- Suggested Cuts (shown when deck exceeds 100 cards) -->
       <div id="deckCutSuggestionsPanel" class="panel" style="display:none;margin-bottom:1.25rem">
         <div class="panel-header deck-suggest-header">
@@ -841,7 +858,7 @@
               style="width:112px;cursor:pointer;accent-color:var(--gold)" aria-label="Playstyle: Aggro to Control">
             <span class="cut-playstyle-label cut-playstyle-control">Control</span>
           </div>
-          <select id="deckCutArchetypeSelect" class="deck-select suggest-classic-only" onchange="_onCutArchetypeChange(this.value)" style="font-size:.76rem;margin-right:4px" title="Deck archetype (affects cut thresholds)">
+          <select id="deckCutArchetypeSelect" class="deck-select suggest-classic-only" data-glass-label="Archetype" onchange="_onCutArchetypeChange(this.value)" style="font-size:.76rem;margin-right:4px" title="Deck archetype (affects cut thresholds)">
             <option value="">Auto</option>
             <option value="goodstuff">Goodstuff</option>
             <option value="graveyard">Graveyard</option>
@@ -862,10 +879,9 @@
         <div id="deckCutSuggestionsBody"></div>
       </div>
 
-      <!-- Suggested Adds (below deck list) — inverse of Suggested Cuts, shares its target model -->
+      <!-- Suggested Adds — inverse of Suggested Cuts, shares its target model -->
       <div id="deckAddSuggestionsPanel" class="panel" style="display:none;margin-bottom:1.25rem">
         <div class="panel-header deck-suggest-header">
-          <span class="panel-title">Suggested Adds</span>
           <span class="deck-cut-help tooltip-wrap" tabindex="0" aria-label="How suggested adds work">
             <span class="deck-cut-help-icon" aria-hidden="true">?</span>
             <span class="tooltip deck-cut-help-tooltip">
@@ -900,7 +916,7 @@
               style="width:112px;cursor:pointer;accent-color:var(--gold)" aria-label="Playstyle: Aggro to Control">
             <span class="cut-playstyle-label cut-playstyle-control">Control</span>
           </div>
-          <select id="deckAddArchetypeSelect" class="deck-select suggest-classic-only" onchange="_onCutArchetypeChange(this.value)" style="font-size:.76rem;margin-right:4px" title="Deck archetype (shared with Suggested Cuts)">
+          <select id="deckAddArchetypeSelect" class="deck-select suggest-classic-only" data-glass-label="Archetype" onchange="_onCutArchetypeChange(this.value)" style="font-size:.76rem;margin-right:4px" title="Deck archetype (shared with Suggested Cuts)">
             <option value="">Auto</option>
             <option value="goodstuff">Goodstuff</option>
             <option value="graveyard">Graveyard</option>
@@ -921,56 +937,38 @@
         <div id="deckAddThresholdEditor" style="display:none"></div>
         <div id="deckAddSuggestionsBody"></div>
       </div>
+      </div><!-- /deckTabPane-suggestions -->
 
-      <!-- Commander Gameplan Probability -->
-      <div id="commanderGameplan" style="margin-bottom:1.25rem;display:none"></div>
-
-      <!-- Themes running through the deck (Strategy category) -->
-      <div id="deckThemesPanel" class="panel" style="display:none;margin-bottom:1.25rem">
-        <div class="panel-header">
-          <span class="panel-title">Themes</span>
-          <span class="deck-cut-help tooltip-wrap" tabindex="0" aria-label="How deck themes work">
-            <span class="deck-cut-help-icon" aria-hidden="true">?</span>
-            <span class="tooltip deck-cut-help-tooltip">
-              <strong>Themes running through your deck</strong> counts cards that support each strategy
-              (tokens, sacrifice, landfall, and so on) from role tags, card text, and type line.
-              Ten supporting cards is a decent package; thirty is very focused. Those numbers can be retuned later.
-              If you have set a plan, this also says whether the list jives with or clashes against that plan.
-            </span>
-          </span>
-        </div>
-        <div class="panel-body" id="deckThemesBody"></div>
-      </div>
-
+      <div id="deckTabPane-analytics" class="deck-tab-pane">
       <!-- Bottom: Deck composition and mana profile -->
       <div class="deck-stats-grid">
         <div class="panel">
-          <div class="panel-header"><span class="panel-title">Mana Curve</span></div>
+          <div class="panel-header"><span class="panel-title">Mana Curve</span><button type="button" class="decklist-collapse-btn deck-info-collapse-btn" data-info-key="manacurve" onclick="toggleDeckInfoPanel('manacurve')" title="Toggle">▾</button></div>
           <div class="panel-body deck-mana-curve-panel">
             <div id="manaIdealControls" class="mana-ideal-controls"></div>
             <div class="mana-curve" id="manaCurve"></div>
           </div>
         </div>
         <div class="panel">
-          <div class="panel-header"><span class="panel-title">Type Breakdown</span></div>
+          <div class="panel-header"><span class="panel-title">Type Breakdown</span><button type="button" class="decklist-collapse-btn deck-info-collapse-btn" data-info-key="types" onclick="toggleDeckInfoPanel('types')" title="Toggle">▾</button></div>
           <div class="panel-body" id="typeBreakdown"></div>
         </div>
         <div class="panel">
-          <div class="panel-header"><span class="panel-title">Mana Cost</span></div>
+          <div class="panel-header"><span class="panel-title">Mana Cost</span><button type="button" class="decklist-collapse-btn deck-info-collapse-btn" data-info-key="manacost" onclick="toggleDeckInfoPanel('manacost')" title="Toggle">▾</button></div>
           <div class="panel-body" id="manaCostProfile"></div>
         </div>
         <div class="panel">
-          <div class="panel-header"><span class="panel-title">Mana Generation</span></div>
+          <div class="panel-header"><span class="panel-title">Mana Generation</span><button type="button" class="decklist-collapse-btn deck-info-collapse-btn" data-info-key="managen" onclick="toggleDeckInfoPanel('managen')" title="Toggle">▾</button></div>
           <div class="panel-body" id="manaGenerationProfile"></div>
         </div>
         <div class="panel">
-          <div class="panel-header"><span class="panel-title">Opening Hand Lands</span></div>
+          <div class="panel-header"><span class="panel-title">Opening Hand Lands</span><button type="button" class="decklist-collapse-btn deck-info-collapse-btn" data-info-key="openhand" onclick="toggleDeckInfoPanel('openhand')" title="Toggle">▾</button></div>
           <div class="panel-body deck-land-chart-panel">
             <canvas id="openingHandChart"></canvas>
           </div>
         </div>
         <div class="panel">
-          <div class="panel-header"><span class="panel-title">Land Drop Coverage</span></div>
+          <div class="panel-header"><span class="panel-title">Land Drop Coverage</span><button type="button" class="decklist-collapse-btn deck-info-collapse-btn" data-info-key="landdrops" onclick="toggleDeckInfoPanel('landdrops')" title="Toggle">▾</button></div>
           <div class="panel-body deck-land-chart-panel">
             <canvas id="landCoverageChart"></canvas>
           </div>
@@ -986,6 +984,7 @@
             <div style="display:flex;gap:3px;flex-shrink:0">
               <button class="btn btn-sm draw-mode-btn" data-mode="area" onclick="setDrawChartMode('area')">Area</button>
               <button class="btn btn-sm draw-mode-btn" data-mode="lines" onclick="setDrawChartMode('lines')">Lines</button>
+              <button type="button" class="decklist-collapse-btn deck-info-collapse-btn" data-info-key="drawaccel" onclick="toggleDeckInfoPanel('drawaccel')" title="Toggle">▾</button>
             </div>
           </div>
           <div class="panel-body deck-draw-accel-body">
@@ -1006,6 +1005,7 @@
             <span class="deck-tab-hint">Hand size</span>
             <input type="number" id="probHandSize" value="7" min="1" max="20" style="width:52px;padding:3px 6px" oninput="onProbHandSizeChange(this.value)">
           </div>
+          <button type="button" class="decklist-collapse-btn deck-info-collapse-btn" data-info-key="drawprob" onclick="toggleDeckInfoPanel('drawprob')" title="Toggle">▾</button>
         </div>
         <div class="panel-body prob-chart-panel-body">
           <!-- Chart first in DOM so the chip row (grid row 1) paints above any compositor bleed from the canvas -->
@@ -1017,31 +1017,61 @@
           </div>
         </div>
       </div>
+      </div><!-- /deckTabPane-analytics -->
+
+      <div id="deckTabPane-history" class="deck-tab-pane">
+        <div id="deckHistoryPanel" class="deck-history-panel-inner" aria-live="polite"></div>
+      </div><!-- /deckTabPane-history -->
+
+      <div id="deckTabPane-design" class="deck-tab-pane">
+      <!-- Commander Gameplan Probability -->
+      <div id="commanderGameplan" style="margin-bottom:1.25rem;display:none"></div>
+
+      <!-- Themes running through the deck (Strategy category) -->
+      <div id="deckThemesPanel" class="panel" style="display:none;margin-bottom:1.25rem">
+        <div class="panel-header">
+          <span class="panel-title">Themes</span>
+          <span class="deck-cut-help tooltip-wrap" tabindex="0" aria-label="How deck themes work">
+            <span class="deck-cut-help-icon" aria-hidden="true">?</span>
+            <span class="tooltip deck-cut-help-tooltip">
+              <strong>Themes running through your deck</strong> counts cards that support each strategy
+              (tokens, sacrifice, landfall, and so on) from role tags, card text, and type line.
+              Ten supporting cards is a decent package; thirty is very focused. Those numbers can be retuned later.
+              If you have set a plan, this also says whether the list jives with or clashes against that plan.
+            </span>
+          </span>
+          <div style="flex:1"></div><button type="button" class="decklist-collapse-btn deck-info-collapse-btn" data-info-key="themes" onclick="toggleDeckInfoPanel('themes')" title="Toggle">▾</button>
+        </div>
+        <div class="panel-body" id="deckThemesBody"></div>
+      </div>
 
       <!-- Similarity Analysis -->
-      <div class="panel panel--similarity" style="margin-top:1.25rem">
+      <div class="panel panel--similarity">
         <div class="panel-header" style="flex-wrap:wrap;gap:8px">
           <span class="panel-title">Similarity</span>
           <span class="deck-tab-hint" style="flex:1">EDHREC alignment &amp; archive comparison for this commander</span>
           <button class="btn btn-outline btn-sm" id="simAnalyzeBtn" onclick="loadDeckSimilarity()">Refresh</button>
+          <button type="button" class="decklist-collapse-btn deck-info-collapse-btn" data-info-key="similarity" onclick="toggleDeckInfoPanel('similarity')" title="Toggle">▾</button>
         </div>
         <div class="panel-body" id="simPanel">
           <p style="color:var(--text3);font-size:0.85rem;font-style:italic;margin:0">Loading…</p>
         </div>
       </div>
+      </div><!-- /deckTabPane-design -->
 
+      <div id="deckTabPane-share" class="deck-tab-pane">
       <!-- Collaborators (owner only) -->
-      <div id="deckCollaboratorsPanel" class="panel" style="margin-top:1.25rem;display:none">
+      <div id="deckCollaboratorsPanel" class="panel" style="display:none">
         <div class="panel-header">
-          <span class="panel-title">Collaborators</span>
           <span class="deck-tab-hint">Manage access</span>
+          <div style="flex:1"></div><button type="button" class="decklist-collapse-btn deck-info-collapse-btn" data-info-key="collab" onclick="toggleDeckInfoPanel('collab')" title="Toggle">▾</button>
         </div>
         <div class="panel-body">
           <div id="collabList" style="margin-bottom:0.75rem"></div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
             <input id="collabEmailInput" type="email" placeholder="Add by email address…" style="flex:1;min-width:160px"
               onkeydown="if(event.key==='Enter')addDeckCollaborator()">
-            <select id="collabPermSelect" class="collab-perm-select">
+            <select id="collabPermSelect" class="collab-perm-select" data-glass-label="">
               <option value="edit">Can Edit</option>
               <option value="view">View Only</option>
             </select>
@@ -1050,6 +1080,7 @@
           <div id="collabError" style="margin-top:6px"></div>
         </div>
       </div>
+      </div><!-- /deckTabPane-share -->
     </div>
 
     </div><!-- end deckDetailArea -->
@@ -2340,7 +2371,9 @@
       <select id="deckExportType" class="deck-export-select" onchange="_deckExportOnChange()">
         <option value="text">Text</option>
         <option value="csv">CSV</option>
+        <option value="tts">Tabletop Simulator (MTGA)</option>
       </select>
+      <p id="deckExportTtsNote" class="deck-export-count" style="display:none">MTGA format with your chosen printings — paste into the deck loader notebook in Tabletop Simulator.</p>
 
       <div id="deckExportTextOpts">
         <label class="deck-export-label">Format options</label>
@@ -2501,7 +2534,8 @@
   </button>
 </nav>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<!-- Chart.js is injected on demand by ensureChartJs() (js/lazy-chunks.js) — it was a render-blocking third-party script for panes that only exist after user interaction -->
+
 <!-- GOLDFISH PLAYTEST OVERLAY -->
 <div id="goldfishOverlay" style="display:none;position:fixed;inset:0;z-index:9000;flex-direction:column">
 
@@ -2928,7 +2962,8 @@
 </div>
 
 
-<script src="/dist/scanner-card-yolo.js"></script>
+<!-- scanner-card-yolo.js (onnxruntime-web, ~536 KB) is injected on demand by openScanner() — see js/scanner.js -->
+
 <!-- socket.io client for real-time trading (served by the socket.io server). Loaded
      defer so a missing/late server doesn't block the app; trade.js feature-detects `io`. -->
 <script src="/socket.io/socket.io.js" defer onerror="window._noSocketIo=true"></script>

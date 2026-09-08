@@ -75,6 +75,10 @@
     right: 0.5rem;
     gap: 2px;
     max-width: calc(100% - 7.5rem);
+    /* Absolute top:0 anchors to the padding box, i.e. under the notch — the
+       brand centers in the content area below the safe-area padding, so the
+       cluster must start there too or it rides up into the status bar. */
+    top: env(safe-area-inset-top, 0px);
   }
   #topbarUser {
     max-width: min(148px, 38vw);
@@ -250,7 +254,6 @@
   /* ── DECK BUILDER: hide deck list sidebar when viewing a deck ─────────── */
   #deckDetailArea .deck-detail-sidebar,
   #deckSidebar { display: none !important; }
-  #toggleDeckSidebarBtn { display: none !important; }
   /* backToDecksBtn is already shown/hidden by renderDecks() JS */
 
   /* ── Deck layout ──────────────────────────────────────────────────────── */
@@ -390,6 +393,12 @@
   /* The Cumulative Card Draw panel spans 2 cols on desktop — reset on phones
      so it doesn't spawn a phantom second grid column. */
   .deck-stats-grid .deck-draw-accel-panel { grid-column: auto !important; }
+
+  /* Deck builder folder tabs — tighter tabs that scroll sideways on phones */
+  .deck-folder-tabs { padding: 5px 6px 0 0; }
+  .deck-ftab { padding: 9px 20px 8px; font-size: 0.9rem; letter-spacing: 0.02em; }
+  .deck-ftab + .deck-ftab { margin-left: -12px; }
+  .deck-ftab.active { padding: 11px 22px 9px; }
 
   .deck-themes-toggle { flex-wrap: wrap; row-gap: 2px; }
   .deck-themes-name { flex: 1 1 60%; }
@@ -712,4 +721,61 @@
     grid-template-columns: repeat(auto-fill, minmax(105px, 1fr)) !important;
   }
   main { padding-left: 1rem; padding-right: 1rem; }
+}
+
+/* ── Phones keep the ORIGINAL MB/ADDS/CUTS zones look ────────────────────────
+   The desktop glass-box treatment of the zones, the labeled collapse pills,
+   and their solid separators are reverted here — the zones are unchanged on
+   mobile by request. (Tokens/commander tweaks apply on mobile too.) */
+@media (max-width: 768px) {
+  .deck-extra-zone-section,
+  body.glass-mode .deck-extra-zone-section {
+    border: none !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+  }
+  .deck-stack-view.vertical-orient > .deck-extra-zones-wrap > .deck-extra-zone-section + .deck-extra-zone-section,
+  .deck-stack-view.vertical-orient > .deck-extra-zones-wrap > .deck-sideboard-section + .deck-sideboard-section,
+  .deck-stack-view > .deck-extra-zones-wrap > .deck-extra-zone-section + .deck-extra-zone-section {
+    border-top: 1px dashed var(--border2) !important;
+    padding-top: 0.75rem !important;
+  }
+  .deck-stack-view > .deck-extra-zones-wrap::before {
+    content: '';
+    position: absolute;
+    left: -15px;
+    top: 0;
+    bottom: 0;
+    border-left: 2px dashed var(--border2);
+    pointer-events: none;
+  }
+  /* Collapsed zone = the original compact arrow */
+  .deck-extra-zone-section.is-collapsed { width: auto !important; }
+  .deck-extra-zone-section.is-collapsed:hover {
+    background: transparent !important;
+    border-color: transparent !important;
+  }
+  .deck-extra-zone-section.is-collapsed .deck-extra-zone-label,
+  .deck-extra-zone-section.is-collapsed .deck-stack-group-count { display: none !important; }
+  .deck-extra-zone-section.is-collapsed .deck-extra-zone-header,
+  .deck-extra-zone-section.is-collapsed .deck-sideboard-header {
+    width: 1.35rem !important;
+    min-width: 1.35rem !important;
+    padding: 4px 0 !important;
+    letter-spacing: 0 !important;
+    gap: 0 !important;
+    justify-content: center !important;
+    text-align: center !important;
+  }
+  .deck-extra-zones-wrap--list .deck-extra-zone-section.is-collapsed .deck-list-group-head {
+    width: 1.35rem !important;
+    min-width: 1.35rem !important;
+    padding: 4px 0 !important;
+  }
+  .deck-stack-view > .deck-extra-zones-wrap:has(.deck-extra-zone-section.is-collapsed) {
+    gap: 4px;
+    padding-left: 4px;
+  }
 }

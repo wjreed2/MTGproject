@@ -281,8 +281,47 @@ function _deckExportBuildCsv(deck, prefs) {
   return rows.map(r => r.join(',')).join('\n');
 }
 
+/* MTGA-format line: "1 Name (SET) 123". TTS deck loaders (MTG Deck Loader,
+ * rikrassen's importer on the 4-player Commander tables) resolve set + collector
+ * number to the exact printing; without them they fall back to a name lookup. */
+function _deckExportTtsLine(card) {
+  const qty = Number(card?.qty) || 1;
+  let name = String(card?.name || '').trim();
+  if (name.includes(' // ')) name = name.split(' // ')[0].trim();
+  const set = String(card?.set || '').toUpperCase();
+  const num = String(card?.number || '').trim();
+  const printing = set && num ? ` (${set}) ${num}` : '';
+  return `${qty} ${name}${printing}`;
+}
+
+function _deckExportBuildTts(deck, prefs) {
+  const zones = _deckExportZones(deck, prefs);
+  const commanders = [];
+  const main = [];
+  const side = [];
+  for (const zone of zones) {
+    for (const card of _deckExportSortCards(zone.cards, prefs.sortBy)) {
+      if (zone.key === 'maybeboard' || zone.key === 'sideboard') side.push(card);
+      else if (card?.isCommander) commanders.push(card);
+      else main.push(card);
+    }
+  }
+  const lines = [];
+  const pushSection = (label, cards) => {
+    if (!cards.length) return;
+    if (lines.length) lines.push('');
+    lines.push(label);
+    for (const card of cards) lines.push(_deckExportTtsLine(card));
+  };
+  pushSection('Commander', commanders);
+  pushSection('Deck', main);
+  pushSection('Sideboard', side);
+  return lines.join('\n');
+}
+
 function _deckExportBuild(deck, prefs) {
   if (prefs.exportType === 'csv') return _deckExportBuildCsv(deck, prefs);
+  if (prefs.exportType === 'tts') return _deckExportBuildTts(deck, prefs);
   return _deckExportBuildText(deck, prefs);
 }
 
@@ -331,6 +370,8 @@ function _deckExportOnChange() {
   _deckExportUpdatePreview();
   const textOpts = document.getElementById('deckExportTextOpts');
   if (textOpts) textOpts.style.display = prefs.exportType === 'text' ? '' : 'none';
+  const ttsNote = document.getElementById('deckExportTtsNote');
+  if (ttsNote) ttsNote.style.display = prefs.exportType === 'tts' ? '' : 'none';
 }
 
 function openDeckExportModal() {

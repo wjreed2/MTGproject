@@ -1010,16 +1010,37 @@ async function refreshAllSharedDecksFromServer(opts) {
   if (!list.length) return;
   const silent = opts && opts.silent;
   await Promise.all(list.map(async d => {
-    if (!d?.id) return;
-    if (_deckOpsDirty.has(d.id)) {
+    if (d?.id && _deckOpsDirty.has(d.id)) {
       await _flushDeckOps(d.id).catch(() => {});
     }
-    try {
-      const fresh = await apiFetch('/decks/' + d.id);
-      mergeDeckSnapshot(fresh);
-      _sharedDeckLastFetch[d.id] = Date.now();
-    } catch (_) {}
   }));
+  // One batched revalidation instead of a GET per shared deck: unchanged decks
+  // come back as ids only; changed ones as full payloads. Falls back to the old
+  // per-deck fetches when the server doesn't have the endpoint yet.
+  let usedBatch = false;
+  try {
+    const items = list.filter(d => d?.id).map(d => ({ id: d.id, updatedAt: Number(d.updatedAt) || 0 }));
+    const data = await apiPostJson('/decks/refresh-batch', { items });
+    if (data && Array.isArray(data.decks)) {
+      usedBatch = true;
+      const now = Date.now();
+      for (const fresh of data.decks) {
+        mergeDeckSnapshot(fresh);
+        if (fresh?.id) _sharedDeckLastFetch[fresh.id] = now;
+      }
+      for (const id of data.unchanged || []) _sharedDeckLastFetch[id] = now;
+    }
+  } catch (_) { /* older server — use the per-deck path below */ }
+  if (!usedBatch) {
+    await Promise.all(list.map(async d => {
+      if (!d?.id) return;
+      try {
+        const fresh = await apiFetch('/decks/' + d.id);
+        mergeDeckSnapshot(fresh);
+        _sharedDeckLastFetch[d.id] = Date.now();
+      } catch (_) {}
+    }));
+  }
   cacheSet('sharedDecks', list).catch(() => {});
   if (typeof activeDeckId !== 'undefined' && list.some(d => d.id === activeDeckId)) {
     if (typeof renderActiveDeck === 'function') renderActiveDeck();

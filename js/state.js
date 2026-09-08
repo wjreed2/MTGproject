@@ -478,7 +478,7 @@ async function _awaitLoadWithBudget(loadPromise, budgetMs) {
  * back). Without a snapshot — first login on a device — it waits for the
  * server exactly like before.
  */
-async function loadAppDataAfterAuth() {
+async function loadAppDataAfterAuth(opts) {
   if (typeof markAppDataSynced === 'function') markAppDataSynced(false);
   bootSplashShow('Loading your collection…');
 
@@ -495,7 +495,17 @@ async function loadAppDataAfterAuth() {
   // previously signed-in account and must not be shown.
   if (currentUser?.id != null) {
     let cached = null;
-    try { cached = await cacheLoadAll(currentUser.id); } catch (_) { cached = null; }
+    try {
+      // initApp starts the IndexedDB read in parallel with the auth round trip;
+      // use it when it belongs to this account, else probe normally (which
+      // re-runs the ownership check itself).
+      const early = opts?.earlyCachePromise ? await opts.earlyCachePromise : null;
+      if (early?.data && String(early.aid) === String(currentUser.id)) {
+        cached = early.data;
+      } else {
+        cached = await cacheLoadAll(currentUser.id);
+      }
+    } catch (_) { cached = null; }
     if (cached) {
       // Cleanup flags are dropped on purpose — saves are blocked until synced.
       hydrateAppData(cached);
@@ -721,6 +731,21 @@ async function initApp() {
   }
 
   bootSplashStatus('Checking session…');
+  // Overlap the (potentially slow) IndexedDB snapshot read with the auth round
+  // trip — previously the cache probe only STARTED after /api/auth/me returned,
+  // adding a full network RTT of dead time before the cache-first paint. The
+  // result is only consumed after authMe confirms the session, and only when the
+  // snapshot belongs to the confirmed account, so this changes timing, not trust.
+  const earlyCachePromise = (typeof cacheGet === 'function' && typeof cacheLoadAll === 'function')
+    ? (async () => {
+        try {
+          const aid = await cacheGet('accountId');
+          if (aid == null) return null;
+          return { aid, data: await cacheLoadAll(aid) };
+        } catch (_) { return null; }
+      })()
+    : null;
+
   let me = null;
   try {
     me = await authMe();
@@ -741,5 +766,5 @@ async function initApp() {
   if (typeof refreshAuthUserLabel === 'function') refreshAuthUserLabel(me.email, me.role);
 
   // Resolves at the first paint; restores the saved tab itself (_paintHydratedApp).
-  await loadAppDataAfterAuth();
+  await loadAppDataAfterAuth({ earlyCachePromise });
 }
