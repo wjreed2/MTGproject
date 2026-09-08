@@ -60,10 +60,6 @@
 
 <div id="authGate" class="auth-gate" style="display:none" aria-hidden="true">
   <div class="auth-shell">
-    <div class="deck-folder-tabs auth-folder-tabs" role="tablist" aria-label="Account">
-      <button type="button" class="deck-ftab active" id="authTabSignIn" role="tab" aria-selected="true" onclick="showAuthLogin()">Sign in</button>
-      <button type="button" class="deck-ftab" id="authTabRegister" role="tab" aria-selected="false" onclick="showAuthRegister()">Create account</button>
-    </div>
     <div class="auth-card">
       <div class="auth-brand">
         <div class="logo-gem"></div>
@@ -79,9 +75,11 @@
           <input class="auth-input" type="password" id="authPassword" required autocomplete="current-password">
         </label>
         <button type="submit" class="btn btn-primary auth-submit">Sign in</button>
+        <button type="button" class="btn btn-outline auth-submit auth-secondary" onclick="showAuthRegister()">Create account</button>
         <p class="auth-switch"><button type="button" class="btn-link" onclick="showForgotPassword()">Forgot password?</button></p>
       </form>
       <div id="authRegisterPanel" style="display:none">
+        <h2 class="auth-register-heading">Create account</h2>
         <form id="authRegisterForm" onsubmit="return submitAuthRegister(event)">
           <label class="auth-label">Email
             <input class="auth-input" type="email" id="regEmail" required autocomplete="email">
@@ -89,8 +87,9 @@
           <label class="auth-label">Password (8+ characters)
             <input class="auth-input" type="password" id="regPassword" required autocomplete="new-password">
           </label>
-          <button type="submit" class="btn btn-primary auth-submit">Create account</button>
+          <button type="submit" class="btn btn-primary auth-submit">Register</button>
         </form>
+        <p class="auth-switch"><button type="button" class="btn-link" onclick="showAuthLogin()">Back to sign in</button></p>
       </div>
       <div id="authForgotPanel" style="display:none">
         <h2 class="auth-register-heading">Reset password</h2>

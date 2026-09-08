@@ -297,37 +297,22 @@ function _hideAllAuthPanels() {
   });
 }
 
-/** Folder tabs above the auth card. Forgot/reset are part of the sign-in flow. */
-function _syncAuthTabs() {
-  const onRegister = document.getElementById('authRegisterPanel')?.style.display === 'block';
-  const pairs = [['authTabSignIn', !onRegister], ['authTabRegister', onRegister]];
-  for (const [id, active] of pairs) {
-    const btn = document.getElementById(id);
-    if (!btn) continue;
-    btn.classList.toggle('active', active);
-    btn.setAttribute('aria-selected', active ? 'true' : 'false');
-  }
-}
-
 function showAuthRegister() {
   setAuthError('');
   _hideAllAuthPanels();
   document.getElementById('authRegisterPanel').style.display = 'block';
-  _syncAuthTabs();
 }
 
 function showAuthLogin() {
   setAuthError('');
   _hideAllAuthPanels();
   document.getElementById('authLoginForm').style.display = 'block';
-  _syncAuthTabs();
 }
 
 function showForgotPassword() {
   setAuthError('');
   _hideAllAuthPanels();
   document.getElementById('authForgotPanel').style.display = 'block';
-  _syncAuthTabs();
   setTimeout(() => document.getElementById('forgotEmail')?.focus(), 50);
 }
 
@@ -335,7 +320,6 @@ function _showResetPanel() {
   setAuthError('');
   _hideAllAuthPanels();
   document.getElementById('authResetPanel').style.display = 'block';
-  _syncAuthTabs();
   setTimeout(() => document.getElementById('resetPassword')?.focus(), 50);
 }
 

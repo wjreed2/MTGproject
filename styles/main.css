@@ -568,12 +568,11 @@ body::before {
   display: flex;
   flex-direction: column;
 }
-.auth-folder-tabs { padding-left: 0; }
 .auth-card {
   background: var(--bg2);
   border: 1px solid var(--border2);
-  border-radius: 0 var(--radius2) var(--radius2) var(--radius2);
-  padding: 1.5rem 1.5rem 1.4rem;
+  border-radius: var(--radius2);
+  padding: 1.6rem 1.5rem 1.4rem;
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
 }
 .auth-brand {
@@ -621,6 +620,7 @@ body::before {
   border-radius: 8px !important;
   justify-content: center;
 }
+.auth-secondary { margin-top: 0.5rem; }
 .auth-error {
   font-size: 0.78rem;
   color: var(--red);
@@ -10623,25 +10623,12 @@ body.glass-mode .auth-card {
   -webkit-backdrop-filter: blur(30px) saturate(180%);
   backdrop-filter: blur(30px) saturate(180%);
   border-color: rgba(255,255,255,0.16);
-  border-radius: 0 20px 20px 20px;
-  /* No inset top specular: it would draw a line under the active tab */
-  box-shadow: 0 24px 80px rgba(0,0,0,0.55);
+  border-radius: 20px;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.16),
+    0 24px 80px rgba(0,0,0,0.55);
 }
-body.glass-mode .auth-folder-tabs .deck-ftab.active::before {
-  background:
-    linear-gradient(180deg, rgba(var(--lgx1), 0.20), rgba(var(--lgx1), 0.15)),
-    rgba(22,29,52,0.62); /* = the card's top colour */
-  border-color: rgba(255,255,255,0.16);
-  border-bottom: none;
-  -webkit-backdrop-filter: blur(30px) saturate(180%);
-  backdrop-filter: blur(30px) saturate(180%);
-}
-body.glass-mode .auth-title {
-  font-family: var(--glass-font);
-  letter-spacing: 0;
-  text-transform: none;
-  color: color-mix(in oklab, rgb(var(--lgx1)) 55%, rgb(var(--lgx2)));
-}
+/* Branding stays gold Cinzel, same as the topbar wordmark */
 /* Inputs match the deck-list search field */
 body.glass-mode .auth-input {
   background: rgba(255,255,255,0.07);
@@ -10710,14 +10697,9 @@ body.glass-mode .mobile-bottom-nav {
     linear-gradient(180deg, rgba(var(--lgx1), 0.12) 0%, rgba(var(--lgx2), 0.06) 55%, rgba(var(--lgx2), 0.04) 100%),
     rgba(255,255,255,0.72);
   border-color: rgba(255,255,255,0.9);
-  box-shadow: 0 24px 80px rgba(30,50,90,0.3);
-}
-[data-theme="light"] body.glass-mode .auth-folder-tabs .deck-ftab.active::before {
-  background:
-    linear-gradient(180deg, rgba(var(--lgx1), 0.16), rgba(var(--lgx1), 0.12)),
-    rgba(255,255,255,0.72);
-  border-color: rgba(255,255,255,0.9);
-  border-bottom: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.95),
+    0 24px 80px rgba(30,50,90,0.3);
 }
 [data-theme="light"] body.glass-mode .auth-input {
   background: rgba(255,255,255,0.7);
