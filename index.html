@@ -2490,7 +2490,8 @@
   </button>
 </nav>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<!-- Chart.js is injected on demand by ensureChartJs() (js/lazy-chunks.js) — it was a render-blocking third-party script for panes that only exist after user interaction -->
+
 <!-- GOLDFISH PLAYTEST OVERLAY -->
 <div id="goldfishOverlay" style="display:none;position:fixed;inset:0;z-index:9000;flex-direction:column">
 

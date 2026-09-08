@@ -40,10 +40,32 @@ function loadAppChunk(name) {
   return p;
 }
 
-function _lazyChunkStub(chunks, fnName) {
+// Chart.js used to be a synchronous CDN <script> in <head> — ~68 KB gz plus a
+// third-party DNS+TLS handshake on the boot parse path, for chart panes that
+// only exist after user interaction. Loaded on demand instead; callers either
+// await this or re-kick their render from .then().
+let _chartJsPromise = null;
+function ensureChartJs() {
+  if (typeof Chart !== 'undefined') return Promise.resolve();
+  if (_chartJsPromise) return _chartJsPromise;
+  _chartJsPromise = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js';
+    s.onload = () => resolve();
+    s.onerror = () => {
+      _chartJsPromise = null; // allow retry (e.g. back online)
+      reject(new Error('Chart.js failed to load'));
+    };
+    document.head.appendChild(s);
+  });
+  return _chartJsPromise;
+}
+
+function _lazyChunkStub(chunks, fnName, warm) {
   const list = Array.isArray(chunks) ? chunks : [chunks];
   const stub = async function (...args) {
     try {
+      if (typeof warm === 'function') { try { void warm(); } catch (_) {} }
       await Promise.all(list.map(loadAppChunk));
     } catch (e) {
       console.error('[chunks]', e);
@@ -75,5 +97,6 @@ _lazyChunkStub('import', 'openPreconImport');
 // Scanner's set-code fuzzy correction calls voice's matchToSetCode/levenshtein
 // (guarded) — load both so behavior matches the old single bundle.
 _lazyChunkStub(['scanner', 'voice'], 'openScanner');
-_lazyChunkStub('goldfish', 'openGoldfish');
-_lazyChunkStub('goldfish', 'openGoldfishEngine');
+// Goldfish sim panels draw with Chart.js — warm it alongside the chunk.
+_lazyChunkStub('goldfish', 'openGoldfish', () => ensureChartJs().catch(() => {}));
+_lazyChunkStub('goldfish', 'openGoldfishEngine', () => ensureChartJs().catch(() => {}));

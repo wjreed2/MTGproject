@@ -51,18 +51,30 @@ function isRecentlyAdded(card) {
   return addedAt > 0 && (Date.now() - addedAt) <= NEW_CARD_WINDOW_MS;
 }
 
-/** Lowercase blob for collection search: main oracle + each face (MDFC / lessons). */
+/**
+ * Lowercase blob for collection search: main oracle + each face (MDFC / lessons).
+ * Memoized per card object (WeakMap, keyed on the oracleText source so metadata
+ * hydrates invalidate) — the search filter used to rebuild + lowercase this per
+ * name term, per card, per keystroke.
+ */
+const _oracleHaystackCache = new WeakMap();
 function _collectionOracleHaystack(c) {
+  if (!c || typeof c !== 'object') return '';
+  const src = String(c.oracleText || '');
+  const hit = _oracleHaystackCache.get(c);
+  if (hit && hit.src === src) return hit.text;
   const parts = [];
-  const main = String(c?.oracleText || '').trim();
+  const main = src.trim();
   if (main) parts.push(main);
-  if (Array.isArray(c?.cardFaces)) {
+  if (Array.isArray(c.cardFaces)) {
     for (const f of c.cardFaces) {
       const t = String(f?.oracleText || '').trim();
       if (t && !main.includes(t)) parts.push(t);
     }
   }
-  return parts.join('\n').toLowerCase();
+  const text = parts.join('\n').toLowerCase();
+  _oracleHaystackCache.set(c, { src, text });
+  return text;
 }
 
 function _cmpNum(a, op, b) {
@@ -171,10 +183,16 @@ function matchToken(card, tok) {
  * is:/s:/qty:/tag: operators, OR groups)? Extracted so other views (the Trade
  * tab's tradelist & wishlist filters) search exactly like the collection bar.
  */
+let _lastParsedSearch = { q: null, orGroups: null };
 function cardMatchesSearchQuery(c, query) {
   const q = String(query || '').trim();
   if (!q) return true;
-  const { orGroups } = parseSearchQuery(q);
+  // The filter loop calls this once per card with an identical query string —
+  // parse (regex split + tokenization) once per distinct query, not per card.
+  if (_lastParsedSearch.q !== q) {
+    _lastParsedSearch = { q, orGroups: parseSearchQuery(q).orGroups };
+  }
+  const orGroups = _lastParsedSearch.orGroups;
   return orGroups.some(({ tokens, nameTerms }) => {
     if (nameTerms.length && !nameTerms.every(t =>
       (c.name||'').toLowerCase().includes(t) ||
@@ -403,9 +421,12 @@ async function ensureCollectionPriceChangeData(cards) {
     }
   }
 
-  // Even when everything is already cached, still overlay latest prices onto rows and
-  // refresh movers/tiles — otherwise a mid-session hydrate can leave stale blob deltas.
-  const runApplyAndPaint = () => {
+  // Even when everything is already cached, still overlay latest prices onto rows —
+  // a mid-session hydrate can leave stale blob deltas. But only REPAINT when the
+  // overlay actually changed a row (or fresh data arrived): the unconditional
+  // repaint used to make every collection render run twice.
+  const runApplyAndPaint = (opts) => {
+    const onlyIfChanged = !!(opts && opts.onlyIfChanged);
     let changed = 0;
     if (typeof applyLatestPriceLogToCards === 'function') {
       changed = applyLatestPriceLogToCards(list);
@@ -413,6 +434,7 @@ async function ensureCollectionPriceChangeData(cards) {
         save('collection');
       }
     }
+    if (onlyIfChanged && changed === 0) return; // grid already reflects these prices
     if (typeof renderCollection === 'function') renderCollection({ skipPriceFetch: true });
     else if (typeof updateStats === 'function') updateStats();
     if (_cardDetailCurrentCard && document.getElementById('cardDetailModal')?.classList.contains('open')) {
@@ -423,12 +445,8 @@ async function ensureCollectionPriceChangeData(cards) {
     }
   };
 
-  if (!jobs.length) {
-    runApplyAndPaint();
-    return;
-  }
-  if (!willFetch) {
-    runApplyAndPaint();
+  if (!jobs.length || !willFetch) {
+    runApplyAndPaint({ onlyIfChanged: true });
     return;
   }
 
@@ -673,6 +691,16 @@ function renderCollection(opts) {
   const grid = document.getElementById('cardGrid');
   const empty = document.getElementById('collectionEmpty');
   if (!grid || !empty) return;
+
+  // Rebuilding the grid while the Collection tab is hidden is pure waste — the
+  // scanner/voice/import flows used to trigger it per added card. showTab and
+  // renderHydratedAppShell both re-render on every tab entry, so skip the DOM
+  // work and only refresh the always-visible topbar stats.
+  const tab = document.getElementById('tab-collection');
+  if (tab && !tab.classList.contains('active')) {
+    try { updateStats(); } catch (_) {}
+    return;
+  }
 
   let cards;
   try {
@@ -2546,7 +2574,14 @@ function _setPriceChartSource(s) { _priceChartState.source = s; _renderPriceChar
 
 function _renderPriceChart() {
   const canvas = document.getElementById('cardDetailPriceCanvas');
-  if (!canvas || typeof Chart === 'undefined') return;
+  if (!canvas) return;
+  if (typeof Chart === 'undefined') {
+    // Chart.js loads on demand now — fetch it and re-render when ready.
+    if (typeof ensureChartJs === 'function') {
+      ensureChartJs().then(() => _renderPriceChart()).catch(() => {});
+    }
+    return;
+  }
   const { points, finish, source } = _priceChartState;
   const col = _priceCol(finish, source);
   const srcMeta = _PRICE_SOURCES.find(s => s.key === source) || { cur: '$' };

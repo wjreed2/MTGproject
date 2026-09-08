@@ -3101,7 +3101,7 @@ app.put('/api/collection', requireAuth, async (req, res) => {
         });
       }
 
-      const ph = rows.map(() => '(?,?,?,?,?,?,?,?,?)').join(',');
+      const ph = rows.map(() => '(?,?,?,?,?,?,?,?,?,?)').join(',');
       const vals = rows.flatMap(c => {
         const rawOid = c?.oracleId;
         const oracleId =
@@ -3118,21 +3118,15 @@ app.put('/api/collection', requireAuth, async (req, res) => {
           oracleId,
           JSON.stringify(roleTags),
           JSON.stringify(dataObj),
+          // added_at rides the bulk INSERT (0 = column default) — this used to be a
+          // per-card UPDATE loop, i.e. thousands of round-trips inside the transaction.
+          Number(c.addedAt) || 0,
         ];
       });
       await conn.query(
-        `INSERT INTO collection (account_id, uid, name, qty, foil, scryfall_id, oracle_id, role_tags_json, data) VALUES ${ph}`,
+        `INSERT INTO collection (account_id, uid, name, qty, foil, scryfall_id, oracle_id, role_tags_json, data, added_at) VALUES ${ph}`,
         vals
       );
-      for (const c of rows) {
-        if (c.addedAt) {
-          await conn.query('UPDATE collection SET added_at=? WHERE account_id=? AND uid=?', [
-            c.addedAt,
-            aid,
-            c.uid,
-          ]);
-        }
-      }
     });
     // Tradelist is derived from the collection; a write makes the memo stale.
     invalidateTradelistCache(accountId);
@@ -3176,9 +3170,13 @@ app.get('/api/deck-map', requireAuth, async (req, res) => {
     const MIN_CARDS = 8;
     const featIdx = (k) => { const i = basis.featIdx.get(k); return i === undefined ? null : i; };
 
+    // dc.account_id in the ON clause lets the join drive off deck_cards' PK
+    // (account_id, deck_id, card_uid) — no deck_cards index leads with deck_id
+    // alone, so without it this scanned the whole table. It also scopes the join
+    // to the caller's rows outright.
     const [deckRows] = await db().query(
       `SELECT d.id deck_id, d.name deck_name, dc.card_name, dc.is_commander
-       FROM decks d JOIN deck_cards dc ON dc.deck_id = d.id
+       FROM decks d JOIN deck_cards dc ON dc.account_id = d.account_id AND dc.deck_id = d.id
        WHERE d.account_id = ? ORDER BY d.created_at, dc.sort_order`, [accountId]);
     const [colRows] = await db().query(
       'SELECT DISTINCT name FROM collection WHERE account_id = ?', [accountId]);
@@ -8010,10 +8008,19 @@ async function refreshCollectionRoleTagsForAccountOracle(accountId, oracleId) {
 
 /** Fill `oracle_id` / `role_tags_json` / `data.roleTags` for legacy rows (runs until none left). */
 async function infillCollectionRoleTagsMissing() {
-  const outer = await db().getConnection();
-  try {
-    if (!(await columnExists(outer, 'collection', 'role_tags_json'))) return;
-    const [[{ n }]] = await outer.query(
+  // Queries go through the pool (acquired/released per query) instead of pinning
+  // a dedicated connection for the whole multi-minute run — this used to hold
+  // 2 of the pool's connections for the entire post-deploy window.
+  {
+    const conn = await db().getConnection();
+    try {
+      if (!(await columnExists(conn, 'collection', 'role_tags_json'))) return;
+    } finally {
+      conn.release();
+    }
+  }
+  {
+    const [[{ n }]] = await db().query(
       'SELECT COUNT(*) AS n FROM collection WHERE role_tags_json IS NULL'
     );
     const totalNull = Number(n) || 0;
@@ -8025,7 +8032,7 @@ async function infillCollectionRoleTagsMissing() {
     let batches = 0;
     let processed = 0;
     for (;;) {
-      const [batch] = await outer.query(
+      const [batch] = await db().query(
         `SELECT account_id, uid, scryfall_id, oracle_id, data FROM collection
          WHERE role_tags_json IS NULL LIMIT 250`
       );
@@ -8038,7 +8045,7 @@ async function infillCollectionRoleTagsMissing() {
         try {
           card = typeof row.data === 'string' ? JSON.parse(row.data) : { ...row.data };
         } catch (_) {
-          await outer.query(
+          await db().query(
             `UPDATE collection SET role_tags_json = ? WHERE account_id = ? AND uid = ?`,
             [JSON.stringify([]), row.account_id, row.uid]
           );
@@ -8091,12 +8098,12 @@ async function infillCollectionRoleTagsMissing() {
       let tagRows = [];
       if (oidList.length) {
         const ph = oidList.map(() => '?').join(',');
-        const [tr] = await outer.query(
+        const [tr] = await db().query(
           `SELECT oracle_id, type_line FROM scryfall_oracle_cards WHERE oracle_id IN (${ph})`,
           oidList
         );
         typeRows = tr || [];
-        const [tg] = await outer.query(
+        const [tg] = await db().query(
           `SELECT oracle_id, tags_json FROM scryfall_oracle_tags
            WHERE oracle_id IN (${ph}) AND schema_version = ?`,
           [...oidList, SCRY_TAG_SCHEMA_VERSION]
@@ -8111,8 +8118,8 @@ async function infillCollectionRoleTagsMissing() {
       const accountIds = [...new Set(items.map(it => it.account_id))];
       const ovByAccount = new Map();
       for (const aid of accountIds) {
-        const [ovRows] = await outer.query(
-          'SELECT oracle_id, add_tags_json, remove_tags_json FROM tag_overrides WHERE account_id = ?',
+        const [ovRows] = await db().query(
+          `SELECT oracle_id, add_tags_json, remove_tags_json FROM tag_overrides WHERE account_id = ?`,
           [aid]
         );
         const ovByOid = new Map();
@@ -8159,8 +8166,6 @@ async function infillCollectionRoleTagsMissing() {
       console.log(`[collection] infill progress: ${processed}/${totalNull} rows (${batches} chunk(s))`);
     }
     if (batches) console.log(`[collection] infill finished (${processed} row(s))`);
-  } finally {
-    outer.release();
   }
 }
 
@@ -8169,9 +8174,14 @@ function runCollectionRoleTagsInfillBackground() {
     console.log('[collection] SKIP_COLLECTION_TAG_INFILL=1 — skipping role_tags infill');
     return;
   }
-  void infillCollectionRoleTagsMissing().catch(e =>
-    console.warn('[collection] infill (background):', e.message)
-  );
+  // Hold off past the deploy window: a restart is exactly when every client
+  // reconnects and re-boots, so don't compete with that burst for the pool.
+  const delayMs = Math.max(0, parseInt(process.env.COLLECTION_TAG_INFILL_DELAY_MS || '120000', 10));
+  setTimeout(() => {
+    void infillCollectionRoleTagsMissing().catch(e =>
+      console.warn('[collection] infill (background):', e.message)
+    );
+  }, delayMs);
 }
 
 async function fetchAllScryfallCardsForQuery(query) {
@@ -10698,7 +10708,21 @@ async function start() {
   };
 
   app.use('/js',     express.static(path.join(__dirname, 'js')));
-  app.use('/styles', express.static(path.join(__dirname, 'styles')));
+  // Index stamps ?v=SHA on the stylesheet links (serveIndex below) but this mount
+  // used serve-static defaults (max-age=0), so both render-blocking stylesheets
+  // paid a conditional GET on every single page load. Same treatment as /dist:
+  // versioned URLs are immutable, bare URLs must revalidate.
+  app.use('/styles', (req, res, next) => {
+    if (req.query.v) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    next();
+  }, express.static(path.join(__dirname, 'styles'), {
+    cacheControl: false,
+    setHeaders(res) {
+      if (!res.getHeader('Cache-Control')) {
+        res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+      }
+    },
+  }));
   app.use('/vendor', express.static(path.join(__dirname, 'vendor')));
   // Index stamps ?v=SHA on bundle URLs — those exact URLs never change content,
   // so they cache forever (no revalidation round-trip for a ~1.4MB bundle on

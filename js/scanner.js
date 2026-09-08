@@ -495,7 +495,8 @@ function _scnInjectYolo() {
 }
 
 function _scnInjectTesseract() {
-  if (_scnTessLoaded) return;
+  // Script already present but workers torn down (scanner was closed): re-warm.
+  if (_scnTessLoaded) { if (!_scnWorkerReady) void _scnInitWorkers(); return; }
   if (window.Tesseract) {
     _scnTessLoaded = true;
     _scnInitWorkers();
@@ -515,6 +516,24 @@ function closeScanner() {
   scnToggleScannedPanel(false);
   _scnVoiceAbort();
   _scnHardStop();
+  _scnTerminateWorkers();
+}
+
+/**
+ * Free the two Tesseract workers (each holds a WASM heap + eng traineddata,
+ * ~10-15 MB) when the scanner closes. They used to stay resident for the life
+ * of the page after the first scan. Re-opening self-heals: _scnEnsureWorkers /
+ * _scnInjectTesseract re-create them whenever _scnWorkerReady is false.
+ */
+function _scnTerminateWorkers() {
+  const nameW = _scnNameWorker;
+  const setW = _scnSetWorker;
+  _scnNameWorker = null;
+  _scnSetWorker = null;
+  _scnWorkerReady = false;
+  for (const w of [nameW, setW]) {
+    try { void w?.terminate?.(); } catch (_) {}
+  }
 }
 
 function scnToggleScannedPanel(force) {
@@ -3099,8 +3118,7 @@ function _scnFpStreamAdd(card) {
     collection.push(entry); recordCollectionEvent('add', entry, 1);
   }
   save('collection');
-  renderCollection();
-  updateStats();
+  renderCollection(); // runs updateStats itself
   _scnFpLastQueuedUid = entry.uid;
   _scnSession.push(entry);
   _scnRenderSession();
@@ -3134,8 +3152,7 @@ function scnMatchPlusOne() {
       recordCollectionEvent('add', existing, 1);
     }
     save('collection');
-    renderCollection();
-    updateStats();
+    renderCollection(); // runs updateStats itself
     _scnSetOverlay(existing.name, `×${existing.qty} in collection`, 'match');
   } else {
     const e = _scnPendingAuto.find(x => x.uid === uid);
@@ -4487,8 +4504,7 @@ async function _scnVoiceAddAndResume(card) {
     recordCollectionEvent('add', entry, 1);
   }
   save('collection');
-  renderCollection();
-  updateStats();
+  renderCollection(); // runs updateStats itself
   _scnSession.push(entry);
   _scnRenderSession();
   _scnPlayScanBeep();
@@ -4774,8 +4790,7 @@ function scnAddPendingToCollection() {
     }
   }
   save('collection');
-  renderCollection();
-  updateStats();
+  renderCollection(); // runs updateStats itself
   _scnPendingAuto = [];
   _scnRenderSession();
   showNotif(`Added ${n} card${n !== 1 ? 's' : ''} to collection.`);
@@ -4796,8 +4811,7 @@ function _scnAdd(scryfallCard) {
     recordCollectionEvent('add', entry, 1);
   }
   save('collection');
-  renderCollection();
-  updateStats();
+  renderCollection(); // runs updateStats itself
   _scnSession.push(entry);
   _scnRenderSession();
   showNotif(`Added ${entry.name}`);

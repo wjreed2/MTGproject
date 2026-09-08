@@ -2088,12 +2088,19 @@ function _tagsOnCardForGroupTier(card, tier) {
   return userTags;
 }
 
+let _deckListSearchDebounce = null;
 function setDeckListSearch(q) {
   _deckListFilter.q = String(q || '').trim();
   deckListSearchQ = _deckListFilter.q.toLowerCase(); // legacy compat
   _updateDeckListFilterUI();
-  const deck = getActiveDeck();
-  if (deck) renderDeckList(deck);
+  // renderDeckList is heavy (suggestions passes + a full collection ownership
+  // re-index before it even filters) — debounce so fast typing pays once.
+  clearTimeout(_deckListSearchDebounce);
+  _deckListSearchDebounce = setTimeout(() => {
+    _deckListSearchDebounce = null;
+    const deck = getActiveDeck();
+    if (deck) renderDeckList(deck);
+  }, 150);
 }
 
 function toggleDeckListColorFilter(color) {
@@ -3834,6 +3841,16 @@ function _scheduleDeckChartsRender() {
     if (document.getElementById('deckDetailArea')?.style.display === 'none') return;
     const deck = getActiveDeck();
     if (!deck) return;
+    // Chart.js loads on demand (no longer a blocking boot script). First deck
+    // open waits for it; if the CDN is unreachable, render anyway — the
+    // Chart-based panes fail per-chart (caught) and the HTML-based ones still draw.
+    if (typeof Chart === 'undefined' && typeof ensureChartJs === 'function') {
+      ensureChartJs().then(
+        () => _scheduleDeckChartsRender(),
+        () => _renderDeckCharts(deck)
+      );
+      return;
+    }
     _renderDeckCharts(deck);
   });
 }
