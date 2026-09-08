@@ -1333,14 +1333,25 @@ function _cardDetailDefaultTagChipHtml(card, t) {
   return _inspectorTagChipHtml(t, { kind: 'default', card });
 }
 
+/**
+ * Tags the promoted half of the merged row will render. A default tag given a
+ * primary/secondary tier still IS a default tag in storage — it just moves to
+ * that half so it shows once, in its new colour, instead of twice.
+ */
+function _inspectorPromotedTagKeys(card) {
+  const myTags = card && typeof _getGlobalCustomTagsForCard === 'function' ? _getGlobalCustomTagsForCard(card) : [];
+  const tiered = card && typeof _tieredDefaultTagsForCard === 'function' ? _tieredDefaultTagsForCard(card) : [];
+  return new Set([...myTags, ...tiered].map(t => String(t || '').toLowerCase()));
+}
+
 function _renderCardDetailDefaultTagsInitialHtml(card) {
   // Empty states are handled once for the whole merged row (_syncCardDetailTagsEmptyHint).
   if (!card || (!card.scryfallId && !card.oracleId)) return '';
   const tags = typeof _defaultTagsForCardInspector === 'function'
     ? _defaultTagsForCardInspector(card)
     : (typeof _roleTagsForCard === 'function' ? _roleTagsForCard(card) : []);
-  // Tiered defaults stay in this row AND appear under MY TAGS (additional categories).
-  const shown = (tags || []).filter(t => t && t !== 'Commander');
+  const promoted = _inspectorPromotedTagKeys(card);
+  const shown = (tags || []).filter(t => t && t !== 'Commander' && !promoted.has(String(t).toLowerCase()));
   if (shown.length) {
     return shown.map(t => _inspectorTagChipHtml(t, { kind: 'default', card })).join('');
   }
@@ -2312,7 +2323,7 @@ function _htmlOpenCardDetailRightColumn(ctx) {
         ? 'default' : 'my';
       return _inspectorTagChipHtml(t, { kind, card });
     }).join('')
-    : '<span class="card-detail-row-hint">No tags yet</span>';
+    : ''; // empty state is owned by the merged row (_syncCardDetailTagsEmptyHint)
   const actionUidRef = (actionUid || '').replace(/'/g, "\\'");
   const _naturalPips = typeof _parseManaSymbols === 'function' ? _parseManaSymbols(card.mana || '') : { W: 0, U: 0, B: 0, R: 0, G: 0 };
   const _curPips = (card.customPips && typeof card.customPips === 'object')
@@ -2882,7 +2893,8 @@ async function _loadCardDetailDefaultTags(card) {
       ? _defaultTagsForCardInspector(card)
       : _roleTagsForCard(card);
     if (!modal.classList.contains('open') || document.getElementById('cardDetailDefaultTags') !== el) return;
-    const shown = (tags || []).filter(t => t && t !== 'Commander');
+    const promoted = _inspectorPromotedTagKeys(card);
+    const shown = (tags || []).filter(t => t && t !== 'Commander' && !promoted.has(String(t).toLowerCase()));
     // Empty state is owned by the merged row, not this half of it.
     el.innerHTML = shown.map(t => _inspectorTagChipHtml(t, { kind: 'default', card })).join('');
     _syncCardDetailTagsEmptyHint();
@@ -3170,6 +3182,10 @@ function patchOpenCardDetailMyTags() {
     : '';
   // Edit Tags lives in the primary actions row now, not inline with the chips.
   chipsEl.innerHTML = chipsHtml;
+  // Repaint the default half too: a tag promoted to primary/secondary moves
+  // between the halves, so both must agree or it would render twice.
+  const defaultsEl = document.getElementById('cardDetailDefaultTags');
+  if (defaultsEl && card) defaultsEl.innerHTML = _renderCardDetailDefaultTagsInitialHtml(card);
   _syncCardDetailTagsEmptyHint();
 }
 
