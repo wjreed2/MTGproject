@@ -31,13 +31,20 @@ const app = express();
 app.set('trust proxy', 1);
 app.use(compression());
 app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
-// API responses are dynamic and must never be cached by the browser or any CDN/edge.
-// Without this, an empty result cached early (e.g. before the card table was imported)
-// gets served stale for every identical request.
-app.use('/api', (_req, res, next) => {
-  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-  res.set('Pragma', 'no-cache');
-  res.set('Expires', '0');
+// API responses are dynamic and must never be served stale by the browser or any
+// CDN/edge. GETs use `private, no-cache`: the browser must revalidate every time
+// (so a stale/empty result can never be served without asking), but Express's
+// ETag can answer "unchanged" with an empty 304 — which turns the multi-MB
+// /collection and /decks boot payloads into a few hundred bytes when nothing
+// changed. `private` keeps shared caches out entirely. Mutations stay no-store.
+app.use('/api', (req, res, next) => {
+  if (req.method === 'GET' || req.method === 'HEAD') {
+    res.set('Cache-Control', 'private, no-cache');
+  } else {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+  }
   next();
 });
 app.get('/health', (_req, res) => res.json({ ok: true }));
@@ -1916,11 +1923,13 @@ async function getWishlistMatchRows(accountId) {
  * and vice versa. Matching is name-level (any printing satisfies a wishlist),
  * with each matched row carrying the giver's printing/price/condition.
  */
-async function computeMutualMatch(viewerId, partnerId) {
+async function computeMutualMatch(viewerId, partnerId, pre) {
+  // `pre` lets bulk callers (trade browse) pass the viewer-side inputs once
+  // instead of recomputing them per partner.
   const [vWish, pWish, vTl, pTl] = await Promise.all([
-    getWishlistMatchRows(viewerId),
+    pre?.vWish ?? getWishlistMatchRows(viewerId),
     getWishlistMatchRows(partnerId),
-    computeTradelist(viewerId),
+    pre?.vTl ?? computeTradelist(viewerId),
     computeTradelist(partnerId),
   ]);
   const norm = s => String(s || '').trim().toLowerCase();
@@ -3589,38 +3598,43 @@ app.put('/api/decks', requireAuth, async (req, res) => {
         );
       }
 
-      // 2. Per-deck: replace cards + tags (scoped DELETE avoids wiping other decks on failure)
+      // 2. Replace cards + tags for the written decks in bulk. This was a per-deck
+      // loop (2 DELETEs + up to 2 INSERTs each — ~120 round-trips for 30 decks,
+      // all while holding the transaction). The IN-scoped DELETEs touch only the
+      // decks being written, same as the old per-deck scoping; chunked INSERTs
+      // keep the packet size bounded on large accounts.
       const newDeckIds = normDecks.map(d => d.id);
+      if (newDeckIds.length) {
+        const dph = newDeckIds.map(() => '?').join(',');
+        await conn.query(`DELETE FROM deck_card_tags WHERE account_id=? AND deck_id IN (${dph})`, [accountId, ...newDeckIds]);
+        await conn.query(`DELETE FROM deck_cards WHERE account_id=? AND deck_id IN (${dph})`, [accountId, ...newDeckIds]);
+      }
+      const allCardRows = [];
+      const allTagRows = [];
       for (const d of normDecks) {
-        await conn.query('DELETE FROM deck_card_tags WHERE account_id=? AND deck_id=?', [accountId, d.id]);
-        await conn.query('DELETE FROM deck_cards WHERE account_id=? AND deck_id=?', [accountId, d.id]);
-
-        const cards = (d.cards || []).map((c, idx) => ({
-          deckId: d.id,
-          uid: c.uid,
-          scryfallId: c.scryfallId || null,
-          name: (c.name || '').slice(0, 255),
-          qty: c.qty ?? 1,
-          isCommander: c.isCommander ? 1 : 0,
-          sortOrder: idx,
-          data: JSON.stringify(c),
-          tags: dedupeDeckCardTags(c.customTags),
-        }));
-
-        if (cards.length) {
-          const cph = cards.map(() => '(?,?,?,?,?,?,?,?,?)').join(',');
-          const cvals = cards.flatMap(c => [accountId, c.deckId, c.uid, c.scryfallId, c.name, c.qty, c.isCommander, c.sortOrder, c.data]);
-          await conn.query(
-            `INSERT INTO deck_cards (account_id, deck_id, card_uid, scryfall_id, card_name, qty, is_commander, sort_order, card_data) VALUES ${cph}`,
-            cvals
-          );
-
-          const tags = cards.flatMap(c => c.tags.map(tag => [accountId, c.deckId, c.uid, tag]));
-          if (tags.length) {
-            const tph = tags.map(() => '(?,?,?,?)').join(',');
-            await conn.query(`INSERT INTO deck_card_tags (account_id, deck_id, card_uid, tag_name) VALUES ${tph}`, tags.flat());
+        (d.cards || []).forEach((c, idx) => {
+          allCardRows.push([
+            accountId, d.id, c.uid, c.scryfallId || null, (c.name || '').slice(0, 255),
+            c.qty ?? 1, c.isCommander ? 1 : 0, idx, JSON.stringify(c),
+          ]);
+          for (const tag of dedupeDeckCardTags(c.customTags)) {
+            allTagRows.push([accountId, d.id, c.uid, tag]);
           }
-        }
+        });
+      }
+      const INSERT_CHUNK = 500;
+      for (let i = 0; i < allCardRows.length; i += INSERT_CHUNK) {
+        const chunk = allCardRows.slice(i, i + INSERT_CHUNK);
+        const cph = chunk.map(() => '(?,?,?,?,?,?,?,?,?)').join(',');
+        await conn.query(
+          `INSERT INTO deck_cards (account_id, deck_id, card_uid, scryfall_id, card_name, qty, is_commander, sort_order, card_data) VALUES ${cph}`,
+          chunk.flat()
+        );
+      }
+      for (let i = 0; i < allTagRows.length; i += INSERT_CHUNK) {
+        const chunk = allTagRows.slice(i, i + INSERT_CHUNK);
+        const tph = chunk.map(() => '(?,?,?,?)').join(',');
+        await conn.query(`INSERT INTO deck_card_tags (account_id, deck_id, card_uid, tag_name) VALUES ${tph}`, chunk.flat());
       }
 
       // 3. Delete decks no longer in the client state (FK cascade cleans up cards+tags).
@@ -4209,6 +4223,59 @@ app.get('/api/decks/archive-similarity', requireAuth, async (req, res) => {
 });
 
 // Owner or collaborator — lightweight refresh for realtime sync.
+/**
+ * Bulk shared-deck revalidation. The client used to GET /api/decks/:id once per
+ * shared deck on every boot/resync (~5 queries + price enrichment each). Send
+ * { items: [{ id, updatedAt }] }: decks whose stored updated_at hasn't moved
+ * come back as ids in `unchanged` (the client already holds that exact version,
+ * so no per-deck access queries are needed for them); changed or unknown-version
+ * decks come back as full viewer payloads via loadDeckForViewer, which enforces
+ * the same access control as the single-deck GET. Decks the caller can't access
+ * are simply omitted — the client keeps its stale copy, same as the old per-deck
+ * fetch failing.
+ */
+app.post('/api/decks/refresh-batch', requireAuth, async (req, res) => {
+  try {
+    const items = (Array.isArray(req.body?.items) ? req.body.items : [])
+      .map(it => ({ id: String(it?.id || '').slice(0, 64), updatedAt: Number(it?.updatedAt) || 0 }))
+      .filter(it => it.id)
+      .slice(0, 200);
+    if (!items.length) return res.json({ decks: [], unchanged: [] });
+    const viewerId = Number(req.accountId);
+    const ids = items.map(it => it.id);
+    const ph = ids.map(() => '?').join(',');
+    const [deckRows] = await db().query(
+      `SELECT id, account_id, updated_at FROM decks WHERE id IN (${ph})`, ids
+    );
+    const [collabRows] = await db().query(
+      `SELECT deck_id FROM deck_collaborators WHERE collaborator_id = ? AND deck_id IN (${ph})`,
+      [viewerId, ...ids]
+    );
+    const collabIds = new Set(collabRows.map(r => String(r.deck_id)));
+    const byId = new Map(deckRows.map(r => [String(r.id), r]));
+
+    const unchanged = [];
+    const decks = [];
+    for (const it of items) {
+      const row = byId.get(it.id);
+      if (!row) continue; // deleted or never existed — omit, client handles staleness
+      const accessible = Number(row.account_id) === viewerId || collabIds.has(it.id);
+      if (!accessible) continue;
+      const serverUpdated = Number(row.updated_at) || 0;
+      if (it.updatedAt > 0 && serverUpdated > 0 && serverUpdated <= it.updatedAt) {
+        unchanged.push(it.id);
+        continue;
+      }
+      const deck = await loadDeckForViewer(req.accountId, it.id);
+      if (deck) decks.push(deck);
+    }
+    res.json({ decks, unchanged });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('/api/decks/:id', requireAuth, async (req, res) => {
   try {
     const deck = await loadDeckForViewer(req.accountId, req.params.id);
@@ -6533,8 +6600,18 @@ app.get('/api/users/search', requireAuth, async (req, res) => {
 
 // Browse open traders. Friends first (when the friends system ships), then by
 // mutual-match count. Returns lightweight per-user trade info.
+// The mutual-match fan-out is the expensive part of browse (it computes every
+// partner's tradelist); a short memo makes repeat visits free. Counts may lag
+// by up to the TTL — same order as the 60s tradelist memo feeding them.
+const _tradeBrowseCache = new Map(); // viewerId -> { ts, out }
+const _TRADE_BROWSE_TTL = 120 * 1000;
+
 app.get('/api/trade/browse', requireAuth, async (req, res) => {
   try {
+    const viewerId = Number(req.accountId);
+    const hit = _tradeBrowseCache.get(viewerId);
+    if (hit && Date.now() - hit.ts < _TRADE_BROWSE_TTL) return res.json(hit.out);
+
     const friendIds = await getFriendIds(req.accountId);
     const [rows] = await db().query(
       `SELECT id, username, display_name, trade_visibility FROM accounts
@@ -6542,25 +6619,33 @@ app.get('/api/trade/browse', requireAuth, async (req, res) => {
         ORDER BY id DESC LIMIT 40`,
       [req.accountId]
     );
-    const out = [];
-    for (const r of rows) {
-      const [[tlCount]] = await db().query(
-        'SELECT COUNT(*) c FROM tradelist_overrides WHERE account_id = ? AND kind = ?', [r.id, 'include']
-      );
+    // This used to run serially per row and recompute the VIEWER's wishlist +
+    // tradelist for every partner (~200+ queries per request). Viewer-side
+    // inputs are computed once; partners run concurrently. (A per-partner
+    // tradelist_overrides COUNT was also queried here and never used — gone.)
+    const [vWish, vTl] = await Promise.all([
+      getWishlistMatchRows(req.accountId),
+      computeTradelist(req.accountId),
+    ]);
+    const out = await Promise.all(rows.map(async r => {
       let mutual = 0;
       try {
-        const mm = await computeMutualMatch(req.accountId, r.id);
+        const mm = await computeMutualMatch(req.accountId, r.id, { vWish, vTl });
         mutual = mm.iWant.length + mm.theyWant.length;
       } catch (_) {}
-      out.push({
+      return {
         id: r.id, username: r.username, displayName: r.display_name,
         visibility: r.trade_visibility, isFriend: friendIds.has(Number(r.id)),
         mutualMatches: mutual,
         rating: null, // ratings are a scaffolded future feature
-      });
-    }
+      };
+    }));
     // Friends first, then by mutual-match count desc.
     out.sort((a, b) => (b.isFriend - a.isFriend) || (b.mutualMatches - a.mutualMatches));
+    _tradeBrowseCache.set(viewerId, { ts: Date.now(), out });
+    if (_tradeBrowseCache.size > 200) {
+      _tradeBrowseCache.delete(_tradeBrowseCache.keys().next().value);
+    }
     res.json(out);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -10796,6 +10881,23 @@ async function start() {
     try { return String(Math.floor(fs.statSync(path.join(__dirname, 'dist', 'bundle.js')).mtimeMs)); }
     catch (_) { return String(Date.now()); }
   })();
+  // Prefer the build's minified stylesheet copies (dist/main.css etc.) — but only
+  // when the live source still matches the sha recorded at build time
+  // (dist/css-manifest.json), so a CSS edit without a rebuild degrades to the
+  // raw file instead of shipping stale styles. mtimes are useless here: git
+  // checkouts don't preserve them.
+  const _styleHref = (name) => {
+    try {
+      const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, 'dist', 'css-manifest.json'), 'utf8'));
+      if (!manifest[name]) return `/styles/${name}`;
+      const src = fs.readFileSync(path.join(__dirname, 'styles', name), 'utf8');
+      const sha = require('crypto').createHash('sha256').update(src).digest('hex');
+      if (sha === manifest[name] && fs.existsSync(path.join(__dirname, 'dist', name))) {
+        return `/dist/${name}`;
+      }
+    } catch (_) { /* no manifest / unreadable — serve the source */ }
+    return `/styles/${name}`;
+  };
   const serveIndex = (res) => {
     if (!_indexHtmlCache) {
       try {
@@ -10804,8 +10906,8 @@ async function start() {
           .replace('/dist/scanner-card-yolo.js', `/dist/scanner-card-yolo.js?v=${_assetVersion}`)
           // Stylesheets carry load-bearing layout (grid classes, modal styles) — bust
           // them with the bundle so new markup never pairs with a stale cached CSS.
-          .replace('/styles/main.css', `/styles/main.css?v=${_assetVersion}`)
-          .replace('/styles/mobile.css', `/styles/mobile.css?v=${_assetVersion}`);
+          .replace('/styles/main.css', `${_styleHref('main.css')}?v=${_assetVersion}`)
+          .replace('/styles/mobile.css', `${_styleHref('mobile.css')}?v=${_assetVersion}`);
       } catch (_) {
         return res.sendFile(path.join(__dirname, 'index.html'));
       }
