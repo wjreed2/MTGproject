@@ -2108,6 +2108,91 @@ function _syncDeckStackSortControls() {
   if (dirSel && dirSel.value !== deckStackSortDir) dirSel.value = deckStackSortDir;
 }
 
+// ── Glass dropdowns for the deck-list toolbar ─────────────────────────────────
+// The native <select>s stay in the DOM (hidden) as the source of truth — every
+// existing setter reads/writes their .value — and each gets a pill trigger
+// button plus a frosted menu. Labels resync on every renderDeckList.
+const _GLASS_DD_CARET = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:11px;height:11px;opacity:0.6;flex-shrink:0"><path d="M4 6.5 8 10.5 12 6.5"/></svg>';
+
+function _glassMenuCloseAll() {
+  document.querySelectorAll('.glass-menu').forEach(m => m.remove());
+}
+document.addEventListener('click', _glassMenuCloseAll);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') _glassMenuCloseAll(); });
+
+function _glassSelectSyncLabels() {
+  document.querySelectorAll('select[data-glass-label][data-glassified]').forEach(sel => {
+    const btn = document.getElementById(sel.id + 'GlassBtn');
+    if (!btn) return;
+    const opt = sel.options[sel.selectedIndex];
+    btn.innerHTML = `<span class="glass-dd-prefix">${escapeHtml(sel.dataset.glassLabel)}</span>`
+      + `${escapeHtml(opt ? opt.text : '')} ${_GLASS_DD_CARET}`;
+  });
+  const dirSel = document.getElementById('deckStackSortDirSelect');
+  const dirBtn = document.getElementById('deckStackSortDirGlassBtn');
+  if (dirSel && dirBtn) dirBtn.textContent = dirSel.value === 'desc' ? '↓' : '↑';
+}
+
+function _glassMenuOpen(sel, wrap) {
+  const menu = document.createElement('div');
+  menu.className = 'glass-menu';
+  for (const opt of sel.options) {
+    if (opt.hidden) continue;
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'glass-menu-item' + (opt.value === sel.value ? ' selected' : '');
+    item.textContent = opt.text;
+    item.addEventListener('click', () => {
+      _glassMenuCloseAll();
+      if (sel.value !== opt.value) {
+        sel.value = opt.value;
+        sel.dispatchEvent(new Event('change')); // runs the select's inline onchange
+      }
+      _glassSelectSyncLabels();
+    });
+    menu.appendChild(item);
+  }
+  wrap.appendChild(menu);
+}
+
+function _glassSelectEnsure() {
+  document.querySelectorAll('#deckListPanelHeader select[data-glass-label]:not([data-glassified])').forEach(sel => {
+    sel.dataset.glassified = '1';
+    const wrap = document.createElement('span');
+    wrap.className = 'glass-dd-wrap';
+    sel.parentNode.insertBefore(wrap, sel);
+    wrap.appendChild(sel);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn-outline btn-sm glass-dd-btn';
+    btn.id = sel.id + 'GlassBtn';
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const open = wrap.querySelector('.glass-menu');
+      _glassMenuCloseAll();
+      if (!open) _glassMenuOpen(sel, wrap);
+    });
+    wrap.appendChild(btn);
+  });
+  // Sort direction: two options — a click-to-flip pill instead of a menu.
+  const dirSel = document.getElementById('deckStackSortDirSelect');
+  if (dirSel && !dirSel.dataset.glassified) {
+    dirSel.dataset.glassified = '1';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn-outline btn-sm glass-dd-btn glass-dir-btn';
+    btn.id = 'deckStackSortDirGlassBtn';
+    btn.title = 'Sort direction';
+    btn.addEventListener('click', () => {
+      dirSel.value = dirSel.value === 'desc' ? 'asc' : 'desc';
+      dirSel.dispatchEvent(new Event('change'));
+      _glassSelectSyncLabels();
+    });
+    dirSel.parentNode.insertBefore(btn, dirSel.nextSibling);
+  }
+  _glassSelectSyncLabels();
+}
+
 function _isTagGroupByMode(groupBy) {
   return groupBy === 'tag_all' || groupBy === 'tag_default' || groupBy === 'tag_primary' || groupBy === 'tag_secondary';
 }
@@ -8813,6 +8898,7 @@ function renderDeckList(deck) {
   // it so switching back to the tab redraws with real dimensions.
   const _listPane = document.getElementById('deckTabPane-list');
   if (_listPane && !_listPane.classList.contains('active')) _deckListRenderedHidden = true;
+  _glassSelectEnsure();
   _bindDeckStackPeek(el);
   // innerHTML rebuilds wipe scrollTop; keep the list where the user left it so
   // inspector tag refresh / ownership redraws don't jump to top and re-lazy-load.
