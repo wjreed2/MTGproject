@@ -678,12 +678,6 @@
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M6.5 9.5a2.5 2.5 0 0 0 3.6.1l2-2a2.5 2.5 0 0 0-3.5-3.5l-1 1"/><path d="M9.5 6.5a2.5 2.5 0 0 0-3.6-.1l-2 2a2.5 2.5 0 0 0 3.5 3.5l1-1"/></svg>
               Share link
             </button>
-            <div class="settings-divider"></div>
-            <div class="settings-section-label">Build</div>
-            <button id="deckSkeletonBtn" class="btn btn-ghost btn-sm deck-menu-item" onclick="toggleDeckOptionsDropdown();openSkeletonBuilderModal()" title="Auto-build from collection">
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><circle cx="8" cy="8" r="2.5"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.6 3.6l1.4 1.4M11 11l1.4 1.4M12.4 3.6l-1.4 1.4M5 11l-1.4 1.4"/></svg>
-              Build Skeleton
-            </button>
             <button id="deckRefreshTagsBtn" class="btn btn-ghost btn-sm deck-menu-item" onclick="toggleDeckOptionsDropdown();forceRefreshDeckScryfallTags()" title="Re-load tags from the database, then fill any gaps with live Scryfall (slow)">
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M2.5 8a5.5 5.5 0 0 1 9.4-3.9"/><path d="M13.5 8a5.5 5.5 0 0 1-9.4 3.9"/><path d="M11.8 2.8v2.8H9"/><path d="M4.2 13.2v-2.8H7"/></svg>
               Refresh Tags
@@ -2283,49 +2277,6 @@
         </label>
       </div>
       <button class="btn btn-primary btn-sm" onclick="confirmActiveDeckCommander()">Set Commander</button>
-    </div>
-  </div>
-</div>
-
-<!-- SKELETON BUILDER MODAL -->
-<div class="modal-overlay" id="skeletonBuilderModal">
-  <div class="modal" style="width:min(620px,96vw)">
-    <button class="btn btn-ghost btn-icon" style="position:absolute;top:0.75rem;right:0.75rem" onclick="closeSkeletonBuilderModal()">✕</button>
-    <div class="modal-title">Build Skeleton Deck</div>
-    <p style="font-size:0.8rem;color:var(--text3);margin-bottom:0.9rem">Tune the template before generating from your collection.</p>
-    <div style="display:grid;grid-template-columns:repeat(3,minmax(120px,1fr));gap:8px;margin-bottom:1rem">
-      <label style="font-size:0.74rem;color:var(--text3)">Lands
-        <input id="skeletonTplLands" type="number" min="18" max="45" style="width:100%;margin-top:3px">
-      </label>
-      <label style="font-size:0.74rem;color:var(--text3)">Ramp
-        <input id="skeletonTplRamp" type="number" min="0" max="20" style="width:100%;margin-top:3px">
-      </label>
-      <label style="font-size:0.74rem;color:var(--text3)">Draw
-        <input id="skeletonTplDraw" type="number" min="0" max="20" style="width:100%;margin-top:3px">
-      </label>
-      <label style="font-size:0.74rem;color:var(--text3)">Removal
-        <input id="skeletonTplRemoval" type="number" min="0" max="20" style="width:100%;margin-top:3px">
-      </label>
-      <label style="font-size:0.74rem;color:var(--text3)">Board Wipes
-        <input id="skeletonTplWipe" type="number" min="0" max="10" style="width:100%;margin-top:3px">
-      </label>
-      <label style="font-size:0.74rem;color:var(--text3)">Protection
-        <input id="skeletonTplProtection" type="number" min="0" max="12" style="width:100%;margin-top:3px">
-      </label>
-      <label style="font-size:0.74rem;color:var(--text3)">Recursion
-        <input id="skeletonTplRecursion" type="number" min="0" max="12" style="width:100%;margin-top:3px">
-      </label>
-      <label style="font-size:0.74rem;color:var(--text3)">Tutors
-        <input id="skeletonTplTutor" type="number" min="0" max="8" style="width:100%;margin-top:3px">
-      </label>
-      <label style="font-size:0.74rem;color:var(--text3)">Counters
-        <input id="skeletonTplCounter" type="number" min="0" max="12" style="width:100%;margin-top:3px">
-      </label>
-    </div>
-    <div id="skeletonTplSummary" style="font-size:0.76rem;color:var(--text3);margin-bottom:1rem"></div>
-    <div style="display:flex;gap:8px;justify-content:flex-end">
-      <button class="btn btn-outline btn-sm" onclick="resetSkeletonTemplateDefaults()">Reset Defaults</button>
-      <button class="btn btn-primary btn-sm" onclick="applySkeletonBuilder()">Build Deck</button>
     </div>
   </div>
 </div>

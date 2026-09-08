@@ -1263,7 +1263,8 @@ function _patchCardDetailInspectorDom(card, isOwned) {
   if (priceTable) priceTable.innerHTML = _htmlCardDetailPriceRows(card);
   const tagRow = document.getElementById('cardDetailPrintTags');
   if (tagRow) {
-    const chips = `${card.foil ? `<span class="tag tag-gold">✦ Foil</span>` : ''}${!isOwned ? '<span class="tag tag-red">Unowned</span>' : ''}`;
+    // Foil is conveyed by the card image's foil sheen, not a chip.
+    const chips = !isOwned ? '<span class="tag tag-red">Unowned</span>' : '';
     tagRow.innerHTML = chips;
     tagRow.style.display = chips ? '' : 'none';
   }
@@ -1333,9 +1334,8 @@ function _cardDetailDefaultTagChipHtml(card, t) {
 }
 
 function _renderCardDetailDefaultTagsInitialHtml(card) {
-  if (!card || (!card.scryfallId && !card.oracleId)) {
-    return '<span style="font-size:0.72rem;color:var(--text3)">—</span>';
-  }
+  // Empty states are handled once for the whole merged row (_syncCardDetailTagsEmptyHint).
+  if (!card || (!card.scryfallId && !card.oracleId)) return '';
   const tags = typeof _defaultTagsForCardInspector === 'function'
     ? _defaultTagsForCardInspector(card)
     : (typeof _roleTagsForCard === 'function' ? _roleTagsForCard(card) : []);
@@ -2165,7 +2165,6 @@ function _htmlCardDetailPrimaryActionsInner(ctx) {
     ? `${inOpenDeck ? '' : `<button class="btn btn-primary btn-sm" onclick="addToDeckFromDetail('${actionUid}')">+ Add to Deck</button>`}
                ${printBtn}
                ${swapBtns}
-               ${isCommanderCandidate ? `<button class="btn btn-outline btn-sm" onclick="buildSkeletonDeckFromInspectorCard('${actionUid}')">Build Skeleton Deck</button>` : ''}
                <button class="btn btn-danger btn-sm" onclick="removeFromCollection('${actionUid}')">Remove</button>`
     : `<button class="btn btn-primary btn-sm" onclick="addCardToCollectionFromDetail('${uid}')">+ Add to Collection</button>
                ${printBtn}
@@ -2238,6 +2237,7 @@ function _syncCardDetailInspectorInPlace(card, ctx) {
   const tagsEl = document.getElementById('cardDetailDefaultTags');
   if (!tagsEl || !document.getElementById('cardDetailRowCollection')) return false;
   tagsEl.innerHTML = _renderCardDetailDefaultTagsInitialHtml(card);
+  _syncCardDetailTagsEmptyHint();
   _syncCardDetailRowCollection(ctx);
   _syncCardDetailRowInDeck(ctx);
   _syncCardDetailRowPrimaryActions(ctx);
@@ -2338,9 +2338,12 @@ function _htmlOpenCardDetailRightColumn(ctx) {
         <table id="cardDetailPriceTable" class="price-table" style="margin-bottom:1rem">
           ${_htmlCardDetailPriceRows(card)}
         </table>
-        <div id="cardDetailPrintTags" class="card-detail-chiprow" style="margin-bottom:1rem${(card.foil || !isOwned) ? '' : ';display:none'}">
-          ${card.foil ? `<span class="tag tag-gold">✦ Foil</span>` : ''}
+        <div id="cardDetailPrintTags" class="card-detail-chiprow" style="margin-bottom:1rem${!isOwned ? '' : ';display:none'}">
           ${!isOwned ? `<span class="tag tag-red">Unowned</span>` : ''}
+        </div>
+        <div id="cardDetailRowPrimaryActions" class="card-detail-actions">
+          ${_htmlCardDetailPrimaryActionsInner(ctx)}
+          <button class="btn btn-outline btn-sm" onclick="openGlobalTagPickerForCard('${actionUidRef}')">Edit Tags</button>
         </div>
         <div class="card-detail-qty-grid">
           <div id="cardDetailRowCollection" class="card-detail-qty-row">
@@ -2351,20 +2354,19 @@ function _htmlOpenCardDetailRightColumn(ctx) {
             ${inDeckInner}
           </div>
         </div>
-        <div id="cardDetailRowPrimaryActions" class="card-detail-actions">
-          ${_htmlCardDetailPrimaryActionsInner(ctx)}
-        </div>
-        <div id="cardDetailDefaultTagsWrap" class="card-detail-section">
-          <div class="card-detail-section-label">DEFAULT TAGS</div>
-          <div id="cardDetailDefaultTags" class="card-detail-chiprow" style="min-height:1.25rem">
-            ${_renderCardDetailDefaultTagsInitialHtml(card)}
-          </div>
-        </div>
-        <div id="cardDetailMyTagsWrap" class="card-detail-section">
-          <div class="card-detail-section-label">MY TAGS <span class="card-detail-section-hint">· blue dot = primary · purple = secondary</span></div>
-          <div id="cardDetailMyTagsChips" class="card-detail-chiprow">
-            ${myTagsChipsHtml}
-            <button class="btn btn-outline btn-sm" onclick="openGlobalTagPickerForCard('${actionUidRef}')">Edit Tags</button>
+        <div class="card-detail-section">
+          <div class="card-detail-section-label">TAGS <span class="card-detail-section-hint">· green = default · blue = primary · purple = secondary</span></div>
+          <div class="card-detail-chiprow card-detail-tagrow">
+            <span id="cardDetailDefaultTagsWrap" class="cd-tag-group">
+              <span id="cardDetailDefaultTags" class="cd-tag-group">
+                ${_renderCardDetailDefaultTagsInitialHtml(card)}
+              </span>
+            </span>
+            <span id="cardDetailMyTagsWrap" class="cd-tag-group">
+              <span id="cardDetailMyTagsChips" class="cd-tag-group">
+                ${myTagsChipsHtml}
+              </span>
+            </span>
           </div>
         </div>
         <div id="cardDetailTagToDeckWrap" class="card-detail-section" style="display:${tagData.show ? 'block' : 'none'}">
@@ -2881,11 +2883,10 @@ async function _loadCardDetailDefaultTags(card) {
       : _roleTagsForCard(card);
     if (!modal.classList.contains('open') || document.getElementById('cardDetailDefaultTags') !== el) return;
     const shown = (tags || []).filter(t => t && t !== 'Commander');
-    if (!shown.length) {
-      el.innerHTML = '<span style="font-size:0.72rem;color:var(--text3)">None</span>';
-      return;
-    }
+    // Empty state is owned by the merged row, not this half of it.
     el.innerHTML = shown.map(t => _inspectorTagChipHtml(t, { kind: 'default', card })).join('');
+    _syncCardDetailTagsEmptyHint();
+    if (!shown.length) return;
     if (typeof activeDeckId !== 'undefined' && activeDeckId && typeof getActiveDeck === 'function') {
       const deck = getActiveDeck();
       if (deck && (deck.cards || []).some(c => c === card || c.uid === card.uid || c.scryfallId === card.scryfallId)) {
@@ -2895,7 +2896,8 @@ async function _loadCardDetailDefaultTags(card) {
     }
   } catch (_) {
     if (document.getElementById('cardDetailDefaultTags') === el && modal.classList.contains('open')) {
-      el.innerHTML = '<span style="font-size:0.72rem;color:var(--text3)">—</span>';
+      el.innerHTML = '';
+      _syncCardDetailTagsEmptyHint();
     }
   }
 }
@@ -3165,15 +3167,25 @@ function patchOpenCardDetailMyTags() {
         ? 'default' : 'my';
       return _inspectorTagChipHtml(t, { kind, card });
     }).join('')
-    : '<span style="font-size:0.72rem;color:var(--text3)">No tags yet</span>';
-  const ref = String(
-    (card && typeof getCardInventoryKey === 'function' ? getCardInventoryKey(card) : null)
-    || card?.uid
-    || card?.scryfallId
-    || _cardDetailCurrentUid
-    || ''
-  ).replace(/'/g, "\\'");
-  chipsEl.innerHTML = `${chipsHtml}<button class="btn btn-outline btn-sm" onclick="openGlobalTagPickerForCard('${ref}')">Edit Tags</button>`;
+    : '';
+  // Edit Tags lives in the primary actions row now, not inline with the chips.
+  chipsEl.innerHTML = chipsHtml;
+  _syncCardDetailTagsEmptyHint();
+}
+
+/** One "No tags yet" hint for the merged tag row — only when it is truly empty. */
+function _syncCardDetailTagsEmptyHint() {
+  const row = document.querySelector('#cardDetailModal .card-detail-tagrow');
+  if (!row) return;
+  const hasTags = !!row.querySelector('.tag');
+  let hint = row.querySelector('.cd-tags-empty');
+  if (hasTags) { hint?.remove(); return; }
+  if (!hint) {
+    hint = document.createElement('span');
+    hint.className = 'cd-tags-empty';
+    row.appendChild(hint);
+  }
+  hint.textContent = 'No tags yet';
 }
 
 async function _loadCardDetailMyTags(card) {
