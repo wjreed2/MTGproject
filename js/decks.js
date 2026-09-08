@@ -10064,28 +10064,30 @@ function _hypergeoAtLeast(N, K, n, minK) {
 
 let _openingHandChartInst = null;
 
-/** Verdict color on the liquid-glass scale: 1 = blue (good) → 0 = purple (bad), blended between. */
-function _lgxVerdictColor(t) {
+/** Verdict rgb triplet ("r,g,b") on the glass scale: 1 = azure (good) → 0 = orchid (bad). */
+function _lgxVerdictRgb(t) {
   const cs = getComputedStyle(document.documentElement);
-  const blue = (cs.getPropertyValue('--lgx1') || '110,168,255').trim().split(',').map(Number);
-  const purple = (cs.getPropertyValue('--lgx2') || '168,140,255').trim().split(',').map(Number);
+  const good = (cs.getPropertyValue('--lgx-good') || '86,196,255').trim().split(',').map(Number);
+  const bad = (cs.getPropertyValue('--lgx-bad') || '205,94,245').trim().split(',').map(Number);
   const k = Math.max(0, Math.min(1, Number(t) || 0));
-  const mix = purple.map((v, i) => Math.round(v + (blue[i] - v) * k));
-  return `rgb(${mix[0]},${mix[1]},${mix[2]})`;
+  return bad.map((v, i) => Math.round(v + (good[i] - v) * k)).join(',');
 }
 
-/** Liquid-glass bar fill: blue at the top melting into purple, per theme accents. */
-function _lgxBarGradient(context) {
-  const cs = getComputedStyle(document.documentElement);
-  const c1 = (cs.getPropertyValue('--lgx1') || '110,168,255').trim();
-  const c2 = (cs.getPropertyValue('--lgx2') || '168,140,255').trim();
+function _lgxVerdictColor(t) {
+  return `rgb(${_lgxVerdictRgb(t)})`;
+}
+
+/** Verdict-colored glassy bar fill (vertical alpha fade in the verdict hue). */
+function _lgxVerdictBarGradient(context, t) {
+  const col = _lgxVerdictRgb(t);
   const { ctx, chartArea } = context.chart;
-  if (!chartArea) return `rgba(${c1},0.7)`;
+  if (!chartArea) return `rgba(${col},0.7)`;
   const g = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
-  g.addColorStop(0, `rgba(${c1},0.92)`);
-  g.addColorStop(1, `rgba(${c2},0.38)`);
+  g.addColorStop(0, `rgba(${col},0.92)`);
+  g.addColorStop(1, `rgba(${col},0.35)`);
   return g;
 }
+
 const _GLASS_TICK = '#8a90a4';
 const _GLASS_TICK_DIM = '#6d7488';
 const _GLASS_GRID = 'rgba(255,255,255,0.05)';
@@ -10110,7 +10112,12 @@ function renderOpeningHandChart(deck) {
       labels: buckets.map(String),
       datasets: [{
         data,
-        backgroundColor: _lgxBarGradient,
+        // Verdict scale by bucket: 3 lands ideal (azure), extremes poor (orchid)
+        backgroundColor: ctx => {
+          const k = ctx.dataIndex;
+          const t = k === 3 ? 1 : (k === 2 || k === 4) ? 0.65 : (k === 1 || k === 5) ? 0.3 : 0;
+          return _lgxVerdictBarGradient(ctx, t);
+        },
         borderColor: 'rgba(255,255,255,0.30)',
         borderWidth: 1, borderRadius: 6,
       }]
@@ -10158,7 +10165,8 @@ function renderLandCoverageChart(deck) {
       labels: turns.map(t => `T${t}`),
       datasets: [{
         data,
-        backgroundColor: _lgxBarGradient,
+        // Verdict scale by coverage: ≥100% azure, ≤40% orchid
+        backgroundColor: ctx => _lgxVerdictBarGradient(ctx, ((ctx.parsed?.y ?? 0) - 40) / 60),
         borderColor: 'rgba(255,255,255,0.30)',
         borderWidth: 1, borderRadius: 6,
       }]
