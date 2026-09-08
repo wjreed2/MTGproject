@@ -1835,30 +1835,51 @@ body.glass-mode .glass-menu-item { font-family: var(--glass-font); }
   z-index: 2;
 }
 #voiceModal .modal { border-top-left-radius: 0; }
-body.glass-mode #voiceModal .deck-ftab.active::before {
-  /* Matches the glass modal's top surface so the tab merges into the popup */
+/* Tab and popup are one material, like the deck-builder tabs: both use a
+   VERTICAL wash over a VERTICAL base, so the popup's entire top edge is exactly
+   the active tab's bottom edge colour (the stock modal's 165deg gradient would
+   drift across the width and break the joint). */
+body.glass-mode #voiceModal .voice-modal {
   background:
-    linear-gradient(180deg, rgba(var(--lgx1), 0.16), rgba(var(--lgx1), 0.10)),
-    linear-gradient(165deg, rgba(34,44,74,0.92), rgba(30,39,66,0.92));
+    linear-gradient(180deg, rgba(var(--lgx1), 0.15) 0%, rgba(var(--lgx2), 0.07) 55%, rgba(var(--lgx2), 0.04) 100%),
+    linear-gradient(180deg, rgba(34,44,74,0.92) 0%, rgba(20,27,48,0.90) 100%);
+}
+body.glass-mode #voiceModal .deck-ftab.active::before {
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.20), rgba(var(--lgx1), 0.15)),
+    rgba(34,44,74,0.92); /* = the popup's top colour */
   border-color: rgba(255,255,255,0.16);
+  border-bottom: none;
   -webkit-backdrop-filter: blur(30px) saturate(180%);
   backdrop-filter: blur(30px) saturate(180%);
 }
+[data-theme="light"] body.glass-mode #voiceModal .voice-modal {
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.12) 0%, rgba(var(--lgx2), 0.06) 55%, rgba(var(--lgx2), 0.04) 100%),
+    linear-gradient(180deg, rgba(255,255,255,0.95) 0%, rgba(243,247,255,0.90) 100%);
+}
 [data-theme="light"] body.glass-mode #voiceModal .deck-ftab.active::before {
   background:
-    linear-gradient(180deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx1), 0.08)),
+    linear-gradient(180deg, rgba(var(--lgx1), 0.16), rgba(var(--lgx1), 0.12)),
     rgba(255,255,255,0.95);
   border-color: rgba(255,255,255,0.85);
+  border-bottom: none;
 }
 
-/* Destination controls — deck-list-toolbar pill look */
+/* Destination controls — deck-list-toolbar pill look. The #voiceModal prefix is
+   load-bearing: body.glass-mode .btn ties on specificity and would otherwise win
+   on source order, leaving the toggle with no visible on-state. */
 .voice-pill-toggle { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
 .voice-pill-toggle input { display: none; }
-.voice-pill-toggle:has(input:checked) {
-  color: var(--text);
-  border-color: rgba(var(--lgx2), 0.55);
-  background: linear-gradient(135deg, rgba(var(--lgx1), 0.22), rgba(var(--lgx2), 0.22));
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14);
+#voiceModal .voice-pill-toggle:has(input:checked) {
+  color: #fff;
+  border-color: rgba(var(--lgx2), 0.6) !important;
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.30), rgba(var(--lgx2), 0.30)) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.22), 0 2px 12px rgba(var(--lgx1), 0.18) !important;
+}
+[data-theme="light"] #voiceModal .voice-pill-toggle:has(input:checked) {
+  color: #17204a;
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.24), rgba(var(--lgx2), 0.24)) !important;
 }
 /* Buttons match the deck-list toolbar exactly (same 34px / 12px / 8px metrics as
    the Filter button — glass mode otherwise makes every .btn a 999px pill) */
@@ -1881,21 +1902,54 @@ body.glass-mode #voiceModal .deck-ftab.active::before {
 #voiceModal .voice-manual-row #manualSetCode { flex: 0 0 auto; }
 #voiceModal .voice-manual-row #manualCardNum { flex: 1 1 130px; min-width: 130px; }
 #voiceModal .voice-manual-row input { height: 34px; box-sizing: border-box; }
+/* Segmented toggles read as separate, defined buttons — same shell as the
+   "Add to my collection" pill rather than a flat joined strip */
 #voiceModal .view-toggle {
-  height: 34px;
-  border-radius: 8px;
-  overflow: hidden;
-  box-sizing: border-box;
+  display: inline-flex;
+  gap: 6px;
+  height: auto;
+  background: none !important;
+  border: none !important;
+  border-radius: 0;
+  overflow: visible;
+  box-shadow: none !important;
 }
-body.glass-mode #voiceModal .view-toggle {
+#voiceModal .view-toggle button {
+  height: 34px;
+  padding: 0 12px;
+  font-size: 0.82rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.16);
   background: rgba(255,255,255,0.07);
-  border-color: rgba(255,255,255,0.16);
+  color: rgba(240,244,252,0.82);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 2px 10px rgba(0,0,0,0.22);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  transition: all 0.18s var(--ease);
+}
+#voiceModal .view-toggle button:hover {
+  color: #fff;
+  border-color: rgba(var(--lgx1), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14));
 }
 #voiceModal .view-toggle button.active {
-  background: linear-gradient(135deg, rgba(var(--lgx1), 0.26), rgba(var(--lgx2), 0.26));
-  color: var(--text);
+  color: #fff;
+  border-color: rgba(var(--lgx2), 0.6);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.30), rgba(var(--lgx2), 0.30));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.22), 0 2px 12px rgba(var(--lgx1), 0.18);
 }
-
+[data-theme="light"] #voiceModal .view-toggle button {
+  background: rgba(255,255,255,0.55);
+  border-color: rgba(255,255,255,0.75);
+  color: rgba(28,40,58,0.82);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 10px rgba(30,50,90,0.10);
+}
+[data-theme="light"] #voiceModal .view-toggle button.active {
+  color: #17204a;
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.24), rgba(var(--lgx2), 0.24));
+}
 /* Inspector-style qty stepper (− value +) */
 .voice-qty-stepper { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; }
 .voice-qty-value {

@@ -1436,10 +1436,19 @@
           <div id="voiceDeckTargetBar" style="display:none;align-items:center;gap:8px">
             <span style="font-size:0.78rem;color:var(--text2);white-space:nowrap"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;vertical-align:-2px;margin-right:4px"><path d="M2.5 5.5h9"/><path d="M9 3l2.5 2.5L9 8"/><path d="M13.5 10.5h-9"/><path d="M7 8l-2.5 2.5L7 13"/></svg>Deck cards go to</span>
             <div class="view-toggle" role="group" aria-label="Deck destination">
-              <button type="button" id="voiceTargetDeckBtn" class="active" style="padding:4px 14px" onclick="setVoiceDeckAddTarget('deck')">Deck</button>
-              <button type="button" id="voiceTargetAddsBtn" style="padding:4px 14px" title="Planned adds — shown in the deck list but not counted until you apply swaps" onclick="setVoiceDeckAddTarget('adds')">Adds</button>
+              <button type="button" id="voiceTargetDeckBtn" class="active" onclick="setVoiceDeckAddTarget('deck')">Deck</button>
+              <button type="button" id="voiceTargetAddsBtn" title="Planned adds — shown in the deck list but not counted until you apply swaps" onclick="setVoiceDeckAddTarget('adds')">Adds</button>
             </div>
           </div>
+          <!-- Search pool — which collection the search draws from -->
+          <span id="deckPoolSourceWrap" style="display:none;align-items:center;gap:8px">
+            <span style="font-size:0.78rem;color:var(--text2);white-space:nowrap"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;vertical-align:-2px;margin-right:4px"><circle cx="6.5" cy="6.5" r="4.5"/><path d="M10 10l3.5 3.5"/></svg>Search pool</span>
+            <div class="view-toggle" role="group" aria-label="Card pool source">
+              <button type="button" id="deckPoolMineBtn" class="active" onclick="setDeckPoolSource('mine')">My Collection</button>
+              <button type="button" id="deckPoolAllBtn" onclick="setDeckPoolSource('all')">All Cards</button>
+              <button type="button" id="deckPoolSharedBtn" onclick="setDeckPoolSource('sharedWith')">Shared With Me</button>
+            </div>
+          </span>
         </div>
 
         <!-- VOICE TAB -->
@@ -1508,7 +1517,6 @@
             <button class="btn btn-outline" id="findFoilBtn" onclick="toggleFindFoil()" style="white-space:nowrap;display:inline-flex;align-items:center;gap:4px"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px;flex-shrink:0"><path d="M8 2L13.5 8L8 14L2.5 8Z"/></svg> Foil</button>
             <button class="btn btn-primary" onclick="runFindCard(document.getElementById('findCardInput').value)">Search</button>
           </div>
-          <div id="findPurchaseHost" class="purchase-price-optin-host" style="margin-bottom:8px"></div>
           <!-- Quick filters -->
           <div class="find-quick-row" style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:8px">
             <div class="find-color-pill" id="fcp-W" onclick="toggleFindColorFilter('W')" title="White"><img src="https://svgs.scryfall.io/card-symbols/W.svg" alt="W"></div>
@@ -1533,15 +1541,8 @@
             <button class="filter-chip" id="fcr-u"  onclick="_toggleFindToken('r','u')">Uncommon</button>
             <button class="filter-chip" id="fcr-c"  onclick="_toggleFindToken('r','c')">Common</button>
             <span style="width:1px;height:14px;background:var(--border2);flex-shrink:0"></span>
-            <!-- Search scope (was the Settings panel) — plain buttons on the search tab -->
+            <!-- Search scope (was the Settings panel) — a plain button on the search tab -->
             <button type="button" class="btn btn-outline btn-sm" id="findMySetsOnlyBtn" onclick="toggleVoiceOwnedSetsOnly()" title="Search only sets you already own cards from">My Sets Only</button>
-            <span id="deckPoolSourceWrap" style="display:none;align-items:center;gap:6px">
-              <div class="view-toggle" role="group" aria-label="Card pool source">
-                <button type="button" id="deckPoolMineBtn" class="active" onclick="setDeckPoolSource('mine')">My Collection</button>
-                <button type="button" id="deckPoolAllBtn" onclick="setDeckPoolSource('all')">All Cards</button>
-                <button type="button" id="deckPoolSharedBtn" onclick="setDeckPoolSource('sharedWith')">Shared With Me</button>
-              </div>
-            </span>
             <span style="margin-left:auto">
               <select id="findCardSort" data-glass-label="Sort" onchange="setFindCardSort(this.value)" title="Sort results">
                 <option value="">Relevance</option>
