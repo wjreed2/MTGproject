@@ -77,6 +77,17 @@ const scanLimiter = rateLimit({
   message: { ok: false, error: 'Too many scan requests — slow down a little' },
 });
 
+// Catalog-style card queries (adds-catalog, by-roles) do full-catalog scans and can
+// return multi-MB payloads. An honest client calls them a handful of times per minute
+// (opening the Adds tab / plan backfill), so cap well above that.
+const catalogLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many catalog requests — try again shortly' },
+});
+
 function resolveSessionSecret() {
   const configured = String(process.env.SESSION_SECRET || '').trim();
   const weakDefaults = new Set([
@@ -138,7 +149,9 @@ const DB_CONFIG = {
   password:         process.env.DB_PASS     || '',
   database:         process.env.DB_NAME     || 'mtgproject',
   waitForConnections: true,
-  connectionLimit:  5,
+  // 5 was low enough that a single client boot (9 parallel API calls) queued on the
+  // pool; long-transaction handlers made it worse. Keep well under MySQL max_connections.
+  connectionLimit:  parseInt(process.env.DB_POOL_SIZE || '20', 10),
   timezone:         'Z',
   /** Fail fast instead of hanging startup when MySQL is down (Capacitor would sit on “Loading app…”). */
   connectTimeout:   parseInt(process.env.DB_CONNECT_TIMEOUT_MS || '12000', 10),
@@ -151,7 +164,7 @@ const DB_CONFIG = {
   enableKeepAlive:       true,
   keepAliveInitialDelay: 10000,
   idleTimeout:           parseInt(process.env.DB_IDLE_TIMEOUT_MS || '60000', 10),
-  maxIdle:               5,
+  maxIdle:               parseInt(process.env.DB_POOL_MAX_IDLE || '10', 10),
 };
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -2950,22 +2963,18 @@ app.get('/api/users/:id/decks', requireAuth, async (req, res) => {
 
 app.get('/api/collection', requireAuth, async (req, res) => {
   try {
+    // No scryfall_oracle_cards JOIN here: shipping MEDIUMTEXT oracle text for every
+    // row made this response several MB and competed with collection load on prod.
+    // `o:` search resolves the gap server-side via /api/collection/oracle-search.
     const [rows] = await db().query(
-      `SELECT c.data, c.oracle_id, c.role_tags_json, oc.oracle_text AS catalog_oracle_text
+      `SELECT c.data, c.oracle_id, c.role_tags_json
          FROM collection c
-         LEFT JOIN scryfall_oracle_cards oc ON oc.oracle_id = c.oracle_id
         WHERE c.account_id = ? ORDER BY c.added_at ASC`,
       [req.accountId]
     );
     const cards = rows.map(r => {
       const card = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
       if (r.oracle_id) card.oracleId = card.oracleId || String(r.oracle_id).toLowerCase();
-      // Oracle text isn't always stored in the card blob (older rows; the server enrich
-      // path historically omitted it), which breaks the client-side `o:` oracle-text
-      // search. Backfill it from the local oracle catalog when missing.
-      if (!String(card.oracleText || '').trim() && r.catalog_oracle_text) {
-        card.oracleText = r.catalog_oracle_text;
-      }
       if (r.role_tags_json != null) {
         let rt = r.role_tags_json;
         if (typeof rt === 'string') {
@@ -6147,6 +6156,26 @@ async function _fillMissingVendorPricesFromPriorDays(out, asOf) {
   }
 }
 
+// Vendor-price lookups are deterministic for a given (requested date, scryfall_id)
+// until the next daily snapshot import, yet every deck/collection load recomputed
+// them — dozens of queries per request. Cache per (date, sid), negative results
+// included (cards with no price rows would otherwise miss on every load), with a
+// TTL comfortably under the daily snapshot cadence.
+const _vendorPriceCache = new Map(); // `${date}|${sid}` -> { ts, row: {...}|null }
+const _VENDOR_PRICE_CACHE_TTL = 6 * 60 * 60 * 1000;
+const _VENDOR_PRICE_CACHE_MAX = 60000;
+
+function _vendorPriceCacheSweep() {
+  if (_vendorPriceCache.size <= _VENDOR_PRICE_CACHE_MAX) return;
+  // Map iterates in insertion order — drop the oldest quarter.
+  const drop = Math.ceil(_VENDOR_PRICE_CACHE_MAX / 4);
+  let i = 0;
+  for (const key of _vendorPriceCache.keys()) {
+    _vendorPriceCache.delete(key);
+    if (++i >= drop) break;
+  }
+}
+
 /**
  * Batch vendor prices at (or nearest before) a snapshot date. Separate TCG/CK columns.
  * Missing history before `date` falls back to the earliest available snapshot for that printing.
@@ -6161,6 +6190,19 @@ async function getVendorPricesAtOrBefore(scryfallIds, date) {
   if (!scryfallIds.length || !date) return out;
   const uniq = [...new Set(scryfallIds.map(id => String(id || '').toLowerCase()).filter(id => _SCRYFALL_ID_RE.test(id)))];
   if (!uniq.length) return out;
+
+  const dateKey = String(date);
+  const now = Date.now();
+  const misses = [];
+  for (const sid of uniq) {
+    const hit = _vendorPriceCache.get(`${dateKey}|${sid}`);
+    if (hit && now - hit.ts < _VENDOR_PRICE_CACHE_TTL) {
+      if (hit.row) out.set(sid, hit.row);
+    } else {
+      misses.push(sid);
+    }
+  }
+  if (!misses.length) return out;
 
   const [[asOfRow]] = await db().query(
     `SELECT DATE_FORMAT(MAX(snapshot_date), '%Y-%m-%d') AS d
@@ -6179,9 +6221,10 @@ async function getVendorPricesAtOrBefore(scryfallIds, date) {
 
   const CH = 500;
   const missing = [];
+  const fetched = new Map(); // freshly-queried rows only — cache hits never re-run the fill pass
 
-  for (let i = 0; i < uniq.length; i += CH) {
-    const batch = uniq.slice(i, i + CH);
+  for (let i = 0; i < misses.length; i += CH) {
+    const batch = misses.slice(i, i + CH);
     const ph = batch.map(() => '?').join(',');
     const [rows] = await db().query(
       `SELECT p.scryfall_id sid,
@@ -6198,7 +6241,7 @@ async function getVendorPricesAtOrBefore(scryfallIds, date) {
     for (const r of rows) {
       const key = String(r.sid || '').toLowerCase();
       found.add(key);
-      out.set(key, {
+      fetched.set(key, {
         asOf: r.asOf || asOf,
         tcg_normal: _numOrNull(r.tcg_normal),
         tcg_foil: _numOrNull(r.tcg_foil),
@@ -6243,8 +6286,8 @@ async function getVendorPricesAtOrBefore(scryfallIds, date) {
       );
       for (const r of rows) {
         const key = String(r.sid || '').toLowerCase();
-        if (out.has(key)) continue;
-        out.set(key, {
+        if (fetched.has(key)) continue;
+        fetched.set(key, {
           asOf: r.asOf,
           tcg_normal: _numOrNull(r.tcg_normal),
           tcg_foil: _numOrNull(r.tcg_foil),
@@ -6255,7 +6298,14 @@ async function getVendorPricesAtOrBefore(scryfallIds, date) {
     }
   }
 
-  await _fillMissingVendorPricesFromPriorDays(out, asOf);
+  await _fillMissingVendorPricesFromPriorDays(fetched, asOf);
+
+  for (const sid of misses) {
+    const row = fetched.get(sid) || null;
+    _vendorPriceCache.set(`${dateKey}|${sid}`, { ts: now, row });
+    if (row) out.set(sid, row);
+  }
+  _vendorPriceCacheSweep();
   return out;
 }
 
@@ -8994,7 +9044,7 @@ app.get('/api/cards/autocomplete', async (req, res) => {
 
 // Local candidate pool for "Suggested Adds": cards (within a color identity) that carry one of the
 // requested role tags, drawn from the local oracle DB + role-tag tables. No Scryfall round-trip.
-app.post('/api/cards/by-roles', async (req, res) => {
+app.post('/api/cards/by-roles', requireAuth, catalogLimiter, async (req, res) => {
   try {
     const colors = (Array.isArray(req.body?.colors) ? req.body.colors : []).filter(c => /^[WUBRG]$/.test(c));
     const roles = (Array.isArray(req.body?.roles) ? req.body.roles : [])
@@ -9077,67 +9127,89 @@ app.post('/api/cards/by-roles', async (req, res) => {
 
 // Full local-DB candidate pool for Adds "All Cards" mode (Entry 6): commander-legal cards within
 // color identity, excluding lands/tokens/junk. No role filter, no live Scryfall.
-app.post('/api/cards/adds-catalog', async (req, res) => {
+//
+// The underlying query is a full catalog scan returning up to 10k rows, so the built
+// pool is cached per (color identity, limit) and the per-deck `exclude` list is applied
+// per request from the cached pool. Few entries, short TTL — each entry is large.
+const _addsCatalogCache = new Map(); // `${ciKey}|${limit}` -> { ts, pool, capped }
+const _ADDS_CATALOG_TTL = 10 * 60 * 1000;
+const _ADDS_CATALOG_MAX = 3;
+
+app.post('/api/cards/adds-catalog', requireAuth, catalogLimiter, async (req, res) => {
   try {
     const colors = (Array.isArray(req.body?.colors) ? req.body.colors : []).filter(c => /^[WUBRG]$/.test(c));
     const exclude = new Set((Array.isArray(req.body?.exclude) ? req.body.exclude : []).map(n => String(n).toLowerCase()));
     const limit = Math.min(Math.max(parseInt(req.body?.limit || 8000, 10) || 8000, 1), 10000);
 
-    const params = [];
-    let ciClause = '';
-    const disallowed = ['W', 'U', 'B', 'R', 'G'].filter(c => !colors.includes(c));
-    if (disallowed.length) {
-      ciClause = 'AND NOT JSON_OVERLAPS(c.color_identity_json, CAST(? AS JSON))';
-      params.push(JSON.stringify(disallowed));
-    }
-    params.push(limit);
+    const cacheKey = [...new Set(colors)].sort().join('') + '|' + limit;
+    let entry = _addsCatalogCache.get(cacheKey);
+    if (!entry || Date.now() - entry.ts > _ADDS_CATALOG_TTL) {
+      const params = [];
+      let ciClause = '';
+      const disallowed = ['W', 'U', 'B', 'R', 'G'].filter(c => !colors.includes(c));
+      if (disallowed.length) {
+        ciClause = 'AND NOT JSON_OVERLAPS(c.color_identity_json, CAST(? AS JSON))';
+        params.push(JSON.stringify(disallowed));
+      }
+      params.push(limit);
 
-    const JUNK_TYPE_RE = /\b(Contraption|Attraction|Sticker|Stickers|Plane|Phenomenon|Scheme|Vanguard|Conspiracy|Dungeon|Emblem|Token)\b/i;
-    const parseArr = v => Array.isArray(v) ? v : (() => { try { return JSON.parse(v) || []; } catch (_) { return []; } })();
-    const parseObj = v => (v && typeof v === 'object' && !Array.isArray(v)) ? v : (() => { try { const o = JSON.parse(v); return o && typeof o === 'object' ? o : null; } catch (_) { return null; } })();
+      const JUNK_TYPE_RE = /\b(Contraption|Attraction|Sticker|Stickers|Plane|Phenomenon|Scheme|Vanguard|Conspiracy|Dungeon|Emblem|Token)\b/i;
+      const parseArr = v => Array.isArray(v) ? v : (() => { try { return JSON.parse(v) || []; } catch (_) { return []; } })();
+      const parseObj = v => (v && typeof v === 'object' && !Array.isArray(v)) ? v : (() => { try { const o = JSON.parse(v); return o && typeof o === 'object' ? o : null; } catch (_) { return null; } })();
 
-    const [rows] = await db().query(
-      `SELECT c.name, c.scryfall_id, c.type_line, c.oracle_text, c.cmc, c.mana_cost, c.oracle_id,
-              c.color_identity_json, c.image_small, c.image_normal, c.edhrec_pct_json, t.tags_json
-         FROM scryfall_oracle_cards c
-         LEFT JOIN scryfall_oracle_tags t ON t.oracle_id = c.oracle_id AND t.schema_version = '4'
-        WHERE (c.commander_legal IS NULL OR c.commander_legal = 1)
-          AND c.type_line NOT LIKE '%Land%'
-          AND c.type_line NOT LIKE '%Token%'
-          AND c.type_line NOT LIKE '%Emblem%'
-          ${ciClause}
-        ORDER BY c.name
-        LIMIT ?`,
-      params
-    );
+      const [rows] = await db().query(
+        `SELECT c.name, c.scryfall_id, c.type_line, c.oracle_text, c.cmc, c.mana_cost, c.oracle_id,
+                c.color_identity_json, c.image_small, c.image_normal, c.edhrec_pct_json, t.tags_json
+           FROM scryfall_oracle_cards c
+           LEFT JOIN scryfall_oracle_tags t ON t.oracle_id = c.oracle_id AND t.schema_version = '4'
+          WHERE (c.commander_legal IS NULL OR c.commander_legal = 1)
+            AND c.type_line NOT LIKE '%Land%'
+            AND c.type_line NOT LIKE '%Token%'
+            AND c.type_line NOT LIKE '%Emblem%'
+            ${ciClause}
+          ORDER BY c.name
+          LIMIT ?`,
+        params
+      );
 
-    const out = [];
-    for (const r of rows) {
-      if (exclude.has(String(r.name).toLowerCase())) continue;
-      if (/^A-/.test(r.name || '')) continue;
-      if (JUNK_TYPE_RE.test(r.type_line || '')) continue;
-      const roleTags = parseArr(r.tags_json);
-      const ci = parseArr(r.color_identity_json);
-      const edhrecRolePct = parseObj(r.edhrec_pct_json);
-      out.push({
-        name: r.name, id: r.scryfall_id, oracleId: r.oracle_id || null,
-        type_line: r.type_line || '', oracle_text: r.oracle_text || '',
-        mana_cost: r.mana_cost || '', mana: r.mana_cost || '',
-        cmc: parseFloat(r.cmc) || 0, color_identity: ci,
-        image_small: r.image_small || null, image_normal: r.image_normal || null,
-        roleTags,
-        edhrecRolePct: edhrecRolePct || undefined,
-      });
-      if (out.length >= limit) break;
-    }
-    await attachPriceLogPrices(out);
-    for (const c of out) {
-      if (c.prices?.usd != null) {
-        const usd = parseFloat(c.prices.usd);
-        if (Number.isFinite(usd) && usd > 0) c.priceTCG = usd;
+      const pool = [];
+      for (const r of rows) {
+        if (/^A-/.test(r.name || '')) continue;
+        if (JUNK_TYPE_RE.test(r.type_line || '')) continue;
+        const roleTags = parseArr(r.tags_json);
+        const ci = parseArr(r.color_identity_json);
+        const edhrecRolePct = parseObj(r.edhrec_pct_json);
+        pool.push({
+          name: r.name, id: r.scryfall_id, oracleId: r.oracle_id || null,
+          type_line: r.type_line || '', oracle_text: r.oracle_text || '',
+          mana_cost: r.mana_cost || '', mana: r.mana_cost || '',
+          cmc: parseFloat(r.cmc) || 0, color_identity: ci,
+          image_small: r.image_small || null, image_normal: r.image_normal || null,
+          roleTags,
+          edhrecRolePct: edhrecRolePct || undefined,
+        });
+        if (pool.length >= limit) break;
+      }
+      await attachPriceLogPrices(pool);
+      for (const c of pool) {
+        if (c.prices?.usd != null) {
+          const usd = parseFloat(c.prices.usd);
+          if (Number.isFinite(usd) && usd > 0) c.priceTCG = usd;
+        }
+      }
+      entry = { ts: Date.now(), pool, capped: rows.length >= limit };
+      _addsCatalogCache.delete(cacheKey);
+      _addsCatalogCache.set(cacheKey, entry);
+      while (_addsCatalogCache.size > _ADDS_CATALOG_MAX) {
+        const oldest = _addsCatalogCache.keys().next().value;
+        _addsCatalogCache.delete(oldest);
       }
     }
-    res.json({ cards: out, capped: rows.length >= limit });
+
+    const cards = exclude.size
+      ? entry.pool.filter(c => !exclude.has(String(c.name).toLowerCase()))
+      : entry.pool;
+    res.json({ cards, capped: entry.capped });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
