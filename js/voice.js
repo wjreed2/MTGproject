@@ -675,9 +675,8 @@ function switchVoiceTab(tab) {
   document.getElementById('voiceTabBtn').classList.toggle('active', isVoice);
   document.getElementById('searchTabBtn').classList.toggle('active', !isVoice);
   const modal = document.getElementById('voiceModal');
-  const modalEl = modal?.querySelector('.modal');
   modal?.classList.toggle('search-mode', !isVoice);
-  if (modalEl) modalEl.style.width = isVoice ? 'min(960px,96vw)' : '';
+  // Both tabs share one window footprint now — no per-tab width juggling.
   if (!isVoice) {
     if (isListening) stopRecording();
     renderVoiceSetSearchSettings();
