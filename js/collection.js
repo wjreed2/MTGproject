@@ -3897,15 +3897,10 @@ function _positionFindAc() {
 const _KNOWN_SEARCH_KEYS = /\b(?:t|type|c|ci|color|id|cmc|mv|manavalue|r|rarity|s|e|set|edition|o|oracle|is|has|name|n|qty|q|tag|tags)\s*(?:>=|<=|!=|<>|[:=><])/i;
 function _findQueryHasTokens(q) { return _KNOWN_SEARCH_KEYS.test(q); }
 
+/* Paper-only is an app-wide rule now (Arena / digital-only printings never show). */
 function _getFindPaperOnly() {
-  return document.getElementById('findCardPaperOnlyChk')?.checked !== false
-    && (typeof voiceSetPrefs === 'undefined' || voiceSetPrefs.paperOnly !== false);
+  return true;
 }
-function _updateFindPaperOnlyState() {
-  const chk = document.getElementById('findCardPaperOnlyChk');
-  if (chk && typeof voiceSetPrefs !== 'undefined') chk.checked = voiceSetPrefs.paperOnly !== false;
-}
-globalThis._updateFindPaperOnlyState = _updateFindPaperOnlyState;
 
 // Quick-filter token toggle for search tab
 function _toggleFindToken(key, val) {

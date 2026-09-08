@@ -1417,43 +1417,6 @@
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><path d="M8 1.5a2.5 2.5 0 0 1 2.5 2.5v3a2.5 2.5 0 0 1-5 0V4A2.5 2.5 0 0 1 8 1.5z"/><path d="M12 8v.5a4 4 0 0 1-8 0V8"/><line x1="8" y1="12.5" x2="8" y2="14.5"/><line x1="5.5" y1="14.5" x2="10.5" y2="14.5"/></svg>
         Voice
       </button>
-      <button class="btn btn-ghost btn-sm voice-settings-gear" id="voiceSettingsGearBtn" type="button" onclick="toggleVoiceSearchSettings()" title="Voice search settings" aria-expanded="false" aria-controls="voiceSearchSettingsPanel">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><circle cx="8" cy="8" r="2.2"/><path d="M13.4 8a5.4 5.4 0 0 0-.06-.77l1.23-.96-1.2-2.07-1.49.32a5.5 5.5 0 0 0-1.32-.77L10.3 2H5.7l-.26 1.75a5.5 5.5 0 0 0-1.32.77l-1.49-.32-1.2 2.07 1.23.96A5.4 5.4 0 0 0 2.6 8c0 .26.02.52.06.77l-1.23.96 1.2 2.07 1.49-.32c.4.33.84.6 1.32.77L5.7 14h4.6l.26-1.75c.48-.17.92-.44 1.32-.77l1.49.32 1.2-2.07-1.23-.96c.04-.25.06-.51.06-.77z"/></svg>
-        Settings
-      </button>
-        <div class="voice-search-settings hidden" id="voiceSearchSettingsPanel" aria-hidden="true">
-          <div class="settings-section-label">Scope</div>
-          <label class="voice-settings-check voice-settings-check--last">
-            <input type="checkbox" id="voiceFilterMyCollectionSetsChk" onchange="onVoiceSearchSettingsChanged()">
-            Search only sets in my collection
-          </label>
-          <div class="settings-divider"></div>
-          <div class="settings-section-label">Exclude</div>
-          <label class="voice-settings-check">
-            <input type="checkbox" id="voiceExcludeTokenSetsChk" onchange="onVoiceSearchSettingsChanged()">
-            Don't look in token sets
-          </label>
-          <label class="voice-settings-check voice-settings-check--last">
-            <input type="checkbox" id="voiceExcludeArtSetsChk" onchange="onVoiceSearchSettingsChanged()">
-            Don't look in art card sets
-          </label>
-          <div class="settings-divider"></div>
-          <div class="settings-section-label">Card Search</div>
-          <label class="voice-settings-check voice-settings-check--last">
-            <input type="checkbox" id="findCardPaperOnlyChk" onchange="onFindPaperOnlyChanged()">
-            Paper cards only (hide Arena / digital-only)
-          </label>
-          <div id="voiceDeckCollectionToggleWrap" style="display:none;margin-top:8px;padding-top:8px;border-top:1px solid var(--border2)">
-            <div id="deckPoolSourceWrap" style="display:none">
-              <div class="settings-section-label" style="margin-bottom:5px">Card Pool</div>
-              <div class="view-toggle" style="width:100%" role="group" aria-label="Card pool source">
-                <button type="button" id="deckPoolMineBtn" class="active" style="flex:1" onclick="setDeckPoolSource('mine')">My Collection</button>
-                <button type="button" id="deckPoolAllBtn" style="flex:1" onclick="setDeckPoolSource('all')">All Cards</button>
-                <button type="button" id="deckPoolSharedBtn" style="flex:1" onclick="setDeckPoolSource('sharedWith')">Shared With Me</button>
-              </div>
-            </div>
-          </div>
-        </div>
     </div><!-- /voice-folder-tabs -->
 
     <div class="modal voice-modal" style="width:min(960px,96vw)">
@@ -1509,7 +1472,7 @@
               <button class="btn btn-ghost btn-sm" onclick="clearVoiceCorrections()" title="Clear all learned voice corrections" style="font-size:0.72rem;padding:3px 10px;display:inline-flex;align-items:center;gap:4px;color:var(--text3)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px;flex-shrink:0"><path d="M8 1.5a2.5 2.5 0 0 1 2.5 2.5v3a2.5 2.5 0 0 1-5 0V4A2.5 2.5 0 0 1 8 1.5z"/><path d="M12 8v.5a4 4 0 0 1-8 0V8"/><line x1="8" y1="12.5" x2="8" y2="14.5"/><line x1="5.5" y1="14.5" x2="10.5" y2="14.5"/><line x1="11.5" y1="1.5" x2="14" y2="4"/><line x1="14" y1="1.5" x2="11.5" y2="4"/></svg> Reset</button>
             </div>
           </div>
-          <div style="display:flex;gap:8px;margin-bottom:1.25rem">
+          <div class="voice-manual-row" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:1.25rem">
             <input type="text" id="manualSetCode" placeholder="Set (e.g. DMU)" style="width:110px;text-transform:uppercase">
             <input type="number" id="manualCardNum" placeholder="Card # (e.g. 142)" style="flex:1">
             <div class="voice-qty-stepper" title="Quantity">
@@ -1547,7 +1510,7 @@
           </div>
           <div id="findPurchaseHost" class="purchase-price-optin-host" style="margin-bottom:8px"></div>
           <!-- Quick filters -->
-          <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:8px">
+          <div class="find-quick-row" style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:8px">
             <div class="find-color-pill" id="fcp-W" onclick="toggleFindColorFilter('W')" title="White"><img src="https://svgs.scryfall.io/card-symbols/W.svg" alt="W"></div>
             <div class="find-color-pill" id="fcp-U" onclick="toggleFindColorFilter('U')" title="Blue"><img src="https://svgs.scryfall.io/card-symbols/U.svg" alt="U"></div>
             <div class="find-color-pill" id="fcp-B" onclick="toggleFindColorFilter('B')" title="Black"><img src="https://svgs.scryfall.io/card-symbols/B.svg" alt="B"></div>
@@ -1570,6 +1533,15 @@
             <button class="filter-chip" id="fcr-u"  onclick="_toggleFindToken('r','u')">Uncommon</button>
             <button class="filter-chip" id="fcr-c"  onclick="_toggleFindToken('r','c')">Common</button>
             <span style="width:1px;height:14px;background:var(--border2);flex-shrink:0"></span>
+            <!-- Search scope (was the Settings panel) — plain buttons on the search tab -->
+            <button type="button" class="btn btn-outline btn-sm" id="findMySetsOnlyBtn" onclick="toggleVoiceOwnedSetsOnly()" title="Search only sets you already own cards from">My Sets Only</button>
+            <span id="deckPoolSourceWrap" style="display:none;align-items:center;gap:6px">
+              <div class="view-toggle" role="group" aria-label="Card pool source">
+                <button type="button" id="deckPoolMineBtn" class="active" onclick="setDeckPoolSource('mine')">My Collection</button>
+                <button type="button" id="deckPoolAllBtn" onclick="setDeckPoolSource('all')">All Cards</button>
+                <button type="button" id="deckPoolSharedBtn" onclick="setDeckPoolSource('sharedWith')">Shared With Me</button>
+              </div>
+            </span>
             <span style="margin-left:auto">
               <select id="findCardSort" data-glass-label="Sort" onchange="setFindCardSort(this.value)" title="Sort results">
                 <option value="">Relevance</option>
