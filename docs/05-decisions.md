@@ -17,6 +17,9 @@ The wizard is a single modal flow with Back/edit support.
 ## DECIDED — Mana Base / Foundation / Strategy / Payoffs
 Deck categories (not suggestion modes): Mana Base · Foundation · Strategy (plan, theme, subtheme) · Payoffs. Payoffs are not a sixth Foundation job. Do not rename Mana Base to Foundation.
 
+## DECIDED — Architecture visualization (2026-09-08)
+Open-deck **By Architecture** view is a third list mode. Visualization Foundation functions (Card Advantage, Ramp, Interaction/Removal, Board Wipes, Win Condition) are not the five-capability evaluator. Manabase in this view is **lands only**; rocks/rituals are Foundation → Ramp. Also-running themes may appear as Strategy subsections marked inferred. User Set-primary writes category + Primary role; extras remain (7C). Classifier does not silently rewrite tags.
+
 ## DECIDED — Foundation is not a mandatory checklist
 Foundation means fundamental capabilities evaluated for every deck. It does not imply every deck must contain a fixed amount of every function. Classic Hybrid role-count staples remain until cutover; they are not the destination model.
 

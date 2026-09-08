@@ -8,6 +8,8 @@ Foundation **interview is complete** (rounds 2–5). Do not reopen Foundation de
 
 **Deck themes readout (DECIDED v1 shape)** — [21-deck-themes.md](./21-deck-themes.md). Placement **A** (own panel after Gameplan). Band labels locked, numbers not. Name chips. Clash **4A**. Settings toggle default on (`mtg_deck_themes`). Card-name chips use `data-name` + delegated click (not inline `onclick`).
 
+**By Architecture view (SHIPPED v1)** — [22-deck-architecture.md](./22-deck-architecture.md). Third list toggle. Visualization Foundation functions ≠ five-capability evaluator. Manabase = lands only. User Set-primary (7C) writes Primary role and keeps extras.
+
 ## Settled (rounds 2–5 + 2026-08-23 wording)
 - deterministic-only; user final say; no live Scryfall/EDHREC; no partner `engine2/` edits; **no CardIR regen** (additive derived fields from existing CardIR are OK)
 - Deck categories: **Mana Base · Foundation · Strategy · Payoffs**

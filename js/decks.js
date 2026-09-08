@@ -883,7 +883,11 @@ function scheduleDeckGameChangerRefresh(deck) {
     });
 }
 
-let deckListView = 'grid';
+let deckListView = (() => {
+  const saved = localStorage.getItem('mtg_deck_list_view');
+  if (saved === 'list' || saved === 'grid' || saved === 'architecture') return saved;
+  return 'grid';
+})();
 let deckStackOrient = (localStorage.getItem('mtg_deck_stack_orient') === 'horizontal' ? 'horizontal' : 'vertical');
 const _DECK_STACK_SORT_KEYS = new Set(['name', 'cmc', 'mana', 'price', 'badge']);
 let deckStackSort = (() => {
@@ -3843,6 +3847,7 @@ function renderActiveDeck() {
     if (gbSel.value !== deckGroupBy) gbSel.value = deckGroupBy;
   }
   _syncDeckStackSortControls();
+  _syncDeckListViewChrome();
   _syncDeckSideboardToggle();
   _applyDeckTagBadgesSetting();
   document.querySelectorAll('#deckStackOrientH, #deckStackOrientV').forEach(b => b.classList.remove('active'));
@@ -4032,17 +4037,193 @@ function toggleDeckListCollapse() {
 }
 
 function setDeckListView(view, btn) {
+  if (view !== 'list' && view !== 'grid' && view !== 'architecture') view = 'grid';
   deckListView = view;
-  document.querySelectorAll('#deckListViewList, #deckListViewGrid').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  const orientToggle = document.getElementById('deckStackOrientToggle');
-  if (orientToggle) orientToggle.style.display = view === 'grid' ? '' : 'none';
-  const sizeWrap = document.getElementById('deckCardSizeWrap');
-  if (sizeWrap) sizeWrap.style.display = view === 'grid' ? 'flex' : 'none';
-  const resetBtn = document.getElementById('deckStackLayoutResetBtn');
-  if (resetBtn) resetBtn.style.display = 'none';
+  try { localStorage.setItem('mtg_deck_list_view', view); } catch (_) {}
+  _syncDeckListViewChrome();
+  if (btn) btn.classList.add('active');
   const deck = getActiveDeck();
   if (deck) renderDeckList(deck);
+}
+
+function _syncDeckListViewChrome() {
+  document.querySelectorAll('#deckListViewList, #deckListViewGrid, #deckListViewArchitecture').forEach(b => b.classList.remove('active'));
+  const id = deckListView === 'list' ? 'deckListViewList'
+    : (deckListView === 'architecture' ? 'deckListViewArchitecture' : 'deckListViewGrid');
+  const active = document.getElementById(id);
+  if (active) active.classList.add('active');
+  const orientToggle = document.getElementById('deckStackOrientToggle');
+  if (orientToggle) orientToggle.style.display = deckListView === 'grid' ? '' : 'none';
+  const sizeWrap = document.getElementById('deckCardSizeWrap');
+  if (sizeWrap) sizeWrap.style.display = deckListView === 'grid' ? 'flex' : 'none';
+  const resetBtn = document.getElementById('deckStackLayoutResetBtn');
+  if (resetBtn) resetBtn.style.display = 'none';
+  const groupBy = document.getElementById('deckGroupBySelect');
+  const sort = document.getElementById('deckStackSortSelect');
+  const sortDir = document.getElementById('deckStackSortDirSelect');
+  const hideGroup = deckListView === 'architecture';
+  [groupBy, sort, sortDir].forEach(el => { if (el) el.style.display = hideGroup ? 'none' : ''; });
+  document.querySelectorAll('#deckGroupByWrap .dlh-group, #deckGroupByWrap .dlh-sort').forEach(el => {
+    el.style.display = hideGroup ? 'none' : '';
+  });
+  const panel = document.getElementById('deckListPanel') || document.querySelector('#tab-decks .panel');
+  if (panel) panel.classList.toggle('is-arch-view', deckListView === 'architecture');
+}
+
+function _architectureFindCard(deck, key) {
+  return (deck?.cards || []).find(c => architectureCardKey(c) === key) || null;
+}
+
+function _architectureWritePrimaryRole(deck, card, category, subsection) {
+  const role = typeof mappedRoleForPlacement === 'function'
+    ? mappedRoleForPlacement(category, subsection, card, deck)
+    : null;
+  if (!role) return;
+  const tags = card.customTags ? card.customTags.slice() : [];
+  if (!_customTagsHas(tags, role)) {
+    card.customTags = _dedupeCustomTags(tags.concat([role]));
+  }
+  _setCardCustomTagTier(card, role, 'primary');
+}
+
+function _commitArchitectureOverrides(deck, next) {
+  deck.architectureOverrides = next;
+  if (!activeDeckIsShared) saveActiveDeck(deck);
+  renderDeckList(deck);
+}
+
+function architectureSetPrimary(key, category, subsection) {
+  const deck = getActiveDeck();
+  if (!deck || activeDeckIsShared) return;
+  const card = _architectureFindCard(deck, key);
+  if (!card) return;
+  if (category === 'manabase' && !_isLandDeckCard(card)) {
+    if (typeof showNotif === 'function') showNotif('Manabase is lands only.');
+    return;
+  }
+  const prevPrimary = typeof _badgeTagForCard === 'function' ? _badgeTagForCard(card) : null;
+  const next = setArchitecturePrimary(deck.architectureOverrides, key, category, subsection);
+  const rec = next.byKey[key];
+  if (rec) {
+    rec.writtenRole = typeof mappedRoleForPlacement === 'function'
+      ? mappedRoleForPlacement(category, subsection, card, deck)
+      : null;
+    rec.prevPrimaryTag = prevPrimary;
+  }
+  _architectureWritePrimaryRole(deck, card, category, subsection);
+  _commitArchitectureOverrides(deck, next);
+}
+
+function architectureAddExtra(key, category, subsection) {
+  const deck = getActiveDeck();
+  if (!deck || activeDeckIsShared) return;
+  const card = _architectureFindCard(deck, key);
+  if (category === 'manabase' && card && !_isLandDeckCard(card)) {
+    if (typeof showNotif === 'function') showNotif('Manabase is lands only.');
+    return;
+  }
+  _commitArchitectureOverrides(deck, addArchitectureExtra(deck.architectureOverrides, key, category, subsection));
+}
+
+function architectureRemoveMembership(key, category, subsection) {
+  const deck = getActiveDeck();
+  if (!deck || activeDeckIsShared) return;
+  _commitArchitectureOverrides(deck, removeArchitectureMembership(deck.architectureOverrides, key, category, subsection));
+}
+
+function architectureResetCard(key) {
+  const deck = getActiveDeck();
+  if (!deck || activeDeckIsShared) return;
+  const card = _architectureFindCard(deck, key);
+  const prev = normalizeArchitectureOverrides(deck.architectureOverrides).byKey[key];
+  if (card && prev) {
+    if (prev.writtenRole) _removeCardCustomTagTier(card, prev.writtenRole);
+    if (prev.prevPrimaryTag) _setCardCustomTagTier(card, prev.prevPrimaryTag, 'primary');
+  }
+  _commitArchitectureOverrides(deck, resetArchitectureCard(deck.architectureOverrides, key));
+}
+
+function architectureUnassignCard(key) {
+  const deck = getActiveDeck();
+  if (!deck || activeDeckIsShared) return;
+  _commitArchitectureOverrides(deck, unassignArchitectureCard(deck.architectureOverrides, key));
+}
+
+function _closeArchitectureMenu() {
+  const el = document.getElementById('archPlacementMenu');
+  if (el) el.remove();
+  document.removeEventListener('click', _closeArchitectureMenuOnOutside, true);
+}
+
+function _closeArchitectureMenuOnOutside(e) {
+  const el = document.getElementById('archPlacementMenu');
+  if (!el) return;
+  if (el.contains(e.target) || e.target.closest('[data-arch-menu]')) return;
+  _closeArchitectureMenu();
+}
+
+function _openArchitectureMenu(key, anchor, model) {
+  _closeArchitectureMenu();
+  const row = (model?.rows || []).find(r => r.key === key);
+  if (!row) return;
+  const opts = [];
+  (FOUNDATION_FNS || []).forEach(fn => {
+    opts.push({ cat: 'foundation', sub: fn.id, label: 'Foundation · ' + fn.label });
+  });
+  (model.strategySubs || []).forEach(s => {
+    opts.push({ cat: 'strategy', sub: s.id, label: 'Strategy · ' + s.label });
+  });
+  (model.payoffSubs || []).forEach(s => {
+    opts.push({ cat: 'payoffs', sub: s.id, label: 'Payoffs · ' + s.label });
+  });
+  opts.push({ cat: 'manabase', sub: 'nonbasics', label: 'Manabase · Lands' });
+
+  const current = [];
+  row.foundationFns.forEach(id => current.push({ cat: 'foundation', sub: id, label: 'Foundation · ' + id }));
+  row.strategySubs.forEach(id => {
+    const sub = (model.strategySubs || []).find(s => s.id === id);
+    current.push({ cat: 'strategy', sub: id, label: 'Strategy · ' + (sub ? sub.label : id) });
+  });
+  row.payoffSubs.forEach(id => {
+    const sub = (model.payoffSubs || []).find(s => s.id === id);
+    current.push({ cat: 'payoffs', sub: id, label: 'Payoffs · ' + (sub ? sub.label : id) });
+  });
+  row.manabaseSubs.forEach(id => current.push({ cat: 'manabase', sub: id, label: 'Manabase · ' + id }));
+
+  const menu = document.createElement('div');
+  menu.id = 'archPlacementMenu';
+  menu.className = 'arch-menu';
+  const optHtml = opts.map(o => `
+    <button type="button" class="arch-menu-item" data-act="primary" data-cat="${o.cat}" data-sub="${o.sub}">Set as primary: ${escapeHtml(o.label)}</button>
+    <button type="button" class="arch-menu-item arch-menu-item--quiet" data-act="extra" data-cat="${o.cat}" data-sub="${o.sub}">Also count as: ${escapeHtml(o.label)}</button>
+  `).join('');
+  const remHtml = current.map(o =>
+    `<button type="button" class="arch-menu-item arch-menu-item--danger" data-act="remove" data-cat="${o.cat}" data-sub="${o.sub}">Remove from ${escapeHtml(o.label)}</button>`
+  ).join('');
+  menu.innerHTML = `<div class="arch-menu-title">${escapeHtml(row.name)}</div>
+    <div class="arch-menu-scroll">${optHtml}${remHtml}</div>
+    <button type="button" class="arch-menu-item" data-act="reset">Reset to inferred</button>
+    <button type="button" class="arch-menu-item arch-menu-item--danger" data-act="unassign">Send to Unassigned</button>`;
+  menu.addEventListener('click', ev => {
+    const btn = ev.target.closest('[data-act]');
+    if (!btn) return;
+    ev.stopPropagation();
+    const act = btn.dataset.act;
+    if (act === 'primary') architectureSetPrimary(key, btn.dataset.cat, btn.dataset.sub);
+    else if (act === 'extra') architectureAddExtra(key, btn.dataset.cat, btn.dataset.sub);
+    else if (act === 'remove') architectureRemoveMembership(key, btn.dataset.cat, btn.dataset.sub);
+    else if (act === 'reset') architectureResetCard(key);
+    else if (act === 'unassign') architectureUnassignCard(key);
+    _closeArchitectureMenu();
+  });
+  document.body.appendChild(menu);
+  const rect = anchor.getBoundingClientRect();
+  const top = Math.min(rect.bottom + 6, window.innerHeight - 24);
+  let left = rect.right - 280;
+  if (left < 8) left = 8;
+  menu.style.top = `${top}px`;
+  menu.style.left = `${left}px`;
+  setTimeout(() => document.addEventListener('click', _closeArchitectureMenuOnOutside, true), 0);
 }
 
 function setDeckStackOrient(orient) {
@@ -8739,6 +8920,61 @@ function renderDeckList(deck) {
   if (!filteredCards.length && !hasExtra) {
     el.innerHTML = '<div class="deck-list-muted-center">No matching cards in this deck list</div>';
     el.onclick = null;
+    _scheduleDeckTokensRefresh(deck);
+    restoreScroll();
+    return;
+  }
+
+  if (deckListView === 'architecture') {
+    _detachVertStackObserver();
+    if (isDeckOwnershipEnabled()) _rebuildOwnershipMaps();
+    const listZoneInner = _renderDeckExtraZoneList(deck, 'mb', 'Maybe board', maybeboard, 'No maybe board cards — click → MB on any card above to add it', validationErrorNames) +
+      (_deckMatchSideboardEnabled(deck)
+        ? _renderDeckExtraZoneList(deck, 'sb', 'Sideboard', matchSideboard, 'No sideboard cards — click → SB on any card above to add it', validationErrorNames)
+        : '') +
+      (swapsOn
+        ? _renderDeckExtraZoneList(deck, 'add', 'Adds', plannedAdds, 'No planned adds — drag cards here from search or the maybe board', validationErrorNames) +
+          _renderDeckExtraZoneList(deck, 'cut', 'Cuts', plannedCuts, 'No planned cuts — drag deck cards here to mark them', validationErrorNames)
+        : '');
+    const extraListHtml = _deckExtraZonesWrapOpenHtml(deck, listZoneInner + applySwapsHtml, 'deck-extra-zones-wrap--list');
+    let model = null;
+    try {
+      model = classifyDeckArchitecture(deck, typeof getDeckPlan === 'function' ? getDeckPlan(deck) : deck.plan, {
+        cards: filteredCards,
+        overrides: deck.architectureOverrides,
+      });
+    } catch (err) {
+      console.error('Architecture view failed:', err);
+      el.innerHTML = '<div class="deck-list-muted-center">Could not build the Architecture view.</div>' + extraListHtml;
+      restoreScroll();
+      return;
+    }
+    const canEdit = typeof canEditActiveDeck !== 'function' || canEditActiveDeck();
+    const html = architectureViewHtml(model, {
+      canEdit: canEdit && !activeDeckIsShared,
+      compact: typeof _deckIsPhone === 'function' && _deckIsPhone(),
+      badgeHtml: (c) => (typeof _defaultTagBadgeHtml === 'function' ? _defaultTagBadgeHtml(c) : ''),
+      pipsHtml: (c) => {
+        const cols = typeof sortColorsWUBRG === 'function' ? sortColorsWUBRG(c.colors || []) : (c.colors || []);
+        return `<span class="arch-pips">${cols.map(col => `<img src="https://svgs.scryfall.io/card-symbols/${col}.svg" class="mana-pip" alt="${col}">`).join('')}</span>`;
+      },
+    });
+    el.innerHTML = html + extraListHtml;
+    el.onclick = e => {
+      if (_handleDeckExtraZoneToggleClick(e)) return;
+      const menuBtn = e.target.closest('[data-arch-menu]');
+      if (menuBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        _openArchitectureMenu(menuBtn.getAttribute('data-arch-menu'), menuBtn, model);
+        return;
+      }
+      const row = e.target.closest('.arch-card-row[data-uid]');
+      if (row && row.dataset.uid) openCardDetail(row.dataset.uid, 'deck');
+    };
+    _bindDeckTagGroupHoverLinking(el, true);
+    _bindSwapZoneHoverLinking(el, swapsOn);
+    _syncDeckStackLayoutResetBtn(deck);
     _scheduleDeckTokensRefresh(deck);
     restoreScroll();
     return;
