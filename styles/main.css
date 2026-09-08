@@ -4806,10 +4806,15 @@ img.stack-main.loaded { opacity: 1; }
    rectangle around "▸ MB (3)". */
 .deck-extra-zone-section {
   border: 1px solid var(--border2);
-  border-radius: 20px; /* same rounding as the glass panels */
+  border-radius: 12px;
   background: var(--bg3);
-  padding: 16px 17px 18px;
+  padding: 20px 20px 22px;
   transition: border-color 0.15s var(--ease), background 0.15s var(--ease);
+}
+/* Wider breathing room between the zone boxes (desktop only — phones keep the
+   original compact zones) */
+@media (min-width: 769px) {
+  .deck-stack-view > .deck-extra-zones-wrap { gap: 1.1rem; }
 }
 body.glass-mode .deck-extra-zone-section {
   /* Same lit blue→purple material as the tab page, so the boxes read as the
@@ -4837,7 +4842,7 @@ body.glass-mode .deck-extra-zone-section {
   min-height: 0;
   align-self: flex-start;
   width: auto !important; /* inline width:100% otherwise keeps the box full-width */
-  border-radius: 12px;
+  border-radius: 10px;
 }
 .deck-extra-zone-section.is-collapsed:hover {
   border-color: rgba(var(--lgx1), 0.55);
