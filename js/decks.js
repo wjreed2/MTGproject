@@ -1821,7 +1821,11 @@ function _deckExtraZonesExpanded(deck) {
 }
 
 function _deckExtraZoneColumnPx(deck) {
-  return _deckExtraZonesExpanded(deck) ? deckCardSize + 6 : _DECK_EXTRA_ZONE_PILL_W;
+  if (!_deckExtraZonesExpanded(deck)) return _DECK_EXTRA_ZONE_PILL_W;
+  // Desktop zones sit in glass boxes — widen the column by the box chrome
+  // (padding + border) so card tiles inside keep their full size. Phones keep
+  // the original bare zones (mobile.css reverts the boxes there).
+  return deckCardSize + 6 + (_deckIsPhone() ? 0 : 38);
 }
 
 /** Phone-width viewport — same breakpoint as mobile.css (tablets are 769px+). */
