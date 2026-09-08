@@ -383,6 +383,10 @@
 }
 .theme-btn {
   flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   padding: 6px 4px;
   border-radius: var(--radius);
   border: 1px solid var(--border2);
@@ -396,6 +400,7 @@
   transition: border-color 0.15s, color 0.15s, background 0.15s;
   text-align: center;
 }
+.theme-btn svg { flex-shrink: 0; display: block; }
 .theme-btn:hover { color: var(--text); background: var(--bg4); }
 .theme-btn.active {
   border-color: var(--gold);
@@ -805,6 +810,236 @@ main {
   font-family: 'Inter', system-ui, sans-serif;
 }
 
+/* DECK BUILDER FOLDER TABS — overlapping file-drawer tabs growing out of the
+ * content panel below. The strip overhangs the pane by 1px so the active tab's
+ * background swallows the panel's top border and opens straight into it. */
+.deck-folder-tabs {
+  display: flex;
+  align-items: flex-end;
+  /* No left padding: the page's left edge flows straight up into the first tab */
+  padding: 10px 14px 0 0;
+  margin-bottom: -1px;
+  position: relative;
+  z-index: 2;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.deck-folder-tabs::-webkit-scrollbar { display: none; }
+.deck-ftab {
+  position: relative;
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  padding: 13px 36px 11px;
+  font-family: 'Inter', system-ui, sans-serif;
+  /* A step up from the deck panel titles the tabs replaced */
+  font-size: calc(0.95rem + var(--dl-fs, 2pt));
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text3);
+  cursor: pointer;
+  transition: color 0.15s var(--ease), padding 0.15s var(--ease);
+}
+/* Overlap like folders in a drawer; earlier tabs sit in front of later ones */
+.deck-ftab + .deck-ftab { margin-left: -20px; }
+.deck-ftab:nth-child(1) { z-index: 6; }
+.deck-ftab:nth-child(2) { z-index: 5; }
+.deck-ftab:nth-child(3) { z-index: 4; }
+.deck-ftab:nth-child(4) { z-index: 3; }
+.deck-ftab:nth-child(5) { z-index: 2; }
+.deck-ftab:nth-child(6) { z-index: 1; }
+.deck-ftab::before {
+  /* Trapezoid folder-tab shape: perspective tilt narrows the top edge while
+   * keeping the 1px border crisp (clip-path would clip the border away). */
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 20px 20px 0 0; /* same rounding as the page's corners */
+  transform: perspective(9px) rotateX(0.7deg); /* gentler slant — near-vertical sides */
+  transform-origin: bottom;
+  transition: background 0.15s var(--ease);
+}
+.deck-ftab:hover { color: var(--text2); z-index: 8; }
+.deck-ftab.active {
+  z-index: 10;
+  padding: 15px 40px 12px; /* pulled to the front of the drawer, slightly expanded */
+  /* Liquid-glass blue/purple label instead of gold. Solid blend — clipped
+     gradient text renders half-faded over the frosted ::before. */
+  color: color-mix(in oklab, rgb(var(--lgx1)) 55%, rgb(var(--lgx2)));
+}
+.deck-ftab.active::before {
+  background: var(--bg2); /* matches the tab page so the tab opens into it */
+  border-color: var(--border2);
+  border-bottom: none;
+}
+
+/* The tab page: one continuous surface per tab — the page is the box */
+.deck-tab-pane {
+  display: none;
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: 0 var(--radius2) var(--radius2) var(--radius2);
+  padding: 0.4rem 1.4rem 1.4rem;
+}
+.deck-tab-pane.active { display: block; }
+/* Sections on a tab page lose their own boxes and read as one document */
+.deck-tab-pane .panel {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  overflow: visible;
+}
+.deck-tab-pane .panel-header { padding: 1.1rem 0 0.7rem; border-bottom: none; }
+.deck-tab-pane .panel-body { padding: 0.25rem 0 0.75rem; }
+/* Tab paging replaced per-section collapsing — content is always expanded */
+.deck-tab-pane .decklist-collapse-btn { display: none !important; }
+
+/* ANALYTICS + DESIGN — each section lives in its own glass box (same material
+   as the MB/ADDS/CUTS zone boxes) */
+#deckTabPane-analytics .panel,
+#deckTabPane-design .panel {
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  border-radius: 12px;
+  padding: 4px 18px 12px;
+}
+#deckTabPane-analytics .panel-header,
+#deckTabPane-design .panel-header {
+  border-bottom: 1px solid var(--border);
+  padding: 1rem 0 0.7rem;
+  margin-bottom: 0.5rem;
+}
+body.glass-mode #deckTabPane-analytics .panel,
+body.glass-mode #deckTabPane-design .panel {
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.13) 0%, rgba(var(--lgx2), 0.06) 60%, rgba(var(--lgx2), 0.04) 100%),
+    linear-gradient(180deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.05) 60px, rgba(255,255,255,0.05) 100%);
+  border-color: rgba(255,255,255,0.20);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.20),
+    0 8px 28px rgba(0,0,0,0.35);
+}
+[data-theme="light"] body.glass-mode #deckTabPane-analytics .panel,
+[data-theme="light"] body.glass-mode #deckTabPane-design .panel {
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.10) 0%, rgba(var(--lgx2), 0.05) 60%, rgba(var(--lgx2), 0.04) 100%),
+    linear-gradient(180deg, rgba(255,255,255,0.65) 0%, rgba(255,255,255,0.5) 60px, rgba(255,255,255,0.5) 100%);
+  border-color: rgba(255,255,255,0.8);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.95),
+    0 8px 28px rgba(30,50,90,0.12);
+}
+
+/* DECK-LIST TOOLBAR — every control reads as the Filter pill; accents use the
+   liquid-glass blue→purple instead of gold. */
+:root {
+  --lgx1: 110,168,255; /* glass blue  (r,g,b) — decorative gradient */
+  --lgx2: 168,140,255; /* glass purple (r,g,b) — decorative gradient */
+  /* Verdict scale endpoints — starker than the decorative pair so good/bad
+     reads at a glance: bright azure vs vivid orchid */
+  --lgx-good: 86,196,255;
+  --lgx-bad: 205,94,245;
+}
+[data-theme="light"] {
+  --lgx1: 74,120,232;
+  --lgx2: 138,102,224;
+  --lgx-good: 20,105,225;
+  --lgx-bad: 148,52,205;
+}
+#tab-decks .glass-dd-wrap { position: relative; display: inline-flex; }
+/* !important outranks the #tab-decks #deckGroupByWrap select sizing-parity rule */
+#tab-decks select[data-glassified] { display: none !important; }
+#tab-decks .glass-dd-btn { gap: 6px; white-space: nowrap; }
+#tab-decks .glass-dd-prefix { opacity: 0.55; }
+#tab-decks .glass-dir-btn { min-width: 34px; justify-content: center; }
+/* Glass triggers everywhere pick up the blue→purple hover, like the toolbar */
+#tab-decks .glass-dd-btn:hover {
+  color: var(--text);
+  border-color: rgba(var(--lgx1), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14));
+}
+#deckListPanelHeader .dl-size-pill { cursor: default; gap: 6px; }
+#deckListPanelHeader .dl-size-pill input[type="range"] { accent-color: rgb(var(--lgx1)); }
+/* Blue→purple replaces gold on hover/active states in this toolbar */
+#deckListPanelHeader .btn-outline:hover {
+  color: var(--text);
+  border-color: rgba(var(--lgx1), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14));
+}
+#deckListPanelHeader .btn-outline.active {
+  color: var(--text);
+  border-color: rgba(var(--lgx2), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.22), rgba(var(--lgx2), 0.22));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14);
+}
+#tab-decks #deckListPanelHeader .view-toggle {
+  border-radius: 8px; /* matches the 34px control-parity pills */
+  overflow: hidden;
+}
+#tab-decks #deckListPanelHeader .view-toggle button.active {
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.26), rgba(var(--lgx2), 0.26));
+  color: var(--text);
+}
+body.glass-mode #deckListPanelHeader .view-toggle {
+  background: rgba(255,255,255,0.07);
+  border-color: rgba(255,255,255,0.16);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 2px 10px rgba(0,0,0,0.22);
+}
+[data-theme="light"] body.glass-mode #deckListPanelHeader .view-toggle {
+  background: rgba(255,255,255,0.55);
+  border-color: rgba(255,255,255,0.75);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 10px rgba(30,50,90,0.10);
+}
+
+/* Frosted dropdown menus — translucent but never so glassy they stop reading */
+.glass-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: max(100%, 150px);
+  background: rgba(18,24,44,0.92);
+  -webkit-backdrop-filter: blur(20px) saturate(1.15);
+  backdrop-filter: blur(20px) saturate(1.15);
+  border: 1px solid rgba(var(--lgx1), 0.28);
+  border-radius: 14px;
+  padding: 5px;
+  z-index: 450;
+  box-shadow: 0 14px 34px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.10);
+}
+.glass-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 14px;
+  border: none;
+  border-radius: 9px;
+  background: none;
+  color: var(--text2);
+  font: 500 0.82rem 'Inter', system-ui, sans-serif;
+  cursor: pointer;
+  white-space: nowrap;
+}
+body.glass-mode .glass-menu-item { font-family: var(--glass-font); }
+.glass-menu-item:hover {
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.20), rgba(var(--lgx2), 0.20));
+  color: var(--text);
+}
+.glass-menu-item.selected {
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.30), rgba(var(--lgx2), 0.30));
+  color: #fff;
+}
+[data-theme="light"] .glass-menu {
+  background: rgba(252,253,255,0.94);
+  border-color: rgba(90,110,200,0.30);
+  box-shadow: 0 14px 34px rgba(40,60,120,0.20), inset 0 1px 0 rgba(255,255,255,0.9);
+}
+[data-theme="light"] .glass-menu-item { color: #3a4664; }
+[data-theme="light"] .glass-menu-item:hover { color: #17202e; }
+[data-theme="light"] .glass-menu-item.selected { color: #24327f; }
+
 /* Deck view: mana curve + type + mana pies share a grid; bodies fill panel height */
 .deck-stats-grid {
   display: grid;
@@ -968,7 +1203,13 @@ main {
 .sim-score-bar-wrap {
   flex: 1; height: 8px; background: var(--bg4); border-radius: 4px; overflow: hidden;
 }
-.sim-score-bar { height: 100%; border-radius: 4px; transition: width 0.4s var(--ease); }
+.sim-score-bar {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.4s var(--ease);
+  /* Fill color comes inline from _lgxVerdictColor (blue good → purple bad) */
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.35);
+}
 .sim-score-label { font-size: 0.9rem; font-weight: 700; font-variant-numeric: tabular-nums; min-width: 36px; text-align: right; }
 .sim-chip-row { display: flex; flex-wrap: wrap; gap: 5px; }
 .sim-chip {
@@ -1107,7 +1348,7 @@ main {
 }
 #tab-decks .deck-list-group-head--sb {
   color: var(--teal);
-  border-top: 2px dashed var(--border2);
+  border-top: 1px solid var(--border);
   margin-top: 6px;
 }
 #tab-decks .deck-list-group-head--main {
@@ -2664,8 +2905,7 @@ img.stack-main.loaded { opacity: 1; }
 .card-detail-type { font-size: 0.9rem; color: var(--text2); margin-bottom: 0.75rem; font-style: italic; }
 .card-detail-text {
   font-size: 0.95rem; line-height: 1.7; color: var(--text);
-  background: var(--bg3); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 0.75rem; margin-bottom: 1rem;
+  margin-bottom: 1rem;
 }
 .card-detail-tags-pending {
   display: inline-block;
@@ -4104,15 +4344,8 @@ img.stack-main.loaded { opacity: 1; }
   margin: 0;
   box-sizing: border-box;
 }
-.deck-stack-view > .deck-extra-zones-wrap::before {
-  content: '';
-  position: absolute;
-  left: -15px;
-  top: 0;
-  bottom: 0;
-  border-left: 2px dashed var(--border2);
-  pointer-events: none;
-}
+/* (Dashed column divider before the MB/ADDS/CUTS zones removed — the zones sit
+   directly on the tab page now.) */
 .deck-stack-view.deck-stack-view--zones-below {
   flex-direction: column;
   align-items: stretch;
@@ -4142,22 +4375,19 @@ img.stack-main.loaded { opacity: 1; }
   width: 100%;
   min-width: 0;
   max-width: 100%;
-  border-top: none;
-  border-left: none;
-  padding-top: 0;
-  padding-left: 0;
   margin-top: 0;
   align-self: flex-start;
   min-height: 0;
   overflow: visible;
   box-sizing: border-box;
+  /* padding/borders come from the glass-box rules; the old flush-layout
+     zeroing (border/padding top+left: 0) is retired */
 }
 .deck-stack-view > .deck-extra-zones-wrap.is-expanded > .deck-extra-zone-section:not(.is-collapsed) {
   min-height: 0;
 }
 .deck-stack-view > .deck-extra-zones-wrap .deck-sideboard-section {
   border-top: none;
-  padding-top: 0;
   margin-top: 0;
 }
 .deck-stack-view > .deck-extra-zones-wrap .deck-extra-zone-header,
@@ -4194,9 +4424,12 @@ img.stack-main.loaded { opacity: 1; }
   box-sizing: border-box;
 }
 .deck-stack-view > .deck-extra-zones-wrap .deck-stack-cards .deck-stack-card {
-  margin-left: 0 !important;
-  margin-right: 0 !important;
-  width: 100%;
+  /* Pin to the chosen card size and center — otherwise the tile stretches to
+     fill the glass box and swallows all the breathing room around the art. */
+  margin-left: auto !important;
+  margin-right: auto !important;
+  align-self: center;
+  width: var(--deck-card-w, 220px) !important;
   max-width: 100%;
 }
 .deck-stack-view > .deck-extra-zones-wrap .stack-main,
@@ -4207,16 +4440,18 @@ img.stack-main.loaded { opacity: 1; }
    Hover/focus lifts the card (z-index + scale). Sibling push is phone-only
    (mobile.css) so desktop drag targets stay put. */
 .deck-stack-view > .deck-extra-zones-wrap .deck-stack-cards.vertical {
-  align-items: stretch;
+  align-items: center; /* card tiles are narrower than the glass box — center them */
   padding: 8px 2px 10px;
   overflow: visible;
   position: relative;
   isolation: isolate;
 }
 .deck-stack-view > .deck-extra-zones-wrap .deck-stack-cards.vertical .deck-stack-card {
-  margin-left: 0 !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  align-self: center;
   margin-top: calc(-1 * (var(--deck-card-w, 220px) / 0.715 - 36px));
-  width: 100% !important;
+  width: var(--deck-card-w, 220px) !important;
   max-width: 100% !important;
 }
 .deck-stack-view > .deck-extra-zones-wrap .deck-stack-cards.vertical .deck-stack-card:first-child {
@@ -4249,15 +4484,8 @@ img.stack-main.loaded { opacity: 1; }
 #deckCardList.is-deck-dragging .deck-extra-zone-section.drag-over {
   z-index: 3;
 }
-.deck-stack-view.vertical-orient > .deck-extra-zones-wrap > .deck-extra-zone-section + .deck-extra-zone-section,
-.deck-stack-view.vertical-orient > .deck-extra-zones-wrap > .deck-sideboard-section + .deck-sideboard-section,
-.deck-stack-view > .deck-extra-zones-wrap > .deck-extra-zone-section + .deck-extra-zone-section {
-  border-top: 1px dashed var(--border2);
-  padding-top: 0.75rem;
-  margin-top: 0;
-  border-left: none;
-  padding-left: 0;
-}
+/* (Sibling zone separators retired — each zone is its own glass box and the
+   zones-wrap flex gap spaces them.) */
 .deck-stack-view > .deck-extra-zones-wrap > .deck-extra-zone-section.is-collapsed,
 .deck-stack-view.vertical-orient > .deck-extra-zones-wrap > .deck-extra-zone-section.is-collapsed {
   min-height: 0;
@@ -4321,7 +4549,7 @@ img.stack-main.loaded { opacity: 1; }
   border-color: var(--border2);
   border-width: 3px;
 }
-.stack-main.is-commander { border-color: var(--border2); }
+/* (Commander tile no longer carries a gray border — the crown badge marks it.) */
 .deck-stack-card.has-validation-error .stack-wrap::before,
 .deck-card-row.has-validation-error::before {
   content: '';
@@ -4629,46 +4857,83 @@ img.stack-main.loaded { opacity: 1; }
   font-size: 0.72rem;
 }
 .deck-extra-zone-section.is-collapsed .deck-extra-zone-body { display: none; }
+/* Each zone lives in its own glass box; collapsing shrinks the box to a small
+   rectangle around "▸ MB (3)". */
+.deck-extra-zone-section {
+  border: 1px solid var(--border2);
+  border-radius: 12px;
+  background: var(--bg3);
+  padding: 20px 20px 22px;
+  transition: border-color 0.15s var(--ease), background 0.15s var(--ease);
+}
+/* Wider breathing room between the zone boxes (desktop only — phones keep the
+   original compact zones) */
+@media (min-width: 769px) {
+  .deck-stack-view > .deck-extra-zones-wrap { gap: 1.1rem; }
+  /* Empty-zone hints center under the header like the cards do */
+  .deck-stack-view > .deck-extra-zones-wrap .deck-extra-zone-body .deck-list-quiet {
+    text-align: center;
+    padding: 10px 4px;
+  }
+  /* The box's own padding provides the top inset — drop the flush-layout
+     header compensation (phones keep it) */
+  .deck-stack-view > .deck-extra-zones-wrap .deck-extra-zone-header,
+  .deck-stack-view > .deck-extra-zones-wrap .deck-sideboard-header {
+    padding-top: 0;
+    margin-top: 0;
+  }
+}
+body.glass-mode .deck-extra-zone-section {
+  /* Same lit blue→purple material as the tab page, so the boxes read as the
+     app's glass rather than a flat outline on the page. */
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.13) 0%, rgba(var(--lgx2), 0.06) 60%, rgba(var(--lgx2), 0.04) 100%),
+    linear-gradient(180deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.05) 60px, rgba(255,255,255,0.05) 100%);
+  border-color: rgba(255,255,255,0.20);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.20),
+    0 8px 28px rgba(0,0,0,0.35);
+}
+[data-theme="light"] body.glass-mode .deck-extra-zone-section {
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.10) 0%, rgba(var(--lgx2), 0.05) 60%, rgba(var(--lgx2), 0.04) 100%),
+    linear-gradient(180deg, rgba(255,255,255,0.65) 0%, rgba(255,255,255,0.5) 60px, rgba(255,255,255,0.5) 100%);
+  border-color: rgba(255,255,255,0.8);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.95),
+    0 8px 28px rgba(30,50,90,0.12);
+}
 .deck-extra-zone-section.is-collapsed {
-  padding-top: 0;
+  padding: 0;
   margin-top: 0;
   min-height: 0;
   align-self: flex-start;
-  width: auto;
-  border: 1px solid var(--border2);
-  border-radius: 6px;
-  background: var(--bg2);
+  width: auto !important; /* inline width:100% otherwise keeps the box full-width */
+  border-radius: 10px;
 }
-.deck-extra-zone-section.is-collapsed .deck-extra-zone-label,
-.deck-extra-zone-section.is-collapsed .deck-stack-group-count {
-  display: none;
+.deck-extra-zone-section.is-collapsed:hover {
+  border-color: rgba(var(--lgx1), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14));
 }
 .deck-extra-zone-section.is-collapsed .deck-extra-zone-header,
 .deck-extra-zone-section.is-collapsed .deck-sideboard-header {
   margin-bottom: 0;
-  width: 1.35rem;
-  min-width: 1.35rem;
-  padding: 4px 0;
+  width: auto;
+  padding: 7px 12px;
   font-size: 0.72rem;
   line-height: 1;
+  letter-spacing: 0.06em;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
   border-bottom: none;
-  letter-spacing: 0;
-  justify-content: center;
-  text-align: center;
 }
 .deck-extra-zone-section.is-collapsed .deck-extra-zone-chevron {
   width: auto;
   font-size: 0.7rem;
 }
-.deck-extra-zone-section.is-collapsed {
-  border: none;
-  background: transparent;
-  border-radius: 0;
-}
-.deck-stack-view > .deck-extra-zones-wrap:has(.deck-extra-zone-section.is-collapsed) {
-  gap: 4px;
-  padding-left: 4px;
-}
+.deck-extra-zone-section.is-collapsed .deck-stack-group-count { font-size: 0.68rem; }
 .deck-extra-zones-wrap--list {
   border-top: none;
   margin-top: 0.5rem;
@@ -4679,13 +4944,10 @@ img.stack-main.loaded { opacity: 1; }
 }
 .deck-extra-zones-wrap--list .deck-extra-zone-section.is-collapsed .deck-list-group-head {
   margin: 0;
-  width: 1.35rem;
-  min-width: 1.35rem;
-  padding: 4px 0;
+  width: auto;
+  padding: 6px 12px;
   font-size: 0.72rem;
   border-bottom: none;
-  justify-content: center;
-  text-align: center;
 }
 #deckSideboardEnabledBtn.active,
 #deckSideboardEnabledBtn[style*="teal"] {
@@ -4737,13 +4999,12 @@ img.stack-main.loaded { opacity: 1; }
 }
 
 .deck-sideboard-section:not(.deck-extra-zone-section) {
-  border-top: 2px dashed var(--border2);
+  border-top: 1px solid var(--border);
   padding-top: 1.25rem;
   margin-top: 0.25rem;
 }
 .deck-extra-zone-section.deck-sideboard-section {
   border-top: none;
-  padding-top: 0;
   margin-top: 0;
 }
 .deck-sideboard-header {
@@ -5080,11 +5341,18 @@ textarea.deck-import:focus { outline: none; border-color: var(--gold); }
 }
 .hist-line-main {
   fill: none;
-  stroke: var(--curve-color);
-  stroke-width: 2.4;
+  stroke: url(#mcStrokeGrad); /* liquid-glass blue→purple */
+  stroke-width: 2.6;
   stroke-linecap: round;
   stroke-linejoin: round;
+  filter: drop-shadow(0 0 6px rgba(110, 168, 255, 0.35));
 }
+.hist-line-area {
+  fill: url(#mcFillGrad);
+  stroke: none;
+}
+.mc-grad-stop1 { stop-color: rgb(var(--lgx1)); }
+.mc-grad-stop2 { stop-color: rgb(var(--lgx2)); }
 .hist-line-ideal {
   fill: none;
   stroke: rgba(61, 184, 90, 0.72);
@@ -5094,8 +5362,8 @@ textarea.deck-import:focus { outline: none; border-color: var(--gold); }
   stroke-linejoin: round;
 }
 .hist-line-point {
-  fill: var(--curve-color);
-  stroke: rgba(0,0,0,0.25);
+  fill: rgb(var(--lgx1));
+  stroke: rgba(255,255,255,0.85);
   stroke-width: 1;
 }
 .hist-line-value {
@@ -5155,7 +5423,8 @@ textarea.deck-import:focus { outline: none; border-color: var(--gold); }
   gap: 0.5rem;
 }
 .cmdr-gp-scenario--primary {
-  border-color: var(--gold);
+  border-color: rgba(var(--lgx1), 0.65);
+  box-shadow: 0 0 0 1px rgba(var(--lgx2), 0.35);
 }
 .cmdr-gp-scenario-header {
   display: flex;
@@ -5185,6 +5454,8 @@ textarea.deck-import:focus { outline: none; border-color: var(--gold); }
   height: 100%;
   border-radius: 4px;
   transition: width 0.3s;
+  /* Fill color comes inline from _lgxVerdictColor (blue good → purple bad) */
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.35);
 }
 .cmdr-gp-scenario-pct {
   font-family: 'JetBrains Mono', monospace;
@@ -5466,7 +5737,8 @@ textarea.deck-import:focus { outline: none; border-color: var(--gold); }
 }
 .deck-type-break-fill {
   height: 100%;
-  background: var(--gold);
+  background: linear-gradient(90deg, rgb(var(--lgx1)), rgb(var(--lgx2)));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.35);
   border-radius: 4px;
 }
 
@@ -5846,21 +6118,45 @@ select:focus { outline: none; border-color: rgba(200,168,74,0.6); box-shadow: 0 
 .history-event--actions-open .history-event-quick-actions { display: flex; }
 .history-undo-btn:hover { color: var(--red); border-color: rgba(212,90,74,0.45); }
 
-/* Deck builder — history replaces deck list area (same pattern as collection tab) */
 .deck-list-filter-bar {
   padding: 8px 14px 6px;
   border-bottom: 1px solid var(--border);
   background: var(--bg2);
 }
+/* On the tab page the filter bar sits directly on the glass — no box of its own */
+.deck-tab-pane .deck-list-filter-bar {
+  background: transparent;
+  border-bottom: none;
+  padding: 8px 0 4px;
+}
+body.glass-mode .deck-tab-pane .dlf-text {
+  background: rgba(255,255,255,0.07);
+  border-color: rgba(255,255,255,0.16);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.10);
+}
+body.glass-mode .deck-tab-pane .dlf-text:focus {
+  border-color: rgba(var(--lgx1), 0.6);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.10), 0 0 0 3px rgba(var(--lgx1), 0.18);
+}
+[data-theme="light"] body.glass-mode .deck-tab-pane .dlf-text {
+  background: rgba(255,255,255,0.55);
+  border-color: rgba(255,255,255,0.75);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9);
+}
 .dlf-row { display: flex; align-items: center; gap: 6px; }
 .dlf-row + .dlf-row { margin-top: 6px; }
 .dlf-text {
   flex: 1; min-width: 0;
+  height: 34px;
   background: var(--bg3); border: 1px solid var(--border2); color: var(--text);
-  border-radius: var(--radius); padding: 4px 8px; font-size: 0.85rem;
+  border-radius: 8px; padding: 0 12px; font-size: 0.85rem;
   font-family: inherit;
 }
-.dlf-text:focus { outline: none; border-color: var(--gold); }
+.dlf-text:focus {
+  outline: none;
+  border-color: rgba(var(--lgx1), 0.6);
+  box-shadow: 0 0 0 3px rgba(var(--lgx1), 0.15);
+}
 .dlf-clear {
   background: none; border: none; color: var(--text3); cursor: pointer;
   font-size: 0.9rem; padding: 2px 5px; border-radius: 4px; flex-shrink: 0;
@@ -5875,7 +6171,11 @@ select:focus { outline: none; border-color: rgba(200,168,74,0.6); box-shadow: 0 
   opacity: 0.55;
 }
 .dlf-color-pill:hover { opacity: 0.85; }
-.dlf-color-pill.active { border-color: var(--gold); opacity: 1; }
+.dlf-color-pill.active {
+  border-color: rgba(var(--lgx1), 0.9);
+  box-shadow: 0 0 0 2px rgba(var(--lgx2), 0.35);
+  opacity: 1;
+}
 .dlf-color-pill img { width: 16px; height: 16px; pointer-events: none; }
 .dlf-hint { font-size: 0.75rem; color: var(--text3); margin-left: 4px; font-variant-numeric: tabular-nums; }
 .deck-list-panel-wrap {
@@ -5884,13 +6184,10 @@ select:focus { outline: none; border-color: rgba(200,168,74,0.6); box-shadow: 0 
   flex-direction: column;
 }
 #deckListPanel #deckCardList { flex: 1 1 auto; min-height: 0; }
-#deckListPanel #deckHistoryPanel { display: none; }
-#deckListPanel.deck-history-active #deckHistoryPanel { display: block; }
-#deckListPanel.deck-history-active #deckCardList { display: none !important; }
-#deckListPanel.deck-history-active #deckTokensSection { display: none !important; }
+/* Deck history lives in its own folder tab (deckTabPane-history) */
 .deck-tokens-section {
   flex: 0 0 auto;
-  border-top: 2px dashed var(--border2);
+  /* single rule lives under the header (its border-bottom) — none above */
   max-height: min(50vh, calc(var(--deck-card-w, 220px) / 0.715 + 100px));
   overflow-y: auto;
   overflow-x: hidden;
@@ -5899,7 +6196,7 @@ select:focus { outline: none; border-color: rgba(200,168,74,0.6); box-shadow: 0 
   padding: 18px 12px 16px 14px;
 }
 .deck-tokens-header.deck-sideboard-header {
-  color: var(--gold);
+  color: var(--text3); /* matches the COMMANDER / LANDS group labels */
   margin-bottom: 10px;
 }
 .deck-tokens-body { min-height: 2rem; }
@@ -8452,15 +8749,23 @@ select:focus { outline: none; border-color: rgba(200,168,74,0.6); box-shadow: 0 
   overflow: hidden;
   margin: 5px 0 0;
 }
+/* Theme support on the verdict scale: orchid = thin, azure = very focused */
 .deck-themes-bar-fill {
   display: block;
   height: 100%;
   border-radius: 4px;
-  background: var(--text3);
+  background: rgb(var(--lgx-bad));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.35);
 }
-.deck-themes-bar-fill.deck-themes-band--decent { background: var(--teal); }
-.deck-themes-bar-fill.deck-themes-band--focused,
-.deck-themes-bar-fill.deck-themes-band--very_focused { background: var(--gold); }
+.deck-themes-bar-fill.deck-themes-band--decent {
+  background: color-mix(in oklab, rgb(var(--lgx-good)) 50%, rgb(var(--lgx-bad)));
+}
+.deck-themes-bar-fill.deck-themes-band--focused {
+  background: color-mix(in oklab, rgb(var(--lgx-good)) 78%, rgb(var(--lgx-bad)));
+}
+.deck-themes-bar-fill.deck-themes-band--very_focused {
+  background: rgb(var(--lgx-good));
+}
 .deck-themes-cards {
   display: flex;
   flex-wrap: wrap;
@@ -9222,12 +9527,13 @@ select:focus { outline: none; border-color: rgba(200,168,74,0.6); box-shadow: 0 
 .cd-price-canvas-wrap { position: relative; height: 180px; }
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   LIQUID GLASS SKIN — game tracker (#tab-games.glass-mode)
+   LIQUID GLASS SKIN — app-wide (body.glass-mode)
    iOS-style frosted translucency inspired by deckcheck.co: near-transparent
    white surfaces over an ambient gradient wallpaper, heavy backdrop blur with
    a saturation boost, hairline light borders, specular top edges, pill
-   controls, and large continuous radii. Pure styling — toggled from the
-   tracker header (js/games.js toggleGlassMode), no functional changes.
+   controls, and large continuous radii. Pure styling — toggled from the game
+   tracker header (js/games.js toggleGlassMode), applied app-wide via a class
+   on <body>, no functional changes.
 
    Most of the skin works by remapping the CSS custom properties the tracker
    already uses (inline styles included), so surfaces/borders/text flip to
@@ -9235,18 +9541,14 @@ select:focus { outline: none; border-color: rgba(200,168,74,0.6); box-shadow: 0 
    variables can't: blur, shadows, pill shapes, and the wallpaper.
    ══════════════════════════════════════════════════════════════════════════ */
 
-#tab-games.glass-mode { position: relative; }
+body.glass-mode { position: relative; }
 
 /* Variable remap shared by every glass surface: the games tab, the tablet-view
    overlay, the tablet ⋯/drag menus (appended to <body>), and the three
    game-flow modals. */
-#tab-games.glass-mode,
-body.glass-mode #tabletView,
-body.glass-mode .tablet-player-menu,
-body.glass-mode .tablet-drag-menu,
-body.glass-mode #newGameModal,
-body.glass-mode #logEventModal,
-body.glass-mode #endGameModal {
+body.glass-mode {
+  /* The one standard glass font: SF Pro on Apple platforms, Inter fallback */
+  --glass-font: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Inter', 'Segoe UI', system-ui, sans-serif;
   /* Surfaces: translucent whites instead of opaque navy */
   --bg2: rgba(255,255,255,0.045);
   --bg3: rgba(255,255,255,0.075);
@@ -9277,11 +9579,11 @@ body.glass-mode #endGameModal {
 }
 
 /* Ambient wallpaper the glass blurs — soft colour blobs on deep blue-black */
-#tab-games.glass-mode::before {
+body.glass-mode::before {
   content: '';
   position: fixed;
   inset: 0;
-  z-index: -1;
+  z-index: 0;
   pointer-events: none;
   background:
     radial-gradient(42% 38% at 16% 10%, rgba(90,162,255,0.30), transparent 70%),
@@ -9292,39 +9594,93 @@ body.glass-mode #endGameModal {
 }
 
 /* ── Frosted surfaces ── */
-#tab-games.glass-mode .panel,
-#tab-games.glass-mode .player-card,
-#tab-games.glass-mode .game-action-bar,
-#tab-games.glass-mode .empty-state {
+body.glass-mode .panel,
+body.glass-mode .player-card,
+body.glass-mode .game-action-bar,
+body.glass-mode .empty-state {
+  /* No backdrop-filter here: these sit on the smooth wallpaper gradient, where
+     blur is visually a no-op but costs a compositor layer per element (page
+     navigation jank). Blur stays on surfaces that overlay real content:
+     chrome, dropdowns, modals, tablet hub, tile art scrims. */
   background: rgba(255,255,255,0.05);
-  -webkit-backdrop-filter: blur(22px) saturate(170%);
-  backdrop-filter: blur(22px) saturate(170%);
   border: 1px solid rgba(255,255,255,0.13);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.16),   /* specular top edge */
     inset 0 0 0.5px rgba(255,255,255,0.10),
     0 8px 28px rgba(0,0,0,0.35);
 }
-#tab-games.glass-mode .game-action-bar { border-radius: var(--radius2) !important; }
-#tab-games.glass-mode .panel { border-radius: 20px; }
-#tab-games.glass-mode .player-card {
+body.glass-mode .game-action-bar { border-radius: var(--radius2) !important; }
+body.glass-mode .panel { border-radius: 20px; }
+/* Deck builder folder tabs on glass: the tab page is the frosted surface and
+   sections inside it go flat, so each tab reads as one continuous page. */
+body.glass-mode .deck-tab-pane {
+  /* Blue→purple wash over lit glass — the same coloring as the active tab.
+     The page's top edge (blue 0.15 over white 0.085) exactly matches the
+     active tab's bottom edge so the joint stays invisible. */
+  background:
+    linear-gradient(180deg,
+      rgba(var(--lgx1), 0.15) 0%,
+      rgba(var(--lgx2), 0.07) 55%,
+      rgba(var(--lgx2), 0.04) 100%),
+    linear-gradient(180deg,
+      rgba(255,255,255,0.085) 0%,
+      rgba(255,255,255,0.05) 180px,
+      rgba(255,255,255,0.05) 100%);
+  border: 1px solid rgba(255,255,255,0.16);
+  /* No top specular inset here: it reads as a divider line running under the
+     active tab, breaking the tab-flows-into-page illusion. */
+  box-shadow:
+    inset 0 0 0.5px rgba(255,255,255,0.12),
+    0 8px 28px rgba(0,0,0,0.35);
+  border-radius: 0 20px 20px 20px;
+}
+body.glass-mode .deck-tab-pane .panel {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  border-radius: 0;
+}
+body.glass-mode .deck-ftab {
+  font-family: var(--glass-font); /* matches glass panel titles */
+}
+body.glass-mode .deck-ftab::before {
+  background: rgba(255,255,255,0.035);
+  border-color: rgba(255,255,255,0.10);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.10);
+  /* Frosted glass: melts the edges of tabs tucked behind this one, so each
+     joint shows a single edge instead of two crossing slants. */
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+body.glass-mode .deck-ftab.active::before {
+  /* Runs into the page's tinted top edge: bottom stop = the page's top color */
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.20), rgba(var(--lgx1), 0.15)),
+    rgba(255,255,255,0.085);
+  border-color: rgba(255,255,255,0.16);
+  border-bottom: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.2),
+    inset 0 0 0.5px rgba(255,255,255,0.12);
+}
+body.glass-mode .player-card {
   border-radius: 20px;
   transition: border-color 0.2s, box-shadow 0.25s var(--ease), transform 0.25s var(--ease);
 }
-#tab-games.glass-mode .player-card:hover {
+body.glass-mode .player-card:hover {
   border-color: rgba(255,255,255,0.24);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.2),
     0 12px 36px rgba(0,0,0,0.42);
 }
-#tab-games.glass-mode .player-active-turn {
+body.glass-mode .player-active-turn {
   background: linear-gradient(165deg, rgba(255,255,255,0.11), rgba(255,255,255,0.04)) !important;
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.24),
     0 0 0 1px rgba(255,255,255,0.14),
     0 10px 34px rgba(0,0,0,0.4);
 }
-#tab-games.glass-mode .player-targetable {
+body.glass-mode .player-targetable {
   border-color: rgba(255,217,122,0.65) !important;
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.18),
@@ -9333,97 +9689,89 @@ body.glass-mode #endGameModal {
 }
 
 /* ── Pill controls ── */
-#tab-games.glass-mode .btn {
+body.glass-mode .btn {
   border-radius: 999px;
   background: rgba(255,255,255,0.07);
   border-color: rgba(255,255,255,0.16);
   color: rgba(240,244,252,0.82);
-  -webkit-backdrop-filter: blur(12px) saturate(160%);
-  backdrop-filter: blur(12px) saturate(160%);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 2px 10px rgba(0,0,0,0.22);
 }
-#tab-games.glass-mode .top-action-bar .btn { border-radius: 999px; }
-#tab-games.glass-mode .btn-outline:hover {
+body.glass-mode .top-action-bar .btn { border-radius: 999px; }
+body.glass-mode .btn-outline:hover {
   color: #fff;
   border-color: rgba(255,255,255,0.34);
   background: rgba(255,255,255,0.14);
 }
-#tab-games.glass-mode .btn-outline.active {
+body.glass-mode .btn-outline.active {
   color: #fff;
   border-color: rgba(255,255,255,0.45);
   background: rgba(255,255,255,0.18);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.28), 0 2px 14px rgba(0,0,0,0.25);
 }
-#tab-games.glass-mode .btn-primary {
+body.glass-mode .btn-primary {
   background: linear-gradient(160deg, rgba(70,150,255,0.92), rgba(10,110,240,0.85));
   border-color: rgba(255,255,255,0.30);
   color: #fff;
   font-weight: 600;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.35), 0 4px 18px rgba(40,120,255,0.35);
 }
-#tab-games.glass-mode .btn-primary:hover {
+body.glass-mode .btn-primary:hover {
   background: linear-gradient(160deg, rgba(96,168,255,0.95), rgba(30,126,248,0.9));
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.4), 0 4px 22px rgba(40,120,255,0.5);
 }
-#tab-games.glass-mode .btn-danger {
+body.glass-mode .btn-danger {
   background: rgba(255,90,74,0.16);
   border-color: rgba(255,122,107,0.4);
   color: #ffa79c;
 }
-#tab-games.glass-mode .btn-danger:hover {
+body.glass-mode .btn-danger:hover {
   background: rgba(255,90,74,0.3);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.18), 0 0 16px rgba(255,90,74,0.28);
 }
-#tab-games.glass-mode .life-btn { border-radius: 11px; }
-#tab-games.glass-mode .life-btn-neg {
+body.glass-mode .life-btn { border-radius: 11px; }
+body.glass-mode .life-btn-neg {
   background: rgba(255,110,95,0.12);
   border-color: rgba(255,122,107,0.32);
 }
-#tab-games.glass-mode .life-btn-neg:hover:not(:disabled) { background: rgba(255,110,95,0.26); }
-#tab-games.glass-mode .life-btn-pos {
+body.glass-mode .life-btn-neg:hover:not(:disabled) { background: rgba(255,110,95,0.26); }
+body.glass-mode .life-btn-pos {
   background: rgba(79,216,189,0.12);
   border-color: rgba(79,216,189,0.32);
 }
-#tab-games.glass-mode .life-btn-pos:hover:not(:disabled) { background: rgba(79,216,189,0.26); }
-#tab-games.glass-mode .seat-nudge-btn {
+body.glass-mode .life-btn-pos:hover:not(:disabled) { background: rgba(79,216,189,0.26); }
+body.glass-mode .seat-nudge-btn {
   border-radius: 7px;
   background: rgba(255,255,255,0.08);
   border-color: rgba(255,255,255,0.18);
 }
 
 /* ── Type: iOS-flavoured panel titles (Inter, sentence case) ── */
-#tab-games.glass-mode .panel-title {
-  font-family: 'Inter', system-ui, sans-serif;
+body.glass-mode .panel-title {
+  font-family: var(--glass-font);
   text-transform: none;
   letter-spacing: 0;
   font-size: 0.92rem;
   font-weight: 600;
   color: rgba(244,246,251,0.86);
 }
-#tab-games.glass-mode .panel-header { border-bottom-color: rgba(255,255,255,0.10); }
+body.glass-mode .panel-header { border-bottom-color: rgba(255,255,255,0.10); }
 
 /* Tags/pills over glass */
-#tab-games.glass-mode .tag-blue {
+body.glass-mode .tag-blue {
   background: rgba(90,162,255,0.20);
   color: #b7d6ff;
   border: 1px solid rgba(142,194,255,0.35);
 }
 
 /* Empty state floats like a widget */
-#tab-games.glass-mode .empty-state { border-radius: 24px; }
-#tab-games.glass-mode .empty-state h2 {
-  font-family: 'Inter', system-ui, sans-serif;
+body.glass-mode .empty-state { border-radius: 24px; }
+body.glass-mode .empty-state h2 {
+  font-family: var(--glass-font);
   color: rgba(244,246,251,0.9);
 }
 
 /* ── Light theme variant: bright milky glass over pastel wallpaper ── */
-[data-theme="light"] #tab-games.glass-mode,
-[data-theme="light"] body.glass-mode #tabletView,
-[data-theme="light"] body.glass-mode .tablet-player-menu,
-[data-theme="light"] body.glass-mode .tablet-drag-menu,
-[data-theme="light"] body.glass-mode #newGameModal,
-[data-theme="light"] body.glass-mode #logEventModal,
-[data-theme="light"] body.glass-mode #endGameModal {
+[data-theme="light"] body.glass-mode {
   --bg2: rgba(255,255,255,0.52);
   --bg3: rgba(255,255,255,0.60);
   --bg4: rgba(255,255,255,0.72);
@@ -9445,7 +9793,7 @@ body.glass-mode #endGameModal {
   --green: #2f9e44;
   --purple:#7a5cd0;
 }
-[data-theme="light"] #tab-games.glass-mode::before {
+[data-theme="light"] body.glass-mode::before {
   background:
     radial-gradient(42% 38% at 16% 10%, rgba(120,170,255,0.5), transparent 70%),
     radial-gradient(46% 42% at 84% 16%, rgba(190,160,255,0.42), transparent 70%),
@@ -9453,84 +9801,115 @@ body.glass-mode #endGameModal {
     radial-gradient(38% 34% at 10% 80%, rgba(255,200,150,0.35), transparent 70%),
     linear-gradient(180deg, #eef2fa 0%, #e8edf8 55%, #eaeef6 100%);
 }
-[data-theme="light"] #tab-games.glass-mode .panel,
-[data-theme="light"] #tab-games.glass-mode .player-card,
-[data-theme="light"] #tab-games.glass-mode .game-action-bar,
-[data-theme="light"] #tab-games.glass-mode .empty-state {
+[data-theme="light"] body.glass-mode .panel,
+[data-theme="light"] body.glass-mode .player-card,
+[data-theme="light"] body.glass-mode .game-action-bar,
+[data-theme="light"] body.glass-mode .empty-state {
   background: rgba(255,255,255,0.5);
   border: 1px solid rgba(255,255,255,0.65);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.9),
     0 8px 28px rgba(30,50,90,0.14);
 }
-[data-theme="light"] #tab-games.glass-mode .player-active-turn {
+[data-theme="light"] body.glass-mode .deck-tab-pane {
+  background:
+    linear-gradient(180deg,
+      rgba(var(--lgx1), 0.12) 0%,
+      rgba(var(--lgx2), 0.06) 55%,
+      rgba(var(--lgx2), 0.04) 100%),
+    linear-gradient(180deg,
+      rgba(255,255,255,0.62) 0%,
+      rgba(255,255,255,0.48) 180px,
+      rgba(255,255,255,0.48) 100%);
+  border: 1px solid rgba(255,255,255,0.7);
+  box-shadow: 0 8px 28px rgba(30,50,90,0.14);
+}
+[data-theme="light"] body.glass-mode .deck-tab-pane .panel {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+[data-theme="light"] body.glass-mode .deck-ftab::before {
+  background: rgba(255,255,255,0.32);
+  border-color: rgba(255,255,255,0.55);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.6);
+}
+[data-theme="light"] body.glass-mode .deck-ftab.active::before {
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.16), rgba(var(--lgx1), 0.12)),
+    rgba(255,255,255,0.62);
+  border-color: rgba(255,255,255,0.7);
+  border-bottom: none;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9);
+}
+[data-theme="light"] body.glass-mode .player-active-turn {
   background: linear-gradient(165deg, rgba(255,255,255,0.78), rgba(255,255,255,0.5)) !important;
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.95),
     0 0 0 1px rgba(255,255,255,0.7),
     0 10px 34px rgba(30,50,90,0.18);
 }
-[data-theme="light"] #tab-games.glass-mode .btn {
+[data-theme="light"] body.glass-mode .btn {
   background: rgba(255,255,255,0.55);
   border-color: rgba(255,255,255,0.75);
   color: rgba(28,40,58,0.82);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 10px rgba(30,50,90,0.10);
 }
-[data-theme="light"] #tab-games.glass-mode .btn-outline:hover {
+[data-theme="light"] body.glass-mode .btn-outline:hover {
   color: #17202e;
   background: rgba(255,255,255,0.8);
   border-color: rgba(255,255,255,0.95);
 }
-[data-theme="light"] #tab-games.glass-mode .btn-outline.active {
+[data-theme="light"] body.glass-mode .btn-outline.active {
   color: #0a55c4;
   background: rgba(255,255,255,0.85);
   border-color: rgba(22,104,216,0.4);
 }
-[data-theme="light"] #tab-games.glass-mode .btn-danger {
+[data-theme="light"] body.glass-mode .btn-danger {
   background: rgba(216,74,58,0.10);
   border-color: rgba(216,74,58,0.30);
   color: #c23a2c;
 }
-[data-theme="light"] #tab-games.glass-mode .panel-title { color: rgba(23,32,46,0.88); }
-[data-theme="light"] #tab-games.glass-mode .panel-header { border-bottom-color: rgba(20,35,60,0.08); }
-[data-theme="light"] #tab-games.glass-mode .empty-state h2 { color: rgba(23,32,46,0.9); }
-[data-theme="light"] #tab-games.glass-mode .tag-blue {
+[data-theme="light"] body.glass-mode .panel-title { color: rgba(23,32,46,0.88); }
+[data-theme="light"] body.glass-mode .panel-header { border-bottom-color: rgba(20,35,60,0.08); }
+[data-theme="light"] body.glass-mode .empty-state h2 { color: rgba(23,32,46,0.9); }
+[data-theme="light"] body.glass-mode .tag-blue {
   background: rgba(22,104,216,0.10);
   color: #1668d8;
   border: 1px solid rgba(22,104,216,0.28);
 }
-[data-theme="light"] #tab-games.glass-mode .btn-primary {
+[data-theme="light"] body.glass-mode .btn-primary {
   background: linear-gradient(160deg, rgba(70,150,255,0.95), rgba(10,110,240,0.9));
   border-color: rgba(255,255,255,0.55);
   color: #fff;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.45), 0 4px 18px rgba(40,120,255,0.3);
 }
-[data-theme="light"] #tab-games.glass-mode .btn-primary:hover {
+[data-theme="light"] body.glass-mode .btn-primary:hover {
   background: linear-gradient(160deg, rgba(96,168,255,0.98), rgba(30,126,248,0.94));
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
    Glass: main-page leftovers — format heading, X wheel, steppers
    ──────────────────────────────────────────────────────────────────────────── */
-#tab-games.glass-mode .gt-format {
-  font-family: 'Inter', system-ui, sans-serif !important;
+body.glass-mode .gt-format {
+  font-family: var(--glass-font) !important;
   color: var(--text) !important;
   font-weight: 700;
   letter-spacing: -0.01em !important;
 }
-#tab-games.glass-mode .x-stepper-btn,
+body.glass-mode .x-stepper-btn,
 body.glass-mode :is(.tablet-player-menu, .tablet-drag-menu) .x-stepper-btn {
   border-radius: 10px;
   background: rgba(255,255,255,0.09);
   border-color: rgba(255,255,255,0.18);
 }
-#tab-games.glass-mode .num-wheel-frame,
+body.glass-mode .num-wheel-frame,
 body.glass-mode :is(.tablet-player-menu, .tablet-drag-menu) .num-wheel-frame {
   border-color: rgba(255,255,255,0.35);
   background: rgba(255,255,255,0.10);
   border-radius: 10px;
 }
-#tab-games.glass-mode .num-wheel-item.is-selected,
+body.glass-mode .num-wheel-item.is-selected,
 body.glass-mode :is(.tablet-player-menu, .tablet-drag-menu) .num-wheel-item.is-selected {
   color: #fff;
 }
@@ -9546,7 +9925,7 @@ body.glass-mode #tabletView {
     radial-gradient(38% 34% at 10% 80%, rgba(255,170,110,0.14), transparent 70%),
     linear-gradient(180deg, #0b1122 0%, #0d1428 55%, #0a0f1f 100%);
   gap: clamp(6px, 0.9vh, 10px);
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: var(--glass-font);
   /* Single accent for the active player + the white→yellow→orange→red life
      ramp (_cellLifeColor's glass branch reads these; light theme remaps them) */
   --glass-accent: #7ab2ff;
@@ -9559,8 +9938,6 @@ body.glass-mode #tabletView {
    inline-styled, so the neutralising overrides need !important. Player identity
    stays in the name/dots; "whose turn" is the one accent colour. */
 body.glass-mode #tabletView .tablet-cell {
-  -webkit-backdrop-filter: blur(22px) saturate(170%);
-  backdrop-filter: blur(22px) saturate(170%);
   border-radius: 22px;
   border-color: rgba(255,255,255,0.13) !important;
   background: rgba(255,255,255,0.05) !important;
@@ -9606,7 +9983,7 @@ body.glass-mode .tablet-cell--pie[data-active="1"]:not(.tablet-drag-target):not(
 body.glass-mode .tablet-name-bar { border-bottom-color: rgba(255,255,255,0.10) !important; }
 body.glass-mode .tablet-btn-bar { border-top-color: rgba(255,255,255,0.10) !important; }
 body.glass-mode .tablet-player-name {
-  font-family: 'Inter', system-ui, sans-serif !important;
+  font-family: var(--glass-font) !important;
   font-weight: 600;
   letter-spacing: 0 !important;
   color: var(--text) !important;
@@ -9618,20 +9995,20 @@ body.glass-mode .tablet-dots-btn { color: var(--text3) !important; }
 /* iOS-flavoured numerals: Inter with tabular figures instead of JetBrains Mono,
    neutral depth shadow instead of the per-player glow. */
 body.glass-mode .tablet-life-num {
-  font-family: 'Inter', system-ui, sans-serif !important;
+  font-family: var(--glass-font) !important;
   font-weight: 800;
   letter-spacing: -0.03em;
   font-variant-numeric: tabular-nums;
   text-shadow: 0 6px 28px rgba(0,0,0,0.28) !important;
 }
 body.glass-mode .tablet-total-time {
-  font-family: 'Inter', system-ui, sans-serif !important;
+  font-family: var(--glass-font) !important;
   font-variant-numeric: tabular-nums;
 }
 /* Neutral frosted life buttons — labels (+1/−5) carry the meaning, not colour */
 body.glass-mode .tablet-life-btn {
   border-radius: 999px;
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: var(--glass-font);
   font-weight: 600;
 }
 body.glass-mode .tablet-life-btn-neg,
@@ -9658,7 +10035,7 @@ body.glass-mode .tablet-center-box {
     0 14px 44px rgba(0,0,0,0.45);
 }
 body.glass-mode .tablet-center-timer {
-  font-family: 'Inter', system-ui, sans-serif !important;
+  font-family: var(--glass-font) !important;
   font-weight: 800;
   letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
@@ -9693,7 +10070,7 @@ body.glass-mode .tablet-drag-menu {
     0 18px 60px rgba(0,0,0,0.5);
 }
 body.glass-mode .tablet-drag-menu-head {
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: var(--glass-font);
   font-weight: 600;
 }
 body.glass-mode .tablet-drag-menu-row input { border-radius: 10px; }
@@ -9715,8 +10092,8 @@ body.glass-mode .tablet-drag-cancel { border-radius: 12px; }
 /* ────────────────────────────────────────────────────────────────────────────
    Glass: game-flow modals (new game / log event / end game)
    ──────────────────────────────────────────────────────────────────────────── */
-body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .modal {
-  background: rgba(22,29,52,0.55);
+body.glass-mode .modal {
+  background: linear-gradient(165deg, rgba(34,44,74,0.92) 0%, rgba(20,27,48,0.90) 100%);
   -webkit-backdrop-filter: blur(30px) saturate(180%);
   backdrop-filter: blur(30px) saturate(180%);
   border: 1px solid rgba(255,255,255,0.16);
@@ -9725,47 +10102,45 @@ body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .modal {
     inset 0 1px 0 rgba(255,255,255,0.16),
     0 28px 90px rgba(0,0,0,0.6);
 }
-body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .modal-title {
-  font-family: 'Inter', system-ui, sans-serif;
+body.glass-mode .modal-title {
+  font-family: var(--glass-font);
   text-transform: none;
   letter-spacing: 0;
   font-weight: 700;
   font-size: 1.05rem;
   color: rgba(244,246,251,0.88);
 }
-body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .btn {
+body.glass-mode .btn {
   border-radius: 999px;
   background: rgba(255,255,255,0.07);
   border-color: rgba(255,255,255,0.16);
   color: rgba(240,244,252,0.82);
-  -webkit-backdrop-filter: blur(12px) saturate(160%);
-  backdrop-filter: blur(12px) saturate(160%);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 2px 10px rgba(0,0,0,0.22);
 }
-body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .btn-outline:hover {
+body.glass-mode .btn-outline:hover {
   color: #fff;
   border-color: rgba(255,255,255,0.34);
   background: rgba(255,255,255,0.14);
 }
-body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .btn-primary {
+body.glass-mode .btn-primary {
   background: linear-gradient(160deg, rgba(70,150,255,0.92), rgba(10,110,240,0.85));
   border-color: rgba(255,255,255,0.30);
   color: #fff;
   font-weight: 600;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.35), 0 4px 18px rgba(40,120,255,0.35);
 }
-body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .btn-primary:hover {
+body.glass-mode .btn-primary:hover {
   background: linear-gradient(160deg, rgba(96,168,255,0.95), rgba(30,126,248,0.9));
 }
-body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .btn-danger {
+body.glass-mode .btn-danger {
   background: rgba(255,90,74,0.16);
   border-color: rgba(255,122,107,0.4);
   color: #ffa79c;
 }
-body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .btn-danger:hover {
+body.glass-mode .btn-danger:hover {
   background: rgba(255,90,74,0.3);
 }
-body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) :is(input, select, textarea) {
+body.glass-mode :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]), select, textarea) {
   border-radius: 12px !important;
 }
 
@@ -9830,33 +10205,33 @@ body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) :is(input, sel
     inset 0 1px 0 rgba(255,255,255,0.95),
     0 18px 60px rgba(30,50,90,0.25);
 }
-[data-theme="light"] body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .modal {
-  background: rgba(255,255,255,0.66);
+[data-theme="light"] body.glass-mode .modal {
+  background: linear-gradient(165deg, rgba(255,255,255,0.95) 0%, rgba(243,247,255,0.90) 100%);
   border: 1px solid rgba(255,255,255,0.85);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.95),
     0 28px 90px rgba(30,50,90,0.3);
 }
-[data-theme="light"] body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .modal-title {
+[data-theme="light"] body.glass-mode .modal-title {
   color: rgba(23,32,46,0.9);
 }
-[data-theme="light"] body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .btn {
+[data-theme="light"] body.glass-mode .btn {
   background: rgba(255,255,255,0.55);
   border-color: rgba(255,255,255,0.75);
   color: rgba(28,40,58,0.82);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 10px rgba(30,50,90,0.10);
 }
-[data-theme="light"] body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .btn-outline:hover {
+[data-theme="light"] body.glass-mode .btn-outline:hover {
   color: #17202e;
   background: rgba(255,255,255,0.8);
   border-color: rgba(255,255,255,0.95);
 }
-[data-theme="light"] body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .btn-primary {
+[data-theme="light"] body.glass-mode .btn-primary {
   background: linear-gradient(160deg, rgba(70,150,255,0.95), rgba(10,110,240,0.9));
   border-color: rgba(255,255,255,0.55);
   color: #fff;
 }
-[data-theme="light"] body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) .btn-danger {
+[data-theme="light"] body.glass-mode .btn-danger {
   background: rgba(216,74,58,0.10);
   border-color: rgba(216,74,58,0.30);
   color: #c23a2c;
@@ -9872,17 +10247,493 @@ body.glass-mode :is(#newGameModal, #logEventModal, #endGameModal) :is(input, sel
 [data-theme="light"] body.glass-mode .tablet-life-btn-neg:active,
 [data-theme="light"] body.glass-mode .tablet-life-btn-pos:hover,
 [data-theme="light"] body.glass-mode .tablet-life-btn-pos:active { background: rgba(255,255,255,0.85); }
-[data-theme="light"] #tab-games.glass-mode .num-wheel-frame,
+[data-theme="light"] body.glass-mode .num-wheel-frame,
 [data-theme="light"] body.glass-mode :is(.tablet-player-menu, .tablet-drag-menu) .num-wheel-frame {
   border-color: rgba(20,35,60,0.28);
   background: rgba(255,255,255,0.55);
 }
-[data-theme="light"] #tab-games.glass-mode .num-wheel-item.is-selected,
+[data-theme="light"] body.glass-mode .num-wheel-item.is-selected,
 [data-theme="light"] body.glass-mode :is(.tablet-player-menu, .tablet-drag-menu) .num-wheel-item.is-selected {
   color: #17202e;
 }
-[data-theme="light"] #tab-games.glass-mode .x-stepper-btn,
+[data-theme="light"] body.glass-mode .x-stepper-btn,
 [data-theme="light"] body.glass-mode :is(.tablet-player-menu, .tablet-drag-menu) .x-stepper-btn {
   background: rgba(255,255,255,0.6);
   border-color: rgba(20,35,60,0.16);
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+   Glass: app chrome — body base, topbar, sidebar, nav, dropdowns, toasts
+   ──────────────────────────────────────────────────────────────────────────── */
+body.glass-mode {
+  background: #0a0f1f;
+  font-family: var(--glass-font);
+}
+body.glass-mode .topbar {
+  background: rgba(10,14,28,0.45);
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+body.glass-mode .sidebar {
+  background: rgba(10,14,28,0.42);
+  border-right-color: rgba(255,255,255,0.08);
+}
+body.glass-mode .sidebar-label {
+  font-family: var(--glass-font);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  text-transform: none;
+}
+body.glass-mode .sidebar-item { border-radius: 11px; }
+body.glass-mode .sidebar-item.active {
+  color: #fff;
+  background: rgba(255,255,255,0.12);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.14), inset 0 1px 0 rgba(255,255,255,0.10);
+}
+body.glass-mode .sidebar-action { border-radius: 11px; }
+body.glass-mode.sidebar-collapsed .sidebar-item:hover::after {
+  font-family: var(--glass-font);
+  letter-spacing: 0.01em;
+}
+body.glass-mode .settings-dropdown,
+body.glass-mode .notif-panel {
+  background: rgba(20,27,48,0.60);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  backdrop-filter: blur(28px) saturate(180%);
+  border-color: rgba(255,255,255,0.16);
+  border-radius: 18px;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.14),
+    0 18px 60px rgba(0,0,0,0.5);
+}
+body.glass-mode .notif {
+  background: rgba(20,27,48,0.62);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+  border-color: rgba(255,255,255,0.18);
+  border-radius: 18px;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.16),
+    0 14px 48px rgba(0,0,0,0.5);
+}
+body.glass-mode .auth-card {
+  background: rgba(22,29,52,0.55);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  backdrop-filter: blur(30px) saturate(180%);
+  border-color: rgba(255,255,255,0.16);
+  border-radius: 24px;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.16),
+    0 24px 80px rgba(0,0,0,0.55);
+}
+body.glass-mode .auth-title {
+  font-family: var(--glass-font);
+  letter-spacing: 0;
+  text-transform: none;
+}
+body.glass-mode ::-webkit-scrollbar { width: 6px; }
+body.glass-mode ::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.18);
+  border-radius: 999px;
+}
+body.glass-mode ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.30); }
+/* Mobile bottom nav (rule lives in mobile.css media query; background override
+   simply applies whenever the bar is displayed) */
+body.glass-mode .mobile-bottom-nav {
+  background: rgba(10,14,28,0.55);
+  border-top-color: rgba(255,255,255,0.10);
+}
+
+/* ── Light theme: app chrome ── */
+[data-theme="light"] body.glass-mode { background: #eaeef6; }
+[data-theme="light"] body.glass-mode .topbar {
+  background: rgba(255,255,255,0.45);
+  border-bottom-color: rgba(20,35,60,0.10);
+}
+[data-theme="light"] body.glass-mode .sidebar {
+  background: rgba(255,255,255,0.42);
+  border-right-color: rgba(20,35,60,0.10);
+}
+[data-theme="light"] body.glass-mode .sidebar-item.active {
+  color: #17202e;
+  background: rgba(255,255,255,0.85);
+  box-shadow: inset 0 0 0 1px rgba(20,35,60,0.10), inset 0 1px 0 rgba(255,255,255,0.95);
+}
+[data-theme="light"] body.glass-mode .settings-dropdown,
+[data-theme="light"] body.glass-mode .notif-panel {
+  background: rgba(255,255,255,0.70);
+  border-color: rgba(255,255,255,0.9);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.95),
+    0 18px 60px rgba(30,50,90,0.25);
+}
+[data-theme="light"] body.glass-mode .notif {
+  background: rgba(255,255,255,0.72);
+  border-color: rgba(255,255,255,0.9);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.95),
+    0 14px 48px rgba(30,50,90,0.22);
+}
+[data-theme="light"] body.glass-mode .auth-card {
+  background: rgba(255,255,255,0.66);
+  border-color: rgba(255,255,255,0.9);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.95),
+    0 24px 80px rgba(30,50,90,0.3);
+}
+[data-theme="light"] body.glass-mode ::-webkit-scrollbar-thumb { background: rgba(20,35,60,0.22); }
+[data-theme="light"] body.glass-mode ::-webkit-scrollbar-thumb:hover { background: rgba(20,35,60,0.38); }
+[data-theme="light"] body.glass-mode .mobile-bottom-nav {
+  background: rgba(255,255,255,0.55);
+  border-top-color: rgba(20,35,60,0.10);
+}
+
+/* Deck tiles: frosted art scrim instead of the flat black gradient, neutral
+   hover ring, Inter names. The mask fades the backdrop blur out toward the top
+   so the card art stays sharp above the caption. */
+body.glass-mode .deck-grid-card { border-radius: 16px; }
+body.glass-mode .deck-grid-card:hover {
+  box-shadow: 0 16px 48px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.35);
+}
+body.glass-mode .deck-grid-overlay {
+  background: linear-gradient(to top, rgba(10,14,28,0.78) 0%, rgba(10,14,28,0.40) 55%, transparent 100%);
+  -webkit-backdrop-filter: blur(12px) saturate(160%);
+  backdrop-filter: blur(12px) saturate(160%);
+  -webkit-mask-image: linear-gradient(to top, #000 62%, transparent 100%);
+  mask-image: linear-gradient(to top, #000 62%, transparent 100%);
+}
+body.glass-mode .deck-grid-name {
+  font-family: var(--glass-font);
+  font-weight: 600;
+  letter-spacing: 0;
+}
+[data-theme="light"] body.glass-mode .deck-grid-overlay {
+  background: linear-gradient(to top, rgba(255,255,255,0.82) 0%, rgba(255,255,255,0.45) 55%, transparent 100%);
+}
+[data-theme="light"] body.glass-mode .deck-grid-name {
+  color: #17202e;
+  text-shadow: none;
+}
+[data-theme="light"] body.glass-mode .deck-grid-card:hover {
+  box-shadow: 0 16px 48px rgba(30,50,90,0.25), 0 0 0 1px rgba(255,255,255,0.9);
+}
+
+/* Browse/deck-builder tiles (.browse-deck-card is the live tile component on
+   both pages): same frosted-scrim treatment. */
+body.glass-mode .browse-deck-card { border-radius: 16px; }
+body.glass-mode .browse-deck-card:hover {
+  box-shadow: 0 16px 48px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.35);
+}
+body.glass-mode .browse-deck-overlay {
+  background: linear-gradient(transparent, rgba(10,14,28,0.55) 30%, rgba(10,14,28,0.80) 100%);
+  -webkit-backdrop-filter: blur(12px) saturate(160%);
+  backdrop-filter: blur(12px) saturate(160%);
+  -webkit-mask-image: linear-gradient(to top, #000 70%, transparent 100%);
+  mask-image: linear-gradient(to top, #000 70%, transparent 100%);
+}
+body.glass-mode .browse-deck-name {
+  font-family: var(--glass-font);
+  color: var(--text);
+  letter-spacing: 0;
+}
+body.glass-mode .deck-grid-placeholder { font-family: var(--glass-font); }
+[data-theme="light"] body.glass-mode .browse-deck-overlay {
+  background: linear-gradient(transparent, rgba(255,255,255,0.60) 30%, rgba(255,255,255,0.85) 100%);
+}
+[data-theme="light"] body.glass-mode .browse-deck-name { color: #17202e; }
+[data-theme="light"] body.glass-mode .browse-deck-card:hover {
+  box-shadow: 0 16px 48px rgba(30,50,90,0.25), 0 0 0 1px rgba(255,255,255,0.9);
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+   Glass: collection KPI tiles — proper glass widgets
+   ──────────────────────────────────────────────────────────────────────────── */
+body.glass-mode .stat-card {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(150deg, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.04) 45%, rgba(255,255,255,0.07) 100%);
+  border: 1px solid rgba(255,255,255,0.16);
+  border-radius: 20px;
+  padding: 1.05rem 1rem 0.95rem;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.22),
+    inset 0 0 0.5px rgba(255,255,255,0.12),
+    0 10px 32px rgba(0,0,0,0.30);
+}
+/* Static specular sheen across the face */
+body.glass-mode .stat-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(115deg, transparent 30%, rgba(255,255,255,0.10) 44%, rgba(255,255,255,0.02) 56%, transparent 70%);
+}
+body.glass-mode .stat-card:hover {
+  border-color: rgba(255,255,255,0.28);
+  transform: translateY(-2px);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.26),
+    0 14px 40px rgba(0,0,0,0.38);
+}
+body.glass-mode .stat-val {
+  font-family: var(--glass-font);
+  color: var(--text);
+  font-weight: 700;
+  font-size: 1.8rem;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+body.glass-mode .stat-label {
+  font-family: var(--glass-font);
+  text-transform: none;
+  letter-spacing: 0.01em;
+  font-size: 0.74rem;
+  font-weight: 500;
+  margin-top: 6px;
+}
+[data-theme="light"] body.glass-mode .stat-card {
+  background: linear-gradient(150deg, rgba(255,255,255,0.78) 0%, rgba(255,255,255,0.48) 45%, rgba(255,255,255,0.62) 100%);
+  border-color: rgba(255,255,255,0.88);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.95),
+    0 10px 32px rgba(30,50,90,0.14);
+}
+[data-theme="light"] body.glass-mode .stat-card::after {
+  background: linear-gradient(115deg, transparent 30%, rgba(255,255,255,0.55) 44%, rgba(255,255,255,0.12) 56%, transparent 70%);
+}
+[data-theme="light"] body.glass-mode .stat-card:hover {
+  border-color: rgba(20,35,60,0.16);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.98),
+    0 14px 40px rgba(30,50,90,0.20);
+}
+
+/* Card tiles keep card-like corners — exempt from the rounder --radius2 remap
+   (real MTG cards have modest corner rounding; 18px reads as a blob). Also
+   covers wishlist and set-detail grids, which reuse .card-item. */
+body.glass-mode .card-item { border-radius: 6px; }
+
+/* ────────────────────────────────────────────────────────────────────────────
+   Glass consistency sweep (2026-09-03)
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/* 1. One font everywhere. The nuclear flatten guarantees no Cinzel/serif/mono
+   stragglers in any template (inline styles included); the brand wordmark is
+   re-asserted below as the single exception. Tabular figures keep number
+   columns aligned where JetBrains Mono used to. */
+body.glass-mode,
+body.glass-mode * {
+  font-family: var(--glass-font) !important;
+}
+body.glass-mode { font-variant-numeric: tabular-nums; }
+body.glass-mode .topbar-brand,
+body.glass-mode .topbar-brand * { font-family: 'Cinzel', serif !important; }
+
+/* 2. Floating surfaces must be readable over any content: solidly frosted,
+   not see-through. Covers every popover/dropdown/tooltip/context-menu family
+   (they all shared background: var(--bg2), which glass makes nearly clear). */
+body.glass-mode :is(
+  .settings-dropdown, .notif-panel, .deck-options-dropdown,
+  .cd-tag-ctx-menu, .deck-valid-tooltip, .deck-gc-tooltip, .tooltip,
+  .tablet-player-menu, .tablet-drag-menu) {
+  background: rgba(23,30,52,0.82) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(180%) !important;
+  backdrop-filter: blur(28px) saturate(180%) !important;
+  border-color: rgba(255,255,255,0.17) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.14),
+    0 18px 60px rgba(0,0,0,0.55) !important;
+}
+[data-theme="light"] body.glass-mode :is(
+  .settings-dropdown, .notif-panel, .deck-options-dropdown,
+  .cd-tag-ctx-menu, .deck-valid-tooltip, .deck-gc-tooltip, .tooltip,
+  .tablet-player-menu, .tablet-drag-menu) {
+  background: rgba(255,255,255,0.90) !important;
+  border-color: rgba(255,255,255,0.95) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.98),
+    0 18px 60px rgba(30,50,90,0.28) !important;
+}
+/* Collapsed-sidebar hover tooltip (a pseudo-element, so listed separately) */
+body.glass-mode.sidebar-collapsed .sidebar-item:hover::after {
+  background: rgba(23,30,52,0.85);
+  border-color: rgba(255,255,255,0.17);
+}
+[data-theme="light"] body.glass-mode.sidebar-collapsed .sidebar-item:hover::after {
+  background: rgba(255,255,255,0.92);
+  border-color: rgba(20,35,60,0.14);
+}
+
+/* 3. Deck builder stack backplates: layout scaffolding that is effectively
+   invisible in the flat dark theme (bg2 on bg) but shows up as floating
+   rectangles once the variable remap makes bg2 translucent white. Glass mode
+   hides the plates entirely — both mechanisms: the backdrop element (grid
+   orientation) and the group ::before plate (vertical orientation). The
+   stacks and their labels carry the grouping on their own. */
+body.glass-mode .deck-stack-group-backdrop,
+body.glass-mode .deck-stack-view.vertical-orient .deck-stack-group::before {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* 4. Page headings that were gold Cinzel become standard white headings
+   (gold stays for genuine accents: prices, warnings, foil, the brand). */
+body.glass-mode :is(.trade-title, .welcome-title) { color: var(--text); }
+
+/* 5. Button size normalization: consistent control heights in glass. Menu
+   rows opt out (deliberately compact). */
+body.glass-mode .btn:not(.deck-menu-item) { min-height: 34px; }
+body.glass-mode .btn-sm:not(.deck-menu-item) { min-height: 28px; }
+/* Menu rows read as an iOS menu: no pill chrome, frost on hover only */
+body.glass-mode .deck-menu-item {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 10px;
+}
+body.glass-mode .deck-menu-item:hover {
+  background: rgba(255,255,255,0.12);
+  border-color: transparent;
+}
+[data-theme="light"] body.glass-mode .deck-menu-item:hover {
+  background: rgba(20,35,60,0.08);
+}
+
+/* ── Collapsible info panels below the deck list (all themes) ──────────────
+   Panels carrying a .deck-info-collapse-btn collapse to their header row;
+   grid panels top-align when collapsed so they don't stretch to row height. */
+#tab-decks .panel.info-collapsed > :not(.panel-header) { display: none !important; }
+#tab-decks .deck-stats-grid .panel.info-collapsed { align-self: start; }
+
+/* ── Deck header: title + two circles (✓/✗ validation, ⓘ info) ─────────────
+   The ⓘ popover carries what the retired header pills showed: format, value,
+   game-changer count/list. The GC badge element stays in the DOM (its refresh
+   machinery feeds the deck list) but never renders in the header. */
+#deckGameChangerBadge { display: none !important; }
+#deckInfoBadge { position: relative; display: inline-flex; align-items: center; }
+.deck-info-circle {
+  /* Bare glyph, no chrome — 32px hit target matching the ✓/✗ circle */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  background: none;
+  color: var(--text2);
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+.deck-info-circle:hover { color: var(--text); }
+.deck-info-circle svg { width: 32px; height: 32px; display: block; }
+.deck-info-tooltip {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 250px;
+  max-width: min(380px, calc(100vw - 24px));
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius2);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+  z-index: 600;
+  overflow: hidden;
+  padding: 5px 0;
+}
+#deckInfoBadge.open .deck-info-tooltip { display: block; }
+.deck-info-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  color: var(--text);
+}
+.deck-info-label { color: var(--text3); }
+body.glass-mode .deck-info-tooltip {
+  background: rgba(23,30,52,0.82) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  backdrop-filter: blur(28px) saturate(180%);
+  border-color: rgba(255,255,255,0.17) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 18px 60px rgba(0,0,0,0.55) !important;
+}
+[data-theme="light"] body.glass-mode .deck-info-tooltip {
+  background: rgba(255,255,255,0.90) !important;
+  border-color: rgba(255,255,255,0.95) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.98), 0 18px 60px rgba(30,50,90,0.28) !important;
+}
+/* History matches its toolbar siblings exactly in both looks. The sizing
+   normalizer at #tab-decks #deckHistoryBtn pins 8px with !important — that is
+   correct for classic, but glass needs the pill, so out-gun its specificity. */
+body.glass-mode #tab-decks #deckHistoryBtn { border-radius: 999px !important; }
+
+/* ── Card inspector glass pass ─────────────────────────────────────────────
+   The old dim (72% black + 10px blur) starved the frosted sheet of any colour
+   to refract — everything averaged to gray. A lighter, heavier-blurred dim
+   lets the wallpaper hues glow through; the sheet itself got a richer,
+   near-opaque gradient (see body.glass-mode .modal above). */
+body.glass-mode .modal-overlay {
+  background: rgba(8,12,26,0.45);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
+  backdrop-filter: blur(24px) saturate(140%);
+}
+[data-theme="light"] body.glass-mode .modal-overlay {
+  background: rgba(230,236,248,0.50);
+}
+a.btn { text-decoration: none; }
+body.glass-mode .card-detail-name {
+  color: var(--text);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+body.glass-mode .card-detail-text {
+  background: rgba(255,255,255,0.06);
+  border-color: rgba(255,255,255,0.12);
+  border-radius: 14px;
+}
+[data-theme="light"] body.glass-mode .card-detail-text {
+  background: rgba(255,255,255,0.55);
+  border-color: rgba(20,35,60,0.12);
+}
+body.glass-mode .modal-edge-nav { color: rgba(244,246,251,0.65); }
+body.glass-mode .modal-edge-nav:hover { color: #fff; }
+[data-theme="light"] body.glass-mode .modal-edge-nav { color: rgba(23,32,46,0.55); }
+[data-theme="light"] body.glass-mode .modal-edge-nav:hover { color: #17202e; }
+
+/* ── Card inspector layout (2026-09-03 restructure) ────────────────────────
+   Counters sit side by side (collection | deck), each stacking its two
+   finish rows — a 2x2 grid when a deck is open. Utility actions live as
+   icon-only buttons under the card art. */
+.card-detail-qty-grid {
+  display: flex;
+  gap: 0.75rem 2.25rem;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.card-detail-qty-grid .card-detail-qty-row { flex: 1 1 300px; min-width: 0; }
+.card-detail-utility-row {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 10px;
+}
+.card-detail-utility-btn {
+  width: 40px;
+  min-width: 40px;
+  height: 34px;
+  padding: 0 !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.card-detail-utility-btn .tf-ic { width: 16px; height: 16px; display: block; }
+/* Glass: the frosted oracle box is retired along with the base box */
+body.glass-mode .card-detail-text {
+  background: none;
+  border: none;
+  border-radius: 0;
 }

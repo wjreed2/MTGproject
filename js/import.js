@@ -928,8 +928,7 @@ function addDeckCardsToCollection(deck) {
   }
   if (added + updated > 0) {
     save('collection');
-    renderCollection();
-    updateStats();
+    renderCollection(); // runs updateStats itself
     const skipNote = skipped ? ` (${skipped} unidentified card${skipped !== 1 ? 's' : ''} skipped)` : '';
     showNotif(`Collection updated: ${added} new, ${updated} qty updated${skipNote}`);
   }
@@ -947,7 +946,7 @@ async function clearCollection() {
   // Server refuses empty PUTs that would wipe a non-empty collection unless
   // allowEmpty is set — required after the PWA empty-sync guard landed.
   if (typeof allowNextEmptyCollectionPut === 'function') allowNextEmptyCollectionPut();
-  save('collection'); renderCollection(); updateStats();
+  save('collection'); renderCollection(); // renderCollection runs updateStats itself
   showNotif('Collection cleared');
 }
 
@@ -1026,7 +1025,7 @@ async function addDemoCards() {
       await new Promise(r => setTimeout(r, 120));
     }
 
-    save('collection'); renderCollection(); updateStats(); closeImport();
+    save('collection'); renderCollection(); // renderCollection runs updateStats itself closeImport();
     showNotif(`Added ~${totalAdded} entries (${targetCount} cards${includeFoils ? ' + foils' : ''}) from the last 12 sets!`);
   } catch(e) {
     showNotif('Failed to fetch demo cards — check your connection', true);
@@ -1201,7 +1200,7 @@ async function importCSV(text) {
     }
   }
 
-  save('collection'); renderCollection(); updateStats(); closeImport();
+  save('collection'); renderCollection(); // renderCollection runs updateStats itself closeImport();
   showNotif(`Imported ${added} cards${skipped ? ` (${skipped} skipped)` : ''}`);
 }
 
@@ -1251,6 +1250,6 @@ async function importCollection() {
     await new Promise(r => setTimeout(r, 80));
   }
 
-  save('collection'); renderCollection(); updateStats(); closeImport();
+  save('collection'); renderCollection(); // renderCollection runs updateStats itself closeImport();
   showNotif(`Imported ${added} cards${failed ? ` (${failed} failed)` : ''}`);
 }

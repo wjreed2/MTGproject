@@ -51,18 +51,30 @@ function isRecentlyAdded(card) {
   return addedAt > 0 && (Date.now() - addedAt) <= NEW_CARD_WINDOW_MS;
 }
 
-/** Lowercase blob for collection search: main oracle + each face (MDFC / lessons). */
+/**
+ * Lowercase blob for collection search: main oracle + each face (MDFC / lessons).
+ * Memoized per card object (WeakMap, keyed on the oracleText source so metadata
+ * hydrates invalidate) — the search filter used to rebuild + lowercase this per
+ * name term, per card, per keystroke.
+ */
+const _oracleHaystackCache = new WeakMap();
 function _collectionOracleHaystack(c) {
+  if (!c || typeof c !== 'object') return '';
+  const src = String(c.oracleText || '');
+  const hit = _oracleHaystackCache.get(c);
+  if (hit && hit.src === src) return hit.text;
   const parts = [];
-  const main = String(c?.oracleText || '').trim();
+  const main = src.trim();
   if (main) parts.push(main);
-  if (Array.isArray(c?.cardFaces)) {
+  if (Array.isArray(c.cardFaces)) {
     for (const f of c.cardFaces) {
       const t = String(f?.oracleText || '').trim();
       if (t && !main.includes(t)) parts.push(t);
     }
   }
-  return parts.join('\n').toLowerCase();
+  const text = parts.join('\n').toLowerCase();
+  _oracleHaystackCache.set(c, { src, text });
+  return text;
 }
 
 function _cmpNum(a, op, b) {
@@ -171,10 +183,16 @@ function matchToken(card, tok) {
  * is:/s:/qty:/tag: operators, OR groups)? Extracted so other views (the Trade
  * tab's tradelist & wishlist filters) search exactly like the collection bar.
  */
+let _lastParsedSearch = { q: null, orGroups: null };
 function cardMatchesSearchQuery(c, query) {
   const q = String(query || '').trim();
   if (!q) return true;
-  const { orGroups } = parseSearchQuery(q);
+  // The filter loop calls this once per card with an identical query string —
+  // parse (regex split + tokenization) once per distinct query, not per card.
+  if (_lastParsedSearch.q !== q) {
+    _lastParsedSearch = { q, orGroups: parseSearchQuery(q).orGroups };
+  }
+  const orGroups = _lastParsedSearch.orGroups;
   return orGroups.some(({ tokens, nameTerms }) => {
     if (nameTerms.length && !nameTerms.every(t =>
       (c.name||'').toLowerCase().includes(t) ||
@@ -403,9 +421,12 @@ async function ensureCollectionPriceChangeData(cards) {
     }
   }
 
-  // Even when everything is already cached, still overlay latest prices onto rows and
-  // refresh movers/tiles — otherwise a mid-session hydrate can leave stale blob deltas.
-  const runApplyAndPaint = () => {
+  // Even when everything is already cached, still overlay latest prices onto rows —
+  // a mid-session hydrate can leave stale blob deltas. But only REPAINT when the
+  // overlay actually changed a row (or fresh data arrived): the unconditional
+  // repaint used to make every collection render run twice.
+  const runApplyAndPaint = (opts) => {
+    const onlyIfChanged = !!(opts && opts.onlyIfChanged);
     let changed = 0;
     if (typeof applyLatestPriceLogToCards === 'function') {
       changed = applyLatestPriceLogToCards(list);
@@ -413,6 +434,7 @@ async function ensureCollectionPriceChangeData(cards) {
         save('collection');
       }
     }
+    if (onlyIfChanged && changed === 0) return; // grid already reflects these prices
     if (typeof renderCollection === 'function') renderCollection({ skipPriceFetch: true });
     else if (typeof updateStats === 'function') updateStats();
     if (_cardDetailCurrentCard && document.getElementById('cardDetailModal')?.classList.contains('open')) {
@@ -423,12 +445,8 @@ async function ensureCollectionPriceChangeData(cards) {
     }
   };
 
-  if (!jobs.length) {
-    runApplyAndPaint();
-    return;
-  }
-  if (!willFetch) {
-    runApplyAndPaint();
+  if (!jobs.length || !willFetch) {
+    runApplyAndPaint({ onlyIfChanged: true });
     return;
   }
 
@@ -674,6 +692,16 @@ function renderCollection(opts) {
   const empty = document.getElementById('collectionEmpty');
   if (!grid || !empty) return;
 
+  // Rebuilding the grid while the Collection tab is hidden is pure waste — the
+  // scanner/voice/import flows used to trigger it per added card. showTab and
+  // renderHydratedAppShell both re-render on every tab entry, so skip the DOM
+  // work and only refresh the always-visible topbar stats.
+  const tab = document.getElementById('tab-collection');
+  if (tab && !tab.classList.contains('active')) {
+    try { updateStats(); } catch (_) {}
+    return;
+  }
+
   let cards;
   try {
     cards = getFilteredCollection();
@@ -749,7 +777,7 @@ function renderCollection(opts) {
     console.error('[collection] render failed:', e);
   }
 
-  try { updateStats(); } catch (_) {}
+  try { updateStats(cards); } catch (_) {}
   if (!skipPriceFetch) {
     // Defer so paint + collection hydrate aren't blocked by price-history work.
     setTimeout(() => { void ensureCollectionPriceChangeData(source); }, 0);
@@ -944,8 +972,10 @@ function onPriceModalMinPriceInput(sliderVal) {
   }, 250);
 }
 
-function updateStats() {
-  const rows = getFilteredCollection();
+function updateStats(precomputedRows) {
+  // renderCollection passes the rows it just filtered/sorted so a render costs one
+  // getFilteredCollection() pass, not two.
+  const rows = precomputedRows || getFilteredCollection();
   const total = rows.reduce((s, c) => s + (c.qty || 1), 0);
   const unique = new Set(rows.map(_collectionUniqueCardKey).filter(Boolean)).size;
   const sets = new Set(rows.map(c => c.set)).size;
@@ -981,20 +1011,33 @@ function updateStats() {
   recordValueSnapshot(fullTcg);
 }
 
+let _lastValueSnapshot = { date: '', value: 0 };
 function recordValueSnapshot(value) {
   if (!value || value <= 0) return;
   const today = new Date().toISOString().slice(0, 10);
+  // updateStats runs on every collection render — skip the synchronous localStorage
+  // JSON round-trip unless today's snapshot value actually changed.
+  if (_lastValueSnapshot.date === today && _lastValueSnapshot.value === value) return;
   let history = [];
   try { history = JSON.parse(localStorage.getItem('mtg_value_history') || '[]'); } catch (_) {}
   const idx = history.findIndex(h => h.date === today);
   if (idx >= 0) history[idx].value = value;
   else history.push({ date: today, value });
   localStorage.setItem('mtg_value_history', JSON.stringify(history.slice(-60)));
+  _lastValueSnapshot = { date: today, value };
 }
 
+let _filterCardsDebounce = null;
 function filterCards(q) {
   searchQ = q;
-  renderCollection();
+  // The full filter+sort+grid rebuild is the expensive part — debounce it so fast
+  // typing costs one render, not one per keystroke. The schedule* helpers below
+  // debounce themselves, so they can fire immediately.
+  clearTimeout(_filterCardsDebounce);
+  _filterCardsDebounce = setTimeout(() => {
+    _filterCardsDebounce = null;
+    renderCollection();
+  }, 150);
   scheduleCollectionTagHydrateIfNeeded();
   scheduleOracleMatchFetch(q);
 }
@@ -1109,26 +1152,23 @@ function _prefetchCardDetailNeighborArts(uid) {
 
 function _htmlCardDetailPriceRows(card) {
   const foil = !!card.foil;
-  const vendors = typeof getPriceVendorEnabled === 'function'
-    ? getPriceVendorEnabled()
-    : { tcg: true, ck: true };
   const prefs = typeof getPriceDeltaDisplayPrefs === 'function'
     ? getPriceDeltaDisplayPrefs()
     : { mode: 'pct', timeframe: 'month', customDate: '' };
-  let html = '';
-  if (vendors.tcg) {
-    const tcgDelta = _htmlVendorPriceDelta(card, 'tcg', prefs.timeframe, prefs.customDate, prefs.mode);
-    const tcgNow = getTCGPriceForCard(card);
-    html += foil
-      ? `<tr><td>TCGPlayer Foil</td><td style="color:var(--gold)">$${tcgNow.toFixed(2)}${tcgDelta}</td></tr>`
-      : `<tr><td>TCGPlayer</td><td style="color:var(--blue2)">$${tcgNow.toFixed(2)}${tcgDelta}</td></tr>`;
-  }
-  if (vendors.ck) {
+  // Only the displayed (primary) source renders here — picked in Settings,
+  // falls back to an enabled vendor. The vendor link buttons under the art
+  // still cover the other stores.
+  const primary = typeof getPrimaryPriceVendor === 'function' ? getPrimaryPriceVendor() : 'tcg';
+  if (primary === 'ck') {
     const ckDelta = _htmlVendorPriceDelta(card, 'ck', prefs.timeframe, prefs.customDate, prefs.mode);
     const ckNow = getCKPriceForCard(card);
-    html += `<tr><td>${foil ? 'Card Kingdom Foil' : 'Card Kingdom'}</td><td style="color:var(--green)">$${ckNow.toFixed(2)}${ckDelta}</td></tr>`;
+    return `<tr><td>${foil ? 'Card Kingdom Foil' : 'Card Kingdom'}</td><td style="color:var(--green)">$${ckNow.toFixed(2)}${ckDelta}</td></tr>`;
   }
-  return html;
+  const tcgDelta = _htmlVendorPriceDelta(card, 'tcg', prefs.timeframe, prefs.customDate, prefs.mode);
+  const tcgNow = getTCGPriceForCard(card);
+  return foil
+    ? `<tr><td>TCGPlayer Foil</td><td style="color:var(--gold)">$${tcgNow.toFixed(2)}${tcgDelta}</td></tr>`
+    : `<tr><td>TCGPlayer</td><td style="color:var(--blue2)">$${tcgNow.toFixed(2)}${tcgDelta}</td></tr>`;
 }
 
 function _mergeFetchedCardIntoDetailCard(card, entry) {
@@ -1193,28 +1233,11 @@ function _patchCardDetailInspectorDom(card, isOwned) {
   }
   const priceTable = document.getElementById('cardDetailPriceTable');
   if (priceTable) priceTable.innerHTML = _htmlCardDetailPriceRows(card);
-  const left = document.getElementById('cardDetailInspectorLeft');
-  if (left) {
-    const links = left.querySelectorAll('a.btn-outline');
-    const n = encodeURIComponent(card.name || '');
-    if (links[0]) links[0].href = `https://www.tcgplayer.com/search/all/product?q=${n}`;
-    if (links[1]) links[1].href = `https://www.cardkingdom.com/catalog/search?search=header&filter[search]=mtg_advanced&filter[tab]=mtg_card&filter[name]=${n}`;
-    const slug = String(card.name || '').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-    if (links[2]) links[2].href = `https://edhrec.com/cards/${slug}`;
-    if (links[3]) {
-      links[3].href = (card.set && card.number)
-        ? `https://scryfall.com/card/${card.set}/${card.number}`
-        : `https://scryfall.com/search?q=${encodeURIComponent(card.name || '')}`;
-    }
-  }
   const tagRow = document.getElementById('cardDetailPrintTags');
   if (tagRow) {
-    const r = card.rarity === 'mythic' ? 'red' : card.rarity === 'rare' ? 'gold' : card.rarity === 'uncommon' ? 'blue' : 'blue';
-    tagRow.innerHTML = `
-      <span class="tag tag-gold">${String(card.set || '').toUpperCase()} #${card.number || ''}</span>
-      <span class="tag tag-${r}">${card.rarity || ''}</span>
-      ${card.foil ? `<span class="tag tag-gold">✦ Foil</span>` : ''}
-      ${!isOwned ? '<span class="tag tag-red">Unowned</span>' : ''}`;
+    const chips = `${card.foil ? `<span class="tag tag-gold">✦ Foil</span>` : ''}${!isOwned ? '<span class="tag tag-red">Unowned</span>' : ''}`;
+    tagRow.innerHTML = chips;
+    tagRow.style.display = chips ? '' : 'none';
   }
   const cmcInput = document.getElementById('cardDetailCustomCmcInput');
   if (cmcInput) {
@@ -1480,7 +1503,7 @@ function _mountUniversalCardInspector(leftHtml, rightHtml, replacementsHtml, sho
 function _canCardDetailInspectorInPlace() {
   return !!(
     document.getElementById('cardDetailArtWrap') &&
-    document.getElementById('cardDetailVendorRow1') &&
+    document.getElementById('cardDetailUtilityRow') &&
     document.getElementById('cardDetailName') &&
     document.getElementById('cardDetailRowCollection') &&
     document.getElementById('cardDetailRowInDeck') &&
@@ -1490,11 +1513,10 @@ function _canCardDetailInspectorInPlace() {
   );
 }
 
-function _syncCardDetailLeftInPlace(card) {
+function _syncCardDetailLeftInPlace(card, ctx) {
   const wrap = document.getElementById('cardDetailArtWrap');
-  const row1 = document.getElementById('cardDetailVendorRow1');
-  const row2 = document.getElementById('cardDetailVendorRow2');
-  if (!wrap || !row1 || !row2) return false;
+  const util = document.getElementById('cardDetailUtilityRow');
+  if (!wrap || !util) return false;
   const hadImg = !!document.getElementById('cardDetailMainImg');
   const url = card.imageLarge || card.image || '';
   const hasImg = !!url;
@@ -1514,9 +1536,7 @@ function _syncCardDetailLeftInPlace(card) {
   } else {
     wrap.innerHTML = _htmlCardDetailArtSlotInner(card);
   }
-  const v = _htmlCardDetailVendorRows(card);
-  row1.innerHTML = v.row1;
-  row2.innerHTML = v.row2;
+  if (ctx) util.innerHTML = _htmlCardDetailUtilityIconsInner(ctx);
   return true;
 }
 
@@ -2108,23 +2128,20 @@ function _htmlCardDetailChangePrintingBtn() {
 
 // Shared by the full builder and the in-place sync so the two paths can't drift.
 function _htmlCardDetailPrimaryActionsInner(ctx) {
-  const { isOwned, isCommanderCandidate, actionUid, uid, isWishlisted, card } = ctx;
+  const { isOwned, isCommanderCandidate, actionUid, uid } = ctx;
   const printBtn = _showCardDetailChangePrinting(ctx) ? _htmlCardDetailChangePrintingBtn() : '';
   const swapBtns = typeof _htmlCardDetailSwapActionsInner === 'function' ? _htmlCardDetailSwapActionsInner(ctx) : '';
+  // Already in the open deck → no "+ Add to Deck" (the zone/swap buttons cover it).
+  const inOpenDeck = !!(ctx.activeDeckCard && (ctx.inDeckQty || 0) > 0);
   return isOwned
-    ? `<button class="btn btn-primary btn-sm" onclick="addToDeckFromDetail('${actionUid}')">+ Add to Deck</button>
+    ? `${inOpenDeck ? '' : `<button class="btn btn-primary btn-sm" onclick="addToDeckFromDetail('${actionUid}')">+ Add to Deck</button>`}
                ${printBtn}
                ${swapBtns}
                ${isCommanderCandidate ? `<button class="btn btn-outline btn-sm" onclick="buildSkeletonDeckFromInspectorCard('${actionUid}')">Build Skeleton Deck</button>` : ''}
-               <button class="btn btn-outline btn-sm" onclick="toggleWishlistFromDetail('${uid}')">${isWishlisted ? '♥ Wishlisted' : '♡ Wishlist'}</button>
-               <button class="btn btn-outline btn-sm" onclick="flagUpgradeTargetFromDetail('${actionUid}')" title="Want a better printing, foil, or condition"><svg class="tf-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13.5V5"/><path d="M4.5 8 8 4.5 11.5 8"/><path d="M4.5 2.5h7"/></svg> Upgrade</button>
-               <button class="btn btn-outline btn-sm" onclick="openPriceWatchModal('${escapeHtml(card.scryfallId || '')}', ${!!card.foil}, ${JSON.stringify(card.name || '').replace(/"/g, '&quot;')})" title="Set price alerts for this card"><svg class="tf-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6a4 4 0 0 0-8 0c0 4.5-2 5.5-2 5.5h12s-2-1-2-5.5"/><path d="M9.3 13.5a1.5 1.5 0 0 1-2.6 0"/></svg> Watch</button>
-               <button type="button" id="cardDetailStarBtn" class="btn btn-outline btn-sm" data-detail-uid="${actionUid}" onclick="toggleCardStar('${actionUid}',event)">${card.starred ? '★ Starred' : '☆ Star'}</button>
                <button class="btn btn-danger btn-sm" onclick="removeFromCollection('${actionUid}')">Remove</button>`
     : `<button class="btn btn-primary btn-sm" onclick="addCardToCollectionFromDetail('${uid}')">+ Add to Collection</button>
                ${printBtn}
-               ${swapBtns}
-               <button class="btn btn-outline btn-sm" onclick="toggleWishlistFromDetail('${uid}')">${isWishlisted ? '♥ Wishlisted' : '♡ Wishlist'}</button>`;
+               ${swapBtns}`;
 }
 
 function _syncCardDetailRowPrimaryActions(ctx) {
@@ -2188,7 +2205,7 @@ function _syncCardDetailReplacementsMount(showReplacements, replacementsHtml) {
 }
 
 function _syncCardDetailInspectorInPlace(card, ctx) {
-  if (!_syncCardDetailLeftInPlace(card)) return false;
+  if (!_syncCardDetailLeftInPlace(card, ctx)) return false;
   _patchCardDetailInspectorDom(card, ctx.isOwned);
   const tagsEl = document.getElementById('cardDetailDefaultTags');
   if (!tagsEl || !document.getElementById('cardDetailRowCollection')) return false;
@@ -2225,11 +2242,19 @@ function _htmlCardDetailVendorRows(card) {
   };
 }
 
-function _htmlOpenCardDetailLeftColumn(card) {
-  const v = _htmlCardDetailVendorRows(card);
+function _htmlCardDetailUtilityIconsInner(ctx) {
+  const { card, isOwned, actionUid, uid, isWishlisted } = ctx;
+  const icons = [];
+  icons.push(`<button class="btn btn-outline btn-sm card-detail-utility-btn${isWishlisted ? ' active' : ''}" onclick="toggleWishlistFromDetail('${uid}')" title="${isWishlisted ? 'Wishlisted — click to remove' : 'Add to wishlist'}" aria-label="Wishlist"><svg class="tf-ic" viewBox="0 0 16 16" fill="${isWishlisted ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13.5S2.5 10.2 2.5 6.4a3 3 0 0 1 5.5-1.7A3 3 0 0 1 13.5 6.4c0 3.8-5.5 7.1-5.5 7.1z"/></svg></button>`);
+  if (isOwned) icons.push(`<button class="btn btn-outline btn-sm card-detail-utility-btn" onclick="flagUpgradeTargetFromDetail('${actionUid}')" title="Want a better printing, foil, or condition" aria-label="Upgrade"><svg class="tf-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13.5V5"/><path d="M4.5 8 8 4.5 11.5 8"/><path d="M4.5 2.5h7"/></svg></button>`);
+  icons.push(`<button class="btn btn-outline btn-sm card-detail-utility-btn" onclick="openPriceWatchModal('${escapeHtml(card.scryfallId || '')}', ${!!card.foil}, ${JSON.stringify(card.name || '').replace(/"/g, '&quot;')})" title="Set price alerts for this card" aria-label="Watch price"><svg class="tf-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6a4 4 0 0 0-8 0c0 4.5-2 5.5-2 5.5h12s-2-1-2-5.5"/><path d="M9.3 13.5a1.5 1.5 0 0 1-2.6 0"/></svg></button>`);
+  if (isOwned) icons.push(`<button type="button" id="cardDetailStarBtn" class="btn btn-outline btn-sm card-detail-utility-btn${card.starred ? ' active' : ''}" data-detail-uid="${actionUid}" onclick="toggleCardStar('${actionUid}',event)" title="${card.starred ? 'Starred — click to unstar' : 'Star this card'}" aria-label="Star"><svg class="tf-ic" viewBox="0 0 16 16" fill="${card.starred ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z"/></svg></button>`);
+  return icons.join('');
+}
+
+function _htmlOpenCardDetailLeftColumn(card, ctx) {
   return `<div id="cardDetailArtWrap">${_htmlCardDetailArtSlotInner(card)}</div>
-        <div id="cardDetailVendorRow1" class="card-detail-vendor-row">${v.row1}</div>
-        <div id="cardDetailVendorRow2" class="card-detail-vendor-row">${v.row2}</div>`;
+        <div id="cardDetailUtilityRow" class="card-detail-utility-row">${ctx ? _htmlCardDetailUtilityIconsInner(ctx) : ''}</div>`;
 }
 
 function _htmlOpenCardDetailReplacementsBlock() {
@@ -2285,19 +2310,18 @@ function _htmlOpenCardDetailRightColumn(ctx) {
         <table id="cardDetailPriceTable" class="price-table" style="margin-bottom:1rem">
           ${_htmlCardDetailPriceRows(card)}
         </table>
-        <div id="cardDetailPrintTags" class="card-detail-chiprow" style="margin-bottom:1rem">
-          <span class="tag tag-gold">${(card.set || '').toUpperCase()} #${card.number || ''}</span>
-          <span class="tag tag-${card.rarity === 'mythic' ? 'red' : card.rarity === 'rare' ? 'gold' : card.rarity === 'uncommon' ? 'blue' : 'blue'}">${card.rarity}</span>
+        <div id="cardDetailPrintTags" class="card-detail-chiprow" style="margin-bottom:1rem${(card.foil || !isOwned) ? '' : ';display:none'}">
           ${card.foil ? `<span class="tag tag-gold">✦ Foil</span>` : ''}
           ${!isOwned ? `<span class="tag tag-red">Unowned</span>` : ''}
         </div>
-        <div id="cardDetailRowCollection" class="card-detail-qty-row">
-          <span class="card-detail-qty-row-label">In collection:</span>
-          <div class="card-detail-qty-fill">${_htmlCardDetailCollectionRows(ctx)}</div>
-        </div>
-        ${typeof _htmlPurchasePriceOptIn === 'function' ? _htmlPurchasePriceOptIn('cdPurchase', 'purchase-price-optin--inspector') : ''}
-        <div id="cardDetailRowInDeck" class="card-detail-qty-row" style="display:${showInDeckRow ? 'flex' : 'none'}">
-          ${inDeckInner}
+        <div class="card-detail-qty-grid">
+          <div id="cardDetailRowCollection" class="card-detail-qty-row">
+            <span class="card-detail-qty-row-label">In collection:</span>
+            <div class="card-detail-qty-fill">${_htmlCardDetailCollectionRows(ctx)}</div>
+          </div>
+          <div id="cardDetailRowInDeck" class="card-detail-qty-row" style="display:${showInDeckRow ? 'flex' : 'none'}">
+            ${inDeckInner}
+          </div>
         </div>
         <div id="cardDetailRowPrimaryActions" class="card-detail-actions">
           ${_htmlCardDetailPrimaryActionsInner(ctx)}
@@ -2531,7 +2555,14 @@ function _setPriceChartSource(s) { _priceChartState.source = s; _renderPriceChar
 
 function _renderPriceChart() {
   const canvas = document.getElementById('cardDetailPriceCanvas');
-  if (!canvas || typeof Chart === 'undefined') return;
+  if (!canvas) return;
+  if (typeof Chart === 'undefined') {
+    // Chart.js loads on demand now — fetch it and re-render when ready.
+    if (typeof ensureChartJs === 'function') {
+      ensureChartJs().then(() => _renderPriceChart()).catch(() => {});
+    }
+    return;
+  }
   const { points, finish, source } = _priceChartState;
   const col = _priceCol(finish, source);
   const srcMeta = _PRICE_SOURCES.find(s => s.key === source) || { cur: '$' };
@@ -2750,9 +2781,12 @@ async function openCardDetail(uid, navMode, opts) {
     isCommanderCandidate,
     isWishlisted,
   };
-  const leftHtml = _htmlOpenCardDetailLeftColumn(card);
+  const leftHtml = _htmlOpenCardDetailLeftColumn(card, detailCtx);
   const rightHtml = _htmlOpenCardDetailRightColumn(detailCtx);
-  const showReplacements = !!activeDeckCard && _isDeckBuilderMainTabActive();
+  // Suggested Replacements hidden for now (2026-09-03): they predate the
+  // semantic engine — flip this flag to bring them back once semantics-driven.
+  const CARD_INSPECTOR_REPLACEMENTS = false;
+  const showReplacements = CARD_INSPECTOR_REPLACEMENTS && !!activeDeckCard && _isDeckBuilderMainTabActive();
   const replacementsHtml = showReplacements ? _htmlOpenCardDetailReplacementsBlock() : '';
   const useInPlace = inspectorAlreadyOpen && fromArrowNav && _canCardDetailInspectorInPlace();
   let appliedInPlace = false;
@@ -3732,7 +3766,9 @@ function _syncCollectionStarDisplay(uid, starred) {
   }
   const detailBtn = document.getElementById('cardDetailStarBtn');
   if (detailBtn && String(detailBtn.getAttribute('data-detail-uid') || '') === String(uid)) {
-    detailBtn.textContent = starred ? '★ Starred' : '☆ Star';
+    detailBtn.classList.toggle('active', starred);
+    detailBtn.title = starred ? 'Starred — click to unstar' : 'Star this card';
+    detailBtn.querySelector('svg')?.setAttribute('fill', starred ? 'currentColor' : 'none');
   }
 }
 

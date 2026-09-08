@@ -77,6 +77,17 @@ const scanLimiter = rateLimit({
   message: { ok: false, error: 'Too many scan requests — slow down a little' },
 });
 
+// Catalog-style card queries (adds-catalog, by-roles) do full-catalog scans and can
+// return multi-MB payloads. An honest client calls them a handful of times per minute
+// (opening the Adds tab / plan backfill), so cap well above that.
+const catalogLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many catalog requests — try again shortly' },
+});
+
 function resolveSessionSecret() {
   const configured = String(process.env.SESSION_SECRET || '').trim();
   const weakDefaults = new Set([
@@ -138,7 +149,9 @@ const DB_CONFIG = {
   password:         process.env.DB_PASS     || '',
   database:         process.env.DB_NAME     || 'mtgproject',
   waitForConnections: true,
-  connectionLimit:  5,
+  // 5 was low enough that a single client boot (9 parallel API calls) queued on the
+  // pool; long-transaction handlers made it worse. Keep well under MySQL max_connections.
+  connectionLimit:  parseInt(process.env.DB_POOL_SIZE || '20', 10),
   timezone:         'Z',
   /** Fail fast instead of hanging startup when MySQL is down (Capacitor would sit on “Loading app…”). */
   connectTimeout:   parseInt(process.env.DB_CONNECT_TIMEOUT_MS || '12000', 10),
@@ -151,7 +164,7 @@ const DB_CONFIG = {
   enableKeepAlive:       true,
   keepAliveInitialDelay: 10000,
   idleTimeout:           parseInt(process.env.DB_IDLE_TIMEOUT_MS || '60000', 10),
-  maxIdle:               5,
+  maxIdle:               parseInt(process.env.DB_POOL_MAX_IDLE || '10', 10),
 };
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1541,7 +1554,8 @@ async function runDailyPriceJob({ skipSnapshot = false } = {}) {
     if (!skipSnapshot) {
       try {
         const { runSnapshot } = require(path.join(__dirname, 'scripts', 'mtgjson-price-snapshot.js'));
-        await runSnapshot({ db: db(), log: msg => console.log(msg) });
+        const snap = await runSnapshot({ db: db(), log: msg => console.log(msg) });
+        await refreshPrintingsIfStale(snap?.date);
       } catch (e) {
         console.error('[price-job] snapshot failed, skipping threshold pass:', e.message);
         return;
@@ -1555,6 +1569,36 @@ async function runDailyPriceJob({ skipSnapshot = false } = {}) {
     console.log(`[price-job] threshold pass done (today=${today}, prev=${prev || 'n/a'})`);
   } catch (e) {
     console.error('[price-job] failed:', e.message);
+  }
+}
+
+/**
+ * Self-heal the scryfall→uuid map after each snapshot: freshly priced uuids
+ * missing from mtgjson_printing mean AllIdentifiers hasn't been imported since
+ * a set released — exactly why new-set cards showed no price history. The
+ * refresh streams a large file, so it only fires on a real gap (a new set is
+ * hundreds of printings; day-to-day noise is a handful).
+ */
+async function refreshPrintingsIfStale(snapshotDate) {
+  if (!snapshotDate) return;
+  try {
+    const [[gap]] = await db().query(
+      `SELECT COUNT(*) AS n
+         FROM card_price_daily c
+         LEFT JOIN mtgjson_printing p ON p.uuid = c.uuid
+        WHERE c.snapshot_date = ? AND p.uuid IS NULL`,
+      [snapshotDate]
+    );
+    if (!gap || gap.n <= 200) {
+      if (gap && gap.n) console.log(`[price-job] ${gap.n} unmapped priced uuids (below refresh threshold)`);
+      return;
+    }
+    console.log(`[price-job] ${gap.n} priced uuids missing from mtgjson_printing — refreshing from AllIdentifiers…`);
+    const { runPrintingsImport } = require(path.join(__dirname, 'scripts', 'mtgjson-printings-import.js'));
+    const r = await runPrintingsImport({ db: db(), log: msg => console.log(msg) });
+    console.log(`[price-job] printings refresh done (${r.total.toLocaleString()} rows).`);
+  } catch (e) {
+    console.error('[price-job] printings refresh failed (will retry next daily run):', e.message);
   }
 }
 
@@ -2950,22 +2994,18 @@ app.get('/api/users/:id/decks', requireAuth, async (req, res) => {
 
 app.get('/api/collection', requireAuth, async (req, res) => {
   try {
+    // No scryfall_oracle_cards JOIN here: shipping MEDIUMTEXT oracle text for every
+    // row made this response several MB and competed with collection load on prod.
+    // `o:` search resolves the gap server-side via /api/collection/oracle-search.
     const [rows] = await db().query(
-      `SELECT c.data, c.oracle_id, c.role_tags_json, oc.oracle_text AS catalog_oracle_text
+      `SELECT c.data, c.oracle_id, c.role_tags_json
          FROM collection c
-         LEFT JOIN scryfall_oracle_cards oc ON oc.oracle_id = c.oracle_id
         WHERE c.account_id = ? ORDER BY c.added_at ASC`,
       [req.accountId]
     );
     const cards = rows.map(r => {
       const card = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
       if (r.oracle_id) card.oracleId = card.oracleId || String(r.oracle_id).toLowerCase();
-      // Oracle text isn't always stored in the card blob (older rows; the server enrich
-      // path historically omitted it), which breaks the client-side `o:` oracle-text
-      // search. Backfill it from the local oracle catalog when missing.
-      if (!String(card.oracleText || '').trim() && r.catalog_oracle_text) {
-        card.oracleText = r.catalog_oracle_text;
-      }
       if (r.role_tags_json != null) {
         let rt = r.role_tags_json;
         if (typeof rt === 'string') {
@@ -3092,7 +3132,7 @@ app.put('/api/collection', requireAuth, async (req, res) => {
         });
       }
 
-      const ph = rows.map(() => '(?,?,?,?,?,?,?,?,?)').join(',');
+      const ph = rows.map(() => '(?,?,?,?,?,?,?,?,?,?)').join(',');
       const vals = rows.flatMap(c => {
         const rawOid = c?.oracleId;
         const oracleId =
@@ -3109,21 +3149,15 @@ app.put('/api/collection', requireAuth, async (req, res) => {
           oracleId,
           JSON.stringify(roleTags),
           JSON.stringify(dataObj),
+          // added_at rides the bulk INSERT (0 = column default) — this used to be a
+          // per-card UPDATE loop, i.e. thousands of round-trips inside the transaction.
+          Number(c.addedAt) || 0,
         ];
       });
       await conn.query(
-        `INSERT INTO collection (account_id, uid, name, qty, foil, scryfall_id, oracle_id, role_tags_json, data) VALUES ${ph}`,
+        `INSERT INTO collection (account_id, uid, name, qty, foil, scryfall_id, oracle_id, role_tags_json, data, added_at) VALUES ${ph}`,
         vals
       );
-      for (const c of rows) {
-        if (c.addedAt) {
-          await conn.query('UPDATE collection SET added_at=? WHERE account_id=? AND uid=?', [
-            c.addedAt,
-            aid,
-            c.uid,
-          ]);
-        }
-      }
     });
     // Tradelist is derived from the collection; a write makes the memo stale.
     invalidateTradelistCache(accountId);
@@ -3167,9 +3201,13 @@ app.get('/api/deck-map', requireAuth, async (req, res) => {
     const MIN_CARDS = 8;
     const featIdx = (k) => { const i = basis.featIdx.get(k); return i === undefined ? null : i; };
 
+    // dc.account_id in the ON clause lets the join drive off deck_cards' PK
+    // (account_id, deck_id, card_uid) — no deck_cards index leads with deck_id
+    // alone, so without it this scanned the whole table. It also scopes the join
+    // to the caller's rows outright.
     const [deckRows] = await db().query(
       `SELECT d.id deck_id, d.name deck_name, dc.card_name, dc.is_commander
-       FROM decks d JOIN deck_cards dc ON dc.deck_id = d.id
+       FROM decks d JOIN deck_cards dc ON dc.account_id = d.account_id AND dc.deck_id = d.id
        WHERE d.account_id = ? ORDER BY d.created_at, dc.sort_order`, [accountId]);
     const [colRows] = await db().query(
       'SELECT DISTINCT name FROM collection WHERE account_id = ?', [accountId]);
@@ -6147,6 +6185,26 @@ async function _fillMissingVendorPricesFromPriorDays(out, asOf) {
   }
 }
 
+// Vendor-price lookups are deterministic for a given (requested date, scryfall_id)
+// until the next daily snapshot import, yet every deck/collection load recomputed
+// them — dozens of queries per request. Cache per (date, sid), negative results
+// included (cards with no price rows would otherwise miss on every load), with a
+// TTL comfortably under the daily snapshot cadence.
+const _vendorPriceCache = new Map(); // `${date}|${sid}` -> { ts, row: {...}|null }
+const _VENDOR_PRICE_CACHE_TTL = 6 * 60 * 60 * 1000;
+const _VENDOR_PRICE_CACHE_MAX = 60000;
+
+function _vendorPriceCacheSweep() {
+  if (_vendorPriceCache.size <= _VENDOR_PRICE_CACHE_MAX) return;
+  // Map iterates in insertion order — drop the oldest quarter.
+  const drop = Math.ceil(_VENDOR_PRICE_CACHE_MAX / 4);
+  let i = 0;
+  for (const key of _vendorPriceCache.keys()) {
+    _vendorPriceCache.delete(key);
+    if (++i >= drop) break;
+  }
+}
+
 /**
  * Batch vendor prices at (or nearest before) a snapshot date. Separate TCG/CK columns.
  * Missing history before `date` falls back to the earliest available snapshot for that printing.
@@ -6161,6 +6219,19 @@ async function getVendorPricesAtOrBefore(scryfallIds, date) {
   if (!scryfallIds.length || !date) return out;
   const uniq = [...new Set(scryfallIds.map(id => String(id || '').toLowerCase()).filter(id => _SCRYFALL_ID_RE.test(id)))];
   if (!uniq.length) return out;
+
+  const dateKey = String(date);
+  const now = Date.now();
+  const misses = [];
+  for (const sid of uniq) {
+    const hit = _vendorPriceCache.get(`${dateKey}|${sid}`);
+    if (hit && now - hit.ts < _VENDOR_PRICE_CACHE_TTL) {
+      if (hit.row) out.set(sid, hit.row);
+    } else {
+      misses.push(sid);
+    }
+  }
+  if (!misses.length) return out;
 
   const [[asOfRow]] = await db().query(
     `SELECT DATE_FORMAT(MAX(snapshot_date), '%Y-%m-%d') AS d
@@ -6179,9 +6250,10 @@ async function getVendorPricesAtOrBefore(scryfallIds, date) {
 
   const CH = 500;
   const missing = [];
+  const fetched = new Map(); // freshly-queried rows only — cache hits never re-run the fill pass
 
-  for (let i = 0; i < uniq.length; i += CH) {
-    const batch = uniq.slice(i, i + CH);
+  for (let i = 0; i < misses.length; i += CH) {
+    const batch = misses.slice(i, i + CH);
     const ph = batch.map(() => '?').join(',');
     const [rows] = await db().query(
       `SELECT p.scryfall_id sid,
@@ -6198,7 +6270,7 @@ async function getVendorPricesAtOrBefore(scryfallIds, date) {
     for (const r of rows) {
       const key = String(r.sid || '').toLowerCase();
       found.add(key);
-      out.set(key, {
+      fetched.set(key, {
         asOf: r.asOf || asOf,
         tcg_normal: _numOrNull(r.tcg_normal),
         tcg_foil: _numOrNull(r.tcg_foil),
@@ -6243,8 +6315,8 @@ async function getVendorPricesAtOrBefore(scryfallIds, date) {
       );
       for (const r of rows) {
         const key = String(r.sid || '').toLowerCase();
-        if (out.has(key)) continue;
-        out.set(key, {
+        if (fetched.has(key)) continue;
+        fetched.set(key, {
           asOf: r.asOf,
           tcg_normal: _numOrNull(r.tcg_normal),
           tcg_foil: _numOrNull(r.tcg_foil),
@@ -6255,7 +6327,14 @@ async function getVendorPricesAtOrBefore(scryfallIds, date) {
     }
   }
 
-  await _fillMissingVendorPricesFromPriorDays(out, asOf);
+  await _fillMissingVendorPricesFromPriorDays(fetched, asOf);
+
+  for (const sid of misses) {
+    const row = fetched.get(sid) || null;
+    _vendorPriceCache.set(`${dateKey}|${sid}`, { ts: now, row });
+    if (row) out.set(sid, row);
+  }
+  _vendorPriceCacheSweep();
   return out;
 }
 
@@ -7960,10 +8039,19 @@ async function refreshCollectionRoleTagsForAccountOracle(accountId, oracleId) {
 
 /** Fill `oracle_id` / `role_tags_json` / `data.roleTags` for legacy rows (runs until none left). */
 async function infillCollectionRoleTagsMissing() {
-  const outer = await db().getConnection();
-  try {
-    if (!(await columnExists(outer, 'collection', 'role_tags_json'))) return;
-    const [[{ n }]] = await outer.query(
+  // Queries go through the pool (acquired/released per query) instead of pinning
+  // a dedicated connection for the whole multi-minute run — this used to hold
+  // 2 of the pool's connections for the entire post-deploy window.
+  {
+    const conn = await db().getConnection();
+    try {
+      if (!(await columnExists(conn, 'collection', 'role_tags_json'))) return;
+    } finally {
+      conn.release();
+    }
+  }
+  {
+    const [[{ n }]] = await db().query(
       'SELECT COUNT(*) AS n FROM collection WHERE role_tags_json IS NULL'
     );
     const totalNull = Number(n) || 0;
@@ -7975,7 +8063,7 @@ async function infillCollectionRoleTagsMissing() {
     let batches = 0;
     let processed = 0;
     for (;;) {
-      const [batch] = await outer.query(
+      const [batch] = await db().query(
         `SELECT account_id, uid, scryfall_id, oracle_id, data FROM collection
          WHERE role_tags_json IS NULL LIMIT 250`
       );
@@ -7988,7 +8076,7 @@ async function infillCollectionRoleTagsMissing() {
         try {
           card = typeof row.data === 'string' ? JSON.parse(row.data) : { ...row.data };
         } catch (_) {
-          await outer.query(
+          await db().query(
             `UPDATE collection SET role_tags_json = ? WHERE account_id = ? AND uid = ?`,
             [JSON.stringify([]), row.account_id, row.uid]
           );
@@ -8041,12 +8129,12 @@ async function infillCollectionRoleTagsMissing() {
       let tagRows = [];
       if (oidList.length) {
         const ph = oidList.map(() => '?').join(',');
-        const [tr] = await outer.query(
+        const [tr] = await db().query(
           `SELECT oracle_id, type_line FROM scryfall_oracle_cards WHERE oracle_id IN (${ph})`,
           oidList
         );
         typeRows = tr || [];
-        const [tg] = await outer.query(
+        const [tg] = await db().query(
           `SELECT oracle_id, tags_json FROM scryfall_oracle_tags
            WHERE oracle_id IN (${ph}) AND schema_version = ?`,
           [...oidList, SCRY_TAG_SCHEMA_VERSION]
@@ -8061,8 +8149,8 @@ async function infillCollectionRoleTagsMissing() {
       const accountIds = [...new Set(items.map(it => it.account_id))];
       const ovByAccount = new Map();
       for (const aid of accountIds) {
-        const [ovRows] = await outer.query(
-          'SELECT oracle_id, add_tags_json, remove_tags_json FROM tag_overrides WHERE account_id = ?',
+        const [ovRows] = await db().query(
+          `SELECT oracle_id, add_tags_json, remove_tags_json FROM tag_overrides WHERE account_id = ?`,
           [aid]
         );
         const ovByOid = new Map();
@@ -8109,8 +8197,6 @@ async function infillCollectionRoleTagsMissing() {
       console.log(`[collection] infill progress: ${processed}/${totalNull} rows (${batches} chunk(s))`);
     }
     if (batches) console.log(`[collection] infill finished (${processed} row(s))`);
-  } finally {
-    outer.release();
   }
 }
 
@@ -8119,9 +8205,14 @@ function runCollectionRoleTagsInfillBackground() {
     console.log('[collection] SKIP_COLLECTION_TAG_INFILL=1 — skipping role_tags infill');
     return;
   }
-  void infillCollectionRoleTagsMissing().catch(e =>
-    console.warn('[collection] infill (background):', e.message)
-  );
+  // Hold off past the deploy window: a restart is exactly when every client
+  // reconnects and re-boots, so don't compete with that burst for the pool.
+  const delayMs = Math.max(0, parseInt(process.env.COLLECTION_TAG_INFILL_DELAY_MS || '120000', 10));
+  setTimeout(() => {
+    void infillCollectionRoleTagsMissing().catch(e =>
+      console.warn('[collection] infill (background):', e.message)
+    );
+  }, delayMs);
 }
 
 async function fetchAllScryfallCardsForQuery(query) {
@@ -8994,7 +9085,7 @@ app.get('/api/cards/autocomplete', async (req, res) => {
 
 // Local candidate pool for "Suggested Adds": cards (within a color identity) that carry one of the
 // requested role tags, drawn from the local oracle DB + role-tag tables. No Scryfall round-trip.
-app.post('/api/cards/by-roles', async (req, res) => {
+app.post('/api/cards/by-roles', requireAuth, catalogLimiter, async (req, res) => {
   try {
     const colors = (Array.isArray(req.body?.colors) ? req.body.colors : []).filter(c => /^[WUBRG]$/.test(c));
     const roles = (Array.isArray(req.body?.roles) ? req.body.roles : [])
@@ -9077,67 +9168,89 @@ app.post('/api/cards/by-roles', async (req, res) => {
 
 // Full local-DB candidate pool for Adds "All Cards" mode (Entry 6): commander-legal cards within
 // color identity, excluding lands/tokens/junk. No role filter, no live Scryfall.
-app.post('/api/cards/adds-catalog', async (req, res) => {
+//
+// The underlying query is a full catalog scan returning up to 10k rows, so the built
+// pool is cached per (color identity, limit) and the per-deck `exclude` list is applied
+// per request from the cached pool. Few entries, short TTL — each entry is large.
+const _addsCatalogCache = new Map(); // `${ciKey}|${limit}` -> { ts, pool, capped }
+const _ADDS_CATALOG_TTL = 10 * 60 * 1000;
+const _ADDS_CATALOG_MAX = 3;
+
+app.post('/api/cards/adds-catalog', requireAuth, catalogLimiter, async (req, res) => {
   try {
     const colors = (Array.isArray(req.body?.colors) ? req.body.colors : []).filter(c => /^[WUBRG]$/.test(c));
     const exclude = new Set((Array.isArray(req.body?.exclude) ? req.body.exclude : []).map(n => String(n).toLowerCase()));
     const limit = Math.min(Math.max(parseInt(req.body?.limit || 8000, 10) || 8000, 1), 10000);
 
-    const params = [];
-    let ciClause = '';
-    const disallowed = ['W', 'U', 'B', 'R', 'G'].filter(c => !colors.includes(c));
-    if (disallowed.length) {
-      ciClause = 'AND NOT JSON_OVERLAPS(c.color_identity_json, CAST(? AS JSON))';
-      params.push(JSON.stringify(disallowed));
-    }
-    params.push(limit);
+    const cacheKey = [...new Set(colors)].sort().join('') + '|' + limit;
+    let entry = _addsCatalogCache.get(cacheKey);
+    if (!entry || Date.now() - entry.ts > _ADDS_CATALOG_TTL) {
+      const params = [];
+      let ciClause = '';
+      const disallowed = ['W', 'U', 'B', 'R', 'G'].filter(c => !colors.includes(c));
+      if (disallowed.length) {
+        ciClause = 'AND NOT JSON_OVERLAPS(c.color_identity_json, CAST(? AS JSON))';
+        params.push(JSON.stringify(disallowed));
+      }
+      params.push(limit);
 
-    const JUNK_TYPE_RE = /\b(Contraption|Attraction|Sticker|Stickers|Plane|Phenomenon|Scheme|Vanguard|Conspiracy|Dungeon|Emblem|Token)\b/i;
-    const parseArr = v => Array.isArray(v) ? v : (() => { try { return JSON.parse(v) || []; } catch (_) { return []; } })();
-    const parseObj = v => (v && typeof v === 'object' && !Array.isArray(v)) ? v : (() => { try { const o = JSON.parse(v); return o && typeof o === 'object' ? o : null; } catch (_) { return null; } })();
+      const JUNK_TYPE_RE = /\b(Contraption|Attraction|Sticker|Stickers|Plane|Phenomenon|Scheme|Vanguard|Conspiracy|Dungeon|Emblem|Token)\b/i;
+      const parseArr = v => Array.isArray(v) ? v : (() => { try { return JSON.parse(v) || []; } catch (_) { return []; } })();
+      const parseObj = v => (v && typeof v === 'object' && !Array.isArray(v)) ? v : (() => { try { const o = JSON.parse(v); return o && typeof o === 'object' ? o : null; } catch (_) { return null; } })();
 
-    const [rows] = await db().query(
-      `SELECT c.name, c.scryfall_id, c.type_line, c.oracle_text, c.cmc, c.mana_cost, c.oracle_id,
-              c.color_identity_json, c.image_small, c.image_normal, c.edhrec_pct_json, t.tags_json
-         FROM scryfall_oracle_cards c
-         LEFT JOIN scryfall_oracle_tags t ON t.oracle_id = c.oracle_id AND t.schema_version = '4'
-        WHERE (c.commander_legal IS NULL OR c.commander_legal = 1)
-          AND c.type_line NOT LIKE '%Land%'
-          AND c.type_line NOT LIKE '%Token%'
-          AND c.type_line NOT LIKE '%Emblem%'
-          ${ciClause}
-        ORDER BY c.name
-        LIMIT ?`,
-      params
-    );
+      const [rows] = await db().query(
+        `SELECT c.name, c.scryfall_id, c.type_line, c.oracle_text, c.cmc, c.mana_cost, c.oracle_id,
+                c.color_identity_json, c.image_small, c.image_normal, c.edhrec_pct_json, t.tags_json
+           FROM scryfall_oracle_cards c
+           LEFT JOIN scryfall_oracle_tags t ON t.oracle_id = c.oracle_id AND t.schema_version = '4'
+          WHERE (c.commander_legal IS NULL OR c.commander_legal = 1)
+            AND c.type_line NOT LIKE '%Land%'
+            AND c.type_line NOT LIKE '%Token%'
+            AND c.type_line NOT LIKE '%Emblem%'
+            ${ciClause}
+          ORDER BY c.name
+          LIMIT ?`,
+        params
+      );
 
-    const out = [];
-    for (const r of rows) {
-      if (exclude.has(String(r.name).toLowerCase())) continue;
-      if (/^A-/.test(r.name || '')) continue;
-      if (JUNK_TYPE_RE.test(r.type_line || '')) continue;
-      const roleTags = parseArr(r.tags_json);
-      const ci = parseArr(r.color_identity_json);
-      const edhrecRolePct = parseObj(r.edhrec_pct_json);
-      out.push({
-        name: r.name, id: r.scryfall_id, oracleId: r.oracle_id || null,
-        type_line: r.type_line || '', oracle_text: r.oracle_text || '',
-        mana_cost: r.mana_cost || '', mana: r.mana_cost || '',
-        cmc: parseFloat(r.cmc) || 0, color_identity: ci,
-        image_small: r.image_small || null, image_normal: r.image_normal || null,
-        roleTags,
-        edhrecRolePct: edhrecRolePct || undefined,
-      });
-      if (out.length >= limit) break;
-    }
-    await attachPriceLogPrices(out);
-    for (const c of out) {
-      if (c.prices?.usd != null) {
-        const usd = parseFloat(c.prices.usd);
-        if (Number.isFinite(usd) && usd > 0) c.priceTCG = usd;
+      const pool = [];
+      for (const r of rows) {
+        if (/^A-/.test(r.name || '')) continue;
+        if (JUNK_TYPE_RE.test(r.type_line || '')) continue;
+        const roleTags = parseArr(r.tags_json);
+        const ci = parseArr(r.color_identity_json);
+        const edhrecRolePct = parseObj(r.edhrec_pct_json);
+        pool.push({
+          name: r.name, id: r.scryfall_id, oracleId: r.oracle_id || null,
+          type_line: r.type_line || '', oracle_text: r.oracle_text || '',
+          mana_cost: r.mana_cost || '', mana: r.mana_cost || '',
+          cmc: parseFloat(r.cmc) || 0, color_identity: ci,
+          image_small: r.image_small || null, image_normal: r.image_normal || null,
+          roleTags,
+          edhrecRolePct: edhrecRolePct || undefined,
+        });
+        if (pool.length >= limit) break;
+      }
+      await attachPriceLogPrices(pool);
+      for (const c of pool) {
+        if (c.prices?.usd != null) {
+          const usd = parseFloat(c.prices.usd);
+          if (Number.isFinite(usd) && usd > 0) c.priceTCG = usd;
+        }
+      }
+      entry = { ts: Date.now(), pool, capped: rows.length >= limit };
+      _addsCatalogCache.delete(cacheKey);
+      _addsCatalogCache.set(cacheKey, entry);
+      while (_addsCatalogCache.size > _ADDS_CATALOG_MAX) {
+        const oldest = _addsCatalogCache.keys().next().value;
+        _addsCatalogCache.delete(oldest);
       }
     }
-    res.json({ cards: out, capped: rows.length >= limit });
+
+    const cards = exclude.size
+      ? entry.pool.filter(c => !exclude.has(String(c.name).toLowerCase()))
+      : entry.pool;
+    res.json({ cards, capped: entry.capped });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -10274,7 +10387,14 @@ app.get('/api/tag-overrides', requireAuth, async (req, res) => {
       let addTags = [], removeTags = [], customRaw = null;
       try { addTags = Array.isArray(r.add_tags_json) ? r.add_tags_json : JSON.parse(r.add_tags_json || '[]'); } catch (_) {}
       try { removeTags = Array.isArray(r.remove_tags_json) ? r.remove_tags_json : JSON.parse(r.remove_tags_json || '[]'); } catch (_) {}
-      try { customRaw = Array.isArray(r.custom_tags_json) ? r.custom_tags_json : JSON.parse(r.custom_tags_json || '[]'); } catch (_) {}
+      // custom_tags_json is a JSON column: mysql2 hands back the parsed value.
+      // The tiered form is an OBJECT ({tags, tiers}) — the old Array.isArray
+      // check fell through to JSON.parse(object), which throws, silently
+      // parsing every tiered row as empty (tags "not sticking").
+      try {
+        const rawCustom = r.custom_tags_json;
+        customRaw = (rawCustom && typeof rawCustom === 'object') ? rawCustom : JSON.parse(rawCustom || '[]');
+      } catch (_) {}
       const parsedCustom = parseTagOverrideCustomTags(customRaw);
       return {
         oracleId: String(r.oracle_id || '').toLowerCase(),
@@ -10626,7 +10746,21 @@ async function start() {
   };
 
   app.use('/js',     express.static(path.join(__dirname, 'js')));
-  app.use('/styles', express.static(path.join(__dirname, 'styles')));
+  // Index stamps ?v=SHA on the stylesheet links (serveIndex below) but this mount
+  // used serve-static defaults (max-age=0), so both render-blocking stylesheets
+  // paid a conditional GET on every single page load. Same treatment as /dist:
+  // versioned URLs are immutable, bare URLs must revalidate.
+  app.use('/styles', (req, res, next) => {
+    if (req.query.v) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    next();
+  }, express.static(path.join(__dirname, 'styles'), {
+    cacheControl: false,
+    setHeaders(res) {
+      if (!res.getHeader('Cache-Control')) {
+        res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+      }
+    },
+  }));
   app.use('/vendor', express.static(path.join(__dirname, 'vendor')));
   // Index stamps ?v=SHA on bundle URLs — those exact URLs never change content,
   // so they cache forever (no revalidation round-trip for a ~1.4MB bundle on
