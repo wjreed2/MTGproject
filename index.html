@@ -855,7 +855,7 @@
               style="width:112px;cursor:pointer;accent-color:var(--gold)" aria-label="Playstyle: Aggro to Control">
             <span class="cut-playstyle-label cut-playstyle-control">Control</span>
           </div>
-          <select id="deckCutArchetypeSelect" class="deck-select suggest-classic-only" onchange="_onCutArchetypeChange(this.value)" style="font-size:.76rem;margin-right:4px" title="Deck archetype (affects cut thresholds)">
+          <select id="deckCutArchetypeSelect" class="deck-select suggest-classic-only" data-glass-label="Archetype" onchange="_onCutArchetypeChange(this.value)" style="font-size:.76rem;margin-right:4px" title="Deck archetype (affects cut thresholds)">
             <option value="">Auto</option>
             <option value="goodstuff">Goodstuff</option>
             <option value="graveyard">Graveyard</option>
@@ -913,7 +913,7 @@
               style="width:112px;cursor:pointer;accent-color:var(--gold)" aria-label="Playstyle: Aggro to Control">
             <span class="cut-playstyle-label cut-playstyle-control">Control</span>
           </div>
-          <select id="deckAddArchetypeSelect" class="deck-select suggest-classic-only" onchange="_onCutArchetypeChange(this.value)" style="font-size:.76rem;margin-right:4px" title="Deck archetype (shared with Suggested Cuts)">
+          <select id="deckAddArchetypeSelect" class="deck-select suggest-classic-only" data-glass-label="Archetype" onchange="_onCutArchetypeChange(this.value)" style="font-size:.76rem;margin-right:4px" title="Deck archetype (shared with Suggested Cuts)">
             <option value="">Auto</option>
             <option value="goodstuff">Goodstuff</option>
             <option value="graveyard">Graveyard</option>
@@ -1068,7 +1068,7 @@
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
             <input id="collabEmailInput" type="email" placeholder="Add by email address…" style="flex:1;min-width:160px"
               onkeydown="if(event.key==='Enter')addDeckCollaborator()">
-            <select id="collabPermSelect" class="collab-perm-select">
+            <select id="collabPermSelect" class="collab-perm-select" data-glass-label="">
               <option value="edit">Can Edit</option>
               <option value="view">View Only</option>
             </select>

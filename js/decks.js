@@ -2124,8 +2124,10 @@ function _glassSelectSyncLabels() {
     const btn = document.getElementById(sel.id + 'GlassBtn');
     if (!btn) return;
     const opt = sel.options[sel.selectedIndex];
-    btn.innerHTML = `<span class="glass-dd-prefix">${escapeHtml(sel.dataset.glassLabel)}</span>`
+    const prefix = sel.dataset.glassLabel;
+    btn.innerHTML = (prefix ? `<span class="glass-dd-prefix">${escapeHtml(prefix)}</span>` : '')
       + `${escapeHtml(opt ? opt.text : '')} ${_GLASS_DD_CARET}`;
+    btn.disabled = sel.disabled;
   });
   const dirSel = document.getElementById('deckStackSortDirSelect');
   const dirBtn = document.getElementById('deckStackSortDirGlassBtn');
@@ -2155,10 +2157,13 @@ function _glassMenuOpen(sel, wrap) {
 }
 
 function _glassSelectEnsure() {
-  document.querySelectorAll('#deckListPanelHeader select[data-glass-label]:not([data-glassified])').forEach(sel => {
+  document.querySelectorAll('#tab-decks select[data-glass-label]:not([data-glassified])').forEach(sel => {
     sel.dataset.glassified = '1';
     const wrap = document.createElement('span');
     wrap.className = 'glass-dd-wrap';
+    // Visibility toggles (e.g. classic-engine-only controls) target this class
+    // with style.display — carry it so the trigger hides with its select.
+    if (sel.classList.contains('suggest-classic-only')) wrap.classList.add('suggest-classic-only');
     sel.parentNode.insertBefore(wrap, sel);
     wrap.appendChild(sel);
     const btn = document.createElement('button');
@@ -4066,6 +4071,7 @@ function renderActiveDeck() {
       if (isDeckOwnershipEnabled()) _rebuildOwnershipMaps();
       renderDeckList(deck);
       renderCommanderGameplan(deck);
+      _glassSelectEnsure();
       if (typeof _renderDeckSearchGrid === 'function') _renderDeckSearchGrid();
       scheduleEDHRECRefresh(0);
     });
@@ -4097,6 +4103,7 @@ function renderActiveDeck() {
   scheduleEDHRECRefresh(0);
   _applyDeckInfoCollapsed();
   _applyDeckBuilderTab();
+  _glassSelectEnsure(); // pick up any selects the renderers above recreated
 }
 
 // ── Collaborators panel ───────────────────────────────────────────────────────
@@ -9353,7 +9360,7 @@ function _renderManaIdealControls(deck) {
   const onchg = activeDeckIsShared ? '' : ' onchange="onManaIdealArchetypeChange(this.value)"';
   wrap.innerHTML = `
     <label for="manaIdealArchetypeSelect">Ideal curve</label>
-    <select id="manaIdealArchetypeSelect"${onchg}${disabled}>
+    <select id="manaIdealArchetypeSelect" data-glass-label=""${onchg}${disabled}>
       <option value="auto" ${mode === 'auto' ? 'selected' : ''}>Auto</option>
       <option value="aggro" ${mode === 'aggro' ? 'selected' : ''}>Aggro</option>
       <option value="balanced" ${mode === 'balanced' ? 'selected' : ''}>Balanced</option>
@@ -9361,6 +9368,7 @@ function _renderManaIdealControls(deck) {
       <option value="control" ${mode === 'control' ? 'selected' : ''}>Control</option>
     </select>
     <span class="mana-ideal-hint" title="${String(hint).replace(/"/g, '&quot;')}">${hint}${sharedNote}</span>`;
+  _glassSelectEnsure(); // this render recreated the select
 }
 
 function onManaIdealArchetypeChange(val) {
@@ -10518,7 +10526,7 @@ function setCmdCustomTagFilter(val) {
   const allowed = new Set(['all', 'default', 'primary', 'secondary']);
   _cmdCustomTagFilter = allowed.has(val) ? val : 'all';
   const deck = getActiveDeck();
-  if (deck) renderCommanderGameplan(deck);
+  if (deck) { renderCommanderGameplan(deck); _glassSelectEnsure(); }
 }
 
 /** Display label for a custom-req tag pill. Land keeps its special "Land in hand" wording. */
@@ -11264,7 +11272,7 @@ function renderCommanderGameplan(deck) {
             const filterRow = dynamic ? `
             <div class="cmdr-gp-custom-filter-row">
               <label for="cmdGpTagFilter" class="cmdr-gp-custom-filter-label">Tags</label>
-              <select id="cmdGpTagFilter" class="deck-select cmdr-gp-custom-filter" onchange="setCmdCustomTagFilter(this.value)" title="Filter requirement pills by tag tier">
+              <select id="cmdGpTagFilter" class="deck-select cmdr-gp-custom-filter" data-glass-label="" onchange="setCmdCustomTagFilter(this.value)" title="Filter requirement pills by tag tier">
                 <option value="all"${filter === 'all' ? ' selected' : ''}>All Tags</option>
                 <option value="default"${filter === 'default' ? ' selected' : ''}>Default Tags</option>
                 <option value="primary"${filter === 'primary' ? ' selected' : ''}>Primary Tags</option>
