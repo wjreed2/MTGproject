@@ -9511,11 +9511,20 @@ function renderManaCurve(deck) {
           <clipPath id="${plotClipId}">
             <rect x="${pad.l}" y="${pad.t}" width="${drawW}" height="${drawH}"></rect>
           </clipPath>
+          <linearGradient id="mcStrokeGrad" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" class="mc-grad-stop1"></stop>
+            <stop offset="1" class="mc-grad-stop2"></stop>
+          </linearGradient>
+          <linearGradient id="mcFillGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" class="mc-grad-stop1" stop-opacity="0.26"></stop>
+            <stop offset="1" class="mc-grad-stop2" stop-opacity="0"></stop>
+          </linearGradient>
         </defs>
         <line x1="${pad.l}" y1="${pad.t}" x2="${pad.l}" y2="${h - pad.b}" class="hist-axis-line"></line>
         ${yAxis}
         ${grid}
         <g clip-path="url(#${plotClipId})">
+          ${totalQty > 0 ? `<path class="hist-line-area" d="${actualPath} L ${xAt(labels.length - 1).toFixed(2)} ${yAt(0).toFixed(2)} L ${xAt(0).toFixed(2)} ${yAt(0).toFixed(2)} Z"></path>` : ''}
           ${idealPath ? `<path class="hist-line-ideal" d="${idealPath}"></path>` : ''}
           <path class="hist-line-main" d="${actualPath}"></path>
           ${points}
@@ -9607,9 +9616,11 @@ function _renderManaPie(containerId, chartRefName, counts, emptyText, breakdown)
       labels: present.map(c => names[c]),
       datasets: [{
         data: values,
-        backgroundColor: present.map(c => pieColors[c]),
-        borderColor: 'rgba(0,0,0,0.25)',
-        borderWidth: 1,
+        // Translucent slices with a luminous edge — glassy but the mana hues stay readable
+        backgroundColor: present.map(c => pieColors[c] + 'd9'),
+        borderColor: 'rgba(255,255,255,0.35)',
+        borderWidth: 1.5,
+        hoverOffset: 6,
       }],
     },
     options: {
@@ -9968,11 +9979,14 @@ function renderProbabilityChart(deck) {
         label,
         data,
         borderColor: col,
-        backgroundColor: col + '20',
+        backgroundColor: col + '26',
         fill: true,
         tension: 0.4,
         pointRadius: 4,
         pointHoverRadius: 6,
+        pointBackgroundColor: col,
+        pointBorderColor: 'rgba(255,255,255,0.85)',
+        pointBorderWidth: 1,
         borderWidth: 2.5,
       };
     });
@@ -10060,6 +10074,19 @@ function _hypergeoAtLeast(N, K, n, minK) {
 
 let _openingHandChartInst = null;
 
+/** Vertical-fade gradient for glassy Chart.js bars; rgb as "r,g,b". */
+function _glassBarGradient(context, rgb) {
+  const { ctx, chartArea } = context.chart;
+  if (!chartArea) return `rgba(${rgb},0.7)`;
+  const g = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+  g.addColorStop(0, `rgba(${rgb},0.9)`);
+  g.addColorStop(1, `rgba(${rgb},0.3)`);
+  return g;
+}
+const _GLASS_TICK = '#8a90a4';
+const _GLASS_TICK_DIM = '#6d7488';
+const _GLASS_GRID = 'rgba(255,255,255,0.05)';
+
 function renderOpeningHandChart(deck) {
   const el = document.getElementById('openingHandChart');
   if (!el) return;
@@ -10080,12 +10107,13 @@ function renderOpeningHandChart(deck) {
       labels: buckets.map(String),
       datasets: [{
         data,
-        backgroundColor: buckets.map(k => {
-          if (k <= 1 || k >= 5) return 'rgba(200,80,80,0.72)';
-          if (k === 2 || k === 4) return 'rgba(200,168,74,0.75)';
-          return 'rgba(60,160,90,0.75)';
-        }),
-        borderWidth: 0, borderRadius: 3,
+        backgroundColor: ctx => {
+          const k = ctx.dataIndex;
+          const rgb = (k <= 1 || k >= 5) ? '214,96,96' : (k === 2 || k === 4) ? '224,178,96' : '86,190,124';
+          return _glassBarGradient(ctx, rgb);
+        },
+        borderColor: 'rgba(255,255,255,0.30)',
+        borderWidth: 1, borderRadius: 6,
       }]
     },
     options: {
@@ -10096,12 +10124,12 @@ function renderOpeningHandChart(deck) {
         title: {
           display: !empty,
           text: `Avg ${avg} lands  ·  ${K} lands / ${N} cards`,
-          color: '#9a9488', font: { size: 12 }, padding: { bottom: 4 },
+          color: _GLASS_TICK, font: { size: 12 }, padding: { bottom: 4 },
         },
       },
       scales: {
-        y: { beginAtZero: true, ticks: { color: '#6a6560', callback: v => v + '%', font: { size: 13 } }, grid: { color: 'rgba(255,255,255,0.04)' } },
-        x: { title: { display: true, text: 'Lands in opening hand', color: '#6a6560', font: { size: 12 } }, ticks: { color: '#9a9488', font: { size: 13 } }, grid: { display: false } },
+        y: { beginAtZero: true, ticks: { color: _GLASS_TICK_DIM, callback: v => v + '%', font: { size: 13 } }, grid: { color: _GLASS_GRID } },
+        x: { title: { display: true, text: 'Lands in opening hand', color: _GLASS_TICK_DIM, font: { size: 12 } }, ticks: { color: _GLASS_TICK, font: { size: 13 } }, grid: { display: false } },
       },
     },
   });
@@ -10131,12 +10159,13 @@ function renderLandCoverageChart(deck) {
       labels: turns.map(t => `T${t}`),
       datasets: [{
         data,
-        backgroundColor: data.map(p => {
-          if (p >= 85) return 'rgba(60,160,90,0.75)';
-          if (p >= 65) return 'rgba(200,168,74,0.75)';
-          return 'rgba(200,80,80,0.75)';
-        }),
-        borderWidth: 0, borderRadius: 3,
+        backgroundColor: ctx => {
+          const p = ctx.parsed?.y ?? 0;
+          const rgb = p >= 85 ? '86,190,124' : p >= 65 ? '224,178,96' : '214,96,96';
+          return _glassBarGradient(ctx, rgb);
+        },
+        borderColor: 'rgba(255,255,255,0.30)',
+        borderWidth: 1, borderRadius: 6,
       }]
     },
     options: {
@@ -10146,8 +10175,8 @@ function renderLandCoverageChart(deck) {
         tooltip: { callbacks: { label: ctx => ctx.parsed.y.toFixed(1) + '% to make land drop' } },
       },
       scales: {
-        y: { min: 0, max: 100, ticks: { color: '#6a6560', callback: v => v + '%', font: { size: 13 } }, grid: { color: 'rgba(255,255,255,0.04)' } },
-        x: { title: { display: true, text: 'Turn', color: '#6a6560', font: { size: 12 } }, ticks: { color: '#9a9488', font: { size: 13 } }, grid: { display: false } },
+        y: { min: 0, max: 100, ticks: { color: _GLASS_TICK_DIM, callback: v => v + '%', font: { size: 13 } }, grid: { color: _GLASS_GRID } },
+        x: { title: { display: true, text: 'Turn', color: _GLASS_TICK_DIM, font: { size: 12 } }, ticks: { color: _GLASS_TICK, font: { size: 13 } }, grid: { display: false } },
       },
     },
   });

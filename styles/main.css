@@ -5320,11 +5320,18 @@ textarea.deck-import:focus { outline: none; border-color: var(--gold); }
 }
 .hist-line-main {
   fill: none;
-  stroke: var(--curve-color);
-  stroke-width: 2.4;
+  stroke: url(#mcStrokeGrad); /* liquid-glass blue→purple */
+  stroke-width: 2.6;
   stroke-linecap: round;
   stroke-linejoin: round;
+  filter: drop-shadow(0 0 6px rgba(110, 168, 255, 0.35));
 }
+.hist-line-area {
+  fill: url(#mcFillGrad);
+  stroke: none;
+}
+.mc-grad-stop1 { stop-color: rgb(var(--lgx1)); }
+.mc-grad-stop2 { stop-color: rgb(var(--lgx2)); }
 .hist-line-ideal {
   fill: none;
   stroke: rgba(61, 184, 90, 0.72);
@@ -5334,8 +5341,8 @@ textarea.deck-import:focus { outline: none; border-color: var(--gold); }
   stroke-linejoin: round;
 }
 .hist-line-point {
-  fill: var(--curve-color);
-  stroke: rgba(0,0,0,0.25);
+  fill: rgb(var(--lgx1));
+  stroke: rgba(255,255,255,0.85);
   stroke-width: 1;
 }
 .hist-line-value {
@@ -5706,7 +5713,8 @@ textarea.deck-import:focus { outline: none; border-color: var(--gold); }
 }
 .deck-type-break-fill {
   height: 100%;
-  background: var(--gold);
+  background: linear-gradient(90deg, rgb(var(--lgx1)), rgb(var(--lgx2)));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.35);
   border-radius: 4px;
 }
 
