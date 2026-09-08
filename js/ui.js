@@ -1,9 +1,6 @@
 // Tab navigation and shared UI utilities
 
 function _renderGamesTab() {
-  if (!window.THREE) {
-    import('/vendor/three.module.min.js').then(m => { window.THREE = m; renderAllLifeDice3D(); });
-  }
   renderGames();
 }
 

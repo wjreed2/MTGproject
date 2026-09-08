@@ -11,9 +11,6 @@ let newGameFirstPlayerIdx = null;
 let newGameTabletLayout = 'default';   // 'default' grid | 'pie' enhanced wedge layout
 let logEventGameId = null;
 const _lifeAnimState = {};
-let _lifeDiceRenderers = [];
-let _lifeDiceWebGLDiag = 'Checking WebGL...';
-let _lifeD20FaceCache = null;
 const _firstPlayerAnimState = {};
 
 const GAME_ICON_PATHS = {
@@ -43,8 +40,9 @@ function gameIcon(name, size = 12, style = '') {
 // ── Liquid glass skin ─────────────────────────────────────────────────────────
 // Pure styling toggle for the game tracker (main view): flips a class on
 // #tab-games that a scoped CSS section in main.css keys off. No behavior change.
-let glassMode = false;
-try { glassMode = localStorage.getItem('mtg_glass_mode') === '1'; } catch (_) { /* storage blocked */ }
+// Default ON: only an explicit toggle-off ('0') disables it.
+let glassMode = true;
+try { glassMode = localStorage.getItem('mtg_glass_mode') !== '0'; } catch (_) { /* storage blocked */ }
 
 function applyGlassMode() {
   const tab = document.getElementById('tab-games');
@@ -65,12 +63,6 @@ function toggleGlassMode() {
 
 if (document.readyState !== 'loading') applyGlassMode();
 else document.addEventListener('DOMContentLoaded', applyGlassMode);
-
-function _setLifeDiceDiag(msg) {
-  _lifeDiceWebGLDiag = msg;
-  const badge = document.getElementById('lifeDiceDiagBadge');
-  if (badge) badge.textContent = `3D Dice: ${_lifeDiceWebGLDiag}`;
-}
 
 // Action mode — what happens when you click a player card
 // null | 'deal1' | 'dealX' | 'deal1all' | 'dealXall'
@@ -829,217 +821,6 @@ function renderLifeDice(game, player) {
   return `
     <div class="life-d20-total">${player.life}</div>
   `;
-}
-
-function clearLifeDice3D() {
-  _lifeDiceRenderers.forEach(r => {
-    try { cancelAnimationFrame(r.raf); } catch (_) {}
-    try { r.renderer.dispose(); } catch (_) {}
-    if (r.host && r.renderer?.domElement && r.host.contains(r.renderer.domElement)) {
-      r.host.removeChild(r.renderer.domElement);
-    }
-  });
-  _lifeDiceRenderers = [];
-}
-
-function renderAllLifeDice3D() {
-  clearLifeDice3D();
-  if (typeof THREE === 'undefined') {
-    _setLifeDiceDiag('Unavailable (THREE missing)');
-    return;
-  }
-  const probe = document.createElement('canvas');
-  const hasWebGL = !!(probe.getContext('webgl') || probe.getContext('experimental-webgl'));
-  if (!hasWebGL) {
-    _setLifeDiceDiag('Unavailable (no WebGL context)');
-    return;
-  }
-  let liveCount = 0;
-  let failMsg = '';
-  document.querySelectorAll('.life-d20-3d').forEach(host => {
-    try {
-      const size = 68;
-      const scene = new THREE.Scene();
-      const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
-      camera.position.set(0, 0.36, 4.9);
-
-      const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-      renderer.setSize(size, size);
-      renderer.setClearColor(0x000000, 0);
-      renderer.domElement.style.width = `${size}px`;
-      renderer.domElement.style.height = `${size}px`;
-      renderer.domElement.style.display = 'block';
-      renderer.domElement.style.position = 'absolute';
-      renderer.domElement.style.inset = '0';
-      renderer.domElement.style.zIndex = '2';
-      renderer.domElement.style.pointerEvents = 'none';
-      host.prepend(renderer.domElement);
-      host.classList.add('life-d20-live');
-
-      const ambient = new THREE.AmbientLight(0xffffff, 0.72);
-      const hemi = new THREE.HemisphereLight(0xfff5db, 0x1e2233, 0.58);
-      const key = new THREE.DirectionalLight(0xfff1d0, 1.28);
-      key.position.set(2, 2.8, 3.5);
-      const fill = new THREE.DirectionalLight(0xf7d08a, 0.35);
-      fill.position.set(-1.4, 1.1, 1.9);
-      const rim = new THREE.DirectionalLight(0x9db6ff, 0.62);
-      rim.position.set(-2.5, -1.2, -2.5);
-      scene.add(ambient, hemi, key, fill, rim);
-
-      const geo = new THREE.IcosahedronGeometry(1.48, 0);
-      const mat = new THREE.MeshStandardMaterial({
-        color: 0xc89d4d,
-        metalness: 0.36,
-        roughness: 0.2,
-        emissive: 0x211606,
-        emissiveIntensity: 0.16,
-      });
-      const mesh = new THREE.Mesh(geo, mat);
-      _buildLifeD20FaceNumbers(mesh, THREE);
-      scene.add(mesh);
-      const edges = new THREE.LineSegments(
-        new THREE.EdgesGeometry(geo),
-        new THREE.LineBasicMaterial({ color: 0x6c4a18, transparent: true, opacity: 0.55 })
-      );
-      mesh.add(edges);
-
-      const life = Number(host.dataset.life || 0);
-      const fallback = host.querySelector('.life-d20-fallback');
-      if (fallback) fallback.textContent = String(life);
-      const dir = host.dataset.dir || 'none';
-      const spinDir = dir === 'up' ? 1 : dir === 'down' ? -1 : 0;
-      const spinFrames = spinDir ? 28 : 0;
-      if (fallback) {
-        fallback.style.transition = 'opacity 120ms ease';
-        fallback.style.opacity = spinFrames > 0 ? '0' : '1';
-      }
-      const targetRot = _lifeDiceTargetRotation(life, camera.position, THREE);
-      const startRot = new THREE.Euler(targetRot.x, targetRot.y, targetRot.z);
-      if (spinDir !== 0) {
-        startRot.x += 1.8 * spinDir;
-        startRot.y += 2.2 * spinDir;
-        startRot.z += 1.2 * spinDir;
-      }
-      mesh.rotation.copy(startRot);
-      renderer.render(scene, camera);
-      let raf = 0;
-      let tick = 0;
-
-      const loop = () => {
-        if (tick >= spinFrames) {
-          mesh.rotation.copy(targetRot);
-          renderer.render(scene, camera);
-          if (fallback) fallback.style.opacity = '1';
-          raf = 0;
-          return;
-        }
-        tick += 1;
-        const t = tick / spinFrames;
-        const eased = 1 - Math.pow(1 - t, 3);
-        mesh.rotation.x = startRot.x + (targetRot.x - startRot.x) * eased;
-        mesh.rotation.y = startRot.y + (targetRot.y - startRot.y) * eased;
-        mesh.rotation.z = startRot.z + (targetRot.z - startRot.z) * eased;
-        renderer.render(scene, camera);
-        raf = requestAnimationFrame(loop);
-      };
-      if (spinFrames > 0) loop();
-      _lifeDiceRenderers.push({ host, renderer, scene, camera, mesh, raf });
-      liveCount += 1;
-    } catch (_) {
-      // Keep styled fallback visible if WebGL init fails.
-      host.classList.remove('life-d20-live');
-      failMsg = failMsg || 'renderer init failed';
-    }
-  });
-  if (liveCount > 0) _setLifeDiceDiag(`Active (${liveCount} live)`);
-  else _setLifeDiceDiag(`Fallback (${failMsg || 'unknown error'})`);
-}
-
-function _lifeDiceTargetRotation(life, cameraPos, THREERef = THREE) {
-  const THREEI = THREERef || THREE;
-  const value = Math.max(1, Math.min(20, Math.round(Number(life || 20))));
-  const faces = _getLifeD20FaceData(THREEI);
-  const targetFace = faces[value - 1] || faces[19];
-  const desiredFacing = new THREEI.Vector3(cameraPos.x, cameraPos.y, cameraPos.z).normalize();
-  const q = new THREEI.Quaternion().setFromUnitVectors(
-    targetFace.normal.clone().normalize(),
-    desiredFacing
-  );
-  return new THREEI.Euler().setFromQuaternion(q, 'XYZ');
-}
-
-function _getLifeD20FaceData(THREERef = THREE) {
-  if (_lifeD20FaceCache) return _lifeD20FaceCache;
-  const THREEI = THREERef || THREE;
-  const geo = new THREEI.IcosahedronGeometry(1.48, 0).toNonIndexed();
-  const pos = geo.attributes.position.array;
-  const faces = [];
-  for (let i = 0; i < pos.length; i += 9) {
-    const a = new THREEI.Vector3(pos[i], pos[i + 1], pos[i + 2]);
-    const b = new THREEI.Vector3(pos[i + 3], pos[i + 4], pos[i + 5]);
-    const c = new THREEI.Vector3(pos[i + 6], pos[i + 7], pos[i + 8]);
-    const center = a.clone().add(b).add(c).multiplyScalar(1 / 3);
-    const normal = b.clone().sub(a).cross(c.clone().sub(a)).normalize();
-    if (normal.dot(center) < 0) normal.multiplyScalar(-1);
-    faces.push({ center, normal });
-  }
-  geo.dispose();
-  faces.sort((f1, f2) => {
-    if (Math.abs(f2.center.y - f1.center.y) > 0.01) return f2.center.y - f1.center.y;
-    const a1 = Math.atan2(f1.center.z, f1.center.x);
-    const a2 = Math.atan2(f2.center.z, f2.center.x);
-    return a1 - a2;
-  });
-  _lifeD20FaceCache = faces;
-  return _lifeD20FaceCache;
-}
-
-function _buildLifeD20FaceNumbers(mesh, THREERef = THREE) {
-  const THREEI = THREERef || THREE;
-  const faces = _getLifeD20FaceData(THREEI);
-  const planeNormal = new THREEI.Vector3(0, 0, 1);
-  faces.forEach((face, idx) => {
-    const texture = _createLifeFaceNumberTexture(idx + 1, THREEI);
-    const material = new THREEI.MeshStandardMaterial({
-      map: texture,
-      transparent: true,
-      alphaTest: 0.25,
-      depthTest: true,
-      depthWrite: true,
-      side: THREEI.FrontSide,
-      polygonOffset: true,
-      polygonOffsetFactor: -2,
-      polygonOffsetUnits: -2,
-      metalness: 0.1,
-      roughness: 0.8,
-    });
-    const label = new THREEI.Mesh(new THREEI.PlaneGeometry(0.28, 0.28), material);
-    label.position.copy(face.center.clone().multiplyScalar(1.005));
-    label.quaternion.setFromUnitVectors(planeNormal, face.normal);
-    mesh.add(label);
-  });
-}
-
-function _createLifeFaceNumberTexture(value, THREERef = THREE) {
-  const THREEI = THREERef || THREE;
-  const canvas = document.createElement('canvas');
-  canvas.width = 128;
-  canvas.height = 128;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return new THREEI.CanvasTexture(canvas);
-  ctx.clearRect(0, 0, 128, 128);
-  ctx.fillStyle = '#1c1306';
-  ctx.font = '900 74px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(String(value), 64, 66);
-  const tex = new THREEI.CanvasTexture(canvas);
-  tex.minFilter = THREEI.LinearFilter;
-  tex.magFilter = THREEI.LinearFilter;
-  tex.generateMipmaps = false;
-  tex.needsUpdate = true;
-  return tex;
 }
 
 function renderGameLog(game) {

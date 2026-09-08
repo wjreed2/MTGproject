@@ -1,6 +1,11 @@
 // Analytics tab — charts and top value cards
 
 function renderStats() {
+  // Chart.js loads on demand — wait for it on the first render of this tab.
+  if (typeof Chart === 'undefined' && typeof ensureChartJs === 'function') {
+    ensureChartJs().then(() => renderStats()).catch(() => {});
+    return;
+  }
   renderColorChart();
   renderRarityChart();
   renderValueChart();
