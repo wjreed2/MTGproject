@@ -1103,14 +1103,9 @@ async function undoDeckHistoryEvent(historyId, ev) {
   showNotif('Undid ' + (name || 'action'));
 }
 
-async function toggleDeckHistory() {
-  _deckHistoryVisible = !_deckHistoryVisible;
-  document.getElementById('deckListPanel')?.classList.toggle('deck-history-active', _deckHistoryVisible);
-  document.getElementById('deckHistoryBtn')?.classList.toggle('active', _deckHistoryVisible);
-  if (_deckHistoryVisible && activeDeckId) {
-    try { _deckHistory = await apiFetch('/deck-history/' + activeDeckId); } catch (_) { _deckHistory = []; }
-    renderDeckHistory();
-  }
+/** History is a folder tab now — this just pages to/from it. */
+function toggleDeckHistory() {
+  setDeckBuilderTab(_deckHistoryVisible ? 'list' : 'history');
 }
 
 function _escapeHistoryHtml(s) {
@@ -3400,11 +3395,7 @@ function closeDeckDetail() {
   activeDeckId = null;
   activeDeckIsShared = false;
   localStorage.removeItem('mtg_active_deck_id');
-  if (_deckHistoryVisible) {
-    _deckHistoryVisible = false;
-    document.getElementById('deckListPanel')?.classList.remove('deck-history-active');
-    document.getElementById('deckHistoryBtn')?.classList.remove('active');
-  }
+  _deckHistoryVisible = false; // next deck's render re-enters via _applyDeckBuilderTab
   renderDecks();
 }
 
@@ -3910,11 +3901,7 @@ function selectDeck(id) {
   activeDeckIsShared = !decks.some(d => d.id === id);
   if (typeof clearDeckOwnerCollectionLookup === 'function') clearDeckOwnerCollectionLookup();
   localStorage.setItem('mtg_active_deck_id', id);
-  if (_deckHistoryVisible) {
-    _deckHistoryVisible = false;
-    document.getElementById('deckListPanel')?.classList.remove('deck-history-active');
-    document.getElementById('deckHistoryBtn')?.classList.remove('active');
-  }
+  _deckHistoryVisible = false; // the render's _applyDeckBuilderTab refetches for this deck
   if (typeof joinDeckRoom === 'function') joinDeckRoom(id);
   void _selectDeckRefreshAndRender(id);
 }
@@ -8829,7 +8816,7 @@ function _applyDeckInfoCollapsed() {
 // File-folder tabs above the deck detail that page between section groups.
 // Panes only hide/show — every section keeps rendering into its usual DOM.
 // Choice persists user-wide, not per deck.
-const _DECK_BUILDER_TABS = ['list', 'design', 'suggestions', 'analytics', 'share'];
+const _DECK_BUILDER_TABS = ['list', 'design', 'suggestions', 'analytics', 'history', 'share'];
 
 function _deckBuilderTab() {
   try {
@@ -8869,6 +8856,19 @@ function _applyDeckBuilderTab() {
     const pane = document.getElementById('deckTabPane-' + key);
     if (btn) { btn.classList.toggle('active', on); btn.setAttribute('aria-selected', on ? 'true' : 'false'); }
     if (pane) pane.classList.toggle('active', on);
+  }
+
+  // History lives in its own tab: entering it fetches + renders, leaving it
+  // just clears the flag (event logging checks it before re-rendering).
+  const historyOn = active === 'history';
+  if (historyOn !== _deckHistoryVisible) {
+    _deckHistoryVisible = historyOn;
+    if (historyOn && activeDeckId) {
+      apiFetch('/deck-history/' + activeDeckId)
+        .then(h => { _deckHistory = h; })
+        .catch(() => { _deckHistory = []; })
+        .then(() => { if (_deckHistoryVisible) renderDeckHistory(); });
+    }
   }
 
   if (active === 'analytics') {

@@ -650,10 +650,6 @@
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" style="width:13px;height:13px;flex-shrink:0"><line x1="8" y1="2" x2="8" y2="14"/><line x1="2" y1="8" x2="14" y2="8"/></svg>
           Add cards
         </button>
-        <button id="deckHistoryBtn" type="button" class="btn btn-outline btn-sm" onclick="toggleDeckHistory()" style="display:inline-flex;align-items:center;gap:5px;white-space:nowrap" title="Adds, removals, main↔maybe board, tag changes">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><circle cx="8" cy="8" r="5.7"/><path d="M8 5.2v3.1l2 1.2"/></svg>
-          History
-        </button>
         <button class="btn btn-outline btn-sm" onclick="openDeckTagManager()" title="Manage reusable deck tags">Manage Tags</button>
         <div id="deckTopMenuWrap" style="position:relative;flex-shrink:0">
           <button class="btn btn-outline btn-sm" onclick="toggleDeckOptionsDropdown()" id="deckOptionsBtn" title="More options" style="padding:2px 10px">
@@ -734,6 +730,7 @@
         <button type="button" class="deck-ftab" id="deckFtab-design" role="tab" aria-selected="false" onclick="setDeckBuilderTab('design')">Design</button>
         <button type="button" class="deck-ftab" id="deckFtab-suggestions" role="tab" aria-selected="false" onclick="setDeckBuilderTab('suggestions')">Suggestions</button>
         <button type="button" class="deck-ftab" id="deckFtab-analytics" role="tab" aria-selected="false" onclick="setDeckBuilderTab('analytics')">Analytics</button>
+        <button type="button" class="deck-ftab" id="deckFtab-history" role="tab" aria-selected="false" onclick="setDeckBuilderTab('history')" title="Adds, removals, main↔maybe board, tag changes">History</button>
         <button type="button" class="deck-ftab" id="deckFtab-share" role="tab" aria-selected="false" onclick="setDeckBuilderTab('share')">Share</button>
       </div>
 
@@ -813,7 +810,6 @@
           </div>
         </div>
         <div id="deckListPanel" class="deck-list-panel-wrap">
-          <div id="deckHistoryPanel" class="deck-history-panel-inner" aria-live="polite"></div>
           <div id="deckCardList" style="overflow-y:auto"></div>
           <div id="deckTokensSection" class="deck-tokens-section" hidden>
             <div class="deck-tokens-inner">
@@ -1019,6 +1015,10 @@
         </div>
       </div>
       </div><!-- /deckTabPane-analytics -->
+
+      <div id="deckTabPane-history" class="deck-tab-pane">
+        <div id="deckHistoryPanel" class="deck-history-panel-inner" aria-live="polite"></div>
+      </div><!-- /deckTabPane-history -->
 
       <div id="deckTabPane-design" class="deck-tab-pane">
       <!-- Commander Gameplan Probability -->
