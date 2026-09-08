@@ -1197,7 +1197,14 @@ body.glass-mode .glass-menu-item { font-family: var(--glass-font); }
 .sim-score-bar-wrap {
   flex: 1; height: 8px; background: var(--bg4); border-radius: 4px; overflow: hidden;
 }
-.sim-score-bar { height: 100%; border-radius: 4px; transition: width 0.4s var(--ease); }
+.sim-score-bar {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.4s var(--ease);
+  /* Liquid-glass gradient fill (outranks the inline score color) */
+  background: linear-gradient(90deg, rgb(var(--lgx1)), rgb(var(--lgx2))) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.35);
+}
 .sim-score-label { font-size: 0.9rem; font-weight: 700; font-variant-numeric: tabular-nums; min-width: 36px; text-align: right; }
 .sim-chip-row { display: flex; flex-wrap: wrap; gap: 5px; }
 .sim-chip {
@@ -5442,6 +5449,9 @@ textarea.deck-import:focus { outline: none; border-color: var(--gold); }
   height: 100%;
   border-radius: 4px;
   transition: width 0.3s;
+  /* Liquid-glass gradient fill (outranks the inline probability color) */
+  background: linear-gradient(90deg, rgb(var(--lgx1)), rgb(var(--lgx2))) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.35);
 }
 .cmdr-gp-scenario-pct {
   font-family: 'JetBrains Mono', monospace;
@@ -8739,11 +8749,9 @@ body.glass-mode .deck-tab-pane .dlf-text:focus {
   display: block;
   height: 100%;
   border-radius: 4px;
-  background: var(--text3);
+  background: linear-gradient(90deg, rgb(var(--lgx1)), rgb(var(--lgx2)));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.35);
 }
-.deck-themes-bar-fill.deck-themes-band--decent { background: var(--teal); }
-.deck-themes-bar-fill.deck-themes-band--focused,
-.deck-themes-bar-fill.deck-themes-band--very_focused { background: var(--gold); }
 .deck-themes-cards {
   display: flex;
   flex-wrap: wrap;
