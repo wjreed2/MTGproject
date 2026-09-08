@@ -1295,7 +1295,7 @@ body.glass-mode .glass-menu-item { font-family: var(--glass-font); }
 }
 #tab-decks .deck-list-group-head--sb {
   color: var(--teal);
-  border-top: 2px dashed var(--border2);
+  border-top: 1px solid var(--border);
   margin-top: 6px;
 }
 #tab-decks .deck-list-group-head--main {
@@ -4291,15 +4291,8 @@ img.stack-main.loaded { opacity: 1; }
   margin: 0;
   box-sizing: border-box;
 }
-.deck-stack-view > .deck-extra-zones-wrap::before {
-  content: '';
-  position: absolute;
-  left: -15px;
-  top: 0;
-  bottom: 0;
-  border-left: 2px dashed var(--border2);
-  pointer-events: none;
-}
+/* (Dashed column divider before the MB/ADDS/CUTS zones removed — the zones sit
+   directly on the tab page now.) */
 .deck-stack-view.deck-stack-view--zones-below {
   flex-direction: column;
   align-items: stretch;
@@ -4439,7 +4432,6 @@ img.stack-main.loaded { opacity: 1; }
 .deck-stack-view.vertical-orient > .deck-extra-zones-wrap > .deck-extra-zone-section + .deck-extra-zone-section,
 .deck-stack-view.vertical-orient > .deck-extra-zones-wrap > .deck-sideboard-section + .deck-sideboard-section,
 .deck-stack-view > .deck-extra-zones-wrap > .deck-extra-zone-section + .deck-extra-zone-section {
-  border-top: 1px dashed var(--border2);
   padding-top: 0.75rem;
   margin-top: 0;
   border-left: none;
@@ -4508,7 +4500,7 @@ img.stack-main.loaded { opacity: 1; }
   border-color: var(--border2);
   border-width: 3px;
 }
-.stack-main.is-commander { border-color: var(--border2); }
+/* (Commander tile no longer carries a gray border — the crown badge marks it.) */
 .deck-stack-card.has-validation-error .stack-wrap::before,
 .deck-card-row.has-validation-error::before {
   content: '';
@@ -4924,7 +4916,7 @@ img.stack-main.loaded { opacity: 1; }
 }
 
 .deck-sideboard-section:not(.deck-extra-zone-section) {
-  border-top: 2px dashed var(--border2);
+  border-top: 1px solid var(--border);
   padding-top: 1.25rem;
   margin-top: 0.25rem;
 }
@@ -6102,7 +6094,7 @@ body.glass-mode .deck-tab-pane .dlf-text:focus {
 /* Deck history lives in its own folder tab (deckTabPane-history) */
 .deck-tokens-section {
   flex: 0 0 auto;
-  border-top: 2px dashed var(--border2);
+  border-top: 1px solid var(--border); /* solid, matching the group-header underlines */
   max-height: min(50vh, calc(var(--deck-card-w, 220px) / 0.715 + 100px));
   overflow-y: auto;
   overflow-x: hidden;
