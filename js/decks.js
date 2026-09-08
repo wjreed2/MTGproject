@@ -10074,13 +10074,16 @@ function _hypergeoAtLeast(N, K, n, minK) {
 
 let _openingHandChartInst = null;
 
-/** Vertical-fade gradient for glassy Chart.js bars; rgb as "r,g,b". */
-function _glassBarGradient(context, rgb) {
+/** Liquid-glass bar fill: blue at the top melting into purple, per theme accents. */
+function _lgxBarGradient(context) {
+  const cs = getComputedStyle(document.documentElement);
+  const c1 = (cs.getPropertyValue('--lgx1') || '110,168,255').trim();
+  const c2 = (cs.getPropertyValue('--lgx2') || '168,140,255').trim();
   const { ctx, chartArea } = context.chart;
-  if (!chartArea) return `rgba(${rgb},0.7)`;
+  if (!chartArea) return `rgba(${c1},0.7)`;
   const g = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
-  g.addColorStop(0, `rgba(${rgb},0.9)`);
-  g.addColorStop(1, `rgba(${rgb},0.3)`);
+  g.addColorStop(0, `rgba(${c1},0.92)`);
+  g.addColorStop(1, `rgba(${c2},0.38)`);
   return g;
 }
 const _GLASS_TICK = '#8a90a4';
@@ -10107,11 +10110,7 @@ function renderOpeningHandChart(deck) {
       labels: buckets.map(String),
       datasets: [{
         data,
-        backgroundColor: ctx => {
-          const k = ctx.dataIndex;
-          const rgb = (k <= 1 || k >= 5) ? '214,96,96' : (k === 2 || k === 4) ? '224,178,96' : '86,190,124';
-          return _glassBarGradient(ctx, rgb);
-        },
+        backgroundColor: _lgxBarGradient,
         borderColor: 'rgba(255,255,255,0.30)',
         borderWidth: 1, borderRadius: 6,
       }]
@@ -10159,11 +10158,7 @@ function renderLandCoverageChart(deck) {
       labels: turns.map(t => `T${t}`),
       datasets: [{
         data,
-        backgroundColor: ctx => {
-          const p = ctx.parsed?.y ?? 0;
-          const rgb = p >= 85 ? '86,190,124' : p >= 65 ? '224,178,96' : '214,96,96';
-          return _glassBarGradient(ctx, rgb);
-        },
+        backgroundColor: _lgxBarGradient,
         borderColor: 'rgba(255,255,255,0.30)',
         borderWidth: 1, borderRadius: 6,
       }]
