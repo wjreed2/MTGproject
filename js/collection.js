@@ -686,6 +686,46 @@ function _syncQuickFilterUI() {
   if (btn) { btn.style.display = total > 0 ? '' : 'none'; btn.textContent = `✕ Clear (${total})`; }
 }
 
+// ── Chunked grid rendering (M1) ──────────────────────────────────────────────
+// The grid used to be built as ONE innerHTML string for the entire filtered
+// collection — a multi-hundred-ms parse + layout stall on every render for
+// large collections. Now: the first screenful-plus-buffer renders synchronously
+// and the remainder streams in rAF-sized chunks, generation-guarded so a newer
+// render cancels the tail. Offscreen tiles additionally skip layout/paint via
+// content-visibility (see the #cardGrid .card-item rule in main.css).
+let _collectionRenderGen = 0;
+const _COLLECTION_RENDER_FIRST = 150;
+const _COLLECTION_RENDER_CHUNK = 400;
+
+function _renderCollectionTiles(grid, cards, tileHtml) {
+  const gen = ++_collectionRenderGen;
+  // Hold the grid's height while the tail streams in so a mid-scroll re-render
+  // (e.g. the price repaint) doesn't collapse the page and yank the scroll.
+  const prevH = grid.offsetHeight;
+  if (prevH > 0 && cards.length > _COLLECTION_RENDER_FIRST) {
+    grid.style.minHeight = prevH + 'px';
+  }
+  grid.innerHTML = cards.slice(0, _COLLECTION_RENDER_FIRST).map(tileHtml).join('');
+  if (cards.length <= _COLLECTION_RENDER_FIRST) {
+    grid.style.minHeight = '';
+    return;
+  }
+  let idx = _COLLECTION_RENDER_FIRST;
+  const step = () => {
+    if (gen !== _collectionRenderGen) return; // superseded by a newer render
+    const tab = document.getElementById('tab-collection');
+    if (tab && !tab.classList.contains('active')) return; // tab re-entry re-renders fully
+    const end = Math.min(idx + _COLLECTION_RENDER_CHUNK, cards.length);
+    let html = '';
+    for (let i = idx; i < end; i++) html += tileHtml(cards[i]);
+    grid.insertAdjacentHTML('beforeend', html);
+    idx = end;
+    if (idx < cards.length) requestAnimationFrame(step);
+    else grid.style.minHeight = '';
+  };
+  requestAnimationFrame(step);
+}
+
 function renderCollection(opts) {
   const skipPriceFetch = !!(opts && opts.skipPriceFetch);
   const grid = document.getElementById('cardGrid');
@@ -735,44 +775,32 @@ function renderCollection(opts) {
   };
 
   try {
-    if (currentView === 'list') {
-      grid.innerHTML = cards.map(c => {
-        const tileImg = c.imageLarge || c.image;
-        const setCode = String(c.set || '').toUpperCase();
-        return `
+    const isListView = currentView === 'list';
+    const tileHtml = (c) => {
+      const tileImg = c.imageLarge || c.image;
+      const setCode = String(c.set || '').toUpperCase();
+      const placeholder = isListView
+        ? '<div class="card-img-placeholder">?</div>'
+        : `<div class="card-img-placeholder"><svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="1"><rect x="2" y="2" width="20" height="20" rx="2"/><path d="M8 12h8M12 8v8"/></svg><span>${setCode}</span></div>`;
+      const setLine = isListView
+        ? `<div style="font-size:0.78rem;color:var(--text3)">${setCode} • ${(typeof resolveCardTypeLine === 'function' ? resolveCardTypeLine(c) : (c.type || '')).split('—')[0].trim()}</div>`
+        : '';
+      return `
       <div class="card-item" onclick="openCardDetail('${c.uid}')">
         <div class="card-img-wrap${c.foil ? ' foil' : ''}">
-          ${tileImg ? `<img ${cardThumbAttrs(c, currentView)} alt="${escapeHtml(c.name)}" onload="this.classList.add('loaded');imgFadeSeenMark(this)" onerror="this.classList.add('loaded')">` : '<div class="card-img-placeholder">?</div>'}
+          ${tileImg ? `<img ${cardThumbAttrs(c, currentView)} alt="${escapeHtml(c.name)}" onload="this.classList.add('loaded');imgFadeSeenMark(this)" onerror="this.classList.add('loaded')">` : placeholder}
           ${c.foil ? `<div class="card-foil-overlay"></div><div class="card-foil-badge">✦ FOIL</div>` : ''}
           ${!isSharedView && isRecentlyAdded(c) ? `<div class="card-new-badge" title="New card"></div>` : ''}
           ${!isSharedView ? `<button type="button" class="collection-card-star${c.starred ? ' is-starred' : ''}" data-card-uid="${c.uid}" onclick="toggleCardStar('${c.uid}',event)" aria-pressed="${c.starred ? 'true' : 'false'}" aria-label="${c.starred ? 'Unstar card' : 'Star card'}">${c.starred ? '★' : '☆'}</button>` : ''}
         </div>
         <div class="card-meta">
           <div class="card-name">${escapeHtml(c.name)}</div>
-          <div style="font-size:0.78rem;color:var(--text3)">${setCode} • ${(typeof resolveCardTypeLine === 'function' ? resolveCardTypeLine(c) : (c.type || '')).split('—')[0].trim()}</div>
+          ${setLine}
           ${_htmlCardPriceBadges(c, _badgeCtx)}
         </div>
       </div>`;
-      }).join('');
-    } else {
-      grid.innerHTML = cards.map(c => {
-        const tileImg = c.imageLarge || c.image;
-        const setCode = String(c.set || '').toUpperCase();
-        return `
-      <div class="card-item" onclick="openCardDetail('${c.uid}')">
-        <div class="card-img-wrap${c.foil ? ' foil' : ''}">
-          ${tileImg ? `<img ${cardThumbAttrs(c, currentView)} alt="${escapeHtml(c.name)}" onload="this.classList.add('loaded');imgFadeSeenMark(this)" onerror="this.classList.add('loaded')">` : `<div class="card-img-placeholder"><svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="1"><rect x="2" y="2" width="20" height="20" rx="2"/><path d="M8 12h8M12 8v8"/></svg><span>${setCode}</span></div>`}
-          ${c.foil ? `<div class="card-foil-overlay"></div><div class="card-foil-badge">✦ FOIL</div>` : ''}
-          ${!isSharedView && isRecentlyAdded(c) ? `<div class="card-new-badge" title="New card"></div>` : ''}
-          ${!isSharedView ? `<button type="button" class="collection-card-star${c.starred ? ' is-starred' : ''}" data-card-uid="${c.uid}" onclick="toggleCardStar('${c.uid}',event)" aria-pressed="${c.starred ? 'true' : 'false'}" aria-label="${c.starred ? 'Unstar card' : 'Star card'}">${c.starred ? '★' : '☆'}</button>` : ''}
-        </div>
-        <div class="card-meta">
-          <div class="card-name">${escapeHtml(c.name)}</div>
-          ${_htmlCardPriceBadges(c, _badgeCtx)}
-        </div>
-      </div>`;
-      }).join('');
-    }
+    };
+    _renderCollectionTiles(grid, cards, tileHtml);
   } catch (e) {
     console.error('[collection] render failed:', e);
   }

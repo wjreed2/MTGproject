@@ -97,3 +97,23 @@ for (const [out, files] of Object.entries(CHUNKS)) {
   fs.writeFileSync(outPath, code, 'utf8');
   console.log(`Wrote ${path.relative(ROOT, outPath)} (${(code.length / 1024).toFixed(0)} KiB)`);
 }
+
+// Render-blocking stylesheets, minified into dist/. The manifest records the
+// sha256 of each SOURCE file at build time; serveIndex only points the page at
+// the minified copy when the live source still hashes the same, so a CSS edit
+// without a rebuild degrades to the raw stylesheet instead of shipping stale
+// styles. (mtime comparison would be meaningless — git checkouts don't
+// preserve modification times.)
+const crypto = require('crypto');
+const cssManifest = {};
+for (const name of ['main.css', 'mobile.css']) {
+  const src = path.join(ROOT, 'styles', name);
+  if (!fs.existsSync(src)) continue;
+  const source = fs.readFileSync(src, 'utf8');
+  const { code } = esbuild.transformSync(source, { loader: 'css', minify: true });
+  const outPath = path.join(ROOT, 'dist', name);
+  fs.writeFileSync(outPath, code, 'utf8');
+  cssManifest[name] = crypto.createHash('sha256').update(source).digest('hex');
+  console.log(`Wrote ${path.relative(ROOT, outPath)} (${(code.length / 1024).toFixed(0)} KiB)`);
+}
+fs.writeFileSync(path.join(ROOT, 'dist', 'css-manifest.json'), JSON.stringify(cssManifest, null, 2) + '\n', 'utf8');

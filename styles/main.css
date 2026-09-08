@@ -10737,3 +10737,15 @@ body.glass-mode .card-detail-text {
   border: none;
   border-radius: 0;
 }
+
+/* ── Collection grid rendering cost (M1) ─────────────────────────────────────
+   Offscreen collection tiles skip layout + paint entirely. The intrinsic
+   estimate only stabilizes the scrollbar before a tile first renders; the
+   `auto` keyword makes the browser remember each tile's real size afterwards.
+   Pairs with the chunked streaming render in js/collection.js
+   (_renderCollectionTiles) — together, render cost tracks the viewport,
+   not the collection size. */
+#cardGrid .card-item {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 180px auto 300px;
+}
