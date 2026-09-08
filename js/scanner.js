@@ -4874,7 +4874,14 @@ function _scnClearSession() {
   _scnRenderSession();
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+// One-time DOM wiring. The scanner ships as a lazy chunk loaded well after
+// DOMContentLoaded has fired, so this must run immediately in that case — a
+// bare DOMContentLoaded listener would never fire and the zoom slider /
+// Enter-to-search bindings would silently go dead.
+let _scnDomInitDone = false;
+function _scnDomInit() {
+  if (_scnDomInitDone) return;
+  _scnDomInitDone = true;
   if (typeof mountPurchasePriceOptInHosts === 'function') mountPurchasePriceOptInHosts();
   _scnRefreshAutoModeUI();
   _scnRefreshVoiceModeUI();
@@ -4884,4 +4891,9 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('scnNameInput')?.addEventListener('keydown', e => {
     if (e.key === 'Enter') scnSearchManual();
   });
-});
+}
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', _scnDomInit);
+} else {
+  _scnDomInit();
+}
