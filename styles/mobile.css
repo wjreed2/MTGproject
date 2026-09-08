@@ -718,3 +718,60 @@
   }
   main { padding-left: 1rem; padding-right: 1rem; }
 }
+
+/* ── Phones keep the ORIGINAL MB/ADDS/CUTS zones look ────────────────────────
+   The desktop glass-box treatment of the zones, the labeled collapse pills,
+   and their solid separators are reverted here — the zones are unchanged on
+   mobile by request. (Tokens/commander tweaks apply on mobile too.) */
+@media (max-width: 768px) {
+  .deck-extra-zone-section,
+  body.glass-mode .deck-extra-zone-section {
+    border: none !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+  }
+  .deck-stack-view.vertical-orient > .deck-extra-zones-wrap > .deck-extra-zone-section + .deck-extra-zone-section,
+  .deck-stack-view.vertical-orient > .deck-extra-zones-wrap > .deck-sideboard-section + .deck-sideboard-section,
+  .deck-stack-view > .deck-extra-zones-wrap > .deck-extra-zone-section + .deck-extra-zone-section {
+    border-top: 1px dashed var(--border2) !important;
+    padding-top: 0.75rem !important;
+  }
+  .deck-stack-view > .deck-extra-zones-wrap::before {
+    content: '';
+    position: absolute;
+    left: -15px;
+    top: 0;
+    bottom: 0;
+    border-left: 2px dashed var(--border2);
+    pointer-events: none;
+  }
+  /* Collapsed zone = the original compact arrow */
+  .deck-extra-zone-section.is-collapsed { width: auto !important; }
+  .deck-extra-zone-section.is-collapsed:hover {
+    background: transparent !important;
+    border-color: transparent !important;
+  }
+  .deck-extra-zone-section.is-collapsed .deck-extra-zone-label,
+  .deck-extra-zone-section.is-collapsed .deck-stack-group-count { display: none !important; }
+  .deck-extra-zone-section.is-collapsed .deck-extra-zone-header,
+  .deck-extra-zone-section.is-collapsed .deck-sideboard-header {
+    width: 1.35rem !important;
+    min-width: 1.35rem !important;
+    padding: 4px 0 !important;
+    letter-spacing: 0 !important;
+    gap: 0 !important;
+    justify-content: center !important;
+    text-align: center !important;
+  }
+  .deck-extra-zones-wrap--list .deck-extra-zone-section.is-collapsed .deck-list-group-head {
+    width: 1.35rem !important;
+    min-width: 1.35rem !important;
+    padding: 4px 0 !important;
+  }
+  .deck-stack-view > .deck-extra-zones-wrap:has(.deck-extra-zone-section.is-collapsed) {
+    gap: 4px;
+    padding-left: 4px;
+  }
+}
