@@ -59,56 +59,62 @@
 </div>
 
 <div id="authGate" class="auth-gate" style="display:none" aria-hidden="true">
-  <div class="auth-card">
-    <div class="logo-gem" style="margin:0 auto 1rem"></div>
-    <h1 class="auth-title">MTG Archive</h1>
-    <p class="auth-sub">Sign in to load your collection, decks, and wishlist.</p>
-    <div id="authError" class="auth-error" style="display:none" role="alert"></div>
-    <form id="authLoginForm" onsubmit="return submitAuthLogin(event)">
-      <label class="auth-label">Email
-        <input class="auth-input" type="email" id="authEmail" required autocomplete="username">
-      </label>
-      <label class="auth-label">Password
-        <input class="auth-input" type="password" id="authPassword" required autocomplete="current-password">
-      </label>
-      <button type="submit" class="btn btn-primary auth-submit">Sign in</button>
-    </form>
-    <p class="auth-switch">New here? <button type="button" class="btn-link" onclick="showAuthRegister()">Create an account</button> · <button type="button" class="btn-link" onclick="showForgotPassword()">Forgot password?</button></p>
-    <div id="authRegisterPanel" style="display:none">
-      <h2 class="auth-register-heading">Create account</h2>
-      <form id="authRegisterForm" onsubmit="return submitAuthRegister(event)">
-        <label class="auth-label">Email
-          <input class="auth-input" type="email" id="regEmail" required autocomplete="email">
-        </label>
-        <label class="auth-label">Password (8+ characters)
-          <input class="auth-input" type="password" id="regPassword" required autocomplete="new-password">
-        </label>
-        <button type="submit" class="btn btn-primary auth-submit">Register</button>
-      </form>
-      <p class="auth-switch"><button type="button" class="btn-link" onclick="showAuthLogin()">Back to sign in</button></p>
+  <div class="auth-shell">
+    <div class="deck-folder-tabs auth-folder-tabs" role="tablist" aria-label="Account">
+      <button type="button" class="deck-ftab active" id="authTabSignIn" role="tab" aria-selected="true" onclick="showAuthLogin()">Sign in</button>
+      <button type="button" class="deck-ftab" id="authTabRegister" role="tab" aria-selected="false" onclick="showAuthRegister()">Create account</button>
     </div>
-    <div id="authForgotPanel" style="display:none">
-      <h2 class="auth-register-heading">Reset password</h2>
-      <form id="authForgotForm" onsubmit="return submitForgotPassword(event)">
+    <div class="auth-card">
+      <div class="auth-brand">
+        <div class="logo-gem"></div>
+        <h1 class="auth-title">MTG Archive</h1>
+      </div>
+      <p class="auth-sub">Your collection, decks, and wishlist in one place.</p>
+      <div id="authError" class="auth-error" style="display:none" role="alert"></div>
+      <form id="authLoginForm" onsubmit="return submitAuthLogin(event)">
         <label class="auth-label">Email
-          <input class="auth-input" type="email" id="forgotEmail" required autocomplete="email">
+          <input class="auth-input" type="email" id="authEmail" required autocomplete="username">
         </label>
-        <button type="submit" class="btn btn-primary auth-submit">Send reset link</button>
+        <label class="auth-label">Password
+          <input class="auth-input" type="password" id="authPassword" required autocomplete="current-password">
+        </label>
+        <button type="submit" class="btn btn-primary auth-submit">Sign in</button>
+        <p class="auth-switch"><button type="button" class="btn-link" onclick="showForgotPassword()">Forgot password?</button></p>
       </form>
-      <p class="auth-switch"><button type="button" class="btn-link" onclick="showAuthLogin()">Back to sign in</button></p>
-    </div>
-    <div id="authResetPanel" style="display:none">
-      <h2 class="auth-register-heading">Set new password</h2>
-      <form id="authResetForm" onsubmit="return submitResetPassword(event)">
-        <label class="auth-label">New password (8+ characters)
-          <input class="auth-input" type="password" id="resetPassword" required autocomplete="new-password">
-        </label>
-        <label class="auth-label">Confirm password
-          <input class="auth-input" type="password" id="resetPasswordConfirm" required autocomplete="new-password">
-        </label>
-        <button type="submit" class="btn btn-primary auth-submit">Set password</button>
-      </form>
-      <p class="auth-switch"><button type="button" class="btn-link" onclick="showAuthLogin()">Back to sign in</button></p>
+      <div id="authRegisterPanel" style="display:none">
+        <form id="authRegisterForm" onsubmit="return submitAuthRegister(event)">
+          <label class="auth-label">Email
+            <input class="auth-input" type="email" id="regEmail" required autocomplete="email">
+          </label>
+          <label class="auth-label">Password (8+ characters)
+            <input class="auth-input" type="password" id="regPassword" required autocomplete="new-password">
+          </label>
+          <button type="submit" class="btn btn-primary auth-submit">Create account</button>
+        </form>
+      </div>
+      <div id="authForgotPanel" style="display:none">
+        <h2 class="auth-register-heading">Reset password</h2>
+        <form id="authForgotForm" onsubmit="return submitForgotPassword(event)">
+          <label class="auth-label">Email
+            <input class="auth-input" type="email" id="forgotEmail" required autocomplete="email">
+          </label>
+          <button type="submit" class="btn btn-primary auth-submit">Send reset link</button>
+        </form>
+        <p class="auth-switch"><button type="button" class="btn-link" onclick="showAuthLogin()">Back to sign in</button></p>
+      </div>
+      <div id="authResetPanel" style="display:none">
+        <h2 class="auth-register-heading">Set new password</h2>
+        <form id="authResetForm" onsubmit="return submitResetPassword(event)">
+          <label class="auth-label">New password (8+ characters)
+            <input class="auth-input" type="password" id="resetPassword" required autocomplete="new-password">
+          </label>
+          <label class="auth-label">Confirm password
+            <input class="auth-input" type="password" id="resetPasswordConfirm" required autocomplete="new-password">
+          </label>
+          <button type="submit" class="btn btn-primary auth-submit">Set password</button>
+        </form>
+        <p class="auth-switch"><button type="button" class="btn-link" onclick="showAuthLogin()">Back to sign in</button></p>
+      </div>
     </div>
   </div>
 </div>
