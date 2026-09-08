@@ -1973,15 +1973,49 @@ body.glass-mode #voiceModal .deck-ftab.active::before {
 .voice-qty-value:focus { outline: none; color: rgb(var(--lgx1)); }
 
 /* Search bar + quick-select pills on the glass system */
-#voiceModal .search-box { height: 36px; border-radius: 8px; padding: 0 12px; }
+#voiceModal .search-box {
+  height: 34px;
+  border-radius: 8px;
+  padding: 0 12px;
+  border: 1px solid var(--border2);
+  box-sizing: border-box;
+}
 body.glass-mode #voiceModal .search-box {
   background: rgba(255,255,255,0.07);
-  border-color: rgba(255,255,255,0.16);
+  border: 1px solid rgba(255,255,255,0.28); /* clear outline, not a hairline */
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.10);
 }
+[data-theme="light"] body.glass-mode #voiceModal .search-box {
+  background: rgba(255,255,255,0.6);
+  border-color: rgba(90,110,160,0.35);
+}
 #voiceModal .search-box:focus {
-  border-color: rgba(var(--lgx1), 0.6);
+  border-color: rgba(var(--lgx1), 0.75);
   box-shadow: 0 0 0 3px rgba(var(--lgx1), 0.18);
+}
+
+/* Autocomplete sits directly under the search bar. It must be absolute (not
+   fixed): the modal's backdrop-filter makes it the containing block for fixed
+   descendants, so viewport coords put the list far below/right of the input. */
+#findCardAutocomplete {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  width: 100%;
+  z-index: 9999;
+  max-height: 240px;
+  overflow-y: auto;
+  border-radius: 10px;
+  border: 1px solid rgba(var(--lgx1), 0.28);
+  background: rgba(18,24,44,0.96);
+  -webkit-backdrop-filter: blur(20px) saturate(1.15);
+  backdrop-filter: blur(20px) saturate(1.15);
+  box-shadow: 0 14px 34px rgba(0,0,0,0.5);
+}
+[data-theme="light"] #findCardAutocomplete {
+  background: rgba(252,253,255,0.97);
+  border-color: rgba(90,110,200,0.30);
+  box-shadow: 0 14px 34px rgba(40,60,120,0.20);
 }
 #voiceModal .filter-chip { border-radius: 999px; }
 #voiceModal .filter-chip:hover { border-color: rgba(var(--lgx1), 0.55); color: var(--text); }

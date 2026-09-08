@@ -1440,6 +1440,11 @@
               <button type="button" id="voiceTargetAddsBtn" title="Planned adds — shown in the deck list but not counted until you apply swaps" onclick="setVoiceDeckAddTarget('adds')">Adds</button>
             </div>
           </div>
+          <label id="findAllPrintingsBar" class="btn btn-outline btn-sm voice-pill-toggle" title="Show every printing of each matching card, not just one">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><rect x="2" y="3.5" width="8" height="10" rx="1"/><path d="M5 1.5h7a1 1 0 0 1 1 1v8"/></svg>
+            All printings
+            <input type="checkbox" id="findAllPrintingsChk" onchange="toggleFindAllPrintings()">
+          </label>
           <!-- Search pool — which collection the search draws from -->
           <span id="deckPoolSourceWrap" style="display:none;align-items:center;gap:8px">
             <span style="font-size:0.78rem;color:var(--text2);white-space:nowrap"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;vertical-align:-2px;margin-right:4px"><circle cx="6.5" cy="6.5" r="4.5"/><path d="M10 10l3.5 3.5"/></svg>Search pool</span>
@@ -1507,7 +1512,7 @@
                 oninput="findCardAutocomplete(this.value);_syncFindFilterBtns(this.value)"
                 onkeydown="if(event.key==='Enter'){event.preventDefault();runFindCard(this.value);}"
                 autocomplete="off">
-              <div id="findCardAutocomplete" style="display:none;position:fixed;background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius2);z-index:9999;max-height:240px;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.5)"></div>
+              <div id="findCardAutocomplete" style="display:none"></div>
             </div>
             <div class="voice-qty-stepper" title="Quantity">
               <button type="button" class="btn btn-outline btn-sm btn-icon" onclick="_voiceQtyStep('findCardQty',-1)">−</button>

@@ -3884,15 +3884,11 @@ function toggleFindFoil() {
 let _findAcTimer = null;
 let _findAcNames = [];
 
-function _positionFindAc() {
-  const input = document.getElementById('findCardInput');
-  const drop  = document.getElementById('findCardAutocomplete');
-  if (!input || !drop) return;
-  const r = input.getBoundingClientRect();
-  drop.style.top   = (r.bottom + 4) + 'px';
-  drop.style.left  = r.left + 'px';
-  drop.style.width = r.width + 'px';
-}
+/* The dropdown is absolutely positioned under its input wrapper in CSS. It used
+   to be position:fixed with viewport coords, but the modal's backdrop-filter
+   makes it a containing block for fixed descendants, so those coords landed the
+   list well below and right of the search bar. */
+function _positionFindAc() {}
 
 const _KNOWN_SEARCH_KEYS = /\b(?:t|type|c|ci|color|id|cmc|mv|manavalue|r|rarity|s|e|set|edition|o|oracle|is|has|name|n|qty|q|tag|tags)\s*(?:>=|<=|!=|<>|[:=><])/i;
 function _findQueryHasTokens(q) { return _KNOWN_SEARCH_KEYS.test(q); }
@@ -3941,6 +3937,24 @@ function _syncFindFilterBtns(q) {
 
 let _findSearchOffset = 0;
 let _findSearchTotal = 0;
+let _findResultPrintings = false;
+/** "All printings" — expand each result into every printing of that card. */
+let _findAllPrintings = false;
+try { _findAllPrintings = localStorage.getItem('mtg_find_all_printings') === '1'; } catch (_) { /* private mode */ }
+
+function toggleFindAllPrintings() {
+  _findAllPrintings = !_findAllPrintings;
+  try { localStorage.setItem('mtg_find_all_printings', _findAllPrintings ? '1' : '0'); } catch (_) { /* private mode */ }
+  _syncFindAllPrintingsBtn();
+  const q = (document.getElementById('findCardInput')?.value || '').trim();
+  if (_findQueryForApi(q)) runFindCard(q);
+}
+
+function _syncFindAllPrintingsBtn() {
+  const chk = document.getElementById('findAllPrintingsChk');
+  if (chk) chk.checked = _findAllPrintings;
+}
+globalThis._syncFindAllPrintingsBtn = _syncFindAllPrintingsBtn;
 let _findSearchQuery = '';
 let _findColorFilters = new Set();
 let _findCardSort = '';            // '' = relevance | name | cmc | price | rarity
@@ -4234,6 +4248,9 @@ function _paintFindResults(el) {
     return;
   }
 
+  // A repaint rebuilds every tile, which resets scrollTop — after "Load more"
+  // that snapped back to the identical first page and looked like a dead button.
+  const prevScroll = el.scrollTop;
   el.innerHTML = '';
   const frag = document.createDocumentFragment();
   for (const c of _sortFindResultCards(_findResultCards)) {
@@ -4305,9 +4322,17 @@ function _paintFindResults(el) {
     const footer = document.createElement('div');
     footer.className = 'find-load-more-row';
     footer.style.cssText = 'grid-column:1/-1;padding:0.75rem 0;display:flex;align-items:center;gap:12px;justify-content:center;font-size:0.78rem;color:var(--text3)';
-    footer.innerHTML = `<span>${shown.toLocaleString()} of ${Number(total).toLocaleString()}</span>` +
-      (shown < total ? `<button class="btn btn-outline btn-sm" onclick="runFindCard(null,true)">Load more</button>` : '');
+    footer.innerHTML = (_findResultPrintings
+      ? `<span>${shown.toLocaleString()} printings from ${Number(total).toLocaleString()} cards</span>`
+      : `<span>${shown.toLocaleString()} of ${Number(total).toLocaleString()}</span>`) +
+      // Paging is by oracle cards fetched, so "more to load" must compare that —
+      // with printings expanded, shown can exceed the card total.
+      (_findSearchOffset < total ? `<button class="btn btn-outline btn-sm" onclick="runFindCard(null,true)">Load more</button>` : '');
     el.appendChild(footer);
+  }
+  if (prevScroll) {
+    el.scrollTop = prevScroll;
+    requestAnimationFrame(() => { el.scrollTop = prevScroll; });
   }
 }
 
@@ -4351,6 +4376,7 @@ async function runFindCard(q, append) {
       && _deckPoolSource === 'mine'
     );
     if (ownedOnly) url += '&owned=1';
+    if (_findAllPrintings) url += '&printings=1';
     const res = await fetch(url, { signal });
     if (!res.ok) {
       if (!append) { _findResultCards = []; el.innerHTML = '<div style="grid-column:1/-1;padding:1rem;font-size:0.85rem;color:var(--text3)">No cards found</div>'; }
@@ -4360,7 +4386,10 @@ async function runFindCard(q, append) {
     let cards = data.data || [];
     const total = data.total ?? null;
     _findSearchTotal = total;
-    _findSearchOffset += cards.length;
+    // Page by oracle cards consumed, not rows returned — "All printings" expands
+    // one card into many and would otherwise skip pages.
+    _findSearchOffset += Number.isFinite(data.pageCards) ? data.pageCards : cards.length;
+    _findResultPrintings = !!data.printings;
 
     const deckForOwner = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
     const needOwnerColl = typeof activeDeckIsShared !== 'undefined' && activeDeckIsShared && deckForOwner

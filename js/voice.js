@@ -721,6 +721,7 @@ function openVoice(options) {
   lastSetCodeCandidates = [];
   lastParseSpokenCode = '';
   renderVoiceSetSearchSettings();
+  if (typeof _syncFindAllPrintingsBtn === 'function') _syncFindAllPrintingsBtn();
   switchVoiceTab(voiceAddToActiveDeckMode ? 'search' : 'voice');
   pendingCard = null;
   voiceMode = 'scan';
