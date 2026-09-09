@@ -1285,26 +1285,23 @@ function _historyLiveCard(ev, deck) {
   return pools.find(c => _historyCardMatchesEvent(c, ev)) || null;
 }
 
+const _HIST_ICON = {
+  undo: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a5 5 0 1 1 1.6 3.7"/><path d="M3 4.5V8h3.5"/></svg>',
+};
+
+// Static icon buttons at the end of each row — no hover popover, so the actions
+// are always visible and never move under the cursor.
 function _htmlDeckHistoryQuickActions(opts) {
   const canEdit = opts?.canEdit !== false;
   if (!canEdit) return '';
-  const liveUid = opts?.liveUid ? String(opts.liveUid) : '';
-  const inMain = !!opts?.inMain && !!liveUid && !opts?.isCommander;
-  const swapsOn = opts?.swapsOn !== false;
-  const btns = [];
-  if (opts?.canUndo) {
-    btns.push('<button type="button" class="btn btn-outline btn-sm history-row-btn history-undo-btn" data-history-action="undo" title="Delete entry and undo this change">Undo</button>');
-  }
-  if (inMain) {
-    const uid = _escapeHistoryHtml(liveUid);
-    if (swapsOn) {
-      btns.push(`<button type="button" class="btn btn-outline btn-sm history-row-btn history-move-btn history-move-btn--adds" data-history-action="adds" data-live-uid="${uid}" title="Move this card from the mainboard to planned adds">Move to Adds</button>`);
-      btns.push(`<button type="button" class="btn btn-outline btn-sm history-row-btn history-move-btn history-move-btn--cuts" data-history-action="cuts" data-live-uid="${uid}" title="Move this card to planned cuts — it stays in the deck until you apply swaps">Move to Cuts</button>`);
-    }
-    btns.push(`<button type="button" class="btn btn-outline btn-sm history-row-btn history-move-btn" data-history-action="maybe" data-live-uid="${uid}" title="Move this card from the mainboard to the maybe board">Move to maybe board</button>`);
-  }
-  if (!btns.length) return '';
-  return `<div class="history-event-quick-actions">${btns.join('')}</div>`;
+  // Undo is the only row action; moving a card between zones belongs on the deck
+  // list, not in the log.
+  if (!opts?.canUndo) return '';
+  const title = 'Delete entry and undo this change';
+  return `<div class="history-event-quick-actions">`
+    + `<button type="button" class="btn btn-outline btn-sm btn-icon history-row-btn history-undo-btn"`
+    + ` data-history-action="undo" title="${title}" aria-label="${title}">${_HIST_ICON.undo}</button>`
+    + `</div>`;
 }
 
 function _openDeckHistoryCardInspector(row) {
@@ -1488,8 +1485,8 @@ function renderDeckHistory() {
             ${meta ? `<div class="history-event-meta">${_escapeHistoryHtml(meta)}</div>` : ''}
             <div class="history-event-time">${time}</div>
             ${actorLine}
+            <div class="history-event-kind">${_escapeHistoryHtml(badgeLabel)}</div>
           </div>
-          <div class="history-event-badge ${t.cls}${isTagEv ? ' history-tag-badge' : ''}">${_escapeHistoryHtml(badgeLabel)}</div>
           ${actions}
         </div>`;
       }).join('')}
@@ -2164,8 +2161,8 @@ function _placeDeckActionCluster() {
 }
 
 // Phones split the deck header across three rows: the deck name with its ✓/✗
-// badge and ⋮ on top, the commander line below it, then "All Decks" leading the
-// ⓘ + icon-only Add cards / Manage Tags row. That bottom row is .deck-back-row,
+// badge and ⋮ on top, the commander line below it, then the ⓘ + icon-only
+// Add cards / Manage Tags row. That bottom row is .deck-back-row,
 // so those three nodes move into it on phones and back to the title row /
 // action cluster on wider screens. Same nodes throughout, so ids, listeners and
 // the ⓘ popover's anchor survive the move.
@@ -2178,7 +2175,7 @@ function _placeDeckHeaderIcons(phone) {
   const addBtn = document.getElementById('deckBuilderVoiceBtn');
   const tagsBtn = document.getElementById('deckManageTagsBtn');
   if (phone) {
-    // Appended in order, so they trail the "All Decks" button already in the row.
+    // The row is otherwise empty, so these three are its only contents on phones.
     for (const el of [info, addBtn, tagsBtn]) {
       if (el && el.parentElement !== backRow) backRow.appendChild(el);
     }
@@ -3077,17 +3074,15 @@ function closeDeckTagManager() {
 function _renderDeckTagFilterBar(containerId) {
   const bar = document.getElementById(containerId);
   if (!bar) return;
-  const myTagsOnly = containerId === 'deckCardTagFilterBar';
-  const filters = myTagsOnly
-    ? [
-      { id: 'all', label: 'All tags' },
-      { id: 'default', label: 'Default tags' },
-      { id: 'primary', label: 'Apply as primary' },
-      { id: 'secondary', label: 'Apply as secondary' },
-    ]
-    : [
-      { id: 'all', label: 'All tags' },
-    ];
+  // Only the card tag picker has real filters; elsewhere the bar was a single
+  // "All tags" button that set the filter to what it already was.
+  if (containerId !== 'deckCardTagFilterBar') { bar.innerHTML = ''; bar.style.display = 'none'; return; }
+  const filters = [
+    { id: 'all', label: 'All tags' },
+    { id: 'default', label: 'Default tags' },
+    { id: 'primary', label: 'Apply as primary' },
+    { id: 'secondary', label: 'Apply as secondary' },
+  ];
   bar.innerHTML = filters.map(f => `
     <button type="button" class="btn btn-sm ${deckTagCatalogFilter === f.id ? 'btn-primary' : 'btn-outline'}"
       data-deck-tag-filter="${f.id}" onclick="setDeckTagCatalogFilter('${f.id}')">${f.label}</button>
@@ -3101,7 +3096,9 @@ function renderMyTagsCatalog(opts = {}) {
   _renderDeckTagFilterBar(filterBarId);
   const el = document.getElementById(listId);
   if (!el) return;
-  const allTags = _sortUserTagsForDisplay(_tagsForCatalogFilter(deckTagCatalogFilter));
+  // Always the full catalog — the picker's filter must not silently hide tags
+  // here now that there is no control to clear it.
+  const allTags = _sortUserTagsForDisplay(_tagsForCatalogFilter('all'));
   if (!allTags.length) {
     el.innerHTML = '<div style="padding:0.75rem;color:var(--text3);font-size:0.82rem">No My Tags yet — create one below. Assign primary or secondary when tagging cards.</div>';
     return;
@@ -3480,7 +3477,6 @@ function renderDecks() {
     // Show big grid, hide detail split
     document.getElementById('deckGridArea').style.display = '';
     document.getElementById('deckDetailArea').style.display = 'none';
-    document.getElementById('backToDecksBtn').style.display = 'none';
     if (topNewDeckBtn) topNewDeckBtn.style.display = '';
     if (importWrap) importWrap.style.display = '';
     renderDeckGrid();
@@ -3488,7 +3484,6 @@ function renderDecks() {
     // Show detail split, hide grid
     document.getElementById('deckGridArea').style.display = 'none';
     document.getElementById('deckDetailArea').style.display = 'flex';
-    document.getElementById('backToDecksBtn').style.display = '';
     if (topNewDeckBtn) topNewDeckBtn.style.display = 'none';
     if (importWrap) importWrap.style.display = 'none';
     applyDeckSidebarState();
@@ -3638,10 +3633,11 @@ function _deckShareUrl(token) { return location.origin + '/d/' + token; }
 function _syncDeckShareLinkBtn(deck) {
   const btn = document.getElementById('deckShareLinkBtn');
   if (!btn) return;
-  const on = !!(deck && deck.shareToken);
+  // Plain button, not a toggle — it opens the Share modal either way. The
+  // active state used to mean "a link exists", which the modal itself now says.
   btn.style.color = '';
-  btn.classList.toggle('active', on);
-  btn.title = on ? 'A view-only link is active — click to manage' : 'Get a view-only link anyone can open';
+  btn.classList.remove('active');
+  btn.title = 'Share this deck — link or collaborators';
 }
 
 function openDeckShareLinkModal() {
@@ -3650,6 +3646,12 @@ function openDeckShareLinkModal() {
   if (!m) return;
   m.classList.add('open');
   _renderDeckShareLinkBody();
+  // Collaborators moved in from the retired Share tab; nothing else renders
+  // them now, so the modal has to populate the list when it opens.
+  const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+  if (deck && typeof renderCollaboratorsPanel === 'function') {
+    Promise.resolve(renderCollaboratorsPanel(deck)).catch(() => {});
+  }
 }
 
 function closeDeckShareLinkModal() {
@@ -4719,11 +4721,34 @@ function _archManaCostHtml(card) {
 // Architecture view. Cards the model does not cover land in Unassigned.
 let _archGroupModel = null;
 
+// One analyze per deck for the Architecture view; repaints only when the goal
+// actually changes, so this cannot loop with renderDeckList.
+let _archGoalPending = '';
+function _ensureArchGoals(deck) {
+  if (!deck || typeof _e2Analyze !== 'function') return;
+  if (_e2AnalysisCache && _e2AnalysisCache.data && _e2AnalysisCache.data.goals) return;
+  const key = String(deck.id || '');
+  if (_archGoalPending === key) return;
+  _archGoalPending = key;
+  Promise.resolve(_e2Analyze(deck))
+    .then(res => {
+      if (!res || !res.goals || !res.goals.length) return;
+      if (getActiveDeck()?.id !== deck.id) return;
+      renderDeckList(deck);
+    })
+    .catch(() => {})
+    .finally(() => { _archGoalPending = ''; });
+}
+
 function _archModelOrNull(deck, cards) {
   try {
+    // Reuse whatever /api/decks/analyze already returned for this deck; the view
+    // falls back to detected themes until the goal lands, then re-renders.
+    const cached = (_e2AnalysisCache && _e2AnalysisCache.data) || null;
     return classifyDeckArchitecture(deck, typeof getDeckPlan === 'function' ? getDeckPlan(deck) : deck.plan, {
       cards,
       overrides: deck.architectureOverrides,
+      goals: cached && cached.goals ? cached.goals : null,
     });
   } catch (err) {
     console.error('Architecture view failed:', err);
@@ -8306,27 +8331,37 @@ function _renderDeckGoalReadout(deck, e2) {
     el.id = 'deckGoalReadout';
     panel.parentNode.insertBefore(el, panel);
   }
-  el.style.cssText = 'margin:0 0 10px;padding:.65rem .9rem;background:var(--bg3);border-radius:8px;font-size:.8rem;color:var(--text2);line-height:1.45';
+  el.className = 'deck-goal-card';
+  el.style.cssText = '';
   el.style.display = '';
-  const icon = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0;vertical-align:-2px;color:var(--teal)"><circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="2.5"/><path d="M8 2v2M8 12v2M2 8h2M12 8h2"/></svg>';
-  const pct = Math.round((top.confidence || 0) * 100);
+
   const comboHtml = (e2.combos || []).slice(0, 2).map(c =>
-    `<div style="color:var(--text3);font-size:.72rem;margin-top:2px">Combo detected: <span style="color:var(--gold)">${escapeHtml(c.label || c.key)}</span> — ${escapeHtml((c.members || []).join(' + '))}</div>`
+    `<div class="deck-goal-combo">Combo detected: <span>${escapeHtml(c.label || c.key)}</span> — ${escapeHtml((c.members || []).join(' + '))}</div>`
   ).join('');
   const second = e2.goals[1];
+  // Match % is plain text on the verdict scale — blue reads as a strong match,
+  // purple as a weak one, same as every other score in the rework.
+  // _lgxVerdictColor takes high = good (blue) / low = bad (purple), so the
+  // confidence goes in directly — a 93% match must read blue, not purple.
+  const matchHtml = (label, p) => {
+    const v = Math.round((p || 0) * 100);
+    return `<span class="deck-goal-match" style="color:${_lgxVerdictColor(p || 0)}">${v}% match</span>`;
+  };
   const secondBit = second && (second.confidence || 0) >= 0.85
-    ? ` <span style="color:var(--text3);font-size:.72rem">· secondary: ${escapeHtml(second.label || second.goal)}</span>` : '';
+    ? `<span class="deck-goal-sep">·</span><span class="deck-goal-kicker">secondary</span>`
+      + `<span class="deck-goal-name deck-goal-name--second">${escapeHtml(second.label || second.goal)}</span>`
+      + matchHtml('', second.confidence)
+    : '';
   // always disambiguate WHICH deck was analyzed once a planning board exists —
   // "goal: wheels" while every wheel sits in the planned-cuts zone reads as a bug
-  const planCount = ((deck?.adds || []).length) + ((deck?.cuts || []).length);
-  const projBit = _analyzeProjected(deck)
-    ? ' <span style="color:var(--gold);font-size:.7rem">(after planned swaps)</span>'
-    : planCount > 0
-      ? ` <span style="color:var(--gold);font-size:.7rem">(current list — ${planCount} planned swap${planCount === 1 ? '' : 's'} not applied)</span>`
-      : '';
-  el.innerHTML = `<div>${icon} Deck goal: <strong style="color:var(--teal)">${escapeHtml(top.label || top.goal)}</strong>` +
-    `<span style="color:var(--text3);font-size:.72rem"> · ${pct}% match</span>${projBit}${secondBit}</div>` +
-    `<div style="color:var(--text3);font-size:.74rem;margin-top:2px">${escapeHtml(top.summary || '')}</div>` + comboHtml;
+  const projBit = '';
+  el.innerHTML =
+    `<div class="deck-goal-head">`
+    + `<span class="deck-goal-kicker">Deck goal</span>`
+    + `<span class="deck-goal-name">${escapeHtml(top.label || top.goal)}</span>`
+    + matchHtml('', top.confidence)
+    + `${projBit}${secondBit}</div>`
+    + `<div class="deck-goal-summary">${escapeHtml(top.summary || '')}</div>` + comboHtml;
 }
 
 async function _renderCutSuggestions(deck) {
@@ -8393,7 +8428,7 @@ async function _renderCutSuggestions(deck) {
         : _SUGGEST_E2_UNAVAILABLE_HTML;
       return;
     }
-    body.innerHTML = basisNote + items.map(({ cut, card, plannedAdd }) => {
+    body.innerHTML = _SUGG_CUT_COLHEAD + basisNote + items.map(({ cut, card, plannedAdd }) => {
       const uid = (card.uid || card.scryfallId || card.name || '').replace(/'/g, "\\'");
       const sid = card.scryfallId || card.uid || '';
       const displayName = escapeHtml(card.name);
@@ -8418,10 +8453,10 @@ async function _renderCutSuggestions(deck) {
           ? 'Mark as a planned cut — stays in the deck until you apply swaps'
           : 'Remove one copy from the deck';
       const addTag = plannedAdd
-        ? '<span class="tag" style="background:rgba(212,175,55,0.12);color:var(--gold);font-size:.62rem;margin:0 .4rem 0 0" title="This is one of your planned adds — cutting it just un-plans it">planned add</span>' : '';
+        ? '<span class="sugg-meta" title="This is one of your planned adds — cutting it just un-plans it">planned add</span>' : '';
       return `<div class="suggest-item">
         <div class="cut-candidate-row">
-          <button type="button" class="cut-score-badge cut-why-toggle" aria-expanded="false" aria-label="Contribution to this deck ${score}" onclick="_toggleSuggestWhy(this)">${score}<span class="cut-why-caret" aria-hidden="true">⌄</span></button>
+          <button type="button" class="cut-score-badge cut-why-toggle" aria-expanded="false" aria-label="Contribution to this deck ${score}" onclick="_toggleSuggestWhy(this)">${score}</button>
           <span class="cut-card-name" onclick="${sid ? `openCardDetail('${sid}','deck')` : ''}">${displayName}</span>
           ${addTag}
           <button class="btn-danger-ghost" title="${cutTitle}" onclick="${cutOnclick}">${plannedAdd ? "Don't add" : 'Cut'}</button>
@@ -8480,7 +8515,7 @@ async function _renderCutSuggestions(deck) {
       : 'Remove one copy from the deck';
     return `<div class="suggest-item">
       <div class="cut-candidate-row">
-        <button type="button" class="cut-score-badge cut-why-toggle" aria-expanded="false" aria-label="Why cut · score ${score}" onclick="_toggleSuggestWhy(this)">${score}<span class="cut-why-caret" aria-hidden="true">⌄</span></button>
+        <button type="button" class="cut-score-badge cut-why-toggle" aria-expanded="false" aria-label="Why cut · score ${score}" onclick="_toggleSuggestWhy(this)">${score}</button>
         <span class="cut-card-name" onclick="openCardDetail('${sid}','deck')">${displayName}</span>
         <button class="btn-danger-ghost" title="${cutTitle}" onclick="${cutOnclick}">Cut</button>
       </div>
@@ -8801,17 +8836,62 @@ function _fmtWhyVal(v) {
 }
 function _capWord(s) { s = String(s || ''); return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''; }
 
+// Card names appear inside score-detail lines ("for Garruk's Uprising, Helga,
+// Skittish Seer") where a comma split would break multi-word names. Match against
+// the names actually in play instead, longest first so the full name wins.
+let _whyLinkRx = null;
+let _whyLinkKey = '';
+function _whyCardNameRx() {
+  const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+  const pool = [];
+  const push = list => (list || []).forEach(c => { if (c && c.name) pool.push(String(c.name)); });
+  if (deck) { push(deck.cards); push(deck.adds); push(deck.maybeboard); }
+  if (typeof collection !== 'undefined') push(collection);
+  const key = (deck ? deck.id : '') + ':' + pool.length;
+  if (_whyLinkRx && _whyLinkKey === key) return _whyLinkRx;
+  const names = [...new Set(pool)].filter(n => n.length >= 4).sort((a, b) => b.length - a.length);
+  _whyLinkKey = key;
+  _whyLinkRx = names.length
+    ? new RegExp('(' + names.map(n => escapeHtml(n).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')', 'g')
+    : null;
+  return _whyLinkRx;
+}
+
+/** Wrap known card names in already-escaped text with an inspector link. */
+function _linkifyWhyCards(escapedText) {
+  const rx = _whyCardNameRx();
+  if (!rx || !escapedText) return escapedText;
+  rx.lastIndex = 0;
+  return String(escapedText).replace(rx, m =>
+    `<button type="button" class="why-card-link" data-why-card="${m}">${m}</button>`);
+}
+
+// Delegated so it survives every re-render of the suggestion lists.
+document.addEventListener('click', e => {
+  const btn = e.target.closest && e.target.closest('.why-card-link');
+  if (!btn) return;
+  e.stopPropagation();
+  const name = btn.getAttribute('data-why-card') || btn.textContent;
+  if (name && typeof openCardDetailByName === 'function') openCardDetailByName(name);
+});
+
 function _suggestWhyDetailHtml(title, score, lines, footer) {
   // lines are numbered so a specific factor is easy to cite in feedback ("line 3 is wrong")
   const rows = lines.length
-    ? lines.map((l, i) => `<div class="why-line"><span class="why-line-num">${i + 1}</span><span class="why-line-text">${l.text}</span><span class="why-line-val${l.neg ? ' why-line-val--neg' : ''}">${l.val}</span></div>`).join('')
+    ? lines.map((l, i) => `<div class="why-line"><span class="why-line-num">${i + 1}</span><span class="why-line-text">${_linkifyWhyCards(l.text)}</span><span class="why-line-val${l.neg ? ' why-line-val--neg' : ''}">${l.val}</span></div>`).join('')
     : '<div class="why-line"><span class="why-line-text">No standout factors — a marginal pick.</span></div>';
   return `<div class="suggest-why-detail" hidden>
       <div class="why-head">${escapeHtml(title)} · score ${score}</div>
       ${rows}
-      ${footer ? `<div class="why-foot">${footer}</div>` : ''}
+      ${footer ? `<div class="why-foot">${_linkifyWhyCards(footer)}</div>` : ''}
     </div>`;
 }
+
+const _SUGG_CUT_COLHEAD = `<div class="suggest-col-head">
+  <span class="suggest-col-score">Score</span>
+  <span class="suggest-col-card">Card</span>
+  <span class="suggest-col-actions">Cut</span>
+</div>`;
 
 function _toggleSuggestWhy(btn) {
   const item = btn.closest('.suggest-item');
@@ -9109,7 +9189,13 @@ async function _renderAddSuggestions(deck) {
           reasons: a.reasons ? a.reasons.map((r, j) => ({ n: j + 1, text: r })) : null,
         })),
       };
-      body.innerHTML = shownAdds.map((a, i) => {
+      const colHead = `<div class="suggest-col-head">
+        <span class="suggest-rank">#</span>
+        <span class="suggest-col-score">Score</span>
+        <span class="suggest-col-card">Card</span>
+        <span class="suggest-col-actions">Add</span>
+      </div>`;
+      body.innerHTML = colHead + shownAdds.map((a, i) => {
         const name = a.name || '';
         const safeName = name.replace(/'/g, "\\'");
         const displayName = escapeHtml(name);
@@ -9123,16 +9209,19 @@ async function _renderAddSuggestions(deck) {
         const priceBit = a.price != null ? ` · $${Number(a.price).toFixed(2)}` : '';
         const why = _suggestWhyDetailHtml('Why suggested', score, whyLines,
           `Semantic engine analysis · ${a.owned ? 'In your collection' : 'Not in your collection'}${priceBit}`);
-        const ownTag = a.owned
-          ? '<span class="tag" style="background:rgba(61,184,160,0.15);color:var(--teal);font-size:.62rem;margin:0 .4rem">owned</span>'
-          : '<span class="tag" style="background:var(--bg3);color:var(--text3);font-size:.62rem;margin:0 .4rem">unowned</span>';
-        const priceTag = a.priceFlag === 'expensive' && a.price != null
-          ? `<span class="tag" style="background:rgba(212,175,55,0.12);color:var(--gold);font-size:.62rem;margin:0 .4rem 0 0">$${Number(a.price).toFixed(0)}</span>` : '';
+        // Ownership and price read as quiet text beside the name, joined by dashes,
+        // instead of competing chips.
+        const metaBits = [a.owned ? 'owned' : 'unowned'];
+        if (a.price != null) metaBits.push(`$${Number(a.price).toFixed(2)}`);
+        const ownTag = `<span class="sugg-meta">${metaBits.map(escapeHtml).join(' <span class="sugg-meta-sep">&ndash;</span> ')}</span>`;
+        const priceTag = '';
         const addTitle = swapsOnE2 ? ' title="Add to planned adds — not counted until you apply swaps"' : '';
+        // One Add treatment regardless of ownership — the text beside the name
+        // already says whether you own it.
         const addBtn = a.owned
-          ? `<button class="btn btn-primary btn-sm" style="padding:2px 10px;font-size:.7rem"${addTitle} onclick="${swapsOnE2 ? `addOwnedRecommendationToAdds('${safeName}')` : `addOwnedRecommendation('${safeName}')`}">+ Add</button>`
+          ? `<button class="btn btn-outline btn-sm"${addTitle} onclick="${swapsOnE2 ? `addOwnedRecommendationToAdds('${safeName}')` : `addOwnedRecommendation('${safeName}')`}">+ Add</button>`
           : (sid
-            ? `<button class="btn btn-outline btn-sm" style="padding:2px 10px;font-size:.7rem"${addTitle} onclick="${swapsOnE2 ? `addScryfallCardToAdds('${sid}')` : `addScryfallCardToDeck('${sid}')`}">+ Add</button>`
+            ? `<button class="btn btn-outline btn-sm"${addTitle} onclick="${swapsOnE2 ? `addScryfallCardToAdds('${sid}')` : `addScryfallCardToDeck('${sid}')`}">+ Add</button>`
             : '');
         const goalKey = (e2.goals && e2.goals[0] && e2.goals[0].goal) || '';
         const fbBtn = `<button type="button" class="btn btn-ghost btn-sm" title="Give feedback on this pick" aria-label="Give feedback on this pick" style="padding:2px 5px;flex-shrink:0" onclick="_toggleSuggestFeedback(this)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></svg></button>`;
@@ -9143,7 +9232,7 @@ async function _renderAddSuggestions(deck) {
         return `<div class="suggest-item">
           <div class="cut-candidate-row">
             <span class="suggest-rank" title="Suggestion rank — matches the rank stored with feedback">${i + 1}</span>
-            <button type="button" class="cut-score-badge cut-why-toggle" aria-expanded="false" aria-label="Why suggested · score ${score}" onclick="_toggleSuggestWhy(this)">${score}<span class="cut-why-caret" aria-hidden="true">⌄</span></button>
+            <button type="button" class="cut-score-badge cut-why-toggle" aria-expanded="false" aria-label="Why suggested · score ${score}" onclick="_toggleSuggestWhy(this)">${score}</button>
             <span class="cut-card-name" onclick="openCardDetail('${sid}','deck')">${displayName}</span>
             ${priceTag}${ownTag}
             ${addBtn}
@@ -9421,23 +9510,22 @@ async function _renderAddSuggestions(deck) {
     if ((s.planMatch || 0) > 0 && s.source !== 'sandbox') {
       whyLines.push({ text: `Matches your declared plan`, val: _fmtWhyVal(s.planMatch) });
     }
-    const sourceTag = s.source === 'sandbox'
-      ? '<span class="tag" style="background:rgba(100,140,255,0.12);color:var(--text2);font-size:.62rem;margin:0 .4rem 0 0">theme</span>'
-      : '';
+    const sourceTag = s.source === 'sandbox' ? '<span class="sugg-meta">theme</span>' : '';
     const footer = s.source === 'sandbox'
       ? `Semantic theme fit · ${owned ? 'In your collection' : 'Not in your collection'}`
       : `Role tags: ${s.roles && s.roles.length ? escapeHtml(s.roles.join(', ')) : '—'} · ${owned ? 'In your collection' : 'Not in your collection'}`;
     const why = _suggestWhyDetailHtml('Why suggested', scoreLabel, whyLines, footer);
-    const ownTag = owned
-      ? '<span class="tag" style="background:rgba(61,184,160,0.15);color:var(--teal);font-size:.62rem;margin:0 .4rem">owned</span>'
-      : '<span class="tag" style="background:var(--bg3);color:var(--text3);font-size:.62rem;margin:0 .4rem">unowned</span>';
+    const _priceVal = (s.price != null) ? s.price : (s.card && s.card.priceTCG);
+    const _meta = [owned ? 'owned' : 'unowned'];
+    if (_priceVal != null && Number(_priceVal) > 0) _meta.push(`$${Number(_priceVal).toFixed(2)}`);
+    const ownTag = `<span class="sugg-meta">${_meta.map(escapeHtml).join(' <span class="sugg-meta-sep">&ndash;</span> ')}</span>`;
     const addTitle = swapsOn ? ' title="Add to planned adds — use → Main or apply all swaps when ready"' : '';
     const addBtn = owned
-      ? `<button class="btn btn-primary btn-sm" style="padding:2px 10px;font-size:.7rem"${addTitle} onclick="${swapsOn ? `addOwnedRecommendationToAdds('${safeName}')` : `addOwnedRecommendation('${safeName}')`}">+ Add</button>`
-      : `<button class="btn btn-outline btn-sm" style="padding:2px 10px;font-size:.7rem"${addTitle} onclick="${swapsOn ? `addScryfallCardToAdds('${id}')` : `addScryfallCardToDeck('${id}')`}">+ Add</button>`;
+      ? `<button class="btn btn-outline btn-sm"${addTitle} onclick="${swapsOn ? `addOwnedRecommendationToAdds('${safeName}')` : `addOwnedRecommendation('${safeName}')`}">+ Add</button>`
+      : `<button class="btn btn-outline btn-sm"${addTitle} onclick="${swapsOn ? `addScryfallCardToAdds('${id}')` : `addScryfallCardToDeck('${id}')`}">+ Add</button>`;
     return `<div class="suggest-item">
       <div class="cut-candidate-row">
-        <button type="button" class="cut-score-badge add-score-badge cut-why-toggle" aria-expanded="false" aria-label="Why suggested · score ${scoreLabel}" onclick="_toggleSuggestWhy(this)">${scoreLabel}<span class="cut-why-caret" aria-hidden="true">⌄</span></button>
+        <button type="button" class="cut-score-badge add-score-badge cut-why-toggle" aria-expanded="false" aria-label="Why suggested · score ${scoreLabel}" onclick="_toggleSuggestWhy(this)">${scoreLabel}</button>
         <span class="cut-card-name" onclick="openCardDetail('${id}','deck')">${displayName}</span>
         ${sourceTag}${ownTag}
         ${addBtn}
@@ -9485,28 +9573,28 @@ function _applyDeckInfoCollapsed() {
 // File-folder tabs above the deck detail that page between section groups.
 // Panes only hide/show — every section keeps rendering into its usual DOM.
 // Choice persists user-wide, not per deck.
-const _DECK_BUILDER_TABS = ['list', 'design', 'suggestions', 'analytics', 'history', 'share'];
+// 'design' is the Analytics tab now — the old analytics pane was merged into it,
+// so a stored 'analytics' preference maps forward instead of falling back to list.
+const _DECK_BUILDER_TABS = ['list', 'design', 'suggestions', 'history'];
 
 function _deckBuilderTab() {
   try {
     const t = localStorage.getItem('mtg_deck_builder_tab');
+    if (t === 'analytics') return 'design';
+    if (t === 'share') return 'list'; // Share lives in the deck options menu now
     return _DECK_BUILDER_TABS.includes(t) ? t : 'list';
   } catch (_) { return 'list'; }
 }
 
 function setDeckBuilderTab(key) {
+  if (key === 'analytics') key = 'design';
+  if (key === 'share') key = 'list';
   if (!_DECK_BUILDER_TABS.includes(key)) key = 'list';
   try { localStorage.setItem('mtg_deck_builder_tab', key); } catch (_) { /* private mode */ }
   _applyDeckBuilderTab();
 }
 
 function _applyDeckBuilderTab() {
-  // Share is owner-only (matches renderCollaboratorsPanel); shared decks
-  // hide the tab and fall back to the deck list without clobbering the pref.
-  const shareHidden = !!activeDeckIsShared;
-  const shareBtn = document.getElementById('deckFtab-share');
-  if (shareBtn) shareBtn.style.display = shareHidden ? 'none' : '';
-
   // Suggestions holds Suggested Cuts + Suggested Adds; hide the tab only when
   // both panels hide themselves (adds: empty deck; cuts: deck at or under 100).
   const suggestionsHidden =
@@ -9516,7 +9604,6 @@ function _applyDeckBuilderTab() {
   if (suggestionsBtn) suggestionsBtn.style.display = suggestionsHidden ? 'none' : '';
 
   let active = _deckBuilderTab();
-  if (active === 'share' && shareHidden) active = 'list';
   if (active === 'suggestions' && suggestionsHidden) active = 'list';
 
   for (const key of _DECK_BUILDER_TABS) {
@@ -9540,7 +9627,7 @@ function _applyDeckBuilderTab() {
     }
   }
 
-  if (active === 'analytics') {
+  if (active === 'design') {
     // Chart.js canvases created while their pane was display:none have zero
     // size — nudge them once the pane is visible.
     requestAnimationFrame(() => {
@@ -9587,10 +9674,13 @@ function renderDeckList(deck) {
   const filteredCards = _applyDeckListFilter(deck.cards || []);
   // One classification per render, shared by the Architecture view's panels and
   // Group By → Architecture (list / visual / nested band skip).
-  const archModel = (deckListView === 'architecture' || deckGroupBy === 'architecture')
-    ? _archModelOrNull(deck, filteredCards)
-    : null;
+  const archOn = (deckListView === 'architecture' || deckGroupBy === 'architecture');
+  const archModel = archOn ? _archModelOrNull(deck, filteredCards) : null;
   _setArchGroupModel(deckGroupBy === 'architecture' ? archModel : null);
+  // The semantic goal names the Strategy sections. It is fetched for Suggestions,
+  // so on a cold load Architecture renders from themes first — kick the analyze
+  // off and repaint once when the goal arrives.
+  if (archOn) _ensureArchGoals(deck);
 
   const maybeboard = _deckMaybeBoard(deck);
   const matchSideboard = _deckMatchSideboardEnabled(deck) ? _deckMatchSideboard(deck) : [];
@@ -10365,10 +10455,21 @@ function _renderManaPie(containerId, chartRefName, counts, emptyText, breakdown)
       labels: present.map(c => names[c]),
       datasets: [{
         data: values,
-        // Translucent slices with a luminous edge — glassy but the mana hues stay readable
-        backgroundColor: present.map(c => pieColors[c] + 'd9'),
-        borderColor: 'rgba(255,255,255,0.35)',
-        borderWidth: 1.5,
+        // Same lit-from-above sheen as the role-tag badges: a white highlight at
+        // the top fading out by mid-height, with a slight darken at the bottom.
+        // Canvas can't layer gradients, so the badge's overlay stops are blended
+        // into the hue numerically.
+        backgroundColor: (context) => {
+          const hex = pieColors[present[context.dataIndex]] || '#888888';
+          const area = context.chart && context.chart.chartArea;
+          if (!area) return hex;
+          const g = context.chart.ctx.createLinearGradient(0, area.top, 0, area.bottom);
+          g.addColorStop(0, _badgeStop(hex, 255, 0.34));
+          g.addColorStop(0.55, _badgeStop(hex, 255, 0.06));
+          g.addColorStop(1, _badgeStop(hex, 0, 0.12));
+          return g;
+        },
+        borderWidth: 0,
         hoverOffset: 6,
       }],
     },
@@ -10505,6 +10606,17 @@ function renderManaGenerationProfile(deck) {
       }
     });
   });
+  // Decks store each basic as its own 1-qty entry, so the hover breakdown listed
+  // "Forest" a dozen times. Merge same-named entries into a single counted row.
+  Object.keys(breakdown).forEach((col) => {
+    const merged = new Map();
+    for (const e of breakdown[col]) {
+      const prev = merged.get(e.name);
+      if (prev) { prev.qty += e.qty; prev.total += e.total; }
+      else merged.set(e.name, { ...e });
+    }
+    breakdown[col] = [...merged.values()].sort((a, b) => b.total - a.total);
+  });
   _renderManaPie(
     'manaGenerationProfile',
     'gen',
@@ -10608,11 +10720,12 @@ function _appendProbChip(container, key, label, count, col) {
   btn.type = 'button';
   btn.className = 'prob-type-chip' + (active ? ' is-active' : '');
   btn.dataset.probKey = key;
-  if (active) {
-    btn.style.borderColor = col;
-    btn.style.background = `${col}22`;
-    btn.style.color = col;
-  }
+  // The series colour lives in a dot rather than recolouring the whole control —
+  // a dozen differently-tinted pills was the bulk of the colour noise here.
+  const dot = document.createElement('span');
+  dot.className = 'prob-chip-dot';
+  dot.style.background = col;
+  btn.append(dot);
   btn.append(document.createTextNode(`${label} `));
   const countSpan = document.createElement('span');
   countSpan.className = 'prob-chip-count';
@@ -10621,8 +10734,20 @@ function _appendProbChip(container, key, label, count, col) {
   container.appendChild(btn);
 }
 
+// Matches the Commander Gameplan cast-turn stepper: non-editable value, − / +.
+function _probHandSizeStep(delta) {
+  const el = document.getElementById('probHandSize');
+  const cur = el ? (parseInt(el.textContent, 10) || 7) : _probHandSize;
+  const next = Math.max(1, Math.min(20, cur + delta));
+  if (next === cur) return;
+  if (el) el.textContent = String(next);
+  onProbHandSizeChange(next);
+}
+
 function onProbHandSizeChange(val) {
   _probHandSize = Math.max(1, Math.min(20, parseInt(val) || 7));
+  const el = document.getElementById('probHandSize');
+  if (el && el.tagName !== 'INPUT') el.textContent = String(_probHandSize);
   const deck = getActiveDeck();
   if (deck) renderProbabilityChart(deck);
 }
@@ -10830,6 +10955,25 @@ function _lgxVerdictRgb(t) {
   const bad = (cs.getPropertyValue('--lgx-bad') || '205,94,245').trim().split(',').map(Number);
   const k = Math.max(0, Math.min(1, Number(t) || 0));
   return bad.map((v, i) => Math.round(v + (good[i] - v) * k)).join(',');
+}
+
+/** Blend a flat overlay (255 = white, 0 = black) at alpha `a` over #rrggbb. */
+function _badgeStop(hex, over, a) {
+  const h = String(hex || '').replace('#', '');
+  const n = h.length === 3 ? h.split('').map(x => x + x).join('') : h;
+  const num = parseInt(n, 16);
+  if (!Number.isFinite(num)) return '#888888';
+  const ch = sh => Math.round((((num >> sh) & 255) * (1 - a)) + (over * a));
+  return `rgb(${ch(16)}, ${ch(8)}, ${ch(0)})`;
+}
+
+/** #rrggbb -> rgba() at the given alpha, for canvas gradient stops. */
+function _hexA(hex, a) {
+  const h = String(hex || '').replace('#', '');
+  const n = h.length === 3 ? h.split('').map(x => x + x).join('') : h;
+  const num = parseInt(n, 16);
+  if (!Number.isFinite(num)) return `rgba(136,136,136,${a})`;
+  return `rgba(${(num >> 16) & 255}, ${(num >> 8) & 255}, ${num & 255}, ${a})`;
 }
 
 function _lgxVerdictColor(t) {
@@ -11967,80 +12111,9 @@ function renderCommanderGameplan(deck) {
         <span class="panel-title">Commander Gameplan</span>
         <div style="flex:1"></div>
         <button class="btn btn-outline btn-sm${_cmdFreeMulligan ? ' active' : ''}" onclick="toggleCmdFreeMulligan(!_cmdFreeMulligan)" title="Commander free mulligan: if your opening hand is bad, you may redraw 7 and bottom 1">Free mulligan</button>
-        <button id="cmdGpCustomBtn" class="btn btn-outline btn-sm${_cmdCustomEditorOpen ? ' active' : ''}" onclick="toggleCmdCustomEditor()" title="Define cards you need in hand to execute your gameplan">Custom${savedReqs.length ? ` (${savedReqs.length})` : ''}</button>
         <button type="button" class="decklist-collapse-btn deck-info-collapse-btn" data-info-key="gameplan" onclick="toggleDeckInfoPanel('gameplan')" title="Toggle">▾</button>
       </div>
-      <div id="cmdGpCustomEditor" class="cmdr-gp-custom-editor" style="display:none">
-        <div class="cmdr-gp-custom-editor-inner">
-          <div class="cmdr-gp-custom-desc">Add cards you need in hand. Groups joined by <em>or</em> are treated as one slot; separate groups are each required (AND).</div>
-          ${(() => {
-            const dynamic = !!CMD_GP_DYNAMIC_TAG_PILLS;
-            const filter = dynamic ? (_cmdCustomTagFilter || 'all') : 'all';
-            const available = _cmdCustomReqTagOptions(gpDeck, filter);
-            const escOnclick = s => String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-            // tagBtns: onclickGen(tag, label) → full onclick string (tag/label already escaped)
-            const tagBtns = (onclickGen, excludeValues) => available
-              .filter(({ tag }) => !excludeValues.has(tag))
-              .map(({ tag, label, K }) => {
-                return `<button type="button" class="cmdr-gp-custom-tag-btn" onclick="${onclickGen(escOnclick(tag), escOnclick(label))}">${escapeHtml(label)} <span class="cmdr-gp-custom-tag-count">${K}</span></button>`;
-              }).join('');
-
-            // All tag values already used (across all groups) — for the "Add new" section
-            const usedTags = new Set(savedReqs.flatMap(g => g.parts.map(p => p.value)));
-
-            const filterRow = dynamic ? `
-            <div class="cmdr-gp-custom-filter-row">
-              <label for="cmdGpTagFilter" class="cmdr-gp-custom-filter-label">Tags</label>
-              <select id="cmdGpTagFilter" class="deck-select cmdr-gp-custom-filter" data-glass-label="" onchange="setCmdCustomTagFilter(this.value)" title="Filter requirement pills by tag tier">
-                <option value="all"${filter === 'all' ? ' selected' : ''}>All Tags</option>
-                <option value="default"${filter === 'default' ? ' selected' : ''}>Default Tags</option>
-                <option value="primary"${filter === 'primary' ? ' selected' : ''}>Primary Tags</option>
-                <option value="secondary"${filter === 'secondary' ? ' selected' : ''}>Secondary Tags</option>
-              </select>
-            </div>` : '';
-
-            const groupsHtml = savedReqs.length ? `
-            <div class="cmdr-gp-custom-list">
-              ${savedReqs.map(group => {
-                const { K, avgCMC } = _customReqCards(gpDeck, group);
-                const safeid = String(group.id).replace(/['"]/g,'');
-                const tagsInGroup = new Set(group.parts.map(p => p.value));
-                const orPickerOpen = String(_cmdOrPickerGroup) === String(group.id);
-                const orBtns = tagBtns((tag, label) => `addCmdCustomReqOr('${deck.id}','${safeid}','tag','${tag}','${label}')`, tagsInGroup);
-                return `<div class="cmdr-gp-custom-item">
-                  <div class="cmdr-gp-custom-item-main">
-                    <span class="cmdr-gp-custom-item-chips">
-                      ${group.parts.map((p, i) => `
-                        ${i > 0 ? '<span class="cmdr-gp-or-sep">or</span>' : ''}
-                        <span class="cmdr-gp-part-chip">
-                          ${escapeHtml(p.label)}
-                          <button type="button" class="cmdr-gp-part-chip-x" onclick="removeCmdCustomReqPart('${deck.id}','${safeid}','${escOnclick(p.value)}')" title="Remove">×</button>
-                        </span>`).join('')}
-                    </span>
-                    <span class="cmdr-gp-custom-item-meta">${K} in deck · avg MV ${avgCMC.toFixed(1)}</span>
-                    <button type="button" class="cmdr-gp-or-add-btn${orPickerOpen ? ' cmdr-gp-or-add-btn--open' : ''}" onclick="toggleCmdOrPicker('${safeid}')" title="Add OR alternative">+ or</button>
-                  </div>
-                  ${orPickerOpen && orBtns ? `<div class="cmdr-gp-or-picker">${orBtns}</div>` : ''}
-                </div>`;
-              }).join('')}
-            </div>` : '';
-
-            const addBtns = tagBtns((tag, label) => `addCmdCustomReq('${deck.id}','tag','${tag}','${label}')`, usedTags);
-            const emptyMsg = dynamic
-              ? '<span class="cmdr-gp-custom-empty">No tags in this filter.</span>'
-              : '';
-            const addSection = (addBtns || dynamic) ? `
-            <div class="cmdr-gp-custom-add-section">
-              <span class="cmdr-gp-custom-add-label">Add requirement:</span>
-              <div class="cmdr-gp-custom-tag-btns">${addBtns || emptyMsg}</div>
-            </div>` : '';
-
-            return filterRow + groupsHtml + addSection;
-          })()}
-        </div>
-      </div>
       <div class="panel-body cmdr-gp-body">
-        <div class="cmdr-gp-meta">Playing <strong>${escapeHtml(deck.commander)}</strong> — MV&nbsp;${meta.cmdCMC} · ${meta.L} lands · ${meta.R} early ramp · ${meta.L_ut} untapped lands${afterSwaps ? ' <span class="cmdr-gp-after-swaps" title="Counts planned adds as in the deck and planned cuts as out">· after planned adds/cuts</span>' : ''}</div>
         <div class="cmdr-gp-plan-sync" style="display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;margin:.35rem 0 .55rem;font-size:.75rem">
           <label for="cmdGpCastTurn" title="Synced with Plan wizard (CP-Q14)">Cast turn</label>
           <span class="cmdr-gp-castturn card-detail-qty-row" title="Cast turn">
@@ -12048,14 +12121,6 @@ function renderCommanderGameplan(deck) {
             <span class="card-detail-qty-value" id="cmdGpCastTurn">${meta.planCastTurn != null ? meta.planCastTurn : meta.cmdCMC}</span>
             <button type="button" class="btn btn-outline btn-sm btn-icon" onclick="_cmdCastTurnStep('${String(deck.id).replace(/'/g, "\\'")}', 1)" aria-label="Later cast turn">+</button>
           </span>
-          <span class="deck-tab-muted">CMC ${meta.cmdCMC}</span>
-          ${meta.landIdeal != null ? `<span title="Land ideal L*">L* ${meta.landIdeal}</span>` : ''}
-          ${meta.earlyRampIdeal != null ? `<span title="Early ramp ideal R*">R* ${meta.earlyRampIdeal}</span>` : ''}
-          ${meta.landIdeal != null ? `<label>Edit L*
-            <input type="number" min="30" max="45" style="width:3.2rem;margin-left:.25rem"
-              value="${meta.landIdeal}"
-              onchange="setCmdPlanLandIdeal('${String(deck.id).replace(/'/g, "\\'")}', this.value)">
-          </label>` : ''}
         </div>
         ${probs.preCurve ? scenarioHtml(probs.preCurve, 'Pre-curve', false) : ''}
         ${probs.onCurve ? scenarioHtml(probs.onCurve, 'On-curve', true) : ''}
@@ -12063,12 +12128,6 @@ function renderCommanderGameplan(deck) {
       </div>
     </div>
   `;
-
-  // Restore editor open state after re-render
-  if (_cmdCustomEditorOpen) {
-    const editorEl = document.getElementById('cmdGpCustomEditor');
-    if (editorEl) editorEl.style.display = '';
-  }
 
   // Wire fixed-position JS tooltips — CSS ::after can't escape ancestor overflow:hidden containers
   _initCmdrGpTooltip();

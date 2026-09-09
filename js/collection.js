@@ -2200,7 +2200,7 @@ function _htmlCardDetailPrimaryActionsInner(ctx) {
   const inOpenDeck = !!(ctx.activeDeckCard && (ctx.inDeckQty || 0) > 0)
     || (typeof cardDetailIsPlannedAdd === 'function' && cardDetailIsPlannedAdd(ctx));
   return isOwned
-    ? `${inOpenDeck ? '' : `<button class="btn btn-primary btn-sm" onclick="addToDeckFromDetail('${actionUid}')">+ Add to Deck</button>`}
+    ? `${inOpenDeck ? '' : `<button class="btn btn-primary btn-sm" title="Add to deck" onclick="addToDeckFromDetail('${actionUid}')">+ Add</button>`}
                ${printBtn}
                ${swapBtns}
                ${tagsBtn}
