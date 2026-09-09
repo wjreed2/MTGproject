@@ -529,7 +529,11 @@ async function closeWelcomeModal() {
 
   function hide() {
     if (!shown) return;
-    placeholder.replaceWith(shown);
+    // The anchor's panel can re-render while the tooltip is parked in <body>,
+    // which detaches the placeholder. Drop the tooltip instead of leaving it
+    // orphaned there; the next render rebuilds it anyway.
+    if (!placeholder.isConnected) shown.remove();
+    else placeholder.replaceWith(shown);
     shown.classList.remove('help-tip-portal');
     shown.removeAttribute('style');
     shown = null;

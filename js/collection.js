@@ -2410,6 +2410,14 @@ function _openCardDetailPinMenu(uid) {
   // Anchored to a rect, so scrolling the page or resizing invalidates it —
   // but scrolling WITHIN the menu (a long deck list) must not close it.
   const drop = e => {
+    // This menu may already be gone — closed from elsewhere, or replaced by the
+    // repaint after a pin. Retire the listener without touching whatever menu is
+    // open now, or scrolling a reopened list would close it via the stale one.
+    if (!menu.isConnected) {
+      window.removeEventListener('resize', drop, true);
+      window.removeEventListener('scroll', drop, true);
+      return;
+    }
     if (e && e.target && menu.contains(e.target)) return;
     _closeCardDetailPinMenu();
     window.removeEventListener('resize', drop, true);
