@@ -18,8 +18,10 @@ function sliceFn(startNeedle, endNeedle) {
   return src.slice(start, end);
 }
 
+// Slice from the icon map, not the function: the button's markup comes from
+// _HIST_ICON, so stubbing it would test the stub rather than the real glyph.
 const htmlFnSrc = sliceFn(
-  'function _htmlDeckHistoryQuickActions(opts)',
+  'const _HIST_ICON = {',
   '\nfunction _openDeckHistoryCardInspector',
 );
 const gestureFnSrc = sliceFn(
@@ -70,32 +72,24 @@ function gesture(kind, opts) {
 
 const sol = { uid: 'sol_n', name: 'Sol Ring', qty: 1 };
 
+// Undo is the only row action now. Moving a card between zones belongs on the
+// deck list, not in the log, so the adds/cuts/maybe buttons were removed and the
+// row no longer varies with liveUid, inMain, or swapsOn.
 {
   const html = runHtml({ canEdit: true, canUndo: true, liveUid: 'sol_n', inMain: true, swapsOn: true });
   assert.match(html, /data-history-action="undo"/);
-  assert.match(html, />Undo</);
-  assert.match(html, /data-history-action="adds"/);
-  assert.match(html, /Move to Adds/);
-  assert.match(html, /data-history-action="cuts"/);
-  assert.match(html, /Move to Cuts/);
-  assert.match(html, /data-history-action="maybe"/);
-  assert.match(html, /Move to maybe board/);
-  assert.match(html, /data-live-uid="sol_n"/);
+  assert.match(html, /<svg/, 'undo is an icon button');
+  assert.match(html, /aria-label="Delete entry and undo this change"/, 'icon button is labelled');
+  assert.doesNotMatch(html, /data-history-action="(adds|cuts|maybe)"/);
 }
 
 {
-  const html = runHtml({ canEdit: true, canUndo: true, liveUid: 'sol_n', inMain: true, swapsOn: false });
-  assert.match(html, />Undo</);
-  assert.match(html, /Move to maybe board/);
-  assert.doesNotMatch(html, /Move to Adds/);
-  assert.doesNotMatch(html, /Move to Cuts/);
-}
-
-{
-  const html = runHtml({ canEdit: true, canUndo: true, liveUid: '', inMain: false, swapsOn: true });
-  assert.match(html, />Undo</);
-  assert.doesNotMatch(html, /Move to Adds/);
-  assert.doesNotMatch(html, /Move to maybe board/);
+  // Same row regardless of zone context — the move buttons are gone entirely.
+  const withSwaps = runHtml({ canEdit: true, canUndo: true, liveUid: 'sol_n', inMain: true, swapsOn: true });
+  const noSwaps = runHtml({ canEdit: true, canUndo: true, liveUid: 'sol_n', inMain: true, swapsOn: false });
+  const noCard = runHtml({ canEdit: true, canUndo: true, liveUid: '', inMain: false, swapsOn: true });
+  assert.strictEqual(withSwaps, noSwaps);
+  assert.strictEqual(withSwaps, noCard);
 }
 
 {

@@ -639,46 +639,35 @@
   function deckThemesHtml(analysis, _escapeHtml) {
     const esc = htmlEscape;
     if (!analysis || !(analysis.themes || []).length) {
-      return `<div class="deck-themes-empty">No named themes stood out yet. Add more on-theme cards, or set a plan to track a theme you intend.</div>`;
+      return `<div class="deck-themes-empty">No named themes stood out yet. Add more on-theme cards to build one out.</div>`;
     }
     const cap = DECK_THEME_CONFIG.barCap;
-    const fitHtml = (analysis.fit || []).map(n => {
-      const cls = n.kind === 'clash' ? 'clash' : n.kind === 'thin' ? 'thin' : n.kind === 'also_running' ? 'also' : 'jive';
-      return `<div class="deck-themes-fit deck-themes-fit--${cls}">${esc(n.text)}</div>`;
-    }).join('');
-    const userBit = (analysis.userThemes || []).length
-      ? `<div class="deck-themes-plan">Your plan: ${(analysis.userThemes || []).map(u =>
-        `<span class="deck-themes-plan-chip">${esc(u.label)}${u.role === 'primary' ? '' : ` <span class="deck-themes-plan-role">${esc(u.role)}</span>`}</span>`
-      ).join('')}${analysis.planConfirmed ? '' : (analysis.planDeclared ? ' <span class="deck-themes-plan-note">declared, not confirmed</span>' : '')}</div>`
-      : `<div class="deck-themes-plan deck-themes-plan--unset">No plan theme set yet — open Plan to say what you intend. The list below is what the cards are already doing.</div>`;
-
     const rows = analysis.themes.map(t => {
       const pct = Math.max(4, Math.min(100, Math.round((t.supportCount / cap) * 100)));
       const bandCls = t.supportLevel.id;
-      const userMark = t.userSet ? '<span class="deck-themes-yours">your plan</span>' : '';
       const names = (t.cardNames || []).slice(0, DECK_THEME_CONFIG.maxShownCards);
       const extra = Math.max(0, (t.cardNames || []).length - names.length);
       const cards = names.map(entry => {
         const nm = cardChipName(entry);
         const q = cardChipQty(entry);
         const qtyBit = q > 1 ? ` <span class="deck-themes-qty">×${q}</span>` : '';
-        return `<button type="button" class="deck-themes-card" data-name="${esc(nm)}">${esc(nm)}${qtyBit}</button>`;
+        // Text link; keeps the class + data-name the click handler binds to.
+        return `<li><button type="button" class="card-link deck-themes-card" data-name="${esc(nm)}">${esc(nm)}${qtyBit}</button></li>`;
       }).join('');
       const more = extra ? `<span class="deck-themes-more">+${extra} more</span>` : '';
       return `<div class="deck-themes-row" data-theme-id="${esc(t.id)}">
         <button type="button" class="deck-themes-toggle" aria-expanded="false">
-          <span class="deck-themes-name">${esc(t.label)} ${userMark}</span>
+          <span class="deck-themes-name">${esc(t.label)}</span>
           <span class="deck-themes-count">${t.supportCount}</span>
           <span class="deck-themes-band deck-themes-band--${esc(bandCls)}">${esc(t.supportLevel.label)}</span>
           <span class="deck-themes-caret" aria-hidden="true">${CARET_SVG}</span>
         </button>
         <div class="deck-themes-bar" aria-hidden="true"><span class="deck-themes-bar-fill deck-themes-band--${esc(bandCls)}" style="width:${pct}%"></span></div>
-        <div class="deck-themes-cards" hidden>${cards || '<span class="deck-themes-more">No supporting cards detected.</span>'}${more}</div>
+        <ul class="deck-themes-cards card-ref-list-items" hidden>${cards || '<li><span class="deck-themes-more">No supporting cards detected.</span></li>'}${more ? `<li>${more}</li>` : ''}</ul>
       </div>`;
     }).join('');
 
-    return `${userBit}${fitHtml ? `<div class="deck-themes-fits">${fitHtml}</div>` : ''}
-      <div class="deck-themes-kicker">Themes running through your deck</div>
+    return `
       <div class="deck-themes-list">${rows}</div>
       <div class="deck-themes-legend">Support: 10 is decent · 18 focused · 30 very focused. Click a theme to see its cards.</div>`;
   }
@@ -728,8 +717,10 @@
     if (!btn) return;
     const on = isDeckThemesEnabled();
     btn.innerHTML = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M3 12.5 6.2 4h3.6L13 12.5"/><path d="M4.6 8.8h6.8"/></svg>${on ? ' Deck themes: on' : ' Deck themes: off'}`;
-    btn.style.color = on ? 'var(--teal)' : '';
-    btn.style.borderColor = on ? 'var(--teal)' : '';
+    // Menu rows show "on" as the shared active state, not teal text + outline.
+    btn.style.color = '';
+    btn.style.borderColor = '';
+    btn.classList.toggle('active', !!on);
   }
 
   function toggleDeckThemesSetting() {

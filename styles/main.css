@@ -23,6 +23,9 @@
   --radius: 8px;
   --radius2: 12px;
   --radius3: 18px;
+  /* Deck builder tab page corners — every corner except the top-left, which
+     stays square so the page's left edge runs unbroken up into the first tab. */
+  --deck-pane-radius: var(--radius2);
   --ease: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -131,7 +134,8 @@
   left: 0;
 }
 .deck-options-dropdown.open { display: block; }
-.deck-menu-item {
+.deck-menu-item,
+.settings-menu-item {
   width: 100%;
   justify-content: flex-start !important;
   text-align: left;
@@ -143,6 +147,9 @@
   padding: 4px 10px;
   line-height: 1.2;
 }
+/* Buttons, so they need a little air between them rather than menu-row flush. */
+.deck-menu-item + .deck-menu-item,
+.settings-menu-item + .settings-menu-item { margin-top: 6px; }
 .deck-options-dropdown .settings-section-label {
   margin-bottom: 0.6rem;
 }
@@ -304,11 +311,16 @@
   justify-content: center;
   width: 21px;
   height: 23px;
-  background: var(--badge-color, #6b7280);
+  /* Glass shield: lit at the top, its own colour glowing underneath */
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.34), rgba(255,255,255,0.06) 55%, rgba(0,0,0,0.12)),
+    var(--badge-color, #6b7280);
   color: #fff;
   /* Heraldic shield: flat top, sides taper to a point at the bottom. */
   clip-path: polygon(0 0, 100% 0, 100% 56%, 50% 100%, 0 56%);
-  filter: drop-shadow(0 1px 1.5px rgba(0,0,0,0.55));
+  filter:
+    drop-shadow(0 1px 1.5px rgba(0,0,0,0.55))
+    drop-shadow(0 0 5px var(--badge-color, transparent));
   cursor: help;
 }
 
@@ -458,6 +470,11 @@ body::before {
   --sidebar-w: 210px;
   --sidebar-w-col: 54px;
   --topbar-h: 56px;
+  /* Page gutter — the breathing room between the sidebar/viewport edge and the
+     content. Breakpoints override it; panes that want the width (deck builder)
+     pull back out to --page-gutter-tight. */
+  --page-gutter: 2rem;
+  --page-gutter-tight: 0.5rem;
 }
 
 .topbar {
@@ -799,7 +816,7 @@ body.sidebar-collapsed .sidebar-action:hover::after {
 main {
   position: relative; z-index: 1;
   margin-left: var(--sidebar-w);
-  padding: calc(var(--topbar-h) + 1rem) 2rem 1.5rem;
+  padding: calc(var(--topbar-h) + 1rem) var(--page-gutter) 1.5rem;
   transition: margin-left 0.22s var(--ease);
   min-height: 100vh;
 }
@@ -831,6 +848,20 @@ main {
   font-family: 'Inter', system-ui, sans-serif;
 }
 
+/* DECK BUILDER — the folder card holds dense card data, so the whole tab pulls
+ * back out of the page gutter to a thin edge. Negative margins never exceed the
+ * gutter itself, so no breakpoint can overflow horizontally. */
+#tab-decks {
+  margin-left: calc(var(--page-gutter-tight) - var(--page-gutter));
+  margin-right: calc(var(--page-gutter-tight) - var(--page-gutter));
+}
+
+/* "All Decks" gets its own line between the deck header and the folder tabs. */
+.deck-back-row {
+  display: flex;
+  margin-bottom: 4px;
+}
+
 /* DECK BUILDER FOLDER TABS — overlapping file-drawer tabs growing out of the
  * content panel below. The strip overhangs the pane by 1px so the active tab's
  * background swallows the panel's top border and opens straight into it. */
@@ -851,7 +882,7 @@ main {
   flex-shrink: 0;
   border: none;
   background: none;
-  padding: 13px 36px 11px;
+  padding: 13px 44px 11px 28px;
   font-family: 'Inter', system-ui, sans-serif;
   /* A step up from the deck panel titles the tabs replaced */
   font-size: calc(0.95rem + var(--dl-fs, 2pt));
@@ -861,8 +892,11 @@ main {
   cursor: pointer;
   transition: color 0.15s var(--ease), padding 0.15s var(--ease);
 }
-/* Overlap like folders in a drawer; earlier tabs sit in front of later ones */
-.deck-ftab + .deck-ftab { margin-left: -20px; }
+/* Overlap like folders in a drawer; earlier tabs sit in front of later ones.
+ * The overlap has to exceed the diagonal's horizontal run, otherwise the next
+ * tab's vertical left edge pokes out above the diagonal and reads as a notch
+ * instead of one clean joint. */
+.deck-ftab + .deck-ftab { margin-left: -30px; }
 .deck-ftab:nth-child(1) { z-index: 6; }
 .deck-ftab:nth-child(2) { z-index: 5; }
 .deck-ftab:nth-child(3) { z-index: 4; }
@@ -870,8 +904,11 @@ main {
 .deck-ftab:nth-child(5) { z-index: 2; }
 .deck-ftab:nth-child(6) { z-index: 1; }
 .deck-ftab::before {
-  /* Trapezoid folder-tab shape: perspective tilt narrows the top edge while
-   * keeping the 1px border crisp (clip-path would clip the border away). */
+  /* Manila-folder die-cut: a vertical left edge with only the right side
+   * slanting in, so every tab reads as the tab of its own folder. Anchoring
+   * the perspective to the bottom-left corner pins x=0 in place and throws all
+   * of the narrowing onto the right edge. Perspective rather than clip-path
+   * keeps the 1px border crisp (clip-path would clip the border away). */
   content: '';
   position: absolute;
   inset: 0;
@@ -879,14 +916,14 @@ main {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 20px 20px 0 0; /* same rounding as the page's corners */
-  transform: perspective(9px) rotateX(0.7deg); /* gentler slant — near-vertical sides */
-  transform-origin: bottom;
+  transform: perspective(9px) rotateX(2.2deg);
+  transform-origin: bottom left;
   transition: background 0.15s var(--ease);
 }
 .deck-ftab:hover { color: var(--text2); z-index: 8; }
 .deck-ftab.active {
   z-index: 10;
-  padding: 15px 40px 12px; /* pulled to the front of the drawer, slightly expanded */
+  padding: 15px 48px 12px 32px; /* pulled to the front of the drawer, slightly expanded */
   /* Liquid-glass blue/purple label instead of gold. Solid blend — clipped
      gradient text renders half-faded over the frosted ::before. */
   color: color-mix(in oklab, rgb(var(--lgx1)) 55%, rgb(var(--lgx2)));
@@ -902,7 +939,9 @@ main {
   display: none;
   background: var(--bg2);
   border: 1px solid var(--border2);
-  border-radius: 0 var(--radius2) var(--radius2) var(--radius2);
+  /* Square top-left: on a manila folder the left edge and the tab's left edge
+     are one continuous line, so only the other three corners round off. */
+  border-radius: 0 var(--deck-pane-radius) var(--deck-pane-radius) var(--deck-pane-radius);
   padding: 0.4rem 1.4rem 1.4rem;
 }
 .deck-tab-pane.active { display: block; }
@@ -964,6 +1003,7 @@ body.glass-mode #deckTabPane-design .panel {
   --lgx-good: 86,196,255;
   --lgx-bad: 205,94,245;
   --lgx-green: 82,196,132; /* third glass accent — default/Scryfall tags */
+  --lgx-card: 92,206,214;  /* card references — distinct from controls and tags */
 }
 [data-theme="light"] {
   --lgx1: 74,120,232;
@@ -971,15 +1011,17 @@ body.glass-mode #deckTabPane-design .panel {
   --lgx-good: 20,105,225;
   --lgx-bad: 148,52,205;
   --lgx-green: 22,140,86;
+  --lgx-card: 16,132,142;
 }
-#tab-decks .glass-dd-wrap, #voiceModal .glass-dd-wrap { position: relative; display: inline-flex; }
+.glass-dd-wrap { position: relative; display: inline-flex; max-width: 100%; min-width: 0; }
 /* !important outranks the #tab-decks #deckGroupByWrap select sizing-parity rule */
-#tab-decks select[data-glassified], #voiceModal select[data-glassified] { display: none !important; }
-#tab-decks .glass-dd-btn, #voiceModal .glass-dd-btn { gap: 6px; white-space: nowrap; }
-#tab-decks .glass-dd-prefix, #voiceModal .glass-dd-prefix { opacity: 0.55; }
+select[data-glassified] { display: none !important; }
+.glass-dd-btn { gap: 6px; white-space: nowrap; min-width: 0; border-radius: 8px !important; }
+.glass-dd-btn > :not(.glass-dd-prefix):not(svg) { overflow: hidden; text-overflow: ellipsis; }
+.glass-dd-prefix { opacity: 0.55; }
 #tab-decks .glass-dir-btn { min-width: 34px; justify-content: center; }
 /* Glass triggers everywhere pick up the blue→purple hover, like the toolbar */
-#tab-decks .glass-dd-btn:hover, #voiceModal .glass-dd-btn:hover {
+.glass-dd-btn:hover {
   color: var(--text);
   border-color: rgba(var(--lgx1), 0.55);
   background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14));
@@ -1183,6 +1225,9 @@ body.glass-mode .glass-menu-item { font-family: var(--glass-font); }
   justify-content: flex-start;
   align-items: center;
 }
+/* Glyph for buttons that drop their text label on phones (see mobile.css) —
+   desktop has the room for the label, so the icon stays hidden here. */
+.deck-btn-icon { display: none; }
 /*
  * Grid: row 1 = chips (visual top), row 2 = chart — DOM order is chart then chips so Chrome paints chips after the canvas layer.
  */
@@ -1203,9 +1248,10 @@ body.glass-mode .glass-menu-item { font-family: var(--glass-font); }
   position: relative;
   z-index: 3;
   overflow: visible !important;
-  padding: 0.85rem 1.25rem 0.85rem;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg2);
+  padding: 0.85rem 0 0.85rem;
+  /* The --bg2 fill read as a white slab behind the filters in light mode, and
+     the tab page already provides the surface. */
+  background: none;
   /* New stacking context above chart (Chrome GPU layer quirk) */
   transform: translateZ(0);
 }
@@ -3010,7 +3056,7 @@ img.stack-main.loaded { opacity: 1; }
   scrollbar-gutter: stable;
   scrollbar-width: thin;
   scrollbar-color: var(--border2) transparent;
-  padding: 2rem 1.25rem 2rem 2rem;
+  padding: 2rem 1.25rem 2rem 1.5rem;
   border-radius: inherit;
 }
 #cardDetailModal .card-detail-modal-scroll::-webkit-scrollbar {
@@ -3179,6 +3225,101 @@ img.stack-main.loaded { opacity: 1; }
   outline: 2px solid rgb(var(--lgx1));
   outline-offset: 2px;
 }
+
+/* ── Advanced pane on the glass system ────────────────────────────────────── */
+#cardDetailModal .card-detail-disclosure > summary {
+  font-size: 0.82rem;
+  letter-spacing: 0.02em;
+}
+#cardDetailModal .card-detail-num-input {
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.22);
+  background: rgba(255,255,255,0.07);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.10);
+  box-sizing: border-box;
+}
+#cardDetailModal .card-detail-num-input:focus {
+  outline: none;
+  border-color: rgba(var(--lgx1), 0.75);
+  box-shadow: 0 0 0 3px rgba(var(--lgx1), 0.18);
+}
+/* Customised values read in the accent colour, not gold */
+#cardDetailModal .card-detail-num-input.is-custom { color: rgb(var(--lgx1)); font-weight: 600; }
+#cardDetailModal .card-detail-num-input--pip { width: 38px; padding: 0 4px; }
+[data-theme="light"] #cardDetailModal .card-detail-num-input {
+  background: rgba(255,255,255,0.65);
+  border-color: rgba(90,110,160,0.35);
+}
+/* Price-history range buttons */
+#cardDetailModal .cd-price-btn {
+  border-radius: 8px;
+  border-color: rgba(255,255,255,0.18);
+  background: rgba(255,255,255,0.07);
+}
+#cardDetailModal .cd-price-btn:hover {
+  color: var(--text);
+  border-color: rgba(var(--lgx1), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14));
+}
+#cardDetailModal .cd-price-btn.active {
+  color: var(--text);
+  border-color: rgba(var(--lgx2), 0.6);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.26), rgba(var(--lgx2), 0.26));
+}
+/* Helper text now lives in (i) tooltips, so the icon needs room inline */
+#cardDetailModal .card-detail-row-label { display: inline-flex; align-items: center; gap: 6px; }
+
+/* Pin dropdown — same glass menu as the deck list, but rendered into <body>
+   with fixed positioning so the inspector's scroll container can't clip it. */
+#cardDetailModal .card-detail-pin-wrap { position: relative; display: inline-flex; }
+.card-detail-pin-menu {
+  position: fixed;
+  z-index: 2000; /* above the inspector modal (1000) */
+  min-width: 190px;
+  overflow-y: auto;
+}
+/* Type line carries P/T, loyalty and the price on one row */
+.card-detail-typeline {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 0.7rem;
+}
+.card-detail-typeline .card-detail-type,
+.card-detail-typeline .card-detail-stat { margin-bottom: 0; }
+.card-detail-inline-price {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+/* Condensed counters + action row. The Collection/Deck headings sit above their
+   counters rather than beside them, so the two groups sit side by side. */
+#cardDetailModal .card-detail-actions { gap: 6px; margin-bottom: 0.5rem; }
+#cardDetailModal .card-detail-qty-grid { gap: 0.2rem 1.35rem; }
+#cardDetailModal .card-detail-qty-row {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  margin-bottom: 0.2rem;
+}
+#cardDetailModal .card-detail-qty-row-label {
+  min-width: 0;
+  padding-top: 0;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text2);
+}
+#cardDetailModal .card-detail-qty-printing-row {
+  grid-template-columns: 48px max-content max-content max-content minmax(0, 1fr);
+  gap: 5px;
+}
+#cardDetailModal .card-detail-qty-printing-row + .card-detail-qty-printing-row { margin-top: 2px; }
+#cardDetailModal .card-detail-section { padding-top: 0.6rem; margin-bottom: 0.5rem; }
 
 /* ── CARD INSPECTOR — deck-list button metrics + liquid-glass tags ─────────── */
 /* Buttons match the deck-list toolbar exactly (glass mode otherwise pills them) */
@@ -4096,16 +4237,7 @@ img.stack-main.loaded { opacity: 1; }
 }
 
 /* Normalize top action buttons */
-.top-action-bar .btn {
-  height: 34px;
-  border-radius: 8px;
-  padding: 0 12px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  line-height: 1;
-  box-sizing: border-box;
-}
+.top-action-bar .btn,
 .top-action-bar .btn.btn-sm {
   font-size: 0.78rem;
 }
@@ -4132,8 +4264,7 @@ img.stack-main.loaded { opacity: 1; }
   align-items: center;
   box-sizing: border-box;
 }
-#tab-decks #deckHistoryBtn,
-#tab-decks #simAnalyzeBtn {
+#tab-decks #deckHistoryBtn {
   height: 34px !important;
   padding: 0 12px !important;
   border-radius: 8px !important;
@@ -4827,15 +4958,18 @@ img.stack-main.loaded { opacity: 1; }
   -webkit-user-drag: none;
 }
 .stack-main {
-  position: relative; z-index: 2; width: 100%; border-radius: 7px; display: block;
-  border: 2px solid transparent; box-sizing: border-box;
-  transition: border-color 0.15s, border-width 0.15s; cursor: pointer;
-}
-.deck-stack-card:hover .stack-main,
-.deck-stack-card:focus-within .stack-main,
-.deck-stack-card.is-stack-peek .stack-main {
-  border-color: var(--border2);
-  border-width: 3px;
+  position: relative; z-index: 2; width: 100%; display: block;
+  box-sizing: border-box;
+  cursor: pointer;
+  /* The old 2px transparent border shrank the INNER clip radius (a border box
+     clips content at radius − border-width), which is why pale corners
+     survived. No border now, so the full radius clips the art. Real card
+     corner is 3mm on 63mm ≈ 4.8% of width; 5.6% is a shade tighter to swallow
+     the light fringe some scans carry. Per-axis (×0.715 aspect) keeps it a
+     circle at any card size. */
+  border: none;
+  border-radius: 5.6% / 4%;
+  overflow: hidden;
 }
 /* (Commander tile no longer carries a gray border — the crown badge marks it.) */
 .deck-stack-card.has-validation-error .stack-wrap::before,
@@ -5007,18 +5141,29 @@ img.stack-main.loaded { opacity: 1; }
 }
 
 /* Deck card ownership indicators */
+/* Overlay chips are frosted pills tinted by meaning, not flat blocks */
+.stack-not-owned,
+.stack-foil-mismatch,
+.stack-mb-pool,
+.stack-sb-pool {
+  -webkit-backdrop-filter: blur(8px) saturate(1.2);
+  backdrop-filter: blur(8px) saturate(1.2);
+  border: 1px solid rgba(255,255,255,0.28);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.28), 0 2px 8px rgba(0,0,0,0.35);
+  border-radius: 999px;
+}
 .stack-not-owned {
   position: absolute; top: 28px; left: 4px; bottom: auto; z-index: 10;
-  background: rgba(180,60,50,0.88); color: #fff;
+  background: rgba(214, 88, 74, 0.58); color: #fff;
   font-size: 0.55rem; font-weight: 700; letter-spacing: 0.04em;
-  padding: 1px 5px; border-radius: 3px; pointer-events: none;
+  padding: 1px 6px; pointer-events: none;
   opacity: 0; transition: opacity 0.15s;
 }
 .stack-foil-mismatch {
   position: absolute; top: 28px; left: 4px; bottom: auto; z-index: 10;
-  background: rgba(160,130,40,0.88); color: #fff;
+  background: rgba(196, 160, 60, 0.58); color: #fff;
   font-size: 0.55rem; font-weight: 700; letter-spacing: 0.04em;
-  padding: 1px 5px; border-radius: 3px; pointer-events: none;
+  padding: 1px 6px; pointer-events: none;
   opacity: 0; transition: opacity 0.15s;
 }
 .deck-stack-card:hover .stack-not-owned,
@@ -5033,24 +5178,26 @@ img.stack-main.loaded { opacity: 1; }
 .deck-not-owned-chip,
 .deck-foil-mismatch-chip {
   font-size: 0.55rem; font-weight: 700; letter-spacing: 0.04em;
-  color: #fff; padding: 1px 5px; border-radius: 3px; flex-shrink: 0;
+  color: #fff; padding: 1px 7px; border-radius: 999px; flex-shrink: 0;
   white-space: nowrap;
+  border: 1px solid rgba(255,255,255,0.24);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.24);
 }
-.deck-not-owned-chip { background: rgba(180,60,50,0.88); }
-.deck-foil-mismatch-chip { background: rgba(160,130,40,0.88); }
+.deck-not-owned-chip { background: rgba(214, 88, 74, 0.55); }
+.deck-foil-mismatch-chip { background: rgba(196, 160, 60, 0.55); }
 
 /* Mainboard tile: same printing also on maybe board */
 .stack-mb-pool {
   position: absolute; top: 4px; right: 4px; left: auto; z-index: 10;
-  background: rgba(140, 110, 40, 0.92); color: #fff;
+  background: rgba(196, 160, 60, 0.55); color: #fff;
   font-size: 0.52rem; font-weight: 700; letter-spacing: 0.03em;
-  padding: 1px 5px; border-radius: 3px; pointer-events: none;
+  padding: 1px 6px; pointer-events: none;
 }
 .stack-sb-pool {
   position: absolute; top: 22px; right: 4px; left: auto; z-index: 10;
-  background: rgba(74, 130, 212, 0.92); color: #fff;
+  background: rgba(96, 152, 230, 0.55); color: #fff;
   font-size: 0.52rem; font-weight: 700; letter-spacing: 0.03em;
-  padding: 1px 5px; border-radius: 3px; pointer-events: none;
+  padding: 1px 6px; pointer-events: none;
 }
 
 .deck-row-mb-pool {
@@ -5070,36 +5217,55 @@ img.stack-main.loaded { opacity: 1; }
 .deck-extra-zone--cut.is-collapsed .deck-extra-zone-chevron { color: var(--red); }
 
 /* Tile flags — top-left, clear of the MB/SB/GC badges on the right */
+/* Planned add/cut marker: a corner wedge tucked into the card's top-left, small
+   enough to sit in the frame border and leave the card name readable. The label
+   text is hidden (kept for a11y/title); the glyph is drawn by ::before. */
 .stack-cut-flag,
 .stack-add-flag {
-  position: absolute; top: 4px; left: 4px; right: auto; z-index: 10;
-  color: #fff; font-size: 0.52rem; font-weight: 700; letter-spacing: 0.03em;
-  padding: 1px 5px; border-radius: 3px; pointer-events: none;
+  position: absolute; top: 0; left: 0; right: auto; z-index: 10;
+  width: 34px; height: 34px;
+  padding: 0; border: none; pointer-events: none;
+  font-size: 0; /* hides the CUT/ADD text — the wedge + glyph carry it */
+  clip-path: polygon(0 0, 100% 0, 0 100%);
+  border-top-left-radius: 9px; /* follows the card's own corner rounding */
+  box-shadow: inset 1px 1px 0 rgba(255,255,255,0.3);
 }
-.stack-cut-flag { background: rgba(184, 60, 46, 0.92); }
-.stack-add-flag { background: rgba(46, 138, 46, 0.92); }
-#tab-decks .stack-cut-flag,
-#tab-decks .stack-add-flag { font-size: calc(0.55rem + var(--dl-fs)); }
+/* Same scissors / plus glyphs the inspector's Cut and Adds buttons use */
+.stack-cut-flag svg,
+.stack-add-flag svg {
+  position: absolute;
+  top: 3px; left: 3px;
+  width: 13px; height: 13px;
+  color: #fff;
+  filter: drop-shadow(0 1px 1.5px rgba(0,0,0,0.45));
+}
+.stack-cut-flag { background: linear-gradient(135deg, rgba(232, 108, 94, 0.96), rgba(190, 58, 46, 0.9)); }
+.stack-add-flag { background: linear-gradient(135deg, rgba(112, 224, 156, 0.96), rgba(46, 162, 98, 0.9)); }
+/* (Add/cut flags are icon wedges now — their label text stays hidden.) */
 
 /* Red border for planned cuts, green for planned adds — grid tiles */
-.deck-stack-card.is-planned-cut .stack-main,
-.deck-stack-card.is-planned-cut:hover .stack-main,
-.deck-stack-card.is-planned-cut:focus-within .stack-main { border-color: var(--red); }
-.deck-stack-card.is-planned-add .stack-main,
-.deck-stack-card.is-planned-add:hover .stack-main,
-.deck-stack-card.is-planned-add:focus-within .stack-main { border-color: var(--green); }
+/* Planned adds/cuts on tiles are marked by the ADD / CUT badge alone — no
+   coloured border or tint over the art. */
 
 /* …and list rows */
 .deck-card-row.is-planned-cut {
-  box-shadow: inset 0 0 0 1px var(--red);
-  background: rgba(184, 60, 46, 0.06);
+  box-shadow:
+    inset 0 0 0 1px rgba(226, 96, 82, 0.45),
+    inset 0 1px 0 rgba(255,255,255,0.10);
+  background: linear-gradient(135deg, rgba(226, 96, 82, 0.16), rgba(226, 96, 82, 0.06));
 }
 .deck-card-row.is-planned-add {
-  box-shadow: inset 0 0 0 1px var(--green);
-  background: rgba(46, 138, 46, 0.06);
+  box-shadow:
+    inset 0 0 0 1px rgba(86, 200, 130, 0.45),
+    inset 0 1px 0 rgba(255,255,255,0.10);
+  background: linear-gradient(135deg, rgba(86, 200, 130, 0.16), rgba(86, 200, 130, 0.06));
 }
-.deck-card-row.is-planned-cut:hover { background: rgba(184, 60, 46, 0.12); }
-.deck-card-row.is-planned-add:hover { background: rgba(46, 138, 46, 0.12); }
+.deck-card-row.is-planned-cut:hover {
+  background: linear-gradient(135deg, rgba(226, 96, 82, 0.26), rgba(226, 96, 82, 0.12));
+}
+.deck-card-row.is-planned-add:hover {
+  background: linear-gradient(135deg, rgba(86, 200, 130, 0.26), rgba(86, 200, 130, 0.12));
+}
 
 .deck-row-cut-flag {
   font-size: 0.62rem; font-weight: 700; color: var(--red);
@@ -5237,8 +5403,11 @@ body.glass-mode .deck-extra-zone-section {
   font-size: 0.72rem;
   border-bottom: none;
 }
-#deckSideboardEnabledBtn.active,
-#deckSideboardEnabledBtn[style*="teal"] {
+/* Was forcing a transparent fill to neutralise the old teal inline style. The
+   "on" state is now the shared .deck-menu-item.active look, and this ID rule
+   outranked it — so it only applies outside the deck options menu. */
+#deckSideboardEnabledBtn:not(.deck-menu-item).active,
+#deckSideboardEnabledBtn:not(.deck-menu-item)[style*="teal"] {
   background: transparent;
 }
 .deck-search-match-sb-btn { top: 22px; }
@@ -6322,8 +6491,6 @@ select:focus { outline: none; border-color: rgba(200,168,74,0.6); box-shadow: 0 
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
 }
-.history-event:hover { background: var(--bg3); }
-.history-event--actions-open { background: var(--bg3); }
 .history-card-img {
   width: 56px; height: 78px; object-fit: cover; object-position: top;
   border-radius: 4px; flex-shrink: 0; box-shadow: 0 2px 8px rgba(0,0,0,0.25);
@@ -6368,21 +6535,19 @@ select:focus { outline: none; border-color: rgba(200,168,74,0.6); box-shadow: 0 
 .history-tag    { background: rgba(138,108,212,0.14); color: var(--purple); }
 .history-tag-badge { min-width: 0; text-align: left; white-space: normal; max-width: 120px; }
 .history-empty  { padding: 3rem 1rem; text-align: center; color: var(--text3); font-size: 0.85rem; }
+/* Static icon buttons at the end of the row — no popover, no hover reveal. */
 .history-event-quick-actions {
-  display: none;
-  flex-wrap: wrap;
+  display: inline-flex;
+  flex-wrap: nowrap;
   gap: 6px;
-  align-items: stretch;
-  position: absolute;
-  right: 8px;
-  top: 8px;
-  max-width: min(320px, calc(100% - 76px));
-  padding: 6px;
-  background: var(--bg2);
-  border: 1px solid var(--border2);
-  border-radius: var(--radius);
-  box-shadow: 0 10px 28px rgba(0,0,0,0.4);
-  z-index: 4;
+  align-items: center;
+  position: static;
+  margin-left: auto;
+  padding: 0;
+  background: none;
+  border: none;
+  box-shadow: none;
+  flex-shrink: 0;
 }
 .history-event-quick-actions .history-row-btn {
   flex: 1 1 auto;
@@ -6399,11 +6564,6 @@ select:focus { outline: none; border-color: rgba(200,168,74,0.6); box-shadow: 0 
 /* Hover reveals Undo / Adds / Cuts / maybe board on devices that can hover.
    Touch (hover: none) keeps sticky :hover from leaving the overlay stuck; tap
    uses .history-event--actions-open instead. */
-.history-event:hover .history-event-quick-actions { display: flex; }
-@media (hover: none) {
-  .history-event:hover .history-event-quick-actions { display: none; }
-}
-.history-event--actions-open .history-event-quick-actions { display: flex; }
 .history-undo-btn:hover { color: var(--red); border-color: rgba(212,90,74,0.45); }
 
 .deck-list-filter-bar {
@@ -8884,10 +9044,14 @@ body.glass-mode .deck-tab-pane .dlf-text:focus {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.05rem;
-  height: 1.05rem;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
   border-radius: 50%;
-  font-size: 0.68rem;
+  font-size: 10px;
+  font-style: normal;
+  letter-spacing: 0;
+  text-transform: none;
   font-weight: 600;
   line-height: 1;
   color: var(--text3);
@@ -8896,8 +9060,8 @@ body.glass-mode .deck-tab-pane .dlf-text:focus {
 }
 .deck-cut-help:hover .deck-cut-help-icon,
 .deck-cut-help:focus-visible .deck-cut-help-icon {
-  color: var(--gold);
-  border-color: var(--gold);
+  color: rgb(var(--lgx1));
+  border-color: rgba(var(--lgx1), 0.65);
 }
 .deck-cut-help-tooltip {
   white-space: normal;
@@ -8935,13 +9099,6 @@ body.glass-mode .deck-tab-pane .dlf-text:focus {
 
 /* ── Deck themes readout ─────────────────────────────────────────────── */
 #deckThemesPanel .panel-body { padding: .7rem .9rem 1rem; }
-.deck-themes-kicker {
-  font-size: .68rem;
-  letter-spacing: .08em;
-  text-transform: uppercase;
-  color: var(--text3);
-  margin: .55rem 0 .35rem;
-}
 .deck-themes-plan {
   font-size: .8rem;
   color: var(--text2);
@@ -8994,45 +9151,68 @@ body.glass-mode .deck-tab-pane .dlf-text:focus {
   text-align: left;
 }
 .deck-themes-name { flex: 1; min-width: 0; font-size: .86rem; font-weight: 600; }
-.deck-themes-yours {
-  margin-left: .35rem;
-  font-size: .62rem;
-  font-weight: 500;
-  letter-spacing: .04em;
-  text-transform: uppercase;
-  color: var(--teal);
-}
 .deck-themes-count {
   font-family: 'JetBrains Mono', monospace;
-  font-size: .8rem;
-  min-width: 1.6rem;
+  font-size: .95rem;
+  font-weight: 600;
+  min-width: 2rem;
   text-align: right;
   color: var(--text2);
 }
 .deck-themes-band {
-  font-size: .68rem;
-  min-width: 5.6rem;
+  font-size: .82rem;
+  font-weight: 600;
+  min-width: 6.6rem;
   text-align: right;
   color: var(--text3);
 }
-.deck-themes-band--decent { color: var(--teal); }
-.deck-themes-band--focused,
-.deck-themes-band--very_focused { color: var(--gold); }
+/* Label colours track the bar fill exactly: orchid = thin, azure = very focused. */
+.deck-themes-band { color: rgb(var(--lgx-bad)); }
+.deck-themes-band--decent {
+  color: color-mix(in oklab, rgb(var(--lgx-good)) 50%, rgb(var(--lgx-bad)));
+}
+.deck-themes-band--focused {
+  color: color-mix(in oklab, rgb(var(--lgx-good)) 78%, rgb(var(--lgx-bad)));
+}
+.deck-themes-band--very_focused { color: rgb(var(--lgx-good)); }
 .deck-themes-caret {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 12px;
-  height: 12px;
+  width: 34px;
+  height: 34px;
   flex-shrink: 0;
-  color: var(--text3);
-  transition: transform .12s;
+  margin-left: 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border2);
+  background: var(--bg3);
+  color: var(--text2);
+  box-sizing: border-box;
+  transition: transform .15s, background .15s, border-color .15s, color .15s;
+}
+body.glass-mode .deck-themes-caret {
+  border-color: rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.07);
+  color: rgba(240,244,252,0.82);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 2px 10px rgba(0,0,0,0.22);
+}
+[data-theme="light"] body.glass-mode .deck-themes-caret {
+  border-color: rgba(255,255,255,0.75);
+  background: rgba(255,255,255,0.55);
+  color: rgba(28,40,58,0.82);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 10px rgba(30,50,90,0.10);
+}
+.deck-themes-toggle:hover .deck-themes-caret {
+  color: var(--text);
+  border-color: rgba(var(--lgx1), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14));
 }
 .deck-themes-caret svg { width: 12px; height: 12px; }
 .deck-themes-toggle.is-open .deck-themes-caret { transform: rotate(180deg); }
 .deck-themes-bar {
-  height: 6px;
-  background: var(--border2);
+  /* Matches .sim-score-bar-wrap so the two verdict bars read as one component. */
+  height: 8px;
+  background: var(--bg4);
   border-radius: 4px;
   overflow: hidden;
   margin: 5px 0 0;
@@ -9864,6 +10044,7 @@ body.glass-mode {
   --radius: 12px;
   --radius2: 18px;
   --radius3: 24px;
+  --deck-pane-radius: 20px;
 }
 
 /* Ambient wallpaper the glass blurs — soft colour blobs on deep blue-black */
@@ -9920,7 +10101,6 @@ body.glass-mode .deck-tab-pane {
   box-shadow:
     inset 0 0 0.5px rgba(255,255,255,0.12),
     0 8px 28px rgba(0,0,0,0.35);
-  border-radius: 0 20px 20px 20px;
 }
 body.glass-mode .deck-tab-pane .panel {
   background: transparent;
@@ -9984,8 +10164,8 @@ body.glass-mode .btn {
   color: rgba(240,244,252,0.82);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 2px 10px rgba(0,0,0,0.22);
 }
-body.glass-mode .top-action-bar .btn { border-radius: 999px; }
-body.glass-mode .btn-outline:hover {
+body.glass-mode .top-action-bar .btn,
+body.glass-mode body.glass-mode .btn-outline:hover {
   color: #fff;
   border-color: rgba(255,255,255,0.34);
   background: rgba(255,255,255,0.14);
@@ -10550,6 +10730,431 @@ body.glass-mode :is(input:not([type="checkbox"]):not([type="radio"]):not([type="
   border-color: rgba(20,35,60,0.16);
 }
 
+/* ── By Architecture deck view ─────────────────────────────────────────── */
+.arch-view { display: flex; flex-direction: column; gap: 1rem; padding: 4px 0 12px; }
+.arch-note {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--text3);
+  line-height: 1.4;
+}
+.arch-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  align-items: start;
+}
+.arch-grid--vertical { grid-template-columns: 1fr; }
+.arch-grid--horizontal { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 960px) {
+  .arch-grid--horizontal { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .arch-grid--horizontal { grid-template-columns: 1fr; }
+}
+.arch-panel {
+  border: 1px solid var(--border2);
+  border-radius: var(--radius2);
+  background: var(--bg2);
+  padding: 10px 10px 8px;
+  min-width: 0;
+}
+.arch-panel--foundation { border-top: 3px solid var(--blue); }
+.arch-panel--strategy { border-top: 3px solid var(--green); }
+.arch-panel--payoffs { border-top: 3px solid var(--purple); }
+.arch-panel--manabase { border-top: 3px solid var(--gold); }
+.arch-panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.arch-panel-title {
+  margin: 0;
+  font-family: Cinzel, serif;
+  font-size: 0.95rem;
+  letter-spacing: 0.04em;
+  color: var(--text);
+}
+.arch-panel--foundation .arch-panel-title { color: var(--blue2); }
+.arch-panel--strategy .arch-panel-title { color: var(--green); }
+.arch-panel--payoffs .arch-panel-title { color: var(--purple); }
+.arch-panel--manabase .arch-panel-title { color: var(--gold); }
+.arch-panel-count { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 0.72rem; color: var(--text3); }
+.arch-panel-blurb { margin: 6px 0 8px; font-size: 0.72rem; color: var(--text3); line-height: 1.35; }
+.arch-panel-body { display: flex; flex-direction: column; gap: 2px; }
+/* Stacked panels: text-row subsections pack as equal-width columns (shared
+   --arch-text-col-w from densest panel). Card-image mode packs subcategory
+   columns (no stretch) with Visual-view overlapping stacks. */
+.arch-view--layout-vertical .arch-panel-body {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  align-items: start;
+  gap: 8px 14px;
+}
+.arch-view--layout-vertical .arch-panel-body > .arch-sub {
+  border-top: none;
+  flex: 0 0 auto;
+  width: min(100%, var(--arch-text-col-w, 14rem));
+  min-width: 0;
+}
+.arch-view--layout-vertical .arch-panel-body > .arch-empty {
+  flex: 1 1 100%;
+}
+.arch-view--layout-vertical .arch-sub-head { flex-wrap: wrap; }
+.arch-view--layout-vertical .arch-sub-title { min-width: 0; }
+.arch-view--layout-vertical.arch-view--cards-visual .arch-panel-body {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  align-items: start;
+  gap: 12px 16px;
+}
+.arch-view--layout-vertical.arch-view--cards-visual .arch-panel-body > .arch-sub {
+  width: max-content;
+  max-width: 100%;
+  flex: 0 0 auto;
+}
+.arch-view--layout-vertical.arch-view--cards-visual .arch-panel-body > .arch-empty {
+  flex: 1 1 100%;
+  grid-column: auto;
+}
+.arch-view--layout-vertical.arch-view--cards-visual .arch-sub-body--visual {
+  display: block;
+  padding-left: 4px;
+}
+.arch-view--layout-vertical.arch-view--cards-visual .arch-sub-stacks {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 12px;
+  align-items: flex-start;
+}
+.arch-view--layout-vertical.arch-view--cards-visual .arch-sub-stack-col {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+.arch-view--layout-vertical.arch-view--cards-visual .arch-sub-body--visual .arch-sub-group-label {
+  grid-column: auto;
+  width: 100%;
+}
+/* Restore Visual-view overlap; the generic tile rules turn it off. */
+.arch-view--layout-vertical.arch-view--cards-visual .deck-stack-cards.vertical .arch-card-tile {
+  width: var(--deck-card-w, 220px);
+  max-width: none;
+  min-width: 0;
+  margin-left: 0;
+  margin-top: calc(-1 * (var(--deck-card-w, 220px) / 0.715 - 36px));
+  flex: 0 0 auto;
+}
+.arch-view--layout-vertical.arch-view--cards-visual .deck-stack-cards.vertical .arch-card-tile:first-child {
+  margin-top: 8px;
+}
+.arch-view--layout-vertical.arch-view--cards-visual .deck-stack-cards.vertical .arch-card-tile:hover,
+.arch-view--layout-vertical.arch-view--cards-visual .deck-stack-cards.vertical .arch-card-tile:focus-within,
+.arch-view--layout-vertical.arch-view--cards-visual .deck-stack-cards.vertical .arch-card-tile.is-stack-peek {
+  z-index: 10;
+  transform: translateX(6px) scale(1.05);
+}
+.arch-view--layout-vertical.arch-view--cards-visual .deck-stack-cards.vertical .arch-card-tile:hover ~ .arch-card-tile,
+.arch-view--layout-vertical.arch-view--cards-visual .deck-stack-cards.vertical .arch-card-tile:focus-within ~ .arch-card-tile,
+.arch-view--layout-vertical.arch-view--cards-visual .deck-stack-cards.vertical .arch-card-tile.is-stack-peek ~ .arch-card-tile {
+  transform: none;
+}
+.arch-view--layout-vertical.arch-view--cards-visual .deck-stack-cards.vertical .arch-card-tile.tag-group-linked,
+.arch-view--layout-vertical.arch-view--cards-visual .deck-stack-cards.vertical .arch-card-tile.tag-group-source {
+  margin-right: 0;
+  transform: none;
+}
+.arch-view--layout-vertical.arch-view--cards-visual .deck-stack-cards.vertical .arch-card-tile.tag-group-linked:hover,
+.arch-view--layout-vertical.arch-view--cards-visual .deck-stack-cards.vertical .arch-card-tile.tag-group-source:hover,
+.arch-view--layout-vertical.arch-view--cards-visual .deck-stack-cards.vertical .arch-card-tile.tag-group-linked:focus-within,
+.arch-view--layout-vertical.arch-view--cards-visual .deck-stack-cards.vertical .arch-card-tile.tag-group-source:focus-within,
+.arch-view--layout-vertical.arch-view--cards-visual .deck-stack-cards.vertical .arch-card-tile.tag-group-linked.is-stack-peek,
+.arch-view--layout-vertical.arch-view--cards-visual .deck-stack-cards.vertical .arch-card-tile.tag-group-source.is-stack-peek {
+  transform: translateX(6px) scale(1.05);
+}
+.arch-sub {
+  --arch-sub-accent: var(--text2);
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  border-top: 1px solid var(--border);
+}
+.arch-panel-body > .arch-sub:first-child { border-top: none; }
+.arch-sub-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 0.78rem;
+  padding: 6px 0 4px 8px;
+  border-left: 3px solid var(--arch-sub-accent);
+}
+.arch-sub-head::-webkit-details-marker { display: none; }
+.arch-sub-title { font-weight: 600; color: var(--arch-sub-accent); }
+.arch-sub-count { margin-left: auto; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 0.7rem; color: var(--text3); }
+.arch-sub-body { padding: 2px 0 6px 11px; }
+.arch-sub-body--visual,
+.arch-view--cards-visual .arch-compact-tops {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(var(--arch-tile-w, 118px), 100%), 1fr));
+  gap: 8px;
+  align-items: start;
+}
+/* Group By headers inside a subsection — a plain row in the text body, a full-width
+   band in the visual grid so the tiles below it keep their columns */
+.arch-sub-group-label {
+  font-family: 'Cinzel', serif; font-size: 0.62rem; color: var(--text3);
+  text-transform: uppercase; letter-spacing: 0.09em;
+  display: flex; align-items: baseline; gap: 6px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 3px; margin: 6px 0 4px;
+}
+.arch-sub-group-label:first-child { margin-top: 0; }
+.arch-sub-group-count { font-family: 'JetBrains Mono', monospace; font-size: 0.6rem; opacity: 0.6; }
+.arch-sub-body--visual .arch-sub-group-label { grid-column: 1 / -1; }
+.arch-sub-body--visual .arch-card-tile .stack-wrap {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--arch-sub-accent) 40%, transparent);
+  border-radius: var(--radius);
+}
+/* Foundation — named subsection accents */
+.arch-panel--foundation .arch-sub--card_advantage,
+.arch-panel--foundation .arch-chip--card_advantage { --arch-sub-accent: #5eb8d4; }
+.arch-panel--foundation .arch-sub--interaction,
+.arch-panel--foundation .arch-chip--interaction { --arch-sub-accent: var(--blue); }
+.arch-panel--foundation .arch-sub--board_wipes,
+.arch-panel--foundation .arch-chip--board_wipes { --arch-sub-accent: #6a7fd4; }
+.arch-panel--foundation .arch-sub--win_condition,
+.arch-panel--foundation .arch-chip--win_condition { --arch-sub-accent: #8a7cd4; }
+/* Strategy — hashed 5-step green palette */
+.arch-panel--strategy .arch-sub-tint-0,
+.arch-panel--strategy .arch-chip-tint-0 { --arch-sub-accent: color-mix(in srgb, var(--green) 55%, var(--blue2)); }
+.arch-panel--strategy .arch-sub-tint-1,
+.arch-panel--strategy .arch-chip-tint-1 { --arch-sub-accent: color-mix(in srgb, var(--green) 70%, var(--text)); }
+.arch-panel--strategy .arch-sub-tint-2,
+.arch-panel--strategy .arch-chip-tint-2 { --arch-sub-accent: var(--green); }
+.arch-panel--strategy .arch-sub-tint-3,
+.arch-panel--strategy .arch-chip-tint-3 { --arch-sub-accent: color-mix(in srgb, var(--green) 80%, var(--gold)); }
+.arch-panel--strategy .arch-sub-tint-4,
+.arch-panel--strategy .arch-chip-tint-4 { --arch-sub-accent: color-mix(in srgb, var(--green) 65%, var(--purple)); }
+/* Payoffs — hashed 5-step purple palette */
+.arch-panel--payoffs .arch-sub-tint-0,
+.arch-panel--payoffs .arch-chip-tint-0 { --arch-sub-accent: color-mix(in srgb, var(--purple) 55%, var(--blue2)); }
+.arch-panel--payoffs .arch-sub-tint-1,
+.arch-panel--payoffs .arch-chip-tint-1 { --arch-sub-accent: color-mix(in srgb, var(--purple) 70%, var(--text)); }
+.arch-panel--payoffs .arch-sub-tint-2,
+.arch-panel--payoffs .arch-chip-tint-2 { --arch-sub-accent: var(--purple); }
+.arch-panel--payoffs .arch-sub-tint-3,
+.arch-panel--payoffs .arch-chip-tint-3 { --arch-sub-accent: color-mix(in srgb, var(--purple) 75%, var(--gold)); }
+.arch-panel--payoffs .arch-sub-tint-4,
+.arch-panel--payoffs .arch-chip-tint-4 { --arch-sub-accent: color-mix(in srgb, var(--purple) 60%, var(--red)); }
+/* Mana Sources — named subsection accents */
+.arch-panel--manabase .arch-sub--ramp,
+.arch-panel--manabase .arch-chip--ramp { --arch-sub-accent: #d4a84a; }
+.arch-panel--manabase .arch-sub--basics,
+.arch-panel--manabase .arch-chip--basics { --arch-sub-accent: var(--gold); }
+.arch-panel--manabase .arch-sub--nonbasics,
+.arch-panel--manabase .arch-chip--nonbasics { --arch-sub-accent: #b8884a; }
+.arch-empty { font-size: 0.72rem; color: var(--text3); padding: 6px 2px; }
+.arch-card-row { display: flex; align-items: center; gap: 6px; padding: 3px 6px; border-radius: var(--radius); }
+.arch-card-row .deck-card-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.arch-card-row.is-arch-primary { box-shadow: inset 2px 0 0 var(--gold); }
+/* Same-card hover: fill every copy with a gold wash. No outline. */
+.arch-view .arch-card-row.tag-group-linked,
+.arch-view .arch-card-row.tag-group-source {
+  background: color-mix(in srgb, var(--gold) 42%, transparent);
+  transform: none;
+}
+.arch-view .arch-card-row.tag-group-linked .deck-card-name,
+.arch-view .arch-card-row.tag-group-source .deck-card-name {
+  color: var(--gold2);
+}
+.arch-view--cards-visual {
+  --arch-tile-w: clamp(88px, calc(var(--deck-card-w, 220px) * 0.55), 150px);
+}
+/* Tiles borrow .deck-stack-card for the art chrome only. That class also carries
+   the fanned-stack geometry (fixed width + negative margins), which would overlap
+   the tiles and push them out of their column here. */
+.arch-view .arch-card-tile {
+  width: auto;
+  max-width: 100%;
+  min-width: 0;
+  margin: 0;
+  flex: 0 1 auto;
+  cursor: pointer;
+}
+.arch-view .arch-card-tile.tag-group-linked,
+.arch-view .arch-card-tile.tag-group-source {
+  margin-right: 0;
+  transform: translateY(-4px) scale(1.04);
+  z-index: 3;
+}
+.arch-view .arch-card-tile.tag-group-linked .stack-wrap::after,
+.arch-view .arch-card-tile.tag-group-source .stack-wrap::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--gold) 38%, transparent);
+  pointer-events: none;
+}
+.arch-view .arch-card-tile.tag-group-linked .stack-name,
+.arch-view .arch-card-tile.tag-group-source .stack-name {
+  color: var(--gold2);
+  font-weight: 600;
+}
+.arch-card-tile .stack-wrap { position: relative; }
+.arch-card-tile.is-arch-primary .stack-wrap { box-shadow: inset 0 0 0 2px var(--gold); border-radius: var(--radius); }
+.arch-card-tile .arch-card-menu {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 2;
+  min-width: 0;
+  padding: 0 5px;
+  line-height: 1.2;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  border-radius: 4px;
+}
+/* Text-row layout: name takes the slack, then a fixed-width slot holding the
+   right-aligned mana cost, then the role badge on the far right. Both slots are the
+   same width on every row of a panel, so each stays in its own column instead of
+   drifting with the length of each card's mana cost. The badge slot holds its width
+   even when a card has no role tag, or the column below it would break. */
+.arch-card-row .arch-row-badges {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 21px;
+}
+/* Nothing to line up when the badges are toggled off for the whole view. */
+.arch-view:not(:has(.deck-tag-badge)) .arch-card-row .arch-row-badges { display: none; }
+/* Sized by its mana cost, not padded out to a fixed width — the name column gets
+   every pixel that's left. Both slots pack against the right edge, so the badges and
+   the end of the mana cost still line up row to row. The floor is just enough to
+   hold the ⋯, which overlays this slot and has to land somewhere on costless cards. */
+.arch-card-row .arch-row-end {
+  position: relative;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 22px;
+}
+.arch-card-row .arch-row-mana { display: inline-flex; align-items: center; }
+
+/* The ⋯ placement button is hover-only chrome in both card and list view. In rows it
+   sits on top of the mana cost, which hides while the button is up, so nothing
+   reflows. Touch has no hover, so a tap sets .arch-card--actions-open instead;
+   .arch-card--menu-open keeps the button up while its popover is open. */
+.arch-card-row .arch-card-menu {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  min-width: 0;
+  padding: 0 6px;
+  line-height: 1.2;
+}
+.arch-card-row .arch-card-menu,
+.arch-card-tile .arch-card-menu {
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+@media (hover: hover) {
+  .arch-card-row:hover .arch-card-menu,
+  .arch-card-tile:hover .arch-card-menu { visibility: visible; opacity: 1; }
+  .arch-card-row:hover .arch-row-mana { visibility: hidden; }
+}
+.arch-card-row.arch-card--actions-open .arch-card-menu,
+.arch-card-tile.arch-card--actions-open .arch-card-menu,
+.arch-card-row.arch-card--menu-open .arch-card-menu,
+.arch-card-tile.arch-card--menu-open .arch-card-menu,
+.arch-card-menu:focus-visible { visibility: visible; opacity: 1; }
+.arch-card-row.arch-card--actions-open .arch-row-mana,
+.arch-card-row.arch-card--menu-open .arch-row-mana { visibility: hidden; }
+.arch-card-tile .stack-name {
+  font-size: 0.68rem;
+  line-height: 1.25;
+  margin-top: 4px;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+.arch-pips { display: inline-flex; gap: 3px; align-items: center; flex-shrink: 0; }
+.arch-card-row .arch-pips { gap: 2px; }
+/* Full mana costs need more room than the old single-colour pips. */
+#tab-decks .arch-card-row .arch-pips .mana-pip {
+  width: 16px;
+  height: 16px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.45);
+}
+.arch-mana-sep { font-size: 0.62rem; color: var(--text3); }
+.arch-pill {
+  font-size: 0.62rem;
+  border: 1px solid var(--border2);
+  border-radius: 999px;
+  padding: 0 6px;
+  line-height: 1.5;
+  color: var(--text3);
+}
+.arch-pill--declared { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, var(--border2)); }
+.arch-pill--inferred { color: var(--text3); }
+.arch-pill--override { color: var(--gold); }
+.arch-chip {
+  display: inline-flex;
+  gap: 4px;
+  font-size: 0.68rem;
+  border: 1px solid color-mix(in srgb, var(--arch-sub-accent, var(--border)) 35%, var(--border));
+  border-radius: 999px;
+  padding: 1px 7px;
+  color: var(--arch-sub-accent, var(--text2));
+  background: transparent;
+}
+.arch-compact-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+.arch-expand { cursor: pointer; font-size: 0.75rem; color: var(--gold); }
+.arch-multi, .arch-unassigned {
+  border: 1px dashed var(--border2);
+  border-radius: var(--radius2);
+  padding: 10px;
+  background: var(--bg);
+}
+.arch-multi-title { margin: 0 0 8px; font-size: 0.88rem; }
+.arch-multi-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.arch-multi-item {
+  display: flex; flex-direction: column; gap: 2px;
+  border: 1px solid var(--border); border-radius: var(--radius); padding: 4px 8px;
+}
+.arch-multi-name { font-size: 0.78rem; }
+.arch-multi-badges { font-size: 0.65rem; color: var(--text3); }
+.arch-legend {
+  display: flex; flex-wrap: wrap; gap: 12px 18px;
+  font-size: 0.72rem; color: var(--text3);
+}
+.arch-legend-multi { border: 1px dashed var(--border2); padding: 0 6px; border-radius: 999px; }
+.arch-menu {
+  position: fixed; z-index: 80; width: min(280px, calc(100vw - 16px));
+  max-height: min(70vh, 420px); overflow: auto;
+  background: var(--bg2); border: 1px solid var(--border2);
+  border-radius: var(--radius2); box-shadow: 0 8px 28px rgba(0,0,0,0.35);
+  padding: 6px;
+}
+.arch-menu-title { font-size: 0.8rem; font-weight: 600; padding: 4px 8px 6px; }
+.arch-menu-scroll { display: flex; flex-direction: column; max-height: 280px; overflow: auto; }
+.arch-menu-item {
+  display: block; width: 100%; text-align: left;
+  background: none; border: none; color: var(--text2);
+  padding: 6px 8px; border-radius: var(--radius); cursor: pointer; font-size: 0.75rem;
+}
+.arch-menu-item:hover { background: var(--bg3); color: var(--text); }
+.arch-menu-item--quiet { color: var(--text3); }
+.arch-menu-item--danger { color: var(--red); }
+
 /* ────────────────────────────────────────────────────────────────────────────
    Glass: app chrome — body base, topbar, sidebar, nav, dropdowns, toasts
    ──────────────────────────────────────────────────────────────────────────── */
@@ -10855,12 +11460,17 @@ body.glass-mode .topbar-brand * { font-family: 'Cinzel', serif !important; }
 
 /* 2. Floating surfaces must be readable over any content: solidly frosted,
    not see-through. Covers every popover/dropdown/tooltip/context-menu family
-   (they all shared background: var(--bg2), which glass makes nearly clear). */
+   (they all shared background: var(--bg2), which glass makes nearly clear).
+   The alpha is deliberately near-opaque: these overlays land on card art and
+   dense text, where anything more translucent turns the menu into noise. */
 body.glass-mode :is(
   .settings-dropdown, .notif-panel, .deck-options-dropdown,
   .cd-tag-ctx-menu, .deck-valid-tooltip, .deck-gc-tooltip, .tooltip,
+  .arch-menu, .voice-search-settings,
+  .calc-search-results, .calc-partner-results,
+  .gf-context-menu, .gf-tutor-autocomplete,
   .tablet-player-menu, .tablet-drag-menu) {
-  background: rgba(23,30,52,0.82) !important;
+  background: rgba(17,23,42,0.97) !important;
   -webkit-backdrop-filter: blur(28px) saturate(180%) !important;
   backdrop-filter: blur(28px) saturate(180%) !important;
   border-color: rgba(255,255,255,0.17) !important;
@@ -10871,8 +11481,11 @@ body.glass-mode :is(
 [data-theme="light"] body.glass-mode :is(
   .settings-dropdown, .notif-panel, .deck-options-dropdown,
   .cd-tag-ctx-menu, .deck-valid-tooltip, .deck-gc-tooltip, .tooltip,
+  .arch-menu, .voice-search-settings,
+  .calc-search-results, .calc-partner-results,
+  .gf-context-menu, .gf-tutor-autocomplete,
   .tablet-player-menu, .tablet-drag-menu) {
-  background: rgba(255,255,255,0.90) !important;
+  background: rgba(253,254,255,0.98) !important;
   border-color: rgba(255,255,255,0.95) !important;
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.98),
@@ -10909,21 +11522,74 @@ body.glass-mode :is(.trade-title, .welcome-title) { color: var(--text); }
 
 /* 5. Button size normalization: consistent control heights in glass. Menu
    rows opt out (deliberately compact). */
-body.glass-mode .btn:not(.deck-menu-item) { min-height: 34px; }
-body.glass-mode .btn-sm:not(.deck-menu-item) { min-height: 28px; }
-/* Menu rows read as an iOS menu: no pill chrome, frost on hover only */
-body.glass-mode .deck-menu-item {
-  border-color: transparent;
-  background: transparent;
-  box-shadow: none;
-  border-radius: 10px;
+body.glass-mode .btn:not(.deck-menu-item):not(.settings-menu-item) { min-height: 34px; }
+body.glass-mode .btn-sm:not(.deck-menu-item):not(.settings-menu-item) { min-height: 28px; }
+/* Menu rows carry the same glass button chrome as the deck-list toolbar buttons,
+   just full width and left-aligned. The old chromeless treatment left them
+   nearly invisible on the light frosted panel. */
+body.glass-mode .deck-menu-item,
+body.glass-mode .settings-menu-item {
+  border: 1px solid rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.07);
+  color: rgba(240,244,252,0.82);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 2px 10px rgba(0,0,0,0.22);
+  /* 8px + blue->purple hover: the deck-list toolbar / card inspector button,
+     not the pill used by the top-bar controls. */
+  border-radius: 8px !important;
+  padding: 6px 10px;
 }
-body.glass-mode .deck-menu-item:hover {
-  background: rgba(255,255,255,0.12);
-  border-color: transparent;
+/* Selected row matches the deck-list Badges button in its active state. */
+body.glass-mode :is(.deck-menu-item, .settings-menu-item):hover,
+body.glass-mode :is(.deck-menu-item, .settings-menu-item):focus-visible,
+body.glass-mode :is(.deck-menu-item, .settings-menu-item):active,
+body.glass-mode :is(.deck-menu-item, .settings-menu-item).active {
+  color: var(--text);
+  border-color: rgba(var(--lgx2), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.22), rgba(var(--lgx2), 0.22));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14);
 }
-[data-theme="light"] body.glass-mode .deck-menu-item:hover {
-  background: rgba(20,35,60,0.08);
+[data-theme="light"] body.glass-mode .deck-menu-item,
+[data-theme="light"] body.glass-mode .settings-menu-item {
+  /* The panel behind these is near-white, so a white fill would vanish —
+     tint the row instead and keep the border readable. */
+  background: rgba(255,255,255,0.72);
+  border-color: rgba(20,35,60,0.14);
+  color: rgba(28,40,58,0.86);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.95), 0 1px 5px rgba(30,50,90,0.10);
+}
+[data-theme="light"] body.glass-mode :is(.deck-menu-item, .settings-menu-item):hover,
+[data-theme="light"] body.glass-mode :is(.deck-menu-item, .settings-menu-item):focus-visible,
+[data-theme="light"] body.glass-mode :is(.deck-menu-item, .settings-menu-item):active,
+[data-theme="light"] body.glass-mode :is(.deck-menu-item, .settings-menu-item).active {
+  color: var(--text);
+  border-color: rgba(var(--lgx2), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.22), rgba(var(--lgx2), 0.22));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14);
+}
+
+/* The theme segmented control sits in the same menu, so its selected state uses
+   the same treatment instead of gold. */
+body.glass-mode .theme-btn {
+  border: 1px solid rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.07);
+  color: rgba(240,244,252,0.82);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 2px 10px rgba(0,0,0,0.22);
+  border-radius: 8px;
+}
+[data-theme="light"] body.glass-mode .theme-btn {
+  background: rgba(255,255,255,0.72);
+  border-color: rgba(20,35,60,0.14);
+  color: rgba(28,40,58,0.86);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.95), 0 1px 5px rgba(30,50,90,0.10);
+}
+body.glass-mode .theme-btn:hover,
+body.glass-mode .theme-btn.active,
+[data-theme="light"] body.glass-mode .theme-btn:hover,
+[data-theme="light"] body.glass-mode .theme-btn.active {
+  color: var(--text);
+  border-color: rgba(var(--lgx2), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.22), rgba(var(--lgx2), 0.22));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14);
 }
 
 /* ── Collapsible info panels below the deck list (all themes) ──────────────
@@ -10980,14 +11646,14 @@ body.glass-mode .deck-menu-item:hover {
 }
 .deck-info-label { color: var(--text3); }
 body.glass-mode .deck-info-tooltip {
-  background: rgba(23,30,52,0.82) !important;
+  background: rgba(17,23,42,0.97) !important;
   -webkit-backdrop-filter: blur(28px) saturate(180%);
   backdrop-filter: blur(28px) saturate(180%);
   border-color: rgba(255,255,255,0.17) !important;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 18px 60px rgba(0,0,0,0.55) !important;
 }
 [data-theme="light"] body.glass-mode .deck-info-tooltip {
-  background: rgba(255,255,255,0.90) !important;
+  background: rgba(253,254,255,0.98) !important;
   border-color: rgba(255,255,255,0.95) !important;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.98), 0 18px 60px rgba(30,50,90,0.28) !important;
 }
@@ -11039,7 +11705,7 @@ body.glass-mode .modal-edge-nav:hover { color: #fff; }
   flex-wrap: wrap;
   align-items: flex-start;
 }
-.card-detail-qty-grid .card-detail-qty-row { flex: 1 1 300px; min-width: 0; }
+.card-detail-qty-grid .card-detail-qty-row { flex: 0 1 auto; min-width: 0; }
 .card-detail-utility-row {
   display: flex;
   gap: 8px;
@@ -11074,3 +11740,1386 @@ body.glass-mode .card-detail-text {
   content-visibility: auto;
   contain-intrinsic-size: auto 180px auto 300px;
 }
+
+
+/* ── Settings menu: price-source dropdowns + non-gold accents ────────────── */
+#settingsDropdown .glass-dd-wrap { display: flex; width: 100%; margin-bottom: 6px; margin-top: 6px; }
+#settingsDropdown .glass-dd-btn {
+  width: 100%;
+  justify-content: flex-start;
+  border-radius: 8px !important;
+  height: auto;
+  padding: 6px 10px !important;
+  font-size: 0.78rem !important;
+}
+#settingsDropdown .glass-dd-btn .glass-dd-caret,
+#settingsDropdown .glass-dd-btn svg:last-child { margin-left: auto; }
+/* Slider + its value read in the glass blue, not gold. */
+#settingsValueExcludeSlider { accent-color: rgb(var(--lgx1)); }
+#settingsValueExcludeLabel { color: rgb(var(--lgx1)); }
+.settings-dropdown .settings-section-label { display: flex; align-items: center; gap: 6px; }
+
+/* Value-exclude row now lives inside PRICE SETTINGS */
+.settings-value-exclude-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0 6px;
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+.settings-value-exclude-row label { flex: 1; min-width: 0; }
+
+/* Portaled help tooltip: positioned inline by initHelpTooltips(), so it escapes
+   the scrolling/backdrop-filtered panel it belongs to. */
+.help-tip-portal {
+  display: block !important;
+  position: fixed !important;
+  z-index: 10050;
+  margin: 0;
+  /* Consistent everywhere — these tooltips previously inherited whatever the
+     surrounding panel used. */
+  font-size: 0.76rem;
+  font-weight: 400;
+  font-style: normal;
+  letter-spacing: 0;
+  text-transform: none;
+  line-height: 1.5;
+  text-align: left;
+  white-space: normal;
+  width: min(300px, calc(100vw - 16px));
+  max-width: min(300px, calc(100vw - 16px));
+  color: var(--text);
+}
+.help-tip-portal strong { font-weight: 600; }
+body.glass-mode .help-tip-portal {
+  background: rgba(23,30,52,0.96);
+  border: 1px solid rgba(255,255,255,0.17);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 18px 60px rgba(0,0,0,0.55);
+}
+[data-theme="light"] body.glass-mode .help-tip-portal {
+  background: rgba(255,255,255,0.98);
+  border-color: rgba(20,35,60,0.16);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.98), 0 18px 60px rgba(30,50,90,0.28);
+}
+
+
+/* ── DESIGN + ANALYTICS TABS ────────────────────────────────────────────────
+   One continuous page: the tab pane already provides the glass surface, so the
+   panels inside it (including every chart) drop their own box. Controls take the
+   deck-list toolbar metric (34px / 8px radius / 0.82rem) so all tabs match. */
+:is(#deckTabPane-design,#deckTabPane-analytics) .panel,
+body.glass-mode :is(#deckTabPane-design,#deckTabPane-analytics) .panel {
+  background: none !important;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+:is(#deckTabPane-design,#deckTabPane-analytics) .panel + .panel,
+:is(#deckTabPane-design,#deckTabPane-analytics) > div + div { margin-top: 0.25rem; }
+:is(#deckTabPane-design,#deckTabPane-analytics) .panel-header {
+  padding-left: 0;
+  padding-right: 0;
+}
+:is(#deckTabPane-design,#deckTabPane-analytics) .panel-body { padding-left: 0; padding-right: 0; }
+
+/* Deck-list button parity for every control on this tab. */
+:is(#deckTabPane-design,#deckTabPane-analytics) :is(
+  .cmdr-gp-custom-tag-btn,
+  .cmdr-gp-or-add-btn) {
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-family: inherit;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  cursor: pointer;
+  color: var(--text2);
+  border: 1px solid var(--border2);
+  background: var(--bg3);
+}
+body.glass-mode :is(#deckTabPane-design,#deckTabPane-analytics) :is(
+  .cmdr-gp-custom-tag-btn,
+  .cmdr-gp-or-add-btn) {
+  border-color: rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.07);
+  color: rgba(240,244,252,0.82);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 2px 10px rgba(0,0,0,0.22);
+}
+[data-theme="light"] body.glass-mode :is(#deckTabPane-design,#deckTabPane-analytics) :is(
+  .cmdr-gp-custom-tag-btn,
+  .cmdr-gp-or-add-btn) {
+  border-color: rgba(255,255,255,0.75);
+  background: rgba(255,255,255,0.55);
+  color: rgba(28,40,58,0.82);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 10px rgba(30,50,90,0.10);
+}
+/* Same blue->purple hover the deck-list toolbar uses. Needs body.glass-mode to
+   outrank the resting glass chrome above, which is otherwise more specific. */
+body.glass-mode :is(#deckTabPane-design,#deckTabPane-analytics) :is(
+  .cmdr-gp-custom-tag-btn,
+  .cmdr-gp-or-add-btn):hover,
+[data-theme="light"] body.glass-mode :is(#deckTabPane-design,#deckTabPane-analytics) :is(
+  .cmdr-gp-custom-tag-btn,
+  .cmdr-gp-or-add-btn):hover,
+:is(#deckTabPane-design,#deckTabPane-analytics) :is(
+  .cmdr-gp-custom-tag-btn,
+  .cmdr-gp-or-add-btn):hover {
+  color: var(--text);
+  border-color: rgba(var(--lgx1), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14));
+}
+body.glass-mode :is(#deckTabPane-design,#deckTabPane-analytics) .cmdr-gp-or-add-btn--open,
+body.glass-mode :is(#deckTabPane-design,#deckTabPane-analytics) .deck-themes-card.active,
+[data-theme="light"] body.glass-mode :is(#deckTabPane-design,#deckTabPane-analytics) .cmdr-gp-or-add-btn--open,
+[data-theme="light"] body.glass-mode :is(#deckTabPane-design,#deckTabPane-analytics) .deck-themes-card.active,
+:is(#deckTabPane-design,#deckTabPane-analytics) .cmdr-gp-or-add-btn--open,
+:is(#deckTabPane-design,#deckTabPane-analytics) .deck-themes-card.active {
+  color: var(--text);
+  border-color: rgba(var(--lgx2), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.22), rgba(var(--lgx2), 0.22));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14);
+}
+/* Count badge inside the tag buttons keeps its own weight. */
+:is(#deckTabPane-design,#deckTabPane-analytics) .cmdr-gp-custom-tag-btn .cmdr-gp-custom-tag-count { font-size: 0.72rem; opacity: 0.62; }
+
+/* Requirement chips read as the same family, just non-interactive. */
+:is(#deckTabPane-design,#deckTabPane-analytics) .cmdr-gp-part-chip {
+  height: 34px;
+  padding: 0 6px 0 12px;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  box-sizing: border-box;
+}
+
+/* Cast-turn field matches the deck-list inputs. */
+:is(#deckTabPane-design,#deckTabPane-analytics) input[type="number"]:not(.voice-qty-value),
+:is(#deckTabPane-design,#deckTabPane-analytics) input[type="text"] {
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  box-sizing: border-box;
+  width: 4rem;
+}
+:is(#deckTabPane-design,#deckTabPane-analytics) .cmdr-gp-plan-sync label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+}
+:is(#deckTabPane-design,#deckTabPane-analytics) .cmdr-gp-plan-sync { gap: 0.75rem !important; }
+
+/* Outranks the global glass input rule, which sets a 12px radius. */
+:is(#deckTabPane-design,#deckTabPane-analytics) input[type="number"]:not(.voice-qty-value),
+:is(#deckTabPane-design,#deckTabPane-analytics) input[type="text"] { border-radius: 8px !important; }
+/* Dropdowns here match the deck-list toolbar height, not the compact 28px. */
+:is(#deckTabPane-design,#deckTabPane-analytics) .glass-dd-btn {
+  height: 34px !important;
+  padding: 0 12px !important;
+  font-size: 0.82rem !important;
+}
+
+/* Cast-turn counter — identical markup and metrics to the card inspector's. */
+:is(#deckTabPane-design,#deckTabPane-analytics) .cmdr-gp-castturn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 0;
+}
+:is(#deckTabPane-design,#deckTabPane-analytics) .cmdr-gp-castturn .btn-icon {
+  height: 34px !important;
+  min-width: 34px;
+  padding: 0 !important;
+  justify-content: center;
+  border-radius: 8px !important;
+}
+
+/* Every deck tab pane gets the deck-list toolbar's hover/active, which was
+   previously scoped to #deckListPanelHeader and #cardDetailModal only — so
+   .btn-outline elsewhere (Free mulligan, Custom, Refresh) hovered plain white. */
+body.glass-mode .deck-tab-pane .btn-outline:hover,
+[data-theme="light"] body.glass-mode .deck-tab-pane .btn-outline:hover,
+.deck-tab-pane .btn-outline:hover {
+  color: var(--text);
+  border-color: rgba(var(--lgx1), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14));
+}
+body.glass-mode .deck-tab-pane .btn-outline.active,
+[data-theme="light"] body.glass-mode .deck-tab-pane .btn-outline.active,
+.deck-tab-pane .btn-outline.active {
+  color: var(--text);
+  border-color: rgba(var(--lgx2), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.22), rgba(var(--lgx2), 0.22));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14);
+}
+
+/* ── Card reference lists ──────────────────────────────────────────────────
+   Plain text rows in a collapsible block; the whole name is the hit target and
+   opens the inspector. */
+
+
+
+
+
+
+
+/* display:flex would otherwise beat the UA's [hidden] rule and leave collapsed
+   lists fully rendered. */
+.card-ref-list-items[hidden] { display: none !important; }
+.card-ref-list-items {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.card-ref-list-items > li {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+/* Standard button metrics, carrying the card accent so a card reference is
+   never mistaken for a control. */
+.card-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  max-width: 100%;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(var(--lgx-card), 0.42);
+  background: rgba(var(--lgx-card), 0.10);
+  color: rgb(var(--lgx-card));
+  font-size: 0.82rem;
+  font-family: inherit;
+  line-height: 1;
+  cursor: pointer;
+  box-sizing: border-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+body.glass-mode .card-link {
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 2px 10px rgba(0,0,0,0.22);
+}
+[data-theme="light"] body.glass-mode .card-link {
+  background: rgba(var(--lgx-card), 0.12);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 10px rgba(30,50,90,0.10);
+}
+body.glass-mode .card-link:hover,
+[data-theme="light"] body.glass-mode .card-link:hover,
+.card-link:hover {
+  border-color: rgba(var(--lgx-card), 0.75);
+  background: rgba(var(--lgx-card), 0.22);
+  color: rgb(var(--lgx-card));
+}
+.card-link em { font-style: normal; opacity: 0.62; font-size: 0.72rem; }
+.card-link-qty { opacity: 0.62; font-size: 0.72rem; }
+
+
+/* Same mono value type as the inspector's counters. */
+:is(#deckTabPane-design,#deckTabPane-analytics) .card-detail-qty-value {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.9rem;
+  min-width: 40px;
+  text-align: center;
+}
+
+/* ── Similarity card chips ─────────────────────────────────────────────────
+   The row itself is the card button; the +/- action sits inside it rather than
+   floating alongside. Two child buttons keep the markup valid (no nesting). */
+.card-chip-row {
+  list-style: none;
+  margin: 6px 0 0.9rem;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.card-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 34px;
+  max-width: 100%;
+  padding: 0 4px 0 0;
+  border-radius: 8px;
+  border: 1px solid rgba(var(--lgx-card), 0.42);
+  background: rgba(var(--lgx-card), 0.10);
+  color: rgb(var(--lgx-card));
+  box-sizing: border-box;
+  overflow: hidden;
+}
+body.glass-mode .card-chip {
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 2px 10px rgba(0,0,0,0.22);
+}
+[data-theme="light"] body.glass-mode .card-chip {
+  background: rgba(var(--lgx-card), 0.12);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 10px rgba(30,50,90,0.10);
+}
+.card-chip:hover {
+  border-color: rgba(var(--lgx-card), 0.75);
+  background: rgba(var(--lgx-card), 0.22);
+}
+.card-chip-name {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0 8px 0 12px;
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 0.82rem;
+  font-family: inherit;
+  line-height: 1;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.card-chip-name em { font-style: normal; opacity: 0.62; font-size: 0.72rem; margin-left: 2px; }
+.card-chip .sim-chip-btn {
+  flex-shrink: 0;
+  height: 24px;
+  min-width: 24px;
+  margin: 0;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.95rem;
+  border-radius: 6px;
+  opacity: 0.72;
+}
+.card-chip .sim-chip-btn:hover { opacity: 1; background: rgba(var(--lgx-card), 0.28); }
+.card-chip .sim-chip-btn--remove { color: var(--red); }
+.card-chip .sim-chip-btn--remove:hover { background: rgba(255,90,74,0.22); }
+
+
+/* ── Architecture view polish ──────────────────────────────────────────────
+   Panels take the MB/ADDS/CUTS zone material so every box on the deck builder
+   reads as the same glass, and rows get quieter type + smaller pips. */
+.arch-panel {
+  border: 1px solid var(--border2);
+  border-radius: 12px;
+  background: var(--bg3);
+  padding: 20px 20px 22px;
+}
+body.glass-mode .arch-panel {
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.13) 0%, rgba(var(--lgx2), 0.06) 60%, rgba(var(--lgx2), 0.04) 100%),
+    linear-gradient(180deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.05) 60px, rgba(255,255,255,0.05) 100%);
+  border-color: rgba(255,255,255,0.20);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.20),
+    0 8px 28px rgba(0,0,0,0.35);
+}
+[data-theme="light"] body.glass-mode .arch-panel {
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.10) 0%, rgba(var(--lgx2), 0.05) 60%, rgba(var(--lgx2), 0.04) 100%),
+    linear-gradient(180deg, rgba(255,255,255,0.65) 0%, rgba(255,255,255,0.5) 60px, rgba(255,255,255,0.5) 100%);
+  border-color: rgba(255,255,255,0.8);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.95),
+    0 8px 28px rgba(30,50,90,0.12);
+}
+/* The category is already carried by the title colour; the coloured top rule
+   fought the zone material's inset highlight. */
+body.glass-mode .arch-panel--foundation,
+body.glass-mode .arch-panel--strategy,
+body.glass-mode .arch-panel--payoffs,
+body.glass-mode .arch-panel--manabase { border-top-width: 1px; }
+
+/* Smaller row type and pips — these lists run long, so they read better tighter. */
+#tab-decks .arch-card-row .deck-card-name { font-size: calc(0.74rem + var(--dl-fs)); }
+#tab-decks .arch-card-row .arch-pips .mana-pip,
+#tab-decks .arch-card-row .arch-row-mana .mana-pip { width: 12px !important; height: 12px !important; }
+#tab-decks .arch-card-row .arch-row-badges .mana-pip { width: 12px; height: 12px; }
+#tab-decks .arch-card-row { padding: 2px 6px; }
+#tab-decks .arch-sub-title { font-size: calc(0.8rem + var(--dl-fs)); }
+#tab-decks .arch-sub-group-label { font-size: calc(0.62rem + var(--dl-fs)); }
+
+/* The extra zones are a deck-list concept; Architecture already places every
+   card into a panel, so MB / adds / cuts / sideboard would just duplicate it. */
+/* .is-arch-view lands on #deckListPanel, which is a child of .panel — not the
+   .panel itself. */
+.is-arch-view .deck-extra-zones-wrap,
+.is-arch-view .deck-sideboard-section { display: none !important; }
+
+
+/* ── Architecture: no gold, and a usable placement button ─────────────────── */
+/* The primary placement marked the whole row with a gold inset bar. Colour the
+   name instead — the row keeps its own background for hover/selection. */
+.arch-card-row.is-arch-primary { box-shadow: none; }
+.arch-card-row.is-arch-primary .deck-card-name {
+  color: rgb(var(--lgx2));
+  font-weight: 600;
+}
+.arch-card-tile.is-arch-primary .stack-wrap {
+  box-shadow: inset 0 0 0 2px rgb(var(--lgx2));
+}
+/* Mana Sources and its subsections were the last gold in the view. */
+.arch-panel--manabase { border-top-color: var(--teal); }
+.arch-panel--manabase .arch-panel-title { color: var(--teal); }
+.arch-panel--manabase .arch-sub--ramp,
+.arch-panel--manabase .arch-chip--ramp { --arch-sub-accent: color-mix(in srgb, var(--teal) 80%, var(--text)); }
+.arch-panel--manabase .arch-sub--basics,
+.arch-panel--manabase .arch-chip--basics { --arch-sub-accent: var(--teal); }
+.arch-panel--manabase .arch-sub--nonbasics,
+.arch-panel--manabase .arch-chip--nonbasics { --arch-sub-accent: color-mix(in srgb, var(--teal) 60%, rgb(var(--lgx1))); }
+.arch-panel--strategy .arch-chip-tint-3 { --arch-sub-accent: color-mix(in srgb, var(--green) 80%, rgb(var(--lgx1))); }
+.arch-panel--payoffs .arch-chip-tint-3 { --arch-sub-accent: color-mix(in srgb, var(--purple) 75%, rgb(var(--lgx1))); }
+.arch-pill--override { color: rgb(var(--lgx1)); }
+.arch-expand { color: rgb(var(--lgx1)); }
+
+
+/* The tag-group link filled the whole row with a gold wash. Colour the name
+   instead, so the highlight reads without repainting the region. */
+.arch-view .arch-card-row.tag-group-linked,
+.arch-view .arch-card-row.tag-group-source {
+  background: transparent;
+}
+.arch-view .arch-card-row.tag-group-linked .deck-card-name,
+.arch-view .arch-card-row.tag-group-source .deck-card-name {
+  color: rgb(var(--lgx2));
+  font-weight: 600;
+}
+/* Tiles have no text to carry it, so they keep a wash — in the glass purple. */
+.arch-view .arch-card-tile.tag-group-linked .stack-wrap::after,
+.arch-view .arch-card-tile.tag-group-source .stack-wrap::after {
+  background: rgba(var(--lgx2), 0.30);
+}
+.arch-view .arch-card-tile.tag-group-linked .stack-name,
+.arch-view .arch-card-tile.tag-group-source .stack-name {
+  color: rgb(var(--lgx2));
+}
+
+/* ── Architecture: headers, Unassigned material ───────────────────────────── */
+/* Bigger category headers, sitting closer to the panel's top edge. */
+:is(#deckTabPane-list, #tab-decks) .arch-panel-title { font-size: 1.2rem; }
+:is(#deckTabPane-list, #tab-decks) .arch-panel { padding-top: 12px; }
+:is(#deckTabPane-list, #tab-decks) .arch-panel-head { margin-bottom: 2px; }
+:is(#deckTabPane-list, #tab-decks) .arch-panel-count { font-size: 0.78rem; }
+
+/* Unassigned takes the same glass box as the panels, instead of a dashed outline. */
+.arch-unassigned {
+  border: 1px solid var(--border2);
+  border-radius: 12px;
+  background: var(--bg3);
+  padding: 12px 20px 22px;
+}
+body.glass-mode .arch-unassigned {
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.13) 0%, rgba(var(--lgx2), 0.06) 60%, rgba(var(--lgx2), 0.04) 100%),
+    linear-gradient(180deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.05) 60px, rgba(255,255,255,0.05) 100%);
+  border-color: rgba(255,255,255,0.20);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.20),
+    0 8px 28px rgba(0,0,0,0.35);
+}
+[data-theme="light"] body.glass-mode .arch-unassigned {
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.10) 0%, rgba(var(--lgx2), 0.05) 60%, rgba(var(--lgx2), 0.04) 100%),
+    linear-gradient(180deg, rgba(255,255,255,0.65) 0%, rgba(255,255,255,0.5) 60px, rgba(255,255,255,0.5) 100%);
+  border-color: rgba(255,255,255,0.8);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.95),
+    0 8px 28px rgba(30,50,90,0.12);
+}
+.arch-unassigned-title {
+  margin: 0 0 8px;
+  font-family: Cinzel, serif;
+  font-size: 1.2rem;
+  letter-spacing: 0.04em;
+  color: var(--text2);
+}
+
+/* The subsection accent was a border-left, so it always ran the full height of
+   the header and crowded the title. A centred pseudo-element can be shorter. */
+:is(#deckTabPane-list, #tab-decks) .arch-sub-head {
+  position: relative;
+  border-left: none;
+  padding-left: 11px;
+}
+:is(#deckTabPane-list, #tab-decks) .arch-sub-head::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 0.95em;
+  border-radius: 2px;
+  background: var(--arch-sub-accent);
+}
+
+/* The ⋯ placement button: a real circle carrying the same glass chrome and
+   blue->purple hover as every other button. */
+:is(#deckTabPane-list, #tab-decks) .arch-card-menu {
+  width: 22px;
+  height: 22px;
+  /* body.glass-mode .btn-sm forces a 28px floor, which made the circle an ellipse. */
+  min-height: 22px;
+  max-height: 22px;
+  min-width: 22px;
+  padding: 0 !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50% !important;
+  border: 1px solid var(--border2);
+  background: var(--bg3);
+  color: var(--text2);
+  font-size: 0.8rem;
+  line-height: 1;
+  box-sizing: border-box;
+}
+body.glass-mode :is(#deckTabPane-list, #tab-decks) .arch-card-menu {
+  border-color: rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.07);
+  color: rgba(240,244,252,0.82);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 2px 10px rgba(0,0,0,0.22);
+}
+[data-theme="light"] body.glass-mode :is(#deckTabPane-list, #tab-decks) .arch-card-menu {
+  border-color: rgba(255,255,255,0.75);
+  background: rgba(255,255,255,0.55);
+  color: rgba(28,40,58,0.82);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 10px rgba(30,50,90,0.10);
+}
+body.glass-mode :is(#deckTabPane-list, #tab-decks) .arch-card-menu:hover,
+[data-theme="light"] body.glass-mode :is(#deckTabPane-list, #tab-decks) .arch-card-menu:hover,
+:is(#deckTabPane-list, #tab-decks) .arch-card-menu:hover {
+  color: var(--text);
+  border-color: rgba(var(--lgx1), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14));
+}
+
+
+/* ── SUGGESTIONS TAB ───────────────────────────────────────────────────────
+   Deck goal reads as a titled glass card, and every control on the tab takes
+   the deck-list toolbar metric. */
+.deck-goal-card {
+  margin: 0.75rem 0 0.9rem;
+  padding: 14px 18px 15px;
+  border: 1px solid var(--border2);
+  border-radius: 12px;
+  background: var(--bg3);
+  line-height: 1.45;
+}
+body.glass-mode .deck-goal-card {
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.13) 0%, rgba(var(--lgx2), 0.06) 60%, rgba(var(--lgx2), 0.04) 100%),
+    linear-gradient(180deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.05) 60px, rgba(255,255,255,0.05) 100%);
+  border-color: rgba(255,255,255,0.20);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.20), 0 8px 28px rgba(0,0,0,0.35);
+}
+[data-theme="light"] body.glass-mode .deck-goal-card {
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.10) 0%, rgba(var(--lgx2), 0.05) 60%, rgba(var(--lgx2), 0.04) 100%),
+    linear-gradient(180deg, rgba(255,255,255,0.65) 0%, rgba(255,255,255,0.5) 60px, rgba(255,255,255,0.5) 100%);
+  border-color: rgba(255,255,255,0.8);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.95), 0 8px 28px rgba(30,50,90,0.12);
+}
+.deck-goal-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+/* Same size as the goal itself, so the pair reads as one line of type. */
+.deck-goal-kicker {
+  display: inline-flex;
+  align-items: center;
+  font-family: Cinzel, serif;
+  font-size: 1.15rem;
+  letter-spacing: 0.03em;
+  color: var(--text3);
+}
+.deck-goal-name {
+  font-family: Cinzel, serif;
+  font-size: 1.15rem;
+  letter-spacing: 0.03em;
+  color: color-mix(in oklab, rgb(var(--lgx1)) 55%, rgb(var(--lgx2)));
+}
+/* Plain text on the verdict scale — the colour is set inline per value. */
+.deck-goal-match {
+  font-size: 0.86rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.deck-goal-sep { color: var(--text3); opacity: 0.6; margin: 0 2px; }
+.deck-goal-name--second { font-size: 1rem; opacity: 0.9; }
+.deck-goal-summary { margin-top: 6px; font-size: 0.78rem; color: var(--text2); }
+.deck-goal-combo { margin-top: 4px; font-size: 0.74rem; color: var(--text3); }
+.deck-goal-combo span { color: rgb(var(--lgx2)); font-weight: 600; }
+
+/* Row controls match the deck-list toolbar rather than the old pills. */
+#deckTabPane-suggestions .btn-sm:not(.btn-icon):not(.arch-card-menu) {
+  height: 34px !important;
+  min-height: 34px;
+  padding: 0 12px !important;
+  border-radius: 8px !important;
+  font-size: 0.82rem !important;
+}
+body.glass-mode #deckTabPane-suggestions .btn-outline:hover,
+[data-theme="light"] body.glass-mode #deckTabPane-suggestions .btn-outline:hover {
+  color: var(--text);
+  border-color: rgba(var(--lgx1), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14));
+}
+/* Score / why toggle reads as small glass chrome, not a gold pill. */
+#deckTabPane-suggestions .cut-why-toggle {
+  border-radius: 8px;
+}
+#deckTabPane-suggestions .cut-why-toggle:hover,
+#deckTabPane-suggestions .cut-why-toggle:focus-visible,
+body.glass-mode #deckTabPane-suggestions .cut-why-toggle.is-open,
+#deckTabPane-suggestions .cut-why-toggle.is-open {
+  color: rgb(var(--lgx1));
+  border-color: rgba(var(--lgx1), 0.55);
+  outline: none;
+}
+
+/* Small accent chips in the suggestion rows (budget flag, planned-add marker) —
+   glass instead of the old gold tag. */
+.sugg-chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.62rem;
+  margin: 0 0.4rem 0 0;
+  padding: 2px 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.07);
+  color: var(--text2);
+  white-space: nowrap;
+}
+[data-theme="light"] .sugg-chip {
+  border-color: rgba(20,35,60,0.14);
+  background: rgba(255,255,255,0.6);
+}
+
+/* ── Suggestions: segmented toggles + score badge ─────────────────────────── */
+/* Now / After swaps and Collection / All Cards are bare <button>s, so the
+   .btn-sm sizing rule never reached them. */
+
+/* Score badge / why toggle: neutral glass at rest, accent only when hovered or open. */
+#deckTabPane-suggestions .cut-score-badge {
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border2);
+  background: var(--bg3);
+  color: var(--text2);
+  font-size: 0.74rem;
+  box-sizing: border-box;
+}
+body.glass-mode #deckTabPane-suggestions .cut-score-badge {
+  border-color: rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.07);
+  color: rgba(240,244,252,0.82);
+}
+[data-theme="light"] body.glass-mode #deckTabPane-suggestions .cut-score-badge {
+  /* Same values as [data-theme="light"] body.glass-mode .btn, so the score reads
+     as the same button as + Add rather than a grey-outlined box. */
+  border-color: rgba(255,255,255,0.75);
+  background: rgba(255,255,255,0.55);
+  color: rgba(28,40,58,0.82);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 10px rgba(30,50,90,0.10);
+}
+body.glass-mode #deckTabPane-suggestions .cut-why-toggle:hover,
+body.glass-mode #deckTabPane-suggestions .cut-why-toggle:focus-visible,
+#deckTabPane-suggestions .cut-why-toggle:hover,
+#deckTabPane-suggestions .cut-why-toggle:focus-visible {
+  color: var(--text);
+  border-color: rgba(var(--lgx1), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14));
+  outline: none;
+}
+#deckTabPane-suggestions .cut-why-toggle.is-open {
+  color: var(--text);
+  border-color: rgba(var(--lgx2), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.22), rgba(var(--lgx2), 0.22));
+}
+
+/* Now / After swaps and the adds pool are the same segmented control as the Add
+   Cards search pool, so they take that exact treatment. */
+#deckTabPane-suggestions .view-toggle {
+  display: inline-flex;
+  gap: 6px;
+  height: auto;
+  background: none !important;
+  border: none !important;
+  border-radius: 0;
+  overflow: visible;
+  box-shadow: none !important;
+}
+#deckTabPane-suggestions .view-toggle button {
+  height: 34px !important;
+  min-height: 34px;
+  padding: 0 12px !important;
+  font-size: 0.82rem !important;
+  font-family: inherit;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.07);
+  color: rgba(240,244,252,0.82);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 2px 10px rgba(0,0,0,0.22);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  transition: all 0.18s var(--ease);
+}
+#deckTabPane-suggestions .view-toggle button:hover {
+  color: #fff;
+  border-color: rgba(var(--lgx1), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14));
+}
+#deckTabPane-suggestions .view-toggle button.active {
+  color: #fff;
+  border-color: rgba(var(--lgx2), 0.6);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.30), rgba(var(--lgx2), 0.30));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.22), 0 2px 12px rgba(var(--lgx1), 0.18);
+}
+[data-theme="light"] #deckTabPane-suggestions .view-toggle button {
+  background: rgba(255,255,255,0.55);
+  border-color: rgba(255,255,255,0.75);
+  color: rgba(28,40,58,0.82);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 10px rgba(30,50,90,0.10);
+}
+[data-theme="light"] #deckTabPane-suggestions .view-toggle button.active {
+  color: #17204a;
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.24), rgba(var(--lgx2), 0.24));
+}
+
+/* Ownership + price as quiet text beside the card name. */
+.sugg-meta {
+  font-size: 0.72rem;
+  color: var(--text3);
+  margin-left: 0.5rem;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.sugg-meta-sep { opacity: 0.5; margin: 0 1px; }
+
+/* Score button: larger, no caret. The panel it opens is glass, not a flat slab. */
+/* Same metrics as the + Add buttons, so the score reads as a real button.
+   min-width keeps the scores aligned in a column across rows. */
+#deckTabPane-suggestions .cut-score-badge {
+  height: 34px;
+  min-width: 3.4rem;
+  padding: 0 12px;
+  font-size: 0.82rem;
+  justify-content: center;
+}
+#deckTabPane-suggestions .add-score-badge { min-width: 4rem; }
+#deckTabPane-suggestions .suggest-why-detail {
+  margin: 4px 0 8px;
+  padding: 12px 16px 14px;
+  border: 1px solid var(--border2);
+  border-radius: 12px;
+  background: var(--bg3);
+}
+body.glass-mode #deckTabPane-suggestions .suggest-why-detail {
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.13) 0%, rgba(var(--lgx2), 0.06) 60%, rgba(var(--lgx2), 0.04) 100%),
+    linear-gradient(180deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.05) 60px, rgba(255,255,255,0.05) 100%);
+  border-color: rgba(255,255,255,0.20);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.20), 0 8px 28px rgba(0,0,0,0.35);
+}
+[data-theme="light"] body.glass-mode #deckTabPane-suggestions .suggest-why-detail {
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.10) 0%, rgba(var(--lgx2), 0.05) 60%, rgba(var(--lgx2), 0.04) 100%),
+    linear-gradient(180deg, rgba(255,255,255,0.65) 0%, rgba(255,255,255,0.5) 60px, rgba(255,255,255,0.5) 100%);
+  border-color: rgba(255,255,255,0.8);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.95), 0 8px 28px rgba(30,50,90,0.12);
+}
+
+/* .cut-card-name has flex:1, which stretched it and pushed the meta text over to
+   the buttons. Let the name size to its content and park the meta right after it;
+   the auto margin then pushes the buttons to the right edge. */
+#deckTabPane-suggestions .cut-card-name { flex: 0 1 auto; min-width: 0; }
+#deckTabPane-suggestions .sugg-meta { margin-right: auto; }
+/* Hover is the Architecture view's purple name treatment — text only, no card
+   preview popping up over the list. */
+#deckTabPane-suggestions .cut-card-name:hover { color: rgb(var(--lgx2)); }
+
+/* Column headers above the suggestion rows, aligned to the row's flex slots. */
+.suggest-col-head {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .3rem .75rem .45rem;
+  border-bottom: 1px solid var(--border2);
+  margin-bottom: 2px;
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text3);
+}
+.suggest-col-head .suggest-rank { min-width: 1.4em; text-align: right; }
+.suggest-col-score { min-width: 3.4rem; text-align: center; flex-shrink: 0; }
+.suggest-col-card { flex: 1; min-width: 0; }
+.suggest-col-actions { flex-shrink: 0; text-align: right; }
+
+/* Card names inside score details open the inspector. */
+.why-card-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: rgb(var(--lgx1));
+  cursor: pointer;
+  text-align: left;
+}
+.why-card-link:hover { color: rgb(var(--lgx2)); text-decoration: underline; }
+
+/* Commander Gameplan turn boxes take the same glass material as the panels and
+   zone boxes, instead of a flat --bg3 outline. */
+:is(#deckTabPane-analytics, #deckTabPane-design) .cmdr-gp-scenario {
+  border-radius: 12px;
+  padding: 14px 18px 16px;
+}
+body.glass-mode :is(#deckTabPane-analytics, #deckTabPane-design) .cmdr-gp-scenario {
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.13) 0%, rgba(var(--lgx2), 0.06) 60%, rgba(var(--lgx2), 0.04) 100%),
+    linear-gradient(180deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.05) 60px, rgba(255,255,255,0.05) 100%);
+  border-color: rgba(255,255,255,0.20);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.20), 0 8px 28px rgba(0,0,0,0.35);
+}
+[data-theme="light"] body.glass-mode :is(#deckTabPane-analytics, #deckTabPane-design) .cmdr-gp-scenario {
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.10) 0%, rgba(var(--lgx2), 0.05) 60%, rgba(var(--lgx2), 0.04) 100%),
+    linear-gradient(180deg, rgba(255,255,255,0.65) 0%, rgba(255,255,255,0.5) 60px, rgba(255,255,255,0.5) 100%);
+  border-color: rgba(255,255,255,0.8);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.95), 0 8px 28px rgba(30,50,90,0.12);
+}
+/* The primary scenario keeps its accent, layered over the glass. */
+body.glass-mode :is(#deckTabPane-analytics, #deckTabPane-design) .cmdr-gp-scenario--primary,
+[data-theme="light"] body.glass-mode :is(#deckTabPane-analytics, #deckTabPane-design) .cmdr-gp-scenario--primary {
+  border-color: rgba(var(--lgx2), 0.55);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.20), 0 0 0 1px rgba(var(--lgx1), 0.22), 0 8px 28px rgba(0,0,0,0.35);
+}
+
+/* Draw-probability filters: standard buttons carrying a small series-colour dot,
+   instead of a dozen differently-tinted pills. */
+#deckTabPane-design .prob-type-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font-size: 0.82rem !important;
+  line-height: 1;
+  box-sizing: border-box;
+  border: 1px solid var(--border2);
+  background: var(--bg3);
+  color: var(--text2);
+}
+body.glass-mode #deckTabPane-design .prob-type-chip {
+  border-color: rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.07);
+  color: rgba(240,244,252,0.82);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 2px 10px rgba(0,0,0,0.22);
+}
+[data-theme="light"] body.glass-mode #deckTabPane-design .prob-type-chip {
+  border-color: rgba(255,255,255,0.75);
+  background: rgba(255,255,255,0.55);
+  color: rgba(28,40,58,0.82);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 10px rgba(30,50,90,0.10);
+}
+body.glass-mode #deckTabPane-design .prob-type-chip:hover,
+[data-theme="light"] body.glass-mode #deckTabPane-design .prob-type-chip:hover,
+#deckTabPane-design .prob-type-chip:hover {
+  color: var(--text);
+  border-color: rgba(var(--lgx1), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14));
+}
+body.glass-mode #deckTabPane-design .prob-type-chip.is-active,
+[data-theme="light"] body.glass-mode #deckTabPane-design .prob-type-chip.is-active,
+#deckTabPane-design .prob-type-chip.is-active {
+  color: var(--text);
+  border-color: rgba(var(--lgx2), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.22), rgba(var(--lgx2), 0.22));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14);
+}
+.prob-chip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.4);
+}
+/* Off state: the dot greys out with the rest of the control. */
+#deckTabPane-design .prob-type-chip:not(.is-active) .prob-chip-dot { opacity: 0.35; }
+#deckTabPane-design .prob-type-chip:not(.is-active) { opacity: 0.72; }
+#deckTabPane-design .prob-chip-count { opacity: 0.6; font-size: 0.74rem; }
+
+/* Hand-size stepper uses the gameplan cast-turn metrics. */
+#deckTabPane-design .cmdr-gp-castturn .btn-icon {
+  height: 34px !important;
+  min-width: 34px;
+  padding: 0 !important;
+  justify-content: center;
+  border-radius: 8px !important;
+}
+#deckTabPane-design .cmdr-gp-castturn { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 0; }
+
+#deckTabPane-design #probHandSize { font-size: 0.9rem; }
+
+/* Mana-curve category filters take the same treatment as the draw-probability
+   filters: standard buttons, neutral at rest, blue->purple when on. */
+#deckTabPane-design .mc-filter-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font-size: 0.82rem !important;
+  font-family: inherit;
+  line-height: 1;
+  box-sizing: border-box;
+  border: 1px solid var(--border2);
+  background: var(--bg3);
+  color: var(--text2);
+  cursor: pointer;
+}
+body.glass-mode #deckTabPane-design .mc-filter-btn {
+  border-color: rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.07);
+  color: rgba(240,244,252,0.82);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 2px 10px rgba(0,0,0,0.22);
+}
+[data-theme="light"] body.glass-mode #deckTabPane-design .mc-filter-btn {
+  border-color: rgba(255,255,255,0.75);
+  background: rgba(255,255,255,0.55);
+  color: rgba(28,40,58,0.82);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 10px rgba(30,50,90,0.10);
+}
+body.glass-mode #deckTabPane-design .mc-filter-btn:hover,
+[data-theme="light"] body.glass-mode #deckTabPane-design .mc-filter-btn:hover,
+#deckTabPane-design .mc-filter-btn:hover {
+  color: var(--text);
+  border-color: rgba(var(--lgx1), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14));
+}
+body.glass-mode #deckTabPane-design .mc-filter-btn.is-active,
+body.glass-mode #deckTabPane-design .mc-filter-btn.active,
+[data-theme="light"] body.glass-mode #deckTabPane-design .mc-filter-btn.is-active,
+[data-theme="light"] body.glass-mode #deckTabPane-design .mc-filter-btn.active,
+#deckTabPane-design .mc-filter-btn.is-active,
+#deckTabPane-design .mc-filter-btn.active {
+  color: var(--text);
+  border-color: rgba(var(--lgx2), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.22), rgba(var(--lgx2), 0.22));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14);
+}
+#deckTabPane-design .mc-filter-btn:not(.is-active):not(.active) { opacity: 0.72; }
+
+/* Share modal: link and collaborators as two labelled sections. */
+.share-modal-section + .share-modal-section {
+  margin-top: 1.1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+#deckShareLinkModal .settings-section-label { margin-bottom: 0.5rem; }
+#deckShareLinkModal #deckCollaboratorsPanel .panel-header { display: none; }
+#deckShareLinkModal #deckCollaboratorsPanel .panel-body { padding: 0; }
+
+
+/* ── Tag picker + Manage Tags: the inspector's tag silhouette ───────────────
+   Same angled leading edge and tier colours as the card inspector, so a tag
+   looks like a tag wherever it appears. Blue = primary, purple = secondary,
+   green = default/Scryfall. */
+#deckCardTagModal #deckCardTagList .btn,
+#deckTagManagerModal #deckTagManagerList .tag,
+#tagSettingsModal #tagSettingsMyTagsList .tag {
+  --tp-rgb: var(--lgx1);
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 13px 0 17px;
+  border-radius: 8px;
+  clip-path: polygon(10px -20%, 120% -20%, 120% 120%, 10px 120%, 0 50%);
+  font-size: 0.8rem !important;
+  font-weight: 500;
+  font-family: inherit;
+  line-height: 1;
+  border: none !important;
+  color: #fff;
+  background: linear-gradient(135deg, rgba(var(--tp-rgb), 0.42), rgba(var(--tp-rgb), 0.20));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.22);
+  cursor: pointer;
+  box-sizing: border-box;
+}
+[data-theme="light"] #deckCardTagModal #deckCardTagList .btn,
+[data-theme="light"] #deckTagManagerModal #deckTagManagerList .tag,
+[data-theme="light"] #tagSettingsModal #tagSettingsMyTagsList .tag {
+  color: #12203a;
+  background: linear-gradient(135deg, rgba(var(--tp-rgb), 0.34), rgba(var(--tp-rgb), 0.16));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.6);
+}
+/* Tier hues */
+#deckCardTagModal #deckCardTagList .btn-primary-tag,
+#deckCardTagModal #deckCardTagList .btn-outline-primary-tag,
+#deckTagManagerModal #deckTagManagerList .tag-primary,
+#tagSettingsModal #tagSettingsMyTagsList .tag-primary { --tp-rgb: var(--lgx1); }
+#deckCardTagModal #deckCardTagList .btn-secondary-tag,
+#deckCardTagModal #deckCardTagList .btn-outline-secondary-tag,
+#deckTagManagerModal #deckTagManagerList .tag-secondary,
+#tagSettingsModal #tagSettingsMyTagsList .tag-secondary { --tp-rgb: var(--lgx2); }
+#deckCardTagModal #deckCardTagList .btn-scryfall,
+#deckCardTagModal #deckCardTagList .btn-outline-scryfall,
+#deckTagManagerModal #deckTagManagerList .tag-scryfall,
+#tagSettingsModal #tagSettingsMyTagsList .tag-scryfall { --tp-rgb: var(--lgx-green); }
+#deckCardTagModal #deckCardTagList .btn-danger { --tp-rgb: 255,90,74; }
+/* Off / unassigned reads as a hollow tag rather than a different shape. */
+#deckCardTagModal #deckCardTagList [class*="btn-outline"] {
+  background: rgba(var(--tp-rgb), 0.14);
+  color: rgb(var(--tp-rgb));
+  box-shadow: none;
+}
+#deckCardTagModal #deckCardTagList .btn:hover { filter: brightness(1.15); }
+/* The delete ✕ inside a manager tag stays a plain glyph. */
+#deckTagManagerModal #deckTagManagerList .tag .btn,
+#tagSettingsModal #tagSettingsMyTagsList .tag .btn {
+  height: auto !important;
+  min-height: 0;
+  padding: 0 2px !important;
+  border-radius: 4px !important;
+  background: none;
+  border: none;
+  color: inherit;
+  opacity: 0.7;
+  clip-path: none;
+}
+#deckTagManagerModal #deckTagManagerList .tag .btn:hover { opacity: 1; }
+
+/* Inputs and actions in both modals take the deck-list control metric. */
+#deckCardTagModal input[type="text"],
+#deckTagManagerModal input[type="text"] {
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 8px !important;
+  font-size: 0.82rem;
+  box-sizing: border-box;
+}
+#deckCardTagModal > .modal > div:not(#deckCardTagList) > .btn,
+#deckTagManagerModal > .modal > div:not(#deckTagManagerList) > .btn,
+#deckCardTagModal #deckCardTagFilterBar .btn,
+#deckTagManagerModal #deckTagManagerFilterBar .btn {
+  height: 34px !important;
+  min-height: 34px;
+  padding: 0 12px !important;
+  border-radius: 8px !important;
+  font-size: 0.82rem !important;
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+}
+
+/* Tag modals: no solid blue controls, and the panel takes the lit glass the
+   rest of the deck builder uses rather than the flat modal fill. */
+body.glass-mode :is(#deckCardTagModal, #deckTagManagerModal) .modal {
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.13) 0%, rgba(var(--lgx2), 0.06) 60%, rgba(var(--lgx2), 0.04) 100%),
+    linear-gradient(165deg, rgba(34,44,74,0.94) 0%, rgba(20,27,48,0.93) 100%);
+  border-color: rgba(255,255,255,0.20);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.20), 0 28px 90px rgba(0,0,0,0.6);
+}
+[data-theme="light"] body.glass-mode :is(#deckCardTagModal, #deckTagManagerModal) .modal {
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.10) 0%, rgba(var(--lgx2), 0.05) 60%, rgba(var(--lgx2), 0.04) 100%),
+    linear-gradient(165deg, rgba(255,255,255,0.94) 0%, rgba(248,250,255,0.93) 100%);
+  border-color: rgba(255,255,255,0.9);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.95), 0 28px 90px rgba(30,50,90,0.28);
+}
+/* + Tag / filter buttons: glass, not solid blue. */
+:is(#deckCardTagModal, #deckTagManagerModal) :is(.btn-primary, .btn-outline, .btn-ghost):not(.btn-icon) {
+  border: 1px solid rgba(255,255,255,0.16) !important;
+  background: rgba(255,255,255,0.07) !important;
+  color: rgba(240,244,252,0.82) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 2px 10px rgba(0,0,0,0.22) !important;
+  font-weight: 500;
+}
+[data-theme="light"] :is(#deckCardTagModal, #deckTagManagerModal) :is(.btn-primary, .btn-outline, .btn-ghost):not(.btn-icon) {
+  border-color: rgba(255,255,255,0.75) !important;
+  background: rgba(255,255,255,0.55) !important;
+  color: rgba(28,40,58,0.82) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 10px rgba(30,50,90,0.10) !important;
+}
+:is(#deckCardTagModal, #deckTagManagerModal) :is(.btn-primary, .btn-outline, .btn-ghost):not(.btn-icon):hover {
+  color: var(--text) !important;
+  border-color: rgba(var(--lgx1), 0.55) !important;
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14)) !important;
+}
+:is(#deckCardTagModal, #deckTagManagerModal) :is(.btn-primary, .btn-outline, .btn-ghost):not(.btn-icon).active {
+  color: var(--text) !important;
+  border-color: rgba(var(--lgx2), 0.55) !important;
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.22), rgba(var(--lgx2), 0.22)) !important;
+}
+/* The tag pills keep their own tier fills — the rule above must not reach them. */
+#deckCardTagModal #deckCardTagList .btn,
+#deckTagManagerModal #deckTagManagerList .tag,
+#deckTagManagerModal #deckTagManagerList .tag .btn {
+  border: none !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.22) !important;
+}
+#deckCardTagModal #deckCardTagList .btn { background: linear-gradient(135deg, rgba(var(--tp-rgb), 0.42), rgba(var(--tp-rgb), 0.20)) !important; color: #fff !important; }
+#deckCardTagModal #deckCardTagList [class*="btn-outline"] {
+  background: rgba(var(--tp-rgb), 0.14) !important;
+  color: rgb(var(--tp-rgb)) !important;
+  /* No outline — the tag silhouette already reads, and a ring on the clipped
+     shape only traced part of the edge. */
+  box-shadow: none !important;
+}
+#deckTagManagerModal #deckTagManagerList .tag .btn {
+  background: none !important;
+  box-shadow: none !important;
+  color: inherit !important;
+}
+[data-theme="light"] #deckCardTagModal #deckCardTagList .btn { color: #12203a !important; }
+
+/* History: glass badges and icon-only row actions. */
+#tab-decks .history-event-badge {
+  height: 22px;
+  min-width: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(var(--hist-rgb), 0.42);
+  background: rgba(var(--hist-rgb), 0.14);
+  color: rgb(var(--hist-rgb));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14);
+  --hist-rgb: var(--lgx1);
+}
+#tab-decks .history-add    { --hist-rgb: var(--lgx-green); }
+#tab-decks .history-remove { --hist-rgb: 255,90,74; }
+#tab-decks .history-move   { --hist-rgb: var(--lgx1); }
+#tab-decks .history-tag    { --hist-rgb: var(--lgx2); }
+#tab-decks .history-tag-badge { min-width: 0; justify-content: flex-start; max-width: 140px; }
+
+#tab-decks .history-event-quick-actions .history-row-btn {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0 !important;
+  border-radius: 8px !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+#tab-decks .history-event-quick-actions .history-row-btn svg { width: 14px; height: 14px; }
+body.glass-mode #tab-decks .history-event-quick-actions .history-row-btn {
+  border-color: rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.07);
+  color: rgba(240,244,252,0.82);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 2px 10px rgba(0,0,0,0.22);
+}
+[data-theme="light"] body.glass-mode #tab-decks .history-event-quick-actions .history-row-btn {
+  border-color: rgba(255,255,255,0.75);
+  background: rgba(255,255,255,0.55);
+  color: rgba(28,40,58,0.82);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 10px rgba(30,50,90,0.10);
+}
+body.glass-mode #tab-decks .history-event-quick-actions .history-row-btn:hover,
+[data-theme="light"] body.glass-mode #tab-decks .history-event-quick-actions .history-row-btn:hover {
+  color: var(--text);
+  border-color: rgba(var(--lgx1), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14));
+}
+#tab-decks .history-event-quick-actions .history-undo-btn:hover {
+  border-color: rgba(255,90,74,0.55);
+  background: rgba(255,90,74,0.18);
+  color: #ff8a7a;
+}
+
+/* Event type reads as another line of card info rather than a chip. */
+#tab-decks .history-event-kind {
+  font-size: 0.7rem;
+  color: var(--text3);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-top: 2px;
+}
+
+
+/* ── EXPORT MODAL ──────────────────────────────────────────────────────────
+   Same rules as everywhere else: lit glass panel, 34px/8px controls, neutral at
+   rest with blue->purple for hover and active. No solid blue or green. */
+body.glass-mode #deckExportModal .modal {
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.13) 0%, rgba(var(--lgx2), 0.06) 60%, rgba(var(--lgx2), 0.04) 100%),
+    linear-gradient(165deg, rgba(34,44,74,0.94) 0%, rgba(20,27,48,0.93) 100%);
+  border-color: rgba(255,255,255,0.20);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.20), 0 28px 90px rgba(0,0,0,0.6);
+}
+[data-theme="light"] body.glass-mode #deckExportModal .modal {
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.10) 0%, rgba(var(--lgx2), 0.05) 60%, rgba(var(--lgx2), 0.04) 100%),
+    linear-gradient(165deg, rgba(255,255,255,0.94) 0%, rgba(248,250,255,0.93) 100%);
+  border-color: rgba(255,255,255,0.9);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.95), 0 28px 90px rgba(30,50,90,0.28);
+}
+/* Section labels match the app's small-caps headings. */
+#deckExportModal .deck-export-label {
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text3);
+}
+/* Every button — including the primary and the green download — is glass. */
+#deckExportModal .btn:not(.btn-icon) {
+  height: 34px !important;
+  min-height: 34px;
+  padding: 0 12px !important;
+  border-radius: 8px !important;
+  font-size: 0.82rem !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border: 1px solid rgba(255,255,255,0.16) !important;
+  background: rgba(255,255,255,0.07) !important;
+  color: rgba(240,244,252,0.82) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 2px 10px rgba(0,0,0,0.22) !important;
+  font-weight: 500;
+}
+[data-theme="light"] #deckExportModal .btn:not(.btn-icon) {
+  border-color: rgba(255,255,255,0.75) !important;
+  background: rgba(255,255,255,0.55) !important;
+  color: rgba(28,40,58,0.82) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 10px rgba(30,50,90,0.10) !important;
+}
+#deckExportModal .btn:not(.btn-icon):hover {
+  color: var(--text) !important;
+  border-color: rgba(var(--lgx1), 0.55) !important;
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14)) !important;
+}
+#deckExportModal .btn:not(.btn-icon).active,
+#deckExportModal .deck-export-btn.btn-primary {
+  color: var(--text) !important;
+  border-color: rgba(var(--lgx2), 0.55) !important;
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.22), rgba(var(--lgx2), 0.22)) !important;
+}
+#deckExportModal .deck-export-btn { flex: 1; gap: 0.4rem; }
+#deckExportModal .deck-export-download { filter: none; }
+#deckExportModal .deck-export-download:hover { filter: none; }
+
+/* Glass dropdown triggers fill their row. */
+#deckExportModal .glass-dd-wrap { display: flex; width: 100%; }
+#deckExportModal .glass-dd-btn {
+  width: 100%;
+  justify-content: flex-start;
+  height: 34px !important;
+  padding: 0 12px !important;
+  border-radius: 8px !important;
+  font-size: 0.82rem !important;
+}
+#deckExportModal .glass-dd-btn svg:last-child { margin-left: auto; }
+
+/* Checkbox rows: glass surfaces, accent on the app's blue. */
+#deckExportModal .deck-export-check input,
+#deckExportModal .deck-export-opt input { accent-color: rgb(var(--lgx1)); }
+#deckExportModal .deck-export-opt-list,
+#deckExportModal .deck-export-preview {
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.05);
+}
+[data-theme="light"] #deckExportModal .deck-export-opt-list,
+[data-theme="light"] #deckExportModal .deck-export-preview {
+  border-color: rgba(20,35,60,0.14);
+  background: rgba(255,255,255,0.6);
+}
+#deckExportModal .deck-export-opt { border-bottom-color: rgba(255,255,255,0.10); }
+[data-theme="light"] #deckExportModal .deck-export-opt { border-bottom-color: rgba(20,35,60,0.10); }
+
+/* Preview scrolls instead of clipping. */
+#deckExportModal .deck-export-preview {
+  max-height: 10rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border2) transparent;
+}
+#deckExportModal .deck-export-preview::-webkit-scrollbar { width: 10px; }
+#deckExportModal .deck-export-preview::-webkit-scrollbar-thumb {
+  background: var(--border2); border-radius: 999px; border: 2px solid transparent; background-clip: content-box;
+}
+#deckExportModal .deck-export-preview::-webkit-scrollbar-track { background: transparent; }
+
+/* Checkboxes read as the app's on/off toggle buttons. The input stays in the
+   DOM (every export reader uses .checked) but is visually replaced by a pill
+   driven off :has(:checked). */
+#deckExportModal :is(.deck-export-opt, .deck-export-check) input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+}
+#deckExportModal :is(.deck-export-opt, .deck-export-check) {
+  cursor: pointer;
+  user-select: none;
+}
+#deckExportModal :is(.deck-export-opt, .deck-export-check)::after {
+  content: 'Off';
+  flex-shrink: 0;
+  margin-left: auto;
+  min-width: 46px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  border: 1px solid rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.07);
+  color: rgba(240,244,252,0.62);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14);
+  transition: all 0.15s var(--ease);
+}
+[data-theme="light"] #deckExportModal :is(.deck-export-opt, .deck-export-check)::after {
+  border-color: rgba(20,35,60,0.14);
+  background: rgba(255,255,255,0.6);
+  color: rgba(28,40,58,0.6);
+}
+#deckExportModal :is(.deck-export-opt, .deck-export-check):has(input:checked)::after {
+  content: 'On';
+  color: var(--text);
+  border-color: rgba(var(--lgx2), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.22), rgba(var(--lgx2), 0.22));
+}
+#deckExportModal :is(.deck-export-opt, .deck-export-check):hover::after {
+  border-color: rgba(var(--lgx1), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14));
+  color: var(--text);
+}
+#deckExportModal .deck-export-check { display: flex; align-items: center; gap: 0.5rem; }
+#deckExportModal .deck-export-opt:hover,
+#deckExportModal .deck-export-check:hover { color: var(--text); }

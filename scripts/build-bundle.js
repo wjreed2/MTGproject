@@ -45,6 +45,7 @@ const CHUNKS = {
     'js/deck-plan.js',
     'js/deck-plan-wizard.js',
     'js/deck-themes.js',
+    'js/deck-architecture.js',
     'js/decks.js',
     'js/deck-export.js',
     'js/trade-scoring.js',

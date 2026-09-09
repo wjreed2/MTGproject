@@ -515,3 +515,87 @@ async function closeWelcomeModal() {
   currentUser.mobileWelcomeSeenAt = Date.now();
   try { await authWelcomeAck(); } catch (_) {}
 }
+
+/* ── (i) help tooltips ──────────────────────────────────────────────────────
+   These live inside scrolling, backdrop-filtered panels (settings menu, deck
+   options menu, card inspector). Those panels clip an absolutely-positioned
+   tooltip, and backdrop-filter makes them the containing block for `fixed`
+   too — so the tooltip is moved to <body> while shown and clamped to the
+   viewport, then put back exactly where it came from. */
+(function initHelpTooltips() {
+  if (typeof document === 'undefined') return;
+  let shown = null;
+  let placeholder = null;
+
+  function hide() {
+    if (!shown) return;
+    // The anchor's panel can re-render while the tooltip is parked in <body>,
+    // which detaches the placeholder. Drop the tooltip instead of leaving it
+    // orphaned there; the next render rebuilds it anyway.
+    if (!placeholder.isConnected) shown.remove();
+    else placeholder.replaceWith(shown);
+    shown.classList.remove('help-tip-portal');
+    shown.removeAttribute('style');
+    shown = null;
+    placeholder = null;
+  }
+
+  function show(wrap) {
+    const tip = wrap.querySelector('.deck-cut-help-tooltip, .tooltip');
+    if (!tip) return;
+    if (tip === shown) return;
+    hide();
+    shown = tip;
+    placeholder = document.createComment('help-tip');
+    tip.replaceWith(placeholder);
+    document.body.appendChild(tip);
+    tip.classList.add('help-tip-portal');
+
+    const r = wrap.getBoundingClientRect();
+    tip.style.visibility = 'hidden';
+    const w = tip.offsetWidth;
+    const h = tip.offsetHeight;
+    const pad = 8;
+    let left = Math.min(r.left, window.innerWidth - w - pad);
+    if (left < pad) left = pad;
+    let top = r.bottom + pad;
+    // Flip above when there is no room below.
+    if (top + h > window.innerHeight - pad) {
+      const above = r.top - h - pad;
+      top = above >= pad ? above : Math.max(pad, window.innerHeight - h - pad);
+    }
+    tip.style.left = `${Math.round(left)}px`;
+    tip.style.top = `${Math.round(top)}px`;
+    tip.style.visibility = '';
+  }
+
+  document.addEventListener('pointerover', e => {
+    const wrap = e.target.closest && e.target.closest('.deck-cut-help');
+    if (wrap) show(wrap);
+    else if (shown && !(e.target.closest && e.target.closest('.help-tip-portal'))) hide();
+  });
+  document.addEventListener('focusin', e => {
+    const wrap = e.target.closest && e.target.closest('.deck-cut-help');
+    if (wrap) show(wrap);
+  });
+  document.addEventListener('focusout', e => {
+    if (e.target.closest && e.target.closest('.deck-cut-help')) hide();
+  });
+  // A portaled tooltip would otherwise hang in place while its anchor moves.
+  window.addEventListener('scroll', hide, true);
+  window.addEventListener('resize', hide);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') hide(); });
+})();
+
+/* ── Card reference lists ───────────────────────────────────────────────────
+   Cards referenced in the UI are plain text links inside a collapsible list —
+   click one to open the inspector. Collapsed by default so long lists never
+   dominate a panel. */
+function cardRefLinkHtml(name, opts) {
+  const o = opts || {};
+  const label = String(name || '');
+  const qty = Number(o.qty) > 1 ? `<span class="card-link-qty">&times;${Number(o.qty)}</span>` : '';
+  return `<button type="button" class="card-link${o.className ? ' ' + o.className : ''}"`
+    + ` title="${escapeHtml(label)}" ${o.attrs || ''}>${escapeHtml(label)}${qty}</button>`;
+}
+

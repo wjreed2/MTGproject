@@ -37,6 +37,7 @@ This directory is the **persistent source of truth** for MTG Archive product con
 | [18-foundation-evaluation-lab.md](./18-foundation-evaluation-lab.md) | Dev/calibration Evaluation Lab (fixtures, CLI, ratings, regression) |
 | [20-foundation-calibration-infra.md](./20-foundation-calibration-infra.md) | CardIR in mechanism detection + Lab experimental config isolation |
 | [21-deck-themes.md](./21-deck-themes.md) | **DECIDED v1 shape:** own Themes panel; Grimoire idea, our UI; band numbers still tunable |
+| [22-deck-architecture.md](./22-deck-architecture.md) | By Architecture deck-list view (visualization; not Hybrid scoring) |
 
 ## Related in-repo docs
 

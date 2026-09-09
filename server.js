@@ -10938,17 +10938,22 @@ async function start() {
   // (dist/css-manifest.json), so a CSS edit without a rebuild degrades to the
   // raw file instead of shipping stale styles. mtimes are useless here: git
   // checkouts don't preserve them.
+  //
+  // The returned href carries its own ?v= content hash rather than the shared
+  // bundle version: a CSS-only change never touches dist/bundle.js, and every
+  // versioned asset URL is served immutable for a year, so reusing the bundle
+  // stamp pinned stale styles in browsers until the next JS deploy.
   const _styleHref = (name) => {
+    let sha = '';
     try {
-      const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, 'dist', 'css-manifest.json'), 'utf8'));
-      if (!manifest[name]) return `/styles/${name}`;
       const src = fs.readFileSync(path.join(__dirname, 'styles', name), 'utf8');
-      const sha = require('crypto').createHash('sha256').update(src).digest('hex');
-      if (sha === manifest[name] && fs.existsSync(path.join(__dirname, 'dist', name))) {
-        return `/dist/${name}`;
+      sha = require('crypto').createHash('sha256').update(src).digest('hex');
+      const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, 'dist', 'css-manifest.json'), 'utf8'));
+      if (manifest[name] === sha && fs.existsSync(path.join(__dirname, 'dist', name))) {
+        return `/dist/${name}?v=${sha.slice(0, 12)}`;
       }
     } catch (_) { /* no manifest / unreadable — serve the source */ }
-    return `/styles/${name}`;
+    return `/styles/${name}?v=${sha ? sha.slice(0, 12) : _assetVersion}`;
   };
   const serveIndex = (res) => {
     if (!_indexHtmlCache) {
@@ -10956,10 +10961,10 @@ async function start() {
         _indexHtmlCache = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8')
           .replace('/dist/bundle.js', `/dist/bundle.js?v=${_assetVersion}`)
           .replace('/dist/scanner-card-yolo.js', `/dist/scanner-card-yolo.js?v=${_assetVersion}`)
-          // Stylesheets carry load-bearing layout (grid classes, modal styles) — bust
-          // them with the bundle so new markup never pairs with a stale cached CSS.
-          .replace('/styles/main.css', `${_styleHref('main.css')}?v=${_assetVersion}`)
-          .replace('/styles/mobile.css', `${_styleHref('mobile.css')}?v=${_assetVersion}`);
+          // Stylesheets carry load-bearing layout (grid classes, modal styles), so
+          // each one is busted by its own content hash (see _styleHref).
+          .replace('/styles/main.css', _styleHref('main.css'))
+          .replace('/styles/mobile.css', _styleHref('mobile.css'));
       } catch (_) {
         return res.sendFile(path.join(__dirname, 'index.html'));
       }

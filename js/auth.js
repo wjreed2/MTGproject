@@ -100,8 +100,6 @@ function onPriceChangeVendorToggle(vendor, checked) {
     if (!otherOn) {
       // Keep at least one vendor enabled.
       if (typeof showNotif === 'function') showNotif('Keep at least one price source on');
-      const el = document.getElementById(vendor === 'ck' ? 'settingsPriceChangeCk' : 'settingsPriceChangeTcg');
-      if (el) el.checked = true;
       return;
     }
     localStorage.setItem(key, '0');
@@ -121,6 +119,17 @@ function onPriceChangeVendorToggle(vendor, checked) {
       .find(c => c.uid === (typeof _cardDetailCurrentUid !== 'undefined' ? _cardDetailCurrentUid : null));
     _patchCardDetailInspectorDom(_cardDetailCurrentCard, owned);
   }
+}
+
+function togglePriceVendorSetting(vendor) {
+  const key = vendor === 'ck' ? 'mtg_price_change_ck' : 'mtg_price_change_tcg';
+  onPriceChangeVendorToggle(vendor, localStorage.getItem(key) === '0');
+  renderPriceChangeSettings();
+}
+
+function togglePriceDeltaShowSetting() {
+  onPriceDeltaShowToggle(localStorage.getItem('mtg_price_delta_show') === '0');
+  renderPriceChangeSettings();
 }
 
 function onPriceDeltaShowToggle(checked) {
@@ -178,10 +187,17 @@ function onPricePrimaryVendorChange(v) {
 }
 
 function renderPriceChangeSettings() {
-  const tcg = document.getElementById('settingsPriceChangeTcg');
-  const ck = document.getElementById('settingsPriceChangeCk');
-  if (tcg) tcg.checked = localStorage.getItem('mtg_price_change_tcg') !== '0';
-  if (ck) ck.checked = localStorage.getItem('mtg_price_change_ck') !== '0';
+  const setRow = (el, on, label) => {
+    if (!el) return;
+    el.classList.toggle('active', !!on);
+    const txt = [...el.childNodes].reverse().find(n => n.nodeType === 3 && n.textContent.trim());
+    if (txt) txt.textContent = ` ${label}: ${on ? 'on' : 'off'}`;
+    el.setAttribute('aria-pressed', on ? 'true' : 'false');
+  };
+  setRow(document.getElementById('settingsPriceChangeTcg'),
+    localStorage.getItem('mtg_price_change_tcg') !== '0', 'TCGplayer');
+  setRow(document.getElementById('settingsPriceChangeCk'),
+    localStorage.getItem('mtg_price_change_ck') !== '0', 'Card Kingdom');
   // Show the EFFECTIVE vendor (stored pref + enabled-vendor fallback), so the select
   // never claims a source the tiles/badges aren't actually displaying.
   const primarySel = document.getElementById('settingsPricePrimaryVendor');
@@ -190,8 +206,8 @@ function renderPriceChangeSettings() {
       ? getPrimaryPriceVendor()
       : (localStorage.getItem('mtg_price_primary_vendor') === 'ck' ? 'ck' : 'tcg');
   }
-  const showEl = document.getElementById('settingsPriceDeltaShow');
-  if (showEl) showEl.checked = localStorage.getItem('mtg_price_delta_show') !== '0';
+  setRow(document.getElementById('settingsPriceDeltaShow'),
+    localStorage.getItem('mtg_price_delta_show') !== '0', 'Price change deltas');
   const mode = document.getElementById('settingsPriceDeltaMode');
   const storedMode = localStorage.getItem('mtg_price_delta_mode');
   if (mode) mode.value = storedMode === 'usd' || storedMode === 'both' ? storedMode : 'pct';
@@ -203,6 +219,7 @@ function renderPriceChangeSettings() {
     custom.hidden = tfVal !== 'custom';
     custom.value = localStorage.getItem('mtg_price_delta_custom') || '';
   }
+  if (typeof _glassSelectEnsure === 'function') _glassSelectEnsure();
 }
 
 document.addEventListener('click', e => {
@@ -286,8 +303,10 @@ function renderDeckOwnershipBtn() {
   const btn = document.getElementById('settingsDeckOwnershipBtn');
   if (!btn) return;
   btn.innerHTML = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M2.5 4.5h11v7h-11z"/><path d="M5 7.2h6M5 9.8h3.5"/></svg>${deckOwnershipEnabled ? ' Deck ownership: on' : ' Deck ownership: off'}`;
-  btn.style.color = deckOwnershipEnabled ? 'var(--teal)' : '';
-  btn.style.borderColor = deckOwnershipEnabled ? 'var(--teal)' : '';
+  // Menu rows show "on" as the shared active state, not teal text + outline.
+  btn.style.color = '';
+  btn.style.borderColor = '';
+  btn.classList.toggle('active', !!deckOwnershipEnabled);
 }
 
 function _hideAllAuthPanels() {
