@@ -263,74 +263,89 @@
     grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)) !important;
     gap: 4px;
   }
-  /* ── Deck header — deliberate 3-row layout on phones ───────────────────
-       Row 1:  Deck name   ✓/✗   ⋮            (#deckTopBar)
-       Row 2:  Commander: …                    (the line already below it)
-       Row 3:  [All Decks]  ⓘ  [+]  [tag]     (.deck-back-row)
-     Row 3 is assembled by _placeDeckHeaderIcons() in js/decks.js, which moves
-     ⓘ and the two action buttons into .deck-back-row on phones. Row 1 flattens
-     the title row and the action cluster with display:contents so the name, its
-     badge and ⋮ share one flex line — !important is required to beat the inline
-     `display:flex` on both wrappers. */
+  /* ── Deck header — deliberate 2-row layout on phones ───────────────────
+       Row 1:  ⋮  [+ Add cards]  [Manage Tags]
+       Row 2:  Deck name   ✓/✗  ⓘ  ⟡  format  value
+       Row 3:  Commander: …                    (the line already below it)
+     The two wrappers already hold exactly the right children — #deckActionCluster
+     is the three buttons, .deck-top-title-row is the name and its badges — so
+     each is given a full 100% basis and becomes one row, rather than being
+     flattened with display:contents and re-sorted item by item. That keeps the
+     title row a nowrap flex context of its own, which is what stops a long deck
+     name from pushing ⓘ onto a line by itself: the name shrinks instead.
+     Nothing moves in the DOM, so ids, listeners and the ⓘ popover's anchor are
+     untouched. */
   #deckTopBar {
     align-items: center !important;
     justify-content: flex-start !important;
     column-gap: 6px !important;
     row-gap: 4px;
-  }
-  #deckTopBar .deck-top-spacer { display: none !important; }
-  #deckTopBar .btn { padding: 0 10px !important; }
-  #deckTopBar #deckOptionsBtn { padding: 0 8px !important; }
-  #tab-decks .deck-top-title-row,
-  #tab-decks #deckActionCluster { display: contents !important; }
-
-  /* Row 3 — "All Decks" keeps the default order:0 so it stays furthest left,
-     then ⓘ and the action buttons, which drop their text labels to icons so the
-     whole row fits comfortably beside it. z-index matches #deckTopBar's so the
-     ⓘ popover opens over the folder tabs and panel below. */
-  #tab-decks .deck-back-row {
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-bottom: 6px;
     position: relative;
     z-index: 40;
   }
-  #tab-decks #deckInfoBadge       { order: 5; }
-  #tab-decks #deckBuilderVoiceBtn { order: 6; }
-  #tab-decks #deckManageTagsBtn   { order: 7; }
+  #deckTopBar .btn { padding: 0 10px !important; }
+  #deckTopBar #deckOptionsBtn { padding: 0 8px !important; }
+  #deckTopBar .deck-top-spacer { display: none !important; }
+
+  /* Row 1 — the actions. Labels stay visible: these three now own a full row,
+     so there is room for words, and icon-only buttons read as a mystery.
+     display/margin-left are set inline by _placeDeckActionCluster, so only the
+     basis and order come from here. */
+  #tab-decks #deckActionCluster {
+    order: 1;
+    flex: 0 0 100%;
+    gap: 6px;
+  }
+  #tab-decks #deckTopMenuWrap      { order: 1; }
+  #tab-decks #deckBuilderVoiceBtn  { order: 2; }
+  #tab-decks #deckManageTagsBtn    { order: 3; }
   #tab-decks #deckBuilderVoiceBtn,
   #tab-decks #deckManageTagsBtn {
-    gap: 0 !important;
-    padding: 0 9px !important;
+    gap: 5px !important;
+    padding: 0 10px !important;
     flex-shrink: 0;
   }
-  #tab-decks #deckBuilderVoiceBtn .deck-btn-label,
-  #tab-decks #deckManageTagsBtn .deck-btn-label { display: none; }
   #tab-decks #deckManageTagsBtn .deck-btn-icon {
     display: block;
-    width: 14px;
-    height: 14px;
+    width: 13px;
+    height: 13px;
     flex-shrink: 0;
   }
-  /* Row 1 — name ellipsises if long so the ✓/✗ badge and ⋮ keep their spots.
-     The max-width reserves the badge + ⋮ + gaps, otherwise a long name claims
-     the whole flex line and wraps those two onto a row of their own. */
+
+  /* Row 2 — the title and its indicators. nowrap beats the inline flex-wrap so
+     the badges stay on the name's line; the name ellipsises to make room. */
+  #tab-decks .deck-top-title-row {
+    order: 2;
+    flex: 1 1 100%;
+    flex-wrap: nowrap !important;
+    gap: 6px !important;
+    min-width: 0;
+  }
   #tab-decks #activeDeckName {
-    order: 1;
     flex: 0 1 auto !important;
     min-width: 0 !important;
-    max-width: calc(100% - 86px);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  #tab-decks #deckValidBadge       { order: 2; }
-  #tab-decks #deckTopMenuWrap      { order: 3; }
-  #tab-decks #deckGameChangerBadge { order: 8; }
-  #tab-decks #activeDeckFormat     { order: 9; }
-  #tab-decks #activeDeckValue      { order: 10; }
-  #tab-decks #deckScryTagSyncBadge { order: 11; }
+  #tab-decks .deck-top-title-row > :not(#activeDeckName) { flex-shrink: 0; }
+  #tab-decks #deckScryTagSyncBadge { order: 3; }
+
+  /* The ⓘ's own x-position slides with the deck name's length, so anchoring its
+     250px popover to the badge overflows one edge or the other — left:0 runs off
+     the right on a long name, right:0 runs off the left on a short one. Drop the
+     badge's positioning context so the popover resolves against #deckTopBar
+     instead and spans the header's full width, which is on-screen either way. */
+  #tab-decks #deckInfoBadge { position: static; }
+  #tab-decks #deckInfoBadge .deck-info-tooltip {
+    left: 0;
+    right: 0;
+    min-width: 0;
+    max-width: none;
+  }
+
+  /* Emptied when the actions moved up into row 1 — collapse its margin. */
+  #tab-decks .deck-back-row { display: none; }
   #deckTopMenuWrap .deck-options-dropdown {
     width: min(84vw, 280px);
   }

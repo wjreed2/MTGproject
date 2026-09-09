@@ -2157,30 +2157,22 @@ function _placeDeckActionCluster() {
   }
   const topBar = document.getElementById('deckBuilderTopBar');
   if (topBar) topBar.style.display = activeDeckId ? 'none' : 'flex';
-  _placeDeckHeaderIcons(phone);
+  _placeDeckHeaderIcons();
 }
 
-// Phones split the deck header across three rows: the deck name with its ✓/✗
-// badge and ⋮ on top, the commander line below it, then the ⓘ + icon-only
-// Add cards / Manage Tags row. That bottom row is .deck-back-row,
-// so those three nodes move into it on phones and back to the title row /
-// action cluster on wider screens. Same nodes throughout, so ids, listeners and
-// the ⓘ popover's anchor survive the move.
-function _placeDeckHeaderIcons(phone) {
-  const backRow = document.querySelector('#activeDeckArea .deck-back-row');
+// Every header control lives in #deckTopBar on all widths. Phones re-stack it
+// into two rows — ⋮ / Add cards / Manage Tags on top, then the name with its
+// ✓/✗, ⓘ and value badges — but purely through flex `order` in mobile.css, not
+// by moving nodes. This function only restores the authored placement, which
+// matters because earlier builds did relocate these three into .deck-back-row:
+// a session that ran that code still has them there after a resize.
+function _placeDeckHeaderIcons() {
   const titleRow = document.querySelector('#activeDeckArea .deck-top-title-row');
   const cluster = document.getElementById('deckActionCluster');
-  if (!backRow || !titleRow || !cluster) return;
+  if (!titleRow || !cluster) return;
   const info = document.getElementById('deckInfoBadge');
   const addBtn = document.getElementById('deckBuilderVoiceBtn');
   const tagsBtn = document.getElementById('deckManageTagsBtn');
-  if (phone) {
-    // The row is otherwise empty, so these three are its only contents on phones.
-    for (const el of [info, addBtn, tagsBtn]) {
-      if (el && el.parentElement !== backRow) backRow.appendChild(el);
-    }
-    return;
-  }
   if (info && info.parentElement !== titleRow) {
     titleRow.insertBefore(info, document.getElementById('deckGameChangerBadge'));
   }
