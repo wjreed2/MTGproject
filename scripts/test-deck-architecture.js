@@ -13,6 +13,7 @@ const {
   resetArchitectureCard,
   unassignArchitectureCard,
   mappedRoleForPlacement,
+  normalizeArchitectureOverrides,
 } = arch;
 
 function card(name, opts = {}) {
@@ -45,7 +46,7 @@ function findRow(model, name) {
   return model.rows.find(r => r.name === name);
 }
 
-// Sol Ring = Foundation Ramp only, not Manabase
+// Sol Ring = Mana Sources Ramp only, not Foundation
 {
   const deck = {
     cards: [card('Sol Ring', { type: 'Artifact', roleTags: ['Ramp'], oracleText: '{T}: Add {C}{C}.' })],
@@ -53,12 +54,13 @@ function findRow(model, name) {
   };
   const m = classifyDeckArchitecture(deck);
   const row = findRow(m, 'Sol Ring');
-  assert.ok(row.categories.includes('foundation'), 'Sol Ring foundation');
-  assert.ok(row.foundationFns.includes('ramp'), 'Sol Ring ramp fn');
-  assert.ok(!row.categories.includes('manabase'), 'Sol Ring is not manabase');
+  assert.ok(row.categories.includes('manabase'), 'Sol Ring manabase');
+  assert.ok(row.manabaseSubs.includes('ramp'), 'Sol Ring ramp sub');
+  assert.ok(!row.categories.includes('foundation'), 'Sol Ring is not foundation');
+  assert.ok(!row.foundationFns.includes('ramp'), 'ramp is not a foundation fn');
 }
 
-// Command Tower = Manabase only
+// Command Tower = Mana Sources lands only
 {
   const deck = {
     cards: [card('Command Tower', { type: 'Land', roleTags: ['Land'], oracleText: '{T}: Add one mana of any color in your commander\'s color identity.' })],
@@ -67,10 +69,12 @@ function findRow(model, name) {
   const m = classifyDeckArchitecture(deck);
   const row = findRow(m, 'Command Tower');
   assert.ok(row.categories.includes('manabase'));
+  assert.ok(row.manabaseSubs.includes('nonbasics'));
+  assert.ok(!row.manabaseSubs.includes('ramp'), 'utility land is not auto-ramp');
   assert.ok(!row.categories.includes('foundation'), 'utility land is not auto-ramp');
 }
 
-// Ramp land = Manabase + Foundation Ramp
+// Ramp land = Mana Sources (nonbasics + ramp), not Foundation
 {
   const deck = {
     cards: [card('Myriad Landscape', { type: 'Land', roleTags: ['Land', 'Ramp'], oracleText: '{T}: Add {C}. {2}, {T}, Sacrifice: search for two basic lands.' })],
@@ -79,7 +83,9 @@ function findRow(model, name) {
   const m = classifyDeckArchitecture(deck);
   const row = findRow(m, 'Myriad Landscape');
   assert.ok(row.categories.includes('manabase'));
-  assert.ok(row.foundationFns.includes('ramp'));
+  assert.ok(row.manabaseSubs.includes('nonbasics'));
+  assert.ok(row.manabaseSubs.includes('ramp'));
+  assert.ok(!row.categories.includes('foundation'));
 }
 
 // Board wipe is not Interaction / Removal
@@ -94,7 +100,7 @@ function findRow(model, name) {
   assert.ok(!row.foundationFns.includes('interaction'), 'wipe is not spot interaction');
 }
 
-// Rocks / rituals / Greaves / Medallion are not Manabase
+// Rocks / rituals are Mana Sources ramp; Greaves / Medallion are not
 {
   const deck = {
     cards: [
@@ -105,8 +111,8 @@ function findRow(model, name) {
     plan: vrenPlan(),
   };
   const m = classifyDeckArchitecture(deck);
-  assert.ok(!findRow(m, 'Dark Ritual').categories.includes('manabase'));
-  assert.ok(findRow(m, 'Dark Ritual').foundationFns.includes('ramp'));
+  assert.ok(findRow(m, 'Dark Ritual').categories.includes('manabase'));
+  assert.ok(findRow(m, 'Dark Ritual').manabaseSubs.includes('ramp'));
   assert.ok(!findRow(m, 'Lightning Greaves').categories.includes('manabase'));
   assert.ok(!findRow(m, 'Jet Medallion').categories.includes('manabase'));
 }
@@ -255,12 +261,13 @@ function findRow(model, name) {
     plan: {},
   };
   const m = classifyDeckArchitecture(deck);
-  assert.ok(findRow(m, 'Sol Ring').foundationFns.includes('ramp'));
+  assert.ok(findRow(m, 'Sol Ring').manabaseSubs.includes('ramp'));
   assert.ok(findRow(m, 'Counterspell').foundationFns.includes('interaction'));
   assert.ok(m.counts.manabaseUnique >= 8);
   assert.ok(m.unassigned.some(r => r.name === 'Vanilla Bear'));
-  assert.strictEqual(m.foundationFns.length, 5);
+  assert.strictEqual(m.foundationFns.length, 4);
   assert.strictEqual(m.counts.foundationFns.win_condition, 0);
+  assert.ok(m.counts.manabase.ramp >= 1);
 }
 
 // EDHREC rank is not an input — card with rank still classified by tags
@@ -270,7 +277,7 @@ function findRow(model, name) {
     plan: {},
   };
   const m = classifyDeckArchitecture(deck);
-  assert.ok(findRow(m, 'Sol Ring').foundationFns.includes('ramp'));
+  assert.ok(findRow(m, 'Sol Ring').manabaseSubs.includes('ramp'));
 }
 
 // Set primary keeps extras (7C)
@@ -323,9 +330,10 @@ function findRow(model, name) {
   assert.deepStrictEqual(findRow(m, 'Sol Ring').categories, []);
 }
 
-// Non-land mapped role for manabase is Land; wincon maps to null
+// Non-land mapped role for manabase lands is Land; ramp maps to Ramp; wincon maps to null
 {
   assert.strictEqual(mappedRoleForPlacement('manabase', 'basics'), 'Land');
+  assert.strictEqual(mappedRoleForPlacement('manabase', 'ramp'), 'Ramp');
   assert.strictEqual(mappedRoleForPlacement('foundation', 'ramp'), 'Ramp');
   assert.strictEqual(mappedRoleForPlacement('foundation', 'win_condition'), null);
 }
@@ -342,6 +350,225 @@ function findRow(model, name) {
   const row = findRow(m, 'Sol Ring');
   assert.ok(row.categories.includes('strategy'));
   assert.ok(row.strategySubs.includes('theme:fallback_enablers'));
+}
+
+// View HTML: layout + visual card mode classes
+{
+  const deck = {
+    cards: [card('Sol Ring', { type: 'Artifact', roleTags: ['Ramp'], scryfallId: 'abc12345-6789-0abc-def0-123456789abc' })],
+    plan: vrenPlan(),
+  };
+  const m = classifyDeckArchitecture(deck, deck.plan);
+  const { architectureViewHtml } = arch;
+  const verticalVisual = architectureViewHtml(m, { panelLayout: 'vertical', cardMode: 'visual' });
+  assert.ok(verticalVisual.includes('arch-view--layout-vertical'), 'vertical layout class');
+  assert.ok(verticalVisual.includes('arch-view--cards-visual'), 'visual card class');
+  assert.ok(verticalVisual.includes('arch-grid--vertical'), 'vertical grid class');
+  assert.ok(verticalVisual.includes('arch-sub-body--visual'), 'visual subsection body');
+  assert.ok(verticalVisual.includes('Mana Sources'), 'Mana Sources panel title');
+  assert.ok(!verticalVisual.includes('>Manabase<'), 'old Manabase title gone');
+  assert.ok(verticalVisual.includes('arch-sub--card_advantage'), 'foundation subsection class');
+  assert.ok(verticalVisual.includes('arch-sub--ramp'), 'mana ramp subsection class');
+  assert.ok(verticalVisual.includes('data-arch-sub="card_advantage"'), 'subsection data attr');
+  assert.ok(verticalVisual.includes('data-arch-tint="'), 'subsection tint attr');
+}
+
+// Subsection bodies follow the caller's Sort / Group By callbacks
+{
+  const deck = {
+    cards: [
+      card('Sol Ring', { type: 'Artifact', roleTags: ['Ramp'] }),
+      card('Llanowar Elves', { type: 'Creature', roleTags: ['Ramp'] }),
+    ],
+    plan: vrenPlan(),
+  };
+  const m = classifyDeckArchitecture(deck, deck.plan);
+  // Compare inside one subsection — the same card can appear in several panels.
+  const rampBody = html => {
+    const i = html.indexOf('data-arch-sub="ramp"');
+    assert.ok(i >= 0, 'ramp subsection rendered');
+    return html.slice(i, html.indexOf('</details>', i));
+  };
+  const byName = dir => (rows) => rows.slice()
+    .sort((a, b) => dir * String(a.name).localeCompare(String(b.name)));
+
+  const asc = rampBody(arch.architectureViewHtml(m, { sortRows: byName(1) }));
+  assert.ok(asc.indexOf('>Llanowar Elves<') < asc.indexOf('>Sol Ring<'), 'ascending sortRows applied');
+  const desc = rampBody(arch.architectureViewHtml(m, { sortRows: byName(-1) }));
+  assert.ok(desc.indexOf('>Sol Ring<') < desc.indexOf('>Llanowar Elves<'), 'descending sortRows applied');
+
+  const grouped = rampBody(arch.architectureViewHtml(m, {
+    groupRows: rows => [
+      { label: 'Creatures', rows: rows.filter(r => /Creature/.test(r.card.type)) },
+      { label: 'Artifacts', rows: rows.filter(r => /Artifact/.test(r.card.type)) },
+    ].filter(g => g.rows.length),
+  }));
+  assert.ok(grouped.includes('arch-sub-group-label'), 'group header rendered');
+  assert.ok(grouped.indexOf('Creatures') < grouped.indexOf('>Llanowar Elves<'), 'group header precedes its cards');
+  assert.ok(grouped.indexOf('>Llanowar Elves<') < grouped.indexOf('Artifacts'), 'groups render in callback order');
+
+  // No callbacks: rows stay in deck order with no headers.
+  const plain = rampBody(arch.architectureViewHtml(m, {}));
+  assert.ok(!plain.includes('arch-sub-group-label'), 'no group headers without groupRows');
+  assert.ok(plain.indexOf('>Sol Ring<') < plain.indexOf('>Llanowar Elves<'), 'deck order preserved');
+}
+
+// Architecture Group By buckets follow panel order, then subsection order
+{
+  const deck = {
+    cards: [
+      card('Forest', { type: 'Basic Land — Forest', roleTags: ['Land'] }),
+      card('Sol Ring', { type: 'Artifact', roleTags: ['Ramp'] }),
+      card('Swords to Plowshares', { type: 'Instant', roleTags: ['Removal'] }),
+      card('Rhystic Study', { type: 'Enchantment', roleTags: ['Card Draw'] }),
+      card('Weird Filler', { type: 'Creature', roleTags: [] }),
+    ],
+    plan: vrenPlan(),
+  };
+  const m = classifyDeckArchitecture(deck, deck.plan);
+  const buckets = arch.architectureGroupBuckets(m);
+  const labels = buckets.map(b => b.label);
+  assert.ok(labels.indexOf('Foundation · Card Advantage') < labels.indexOf('Foundation · Interaction / Removal'),
+    'foundation subsection order');
+  assert.ok(labels.indexOf('Foundation · Interaction / Removal') < labels.indexOf('Mana Sources · Ramp'),
+    'foundation before mana');
+  assert.ok(labels.indexOf('Mana Sources · Ramp') < labels.indexOf('Mana Sources · Basics'),
+    'ramp before basics');
+  assert.strictEqual(labels[labels.length - 1], 'Unassigned');
+
+  const keyOf = name => findRow(m, name).key;
+  const inBucket = (label, name) => {
+    const b = buckets.find(x => x.label === label);
+    return !!(b && b.keys.includes(keyOf(name)));
+  };
+  assert.ok(inBucket('Foundation · Card Advantage', 'Rhystic Study'));
+  assert.ok(inBucket('Foundation · Interaction / Removal', 'Swords to Plowshares'));
+  assert.ok(inBucket('Mana Sources · Ramp', 'Sol Ring'));
+  assert.ok(inBucket('Mana Sources · Basics', 'Forest'));
+  assert.ok(inBucket('Unassigned', 'Weird Filler'));
+
+  // Multi-role: ramp land sits in both nonbasics and ramp
+  const deck2 = {
+    cards: [card('Myriad Landscape', {
+      type: 'Land',
+      roleTags: ['Land', 'Ramp'],
+      oracleText: '{T}: Add {C}. {2}, {T}, Sacrifice: search for two basic lands.',
+    })],
+    plan: {},
+  };
+  const m2 = classifyDeckArchitecture(deck2, deck2.plan);
+  const b2 = arch.architectureGroupBuckets(m2);
+  const landKey = findRow(m2, 'Myriad Landscape').key;
+  const landLabels = b2.filter(b => b.keys.includes(landKey)).map(b => b.label);
+  assert.ok(landLabels.includes('Mana Sources · Ramp'), 'multi-role in ramp');
+  assert.ok(landLabels.includes('Mana Sources · Nonbasics'), 'multi-role in nonbasics');
+}
+
+// Subsection tint hash is stable per id
+{
+  const { _subsectionTintIndex, _subsectionSlug } = arch;
+  assert.strictEqual(_subsectionTintIndex('strategy.tokens'), _subsectionTintIndex('strategy.tokens'));
+  assert.notStrictEqual(_subsectionSlug('strategy.tokens'), 'strategy.tokens');
+  assert.ok(_subsectionSlug('strategy.tokens').includes('strategy'));
+}
+
+// Compact chips inherit subsection tint classes
+{
+  const deck = {
+    cards: [card('Sol Ring', { type: 'Artifact', roleTags: ['Ramp'] })],
+    plan: vrenPlan(),
+  };
+  const m = classifyDeckArchitecture(deck, deck.plan);
+  const compactHtml = arch.architectureViewHtml(m, { compact: true });
+  assert.ok(compactHtml.includes('arch-chip--ramp'), 'compact chip ramp class');
+  assert.ok(compactHtml.includes('arch-chip-tint-'), 'compact chip tint class');
+}
+
+// Stored foundation::ramp overrides migrate to manabase::ramp
+{
+  const deck = {
+    cards: [card('Sol Ring', { type: 'Artifact', roleTags: ['Ramp'] })],
+    plan: {},
+  };
+  const key = architectureCardKey(deck.cards[0]);
+  const raw = { byKey: { [key]: { primary: { category: 'foundation', subsection: 'ramp' }, extrasRemoved: [], extrasAdded: [] } } };
+  const migrated = normalizeArchitectureOverrides(raw);
+  assert.strictEqual(migrated.byKey[key].primary.category, 'manabase');
+  assert.strictEqual(migrated.byKey[key].primary.subsection, 'ramp');
+  const m = classifyDeckArchitecture(deck, deck.plan, { overrides: raw });
+  const row = findRow(m, 'Sol Ring');
+  assert.ok(row.manabaseSubs.includes('ramp'));
+  assert.ok(!row.foundationFns.includes('ramp'));
+}
+
+// Stacked (vertical) panels: text columns share a fixed width; card images overlap
+{
+  const fs = require('fs');
+  const path = require('path');
+  const css = fs.readFileSync(path.join(__dirname, '../styles/main.css'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '');
+  const m = css.match(/\.arch-view--layout-vertical \.arch-panel-body\s*\{([^}]+)\}/);
+  assert.ok(m, 'vertical layout panel-body rule');
+  assert.match(m[1], /display:\s*flex/, 'text-row subsections pack in a wrapping row');
+  assert.match(m[1], /flex-wrap:\s*wrap/, 'text columns wrap rather than stretching');
+  const textSub = css.match(/\.arch-view--layout-vertical \.arch-panel-body > \.arch-sub\s*\{([^}]+)\}/);
+  assert.ok(textSub, 'vertical text subsection column rule');
+  assert.match(textSub[1], /--arch-text-col-w/, 'text columns use a shared width variable');
+  assert.doesNotMatch(textSub[1], /1fr/, 'text columns do not stretch with 1fr');
+  const visBody = css.match(/\.arch-view--layout-vertical\.arch-view--cards-visual \.arch-panel-body\s*\{([^}]+)\}/);
+  assert.ok(visBody, 'visual stacked panel-body rule');
+  assert.match(visBody[1], /flex-wrap:\s*wrap/, 'card-image subsections wrap as columns');
+  assert.match(visBody[1], /flex-direction:\s*row/, 'card-image subsections sit in a row');
+  const overlap = css.match(/\.arch-view--layout-vertical\.arch-view--cards-visual \.deck-stack-cards\.vertical \.arch-card-tile\s*\{([^}]+)\}/);
+  assert.ok(overlap, 'visual stacked tile overlap rule');
+  assert.match(overlap[1], /margin-top:\s*calc/, 'tiles overlap like Visual view stacks');
+}
+
+// Auto-fit packs as many subcategory columns as possible; 2 piles only when
+// that does not reduce columns-per-row.
+{
+  const { architectureStackFit, architectureColWidth, architectureStacksAtSize, architectureSplitRows, architectureViewHtml } = arch;
+  const fourNarrow = architectureStackFit(1000, 4);
+  assert.strictEqual(fourNarrow.stacks, 1, '4 subs at 1000px keep 1 pile so all 4 fit in one row');
+  assert.strictEqual(fourNarrow.perRow, 4);
+  const fourWide = architectureStackFit(1800, 4);
+  assert.strictEqual(fourWide.stacks, 2, '4 subs at 1800px can all have 2 piles in one row');
+  const oneWide = architectureStackFit(400, 1);
+  assert.strictEqual(oneWide.stacks, 2, 'a single sub uses 2 piles when they fit');
+  const oneNarrow = architectureStackFit(300, 1);
+  assert.strictEqual(oneNarrow.stacks, 1, '300px is below two-pile minimum (312)');
+  assert.strictEqual(architectureStacksAtSize(1000, 4, 210), 1);
+  assert.strictEqual(architectureStacksAtSize(1000, 1, 210), 2, 'fewer subs can still get 2 piles at the shared size');
+
+  const textCols = architectureColWidth(1000, 4);
+  assert.strictEqual(textCols.perRow, 4, 'text fit packs densest panel count');
+  assert.strictEqual(textCols.colWidth, 210, 'text columns share (1000/4)-36 → 210');
+  const textWide = architectureColWidth(1000, 2);
+  assert.strictEqual(textWide.perRow, 2);
+  assert.ok(textWide.colWidth > textCols.colWidth, 'fewer subs alone would be wider — shared width still uses densest');
+
+  const names = ['A', 'B', 'C', 'D', 'E'].map(n => ({ name: n }));
+  const split = architectureSplitRows(names, 2);
+  assert.strictEqual(split.length, 2);
+  assert.deepStrictEqual(split[0].map(r => r.name), ['A', 'B', 'C']);
+  assert.deepStrictEqual(split[1].map(r => r.name), ['D', 'E']);
+  assert.strictEqual(architectureSplitRows(names.slice(0, 1), 2).length, 1, 'single card stays one pile');
+
+  const deck = {
+    cards: [
+      card('Sol Ring', { type: 'Artifact', roleTags: ['Ramp'] }),
+      card('Llanowar Elves', { type: 'Creature', roleTags: ['Ramp'] }),
+      card('Birds of Paradise', { type: 'Creature', roleTags: ['Ramp'] }),
+    ],
+    plan: vrenPlan(),
+  };
+  const model = classifyDeckArchitecture(deck, deck.plan);
+  const stacked = architectureViewHtml(model, { panelLayout: 'vertical', cardMode: 'visual', visualStackCols: 2 });
+  assert.ok(stacked.includes('deck-stack-cards vertical'), 'overlapping stack class');
+  assert.ok(stacked.includes('arch-sub-stacks'), 'stack wrap');
+  const rampAt = stacked.indexOf('data-arch-sub="ramp"');
+  const rampHtml = stacked.slice(rampAt, stacked.indexOf('</details>', rampAt));
+  assert.ok((rampHtml.match(/arch-sub-stack-col/g) || []).length >= 2, 'ramp splits into two piles');
 }
 
 console.log('test-deck-architecture: ok');

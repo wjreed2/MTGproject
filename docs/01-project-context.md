@@ -23,8 +23,8 @@ The system is intended to help a player turn a vague deck idea into a structured
 ## Current conceptual model
 
 Deck categories (F5-Q4; not suggestion modes):
-1. **Mana Base** — lands (Architecture view: lands only; rocks/rituals are Foundation → Ramp)
-2. **Foundation** — five fundamental capabilities evaluated for every deck (degree varies): close the game; access the mana needed to execute the plan; generate resources; interact with relevant threats; continue executing the plan after disruption. The **By Architecture** list view groups cards by visualization functions (Card Advantage, Ramp, Interaction/Removal, Board Wipes, Win Condition) — not those five scores. See [22-deck-architecture.md](./22-deck-architecture.md).
+1. **Mana Base** — lands (Architecture view: **Mana Sources** = lands plus Ramp; rocks/rituals/dorks sit under Ramp)
+2. **Foundation** — five fundamental capabilities evaluated for every deck (degree varies): close the game; access the mana needed to execute the plan; generate resources; interact with relevant threats; continue executing the plan after disruption. The **By Architecture** list view groups cards by visualization functions (Card Advantage, Interaction/Removal, Board Wipes, Win Condition) — not those five scores. See [22-deck-architecture.md](./22-deck-architecture.md).
 3. **Strategy** — plan, theme, subtheme: *how* the deck does those jobs
 4. **Payoffs** — cards that cash in on that strategy (not a sixth Foundation job)
 

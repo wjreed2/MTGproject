@@ -1,9 +1,9 @@
 /**
  * By Architecture deck visualization — deterministic classification layer.
  *
- * Visualization Foundation functions (Card Advantage, Ramp, Interaction /
+ * Visualization Foundation functions (Card Advantage, Interaction /
  * Removal, Board Wipes, Win Condition) are NOT the five-capability evaluator
- * in js/foundation/. Manabase is lands only; Ramp lives in Foundation.
+ * in js/foundation/. Mana Sources holds lands plus Ramp.
  *
  * Does not call Scryfall or EDHREC. Does not edit engine2/. The classifier
  * never writes role tags; user Set-primary may, via the deck UI.
@@ -28,10 +28,15 @@
 
   const FOUNDATION_FNS = Object.freeze([
     Object.freeze({ id: 'card_advantage', label: 'Card Advantage', blurb: 'Ways the deck generates extra cards or resources.' }),
-    Object.freeze({ id: 'ramp', label: 'Ramp', blurb: 'Ways the deck accelerates mana.' }),
     Object.freeze({ id: 'interaction', label: 'Interaction / Removal', blurb: 'Answers to opposing threats.' }),
     Object.freeze({ id: 'board_wipes', label: 'Board Wipes', blurb: 'Multiplayer board resets, kept distinct from spot interaction.' }),
     Object.freeze({ id: 'win_condition', label: 'Win Condition', blurb: 'Whether the deck has a way to close games. Specific finishers live in Payoffs.' }),
+  ]);
+
+  const MANABASE_SUBS = Object.freeze([
+    Object.freeze({ id: 'ramp', label: 'Ramp', blurb: 'Ways the deck accelerates mana.' }),
+    Object.freeze({ id: 'basics', label: 'Basics', blurb: 'Basic lands.' }),
+    Object.freeze({ id: 'nonbasics', label: 'Nonbasics', blurb: 'Nonbasic lands.' }),
   ]);
 
   const CATEGORY_META = Object.freeze({
@@ -51,8 +56,8 @@
       legend: 'Win the game',
     }),
     manabase: Object.freeze({
-      label: 'Manabase',
-      blurb: 'Lands. The mana that supports everything else. Ramp is a Foundation function, not Manabase.',
+      label: 'Mana Sources',
+      blurb: 'Lands and ramp. The mana that supports everything else.',
       legend: 'Power everything',
     }),
   });
@@ -62,6 +67,37 @@
   const INTERACTION_TAGS = Object.freeze(['Removal', 'Counterspell', 'Bounce', 'Bite', 'Burn']);
   const DRAW_TAGS = Object.freeze(['Card Draw', 'Wheel']);
   const LIGHT_MIN = 5;
+  const ARCH_SUB_TINT_STEPS = 5;
+
+  function _subsectionSlug(subId) {
+    return String(subId || '').replace(/[^a-z0-9_-]/gi, '_');
+  }
+
+  function _subsectionTintIndex(subId) {
+    const s = String(subId || '');
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+    return Math.abs(h) % ARCH_SUB_TINT_STEPS;
+  }
+
+  function _subsectionChrome(category, subId) {
+    const slug = _subsectionSlug(subId);
+    const tint = _subsectionTintIndex(subId);
+    const classes = [
+      `arch-sub--cat-${category}`,
+      `arch-sub--${slug}`,
+      `arch-sub-tint-${tint}`,
+    ].join(' ');
+    const dataAttrs = `data-arch-sub="${_esc(subId)}" data-arch-tint="${tint}"`;
+    return { classes, dataAttrs };
+  }
+
+  function _chipHtml(category, subId, label, count) {
+    const slug = _subsectionSlug(subId);
+    const tint = _subsectionTintIndex(subId);
+    const cls = `arch-chip arch-chip--cat-${category} arch-chip--${slug} arch-chip-tint-${tint}`;
+    return `<span class="${cls}" data-arch-sub="${_esc(subId)}" data-arch-tint="${tint}">${_esc(label)} ${count}</span>`;
+  }
 
   function _plan() {
     return planApi || root || {};
@@ -141,12 +177,9 @@
     for (const [k, v] of Object.entries(byKey || {})) {
       if (!k || !v || typeof v !== 'object') continue;
       out.byKey[k] = {
-        primary: v.primary && v.primary.category ? {
-          category: String(v.primary.category),
-          subsection: String(v.primary.subsection || ''),
-        } : null,
-        extrasRemoved: Array.isArray(v.extrasRemoved) ? v.extrasRemoved.map(_normMem).filter(Boolean) : [],
-        extrasAdded: Array.isArray(v.extrasAdded) ? v.extrasAdded.map(_normMem).filter(Boolean) : [],
+        primary: v.primary && v.primary.category ? _normMem(v.primary) : null,
+        extrasRemoved: Array.isArray(v.extrasRemoved) ? _dedupeMems(v.extrasRemoved) : [],
+        extrasAdded: Array.isArray(v.extrasAdded) ? _dedupeMems(v.extrasAdded) : [],
         unassigned: !!v.unassigned,
         writtenRole: v.writtenRole || null,
         prevPrimaryTag: v.prevPrimaryTag || null,
@@ -157,7 +190,25 @@
 
   function _normMem(m) {
     if (!m || !m.category) return null;
-    return { category: String(m.category), subsection: String(m.subsection || '') };
+    const mem = { category: String(m.category), subsection: String(m.subsection || '') };
+    if (mem.category === 'foundation' && mem.subsection === 'ramp') {
+      mem.category = 'manabase';
+    }
+    return mem;
+  }
+
+  function _dedupeMems(list) {
+    const seen = new Set();
+    const out = [];
+    for (const m of list || []) {
+      const n = _normMem(m);
+      if (!n) continue;
+      const k = _memKey(n);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push(n);
+    }
+    return out;
   }
 
   function _memKey(m) {
@@ -172,7 +223,10 @@
   }
 
   function mappedRoleForPlacement(category, subsection, card, deck) {
-    if (category === 'manabase') return 'Land';
+    if (category === 'manabase') {
+      if (subsection === 'ramp') return 'Ramp';
+      return 'Land';
+    }
     if (category === 'foundation') {
       if (subsection === 'card_advantage') return 'Card Draw';
       if (subsection === 'ramp') return 'Ramp';
@@ -230,12 +284,6 @@
     if (DRAW_TAGS.some(t => tagSet.has(t)) || (_ir(card) && Array.isArray(_ir(card).roles) && _ir(card).roles.includes('card_draw'))) {
       fns.push('card_advantage');
       reasons.push(tagSet.has('Wheel') ? 'tag:Wheel' : 'tag:Card Draw');
-    }
-    if (tagSet.has('Ramp') || (_ir(card) && Array.isArray(_ir(card).roles) && (
-      _ir(card).roles.includes('ramp') || _ir(card).roles.includes('mana_rock') || _ir(card).roles.includes('mana_dork')
-    ))) {
-      fns.push('ramp');
-      reasons.push('tag:Ramp');
     }
     if (INTERACTION_TAGS.some(t => tagSet.has(t))) {
       fns.push('interaction');
@@ -389,6 +437,15 @@
     return meaningful.length === 0;
   }
 
+  function _cardIsRamp(card, tags) {
+    const tagSet = tags instanceof Set ? tags : new Set(tags || []);
+    if (tagSet.has('Ramp')) return true;
+    const ir = _ir(card);
+    return !!(ir && Array.isArray(ir.roles) && (
+      ir.roles.includes('ramp') || ir.roles.includes('mana_rock') || ir.roles.includes('mana_dork')
+    ));
+  }
+
   function classifyCardArchitecture(card, ctx) {
     const { deck, plan, strategySubs, payoffSubs } = ctx;
     const tags = _roles(card, deck);
@@ -401,6 +458,11 @@
       categories.add('manabase');
       manabaseSubs.push(_isBasicLand(card) ? 'basics' : 'nonbasics');
       reasons.push('type:land');
+    }
+    if (_cardIsRamp(card, tags)) {
+      categories.add('manabase');
+      manabaseSubs.push('ramp');
+      reasons.push('tag:Ramp');
     }
 
     const f = _foundationFnsForCard(card, plan, deck, tags);
@@ -570,10 +632,10 @@
     for (const sub of strategySubs) strategy[sub.id] = unique(r => r.strategySubs.includes(sub.id));
     const payoffs = {};
     for (const sub of payoffSubs) payoffs[sub.id] = unique(r => r.payoffSubs.includes(sub.id));
-    const manabase = {
-      basics: unique(r => r.manabaseSubs.includes('basics')),
-      nonbasics: unique(r => r.manabaseSubs.includes('nonbasics')),
-    };
+    const manabase = {};
+    for (const sub of MANABASE_SUBS) {
+      manabase[sub.id] = unique(r => r.manabaseSubs.includes(sub.id));
+    }
     const multiRole = rows.filter(r => r.categories.length >= 2);
     return {
       deckUnique,
@@ -657,6 +719,10 @@
   }
 
   function _cardRowHtml(row, opts) {
+    if (opts && typeof opts.cardHtml === 'function') {
+      const custom = opts.cardHtml(row, opts);
+      if (custom) return custom;
+    }
     const c = row.card || {};
     const key = _esc(row.key);
     const name = _esc(row.name);
@@ -665,68 +731,231 @@
     const src = row.source === 'override' ? ' <span class="arch-pill arch-pill--override">Set</span>' : '';
     let badge = '';
     if (opts && typeof opts.badgeHtml === 'function') badge = opts.badgeHtml(c) || '';
-    let pips = '';
-    if (opts && typeof opts.pipsHtml === 'function') pips = opts.pipsHtml(c) || '';
+    let mana = '';
+    if (opts && typeof opts.manaHtml === 'function') mana = opts.manaHtml(c) || '';
+    const qtyHtml = Number(qty) > 1 ? `<span class="deck-list-qty">×${qty}</span>` : '';
     const menu = (opts && opts.canEdit)
       ? `<button type="button" class="btn btn-ghost btn-sm arch-card-menu" data-arch-menu="${key}" title="Architecture placement">⋯</button>`
       : '';
+    // Two fixed slots at the row end keep the mana cost and the badges each in their
+    // own column across every row; the ⋯ sits on top of the mana cost.
+    const badges = `${src}${badge}${qtyHtml}`.trim();
     return `<div class="arch-card-row deck-card-row${primaryMark}" data-arch-key="${key}" data-card-name-key="${_esc(String(c.name || '').trim().toLowerCase())}" data-uid="${_esc(c.uid || c.scryfallId || '')}">
-      <span class="deck-card-name">${name}</span>${src}${badge}${pips}
-      <span class="deck-list-qty">${qty}</span>${menu}
+      <span class="deck-card-name">${name}</span><span class="arch-row-end"><span class="arch-row-mana">${mana}</span>${menu}</span><span class="arch-row-badges">${badges}</span>
     </div>`;
   }
 
-  function _subSectionHtml(title, count, source, cardsHtml, extraClass) {
+  // Stacked + card-image: pack as many subcategory columns as will fit. Prefer
+  // 2 overlapping piles per subcategory only when that does not reduce how many
+  // subcategories sit in the row. Card size shrinks/caps to fit; columns do not
+  // stretch to fill leftover width.
+  const ARCH_STACK_CARD_MIN = 120;
+  const ARCH_STACK_CARD_MAX = 280;
+  const ARCH_STACK_COL_GAP = 36;
+
+  function architectureMaxSubCount(model) {
+    return Math.max(
+      FOUNDATION_FNS.length,
+      ((model && model.strategySubs) || []).length || 1,
+      ((model && model.payoffSubs) || []).length || 1,
+      MANABASE_SUBS.length,
+    );
+  }
+
+  function architectureColWidth(containerWidth, subCount) {
+    const w = Math.max(0, Number(containerWidth) || 0);
+    const n = Math.max(1, Math.min(24, subCount | 0 || 1));
+    const snap = (x) => Math.round(x / 10) * 10;
+    const clamp = (x) => Math.max(ARCH_STACK_CARD_MIN, Math.min(ARCH_STACK_CARD_MAX, snap(x)));
+    const minCol = ARCH_STACK_CARD_MIN + ARCH_STACK_COL_GAP;
+    const perRow = Math.max(1, Math.min(n, Math.floor(w / minCol) || 1));
+    return { colWidth: clamp((w / perRow) - ARCH_STACK_COL_GAP), perRow };
+  }
+
+  function architectureStackFit(containerWidth, subCount) {
+    const w = Math.max(0, Number(containerWidth) || 0);
+    const n = Math.max(1, Math.min(24, subCount | 0 || 1));
+    const snap = (x) => Math.round(x / 10) * 10;
+    const clamp = (x) => Math.max(ARCH_STACK_CARD_MIN, Math.min(ARCH_STACK_CARD_MAX, snap(x)));
+    const minCol = ARCH_STACK_CARD_MIN + ARCH_STACK_COL_GAP;
+    const perRow1 = Math.max(1, Math.min(n, Math.floor(w / minCol) || 1));
+    const perRow2 = Math.max(0, Math.min(n, Math.floor(w / (2 * minCol))));
+    let stacks = 1;
+    let perRow = perRow1;
+    if (n * 2 * minCol <= w) {
+      stacks = 2;
+      perRow = n;
+    } else if (perRow2 >= perRow1 && perRow2 > 0) {
+      stacks = 2;
+      perRow = perRow2;
+    }
+    const cardSize = clamp((w / Math.max(1, perRow * stacks)) - ARCH_STACK_COL_GAP);
+    return { stacks, cardSize, perRow };
+  }
+
+  function architectureStacksAtSize(containerWidth, subCount, cardSize) {
+    const w = Math.max(0, Number(containerWidth) || 0);
+    const n = Math.max(1, Math.min(24, subCount | 0 || 1));
+    const s = Math.max(
+      ARCH_STACK_CARD_MIN,
+      Math.min(ARCH_STACK_CARD_MAX, Number(cardSize) || ARCH_STACK_CARD_MIN),
+    );
+    const col1 = s + ARCH_STACK_COL_GAP;
+    const col2 = 2 * col1;
+    if (n * col2 <= w) return 2;
+    const perRow1 = Math.max(1, Math.min(n, Math.floor(w / col1) || 1));
+    const perRow2 = Math.floor(w / col2);
+    if (perRow2 >= perRow1 && perRow2 > 0) return 2;
+    return 1;
+  }
+
+  // Preserve sort order: left pile is the first half, right pile the rest.
+  function architectureSplitRows(rows, stackCount) {
+    const list = Array.isArray(rows) ? rows : [];
+    const n = Math.max(1, Math.min(2, stackCount | 0));
+    if (n === 1 || list.length <= 1) return [list];
+    const size = Math.ceil(list.length / n);
+    const cols = [];
+    for (let i = 0; i < n; i++) {
+      const slice = list.slice(i * size, (i + 1) * size);
+      if (slice.length) cols.push(slice);
+    }
+    return cols;
+  }
+
+  function _packGroupsIntoStacks(groups, stackCount) {
+    const list = Array.isArray(groups) ? groups : [];
+    const n = Math.max(1, Math.min(2, stackCount | 0));
+    if (n === 1 || list.length <= 1) return [list];
+    const buckets = Array.from({ length: n }, () => ({ items: [], n: 0 }));
+    const indexed = list.map((g, i) => ({ g, i, n: (g.rows || []).length }));
+    indexed.sort((a, b) => b.n - a.n || a.i - b.i);
+    for (const item of indexed) {
+      const min = buckets.reduce((m, b) => (b.n < m.n ? b : m));
+      min.items.push(item);
+      min.n += item.n;
+    }
+    return buckets
+      .map(b => b.items.sort((a, c) => a.i - c.i).map(x => x.g))
+      .filter(col => col.length);
+  }
+
+  function _archPileHtml(rows, o) {
+    const inner = (rows || []).map(r => _cardRowHtml(r, o)).join('');
+    return `<div class="deck-stack-cards vertical">${inner || '<div class="arch-empty">None yet</div>'}</div>`;
+  }
+
+  function _archStacksWrapHtml(colHtmls) {
+    const cols = (colHtmls || []).filter(Boolean);
+    const n = cols.length || 1;
+    return `<div class="arch-sub-stacks" data-arch-stacks="${n}">${
+      cols.map(html => `<div class="arch-sub-stack-col">${html}</div>`).join('')
+    }</div>`;
+  }
+
+  // Card order and any group headers inside a subsection come from the caller,
+  // so the deck toolbar's Sort / Group By controls apply here too. Group labels
+  // are siblings of the cards: they stack in the text body and span the full row
+  // in the visual grid. Stacked + card-image mode wraps piles in Visual-view
+  // overlapping stacks (`visualStackCols` 1 or 2).
+  function _cardsBodyHtml(rows, opts) {
+    const o = opts || {};
+    const ordered = (typeof o.sortRows === 'function' && o.sortRows(rows)) || rows;
+    const groups = typeof o.groupRows === 'function' ? o.groupRows(ordered) : null;
+    const stackCols = o.visualStackCols > 0 ? Math.max(1, Math.min(2, o.visualStackCols | 0)) : 0;
+    if (!stackCols) {
+      if (!groups || !groups.length) return ordered.map(r => _cardRowHtml(r, o)).join('');
+      return groups.map(g => {
+        const qty = g.rows.reduce((s, r) => s + r.qty, 0);
+        return `<div class="arch-sub-group-label">${_esc(g.label)}<span class="arch-sub-group-count">${qty}</span></div>`
+          + g.rows.map(r => _cardRowHtml(r, o)).join('');
+      }).join('');
+    }
+    if (!groups || !groups.length) {
+      return _archStacksWrapHtml(
+        architectureSplitRows(ordered, stackCols).map(col => _archPileHtml(col, o)),
+      );
+    }
+    return _archStacksWrapHtml(_packGroupsIntoStacks(groups, stackCols).map(col =>
+      col.map(g => {
+        const qty = g.rows.reduce((s, r) => s + r.qty, 0);
+        return `<div class="arch-sub-group-label">${_esc(g.label)}<span class="arch-sub-group-count">${qty}</span></div>`
+          + _archPileHtml(g.rows, o);
+      }).join(''),
+    ));
+  }
+
+  function _subSectionHtml(title, count, source, cardsHtml, chrome, bodyClass) {
     const src = source === 'inferred'
       ? '<span class="arch-pill arch-pill--inferred" title="Detected from the list, not set in Plan">Inferred</span>'
       : (source === 'declared' ? '<span class="arch-pill arch-pill--declared" title="From your confirmed or declared Plan">Plan</span>' : '');
-    return `<details class="arch-sub ${extraClass || ''}" open>
+    const bodyCls = bodyClass || 'arch-sub-body';
+    const c = chrome || { classes: '', dataAttrs: '' };
+    return `<details class="arch-sub ${c.classes}" ${c.dataAttrs} open>
       <summary class="arch-sub-head"><span class="arch-sub-title">${_esc(title)}</span> ${src}<span class="arch-sub-count">${count}</span></summary>
-      <div class="arch-sub-body">${cardsHtml || '<div class="arch-empty">None yet</div>'}</div>
+      <div class="${bodyCls}">${cardsHtml || '<div class="arch-empty">None yet</div>'}</div>
     </details>`;
   }
 
   function architectureViewHtml(model, opts) {
     const o = opts || {};
+    const panelLayout = o.panelLayout === 'vertical' ? 'vertical' : 'horizontal';
+    const cardMode = o.cardMode === 'visual' ? 'visual' : 'text';
+    const viewCls = `arch-view--layout-${panelLayout} arch-view--cards-${cardMode}`;
+    const gridCls = panelLayout === 'vertical' ? 'arch-grid arch-grid--vertical' : 'arch-grid arch-grid--horizontal';
+    const subBodyCls = cardMode === 'visual' ? 'arch-sub-body arch-sub-body--visual' : 'arch-sub-body';
+    const stackedVisual = panelLayout === 'vertical' && cardMode === 'visual';
+    const stackW = Number(o.stackContainerWidth) || 0;
+    const maxSubs = architectureMaxSubCount(model);
+    const sharedSize = o.archCardSize
+      || (stackedVisual && stackW ? architectureStackFit(stackW, maxSubs).cardSize : 0);
+    const stackOpts = (nSubs) => {
+      if (!stackedVisual) return o;
+      const cols = stackW
+        ? architectureStacksAtSize(stackW, nSubs, sharedSize)
+        : Math.max(1, o.visualStackCols || 1);
+      return Object.assign({}, o, { visualStackCols: cols });
+    };
     const counts = model.counts || {};
     const byFn = (fnId) => model.rows.filter(r => r.foundationFns.includes(fnId));
     const byStrat = (id) => model.rows.filter(r => r.strategySubs.includes(id));
     const byPay = (id) => model.rows.filter(r => r.payoffSubs.includes(id));
-    const basics = model.rows.filter(r => r.manabaseSubs.includes('basics'));
-    const nonbasics = model.rows.filter(r => r.manabaseSubs.includes('nonbasics'));
+    const byMana = (id) => model.rows.filter(r => r.manabaseSubs.includes(id));
 
     const foundationSubs = FOUNDATION_FNS.map(fn => {
       const rows = byFn(fn.id);
       const label = fn.id === 'win_condition'
         ? `${fn.label} (${model.winConditionLabel || 'Not set'})`
         : fn.label;
-      return _subSectionHtml(label, counts.foundationFns[fn.id] || 0, 'declared', rows.map(r => _cardRowHtml(r, o)).join(''));
+      return _subSectionHtml(label, counts.foundationFns[fn.id] || 0, 'declared', _cardsBodyHtml(rows, stackOpts(FOUNDATION_FNS.length)), _subsectionChrome('foundation', fn.id), subBodyCls);
     }).join('');
 
     const strategyHtml = (model.strategySubs || []).map(sub => {
       const rows = byStrat(sub.id);
-      return _subSectionHtml(sub.label, (counts.strategy && counts.strategy[sub.id]) || 0, sub.source, rows.map(r => _cardRowHtml(r, o)).join(''));
+      return _subSectionHtml(sub.label, (counts.strategy && counts.strategy[sub.id]) || 0, sub.source, _cardsBodyHtml(rows, stackOpts((model.strategySubs || []).length || 1)), _subsectionChrome('strategy', sub.id), subBodyCls);
     }).join('') || '<div class="arch-empty">No strategy engines stood out yet. Set a Plan to name them.</div>';
 
     const payoffHtml = (model.payoffSubs || []).map(sub => {
       const rows = byPay(sub.id);
-      return _subSectionHtml(sub.label, (counts.payoffs && counts.payoffs[sub.id]) || 0, sub.source, rows.map(r => _cardRowHtml(r, o)).join(''));
+      return _subSectionHtml(sub.label, (counts.payoffs && counts.payoffs[sub.id]) || 0, sub.source, _cardsBodyHtml(rows, stackOpts((model.payoffSubs || []).length || 1)), _subsectionChrome('payoffs', sub.id), subBodyCls);
     }).join('') || '<div class="arch-empty">No payoffs classified yet.</div>';
 
-    const landHtml = _subSectionHtml('Basics', counts.manabase.basics || 0, 'declared', basics.map(r => _cardRowHtml(r, o)).join(''))
-      + _subSectionHtml('Nonbasics', counts.manabase.nonbasics || 0, 'declared', nonbasics.map(r => _cardRowHtml(r, o)).join(''));
+    const landHtml = MANABASE_SUBS.map(sub => {
+      const rows = byMana(sub.id);
+      return _subSectionHtml(sub.label, (counts.manabase && counts.manabase[sub.id]) || 0, 'declared', _cardsBodyHtml(rows, stackOpts(MANABASE_SUBS.length)), _subsectionChrome('manabase', sub.id), subBodyCls);
+    }).join('');
 
     const compactChips = (cat) => {
       if (cat === 'foundation') {
-        return FOUNDATION_FNS.map(fn => `<span class="arch-chip">${_esc(fn.label)} ${counts.foundationFns[fn.id] || 0}</span>`).join('');
+        return FOUNDATION_FNS.map(fn => _chipHtml('foundation', fn.id, fn.label, counts.foundationFns[fn.id] || 0)).join('');
       }
       if (cat === 'strategy') {
-        return (model.strategySubs || []).map(s => `<span class="arch-chip">${_esc(s.label)} ${(counts.strategy && counts.strategy[s.id]) || 0}</span>`).join('');
+        return (model.strategySubs || []).map(s => _chipHtml('strategy', s.id, s.label, (counts.strategy && counts.strategy[s.id]) || 0)).join('');
       }
       if (cat === 'payoffs') {
-        return (model.payoffSubs || []).map(s => `<span class="arch-chip">${_esc(s.label)} ${(counts.payoffs && counts.payoffs[s.id]) || 0}</span>`).join('');
+        return (model.payoffSubs || []).map(s => _chipHtml('payoffs', s.id, s.label, (counts.payoffs && counts.payoffs[s.id]) || 0)).join('');
       }
-      return `<span class="arch-chip">Basics ${counts.manabase.basics || 0}</span><span class="arch-chip">Nonbasics ${counts.manabase.nonbasics || 0}</span>`;
+      return MANABASE_SUBS.map(sub => _chipHtml('manabase', sub.id, sub.label, (counts.manabase && counts.manabase[sub.id]) || 0)).join('');
     };
     const compactTops = (cat) => {
       const pool = model.rows.filter(r => r.categories.includes(cat));
@@ -749,16 +978,17 @@
       </section>`;
     };
 
-    const multi = (model.multiRole || []).map(r => {
+    const multiRows = (typeof o.sortRows === 'function' && o.sortRows(model.multiRole || [])) || (model.multiRole || []);
+    const multi = multiRows.map(r => {
       const badges = r.categories.map(c => CATEGORY_META[c].label).join(' / ');
       return `<div class="arch-multi-item" data-arch-key="${_esc(r.key)}"><span class="arch-multi-name">${_esc(r.name)}</span><span class="arch-multi-badges">${_esc(badges)}</span></div>`;
     }).join('');
 
-    const un = (model.unassigned || []).map(r => _cardRowHtml(r, o)).join('');
+    const un = _cardsBodyHtml(model.unassigned || [], o);
 
-    return `<div class="arch-view" id="deckArchitectureView">
+    return `<div class="arch-view ${viewCls}" id="deckArchitectureView">
       <p class="arch-note">Cards can appear in more than one area. Panel counts are unique cards; subsection counts are memberships, not a second deck total. Visualization Foundation functions are not the Hybrid capability scores.</p>
-      <div class="arch-grid">
+      <div class="${gridCls}">
         ${panel('foundation', foundationSubs)}
         ${panel('strategy', strategyHtml)}
         ${panel('payoffs', payoffHtml)}
@@ -770,17 +1000,67 @@
       </section>
       <section class="arch-unassigned">
         <h3 class="arch-multi-title">Unassigned <span class="arch-panel-count">${(model.unassigned || []).reduce((s, r) => s + r.qty, 0)} cards</span></h3>
-        <p class="arch-panel-blurb">No Foundation, Strategy, Payoffs, or Manabase rule matched these cards. Not a fifth category.</p>
-        <div class="arch-unassigned-body">${un || '<div class="arch-empty">Every card found a place.</div>'}</div>
+        <p class="arch-panel-blurb">No Foundation, Strategy, Payoffs, or Mana Sources rule matched these cards. Not a fifth category.</p>
+        <div class="arch-unassigned-body ${cardMode === 'visual' ? 'arch-sub-body--visual' : ''}">${un || '<div class="arch-empty">Every card found a place.</div>'}</div>
       </section>
       <footer class="arch-legend">
         <span><strong>Foundation</strong> ${CATEGORY_META.foundation.legend}</span>
         <span><strong>Strategy</strong> ${CATEGORY_META.strategy.legend}</span>
         <span><strong>Payoffs</strong> ${CATEGORY_META.payoffs.legend}</span>
-        <span><strong>Manabase</strong> ${CATEGORY_META.manabase.legend}</span>
+        <span><strong>Mana Sources</strong> ${CATEGORY_META.manabase.legend}</span>
         <span class="arch-legend-multi">Multi-role</span>
       </footer>
     </div>`;
+  }
+
+  /**
+   * Ordered Group By buckets for the deck toolbar's "Architecture" option:
+   * one band per category · subsection (panel reading order), then Unassigned.
+   * Multi-role cards appear in every membership, same idea as Group By tag.
+   * Empty subsections are omitted. Each entry: `{ id, label, keys }`.
+   */
+  function architectureGroupBuckets(model) {
+    if (!model) return [];
+    const rows = model.rows || [];
+    const labelOf = (cat, subId) => {
+      const catLabel = (CATEGORY_META[cat] && CATEGORY_META[cat].label) || cat;
+      let subLabel = subId;
+      if (cat === 'foundation') {
+        const fn = FOUNDATION_FNS.find(f => f.id === subId);
+        if (fn) {
+          subLabel = fn.id === 'win_condition' && model.winConditionLabel
+            ? `${fn.label} (${model.winConditionLabel})`
+            : fn.label;
+        }
+      } else if (cat === 'manabase') {
+        const sub = MANABASE_SUBS.find(s => s.id === subId);
+        if (sub) subLabel = sub.label;
+      } else {
+        const list = cat === 'strategy' ? (model.strategySubs || []) : (model.payoffSubs || []);
+        const sub = list.find(s => s.id === subId);
+        if (sub) subLabel = sub.label;
+      }
+      return `${catLabel} · ${subLabel}`;
+    };
+    const out = [];
+    const push = (id, label, matched) => {
+      if (!matched.length) return;
+      out.push({ id, label, keys: matched.map(r => r.key) });
+    };
+    for (const fn of FOUNDATION_FNS) {
+      push(`foundation::${fn.id}`, labelOf('foundation', fn.id), rows.filter(r => r.foundationFns.includes(fn.id)));
+    }
+    for (const sub of model.strategySubs || []) {
+      push(`strategy::${sub.id}`, labelOf('strategy', sub.id), rows.filter(r => r.strategySubs.includes(sub.id)));
+    }
+    for (const sub of model.payoffSubs || []) {
+      push(`payoffs::${sub.id}`, labelOf('payoffs', sub.id), rows.filter(r => r.payoffSubs.includes(sub.id)));
+    }
+    for (const sub of MANABASE_SUBS) {
+      push(`manabase::${sub.id}`, labelOf('manabase', sub.id), rows.filter(r => r.manabaseSubs.includes(sub.id)));
+    }
+    push('unassigned', 'Unassigned', rows.filter(r => !(r.categories && r.categories.length)));
+    return out;
   }
 
   function representativeCards(rows, plan, limit) {
@@ -800,6 +1080,7 @@
   return {
     ARCH_CATEGORIES,
     FOUNDATION_FNS,
+    MANABASE_SUBS,
     CATEGORY_META,
     architectureCardKey,
     mappedRoleForPlacement,
@@ -814,6 +1095,16 @@
     resetArchitectureCard,
     unassignArchitectureCard,
     architectureViewHtml,
+    architectureStackFit,
+    architectureColWidth,
+    architectureStacksAtSize,
+    architectureMaxSubCount,
+    architectureSplitRows,
+    architectureGroupBuckets,
     representativeCards,
+    ARCH_SUB_TINT_STEPS,
+    _subsectionSlug,
+    _subsectionTintIndex,
+    _subsectionChrome,
   };
 });

@@ -22,7 +22,7 @@
     font-size: 0.68rem; font-weight: 600; letter-spacing: 0.08em;
     white-space: nowrap; z-index: 300; pointer-events: none;
   }
-  main { padding-left: 1.25rem; padding-right: 1.25rem; }
+  main { --page-gutter: 1.25rem; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -117,7 +117,8 @@
   /* ── Main content — below topbar, above bottom nav ────────────────────── */
   main {
     margin-left: 0 !important;
-    padding: calc(var(--topbar-h) + 0.75rem) 0.75rem
+    --page-gutter: 0.75rem;
+    padding: calc(var(--topbar-h) + 0.75rem) var(--page-gutter)
              calc(var(--bottom-nav-h) + env(safe-area-inset-bottom) + 1rem);
   }
 
@@ -262,44 +263,74 @@
     grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)) !important;
     gap: 4px;
   }
+  /* ── Deck header — deliberate 3-row layout on phones ───────────────────
+       Row 1:  Deck name   ✓/✗   ⋮            (#deckTopBar)
+       Row 2:  Commander: …                    (the line already below it)
+       Row 3:  [All Decks]  ⓘ  [+]  [tag]     (.deck-back-row)
+     Row 3 is assembled by _placeDeckHeaderIcons() in js/decks.js, which moves
+     ⓘ and the two action buttons into .deck-back-row on phones. Row 1 flattens
+     the title row and the action cluster with display:contents so the name, its
+     badge and ⋮ share one flex line — !important is required to beat the inline
+     `display:flex` on both wrappers. */
   #deckTopBar {
     align-items: center !important;
-    /* Title row is full-width, so the action buttons wrap below it and sit
-       centred (the desktop flex spacer is removed on phones). */
-    justify-content: center !important;
-    /* Tighter gap + padding so Add cards / History / Manage Tags / ⋮ all fit
-       on one row on smaller phones instead of the ⋮ wrapping below. */
+    justify-content: flex-start !important;
     column-gap: 6px !important;
+    row-gap: 4px;
   }
   #deckTopBar .deck-top-spacer { display: none !important; }
   #deckTopBar .btn { padding: 0 10px !important; }
   #deckTopBar #deckOptionsBtn { padding: 0 8px !important; }
-  /* Title row spans the full width so the Add/History/Manage-Tags buttons wrap
-     onto their own line below instead of crowding (and clipping) the deck name.
-     Higher specificity + !important is required to beat `#tab-decks .deck-top-title-row`. */
-  #tab-decks .deck-top-title-row {
-    flex: 0 0 100% !important;
-    flex-wrap: wrap !important;
-    justify-content: flex-start;
-    column-gap: 8px;
-    row-gap: 6px;
-    min-width: 0;
+  #tab-decks .deck-top-title-row,
+  #tab-decks #deckActionCluster { display: contents !important; }
+
+  /* Row 3 — "All Decks" keeps the default order:0 so it stays furthest left,
+     then ⓘ and the action buttons, which drop their text labels to icons so the
+     whole row fits comfortably beside it. z-index matches #deckTopBar's so the
+     ⓘ popover opens over the folder tabs and panel below. */
+  #tab-decks .deck-back-row {
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 6px;
+    position: relative;
+    z-index: 40;
   }
-  /* Deck name owns the first line and ellipsises if long; the small indicators
-     (validity, game-changers, format, value) sit together on the line below. */
+  #tab-decks #deckInfoBadge       { order: 5; }
+  #tab-decks #deckBuilderVoiceBtn { order: 6; }
+  #tab-decks #deckManageTagsBtn   { order: 7; }
+  #tab-decks #deckBuilderVoiceBtn,
+  #tab-decks #deckManageTagsBtn {
+    gap: 0 !important;
+    padding: 0 9px !important;
+    flex-shrink: 0;
+  }
+  #tab-decks #deckBuilderVoiceBtn .deck-btn-label,
+  #tab-decks #deckManageTagsBtn .deck-btn-label { display: none; }
+  #tab-decks #deckManageTagsBtn .deck-btn-icon {
+    display: block;
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+  }
+  /* Row 1 — name ellipsises if long so the ✓/✗ badge and ⋮ keep their spots.
+     The max-width reserves the badge + ⋮ + gaps, otherwise a long name claims
+     the whole flex line and wraps those two onto a row of their own. */
   #tab-decks #activeDeckName {
     order: 1;
-    flex: 1 1 100% !important;
+    flex: 0 1 auto !important;
     min-width: 0 !important;
-    max-width: 100%;
+    max-width: calc(100% - 86px);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  #tab-decks #deckValidBadge      { order: 2; }
-  #tab-decks #deckGameChangerBadge { order: 3; }
-  #tab-decks #activeDeckFormat    { order: 4; }
-  #tab-decks #activeDeckValue     { order: 5; }
+  #tab-decks #deckValidBadge       { order: 2; }
+  #tab-decks #deckTopMenuWrap      { order: 3; }
+  #tab-decks #deckGameChangerBadge { order: 8; }
+  #tab-decks #activeDeckFormat     { order: 9; }
+  #tab-decks #activeDeckValue      { order: 10; }
+  #tab-decks #deckScryTagSyncBadge { order: 11; }
   #deckTopMenuWrap .deck-options-dropdown {
     width: min(84vw, 280px);
   }
@@ -397,7 +428,7 @@
   /* Deck builder folder tabs — tighter tabs that scroll sideways on phones */
   .deck-folder-tabs { padding: 5px 6px 0 0; }
   .deck-ftab { padding: 9px 20px 8px; font-size: 0.9rem; letter-spacing: 0.02em; }
-  .deck-ftab + .deck-ftab { margin-left: -12px; }
+  .deck-ftab + .deck-ftab { margin-left: -17px; }
   .deck-ftab.active { padding: 11px 22px 9px; }
 
   .deck-themes-toggle { flex-wrap: wrap; row-gap: 2px; }
@@ -696,7 +727,7 @@
    Tighten spacing and shrink grids further.
    ═══════════════════════════════════════════════════════════════════════════ */
 @media (max-width: 375px) {
-  main { padding-left: 0.5rem; padding-right: 0.5rem; }
+  main { --page-gutter: 0.5rem; }
   .card-grid {
     grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)) !important;
     gap: 6px;
@@ -720,7 +751,7 @@
   .card-grid.view-compact {
     grid-template-columns: repeat(auto-fill, minmax(105px, 1fr)) !important;
   }
-  main { padding-left: 1rem; padding-right: 1rem; }
+  main { --page-gutter: 1rem; }
 }
 
 /* ── Phones keep the ORIGINAL MB/ADDS/CUTS zones look ────────────────────────
