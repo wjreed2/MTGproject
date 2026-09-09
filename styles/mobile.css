@@ -696,16 +696,34 @@
     grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)) !important;
   }
 
-  /* ── Voice modal — slide up from bottom on mobile ──────────────────────── */
+  /* ── Add cards modal — bottom sheet with the folder tabs riding on top ───
+     The popup lives inside .voice-modal-shell now, so these target the shell
+     and a descendant .modal (the old `#voiceModal > .modal` no longer matches). */
   #voiceModal { align-items: flex-end !important; }
-  #voiceModal > .modal {
+  #voiceModal .voice-modal-shell,
+  #voiceModal.search-mode .voice-modal-shell {
+    position: fixed !important;
+    inset: auto 0 0 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: 96dvh;
+  }
+  #voiceModal .voice-folder-tabs { padding: 6px 8px 0 8px; }
+  #voiceModal .modal,
+  #voiceModal.search-mode .modal {
     width: 100% !important;
     max-width: 100% !important;
     border-radius: var(--radius2) var(--radius2) 0 0 !important;
-    max-height: 92dvh !important;
+    border-top-left-radius: 0 !important;
+    max-height: 88dvh !important;
     overflow-y: auto;
-    padding: 1.25rem 1rem calc(1rem + env(safe-area-inset-bottom)) !important;
+    padding: 1rem 0.85rem calc(1rem + env(safe-area-inset-bottom)) !important;
   }
+  /* Destination controls stack rather than overflow */
+  #voiceTopBars { row-gap: 6px; }
+  #voiceModal .view-toggle { flex-wrap: wrap; }
+  /* Card preview column is hidden on phones — let the controls use full width */
+  #voiceModal .voice-two-col { display: block !important; }
   #findCardResults {
     grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)) !important;
     gap: 10px !important;

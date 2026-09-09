@@ -1470,6 +1470,12 @@ async function ensurePriceHistorySchema() {
       KEY idx_mp_scryfall (scryfall_id),
       KEY idx_mp_set (set_code)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+  // Name lookup backs "All printings" in card search; older installs predate it.
+  try {
+    await db().query('ALTER TABLE mtgjson_printing ADD INDEX idx_mp_name (name)');
+  } catch (e) {
+    if (e?.code !== 'ER_DUP_KEYNAME') console.warn('[mtgjson_printing] idx_mp_name:', e.message);
+  }
 }
 
 async function ensurePriceWatchesTable() {
@@ -9118,7 +9124,7 @@ app.get('/api/cards/search', requireAuth, async (req, res) => {
        FROM scryfall_oracle_cards ${fullSql} ORDER BY name LIMIT ? OFFSET ?`,
       [...allParams, limit, offset]
     );
-    const cards = rows.map(row => ({
+    let cards = rows.map(row => ({
       id: row.scryfall_id || row.oracle_id,
       oracle_id: row.oracle_id,
       name: row.name,
@@ -9138,8 +9144,54 @@ app.get('/api/cards/search', requireAuth, async (req, res) => {
       image_uris: { small: row.image_small, normal: row.image_normal },
       power: row.power, toughness: row.toughness, loyalty: row.loyalty,
     }));
+    // "All printings": expand this PAGE of oracle cards into their printings.
+    // Deliberately page-scoped (≤ limit names, name-indexed) — joining the whole
+    // result set against mtgjson_printing is the kind of query that has hurt prod.
+    let expandedPrintings = false;
+    if (req.query.printings === '1' && cards.length) {
+      const names = [...new Set(cards.map(c => c.name))];
+      const [prints] = await db().query(
+        `SELECT name, scryfall_id, set_code, number, rarity FROM mtgjson_printing
+          WHERE available = 1 AND scryfall_id IS NOT NULL AND name IN (?)
+          ORDER BY name, set_code, LENGTH(number), number`,
+        [names]
+      );
+      if (prints.length) {
+        const byName = new Map();
+        for (const p of prints) {
+          if (!byName.has(p.name)) byName.set(p.name, []);
+          byName.get(p.name).push(p);
+        }
+        // Caps keep a broad query (e.g. t:creature) from ballooning one page into
+        // tens of thousands of tiles; cards past the budget stay unexpanded.
+        const PER_CARD = 40, TOTAL = 1200;
+        const out = [];
+        for (const c of cards) {
+          const list = byName.get(c.name);
+          if (!list || !list.length || out.length >= TOTAL) { out.push(c); continue; }
+          for (const p of list.slice(0, PER_CARD)) {
+            const sid = p.scryfall_id;
+            out.push({
+              ...c,
+              id: sid,
+              set: p.set_code || c.set,
+              collector_number: p.number || null,
+              rarity: p.rarity || c.rarity,
+              image_uris: {
+                small: `https://cards.scryfall.io/small/front/${sid[0]}/${sid[1]}/${sid}.jpg`,
+                normal: `https://cards.scryfall.io/normal/front/${sid[0]}/${sid[1]}/${sid}.jpg`,
+              },
+            });
+          }
+        }
+        cards = out;
+        expandedPrintings = true;
+      }
+    }
     if (req.query.withPrices === '1') await attachPriceLogPrices(cards);
-    res.json({ data: cards, total: Number(total) });
+    // pageCards = oracle cards consumed by this page; the client pages by that,
+    // not by data.length, which grows when printings are expanded.
+    res.json({ data: cards, total: Number(total), pageCards: rows.length, printings: expandedPrintings });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
