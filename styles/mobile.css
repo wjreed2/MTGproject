@@ -264,7 +264,7 @@
     gap: 4px;
   }
   /* ── Deck header — deliberate 2-row layout on phones ───────────────────
-       Row 1:  ⋮  [+ Add cards]  [Manage Tags]
+       Row 1:              [+ Add cards]  [Manage Tags]  ⋮
        Row 2:  Deck name   ✓/✗  ⓘ  ⟡  format  value
        Row 3:  Commander: …                    (the line already below it)
      The two wrappers already hold exactly the right children — #deckActionCluster
@@ -287,18 +287,18 @@
   #deckTopBar #deckOptionsBtn { padding: 0 8px !important; }
   #deckTopBar .deck-top-spacer { display: none !important; }
 
-  /* Row 1 — the actions. Labels stay visible: these three now own a full row,
-     so there is room for words, and icon-only buttons read as a mystery.
+  /* Row 1 — the actions, right-aligned with ⋮ on the outside edge. That is the
+     authored DOM order (Add cards, Manage Tags, ⋮), so no `order` is needed
+     here; flex-end does the alignment. Labels stay visible: these three own a
+     full row, and icon-only buttons read as a mystery.
      display/margin-left are set inline by _placeDeckActionCluster, so only the
-     basis and order come from here. */
+     basis and alignment come from here. */
   #tab-decks #deckActionCluster {
     order: 1;
     flex: 0 0 100%;
     gap: 6px;
+    justify-content: flex-end;
   }
-  #tab-decks #deckTopMenuWrap      { order: 1; }
-  #tab-decks #deckBuilderVoiceBtn  { order: 2; }
-  #tab-decks #deckManageTagsBtn    { order: 3; }
   #tab-decks #deckBuilderVoiceBtn,
   #tab-decks #deckManageTagsBtn {
     gap: 5px !important;

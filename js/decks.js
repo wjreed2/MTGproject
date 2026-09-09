@@ -9771,7 +9771,11 @@ function renderDeckList(deck) {
     }
     const html = architectureViewHtml(model, {
       canEdit: canEdit && !activeDeckIsShared,
-      compact: typeof _deckIsPhone === 'function' && _deckIsPhone(),
+      // Phones used to get the compact readout — per-category chips, five
+      // representative cards, and the rest behind "Show all cards". The full
+      // list is wanted on mobile too, so nothing collapses now. The compact
+      // path stays in architectureViewHtml (and under test) for reuse.
+      compact: false,
       panelLayout: archPanelLayout,
       cardMode: archCardMode,
       stackContainerWidth: stackedVisual ? Math.max(0, _archFitWidth) : 0,
