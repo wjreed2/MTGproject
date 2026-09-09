@@ -1891,8 +1891,10 @@ function renderDeckSideboardEnabledBtn() {
   const deck = getActiveDeck();
   const on = !!(deck && _deckMatchSideboardEnabled(deck));
   btn.innerHTML = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><rect x="2" y="3" width="12" height="10" rx="1"/><path d="M3 6.5h10M3 9.5h6"/></svg>${on ? ' Sideboard: on' : ' Sideboard'}`;
-  btn.style.color = on ? 'var(--teal)' : '';
-  btn.style.borderColor = on ? 'var(--teal)' : '';
+  // "On" reads as the Badges button's active state, not teal text on a teal outline.
+  btn.style.color = '';
+  btn.style.borderColor = '';
+  btn.classList.toggle('active', on);
 }
 
 function _syncDeckSideboardToggle() {
@@ -1926,8 +1928,10 @@ function renderDeckGoalSettingBtn() {
   if (!btn) return;
   const on = _deckGoalEnabled();
   btn.innerHTML = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="2.5"/><path d="M8 2v2M8 12v2M2 8h2M12 8h2"/></svg>${on ? ' Deck goal analysis: on' : ' Deck goal analysis: off'}`;
-  btn.style.color = on ? 'var(--teal)' : '';
-  btn.style.borderColor = on ? 'var(--teal)' : '';
+  // Menu rows show "on" as the shared active state, not teal text + outline.
+  btn.style.color = '';
+  btn.style.borderColor = '';
+  btn.classList.toggle('active', !!on);
 }
 
 // Developer/admin kill switch for the Hybrid (wizard) suggestion mode. Off removes
@@ -1956,8 +1960,10 @@ function renderHybridAddsSettingBtn() {
   if (!btn) return;
   const on = _hybridFeatureEnabled();
   btn.innerHTML = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M6 2h4M7 2v4.5L3.5 12a1.5 1.5 0 0 0 1.3 2.2h6.4a1.5 1.5 0 0 0 1.3-2.2L9 6.5V2"/><path d="M5 10.5h6"/></svg>${on ? ' Hybrid adds: on' : ' Hybrid adds: off'}`;
-  btn.style.color = on ? 'var(--teal)' : '';
-  btn.style.borderColor = on ? 'var(--teal)' : '';
+  // Menu rows show "on" as the shared active state, not teal text + outline.
+  btn.style.color = '';
+  btn.style.borderColor = '';
+  btn.classList.toggle('active', !!on);
 }
 
 /**
@@ -1995,8 +2001,10 @@ function renderDeckSwapsSettingBtn() {
   if (!btn) return;
   const on = _deckSwapsEnabled();
   btn.innerHTML = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M2.5 5.5h9"/><path d="M9 3l2.5 2.5L9 8"/><path d="M13.5 10.5h-9"/><path d="M7 8l-2.5 2.5L7 13"/></svg>${on ? ' Adds &amp; Cuts: on' : ' Adds &amp; Cuts: off'}`;
-  btn.style.color = on ? 'var(--teal)' : '';
-  btn.style.borderColor = on ? 'var(--teal)' : '';
+  // Menu rows show "on" as the shared active state, not teal text + outline.
+  btn.style.color = '';
+  btn.style.borderColor = '';
+  btn.classList.toggle('active', !!on);
 }
 
 // Routes save to the right path depending on ownership.
@@ -2120,9 +2128,11 @@ document.addEventListener('click', _glassMenuCloseAll);
 document.addEventListener('keydown', e => { if (e.key === 'Escape') _glassMenuCloseAll(); });
 
 function _glassSelectSyncLabels() {
-  document.querySelectorAll('select[data-glass-label][data-glassified]').forEach(sel => {
-    const btn = document.getElementById(sel.id + 'GlassBtn');
-    if (!btn) return;
+  document.querySelectorAll('select[data-glassified]').forEach(sel => {
+    // Dynamically built selects often have no id, so the trigger is linked
+    // directly rather than looked up by `${id}GlassBtn`.
+    const btn = sel._glassBtn || (sel.id ? document.getElementById(sel.id + 'GlassBtn') : null);
+    if (!btn || !btn.isConnected) return;
     const opt = sel.options[sel.selectedIndex];
     const prefix = sel.dataset.glassLabel;
     btn.innerHTML = (prefix ? `<span class="glass-dd-prefix">${escapeHtml(prefix)}</span>` : '')
@@ -2156,8 +2166,16 @@ function _glassMenuOpen(sel, wrap) {
   wrap.appendChild(menu);
 }
 
+// Every single-choice <select> gets the glass trigger. Opt out with
+// data-no-glass; multi/list-box selects are skipped (the menu can't express them).
+function _glassSelectSkip(sel) {
+  return sel.multiple || sel.size > 1 || sel.hasAttribute('data-no-glass')
+    || sel.closest('[data-no-glass]') != null;
+}
+
 function _glassSelectEnsure() {
-  document.querySelectorAll('#tab-decks select[data-glass-label]:not([data-glassified]), #voiceModal select[data-glass-label]:not([data-glassified])').forEach(sel => {
+  document.querySelectorAll('select:not([data-glassified])').forEach(sel => {
+    if (_glassSelectSkip(sel) || !sel.parentNode) return;
     sel.dataset.glassified = '1';
     const wrap = document.createElement('span');
     wrap.className = 'glass-dd-wrap';
@@ -2169,9 +2187,12 @@ function _glassSelectEnsure() {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'btn btn-outline btn-sm glass-dd-btn';
-    btn.id = sel.id + 'GlassBtn';
+    if (sel.id) btn.id = sel.id + 'GlassBtn';
+    sel._glassBtn = btn;
+    if (sel.title) btn.title = sel.title;
     btn.addEventListener('click', e => {
       e.stopPropagation();
+      e.preventDefault();
       const open = wrap.querySelector('.glass-menu');
       _glassMenuCloseAll();
       if (!open) _glassMenuOpen(sel, wrap);
@@ -2195,6 +2216,32 @@ function _glassSelectEnsure() {
     dirSel.parentNode.insertBefore(btn, dirSel.nextSibling);
   }
   _glassSelectSyncLabels();
+}
+
+// Selects created later by innerHTML renders (trade, games, playgroups, modals)
+// pick up the glass trigger without every render site having to call in.
+let _glassObserverQueued = false;
+function _glassSelectObserve() {
+  if (typeof MutationObserver !== 'function' || !document.body) return;
+  new MutationObserver(muts => {
+    if (_glassObserverQueued) return;
+    const touched = muts.some(m => [...m.addedNodes].some(n =>
+      n.nodeType === 1 && (n.tagName === 'SELECT' || n.querySelector?.('select:not([data-glassified])'))));
+    if (!touched) return;
+    _glassObserverQueued = true;
+    requestAnimationFrame(() => { _glassObserverQueued = false; _glassSelectEnsure(); });
+  }).observe(document.body, { childList: true, subtree: true });
+}
+if (typeof document !== 'undefined') {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => { _glassSelectEnsure(); _glassSelectObserve(); });
+  } else {
+    _glassSelectEnsure();
+    _glassSelectObserve();
+  }
+  document.addEventListener('change', e => {
+    if (e.target instanceof HTMLSelectElement && e.target.dataset.glassified) _glassSelectSyncLabels();
+  }, true);
 }
 
 function _isTagGroupByMode(groupBy) {
@@ -3428,7 +3475,8 @@ function toggleDeckPublic() {
 
 function _applyPublicToggleBtn(btn, isPublic) {
   btn.innerHTML = isPublic ? `${SVG_GLOBE} Public` : `${SVG_LOCK} Private`;
-  btn.style.color = isPublic ? 'var(--teal)' : 'var(--text3)';
+  btn.style.color = '';
+  btn.classList.toggle('active', !!isPublic);
   btn.title = isPublic ? 'Visible to all users — click to make private' : 'Only you can see this — click to make public';
 }
 
@@ -3439,7 +3487,8 @@ function _syncDeckShareLinkBtn(deck) {
   const btn = document.getElementById('deckShareLinkBtn');
   if (!btn) return;
   const on = !!(deck && deck.shareToken);
-  btn.style.color = on ? 'var(--teal)' : '';
+  btn.style.color = '';
+  btn.classList.toggle('active', on);
   btn.title = on ? 'A view-only link is active — click to manage' : 'Get a view-only link anyone can open';
 }
 
@@ -4118,8 +4167,6 @@ function renderActiveDeck() {
   if (delBtn) delBtn.style.display = isOwner ? '' : 'none';
   const renameBtn = document.getElementById('deckRenameBtn');
   if (renameBtn) renameBtn.style.display = isOwner ? '' : 'none';
-  const formatBtn = document.getElementById('deckFormatBtn');
-  if (formatBtn) formatBtn.style.display = isOwner ? '' : 'none';
   const deckVoiceBtn = document.getElementById('deckBuilderVoiceBtn');
   if (deckVoiceBtn) deckVoiceBtn.style.display = canEditActiveDeck() ? '' : 'none';
 
@@ -5660,10 +5707,10 @@ function _stackTile(c, zone = 'main', poolHints = null) {
     ? _plannedCutQtyForDeckSlot(poolHints.cuts, cardKey, c)
     : 0;
   const cutBadge = cutQty > 0 || zone === 'cut'
-    ? `<div class="stack-cut-flag" title="Planned cut — still in the deck">CUT${(zone === 'main' && cutQty > 0 && qty > 1) ? ` ×${cutQty}` : ''}</div>`
+    ? `<div class="stack-cut-flag" role="img" aria-label="Planned cut" title="Planned cut${(zone === 'main' && cutQty > 0 && qty > 1) ? ` (${cutQty} of ${qty})` : ''} — still in the deck">${_SWAP_CUT_ICON}</div>`
     : '';
   const addBadge = isPlannedAdd || zone === 'add'
-    ? `<div class="stack-add-flag" title="Planned add — not counted in the deck">ADD</div>`
+    ? `<div class="stack-add-flag" role="img" aria-label="Planned add" title="Planned add — not counted in the deck">${_SWAP_ADD_ICON}</div>`
     : '';
   const swapCls = (cutQty > 0 || zone === 'cut') ? ' is-planned-cut' : (isPlannedAdd || zone === 'add') ? ' is-planned-add' : '';
 
@@ -7407,18 +7454,36 @@ function _toggleCutPanel() {
 //   Semantic — partner POST /api/decks/analyze only (no silent fallback)
 // Settings Deck Goal toggle is master: when off, header toggle hides and Classic is forced.
 const SUGGEST_ALGO_KEY = 'mtg_suggest_algo';
+/* Classic is retired. The stored value is a *preference*: 'auto' (the default)
+   resolves per deck — Semantic normally, Hybrid once a plan is declared, so a
+   plan automatically brings the theme into the suggestions. 'semantic' and
+   'hybrid' are explicit overrides. Legacy 'classic' reads as 'auto'. */
 function _normalizeSuggestAlgoMode(raw) {
   const v = String(raw || '').toLowerCase();
-  if (v === 'classic' || v === 'hybrid' || v === 'semantic') return v;
-  return 'semantic';
+  if (v === 'hybrid' || v === 'semantic') return v;
+  return 'auto';
 }
 let _suggestAlgoMode = (() => {
   try { return _normalizeSuggestAlgoMode(localStorage.getItem(SUGGEST_ALGO_KEY)); }
-  catch { return 'semantic'; }
+  catch { return 'auto'; }
 })();
 
-function _semanticModeOn() { return _deckGoalEnabled() && _suggestAlgoMode === 'semantic'; }
-function _hybridModeOn() { return _deckGoalEnabled() && _hybridFeatureEnabled() && _suggestAlgoMode === 'hybrid'; }
+/** True when the open deck has a declared plan (strategy + win condition). */
+function _deckHasPlan(deck) {
+  const d = deck || (typeof getActiveDeck === 'function' ? getActiveDeck() : null);
+  if (!d) return false;
+  return typeof isPlanDeclared === 'function' && isPlanDeclared(d.plan);
+}
+
+/** The mode actually used for a render, after resolving 'auto'. */
+function _effectiveSuggestAlgoMode() {
+  // Plan is hidden for now, so Hybrid (which needs one) is unreachable and
+  // Classic is retired — suggestions always run on the semantic engine.
+  return 'semantic';
+}
+
+function _semanticModeOn() { return _effectiveSuggestAlgoMode() === 'semantic'; }
+function _hybridModeOn() { return _effectiveSuggestAlgoMode() === 'hybrid'; }
 
 function setSuggestAlgoMode(mode) {
   let next = _normalizeSuggestAlgoMode(mode);
@@ -7431,29 +7496,24 @@ function setSuggestAlgoMode(mode) {
   if (deck) { _renderCutSuggestions(deck); _renderAddSuggestions(deck); }
 }
 
-// Active-state on both header toggles + hide classic-only header controls
-// (pool toggle, playstyle sliders, archetype selects, Plan, ⚙) in pure Semantic mode.
-// Hybrid keeps classic controls visible (staple half still uses them).
+// Active-state on both header toggles + hide the staple-half header controls
+// (pool toggle, playstyle sliders, archetype selects, ⚙) in pure Semantic mode.
+// Hybrid keeps them visible, since its staple half still uses them.
 function _syncSuggestAlgoUI() {
-  const mode = _deckGoalEnabled() ? _suggestAlgoMode : 'classic';
+  const mode = _effectiveSuggestAlgoMode();
   const semantic = mode === 'semantic';
-  for (const [clsId, hybId, semId] of [
-    ['deckCutAlgoClassicBtn', 'deckCutAlgoHybridBtn', 'deckCutAlgoSemanticBtn'],
-    ['deckAddAlgoClassicBtn', 'deckAddAlgoHybridBtn', 'deckAddAlgoSemanticBtn'],
+  for (const [hybId, semId] of [
+    ['deckCutAlgoHybridBtn', 'deckCutAlgoSemanticBtn'],
+    ['deckAddAlgoHybridBtn', 'deckAddAlgoSemanticBtn'],
   ]) {
-    const c = document.getElementById(clsId);
     const h = document.getElementById(hybId);
     const s = document.getElementById(semId);
-    if (!c || !s) continue;
-    if (c.parentElement) c.parentElement.style.display = _deckGoalEnabled() ? '' : 'none';
-    c.classList.toggle('active', mode === 'classic');
+    if (!s) continue;
+    // Only one engine remains, so the whole toggle group is hidden.
+    if (s.parentElement) s.parentElement.style.display = 'none';
     s.classList.toggle('active', mode === 'semantic');
-    c.setAttribute('aria-pressed', String(mode === 'classic'));
     s.setAttribute('aria-pressed', String(mode === 'semantic'));
-    if (h) {
-      h.classList.toggle('active', mode === 'hybrid');
-      h.setAttribute('aria-pressed', String(mode === 'hybrid'));
-    }
+    if (h) h.style.display = 'none';
   }
   document.querySelectorAll('#tab-decks .suggest-classic-only').forEach(el => {
     el.style.display = semantic ? 'none' : '';
@@ -8731,16 +8791,8 @@ async function _renderAddSuggestions(deck) {
   if (token !== _addSuggestToken) return;
   const livePlan = typeof getDeckPlan === 'function' ? getDeckPlan(deck) : deckPlan;
 
-  // Plan status line above suggestions
-  let planBanner = '';
-  if (typeof isPlanDeclared === 'function' && isPlanDeclared(livePlan)) {
-    const ps = typeof strategyLabel === 'function' ? strategyLabel(livePlan.primaryStrategyId) : livePlan.primaryStrategyId;
-    const wc = typeof winconLabel === 'function' ? winconLabel(livePlan.winConditionId) : livePlan.winConditionId;
-    const confirmed = typeof isPlanConfirmed === 'function' && isPlanConfirmed(livePlan);
-    planBanner = `<div class="deck-plan-banner" style="padding:.45rem .85rem;font-size:.72rem;color:var(--text3);border-bottom:1px solid var(--border)">Plan: ${escapeHtml(ps)} · ${escapeHtml(wc)}${confirmed ? '' : ' (confirm in wizard for Hybrid theme)'} <button type="button" class="btn btn-ghost btn-sm" style="padding:0 6px;font-size:.7rem" onclick="openDeckPlanWizard()">Edit</button></div>`;
-  } else {
-    planBanner = `<div class="deck-plan-banner" style="padding:.45rem .85rem;font-size:.72rem;color:var(--text3);border-bottom:1px solid var(--border)">No deck plan — ${ _hybridModeOn() ? 'Hybrid theme picks need a saved plan. ' : 'Plan-only suggestions stay closed. '}<button type="button" class="btn btn-ghost btn-sm" style="padding:0 6px;font-size:.7rem" onclick="openDeckPlanWizard()">Set plan</button></div>`;
-  }
+  // Plan is hidden for now, so no plan banner is shown.
+  const planBanner = '';
 
   // Hybrid v2: Foundation ranking + readout. Sandbox theme rows only if config allows.
   let hybridPicks = picks;
@@ -10847,7 +10899,11 @@ function _rampIsRelevant(card, cmdColors, hasGenericCost) {
 /** Gameplan early-ramp band: ramp with MV ≤ commander MV − 2 (Prompt 10). */
 function _earlyRampCmcCap(commanderCmc) {
   const cmc = Math.round(Number(commanderCmc) || 0);
-  return Math.max(0, cmc - 2);
+  // Early ramp is cast the turn before the commander, using that turn's lands:
+  // for a 3-MV commander that is T2, so MV<=2 ramp qualifies. The old cmc-2 also
+  // assumed a missed land drop, which wrongly excluded 2-MV rocks at 3 MV — and
+  // excluded ramp entirely (cap 0) for any 2-MV commander.
+  return Math.max(1, cmc - 1);
 }
 
 function _countEarlyRamp(deck, cmdColors, hasGenericCost, maxInclusiveCmc) {
@@ -10859,6 +10915,30 @@ function _countEarlyRamp(deck, cmdColors, hasGenericCost, maxInclusiveCmc) {
     if (cmdColors && !_rampIsRelevant(c, cmdColors, hasGenericCost)) return s;
     return s + (c.qty || 1);
   }, 0);
+}
+
+// Lives here because _cmdGameplanProbs below is its only caller. It previously
+// sat in the skeleton deck builder, and went out with it — leaving the gameplan
+// render throwing a ReferenceError on any deck with lands.
+function _isEtbTappedLand(card) {
+  const txt = String(card?.oracleText || '').toLowerCase();
+  // Standard ETB-tapped lands (shock lands, tap lands, etc.)
+  if (txt.includes('enters the battlefield tapped') || txt.includes('enters tapped')) return true;
+  // Fetch lands that put the found land in tapped (Evolving Wilds, Terramorphic Expanse, etc.)
+  // Real fetch lands (Flooded Strand) put the card in untapped, so they don't match this.
+  if (txt.includes('search your library') && txt.includes('onto the battlefield tapped')) return true;
+  return false;
+}
+
+// Cast-turn stepper — mirrors the inspector / Add Cards quantity buttons.
+function _cmdCastTurnStep(deckId, delta) {
+  const el = document.getElementById('cmdGpCastTurn');
+  if (!el) return;
+  const cur = parseInt(el.textContent, 10) || 1;
+  const next = Math.max(1, Math.min(12, cur + delta));
+  if (next === cur) return;
+  el.textContent = String(next);
+  if (typeof setCmdPlanCastTurn === 'function') setCmdPlanCastTurn(deckId, next);
 }
 
 function _cmdGameplanProbs(deck, cmdCard, customReqs = []) {
@@ -11035,9 +11115,14 @@ function _cmdGameplanProbs(deck, cmdCard, customReqs = []) {
     const seen = 7 + (turn - 1);
     // Ramp has until T(turn-1) to show up — cards seen by that turn
     const rampSeen = 7 + Math.max(0, turn - 2);
-    const p_ramp_0    = clamp01(1 - mulP(R, rampSeen, 1));
-    const p_ramp_1    = clamp01(mulP(R, rampSeen, 1) - mulP(R, rampSeen, 2));
-    const p_ramp_2plus = mulP(R, rampSeen, 2);
+    // Ramp is cast on T(turn-1) with that turn's lands, so the cap follows the
+    // scenario's turn — same derivation preCurve already uses for R_pre. Without
+    // this, changing Cast turn left the cap stuck at the commander's own MV.
+    const onCurveRampCap = Math.max(1, turn - 1);
+    const R_on = _countEarlyRamp(deck, cmdColors, hasGenericCost, onCurveRampCap);
+    const p_ramp_0    = clamp01(1 - mulP(R_on, rampSeen, 1));
+    const p_ramp_1    = clamp01(mulP(R_on, rampSeen, 1) - mulP(R_on, rampSeen, 2));
+    const p_ramp_2plus = mulP(R_on, rampSeen, 2);
     // If user requires lands in hand, they need turn+N lands total (N played + N held)
     const landMinK = turn + extraLandsInHand;
     const p_land_natural = mulP(L, seen, landMinK);
@@ -11048,7 +11133,7 @@ function _cmdGameplanProbs(deck, cmdCard, customReqs = []) {
       p_ramp_1     * p_land_1ramp   +
       p_ramp_2plus * p_land_2ramp
     );
-    const p_ramp_any = mulP(R, rampSeen, 1);
+    const p_ramp_any = mulP(R_on, rampSeen, 1);
     const colorReqs = cmdColors.map(col => {
       const S = colorSources[col] || 0;
       return { label: `${_COLOR_FULL[col]} source`, p: mulP(S, seen, 1), detail: colorSourceDetail(col) };
@@ -11058,10 +11143,10 @@ function _cmdGameplanProbs(deck, cmdCard, customReqs = []) {
       : `≥${turn} lands by T${turn}`;
     const p_overall = clamp01(p_mana * pColorsJointMul(cmdColors, seen) * customReqMul(seen));
     results.onCurve = {
-      turn, p: p_overall, rampCmcCap: earlyRampCap,
+      turn, p: p_overall, rampCmcCap: onCurveRampCap,
       requirements: [
         { label: landLabel, p: p_land_natural, detail: `${L} lands` },
-        { label: `Early ramp by T${Math.max(1, turn - 1)} (saves land drops)`, p: p_ramp_any, detail: rampDetail(), bonus: true },
+        { label: `Early ramp by T${Math.max(1, turn - 1)} (saves land drops)`, p: p_ramp_any, detail: rampDetail(onCurveRampCap), bonus: true },
         ...colorReqs.map(r => ({ label: r.label, p: r.p, detail: r.detail })),
         ...customReqRows(seen),
       ],
@@ -11110,78 +11195,6 @@ function _cmdGameplanProbs(deck, cmdCard, customReqs = []) {
   }
 
   return results;
-}
-
-function _suggestRamp(cmdColors, hasGenericCost, deckCardNames, cmdCMC = 4) {
-  const cmdColorSet = new Set(cmdColors);
-  const inDeck = new Set(deckCardNames.map(n => n.toLowerCase()));
-  const seen = new Set();
-  const suggestions = [];
-
-  const candidates = _ownershipCollection()
-    .filter(c => {
-      if (_isLandDeckCard(c)) return false;
-      if (_effectiveCmc(c) >= cmdCMC) return false;
-      // Check roleTags (pre-fetched from DB) first, then fall back to live _probTagsOnCard
-      const tags = Array.isArray(c.roleTags) ? c.roleTags : _probTagsOnCard(c);
-      if (!tags.includes('Ramp')) return false;
-      // Use length-checked colorIdentity; [] is vacuously true in .every() so can't use it raw
-      const ci = c.colorIdentity?.length ? c.colorIdentity : (c.colors?.length ? c.colors : []);
-      if (ci.length && !ci.every(col => cmdColorSet.has(col))) return false;
-      return true;
-    });
-
-  candidates.sort((a, b) => _effectiveCmc(a) - _effectiveCmc(b) || (a.name || '').localeCompare(b.name || ''));
-
-  for (const c of candidates) {
-    if (suggestions.length >= 10) break;
-    const key = (c.name || '').toLowerCase();
-    if (inDeck.has(key) || seen.has(key)) continue;
-    seen.add(key);
-    suggestions.push({ name: c.name, id: c.uid || c.scryfallId || '' });
-  }
-  return suggestions;
-}
-
-async function _loadGameplanEdhrecRamp(cmdColors, deckCardNames, cmdCMC = 4) {
-  const el = document.getElementById('cmdGpEdhrecSuggs');
-  if (!el) return;
-  const colors = sortColorsWUBRG(cmdColors);
-  const key = colors.join('');
-  let cards = _cmdGpEdhrecCache.get(key);
-  if (!cards) {
-    el.innerHTML = '<span style="color:var(--text3);font-size:0.75rem;padding:4px 0;display:block">Loading…</span>';
-    const idQ = key ? `id<=${key}` : '';
-    const query = [idQ, `cmc<${cmdCMC}`, 'otag:ramp', '-t:land', 'not:extra'].filter(Boolean).join(' ');
-    try {
-      const res = await fetch(`/api/scryfall/search?q=${encodeURIComponent(query)}&order=edhrec&unique=cards&skipTcg=1`);
-      if (!res.ok) throw new Error(`${res.status}`);
-      const data = await res.json().catch(() => ({}));
-      cards = data.data || [];
-      _cmdGpEdhrecCache.set(key, cards);
-    } catch (_) {
-      el.innerHTML = '';
-      return;
-    }
-  }
-  const inDeck = new Set(deckCardNames.map(n => n.toLowerCase()));
-  await _ckEnsureLoaded();
-  const _gpDeck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
-  const shown = _ckFilterCandidates(
-    cards.filter(c => !inDeck.has((c.name || '').toLowerCase())),
-    _gpDeck,
-  ).kept.slice(0, 12);
-  if (!shown.length) { el.innerHTML = ''; return; }
-  const chips = shown.map(c => {
-    const id = (c.id || '').replace(/'/g, "\\'");
-    const name = escapeHtml(c.name);
-    return `<span class="sim-chip sim-chip--edhrec" style="cursor:pointer" onclick="openCardDetail('${id}')">${name}</span>`;
-  }).join('');
-  el.innerHTML = `
-    <div class="cmdr-gp-suggest-group">
-      <span class="cmdr-gp-suggest-label">EDHREC popular:</span>
-      <div class="sim-chip-row">${chips}</div>
-    </div>`;
 }
 
 function renderCommanderGameplan(deck) {
@@ -11239,7 +11252,6 @@ function renderCommanderGameplan(deck) {
     .slice(0, 3).map(c => c.name);
 
   // Ramp suggestions — always computed, shown regardless of probability threshold
-  const rampSuggestions = _suggestRamp(cmdColors, hasGenericCost, cards.map(c => c.name), adjustedCMC);
 
   const scenarioHtml = (scenario, label, isPrimary) => {
     if (!scenario) return '';
@@ -11366,11 +11378,12 @@ function renderCommanderGameplan(deck) {
       <div class="panel-body cmdr-gp-body">
         <div class="cmdr-gp-meta">Playing <strong>${escapeHtml(deck.commander)}</strong> — MV&nbsp;${meta.cmdCMC} · ${meta.L} lands · ${meta.R} early ramp · ${meta.L_ut} untapped lands${afterSwaps ? ' <span class="cmdr-gp-after-swaps" title="Counts planned adds as in the deck and planned cuts as out">· after planned adds/cuts</span>' : ''}</div>
         <div class="cmdr-gp-plan-sync" style="display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;margin:.35rem 0 .55rem;font-size:.75rem">
-          <label title="Synced with Plan wizard (CP-Q14)">Cast turn
-            <input type="number" min="1" max="12" style="width:3.2rem;margin-left:.25rem"
-              value="${meta.planCastTurn != null ? meta.planCastTurn : meta.cmdCMC}"
-              onchange="setCmdPlanCastTurn('${String(deck.id).replace(/'/g, "\\'")}', this.value)">
-          </label>
+          <label for="cmdGpCastTurn" title="Synced with Plan wizard (CP-Q14)">Cast turn</label>
+          <span class="cmdr-gp-castturn card-detail-qty-row" title="Cast turn">
+            <button type="button" class="btn btn-outline btn-sm btn-icon" onclick="_cmdCastTurnStep('${String(deck.id).replace(/'/g, "\\'")}', -1)" aria-label="Earlier cast turn">&minus;</button>
+            <span class="card-detail-qty-value" id="cmdGpCastTurn">${meta.planCastTurn != null ? meta.planCastTurn : meta.cmdCMC}</span>
+            <button type="button" class="btn btn-outline btn-sm btn-icon" onclick="_cmdCastTurnStep('${String(deck.id).replace(/'/g, "\\'")}', 1)" aria-label="Later cast turn">+</button>
+          </span>
           <span class="deck-tab-muted">CMC ${meta.cmdCMC}</span>
           ${meta.landIdeal != null ? `<span title="Land ideal L*">L* ${meta.landIdeal}</span>` : ''}
           ${meta.earlyRampIdeal != null ? `<span title="Early ramp ideal R*">R* ${meta.earlyRampIdeal}</span>` : ''}
@@ -11383,18 +11396,9 @@ function renderCommanderGameplan(deck) {
         ${probs.preCurve ? scenarioHtml(probs.preCurve, 'Pre-curve', false) : ''}
         ${probs.onCurve ? scenarioHtml(probs.onCurve, 'On-curve', true) : ''}
         ${!probs.preCurve && !probs.onCurve ? '<div class="cmdr-gp-empty">Set a commander with a mana cost to see gameplan probabilities.</div>' : ''}
-        <div class="cmdr-gp-suggest">
-          ${rampSuggestions.length ? `
-          <div class="cmdr-gp-suggest-group">
-            <span class="cmdr-gp-suggest-label">In ${_ownershipCollectionLabel()}:</span>
-            <div class="sim-chip-row">${rampSuggestions.map(s => `<span class="sim-chip sim-chip--owned" style="cursor:pointer" onclick="openCardDetail('${s.id}')">${escapeHtml(s.name)}</span>`).join('')}</div>
-          </div>` : ''}
-          <div id="cmdGpEdhrecSuggs"></div>
-        </div>
       </div>
     </div>
   `;
-  _loadGameplanEdhrecRamp(cmdColors, cards.map(c => c.name), adjustedCMC);
 
   // Restore editor open state after re-render
   if (_cmdCustomEditorOpen) {
@@ -12498,19 +12502,19 @@ function _htmlCardDetailSwapActionsInner(ctx) {
   const swapsOn = _deckSwapsEnabled();
   const btns = [];
   if (inMain) {
-    btns.push(`<button class="btn btn-outline btn-sm" title="Move this card from the mainboard to the maybe board" onclick="moveToMaybeboardFromDetail('${ref(inMain)}')">Move to maybeboard</button>`);
+    btns.push(`<button class="btn btn-outline btn-sm" title="Move this card from the mainboard to the maybe board" onclick="moveToMaybeboardFromDetail('${ref(inMain)}')">&rarr; MB</button>`);
     if (swapsOn) {
-      btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--green);border-color:var(--green)" title="Move this card from the mainboard to planned adds" onclick="moveMainToAddsFromDetail('${ref(inMain)}')">${_SWAP_ADD_ICON} Move to Adds</button>`);
+      btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--green);border-color:var(--green)" title="Move this card from the mainboard to planned adds" onclick="moveMainToAddsFromDetail('${ref(inMain)}')">${_SWAP_ADD_ICON} Adds</button>`);
     }
   }
   if (!swapsOn) return btns.join('\n               ');
   if (inMain) {
     if (cutQty < (inMain.qty || 1)) {
-      btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--red);border-color:var(--red)" title="Plan to cut this card — it stays in the deck until you cut it or apply all swaps" onclick="markPlannedCutFromDetail('${ref(inMain)}')">${_SWAP_CUT_ICON} Mark as cut</button>`);
+      btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--red);border-color:var(--red)" title="Plan to cut this card — it stays in the deck until you cut it or apply all swaps" onclick="markPlannedCutFromDetail('${ref(inMain)}')">${_SWAP_CUT_ICON} Cut</button>`);
     }
     if (cutQty > 0) {
-      btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--red);border-color:var(--red)" title="Remove this card from the deck now" onclick="commitPlannedCutFromDetail('${ref(cutSlot || inMain)}')">${_SWAP_CUT_ICON} Cut from deck</button>`);
-      btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--green);border-color:var(--green)" title="Remove the cut marker — the card stays in the deck" onclick="unmarkPlannedCutFromDetail('${ref(cutSlot || inMain)}')">${_SWAP_KEEP_ICON} Keep in deck</button>`);
+      // (No "Cut from deck" here — Remove covers taking the card out.)
+      btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--green);border-color:var(--green)" title="Remove the cut marker — the card stays in the deck" onclick="unmarkPlannedCutFromDetail('${ref(cutSlot || inMain)}')">${_SWAP_KEEP_ICON} Keep</button>`);
     }
   }
   if (cutSlot && !inMain) {
@@ -12520,11 +12524,24 @@ function _htmlCardDetailSwapActionsInner(ctx) {
   if (inSb) btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--green);border-color:var(--green)" title="Move from the sideboard to planned adds" onclick="movePoolToAddsFromDetail('${ref(inSb)}','sb')">${_SWAP_ADD_ICON} To Adds</button>`);
   if (inAdds) {
     btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--green);border-color:var(--green)" title="Move into the deck now" onclick="commitPlannedAddFromDetail('${ref(inAdds)}')">${_SWAP_ADD_ICON} Adds → Main</button>`);
-    btns.push(`<button class="btn btn-outline btn-sm" title="Remove from planned adds" onclick="removeFromPlannedAddsFromDetail('${ref(inAdds)}')">Remove from Adds</button>`);
+    // (No "Remove from Adds" — the Remove button covers it.)
   } else if (!inMainAny && !inMb && !inSb) {
     btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--green);border-color:var(--green)" title="Plan to add this card — commit from Adds when ready, or apply all swaps" onclick="addToAddsFromDetail('${esc}')">${_SWAP_ADD_ICON} To Adds</button>`);
   }
   return btns.join('\n               ');
+}
+
+/** True when the inspector's card sits in the open deck's planned adds — the
+ *  "Adds → Main" button covers adding it, so "+ Add to Deck" is redundant. */
+function cardDetailIsPlannedAdd(ctx) {
+  const deck = ctx?.activeDeck;
+  const card = ctx?.card;
+  if (!deck || !card || typeof _deckPlannedAdds !== 'function') return false;
+  if (!_isDeckBuilderMainTabActive()) return false;
+  const key = getCardInventoryKey(card);
+  const nameKey = String(card.name || '').trim().toLowerCase();
+  return (_deckPlannedAdds(deck) || []).some(c => getCardInventoryKey(c) === key
+    || (nameKey && String(c.name || '').trim().toLowerCase() === nameKey));
 }
 
 function _refreshCardDetailAfterSwapAction(uid) {
@@ -12537,8 +12554,6 @@ function moveToMaybeboardFromDetail(uid) { moveToSideboard(uid); _refreshCardDet
 function moveMainToAddsFromDetail(uid) { moveMainToAdds(uid); _refreshCardDetailAfterSwapAction(uid); }
 function movePoolToAddsFromDetail(uid, fromZone) { _movePlanningZoneCard(uid, fromZone, 'add'); _refreshCardDetailAfterSwapAction(uid); }
 function commitPlannedAddFromDetail(uid) { commitPlannedAdd(uid); _refreshCardDetailAfterSwapAction(uid); }
-function commitPlannedCutFromDetail(uid) { commitPlannedCut(uid); _refreshCardDetailAfterSwapAction(uid); }
-function removeFromPlannedAddsFromDetail(uid) { removeFromPlannedAdds(uid); _refreshCardDetailAfterSwapAction(uid); }
 
 /** "To Adds" for a card that isn't in the deck yet — owned copy preferred, Scryfall fallback. */
 async function addToAddsFromDetail(ref) {
@@ -13060,7 +13075,10 @@ async function forceRefreshDeckScryfallTags() {
   try {
     await _refreshDeckScryfallTags(deck);
     showNotif('Scryfall tags refreshed');
-  } catch (_) {
+  } catch (e) {
+    // Was swallowed entirely, so a throw in the trailing re-render looked
+    // identical to a tag fetch failure and left nothing to diagnose.
+    console.error('Refresh tags failed:', e);
     showNotif('Could not refresh Scryfall tags', true);
   } finally {
     _scrySyncDecks.delete(deck.id);
@@ -14977,7 +14995,6 @@ function _simAutoLoad() {
 async function loadDeckSimilarity() {
   const deck  = getActiveDeck();
   const panel = document.getElementById('simPanel');
-  const btn   = document.getElementById('simAnalyzeBtn');
   if (!deck || !panel) return;
 
   _simLoadedDeckId = deck.id;
@@ -14988,7 +15005,6 @@ async function loadDeckSimilarity() {
     return;
   }
 
-  if (btn) btn.disabled = true;
   panel.innerHTML = '<p style="color:var(--text3);font-size:0.85rem;margin:0">Loading…</p>';
 
   const base   = (document.querySelector('meta[name="mtg-api-base"]')?.content ?? '/api').replace(/\/$/, '');
@@ -15008,7 +15024,6 @@ async function loadDeckSimilarity() {
   const archiveData = archiveRes.status === 'fulfilled' ? archiveRes.value : { error: archiveRes.reason?.message ?? 'Request failed' };
 
   panel.innerHTML = _simRenderHTML(deck, commander, edhrecData, archiveData);
-  if (btn) btn.disabled = false;
 }
 
 
@@ -15113,22 +15128,26 @@ function _simRenderHTML(deck, commander, edhrecData, archiveData) {
   <p class="sim-note">${found.length} of ${nonLands.length} nonland cards appear in EDHREC data (${coverage}% coverage)</p>
   ${missing.length ? `
   <div class="sim-subsection-title">Top staples you're not running</div>
-  <div class="sim-chip-row">${missing.map(c => {
+  <ul class="card-chip-row">${missing.map(c => {
     const attr = String(c.name || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;');
     const n = (c.name || '').replace(/'/g, "\\'");
-    return `<span class="sim-chip sim-chip--missing" data-card-name="${attr}" title="${c.inclusion}% of ${escapeHtml(commander)} decks"><span style="cursor:pointer" onclick="openCardDetailFromSimChip(this)">${escapeHtml(c.name)} <em>${c.inclusion}%</em></span><button class="sim-chip-btn" onclick="simAddToMaybe(this,'${n}')" title="Add to maybe board">+</button></span>`;
-  }).join('')}</div>` : ''}
+    return `<li class="sim-chip sim-chip--missing card-chip" data-card-name="${attr}" title="${c.inclusion}% of ${escapeHtml(commander)} decks">`
+      + `<button type="button" class="card-chip-name" onclick="openCardDetailFromSimChip(this)">${escapeHtml(c.name)} <em>${c.inclusion}%</em></button>`
+      + `<button type="button" class="sim-chip-btn" onclick="simAddToMaybe(this,'${n}')" title="Add to maybe board">+</button></li>`;
+  }).join('')}</ul>` : ''}
   ${spice.length ? `
   <div class="sim-subsection-title">Your spicy picks <span class="sim-meta">(not in EDHREC data)</span></div>
-  <div class="sim-chip-row">${spice.map(c => {
+  <ul class="card-chip-row">${spice.map(c => {
     const id = (typeof getCardInventoryKey === 'function' ? getCardInventoryKey(c) : (c.uid || c.scryfallId || '')).replace(/'/g, "\\'");
     const detailId = (c.uid || c.scryfallId || '').replace(/'/g, "\\'");
     const swapsOn = _deckSwapsEnabled(deck);
     const cutTitle = swapsOn
       ? 'Mark as a planned cut — cut from Cuts zone or apply all swaps'
       : 'Remove from deck';
-    return `<span class="sim-chip sim-chip--spice"><span style="cursor:pointer" onclick="openCardDetail('${detailId}')">${escapeHtml(c.name)}</span><button class="sim-chip-btn sim-chip-btn--remove" onclick="simRemoveFromDeck(this,'${id}')" title="${cutTitle}">−</button></span>`;
-  }).join('')}</div>` : ''}
+    return `<li class="sim-chip sim-chip--spice card-chip">`
+      + `<button type="button" class="card-chip-name" onclick="openCardDetail('${detailId}')">${escapeHtml(c.name)}</button>`
+      + `<button type="button" class="sim-chip-btn sim-chip-btn--remove" onclick="simRemoveFromDeck(this,'${id}')" title="${cutTitle}">&minus;</button></li>`;
+  }).join('')}</ul>` : ''}
 </div>`);
   }
 

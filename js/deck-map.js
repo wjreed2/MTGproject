@@ -4,7 +4,12 @@
 // authenticated GET /api/deck-map. Hosted here in an iframe so its canvas
 // renderer and styles stay isolated from the app shell.
 
+// Deck Map is hidden app-wide for now. Flip to false to bring it back — the
+// stored per-user preference is left untouched underneath.
+const DECK_MAP_HIDDEN = true;
+
 function isDeckMapEnabled() {
+  if (DECK_MAP_HIDDEN) return false;
   return typeof deckMapFeatureEnabled === 'undefined' || deckMapFeatureEnabled;
 }
 
@@ -12,7 +17,7 @@ function renderDeckMap() {
   const root = document.getElementById('tab-deckmap');
   if (!root) return;
   if (!isDeckMapEnabled()) {
-    root.innerHTML = '<div style="padding:48px 20px;text-align:center;color:var(--text3)">Deck Map is turned off — re-enable it in Settings.</div>';
+    root.innerHTML = '<div style="padding:48px 20px;text-align:center;color:var(--text3)">Deck Map is turned off — re-enable it from the deck builder\u2019s options menu.</div>';
     return;
   }
   const theme = document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
@@ -42,9 +47,12 @@ function toggleDeckMapSetting() {
 function renderDeckMapBtn() {
   const btn = document.getElementById('settingsDeckMapBtn');
   if (!btn) return;
+  if (DECK_MAP_HIDDEN) { btn.style.display = 'none'; return; }
   btn.innerHTML = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M2 2v12h12"/><circle cx="5.8" cy="10" r="1.1"/><circle cx="9.2" cy="5.6" r="1.1"/><circle cx="12.2" cy="10.8" r="1.1"/></svg>${isDeckMapEnabled() ? ' Deck Map: on' : ' Deck Map: off'}`;
-  btn.style.color = isDeckMapEnabled() ? 'var(--teal)' : '';
-  btn.style.borderColor = isDeckMapEnabled() ? 'var(--teal)' : '';
+  // Menu rows show "on" as the shared active state, not teal text + outline.
+  btn.style.color = '';
+  btn.style.borderColor = '';
+  btn.classList.toggle('active', !!isDeckMapEnabled());
 }
 
 function renderDeckMapNav() {

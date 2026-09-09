@@ -1178,6 +1178,32 @@ function _prefetchCardDetailNeighborArts(uid) {
   for (const u of urls) void _prefetchDetailArt(u);
 }
 
+/**
+ * Price for the type line: just "($1.75)", coloured green/red by its change
+ * over the user's chosen timeframe. No vendor label — the source is whatever
+ * Settings designates as primary, and the links under the art cover the rest.
+ */
+function _htmlCardDetailInlinePrice(card) {
+  if (!card) return '';
+  const primary = typeof getPrimaryPriceVendor === 'function' ? getPrimaryPriceVendor() : 'tcg';
+  const now = primary === 'ck'
+    ? (typeof getCKPriceForCard === 'function' ? getCKPriceForCard(card) : 0)
+    : (typeof getTCGPriceForCard === 'function' ? getTCGPriceForCard(card) : 0);
+  if (!(Number(now) > 0)) return '';
+  let cls = 'price-delta-flat';
+  try {
+    const prefs = typeof getPriceDeltaDisplayPrefs === 'function'
+      ? getPriceDeltaDisplayPrefs()
+      : { timeframe: 'month', customDate: '' };
+    const date = _cardCompareDateForTimeframe(card, prefs.timeframe, prefs.customDate);
+    const rec = (date && card.scryfallId && typeof getCachedPriceAt === 'function')
+      ? getCachedPriceAt(card.scryfallId, date) : null;
+    const delta = typeof getCardVendorDelta === 'function' ? getCardVendorDelta(card, primary, rec) : null;
+    if (delta && typeof priceDeltaClass === 'function') cls = priceDeltaClass(delta) || cls;
+  } catch (_) { /* no comparison point — stays neutral */ }
+  return `<span id="cardDetailInlinePrice" class="card-detail-inline-price ${cls}">($${Number(now).toFixed(2)})</span>`;
+}
+
 function _htmlCardDetailPriceRows(card) {
   const foil = !!card.foil;
   const prefs = typeof getPriceDeltaDisplayPrefs === 'function'
@@ -1261,13 +1287,9 @@ function _patchCardDetailInspectorDom(card, isOwned) {
   }
   const priceTable = document.getElementById('cardDetailPriceTable');
   if (priceTable) priceTable.innerHTML = _htmlCardDetailPriceRows(card);
-  const tagRow = document.getElementById('cardDetailPrintTags');
-  if (tagRow) {
-    // Foil is conveyed by the card image's foil sheen, not a chip.
-    const chips = !isOwned ? '<span class="tag tag-red">Unowned</span>' : '';
-    tagRow.innerHTML = chips;
-    tagRow.style.display = chips ? '' : 'none';
-  }
+  // Inline price on the type line (replaces the price table in the inspector)
+  const inlinePrice = document.getElementById('cardDetailInlinePrice');
+  if (inlinePrice) inlinePrice.outerHTML = _htmlCardDetailInlinePrice(card);
   const cmcInput = document.getElementById('cardDetailCustomCmcInput');
   if (cmcInput) {
     const baseCmc = card.cmc ?? 0;
@@ -1722,7 +1744,7 @@ function _syncCardDetailRowCollection(ctx) {
   const el = document.getElementById('cardDetailRowCollection');
   if (!el) return;
   el.className = 'card-detail-qty-row';
-  el.innerHTML = `<span class="card-detail-qty-row-label">In collection:</span>
+  el.innerHTML = `<span class="card-detail-qty-row-label">Collection</span>
     <div class="card-detail-qty-fill">${_htmlCardDetailCollectionRows(ctx)}</div>`;
 }
 
@@ -2151,7 +2173,7 @@ function _syncCardDetailRowInDeck(ctx) {
   }
   el.className = 'card-detail-qty-row';
   el.style.display = 'flex';
-  el.innerHTML = `<span class="card-detail-qty-row-label">In deck:</span>
+  el.innerHTML = `<span class="card-detail-qty-row-label">Deck</span>
     <div class="card-detail-qty-fill">${_htmlCardDetailDeckQtyCounter(ctx)}</div>`;
 }
 
@@ -2162,7 +2184,7 @@ function _showCardDetailChangePrinting(ctx) {
 }
 
 function _htmlCardDetailChangePrintingBtn() {
-  return `<button type="button" class="btn btn-outline btn-sm" title="Change printing" onclick="openVersionPickerFromCardDetail()">⟳ Change printing</button>`;
+  return `<button type="button" class="btn btn-outline btn-sm" title="Change printing" onclick="openVersionPickerFromCardDetail()">⟳ Printing</button>`;
 }
 
 // Shared by the full builder and the in-place sync so the two paths can't drift.
@@ -2170,16 +2192,23 @@ function _htmlCardDetailPrimaryActionsInner(ctx) {
   const { isOwned, isCommanderCandidate, actionUid, uid } = ctx;
   const printBtn = _showCardDetailChangePrinting(ctx) ? _htmlCardDetailChangePrintingBtn() : '';
   const swapBtns = typeof _htmlCardDetailSwapActionsInner === 'function' ? _htmlCardDetailSwapActionsInner(ctx) : '';
+  const ref = String(actionUid || '').replace(/'/g, "\\'");
+  // Edit Tags groups with Change printing / swaps on the left; Remove is pushed
+  // to the far right by .btn-danger's auto margin, so it must come last.
+  const tagsBtn = `<button class="btn btn-outline btn-sm" onclick="openGlobalTagPickerForCard('${ref}')">Edit Tags</button>`;
   // Already in the open deck → no "+ Add to Deck" (the zone/swap buttons cover it).
-  const inOpenDeck = !!(ctx.activeDeckCard && (ctx.inDeckQty || 0) > 0);
+  const inOpenDeck = !!(ctx.activeDeckCard && (ctx.inDeckQty || 0) > 0)
+    || (typeof cardDetailIsPlannedAdd === 'function' && cardDetailIsPlannedAdd(ctx));
   return isOwned
     ? `${inOpenDeck ? '' : `<button class="btn btn-primary btn-sm" onclick="addToDeckFromDetail('${actionUid}')">+ Add to Deck</button>`}
                ${printBtn}
                ${swapBtns}
+               ${tagsBtn}
                <button class="btn btn-danger btn-sm" onclick="removeFromCollection('${actionUid}')">Remove</button>`
     : `<button class="btn btn-primary btn-sm" onclick="addCardToCollectionFromDetail('${uid}')">+ Add to Collection</button>
                ${printBtn}
-               ${swapBtns}`;
+               ${swapBtns}
+               ${tagsBtn}`;
 }
 
 function _syncCardDetailRowPrimaryActions(ctx) {
@@ -2222,13 +2251,8 @@ function _cardDetailTagToDeckData(ctx) {
   return { show: true, html: _htmlCardDetailTagToDeckInner(btns) };
 }
 
-function _syncCardDetailTagToDeckWrap(ctx) {
-  const el = document.getElementById('cardDetailTagToDeckWrap');
-  if (!el) return;
-  const data = _cardDetailTagToDeckData(ctx);
-  el.style.display = data.show ? 'block' : 'none';
-  el.innerHTML = data.show ? data.html : '';
-}
+/** Deck pinning lives in the Pin dropdown now; this wrap stays empty. */
+function _syncCardDetailTagToDeckWrap() {}
 
 function _syncCardDetailReplacementsMount(showReplacements, replacementsHtml) {
   const replEl = document.getElementById('cardDetailReplacementsMount');
@@ -2288,7 +2312,111 @@ function _htmlCardDetailUtilityIconsInner(ctx) {
   if (isOwned) icons.push(`<button class="btn btn-outline btn-sm card-detail-utility-btn" onclick="flagUpgradeTargetFromDetail('${actionUid}')" title="Want a better printing, foil, or condition" aria-label="Upgrade"><svg class="tf-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13.5V5"/><path d="M4.5 8 8 4.5 11.5 8"/><path d="M4.5 2.5h7"/></svg></button>`);
   icons.push(`<button class="btn btn-outline btn-sm card-detail-utility-btn" onclick="openPriceWatchModal('${escapeHtml(card.scryfallId || '')}', ${!!card.foil}, ${JSON.stringify(card.name || '').replace(/"/g, '&quot;')})" title="Set price alerts for this card" aria-label="Watch price"><svg class="tf-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6a4 4 0 0 0-8 0c0 4.5-2 5.5-2 5.5h12s-2-1-2-5.5"/><path d="M9.3 13.5a1.5 1.5 0 0 1-2.6 0"/></svg></button>`);
   if (isOwned) icons.push(`<button type="button" id="cardDetailStarBtn" class="btn btn-outline btn-sm card-detail-utility-btn${card.starred ? ' active' : ''}" data-detail-uid="${actionUid}" onclick="toggleCardStar('${actionUid}',event)" title="${card.starred ? 'Starred — click to unstar' : 'Star this card'}" aria-label="Star"><svg class="tf-ic" viewBox="0 0 16 16" fill="${card.starred ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z"/></svg></button>`);
+  // Pin (was "tag to deck"): dropdown of decks; pinning drops the card on that
+  // deck's maybe board and the deck stays ticked in the list.
+  const pinData = _cardDetailPinDecks(ctx);
+  if (pinData.show) {
+    const pinned = pinData.decks.some(d => d.pinned);
+    icons.push(`<span class="glass-dd-wrap card-detail-pin-wrap">`
+      + `<button type="button" id="cardDetailPinBtn" class="btn btn-outline btn-sm card-detail-utility-btn${pinned ? ' active' : ''}" title="Pin to a deck's maybe board" aria-label="Pin to deck" onclick="event.stopPropagation();toggleCardDetailPinMenu('${actionUid}')">`
+      + `<svg class="tf-ic" viewBox="0 0 16 16" fill="${pinned ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 1.8h4v1.4L8.8 5.4v3.2l2.2 1v1.2H5v-1.2l2.2-1V5.4L6 3.2z"/><line x1="8" y1="11" x2="8" y2="14.6"/></svg></button>`
+      + `</span>`);
+  }
   return icons.join('');
+}
+
+/** Decks the Pin dropdown offers, with their current pinned state. */
+function _cardDetailPinDecks(ctx) {
+  const { card, isOwned } = ctx || {};
+  if (!card) return { show: false, decks: [], shared: false };
+  if (_viewingSharedCollOwnerId) {
+    const sid = card.scryfallId || '';
+    const foilFlag = !!card.foil;
+    const owner = (typeof sharedDecks !== 'undefined' ? sharedDecks : [])
+      .filter(d => Number(d.ownerId) === Number(_viewingSharedCollOwnerId) && d.userPermission !== 'view')
+      .map(d => ({ id: d.id, name: d.name, pinned: (d.maybeboard || []).some(c => c.scryfallId === sid && !!c.foil === foilFlag) }));
+    return { show: owner.length > 0, decks: owner, shared: true };
+  }
+  if (!isOwned || typeof decks === 'undefined' || !decks.length) return { show: false, decks: [], shared: false };
+  return {
+    show: true,
+    shared: false,
+    decks: decks.map(d => ({ id: d.id, name: d.name, pinned: (card.deckTags || []).includes(d.id) })),
+  };
+}
+
+function _closeCardDetailPinMenu() {
+  document.querySelectorAll('.card-detail-pin-menu').forEach(m => m.remove());
+}
+
+/** Glass dropdown of decks, styled like the deck-list menus. */
+function toggleCardDetailPinMenu(uid) {
+  const open = !!document.querySelector('.card-detail-pin-menu');
+  if (typeof _glassMenuCloseAll === 'function') _glassMenuCloseAll();
+  _closeCardDetailPinMenu();
+  if (!open) _openCardDetailPinMenu(uid);
+}
+
+/**
+ * Rendered into <body> with fixed positioning, not inside the button: the
+ * inspector's scroll container clips absolutely-positioned children, so a
+ * long deck list ran off the modal and couldn't be reached. Flips above the
+ * button when there's no room below and clamps to the viewport.
+ */
+function _openCardDetailPinMenu(uid) {
+  const btn = document.getElementById('cardDetailPinBtn');
+  if (!btn) return;
+  const card = _cardDetailCurrentCard
+    || (typeof collection !== 'undefined' ? collection.find(c => c.uid === uid) : null);
+  const data = _cardDetailPinDecks({ card, isOwned: true });
+
+  const menu = document.createElement('div');
+  menu.className = 'glass-menu card-detail-pin-menu';
+  if (!data.decks.length) {
+    const empty = document.createElement('div');
+    empty.className = 'glass-menu-item';
+    empty.style.opacity = '0.6';
+    empty.textContent = 'No decks yet';
+    menu.appendChild(empty);
+  }
+  for (const d of data.decks) {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'glass-menu-item' + (d.pinned ? ' selected' : '');
+    item.textContent = d.name;
+    item.addEventListener('click', e => {
+      e.stopPropagation();
+      if (data.shared) toggleSharedCollectionDeckTag(card?.uid || uid, card?.scryfallId || '', !!card?.foil, d.id);
+      else toggleDeckTag(uid, d.id);
+      // The toggle re-renders the inspector; repaint the menu so the new tick
+      // shows and several decks can be pinned without reopening.
+      setTimeout(() => { _closeCardDetailPinMenu(); _openCardDetailPinMenu(uid); }, 0);
+    });
+    menu.appendChild(item);
+  }
+
+  document.body.appendChild(menu);
+  const r = btn.getBoundingClientRect();
+  const margin = 8;
+  const maxH = Math.min(320, window.innerHeight - margin * 2);
+  menu.style.maxHeight = maxH + 'px';
+  const h = Math.min(menu.offsetHeight, maxH);
+  const w = menu.offsetWidth;
+  const below = window.innerHeight - r.bottom;
+  const top = below >= h + 12 ? r.bottom + 6 : Math.max(margin, r.top - h - 6);
+  menu.style.top = Math.min(top, window.innerHeight - h - margin) + 'px';
+  menu.style.left = Math.min(Math.max(margin, r.left), window.innerWidth - w - margin) + 'px';
+
+  // Anchored to a rect, so scrolling the page or resizing invalidates it —
+  // but scrolling WITHIN the menu (a long deck list) must not close it.
+  const drop = e => {
+    if (e && e.target && menu.contains(e.target)) return;
+    _closeCardDetailPinMenu();
+    window.removeEventListener('resize', drop, true);
+    window.removeEventListener('scroll', drop, true);
+  };
+  window.addEventListener('resize', drop, true);
+  window.addEventListener('scroll', drop, true);
 }
 
 function _htmlOpenCardDetailLeftColumn(card, ctx) {
@@ -2336,37 +2464,42 @@ function _htmlOpenCardDetailRightColumn(ctx) {
   const _purchaseManual = !!(isOwned && (ownedCard || card)?.purchasePriceManual);
   const showInDeckRow = !!(activeDeck && _isDeckBuilderMainTabActive());
   const inDeckInner = showInDeckRow
-    ? `<span class="card-detail-qty-row-label">In deck:</span>
+    ? `<span class="card-detail-qty-row-label">Deck</span>
           <div class="card-detail-qty-fill">${_htmlCardDetailDeckQtyCounter(ctx)}</div>`
     : '';
-  const tagData = _cardDetailTagToDeckData(ctx);
   return `
         <div id="cardDetailName" class="card-detail-name">${escapeHtml(typeof resolveCardDisplayName === 'function' ? resolveCardDisplayName(card) : card.name)}</div>
-        <div id="cardDetailType" class="card-detail-type">${typeof resolveCardTypeLine === 'function' ? resolveCardTypeLine(card) : (card.type || '')}</div>
-        <div id="cardDetailPT" class="card-detail-stat"${(card.power && card.toughness) ? '' : ' style="display:none"'}>${(card.power && card.toughness) ? `${card.power}/${card.toughness}` : ''}</div>
-        <div id="cardDetailLoyalty" class="card-detail-stat"${card.loyalty ? '' : ' style="display:none"'}>${card.loyalty ? `Loyalty: ${card.loyalty}` : ''}</div>
-        <div id="cardDetailOracle" class="card-detail-text"${card.oracleText ? '' : ' style="display:none"'}>${card.oracleText ? card.oracleText.replace(/\n/g, '<br>') : ''}</div>
-        <table id="cardDetailPriceTable" class="price-table" style="margin-bottom:1rem">
-          ${_htmlCardDetailPriceRows(card)}
-        </table>
-        <div id="cardDetailPrintTags" class="card-detail-chiprow" style="margin-bottom:1rem${!isOwned ? '' : ';display:none'}">
-          ${!isOwned ? `<span class="tag tag-red">Unowned</span>` : ''}
+        <div class="card-detail-typeline">
+          <span id="cardDetailType" class="card-detail-type">${typeof resolveCardTypeLine === 'function' ? resolveCardTypeLine(card) : (card.type || '')}</span>
+          <span id="cardDetailPT" class="card-detail-stat"${(card.power && card.toughness) ? '' : ' style="display:none"'}>${(card.power && card.toughness) ? `${card.power}/${card.toughness}` : ''}</span>
+          <span id="cardDetailLoyalty" class="card-detail-stat"${card.loyalty ? '' : ' style="display:none"'}>${card.loyalty ? `Loyalty: ${card.loyalty}` : ''}</span>
+          ${_htmlCardDetailInlinePrice(card)}
         </div>
         <div id="cardDetailRowPrimaryActions" class="card-detail-actions">
           ${_htmlCardDetailPrimaryActionsInner(ctx)}
-          <button class="btn btn-outline btn-sm" onclick="openGlobalTagPickerForCard('${actionUidRef}')">Edit Tags</button>
         </div>
         <div class="card-detail-qty-grid">
           <div id="cardDetailRowCollection" class="card-detail-qty-row">
-            <span class="card-detail-qty-row-label">In collection:</span>
+            <span class="card-detail-qty-row-label">Collection</span>
             <div class="card-detail-qty-fill">${_htmlCardDetailCollectionRows(ctx)}</div>
           </div>
           <div id="cardDetailRowInDeck" class="card-detail-qty-row" style="display:${showInDeckRow ? 'flex' : 'none'}">
             ${inDeckInner}
           </div>
         </div>
-        <div class="card-detail-section">
-          <div class="card-detail-section-label">TAGS <span class="card-detail-section-hint">· green = default · blue = primary · purple = secondary</span></div>
+        <div class="card-detail-section card-detail-section--flush">
+          <div class="card-detail-section-label">TAGS
+            <span class="deck-cut-help tooltip-wrap card-detail-tag-help" tabindex="0" aria-label="What the tag colours mean">
+              <span class="deck-cut-help-icon" aria-hidden="true">i</span>
+              <span class="tooltip deck-cut-help-tooltip">
+                <strong>Tag colours</strong><br>
+                <strong>Green</strong> — default tag, derived from the card itself.<br>
+                <strong>Blue</strong> — primary: one of this card's main roles.<br>
+                <strong>Purple</strong> — secondary: a supporting role.<br>
+                Click a tag to change its importance.
+              </span>
+            </span>
+          </div>
           <div class="card-detail-chiprow card-detail-tagrow">
             <span id="cardDetailDefaultTagsWrap" class="cd-tag-group">
               <span id="cardDetailDefaultTags" class="cd-tag-group">
@@ -2380,13 +2513,20 @@ function _htmlOpenCardDetailRightColumn(ctx) {
             </span>
           </div>
         </div>
-        <div id="cardDetailTagToDeckWrap" class="card-detail-section" style="display:${tagData.show ? 'block' : 'none'}">
-          ${tagData.html}
-        </div>
+        <!-- Tag-to-deck became the Pin button in the left-hand utility row. -->
+        <div id="cardDetailTagToDeckWrap" style="display:none"></div>
         <details id="cardDetailAdvanced" class="card-detail-disclosure" ontoggle="_onInspectorAdvancedToggle(this)">
-          <summary>Advanced · purchase price, history, mana value &amp; pips</summary>
+          <summary>Advanced</summary>
           <div id="cardDetailPurchasePriceWrap" class="card-detail-cmc-row" style="flex-wrap:wrap;gap:6px">
-            <span class="card-detail-row-label">PURCHASE PRICE (AVG)</span>
+            <span class="card-detail-row-label">PURCHASE PRICE (AVG)
+              <span class="deck-cut-help tooltip-wrap card-detail-tag-help" tabindex="0" aria-label="About purchase price">
+                <span class="deck-cut-help-icon" aria-hidden="true">i</span>
+                <span class="tooltip deck-cut-help-tooltip">
+                  <span id="cardDetailPurchasePriceHint">${_purchaseManual ? 'Manual average' : 'Leave blank to use the market price when the card was added.'}</span>
+                  <span id="cardDetailPurchasePriceImplied" class="card-detail-row-hint" style="display:block;margin-top:4px"></span>
+                </span>
+              </span>
+            </span>
             <input type="number" id="cardDetailPurchasePriceInput" class="card-detail-num-input${_purchaseManual ? ' is-custom' : ''}"
               min="0" step="0.01" inputmode="decimal"
               value="${_storedPurchase != null ? _storedPurchase.toFixed(2) : ''}"
@@ -2394,8 +2534,6 @@ function _htmlOpenCardDetailRightColumn(ctx) {
               ${isOwned ? '' : 'disabled'}
               onchange="setCardPurchasePriceFromDetail(this.value)">
             ${isOwned ? `<button type="button" class="btn btn-sm btn-outline" onclick="setCardPurchasePriceFromDetail('')" title="Clear to use market when first added">Clear</button>` : ''}
-            <span id="cardDetailPurchasePriceHint" class="card-detail-row-hint">${_purchaseManual ? 'Manual average' : 'Leave blank for market when first added'}</span>
-            <span id="cardDetailPurchasePriceImplied" class="card-detail-row-hint" style="width:100%"></span>
           </div>
           <div id="cardDetailPriceChartWrap" class="cd-price-chart" data-sid="${card.scryfallId || ''}">
             <div class="card-detail-section-label">PRICE HISTORY</div>
@@ -2404,7 +2542,15 @@ function _htmlOpenCardDetailRightColumn(ctx) {
             <div id="cardDetailPriceEmpty" class="card-detail-row-hint" style="display:none"></div>
           </div>
           <div id="cardDetailCustomCmcWrap" class="card-detail-cmc-row">
-            <span class="card-detail-row-label">MANA VALUE</span>
+            <span class="card-detail-row-label">MANA VALUE
+              <span class="deck-cut-help tooltip-wrap card-detail-tag-help" tabindex="0" aria-label="About mana value">
+                <span class="deck-cut-help-icon" aria-hidden="true">i</span>
+                <span class="tooltip deck-cut-help-tooltip">
+                  Override the mana value used by curve and analytics.
+                  <span id="cardDetailCmcScryLabel" style="display:block;margin-top:4px">(Scryfall: ${card.cmc ?? 0})</span>
+                </span>
+              </span>
+            </span>
             <input type="number" id="cardDetailCustomCmcInput" class="card-detail-num-input${_cmcCustom ? ' is-custom' : ''}" min="0" step="0.5"
               value="${card.customCmc != null ? card.customCmc : (card.cmc ?? '')}"
               data-default-cmc="${card.cmc ?? 0}"
@@ -2413,7 +2559,6 @@ function _htmlOpenCardDetailRightColumn(ctx) {
             <button class="btn btn-sm btn-outline card-detail-cmc-reset"
               style="display:${_cmcCustom ? '' : 'none'}"
               onclick="setCardCustomCmc('${actionUidRef}', '')" title="Reset to Scryfall default (${card.cmc ?? 0})">Reset</button>
-            <span id="cardDetailCmcScryLabel" class="card-detail-row-hint">(Scryfall: ${card.cmc ?? 0})</span>
           </div>
           <div id="cardDetailCustomPipsWrap" class="card-detail-pips-row">
             <span class="card-detail-row-label">PIPS</span>
@@ -2551,7 +2696,16 @@ async function _loadInspectorPriceChart() {
   const controls = document.getElementById('cardDetailPriceControls');
   if (!wrap || !canvas) return;
   const sid = wrap.dataset.sid || '';
-  const showEmpty = msg => { if (empty) { empty.style.display = ''; empty.textContent = msg; } canvas.style.display = 'none'; if (controls) controls.innerHTML = ''; _destroyInspectorPriceChart(); };
+  // The canvas wrapper is a fixed 180px tall, so hiding only the canvas left a
+  // big empty gap above the "no history" line — collapse the wrapper too.
+  const canvasWrap = canvas.closest('.cd-price-canvas-wrap');
+  const showEmpty = msg => {
+    if (empty) { empty.style.display = ''; empty.textContent = msg; }
+    canvas.style.display = 'none';
+    if (canvasWrap) canvasWrap.style.display = 'none';
+    if (controls) controls.innerHTML = '';
+    _destroyInspectorPriceChart();
+  };
   if (!sid) return showEmpty('No price data for this card.');
   if (_priceChartState.sid === sid && _priceChartState.points) { _renderPriceChart(); return; }     // already loaded
 
@@ -2567,6 +2721,7 @@ async function _loadInspectorPriceChart() {
   const source = _PRICE_SOURCES.find(s => _colHasData(points, _priceCol(finish, s.key)))?.key || 'tcg';
   _priceChartState = { sid, points, finish, source };
   canvas.style.display = '';
+  if (canvasWrap) canvasWrap.style.display = '';
   if (empty) empty.style.display = 'none';
   _renderPriceChartControls();
   _renderPriceChart();

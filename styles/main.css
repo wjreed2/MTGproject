@@ -131,7 +131,8 @@
   left: 0;
 }
 .deck-options-dropdown.open { display: block; }
-.deck-menu-item {
+.deck-menu-item,
+.settings-menu-item {
   width: 100%;
   justify-content: flex-start !important;
   text-align: left;
@@ -143,6 +144,9 @@
   padding: 4px 10px;
   line-height: 1.2;
 }
+/* Buttons, so they need a little air between them rather than menu-row flush. */
+.deck-menu-item + .deck-menu-item,
+.settings-menu-item + .settings-menu-item { margin-top: 6px; }
 .deck-options-dropdown .settings-section-label {
   margin-bottom: 0.6rem;
 }
@@ -304,11 +308,16 @@
   justify-content: center;
   width: 21px;
   height: 23px;
-  background: var(--badge-color, #6b7280);
+  /* Glass shield: lit at the top, its own colour glowing underneath */
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.34), rgba(255,255,255,0.06) 55%, rgba(0,0,0,0.12)),
+    var(--badge-color, #6b7280);
   color: #fff;
   /* Heraldic shield: flat top, sides taper to a point at the bottom. */
   clip-path: polygon(0 0, 100% 0, 100% 56%, 50% 100%, 0 56%);
-  filter: drop-shadow(0 1px 1.5px rgba(0,0,0,0.55));
+  filter:
+    drop-shadow(0 1px 1.5px rgba(0,0,0,0.55))
+    drop-shadow(0 0 5px var(--badge-color, transparent));
   cursor: help;
 }
 
@@ -964,6 +973,7 @@ body.glass-mode #deckTabPane-design .panel {
   --lgx-good: 86,196,255;
   --lgx-bad: 205,94,245;
   --lgx-green: 82,196,132; /* third glass accent — default/Scryfall tags */
+  --lgx-card: 92,206,214;  /* card references — distinct from controls and tags */
 }
 [data-theme="light"] {
   --lgx1: 74,120,232;
@@ -971,15 +981,17 @@ body.glass-mode #deckTabPane-design .panel {
   --lgx-good: 20,105,225;
   --lgx-bad: 148,52,205;
   --lgx-green: 22,140,86;
+  --lgx-card: 16,132,142;
 }
-#tab-decks .glass-dd-wrap, #voiceModal .glass-dd-wrap { position: relative; display: inline-flex; }
+.glass-dd-wrap { position: relative; display: inline-flex; max-width: 100%; min-width: 0; }
 /* !important outranks the #tab-decks #deckGroupByWrap select sizing-parity rule */
-#tab-decks select[data-glassified], #voiceModal select[data-glassified] { display: none !important; }
-#tab-decks .glass-dd-btn, #voiceModal .glass-dd-btn { gap: 6px; white-space: nowrap; }
-#tab-decks .glass-dd-prefix, #voiceModal .glass-dd-prefix { opacity: 0.55; }
+select[data-glassified] { display: none !important; }
+.glass-dd-btn { gap: 6px; white-space: nowrap; min-width: 0; border-radius: 8px !important; }
+.glass-dd-btn > :not(.glass-dd-prefix):not(svg) { overflow: hidden; text-overflow: ellipsis; }
+.glass-dd-prefix { opacity: 0.55; }
 #tab-decks .glass-dir-btn { min-width: 34px; justify-content: center; }
 /* Glass triggers everywhere pick up the blue→purple hover, like the toolbar */
-#tab-decks .glass-dd-btn:hover, #voiceModal .glass-dd-btn:hover {
+.glass-dd-btn:hover {
   color: var(--text);
   border-color: rgba(var(--lgx1), 0.55);
   background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14));
@@ -3010,7 +3022,7 @@ img.stack-main.loaded { opacity: 1; }
   scrollbar-gutter: stable;
   scrollbar-width: thin;
   scrollbar-color: var(--border2) transparent;
-  padding: 2rem 1.25rem 2rem 2rem;
+  padding: 2rem 1.25rem 2rem 1.5rem;
   border-radius: inherit;
 }
 #cardDetailModal .card-detail-modal-scroll::-webkit-scrollbar {
@@ -3179,6 +3191,101 @@ img.stack-main.loaded { opacity: 1; }
   outline: 2px solid rgb(var(--lgx1));
   outline-offset: 2px;
 }
+
+/* ── Advanced pane on the glass system ────────────────────────────────────── */
+#cardDetailModal .card-detail-disclosure > summary {
+  font-size: 0.82rem;
+  letter-spacing: 0.02em;
+}
+#cardDetailModal .card-detail-num-input {
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.22);
+  background: rgba(255,255,255,0.07);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.10);
+  box-sizing: border-box;
+}
+#cardDetailModal .card-detail-num-input:focus {
+  outline: none;
+  border-color: rgba(var(--lgx1), 0.75);
+  box-shadow: 0 0 0 3px rgba(var(--lgx1), 0.18);
+}
+/* Customised values read in the accent colour, not gold */
+#cardDetailModal .card-detail-num-input.is-custom { color: rgb(var(--lgx1)); font-weight: 600; }
+#cardDetailModal .card-detail-num-input--pip { width: 38px; padding: 0 4px; }
+[data-theme="light"] #cardDetailModal .card-detail-num-input {
+  background: rgba(255,255,255,0.65);
+  border-color: rgba(90,110,160,0.35);
+}
+/* Price-history range buttons */
+#cardDetailModal .cd-price-btn {
+  border-radius: 8px;
+  border-color: rgba(255,255,255,0.18);
+  background: rgba(255,255,255,0.07);
+}
+#cardDetailModal .cd-price-btn:hover {
+  color: var(--text);
+  border-color: rgba(var(--lgx1), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14));
+}
+#cardDetailModal .cd-price-btn.active {
+  color: var(--text);
+  border-color: rgba(var(--lgx2), 0.6);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.26), rgba(var(--lgx2), 0.26));
+}
+/* Helper text now lives in (i) tooltips, so the icon needs room inline */
+#cardDetailModal .card-detail-row-label { display: inline-flex; align-items: center; gap: 6px; }
+
+/* Pin dropdown — same glass menu as the deck list, but rendered into <body>
+   with fixed positioning so the inspector's scroll container can't clip it. */
+#cardDetailModal .card-detail-pin-wrap { position: relative; display: inline-flex; }
+.card-detail-pin-menu {
+  position: fixed;
+  z-index: 2000; /* above the inspector modal (1000) */
+  min-width: 190px;
+  overflow-y: auto;
+}
+/* Type line carries P/T, loyalty and the price on one row */
+.card-detail-typeline {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 0.7rem;
+}
+.card-detail-typeline .card-detail-type,
+.card-detail-typeline .card-detail-stat { margin-bottom: 0; }
+.card-detail-inline-price {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+/* Condensed counters + action row. The Collection/Deck headings sit above their
+   counters rather than beside them, so the two groups sit side by side. */
+#cardDetailModal .card-detail-actions { gap: 6px; margin-bottom: 0.5rem; }
+#cardDetailModal .card-detail-qty-grid { gap: 0.2rem 1.35rem; }
+#cardDetailModal .card-detail-qty-row {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  margin-bottom: 0.2rem;
+}
+#cardDetailModal .card-detail-qty-row-label {
+  min-width: 0;
+  padding-top: 0;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text2);
+}
+#cardDetailModal .card-detail-qty-printing-row {
+  grid-template-columns: 48px max-content max-content max-content minmax(0, 1fr);
+  gap: 5px;
+}
+#cardDetailModal .card-detail-qty-printing-row + .card-detail-qty-printing-row { margin-top: 2px; }
+#cardDetailModal .card-detail-section { padding-top: 0.6rem; margin-bottom: 0.5rem; }
 
 /* ── CARD INSPECTOR — deck-list button metrics + liquid-glass tags ─────────── */
 /* Buttons match the deck-list toolbar exactly (glass mode otherwise pills them) */
@@ -4132,8 +4239,7 @@ img.stack-main.loaded { opacity: 1; }
   align-items: center;
   box-sizing: border-box;
 }
-#tab-decks #deckHistoryBtn,
-#tab-decks #simAnalyzeBtn {
+#tab-decks #deckHistoryBtn {
   height: 34px !important;
   padding: 0 12px !important;
   border-radius: 8px !important;
@@ -4827,15 +4933,18 @@ img.stack-main.loaded { opacity: 1; }
   -webkit-user-drag: none;
 }
 .stack-main {
-  position: relative; z-index: 2; width: 100%; border-radius: 7px; display: block;
-  border: 2px solid transparent; box-sizing: border-box;
-  transition: border-color 0.15s, border-width 0.15s; cursor: pointer;
-}
-.deck-stack-card:hover .stack-main,
-.deck-stack-card:focus-within .stack-main,
-.deck-stack-card.is-stack-peek .stack-main {
-  border-color: var(--border2);
-  border-width: 3px;
+  position: relative; z-index: 2; width: 100%; display: block;
+  box-sizing: border-box;
+  cursor: pointer;
+  /* The old 2px transparent border shrank the INNER clip radius (a border box
+     clips content at radius − border-width), which is why pale corners
+     survived. No border now, so the full radius clips the art. Real card
+     corner is 3mm on 63mm ≈ 4.8% of width; 5.6% is a shade tighter to swallow
+     the light fringe some scans carry. Per-axis (×0.715 aspect) keeps it a
+     circle at any card size. */
+  border: none;
+  border-radius: 5.6% / 4%;
+  overflow: hidden;
 }
 /* (Commander tile no longer carries a gray border — the crown badge marks it.) */
 .deck-stack-card.has-validation-error .stack-wrap::before,
@@ -5007,18 +5116,29 @@ img.stack-main.loaded { opacity: 1; }
 }
 
 /* Deck card ownership indicators */
+/* Overlay chips are frosted pills tinted by meaning, not flat blocks */
+.stack-not-owned,
+.stack-foil-mismatch,
+.stack-mb-pool,
+.stack-sb-pool {
+  -webkit-backdrop-filter: blur(8px) saturate(1.2);
+  backdrop-filter: blur(8px) saturate(1.2);
+  border: 1px solid rgba(255,255,255,0.28);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.28), 0 2px 8px rgba(0,0,0,0.35);
+  border-radius: 999px;
+}
 .stack-not-owned {
   position: absolute; top: 28px; left: 4px; bottom: auto; z-index: 10;
-  background: rgba(180,60,50,0.88); color: #fff;
+  background: rgba(214, 88, 74, 0.58); color: #fff;
   font-size: 0.55rem; font-weight: 700; letter-spacing: 0.04em;
-  padding: 1px 5px; border-radius: 3px; pointer-events: none;
+  padding: 1px 6px; pointer-events: none;
   opacity: 0; transition: opacity 0.15s;
 }
 .stack-foil-mismatch {
   position: absolute; top: 28px; left: 4px; bottom: auto; z-index: 10;
-  background: rgba(160,130,40,0.88); color: #fff;
+  background: rgba(196, 160, 60, 0.58); color: #fff;
   font-size: 0.55rem; font-weight: 700; letter-spacing: 0.04em;
-  padding: 1px 5px; border-radius: 3px; pointer-events: none;
+  padding: 1px 6px; pointer-events: none;
   opacity: 0; transition: opacity 0.15s;
 }
 .deck-stack-card:hover .stack-not-owned,
@@ -5033,24 +5153,26 @@ img.stack-main.loaded { opacity: 1; }
 .deck-not-owned-chip,
 .deck-foil-mismatch-chip {
   font-size: 0.55rem; font-weight: 700; letter-spacing: 0.04em;
-  color: #fff; padding: 1px 5px; border-radius: 3px; flex-shrink: 0;
+  color: #fff; padding: 1px 7px; border-radius: 999px; flex-shrink: 0;
   white-space: nowrap;
+  border: 1px solid rgba(255,255,255,0.24);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.24);
 }
-.deck-not-owned-chip { background: rgba(180,60,50,0.88); }
-.deck-foil-mismatch-chip { background: rgba(160,130,40,0.88); }
+.deck-not-owned-chip { background: rgba(214, 88, 74, 0.55); }
+.deck-foil-mismatch-chip { background: rgba(196, 160, 60, 0.55); }
 
 /* Mainboard tile: same printing also on maybe board */
 .stack-mb-pool {
   position: absolute; top: 4px; right: 4px; left: auto; z-index: 10;
-  background: rgba(140, 110, 40, 0.92); color: #fff;
+  background: rgba(196, 160, 60, 0.55); color: #fff;
   font-size: 0.52rem; font-weight: 700; letter-spacing: 0.03em;
-  padding: 1px 5px; border-radius: 3px; pointer-events: none;
+  padding: 1px 6px; pointer-events: none;
 }
 .stack-sb-pool {
   position: absolute; top: 22px; right: 4px; left: auto; z-index: 10;
-  background: rgba(74, 130, 212, 0.92); color: #fff;
+  background: rgba(96, 152, 230, 0.55); color: #fff;
   font-size: 0.52rem; font-weight: 700; letter-spacing: 0.03em;
-  padding: 1px 5px; border-radius: 3px; pointer-events: none;
+  padding: 1px 6px; pointer-events: none;
 }
 
 .deck-row-mb-pool {
@@ -5070,36 +5192,55 @@ img.stack-main.loaded { opacity: 1; }
 .deck-extra-zone--cut.is-collapsed .deck-extra-zone-chevron { color: var(--red); }
 
 /* Tile flags — top-left, clear of the MB/SB/GC badges on the right */
+/* Planned add/cut marker: a corner wedge tucked into the card's top-left, small
+   enough to sit in the frame border and leave the card name readable. The label
+   text is hidden (kept for a11y/title); the glyph is drawn by ::before. */
 .stack-cut-flag,
 .stack-add-flag {
-  position: absolute; top: 4px; left: 4px; right: auto; z-index: 10;
-  color: #fff; font-size: 0.52rem; font-weight: 700; letter-spacing: 0.03em;
-  padding: 1px 5px; border-radius: 3px; pointer-events: none;
+  position: absolute; top: 0; left: 0; right: auto; z-index: 10;
+  width: 34px; height: 34px;
+  padding: 0; border: none; pointer-events: none;
+  font-size: 0; /* hides the CUT/ADD text — the wedge + glyph carry it */
+  clip-path: polygon(0 0, 100% 0, 0 100%);
+  border-top-left-radius: 9px; /* follows the card's own corner rounding */
+  box-shadow: inset 1px 1px 0 rgba(255,255,255,0.3);
 }
-.stack-cut-flag { background: rgba(184, 60, 46, 0.92); }
-.stack-add-flag { background: rgba(46, 138, 46, 0.92); }
-#tab-decks .stack-cut-flag,
-#tab-decks .stack-add-flag { font-size: calc(0.55rem + var(--dl-fs)); }
+/* Same scissors / plus glyphs the inspector's Cut and Adds buttons use */
+.stack-cut-flag svg,
+.stack-add-flag svg {
+  position: absolute;
+  top: 3px; left: 3px;
+  width: 13px; height: 13px;
+  color: #fff;
+  filter: drop-shadow(0 1px 1.5px rgba(0,0,0,0.45));
+}
+.stack-cut-flag { background: linear-gradient(135deg, rgba(232, 108, 94, 0.96), rgba(190, 58, 46, 0.9)); }
+.stack-add-flag { background: linear-gradient(135deg, rgba(112, 224, 156, 0.96), rgba(46, 162, 98, 0.9)); }
+/* (Add/cut flags are icon wedges now — their label text stays hidden.) */
 
 /* Red border for planned cuts, green for planned adds — grid tiles */
-.deck-stack-card.is-planned-cut .stack-main,
-.deck-stack-card.is-planned-cut:hover .stack-main,
-.deck-stack-card.is-planned-cut:focus-within .stack-main { border-color: var(--red); }
-.deck-stack-card.is-planned-add .stack-main,
-.deck-stack-card.is-planned-add:hover .stack-main,
-.deck-stack-card.is-planned-add:focus-within .stack-main { border-color: var(--green); }
+/* Planned adds/cuts on tiles are marked by the ADD / CUT badge alone — no
+   coloured border or tint over the art. */
 
 /* …and list rows */
 .deck-card-row.is-planned-cut {
-  box-shadow: inset 0 0 0 1px var(--red);
-  background: rgba(184, 60, 46, 0.06);
+  box-shadow:
+    inset 0 0 0 1px rgba(226, 96, 82, 0.45),
+    inset 0 1px 0 rgba(255,255,255,0.10);
+  background: linear-gradient(135deg, rgba(226, 96, 82, 0.16), rgba(226, 96, 82, 0.06));
 }
 .deck-card-row.is-planned-add {
-  box-shadow: inset 0 0 0 1px var(--green);
-  background: rgba(46, 138, 46, 0.06);
+  box-shadow:
+    inset 0 0 0 1px rgba(86, 200, 130, 0.45),
+    inset 0 1px 0 rgba(255,255,255,0.10);
+  background: linear-gradient(135deg, rgba(86, 200, 130, 0.16), rgba(86, 200, 130, 0.06));
 }
-.deck-card-row.is-planned-cut:hover { background: rgba(184, 60, 46, 0.12); }
-.deck-card-row.is-planned-add:hover { background: rgba(46, 138, 46, 0.12); }
+.deck-card-row.is-planned-cut:hover {
+  background: linear-gradient(135deg, rgba(226, 96, 82, 0.26), rgba(226, 96, 82, 0.12));
+}
+.deck-card-row.is-planned-add:hover {
+  background: linear-gradient(135deg, rgba(86, 200, 130, 0.26), rgba(86, 200, 130, 0.12));
+}
 
 .deck-row-cut-flag {
   font-size: 0.62rem; font-weight: 700; color: var(--red);
@@ -5237,8 +5378,11 @@ body.glass-mode .deck-extra-zone-section {
   font-size: 0.72rem;
   border-bottom: none;
 }
-#deckSideboardEnabledBtn.active,
-#deckSideboardEnabledBtn[style*="teal"] {
+/* Was forcing a transparent fill to neutralise the old teal inline style. The
+   "on" state is now the shared .deck-menu-item.active look, and this ID rule
+   outranked it — so it only applies outside the deck options menu. */
+#deckSideboardEnabledBtn:not(.deck-menu-item).active,
+#deckSideboardEnabledBtn:not(.deck-menu-item)[style*="teal"] {
   background: transparent;
 }
 .deck-search-match-sb-btn { top: 22px; }
@@ -8884,10 +9028,14 @@ body.glass-mode .deck-tab-pane .dlf-text:focus {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.05rem;
-  height: 1.05rem;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
   border-radius: 50%;
-  font-size: 0.68rem;
+  font-size: 10px;
+  font-style: normal;
+  letter-spacing: 0;
+  text-transform: none;
   font-weight: 600;
   line-height: 1;
   color: var(--text3);
@@ -8896,8 +9044,8 @@ body.glass-mode .deck-tab-pane .dlf-text:focus {
 }
 .deck-cut-help:hover .deck-cut-help-icon,
 .deck-cut-help:focus-visible .deck-cut-help-icon {
-  color: var(--gold);
-  border-color: var(--gold);
+  color: rgb(var(--lgx1));
+  border-color: rgba(var(--lgx1), 0.65);
 }
 .deck-cut-help-tooltip {
   white-space: normal;
@@ -8935,13 +9083,6 @@ body.glass-mode .deck-tab-pane .dlf-text:focus {
 
 /* ── Deck themes readout ─────────────────────────────────────────────── */
 #deckThemesPanel .panel-body { padding: .7rem .9rem 1rem; }
-.deck-themes-kicker {
-  font-size: .68rem;
-  letter-spacing: .08em;
-  text-transform: uppercase;
-  color: var(--text3);
-  margin: .55rem 0 .35rem;
-}
 .deck-themes-plan {
   font-size: .8rem;
   color: var(--text2);
@@ -8994,45 +9135,68 @@ body.glass-mode .deck-tab-pane .dlf-text:focus {
   text-align: left;
 }
 .deck-themes-name { flex: 1; min-width: 0; font-size: .86rem; font-weight: 600; }
-.deck-themes-yours {
-  margin-left: .35rem;
-  font-size: .62rem;
-  font-weight: 500;
-  letter-spacing: .04em;
-  text-transform: uppercase;
-  color: var(--teal);
-}
 .deck-themes-count {
   font-family: 'JetBrains Mono', monospace;
-  font-size: .8rem;
-  min-width: 1.6rem;
+  font-size: .95rem;
+  font-weight: 600;
+  min-width: 2rem;
   text-align: right;
   color: var(--text2);
 }
 .deck-themes-band {
-  font-size: .68rem;
-  min-width: 5.6rem;
+  font-size: .82rem;
+  font-weight: 600;
+  min-width: 6.6rem;
   text-align: right;
   color: var(--text3);
 }
-.deck-themes-band--decent { color: var(--teal); }
-.deck-themes-band--focused,
-.deck-themes-band--very_focused { color: var(--gold); }
+/* Label colours track the bar fill exactly: orchid = thin, azure = very focused. */
+.deck-themes-band { color: rgb(var(--lgx-bad)); }
+.deck-themes-band--decent {
+  color: color-mix(in oklab, rgb(var(--lgx-good)) 50%, rgb(var(--lgx-bad)));
+}
+.deck-themes-band--focused {
+  color: color-mix(in oklab, rgb(var(--lgx-good)) 78%, rgb(var(--lgx-bad)));
+}
+.deck-themes-band--very_focused { color: rgb(var(--lgx-good)); }
 .deck-themes-caret {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 12px;
-  height: 12px;
+  width: 34px;
+  height: 34px;
   flex-shrink: 0;
-  color: var(--text3);
-  transition: transform .12s;
+  margin-left: 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border2);
+  background: var(--bg3);
+  color: var(--text2);
+  box-sizing: border-box;
+  transition: transform .15s, background .15s, border-color .15s, color .15s;
+}
+body.glass-mode .deck-themes-caret {
+  border-color: rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.07);
+  color: rgba(240,244,252,0.82);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 2px 10px rgba(0,0,0,0.22);
+}
+[data-theme="light"] body.glass-mode .deck-themes-caret {
+  border-color: rgba(255,255,255,0.75);
+  background: rgba(255,255,255,0.55);
+  color: rgba(28,40,58,0.82);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 10px rgba(30,50,90,0.10);
+}
+.deck-themes-toggle:hover .deck-themes-caret {
+  color: var(--text);
+  border-color: rgba(var(--lgx1), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14));
 }
 .deck-themes-caret svg { width: 12px; height: 12px; }
 .deck-themes-toggle.is-open .deck-themes-caret { transform: rotate(180deg); }
 .deck-themes-bar {
-  height: 6px;
-  background: var(--border2);
+  /* Matches .sim-score-bar-wrap so the two verdict bars read as one component. */
+  height: 8px;
+  background: var(--bg4);
   border-radius: 4px;
   overflow: hidden;
   margin: 5px 0 0;
@@ -10860,7 +11024,7 @@ body.glass-mode :is(
   .settings-dropdown, .notif-panel, .deck-options-dropdown,
   .cd-tag-ctx-menu, .deck-valid-tooltip, .deck-gc-tooltip, .tooltip,
   .tablet-player-menu, .tablet-drag-menu) {
-  background: rgba(23,30,52,0.82) !important;
+  background: rgba(23,30,52,0.93) !important;
   -webkit-backdrop-filter: blur(28px) saturate(180%) !important;
   backdrop-filter: blur(28px) saturate(180%) !important;
   border-color: rgba(255,255,255,0.17) !important;
@@ -10872,7 +11036,7 @@ body.glass-mode :is(
   .settings-dropdown, .notif-panel, .deck-options-dropdown,
   .cd-tag-ctx-menu, .deck-valid-tooltip, .deck-gc-tooltip, .tooltip,
   .tablet-player-menu, .tablet-drag-menu) {
-  background: rgba(255,255,255,0.90) !important;
+  background: rgba(255,255,255,0.96) !important;
   border-color: rgba(255,255,255,0.95) !important;
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.98),
@@ -10909,21 +11073,74 @@ body.glass-mode :is(.trade-title, .welcome-title) { color: var(--text); }
 
 /* 5. Button size normalization: consistent control heights in glass. Menu
    rows opt out (deliberately compact). */
-body.glass-mode .btn:not(.deck-menu-item) { min-height: 34px; }
-body.glass-mode .btn-sm:not(.deck-menu-item) { min-height: 28px; }
-/* Menu rows read as an iOS menu: no pill chrome, frost on hover only */
-body.glass-mode .deck-menu-item {
-  border-color: transparent;
-  background: transparent;
-  box-shadow: none;
-  border-radius: 10px;
+body.glass-mode .btn:not(.deck-menu-item):not(.settings-menu-item) { min-height: 34px; }
+body.glass-mode .btn-sm:not(.deck-menu-item):not(.settings-menu-item) { min-height: 28px; }
+/* Menu rows carry the same glass button chrome as the deck-list toolbar buttons,
+   just full width and left-aligned. The old chromeless treatment left them
+   nearly invisible on the light frosted panel. */
+body.glass-mode .deck-menu-item,
+body.glass-mode .settings-menu-item {
+  border: 1px solid rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.07);
+  color: rgba(240,244,252,0.82);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 2px 10px rgba(0,0,0,0.22);
+  /* 8px + blue->purple hover: the deck-list toolbar / card inspector button,
+     not the pill used by the top-bar controls. */
+  border-radius: 8px !important;
+  padding: 6px 10px;
 }
-body.glass-mode .deck-menu-item:hover {
-  background: rgba(255,255,255,0.12);
-  border-color: transparent;
+/* Selected row matches the deck-list Badges button in its active state. */
+body.glass-mode :is(.deck-menu-item, .settings-menu-item):hover,
+body.glass-mode :is(.deck-menu-item, .settings-menu-item):focus-visible,
+body.glass-mode :is(.deck-menu-item, .settings-menu-item):active,
+body.glass-mode :is(.deck-menu-item, .settings-menu-item).active {
+  color: var(--text);
+  border-color: rgba(var(--lgx2), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.22), rgba(var(--lgx2), 0.22));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14);
 }
-[data-theme="light"] body.glass-mode .deck-menu-item:hover {
-  background: rgba(20,35,60,0.08);
+[data-theme="light"] body.glass-mode .deck-menu-item,
+[data-theme="light"] body.glass-mode .settings-menu-item {
+  /* The panel behind these is near-white, so a white fill would vanish —
+     tint the row instead and keep the border readable. */
+  background: rgba(255,255,255,0.72);
+  border-color: rgba(20,35,60,0.14);
+  color: rgba(28,40,58,0.86);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.95), 0 1px 5px rgba(30,50,90,0.10);
+}
+[data-theme="light"] body.glass-mode :is(.deck-menu-item, .settings-menu-item):hover,
+[data-theme="light"] body.glass-mode :is(.deck-menu-item, .settings-menu-item):focus-visible,
+[data-theme="light"] body.glass-mode :is(.deck-menu-item, .settings-menu-item):active,
+[data-theme="light"] body.glass-mode :is(.deck-menu-item, .settings-menu-item).active {
+  color: var(--text);
+  border-color: rgba(var(--lgx2), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.22), rgba(var(--lgx2), 0.22));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14);
+}
+
+/* The theme segmented control sits in the same menu, so its selected state uses
+   the same treatment instead of gold. */
+body.glass-mode .theme-btn {
+  border: 1px solid rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.07);
+  color: rgba(240,244,252,0.82);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 2px 10px rgba(0,0,0,0.22);
+  border-radius: 8px;
+}
+[data-theme="light"] body.glass-mode .theme-btn {
+  background: rgba(255,255,255,0.72);
+  border-color: rgba(20,35,60,0.14);
+  color: rgba(28,40,58,0.86);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.95), 0 1px 5px rgba(30,50,90,0.10);
+}
+body.glass-mode .theme-btn:hover,
+body.glass-mode .theme-btn.active,
+[data-theme="light"] body.glass-mode .theme-btn:hover,
+[data-theme="light"] body.glass-mode .theme-btn.active {
+  color: var(--text);
+  border-color: rgba(var(--lgx2), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.22), rgba(var(--lgx2), 0.22));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14);
 }
 
 /* ── Collapsible info panels below the deck list (all themes) ──────────────
@@ -11039,7 +11256,7 @@ body.glass-mode .modal-edge-nav:hover { color: #fff; }
   flex-wrap: wrap;
   align-items: flex-start;
 }
-.card-detail-qty-grid .card-detail-qty-row { flex: 1 1 300px; min-width: 0; }
+.card-detail-qty-grid .card-detail-qty-row { flex: 0 1 auto; min-width: 0; }
 .card-detail-utility-row {
   display: flex;
   gap: 8px;
@@ -11074,3 +11291,372 @@ body.glass-mode .card-detail-text {
   content-visibility: auto;
   contain-intrinsic-size: auto 180px auto 300px;
 }
+
+
+/* ── Settings menu: price-source dropdowns + non-gold accents ────────────── */
+#settingsDropdown .glass-dd-wrap { display: flex; width: 100%; margin-bottom: 6px; margin-top: 6px; }
+#settingsDropdown .glass-dd-btn {
+  width: 100%;
+  justify-content: flex-start;
+  border-radius: 8px !important;
+  height: auto;
+  padding: 6px 10px !important;
+  font-size: 0.78rem !important;
+}
+#settingsDropdown .glass-dd-btn .glass-dd-caret,
+#settingsDropdown .glass-dd-btn svg:last-child { margin-left: auto; }
+/* Slider + its value read in the glass blue, not gold. */
+#settingsValueExcludeSlider { accent-color: rgb(var(--lgx1)); }
+#settingsValueExcludeLabel { color: rgb(var(--lgx1)); }
+.settings-dropdown .settings-section-label { display: flex; align-items: center; gap: 6px; }
+
+/* Value-exclude row now lives inside PRICE SETTINGS */
+.settings-value-exclude-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0 6px;
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+.settings-value-exclude-row label { flex: 1; min-width: 0; }
+
+/* Portaled help tooltip: positioned inline by initHelpTooltips(), so it escapes
+   the scrolling/backdrop-filtered panel it belongs to. */
+.help-tip-portal {
+  display: block !important;
+  position: fixed !important;
+  z-index: 10050;
+  margin: 0;
+  /* Consistent everywhere — these tooltips previously inherited whatever the
+     surrounding panel used. */
+  font-size: 0.76rem;
+  font-weight: 400;
+  font-style: normal;
+  letter-spacing: 0;
+  text-transform: none;
+  line-height: 1.5;
+  text-align: left;
+  white-space: normal;
+  width: min(300px, calc(100vw - 16px));
+  max-width: min(300px, calc(100vw - 16px));
+  color: var(--text);
+}
+.help-tip-portal strong { font-weight: 600; }
+body.glass-mode .help-tip-portal {
+  background: rgba(23,30,52,0.96);
+  border: 1px solid rgba(255,255,255,0.17);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 18px 60px rgba(0,0,0,0.55);
+}
+[data-theme="light"] body.glass-mode .help-tip-portal {
+  background: rgba(255,255,255,0.98);
+  border-color: rgba(20,35,60,0.16);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.98), 0 18px 60px rgba(30,50,90,0.28);
+}
+
+
+/* ── DESIGN + ANALYTICS TABS ────────────────────────────────────────────────
+   One continuous page: the tab pane already provides the glass surface, so the
+   panels inside it (including every chart) drop their own box. Controls take the
+   deck-list toolbar metric (34px / 8px radius / 0.82rem) so all tabs match. */
+:is(#deckTabPane-design,#deckTabPane-analytics) .panel,
+body.glass-mode :is(#deckTabPane-design,#deckTabPane-analytics) .panel {
+  background: none !important;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+:is(#deckTabPane-design,#deckTabPane-analytics) .panel + .panel,
+:is(#deckTabPane-design,#deckTabPane-analytics) > div + div { margin-top: 0.25rem; }
+:is(#deckTabPane-design,#deckTabPane-analytics) .panel-header {
+  padding-left: 0;
+  padding-right: 0;
+}
+:is(#deckTabPane-design,#deckTabPane-analytics) .panel-body { padding-left: 0; padding-right: 0; }
+
+/* Deck-list button parity for every control on this tab. */
+:is(#deckTabPane-design,#deckTabPane-analytics) :is(
+  .cmdr-gp-custom-tag-btn,
+  .cmdr-gp-or-add-btn) {
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-family: inherit;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  cursor: pointer;
+  color: var(--text2);
+  border: 1px solid var(--border2);
+  background: var(--bg3);
+}
+body.glass-mode :is(#deckTabPane-design,#deckTabPane-analytics) :is(
+  .cmdr-gp-custom-tag-btn,
+  .cmdr-gp-or-add-btn) {
+  border-color: rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.07);
+  color: rgba(240,244,252,0.82);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 2px 10px rgba(0,0,0,0.22);
+}
+[data-theme="light"] body.glass-mode :is(#deckTabPane-design,#deckTabPane-analytics) :is(
+  .cmdr-gp-custom-tag-btn,
+  .cmdr-gp-or-add-btn) {
+  border-color: rgba(255,255,255,0.75);
+  background: rgba(255,255,255,0.55);
+  color: rgba(28,40,58,0.82);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 10px rgba(30,50,90,0.10);
+}
+/* Same blue->purple hover the deck-list toolbar uses. Needs body.glass-mode to
+   outrank the resting glass chrome above, which is otherwise more specific. */
+body.glass-mode :is(#deckTabPane-design,#deckTabPane-analytics) :is(
+  .cmdr-gp-custom-tag-btn,
+  .cmdr-gp-or-add-btn):hover,
+[data-theme="light"] body.glass-mode :is(#deckTabPane-design,#deckTabPane-analytics) :is(
+  .cmdr-gp-custom-tag-btn,
+  .cmdr-gp-or-add-btn):hover,
+:is(#deckTabPane-design,#deckTabPane-analytics) :is(
+  .cmdr-gp-custom-tag-btn,
+  .cmdr-gp-or-add-btn):hover {
+  color: var(--text);
+  border-color: rgba(var(--lgx1), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14));
+}
+body.glass-mode :is(#deckTabPane-design,#deckTabPane-analytics) .cmdr-gp-or-add-btn--open,
+body.glass-mode :is(#deckTabPane-design,#deckTabPane-analytics) .deck-themes-card.active,
+[data-theme="light"] body.glass-mode :is(#deckTabPane-design,#deckTabPane-analytics) .cmdr-gp-or-add-btn--open,
+[data-theme="light"] body.glass-mode :is(#deckTabPane-design,#deckTabPane-analytics) .deck-themes-card.active,
+:is(#deckTabPane-design,#deckTabPane-analytics) .cmdr-gp-or-add-btn--open,
+:is(#deckTabPane-design,#deckTabPane-analytics) .deck-themes-card.active {
+  color: var(--text);
+  border-color: rgba(var(--lgx2), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.22), rgba(var(--lgx2), 0.22));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14);
+}
+/* Count badge inside the tag buttons keeps its own weight. */
+:is(#deckTabPane-design,#deckTabPane-analytics) .cmdr-gp-custom-tag-btn .cmdr-gp-custom-tag-count { font-size: 0.72rem; opacity: 0.62; }
+
+/* Requirement chips read as the same family, just non-interactive. */
+:is(#deckTabPane-design,#deckTabPane-analytics) .cmdr-gp-part-chip {
+  height: 34px;
+  padding: 0 6px 0 12px;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  box-sizing: border-box;
+}
+
+/* Cast-turn field matches the deck-list inputs. */
+:is(#deckTabPane-design,#deckTabPane-analytics) input[type="number"]:not(.voice-qty-value),
+:is(#deckTabPane-design,#deckTabPane-analytics) input[type="text"] {
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  box-sizing: border-box;
+  width: 4rem;
+}
+:is(#deckTabPane-design,#deckTabPane-analytics) .cmdr-gp-plan-sync label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+}
+:is(#deckTabPane-design,#deckTabPane-analytics) .cmdr-gp-plan-sync { gap: 0.75rem !important; }
+
+/* Outranks the global glass input rule, which sets a 12px radius. */
+:is(#deckTabPane-design,#deckTabPane-analytics) input[type="number"]:not(.voice-qty-value),
+:is(#deckTabPane-design,#deckTabPane-analytics) input[type="text"] { border-radius: 8px !important; }
+/* Dropdowns here match the deck-list toolbar height, not the compact 28px. */
+:is(#deckTabPane-design,#deckTabPane-analytics) .glass-dd-btn {
+  height: 34px !important;
+  padding: 0 12px !important;
+  font-size: 0.82rem !important;
+}
+
+/* Cast-turn counter — identical markup and metrics to the card inspector's. */
+:is(#deckTabPane-design,#deckTabPane-analytics) .cmdr-gp-castturn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 0;
+}
+:is(#deckTabPane-design,#deckTabPane-analytics) .cmdr-gp-castturn .btn-icon {
+  height: 34px !important;
+  min-width: 34px;
+  padding: 0 !important;
+  justify-content: center;
+  border-radius: 8px !important;
+}
+
+/* Every deck tab pane gets the deck-list toolbar's hover/active, which was
+   previously scoped to #deckListPanelHeader and #cardDetailModal only — so
+   .btn-outline elsewhere (Free mulligan, Custom, Refresh) hovered plain white. */
+body.glass-mode .deck-tab-pane .btn-outline:hover,
+[data-theme="light"] body.glass-mode .deck-tab-pane .btn-outline:hover,
+.deck-tab-pane .btn-outline:hover {
+  color: var(--text);
+  border-color: rgba(var(--lgx1), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14));
+}
+body.glass-mode .deck-tab-pane .btn-outline.active,
+[data-theme="light"] body.glass-mode .deck-tab-pane .btn-outline.active,
+.deck-tab-pane .btn-outline.active {
+  color: var(--text);
+  border-color: rgba(var(--lgx2), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.22), rgba(var(--lgx2), 0.22));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14);
+}
+
+/* ── Card reference lists ──────────────────────────────────────────────────
+   Plain text rows in a collapsible block; the whole name is the hit target and
+   opens the inspector. */
+
+
+
+
+
+
+
+/* display:flex would otherwise beat the UA's [hidden] rule and leave collapsed
+   lists fully rendered. */
+.card-ref-list-items[hidden] { display: none !important; }
+.card-ref-list-items {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.card-ref-list-items > li {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+/* Standard button metrics, carrying the card accent so a card reference is
+   never mistaken for a control. */
+.card-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  max-width: 100%;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(var(--lgx-card), 0.42);
+  background: rgba(var(--lgx-card), 0.10);
+  color: rgb(var(--lgx-card));
+  font-size: 0.82rem;
+  font-family: inherit;
+  line-height: 1;
+  cursor: pointer;
+  box-sizing: border-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+body.glass-mode .card-link {
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 2px 10px rgba(0,0,0,0.22);
+}
+[data-theme="light"] body.glass-mode .card-link {
+  background: rgba(var(--lgx-card), 0.12);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 10px rgba(30,50,90,0.10);
+}
+body.glass-mode .card-link:hover,
+[data-theme="light"] body.glass-mode .card-link:hover,
+.card-link:hover {
+  border-color: rgba(var(--lgx-card), 0.75);
+  background: rgba(var(--lgx-card), 0.22);
+  color: rgb(var(--lgx-card));
+}
+.card-link em { font-style: normal; opacity: 0.62; font-size: 0.72rem; }
+.card-link-qty { opacity: 0.62; font-size: 0.72rem; }
+
+
+/* Same mono value type as the inspector's counters. */
+:is(#deckTabPane-design,#deckTabPane-analytics) .card-detail-qty-value {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.9rem;
+  min-width: 40px;
+  text-align: center;
+}
+
+/* ── Similarity card chips ─────────────────────────────────────────────────
+   The row itself is the card button; the +/- action sits inside it rather than
+   floating alongside. Two child buttons keep the markup valid (no nesting). */
+.card-chip-row {
+  list-style: none;
+  margin: 6px 0 0.9rem;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.card-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 34px;
+  max-width: 100%;
+  padding: 0 4px 0 0;
+  border-radius: 8px;
+  border: 1px solid rgba(var(--lgx-card), 0.42);
+  background: rgba(var(--lgx-card), 0.10);
+  color: rgb(var(--lgx-card));
+  box-sizing: border-box;
+  overflow: hidden;
+}
+body.glass-mode .card-chip {
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 2px 10px rgba(0,0,0,0.22);
+}
+[data-theme="light"] body.glass-mode .card-chip {
+  background: rgba(var(--lgx-card), 0.12);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 10px rgba(30,50,90,0.10);
+}
+.card-chip:hover {
+  border-color: rgba(var(--lgx-card), 0.75);
+  background: rgba(var(--lgx-card), 0.22);
+}
+.card-chip-name {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0 8px 0 12px;
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 0.82rem;
+  font-family: inherit;
+  line-height: 1;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.card-chip-name em { font-style: normal; opacity: 0.62; font-size: 0.72rem; margin-left: 2px; }
+.card-chip .sim-chip-btn {
+  flex-shrink: 0;
+  height: 24px;
+  min-width: 24px;
+  margin: 0;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.95rem;
+  border-radius: 6px;
+  opacity: 0.72;
+}
+.card-chip .sim-chip-btn:hover { opacity: 1; background: rgba(var(--lgx-card), 0.28); }
+.card-chip .sim-chip-btn--remove { color: var(--red); }
+.card-chip .sim-chip-btn--remove:hover { background: rgba(255,90,74,0.22); }
