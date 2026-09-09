@@ -1263,7 +1263,8 @@ function _patchCardDetailInspectorDom(card, isOwned) {
   if (priceTable) priceTable.innerHTML = _htmlCardDetailPriceRows(card);
   const tagRow = document.getElementById('cardDetailPrintTags');
   if (tagRow) {
-    const chips = `${card.foil ? `<span class="tag tag-gold">✦ Foil</span>` : ''}${!isOwned ? '<span class="tag tag-red">Unowned</span>' : ''}`;
+    // Foil is conveyed by the card image's foil sheen, not a chip.
+    const chips = !isOwned ? '<span class="tag tag-red">Unowned</span>' : '';
     tagRow.innerHTML = chips;
     tagRow.style.display = chips ? '' : 'none';
   }
@@ -1332,15 +1333,25 @@ function _cardDetailDefaultTagChipHtml(card, t) {
   return _inspectorTagChipHtml(t, { kind: 'default', card });
 }
 
+/**
+ * Tags the promoted half of the merged row will render. A default tag given a
+ * primary/secondary tier still IS a default tag in storage — it just moves to
+ * that half so it shows once, in its new colour, instead of twice.
+ */
+function _inspectorPromotedTagKeys(card) {
+  const myTags = card && typeof _getGlobalCustomTagsForCard === 'function' ? _getGlobalCustomTagsForCard(card) : [];
+  const tiered = card && typeof _tieredDefaultTagsForCard === 'function' ? _tieredDefaultTagsForCard(card) : [];
+  return new Set([...myTags, ...tiered].map(t => String(t || '').toLowerCase()));
+}
+
 function _renderCardDetailDefaultTagsInitialHtml(card) {
-  if (!card || (!card.scryfallId && !card.oracleId)) {
-    return '<span style="font-size:0.72rem;color:var(--text3)">—</span>';
-  }
+  // Empty states are handled once for the whole merged row (_syncCardDetailTagsEmptyHint).
+  if (!card || (!card.scryfallId && !card.oracleId)) return '';
   const tags = typeof _defaultTagsForCardInspector === 'function'
     ? _defaultTagsForCardInspector(card)
     : (typeof _roleTagsForCard === 'function' ? _roleTagsForCard(card) : []);
-  // Tiered defaults stay in this row AND appear under MY TAGS (additional categories).
-  const shown = (tags || []).filter(t => t && t !== 'Commander');
+  const promoted = _inspectorPromotedTagKeys(card);
+  const shown = (tags || []).filter(t => t && t !== 'Commander' && !promoted.has(String(t).toLowerCase()));
   if (shown.length) {
     return shown.map(t => _inspectorTagChipHtml(t, { kind: 'default', card })).join('');
   }
@@ -2165,7 +2176,6 @@ function _htmlCardDetailPrimaryActionsInner(ctx) {
     ? `${inOpenDeck ? '' : `<button class="btn btn-primary btn-sm" onclick="addToDeckFromDetail('${actionUid}')">+ Add to Deck</button>`}
                ${printBtn}
                ${swapBtns}
-               ${isCommanderCandidate ? `<button class="btn btn-outline btn-sm" onclick="buildSkeletonDeckFromInspectorCard('${actionUid}')">Build Skeleton Deck</button>` : ''}
                <button class="btn btn-danger btn-sm" onclick="removeFromCollection('${actionUid}')">Remove</button>`
     : `<button class="btn btn-primary btn-sm" onclick="addCardToCollectionFromDetail('${uid}')">+ Add to Collection</button>
                ${printBtn}
@@ -2238,6 +2248,7 @@ function _syncCardDetailInspectorInPlace(card, ctx) {
   const tagsEl = document.getElementById('cardDetailDefaultTags');
   if (!tagsEl || !document.getElementById('cardDetailRowCollection')) return false;
   tagsEl.innerHTML = _renderCardDetailDefaultTagsInitialHtml(card);
+  _syncCardDetailTagsEmptyHint();
   _syncCardDetailRowCollection(ctx);
   _syncCardDetailRowInDeck(ctx);
   _syncCardDetailRowPrimaryActions(ctx);
@@ -2312,7 +2323,7 @@ function _htmlOpenCardDetailRightColumn(ctx) {
         ? 'default' : 'my';
       return _inspectorTagChipHtml(t, { kind, card });
     }).join('')
-    : '<span class="card-detail-row-hint">No tags yet</span>';
+    : ''; // empty state is owned by the merged row (_syncCardDetailTagsEmptyHint)
   const actionUidRef = (actionUid || '').replace(/'/g, "\\'");
   const _naturalPips = typeof _parseManaSymbols === 'function' ? _parseManaSymbols(card.mana || '') : { W: 0, U: 0, B: 0, R: 0, G: 0 };
   const _curPips = (card.customPips && typeof card.customPips === 'object')
@@ -2320,7 +2331,7 @@ function _htmlOpenCardDetailRightColumn(ctx) {
     : _naturalPips;
   const _hasCustomPips = card.customPips != null;
   const _cmcCustom = card.customCmc != null && card.customCmc !== (card.cmc ?? 0);
-  const _hasAdvanced = card.customCmc != null || card.customPips != null || getStoredPurchasePrice(card) != null;
+  // (Advanced always opens collapsed now, regardless of custom CMC/pips/purchase price.)
   const _storedPurchase = typeof getStoredPurchasePrice === 'function' ? getStoredPurchasePrice(isOwned ? ownedCard || card : card) : null;
   const _purchaseManual = !!(isOwned && (ownedCard || card)?.purchasePriceManual);
   const showInDeckRow = !!(activeDeck && _isDeckBuilderMainTabActive());
@@ -2338,9 +2349,12 @@ function _htmlOpenCardDetailRightColumn(ctx) {
         <table id="cardDetailPriceTable" class="price-table" style="margin-bottom:1rem">
           ${_htmlCardDetailPriceRows(card)}
         </table>
-        <div id="cardDetailPrintTags" class="card-detail-chiprow" style="margin-bottom:1rem${(card.foil || !isOwned) ? '' : ';display:none'}">
-          ${card.foil ? `<span class="tag tag-gold">✦ Foil</span>` : ''}
+        <div id="cardDetailPrintTags" class="card-detail-chiprow" style="margin-bottom:1rem${!isOwned ? '' : ';display:none'}">
           ${!isOwned ? `<span class="tag tag-red">Unowned</span>` : ''}
+        </div>
+        <div id="cardDetailRowPrimaryActions" class="card-detail-actions">
+          ${_htmlCardDetailPrimaryActionsInner(ctx)}
+          <button class="btn btn-outline btn-sm" onclick="openGlobalTagPickerForCard('${actionUidRef}')">Edit Tags</button>
         </div>
         <div class="card-detail-qty-grid">
           <div id="cardDetailRowCollection" class="card-detail-qty-row">
@@ -2351,26 +2365,25 @@ function _htmlOpenCardDetailRightColumn(ctx) {
             ${inDeckInner}
           </div>
         </div>
-        <div id="cardDetailRowPrimaryActions" class="card-detail-actions">
-          ${_htmlCardDetailPrimaryActionsInner(ctx)}
-        </div>
-        <div id="cardDetailDefaultTagsWrap" class="card-detail-section">
-          <div class="card-detail-section-label">DEFAULT TAGS</div>
-          <div id="cardDetailDefaultTags" class="card-detail-chiprow" style="min-height:1.25rem">
-            ${_renderCardDetailDefaultTagsInitialHtml(card)}
-          </div>
-        </div>
-        <div id="cardDetailMyTagsWrap" class="card-detail-section">
-          <div class="card-detail-section-label">MY TAGS <span class="card-detail-section-hint">· primary (teal) · secondary (gold)</span></div>
-          <div id="cardDetailMyTagsChips" class="card-detail-chiprow">
-            ${myTagsChipsHtml}
-            <button class="btn btn-outline btn-sm" onclick="openGlobalTagPickerForCard('${actionUidRef}')">Edit Tags</button>
+        <div class="card-detail-section">
+          <div class="card-detail-section-label">TAGS <span class="card-detail-section-hint">· green = default · blue = primary · purple = secondary</span></div>
+          <div class="card-detail-chiprow card-detail-tagrow">
+            <span id="cardDetailDefaultTagsWrap" class="cd-tag-group">
+              <span id="cardDetailDefaultTags" class="cd-tag-group">
+                ${_renderCardDetailDefaultTagsInitialHtml(card)}
+              </span>
+            </span>
+            <span id="cardDetailMyTagsWrap" class="cd-tag-group">
+              <span id="cardDetailMyTagsChips" class="cd-tag-group">
+                ${myTagsChipsHtml}
+              </span>
+            </span>
           </div>
         </div>
         <div id="cardDetailTagToDeckWrap" class="card-detail-section" style="display:${tagData.show ? 'block' : 'none'}">
           ${tagData.html}
         </div>
-        <details id="cardDetailAdvanced" class="card-detail-disclosure"${_hasAdvanced ? ' open' : ''} ontoggle="_onInspectorAdvancedToggle(this)">
+        <details id="cardDetailAdvanced" class="card-detail-disclosure" ontoggle="_onInspectorAdvancedToggle(this)">
           <summary>Advanced · purchase price, history, mana value &amp; pips</summary>
           <div id="cardDetailPurchasePriceWrap" class="card-detail-cmc-row" style="flex-wrap:wrap;gap:6px">
             <span class="card-detail-row-label">PURCHASE PRICE (AVG)</span>
@@ -2880,12 +2893,12 @@ async function _loadCardDetailDefaultTags(card) {
       ? _defaultTagsForCardInspector(card)
       : _roleTagsForCard(card);
     if (!modal.classList.contains('open') || document.getElementById('cardDetailDefaultTags') !== el) return;
-    const shown = (tags || []).filter(t => t && t !== 'Commander');
-    if (!shown.length) {
-      el.innerHTML = '<span style="font-size:0.72rem;color:var(--text3)">None</span>';
-      return;
-    }
+    const promoted = _inspectorPromotedTagKeys(card);
+    const shown = (tags || []).filter(t => t && t !== 'Commander' && !promoted.has(String(t).toLowerCase()));
+    // Empty state is owned by the merged row, not this half of it.
     el.innerHTML = shown.map(t => _inspectorTagChipHtml(t, { kind: 'default', card })).join('');
+    _syncCardDetailTagsEmptyHint();
+    if (!shown.length) return;
     if (typeof activeDeckId !== 'undefined' && activeDeckId && typeof getActiveDeck === 'function') {
       const deck = getActiveDeck();
       if (deck && (deck.cards || []).some(c => c === card || c.uid === card.uid || c.scryfallId === card.scryfallId)) {
@@ -2895,7 +2908,8 @@ async function _loadCardDetailDefaultTags(card) {
     }
   } catch (_) {
     if (document.getElementById('cardDetailDefaultTags') === el && modal.classList.contains('open')) {
-      el.innerHTML = '<span style="font-size:0.72rem;color:var(--text3)">—</span>';
+      el.innerHTML = '';
+      _syncCardDetailTagsEmptyHint();
     }
   }
 }
@@ -3165,15 +3179,29 @@ function patchOpenCardDetailMyTags() {
         ? 'default' : 'my';
       return _inspectorTagChipHtml(t, { kind, card });
     }).join('')
-    : '<span style="font-size:0.72rem;color:var(--text3)">No tags yet</span>';
-  const ref = String(
-    (card && typeof getCardInventoryKey === 'function' ? getCardInventoryKey(card) : null)
-    || card?.uid
-    || card?.scryfallId
-    || _cardDetailCurrentUid
-    || ''
-  ).replace(/'/g, "\\'");
-  chipsEl.innerHTML = `${chipsHtml}<button class="btn btn-outline btn-sm" onclick="openGlobalTagPickerForCard('${ref}')">Edit Tags</button>`;
+    : '';
+  // Edit Tags lives in the primary actions row now, not inline with the chips.
+  chipsEl.innerHTML = chipsHtml;
+  // Repaint the default half too: a tag promoted to primary/secondary moves
+  // between the halves, so both must agree or it would render twice.
+  const defaultsEl = document.getElementById('cardDetailDefaultTags');
+  if (defaultsEl && card) defaultsEl.innerHTML = _renderCardDetailDefaultTagsInitialHtml(card);
+  _syncCardDetailTagsEmptyHint();
+}
+
+/** One "No tags yet" hint for the merged tag row — only when it is truly empty. */
+function _syncCardDetailTagsEmptyHint() {
+  const row = document.querySelector('#cardDetailModal .card-detail-tagrow');
+  if (!row) return;
+  const hasTags = !!row.querySelector('.tag');
+  let hint = row.querySelector('.cd-tags-empty');
+  if (hasTags) { hint?.remove(); return; }
+  if (!hint) {
+    hint = document.createElement('span');
+    hint.className = 'cd-tags-empty';
+    row.appendChild(hint);
+  }
+  hint.textContent = 'No tags yet';
 }
 
 async function _loadCardDetailMyTags(card) {
@@ -3884,28 +3912,19 @@ function toggleFindFoil() {
 let _findAcTimer = null;
 let _findAcNames = [];
 
-function _positionFindAc() {
-  const input = document.getElementById('findCardInput');
-  const drop  = document.getElementById('findCardAutocomplete');
-  if (!input || !drop) return;
-  const r = input.getBoundingClientRect();
-  drop.style.top   = (r.bottom + 4) + 'px';
-  drop.style.left  = r.left + 'px';
-  drop.style.width = r.width + 'px';
-}
+/* The dropdown is absolutely positioned under its input wrapper in CSS. It used
+   to be position:fixed with viewport coords, but the modal's backdrop-filter
+   makes it a containing block for fixed descendants, so those coords landed the
+   list well below and right of the search bar. */
+function _positionFindAc() {}
 
 const _KNOWN_SEARCH_KEYS = /\b(?:t|type|c|ci|color|id|cmc|mv|manavalue|r|rarity|s|e|set|edition|o|oracle|is|has|name|n|qty|q|tag|tags)\s*(?:>=|<=|!=|<>|[:=><])/i;
 function _findQueryHasTokens(q) { return _KNOWN_SEARCH_KEYS.test(q); }
 
+/* Paper-only is an app-wide rule now (Arena / digital-only printings never show). */
 function _getFindPaperOnly() {
-  return document.getElementById('findCardPaperOnlyChk')?.checked !== false
-    && (typeof voiceSetPrefs === 'undefined' || voiceSetPrefs.paperOnly !== false);
+  return true;
 }
-function _updateFindPaperOnlyState() {
-  const chk = document.getElementById('findCardPaperOnlyChk');
-  if (chk && typeof voiceSetPrefs !== 'undefined') chk.checked = voiceSetPrefs.paperOnly !== false;
-}
-globalThis._updateFindPaperOnlyState = _updateFindPaperOnlyState;
 
 // Quick-filter token toggle for search tab
 function _toggleFindToken(key, val) {
@@ -3946,6 +3965,24 @@ function _syncFindFilterBtns(q) {
 
 let _findSearchOffset = 0;
 let _findSearchTotal = 0;
+let _findResultPrintings = false;
+/** "All printings" — expand each result into every printing of that card. */
+let _findAllPrintings = false;
+try { _findAllPrintings = localStorage.getItem('mtg_find_all_printings') === '1'; } catch (_) { /* private mode */ }
+
+function toggleFindAllPrintings() {
+  _findAllPrintings = !_findAllPrintings;
+  try { localStorage.setItem('mtg_find_all_printings', _findAllPrintings ? '1' : '0'); } catch (_) { /* private mode */ }
+  _syncFindAllPrintingsBtn();
+  const q = (document.getElementById('findCardInput')?.value || '').trim();
+  if (_findQueryForApi(q)) runFindCard(q);
+}
+
+function _syncFindAllPrintingsBtn() {
+  const chk = document.getElementById('findAllPrintingsChk');
+  if (chk) chk.checked = _findAllPrintings;
+}
+globalThis._syncFindAllPrintingsBtn = _syncFindAllPrintingsBtn;
 let _findSearchQuery = '';
 let _findColorFilters = new Set();
 let _findCardSort = '';            // '' = relevance | name | cmc | price | rarity
@@ -4239,6 +4276,9 @@ function _paintFindResults(el) {
     return;
   }
 
+  // A repaint rebuilds every tile, which resets scrollTop — after "Load more"
+  // that snapped back to the identical first page and looked like a dead button.
+  const prevScroll = el.scrollTop;
   el.innerHTML = '';
   const frag = document.createDocumentFragment();
   for (const c of _sortFindResultCards(_findResultCards)) {
@@ -4310,9 +4350,23 @@ function _paintFindResults(el) {
     const footer = document.createElement('div');
     footer.className = 'find-load-more-row';
     footer.style.cssText = 'grid-column:1/-1;padding:0.75rem 0;display:flex;align-items:center;gap:12px;justify-content:center;font-size:0.78rem;color:var(--text3)';
-    footer.innerHTML = `<span>${shown.toLocaleString()} of ${Number(total).toLocaleString()}</span>` +
-      (shown < total ? `<button class="btn btn-outline btn-sm" onclick="runFindCard(null,true)">Load more</button>` : '');
+    // Once everything is fetched, report what's actually on screen. "2 of 3" was
+    // misleading when a card had been dropped by a client-side filter and there
+    // was nothing left to load.
+    const more = _findSearchOffset < total;
+    footer.innerHTML = (_findResultPrintings
+      ? `<span>${shown.toLocaleString()} printings from ${Number(total).toLocaleString()} cards</span>`
+      : more
+        ? `<span>${shown.toLocaleString()} of ${Number(total).toLocaleString()}</span>`
+        : `<span>${shown.toLocaleString()} ${shown === 1 ? 'card' : 'cards'}</span>`) +
+      // Paging is by oracle cards fetched, so "more to load" must compare that —
+      // with printings expanded, shown can exceed the card total.
+      (_findSearchOffset < total ? `<button class="btn btn-outline btn-sm" onclick="runFindCard(null,true)">Load more</button>` : '');
     el.appendChild(footer);
+  }
+  if (prevScroll) {
+    el.scrollTop = prevScroll;
+    requestAnimationFrame(() => { el.scrollTop = prevScroll; });
   }
 }
 
@@ -4356,6 +4410,7 @@ async function runFindCard(q, append) {
       && _deckPoolSource === 'mine'
     );
     if (ownedOnly) url += '&owned=1';
+    if (_findAllPrintings) url += '&printings=1';
     const res = await fetch(url, { signal });
     if (!res.ok) {
       if (!append) { _findResultCards = []; el.innerHTML = '<div style="grid-column:1/-1;padding:1rem;font-size:0.85rem;color:var(--text3)">No cards found</div>'; }
@@ -4365,7 +4420,10 @@ async function runFindCard(q, append) {
     let cards = data.data || [];
     const total = data.total ?? null;
     _findSearchTotal = total;
-    _findSearchOffset += cards.length;
+    // Page by oracle cards consumed, not rows returned — "All printings" expands
+    // one card into many and would otherwise skip pages.
+    _findSearchOffset += Number.isFinite(data.pageCards) ? data.pageCards : cards.length;
+    _findResultPrintings = !!data.printings;
 
     const deckForOwner = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
     const needOwnerColl = typeof activeDeckIsShared !== 'undefined' && activeDeckIsShared && deckForOwner
