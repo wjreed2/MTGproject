@@ -23,6 +23,9 @@
   --radius: 8px;
   --radius2: 12px;
   --radius3: 18px;
+  /* Deck builder tab page corners — every corner except the top-left, which
+     stays square so the page's left edge runs unbroken up into the first tab. */
+  --deck-pane-radius: var(--radius2);
   --ease: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -458,6 +461,11 @@ body::before {
   --sidebar-w: 210px;
   --sidebar-w-col: 54px;
   --topbar-h: 56px;
+  /* Page gutter — the breathing room between the sidebar/viewport edge and the
+     content. Breakpoints override it; panes that want the width (deck builder)
+     pull back out to --page-gutter-tight. */
+  --page-gutter: 2rem;
+  --page-gutter-tight: 0.5rem;
 }
 
 .topbar {
@@ -799,7 +807,7 @@ body.sidebar-collapsed .sidebar-action:hover::after {
 main {
   position: relative; z-index: 1;
   margin-left: var(--sidebar-w);
-  padding: calc(var(--topbar-h) + 1rem) 2rem 1.5rem;
+  padding: calc(var(--topbar-h) + 1rem) var(--page-gutter) 1.5rem;
   transition: margin-left 0.22s var(--ease);
   min-height: 100vh;
 }
@@ -829,6 +837,20 @@ main {
   color: var(--text);
   border-radius: var(--radius);
   font-family: 'Inter', system-ui, sans-serif;
+}
+
+/* DECK BUILDER — the folder card holds dense card data, so the whole tab pulls
+ * back out of the page gutter to a thin edge. Negative margins never exceed the
+ * gutter itself, so no breakpoint can overflow horizontally. */
+#tab-decks {
+  margin-left: calc(var(--page-gutter-tight) - var(--page-gutter));
+  margin-right: calc(var(--page-gutter-tight) - var(--page-gutter));
+}
+
+/* "All Decks" gets its own line between the deck header and the folder tabs. */
+.deck-back-row {
+  display: flex;
+  margin-bottom: 4px;
 }
 
 /* DECK BUILDER FOLDER TABS — overlapping file-drawer tabs growing out of the
@@ -861,8 +883,11 @@ main {
   cursor: pointer;
   transition: color 0.15s var(--ease), padding 0.15s var(--ease);
 }
-/* Overlap like folders in a drawer; earlier tabs sit in front of later ones */
-.deck-ftab + .deck-ftab { margin-left: -20px; }
+/* Overlap like folders in a drawer; earlier tabs sit in front of later ones.
+ * The overlap has to exceed the diagonal's horizontal run, otherwise the next
+ * tab's vertical left edge pokes out above the diagonal and reads as a notch
+ * instead of one clean joint. */
+.deck-ftab + .deck-ftab { margin-left: -30px; }
 .deck-ftab:nth-child(1) { z-index: 6; }
 .deck-ftab:nth-child(2) { z-index: 5; }
 .deck-ftab:nth-child(3) { z-index: 4; }
@@ -870,8 +895,11 @@ main {
 .deck-ftab:nth-child(5) { z-index: 2; }
 .deck-ftab:nth-child(6) { z-index: 1; }
 .deck-ftab::before {
-  /* Trapezoid folder-tab shape: perspective tilt narrows the top edge while
-   * keeping the 1px border crisp (clip-path would clip the border away). */
+  /* Manila-folder die-cut: a vertical left edge with only the right side
+   * slanting in, so every tab reads as the tab of its own folder. Anchoring
+   * the perspective to the bottom-left corner pins x=0 in place and throws all
+   * of the narrowing onto the right edge. Perspective rather than clip-path
+   * keeps the 1px border crisp (clip-path would clip the border away). */
   content: '';
   position: absolute;
   inset: 0;
@@ -879,8 +907,8 @@ main {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 20px 20px 0 0; /* same rounding as the page's corners */
-  transform: perspective(9px) rotateX(0.7deg); /* gentler slant — near-vertical sides */
-  transform-origin: bottom;
+  transform: perspective(9px) rotateX(2.2deg);
+  transform-origin: bottom left;
   transition: background 0.15s var(--ease);
 }
 .deck-ftab:hover { color: var(--text2); z-index: 8; }
@@ -902,7 +930,9 @@ main {
   display: none;
   background: var(--bg2);
   border: 1px solid var(--border2);
-  border-radius: 0 var(--radius2) var(--radius2) var(--radius2);
+  /* Square top-left: on a manila folder the left edge and the tab's left edge
+     are one continuous line, so only the other three corners round off. */
+  border-radius: 0 var(--deck-pane-radius) var(--deck-pane-radius) var(--deck-pane-radius);
   padding: 0.4rem 1.4rem 1.4rem;
 }
 .deck-tab-pane.active { display: block; }
@@ -1183,6 +1213,9 @@ body.glass-mode .glass-menu-item { font-family: var(--glass-font); }
   justify-content: flex-start;
   align-items: center;
 }
+/* Glyph for buttons that drop their text label on phones (see mobile.css) —
+   desktop has the room for the label, so the icon stays hidden here. */
+.deck-btn-icon { display: none; }
 /*
  * Grid: row 1 = chips (visual top), row 2 = chart — DOM order is chart then chips so Chrome paints chips after the canvas layer.
  */
@@ -4096,7 +4129,8 @@ img.stack-main.loaded { opacity: 1; }
 }
 
 /* Normalize top action buttons */
-.top-action-bar .btn {
+.top-action-bar .btn,
+.deck-back-row > #backToDecksBtn {
   height: 34px;
   border-radius: 8px;
   padding: 0 12px;
@@ -9864,6 +9898,7 @@ body.glass-mode {
   --radius: 12px;
   --radius2: 18px;
   --radius3: 24px;
+  --deck-pane-radius: 20px;
 }
 
 /* Ambient wallpaper the glass blurs — soft colour blobs on deep blue-black */
@@ -9920,7 +9955,6 @@ body.glass-mode .deck-tab-pane {
   box-shadow:
     inset 0 0 0.5px rgba(255,255,255,0.12),
     0 8px 28px rgba(0,0,0,0.35);
-  border-radius: 0 20px 20px 20px;
 }
 body.glass-mode .deck-tab-pane .panel {
   background: transparent;
@@ -9984,7 +10018,8 @@ body.glass-mode .btn {
   color: rgba(240,244,252,0.82);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 2px 10px rgba(0,0,0,0.22);
 }
-body.glass-mode .top-action-bar .btn { border-radius: 999px; }
+body.glass-mode .top-action-bar .btn,
+body.glass-mode .deck-back-row > #backToDecksBtn { border-radius: 999px; }
 body.glass-mode .btn-outline:hover {
   color: #fff;
   border-color: rgba(255,255,255,0.34);
@@ -10550,6 +10585,431 @@ body.glass-mode :is(input:not([type="checkbox"]):not([type="radio"]):not([type="
   border-color: rgba(20,35,60,0.16);
 }
 
+/* ── By Architecture deck view ─────────────────────────────────────────── */
+.arch-view { display: flex; flex-direction: column; gap: 1rem; padding: 4px 0 12px; }
+.arch-note {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--text3);
+  line-height: 1.4;
+}
+.arch-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  align-items: start;
+}
+.arch-grid--vertical { grid-template-columns: 1fr; }
+.arch-grid--horizontal { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 960px) {
+  .arch-grid--horizontal { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .arch-grid--horizontal { grid-template-columns: 1fr; }
+}
+.arch-panel {
+  border: 1px solid var(--border2);
+  border-radius: var(--radius2);
+  background: var(--bg2);
+  padding: 10px 10px 8px;
+  min-width: 0;
+}
+.arch-panel--foundation { border-top: 3px solid var(--blue); }
+.arch-panel--strategy { border-top: 3px solid var(--green); }
+.arch-panel--payoffs { border-top: 3px solid var(--purple); }
+.arch-panel--manabase { border-top: 3px solid var(--gold); }
+.arch-panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.arch-panel-title {
+  margin: 0;
+  font-family: Cinzel, serif;
+  font-size: 0.95rem;
+  letter-spacing: 0.04em;
+  color: var(--text);
+}
+.arch-panel--foundation .arch-panel-title { color: var(--blue2); }
+.arch-panel--strategy .arch-panel-title { color: var(--green); }
+.arch-panel--payoffs .arch-panel-title { color: var(--purple); }
+.arch-panel--manabase .arch-panel-title { color: var(--gold); }
+.arch-panel-count { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 0.72rem; color: var(--text3); }
+.arch-panel-blurb { margin: 6px 0 8px; font-size: 0.72rem; color: var(--text3); line-height: 1.35; }
+.arch-panel-body { display: flex; flex-direction: column; gap: 2px; }
+/* Stacked panels: text-row subsections pack as equal-width columns (shared
+   --arch-text-col-w from densest panel). Card-image mode packs subcategory
+   columns (no stretch) with Visual-view overlapping stacks. */
+.arch-view--layout-vertical .arch-panel-body {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  align-items: start;
+  gap: 8px 14px;
+}
+.arch-view--layout-vertical .arch-panel-body > .arch-sub {
+  border-top: none;
+  flex: 0 0 auto;
+  width: min(100%, var(--arch-text-col-w, 14rem));
+  min-width: 0;
+}
+.arch-view--layout-vertical .arch-panel-body > .arch-empty {
+  flex: 1 1 100%;
+}
+.arch-view--layout-vertical .arch-sub-head { flex-wrap: wrap; }
+.arch-view--layout-vertical .arch-sub-title { min-width: 0; }
+.arch-view--layout-vertical.arch-view--cards-visual .arch-panel-body {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  align-items: start;
+  gap: 12px 16px;
+}
+.arch-view--layout-vertical.arch-view--cards-visual .arch-panel-body > .arch-sub {
+  width: max-content;
+  max-width: 100%;
+  flex: 0 0 auto;
+}
+.arch-view--layout-vertical.arch-view--cards-visual .arch-panel-body > .arch-empty {
+  flex: 1 1 100%;
+  grid-column: auto;
+}
+.arch-view--layout-vertical.arch-view--cards-visual .arch-sub-body--visual {
+  display: block;
+  padding-left: 4px;
+}
+.arch-view--layout-vertical.arch-view--cards-visual .arch-sub-stacks {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 12px;
+  align-items: flex-start;
+}
+.arch-view--layout-vertical.arch-view--cards-visual .arch-sub-stack-col {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+.arch-view--layout-vertical.arch-view--cards-visual .arch-sub-body--visual .arch-sub-group-label {
+  grid-column: auto;
+  width: 100%;
+}
+/* Restore Visual-view overlap; the generic tile rules turn it off. */
+.arch-view--layout-vertical.arch-view--cards-visual .deck-stack-cards.vertical .arch-card-tile {
+  width: var(--deck-card-w, 220px);
+  max-width: none;
+  min-width: 0;
+  margin-left: 0;
+  margin-top: calc(-1 * (var(--deck-card-w, 220px) / 0.715 - 36px));
+  flex: 0 0 auto;
+}
+.arch-view--layout-vertical.arch-view--cards-visual .deck-stack-cards.vertical .arch-card-tile:first-child {
+  margin-top: 8px;
+}
+.arch-view--layout-vertical.arch-view--cards-visual .deck-stack-cards.vertical .arch-card-tile:hover,
+.arch-view--layout-vertical.arch-view--cards-visual .deck-stack-cards.vertical .arch-card-tile:focus-within,
+.arch-view--layout-vertical.arch-view--cards-visual .deck-stack-cards.vertical .arch-card-tile.is-stack-peek {
+  z-index: 10;
+  transform: translateX(6px) scale(1.05);
+}
+.arch-view--layout-vertical.arch-view--cards-visual .deck-stack-cards.vertical .arch-card-tile:hover ~ .arch-card-tile,
+.arch-view--layout-vertical.arch-view--cards-visual .deck-stack-cards.vertical .arch-card-tile:focus-within ~ .arch-card-tile,
+.arch-view--layout-vertical.arch-view--cards-visual .deck-stack-cards.vertical .arch-card-tile.is-stack-peek ~ .arch-card-tile {
+  transform: none;
+}
+.arch-view--layout-vertical.arch-view--cards-visual .deck-stack-cards.vertical .arch-card-tile.tag-group-linked,
+.arch-view--layout-vertical.arch-view--cards-visual .deck-stack-cards.vertical .arch-card-tile.tag-group-source {
+  margin-right: 0;
+  transform: none;
+}
+.arch-view--layout-vertical.arch-view--cards-visual .deck-stack-cards.vertical .arch-card-tile.tag-group-linked:hover,
+.arch-view--layout-vertical.arch-view--cards-visual .deck-stack-cards.vertical .arch-card-tile.tag-group-source:hover,
+.arch-view--layout-vertical.arch-view--cards-visual .deck-stack-cards.vertical .arch-card-tile.tag-group-linked:focus-within,
+.arch-view--layout-vertical.arch-view--cards-visual .deck-stack-cards.vertical .arch-card-tile.tag-group-source:focus-within,
+.arch-view--layout-vertical.arch-view--cards-visual .deck-stack-cards.vertical .arch-card-tile.tag-group-linked.is-stack-peek,
+.arch-view--layout-vertical.arch-view--cards-visual .deck-stack-cards.vertical .arch-card-tile.tag-group-source.is-stack-peek {
+  transform: translateX(6px) scale(1.05);
+}
+.arch-sub {
+  --arch-sub-accent: var(--text2);
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  border-top: 1px solid var(--border);
+}
+.arch-panel-body > .arch-sub:first-child { border-top: none; }
+.arch-sub-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 0.78rem;
+  padding: 6px 0 4px 8px;
+  border-left: 3px solid var(--arch-sub-accent);
+}
+.arch-sub-head::-webkit-details-marker { display: none; }
+.arch-sub-title { font-weight: 600; color: var(--arch-sub-accent); }
+.arch-sub-count { margin-left: auto; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 0.7rem; color: var(--text3); }
+.arch-sub-body { padding: 2px 0 6px 11px; }
+.arch-sub-body--visual,
+.arch-view--cards-visual .arch-compact-tops {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(var(--arch-tile-w, 118px), 100%), 1fr));
+  gap: 8px;
+  align-items: start;
+}
+/* Group By headers inside a subsection — a plain row in the text body, a full-width
+   band in the visual grid so the tiles below it keep their columns */
+.arch-sub-group-label {
+  font-family: 'Cinzel', serif; font-size: 0.62rem; color: var(--text3);
+  text-transform: uppercase; letter-spacing: 0.09em;
+  display: flex; align-items: baseline; gap: 6px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 3px; margin: 6px 0 4px;
+}
+.arch-sub-group-label:first-child { margin-top: 0; }
+.arch-sub-group-count { font-family: 'JetBrains Mono', monospace; font-size: 0.6rem; opacity: 0.6; }
+.arch-sub-body--visual .arch-sub-group-label { grid-column: 1 / -1; }
+.arch-sub-body--visual .arch-card-tile .stack-wrap {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--arch-sub-accent) 40%, transparent);
+  border-radius: var(--radius);
+}
+/* Foundation — named subsection accents */
+.arch-panel--foundation .arch-sub--card_advantage,
+.arch-panel--foundation .arch-chip--card_advantage { --arch-sub-accent: #5eb8d4; }
+.arch-panel--foundation .arch-sub--interaction,
+.arch-panel--foundation .arch-chip--interaction { --arch-sub-accent: var(--blue); }
+.arch-panel--foundation .arch-sub--board_wipes,
+.arch-panel--foundation .arch-chip--board_wipes { --arch-sub-accent: #6a7fd4; }
+.arch-panel--foundation .arch-sub--win_condition,
+.arch-panel--foundation .arch-chip--win_condition { --arch-sub-accent: #8a7cd4; }
+/* Strategy — hashed 5-step green palette */
+.arch-panel--strategy .arch-sub-tint-0,
+.arch-panel--strategy .arch-chip-tint-0 { --arch-sub-accent: color-mix(in srgb, var(--green) 55%, var(--blue2)); }
+.arch-panel--strategy .arch-sub-tint-1,
+.arch-panel--strategy .arch-chip-tint-1 { --arch-sub-accent: color-mix(in srgb, var(--green) 70%, var(--text)); }
+.arch-panel--strategy .arch-sub-tint-2,
+.arch-panel--strategy .arch-chip-tint-2 { --arch-sub-accent: var(--green); }
+.arch-panel--strategy .arch-sub-tint-3,
+.arch-panel--strategy .arch-chip-tint-3 { --arch-sub-accent: color-mix(in srgb, var(--green) 80%, var(--gold)); }
+.arch-panel--strategy .arch-sub-tint-4,
+.arch-panel--strategy .arch-chip-tint-4 { --arch-sub-accent: color-mix(in srgb, var(--green) 65%, var(--purple)); }
+/* Payoffs — hashed 5-step purple palette */
+.arch-panel--payoffs .arch-sub-tint-0,
+.arch-panel--payoffs .arch-chip-tint-0 { --arch-sub-accent: color-mix(in srgb, var(--purple) 55%, var(--blue2)); }
+.arch-panel--payoffs .arch-sub-tint-1,
+.arch-panel--payoffs .arch-chip-tint-1 { --arch-sub-accent: color-mix(in srgb, var(--purple) 70%, var(--text)); }
+.arch-panel--payoffs .arch-sub-tint-2,
+.arch-panel--payoffs .arch-chip-tint-2 { --arch-sub-accent: var(--purple); }
+.arch-panel--payoffs .arch-sub-tint-3,
+.arch-panel--payoffs .arch-chip-tint-3 { --arch-sub-accent: color-mix(in srgb, var(--purple) 75%, var(--gold)); }
+.arch-panel--payoffs .arch-sub-tint-4,
+.arch-panel--payoffs .arch-chip-tint-4 { --arch-sub-accent: color-mix(in srgb, var(--purple) 60%, var(--red)); }
+/* Mana Sources — named subsection accents */
+.arch-panel--manabase .arch-sub--ramp,
+.arch-panel--manabase .arch-chip--ramp { --arch-sub-accent: #d4a84a; }
+.arch-panel--manabase .arch-sub--basics,
+.arch-panel--manabase .arch-chip--basics { --arch-sub-accent: var(--gold); }
+.arch-panel--manabase .arch-sub--nonbasics,
+.arch-panel--manabase .arch-chip--nonbasics { --arch-sub-accent: #b8884a; }
+.arch-empty { font-size: 0.72rem; color: var(--text3); padding: 6px 2px; }
+.arch-card-row { display: flex; align-items: center; gap: 6px; padding: 3px 6px; border-radius: var(--radius); }
+.arch-card-row .deck-card-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.arch-card-row.is-arch-primary { box-shadow: inset 2px 0 0 var(--gold); }
+/* Same-card hover: fill every copy with a gold wash. No outline. */
+.arch-view .arch-card-row.tag-group-linked,
+.arch-view .arch-card-row.tag-group-source {
+  background: color-mix(in srgb, var(--gold) 42%, transparent);
+  transform: none;
+}
+.arch-view .arch-card-row.tag-group-linked .deck-card-name,
+.arch-view .arch-card-row.tag-group-source .deck-card-name {
+  color: var(--gold2);
+}
+.arch-view--cards-visual {
+  --arch-tile-w: clamp(88px, calc(var(--deck-card-w, 220px) * 0.55), 150px);
+}
+/* Tiles borrow .deck-stack-card for the art chrome only. That class also carries
+   the fanned-stack geometry (fixed width + negative margins), which would overlap
+   the tiles and push them out of their column here. */
+.arch-view .arch-card-tile {
+  width: auto;
+  max-width: 100%;
+  min-width: 0;
+  margin: 0;
+  flex: 0 1 auto;
+  cursor: pointer;
+}
+.arch-view .arch-card-tile.tag-group-linked,
+.arch-view .arch-card-tile.tag-group-source {
+  margin-right: 0;
+  transform: translateY(-4px) scale(1.04);
+  z-index: 3;
+}
+.arch-view .arch-card-tile.tag-group-linked .stack-wrap::after,
+.arch-view .arch-card-tile.tag-group-source .stack-wrap::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--gold) 38%, transparent);
+  pointer-events: none;
+}
+.arch-view .arch-card-tile.tag-group-linked .stack-name,
+.arch-view .arch-card-tile.tag-group-source .stack-name {
+  color: var(--gold2);
+  font-weight: 600;
+}
+.arch-card-tile .stack-wrap { position: relative; }
+.arch-card-tile.is-arch-primary .stack-wrap { box-shadow: inset 0 0 0 2px var(--gold); border-radius: var(--radius); }
+.arch-card-tile .arch-card-menu {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 2;
+  min-width: 0;
+  padding: 0 5px;
+  line-height: 1.2;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  border-radius: 4px;
+}
+/* Text-row layout: name takes the slack, then a fixed-width slot holding the
+   right-aligned mana cost, then the role badge on the far right. Both slots are the
+   same width on every row of a panel, so each stays in its own column instead of
+   drifting with the length of each card's mana cost. The badge slot holds its width
+   even when a card has no role tag, or the column below it would break. */
+.arch-card-row .arch-row-badges {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 21px;
+}
+/* Nothing to line up when the badges are toggled off for the whole view. */
+.arch-view:not(:has(.deck-tag-badge)) .arch-card-row .arch-row-badges { display: none; }
+/* Sized by its mana cost, not padded out to a fixed width — the name column gets
+   every pixel that's left. Both slots pack against the right edge, so the badges and
+   the end of the mana cost still line up row to row. The floor is just enough to
+   hold the ⋯, which overlays this slot and has to land somewhere on costless cards. */
+.arch-card-row .arch-row-end {
+  position: relative;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 22px;
+}
+.arch-card-row .arch-row-mana { display: inline-flex; align-items: center; }
+
+/* The ⋯ placement button is hover-only chrome in both card and list view. In rows it
+   sits on top of the mana cost, which hides while the button is up, so nothing
+   reflows. Touch has no hover, so a tap sets .arch-card--actions-open instead;
+   .arch-card--menu-open keeps the button up while its popover is open. */
+.arch-card-row .arch-card-menu {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  min-width: 0;
+  padding: 0 6px;
+  line-height: 1.2;
+}
+.arch-card-row .arch-card-menu,
+.arch-card-tile .arch-card-menu {
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+@media (hover: hover) {
+  .arch-card-row:hover .arch-card-menu,
+  .arch-card-tile:hover .arch-card-menu { visibility: visible; opacity: 1; }
+  .arch-card-row:hover .arch-row-mana { visibility: hidden; }
+}
+.arch-card-row.arch-card--actions-open .arch-card-menu,
+.arch-card-tile.arch-card--actions-open .arch-card-menu,
+.arch-card-row.arch-card--menu-open .arch-card-menu,
+.arch-card-tile.arch-card--menu-open .arch-card-menu,
+.arch-card-menu:focus-visible { visibility: visible; opacity: 1; }
+.arch-card-row.arch-card--actions-open .arch-row-mana,
+.arch-card-row.arch-card--menu-open .arch-row-mana { visibility: hidden; }
+.arch-card-tile .stack-name {
+  font-size: 0.68rem;
+  line-height: 1.25;
+  margin-top: 4px;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+.arch-pips { display: inline-flex; gap: 3px; align-items: center; flex-shrink: 0; }
+.arch-card-row .arch-pips { gap: 2px; }
+/* Full mana costs need more room than the old single-colour pips. */
+#tab-decks .arch-card-row .arch-pips .mana-pip {
+  width: 16px;
+  height: 16px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.45);
+}
+.arch-mana-sep { font-size: 0.62rem; color: var(--text3); }
+.arch-pill {
+  font-size: 0.62rem;
+  border: 1px solid var(--border2);
+  border-radius: 999px;
+  padding: 0 6px;
+  line-height: 1.5;
+  color: var(--text3);
+}
+.arch-pill--declared { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, var(--border2)); }
+.arch-pill--inferred { color: var(--text3); }
+.arch-pill--override { color: var(--gold); }
+.arch-chip {
+  display: inline-flex;
+  gap: 4px;
+  font-size: 0.68rem;
+  border: 1px solid color-mix(in srgb, var(--arch-sub-accent, var(--border)) 35%, var(--border));
+  border-radius: 999px;
+  padding: 1px 7px;
+  color: var(--arch-sub-accent, var(--text2));
+  background: transparent;
+}
+.arch-compact-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+.arch-expand { cursor: pointer; font-size: 0.75rem; color: var(--gold); }
+.arch-multi, .arch-unassigned {
+  border: 1px dashed var(--border2);
+  border-radius: var(--radius2);
+  padding: 10px;
+  background: var(--bg);
+}
+.arch-multi-title { margin: 0 0 8px; font-size: 0.88rem; }
+.arch-multi-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.arch-multi-item {
+  display: flex; flex-direction: column; gap: 2px;
+  border: 1px solid var(--border); border-radius: var(--radius); padding: 4px 8px;
+}
+.arch-multi-name { font-size: 0.78rem; }
+.arch-multi-badges { font-size: 0.65rem; color: var(--text3); }
+.arch-legend {
+  display: flex; flex-wrap: wrap; gap: 12px 18px;
+  font-size: 0.72rem; color: var(--text3);
+}
+.arch-legend-multi { border: 1px dashed var(--border2); padding: 0 6px; border-radius: 999px; }
+.arch-menu {
+  position: fixed; z-index: 80; width: min(280px, calc(100vw - 16px));
+  max-height: min(70vh, 420px); overflow: auto;
+  background: var(--bg2); border: 1px solid var(--border2);
+  border-radius: var(--radius2); box-shadow: 0 8px 28px rgba(0,0,0,0.35);
+  padding: 6px;
+}
+.arch-menu-title { font-size: 0.8rem; font-weight: 600; padding: 4px 8px 6px; }
+.arch-menu-scroll { display: flex; flex-direction: column; max-height: 280px; overflow: auto; }
+.arch-menu-item {
+  display: block; width: 100%; text-align: left;
+  background: none; border: none; color: var(--text2);
+  padding: 6px 8px; border-radius: var(--radius); cursor: pointer; font-size: 0.75rem;
+}
+.arch-menu-item:hover { background: var(--bg3); color: var(--text); }
+.arch-menu-item--quiet { color: var(--text3); }
+.arch-menu-item--danger { color: var(--red); }
+
 /* ────────────────────────────────────────────────────────────────────────────
    Glass: app chrome — body base, topbar, sidebar, nav, dropdowns, toasts
    ──────────────────────────────────────────────────────────────────────────── */
@@ -10855,12 +11315,17 @@ body.glass-mode .topbar-brand * { font-family: 'Cinzel', serif !important; }
 
 /* 2. Floating surfaces must be readable over any content: solidly frosted,
    not see-through. Covers every popover/dropdown/tooltip/context-menu family
-   (they all shared background: var(--bg2), which glass makes nearly clear). */
+   (they all shared background: var(--bg2), which glass makes nearly clear).
+   The alpha is deliberately near-opaque: these overlays land on card art and
+   dense text, where anything more translucent turns the menu into noise. */
 body.glass-mode :is(
   .settings-dropdown, .notif-panel, .deck-options-dropdown,
   .cd-tag-ctx-menu, .deck-valid-tooltip, .deck-gc-tooltip, .tooltip,
+  .arch-menu, .history-event-quick-actions, .voice-search-settings,
+  .calc-search-results, .calc-partner-results,
+  .gf-context-menu, .gf-tutor-autocomplete,
   .tablet-player-menu, .tablet-drag-menu) {
-  background: rgba(23,30,52,0.82) !important;
+  background: rgba(17,23,42,0.97) !important;
   -webkit-backdrop-filter: blur(28px) saturate(180%) !important;
   backdrop-filter: blur(28px) saturate(180%) !important;
   border-color: rgba(255,255,255,0.17) !important;
@@ -10871,8 +11336,11 @@ body.glass-mode :is(
 [data-theme="light"] body.glass-mode :is(
   .settings-dropdown, .notif-panel, .deck-options-dropdown,
   .cd-tag-ctx-menu, .deck-valid-tooltip, .deck-gc-tooltip, .tooltip,
+  .arch-menu, .history-event-quick-actions, .voice-search-settings,
+  .calc-search-results, .calc-partner-results,
+  .gf-context-menu, .gf-tutor-autocomplete,
   .tablet-player-menu, .tablet-drag-menu) {
-  background: rgba(255,255,255,0.90) !important;
+  background: rgba(253,254,255,0.98) !important;
   border-color: rgba(255,255,255,0.95) !important;
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.98),
@@ -10980,14 +11448,14 @@ body.glass-mode .deck-menu-item:hover {
 }
 .deck-info-label { color: var(--text3); }
 body.glass-mode .deck-info-tooltip {
-  background: rgba(23,30,52,0.82) !important;
+  background: rgba(17,23,42,0.97) !important;
   -webkit-backdrop-filter: blur(28px) saturate(180%);
   backdrop-filter: blur(28px) saturate(180%);
   border-color: rgba(255,255,255,0.17) !important;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 18px 60px rgba(0,0,0,0.55) !important;
 }
 [data-theme="light"] body.glass-mode .deck-info-tooltip {
-  background: rgba(255,255,255,0.90) !important;
+  background: rgba(253,254,255,0.98) !important;
   border-color: rgba(255,255,255,0.95) !important;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.98), 0 18px 60px rgba(30,50,90,0.28) !important;
 }
