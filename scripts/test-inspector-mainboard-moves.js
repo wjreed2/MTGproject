@@ -95,30 +95,30 @@ const sol = { uid: 'sol_n', name: 'Sol Ring', scryfallId: 'abc', qty: 1 };
 
 {
   const html = renderInspectorHtml({ cards: [sol], card: sol, swapsOn: true });
-  assert.match(html, /Move to maybeboard/);
-  assert.match(html, /Move to Adds/);
+  assert.match(html, /Move this card from the mainboard to the maybe board/);
+  assert.match(html, /Move this card from the mainboard to planned adds/);
   assert.match(html, /moveToMaybeboardFromDetail\('sol_n'\)/);
   assert.match(html, /moveMainToAddsFromDetail\('sol_n'\)/);
-  assert.match(html, /Mark as cut/);
+  assert.match(html, /Plan to cut this card/);
 }
 
 {
   const html = renderInspectorHtml({ cards: [sol], card: sol, swapsOn: false });
-  assert.match(html, /Move to maybeboard/);
-  assert.doesNotMatch(html, /Move to Adds/);
-  assert.doesNotMatch(html, /Mark as cut/);
+  assert.match(html, /Move this card from the mainboard to the maybe board/);
+  assert.doesNotMatch(html, /Move this card from the mainboard to planned adds/);
+  assert.doesNotMatch(html, /Plan to cut this card/);
 }
 
 {
   const cmd = { uid: 'cmd_n', name: 'Atraxa', isCommander: true, qty: 1 };
   const html = renderInspectorHtml({ cards: [cmd], card: cmd, swapsOn: true });
-  assert.doesNotMatch(html, /Move to maybeboard/);
-  assert.doesNotMatch(html, /Move to Adds/);
+  assert.doesNotMatch(html, /Move this card from the mainboard to the maybe board/);
+  assert.doesNotMatch(html, /Move this card from the mainboard to planned adds/);
 }
 
 {
   const html = renderInspectorHtml({ cards: [], card: sol, swapsOn: true });
-  assert.doesNotMatch(html, /Move to maybeboard/);
+  assert.doesNotMatch(html, /Move this card from the mainboard to the maybe board/);
   assert.doesNotMatch(html, /moveMainToAddsFromDetail/);
   assert.match(html, /To Adds/);
 }

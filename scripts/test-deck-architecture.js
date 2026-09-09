@@ -177,7 +177,8 @@ function findRow(model, name) {
   };
   const m = classifyDeckArchitecture(deck);
   const row = findRow(m, 'Vren, the Relentless');
-  assert.ok(row.foundationFns.includes('win_condition'), 'vren wincon function');
+  // Win Condition is a Payoffs subsection now, not a Foundation function.
+  assert.ok(row.payoffSubs.includes('win_condition'), `vren wincon payoff ${row.payoffSubs}`);
   assert.ok(row.payoffSubs.includes('wincon_payoffs') || row.payoffSubs.includes('threats'), `vren payoff ${row.payoffSubs}`);
 }
 
@@ -265,8 +266,9 @@ function findRow(model, name) {
   assert.ok(findRow(m, 'Counterspell').foundationFns.includes('interaction'));
   assert.ok(m.counts.manabaseUnique >= 8);
   assert.ok(m.unassigned.some(r => r.name === 'Vanilla Bear'));
-  assert.strictEqual(m.foundationFns.length, 4);
-  assert.strictEqual(m.counts.foundationFns.win_condition, 0);
+  // Foundation is three functions since Win Condition moved to Payoffs.
+  assert.strictEqual(m.foundationFns.length, 3);
+  assert.strictEqual(m.counts.foundationFns.win_condition, undefined);
   assert.ok(m.counts.manabase.ramp >= 1);
 }
 

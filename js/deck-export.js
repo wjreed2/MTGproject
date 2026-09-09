@@ -339,8 +339,9 @@ function _deckExportUpdatePreview() {
   }
 
   const text = _deckExportBuild(deck, prefs);
-  const sample = text.split('\n').filter(Boolean).slice(0, 6).join('\n') || '1x Example Card';
-  preview.textContent = sample;
+  // Full list, not a 6-line sample — the preview box scrolls now.
+  preview.textContent = text.trim() || '1x Example Card';
+  preview.scrollTop = 0;
 }
 
 function _deckExportSyncSwapOptions() {

@@ -138,7 +138,14 @@
     else if (typeof save === 'function') save('decks');
     // Invalidate any in-flight Adds render that snapped an empty plan, then refresh.
     if (typeof _addSuggestToken === 'number') _addSuggestToken++;
+    // Saving a plan flips the auto engine mode semantic -> hybrid, so the mode
+    // toggles and both suggestion panels have to re-resolve, not just Adds.
+    if (typeof _syncSuggestAlgoUI === 'function') _syncSuggestAlgoUI();
     if (typeof _renderAddSuggestions === 'function') _renderAddSuggestions(deck);
+    if (typeof _renderCutSuggestions === 'function') _renderCutSuggestions(deck);
+    if (typeof renderDeckThemesPanel === 'function') {
+      try { renderDeckThemesPanel(deck); } catch (_) { /* panel optional */ }
+    }
     return true;
   }
 

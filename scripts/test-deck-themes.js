@@ -196,7 +196,9 @@ function fillers(n, prefix) {
   assert.ok(!(a.themes || []).some(t => t.supportCount >= 5), 'vanilla bears should not invent a focused theme');
 }
 
-// HTML mentions the Grimoire-style heading and a jive line
+// HTML renders the theme rows. The "Themes running through your deck" kicker and
+// the plan jive/clash lines were removed with the Plan wizard — the panel is
+// headed by the tab itself now, so a second heading inside it was redundant.
 {
   const deck = {
     cards: Array.from({ length: 12 }, (_, i) =>
@@ -208,7 +210,8 @@ function fillers(n, prefix) {
     },
   };
   const html = themes.deckThemesHtml(themes.analyzeDeckThemes(deck), s => String(s));
-  assert.ok(html.includes('Themes running through your deck'));
+  assert.ok(!html.includes('Themes running through your deck'), 'kicker heading stays removed');
+  assert.ok(html.includes('deck-themes-list'), 'theme rows render');
   assert.ok(html.includes('Tokens / Go-wide'));
   assert.ok(/decent/i.test(html));
   assert.ok(!html.includes('onclick='), 'chips must not use inline onclick');

@@ -30,7 +30,6 @@
     Object.freeze({ id: 'card_advantage', label: 'Card Advantage', blurb: 'Ways the deck generates extra cards or resources.' }),
     Object.freeze({ id: 'interaction', label: 'Interaction / Removal', blurb: 'Answers to opposing threats.' }),
     Object.freeze({ id: 'board_wipes', label: 'Board Wipes', blurb: 'Multiplayer board resets, kept distinct from spot interaction.' }),
-    Object.freeze({ id: 'win_condition', label: 'Win Condition', blurb: 'Whether the deck has a way to close games. Specific finishers live in Payoffs.' }),
   ]);
 
   const MANABASE_SUBS = Object.freeze([
@@ -67,6 +66,9 @@
   const INTERACTION_TAGS = Object.freeze(['Removal', 'Counterspell', 'Bounce', 'Bite', 'Burn']);
   const DRAW_TAGS = Object.freeze(['Card Draw', 'Wheel']);
   const LIGHT_MIN = 5;
+  // Below this the engine is guessing; fall back to detected themes instead.
+  const GOAL_MIN_CONFIDENCE = 0.35;
+  const GOAL_MAX_SUBS = 3;
   const ARCH_SUB_TINT_STEPS = 5;
 
   function _subsectionSlug(subId) {
@@ -104,6 +106,16 @@
   }
   function _themes() {
     return themesApi || root || {};
+  }
+
+  /** Front face of a double-faced name; split cards ("Fire // Ice") keep both. */
+  function _frontFaceName(name) {
+    const n = String(name || '').trim();
+    if (!n.includes('//')) return n;
+    const parts = n.split('//').map(x => x.trim()).filter(Boolean);
+    if (parts.length < 2) return n;
+    // "A // A" art variants collapse; otherwise take the front face.
+    return parts[0];
   }
 
   function architectureCardKey(card) {
@@ -243,7 +255,19 @@
     return null;
   }
 
-  function _cardHasWinconSignal(card, plan, deck) {
+  // Goals whose plan is "attack with the thing" — for these the commander is the
+  // deck's stated way to close, which is what Win Condition is asking.
+  const COMBAT_GOALS = Object.freeze(['voltron', 'stompy', 'counters', 'tokens', 'equipment', 'aristocrats', 'combo']);
+
+  function _goalImpliesCommanderWincon(goals) {
+    const top = (goals || [])[0];
+    if (!top || !top.goal) return false;
+    const key = String(top.goal);
+    return key.startsWith('tribal:') || COMBAT_GOALS.includes(key);
+  }
+
+  function _cardHasWinconSignal(card, plan, deck, goals) {
+    if (card && card.isCommander && _goalImpliesCommanderWincon(goals)) return true;
     const ir = _ir(card);
     if (ir && ir.wincon) return true;
     if (ir && Array.isArray(ir.roles) && ir.roles.includes('wincon')) return true;
@@ -293,14 +317,68 @@
       fns.push('board_wipes');
       reasons.push('tag:Board Wipe');
     }
-    if (_cardHasWinconSignal(card, plan, deck)) {
-      fns.push('win_condition');
-      reasons.push('wincon');
-    }
     return { fns, reasons };
   }
 
-  function _buildStrategySubs(plan, themeAnalysis, declaredIds) {
+  /**
+   * Semantic goal key -> the role tags that constitute it. The analyze endpoint
+   * ships English only (evidence and axis tokens are stripped server-side), so
+   * card placement is resolved client-side from role tags the deck already has.
+   */
+  const GOAL_ROLE_TAGS = Object.freeze({
+    aristocrats: ['Token Maker', 'Recursion', 'Reanimate', 'Lifegain', 'Drain'],
+    tokens: ['Token Maker', 'Anthem', 'Copy'],
+    spellslinger: ['Counterspell', 'Burn', 'Copy', 'Card Draw'],
+    reanimator: ['Reanimate', 'Recursion', 'Self-Mill', 'Mill', 'Discard'],
+    blink: ['Blink', 'Copy', 'Card Draw'],
+    lifegain: ['Lifegain', 'Drain'],
+    stompy: ['Pump', 'Bite', 'Combat Trick', 'Evasion', 'Extra Combat', 'Ramp'],
+    counters: ['Pump', 'Anthem', 'Combat Trick', 'Bite'],
+    landfall: ['Landfall', 'Ramp'],
+    enchantress: ['Card Draw', 'Recursion'],
+    artifacts: ['Treasure', 'Copy', 'Recursion'],
+    control: ['Counterspell', 'Removal', 'Board Wipe', 'Bounce', 'Card Draw'],
+    stax: ['Stax', 'Hatebear', 'Tax'],
+    voltron: ['Protection', 'Evasion', 'Pump', 'Extra Combat'],
+    equipment: ['Protection', 'Evasion', 'Pump'],
+    pump: ['Ramp', 'Treasure'],
+    wheels: ['Wheel', 'Discard', 'Card Draw'],
+    graveyard: ['Recursion', 'Reanimate', 'Self-Mill', 'Graveyard Cast', 'Mill'],
+    group_slug: ['Group Slug', 'Burn', 'Ping'],
+    combo: ['Tutor', 'Copy', 'Recursion'],
+  });
+
+  /** Strategy subsections named by the deck's inferred semantic goal. */
+  function _buildGoalSubs(goals) {
+    const out = [];
+    const seen = new Set();
+    for (const g of (goals || [])) {
+      if (!g || !g.goal) continue;
+      if ((g.confidence || 0) < GOAL_MIN_CONFIDENCE) continue;
+      const key = String(g.goal);
+      const base = key.startsWith('tribal:') ? 'tribal' : key;
+      const id = 'goal:' + key;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      out.push({
+        id,
+        label: g.label || key,
+        source: 'goal',
+        projectTags: key.startsWith('tribal:') ? [] : (GOAL_ROLE_TAGS[base] || []),
+        goalKey: key,
+        themeId: null,
+        subtagId: null,
+      });
+      if (out.length >= GOAL_MAX_SUBS) break;
+    }
+    return out;
+  }
+
+  function _buildStrategySubs(plan, themeAnalysis, declaredIds, goals) {
+    // The semantic engine's goal is a better statement of what the deck is
+    // trying to do than the generic theme vocabulary, so it wins when present.
+    const goalSubs = _buildGoalSubs(goals);
+    if (goalSubs.length) return goalSubs;
     const api = _plan();
     const winId = plan && plan.winConditionId;
     const subs = [];
@@ -356,6 +434,7 @@
     const hasTokens = declaredIds.has('strategy.tokens') || declaredIds.has('strategy.tribal')
       || [...themeIds].some(id => id === 'strategy.tokens' || String(id).startsWith('tribal:'));
     const out = [];
+    out.push({ id: 'win_condition', label: 'Win Condition', source: winId ? 'declared' : 'inferred' });
     out.push({ id: 'wincon_payoffs', label: 'Win Condition Payoffs', source: winId ? 'declared' : 'inferred' });
     if (winId === 'wincon.combo') out.push({ id: 'combo', label: 'Combo Pieces', source: 'declared' });
     if (hasTokens) out.push({ id: 'token_swarm', label: 'Token / Swarm Payoffs', source: declaredIds.has('strategy.tokens') || declaredIds.has('strategy.tribal') ? 'declared' : 'inferred' });
@@ -372,6 +451,21 @@
     const tagSet = new Set(tags);
     const th = _themes();
     for (const sub of strategySubs) {
+      if (sub.goalKey) {
+        if (sub.goalKey.startsWith('tribal:')) {
+          const type = sub.goalKey.slice('tribal:'.length).toLowerCase();
+          if (type && _typeLine(card).includes(type)) {
+            hit.push(sub.id);
+            reasons.push('goalTribal:' + type);
+          }
+          continue;
+        }
+        if ((sub.projectTags || []).some(t => tagSet.has(t))) {
+          hit.push(sub.id);
+          reasons.push('goal:' + sub.goalKey);
+        }
+        continue;
+      }
       if (sub.subtagId && (sub.projectTags || []).some(t => tagSet.has(t))) {
         hit.push(sub.id);
         reasons.push('planSubtag:' + sub.subtagId);
@@ -385,7 +479,7 @@
     return { hit, reasons };
   }
 
-  function _cardPayoffSubs(card, deck, plan, payoffSubs, tags, strategyHit) {
+  function _cardPayoffSubs(card, deck, plan, payoffSubs, tags, strategyHit, ctxGoals) {
     const hit = [];
     const reasons = [];
     const tagSet = new Set(tags);
@@ -396,7 +490,12 @@
     const rows = typeof api.activePlanSubTags === 'function' ? api.activePlanSubTags(plan, parentTarget) : [];
 
     for (const sub of payoffSubs) {
-      if (sub.id === 'wincon_payoffs' && _cardHasWinconSignal(card, plan, deck)) {
+      // Win Condition moved out of Foundation: "does this deck close games" is a
+      // payoff question, and its finishers already live here.
+      if (sub.id === 'win_condition' && _cardHasWinconSignal(card, plan, deck, ctxGoals)) {
+        hit.push(sub.id);
+        reasons.push('wincon');
+      } else if (sub.id === 'wincon_payoffs' && _cardHasWinconSignal(card, plan, deck)) {
         hit.push(sub.id);
         reasons.push('payoff:wincon');
       } else if (sub.id === 'combo' && (_cardHasWinconSignal(card, plan, deck) || tagSet.has('Tutor'))) {
@@ -473,7 +572,7 @@
     s.reasons.forEach(r => reasons.push(r));
     if (s.hit.length) categories.add('strategy');
 
-    const p = _cardPayoffSubs(card, deck, plan, payoffSubs, tags, s.hit);
+    const p = _cardPayoffSubs(card, deck, plan, payoffSubs, tags, s.hit, ctx.goals);
     p.reasons.forEach(r => reasons.push(r));
     if (p.hit.length) categories.add('payoffs');
 
@@ -490,9 +589,14 @@
       }
     }
 
+    const fullName = card && card.name || '';
     return {
       key: architectureCardKey(card),
-      name: card && card.name || '',
+      // Every double-faced row truncated mid-back-face ("Jwari Disruption //
+      // Jwari…"), spending half the row on a name you could not read. Show the
+      // front face; fullName keeps both for the tooltip.
+      name: _frontFaceName(fullName),
+      fullName,
       qty: _qty(card),
       card,
       categories: [...categories],
@@ -505,6 +609,32 @@
       primary: null,
       source: 'inferred',
     };
+  }
+
+  /** True for Plains/Island/.../Wastes, including snow-covered printings. */
+  function _isBasicLandCard(card) {
+    const t = _typeLine(card);
+    return t.includes('basic') && t.includes('land');
+  }
+
+  /**
+   * One row per basic land name instead of one per copy — a 12-Plains deck
+   * listed twelve identical rows. Rows are merged only when they agree on
+   * category, so a per-copy override still stands on its own.
+   */
+  function _mergeBasicLandRows(rows) {
+    const out = [];
+    const byKey = new Map();
+    for (const row of rows) {
+      if (!row || !_isBasicLandCard(row.card)) { out.push(row); continue; }
+      const key = String(row.name || '').toLowerCase() + '|' + (row.categories || []).slice().sort().join(',');
+      const seen = byKey.get(key);
+      if (seen) { seen.qty += row.qty; continue; }
+      const merged = { ...row, qty: row.qty };
+      byKey.set(key, merged);
+      out.push(merged);
+    }
+    return out;
   }
 
   function applyArchitectureOverrides(rows, overrides) {
@@ -666,7 +796,7 @@
       : [];
     const declaredIds = new Set(declaredList.map(t => t.id));
 
-    let strategySubs = _buildStrategySubs(resolvedPlan, themeAnalysis, declaredIds);
+    let strategySubs = _buildStrategySubs(resolvedPlan, themeAnalysis, declaredIds, (opts && opts.goals) || null);
     if (!strategySubs.length) {
       const apiPlan = _plan();
       const anyMatch = cards.some(c => typeof apiPlan.planMatchScore === 'function' && apiPlan.planMatchScore(c, resolvedPlan, deck) > 0 && !_isStapleOnly(_roles(c, deck)));
@@ -683,9 +813,10 @@
     }
 
     const payoffSubsAll = _buildPayoffSubs(resolvedPlan, themeAnalysis, declaredIds);
-    const ctx = { deck, plan: resolvedPlan, strategySubs, payoffSubs: payoffSubsAll };
+    const ctx = { deck, plan: resolvedPlan, strategySubs, payoffSubs: payoffSubsAll, goals: (opts && opts.goals) || null };
     let rows = cards.map(c => classifyCardArchitecture(c, ctx));
     rows = applyArchitectureOverrides(rows, (opts && opts.overrides) || (deck && deck.architectureOverrides));
+    rows = _mergeBasicLandRows(rows);
 
     const usedPayoff = new Set();
     rows.forEach(r => r.payoffSubs.forEach(id => usedPayoff.add(id)));
@@ -740,8 +871,9 @@
     // Two fixed slots at the row end keep the mana cost and the badges each in their
     // own column across every row; the ⋯ sits on top of the mana cost.
     const badges = `${src}${badge}${qtyHtml}`.trim();
+    const titleAttr = row.fullName && row.fullName !== row.name ? ` title="${_esc(row.fullName)}"` : '';
     return `<div class="arch-card-row deck-card-row${primaryMark}" data-arch-key="${key}" data-card-name-key="${_esc(String(c.name || '').trim().toLowerCase())}" data-uid="${_esc(c.uid || c.scryfallId || '')}">
-      <span class="deck-card-name">${name}</span><span class="arch-row-end"><span class="arch-row-mana">${mana}</span>${menu}</span><span class="arch-row-badges">${badges}</span>
+      <span class="deck-card-name"${titleAttr}>${name}</span><span class="arch-row-end"><span class="arch-row-mana">${mana}</span>${menu}</span><span class="arch-row-badges">${badges}</span>
     </div>`;
   }
 
@@ -887,8 +1019,7 @@
 
   function _subSectionHtml(title, count, source, cardsHtml, chrome, bodyClass) {
     const src = source === 'inferred'
-      ? '<span class="arch-pill arch-pill--inferred" title="Detected from the list, not set in Plan">Inferred</span>'
-      : (source === 'declared' ? '<span class="arch-pill arch-pill--declared" title="From your confirmed or declared Plan">Plan</span>' : '');
+      ? '' : '';  // Plan / Inferred pills retired with the Plan wizard
     const bodyCls = bodyClass || 'arch-sub-body';
     const c = chrome || { classes: '', dataAttrs: '' };
     return `<details class="arch-sub ${c.classes}" ${c.dataAttrs} open>
@@ -973,34 +1104,21 @@
           <h3 class="arch-panel-title">${meta.label}</h3>
           <span class="arch-panel-count">${n} cards</span>
         </header>
-        <p class="arch-panel-blurb">${_esc(meta.blurb)}</p>
         ${compact}
       </section>`;
     };
 
-    const multiRows = (typeof o.sortRows === 'function' && o.sortRows(model.multiRole || [])) || (model.multiRole || []);
-    const multi = multiRows.map(r => {
-      const badges = r.categories.map(c => CATEGORY_META[c].label).join(' / ');
-      return `<div class="arch-multi-item" data-arch-key="${_esc(r.key)}"><span class="arch-multi-name">${_esc(r.name)}</span><span class="arch-multi-badges">${_esc(badges)}</span></div>`;
-    }).join('');
-
     const un = _cardsBodyHtml(model.unassigned || [], o);
 
     return `<div class="arch-view ${viewCls}" id="deckArchitectureView">
-      <p class="arch-note">Cards can appear in more than one area. Panel counts are unique cards; subsection counts are memberships, not a second deck total. Visualization Foundation functions are not the Hybrid capability scores.</p>
       <div class="${gridCls}">
         ${panel('foundation', foundationSubs)}
         ${panel('strategy', strategyHtml)}
         ${panel('payoffs', payoffHtml)}
         ${panel('manabase', landHtml)}
       </div>
-      <section class="arch-multi">
-        <h3 class="arch-multi-title">Cards that serve multiple roles</h3>
-        <div class="arch-multi-list">${multi || '<div class="arch-empty">No multi-role cards in this list.</div>'}</div>
-      </section>
       <section class="arch-unassigned">
-        <h3 class="arch-multi-title">Unassigned <span class="arch-panel-count">${(model.unassigned || []).reduce((s, r) => s + r.qty, 0)} cards</span></h3>
-        <p class="arch-panel-blurb">No Foundation, Strategy, Payoffs, or Mana Sources rule matched these cards. Not a fifth category.</p>
+        <h3 class="arch-unassigned-title">Unassigned <span class="arch-panel-count">${(model.unassigned || []).reduce((s, r) => s + r.qty, 0)} cards</span></h3>
         <div class="arch-unassigned-body ${cardMode === 'visual' ? 'arch-sub-body--visual' : ''}">${un || '<div class="arch-empty">Every card found a place.</div>'}</div>
       </section>
       <footer class="arch-legend">
@@ -1008,7 +1126,6 @@
         <span><strong>Strategy</strong> ${CATEGORY_META.strategy.legend}</span>
         <span><strong>Payoffs</strong> ${CATEGORY_META.payoffs.legend}</span>
         <span><strong>Mana Sources</strong> ${CATEGORY_META.manabase.legend}</span>
-        <span class="arch-legend-multi">Multi-role</span>
       </footer>
     </div>`;
   }
