@@ -72,7 +72,6 @@ let voiceAddToActiveDeckMode = false;
 let voiceDeckAddTarget = 'deck';
 /** Deck-view voice mode preference: also add to collection when adding to active deck. */
 let voiceDeckAddToCollectionEnabled = localStorage.getItem('mtg_voice_deck_add_collection') !== '0';
-let voiceSetSettingsOpen = false;
 
 // Set browser state
 let allSets      = [];

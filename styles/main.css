@@ -561,20 +561,33 @@ body::before {
   justify-content: center;
   padding: 1.5rem;
 }
+/* Auth gate is styled like a deck-builder tab page: folder tabs on top of a
+   glass card, on the app's own wallpaper. */
+.auth-shell {
+  width: min(420px, 100%);
+  display: flex;
+  flex-direction: column;
+}
 .auth-card {
-  width: min(400px, 100%);
   background: var(--bg2);
   border: 1px solid var(--border2);
   border-radius: var(--radius2);
-  padding: 1.75rem 1.5rem 1.5rem;
+  padding: 1.6rem 1.5rem 1.4rem;
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+}
+.auth-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 0.3rem;
 }
 .auth-title {
   font-family: 'Cinzel', serif;
   font-size: 1.25rem;
   text-align: center;
   color: var(--gold);
-  margin: 0 0 0.35rem;
+  margin: 0;
   font-weight: 700;
 }
 .auth-sub {
@@ -586,20 +599,28 @@ body::before {
 }
 .auth-label {
   display: block;
-  font-size: 0.72rem;
+  font-size: 0.74rem;
   color: var(--text2);
-  margin-bottom: 0.6rem;
+  margin-bottom: 0.7rem;
 }
 .auth-input {
   display: block;
   width: 100%;
-  margin-top: 4px;
+  height: 36px;
+  margin-top: 5px;
+  padding: 0 12px;
   font-size: 0.9rem;
+  border-radius: 8px;
+  box-sizing: border-box;
 }
 .auth-submit {
   width: 100%;
-  margin-top: 0.75rem;
+  height: 38px;
+  margin-top: 0.85rem;
+  border-radius: 8px !important;
+  justify-content: center;
 }
+.auth-secondary { margin-top: 0.5rem; }
 .auth-error {
   font-size: 0.78rem;
   color: var(--red);
@@ -942,21 +963,23 @@ body.glass-mode #deckTabPane-design .panel {
      reads at a glance: bright azure vs vivid orchid */
   --lgx-good: 86,196,255;
   --lgx-bad: 205,94,245;
+  --lgx-green: 82,196,132; /* third glass accent — default/Scryfall tags */
 }
 [data-theme="light"] {
   --lgx1: 74,120,232;
   --lgx2: 138,102,224;
   --lgx-good: 20,105,225;
   --lgx-bad: 148,52,205;
+  --lgx-green: 22,140,86;
 }
-#tab-decks .glass-dd-wrap { position: relative; display: inline-flex; }
+#tab-decks .glass-dd-wrap, #voiceModal .glass-dd-wrap { position: relative; display: inline-flex; }
 /* !important outranks the #tab-decks #deckGroupByWrap select sizing-parity rule */
-#tab-decks select[data-glassified] { display: none !important; }
-#tab-decks .glass-dd-btn { gap: 6px; white-space: nowrap; }
-#tab-decks .glass-dd-prefix { opacity: 0.55; }
+#tab-decks select[data-glassified], #voiceModal select[data-glassified] { display: none !important; }
+#tab-decks .glass-dd-btn, #voiceModal .glass-dd-btn { gap: 6px; white-space: nowrap; }
+#tab-decks .glass-dd-prefix, #voiceModal .glass-dd-prefix { opacity: 0.55; }
 #tab-decks .glass-dir-btn { min-width: 34px; justify-content: center; }
 /* Glass triggers everywhere pick up the blue→purple hover, like the toolbar */
-#tab-decks .glass-dd-btn:hover {
+#tab-decks .glass-dd-btn:hover, #voiceModal .glass-dd-btn:hover {
   color: var(--text);
   border-color: rgba(var(--lgx1), 0.55);
   background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14));
@@ -1821,46 +1844,224 @@ body.glass-mode .glass-menu-item { font-family: var(--glass-font); }
 }
 .voice-tab:hover:not(.active) { color: var(--text); }
 .voice-tab.active { color: var(--gold); border-bottom-color: var(--gold); }
-.voice-settings-gear {
-  margin-left: auto;
-  margin-bottom: 6px;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--text2);
-}
-.voice-search-settings {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  z-index: 60;
-  width: 260px;
-  max-width: min(260px, calc(100vw - 40px));
-  padding: 1rem;
-  border: 1px solid var(--border2);
-  border-radius: var(--radius2);
-  background: var(--bg2);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
-}
-.voice-search-settings .settings-section-label {
-  margin-bottom: 0.5rem;
-}
-.voice-search-settings .settings-divider {
-  margin: 0.75rem 0;
-}
-.voice-settings-check {
+
+/* ── ADD CARDS MODAL — folder tabs outside the popup, glass controls inside ── */
+.voice-modal-shell {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.78rem;
-  color: var(--text2);
-  margin-bottom: 7px;
-  cursor: pointer;
+  flex-direction: column;
+  align-items: stretch;
+  max-width: 96vw;
 }
-.voice-settings-check--last {
-  margin-bottom: 0;
+#voiceModal .voice-folder-tabs {
+  margin-bottom: -1px; /* active tab opens into the popup */
+  position: relative;
+  z-index: 2;
+}
+#voiceModal .modal { border-top-left-radius: 0; }
+/* Tab and popup are one material, like the deck-builder tabs: both use a
+   VERTICAL wash over a VERTICAL base, so the popup's entire top edge is exactly
+   the active tab's bottom edge colour (the stock modal's 165deg gradient would
+   drift across the width and break the joint). */
+body.glass-mode #voiceModal .voice-modal {
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.15) 0%, rgba(var(--lgx2), 0.07) 55%, rgba(var(--lgx2), 0.04) 100%),
+    linear-gradient(180deg, rgba(34,44,74,0.92) 0%, rgba(20,27,48,0.90) 100%);
+  /* No inset top specular: it draws a bright line straight through the joint
+     under the (translucent) active tab. The tab strip carries that edge now. */
+  box-shadow: 0 28px 90px rgba(0,0,0,0.6);
+}
+body.glass-mode #voiceModal .deck-ftab.active::before {
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.20), rgba(var(--lgx1), 0.15)),
+    rgba(34,44,74,0.92); /* = the popup's top colour */
+  border-color: rgba(255,255,255,0.16);
+  border-bottom: none;
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  backdrop-filter: blur(30px) saturate(180%);
+}
+[data-theme="light"] body.glass-mode #voiceModal .voice-modal {
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.12) 0%, rgba(var(--lgx2), 0.06) 55%, rgba(var(--lgx2), 0.04) 100%),
+    linear-gradient(180deg, rgba(255,255,255,0.95) 0%, rgba(243,247,255,0.90) 100%);
+  box-shadow: 0 28px 90px rgba(30,50,90,0.3);
+}
+[data-theme="light"] body.glass-mode #voiceModal .deck-ftab.active::before {
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.16), rgba(var(--lgx1), 0.12)),
+    rgba(255,255,255,0.95);
+  border-color: rgba(255,255,255,0.85);
+  border-bottom: none;
 }
 
+/* Destination controls — deck-list-toolbar pill look. The #voiceModal prefix is
+   load-bearing: body.glass-mode .btn ties on specificity and would otherwise win
+   on source order, leaving the toggle with no visible on-state. */
+.voice-pill-toggle { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.voice-pill-toggle input { display: none; }
+#voiceModal .voice-pill-toggle:has(input:checked) {
+  color: #fff;
+  border-color: rgba(var(--lgx2), 0.6) !important;
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.30), rgba(var(--lgx2), 0.30)) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.22), 0 2px 12px rgba(var(--lgx1), 0.18) !important;
+}
+[data-theme="light"] #voiceModal .voice-pill-toggle:has(input:checked) {
+  color: #17204a;
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.24), rgba(var(--lgx2), 0.24)) !important;
+}
+/* Buttons match the deck-list toolbar exactly (same 34px / 12px / 8px metrics as
+   the Filter button — glass mode otherwise makes every .btn a 999px pill) */
+#voiceModal .btn:not(.modal-close-x) { border-radius: 8px !important; }
+#voiceModal .btn:not(.modal-close-x):not(#voiceAddBtn) {
+  height: 34px !important;
+  padding: 0 12px !important;
+  font-size: 0.82rem !important;
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+}
+#voiceModal .btn-icon:not(.modal-close-x) {
+  padding: 0 !important;
+  min-width: 34px;
+  justify-content: center;
+}
+#voiceModal #voiceAddBtn { padding: 11px 16px !important; }
+/* Keep the manual set/number inputs usable now that the buttons are full width */
+#voiceModal .voice-manual-row #manualSetCode { flex: 0 0 auto; }
+#voiceModal .voice-manual-row #manualCardNum { flex: 1 1 130px; min-width: 130px; }
+#voiceModal .voice-manual-row input { height: 34px; box-sizing: border-box; }
+/* Segmented toggles read as separate, defined buttons — same shell as the
+   "Add to my collection" pill rather than a flat joined strip */
+#voiceModal .view-toggle {
+  display: inline-flex;
+  gap: 6px;
+  height: auto;
+  background: none !important;
+  border: none !important;
+  border-radius: 0;
+  overflow: visible;
+  box-shadow: none !important;
+}
+#voiceModal .view-toggle button {
+  height: 34px;
+  padding: 0 12px;
+  font-size: 0.82rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.07);
+  color: rgba(240,244,252,0.82);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 2px 10px rgba(0,0,0,0.22);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  transition: all 0.18s var(--ease);
+}
+#voiceModal .view-toggle button:hover {
+  color: #fff;
+  border-color: rgba(var(--lgx1), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14));
+}
+#voiceModal .view-toggle button.active {
+  color: #fff;
+  border-color: rgba(var(--lgx2), 0.6);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.30), rgba(var(--lgx2), 0.30));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.22), 0 2px 12px rgba(var(--lgx1), 0.18);
+}
+[data-theme="light"] #voiceModal .view-toggle button {
+  background: rgba(255,255,255,0.55);
+  border-color: rgba(255,255,255,0.75);
+  color: rgba(28,40,58,0.82);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 10px rgba(30,50,90,0.10);
+}
+[data-theme="light"] #voiceModal .view-toggle button.active {
+  color: #17204a;
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.24), rgba(var(--lgx2), 0.24));
+}
+/* Inspector-style qty stepper (− value +) */
+.voice-qty-stepper { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.voice-qty-value {
+  width: 40px;
+  text-align: center;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.9rem;
+  padding: 0;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+.voice-qty-value::-webkit-outer-spin-button,
+.voice-qty-value::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.voice-qty-value:focus { outline: none; color: rgb(var(--lgx1)); }
+
+/* Search bar + quick-select pills on the glass system */
+#voiceModal .search-box {
+  height: 34px;
+  border-radius: 8px;
+  padding: 0 12px;
+  border: 1px solid var(--border2);
+  box-sizing: border-box;
+}
+body.glass-mode #voiceModal .search-box {
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.28); /* clear outline, not a hairline */
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.10);
+}
+[data-theme="light"] body.glass-mode #voiceModal .search-box {
+  background: rgba(255,255,255,0.6);
+  border-color: rgba(90,110,160,0.35);
+}
+#voiceModal .search-box:focus {
+  border-color: rgba(var(--lgx1), 0.75);
+  box-shadow: 0 0 0 3px rgba(var(--lgx1), 0.18);
+}
+
+/* Autocomplete sits directly under the search bar. It must be absolute (not
+   fixed): the modal's backdrop-filter makes it the containing block for fixed
+   descendants, so viewport coords put the list far below/right of the input. */
+#findCardAutocomplete {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  width: 100%;
+  z-index: 9999;
+  max-height: 240px;
+  overflow-y: auto;
+  border-radius: 10px;
+  border: 1px solid rgba(var(--lgx1), 0.28);
+  background: rgba(18,24,44,0.96);
+  -webkit-backdrop-filter: blur(20px) saturate(1.15);
+  backdrop-filter: blur(20px) saturate(1.15);
+  box-shadow: 0 14px 34px rgba(0,0,0,0.5);
+}
+[data-theme="light"] #findCardAutocomplete {
+  background: rgba(252,253,255,0.97);
+  border-color: rgba(90,110,200,0.30);
+  box-shadow: 0 14px 34px rgba(40,60,120,0.20);
+}
+#voiceModal .filter-chip { border-radius: 999px; }
+#voiceModal .filter-chip:hover { border-color: rgba(var(--lgx1), 0.55); color: var(--text); }
+#voiceModal .filter-chip.active {
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.24), rgba(var(--lgx2), 0.24));
+  border-color: rgba(var(--lgx2), 0.55);
+  color: var(--text);
+  font-weight: 600;
+}
+#voiceModal .find-color-pill.active {
+  border-color: rgba(var(--lgx1), 0.9);
+  box-shadow: 0 0 0 2px rgba(var(--lgx2), 0.35);
+}
+#voiceModal .btn-outline:hover {
+  color: var(--text);
+  border-color: rgba(var(--lgx1), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14));
+}
+#voiceModal .btn-outline.active {
+  color: var(--text);
+  border-color: rgba(var(--lgx2), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.22), rgba(var(--lgx2), 0.22));
+}
 /* VOICE UI */
 .voice-two-col {
   display: grid;
@@ -1893,9 +2094,19 @@ body.glass-mode .glass-menu-item { font-family: var(--glass-font); }
   .voice-card-panel { display: none; }
 }
 /* Search tab: full-viewport modal with 25px gap, card grid fills all remaining space */
-#voiceModal.search-mode .modal {
-  position: fixed !important;
-  inset: 25px !important;
+/* BOTH tabs share one footprint — the window never resizes when you switch.
+   The SHELL pins to the viewport so the folder tabs ride on top of the popup;
+   the modal fills what's left and its content scrolls internally. */
+#voiceModal .voice-modal-shell {
+  position: fixed;
+  inset: 25px;
+  max-width: none;
+}
+#voiceModal .modal {
+  position: static !important;
+  inset: auto !important;
+  flex: 1;
+  min-height: 0;
   width: auto !important;
   max-width: none !important;
   height: auto !important;
@@ -1905,28 +2116,39 @@ body.glass-mode .glass-menu-item { font-family: var(--glass-font); }
   flex-direction: column;
   overflow: hidden;
 }
-#voiceModal.search-mode .modal-title { margin-bottom: 0.6rem; flex-shrink: 0; }
-#voiceModal.search-mode .voice-card-panel { display: none; }
-#voiceModal.search-mode .voice-two-col {
+#voiceModal .modal-title { margin-bottom: 0.6rem; flex-shrink: 0; }
+#voiceModal .voice-two-col {
   flex: 1;
   min-height: 0;
-  display: flex;
-  flex-direction: column;
   max-width: none;
   width: 100%;
   margin: 0;
+}
+#voiceModal .voice-two-col > div:first-child {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+/* Voice tab: keep the preview column, scroll the controls column */
+#voiceModal:not(.search-mode) #voiceTabContent {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+#voiceModal:not(.search-mode) .voice-card-panel { align-self: start; }
+#voiceModal.search-mode .voice-card-panel { display: none; }
+#voiceModal.search-mode .voice-two-col {
+  display: flex;
+  flex-direction: column;
   gap: 0;
 }
 #voiceModal.search-mode .voice-two-col > div:first-child {
   flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
   width: 100%;
-  overflow: hidden;
 }
 #voiceModal.search-mode .voice-tab-bar { flex-shrink: 0; }
-#voiceModal.search-mode .voice-search-settings { flex-shrink: 0; }
 #voiceModal.search-mode #searchTabContent {
   flex: 1;
   min-height: 0;
@@ -2954,9 +3176,75 @@ img.stack-main.loaded { opacity: 1; }
   touch-action: manipulation;
 }
 .cd-tag-chip--interactive:focus-visible {
-  outline: 2px solid var(--teal);
+  outline: 2px solid rgb(var(--lgx1));
   outline-offset: 2px;
 }
+
+/* ── CARD INSPECTOR — deck-list button metrics + liquid-glass tags ─────────── */
+/* Buttons match the deck-list toolbar exactly (glass mode otherwise pills them) */
+#cardDetailModal .btn:not(.card-detail-modal-close) { border-radius: 8px !important; }
+#cardDetailModal .btn:not(.card-detail-modal-close):not(.btn-icon) {
+  height: 34px !important;
+  padding: 0 12px !important;
+  font-size: 0.82rem !important;
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+}
+/* Qty steppers: identical shell to the Add Cards quantity stepper */
+#cardDetailModal .card-detail-qty-printing-row .btn-icon,
+#cardDetailModal .card-detail-qty-row .btn-icon {
+  height: 34px !important;
+  min-width: 34px;
+  padding: 0 !important;
+  justify-content: center;
+  border-radius: 8px !important;
+}
+#cardDetailModal .btn-outline:hover {
+  color: var(--text);
+  border-color: rgba(var(--lgx1), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14));
+}
+#cardDetailModal .btn-outline.active {
+  color: var(--text);
+  border-color: rgba(var(--lgx2), 0.6);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.24), rgba(var(--lgx2), 0.24));
+}
+
+/* Tags keep a real tag silhouette — angled leading edge + punch hole — but in
+   frosted glass. Tier reads from the hole colour, so one row can mix sources. */
+#cardDetailModal .cd-tag-group { display: contents; }
+#cardDetailModal .card-detail-tagrow { gap: 8px; row-gap: 8px; min-height: 1.75rem; }
+#cardDetailModal .cd-tags-empty { font-size: 0.75rem; color: var(--text3); }
+/* Tier is the whole tag's colour now — no border, no dot. Blue = primary,
+   purple = secondary, green = default. */
+#cardDetailModal .tag {
+  --cd-tag-rgb: var(--lgx1);
+  position: relative;
+  gap: 8px;
+  padding: 5px 13px 5px 17px;
+  /* Square tail with the buttons' 8px corners; the clip only cuts the left
+     point (its edges run past the box, so the right corners keep their radius). */
+  border-radius: 8px;
+  clip-path: polygon(10px -20%, 120% -20%, 120% 120%, 10px 120%, 0 50%);
+  font-size: 0.8rem !important;
+  font-weight: 500;
+  color: #fff;
+  background:
+    linear-gradient(135deg, rgba(var(--cd-tag-rgb), 0.42), rgba(var(--cd-tag-rgb), 0.20));
+  border: none;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.22);
+}
+#cardDetailModal .tag-primary { --cd-tag-rgb: var(--lgx1); }
+#cardDetailModal .tag-secondary { --cd-tag-rgb: var(--lgx2); }
+#cardDetailModal .tag-scryfall { --cd-tag-rgb: var(--lgx-green); }
+[data-theme="light"] #cardDetailModal .tag {
+  color: #12203a;
+  background:
+    linear-gradient(135deg, rgba(var(--cd-tag-rgb), 0.34), rgba(var(--cd-tag-rgb), 0.16));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.6);
+}
+#cardDetailModal .tag-deck-disabled { opacity: 0.4; filter: none; }
 .cd-tag-ctx-menu {
   position: fixed;
   z-index: 2000;
@@ -5170,7 +5458,7 @@ body.glass-mode .deck-extra-zone-section {
 .card-detail-qty-value {
   font-family: 'JetBrains Mono', monospace;
   font-size: 0.9rem;
-  min-width: 22px;
+  min-width: 40px; /* matches the Add Cards qty stepper */
   text-align: center;
 }
 .card-detail-qty-value--muted {
@@ -10315,21 +10603,44 @@ body.glass-mode .notif {
     inset 0 1px 0 rgba(255,255,255,0.16),
     0 14px 48px rgba(0,0,0,0.5);
 }
+/* Sign-in wears the app wallpaper instead of a flat black scrim */
+body.glass-mode .auth-gate {
+  background:
+    radial-gradient(42% 38% at 16% 10%, rgba(90,162,255,0.30), transparent 70%),
+    radial-gradient(46% 42% at 84% 16%, rgba(168,140,255,0.24), transparent 70%),
+    radial-gradient(52% 48% at 76% 88%, rgba(79,216,189,0.18), transparent 70%),
+    radial-gradient(38% 34% at 10% 80%, rgba(255,170,110,0.14), transparent 70%),
+    linear-gradient(180deg, #0b1122 0%, #0d1428 55%, #0a0f1f 100%);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+/* Card = a deck-builder tab page: blue→purple wash over a flat glass base, so
+   the whole top edge matches the active tab's bottom edge exactly. */
 body.glass-mode .auth-card {
-  background: rgba(22,29,52,0.55);
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.15) 0%, rgba(var(--lgx2), 0.07) 55%, rgba(var(--lgx2), 0.04) 100%),
+    rgba(22,29,52,0.62);
   -webkit-backdrop-filter: blur(30px) saturate(180%);
   backdrop-filter: blur(30px) saturate(180%);
   border-color: rgba(255,255,255,0.16);
-  border-radius: 24px;
+  border-radius: 20px;
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.16),
     0 24px 80px rgba(0,0,0,0.55);
 }
-body.glass-mode .auth-title {
-  font-family: var(--glass-font);
-  letter-spacing: 0;
-  text-transform: none;
+/* Branding stays gold Cinzel, same as the topbar wordmark */
+/* Inputs match the deck-list search field */
+body.glass-mode .auth-input {
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.28);
+  color: var(--text);
 }
+body.glass-mode .auth-input:focus {
+  outline: none;
+  border-color: rgba(var(--lgx1), 0.75);
+  box-shadow: 0 0 0 3px rgba(var(--lgx1), 0.18);
+}
+body.glass-mode .auth-gate .btn-link { color: rgb(var(--lgx1)); }
 body.glass-mode ::-webkit-scrollbar { width: 6px; }
 body.glass-mode ::-webkit-scrollbar-thumb {
   background: rgba(255,255,255,0.18);
@@ -10373,12 +10684,26 @@ body.glass-mode .mobile-bottom-nav {
     inset 0 1px 0 rgba(255,255,255,0.95),
     0 14px 48px rgba(30,50,90,0.22);
 }
+[data-theme="light"] body.glass-mode .auth-gate {
+  background:
+    radial-gradient(42% 38% at 16% 10%, rgba(120,170,255,0.5), transparent 70%),
+    radial-gradient(46% 42% at 84% 16%, rgba(190,160,255,0.42), transparent 70%),
+    radial-gradient(52% 48% at 76% 88%, rgba(120,225,200,0.38), transparent 70%),
+    radial-gradient(38% 34% at 10% 80%, rgba(255,200,150,0.35), transparent 70%),
+    linear-gradient(180deg, #eef2fa 0%, #e8edf8 55%, #eaeef6 100%);
+}
 [data-theme="light"] body.glass-mode .auth-card {
-  background: rgba(255,255,255,0.66);
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.12) 0%, rgba(var(--lgx2), 0.06) 55%, rgba(var(--lgx2), 0.04) 100%),
+    rgba(255,255,255,0.72);
   border-color: rgba(255,255,255,0.9);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.95),
     0 24px 80px rgba(30,50,90,0.3);
+}
+[data-theme="light"] body.glass-mode .auth-input {
+  background: rgba(255,255,255,0.7);
+  border-color: rgba(90,110,160,0.35);
 }
 [data-theme="light"] body.glass-mode ::-webkit-scrollbar-thumb { background: rgba(20,35,60,0.22); }
 [data-theme="light"] body.glass-mode ::-webkit-scrollbar-thumb:hover { background: rgba(20,35,60,0.38); }

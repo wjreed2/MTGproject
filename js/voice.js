@@ -121,8 +121,12 @@ const voiceSetPrefsDefault = {
   filterOwnedSetsOnly: false,
   paperOnly: true,
 };
+/* Token-set / art-set exclusion and paper-only are app-wide rules now, not user
+   settings — any value stored by the old Settings panel is ignored. */
+const VOICE_LOCKED_SET_PREFS = { excludeTokenSets: true, excludeArtCardSets: true, paperOnly: true };
 let voiceSetPrefs = { ...voiceSetPrefsDefault };
 _voiceLoadSetPrefs();
+Object.assign(voiceSetPrefs, VOICE_LOCKED_SET_PREFS);
 
 function _voiceLoadSetPrefs() {
   try {
@@ -156,10 +160,8 @@ function _voiceLoadSetPrefs() {
 
 function _voiceSaveSetPrefs() {
   const payload = {
-    excludeTokenSets: !!voiceSetPrefs.excludeTokenSets,
-    excludeArtCardSets: !!voiceSetPrefs.excludeArtCardSets,
+    ...VOICE_LOCKED_SET_PREFS,
     filterOwnedSetsOnly: !!voiceSetPrefs.filterOwnedSetsOnly,
-    paperOnly: voiceSetPrefs.paperOnly !== false,
   };
   localStorage.setItem(VOICE_SET_PREFS_KEY, JSON.stringify(payload));
 }
@@ -334,40 +336,18 @@ function getVoiceSearchSetFilterPredicate() {
 }
 globalThis.getVoiceSearchSetFilterPredicate = getVoiceSearchSetFilterPredicate;
 
-function toggleVoiceSearchSettings(forceOpen) {
-  const panel = document.getElementById('voiceSearchSettingsPanel');
-  const gear = document.getElementById('voiceSettingsGearBtn');
-  if (!panel || !gear) return;
-  voiceSetSettingsOpen = typeof forceOpen === 'boolean' ? forceOpen : !voiceSetSettingsOpen;
-  panel.classList.toggle('hidden', !voiceSetSettingsOpen);
-  panel.setAttribute('aria-hidden', voiceSetSettingsOpen ? 'false' : 'true');
-  gear.setAttribute('aria-expanded', voiceSetSettingsOpen ? 'true' : 'false');
-}
-
+/** Scope button on the search tab (replaced the Settings panel's Scope checkbox). */
 function renderVoiceSetSearchSettings() {
-  const tokenChk = document.getElementById('voiceExcludeTokenSetsChk');
-  const artChk = document.getElementById('voiceExcludeArtSetsChk');
-  const mySetsChk = document.getElementById('voiceFilterMyCollectionSetsChk');
-  const paperChk = document.getElementById('findCardPaperOnlyChk');
-  if (tokenChk) tokenChk.checked = !!voiceSetPrefs.excludeTokenSets;
-  if (artChk) artChk.checked = !!voiceSetPrefs.excludeArtCardSets;
-  if (mySetsChk) mySetsChk.checked = !!voiceSetPrefs.filterOwnedSetsOnly;
-  if (paperChk) paperChk.checked = voiceSetPrefs.paperOnly !== false;
+  const btn = document.getElementById('findMySetsOnlyBtn');
+  if (!btn) return;
+  btn.classList.toggle('active', !!voiceSetPrefs.filterOwnedSetsOnly);
+  btn.setAttribute('aria-pressed', voiceSetPrefs.filterOwnedSetsOnly ? 'true' : 'false');
 }
 
-function onVoiceSearchSettingsChanged() {
-  voiceSetPrefs.excludeTokenSets = !!document.getElementById('voiceExcludeTokenSetsChk')?.checked;
-  voiceSetPrefs.excludeArtCardSets = !!document.getElementById('voiceExcludeArtSetsChk')?.checked;
-  voiceSetPrefs.filterOwnedSetsOnly = !!document.getElementById('voiceFilterMyCollectionSetsChk')?.checked;
+function toggleVoiceOwnedSetsOnly() {
+  voiceSetPrefs.filterOwnedSetsOnly = !voiceSetPrefs.filterOwnedSetsOnly;
   _voiceSaveSetPrefs();
   renderVoiceSetSearchSettings();
-  const q = String(document.getElementById('findCardInput')?.value || '').trim();
-  if (q.length >= 2 && typeof runFindCard === 'function') runFindCard(q);
-}
-
-function onFindPaperOnlyChanged() {
-  voiceSetPrefs.paperOnly = !!document.getElementById('findCardPaperOnlyChk')?.checked;
-  _voiceSaveSetPrefs();
   const q = String(document.getElementById('findCardInput')?.value || '').trim();
   if (q.length >= 2 && typeof runFindCard === 'function') runFindCard(q);
 }
@@ -613,15 +593,8 @@ function voiceShouldAddCollectionInDeckMode() {
 globalThis.voiceShouldAddCollectionInDeckMode = voiceShouldAddCollectionInDeckMode;
 
 function renderVoiceDeckCollectionToggle() {
-  const wrap = document.getElementById('voiceDeckCollectionToggleWrap');
   const chk = document.getElementById('voiceDeckAddCollectionChk');
-  if (!wrap || !chk) return;
-  const show = !!voiceAddToActiveDeckMode && (
-    typeof isDeckOwnershipEnabled === 'function'
-      ? isDeckOwnershipEnabled()
-      : (typeof deckOwnershipEnabled === 'undefined' || deckOwnershipEnabled !== false)
-  );
-  wrap.style.display = show ? '' : 'none';
+  if (!chk) return;
   chk.checked = !!voiceDeckAddToCollectionEnabled;
 
   // Pool toggle: all collections shared with me (not used when editing a shared deck — owner collection is automatic)
@@ -631,7 +604,7 @@ function renderVoiceDeckCollectionToggle() {
     const hasShared = typeof sharedCollections !== 'undefined' && sharedCollections.length > 0;
     // Show the pool toggle whenever adding to a (non-shared) deck so "My Collection" /
     // "All Cards" is always available; "Shared With Me" only when shared collections exist.
-    poolWrap.style.display = !!voiceAddToActiveDeckMode && !onSharedDeck ? '' : 'none';
+    poolWrap.style.display = !!voiceAddToActiveDeckMode && !onSharedDeck ? 'inline-flex' : 'none';
     const sharedBtn = document.getElementById('deckPoolSharedBtn');
     if (sharedBtn) sharedBtn.style.display = hasShared ? '' : 'none';
     // Sync button active states with current pool source
@@ -702,17 +675,23 @@ function switchVoiceTab(tab) {
   document.getElementById('voiceTabBtn').classList.toggle('active', isVoice);
   document.getElementById('searchTabBtn').classList.toggle('active', !isVoice);
   const modal = document.getElementById('voiceModal');
-  const modalEl = modal?.querySelector('.modal');
   modal?.classList.toggle('search-mode', !isVoice);
-  if (modalEl) modalEl.style.width = isVoice ? 'min(960px,96vw)' : '';
+  // Both tabs share one window footprint now — no per-tab width juggling.
   if (!isVoice) {
     if (isListening) stopRecording();
-    if (typeof _updateFindPaperOnlyState === 'function') _updateFindPaperOnlyState();
+    renderVoiceSetSearchSettings();
     setTimeout(() => document.getElementById('findCardInput')?.focus(), 60);
   } else if (modal?.classList.contains('open') && !isListening) {
     voiceAutoRestart = true;
     startRecording();
   }
+}
+
+/** Inspector-style qty stepper: −/+ buttons around the numeric field. */
+function _voiceQtyStep(id, delta) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.value = Math.max(1, Math.min(99, (parseInt(el.value, 10) || 1) + delta));
 }
 
 function openVoice(options) {
@@ -731,6 +710,7 @@ function openVoice(options) {
     }
   }
   document.getElementById('voiceModal').classList.add('open');
+  if (typeof _glassSelectEnsure === 'function') _glassSelectEnsure(); // glass dropdowns in the modal
   // Fuzzy set matching is a no-op until allSets loads — make sure it's loading now
   if ((!Array.isArray(allSets) || !allSets.length) && typeof loadSets === 'function') {
     loadSets().catch(() => {});
@@ -740,8 +720,8 @@ function openVoice(options) {
   voiceSessionConfirmedSets.clear();
   lastSetCodeCandidates = [];
   lastParseSpokenCode = '';
-  toggleVoiceSearchSettings(false);
   renderVoiceSetSearchSettings();
+  if (typeof _syncFindAllPrintingsBtn === 'function') _syncFindAllPrintingsBtn();
   switchVoiceTab(voiceAddToActiveDeckMode ? 'search' : 'voice');
   pendingCard = null;
   voiceMode = 'scan';
@@ -780,7 +760,6 @@ function closeVoice() {
   voiceAddToActiveDeckMode = false;
   voiceAutoRestart = false;
   voiceMode = 'scan';
-  toggleVoiceSearchSettings(false);
   document.getElementById('voiceModal').classList.remove('open');
   if (isListening) stopRecording();
   const inp = document.getElementById('findCardInput');
