@@ -546,9 +546,21 @@
      hold the whole row apart and defeat the centring. */
   #cardDetailModal .card-detail-actions { justify-content: center; }
   #cardDetailModal .card-detail-actions .btn-danger { margin-left: 0; }
-  /* Centre the collection / deck counters to match. */
+  /* Counters: the number is the anchor. Each row spans the sheet and its grid
+     gets symmetric 1fr gutters either side of the − value + trio, so the value
+     lands on the sheet's centre line and the label, steppers and meta are placed
+     around it. Centring each row as a whole instead let the number drift left or
+     right with the label's width, so "Non-foil" and "Foil" disagreed. */
   #cardDetailModal .card-detail-qty-grid { justify-content: center; }
-  #cardDetailModal .card-detail-qty-row { align-items: center; }
+  #cardDetailModal .card-detail-qty-grid .card-detail-qty-row { flex: 1 1 100%; }
+  #cardDetailModal .card-detail-qty-row { align-items: stretch; }
+  #cardDetailModal .card-detail-qty-row-label { text-align: center; }
+  #cardDetailModal .card-detail-qty-fill { width: 100%; }
+  #cardDetailModal .card-detail-qty-printing-row {
+    grid-template-columns: minmax(0, 1fr) max-content max-content max-content minmax(0, 1fr);
+  }
+  #cardDetailModal .card-detail-qty-label { text-align: right; }
+  #cardDetailModal .card-detail-qty-meta  { text-align: left; }
 
   /* Larger tap targets inside the inspector on phones */
   #cardDetailModal .card-detail-qty-printing-row .btn-icon { min-width: 40px; min-height: 40px; }
@@ -637,7 +649,20 @@
   }
   #tab-decks .deck-stack-cards.vertical .deck-stack-card {
     width: min(90vw, 270px) !important;
-    margin-top: -338px !important;
+    /* Overlap derived from the card's own width rather than a flat -338px. That
+       number was only correct at exactly 270px, so any phone under ~300px
+       (where 90vw wins) pulled more than the card was tall. 40px of peek. */
+    margin-top: calc(-1 * (min(90vw, 270px) * 88 / 63 - 40px)) !important;
+  }
+  /* Reserve the card's height before the image decodes. An <img> with no loaded
+     source is 18px tall, while the negative margin above still pulls a whole
+     card — so the pile inverted and every card landed on top of the one before
+     it, climbing off the top of the container. It corrected itself once the
+     images arrived, and never corrected for one that failed. */
+  #tab-decks .deck-stack-cards.vertical .deck-stack-card > img,
+  #tab-decks .deck-stack-cards.vertical .deck-stack-card .stack-main {
+    aspect-ratio: 63 / 88;
+    height: auto;
   }
   #tab-decks .deck-stack-cards.vertical .deck-stack-card:first-child {
     margin-top: 8px !important;
@@ -645,7 +670,7 @@
   #tab-decks .deck-stack-cards.vertical .deck-stack-card:hover ~ .deck-stack-card,
   #tab-decks .deck-stack-cards.vertical .deck-stack-card:focus-within ~ .deck-stack-card,
   #tab-decks .deck-stack-cards.vertical .deck-stack-card.is-stack-peek ~ .deck-stack-card {
-    transform: translateY(354px) !important;
+    transform: translateY(calc(min(90vw, 270px) * 88 / 63 - 23px)) !important;
   }
   #tab-decks .deck-stack-view > .deck-extra-zones-wrap .deck-stack-cards.vertical .deck-stack-card {
     width: 100% !important;
