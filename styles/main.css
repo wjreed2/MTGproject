@@ -10501,7 +10501,7 @@ body.glass-mode .tablet-player-name {
 body.glass-mode #tabletView .tablet-cell[data-active="1"] .tablet-player-name {
   color: var(--glass-accent) !important;
 }
-body.glass-mode .tablet-dots-btn { color: var(--text3) !important; }
+/* .tablet-dots-btn colour comes from the shared tablet-control rule below. */
 /* iOS-flavoured numerals: Inter with tabular figures instead of JetBrains Mono,
    neutral depth shadow instead of the per-player glow. */
 body.glass-mode .tablet-life-num {
@@ -10521,17 +10521,50 @@ body.glass-mode .tablet-life-btn {
   font-family: var(--glass-font);
   font-weight: 600;
 }
-body.glass-mode .tablet-life-btn-neg,
-body.glass-mode .tablet-life-btn-pos {
-  background: rgba(255,255,255,0.08);
-  border-color: rgba(255,255,255,0.15);
-  color: rgba(244,246,251,0.92);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.10);
+/* Life button colours come from the shared tablet-control rule below, which
+   matches the deck-list button exactly. These used to run at 0.08/0.15/0.10 —
+   close to it, but not it. */
+
+/* ── Tablet view controls: the deck-list button, exactly ───────────────────
+   Every button in the scoreboard and its two popup menus now takes the same
+   fill, border, radius, text colour and shadow as a deck-list button
+   (#deckListFilterToggleBtn is the reference). They had drifted to three
+   different backgrounds — 0.075, 0.08 and transparent — the ⋯ carried no button
+   treatment at all, and none had the inset highlight. The scoreboard sets a lot
+   of this inline, so !important is what actually lands it. */
+body.glass-mode #tabletView .tablet-life-btn,
+body.glass-mode #tabletView .tablet-turn-btn,
+body.glass-mode #tabletView .tablet-dots-btn,
+body.glass-mode #tabletView .tablet-center-box button,
+body.glass-mode .tablet-player-menu button,
+body.glass-mode .tablet-player-menu input,
+body.glass-mode .tablet-drag-menu button,
+body.glass-mode .tablet-drag-menu input {
+  border: 1px solid rgba(255,255,255,0.16) !important;
+  border-radius: 8px !important;
+  background: rgba(255,255,255,0.07) !important;
+  color: rgba(240,244,252,0.82) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 2px 10px rgba(0,0,0,0.22) !important;
 }
-body.glass-mode .tablet-life-btn-neg:hover,
-body.glass-mode .tablet-life-btn-neg:active,
-body.glass-mode .tablet-life-btn-pos:hover,
-body.glass-mode .tablet-life-btn-pos:active { background: rgba(255,255,255,0.18); }
+body.glass-mode #tabletView .tablet-life-btn:hover,
+body.glass-mode #tabletView .tablet-life-btn:active,
+body.glass-mode #tabletView .tablet-turn-btn:hover,
+body.glass-mode #tabletView .tablet-dots-btn:hover,
+body.glass-mode #tabletView .tablet-center-box button:hover,
+body.glass-mode .tablet-player-menu button:hover,
+body.glass-mode .tablet-drag-menu button:hover {
+  color: #fff !important;
+  border-color: rgba(255,255,255,0.34) !important;
+  background: rgba(255,255,255,0.14) !important;
+}
+body.glass-mode #tabletView .tablet-turn-btn.active,
+body.glass-mode .tablet-player-menu button.active,
+body.glass-mode .tablet-drag-menu button.active {
+  color: #fff !important;
+  border-color: rgba(255,255,255,0.45) !important;
+  background: rgba(255,255,255,0.18) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.28), 0 2px 14px rgba(0,0,0,0.25) !important;
+}
 
 /* Centre hub — floating frosted widget (inline-styled, hence the !important) */
 body.glass-mode .tablet-center-box {
