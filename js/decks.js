@@ -8900,6 +8900,15 @@ function _suggestWhyDetailHtml(title, score, lines, footer) {
     </div>`;
 }
 
+/** Ownership + price beside a suggestion's name. The ownership word is wrapped
+ *  separately so phones can hide it and keep the price — see mobile.css. */
+function _suggMetaHtml(owned, price) {
+  const own = `<span class="sugg-meta-own">${owned ? 'owned' : 'unowned'}</span>`;
+  const p = (price == null) ? '' : `<span class="sugg-meta-price">$${escapeHtml(Number(price).toFixed(2))}</span>`;
+  const sep = p ? '<span class="sugg-meta-sep">&ndash;</span>' : '';
+  return `<span class="sugg-meta">${own}${sep ? ' ' + sep + ' ' : ''}${p}</span>`;
+}
+
 const _SUGG_CUT_COLHEAD = `<div class="suggest-col-head">
   <span class="suggest-col-score">Score</span>
   <span class="suggest-col-card">Card</span>
@@ -9224,9 +9233,9 @@ async function _renderAddSuggestions(deck) {
           `Semantic engine analysis · ${a.owned ? 'In your collection' : 'Not in your collection'}${priceBit}`);
         // Ownership and price read as quiet text beside the name, joined by dashes,
         // instead of competing chips.
-        const metaBits = [a.owned ? 'owned' : 'unowned'];
-        if (a.price != null) metaBits.push(`$${Number(a.price).toFixed(2)}`);
-        const ownTag = `<span class="sugg-meta">${metaBits.map(escapeHtml).join(' <span class="sugg-meta-sep">&ndash;</span> ')}</span>`;
+        // Each bit is its own element so a narrow phone can drop the ownership
+        // word and keep the price, rather than squeezing the card name to nothing.
+        const ownTag = _suggMetaHtml(a.owned, a.price);
         const priceTag = '';
         const addTitle = swapsOnE2 ? ' title="Add to planned adds — not counted until you apply swaps"' : '';
         // One Add treatment regardless of ownership — the text beside the name
@@ -9529,9 +9538,7 @@ async function _renderAddSuggestions(deck) {
       : `Role tags: ${s.roles && s.roles.length ? escapeHtml(s.roles.join(', ')) : '—'} · ${owned ? 'In your collection' : 'Not in your collection'}`;
     const why = _suggestWhyDetailHtml('Why suggested', scoreLabel, whyLines, footer);
     const _priceVal = (s.price != null) ? s.price : (s.card && s.card.priceTCG);
-    const _meta = [owned ? 'owned' : 'unowned'];
-    if (_priceVal != null && Number(_priceVal) > 0) _meta.push(`$${Number(_priceVal).toFixed(2)}`);
-    const ownTag = `<span class="sugg-meta">${_meta.map(escapeHtml).join(' <span class="sugg-meta-sep">&ndash;</span> ')}</span>`;
+    const ownTag = _suggMetaHtml(owned, (_priceVal != null && Number(_priceVal) > 0) ? _priceVal : null);
     const addTitle = swapsOn ? ' title="Add to planned adds — use → Main or apply all swaps when ready"' : '';
     const addBtn = owned
       ? `<button class="btn btn-outline btn-sm"${addTitle} onclick="${swapsOn ? `addOwnedRecommendationToAdds('${safeName}')` : `addOwnedRecommendation('${safeName}')`}">+ Add</button>`
@@ -15936,93 +15943,4 @@ function _simRenderHTML(deck, commander, edhrecData, archiveData) {
   }
 
   return parts.join('') || '<p class="sim-note">No similarity data available.</p>';
-}
-
-/* ── Field diagnostic: /?stackdebug=1 ───────────────────────────────────────
-   Paints live stack geometry over the page so a phone screenshot is enough to
-   diagnose a layout that only misbehaves on a real device. Entirely inert
-   without the flag — nothing below runs, and nothing is bound. Remove once the
-   mobile stack overlap is settled. */
-function _stackDebugOn() {
-  try { return /[?&]stackdebug=1/.test(location.search); } catch (_) { return false; }
-}
-
-function _stackDebugRows(sel, limit) {
-  const els = [...document.querySelectorAll(sel)].slice(0, limit || 6);
-  return els.map((c, i) => {
-    const r = c.getBoundingClientRect();
-    const cs = getComputedStyle(c);
-    const m = /matrix\([^)]*?,\s*([-\d.]+)\)$/.exec(cs.transform || '');
-    const img = c.querySelector('img');
-    return `${String(i).padStart(2)} t${Math.round(r.top)} h${Math.round(r.height)}`
-      + ` w${Math.round(r.width)} mt${Math.round(parseFloat(cs.marginTop) || 0)}`
-      + ` ty${m ? Math.round(+m[1]) : 0}`
-      + `${c.classList.contains('is-stack-peek') ? ' PEEK' : ''}`
-      + `${img ? (img.complete && img.naturalWidth > 0 ? ' L' : ' ...') : ' noimg'}`;
-  });
-}
-
-function _stackDebugDump() {
-  const box = document.getElementById('stackDebugBox');
-  if (!box) return;
-  const panel = document.getElementById('deckListPanel') || document.getElementById('deckCardList');
-  const cw = panel ? getComputedStyle(panel).getPropertyValue('--deck-card-w').trim() : '?';
-  const vv = window.visualViewport;
-  const L = [];
-  L.push(`vw${innerWidth} vh${innerHeight} dpr${devicePixelRatio}`);
-  L.push(`vvScale ${vv ? vv.scale.toFixed(2) : '-'} vvW ${vv ? Math.round(vv.width) : '-'}`);
-  L.push(`hover:${matchMedia('(hover: hover)').matches} pointer:${matchMedia('(pointer: coarse)').matches ? 'coarse' : 'fine'}`);
-  L.push(`view=${typeof deckListView !== 'undefined' ? deckListView : '?'} size=${typeof deckCardSize !== 'undefined' ? deckCardSize : '?'} --cw=${cw}`);
-  // Broad selector: the mainboard is not always under .deck-stack-column, and an
-  // empty section here is itself the finding.
-  const allCards = document.querySelectorAll('#tab-decks .deck-stack-card');
-  const mainSel = '#tab-decks .deck-stack-view .deck-stack-cards.vertical .deck-stack-card';
-  const mainBox = document.querySelector('#tab-decks .deck-stack-view .deck-stack-cards.vertical');
-  L.push(`CARDS total ${allCards.length} vert ${document.querySelectorAll(mainSel).length}`);
-  const imgs = [...document.querySelectorAll('#tab-decks .deck-stack-card img')];
-  const bad = imgs.filter(i => i.complete && i.naturalWidth === 0);
-  L.push(`IMG ${imgs.length} broken ${bad.length} pending ${imgs.filter(i => !i.complete).length}`);
-  if (imgs[0]) L.push(`src ${String(imgs[0].currentSrc || imgs[0].src).slice(-34)}`);
-  L.push(`sw ${navigator.serviceWorker && navigator.serviceWorker.controller ? 'on' : 'off'}`);
-  L.push(`MAIN box${mainBox ? Math.round(mainBox.getBoundingClientRect().width) : '-'}`);
-  L.push(..._stackDebugRows(mainSel, 5));
-  const zones = [...document.querySelectorAll('#tab-decks .deck-extra-zones-wrap .deck-extra-zone-section')];
-  zones.slice(0, 3).forEach(z => {
-    const cards = z.querySelector('.deck-stack-cards.vertical');
-    L.push(`ZONE ${z.dataset.zone || '?'} box${cards ? Math.round(cards.getBoundingClientRect().width) : '-'}`);
-    if (cards) {
-      const els = [...cards.querySelectorAll('.deck-stack-card')].slice(0, 4);
-      els.forEach((c, i) => {
-        const r = c.getBoundingClientRect(); const cs = getComputedStyle(c);
-        const m = /matrix\([^)]*?,\s*([-\d.]+)\)$/.exec(cs.transform || '');
-        L.push(`${String(i).padStart(2)} t${Math.round(r.top)} h${Math.round(r.height)} w${Math.round(r.width)}`
-          + ` mt${Math.round(parseFloat(cs.marginTop) || 0)} ty${m ? Math.round(+m[1]) : 0}`
-          + `${c.classList.contains('is-stack-peek') ? ' PEEK' : ''}`);
-      });
-    }
-  });
-  box.querySelector('pre').textContent = L.join('\n');
-}
-
-function _stackDebugInit() {
-  if (!_stackDebugOn() || document.getElementById('stackDebugBox')) return;
-  const box = document.createElement('div');
-  box.id = 'stackDebugBox';
-  box.style.cssText = 'position:fixed;left:4px;top:4px;z-index:99999;max-width:min(96vw,340px);'
-    + 'max-height:70vh;overflow:auto;background:rgba(6,10,20,0.94);color:#9fe8b0;'
-    + 'font:10px/1.35 ui-monospace,Menlo,monospace;padding:6px 8px;border:1px solid #3a5;'
-    + 'border-radius:6px;white-space:pre;-webkit-overflow-scrolling:touch';
-  box.innerHTML = '<div style="display:flex;gap:6px;margin-bottom:4px">'
-    + '<button id="stackDebugRefresh" style="font:10px monospace;padding:2px 6px">refresh</button>'
-    + '<button id="stackDebugClose" style="font:10px monospace;padding:2px 6px">x</button></div><pre style="margin:0"></pre>';
-  document.body.appendChild(box);
-  box.querySelector('#stackDebugRefresh').addEventListener('click', e => { e.stopPropagation(); _stackDebugDump(); });
-  box.querySelector('#stackDebugClose').addEventListener('click', e => { e.stopPropagation(); box.remove(); });
-  setTimeout(_stackDebugDump, 1200);
-  setTimeout(_stackDebugDump, 3500);
-}
-
-if (typeof document !== 'undefined' && _stackDebugOn()) {
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _stackDebugInit);
-  else _stackDebugInit();
 }

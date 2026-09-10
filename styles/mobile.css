@@ -441,6 +441,72 @@
   #tab-decks .deck-suggest-header .deck-select           { order: 7; }
   #tab-decks .deck-suggest-header .deck-cut-threshold-btn { order: 8; }
 
+  /* ── Suggestion rows — one line per pick ───────────────────────────────
+     At 430px the row has 367px to spend and the fixed parts (rank, score,
+     owned/price, Add, feedback and five gaps) were claiming 310 of it, leaving
+     the card name 57px to wrap inside — so a long name ran to five lines and
+     rows ranged from 47px to 109px tall. Trim the fixed parts, hold everything
+     on one line, and let the name take what is left and ellipsise. */
+  #tab-decks .cut-candidate-row {
+    flex-wrap: nowrap;
+    gap: 4px;
+    padding: .4rem .4rem;
+  }
+  /* The name is the row's point, so it gets the leftover width and a floor it
+     cannot be squeezed below — at 390px it was being crushed to 30px and at
+     320px to nothing, because everything else refused to shrink. */
+  #tab-decks .cut-candidate-row .cut-card-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* Price earns its place; the "owned"/"unowned" word does not, at this width —
+     the Add button reads the same either way and the price is the decision. */
+  #tab-decks .cut-candidate-row .sugg-meta {
+    flex: 0 0 auto;
+    min-width: 3.4rem;
+    text-align: right;
+    white-space: nowrap;
+    font-size: 0.64rem;
+  }
+  #tab-decks .cut-candidate-row .sugg-meta-own,
+  #tab-decks .cut-candidate-row .sugg-meta-sep { display: none; }
+  #tab-decks .cut-candidate-row .cut-score-badge {
+    flex-shrink: 0;
+    min-width: 2.4rem;
+    padding-inline: 4px;
+  }
+  #tab-decks .cut-candidate-row .btn { flex-shrink: 0; padding-inline: 5px; }
+  #tab-decks .suggest-rank { flex-shrink: 0; }
+  /* Column headers line up with the trimmed row padding. */
+  #tab-decks .suggest-col-head { padding-inline: .5rem; gap: 6px; }
+  #tab-decks .suggest-col-score { min-width: 2.4rem; }
+
+  /* ── Deck goal box ─────────────────────────────────────────────────────
+     "Deck goal", the goal and its match share one 1.15rem line on desktop,
+     which on a phone leaves the goal itself almost no width. Each kicker gets
+     its own small-caps line instead, with the goal and its percentage beneath
+     — and the same shape repeats for the secondary goal. */
+  #tab-decks .deck-goal-card {
+    margin: 0.5rem 0 0.8rem;
+    padding: 12px 14px 13px;
+  }
+  #tab-decks .deck-goal-head { flex-wrap: wrap; gap: 1px 8px; }
+  #tab-decks .deck-goal-kicker {
+    flex: 0 0 100%;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 0.62rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  #tab-decks .deck-goal-sep { display: none; }
+  #tab-decks .deck-goal-name { font-size: 1.1rem; min-width: 0; }
+  #tab-decks .deck-goal-match { margin-left: auto; flex-shrink: 0; }
+  #tab-decks .deck-goal-summary { font-size: 0.82rem; margin-top: 4px; }
+
   /* ── Deck analytics charts — one full-width column on phones ───────────
      The 2-up grid makes every chart half-width and cramped; stack them so
      each graph is as large as possible. */
@@ -462,9 +528,21 @@
   .deck-ftab + .deck-ftab { margin-left: -17px; }
   .deck-ftab.active { padding: 14px 29px 12px 17px; }
 
-  .deck-themes-toggle { flex-wrap: wrap; row-gap: 2px; }
-  .deck-themes-name { flex: 1 1 60%; }
-  .deck-themes-band { min-width: 0; }
+  /* One line, caret always last. Wrapping here put the caret on a second line at
+     the left edge whenever the name plus count plus band overran the row —
+     which is why it only happened on some themes, "very focused" being a far
+     longer band label than "decent". The name ellipsises instead. */
+  .deck-themes-toggle { flex-wrap: nowrap; gap: 6px; }
+  .deck-themes-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .deck-themes-count { flex-shrink: 0; }
+  .deck-themes-band { min-width: 0; flex-shrink: 0; }
+  .deck-themes-caret { margin-left: auto; flex-shrink: 0; }
 
   /* ── Settings page — the web settings dropdown rendered as a full page ──
      #settingsDropdown normally lives in the topbar, so showTab() moves the live
@@ -811,6 +889,11 @@
   .stat-val   { font-size: 1rem; }
   .panel-body { padding: 0.65rem; }
   .mob-nav-label { font-size: 0.48rem; }
+
+  /* Six elements will not share a row this narrow without the card name losing
+     to them, so the feedback button goes — the score badge opens the same
+     breakdown, and the name is what the row is for. */
+  #tab-decks .cut-candidate-row .btn-ghost { display: none; }
 
   /* Deck list header — keep Group / Sort / ↕ on one row down here. Measured at
      320px the header is 257px wide while the untrimmed trio wants 300px, so the
