@@ -2663,10 +2663,9 @@ body.glass-mode #voiceModal .search-box {
 .card-img-wrap img.loaded { opacity: 1; }
 /* Fade card images in once decoded so they don't snap in one-by-one.
    Scoped to <img> so text fallbacks (.stack-face-fallback divs) aren't hidden. */
-/* Short fade: there is a card-shaped placeholder underneath now, so this is art
-   filling an existing card rather than a card appearing from nothing — a long
-   fade just reads as lag. */
-img.stack-main { opacity: 0; transition: opacity 0.13s ease-out; }
+/* A gentle fade is the point: shortening it makes each card's arrival sharper,
+   which is the pop itself. Measured 130ms as a regression and put it back. */
+img.stack-main { opacity: 0; transition: opacity 0.28s ease-out; }
 img.stack-main.loaded { opacity: 1; }
 .deck-search-art img { opacity: 0; transition: opacity 0.25s; }
 .deck-search-art img.loaded { opacity: 1; }
