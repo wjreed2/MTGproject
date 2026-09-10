@@ -42,7 +42,7 @@
 
   /* ── CSS variable overrides ───────────────────────────────────────────── */
   :root {
-    --bottom-nav-h: 56px;
+    --bottom-nav-h: 46px;
     /* Compact bar + notch/status inset so fixed chrome clears the status bar */
     /* No bar to clear any more — only the notch. main and the offline banner
        both key off this, so content now starts just under the status bar. */
@@ -145,8 +145,8 @@
     position: fixed;
     bottom: 0; left: 0; right: 0;
     z-index: 300;
-    height: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom) + 8px);
-    padding-bottom: calc(env(safe-area-inset-bottom) + 8px);
+    height: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom) + 4px);
+    padding-bottom: calc(env(safe-area-inset-bottom) + 4px);
     background: rgba(7,8,16,0.96);
     backdrop-filter: blur(24px) saturate(1.5);
     border-top: 1px solid var(--border);
@@ -171,11 +171,11 @@
   .mobile-bottom-nav::-webkit-scrollbar { display: none; }
 
   .mob-nav-item {
-    min-width: 62px;
+    min-width: 56px;
     flex-shrink: 0;
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
-    gap: 4px; padding: 4px 4px 2px;
+    gap: 2px; padding: 2px 4px 1px;
     background: none; border: none;
     color: var(--text3); cursor: pointer;
     transition: color 0.15s;
@@ -186,10 +186,10 @@
      active item #fff, and the bottom nav is that same navigation. */
   .mob-nav-item.active { color: #fff; }
   [data-theme="light"] .mob-nav-item.active { color: #17202e; }
-  .mob-nav-icon  { width: 26px; height: 26px; flex-shrink: 0; stroke-width: 1.3; }
+  .mob-nav-icon  { width: 21px; height: 21px; flex-shrink: 0; stroke-width: 1.35; }
   .mob-nav-label {
-    font-family: 'Cinzel', serif; font-size: 0.58rem;
-    font-weight: 600; letter-spacing: 0.06em; line-height: 1;
+    font-family: 'Cinzel', serif; font-size: 0.54rem;
+    font-weight: 600; letter-spacing: 0.04em; line-height: 1;
   }
 
   /* ── Prevent iOS input zoom (min 16px) ───────────────────────────────── */
@@ -306,18 +306,27 @@
 
   #deckTopBar .deck-top-spacer { display: none !important; }
 
-  /* Row 1 — the actions, right-aligned with ⋮ on the outside edge. That is the
-     authored DOM order (Add cards, Manage Tags, ⋮), so no `order` is needed
-     here; flex-end does the alignment. All three are icon-only on phones: the
-     + and the tag carry the meaning and the row stays out of the way.
-     display/margin-left are set inline by _placeDeckActionCluster, so only the
-     basis and alignment come from here. */
-  #tab-decks #deckActionCluster {
-    order: 1;
-    flex: 0 0 100%;
+  /* Actions sit on their own row beneath the commander line
+     (_placeDeckActionCluster moves #deckActionCluster into .deck-back-row):
+     Add cards and Manage Tags to the left, the ⋮ menu pushed to the right.
+     All three stay icon-only. */
+  #tab-decks .deck-back-row {
+    display: flex;
+    align-items: center;
     gap: 6px;
-    justify-content: flex-end;
+    margin-bottom: 8px;
+    /* The options dropdown hangs off this row, so it needs to stack above the
+       folder tabs and the panel beneath them. */
+    position: relative;
+    z-index: 40;
   }
+  #tab-decks .deck-back-row #deckActionCluster {
+    flex: 1 1 auto;
+    gap: 6px;
+    justify-content: flex-start;
+    margin-left: 0 !important;
+  }
+  #tab-decks .deck-back-row #deckTopMenuWrap { margin-left: auto; }
   /* All three header actions are the same square. #deckOptionsBtn is reached
      through its wrapper, and its own padding rule below has to go with it or it
      wins on specificity. */
@@ -346,11 +355,10 @@
     flex-shrink: 0;
   }
 
-  /* Row 2 — the title and its indicators. nowrap beats the inline flex-wrap so
+  /* The title is all #deckTopBar holds now. nowrap beats the inline flex-wrap so
      the badges stay on the name's line; the name ellipsises to make room. */
   #tab-decks .deck-top-title-row {
-    order: 2;
-    flex: 1 1 100%;
+    flex: 1 1 auto;
     flex-wrap: nowrap !important;
     gap: 6px !important;
     min-width: 0;
@@ -378,8 +386,7 @@
     max-width: none;
   }
 
-  /* Emptied when the actions moved up into row 1 — collapse its margin. */
-  #tab-decks .deck-back-row { display: none; }
+
   /* No width override: the base rule's min(260px, 100vw - 20px) already fits a
      phone, and matching desktop exactly is the point. */
 

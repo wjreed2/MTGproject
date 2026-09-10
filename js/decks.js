@@ -2163,8 +2163,13 @@ function _placeDeckActionCluster() {
   const phone = window.matchMedia('(max-width: 768px)').matches;
   if (cluster) {
     cluster.style.display = activeDeckId ? 'flex' : 'none';
+    // Phones give the actions their own row under the commander line — that is
+    // .deck-back-row, which already sits between the commander and the folder
+    // tabs. Wider screens keep them beside the title in #deckTopBar.
     // Moving the same node keeps ids, listeners, and the options dropdown's anchor intact.
-    if (header && cluster.parentElement !== header) header.appendChild(cluster);
+    const backRow = document.querySelector('#activeDeckArea .deck-back-row');
+    const target = (phone && backRow) ? backRow : header;
+    if (target && cluster.parentElement !== target) target.appendChild(cluster);
     // Phones centre the wrapped button row instead of pushing it right.
     cluster.style.marginLeft = phone ? '' : 'auto';
   }
