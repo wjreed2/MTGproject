@@ -2327,6 +2327,41 @@ function _glassMenuOpen(sel, wrap) {
     menu.appendChild(item);
   }
   wrap.appendChild(menu);
+  _glassMenuFit(menu, wrap);
+}
+
+/**
+ * Keep an open glass menu on screen and scrollable.
+ * The menu is absolutely positioned under its trigger with no height cap, so a
+ * long option list simply ran off the bottom of the window with nothing to
+ * scroll — the New Game commander picker has 739 options and measured 23,660px
+ * tall against an 800px viewport, which made the lower entries unreachable.
+ * Caps it to the room actually available, flips it above the trigger when
+ * there is more space there, and lets it scroll internally.
+ */
+function _glassMenuFit(menu, wrap) {
+  if (!menu || !wrap) return;
+  const r = wrap.getBoundingClientRect();
+  const margin = 12;
+  const below = window.innerHeight - r.bottom - margin;
+  const above = r.top - margin;
+  // Only flip when below is genuinely cramped and above is roomier, so menus
+  // keep opening downward in the ordinary case.
+  const flip = below < 180 && above > below;
+  const room = Math.max(140, flip ? above : below);
+  menu.style.maxHeight = Math.min(340, room) + 'px';
+  menu.style.overflowY = 'auto';
+  menu.style.overscrollBehavior = 'contain';
+  menu.style.webkitOverflowScrolling = 'touch';
+  if (flip) {
+    menu.style.top = 'auto';
+    menu.style.bottom = 'calc(100% + 6px)';
+  }
+  // Long lists open on the current value rather than at the top.
+  const sel = menu.querySelector('.glass-menu-item.selected');
+  if (sel && typeof sel.scrollIntoView === 'function') {
+    sel.scrollIntoView({ block: 'nearest' });
+  }
 }
 
 // Every single-choice <select> gets the glass trigger. Opt out with

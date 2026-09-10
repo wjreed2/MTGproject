@@ -1949,7 +1949,12 @@ function _wireTabletSurface(game, el) {
   // trailing click (swallow it via _tabletDragJustEnded); an open ⋯ menu just dismisses;
   // action-mode taps are for targeting players; buttons and the centre box handle their own.
   el.onclick = (e) => {
-    const menus = document.querySelectorAll('.tablet-player-menu');
+    // Any open menu — not just the player ⋯ — swallows the tap and closes.
+    // Only .tablet-player-menu was considered before, so a tap meant to dismiss
+    // the drag menu (or a glass dropdown opened over the board) passed straight
+    // through and advanced the turn.
+    const menus = document.querySelectorAll(
+      '.tablet-player-menu, .tablet-drag-menu, .glass-menu, .cd-tag-ctx-menu, .card-detail-pin-menu');
     const hadMenu = menus.length > 0;
     menus.forEach(m => m.remove());
     if (_tabletDragJustEnded) { _tabletDragJustEnded = false; return; }
@@ -2479,8 +2484,9 @@ function _enterSeatDragMode() {
   if (tEl && tEl.setPointerCapture) { try { tEl.setPointerCapture(_tabletDrag.pointerId); } catch (_) {} }
   const srcCell = document.querySelector(`.tablet-cell[data-pid="${_tabletDrag.sourceId}"]`);
   if (srcCell) srcCell.classList.add('tablet-seat-drag-source');
-  _ensureDragArrow();
-  _drawDragArrows(_tabletDrag.startX, _tabletDrag.startY);
+  // No arrow when repositioning: the arrow means "dealing damage from here to
+  // there". Moving a seat is not aimed at anyone, and the source/target cell
+  // highlights already show what is being picked up and where it will land.
 }
 
 // Track the wedge under the finger while dragging a seat; release performs the swap.
@@ -2492,7 +2498,6 @@ function _seatDragMove(e) {
     document.querySelectorAll('.tablet-seat-drag-target').forEach(c => c.classList.remove('tablet-seat-drag-target'));
     if (pid) cell.classList.add('tablet-seat-drag-target');
   }
-  _drawDragArrows(e.clientX, e.clientY);
 }
 
 function swapTabletSeats(gameId, pidA, pidB) {
@@ -2523,7 +2528,7 @@ function tabletDragPointerMove(e) {
     _tabletDrag.dragging = true;
     const tEl = document.getElementById('tabletView');
     if (tEl && tEl.setPointerCapture) { try { tEl.setPointerCapture(_tabletDrag.pointerId); } catch (_) {} }
-    _ensureDragArrow();
+    if (_tabletDrag.mode !== 'seat') _ensureDragArrow();
   }
   e.preventDefault();
   if (_tabletDrag.mode === 'seat') { _seatDragMove(e); return; }
@@ -2596,7 +2601,7 @@ function _ensureDragArrow() {
   poly.setAttribute('fill', 'none');
   poly.setAttribute('stroke', 'var(--gold)'); poly.setAttribute('stroke-width', '3');
   poly.setAttribute('stroke-linecap', 'round'); poly.setAttribute('stroke-linejoin', 'round');
-  poly.setAttribute('stroke-dasharray', '1 9');
+  // Solid, not dotted — the dashes read as a broken line against card art.
   poly.setAttribute('marker-end', 'url(#dragArrowHead)');
   const dots = document.createElementNS(NS, 'g');          // origin + one dot per anchor
   dots.setAttribute('id', 'dragDots');
