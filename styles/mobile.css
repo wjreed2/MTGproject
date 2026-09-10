@@ -375,18 +375,24 @@
   #tab-decks #deckListPanelHeader::after {
     content: ""; flex: 0 0 100%; height: 0; margin: 0;
   }
-  #tab-decks #deckListPanelHeader::before { order: 4; }
+  #tab-decks #deckListPanelHeader::before { order: 3; }
   #tab-decks #deckListPanelHeader::after  { order: 10; }
 
-  /* Row 1 — title + count, collapse pushed to the right edge */
-  #tab-decks #deckListPanelHeader .panel-title         { order: 1; }
-  #tab-decks #deckListPanelHeader #deckListCount        { order: 2; }
-  #tab-decks #deckListPanelHeader #deckListCollapseBtn  { order: 3; margin-left: auto; }
+  /* Row 1 — the card count and its "after swaps" readout, directly under the
+     folder tabs. Every button starts on the row below it. */
+  #tab-decks #deckListPanelHeader .panel-title         { order: 0; }
+  #tab-decks #deckListPanelHeader #deckListCount        { order: 1; }
+  #tab-decks #deckListPanelHeader #deckListCollapseBtn  { order: 2; margin-left: auto; }
 
   /* Row 2 — Group [Type] · Sort [Name] [↕], centred on one row.
      Select widths scale with viewport (clamp) so the cluster fits from ~360px
      up; the asc/desc box is wide enough to show its arrow beside the native
      dropdown caret. Selects otherwise size to their widest option and overflow. */
+  /* Each select is swapped at runtime for a .glass-dd-wrap trigger that does not
+     carry the select's id, so the per-id orders below never reach the visible
+     control — left alone the wrappers default to order:0 and jump above the
+     count. Order them as a group; their DOM order is already Group → Sort → ↕. */
+  #tab-decks #deckListPanelHeader .glass-dd-wrap           { order: 6; min-width: 0; }
   #tab-decks #deckListPanelHeader .dlh-group               { order: 5; }
   #tab-decks #deckListPanelHeader #deckGroupBySelect       { order: 6; width: clamp(4.8rem, 22vw, 6.6rem); flex-shrink: 0; box-sizing: border-box; }
   #tab-decks #deckListPanelHeader .dlh-sort                { order: 7; }
@@ -440,11 +446,12 @@
      so it doesn't spawn a phantom second grid column. */
   .deck-stats-grid .deck-draw-accel-panel { grid-column: auto !important; }
 
-  /* Deck builder folder tabs — tighter tabs that scroll sideways on phones */
+  /* Deck builder folder tabs — tighter tabs that scroll sideways on phones,
+     but tall enough to read as folder tabs rather than plain text links. */
   .deck-folder-tabs { padding: 5px 6px 0 0; }
-  .deck-ftab { padding: 9px 20px 8px; font-size: 0.9rem; letter-spacing: 0.02em; }
+  .deck-ftab { padding: 12px 20px 11px; font-size: 0.9rem; letter-spacing: 0.02em; }
   .deck-ftab + .deck-ftab { margin-left: -17px; }
-  .deck-ftab.active { padding: 11px 22px 9px; }
+  .deck-ftab.active { padding: 14px 22px 12px; }
 
   .deck-themes-toggle { flex-wrap: wrap; row-gap: 2px; }
   .deck-themes-name { flex: 1 1 60%; }
@@ -771,6 +778,34 @@
   .stat-val   { font-size: 1rem; }
   .panel-body { padding: 0.65rem; }
   .mob-nav-label { font-size: 0.48rem; }
+
+  /* Deck list header — keep Group / Sort / ↕ on one row down here. Measured at
+     320px the header is 257px wide while the untrimmed trio wants 300px, so the
+     ↕ box drops to its arrow alone and the triggers give up side padding. */
+  #tab-decks #deckListPanelHeader { column-gap: 4px !important; }
+  #tab-decks #deckListPanelHeader .glass-dd-btn { padding-inline: 6px; gap: 4px; }
+  #tab-decks #deckListPanelHeader #deckStackSortDirSelectGlassBtn {
+    min-width: 30px;
+    padding-inline: 4px;
+  }
+  /* Same for the button row beneath it. */
+  #tab-decks #deckListPanelHeader #deckListFilterToggleBtn,
+  #tab-decks #deckListPanelHeader #deckTagBadgeToggleBtn { padding-inline: 7px; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   VERY SMALL PHONES  ≤ 340px  (iPhone SE 1st gen, iPhone 5)
+   The ≤375px padding trim runs out here — at 320px the header is 257px wide and
+   the triggers are already at content width ("Group" + "Type" + caret = 116px),
+   so trimming further buys nothing. Drop the "Group"/"Sort" prefix instead and
+   let the value carry the meaning; the row fits with room to spare.
+   ═══════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 340px) {
+  #tab-decks #deckListPanelHeader { column-gap: 3px !important; }
+  #tab-decks #deckListPanelHeader .glass-dd-prefix { display: none; }
+  #tab-decks #deckListPanelHeader #deckListFilterToggleBtn,
+  #tab-decks #deckListPanelHeader #deckTagBadgeToggleBtn { padding-inline: 5px; }
+  #tab-decks #deckListPanelHeader #deckListViewToggle button { padding-inline: 6px; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════

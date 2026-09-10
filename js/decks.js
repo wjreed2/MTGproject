@@ -2282,7 +2282,10 @@ function _glassSelectSyncLabels() {
     btn.disabled = sel.disabled;
   });
   const dirSel = document.getElementById('deckStackSortDirSelect');
-  const dirBtn = document.getElementById('deckStackSortDirGlassBtn');
+  // _glassSelectEnsure names the trigger `${select.id}GlassBtn`, so this is
+  // deckStackSortDirSelectGlassBtn — the old shorter id matched nothing, and the
+  // direction box kept the dropdown caret this line exists to strip.
+  const dirBtn = document.getElementById('deckStackSortDirSelectGlassBtn');
   if (dirSel && dirBtn) dirBtn.textContent = dirSel.value === 'desc' ? '↓' : '↑';
 }
 
