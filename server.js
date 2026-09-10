@@ -15,6 +15,13 @@ const helmet      = require('helmet');
 const nodemailer  = require('nodemailer');
 const cron        = require('node-cron');
 const engine2     = require('./engine2'); // semantics/interaction engine (docs/engine2-plan.md)
+
+// EDHREC-style commander slug ("Wilhelt, the Rotcleaver" → wilhelt-the-rotcleaver) for
+// commander_card_stats lookups (scripts/edhrec-commander-stats.js writes that table).
+function engine2SlugifyCommander(name) {
+  return String(name || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/\/\/.*$/, '').replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-');
+}
 const engine21w   = require('./engine2.1wizard'); // sandbox — wizard type picks / hybrid (do not replace engine2)
 const { Server: SocketIOServer } = require('socket.io');
 const MySQLStore  = require('express-mysql-session')(session);
@@ -5028,20 +5035,27 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
       // Per-axis retrieval (engine2 precon audit F6): one global rank-ordered window
       // let format staples on ONE pooled axis (fetch lands via landfall.enabler)
       // starve every other axis — Merrow Reejerey missed a Merfolk deck's window by
-      // 46 ranks. Each wanted axis now gets its own top-60 by EDHREC rank, union'd.
+      // 46 ranks. Each wanted axis gets its own top-60, ranked commander-first
+      // (anti-monoculture): what THIS commander's players run beats global rank,
+      // then tribe-param matches, then global rank as the fallback.
+      const cmdrSlug = engine2SlugifyCommander(commanderName);
+      const tribeParam = /^tribal:(.+)$/.exec(String(topGoal?.goal || ''))?.[1]?.toLowerCase() || null;
+      const tribeOrder = tribeParam ? `(NOT (LOWER(COALESCE(x.param, '')) = ?)),` : '';
       const candSub = wanted.map(() =>
-        `(SELECT c.oracle_id, c.name, c.type_line, c.cmc, c.edhrec_rank, c.scryfall_id, s.ir_json
+        `(SELECT c.oracle_id, c.name, c.type_line, c.cmc, c.edhrec_rank, c.scryfall_id, s.ir_json,
+                 st.inclusion_pct AS cmdr_pct
           FROM card_semantics_axes x
           JOIN scryfall_oracle_cards c ON c.oracle_id = x.oracle_id
           JOIN card_semantics s ON s.oracle_id = x.oracle_id AND s.status IN ('valid','flagged','manual')
+          LEFT JOIN commander_card_stats st ON st.oracle_id = c.oracle_id AND st.commander_slug = ?
           WHERE x.kind = 'provides' AND x.axis = ?
             AND c.legal_commander = 1
             ${ciSql}
-          ORDER BY (c.edhrec_rank IS NULL), c.edhrec_rank
+          ORDER BY (st.inclusion_pct IS NULL), st.inclusion_pct DESC, ${tribeOrder} (c.edhrec_rank IS NULL), c.edhrec_rank
           LIMIT 60)`).join(' UNION ALL ');
       const [candRows] = await db().query(
         `SELECT DISTINCT * FROM (${candSub}) u`,
-        wanted.flatMap(ax => [ax, ...disallowed.map(d => JSON.stringify(d))]));
+        wanted.flatMap(ax => [cmdrSlug, ax, ...disallowed.map(d => JSON.stringify(d)), ...(tribeParam ? [tribeParam] : [])]));
 
       // prices (best normal finish across printings at the latest snapshot) — optional
       const prices = new Map();
@@ -5067,6 +5081,7 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
       const candidates = candRows.map(r => ({
         name: r.name, ir: parseIR(r), cmc: Number(r.cmc) || 0, typeLine: r.type_line,
         edhrecRank: r.edhrec_rank, scryfallId: r.scryfall_id || null,
+        cmdrPct: r.cmdr_pct != null ? Number(r.cmdr_pct) : null,
         price: prices.has(r.name) ? prices.get(r.name) : null,
         owned: ownedNames.has(String(r.name).toLowerCase()),
       }));
@@ -5208,24 +5223,30 @@ app.post('/api/decks/analyze-wizard', requireAuth, async (req, res) => {
       const ciSql = disallowed.length
         ? `AND NOT (${disallowed.map(() => `JSON_CONTAINS(c.color_identity_json, ?)`).join(' OR ')})`
         : '';
-      // Per-axis retrieval — same F6 rationale as /api/decks/analyze above.
+      // Per-axis retrieval — same F6 + commander-first ranking as /api/decks/analyze.
+      const cmdrSlug = engine2SlugifyCommander(commanderName);
+      const tribeParam = /^tribal:(.+)$/.exec(String(topGoal?.goal || ''))?.[1]?.toLowerCase() || null;
+      const tribeOrder = tribeParam ? `(NOT (LOWER(COALESCE(x.param, '')) = ?)),` : '';
       const candSub = wanted.map(() =>
-        `(SELECT c.oracle_id, c.name, c.type_line, c.cmc, c.edhrec_rank, c.scryfall_id, s.ir_json
+        `(SELECT c.oracle_id, c.name, c.type_line, c.cmc, c.edhrec_rank, c.scryfall_id, s.ir_json,
+                 st.inclusion_pct AS cmdr_pct
           FROM card_semantics_axes x
           JOIN scryfall_oracle_cards c ON c.oracle_id = x.oracle_id
           JOIN card_semantics s ON s.oracle_id = x.oracle_id AND s.status IN ('valid','flagged','manual')
+          LEFT JOIN commander_card_stats st ON st.oracle_id = c.oracle_id AND st.commander_slug = ?
           WHERE x.kind = 'provides' AND x.axis = ?
             AND c.legal_commander = 1
             ${ciSql}
-          ORDER BY (c.edhrec_rank IS NULL), c.edhrec_rank
+          ORDER BY (st.inclusion_pct IS NULL), st.inclusion_pct DESC, ${tribeOrder} (c.edhrec_rank IS NULL), c.edhrec_rank
           LIMIT 60)`).join(' UNION ALL ');
       const [candRows] = await db().query(
         `SELECT DISTINCT * FROM (${candSub}) u`,
-        wanted.flatMap(ax => [ax, ...disallowed.map(d => JSON.stringify(d))]));
+        wanted.flatMap(ax => [cmdrSlug, ax, ...disallowed.map(d => JSON.stringify(d)), ...(tribeParam ? [tribeParam] : [])]));
       const ownedNames = new Set((Array.isArray(body.ownedNames) ? body.ownedNames : []).map(n => String(n).toLowerCase()));
       const candidates = candRows.map(r => ({
         name: r.name, ir: parseIR(r), cmc: Number(r.cmc) || 0, typeLine: r.type_line,
         edhrecRank: r.edhrec_rank, scryfallId: r.scryfall_id || null,
+        cmdrPct: r.cmdr_pct != null ? Number(r.cmdr_pct) : null,
         price: null, owned: ownedNames.has(String(r.name).toLowerCase()),
       }));
       adds = eng.recommender.scoreAdds({
@@ -7579,6 +7600,18 @@ async function ensureCardSemanticsTables() {
         rate      VARCHAR(12) NULL,
         UNIQUE KEY uq_csa (oracle_id, kind, axis, param),
         KEY idx_csa_axis (kind, axis, param)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS commander_card_stats (
+        commander_slug VARCHAR(80) NOT NULL,
+        oracle_id      CHAR(36)    NOT NULL,
+        inclusion_pct  FLOAT       NOT NULL,
+        synergy_pct    FLOAT       NULL,
+        num_decks      INT         NULL,
+        updated_at     BIGINT      NOT NULL,
+        PRIMARY KEY (commander_slug, oracle_id),
+        KEY idx_ccs_oracle (oracle_id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
     await conn.query(`

@@ -730,8 +730,28 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
       }
     }
 
-    // meta-popularity as a weak prior
-    if (cand.edhrecRank != null && cand.edhrecRank < 2000) { score += 0.75; trace.push({ kind: 'meta_prior', rank: cand.edhrecRank, pts: 0.75 }); }
+    // Breadth bonus (anti-monoculture): a card credited on two DIFFERENT wanted axes
+    // is a better deck card than one twice as deep on a single axis — guides love
+    // hybrids (Skullclamp is draw+sac, Thalia's Lieutenant is humans+counters).
+    {
+      const credited = new Set(trace
+        .filter(t => ['fills_axis', 'feeds', 'role_deficit', 'doubler_scale'].includes(t.kind))
+        .map(t => t.axis || t.cat).filter(Boolean));
+      if (credited.size >= 2) {
+        const pts = Math.min(1.5, (credited.size - 1) * 0.75);
+        score += pts;
+        trace.push({ kind: 'breadth', count: credited.size, pts });
+      }
+    }
+
+    // meta-popularity: commander-context stats (what THIS commander's players run)
+    // beat the global rank prior when available — global rank is what made every
+    // tribal deck's list identical (precon audit, anti-monoculture work).
+    if (cand.cmdrPct != null && cand.cmdrPct > 0) {
+      const pts = Math.round(Math.min(2.5, cand.cmdrPct * 0.03) * 100) / 100;
+      score += pts;
+      trace.push({ kind: 'commander_meta', pct: cand.cmdrPct, pts });
+    } else if (cand.edhrecRank != null && cand.edhrecRank < 2000) { score += 0.75; trace.push({ kind: 'meta_prior', rank: cand.edhrecRank, pts: 0.75 }); }
 
     // collection preference + soft price behavior
     if (cand.owned) { score += 1.5; trace.push({ kind: 'owned', pts: 1.5 }); }
@@ -748,7 +768,7 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
     // Fit = score minus preference nudges (owned / popularity / price). Preferences
     // may reorder genuinely good cards but must not lift filler over the quality
     // floor — an owned Bitterblossom is still a weak fit for a rat deck.
-    const PREF_KINDS = new Set(['owned', 'meta_prior', 'price_soft']);
+    const PREF_KINDS = new Set(['owned', 'meta_prior', 'commander_meta', 'price_soft']);
     const fit = score - trace.reduce((s, t) => s + (PREF_KINDS.has(t.kind) ? (t.pts || 0) : 0), 0);
     scored.push({
       name: cand.name, score: Math.round(score * 100) / 100, fit,
@@ -778,19 +798,39 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
     }
     return best;
   };
+  // Generic tribal staples (Coat of Arms class): tribal-axis credit without tribe
+  // membership. Every tribal deck was getting the same four; cap them so the list
+  // stays commander-shaped (anti-monoculture #3).
+  const tribeGoal = /^tribal:(.+)$/.exec(String(goals?.[0]?.goal || ''))?.[1] || null;
+  const TRIBAL_AXES = new Set(['tribal.lord', 'tribal.synergy', 'anthem.global']);
+  const isGenericTribal = (s) => {
+    if (!tribeGoal) return false;
+    const citesTribal = (s.trace || []).some(t => (t.kind === 'fills_axis' || t.kind === 'feeds') && TRIBAL_AXES.has(t.axis));
+    const onTribe = (s.trace || []).some(t => t.kind === 'tribe_affinity');
+    return citesTribal && !onTribe;
+  };
   const picks = {};
+  let genericTribalPicks = 0;
   const ordered = [];
   const pool = [...eligible];
   while (pool.length) {
-    let bestI = 0, bestEff = -Infinity;
+    // Coverage quota (anti-monoculture #2): before any credit axis gets a 4th slot,
+    // every axis that still has candidates gets its 1st — a real upgrade list covers
+    // the deck's needs, it doesn't rank one need to exhaustion.
+    const unseenExists = pool.some(s => { const k = primaryKey(s); return k && !(picks[k] > 0); });
+    let bestI = -1, bestEff = -Infinity;
     for (let i = 0; i < pool.length; i++) {
       const key = primaryKey(pool[i]);
+      if (unseenExists && key && (picks[key] || 0) >= 3) continue;
+      if (isGenericTribal(pool[i]) && genericTribalPicks >= 3) continue;
       const eff = pool[i].score * Math.pow(0.75, key ? (picks[key] || 0) : 0);
       if (eff > bestEff + 1e-9) { bestEff = eff; bestI = i; }
     }
+    if (bestI < 0) bestI = 0; // every candidate filtered — fall back to raw order
     const chosen = pool.splice(bestI, 1)[0];
     const key = primaryKey(chosen);
     if (key) picks[key] = (picks[key] || 0) + 1;
+    if (isGenericTribal(chosen)) genericTribalPicks++;
     ordered.push(chosen);
   }
   return ordered.slice(0, ADD_COUNT).map(({ fit, ...s }) => s);
