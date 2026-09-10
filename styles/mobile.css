@@ -519,6 +519,8 @@
     padding-inline: 4px;
   }
   #tab-decks .cut-candidate-row .btn { flex-shrink: 0; padding-inline: 5px; }
+  /* Narrower here than desktop, but still shared between Add and Cut. */
+  #tab-decks .suggest-item .cut-candidate-row .btn.btn-outline { min-width: 3.9rem; }
   #tab-decks .suggest-rank { flex-shrink: 0; }
   /* Column headers line up with the trimmed row padding. */
   #tab-decks .suggest-col-head { padding-inline: .5rem; gap: 6px; }

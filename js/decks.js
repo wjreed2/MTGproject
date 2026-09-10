@@ -8172,7 +8172,14 @@ async function _sendSuggestFeedback(btn) {
   const ctx = _e2FeedbackCtx;
   if (ctx && deck && String(ctx.deckId) === String(deck.id)) {
     const mine = (ctx.adds || []).find(a => a.name === (strip.dataset.card || ''));
-    if (mine) {
+    if (strip.dataset.kind === 'cut') {
+      // Cuts are not in ctx.adds — record the list they came from explicitly.
+      context = {
+        kind: 'cut', basis: ctx.basis, goals: ctx.goals,
+        rank: Number(strip.dataset.rank) || null,
+        of: Number(strip.dataset.of) || null,
+      };
+    } else if (mine) {
       context = {
         basis: ctx.basis, goals: ctx.goals, rank: mine.rank, of: ctx.adds.length,
         breakdown: mine.breakdown, reasons: mine.reasons,
@@ -8347,8 +8354,13 @@ function _renderDeckGoalReadout(deck, e2) {
   if (!el) {
     el = document.createElement('div');
     el.id = 'deckGoalReadout';
-    panel.parentNode.insertBefore(el, panel);
   }
+  // Always re-seat it at the top of the pane rather than just above the Adds
+  // panel. Suggested Cuts sits before Adds and only appears once the deck goes
+  // over 100, so anchoring to Adds stranded the goal between the two lists
+  // exactly when both were on screen.
+  const pane = document.getElementById('deckTabPane-suggestions') || panel.parentNode;
+  if (pane && pane.firstElementChild !== el) pane.insertBefore(el, pane.firstElementChild);
   el.className = 'deck-goal-card';
   el.style.cssText = '';
   el.style.display = '';
@@ -8446,7 +8458,8 @@ async function _renderCutSuggestions(deck) {
         : _SUGGEST_E2_UNAVAILABLE_HTML;
       return;
     }
-    body.innerHTML = _SUGG_CUT_COLHEAD + basisNote + items.map(({ cut, card, plannedAdd }) => {
+    const ownedNames = _suggOwnedNameSet();
+    body.innerHTML = _suggColHeadHtml('Cut') + basisNote + items.map(({ cut, card, plannedAdd }, i) => {
       const uid = (card.uid || card.scryfallId || card.name || '').replace(/'/g, "\\'");
       const sid = card.scryfallId || card.uid || '';
       const displayName = escapeHtml(card.name);
@@ -8470,16 +8483,31 @@ async function _renderCutSuggestions(deck) {
         : swapsOnE2
           ? 'Mark as a planned cut — stays in the deck until you apply swaps'
           : 'Remove one copy from the deck';
-      const addTag = plannedAdd
-        ? '<span class="sugg-meta" title="This is one of your planned adds — cutting it just un-plans it">planned add</span>' : '';
+      // Same row shape as Adds: rank, score, name, ownership + price, action,
+      // feedback. The feedback strip is tagged kind:'cut' so the stored context
+      // says which list a note came from — suggestion_feedback has no column for
+      // it, and without the tag a cut would be indistinguishable from an add.
+      const cutGoalKey = (e2 && e2.goals && e2.goals[0] && e2.goals[0].goal) || '';
+      const fbBtn = `<button type="button" class="btn btn-ghost btn-sm" title="Give feedback on this pick" aria-label="Give feedback on this pick" style="padding:2px 5px;flex-shrink:0" onclick="_toggleSuggestFeedback(this)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></svg></button>`;
+      const fbStrip = `<div class="suggest-feedback" data-kind="cut" data-rank="${i + 1}" data-of="${items.length}" data-card="${escapeHtml(card.name || '')}" data-score="${score}" data-goal="${escapeHtml(cutGoalKey)}" style="display:none;gap:6px;align-items:center;padding:.3rem .75rem .5rem">
+          <input type="text" maxlength="500" placeholder="What's right or wrong about this cut?" style="flex:1;font-size:.74rem;padding:4px 8px;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;color:var(--text)" onkeydown="if(event.key==='Enter')_sendSuggestFeedback(this.parentNode.querySelector('button'))">
+          <button type="button" class="btn btn-outline btn-sm" style="padding:2px 10px;font-size:.7rem" onclick="_sendSuggestFeedback(this)">Send</button>
+        </div>`;
+      const price = typeof _deckCardSortPrice === 'function' ? _deckCardSortPrice(card) : Number(card.priceTCG) || 0;
+      const ownTag = plannedAdd
+        ? '<span class="sugg-meta" title="This is one of your planned adds — cutting it just un-plans it">planned add</span>'
+        : _suggMetaHtml(ownedNames.has(String(card.name || '').toLowerCase()), price > 0 ? price : null);
       return `<div class="suggest-item">
         <div class="cut-candidate-row">
+          <span class="suggest-rank" title="Cut rank — the most negative contribution first">${i + 1}</span>
           <button type="button" class="cut-score-badge cut-why-toggle" aria-expanded="false" aria-label="Contribution to this deck ${score}" onclick="_toggleSuggestWhy(this)">${score}</button>
           <span class="cut-card-name" onclick="${sid ? `openCardDetail('${sid}','deck')` : ''}">${displayName}</span>
-          ${addTag}
-          <button class="btn-danger-ghost" title="${cutTitle}" onclick="${cutOnclick}">${plannedAdd ? "Don't add" : 'Cut'}</button>
+          ${ownTag}
+          <button class="btn btn-outline btn-sm" title="${cutTitle}" onclick="${cutOnclick}">${plannedAdd ? "Don't add" : 'Cut'}</button>
+          ${fbBtn}
         </div>
         ${why}
+        ${fbStrip}
       </div>`;
     }).join('');
     return;
@@ -8914,11 +8942,36 @@ function _suggMetaHtml(owned, price) {
   return `<span class="sugg-meta">${own}${sep ? ' ' + sep + ' ' : ''}${p}</span>`;
 }
 
-const _SUGG_CUT_COLHEAD = `<div class="suggest-col-head">
-  <span class="suggest-col-score">Score</span>
-  <span class="suggest-col-card">Card</span>
-  <span class="suggest-col-actions">Cut</span>
-</div>`;
+/** Column header for both suggestion lists. Shared so Adds and Cuts cannot drift
+ *  apart — only the action column's label differs. */
+function _suggColHeadHtml(actionLabel) {
+  return `<div class="suggest-col-head">
+    <span class="suggest-rank">#</span>
+    <span class="suggest-col-score">Score</span>
+    <span class="suggest-col-card">Card</span>
+    <span class="suggest-col-actions">${escapeHtml(actionLabel)}</span>
+  </div>`;
+}
+
+/**
+ * Names in the collection, for the owned/unowned text beside a suggestion.
+ * Deliberately not _deckCardOwnership: that is printing-strict and returns early
+ * when the deck-ownership *display* toggle is off, while this has to mean the
+ * same thing the adds engine means by "owned" — the card is in your collection,
+ * any printing — regardless of that toggle.
+ */
+function _suggOwnedNameSet() {
+  const src = (typeof _ownershipCollection === 'function' ? _ownershipCollection() : null)
+    || (typeof collection !== 'undefined' ? collection : []);
+  const out = new Set();
+  for (const c of (src || [])) {
+    const q = Number(c && c.qty);
+    if (Number.isFinite(q) && q < 1) continue;   // zero-qty rows are not owned
+    const n = String(c && c.name || '').toLowerCase();
+    if (n) out.add(n);
+  }
+  return out;
+}
 
 function _toggleSuggestWhy(btn) {
   const item = btn.closest('.suggest-item');
@@ -9216,13 +9269,7 @@ async function _renderAddSuggestions(deck) {
           reasons: a.reasons ? a.reasons.map((r, j) => ({ n: j + 1, text: r })) : null,
         })),
       };
-      const colHead = `<div class="suggest-col-head">
-        <span class="suggest-rank">#</span>
-        <span class="suggest-col-score">Score</span>
-        <span class="suggest-col-card">Card</span>
-        <span class="suggest-col-actions">Add</span>
-      </div>`;
-      body.innerHTML = colHead + shownAdds.map((a, i) => {
+      body.innerHTML = _suggColHeadHtml('Add') + shownAdds.map((a, i) => {
         const name = a.name || '';
         const safeName = name.replace(/'/g, "\\'");
         const displayName = escapeHtml(name);

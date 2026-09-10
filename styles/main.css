@@ -12591,6 +12591,14 @@ body.glass-mode #deckTabPane-suggestions .suggest-why-detail {
 .suggest-col-score { min-width: 3.4rem; text-align: center; flex-shrink: 0; }
 .suggest-col-card { flex: 1; min-width: 0; }
 .suggest-col-actions { flex-shrink: 0; text-align: right; }
+/* Add and Cut share a footprint so the Card column ends at the same x in both
+   lists — "Cut" is a shorter word than "+ Add" and the name column was
+   absorbing the difference. min-width, so a longer label ("Don't add") still
+   grows past it. */
+.suggest-item .cut-candidate-row .btn.btn-outline {
+  min-width: 4.4rem;
+  justify-content: center;
+}
 
 /* Card names inside score details open the inspector. */
 .why-card-link {
