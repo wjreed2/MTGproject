@@ -2648,12 +2648,9 @@ function _ensureDragArrow() {
  * _targetCellAt and _TARGET_HIT still decide what actually gets hit, so the aim
  * required to commit a target is unchanged.
  */
-// Once inside the visual zone the drawn end goes essentially onto the life
-// total — 0.45 left it drifting around the divider between the life block and
-// the buttons, which is not where anyone is aiming. Just short of 1 so the node
-// sits on the number rather than being swallowed by it.
+// Just short of 1 so the node sits on the life total rather than being
+// swallowed by it.
 const _ARROW_SNAP = 0.94;
-const _ARROW_SNAP_ZONE = 0.75;
 /**
  * Two zones, deliberately: _targetCellAt decides what actually gets hit and is
  * unchanged, while this smaller one only decides when the drawn line tidies
@@ -2673,11 +2670,12 @@ function _snapToCellCentre(x, y) {
   // Never over the source: a drag starts in the dragging player's own seat.
   if (!pid || pid === _tabletDrag.sourceId) return [x, y];
   const z = _tabletDrag.zones[pid];
-  if (!z || !z.rx || !z.ry) return [x, y];
-  const d = Math.hypot((x - z.x) / z.rx, (y - z.y) / z.ry);
-  if (d > (z.hit || _TARGET_HIT) * _ARROW_SNAP_ZONE) return [x, y];
-  // Toward the life total, and only partway — the line should point at the
-  // number, not terminate on it.
+  if (!z) return [x, y];
+  // Anywhere in the seat snaps, with no distance test of its own. Gating this on
+  // a zone around the centre meant crossing a cell near its edge left the node
+  // stranded under the finger — it only behaved when you dragged through the
+  // middle. The two boxes are still separate: _targetCellAt decides what is
+  // actually hit and is untouched; this one is simply the whole cell.
   const tx = z.lifeX != null ? z.lifeX : z.x;
   const ty = z.lifeY != null ? z.lifeY : z.y;
   return [x + (tx - x) * _ARROW_SNAP, y + (ty - y) * _ARROW_SNAP];
