@@ -777,16 +777,8 @@
        (where 90vw wins) pulled more than the card was tall. 40px of peek. */
     margin-top: calc(-1 * (min(90vw, 270px) * 88 / 63 - 40px)) !important;
   }
-  /* Reserve the card's height before the image decodes. An <img> with no loaded
-     source is 18px tall, while the negative margin above still pulls a whole
-     card — so the pile inverted and every card landed on top of the one before
-     it, climbing off the top of the container. It corrected itself once the
-     images arrived, and never corrected for one that failed. */
-  #tab-decks .deck-stack-cards.vertical .deck-stack-card > img,
-  #tab-decks .deck-stack-cards.vertical .deck-stack-card .stack-main {
-    aspect-ratio: 63 / 88;
-    height: auto;
-  }
+  /* Height reservation now lives in main.css (.deck-stack-card .stack-main),
+     so it applies on every width rather than only here. */
   #tab-decks .deck-stack-cards.vertical .deck-stack-card:first-child {
     margin-top: 8px !important;
   }

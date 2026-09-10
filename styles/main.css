@@ -4970,6 +4970,29 @@ img.stack-main.loaded { opacity: 1; }
 .deck-stack-cards.vertical::-webkit-scrollbar { display: none; }
 
 .stack-wrap { position: relative; width: 100%; }
+/* ── Card slots hold their shape before the art arrives ────────────────────
+   An <img> with width:100% and no height is 0px tall until it decodes, so a
+   deck list opened cold had zero-height slots that jumped to full size one at a
+   time as images streamed in — the whole grid reflowing under the cursor.
+   Reserving the ratio fixes the geometry; the placeholder below fixes the look,
+   because a reserved-but-transparent slot still had cards appearing out of
+   nothing. The art is opaque and paints straight over it. */
+.deck-stack-card .stack-main {
+  aspect-ratio: 63 / 88;
+  height: auto;
+}
+.deck-stack-card .stack-wrap {
+  border-radius: 10px;
+  background: var(--bg3);
+}
+body.glass-mode .deck-stack-card .stack-wrap {
+  background: rgba(255, 255, 255, 0.055);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+[data-theme="light"] body.glass-mode .deck-stack-card .stack-wrap {
+  background: rgba(20, 35, 60, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(20, 35, 60, 0.08);
+}
 .deck-stack-card .stack-main,
 .deck-stack-card .stack-main img {
   -webkit-user-drag: none;
