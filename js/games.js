@@ -1814,9 +1814,13 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
 
   // 2-player cells are full-width but half-height (stacked), so cap the life
   // number by viewport height too, to avoid overflow in landscape.
-  const lifeFontSize = total === 2 ? 'clamp(3.6rem,min(23vw,30vh),14rem)'
-    : total <= 4 ? 'clamp(3.6rem,14.5vw,9.6rem)'
-    : 'clamp(3.5rem,11vw,7rem)';
+  // Five seats is the only grid that needs three rows, so its cells are ~35%
+  // shorter than every other count's and the numeral has to come down with them
+  // — sized as 5+ it overflowed the life block and .tablet-cell clipped it.
+  const lifeFontSize = total === 2 ? 'clamp(4.2rem,min(27vw,35vh),17rem)'
+    : total <= 4 ? 'clamp(4.2rem,17vw,11.5rem)'
+    : total === 5 ? 'clamp(2.6rem,7.5vw,4.6rem)'
+    : 'clamp(3.4rem,10.5vw,7rem)';
 
   const spanStyle = (total === 3 && idx === 0) || (total === 5 && idx === 4) ? 'grid-column: span 2;' : '';
   const isActiveTurn = !p.eliminated && idx === (game.activePlayerIdx ?? 0);
@@ -1872,7 +1876,6 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
     <!-- Life total -->
     <div class="tablet-life-block" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:clamp(3px,0.8vh,8px);min-height:0">
       <div class="tablet-life-num" style="font-family:'JetBrains Mono',monospace;font-size:${lifeFontSize};font-weight:700;line-height:1;color:${lifeColor};text-shadow:0 0 38px ${p.color}2e;transition:color 0.25s;user-select:none">${p.life}</div>
-      <div style="font-size:clamp(0.55rem,1.2vw,0.78rem);color:var(--text3)">of ${p.startingLife}</div>
       ${isCmd ? `<div style="display:flex;align-items:center;justify-content:center;gap:4px;flex-wrap:wrap;padding:0 8px;min-height:16px">${cmdBadges}</div>` : ''}
       ${poisonBadge}
     </div>
@@ -2280,8 +2283,10 @@ function renderTabletPieView(game, el, _hubRetry = false) {
   });
   // One life-number size for every seat — the smallest that fits the tightest
   // wedge — so no player's total reads bigger than another's.
-  const lifeFsAll = Math.round(Math.max(44, Math.min(148,
-    ...geoms.map(g => Math.min(g.contentH - 170, g.contentW * 0.34)))));
+  // Bigger numerals: the "of X" line under the total is gone, so the wedge has
+  // more room, and the total is the thing players read across a table.
+  const lifeFsAll = Math.round(Math.max(52, Math.min(210,
+    ...geoms.map(g => Math.min(g.contentH - 125, g.contentW * 0.56)))));
   geoms.forEach(g => { g.lifeFs = lifeFsAll; });
 
   const dividers = `
@@ -2331,7 +2336,7 @@ function renderTabletPieCell(game, p, idx, g) {
   const targetLabel = isAllMode ? 'Tap to confirm' : 'Tap — deal damage';
   const maxCmdDmg = Math.max(...Object.values(p.commanderDamage || {}).map(Number), 0);
   const n = game.players.length;
-  const lifeFs = g.lifeFs || Math.round(Math.max(44, Math.min(g.contentH - 170, g.contentW * 0.34, 148)));
+  const lifeFs = g.lifeFs || Math.round(Math.max(52, Math.min(g.contentH - 125, g.contentW * 0.56, 210)));
   const glowAlpha = inTargetMode ? '14' : isActiveTurn ? '26' : '0d';
   const glowR = Math.round(Math.max(g.contentW, g.contentH) * 0.85);
 
@@ -2346,6 +2351,17 @@ function renderTabletPieCell(game, p, idx, g) {
       <polygon class="pie-outline" points="${g.polyRaw}" style="fill:none;stroke-width:7;stroke:${isActiveTurn && !inTargetMode ? p.color : 'transparent'}"/>
     </svg>
     <div class="tablet-pie-content tablet-pie-anchor" style="left:${g.ax.toFixed(1)}px;top:${g.ay.toFixed(1)}px;width:${Math.round(g.contentW)}px;transform:translate(-50%,-50%) rotate(${g.rotDeg}deg);">
+      ${p.deckName && n <= 4 ? `<div style="font-size:clamp(0.55rem,1.2vw,0.78rem);color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%">${escapeHtml(p.deckName)}${p.commander ? ' · ' + escapeHtml(p.commander) : ''}</div>` : ''}
+      <div class="tablet-life-num" style="font-family:'JetBrains Mono',monospace;font-size:${lifeFs}px;font-weight:700;line-height:1;color:${lifeColor};text-shadow:0 0 38px ${p.color}2e;transition:color 0.25s;user-select:none">${p.life}</div>
+      ${isCmd && cmdBadges ? `<div style="display:flex;align-items:center;justify-content:center;gap:4px;flex-wrap:wrap;max-width:100%">${cmdBadges}</div>` : ''}
+      ${poisonBadge}
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:clamp(3px,0.55vw,7px);width:100%" onclick="event.stopPropagation()">
+        ${_cellLifeBtns(game, p)}
+      </div>
+      <div style="display:flex;gap:clamp(6px,1.2vw,12px);justify-content:center;align-items:center;font-size:clamp(0.56rem,1.1vw,0.74rem);min-height:14px">
+        ${_cellStatusRow(p, maxCmdDmg)}
+      </div>
+      <!-- Name / clock / ⋯ sit under the counter buttons -->
       <div style="display:flex;align-items:center;justify-content:center;gap:7px;max-width:100%">
         <span class="tablet-total-time" data-pid="${p.id}" title="Total time this player has spent on turns"
           style="font-family:'JetBrains Mono',monospace;font-size:clamp(0.5rem,1.05vw,0.7rem);color:var(--text3);white-space:nowrap">${formatDuration(playerTotalTime(game, p.id))}</span>
@@ -2354,17 +2370,6 @@ function renderTabletPieCell(game, p, idx, g) {
           ? `<span style="font-size:clamp(0.6rem,1.3vw,0.78rem);color:var(--gold);animation:targetPulse 1s ease-in-out infinite;white-space:nowrap">${targetLabel}</span>`
           : `<button class="tablet-dots-btn" onclick="openTabletMenu('${p.id}',this,event,${g.rotDeg})"
                style="background:none;border:none;cursor:pointer;padding:2px 7px;font-size:clamp(1rem,2vw,1.3rem);line-height:1;letter-spacing:1px;color:${isActiveTurn ? p.color : 'var(--text3)'}">⋯</button>`}
-      </div>
-      ${p.deckName && n <= 4 ? `<div style="font-size:clamp(0.55rem,1.2vw,0.78rem);color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%">${escapeHtml(p.deckName)}${p.commander ? ' · ' + escapeHtml(p.commander) : ''}</div>` : ''}
-      <div class="tablet-life-num" style="font-family:'JetBrains Mono',monospace;font-size:${lifeFs}px;font-weight:700;line-height:1;color:${lifeColor};text-shadow:0 0 38px ${p.color}2e;transition:color 0.25s;user-select:none">${p.life}</div>
-      <div style="font-size:clamp(0.55rem,1.2vw,0.78rem);color:var(--text3)">of ${p.startingLife}</div>
-      ${isCmd && cmdBadges ? `<div style="display:flex;align-items:center;justify-content:center;gap:4px;flex-wrap:wrap;max-width:100%">${cmdBadges}</div>` : ''}
-      ${poisonBadge}
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:clamp(3px,0.55vw,7px);width:100%" onclick="event.stopPropagation()">
-        ${_cellLifeBtns(game, p)}
-      </div>
-      <div style="display:flex;gap:clamp(6px,1.2vw,12px);justify-content:center;align-items:center;font-size:clamp(0.56rem,1.1vw,0.74rem);min-height:14px">
-        ${_cellStatusRow(p, maxCmdDmg)}
       </div>
     </div>
   </div>`;
@@ -2629,6 +2634,11 @@ const _ARROW_SNAP = 0.45;
 function _snapToCellCentre(x, y) {
   const cell = _cellElAt(x, y);
   if (!cell) return [x, y];
+  // Never snap over the source. The drag starts inside the dragging player's own
+  // wedge, so snapping there dragged the tail toward their centre and the line
+  // read as anchored to the middle of their seat rather than to the finger.
+  // Snapping is for the players being aimed at.
+  if (_tabletDrag && cell.dataset.pid === _tabletDrag.sourceId) return [x, y];
   const b = cell.getBoundingClientRect();
   const cx = b.left + b.width / 2;
   const cy = b.top + b.height / 2;

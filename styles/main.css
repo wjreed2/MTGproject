@@ -10586,6 +10586,9 @@ body.glass-mode #tabletView .tablet-life-num {
   font-family: var(--glass-font) !important;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.035em;
+  /* A hair over 1 so the glyph box is not clipped by .tablet-cell's overflow;
+     much more than this and the box starts eating the cell's height budget. */
+  line-height: 1.05 !important;
   text-shadow:
     0 1px 0 rgba(255, 255, 255, 0.30),
     0 3px 10px rgba(0, 0, 0, 0.38) !important;
