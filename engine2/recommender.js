@@ -40,6 +40,24 @@ function isLandCard(c) {
 
 function bucketOf(cmc) { return Math.min(Math.max(Math.floor(Number(cmc) || 0), 0), 7); }
 
+// A need for one graveyard CONSUMER is satisfied by any of them: Entomb's "wants
+// gy.reanimate" really means "someone must USE what I bury" — a commander with
+// gy.matters (Thranduil plays abilities straight from the yard), cast-from-graveyard,
+// or recursion serves that appetite as well as literal reanimation. One-way: providing
+// gy.matters satisfies a reanimate NEED; it does not make the card a reanimator.
+const _GY_CONSUMER_AXES = ['gy.reanimate', 'gy.recursion', 'gy.cast_from', 'gy.matters'];
+const _GY_CONSUMER_SET = new Set(_GY_CONSUMER_AXES);
+function demandSupplyCount(index, axis, param, mode) {
+  let have = matchParam(index.provides.get(axis), param, mode)?.count || 0;
+  if (_GY_CONSUMER_SET.has(axis)) {
+    for (const alt of _GY_CONSUMER_AXES) {
+      if (alt === axis) continue;
+      have += matchParam(index.provides.get(alt), null)?.count || 0;
+    }
+  }
+  return have;
+}
+
 // A need strong enough to headline a "Feeds X" suggestion: hard requirements always,
 // soft wants only with real weight. helps-level appetites (an X spell mildly "wants"
 // ramp) may nudge scores but never read as one card feeding another.
@@ -351,7 +369,7 @@ function wantedAxes(goal, hist, index, templates, goals) {
     // voltron deck wants ONE carrier and always has it in the command zone
     if (axis === 'voltron.carrier' && index.commanderCarrier) continue;
     for (const grp of rec.entries) {
-      const have = matchParam(index.provides.get(axis), grp.param)?.count || 0;
+      const have = demandSupplyCount(index, axis, grp.param);
       // Unmet demand steers suggestions only when it's on-plan or a hard dependency —
       // off-plan soft wants (however many) stay out of the wanted set entirely.
       // EXCEPTION: the commander's own wants (weight ≥3) are on-plan by definition —
@@ -460,6 +478,19 @@ function scoreCuts({ deckCards, commander, goals, thresholds, roleCounts }) {
   const tribalType = topGoal?.goal?.startsWith('tribal:') ? topGoal.goal.slice(7) : null;
   const tribes = deckTribeSet(goals);
 
+  // Nonbo blame attribution: when ONE card conflicts with a whole package (a mass
+  // aggressor — Necrodominance exiling everything the graveyard plan buries, Rest in
+  // Peace in a reanimator deck), the penalty belongs on the aggressor, not spread
+  // across its victims. The old per-victim −5 told a Thranduil player to cut Buried
+  // Alive while the card actually fighting the deck skated on its draw engine.
+  const nonboCount = new Map();
+  for (const e of interactions.edges) {
+    if (e.type !== 'nonbo') continue;
+    nonboCount.set(e.a, (nonboCount.get(e.a) || 0) + 1);
+    nonboCount.set(e.b, (nonboCount.get(e.b) || 0) + 1);
+  }
+  const massAggressor = (n) => (nonboCount.get(n) || 0) >= 3;
+
   const scored = [];
   for (const c of nonLand) {
     if (!c.ir) continue; // no semantics — never suggest cutting blind
@@ -470,7 +501,17 @@ function scoreCuts({ deckCards, commander, goals, thresholds, roleCounts }) {
     const trace = [];
     let score = 0;
 
-    const syn = synergyDegree(c.name, interactions);
+    let syn = synergyDegree(c.name, interactions);
+    // Victims of a mass aggressor get their poisoned degree restored — their synergy
+    // with the rest of the deck is real; the conflict is the aggressor's problem.
+    if (!massAggressor(c.name)) {
+      for (const e of interactions.edges) {
+        if (e.type !== 'nonbo' || (e.a !== c.name && e.b !== c.name)) continue;
+        const other = e.a === c.name ? e.b : e.a;
+        if (massAggressor(other) && (e.strength || 0) < 0) syn -= e.strength;
+      }
+      syn = Math.round(syn * 100) / 100;
+    }
     score += Math.min(syn, 40) * 0.35;
     trace.push({ kind: 'synergy', value: syn, pts: Math.min(syn, 40) * 0.35, edges: interactions.edges
       .filter(e => (e.a === c.name || e.b === c.name) && e.type !== 'redundancy').slice(0, 4) });
@@ -495,7 +536,7 @@ function scoreCuts({ deckCards, commander, goals, thresholds, roleCounts }) {
     // dead needs: requires an axis the deck barely provides (param-compatible only)
     for (const nd of c.ir.needs || []) {
       if (nd.criticality !== 'requires') continue;
-      const have = matchParam(index.provides.get(nd.axis), nd.param, tribalBound(tribes, nd.axis, nd.param) ? 'exact' : undefined)?.count || 0;
+      const have = demandSupplyCount(index, nd.axis, nd.param, tribalBound(tribes, nd.axis, nd.param) ? 'exact' : undefined);
       if (have < 2) { const pts = -(have === 0 ? 6 : 2); score += pts; trace.push({ kind: 'dead_need', axis: nd.axis, have, pts }); }
     }
 
@@ -515,7 +556,15 @@ function scoreCuts({ deckCards, commander, goals, thresholds, roleCounts }) {
         String(p.param).split(/[,/]/).some(t => t.trim().toLowerCase() === tribalType.toLowerCase()))) {
       score += 5; trace.push({ kind: 'shield_tribe_support', type: tribalType, pts: 5 });
     }
-    if ((c.ir.provides || []).some(p => commanderNeeds.has(p.axis))) { score += 4; trace.push({ kind: 'shield_commander', pts: 4 }); }
+    // Weight-scaled: a w5 supplier of something the commander NEEDS (Buried Alive
+    // stocking Thranduil's graveyard) is core, not a coincidence — the flat +4 let
+    // one-shot yard-stockers bottom out as cuts in the very deck built around them.
+    const cmdrMatches = (c.ir.provides || []).filter(p => commanderNeeds.has(p.axis));
+    if (cmdrMatches.length) {
+      const wBest = Math.max(...cmdrMatches.map(p => p.weight || 1));
+      const pts = Math.min(8, 3 + wBest);
+      score += pts; trace.push({ kind: 'shield_commander', pts });
+    }
     if (c.ir.wincon) { score += 4; trace.push({ kind: 'shield_wincon', wc: c.ir.wincon.kind, pts: 4 }); }
     for (const e of interactions.edges) {
       if (e.type === 'nonbo' && (e.a === c.name || e.b === c.name)) {
@@ -524,6 +573,13 @@ function scoreCuts({ deckCards, commander, goals, thresholds, roleCounts }) {
         // Grounds must not generate cut evidence against the deck's own draw and
         // recursion spells (precon audit F8: Frantic Search at 67% inclusion).
         if (landNames.has(other)) continue;
+        // Blame the aggressor: a card fighting a whole package takes the aggregate
+        // penalty; its victims take none from it (Necrodominance vs the yard plan).
+        if (massAggressor(c.name)) {
+          const pts = -5 * Math.min(4, nonboCount.get(c.name) || 1);
+          score += pts; trace.push({ kind: 'nonbo', axis: e.axis, other, pts }); break;
+        }
+        if (massAggressor(other)) continue;
         score -= 5; trace.push({ kind: 'nonbo', axis: e.axis, other, pts: -5 }); break;
       }
     }
@@ -710,7 +766,7 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
     // its own needs are already fed here (card won't be dead)
     let fedNeeds = 0, deadNeeds = 0;
     for (const nd of cand.ir.needs || []) {
-      const have = matchParam(index.provides.get(nd.axis), nd.param, tribalBound(tribes, nd.axis, nd.param) ? 'exact' : undefined)?.count || 0;
+      const have = demandSupplyCount(index, nd.axis, nd.param, tribalBound(tribes, nd.axis, nd.param) ? 'exact' : undefined);
       if (have >= 2) fedNeeds++;
       else if (nd.criticality === 'requires') deadNeeds++;
     }
