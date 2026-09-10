@@ -54,7 +54,7 @@ function strongNeed(criticality, weight) {
 function deckAxisIndex(deckCards, commander) {
   const provides = new Map(); // axis → {count, names[], entries: [{param, count, names[]}]}
   const needs = new Map();    // axis → {count, weight, strong, names[], strongNames[], entries: [...]}
-  const all = commander?.ir ? [...deckCards, { ...commander, qty: 1 }] : deckCards;
+  const all = commander?.ir ? [...deckCards, { ...commander, qty: 1, _isCommander: true }] : deckCards;
   const subEntry = (rec, param) => {
     const key = param == null ? null : String(param).toLowerCase();
     let e = rec.entries.find(x => x.key === key);
@@ -86,6 +86,10 @@ function deckAxisIndex(deckCards, commander) {
         if (rec.strongNames.length < 6) rec.strongNames.push(c.name);
         if (e.strongNames.length < 6) e.strongNames.push(c.name);
       }
+      // The commander's own demand is the plan seed — track it so wantedAxes can
+      // treat it as on-plan even when the top goal's template doesn't mention the
+      // axis (Thranduil wants ELF CARDS IN THE GRAVEYARD; tribal:Elf has no idea).
+      if (c._isCommander) { rec.commanderWeight = (rec.commanderWeight || 0) + (nd.weight || 1); e.commanderWeight = (e.commanderWeight || 0) + (nd.weight || 1); }
       // A low-weight "requires" is a weak dependency, not a plan anchor: Mosswort
       // Bridge's w3 body.big requirement made hydras the whole adds list for a
       // Merfolk deck (precon audit F4). Only substantive requirements count as HARD
@@ -350,7 +354,11 @@ function wantedAxes(goal, hist, index, templates, goals) {
       const have = matchParam(index.provides.get(axis), grp.param)?.count || 0;
       // Unmet demand steers suggestions only when it's on-plan or a hard dependency —
       // off-plan soft wants (however many) stay out of the wanted set entirely.
-      if (have < 2 && grp.weight >= 5 && (goalAxes.has(axis) || (grp.hard || 0) >= 1)) {
+      // EXCEPTION: the commander's own wants (weight ≥3) are on-plan by definition —
+      // the command zone seeds the game plan, and a template can't know that
+      // Thranduil wants Elf cards IN the graveyard rather than recurred from it.
+      const cmdrDemand = (grp.commanderWeight || 0) >= 3;
+      if (have < 2 && (grp.weight >= 5 || cmdrDemand) && (goalAxes.has(axis) || (grp.hard || 0) >= 1 || cmdrDemand)) {
         // Weak wants may aggregate into real demand (three X spells each mildly wanting
         // ramp), but only STRONG needers get cited by name — otherwise the reason reads
         // "Feeds <X spell>" for a card that merely likes having more mana around.
@@ -366,7 +374,11 @@ function wantedAxes(goal, hist, index, templates, goals) {
         } else {
           wanted.set(axis, {
             why: 'unmet_need', gap: 2 - have,
-            params: [grp.param], neederGroups: group ? [group] : [],
+            // Commander-sourced demand is param-permissive: a generic self-mill fills
+            // an Elf deck's graveyard with Elves just fine — only explicit OTHER-param
+            // providers should be excluded.
+            params: [grp.param], permissive: cmdrDemand || undefined,
+            neederGroups: group ? [group] : [],
           });
         }
       }
