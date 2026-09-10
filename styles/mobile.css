@@ -61,16 +61,20 @@
     padding-top: env(safe-area-inset-top, 0px);
     box-sizing: border-box;
     z-index: 400;
-    /* Toggle is hidden; pin brand left so it never collides with the account cluster */
-    justify-content: flex-start;
-    padding-left: 0.75rem;
+    /* The brand is the only in-flow child here — the sidebar toggle is hidden and
+       .topbar-user is absolutely positioned — so centring the bar centres the mark. */
+    justify-content: center;
+    padding-left: 0.5rem;
     padding-right: 0.5rem;
   }
+  /* Gem only: the wordmark repeats what the icon already says and the bar is
+     narrow. Centred, it reads as the app's mark rather than a heading. */
   .topbar-brand {
     font-size: 0.92rem;
-    gap: 8px;
+    gap: 0;
     min-width: 0;
   }
+  .topbar-brand span { display: none; }
   .topbar-user {
     right: 0.5rem;
     gap: 2px;
@@ -80,19 +84,11 @@
        cluster must start there too or it rides up into the status bar. */
     top: env(safe-area-inset-top, 0px);
   }
-  /* Account button is the icon alone — the address needs a third of the bar to
-     say something the icon already says, and the menu behind it shows it. */
-  #topbarUser {
-    max-width: none;
-    width: 38px;
-    min-width: 38px;
-    min-height: 34px;
-    padding: 0 !important;
-    justify-content: center;
-  }
-  #topbarUser span { display: none !important; }
-  /* What's new lives in the settings menu too, so the notebook is redundant
-     here and the bar is tight. */
+  /* The bell is the whole cluster on phones. Everything behind the account
+     button is in Settings, which the bottom nav opens directly
+     (mob-nav-item[data-tab="settings"]), and What's new has its own row in that
+     same menu — so neither needs a seat in the bar. */
+  #topbarUser,
   #topbarWhatsNewIconBtn { display: none !important; }
   #topbarNotifBtn {
     padding: 5px 7px !important;
@@ -101,8 +97,7 @@
     align-items: center;
     justify-content: center;
   }
-  #topbarNotifBtn svg,
-  #topbarUser svg {
+  #topbarNotifBtn svg {
     width: 18px !important;
     height: 18px !important;
   }
@@ -281,8 +276,9 @@
      Nothing moves in the DOM, so ids, listeners and the ⓘ popover's anchor are
      untouched. */
   #deckTopBar {
-    align-items: center !important;
+    align-items: flex-start !important;
     justify-content: flex-start !important;
+    flex-wrap: nowrap !important;
     column-gap: 6px !important;
     row-gap: 4px;
     position: relative;
@@ -292,43 +288,58 @@
   #deckTopBar #deckOptionsBtn { padding: 0 8px !important; }
   #deckTopBar .deck-top-spacer { display: none !important; }
 
-  /* Row 1 — the actions, right-aligned with ⋮ on the outside edge. That is the
-     authored DOM order (Add cards, Manage Tags, ⋮), so no `order` is needed
-     here; flex-end does the alignment. All three are icon-only on phones: the
-     + and the tag carry the meaning and the row stays out of the way.
+  /* The actions become a vertical strip down the right edge, continuing the
+     bell's column from the topbar, with the deck title taking the top-left.
      display/margin-left are set inline by _placeDeckActionCluster, so only the
-     basis and alignment come from here. */
+     direction, size and order come from here. All three are identical squares —
+     icon-only, since the + and the tag carry the meaning on their own. */
+  /* Stays in flow. Taking it out to reclaim the space beside the title looks
+     tidier until the strip, which is 126px tall against a 34px title, runs past
+     the header and lands on the folder tabs — the ⋮ ends up sitting on the
+     History tab. The room under the title is the strip's own footprint, not
+     waste. */
   #tab-decks #deckActionCluster {
-    order: 1;
-    flex: 0 0 100%;
+    order: 2;
+    flex: 0 0 auto;
+    flex-direction: column;
+    align-items: center;
     gap: 6px;
-    justify-content: flex-end;
+    margin-left: 8px !important;
   }
   #tab-decks #deckBuilderVoiceBtn,
-  #tab-decks #deckManageTagsBtn {
+  #tab-decks #deckManageTagsBtn,
+  #tab-decks #deckTopMenuWrap > #deckOptionsBtn {
     gap: 0 !important;
     padding: 0 !important;
     width: 38px;
     min-width: 38px;
-    min-height: 34px;
+    height: 38px;
+    min-height: 38px;
     justify-content: center;
+    align-items: center;
     flex-shrink: 0;
   }
+  #tab-decks #deckTopMenuWrap { flex-shrink: 0; width: 38px; }
   #tab-decks #deckBuilderVoiceBtn .deck-btn-label,
   #tab-decks #deckManageTagsBtn .deck-btn-label { display: none; }
-  #tab-decks #deckBuilderVoiceBtn svg { width: 15px; height: 15px; }
+  #tab-decks #deckBuilderVoiceBtn svg,
+  #tab-decks #deckTopMenuWrap > #deckOptionsBtn svg { width: 15px; height: 15px; }
   #tab-decks #deckManageTagsBtn .deck-btn-icon {
     display: block;
     width: 15px;
     height: 15px;
     flex-shrink: 0;
   }
+  /* The dropdown hangs off a 38px-wide anchor pinned to the right edge, so it
+     has to open leftward or it runs off screen. */
+  #tab-decks #deckTopMenuWrap .deck-options-dropdown { right: 0; left: auto; }
 
-  /* Row 2 — the title and its indicators. nowrap beats the inline flex-wrap so
-     the badges stay on the name's line; the name ellipsises to make room. */
+  /* The title leads, taking every pixel the action strip does not. nowrap beats
+     the inline flex-wrap so the badges stay on the name's line; the name
+     ellipsises to make room. */
   #tab-decks .deck-top-title-row {
-    order: 2;
-    flex: 1 1 100%;
+    order: 1;
+    flex: 1 1 auto;
     flex-wrap: nowrap !important;
     gap: 6px !important;
     min-width: 0;
