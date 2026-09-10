@@ -44,37 +44,41 @@
   :root {
     --bottom-nav-h: 56px;
     /* Compact bar + notch/status inset so fixed chrome clears the status bar */
-    --topbar-h: calc(52px + env(safe-area-inset-top, 0px));
+    /* No bar to clear any more — only the notch. main and the offline banner
+       both key off this, so content now starts just under the status bar. */
+    --topbar-h: env(safe-area-inset-top, 0px);
   }
 
-  /* ── Hide sidebar chrome; keep the top account banner ───────────────────
-     Previously `.topbar { display:none }` hid the whole header — including
-     #topbarUserRow (username, notifications, What’s new, settings/sign-out).
-     A “floating user button” override could not win: children of display:none
-     never paint. Restore the topbar; only the sidebar toggle stays hidden. */
+  /* ── No topbar on phones ───────────────────────────────────────────────
+     The bar carried a gem, a bell and an account button; the bell is in the
+     bottom nav now and the other two are already gone, so it was dead height at
+     the top of every screen.
+     It is collapsed rather than display:none, and that distinction is the whole
+     reason this was reverted once before: #notifPanel and #settingsDropdown are
+     children of <header class="topbar"> in index.html, and children of a
+     display:none parent never paint — hiding the bar takes notifications and
+     settings with it. Zero height, no paint, no pointer events; the two panels
+     opt back into pointer events below. */
   .sidebar        { display: none !important; }
   .topbar-toggle  { display: none !important; }
-
   .topbar {
-    display: flex !important;
-    height: var(--topbar-h);
-    padding-top: env(safe-area-inset-top, 0px);
-    box-sizing: border-box;
-    z-index: 400;
-    /* The brand is the only in-flow child here — the sidebar toggle is hidden and
-       .topbar-user is absolutely positioned — so centring the bar centres the mark. */
-    justify-content: center;
-    padding-left: 0.5rem;
-    padding-right: 0.5rem;
+    height: 0 !important;
+    min-height: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    background: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    box-shadow: none !important;
+    overflow: visible;
+    pointer-events: none;
   }
-  /* Gem only: the wordmark repeats what the icon already says and the bar is
-     narrow. Centred, it reads as the app's mark rather than a heading. */
-  .topbar-brand {
-    font-size: 0.92rem;
-    gap: 0;
-    min-width: 0;
-  }
-  .topbar-brand span { display: none; }
+  .topbar-brand,
+  .topbar-user { display: none !important; }
+  .topbar .notif-panel,
+  .topbar .settings-dropdown { pointer-events: auto; }
+
+  .topbar { z-index: 400; }
   .topbar-user {
     right: 0.5rem;
     gap: 2px;
@@ -104,14 +108,22 @@
   #topbarUserRow .topbar-user-menu-cluster {
     gap: 2px !important;
   }
-  /* Anchor panels to the taller safe-area topbar, not a hard-coded 52px */
+  /* Their anchor is a zero-height bar now, so `top: 100%` would land them at the
+     very top of the screen under the notch. Pin them to the viewport instead,
+     clearing the status bar above and the bottom nav below. */
   .notif-panel {
-    top: calc(100% - 4px) !important;
-    right: 0.5rem !important;
+    position: fixed !important;
+    top: calc(env(safe-area-inset-top, 0px) + 8px) !important;
+    right: 8px !important;
+    left: auto !important;
+    width: min(360px, calc(100vw - 16px)) !important;
+    max-height: calc(100dvh - env(safe-area-inset-top, 0px)
+                     - var(--bottom-nav-h) - env(safe-area-inset-bottom, 0px) - 24px) !important;
   }
   .settings-dropdown:not(.settings-as-page) {
-    top: 100%;
-    right: 0.5rem;
+    position: fixed;
+    top: calc(env(safe-area-inset-top, 0px) + 8px);
+    right: 8px;
   }
 
   /* ── Main content — below topbar, above bottom nav ────────────────────── */
@@ -170,7 +182,10 @@
     -webkit-tap-highlight-color: transparent;
   }
   .mob-nav-item:active { opacity: 0.7; }
-  .mob-nav-item.active { color: var(--gold); }
+  /* Gold is the pre-glass accent; body.glass-mode paints the desktop sidebar's
+     active item #fff, and the bottom nav is that same navigation. */
+  .mob-nav-item.active { color: #fff; }
+  [data-theme="light"] .mob-nav-item.active { color: #17202e; }
   .mob-nav-icon  { width: 26px; height: 26px; flex-shrink: 0; stroke-width: 1.3; }
   .mob-nav-label {
     font-family: 'Cinzel', serif; font-size: 0.58rem;
@@ -288,7 +303,7 @@
      padding — 17px tall against desktop's 29px. Everything else about the menu
      already matched; this was the whole difference. */
   #deckTopBar .btn:not(.deck-menu-item) { padding: 0 10px !important; }
-  #deckTopBar #deckOptionsBtn { padding: 0 8px !important; }
+
   #deckTopBar .deck-top-spacer { display: none !important; }
 
   /* Row 1 — the actions, right-aligned with ⋮ on the outside edge. That is the
@@ -303,16 +318,24 @@
     gap: 6px;
     justify-content: flex-end;
   }
+  /* All three header actions are the same square. #deckOptionsBtn is reached
+     through its wrapper, and its own padding rule below has to go with it or it
+     wins on specificity. */
   #tab-decks #deckBuilderVoiceBtn,
-  #tab-decks #deckManageTagsBtn {
+  #tab-decks #deckManageTagsBtn,
+  #tab-decks #deckTopMenuWrap > #deckOptionsBtn {
     gap: 0 !important;
     padding: 0 !important;
     width: 38px;
     min-width: 38px;
+    height: 34px;
     min-height: 34px;
     justify-content: center;
+    align-items: center;
     flex-shrink: 0;
   }
+  #tab-decks #deckTopMenuWrap { flex-shrink: 0; }
+  #tab-decks #deckTopMenuWrap > #deckOptionsBtn svg { width: 15px; height: 15px; }
   #tab-decks #deckBuilderVoiceBtn .deck-btn-label,
   #tab-decks #deckManageTagsBtn .deck-btn-label { display: none; }
   #tab-decks #deckBuilderVoiceBtn svg { width: 15px; height: 15px; }

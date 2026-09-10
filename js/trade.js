@@ -2103,8 +2103,14 @@ function initNotifications() {
   document.addEventListener('click', e => {
     if (!_notifState.open) return;
     const panel = document.getElementById('notifPanel');
-    const btn = document.getElementById('topbarNotifBtn');
-    if (panel && !panel.contains(e.target) && btn && !btn.contains(e.target)) {
+    // Both triggers have to be exempt, or the very click that opens the panel
+    // bubbles to here and closes it again. The phone's bell lives in the bottom
+    // nav (#mobNotifBtn) now that the topbar is collapsed away.
+    const onTrigger = ['topbarNotifBtn', 'mobNotifBtn'].some(id => {
+      const b = document.getElementById(id);
+      return b && b.contains(e.target);
+    });
+    if (panel && !panel.contains(e.target) && !onTrigger) {
       _notifState.open = false;
       panel.hidden = true;
     }
@@ -2115,10 +2121,14 @@ function initNotifications() {
 
 function _applyNotifBadge(n) {
   const count = Math.max(0, Number(n) || 0);
-  const badge = document.getElementById('topbarNotifBadge');
-  if (!badge) return;
-  badge.textContent = count > 99 ? '99+' : String(count);
-  badge.hidden = count === 0;
+  // Two badges now: the topbar bell on desktop and the bottom-nav Alerts button
+  // on phones, where the topbar is collapsed away.
+  for (const id of ['topbarNotifBadge', 'mobNotifBadge']) {
+    const badge = document.getElementById(id);
+    if (!badge) continue;
+    badge.textContent = count > 99 ? '99+' : String(count);
+    badge.hidden = count === 0;
+  }
 }
 
 async function refreshNotifUnreadCount() {
