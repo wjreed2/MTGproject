@@ -181,6 +181,34 @@ function pluralizeType(t) {
   return t + 's';
 }
 
+// Provider mass a goal's CORE accounts for — the saturation tie-break metric. Same
+// units as scoreTemplate's fills (provider counts + type-density counts); tribal goals
+// use their own bodies+lords metric so a dominant tribe outranks a saturated template.
+function explainedShare(goal, hist) {
+  if (goal.goal.startsWith('tribal:')) {
+    const h = goal._tribalHit;
+    return h ? h.bodies + h.lords * 5 : 0;
+  }
+  const tpl = TEMPLATES.find(t => t.key === goal.goal);
+  if (!tpl || !tpl.core) return 0;
+  let sum = 0;
+  const counted = new Set();
+  for (const group of tpl.core) {
+    for (const ax of coreGroupAxes(group, goal.mechanism)) {
+      if (counted.has(ax)) continue;
+      counted.add(ax);
+      sum += hist.providers[ax] || 0;
+    }
+    for (const t of group.types || []) {
+      const key = `type:${t}`;
+      if (counted.has(key)) continue;
+      counted.add(key);
+      sum += hist.typeCounts[t] || 0;
+    }
+  }
+  return sum;
+}
+
 function summarize(goal, hist, tribalHit) {
   if (goal.goal.startsWith('tribal:')) {
     return `This deck wants to overwhelm with ${pluralizeType(tribalHit.type)} — ${tribalHit.bodies} ${tribalHit.type} bodies` +
@@ -252,15 +280,19 @@ function inferGoals(deckCards, commander, opts = {}) {
     if (g.evidence.commanderContribution.length) sortKey += 0.1;
     if (theme && (g.label.toLowerCase().includes(theme) || g.goal.includes(theme))) sortKey += 0.05;
     g._sortKey = sortKey;
+    g._share = explainedShare(g, hist);
     g.confidence = Math.round(Math.min(1, sortKey) * 100) / 100;
   }
 
-  // Exact-score ties break by TEMPLATE ORDER (tribal first) — deliberate editorial
-  // ranking (stompy ahead of counters, aristocrats ahead of graveyard), not the
-  // accident of alphabetical keys.
+  // Exact-score ties break by EXPLAINED SHARE — how much of the deck the goal's core
+  // actually accounts for. Hybrid precons saturate several templates at once (Anikthea
+  // tied five goals at 1.0), and with everything downstream keyed off goals[0], the
+  // winner must be the template that explains the most cards, not the one that happens
+  // to sit earliest in the table (precon audit F2). Template order remains the final
+  // deterministic fallback (stompy ahead of counters, aristocrats ahead of graveyard).
   const tplIdx = (key) => key.startsWith('tribal:') ? -1 : TEMPLATES.findIndex(t => t.key === key);
-  goals.sort((a, b) => b._sortKey - a._sortKey || tplIdx(a.goal) - tplIdx(b.goal) || a.goal.localeCompare(b.goal));
-  for (const g of goals) delete g._sortKey;
+  goals.sort((a, b) => b._sortKey - a._sortKey || b._share - a._share || tplIdx(a.goal) - tplIdx(b.goal) || a.goal.localeCompare(b.goal));
+  for (const g of goals) { delete g._sortKey; delete g._share; }
   for (const g of goals) {
     g.summary = summarize(g, hist, g._tribalHit || tribal[0] || { type: '?', bodies: 0, lords: 0 });
     delete g._tribalHit;
