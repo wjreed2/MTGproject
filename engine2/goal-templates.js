@@ -189,6 +189,11 @@ module.exports = [
       { axes: ['voltron.carrier', 'body.evasive', 'evasion.grant'], min: 2 },
     ],
     support: ['protection.single', 'tutor.artifact', 'tutor.enchantment'],
+    // Voltron's defining trait is CONCENTRATION — one suited-up threat. A deck with
+    // a DOMINANT TRIBE is going wide by construction, and its combat tricks tripping
+    // the pump mechanism (a 40-Elf deck running Blossoming Defense-class protection)
+    // must not read as voltron. Tribeless aggro (Sonic) keeps its voltron read.
+    widthDamper: { bodies: 18, factor: 0.6 },
   },
   {
     key: 'big-mana', label: 'Big mana',

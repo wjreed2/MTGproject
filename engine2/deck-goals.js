@@ -27,7 +27,11 @@ function axisHistogram(deckCards, commander) {
   const add = (card, mult, qty) => {
     for (const p of card.ir?.provides || []) {
       if (!p?.axis) continue;
-      providers[p.axis] = (providers[p.axis] || 0) + qty;
+      // The commander counts as COMMANDER_WEIGHT providers, not one: template fill
+      // runs on provider counts, and a commander-defined theme (Thranduil's
+      // graveyard) must not rank like a random 1-of supports it (mult is 1 for the
+      // 99, COMMANDER_WEIGHT for the command zone — same rule the weights follow).
+      providers[p.axis] = (providers[p.axis] || 0) + qty * mult;
       weight[p.axis] = (weight[p.axis] || 0) + (p.weight || 1) * mult * qty;
       (byAxisCards[p.axis] = byAxisCards[p.axis] || []).push(card.name);
     }
@@ -134,7 +138,7 @@ function coreGroupFill(group, hist) {
   return { ratio: got === 0 ? 0 : Math.min(1, got / group.min), mechanism: null };
 }
 
-function scoreTemplate(tpl, hist, comboCount, out = {}) {
+function scoreTemplate(tpl, hist, comboCount, out = {}, wideBodies = 0) {
   const supportOf = () => Math.min(1, (tpl.support || []).reduce((s, ax) => s + (hist.providers[ax] || 0), 0) / 6);
   if (tpl.usesCombos) {
     // One incidental axis coincidence must not read as "combo deck" — confidence needs
@@ -154,6 +158,11 @@ function scoreTemplate(tpl, hist, comboCount, out = {}) {
   if (defining) {
     score *= defining.ratio;
     if (defining.ratio > 0) out.mechanism = defining.mechanism;
+  }
+  // Width damper (voltron): archetypes defined by concentration lose confidence in
+  // decks that are demonstrably going wide instead (dominant-tribe body count).
+  if (tpl.widthDamper && wideBodies >= tpl.widthDamper.bodies) {
+    score *= tpl.widthDamper.factor;
   }
   return score;
 }
@@ -232,7 +241,7 @@ function inferGoals(deckCards, commander, opts = {}) {
   const goals = [];
   for (const tpl of TEMPLATES) {
     const mech = {};
-    const score = scoreTemplate(tpl, hist, interactions.combos.length, mech);
+    const score = scoreTemplate(tpl, hist, interactions.combos.length, mech, tribal[0]?.bodies || 0);
     if (score <= 0.15) continue;
     const evidenceAxes = (tpl.core || []).flatMap(g => coreGroupAxes(g, mech.mechanism))
       .concat(tpl.support || [])
