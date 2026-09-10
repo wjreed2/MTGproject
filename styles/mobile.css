@@ -80,15 +80,21 @@
        cluster must start there too or it rides up into the status bar. */
     top: env(safe-area-inset-top, 0px);
   }
+  /* Account button is the icon alone — the address needs a third of the bar to
+     say something the icon already says, and the menu behind it shows it. */
   #topbarUser {
-    max-width: min(148px, 38vw);
-    padding: 5px 7px !important;
+    max-width: none;
+    width: 38px;
+    min-width: 38px;
+    min-height: 34px;
+    padding: 0 !important;
+    justify-content: center;
   }
-  #topbarUser span {
-    font-size: 0.78rem !important;
-  }
-  #topbarNotifBtn,
-  #topbarWhatsNewIconBtn {
+  #topbarUser span { display: none !important; }
+  /* What's new lives in the settings menu too, so the notebook is redundant
+     here and the bar is tight. */
+  #topbarWhatsNewIconBtn { display: none !important; }
+  #topbarNotifBtn {
     padding: 5px 7px !important;
     min-width: 34px;
     min-height: 34px;
@@ -96,7 +102,6 @@
     justify-content: center;
   }
   #topbarNotifBtn svg,
-  #topbarWhatsNewIconBtn svg,
   #topbarUser svg {
     width: 18px !important;
     height: 18px !important;
@@ -289,8 +294,8 @@
 
   /* Row 1 — the actions, right-aligned with ⋮ on the outside edge. That is the
      authored DOM order (Add cards, Manage Tags, ⋮), so no `order` is needed
-     here; flex-end does the alignment. Labels stay visible: these three own a
-     full row, and icon-only buttons read as a mystery.
+     here; flex-end does the alignment. All three are icon-only on phones: the
+     + and the tag carry the meaning and the row stays out of the way.
      display/margin-left are set inline by _placeDeckActionCluster, so only the
      basis and alignment come from here. */
   #tab-decks #deckActionCluster {
@@ -301,14 +306,21 @@
   }
   #tab-decks #deckBuilderVoiceBtn,
   #tab-decks #deckManageTagsBtn {
-    gap: 5px !important;
-    padding: 0 10px !important;
+    gap: 0 !important;
+    padding: 0 !important;
+    width: 38px;
+    min-width: 38px;
+    min-height: 34px;
+    justify-content: center;
     flex-shrink: 0;
   }
+  #tab-decks #deckBuilderVoiceBtn .deck-btn-label,
+  #tab-decks #deckManageTagsBtn .deck-btn-label { display: none; }
+  #tab-decks #deckBuilderVoiceBtn svg { width: 15px; height: 15px; }
   #tab-decks #deckManageTagsBtn .deck-btn-icon {
     display: block;
-    width: 13px;
-    height: 13px;
+    width: 15px;
+    height: 15px;
     flex-shrink: 0;
   }
 
