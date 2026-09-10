@@ -10515,11 +10515,15 @@ body.glass-mode .tablet-total-time {
   font-family: var(--glass-font) !important;
   font-variant-numeric: tabular-nums;
 }
-/* Neutral frosted life buttons — labels (+1/−5) carry the meaning, not colour */
+/* Neutral frosted life buttons — labels (+1/−5) carry the meaning, not colour.
+   Weight and side padding follow the deck-list button: these ran at weight 600
+   with 2px of horizontal padding, so the label sat hard against the edges and
+   the button read as a stretched slab rather than a button. Vertical padding is
+   left alone — it is what gives the scoreboard its tap target. */
 body.glass-mode .tablet-life-btn {
-  border-radius: 999px;
   font-family: var(--glass-font);
-  font-weight: 600;
+  font-weight: 500;
+  padding-inline: 12px;
 }
 /* Life button colours come from the shared tablet-control rule below, which
    matches the deck-list button exactly. These used to run at 0.08/0.15/0.10 —
@@ -12934,6 +12938,10 @@ body.glass-mode #deckTabPane-design .mc-filter-btn.active,
   color: rgb(var(--tp-rgb));
   box-shadow: none;
 }
+/* Assigned and unassigned differ only in colour. The inset top highlight was on
+   the assigned state alone, and against the clipped left point it read as the
+   chip sitting slightly right of its neighbours with a sliver beside it. */
+#deckCardTagModal #deckCardTagList .btn { box-shadow: none; }
 #deckCardTagModal #deckCardTagList .btn:hover { filter: brightness(1.15); }
 /* The delete ✕ inside a manager tag stays a plain glyph. */
 #deckTagManagerModal #deckTagManagerList .tag .btn,
