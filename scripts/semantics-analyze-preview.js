@@ -71,15 +71,18 @@ async function main() {
       const disallowed = ['W', 'U', 'B', 'R', 'G'].filter(x => !ci.includes(x));
       const ciSql = disallowed.length
         ? `AND NOT (${disallowed.map(() => `JSON_CONTAINS(c.color_identity_json, ?)`).join(' OR ')})` : '';
+      // Per-axis retrieval — mirrors the /api/decks/analyze route (precon audit F6).
+      const candSub = wanted.map(() =>
+        `(SELECT c.oracle_id, c.name, c.type_line, c.cmc, c.edhrec_rank, s.ir_json
+          FROM card_semantics_axes x
+          JOIN scryfall_oracle_cards c ON c.oracle_id = x.oracle_id
+          JOIN card_semantics s ON s.oracle_id = x.oracle_id AND s.status IN ('valid','flagged','manual')
+          WHERE x.kind='provides' AND x.axis = ?
+            AND c.legal_commander = 1 ${ciSql}
+          ORDER BY (c.edhrec_rank IS NULL), c.edhrec_rank LIMIT 60)`).join(' UNION ALL ');
       const [cand] = await db.query(
-        `SELECT DISTINCT c.oracle_id, c.name, c.type_line, c.cmc, c.edhrec_rank, s.ir_json
-         FROM card_semantics_axes x
-         JOIN scryfall_oracle_cards c ON c.oracle_id = x.oracle_id
-         JOIN card_semantics s ON s.oracle_id = x.oracle_id AND s.status IN ('valid','flagged','manual')
-         WHERE x.kind='provides' AND x.axis IN (${wanted.map(() => '?').join(',')})
-           AND c.legal_commander = 1 ${ciSql}
-         ORDER BY (c.edhrec_rank IS NULL), c.edhrec_rank LIMIT 400`,
-        [...wanted, ...disallowed.map(d => JSON.stringify(d))]);
+        `SELECT DISTINCT * FROM (${candSub}) u`,
+        wanted.flatMap(ax => [ax, ...disallowed.map(d => JSON.stringify(d))]));
       const candidates = cand.map(r => ({
         name: r.name, ir: parseIR(r), cmc: Number(r.cmc) || 0, typeLine: r.type_line,
         edhrecRank: r.edhrec_rank, price: null, owned: false,

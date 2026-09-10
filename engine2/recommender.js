@@ -86,7 +86,11 @@ function deckAxisIndex(deckCards, commander) {
         if (rec.strongNames.length < 6) rec.strongNames.push(c.name);
         if (e.strongNames.length < 6) e.strongNames.push(c.name);
       }
-      if (nd.criticality === 'requires') { rec.hard = (rec.hard || 0) + (c.qty || 1); e.hard = (e.hard || 0) + (c.qty || 1); }
+      // A low-weight "requires" is a weak dependency, not a plan anchor: Mosswort
+      // Bridge's w3 body.big requirement made hydras the whole adds list for a
+      // Merfolk deck (precon audit F4). Only substantive requirements count as HARD
+      // demand able to pull an off-plan axis into the wanted set.
+      if (nd.criticality === 'requires' && (nd.weight || 1) >= 4) { rec.hard = (rec.hard || 0) + (c.qty || 1); e.hard = (e.hard || 0) + (c.qty || 1); }
       needs.set(nd.axis, rec);
     }
   }
@@ -728,7 +732,37 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
   // pools with a modest leader keep their few genuine picks.
   const topFit = scored.reduce((m, s) => Math.max(m, s.fit), 0);
   const floor = Math.max(3, topFit * 0.3);
-  return scored.filter(s => s.fit >= floor).slice(0, ADD_COUNT).map(({ fit, ...s }) => s);
+  const eligible = scored.filter(s => s.fit >= floor);
+  // Portfolio diversity (precon audit F5): a real upgrade list spreads across the
+  // deck's top needs, but score-order alone returned ten sac outlets for Wilhelt and
+  // 24 ramp spells for Kalamax. Greedy re-selection decays a card's effective score
+  // by 0.75 per already-picked card sharing its primary credit axis — scores and
+  // traces are untouched (the breakdown invariant holds), only the order changes,
+  // and the #1 pick is always the raw top scorer.
+  const primaryKey = (s) => {
+    let best = null, pts = 0;
+    for (const t of s.trace || []) {
+      const key = t.axis || t.cat || null;
+      if (key && (t.pts || 0) > pts) { pts = t.pts; best = key; }
+    }
+    return best;
+  };
+  const picks = {};
+  const ordered = [];
+  const pool = [...eligible];
+  while (pool.length) {
+    let bestI = 0, bestEff = -Infinity;
+    for (let i = 0; i < pool.length; i++) {
+      const key = primaryKey(pool[i]);
+      const eff = pool[i].score * Math.pow(0.75, key ? (picks[key] || 0) : 0);
+      if (eff > bestEff + 1e-9) { bestEff = eff; bestI = i; }
+    }
+    const chosen = pool.splice(bestI, 1)[0];
+    const key = primaryKey(chosen);
+    if (key) picks[key] = (picks[key] || 0) + 1;
+    ordered.push(chosen);
+  }
+  return ordered.slice(0, ADD_COUNT).map(({ fit, ...s }) => s);
 }
 
 module.exports = { scoreCuts, scoreAdds, deckAxisIndex, wantedAxes, poolAxes, matchParam, deckPlanAxes, isLandCard, bucketOf, CUT_COUNT, ADD_COUNT };
