@@ -6500,6 +6500,28 @@ function _onDeckStackPeekOut(e) {
 
 /** Extra-zone (and mainboard) stacks: sticky peek class so tap/click lifts a card
  *  the same way :hover does on the mainboard. Bound once on #deckCardList. */
+/**
+ * Let the art you are actually looking at start downloading first.
+ * Every card image renders loading="lazy" on a deck's first visit
+ * (imgFadeLoadingAttr only returns eager for art already seen this session), and
+ * a lazy image does not fetch until the browser has laid out and decided it is
+ * visible — so the cards on screen were the last to request. Promote the ones in
+ * or just past the viewport; everything further down stays lazy.
+ * Reads every rect before writing any attribute, so this is one layout pass, not
+ * one per image.
+ */
+function _prioritizeVisibleDeckArt(el) {
+  if (!el) return;
+  const limit = (window.innerHeight || 800) * 1.25;
+  const imgs = [...el.querySelectorAll('img.stack-main[loading="lazy"]')];
+  if (!imgs.length) return;
+  const near = imgs.filter(im => im.getBoundingClientRect().top <= limit);
+  for (const im of near) {
+    im.setAttribute('fetchpriority', 'high');
+    im.setAttribute('loading', 'eager');
+  }
+}
+
 function _bindDeckStackPeek(el) {
   if (!el || el.dataset.stackPeekBound === '1') return;
   el.dataset.stackPeekBound = '1';
@@ -9757,6 +9779,7 @@ function renderDeckList(deck) {
   if (_listPane && !_listPane.classList.contains('active')) _deckListRenderedHidden = true;
   _glassSelectEnsure();
   _bindDeckStackPeek(el);
+  _prioritizeVisibleDeckArt(el);
   // innerHTML rebuilds wipe scrollTop; keep the list where the user left it so
   // inspector tag refresh / ownership redraws don't jump to top and re-lazy-load.
   const prevScroll = el.scrollTop;
@@ -10054,6 +10077,7 @@ function renderDeckList(deck) {
     _bindDeckTagGroupHoverLinking(el, _isTagGroupByMode(deckGroupBy));
     _bindSwapZoneHoverLinking(el, swapsOn);
     _bindDeckStackPeek(el);
+    _prioritizeVisibleDeckArt(el);
     _syncDeckStackLayoutResetBtn(deck);
     _scheduleDeckTokensRefresh(deck);
     restoreScroll();
