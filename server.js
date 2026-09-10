@@ -15,13 +15,9 @@ const helmet      = require('helmet');
 const nodemailer  = require('nodemailer');
 const cron        = require('node-cron');
 const engine2     = require('./engine2'); // semantics/interaction engine (docs/engine2-plan.md)
-
-// EDHREC-style commander slug ("Wilhelt, the Rotcleaver" → wilhelt-the-rotcleaver) for
-// commander_card_stats lookups (scripts/edhrec-commander-stats.js writes that table).
-function engine2SlugifyCommander(name) {
-  return String(name || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
-    .replace(/\/\/.*$/, '').replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-');
-}
+// commander_card_stats cache: slugify + lazy first-analyze fetch (anti-monoculture)
+const edhrecStats = require('./scripts/lib/edhrec-stats-core');
+const engine2SlugifyCommander = edhrecStats.slugifyCommander;
 const engine21w   = require('./engine2.1wizard'); // sandbox — wizard type picks / hybrid (do not replace engine2)
 const { Server: SocketIOServer } = require('socket.io');
 const MySQLStore  = require('express-mysql-session')(session);
@@ -5038,6 +5034,11 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
       // 46 ranks. Each wanted axis gets its own top-60, ranked commander-first
       // (anti-monoculture): what THIS commander's players run beats global rank,
       // then tribe-param matches, then global rank as the fallback.
+      // Lazy first-analyze fetch: a commander with no (fresh) stats rows gets their
+      // EDHREC page pulled inline behind a short timeout — on any failure the LEFT
+      // JOIN misses and ranking degrades to global rank for this one analysis.
+      try { await edhrecStats.ensureCommanderStats(db(), commanderName); }
+      catch (e) { console.warn('[analyze] commander stats fetch skipped:', e.message); }
       const cmdrSlug = engine2SlugifyCommander(commanderName);
       const tribeParam = /^tribal:(.+)$/.exec(String(topGoal?.goal || ''))?.[1]?.toLowerCase() || null;
       const tribeOrder = tribeParam ? `(NOT (LOWER(COALESCE(x.param, '')) = ?)),` : '';
@@ -5223,7 +5224,10 @@ app.post('/api/decks/analyze-wizard', requireAuth, async (req, res) => {
       const ciSql = disallowed.length
         ? `AND NOT (${disallowed.map(() => `JSON_CONTAINS(c.color_identity_json, ?)`).join(' OR ')})`
         : '';
-      // Per-axis retrieval — same F6 + commander-first ranking as /api/decks/analyze.
+      // Per-axis retrieval — same F6 + commander-first ranking as /api/decks/analyze,
+      // including the lazy first-analyze stats fetch.
+      try { await edhrecStats.ensureCommanderStats(db(), commanderName); }
+      catch (e) { console.warn('[analyze] commander stats fetch skipped:', e.message); }
       const cmdrSlug = engine2SlugifyCommander(commanderName);
       const tribeParam = /^tribal:(.+)$/.exec(String(topGoal?.goal || ''))?.[1]?.toLowerCase() || null;
       const tribeOrder = tribeParam ? `(NOT (LOWER(COALESCE(x.param, '')) = ?)),` : '';

@@ -71,9 +71,12 @@ async function main() {
       const disallowed = ['W', 'U', 'B', 'R', 'G'].filter(x => !ci.includes(x));
       const ciSql = disallowed.length
         ? `AND NOT (${disallowed.map(() => `JSON_CONTAINS(c.color_identity_json, ?)`).join(' OR ')})` : '';
-      // Per-axis retrieval, commander-first ranking — mirrors /api/decks/analyze.
-      const cmdrSlug = String(fx.commander || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
-        .replace(/\/\/.*$/, '').replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-');
+      // Per-axis retrieval, commander-first ranking — mirrors /api/decks/analyze,
+      // including the lazy first-analyze stats fetch.
+      const statsCore = require('./lib/edhrec-stats-core');
+      try { await statsCore.ensureCommanderStats(db, fx.commander); }
+      catch (e) { console.warn('commander stats fetch skipped:', e.message); }
+      const cmdrSlug = statsCore.slugifyCommander(fx.commander);
       const tribeParam = /^tribal:(.+)$/.exec(String(topGoal?.goal || ''))?.[1]?.toLowerCase() || null;
       const tribeOrder = tribeParam ? `(NOT (LOWER(COALESCE(x.param, '')) = ?)),` : '';
       const candSub = wanted.map(() =>
