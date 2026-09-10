@@ -2648,10 +2648,12 @@ function _ensureDragArrow() {
  * _targetCellAt and _TARGET_HIT still decide what actually gets hit, so the aim
  * required to commit a target is unchanged.
  */
-// How far toward the seat's centre the drawn line is pulled once it is inside
-// the visual zone, and how big that zone is relative to the real hit box.
-const _ARROW_SNAP = 0.45;
-const _ARROW_SNAP_ZONE = 0.55;
+// Once inside the visual zone the drawn end goes essentially onto the life
+// total — 0.45 left it drifting around the divider between the life block and
+// the buttons, which is not where anyone is aiming. Just short of 1 so the node
+// sits on the number rather than being swallowed by it.
+const _ARROW_SNAP = 0.94;
+const _ARROW_SNAP_ZONE = 0.75;
 /**
  * Two zones, deliberately: _targetCellAt decides what actually gets hit and is
  * unchanged, while this smaller one only decides when the drawn line tidies
