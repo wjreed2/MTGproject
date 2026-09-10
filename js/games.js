@@ -2648,9 +2648,13 @@ function _ensureDragArrow() {
  * _targetCellAt and _TARGET_HIT still decide what actually gets hit, so the aim
  * required to commit a target is unchanged.
  */
-// Just short of 1 so the node sits on the life total rather than being
-// swallowed by it.
-const _ARROW_SNAP = 0.94;
+// Pull strength, graded by how close the finger is to the life total: loose out
+// at the edge of a seat, firm right over the number. A single strong constant
+// glued the node to the number and stopped it tracking the finger at all, which
+// made sweeping on to a second opponent feel like being stuck; a single weak one
+// never reached the number. Graded gives both.
+const _ARROW_SNAP_FAR  = 0.30;
+const _ARROW_SNAP_NEAR = 0.88;
 /**
  * Two zones, deliberately: _targetCellAt decides what actually gets hit and is
  * unchanged, while this smaller one only decides when the drawn line tidies
@@ -2678,7 +2682,11 @@ function _snapToCellCentre(x, y) {
   // actually hit and is untouched; this one is simply the whole cell.
   const tx = z.lifeX != null ? z.lifeX : z.x;
   const ty = z.lifeY != null ? z.lifeY : z.y;
-  return [x + (tx - x) * _ARROW_SNAP, y + (ty - y) * _ARROW_SNAP];
+  // 0 at the number, ~1 out at the seat's edge.
+  const reach = Math.max(z.rx || 0, z.ry || 0) || 1;
+  const d = Math.min(1, Math.hypot(x - tx, y - ty) / reach);
+  const strength = _ARROW_SNAP_NEAR + (_ARROW_SNAP_FAR - _ARROW_SNAP_NEAR) * d;
+  return [x + (tx - x) * strength, y + (ty - y) * strength];
 }
 
 function _drawDragArrows(liveX, liveY) {
