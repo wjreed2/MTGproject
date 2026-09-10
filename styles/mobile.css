@@ -276,70 +276,58 @@
      Nothing moves in the DOM, so ids, listeners and the ⓘ popover's anchor are
      untouched. */
   #deckTopBar {
-    align-items: flex-start !important;
+    align-items: center !important;
     justify-content: flex-start !important;
-    flex-wrap: nowrap !important;
     column-gap: 6px !important;
     row-gap: 4px;
     position: relative;
     z-index: 40;
   }
-  #deckTopBar .btn { padding: 0 10px !important; }
+  /* Header buttons only. The options dropdown is a descendant of #deckTopBar, so
+     an unscoped .btn rule here also flattened all 13 of its rows to 0 vertical
+     padding — 17px tall against desktop's 29px. Everything else about the menu
+     already matched; this was the whole difference. */
+  #deckTopBar .btn:not(.deck-menu-item) { padding: 0 10px !important; }
   #deckTopBar #deckOptionsBtn { padding: 0 8px !important; }
   #deckTopBar .deck-top-spacer { display: none !important; }
 
-  /* The actions become a vertical strip down the right edge, continuing the
-     bell's column from the topbar, with the deck title taking the top-left.
+  /* Row 1 — the actions, right-aligned with ⋮ on the outside edge. That is the
+     authored DOM order (Add cards, Manage Tags, ⋮), so no `order` is needed
+     here; flex-end does the alignment. All three are icon-only on phones: the
+     + and the tag carry the meaning and the row stays out of the way.
      display/margin-left are set inline by _placeDeckActionCluster, so only the
-     direction, size and order come from here. All three are identical squares —
-     icon-only, since the + and the tag carry the meaning on their own. */
-  /* Stays in flow. Taking it out to reclaim the space beside the title looks
-     tidier until the strip, which is 126px tall against a 34px title, runs past
-     the header and lands on the folder tabs — the ⋮ ends up sitting on the
-     History tab. The room under the title is the strip's own footprint, not
-     waste. */
+     basis and alignment come from here. */
   #tab-decks #deckActionCluster {
-    order: 2;
-    flex: 0 0 auto;
-    flex-direction: column;
-    align-items: center;
+    order: 1;
+    flex: 0 0 100%;
     gap: 6px;
-    margin-left: 8px !important;
+    justify-content: flex-end;
   }
   #tab-decks #deckBuilderVoiceBtn,
-  #tab-decks #deckManageTagsBtn,
-  #tab-decks #deckTopMenuWrap > #deckOptionsBtn {
+  #tab-decks #deckManageTagsBtn {
     gap: 0 !important;
     padding: 0 !important;
     width: 38px;
     min-width: 38px;
-    height: 38px;
-    min-height: 38px;
+    min-height: 34px;
     justify-content: center;
-    align-items: center;
     flex-shrink: 0;
   }
-  #tab-decks #deckTopMenuWrap { flex-shrink: 0; width: 38px; }
   #tab-decks #deckBuilderVoiceBtn .deck-btn-label,
   #tab-decks #deckManageTagsBtn .deck-btn-label { display: none; }
-  #tab-decks #deckBuilderVoiceBtn svg,
-  #tab-decks #deckTopMenuWrap > #deckOptionsBtn svg { width: 15px; height: 15px; }
+  #tab-decks #deckBuilderVoiceBtn svg { width: 15px; height: 15px; }
   #tab-decks #deckManageTagsBtn .deck-btn-icon {
     display: block;
     width: 15px;
     height: 15px;
     flex-shrink: 0;
   }
-  /* The dropdown hangs off a 38px-wide anchor pinned to the right edge, so it
-     has to open leftward or it runs off screen. */
-  #tab-decks #deckTopMenuWrap .deck-options-dropdown { right: 0; left: auto; }
 
-  /* The title leads, taking every pixel the action strip does not. nowrap beats
-     the inline flex-wrap so the badges stay on the name's line; the name
-     ellipsises to make room. */
+  /* Row 2 — the title and its indicators. nowrap beats the inline flex-wrap so
+     the badges stay on the name's line; the name ellipsises to make room. */
   #tab-decks .deck-top-title-row {
-    order: 1;
-    flex: 1 1 auto;
+    order: 2;
+    flex: 1 1 100%;
     flex-wrap: nowrap !important;
     gap: 6px !important;
     min-width: 0;
@@ -369,9 +357,8 @@
 
   /* Emptied when the actions moved up into row 1 — collapse its margin. */
   #tab-decks .deck-back-row { display: none; }
-  #deckTopMenuWrap .deck-options-dropdown {
-    width: min(84vw, 280px);
-  }
+  /* No width override: the base rule's min(260px, 100vw - 20px) already fits a
+     phone, and matching desktop exactly is the point. */
 
   /* ── Deck List header — deliberate 3-row layout on phones ──────────────
        Row 1:  Deck List  ·count·  …………………………………………  ▾ collapse
