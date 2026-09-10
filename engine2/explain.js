@@ -111,7 +111,7 @@ function addReasons(add) {
         out.push(`Multiplies the deck's ${t.axis === 'counters.doubler' ? '+1/+1 counter' : 'token'} output (${t.substrate} sources)`);
         break;
       case 'tribe_affinity':
-        out.push(t.makes ? `Makes ${t.tribe} tokens — on tribe` : `A ${t.tribe} itself — on tribe`);
+        out.push(t.makes ? `Makes ${t.tribe} tokens — on tribe` : `${/^[AEIOU]/i.test(String(t.tribe)) ? 'An' : 'A'} ${t.tribe} itself — on tribe`);
         break;
       case 'curve_fill':
         out.push('Lands in an under-filled spot on the curve');

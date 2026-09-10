@@ -94,6 +94,29 @@ function deckAxisIndex(deckCards, commander) {
       needs.set(nd.axis, rec);
     }
   }
+  // Type-line-satisfiable sources (precon audit F7): a card that IS an Artifact or
+  // Enchantment satisfies artifacts.source / enchantments.source demand by existing.
+  // Puresteel Paladin read as a dead card in a deck with 15 Equipment because zero of
+  // them carried the axis — the type line was the provide. Synthesized only into this
+  // index (demand joins), never into the IRs themselves.
+  for (const c of all) {
+    const tl = String(c.typeLine || '');
+    const addSynth = (axis, param) => {
+      const rec = provides.get(axis) || { count: 0, names: [], entries: [] };
+      rec.count += c.qty || 1;
+      if (rec.names.length < 6) rec.names.push(c.name);
+      const e = subEntry(rec, param);
+      e.count += c.qty || 1;
+      if (e.names.length < 6) e.names.push(c.name);
+      provides.set(axis, rec);
+    };
+    if (/\bArtifact\b/.test(tl) && !(c.ir?.provides || []).some(p => p.axis === 'artifacts.source')) {
+      addSynth('artifacts.source', /\bEquipment\b/.test(tl) ? 'Equipment' : null);
+    }
+    if (/\bEnchantment\b/.test(tl) && !(c.ir?.provides || []).some(p => p.axis === 'enchantments.source')) {
+      addSynth('enchantments.source', /\bAura\b/.test(tl) ? 'Aura' : null);
+    }
+  }
   // Repeatable commander output — axes the command zone itself keeps supplying.
   // Secondary-goal wants must not shop for parallel engines of these (Xyris makes
   // the Snakes; the deck wants his triggers fed, not Krenko next to him).
@@ -414,6 +437,7 @@ function scoreCuts({ deckCards, commander, goals, thresholds, roleCounts }) {
 
   // actual curve shares for over-stuffed-bucket detection
   const nonLand = deckCards.filter(c => !isLandCard(c) && !c.isCommander);
+  const landNames = new Set(deckCards.filter(c => isLandCard(c)).map(c => c.name));
   const curveCounts = Array(8).fill(0);
   for (const c of nonLand) curveCounts[bucketOf(c.cmc)] += c.qty || 1;
   const curveTotal = curveCounts.reduce((s, n) => s + n, 0) || 1;
@@ -482,7 +506,14 @@ function scoreCuts({ deckCards, commander, goals, thresholds, roleCounts }) {
     if ((c.ir.provides || []).some(p => commanderNeeds.has(p.axis))) { score += 4; trace.push({ kind: 'shield_commander', pts: 4 }); }
     if (c.ir.wincon) { score += 4; trace.push({ kind: 'shield_wincon', wc: c.ir.wincon.kind, pts: 4 }); }
     for (const e of interactions.edges) {
-      if (e.type === 'nonbo' && (e.a === c.name || e.b === c.name)) { score -= 5; trace.push({ kind: 'nonbo', axis: e.axis, other: e.a === c.name ? e.b : e.a, pts: -5 }); break; }
+      if (e.type === 'nonbo' && (e.a === c.name || e.b === c.name)) {
+        const other = e.a === c.name ? e.b : e.a;
+        // A hate LAND is a free-roll utility slot, not a deck identity — one Scavenger
+        // Grounds must not generate cut evidence against the deck's own draw and
+        // recursion spells (precon audit F8: Frantic Search at 67% inclusion).
+        if (landNames.has(other)) continue;
+        score -= 5; trace.push({ kind: 'nonbo', axis: e.axis, other, pts: -5 }); break;
+      }
     }
 
     scored.push({ name: c.name, contribution: Math.round(score * 100) / 100, trace, cats: [...cats] });
