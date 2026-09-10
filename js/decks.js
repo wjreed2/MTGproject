@@ -15973,8 +15973,17 @@ function _stackDebugDump() {
   L.push(`vvScale ${vv ? vv.scale.toFixed(2) : '-'} vvW ${vv ? Math.round(vv.width) : '-'}`);
   L.push(`hover:${matchMedia('(hover: hover)').matches} pointer:${matchMedia('(pointer: coarse)').matches ? 'coarse' : 'fine'}`);
   L.push(`view=${typeof deckListView !== 'undefined' ? deckListView : '?'} size=${typeof deckCardSize !== 'undefined' ? deckCardSize : '?'} --cw=${cw}`);
-  const mainSel = '#tab-decks .deck-stack-column .deck-stack-cards.vertical .deck-stack-card';
-  const mainBox = document.querySelector('#tab-decks .deck-stack-column .deck-stack-cards.vertical');
+  // Broad selector: the mainboard is not always under .deck-stack-column, and an
+  // empty section here is itself the finding.
+  const allCards = document.querySelectorAll('#tab-decks .deck-stack-card');
+  const mainSel = '#tab-decks .deck-stack-view .deck-stack-cards.vertical .deck-stack-card';
+  const mainBox = document.querySelector('#tab-decks .deck-stack-view .deck-stack-cards.vertical');
+  L.push(`CARDS total ${allCards.length} vert ${document.querySelectorAll(mainSel).length}`);
+  const imgs = [...document.querySelectorAll('#tab-decks .deck-stack-card img')];
+  const bad = imgs.filter(i => i.complete && i.naturalWidth === 0);
+  L.push(`IMG ${imgs.length} broken ${bad.length} pending ${imgs.filter(i => !i.complete).length}`);
+  if (imgs[0]) L.push(`src ${String(imgs[0].currentSrc || imgs[0].src).slice(-34)}`);
+  L.push(`sw ${navigator.serviceWorker && navigator.serviceWorker.controller ? 'on' : 'off'}`);
   L.push(`MAIN box${mainBox ? Math.round(mainBox.getBoundingClientRect().width) : '-'}`);
   L.push(..._stackDebugRows(mainSel, 5));
   const zones = [...document.querySelectorAll('#tab-decks .deck-extra-zones-wrap .deck-extra-zone-section')];

@@ -10,7 +10,10 @@
 // day later. Cache-first here makes deck/collection grids paint from disk on
 // every visit.
 
-const CACHE_NAME = 'mtg-img-cache-v1';
+// v2: v1 could poison itself permanently (see imgCacheFirst). The activate
+// handler deletes every mtg-img-cache-* that is not the current name, so
+// bumping this is what heals a device already stuck on broken card images.
+const CACHE_NAME = 'mtg-img-cache-v2';
 const IMG_HOSTS = ['cards.scryfall.io', 'svgs.scryfall.io'];
 const MAX_ENTRIES = 4000; // ~4k images; trimmed oldest-first once exceeded
 const TRIM_BATCH = 400;
@@ -44,7 +47,11 @@ self.addEventListener('fetch', event => {
 async function imgCacheFirst(request) {
   const cache = await caches.open(CACHE_NAME);
   const hit = await cache.match(request.url);
-  if (hit) return hit;
+  // A cached entry that is not a real 2xx is a poisoned one from an older
+  // worker. Drop it and go back to the network rather than serving a broken
+  // image for the lifetime of the cache.
+  if (hit && hit.ok) return hit;
+  if (hit) await cache.delete(request.url).catch(() => {});
 
   // Prefer a CORS fetch: a non-opaque response can be cached without the huge
   // opaque-response quota padding browsers apply. Scryfall's CDN allows CORS;
@@ -55,10 +62,14 @@ async function imgCacheFirst(request) {
   } catch (_) {
     res = null;
   }
-  if (!res || !(res.ok || res.type === 'opaque')) {
+  if (!res || !res.ok) {
     res = await fetch(request); // let a real network error propagate to the <img>
   }
-  if (res && (res.ok || res.type === 'opaque')) {
+  // Only ever store a response we can actually verify. An opaque response has
+  // status 0 and is indistinguishable from a failure, so caching one meant a
+  // single dropped connection or CDN blip could persist as a broken image on
+  // that device forever — cache-first would keep serving it back.
+  if (res && res.ok && res.type !== 'opaque') {
     cache
       .put(request.url, res.clone())
       .then(() => trimCache(cache))
