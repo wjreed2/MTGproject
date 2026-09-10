@@ -4936,19 +4936,36 @@ img.stack-main.loaded { opacity: 1; }
   z-index: 1;
 }
 .deck-stack-cards.vertical .deck-stack-card:first-child { margin-top: 8px; }
-.deck-stack-cards.vertical .deck-stack-card:hover,
-.deck-stack-cards.vertical .deck-stack-card:focus-within,
+/* The lift is driven by .is-stack-peek alone. _bindDeckStackPeek adds that class
+ * on pointerover and pointerdown and clears it from every other card, so it
+ * already covers mouse and touch — while :hover cannot be cleared from script
+ * and sticks to the last-tapped card on iOS, leaving a second card lifted and
+ * scaled on top of the stack. The :hover/:focus-within copies are kept only for
+ * hover-capable input, where they are redundant with the class anyway. */
 .deck-stack-cards.vertical .deck-stack-card.is-stack-peek {
   z-index: 10;
   margin-right: 0;
   transform: translateX(6px) scale(1.05);
   transition-delay: 0s;
 }
+@media (hover: hover) {
+  .deck-stack-cards.vertical .deck-stack-card:hover,
+  .deck-stack-cards.vertical .deck-stack-card:focus-within {
+    z-index: 10;
+    margin-right: 0;
+    transform: translateX(6px) scale(1.05);
+    transition-delay: 0s;
+  }
+}
 /* Peek stack: lift hovered card only — don't shove cards below (causes flicker with overlap) */
-.deck-stack-cards.vertical .deck-stack-card:hover ~ .deck-stack-card,
-.deck-stack-cards.vertical .deck-stack-card:focus-within ~ .deck-stack-card,
 .deck-stack-cards.vertical .deck-stack-card.is-stack-peek ~ .deck-stack-card {
   transform: none;
+}
+@media (hover: hover) {
+  .deck-stack-cards.vertical .deck-stack-card:hover ~ .deck-stack-card,
+  .deck-stack-cards.vertical .deck-stack-card:focus-within ~ .deck-stack-card {
+    transform: none;
+  }
 }
 .deck-stack-cards.vertical::-webkit-scrollbar { display: none; }
 

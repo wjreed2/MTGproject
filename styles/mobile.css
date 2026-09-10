@@ -667,8 +667,12 @@
   #tab-decks .deck-stack-cards.vertical .deck-stack-card:first-child {
     margin-top: 8px !important;
   }
-  #tab-decks .deck-stack-cards.vertical .deck-stack-card:hover ~ .deck-stack-card,
-  #tab-decks .deck-stack-cards.vertical .deck-stack-card:focus-within ~ .deck-stack-card,
+  /* Only .is-stack-peek opens a stack here, never :hover or :focus-within.
+     iOS keeps :hover on the last-tapped element, and JS can only clear the
+     class — so a stale hover on one card plus the class on another opened two
+     stacks at once, each shoving its own siblings down a full card, which is
+     what left cards piled over one another. _bindDeckStackPeek adds the class
+     on pointerover, so mouse and touch both still open a stack from one rule. */
   #tab-decks .deck-stack-cards.vertical .deck-stack-card.is-stack-peek ~ .deck-stack-card {
     transform: translateY(calc(min(90vw, 270px) * 88 / 63 - 23px)) !important;
   }
@@ -682,18 +686,14 @@
   #tab-decks .deck-stack-view > .deck-extra-zones-wrap .deck-stack-cards.vertical .deck-stack-card:first-child {
     margin-top: 8px !important;
   }
-  /* Extra zones (Adds / maybe board / Cuts / sideboard): same peek-open as
-     the mainboard — push following cards down so the tapped card is fully visible. */
-  #tab-decks .deck-stack-view > .deck-extra-zones-wrap .deck-stack-cards.vertical .deck-stack-card:hover ~ .deck-stack-card,
-  #tab-decks .deck-stack-view > .deck-extra-zones-wrap .deck-stack-cards.vertical .deck-stack-card:focus-within ~ .deck-stack-card,
+  /* Extra zones (Adds / maybe board / Cuts / sideboard): same peek-open as the
+     mainboard, and likewise class-only — see the note above. The distance is
+     derived from the zone card's own width (the container less its 4px of side
+     padding) rather than a flat 354px, which only matched at one card size. */
   #tab-decks .deck-stack-view > .deck-extra-zones-wrap .deck-stack-cards.vertical .deck-stack-card.is-stack-peek ~ .deck-stack-card,
-  #tab-decks .deck-stack-view.vertical-orient > .deck-extra-zones-wrap .deck-stack-card:hover ~ .deck-stack-card,
-  #tab-decks .deck-stack-view.vertical-orient > .deck-extra-zones-wrap .deck-stack-card:focus-within ~ .deck-stack-card,
   #tab-decks .deck-stack-view.vertical-orient > .deck-extra-zones-wrap .deck-stack-card.is-stack-peek ~ .deck-stack-card,
-  #tab-decks .deck-stack-view.vertical-orient > .deck-sideboard-section .deck-stack-card:hover ~ .deck-stack-card,
-  #tab-decks .deck-stack-view.vertical-orient > .deck-sideboard-section .deck-stack-card:focus-within ~ .deck-stack-card,
   #tab-decks .deck-stack-view.vertical-orient > .deck-sideboard-section .deck-stack-card.is-stack-peek ~ .deck-stack-card {
-    transform: translateY(354px) !important;
+    transform: translateY(calc((min(90vw, 270px) - 4px) / 0.715 - 23px)) !important;
   }
 
   /* Nudge the role-tag corner badge left of the right-edge controls. */
