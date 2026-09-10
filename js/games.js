@@ -2641,19 +2641,33 @@ function _ensureDragArrow() {
  * _targetCellAt and _TARGET_HIT still decide what actually gets hit, so the aim
  * required to commit a target is unchanged.
  */
+// How far toward the seat's centre the drawn line is pulled once it is inside
+// the visual zone, and how big that zone is relative to the real hit box.
 const _ARROW_SNAP = 0.45;
+const _ARROW_SNAP_ZONE = 0.55;
+/**
+ * Two zones, deliberately: _targetCellAt decides what actually gets hit and is
+ * unchanged, while this smaller one only decides when the drawn line tidies
+ * itself toward the seat. Snapping over the whole hit box made the line jump
+ * as soon as you crossed into a cell.
+ *
+ * The centres come from _tabletDrag.zones, which pointerdown built from each
+ * seat's content anchor. A pie cell is a full-screen element with a clip-path,
+ * so its getBoundingClientRect() is the whole viewport — using that pulled the
+ * arrow to the middle of the screen instead of to the player.
+ */
 function _snapToCellCentre(x, y) {
+  if (!_tabletDrag || !_tabletDrag.zones) return [x, y];
   const cell = _cellElAt(x, y);
   if (!cell) return [x, y];
-  // Never snap over the source. The drag starts inside the dragging player's own
-  // wedge, so snapping there dragged the tail toward their centre and the line
-  // read as anchored to the middle of their seat rather than to the finger.
-  // Snapping is for the players being aimed at.
-  if (_tabletDrag && cell.dataset.pid === _tabletDrag.sourceId) return [x, y];
-  const b = cell.getBoundingClientRect();
-  const cx = b.left + b.width / 2;
-  const cy = b.top + b.height / 2;
-  return [x + (cx - x) * _ARROW_SNAP, y + (cy - y) * _ARROW_SNAP];
+  const pid = cell.dataset.pid;
+  // Never over the source: a drag starts in the dragging player's own seat.
+  if (!pid || pid === _tabletDrag.sourceId) return [x, y];
+  const z = _tabletDrag.zones[pid];
+  if (!z || !z.rx || !z.ry) return [x, y];
+  const d = Math.hypot((x - z.x) / z.rx, (y - z.y) / z.ry);
+  if (d > (z.hit || _TARGET_HIT) * _ARROW_SNAP_ZONE) return [x, y];
+  return [x + (z.x - x) * _ARROW_SNAP, y + (z.y - y) * _ARROW_SNAP];
 }
 
 function _drawDragArrows(liveX, liveY) {
