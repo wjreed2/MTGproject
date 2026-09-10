@@ -406,6 +406,12 @@
   #tab-decks #deckListPanelHeader #deckTagBadgeToggleBtn   { order: 12; }
   #tab-decks #deckListPanelHeader #deckStackLayoutResetBtn { order: 13; }
   #tab-decks #deckListPanelHeader #deckStackOrientToggle   { display: none !important; }
+  /* Architecture is the default view only on phones — no panel-layout (grid vs
+     stacked) or card-mode (text vs visual) swapping. _syncDeckListViewChrome
+     sets these inline, so !important is what actually keeps them hidden;
+     _archForceMobileDefaults pins the matching state. */
+  #tab-decks #deckListPanelHeader #deckArchLayoutToggle,
+  #tab-decks #deckListPanelHeader #deckArchCardToggle      { display: none !important; }
   #tab-decks #deckListPanelHeader #deckListViewToggle      { order: 14; margin-right: auto; }
 
   /* ── Suggested Cuts / Adds headers — controls drop below the title row ──

@@ -1943,6 +1943,19 @@ function _deckIsPhone() {
   return typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 768px)').matches;
 }
 
+/**
+ * Phones get the default Architecture view only — the panel-layout and card-mode
+ * toggles are hidden there, so a stacked or visual preference picked on desktop
+ * would otherwise strand a phone in a mode with no control to leave it by.
+ * Deliberately does not touch localStorage: the desktop preference survives, and
+ * the same browser at a wider width still opens in whatever mode it was left in.
+ */
+function _archForceMobileDefaults() {
+  if (!_deckIsPhone()) return;
+  archPanelLayout = 'horizontal';
+  archCardMode = 'text';
+}
+
 function _deckZonesBesideMainboard(el, deck, numCols) {
   const zoneW = _deckExtraZoneColumnPx(deck);
   const cols = Math.max(1, numCols || 1);
@@ -4448,6 +4461,7 @@ function setDeckListView(view, btn) {
 }
 
 function _syncDeckListViewChrome() {
+  _archForceMobileDefaults();
   document.querySelectorAll('#deckListViewList, #deckListViewGrid, #deckListViewArchitecture').forEach(b => b.classList.remove('active'));
   const id = deckListView === 'list' ? 'deckListViewList'
     : (deckListView === 'architecture' ? 'deckListViewArchitecture' : 'deckListViewGrid');
@@ -4678,6 +4692,9 @@ function setDeckStackOrient(orient) {
 }
 
 function setArchPanelLayout(layout) {
+  // The toggle is hidden on phones; ignore the call rather than let a stale
+  // handler or a stray tap put the view into a mode with no way back.
+  if (_deckIsPhone()) return;
   archPanelLayout = layout === 'vertical' ? 'vertical' : 'horizontal';
   try { localStorage.setItem('mtg_arch_panel_layout', archPanelLayout); } catch (_) {}
   _syncDeckListViewChrome();
@@ -4686,6 +4703,7 @@ function setArchPanelLayout(layout) {
 }
 
 function setArchCardMode(mode) {
+  if (_deckIsPhone()) return;
   archCardMode = mode === 'visual' ? 'visual' : 'text';
   try { localStorage.setItem('mtg_arch_card_mode', archCardMode); } catch (_) {}
   _syncDeckListViewChrome();
@@ -9764,6 +9782,7 @@ function renderDeckList(deck) {
       return;
     }
     const canEdit = typeof canEditActiveDeck !== 'function' || canEditActiveDeck();
+    _archForceMobileDefaults();
     const stackedLayout = archPanelLayout === 'vertical';
     const stackedVisual = stackedLayout && archCardMode === 'visual';
     if (stackedLayout) {
