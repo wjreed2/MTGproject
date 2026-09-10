@@ -2468,8 +2468,15 @@ function tabletDragPointerDown(e) {
   document.querySelectorAll('#tabletView .tablet-cell').forEach(c => {
     const a = c.dataset.pie === '1' ? c.querySelector('.tablet-pie-anchor') : null;
     const rr = (a || c).getBoundingClientRect();
+    // Where the drawn arrow aims: the life number, not the cell's midpoint. The
+    // midpoint lands on the divider between the life block and the buttons,
+    // which is what "goes to the middle of the border" meant. Hit-testing still
+    // uses x/y below — this is only for drawing.
+    const lifeEl = c.querySelector('.tablet-life-num');
+    const lr = lifeEl ? lifeEl.getBoundingClientRect() : rr;
     zones[c.dataset.pid] = { x: rr.left + rr.width / 2, y: rr.top + rr.height / 2,
-      rx: rr.width / 2, ry: rr.height / 2, hit: a ? 0.85 : _TARGET_HIT };
+      rx: rr.width / 2, ry: rr.height / 2, hit: a ? 0.85 : _TARGET_HIT,
+      lifeX: lr.left + lr.width / 2, lifeY: lr.top + lr.height / 2 };
   });
   const z = zones[cell.dataset.pid];
   _tabletDrag = {
@@ -2667,7 +2674,11 @@ function _snapToCellCentre(x, y) {
   if (!z || !z.rx || !z.ry) return [x, y];
   const d = Math.hypot((x - z.x) / z.rx, (y - z.y) / z.ry);
   if (d > (z.hit || _TARGET_HIT) * _ARROW_SNAP_ZONE) return [x, y];
-  return [x + (z.x - x) * _ARROW_SNAP, y + (z.y - y) * _ARROW_SNAP];
+  // Toward the life total, and only partway — the line should point at the
+  // number, not terminate on it.
+  const tx = z.lifeX != null ? z.lifeX : z.x;
+  const ty = z.lifeY != null ? z.lifeY : z.y;
+  return [x + (tx - x) * _ARROW_SNAP, y + (ty - y) * _ARROW_SNAP];
 }
 
 function _drawDragArrows(liveX, liveY) {
