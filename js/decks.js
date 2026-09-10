@@ -15937,3 +15937,83 @@ function _simRenderHTML(deck, commander, edhrecData, archiveData) {
 
   return parts.join('') || '<p class="sim-note">No similarity data available.</p>';
 }
+
+/* ── Field diagnostic: /?stackdebug=1 ───────────────────────────────────────
+   Paints live stack geometry over the page so a phone screenshot is enough to
+   diagnose a layout that only misbehaves on a real device. Entirely inert
+   without the flag — nothing below runs, and nothing is bound. Remove once the
+   mobile stack overlap is settled. */
+function _stackDebugOn() {
+  try { return /[?&]stackdebug=1/.test(location.search); } catch (_) { return false; }
+}
+
+function _stackDebugRows(sel, limit) {
+  const els = [...document.querySelectorAll(sel)].slice(0, limit || 6);
+  return els.map((c, i) => {
+    const r = c.getBoundingClientRect();
+    const cs = getComputedStyle(c);
+    const m = /matrix\([^)]*?,\s*([-\d.]+)\)$/.exec(cs.transform || '');
+    const img = c.querySelector('img');
+    return `${String(i).padStart(2)} t${Math.round(r.top)} h${Math.round(r.height)}`
+      + ` w${Math.round(r.width)} mt${Math.round(parseFloat(cs.marginTop) || 0)}`
+      + ` ty${m ? Math.round(+m[1]) : 0}`
+      + `${c.classList.contains('is-stack-peek') ? ' PEEK' : ''}`
+      + `${img ? (img.complete && img.naturalWidth > 0 ? ' L' : ' ...') : ' noimg'}`;
+  });
+}
+
+function _stackDebugDump() {
+  const box = document.getElementById('stackDebugBox');
+  if (!box) return;
+  const panel = document.getElementById('deckListPanel') || document.getElementById('deckCardList');
+  const cw = panel ? getComputedStyle(panel).getPropertyValue('--deck-card-w').trim() : '?';
+  const vv = window.visualViewport;
+  const L = [];
+  L.push(`vw${innerWidth} vh${innerHeight} dpr${devicePixelRatio}`);
+  L.push(`vvScale ${vv ? vv.scale.toFixed(2) : '-'} vvW ${vv ? Math.round(vv.width) : '-'}`);
+  L.push(`hover:${matchMedia('(hover: hover)').matches} pointer:${matchMedia('(pointer: coarse)').matches ? 'coarse' : 'fine'}`);
+  L.push(`view=${typeof deckListView !== 'undefined' ? deckListView : '?'} size=${typeof deckCardSize !== 'undefined' ? deckCardSize : '?'} --cw=${cw}`);
+  const mainSel = '#tab-decks .deck-stack-column .deck-stack-cards.vertical .deck-stack-card';
+  const mainBox = document.querySelector('#tab-decks .deck-stack-column .deck-stack-cards.vertical');
+  L.push(`MAIN box${mainBox ? Math.round(mainBox.getBoundingClientRect().width) : '-'}`);
+  L.push(..._stackDebugRows(mainSel, 5));
+  const zones = [...document.querySelectorAll('#tab-decks .deck-extra-zones-wrap .deck-extra-zone-section')];
+  zones.slice(0, 3).forEach(z => {
+    const cards = z.querySelector('.deck-stack-cards.vertical');
+    L.push(`ZONE ${z.dataset.zone || '?'} box${cards ? Math.round(cards.getBoundingClientRect().width) : '-'}`);
+    if (cards) {
+      const els = [...cards.querySelectorAll('.deck-stack-card')].slice(0, 4);
+      els.forEach((c, i) => {
+        const r = c.getBoundingClientRect(); const cs = getComputedStyle(c);
+        const m = /matrix\([^)]*?,\s*([-\d.]+)\)$/.exec(cs.transform || '');
+        L.push(`${String(i).padStart(2)} t${Math.round(r.top)} h${Math.round(r.height)} w${Math.round(r.width)}`
+          + ` mt${Math.round(parseFloat(cs.marginTop) || 0)} ty${m ? Math.round(+m[1]) : 0}`
+          + `${c.classList.contains('is-stack-peek') ? ' PEEK' : ''}`);
+      });
+    }
+  });
+  box.querySelector('pre').textContent = L.join('\n');
+}
+
+function _stackDebugInit() {
+  if (!_stackDebugOn() || document.getElementById('stackDebugBox')) return;
+  const box = document.createElement('div');
+  box.id = 'stackDebugBox';
+  box.style.cssText = 'position:fixed;left:4px;top:4px;z-index:99999;max-width:min(96vw,340px);'
+    + 'max-height:70vh;overflow:auto;background:rgba(6,10,20,0.94);color:#9fe8b0;'
+    + 'font:10px/1.35 ui-monospace,Menlo,monospace;padding:6px 8px;border:1px solid #3a5;'
+    + 'border-radius:6px;white-space:pre;-webkit-overflow-scrolling:touch';
+  box.innerHTML = '<div style="display:flex;gap:6px;margin-bottom:4px">'
+    + '<button id="stackDebugRefresh" style="font:10px monospace;padding:2px 6px">refresh</button>'
+    + '<button id="stackDebugClose" style="font:10px monospace;padding:2px 6px">x</button></div><pre style="margin:0"></pre>';
+  document.body.appendChild(box);
+  box.querySelector('#stackDebugRefresh').addEventListener('click', e => { e.stopPropagation(); _stackDebugDump(); });
+  box.querySelector('#stackDebugClose').addEventListener('click', e => { e.stopPropagation(); box.remove(); });
+  setTimeout(_stackDebugDump, 1200);
+  setTimeout(_stackDebugDump, 3500);
+}
+
+if (typeof document !== 'undefined' && _stackDebugOn()) {
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _stackDebugInit);
+  else _stackDebugInit();
+}
