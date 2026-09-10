@@ -41,6 +41,18 @@ module.exports = [
     support: ['card_advantage.draw', 'control.counter', 'mana.ritual', 'topdeck.manipulation'],
   },
   {
+    key: 'impulse', label: 'Impulse & exile value',
+    verb: 'cast spells from exile and turn every impulse card into extra value',
+    // Prosper-shaped decks (precon audit F1): dense impulse draw plus cast-from-exile
+    // payoffs, usually with a Treasure/ritual mana engine riding along. The axes have
+    // been in the vocab since v1 — this template just gives them a home.
+    core: [
+      { axes: ['card_advantage.impulse'], min: 6 },
+      { axes: ['cast.from_anywhere', 'trigger.cast_payoff', 'token.treasure'], min: 3 },
+    ],
+    support: ['theft.control', 'mana.ritual', 'wincon.damage_burst', 'gy.cast_from'],
+  },
+  {
     key: 'reanimator', label: 'Reanimator',
     verb: 'fill the graveyard and cheat big creatures back onto the battlefield',
     core: [
@@ -134,6 +146,28 @@ module.exports = [
       { axes: ['control.tax', 'hate.cast_restriction', 'hate.search', 'politics.deterrent'], min: 4 },
     ],
     support: ['hate.graveyard', 'hate.draw', 'hate.lifegain', 'removal.wipe'],
+  },
+  {
+    key: 'goad', label: 'Goad & forced combat',
+    verb: 'turn everyone else’s creatures against each other while staying safe behind deterrents',
+    // Nelly-shaped decks (precon audit F1). combat.goad ships in vocab v4 and fires
+    // after the next extraction pass; until then the deterrent/fog pillowfort half
+    // carries detection — which is exactly the package these decks max out anyway.
+    core: [
+      { axes: ['combat.goad', 'politics.deterrent', 'combat.fog_like'], min: 6 },
+    ],
+    support: ['combat.attack_trigger', 'token.creature', 'removal.spot', 'monarch.initiative'],
+  },
+  {
+    key: 'mill', label: 'Mill',
+    verb: 'empty opponents’ libraries and profit from every card that hits their graveyards',
+    // Anowon-shaped decks (precon audit F1). Both axes are new in vocab v4, so this
+    // template scores 0 until the extraction backfill lands — additive and inert.
+    core: [
+      { axes: ['mill.opponent'], min: 5 },
+      { axes: ['mill.matters'], min: 2 },
+    ],
+    support: ['gy.cast_from', 'theft.control', 'wincon.alt', 'hate.graveyard'],
   },
   {
     key: 'voltron', label: 'Voltron',

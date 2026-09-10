@@ -13,6 +13,13 @@ const th = require('./thresholds');
 const CUT_COUNT = 8;
 const ADD_COUNT = 24;
 
+// Threshold categories that ARE interaction: their cards never earn synergy edges, so
+// cut scoring shields them harder while at/under target (precon audit F3).
+const INTERACTION_CATS = new Set(['Removal', 'Board Wipe', 'Counterspell', 'Protection']);
+// Categories whose cuts are capped at the role's overage (interaction plus draw — the
+// other package guides tell precon owners to grow, not shrink).
+const CAPPED_CUT_CATS = [...INTERACTION_CATS, 'Card Draw'];
+
 // Doubler axis → predicate over provides axes that count as its substrate.
 const _DOUBLER_SUBSTRATE = {
   'token.doubler': (ax) => ax.startsWith('token.') && ax !== 'token.doubler' && ax !== 'token.payoff',
@@ -242,11 +249,13 @@ function wantedAxes(goal, hist, index, templates, goals) {
   const wanted = new Map(); // axis → {why, gap, params?, permissive?, needers?, neederParams?}
   const all = goals && goals.length ? goals : [{ goal, confidence: 1 }];
   const goalAxes = deckPlanAxes(all, templates); // ≥0.8 set — gates unmet-need wants
-  // Core/support gaps only for CO-PRIMARY goals (top, plus ≥0.95 — a rat deck with
-  // aristocrats at 0.98 wants aristocrats pieces too). Merely-confident hypotheses
-  // (voltron at 0.91 in a swarm deck) may gate claims but must not steer the pool —
-  // goal-inference noise amplifies badly through the 8-slot wanted budget.
-  const coPrimary = all.filter((g, i) => i === 0 || (g.confidence || 0) >= 0.95);
+  // Core/support gaps only for CO-PRIMARY goals: the top goal, plus the RUNNER-UP when
+  // it rides ≥0.95 (a rat deck with aristocrats at 0.98 wants aristocrats pieces too).
+  // Deeper confident hypotheses may gate claims but must not steer the pool — hybrid
+  // precons saturate four or five templates at once, and every extra tied goal that
+  // shops its core gaps drags the adds off plan (precon audit F2: stompy@0.99 put
+  // Eldrazi in an artifacts deck, control@0.98 put 11 counterspells in a rogue deck).
+  const coPrimary = all.filter((g, i) => i === 0 || (i === 1 && (g.confidence || 0) >= 0.95));
   for (const g of coPrimary) {
     const key = String(g?.goal || goal || '');
     const tribalMatch = /^tribal:(.+)$/.exec(key);
@@ -291,10 +300,14 @@ function wantedAxes(goal, hist, index, templates, goals) {
     // is a coincidence), never introduce one. Without this, a protection package
     // saturating voltron dragged artifact tutors into a big-creature deck with zero
     // artifact synergy (Enlightened Tutor at #1), and one energy card made the deck
-    // "want" more energy (Guide of Souls).
-    for (const ax of tpl?.support || []) {
-      const have = hist.providers[ax] || 0;
-      if (have >= 2 && have < 3 && !wanted.has(ax)) wanted.set(ax, { why: 'goal_support', gap: 3 - have });
+    // "want" more energy (Guide of Souls). TOP goal only: a saturated runner-up's
+    // support is where off-plan floods came from (stax@1 second in a goad deck put
+    // 23 graveyard-hate cards in the adds — precon audit F2).
+    if (g === coPrimary[0]) {
+      for (const ax of tpl?.support || []) {
+        const have = hist.providers[ax] || 0;
+        if (have >= 2 && have < 3 && !wanted.has(ax)) wanted.set(ax, { why: 'goal_support', gap: 3 - have });
+      }
     }
   }
   // Unmet needs of cards already in the deck — but only when the demand is real
@@ -332,28 +345,32 @@ function wantedAxes(goal, hist, index, templates, goals) {
       }
     }
   }
-  // A deck that saturates its plan still deserves suggestions: fall back to
-  // REINFORCEMENT — the top goal's core axes at a nominal gap, i.e. shop for better
-  // versions and redundancy of what the plan already does, instead of returning an
-  // empty list ("no adds to suggest" for a fully-built Treebeard Food deck).
-  if (!wanted.size) {
-    const m2 = /^tribal:(.+)$/.exec(String(goal || ''));
-    if (m2) {
-      for (const ax of ['tribal.lord', 'tribal.synergy', 'anthem.global']) {
-        wanted.set(ax, { why: 'goal_reinforce', gap: 1, params: [m2[1]], permissive: true });
-      }
-    } else {
-      const tpl2 = templates.find(t => t.key === String(goal || ''));
-      for (const grp of tpl2?.core || []) {
-        for (const ax of _coreAxes(grp, all[0]?.mechanism)) {
-          if (ax === 'voltron.carrier' && index.commanderCarrier) continue;
-          if (!wanted.has(ax)) wanted.set(ax, { why: 'goal_reinforce', gap: 1 });
-        }
+  // REINFORCEMENT — the top goal's core axes at a nominal gap: shop for better
+  // versions and redundancy of what the plan already does. This always runs (axes not
+  // already wanted, appended last so pool trimming drops them first): a saturated top
+  // goal used to contribute NOTHING, leaving fringe demands and runner-up support to
+  // define the whole adds list — an impulse@1 Prosper deck whose wanted set was
+  // sac-fodder wishes never shopped for a single impulse card (precon audit F2).
+  const wasEmpty = !wanted.size;
+  const m2 = /^tribal:(.+)$/.exec(String(goal || ''));
+  if (m2) {
+    for (const ax of ['tribal.lord', 'tribal.synergy', 'anthem.global']) {
+      if (!wanted.has(ax)) wanted.set(ax, { why: 'goal_reinforce', gap: 1, params: [m2[1]], permissive: true });
+    }
+  } else {
+    const tpl2 = templates.find(t => t.key === String(goal || ''));
+    for (const grp of tpl2?.core || []) {
+      for (const ax of _coreAxes(grp, all[0]?.mechanism)) {
+        if (ax === 'voltron.carrier' && index.commanderCarrier) continue;
+        if (!wanted.has(ax)) wanted.set(ax, { why: 'goal_reinforce', gap: 1 });
       }
     }
+  }
+  if (wasEmpty) {
     // Plus the deck's DOMINANT axes — sub-archetype identity is emergent from the
     // data: 17 Food producers say "Food deck" louder than any template. Density ≥8
-    // keeps incidental axes out; top 2 keeps the reinforcement focused.
+    // keeps incidental axes out; top 2 keeps the reinforcement focused. Only when
+    // nothing else was wanted — a deck with real gaps shops for those first.
     const dominant = Object.entries(hist.providers || {})
       .filter(([ax, n]) => n >= 8 && !wanted.has(ax))
       .sort((a, b) => b[1] - a[1])
@@ -406,6 +423,10 @@ function scoreCuts({ deckCards, commander, goals, thresholds, roleCounts }) {
   const scored = [];
   for (const c of nonLand) {
     if (!c.ir) continue; // no semantics — never suggest cutting blind
+    // Format staples (Sol Ring class) are never cut suggestions: they carry no synergy
+    // edges by nature, so surplus math bottom-ranks them in any deck — and no upgrade
+    // guide cuts them, they ARE the upgrades (precon audit F3).
+    if ((Number(c.ir.power_level_hint) || 0) >= 5) continue;
     const trace = [];
     let score = 0;
 
@@ -414,13 +435,16 @@ function scoreCuts({ deckCards, commander, goals, thresholds, roleCounts }) {
     trace.push({ kind: 'synergy', value: syn, pts: Math.min(syn, 40) * 0.35, edges: interactions.edges
       .filter(e => (e.a === c.name || e.b === c.name) && e.type !== 'redundancy').slice(0, 4) });
 
-    // role fill: does this card protect a threshold?
+    // role fill: does this card protect a threshold? Interaction roles shield harder:
+    // removal/protection/counters structurally have no synergy edges, so role adequacy
+    // is most of what keeps them out of the cut list (precon audit F3).
     const cats = new Set((c.ir.roles || []).map(r => th.ROLE_TO_CATEGORY[r]).filter(Boolean));
     for (const cat of cats) {
       const have = roleCounts[cat] || 0;
       const need = thresholds[cat] || 0;
       const afterCut = have - (c.qty || 1);
-      if (afterCut < need) { const pts = Math.min(need - afterCut, 4) * 2; score += pts; trace.push({ kind: 'role_protects', cat, have, need, pts }); }
+      const shieldMult = INTERACTION_CATS.has(cat) ? 3 : 2;
+      if (afterCut < need) { const pts = Math.min(need - afterCut, 4) * shieldMult; score += pts; trace.push({ kind: 'role_protects', cat, have, need, pts }); }
       else { const pts = -Math.min(3, afterCut - need) * 0.5; score += pts; trace.push({ kind: 'role_surplus', cat, have, need, pts }); }
     }
 
@@ -442,19 +466,41 @@ function scoreCuts({ deckCards, commander, goals, thresholds, roleCounts }) {
 
     // shields
     const staple = Number(c.ir.power_level_hint) || 0;
-    if (staple >= 5) { score += 8; trace.push({ kind: 'shield_staple', hint: staple, pts: 8 }); }
-    else if (staple >= 4) { score += 4; trace.push({ kind: 'shield_staple', hint: staple, pts: 4 }); }
+    if (staple >= 4) { score += 6; trace.push({ kind: 'shield_staple', hint: staple, pts: 6 }); }
     if (tribalType && (c.ir.tribal?.types || []).includes(tribalType)) { score += 5; trace.push({ kind: 'shield_tribe', type: tribalType, pts: 5 }); }
+    // Tribe-scoped SUPPORT shields like tribe membership does: a Zombie cost reducer
+    // (Rooftop Storm, 91% of Wilhelt decks) has zero synergy edges because param'd
+    // cost-reduction axes don't join, but it is plainly on plan (precon audit F3/F7).
+    if (tribalType && (c.ir.provides || []).some(p => p.param &&
+        String(p.param).split(/[,/]/).some(t => t.trim().toLowerCase() === tribalType.toLowerCase()))) {
+      score += 5; trace.push({ kind: 'shield_tribe_support', type: tribalType, pts: 5 });
+    }
     if ((c.ir.provides || []).some(p => commanderNeeds.has(p.axis))) { score += 4; trace.push({ kind: 'shield_commander', pts: 4 }); }
     if (c.ir.wincon) { score += 4; trace.push({ kind: 'shield_wincon', wc: c.ir.wincon.kind, pts: 4 }); }
     for (const e of interactions.edges) {
       if (e.type === 'nonbo' && (e.a === c.name || e.b === c.name)) { score -= 5; trace.push({ kind: 'nonbo', axis: e.axis, other: e.a === c.name ? e.b : e.a, pts: -5 }); break; }
     }
 
-    scored.push({ name: c.name, contribution: Math.round(score * 100) / 100, trace });
+    scored.push({ name: c.name, contribution: Math.round(score * 100) / 100, trace, cats: [...cats] });
   }
 
   scored.sort((a, b) => a.contribution - b.contribution);
+  // Interaction and draw cuts are capped at the role's actual OVERAGE: a deck one
+  // removal spell over target justifies one removal cut, not seven, and a deck at or
+  // under target justifies none. Synergy scoring reads interaction as "barely
+  // connected" by nature, so without this cap the bottom of every list is the deck's
+  // removal suite (precon audit F3: Feed the Swarm cut from two decks whose players
+  // run it at 61-63%, Obuun's seven-removal cut list for an 11-vs-10 surplus).
+  const capLeft = {};
+  for (const cat of CAPPED_CUT_CATS) capLeft[cat] = Math.max(0, Math.ceil((roleCounts[cat] || 0) - (thresholds[cat] || 0)));
+  const kept = [];
+  for (const s of scored) {
+    const limited = s.cats.filter(cat => cat in capLeft);
+    if (limited.some(cat => capLeft[cat] <= 0)) continue;
+    for (const cat of limited) capLeft[cat]--;
+    kept.push(s);
+  }
+  const cuttable = kept;
   // A deck 16 over needs at least 16 candidates — the fixed count only fits mild
   // overages. Scale with how far over 100 the analyzed list is (cap keeps the
   // panel reviewable; the analyzed list already includes planned adds when the
@@ -464,7 +510,7 @@ function scoreCuts({ deckCards, commander, goals, thresholds, roleCounts }) {
   // score IS the signed contribution (what the card does for this deck): most
   // negative first = strongest cut. The breakdown lines sum to exactly this
   // number — a "4.9" badge over lines summing to −4.9 read as a bug.
-  return scored.slice(0, cutCount).map(s => ({ name: s.name, score: s.contribution, trace: s.trace }));
+  return cuttable.slice(0, cutCount).map(s => ({ name: s.name, score: s.contribution, trace: s.trace }));
 }
 
 // ── adds ─────────────────────────────────────────────────────────────────────

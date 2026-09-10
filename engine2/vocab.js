@@ -7,7 +7,7 @@
 // cannot drift between pipeline runs. Additive changes bump VOCAB_VERSION; breaking shape
 // changes to the IR itself bump IR_VERSION (in ir-schema.js).
 
-const VOCAB_VERSION = 3; // v3: + draw.group (each-player/opponent draw supply; derived by backfill for pre-v3 rows)
+const VOCAB_VERSION = 4; // v4: + combat.goad, mill.opponent, mill.matters (precon-audit F1 gaps; pre-v4 rows lack them until re-extraction)
 
 // ── Effect AST ops ───────────────────────────────────────────────────────────
 // Each op's execution contract is specified in docs/engine2-ir-spec.md. The analysis layer
@@ -278,6 +278,9 @@ const AXES = {
   'flash.enabler':         'lets you act at instant speed (flash granters)',
   'haste.enabler':         'grants haste (needed by big finishers and combo creatures)',
   'politics.deterrent':    'discourages attacks against you (Ghostly Prison style)',
+  'combat.goad':           'goads creatures or otherwise forces opponents to attack (param: all|single)',
+  'mill.opponent':         'mills opponents\' libraries',
+  'mill.matters':          'rewards cards entering opponents\' graveyards or cares about milling (param: tribe/type when scoped)',
 };
 
 const AXIS_TOKENS = new Set(Object.keys(AXES));
