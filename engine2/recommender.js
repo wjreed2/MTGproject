@@ -626,7 +626,13 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
       const paramFits = !w0?.params || w0.params.some(fit);
       const w = w0 && paramFits ? w0 : null;
       if (w) {
-        const pts = (p.weight || 1) * (1 + Math.min(3, w.gap) * 0.5) * outFactor;
+        // Repeatability matters for a standing appetite: a wanted axis is an ongoing
+        // plan gap, and a one-shot barely serves an engine (Entomb — one card to the
+        // yard, once — outranked every repeatable filler for a commander who wants
+        // cards FLOWING into the graveyard). One-shots keep partial credit: they do
+        // advance the plan, once.
+        const rateFactor = p.rate === 'once' ? 0.7 : 1;
+        const pts = (p.weight || 1) * (1 + Math.min(3, w.gap) * 0.5) * outFactor * rateFactor;
         score += pts;
         // Name the needers only when the claim carries real weight: on-plan axis, a
         // hard (requires) dependency, or ≥2 strong needers among the groups served.
