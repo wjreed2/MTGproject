@@ -1814,9 +1814,9 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
 
   // 2-player cells are full-width but half-height (stacked), so cap the life
   // number by viewport height too, to avoid overflow in landscape.
-  const lifeFontSize = total === 2 ? 'clamp(3.1rem,min(20vw,26vh),12.5rem)'
-    : total <= 4 ? 'clamp(3.1rem,12.5vw,8.2rem)'
-    : 'clamp(3.1rem,9.4vw,6rem)';
+  const lifeFontSize = total === 2 ? 'clamp(3.6rem,min(23vw,30vh),14rem)'
+    : total <= 4 ? 'clamp(3.6rem,14.5vw,9.6rem)'
+    : 'clamp(3.5rem,11vw,7rem)';
 
   const spanStyle = (total === 3 && idx === 0) || (total === 5 && idx === 4) ? 'grid-column: span 2;' : '';
   const isActiveTurn = !p.eliminated && idx === (game.activePlayerIdx ?? 0);
@@ -1854,7 +1854,7 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
     ${inTargetMode ? `onclick="applyGameAction('${game.id}','${p.id}')"` : ''}>
 
     <!-- Name bar -->
-    <div class="tablet-name-bar" style="text-align:${nameAlign};padding:${namePad};border-bottom:1px solid ${p.color}25;position:relative">
+    <div class="tablet-name-bar" style="text-align:${nameAlign};padding:${namePad};border-top:1px solid ${p.color}25;position:relative">
       <div class="tablet-player-name" style="font-family:'Cinzel',serif;font-size:clamp(0.85rem,2.2vw,1.3rem);color:${p.color};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:0.06em">${escapeHtml(p.name)}</div>
       ${p.deckName ? `<div style="font-size:clamp(0.55rem,1.2vw,0.78rem);color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px">${escapeHtml(p.deckName)}${p.commander ? ' · ' + escapeHtml(p.commander) : ''}</div>` : ''}
       ${inTargetMode
@@ -1870,7 +1870,7 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
     </div>
 
     <!-- Life total -->
-    <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:clamp(3px,0.8vh,8px);min-height:0">
+    <div class="tablet-life-block" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:clamp(3px,0.8vh,8px);min-height:0">
       <div class="tablet-life-num" style="font-family:'JetBrains Mono',monospace;font-size:${lifeFontSize};font-weight:700;line-height:1;color:${lifeColor};text-shadow:0 0 38px ${p.color}2e;transition:color 0.25s;user-select:none">${p.life}</div>
       <div style="font-size:clamp(0.55rem,1.2vw,0.78rem);color:var(--text3)">of ${p.startingLife}</div>
       ${isCmd ? `<div style="display:flex;align-items:center;justify-content:center;gap:4px;flex-wrap:wrap;padding:0 8px;min-height:16px">${cmdBadges}</div>` : ''}
@@ -1878,7 +1878,7 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
     </div>
 
     <!-- Self-modification buttons: +1 +X −1 −X -->
-    <div class="tablet-btn-bar" style="padding:clamp(5px,1.2vh,9px) clamp(8px,1.8vw,16px) 0;border-top:1px solid ${p.color}25" onclick="event.stopPropagation()">
+    <div class="tablet-btn-bar" style="padding:clamp(5px,1.2vh,9px) clamp(8px,1.8vw,16px) 0;border-top:1px solid ${p.color}25;" onclick="event.stopPropagation()">
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:clamp(3px,0.55vw,7px);margin-bottom:clamp(4px,0.8vh,7px)">
         ${_cellLifeBtns(game, p)}
       </div>
@@ -1984,13 +1984,14 @@ function _wireTabletSurface(game, el) {
 
 function _cellLifeColor(p) {
   if (glassMode) {
-    // Liquid glass ramp: white → yellow → orange → red (no blue/teal).
-    // Tokens are defined per-theme on body.glass-mode #tabletView in main.css.
-    return p.eliminated ? 'var(--text3)'
-      : p.life <= 5  ? 'var(--glass-life-crit)'
-      : p.life <= 10 ? 'var(--glass-life-low)'
-      : p.life <= (p.startingLife * 0.5) ? 'var(--glass-life-mid)'
-      : 'var(--glass-life-hi)';
+    // The app's one scale: blue at full life sliding to purple at zero, the same
+    // good→bad ramp the deck goal and theme bars use. Continuous rather than the
+    // old four steps, so the colour tracks the number instead of jumping.
+    if (p.eliminated) return 'var(--text3)';
+    const start = Number(p.startingLife) || 40;
+    const t = Math.max(0, Math.min(1, (Number(p.life) || 0) / start));
+    if (typeof _lgxVerdictColor === 'function') return _lgxVerdictColor(t);
+    return 'var(--text)';
   }
   return p.eliminated ? 'rgba(255,255,255,0.15)'
     : p.life <= 0  ? 'var(--red)'
@@ -2004,11 +2005,12 @@ function _cellCmdBadges(game, p, isCmd) {
   if (!isCmd) return '';
   return game.players.filter(op => op.id !== p.id).map(op => {
     const dmg = (p.commanderDamage || {})[op.id] || 0;
+    // Just the number, in that opponent's colour — no pill, no border, no dot.
+    // The colour is the identification, so the chrome around it was noise.
     const danger = dmg >= 16;
     return `
-        <span title="${escapeHtml(op.name)}: ${dmg}" style="display:inline-flex;align-items:center;gap:3px;padding:1px 4px;border-radius:999px;background:rgba(0,0,0,0.18);border:1px solid ${op.color}44;color:${danger ? 'var(--red)' : (dmg > 0 ? 'var(--text2)' : 'var(--text3)')};font-family:'JetBrains Mono',monospace;font-size:0.6rem;line-height:1.2">
-          <span style="width:5px;height:5px;border-radius:50%;background:${op.color};flex-shrink:0"></span>${dmg}
-        </span>`;
+        <span class="tablet-cmd-dmg${danger ? ' is-danger' : ''}" title="${escapeHtml(op.name)}: ${dmg}"
+              style="color:${op.color};opacity:${dmg > 0 ? 1 : 0.45}">${dmg}</span>`;
   }).join('');
 }
 
@@ -2378,7 +2380,11 @@ function _pieResizeRerender() {
   if (!tabletViewGameId) return;
   if (_tabletDrag) { _pieResizeTimer = setTimeout(_pieResizeRerender, 200); return; }
   const g = games.find(gg => gg.id === tabletViewGameId);
-  if (!g || g.tabletLayout !== 'pie') return;
+  // Both layouts, not just pie. The grid sets gridTemplateColumns/Rows and its
+  // 3p/5p column spans from JS, and #tabletView is scaled by a transform — after
+  // an iPad rotation those were left on the pre-rotation geometry, with any open
+  // menu still anchored where it used to be.
+  if (!g) return;
   _closeDragMenu();
   document.querySelectorAll('.tablet-player-menu').forEach(mm => mm.remove());
   renderTabletView();
@@ -2541,7 +2547,8 @@ function tabletDragPointerMove(e) {
       _tabletDrag.targets.push(pid);
       // Drop an anchor where the path bends, so the dotted line kinks toward each
       // selected player instead of being one straight line to the finger.
-      _tabletDrag.anchors.push({ x: e.clientX, y: e.clientY });
+      const [ax, ay] = _snapToCellCentre(e.clientX, e.clientY);
+      _tabletDrag.anchors.push({ x: ax, y: ay });
       _highlightDragTargets(_tabletDrag.targets);
     }
   }
@@ -2594,12 +2601,12 @@ function _ensureDragArrow() {
   marker.setAttribute('markerWidth', '8'); marker.setAttribute('markerHeight', '8');
   marker.setAttribute('refX', '6'); marker.setAttribute('refY', '3'); marker.setAttribute('orient', 'auto');
   const head = document.createElementNS(NS, 'path');
-  head.setAttribute('d', 'M0,0 L6,3 L0,6 Z'); head.setAttribute('fill', 'var(--gold)');
+  head.setAttribute('d', 'M0,0 L6,3 L0,6 Z'); head.setAttribute('fill', 'var(--red)');
   marker.appendChild(head); defs.appendChild(marker); svg.appendChild(defs);
   const poly = document.createElementNS(NS, 'polyline');   // dotted path: origin → anchors → finger
   poly.setAttribute('id', 'dragPoly');
   poly.setAttribute('fill', 'none');
-  poly.setAttribute('stroke', 'var(--gold)'); poly.setAttribute('stroke-width', '3');
+  poly.setAttribute('stroke', 'var(--red)'); poly.setAttribute('stroke-width', '3');
   poly.setAttribute('stroke-linecap', 'round'); poly.setAttribute('stroke-linejoin', 'round');
   // Solid, not dotted — the dashes read as a broken line against card art.
   poly.setAttribute('marker-end', 'url(#dragArrowHead)');
@@ -2612,11 +2619,27 @@ function _ensureDragArrow() {
 
 // Dotted path from the source, kinking at each committed-target anchor, then trailing
 // freely to the finger. Selected cells also show their red highlight.
+/**
+ * Pull a drawn point toward the centre of the cell it is over, so the line lands
+ * on the player rather than wherever the finger happens to be. Drawing only —
+ * _targetCellAt and _TARGET_HIT still decide what actually gets hit, so the aim
+ * required to commit a target is unchanged.
+ */
+const _ARROW_SNAP = 0.45;
+function _snapToCellCentre(x, y) {
+  const cell = _cellElAt(x, y);
+  if (!cell) return [x, y];
+  const b = cell.getBoundingClientRect();
+  const cx = b.left + b.width / 2;
+  const cy = b.top + b.height / 2;
+  return [x + (cx - x) * _ARROW_SNAP, y + (cy - y) * _ARROW_SNAP];
+}
+
 function _drawDragArrows(liveX, liveY) {
   if (!_dragArrowEl || !_tabletDrag) return;
   const NS = 'http://www.w3.org/2000/svg';
   const { originX, originY, anchors } = _tabletDrag;
-  const pts = [[originX, originY], ...anchors.map(a => [a.x, a.y]), [liveX, liveY]];
+  const pts = [[originX, originY], ...anchors.map(a => [a.x, a.y]), _snapToCellCentre(liveX, liveY)];
   _dragArrowEl.querySelector('#dragPoly').setAttribute('points', pts.map(p => p.join(',')).join(' '));
   const dots = _dragArrowEl.querySelector('#dragDots');
   dots.textContent = '';
@@ -2698,7 +2721,14 @@ function _openDragDamageMenu(sourceId, targetIds, x, y, rotated) {
 
   // Close on any interaction outside the menu (added next tick so the opening gesture doesn't close it).
   setTimeout(() => {
-    _dragMenuOutsideHandler = ev => { if (!menu.contains(ev.target)) _closeDragMenu(); };
+    _dragMenuOutsideHandler = ev => {
+      if (menu.contains(ev.target)) return;
+      // This fires on pointerdown, so the menu is already gone by the time the
+      // click reaches the tablet surface — which then saw no open menu and took
+      // it as a tap-to-advance. Mark the click to be swallowed.
+      _tabletDragJustEnded = true;
+      _closeDragMenu();
+    };
     document.addEventListener('pointerdown', _dragMenuOutsideHandler, true);
   }, 0);
 }
