@@ -1956,11 +1956,16 @@ function _wireTabletSurface(game, el) {
     // Only .tablet-player-menu was considered before, so a tap meant to dismiss
     // the drag menu (or a glass dropdown opened over the board) passed straight
     // through and advanced the turn.
+    // The trailing click of a drag is checked FIRST. A drag that lands on a
+    // player opens the deal menu on pointerup, and this click arrives right
+    // after it — closing menus before this check tore down the menu the drag had
+    // just opened, so it never appeared at all.
+    if (_tabletDragJustEnded) { _tabletDragJustEnded = false; return; }
     const menus = document.querySelectorAll(
       '.tablet-player-menu, .tablet-drag-menu, .glass-menu, .cd-tag-ctx-menu, .card-detail-pin-menu');
-    const hadMenu = menus.length > 0;
+    const hadMenu = menus.length > 0 || _tabletMenuDismissed;
+    _tabletMenuDismissed = false;
     menus.forEach(m => m.remove());
-    if (_tabletDragJustEnded) { _tabletDragJustEnded = false; return; }
     if (hadMenu) return;
     if (gameActionMode) return;
     if (e.target.closest('button, input, a, select, textarea, .tablet-player-menu, .tablet-drag-menu, .tablet-center-box, .player-targetable, .num-wheel')) return;
@@ -2411,6 +2416,12 @@ let _tabletDragJustEnded = false;  // true for the trailing click after a real d
 let _dragMenuCtx = null;           // { sourceId, targetIds } for the open deal menu
 let _dragArrowEl = null;           // SVG overlay element
 let _dragMenuOutsideHandler = null;
+// Set when a tap outside the deal menu dismisses it. Deliberately NOT
+// _tabletDragJustEnded: tabletDragPointerDown clears that on every pointerdown,
+// and the menu's outside handler runs in the capture phase — so the flag was
+// being set and then wiped by the very same tap, letting the click through to
+// tap-to-advance. Cleared by the surface click that consumes it.
+let _tabletMenuDismissed = false;
 
 function _cellElAt(x, y) {
   const el = document.elementFromPoint(x, y);
@@ -2648,13 +2659,17 @@ function _snapToCellCentre(x, y) {
 function _drawDragArrows(liveX, liveY) {
   if (!_dragArrowEl || !_tabletDrag) return;
   const NS = 'http://www.w3.org/2000/svg';
-  const { originX, originY, anchors } = _tabletDrag;
-  const pts = [[originX, originY], ...anchors.map(a => [a.x, a.y]), _snapToCellCentre(liveX, liveY)];
+  // Draw from where the drag actually began. originX/originY is the centre of the
+  // source's aim zone, so using it pinned the tail to the middle of the dragging
+  // player's seat however far away you pressed — that is the "snaps on the
+  // origin" behaviour. Only the far end, aimed at a target, snaps.
+  const { startX, startY, anchors } = _tabletDrag;
+  const pts = [[startX, startY], ...anchors.map(a => [a.x, a.y]), _snapToCellCentre(liveX, liveY)];
   _dragArrowEl.querySelector('#dragPoly').setAttribute('points', pts.map(p => p.join(',')).join(' '));
   const dots = _dragArrowEl.querySelector('#dragDots');
   dots.textContent = '';
   // Origin dot (larger) plus a dot at each anchor (the bend points).
-  [[originX, originY, 7], ...anchors.map(a => [a.x, a.y, 5])].forEach(([cx, cy, r]) => {
+  [[startX, startY, 7], ...anchors.map(a => [a.x, a.y, 5])].forEach(([cx, cy, r]) => {
     const c = document.createElementNS(NS, 'circle');
     c.setAttribute('cx', cx); c.setAttribute('cy', cy); c.setAttribute('r', r);
     c.setAttribute('fill', 'var(--gold)');
@@ -2736,7 +2751,7 @@ function _openDragDamageMenu(sourceId, targetIds, x, y, rotated) {
       // This fires on pointerdown, so the menu is already gone by the time the
       // click reaches the tablet surface — which then saw no open menu and took
       // it as a tap-to-advance. Mark the click to be swallowed.
-      _tabletDragJustEnded = true;
+      _tabletMenuDismissed = true;
       _closeDragMenu();
     };
     document.addEventListener('pointerdown', _dragMenuOutsideHandler, true);
