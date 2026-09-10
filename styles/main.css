@@ -12591,6 +12591,14 @@ body.glass-mode #deckTabPane-suggestions .suggest-why-detail {
 .suggest-col-score { min-width: 3.4rem; text-align: center; flex-shrink: 0; }
 .suggest-col-card { flex: 1; min-width: 0; }
 .suggest-col-actions { flex-shrink: 0; text-align: right; }
+/* Over-100 count beside "Suggested Cuts": plain red text rather than a pill. */
+.deck-over-count {
+  color: var(--red);
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.deck-over-count:empty { display: none; }
 /* Add and Cut share a footprint so the Card column ends at the same x in both
    lists — "Cut" is a shorter word than "+ Add" and the name column was
    absorbing the difference. min-width, so a longer label ("Don't add") still

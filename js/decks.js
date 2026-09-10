@@ -8458,7 +8458,7 @@ async function _renderCutSuggestions(deck) {
         : _SUGGEST_E2_UNAVAILABLE_HTML;
       return;
     }
-    const ownedNames = _suggOwnedNameSet();
+    const collIdx = _suggCollectionIndex();
     body.innerHTML = _suggColHeadHtml('Cut') + basisNote + items.map(({ cut, card, plannedAdd }, i) => {
       const uid = (card.uid || card.scryfallId || card.name || '').replace(/'/g, "\\'");
       const sid = card.scryfallId || card.uid || '';
@@ -8493,17 +8493,19 @@ async function _renderCutSuggestions(deck) {
           <input type="text" maxlength="500" placeholder="What's right or wrong about this cut?" style="flex:1;font-size:.74rem;padding:4px 8px;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;color:var(--text)" onkeydown="if(event.key==='Enter')_sendSuggestFeedback(this.parentNode.querySelector('button'))">
           <button type="button" class="btn btn-outline btn-sm" style="padding:2px 10px;font-size:.7rem" onclick="_sendSuggestFeedback(this)">Send</button>
         </div>`;
-      const price = typeof _deckCardSortPrice === 'function' ? _deckCardSortPrice(card) : Number(card.priceTCG) || 0;
-      const ownTag = plannedAdd
-        ? '<span class="sugg-meta" title="This is one of your planned adds — cutting it just un-plans it">planned add</span>'
-        : _suggMetaHtml(ownedNames.has(String(card.name || '').toLowerCase()), price > 0 ? price : null);
+      // Every row shows ownership and price, planned adds included — the chip that
+      // used to replace them left those rows with no price at all. That a row is a
+      // planned add is still carried by the button's title.
+      const ownTag = _suggMetaHtml(
+        collIdx.has(String(card.name || '').toLowerCase()),
+        _suggCutPrice(card, collIdx));
       return `<div class="suggest-item">
         <div class="cut-candidate-row">
           <span class="suggest-rank" title="Cut rank — the most negative contribution first">${i + 1}</span>
           <button type="button" class="cut-score-badge cut-why-toggle" aria-expanded="false" aria-label="Contribution to this deck ${score}" onclick="_toggleSuggestWhy(this)">${score}</button>
           <span class="cut-card-name" onclick="${sid ? `openCardDetail('${sid}','deck')` : ''}">${displayName}</span>
           ${ownTag}
-          <button class="btn btn-outline btn-sm" title="${cutTitle}" onclick="${cutOnclick}">${plannedAdd ? "Don't add" : 'Cut'}</button>
+          <button class="btn btn-outline btn-sm" title="${cutTitle}" onclick="${cutOnclick}">Cut</button>
           ${fbBtn}
         </div>
         ${why}
@@ -8937,7 +8939,10 @@ function _suggestWhyDetailHtml(title, score, lines, footer) {
  *  separately so phones can hide it and keep the price — see mobile.css. */
 function _suggMetaHtml(owned, price) {
   const own = `<span class="sugg-meta-own">${owned ? 'owned' : 'unowned'}</span>`;
-  const p = (price == null) ? '' : `<span class="sugg-meta-price">$${escapeHtml(Number(price).toFixed(2))}</span>`;
+  // A number renders as money; a string ('—') renders as-is for an unknown price.
+  const priceText = (typeof price === 'number' && price > 0) ? `$${Number(price).toFixed(2)}`
+    : (typeof price === 'string' && price) ? price : '';
+  const p = priceText ? `<span class="sugg-meta-price">${escapeHtml(priceText)}</span>` : '';
   const sep = p ? '<span class="sugg-meta-sep">&ndash;</span>' : '';
   return `<span class="sugg-meta">${own}${sep ? ' ' + sep + ' ' : ''}${p}</span>`;
 }
@@ -8960,17 +8965,41 @@ function _suggColHeadHtml(actionLabel) {
  * same thing the adds engine means by "owned" — the card is in your collection,
  * any printing — regardless of that toggle.
  */
-function _suggOwnedNameSet() {
+function _suggCollectionIndex() {
   const src = (typeof _ownershipCollection === 'function' ? _ownershipCollection() : null)
     || (typeof collection !== 'undefined' ? collection : []);
-  const out = new Set();
+  const out = new Map();
   for (const c of (src || [])) {
     const q = Number(c && c.qty);
     if (Number.isFinite(q) && q < 1) continue;   // zero-qty rows are not owned
     const n = String(c && c.name || '').toLowerCase();
-    if (n) out.add(n);
+    if (n && !out.has(n)) out.set(n, c);
   }
   return out;
+}
+
+/**
+ * Price for a cut candidate. Deck rows usually carry priceTCG, but a planned-add
+ * slot often does not, so fall back to the collection's copy of the same card
+ * before giving up. Returns '—' rather than 0 when nothing knows the price — the
+ * column stays filled, and "$0.00" would be a lie.
+ */
+function _suggCutPrice(card, idx) {
+  // Whichever vendor Settings designates, falling back to the other — a card
+  // priced by only one of them still gets a number rather than a dash.
+  const read = c => {
+    if (!c) return 0;
+    const tcg = (typeof getTCGPriceForCard === 'function' ? Number(getTCGPriceForCard(c)) : 0) || Number(c.priceTCG) || 0;
+    const ck  = (typeof getCKPriceForCard === 'function' ? Number(getCKPriceForCard(c)) : 0) || Number(c.priceCK) || 0;
+    const primaryCk = typeof getPrimaryPriceVendor === 'function' && getPrimaryPriceVendor() === 'ck';
+    return primaryCk ? (ck || tcg) : (tcg || ck);
+  };
+  let v = read(card);
+  if (!v && idx) {
+    const alt = idx.get(String(card && card.name || '').toLowerCase());
+    if (alt) v = read(alt);
+  }
+  return v > 0 ? v : '—';
 }
 
 function _toggleSuggestWhy(btn) {

@@ -832,7 +832,7 @@
       <div id="deckCutSuggestionsPanel" class="panel" style="display:none;margin-bottom:1.25rem">
         <div class="panel-header deck-suggest-header">
           <span class="panel-title">Suggested Cuts</span>
-          <span id="deckCutOverBadge" class="tag tag-red" style="margin-left:.5rem"></span>
+          <span id="deckCutOverBadge" class="deck-over-count"></span>
           <div class="deck-suggest-spacer" style="flex:1"></div>
           <div class="view-toggle deck-algo-toggle" role="group" aria-label="Suggestion engine" title="Classic = role-tag heuristics. Hybrid = Classic staples + sandbox theme. Semantic = partner card-understanding engine.">
             <button type="button" id="deckCutAlgoHybridBtn" style="padding:2px 8px;font-size:.72rem" aria-pressed="false" onclick="setSuggestAlgoMode('hybrid')">Hybrid</button>
@@ -869,6 +869,7 @@
       <!-- Suggested Adds — inverse of Suggested Cuts, shares its target model -->
       <div id="deckAddSuggestionsPanel" class="panel" style="display:none;margin-bottom:1.25rem">
         <div class="panel-header deck-suggest-header">
+          <span class="panel-title">Suggested Adds</span>
           <div class="deck-suggest-spacer" style="flex:1"></div>
           <div class="view-toggle deck-algo-toggle" role="group" aria-label="Suggestion engine" title="Classic = role-tag heuristics. Hybrid = Classic staples + sandbox theme. Semantic = partner card-understanding engine.">
             <button type="button" id="deckAddAlgoHybridBtn" style="padding:2px 8px;font-size:.72rem" aria-pressed="false" onclick="setSuggestAlgoMode('hybrid')">Hybrid</button>

@@ -470,7 +470,10 @@
   /* Row 1 */
   #tab-decks .deck-suggest-header .panel-title          { order: 1; }
   #tab-decks .deck-suggest-header .deck-cut-help        { order: 2; }
-  #tab-decks .deck-suggest-header .tag                  { order: 3; }
+  /* The over-count sits after the title. It used to be a .tag and picked up that
+     order; as plain text it would default to order:0 and jump in front. */
+  #tab-decks .deck-suggest-header .tag,
+  #tab-decks .deck-suggest-header .deck-over-count      { order: 3; }
   #tab-decks .deck-suggest-header .decklist-collapse-btn { order: 4; margin-left: auto; }
   /* break → row 2 */
   #tab-decks .deck-suggest-header::after {
