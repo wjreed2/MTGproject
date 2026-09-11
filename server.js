@@ -10972,13 +10972,21 @@ async function start() {
   // Serve index.html with a per-deploy version stamped onto the bundle URLs so a new deploy always
   // busts the browser cache (no more stale dist/bundle.js after shipping). Cached in memory; the
   // process restarts on deploy, recomputing the version.
-  let _indexHtmlCache = null;
-  const _assetVersion = (() => {
-    const sha = (process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT || '').slice(0, 12);
-    if (sha) return sha;
+  //
+  // In local dev there is no deploy and no restart: the version was computed once
+  // at boot from dist/bundle.js's mtime, and index.html was memoized on the first
+  // request. Rebuilding the bundle therefore changed nothing the browser could
+  // see — the same /dist/bundle.js?v=<boot mtime> URL is served
+  // `immutable, max-age=1y`, so a long-running `node server.js` pinned the app at
+  // whatever was built when it started. Dev recomputes per request instead.
+  const _deployVersion = (process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT || '').slice(0, 12);
+  const _bundleMtime = () => {
     try { return String(Math.floor(fs.statSync(path.join(__dirname, 'dist', 'bundle.js')).mtimeMs)); }
     catch (_) { return String(Date.now()); }
-  })();
+  };
+  let _indexHtmlCache = null;
+  let _indexCacheVersion = null;   // the _assetVersion the memoized HTML was built with
+  const _assetVersion = _deployVersion || _bundleMtime();
   // Prefer the build's minified stylesheet copies (dist/main.css etc.) — but only
   // when the live source still matches the sha recorded at build time
   // (dist/css-manifest.json), so a CSS edit without a rebuild degrades to the
@@ -11002,15 +11010,21 @@ async function start() {
     return `/styles/${name}?v=${sha ? sha.slice(0, 12) : _assetVersion}`;
   };
   const serveIndex = (res) => {
-    if (!_indexHtmlCache) {
+    // Prod pins the version to the deploy sha, so this resolves once and the memo
+    // holds for the life of the process. Dev re-stats the bundle each request, so
+    // a rebuild yields a new version, which invalidates the memo and re-reads
+    // index.html — picking up markup edits as well as the new bundle URL.
+    const version = _deployVersion || _bundleMtime();
+    if (!_indexHtmlCache || _indexCacheVersion !== version) {
       try {
         _indexHtmlCache = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8')
-          .replace('/dist/bundle.js', `/dist/bundle.js?v=${_assetVersion}`)
-          .replace('/dist/scanner-card-yolo.js', `/dist/scanner-card-yolo.js?v=${_assetVersion}`)
+          .replace('/dist/bundle.js', `/dist/bundle.js?v=${version}`)
+          .replace('/dist/scanner-card-yolo.js', `/dist/scanner-card-yolo.js?v=${version}`)
           // Stylesheets carry load-bearing layout (grid classes, modal styles), so
           // each one is busted by its own content hash (see _styleHref).
           .replace('/styles/main.css', _styleHref('main.css'))
           .replace('/styles/mobile.css', _styleHref('mobile.css'));
+        _indexCacheVersion = version;
       } catch (_) {
         return res.sendFile(path.join(__dirname, 'index.html'));
       }
