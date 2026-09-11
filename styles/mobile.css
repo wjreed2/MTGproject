@@ -849,6 +849,21 @@
   }
   .game-player-card { padding: 0.65rem !important; }
 
+  /* Quick filters: the eleven type/flag chips lived on a nowrap row inside an
+     overflow-x container, so on a phone most of them were parked off-screen
+     behind a horizontal scroll. They collapse into one multi-select menu; the
+     rest of the row (mana value, rarity, starred, clear) still fits. */
+  #quickFilterChips { display: none !important; }
+  #quickFilterMenuBtn { display: inline-flex !important; }
+  /* !important: the row carries inline `flex-wrap:nowrap; overflow-x:auto`,
+     which no stylesheet rule can outrank. With the chips gone the rest fits on
+     two wrapped lines, so nothing needs to hide behind a sideways scroll. */
+  #tab-collection #quickFilterRow {
+    flex-wrap: wrap !important;
+    overflow-x: visible !important;
+    gap: 6px !important;
+  }
+
   /* Phone games page: swap the desktop sidebar+tracker (which overflows
      sideways) for a single-column layout — top buttons, history list, log.
      Live tracking happens in the tablet view, so the default tracker is gone. */

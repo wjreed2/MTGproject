@@ -699,6 +699,139 @@ function _syncQuickFilterUI() {
     (currentRarity ? 1 : 0) + (showStarredCardsOnly ? 1 : 0);
   const btn = document.getElementById('clearChipsBtn');
   if (btn) { btn.style.display = total > 0 ? '' : 'none'; btn.textContent = `✕ Clear (${total})`; }
+  _syncQuickFilterMenuUi();
+}
+
+// ── Phone quick filters: one multi-select menu ───────────────────────────────
+// The chip row is nowrap inside an overflow-x container, so on a phone most of
+// the eleven type/flag chips sat off-screen behind a scroll almost nobody finds.
+// Phones get a single trigger instead, opening a checklist of the same options
+// that stays open while you pick several.
+const QUICK_FILTER_GROUPS = [
+  { label: 'Type', kind: 'type', options: [
+    ['creature', 'Creature'], ['instant', 'Instant'], ['sorcery', 'Sorcery'],
+    ['artifact', 'Artifact'], ['enchantment', 'Enchantment'],
+    ['planeswalker', 'Planeswalker'], ['land', 'Land'],
+  ] },
+  { label: 'Other', kind: 'flag', options: [
+    ['legendary', 'Legendary'], ['foil', 'Foil'], ['nonfoil', 'Non-foil'], ['new', 'New'],
+  ] },
+];
+
+function _quickFilterSelectedCount() {
+  return quickFilters.types.size + quickFilters.flags.size;
+}
+
+/** Trigger label + the checkmarks inside an open menu. */
+function _syncQuickFilterMenuUi() {
+  const btn = document.getElementById('quickFilterMenuBtn');
+  if (btn) {
+    const n = _quickFilterSelectedCount();
+    btn.textContent = n > 0 ? `Type & more (${n})` : 'Type & more';
+    btn.classList.toggle('active', n > 0);
+  }
+  document.querySelectorAll('.qf-menu-item').forEach(item => {
+    const on = item.dataset.kind === 'type'
+      ? quickFilters.types.has(item.dataset.value)
+      : quickFilters.flags.has(item.dataset.value);
+    item.classList.toggle('is-on', on);
+    item.setAttribute('aria-checked', on ? 'true' : 'false');
+  });
+}
+
+function closeQuickFilterMenu() {
+  document.querySelectorAll('.qf-menu').forEach(m => m.remove());
+  document.getElementById('quickFilterMenuBtn')?.setAttribute('aria-expanded', 'false');
+}
+
+function toggleQuickFilterMenu(event) {
+  if (event) { event.stopPropagation(); event.preventDefault(); }
+  const btn = document.getElementById('quickFilterMenuBtn');
+  if (!btn) return;
+  if (document.querySelector('.qf-menu')) { closeQuickFilterMenu(); return; }
+
+  const menu = document.createElement('div');
+  menu.className = 'glass-menu qf-menu';
+  menu.setAttribute('role', 'group');
+  menu.innerHTML = QUICK_FILTER_GROUPS.map(g => `
+    <div class="qf-menu-label">${g.label}</div>
+    ${g.options.map(([value, label]) => `
+      <button type="button" class="qf-menu-item" role="checkbox" aria-checked="false"
+        data-kind="${g.kind}" data-value="${value}">
+        <span class="qf-menu-tick" aria-hidden="true">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg>
+        </span>
+        <span>${label}</span>
+      </button>`).join('')}
+  `).join('') + `
+    <button type="button" class="qf-menu-clear" onclick="clearQuickFilters()">Clear all</button>`;
+
+  // Tapping an option must not close the menu — picking several in one visit is
+  // the whole point of replacing the chips with this.
+  menu.addEventListener('click', e => {
+    e.stopPropagation();
+    const item = e.target.closest('.qf-menu-item');
+    if (!item) return;
+    const { kind, value } = item.dataset;
+    const chip = document.querySelector(`[data-q${kind}="${value}"]`);
+    if (kind === 'type') toggleQuickType(value, chip || item);
+    else toggleQuickFlag(value, chip || item);
+    _syncQuickFilterMenuUi();   // flag toggles rewrite sibling chips; re-sync ticks
+  });
+
+  // Hoisted to <body>: the filter row is overflow-x:auto, so a menu positioned
+  // inside it would grow that row's scroll area instead of overlaying the page.
+  document.body.appendChild(menu);
+  _positionQuickFilterMenu();
+  btn.setAttribute('aria-expanded', 'true');
+  _syncQuickFilterMenuUi();
+}
+
+/** Anchor the open menu under its trigger. Fixed, so it needs re-running. */
+function _positionQuickFilterMenu() {
+  const menu = document.querySelector('.qf-menu');
+  const btn = document.getElementById('quickFilterMenuBtn');
+  if (!menu || !btn) return;
+  const r = btn.getBoundingClientRect();
+  const margin = 10;
+  const width = Math.max(r.width, 190);
+  menu.style.position = 'fixed';
+  menu.style.zIndex = '10060';
+  menu.style.minWidth = width + 'px';
+  menu.style.left = Math.round(Math.max(margin, Math.min(r.left, window.innerWidth - width - margin))) + 'px';
+  const below = window.innerHeight - r.bottom - margin;
+  const above = r.top - margin;
+  const flip = below < 200 && above > below;
+  menu.style.maxHeight = Math.min(360, Math.max(160, flip ? above : below)) + 'px';
+  menu.style.overflowY = 'auto';
+  menu.style.overscrollBehavior = 'contain';
+  if (flip) {
+    menu.style.top = 'auto';
+    menu.style.bottom = Math.round(window.innerHeight - r.top + 6) + 'px';
+  } else {
+    menu.style.bottom = 'auto';
+    menu.style.top = Math.round(r.bottom + 6) + 'px';
+  }
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('click', () => closeQuickFilterMenu());
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeQuickFilterMenu(); });
+  // Re-anchor rather than close. Every pick re-renders the grid, which changes
+  // the page height and fires scroll — closing on that would shut the menu on
+  // the first selection, defeating the point of a multi-select. Only a trigger
+  // that has actually left the viewport closes it.
+  document.addEventListener('scroll', e => {
+    const menu = document.querySelector('.qf-menu');
+    if (!menu || menu.contains(e.target)) return;
+    const btn = document.getElementById('quickFilterMenuBtn');
+    const r = btn?.getBoundingClientRect();
+    if (!r || r.bottom < 0 || r.top > window.innerHeight) { closeQuickFilterMenu(); return; }
+    _positionQuickFilterMenu();
+  }, true);
+  window.addEventListener('resize', () => {
+    if (document.querySelector('.qf-menu')) _positionQuickFilterMenu();
+  });
 }
 
 // ── Chunked grid rendering (M1) ──────────────────────────────────────────────
