@@ -676,12 +676,27 @@ function clearQuickFilters() {
   document.querySelectorAll('.filter-chip').forEach(b => b.classList.remove('active'));
   const min = document.getElementById('cmcMinInput'); if (min) min.value = '';
   const max = document.getElementById('cmcMaxInput'); if (max) max.value = '';
+  // Rarity and Starred live on the same row and filter the same grid, but Clear
+  // used to leave both applied — so clearing "everything" still hid most of the
+  // collection, with the rarity dropdown still reading Rare and no way to get
+  // back except reselecting All Rarities by hand.
+  currentRarity = '';
+  const rarity = document.getElementById('rarityFilterSelect');
+  if (rarity) {
+    rarity.value = '';
+    // The native select is hidden behind a glass trigger; without this the
+    // button keeps the old label while the filter underneath is gone.
+    if (typeof _glassSelectSyncLabels === 'function') _glassSelectSyncLabels();
+  }
+  showStarredCardsOnly = false;
+  document.getElementById('starFilterBtn')?.classList.remove('active');
   _syncQuickFilterUI(); renderCollection();
 }
 
 function _syncQuickFilterUI() {
   const total = quickFilters.types.size + quickFilters.flags.size +
-    (quickFilters.cmcMin !== null ? 1 : 0) + (quickFilters.cmcMax !== null ? 1 : 0);
+    (quickFilters.cmcMin !== null ? 1 : 0) + (quickFilters.cmcMax !== null ? 1 : 0) +
+    (currentRarity ? 1 : 0) + (showStarredCardsOnly ? 1 : 0);
   const btn = document.getElementById('clearChipsBtn');
   if (btn) { btn.style.display = total > 0 ? '' : 'none'; btn.textContent = `✕ Clear (${total})`; }
 }
@@ -789,7 +804,7 @@ function renderCollection(opts) {
       <div class="card-item" onclick="openCardDetail('${c.uid}')">
         <div class="card-img-wrap${c.foil ? ' foil' : ''}">
           ${tileImg ? `<img ${cardThumbAttrs(c, currentView)} alt="${escapeHtml(c.name)}" onload="this.classList.add('loaded');imgFadeSeenMark(this)" onerror="this.classList.add('loaded')">` : placeholder}
-          ${c.foil ? `<div class="card-foil-overlay"></div><div class="card-foil-badge">✦ FOIL</div>` : ''}
+          ${_htmlFoilOverlay(c)}
           ${!isSharedView && isRecentlyAdded(c) ? `<div class="card-new-badge" title="New card"></div>` : ''}
           ${!isSharedView ? `<button type="button" class="collection-card-star${c.starred ? ' is-starred' : ''}" data-card-uid="${c.uid}" onclick="toggleCardStar('${c.uid}',event)" aria-pressed="${c.starred ? 'true' : 'false'}" aria-label="${c.starred ? 'Unstar card' : 'Star card'}">${c.starred ? '★' : '☆'}</button>` : ''}
         </div>
@@ -1075,7 +1090,7 @@ function sortCards(v) {
   syncCollectionChangeSortControls();
   renderCollection();
 }
-function changeRarity(v) { currentRarity = v; renderCollection(); }
+function changeRarity(v) { currentRarity = v; _syncQuickFilterUI(); renderCollection(); }
 
 function toggleColor(c, el) {
   if (colorFilters.has(c)) { colorFilters.delete(c); el.classList.remove('active'); }
@@ -1201,7 +1216,10 @@ function _htmlCardDetailInlinePrice(card) {
     const delta = typeof getCardVendorDelta === 'function' ? getCardVendorDelta(card, primary, rec) : null;
     if (delta && typeof priceDeltaClass === 'function') cls = priceDeltaClass(delta) || cls;
   } catch (_) { /* no comparison point — stays neutral */ }
-  return `<span id="cardDetailInlinePrice" class="card-detail-inline-price ${cls}">($${Number(now).toFixed(2)})</span>`;
+  // Foil prices run far above the non-foil of the same printing (a surge foil can be
+  // 25x), so the number is misleading without the ✦ every other price surface carries.
+  const mark = card.foil ? '✦ ' : '';
+  return `<span id="cardDetailInlinePrice" class="card-detail-inline-price ${cls}">(${mark}$${Number(now).toFixed(2)})</span>`;
 }
 
 function _htmlCardDetailPriceRows(card) {
@@ -1592,7 +1610,7 @@ function _syncCardDetailLeftInPlace(card, ctx) {
     if (shell) shell.classList.toggle('is-foil', !!card.foil);
     wrap.querySelectorAll('.card-foil-overlay,.card-foil-badge').forEach(n => n.remove());
     if (card.foil && shell) {
-      shell.insertAdjacentHTML('beforeend', '<div class="card-foil-overlay"></div><div class="card-foil-badge">✦ FOIL</div>');
+      shell.insertAdjacentHTML('beforeend', _htmlFoilOverlay(card));
     }
   } else {
     wrap.innerHTML = _htmlCardDetailArtSlotInner(card);
@@ -2281,12 +2299,25 @@ function _syncCardDetailInspectorInPlace(card, ctx) {
   return true;
 }
 
+/**
+ * Foil overlay + badge for a card image. Surge foil keeps the `card-foil-overlay`
+ * class so the inspector's teardown selector still matches, and adds the rippling
+ * variant on top. Non-foil cards render nothing.
+ */
+function _htmlFoilOverlay(card) {
+  if (!card?.foil) return '';
+  const surge = typeof isSurgeFoilCard === 'function' && isSurgeFoilCard(card);
+  return surge
+    ? '<div class="card-foil-overlay card-surge-overlay"></div><div class="card-foil-badge is-surge">✦ SURGE</div>'
+    : '<div class="card-foil-overlay"></div><div class="card-foil-badge">✦ FOIL</div>';
+}
+
 function _htmlCardDetailArtSlotInner(card) {
   const imgAlt = String(card.name || '').replace(/"/g, '&quot;');
   if (card.imageLarge || card.image) {
     return `<div class="card-detail-art-shell${card.foil ? ' is-foil' : ''}">
               <img id="cardDetailMainImg" class="card-detail-img" src="${card.imageLarge || card.image}" alt="${imgAlt}">
-              ${card.foil ? `<div class="card-foil-overlay"></div><div class="card-foil-badge">✦ FOIL</div>` : ''}
+              ${_htmlFoilOverlay(card)}
               <button id="cardFaceFlipBtn" class="btn btn-outline btn-sm card-detail-flip-btn" onclick="flipCardDetailFace()" style="display:none">↻</button>
             </div>`;
   }
@@ -3962,6 +3993,7 @@ function removeFromCollection(uid, opts = {}) {
 function toggleStarFilter(btn) {
   showStarredCardsOnly = !showStarredCardsOnly;
   btn.classList.toggle('active', showStarredCardsOnly);
+  _syncQuickFilterUI();
   renderCollection();
 }
 

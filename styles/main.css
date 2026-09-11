@@ -2529,8 +2529,12 @@ body.glass-mode #voiceModal .search-box {
   padding: 0 9px !important;
   font-size: 0.75rem !important;
 }
-#tab-collection #quickFilterRow > select {
-  padding: 0 8px !important;
+/* Glassification nests the select inside .glass-dd-wrap, so `> select` stopped
+   matching and the visible control is the trigger button — size that instead,
+   to the same 0.75rem as the chips it sits between. */
+#tab-collection #quickFilterRow > select,
+#tab-collection #quickFilterRow .glass-dd-btn {
+  padding: 0 9px !important;
   font-size: 0.75rem !important;
 }
 #tab-collection #quickFilterRow #cmcMinInput,
@@ -11865,6 +11869,16 @@ body.glass-mode .view-toggle button:hover:not(.active) {
 #tab-collection #cmcMinInput,
 #tab-collection #cmcMaxInput,
 #tab-collection #quickFilterRow select { border-radius: 8px !important; }
+
+/* The height rules on this row target the <select>, but a glassified select is
+   display:none behind a .glass-dd-btn — so the rarity dropdown sat at 28px in a
+   row of 34px chips and buttons. Size the trigger, which is the visible control. */
+#tab-collection .glass-dd-btn {
+  height: 34px !important;
+  box-sizing: border-box;
+  padding: 0 12px !important;
+  font-size: 0.82rem !important;
+}
 
 body.glass-mode #tab-collection .btn-outline:hover,
 body.glass-mode #tab-collection .btn-ghost:hover,

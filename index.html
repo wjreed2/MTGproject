@@ -489,7 +489,7 @@
         oninput="setQuickCMC()"
         style="width:46px;padding:3px 5px;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);color:var(--text);font-size:0.78rem;font-family:'JetBrains Mono',monospace">
       <span style="width:1px;height:14px;background:var(--border2);flex-shrink:0"></span>
-      <select onchange="changeRarity(this.value)" style="font-size:0.75rem;padding:3px 6px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);border-radius:var(--radius)">
+      <select id="rarityFilterSelect" onchange="changeRarity(this.value)" title="Rarity">
         <option value="">All Rarities</option>
         <option value="common">Common</option>
         <option value="uncommon">Uncommon</option>
