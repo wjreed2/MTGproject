@@ -179,7 +179,11 @@ function findRow(model, name) {
   const row = findRow(m, 'Vren, the Relentless');
   // Win Condition is a Payoffs subsection now, not a Foundation function.
   assert.ok(row.payoffSubs.includes('win_condition'), `vren wincon payoff ${row.payoffSubs}`);
-  assert.ok(row.payoffSubs.includes('wincon_payoffs') || row.payoffSubs.includes('threats'), `vren payoff ${row.payoffSubs}`);
+  // Threats / Bombs means off-plan muscle — a card already recognized as the
+  // win condition does not echo there (and wincon_payoffs, which duplicated
+  // Win Condition's predicate outright, no longer exists).
+  assert.deepStrictEqual(row.payoffSubs, ['win_condition'], `vren payoff piles ${row.payoffSubs}`);
+  assert.ok(!m.payoffSubs.some(s => s.id === 'wincon_payoffs'), 'wincon_payoffs sub retired');
 }
 
 // Declared vs inferred strategy subsections
@@ -571,6 +575,104 @@ function findRow(model, name) {
   const rampAt = stacked.indexOf('data-arch-sub="ramp"');
   const rampHtml = stacked.slice(rampAt, stacked.indexOf('</details>', rampAt));
   assert.ok((rampHtml.match(/arch-sub-stack-col/g) || []).length >= 2, 'ramp splits into two piles');
+}
+
+// Semantics goals: every membership justified on its own — near-duplicate goal
+// piles dropped, payoff piles disjoint by meaning, sacrifice pieces covered.
+{
+  const deck = {
+    cards: [
+      card('Teysa Karlov', { isCommander: true, roleTags: ['Commander', 'Drain'], cmc: 4 }),
+      card('Blood Artist', { roleTags: ['Drain', 'Lifegain'] }),
+      card('Viscera Seer', { roleTags: ['Sac Outlet'], cmc: 1 }),
+      card('Bitterblossom', { type: 'Enchantment', roleTags: ['Token Maker'], cmc: 2 }),
+      card('Intangible Virtue', { type: 'Enchantment', roleTags: ['Anthem'], cmc: 2 }),
+    ],
+    plan: vrenPlan({ winConditionId: 'wincon.life_drain', keyCards: [{ name: 'Teysa Karlov' }] }),
+  };
+  const goals = [
+    { goal: 'aristocrats', label: 'Aristocrats', confidence: 0.82 },
+    { goal: 'tokens', label: 'Tokens', confidence: 0.61 },
+    { goal: 'lifegain', label: 'Lifegain', confidence: 0.44 },
+  ];
+  const m = classifyDeckArchitecture(deck, deck.plan, { cards: deck.cards, goals });
+  assert.deepStrictEqual(m.strategySubs.map(s => s.id), ['goal:aristocrats', 'goal:tokens'],
+    `lifegain only restates aristocrats, so its pile is dropped: ${m.strategySubs.map(s => s.id)}`);
+  const maker = findRow(m, 'Bitterblossom');
+  assert.deepStrictEqual(maker.strategySubs, ['goal:aristocrats', 'goal:tokens'],
+    'a token maker genuinely serves both goals, so it keeps both memberships');
+  const artist = findRow(m, 'Blood Artist');
+  assert.deepStrictEqual(artist.payoffSubs, ['win_condition'],
+    `draining IS this deck's win route — no echo in token/value/threat piles: ${artist.payoffSubs}`);
+  const seer = findRow(m, 'Viscera Seer');
+  assert.deepStrictEqual(seer.strategySubs, ['goal:aristocrats'], 'sac outlet belongs to aristocrats');
+  assert.strictEqual(m.unassigned.length, 0, `no scatter to Unassigned: ${m.unassigned.map(r => r.name)}`);
+  const anthem = findRow(m, 'Intangible Virtue');
+  assert.deepStrictEqual(anthem.strategySubs, ['goal:tokens'], 'anthem is the tokens goal, not aristocrats');
+  assert.deepStrictEqual(anthem.payoffSubs, ['token_swarm'], 'anthem pays off going wide, once');
+  const teysa = findRow(m, 'Teysa Karlov');
+  assert.ok(teysa.payoffSubs.includes('win_condition'), `teysa payoff ${teysa.payoffSubs}`);
+  assert.ok(!teysa.payoffSubs.includes('threats'), 'wincon commander is not also off-plan muscle');
+}
+
+// Win Condition holds closers, not supporters: a saboteur draw engine mentions
+// "combat damage" in its oracle text and a draw spell matches wincon.value's
+// supporter tags, but neither closes the game — they are Card Advantage.
+{
+  const deck = {
+    cards: [
+      card('Vren, the Relentless', {
+        isCommander: true,
+        type: 'Legendary Creature — Rat Rogue',
+        roleTags: ['Token Maker', 'Commander'],
+        ir: { wincon: { kind: 'combat' }, roles: ['wincon', 'token_maker'] },
+        cmc: 4,
+      }),
+      card('Reconnaissance Mission', {
+        type: 'Enchantment',
+        roleTags: ['Card Draw'],
+        oracleText: 'Whenever a creature you control deals combat damage to a player, draw a card.',
+        cmc: 3,
+      }),
+      card('Skullclamp', { type: 'Artifact', roleTags: ['Card Draw'], cmc: 1 }),
+      card('Shared Animosity', { type: 'Enchantment', roleTags: ['Anthem'], cmc: 3 }),
+    ],
+    plan: vrenPlan({ winConditionId: 'wincon.combat' }),
+  };
+  const m = classifyDeckArchitecture(deck);
+  const mission = findRow(m, 'Reconnaissance Mission');
+  assert.deepStrictEqual(mission.payoffSubs, [], `combat-draw engine is not a closer: ${mission.payoffSubs}`);
+  assert.ok(mission.foundationFns.includes('card_advantage'), 'combat-draw engine is Card Advantage');
+  const clamp = findRow(m, 'Skullclamp');
+  assert.deepStrictEqual(clamp.payoffSubs, [], `draw is not a closer: ${clamp.payoffSubs}`);
+  const anthem = findRow(m, 'Shared Animosity');
+  assert.ok(anthem.payoffSubs.includes('win_condition'), `anthem closes a combat deck: ${anthem.payoffSubs}`);
+
+  const valueDeck = {
+    cards: [card('Skullclamp', { type: 'Artifact', roleTags: ['Card Draw'], cmc: 1 })],
+    plan: vrenPlan({ winConditionId: 'wincon.value', keyCards: [] }),
+  };
+  const mv = classifyDeckArchitecture(valueDeck);
+  const clampV = findRow(mv, 'Skullclamp');
+  assert.deepStrictEqual(clampV.payoffSubs, [], `wincon.value must not claim draw spells: ${clampV.payoffSubs}`);
+}
+
+// A token maker is engine, not payoff — the payoff piles hold what makes the
+// swarm lethal, and a board wipe is Foundation, not a token payoff.
+{
+  const deck = {
+    cards: [
+      card('Bitterblossom', { type: 'Enchantment', roleTags: ['Token Maker'], cmc: 2 }),
+      card('Damnation', { type: 'Sorcery', roleTags: ['Board Wipe'], cmc: 4 }),
+    ],
+    plan: vrenPlan({ winConditionId: 'wincon.combat' }),
+  };
+  const m = classifyDeckArchitecture(deck, deck.plan);
+  const maker = findRow(m, 'Bitterblossom');
+  assert.ok(!maker.payoffSubs.includes('token_swarm'), `maker is not a payoff: ${maker.payoffSubs}`);
+  const wipe = findRow(m, 'Damnation');
+  assert.deepStrictEqual(wipe.payoffSubs, [], `wipe is not a payoff: ${wipe.payoffSubs}`);
+  assert.ok(wipe.foundationFns.includes('board_wipes'), 'wipe lives in Foundation');
 }
 
 console.log('test-deck-architecture: ok');

@@ -266,6 +266,23 @@
     return key.startsWith('tribal:') || COMBAT_GOALS.includes(key);
   }
 
+  /**
+   * winconMatch() in deck-plan.js scores whether a card SUPPORTS the plan's win
+   * route — its tag lists carry supporters (Card Draw under wincon.value, Token
+   * Maker/Pump/Evasion under wincon.combat) and its oracle rules substring-match
+   * phrases like "combat damage", which every saboteur draw trigger contains.
+   * The Win Condition pile asks a narrower question — does this card CLOSE the
+   * game — so only closer-grade tags count here. Routes absent from this map
+   * (value, combo, commander damage) have no tag that means "closes the game";
+   * their closers surface via ir.wincon, oracle win text, or the commander rule.
+   */
+  const WINCON_CLOSER_TAGS = Object.freeze({
+    'wincon.combat': Object.freeze(['Anthem', 'Extra Combat']),
+    'wincon.mill': Object.freeze(['Mill']),
+    'wincon.life_drain': Object.freeze(['Drain']),
+    'wincon.lock': Object.freeze(['Stax']),
+  });
+
   function _cardHasWinconSignal(card, plan, deck, goals) {
     if (card && card.isCommander && _goalImpliesCommanderWincon(goals)) return true;
     const ir = _ir(card);
@@ -275,13 +292,18 @@
     if (/\byou win the game\b/.test(text) || /\ban opponent loses the game\b/.test(text)) return true;
     const winId = plan && plan.winConditionId;
     if (card && card.isCommander && (winId === 'wincon.commander_damage' || winId === 'wincon.combat')) return true;
-    const api = _plan();
-    if (winId && typeof api.winconMatch === 'function' && api.winconMatch(card, winId, deck)) return true;
+    const closers = (winId && WINCON_CLOSER_TAGS[winId]) || [];
+    if (closers.length) {
+      const tags = new Set(_roles(card, deck));
+      if (closers.some(t => tags.has(t))) return true;
+    }
+    // A card the user named as key to the plan gets the benefit of the doubt:
+    // supporter-grade winconMatch evidence is enough there.
     const keys = (plan && plan.keyCards) || [];
     const name = String(card && card.name || '').trim().toLowerCase();
     if (name && keys.some(k => String(k && (k.name || k) || '').trim().toLowerCase() === name)) {
+      const api = _plan();
       if (typeof api.winconMatch === 'function' && api.winconMatch(card, winId, deck)) return true;
-      if (ir && ir.wincon) return true;
     }
     return false;
   }
@@ -326,7 +348,7 @@
    * card placement is resolved client-side from role tags the deck already has.
    */
   const GOAL_ROLE_TAGS = Object.freeze({
-    aristocrats: ['Token Maker', 'Recursion', 'Reanimate', 'Lifegain', 'Drain'],
+    aristocrats: ['Sac Outlet', 'Death Trigger', 'Sac Synergy', 'Token Maker', 'Recursion', 'Reanimate', 'Lifegain', 'Drain'],
     tokens: ['Token Maker', 'Anthem', 'Copy'],
     spellslinger: ['Counterspell', 'Burn', 'Copy', 'Card Draw'],
     reanimator: ['Reanimate', 'Recursion', 'Self-Mill', 'Mill', 'Discard'],
@@ -348,7 +370,16 @@
     combo: ['Tutor', 'Copy', 'Recursion'],
   });
 
-  /** Strategy subsections named by the deck's inferred semantic goal. */
+  // A lower-confidence goal whose tag list mostly restates a higher one's is
+  // the same pile twice under a second name (Lifegain inside Aristocrats,
+  // Graveyard beside Reanimator) — drop it at this overlap or above.
+  const GOAL_SUB_OVERLAP_DROP = 0.75;
+
+  /**
+   * Strategy subsections named by the deck's inferred semantic goal.
+   * Goals are confidence-ordered; one that can only duplicate a higher-ranked
+   * pile is dropped so every rendered pile says something distinct.
+   */
   function _buildGoalSubs(goals) {
     const out = [];
     const seen = new Set();
@@ -359,12 +390,21 @@
       const base = key.startsWith('tribal:') ? 'tribal' : key;
       const id = 'goal:' + key;
       if (seen.has(id)) continue;
+      const tags = key.startsWith('tribal:') ? [] : (GOAL_ROLE_TAGS[base] || []);
+      if (tags.length && out.some(prev => {
+        const prevTags = prev.projectTags || [];
+        if (!prevTags.length) return false;
+        const shared = tags.filter(t => prevTags.includes(t)).length;
+        return shared / tags.length >= GOAL_SUB_OVERLAP_DROP;
+      })) {
+        continue;
+      }
       seen.add(id);
       out.push({
         id,
         label: g.label || key,
         source: 'goal',
-        projectTags: key.startsWith('tribal:') ? [] : (GOAL_ROLE_TAGS[base] || []),
+        projectTags: tags,
         goalKey: key,
         themeId: null,
         subtagId: null,
@@ -433,9 +473,10 @@
     const themeIds = new Set(((themeAnalysis && themeAnalysis.themes) || []).map(t => t.id));
     const hasTokens = declaredIds.has('strategy.tokens') || declaredIds.has('strategy.tribal')
       || [...themeIds].some(id => id === 'strategy.tokens' || String(id).startsWith('tribal:'));
+    // Each pile answers a distinct question ("Win Condition Payoffs" was a
+    // literal duplicate of Win Condition — same predicate — and is gone).
     const out = [];
     out.push({ id: 'win_condition', label: 'Win Condition', source: winId ? 'declared' : 'inferred' });
-    out.push({ id: 'wincon_payoffs', label: 'Win Condition Payoffs', source: winId ? 'declared' : 'inferred' });
     if (winId === 'wincon.combo') out.push({ id: 'combo', label: 'Combo Pieces', source: 'declared' });
     if (hasTokens) out.push({ id: 'token_swarm', label: 'Token / Swarm Payoffs', source: declaredIds.has('strategy.tokens') || declaredIds.has('strategy.tribal') ? 'declared' : 'inferred' });
     if (winId === 'wincon.value' || rows.some(r => /payoff/i.test(r.label || '') || /payoff/.test(r.id || ''))) {
@@ -452,6 +493,9 @@
     const th = _themes();
     for (const sub of strategySubs) {
       if (sub.goalKey) {
+        // A card may serve several goals (a token maker feeds Aristocrats AND
+        // Tokens) — membership in each is judged on its own; near-duplicate
+        // goal piles were already dropped in _buildGoalSubs.
         if (sub.goalKey.startsWith('tribal:')) {
           const type = sub.goalKey.slice('tribal:'.length).toLowerCase();
           if (type && _typeLine(card).includes(type)) {
@@ -479,51 +523,53 @@
     return { hit, reasons };
   }
 
-  function _cardPayoffSubs(card, deck, plan, payoffSubs, tags, strategyHit, ctxGoals) {
+  function _cardPayoffSubs(card, deck, plan, payoffSubs, tags, ctxGoals) {
     const hit = [];
     const reasons = [];
     const tagSet = new Set(tags);
-    const th = _themes();
     const api = _plan();
     const winId = plan && plan.winConditionId;
     const parentTarget = (api.PLAN_PARENT_DEFAULT_TARGET) || 30;
     const rows = typeof api.activePlanSubTags === 'function' ? api.activePlanSubTags(plan, parentTarget) : [];
+    const payoffRows = rows.filter(r => _isPayoffSubtag(r.id, winId));
+    // Token-flavored payoff subtags feed Token / Swarm; the rest feed Value
+    // Finishers — one plan row never justifies two piles. 'Token Maker' is
+    // excluded even where a plan payoff row lists it (tokens.payoffs does, for
+    // plan-progress counting): a maker is the engine's supply and already
+    // defines a Strategy pile — payoff-ness needs a conversion tag.
+    const tokenRows = payoffRows.filter(r => /token|tribal|type/i.test(r.id + r.label));
+    const valueRows = payoffRows.filter(r => !tokenRows.includes(r));
+    const rowMatch = (list) => list.some(r => (r.projectTags || []).some(t => t !== 'Token Maker' && tagSet.has(t)));
+
+    // One signal, one home: a card that closes the game the deck's stated way
+    // is Win Condition, and the other piles are defined as NOT that — Combo
+    // Pieces is the more specific statement of it in a combo deck, Token /
+    // Swarm pays off going wide short of winning outright, Value Finishers
+    // grind the plan's payoffs out, Threats / Bombs is off-plan muscle.
+    const isWincon = _cardHasWinconSignal(card, plan, deck, ctxGoals);
+    let comboReason = '';
+    if (payoffSubs.some(s => s.id === 'combo') && (isWincon || tagSet.has('Tutor'))) {
+      if (_ir(card) && _ir(card).wincon && _ir(card).wincon.kind === 'combo_piece') comboReason = 'ir:combo';
+      else if (/\binfinite\b/.test(_oracle(card))) comboReason = 'oracle:combo';
+    }
 
     for (const sub of payoffSubs) {
       // Win Condition moved out of Foundation: "does this deck close games" is a
       // payoff question, and its finishers already live here.
-      if (sub.id === 'win_condition' && _cardHasWinconSignal(card, plan, deck, ctxGoals)) {
+      if (sub.id === 'win_condition' && isWincon && !comboReason) {
         hit.push(sub.id);
         reasons.push('wincon');
-      } else if (sub.id === 'wincon_payoffs' && _cardHasWinconSignal(card, plan, deck)) {
+      } else if (sub.id === 'combo' && comboReason) {
         hit.push(sub.id);
-        reasons.push('payoff:wincon');
-      } else if (sub.id === 'combo' && (_cardHasWinconSignal(card, plan, deck) || tagSet.has('Tutor'))) {
-        if (_ir(card) && _ir(card).wincon && _ir(card).wincon.kind === 'combo_piece') {
-          hit.push(sub.id);
-          reasons.push('ir:combo');
-        } else if (/\binfinite\b/.test(_oracle(card))) {
-          hit.push(sub.id);
-          reasons.push('oracle:combo');
-        }
-      } else if (sub.id === 'token_swarm') {
-        const payoffRows = rows.filter(r => _isPayoffSubtag(r.id, winId) && /token|tribal|type/i.test(r.id + r.label));
-        const tagHit = payoffRows.some(r => (r.projectTags || []).some(t => tagSet.has(t)));
-        const themeHit = typeof th.cardSupportsTheme === 'function'
-          && (th.cardSupportsTheme(card, 'strategy.tokens') || tagSet.has('Anthem') || tagSet.has('Drain'));
-        if ((tagHit || themeHit) && (tagSet.has('Anthem') || tagSet.has('Drain') || tagSet.has('Board Wipe') || _cardHasWinconSignal(card, plan, deck) || tagSet.has('Token Maker') && strategyHit.length)) {
-          if (tagSet.has('Anthem') || tagSet.has('Drain') || tagSet.has('Board Wipe') || _cardHasWinconSignal(card, plan, deck)) {
-            hit.push(sub.id);
-            reasons.push('payoff:tokens');
-          }
-        }
-      } else if (sub.id === 'value_finishers') {
-        const payoffRows = rows.filter(r => _isPayoffSubtag(r.id, winId));
-        if (payoffRows.some(r => (r.projectTags || []).some(t => tagSet.has(t))) && !_isLand(card)) {
-          hit.push(sub.id);
-          reasons.push('planSubtag:payoff');
-        }
-      } else if (sub.id === 'threats' && _isThreatBomb(card, plan, deck)) {
+        reasons.push(comboReason);
+      } else if (sub.id === 'token_swarm' && !isWincon && !_isLand(card)
+          && (tagSet.has('Anthem') || tagSet.has('Drain') || rowMatch(tokenRows))) {
+        hit.push(sub.id);
+        reasons.push('payoff:tokens');
+      } else if (sub.id === 'value_finishers' && !isWincon && !_isLand(card) && rowMatch(valueRows)) {
+        hit.push(sub.id);
+        reasons.push('planSubtag:payoff');
+      } else if (sub.id === 'threats' && !isWincon && !comboReason && _isThreatBomb(card, plan, deck)) {
         hit.push(sub.id);
         reasons.push('threat');
       }
@@ -572,7 +618,7 @@
     s.reasons.forEach(r => reasons.push(r));
     if (s.hit.length) categories.add('strategy');
 
-    const p = _cardPayoffSubs(card, deck, plan, payoffSubs, tags, s.hit, ctx.goals);
+    const p = _cardPayoffSubs(card, deck, plan, payoffSubs, tags, ctx.goals);
     p.reasons.forEach(r => reasons.push(r));
     if (p.hit.length) categories.add('payoffs');
 
