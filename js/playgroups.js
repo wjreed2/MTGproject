@@ -44,6 +44,17 @@ async function _pgReload() {
   }
 }
 
+// Cards are a fixed height so the grid stays even regardless of roster size;
+// anything past PG_PEEK members lives behind the card's own expand toggle.
+const PG_PEEK = 3;
+const _pgExpanded = new Set();
+
+function togglePlaygroupExpand(groupId) {
+  const id = Number(groupId);
+  if (_pgExpanded.has(id)) _pgExpanded.delete(id); else _pgExpanded.add(id);
+  renderPlaygroupsPanel();
+}
+
 // Same card grid as the Games tab next door, so the two panes read as one page.
 function renderPlaygroupsPanel() {
   const host = document.getElementById('playgroupsPanel');
@@ -57,8 +68,11 @@ function renderPlaygroupsPanel() {
   const myId = (typeof currentUser !== 'undefined' && currentUser?.id != null) ? Number(currentUser.id) : null;
   const x = typeof gameIcon === 'function' ? gameIcon('x', 11) : '&times;';
   host.innerHTML = `<div class="pg-grid">${_playgroups.map(g => {
+    const open = _pgExpanded.has(Number(g.id));
     const selfInvited = g.members.some(m => myId != null && m.id === myId && m.status === 'invited');
-    const memberRows = g.members.map(m => {
+    const shown = open ? g.members : g.members.slice(0, PG_PEEK);
+    const hidden = g.members.length - shown.length;
+    const memberRows = shown.map(m => {
       const isSelf = myId != null && m.id === myId;
       const canRemove = g.isOwner ? !isSelf : isSelf; // owner removes others; member removes self (or declines)
       const removeTitle = g.isOwner ? 'Remove from playgroup' : (m.status === 'invited' ? 'Decline invite' : 'Leave playgroup');
@@ -70,6 +84,11 @@ function renderPlaygroupsPanel() {
         ${canRemove ? `<button class="btn btn-ghost btn-sm btn-icon pg-x-btn" title="${removeTitle}" aria-label="${removeTitle}" onclick="removePlaygroupMember(${g.id},${m.id})">${x}</button>` : ''}
       </div>`;
     }).join('');
+    // The slot is always rendered — an inert placeholder when there is nothing
+    // to expand — so a card with a toggle is exactly as tall as one without.
+    const expandRow = (hidden > 0 || open)
+      ? `<button class="btn btn-outline btn-sm pg-expand" aria-expanded="${open}" onclick="togglePlaygroupExpand(${g.id})">${open ? 'Show fewer' : `Show all ${g.members.length}`}</button>`
+      : '<button class="btn btn-outline btn-sm pg-expand is-placeholder" tabindex="-1" aria-hidden="true">&nbsp;</button>';
     const acceptRow = selfInvited
       ? `<button class="btn btn-outline btn-sm pg-accept" onclick="acceptPlaygroupInvite(${g.id})">Accept invite</button>`
       : '';
@@ -77,11 +96,12 @@ function renderPlaygroupsPanel() {
     const addRow = g.isOwner && addable.length ? `
       <div class="pg-add-row">
         <select id="pgAddSel_${g.id}" class="pg-add-select" title="Add a member">
+          <option value="" selected>Choose player…</option>
           ${addable.map(u => `<option value="${u.id}">${escapeHtml(u.name || '')}</option>`).join('')}
         </select>
         <button class="btn btn-outline btn-sm" onclick="addPlaygroupMember(${g.id})">Add</button>
       </div>` : '';
-    return `<div class="pg-card">
+    return `<div class="pg-card${open ? ' is-open' : ''}">
       <div class="pg-card-head">
         <span class="pg-group-name">${escapeHtml(g.name || '')}</span>
         <span class="pg-count">${g.members.length} member${g.members.length === 1 ? '' : 's'}</span>
@@ -89,6 +109,8 @@ function renderPlaygroupsPanel() {
         ${g.isOwner ? `<button class="btn btn-ghost btn-sm btn-icon pg-x-btn" title="Delete playgroup" aria-label="Delete playgroup" onclick="deletePlaygroup(${g.id})">${x}</button>` : ''}
       </div>
       <div class="pg-members">${memberRows}</div>
+      ${expandRow}
+      <div style="flex:1"></div>
       ${acceptRow}
       ${addRow}
     </div>`;
@@ -141,7 +163,12 @@ async function deletePlaygroup(id) {
 async function addPlaygroupMember(groupId) {
   const sel = document.getElementById(`pgAddSel_${groupId}`);
   const userId = sel ? parseInt(sel.value, 10) : NaN;
-  if (!Number.isFinite(userId)) return;
+  // The picker opens on a "Choose player…" placeholder rather than silently
+  // defaulting to whoever happened to be first, so say why nothing happened.
+  if (!Number.isFinite(userId)) {
+    if (typeof showNotif === 'function') showNotif('Choose a player to add first', true);
+    return;
+  }
   try {
     await apiPostJson(`/playgroups/${groupId}/members`, { userId });
     await _pgReload();

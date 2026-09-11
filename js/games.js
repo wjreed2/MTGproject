@@ -198,6 +198,16 @@ function setGamesTab(key) {
   if (_gamesTab === 'leaderboard' && typeof renderGamesQuickStats === 'function') renderGamesQuickStats();
 }
 
+/**
+ * A player's name, in their seat colour. The colour IS the identification, so
+ * there is no swatch dot beside it — every name tied to a game reads this way,
+ * on the cards and in the expanded view.
+ */
+function _playerName(p) {
+  if (!p) return '<span class="gp-name">—</span>';
+  return `<span class="gp-name" style="color:${p.color}">${escapeHtml(p.name)}</span>`;
+}
+
 /** One game as a card in the grid. */
 function _gameCardHtml(g) {
   const winner = g.players.find(p => p.id === g.winner);
@@ -205,16 +215,12 @@ function _gameCardHtml(g) {
   const activePlayer = g.players[g.activePlayerIdx ?? 0];
   const dateLabel = new Date(g.date).toLocaleDateString();
   const durationLabel = g.endedAt ? formatDuration(g.endedAt - g.date) : null;
-  const seats = g.players.map(p =>
-    `<span class="game-card-seat"><span class="game-card-dot" style="background:${p.color}"></span>${escapeHtml(p.name)}</span>`
-  ).join('');
+  const seats = g.players.map(p => `<span class="game-card-seat">${_playerName(p)}</span>`).join('');
   return `
     <div class="game-card${activeGameId === g.id ? ' is-selected' : ''}${isActive ? ' is-live' : ''}" onclick="selectGame('${g.id}')">
       <div class="game-card-head">
         <span class="game-card-format">${escapeHtml(g.format)}</span>
         ${isActive ? '<span class="game-card-live"><span class="game-active-dot"></span>Live</span>' : ''}
-        <div style="flex:1"></div>
-        <button class="btn btn-ghost btn-sm btn-icon game-card-del" onclick="event.stopPropagation();deleteGame('${g.id}')" title="Delete game" aria-label="Delete game">${gameIcon('x', 11)}</button>
       </div>
       <div class="game-card-seats">${seats}</div>
       <div class="game-card-meta">
@@ -223,8 +229,8 @@ function _gameCardHtml(g) {
         <span>${durationLabel || dateLabel}</span>
       </div>
       <div class="game-card-status">${isActive
-        ? `In progress${activePlayer ? ` · ${escapeHtml(activePlayer.name)}` : ''}`
-        : `Winner: ${winner ? escapeHtml(winner.name) : '—'}`}</div>
+        ? `In progress${activePlayer ? ` · ${_playerName(activePlayer)}` : ''}`
+        : `Winner: ${winner ? _playerName(winner) : '—'}`}</div>
       ${isActive ? `<button class="btn btn-outline btn-sm game-card-open" onclick="event.stopPropagation();openTabletView('${g.id}')">Open Tablet View</button>` : ''}
     </div>`;
 }
@@ -766,8 +772,7 @@ function renderActiveGame(game) {
       : '';
     return `
       <div class="gsum-row${p.eliminated ? ' is-out' : ''}${p.id === (activePlayer && activePlayer.id) ? ' is-active' : ''}">
-        <span class="gsum-dot" style="background:${p.color}"></span>
-        <span class="gsum-name">${escapeHtml(p.name)}</span>
+        <span class="gsum-name">${_playerName(p)}</span>
         <span class="gsum-cmds">${cmd}</span>
         <span class="gsum-life">${p.life}</span>
       </div>`;
@@ -777,11 +782,12 @@ function renderActiveGame(game) {
     <div class="panel" style="margin-bottom:1.25rem">
       <div class="panel-header" style="flex-wrap:wrap;gap:8px">
         <span class="panel-title">${escapeHtml(game.format)}</span>
-        <span class="gsum-turn">T${game.currentTurn}${activePlayer ? ` · ${escapeHtml(activePlayer.name)}` : ''}</span>
+        <span class="gsum-turn">T${game.currentTurn}${activePlayer ? ` · ${_playerName(activePlayer)}` : ''}</span>
         <div style="flex:1"></div>
         <button class="btn btn-outline btn-sm" onclick="openTabletView('${game.id}')">Open Tablet View</button>
         <button class="btn btn-outline btn-sm" onclick="openLogEvent('${game.id}')">Log Event</button>
         <button class="btn btn-outline btn-sm" onclick="openEndGame('${game.id}')">End Game</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteGame('${game.id}')">Delete</button>
       </div>
       <div class="panel-body">
         <div class="gsum-grid">${standings}</div>
@@ -911,6 +917,37 @@ function renderLifeDice(game, player) {
   `;
 }
 
+/**
+ * Colour the player names inside an already-escaped log line.
+ * Log text is prose ("Will dealt 9 to Dana"), so the names can't be wrapped at
+ * build time — but they are the same player references the cards colour, and
+ * they used to be indicated by a pair of swatch dots instead. Matching runs on
+ * escaped text against escaped names so nothing unescaped is ever injected, and
+ * longest-first with boundaries so "Kit" can't match inside "Kitchen".
+ */
+function _colorLogNames(escapedText, players) {
+  const named = (players || []).filter(p => p && p.name && p.color);
+  if (!named.length) return escapedText;
+  // Longest first, so a short name can't claim a slice of a longer one.
+  const byLength = [...named].sort((a, b) => b.name.length - a.name.length);
+  // Matches become NUL-delimited slot markers before any span HTML is emitted,
+  // so a later (shorter) name cannot match inside a span already produced for an
+  // earlier one. NUL never appears in log text and escapeHtml cannot produce it,
+  // so the marker is unambiguous — a bare digit placeholder would have eaten the
+  // "9" in "dealt 9 to".
+  const claimed = [];
+  let out = escapedText;
+  for (const p of byLength) {
+    const needle = escapeHtml(p.name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp('(^|[^\\w\\u0000])(' + needle + ')(?![\\w])', 'g');
+    out = out.replace(re, (_m, pre) => {
+      claimed.push(`<span class="gp-name" style="color:${p.color}">${escapeHtml(p.name)}</span>`);
+      return pre + '\u0000' + (claimed.length - 1) + '\u0000';
+    });
+  }
+  return out.replace(/\u0000(\d+)\u0000/g, (_m, n) => claimed[Number(n)] ?? '');
+}
+
 function renderGameLog(game) {
   if (!game.log.length) return '<div style="padding:0.75rem 1rem;font-size:0.8rem;color:var(--text3)">No events yet</div>';
   const typeColor = {
@@ -921,25 +958,15 @@ function renderGameLog(game) {
     note: 'var(--text2)',
   };
   return [...game.log].reverse().map(e => {
-    const fromPlayer = e.fromId ? game.players.find(p => p.id === e.fromId) : null;
-    const toPlayer   = e.toId   ? game.players.find(p => p.id === e.toId)   : null;
-    const fromDot = fromPlayer
-      ? `<span title="${escapeHtml(fromPlayer.name)}" style="width:7px;height:7px;border-radius:50%;background:${fromPlayer.color};flex-shrink:0;margin-top:3px"></span>`
-      : '';
-    const toDot = toPlayer && toPlayer !== fromPlayer
-      ? `<span title="${escapeHtml(toPlayer.name)}" style="width:7px;height:7px;border-radius:50%;background:${toPlayer.color};flex-shrink:0;margin-top:3px"></span>`
-      : '';
-    const dots = (fromDot || toDot)
-      ? `<span style="display:flex;align-items:flex-start;gap:2px">${fromDot}${fromDot && toDot ? '<span style="font-size:0.6rem;color:var(--text3);margin-top:2px">→</span>' : ''}${toDot}</span>`
-      : '';
+    // The from/to swatch dots are gone: the names inside the line carry the
+    // player colour now, the same as everywhere else on this page.
     const durationTag = (e.type === 'turn_change' && e.duration)
       ? `<span style="margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:0.65rem;color:var(--text3);flex-shrink:0;padding-left:6px">${formatDuration(e.duration)}</span>`
       : '';
     return `
     <div style="display:flex;gap:8px;padding:5px 12px;border-bottom:1px solid var(--border);font-size:0.78rem;align-items:flex-start">
       <span style="font-family:'JetBrains Mono',monospace;font-size:0.65rem;color:var(--text3);white-space:nowrap;padding-top:1px;min-width:24px">${e.turn != null ? 'T' + e.turn : ''}</span>
-      ${dots}
-      <span style="color:${typeColor[e.type] || 'var(--text2)'};">${escapeHtml(e.text)}</span>
+      <span style="color:${typeColor[e.type] || 'var(--text2)'};">${_colorLogNames(escapeHtml(e.text), game.players)}</span>
       ${durationTag}
     </div>`;
   }).join('');
@@ -1589,20 +1616,20 @@ function renderGameDetail(game) {
   const topDmg = [...game.players].sort((a, b) => (dmgDealt[b.id] || 0) - (dmgDealt[a.id] || 0))[0];
 
   el.innerHTML = `
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:1.25rem;flex-wrap:wrap">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:0.5rem;flex-wrap:wrap">
       <span class="gt-format" style="font-family:'Cinzel',serif;font-size:1rem;color:var(--gold)">${game.format}</span>
       <span class="tag tag-blue">${game.currentTurn} turns</span>
       <span style="font-size:0.8rem;color:var(--text3)">${new Date(game.date).toLocaleString()}</span>
       <div style="flex:1"></div>
-      <button class="btn btn-danger btn-sm" onclick="deleteGame('${game.id}')">✕ Delete</button>
+      <button class="btn btn-danger btn-sm" onclick="deleteGame('${game.id}')">Delete</button>
     </div>
 
     ${winner ? `
-    <div style="padding:1rem;background:var(--gold-dim);border:1px solid rgba(200,168,74,0.3);border-radius:var(--radius2);margin-bottom:1.25rem;text-align:center">
-      <div style="font-size:1.5rem;margin-bottom:4px;display:flex;justify-content:center;color:var(--gold)">${gameIcon('trophy', 24)}</div>
-      <div style="font-family:'Cinzel',serif;font-size:1.15rem;color:var(--gold)">${escapeHtml(winner.name)}</div>
-      ${winner.deckName ? `<div style="font-size:0.8rem;color:var(--text3);margin-top:2px">${escapeHtml(winner.deckName)}${winner.commander ? ' · ' + escapeHtml(winner.commander) : ''}</div>` : ''}
-      <div style="font-size:0.75rem;color:var(--text3);margin-top:2px">finished with ${winner.life} life</div>
+    <div class="gd-winner">
+      ${gameIcon('trophy', 13, 'color:var(--gold);flex-shrink:0')}
+      <span>Winner: ${_playerName(winner)}</span>
+      ${winner.deckName ? `<span class="gd-winner-sub">${escapeHtml(winner.deckName)}${winner.commander ? ' · ' + escapeHtml(winner.commander) : ''}</span>` : ''}
+      <span class="gd-winner-sub">finished with ${winner.life} life</span>
     </div>` : ''}
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.25rem">
@@ -1611,9 +1638,8 @@ function renderGameDetail(game) {
         ${sorted.map(p => `
           <div style="display:flex;align-items:center;gap:9px;padding:9px 12px;border-bottom:1px solid var(--border)">
             <span style="font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:var(--text3);min-width:22px">${p.placement ? '#' + p.placement : '—'}</span>
-            <span style="width:8px;height:8px;border-radius:50%;background:${p.color};flex-shrink:0"></span>
             <div style="flex:1;min-width:0">
-              <div style="font-size:0.85rem;display:flex;align-items:center;gap:4px">${escapeHtml(p.name)}${p.id === game.winner ? gameIcon('trophy', 11, 'color:var(--gold)') : ''}</div>
+              <div style="font-size:0.85rem;display:flex;align-items:center;gap:4px">${_playerName(p)}${p.id === game.winner ? gameIcon('trophy', 11, 'color:var(--gold)') : ''}</div>
               ${p.deckName ? `<div style="font-size:0.7rem;color:var(--text3)">${escapeHtml(p.deckName)}${p.commander ? ' · ' + escapeHtml(p.commander) : ''}</div>` : ''}
             </div>
             <div style="text-align:right">
@@ -1637,10 +1663,10 @@ function renderGameDetail(game) {
               const longest = game.turnDurations.reduce((a, b) => b.duration > a.duration ? b : a);
               const longestPlayer = game.players.find(p => p.id === longest.playerId);
               return `<tr><td>Avg Turn Time</td><td style="font-family:'JetBrains Mono',monospace">${formatDuration(avg)}</td></tr>
-                      <tr><td>Longest Turn</td><td style="font-family:'JetBrains Mono',monospace">${formatDuration(longest.duration)}${longestPlayer ? ' — ' + escapeHtml(longestPlayer.name) : ''}</td></tr>`;
+                      <tr><td>Longest Turn</td><td style="font-family:'JetBrains Mono',monospace">${formatDuration(longest.duration)}${longestPlayer ? ' — ' + _playerName(longestPlayer) : ''}</td></tr>`;
             })()}
             <tr><td>Events Logged</td><td>${game.log.length}</td></tr>
-            ${topDmg && dmgDealt[topDmg.id] > 0 ? `<tr><td>Most Damage Dealt</td><td style="color:var(--gold)">${escapeHtml(topDmg.name)} (${dmgDealt[topDmg.id]})</td></tr>` : ''}
+            ${topDmg && dmgDealt[topDmg.id] > 0 ? `<tr><td>Most Damage Dealt</td><td>${_playerName(topDmg)} (${dmgDealt[topDmg.id]})</td></tr>` : ''}
           </table>
           ${game.notes ? `<div style="margin-top:0.75rem;font-size:0.82rem;color:var(--text2);font-style:italic;border-top:1px solid var(--border);padding-top:0.75rem">"${escapeHtml(game.notes)}"</div>` : ''}
         </div>
