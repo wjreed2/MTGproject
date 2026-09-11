@@ -140,47 +140,12 @@ function togglePauseTimer(gameId) {
 function renderGames() {
   renderGamesSidebar();
   renderGamesQuickStats();
-  renderGamesMobile();
 }
 
 // Phone-width viewport — same breakpoint as mobile.css (tablets are 769px+).
+// The games page no longer branches on this; the collection's lazy tile tail does.
 function _gamesIsPhone() {
   return typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 768px)').matches;
-}
-
-// One game row, shared by the desktop sidebar and the mobile history list.
-function _gameHistoryItemHtml(g) {
-  const winner = g.players.find(p => p.id === g.winner);
-  const isActive = g.status === 'active';
-  const playersCount = g.players.length;
-  const turns = g.currentTurn || 0;
-  const dateLabel = new Date(g.date).toLocaleDateString();
-  const activePlayer = g.players[g.activePlayerIdx ?? 0];
-  const durationLabel = g.endedAt ? formatDuration(g.endedAt - g.date) : null;
-  return `
-    <div class="deck-sidebar-item game-history-item ${activeGameId === g.id ? 'active' : ''}" onclick="selectGame('${g.id}')">
-      <div style="display:flex;align-items:flex-start;gap:7px;width:100%;min-width:0">
-        <div style="flex:1;min-width:0">
-          <div style="display:flex;align-items:center;gap:6px">
-            ${isActive ? '<span class="game-active-dot"></span>' : ''}
-            <div class="game-history-title">${g.format}</div>
-          </div>
-          <div class="game-history-players">${g.players.map(p => escapeHtml(p.name)).join(', ')}</div>
-          <div class="game-history-meta">
-            <span>${playersCount}P</span>
-            <span>T${turns}</span>
-            <span>${durationLabel || dateLabel}</span>
-          </div>
-          <div class="game-history-meta" style="margin-top:3px">
-            <span style="color:${isActive ? 'var(--teal)' : 'var(--gold)'}">
-              ${isActive ? `In progress${activePlayer ? ` · ${escapeHtml(activePlayer.name)}` : ''}` : `Winner: ${winner ? escapeHtml(winner.name) : '—'}`}
-            </span>
-          </div>
-        </div>
-        <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();deleteGame('${g.id}')"
-          style="opacity:0.28;padding:1px 5px;font-size:0.74rem;align-self:flex-start" title="Delete game">✕</button>
-      </div>
-    </div>`;
 }
 
 /** Which folder tab the games page is showing. */
@@ -250,56 +215,6 @@ function _syncGamesEmptyState() {
   const grid = document.getElementById('gamesGrid');
   if (empty) empty.style.display = games.length ? 'none' : '';
   if (grid) grid.style.display = games.length ? '' : 'none';
-}
-
-// "Ended games" starts collapsed on the mobile layout.
-let _endedGamesOpen = false;
-
-function toggleEndedGames() {
-  _endedGamesOpen = !_endedGamesOpen;
-  renderGamesMobile();
-}
-
-// Phone-only games page: two top buttons, history list (active first, ended
-// collapsed), and the selected game's log underneath. The full desktop tracker
-// is hidden on phones — live tracking happens in the tablet view instead.
-function renderGamesMobile() {
-  const el = document.getElementById('gamesMobile');
-  if (!el) return;
-  const selected = activeGameId ? games.find(g => g.id === activeGameId) : null;
-  const active = games.filter(g => g.status === 'active').sort((a, b) => b.date - a.date);
-  const ended  = games.filter(g => g.status !== 'active').sort((a, b) => b.date - a.date);
-
-  const actions = `
-    <div class="games-mobile-actions">
-      <button class="btn btn-primary" onclick="openNewGame()">+ New Game</button>
-      ${selected && selected.status === 'active'
-        ? `<button class="btn btn-outline" onclick="openTabletView('${selected.id}')" style="display:inline-flex;align-items:center;justify-content:center;gap:6px">${gameIcon('tablet', 14)}Tablet View</button>`
-        : ''}
-    </div>`;
-
-  const list = `
-    <div class="games-mobile-list">
-      ${games.length === 0 ? '<div class="games-mobile-empty">No games yet — start one above.</div>' : ''}
-      ${active.length ? `<div class="games-mobile-section-label">In progress</div>${active.map(_gameHistoryItemHtml).join('')}` : ''}
-      ${ended.length ? `
-        <button class="games-mobile-ended-toggle" onclick="toggleEndedGames()" aria-expanded="${_endedGamesOpen}">
-          <span>Ended games (${ended.length})</span>
-          <span class="games-mobile-ended-chevron">${_endedGamesOpen ? '▾' : '▸'}</span>
-        </button>
-        <div class="games-mobile-ended" ${_endedGamesOpen ? '' : 'hidden'}>${ended.map(_gameHistoryItemHtml).join('')}</div>` : ''}
-    </div>`;
-
-  const log = selected ? `
-    <div class="panel games-mobile-log">
-      <div class="panel-header">
-        <span class="panel-title">${escapeHtml(selected.format)} — ${selected.status === 'active' ? 'Live log' : 'Game log'}</span>
-        <span style="font-size:0.72rem;color:var(--text3)">${selected.log.length} events</span>
-      </div>
-      <div class="games-mobile-log-body">${renderGameLog(selected)}</div>
-    </div>` : '';
-
-  el.innerHTML = actions + list + log;
 }
 
 // Its own folder tab now, so it gets the full width: summary tiles over a
@@ -373,10 +288,6 @@ function selectGame(id) {
   renderGamesSidebar();
   const game = games.find(g => g.id === id);
   if (!game) return;
-  // On phones the default tracker is hidden — just show this game's log under
-  // the list (and surface the Tablet View button). Skip the heavy active-game
-  // render so its turn timer doesn't start behind the scenes.
-  if (_gamesIsPhone()) { renderGamesMobile(); return; }
   document.getElementById('activeGameArea').style.display = 'none';
   document.getElementById('gameDetailArea').style.display = 'none';
   if (game.status === 'active') {

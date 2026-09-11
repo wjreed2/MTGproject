@@ -870,7 +870,15 @@ main {
   align-items: flex-end;
   /* No left padding: the page's left edge flows straight up into the first tab */
   padding: 10px 14px 0 0;
-  margin-bottom: -1px;
+  /* Pull the row down over the tab page so the open tab's ::before hides the
+     page's top border and the two read as one surface. Two pixels, not one: the
+     page's top lands on a fractional y (measured 199.59 on desktop, 167.59 on a
+     phone), and at a phone's device pixel ratio a single-pixel overlap rounds
+     just short — leaving that border drawn as a rule under the open tab, which
+     is exactly what it is meant to hide. The row is overflow-x: auto, so the
+     ::before cannot simply be extended past the row's own box; it gets clipped.
+     Overlapping the row itself is what actually reaches. */
+  margin-bottom: -2px;
   position: relative;
   z-index: 2;
   overflow-x: auto;
@@ -4094,8 +4102,6 @@ body.glass-mode .x-stepper-btn-sm { border-radius: 7px; }
    — so its buttons and inputs could never match the rest of the app, and any
    popup menu sized in CSS px (the glass dropdowns) rendered 1.3× taller than
    the cap meant to keep it on screen. */
-/* Phone-only games layout — shown via mobile.css at ≤768px, off everywhere else. */
-.games-mobile { display: none; }
 
 .player-active-turn {
   box-shadow: 0 0 0 1px rgba(255,255,255,0.08), 0 4px 20px rgba(0,0,0,0.3);
@@ -4321,45 +4327,6 @@ body.glass-mode .x-stepper-btn-sm { border-radius: 7px; }
 .deck-sidebar-item.active { border-color: var(--gold); }
 .deck-sidebar-name { font-family: 'Cinzel', serif; font-size: 0.75rem; color: #fff; line-height: 1.2; }
 .deck-sidebar-meta { font-family: 'Inter', system-ui, sans-serif; font-size: 0.62rem; color: rgba(255,255,255,0.65); margin-top: 2px; }
-.game-history-item {
-  aspect-ratio: auto;
-  min-height: 0;
-  padding: 8px 9px;
-  border-width: 1px;
-  background: linear-gradient(160deg, rgba(255,255,255,0.02), transparent 65%);
-}
-.game-history-title {
-  font-family: 'Cinzel', serif;
-  font-size: 0.76rem;
-  color: var(--gold);
-  line-height: 1.15;
-}
-.game-history-players {
-  margin-top: 3px;
-  font-size: 0.72rem;
-  color: var(--text2);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.game-history-meta {
-  margin-top: 4px;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  flex-wrap: wrap;
-}
-.game-history-meta span {
-  font-size: 0.64rem;
-  color: var(--text3);
-  padding: 1px 5px;
-  border-radius: 999px;
-  border: 1px solid var(--border2);
-  background: var(--bg3);
-  line-height: 1.35;
-  letter-spacing: 0.02em;
-}
-
 /* Normalize top action buttons */
 .top-action-bar .btn,
 .top-action-bar .btn.btn-sm {
