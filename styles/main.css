@@ -2876,9 +2876,9 @@ img.stack-main.loaded { opacity: 1; }
   font-size: 0.7rem; color: var(--text3);
   letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 6px;
 }
+/* Plain text, not a chip — it labels which row is displayed, it is not a control. */
 .price-modal-shown-tag {
-  font-size: 0.62rem; color: var(--gold); background: var(--gold-dim);
-  border-radius: 4px; padding: 1px 6px; margin-left: 6px; letter-spacing: 0.04em;
+  font-size: 0.7rem; color: var(--text3); margin-left: 6px;
 }
 .price-modal-movers td { font-size: 0.8rem; }
 .price-modal-movers .price-modal-head td {
@@ -2892,13 +2892,36 @@ img.stack-main.loaded { opacity: 1; }
 .price-modal-mover-row:hover td { color: var(--gold); }
 .price-modal-settings { display: flex; flex-direction: column; gap: 12px; }
 .price-modal-settings label { font-size: 0.78rem; color: var(--text2); display: block; }
-.price-modal-settings label strong { color: var(--gold); }
+.price-modal-settings label strong { color: rgb(var(--lgx1)); }
 .price-modal-settings select {
   width: 100%; margin-top: 5px; font-size: 0.78rem; padding: 5px 6px;
   background: var(--bg3); border: 1px solid var(--border2); color: var(--text); border-radius: var(--radius);
 }
+/* Track and thumb are drawn explicitly rather than left to accent-color, which
+   only tints the thumb and the filled span — the empty track kept rendering from
+   the UA's light theme as a pale cream bar, which is what still read as gold
+   after the accent was changed. */
 .price-modal-settings input[type="range"] {
-  width: 100%; margin-top: 7px; accent-color: var(--gold); display: block;
+  width: 100%; margin-top: 7px; display: block; height: 16px;
+  -webkit-appearance: none; appearance: none;
+  background: transparent; cursor: pointer;
+}
+.price-modal-settings input[type="range"]::-webkit-slider-runnable-track {
+  height: 6px; border-radius: 999px; background: rgba(255, 255, 255, 0.14);
+}
+.price-modal-settings input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 14px; height: 14px; margin-top: -4px;
+  border: none; border-radius: 50%;
+  background: rgb(var(--lgx1));
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+}
+.price-modal-settings input[type="range"]::-moz-range-track {
+  height: 6px; border-radius: 999px; background: rgba(255, 255, 255, 0.14);
+}
+.price-modal-settings input[type="range"]::-moz-range-thumb {
+  width: 14px; height: 14px; border: none; border-radius: 50%;
+  background: rgb(var(--lgx1));
 }
 .stat-card {
   background: linear-gradient(145deg, var(--bg3) 0%, var(--bg4) 100%);
