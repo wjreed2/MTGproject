@@ -467,27 +467,13 @@
     </div>
     <!-- Row 2: quick-filter chips — single line, scrolls horizontally if cramped -->
     <div id="quickFilterRow" style="display:flex;align-items:center;flex-wrap:nowrap;gap:5px;overflow-x:auto;padding-bottom:2px">
-      <!-- Phones get a single multi-select menu instead (#quickFilterMenuBtn):
-           eleven chips on one nowrap row meant most of them were off-screen.
-           display:contents keeps the desktop row's flex layout unchanged. -->
+      <!-- Type and flag filters are this one multi-select menu on every width.
+           They used to be eleven chips on a nowrap row; the menu replaced them
+           on phones, where most sat off-screen, and now everywhere. -->
       <button type="button" id="quickFilterMenuBtn" class="btn btn-outline btn-sm"
         aria-haspopup="true" aria-expanded="false"
         onclick="toggleQuickFilterMenu(event)">Type &amp; more</button>
-      <div id="quickFilterChips" style="display:contents">
-      <button class="filter-chip" data-qtype="creature"     onclick="toggleQuickType('creature',this)">Creature</button>
-      <button class="filter-chip" data-qtype="instant"      onclick="toggleQuickType('instant',this)">Instant</button>
-      <button class="filter-chip" data-qtype="sorcery"      onclick="toggleQuickType('sorcery',this)">Sorcery</button>
-      <button class="filter-chip" data-qtype="artifact"     onclick="toggleQuickType('artifact',this)">Artifact</button>
-      <button class="filter-chip" data-qtype="enchantment"  onclick="toggleQuickType('enchantment',this)">Enchantment</button>
-      <button class="filter-chip" data-qtype="planeswalker" onclick="toggleQuickType('planeswalker',this)">Planeswalker</button>
-      <button class="filter-chip" data-qtype="land"         onclick="toggleQuickType('land',this)">Land</button>
       <span style="width:1px;height:14px;background:var(--border2);flex-shrink:0"></span>
-      <button class="filter-chip" data-qflag="legendary" onclick="toggleQuickFlag('legendary',this)">Legendary</button>
-      <button class="filter-chip" data-qflag="foil"      onclick="toggleQuickFlag('foil',this)">Foil</button>
-      <button class="filter-chip" data-qflag="nonfoil"   onclick="toggleQuickFlag('nonfoil',this)">Non-foil</button>
-      <button class="filter-chip" data-qflag="new"       onclick="toggleQuickFlag('new',this)">New</button>
-      <span style="width:1px;height:14px;background:var(--border2);flex-shrink:0"></span>
-      </div>
       <span title="Mana Value" style="font-size:0.68rem;color:var(--text3);white-space:nowrap;letter-spacing:0.04em;text-transform:uppercase">MV</span>
       <input id="cmcMinInput" type="number" min="0" max="20" placeholder="Min"
         oninput="setQuickCMC()"

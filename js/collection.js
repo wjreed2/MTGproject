@@ -673,7 +673,10 @@ function setQuickCMC() {
 function clearQuickFilters() {
   quickFilters.types.clear(); quickFilters.flags.clear();
   quickFilters.cmcMin = null; quickFilters.cmcMax = null;
-  document.querySelectorAll('.filter-chip').forEach(b => b.classList.remove('active'));
+  // The collection's type/flag chips are gone — they are the "Type & more" menu
+  // now, which reads its ticks from quickFilters on each repaint. The old
+  // `.filter-chip` sweep here was unscoped, so with no collection chips left it
+  // would only have reached the find-card modal's chips and cleared those.
   const min = document.getElementById('cmcMinInput'); if (min) min.value = '';
   const max = document.getElementById('cmcMaxInput'); if (max) max.value = '';
   // Rarity and Starred live on the same row and filter the same grid, but Clear
@@ -764,11 +767,8 @@ function _openQuickFilterMenu() {
     item.textContent = label;
     item.addEventListener('click', e => {
       e.stopPropagation();
-      // Drive the real chip where there is one, so its .active state stays in
-      // step with the menu (toggleQuickFlag also rewrites its siblings).
-      const chip = document.querySelector(`[data-q${kind}="${value}"]`);
-      if (kind === 'type') toggleQuickType(value, chip || item);
-      else toggleQuickFlag(value, chip || item);
+      if (kind === 'type') toggleQuickType(value, item);
+      else toggleQuickFlag(value, item);
       // Repaint so the new tick shows and several can be picked in one visit.
       // The list scrolls on a phone, and a fresh menu starts at the top — so
       // toggling anything below the fold threw you back up and the next tap

@@ -4522,10 +4522,9 @@ body.glass-mode .x-stepper-btn-sm { border-radius: 7px; }
   border-radius: 8px !important;
 }
 
-/* Phone-only multi-select for the quick filters — the chips stay on desktop.
-   The menu itself is the pin-to-deck menu: plain .glass-menu / .glass-menu-item,
-   so it needs nothing beyond the same fixed-position box that rule uses. */
-#quickFilterMenuBtn { display: none; }
+/* The quick filters' multi-select, on every width. The menu itself is the
+   pin-to-deck menu: plain .glass-menu / .glass-menu-item, so it needs nothing
+   beyond the same fixed-position box that rule uses. */
 .qf-menu {
   position: fixed;
   z-index: 2000;
