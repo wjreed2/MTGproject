@@ -4519,48 +4519,16 @@ body.glass-mode .x-stepper-btn-sm { border-radius: 7px; }
   border-radius: 8px !important;
 }
 
-/* Phone-only multi-select for the quick filters — the chips stay on desktop. */
+/* Phone-only multi-select for the quick filters — the chips stay on desktop.
+   The menu itself is the pin-to-deck menu: plain .glass-menu / .glass-menu-item,
+   so it needs nothing beyond the same fixed-position box that rule uses. */
 #quickFilterMenuBtn { display: none; }
-.qf-menu { padding: 6px; }
-.qf-menu-label {
-  padding: 6px 8px 3px;
-  font-size: 0.62rem; letter-spacing: 0.06em; text-transform: uppercase;
-  color: var(--text3);
+.qf-menu {
+  position: fixed;
+  z-index: 2000;
+  min-width: 190px;
+  overflow-y: auto;
 }
-.qf-menu-item {
-  display: flex; align-items: center; gap: 9px;
-  width: 100%; padding: 9px 8px;
-  background: none; border: none; border-radius: 9px;
-  color: rgba(238, 243, 252, 0.82);
-  font-family: inherit; font-size: 0.88rem; text-align: left;
-  cursor: pointer;
-}
-.qf-menu-item:hover { background: rgba(255, 255, 255, 0.07); color: var(--text); }
-.qf-menu-item.is-on { color: var(--text); }
-.qf-menu-tick {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 18px; height: 18px; flex-shrink: 0;
-  border-radius: 5px;
-  border: 1px solid rgba(255, 255, 255, 0.22);
-}
-.qf-menu-tick svg { width: 12px; height: 12px; opacity: 0; }
-.qf-menu-item.is-on .qf-menu-tick {
-  border-color: rgba(var(--lgx2), 0.65);
-  background: linear-gradient(135deg, rgba(var(--lgx1), 0.9), rgba(var(--lgx2), 0.9));
-  color: #fff;
-}
-.qf-menu-item.is-on .qf-menu-tick svg { opacity: 1; }
-.qf-menu-clear {
-  width: 100%; margin-top: 4px; padding: 9px 8px;
-  background: none; border: none; border-top: 1px solid rgba(255, 255, 255, 0.12);
-  color: var(--red); font-family: inherit; font-size: 0.82rem; text-align: left;
-  cursor: pointer;
-}
-.qf-menu-clear:hover { background: rgba(255, 90, 74, 0.14); }
-[data-theme="light"] .qf-menu-item { color: rgba(28, 40, 58, 0.82); }
-[data-theme="light"] .qf-menu-item:hover { background: rgba(20, 35, 60, 0.06); }
-[data-theme="light"] .qf-menu-tick { border-color: rgba(20, 35, 60, 0.28); }
-[data-theme="light"] .qf-menu-clear { border-top-color: rgba(20, 35, 60, 0.12); }
 #tab-collection #cmcMinInput,
 #tab-collection #cmcMaxInput {
   width: 64px !important;
