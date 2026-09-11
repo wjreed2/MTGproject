@@ -532,11 +532,12 @@
     const parentTarget = (api.PLAN_PARENT_DEFAULT_TARGET) || 30;
     const rows = typeof api.activePlanSubTags === 'function' ? api.activePlanSubTags(plan, parentTarget) : [];
     const payoffRows = rows.filter(r => _isPayoffSubtag(r.id, winId));
-    // Token-flavored payoff subtags feed Token / Swarm; the rest feed Value
-    // Finishers — one plan row never justifies two piles. 'Token Maker' is
-    // excluded even where a plan payoff row lists it (tokens.payoffs does, for
-    // plan-progress counting): a maker is the engine's supply and already
-    // defines a Strategy pile — payoff-ness needs a conversion tag.
+    // Token-flavored payoff subtags (tokens.payoffs, tribal.finishers, …) are
+    // excluded from Value Finishers so a token-plan row cannot feed that pile;
+    // they do NOT feed Token / Swarm either. Their tags exist for plan-progress
+    // counting and describe supply or single bodies ('Token Maker' is the
+    // engine's supply; tribal.finishers' 'Evasion' pays off that one creature,
+    // not the swarm) — Token / Swarm membership needs a conversion tag below.
     const tokenRows = payoffRows.filter(r => /token|tribal|type/i.test(r.id + r.label));
     const valueRows = payoffRows.filter(r => !tokenRows.includes(r));
     const rowMatch = (list) => list.some(r => (r.projectTags || []).some(t => t !== 'Token Maker' && tagSet.has(t)));
@@ -563,7 +564,7 @@
         hit.push(sub.id);
         reasons.push(comboReason);
       } else if (sub.id === 'token_swarm' && !isWincon && !_isLand(card)
-          && (tagSet.has('Anthem') || tagSet.has('Drain') || rowMatch(tokenRows))) {
+          && (tagSet.has('Anthem') || tagSet.has('Extra Combat') || tagSet.has('Drain'))) {
         hit.push(sub.id);
         reasons.push('payoff:tokens');
       } else if (sub.id === 'value_finishers' && !isWincon && !_isLand(card) && rowMatch(valueRows)) {

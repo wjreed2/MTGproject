@@ -657,6 +657,39 @@ function findRow(model, name) {
   assert.deepStrictEqual(clampV.payoffSubs, [], `wincon.value must not claim draw spells: ${clampV.payoffSubs}`);
 }
 
+// Evasion pays off one body, not the swarm: tribal.finishers lists 'Evasion'
+// for plan-progress counting, but an unblockable looter or a flying draw
+// engine is not a Token / Swarm payoff. Conversion tags (Anthem, Extra
+// Combat, Drain) are — unless they already read as the combat closer.
+{
+  const deck = {
+    cards: [
+      card('Shoreline Looter', {
+        type: 'Creature — Rat Rogue',
+        roleTags: ['Evasion', 'Card Draw'],
+        oracleText: "This creature can't be blocked. Threshold — Whenever this creature deals combat damage to a player, draw a card.",
+        cmc: 2,
+      }),
+      card('M.O.D.O.K.', {
+        type: 'Legendary Artifact Creature — Villain',
+        roleTags: ['Evasion', 'Lifegain'],
+        oracleText: 'Flying, lifelink. Pay 3 life: M.O.D.O.K. connives. Creatures your opponents control get -1/-1.',
+        cmc: 5,
+      }),
+      card('Zulaport Cutthroat', { roleTags: ['Drain', 'Lifegain'], cmc: 2 }),
+    ],
+    plan: vrenPlan({ primaryStrategyId: 'strategy.tribal', winConditionId: 'wincon.combat' }),
+  };
+  const m = classifyDeckArchitecture(deck);
+  const looter = findRow(m, 'Shoreline Looter');
+  assert.deepStrictEqual(looter.payoffSubs, [], `evasive looter is not a payoff: ${looter.payoffSubs}`);
+  assert.ok(looter.foundationFns.includes('card_advantage'), 'looter is Card Advantage');
+  const modok = findRow(m, 'M.O.D.O.K.');
+  assert.ok(!modok.payoffSubs.includes('token_swarm'), `flying draw engine is not a swarm payoff: ${modok.payoffSubs}`);
+  const drain = findRow(m, 'Zulaport Cutthroat');
+  assert.ok(drain.payoffSubs.includes('token_swarm'), `drain converts the swarm: ${drain.payoffSubs}`);
+}
+
 // A token maker is engine, not payoff — the payoff piles hold what makes the
 // swarm lethal, and a board wipe is Foundation, not a token payoff.
 {
