@@ -184,16 +184,18 @@ function _gameHistoryItemHtml(g) {
 }
 
 /** Which folder tab the games page is showing. */
+const GAMES_TABS = ['games', 'playgroups', 'leaderboard'];
 let _gamesTab = 'games';
 function setGamesTab(key) {
-  _gamesTab = key === 'playgroups' ? 'playgroups' : 'games';
-  for (const k of ['games', 'playgroups']) {
+  _gamesTab = GAMES_TABS.includes(key) ? key : 'games';
+  for (const k of GAMES_TABS) {
     const pane = document.getElementById('gamesPane-' + k);
     const tab = document.getElementById('gamesFtab-' + k);
     if (pane) pane.classList.toggle('active', k === _gamesTab);
     if (tab) { tab.classList.toggle('active', k === _gamesTab); tab.setAttribute('aria-selected', k === _gamesTab ? 'true' : 'false'); }
   }
   if (_gamesTab === 'playgroups' && typeof renderPlaygroupsPanel === 'function') renderPlaygroupsPanel();
+  if (_gamesTab === 'leaderboard' && typeof renderGamesQuickStats === 'function') renderGamesQuickStats();
 }
 
 /** One game as a card in the grid. */
@@ -235,13 +237,13 @@ function renderGamesSidebar() {
   _syncGamesEmptyState();
 }
 
-// The grid is the whole list now, so the empty state is only about having no
+// The grid is the whole pane now, so the empty state is only about having no
 // games at all — not about nothing being selected.
 function _syncGamesEmptyState() {
   const empty = document.getElementById('gamesEmpty');
-  const panel = document.getElementById('gamesGridPanel');
+  const grid = document.getElementById('gamesGrid');
   if (empty) empty.style.display = games.length ? 'none' : '';
-  if (panel) panel.style.display = games.length ? '' : 'none';
+  if (grid) grid.style.display = games.length ? '' : 'none';
 }
 
 // "Ended games" starts collapsed on the mobile layout.
@@ -294,12 +296,14 @@ function renderGamesMobile() {
   el.innerHTML = actions + list + log;
 }
 
+// Its own folder tab now, so it gets the full width: summary tiles over a
+// ranked table rather than the six cramped rows the old sidebar box allowed.
 function renderGamesQuickStats() {
   const el = document.getElementById('gamesQuickStats');
   if (!el) return;
   const completed = games.filter(g => g.status === 'completed');
   if (completed.length === 0) {
-    el.innerHTML = '<div style="color:var(--text3);font-size:0.8rem;text-align:center;padding:1rem 0">Complete a game to see stats</div>';
+    el.innerHTML = '<div class="lb-empty">Complete a game to see stats.</div>';
     return;
   }
   const wins = {}, played = {};
@@ -310,19 +314,36 @@ function renderGamesQuickStats() {
   });
   const board = Object.keys(played)
     .map(name => ({ name, w: wins[name] || 0, g: played[name], rate: Math.round(((wins[name] || 0) / played[name]) * 100) }))
-    .sort((a, b) => b.w - a.w || b.rate - a.rate)
-    .slice(0, 6);
+    .sort((a, b) => b.w - a.w || b.rate - a.rate);
   const avgTurns = Math.round(completed.reduce((s, g) => s + (g.currentTurn || 0), 0) / completed.length);
+  const totalTime = completed.reduce((s, g) => s + (g.endedAt && g.date ? g.endedAt - g.date : 0), 0);
+  const tile = (value, label) => `<div class="lb-tile"><div class="lb-tile-val">${value}</div><div class="lb-tile-label">${label}</div></div>`;
   el.innerHTML = `
-    <div style="font-size:0.7rem;color:var(--text3);letter-spacing:0.05em;margin-bottom:7px">WIN LEADERBOARD</div>
-    ${board.map(p => `
-      <div style="display:flex;align-items:center;gap:6px;padding:3px 0;font-size:0.82rem">
-        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(p.name)}</span>
-        <span style="font-family:'JetBrains Mono',monospace;font-size:0.72rem;color:var(--gold)">${p.w}W</span>
-        <span style="font-size:0.68rem;color:var(--text3)">${p.g}G · ${p.rate}%</span>
-      </div>`).join('')}
-    <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:0.72rem;color:var(--text3);display:flex;gap:12px">
-      <span>${completed.length} games completed</span><span>avg ${avgTurns} turns</span>
+    <div class="lb-tiles">
+      ${tile(completed.length, 'Games completed')}
+      ${tile(board.length, 'Players tracked')}
+      ${tile(avgTurns, 'Avg turns')}
+      ${tile(totalTime ? formatDuration(Math.round(totalTime / completed.length)) : '—', 'Avg length')}
+    </div>
+    <div class="lb-table">
+      <div class="lb-row lb-head">
+        <span class="lb-rank">#</span>
+        <span class="lb-name">Player</span>
+        <span class="lb-num">Wins</span>
+        <span class="lb-num">Games</span>
+        <span class="lb-rate">Win rate</span>
+      </div>
+      ${board.map((p, i) => `
+        <div class="lb-row">
+          <span class="lb-rank">${i + 1}</span>
+          <span class="lb-name">${escapeHtml(p.name)}</span>
+          <span class="lb-num lb-wins">${p.w}</span>
+          <span class="lb-num">${p.g}</span>
+          <span class="lb-rate">
+            <span class="lb-bar"><span class="lb-bar-fill" style="width:${p.rate}%"></span></span>
+            <span class="lb-pct">${p.rate}%</span>
+          </span>
+        </div>`).join('')}
     </div>`;
 }
 

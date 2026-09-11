@@ -1129,23 +1129,21 @@
 
   <div class="games-desktop-layout">
 
-    <!-- Games / Playgroups folder tabs, same component as the deck builder -->
+    <!-- Games / Playgroups / Leaderboard folder tabs, same component as the deck builder -->
     <div class="deck-folder-tabs" id="gamesTabs" role="tablist" aria-label="Games sections">
       <button type="button" class="deck-ftab active" id="gamesFtab-games" role="tab" aria-selected="true" onclick="setGamesTab('games')">Games</button>
       <button type="button" class="deck-ftab" id="gamesFtab-playgroups" role="tab" aria-selected="false" onclick="setGamesTab('playgroups')">Playgroups</button>
+      <button type="button" class="deck-ftab" id="gamesFtab-leaderboard" role="tab" aria-selected="false" onclick="setGamesTab('leaderboard')">Leaderboard</button>
     </div>
 
+    <!-- The grid is the pane: no inner panel box around it. -->
     <div id="gamesPane-games" class="deck-tab-pane active">
-      <div class="panel" id="gamesGridPanel" style="margin-bottom:1.25rem">
-        <div class="panel-header">
-          <span class="panel-title">Games</span>
-          <div style="flex:1"></div>
-          <button class="btn btn-outline btn-sm" onclick="openNewGame()">+ New Game</button>
-        </div>
-        <div class="panel-body">
-          <div id="gamesGrid" class="games-grid"></div>
-        </div>
+      <div class="games-pane-bar">
+        <div style="flex:1"></div>
+        <button class="btn btn-outline btn-sm" onclick="openNewGame()">+ New Game</button>
       </div>
+
+      <div id="gamesGrid" class="games-grid"></div>
 
       <!-- Empty state — shown only when there are no games at all -->
       <div id="gamesEmpty" class="empty-state">
@@ -1157,22 +1155,18 @@
       <!-- Selected game: read-only. Life and turn control live in Tablet View. -->
       <div id="activeGameArea" style="display:none"></div>
       <div id="gameDetailArea" style="display:none"></div>
-
-      <div class="panel" style="margin-top:1.25rem">
-        <div class="panel-header"><span class="panel-title">Leaderboard</span></div>
-        <div class="panel-body" id="gamesQuickStats"></div>
-      </div>
     </div>
 
     <div id="gamesPane-playgroups" class="deck-tab-pane">
-      <div class="panel">
-        <div class="panel-header">
-          <span class="panel-title">Playgroups</span>
-          <div style="flex:1"></div>
-          <button class="btn btn-outline btn-sm" onclick="openCreatePlaygroup()" title="Create a playgroup — members can see each other's private decks in Browse Decks">+ New Playgroup</button>
-        </div>
-        <div class="panel-body" id="playgroupsPanel" style="padding:0.5rem 0.75rem"></div>
+      <div class="games-pane-bar">
+        <div style="flex:1"></div>
+        <button class="btn btn-outline btn-sm" onclick="openCreatePlaygroup()" title="Create a playgroup — members can see each other's private decks in Browse Decks">+ New Playgroup</button>
       </div>
+      <div id="playgroupsPanel"></div>
+    </div>
+
+    <div id="gamesPane-leaderboard" class="deck-tab-pane">
+      <div id="gamesQuickStats"></div>
     </div>
 
   </div>
