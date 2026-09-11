@@ -4392,7 +4392,8 @@ body.glass-mode .x-stepper-btn-sm { border-radius: 7px; }
   justify-content: center;
 }
 #tab-collection .filter-bar .filter-chip {
-  border-radius: 999px !important;
+  /* Squared off like the deck-list filter/layout controls, not pills. */
+  border-radius: 8px !important;
 }
 #tab-collection #cmcMinInput,
 #tab-collection #cmcMaxInput {
@@ -11789,6 +11790,40 @@ body.glass-mode .view-toggle button.active {
 body.glass-mode .view-toggle button:hover:not(.active) {
   color: var(--text);
   background: rgba(255, 255, 255, 0.07);
+}
+
+/* Collection controls: squared, and blue→purple for every lit state.
+   The chips already used the accent, but .btn-outline and the view toggle fell
+   back to the skin's white hover/active fills, so hovering a chip and hovering
+   the button beside it lit up two different colours. Scoped to this tab. */
+#tab-collection .btn,
+#tab-collection .view-toggle,
+#tab-collection .glass-dd-btn,
+#tab-collection .view-controls .search-box,
+#tab-collection .view-controls select,
+#tab-collection #cmcMinInput,
+#tab-collection #cmcMaxInput,
+#tab-collection #quickFilterRow select { border-radius: 8px !important; }
+
+body.glass-mode #tab-collection .btn-outline:hover,
+body.glass-mode #tab-collection .btn-ghost:hover,
+body.glass-mode #tab-collection .view-toggle button:hover:not(.active),
+body.glass-mode #tab-collection .glass-dd-btn:hover {
+  color: var(--text);
+  border-color: rgba(var(--lgx1), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14));
+}
+body.glass-mode #tab-collection .btn-outline.active,
+body.glass-mode #tab-collection .view-toggle button.active {
+  color: var(--text);
+  border-color: rgba(var(--lgx2), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.22), rgba(var(--lgx2), 0.22));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
+}
+/* Clear stays red — it undoes filters rather than being one. */
+body.glass-mode #tab-collection #clearChipsBtn:hover {
+  border-color: rgba(255, 122, 107, 0.45);
+  background: rgba(255, 90, 74, 0.18);
 }
 /* Copies-in-collection chip on a tile: neutral glass rather than a gold pill. */
 body.glass-mode .price-qty {
