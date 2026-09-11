@@ -312,15 +312,28 @@ function renderGamesQuickStats() {
     el.innerHTML = '<div class="lb-empty">Complete a game to see stats.</div>';
     return;
   }
-  const wins = {}, played = {};
-  completed.forEach(g => {
-    g.players.forEach(p => { played[p.name] = (played[p.name] || 0) + 1; });
+  // Registered accounts only. Guest seats carry userId: null and a free-typed
+  // name, so they merged every unrelated "Bob" into one standing row and
+  // credited wins to whoever happened to reuse the name. Keying on the account
+  // id also keeps a player's history together after they rename.
+  const wins = {}, played = {}, names = {};
+  // Oldest first, so the name shown is the one from that account's latest game.
+  [...completed].sort((a, b) => a.date - b.date).forEach(g => {
+    g.players.forEach(p => {
+      if (p.userId == null) return;
+      played[p.userId] = (played[p.userId] || 0) + 1;
+      names[p.userId] = p.name;
+    });
     const w = g.players.find(p => p.id === g.winner);
-    if (w) wins[w.name] = (wins[w.name] || 0) + 1;
+    if (w && w.userId != null) wins[w.userId] = (wins[w.userId] || 0) + 1;
   });
   const board = Object.keys(played)
-    .map(name => ({ name, w: wins[name] || 0, g: played[name], rate: Math.round(((wins[name] || 0) / played[name]) * 100) }))
+    .map(id => ({ name: names[id], w: wins[id] || 0, g: played[id], rate: Math.round(((wins[id] || 0) / played[id]) * 100) }))
     .sort((a, b) => b.w - a.w || b.rate - a.rate);
+  if (!board.length) {
+    el.innerHTML = '<div class="lb-empty">No games with registered players yet — guest seats are not ranked.</div>';
+    return;
+  }
   const avgTurns = Math.round(completed.reduce((s, g) => s + (g.currentTurn || 0), 0) / completed.length);
   const totalTime = completed.reduce((s, g) => s + (g.endedAt && g.date ? g.endedAt - g.date : 0), 0);
   const tile = (value, label) => `<div class="lb-tile"><div class="lb-tile-val">${value}</div><div class="lb-tile-label">${label}</div></div>`;
@@ -950,13 +963,9 @@ function _colorLogNames(escapedText, players) {
 
 function renderGameLog(game) {
   if (!game.log.length) return '<div style="padding:0.75rem 1rem;font-size:0.8rem;color:var(--text3)">No events yet</div>';
-  const typeColor = {
-    game_start: 'var(--teal)', game_end: 'var(--gold)',
-    damage: 'var(--red)', life_gain: 'var(--teal)',
-    commander_damage: '#e07a3a', poison: 'var(--purple)',
-    elimination: 'var(--red)', turn_change: 'var(--text3)',
-    note: 'var(--text2)',
-  };
+  // Event type no longer tints the line. Colour on this page means "which
+  // player", so a red damage line put a second, unrelated meaning on the same
+  // signal — and a coloured name inside a tinted sentence read as noise.
   return [...game.log].reverse().map(e => {
     // The from/to swatch dots are gone: the names inside the line carry the
     // player colour now, the same as everywhere else on this page.
@@ -966,7 +975,7 @@ function renderGameLog(game) {
     return `
     <div style="display:flex;gap:8px;padding:5px 12px;border-bottom:1px solid var(--border);font-size:0.78rem;align-items:flex-start">
       <span style="font-family:'JetBrains Mono',monospace;font-size:0.65rem;color:var(--text3);white-space:nowrap;padding-top:1px;min-width:24px">${e.turn != null ? 'T' + e.turn : ''}</span>
-      <span style="color:${typeColor[e.type] || 'var(--text2)'};">${_colorLogNames(escapeHtml(e.text), game.players)}</span>
+      <span style="color:var(--text2)">${_colorLogNames(escapeHtml(e.text), game.players)}</span>
       ${durationTag}
     </div>`;
   }).join('');
@@ -1618,7 +1627,7 @@ function renderGameDetail(game) {
   el.innerHTML = `
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:0.5rem;flex-wrap:wrap">
       <span class="gt-format" style="font-family:'Cinzel',serif;font-size:1rem;color:var(--gold)">${game.format}</span>
-      <span class="tag tag-blue">${game.currentTurn} turns</span>
+      <span style="font-size:0.8rem;color:var(--text3)">${game.currentTurn} turns</span>
       <span style="font-size:0.8rem;color:var(--text3)">${new Date(game.date).toLocaleString()}</span>
       <div style="flex:1"></div>
       <button class="btn btn-danger btn-sm" onclick="deleteGame('${game.id}')">Delete</button>

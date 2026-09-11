@@ -10534,7 +10534,7 @@ body.glass-mode .tablet-life-btn {
    pane supplies the padding the panel-body used to. */
 .games-pane-bar {
   display: flex; align-items: center; gap: 8px;
-  padding: 0 0.25rem 0.85rem;
+  padding: 0.6rem 0.25rem 0.9rem;
 }
 .games-grid {
   display: grid;
@@ -10662,13 +10662,12 @@ body.glass-mode .pg-card {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .pg-you { color: var(--text3); }
+/* Plain text, not pills — these are asides on a name, not controls. */
 .pg-tag {
   flex-shrink: 0;
-  font-size: 0.62rem; letter-spacing: 0.05em; text-transform: uppercase;
-  color: var(--text3); padding: 1px 6px; border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  font-size: 0.68rem; color: var(--text3);
 }
-.pg-tag-owner { color: var(--gold); border-color: rgba(212, 175, 55, 0.32); }
+.pg-tag-owner { color: var(--gold); }
 .pg-member .pg-x-btn { margin-left: auto; opacity: 0.5; }
 .pg-member .pg-x-btn:hover { opacity: 1; }
 .pg-add-row { display: flex; gap: 6px; align-items: center; margin-top: 2px; }

@@ -72,16 +72,16 @@ function renderPlaygroupsPanel() {
     const selfInvited = g.members.some(m => myId != null && m.id === myId && m.status === 'invited');
     const shown = open ? g.members : g.members.slice(0, PG_PEEK);
     const hidden = g.members.length - shown.length;
+    // Owner / invited read as plain text, not pills, and the per-member remove
+    // button is off for now — removePlaygroupMember is still wired up for when
+    // it comes back.
     const memberRows = shown.map(m => {
       const isSelf = myId != null && m.id === myId;
-      const canRemove = g.isOwner ? !isSelf : isSelf; // owner removes others; member removes self (or declines)
-      const removeTitle = g.isOwner ? 'Remove from playgroup' : (m.status === 'invited' ? 'Decline invite' : 'Leave playgroup');
       const tags = (m.id === g.ownerId ? '<span class="pg-tag pg-tag-owner">owner</span>' : '')
         + (m.status === 'invited' ? '<span class="pg-tag">invited</span>' : '');
       return `<div class="pg-member">
         <span class="pg-member-name">${escapeHtml(m.name || '')}${isSelf ? ' <span class="pg-you">(you)</span>' : ''}</span>
         ${tags}
-        ${canRemove ? `<button class="btn btn-ghost btn-sm btn-icon pg-x-btn" title="${removeTitle}" aria-label="${removeTitle}" onclick="removePlaygroupMember(${g.id},${m.id})">${x}</button>` : ''}
       </div>`;
     }).join('');
     // The slot is always rendered — an inert placeholder when there is nothing
