@@ -2326,8 +2326,39 @@ function _glassMenuOpen(sel, wrap) {
     });
     menu.appendChild(item);
   }
-  wrap.appendChild(menu);
+  // A menu inside a scrolling/clipping ancestor cannot just be absolutely
+  // positioned: it grows that ancestor's scroll area instead of overlaying the
+  // page. The collection's quick-filter row is `overflow-x: auto` (which makes
+  // overflow-y `auto` too), so opening the rarity menu took the row's
+  // scrollHeight from 36px to 212px, scrolled it to the menu, and pushed all
+  // eleven filter chips out of sight. Those menus are hoisted to <body> and
+  // anchored to the trigger instead.
+  if (_glassMenuClippingAncestor(wrap)) {
+    menu.dataset.floating = '1';
+    document.body.appendChild(menu);
+  } else {
+    wrap.appendChild(menu);
+  }
   _glassMenuFit(menu, wrap);
+}
+
+/** Nearest ancestor that would clip or scroll an absolutely-positioned child. */
+function _glassMenuClippingAncestor(wrap) {
+  let el = wrap && wrap.parentElement;
+  while (el && el !== document.body && el !== document.documentElement) {
+    const o = getComputedStyle(el);
+    if (o.overflowX !== 'visible' || o.overflowY !== 'visible') return el;
+    el = el.parentElement;
+  }
+  return null;
+}
+
+// A hoisted menu is position:fixed, so it cannot follow its trigger. Close on
+// scroll rather than leave it stranded mid-page.
+if (typeof document !== 'undefined') {
+  document.addEventListener('scroll', () => {
+    if (document.querySelector('.glass-menu[data-floating]')) _glassMenuCloseAll();
+  }, true);
 }
 
 /**
@@ -2352,13 +2383,29 @@ function _glassMenuFit(menu, wrap) {
   // The room above measures in screen px but max-height is set in CSS px, and a
   // zoomed ancestor makes those differ — the cap would then render scaled up and
   // still overflow. offsetHeight is unzoomed, so their ratio is the factor.
+  // A hoisted menu sits on <body>, outside any zoomed subtree, so it measures 1.
+  const floating = menu.dataset.floating === '1';
   const scale = wrap.offsetHeight > 0 ? r.height / wrap.offsetHeight : 1;
-  const zoom = Number.isFinite(scale) && scale > 0.1 ? scale : 1;
+  const zoom = floating || !Number.isFinite(scale) || scale <= 0.1 ? 1 : scale;
   menu.style.maxHeight = Math.min(340, room) / zoom + 'px';
   menu.style.overflowY = 'auto';
   menu.style.overscrollBehavior = 'contain';
   menu.style.webkitOverflowScrolling = 'touch';
-  if (flip) {
+  if (floating) {
+    // Anchored to the trigger's viewport rect, since there is no positioned
+    // parent to be `absolute` against any more.
+    menu.style.position = 'fixed';
+    menu.style.minWidth = Math.max(r.width, 150) + 'px';
+    const width = Math.max(r.width, 150);
+    menu.style.left = Math.round(Math.max(margin, Math.min(r.left, window.innerWidth - width - margin))) + 'px';
+    if (flip) {
+      menu.style.top = 'auto';
+      menu.style.bottom = Math.round(window.innerHeight - r.top + 6) + 'px';
+    } else {
+      menu.style.bottom = 'auto';
+      menu.style.top = Math.round(r.bottom + 6) + 'px';
+    }
+  } else if (flip) {
     menu.style.top = 'auto';
     menu.style.bottom = 'calc(100% + 6px)';
   }
