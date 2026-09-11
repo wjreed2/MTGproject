@@ -2590,6 +2590,13 @@ body.glass-mode #voiceModal .search-box {
   display: grid;
   gap: 12px;
   grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  /* Rows size to their content and stop. _renderCollectionTiles pins the grid's
+     min-height while the tail streams in, so the container is deliberately taller
+     than the tiles it currently holds; the default `stretch` redistributed all
+     that slack into the rows, which ballooned a 262px tile to over 1000px and
+     then collapsed it again as each chunk landed — the rows visibly dropping and
+     springing back on every load. */
+  align-content: start;
 }
 .card-grid.view-list { grid-template-columns: 1fr; gap: 6px; }
 .card-grid.view-large { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
@@ -2787,6 +2794,49 @@ img.stack-main.loaded { opacity: 1; }
 @keyframes holo-badge {
   0%   { background-position: 0%   50%; }
   100% { background-position: 200% 50%; }
+}
+
+/* ── Surge foil ───────────────────────────────────────────────────────────────
+   Surge is a promo finish layered on an otherwise normal printing, so it keeps the
+   holo spectrum and adds what the plain foil lacks: a tight diagonal ripple, a
+   deeper spectrum, and motion. Stacked on .card-foil-overlay, so these rules only
+   need to override what differs. */
+.card-surge-overlay {
+  background:
+    repeating-linear-gradient(
+      115deg,
+      rgba(255,255,255,0.00)  0px,
+      rgba(255,255,255,0.15)  2px,
+      rgba(255,255,255,0.00)  5px,
+      rgba(255,255,255,0.00) 11px
+    ),
+    linear-gradient(
+      115deg,
+      transparent 10%,
+      rgba(255,  0, 100, 0.34) 22%,
+      rgba(255,140,   0, 0.34) 31%,
+      rgba(220,255,   0, 0.34) 40%,
+      rgba(  0,220, 100, 0.34) 49%,
+      rgba(  0,155, 255, 0.34) 58%,
+      rgba(130,  0, 255, 0.34) 67%,
+      rgba(255,  0, 180, 0.34) 76%,
+      transparent 88%
+    );
+  background-size: 200% 100%, 250% 100%;
+  animation: surge-sweep 7s linear infinite;
+}
+@keyframes surge-sweep {
+  0%   { background-position:   0% 50%,   0% 50%; }
+  100% { background-position: 200% 50%, 250% 50%; }
+}
+/* The plain-foil badge crawls at 30s; surge reads as the livelier one. */
+.card-foil-badge.is-surge {
+  letter-spacing: 0.18em;
+  animation-duration: 8s;
+}
+@media (prefers-reduced-motion: reduce) {
+  .card-surge-overlay { animation: none; }
+  .card-foil-badge.is-surge { animation: none; }
 }
 @keyframes holo-glow {
   0%   { box-shadow: 0 0 9px 1px rgba(255,  0, 100, 0.55); }
@@ -12157,7 +12207,21 @@ body.glass-mode .card-detail-text {
    not the collection size. */
 #cardGrid .card-item {
   content-visibility: auto;
-  contain-intrinsic-size: auto 180px auto 300px;
+  /* The estimate has to match what a tile actually measures, or every tile lays
+     out at the guess and then snaps to its real size — which is what made row 2
+     and everything under it drop and spring back on load. A tile is
+     width / 0.715 (.card-img-wrap's aspect-ratio) plus ~34px of meta and border,
+     so the pair has to be self-consistent: 180x300 implied a 252px-tall image
+     under a 180px-wide tile, while the real grid column is ~165px and the tile
+     measured 262. These numbers are that relationship. */
+  contain-intrinsic-size: auto 165px auto 265px;
+}
+/* The first screenful never gets to use an estimate. `auto` remembers each
+   tile's real size after its first render, so tiles further down correct
+   themselves once and stay correct; it is only the initial paint that has
+   nothing to remember, and that is exactly where the jump was visible. */
+#cardGrid .card-item:nth-child(-n + 24) {
+  content-visibility: visible;
 }
 
 
