@@ -10854,6 +10854,38 @@ body.glass-mode .lb-tile {
 .lb-pct { flex-shrink: 0; font-size: 0.76rem; color: var(--text3); font-variant-numeric: tabular-nums; }
 .lb-empty { color: var(--text3); font-size: 0.82rem; padding: 1.25rem 0.25rem; }
 
+/* ── Light mode: games, playgroups and leaderboard boxes ───────────────────
+   These were defined only for the dark skin — a 0.055 white fill inside a
+   0.16 white border. On the light theme that is white on white, so the game and
+   playgroup cards were invisible against their pane. Same treatment as the
+   collection's KPI boxes: a white gradient with a near-white edge, separated
+   from the background by a real drop shadow rather than by fill alone. */
+[data-theme="light"] body.glass-mode :is(.game-card, .pg-card, .lb-tile) {
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.78) 0%, rgba(255, 255, 255, 0.48) 45%, rgba(255, 255, 255, 0.62) 100%);
+  border-color: rgba(255, 255, 255, 0.88);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 10px 32px rgba(30, 50, 90, 0.14);
+}
+[data-theme="light"] body.glass-mode .game-card:hover {
+  border-color: rgba(var(--lgx1), 0.5);
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0.62) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 14px 40px rgba(30, 50, 90, 0.2);
+}
+[data-theme="light"] body.glass-mode .game-card.is-selected {
+  border-color: rgba(var(--lgx2), 0.6);
+  background:
+    linear-gradient(135deg, rgba(var(--lgx1), 0.16), rgba(var(--lgx2), 0.16)),
+    linear-gradient(150deg, rgba(255, 255, 255, 0.86) 0%, rgba(255, 255, 255, 0.6) 100%);
+}
+/* Row washes and the win-rate track are white-on-white in light mode too. */
+[data-theme="light"] .lb-row:not(.lb-head):nth-child(even) { background: rgba(20, 35, 60, 0.04); }
+[data-theme="light"] .lb-bar { background: rgba(20, 35, 60, 0.12); }
+[data-theme="light"] body.glass-mode .gsum-row.is-active { background: rgba(20, 35, 60, 0.06); }
+[data-theme="light"] .lb-head { border-bottom-color: rgba(20, 35, 60, 0.14); }
+
 /* ── Tablet view controls: the deck-list button, exactly ───────────────────
    Every button in the scoreboard and its two popup menus now takes the same
    fill, border, radius, text colour and shadow as a deck-list button
@@ -11936,8 +11968,10 @@ body.glass-mode .view-toggle button:hover:not(.active) {
    the squared treatment and fell back to glass mode's 999px pill at whatever
    height btn-sm gave them — Share was a 28px pill beside a 34px email field,
    and the price modal's dropdowns were 28px. Same 34px / 8px / 0.82rem metrics
-   as the controls on the page behind them. The circular close X is left alone:
-   a round icon button is the app's modal-close convention. */
+   the tag modals use. Appearance (panel fill, glass buttons, light mode) comes
+   from the shared tag-modal block further down; this is sizing only. The
+   circular close X is left alone: a round icon button is the app's modal-close
+   convention. */
 #collectionShareModal .btn:not(.btn-icon),
 #wishlistShareModal .btn:not(.btn-icon),
 #priceInfoModal .btn:not(.btn-icon) {
@@ -11955,13 +11989,6 @@ body.glass-mode .view-toggle button:hover:not(.active) {
   height: 34px;
   box-sizing: border-box;
   border-radius: 8px;
-}
-/* Lit states follow the page: accent, not the skin's white. */
-body.glass-mode :is(#collectionShareModal, #wishlistShareModal, #priceInfoModal) .btn-outline:hover,
-body.glass-mode :is(#collectionShareModal, #wishlistShareModal, #priceInfoModal) .glass-dd-btn:hover {
-  color: var(--text);
-  border-color: rgba(var(--lgx1), 0.55);
-  background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14));
 }
 
 body.glass-mode #tab-collection .btn-outline:hover,
@@ -13438,15 +13465,18 @@ body.glass-mode #deckTabPane-design .mc-filter-btn.active,
 }
 
 /* Tag modals: no solid blue controls, and the panel takes the lit glass the
-   rest of the deck builder uses rather than the flat modal fill. */
-body.glass-mode :is(#deckCardTagModal, #deckTagManagerModal) .modal {
+   rest of the deck builder uses rather than the flat modal fill.
+   The collection's Share / Collection Value modals are in the same list so they
+   are the same surface rather than a near-miss of it — same lit panel, same
+   glass buttons, same light-mode pair. */
+body.glass-mode :is(#deckCardTagModal, #deckTagManagerModal, #priceInfoModal, #collectionShareModal, #wishlistShareModal) .modal {
   background:
     linear-gradient(180deg, rgba(var(--lgx1), 0.13) 0%, rgba(var(--lgx2), 0.06) 60%, rgba(var(--lgx2), 0.04) 100%),
     linear-gradient(165deg, rgba(34,44,74,0.94) 0%, rgba(20,27,48,0.93) 100%);
   border-color: rgba(255,255,255,0.20);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.20), 0 28px 90px rgba(0,0,0,0.6);
 }
-[data-theme="light"] body.glass-mode :is(#deckCardTagModal, #deckTagManagerModal) .modal {
+[data-theme="light"] body.glass-mode :is(#deckCardTagModal, #deckTagManagerModal, #priceInfoModal, #collectionShareModal, #wishlistShareModal) .modal {
   background:
     linear-gradient(180deg, rgba(var(--lgx1), 0.10) 0%, rgba(var(--lgx2), 0.05) 60%, rgba(var(--lgx2), 0.04) 100%),
     linear-gradient(165deg, rgba(255,255,255,0.94) 0%, rgba(248,250,255,0.93) 100%);
@@ -13454,25 +13484,25 @@ body.glass-mode :is(#deckCardTagModal, #deckTagManagerModal) .modal {
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.95), 0 28px 90px rgba(30,50,90,0.28);
 }
 /* + Tag / filter buttons: glass, not solid blue. */
-:is(#deckCardTagModal, #deckTagManagerModal) :is(.btn-primary, .btn-outline, .btn-ghost):not(.btn-icon) {
+:is(#deckCardTagModal, #deckTagManagerModal, #priceInfoModal, #collectionShareModal, #wishlistShareModal) :is(.btn-primary, .btn-outline, .btn-ghost):not(.btn-icon) {
   border: 1px solid rgba(255,255,255,0.16) !important;
   background: rgba(255,255,255,0.07) !important;
   color: rgba(240,244,252,0.82) !important;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 2px 10px rgba(0,0,0,0.22) !important;
   font-weight: 500;
 }
-[data-theme="light"] :is(#deckCardTagModal, #deckTagManagerModal) :is(.btn-primary, .btn-outline, .btn-ghost):not(.btn-icon) {
+[data-theme="light"] :is(#deckCardTagModal, #deckTagManagerModal, #priceInfoModal, #collectionShareModal, #wishlistShareModal) :is(.btn-primary, .btn-outline, .btn-ghost):not(.btn-icon) {
   border-color: rgba(255,255,255,0.75) !important;
   background: rgba(255,255,255,0.55) !important;
   color: rgba(28,40,58,0.82) !important;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 10px rgba(30,50,90,0.10) !important;
 }
-:is(#deckCardTagModal, #deckTagManagerModal) :is(.btn-primary, .btn-outline, .btn-ghost):not(.btn-icon):hover {
+:is(#deckCardTagModal, #deckTagManagerModal, #priceInfoModal, #collectionShareModal, #wishlistShareModal) :is(.btn-primary, .btn-outline, .btn-ghost):not(.btn-icon):hover {
   color: var(--text) !important;
   border-color: rgba(var(--lgx1), 0.55) !important;
   background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14)) !important;
 }
-:is(#deckCardTagModal, #deckTagManagerModal) :is(.btn-primary, .btn-outline, .btn-ghost):not(.btn-icon).active {
+:is(#deckCardTagModal, #deckTagManagerModal, #priceInfoModal, #collectionShareModal, #wishlistShareModal) :is(.btn-primary, .btn-outline, .btn-ghost):not(.btn-icon).active {
   color: var(--text) !important;
   border-color: rgba(var(--lgx2), 0.55) !important;
   background: linear-gradient(135deg, rgba(var(--lgx1), 0.22), rgba(var(--lgx2), 0.22)) !important;
