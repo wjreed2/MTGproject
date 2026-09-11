@@ -2586,7 +2586,13 @@ body.glass-mode #voiceModal .search-box {
   color: var(--text); font-family: 'Crimson Pro', serif; font-size: 0.95rem;
 }
 .search-box::placeholder { color: var(--text3); }
-.search-box:focus { outline: none; border-color: var(--gold); }
+/* Accent, not gold — the app moved off gold and this was the last focus ring
+   still using it. */
+.search-box:focus {
+  outline: none;
+  border-color: rgba(var(--lgx1), 0.75);
+  box-shadow: 0 0 0 3px rgba(var(--lgx1), 0.18);
+}
 
 /* Canonical dropdown — text inputs/textareas already share a global base rule
    (see `input[type=...]` further down); selects had none, so each modal styled
@@ -4487,6 +4493,27 @@ body.glass-mode .x-stepper-btn-sm { border-radius: 7px; }
 #tab-collection .filter-bar .filter-chip {
   /* Squared off like the deck-list filter/layout controls, not pills. */
   border-radius: 8px !important;
+}
+
+/* Search gets the full width on its own row; everything else — mana pills,
+   sort, layout, History, Share and the filters — shares the line below it. */
+.collection-search-row {
+  display: flex;
+  margin-bottom: 10px;
+}
+#tab-collection .collection-search-row .search-box {
+  width: 100%;
+  height: 34px !important;
+  box-sizing: border-box;
+  padding: 0 32px 0 12px !important;
+  font-size: 0.82rem !important;
+  border-radius: 8px !important;
+}
+#tab-collection .view-controls {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 10px;
+  margin-bottom: 10px;
+  row-gap: 8px;
 }
 
 /* The quick filters' multi-select, on every width. The menu itself is the
@@ -6467,11 +6494,14 @@ input[type=search], input[type=url], input[type=tel], input:not([type]), textare
 }
 textarea { resize: vertical; line-height: 1.5; }
 
+/* Focus is the app accent, not gold. This is the generic rule for every text
+   field, and being declared after .search-box:focus it also outranks it — so
+   recolouring the search bar alone never took. */
 input[type=text]:focus, input[type=number]:focus, input[type=email]:focus, input[type=password]:focus,
 input[type=search]:focus, input[type=url]:focus, input[type=tel]:focus, input:not([type]):focus,
 textarea:focus {
-  outline: none; border-color: rgba(200,168,74,0.6);
-  background: var(--bg4); box-shadow: 0 0 0 3px var(--gold-dim);
+  outline: none; border-color: rgba(var(--lgx1), 0.75);
+  background: var(--bg4); box-shadow: 0 0 0 3px rgba(var(--lgx1), 0.18);
 }
 
 /* Prevent browser autofill from painting a white/blue background */
@@ -6499,7 +6529,7 @@ select {
   padding: 7px 10px; font-family: 'Inter', system-ui, sans-serif; font-size: 0.82rem;
   cursor: pointer; transition: all 0.18s var(--ease);
 }
-select:focus { outline: none; border-color: rgba(200,168,74,0.6); box-shadow: 0 0 0 3px var(--gold-dim); }
+select:focus { outline: none; border-color: rgba(var(--lgx1), 0.75); box-shadow: 0 0 0 3px rgba(var(--lgx1), 0.18); }
 
 /* RESPONSIVE */
 @media(max-width: 900px) {
