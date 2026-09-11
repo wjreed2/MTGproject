@@ -958,7 +958,22 @@ function _renderPriceInfoModal() {
     </tr>`;
   }).join('');
 
+  // Two columns when there is a movers list: stacked, a full movers table pushed
+  // the modal past 88vh on an 800px-tall laptop and it scrolled. Side by side the
+  // height is the taller column rather than the sum. Collapses back to one column
+  // on narrow viewports (see .price-modal-grid).
+  const moversHtml = showDeltas
+    ? `<div class="price-modal-section-title">Top movers · ${esc(tfLabel)}</div>
+       ${movers.length ? `
+       <table class="price-table price-modal-movers">
+         <tr class="price-modal-head"><td>Card</td><td>Δ $</td><td>Δ %</td></tr>
+         ${moverRowsHtml}
+       </table>` : '<div style="font-size:0.8rem;color:var(--text3)">No price-change data yet for this timeframe.</div>'}`
+    : '';
+
   body.innerHTML = `
+    <div class="price-modal-grid${moversHtml ? '' : ' is-single'}">
+    <div class="price-modal-col">
     <div class="price-modal-section-title">Estimated value</div>
     <table class="price-table" style="margin-bottom:1.1rem">
       ${valueRows.map(r => `
@@ -967,12 +982,6 @@ function _renderPriceInfoModal() {
           <td>$${r.val.toFixed(2)}</td>
         </tr>`).join('')}
     </table>
-    ${showDeltas ? `<div class="price-modal-section-title">Top movers · ${esc(tfLabel)}</div>
-    ${movers.length ? `
-    <table class="price-table price-modal-movers" style="margin-bottom:1.1rem">
-      <tr class="price-modal-head"><td>Card</td><td>Δ $</td><td>Δ %</td></tr>
-      ${moverRowsHtml}
-    </table>` : '<div style="font-size:0.8rem;color:var(--text3);margin-bottom:1.1rem">No price-change data yet for this timeframe.</div>'}` : ''}
     <div class="price-modal-section-title">Settings</div>
     <div class="price-modal-settings">
       <label>Displayed price source
@@ -988,10 +997,17 @@ function _renderPriceInfoModal() {
           ${prefs.timeframe === 'custom' ? `<option value="custom" selected>${esc(_priceChangeTfShortLabel('custom', prefs.customDate))}</option>` : ''}
         </select>
       </label>` : ''}
-      <label>Minimum price — omit rows under <strong id="priceModalMinLabel">${floor <= 0 ? 'Off' : '$' + floor.toFixed(2)}</strong> from totals
-        <input type="range" min="0" max="100" step="1" value="${Math.min(100, Math.max(0, Math.round(floor * 10)))}"
+      ${(() => {
+        const pos = Math.min(100, Math.max(0, Math.round(floor * 10)));
+        return `<label>Minimum price — omit rows under <strong id="priceModalMinLabel">${floor <= 0 ? 'Off' : '$' + floor.toFixed(2)}</strong> from totals
+        <input id="priceModalMinSlider" type="range" min="0" max="100" step="1" value="${pos}"
+          style="--range-fill:${pos}%"
           oninput="onPriceModalMinPriceInput(this.value)">
-      </label>
+      </label>`;
+      })()}
+    </div>
+    </div>
+    ${moversHtml ? `<div class="price-modal-col">${moversHtml}</div>` : ''}
     </div>`;
 }
 
@@ -1002,6 +1018,15 @@ function onPriceModalMinPriceInput(sliderVal) {
   const v = typeof getValueExcludeBelowUsd === 'function' ? getValueExcludeBelowUsd() : 0;
   const label = document.getElementById('priceModalMinLabel');
   if (label) label.textContent = v <= 0 ? 'Off' : ('$' + v.toFixed(2));
+  // The track is drawn by us (see .price-modal-settings input[type=range]), so
+  // the filled span is a gradient stop rather than the UA's native fill — it has
+  // to be told where the thumb is.
+  const slider = document.getElementById('priceModalMinSlider');
+  if (slider) {
+    const max = Number(slider.max) || 100;
+    const pct = Math.min(100, Math.max(0, (Number(sliderVal) || 0) / max * 100));
+    slider.style.setProperty('--range-fill', pct + '%');
+  }
   // Debounce the stats pass: one recompute + modal refresh shortly after the drag
   // settles. The flag pauses the modal-refresh hook so the slider node survives the
   // drag; the timer ALWAYS clears it (a drag ending at its start value fires no

@@ -1060,6 +1060,12 @@ body.glass-mode #deckListPanelHeader .view-toggle {
 }
 
 /* Frosted dropdown menus — translucent but never so glassy they stop reading */
+/* A menu hoisted out of a clipping ancestor becomes a sibling of whatever it was
+   opened from, so it no longer inherits that element's stacking context. At the
+   base 450 it painted *behind* the modal overlays (z-index 1000) that most
+   hoisted menus belong to — visible to the DOM, invisible and unclickable on
+   screen. Above the highest overlay in the app (10050). */
+.glass-menu[data-floating] { z-index: 10060; }
 .glass-menu {
   position: absolute;
   top: calc(100% + 6px);
@@ -2890,6 +2896,19 @@ img.stack-main.loaded { opacity: 1; }
 }
 .price-modal-mover-row { cursor: pointer; }
 .price-modal-mover-row:hover td { color: var(--gold); }
+/* Estimated value + Settings on the left, Top movers on the right, so the modal's
+   height is the taller column instead of the sum of both. */
+.price-modal-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0 1.75rem;
+  align-items: start;
+}
+.price-modal-grid.is-single { grid-template-columns: minmax(0, 1fr); }
+.price-modal-col { min-width: 0; }
+@media (max-width: 860px) {
+  .price-modal-grid { grid-template-columns: minmax(0, 1fr); gap: 1.1rem; }
+}
 .price-modal-settings { display: flex; flex-direction: column; gap: 12px; }
 .price-modal-settings label { font-size: 0.78rem; color: var(--text2); display: block; }
 .price-modal-settings label strong { color: rgb(var(--lgx1)); }
@@ -2906,8 +2925,15 @@ img.stack-main.loaded { opacity: 1; }
   -webkit-appearance: none; appearance: none;
   background: transparent; cursor: pointer;
 }
+/* --range-fill is set from onPriceModalMinPriceInput; custom properties inherit
+   into these pseudo-elements, so the filled span tracks the thumb the way the
+   native accent fill used to. */
 .price-modal-settings input[type="range"]::-webkit-slider-runnable-track {
-  height: 6px; border-radius: 999px; background: rgba(255, 255, 255, 0.14);
+  height: 6px; border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    rgb(var(--lgx1)) 0 var(--range-fill, 0%),
+    rgba(255, 255, 255, 0.14) var(--range-fill, 0%) 100%);
 }
 .price-modal-settings input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none; appearance: none;
@@ -2918,6 +2944,9 @@ img.stack-main.loaded { opacity: 1; }
 }
 .price-modal-settings input[type="range"]::-moz-range-track {
   height: 6px; border-radius: 999px; background: rgba(255, 255, 255, 0.14);
+}
+.price-modal-settings input[type="range"]::-moz-range-progress {
+  height: 6px; border-radius: 999px; background: rgb(var(--lgx1));
 }
 .price-modal-settings input[type="range"]::-moz-range-thumb {
   width: 14px; height: 14px; border: none; border-radius: 50%;
