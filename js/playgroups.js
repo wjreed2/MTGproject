@@ -18,7 +18,7 @@ function _pgNormalize(groups) {
 async function loadPlaygroupsPanel() {
   const host = document.getElementById('playgroupsPanel');
   if (!host) return;
-  if (!host.childElementCount) host.innerHTML = '<div class="pg-muted">Loading…</div>';
+  if (!host.childElementCount) host.innerHTML = '<div class="pg-empty">Loading…</div>';
   try {
     const [data, users] = await Promise.all([
       apiFetch('/playgroups'),
@@ -27,7 +27,7 @@ async function loadPlaygroupsPanel() {
     _playgroups = _pgNormalize(data.playgroups);
     _pgAllUsers = (Array.isArray(users) ? users : []).map(u => ({ id: Number(u.id), name: u.name }));
   } catch (e) {
-    host.innerHTML = `<div class="pg-muted" style="color:var(--red)">${escapeHtml(e.message)}</div>`;
+    host.innerHTML = `<div class="pg-empty" style="color:var(--red)">${escapeHtml(e.message)}</div>`;
     return;
   }
   renderPlaygroupsPanel();
@@ -44,52 +44,56 @@ async function _pgReload() {
   }
 }
 
+// Same card grid as the Games tab next door, so the two panes read as one page.
 function renderPlaygroupsPanel() {
   const host = document.getElementById('playgroupsPanel');
   if (!host) return;
   if (!_playgroups.length) {
-    host.innerHTML = `<div class="pg-muted" style="line-height:1.45">
+    host.innerHTML = `<div class="pg-empty">
       No playgroups yet. Create one and add your group — members can pick each
       other's decks (including private ones) when starting a game.</div>`;
     return;
   }
   const myId = (typeof currentUser !== 'undefined' && currentUser?.id != null) ? Number(currentUser.id) : null;
-  host.innerHTML = _playgroups.map(g => {
+  const x = typeof gameIcon === 'function' ? gameIcon('x', 11) : '&times;';
+  host.innerHTML = `<div class="pg-grid">${_playgroups.map(g => {
     const selfInvited = g.members.some(m => myId != null && m.id === myId && m.status === 'invited');
     const memberRows = g.members.map(m => {
       const isSelf = myId != null && m.id === myId;
       const canRemove = g.isOwner ? !isSelf : isSelf; // owner removes others; member removes self (or declines)
       const removeTitle = g.isOwner ? 'Remove from playgroup' : (m.status === 'invited' ? 'Decline invite' : 'Leave playgroup');
-      const statusTag = m.status === 'invited' ? ' <span style="color:var(--text3);font-size:0.66rem">invited</span>' : '';
-      return `<div style="display:flex;align-items:center;gap:6px;padding:2px 0">
-        <span class="pg-member-name">${escapeHtml(m.name || '')}${isSelf ? ' <span style="color:var(--text3)">(you)</span>' : ''}${m.id === g.ownerId ? ' <span style="color:var(--gold);font-size:0.66rem">owner</span>' : ''}${statusTag}</span>
-        ${canRemove ? `<button class="btn btn-ghost btn-sm pg-x-btn" title="${removeTitle}" onclick="removePlaygroupMember(${g.id},${m.id})">✕</button>` : ''}
+      const tags = (m.id === g.ownerId ? '<span class="pg-tag pg-tag-owner">owner</span>' : '')
+        + (m.status === 'invited' ? '<span class="pg-tag">invited</span>' : '');
+      return `<div class="pg-member">
+        <span class="pg-member-name">${escapeHtml(m.name || '')}${isSelf ? ' <span class="pg-you">(you)</span>' : ''}</span>
+        ${tags}
+        ${canRemove ? `<button class="btn btn-ghost btn-sm btn-icon pg-x-btn" title="${removeTitle}" aria-label="${removeTitle}" onclick="removePlaygroupMember(${g.id},${m.id})">${x}</button>` : ''}
       </div>`;
     }).join('');
     const acceptRow = selfInvited
-      ? `<div style="margin-top:6px"><button class="btn btn-primary btn-sm" style="font-size:0.72rem;padding:3px 10px" onclick="acceptPlaygroupInvite(${g.id})">Accept invite</button></div>`
+      ? `<button class="btn btn-outline btn-sm pg-accept" onclick="acceptPlaygroupInvite(${g.id})">Accept invite</button>`
       : '';
     const addable = (_pgAllUsers || []).filter(u => !g.members.some(m => m.id === u.id));
     const addRow = g.isOwner && addable.length ? `
-      <div style="display:flex;gap:6px;margin-top:6px">
-        <select id="pgAddSel_${g.id}" class="pg-add-select">
+      <div class="pg-add-row">
+        <select id="pgAddSel_${g.id}" class="pg-add-select" title="Add a member">
           ${addable.map(u => `<option value="${u.id}">${escapeHtml(u.name || '')}</option>`).join('')}
         </select>
-        <button class="btn btn-outline btn-sm" style="font-size:0.72rem;padding:3px 8px" onclick="addPlaygroupMember(${g.id})">Add</button>
+        <button class="btn btn-outline btn-sm" onclick="addPlaygroupMember(${g.id})">Add</button>
       </div>` : '';
-    const deleteBtn = g.isOwner
-      ? `<button class="btn btn-ghost btn-sm pg-x-btn" title="Delete playgroup" onclick="deletePlaygroup(${g.id})">✕</button>`
-      : '';
-    return `<div class="pg-group">
-      <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
+    return `<div class="pg-card">
+      <div class="pg-card-head">
         <span class="pg-group-name">${escapeHtml(g.name || '')}</span>
-        ${deleteBtn}
+        <span class="pg-count">${g.members.length} member${g.members.length === 1 ? '' : 's'}</span>
+        <div style="flex:1"></div>
+        ${g.isOwner ? `<button class="btn btn-ghost btn-sm btn-icon pg-x-btn" title="Delete playgroup" aria-label="Delete playgroup" onclick="deletePlaygroup(${g.id})">${x}</button>` : ''}
       </div>
-      ${memberRows}
+      <div class="pg-members">${memberRows}</div>
       ${acceptRow}
       ${addRow}
     </div>`;
-  }).join('');
+  }).join('')}</div>`;
+  if (typeof _glassSelectEnsure === 'function') _glassSelectEnsure();
 }
 
 async function acceptPlaygroupInvite(groupId) {

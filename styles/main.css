@@ -3694,6 +3694,9 @@ img.stack-main.loaded { opacity: 1; }
   cursor: pointer; touch-action: manipulation;
 }
 .x-stepper-btn:active { background: var(--bg); transform: scale(0.92); }
+/* Compact variant for dense modal rows (new-game mulligan counter). */
+.x-stepper-btn-sm { width: 22px; height: 22px; font-size: 0.95rem; border-radius: 6px; }
+body.glass-mode .x-stepper-btn-sm { border-radius: 7px; }
 
 /* In-game number wheel — flick/scroll to pick an amount, no keyboard. */
 .num-wheel {
@@ -3963,17 +3966,12 @@ img.stack-main.loaded { opacity: 1; }
 }
 
 /* GAME TRACKER — targeting & action bar */
-#tab-games {
-  zoom: 1.3;
-}
+/* This page used to carry `zoom: 1.3`, which scaled every control on it 1.3×
+   — so its buttons and inputs could never match the rest of the app, and any
+   popup menu sized in CSS px (the glass dropdowns) rendered 1.3× taller than
+   the cap meant to keep it on screen. */
 /* Phone-only games layout — shown via mobile.css at ≤768px, off everywhere else. */
 .games-mobile { display: none; }
-#tab-games #gamesSidebar {
-  max-height: 630px !important;
-}
-#tab-games #gamesEmpty {
-  height: 630px !important;
-}
 
 .player-active-turn {
   box-shadow: 0 0 0 1px rgba(255,255,255,0.08), 0 4px 20px rgba(0,0,0,0.3);
@@ -10528,6 +10526,130 @@ body.glass-mode .tablet-life-btn {
 /* Life button colours come from the shared tablet-control rule below, which
    matches the deck-list button exactly. These used to run at 0.08/0.15/0.10 —
    close to it, but not it. */
+
+/* ── Games page: cards in a grid, and a read-only summary ──────────────────
+   The page used to be a sidebar list plus a live tracker with life buttons.
+   Games are cards now, and controlling a game happens in Tablet View. */
+.games-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 0.85rem;
+  padding: 0.25rem;
+}
+.game-card {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 12px 13px 13px;
+  border-radius: var(--radius2);
+  border: 1px solid var(--border2);
+  background: var(--bg3);
+  cursor: pointer;
+  transition: border-color 0.15s var(--ease), background 0.15s var(--ease);
+}
+body.glass-mode .game-card {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.055);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10);
+}
+body.glass-mode .game-card:hover {
+  border-color: rgba(var(--lgx1), 0.45);
+  background: rgba(255, 255, 255, 0.09);
+}
+body.glass-mode .game-card.is-selected {
+  border-color: rgba(var(--lgx2), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.18), rgba(var(--lgx2), 0.18));
+}
+.game-card-head { display: flex; align-items: center; gap: 7px; }
+.game-card-format { font-family: 'Cinzel', serif; font-size: 0.92rem; color: var(--text); }
+.game-card-live {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 0.68rem; letter-spacing: 0.06em; text-transform: uppercase;
+  color: rgb(var(--lgx1));
+}
+.game-card-seats { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.game-card-seat {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 0.78rem; color: var(--text2);
+}
+.game-card-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.game-card-meta {
+  display: flex; gap: 10px;
+  font-size: 0.72rem; color: var(--text3);
+  font-variant-numeric: tabular-nums;
+}
+.game-card-status { font-size: 0.76rem; color: var(--text2); }
+.game-card-open { align-self: flex-start; margin-top: 2px; }
+.game-card-del { opacity: 0.4; }
+.game-card:hover .game-card-del, .game-card-del:hover { opacity: 1; }
+.ng-layout-btn { flex: 1; justify-content: center; gap: 6px; }
+
+/* Read-only standings for the selected game */
+.gsum-grid { display: flex; flex-direction: column; gap: 2px; }
+.gsum-row {
+  display: flex; align-items: center; gap: 9px;
+  padding: 7px 9px; border-radius: 9px;
+}
+body.glass-mode .gsum-row.is-active { background: rgba(255, 255, 255, 0.07); }
+.gsum-row.is-out { opacity: 0.45; }
+.gsum-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.gsum-name { flex: 1; min-width: 0; font-size: 0.88rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gsum-cmds { display: flex; gap: 7px; flex-shrink: 0; }
+.gsum-cmd { font-weight: 700; font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+.gsum-life {
+  min-width: 2.4rem; text-align: right; flex-shrink: 0;
+  font-size: 1.15rem; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text);
+}
+.gsum-turn { font-size: 0.78rem; color: var(--text3); font-variant-numeric: tabular-nums; }
+.gsum-hint { margin: 10px 2px 0; font-size: 0.76rem; color: var(--text3); }
+
+/* ── Playgroups tab: the same card grid as Games ───────────────────────────
+   Was a cramped list in the old right-hand column, which also clipped the
+   member picker's dropdown. Full-width pane, so the menu has room to open. */
+.pg-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 0.85rem;
+  padding: 0.25rem;
+}
+.pg-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 13px 13px;
+  border-radius: var(--radius2);
+  border: 1px solid var(--border2);
+  background: var(--bg3);
+}
+body.glass-mode .pg-card {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.055);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10);
+}
+.pg-card-head { display: flex; align-items: center; gap: 8px; }
+.pg-group-name { font-family: 'Cinzel', serif; font-size: 0.92rem; color: var(--text); }
+.pg-count { font-size: 0.72rem; color: var(--text3); }
+.pg-members { display: flex; flex-direction: column; gap: 1px; }
+.pg-member { display: flex; align-items: center; gap: 7px; min-height: 24px; }
+.pg-member-name {
+  font-size: 0.82rem; color: var(--text2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pg-you { color: var(--text3); }
+.pg-tag {
+  flex-shrink: 0;
+  font-size: 0.62rem; letter-spacing: 0.05em; text-transform: uppercase;
+  color: var(--text3); padding: 1px 6px; border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+.pg-tag-owner { color: var(--gold); border-color: rgba(212, 175, 55, 0.32); }
+.pg-member .pg-x-btn { margin-left: auto; opacity: 0.5; }
+.pg-member .pg-x-btn:hover { opacity: 1; }
+.pg-accept { align-self: flex-start; }
+.pg-add-row { display: flex; gap: 6px; align-items: center; margin-top: 2px; }
+.pg-add-row .glass-dd-wrap { flex: 1; min-width: 0; }
+.pg-add-row .glass-dd-btn { width: 100%; justify-content: space-between; }
+.pg-empty { color: var(--text3); font-size: 0.82rem; line-height: 1.45; padding: 0.5rem 0.25rem; }
 
 /* ── Tablet view controls: the deck-list button, exactly ───────────────────
    Every button in the scoreboard and its two popup menus now takes the same

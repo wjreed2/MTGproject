@@ -53,6 +53,8 @@ function applyGlassMode() {
   if (document.body) document.body.classList.toggle('glass-mode', glassMode);
 }
 
+/** Retained for any stored preference, but the games page no longer offers a
+ *  toggle — the whole app is the glass skin now. */
 function toggleGlassMode() {
   glassMode = !glassMode;
   try { localStorage.setItem('mtg_glass_mode', glassMode ? '1' : '0'); } catch (_) { /* private mode */ }
@@ -181,15 +183,65 @@ function _gameHistoryItemHtml(g) {
     </div>`;
 }
 
+/** Which folder tab the games page is showing. */
+let _gamesTab = 'games';
+function setGamesTab(key) {
+  _gamesTab = key === 'playgroups' ? 'playgroups' : 'games';
+  for (const k of ['games', 'playgroups']) {
+    const pane = document.getElementById('gamesPane-' + k);
+    const tab = document.getElementById('gamesFtab-' + k);
+    if (pane) pane.classList.toggle('active', k === _gamesTab);
+    if (tab) { tab.classList.toggle('active', k === _gamesTab); tab.setAttribute('aria-selected', k === _gamesTab ? 'true' : 'false'); }
+  }
+  if (_gamesTab === 'playgroups' && typeof renderPlaygroupsPanel === 'function') renderPlaygroupsPanel();
+}
+
+/** One game as a card in the grid. */
+function _gameCardHtml(g) {
+  const winner = g.players.find(p => p.id === g.winner);
+  const isActive = g.status === 'active';
+  const activePlayer = g.players[g.activePlayerIdx ?? 0];
+  const dateLabel = new Date(g.date).toLocaleDateString();
+  const durationLabel = g.endedAt ? formatDuration(g.endedAt - g.date) : null;
+  const seats = g.players.map(p =>
+    `<span class="game-card-seat"><span class="game-card-dot" style="background:${p.color}"></span>${escapeHtml(p.name)}</span>`
+  ).join('');
+  return `
+    <div class="game-card${activeGameId === g.id ? ' is-selected' : ''}${isActive ? ' is-live' : ''}" onclick="selectGame('${g.id}')">
+      <div class="game-card-head">
+        <span class="game-card-format">${escapeHtml(g.format)}</span>
+        ${isActive ? '<span class="game-card-live"><span class="game-active-dot"></span>Live</span>' : ''}
+        <div style="flex:1"></div>
+        <button class="btn btn-ghost btn-sm btn-icon game-card-del" onclick="event.stopPropagation();deleteGame('${g.id}')" title="Delete game" aria-label="Delete game">${gameIcon('x', 11)}</button>
+      </div>
+      <div class="game-card-seats">${seats}</div>
+      <div class="game-card-meta">
+        <span>${g.players.length}P</span>
+        <span>T${g.currentTurn || 0}</span>
+        <span>${durationLabel || dateLabel}</span>
+      </div>
+      <div class="game-card-status">${isActive
+        ? `In progress${activePlayer ? ` · ${escapeHtml(activePlayer.name)}` : ''}`
+        : `Winner: ${winner ? escapeHtml(winner.name) : '—'}`}</div>
+      ${isActive ? `<button class="btn btn-outline btn-sm game-card-open" onclick="event.stopPropagation();openTabletView('${g.id}')">Open Tablet View</button>` : ''}
+    </div>`;
+}
+
 function renderGamesSidebar() {
-  const el = document.getElementById('gamesSidebar');
+  const el = document.getElementById('gamesGrid');
   if (!el) return;
   const sorted = [...games].sort((a, b) => b.date - a.date);
-  if (sorted.length === 0) {
-    el.innerHTML = '<div style="color:var(--text3);font-size:0.82rem;text-align:center;padding:1.5rem 0">No games yet</div>';
-    return;
-  }
-  el.innerHTML = sorted.map(_gameHistoryItemHtml).join('');
+  el.innerHTML = sorted.map(_gameCardHtml).join('');
+  _syncGamesEmptyState();
+}
+
+// The grid is the whole list now, so the empty state is only about having no
+// games at all — not about nothing being selected.
+function _syncGamesEmptyState() {
+  const empty = document.getElementById('gamesEmpty');
+  const panel = document.getElementById('gamesGridPanel');
+  if (empty) empty.style.display = games.length ? 'none' : '';
+  if (panel) panel.style.display = games.length ? '' : 'none';
 }
 
 // "Ended games" starts collapsed on the mobile layout.
@@ -285,7 +337,6 @@ function selectGame(id) {
   // the list (and surface the Tablet View button). Skip the heavy active-game
   // render so its turn timer doesn't start behind the scenes.
   if (_gamesIsPhone()) { renderGamesMobile(); return; }
-  document.getElementById('gamesEmpty').style.display = 'none';
   document.getElementById('activeGameArea').style.display = 'none';
   document.getElementById('gameDetailArea').style.display = 'none';
   if (game.status === 'active') {
@@ -424,14 +475,17 @@ function setNewGameLayout(mode) {
   _syncNewGameLayoutBtns();
 }
 
+// A two-button segmented control, built from the app's own buttons so it picks
+// up the glass skin and its .active state instead of a hand-rolled gold box.
 function _syncNewGameLayoutBtns() {
-  const base = 'flex:1;padding:8px 10px;border:1px solid;border-radius:8px;cursor:pointer;font-size:0.8rem;display:inline-flex;align-items:center;justify-content:center;gap:6px;';
-  const on  = 'background:rgba(200,168,74,0.14);border-color:rgba(200,168,74,0.5);color:var(--gold)';
-  const off = 'background:var(--bg3);border-color:var(--border2);color:var(--text3)';
-  const d = document.getElementById('ngLayoutDefault');
-  const p = document.getElementById('ngLayoutPie');
-  if (d) { d.style.cssText = base + (newGameTabletLayout === 'default' ? on : off); d.innerHTML = `${gameIcon('grid', 13)}Default`; }
-  if (p) { p.style.cssText = base + (newGameTabletLayout === 'pie' ? on : off); p.innerHTML = `${gameIcon('pie', 13)}Enhanced`; }
+  const apply = (el, on, label, icon) => {
+    if (!el) return;
+    el.className = 'btn btn-outline ng-layout-btn' + (on ? ' active' : '');
+    el.style.cssText = '';
+    el.innerHTML = `${gameIcon(icon, 13)}${label}`;
+  };
+  apply(document.getElementById('ngLayoutDefault'), newGameTabletLayout === 'default', 'Default', 'grid');
+  apply(document.getElementById('ngLayoutPie'), newGameTabletLayout === 'pie', 'Enhanced', 'pie');
 }
 
 function addNewGamePlayer() {
@@ -501,7 +555,9 @@ function renderNewGamePlayersList() {
     header.innerHTML = `<div></div><div></div><div>NAME</div><div>DECK</div>${isCmdFmt ? '<div>COMMANDER</div>' : ''}<div style="text-align:center">MULL</div><div></div>`;
   }
 
-  const mullBtn = 'background:var(--bg3);border:1px solid var(--border2);color:var(--text2);border-radius:5px;width:20px;height:22px;cursor:pointer;font-size:0.95rem;line-height:1;padding:0';
+  // Uses the shared stepper class (small variant) so it picks up the glass skin
+  // like every other +/- control instead of carrying its own inline box.
+  const mullBtn = 'x-stepper-btn x-stepper-btn-sm';
   const lastSeat = newGamePlayers.length - 1;
 
   if (!Array.isArray(_allAppUsers)) _allAppUsers = [];
@@ -543,9 +599,9 @@ function renderNewGamePlayersList() {
       ${deckCell}
       ${isCmdFmt ? `<div style="font-size:0.78rem;color:var(--gold);font-family:'Cinzel',serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0">${escapeHtml(commanderLabel)}</div>` : ''}
       <div style="display:flex;align-items:center;gap:3px;justify-content:center" title="Mulligans taken before the game">
-        <button type="button" onclick="ngpMull(${i},-1)" style="${mullBtn}">−</button>
+        <button type="button" onclick="ngpMull(${i},-1)" class="${mullBtn}" aria-label="Fewer mulligans">−</button>
         <span style="min-width:14px;text-align:center;font-family:'JetBrains Mono',monospace;font-size:0.85rem">${p.mulligans || 0}</span>
-        <button type="button" onclick="ngpMull(${i},1)" style="${mullBtn}">+</button>
+        <button type="button" onclick="ngpMull(${i},1)" class="${mullBtn}" aria-label="More mulligans">+</button>
       </div>
       ${newGamePlayers.length > 2 ? `<button class="btn btn-ghost btn-icon" onclick="removeNewGamePlayer(${i})" style="color:var(--red);padding:3px 5px;font-size:0.85rem">✕</button>` : '<div></div>'}
     </div>`;
@@ -665,50 +721,61 @@ async function submitNewGame() {
 
 // ── Active game tracker ───────────────────────────────────────────────────────
 
+/**
+ * The selected live game, read-only. Life, damage, turn passing and the action
+ * bar all live in Tablet View now — this page shows the state and the log and
+ * sends you there. renderPlayerCard/renderActionBar are consequently unused by
+ * this page; they remain defined because the action-mode plumbing they share is
+ * still driven from the tablet.
+ */
 function renderActiveGame(game) {
   const el = document.getElementById('activeGameArea');
   if (!el) return;
   applyGlassMode();
   const isCmd = game.format === 'Commander' || game.format === 'Brawl';
-  const activePlayers = game.players.filter(p => !p.eliminated).length;
-
   const activeIdx = game.activePlayerIdx ?? 0;
   const activePlayer = game.players[activeIdx];
+  const standings = game.players.map(p => {
+    const cmd = isCmd
+      ? Object.entries(p.commanderDamage || {}).filter(([, v]) => Number(v) > 0)
+          .map(([oid, v]) => {
+            const op = game.players.find(o => o.id === oid);
+            return `<span class="gsum-cmd" style="color:${op ? op.color : 'var(--text3)'}">${Number(v)}</span>`;
+          }).join('')
+      : '';
+    return `
+      <div class="gsum-row${p.eliminated ? ' is-out' : ''}${p.id === (activePlayer && activePlayer.id) ? ' is-active' : ''}">
+        <span class="gsum-dot" style="background:${p.color}"></span>
+        <span class="gsum-name">${escapeHtml(p.name)}</span>
+        <span class="gsum-cmds">${cmd}</span>
+        <span class="gsum-life">${p.life}</span>
+      </div>`;
+  }).join('');
 
   el.innerHTML = `
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:0.85rem;flex-wrap:wrap">
-      <span class="gt-format" style="font-family:'Cinzel',serif;font-size:1rem;color:var(--gold)">${game.format}</span>
-      <span class="tag tag-blue">T${game.currentTurn}, P${activeIdx + 1}</span>
-      ${activePlayer ? `<span style="display:inline-flex;align-items:center;gap:5px;padding:2px 10px;background:rgba(${hexToRgb(activePlayer.color)},0.12);border:1px solid rgba(${hexToRgb(activePlayer.color)},0.35);border-radius:20px;font-size:0.75rem;font-family:'Inter',system-ui,sans-serif;white-space:nowrap">
-        <span style="width:7px;height:7px;border-radius:50%;background:${activePlayer.color};flex-shrink:0"></span>
-        <strong style="color:${activePlayer.color}">${escapeHtml(activePlayer.name)}</strong>'s turn
-      </span>` : ''}
-      <span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:var(--bg3);border:1px solid var(--border2);border-radius:20px;font-size:0.73rem;font-family:'JetBrains Mono',monospace;color:var(--text2)">${gameIcon('clock', 12)}<span id="turnTimerDisplay">${game.turnStartedAt ? formatDuration(Date.now() - game.turnStartedAt) : '00:00'}</span></span>
-      <span style="font-size:0.8rem;color:var(--text3)">${activePlayers} active</span>
-      <div style="flex:1"></div>
-      <button class="btn btn-outline btn-sm" onclick="nextTurn('${game.id}')">→ Next Turn</button>
-      <button class="btn btn-outline btn-sm" onclick="openLogEvent('${game.id}')" style="display:inline-flex;align-items:center;gap:5px">${gameIcon('sword', 12)}Log Event</button>
-      <button class="btn btn-outline btn-sm" onclick="openTabletView('${game.id}')" style="display:inline-flex;align-items:center;gap:5px">${gameIcon('tablet', 12)}Tablet View</button>
-      <button id="glassModeBtn" class="btn btn-outline btn-sm${glassMode ? ' active' : ''}" onclick="toggleGlassMode()" title="Toggle the liquid glass look" style="display:inline-flex;align-items:center;gap:5px">${gameIcon('droplet', 12)}Glass</button>
-      <button class="btn btn-danger btn-sm" onclick="openEndGame('${game.id}')" style="display:inline-flex;align-items:center;gap:5px">${gameIcon('flag', 12)}End Game</button>
+    <div class="panel" style="margin-bottom:1.25rem">
+      <div class="panel-header" style="flex-wrap:wrap;gap:8px">
+        <span class="panel-title">${escapeHtml(game.format)}</span>
+        <span class="gsum-turn">T${game.currentTurn}${activePlayer ? ` · ${escapeHtml(activePlayer.name)}` : ''}</span>
+        <div style="flex:1"></div>
+        <button class="btn btn-outline btn-sm" onclick="openTabletView('${game.id}')">Open Tablet View</button>
+        <button class="btn btn-outline btn-sm" onclick="openLogEvent('${game.id}')">Log Event</button>
+        <button class="btn btn-outline btn-sm" onclick="openEndGame('${game.id}')">End Game</button>
+      </div>
+      <div class="panel-body">
+        <div class="gsum-grid">${standings}</div>
+        <p class="gsum-hint">Life, damage and turns are tracked in Tablet View.</p>
+      </div>
     </div>
-    ${renderActionBar(game)}
-    <div class="player-cards-grid" id="playerCardsGrid_${game.id}" style="margin-top:0.85rem">
-      ${game.players.map(p => renderPlayerCard(game, p)).join('')}
-    </div>
-    <div class="panel" style="margin-top:1.25rem">
+    <div class="panel">
       <div class="panel-header">
         <span class="panel-title">Event Log</span>
         <span style="font-size:0.72rem;color:var(--text3)">${game.log.length} events</span>
       </div>
-      <div style="max-height:200px;overflow-y:auto" id="gameLog_${game.id}">
+      <div style="max-height:260px;overflow-y:auto" id="gameLog_${game.id}">
         ${renderGameLog(game)}
       </div>
     </div>`;
-  // Respect a paused turn — otherwise any life/damage change would silently restart
-  // the ticking clock (and the displayed time would jump to include the paused span).
-  if (game.status === 'active' && !_turnPaused) startTurnTimer(game.id);
-  _syncGameWheels();
 }
 
 function renderPlayerCard(game, p) {
@@ -849,7 +916,7 @@ function renderGameLog(game) {
       : '';
     return `
     <div style="display:flex;gap:8px;padding:5px 12px;border-bottom:1px solid var(--border);font-size:0.78rem;align-items:flex-start">
-      <span style="font-family:'JetBrains Mono',monospace;font-size:0.65rem;color:var(--text3);white-space:nowrap;padding-top:1px;min-width:24px">T${e.turn}</span>
+      <span style="font-family:'JetBrains Mono',monospace;font-size:0.65rem;color:var(--text3);white-space:nowrap;padding-top:1px;min-width:24px">${e.turn != null ? 'T' + e.turn : ''}</span>
       ${dots}
       <span style="color:${typeColor[e.type] || 'var(--text2)'};">${escapeHtml(e.text)}</span>
       ${durationTag}
@@ -2843,7 +2910,6 @@ function deleteGame(id) {
     activeGameId = null;
     document.getElementById('activeGameArea').style.display = 'none';
     document.getElementById('gameDetailArea').style.display = 'none';
-    document.getElementById('gamesEmpty').style.display = '';
   }
   save('games'); renderGames(); showNotif('Game deleted');
 }

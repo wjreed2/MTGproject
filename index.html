@@ -1127,44 +1127,52 @@
   <!-- Mobile-only layout (phones ≤768px) — rendered by renderGamesMobile() -->
   <div id="gamesMobile" class="games-mobile"></div>
 
-  <div class="games-desktop-layout" style="display:grid;grid-template-columns:280px 1fr;gap:1.25rem;align-items:start">
+  <div class="games-desktop-layout">
 
-    <!-- Sidebar -->
-    <div style="display:flex;flex-direction:column;gap:1rem">
-      <div class="panel">
+    <!-- Games / Playgroups folder tabs, same component as the deck builder -->
+    <div class="deck-folder-tabs" id="gamesTabs" role="tablist" aria-label="Games sections">
+      <button type="button" class="deck-ftab active" id="gamesFtab-games" role="tab" aria-selected="true" onclick="setGamesTab('games')">Games</button>
+      <button type="button" class="deck-ftab" id="gamesFtab-playgroups" role="tab" aria-selected="false" onclick="setGamesTab('playgroups')">Playgroups</button>
+    </div>
+
+    <div id="gamesPane-games" class="deck-tab-pane active">
+      <div class="panel" id="gamesGridPanel" style="margin-bottom:1.25rem">
         <div class="panel-header">
-          <span class="panel-title">Game History</span>
-          <button class="btn btn-primary btn-sm" onclick="openNewGame()">+ New Game</button>
+          <span class="panel-title">Games</span>
+          <div style="flex:1"></div>
+          <button class="btn btn-outline btn-sm" onclick="openNewGame()">+ New Game</button>
         </div>
-        <div id="gamesSidebar" style="padding:0.25rem 0.5rem;max-height:420px;overflow-y:auto"></div>
+        <div class="panel-body">
+          <div id="gamesGrid" class="games-grid"></div>
+        </div>
       </div>
-      <div class="panel">
+
+      <!-- Empty state — shown only when there are no games at all -->
+      <div id="gamesEmpty" class="empty-state">
+        <h2>No games yet</h2>
+        <p>Track damage, life totals, commander damage, and poison<br>across any format — detailed analytics after each game.</p>
+        <button class="btn btn-outline" onclick="openNewGame()">+ Start New Game</button>
+      </div>
+
+      <!-- Selected game: read-only. Life and turn control live in Tablet View. -->
+      <div id="activeGameArea" style="display:none"></div>
+      <div id="gameDetailArea" style="display:none"></div>
+
+      <div class="panel" style="margin-top:1.25rem">
         <div class="panel-header"><span class="panel-title">Leaderboard</span></div>
         <div class="panel-body" id="gamesQuickStats"></div>
       </div>
+    </div>
+
+    <div id="gamesPane-playgroups" class="deck-tab-pane">
       <div class="panel">
         <div class="panel-header">
           <span class="panel-title">Playgroups</span>
-          <button class="btn btn-outline btn-sm" onclick="openCreatePlaygroup()" title="Create a playgroup — members can see each other's private decks in the game picker">+ New</button>
+          <div style="flex:1"></div>
+          <button class="btn btn-outline btn-sm" onclick="openCreatePlaygroup()" title="Create a playgroup — members can see each other's private decks in Browse Decks">+ New Playgroup</button>
         </div>
         <div class="panel-body" id="playgroupsPanel" style="padding:0.5rem 0.75rem"></div>
       </div>
-    </div>
-
-    <!-- Main area -->
-    <div>
-      <!-- Empty state -->
-      <div id="gamesEmpty" class="empty-state">
-        <h2>No game selected</h2>
-        <p>Track damage, life totals, commander damage, and poison<br>across any format — detailed analytics after each game.</p>
-        <button class="btn btn-primary" onclick="openNewGame()">+ Start New Game</button>
-      </div>
-
-      <!-- Live game tracker (JS-rendered) -->
-      <div id="activeGameArea" style="display:none"></div>
-
-      <!-- Historical game detail (JS-rendered) -->
-      <div id="gameDetailArea" style="display:none"></div>
     </div>
 
   </div>

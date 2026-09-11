@@ -2349,7 +2349,12 @@ function _glassMenuFit(menu, wrap) {
   // keep opening downward in the ordinary case.
   const flip = below < 180 && above > below;
   const room = Math.max(140, flip ? above : below);
-  menu.style.maxHeight = Math.min(340, room) + 'px';
+  // The room above measures in screen px but max-height is set in CSS px, and a
+  // zoomed ancestor makes those differ — the cap would then render scaled up and
+  // still overflow. offsetHeight is unzoomed, so their ratio is the factor.
+  const scale = wrap.offsetHeight > 0 ? r.height / wrap.offsetHeight : 1;
+  const zoom = Number.isFinite(scale) && scale > 0.1 ? scale : 1;
+  menu.style.maxHeight = Math.min(340, room) / zoom + 'px';
   menu.style.overflowY = 'auto';
   menu.style.overscrollBehavior = 'contain';
   menu.style.webkitOverflowScrolling = 'touch';
