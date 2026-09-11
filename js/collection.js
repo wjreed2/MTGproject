@@ -838,9 +838,38 @@ const _COLLECTION_RENDER_FIRST = 150;
 // (746ms) but with 150-200ms frames that swallow taps. 400 sits between: 907ms
 // total, worst frame 96ms. Making this smaller "for phones" measurably hurts.
 const _COLLECTION_RENDER_CHUNK = 400;
+// Phone-only: how many tiles to build before waiting for the reader to scroll.
+// Several screenfuls at any column count, so the pause is never visible.
+const _COLLECTION_LAZY_BUDGET = 400;
+
+let _collectionLazyObserver = null;
+/**
+ * Watch for the end of the grid coming into view, then hand control back to the
+ * streaming step. Generation-guarded like the stream itself, so a filter change
+ * mid-scroll cannot resume rendering the list it just replaced.
+ */
+function _armCollectionLazyTail(grid, gen, resume) {
+  if (_collectionLazyObserver) { _collectionLazyObserver.disconnect(); _collectionLazyObserver = null; }
+  if (typeof IntersectionObserver !== 'function') { requestAnimationFrame(resume); return; }
+  const sentinel = grid.lastElementChild;
+  if (!sentinel) { requestAnimationFrame(resume); return; }
+  const io = new IntersectionObserver(entries => {
+    if (!entries.some(e => e.isIntersecting)) return;
+    io.disconnect();
+    if (_collectionLazyObserver === io) _collectionLazyObserver = null;
+    if (gen !== _collectionRenderGen) return;
+    resume();
+  }, { root: null, rootMargin: '800px 0px' }); // start early enough to feel seamless
+  io.observe(sentinel);
+  _collectionLazyObserver = io;
+}
 
 function _renderCollectionTiles(grid, cards, tileHtml) {
   const gen = ++_collectionRenderGen;
+  // Retire any pending lazy-tail watcher up front: its sentinel is about to be
+  // replaced. (The generation check would make it a no-op anyway; this just
+  // avoids leaving an observer attached to a detached node until it fires.)
+  if (_collectionLazyObserver) { _collectionLazyObserver.disconnect(); _collectionLazyObserver = null; }
   // Hold the grid's height while the tail streams in so a mid-scroll re-render
   // (e.g. the price repaint) doesn't collapse the page and yank the scroll.
   const prevH = grid.offsetHeight;
@@ -853,6 +882,12 @@ function _renderCollectionTiles(grid, cards, tileHtml) {
     return;
   }
   let idx = _COLLECTION_RENDER_FIRST;
+  // Phones stop after a few screenfuls and resume as you approach the end.
+  // Building every tile up front is the single biggest main-thread cost of
+  // opening this tab — ~690ms of blocked scripting for 5,000 cards at 4x CPU
+  // throttle, which on a real phone is seconds of the app not answering taps.
+  // Desktop keeps streaming to completion, where it was never a problem.
+  const lazy = _gamesIsPhone();
   const step = () => {
     if (gen !== _collectionRenderGen) return; // superseded by a newer render
     const tab = document.getElementById('tab-collection');
@@ -862,8 +897,13 @@ function _renderCollectionTiles(grid, cards, tileHtml) {
     for (let i = idx; i < end; i++) html += tileHtml(cards[i]);
     grid.insertAdjacentHTML('beforeend', html);
     idx = end;
-    if (idx < cards.length) requestAnimationFrame(step);
-    else grid.style.minHeight = '';
+    if (idx >= cards.length) { grid.style.minHeight = ''; return; }
+    if (lazy && idx >= _COLLECTION_LAZY_BUDGET) {
+      grid.style.minHeight = '';
+      _armCollectionLazyTail(grid, gen, () => { idx += 0; step(); });
+      return;
+    }
+    requestAnimationFrame(step);
   };
   requestAnimationFrame(step);
 }
