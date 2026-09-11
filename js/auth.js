@@ -81,6 +81,8 @@ function onValueExcludeThresholdInput(sliderVal) {
   const steps = Number(sliderVal);
   const usd = Math.min(VALUE_EXCLUDE_MAX_USD, Math.max(0, (Number.isFinite(steps) ? steps : 0) / 10));
   setValueExcludeBelowUsd(usd);
+  const slider = document.getElementById('settingsValueExcludeSlider');
+  if (slider) slider.style.setProperty('--range-fill', Math.min(100, Math.max(0, steps || 0)) + '%');
 }
 
 function renderValueExcludeSlider() {
@@ -88,7 +90,12 @@ function renderValueExcludeSlider() {
   const label = document.getElementById('settingsValueExcludeLabel');
   const v = getValueExcludeBelowUsd();
   const steps = Math.min(100, Math.max(0, Math.round(v * 10)));
-  if (slider) slider.value = String(steps);
+  if (slider) {
+    slider.value = String(steps);
+    // The track is drawn in CSS, so the filled span is a gradient stop that has
+    // to be told where the thumb is (see #settingsValueExcludeSlider in main.css).
+    slider.style.setProperty('--range-fill', steps + '%');
+  }
   if (label) label.textContent = v <= 0 ? 'Off' : ('$' + v.toFixed(2));
 }
 
@@ -267,9 +274,20 @@ function refreshAuthUserLabel(email, role) {
   if (role) currentUserRole = role;
   const el = document.getElementById('topbarUser');
   const row = document.getElementById('topbarUserRow');
-  if (el) el.innerHTML = email
-    ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:20px;height:20px;flex-shrink:0"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg><span style="font-size:0.82rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${email}</span>`
-    : '';
+  // Icon only — the address itself is in the menu this button opens, so showing
+  // it here just ate topbar width and truncated to something unreadable anyway.
+  // Written into a child span, not the button: the button also holds the
+  // What's-New unread dot, which innerHTML on the button itself would wipe.
+  const icon = document.getElementById('topbarUserIcon');
+  if (icon) {
+    icon.innerHTML = email
+      ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:20px;height:20px;flex-shrink:0;display:block"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>'
+      : '';
+  }
+  if (el) {
+    el.title = email || '';
+    el.setAttribute('aria-label', email ? `Account menu — ${email}` : 'Account menu');
+  }
   if (row) row.style.display = email ? 'flex' : 'none';
   // Sync theme button active state whenever the label refreshes
   const saved = localStorage.getItem('mtg_theme') || 'dark';

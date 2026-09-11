@@ -600,14 +600,41 @@
     width: auto;
     max-width: none;
     max-height: none;
-    border: none;
-    border-radius: 0;
-    box-shadow: none;
-    background: transparent;
-    padding: 0.25rem 0 1rem;
     overflow: visible;
     z-index: auto;
+    padding: 0 0 1.25rem !important;
   }
+  /* It is the page, not a menu floating over one — so no panel of its own.
+     The shared glass rule for dropdowns and popovers is
+     `body.glass-mode :is(.settings-dropdown, …)` with !important, which is
+     specificity (0,2,1); a plain `.settings-dropdown.settings-as-page` is
+     (0,2,0) and loses even with !important of its own. Hence the body prefix. */
+  body.glass-mode .settings-dropdown.settings-as-page {
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+  /* There is no topbar on phones, so the page supplies its own top breathing
+     room and a heading — otherwise the first section label sits against the
+     very top edge of the viewport. */
+  #tab-settings.active { padding-top: 0.35rem; }
+  #tab-settings::before {
+    content: 'Settings';
+    display: block;
+    font-family: 'Cinzel', serif;
+    font-size: 1.15rem;
+    color: var(--text);
+    letter-spacing: 0.02em;
+    margin: 0 0 0.85rem;
+  }
+  body.glass-mode #tab-settings::before { font-family: var(--glass-font); font-weight: 700; }
+  /* Section labels need air between groups now that they are the only structure. */
+  .settings-as-page .settings-section-label { margin-top: 1.1rem; }
+  .settings-as-page > .settings-section-label:first-child { margin-top: 0; }
+  .settings-as-page .settings-divider { margin: 1.1rem 0; }
 
   /* ── Modals — slide up from bottom ───────────────────────────────────── */
   .modal-overlay { align-items: flex-end !important; }

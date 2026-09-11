@@ -2919,7 +2919,9 @@ img.stack-main.loaded { opacity: 1; }
 /* Track and thumb are drawn explicitly rather than left to accent-color, which
    only tints the thumb and the filled span — the empty track kept rendering from
    the UA's light theme as a pale cream bar, which is what still read as gold
-   after the accent was changed. */
+   after the accent was changed. #settingsValueExcludeSlider is the same control
+   in the Settings menu and had the same pale bar. */
+#settingsValueExcludeSlider,
 .price-modal-settings input[type="range"] {
   width: 100%; margin-top: 7px; display: block; height: 16px;
   -webkit-appearance: none; appearance: none;
@@ -2928,6 +2930,7 @@ img.stack-main.loaded { opacity: 1; }
 /* --range-fill is set from onPriceModalMinPriceInput; custom properties inherit
    into these pseudo-elements, so the filled span tracks the thumb the way the
    native accent fill used to. */
+#settingsValueExcludeSlider::-webkit-slider-runnable-track,
 .price-modal-settings input[type="range"]::-webkit-slider-runnable-track {
   height: 6px; border-radius: 999px;
   background: linear-gradient(
@@ -2935,6 +2938,7 @@ img.stack-main.loaded { opacity: 1; }
     rgb(var(--lgx1)) 0 var(--range-fill, 0%),
     rgba(255, 255, 255, 0.14) var(--range-fill, 0%) 100%);
 }
+#settingsValueExcludeSlider::-webkit-slider-thumb,
 .price-modal-settings input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none; appearance: none;
   width: 14px; height: 14px; margin-top: -4px;
@@ -2942,9 +2946,11 @@ img.stack-main.loaded { opacity: 1; }
   background: rgb(var(--lgx1));
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
 }
+#settingsValueExcludeSlider::-moz-range-track,
 .price-modal-settings input[type="range"]::-moz-range-track {
   height: 6px; border-radius: 999px; background: rgba(255, 255, 255, 0.14);
 }
+#settingsValueExcludeSlider::-moz-range-progress,
 .price-modal-settings input[type="range"]::-moz-range-progress {
   height: 6px; border-radius: 999px; background: rgb(var(--lgx1));
 }
