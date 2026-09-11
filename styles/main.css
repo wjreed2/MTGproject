@@ -870,15 +870,16 @@ main {
   align-items: flex-end;
   /* No left padding: the page's left edge flows straight up into the first tab */
   padding: 10px 14px 0 0;
-  /* Pull the row down over the tab page so the open tab's ::before hides the
-     page's top border and the two read as one surface. Two pixels, not one: the
-     page's top lands on a fractional y (measured 199.59 on desktop, 167.59 on a
-     phone), and at a phone's device pixel ratio a single-pixel overlap rounds
-     just short — leaving that border drawn as a rule under the open tab, which
-     is exactly what it is meant to hide. The row is overflow-x: auto, so the
-     ::before cannot simply be extended past the row's own box; it gets clipped.
-     Overlapping the row itself is what actually reaches. */
-  margin-bottom: -2px;
+  /* No overlap. The row used to be pulled down over the page so the open tab
+     would hide the page's top border — but both surfaces are translucent glass,
+     so overlapping them stacked two layers and the doubled region read as a
+     bright band: measured ~75,99,139 against ~51,70,104 for either surface
+     alone. That band was the divider under the first tab, and deepening the
+     overlap to chase it only made it wider. The page carries no top border now
+     (see .deck-tab-pane), so there is nothing to cover and the tab can simply
+     meet it: measured across the joint, 52,72,105 → 51,70,103 → 52,73,106, no
+     step at all. */
+  margin-bottom: 0;
   position: relative;
   z-index: 2;
   overflow-x: auto;
@@ -10269,9 +10270,16 @@ body.glass-mode .deck-tab-pane {
       rgba(255,255,255,0.085) 0%,
       rgba(255,255,255,0.05) 180px,
       rgba(255,255,255,0.05) 100%);
+  /* No top border. The open tab is meant to hide it, and it is painted over —
+     but the tab is glass, roughly a quarter opaque, so a light 1px line under it
+     tints straight through rather than disappearing. Measured at the joint: the
+     two rows between the page's top and the tab's bottom sat ~16 brighter than
+     either surface, which is the divider that stayed visible under the first tab
+     through covering the border, deepening the overlap and dropping the tab's
+     own inset highlight. The outer shadow and the surface contrast carry the
+     page's top edge where no tab covers it. */
   border: 1px solid rgba(255,255,255,0.16);
-  /* No top specular inset here: it reads as a divider line running under the
-     active tab, breaking the tab-flows-into-page illusion. */
+  border-top: none;
   box-shadow:
     inset 0 0 0.5px rgba(255,255,255,0.12),
     0 8px 28px rgba(0,0,0,0.35);
@@ -10301,9 +10309,9 @@ body.glass-mode .deck-ftab.active::before {
     rgba(255,255,255,0.085);
   border-color: rgba(255,255,255,0.16);
   border-bottom: none;
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.2),
-    inset 0 0 0.5px rgba(255,255,255,0.12);
+  /* Top highlight only — the all-round `inset 0 0 0.5px` drew its light edge
+     along the bottom as well, right on the joint with the page. */
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.2);
 }
 body.glass-mode .player-card {
   border-radius: 20px;
