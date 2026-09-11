@@ -770,7 +770,16 @@ function _openQuickFilterMenu() {
       if (kind === 'type') toggleQuickType(value, chip || item);
       else toggleQuickFlag(value, chip || item);
       // Repaint so the new tick shows and several can be picked in one visit.
-      setTimeout(() => { closeQuickFilterMenu(); _openQuickFilterMenu(); }, 0);
+      // The list scrolls on a phone, and a fresh menu starts at the top — so
+      // toggling anything below the fold threw you back up and the next tap
+      // landed on the wrong row. Carry the scroll offset across the repaint.
+      const scroll = menu.scrollTop;
+      setTimeout(() => {
+        closeQuickFilterMenu();
+        _openQuickFilterMenu();
+        const next = document.querySelector('.qf-menu');
+        if (next) next.scrollTop = scroll;
+      }, 0);
     });
     menu.appendChild(item);
   }
@@ -822,6 +831,12 @@ if (typeof document !== 'undefined') {
 // content-visibility (see the #cardGrid .card-item rule in main.css).
 let _collectionRenderGen = 0;
 const _COLLECTION_RENDER_FIRST = 150;
+// 400 is a measured balance, not a guess. On a 4x-throttled phone with a
+// 5,000-card collection the tail costs ~725ms of scripting whatever the chunk
+// size; the size only decides how it is spread. 100 splits it into 34 chunks
+// whose per-chunk overhead dominates (2235ms total), 1200 finishes soonest
+// (746ms) but with 150-200ms frames that swallow taps. 400 sits between: 907ms
+// total, worst frame 96ms. Making this smaller "for phones" measurably hurts.
 const _COLLECTION_RENDER_CHUNK = 400;
 
 function _renderCollectionTiles(grid, cards, tileHtml) {

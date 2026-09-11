@@ -2530,6 +2530,7 @@ body.glass-mode #voiceModal .search-box {
 /* Compact horizontal metrics so the whole rail fits one desktop line
    (overrides the 34px-parity block's 12px padding / 0.82rem sizing) */
 #tab-collection #quickFilterRow .filter-chip,
+#tab-collection #quickFilterRow #quickFilterMenuBtn,
 #tab-collection #quickFilterRow #starFilterBtn,
 #tab-collection #quickFilterRow #clearChipsBtn {
   padding: 0 9px !important;
@@ -4476,6 +4477,7 @@ body.glass-mode .x-stepper-btn-sm { border-radius: 7px; }
 #tab-collection .view-controls select,
 #tab-collection .view-controls .btn,
 #tab-collection .view-controls .view-toggle button,
+#tab-collection #quickFilterMenuBtn,
 #tab-collection .filter-bar .filter-chip,
 #tab-collection #cmcMinInput,
 #tab-collection #cmcMaxInput,
@@ -4505,6 +4507,7 @@ body.glass-mode .x-stepper-btn-sm { border-radius: 7px; }
 }
 #tab-collection .filter-bar .filter-chip,
 #tab-collection #historyBtn,
+#tab-collection #quickFilterMenuBtn,
 #tab-collection #starFilterBtn,
 #tab-collection #clearChipsBtn {
   padding: 0 12px !important;
