@@ -11880,6 +11880,38 @@ body.glass-mode .view-toggle button:hover:not(.active) {
   font-size: 0.82rem !important;
 }
 
+/* The collection's two modals live outside #tab-collection, so they never got
+   the squared treatment and fell back to glass mode's 999px pill at whatever
+   height btn-sm gave them — Share was a 28px pill beside a 34px email field,
+   and the price modal's dropdowns were 28px. Same 34px / 8px / 0.82rem metrics
+   as the controls on the page behind them. The circular close X is left alone:
+   a round icon button is the app's modal-close convention. */
+#collectionShareModal .btn:not(.btn-icon),
+#wishlistShareModal .btn:not(.btn-icon),
+#priceInfoModal .btn:not(.btn-icon) {
+  border-radius: 8px !important;
+  height: 34px !important;
+  box-sizing: border-box;
+  padding: 0 14px !important;
+  font-size: 0.82rem !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+#collectionShareModal input,
+#wishlistShareModal input {
+  height: 34px;
+  box-sizing: border-box;
+  border-radius: 8px;
+}
+/* Lit states follow the page: accent, not the skin's white. */
+body.glass-mode :is(#collectionShareModal, #wishlistShareModal, #priceInfoModal) .btn-outline:hover,
+body.glass-mode :is(#collectionShareModal, #wishlistShareModal, #priceInfoModal) .glass-dd-btn:hover {
+  color: var(--text);
+  border-color: rgba(var(--lgx1), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14));
+}
+
 body.glass-mode #tab-collection .btn-outline:hover,
 body.glass-mode #tab-collection .btn-ghost:hover,
 body.glass-mode #tab-collection .view-toggle button:hover:not(.active),
