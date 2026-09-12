@@ -384,6 +384,7 @@
   <!-- Four high-level actions, right-aligned above everything. Filter and Info
        collapse the two blocks below; History and Share stay out of them. -->
   <div class="collection-top-actions">
+    <span class="page-title">Collection</span>
     <button type="button" class="btn btn-outline btn-sm coll-top-btn" onclick="openCollectionShareModal()"
       title="Share collection / view shared collections">Share</button>
     <button type="button" id="historyBtn" class="btn btn-outline btn-sm coll-top-btn"
@@ -529,6 +530,7 @@
        filter bar that Filter collapses. Refresh stays outside it. -->
   <div id="setsHeader">
     <div class="collection-top-actions">
+      <span class="page-title">Sets</span>
       <button type="button" id="setsFilterToggleBtn" class="btn btn-outline btn-sm coll-top-btn"
         aria-expanded="false" aria-controls="setsFilterBar" title="Search and filter"
         onclick="toggleSetsFilterBar()">
@@ -585,7 +587,7 @@
   <div id="setDetailArea" style="display:none" class="set-detail-split">
     <div id="setDetailMain" style="flex:1;min-width:0">
       <div class="top-action-bar" style="display:flex;align-items:center;gap:10px;margin-bottom:0.5rem;flex-wrap:wrap">
-        <span id="activeSetName" class="panel-title" style="font-size:1.35rem"></span>
+        <span id="activeSetName" class="page-title"></span>
         <span id="activeSetCode" class="set-detail-meta"></span>
         <span id="activeSetMeta" class="set-detail-meta"></span>
         <div style="flex:1"></div>
@@ -614,6 +616,8 @@
 
   <!-- Top bar — always visible -->
   <div id="deckBuilderTopBar" class="top-action-bar" style="display:flex;align-items:center;gap:10px;margin-bottom:1.25rem;flex-wrap:wrap">
+    <span class="page-title">Decks</span>
+    <div style="flex:1"></div>
     <button id="newDeckTopBtn" class="btn btn-primary btn-sm" onclick="createNewDeck()">+ New Deck</button>
     <div style="position:relative" id="deckImportDropdownWrap">
       <button class="btn btn-outline btn-sm" onclick="toggleDeckImportDropdown()">↓ Import</button>

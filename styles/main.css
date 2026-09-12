@@ -1120,6 +1120,27 @@ body.glass-mode .set-star.is-starred {
 }
 
 /* Set code and card count beside the set name: facts, so plain text. */
+/* Page heading. This is the treatment the set-detail title already used (.panel-title
+   at 1.35rem); pulling it into a class lets the tab headers share it instead of
+   repeating an inline font-size, and keeps the four in step if it ever changes. */
+.page-title {
+  font-family: 'Cinzel', serif;
+  font-size: 1.35rem;
+  font-weight: 600;
+  color: var(--gold);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+body.glass-mode .page-title {
+  font-family: var(--glass-font);
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 1.35rem;
+  font-weight: 600;
+  color: rgba(244, 246, 251, 0.86);
+}
+[data-theme="light"] body.glass-mode .page-title { color: rgba(23, 32, 46, 0.88); }
+
 .set-detail-meta {
   font-family: 'JetBrains Mono', monospace;
   font-size: 0.74rem;
@@ -13926,11 +13947,13 @@ body.glass-mode #deckExportModal .modal {
 .collection-top-actions {
   display: flex;
   justify-content: flex-end;
+  /* The page title sits left, buttons stay right. */
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
   margin-bottom: 0.85rem;
 }
+.collection-top-actions .page-title { margin-right: auto; }
 /* These are the deck page's high-level buttons — the rounded ones Add cards and
    Manage Tags use — so they override this tab's squared-off control radius. */
 :is(#tab-collection, #tab-sets) .coll-top-btn {
