@@ -10520,7 +10520,9 @@ body.glass-mode .btn {
   color: rgba(240,244,252,0.82);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 2px 10px rgba(0,0,0,0.22);
 }
-body.glass-mode .top-action-bar .btn,
+/* .top-action-bar .btn used to sit here, giving the deck header's pills a white
+   0.14 fill while the collection's rested at 0.07 — the same control, two looks.
+   It is gone: they fall through to the ordinary .btn-outline glass now. */
 body.glass-mode body.glass-mode .btn-outline:hover {
   color: #fff;
   border-color: rgba(255,255,255,0.34);
@@ -12197,6 +12199,8 @@ body.glass-mode .view-toggle button:hover:not(.active) {
   border-radius: 8px;
 }
 
+body.glass-mode .top-action-bar .btn-outline:hover,
+body.glass-mode .collection-top-actions .btn-outline:hover,
 body.glass-mode #tab-collection .btn-outline:hover,
 body.glass-mode #tab-collection .btn-ghost:hover,
 body.glass-mode #tab-collection .view-toggle button:hover:not(.active),
@@ -12209,6 +12213,8 @@ body.glass-mode #tab-collection .glass-dd-btn:hover {
   border-color: rgba(var(--lgx1), 0.55);
   background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14));
 }
+body.glass-mode .top-action-bar .btn-outline.active,
+body.glass-mode .collection-top-actions .btn-outline.active,
 body.glass-mode #tab-collection .btn-outline.active,
 body.glass-mode #tab-collection .view-toggle button.active,
 body.glass-mode #tab-sets .btn-outline.active,

@@ -624,9 +624,9 @@
   <div id="deckBuilderTopBar" class="top-action-bar" style="display:flex;align-items:center;gap:10px;margin-bottom:1.25rem;flex-wrap:wrap">
     <span class="page-title">Decks</span>
     <div style="flex:1"></div>
-    <button id="newDeckTopBtn" class="btn btn-primary btn-sm" onclick="createNewDeck()">+ New Deck</button>
+    <button id="newDeckTopBtn" class="btn btn-outline btn-sm" onclick="createNewDeck()" style="display:inline-flex;align-items:center;gap:6px;white-space:nowrap"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" style="width:14px;height:14px;flex-shrink:0"><line x1="8" y1="2" x2="8" y2="14"/><line x1="2" y1="8" x2="14" y2="8"/></svg> New Deck</button>
     <div style="position:relative" id="deckImportDropdownWrap">
-      <button class="btn btn-outline btn-sm" onclick="toggleDeckImportDropdown()">↓ Import</button>
+      <button class="btn btn-outline btn-sm" onclick="toggleDeckImportDropdown()" style="display:inline-flex;align-items:center;gap:6px;white-space:nowrap"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;flex-shrink:0"><path d="M8 2v8"/><path d="M5 7.2 8 10.2 11 7.2"/><path d="M2.8 13.2h10.4"/></svg> Import</button>
       <div id="deckImportDropdown" class="deck-options-dropdown" style="min-width:200px">
         <button class="btn btn-ghost btn-sm deck-menu-item" onclick="toggleDeckImportDropdown();openTextImport()">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><rect x="2.5" y="2.5" width="11" height="11" rx="1.5"/><path d="M5 6.5h6M5 9.5h4"/></svg>
@@ -676,7 +676,7 @@
         <div class="deck-top-spacer" style="flex:1"></div>
         <div id="deckActionCluster" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <button id="deckBuilderVoiceBtn" type="button" class="btn btn-outline btn-sm" onclick="openVoice({ addToActiveDeck: true })" title="Add cards — voice, search, or manual" aria-label="Add cards" style="display:inline-flex;align-items:center;gap:5px;white-space:nowrap">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" style="width:13px;height:13px;flex-shrink:0"><line x1="8" y1="2" x2="8" y2="14"/><line x1="2" y1="8" x2="14" y2="8"/></svg>
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" style="width:14px;height:14px;flex-shrink:0"><line x1="8" y1="2" x2="8" y2="14"/><line x1="2" y1="8" x2="14" y2="8"/></svg>
           <span class="deck-btn-label">Add cards</span>
         </button>
         <button id="deckManageTagsBtn" class="btn btn-outline btn-sm" onclick="openDeckTagManager()" title="Manage reusable deck tags" aria-label="Manage Tags">
@@ -1126,7 +1126,9 @@
   <div class="collection-top-actions">
     <span class="page-title">Wishlist</span>
     <button type="button" class="btn btn-outline btn-sm coll-top-btn" onclick="openWishlistShareModal()"
-      title="Share wishlist / view shared wishlists">Share</button>
+      title="Share wishlist / view shared wishlists"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;flex-shrink:0"><circle cx="12" cy="3.6" r="2.1"/><circle cx="4" cy="8" r="2.1"/><circle cx="12" cy="12.4" r="2.1"/><path d="M5.9 6.9 10.1 4.7M5.9 9.1l4.2 2.2"/></svg>
+      <span class="coll-top-label">Share</span>
+    </button>
   </div>
 
   <div class="deck-folder-tabs" id="wishlistTabs" role="tablist" aria-label="Wishlist sections">
