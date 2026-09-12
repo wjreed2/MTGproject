@@ -2794,34 +2794,9 @@ img.stack-main.loaded { opacity: 1; }
     transparent 82%
   );
 }
-.card-foil-badge {
-  position: absolute;
-  bottom: 0; left: 0; right: 0;
-  z-index: 2;
-  pointer-events: none;
-  text-align: center;
-  font-size: 0.48rem;
-  font-weight: 800;
-  letter-spacing: 0.14em;
-  color: #fff;
-  text-shadow: 0 1px 3px rgba(0,0,0,0.85);
-  padding: 2px 0 3px;
-  background: linear-gradient(90deg,
-    #ff0066  0%,  #ff6600 14%, #ffcc00 28%,
-    #00cc66 42%, #0099ff 56%, #8800ff 70%,
-    #ff00aa 84%, #ff0066 100%
-  );
-  background-size: 200% 100%;
-  animation: holo-badge 30s linear infinite;
-}
 .card-img-wrap.foil {
   box-shadow: 0 0 5px 0 rgba(180, 80, 255, 0.35);
 }
-@keyframes holo-badge {
-  0%   { background-position: 0%   50%; }
-  100% { background-position: 200% 50%; }
-}
-
 /* ── Surge foil ───────────────────────────────────────────────────────────────
    Surge is a promo finish layered on an otherwise normal printing, so it keeps the
    holo spectrum and adds what the plain foil lacks: a tight diagonal ripple, a
@@ -2856,13 +2831,8 @@ img.stack-main.loaded { opacity: 1; }
   100% { background-position: 200% 50%, 250% 50%; }
 }
 /* The plain-foil badge crawls at 30s; surge reads as the livelier one. */
-.card-foil-badge.is-surge {
-  letter-spacing: 0.18em;
-  animation-duration: 8s;
-}
 @media (prefers-reduced-motion: reduce) {
   .card-surge-overlay { animation: none; }
-  .card-foil-badge.is-surge { animation: none; }
 }
 @keyframes holo-glow {
   0%   { box-shadow: 0 0 9px 1px rgba(255,  0, 100, 0.55); }

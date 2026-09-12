@@ -1309,7 +1309,7 @@ function _tradelistCardHtml(c) {
     <div class="card-item trade-card" data-uid="${escapeHtml(c.uid)}">
       <div class="card-img-wrap${c.foil ? ' foil' : ''}" onclick="tradeCalcOpenCard('${escapeHtml(c.scryfallId)}')">
         ${_tradeCardImgHtml(c)}
-        ${c.foil ? `<div class="card-foil-overlay"></div><div class="card-foil-badge">✦ FOIL</div>` : ''}
+        ${c.foil ? `<div class="card-foil-overlay"></div>` : ''}
         ${c.qty > 1 ? `<span class="trade-card-qty">×${c.qty}</span>` : ''}
       </div>
       <div class="card-meta trade-card-foot">
@@ -1328,7 +1328,7 @@ function _tradelistRemovedHtml(c) {
     <div class="card-item trade-card trade-card-dim" data-uid="${escapeHtml(c.uid)}">
       <div class="card-img-wrap${c.foil ? ' foil' : ''}" onclick="tradeCalcOpenCard('${escapeHtml(c.scryfallId)}')">
         ${_tradeCardImgHtml(c)}
-        ${c.foil ? `<div class="card-foil-overlay"></div><div class="card-foil-badge">✦ FOIL</div>` : ''}
+        ${c.foil ? `<div class="card-foil-overlay"></div>` : ''}
       </div>
       <div class="card-meta trade-card-foot">
         <div class="card-name">${escapeHtml(c.name)}</div>
@@ -1499,7 +1499,7 @@ function _wishlistCardHtml(c) {
     <div class="card-item trade-card wl-card" data-uid="${escapeHtml(c.uid)}">
       <div class="card-img-wrap${c.foil ? ' foil' : ''}" onclick="tradeCalcOpenCard('${escapeHtml(c.scryfallId || c.uid || '')}')">
         ${_tradeCardImgHtml(c)}
-        ${c.foil ? `<div class="card-foil-overlay"></div><div class="card-foil-badge">✦ FOIL</div>` : ''}
+        ${c.foil ? `<div class="card-foil-overlay"></div>` : ''}
         ${badge ? `<span class="wl-src-badge ${badge.cls}" title="${escapeHtml(badgeTitle)}">${badge.icon || ''}${escapeHtml(badgeLabel)}</span>` : ''}
       </div>
       <div class="card-meta trade-card-foot">

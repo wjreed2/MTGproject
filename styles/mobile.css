@@ -701,8 +701,12 @@
     max-height: calc(100dvh - var(--safe-top) - 14px) !important;
   }
   #cardDetailModal .card-detail-body { flex-direction: column !important; }
+  /* The art ran the full width of the sheet, edge to edge inside the padding.
+     Pulling it to 90% and centring gives the card a margin to sit in and takes
+     about a tenth off its height too, since the image keeps its own ratio. */
   #cardDetailModal .card-detail-col--art {
-    max-width: 100% !important; width: 100% !important;
+    max-width: 90% !important; width: 90% !important;
+    margin-left: auto !important; margin-right: auto !important;
   }
   .modal-edge-nav { display: none !important; }
   /* Tighter sheet padding; clear the home indicator at the bottom */

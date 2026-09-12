@@ -1280,7 +1280,7 @@ async function lookupManual(source = 'manual') {
     <div style="background:var(--bg3);border:1px solid ${pendingCard.foil ? 'var(--gold)' : 'var(--border2)'};border-radius:var(--radius2);padding:10px">
       <div style="position:relative;overflow:hidden;border-radius:6px;margin-bottom:8px">
         ${pendingCard.image ? `<img src="${pendingCard.image}" style="width:100%;display:block;border-radius:6px">` : ''}
-        ${pendingCard.foil ? `<div class="card-foil-overlay"></div><div class="card-foil-badge">✦ FOIL</div>` : ''}
+        ${pendingCard.foil ? `<div class="card-foil-overlay"></div>` : ''}
       </div>
       <div style="font-family:'Cinzel',serif;color:var(--gold);font-size:0.82rem;margin-bottom:3px;line-height:1.2">${pendingCard.name}</div>
       <div style="font-size:0.72rem;color:var(--text2);margin-bottom:2px;font-style:italic">${pendingCard.set.toUpperCase()} · #${pendingCard.number}</div>

@@ -1976,7 +1976,7 @@ function _syncCardDetailLeftInPlace(card, ctx) {
     }
     const shell = wrap.querySelector('.card-detail-art-shell') || wrap.firstElementChild;
     if (shell) shell.classList.toggle('is-foil', !!card.foil);
-    wrap.querySelectorAll('.card-foil-overlay,.card-foil-badge').forEach(n => n.remove());
+    wrap.querySelectorAll('.card-foil-overlay').forEach(n => n.remove());
     if (card.foil && shell) {
       shell.insertAdjacentHTML('beforeend', _htmlFoilOverlay(card));
     }
@@ -2675,9 +2675,12 @@ function _syncCardDetailInspectorInPlace(card, ctx) {
 function _htmlFoilOverlay(card) {
   if (!card?.foil) return '';
   const surge = typeof isSurgeFoilCard === 'function' && isSurgeFoilCard(card);
+  // The shimmer says foil on its own — the word across the bottom of every foil
+  // card covered the art to repeat it. Surge keeps its own distinct animation
+  // (.card-surge-overlay), so the two finishes still read apart without a label.
   return surge
-    ? '<div class="card-foil-overlay card-surge-overlay"></div><div class="card-foil-badge is-surge">✦ SURGE</div>'
-    : '<div class="card-foil-overlay"></div><div class="card-foil-badge">✦ FOIL</div>';
+    ? '<div class="card-foil-overlay card-surge-overlay"></div>'
+    : '<div class="card-foil-overlay"></div>';
 }
 
 function _htmlCardDetailArtSlotInner(card) {
