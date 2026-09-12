@@ -115,24 +115,12 @@ function setWishlistTab(key) {
   if (_wishlistTab === 'search') document.getElementById('wishlistSearch')?.focus();
 }
 
-function getWishlistViewMode() {
-  const m = localStorage.getItem('mtg_wishlist_view');
-  return m === 'list' ? 'list' : 'grid';
-}
-
-function setWishlistViewMode(mode) {
-  localStorage.setItem('mtg_wishlist_view', mode === 'list' ? 'list' : 'grid');
-  syncWishlistViewButtons();
-  renderWishlist();
-}
-
-function syncWishlistViewButtons() {
-  const m = getWishlistViewMode();
-  const g = document.getElementById('wishlistViewGrid');
-  const l = document.getElementById('wishlistViewList');
-  if (g) g.classList.toggle('is-active', m === 'grid');
-  if (l) l.classList.toggle('is-active', m === 'list');
-}
+// The layout toggle is gone; cards render as the grid of collection-style tiles.
+// Kept callable because the app shell is service-worker cached and a stale
+// index.html can still carry the old buttons.
+function getWishlistViewMode() { return 'grid'; }
+function setWishlistViewMode() { renderWishlist(); }
+function syncWishlistViewButtons() {}
 
 function renderWishlist() {
   const el = document.getElementById('wishlistItems');
@@ -146,13 +134,21 @@ function renderWishlist() {
   const mode = getWishlistViewMode();
   el.className = 'wishlist-display wishlist-display--' + mode;
 
+  // An empty wishlist is a sentence, not a large empty panel: the pane drops its
+  // box and the count row goes with it, leaving just the line.
+  const pane = document.getElementById('wlPane-list');
+  const toolbar = document.getElementById('wishlistToolbar');
   if (items.length === 0) {
     el.innerHTML = ''; empty.style.display = 'block';
     empty.textContent = shared ? 'This wishlist is empty' : 'Your wishlist is empty';
     total.textContent = '';
+    if (pane) pane.classList.add('is-empty');
+    if (toolbar) toolbar.style.display = 'none';
     return;
   }
   empty.style.display = 'none';
+  if (pane) pane.classList.remove('is-empty');
+  if (toolbar) toolbar.style.display = '';
   total.textContent = items.length + ' cards';
 
   // Shared-wishlist cards are cross-user data — escape every interpolated field.

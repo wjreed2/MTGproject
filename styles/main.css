@@ -14109,3 +14109,22 @@ body.glass-mode .wl-act--remove:hover {
 [data-theme="light"] body.glass-mode .wl-priority { background: rgba(255, 255, 255, 0.9); }
 
 .wishlist-toolbar { align-items: center; }
+/* Nothing to frame when the list is empty — drop the pane's box and padding so
+   the message sits on the page rather than inside an empty panel. */
+#wlPane-list.is-empty {
+  background: none;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+}
+/* The message picks up the glass skin's panel frame too — strip that as well,
+   or removing the pane's box just reveals a smaller one inside it. */
+#wlPane-list.is-empty .empty-state {
+  padding: 1.5rem 0;
+  text-align: left;
+  border: none;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  backdrop-filter: none;
+}

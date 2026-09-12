@@ -1135,13 +1135,8 @@
   </div>
 
   <div id="wlPane-list" class="deck-tab-pane active">
-    <div class="view-controls wishlist-toolbar">
+    <div class="view-controls wishlist-toolbar" id="wishlistToolbar">
       <span id="wishlistTotal" style="font-size:0.78rem;color:var(--text3)"></span>
-      <div style="flex:1"></div>
-      <div class="view-toggle" role="group" aria-label="Wishlist layout">
-        <button type="button" id="wishlistViewGrid" onclick="setWishlistViewMode('grid')">Grid</button>
-        <button type="button" id="wishlistViewList" onclick="setWishlistViewMode('list')">List</button>
-      </div>
     </div>
     <div id="wishlistItems"></div>
     <div id="wishlistEmpty" class="empty-state empty-state--inline">Your wishlist is empty</div>
