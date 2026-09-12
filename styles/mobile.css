@@ -63,6 +63,19 @@
     font-size: 16px !important;
   }
 
+  /* Collection header: icon only. Four labelled pills plus Add did not fit a
+     phone width, and each icon is the one used for that action elsewhere.
+     Matching the main rule's specificity (1 id + 1 class) and !important,
+     which is what it takes to beat it. */
+  #tab-collection .coll-top-btn .coll-top-label { display: none; }
+  #tab-collection .coll-top-btn {
+    width: 38px;
+    padding: 0 !important;
+    gap: 0;
+    justify-content: center;
+  }
+  #tab-collection .collection-top-actions { gap: 8px; }
+
   /* ── Safe-area background — status bar shows app BG, not bleed ───────── */
   body {
     background-color: var(--bg);
