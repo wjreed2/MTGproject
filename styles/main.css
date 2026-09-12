@@ -4085,7 +4085,7 @@ body.glass-mode .x-stepper-btn-sm { border-radius: 7px; }
 .pie-outline { transition: stroke 0.15s; }
 .tablet-cell--pie.tablet-drag-target .pie-outline { stroke: var(--red) !important; }
 .tablet-cell--pie.tablet-seat-drag-source .pie-outline {
-  stroke: var(--gold) !important;
+  stroke: rgb(var(--lgx1)) !important;
   animation: seatDragPulse 0.9s ease-in-out infinite;
 }
 .tablet-cell--pie.tablet-seat-drag-target .pie-outline { stroke: var(--teal) !important; }
@@ -4152,7 +4152,13 @@ body.glass-mode .x-stepper-btn-sm { border-radius: 7px; }
   font-family: 'JetBrains Mono', monospace;
   font-size: clamp(0.62rem, 1.28vw, 0.9rem);
   font-weight: 700;
-  padding: clamp(6px, 1.45vh, 12px) 2px;
+  /* Squarer: they were tall bars stretched across the cell. Capped width and
+     centred so four of them read as a row of keys. */
+  padding: clamp(4px, 0.9vh, 8px) 2px;
+  max-width: clamp(48px, 7vw, 78px);
+  width: 100%;
+  justify-self: center;
+  aspect-ratio: 1.35;
   border: 1px solid;
   transition: background 0.1s, transform 0.08s;
   touch-action: manipulation;
@@ -10831,8 +10837,8 @@ body.glass-mode #tabletView .tablet-cell[data-active="1"] {
       color-mix(in oklab, var(--seat, #7aa2ff) 16%, transparent) 100%),
     rgba(255,255,255,0.05) !important;
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.18),
-    0 0 36px color-mix(in oklab, var(--seat, #7aa2ff) 22%, transparent),
+    inset 0 1px 0 rgba(255,255,255,0.13),
+    inset 0 0 0.5px rgba(255,255,255,0.09),
     0 8px 28px rgba(0,0,0,0.30) !important;
 }
 /* Transient action states must keep their own rings (they outrank inline styles
@@ -11412,7 +11418,6 @@ body.glass-mode :is(input:not([type="checkbox"]):not([type="radio"]):not([type="
     rgba(255,255,255,0.55) !important;
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.9),
-    0 0 36px color-mix(in oklab, var(--seat, #1668d8) 18%, transparent),
     0 8px 28px rgba(30,50,90,0.14) !important;
 }
 [data-theme="light"] body.glass-mode #tabletView .tablet-cell--pie { box-shadow: none !important; }
@@ -14485,4 +14490,13 @@ body.glass-mode .offer-card:hover {
       color-mix(in oklab, var(--seat, #1668d8) 9%, transparent) 60%,
       transparent 100%),
     rgba(255, 255, 255, 0.72);
+}
+
+/* The grid layout's drag source had no marker of its own — only the pie's
+   outline was styled, and that in gold. Both are the app's blue now. */
+.tablet-cell.tablet-seat-drag-source {
+  box-shadow: inset 0 0 0 3px rgba(var(--lgx1), 0.65), 0 0 30px rgba(var(--lgx1), 0.22) !important;
+}
+body.glass-mode #tabletView .tablet-cell.tablet-seat-drag-source {
+  border-color: rgba(var(--lgx1), 0.7) !important;
 }

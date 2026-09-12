@@ -223,7 +223,7 @@ function _gameCardHtml(g) {
       <div class="game-card-status">${isActive
         ? `In progress${activePlayer ? ` · ${_playerName(activePlayer)}` : ''}`
         : `Winner: ${winner ? _playerName(winner) : '—'}`}</div>
-      ${isActive ? `<button class="btn btn-outline btn-sm game-card-open" onclick="event.stopPropagation();openTabletView('${g.id}')">Open Tablet View</button>` : ''}
+      ${isActive ? `<button class="btn btn-outline btn-sm game-card-open" onclick="event.stopPropagation();openTabletView('${g.id}')">${g.paused ? 'Resume game' : 'Open Tablet View'}</button>` : ''}
     </div>`;
 }
 
@@ -816,7 +816,7 @@ function renderActiveGame(game) {
         <span class="panel-title">${escapeHtml(game.format)}</span>
         <span class="gsum-turn">T${game.currentTurn}${activePlayer ? ` · ${_playerName(activePlayer)}` : ''}</span>
         <div style="flex:1"></div>
-        <button class="btn btn-outline btn-sm" onclick="openTabletView('${game.id}')">Open Tablet View</button>
+        <button class="btn btn-outline btn-sm" onclick="openTabletView('${game.id}')">${game.paused ? 'Resume game' : 'Open Tablet View'}</button>
         <button class="btn btn-outline btn-sm" onclick="openLogEvent('${game.id}')">Log Event</button>
         <button class="btn btn-outline btn-sm" onclick="openEndGame('${game.id}')">End Game</button>
         <button class="btn btn-danger btn-sm" onclick="deleteGame('${game.id}')">Delete</button>
@@ -1718,6 +1718,7 @@ let tabletViewGameId = null;
 
 function openTabletView(gameId) {
   tabletViewGameId = gameId;
+  _restoreTabletPause(games.find(g => g.id === gameId));
   document.body.style.overflow = 'hidden';
   document.getElementById('tabletView').style.display = 'grid';
   _setTabletZoomLock(true);   // no pinch / double-tap zoom while propped up as a scoreboard
@@ -1726,18 +1727,32 @@ function openTabletView(gameId) {
   renderTabletView();
 }
 
+/** A game left from the table comes back paused where it stopped. */
+function _restoreTabletPause(game) {
+  if (!game || !game.paused) { _turnPaused = false; _pausedElapsed = 0; return; }
+  _pausedElapsed = Number(game.pausedElapsed) || 0;
+  _turnPaused = true;
+  game.turnStartedAt = Date.now() - _pausedElapsed;
+  game.paused = false;
+  save('games');
+}
+
 function closeTabletView() {
   document.querySelectorAll('.tablet-player-menu').forEach(m => m.remove());
   document.getElementById('tabletView').style.display = 'none';
   document.body.style.overflow = '';
   _setTabletZoomLock(false);
   _setTabletFullscreen(false);
-  // Pause is an ephemeral scoreboard convenience. If we leave while paused, "resume" the
-  // clock cleanly (shift the start) so the elapsed time doesn't later jump to include the
-  // paused span, and so the flag never leaks into the next game/session.
-  if (_turnPaused) {
-    const g = games.find(gg => gg.id === tabletViewGameId);
-    if (g && g.turnStartedAt) { g.turnStartedAt = Date.now() - _pausedElapsed; save('games'); }
+  // Leaving the table pauses the game rather than letting the turn clock run on
+  // while nobody is looking at it. The elapsed time is banked on the game so
+  // re-entering picks up where it stopped.
+  const g = games.find(gg => gg.id === tabletViewGameId);
+  if (g) {
+    g.pausedElapsed = _turnPaused
+      ? _pausedElapsed
+      : (g.turnStartedAt ? Date.now() - g.turnStartedAt : 0);
+    g.paused = true;
+    save('games');
   }
   _turnPaused = false;
   _pausedElapsed = 0;
@@ -1816,7 +1831,7 @@ function openTabletMenu(playerId, btn, e, rotated = false) {
   const player = game.players.find(p => p.id === playerId);
   const isCmd = game.format === 'Commander' || game.format === 'Brawl';
   const mi  = 'display:block;width:100%;text-align:left;padding:7px 10px;background:none;border:none;border-radius:7px;cursor:pointer;font-size:0.82rem;color:var(--text2);';
-  const mia = 'background:rgba(200,168,74,0.12);color:var(--gold);';
+  const mia = 'background:rgba(var(--lgx1),0.16);color:var(--text);';
   const cm  = "document.querySelectorAll('.tablet-player-menu').forEach(m=>m.remove())";
   const cmdEditorRows = (isCmd && player)
     ? game.players
@@ -1853,7 +1868,6 @@ function openTabletMenu(playerId, btn, e, rotated = false) {
   menu.dataset.pid = playerId;
   menu.onclick = e => e.stopPropagation();
   menu.style.cssText = 'position:fixed;z-index:700;background:color-mix(in oklab, var(--bg2) 94%, transparent);border:1px solid var(--border2);border-radius:12px;padding:8px;min-width:215px;max-width:min(300px,90vw);box-shadow:0 12px 40px rgba(0,0,0,0.35);visibility:hidden';
-  const hasUndo = canUndo(game.id);
   menu.innerHTML = `
     <div style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:5px 8px 8px;border-bottom:1px solid var(--border);margin-bottom:4px">
       <span style="font-size:0.72rem;color:var(--text3);width:100%;text-align:left">${player ? escapeHtml(player.name) + "'s" : ''} X</span>
@@ -1870,10 +1884,7 @@ function openTabletMenu(playerId, btn, e, rotated = false) {
     ` : ''}
     ${poisonRow}
     <div style="border-top:1px solid var(--border);margin:5px 0 4px"></div>
-    <button onclick="${cm};moveGameSeat('${game.id}','${playerId}',-1,true)" style="${mi}">↻ Move clockwise</button>
-    <button onclick="${cm};moveGameSeat('${game.id}','${playerId}',1,true)" style="${mi}">↺ Move counterclockwise</button>
-    <button onclick="undoGameAction('${game.id}')" style="${mi}${hasUndo ? '' : 'opacity:0.4;'}">↶ Undo last action</button>
-    <button onclick="${cm};nextTurn('${game.id}')" style="${mi}">→ Next Turn</button>`;
+    <button onclick="${cm};closeTabletView()" style="${mi}">${gameIcon('x', 12, 'margin-right:5px')}Exit game</button>`;
   document.body.appendChild(menu);
 
   const r = btn.getBoundingClientRect();
@@ -1994,9 +2005,8 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
   return `
   <div class="tablet-cell${inTargetMode ? ' player-targetable' : ''}"
     data-pid="${p.id}" data-rotated="${rotated ? '1' : '0'}" data-elim="${p.eliminated ? '1' : '0'}" data-active="${isActiveTurn ? '1' : '0'}"
-    style="--seat:${p.color};${spanStyle}border-color:${inTargetMode ? p.color + '80' : isActiveTurn ? p.color : p.color + '30'};
+    style="--seat:${p.color};${spanStyle}border-color:${inTargetMode ? p.color + '80' : p.color + '30'};
            background:radial-gradient(ellipse at 50% ${rotated ? '60' : '40'}%,${p.color}${inTargetMode ? '14' : isActiveTurn ? '26' : '0a'} 0%,transparent 70%),var(--bg2);
-           ${isActiveTurn && !inTargetMode ? `box-shadow:inset 0 0 0 4px ${p.color};` : ''}
            ${inTargetMode ? 'cursor:crosshair;' : ''}
            ${rotated ? 'transform:rotate(180deg);' : ''}"
     ${inTargetMode ? `onclick="applyGameAction('${game.id}','${p.id}')"` : ''}>
@@ -2006,7 +2016,7 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
       <div class="tablet-player-name" style="font-family:'Cinzel',serif;font-size:clamp(0.85rem,2.2vw,1.3rem);color:${p.color};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:0.06em">${escapeHtml(p.name)}</div>
       ${p.deckName ? `<div style="font-size:clamp(0.55rem,1.2vw,0.78rem);color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px">${escapeHtml(p.deckName)}${p.commander ? ' · ' + escapeHtml(p.commander) : ''}</div>` : ''}
       ${inTargetMode
-        ? `<div style="position:absolute;top:50%;right:8px;transform:translateY(-50%);font-size:clamp(0.6rem,1.3vw,0.78rem);color:var(--gold);animation:targetPulse 1s ease-in-out infinite">${targetLabel}</div>`
+        ? `<div style="position:absolute;top:50%;right:8px;transform:translateY(-50%);font-size:clamp(0.6rem,1.3vw,0.78rem);color:var(--text);animation:targetPulse 1s ease-in-out infinite">${targetLabel}</div>`
         : `<div class="tablet-corner ${dotsPos.startsWith('left') ? 'tablet-corner--left' : 'tablet-corner--right'}" style="position:absolute;top:50%;${dotsPos};transform:translateY(-50%);display:flex;align-items:center;gap:5px;flex-direction:${dotsPos.startsWith('left') ? 'row-reverse' : 'row'}">
              <span class="tablet-total-time" data-pid="${p.id}" title="Total time this player has spent on turns"
                style="font-family:'JetBrains Mono',monospace;font-size:clamp(0.5rem,1.05vw,0.7rem);color:var(--text3);white-space:nowrap">${formatDuration(playerTotalTime(game, p.id))}</span>
@@ -2053,36 +2063,25 @@ function _tabletCenterBoxHtml(game, posStyle) {
     <div class="tablet-center-box" onclick="event.stopPropagation()" style="position:fixed;${posStyle};z-index:10;
       background:color-mix(in oklab, var(--bg2) 90%, transparent);backdrop-filter:blur(16px);transition:transform 0.35s ease;
       border:1px solid var(--border2);border-radius:18px;padding:12px 24px;text-align:center;min-width:164px">
-      <div class="tablet-center-timer" style="font-family:'JetBrains Mono',monospace;font-size:clamp(2rem,4.5vw,3.2rem);font-weight:700;color:${_turnPaused ? 'var(--text3)' : (glassMode ? 'var(--text)' : 'var(--gold)')};line-height:1">
+      <div class="tablet-center-timer" style="font-family:'JetBrains Mono',monospace;font-size:clamp(2rem,4.5vw,3.2rem);font-weight:700;color:${_turnPaused ? 'var(--text3)' : (activePlayer?.color || 'var(--text)')};line-height:1">
         <span id="tabletTurnTimerDisplay">${_turnPaused ? formatDuration(_pausedElapsed) : (game.turnStartedAt ? formatDuration(Date.now() - game.turnStartedAt) : '00:00')}</span>
       </div>
       ${activePlayer ? `<div class="tablet-center-turn" style="font-size:clamp(0.6rem,1.3vw,0.82rem);color:${activePlayer.color};margin-top:5px;font-family:'Inter',system-ui,sans-serif;letter-spacing:0.04em">T${game.currentTurn} · ${escapeHtml(activePlayer.name)}</div>` : ''}
       <div style="display:flex;gap:5px;margin-top:9px">
-        <button onclick="undoGameAction('${game.id}')" class="tablet-turn-btn"
-          title="Undo last action" aria-label="Undo last action"
-          style="flex:1;padding:9px 8px;background:var(--bg3);
-            border:1px solid var(--border2);border-radius:8px;color:var(--text2);font-size:0.9rem;cursor:pointer;touch-action:manipulation">
-          ${gameIcon('undo', 16, 'vertical-align:middle')}
-        </button>
         <button onclick="togglePauseTimer('${game.id}')" class="tablet-turn-btn"
           title="${_turnPaused ? 'Resume timer' : 'Pause timer'}" aria-label="${_turnPaused ? 'Resume timer' : 'Pause timer'}"
-          style="flex:1;padding:9px 8px;background:${_turnPaused ? 'rgba(200,168,74,0.15)' : 'var(--bg3)'};
-            border:1px solid ${_turnPaused ? 'rgba(200,168,74,0.4)' : 'var(--border2)'};border-radius:8px;
-            color:${_turnPaused ? 'var(--gold)' : 'var(--text2)'};font-size:0.9rem;cursor:pointer;touch-action:manipulation">
+          style="flex:1;padding:9px 8px;background:${_turnPaused ? 'rgba(var(--lgx1),0.16)' : 'var(--bg3)'};
+            border:1px solid ${_turnPaused ? 'rgba(var(--lgx2),0.45)' : 'var(--border2)'};border-radius:8px;
+            color:${_turnPaused ? 'var(--text)' : 'var(--text2)'};font-size:0.9rem;cursor:pointer;touch-action:manipulation">
           ${_turnPaused ? gameIcon('play', 16, 'vertical-align:middle') : gameIcon('pause', 16, 'vertical-align:middle')}
         </button>
       </div>
       ${gameActionMode ? `
-      <div style="margin-top:6px;padding:5px 8px;background:var(--gold-dim);border:1px solid rgba(200,168,74,0.35);
-        border-radius:8px;font-size:0.72rem;color:var(--gold);display:flex;align-items:center;gap:5px;justify-content:center">
+      <div style="margin-top:6px;padding:5px 8px;background:rgba(var(--lgx1),0.14);border:1px solid rgba(var(--lgx2),0.4);
+        border-radius:8px;font-size:0.72rem;color:var(--text);display:flex;align-items:center;gap:5px;justify-content:center">
         <span style="flex:1">${actionHint}</span>
-        <button onclick="cancelAction('${game.id}')" style="background:none;border:none;color:var(--gold);cursor:pointer;font-size:0.95rem;line-height:1;padding:0;flex-shrink:0;display:inline-flex;align-items:center">${gameIcon('x', 12)}</button>
+        <button onclick="cancelAction('${game.id}')" style="background:none;border:none;color:var(--text2);cursor:pointer;font-size:0.95rem;line-height:1;padding:0;flex-shrink:0;display:inline-flex;align-items:center">${gameIcon('x', 12)}</button>
       </div>` : ''}
-      <button onclick="closeTabletView()"
-        style="margin-top:6px;width:100%;padding:4px 10px;background:none;
-          border:1px solid var(--border2);border-radius:8px;color:var(--text3);font-size:0.75rem;cursor:pointer">
-        ${gameIcon('x', 11, 'margin-right:5px')}Exit Tablet
-      </button>
     </div>`;
 }
 
@@ -2194,7 +2193,7 @@ function _cellStatusRow(p, maxCmdDmg) {
     ? `<span style="color:var(--red);letter-spacing:0.05em;display:inline-flex;align-items:center;gap:4px">${gameIcon('skull', 11)}ELIMINATED #${p.placement || '?'}</span>`
     : `${maxCmdDmg > 0 ? `<span style="color:${maxCmdDmg >= 16 ? 'var(--red)' : 'var(--text3)'};display:inline-flex;align-items:center;gap:4px">${gameIcon('sword', 11)}${maxCmdDmg} cmd</span>` : ''}
              ${p.mulligans > 0 ? `<span style="color:var(--text3);display:inline-flex;align-items:center;gap:4px" title="Mulligans">${gameIcon('cards', 11)}${p.mulligans}</span>` : ''}
-             ${maxCmdDmg === 0 && !(p.mulligans > 0) ? `<span style="color:var(--text3);opacity:0.4">●</span>` : ''}`;
+             ${maxCmdDmg === 0 && !(p.mulligans > 0) ? '<span aria-hidden="true">&nbsp;</span>' : ''}`;
 }
 
 // Poison is a single per-player total (10 = dead), shown right under commander damage.
