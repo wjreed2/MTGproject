@@ -6153,6 +6153,41 @@ function _deckByIdForOwnership(deckId) {
     || (typeof sharedDecks !== 'undefined' ? sharedDecks.find(d => d.id === deckId) : null);
 }
 
+/**
+ * Collapse a basic land held in both finishes into one tile.
+ *
+ * The deck stores a foil and a non-foil copy as separate entries, so a deck with
+ * both showed the same Island twice — two identical images differing only by a
+ * flag. Basics are fungible, so the list shows one tile with the combined count
+ * and the inspector still reports the real Non-foil / Foil split.
+ *
+ * Display only: these are copies, the deck's own entries are untouched. Scoped
+ * to one printing — a different art or set is a different thing to look at — and
+ * to real cards, so planned adds keep their own tiles.
+ */
+function _mergeBasicLandFinishes(cards) {
+  if (!Array.isArray(cards) || cards.length < 2) return cards;
+  const byPrinting = new Map();
+  const out = [];
+  for (const c of cards) {
+    const mergeable = c && c.scryfallId && !c._plannedAdd && BASIC_LANDS.has(c.name);
+    if (!mergeable) { out.push(c); continue; }
+    const key = String(c.scryfallId);
+    const seen = byPrinting.get(key);
+    if (!seen) {
+      const copy = { ...c };
+      byPrinting.set(key, copy);
+      out.push(copy);
+      continue;
+    }
+    // The non-foil copy is the one to show, so a merged pair does not shimmer.
+    const total = (seen.qty || 1) + (c.qty || 1);
+    if (seen.foil && !c.foil) Object.assign(seen, c);
+    seen.qty = total;
+  }
+  return out;
+}
+
 function getCardInventoryKey(card) {
   if (!card) return '';
   if (card.uid) return card.uid;
@@ -10072,7 +10107,7 @@ function renderDeckList(deck) {
   if (deckListView === 'grid') {
     _detachArchStackObserver();
     if (isDeckOwnershipEnabled()) _rebuildOwnershipMaps();
-    const groups = mergeAddGhostGroups(_buildDeckGroups(filteredCards, deckGroupBy));
+    const groups = mergeAddGhostGroups(_buildDeckGroups(_mergeBasicLandFinishes(filteredCards), deckGroupBy));
     const entries = Object.entries(groups).filter(([, v]) => v.length > 0);
     const isVertical = deckStackOrient === 'vertical';
     const orientClass = isVertical ? ' vertical' : '';
