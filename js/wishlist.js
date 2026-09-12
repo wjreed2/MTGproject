@@ -456,11 +456,21 @@ function selectWishlistAutocomplete(name) {
   runWishlistSearch(name);
 }
 
-async function runWishlistSearch(q) {
+const WISHLIST_PAGE = 60;
+let _wishlistSearchOffset = 0;
+let _wishlistSearchTotal = null;
+
+async function runWishlistSearch(q, append) {
   const el = document.getElementById('wishlistSearchResults');
   const query = String(q || '').trim();
   const drop = document.getElementById('wishlistSearchAutocomplete');
+  // Cancel the pending autocomplete as well as hiding it. Hiding alone left the
+  // 180ms timer to fire straight afterwards and re-open the list on top of the
+  // results — so the first click after pressing Enter hit the dropdown instead
+  // of the card under it.
+  clearTimeout(_wishlistAcTimer);
   if (drop) drop.style.display = 'none';
+  if (!append) { _wishlistSearchOffset = 0; _wishlistSearchTotal = null; }
   if (query.length < 2) {
     // A colour with no text has nothing to search the catalogue by, so the grid
     // just clears rather than pulling the whole of Scryfall.
@@ -477,8 +487,13 @@ async function runWishlistSearch(q) {
   _wishlistSearchLocal = _applyWishlistColorFilter(Object.values(localByName)).slice(0, 16);
   _syncWishlistFilterButtons();
   const localIds = new Set(_wishlistSearchLocal.map(c => c.scryfallId));
-  _wishlistSearchApi = [];
-  _renderWishlistSearchGrid();
+  // Clearing here paints the local matches immediately while the catalogue call
+  // is in flight — but on a Load more that would throw away the pages already on
+  // screen, so only a fresh search resets.
+  if (!append) {
+    _wishlistSearchApi = [];
+    _renderWishlistSearchGrid();
+  }
 
   if (_wishlistSearchAbort) _wishlistSearchAbort.abort();
   _wishlistSearchAbort = new AbortController();
@@ -490,44 +505,46 @@ async function runWishlistSearch(q) {
   // it honours the t:/is: tokens the Type menu writes into the field, and it
   // takes the colour set as a parameter the way the finder does.
   try {
-    const params = new URLSearchParams({ q: query, limit: '30', offset: '0', withPrices: '1' });
+    const params = new URLSearchParams({
+      q: query, limit: String(WISHLIST_PAGE), offset: String(_wishlistSearchOffset), withPrices: '1',
+    });
     if (_wishlistColorFilters.size) params.set('colors', [..._wishlistColorFilters].sort().join(','));
     const res = await fetch(`/api/cards/search?${params.toString()}`, { signal });
     const data = res.ok ? await res.json() : { data: [] };
     // Colours are the server's job here: /api/cards/search honours colors= but
     // returns empty colors[] on the rows it sends back, so filtering them again
     // on the client would throw away everything it just matched.
-    _wishlistSearchApi = (data.data || []).filter(c => !localIds.has(c.id)).slice(0, 28);
+    const page = (data.data || []).filter(c => !localIds.has(c.id));
+    _wishlistSearchApi = append ? _wishlistSearchApi.concat(page) : page;
+    // Advance by what the server consumed, not by rows kept — dropping cards you
+    // already own would otherwise walk the offset backwards and repeat a page.
+    _wishlistSearchOffset += Number.isFinite(data.pageCards) ? data.pageCards : (data.data || []).length;
+    _wishlistSearchTotal = Number.isFinite(data.total) ? data.total : null;
     _renderWishlistSearchGrid();
   } catch (e) {
     if (e.name === 'AbortError') return;
-    _wishlistSearchApi = [];
+    if (!append) _wishlistSearchApi = [];
     _renderWishlistSearchGrid();
   }
 }
 
+function loadMoreWishlistResults() {
+  runWishlistSearch(document.getElementById('wishlistSearch')?.value || '', true);
+}
+
+/**
+ * A search result is the card image and nothing else — no name, set line or
+ * price row under it, and no Add buttons. Clicking the tile adds it. Owned
+ * printings keep the highlight so you can see what you already have.
+ */
 function _wishlistTile(name, img, inCollection, payload, idx) {
-  const border = inCollection ? '2px solid var(--gold)' : '1px solid var(--border)';
-  const filter = !inCollection ? 'grayscale(60%) opacity(0.65)' : '';
-  const nonFoilPrice = parseFloat(payload.priceTCG || 0);
-  const foilPrice = parseFloat(payload.priceTCGFoil || 0);
-  const foilAvailable = foilPrice > 0;
+  const border = inCollection ? '2px solid rgba(var(--lgx1),0.75)' : '1px solid var(--border)';
   return `
-    <div class="deck-search-tile" data-idx="${idx}" style="cursor:pointer">
-      <div style="aspect-ratio:0.715;overflow:hidden;border-radius:6px;border:${border};transition:border-color 0.15s;position:relative">
+    <div class="deck-search-tile wl-result" data-idx="${idx}" title="${escapeHtml(name)} — click to add to wishlist">
+      <div class="wl-result-art" style="border:${border}">
         ${img
-          ? `<img src="${img}" style="width:100%;height:100%;object-fit:cover;${filter}" alt="${name}" loading="lazy">`
-          : `<div style="width:100%;height:100%;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:0.6rem;padding:4px;text-align:center;color:var(--text2)">${name}</div>`}
-      </div>
-      <div style="font-size:0.62rem;color:var(--text3);margin-top:2px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${name}</div>
-      <div style="font-size:0.6rem;color:var(--text3);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${(payload.set||'').toUpperCase()}${payload.number ? ' #' + payload.number : ''}</div>
-      <!-- No stopPropagation here: the click has to reach the delegated handler
-           on #wishlistSearchResults, which is what actually adds the card. It
-           tells an Add button apart from the tile itself, so nothing needs
-           shielding — and with the guard in place no add ever fired. -->
-      <div style="display:flex;gap:4px;justify-content:center;margin-top:3px">
-        <button class="btn btn-outline btn-sm wishlist-add-btn" data-idx="${idx}" data-finish="nonfoil" style="padding:2px 6px;font-size:0.62rem">${nonFoilPrice > 0 ? `$${nonFoilPrice.toFixed(2)}` : 'Add'}</button>
-        ${foilAvailable ? `<button class="btn btn-outline btn-sm wishlist-add-btn" data-idx="${idx}" data-finish="foil" style="padding:2px 6px;font-size:0.62rem;color:var(--gold);border-color:rgba(200,168,74,0.4)">✦ $${foilPrice.toFixed(2)}</button>` : ''}
+          ? `<img src="${escapeHtml(img)}" alt="${escapeHtml(name)}" loading="lazy">`
+          : `<div class="wl-result-fallback">${escapeHtml(name)}</div>`}
       </div>
     </div>`;
 }
@@ -570,8 +587,12 @@ function _renderWishlistSearchGrid() {
     return _wishlistTile(c.name, img, !!collectionByScryId[c.id], payload, _wishlistResultPayloads.length - 1);
   }).join('');
 
-  el.innerHTML = (localHtml + apiHtml) ||
-    '<div style="grid-column:1/-1;padding:8px;font-size:0.8rem;color:var(--text3)">No cards found</div>';
+  const shown = _wishlistSearchLocal.length + _wishlistSearchApi.length;
+  const more = _wishlistSearchTotal != null && _wishlistSearchOffset < _wishlistSearchTotal
+    ? `<div class="wl-more"><button type="button" class="btn btn-outline btn-sm" onclick="loadMoreWishlistResults()">Load more (${shown} of ${_wishlistSearchTotal})</button></div>`
+    : '';
+  el.innerHTML = ((localHtml + apiHtml) ||
+    '<div style="grid-column:1/-1;padding:8px;font-size:0.8rem;color:var(--text3)">No cards found</div>') + more;
 
   el.onclick = e => {
     const addBtn = e.target.closest('.wishlist-add-btn');
@@ -587,7 +608,7 @@ function _renderWishlistSearchGrid() {
 
 function addToWishlistCard(id, dataStr) {
   const data = JSON.parse(decodeURIComponent(dataStr));
-  const priority = document.getElementById('wishlistPriority').value;
+  const priority = document.getElementById('wishlistPriority')?.value || 'med';
   const uid = (data.scryfallId || id) + (data.foil ? '_f' : '_n');
   if (wishlist.find(c => (c.uid || (c.scryfallId + (c.foil ? '_f' : '_n'))) === uid)) { showNotif('Already in wishlist'); return; }
   wishlist.push({...data, uid, priority, addedAt: Date.now()});

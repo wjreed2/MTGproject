@@ -4581,10 +4581,10 @@ body.glass-mode .x-stepper-btn-sm { border-radius: 7px; }
 }
 
 /* Collection + sets controls sizing parity — one header pattern, two tabs. */
-:is(#tab-collection, #tab-sets) .view-controls .search-box,
-:is(#tab-collection, #tab-sets) .view-controls select,
-:is(#tab-collection, #tab-sets) .view-controls .btn,
-:is(#tab-collection, #tab-sets) .view-controls .view-toggle button,
+:is(#tab-collection, #tab-sets, #tab-wishlist) .view-controls .search-box,
+:is(#tab-collection, #tab-sets, #tab-wishlist) .view-controls select,
+:is(#tab-collection, #tab-sets, #tab-wishlist) .view-controls .btn,
+:is(#tab-collection, #tab-sets, #tab-wishlist) .view-controls .view-toggle button,
 #tab-collection #quickFilterMenuBtn,
 #tab-sets #setTypeMenuBtn,
 #tab-collection .filter-bar .filter-chip,
@@ -4596,8 +4596,8 @@ body.glass-mode .x-stepper-btn-sm { border-radius: 7px; }
   height: 34px !important;
   box-sizing: border-box;
 }
-:is(#tab-collection, #tab-sets) .view-controls .search-box,
-:is(#tab-collection, #tab-sets) .view-controls select,
+:is(#tab-collection, #tab-sets, #tab-wishlist) .view-controls .search-box,
+:is(#tab-collection, #tab-sets, #tab-wishlist) .view-controls select,
 #tab-collection #cmcMinInput,
 #tab-collection #cmcMaxInput,
 #tab-collection .filter-bar > div:nth-child(2) > select {
@@ -6522,10 +6522,32 @@ textarea.deck-import:focus { outline: none; border-color: var(--gold); }
 /* WISHLIST */
 .wishlist-search-results {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(158px, 1fr));
-  gap: 10px;
+  /* Bigger than the old 158px so the card's own text is legible without opening it. */
+  grid-template-columns: repeat(auto-fill, minmax(215px, 1fr));
+  gap: 12px;
   margin-bottom: 1rem;
 }
+/* Clear of the folder tabs above rather than tight against them. */
+.wl-search-row { margin-top: 10px; }
+.wl-search-field { position: relative; flex: 1; min-width: 220px; }
+.wl-result { cursor: pointer; }
+.wl-result-art {
+  aspect-ratio: 0.715;
+  overflow: hidden;
+  border-radius: 5.6% / 4%;
+  transition: transform 0.15s var(--ease), box-shadow 0.15s var(--ease);
+}
+.wl-result-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.wl-result:hover .wl-result-art {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.42);
+}
+.wl-result-fallback {
+  width: 100%; height: 100%; background: var(--bg3);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.72rem; padding: 6px; text-align: center; color: var(--text2);
+}
+.wl-more { grid-column: 1 / -1; display: flex; justify-content: center; padding: 6px 0 2px; }
 .wishlist-panel-header {
   display: flex;
   align-items: center;
@@ -12133,6 +12155,9 @@ body.glass-mode .view-toggle button:hover:not(.active) {
 #tab-sets .btn:not(.coll-top-btn),
 #tab-sets .view-toggle,
 #tab-sets .search-box,
+#tab-wishlist .view-controls .btn:not(.coll-top-btn),
+#tab-wishlist .view-toggle,
+#tab-wishlist .search-box,
 #tab-collection #quickFilterRow select { border-radius: 8px !important; }
 
 /* The height rules on this row target the <select>, but a glassified select is
@@ -12177,6 +12202,8 @@ body.glass-mode #tab-collection .btn-ghost:hover,
 body.glass-mode #tab-collection .view-toggle button:hover:not(.active),
 body.glass-mode #tab-sets .btn-outline:hover,
 body.glass-mode #tab-sets .view-toggle button:hover:not(.active),
+body.glass-mode #tab-wishlist .view-controls .btn-outline:hover,
+body.glass-mode #tab-wishlist .view-toggle button:hover:not(.active),
 body.glass-mode #tab-collection .glass-dd-btn:hover {
   color: var(--text);
   border-color: rgba(var(--lgx1), 0.55);
@@ -12185,7 +12212,9 @@ body.glass-mode #tab-collection .glass-dd-btn:hover {
 body.glass-mode #tab-collection .btn-outline.active,
 body.glass-mode #tab-collection .view-toggle button.active,
 body.glass-mode #tab-sets .btn-outline.active,
-body.glass-mode #tab-sets .view-toggle button.active {
+body.glass-mode #tab-sets .view-toggle button.active,
+body.glass-mode #tab-wishlist .view-controls .btn-outline.active,
+body.glass-mode #tab-wishlist .view-toggle button.active {
   color: var(--text);
   border-color: rgba(var(--lgx2), 0.55);
   background: linear-gradient(135deg, rgba(var(--lgx1), 0.22), rgba(var(--lgx2), 0.22));

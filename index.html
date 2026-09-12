@@ -1142,27 +1142,19 @@
   </div>
 
   <div id="wlPane-search" class="deck-tab-pane">
-    <!-- Same search shape as Add cards: a full-width field that runs on Enter,
-         with the two multi-selects below it. No Search button. -->
-    <div class="collection-search-row">
-      <div style="position:relative;flex:1;min-width:0">
+    <!-- Search and its two filters on one line; runs on Enter, no Search button. -->
+    <div class="view-controls wl-search-row">
+      <div class="wl-search-field">
         <input class="search-box" type="text" id="wishlistSearch" autocomplete="off"
           style="width:100%" placeholder="Search"
           oninput="wishlistAutocomplete(this.value)"
           onkeydown="if(event.key==='Enter'){event.preventDefault();runWishlistSearch(this.value);}">
         <div id="wishlistSearchAutocomplete" class="wl-autocomplete" style="display:none"></div>
       </div>
-    </div>
-    <div class="view-controls">
       <button type="button" id="wlTypeMenuBtn" class="btn btn-outline btn-sm"
         aria-haspopup="true" aria-expanded="false" onclick="toggleWishlistTypeMenu(event)">Type &amp; more</button>
       <button type="button" id="wlColorMenuBtn" class="btn btn-outline btn-sm"
         aria-haspopup="true" aria-expanded="false" onclick="toggleWishlistColorMenu(event)">Color</button>
-      <select id="wishlistPriority" data-glass-label="Priority" title="Priority for cards you add">
-        <option value="high">High Priority</option>
-        <option value="med" selected>Medium</option>
-        <option value="low">Low Priority</option>
-      </select>
     </div>
     <div id="wishlistSearchResults" class="wishlist-search-results"></div>
   </div>
