@@ -149,15 +149,24 @@ function pgCloseColorPicker() {
   document.querySelectorAll('.pg-color-menu').forEach(m => m.remove());
 }
 
-/** The palette as a small body-anchored grid, like every other menu here. */
+/**
+ * The palette as quick picks, plus a full-spectrum input for anything else.
+ * The native colour input is the eyedropper — it opens the OS picker, which on
+ * every platform offers the whole space (and a literal screen eyedropper on
+ * macOS and Windows), rather than us rebuilding a colour wheel.
+ */
 function pgOpenColorPicker(groupId, memberId, btn) {
-  if (event) event.stopPropagation();
+  if (typeof event !== 'undefined' && event) event.stopPropagation();
   const open = document.querySelector('.pg-color-menu');
   pgCloseColorPicker();
   if (open) return;
+
+  const current = (playgroupMemberColor(groupId, memberId) || PLAYER_COLORS[0]).toLowerCase();
   const menu = document.createElement('div');
   menu.className = 'glass-menu pg-color-menu';
-  const current = (playgroupMemberColor(groupId, memberId) || '').toLowerCase();
+
+  const grid = document.createElement('div');
+  grid.className = 'pg-color-grid';
   for (const c of PLAYER_COLORS) {
     const b = document.createElement('button');
     b.type = 'button';
@@ -165,8 +174,33 @@ function pgOpenColorPicker(groupId, memberId, btn) {
     b.style.setProperty('--sw', c);
     b.title = c;
     b.addEventListener('click', e => { e.stopPropagation(); pgCloseColorPicker(); void pgSetMemberColor(groupId, memberId, c); });
-    menu.appendChild(b);
+    grid.appendChild(b);
   }
+  menu.appendChild(grid);
+
+  const custom = document.createElement('label');
+  custom.className = 'pg-color-custom';
+  custom.innerHTML = `<span class="pg-color-custom-sw" style="--sw:${current}"></span><span>Custom…</span>`;
+  const input = document.createElement('input');
+  input.type = 'color';
+  input.value = current;
+  input.className = 'pg-color-input';
+  // Live while dragging in the OS picker, saved once on release.
+  input.addEventListener('input', e => {
+    e.stopPropagation();
+    custom.querySelector('.pg-color-custom-sw')?.style.setProperty('--sw', input.value);
+    _pgPreviewMemberColor(groupId, memberId, input.value);
+  });
+  input.addEventListener('change', e => {
+    e.stopPropagation();
+    pgCloseColorPicker();
+    void pgSetMemberColor(groupId, memberId, input.value);
+  });
+  input.addEventListener('click', e => e.stopPropagation());
+  custom.appendChild(input);
+  custom.addEventListener('click', e => e.stopPropagation());
+  menu.appendChild(custom);
+
   document.body.appendChild(menu);
   const r = btn.getBoundingClientRect();
   const margin = 8;
@@ -175,6 +209,20 @@ function pgOpenColorPicker(groupId, memberId, btn) {
   const top = below >= h + 10 ? r.bottom + 6 : Math.max(margin, r.top - h - 6);
   menu.style.top = Math.min(top, window.innerHeight - h - margin) + 'px';
   menu.style.left = Math.min(Math.max(margin, r.left), window.innerWidth - w - margin) + 'px';
+}
+
+/** Paint a colour without saving it, so dragging in the OS picker is visible. */
+function _pgPreviewMemberColor(groupId, memberId, color) {
+  const g = _playgroups.find(x => Number(x.id) === Number(groupId));
+  const m = g && (g.members || []).find(x => Number(x.id) === Number(memberId));
+  if (!m) return;
+  m.color = color;
+  const card = document.querySelectorAll('.pg-card')[_playgroups.indexOf(g)];
+  const idx = (g.members || []).indexOf(m);
+  const name = card?.querySelectorAll('.pg-member-name')[idx];
+  const sw = card?.querySelectorAll('.pg-swatch')[idx];
+  if (name) name.style.color = color;
+  if (sw) sw.style.setProperty('--sw', color);
 }
 
 async function pgSetMemberColor(groupId, memberId, color) {

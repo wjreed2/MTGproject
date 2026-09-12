@@ -10791,10 +10791,12 @@ body.glass-mode #tabletView {
   /* Single accent for the active player + the white→yellow→orange→red life
      ramp (_cellLifeColor's glass branch reads these; light theme remaps them) */
   --glass-accent: #7ab2ff;
+  /* Life runs white to red, full to empty — no amber step, which was the gold
+     family the rest of the app dropped. */
   --glass-life-hi: #f4f6fb;
-  --glass-life-mid: #ffd97a;
-  --glass-life-low: #ffa15e;
-  --glass-life-crit: #ff7a6b;
+  --glass-life-mid: #f7c9c2;
+  --glass-life-low: #f0897c;
+  --glass-life-crit: #e8463a;
 }
 /* Neutral frosted cells: the per-player border colours and radial tints are
    inline-styled, so the neutralising overrides need !important. Player identity
@@ -10805,12 +10807,12 @@ body.glass-mode #tabletView {
    "whose turn" no longer needs a separate accent ring. */
 body.glass-mode #tabletView .tablet-cell {
   border-radius: 22px;
-  border-color: color-mix(in oklab, var(--seat, #7aa2ff) 30%, rgba(255,255,255,0.13)) !important;
+  border-color: color-mix(in oklab, var(--seat, #7aa2ff) 34%, rgba(255,255,255,0.13)) !important;
   background:
     linear-gradient(160deg,
-      color-mix(in oklab, var(--seat, #7aa2ff) 14%, transparent) 0%,
-      color-mix(in oklab, var(--seat, #7aa2ff) 6%, transparent) 60%,
-      transparent 100%),
+      color-mix(in oklab, var(--seat, #7aa2ff) 24%, transparent) 0%,
+      color-mix(in oklab, var(--seat, #7aa2ff) 12%, transparent) 60%,
+      color-mix(in oklab, var(--seat, #7aa2ff) 5%, transparent) 100%),
     rgba(255,255,255,0.05) !important;
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.13),
@@ -10822,9 +10824,9 @@ body.glass-mode #tabletView .tablet-cell[data-active="1"] {
   border-color: color-mix(in oklab, var(--seat, #7aa2ff) 70%, transparent) !important;
   background:
     linear-gradient(160deg,
-      color-mix(in oklab, var(--seat, #7aa2ff) 34%, transparent) 0%,
-      color-mix(in oklab, var(--seat, #7aa2ff) 18%, transparent) 65%,
-      color-mix(in oklab, var(--seat, #7aa2ff) 10%, transparent) 100%),
+      color-mix(in oklab, var(--seat, #7aa2ff) 46%, transparent) 0%,
+      color-mix(in oklab, var(--seat, #7aa2ff) 28%, transparent) 65%,
+      color-mix(in oklab, var(--seat, #7aa2ff) 16%, transparent) 100%),
     rgba(255,255,255,0.05) !important;
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.18),
@@ -10834,10 +10836,10 @@ body.glass-mode #tabletView .tablet-cell[data-active="1"] {
 /* Transient action states must keep their own rings (they outrank inline styles
    via !important in base CSS, which the neutral overrides above would beat). */
 body.glass-mode #tabletView .tablet-cell.player-targetable {
-  border-color: rgba(255,217,122,0.70) !important;
+  border-color: rgba(255,255,255,0.78) !important;
   box-shadow:
-    inset 0 0 0 3px rgba(255,217,122,0.40),
-    0 0 30px rgba(255,217,122,0.15) !important;
+    inset 0 0 0 3px rgba(255,255,255,0.42),
+    0 0 30px rgba(255,255,255,0.16) !important;
 }
 body.glass-mode #tabletView .tablet-cell.tablet-drag-target {
   border-color: var(--red) !important;
@@ -10852,7 +10854,7 @@ body.glass-mode #tabletView .tablet-cell--pie {
   box-shadow: none !important;
 }
 body.glass-mode .tablet-cell--pie[data-active="1"]:not(.tablet-drag-target):not(.tablet-seat-drag-source):not(.tablet-seat-drag-target) .pie-outline {
-  stroke: var(--glass-accent) !important;
+  stroke: color-mix(in oklab, var(--seat, #7aa2ff) 75%, transparent) !important;
 }
 body.glass-mode .tablet-name-bar { border-bottom-color: rgba(255,255,255,0.10) !important; }
 body.glass-mode .tablet-btn-bar { border-top-color: rgba(255,255,255,0.10) !important; }
@@ -11378,7 +11380,7 @@ body.glass-mode :is(input:not([type="checkbox"]):not([type="radio"]):not([type="
     linear-gradient(180deg, #eef2fa 0%, #e8edf8 55%, #eaeef6 100%);
   --glass-accent: #1668d8;
   --glass-life-hi: #17202e;
-  --glass-life-mid: #b07f1e;
+  --glass-life-mid: #a8544a;
   --glass-life-low: #d0641e;
   --glass-life-crit: #d84a3a;
 }
@@ -14351,8 +14353,27 @@ body.glass-mode .offer-card:hover {
 .pg-swatch:hover { box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.22); }
 .pg-color-menu {
   position: fixed; z-index: 10060;
-  display: grid; grid-template-columns: repeat(4, 22px); gap: 8px;
   padding: 10px; border-radius: var(--radius2);
+  display: flex; flex-direction: column; gap: 9px;
+}
+.pg-color-grid { display: grid; grid-template-columns: repeat(4, 22px); gap: 8px; }
+/* The native colour input covers the row, so the whole thing is the hit target
+   while the label underneath is what you see. */
+.pg-color-custom {
+  position: relative; display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px; border-radius: 8px; cursor: pointer;
+  font-size: 0.78rem; color: var(--text2);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+}
+.pg-color-custom:hover { border-color: rgba(var(--lgx1), 0.5); color: var(--text); }
+.pg-color-custom-sw {
+  width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0;
+  background: var(--sw); border: 1px solid rgba(255, 255, 255, 0.35);
+}
+.pg-color-input {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  opacity: 0; cursor: pointer; padding: 0; border: none;
 }
 .pg-color-opt {
   width: 22px; height: 22px; border-radius: 50%; cursor: pointer; padding: 0;
@@ -14360,3 +14381,48 @@ body.glass-mode .offer-card:hover {
 }
 .pg-color-opt:hover { border-color: rgba(255, 255, 255, 0.5); }
 .pg-color-opt.selected { border-color: #fff; }
+
+/* ── First-player roll ─────────────────────────────────────────────────────── */
+/* Glass, tinted with whoever is showing, so the spin reads as cycling through
+   the table. It carried a gold Cinzel name on a near-opaque slab before. */
+.fp-roll-card {
+  min-width: min(92vw, 420px);
+  padding: 20px 22px;
+  border-radius: var(--radius2);
+  text-align: center;
+  border: 1px solid color-mix(in oklab, var(--seat, #7aa2ff) 42%, rgba(255, 255, 255, 0.16));
+  background:
+    linear-gradient(160deg,
+      color-mix(in oklab, var(--seat, #7aa2ff) 30%, transparent) 0%,
+      color-mix(in oklab, var(--seat, #7aa2ff) 14%, transparent) 60%,
+      transparent 100%),
+    rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(22px) saturate(1.35);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    0 0 44px color-mix(in oklab, var(--seat, #7aa2ff) 22%, transparent),
+    0 18px 54px rgba(0, 0, 0, 0.45);
+  transition: border-color 0.09s linear, background 0.09s linear, box-shadow 0.2s var(--ease);
+}
+/* On the winner it settles rather than keeping the flicker cadence. */
+.fp-roll-card.is-settled {
+  transition: border-color 0.35s var(--ease), background 0.35s var(--ease), box-shadow 0.35s var(--ease);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    0 0 70px color-mix(in oklab, var(--seat, #7aa2ff) 34%, transparent),
+    0 18px 54px rgba(0, 0, 0, 0.45);
+}
+.fp-roll-label {
+  font-size: 0.7rem; letter-spacing: 0.12em;
+  color: var(--text3); margin-bottom: 10px;
+}
+.fp-roll-name { font-size: 1.5rem; font-weight: 600; min-height: 1.7em; line-height: 1.7; }
+[data-theme="light"] body.glass-mode .fp-roll-card {
+  border-color: color-mix(in oklab, var(--seat, #1668d8) 38%, rgba(255, 255, 255, 0.8));
+  background:
+    linear-gradient(160deg,
+      color-mix(in oklab, var(--seat, #1668d8) 20%, transparent) 0%,
+      color-mix(in oklab, var(--seat, #1668d8) 9%, transparent) 60%,
+      transparent 100%),
+    rgba(255, 255, 255, 0.72);
+}

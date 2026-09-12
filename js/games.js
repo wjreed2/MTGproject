@@ -455,6 +455,8 @@ function rollNewGameFirstPlayerAnimated() {
     const overlay = _ensureFirstPlayerOverlay();
     const textEl = document.getElementById('firstPlayerRollText');
     if (!textEl) { resolve(0); return; }
+    const card = document.getElementById('firstPlayerRollCard');
+    card?.classList.remove('is-settled');
 
     overlay.style.display = 'flex';
     let tick = 0;
@@ -463,16 +465,22 @@ function rollNewGameFirstPlayerAnimated() {
     const timer = setInterval(() => {
       const pick = candidates[Math.floor(Math.random() * candidates.length)];
       tick += 1;
+      const seatColors = _ngSeatColors();
+      const pickColor = seatColors[pick.idx] || PLAYER_COLORS[pick.idx % PLAYER_COLORS.length];
       textEl.textContent = `P${pick.idx + 1} · ${pick.p.name?.trim() || `Player ${pick.idx + 1}`}`;
-      textEl.style.color = pick.p.color || 'var(--gold)';
+      textEl.style.color = pickColor;
+      card?.style.setProperty('--seat', pickColor);
       if (tick < totalTicks) return;
       clearInterval(timer);
 
       const winner = candidates[Math.floor(Math.random() * candidates.length)];
       newGameFirstPlayerIdx = winner.idx;
       renderNewGamePlayersList();
+      const winColor = _ngSeatColors()[winner.idx] || PLAYER_COLORS[winner.idx % PLAYER_COLORS.length];
       textEl.textContent = `P${winner.idx + 1} · ${winner.p.name?.trim() || `Player ${winner.idx + 1}`}`;
-      textEl.style.color = winner.p.color || 'var(--gold)';
+      textEl.style.color = winColor;
+      card?.style.setProperty('--seat', winColor);
+      card?.classList.add('is-settled');
       setTimeout(() => { overlay.style.display = 'none'; resolve(winner.idx); }, 550);
     }, 90);
   });
@@ -1388,10 +1396,12 @@ function _ensureFirstPlayerOverlay() {
     'background:rgba(4,6,12,0.55)',
     'backdrop-filter:blur(4px)',
   ].join(';');
+  // Glass, and tinted with whichever player is on screen at that instant, so the
+  // spin reads as cycling through the table rather than a gold label changing.
   shell.innerHTML = `
-    <div style="min-width:min(92vw,420px);padding:16px 18px;border-radius:14px;background:rgba(9,12,24,0.96);border:1px solid var(--border2);box-shadow:0 16px 50px rgba(0,0,0,0.45);text-align:center">
-      <div style="font-size:0.72rem;letter-spacing:0.1em;color:var(--text3);margin-bottom:8px">RANDOMIZING FIRST PLAYER</div>
-      <div id="firstPlayerRollText" style="font-family:'Cinzel',serif;font-size:1.45rem;color:var(--gold);min-height:1.7em">...</div>
+    <div id="firstPlayerRollCard" class="fp-roll-card" style="--seat:${PLAYER_COLORS[0]}">
+      <div class="fp-roll-label">RANDOMIZING FIRST PLAYER</div>
+      <div id="firstPlayerRollText" class="fp-roll-name">...</div>
     </div>
   `;
   document.body.appendChild(shell);
@@ -2124,16 +2134,23 @@ function _wireTabletSurface(game, el) {
 // screen, matching the 4-player grid's seat progression (so the ⋯ menu's
 // "move clockwise / counterclockwise" behaves the same in both layouts).
 
+/** Full life reads white and drains to red — continuous, so it tracks the
+ *  number rather than stepping at thresholds. Replaces the blue→purple ramp,
+ *  which competed with the seat colours now tinting each cell. */
+function _lifeWhiteToRed(t) {
+  const k = Math.max(0, Math.min(1, t));
+  const hi = [244, 246, 251];   // #f4f6fb at full
+  const lo = [232, 70, 58];     // #e8463a at zero
+  const ch = i => Math.round(lo[i] + (hi[i] - lo[i]) * k);
+  return `rgb(${ch(0)}, ${ch(1)}, ${ch(2)})`;
+}
+
 function _cellLifeColor(p) {
   if (glassMode) {
-    // The app's one scale: blue at full life sliding to purple at zero, the same
-    // good→bad ramp the deck goal and theme bars use. Continuous rather than the
-    // old four steps, so the colour tracks the number instead of jumping.
     if (p.eliminated) return 'var(--text3)';
     const start = Number(p.startingLife) || 40;
     const t = Math.max(0, Math.min(1, (Number(p.life) || 0) / start));
-    if (typeof _lgxVerdictColor === 'function') return _lgxVerdictColor(t);
-    return 'var(--text)';
+    return _lifeWhiteToRed(t);
   }
   return p.eliminated ? 'rgba(255,255,255,0.15)'
     : p.life <= 0  ? 'var(--red)'
