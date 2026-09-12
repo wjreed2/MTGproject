@@ -381,6 +381,26 @@
 
 <!-- COLLECTION TAB -->
 <div id="tab-collection" class="tab-content active">
+  <!-- Four high-level actions, right-aligned above everything. Filter and Info
+       collapse the two blocks below; History and Share stay out of them. -->
+  <div class="collection-top-actions">
+    <button type="button" class="btn btn-outline btn-sm coll-top-btn" onclick="openCollectionShareModal()"
+      title="Share collection / view shared collections">Share</button>
+    <button type="button" id="historyBtn" class="btn btn-outline btn-sm coll-top-btn"
+      onclick="toggleCollectionHistory()">History</button>
+    <button type="button" id="collectionStatsToggleBtn" class="btn btn-outline btn-sm coll-top-btn"
+      aria-expanded="true" aria-controls="statsBar" title="Show or hide the collection totals"
+      onclick="toggleCollectionStats()">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;flex-shrink:0"><circle cx="8" cy="8" r="6.25"/><path d="M8 7.2v4"/><path d="M8 4.9h.01"/></svg>
+      <span class="coll-top-label">Info</span>
+    </button>
+    <button type="button" id="collectionFilterToggleBtn" class="btn btn-outline btn-sm coll-top-btn"
+      aria-expanded="false" aria-controls="collectionFilterBar" title="Search and filter"
+      onclick="toggleCollectionFilterBar()">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;flex-shrink:0"><circle cx="7" cy="7" r="4.5"/><path d="M10.4 10.4 14 14"/></svg>
+      <span class="coll-top-label">Filter</span>
+    </button>
+  </div>
   <div class="stats-bar" id="statsBar">
     <div class="stat-card"><div class="stat-val" id="statCards">0</div><div class="stat-label">Total Cards</div></div>
     <div class="stat-card"><div class="stat-val" id="statUnique">0</div><div class="stat-label">Unique Cards</div></div>
@@ -399,7 +419,7 @@
     <button class="btn btn-ghost btn-sm" onclick="exitSharedCollectionView()" style="font-size:0.78rem;color:var(--text3)">← Back to my collection</button>
   </div>
 
-  <div class="filter-bar">
+  <div class="filter-bar" id="collectionFilterBar" style="display:none">
     <!-- Row 1: the search field, full width -->
     <div class="collection-search-row">
       <div style="position:relative;flex:1;min-width:0">
@@ -478,8 +498,6 @@
       </select>
 
       <button class="btn btn-outline btn-sm" id="starFilterBtn" onclick="toggleStarFilter(this)" style="white-space:nowrap">&#9734; Starred</button>
-      <button id="historyBtn" class="btn btn-outline btn-sm" onclick="toggleCollectionHistory()" style="white-space:nowrap">&#9711; History</button>
-      <button class="btn btn-outline btn-sm" onclick="openCollectionShareModal()" style="white-space:nowrap" title="Share collection / view shared collections">&#8646; Share</button>
 
       <div id="collectionViewToggle" class="view-toggle" role="group" aria-label="Collection layout">
         <button class="active tooltip-wrap" onclick="setView('grid',this)"><span class="tooltip">Grid</span>&#8862;</button>

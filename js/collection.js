@@ -1382,6 +1382,66 @@ function toggleColor(c, el) {
   renderCollection();
 }
 
+// ── Collection header: Filter and Info collapse the two blocks below ─────────
+// Filter mirrors the deck list's: the bar starts collapsed and the button lights
+// while it is open. Info hides the totals. Both remember their state, because a
+// panel you deliberately closed reopening on every visit is the annoying half of
+// a collapse control.
+const COLLECTION_FILTER_KEY = 'mtg_collection_filter_open';
+const COLLECTION_STATS_KEY = 'mtg_collection_stats_open';
+
+function _prefOpen(key, dflt) {
+  try {
+    const v = localStorage.getItem(key);
+    return v == null ? dflt : v === '1';
+  } catch (_) { return dflt; }
+}
+function _setPrefOpen(key, on) {
+  try { localStorage.setItem(key, on ? '1' : '0'); } catch (_) { /* private mode */ }
+}
+
+function _applyCollectionFilterBarState(open) {
+  const bar = document.getElementById('collectionFilterBar');
+  const btn = document.getElementById('collectionFilterToggleBtn');
+  if (bar) bar.style.display = open ? '' : 'none';
+  if (btn) {
+    btn.classList.toggle('active', open);
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+}
+
+function toggleCollectionFilterBar() {
+  const open = !_prefOpen(COLLECTION_FILTER_KEY, false);
+  _setPrefOpen(COLLECTION_FILTER_KEY, open);
+  _applyCollectionFilterBarState(open);
+  if (open) document.getElementById('searchInput')?.focus();
+}
+
+function _applyCollectionStatsState(open) {
+  const bar = document.getElementById('statsBar');
+  const btn = document.getElementById('collectionStatsToggleBtn');
+  if (bar) bar.style.display = open ? '' : 'none';
+  if (btn) {
+    btn.classList.toggle('active', open);
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+}
+
+function toggleCollectionStats() {
+  const open = !_prefOpen(COLLECTION_STATS_KEY, true);
+  _setPrefOpen(COLLECTION_STATS_KEY, open);
+  _applyCollectionStatsState(open);
+}
+
+/** Seed both from the stored preference whenever the tab is shown. */
+function syncCollectionHeaderToggles() {
+  _applyCollectionFilterBarState(_prefOpen(COLLECTION_FILTER_KEY, false));
+  _applyCollectionStatsState(_prefOpen(COLLECTION_STATS_KEY, true));
+}
+globalThis.toggleCollectionFilterBar = toggleCollectionFilterBar;
+globalThis.toggleCollectionStats = toggleCollectionStats;
+globalThis.syncCollectionHeaderToggles = syncCollectionHeaderToggles;
+
 // ── Colour filter: the same multi-select menu as Type & more ─────────────────
 // Six always-visible pips were a second interaction for the same job, and they
 // cost the row more width than the menu button does.

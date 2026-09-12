@@ -114,7 +114,10 @@ function showTab(t, opts) {
   }
   if (t !== 'collection' && typeof exitSharedCollectionView === 'function' && typeof _viewingSharedCollOwnerId !== 'undefined' && _viewingSharedCollOwnerId) exitSharedCollectionView();
   if (opts.skipRender) return;
-  if (t === 'collection') renderCollection();
+  if (t === 'collection') {
+    if (typeof syncCollectionHeaderToggles === 'function') syncCollectionHeaderToggles();
+    renderCollection();
+  }
   if (t === 'sets') loadSets();
   if (t === 'decks') renderDecks();
   if (t === 'browse') renderBrowseDecks();

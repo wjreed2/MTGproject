@@ -13753,3 +13753,29 @@ body.glass-mode #deckExportModal .modal {
 /* Colour menu rows carry their mana symbol beside the name. */
 .color-menu-item { display: flex; align-items: center; gap: 9px; }
 .color-menu-item img { width: 15px; height: 15px; flex-shrink: 0; }
+
+/* ── Collection header actions ─────────────────────────────────────────────
+   Four high-level buttons above the page, right-aligned: Share, History, Info,
+   Filter. Filter and Info collapse the blocks under them; the other two are
+   plain actions and stay outside that. */
+.collection-top-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 0.85rem;
+}
+/* These are the deck page's high-level buttons — the rounded ones Add cards and
+   Manage Tags use — so they override this tab's squared-off control radius. */
+#tab-collection .coll-top-btn {
+  border-radius: 999px !important;
+  height: 34px !important;
+  box-sizing: border-box;
+  padding: 0 16px !important;
+  font-size: 0.82rem !important;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
