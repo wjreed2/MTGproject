@@ -14191,26 +14191,59 @@ body.glass-mode .offer-card:hover {
 
 /* Visibility is a yes/no, so it looks like one. */
 .trade-settings-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
-.trade-vis-switch {
-  display: inline-flex; align-items: center; gap: 9px;
-  background: none; border: none; cursor: pointer; padding: 0;
-  color: var(--text2); font-size: 0.82rem;
+.trade-settings-bar .view-toggle { height: 34px; }
+
+/* ── Global price alert: one threshold either side of "no change" ──────────── */
+.pa-global {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin-bottom: 14px;
 }
-.trade-vis-track {
-  width: 34px; height: 19px; border-radius: 999px; position: relative;
-  background: rgba(255, 255, 255, 0.10);
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  transition: background 0.18s var(--ease), border-color 0.18s var(--ease);
+.pa-global-readout {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.76rem; color: var(--text3); white-space: nowrap;
 }
-.trade-vis-knob {
-  position: absolute; top: 2px; left: 2px;
-  width: 13px; height: 13px; border-radius: 50%;
-  background: var(--text3);
-  transition: transform 0.18s var(--ease), background 0.18s var(--ease);
+.pa-global.is-on .pa-global-readout { color: var(--text2); }
+
+/* Two inputs share one track. Only the thumbs take the pointer, so each can be
+   grabbed even where they overlap. The lit span between them is the band you
+   are choosing NOT to be told about. */
+.pa-dual {
+  position: relative;
+  flex: 1 1 260px; min-width: 200px; max-width: 420px;
+  height: 18px;
 }
-.trade-vis-switch.is-on .trade-vis-track {
-  background: linear-gradient(135deg, rgba(var(--lgx1), 0.45), rgba(var(--lgx2), 0.45));
-  border-color: rgba(var(--lgx2), 0.6);
+.pa-dual::before {
+  content: ''; position: absolute; left: 0; right: 0; top: 6px; height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(to right,
+    rgb(var(--lgx1)) 0 var(--pa-lo, 30%),
+    rgba(255, 255, 255, 0.14) var(--pa-lo, 30%) var(--pa-hi, 70%),
+    rgb(var(--lgx1)) var(--pa-hi, 70%) 100%);
+  opacity: 0.35;
+  transition: opacity 0.15s var(--ease);
 }
-.trade-vis-switch.is-on .trade-vis-knob { transform: translateX(15px); background: #fff; }
-.trade-vis-switch.is-on .trade-vis-label { color: var(--text); }
+.pa-global.is-on .pa-dual::before { opacity: 1; }
+.pa-range {
+  position: absolute; inset: 0; width: 100%; height: 18px; margin: 0;
+  -webkit-appearance: none; appearance: none;
+  background: transparent; pointer-events: none;
+}
+/* The drop thumb runs leftward from the middle, so its track is mirrored. */
+.pa-range--down { transform: scaleX(-1); right: 50%; width: 50%; }
+.pa-range--up { left: 50%; width: 50%; }
+.pa-range::-webkit-slider-runnable-track { height: 6px; background: transparent; }
+.pa-range::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; pointer-events: auto;
+  width: 14px; height: 14px; margin-top: -4px;
+  border: none; border-radius: 50%; cursor: pointer;
+  background: rgb(var(--lgx1));
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+}
+.pa-range::-moz-range-track { height: 6px; background: transparent; }
+.pa-range::-moz-range-thumb {
+  pointer-events: auto; width: 14px; height: 14px;
+  border: none; border-radius: 50%; cursor: pointer;
+  background: rgb(var(--lgx1)); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+}
+.pa-range:disabled::-webkit-slider-thumb { background: var(--text3); cursor: default; }
+.pa-range:disabled::-moz-range-thumb { background: var(--text3); cursor: default; }

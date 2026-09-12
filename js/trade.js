@@ -1115,10 +1115,6 @@ function _tradeToolbarHtml(ctx) {
         ${['common', 'uncommon', 'rare', 'mythic'].map(r =>
           `<option value="${r}"${s.rarity === r ? ' selected' : ''}>${r.charAt(0).toUpperCase() + r.slice(1)}</option>`).join('')}
       </select>
-      <div class="view-toggle">
-        <button type="button" class="${s.view === 'grid' ? 'active' : ''}" onclick="tfView('${ctx}','grid')">Grid</button>
-        <button type="button" class="${s.view === 'list' ? 'active' : ''}" onclick="tfView('${ctx}','list')">List</button>
-      </div>
     </div>
   </div>`;
 }
@@ -1339,13 +1335,12 @@ function _tradeSettingsBarHtml() {
   const on = _tradeSettings.visibility === 'public';
   return `
     <div class="trade-settings-bar">
-      <button type="button" class="trade-vis-switch${on ? ' is-on' : ''}" role="switch"
-        aria-checked="${on ? 'true' : 'false'}"
-        onclick="setTradeVisibility('${on ? 'not_trading' : 'public'}')"
-        title="${on ? 'Others can find you and send offers' : 'Hidden from discovery; no offers'}">
-        <span class="trade-vis-track"><span class="trade-vis-knob"></span></span>
-        <span class="trade-vis-label">${on ? 'Open to trades' : 'Not trading'}</span>
-      </button>
+      <div class="view-toggle" role="group" aria-label="Trading visibility">
+        <button type="button" class="${on ? 'active' : ''}" onclick="setTradeVisibility('public')"
+          title="Others can find you and send offers">Open to trades</button>
+        <button type="button" class="${on ? '' : 'active'}" onclick="setTradeVisibility('not_trading')"
+          title="Hidden from discovery; no offers">Not trading</button>
+      </div>
     </div>`;
 }
 
@@ -1778,18 +1773,101 @@ function _refreshWatchesIfOpen() {
 
 // ── Price Alerts: a list of every card you're watching ──────────────────────
 
+const _PA_MAX = 100;   // percent, either direction
+
+/** Off unless the account has stored a threshold in at least one direction. */
+function _paGlobalOn() {
+  return (_tradeSettings?.defaultPctDown ?? null) != null || (_tradeSettings?.defaultPctUp ?? null) != null;
+}
+function _paDown() { return Math.min(_PA_MAX, Math.max(1, Number(_tradeSettings?.defaultPctDown ?? 20))); }
+function _paUp()   { return Math.min(_PA_MAX, Math.max(1, Number(_tradeSettings?.defaultPctUp   ?? 20))); }
+
+/**
+ * One control for "tell me about any card that moves this far". Two thumbs on a
+ * shared track: drop on the left, rise on the right, so the span between them is
+ * the range you are choosing to ignore. Off until switched on — individual
+ * per-card alerts are separate and untouched either way.
+ */
+function _paGlobalHtml() {
+  const on = _paGlobalOn();
+  const down = _paDown(), up = _paUp();
+  const lo = 50 - (down / _PA_MAX) * 50;
+  const hi = 50 + (up / _PA_MAX) * 50;
+  return `
+    <div class="pa-global${on ? ' is-on' : ''}">
+      <button type="button" class="btn btn-outline btn-sm pa-global-toggle${on ? ' active' : ''}"
+        role="switch" aria-checked="${on ? 'true' : 'false'}" onclick="paToggleGlobal()"
+        title="Alert on any card that moves past these thresholds">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M12 6a4 4 0 0 0-8 0c0 4.5-2 5.5-2 5.5h12s-2-1-2-5.5"/><path d="M9.3 13.5a1.5 1.5 0 0 1-2.6 0"/></svg>
+        Alert on any card
+      </button>
+      <div class="pa-dual" style="--pa-lo:${lo}%;--pa-hi:${hi}%" aria-hidden="${on ? 'false' : 'true'}">
+        <input type="range" id="paDown" class="pa-range pa-range--down" min="1" max="${_PA_MAX}" step="1"
+          value="${down}" ${on ? '' : 'disabled'} oninput="paSetGlobal('down', +this.value)"
+          aria-label="Alert when a card drops by this percent">
+        <input type="range" id="paUp" class="pa-range pa-range--up" min="1" max="${_PA_MAX}" step="1"
+          value="${up}" ${on ? '' : 'disabled'} oninput="paSetGlobal('up', +this.value)"
+          aria-label="Alert when a card rises by this percent">
+      </div>
+      <span class="pa-global-readout">${on ? `drop ${down}% · rise ${up}%` : 'off'}</span>
+    </div>`;
+}
+
+function _paRepaint() {
+  const host = document.getElementById('tradeSectionBody');
+  const mount = host?.querySelector('.pa-global');
+  if (mount) mount.outerHTML = _paGlobalHtml();
+}
+
+/** Save is debounced — dragging a slider should not be one PUT per pixel. */
+let _paSaveTimer = null;
+function _paSave() {
+  clearTimeout(_paSaveTimer);
+  _paSaveTimer = setTimeout(async () => {
+    try {
+      await apiPut('/trade/settings', {
+        defaultPctUp: _tradeSettings.defaultPctUp ?? null,
+        defaultPctDown: _tradeSettings.defaultPctDown ?? null,
+      });
+    } catch (e) { showNotif(e.message || 'Could not save price alert', true); }
+  }, 400);
+}
+
+function paToggleGlobal() {
+  if (!_tradeSettings) _tradeSettings = {};
+  if (_paGlobalOn()) {
+    _tradeSettings.defaultPctUp = null;
+    _tradeSettings.defaultPctDown = null;
+  } else {
+    _tradeSettings.defaultPctUp = 20;
+    _tradeSettings.defaultPctDown = 20;
+  }
+  _paRepaint();
+  _paSave();
+}
+
+function paSetGlobal(side, v) {
+  if (!_tradeSettings) _tradeSettings = {};
+  const n = Math.min(_PA_MAX, Math.max(1, Number(v) || 1));
+  if (side === 'down') _tradeSettings.defaultPctDown = n;
+  else _tradeSettings.defaultPctUp = n;
+  // Repaint keeps the track fill and the readout with the thumbs.
+  _paRepaint();
+  _paSave();
+}
+
 async function renderTradeWatchesSection(host) {
   host.innerHTML = `<div class="trade-loading">Loading your price alerts…</div>`;
   let watches;
-  try { watches = await apiFetch('/price-watches'); }
-  catch (e) { host.innerHTML = `<div class="trade-empty">Could not load price alerts: ${escapeHtml(e.message || '')}</div>`; return; }
-  if (!watches.length) {
-    host.innerHTML = `<div class="trade-empty">No price alerts yet. Open any card, choose <strong>Watch</strong>, and set a target — your alerts appear here.</div>`;
-    return;
-  }
-  host.innerHTML = `
-    <div class="watch-head">${watches.length} price alert${watches.length === 1 ? '' : 's'}</div>
-    <div class="watch-list">${watches.map(_watchRowHtml).join('')}</div>`;
+  try {
+    const [w, settings] = await Promise.all([apiFetch('/price-watches'), apiFetch('/trade/settings')]);
+    watches = w;
+    _tradeSettings = settings;
+  } catch (e) { host.innerHTML = `<div class="trade-empty">Could not load price alerts: ${escapeHtml(e.message || '')}</div>`; return; }
+  host.innerHTML = _paGlobalHtml() + (watches.length
+    ? `<div class="watch-head">${watches.length} price alert${watches.length === 1 ? '' : 's'}</div>
+       <div class="watch-list">${watches.map(_watchRowHtml).join('')}</div>`
+    : `<div class="trade-empty">No price alerts yet. Open any card, choose <strong>Watch</strong>, and set a target — your alerts appear here.</div>`);
 }
 
 function _scryThumb(scryfallId) {
