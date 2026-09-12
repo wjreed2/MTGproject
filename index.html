@@ -424,16 +424,19 @@
         </div>
       </div>
     </div>
-    <!-- Row 2: every other control on one line -->
+    <!-- Row 2: every other control on one line, in reading order:
+         Type & more, Color, Sort, mana value, Rarity, Starred, History, Share. -->
     <div class="view-controls">
-      <div class="color-pills" id="colorFilter">
-        <div class="color-pill tooltip-wrap" onclick="toggleColor('W',this)" data-c="W"><span class="tooltip">White</span><img src="https://svgs.scryfall.io/card-symbols/W.svg" alt="W"></div>
-        <div class="color-pill tooltip-wrap" onclick="toggleColor('U',this)" data-c="U"><span class="tooltip">Blue</span><img src="https://svgs.scryfall.io/card-symbols/U.svg" alt="U"></div>
-        <div class="color-pill tooltip-wrap" onclick="toggleColor('B',this)" data-c="B"><span class="tooltip">Black</span><img src="https://svgs.scryfall.io/card-symbols/B.svg" alt="B"></div>
-        <div class="color-pill tooltip-wrap" onclick="toggleColor('R',this)" data-c="R"><span class="tooltip">Red</span><img src="https://svgs.scryfall.io/card-symbols/R.svg" alt="R"></div>
-        <div class="color-pill tooltip-wrap" onclick="toggleColor('G',this)" data-c="G"><span class="tooltip">Green</span><img src="https://svgs.scryfall.io/card-symbols/G.svg" alt="G"></div>
-        <div class="color-pill tooltip-wrap" onclick="toggleColor('C',this)" data-c="C"><span class="tooltip">Colorless</span><img src="https://svgs.scryfall.io/card-symbols/C.svg" alt="C"></div>
-      </div>
+      <button type="button" id="quickFilterMenuBtn" class="btn btn-outline btn-sm"
+        aria-haspopup="true" aria-expanded="false"
+        onclick="toggleQuickFilterMenu(event)">Type &amp; more</button>
+
+      <!-- Colours are the same multi-select menu as Type &amp; more; the six
+           always-visible pips were a different interaction for the same job. -->
+      <button type="button" id="colorFilterMenuBtn" class="btn btn-outline btn-sm"
+        aria-haspopup="true" aria-expanded="false"
+        onclick="toggleColorFilterMenu(event)">Color</button>
+
       <select id="collectionSortSelect" onchange="sortCards(this.value)">
         <option value="name">Sort: Name</option>
         <option value="cmc">Sort: Mana Value</option>
@@ -459,33 +462,23 @@
           <option value="low">Low first</option>
         </select>
       </div>
-      <div id="collectionViewToggle" class="view-toggle" role="group" aria-label="Collection layout">
-        <button class="active tooltip-wrap" onclick="setView('grid',this)"><span class="tooltip">Grid</span>⊞</button>
-        <button class="tooltip-wrap" onclick="setView('large',this)"><span class="tooltip">Large</span>⊟</button>
-        <button class="tooltip-wrap" onclick="setView('compact',this)"><span class="tooltip">Compact</span>⊠</button>
-        <button class="tooltip-wrap" onclick="setView('list',this)"><span class="tooltip">List</span>☰</button>
-      </div>
-      <button id="historyBtn" class="btn btn-outline btn-sm" onclick="toggleCollectionHistory()" style="white-space:nowrap;font-size:0.72rem;padding:3px 10px">◷ History</button>
-      <button class="btn btn-outline btn-sm" onclick="openCollectionShareModal()" style="white-space:nowrap;font-size:0.72rem;padding:3px 10px" title="Share collection / view shared collections">⇄ Share</button>
-      <!-- Filters share the controls line: display:contents makes these children
-           flex items of .view-controls rather than a row of their own. -->
-      <div id="quickFilterRow" style="display:contents">
-      <!-- Type and flag filters are this one multi-select menu on every width.
-           They used to be eleven chips on a nowrap row; the menu replaced them
-           on phones, where most sat off-screen, and now everywhere. -->
-      <button type="button" id="quickFilterMenuBtn" class="btn btn-outline btn-sm"
-        aria-haspopup="true" aria-expanded="false"
-        onclick="toggleQuickFilterMenu(event)">Type &amp; more</button>
-      <span style="width:1px;height:14px;background:var(--border2);flex-shrink:0"></span>
-      <span title="Mana Value" style="font-size:0.68rem;color:var(--text3);white-space:nowrap;letter-spacing:0.04em;text-transform:uppercase">MV</span>
-      <input id="cmcMinInput" type="number" min="0" max="20" placeholder="Min"
-        oninput="setQuickCMC()"
-        style="width:46px;padding:3px 5px;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);color:var(--text);font-size:0.78rem;font-family:'JetBrains Mono',monospace">
-      <span style="font-size:0.72rem;color:var(--text3)">–</span>
-      <input id="cmcMaxInput" type="number" min="0" max="20" placeholder="Max"
-        oninput="setQuickCMC()"
-        style="width:46px;padding:3px 5px;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--radius);color:var(--text);font-size:0.78rem;font-family:'JetBrains Mono',monospace">
-      <span style="width:1px;height:14px;background:var(--border2);flex-shrink:0"></span>
+
+      <!-- Mana value: the card inspector's counter, not a pair of bare inputs. -->
+      <span class="cmc-range" title="Mana value">
+        <span class="cmc-range-label">MV</span>
+        <span class="card-detail-qty-row cmc-range-counter">
+          <button type="button" class="btn btn-outline btn-sm btn-icon" onclick="stepQuickCMC('min',-1)" aria-label="Lower minimum mana value">&minus;</button>
+          <span class="card-detail-qty-value" id="cmcMinValue">–</span>
+          <button type="button" class="btn btn-outline btn-sm btn-icon" onclick="stepQuickCMC('min',1)" aria-label="Raise minimum mana value">+</button>
+        </span>
+        <span class="cmc-range-dash">–</span>
+        <span class="card-detail-qty-row cmc-range-counter">
+          <button type="button" class="btn btn-outline btn-sm btn-icon" onclick="stepQuickCMC('max',-1)" aria-label="Lower maximum mana value">&minus;</button>
+          <span class="card-detail-qty-value" id="cmcMaxValue">–</span>
+          <button type="button" class="btn btn-outline btn-sm btn-icon" onclick="stepQuickCMC('max',1)" aria-label="Raise maximum mana value">+</button>
+        </span>
+      </span>
+
       <select id="rarityFilterSelect" onchange="changeRarity(this.value)" title="Rarity">
         <option value="">All Rarities</option>
         <option value="common">Common</option>
@@ -493,9 +486,18 @@
         <option value="rare">Rare</option>
         <option value="mythic">Mythic</option>
       </select>
-      <button class="btn btn-outline btn-sm" id="starFilterBtn" onclick="toggleStarFilter(this)" style="white-space:nowrap;font-size:0.72rem;padding:3px 8px">☆ Starred</button>
-      <button id="clearChipsBtn" class="btn btn-ghost btn-sm" onclick="clearQuickFilters()" style="display:none;font-size:0.72rem;padding:3px 8px;color:var(--red)">✕ Clear</button>
+
+      <button class="btn btn-outline btn-sm" id="starFilterBtn" onclick="toggleStarFilter(this)" style="white-space:nowrap">&#9734; Starred</button>
+      <button id="historyBtn" class="btn btn-outline btn-sm" onclick="toggleCollectionHistory()" style="white-space:nowrap">&#9711; History</button>
+      <button class="btn btn-outline btn-sm" onclick="openCollectionShareModal()" style="white-space:nowrap" title="Share collection / view shared collections">&#8646; Share</button>
+
+      <div id="collectionViewToggle" class="view-toggle" role="group" aria-label="Collection layout">
+        <button class="active tooltip-wrap" onclick="setView('grid',this)"><span class="tooltip">Grid</span>&#8862;</button>
+        <button class="tooltip-wrap" onclick="setView('large',this)"><span class="tooltip">Large</span>&#8863;</button>
+        <button class="tooltip-wrap" onclick="setView('compact',this)"><span class="tooltip">Compact</span>&#8864;</button>
+        <button class="tooltip-wrap" onclick="setView('list',this)"><span class="tooltip">List</span>&#9776;</button>
       </div>
+      <button id="clearChipsBtn" class="btn btn-ghost btn-sm" onclick="clearQuickFilters()" style="display:none;color:var(--red)">&#10005; Clear</button>
     </div>
   </div>
 

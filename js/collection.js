@@ -662,12 +662,45 @@ function toggleQuickFlag(flag, btn) {
   _syncQuickFilterUI(); renderCollection();
 }
 
-function setQuickCMC() {
-  const minEl = document.getElementById('cmcMinInput');
-  const maxEl = document.getElementById('cmcMaxInput');
-  quickFilters.cmcMin = minEl?.value !== '' ? parseInt(minEl.value) : null;
-  quickFilters.cmcMax = maxEl?.value !== '' ? parseInt(maxEl.value) : null;
-  _syncQuickFilterUI(); renderCollection();
+const QUICK_CMC_MAX = 20;
+
+/**
+ * Mana value is the card inspector's counter now rather than two number fields:
+ * same -/+ buttons and monospace readout. Stepping below zero clears that end of
+ * the range back to "any", which is how you turn the filter off without a field
+ * to empty.
+ */
+function stepQuickCMC(end, delta) {
+  const key = end === 'max' ? 'cmcMax' : 'cmcMin';
+  const cur = quickFilters[key];
+  // Coming off "any", start where the other end already is rather than at 0 —
+  // otherwise raising the maximum from any, with a minimum of 1 set, produced a
+  // maximum of 0 and dragged the minimum down to meet it.
+  const from = key === 'cmcMax' ? Math.max(0, quickFilters.cmcMin ?? 0) : 0;
+  let next = (cur == null ? (delta > 0 ? from : null) : cur + delta);
+  if (next != null && next < 0) next = null;            // step past zero → any
+  if (next != null && next > QUICK_CMC_MAX) next = QUICK_CMC_MAX;
+  quickFilters[key] = next;
+  // Keep the pair coherent: a min above the max (or vice versa) matches nothing
+  // and reads as a bug rather than a filter.
+  if (quickFilters.cmcMin != null && quickFilters.cmcMax != null) {
+    if (key === 'cmcMin' && quickFilters.cmcMin > quickFilters.cmcMax) quickFilters.cmcMax = quickFilters.cmcMin;
+    if (key === 'cmcMax' && quickFilters.cmcMax < quickFilters.cmcMin) quickFilters.cmcMin = quickFilters.cmcMax;
+  }
+  _syncQuickCmcUi();
+  _syncQuickFilterUI();
+  renderCollection();
+}
+
+function _syncQuickCmcUi() {
+  const set = (id, v) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = v == null ? '–' : String(v);
+    el.classList.toggle('card-detail-qty-value--muted', v == null);
+  };
+  set('cmcMinValue', quickFilters.cmcMin);
+  set('cmcMaxValue', quickFilters.cmcMax);
 }
 
 function clearQuickFilters() {
@@ -677,8 +710,9 @@ function clearQuickFilters() {
   // now, which reads its ticks from quickFilters on each repaint. The old
   // `.filter-chip` sweep here was unscoped, so with no collection chips left it
   // would only have reached the find-card modal's chips and cleared those.
-  const min = document.getElementById('cmcMinInput'); if (min) min.value = '';
-  const max = document.getElementById('cmcMaxInput'); if (max) max.value = '';
+  _syncQuickCmcUi();
+  colorFilters.clear();
+  _syncColorFilterUi();
   // Rarity and Starred live on the same row and filter the same grid, but Clear
   // used to leave both applied — so clearing "everything" still hid most of the
   // collection, with the rarity dropdown still reading Rare and no way to get
@@ -699,10 +733,12 @@ function clearQuickFilters() {
 function _syncQuickFilterUI() {
   const total = quickFilters.types.size + quickFilters.flags.size +
     (quickFilters.cmcMin !== null ? 1 : 0) + (quickFilters.cmcMax !== null ? 1 : 0) +
-    (currentRarity ? 1 : 0) + (showStarredCardsOnly ? 1 : 0);
+    (currentRarity ? 1 : 0) + (showStarredCardsOnly ? 1 : 0) + colorFilters.size;
   const btn = document.getElementById('clearChipsBtn');
   if (btn) { btn.style.display = total > 0 ? '' : 'none'; btn.textContent = `✕ Clear (${total})`; }
   _syncQuickFilterMenuUi();
+  _syncColorFilterUi();
+  _syncQuickCmcUi();
 }
 
 // ── Phone quick filters: one multi-select menu ───────────────────────────────
@@ -1285,9 +1321,94 @@ function sortCards(v) {
 function changeRarity(v) { currentRarity = v; _syncQuickFilterUI(); renderCollection(); }
 
 function toggleColor(c, el) {
-  if (colorFilters.has(c)) { colorFilters.delete(c); el.classList.remove('active'); }
-  else { colorFilters.add(c); el.classList.add('active'); }
+  if (colorFilters.has(c)) { colorFilters.delete(c); el?.classList.remove('active'); }
+  else { colorFilters.add(c); el?.classList.add('active'); }
+  _syncColorFilterUi();
   renderCollection();
+}
+
+// ── Colour filter: the same multi-select menu as Type & more ─────────────────
+// Six always-visible pips were a second interaction for the same job, and they
+// cost the row more width than the menu button does.
+const COLOR_FILTER_OPTIONS = [
+  ['W', 'White'], ['U', 'Blue'], ['B', 'Black'],
+  ['R', 'Red'], ['G', 'Green'], ['C', 'Colorless'],
+];
+
+function _syncColorFilterUi() {
+  const btn = document.getElementById('colorFilterMenuBtn');
+  if (!btn) return;
+  const n = colorFilters.size;
+  btn.textContent = n > 0 ? `Color (${n})` : 'Color';
+  btn.classList.toggle('active', n > 0);
+}
+
+function closeColorFilterMenu() {
+  document.querySelectorAll('.color-menu').forEach(m => m.remove());
+  document.getElementById('colorFilterMenuBtn')?.setAttribute('aria-expanded', 'false');
+}
+
+function toggleColorFilterMenu(event) {
+  if (event) { event.stopPropagation(); event.preventDefault(); }
+  const open = !!document.querySelector('.color-menu');
+  closeColorFilterMenu();
+  if (!open) _openColorFilterMenu();
+}
+
+function _openColorFilterMenu() {
+  const btn = document.getElementById('colorFilterMenuBtn');
+  if (!btn) return;
+  const menu = document.createElement('div');
+  menu.className = 'glass-menu qf-menu color-menu';
+  for (const [code, label] of COLOR_FILTER_OPTIONS) {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'glass-menu-item color-menu-item' + (colorFilters.has(code) ? ' selected' : '');
+    item.innerHTML = `<img src="https://svgs.scryfall.io/card-symbols/${code}.svg" alt="" aria-hidden="true">${label}`;
+    item.addEventListener('click', e => {
+      e.stopPropagation();
+      toggleColor(code, null);
+      const scroll = menu.scrollTop;
+      setTimeout(() => {
+        closeColorFilterMenu();
+        _openColorFilterMenu();
+        const next = document.querySelector('.color-menu');
+        if (next) next.scrollTop = scroll;
+      }, 0);
+    });
+    menu.appendChild(item);
+  }
+  document.body.appendChild(menu);
+  const r = btn.getBoundingClientRect();
+  const margin = 8;
+  const maxH = Math.min(320, window.innerHeight - margin * 2);
+  menu.style.maxHeight = maxH + 'px';
+  const h = Math.min(menu.offsetHeight, maxH);
+  const w = menu.offsetWidth;
+  const below = window.innerHeight - r.bottom;
+  const top = below >= h + 12 ? r.bottom + 6 : Math.max(margin, r.top - h - 6);
+  menu.style.top = Math.min(top, window.innerHeight - h - margin) + 'px';
+  menu.style.left = Math.min(Math.max(margin, r.left), window.innerWidth - w - margin) + 'px';
+  btn.setAttribute('aria-expanded', 'true');
+
+  const drop = e => {
+    if (!menu.isConnected) {
+      window.removeEventListener('resize', drop, true);
+      window.removeEventListener('scroll', drop, true);
+      return;
+    }
+    if (e && e.target && menu.contains(e.target)) return;
+    closeColorFilterMenu();
+    window.removeEventListener('resize', drop, true);
+    window.removeEventListener('scroll', drop, true);
+  };
+  window.addEventListener('resize', drop, true);
+  window.addEventListener('scroll', drop, true);
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('click', () => closeColorFilterMenu());
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeColorFilterMenu(); });
 }
 
 function setView(v, btn) {
