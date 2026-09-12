@@ -627,15 +627,17 @@ function _renderWishlistSearchGrid() {
   el.innerHTML = ((localHtml + apiHtml) ||
     '<div style="grid-column:1/-1;padding:8px;font-size:0.8rem;color:var(--text3)">No cards found</div>') + more;
 
+  // Clicking a result opens the inspector rather than adding it outright — you
+  // get the card's detail, its printings and the wishlist heart, instead of a
+  // silent add you then have to undo. The heart is what adds it.
   el.onclick = e => {
-    const addBtn = e.target.closest('.wishlist-add-btn');
     const tile = e.target.closest('.deck-search-tile');
     if (!tile) return;
     const payload = _wishlistResultPayloads[+tile.dataset.idx];
     if (!payload) return;
-    const finish = addBtn?.dataset?.finish || 'nonfoil';
-    const data = { ...payload, foil: finish === 'foil' };
-    addToWishlistCard(data.scryfallId || data.id, encodeURIComponent(JSON.stringify(data)));
+    if (typeof openCardDetail !== 'function') return;
+    // The payload is already in cardToEntry shape, so hand it over prefetched.
+    void openCardDetail(String(payload.scryfallId || payload.id), undefined, { prefetchedEntry: { ...payload } });
   };
 }
 

@@ -5367,8 +5367,12 @@ app.get('/api/wishlist', requireAuth, async (req, res) => {
     );
     res.json(rows.map(r => {
       const card = typeof r.data === 'string' ? JSON.parse(r.data) : (r.data || {});
-      // Columns are authoritative over the JSON blob for trade-managed fields.
-      card.uid = card.uid || r.uid;
+      // Columns are authoritative over the JSON blob for trade-managed fields —
+      // uid included. It used to read `card.uid || r.uid`, so a derived row whose
+      // data blob carried a different uid than its own column handed the client
+      // an id that addressed no row: DELETE /api/wishlist/:uid matched nothing,
+      // answered 200 anyway, and the entry was back on the next load.
+      card.uid = r.uid || card.uid;
       card.source = r.source || 'manual';
       card.priority = r.priority || card.priority || 'med';
       card.priorityLocked = !!r.priority_locked;
@@ -5497,8 +5501,10 @@ app.patch('/api/wishlist/:uid', requireAuth, async (req, res) => {
 app.delete('/api/wishlist/:uid', requireAuth, async (req, res) => {
   const uid = String(req.params.uid || '').slice(0, 120);
   try {
-    await db().query('DELETE FROM wishlist WHERE account_id = ? AND uid = ?', [req.accountId, uid]);
-    res.json({ ok: true });
+    // Report what was actually removed. Answering a bare ok to a uid that matched
+    // no row is what let the bug above hide.
+    const [r] = await db().query('DELETE FROM wishlist WHERE account_id = ? AND uid = ?', [req.accountId, uid]);
+    res.json({ ok: true, deleted: r?.affectedRows ?? 0 });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

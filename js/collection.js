@@ -3738,8 +3738,16 @@ function toggleWishlistFromDetail(uid) {
   if (!sourceCard || !sourceCard.scryfallId) return;
   const idx = wishlist.findIndex(c => c.scryfallId === sourceCard.scryfallId);
   if (idx >= 0) {
+    // Delete the row as well as dropping it locally. PUT /api/wishlist only
+    // replaces rows whose source is 'manual', so on a server-derived entry the
+    // save alone cleared the screen and nothing else. Same path the wishlist
+    // tab's - button takes.
+    const removedUid = (typeof _wishlistUid === 'function')
+      ? _wishlistUid(wishlist[idx])
+      : wishlist[idx]?.uid;
     wishlist.splice(idx, 1);
     save('wishlist');
+    if (typeof _deleteWishlistRowRemote === 'function') _deleteWishlistRowRemote(removedUid);
     renderWishlist();
     openCardDetail(uid);
     showNotif('Removed from wishlist');
