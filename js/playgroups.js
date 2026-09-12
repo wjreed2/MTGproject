@@ -13,7 +13,10 @@ function _pgNormalize(groups) {
     ...g,
     id: Number(g.id),
     ownerId: Number(g.ownerId),
-    members: (g.members || []).map(m => ({ id: Number(m.id), name: m.name, status: m.status || 'accepted' })),
+    // Spread rather than list fields: this rebuilt each member from three named
+    // keys and silently dropped `color`, so a saved colour was discarded on
+    // every load and the member fell back to their palette slot.
+    members: (g.members || []).map(m => ({ ...m, id: Number(m.id), name: m.name, status: m.status || 'accepted' })),
   }));
 }
 
@@ -146,7 +149,16 @@ function playgroupMemberColor(groupId, memberId) {
 globalThis.playgroupMemberColor = playgroupMemberColor;
 
 function pgCloseColorPicker() {
+  if (!document.querySelector('.pg-color-menu')) return;
   document.querySelectorAll('.pg-color-menu').forEach(m => m.remove());
+  // Flush rather than drop: closing is not a cancel, and the colour is already
+  // on screen by then.
+  if (_pgCommitTimer && _pgPickCtx) {
+    clearTimeout(_pgCommitTimer);
+    const { groupId, memberId, h, s: sat, v } = _pgPickCtx;
+    void pgSetMemberColor(groupId, memberId, _hsvToHex(h, sat, v), { silent: true });
+  }
+  _pgCommitTimer = null;
 }
 
 // ── Colour maths ────────────────────────────────────────────────────────────
@@ -208,7 +220,7 @@ function pgOpenColorPicker(groupId, memberId, btn) {
     <div class="pgc-foot">
       <span class="pgc-preview" id="pgcPreview"></span>
       <input class="pgc-hex" id="pgcHex" maxlength="7" spellcheck="false" aria-label="Hex colour">
-      <button type="button" class="btn btn-outline btn-sm pgc-apply" id="pgcApply">Set</button>
+      <button type="button" class="btn btn-outline btn-sm pgc-apply" id="pgcApply">Done</button>
     </div>
     <div class="pgc-presets">${PLAYER_COLORS.map(c =>
       `<button type="button" class="pgc-preset" data-c="${c}" style="--sw:${c}" title="${c}"></button>`).join('')}</div>`;
@@ -227,23 +239,31 @@ function pgOpenColorPicker(groupId, memberId, btn) {
     e.preventDefault();
     field.setPointerCapture(e.pointerId);   // keeps the drag alive outside the box
     pickFromEvent(e);
+    _pgCommitPicker();
     const move = ev => pickFromEvent(ev);
-    const up = () => { field.removeEventListener('pointermove', move); field.removeEventListener('pointerup', up); };
+    const up = () => {
+      field.removeEventListener('pointermove', move);
+      field.removeEventListener('pointerup', up);
+      _pgCommitPicker();
+    };
     field.addEventListener('pointermove', move);
     field.addEventListener('pointerup', up);
   });
   menu.querySelector('#pgcHue').addEventListener('input', e => {
     _pgPickCtx.h = Number(e.target.value) || 0;
     _pgPaintPicker();
+    _pgCommitPicker();
   });
   menu.querySelector('#pgcHex').addEventListener('input', e => {
     const val = e.target.value.trim();
     if (!/^#?[0-9a-f]{6}$/i.test(val)) return;
     Object.assign(_pgPickCtx, _hexToHsv(val));
     _pgPaintPicker({ skipHex: true });
+    _pgCommitPicker();
   });
   menu.querySelector('#pgcApply').addEventListener('click', () => {
     const hex = _hsvToHex(_pgPickCtx.h, _pgPickCtx.s, _pgPickCtx.v);
+    clearTimeout(_pgCommitTimer);
     pgCloseColorPicker();
     void pgSetMemberColor(groupId, memberId, hex);
   });
@@ -259,6 +279,23 @@ function pgOpenColorPicker(groupId, memberId, btn) {
   const top = below >= mh + 10 ? r.bottom + 6 : Math.max(margin, r.top - mh - 6);
   menu.style.top = Math.min(top, window.innerHeight - mh - margin) + 'px';
   menu.style.left = Math.min(Math.max(margin, r.left), window.innerWidth - mw - margin) + 'px';
+}
+
+let _pgCommitTimer = null;
+/**
+ * Save the colour the picker is currently showing.
+ *
+ * Picking used to require pressing Set, and the live preview made it look
+ * already applied — so dismissing the menu left the choice on screen, unsaved,
+ * until a reload silently reverted it. Every gesture that settles on a colour
+ * now commits it.
+ */
+function _pgCommitPicker() {
+  if (!_pgPickCtx) return;
+  const { groupId, memberId, h, s: sat, v } = _pgPickCtx;
+  const hex = _hsvToHex(h, sat, v);
+  clearTimeout(_pgCommitTimer);
+  _pgCommitTimer = setTimeout(() => { void pgSetMemberColor(groupId, memberId, hex, { silent: true }); }, 220);
 }
 
 /** Repaint the picker from _pgPickCtx and preview the colour on the member. */
@@ -291,16 +328,32 @@ function _pgPreviewMemberColor(groupId, memberId, color) {
   if (sw) sw.style.setProperty('--sw', color);
 }
 
-async function pgSetMemberColor(groupId, memberId, color) {
+async function pgSetMemberColor(groupId, memberId, color, opts = {}) {
   const g = _playgroups.find(x => Number(x.id) === Number(groupId));
   const m = g && (g.members || []).find(x => Number(x.id) === Number(memberId));
-  if (m) { m.color = color; renderPlaygroupsPanel(); }   // paint first, then persist
+  const previous = m ? m.color : null;
+  if (m) {
+    m.color = color;
+    // Never repaint while the picker is open — renderPlaygroupsPanel() rebuilds
+    // the member rows, and a mid-drag rebuild pulls the element out from under
+    // the pointer. The preview has already painted the name and swatch.
+    if (!opts.silent) renderPlaygroupsPanel();
+  }
   try {
-    await fetch(`/api/playgroups/${groupId}/members/${memberId}`, {
+    const res = await fetch(`/api/playgroups/${groupId}/members/${memberId}`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
       credentials: 'include', body: JSON.stringify({ color }),
     });
-  } catch (_) { showNotif('Could not save colour', true); }
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'save failed');
+    // A game freezes its seat colours at creation, so carry the change into any
+    // that are still being played.
+    if (typeof applyPlaygroupColorToLiveGames === 'function') {
+      applyPlaygroupColorToLiveGames(groupId, memberId, color);
+    }
+  } catch (e) {
+    if (m) { m.color = previous; renderPlaygroupsPanel(); }
+    showNotif(e.message || 'Could not save colour', true);
+  }
 }
 
 if (typeof document !== 'undefined') {

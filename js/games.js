@@ -1727,6 +1727,34 @@ function openTabletView(gameId) {
   renderTabletView();
 }
 
+/**
+ * Push a playgroup colour change into games that are still being played.
+ *
+ * A game freezes each seat's colour when it is created, so recolouring someone
+ * afterwards would otherwise only show in the next game. Scoped to active games
+ * from that playgroup: a finished game keeps the colours it was played with.
+ */
+function applyPlaygroupColorToLiveGames(groupId, memberId, color) {
+  if (!Array.isArray(games) || !color) return 0;
+  let touched = 0;
+  for (const g of games) {
+    if (g.status !== 'active') continue;
+    if (Number(g.playgroupId) !== Number(groupId)) continue;
+    for (const p of (g.players || [])) {
+      if (p.userId != null && Number(p.userId) === Number(memberId) && p.color !== color) {
+        p.color = color;
+        touched++;
+      }
+    }
+  }
+  if (touched) {
+    save('games');
+    if (typeof renderGames === 'function') renderGames();
+    if (typeof tabletViewGameId !== 'undefined' && tabletViewGameId && typeof renderTabletView === 'function') renderTabletView();
+  }
+  return touched;
+}
+
 /** A game left from the table comes back paused where it stopped. */
 function _restoreTabletPause(game) {
   if (!game || !game.paused) { _turnPaused = false; _pausedElapsed = 0; return; }
@@ -2068,6 +2096,12 @@ function _tabletCenterBoxHtml(game, posStyle) {
       </div>
       ${activePlayer ? `<div class="tablet-center-turn" style="font-size:clamp(0.6rem,1.3vw,0.82rem);color:${activePlayer.color};margin-top:5px;font-family:'Inter',system-ui,sans-serif;letter-spacing:0.04em">T${game.currentTurn} · ${escapeHtml(activePlayer.name)}</div>` : ''}
       <div style="display:flex;gap:5px;margin-top:9px">
+        <button onclick="undoGameAction('${game.id}')" class="tablet-turn-btn"
+          title="Undo last action" aria-label="Undo last action"
+          style="flex:1;padding:9px 8px;background:var(--bg3);
+            border:1px solid var(--border2);border-radius:8px;color:var(--text2);font-size:0.9rem;cursor:pointer;touch-action:manipulation">
+          ${gameIcon('undo', 16, 'vertical-align:middle')}
+        </button>
         <button onclick="togglePauseTimer('${game.id}')" class="tablet-turn-btn"
           title="${_turnPaused ? 'Resume timer' : 'Pause timer'}" aria-label="${_turnPaused ? 'Resume timer' : 'Pause timer'}"
           style="flex:1;padding:9px 8px;background:${_turnPaused ? 'rgba(var(--lgx1),0.16)' : 'var(--bg3)'};
