@@ -163,24 +163,32 @@ function renderWishlist() {
    * in the collection (and off the list), - takes it off the list. Keyed by card
    * rather than row index — see removeWishlistByUid.
    */
+  /**
+   * The uid rides in a data attribute and a delegated listener reads it back —
+   * it is never interpolated into inline JS. A derived row takes its uid from
+   * deck_cards.card_uid, which is built from the card name, so "Gaea's Cradle"
+   * produced onclick="...('gaea's cradle_n',event)" — a syntax error, and a
+   * button that silently did nothing. escapeHtml does not save it either: the
+   * entity is decoded back to an apostrophe before the JS is parsed.
+   */
   const actions = (c) => {
     if (shared) return _wishlistOwnershipBadge(c);
     const uid = escapeHtml(_wishlistUid(c));
-    return `<div class="wl-actions" onclick="event.stopPropagation()">
+    return `<div class="wl-actions" data-wl-stop="1">
       <button type="button" class="btn btn-outline btn-sm btn-icon wl-act wl-act--add"
-        onclick="moveWishlistToCollectionByUid('${uid}',event)" title="Add to collection" aria-label="Add to collection">+</button>
+        data-wl-uid="${uid}" data-wl-action="add" title="Add to collection" aria-label="Add to collection">+</button>
       <button type="button" class="btn btn-outline btn-sm btn-icon wl-act wl-act--remove"
-        onclick="removeWishlistByUid('${uid}',event)" title="Remove from wishlist" aria-label="Remove from wishlist">&minus;</button>
+        data-wl-uid="${uid}" data-wl-action="remove" title="Remove from wishlist" aria-label="Remove from wishlist">&minus;</button>
     </div>`;
   };
 
   const priorityBtn = (c) => {
     const p = c.priority || 'med';
-    if (shared) return `<span class="wl-priority wl-priority--${p}" title="Priority">${_WL_PRIORITY_LABEL[p] || 'Med'}</span>`;
-    const uid = escapeHtml(_wishlistUid(c));
+    const label = _WL_PRIORITY_LABEL[p] || 'Med';
+    if (shared) return `<span class="wl-priority wl-priority--${p}" title="Priority">${label}</span>`;
     return `<button type="button" class="wl-priority wl-priority--${p}"
-      onclick="cycleWishlistPriority('${uid}',event)"
-      title="Priority: ${_WL_PRIORITY_LABEL[p] || 'Med'} — click to change">${_WL_PRIORITY_LABEL[p] || 'Med'}</button>`;
+      data-wl-uid="${escapeHtml(_wishlistUid(c))}" data-wl-action="priority"
+      title="Priority: ${label} — click to change">${label}</button>`;
   };
 
   const priceHtml = c => (typeof _htmlCardPriceBadges === 'function' ? _htmlCardPriceBadges(c) : '');
@@ -222,6 +230,31 @@ function renderWishlist() {
       ${actions(c)}
     </div>`;
   }).join('');
+}
+
+/**
+ * One delegated listener for every per-card control. Bound once, so it survives
+ * each renderWishlist() rebuild, and it reads the uid out of the DOM rather than
+ * out of generated source.
+ *
+ * Capture phase, deliberately. The tile itself carries an onclick that opens the
+ * inspector, and that runs on the way back up — so a bubble-phase listener here
+ * would fire after it and every + / - / priority click would also open the card.
+ * Capturing at the document lets this stop the event before it ever reaches the
+ * target, and it only does so for one of these buttons.
+ */
+if (typeof document !== 'undefined') {
+  document.addEventListener('click', e => {
+    const btn = e.target?.closest?.('[data-wl-action]');
+    if (!btn || !document.getElementById('wishlistItems')?.contains(btn)) return;
+    e.stopPropagation();
+    e.preventDefault();
+    const uid = btn.getAttribute('data-wl-uid') || '';
+    const action = btn.getAttribute('data-wl-action');
+    if (action === 'remove') removeWishlistByUid(uid);
+    else if (action === 'add') moveWishlistToCollectionByUid(uid);
+    else if (action === 'priority') cycleWishlistPriority(uid);
+  }, true);
 }
 
 // Open the card inspector for a wishlist card. Own-wishlist cards resolve from
