@@ -632,7 +632,7 @@ function renderNewGamePlayersList() {
     const commanderLabel = selDeck?.commander || p.commander || '';
 
     return `
-    <div style="display:grid;grid-template-columns:${cols};gap:8px;align-items:center;padding:9px 0;border-bottom:1px solid var(--border)">
+    <div class="ng-player-row" style="display:grid;grid-template-columns:${cols};gap:8px;align-items:center;padding:9px 0;border-bottom:1px solid var(--border)">
       <div style="width:10px;height:10px;border-radius:50%;background:${_seatColors[i]};flex-shrink:0"></div>
       <div class="seat-nudge">
         <button type="button" class="seat-nudge-btn" onclick="ngpMoveSeat(${i},-1)" ${i === 0 ? 'disabled' : ''} title="Earlier seat" aria-label="Earlier seat">▴</button>
@@ -1984,7 +1984,7 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
   return `
   <div class="tablet-cell${inTargetMode ? ' player-targetable' : ''}"
     data-pid="${p.id}" data-rotated="${rotated ? '1' : '0'}" data-elim="${p.eliminated ? '1' : '0'}" data-active="${isActiveTurn ? '1' : '0'}"
-    style="${spanStyle}border-color:${inTargetMode ? p.color + '80' : isActiveTurn ? p.color : p.color + '30'};
+    style="--seat:${p.color};${spanStyle}border-color:${inTargetMode ? p.color + '80' : isActiveTurn ? p.color : p.color + '30'};
            background:radial-gradient(ellipse at 50% ${rotated ? '60' : '40'}%,${p.color}${inTargetMode ? '14' : isActiveTurn ? '26' : '0a'} 0%,transparent 70%),var(--bg2);
            ${isActiveTurn && !inTargetMode ? `box-shadow:inset 0 0 0 4px ${p.color};` : ''}
            ${inTargetMode ? 'cursor:crosshair;' : ''}
@@ -2482,7 +2482,7 @@ function renderTabletPieCell(game, p, idx, g) {
   return `
   <div class="tablet-cell tablet-cell--pie${p.eliminated ? ' tablet-cell-eliminated' : ''}${inTargetMode ? ' player-targetable' : ''}"
     data-pid="${p.id}" data-pie="1" data-rotdeg="${g.rotDeg}" data-elim="${p.eliminated ? '1' : '0'}" data-active="${isActiveTurn ? '1' : '0'}"
-    style="clip-path:polygon(${g.poly});-webkit-clip-path:polygon(${g.poly});
+    style="--seat:${p.color};clip-path:polygon(${g.poly});-webkit-clip-path:polygon(${g.poly});
            background:radial-gradient(circle ${glowR}px at ${g.ax.toFixed(1)}px ${g.ay.toFixed(1)}px,${p.color}${glowAlpha} 0%,transparent 75%),var(--bg2);
            ${inTargetMode ? 'cursor:crosshair;' : ''}"
     ${inTargetMode ? `onclick="applyGameAction('${game.id}','${p.id}')"` : ''}>

@@ -76,6 +76,39 @@
   }
   #tab-collection .collection-top-actions { gap: 8px; }
 
+  /* New Game player rows: seven columns do not fit 390px. The name dropdown was
+     54px wide holding 136px of text, so every option read as an ellipsis. Each
+     seat becomes a stacked block instead, full width for the controls. */
+  .ng-players-header { display: none !important; }
+  .ng-player-row {
+    grid-template-columns: 22px 1fr 28px !important;
+    grid-template-areas:
+      "seat name  del"
+      "nudge deck deck"
+      "mull  mull mull" !important;
+    gap: 6px 8px !important;
+    align-items: center;
+    padding: 10px 0 !important;
+  }
+  .ng-player-row > *:nth-child(1) { grid-area: seat; }
+  .ng-player-row > *:nth-child(2) { grid-area: nudge; }
+  .ng-player-row > *:nth-child(3) { grid-area: name; min-width: 0; }
+  .ng-player-row > *:nth-child(4) { grid-area: deck; min-width: 0; }
+  .ng-player-row > *:nth-child(5) { grid-area: mull; }
+  .ng-player-row > *:last-child   { grid-area: del; }
+  /* The glass control replaces the native select, so it is the one that has to
+     be allowed to fill the cell rather than shrink to its grid track. */
+  .ng-player-row .glass-dd-btn,
+  .ng-player-row select,
+  .ng-player-row input[type="text"] { width: 100% !important; min-width: 0 !important; }
+
+  /* The modal itself has to scroll, or a five-seat table runs past the screen. */
+  #newGameModal .modal {
+    max-height: 88dvh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
   /* ── Safe-area background — status bar shows app BG, not bleed ───────── */
   body {
     background-color: var(--bg);

@@ -10799,24 +10799,36 @@ body.glass-mode #tabletView {
 /* Neutral frosted cells: the per-player border colours and radial tints are
    inline-styled, so the neutralising overrides need !important. Player identity
    stays in the name/dots; "whose turn" is the one accent colour. */
+/* Each seat is tinted with that player's colour rather than all of them sharing
+   one neutral glass. --seat is set inline per cell; the wash is low enough to
+   stay glass, and the same hue simply gets brighter when it is their turn, so
+   "whose turn" no longer needs a separate accent ring. */
 body.glass-mode #tabletView .tablet-cell {
   border-radius: 22px;
-  border-color: rgba(255,255,255,0.13) !important;
-  background: rgba(255,255,255,0.05) !important;
+  border-color: color-mix(in oklab, var(--seat, #7aa2ff) 30%, rgba(255,255,255,0.13)) !important;
+  background:
+    linear-gradient(160deg,
+      color-mix(in oklab, var(--seat, #7aa2ff) 14%, transparent) 0%,
+      color-mix(in oklab, var(--seat, #7aa2ff) 6%, transparent) 60%,
+      transparent 100%),
+    rgba(255,255,255,0.05) !important;
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.13),
     inset 0 0 0.5px rgba(255,255,255,0.09),
     0 8px 28px rgba(0,0,0,0.30);
+  transition: background 0.25s var(--ease), border-color 0.25s var(--ease), box-shadow 0.25s var(--ease);
 }
 body.glass-mode #tabletView .tablet-cell[data-active="1"] {
-  border-color: rgba(122,178,255,0.60) !important;
+  border-color: color-mix(in oklab, var(--seat, #7aa2ff) 70%, transparent) !important;
   background:
-    radial-gradient(120% 90% at 50% 45%, rgba(90,162,255,0.14) 0%, transparent 70%),
-    rgba(255,255,255,0.04) !important;
+    linear-gradient(160deg,
+      color-mix(in oklab, var(--seat, #7aa2ff) 34%, transparent) 0%,
+      color-mix(in oklab, var(--seat, #7aa2ff) 18%, transparent) 65%,
+      color-mix(in oklab, var(--seat, #7aa2ff) 10%, transparent) 100%),
+    rgba(255,255,255,0.05) !important;
   box-shadow:
-    inset 0 0 0 3px rgba(90,162,255,0.50),
-    inset 0 1px 0 rgba(255,255,255,0.13),
-    0 0 36px rgba(90,162,255,0.18),
+    inset 0 1px 0 rgba(255,255,255,0.18),
+    0 0 36px color-mix(in oklab, var(--seat, #7aa2ff) 22%, transparent),
     0 8px 28px rgba(0,0,0,0.30) !important;
 }
 /* Transient action states must keep their own rings (they outrank inline styles
@@ -11370,22 +11382,31 @@ body.glass-mode :is(input:not([type="checkbox"]):not([type="radio"]):not([type="
   --glass-life-low: #d0641e;
   --glass-life-crit: #d84a3a;
 }
+/* Same idea on white: the seat's hue over the light glass, stronger on turn.
+   Lower mixes than the dark theme — the same alpha over white reads far louder. */
 [data-theme="light"] body.glass-mode #tabletView .tablet-cell {
-  border-color: rgba(255,255,255,0.65) !important;
-  background: rgba(255,255,255,0.50) !important;
+  border-color: color-mix(in oklab, var(--seat, #1668d8) 28%, rgba(255,255,255,0.65)) !important;
+  background:
+    linear-gradient(160deg,
+      color-mix(in oklab, var(--seat, #1668d8) 12%, transparent) 0%,
+      color-mix(in oklab, var(--seat, #1668d8) 5%, transparent) 60%,
+      transparent 100%),
+    rgba(255,255,255,0.50) !important;
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.9),
     0 8px 28px rgba(30,50,90,0.14);
 }
 [data-theme="light"] body.glass-mode #tabletView .tablet-cell[data-active="1"] {
-  border-color: rgba(22,104,216,0.55) !important;
+  border-color: color-mix(in oklab, var(--seat, #1668d8) 62%, transparent) !important;
   background:
-    radial-gradient(120% 90% at 50% 45%, rgba(90,162,255,0.18) 0%, transparent 70%),
-    rgba(255,255,255,0.50) !important;
+    linear-gradient(160deg,
+      color-mix(in oklab, var(--seat, #1668d8) 26%, transparent) 0%,
+      color-mix(in oklab, var(--seat, #1668d8) 14%, transparent) 65%,
+      color-mix(in oklab, var(--seat, #1668d8) 7%, transparent) 100%),
+    rgba(255,255,255,0.55) !important;
   box-shadow:
-    inset 0 0 0 3px rgba(22,104,216,0.45),
     inset 0 1px 0 rgba(255,255,255,0.9),
-    0 0 36px rgba(22,104,216,0.15),
+    0 0 36px color-mix(in oklab, var(--seat, #1668d8) 18%, transparent),
     0 8px 28px rgba(30,50,90,0.14) !important;
 }
 [data-theme="light"] body.glass-mode #tabletView .tablet-cell--pie { box-shadow: none !important; }
