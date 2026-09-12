@@ -1796,6 +1796,12 @@ function _inspectorTagChipHtml(tag, opts = {}) {
   const label = isAuto
     ? `${safe}<span class="tag-auto-suffix"> (auto)</span>`
     : safe;
+  // In a shared collection the chips are someone else's; render them as plain
+  // labels so there is nothing to click, rather than a control that would act on
+  // the wrong card.
+  if (_cardDetailIsSharedCollection()) {
+    return `<span class="tag ${cls}" style="font-size:0.84rem">${label}</span>`;
+  }
   const title = isAuto
     ? 'Auto-assigned from default tags · click to set manually · long-press or right-click for options'
     : 'Click to change importance · long-press or right-click for options';
@@ -2639,11 +2645,30 @@ function _htmlCardDetailChangePrintingBtn() {
   return `<button type="button" class="btn btn-outline btn-sm" title="Change printing" onclick="openVersionPickerFromCardDetail()">⟳ Printing</button>`;
 }
 
+/**
+ * True while the inspector is showing a card from someone else's collection.
+ *
+ * Everything in the action row writes through a uid, and in a shared view that
+ * uid belongs to the owner, not the viewer — so Edit Tags wrote against a card
+ * the viewer does not have (tags are per-user), and Remove filtered the viewer's
+ * own collection by an id that is not in it. Neither did what it looked like it
+ * was doing. The whole row is withheld instead.
+ *
+ * Leaving the shared view is the only way to get here with the flag set (showTab
+ * exits it for any tab but the collection), so the flag alone is the condition.
+ */
+function _cardDetailIsSharedCollection() {
+  return !!_viewingSharedCollOwnerId;
+}
+
 // Shared by the full builder and the in-place sync so the two paths can't drift.
 function _htmlCardDetailPrimaryActionsInner(ctx) {
   const { isOwned, isCommanderCandidate, actionUid, uid } = ctx;
   const printBtn = _showCardDetailChangePrinting(ctx) ? _htmlCardDetailChangePrintingBtn() : '';
   const swapBtns = typeof _htmlCardDetailSwapActionsInner === 'function' ? _htmlCardDetailSwapActionsInner(ctx) : '';
+  if (_cardDetailIsSharedCollection()) {
+    return '<div class="card-detail-readonly-note">Read-only — this card is in a collection shared with you</div>';
+  }
   const ref = String(actionUid || '').replace(/'/g, "\\'");
   // Edit Tags groups with Change printing / swaps on the left; Remove is pushed
   // to the far right by .btn-danger's auto margin, so it must come last.
@@ -2777,9 +2802,15 @@ function _htmlCardDetailUtilityIconsInner(ctx) {
   const { card, isOwned, actionUid, uid, isWishlisted } = ctx;
   const icons = [];
   icons.push(`<button class="btn btn-outline btn-sm card-detail-utility-btn${isWishlisted ? ' active' : ''}" onclick="toggleWishlistFromDetail('${uid}')" title="${isWishlisted ? 'Wishlisted — click to remove' : 'Add to wishlist'}" aria-label="Wishlist"><svg class="tf-ic" viewBox="0 0 16 16" fill="${isWishlisted ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13.5S2.5 10.2 2.5 6.4a3 3 0 0 1 5.5-1.7A3 3 0 0 1 13.5 6.4c0 3.8-5.5 7.1-5.5 7.1z"/></svg></button>`);
-  if (isOwned) icons.push(`<button class="btn btn-outline btn-sm card-detail-utility-btn" onclick="flagUpgradeTargetFromDetail('${actionUid}')" title="Want a better printing, foil, or condition" aria-label="Upgrade"><svg class="tf-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13.5V5"/><path d="M4.5 8 8 4.5 11.5 8"/><path d="M4.5 2.5h7"/></svg></button>`);
+  // Star and Upgrade write through actionUid into the viewer's own collection, so
+  // in a shared view they would act on an id that is not in it. isOwned is true
+  // there because ownership is read from the owner's cards (see
+  // _cardDetailOwnershipView), which is right for showing counts and wrong for
+  // offering edits.
+  const canEditThisCard = isOwned && !_cardDetailIsSharedCollection();
+  if (canEditThisCard) icons.push(`<button class="btn btn-outline btn-sm card-detail-utility-btn" onclick="flagUpgradeTargetFromDetail('${actionUid}')" title="Want a better printing, foil, or condition" aria-label="Upgrade"><svg class="tf-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13.5V5"/><path d="M4.5 8 8 4.5 11.5 8"/><path d="M4.5 2.5h7"/></svg></button>`);
   icons.push(`<button class="btn btn-outline btn-sm card-detail-utility-btn" onclick="openPriceWatchModal('${escapeHtml(card.scryfallId || '')}', ${!!card.foil}, ${JSON.stringify(card.name || '').replace(/"/g, '&quot;')})" title="Set price alerts for this card" aria-label="Watch price"><svg class="tf-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6a4 4 0 0 0-8 0c0 4.5-2 5.5-2 5.5h12s-2-1-2-5.5"/><path d="M9.3 13.5a1.5 1.5 0 0 1-2.6 0"/></svg></button>`);
-  if (isOwned) icons.push(`<button type="button" id="cardDetailStarBtn" class="btn btn-outline btn-sm card-detail-utility-btn${card.starred ? ' active' : ''}" data-detail-uid="${actionUid}" onclick="toggleCardStar('${actionUid}',event)" title="${card.starred ? 'Starred — click to unstar' : 'Star this card'}" aria-label="Star"><svg class="tf-ic" viewBox="0 0 16 16" fill="${card.starred ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z"/></svg></button>`);
+  if (canEditThisCard) icons.push(`<button type="button" id="cardDetailStarBtn" class="btn btn-outline btn-sm card-detail-utility-btn${card.starred ? ' active' : ''}" data-detail-uid="${actionUid}" onclick="toggleCardStar('${actionUid}',event)" title="${card.starred ? 'Starred — click to unstar' : 'Star this card'}" aria-label="Star"><svg class="tf-ic" viewBox="0 0 16 16" fill="${card.starred ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z"/></svg></button>`);
   // Pin (was "tag to deck"): dropdown of decks; pinning drops the card on that
   // deck's maybe board and the deck stays ticked in the list.
   const pinData = _cardDetailPinDecks(ctx);
