@@ -856,6 +856,14 @@ main {
   margin-right: calc(var(--page-gutter-tight) - var(--page-gutter));
 }
 
+/* The pane above is pulled out to the tight gutter for the builder's width;
+   the top bar gives it back so its title lines up with Collection, Sets and
+   Browse rather than hanging 24px further left. */
+#deckBuilderTopBar {
+  margin-left: calc(var(--page-gutter) - var(--page-gutter-tight));
+  margin-right: calc(var(--page-gutter) - var(--page-gutter-tight));
+}
+
 /* "All Decks" gets its own line between the deck header and the folder tabs. */
 .deck-back-row {
   display: flex;
@@ -1125,7 +1133,7 @@ body.glass-mode .set-star.is-starred {
    repeating an inline font-size, and keeps the four in step if it ever changes. */
 .page-title {
   font-family: 'Cinzel', serif;
-  font-size: 1.35rem;
+  font-size: 1.6rem;
   font-weight: 600;
   color: var(--gold);
   letter-spacing: 0.1em;
@@ -1135,7 +1143,7 @@ body.glass-mode .page-title {
   font-family: var(--glass-font);
   text-transform: none;
   letter-spacing: 0;
-  font-size: 1.35rem;
+  font-size: 1.6rem;
   font-weight: 600;
   color: rgba(244, 246, 251, 0.86);
 }
