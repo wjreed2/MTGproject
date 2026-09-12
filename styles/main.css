@@ -864,6 +864,17 @@ main {
   margin-right: calc(var(--page-gutter) - var(--page-gutter-tight));
 }
 
+/* All Decks grid starts where the title does, so the gap to the sidebar matches
+   the other tabs. The pane's negative margin is there for the deck BUILDER's
+   width, which a card grid does not need — #deckDetailArea keeps it. Desktop
+   only: phones have no sidebar to balance against and want the full width. */
+@media (min-width: 769px) {
+  #deckGridArea {
+    margin-left: calc(var(--page-gutter) - var(--page-gutter-tight));
+    margin-right: calc(var(--page-gutter) - var(--page-gutter-tight));
+  }
+}
+
 /* "All Decks" gets its own line between the deck header and the folder tabs. */
 .deck-back-row {
   display: flex;
