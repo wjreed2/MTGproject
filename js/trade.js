@@ -251,7 +251,6 @@ function renderTradeCalculator(host) {
       </div>
     </div>
     ${_calcTradeStatusHtml()}
-    <div class="calc-delta" id="calcDelta"></div>
     <div class="calc-grid">
       ${_calcSideHtml('a')}
       ${_calcSideHtml('b')}
@@ -354,18 +353,14 @@ function _calcTradeStatusHtml() {
   }
   const myId = _calcMyId();
   const partner = _calc.partnerName ? `@${escapeHtml(_calc.partnerName)}` : 'partner';
-  // Partner chosen but the trade isn't saved yet → save then send.
-  if (!_calc.id) {
-    return `<div class="calc-trade-status">Trade with <strong>${partner}</strong>
-      <button class="calc-partner-change" onclick="calcClearPartner()">change</button>
-      · save, then send an offer.</div>`;
-  }
+  // Partner chosen but the trade isn't saved yet. Who it is with is already the
+  // reason you are in this dialog, so there is nothing to say here yet.
+  if (!_calc.id) return '';
   const status = _calc.status;
   let badge = `<span class="calc-status-badge status-${status}">${escapeHtml(status)}</span>`;
   let actions = '';
   if (status === 'draft') {
-    actions = `<button class="btn btn-outline btn-sm" onclick="tradeCalcSendOffer()">Send offer to ${partner}</button>
-      <button class="calc-partner-change" onclick="calcClearPartner()">change partner</button>`;
+    actions = `<button class="btn btn-outline btn-sm" onclick="tradeCalcSendOffer()">Send offer to ${partner}</button>`;
   } else if (status === 'pending' || status === 'countered') {
     const amResponder = Number(_calcResponderId()) === Number(myId);
     if (amResponder) {
@@ -778,6 +773,11 @@ function _refreshCalcSide(side) {
   if (totalEl) totalEl.textContent = fmtUsd(sideTotalCents(lines.map(_calcLineForValue)));
 }
 
+/**
+ * The give/receive totals sit on each column already, so the bar that repeated
+ * them and added a "favors you by" reading was saying the same thing a third
+ * time. Kept as a no-op because several call sites refresh it after edits.
+ */
 function _renderCalcDelta() {
   const el = document.getElementById('calcDelta');
   if (!el || !_calc) return;
@@ -1891,16 +1891,10 @@ async function _paintPartners(host) {
         <div class="calc-search-results" id="partnerResults"></div>
       </div>
     </div>
-    <div class="partners-layout">
-      <div class="partners-browse">
-        <div class="partners-browse-head">Open to Trades</div>
-        <div id="partnersBrowseList"><div class="trade-loading">Finding traders…</div></div>
-      </div>
-      <div class="partners-detail" id="partnersDetail">
-        <div class="trade-empty">Select a trader to see suggested trades.</div>
-      </div>
+    <div class="partners-browse">
+      <div class="partners-browse-head">Open to Trades</div>
+      <div id="partnersBrowseList"><div class="trade-loading">Finding traders…</div></div>
     </div>`;
-  if (_tradePartner) _renderPartnerDetail();
   try {
     const list = await apiFetch('/trade/browse');
     _renderBrowseList(list);
@@ -1944,36 +1938,21 @@ function partnerSearchInput(query) {
   }, 250);
 }
 
+/** Picking a trader is the whole gesture: it opens the trade UI on them. */
 function selectTradePartner(u) {
   _tradePartner = u;
-  _renderPartnerDetail();
-  // refresh browse highlight
-  const host = document.getElementById('tradeSectionBody');
-  const active = host && host.querySelector('.partner-row.active');
-  host?.querySelectorAll('.partner-row').forEach(r => r.classList.remove('active'));
+  void startTradeWithPartner();
 }
 
-function _renderPartnerDetail() {
-  const el = document.getElementById('partnersDetail');
-  if (!el || !_tradePartner) return;
-  el.innerHTML = `
-    <div class="partner-detail-head">
-      <div class="partner-avatar lg">${escapeHtml((_tradePartner.username || '?')[0].toUpperCase())}</div>
-      <div>
-        <div class="partner-detail-name">@${escapeHtml(_tradePartner.username)}${_tradePartner.isFriend ? ' <span class="friend-badge">friend</span>' : ''}</div>
-        <div class="partner-detail-sub">${_tradePartner.displayName ? escapeHtml(_tradePartner.displayName) + ' · ' : ''}Open to trades</div>
-      </div>
-    </div>
-    <div id="suggestionsMount">
-      <div class="partner-cta">
-        <button class="btn btn-outline" onclick="startTradeWithPartner()">${_ICON_TRADE} New trade with @${escapeHtml(_tradePartner.username)}</button>
-        <div class="partner-cta-hint">Build the trade and pick from the suggested cards under each column.</div>
-      </div>
-    </div>`;
+/** No detail pane any more — picking someone opens the trade UI directly. */
+function _renderPartnerDetail() {}
+
+function closeTradeCalcModal() {
+  document.getElementById('tradeCalcModal')?.classList.remove('open');
 }
 
-// Open the calculator inline (inside Find Trades), pre-attached to this partner.
-// "You Receive" searches their tradelist; ranked pick-lists sit under each column.
+// Open the calculator in its own modal, pre-attached to this partner. "You
+// Receive" searches their tradelist; ranked pick-lists sit under each column.
 async function startTradeWithPartner() {
   if (!_tradePartner) return;
   if (_calc && _calc.dirty && (_calc.give.length || _calc.receive.length)) {
@@ -1988,8 +1967,11 @@ async function startTradeWithPartner() {
   _calc.title = `Trade with @${_tradePartner.username}`;
   _calcContext = 'partners';
   _offersOpenId = null;
-  const mount = document.getElementById('suggestionsMount');
-  if (mount) renderTradeCalculator(mount);
+  const modal = document.getElementById('tradeCalcModal');
+  const mount = document.getElementById('tradeCalcModalBody');
+  if (!modal || !mount) return;
+  modal.classList.add('open');
+  renderTradeCalculator(mount);
 }
 
 // ── Phase 8: trade completion + collection sync ─────────────────────────────

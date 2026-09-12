@@ -1608,6 +1608,14 @@
 </div>
 
 <!-- WISHLIST SHARING MODAL -->
+<!-- Trade calculator, opened by picking someone from Find Trades. -->
+<div class="modal-overlay" id="tradeCalcModal" onclick="if(event.target===this)closeTradeCalcModal()">
+  <div class="modal trade-calc-modal" style="width:min(1080px,96vw);max-height:90vh;overflow-y:auto">
+    <button class="btn btn-ghost btn-icon" style="position:absolute;top:0.75rem;right:0.75rem;z-index:2" onclick="closeTradeCalcModal()" aria-label="Close">&#10005;</button>
+    <div id="tradeCalcModalBody"></div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="wishlistShareModal" onclick="if(event.target===this)closeWishlistShareModal()">
   <div class="modal" style="width:min(540px,96vw);max-height:88vh;overflow-y:auto">
     <button class="btn btn-ghost btn-icon" style="position:absolute;top:0.75rem;right:0.75rem" onclick="closeWishlistShareModal()">✕</button>
