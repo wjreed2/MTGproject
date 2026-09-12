@@ -1458,11 +1458,25 @@
           <!-- Search input row -->
           <div id="findCardSearchRow" style="display:flex;gap:8px;margin-bottom:8px;align-items:center">
             <div style="position:relative;flex:1;min-width:0">
-              <input class="search-box" style="width:100%" type="text" id="findCardInput"
-                placeholder="Name, or: t:creature c:u mv<=3 o:&quot;draw a card&quot; r:rare s:SET"
+              <input class="search-box" style="width:100%;padding-right:28px" type="text" id="findCardInput"
+                placeholder="Search"
                 oninput="findCardAutocomplete(this.value);_syncFindFilterBtns(this.value)"
                 onkeydown="if(event.key==='Enter'){event.preventDefault();runFindCard(this.value);}"
                 autocomplete="off">
+              <div class="filter-syntax-hint tooltip-wrap" aria-label="Search syntax" style="position:absolute;right:7px;top:50%;transform:translateY(-50%);color:var(--text3);cursor:default;user-select:none;display:flex;align-items:center">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><circle cx="8" cy="8" r="6.25"/><path d="M8 7.2v4"/><path d="M8 4.9h.01"/></svg>
+                <div class="tooltip" style="white-space:normal;width:280px;left:auto;right:0;transform:none;font-size:0.72rem;line-height:1.6;bottom:auto;top:calc(100% + 6px)">
+                  <strong>Search syntax</strong><br>
+                  <code>t:creature</code> &mdash; type or subtype<br>
+                  <code>c:u</code> &mdash; color (w/u/b/r/g)<br>
+                  <code>mv&lt;=3</code> or <code>mv:3</code> &mdash; mana value<br>
+                  <code>o:"draw a card"</code> &mdash; oracle text<br>
+                  <code>r:rare</code> / <code>r:mythic</code> &mdash; rarity<br>
+                  <code>s:znr</code> &mdash; set code<br>
+                  <code>is:legendary</code> &mdash; legendary cards<br>
+                  Or just type a card name.
+                </div>
+              </div>
               <div id="findCardAutocomplete" style="display:none"></div>
             </div>
             <div class="voice-qty-stepper" title="Quantity">
@@ -1475,22 +1489,14 @@
           </div>
           <!-- Quick filters -->
           <div class="find-quick-row" style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:8px">
-            <div class="find-color-pill" id="fcp-W" onclick="toggleFindColorFilter('W')" title="White"><img src="https://svgs.scryfall.io/card-symbols/W.svg" alt="W"></div>
-            <div class="find-color-pill" id="fcp-U" onclick="toggleFindColorFilter('U')" title="Blue"><img src="https://svgs.scryfall.io/card-symbols/U.svg" alt="U"></div>
-            <div class="find-color-pill" id="fcp-B" onclick="toggleFindColorFilter('B')" title="Black"><img src="https://svgs.scryfall.io/card-symbols/B.svg" alt="B"></div>
-            <div class="find-color-pill" id="fcp-R" onclick="toggleFindColorFilter('R')" title="Red"><img src="https://svgs.scryfall.io/card-symbols/R.svg" alt="R"></div>
-            <div class="find-color-pill" id="fcp-G" onclick="toggleFindColorFilter('G')" title="Green"><img src="https://svgs.scryfall.io/card-symbols/G.svg" alt="G"></div>
-            <div class="find-color-pill" id="fcp-C" onclick="toggleFindColorFilter('C')" title="Colorless"><img src="https://svgs.scryfall.io/card-symbols/C.svg" alt="C"></div>
-            <span style="width:1px;height:14px;background:var(--border2);flex-shrink:0"></span>
-            <button class="filter-chip" id="fct-creature"     onclick="_toggleFindToken('t','creature')">Creature</button>
-            <button class="filter-chip" id="fct-instant"      onclick="_toggleFindToken('t','instant')">Instant</button>
-            <button class="filter-chip" id="fct-sorcery"      onclick="_toggleFindToken('t','sorcery')">Sorcery</button>
-            <button class="filter-chip" id="fct-artifact"     onclick="_toggleFindToken('t','artifact')">Artifact</button>
-            <button class="filter-chip" id="fct-enchantment"  onclick="_toggleFindToken('t','enchantment')">Enchantment</button>
-            <button class="filter-chip" id="fct-planeswalker" onclick="_toggleFindToken('t','planeswalker')">Planeswalker</button>
-            <button class="filter-chip" id="fct-land"         onclick="_toggleFindToken('t','land')">Land</button>
-            <span style="width:1px;height:14px;background:var(--border2);flex-shrink:0"></span>
-            <button class="filter-chip" id="fct-legendary"    onclick="_toggleFindToken('is','legendary')">Legendary</button>
+            <!-- Same two multi-selects as the collection's filter row, rather than
+                 six pips and eight chips laid out flat. -->
+            <button type="button" id="findTypeMenuBtn" class="btn btn-outline btn-sm"
+              aria-haspopup="true" aria-expanded="false"
+              onclick="toggleFindTypeMenu(event)">Type &amp; more</button>
+            <button type="button" id="findColorMenuBtn" class="btn btn-outline btn-sm"
+              aria-haspopup="true" aria-expanded="false"
+              onclick="toggleFindColorMenu(event)">Color</button>
             <span style="width:1px;height:14px;background:var(--border2);flex-shrink:0"></span>
             <button class="filter-chip" id="fcr-r"  onclick="_toggleFindToken('r','r')">Rare</button>
             <button class="filter-chip" id="fcr-m"  onclick="_toggleFindToken('r','m')">Mythic</button>

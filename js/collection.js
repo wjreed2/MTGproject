@@ -4517,14 +4517,141 @@ function _toggleFindToken(key, val) {
 function _syncFindFilterBtns(q) {
   _syncFindColorPills();
   const qlo = (q || '').toLowerCase();
-  for (const t of ['creature','instant','sorcery','artifact','enchantment','planeswalker','land']) {
-    document.getElementById('fct-' + t)?.classList.toggle('active', new RegExp(`(?:^|\\s)t:${t}(?=\\s|$)`).test(qlo));
-  }
-  document.getElementById('fct-legendary')?.classList.toggle('active', /(?:^|\s)is:legendary(?=\s|$)/.test(qlo));
   for (const r of ['r','m','u','c']) {
     document.getElementById('fcr-' + r)?.classList.toggle('active', new RegExp(`(?:^|\\s)r:${r}(?=\\s|$)`).test(qlo));
   }
+  _syncFindTypeMenuUi();
+  _syncFindColorMenuUi();
 }
+
+// ── Add cards: the collection's two multi-selects ────────────────────────────
+// Same menu component as Type & more / Color on the collection page. Selection
+// still lives where it always did — types and Legendary as tokens in the query
+// string, colours in _findColorFilters — so the search itself is unchanged and
+// typing "t:land" by hand still lights the menu up.
+const FIND_TYPE_OPTIONS = [
+  ['t', 'creature', 'Creature'],
+  ['t', 'instant', 'Instant'],
+  ['t', 'sorcery', 'Sorcery'],
+  ['t', 'artifact', 'Artifact'],
+  ['t', 'enchantment', 'Enchantment'],
+  ['t', 'planeswalker', 'Planeswalker'],
+  ['t', 'land', 'Land'],
+  ['is', 'legendary', 'Legendary'],
+];
+
+function _findTypeTokenOn(key, val) {
+  const q = (document.getElementById('findCardInput')?.value || '').toLowerCase();
+  return new RegExp(`(?:^|\\s)${key}:${val}(?=\\s|$)`).test(q);
+}
+
+function _syncFindTypeMenuUi() {
+  const btn = document.getElementById('findTypeMenuBtn');
+  if (!btn) return;
+  const n = FIND_TYPE_OPTIONS.filter(([k, v]) => _findTypeTokenOn(k, v)).length;
+  btn.textContent = n > 0 ? `Type & more (${n})` : 'Type & more';
+  btn.classList.toggle('active', n > 0);
+}
+
+function _syncFindColorMenuUi() {
+  const btn = document.getElementById('findColorMenuBtn');
+  if (!btn) return;
+  const n = _findColorFilters ? _findColorFilters.size : 0;
+  btn.textContent = n > 0 ? `Color (${n})` : 'Color';
+  btn.classList.toggle('active', n > 0);
+}
+
+function _closeFindMenus() {
+  document.querySelectorAll('.find-filter-menu').forEach(m => m.remove());
+  document.getElementById('findTypeMenuBtn')?.setAttribute('aria-expanded', 'false');
+  document.getElementById('findColorMenuBtn')?.setAttribute('aria-expanded', 'false');
+}
+
+function toggleFindTypeMenu(event) {
+  if (event) { event.stopPropagation(); event.preventDefault(); }
+  const open = !!document.querySelector('.find-type-menu');
+  _closeFindMenus();
+  if (!open) _openFindMenu('type');
+}
+
+function toggleFindColorMenu(event) {
+  if (event) { event.stopPropagation(); event.preventDefault(); }
+  const open = !!document.querySelector('.find-color-menu');
+  _closeFindMenus();
+  if (!open) _openFindMenu('color');
+}
+
+function _openFindMenu(kind) {
+  const btn = document.getElementById(kind === 'color' ? 'findColorMenuBtn' : 'findTypeMenuBtn');
+  if (!btn) return;
+  const menu = document.createElement('div');
+  menu.className = `glass-menu qf-menu find-filter-menu ${kind === 'color' ? 'find-color-menu color-menu' : 'find-type-menu'}`;
+
+  const rows = kind === 'color'
+    ? COLOR_FILTER_OPTIONS.map(([code, label]) => ({
+        on: !!(_findColorFilters && _findColorFilters.has(code)),
+        html: `<img src="https://svgs.scryfall.io/card-symbols/${code}.svg" alt="" aria-hidden="true">${label}`,
+        run: () => toggleFindColorFilter(code),
+      }))
+    : FIND_TYPE_OPTIONS.map(([key, val, label]) => ({
+        on: _findTypeTokenOn(key, val),
+        html: label,
+        run: () => _toggleFindToken(key, val),
+      }));
+
+  for (const row of rows) {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'glass-menu-item' + (kind === 'color' ? ' color-menu-item' : '') + (row.on ? ' selected' : '');
+    item.innerHTML = row.html;
+    item.addEventListener('click', e => {
+      e.stopPropagation();
+      row.run();
+      const scroll = menu.scrollTop;
+      setTimeout(() => {
+        _closeFindMenus();
+        _openFindMenu(kind);
+        const next = document.querySelector('.find-filter-menu');
+        if (next) next.scrollTop = scroll;
+      }, 0);
+    });
+    menu.appendChild(item);
+  }
+
+  document.body.appendChild(menu);
+  const r = btn.getBoundingClientRect();
+  const margin = 8;
+  const maxH = Math.min(320, window.innerHeight - margin * 2);
+  menu.style.maxHeight = maxH + 'px';
+  const h = Math.min(menu.offsetHeight, maxH);
+  const w = menu.offsetWidth;
+  const below = window.innerHeight - r.bottom;
+  const top = below >= h + 12 ? r.bottom + 6 : Math.max(margin, r.top - h - 6);
+  menu.style.top = Math.min(top, window.innerHeight - h - margin) + 'px';
+  menu.style.left = Math.min(Math.max(margin, r.left), window.innerWidth - w - margin) + 'px';
+  btn.setAttribute('aria-expanded', 'true');
+
+  const drop = e => {
+    if (!menu.isConnected) {
+      window.removeEventListener('resize', drop, true);
+      window.removeEventListener('scroll', drop, true);
+      return;
+    }
+    if (e && e.target && menu.contains(e.target)) return;
+    _closeFindMenus();
+    window.removeEventListener('resize', drop, true);
+    window.removeEventListener('scroll', drop, true);
+  };
+  window.addEventListener('resize', drop, true);
+  window.addEventListener('scroll', drop, true);
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('click', () => _closeFindMenus());
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') _closeFindMenus(); });
+}
+globalThis.toggleFindTypeMenu = toggleFindTypeMenu;
+globalThis.toggleFindColorMenu = toggleFindColorMenu;
 
 let _findSearchOffset = 0;
 let _findSearchTotal = 0;
@@ -4588,9 +4715,12 @@ function _applyFindColorFilter(cards) {
 }
 
 function _syncFindColorPills() {
+  // The pips are a menu now, so this is the colour UI sync generally — every
+  // caller that used to repaint the pills has to reach the button's count too.
   for (const code of ['W', 'U', 'B', 'R', 'G', 'C']) {
     document.getElementById('fcp-' + code)?.classList.toggle('active', _findColorFilters.has(code));
   }
+  _syncFindColorMenuUi();
 }
 
 function toggleFindColorFilter(color) {
