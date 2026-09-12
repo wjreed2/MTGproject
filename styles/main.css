@@ -2790,6 +2790,12 @@ body.glass-mode #voiceModal .search-box {
   aspect-ratio: 0.715;
   background: var(--bg4);
   overflow: hidden; position: relative;
+  /* Card scans carry their own pale rounded corners, and .card-item's 6px never
+     cut them off: it has a 1px border, and a border box clips its content at
+     radius − border-width. Same fix as the deck list's .stack-main — put the
+     radius on this borderless wrapper instead. Per-axis against the 0.715
+     aspect keeps the corner circular at any tile size. */
+  border-radius: 5.6% / 4%;
 }
 .card-img-wrap img {
   width: 100%; height: 100%; object-fit: cover;
@@ -12168,6 +12174,18 @@ body.glass-mode .card-grid .collection-card-star {
 body.glass-mode .card-grid .collection-card-star.is-starred {
   color: color-mix(in oklab, rgb(var(--lgx1)) 55%, rgb(var(--lgx2)));
   -webkit-text-stroke: 0;
+}
+
+.set-browse-card {
+  position: relative;
+  cursor: pointer;
+  overflow: hidden;
+  border-radius: 5.6% / 4%;
+  transition: transform 0.2s var(--ease), box-shadow 0.2s var(--ease);
+}
+.set-browse-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
 }
 
 /* Card tiles keep card-like corners — exempt from the rounder --radius2 remap
