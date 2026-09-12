@@ -647,6 +647,28 @@ function cycleWishlistPriority(uid, event) {
 }
 
 /**
+ * Delete a wishlist row server-side as well as locally.
+ *
+ * PUT /api/wishlist only full-replaces the rows whose source is 'manual'. Rows
+ * the server derived for you — source deck_needed, pending_trade or
+ * upgrade_target — are owned by reconcileWishlistSource and the PUT leaves them
+ * alone by design. So dropping one from the array and saving removed it from
+ * the screen and nothing else: the row was still in the table, and the next
+ * load brought it straight back. Most wishlist entries are derived, which is
+ * why Remove looked broken rather than occasionally wrong.
+ *
+ * DELETE /api/wishlist/:uid removes the row whatever its source. Fire-and-forget
+ * on top of the normal save: the save keeps the manual partition right, and this
+ * is what actually reaches a derived row.
+ */
+function _deleteWishlistRowRemote(uid) {
+  if (!uid) return;
+  const root = typeof mtgApiRoot === 'function' ? mtgApiRoot() : '/api';
+  fetch(`${root}/wishlist/${encodeURIComponent(uid)}`, { method: 'DELETE', credentials: 'include' })
+    .catch(() => { /* the local splice + PUT still stand for manual rows */ });
+}
+
+/**
  * Removal is keyed on the card, not its position in the array. The index the
  * tile was rendered with stops matching the moment the list is ordered by
  * anything other than insertion — priority sorting, for one — and the quiet
@@ -658,6 +680,7 @@ function removeWishlistByUid(uid, event) {
   if (i < 0) return;
   wishlist.splice(i, 1);
   save('wishlist');
+  _deleteWishlistRowRemote(uid);
   renderWishlist();
 }
 
@@ -688,7 +711,11 @@ function moveWishlistToCollection(i) {
     const now = Date.now();
     collection.push({ ...card, uid: wUid, qty: 1, addedAt: now, firstAddedAt: now });
   }
-  wishlist.splice(i, 1); save('collection', 'wishlist'); renderWishlist(); renderCollection(); showNotif('Moved to collection!');
+  const removedUid = _wishlistUid(card);
+  wishlist.splice(i, 1);
+  save('collection', 'wishlist');
+  _deleteWishlistRowRemote(removedUid);
+  renderWishlist(); renderCollection(); showNotif('Moved to collection!');
 }
 
 document.addEventListener('click', e => {

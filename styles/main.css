@@ -6525,6 +6525,7 @@ textarea.deck-import:focus { outline: none; border-color: var(--gold); }
   /* Bigger than the old 158px so the card's own text is legible without opening it. */
   grid-template-columns: repeat(auto-fill, minmax(215px, 1fr));
   gap: 12px;
+  margin-top: 14px;
   margin-bottom: 1rem;
 }
 /* Clear of the folder tabs above rather than tight against them. */
