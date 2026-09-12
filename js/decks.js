@@ -3600,35 +3600,29 @@ function _deckImage(d) {
 }
 
 function _deckGridCard(d, isShared) {
-  const pips  = colorPips(d.commanderColorIdentity || []);
-  const combo = colorComboName(d.commanderColorIdentity || []);
-  const issues = validateDeck(d);
-  const hasErrors = issues.some(i => i.severity === 'error');
-  const validBadge = hasErrors
-    ? `<span class="deck-card-valid-dot deck-card-valid-dot--error" title="Invalid deck">${_deckValidIconSvg('error')}</span>`
-    : issues.length ? `<span class="deck-card-valid-dot deck-card-valid-dot--warn" title="Deck has warnings">${_deckValidIconSvg('warn')}</span>` : '';
-  const pubBadge = !isShared && d.isPublic
-    ? `<span class="deck-grid-badge deck-grid-badge-public">🌐</span>`
-    : '';
-  const sharedBadge = isShared
-    ? `<span class="deck-grid-badge" style="background:rgba(100,140,220,0.18);color:var(--blue);border:1px solid rgba(100,140,220,0.3)">Shared</span>`
-    : '';
+  // The colour pips, colour-combo name, validity dot and public/shared badges
+  // this used to build all lived in the caption over the art and went with it.
+  // Validity is still surfaced in the deck itself, and sharing state in the
+  // deck's own menu.
   const img = _deckImage(d);
+  // Nothing sits over the art. The caption block — name, format, commander,
+  // colour identity and badges — restated what the commander's own art already
+  // says, and covered the bottom third of it to do so. The card is the tile.
+  //
+  // With no visible caption the name still has to be reachable, so it is the
+  // tile's accessible name and its hover title; a deck with no commander art
+  // keeps the name-only placeholder, which is all that identifies it.
+  const label = `${d.name}${d.format ? ' — ' + d.format : ''}${d.commander ? ' · ' + d.commander : ''}`
+    + (isShared && d.ownerEmail ? ' · ' + d.ownerEmail : '');
   return `
-  <div class="browse-deck-card" onclick="selectDeck('${d.id}')">
+  <div class="browse-deck-card" role="button" tabindex="0"
+    title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}"
+    onclick="selectDeck('${d.id}')"
+    onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selectDeck('${d.id}')}">
     <div class="browse-deck-img">
       ${img
-        ? `<img src="${escapeHtml(img)}" alt="${escapeHtml(d.name)}" style="width:100%;height:100%;object-fit:cover;object-position:center top">`
+        ? `<img src="${escapeHtml(img)}" alt="" style="width:100%;height:100%;object-fit:cover;object-position:center top">`
         : `<div class="deck-grid-placeholder" style="width:100%;height:100%;background:var(--bg4)">${escapeHtml(d.name)}</div>`}
-    </div>
-    <div class="browse-deck-overlay">
-      <div class="browse-deck-name">${escapeHtml(d.name)}</div>
-      <div class="browse-deck-meta">${escapeHtml(d.format)}${d.commander ? ' · ' + escapeHtml(d.commander) : ''}${isShared ? ' · ' + escapeHtml(d.ownerEmail || '') : ''}</div>
-      ${combo ? `<div class="browse-deck-combo">${combo}</div>` : ''}
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px">
-        <span style="display:inline-flex;align-items:center;gap:5px">${pips}</span>
-        <span style="display:flex;align-items:center;gap:3px">${validBadge}${pubBadge}${sharedBadge}</span>
-      </div>
     </div>
   </div>`;
 }
