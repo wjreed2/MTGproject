@@ -14316,3 +14316,26 @@ body.glass-mode .offer-card:hover {
 }
 .pa-range:disabled::-webkit-slider-thumb { background: var(--text3); cursor: default; }
 .pa-range:disabled::-moz-range-thumb { background: var(--text3); cursor: default; }
+
+/* ── Playgroup member colours ──────────────────────────────────────────────── */
+.pg-member { display: flex; align-items: center; gap: 7px; }
+.pg-swatch {
+  width: 13px; height: 13px; flex-shrink: 0;
+  border-radius: 50%; padding: 0; cursor: pointer;
+  background: var(--sw, var(--text3));
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.18);
+}
+.pg-swatch.is-static { cursor: default; }
+.pg-swatch:hover { box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.22); }
+.pg-color-menu {
+  position: fixed; z-index: 10060;
+  display: grid; grid-template-columns: repeat(4, 22px); gap: 8px;
+  padding: 10px; border-radius: var(--radius2);
+}
+.pg-color-opt {
+  width: 22px; height: 22px; border-radius: 50%; cursor: pointer; padding: 0;
+  background: var(--sw); border: 2px solid transparent;
+}
+.pg-color-opt:hover { border-color: rgba(255, 255, 255, 0.5); }
+.pg-color-opt.selected { border-color: #fff; }

@@ -1797,6 +1797,9 @@ async function ensurePlaygroupTables() {
         CONSTRAINT fk_pgm_account FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
+    if (!(await columnExists(conn, 'playgroup_members', 'color'))) {
+      await conn.query('ALTER TABLE playgroup_members ADD COLUMN color VARCHAR(16) NULL DEFAULT NULL');
+    }
     if (!(await columnExists(conn, 'playgroup_members', 'status'))) {
       await conn.query("ALTER TABLE playgroup_members ADD COLUMN status ENUM('invited','accepted') NOT NULL DEFAULT 'invited'");
       // Pre-consent rows were added under the old model — treat them as accepted.
@@ -2861,7 +2864,7 @@ app.get('/api/playgroups', requireAuth, async (req, res) => {
     const ids = groups.map(g => g.id);
     const ph = ids.map(() => '?').join(',');
     const [members] = await db().query(
-      `SELECT m.playgroup_id, m.account_id, m.status, a.email, a.username, a.display_name
+      `SELECT m.playgroup_id, m.account_id, m.status, m.color, a.email, a.username, a.display_name
          FROM playgroup_members m
          JOIN accounts a ON a.id = m.account_id
         WHERE m.playgroup_id IN (${ph}) ORDER BY m.added_at ASC`,
@@ -2870,7 +2873,9 @@ app.get('/api/playgroups', requireAuth, async (req, res) => {
     const byGroup = new Map();
     for (const m of members) {
       if (!byGroup.has(m.playgroup_id)) byGroup.set(m.playgroup_id, []);
-      byGroup.get(m.playgroup_id).push({ id: m.account_id, name: publicAccountName(m), status: m.status });
+      byGroup.get(m.playgroup_id).push({
+        id: m.account_id, name: publicAccountName(m), status: m.status, color: m.color || null,
+      });
     }
     res.json({
       playgroups: groups.map(g => ({
@@ -2962,6 +2967,33 @@ app.post('/api/playgroups/:id/members/accept', requireAuth, async (req, res) => 
     );
     if (!r.affectedRows) return res.status(404).json({ error: 'No pending invite for this playgroup' });
     res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.patch('/api/playgroups/:id/members/:userId', requireAuth, async (req, res) => {
+  const groupId = Number(req.params.id);
+  const userId = Number(req.params.userId);
+  const color = req.body?.color;
+  // Hex only — this value is written straight into a style attribute client-side.
+  if (color != null && !/^#[0-9a-fA-F]{6}$/.test(String(color))) {
+    return res.status(400).json({ error: 'color must be #rrggbb or null' });
+  }
+  try {
+    const [[me]] = await db().query(
+      'SELECT 1 AS ok FROM playgroup_members WHERE playgroup_id = ? AND account_id = ?',
+      [groupId, req.accountId]
+    );
+    if (!me) return res.status(403).json({ error: 'Not a member of this playgroup' });
+    const [[grp]] = await db().query('SELECT owner_id FROM playgroups WHERE id = ?', [groupId]);
+    const isOwner = grp && Number(grp.owner_id) === Number(req.accountId);
+    if (!isOwner && userId !== Number(req.accountId)) {
+      return res.status(403).json({ error: 'Only the owner can recolour other members' });
+    }
+    const [r] = await db().query(
+      'UPDATE playgroup_members SET color = ? WHERE playgroup_id = ? AND account_id = ?',
+      [color || null, groupId, userId]
+    );
+    res.json({ ok: true, updated: r?.affectedRows ?? 0 });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

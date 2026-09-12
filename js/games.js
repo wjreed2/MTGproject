@@ -1,12 +1,39 @@
 // Game tracker
 
-const GAME_COLORS = ['#c8a84a','#4a8fd4','#d45a4a','#3db8a0','#8a6cd4','#5ab85a'];
+/**
+ * Seat colours, and a playgroup member's colour — one list, so a player looks
+ * the same in a game as they do in their playgroup. Gold is out; this is a
+ * blue-through-rose spread that reads on the glass skin and stays
+ * distinguishable side by side.
+ *
+ * Declared here rather than in js/playgroups.js because games.js is bundled
+ * first, and a `const` referenced before its declaration throws — `typeof` does
+ * not save you from a temporal dead zone the way it does for an undeclared name.
+ */
+const PLAYER_COLORS = [
+  '#5aa9f0', // blue
+  '#a98cf0', // violet
+  '#3dbfa4', // teal
+  '#e8705f', // rose
+  '#6fc35a', // green
+  '#e0994a', // amber
+  '#e06fb4', // pink
+  '#7f8cf5', // indigo
+];
+const GAME_COLORS = PLAYER_COLORS;
+
+/** First palette colour nobody at this table is using. */
+function nextFreePlayerColor(taken) {
+  const used = new Set((taken || []).filter(Boolean).map(c => String(c).toLowerCase()));
+  return PLAYER_COLORS.find(c => !used.has(c.toLowerCase())) || PLAYER_COLORS[used.size % PLAYER_COLORS.length];
+}
 
 function hexToRgb(hex) {
   const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
   return `${r},${g},${b}`;
 }
 let newGamePlayers = [];
+let newGamePlaygroupId = null;   // scopes the player picker and supplies colours
 let newGameFirstPlayerIdx = null;
 let newGameTabletLayout = 'default';   // 'default' grid | 'pie' enhanced wedge layout
 let logEventGameId = null;
@@ -326,6 +353,69 @@ function _cachedUserDecks(userId) {
   return Array.isArray(cached) ? cached : [];
 }
 
+/**
+ * The playgroup picker. Choosing one scopes the player dropdowns to its members
+ * (plus Guest) and hands each of them the colour they carry in that group, so a
+ * player looks the same from game to game whatever seat they take.
+ */
+async function _ngFillPlaygroups() {
+  const sel = document.getElementById('newGamePlaygroup');
+  if (!sel) return;
+  if (typeof _pgReload === 'function' && (!Array.isArray(_playgroups) || !_playgroups.length)) {
+    try { await _pgReload(); } catch (_) { /* offline — fall back to all users */ }
+  }
+  const groups = Array.isArray(typeof _playgroups !== 'undefined' ? _playgroups : null) ? _playgroups : [];
+  // One group is not a choice, so it is simply the one in use.
+  if (newGamePlaygroupId == null && groups.length === 1) newGamePlaygroupId = Number(groups[0].id);
+  sel.innerHTML = `<option value="">— none —</option>`
+    + groups.map(g => `<option value="${g.id}"${Number(g.id) === Number(newGamePlaygroupId) ? ' selected' : ''}>${escapeHtml(g.name || '')}</option>`).join('');
+  if (typeof _glassSelectEnsure === 'function') _glassSelectEnsure();
+}
+
+function ngSetPlaygroup(v) {
+  newGamePlaygroupId = v ? Number(v) : null;
+  // Seats whose player is not in the chosen group no longer have a valid pick.
+  const members = _ngPlaygroupMembers();
+  if (members) {
+    for (const p of newGamePlayers) {
+      if (p.userId && !members.some(m => Number(m.id) === Number(p.userId))) {
+        p.userId = null; p.name = ''; p.deckId = ''; p.deckName = ''; p.commander = '';
+      }
+    }
+  }
+  renderNewGamePlayersList();
+}
+
+/** Members of the chosen group, or null when none is chosen (= everyone). */
+function _ngPlaygroupMembers() {
+  if (newGamePlaygroupId == null) return null;
+  const groups = Array.isArray(typeof _playgroups !== 'undefined' ? _playgroups : null) ? _playgroups : [];
+  const g = groups.find(x => Number(x.id) === Number(newGamePlaygroupId));
+  return g ? (g.members || []) : null;
+}
+
+/** A seat's colour: their playgroup colour if they have one, else a free slot. */
+function _ngSeatColor(p, i, taken) {
+  if (p && p.userId != null && newGamePlaygroupId != null && typeof playgroupMemberColor === 'function') {
+    const c = playgroupMemberColor(newGamePlaygroupId, p.userId);
+    if (c) return c;
+  }
+  if (p && p.color) return p.color;
+  return nextFreePlayerColor(taken);
+}
+
+/** Seat colours for the whole table, members first so guests fill the gaps. */
+function _ngSeatColors() {
+  const out = new Array(newGamePlayers.length).fill(null);
+  newGamePlayers.forEach((p, i) => {
+    if (p && p.userId != null && newGamePlaygroupId != null && typeof playgroupMemberColor === 'function') {
+      out[i] = playgroupMemberColor(newGamePlaygroupId, p.userId) || null;
+    } else if (p && p.color) out[i] = p.color;
+  });
+  newGamePlayers.forEach((p, i) => { if (!out[i]) out[i] = nextFreePlayerColor(out); });
+  return out;
+}
+
 async function openNewGame() {
   // Pre-fill slot 0 with current user
   const me = currentUser || {};
@@ -340,8 +430,7 @@ async function openNewGame() {
   _syncNewGameLayoutBtns();
   const fmtEl = document.getElementById('newGameFormat');
   if (fmtEl) fmtEl.value = 'Commander';
-  const notesEl = document.getElementById('newGameNotes');
-  if (notesEl) notesEl.value = '';
+  await _ngFillPlaygroups();
 
   document.getElementById('newGameModal').classList.add('open');
   if (me.id) _userDecksCache[me.id] = _summariesFromLocalDecks();
@@ -513,8 +602,15 @@ function renderNewGamePlayersList() {
 
   if (!Array.isArray(_allAppUsers)) _allAppUsers = [];
 
+  const _pgMembers = _ngPlaygroupMembers();
+  const _seatColors = _ngSeatColors();
   el.innerHTML = newGamePlayers.map((p, i) => {
-    const userOpts = _allAppUsers.map(u =>
+    // With a playgroup chosen the picker is its members; without one it is
+    // everybody, which is what it always was.
+    const pool = _pgMembers
+      ? _pgMembers.map(m => ({ id: m.id, name: m.name }))
+      : _allAppUsers;
+    const userOpts = pool.map(u =>
       `<option value="${u.id}" ${p.userId == u.id ? 'selected' : ''}>${escapeHtml(u.name || '')}</option>`
     ).join('');
 
@@ -537,7 +633,7 @@ function renderNewGamePlayersList() {
 
     return `
     <div style="display:grid;grid-template-columns:${cols};gap:8px;align-items:center;padding:9px 0;border-bottom:1px solid var(--border)">
-      <div style="width:10px;height:10px;border-radius:50%;background:${GAME_COLORS[i % GAME_COLORS.length]};flex-shrink:0"></div>
+      <div style="width:10px;height:10px;border-radius:50%;background:${_seatColors[i]};flex-shrink:0"></div>
       <div class="seat-nudge">
         <button type="button" class="seat-nudge-btn" onclick="ngpMoveSeat(${i},-1)" ${i === 0 ? 'disabled' : ''} title="Earlier seat" aria-label="Earlier seat">▴</button>
         <button type="button" class="seat-nudge-btn" onclick="ngpMoveSeat(${i},1)" ${i === lastSeat ? 'disabled' : ''} title="Later seat" aria-label="Later seat">▾</button>
@@ -614,7 +710,10 @@ function ngpDeckTyped(i, name) {
 
 async function submitNewGame() {
   const fmt = document.getElementById('newGameFormat').value;
-  const notes = document.getElementById('newGameNotes').value.trim();
+  // The notes field became the playgroup picker; a game's context is the group
+  // it was played in, which is recorded below.
+  const notes = '';
+  const _submitSeatColors = _ngSeatColors();
   const startLife = fmt === 'Commander' ? 40 : fmt === 'Brawl' ? 25 : 20;
   // First player is always chosen at random, with the roll animation.
   await rollNewGameFirstPlayerAnimated();
@@ -626,7 +725,7 @@ async function submitNewGame() {
     deckName: p.deckName || '',
     deckId: p.deckId || null,
     commander: p.commander || null,
-    color: GAME_COLORS[i % GAME_COLORS.length],
+    color: _submitSeatColors[i],
     startingLife: startLife,
     life: startLife,
     poison: 0,
@@ -649,6 +748,7 @@ async function submitNewGame() {
     activePlayerIdx: firstPlayerIdx,
     winner: null,
     notes,
+    playgroupId: newGamePlaygroupId,
     tabletLayout: newGameTabletLayout,
     players,
     turnStartedAt: Date.now(),

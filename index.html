@@ -1827,8 +1827,10 @@
         </select>
       </div>
       <div>
-        <label style="font-size:0.78rem;color:var(--text3);display:block;margin-bottom:4px;letter-spacing:0.04em">NOTES <span style="opacity:0.5">(optional)</span></label>
-        <input id="newGameNotes" type="text" placeholder="e.g. Friday night playgroup" style="width:100%">
+        <label style="font-size:0.78rem;color:var(--text3);display:block;margin-bottom:4px;letter-spacing:0.04em">PLAYGROUP <span style="opacity:0.5">(optional)</span></label>
+        <select id="newGamePlaygroup" class="select" onchange="ngSetPlaygroup(this.value)" style="width:100%">
+          <option value="">— none —</option>
+        </select>
       </div>
     </div>
     <div style="margin-bottom:1rem">

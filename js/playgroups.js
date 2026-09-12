@@ -3,6 +3,8 @@
 // Owner manages membership; any member can leave. Server: /api/playgroups.
 // Uses the shared db-client wrappers (apiFetch/apiPostJson/apiDelete).
 
+// PLAYER_COLORS / nextFreePlayerColor live in js/games.js — it is bundled first.
+
 let _playgroups = [];      // [{id, name, ownerId, isOwner, members:[{id,name}]}] — ids normalized to Number
 let _pgAllUsers = null;    // [{id, name}] cached for the add-member picker (fetched once per session)
 
@@ -79,8 +81,17 @@ function renderPlaygroupsPanel() {
       const isSelf = myId != null && m.id === myId;
       const tags = (m.id === g.ownerId ? '<span class="pg-tag pg-tag-owner">owner</span>' : '')
         + (m.status === 'invited' ? '<span class="pg-tag">invited</span>' : '');
+      // The name wears the colour, because that is what the colour is for.
+      const color = m.color || _pgFallbackColor(g, m.id);
+      const canEdit = g.isOwner || isSelf;
+      const swatch = canEdit
+        ? `<button type="button" class="pg-swatch" style="--sw:${escapeHtml(color)}"
+             title="Pick ${escapeHtml(m.name || 'this player')}'s colour"
+             onclick="pgOpenColorPicker(${g.id}, ${m.id}, this)"></button>`
+        : `<span class="pg-swatch is-static" style="--sw:${escapeHtml(color)}"></span>`;
       return `<div class="pg-member">
-        <span class="pg-member-name">${escapeHtml(m.name || '')}${isSelf ? ' <span class="pg-you">(you)</span>' : ''}</span>
+        ${swatch}
+        <span class="pg-member-name" style="color:${escapeHtml(color)}">${escapeHtml(m.name || '')}${isSelf ? ' <span class="pg-you">(you)</span>' : ''}</span>
         ${tags}
       </div>`;
     }).join('');
@@ -116,6 +127,71 @@ function renderPlaygroupsPanel() {
     </div>`;
   }).join('')}</div>`;
   if (typeof _glassSelectEnsure === 'function') _glassSelectEnsure();
+}
+
+/** A member with no colour set still shows one: their slot in the palette. */
+function _pgFallbackColor(group, memberId) {
+  const idx = (group.members || []).findIndex(m => Number(m.id) === Number(memberId));
+  return PLAYER_COLORS[(idx < 0 ? 0 : idx) % PLAYER_COLORS.length];
+}
+
+/** Colour of a member in a group, or null when they are not in it. */
+function playgroupMemberColor(groupId, memberId) {
+  const g = _playgroups.find(x => Number(x.id) === Number(groupId));
+  if (!g) return null;
+  const m = (g.members || []).find(x => Number(x.id) === Number(memberId));
+  if (!m) return null;
+  return m.color || _pgFallbackColor(g, memberId);
+}
+globalThis.playgroupMemberColor = playgroupMemberColor;
+
+function pgCloseColorPicker() {
+  document.querySelectorAll('.pg-color-menu').forEach(m => m.remove());
+}
+
+/** The palette as a small body-anchored grid, like every other menu here. */
+function pgOpenColorPicker(groupId, memberId, btn) {
+  if (event) event.stopPropagation();
+  const open = document.querySelector('.pg-color-menu');
+  pgCloseColorPicker();
+  if (open) return;
+  const menu = document.createElement('div');
+  menu.className = 'glass-menu pg-color-menu';
+  const current = (playgroupMemberColor(groupId, memberId) || '').toLowerCase();
+  for (const c of PLAYER_COLORS) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'pg-color-opt' + (c.toLowerCase() === current ? ' selected' : '');
+    b.style.setProperty('--sw', c);
+    b.title = c;
+    b.addEventListener('click', e => { e.stopPropagation(); pgCloseColorPicker(); void pgSetMemberColor(groupId, memberId, c); });
+    menu.appendChild(b);
+  }
+  document.body.appendChild(menu);
+  const r = btn.getBoundingClientRect();
+  const margin = 8;
+  const h = menu.offsetHeight, w = menu.offsetWidth;
+  const below = window.innerHeight - r.bottom;
+  const top = below >= h + 10 ? r.bottom + 6 : Math.max(margin, r.top - h - 6);
+  menu.style.top = Math.min(top, window.innerHeight - h - margin) + 'px';
+  menu.style.left = Math.min(Math.max(margin, r.left), window.innerWidth - w - margin) + 'px';
+}
+
+async function pgSetMemberColor(groupId, memberId, color) {
+  const g = _playgroups.find(x => Number(x.id) === Number(groupId));
+  const m = g && (g.members || []).find(x => Number(x.id) === Number(memberId));
+  if (m) { m.color = color; renderPlaygroupsPanel(); }   // paint first, then persist
+  try {
+    await fetch(`/api/playgroups/${groupId}/members/${memberId}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      credentials: 'include', body: JSON.stringify({ color }),
+    });
+  } catch (_) { showNotif('Could not save colour', true); }
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('click', () => pgCloseColorPicker());
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') pgCloseColorPicker(); });
 }
 
 async function acceptPlaygroupInvite(groupId) {
