@@ -58,25 +58,27 @@ function _ownerLabel(email) {
 }
 
 function _browseDeckCard(d) {
-  const pips  = colorPips(d.colorIdentity || []);
-  const combo = colorComboName(d.colorIdentity || []);
-
+  // Same as the deck list: the commander's art is the tile, with nothing laid
+  // over it. The caption carried the name, colour combo, format, commander,
+  // card count, owner and colour pips — none of it actionable, all of it
+  // covering the bottom third of the art.
+  //
+  // These are other people's decks, so the name and owner are the only things
+  // that identify them; both are the tile's title and accessible name, and a
+  // deck with no commander art still falls back to its name.
   const img = d.commanderImage
-    ? `<img src="${escapeHtml(d.commanderImage)}" alt="${escapeHtml(d.name)}" style="width:100%;height:100%;object-fit:cover;object-position:center top">`
+    ? `<img src="${escapeHtml(d.commanderImage)}" alt="" style="width:100%;height:100%;object-fit:cover;object-position:center top">`
     : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-family:'Cinzel',serif;font-size:0.65rem;color:var(--text3);text-align:center;padding:8px;background:var(--bg4)">${escapeHtml(d.name)}</div>`;
 
+  const label = `${d.name}${d.format ? ' — ' + d.format : ''}${d.commander ? ' · ' + d.commander : ''}`
+    + ` · ${d.cardCount} cards · ${_ownerLabel(d.ownerEmail)}`;
+
   return `
-    <div class="browse-deck-card" onclick="openBrowseDeckDetail('${d.id}','${d.accountId}')">
+    <div class="browse-deck-card" role="button" tabindex="0"
+      title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}"
+      onclick="openBrowseDeckDetail('${d.id}','${d.accountId}')"
+      onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openBrowseDeckDetail('${d.id}','${d.accountId}')}">
       <div class="browse-deck-img">${img}</div>
-      <div class="browse-deck-overlay">
-        <div class="browse-deck-name">${escapeHtml(d.name)}</div>
-        ${combo ? `<div style="font-family:'Cinzel',serif;font-size:0.75rem;font-weight:600;color:var(--gold);letter-spacing:0.04em;margin-bottom:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(combo)}</div>` : ''}
-        <div class="browse-deck-meta">${escapeHtml(d.format)}${d.commander ? ' · ' + escapeHtml(d.commander) : ''}</div>
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px">
-          <span style="font-size:0.68rem;color:var(--text3)">${d.cardCount} cards · ${escapeHtml(_ownerLabel(d.ownerEmail))}</span>
-          <span style="display:inline-flex;align-items:center;gap:3px">${pips}</span>
-        </div>
-      </div>
     </div>`;
 }
 
