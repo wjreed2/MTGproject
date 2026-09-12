@@ -4516,10 +4516,8 @@ function _toggleFindToken(key, val) {
 
 function _syncFindFilterBtns(q) {
   _syncFindColorPills();
-  const qlo = (q || '').toLowerCase();
-  for (const r of ['r','m','u','c']) {
-    document.getElementById('fcr-' + r)?.classList.toggle('active', new RegExp(`(?:^|\\s)r:${r}(?=\\s|$)`).test(qlo));
-  }
+  // The rarity chips are gone; r: is still a query token you can type, it just
+  // has no button of its own here.
   _syncFindTypeMenuUi();
   _syncFindColorMenuUi();
 }
