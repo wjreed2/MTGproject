@@ -1114,57 +1114,57 @@
     <span id="sharedWishlistBannerLabel" style="font-size:0.82rem;color:var(--text2)"></span>
     <span style="font-size:0.76rem;color:var(--text3)">(read-only)</span>
     <div style="flex:1"></div>
-    <button class="btn btn-ghost btn-sm" onclick="exitSharedWishlistView()" style="font-size:0.78rem;color:var(--text3)">← Back to my wishlist</button>
+    <button class="btn btn-ghost btn-sm" onclick="exitSharedWishlistView()" style="font-size:0.78rem;color:var(--text3)">&larr; Back to my wishlist</button>
   </div>
-  <div class="wishlist-layout" style="display:grid;grid-template-columns:1fr 320px;gap:1.5rem">
-    <div>
-      <div class="view-controls" style="margin-bottom:1rem">
-        <div style="position:relative;flex:1">
-          <input class="search-box" type="text" placeholder="Add a card to wishlist…" id="wishlistSearch" oninput="wishlistAutocomplete(this.value)" onkeydown="if(event.key==='Enter'){event.preventDefault();runWishlistSearch(this.value);}">
-          <div id="wishlistSearchAutocomplete" style="display:none;position:fixed;background:var(--bg2);border:1px solid var(--border2);border-radius:var(--radius2);z-index:9999;max-height:260px;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.5)"></div>
-        </div>
-        <select id="wishlistPriority">
-          <option value="high">High Priority</option>
-          <option value="med">Medium</option>
-          <option value="low">Low Priority</option>
-        </select>
-        <button class="btn btn-primary btn-sm" onclick="runWishlistSearch(document.getElementById('wishlistSearch').value)">Search</button>
-      </div>
-      <div id="wishlistSearchResults" class="wishlist-search-results"></div>
-      <div class="panel">
-        <div class="panel-header wishlist-panel-header">
-          <span><span class="panel-title">Wishlist</span> <span id="wishlistTotal" style="font-size:0.78rem;color:var(--text3)"></span></span>
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-            <span id="wlPurchaseHost" class="purchase-price-optin-host"></span>
-            <button class="btn btn-outline btn-sm" onclick="openWishlistShareModal()" style="white-space:nowrap;font-size:0.72rem;padding:3px 10px" title="Share wishlist / view shared wishlists">⇄ Share</button>
-            <div class="view-toggle" role="group" aria-label="Wishlist layout">
-              <button type="button" id="wishlistViewGrid" onclick="setWishlistViewMode('grid')">Grid</button>
-              <button type="button" id="wishlistViewList" onclick="setWishlistViewMode('list')">List</button>
-            </div>
-          </div>
-        </div>
-        <div id="wishlistItems"></div>
-        <div id="wishlistEmpty" class="empty-state empty-state--inline">Your wishlist is empty</div>
+
+  <div class="collection-top-actions">
+    <span class="page-title">Wishlist</span>
+    <button type="button" class="btn btn-outline btn-sm coll-top-btn" onclick="openWishlistShareModal()"
+      title="Share wishlist / view shared wishlists">Share</button>
+  </div>
+
+  <div class="deck-folder-tabs" id="wishlistTabs" role="tablist" aria-label="Wishlist sections">
+    <button type="button" class="deck-ftab active" id="wlFtab-list" role="tab" aria-selected="true" onclick="setWishlistTab('list')">Wishlist</button>
+    <button type="button" class="deck-ftab" id="wlFtab-search" role="tab" aria-selected="false" onclick="setWishlistTab('search')">Search</button>
+  </div>
+
+  <div id="wlPane-list" class="deck-tab-pane active">
+    <div class="view-controls wishlist-toolbar">
+      <span id="wishlistTotal" style="font-size:0.78rem;color:var(--text3)"></span>
+      <div style="flex:1"></div>
+      <div class="view-toggle" role="group" aria-label="Wishlist layout">
+        <button type="button" id="wishlistViewGrid" onclick="setWishlistViewMode('grid')">Grid</button>
+        <button type="button" id="wishlistViewList" onclick="setWishlistViewMode('list')">List</button>
       </div>
     </div>
-    <div>
-      <div class="panel">
-        <div class="panel-header"><span class="panel-title">Price Summary</span></div>
-        <div class="panel-body">
-          <table class="price-table" id="wishlistPriceTable">
-            <tr><td>Total TCG Low</td><td id="wlTCGLow">—</td></tr>
-            <tr><td>Total TCG Mid</td><td id="wlTCGMid">—</td></tr>
-            <tr><td>Total CK</td><td id="wlCK">—</td></tr>
-          </table>
-        </div>
-      </div>
-      <div class="panel" id="wishlistPreviewPanel" style="margin-top:1rem">
-        <div class="panel-header"><span class="panel-title">Card Preview</span></div>
-        <div class="panel-body" id="wishlistPreview" style="text-align:center;color:var(--text3);font-size:0.85rem">
-          Hover a card to preview
-        </div>
+    <div id="wishlistItems"></div>
+    <div id="wishlistEmpty" class="empty-state empty-state--inline">Your wishlist is empty</div>
+  </div>
+
+  <div id="wlPane-search" class="deck-tab-pane">
+    <!-- Same search shape as Add cards: a full-width field that runs on Enter,
+         with the two multi-selects below it. No Search button. -->
+    <div class="collection-search-row">
+      <div style="position:relative;flex:1;min-width:0">
+        <input class="search-box" type="text" id="wishlistSearch" autocomplete="off"
+          style="width:100%" placeholder="Search"
+          oninput="wishlistAutocomplete(this.value)"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();runWishlistSearch(this.value);}">
+        <div id="wishlistSearchAutocomplete" class="wl-autocomplete" style="display:none"></div>
       </div>
     </div>
+    <div class="view-controls">
+      <button type="button" id="wlTypeMenuBtn" class="btn btn-outline btn-sm"
+        aria-haspopup="true" aria-expanded="false" onclick="toggleWishlistTypeMenu(event)">Type &amp; more</button>
+      <button type="button" id="wlColorMenuBtn" class="btn btn-outline btn-sm"
+        aria-haspopup="true" aria-expanded="false" onclick="toggleWishlistColorMenu(event)">Color</button>
+      <select id="wishlistPriority" data-glass-label="Priority" title="Priority for cards you add">
+        <option value="high">High Priority</option>
+        <option value="med" selected>Medium</option>
+        <option value="low">Low Priority</option>
+      </select>
+    </div>
+    <div id="wishlistSearchResults" class="wishlist-search-results"></div>
   </div>
 </div>
 
