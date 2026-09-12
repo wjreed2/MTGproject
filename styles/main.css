@@ -1131,7 +1131,7 @@ body.glass-mode .set-star.is-starred {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 1rem;
+  margin-bottom: 10px;
   flex-wrap: wrap;
 }
 #tab-sets .set-browse-controls {

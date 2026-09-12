@@ -385,7 +385,7 @@ function toggleSetBrowseFilter() {
 }
 
 function toggleSetBrowseInfo() {
-  const open = !_prefOpen(SET_BROWSE_INFO_KEY, true);
+  const open = !_prefOpen(SET_BROWSE_INFO_KEY, false);
   _setPrefOpen(SET_BROWSE_INFO_KEY, open);
   _applyPanelState('setBrowseInfoPanel', 'setBrowseInfoBtn', open);
 }
@@ -396,7 +396,7 @@ function toggleSetBrowseInfo() {
  */
 function syncSetBrowseToggles() {
   _applyPanelState('setBrowseFilterPanel', 'setBrowseFilterBtn', _prefOpen(SET_BROWSE_FILTER_KEY, false));
-  _applyPanelState('setBrowseInfoPanel', 'setBrowseInfoBtn', _prefOpen(SET_BROWSE_INFO_KEY, true));
+  _applyPanelState('setBrowseInfoPanel', 'setBrowseInfoBtn', _prefOpen(SET_BROWSE_INFO_KEY, false));
 }
 
 globalThis.toggleSetBrowseFilter = toggleSetBrowseFilter;
@@ -735,16 +735,6 @@ function _renderSetBrowse() {
   const host = document.getElementById('setDetailContent');
   if (!host) return;
   host.innerHTML = `
-    <div class="set-browse-toolbar">
-      <div class="view-toggle">
-        <button class="${!owned ? 'active' : ''}" onclick="_setSetOwnedFilter(false)">All (${rarityScopedCards.length})</button>
-        <button class="${owned  ? 'active' : ''}" onclick="_setSetOwnedFilter(true)">Owned (${ownedCount})</button>
-      </div>
-      <div class="view-toggle">
-        <button class="${_browseSetMode === 'titles' ? 'active' : ''}" onclick="_setSetMode('titles')">Unique Titles</button>
-        <button class="${_browseSetMode === 'printings' ? 'active' : ''}" onclick="_setSetMode('printings')">All Printings</button>
-      </div>
-    </div>
     <div id="setBrowseInfoPanel">
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:10px">
         ${_renderSetRarityDonuts(modeCards, isOwnedCard)}
@@ -759,6 +749,16 @@ function _renderSetBrowse() {
           oninput="_setSetSearchFilter(this.value)"
           placeholder="Search" style="width:100%;padding-right:28px">
         ${searchQ ? `<button type="button" class="set-browse-search-clear" onclick="_setSetSearchFilter('')" aria-label="Clear search">&times;</button>` : ''}
+      </div>
+    </div>
+    <div class="set-browse-toolbar">
+      <div class="view-toggle">
+        <button class="${!owned ? 'active' : ''}" onclick="_setSetOwnedFilter(false)">All (${rarityScopedCards.length})</button>
+        <button class="${owned  ? 'active' : ''}" onclick="_setSetOwnedFilter(true)">Owned (${ownedCount})</button>
+      </div>
+      <div class="view-toggle">
+        <button class="${_browseSetMode === 'titles' ? 'active' : ''}" onclick="_setSetMode('titles')">Unique Titles</button>
+        <button class="${_browseSetMode === 'printings' ? 'active' : ''}" onclick="_setSetMode('printings')">All Printings</button>
       </div>
     </div>
     <div class="view-controls set-browse-controls">
