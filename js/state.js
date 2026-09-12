@@ -80,7 +80,9 @@ let setsViewMode = 'owned';   // 'owned' | 'starred' | 'all'
 
 // Collection filter state
 let showStarredCardsOnly = false;
-let quickFilters = { types: new Set(), flags: new Set(), cmcMin: null, cmcMax: null };
+// cmc is a set of chosen mana values, not a range — the collection picks them
+// from a multi-select. The Trade tab keeps its own cmcMin/cmcMax range state.
+let quickFilters = { types: new Set(), flags: new Set(), cmc: new Set() };
 
 // Chart instances
 let colorChartInst, rarityChartInst, valueChartInst;

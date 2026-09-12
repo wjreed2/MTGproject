@@ -13780,28 +13780,6 @@ body.glass-mode #deckExportModal .modal {
 #deckExportModal .deck-export-opt:hover,
 #deckExportModal .deck-export-check:hover { color: var(--text); }
 
-/* ── Collection: mana-value range as the inspector's counter ────────────────
-   Two bare number fields became the same -/+ control the card inspector uses,
-   so the row reads as one family of controls. */
-.cmc-range { display: inline-flex; align-items: center; gap: 6px; }
-.cmc-range-label {
-  font-size: 0.68rem; color: var(--text3); white-space: nowrap;
-  letter-spacing: 0.04em; text-transform: uppercase;
-}
-.cmc-range-dash { color: var(--text3); }
-.cmc-range-counter { display: inline-flex; align-items: center; gap: 3px; }
-.cmc-range-counter .btn-icon {
-  height: 34px !important;
-  min-width: 28px;
-  padding: 0 !important;
-  justify-content: center;
-  border-radius: 8px !important;
-}
-.cmc-range-counter .card-detail-qty-value {
-  min-width: 26px;
-  font-size: 0.82rem;
-}
-
 /* Colour menu rows carry their mana symbol beside the name. */
 .color-menu-item { display: flex; align-items: center; gap: 9px; }
 .color-menu-item img { width: 15px; height: 15px; flex-shrink: 0; }

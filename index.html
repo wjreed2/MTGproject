@@ -463,21 +463,11 @@
         </select>
       </div>
 
-      <!-- Mana value: the card inspector's counter, not a pair of bare inputs. -->
-      <span class="cmc-range" title="Mana value">
-        <span class="cmc-range-label">MV</span>
-        <span class="card-detail-qty-row cmc-range-counter">
-          <button type="button" class="btn btn-outline btn-sm btn-icon" onclick="stepQuickCMC('min',-1)" aria-label="Lower minimum mana value">&minus;</button>
-          <span class="card-detail-qty-value" id="cmcMinValue">–</span>
-          <button type="button" class="btn btn-outline btn-sm btn-icon" onclick="stepQuickCMC('min',1)" aria-label="Raise minimum mana value">+</button>
-        </span>
-        <span class="cmc-range-dash">–</span>
-        <span class="card-detail-qty-row cmc-range-counter">
-          <button type="button" class="btn btn-outline btn-sm btn-icon" onclick="stepQuickCMC('max',-1)" aria-label="Lower maximum mana value">&minus;</button>
-          <span class="card-detail-qty-value" id="cmcMaxValue">–</span>
-          <button type="button" class="btn btn-outline btn-sm btn-icon" onclick="stepQuickCMC('max',1)" aria-label="Raise maximum mana value">+</button>
-        </span>
-      </span>
+      <!-- Mana value: a multi-select of discrete values, same menu as the two
+           beside it. The label lives in the button rather than off to the side. -->
+      <button type="button" id="cmcFilterMenuBtn" class="btn btn-outline btn-sm"
+        aria-haspopup="true" aria-expanded="false"
+        onclick="toggleCmcFilterMenu(event)">Mana Value</button>
 
       <select id="rarityFilterSelect" onchange="changeRarity(this.value)" title="Rarity">
         <option value="">All Rarities</option>

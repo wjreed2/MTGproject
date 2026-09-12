@@ -248,6 +248,15 @@ function applyCardFilters(cards, f) {
   if (f.flags && f.flags.has('new'))       out = out.filter(c => isRecentlyAdded(c));
   if (f.cmcMin != null)                    out = out.filter(c => (c.cmc || 0) >= f.cmcMin);
   if (f.cmcMax != null)                    out = out.filter(c => (c.cmc || 0) <= f.cmcMax);
+  // The collection picks discrete values instead of a range. QUICK_CMC_MAX is
+  // the last option and stands for "that much or more", so nothing above it
+  // becomes unreachable.
+  if (f.cmcValues && f.cmcValues.size) {
+    out = out.filter(c => {
+      const v = Math.max(0, Math.round(Number(c.cmc) || 0));
+      return f.cmcValues.has(v) || (v > QUICK_CMC_MAX && f.cmcValues.has(QUICK_CMC_MAX));
+    });
+  }
   return out;
 }
 
@@ -502,7 +511,7 @@ function getFilteredCollection() {
     starred: showStarredCardsOnly, searchQ,
     colors: colorFilters, rarity: currentRarity,
     types: quickFilters.types, flags: quickFilters.flags,
-    cmcMin: quickFilters.cmcMin, cmcMax: quickFilters.cmcMax,
+    cmcValues: quickFilters.cmc,
   });
   return sortCardList(cards, currentSort);
 }
@@ -662,50 +671,96 @@ function toggleQuickFlag(flag, btn) {
   _syncQuickFilterUI(); renderCollection();
 }
 
-const QUICK_CMC_MAX = 20;
+const QUICK_CMC_MAX = 12;
+const QUICK_CMC_OPTIONS = Array.from({ length: QUICK_CMC_MAX + 1 }, (_, i) => i);
 
-/**
- * Mana value is the card inspector's counter now rather than two number fields:
- * same -/+ buttons and monospace readout. Stepping below zero clears that end of
- * the range back to "any", which is how you turn the filter off without a field
- * to empty.
- */
-function stepQuickCMC(end, delta) {
-  const key = end === 'max' ? 'cmcMax' : 'cmcMin';
-  const cur = quickFilters[key];
-  // Coming off "any", start where the other end already is rather than at 0 —
-  // otherwise raising the maximum from any, with a minimum of 1 set, produced a
-  // maximum of 0 and dragged the minimum down to meet it.
-  const from = key === 'cmcMax' ? Math.max(0, quickFilters.cmcMin ?? 0) : 0;
-  let next = (cur == null ? (delta > 0 ? from : null) : cur + delta);
-  if (next != null && next < 0) next = null;            // step past zero → any
-  if (next != null && next > QUICK_CMC_MAX) next = QUICK_CMC_MAX;
-  quickFilters[key] = next;
-  // Keep the pair coherent: a min above the max (or vice versa) matches nothing
-  // and reads as a bug rather than a filter.
-  if (quickFilters.cmcMin != null && quickFilters.cmcMax != null) {
-    if (key === 'cmcMin' && quickFilters.cmcMin > quickFilters.cmcMax) quickFilters.cmcMax = quickFilters.cmcMin;
-    if (key === 'cmcMax' && quickFilters.cmcMax < quickFilters.cmcMin) quickFilters.cmcMin = quickFilters.cmcMax;
-  }
+function _syncQuickCmcUi() {
+  const btn = document.getElementById('cmcFilterMenuBtn');
+  if (!btn) return;
+  const n = quickFilters.cmc.size;
+  btn.textContent = n > 0 ? `Mana Value (${n})` : 'Mana Value';
+  btn.classList.toggle('active', n > 0);
+}
+
+function toggleQuickCmc(v) {
+  if (quickFilters.cmc.has(v)) quickFilters.cmc.delete(v);
+  else quickFilters.cmc.add(v);
   _syncQuickCmcUi();
   _syncQuickFilterUI();
   renderCollection();
 }
 
-function _syncQuickCmcUi() {
-  const set = (id, v) => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.textContent = v == null ? '–' : String(v);
-    el.classList.toggle('card-detail-qty-value--muted', v == null);
+function closeCmcFilterMenu() {
+  document.querySelectorAll('.cmc-menu').forEach(m => m.remove());
+  document.getElementById('cmcFilterMenuBtn')?.setAttribute('aria-expanded', 'false');
+}
+
+function toggleCmcFilterMenu(event) {
+  if (event) { event.stopPropagation(); event.preventDefault(); }
+  const open = !!document.querySelector('.cmc-menu');
+  closeCmcFilterMenu();
+  if (!open) _openCmcFilterMenu();
+}
+
+function _openCmcFilterMenu() {
+  const btn = document.getElementById('cmcFilterMenuBtn');
+  if (!btn) return;
+  const menu = document.createElement('div');
+  menu.className = 'glass-menu qf-menu cmc-menu';
+  for (const v of QUICK_CMC_OPTIONS) {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'glass-menu-item' + (quickFilters.cmc.has(v) ? ' selected' : '');
+    item.textContent = v === QUICK_CMC_MAX ? `${v}+` : String(v);
+    item.addEventListener('click', e => {
+      e.stopPropagation();
+      toggleQuickCmc(v);
+      const scroll = menu.scrollTop;
+      setTimeout(() => {
+        closeCmcFilterMenu();
+        _openCmcFilterMenu();
+        const next = document.querySelector('.cmc-menu');
+        if (next) next.scrollTop = scroll;
+      }, 0);
+    });
+    menu.appendChild(item);
+  }
+  document.body.appendChild(menu);
+  const r = btn.getBoundingClientRect();
+  const margin = 8;
+  const maxH = Math.min(320, window.innerHeight - margin * 2);
+  menu.style.maxHeight = maxH + 'px';
+  const h = Math.min(menu.offsetHeight, maxH);
+  const w = menu.offsetWidth;
+  const below = window.innerHeight - r.bottom;
+  const top = below >= h + 12 ? r.bottom + 6 : Math.max(margin, r.top - h - 6);
+  menu.style.top = Math.min(top, window.innerHeight - h - margin) + 'px';
+  menu.style.left = Math.min(Math.max(margin, r.left), window.innerWidth - w - margin) + 'px';
+  btn.setAttribute('aria-expanded', 'true');
+
+  const drop = e => {
+    if (!menu.isConnected) {
+      window.removeEventListener('resize', drop, true);
+      window.removeEventListener('scroll', drop, true);
+      return;
+    }
+    if (e && e.target && menu.contains(e.target)) return;
+    closeCmcFilterMenu();
+    window.removeEventListener('resize', drop, true);
+    window.removeEventListener('scroll', drop, true);
   };
-  set('cmcMinValue', quickFilters.cmcMin);
-  set('cmcMaxValue', quickFilters.cmcMax);
+  window.addEventListener('resize', drop, true);
+  window.addEventListener('scroll', drop, true);
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('click', () => closeCmcFilterMenu());
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeCmcFilterMenu(); });
 }
 
 function clearQuickFilters() {
   quickFilters.types.clear(); quickFilters.flags.clear();
-  quickFilters.cmcMin = null; quickFilters.cmcMax = null;
+  quickFilters.cmc.clear();
   // The collection's type/flag chips are gone — they are the "Type & more" menu
   // now, which reads its ticks from quickFilters on each repaint. The old
   // `.filter-chip` sweep here was unscoped, so with no collection chips left it
@@ -732,7 +787,7 @@ function clearQuickFilters() {
 
 function _syncQuickFilterUI() {
   const total = quickFilters.types.size + quickFilters.flags.size +
-    (quickFilters.cmcMin !== null ? 1 : 0) + (quickFilters.cmcMax !== null ? 1 : 0) +
+    quickFilters.cmc.size +
     (currentRarity ? 1 : 0) + (showStarredCardsOnly ? 1 : 0) + colorFilters.size;
   const btn = document.getElementById('clearChipsBtn');
   if (btn) { btn.style.display = total > 0 ? '' : 'none'; btn.textContent = `✕ Clear (${total})`; }
