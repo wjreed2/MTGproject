@@ -291,6 +291,11 @@ function _activeAppTabId() {
  */
 function renderHydratedAppShell() {
   const t = _activeAppTabId();
+  // The collection tab is already `active` in index.html, so a cold load paints
+  // it without ever going through showTab — which is where the header's Filter
+  // and Info buttons pick up their state. Without this the totals showed while
+  // the Info button that controls them sat unlit.
+  if (t === 'collection' && typeof syncCollectionHeaderToggles === 'function') syncCollectionHeaderToggles();
   if (t === 'collection' && typeof renderCollection === 'function') renderCollection();
   else if (t === 'sets' && typeof loadSets === 'function') loadSets();
   else if (t === 'decks' && typeof renderDecks === 'function') renderDecks();
