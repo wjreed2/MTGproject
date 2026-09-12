@@ -10871,9 +10871,23 @@ body.glass-mode .tablet-life-btn {
    Games are cards now, and controlling a game happens in Tablet View. */
 /* The grid is the pane's own content — there is no panel box around it, so the
    pane supplies the padding the panel-body used to. */
+/* No padding of its own: the pane already sets the distance from its top and
+   sides, and this bar's 0.6rem/0.25rem stacked on top of that, so the games tabs
+   sat lower and 4px further in than every other tab's first row. */
 .games-pane-bar {
   display: flex; align-items: center; gap: 8px;
-  padding: 0.6rem 0.25rem 0.9rem;
+  padding: 0;
+  margin-bottom: 12px;
+}
+/* Its actions are tab-level controls, so they take the deck list's box. */
+#tab-games .games-pane-bar .btn {
+  height: 34px !important;
+  border-radius: 8px !important;
+  padding: 0 12px !important;
+  font-size: 0.82rem !important;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
 }
 .games-grid {
   display: grid;
@@ -14226,9 +14240,10 @@ body.glass-mode .offer-card:hover {
 }
 .pa-global.is-on .pa-global-readout { color: var(--text2); }
 
-/* Two inputs share one track. Only the thumbs take the pointer, so each can be
-   grabbed even where they overlap. The lit span between them is the band you
-   are choosing NOT to be told about. */
+/* Two inputs, each owning half the track — they sit side by side and never
+   overlap, so they take pointer events normally. They previously did not: only
+   the thumb pseudo-element accepted the pointer, which meant a press a few
+   pixels off the thumb landed on the track and dragged nothing. */
 .pa-dual {
   position: relative;
   flex: 1 1 260px; min-width: 200px; max-width: 420px;
@@ -14237,10 +14252,12 @@ body.glass-mode .offer-card:hover {
 .pa-dual::before {
   content: ''; position: absolute; left: 0; right: 0; top: 6px; height: 6px;
   border-radius: 999px;
+  /* Lit between the thumbs, dull outside — the span you are setting reads as
+     the filled one, the way a two-handled range normally does. */
   background: linear-gradient(to right,
-    rgb(var(--lgx1)) 0 var(--pa-lo, 30%),
-    rgba(255, 255, 255, 0.14) var(--pa-lo, 30%) var(--pa-hi, 70%),
-    rgb(var(--lgx1)) var(--pa-hi, 70%) 100%);
+    rgba(255, 255, 255, 0.14) 0 var(--pa-lo, 30%),
+    rgb(var(--lgx1)) var(--pa-lo, 30%) var(--pa-hi, 70%),
+    rgba(255, 255, 255, 0.14) var(--pa-hi, 70%) 100%);
   opacity: 0.35;
   transition: opacity 0.15s var(--ease);
 }
@@ -14248,14 +14265,14 @@ body.glass-mode .offer-card:hover {
 .pa-range {
   position: absolute; inset: 0; width: 100%; height: 18px; margin: 0;
   -webkit-appearance: none; appearance: none;
-  background: transparent; pointer-events: none;
+  background: transparent;
 }
 /* The drop thumb runs leftward from the middle, so its track is mirrored. */
 .pa-range--down { transform: scaleX(-1); right: 50%; width: 50%; }
 .pa-range--up { left: 50%; width: 50%; }
 .pa-range::-webkit-slider-runnable-track { height: 6px; background: transparent; }
 .pa-range::-webkit-slider-thumb {
-  -webkit-appearance: none; appearance: none; pointer-events: auto;
+  -webkit-appearance: none; appearance: none;
   width: 14px; height: 14px; margin-top: -4px;
   border: none; border-radius: 50%; cursor: pointer;
   background: rgb(var(--lgx1));
@@ -14263,7 +14280,7 @@ body.glass-mode .offer-card:hover {
 }
 .pa-range::-moz-range-track { height: 6px; background: transparent; }
 .pa-range::-moz-range-thumb {
-  pointer-events: auto; width: 14px; height: 14px;
+  width: 14px; height: 14px;
   border: none; border-radius: 50%; cursor: pointer;
   background: rgb(var(--lgx1)); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
 }

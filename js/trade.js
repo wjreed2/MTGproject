@@ -1846,13 +1846,25 @@ function paToggleGlobal() {
   _paSave();
 }
 
+/**
+ * Update in place — never repaint here. _paRepaint() swaps the whole control out
+ * via outerHTML, which destroys the very input being dragged: the browser loses
+ * the pointer capture and the drag stops dead after one step, which reads as a
+ * slider that cannot be moved. Only the fill and the readout need to change.
+ */
 function paSetGlobal(side, v) {
   if (!_tradeSettings) _tradeSettings = {};
   const n = Math.min(_PA_MAX, Math.max(1, Number(v) || 1));
   if (side === 'down') _tradeSettings.defaultPctDown = n;
   else _tradeSettings.defaultPctUp = n;
-  // Repaint keeps the track fill and the readout with the thumbs.
-  _paRepaint();
+  const down = _paDown(), up = _paUp();
+  const dual = document.querySelector('.pa-dual');
+  if (dual) {
+    dual.style.setProperty('--pa-lo', `${50 - (down / _PA_MAX) * 50}%`);
+    dual.style.setProperty('--pa-hi', `${50 + (up / _PA_MAX) * 50}%`);
+  }
+  const readout = document.querySelector('.pa-global-readout');
+  if (readout) readout.textContent = `drop ${down}% · rise ${up}%`;
   _paSave();
 }
 
