@@ -4892,8 +4892,10 @@ function _archVisualTile(row, opts) {
   const qty = row.qty || 1;
   const primaryMark = row.primary ? ' is-arch-primary' : '';
   const src = row.source === 'override' ? ' <span class="arch-pill arch-pill--override">Set</span>' : '';
-  const img = c.imageLarge || c.image
-    || (c.scryfallId ? `https://cards.scryfall.io/normal/front/${c.scryfallId[0]}/${c.scryfallId[1]}/${c.scryfallId}.jpg` : '');
+  const archTileW = _archStackedLayoutActive() && typeof _archFitCardSize === 'number' && _archFitCardSize
+    ? _archFitCardSize
+    : (typeof deckCardSize === 'number' ? deckCardSize : 0);
+  const img = _stackTileImgSrc(c, archTileW);
   let badge = '';
   if (opts && typeof opts.badgeHtml === 'function') badge = opts.badgeHtml(c, { variant: 'corner' }) || '';
   const menu = (opts && opts.canEdit)
@@ -6354,13 +6356,29 @@ function _deckRowOwnershipChipHtml(own) {
   return '';
 }
 
+/**
+ * Stack-tile art source: the Scryfall `small` file (146px, ~12KB) when the
+ * tile renders at or below small's own resolution, `normal` (~100KB) above it.
+ * Every tile served normal regardless of size — an ~8x bandwidth/decode tax on
+ * compact stacks, and small is usually already cached from the collection grid
+ * (same URL). tileWidthPx unknown/0 keeps the old normal-first behavior.
+ */
+function _stackTileImgSrc(c, tileWidthPx) {
+  const small = c.image || '';
+  const big = c.imageLarge
+    || (c.scryfallId ? `https://cards.scryfall.io/normal/front/${c.scryfallId[0]}/${c.scryfallId[1]}/${c.scryfallId}.jpg` : '');
+  if (!small || !big) return big || small;
+  const dpr = (typeof devicePixelRatio === 'number' && devicePixelRatio > 0) ? devicePixelRatio : 1;
+  const need = (Number(tileWidthPx) || 0) * dpr;
+  return need > 0 && need <= 150 ? small : big;
+}
+
 function _stackTile(c, zone = 'main', poolHints = null) {
   const qty = c.qty || 1;
   const cardKey = getCardInventoryKey(c);
   const nameKey = String(c.name || '').trim().toLowerCase();
   const isExtra = zone !== 'main';
-  const img = c.imageLarge || c.image
-    || (c.scryfallId ? `https://cards.scryfall.io/normal/front/${c.scryfallId[0]}/${c.scryfallId[1]}/${c.scryfallId}.jpg` : '');
+  const img = _stackTileImgSrc(c, typeof deckCardSize === 'number' ? deckCardSize : 0);
   const safeName = c.name.replace(/"/g, '&quot;');
 
   const { ownershipOn, owned, notOwned, foilMismatch, printingMismatch } = _deckCardOwnership(c);

@@ -331,6 +331,30 @@ function escapeHtml(s) {
 // tiles until near-viewport decode (inspector exit / scroll read as a re-pop).
 const _imgFadeSeen = new Set();
 
+// The seen set survives reloads: sw.js serves these images from disk on the
+// next visit, so replaying a 100-tile fade cascade over instant cache hits
+// read as "everything loads again" every session. Cap mirrors the service
+// worker's image cache (MAX_ENTRIES 4000) — the two age out together-ish.
+const _IMG_FADE_SEEN_LS = 'mtg_img_seen_v1';
+const _IMG_FADE_SEEN_MAX = 4000;
+let _imgFadeSaveTimer = null;
+try {
+  const stored = JSON.parse(localStorage.getItem(_IMG_FADE_SEEN_LS) || '[]');
+  if (Array.isArray(stored)) for (const u of stored) { if (typeof u === 'string' && u) _imgFadeSeen.add(u); }
+} catch (_) { /* private mode / quota */ }
+
+function _imgFadeScheduleSave() {
+  if (_imgFadeSaveTimer) return;
+  _imgFadeSaveTimer = setTimeout(() => {
+    _imgFadeSaveTimer = null;
+    try {
+      // Insertion order = oldest first; keep the newest MAX entries.
+      const list = [..._imgFadeSeen];
+      localStorage.setItem(_IMG_FADE_SEEN_LS, JSON.stringify(list.slice(Math.max(0, list.length - _IMG_FADE_SEEN_MAX))));
+    } catch (_) { /* private mode / quota */ }
+  }, 1500);
+}
+
 /** Normalize so el.src (absolute) matches the URL string we put in markup. */
 function _imgFadeNormUrl(u) {
   if (!u) return '';
@@ -352,7 +376,9 @@ function imgFadeHasSeen(...urls) {
 /** onload hook for card <img> tags: record that this URL has been shown. */
 function imgFadeSeenMark(el) {
   const u = el && (el.currentSrc || el.src);
-  if (u) _imgFadeSeen.add(_imgFadeNormUrl(u));
+  if (!u) return;
+  _imgFadeSeen.add(_imgFadeNormUrl(u));
+  _imgFadeScheduleSave();
 }
 
 /** Render-time check: 'loaded' when any candidate URL already faded in. */
