@@ -138,6 +138,23 @@ function _pgFallbackColor(group, memberId) {
   return PLAYER_COLORS[(idx < 0 ? 0 : idx) % PLAYER_COLORS.length];
 }
 
+/**
+ * A person's colour from any playgroup they share with you.
+ *
+ * Colour belongs to the player, not to one group or one game, so this does not
+ * ask which group a game was played in — games created before the playgroup
+ * picker existed carry no group at all, and would never have matched.
+ */
+function playerColorForUser(userId) {
+  if (userId == null) return null;
+  for (const g of _playgroups) {
+    const m = (g.members || []).find(x => Number(x.id) === Number(userId));
+    if (m && m.color) return m.color;
+  }
+  return null;
+}
+globalThis.playerColorForUser = playerColorForUser;
+
 /** Colour of a member in a group, or null when they are not in it. */
 function playgroupMemberColor(groupId, memberId) {
   const g = _playgroups.find(x => Number(x.id) === Number(groupId));

@@ -4152,12 +4152,10 @@ body.glass-mode .x-stepper-btn-sm { border-radius: 7px; }
   font-family: 'JetBrains Mono', monospace;
   font-size: clamp(0.62rem, 1.28vw, 0.9rem);
   font-weight: 700;
-  /* Squarer: they were tall bars stretched across the cell. Capped width and
-     centred so four of them read as a row of keys. */
+  /* Squarer, and grouped: they were tall bars, one per stretched grid column,
+     which left them spread across the full width of the cell. */
   padding: clamp(4px, 0.9vh, 8px) 2px;
-  max-width: clamp(48px, 7vw, 78px);
-  width: 100%;
-  justify-self: center;
+  width: clamp(46px, 6.5vw, 72px);
   aspect-ratio: 1.35;
   border: 1px solid;
   transition: background 0.1s, transform 0.08s;
@@ -10813,7 +10811,9 @@ body.glass-mode #tabletView {
    "whose turn" no longer needs a separate accent ring. */
 body.glass-mode #tabletView .tablet-cell {
   border-radius: 22px;
-  border-color: color-mix(in oklab, var(--seat, #7aa2ff) 34%, rgba(255,255,255,0.13)) !important;
+  /* Transparent rather than tinted: a 1px line round every seat still read as a
+     border, and the colour wash is meant to be the only marking. */
+  border-color: transparent !important;
   background:
     linear-gradient(160deg,
       color-mix(in oklab, var(--seat, #7aa2ff) 24%, transparent) 0%,
@@ -10829,7 +10829,7 @@ body.glass-mode #tabletView .tablet-cell {
 /* Brighter, and only brighter — the border stays exactly as it rests, so the
    active seat reads as a change in the light rather than an outline. */
 body.glass-mode #tabletView .tablet-cell[data-active="1"] {
-  border-color: color-mix(in oklab, var(--seat, #7aa2ff) 34%, rgba(255,255,255,0.13)) !important;
+  border-color: transparent !important;
   background:
     linear-gradient(160deg,
       color-mix(in oklab, var(--seat, #7aa2ff) 46%, transparent) 0%,
@@ -10871,11 +10871,11 @@ body.glass-mode .tablet-player-name {
   font-family: var(--glass-font) !important;
   font-weight: 600;
   letter-spacing: 0 !important;
-  color: var(--text) !important;
+  /* No colour override — the inline style carries the player's own, which is
+     the whole point of a per-player colour. */
 }
-body.glass-mode #tabletView .tablet-cell[data-active="1"] .tablet-player-name {
-  color: var(--glass-accent) !important;
-}
+/* The active player's name was forced to the app accent — that blue was the
+   last thing still marking the turn with a colour that is not the player's. */
 /* .tablet-dots-btn colour comes from the shared tablet-control rule below. */
 /* iOS-flavoured numerals: Inter with tabular figures instead of JetBrains Mono,
    neutral depth shadow instead of the per-player glow. */
@@ -11275,7 +11275,7 @@ body.glass-mode .tablet-center-timer {
   font-variant-numeric: tabular-nums;
 }
 body.glass-mode .tablet-center-turn {
-  color: var(--glass-accent) !important;
+  /* No colour here — the inline style carries the active player's. */
   font-weight: 600;
 }
 body.glass-mode .tablet-turn-btn { border-radius: 999px !important; }
@@ -11397,7 +11397,7 @@ body.glass-mode :is(input:not([type="checkbox"]):not([type="radio"]):not([type="
 /* Same idea on white: the seat's hue over the light glass, stronger on turn.
    Lower mixes than the dark theme — the same alpha over white reads far louder. */
 [data-theme="light"] body.glass-mode #tabletView .tablet-cell {
-  border-color: color-mix(in oklab, var(--seat, #1668d8) 28%, rgba(255,255,255,0.65)) !important;
+  border-color: transparent !important;
   background:
     linear-gradient(160deg,
       color-mix(in oklab, var(--seat, #1668d8) 12%, transparent) 0%,
@@ -11409,7 +11409,7 @@ body.glass-mode :is(input:not([type="checkbox"]):not([type="radio"]):not([type="
     0 8px 28px rgba(30,50,90,0.14);
 }
 [data-theme="light"] body.glass-mode #tabletView .tablet-cell[data-active="1"] {
-  border-color: color-mix(in oklab, var(--seat, #1668d8) 28%, rgba(255,255,255,0.65)) !important;
+  border-color: transparent !important;
   background:
     linear-gradient(160deg,
       color-mix(in oklab, var(--seat, #1668d8) 26%, transparent) 0%,

@@ -396,8 +396,8 @@ function _ngPlaygroupMembers() {
 
 /** A seat's colour: their playgroup colour if they have one, else a free slot. */
 function _ngSeatColor(p, i, taken) {
-  if (p && p.userId != null && newGamePlaygroupId != null && typeof playgroupMemberColor === 'function') {
-    const c = playgroupMemberColor(newGamePlaygroupId, p.userId);
+  if (p && p.userId != null && typeof playerColorForUser === 'function') {
+    const c = playerColorForUser(p.userId);
     if (c) return c;
   }
   if (p && p.color) return p.color;
@@ -408,8 +408,9 @@ function _ngSeatColor(p, i, taken) {
 function _ngSeatColors() {
   const out = new Array(newGamePlayers.length).fill(null);
   newGamePlayers.forEach((p, i) => {
-    if (p && p.userId != null && newGamePlaygroupId != null && typeof playgroupMemberColor === 'function') {
-      out[i] = playgroupMemberColor(newGamePlaygroupId, p.userId) || null;
+    // Their colour wherever it is set, not only in the group picked for this game.
+    if (p && p.userId != null && typeof playerColorForUser === 'function') {
+      out[i] = playerColorForUser(p.userId) || null;
     } else if (p && p.color) out[i] = p.color;
   });
   newGamePlayers.forEach((p, i) => { if (!out[i]) out[i] = nextFreePlayerColor(out); });
@@ -1728,18 +1729,19 @@ function openTabletView(gameId) {
 }
 
 /**
- * Push a playgroup colour change into games that are still being played.
+ * Push a colour change into every game that person appears in.
  *
  * A game freezes each seat's colour when it is created, so recolouring someone
- * afterwards would otherwise only show in the next game. Scoped to active games
- * from that playgroup: a finished game keeps the colours it was played with.
+ * afterwards would otherwise only show in the next game. Matched on userId
+ * alone: not on which playgroup the game belonged to, because games made before
+ * the playgroup picker existed carry none and would never match; and not only
+ * on active games, because the point of a player colour is that it is theirs
+ * everywhere, including in the history.
  */
 function applyPlaygroupColorToLiveGames(groupId, memberId, color) {
   if (!Array.isArray(games) || !color) return 0;
   let touched = 0;
   for (const g of games) {
-    if (g.status !== 'active') continue;
-    if (Number(g.playgroupId) !== Number(groupId)) continue;
     for (const p of (g.players || [])) {
       if (p.userId != null && Number(p.userId) === Number(memberId) && p.color !== color) {
         p.color = color;
@@ -2064,7 +2066,7 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
 
     <!-- Self-modification buttons: +1 +X −1 −X -->
     <div class="tablet-btn-bar" style="padding:clamp(5px,1.2vh,9px) clamp(8px,1.8vw,16px) 0;border-top:1px solid ${p.color}25;" onclick="event.stopPropagation()">
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:clamp(3px,0.55vw,7px);margin-bottom:clamp(4px,0.8vh,7px)">
+      <div class="tablet-life-btn-row" style="display:flex;justify-content:center;gap:clamp(3px,0.5vw,6px);margin-bottom:clamp(4px,0.8vh,7px)">
         ${_cellLifeBtns(game, p)}
       </div>
       <!-- Status -->
@@ -2091,7 +2093,7 @@ function _tabletCenterBoxHtml(game, posStyle) {
     <div class="tablet-center-box" onclick="event.stopPropagation()" style="position:fixed;${posStyle};z-index:10;
       background:color-mix(in oklab, var(--bg2) 90%, transparent);backdrop-filter:blur(16px);transition:transform 0.35s ease;
       border:1px solid var(--border2);border-radius:18px;padding:12px 24px;text-align:center;min-width:164px">
-      <div class="tablet-center-timer" style="font-family:'JetBrains Mono',monospace;font-size:clamp(2rem,4.5vw,3.2rem);font-weight:700;color:${_turnPaused ? 'var(--text3)' : (activePlayer?.color || 'var(--text)')};line-height:1">
+      <div class="tablet-center-timer" style="font-family:'JetBrains Mono',monospace;font-size:clamp(2rem,4.5vw,3.2rem);font-weight:700;color:${_turnPaused ? 'var(--text3)' : 'var(--text)'};line-height:1">
         <span id="tabletTurnTimerDisplay">${_turnPaused ? formatDuration(_pausedElapsed) : (game.turnStartedAt ? formatDuration(Date.now() - game.turnStartedAt) : '00:00')}</span>
       </div>
       ${activePlayer ? `<div class="tablet-center-turn" style="font-size:clamp(0.6rem,1.3vw,0.82rem);color:${activePlayer.color};margin-top:5px;font-family:'Inter',system-ui,sans-serif;letter-spacing:0.04em">T${game.currentTurn} · ${escapeHtml(activePlayer.name)}</div>` : ''}
