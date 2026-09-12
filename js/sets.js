@@ -30,15 +30,6 @@ function _ownedPrintingCountForSet(setCode) {
   ).size;
 }
 
-function _setCompletionColor(pct) {
-  const p = Math.max(0, Math.min(100, Number(pct || 0)));
-  if (p >= 85) return '#2eb875';
-  if (p >= 65) return '#8ccf4d';
-  if (p >= 45) return '#d9bf46';
-  if (p >= 25) return '#d98f3c';
-  return '#c84b4b';
-}
-
 function _setIconMarkup(iconUri) {
   if (!iconUri) return '';
   return `<span class="set-list-icon-wrap"><img src="${iconUri}" class="set-list-icon" alt=""></span>`;
@@ -213,14 +204,14 @@ function renderSets() {
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
         ${_setIconMarkup(s.icon_svg_uri)}
         <div class="set-name" style="flex:1"><div class="set-name-inner">${s.name}</div></div>
-        <button onclick="toggleSetStar('${s.code}',event)" style="background:none;border:none;cursor:pointer;font-size:1rem;line-height:1;padding:2px;color:var(--gold);opacity:${isStarred?'1':'0.3'}" title="${isStarred?'Unstar':'Star'}">${isStarred ? '★' : '☆'}</button>
+        <button type="button" class="set-star${isStarred ? ' is-starred' : ''}" onclick="toggleSetStar('${s.code}',event)" aria-pressed="${isStarred ? 'true' : 'false'}" title="${isStarred?'Unstar':'Star'}">${isStarred ? '★' : '☆'}</button>
       </div>
-      <div class="set-code">${s.code.toUpperCase()} · ${s.set_type}</div>
+      <div class="set-code">${s.code.toUpperCase()} · ${String(s.set_type || '').replace(/_/g, ' ')}</div>
       <div style="display:flex;align-items:center;justify-content:space-between">
         <div class="set-count">${owned}/${total} cards</div>
-        <div style="font-family:'JetBrains Mono',monospace;font-size:0.68rem;color:var(--gold)">${pct > 0 ? pct + '%' : ''}</div>
+        <div class="set-pct">${pct > 0 ? pct + '%' : ''}</div>
       </div>
-      <div class="set-progress"><div class="set-progress-fill" style="width:${pct}%;background:${_setCompletionColor(pct)}"></div></div>
+      <div class="set-progress"><div class="set-progress-fill" style="width:${pct}%"></div></div>
       <div style="font-size:0.72rem;color:var(--text3)">Release: ${s.released_at || 'Unknown'}</div>
     </div>`;
   }).join('');
@@ -534,7 +525,7 @@ function _renderSetRarityDonuts(cards, isOwnedCard) {
           <div style="position:absolute;inset:5px;border-radius:50%;background:var(--bg2)"></div>
         </div>
         <div style="line-height:1.2;min-width:0">
-          <div style="font-size:0.68rem;color:${color};text-transform:capitalize;letter-spacing:0.06em">${r}</div>
+          <div style="font-size:0.68rem;color:var(--text2);text-transform:capitalize;letter-spacing:0.06em">${r}</div>
           <div style="font-family:'JetBrains Mono',monospace;font-size:0.72rem;color:var(--text2)">${owned}/${total} (${pct}%)</div>
         </div>
       </div>`;
@@ -586,7 +577,7 @@ function _renderSetRarityAverages(cards, setCode, isTitleMode) {
       const totals = [...qtyById.values()];
       avg = totals.length ? totals.reduce((s, q) => s + q, 0) / totals.length : 0;
     }
-    return `<div style="display:flex;justify-content:space-between;gap:10px;padding:4px 0;border-bottom:1px solid var(--border)"><span style="text-transform:capitalize;color:var(--text2)">${r}</span><span style="font-family:'JetBrains Mono',monospace;color:var(--gold)">${avg.toFixed(2)}</span></div>`;
+    return `<div style="display:flex;justify-content:space-between;gap:10px;padding:4px 0;border-bottom:1px solid var(--border)"><span style="text-transform:capitalize;color:var(--text2)">${r}</span><span style="font-family:'JetBrains Mono',monospace;color:var(--text2)">${avg.toFixed(2)}</span></div>`;
   }).join('');
 
   return `
@@ -641,39 +632,37 @@ function _renderSetBrowse() {
   const host = document.getElementById('setDetailContent');
   if (!host) return;
   host.innerHTML = `
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:1rem;flex-wrap:wrap">
-      <div style="font-family:'Cinzel',serif;color:var(--gold);font-size:1.1rem;flex:1">${name}</div>
-      <div style="display:flex;gap:6px;align-items:center">
-        <button class="btn btn-sm ${!owned ? 'btn-primary' : 'btn-outline'}" onclick="_setSetOwnedFilter(false)">All (${rarityScopedCards.length})</button>
-        <button class="btn btn-sm ${owned  ? 'btn-primary' : 'btn-outline'}" onclick="_setSetOwnedFilter(true)">Owned (${ownedCount})</button>
+    <div class="set-browse-toolbar">
+      <div class="view-toggle">
+        <button class="${!owned ? 'active' : ''}" onclick="_setSetOwnedFilter(false)">All (${rarityScopedCards.length})</button>
+        <button class="${owned  ? 'active' : ''}" onclick="_setSetOwnedFilter(true)">Owned (${ownedCount})</button>
       </div>
-      <div style="display:flex;gap:6px;align-items:center">
-        <button class="btn btn-sm ${_browseSetMode === 'titles' ? 'btn-primary' : 'btn-outline'}" onclick="_setSetMode('titles')">Unique Titles</button>
-        <button class="btn btn-sm ${_browseSetMode === 'printings' ? 'btn-primary' : 'btn-outline'}" onclick="_setSetMode('printings')">All Printings</button>
+      <div class="view-toggle">
+        <button class="${_browseSetMode === 'titles' ? 'active' : ''}" onclick="_setSetMode('titles')">Unique Titles</button>
+        <button class="${_browseSetMode === 'printings' ? 'active' : ''}" onclick="_setSetMode('printings')">All Printings</button>
       </div>
     </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:10px">
       ${_renderSetRarityDonuts(modeCards, isOwnedCard)}
     </div>
     ${_renderSetRarityAverages(modeCards, code, isTitleMode)}
-    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
-      <span style="font-size:0.74rem;color:var(--text3);letter-spacing:0.06em">RARITY</span>
-      ${rarityOptions.map(r => {
-        const label = r === 'all' ? 'All' : (r[0].toUpperCase() + r.slice(1));
-        return `<button class="btn btn-sm ${_browseSetRarity === r ? 'btn-primary' : 'btn-outline'}" onclick="_setSetRarityFilter('${r}')">${label}</button>`;
-      }).join('')}
+    <div class="collection-search-row">
+      <div style="position:relative;flex:1;min-width:0">
+        <input class="search-box" id="setBrowseSearchInput" type="text" autocomplete="off"
+          value="${String(_browseSetSearch || '').replace(/"/g, '&quot;')}"
+          oninput="_setSetSearchFilter(this.value)"
+          placeholder="Search" style="width:100%;padding-right:28px">
+        ${searchQ ? `<button type="button" class="set-browse-search-clear" onclick="_setSetSearchFilter('')" aria-label="Clear search">&times;</button>` : ''}
+      </div>
     </div>
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-      <input
-        id="setBrowseSearchInput"
-        type="text"
-        value="${String(_browseSetSearch || '').replace(/"/g, '&quot;')}"
-        oninput="_setSetSearchFilter(this.value)"
-        placeholder="Search card name or # within this set..."
-        style="flex:1;min-width:220px"
-      />
-      ${searchQ ? `<button class="btn btn-sm btn-outline" onclick="_setSetSearchFilter('')">Clear</button>` : ''}
-      <span style="font-size:0.72rem;color:var(--text3)">${cards.length} shown</span>
+    <div class="view-controls set-browse-controls">
+      <div class="view-toggle">
+        ${rarityOptions.map(r => {
+          const label = r === 'all' ? 'All' : (r[0].toUpperCase() + r.slice(1));
+          return `<button class="${_browseSetRarity === r ? 'active' : ''}" onclick="_setSetRarityFilter('${r}')">${label}</button>`;
+        }).join('')}
+      </div>
+      <span class="set-browse-count">${cards.length} shown</span>
     </div>
     <div class="card-grid set-browse-grid">
       ${cards.map(c => {
@@ -783,7 +772,7 @@ async function examineSetCard(id, setCode, num) {
       ? `<div style="position:relative;overflow:hidden;border-radius:12px">
               <img id="cardDetailMainImg" class="card-detail-img" src="${entry.imageLarge || entry.image}" alt="${String(entry.name || '').replace(/"/g, '&quot;')}">
               <button id="cardFaceFlipBtn" class="btn btn-outline btn-sm" onclick="flipCardDetailFace()"
-                style="display:none;position:absolute;top:8px;right:8px;z-index:3;min-width:30px;padding:2px 8px;line-height:1.2;background:var(--gold);border:1px solid rgba(0,0,0,0.25);color:#1a1200;font-weight:700;box-shadow:0 2px 8px rgba(0,0,0,0.35)">↻</button>
+                style="display:none;position:absolute;top:8px;right:8px;z-index:3;min-width:30px;padding:2px 8px;line-height:1.2;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,0.35)">↻</button>
             </div>`
       : '<div style="height:280px;background:var(--bg3);border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--text3)">No Image</div>') +
     `<div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
@@ -804,9 +793,10 @@ async function examineSetCard(id, setCode, num) {
           <tr><td>Card Kingdom</td><td style="color:var(--green)">$${entry.priceCK.toFixed(2)}</td></tr>
           <tr><td>Card Kingdom Foil</td><td style="color:var(--green)">$${(entry.priceCKFoil || 0).toFixed(2)}</td></tr>
         </table>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:1rem">
-          <span class="tag tag-gold">${entry.set.toUpperCase()} #${entry.number}</span>
-          <span class="tag tag-${entry.rarity === 'mythic' ? 'red' : entry.rarity === 'rare' ? 'gold' : entry.rarity === 'uncommon' ? 'blue' : 'blue'}">${entry.rarity}</span>
+        <div class="set-detail-factline">
+          <span>${entry.set.toUpperCase()} #${entry.number}</span>
+          <span>·</span>
+          <span style="text-transform:capitalize">${entry.rarity}</span>
         </div>
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:0.75rem">
           <span style="font-size:0.85rem;color:var(--text2)">In Collection:</span>

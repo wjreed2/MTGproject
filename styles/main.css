@@ -1068,16 +1068,106 @@ body.glass-mode #deckListPanelHeader .view-toggle {
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 10px rgba(30,50,90,0.10);
 }
 
-body.glass-mode #setsHeader .view-toggle {
+body.glass-mode #tab-sets .view-toggle {
   background: rgba(255,255,255,0.07);
   border-color: rgba(255,255,255,0.16);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 2px 10px rgba(0,0,0,0.22);
   overflow: hidden;
 }
-[data-theme="light"] body.glass-mode #setsHeader .view-toggle {
+[data-theme="light"] body.glass-mode #tab-sets .view-toggle {
   background: rgba(255,255,255,0.55);
   border-color: rgba(255,255,255,0.75);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 10px rgba(30,50,90,0.10);
+}
+
+body.glass-mode .set-card {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.055);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10);
+}
+body.glass-mode .set-card:hover {
+  border-color: rgba(var(--lgx1), 0.45);
+  background: rgba(255, 255, 255, 0.09);
+}
+body.glass-mode .set-star {
+  color: rgba(238, 243, 252, 0.72);
+  -webkit-text-stroke: 0.6px rgba(255, 255, 255, 0.8);
+}
+body.glass-mode .set-star.is-starred {
+  color: color-mix(in oklab, rgb(var(--lgx1)) 55%, rgb(var(--lgx2)));
+  -webkit-text-stroke: 0;
+}
+[data-theme="light"] body.glass-mode .set-card {
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.78) 0%, rgba(255, 255, 255, 0.48) 45%, rgba(255, 255, 255, 0.62) 100%);
+  border-color: rgba(255, 255, 255, 0.88);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 10px 32px rgba(30, 50, 90, 0.14);
+}
+[data-theme="light"] body.glass-mode .set-card:hover {
+  border-color: rgba(var(--lgx1), 0.5);
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0.62) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 14px 40px rgba(30, 50, 90, 0.2);
+}
+[data-theme="light"] body.glass-mode .set-star {
+  color: rgba(40, 60, 95, 0.5);
+  -webkit-text-stroke: 0;
+}
+[data-theme="light"] body.glass-mode .set-star.is-starred {
+  color: color-mix(in oklab, rgb(var(--lgx1)) 55%, rgb(var(--lgx2)));
+}
+
+/* Set code and card count beside the set name: facts, so plain text. */
+.set-detail-meta {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.74rem;
+  color: var(--text3);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.set-browse-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+#tab-sets .set-browse-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.set-browse-count {
+  font-size: 0.74rem;
+  color: var(--text3);
+  margin-left: auto;
+}
+/* Clear sits inside the field, where the collection bar puts its hint. */
+.set-browse-search-clear {
+  position: absolute;
+  right: 7px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text3);
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 0 2px;
+}
+.set-browse-search-clear:hover { color: var(--text); }
+.set-detail-factline {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+  font-size: 0.8rem;
+  color: var(--text3);
+  font-family: 'JetBrains Mono', monospace;
 }
 
 /* Frosted dropdown menus — translucent but never so glassy they stop reading */
@@ -3000,7 +3090,7 @@ img.stack-main.loaded { opacity: 1; }
   display: flex; flex-direction: column; gap: 8px;
 }
 .set-card:hover {
-  border-color: rgba(200,168,74,0.4);
+  border-color: rgba(var(--lgx1), 0.45);
   transform: translateY(-2px);
   box-shadow: 0 8px 28px rgba(0,0,0,0.35);
 }
@@ -3042,13 +3132,29 @@ img.stack-main.loaded { opacity: 1; }
 
 .set-code {
   font-family: 'JetBrains Mono', monospace; font-size: 0.68rem;
-  color: var(--gold); background: var(--gold-dim);
-  padding: 2px 7px; border-radius: 4px; width: fit-content; letter-spacing: 0.06em;
+  color: var(--text3);
+  width: fit-content; letter-spacing: 0.06em; text-transform: uppercase;
 }
+.set-pct {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.68rem;
+  color: var(--text2);
+}
+/* Same star as a collection tile: neutral until it is lit, then the accent. */
+.set-star {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 2px;
+  color: var(--text3);
+}
+.set-star.is-starred { color: var(--text); }
 .set-progress { width: 100%; height: 3px; background: var(--bg); border-radius: 2px; overflow: hidden; }
 .set-progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, var(--gold), var(--gold2));
+  background: linear-gradient(90deg, rgb(var(--lgx1)), rgb(var(--lgx2)));
   border-radius: 2px; transition: width 0.6s var(--ease);
 }
 .set-count { font-family: 'Inter', system-ui, sans-serif; font-size: 0.7rem; color: var(--text3); }
@@ -4461,6 +4567,18 @@ body.glass-mode .x-stepper-btn-sm { border-radius: 7px; }
 :is(#tab-collection, #tab-sets) .view-controls .view-toggle {
   height: 34px;
   align-items: stretch;
+}
+#tab-sets .set-browse-toolbar .view-toggle,
+#tab-sets .set-browse-toolbar .view-toggle button {
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+#tab-sets .view-toggle button {
+  padding: 0 12px;
+  font-size: 0.82rem;
+  white-space: nowrap;
 }
 #tab-collection .filter-bar .filter-chip,
 #tab-collection #historyBtn,
@@ -6676,6 +6794,10 @@ select:focus { outline: none; border-color: rgba(var(--lgx1), 0.75); box-shadow:
 .history-not-in-coll {
   display: inline-block; margin-top: 4px; font-size: 0.68rem; color: var(--text3); font-style: italic;
 }
+/* A row already reversed this session: still legible (the log shows both sides),
+   but visibly spent, and its undo control is inert. */
+.history-event--undone { opacity: 0.55; }
+.history-event--undone .history-undo-btn { pointer-events: none; opacity: 0.5; }
 .history-event-name {
   font-size: 0.85rem; font-weight: 600;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -11962,9 +12084,9 @@ body.glass-mode .view-toggle button:hover:not(.active) {
 #tab-collection #cmcMaxInput,
 /* :not(.coll-top-btn) — Refresh and Filter are the rounded high-level pair,
    same as the collection's; everything else in the header is squared. */
-#tab-sets #setsHeader .btn:not(.coll-top-btn),
-#tab-sets #setsHeader .view-toggle,
-#tab-sets #setsHeader .search-box,
+#tab-sets .btn:not(.coll-top-btn),
+#tab-sets .view-toggle,
+#tab-sets .search-box,
 #tab-collection #quickFilterRow select { border-radius: 8px !important; }
 
 /* The height rules on this row target the <select>, but a glassified select is
@@ -12007,8 +12129,8 @@ body.glass-mode .view-toggle button:hover:not(.active) {
 body.glass-mode #tab-collection .btn-outline:hover,
 body.glass-mode #tab-collection .btn-ghost:hover,
 body.glass-mode #tab-collection .view-toggle button:hover:not(.active),
-body.glass-mode #tab-sets #setsHeader .btn-outline:hover,
-body.glass-mode #tab-sets #setsHeader .view-toggle button:hover:not(.active),
+body.glass-mode #tab-sets .btn-outline:hover,
+body.glass-mode #tab-sets .view-toggle button:hover:not(.active),
 body.glass-mode #tab-collection .glass-dd-btn:hover {
   color: var(--text);
   border-color: rgba(var(--lgx1), 0.55);
@@ -12016,8 +12138,8 @@ body.glass-mode #tab-collection .glass-dd-btn:hover {
 }
 body.glass-mode #tab-collection .btn-outline.active,
 body.glass-mode #tab-collection .view-toggle button.active,
-body.glass-mode #tab-sets #setsHeader .btn-outline.active,
-body.glass-mode #tab-sets #setsHeader .view-toggle button.active {
+body.glass-mode #tab-sets .btn-outline.active,
+body.glass-mode #tab-sets .view-toggle button.active {
   color: var(--text);
   border-color: rgba(var(--lgx2), 0.55);
   background: linear-gradient(135deg, rgba(var(--lgx1), 0.22), rgba(var(--lgx2), 0.22));
