@@ -149,69 +149,135 @@ function pgCloseColorPicker() {
   document.querySelectorAll('.pg-color-menu').forEach(m => m.remove());
 }
 
+// ── Colour maths ────────────────────────────────────────────────────────────
+function _hsvToHex(h, s, v) {
+  const c = v * s, x = c * (1 - Math.abs(((h / 60) % 2) - 1)), m = v - c;
+  const seg = [[c, x, 0], [x, c, 0], [0, c, x], [0, x, c], [x, 0, c], [c, 0, x]][Math.floor(h / 60) % 6];
+  const to = n => Math.round((n + m) * 255).toString(16).padStart(2, '0');
+  return `#${to(seg[0])}${to(seg[1])}${to(seg[2])}`;
+}
+
+function _hexToHsv(hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || ''));
+  if (!m) return { h: 210, s: 0.6, v: 0.9 };
+  const n = parseInt(m[1], 16);
+  const r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  let h = 0;
+  if (d) {
+    if (max === r) h = 60 * (((g - b) / d) % 6);
+    else if (max === g) h = 60 * ((b - r) / d + 2);
+    else h = 60 * ((r - g) / d + 4);
+  }
+  return { h: (h + 360) % 360, s: max ? d / max : 0, v: max };
+}
+
 /**
- * The palette as quick picks, plus a full-spectrum input for anything else.
- * The native colour input is the eyedropper — it opens the OS picker, which on
- * every platform offers the whole space (and a literal screen eyedropper on
- * macOS and Windows), rather than us rebuilding a colour wheel.
+ * An in-app colour picker rather than the browser's.
+ *
+ * A native <input type="color"> reaches the whole spectrum but opens the
+ * operating system's dialog, which is the one surface in this flow that cannot
+ * be made to look like the rest of the app. This is the same capability drawn
+ * in glass: a saturation/value field over the chosen hue, a hue rail under it,
+ * the palette as presets, and the hex if you know what you want.
  */
+let _pgPickCtx = null;   // { groupId, memberId, h, s, v }
+
 function pgOpenColorPicker(groupId, memberId, btn) {
   if (typeof event !== 'undefined' && event) event.stopPropagation();
   const open = document.querySelector('.pg-color-menu');
   pgCloseColorPicker();
   if (open) return;
 
-  const current = (playgroupMemberColor(groupId, memberId) || PLAYER_COLORS[0]).toLowerCase();
+  const current = playgroupMemberColor(groupId, memberId) || PLAYER_COLORS[0];
+  const { h, s: sat, v } = _hexToHsv(current);
+  _pgPickCtx = { groupId, memberId, h, s: sat, v };
+
   const menu = document.createElement('div');
   menu.className = 'glass-menu pg-color-menu';
-
-  const grid = document.createElement('div');
-  grid.className = 'pg-color-grid';
-  for (const c of PLAYER_COLORS) {
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.className = 'pg-color-opt' + (c.toLowerCase() === current ? ' selected' : '');
-    b.style.setProperty('--sw', c);
-    b.title = c;
-    b.addEventListener('click', e => { e.stopPropagation(); pgCloseColorPicker(); void pgSetMemberColor(groupId, memberId, c); });
-    grid.appendChild(b);
-  }
-  menu.appendChild(grid);
-
-  const custom = document.createElement('label');
-  custom.className = 'pg-color-custom';
-  custom.innerHTML = `<span class="pg-color-custom-sw" style="--sw:${current}"></span><span>Custom…</span>`;
-  const input = document.createElement('input');
-  input.type = 'color';
-  input.value = current;
-  input.className = 'pg-color-input';
-  // Live while dragging in the OS picker, saved once on release.
-  input.addEventListener('input', e => {
-    e.stopPropagation();
-    custom.querySelector('.pg-color-custom-sw')?.style.setProperty('--sw', input.value);
-    _pgPreviewMemberColor(groupId, memberId, input.value);
-  });
-  input.addEventListener('change', e => {
-    e.stopPropagation();
-    pgCloseColorPicker();
-    void pgSetMemberColor(groupId, memberId, input.value);
-  });
-  input.addEventListener('click', e => e.stopPropagation());
-  custom.appendChild(input);
-  custom.addEventListener('click', e => e.stopPropagation());
-  menu.appendChild(custom);
+  menu.addEventListener('click', e => e.stopPropagation());
+  menu.innerHTML = `
+    <div class="pgc-field" id="pgcField">
+      <div class="pgc-field-sat"></div>
+      <div class="pgc-field-val"></div>
+      <div class="pgc-cursor" id="pgcCursor"></div>
+    </div>
+    <div class="pgc-hue-wrap">
+      <input type="range" class="pgc-hue" id="pgcHue" min="0" max="359" step="1" value="${Math.round(h)}" aria-label="Hue">
+    </div>
+    <div class="pgc-foot">
+      <span class="pgc-preview" id="pgcPreview"></span>
+      <input class="pgc-hex" id="pgcHex" maxlength="7" spellcheck="false" aria-label="Hex colour">
+      <button type="button" class="btn btn-outline btn-sm pgc-apply" id="pgcApply">Set</button>
+    </div>
+    <div class="pgc-presets">${PLAYER_COLORS.map(c =>
+      `<button type="button" class="pgc-preset" data-c="${c}" style="--sw:${c}" title="${c}"></button>`).join('')}</div>`;
 
   document.body.appendChild(menu);
+  _pgPaintPicker();
+
+  const field = menu.querySelector('#pgcField');
+  const pickFromEvent = e => {
+    const r = field.getBoundingClientRect();
+    _pgPickCtx.s = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+    _pgPickCtx.v = Math.max(0, Math.min(1, 1 - (e.clientY - r.top) / r.height));
+    _pgPaintPicker();
+  };
+  field.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    field.setPointerCapture(e.pointerId);   // keeps the drag alive outside the box
+    pickFromEvent(e);
+    const move = ev => pickFromEvent(ev);
+    const up = () => { field.removeEventListener('pointermove', move); field.removeEventListener('pointerup', up); };
+    field.addEventListener('pointermove', move);
+    field.addEventListener('pointerup', up);
+  });
+  menu.querySelector('#pgcHue').addEventListener('input', e => {
+    _pgPickCtx.h = Number(e.target.value) || 0;
+    _pgPaintPicker();
+  });
+  menu.querySelector('#pgcHex').addEventListener('input', e => {
+    const val = e.target.value.trim();
+    if (!/^#?[0-9a-f]{6}$/i.test(val)) return;
+    Object.assign(_pgPickCtx, _hexToHsv(val));
+    _pgPaintPicker({ skipHex: true });
+  });
+  menu.querySelector('#pgcApply').addEventListener('click', () => {
+    const hex = _hsvToHex(_pgPickCtx.h, _pgPickCtx.s, _pgPickCtx.v);
+    pgCloseColorPicker();
+    void pgSetMemberColor(groupId, memberId, hex);
+  });
+  menu.querySelectorAll('.pgc-preset').forEach(b => b.addEventListener('click', () => {
+    pgCloseColorPicker();
+    void pgSetMemberColor(groupId, memberId, b.dataset.c);
+  }));
+
   const r = btn.getBoundingClientRect();
   const margin = 8;
-  const h = menu.offsetHeight, w = menu.offsetWidth;
+  const mh = menu.offsetHeight, mw = menu.offsetWidth;
   const below = window.innerHeight - r.bottom;
-  const top = below >= h + 10 ? r.bottom + 6 : Math.max(margin, r.top - h - 6);
-  menu.style.top = Math.min(top, window.innerHeight - h - margin) + 'px';
-  menu.style.left = Math.min(Math.max(margin, r.left), window.innerWidth - w - margin) + 'px';
+  const top = below >= mh + 10 ? r.bottom + 6 : Math.max(margin, r.top - mh - 6);
+  menu.style.top = Math.min(top, window.innerHeight - mh - margin) + 'px';
+  menu.style.left = Math.min(Math.max(margin, r.left), window.innerWidth - mw - margin) + 'px';
 }
 
-/** Paint a colour without saving it, so dragging in the OS picker is visible. */
+/** Repaint the picker from _pgPickCtx and preview the colour on the member. */
+function _pgPaintPicker(opts = {}) {
+  if (!_pgPickCtx) return;
+  const { h, s: sat, v } = _pgPickCtx;
+  const hex = _hsvToHex(h, sat, v);
+  const menu = document.querySelector('.pg-color-menu');
+  if (!menu) return;
+  menu.style.setProperty('--pgc-hue', `hsl(${h} 100% 50%)`);
+  menu.style.setProperty('--pgc-cur', hex);
+  const cur = menu.querySelector('#pgcCursor');
+  if (cur) { cur.style.left = `${sat * 100}%`; cur.style.top = `${(1 - v) * 100}%`; }
+  const hexEl = menu.querySelector('#pgcHex');
+  if (hexEl && !opts.skipHex) hexEl.value = hex;
+  _pgPreviewMemberColor(_pgPickCtx.groupId, _pgPickCtx.memberId, hex);
+}
+
+/** Paint a colour without saving it, so dragging is visible on the member row. */
 function _pgPreviewMemberColor(groupId, memberId, color) {
   const g = _playgroups.find(x => Number(x.id) === Number(groupId));
   const m = g && (g.members || []).find(x => Number(x.id) === Number(memberId));
