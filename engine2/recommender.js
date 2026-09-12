@@ -419,6 +419,12 @@ function wantedAxes(goal, hist, index, templates, goals) {
     for (const grp of tpl2?.core || []) {
       for (const ax of _coreAxes(grp, all[0]?.mechanism)) {
         if (ax === 'voltron.carrier' && index.commanderCarrier) continue;
+        // Reinforce only what the deck already plays (≥2 providers, same bar as
+        // support axes): a core GROUP lists alternative routes to the concept,
+        // and wanting every listed axis introduced sub-themes the deck skipped —
+        // stompy's ramp group made a 0-provider mana.extra_land_drop "wanted",
+        // and the Helga adds list became extra-land-drop cards front to back.
+        if ((hist.providers[ax] || 0) < 2) continue;
         if (!wanted.has(ax)) wanted.set(ax, { why: 'goal_reinforce', gap: 1 });
       }
     }
@@ -711,9 +717,17 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
       const needers = matchParam(index.needs.get(p.axis), p.param, bound ? 'exact' : 'serves');
       if (needers && !w) {
         if (needers.strong) {
-          const pts = Math.min(4, needers.strong) * outFactor;
+          // An off-plan cluster of soft wants (no hard needer, axis in no
+          // confident goal) is upside, not dependency — the needers all function
+          // without it. Full credit here let four landfall riders in a stompy
+          // deck hand +4 (the wanted-axis class) to every extra-land-drop
+          // candidate, and the whole Helga adds list became land drops. Cap it
+          // one class below plan credit: the "more of what feeds what I have"
+          // signal stays real, but never outranks filling the plan itself.
+          const onPlan = planAxes.has(p.axis) || (needers.hard || 0) >= 1;
+          const pts = Math.min(onPlan ? 4 : 3, needers.strong) * outFactor;
           score += pts;
-          if (planAxes.has(p.axis) || (needers.hard || 0) >= 1) {
+          if (onPlan) {
             trace.push({ kind: 'feeds', axis: p.axis, param: p.param || null, names: needers.strongNames, pts, offTribe: offTribeOut || undefined });
           } else if (needers.strong >= 2) {
             offPlanFeeds.push({ kind: 'feeds', axis: p.axis, param: p.param || null, names: needers.strongNames, pts });
