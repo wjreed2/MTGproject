@@ -1167,6 +1167,12 @@ async function ensureWishlistTradeColumns() {
     if (!(await columnExists(conn, 'wishlist', 'priority_locked'))) {
       await conn.query('ALTER TABLE wishlist ADD COLUMN priority_locked TINYINT(1) NOT NULL DEFAULT 0');
     }
+    // A derived row you removed by hand. The row stays so the reconciler can see
+    // the decision and leave it alone; GET filters it out. Deleting instead would
+    // lose the fact, and the next reconcile would re-derive the card straight back.
+    if (!(await columnExists(conn, 'wishlist', 'dismissed'))) {
+      await conn.query('ALTER TABLE wishlist ADD COLUMN dismissed TINYINT(1) NOT NULL DEFAULT 0');
+    }
     if (!(await columnExists(conn, 'wishlist', 'source_meta'))) {
       await conn.query('ALTER TABLE wishlist ADD COLUMN source_meta JSON NULL DEFAULT NULL');
     }
@@ -1218,7 +1224,9 @@ async function reconcileWishlistSource(accountId, source, desiredRows) {
         [accountId, source, ...stale]
       );
     }
-    // Upsert desired rows. Respect priority_locked; default priority 'med'.
+    // Upsert desired rows. Respect priority_locked and dismissed; default 'med'.
+    // `dismissed` is deliberately absent from the UPDATE list below, so a row you
+    // removed by hand stays removed however many times it is re-derived.
     const now = Date.now();
     for (const d of desired) {
       const data = d.data && typeof d.data === 'object' ? d.data : {
@@ -5362,7 +5370,7 @@ app.get('/api/wishlist', requireAuth, async (req, res) => {
   try {
     const [rows] = await db().query(
       `SELECT uid, data, added_at, source, priority, priority_locked, source_meta
-         FROM wishlist WHERE account_id = ? ORDER BY added_at ASC`,
+         FROM wishlist WHERE account_id = ? AND dismissed = 0 ORDER BY added_at ASC`,
       [req.accountId]
     );
     res.json(rows.map(r => {
@@ -5398,9 +5406,12 @@ app.put('/api/wishlist', requireAuth, async (req, res) => {
     await conn.beginTransaction();
     // Existing auto rows (uid → priority) so we can detect user priority edits.
     const [autoRows] = await conn.query(
-      "SELECT uid, priority FROM wishlist WHERE account_id = ? AND source <> 'manual'", [accountId]
+      "SELECT uid, priority, dismissed FROM wishlist WHERE account_id = ? AND source <> 'manual'", [accountId]
     );
     const autoByUid = new Map(autoRows.map(r => [r.uid, r.priority]));
+    const dismissedUids = new Set(autoRows.filter(r => r.dismissed).map(r => r.uid));
+    // Adding a dismissed card back by hand is an explicit reversal of the removal.
+    const undismiss = [];
 
     // Partition the client array into manual rows vs. edits to auto rows.
     const byKey = new Map();
@@ -5409,6 +5420,7 @@ app.put('/api/wishlist', requireAuth, async (req, res) => {
       if (!i || typeof i !== 'object') return;
       const key = String(i.uid || i.scryfallId || `card_${i.foil ? 'f' : 'n'}_${idx}`);
       if (autoByUid.has(key)) {
+        if (dismissedUids.has(key)) undismiss.push(key);
         const newP = ['low', 'med', 'high'].includes(i.priority) ? i.priority : null;
         if (newP && newP !== autoByUid.get(key)) autoPriorityEdits.push({ key, priority: newP });
         return; // never re-insert auto rows as manual
@@ -5433,6 +5445,13 @@ app.put('/api/wishlist', requireAuth, async (req, res) => {
          ON DUPLICATE KEY UPDATE data = VALUES(data), added_at = VALUES(added_at),
            source = 'manual', priority = VALUES(priority), priority_locked = VALUES(priority_locked)`,
         vals
+      );
+    }
+    if (undismiss.length) {
+      const ph = undismiss.map(() => '?').join(',');
+      await conn.query(
+        `UPDATE wishlist SET dismissed = 0 WHERE account_id = ? AND uid IN (${ph})`,
+        [accountId, ...undismiss]
       );
     }
     // Apply (and lock) any user priority edits to auto rows.
@@ -5501,10 +5520,24 @@ app.patch('/api/wishlist/:uid', requireAuth, async (req, res) => {
 app.delete('/api/wishlist/:uid', requireAuth, async (req, res) => {
   const uid = String(req.params.uid || '').slice(0, 120);
   try {
-    // Report what was actually removed. Answering a bare ok to a uid that matched
-    // no row is what let the bug above hide.
-    const [r] = await db().query('DELETE FROM wishlist WHERE account_id = ? AND uid = ?', [req.accountId, uid]);
-    res.json({ ok: true, deleted: r?.affectedRows ?? 0 });
+    // A manual row is yours, so it goes. A derived one is re-computed from your
+    // decks and trades, so deleting it only means the next reconcile puts it
+    // back — it is marked dismissed instead, which GET hides and the reconciler
+    // respects. Report what happened either way: answering a bare ok to a uid
+    // that matched no row is what let the previous bug hide.
+    const [del] = await db().query(
+      "DELETE FROM wishlist WHERE account_id = ? AND uid = ? AND source = 'manual'",
+      [req.accountId, uid]
+    );
+    let dismissed = 0;
+    if (!del?.affectedRows) {
+      const [upd] = await db().query(
+        "UPDATE wishlist SET dismissed = 1 WHERE account_id = ? AND uid = ? AND source <> 'manual'",
+        [req.accountId, uid]
+      );
+      dismissed = upd?.affectedRows ?? 0;
+    }
+    res.json({ ok: true, deleted: del?.affectedRows ?? 0, dismissed });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
