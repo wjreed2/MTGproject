@@ -10102,8 +10102,23 @@ body.glass-mode .calc-sugg-item.added:hover {
 .trade-card-controls { display: flex; align-items: center; gap: 6px; margin-top: 5px; }
 .trade-card-controls .calc-cond-select { flex: 1 1 auto; min-width: 0; }
 .trade-card-val { font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color: var(--text); white-space: nowrap; }
-.trade-card-x { background: transparent; border: none; color: var(--text3); cursor: pointer; font-size: 0.85rem; padding: 1px 3px; line-height: 1; }
-.trade-card-x:hover { color: var(--red); }
+/* Square, same height as the button it sits beside, so a row of actions lines
+   up instead of one control being a bare glyph half the size of its neighbour. */
+.trade-card-x {
+  background: transparent; border: 1px solid transparent; color: var(--text3);
+  cursor: pointer; font-size: 0.9rem; line-height: 1;
+  width: 34px; height: 34px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 8px; box-sizing: border-box;
+}
+.trade-card-x:hover { border-color: rgba(255, 122, 107, 0.45); background: rgba(255, 90, 74, 0.14); }
+/* Price-alert actions are tab-level controls like the rest of this tab. */
+#tab-trade .watch-actions { display: flex; align-items: center; gap: 6px; }
+#tab-trade .watch-actions .btn {
+  height: 34px !important; border-radius: 8px !important;
+  padding: 0 12px !important; font-size: 0.82rem !important;
+  box-sizing: border-box; display: inline-flex; align-items: center;
+}
 
 .tl-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 14px; flex-wrap: wrap; }
 .tl-head-left { display: flex; align-items: baseline; gap: 12px; }
@@ -10879,6 +10894,21 @@ body.glass-mode .tablet-life-btn {
   padding: 0;
   margin-bottom: 12px;
 }
+/* Card actions too — these are real actions, not chips, so they match the bar
+   above them rather than being a size of their own. */
+#tab-games .game-card .btn,
+#tab-games .game-detail .btn,
+#tab-games .pg-card .btn,
+#tab-games .games-pane-bar .btn {
+  height: 34px !important;
+  border-radius: 8px !important;
+  padding: 0 12px !important;
+  font-size: 0.82rem !important;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+}
+
 /* Its actions are tab-level controls, so they take the deck list's box. */
 #tab-games .games-pane-bar .btn {
   height: 34px !important;
