@@ -2185,8 +2185,10 @@ async function renderTradeHistorySection(host) {
     <div class="hist-head">
       <span>${list.length} completed trade${list.length === 1 ? '' : 's'}</span>
       <div class="hist-sort">
-        <button class="btn btn-ghost btn-sm${_historySort === 'date' ? ' active' : ''}" onclick="setHistorySort('date')">Newest</button>
-        <button class="btn btn-ghost btn-sm${_historySort === 'value' ? ' active' : ''}" onclick="setHistorySort('value')">Value</button>
+        <select onchange="setHistorySort(this.value)" aria-label="Sort trade history">
+          <option value="date"${_historySort === 'date' ? ' selected' : ''}>Sort: Newest</option>
+          <option value="value"${_historySort === 'value' ? ' selected' : ''}>Sort: Value</option>
+        </select>
       </div>
     </div>
     <div class="hist-list">${list.map(_historyCardHtml).join('')}</div>`;

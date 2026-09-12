@@ -1566,8 +1566,10 @@ ${f} untapped lands`},...q.map(ve=>({label:ve.label,p:ve.p,detail:ve.detail})),.
     <div class="hist-head">
       <span>${t.length} completed trade${t.length===1?"":"s"}</span>
       <div class="hist-sort">
-        <button class="btn btn-ghost btn-sm${_historySort==="date"?" active":""}" onclick="setHistorySort('date')">Newest</button>
-        <button class="btn btn-ghost btn-sm${_historySort==="value"?" active":""}" onclick="setHistorySort('value')">Value</button>
+        <select onchange="setHistorySort(this.value)" aria-label="Sort trade history">
+          <option value="date"${_historySort==="date"?" selected":""}>Sort: Newest</option>
+          <option value="value"${_historySort==="value"?" selected":""}>Sort: Value</option>
+        </select>
       </div>
     </div>
     <div class="hist-list">${t.map(_historyCardHtml).join("")}</div>`}function setHistorySort(e){_historySort=e;const t=document.getElementById("tradeSectionBody");t&&_tradeSection==="history"&&renderTradeHistorySection(t)}function _histItemsHtml(e){return e.length?e.map(t=>`<div class="hist-item">${escapeHtml(t.name)}${t.foil?" \u2726":""}${t.qty>1?" \xD7"+t.qty:""} <span class="hist-item-cond">${escapeHtml(t.condition||"NM")}</span> <span class="hist-item-val">${fmtUsd(t.lineCents)}</span></div>`).join(""):'<div class="sugg-empty">\u2014</div>'}function _aged(e,t){if(!t||!e)return"";const n=t-e;return Math.abs(n)<50?"":` <span class="hist-aged ${n>0?"aged-up":"aged-down"}">${n>0?"\u25B2":"\u25BC"} ${fmtUsd(Math.abs(n))}</span>`}function _historyCardHtml(e){const t=new Date(e.completedAt).toLocaleDateString(void 0,{dateStyle:"medium"}),n=e.partner?"@"+escapeHtml(e.partner.name||""):"self",o=(a,r,i)=>r>0&&Math.abs(r-a)>=50?`<div class="hist-live">${i} now: ${fmtUsd(r)}${_aged(a,r)}</div>`:"";return`

@@ -970,7 +970,7 @@ main {
   /* Square top-left: on a manila folder the left edge and the tab's left edge
      are one continuous line, so only the other three corners round off. */
   border-radius: 0 var(--deck-pane-radius) var(--deck-pane-radius) var(--deck-pane-radius);
-  padding: 0.4rem 1.4rem 1.4rem;
+  padding: 1rem 1.4rem 1.4rem;
 }
 .deck-tab-pane.active { display: block; }
 /* Sections on a tab page lose their own boxes and read as one document */
@@ -4585,6 +4585,8 @@ body.glass-mode .x-stepper-btn-sm { border-radius: 7px; }
 :is(#tab-collection, #tab-sets, #tab-wishlist, #tab-trade) .view-controls select,
 :is(#tab-collection, #tab-sets, #tab-wishlist, #tab-trade) .view-controls .btn,
 :is(#tab-collection, #tab-sets, #tab-wishlist, #tab-trade) .view-controls .view-toggle button,
+#tab-trade .trade-settings-bar .view-toggle,
+#tab-trade .trade-settings-bar .view-toggle button,
 #tab-collection #quickFilterMenuBtn,
 #tab-sets #setTypeMenuBtn,
 #tab-collection .filter-bar .filter-chip,
@@ -4596,8 +4598,15 @@ body.glass-mode .x-stepper-btn-sm { border-radius: 7px; }
   height: 34px !important;
   box-sizing: border-box;
 }
+/* Tab-level controls all take the deck list filter row's measurements: 34px
+   tall, 8px corners, 0.82rem text, 12px sides. The height rule above already
+   listed .btn and the toggle segments; without them here they kept btn-sm's
+   smaller text and tighter padding inside a 34px box. */
 :is(#tab-collection, #tab-sets, #tab-wishlist, #tab-trade) .view-controls .search-box,
 :is(#tab-collection, #tab-sets, #tab-wishlist, #tab-trade) .view-controls select,
+:is(#tab-collection, #tab-sets, #tab-wishlist, #tab-trade) .view-controls .btn,
+:is(#tab-collection, #tab-sets, #tab-wishlist, #tab-trade) .view-controls .view-toggle button,
+#tab-trade .trade-settings-bar .view-toggle button,
 #tab-collection #cmcMinInput,
 #tab-collection #cmcMaxInput,
 #tab-collection .filter-bar > div:nth-child(2) > select {
@@ -6527,8 +6536,7 @@ textarea.deck-import:focus { outline: none; border-color: var(--gold); }
   margin-top: 14px;
   margin-bottom: 1rem;
 }
-/* Clear of the folder tabs above rather than tight against them. */
-.wl-search-row { margin-top: 10px; }
+/* Spacing under the folder tabs is the pane's job now, uniformly. */
 .wl-search-field { position: relative; flex: 1; min-width: 220px; }
 .wl-result { cursor: pointer; }
 .wl-result-art {
@@ -10320,7 +10328,15 @@ body.glass-mode .calc-sugg-item.added:hover {
 
 /* ── Trade history ──────────────────────────────────────────────────────── */
 .hist-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; color: var(--text2); font-size: 0.85rem; }
-.hist-sort .btn.active { color: var(--text); }
+/* One control, so it takes the tab-level box directly rather than joining
+   .view-controls and inheriting that row's full-width divider. */
+#tab-trade .hist-sort select {
+  height: 34px !important;
+  border-radius: 8px !important;
+  padding: 0 12px !important;
+  font-size: 0.82rem !important;
+  box-sizing: border-box;
+}
 .hist-list { display: flex; flex-direction: column; gap: 12px; }
 .hist-card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius2); padding: 14px; }
 .hist-card-head { display: flex; justify-content: space-between; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
@@ -14197,6 +14213,12 @@ body.glass-mode .offer-card:hover {
 .pa-global {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
   margin-bottom: 14px;
+}
+#tab-trade .pa-global-toggle {
+  height: 34px !important;
+  border-radius: 8px !important;
+  padding: 0 12px !important;
+  font-size: 0.82rem !important;
 }
 .pa-global-readout {
   font-family: 'JetBrains Mono', monospace;
