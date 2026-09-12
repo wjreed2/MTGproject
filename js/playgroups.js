@@ -165,17 +165,21 @@ function playgroupMemberColor(groupId, memberId) {
 }
 globalThis.playgroupMemberColor = playgroupMemberColor;
 
-function pgCloseColorPicker() {
+function pgCloseColorPicker(closeOpts = {}) {
   if (!document.querySelector('.pg-color-menu')) return;
   document.querySelectorAll('.pg-color-menu').forEach(m => m.remove());
   // Flush rather than drop: closing is not a cancel, and the colour is already
   // on screen by then.
-  if (_pgCommitTimer && _pgPickCtx) {
-    clearTimeout(_pgCommitTimer);
-    const { groupId, memberId, h, s: sat, v } = _pgPickCtx;
-    void pgSetMemberColor(groupId, memberId, _hsvToHex(h, sat, v), { silent: true });
+  const pending = _pgCommitTimer;
+  clearTimeout(_pgCommitTimer);
+  if (pending && _pgPickCtx && !closeOpts.skipFlush) {
+    const { h, s: sat, v } = _pgPickCtx;
+    _pgSavePicked(_hsvToHex(h, sat, v), { silent: true });
   }
+  const onClose = _pgPickCtx?.opts?.onClose;
   _pgCommitTimer = null;
+  _pgPickCtx = null;
+  if (typeof onClose === 'function') onClose();
 }
 
 // ── Colour maths ────────────────────────────────────────────────────────────
@@ -210,17 +214,23 @@ function _hexToHsv(hex) {
  * in glass: a saturation/value field over the chosen hue, a hue rail under it,
  * the palette as presets, and the hex if you know what you want.
  */
-let _pgPickCtx = null;   // { groupId, memberId, h, s, v }
+let _pgPickCtx = null;   // { groupId, memberId, h, s, v, opts }
 
-function pgOpenColorPicker(groupId, memberId, btn) {
+/**
+ * `opts` lets a screen other than the playgroups panel drive the picker:
+ * `current` seeds it, `onPreview` paints wherever that screen shows the colour,
+ * `onCommit` saves it, and `onClose` fires once the menu is gone. Omit them and
+ * it previews on the member row and saves to the playgroup, as it always has.
+ */
+function pgOpenColorPicker(groupId, memberId, btn, opts = {}) {
   if (typeof event !== 'undefined' && event) event.stopPropagation();
   const open = document.querySelector('.pg-color-menu');
   pgCloseColorPicker();
   if (open) return;
 
-  const current = playgroupMemberColor(groupId, memberId) || PLAYER_COLORS[0];
+  const current = opts.current || playgroupMemberColor(groupId, memberId) || PLAYER_COLORS[0];
   const { h, s: sat, v } = _hexToHsv(current);
-  _pgPickCtx = { groupId, memberId, h, s: sat, v };
+  _pgPickCtx = { groupId, memberId, h, s: sat, v, opts };
 
   const menu = document.createElement('div');
   menu.className = 'glass-menu pg-color-menu';
@@ -281,12 +291,12 @@ function pgOpenColorPicker(groupId, memberId, btn) {
   menu.querySelector('#pgcApply').addEventListener('click', () => {
     const hex = _hsvToHex(_pgPickCtx.h, _pgPickCtx.s, _pgPickCtx.v);
     clearTimeout(_pgCommitTimer);
-    pgCloseColorPicker();
-    void pgSetMemberColor(groupId, memberId, hex);
+    _pgSavePicked(hex);
+    pgCloseColorPicker({ skipFlush: true });
   });
   menu.querySelectorAll('.pgc-preset').forEach(b => b.addEventListener('click', () => {
-    pgCloseColorPicker();
-    void pgSetMemberColor(groupId, memberId, b.dataset.c);
+    _pgSavePicked(b.dataset.c);
+    pgCloseColorPicker({ skipFlush: true });
   }));
 
   const r = btn.getBoundingClientRect();
@@ -309,10 +319,18 @@ let _pgCommitTimer = null;
  */
 function _pgCommitPicker() {
   if (!_pgPickCtx) return;
-  const { groupId, memberId, h, s: sat, v } = _pgPickCtx;
+  const { h, s: sat, v } = _pgPickCtx;
   const hex = _hsvToHex(h, sat, v);
   clearTimeout(_pgCommitTimer);
-  _pgCommitTimer = setTimeout(() => { void pgSetMemberColor(groupId, memberId, hex, { silent: true }); }, 220);
+  _pgCommitTimer = setTimeout(() => _pgSavePicked(hex, { silent: true }), 220);
+}
+
+/** Save the picked colour wherever this picker was opened from. */
+function _pgSavePicked(hex, saveOpts = {}) {
+  if (!_pgPickCtx) return;
+  const { groupId, memberId, opts } = _pgPickCtx;
+  if (opts && typeof opts.onCommit === 'function') { opts.onCommit(hex, saveOpts); return; }
+  void pgSetMemberColor(groupId, memberId, hex, saveOpts);
 }
 
 /** Repaint the picker from _pgPickCtx and preview the colour on the member. */
@@ -328,7 +346,9 @@ function _pgPaintPicker(opts = {}) {
   if (cur) { cur.style.left = `${sat * 100}%`; cur.style.top = `${(1 - v) * 100}%`; }
   const hexEl = menu.querySelector('#pgcHex');
   if (hexEl && !opts.skipHex) hexEl.value = hex;
-  _pgPreviewMemberColor(_pgPickCtx.groupId, _pgPickCtx.memberId, hex);
+  const onPreview = _pgPickCtx.opts && _pgPickCtx.opts.onPreview;
+  if (typeof onPreview === 'function') onPreview(hex);
+  else _pgPreviewMemberColor(_pgPickCtx.groupId, _pgPickCtx.memberId, hex);
 }
 
 /** Paint a colour without saving it, so dragging is visible on the member row. */

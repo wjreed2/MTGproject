@@ -4163,6 +4163,15 @@ body.glass-mode .x-stepper-btn-sm { border-radius: 7px; }
   user-select: none;
   -webkit-user-select: none;
 }
+/* The four life buttons read as one control, so they sit together in a centred
+   row. The pie layout used to stretch them across four 1fr columns of the whole
+   wedge, which left a gap the width of a button between each. */
+.tablet-life-btn-row {
+  display: flex;
+  justify-content: center;
+  gap: clamp(4px, 0.6vw, 8px);
+  width: 100%;
+}
 .tablet-life-btn:active { transform: scale(0.93); }
 .tablet-life-btn-neg { background: rgba(212,90,74,0.1); border-color: rgba(212,90,74,0.25); color: var(--red); }
 .tablet-life-btn-neg:hover, .tablet-life-btn-neg:active { background: rgba(212,90,74,0.28); }
@@ -10814,11 +10823,13 @@ body.glass-mode #tabletView .tablet-cell {
   /* Transparent rather than tinted: a 1px line round every seat still read as a
      border, and the colour wash is meant to be the only marking. */
   border-color: transparent !important;
+  /* --w1..3 are computed per seat in JS (_seatWashVars): a flat percentage of
+     the colour turns every warm hue into brown, so the strength is hue-aware. */
   background:
     linear-gradient(160deg,
-      color-mix(in oklab, var(--seat, #7aa2ff) 24%, transparent) 0%,
-      color-mix(in oklab, var(--seat, #7aa2ff) 12%, transparent) 60%,
-      color-mix(in oklab, var(--seat, #7aa2ff) 5%, transparent) 100%),
+      var(--w1, color-mix(in oklab, var(--seat, #7aa2ff) 30%, transparent)) 0%,
+      var(--w2, color-mix(in oklab, var(--seat, #7aa2ff) 16%, transparent)) 60%,
+      var(--w3, color-mix(in oklab, var(--seat, #7aa2ff) 7%, transparent)) 100%),
     rgba(255,255,255,0.05) !important;
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.13),
@@ -10832,9 +10843,9 @@ body.glass-mode #tabletView .tablet-cell[data-active="1"] {
   border-color: transparent !important;
   background:
     linear-gradient(160deg,
-      color-mix(in oklab, var(--seat, #7aa2ff) 46%, transparent) 0%,
-      color-mix(in oklab, var(--seat, #7aa2ff) 28%, transparent) 65%,
-      color-mix(in oklab, var(--seat, #7aa2ff) 16%, transparent) 100%),
+      var(--wa1, color-mix(in oklab, var(--seat, #7aa2ff) 56%, transparent)) 0%,
+      var(--wa2, color-mix(in oklab, var(--seat, #7aa2ff) 35%, transparent)) 65%,
+      var(--wa3, color-mix(in oklab, var(--seat, #7aa2ff) 20%, transparent)) 100%),
     rgba(255,255,255,0.05) !important;
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.13),
@@ -10855,17 +10866,29 @@ body.glass-mode #tabletView .tablet-cell.tablet-drag-target {
     inset 0 0 0 3px rgba(255,122,107,0.60),
     0 0 30px rgba(255,122,107,0.25) !important;
 }
-/* Pie wedges are clip-path'd full-screen cells — no corner rounding or outer
-   shadow (the wedge outline SVG draws the seams), blur still applies. */
-body.glass-mode #tabletView .tablet-cell--pie {
+/* Pie wedges are clip-path'd full-screen cells — no corner rounding and no
+   outer shadow; blur still applies.
+   The [data-active] rule above outranks a plain .tablet-cell--pie selector, so
+   the active wedge alone kept the inset highlight and the drop shadow — a lit
+   edge round exactly one player, which is the thing that must not happen. */
+body.glass-mode #tabletView .tablet-cell--pie,
+body.glass-mode #tabletView .tablet-cell--pie[data-active="1"] {
   border-radius: 0;
   box-shadow: none !important;
 }
-/* The wedge seams stay uniform; the brighter fill marks the active player. */
-body.glass-mode .tablet-cell--pie[data-active="1"]:not(.tablet-drag-target):not(.tablet-seat-drag-source):not(.tablet-seat-drag-target) .pie-outline {
-  stroke: rgba(255, 255, 255, 0.16) !important;
+/* The 7px stroke the pie layout drew round the player whose turn it is *was*
+   the border that kept surviving these passes — neutralising it in the cell's
+   own border-color never touched it, because it is an SVG outline on a child.
+   Nothing rings a wedge now; the brighter fill is the whole signal. */
+body.glass-mode .tablet-cell--pie:not(.tablet-drag-target):not(.tablet-seat-drag-source):not(.tablet-seat-drag-target) .pie-outline {
+  stroke: transparent !important;
 }
-body.glass-mode .tablet-name-bar { border-bottom-color: rgba(255,255,255,0.10) !important; }
+/* The name bar's inline rule is border-*top*, so overriding the bottom left a
+   seat-coloured hairline across every cell. */
+body.glass-mode .tablet-name-bar {
+  border-top-color: rgba(255,255,255,0.10) !important;
+  border-bottom-color: rgba(255,255,255,0.10) !important;
+}
 body.glass-mode .tablet-btn-bar { border-top-color: rgba(255,255,255,0.10) !important; }
 body.glass-mode .tablet-player-name {
   font-family: var(--glass-font) !important;
@@ -11000,6 +11023,39 @@ body.glass-mode .game-card.is-selected {
 .game-card-status { font-size: 0.76rem; color: var(--text2); }
 .game-card-open { align-self: flex-start; margin-top: 2px; }
 .ng-layout-btn { flex: 1; justify-content: center; gap: 6px; }
+
+/* New Game is a tab-level surface, so its buttons take the deck-list toolbar's
+   metrics like every other control inside a tab. */
+#newGameModal .btn:not(.btn-icon) {
+  height: 34px !important;
+  padding: 0 12px !important;
+  font-size: 0.82rem !important;
+  border-radius: 8px !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+#newGameModal .btn.btn-icon {
+  height: 34px !important;
+  min-width: 34px;
+  padding: 0 !important;
+  border-radius: 8px !important;
+  justify-content: center;
+}
+/* The seat dot opens the colour picker, so it is a control and not decoration. */
+.ng-seat-swatch {
+  position: relative;
+  width: 16px; height: 16px; border-radius: 50%; padding: 0; cursor: pointer;
+  background: var(--sw, #5aa9f0);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  flex-shrink: 0;
+  transition: transform 0.1s var(--ease), box-shadow 0.15s var(--ease);
+}
+/* A 16px dot is the right size to look at and the wrong size to hit. */
+.ng-seat-swatch::before { content: ''; position: absolute; inset: -9px; }
+.ng-seat-swatch:hover { transform: scale(1.12); box-shadow: 0 0 0 3px color-mix(in oklab, var(--sw, #5aa9f0) 30%, transparent); }
+[data-theme="light"] .ng-seat-swatch { border-color: rgba(20, 35, 60, 0.22); }
 
 /* Winner is a line of text under the header, not a full-width gold panel. */
 .gd-winner {
@@ -11400,9 +11456,9 @@ body.glass-mode :is(input:not([type="checkbox"]):not([type="radio"]):not([type="
   border-color: transparent !important;
   background:
     linear-gradient(160deg,
-      color-mix(in oklab, var(--seat, #1668d8) 12%, transparent) 0%,
-      color-mix(in oklab, var(--seat, #1668d8) 5%, transparent) 60%,
-      transparent 100%),
+      var(--lw1, color-mix(in oklab, var(--seat, #1668d8) 14%, transparent)) 0%,
+      var(--lw2, color-mix(in oklab, var(--seat, #1668d8) 6%, transparent)) 60%,
+      var(--lw3, transparent) 100%),
     rgba(255,255,255,0.50) !important;
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.9),
@@ -11412,16 +11468,20 @@ body.glass-mode :is(input:not([type="checkbox"]):not([type="radio"]):not([type="
   border-color: transparent !important;
   background:
     linear-gradient(160deg,
-      color-mix(in oklab, var(--seat, #1668d8) 26%, transparent) 0%,
-      color-mix(in oklab, var(--seat, #1668d8) 14%, transparent) 65%,
-      color-mix(in oklab, var(--seat, #1668d8) 7%, transparent) 100%),
+      var(--lwa1, color-mix(in oklab, var(--seat, #1668d8) 30%, transparent)) 0%,
+      var(--lwa2, color-mix(in oklab, var(--seat, #1668d8) 17%, transparent)) 65%,
+      var(--lwa3, color-mix(in oklab, var(--seat, #1668d8) 9%, transparent)) 100%),
     rgba(255,255,255,0.55) !important;
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.9),
     0 8px 28px rgba(30,50,90,0.14) !important;
 }
-[data-theme="light"] body.glass-mode #tabletView .tablet-cell--pie { box-shadow: none !important; }
-[data-theme="light"] body.glass-mode .tablet-name-bar { border-bottom-color: rgba(20,35,60,0.10) !important; }
+[data-theme="light"] body.glass-mode #tabletView .tablet-cell--pie,
+[data-theme="light"] body.glass-mode #tabletView .tablet-cell--pie[data-active="1"] { box-shadow: none !important; }
+[data-theme="light"] body.glass-mode .tablet-name-bar {
+  border-top-color: rgba(20,35,60,0.10) !important;
+  border-bottom-color: rgba(20,35,60,0.10) !important;
+}
 [data-theme="light"] body.glass-mode .tablet-btn-bar { border-top-color: rgba(20,35,60,0.10) !important; }
 [data-theme="light"] body.glass-mode .tablet-life-num {
   text-shadow: 0 4px 18px rgba(30,50,90,0.15) !important;

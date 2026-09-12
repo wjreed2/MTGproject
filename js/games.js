@@ -32,6 +32,83 @@ function hexToRgb(hex) {
   const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
   return `${r},${g},${b}`;
 }
+
+/* ── Seat wash ────────────────────────────────────────────────────────────────
+ * How strongly a seat's colour is laid over the table's glass.
+ *
+ * A translucent colour over the near-black table composites to a *dark* version
+ * of itself, and dark orange is brown while dark yellow is olive — both of
+ * which read as grey next to a blue seat, since dark blue is still plainly
+ * blue. Laying warm hues on more heavily is the only thing that moves them out
+ * of that trap: hue and saturation are already right, it is lightness they
+ * lose. Cool hues are left where they were.
+ */
+
+/** Hue 0-360, saturation and lightness 0-1. */
+function _seatHsl(hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || ''));
+  if (!m) return { h: 210, s: 0.6, l: 0.65 };
+  const n = parseInt(m[1], 16);
+  const r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  const l = (max + min) / 2;
+  let h = 0;
+  if (d) {
+    if (max === r) h = 60 * (((g - b) / d) % 6);
+    else if (max === g) h = 60 * ((b - r) / d + 2);
+    else h = 60 * ((r - g) / d + 4);
+  }
+  return { h: (h + 360) % 360, s: d ? d / (1 - Math.abs(2 * l - 1) || 1) : 0, l };
+}
+
+/** 0 outside the brown/olive band, 1 across its middle. */
+function _seatWarmth(hex) {
+  const { h, s } = _seatHsl(hex);
+  if (s < 0.15) return 0;                       // a grey has no hue to rescue
+  let band = 0;
+  if (h > 0 && h < 100) band = h < 25 ? h / 25 : h > 65 ? (100 - h) / 35 : 1;
+  return band * Math.min(1, s / 0.5);
+}
+
+/* [near, mid, far] alpha, at rest and on turn. Each has its own ceiling: a warm
+   hue boosted to where it reads warm at rest would otherwise arrive so close to
+   its on-turn value that "whose turn" stopped being visible. */
+const _SEAT_STOPS = {
+  dark:  { rest: [0.30, 0.16, 0.07], restCap: [0.46, 0.30, 0.18],
+           act:  [0.56, 0.35, 0.20], actCap:  [0.74, 0.50, 0.32] },
+  light: { rest: [0.14, 0.06, 0.02], restCap: [0.30, 0.18, 0.10],
+           act:  [0.30, 0.17, 0.09], actCap:  [0.46, 0.28, 0.16] },
+};
+
+function _seatWashVars(hex) {
+  const k = 1 + 1.05 * _seatWarmth(hex);
+  const rgb = hexToRgb(/^#[0-9a-f]{6}$/i.test(hex || '') ? hex : PLAYER_COLORS[0]);
+  const out = [];
+  for (const [theme, prefix] of [['dark', '--w'], ['light', '--lw']]) {
+    const S = _SEAT_STOPS[theme];
+    for (const [key, tag] of [['rest', ''], ['act', 'a']]) {
+      S[key].forEach((a, i) => {
+        out.push(`${prefix}${tag}${i + 1}:rgba(${rgb},${Math.min(a * k, S[key + 'Cap'][i]).toFixed(3)})`);
+      });
+    }
+  }
+  return out.join(';') + ';';
+}
+
+/**
+ * The seat colour as text. A wash strong enough to read as orange is also
+ * strong enough to swallow an orange name sitting on it, so type takes a
+ * lifted version of the same hue — still recognisably the player's colour.
+ */
+function _seatInk(hex) {
+  const { h, s, l } = _seatHsl(hex);
+  if (l >= 0.62 && s >= 0.3) return hex;
+  const nl = Math.max(l, 0.7), ns = Math.max(s, 0.55);
+  const c = (1 - Math.abs(2 * nl - 1)) * ns, x = c * (1 - Math.abs(((h / 60) % 2) - 1)), m = nl - c / 2;
+  const seg = [[c, x, 0], [x, c, 0], [0, c, x], [0, x, c], [x, 0, c], [c, 0, x]][Math.floor(h / 60) % 6];
+  const to = v => Math.round((v + m) * 255).toString(16).padStart(2, '0');
+  return `#${to(seg[0])}${to(seg[1])}${to(seg[2])}`;
+}
 let newGamePlayers = [];
 let newGamePlaygroupId = null;   // scopes the player picker and supplies colours
 let newGameFirstPlayerIdx = null;
@@ -367,7 +444,7 @@ async function _ngFillPlaygroups() {
   const groups = Array.isArray(typeof _playgroups !== 'undefined' ? _playgroups : null) ? _playgroups : [];
   // One group is not a choice, so it is simply the one in use.
   if (newGamePlaygroupId == null && groups.length === 1) newGamePlaygroupId = Number(groups[0].id);
-  sel.innerHTML = `<option value="">— none —</option>`
+  sel.innerHTML = `<option value="">${groups.length ? '— select a playgroup —' : '— no playgroups yet —'}</option>`
     + groups.map(g => `<option value="${g.id}"${Number(g.id) === Number(newGamePlaygroupId) ? ' selected' : ''}>${escapeHtml(g.name || '')}</option>`).join('');
   if (typeof _glassSelectEnsure === 'function') _glassSelectEnsure();
 }
@@ -469,7 +546,7 @@ function rollNewGameFirstPlayerAnimated() {
       const seatColors = _ngSeatColors();
       const pickColor = seatColors[pick.idx] || PLAYER_COLORS[pick.idx % PLAYER_COLORS.length];
       textEl.textContent = `P${pick.idx + 1} · ${pick.p.name?.trim() || `Player ${pick.idx + 1}`}`;
-      textEl.style.color = pickColor;
+      textEl.style.color = _seatInk(pickColor);
       card?.style.setProperty('--seat', pickColor);
       if (tick < totalTicks) return;
       clearInterval(timer);
@@ -479,7 +556,7 @@ function rollNewGameFirstPlayerAnimated() {
       renderNewGamePlayersList();
       const winColor = _ngSeatColors()[winner.idx] || PLAYER_COLORS[winner.idx % PLAYER_COLORS.length];
       textEl.textContent = `P${winner.idx + 1} · ${winner.p.name?.trim() || `Player ${winner.idx + 1}`}`;
-      textEl.style.color = winColor;
+      textEl.style.color = _seatInk(winColor);
       card?.style.setProperty('--seat', winColor);
       card?.classList.add('is-settled');
       setTimeout(() => { overlay.style.display = 'none'; resolve(winner.idx); }, 550);
@@ -596,7 +673,7 @@ function renderNewGamePlayersList() {
   // Fixed columns so every row's inputs are the same width regardless of the remove
   // button or commander. The commander column is shown for commander-style formats.
   const isCmdFmt = fmt === 'Commander' || fmt === 'Brawl';
-  const cols = `10px 22px 1fr 1fr${isCmdFmt ? ' 1fr' : ''} 86px 28px`;
+  const cols = `18px 22px 1fr 1fr${isCmdFmt ? ' 1fr' : ''} 86px 28px`;
 
   const header = document.getElementById('newGamePlayersHeader');
   if (header) {
@@ -642,7 +719,8 @@ function renderNewGamePlayersList() {
 
     return `
     <div class="ng-player-row" style="display:grid;grid-template-columns:${cols};gap:8px;align-items:center;padding:9px 0;border-bottom:1px solid var(--border)">
-      <div style="width:10px;height:10px;border-radius:50%;background:${_seatColors[i]};flex-shrink:0"></div>
+      <button type="button" class="ng-seat-swatch" onclick="ngOpenSeatColor(${i}, this)"
+        style="--sw:${_seatColors[i]}" title="Player colour" aria-label="Player colour"></button>
       <div class="seat-nudge">
         <button type="button" class="seat-nudge-btn" onclick="ngpMoveSeat(${i},-1)" ${i === 0 ? 'disabled' : ''} title="Earlier seat" aria-label="Earlier seat">▴</button>
         <button type="button" class="seat-nudge-btn" onclick="ngpMoveSeat(${i},1)" ${i === lastSeat ? 'disabled' : ''} title="Later seat" aria-label="Later seat">▾</button>
@@ -662,6 +740,32 @@ function renderNewGamePlayersList() {
       ${newGamePlayers.length > 2 ? `<button class="btn btn-ghost btn-icon" onclick="removeNewGamePlayer(${i})" style="color:var(--red);padding:3px 5px;font-size:0.85rem">✕</button>` : '<div></div>'}
     </div>`;
   }).join('');
+}
+
+/**
+ * The same glass picker the playgroups panel uses, opened on a seat.
+ *
+ * A signed-in seat writes back to their playgroup membership, so the colour is
+ * theirs in every game rather than only this one; a guest's is held on the seat
+ * and travels no further than the game about to start.
+ */
+function ngOpenSeatColor(i, btn) {
+  const p = newGamePlayers[i];
+  if (!p || typeof pgOpenColorPicker !== 'function') return;
+  const memberId = p.userId != null ? Number(p.userId) : null;
+  const groupId = newGamePlaygroupId;
+  const paint = hex => { p.color = hex; btn.style.setProperty('--sw', hex); };
+  pgOpenColorPicker(groupId, memberId, btn, {
+    current: _ngSeatColors()[i] || PLAYER_COLORS[i % PLAYER_COLORS.length],
+    onPreview: paint,
+    onCommit: hex => {
+      paint(hex);
+      if (memberId != null && groupId != null && typeof pgSetMemberColor === 'function') {
+        void pgSetMemberColor(groupId, memberId, hex, { silent: true });
+      }
+    },
+    onClose: () => renderNewGamePlayersList(),
+  });
 }
 
 async function ngpUserSelect(i, userIdStr) {
@@ -718,6 +822,15 @@ function ngpDeckTyped(i, name) {
 }
 
 async function submitNewGame() {
+  // A game belongs to a playgroup: it is what scopes the player picker, hands
+  // each seat its colour, and files the result afterwards.
+  if (newGamePlaygroupId == null) {
+    const hasGroups = Array.isArray(typeof _playgroups !== 'undefined' ? _playgroups : null) && _playgroups.length;
+    showNotif(hasGroups ? 'Pick a playgroup to start the game'
+                        : 'Create a playgroup first — a game is played in one', true);
+    document.getElementById('newGamePlaygroup')?.focus();
+    return;
+  }
   const fmt = document.getElementById('newGameFormat').value;
   // The notes field became the playgroup picker; a game's context is the group
   // it was played in, which is recorded below.
@@ -1433,7 +1546,7 @@ function randomizeFirstPlayer(gameId) {
     shown = pick;
     tick += 1;
     textEl.textContent = `P${pick.idx + 1} · ${pick.p.name}`;
-    textEl.style.color = pick.p.color || 'var(--gold)';
+    textEl.style.color = pick.p.color ? _seatInk(pick.p.color) : 'var(--text)';
     if (tick < totalTicks) return;
     clearInterval(timer);
     const winner = candidates[Math.floor(Math.random() * candidates.length)];
@@ -1444,7 +1557,7 @@ function randomizeFirstPlayer(gameId) {
     if (tabletViewGameId) renderTabletView();
     renderActiveGame(game);
     textEl.textContent = `P${winner.idx + 1} · ${winner.p.name}`;
-    textEl.style.color = winner.p.color || 'var(--gold)';
+    textEl.style.color = winner.p.color ? _seatInk(winner.p.color) : 'var(--text)';
     setTimeout(() => {
       overlay.style.display = 'none';
       _firstPlayerAnimState[gameId] = false;
@@ -1996,6 +2109,7 @@ function renderTabletView() {
 function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
   const isCmd = game.format === 'Commander' || game.format === 'Brawl';
   const lifeColor = _cellLifeColor(p);
+  const ink = _seatInk(p.color);
 
   // 2-player cells are full-width but half-height (stacked), so cap the life
   // number by viewport height too, to avoid overflow in landscape.
@@ -2035,7 +2149,7 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
   return `
   <div class="tablet-cell${inTargetMode ? ' player-targetable' : ''}"
     data-pid="${p.id}" data-rotated="${rotated ? '1' : '0'}" data-elim="${p.eliminated ? '1' : '0'}" data-active="${isActiveTurn ? '1' : '0'}"
-    style="--seat:${p.color};${spanStyle}border-color:${inTargetMode ? p.color + '80' : p.color + '30'};
+    style="--seat:${p.color};${_seatWashVars(p.color)}${spanStyle}border-color:${inTargetMode ? p.color + '80' : p.color + '30'};
            background:radial-gradient(ellipse at 50% ${rotated ? '60' : '40'}%,${p.color}${inTargetMode ? '14' : isActiveTurn ? '26' : '0a'} 0%,transparent 70%),var(--bg2);
            ${inTargetMode ? 'cursor:crosshair;' : ''}
            ${rotated ? 'transform:rotate(180deg);' : ''}"
@@ -2043,7 +2157,7 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
 
     <!-- Name bar -->
     <div class="tablet-name-bar" style="text-align:${nameAlign};padding:${namePad};border-top:1px solid ${p.color}25;position:relative">
-      <div class="tablet-player-name" style="font-family:'Cinzel',serif;font-size:clamp(0.85rem,2.2vw,1.3rem);color:${p.color};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:0.06em">${escapeHtml(p.name)}</div>
+      <div class="tablet-player-name" style="font-family:'Cinzel',serif;font-size:clamp(0.85rem,2.2vw,1.3rem);color:${ink};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:0.06em">${escapeHtml(p.name)}</div>
       ${p.deckName ? `<div style="font-size:clamp(0.55rem,1.2vw,0.78rem);color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px">${escapeHtml(p.deckName)}${p.commander ? ' · ' + escapeHtml(p.commander) : ''}</div>` : ''}
       ${inTargetMode
         ? `<div style="position:absolute;top:50%;right:8px;transform:translateY(-50%);font-size:clamp(0.6rem,1.3vw,0.78rem);color:var(--text);animation:targetPulse 1s ease-in-out infinite">${targetLabel}</div>`
@@ -2053,7 +2167,7 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
              <button class="tablet-dots-btn" onclick="openTabletMenu('${p.id}',this,event,${rotated})"
                style="background:none;border:none;cursor:pointer;padding:4px 7px;
                       font-size:clamp(1rem,2vw,1.3rem);line-height:1;letter-spacing:1px;
-                      color:${isActiveTurn ? p.color : 'var(--text3)'}">⋯</button>
+                      color:${isActiveTurn ? ink : 'var(--text3)'}">⋯</button>
            </div>`}
     </div>
 
@@ -2066,7 +2180,7 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
 
     <!-- Self-modification buttons: +1 +X −1 −X -->
     <div class="tablet-btn-bar" style="padding:clamp(5px,1.2vh,9px) clamp(8px,1.8vw,16px) 0;border-top:1px solid ${p.color}25;" onclick="event.stopPropagation()">
-      <div class="tablet-life-btn-row" style="display:flex;justify-content:center;gap:clamp(3px,0.5vw,6px);margin-bottom:clamp(4px,0.8vh,7px)">
+      <div class="tablet-life-btn-row" style="margin-bottom:clamp(4px,0.8vh,7px)">
         ${_cellLifeBtns(game, p)}
       </div>
       <!-- Status -->
@@ -2096,7 +2210,7 @@ function _tabletCenterBoxHtml(game, posStyle) {
       <div class="tablet-center-timer" style="font-family:'JetBrains Mono',monospace;font-size:clamp(2rem,4.5vw,3.2rem);font-weight:700;color:${_turnPaused ? 'var(--text3)' : 'var(--text)'};line-height:1">
         <span id="tabletTurnTimerDisplay">${_turnPaused ? formatDuration(_pausedElapsed) : (game.turnStartedAt ? formatDuration(Date.now() - game.turnStartedAt) : '00:00')}</span>
       </div>
-      ${activePlayer ? `<div class="tablet-center-turn" style="font-size:clamp(0.6rem,1.3vw,0.82rem);color:${activePlayer.color};margin-top:5px;font-family:'Inter',system-ui,sans-serif;letter-spacing:0.04em">T${game.currentTurn} · ${escapeHtml(activePlayer.name)}</div>` : ''}
+      ${activePlayer ? `<div class="tablet-center-turn" style="font-size:clamp(0.6rem,1.3vw,0.82rem);color:${_seatInk(activePlayer.color)};margin-top:5px;font-family:'Inter',system-ui,sans-serif;letter-spacing:0.04em">T${game.currentTurn} · ${escapeHtml(activePlayer.name)}</div>` : ''}
       <div style="display:flex;gap:5px;margin-top:9px">
         <button onclick="undoGameAction('${game.id}')" class="tablet-turn-btn"
           title="Undo last action" aria-label="Undo last action"
@@ -2519,6 +2633,7 @@ function renderTabletPieView(game, el, _hubRetry = false) {
 function renderTabletPieCell(game, p, idx, g) {
   const isCmd = game.format === 'Commander' || game.format === 'Brawl';
   const lifeColor = _cellLifeColor(p);
+  const ink = _seatInk(p.color);
   const cmdBadges = _cellCmdBadges(game, p, isCmd);
   const poisonBadge = _cellPoisonBadge(p);
   const isActiveTurn = !p.eliminated && idx === (game.activePlayerIdx ?? 0);
@@ -2534,7 +2649,7 @@ function renderTabletPieCell(game, p, idx, g) {
   return `
   <div class="tablet-cell tablet-cell--pie${p.eliminated ? ' tablet-cell-eliminated' : ''}${inTargetMode ? ' player-targetable' : ''}"
     data-pid="${p.id}" data-pie="1" data-rotdeg="${g.rotDeg}" data-elim="${p.eliminated ? '1' : '0'}" data-active="${isActiveTurn ? '1' : '0'}"
-    style="--seat:${p.color};clip-path:polygon(${g.poly});-webkit-clip-path:polygon(${g.poly});
+    style="--seat:${p.color};${_seatWashVars(p.color)}clip-path:polygon(${g.poly});-webkit-clip-path:polygon(${g.poly});
            background:radial-gradient(circle ${glowR}px at ${g.ax.toFixed(1)}px ${g.ay.toFixed(1)}px,${p.color}${glowAlpha} 0%,transparent 75%),var(--bg2);
            ${inTargetMode ? 'cursor:crosshair;' : ''}"
     ${inTargetMode ? `onclick="applyGameAction('${game.id}','${p.id}')"` : ''}>
@@ -2546,7 +2661,7 @@ function renderTabletPieCell(game, p, idx, g) {
       <div class="tablet-life-num" style="font-family:'JetBrains Mono',monospace;font-size:${lifeFs}px;font-weight:700;line-height:1;color:${lifeColor};text-shadow:0 0 38px ${p.color}2e;transition:color 0.25s;user-select:none">${p.life}</div>
       ${isCmd && cmdBadges ? `<div style="display:flex;align-items:center;justify-content:center;gap:4px;flex-wrap:wrap;max-width:100%">${cmdBadges}</div>` : ''}
       ${poisonBadge}
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:clamp(3px,0.55vw,7px);width:100%" onclick="event.stopPropagation()">
+      <div class="tablet-life-btn-row" onclick="event.stopPropagation()">
         ${_cellLifeBtns(game, p)}
       </div>
       <div style="display:flex;gap:clamp(6px,1.2vw,12px);justify-content:center;align-items:center;font-size:clamp(0.56rem,1.1vw,0.74rem);min-height:14px">
@@ -2556,11 +2671,11 @@ function renderTabletPieCell(game, p, idx, g) {
       <div style="display:flex;align-items:center;justify-content:center;gap:7px;max-width:100%">
         <span class="tablet-total-time" data-pid="${p.id}" title="Total time this player has spent on turns"
           style="font-family:'JetBrains Mono',monospace;font-size:clamp(0.5rem,1.05vw,0.7rem);color:var(--text3);white-space:nowrap">${formatDuration(playerTotalTime(game, p.id))}</span>
-        <span class="tablet-player-name" style="font-family:'Cinzel',serif;font-size:${n >= 5 ? 'clamp(0.8rem,1.8vw,1.05rem)' : 'clamp(0.85rem,2.2vw,1.3rem)'};color:${p.color};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:0.06em;min-width:0">${escapeHtml(p.name)}</span>
+        <span class="tablet-player-name" style="font-family:'Cinzel',serif;font-size:${n >= 5 ? 'clamp(0.8rem,1.8vw,1.05rem)' : 'clamp(0.85rem,2.2vw,1.3rem)'};color:${ink};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:0.06em;min-width:0">${escapeHtml(p.name)}</span>
         ${inTargetMode
           ? `<span style="font-size:clamp(0.6rem,1.3vw,0.78rem);color:var(--gold);animation:targetPulse 1s ease-in-out infinite;white-space:nowrap">${targetLabel}</span>`
           : `<button class="tablet-dots-btn" onclick="openTabletMenu('${p.id}',this,event,${g.rotDeg})"
-               style="background:none;border:none;cursor:pointer;padding:2px 7px;font-size:clamp(1rem,2vw,1.3rem);line-height:1;letter-spacing:1px;color:${isActiveTurn ? p.color : 'var(--text3)'}">⋯</button>`}
+               style="background:none;border:none;cursor:pointer;padding:2px 7px;font-size:clamp(1rem,2vw,1.3rem);line-height:1;letter-spacing:1px;color:${isActiveTurn ? ink : 'var(--text3)'}">⋯</button>`}
       </div>
     </div>
   </div>`;
