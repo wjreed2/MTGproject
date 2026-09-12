@@ -13779,3 +13779,18 @@ body.glass-mode #deckExportModal .modal {
   gap: 6px;
   white-space: nowrap;
 }
+
+/* Collection history rows mirror the deck list's. The deck's kind label is plain
+   text; this one carries the +N / −N colour, so it needs to hug its text rather
+   than let the colour class paint the width of the info column. */
+#collectionHistoryPanel .history-event-kind {
+  align-self: flex-start;
+  width: max-content;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.74rem;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 4px;
+  margin-top: 3px;
+}
+#collectionHistoryPanel .history-not-in-coll { display: block; }

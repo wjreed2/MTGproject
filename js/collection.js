@@ -1271,6 +1271,13 @@ function _renderPriceInfoModal() {
 
 let _priceModalSliderTimer = null;
 function onPriceModalMinPriceInput(sliderVal) {
+  // Raise the guard BEFORE anything that can repaint. onValueExcludeThresholdInput
+  // runs updateStats synchronously, which refreshes this modal — so on the first
+  // input of a drag the slider was rebuilt under the pointer and the drag died
+  // there. That is why it only ever moved to wherever you clicked: one input
+  // event, then `change`. The flag was being set at the end of this function,
+  // which is too late to protect the event that sets it.
+  _priceModalSliderActive = true;
   if (typeof onValueExcludeThresholdInput === 'function') onValueExcludeThresholdInput(sliderVal);
   if (typeof renderValueExcludeSlider === 'function') renderValueExcludeSlider(); // sync Settings menu copy
   const v = typeof getValueExcludeBelowUsd === 'function' ? getValueExcludeBelowUsd() : 0;
@@ -1286,10 +1293,9 @@ function onPriceModalMinPriceInput(sliderVal) {
     slider.style.setProperty('--range-fill', pct + '%');
   }
   // Debounce the stats pass: one recompute + modal refresh shortly after the drag
-  // settles. The flag pauses the modal-refresh hook so the slider node survives the
-  // drag; the timer ALWAYS clears it (a drag ending at its start value fires no
-  // change event, which previously left the flag stuck and refreshes disabled).
-  _priceModalSliderActive = true;
+  // settles. The timer ALWAYS clears the guard raised at the top (a drag ending at
+  // its start value fires no change event, which previously left the flag stuck
+  // and refreshes disabled).
   if (_priceModalSliderTimer) clearTimeout(_priceModalSliderTimer);
   _priceModalSliderTimer = setTimeout(() => {
     _priceModalSliderActive = false;
@@ -4099,6 +4105,11 @@ function _collectionHistoryPackEv(ev) {
     s: ev.scryfallId || '',
     f: !!ev.foil,
     n: Math.max(1, Math.abs(Number(ev.delta)) || 1),
+    // Undo needs to know which way the change went. The row actions this packing
+    // was written for did not, so it was dropped — an undo without it silently
+    // took the restore branch for every row and added copies where it should
+    // have taken them away.
+    t: ev.type || '',
   }));
 }
 
@@ -4109,6 +4120,7 @@ function _collectionHistoryUnpackEv(packed) {
     scryfallId: o.s || '',
     foil: !!o.f,
     delta: o.n != null ? Math.max(1, Math.abs(Number(o.n)) || 1) : 1,
+    type: o.t || '',
   };
 }
 
@@ -4177,54 +4189,55 @@ function historyOpenCardDetailFromRow(packed) {
   if (uid) openCardDetail(uid);
 }
 
-function historyCollectionRemoveFromRow(packed) {
-  let ev;
-  try {
-    ev = _collectionHistoryUnpackEv(packed);
-  } catch (_) {
-    return;
-  }
-  const c = _historyResolveLiveCollectionCard(ev);
-  if (!c) {
-    showNotif('That card is not in your collection anymore', true);
-    return;
-  }
-  removeFromCollection(c.uid, { skipCloseDetail: true });
-}
-
-function historyCollectionToggleFoilFromRow(packed) {
-  let ev;
-  try {
-    ev = _collectionHistoryUnpackEv(packed);
-  } catch (_) {
-    return;
-  }
-  const c = _historyResolveLiveCollectionCard(ev);
-  if (!c) {
-    showNotif('That printing is not in your collection', true);
-    return;
-  }
-  if (!c.scryfallId) {
-    showNotif('Cannot change foil for this entry', true);
-    return;
-  }
-  const wasFoil = !!c.foil;
-  const prevQty = Math.max(1, Number(c.qty || 1));
-  const cap = Math.max(1, Number(ev.delta) || 1);
-  const qtyMove = Math.min(prevQty, cap);
-  const newUid = applyCollectionFoilChangePartial(c.uid, !wasFoil, qtyMove);
-  if (!newUid) return;
+function _afterCollectionHistoryUndo(msg) {
   save('collection');
   renderCollection();
-  updateStats();
+  if (typeof updateStats === 'function') updateStats();
   if (_historyVisible) renderCollectionHistory();
-  const rest = prevQty - qtyMove;
-  showNotif(
-    rest > 0
-      ? `Moved ${qtyMove}× to ${!wasFoil ? 'foil' : 'non-foil'} · ${rest}× still on this printing`
-      : `Moved ${qtyMove}× to ${!wasFoil ? 'foil' : 'non-foil'}`,
-  );
+  if (msg) showNotif(msg);
   _refreshDeckListIfActive();
+}
+
+/** Reverse one logged change: an add gives back its copies, a remove restores them. */
+async function historyCollectionUndoFromRow(packed) {
+  let ev;
+  try {
+    ev = _collectionHistoryUnpackEv(packed);
+  } catch (_) {
+    return;
+  }
+  const n = Math.max(1, Number(ev.delta) || 1);
+  const live = _historyResolveLiveCollectionCard(ev);
+
+  if (ev.type === 'add') {
+    if (!live) { showNotif('Those copies are not in your collection anymore', true); return; }
+    const left = Math.max(0, (Number(live.qty) || 1) - n);
+    recordCollectionEvent('remove', live, Math.min(n, Number(live.qty) || 1));
+    if (left > 0) live.qty = left;
+    else collection = collection.filter(c => c.uid !== live.uid);
+    _afterCollectionHistoryUndo(`Undid — removed ${n}×`);
+    return;
+  }
+
+  // A removal: put the copies back. If the stack still exists this is exact;
+  // if the last copies went, the printing has to be fetched again to rebuild a
+  // full entry rather than a stub missing everything the collection filters on.
+  if (live) {
+    live.qty = (Number(live.qty) || 0) + n;
+    recordCollectionEvent('add', live, n);
+    _afterCollectionHistoryUndo(`Undid — restored ${n}×`);
+    return;
+  }
+  if (!ev.scryfallId) { showNotif('Cannot restore this entry', true); return; }
+  try {
+    const res = await fetch(`https://api.scryfall.com/cards/${encodeURIComponent(ev.scryfallId)}`);
+    if (!res.ok) throw new Error('lookup failed');
+    const card = await res.json();
+    addCardToCollection(card, n, !!ev.foil);   // records its own history event
+    showNotif(`Undid — restored ${n}×`);
+  } catch (_) {
+    showNotif('Could not restore that card', true);
+  }
 }
 
 function renderCollectionHistory() {
@@ -4270,29 +4283,30 @@ function renderCollectionHistory() {
           ? `<img class="history-card-img" src="${imgSrc}" alt="" loading="lazy">`
           : `<div class="history-card-img-placeholder"></div>`;
         const pack = _collectionHistoryPackEv(ev);
-        let foilBtn = '', removeBtn = '', missing = '';
-        if (!isSharedView) {
-          const live = _historyResolveLiveCollectionCard(ev);
-          const canFoil = !!(live && live.scryfallId);
-          const entryQtyCap = Math.max(1, Math.abs(Number(ev.delta)) || 1);
-          foilBtn = !live ? '' : (canFoil
-            ? `<button type="button" class="btn btn-outline btn-sm history-row-btn" onclick="historyCollectionToggleFoilFromRow('${pack}')" title="Moves up to ${entryQtyCap} card(s) from this log line (not your full stack)">${live.foil ? 'Non-foil' : 'Foil'}</button>`
-            : '');
-          removeBtn = live
-            ? `<button type="button" class="btn btn-ghost btn-sm history-row-btn history-row-btn--danger" onclick="historyCollectionRemoveFromRow('${pack}')">Remove</button>`
-            : '';
-          missing = !live ? '<span class="history-not-in-coll">Not in collection</span>' : '';
-        }
-        return `<div class="history-event">
+        const live = isSharedView ? null : _historyResolveLiveCollectionCard(ev);
+        // Undo is the only row action, as on the deck list. It reverses the
+        // logged change rather than deleting the line: collection events carry
+        // no id, so there is nothing to delete server-side, and a log that hides
+        // what was undone is worse than one that shows both.
+        const undoBtn = isSharedView ? '' :
+          `<div class="history-event-quick-actions">`
+          + `<button type="button" class="btn btn-outline btn-sm btn-icon history-row-btn history-undo-btn"`
+          + ` onclick="event.stopPropagation();historyCollectionUndoFromRow('${pack}')"`
+          + ` title="Undo this change" aria-label="Undo this change">${_HIST_ICON.undo}</button>`
+          + `</div>`;
+        const missing = !isSharedView && !live ? '<div class="history-not-in-coll">Not in collection</div>' : '';
+        return `<div class="history-event history-event--deck" style="cursor:pointer"
+          title="View ${esc(ev.name)}"
+          onclick="historyOpenCardDetailFromRow('${pack}')">
           ${img}
           <div class="history-event-info">
-            <button type="button" class="history-name-open-btn" onclick="historyOpenCardDetailFromRow('${pack}')">${esc(ev.name)}</button>
+            <div class="history-event-name">${esc(ev.name)}</div>
             ${meta ? `<div class="history-event-meta">${esc(meta)}</div>` : ''}
             <div class="history-event-time">${time}</div>
             ${missing}
+            <div class="history-event-kind ${isAdd ? 'history-add' : 'history-remove'}">${isAdd ? '+' : '−'}${ev.delta}</div>
           </div>
-          <div class="history-event-actions">${foilBtn}${removeBtn}</div>
-          <div class="history-event-badge ${isAdd ? 'history-add' : 'history-remove'}">${isAdd ? '+' : '−'}${ev.delta}</div>
+          ${undoBtn}
         </div>`;
       }).join('')}
     </div>`;

@@ -913,6 +913,10 @@
     overflow-x: visible !important;
     gap: 6px !important;
   }
+  /* The filter panel's own controls centre on a phone. Left-aligned they wrapped
+     into ragged rows with a gap down the right; centred, each row reads as a
+     group under the full-width search field above them. */
+  #tab-collection .view-controls { justify-content: center; }
 
   /* Phones use the same Games / Playgroups / Leaderboard tabs as the desktop.
      The separate single-column phone layout is gone: the card grid already
