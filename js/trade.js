@@ -9,7 +9,6 @@ const _TRADE_SECTIONS = [
   { key: 'partners',   label: 'Find Trades' },
   { key: 'offers',     label: 'Offers' },
   { key: 'tradelist',  label: 'Tradelist' },
-  { key: 'wishlist',   label: 'Wishlist' },
   { key: 'watches',    label: 'Price Alerts' },
   { key: 'history',    label: 'History' },
 ];
@@ -29,11 +28,11 @@ function renderTrade() {
   if (!root.querySelector('.trade-shell')) {
     root.innerHTML = `
       <div class="trade-shell">
-        <div class="trade-header">
-          <h1 class="trade-title">Trade</h1>
-          <div class="trade-subnav" id="tradeSubnav"></div>
+        <div class="collection-top-actions">
+          <span class="page-title">Trade</span>
         </div>
-        <div class="trade-section-body" id="tradeSectionBody"></div>
+        <div class="deck-folder-tabs" id="tradeSubnav" role="tablist" aria-label="Trade sections"></div>
+        <div class="deck-tab-pane active trade-section-body" id="tradeSectionBody"></div>
       </div>`;
   }
   _renderTradeSubnav();
@@ -45,8 +44,10 @@ function renderTrade() {
 function _renderTradeSubnav() {
   const nav = document.getElementById('tradeSubnav');
   if (!nav) return;
+  // Same folder tabs the deck builder, games and wishlist use.
   nav.innerHTML = _TRADE_SECTIONS.map(s =>
-    `<button class="trade-subnav-btn${s.key === _tradeSection ? ' active' : ''}"
+    `<button type="button" role="tab" class="deck-ftab${s.key === _tradeSection ? ' active' : ''}"
+       aria-selected="${s.key === _tradeSection ? 'true' : 'false'}"
        onclick="setTradeSection('${s.key}')">${escapeHtml(s.label)}</button>`
   ).join('');
 }
@@ -66,9 +67,6 @@ function renderTradeSection() {
       break;
     case 'tradelist':
       if (typeof renderTradelistSection === 'function') return renderTradelistSection(host);
-      break;
-    case 'wishlist':
-      if (typeof renderTradeWishlistSection === 'function') return renderTradeWishlistSection(host);
       break;
     case 'partners':
       if (typeof renderTradePartnersSection === 'function') return renderTradePartnersSection(host);
@@ -249,7 +247,7 @@ function renderTradeCalculator(host) {
         value="${escapeHtml(_calc.title || '')}" oninput="tradeCalcSetTitle(this.value)">
       <div class="calc-toolbar-actions">
         <button class="btn btn-ghost btn-sm" onclick="tradeCalcClose()">Close</button>
-        <button class="btn btn-primary btn-sm" id="calcSaveBtn" onclick="tradeCalcSave()">Save</button>
+        <button class="btn btn-outline btn-sm" id="calcSaveBtn" onclick="tradeCalcSave()">Save</button>
       </div>
     </div>
     ${_calcTradeStatusHtml()}
@@ -366,13 +364,13 @@ function _calcTradeStatusHtml() {
   let badge = `<span class="calc-status-badge status-${status}">${escapeHtml(status)}</span>`;
   let actions = '';
   if (status === 'draft') {
-    actions = `<button class="btn btn-primary btn-sm" onclick="tradeCalcSendOffer()">Send offer to ${partner}</button>
+    actions = `<button class="btn btn-outline btn-sm" onclick="tradeCalcSendOffer()">Send offer to ${partner}</button>
       <button class="calc-partner-change" onclick="calcClearPartner()">change partner</button>`;
   } else if (status === 'pending' || status === 'countered') {
     const amResponder = Number(_calcResponderId()) === Number(myId);
     if (amResponder) {
       actions = `
-        <button class="btn btn-primary btn-sm" onclick="tradeCalcRespond('accept')">Accept</button>
+        <button class="btn btn-outline btn-sm" onclick="tradeCalcRespond('accept')">Accept</button>
         <button class="btn btn-outline btn-sm" onclick="tradeCalcRespond('counter')">Counter</button>
         <button class="btn btn-danger btn-sm" onclick="tradeCalcRespond('decline')">Decline</button>`;
     } else {
@@ -380,7 +378,7 @@ function _calcTradeStatusHtml() {
         <button class="btn btn-ghost btn-sm" onclick="tradeCalcRespond('cancel')">Cancel offer</button>`;
     }
   } else if (status === 'accepted') {
-    actions = `<button class="btn btn-primary btn-sm" onclick="tradeCalcComplete()">Mark complete</button>`;
+    actions = `<button class="btn btn-outline btn-sm" onclick="tradeCalcComplete()">Mark complete</button>`;
   }
   return `<div class="calc-trade-status">${badge} · with ${partner} ${actions}</div>`;
 }
@@ -1646,7 +1644,7 @@ async function openPriceWatchModal(scryfallId, foil, cardName, cardData) {
       <div style="display:flex;gap:8px;margin-top:18px;justify-content:flex-end">
         ${cur ? `<button class="btn btn-danger btn-sm" onclick="clearPriceWatch('${escapeHtml(scryfallId)}', ${!!foil})">Remove watch</button>` : ''}
         <button class="btn btn-ghost btn-sm" onclick="closePriceWatchModal()">Cancel</button>
-        <button class="btn btn-primary btn-sm" onclick="savePriceWatch('${escapeHtml(scryfallId)}', ${!!foil})">Save</button>
+        <button class="btn btn-outline btn-sm" onclick="savePriceWatch('${escapeHtml(scryfallId)}', ${!!foil})">Save</button>
       </div>
     </div>`;
   overlay.addEventListener('click', e => { if (e.target === overlay) closePriceWatchModal(); });
@@ -1844,7 +1842,7 @@ function _paintUsernameSetup(host) {
       <div class="username-form">
         <input type="text" id="usernameInput" placeholder="username" maxlength="32" autocomplete="off">
         <input type="text" id="displayNameInput" placeholder="Display name (optional)" maxlength="64" autocomplete="off">
-        <button class="btn btn-primary" onclick="saveUsername()">Save</button>
+        <button class="btn btn-outline" onclick="saveUsername()">Save</button>
       </div>
       <div class="username-hint">3–32 characters · letters, numbers, underscore</div>
       <div id="usernameError" class="username-error"></div>
@@ -1968,7 +1966,7 @@ function _renderPartnerDetail() {
     </div>
     <div id="suggestionsMount">
       <div class="partner-cta">
-        <button class="btn btn-primary" onclick="startTradeWithPartner()">${_ICON_TRADE} New trade with @${escapeHtml(_tradePartner.username)}</button>
+        <button class="btn btn-outline" onclick="startTradeWithPartner()">${_ICON_TRADE} New trade with @${escapeHtml(_tradePartner.username)}</button>
         <div class="partner-cta-hint">Build the trade and pick from the suggested cards under each column.</div>
       </div>
     </div>`;
