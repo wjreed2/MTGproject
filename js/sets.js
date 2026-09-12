@@ -181,6 +181,18 @@ function renderSets() {
   if (gridArea) gridArea.style.display = hasSelected ? 'none' : '';
   if (detailArea) detailArea.style.display = hasSelected ? 'flex' : 'none';
 
+  if (hasSelected) {
+    const activeName = document.getElementById('activeSetName');
+    const activeCode = document.getElementById('activeSetCode');
+    const activeMeta = document.getElementById('activeSetMeta');
+    if (activeName) activeName.textContent = selected.name;
+    if (activeCode) activeCode.textContent = selected.code.toUpperCase();
+    if (activeMeta) activeMeta.textContent = `${String(selected.set_type || 'set').replace(/_/g, ' ')} · ${selected.card_count || 0} cards`;
+    if (_browseSetCode !== selected.code) browseSet(selected.code, selected.name);
+    else _renderSetBrowse();
+    return;
+  }
+
   if (sets.length === 0) {
     el.innerHTML = '';
     empty.style.display = 'flex';
@@ -190,7 +202,6 @@ function renderSets() {
       all: '<p style="font-size:0.9rem">No sets found.</p>',
     };
     empty.innerHTML = `<div style="text-align:center;padding:3rem;color:var(--text3)">${msgs[setsViewMode] || msgs.all}</div>`;
-    if (activeSetCode && !allSets.some(s => s.code === activeSetCode)) closeSetDetail();
     return;
   }
   empty.style.display = 'none';
@@ -215,19 +226,6 @@ function renderSets() {
       <div style="font-size:0.72rem;color:var(--text3)">Release: ${s.released_at || 'Unknown'}</div>
     </div>`;
   }).join('');
-
-  if (!selected) return;
-  const activeName = document.getElementById('activeSetName');
-  const activeCode = document.getElementById('activeSetCode');
-  const activeMeta = document.getElementById('activeSetMeta');
-  if (activeName) activeName.textContent = selected.name;
-  if (activeCode) activeCode.textContent = selected.code.toUpperCase();
-  if (activeMeta) activeMeta.textContent = `${selected.set_type || 'set'} · ${selected.card_count || 0} cards`;
-  if (_browseSetCode !== selected.code) {
-    browseSet(selected.code, selected.name);
-  } else {
-    _renderSetBrowse();
-  }
 }
 
 function filterSets() { renderSets(); }
@@ -365,6 +363,44 @@ function syncSetsHeaderToggles() {
   _syncSetTypeMenuUi();
 }
 
+// ── In-set collapse: the same Filter/Info pair as the collection header ──────
+const SET_BROWSE_FILTER_KEY = 'mtg_set_browse_filter_open';
+const SET_BROWSE_INFO_KEY = 'mtg_set_browse_info_open';
+
+function _applyPanelState(panelId, btnId, open) {
+  const panel = document.getElementById(panelId);
+  const btn = document.getElementById(btnId);
+  if (panel) panel.style.display = open ? '' : 'none';
+  if (btn) {
+    btn.classList.toggle('active', open);
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+}
+
+function toggleSetBrowseFilter() {
+  const open = !_prefOpen(SET_BROWSE_FILTER_KEY, false);
+  _setPrefOpen(SET_BROWSE_FILTER_KEY, open);
+  _applyPanelState('setBrowseFilterPanel', 'setBrowseFilterBtn', open);
+  if (open) document.getElementById('setBrowseSearchInput')?.focus();
+}
+
+function toggleSetBrowseInfo() {
+  const open = !_prefOpen(SET_BROWSE_INFO_KEY, true);
+  _setPrefOpen(SET_BROWSE_INFO_KEY, open);
+  _applyPanelState('setBrowseInfoPanel', 'setBrowseInfoBtn', open);
+}
+
+/**
+ * _renderSetBrowse rebuilds both panels from scratch, so the stored state has to
+ * be re-applied after every render or a collapsed panel springs back open.
+ */
+function syncSetBrowseToggles() {
+  _applyPanelState('setBrowseFilterPanel', 'setBrowseFilterBtn', _prefOpen(SET_BROWSE_FILTER_KEY, false));
+  _applyPanelState('setBrowseInfoPanel', 'setBrowseInfoBtn', _prefOpen(SET_BROWSE_INFO_KEY, true));
+}
+
+globalThis.toggleSetBrowseFilter = toggleSetBrowseFilter;
+globalThis.toggleSetBrowseInfo = toggleSetBrowseInfo;
 globalThis.toggleSetTypeMenu = toggleSetTypeMenu;
 globalThis.toggleSetsFilterBar = toggleSetsFilterBar;
 globalThis.syncSetsHeaderToggles = syncSetsHeaderToggles;
@@ -427,6 +463,39 @@ function _sortSetCardsByCollector(cards) {
   });
 }
 
+// ── Set cards: cache-first, then paint page 1 before the rest arrives ────────
+// A set is fetched straight from Scryfall, 175 cards per page. Serially, that
+// was the entire cost of opening a set: 6,398ms of a 6,470ms load for a
+// 453-card set, against 4ms to render it. Two changes, in order of payoff:
+// the pages after the first are fetched concurrently instead of one after
+// another, and page one paints as soon as it lands rather than waiting for the
+// tail. A finished set is cached, so opening it again is instant.
+const _SET_CARDS_CACHE_MAX = 5;           // ~1.5MB per large set; bound the store
+const _SET_CARDS_TTL_MS = 24 * 60 * 60 * 1000; // a spoiler-season set still grows
+
+async function _cachedSetCards(code) {
+  if (typeof cacheGet !== 'function') return null;
+  try {
+    const hit = await cacheGet('setcards:' + code);
+    if (hit && Array.isArray(hit.cards) && hit.cards.length
+        && (Date.now() - (hit.at || 0)) < _SET_CARDS_TTL_MS) return hit.cards;
+  } catch (_) { /* private mode / evicted store */ }
+  return null;
+}
+
+async function _putCachedSetCards(code, cards) {
+  if (typeof cacheSet !== 'function' || !Array.isArray(cards) || !cards.length) return;
+  try {
+    await cacheSet('setcards:' + code, { at: Date.now(), cards });
+    const idx = (await cacheGet('setcards:index')) || [];
+    const next = [code, ...idx.filter(c => c !== code)];
+    for (const stale of next.slice(_SET_CARDS_CACHE_MAX)) {
+      await cacheSet('setcards:' + stale, null);
+    }
+    await cacheSet('setcards:index', next.slice(0, _SET_CARDS_CACHE_MAX));
+  } catch (_) { /* quota — the fetch already succeeded, so never surface this */ }
+}
+
 async function browseSet(code, name) {
   _browseSetCode  = code;
   _browseSetName  = name;
@@ -441,25 +510,59 @@ async function browseSet(code, name) {
       <div style="display:flex;gap:8px;align-items:center;color:var(--text2)"><div class="spinner"></div> Loading set cards…</div>`;
   }
 
-  // Fetch all pages
-  const cards = [];
-  let url = `https://api.scryfall.com/cards/search?q=e:${code}&order=collector_number&unique=prints`;
-  try {
-    while (url) {
-      const res = await fetch(url);
-      if (!res.ok) throw new Error('fetch failed');
-      const d = await res.json();
-      cards.push(...(d.data || []));
-      url = d.has_more ? d.next_page : null;
-    }
-  } catch {
-    const detail = document.getElementById('setDetailContent');
-    if (detail) detail.innerHTML = '<p style="color:var(--red);padding:1rem">Failed to load set.</p>';
+  const cached = await _cachedSetCards(code);
+  if (cached) {
+    if (_browseSetCode !== code) return; // left for another set while we read
+    _browseSetCards = _sortSetCardsByCollector(cached);
+    _renderSetBrowse();
     return;
   }
 
-  _browseSetCards = _sortSetCardsByCollector(cards);
+  const base = `https://api.scryfall.com/cards/search?q=e:${encodeURIComponent(code)}&order=collector_number&unique=prints`;
+  const fail = () => {
+    const el = document.getElementById('setDetailContent');
+    if (el && _browseSetCode === code) el.innerHTML = '<p style="color:var(--red);padding:1rem">Failed to load set.</p>';
+  };
+
+  let first;
+  try {
+    const res = await fetch(base);
+    if (!res.ok) throw new Error('fetch failed');
+    first = await res.json();
+  } catch (_) { fail(); return; }
+  if (_browseSetCode !== code) return;
+
+  const firstPage = Array.isArray(first.data) ? first.data : [];
+  _browseSetCards = _sortSetCardsByCollector(firstPage);
   _renderSetBrowse();
+
+  if (!first.has_more || !firstPage.length) {
+    _putCachedSetCards(code, _browseSetCards);
+    return;
+  }
+
+  // Scryfall asks for ~10 requests/second, so the remaining pages overlap on a
+  // 100ms stagger rather than all leaving at once.
+  const perPage = firstPage.length;
+  const pageCount = Math.ceil((first.total_cards || perPage) / perPage);
+  const rest = await Promise.all(
+    Array.from({ length: Math.max(0, pageCount - 1) }, (_, i) =>
+      new Promise(r => setTimeout(r, i * 100))
+        .then(() => fetch(`${base}&page=${i + 2}`))
+        .then(res => (res.ok ? res.json() : null))
+        .catch(() => null))
+  );
+  if (_browseSetCode !== code) return;
+
+  const all = firstPage.slice();
+  for (const page of rest) if (page && Array.isArray(page.data)) all.push(...page.data);
+  if (all.length === firstPage.length) return; // nothing new; keep what is painted
+
+  // A re-render rebuilds the search field, so hold focus if it is being used.
+  if (document.activeElement?.id === 'setBrowseSearchInput') _browseSetSearchKeepFocus = true;
+  _browseSetCards = _sortSetCardsByCollector(all);
+  _renderSetBrowse();
+  _putCachedSetCards(code, _browseSetCards);
 }
 
 function _setCardRarityKey(card) {
@@ -642,10 +745,13 @@ function _renderSetBrowse() {
         <button class="${_browseSetMode === 'printings' ? 'active' : ''}" onclick="_setSetMode('printings')">All Printings</button>
       </div>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:10px">
-      ${_renderSetRarityDonuts(modeCards, isOwnedCard)}
+    <div id="setBrowseInfoPanel">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:10px">
+        ${_renderSetRarityDonuts(modeCards, isOwnedCard)}
+      </div>
+      ${_renderSetRarityAverages(modeCards, code, isTitleMode)}
     </div>
-    ${_renderSetRarityAverages(modeCards, code, isTitleMode)}
+    <div id="setBrowseFilterPanel" style="display:none">
     <div class="collection-search-row">
       <div style="position:relative;flex:1;min-width:0">
         <input class="search-box" id="setBrowseSearchInput" type="text" autocomplete="off"
@@ -663,6 +769,7 @@ function _renderSetBrowse() {
         }).join('')}
       </div>
       <span class="set-browse-count">${cards.length} shown</span>
+    </div>
     </div>
     <div class="card-grid set-browse-grid">
       ${cards.map(c => {
@@ -686,6 +793,7 @@ function _renderSetBrowse() {
       }).join('')}
     </div>
     `;
+  syncSetBrowseToggles();
   if (_browseSetSearchKeepFocus) {
     const searchInput = document.getElementById('setBrowseSearchInput');
     if (searchInput) {
@@ -716,6 +824,17 @@ function _setSetSearchFilter(val) {
   _browseSetSearchKeepFocus = true;
   _browseSetSearch = String(val || '');
   _renderSetBrowse();
+}
+
+/**
+ * Scryfall has no price for plenty of printings, and cardToEntry passes that
+ * through as null. Every one of these called .toFixed() on it directly except
+ * Card Kingdom Foil, so opening such a card threw and left the inspector on its
+ * spinner forever. An unpriced card is not a $0.00 card, so it reads as "—".
+ */
+function _setPriceCell(v) {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? '$' + n.toFixed(2) : '—';
 }
 
 async function examineSetCard(id, setCode, num) {
@@ -788,10 +907,10 @@ async function examineSetCard(id, setCode, num) {
         ${(entry.power && entry.toughness) ? `<div style="font-family:'JetBrains Mono',monospace;font-size:0.85rem;color:var(--text2);margin-bottom:0.75rem">${entry.power}/${entry.toughness}</div>` : ''}
         ${entry.loyalty ? `<div style="font-family:'JetBrains Mono',monospace;font-size:0.85rem;color:var(--text2);margin-bottom:0.75rem">Loyalty: ${entry.loyalty}</div>` : ''}
         <table class="price-table" style="margin-bottom:1rem">
-          <tr><td>TCGPlayer</td><td style="color:var(--blue2)">$${entry.priceTCG.toFixed(2)}</td></tr>
-          <tr><td>TCGPlayer Foil</td><td style="color:var(--blue2)">$${entry.priceTCGFoil.toFixed(2)}</td></tr>
-          <tr><td>Card Kingdom</td><td style="color:var(--green)">$${entry.priceCK.toFixed(2)}</td></tr>
-          <tr><td>Card Kingdom Foil</td><td style="color:var(--green)">$${(entry.priceCKFoil || 0).toFixed(2)}</td></tr>
+          <tr><td>TCGPlayer</td><td style="color:var(--blue2)">${_setPriceCell(entry.priceTCG)}</td></tr>
+          <tr><td>TCGPlayer Foil</td><td style="color:var(--blue2)">${_setPriceCell(entry.priceTCGFoil)}</td></tr>
+          <tr><td>Card Kingdom</td><td style="color:var(--green)">${_setPriceCell(entry.priceCK)}</td></tr>
+          <tr><td>Card Kingdom Foil</td><td style="color:var(--green)">${_setPriceCell(entry.priceCKFoil)}</td></tr>
         </table>
         <div class="set-detail-factline">
           <span>${entry.set.toUpperCase()} #${entry.number}</span>
