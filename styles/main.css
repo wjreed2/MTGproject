@@ -4627,7 +4627,6 @@ body.glass-mode .x-stepper-btn-sm { border-radius: 7px; }
   white-space: nowrap;
 }
 #tab-collection .filter-bar .filter-chip,
-#tab-collection #historyBtn,
 #tab-collection #quickFilterMenuBtn,
 #tab-sets #setTypeMenuBtn,
 #tab-collection #starFilterBtn,
@@ -14005,12 +14004,9 @@ body.glass-mode #deckExportModal .modal {
 .collection-top-actions .page-title { margin-right: auto; }
 /* These are the deck page's high-level buttons — the rounded ones Add cards and
    Manage Tags use — so they override this tab's squared-off control radius. */
-:is(#tab-collection, #tab-sets) .coll-top-btn {
+:is(#tab-collection, #tab-sets, #tab-wishlist) .coll-top-btn {
   border-radius: 999px !important;
-  height: 34px !important;
   box-sizing: border-box;
-  padding: 0 16px !important;
-  font-size: 0.82rem !important;
   display: inline-flex;
   align-items: center;
   gap: 6px;
