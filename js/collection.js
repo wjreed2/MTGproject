@@ -1909,7 +1909,34 @@ function _getCardDetailDeckNavState(currentUid) {
 }
 
 /** Same arrow handler for both modes: order comes from filtered collection vs active deck (+ MB); only `_cardDetailNavMode` differs. */
+/**
+ * Set browser nav runs over the printings currently on screen in the set, which
+ * is the list the inspector was opened from — the same relationship the deck and
+ * collection modes have to theirs. Keyed on the browse id rather than the
+ * inspector uid, because an unowned printing has no uid of its own.
+ */
+function _getCardDetailSetNavState() {
+  const rows = (typeof _browseVisibleCards !== 'undefined' && Array.isArray(_browseVisibleCards))
+    ? _browseVisibleCards : [];
+  const ids = rows.map(r => r && r.id).filter(Boolean).map(String);
+  const current = typeof _browseActiveCardId !== 'undefined' ? String(_browseActiveCardId || '') : '';
+  const index = current ? ids.indexOf(current) : -1;
+  if (index === -1) return { prevUid: null, nextUid: null, index: -1, total: ids.length };
+  return {
+    prevUid: index > 0 ? ids[index - 1] : null,
+    nextUid: index < ids.length - 1 ? ids[index + 1] : null,
+    index,
+    total: ids.length,
+  };
+}
+
 function navigateCardDetailCollection(direction) {
+  // The set browser owns its own stepping (it has to re-resolve the printing),
+  // so hand off rather than trying to walk it by uid.
+  if (_cardDetailNavMode === 'set') {
+    if (typeof navigateSetBrowseCard === 'function') navigateSetBrowseCard(direction);
+    return;
+  }
   const currentUid = _cardDetailCurrentUid;
   if (!currentUid) return;
   const nav = _cardDetailNavMode === 'deck'
@@ -1924,9 +1951,11 @@ function _updateCardDetailEdgeNav(uid) {
   const prevEl = document.getElementById('cardDetailPrevNav');
   const nextEl = document.getElementById('cardDetailNextNav');
   if (!prevEl || !nextEl) return;
-  const nav = _cardDetailNavMode === 'deck'
-    ? _getCardDetailDeckNavState(uid)
-    : _getCardDetailCollectionNavState(uid);
+  const nav = _cardDetailNavMode === 'set'
+    ? _getCardDetailSetNavState()
+    : _cardDetailNavMode === 'deck'
+      ? _getCardDetailDeckNavState(uid)
+      : _getCardDetailCollectionNavState(uid);
   const show = nav.index !== -1 && nav.total > 1;
   prevEl.style.display = show ? '' : 'none';
   nextEl.style.display = show ? '' : 'none';
@@ -3404,7 +3433,7 @@ async function openCardDetail(uid, navMode, opts) {
     } catch (_) {}
   }
   if (!sourceCard) return;
-  if (navMode === 'deck' || navMode === 'collection') _cardDetailNavMode = navMode;
+  if (navMode === 'deck' || navMode === 'collection' || navMode === 'set') _cardDetailNavMode = navMode;
   const openSession = ++_cardDetailOpenSession;
   const fromArrowNav = !!(opts && opts.fromArrow);
   const ownedCard = window.Ownership?.resolveOwnedCard
@@ -3721,9 +3750,10 @@ function toggleWishlistFromDetail(uid) {
 }
 
 function closeCardDetail() {
-  if (typeof returnToSetBrowseFromDetail === 'function' && returnToSetBrowseFromDetail()) {
-    return;
-  }
+  // The set browser repaints its grid on close (quantities may have changed, and
+  // the showing-detail flag has to clear), but it must not short-circuit the rest
+  // of this function — returning early here left the modal open over the grid.
+  if (typeof returnToSetBrowseFromDetail === 'function') returnToSetBrowseFromDetail();
   if (typeof _cdTagCloseMenu === 'function') _cdTagCloseMenu();
   document.getElementById('cardDetailModal').classList.remove('open');
   if (typeof _destroyInspectorPriceChart === 'function') _destroyInspectorPriceChart();

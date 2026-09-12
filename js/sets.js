@@ -798,10 +798,19 @@ function _renderSetBrowse() {
           : (window.Ownership?.findOwnedByPrinting
             ? window.Ownership.findOwnedByPrinting(collection, c.id)
             : collection.find(col => col.scryfallId === c.id));
-        const img = c.image_uris?.normal || c.image_uris?.large || c.card_faces?.[0]?.image_uris?.normal || c.card_faces?.[0]?.image_uris?.large;
+        // Same sizing rule as the collection grid (cardThumbAttrs): these are
+        // ~160px tiles, so serve Scryfall `small` (~12KB) at 1x and upgrade to
+        // `normal` (~100KB) only on hi-DPR screens. A full set at normal was
+        // 30-50MB of downloads and decodes for one grid.
+        const uris = c.image_uris || c.card_faces?.[0]?.image_uris || {};
+        const imgSmall = uris.small || '';
+        const imgNormal = uris.normal || uris.large || '';
+        const img = imgSmall || imgNormal;
+        const srcset = imgSmall && imgNormal && imgSmall !== imgNormal
+          ? ` srcset="${imgSmall} 1x, ${imgNormal} 2x"` : '';
         const imgStyle = col ? 'width:100%;display:block' : 'width:100%;display:block;filter:grayscale(65%) opacity(0.6)';
         return `<div class="set-browse-card" onclick="examineSetCard('${c.id}','${code}','${c.collector_number}')" title="${c.name}${col ? ' — In this set (' + col.qty + ')' : ''}">
-          ${img ? `<img src="${img}" loading="lazy" style="${imgStyle}" alt="${c.name}">` : `<div style="aspect-ratio:0.715;background:var(--bg4);display:flex;align-items:center;justify-content:center;font-size:0.65rem;color:var(--text3);text-align:center;padding:4px;${col ? '' : 'opacity:0.6'}">${c.name}</div>`}
+          ${img ? `<img src="${img}"${srcset} loading="${imgFadeLoadingAttr(img, imgNormal)}" decoding="async" onload="imgFadeSeenMark(this)" style="${imgStyle}" alt="${escapeHtml(c.name)}">` : `<div style="aspect-ratio:0.715;background:var(--bg4);display:flex;align-items:center;justify-content:center;font-size:0.65rem;color:var(--text3);text-align:center;padding:4px;${col ? '' : 'opacity:0.6'}">${c.name}</div>`}
         </div>`;
       }).join('')}
     </div>
@@ -833,129 +842,72 @@ function _setSetMode(mode) {
   _renderSetBrowse();
 }
 
+// Debounced: this fires per keystroke, and _renderSetBrowse rebuilds the whole
+// grid via innerHTML — recreating hundreds of <img> nodes per character typed
+// was most of the set browser's typing lag.
+let _setBrowseSearchTimer = null;
 function _setSetSearchFilter(val) {
-  _browseSetSearchKeepFocus = true;
   _browseSetSearch = String(val || '');
-  _renderSetBrowse();
+  clearTimeout(_setBrowseSearchTimer);
+  _setBrowseSearchTimer = setTimeout(() => {
+    _setBrowseSearchTimer = null;
+    _browseSetSearchKeepFocus = true;
+    _renderSetBrowse();
+  }, 120);
 }
 
 /**
- * Scryfall has no price for plenty of printings, and cardToEntry passes that
- * through as null. Every one of these called .toFixed() on it directly except
- * Card Kingdom Foil, so opening such a card threw and left the inspector on its
- * spinner forever. An unpriced card is not a $0.00 card, so it reads as "—".
+ * Open the shared card inspector on a printing from the set grid.
+ *
+ * This used to build its own panel — a bespoke price table, a fact line, its own
+ * quantity steppers — so the inspector looked and behaved differently here than
+ * from the collection, a deck or the wishlist. It delegates to openCardDetail
+ * now, the same call the deck list makes, so there is one inspector everywhere.
+ *
+ * The browse list already holds the full Scryfall object, so the usual case
+ * costs no network: the entry is handed over prefetched. openCardDetail merges
+ * in what you own (uid, qty, foil, custom mana value, deck tags) by itself.
  */
-function _setPriceCell(v) {
-  const n = Number(v);
-  return Number.isFinite(n) && n > 0 ? '$' + n.toFixed(2) : '—';
-}
-
 async function examineSetCard(id, setCode, num) {
-  const modal = document.getElementById('cardDetailModal');
-  if (typeof _ensureCardDetailShell === 'function') _ensureCardDetailShell();
-  const leftEl = document.getElementById('cardDetailInspectorLeft');
-  const rightEl = document.getElementById('cardDetailInspectorRight');
-  const replEl = document.getElementById('cardDetailReplacementsMount');
-  if (leftEl) leftEl.innerHTML = '';
-  if (rightEl) {
-    rightEl.innerHTML = '<div style="display:flex;gap:8px;align-items:center;color:var(--text2);padding:2rem"><div class="spinner"></div> Loading…</div>';
-  }
-  if (replEl) {
-    replEl.style.display = 'none';
-    replEl.innerHTML = '';
-  }
-  modal.classList.add('open');
   _setBrowseShowingCardDetail = true;
   _browseActiveCardId = id;
 
-  let targetId = id;
+  const browseCard = _browseSetCards.find(c => c.id === id) || null;
+
+  // Unique Titles mode shows one tile per name, so the printing on screen may
+  // not be the one you own. Open yours when there is one.
   let targetSetCode = setCode;
   let targetNum = num;
-  if (_browseSetMode === 'titles') {
-    const browseCard = _browseSetCards.find(c => c.id === id);
-    const browseName = String(browseCard?.name || '').trim().toLowerCase();
-    if (browseName) {
-      const ownedSameTitle = collection.find(c =>
+  let remapped = false;
+  if (_browseSetMode === 'titles' && browseCard) {
+    const browseName = String(browseCard.name || '').trim().toLowerCase();
+    const ownedSameTitle = browseName
+      ? collection.find(c =>
         String(c.set || '').toLowerCase() === String(setCode || '').toLowerCase() &&
-        String(c.name || '').trim().toLowerCase() === browseName
-      );
-      if (ownedSameTitle?.scryfallId) {
-        targetId = ownedSameTitle.scryfallId;
-        targetSetCode = ownedSameTitle.set || setCode;
-        targetNum = ownedSameTitle.number || num;
-      }
+        String(c.name || '').trim().toLowerCase() === browseName)
+      : null;
+    if (ownedSameTitle?.scryfallId) {
+      targetSetCode = ownedSameTitle.set || setCode;
+      targetNum = ownedSameTitle.number || num;
+      remapped = String(ownedSameTitle.scryfallId) !== String(id);
     }
   }
 
-  const card = await fetchCard(targetSetCode, targetNum);
-  if (!card) {
-    if (rightEl) rightEl.innerHTML = '<p style="color:var(--red);padding:2rem">Failed to load card.</p>';
+  // Only a remap to a different printing needs a request.
+  let scry = (!remapped && browseCard) ? browseCard : null;
+  if (!scry) {
+    try { scry = await fetchCard(targetSetCode, targetNum); } catch (_) { scry = null; }
+  }
+  if (!scry) {
+    // Nothing resolved locally — let the inspector fetch by id and report its
+    // own failure rather than inventing a second error surface here.
+    await openCardDetail(String(id), 'set', { freshScryfall: true });
     return;
   }
-  const entry = cardToEntry(card, 1);
-  const owned = collection.find(c => c.scryfallId === targetId);
-  const ownedUid = owned ? owned.uid : (targetId + '_n');
-  const ownedVersionNote = (_browseSetMode === 'titles' && owned)
-    ? `<div style="font-size:0.72rem;color:var(--text3);margin:-0.35rem 0 0.75rem">Showing owned version: ${String(owned.set || '').toUpperCase()} #${owned.number || '—'}${owned.foil ? ' ✦ Foil' : ''}</div>`
-    : '';
 
-  const setLeftHtml = (
-    (entry.imageLarge || entry.image
-      ? `<div style="position:relative;overflow:hidden;border-radius:12px">
-              <img id="cardDetailMainImg" class="card-detail-img" src="${entry.imageLarge || entry.image}" alt="${String(entry.name || '').replace(/"/g, '&quot;')}">
-              <button id="cardFaceFlipBtn" class="btn btn-outline btn-sm" onclick="flipCardDetailFace()"
-                style="display:none;position:absolute;top:8px;right:8px;z-index:3;min-width:30px;padding:2px 8px;line-height:1.2;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,0.35)">↻</button>
-            </div>`
-      : '<div style="height:280px;background:var(--bg3);border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--text3)">No Image</div>') +
-    `<div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
-          <a href="https://www.tcgplayer.com/search/all/product?q=${encodeURIComponent(entry.name)}" target="_blank" class="btn btn-outline btn-sm" style="flex:1;justify-content:center">TCGPlayer</a>
-          <a href="https://scryfall.com/card/${entry.set}/${entry.number}" target="_blank" class="btn btn-outline btn-sm" style="flex:1;justify-content:center">Scryfall</a>
-        </div>`
+  await openCardDetail(
+    String(scry.id || id), 'set', { prefetchedEntry: cardToEntry(scry, 1) },
   );
-  const setRightHtml = `
-        <div class="card-detail-name">${entry.name}</div>
-        <div class="card-detail-type">${entry.type}</div>
-        ${ownedVersionNote}
-        ${entry.oracleText ? `<div class="card-detail-text">${entry.oracleText.replace(/\n/g, '<br>')}</div>` : ''}
-        ${(entry.power && entry.toughness) ? `<div style="font-family:'JetBrains Mono',monospace;font-size:0.85rem;color:var(--text2);margin-bottom:0.75rem">${entry.power}/${entry.toughness}</div>` : ''}
-        ${entry.loyalty ? `<div style="font-family:'JetBrains Mono',monospace;font-size:0.85rem;color:var(--text2);margin-bottom:0.75rem">Loyalty: ${entry.loyalty}</div>` : ''}
-        <table class="price-table" style="margin-bottom:1rem">
-          <tr><td>TCGPlayer</td><td style="color:var(--blue2)">${_setPriceCell(entry.priceTCG)}</td></tr>
-          <tr><td>TCGPlayer Foil</td><td style="color:var(--blue2)">${_setPriceCell(entry.priceTCGFoil)}</td></tr>
-          <tr><td>Card Kingdom</td><td style="color:var(--green)">${_setPriceCell(entry.priceCK)}</td></tr>
-          <tr><td>Card Kingdom Foil</td><td style="color:var(--green)">${_setPriceCell(entry.priceCKFoil)}</td></tr>
-        </table>
-        <div class="set-detail-factline">
-          <span>${entry.set.toUpperCase()} #${entry.number}</span>
-          <span>·</span>
-          <span style="text-transform:capitalize">${entry.rarity}</span>
-        </div>
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:0.75rem">
-          <span style="font-size:0.85rem;color:var(--text2)">In Collection:</span>
-          ${owned ? `
-            <button class="btn btn-outline btn-sm btn-icon" onclick="adjustQtyInSet('${ownedUid}', -1)">−</button>
-            <span style="font-family:'JetBrains Mono',monospace;font-size:0.9rem;min-width:20px;text-align:center" id="detailQty">${owned.qty}</span>
-            <button class="btn btn-outline btn-sm btn-icon" onclick="adjustQtyInSet('${ownedUid}', 1)">+</button>
-          ` : `<span style="font-family:'JetBrains Mono',monospace;font-size:0.9rem;color:var(--text3)">0</span>`}
-        </div>
-        ${typeof _htmlPurchasePriceOptIn === 'function' ? _htmlPurchasePriceOptIn('setPurchase') : ''}
-        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:0.5rem">
-          <button class="btn btn-primary btn-sm" onclick="addSetCardToCollection('${targetId}','${targetSetCode}','${targetNum}')">
-            ${owned ? '+ Add Another Copy' : '+ Add to Collection'}
-          </button>
-        </div>`;
-  if (typeof _mountUniversalCardInspector === 'function') {
-    _mountUniversalCardInspector(setLeftHtml, setRightHtml, '', false);
-  } else if (leftEl && rightEl) {
-    leftEl.innerHTML = setLeftHtml;
-    rightEl.innerHTML = setRightHtml;
-  }
-  _setupCardDetailFaces({
-    name: entry.name,
-    type: entry.type,
-    oracleText: entry.oracleText || '',
-    image: entry.imageLarge || entry.image || '',
-  }, entry.cardFaces || []);
 }
 
 function _browseSetCardIndexById(id) {
@@ -974,60 +926,10 @@ function navigateSetBrowseCard(direction) {
   examineSetCard(row.id, row.setCode, row.collectorNumber);
 }
 
-document.addEventListener('keydown', e => {
-  if (!_setBrowseShowingCardDetail) return;
-  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
-  const modal = document.getElementById('cardDetailModal');
-  if (!modal?.classList.contains('open')) return;
-  const tag = String(e.target?.tagName || '').toLowerCase();
-  const isTypingTarget = tag === 'input' || tag === 'textarea' || tag === 'select' || !!e.target?.isContentEditable;
-  if (isTypingTarget) return;
-  e.preventDefault();
-  navigateSetBrowseCard(e.key === 'ArrowRight' ? 'next' : 'prev');
-});
-
 function returnToSetBrowseFromDetail() {
   if (!_setBrowseShowingCardDetail) return false;
   if (!_browseSetCode || !_browseSetCards.length) return false;
   _setBrowseShowingCardDetail = false;
   _renderSetBrowse();
   return true;
-}
-
-function adjustQtyInSet(uid, delta) {
-  const card = collection.find(c => c.uid === uid);
-  if (!card) return;
-  if (delta > 0 && typeof applyCollectionQtyAdd === 'function') {
-    applyCollectionQtyAdd(card, card, delta, {});
-  } else {
-    card.qty = Math.max(0, card.qty + delta);
-    if (card.qty === 0) collection = collection.filter(c => c.uid !== uid);
-  }
-  save('collection');
-  renderCollection();
-  const el = document.getElementById('detailQty');
-  if (el) el.textContent = card.qty;
-}
-
-async function addSetCardToCollection(id, setCode, num) {
-  const card = await fetchCard(setCode, num);
-  if (!card) return;
-  const existing = collection.find(c => c.uid === id + '_n');
-  const opt = typeof readPurchasePriceOptIn === 'function' ? readPurchasePriceOptIn('setPurchase') : { price: null, manual: false };
-  if (typeof applyCollectionQtyAdd === 'function') {
-    if (existing) applyCollectionQtyAdd(existing, existing, 1, { purchasePrice: opt.price, manual: opt.manual });
-    else {
-      const entry = cardToEntry(card, 1);
-      applyCollectionQtyAdd(null, entry, 1, { purchasePrice: opt.price, manual: opt.manual });
-    }
-  } else if (existing) {
-    existing.qty++;
-    existing.addedAt = Date.now();
-  } else {
-    collection.push(cardToEntry(card, 1));
-  }
-  save('collection');
-  renderCollection();
-  showNotif('Added ' + card.name);
-  examineSetCard(id, setCode, num);
 }
