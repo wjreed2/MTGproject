@@ -525,15 +525,10 @@
 
 <!-- SET BROWSER TAB -->
 <div id="tab-sets" class="tab-content">
-  <div id="setTabTopBar" class="top-action-bar" style="display:none;align-items:center;gap:10px;margin-bottom:1.25rem;flex-wrap:wrap">
-    <button id="backToSetsBtn" class="btn btn-outline btn-sm coll-top-btn" onclick="closeSetDetail()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><polyline points="15 18 9 12 15 6"/></svg> All Sets</button>
-  </div>
   <!-- Header mirrors the collection's: high-level actions right-aligned above a
        filter bar that Filter collapses. Refresh stays outside it. -->
   <div id="setsHeader">
     <div class="collection-top-actions">
-      <button type="button" class="btn btn-outline btn-sm coll-top-btn" onclick="loadSetsFromAPI()"
-        title="Reload the set list from Scryfall">Refresh</button>
       <button type="button" id="setsFilterToggleBtn" class="btn btn-outline btn-sm coll-top-btn"
         aria-expanded="false" aria-controls="setsFilterBar" title="Search and filter"
         onclick="toggleSetsFilterBar()">

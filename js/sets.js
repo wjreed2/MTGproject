@@ -169,8 +169,6 @@ function renderSets() {
     localStorage.removeItem('mtg_active_set_code');
   }
   const hasSelected = !!selected;
-  const setTabTopBar = document.getElementById('setTabTopBar');
-  if (setTabTopBar) setTabTopBar.style.display = hasSelected ? 'flex' : 'none';
   // Set search/type/view filters only apply to the All Sets grid — hide the whole
   // header inside a set, Filter button included, since none of it applies there.
   const setsHeader = document.getElementById('setsHeader');
@@ -469,16 +467,33 @@ function _sortSetCardsByCollector(cards) {
 // 453-card set, against 4ms to render it. Two changes, in order of payoff:
 // the pages after the first are fetched concurrently instead of one after
 // another, and page one paints as soon as it lands rather than waiting for the
-// tail. A finished set is cached, so opening it again is instant.
+// tail. A settled set is cached, so opening it again is instant.
 const _SET_CARDS_CACHE_MAX = 5;           // ~1.5MB per large set; bound the store
-const _SET_CARDS_TTL_MS = 24 * 60 * 60 * 1000; // a spoiler-season set still grows
+const _SET_SETTLED_AFTER_MS = 30 * 24 * 60 * 60 * 1000;
+const _SET_CARDS_TTL_SETTLED_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * How long this set's card list may be trusted. A set released a month or more
+ * ago does not gain cards, so it is cached hard. One released inside that window
+ * — or not released at all — is still being spoiled and grows daily, so it is
+ * never served from cache. There is no Refresh button to work around a stale
+ * read, which is exactly why this is keyed on the set rather than a flat TTL.
+ */
+function _setCardsTtlMs(code) {
+  const meta = allSets.find(s => s.code === code);
+  const released = Date.parse(meta?.released_at || '');
+  if (!Number.isFinite(released)) return 0;
+  return (Date.now() - released) >= _SET_SETTLED_AFTER_MS ? _SET_CARDS_TTL_SETTLED_MS : 0;
+}
 
 async function _cachedSetCards(code) {
   if (typeof cacheGet !== 'function') return null;
+  const ttl = _setCardsTtlMs(code);
+  if (ttl <= 0) return null;
   try {
     const hit = await cacheGet('setcards:' + code);
     if (hit && Array.isArray(hit.cards) && hit.cards.length
-        && (Date.now() - (hit.at || 0)) < _SET_CARDS_TTL_MS) return hit.cards;
+        && (Date.now() - (hit.at || 0)) < ttl) return hit.cards;
   } catch (_) { /* private mode / evicted store */ }
   return null;
 }
@@ -751,7 +766,7 @@ function _renderSetBrowse() {
         ${searchQ ? `<button type="button" class="set-browse-search-clear" onclick="_setSetSearchFilter('')" aria-label="Clear search">&times;</button>` : ''}
       </div>
     </div>
-    <div class="set-browse-toolbar">
+    <div class="view-controls set-browse-controls">
       <div class="view-toggle">
         <button class="${!owned ? 'active' : ''}" onclick="_setSetOwnedFilter(false)">All (${rarityScopedCards.length})</button>
         <button class="${owned  ? 'active' : ''}" onclick="_setSetOwnedFilter(true)">Owned (${ownedCount})</button>
@@ -760,8 +775,6 @@ function _renderSetBrowse() {
         <button class="${_browseSetMode === 'titles' ? 'active' : ''}" onclick="_setSetMode('titles')">Unique Titles</button>
         <button class="${_browseSetMode === 'printings' ? 'active' : ''}" onclick="_setSetMode('printings')">All Printings</button>
       </div>
-    </div>
-    <div class="view-controls set-browse-controls">
       <div class="view-toggle">
         ${rarityOptions.map(r => {
           const label = r === 'all' ? 'All' : (r[0].toUpperCase() + r.slice(1));
