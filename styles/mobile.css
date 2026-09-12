@@ -79,6 +79,10 @@
     /* No bar to clear any more — only the notch. main and the offline banner
        both key off this, so content now starts just under the status bar. */
     --topbar-h: env(safe-area-inset-top, 0px);
+    /* The status-bar / notch inset on its own, for things that are sized
+       against the screen rather than positioned under the bar. Named separately
+       from --topbar-h so its meaning survives the topbar changing again. */
+    --safe-top: env(safe-area-inset-top, 0px);
   }
 
   /* ── No topbar on phones ───────────────────────────────────────────────
@@ -673,13 +677,28 @@
   .modal {
     width: 100% !important; max-width: 100% !important;
     border-radius: var(--radius2) var(--radius2) 0 0 !important;
-    max-height: 92vh !important; overflow-y: auto;
+    overflow-y: auto;
     padding: 1.25rem 1rem calc(1rem + env(safe-area-inset-bottom)) !important;
+    /* Same reasoning as the card inspector below: these are bottom sheets, so
+       height decides how close the top edge lands to the notch. 92vh cleared it
+       on most phones but not by principle — subtracting the inset makes it
+       true on any of them. */
+    max-height: calc(92vh - var(--safe-top)) !important;
+    max-height: calc(100dvh - var(--safe-top) - 14px) !important;
   }
   #cardDetailModal > .card-detail-modal {
     width: 100% !important; max-width: 100% !important;
     border-radius: var(--radius2) var(--radius2) 0 0 !important;
-    max-height: 96vh !important; padding: 0 !important;
+    padding: 0 !important;
+    /* The sheet is bottom-anchored, so its height decides how close the top edge
+       lands to the screen's. 96vh left 4% — about 32px on a 6.1" phone — which
+       is inside the notch on a device that has one, so the sheet's own rounded
+       top corner and close button sat under the status bar. Subtracting the
+       inset keeps the top edge below it whatever the device, plus a little air.
+       vh first for anything without dvh; dvh so an iOS URL bar appearing does
+       not push the top edge up under the notch again. */
+    max-height: calc(96vh - var(--safe-top)) !important;
+    max-height: calc(100dvh - var(--safe-top) - 14px) !important;
   }
   #cardDetailModal .card-detail-body { flex-direction: column !important; }
   #cardDetailModal .card-detail-col--art {
