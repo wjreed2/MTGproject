@@ -12,10 +12,18 @@ function _getCollectionSource() {
 
 function viewSharedCollection(ownerId) {
   _viewingSharedCollOwnerId = ownerId;
+  // The owner changed, so any cached history is someone else's. With the panel
+  // open, the old render would otherwise keep showing YOUR events — undo
+  // buttons included — under another person's collection.
+  _sharedCollHistory = null;
   closeCollectionShareModal();
   showTab('collection');
   _syncSharedCollectionBanner();
   renderCollection();
+  if (_historyVisible) {
+    renderCollectionHistory();
+    _fetchSharedCollHistory(ownerId);
+  }
   updateStats();
 }
 
@@ -4102,6 +4110,11 @@ function recordCollectionEvent(type, card, delta) {
     foil: !!card.foil,
     delta: Math.abs(delta || 1),
     image: card.image || null,
+    // Server-side dedup key. Deduping on (ts, type, uid) silently swallowed the
+    // second of two same-millisecond events for one printing (CSV rows of the
+    // same card import back-to-back) — an id makes each event distinct while
+    // still letting a retried POST of the SAME event land only once.
+    clientId: Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10),
   };
   collectionHistory.unshift(event);
   if (collectionHistory.length > 500) collectionHistory.length = 500;
@@ -4120,14 +4133,24 @@ async function toggleCollectionHistory() {
     if (_viewingSharedCollOwnerId) {
       _sharedCollHistory = null;
       renderCollectionHistory();
-      try {
-        _sharedCollHistory = await apiFetch(`/collection/shared/${_viewingSharedCollOwnerId}/history`);
-      } catch (_) {
-        _sharedCollHistory = [];
-      }
+      await _fetchSharedCollHistory(_viewingSharedCollOwnerId);
+      return;
     }
     renderCollectionHistory();
   }
+}
+
+/** Load one owner's history; ignore the result if the view moved on meanwhile. */
+async function _fetchSharedCollHistory(ownerId) {
+  let rows;
+  try {
+    rows = await apiFetch(`/collection/shared/${ownerId}/history`);
+  } catch (_) {
+    rows = [];
+  }
+  if (_viewingSharedCollOwnerId !== ownerId) return;
+  _sharedCollHistory = rows;
+  if (_historyVisible) renderCollectionHistory();
 }
 
 function _collectionHistoryPackEv(ev) {
@@ -4141,6 +4164,9 @@ function _collectionHistoryPackEv(ev) {
     // took the restore branch for every row and added copies where it should
     // have taken them away.
     t: ev.type || '',
+    // Row identity: same card, same action, different moment must pack
+    // differently, or marking one row as undone marks its twins too.
+    d: Number(ev.ts) || 0,
   }));
 }
 
@@ -4152,11 +4178,17 @@ function _collectionHistoryUnpackEv(packed) {
     foil: !!o.f,
     delta: o.n != null ? Math.max(1, Math.abs(Number(o.n)) || 1) : 1,
     type: o.t || '',
+    ts: Number(o.d) || 0,
   };
 }
 
-/** Match a history row to the current collection (uid may be stale after foil changes). */
-function _historyResolveLiveCollectionCard(ev) {
+/**
+ * Match a history row to the current collection (uid may be stale after foil
+ * changes). Undo passes exactFoil: restoring a FOIL removal must not bump the
+ * nonfoil row just because it is the only printing left — no live match sends
+ * undo down the refetch branch, which rebuilds the right printing.
+ */
+function _historyResolveLiveCollectionCard(ev, opts) {
   if (ev.uid) {
     const byUid = collection.find(c => c.uid === ev.uid);
     if (byUid) return byUid;
@@ -4168,8 +4200,9 @@ function _historyResolveLiveCollectionCard(ev) {
   }
   if (!sid) return null;
   const wantFoil = !!ev.foil;
-  return collection.find(c => c.scryfallId === sid && !!c.foil === wantFoil)
-    || collection.find(c => c.scryfallId === sid);
+  const exact = collection.find(c => c.scryfallId === sid && !!c.foil === wantFoil);
+  if (exact || (opts && opts.exactFoil)) return exact || null;
+  return collection.find(c => c.scryfallId === sid) || null;
 }
 
 /** Move up to `qtyToMove` copies to the other foil printing; leaves the rest on the source row. */
@@ -4229,6 +4262,11 @@ function _afterCollectionHistoryUndo(msg) {
   _refreshDeckListIfActive();
 }
 
+// Rows undone this session, keyed by their packed identity. A row's undo is
+// exact once: clicking it again would keep stripping N more copies each time.
+// The compensating event it logged is the thing to undo from then on.
+const _histUndoneRowKeys = new Set();
+
 /** Reverse one logged change: an add gives back its copies, a remove restores them. */
 async function historyCollectionUndoFromRow(packed) {
   let ev;
@@ -4237,8 +4275,14 @@ async function historyCollectionUndoFromRow(packed) {
   } catch (_) {
     return;
   }
+  if (_histUndoneRowKeys.has(packed)) {
+    showNotif('Already undone — undo the newer compensating row instead', true);
+    return;
+  }
   const n = Math.max(1, Number(ev.delta) || 1);
-  const live = _historyResolveLiveCollectionCard(ev);
+  // exactFoil: this row is about one specific printing. If that printing is
+  // gone, restoring onto the other-foil row would corrupt both stacks.
+  const live = _historyResolveLiveCollectionCard(ev, { exactFoil: true });
 
   if (ev.type === 'add') {
     if (!live) { showNotif('Those copies are not in your collection anymore', true); return; }
@@ -4246,6 +4290,7 @@ async function historyCollectionUndoFromRow(packed) {
     recordCollectionEvent('remove', live, Math.min(n, Number(live.qty) || 1));
     if (left > 0) live.qty = left;
     else collection = collection.filter(c => c.uid !== live.uid);
+    _histUndoneRowKeys.add(packed);
     _afterCollectionHistoryUndo(`Undid — removed ${n}×`);
     return;
   }
@@ -4256,6 +4301,7 @@ async function historyCollectionUndoFromRow(packed) {
   if (live) {
     live.qty = (Number(live.qty) || 0) + n;
     recordCollectionEvent('add', live, n);
+    _histUndoneRowKeys.add(packed);
     _afterCollectionHistoryUndo(`Undid — restored ${n}×`);
     return;
   }
@@ -4265,6 +4311,8 @@ async function historyCollectionUndoFromRow(packed) {
     if (!res.ok) throw new Error('lookup failed');
     const card = await res.json();
     addCardToCollection(card, n, !!ev.foil);   // records its own history event
+    _histUndoneRowKeys.add(packed);
+    if (_historyVisible) renderCollectionHistory();
     showNotif(`Undid — restored ${n}×`);
   } catch (_) {
     showNotif('Could not restore that card', true);
@@ -4319,14 +4367,18 @@ function renderCollectionHistory() {
         // logged change rather than deleting the line: collection events carry
         // no id, so there is nothing to delete server-side, and a log that hides
         // what was undone is worse than one that shows both.
+        const undone = _histUndoneRowKeys.has(pack);
         const undoBtn = isSharedView ? '' :
           `<div class="history-event-quick-actions">`
           + `<button type="button" class="btn btn-outline btn-sm btn-icon history-row-btn history-undo-btn"`
-          + ` onclick="event.stopPropagation();historyCollectionUndoFromRow('${pack}')"`
-          + ` title="Undo this change" aria-label="Undo this change">${_HIST_ICON.undo}</button>`
+          + (undone
+            ? ` disabled title="Already undone" aria-label="Already undone"`
+            : ` onclick="event.stopPropagation();historyCollectionUndoFromRow('${pack}')"`
+              + ` title="Undo this change" aria-label="Undo this change"`)
+          + `>${_HIST_ICON.undo}</button>`
           + `</div>`;
         const missing = !isSharedView && !live ? '<div class="history-not-in-coll">Not in collection</div>' : '';
-        return `<div class="history-event history-event--deck" style="cursor:pointer"
+        return `<div class="history-event history-event--deck${undone ? ' history-event--undone' : ''}" style="cursor:pointer"
           title="View ${esc(ev.name)}"
           onclick="historyOpenCardDetailFromRow('${pack}')">
           ${img}

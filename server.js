@@ -10415,20 +10415,34 @@ async function ensureCollectionHistoryTable() {
         foil       TINYINT(1)      NOT NULL DEFAULT 0,
         delta      INT             NOT NULL DEFAULT 1,
         image      VARCHAR(500)    NULL,
+        client_id  VARCHAR(40)     NULL,
         PRIMARY KEY (id),
         INDEX idx_ch_account_ts (account_id, ts),
-        UNIQUE KEY uq_ch_dedup (account_id, ts, type, uid),
+        UNIQUE KEY uq_ch_client (account_id, client_id),
         CONSTRAINT fk_ch_account FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
-    const [chIdxRows] = await conn.query(
-      `SELECT INDEX_NAME FROM INFORMATION_SCHEMA.STATISTICS
-       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'collection_history' AND INDEX_NAME = 'uq_ch_dedup'`
-    );
-    if (!chIdxRows.length) {
-      await conn.query(
-        `ALTER TABLE collection_history ADD UNIQUE KEY uq_ch_dedup (account_id, ts, type, uid)`
+    // Dedup moved from (ts, type, uid) to a client-generated id: the old key
+    // silently swallowed the second of two legitimate same-millisecond events
+    // for one printing (e.g. a CSV import listing the same card on two rows).
+    // client_id is NULLable — rows from before the migration (and clients not
+    // yet sending it) never collide, since unique indexes ignore NULLs.
+    if (!(await columnExists(conn, 'collection_history', 'client_id'))) {
+      await conn.query('ALTER TABLE collection_history ADD COLUMN client_id VARCHAR(40) NULL');
+    }
+    const chIndexNames = async () => {
+      const [rows] = await conn.query(
+        `SELECT DISTINCT INDEX_NAME FROM INFORMATION_SCHEMA.STATISTICS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'collection_history'`
       );
+      return new Set(rows.map(r => r.INDEX_NAME));
+    };
+    const idx = await chIndexNames();
+    if (idx.has('uq_ch_dedup')) {
+      await conn.query('ALTER TABLE collection_history DROP INDEX uq_ch_dedup');
+    }
+    if (!idx.has('uq_ch_client')) {
+      await conn.query('ALTER TABLE collection_history ADD UNIQUE KEY uq_ch_client (account_id, client_id)');
     }
   } finally {
     conn.release();
@@ -10504,14 +10518,17 @@ app.get('/api/history', requireAuth, async (req, res) => {
 });
 
 app.post('/api/history', requireAuth, async (req, res) => {
-  const { ts, type, uid, name, set, setName, foil, delta, image } = req.body;
+  const { ts, type, uid, name, set, setName, foil, delta, image, clientId } = req.body;
   if (!type || !name) return res.status(400).json({ error: 'Missing required fields' });
   try {
+    // INSERT IGNORE + uq_ch_client: a retried POST of the same event lands once;
+    // distinct events always land, even same card / same type / same millisecond.
+    const cid = typeof clientId === 'string' && clientId ? clientId.slice(0, 40) : null;
     await db().query(
-      `INSERT IGNORE INTO collection_history (account_id, ts, type, uid, name, set_code, set_name, foil, delta, image)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT IGNORE INTO collection_history (account_id, ts, type, uid, name, set_code, set_name, foil, delta, image, client_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [req.accountId, ts || Date.now(), type, uid || '', name || '',
-       set || '', setName || '', foil ? 1 : 0, delta || 1, image || null]
+       set || '', setName || '', foil ? 1 : 0, delta || 1, image || null, cid]
     );
     res.json({ ok: true });
   } catch (e) {
