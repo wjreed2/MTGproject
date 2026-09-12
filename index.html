@@ -528,28 +528,57 @@
   <div id="setTabTopBar" class="top-action-bar" style="display:none;align-items:center;gap:10px;margin-bottom:1.25rem;flex-wrap:wrap">
     <button id="backToSetsBtn" class="btn btn-ghost btn-sm" onclick="closeSetDetail()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><polyline points="15 18 9 12 15 6"/></svg> All Sets</button>
   </div>
-  <div class="view-controls" id="setViewControls">
-    <input class="search-box" type="text" placeholder="Search sets…" oninput="filterSets()" id="setSearch">
-    <select onchange="filterSetType()" id="setTypeFilter">
-      <option value="">All Types</option>
-      <option value="expansion">Expansion</option>
-      <option value="core">Core Set</option>
-      <option value="commander">Commander</option>
-      <option value="masters">Masters</option>
-      <option value="draft_innovation">Draft Innovation</option>
-      <option value="funny">Funny/Un-</option>
-      <option value="starter">Starter</option>
-      <option value="promo">Promo</option>
-      <option value="token">Token</option>
-      <option value="memorabilia">Memorabilia</option>
-      <option value="alchemy">Alchemy</option>
-    </select>
-    <div class="view-toggle">
-      <button id="setsOwnedBtn" class="active" onclick="setSetsView('owned',this)">My Sets</button>
-      <button id="setsStarBtn" onclick="setSetsView('starred',this)">★ Starred</button>
-      <button id="setsAllBtn" onclick="setSetsView('all',this)">All Sets</button>
+  <!-- Header mirrors the collection's: high-level actions right-aligned above a
+       filter bar that Filter collapses. Refresh stays outside it. -->
+  <div id="setsHeader">
+    <div class="collection-top-actions">
+      <button type="button" class="btn btn-outline btn-sm coll-top-btn" onclick="loadSetsFromAPI()"
+        title="Reload the set list from Scryfall">Refresh</button>
+      <button type="button" id="setsFilterToggleBtn" class="btn btn-outline btn-sm coll-top-btn"
+        aria-expanded="false" aria-controls="setsFilterBar" title="Search and filter"
+        onclick="toggleSetsFilterBar()">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;flex-shrink:0"><circle cx="7" cy="7" r="4.5"/><path d="M10.4 10.4 14 14"/></svg>
+        <span class="coll-top-label">Filter</span>
+      </button>
     </div>
-    <button class="btn btn-outline btn-sm" onclick="loadSetsFromAPI()">↻ Refresh</button>
+
+    <div class="filter-bar" id="setsFilterBar" style="display:none">
+      <!-- Row 1: the search field, full width -->
+      <div class="collection-search-row">
+        <div style="position:relative;flex:1;min-width:0">
+          <input class="search-box" type="text" style="width:100%;padding-right:28px"
+            placeholder="Search" oninput="filterSets()" id="setSearch" autocomplete="off">
+          <div class="filter-syntax-hint tooltip-wrap" aria-label="Search syntax" style="position:absolute;right:7px;top:50%;transform:translateY(-50%);color:var(--text3);cursor:default;user-select:none;display:flex;align-items:center">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><circle cx="8" cy="8" r="6.25"/><path d="M8 7.2v4"/><path d="M8 4.9h.01"/></svg>
+            <div class="tooltip" style="white-space:normal;width:280px;left:auto;right:0;transform:none;font-size:0.72rem;line-height:1.6;bottom:auto;top:calc(100% + 6px)">
+              <strong>Search syntax</strong><br>
+              <code>t:commander</code> — set type<br>
+              <code>s:znr</code> / <code>code:znr</code> — set code<br>
+              <code>block:innistrad</code> — block<br>
+              <code>year&gt;=2020</code> or <code>year:2016</code><br>
+              <code>cards&gt;=250</code> — printings in the set<br>
+              <code>owned&gt;=10</code> — printings you own<br>
+              <code>pct&gt;=50</code> — completion %<br>
+              <code>is:starred</code> / <code>is:owned</code><br>
+              <code>is:complete</code> / <code>is:partial</code> / <code>is:empty</code><br>
+              <code>is:foilonly</code> / <code>is:nonfoilonly</code><br>
+              <code>-t:token</code> — negate any filter
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- Row 2: set type, then the three views -->
+      <div class="view-controls" id="setViewControls">
+        <button type="button" id="setTypeMenuBtn" class="btn btn-outline btn-sm"
+          aria-haspopup="true" aria-expanded="false"
+          onclick="toggleSetTypeMenu(event)">Set Type</button>
+        <div class="view-toggle">
+          <button id="setsOwnedBtn" class="active" onclick="setSetsView('owned',this)">My Sets</button>
+          <button id="setsStarBtn" onclick="setSetsView('starred',this)">&#9734; Starred</button>
+          <button id="setsAllBtn" onclick="setSetsView('all',this)">All Sets</button>
+        </div>
+      </div>
+    </div>
   </div>
   <div id="setGridArea">
     <div class="set-grid" id="setGrid"></div>

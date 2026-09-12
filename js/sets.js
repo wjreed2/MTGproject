@@ -44,22 +44,127 @@ function _setIconMarkup(iconUri) {
   return `<span class="set-list-icon-wrap"><img src="${iconUri}" class="set-list-icon" alt=""></span>`;
 }
 
+// ── Search ───────────────────────────────────────────────────────────────────
+// The grammar is the collection's, not a second one: parseSearchQuery() (see
+// collection.js) does the tokenising, so `-`, OR, quoted values and the >=/<=
+// operators behave identically here. Only the keys differ, because a set has
+// different facts about it than a card does.
+
+/**
+ * Owned printings per set code, in ONE pass over the collection.
+ * _ownedPrintingCountForSet re-scans the whole collection for a single set,
+ * which is fine for the handful of cards on screen but not for a search that
+ * has to score all ~1,000 sets on every keystroke. Same semantics as
+ * Ownership.ownedPrintingCountForSet: unique scryfallIds, set code normalised.
+ */
+function _ownedPrintingCountsBySet() {
+  const ids = new Map();
+  for (const c of collection) {
+    const code = String(c?.set || '').trim().toLowerCase();
+    const sid = c?.scryfallId;
+    if (!code || !sid) continue;
+    let set = ids.get(code);
+    if (!set) { set = new Set(); ids.set(code, set); }
+    set.add(sid);
+  }
+  const counts = new Map();
+  for (const [code, set] of ids) counts.set(code, set.size);
+  return counts;
+}
+
+/** Everything a token can be asked about a set, resolved once per render. */
+function _setSearchFacts(s, ownedCounts) {
+  const owned = ownedCounts
+    ? (ownedCounts.get(String(s.code || '').trim().toLowerCase()) || 0)
+    : _ownedPrintingCountForSet(s.code);
+  const total = Number(s.card_count) || 0;
+  return {
+    name: String(s.name || '').toLowerCase(),
+    code: String(s.code || '').toLowerCase(),
+    type: String(s.set_type || '').toLowerCase(),
+    block: `${String(s.block || '')} ${String(s.block_code || '')}`.toLowerCase().trim(),
+    released: String(s.released_at || ''),
+    year: Number(String(s.released_at || '').slice(0, 4)) || 0,
+    total,
+    owned,
+    pct: total > 0 ? Math.min(100, Math.round((owned / total) * 100)) : 0,
+    starred: starredSets.has(s.code),
+    foilOnly: !!s.foil_only,
+    nonfoilOnly: !!s.nonfoil_only,
+  };
+}
+
+function _setMatchToken(f, tok) {
+  const { neg, key, op, val } = tok;
+  let hit = false;
+
+  if (key === 't' || key === 'type')                       hit = f.type.includes(val);
+  else if (key === 'name' || key === 'n')                   hit = f.name.includes(val);
+  else if (key === 's' || key === 'e' || key === 'set' || key === 'code') hit = f.code === val;
+  else if (key === 'block' || key === 'b')                  hit = !!f.block && f.block.includes(val);
+  else if (key === 'year' || key === 'y')                   hit = _cmpNum(f.year, op, parseFloat(val));
+  else if (key === 'released' || key === 'date')            hit = _cmpNum(Date.parse(f.released) || 0, op, Date.parse(val) || 0);
+  else if (key === 'cards' || key === 'count' || key === 'size') hit = _cmpNum(f.total, op, parseFloat(val));
+  else if (key === 'owned' || key === 'have')               hit = _cmpNum(f.owned, op, parseFloat(val));
+  else if (key === 'pct' || key === 'complete' || key === 'completion') hit = _cmpNum(f.pct, op, parseFloat(val));
+  else if (key === 'is' || key === 'has') {
+    if (val === 'starred' || val === 'star')       hit = f.starred;
+    else if (val === 'owned' || val === 'collected') hit = f.owned > 0;
+    else if (val === 'empty' || val === 'unowned') hit = f.owned === 0;
+    else if (val === 'complete' || val === 'full') hit = f.total > 0 && f.owned >= f.total;
+    else if (val === 'partial')                    hit = f.owned > 0 && f.owned < f.total;
+    else if (val === 'foilonly')                   hit = f.foilOnly;
+    else if (val === 'nonfoilonly')                hit = f.nonfoilOnly;
+    else hit = f.type.includes(val); // is:promo, is:token, … read as the set type
+  } else {
+    hit = true; // unknown key — don't filter out
+  }
+
+  return neg ? !hit : hit;
+}
+
+/**
+ * Does a set match a collection-style query? Same contract as
+ * cardMatchesSearchQuery: name terms sweep the obvious text fields, operators
+ * do the rest, OR groups are tried in turn.
+ */
+let _lastParsedSetSearch = { q: null, orGroups: null };
+function setMatchesSearchQuery(s, query, ownedCounts) {
+  const q = String(query || '').trim();
+  if (!q) return true;
+  if (_lastParsedSetSearch.q !== q) {
+    _lastParsedSetSearch = { q, orGroups: parseSearchQuery(q).orGroups };
+  }
+  const f = _setSearchFacts(s, ownedCounts);
+  return _lastParsedSetSearch.orGroups.some(({ tokens, nameTerms }) => {
+    if (nameTerms.length && !nameTerms.every(t =>
+      f.name.includes(t) || f.code.includes(t) || f.type.includes(t) || f.block.includes(t)
+    )) return false;
+    return tokens.every(tok => _setMatchToken(f, tok));
+  });
+}
+
 function _getSetFilterState() {
-  const search = String(document.getElementById('setSearch')?.value || '').trim().toLowerCase();
-  const setType = String(document.getElementById('setTypeFilter')?.value || '').trim().toLowerCase();
-  return { search, setType };
+  const search = String(document.getElementById('setSearch')?.value || '').trim();
+  return { search, setTypes: setTypeFilters };
 }
 
 function _getFilteredSets() {
-  const { search, setType } = _getSetFilterState();
+  const { search, setTypes } = _getSetFilterState();
   const ownedSetCodes = window.Ownership?.ownedSetCodes
     ? window.Ownership.ownedSetCodes(collection)
     : new Set(collection.map(c => c.set));
   let sets = allSets.slice();
-  if (search) sets = sets.filter(s => s.name.toLowerCase().includes(search) || s.code.toLowerCase().includes(search));
-  else if (setsViewMode === 'owned') sets = sets.filter(s => ownedSetCodes.has(s.code));
+  // The view mode is a filter like any other, so it composes with the search
+  // rather than being abandoned by it — typing used to silently search all sets
+  // while My Sets stayed lit, which is what the collection bar never does.
+  if (setsViewMode === 'owned') sets = sets.filter(s => ownedSetCodes.has(s.code));
   else if (setsViewMode === 'starred') sets = sets.filter(s => starredSets.has(s.code));
-  if (setType) sets = sets.filter(s => String(s.set_type || '').toLowerCase() === setType);
+  if (setTypes.size) sets = sets.filter(s => setTypes.has(String(s.set_type || '').toLowerCase()));
+  if (search) {
+    const ownedCounts = _ownedPrintingCountsBySet();
+    sets = sets.filter(s => setMatchesSearchQuery(s, search, ownedCounts));
+  }
   return sets;
 }
 
@@ -75,9 +180,10 @@ function renderSets() {
   const hasSelected = !!selected;
   const setTabTopBar = document.getElementById('setTabTopBar');
   if (setTabTopBar) setTabTopBar.style.display = hasSelected ? 'flex' : 'none';
-  // Set search/type/view filters only apply to the All Sets grid — hide inside a set
-  const viewControls = document.getElementById('setViewControls');
-  if (viewControls) viewControls.style.display = hasSelected ? 'none' : '';
+  // Set search/type/view filters only apply to the All Sets grid — hide the whole
+  // header inside a set, Filter button included, since none of it applies there.
+  const setsHeader = document.getElementById('setsHeader');
+  if (setsHeader) setsHeader.style.display = hasSelected ? 'none' : '';
 
   const gridArea = document.getElementById('setGridArea');
   const detailArea = document.getElementById('setDetailArea');
@@ -134,7 +240,143 @@ function renderSets() {
 }
 
 function filterSets() { renderSets(); }
+// Kept as an alias: the app shell is service-worker cached, so a stale index.html
+// can still carry the old <select onchange="filterSetType()">.
 function filterSetType() { renderSets(); }
+
+// ── Set type: the collection's multi-select menu, not a single-pick <select> ──
+const SET_TYPE_OPTIONS = [
+  ['expansion', 'Expansion'],
+  ['core', 'Core Set'],
+  ['commander', 'Commander'],
+  ['masters', 'Masters'],
+  ['draft_innovation', 'Draft Innovation'],
+  ['funny', 'Funny / Un-'],
+  ['starter', 'Starter'],
+  ['duel_deck', 'Duel Deck'],
+  ['from_the_vault', 'From the Vault'],
+  ['box', 'Box Set'],
+  ['promo', 'Promo'],
+  ['token', 'Token'],
+  ['memorabilia', 'Memorabilia'],
+  ['alchemy', 'Alchemy'],
+];
+let setTypeFilters = new Set();
+
+function _syncSetTypeMenuUi() {
+  const btn = document.getElementById('setTypeMenuBtn');
+  if (!btn) return;
+  const n = setTypeFilters.size;
+  btn.textContent = n > 0 ? `Set Type (${n})` : 'Set Type';
+  btn.classList.toggle('active', n > 0);
+}
+
+function closeSetTypeMenu() {
+  document.querySelectorAll('.set-type-menu').forEach(m => m.remove());
+  document.getElementById('setTypeMenuBtn')?.setAttribute('aria-expanded', 'false');
+}
+
+function toggleSetTypeMenu(event) {
+  if (event) { event.stopPropagation(); event.preventDefault(); }
+  const open = !!document.querySelector('.set-type-menu');
+  closeSetTypeMenu();
+  if (!open) _openSetTypeMenu();
+}
+
+function _openSetTypeMenu() {
+  const btn = document.getElementById('setTypeMenuBtn');
+  if (!btn) return;
+
+  const menu = document.createElement('div');
+  menu.className = 'glass-menu qf-menu set-type-menu';
+  for (const [value, label] of SET_TYPE_OPTIONS) {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'glass-menu-item' + (setTypeFilters.has(value) ? ' selected' : '');
+    item.textContent = label;
+    item.addEventListener('click', e => {
+      e.stopPropagation();
+      if (setTypeFilters.has(value)) setTypeFilters.delete(value);
+      else setTypeFilters.add(value);
+      _syncSetTypeMenuUi();
+      renderSets();
+      // Repaint so the tick shows and several types can be picked in one visit,
+      // carrying the scroll offset so a tap below the fold doesn't jump the list.
+      const scroll = menu.scrollTop;
+      setTimeout(() => {
+        closeSetTypeMenu();
+        _openSetTypeMenu();
+        const next = document.querySelector('.set-type-menu');
+        if (next) next.scrollTop = scroll;
+      }, 0);
+    });
+    menu.appendChild(item);
+  }
+
+  // Body-anchored for the same reason as the collection's: the row it sits in
+  // scrolls horizontally, and a menu inside it would extend that scroll area.
+  document.body.appendChild(menu);
+  const r = btn.getBoundingClientRect();
+  const margin = 8;
+  const maxH = Math.min(320, window.innerHeight - margin * 2);
+  menu.style.maxHeight = maxH + 'px';
+  const h = Math.min(menu.offsetHeight, maxH);
+  const w = menu.offsetWidth;
+  const below = window.innerHeight - r.bottom;
+  const top = below >= h + 12 ? r.bottom + 6 : Math.max(margin, r.top - h - 6);
+  menu.style.top = Math.min(top, window.innerHeight - h - margin) + 'px';
+  menu.style.left = Math.min(Math.max(margin, r.left), window.innerWidth - w - margin) + 'px';
+  btn.setAttribute('aria-expanded', 'true');
+
+  const drop = e => {
+    if (!menu.isConnected) {
+      window.removeEventListener('resize', drop, true);
+      window.removeEventListener('scroll', drop, true);
+      return;
+    }
+    if (e && e.target && menu.contains(e.target)) return;
+    closeSetTypeMenu();
+    window.removeEventListener('resize', drop, true);
+    window.removeEventListener('scroll', drop, true);
+  };
+  window.addEventListener('resize', drop, true);
+  window.addEventListener('scroll', drop, true);
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('click', () => closeSetTypeMenu());
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSetTypeMenu(); });
+}
+
+// ── Filter bar collapse ──────────────────────────────────────────────────────
+const SETS_FILTER_KEY = 'mtg_sets_filter_open';
+
+function _applySetsFilterBarState(open) {
+  const bar = document.getElementById('setsFilterBar');
+  const btn = document.getElementById('setsFilterToggleBtn');
+  if (bar) bar.style.display = open ? '' : 'none';
+  if (btn) {
+    btn.classList.toggle('active', open);
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+}
+
+function toggleSetsFilterBar() {
+  const open = !_prefOpen(SETS_FILTER_KEY, false);
+  _setPrefOpen(SETS_FILTER_KEY, open);
+  _applySetsFilterBarState(open);
+  if (open) document.getElementById('setSearch')?.focus();
+}
+
+/** Seed from the stored preference whenever the tab is shown. */
+function syncSetsHeaderToggles() {
+  _applySetsFilterBarState(_prefOpen(SETS_FILTER_KEY, false));
+  _syncSetTypeMenuUi();
+}
+
+globalThis.toggleSetTypeMenu = toggleSetTypeMenu;
+globalThis.toggleSetsFilterBar = toggleSetsFilterBar;
+globalThis.syncSetsHeaderToggles = syncSetsHeaderToggles;
 
 function setSetsView(mode, btn) {
   setsViewMode = mode;

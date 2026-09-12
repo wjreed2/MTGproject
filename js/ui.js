@@ -118,7 +118,10 @@ function showTab(t, opts) {
     if (typeof syncCollectionHeaderToggles === 'function') syncCollectionHeaderToggles();
     renderCollection();
   }
-  if (t === 'sets') loadSets();
+  if (t === 'sets') {
+    if (typeof syncSetsHeaderToggles === 'function') syncSetsHeaderToggles();
+    loadSets();
+  }
   if (t === 'decks') renderDecks();
   if (t === 'browse') renderBrowseDecks();
   if (t === 'wishlist') renderWishlist();

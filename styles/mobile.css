@@ -52,8 +52,8 @@
   /* The per-page sizing rules are ID-scoped and !important, which outranks the
      element selectors above however many `html body` prefixes they carry —
      specificity decides before source order. These match them. */
-  #tab-collection .collection-search-row .search-box,
-  #tab-collection .view-controls .search-box,
+  :is(#tab-collection, #tab-sets) .collection-search-row .search-box,
+  :is(#tab-collection, #tab-sets) .view-controls .search-box,
   #tab-collection #quickFilterRow #cmcMinInput,
   #tab-collection #quickFilterRow #cmcMaxInput,
   #tab-collection #cmcMinInput,
