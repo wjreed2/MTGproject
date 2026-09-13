@@ -2897,26 +2897,32 @@ function _htmlCardDetailUtilityIconsInner(ctx) {
 }
 
 /**
- * Your own wishlist row for a card, or null.
+ * The card an unowned pin acts on, from the ref the inspector's buttons carry.
  *
- * Only your own list: a wishlist shared with you lives in `sharedWishlists` and
- * is somebody else's to pin from.
+ * The open inspector is the first answer — it holds the very card on screen,
+ * including one handed over prefetched that is in no local pool at all. The
+ * pools are the fallback for a ref that arrives without the modal open.
  */
-function _wishlistEntryForCard(card) {
-  if (!card || typeof wishlist === 'undefined' || _viewingSharedWishlistOwnerId) return null;
-  const uid = card.uid || '';
-  const sid = card.scryfallId || '';
-  return (uid && wishlist.find(w => w.uid === uid))
-    || (sid && wishlist.find(w => w.scryfallId === sid && !!w.foil === !!card.foil))
-    || (sid && wishlist.find(w => w.scryfallId === sid))
-    || null;
-}
-
-/** The same lookup from a bare uid/scryfall ref, as the inspector's buttons carry. */
-function _wishlistEntryByRef(ref) {
+function _pinSourceCardForRef(ref) {
   const key = String(ref || '');
-  if (!key || typeof wishlist === 'undefined' || _viewingSharedWishlistOwnerId) return null;
-  return wishlist.find(w => w.uid === key || w.scryfallId === key) || null;
+  const matches = c => !!c && (c.uid === key || c.scryfallId === key);
+  if (_cardDetailCurrentCard && (matches(_cardDetailCurrentCard) || _cardDetailCurrentUid === key)) {
+    return _cardDetailCurrentCard;
+  }
+  if (!key) return null;
+  const pools = [
+    typeof wishlist !== 'undefined' ? wishlist : [],
+    ...(typeof decks !== 'undefined' ? decks : []).map(d => [
+      ...(d.cards || []), ...(d.maybeboard || []), ...(d.sideboard || []),
+      ...(d.adds || []), ...(d.cuts || []),
+    ]),
+    ...(typeof sharedDecks !== 'undefined' ? sharedDecks : []).map(d => d.cards || []),
+  ];
+  for (const pool of pools) {
+    const hit = pool.find(matches);
+    if (hit) return hit;
+  }
+  return null;
 }
 
 /** Does this deck's maybe board already hold that card? */
@@ -2941,16 +2947,15 @@ function _cardDetailPinDecks(ctx) {
     return { show: owner.length > 0, decks: owner, shared: true };
   }
   if (typeof decks === 'undefined' || !decks.length) return { show: false, decks: [], shared: false };
-  // A card you are hunting is exactly the kind that belongs on a maybe board, so
-  // the wishlist pins through the same button. There is no collection row to
-  // carry the tag on an unowned card — the maybe board itself is the record.
+  // Owning the card is not the question — a card you are still hunting is exactly
+  // the kind that belongs on a maybe board. What changes with ownership is where
+  // the pin is recorded: an owned card carries it on its collection row, while an
+  // unowned one has no such row, so the maybe board itself is the record.
   if (!isOwned) {
-    const wl = _wishlistEntryForCard(card);
-    if (!wl) return { show: false, decks: [], shared: false };
     return {
       show: true,
       shared: false,
-      decks: decks.map(d => ({ id: d.id, name: d.name, pinned: _deckMaybeBoardHasCard(d, wl) })),
+      decks: decks.map(d => ({ id: d.id, name: d.name, pinned: _deckMaybeBoardHasCard(d, card) })),
     };
   }
   return {
@@ -3854,6 +3859,9 @@ function closeCardDetail() {
   // of this function — returning early here left the modal open over the grid.
   if (typeof returnToSetBrowseFromDetail === 'function') returnToSetBrowseFromDetail();
   if (typeof _cdTagCloseMenu === 'function') _cdTagCloseMenu();
+  // The pin menu hangs off <body>, not off the modal, so closing the inspector
+  // does not take it with it — it would be left floating over the page.
+  _closeCardDetailPinMenu();
   document.getElementById('cardDetailModal').classList.remove('open');
   if (typeof _destroyInspectorPriceChart === 'function') _destroyInspectorPriceChart();
   _cardDetailOpenSession++;
@@ -4797,7 +4805,7 @@ function toggleCardStar(uid, event) {
 
 function toggleDeckTag(uid, deckId) {
   const card = collection.find(c => c.uid === uid);
-  if (!card) return _toggleWishlistDeckPin(uid, deckId);
+  if (!card) return _toggleUnownedDeckPin(uid, deckId);
   if (!card.deckTags) card.deckTags = [];
   const idx = card.deckTags.indexOf(deckId);
   const removing = idx >= 0;
@@ -4816,23 +4824,24 @@ function toggleDeckTag(uid, deckId) {
 }
 
 /**
- * Pin an unowned wishlist card to one of your decks' maybe boards.
+ * Pin a card you do not own — off the wishlist, a set, Browse, someone else's
+ * deck — to one of your decks' maybe boards.
  *
  * The owned path keeps its tag on the collection row; there is no such row here,
  * so the maybe board holds the whole state — pinned means "that board has it".
- * Wishlist bookkeeping (priority, source, dismissal) is stripped: what lands on
- * the board is a deck slot, not a wishlist entry.
+ * Wishlist and inventory bookkeeping (priority, source, dismissal, star, tags)
+ * is stripped: what lands on the board is a deck slot, not the row it came from.
  */
-function _toggleWishlistDeckPin(uid, deckId) {
+function _toggleUnownedDeckPin(uid, deckId) {
   const deck = (typeof decks !== 'undefined' ? decks : []).find(d => d.id === deckId);
-  const wl = _wishlistEntryByRef(uid)
-    || (_cardDetailCurrentCard ? _wishlistEntryForCard(_cardDetailCurrentCard) : null);
-  if (!deck || !wl || typeof syncDeckSideboardForCollectionTag !== 'function') return;
+  const src = _pinSourceCardForRef(uid);
+  if (!deck || !src || typeof syncDeckSideboardForCollectionTag !== 'function') return;
   const {
     priority, priorityLocked, source, sourceMeta, dismissed, addedAt, deckTags, qty,
+    starred, customTags, customTagTiers, roleTags, _plannedAdd,
     ...slot
-  } = wl;
-  syncDeckSideboardForCollectionTag(deckId, slot, !_deckMaybeBoardHasCard(deck, wl));
+  } = src;
+  syncDeckSideboardForCollectionTag(deckId, slot, !_deckMaybeBoardHasCard(deck, src));
   save('decks');
   if (typeof activeDeckId !== 'undefined' && activeDeckId === deckId && typeof renderActiveDeck === 'function') {
     renderActiveDeck();
