@@ -3782,6 +3782,9 @@ img.stack-main.loaded { opacity: 1; }
   gap: 8px; flex-wrap: wrap;
   margin-top: 8px;
 }
+/* Colouring is builder-only; everywhere else the row is empty and must not
+   leave its margin behind under the tags. */
+#cardDetailModal .card-detail-colorrow:empty { display: none; }
 #cardDetailModal .cd-color-add { gap: 8px; }
 /* Read-only deck: the colour is shown, not offered. */
 #cardDetailModal .cd-color-static {

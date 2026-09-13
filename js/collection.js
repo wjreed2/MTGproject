@@ -2720,6 +2720,18 @@ function _cardDetailDeckIsReadOnly() {
   return !!getActiveDeck() && !canEditActiveDeck();
 }
 
+/**
+ * True while the inspector is open over a deck in the builder.
+ *
+ * The Decks tab alone is not enough — it shows the deck list with no deck open,
+ * and a deck stays "active" after you leave for the collection or the wishlist.
+ * Both have to hold: this tab, and a deck on it.
+ */
+function _cardDetailInDeckBuilder() {
+  if (!_isDeckBuilderMainTabActive()) return false;
+  return typeof getActiveDeck === 'function' ? !!getActiveDeck() : false;
+}
+
 // Shared by the full builder and the in-place sync so the two paths can't drift.
 function _htmlCardDetailPrimaryActionsInner(ctx) {
   const { isOwned, isCommanderCandidate, actionUid, uid } = ctx;
@@ -2884,6 +2896,38 @@ function _htmlCardDetailUtilityIconsInner(ctx) {
   return icons.join('');
 }
 
+/**
+ * Your own wishlist row for a card, or null.
+ *
+ * Only your own list: a wishlist shared with you lives in `sharedWishlists` and
+ * is somebody else's to pin from.
+ */
+function _wishlistEntryForCard(card) {
+  if (!card || typeof wishlist === 'undefined' || _viewingSharedWishlistOwnerId) return null;
+  const uid = card.uid || '';
+  const sid = card.scryfallId || '';
+  return (uid && wishlist.find(w => w.uid === uid))
+    || (sid && wishlist.find(w => w.scryfallId === sid && !!w.foil === !!card.foil))
+    || (sid && wishlist.find(w => w.scryfallId === sid))
+    || null;
+}
+
+/** The same lookup from a bare uid/scryfall ref, as the inspector's buttons carry. */
+function _wishlistEntryByRef(ref) {
+  const key = String(ref || '');
+  if (!key || typeof wishlist === 'undefined' || _viewingSharedWishlistOwnerId) return null;
+  return wishlist.find(w => w.uid === key || w.scryfallId === key) || null;
+}
+
+/** Does this deck's maybe board already hold that card? */
+function _deckMaybeBoardHasCard(deck, card) {
+  const pool = (deck && deck.maybeboard) || [];
+  if (!pool.length || !card) return false;
+  const keyOf = c => (typeof getCardInventoryKey === 'function' ? getCardInventoryKey(c) : (c && c.uid) || '');
+  const key = keyOf(card);
+  return pool.some(c => (key && keyOf(c) === key) || (card.uid && c.uid === card.uid));
+}
+
 /** Decks the Pin dropdown offers, with their current pinned state. */
 function _cardDetailPinDecks(ctx) {
   const { card, isOwned } = ctx || {};
@@ -2896,7 +2940,19 @@ function _cardDetailPinDecks(ctx) {
       .map(d => ({ id: d.id, name: d.name, pinned: (d.maybeboard || []).some(c => c.scryfallId === sid && !!c.foil === foilFlag) }));
     return { show: owner.length > 0, decks: owner, shared: true };
   }
-  if (!isOwned || typeof decks === 'undefined' || !decks.length) return { show: false, decks: [], shared: false };
+  if (typeof decks === 'undefined' || !decks.length) return { show: false, decks: [], shared: false };
+  // A card you are hunting is exactly the kind that belongs on a maybe board, so
+  // the wishlist pins through the same button. There is no collection row to
+  // carry the tag on an unowned card — the maybe board itself is the record.
+  if (!isOwned) {
+    const wl = _wishlistEntryForCard(card);
+    if (!wl) return { show: false, decks: [], shared: false };
+    return {
+      show: true,
+      shared: false,
+      decks: decks.map(d => ({ id: d.id, name: d.name, pinned: _deckMaybeBoardHasCard(d, wl) })),
+    };
+  }
   return {
     show: true,
     shared: false,
@@ -2927,7 +2983,12 @@ function _openCardDetailPinMenu(uid) {
   if (!btn) return;
   const card = _cardDetailCurrentCard
     || (typeof collection !== 'undefined' ? collection.find(c => c.uid === uid) : null);
-  const data = _cardDetailPinDecks({ card, isOwned: true });
+  // Not assumed: an unowned wishlist card pins too, and its ticks come from the
+  // maybe boards rather than from a collection row.
+  const owned = window.Ownership?.resolveOwnedCard
+    ? window.Ownership.resolveOwnedCard(collection || [], card || { uid })
+    : (collection || []).find(c => c.uid === (card?.uid || uid));
+  const data = _cardDetailPinDecks({ card, isOwned: !!owned });
 
   const menu = document.createElement('div');
   menu.className = 'glass-menu card-detail-pin-menu';
@@ -3005,6 +3066,9 @@ function _htmlOpenCardDetailRightColumn(ctx) {
     activeDeck, activeDeckCard, inDeckQty,
     isCommanderCandidate, isWishlisted,
   } = ctx;
+  // The colouring control is builder-only (see _htmlCardDetailColorRow); the
+  // heading and its help follow it rather than naming a control that isn't there.
+  const coloringHere = !_cardDetailIsSharedCollection() && _cardDetailInDeckBuilder();
   const myTags = typeof _getGlobalCustomTagsForCard === 'function' ? _getGlobalCustomTagsForCard(card) : [];
   const tieredDefaults = typeof _tieredDefaultTagsForCard === 'function' ? _tieredDefaultTagsForCard(card) : [];
   let globalCustomTags = [...new Set([...myTags, ...tieredDefaults])];
@@ -3055,7 +3119,7 @@ function _htmlOpenCardDetailRightColumn(ctx) {
           </div>
         </div>
         <div class="card-detail-section card-detail-section--flush">
-          <div class="card-detail-section-label">TAGS &amp; COLORING
+          <div class="card-detail-section-label">TAGS${coloringHere ? ' &amp; COLORING' : ''}
             <span class="deck-cut-help tooltip-wrap card-detail-tag-help" tabindex="0" aria-label="What the tag colours mean">
               <span class="deck-cut-help-icon" aria-hidden="true">i</span>
               <span class="tooltip deck-cut-help-tooltip">
@@ -3063,9 +3127,9 @@ function _htmlOpenCardDetailRightColumn(ctx) {
                 <strong>Green</strong> — default tag, derived from the card itself.<br>
                 <strong>Blue</strong> — primary: one of this card's main roles.<br>
                 <strong>Purple</strong> — secondary: a supporting role.<br>
-                Click a tag to change its importance.<br><br>
+                Click a tag to change its importance.${coloringHere ? `<br><br>
                 <strong>Coloring</strong> is your own marking — one colour per card,
-                shown as a corner flag on the deck list, which can group and sort by it.
+                shown as a corner flag on the deck list, which can group and sort by it.` : ''}
               </span>
             </span>
           </div>
@@ -3895,11 +3959,18 @@ function _htmlCardDetailEditTagsBtn(ctx) {
 /**
  * The colouring row: the card's colour, or the control that gives it one.
  *
+ * Colouring is a deck-building marking — it flags a card on the deck list, and
+ * that list groups and sorts by it — so the control lives where it has an
+ * effect: a deck open in the builder, for someone who may change that deck.
+ * Opened from the collection, the wishlist, a set or a trade, the row is
+ * withheld entirely rather than offering a marking with nowhere to show.
+ *
  * One colour per card, so this is a single chip rather than a list — picking
  * again replaces it.
  */
 function _htmlCardDetailColorRow(ctx) {
   if (_cardDetailIsSharedCollection()) return '';
+  if (!_cardDetailInDeckBuilder()) return '';
   if (typeof cardColorHex !== 'function') return '';
   const ref = String(ctx?.actionUid || ctx?.uid || '').replace(/'/g, "\\'");
   const hex = cardColorHex(ctx?.card);
@@ -4726,7 +4797,7 @@ function toggleCardStar(uid, event) {
 
 function toggleDeckTag(uid, deckId) {
   const card = collection.find(c => c.uid === uid);
-  if (!card) return;
+  if (!card) return _toggleWishlistDeckPin(uid, deckId);
   if (!card.deckTags) card.deckTags = [];
   const idx = card.deckTags.indexOf(deckId);
   const removing = idx >= 0;
@@ -4735,7 +4806,34 @@ function toggleDeckTag(uid, deckId) {
   if (typeof syncDeckSideboardForCollectionTag === 'function') {
     syncDeckSideboardForCollectionTag(deckId, card, !removing);
   }
-  save('collection');
+  // The tag rides the collection row, but the copy it puts on the maybe board is
+  // a deck write — both domains have to go up or the two disagree on reload.
+  save('collection', 'decks');
+  if (typeof activeDeckId !== 'undefined' && activeDeckId === deckId && typeof renderActiveDeck === 'function') {
+    renderActiveDeck();
+  }
+  openCardDetail(uid);
+}
+
+/**
+ * Pin an unowned wishlist card to one of your decks' maybe boards.
+ *
+ * The owned path keeps its tag on the collection row; there is no such row here,
+ * so the maybe board holds the whole state — pinned means "that board has it".
+ * Wishlist bookkeeping (priority, source, dismissal) is stripped: what lands on
+ * the board is a deck slot, not a wishlist entry.
+ */
+function _toggleWishlistDeckPin(uid, deckId) {
+  const deck = (typeof decks !== 'undefined' ? decks : []).find(d => d.id === deckId);
+  const wl = _wishlistEntryByRef(uid)
+    || (_cardDetailCurrentCard ? _wishlistEntryForCard(_cardDetailCurrentCard) : null);
+  if (!deck || !wl || typeof syncDeckSideboardForCollectionTag !== 'function') return;
+  const {
+    priority, priorityLocked, source, sourceMeta, dismissed, addedAt, deckTags, qty,
+    ...slot
+  } = wl;
+  syncDeckSideboardForCollectionTag(deckId, slot, !_deckMaybeBoardHasCard(deck, wl));
+  save('decks');
   if (typeof activeDeckId !== 'undefined' && activeDeckId === deckId && typeof renderActiveDeck === 'function') {
     renderActiveDeck();
   }

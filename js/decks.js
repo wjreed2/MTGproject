@@ -5467,6 +5467,10 @@ function _findCardForTagPicker(cardUid) {
     const slot = pools.find(c => _cardMatchesRef(c, key));
     if (slot) return slot;
   }
+  // A card you only want: tags are yours and per-oracle, so a wishlist row is a
+  // perfectly good subject. Last, so an owned copy or a deck slot still wins.
+  const want = (typeof wishlist !== 'undefined' ? wishlist : []).find(c => _cardMatchesRef(c, key));
+  if (want) return want;
   return null;
 }
 
