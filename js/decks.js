@@ -2542,6 +2542,12 @@ function _glassMenuCloseAll() {
 document.addEventListener('click', _glassMenuCloseAll);
 document.addEventListener('keydown', e => { if (e.key === 'Escape') _glassMenuCloseAll(); });
 
+// Icons for fixed-label triggers, by select id — the Badges control keeps the
+// shield it has always had.
+const _GLASS_STATIC_ICONS = {
+  deckTagBadgeModeSelect: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M8 1.8l5 1.8v3.4c0 3.3-2.3 5.3-5 6.2-2.7-.9-5-2.9-5-6.2V3.6z"/></svg>',
+};
+
 function _glassSelectSyncLabels() {
   document.querySelectorAll('select[data-glassified]').forEach(sel => {
     // Dynamically built selects often have no id, so the trigger is linked
@@ -2549,6 +2555,22 @@ function _glassSelectSyncLabels() {
     const btn = sel._glassBtn || (sel.id ? document.getElementById(sel.id + 'GlassBtn') : null);
     if (!btn || !btn.isConnected) return;
     const opt = sel.options[sel.selectedIndex];
+    // A select can keep a fixed trigger: the same icon and word whatever is
+    // chosen, lit when the choice is anything but the "off" one. That is the
+    // Badges control — it was a toggle button, and it should still read as one
+    // even though choosing between four things now happens in its menu.
+    const staticLabel = sel.dataset.glassStatic;
+    if (staticLabel) {
+      const icon = _GLASS_STATIC_ICONS[sel.id] || '';
+      btn.innerHTML = `${icon}<span class="glass-dd-text">${escapeHtml(staticLabel)}</span>`;
+      const offValue = sel.dataset.glassOffValue;
+      const on = offValue == null ? true : sel.value !== offValue;
+      btn.classList.toggle('active', on);
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      btn.title = `${staticLabel}: ${opt ? opt.text : ''}`;
+      btn.disabled = sel.disabled;
+      return;
+    }
     const prefix = sel.dataset.glassLabel;
     // The label goes in a span so it can be clipped: as a bare text node it was
     // an anonymous flex item, which no rule can reach, and a long option ran

@@ -841,7 +841,9 @@
               oninput="setDeckCardSize(+this.value)"
               style="width:72px;cursor:pointer" title="Card size">
           </div>
-          <select id="deckTagBadgeModeSelect" class="deck-select" data-glass-label="Badges" onchange="setDeckTagBadgeMode(this.value)" title="What the corner badges stand for">
+          <!-- Fixed trigger: the shield and the word, lit when badges are on; the
+               four choices live in its menu. -->
+          <select id="deckTagBadgeModeSelect" class="deck-select" data-glass-static="Badges" data-glass-off-value="off" onchange="setDeckTagBadgeMode(this.value)" title="What the corner badges stand for">
             <option value="off">Off</option>
             <option value="default">Default tags</option>
             <option value="primary">Primary tags</option>
