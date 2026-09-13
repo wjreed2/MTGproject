@@ -1111,7 +1111,9 @@
     <div style="flex:1"></div>
     <input id="browseSearchInput" type="text" placeholder="Search by name, format, or commander…" style="width:260px" oninput="filterBrowseDecks(this.value)">
   </div>
-  <div id="browseDeckGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:0.85rem"></div>
+  <!-- min(100%, …) rather than a media query: a phone falls to one per row on
+       its own, and a desktop gets two or three until the window is very wide. -->
+  <div id="browseDeckGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,470px),1fr));gap:0.9rem"></div>
 </div>
 
 <!-- WISHLIST TAB -->
