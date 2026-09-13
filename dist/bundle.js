@@ -1920,7 +1920,7 @@ ${f} untapped lands`},...q.map(ve=>({label:ve.label,p:ve.p,detail:ve.detail})),.
     <div class="tablet-center-box" onclick="event.stopPropagation()" style="position:fixed;${t};z-index:10;
       background:color-mix(in oklab, var(--bg2) 90%, transparent);backdrop-filter:blur(16px);transition:transform 0.35s ease;
       border:1px solid var(--border2);border-radius:18px;padding:12px 24px;text-align:center;min-width:164px">
-      <div class="tablet-center-timer" style="font-family:'JetBrains Mono',monospace;font-size:clamp(2rem,4.5vw,3.2rem);font-weight:700;color:${_turnPaused?"var(--text3)":"var(--text)"};line-height:1">
+      <div class="tablet-center-timer" style="font-family:'JetBrains Mono',monospace;font-size:clamp(2rem,4.5vw,3.2rem);font-weight:700;color:${_turnPaused?"color-mix(in oklab, var(--glass-life-hi) 55%, transparent)":"var(--glass-life-hi)"};line-height:1">
         <span id="tabletTurnTimerDisplay">${_turnPaused?formatDuration(_pausedElapsed):e.turnStartedAt?formatDuration(Date.now()-e.turnStartedAt):"00:00"}</span>
       </div>
       ${o?`<div class="tablet-center-turn" style="font-size:clamp(0.6rem,1.3vw,0.82rem);color:${_seatInk(o.color)};margin-top:5px;font-family:'Inter',system-ui,sans-serif;letter-spacing:0.04em">T${e.currentTurn} \xB7 ${escapeHtml(o.name)}</div>`:""}
