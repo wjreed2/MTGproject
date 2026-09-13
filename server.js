@@ -2248,6 +2248,16 @@ async function ensureNormalizedDeckSchema() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
     // Add is_public column if it doesn't exist yet
+    // The semantics engine's top goal for a deck, cached against the revision it
+    // was computed at. Inferring it means resolving every card's IR and running
+    // the cluster/interaction pass — far too much to do for a whole listing on
+    // every load, and it only changes when the deck does.
+    if (!(await columnExists(conn, 'decks', 'semantics_goal'))) {
+      await conn.query('ALTER TABLE decks ADD COLUMN semantics_goal VARCHAR(80) NULL DEFAULT NULL');
+    }
+    if (!(await columnExists(conn, 'decks', 'semantics_goal_rev'))) {
+      await conn.query('ALTER TABLE decks ADD COLUMN semantics_goal_rev INT NULL DEFAULT NULL');
+    }
     if (!(await columnExists(conn, 'decks', 'is_public'))) {
       await conn.query('ALTER TABLE decks ADD COLUMN is_public TINYINT(1) NOT NULL DEFAULT 0');
     }
@@ -4014,7 +4024,7 @@ app.get('/api/decks', requireAuth, async (req, res) => {
 app.get('/api/decks/public', async (req, res) => {
   try {
     const [rows] = await db().query(
-      `SELECT d.id, d.data, d.account_id, a.email
+      `SELECT d.id, d.data, d.account_id, a.email, d.revision, d.semantics_goal, d.semantics_goal_rev
        FROM decks d
        JOIN accounts a ON a.id = d.account_id
        WHERE d.is_public = 1
@@ -4056,6 +4066,36 @@ app.get('/api/decks/public', async (req, res) => {
       return sum + unit * (c.qty || 1);
     }, 0);
 
+    // Fill in missing or stale goals a few at a time. The listing self-populates
+    // over the first couple of loads rather than making any one of them wait for
+    // every deck's inference, and a cached goal costs nothing thereafter.
+    const GOAL_FILL_PER_REQUEST = 4;
+    const goalByDeck = new Map();
+    let filled = 0;
+    for (const r of rows) {
+      const rev = Number(r.revision) || 0;
+      // Attempted at this revision is cached, goal or no goal. Keying on the
+      // goal being present instead meant every deck the engine had nothing to
+      // say about was re-inferred on every load, and the budget never reached
+      // the decks behind them.
+      if (r.semantics_goal_rev != null && Number(r.semantics_goal_rev) === rev) {
+        if (r.semantics_goal) goalByDeck.set(r.id, r.semantics_goal);
+        continue;
+      }
+      if (filled >= GOAL_FILL_PER_REQUEST) continue;
+      filled++;
+      const deckData = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
+      const cards = cardsByDeck.get(`${r.account_id}::${r.id}`) || deckData.cards || [];
+      const goal = await computeDeckSemanticsGoal(cards, deckData.commander).catch(() => null);
+      if (goal) goalByDeck.set(r.id, goal);
+      // Record the attempt either way, so a deck whose cards have no semantics
+      // is not re-inferred on every single load.
+      await db().query(
+        'UPDATE decks SET semantics_goal = ?, semantics_goal_rev = ? WHERE id = ? AND account_id = ?',
+        [goal || null, rev, r.id, r.account_id]
+      ).catch(() => {});
+    }
+
     const out = rows.map(r => {
       const deck = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
       const cards = cardsByDeck.get(`${r.account_id}::${r.id}`) || deck.cards || [];
@@ -4069,6 +4109,7 @@ app.get('/api/decks/public', async (req, res) => {
         colorIdentity: deck.commanderColorIdentity || [],
         cardCount: cards.reduce((s, c) => s + (c.qty || 1), 0),
         notes: String(deck.notes || '').slice(0, 400),
+        goal: goalByDeck.get(r.id) || null,
         price: Math.round(deckValue(cards) * 100) / 100,
         ownerEmail: r.email,
         accountId: r.account_id,
@@ -5611,6 +5652,43 @@ app.post('/api/decks/suggest-types', requireAuth, async (req, res) => {
 // arrives in the body (decks live client-side in the decks.data JSON blob); no LLM here.
 
 const _e2AnalyzeLast = new Map(); // accountId → ts (light rate limit; analysis is CPU-bound)
+
+/**
+ * The semantics engine's headline goal for a deck — "Aristocrats", "Voltron",
+ * "Goblin tribal" — as the browse listing shows it.
+ *
+ * Only the goal: inferGoals is pure work over resolved card IR, while the rest
+ * of /api/decks/analyze is retrieval and candidate scoring, which a listing has
+ * no use for. Returns null when the cards have no semantics yet.
+ */
+async function computeDeckSemanticsGoal(cards, commanderName) {
+  if (!engine2?.deckGoals?.inferGoals) return null;
+  const list = (Array.isArray(cards) ? cards : []).slice(0, 400);
+  if (!list.length) return null;
+  const cmdName = String(commanderName || '').trim()
+    || list.find(c => c.isCommander)?.name || null;
+  const resolved = await _e2ResolveCards(list.map(c => String(c.name || '')).concat(cmdName ? [cmdName] : []));
+  const parseIR = r => { try { return r?.ir_json ? JSON.parse(r.ir_json) : null; } catch (_) { return null; } };
+  const deckCards = [];
+  for (const c of list) {
+    if (c.isCommander || (cmdName && c.name === cmdName)) continue;
+    const r = resolved.get(String(c.name));
+    deckCards.push({
+      name: String(c.name), qty: Math.max(1, parseInt(c.qty, 10) || 1),
+      ir: parseIR(r), cmc: r ? Number(r.cmc) : 0, typeLine: r ? r.type_line : '',
+    });
+  }
+  if (!deckCards.some(c => c.ir)) return null;
+  const cr = cmdName ? resolved.get(cmdName) : null;
+  const commander = cmdName ? { name: cmdName, ir: parseIR(cr) } : null;
+  try {
+    const top = engine2.deckGoals.inferGoals(deckCards, commander).goals[0];
+    return top ? String(top.label || top.goal).slice(0, 80) : null;
+  } catch (e) {
+    console.warn('[e2] goal inference failed:', e.message);
+    return null;
+  }
+}
 
 async function _e2ResolveCards(names) {
   const found = new Map(); // name → {row, ir}

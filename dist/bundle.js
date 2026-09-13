@@ -1122,6 +1122,7 @@ ${f} untapped lands`},...F.map(ve=>({label:ve.label,p:ve.p,detail:ve.detail})),.
       <div class="pubdeck-info">
         <div class="pubdeck-name">${escapeHtml(e.name)}</div>
         ${e.commander?`<div class="pubdeck-cmdr">${escapeHtml(e.commander)}</div>`:""}
+        ${e.goal?`<div class="pubdeck-goal" title="What the semantics engine reads this deck as trying to do">${escapeHtml(e.goal)}</div>`:""}
         ${r?`<div class="pubdeck-notes">${escapeHtml(r)}</div>`:""}
         <div class="pubdeck-foot">
           ${o?`<span class="pubdeck-price">${o}</span>`:""}

@@ -89,6 +89,7 @@ function _browseDeckCard(d) {
       <div class="pubdeck-info">
         <div class="pubdeck-name">${escapeHtml(d.name)}</div>
         ${d.commander ? `<div class="pubdeck-cmdr">${escapeHtml(d.commander)}</div>` : ''}
+        ${d.goal ? `<div class="pubdeck-goal" title="What the semantics engine reads this deck as trying to do">${escapeHtml(d.goal)}</div>` : ''}
         ${notes ? `<div class="pubdeck-notes">${escapeHtml(notes)}</div>` : ''}
         <div class="pubdeck-foot">
           ${price ? `<span class="pubdeck-price">${price}</span>` : ''}
