@@ -664,6 +664,14 @@ body::before {
    Brand marks keep their own colours (the one sanctioned exception to the
    "never hardcode a colour a token covers" rule — Google and Discord both
    require their mark be shown unaltered); everything else is tokens. */
+/* display:flex below outranks the UA's [hidden] { display: none } on
+   specificity, so these three need to opt back out explicitly — without this a
+   hidden row still renders (a stray "OR" on the sign-in card, and a permanent
+   confirm-your-email strip for users who have nothing to confirm). */
+.auth-providers[hidden],
+.auth-divider[hidden],
+.verify-banner[hidden] { display: none; }
+
 .auth-providers {
   display: flex;
   flex-direction: column;
