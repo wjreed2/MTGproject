@@ -2351,6 +2351,12 @@ async function ensureNormalizedDeckSchema() {
     if (!(await columnExists(conn, 'decks', 'semantics_goal_rev'))) {
       await conn.query('ALTER TABLE decks ADD COLUMN semantics_goal_rev INT NULL DEFAULT NULL');
     }
+    // The whole readout — primary and secondary goal, their match confidences
+    // and the one-line summary — so a deck card can say what the Suggestions
+    // tab says. semantics_goal keeps the bare label beside it.
+    if (!(await columnExists(conn, 'decks', 'semantics_goal_json'))) {
+      await conn.query('ALTER TABLE decks ADD COLUMN semantics_goal_json JSON NULL DEFAULT NULL');
+    }
     if (!(await columnExists(conn, 'decks', 'is_public'))) {
       await conn.query('ALTER TABLE decks ADD COLUMN is_public TINYINT(1) NOT NULL DEFAULT 0');
     }
@@ -4118,7 +4124,7 @@ app.get('/api/decks/public', async (req, res) => {
   try {
     const [rows] = await db().query(
       `SELECT d.id, d.data, d.account_id, a.email, a.username, a.display_name,
-              d.revision, d.semantics_goal, d.semantics_goal_rev
+              d.revision, d.semantics_goal, d.semantics_goal_rev, d.semantics_goal_json
        FROM decks d
        JOIN accounts a ON a.id = d.account_id
        WHERE d.is_public = 1
@@ -4171,9 +4177,14 @@ app.get('/api/decks/public', async (req, res) => {
       // Attempted at this revision is cached, goal or no goal. Keying on the
       // goal being present instead meant every deck the engine had nothing to
       // say about was re-inferred on every load, and the budget never reached
-      // the decks behind them.
-      if (r.semantics_goal_rev != null && Number(r.semantics_goal_rev) === rev) {
-        if (r.semantics_goal) goalByDeck.set(r.id, r.semantics_goal);
+      // the decks behind them. A row cached before the readout existed has a
+      // label but no json, and is re-inferred once to pick the rest up.
+      const cachedJson = r.semantics_goal_json
+        && (typeof r.semantics_goal_json === 'object' ? r.semantics_goal_json
+          : (() => { try { return JSON.parse(r.semantics_goal_json); } catch (_) { return null; } })());
+      if (r.semantics_goal_rev != null && Number(r.semantics_goal_rev) === rev
+          && (cachedJson || !r.semantics_goal)) {
+        if (cachedJson) goalByDeck.set(r.id, cachedJson);
         continue;
       }
       if (filled >= GOAL_FILL_PER_REQUEST) continue;
@@ -4185,8 +4196,8 @@ app.get('/api/decks/public', async (req, res) => {
       // Record the attempt either way, so a deck whose cards have no semantics
       // is not re-inferred on every single load.
       await db().query(
-        'UPDATE decks SET semantics_goal = ?, semantics_goal_rev = ? WHERE id = ? AND account_id = ?',
-        [goal || null, rev, r.id, r.account_id]
+        'UPDATE decks SET semantics_goal = ?, semantics_goal_json = ?, semantics_goal_rev = ? WHERE id = ? AND account_id = ?',
+        [goal ? goal.label : null, goal ? JSON.stringify(goal) : null, rev, r.id, r.account_id]
       ).catch(() => {});
     }
 
@@ -5752,10 +5763,11 @@ app.post('/api/decks/suggest-types', requireAuth, async (req, res) => {
 const _e2AnalyzeLast = new Map(); // accountId → ts (light rate limit; analysis is CPU-bound)
 
 /**
- * The semantics engine's headline goal for a deck — "Aristocrats", "Voltron",
- * "Goblin tribal" — as the browse listing shows it.
+ * The semantics engine's reading of a deck, as the Suggestions tab states it:
+ * the goal, how strongly it matches, the one-line summary, and the secondary
+ * goal when there is a real one.
  *
- * Only the goal: inferGoals is pure work over resolved card IR, while the rest
+ * Only the goals: inferGoals is pure work over resolved card IR, while the rest
  * of /api/decks/analyze is retrieval and candidate scoring, which a listing has
  * no use for. Returns null when the cards have no semantics yet.
  */
@@ -5780,8 +5792,19 @@ async function computeDeckSemanticsGoal(cards, commanderName) {
   const cr = cmdName ? resolved.get(cmdName) : null;
   const commander = cmdName ? { name: cmdName, ir: parseIR(cr) } : null;
   try {
-    const top = engine2.deckGoals.inferGoals(deckCards, commander).goals[0];
-    return top ? String(top.label || top.goal).slice(0, 80) : null;
+    const goals = engine2.deckGoals.inferGoals(deckCards, commander).goals || [];
+    const top = goals[0];
+    if (!top) return null;
+    const second = goals[1];
+    return {
+      label: String(top.label || top.goal).slice(0, 80),
+      confidence: Number(top.confidence) || 0,
+      summary: String(top.summary || '').slice(0, 300),
+      // Same bar the Suggestions tab uses before it calls a second goal real.
+      second: second && (Number(second.confidence) || 0) >= 0.85
+        ? { label: String(second.label || second.goal).slice(0, 80), confidence: Number(second.confidence) || 0 }
+        : null,
+    };
   } catch (e) {
     console.warn('[e2] goal inference failed:', e.message);
     return null;

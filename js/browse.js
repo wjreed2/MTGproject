@@ -66,6 +66,29 @@ function _browseDeckPrice(v) {
     : '$' + n.toFixed(2);
 }
 
+/**
+ * The semantics readout, worded and coloured exactly as the Suggestions tab
+ * words it: the goal and its match, the secondary goal when there is a real
+ * one, and the engine's one-line summary underneath.
+ */
+function _browseGoalHtml(goal) {
+  if (!goal || !goal.label) return '';
+  const pct = p => Math.round((Number(p) || 0) * 100);
+  const colour = p => (typeof _lgxVerdictColor === 'function'
+    ? _lgxVerdictColor(Number(p) || 0)
+    : 'var(--text2)');
+  const match = p => `<span class="deck-goal-match" style="color:${colour(p)}">${pct(p)}% match</span>`;
+  const second = goal.second && goal.second.label
+    ? `<span class="deck-goal-sep">·</span><span class="pubdeck-goal-kicker">secondary</span>`
+      + `<span class="pubdeck-goal-name pubdeck-goal-name--second">${escapeHtml(goal.second.label)}</span>`
+      + match(goal.second.confidence)
+    : '';
+  return `<div class="pubdeck-goal">
+      <span class="pubdeck-goal-kicker">Deck goal</span><span class="pubdeck-goal-name">${escapeHtml(goal.label)}</span>${match(goal.confidence)}${second}
+    </div>`
+    + (goal.summary ? `<div class="pubdeck-goal-summary">${escapeHtml(goal.summary)}</div>` : '');
+}
+
 function _browseDeckCard(d) {
   // A card rather than a bare tile: someone else's deck is worth reading about
   // before opening it, and the commander's art alone said nothing but "this is
@@ -89,9 +112,7 @@ function _browseDeckCard(d) {
       <div class="pubdeck-info">
         <div class="pubdeck-name">${escapeHtml(d.name)}</div>
         ${d.commander ? `<div class="pubdeck-cmdr">${escapeHtml(d.commander)}</div>` : ''}
-        ${d.goal ? `<div class="pubdeck-goal" title="What the semantics engine reads this deck as trying to do">
-          <span class="pubdeck-goal-kicker">Deck goal</span><span class="pubdeck-goal-name">${escapeHtml(d.goal)}</span>
-        </div>` : ''}
+        ${_browseGoalHtml(d.goal)}
         ${notes ? `<div class="pubdeck-notes">${escapeHtml(notes)}</div>` : ''}
         <div class="pubdeck-foot">
           ${price ? `<span class="pubdeck-price">${price}</span>` : ''}
