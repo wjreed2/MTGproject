@@ -2264,9 +2264,11 @@ function initNotifications() {
   document.addEventListener('click', e => {
     if (!_notifState.open) return;
     const panel = document.getElementById('notifPanel');
+    // As a page there is no "outside" to dismiss to — and the menu tap that
+    // navigated there bubbles to here, so without this it closed on arrival.
+    if (panel?.classList.contains('notif-as-page')) return;
     // Both triggers have to be exempt, or the very click that opens the panel
-    // bubbles to here and closes it again. The phone's bell lives in the bottom
-    // nav (#mobNotifBtn) now that the topbar is collapsed away.
+    // bubbles to here and closes it again.
     const onTrigger = ['topbarNotifBtn', 'mobNotifBtn'].some(id => {
       const b = document.getElementById(id);
       return b && b.contains(e.target);
@@ -2386,9 +2388,12 @@ async function onNotifClick(id) {
   if (!n) return;
   if (n.readAt == null) { void markNotifRead(id); }
   const t = _notifTarget(n);
-  _notifState.open = false;
   const panel = document.getElementById('notifPanel');
-  if (panel) panel.hidden = true;
+  const asPage = panel?.classList.contains('notif-as-page');
+  if (!asPage) {
+    _notifState.open = false;
+    if (panel) panel.hidden = true;
+  }
   if (t && typeof showTab === 'function') {
     showTab(t.tab);
     if (t.section && typeof setTradeSection === 'function') setTradeSection(t.section);

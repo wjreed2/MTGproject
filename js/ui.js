@@ -14,6 +14,7 @@ function _isNavChromeTabPress(t) {
   const tgt = (typeof event !== 'undefined' && event) ? event.currentTarget : null;
   if (!tgt || !tgt.classList) return false;
   if (tgt.classList.contains('mob-nav-item')) return tgt.getAttribute('data-tab') === t;
+  if (tgt.classList.contains('mob-nav-row')) return tgt.getAttribute('data-tab') === t;
   if (tgt.classList.contains('sidebar-item')) {
     const oc = tgt.getAttribute('onclick') || '';
     return oc.includes(`'${t}'`) || oc.includes(`"${t}"`);
@@ -86,7 +87,7 @@ function _resetActiveTabToRoot(t) {
 // rows the sidebar has no entry for — notifications and settings — are appended.
 function _mobNavExtraRows() {
   return [
-    { id: 'notif', label: 'Notifications', badge: true,
+    { id: 'notif', label: 'Notifications', tab: 'notifications', badge: true,
       icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>' },
     { id: 'settings', label: 'Settings', tab: 'settings',
       icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 008 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H2a2 2 0 110-4h.09A1.65 1.65 0 004.6 8a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 3.6 1.65 1.65 0 0010 2.09V2a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9c.14.63.68 1.1 1.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>' },
@@ -106,7 +107,7 @@ function buildMobNavMenu() {
     return { tab: off ? '' : tab, label: btn.dataset.label || tab, icon: btn.querySelector('svg')?.outerHTML || '' };
   }).filter(x => x.tab);
   const row = x => `<button type="button" class="mob-nav-row" data-tab="${x.tab || ''}" data-row="${x.id || x.tab}"
-      onclick="${x.id === 'notif' ? 'mobNavOpenNotifications(event)' : `showTab('${x.tab}')`}">
+      onclick="showTab('${x.tab}')">
       <span class="mob-nav-row-icon">${x.icon}</span><span class="mob-nav-row-label">${x.label}</span>
       ${x.badge ? '<span class="topbar-notif-badge mob-nav-row-badge" id="mobNavMenuNotifBadge" hidden aria-hidden="true">0</span>' : ''}
     </button>`;
@@ -182,15 +183,8 @@ function toggleMobNav(e) {
   }
 }
 
-function mobNavOpenNotifications(e) {
-  if (e) e.stopPropagation();
-  closeMobNav();
-  if (typeof toggleNotifPanel === 'function') void toggleNotifPanel();
-}
-
 globalThis.toggleMobNav = toggleMobNav;
 globalThis.closeMobNav = closeMobNav;
-globalThis.mobNavOpenNotifications = mobNavOpenNotifications;
 
 if (typeof document !== 'undefined') {
   document.addEventListener('click', e => {
@@ -211,8 +205,11 @@ if (typeof document !== 'undefined') {
 
 function showTab(t, opts) {
   opts = opts || {};
-  // Same-tab re-tap from nav chrome → pop to that tab's root view.
+  // Same-tab re-tap from nav chrome → pop to that tab's root view. The menu has
+  // to close on the way out: this path returns before the close below, and a
+  // menu left open over the view it just reset reads as the tap doing nothing.
   if (!opts.skipRender && _currentShowTabId() === t && _isNavChromeTabPress(t)) {
+    closeMobNav();
     _resetActiveTabToRoot(t);
     return;
   }
@@ -244,6 +241,25 @@ function showTab(t, opts) {
     } else if (_settingsDropdown.classList.contains('settings-as-page')) {
       _settingsDropdown.classList.remove('settings-as-page', 'open');
       document.querySelector('header.topbar')?.appendChild(_settingsDropdown);
+    }
+  }
+  // Notifications tab (mobile): the same move as Settings above. The panel is
+  // the page rather than a copy of it, so there is one element, one set of ids
+  // and one unread count however you reach it.
+  const _notifPanelEl = document.getElementById('notifPanel');
+  if (_notifPanelEl) {
+    if (t === 'notifications') {
+      document.getElementById('tab-notifications')?.appendChild(_notifPanelEl);
+      _notifPanelEl.classList.add('notif-as-page');
+      _notifPanelEl.hidden = false;
+      if (typeof _notifState !== 'undefined') _notifState.open = true;
+      if (typeof renderNotifPanel === 'function') renderNotifPanel(true);
+      if (typeof refreshNotifications === 'function') void refreshNotifications();
+    } else if (_notifPanelEl.classList.contains('notif-as-page')) {
+      _notifPanelEl.classList.remove('notif-as-page');
+      _notifPanelEl.hidden = true;
+      if (typeof _notifState !== 'undefined') _notifState.open = false;
+      document.querySelector('header.topbar')?.appendChild(_notifPanelEl);
     }
   }
   if (t !== 'collection' && typeof exitSharedCollectionView === 'function' && typeof _viewingSharedCollOwnerId !== 'undefined' && _viewingSharedCollOwnerId) exitSharedCollectionView();

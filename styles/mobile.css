@@ -295,7 +295,9 @@
   /* Their anchor is a zero-height bar now, so `top: 100%` would land them at the
      very top of the screen under the notch. Pin them to the viewport instead,
      clearing the status bar above and the bottom nav below. */
-  .notif-panel {
+  /* The popover form only — as a page (#tab-notifications) it is the content,
+     not an overlay. Mirrors .settings-dropdown:not(.settings-as-page) below. */
+  .notif-panel:not(.notif-as-page) {
     position: fixed !important;
     top: calc(env(safe-area-inset-top, 0px) + 8px) !important;
     right: 8px !important;
@@ -802,23 +804,53 @@
     backdrop-filter: none !important;
   }
   /* There is no topbar on phones, so the page supplies its own top breathing
-     room and a heading — otherwise the first section label sits against the
-     very top edge of the viewport. */
+     room — otherwise the first section label sits against the very top edge of
+     the viewport. The heading is a real .page-title in the markup, so it is the
+     same size as every other page's and carries the same inset past the menu
+     button; it just stands alone instead of heading a row of controls. */
   #tab-settings.active { padding-top: 0.35rem; }
-  #tab-settings::before {
-    content: 'Settings';
-    display: block;
-    font-family: 'Cinzel', serif;
-    font-size: 1.15rem;
-    color: var(--text);
-    letter-spacing: 0.02em;
-    margin: 0 0 0.85rem;
-  }
-  body.glass-mode #tab-settings::before { font-family: var(--glass-font); font-weight: 700; }
+  #tab-settings > .page-title,
+  #tab-notifications > .page-title { display: block; margin-bottom: 0.85rem; }
   /* Section labels need air between groups now that they are the only structure. */
   .settings-as-page .settings-section-label { margin-top: 1.1rem; }
   .settings-as-page > .settings-section-label:first-child { margin-top: 0; }
   .settings-as-page .settings-divider { margin: 1.1rem 0; }
+
+  /* ── Notifications page — the topbar panel rendered as a full page ──────
+     Same move as Settings above: showTab() relocates the live #notifPanel into
+     #tab-notifications, so one element keeps one set of ids and one unread
+     count. Here it stops being a floating popover. */
+  .notif-panel.notif-as-page {
+    position: static;
+    width: auto;
+    max-height: none;
+    overflow: visible;
+    z-index: auto;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  /* Same specificity note as the settings page: the shared glass rule for
+     popovers is `body.glass-mode :is(.notif-panel, …)` at (0,2,1) with
+     !important, which a plain `.notif-panel.notif-as-page` cannot outrank. */
+  body.glass-mode .notif-panel.notif-as-page {
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+  .notif-as-page .notif-panel-head {
+    position: static;
+    background: transparent;
+    padding: 0 0 8px;
+  }
+  /* The page carries the title above; the panel's own is a duplicate. */
+  .notif-as-page .notif-panel-title { display: none; }
+  .notif-as-page #notifMarkAllBtn { margin-left: auto; }
+  .notif-as-page .notif-panel-body { padding: 4px 0; }
 
   /* ── Modals — slide up from bottom ───────────────────────────────────── */
   .modal-overlay { align-items: flex-end !important; }

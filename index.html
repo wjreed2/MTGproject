@@ -561,7 +561,7 @@
 </div>
 
 <!-- SET BROWSER TAB -->
-<div id="tab-sets" class="tab-content">
+<div id="tab-sets" class="tab-content" data-nav-own-row>
   <!-- Header mirrors the collection's: high-level actions right-aligned above a
        filter bar that Filter collapses. Refresh stays outside it. -->
   <div id="setsHeader">
@@ -1263,7 +1263,15 @@
 </div>
 
 <!-- SETTINGS TAB (mobile only) — the settings dropdown is rendered as a full page here via CSS -->
-<div id="tab-settings" class="tab-content"></div>
+<div id="tab-settings" class="tab-content">
+  <span class="page-title">Settings</span>
+</div>
+
+<!-- NOTIFICATIONS TAB — phones host the topbar's #notifPanel here as a full
+     page; showTab() moves the live element in and out. -->
+<div id="tab-notifications" class="tab-content">
+  <span class="page-title">Notifications</span>
+</div>
 
 <!-- ANALYTICS TAB (nav entry removed for now; content kept dormant) -->
 <div id="tab-stats" class="tab-content">
