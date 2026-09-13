@@ -1974,14 +1974,6 @@ try {
   }
 } catch (_) {}
 
-function _renderScryTagSyncBadge() {
-  const badge = document.getElementById('deckScryTagSyncBadge');
-  if (badge) {
-    const show = !!activeDeckId && _scrySyncDecks.has(activeDeckId);
-    badge.style.display = show ? '' : 'none';
-  }
-}
-
 
 // Returns the active deck from either decks[] or sharedDecks[]
 function getActiveDeck() {
@@ -3983,9 +3975,12 @@ function renderDecks() {
   }
   ensureDefaultDeckRoleTags();
   let roleTagChanged = false;
+  // Tags are read by the open deck's list, groupings and badges — never by the
+  // grid above, which is commander art. Scheduling a refresh per deck here meant
+  // a round trip on every render for an answer nothing on screen used, and the
+  // shared timer meant only the last deck's ever actually ran.
   decks.forEach(d => {
     if (syncDeckAutoRoleTags(d)) roleTagChanged = true;
-    _scheduleDeckScryfallTagRefresh(d);
   });
   if (roleTagChanged) save('decks');
   const importWrap = document.getElementById('deckImportDropdownWrap');
@@ -4938,7 +4933,6 @@ function renderActiveDeck() {
     });
   }
 
-  _renderScryTagSyncBadge();
 
   renderDeckList(deck);
   _scheduleDeckChartsRender();
@@ -14556,17 +14550,28 @@ async function _fetchScryfallTagsBatch(missingOids) {
   }
 }
 
+/**
+ * Oracle tags do not change between two looks at the same deck, but every id in
+ * the deck went to the server on every refresh — so reopening a deck paid a full
+ * round trip for an answer already in hand. Only unknown ids are asked for now;
+ * forceRefreshDeckScryfallTags empties the cache first, so it still re-asks.
+ */
 async function _fetchScryfallTagsForDeckOracleIds(oracleIds) {
   const ids = [...new Set((oracleIds || []).filter(_isUuidLike))];
   const out = new Map();
   if (!ids.length) return out;
+  for (const oid of ids) {
+    if (_scryTagsByOracleId.has(oid)) out.set(oid, _scryTagsByOracleId.get(oid));
+  }
+  const missing = ids.filter(oid => !_scryTagsByOracleId.has(oid));
+  if (!missing.length) return out;
   try {
     const r = await apiPostJson('/scryfall/tags/batch', {
-      oracleIds: ids,
+      oracleIds: missing,
       schemaVersion: _SCRY_TAG_SCHEMA_VERSION,
     });
     const byOid = r?.tagsByOracleId || {};
-    ids.forEach(oid => {
+    missing.forEach(oid => {
       if (!Object.prototype.hasOwnProperty.call(byOid, oid)) return;
       const arr = Array.isArray(byOid[oid]) ? byOid[oid].filter(Boolean) : [];
       out.set(oid, arr);
@@ -14741,16 +14746,14 @@ function _scheduleDeckScryfallTagRefresh(deck) {
   // so grouping by default tags works on decks shared with the user.
   if (!deck) return;
   _scrySyncDecks.add(deck.id);
-  _renderScryTagSyncBadge();
   if (_scryRefreshTimer) clearTimeout(_scryRefreshTimer);
   _scryRefreshTimer = setTimeout(() => {
     _scryRefreshTimer = null;
     _refreshDeckScryfallTags(deck)
       .catch(() => {})
-      .finally(() => {
-        _scrySyncDecks.delete(deck.id);
-        _renderScryTagSyncBadge();
-      });
+      // The timer is shared, so a burst of schedules collapses into one run.
+      // Clearing only this deck's id left every superseded one in the set.
+      .finally(() => { _scrySyncDecks.clear(); });
   }, 90);
 }
 
@@ -14762,7 +14765,6 @@ async function forceRefreshDeckScryfallTags() {
     if (c?.oracleId) _scryTagsByOracleId.delete(c.oracleId);
   });
   _scrySyncDecks.add(deck.id);
-  _renderScryTagSyncBadge();
   try {
     await _refreshDeckScryfallTags(deck);
     showNotif('Scryfall tags refreshed');
@@ -14773,7 +14775,6 @@ async function forceRefreshDeckScryfallTags() {
     showNotif('Could not refresh Scryfall tags', true);
   } finally {
     _scrySyncDecks.delete(deck.id);
-    _renderScryTagSyncBadge();
   }
 }
 

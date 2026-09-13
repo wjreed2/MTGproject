@@ -385,6 +385,10 @@ function _postPaintSessionRefresh() {
  * @param opts.quiet — skip the "Collection synced." toast (every ordinary
  *   refresh revalidates now; the toast would be noise).
  */
+// Set by the last resync: true only when the server could not be reached, so
+// callers can tell "offline" from "the data arrived and something else threw".
+let _resyncUnreachable = false;
+
 async function resyncAppDataFromServer(opts) {
   if (typeof isAppDataSynced === 'function' && isAppDataSynced()) return true;
   if (_appDataResyncInFlight) return _appDataResyncInFlight;
@@ -392,9 +396,21 @@ async function resyncAppDataFromServer(opts) {
   const quiet = !!(opts && opts.quiet);
   const pendingLoad = (opts && opts.loadPromise) || null;
   _appDataResyncInFlight = (async () => {
+    let data;
     try {
       console.info('[db] Resyncing app data from server (' + reason + ')…');
-      const data = await (pendingLoad || loadAllData());
+      try {
+        data = await (pendingLoad || loadAllData());
+      } catch (e) {
+        // The only failure that means "offline". Everything past this point has
+        // the server's answer in hand, so a throw there is a bug in hydrating or
+        // painting it — and raising the offline banner for one sent people
+        // hunting a network fault that was never there.
+        console.warn('[db] Resync could not reach the server:', e);
+        _resyncUnreachable = true;
+        return false;
+      }
+      _resyncUnreachable = false;
       await cacheSaveAll(data, currentUser?.id);
       const flags = hydrateAppData(data);
       if (typeof markAppDataSynced === 'function') markAppDataSynced(true);
@@ -423,7 +439,8 @@ async function resyncAppDataFromServer(opts) {
       }
       return true;
     } catch (e) {
-      console.warn('[db] Resync failed:', e);
+      console.warn('[db] Resync failed after the data arrived:', e);
+      _resyncUnreachable = false;
       return false;
     } finally {
       _appDataResyncInFlight = null;
@@ -523,7 +540,7 @@ async function loadAppDataAfterAuth(opts) {
       _postPaintSessionRefresh();
       resyncAppDataFromServer({ reason: 'boot-revalidate', quiet: true, loadPromise })
         .then(ok => {
-          if (!ok && typeof _setOffline === 'function') _setOffline();
+          if (!ok && _resyncUnreachable && typeof _setOffline === 'function') _setOffline();
         })
         .catch(() => {});
       return;
@@ -532,6 +549,8 @@ async function loadAppDataAfterAuth(opts) {
 
   let fromCache = false;
   let fromServer = false;
+  // The budget expiring means the request is still running, not that it failed.
+  let loadStillPending = false;
   let data;
   try {
     const first = await _awaitLoadWithBudget(loadPromise, 20000);
@@ -540,6 +559,7 @@ async function loadAppDataAfterAuth(opts) {
       fromServer = true;
       await cacheSaveAll(data, currentUser?.id);
     } else {
+      loadStillPending = !!first.pending;
       throw first.err || new Error('timeout');
     }
   } catch (e) {
@@ -586,7 +606,11 @@ async function loadAppDataAfterAuth(opts) {
     }
   }
 
-  if (fromCache) _setOffline();
+  // Painting from cache because the server was slow is not being offline: the
+  // request is still in flight and the handler above repaints when it lands.
+  // Announcing "offline" for it put the banner up on any cold start over a
+  // slow connection, which on a phone is most of them.
+  if (fromCache && !loadStillPending) _setOffline();
 
   const hydrateFlags = hydrateAppData(data);
   if (fromServer && typeof markAppDataSynced === 'function') markAppDataSynced(true);

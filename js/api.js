@@ -54,16 +54,49 @@ async function fetchScryfallCollection(identifiers) {
   return await res.json();
 }
 
-/** Batch-fetch Scryfall cards by id (75 per request). */
+// Printing data is immutable, so a printing fetched once is good for the rest of
+// the session. Opening one deck asks for the same ~100 printings from several
+// places at once — metadata hydrate, oracle-id resolution, the gameplan — and
+// each used to pay its own round trips: five /scryfall/collection calls, ~2.7s
+// of them, for one deck. Misses are remembered too, or an id Scryfall does not
+// know gets re-asked by every caller forever.
+const _scryCardById = new Map();
+const _scryCardInflight = new Map();
+const SCRY_CARD_CACHE_MAX = 5000;
+const _scryKey = id => String(id).toLowerCase();
+
+/** Batch-fetch Scryfall cards by id (75 per request), memoised and deduped. */
 async function fetchAllCardsByScryfallIds(ids) {
-  const unique = [...new Set((ids || []).filter(Boolean))];
-  const out = [];
-  for (let i = 0; i < unique.length; i += 75) {
-    const batch = unique.slice(i, i + 75).map(id => ({ id }));
-    const d = await fetchScryfallCollection(batch);
-    out.push(...(d.data || []));
+  const unique = [...new Set((ids || []).filter(Boolean).map(_scryKey))];
+  if (!unique.length) return [];
+  if (_scryCardById.size > SCRY_CARD_CACHE_MAX) _scryCardById.clear();
+
+  const waitFor = [];
+  const missing = [];
+  for (const id of unique) {
+    if (_scryCardById.has(id)) continue;
+    const inflight = _scryCardInflight.get(id);
+    if (inflight) waitFor.push(inflight);
+    else missing.push(id);
   }
-  return out;
+
+  for (let i = 0; i < missing.length; i += 75) {
+    const batch = missing.slice(i, i + 75);
+    const req = fetchScryfallCollection(batch.map(id => ({ id })))
+      .then(d => {
+        for (const card of d.data || []) {
+          if (card?.id) _scryCardById.set(_scryKey(card.id), card);
+        }
+        for (const id of batch) if (!_scryCardById.has(id)) _scryCardById.set(id, null);
+      })
+      .catch(() => {})
+      .finally(() => { for (const id of batch) _scryCardInflight.delete(id); });
+    for (const id of batch) _scryCardInflight.set(id, req);
+    waitFor.push(req);
+  }
+
+  await Promise.all(waitFor);
+  return unique.map(id => _scryCardById.get(id)).filter(Boolean);
 }
 
 /** Request date used to cache “latest” price-log rows (UTC today). */

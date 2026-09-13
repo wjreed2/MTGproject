@@ -53,26 +53,69 @@ function filterBrowseDecks(q) {
   _renderBrowseGrid();
 }
 
+// Painting the whole listing at once meant ~350 KiB of markup and 200-odd card
+// boxes laid out before the first one could be read. Cards come in a page at a
+// time, the next page arriving as the sentinel at the foot of the grid scrolls
+// into view. Filtering restarts from the first page.
+const BROWSE_PAGE = 24;
+let _browseShown = 0;
+let _browseVisible = [];
+let _browseMoreObserver = null;
+
+function _browseMatches(q) {
+  if (!q) return _browseDecks;
+  return _browseDecks.filter(d =>
+    (d.name || '').toLowerCase().includes(q) ||
+    (d.format || '').toLowerCase().includes(q) ||
+    (d.commander || '').toLowerCase().includes(q) ||
+    (d.ownerEmail || '').toLowerCase().includes(q)
+  );
+}
+
 function _renderBrowseGrid() {
   const grid = document.getElementById('browseDeckGrid');
   if (!grid) return;
 
-  const q = _browseQuery;
-  const visible = q
-    ? _browseDecks.filter(d =>
-        (d.name || '').toLowerCase().includes(q) ||
-        (d.format || '').toLowerCase().includes(q) ||
-        (d.commander || '').toLowerCase().includes(q) ||
-        (d.ownerEmail || '').toLowerCase().includes(q)
-      )
-    : _browseDecks;
+  _browseVisible = _browseMatches(_browseQuery);
+  _browseShown = 0;
+  _browseMoreObserver?.disconnect();
+  _browseMoreObserver = null;
 
-  if (!visible.length) {
+  if (!_browseVisible.length) {
     grid.innerHTML = '<div style="grid-column:1/-1;padding:3rem;text-align:center;color:var(--text3);font-size:0.85rem">No public decks found.</div>';
     return;
   }
 
-  grid.innerHTML = visible.map(d => _browseDeckCard(d)).join('');
+  grid.innerHTML = '';
+  _browseAppendPage();
+}
+
+function _browseAppendPage() {
+  const grid = document.getElementById('browseDeckGrid');
+  if (!grid) return;
+  const next = _browseVisible.slice(_browseShown, _browseShown + BROWSE_PAGE);
+  if (!next.length) return;
+  _browseShown += next.length;
+
+  document.getElementById('browseMoreSentinel')?.remove();
+  grid.insertAdjacentHTML('beforeend', next.map(d => _browseDeckCard(d)).join(''));
+
+  if (_browseShown >= _browseVisible.length) {
+    _browseMoreObserver?.disconnect();
+    _browseMoreObserver = null;
+    return;
+  }
+  grid.insertAdjacentHTML('beforeend',
+    '<div id="browseMoreSentinel" style="grid-column:1/-1;height:1px"></div>');
+  const sentinel = document.getElementById('browseMoreSentinel');
+  if (!_browseMoreObserver) {
+    // A tall root margin so the next page is already in the DOM by the time the
+    // reader reaches it — the point is never to see the seam.
+    _browseMoreObserver = new IntersectionObserver(entries => {
+      if (entries.some(e => e.isIntersecting)) _browseAppendPage();
+    }, { rootMargin: '800px 0px' });
+  }
+  _browseMoreObserver.observe(sentinel);
 }
 
 function _ownerLabel(email) {
