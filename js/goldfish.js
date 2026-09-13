@@ -325,7 +325,11 @@ function _gfTokenRemovedMsg(card) {
 /** @returns {true|'ceased'|false} */
 function _gfPlaceCardInZone(card, toZone, opts = {}) {
   if (_gfIsToken(card) && _gfTokenCeasesInZone(toZone)) return 'ceased';
-  card.tapped = false;
+  // Changing zones makes a new object, and a new object enters untapped. Sliding
+  // a card around the battlefield is not a zone change — treating it as one
+  // untapped whatever you nudged, so a board you had attacked with straightened
+  // itself out under you. Only the controls untap now.
+  if (opts.fromZone !== toZone) card.tapped = false;
   card.autoPlaced = false;
   if (toZone === 'library_top') {
     _gf.library.unshift(card);
@@ -1012,7 +1016,7 @@ function _gfMoveCard(iid, fromZone, toZone, opts = {}) {
 
   const removed = _gfCardFromZone(iid, fromZone);
   if (!removed) return false;
-  const placed = _gfPlaceCardInZone(removed, toZone, opts);
+  const placed = _gfPlaceCardInZone(removed, toZone, { ...opts, fromZone });
   if (placed === 'ceased') {
     _gfRender();
     _gfFlash(_gfTokenRemovedMsg(removed));
@@ -1947,7 +1951,7 @@ function _gfZoneCardImg(c) {
 function _gfBfCardHtml(c, zone, cardW) {
   return `
     <div class="gf-bf-card${c.tapped ? ' tapped' : ''}" data-iid="${c.iid}"
-         style="left:${c.x}px;top:${c.y}px"
+         style="left:${c.x}px;top:${c.y}px;--cw:${cardW}px"
          ${_gfHoverAttrs(zone, c.iid)}
          onpointerdown="_gfZoneCardPointerDown(event,${c.iid},'${zone}')"
          oncontextmenu="_gfShowContextMenu(event,${c.iid},'${zone}')">

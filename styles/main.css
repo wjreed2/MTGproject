@@ -8271,32 +8271,18 @@ body.glass-mode .gf-btn-active {
 body.glass-mode .gf-size-control input[type="range"] { accent-color: rgb(var(--lgx1)); }
 body.glass-mode .gf-flash { color: rgb(var(--lgx1)); font-style: normal; font-weight: 600; }
 
-/* Zone slots: frosted plates lying on the mat, in the gameplan-box material. */
-body.glass-mode .gf-zone-slot {
-  background:
-    linear-gradient(180deg, rgba(var(--lgx1), 0.10) 0%, rgba(var(--lgx2), 0.05) 100%),
-    rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.14);
-  border-radius: 12px;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.10);
-}
-body.glass-mode .gf-zone-slot:hover {
-  background:
-    linear-gradient(180deg, rgba(var(--lgx1), 0.17) 0%, rgba(var(--lgx2), 0.09) 100%),
-    rgba(255,255,255,0.07);
-  border-color: rgba(255,255,255,0.24);
-}
-body.glass-mode .gf-lib-slot { border-color: rgba(var(--lgx1), 0.34); }
-body.glass-mode .gf-lib-slot:hover { border-color: rgba(var(--lgx1), 0.6); }
+/* The zones wear no plate, so the only glass note left is the drop ring and a
+   lift on the art under the pointer. */
 body.glass-mode .gf-zone-slot.gf-zone-drop-target {
-  border-color: rgba(var(--lgx1), 0.85);
-  box-shadow: 0 0 0 2px rgba(var(--lgx1), 0.28) inset;
+  box-shadow: 0 0 0 2px rgba(var(--lgx1), 0.85) inset;
 }
+.gf-zone-slot:hover .gf-zone-card-img,
+.gf-zone-slot:hover .gf-lib-visual { filter: brightness(1.12); }
 body.glass-mode .gf-bf-drop-active {
   outline: 2px dashed rgba(var(--lgx1), 0.7);
 }
 body.glass-mode .gf-zone-empty-placeholder {
-  border-color: rgba(255,255,255,0.16);
+  border-color: rgba(255,255,255,0.20);
 }
 
 /* The token panel is a menu, so it takes the menu material — it was reading as
@@ -8382,17 +8368,8 @@ body.glass-mode .gf-hotkeys {
   border-color: rgba(255,255,255,0.92);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.95), 0 1px 2px rgba(40,60,120,0.10);
 }
-[data-theme="light"] body.glass-mode .gf-zone-slot {
-  background:
-    linear-gradient(180deg, rgba(var(--lgx1), 0.09) 0%, rgba(var(--lgx2), 0.05) 100%),
-    rgba(255,255,255,0.62);
-  border-color: rgba(255,255,255,0.90);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.95);
-}
-[data-theme="light"] body.glass-mode .gf-zone-slot:hover {
-  background:
-    linear-gradient(180deg, rgba(var(--lgx1), 0.16) 0%, rgba(var(--lgx2), 0.09) 100%),
-    rgba(255,255,255,0.78);
+[data-theme="light"] body.glass-mode .gf-zone-empty-placeholder {
+  border-color: rgba(90,110,200,0.32);
 }
 [data-theme="light"] body.glass-mode .gf-token-panel,
 [data-theme="light"] body.glass-mode .gf-context-menu,
@@ -8933,29 +8910,32 @@ body.glass-mode .gf-hotkeys {
   --gf-thumb-w: min(
     120px,
     calc((100cqw - 32px) / 2 - 12px),
-    calc((100cqh - 52px) / 2 * 0.716 - 4px)
+    calc((100cqh - 112px) / 2 * 0.716)
   );
 }
+/* No plate under them: a zone is its title, its card and its count, lying
+   directly on the mat. The slot is still the hit area and drop target — only
+   the box it used to draw is gone. */
 .gf-zone-slot {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 3px;
+  justify-content: flex-start;
+  gap: 4px;
   min-width: 0;
   min-height: 0;
   cursor: pointer;
-  background: var(--bg3);
-  border: 1px solid var(--border);
+  background: transparent;
+  border: none;
   border-radius: var(--radius);
-  padding: 6px 5px;
+  padding: 4px 2px;
   overflow: hidden;
-  transition: background 0.1s, border-color 0.1s;
 }
-.gf-zone-slot:hover { background: var(--bg4); border-color: var(--border2); }
-.gf-zone-slot.gf-zone-drop-target { background: var(--bg4); border-color: var(--teal); border-width: 2px; box-shadow: 0 0 0 2px rgba(0,200,170,0.25) inset; }
-.gf-lib-slot { border-color: var(--gold-glow); }
-.gf-lib-slot:hover { border-color: var(--gold); }
+/* Drop feedback has to read without a plate to fill, so it is a ring on the mat. */
+.gf-zone-slot.gf-zone-drop-target {
+  box-shadow: 0 0 0 2px var(--teal) inset;
+  border-radius: 10px;
+}
 
 .gf-zone-label {
   font-size: clamp(calc(0.48rem * var(--gf-fs)), 2.8cqw, calc(0.58rem * var(--gf-fs)));
@@ -8970,7 +8950,10 @@ body.glass-mode .gf-hotkeys {
 .gf-zone-preview,
 .gf-zone-top,
 .gf-cmd-cards {
-  flex: 1 1 auto;
+  /* Packed, not stretched: with no plate to fill, a growing preview pushed the
+     count to the bottom of the cell where it read as a stray number on the mat
+     rather than that zone's own count. */
+  flex: 0 1 auto;
   min-height: 0;
   min-width: 0;
   width: 100%;
@@ -8997,6 +8980,7 @@ body.glass-mode .gf-hotkeys {
 .gf-zone-empty-placeholder {
   width: var(--gf-thumb-w);
   max-width: 100%;
+  height: auto;
   aspect-ratio: 5 / 7;
   border-radius: 5px;
   border: 1px dashed var(--border2);
@@ -9012,9 +8996,9 @@ body.glass-mode .gf-hotkeys {
   position: relative;
   width: var(--gf-thumb-w);
   max-width: 100%;
-  aspect-ratio: 5 / 7;
   height: auto;
-  flex-shrink: 1;
+  aspect-ratio: 5 / 7;
+  flex: 0 0 auto;
   transition: opacity 0.25s;
 }
 .gf-lib-card {
@@ -9588,6 +9572,10 @@ body.glass-mode .gf-hotkeys {
   position: relative; cursor: grab; user-select: none; touch-action: none;
   transition: filter 0.1s; z-index: 1;
   filter: drop-shadow(0 3px 10px rgba(0,0,0,0.5));
+  /* The battlefield is a column, so without this the box stretches to the full
+     width and rotate(90deg) swings that whole slab about its centre — a tapped
+     card left the screen. The box has to be the card. */
+  align-self: flex-start;
 }
 .gf-bf-card.gf-card-zoomed {
   z-index: 9000 !important;
@@ -9700,7 +9688,11 @@ body.glass-mode .gf-hotkeys {
   cursor: grab;
   touch-action: none;
   user-select: none;
-  flex: 1 1 0;
+  /* Content basis, not 0: the wrapper sizes to its cards now rather than being
+     handed a height by the flex line, and a zero basis contributes nothing to
+     that — the whole command zone measured 0 tall and its card drew over the
+     label above it. */
+  flex: 0 1 auto;
   min-height: 0;
   display: flex;
   align-items: center;
@@ -9720,9 +9712,12 @@ body.glass-mode .gf-hotkeys {
 .gf-cmd-cards { flex-direction: column; gap: 3px; overflow: visible; }
 .gf-cmd-card .gf-zone-card-img,
 .gf-cmd-card img {
-  width: auto;
-  max-width: var(--gf-thumb-w);
-  max-height: 100%;
+  /* Width-driven, like every other zone thumb. max-height:100% measured against
+     a parent that now sizes to its content, which is a loop: the cap resolved
+     to 0 and aspect-ratio took the width down with it. --gf-thumb-w already
+     carries the height bound in its cqh term. */
+  width: var(--gf-thumb-w);
+  max-width: 100%;
   height: auto;
   object-fit: contain;
 }

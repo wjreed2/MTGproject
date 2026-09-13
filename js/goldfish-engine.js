@@ -416,7 +416,8 @@ function _gfePlaceCardInZone(card, toZone, opts = {}) {
       opts = { ...opts, _entersTapped: true };
     }
   }
-  card.tapped = !!opts._entersTapped;
+  // Only a real zone change resets tap state — see the note in goldfish.js.
+  if (opts.fromZone !== toZone) card.tapped = !!opts._entersTapped;
   card.autoPlaced = false;
   if (toZone === 'library_top') {
     _gfe.library.unshift(card);
@@ -2432,7 +2433,7 @@ function _gfeMoveCard(iid, fromZone, toZone, opts = {}) {
       && (toZone === 'graveyard' || toZone === 'hand' || toZone === 'library')) {
     toZone = 'exile';
   }
-  const placed = _gfePlaceCardInZone(removed, toZone, opts);
+  const placed = _gfePlaceCardInZone(removed, toZone, { ...opts, fromZone });
   if (placed === 'ceased') {
     _gfeRender();
     _gfeFlash(_gfeTokenRemovedMsg(removed));
