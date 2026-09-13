@@ -8743,10 +8743,12 @@ function _gfeHandPointerDown(e, iid) {
 const _GFE_ZONE_IDS = ['gfGYSlot', 'gfExileSlot', 'gfCommandZone', 'gfLibSlot'];
 
 function _gfeHighlightZones(x, y) {
+  // Zones win over the hand — see the note on _gfZoneUnder in goldfish.js.
+  const onZone = typeof _gfZoneUnder === 'function' && !!_gfZoneUnder(x, y);
   const handWrap = document.querySelector('.gf-hand-wrap');
   if (handWrap) {
     const r = handWrap.getBoundingClientRect();
-    const over = x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+    const over = !onZone && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
     handWrap.classList.toggle('gf-zone-drop-target', over);
   }
   const bf = document.getElementById('gfeBattlefield');
@@ -8771,24 +8773,14 @@ function _gfeClearZoneHighlights() {
 }
 
 function _gfeHitZone(x, y) {
+  const zone = typeof _gfZoneUnder === 'function' ? _gfZoneUnder(x, y) : null;
+  if (zone) return zone;
   const handWrap = document.querySelector('.gf-hand-wrap');
   if (handWrap) {
     const r = handWrap.getBoundingClientRect();
     if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
       return { id: 'gfHand', toKey: 'hand' };
     }
-  }
-  const zones = [
-    { id: 'gfGYSlot', toKey: 'graveyard' },
-    { id: 'gfExileSlot', toKey: 'exile' },
-    { id: 'gfCommandZone', toKey: 'commandZone' },
-    { id: 'gfLibSlot', toKey: 'library_top' },
-  ];
-  for (const z of zones) {
-    const el = document.getElementById(z.id);
-    if (!el) continue;
-    const r = el.getBoundingClientRect();
-    if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return z;
   }
   const bf = document.getElementById('gfeBattlefield');
   if (bf) {

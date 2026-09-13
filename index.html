@@ -2669,38 +2669,40 @@
 
       <div id="gfBattlefield" class="gf-battlefield" data-gf-zone="battlefield" onmouseenter="_gfOnHoverEnter(this)" onmouseleave="_gfOnHoverLeave(this)" onclick="_gfHideContextMenu()"></div>
 
-      <!-- Zone quadrant panel (2×2 grid, right side) -->
-      <!-- Row 1: Command Zone | Exile -->
-      <!-- Row 2: Library      | Graveyard -->
-      <div class="gf-zones-panel">
-        <div class="gf-zone-slot" id="gfCommandZone" data-gf-zone="commandZone" onmouseenter="_gfOnHoverEnter(this)" onmouseleave="_gfOnHoverLeave(this)" onclick="if(_gf?.commandZone.length)_gfOpenZoneBrowse('commandZone')" title="Command Zone — S to search">
-          <div class="gf-zone-label">Command Zone</div>
-          <div class="gf-cmd-cards"></div>
-          <div class="gf-zone-count" id="gfCmdCount"></div>
+    </div>
+
+    <!-- Zone block — a child of the mat, not the middle row, so it can sit in
+         the mat's own bottom-right corner beside the hand rather than stopping
+         where the battlefield does. Row 1: Command Zone | Exile.
+         Row 2: Library | Graveyard. -->
+    <div class="gf-zones-panel">
+      <div class="gf-zone-slot" id="gfCommandZone" data-gf-zone="commandZone" onmouseenter="_gfOnHoverEnter(this)" onmouseleave="_gfOnHoverLeave(this)" onclick="if(_gf?.commandZone.length)_gfOpenZoneBrowse('commandZone')" title="Command Zone — S to search">
+        <div class="gf-zone-label">Command Zone</div>
+        <div class="gf-cmd-cards"></div>
+        <div class="gf-zone-count" id="gfCmdCount"></div>
+      </div>
+      <div class="gf-zone-slot" id="gfExileSlot" data-gf-zone="exile" onmouseenter="_gfOnHoverEnter(this)" onmouseleave="_gfOnHoverLeave(this)" onclick="_gfClickExile()" title="Exile — click to browse, drag cards here">
+        <div class="gf-zone-label">Exile</div>
+        <div id="gfExilePreview" class="gf-zone-preview"></div>
+        <div class="gf-zone-count" id="gfExileCount">0</div>
+      </div>
+      <div class="gf-zone-slot gf-lib-slot" id="gfLibSlot" data-gf-zone="library"
+        onmouseenter="_gfOnHoverEnter(this)" onmouseleave="_gfOnHoverLeave(this)"
+        onpointerdown="_gfLibraryPointerDown(event)"
+        oncontextmenu="_gfLibraryContextMenu(event)"
+        title="Library — click to draw (D), drag top card, right-click for tutor/scry/surveil (S while hovering)">
+        <div class="gf-zone-label">Library</div>
+        <div class="gf-lib-visual" id="gfLibVisual">
+          <div class="gf-lib-card gf-lib-c3"></div>
+          <div class="gf-lib-card gf-lib-c2"></div>
+          <div class="gf-lib-card gf-lib-c1"></div>
         </div>
-        <div class="gf-zone-slot" id="gfExileSlot" data-gf-zone="exile" onmouseenter="_gfOnHoverEnter(this)" onmouseleave="_gfOnHoverLeave(this)" onclick="_gfClickExile()" title="Exile — click to browse, drag cards here">
-          <div class="gf-zone-label">Exile</div>
-          <div id="gfExilePreview" class="gf-zone-preview"></div>
-          <div class="gf-zone-count" id="gfExileCount">0</div>
-        </div>
-        <div class="gf-zone-slot gf-lib-slot" id="gfLibSlot" data-gf-zone="library"
-          onmouseenter="_gfOnHoverEnter(this)" onmouseleave="_gfOnHoverLeave(this)"
-          onpointerdown="_gfLibraryPointerDown(event)"
-          oncontextmenu="_gfLibraryContextMenu(event)"
-          title="Library — click to draw (D), drag top card, right-click for tutor/scry/surveil (S while hovering)">
-          <div class="gf-zone-label">Library</div>
-          <div class="gf-lib-visual" id="gfLibVisual">
-            <div class="gf-lib-card gf-lib-c3"></div>
-            <div class="gf-lib-card gf-lib-c2"></div>
-            <div class="gf-lib-card gf-lib-c1"></div>
-          </div>
-          <div class="gf-zone-count" id="gfLibCount">0</div>
-        </div>
-        <div class="gf-zone-slot" id="gfGYSlot" data-gf-zone="graveyard" onmouseenter="_gfOnHoverEnter(this)" onmouseleave="_gfOnHoverLeave(this)" onclick="_gfClickGraveyard()" title="Graveyard — click to browse, drag cards here">
-          <div class="gf-zone-label">Graveyard</div>
-          <div id="gfGYPreview" class="gf-zone-preview"></div>
-          <div class="gf-zone-count" id="gfGYCount">0</div>
-        </div>
+        <div class="gf-zone-count" id="gfLibCount">0</div>
+      </div>
+      <div class="gf-zone-slot" id="gfGYSlot" data-gf-zone="graveyard" onmouseenter="_gfOnHoverEnter(this)" onmouseleave="_gfOnHoverLeave(this)" onclick="_gfClickGraveyard()" title="Graveyard — click to browse, drag cards here">
+        <div class="gf-zone-label">Graveyard</div>
+        <div id="gfGYPreview" class="gf-zone-preview"></div>
+        <div class="gf-zone-count" id="gfGYCount">0</div>
       </div>
     </div>
 
@@ -2881,38 +2883,40 @@
         <div id="gfeBattlefield" class="gf-battlefield" data-gf-zone="battlefield" onmouseenter="_gfOnHoverEnter(this)" onmouseleave="_gfeOnHoverLeave(this)" onclick="_gfeHideContextMenu()"></div>
       </div>
 
-      <!-- Zone quadrant panel (2×2 grid, right side) -->
-      <!-- Row 1: Command Zone | Exile -->
-      <!-- Row 2: Library      | Graveyard -->
-      <div class="gf-zones-panel">
-        <div class="gf-zone-slot" id="gfeCommandZone" data-gf-zone="commandZone" onmouseenter="_gfOnHoverEnter(this)" onmouseleave="_gfeOnHoverLeave(this)" onclick="if(_gf?.commandZone.length)_gfeOpenZoneBrowse('commandZone')" title="Command Zone — S to search">
-          <div class="gf-zone-label">Command Zone</div>
-          <div class="gf-cmd-cards"></div>
-          <div class="gf-zone-count" id="gfeCmdCount"></div>
+    </div>
+
+    <!-- Zone block — a child of the mat, not the middle row, so it can sit in
+         the mat's own bottom-right corner beside the hand rather than stopping
+         where the battlefield does. Row 1: Command Zone | Exile.
+         Row 2: Library | Graveyard. -->
+    <div class="gf-zones-panel">
+      <div class="gf-zone-slot" id="gfeCommandZone" data-gf-zone="commandZone" onmouseenter="_gfOnHoverEnter(this)" onmouseleave="_gfeOnHoverLeave(this)" onclick="if(_gf?.commandZone.length)_gfeOpenZoneBrowse('commandZone')" title="Command Zone — S to search">
+        <div class="gf-zone-label">Command Zone</div>
+        <div class="gf-cmd-cards"></div>
+        <div class="gf-zone-count" id="gfeCmdCount"></div>
+      </div>
+      <div class="gf-zone-slot" id="gfeExileSlot" data-gf-zone="exile" onmouseenter="_gfOnHoverEnter(this)" onmouseleave="_gfeOnHoverLeave(this)" onclick="_gfeClickExile()" title="Exile — click to browse, drag cards here">
+        <div class="gf-zone-label">Exile</div>
+        <div id="gfeExilePreview" class="gf-zone-preview"></div>
+        <div class="gf-zone-count" id="gfeExileCount">0</div>
+      </div>
+      <div class="gf-zone-slot gf-lib-slot" id="gfeLibSlot" data-gf-zone="library"
+        onmouseenter="_gfOnHoverEnter(this)" onmouseleave="_gfeOnHoverLeave(this)"
+        onpointerdown="_gfLibraryPointerDown(event)"
+        oncontextmenu="_gfLibraryContextMenu(event)"
+        title="Library — click to draw (D), drag top card, right-click for tutor/scry/surveil (S while hovering)">
+        <div class="gf-zone-label">Library</div>
+        <div class="gf-lib-visual" id="gfeLibVisual">
+          <div class="gf-lib-card gf-lib-c3"></div>
+          <div class="gf-lib-card gf-lib-c2"></div>
+          <div class="gf-lib-card gf-lib-c1"></div>
         </div>
-        <div class="gf-zone-slot" id="gfeExileSlot" data-gf-zone="exile" onmouseenter="_gfOnHoverEnter(this)" onmouseleave="_gfeOnHoverLeave(this)" onclick="_gfeClickExile()" title="Exile — click to browse, drag cards here">
-          <div class="gf-zone-label">Exile</div>
-          <div id="gfeExilePreview" class="gf-zone-preview"></div>
-          <div class="gf-zone-count" id="gfeExileCount">0</div>
-        </div>
-        <div class="gf-zone-slot gf-lib-slot" id="gfeLibSlot" data-gf-zone="library"
-          onmouseenter="_gfOnHoverEnter(this)" onmouseleave="_gfeOnHoverLeave(this)"
-          onpointerdown="_gfLibraryPointerDown(event)"
-          oncontextmenu="_gfLibraryContextMenu(event)"
-          title="Library — click to draw (D), drag top card, right-click for tutor/scry/surveil (S while hovering)">
-          <div class="gf-zone-label">Library</div>
-          <div class="gf-lib-visual" id="gfeLibVisual">
-            <div class="gf-lib-card gf-lib-c3"></div>
-            <div class="gf-lib-card gf-lib-c2"></div>
-            <div class="gf-lib-card gf-lib-c1"></div>
-          </div>
-          <div class="gf-zone-count" id="gfeLibCount">0</div>
-        </div>
-        <div class="gf-zone-slot" id="gfeGYSlot" data-gf-zone="graveyard" onmouseenter="_gfOnHoverEnter(this)" onmouseleave="_gfeOnHoverLeave(this)" onclick="_gfeClickGraveyard()" title="Graveyard — click to browse, drag cards here">
-          <div class="gf-zone-label">Graveyard</div>
-          <div id="gfeGYPreview" class="gf-zone-preview"></div>
-          <div class="gf-zone-count" id="gfeGYCount">0</div>
-        </div>
+        <div class="gf-zone-count" id="gfeLibCount">0</div>
+      </div>
+      <div class="gf-zone-slot" id="gfeGYSlot" data-gf-zone="graveyard" onmouseenter="_gfOnHoverEnter(this)" onmouseleave="_gfeOnHoverLeave(this)" onclick="_gfeClickGraveyard()" title="Graveyard — click to browse, drag cards here">
+        <div class="gf-zone-label">Graveyard</div>
+        <div id="gfeGYPreview" class="gf-zone-preview"></div>
+        <div class="gf-zone-count" id="gfeGYCount">0</div>
       </div>
     </div>
 

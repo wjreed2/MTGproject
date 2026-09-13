@@ -2027,12 +2027,30 @@ function _gfHandPointerDown(e, iid) {
 
 const _GF_ZONE_IDS = ['gfGYSlot', 'gfExileSlot', 'gfCommandZone', 'gfLibSlot'];
 
+const _gfInRect = (el, x, y) => {
+  const r = el?.getBoundingClientRect?.();
+  return !!r && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+};
+
+/** The zone slot under the pointer, if any. Wins over the hand and battlefield:
+ *  the zone block sits in the mat's bottom-right corner, which overlaps the
+ *  full-width hand band — tested second, a drop on the graveyard landed in the
+ *  hand and the card came straight back. */
+function _gfZoneUnder(x, y) {
+  const zones = [
+    { id: 'gfGYSlot', toKey: 'graveyard' },
+    { id: 'gfExileSlot', toKey: 'exile' },
+    { id: 'gfCommandZone', toKey: 'commandZone' },
+    { id: 'gfLibSlot', toKey: 'library_top' },
+  ];
+  return zones.find(z => _gfInRect(document.getElementById(z.id), x, y)) || null;
+}
+
 function _gfHighlightZones(x, y) {
+  const onZone = !!_gfZoneUnder(x, y);
   const handWrap = document.querySelector('.gf-hand-wrap');
   if (handWrap) {
-    const r = handWrap.getBoundingClientRect();
-    const over = x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
-    handWrap.classList.toggle('gf-zone-drop-target', over);
+    handWrap.classList.toggle('gf-zone-drop-target', !onZone && _gfInRect(handWrap, x, y));
   }
   const bf = document.getElementById('gfBattlefield');
   if (bf) {
@@ -2056,25 +2074,10 @@ function _gfClearZoneHighlights() {
 }
 
 function _gfHitZone(x, y) {
+  const zone = _gfZoneUnder(x, y);
+  if (zone) return zone;
   const handWrap = document.querySelector('.gf-hand-wrap');
-  if (handWrap) {
-    const r = handWrap.getBoundingClientRect();
-    if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
-      return { id: 'gfHand', toKey: 'hand' };
-    }
-  }
-  const zones = [
-    { id: 'gfGYSlot', toKey: 'graveyard' },
-    { id: 'gfExileSlot', toKey: 'exile' },
-    { id: 'gfCommandZone', toKey: 'commandZone' },
-    { id: 'gfLibSlot', toKey: 'library_top' },
-  ];
-  for (const z of zones) {
-    const el = document.getElementById(z.id);
-    if (!el) continue;
-    const r = el.getBoundingClientRect();
-    if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return z;
-  }
+  if (_gfInRect(handWrap, x, y)) return { id: 'gfHand', toKey: 'hand' };
   const bf = document.getElementById('gfBattlefield');
   if (bf) {
     const r = bf.getBoundingClientRect();

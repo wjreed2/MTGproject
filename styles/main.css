@@ -8220,10 +8220,15 @@ body.glass-mode .deck-tab-pane .dlf-text:focus {
    flat --bg with a gold wash over the battlefield. */
 body.glass-mode #goldfishOverlay,
 body.glass-mode #goldfishEngineOverlay {
+  /* Literally the page wallpaper (body.glass-mode::before) — the overlay covers
+     the app, so anything of its own reads as a different, darker room. */
   background:
-    radial-gradient(1100px 620px at 50% -8%, rgba(var(--lgx1), 0.16) 0%, transparent 62%),
-    radial-gradient(900px 560px at 50% 108%, rgba(var(--lgx2), 0.14) 0%, transparent 60%),
-    linear-gradient(180deg, #0a0f1f 0%, #070a15 52%, #05070f 100%);
+    radial-gradient(42% 38% at 16% 10%, rgba(90,162,255,0.30), transparent 70%),
+    radial-gradient(46% 42% at 84% 16%, rgba(168,140,255,0.24), transparent 70%),
+    radial-gradient(52% 48% at 76% 88%, rgba(79,216,189,0.18), transparent 70%),
+    radial-gradient(38% 34% at 10% 80%, rgba(255,170,110,0.14), transparent 70%),
+    linear-gradient(180deg, #0b1122 0%, #0d1428 55%, #0a0f1f 100%);
+  font-family: var(--glass-font);
 }
 body.glass-mode .gf-battlefield,
 body.glass-mode .gfe-opp-battlefield {
@@ -8231,12 +8236,13 @@ body.glass-mode .gfe-opp-battlefield {
 }
 
 /* Header — a floating bar, not a titlebar with a rule under it. */
+/* No bar — just the controls, standing on the mat like the rest of the app's
+   page headers do. */
 body.glass-mode .gf-header {
-  background: linear-gradient(180deg, rgba(255,255,255,0.07), rgba(255,255,255,0.035));
-  -webkit-backdrop-filter: blur(22px) saturate(160%);
-  backdrop-filter: blur(22px) saturate(160%);
-  border-bottom: 1px solid rgba(255,255,255,0.08);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.10);
+  background: transparent;
+  border-bottom: none;
+  box-shadow: none;
+  padding: 10px 14px;
 }
 body.glass-mode .gf-divider-v { background: rgba(255,255,255,0.14); }
 
@@ -8251,7 +8257,27 @@ body.glass-mode .gf-life-adj {
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.10);
   transition: background 0.14s var(--ease), border-color 0.14s var(--ease);
 }
-body.glass-mode .gf-btn { padding: 6px 13px; font-weight: 600; }
+/* The app's tab-level control, exactly: 34px tall, 8px radius, 0.82rem of the
+   glass face. The playtest scale (--gf-fs) is for the cards, not the chrome. */
+body.glass-mode .gf-btn {
+  height: 34px;
+  padding: 0 12px;
+  font-family: var(--glass-font);
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+body.glass-mode :is(.gf-size-label, .gf-life-label, .gf-turn-hud, .gf-deck-name,
+                    .gf-zone-label, .gf-zone-count, .gf-hotkeys, .gf-flash,
+                    .gf-token-panel, .gf-context-menu, .gf-zone-viewer-inner) {
+  font-family: var(--glass-font);
+}
+body.glass-mode .gf-life-num { font-family: var(--glass-font); font-weight: 700; }
+body.glass-mode .gf-close-btn { width: 34px; height: 34px; }
+body.glass-mode .gf-life-adj { width: 30px; height: 30px; }
 body.glass-mode .gf-btn:hover:not(:disabled),
 body.glass-mode .gf-close-btn:hover,
 body.glass-mode .gf-life-adj:hover {
@@ -8351,14 +8377,11 @@ body.glass-mode .gf-hotkeys {
 [data-theme="light"] body.glass-mode #goldfishOverlay,
 [data-theme="light"] body.glass-mode #goldfishEngineOverlay {
   background:
-    radial-gradient(1100px 620px at 50% -8%, rgba(var(--lgx1), 0.20) 0%, transparent 62%),
-    radial-gradient(900px 560px at 50% 108%, rgba(var(--lgx2), 0.18) 0%, transparent 60%),
-    linear-gradient(180deg, #eef2fb 0%, #e5ebf7 55%, #dde5f3 100%);
-}
-[data-theme="light"] body.glass-mode .gf-header {
-  background: linear-gradient(180deg, rgba(255,255,255,0.80), rgba(255,255,255,0.62));
-  border-bottom-color: rgba(90,110,200,0.16);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.95);
+    radial-gradient(42% 38% at 16% 10%, rgba(120,170,255,0.5), transparent 70%),
+    radial-gradient(46% 42% at 84% 16%, rgba(190,160,255,0.42), transparent 70%),
+    radial-gradient(52% 48% at 76% 88%, rgba(120,225,200,0.38), transparent 70%),
+    radial-gradient(38% 34% at 10% 80%, rgba(255,200,150,0.35), transparent 70%),
+    linear-gradient(180deg, #eef2fa 0%, #e8edf8 55%, #eaeef6 100%);
 }
 [data-theme="light"] body.glass-mode .gf-divider-v { background: rgba(90,110,200,0.22); }
 [data-theme="light"] body.glass-mode .gf-btn,
@@ -8395,6 +8418,9 @@ body.glass-mode .gf-hotkeys {
 #goldfishOverlay,
 #goldfishEngineOverlay {
   --gf-fs: 1.2544; /* +12% on top of prior 1.12 playtest scale */
+  /* Reserved on the right of the middle row for the zone block, which is
+     positioned against the mat rather than laid out in that row. */
+  --gf-zones-w: clamp(160px, 28vw, 360px);
   background: var(--bg);
   position: relative;
 }
@@ -8495,6 +8521,9 @@ body.glass-mode .gf-hotkeys {
   overflow: hidden;
   position: relative;
   z-index: 2;
+  /* The zone block no longer occupies this row; keep its width clear anyway so
+     battlefield cards are never dealt underneath it. */
+  padding-right: var(--gf-zones-w);
 }
 
 /* Faded HUD on play mat (hotkeys + simulation) — above mat, clicks pass through */
@@ -8889,28 +8918,38 @@ body.glass-mode .gf-hotkeys {
 
 /* Zone quadrant panel — right side, 2×2 grid (scales with viewport) */
 .gf-zones-panel {
-  container-type: size;
+  /* inline-size, not size: the block's height comes from its cards now, and a
+     size container needs a definite one in both axes or it resolves to zero. */
+  container-type: inline-size;
   container-name: gf-zones;
-  position: relative;
-  z-index: 2;
-  width: clamp(148px, 26vw, 320px);
-  height: 100%;
+  z-index: 4;
+  /* Against the mat's bottom-right corner, so the block reaches the foot of the
+     screen beside the hand instead of stopping where the battlefield ends. The
+     middle row reserves the width with padding. */
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: var(--gf-zones-w);
   max-height: 100%;
-  flex-shrink: 1;
   min-width: 0;
   min-height: 0;
-  align-self: stretch;
   overflow: visible;
+  /* Packed into the bottom-right corner and working up, rather than four cells
+     stretched over the full height — the zones belong together, near the hand,
+     not spread the length of the mat. auto tracks so they size to their cards
+     and the block can be pushed to the corner. */
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr 1fr;
-  gap: 5px;
-  padding: 8px;
+  grid-template-columns: auto auto;
+  grid-template-rows: auto auto;
+  align-content: end;
+  justify-content: end;
+  gap: 30px;
+  padding: 8px 8px 16px;
   background: transparent;
   --gf-thumb-w: min(
-    120px,
-    calc((100cqw - 32px) / 2 - 12px),
-    calc((100cqh - 112px) / 2 * 0.716)
+    150px,
+    calc((100cqw - 46px) / 2),
+    calc((100vh - 210px) / 2 * 0.716)
   );
 }
 /* No plate under them: a zone is its title, its card and its count, lying
@@ -9021,7 +9060,10 @@ body.glass-mode .gf-hotkeys {
   position: relative;
   z-index: 3;
   background: transparent;
-  padding: var(--gf-hand-pad-top, 6px) 12px var(--gf-hand-pad-bottom, 0px);
+  /* The zone block owns the bottom-right corner now, so the hand centres in what
+     is left of the width rather than sliding under it. */
+  padding: var(--gf-hand-pad-top, 6px) calc(var(--gf-zones-w) + 12px)
+           var(--gf-hand-pad-bottom, 0px) 12px;
   display: flex;
   flex-direction: column;
   align-items: center;
