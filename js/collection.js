@@ -1647,12 +1647,17 @@ function _prefetchCardDetailNeighborArts(uid) {
  * Settings designates as primary, and the links under the art cover the rest.
  */
 function _htmlCardDetailInlinePrice(card) {
-  if (!card) return '';
+  // The span is emitted even with nothing to put in it. It is the mount a later
+  // hydrate patches by id, and a card arrowed to arrives with no price at all —
+  // rendering nothing here deleted the node, so when the hydrate came back with
+  // the price a moment later it had nowhere to land and was dropped in silence.
+  const mount = '<span id="cardDetailInlinePrice" class="card-detail-inline-price"></span>';
+  if (!card) return mount;
   const primary = typeof getPrimaryPriceVendor === 'function' ? getPrimaryPriceVendor() : 'tcg';
   const now = primary === 'ck'
     ? (typeof getCKPriceForCard === 'function' ? getCKPriceForCard(card) : 0)
     : (typeof getTCGPriceForCard === 'function' ? getTCGPriceForCard(card) : 0);
-  if (!(Number(now) > 0)) return '';
+  if (!(Number(now) > 0)) return mount;
   let cls = 'price-delta-flat';
   try {
     const prefs = typeof getPriceDeltaDisplayPrefs === 'function'

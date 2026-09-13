@@ -3712,6 +3712,9 @@ img.stack-main.loaded { opacity: 1; }
   font-size: 0.85rem;
   font-weight: 600;
 }
+/* The node stays in the type line with no price in it, as the mount a later
+   hydrate fills — it must not hold the row's gap open while it is empty. */
+.card-detail-inline-price:empty { display: none; }
 /* Condensed counters + action row. The Collection/Deck headings sit above their
    counters rather than beside them, so the two groups sit side by side. */
 #cardDetailModal .card-detail-actions { gap: 6px; margin-bottom: 0.5rem; }
