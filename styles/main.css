@@ -4374,6 +4374,91 @@ body.glass-mode .x-stepper-btn-sm { border-radius: 7px; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px;
 }
 
+/* ── Browse public decks ────────────────────────────────────────────────────
+   A card, not a tile: the commander's art on the left at card proportions and
+   everything that identifies the deck beside it. Same box as the Commander
+   Gameplan turn boxes, so it reads as the app's glass. */
+.pubdeck-card {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border2);
+  background: var(--bg3);
+  cursor: pointer;
+  overflow: hidden;
+  transition: transform 0.18s var(--ease), border-color 0.18s var(--ease), box-shadow 0.18s var(--ease);
+}
+.pubdeck-art {
+  flex: 0 0 auto;
+  width: 74px;
+  aspect-ratio: 0.715;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg4);
+}
+.pubdeck-art img { width: 100%; height: 100%; object-fit: cover; object-position: center top; display: block; }
+.pubdeck-art-fallback {
+  width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'Cinzel', serif; font-size: 0.6rem; color: var(--text3);
+  text-align: center; padding: 6px;
+}
+.pubdeck-info {
+  flex: 1 1 auto; min-width: 0;
+  display: flex; flex-direction: column; gap: 3px;
+}
+.pubdeck-name {
+  font-family: 'Cinzel', serif; font-size: 0.88rem; font-weight: 600; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pubdeck-cmdr {
+  font-size: 0.74rem; color: var(--text2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* Two lines of notes, then an ellipsis — the whole point is a card that stays
+   the same height whatever is written in it. */
+.pubdeck-notes {
+  font-size: 0.72rem; color: var(--text3); line-height: 1.35;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.pubdeck-foot {
+  margin-top: auto; padding-top: 4px;
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+  font-size: 0.7rem; color: var(--text3);
+}
+.pubdeck-price {
+  font-family: 'JetBrains Mono', monospace; font-size: 0.76rem;
+  color: var(--text2); font-variant-numeric: tabular-nums;
+}
+.pubdeck-meta { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body.glass-mode .pubdeck-card {
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.13) 0%, rgba(var(--lgx2), 0.06) 60%, rgba(var(--lgx2), 0.04) 100%),
+    linear-gradient(180deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.05) 60px, rgba(255,255,255,0.05) 100%);
+  border-color: rgba(255,255,255,0.20);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.20), 0 8px 28px rgba(0,0,0,0.35);
+}
+body.glass-mode .pubdeck-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(var(--lgx1), 0.45);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.24), 0 12px 34px rgba(0,0,0,0.42);
+}
+[data-theme="light"] body.glass-mode .pubdeck-card {
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.10) 0%, rgba(var(--lgx2), 0.05) 60%, rgba(var(--lgx2), 0.04) 100%),
+    linear-gradient(180deg, rgba(255,255,255,0.65) 0%, rgba(255,255,255,0.5) 60px, rgba(255,255,255,0.5) 100%);
+  border-color: rgba(255,255,255,0.8);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.95), 0 8px 28px rgba(30,50,90,0.12);
+}
+[data-theme="light"] body.glass-mode .pubdeck-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(var(--lgx1), 0.5);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.98), 0 12px 34px rgba(30,50,90,0.18);
+}
+
 .deck-grid-card {
   position: relative; aspect-ratio: 0.715;
   border-radius: 12px; overflow: hidden; cursor: pointer;

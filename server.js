@@ -3433,6 +3433,14 @@ app.get('/api/decks/public', async (req, res) => {
     const out = rows.map(r => {
       const deck = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
       const cmdCard = (deck.cards || []).find(c => c.isCommander);
+      // Market value, the same sum the deck list shows: the card's own finish,
+      // falling back to non-foil when a foil price is missing.
+      const price = (deck.cards || []).reduce((sum, c) => {
+        const nonFoil = parseFloat(c.priceTCG) || 0;
+        const foil = parseFloat(c.priceTCGFoil) || 0;
+        const unit = c.foil ? (foil > 0 ? foil : nonFoil) : nonFoil;
+        return sum + unit * (c.qty || 1);
+      }, 0);
       return {
         id: deck.id,
         name: deck.name || 'Untitled',

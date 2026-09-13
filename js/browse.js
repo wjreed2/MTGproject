@@ -57,28 +57,44 @@ function _ownerLabel(email) {
   return at > 0 ? email.slice(0, at) : (email || 'unknown');
 }
 
+/** Deck value, short enough to sit on one line beside the card count. */
+function _browseDeckPrice(v) {
+  const n = Number(v) || 0;
+  if (!n) return '';
+  return n >= 1000
+    ? '$' + Math.round(n).toLocaleString('en-US')
+    : '$' + n.toFixed(2);
+}
+
 function _browseDeckCard(d) {
-  // Same as the deck list: the commander's art is the tile, with nothing laid
-  // over it. The caption carried the name, colour combo, format, commander,
-  // card count, owner and colour pips — none of it actionable, all of it
-  // covering the bottom third of the art.
-  //
-  // These are other people's decks, so the name and owner are the only things
-  // that identify them; both are the tile's title and accessible name, and a
-  // deck with no commander art still falls back to its name.
+  // A card rather than a bare tile: someone else's deck is worth reading about
+  // before opening it, and the commander's art alone said nothing but "this is
+  // a Commander deck". Art on the left at card proportions, everything that
+  // identifies the deck to the right of it.
   const img = d.commanderImage
-    ? `<img src="${escapeHtml(d.commanderImage)}" alt="" style="width:100%;height:100%;object-fit:cover;object-position:center top">`
-    : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-family:'Cinzel',serif;font-size:0.65rem;color:var(--text3);text-align:center;padding:8px;background:var(--bg4)">${escapeHtml(d.name)}</div>`;
+    ? `<img src="${escapeHtml(d.commanderImage)}" alt="" loading="lazy" decoding="async">`
+    : `<div class="pubdeck-art-fallback">${escapeHtml(d.name)}</div>`;
 
   const label = `${d.name}${d.format ? ' — ' + d.format : ''}${d.commander ? ' · ' + d.commander : ''}`
     + ` · ${d.cardCount} cards · ${_ownerLabel(d.ownerEmail)}`;
+  const price = _browseDeckPrice(d.price);
+  const notes = String(d.notes || '').trim();
 
   return `
-    <div class="browse-deck-card" role="button" tabindex="0"
+    <div class="pubdeck-card" role="button" tabindex="0"
       title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}"
       onclick="openBrowseDeckDetail('${d.id}','${d.accountId}')"
       onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openBrowseDeckDetail('${d.id}','${d.accountId}')}">
-      <div class="browse-deck-img">${img}</div>
+      <div class="pubdeck-art">${img}</div>
+      <div class="pubdeck-info">
+        <div class="pubdeck-name">${escapeHtml(d.name)}</div>
+        ${d.commander ? `<div class="pubdeck-cmdr">${escapeHtml(d.commander)}</div>` : ''}
+        ${notes ? `<div class="pubdeck-notes">${escapeHtml(notes)}</div>` : ''}
+        <div class="pubdeck-foot">
+          ${price ? `<span class="pubdeck-price">${price}</span>` : ''}
+          <span class="pubdeck-meta">${d.cardCount} cards · ${escapeHtml(_ownerLabel(d.ownerEmail))}</span>
+        </div>
+      </div>
     </div>`;
 }
 
