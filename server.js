@@ -4166,12 +4166,10 @@ app.get('/api/decks/public', async (req, res) => {
       return sum + unit * (c.qty || 1);
     }, 0);
 
-    // Fill in missing or stale goals a few at a time. The listing self-populates
-    // over the first couple of loads rather than making any one of them wait for
-    // every deck's inference, and a cached goal costs nothing thereafter.
-    const GOAL_FILL_PER_REQUEST = 4;
+    // Read the cached readouts; never infer here. Filling even four of them made
+    // a cold listing take five seconds, and the background warm-up works through
+    // the same backlog without a browse request waiting on it.
     const goalByDeck = new Map();
-    let filled = 0;
     for (const r of rows) {
       const rev = Number(r.revision) || 0;
       // Attempted at this revision is cached, goal or no goal. Keying on the
@@ -4182,23 +4180,13 @@ app.get('/api/decks/public', async (req, res) => {
       const cachedJson = r.semantics_goal_json
         && (typeof r.semantics_goal_json === 'object' ? r.semantics_goal_json
           : (() => { try { return JSON.parse(r.semantics_goal_json); } catch (_) { return null; } })());
-      if (r.semantics_goal_rev != null && Number(r.semantics_goal_rev) === rev
-          && (cachedJson || !r.semantics_goal)) {
-        if (cachedJson) goalByDeck.set(r.id, cachedJson);
-        continue;
+      if (cachedJson && r.semantics_goal_rev != null && Number(r.semantics_goal_rev) === rev) {
+        goalByDeck.set(r.id, cachedJson);
       }
-      if (filled >= GOAL_FILL_PER_REQUEST) continue;
-      filled++;
-      const deckData = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
-      const cards = cardsByDeck.get(`${r.account_id}::${r.id}`) || deckData.cards || [];
-      const goal = await computeDeckSemanticsGoal(cards, deckData.commander).catch(() => null);
-      if (goal) goalByDeck.set(r.id, goal);
-      // Record the attempt either way, so a deck whose cards have no semantics
-      // is not re-inferred on every single load.
-      await db().query(
-        'UPDATE decks SET semantics_goal = ?, semantics_goal_json = ?, semantics_goal_rev = ? WHERE id = ? AND account_id = ?',
-        [goal ? goal.label : null, goal ? JSON.stringify(goal) : null, rev, r.id, r.account_id]
-      ).catch(() => {});
+    }
+    // Something is missing or stale — wake the warm-up rather than waiting on it.
+    if (goalByDeck.size < rows.length && typeof scheduleDeckGoalWarm === 'function') {
+      scheduleDeckGoalWarm(1500);
     }
 
     const out = rows.map(r => {
@@ -5771,13 +5759,16 @@ const _e2AnalyzeLast = new Map(); // accountId → ts (light rate limit; analysi
  * of /api/decks/analyze is retrieval and candidate scoring, which a listing has
  * no use for. Returns null when the cards have no semantics yet.
  */
-async function computeDeckSemanticsGoal(cards, commanderName) {
+async function computeDeckSemanticsGoal(cards, commanderName, preResolved = null) {
   if (!engine2?.deckGoals?.inferGoals) return null;
   const list = (Array.isArray(cards) ? cards : []).slice(0, 400);
   if (!list.length) return null;
   const cmdName = String(commanderName || '').trim()
     || list.find(c => c.isCommander)?.name || null;
-  const resolved = await _e2ResolveCards(list.map(c => String(c.name || '')).concat(cmdName ? [cmdName] : []));
+  // Resolving names is the expensive half. A caller doing several decks at once
+  // can resolve all of their names in one query and hand the map in.
+  const resolved = preResolved
+    || await _e2ResolveCards(list.map(c => String(c.name || '')).concat(cmdName ? [cmdName] : []));
   const parseIR = r => { try { return r?.ir_json ? JSON.parse(r.ir_json) : null; } catch (_) { return null; } };
   const deckCards = [];
   for (const c of list) {
@@ -5809,6 +5800,78 @@ async function computeDeckSemanticsGoal(cards, commanderName) {
     console.warn('[e2] goal inference failed:', e.message);
     return null;
   }
+}
+
+// ── Deck goal backfill ───────────────────────────────────────────────────────
+// The browse listing fills a few missing goals per request, which is fine for a
+// deck someone just published and hopeless for a library that arrives all at
+// once — a fresh deployment would need dozens of page loads before the cards
+// stopped looking half-finished. This works through the backlog on its own,
+// slowly enough to stay out of the way of real requests.
+const GOAL_WARM_BATCH = 8;
+const GOAL_WARM_EVERY_MS = 10_000;      // while there is a backlog
+const GOAL_WARM_IDLE_MS = 15 * 60_000;  // once there is not
+let _goalWarmTimer = null;
+let _goalWarmRunning = false;
+
+async function warmDeckGoalsOnce(limit = GOAL_WARM_BATCH) {
+  const [rows] = await db().query(
+    `SELECT id, account_id, data, revision
+       FROM decks
+      WHERE is_public = 1
+        AND (semantics_goal_rev IS NULL
+             OR semantics_goal_rev <> COALESCE(revision, 0)
+             OR (semantics_goal_json IS NULL AND semantics_goal IS NOT NULL))
+      ORDER BY updated_at DESC
+      LIMIT ?`,
+    [limit]
+  );
+  if (!rows.length) return 0;
+
+  // One card-resolution query for the whole batch rather than one per deck —
+  // that lookup is most of the cost, and a 100-name query costs about what an
+  // 800-name one does.
+  const prepared = [];
+  for (const r of rows) {
+    let cards = [];
+    try {
+      const [cr] = await db().query(
+        'SELECT card_data FROM deck_cards WHERE account_id = ? AND deck_id = ?', [r.account_id, r.id]
+      );
+      cards = cr.map(x => (typeof x.card_data === 'string' ? JSON.parse(x.card_data) : x.card_data)).filter(Boolean);
+    } catch (_) { /* fall back to the blob below */ }
+    const deckData = typeof r.data === 'string' ? JSON.parse(r.data) : (r.data || {});
+    if (!cards.length) cards = deckData.cards || [];
+    prepared.push({ row: r, cards, commander: deckData.commander });
+  }
+  const allNames = prepared.flatMap(p =>
+    p.cards.slice(0, 400).map(c => String(c.name || '')).concat(p.commander ? [String(p.commander)] : []));
+  let resolved = null;
+  try { resolved = await _e2ResolveCards(allNames); } catch (_) { /* per-deck fallback */ }
+
+  for (const { row: r, cards, commander } of prepared) {
+    const rev = Number(r.revision) || 0;
+    const goal = await computeDeckSemanticsGoal(cards, commander, resolved).catch(() => null);
+    await db().query(
+      'UPDATE decks SET semantics_goal = ?, semantics_goal_json = ?, semantics_goal_rev = ? WHERE id = ? AND account_id = ?',
+      [goal ? goal.label : null, goal ? JSON.stringify(goal) : null, rev, r.id, r.account_id]
+    ).catch(() => {});
+  }
+  return rows.length;
+}
+
+function scheduleDeckGoalWarm(delay = GOAL_WARM_EVERY_MS) {
+  clearTimeout(_goalWarmTimer);
+  _goalWarmTimer = setTimeout(async () => {
+    if (_goalWarmRunning) return scheduleDeckGoalWarm();
+    _goalWarmRunning = true;
+    let done = 0;
+    try { done = await warmDeckGoalsOnce(); }
+    catch (e) { console.warn('[e2] goal warm failed:', e.message); }
+    finally { _goalWarmRunning = false; }
+    scheduleDeckGoalWarm(done ? GOAL_WARM_EVERY_MS : GOAL_WARM_IDLE_MS);
+  }, delay);
+  if (_goalWarmTimer.unref) _goalWarmTimer.unref();
 }
 
 async function _e2ResolveCards(names) {
@@ -11793,6 +11856,10 @@ async function start() {
     if (collectionBgStarted) return;
     collectionBgStarted = true;
     runCollectionRoleTagsInfillBackground();
+    // Work through any public decks without a goal, a few at a time. First run
+    // after a deployment has a whole library to get through; after that it
+    // wakes only for decks that were published or changed.
+    scheduleDeckGoalWarm(20_000);
   };
 
   // Daily MTGJSON price snapshot + threshold/drop pass. In-process node-cron,
