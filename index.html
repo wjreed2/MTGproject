@@ -841,10 +841,12 @@
               oninput="setDeckCardSize(+this.value)"
               style="width:72px;cursor:pointer" title="Card size">
           </div>
-          <button id="deckTagBadgeToggleBtn" class="btn btn-outline btn-sm active" onclick="toggleDeckTagBadges()" title="Hide role-tag badges" aria-pressed="true">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><path d="M8 1.8l5 1.8v3.4c0 3.3-2.3 5.3-5 6.2-2.7-.9-5-2.9-5-6.2V3.6z"/></svg>
-            Badges
-          </button>
+          <select id="deckTagBadgeModeSelect" class="deck-select" data-glass-label="Badges" onchange="setDeckTagBadgeMode(this.value)" title="What the corner badges stand for">
+            <option value="off">Off</option>
+            <option value="default">Default tags</option>
+            <option value="primary">Primary tags</option>
+            <option value="secondary">Secondary tags</option>
+          </select>
           <button id="deckStackLayoutResetBtn" class="btn btn-outline btn-sm" onclick="resetDeckStackLayout()" style="display:none" title="Restore automatic stack column layout">Reset stacks</button>
           <div id="deckStackOrientToggle" class="view-toggle">
             <button id="deckStackOrientV" class="active" onclick="setDeckStackOrient('vertical')" title="Vertical stack" aria-label="Vertical stack">
@@ -2297,6 +2299,25 @@
       <button class="btn btn-primary btn-sm" onclick="addDeckCustomTag()">+ Tag</button>
     </div>
     <div id="deckTagManagerList" style="display:flex;flex-wrap:wrap;gap:8px;max-height:320px;overflow-y:auto"></div>
+  </div>
+</div>
+
+<!-- TAG BADGE DESIGNER -->
+<div class="modal-overlay" id="tagBadgeModal">
+  <div class="modal" style="width:min(560px,96vw)">
+    <button class="btn btn-ghost btn-icon" style="position:absolute;top:0.75rem;right:0.75rem" onclick="closeTagBadgeEditor()">✕</button>
+    <div class="modal-title" id="tagBadgeTitle">Badge</div>
+    <p style="font-size:0.78rem;color:var(--text3);margin-bottom:0.85rem">Pick a symbol and a colour. This is what the tag looks like in the corner of a card on the deck list.</p>
+    <div class="tagbadge-head">
+      <span id="tagBadgePreview" class="tagbadge-preview"></span>
+      <button type="button" class="btn btn-outline btn-sm cd-color-add" onclick="openTagBadgeColorPicker(this)" title="Badge colour">
+        <span id="tagBadgeColorDot" class="cd-color-dot"></span>Colour
+      </button>
+      <div style="flex:1"></div>
+      <button class="btn btn-outline btn-sm" onclick="clearTagBadge()" title="Remove this badge">Clear</button>
+      <button class="btn btn-primary btn-sm" onclick="saveTagBadge()">Save badge</button>
+    </div>
+    <div id="tagBadgeSymbols" class="tagbadge-symbols"></div>
   </div>
 </div>
 

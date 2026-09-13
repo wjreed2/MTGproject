@@ -4511,6 +4511,76 @@ body.glass-mode .x-stepper-btn-sm { border-radius: 7px; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px;
 }
 
+/* ── Tag badges: catalogue rows and the designer ────────────────────────────── */
+.tagcat-row { gap: 7px; }
+.tagcat-badge-btn {
+  display: inline-flex; padding: 0; border: none; background: none; cursor: pointer;
+  line-height: 0;
+}
+.tagcat-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 5px;
+  background: var(--badge-color, var(--text3));
+  color: #fff;
+}
+.tagcat-badge svg { width: 13px; height: 13px; }
+.tagcat-badge--none {
+  background: none;
+  border: 1px dashed currentColor;
+  opacity: 0.45;
+}
+.tagbadge-head {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-bottom: 0.85rem;
+}
+.tagbadge-preview {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px;
+}
+.tagbadge-preview .deck-tag-badge { width: 30px; height: 30px; }
+.tagbadge-preview .deck-tag-badge svg { width: 18px; height: 18px; margin: 0; }
+/* One grid of every symbol — a list you scan, not a dropdown you page through. */
+.tagbadge-symbols {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
+  gap: 6px;
+  max-height: 46vh;
+  overflow-y: auto;
+  padding: 2px;
+}
+.tagbadge-sym {
+  display: inline-flex; align-items: center; justify-content: center;
+  aspect-ratio: 1; padding: 0; cursor: pointer;
+  border-radius: 8px;
+  border: 1px solid var(--border2);
+  background: var(--bg3);
+  color: var(--badge-color, var(--text2));
+  transition: border-color 0.12s var(--ease), background 0.12s var(--ease), transform 0.1s var(--ease);
+}
+.tagbadge-sym svg { width: 20px; height: 20px; }
+.tagbadge-sym:hover { transform: translateY(-1px); border-color: rgba(var(--lgx1), 0.5); }
+/* The picked symbol wears the colour it will actually be, filled — scanning a
+   grid of 119 outlines for a slightly brighter border does not work. */
+.tagbadge-sym.is-picked {
+  border-color: transparent;
+  background: var(--badge-color, rgb(var(--lgx1)));
+  color: #fff;
+  box-shadow: 0 0 0 2px rgba(var(--lgx2), 0.55), 0 4px 14px rgba(0, 0, 0, 0.3);
+}
+body.glass-mode .tagbadge-sym.is-picked,
+[data-theme="light"] body.glass-mode .tagbadge-sym.is-picked {
+  background: var(--badge-color, rgb(var(--lgx1)));
+  border-color: transparent;
+}
+body.glass-mode .tagbadge-sym {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+[data-theme="light"] body.glass-mode .tagbadge-sym {
+  background: rgba(255, 255, 255, 0.7);
+  border-color: rgba(20, 35, 60, 0.14);
+}
+
 /* ── Read-only deck ─────────────────────────────────────────────────────────
    Somebody else's deck, opened from Browse or a share link. Every view stays;
    every way of writing to it goes. The handlers refuse independently — this is

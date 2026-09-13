@@ -418,6 +418,7 @@ function _flushPendingSavesOnUnload() {
     deck_secondary_tags: deckSecondaryTags || [],
     adds_pool_mode: typeof getAddsPoolMode === 'function' ? getAddsPoolMode() : 'collection',
     deck_swaps_enabled: typeof deckSwapsFeatureEnabled !== 'undefined' ? !!deckSwapsFeatureEnabled : true,
+    deck_tag_badges: typeof deckTagBadges !== 'undefined' ? deckTagBadges : {},
   }) }).catch(() => {});
 }
 window.addEventListener('beforeunload', _flushPendingSavesOnUnload);
@@ -788,6 +789,7 @@ async function _flushSave() {
       deck_secondary_tags: deckSecondaryTags || [],
       adds_pool_mode: typeof getAddsPoolMode === 'function' ? getAddsPoolMode() : 'collection',
       deck_swaps_enabled: typeof deckSwapsFeatureEnabled !== 'undefined' ? !!deckSwapsFeatureEnabled : true,
+      deck_tag_badges: typeof deckTagBadges !== 'undefined' ? deckTagBadges : {},
     }));
     if (ops.length) await Promise.all(ops);
     if (!deckFlushFailed) {

@@ -1579,6 +1579,138 @@ const _SCRY_AUTO_LABEL_SET = new Set(SCRYFALL_AUTO_TAGS.map(t => t.label));
 // for one role tag per card — see _badgeTagForCard() for Primary → Secondary →
 // default priority (_roleTagsForCard() order is the "first listed" tie-break).
 // Icons are 24×24 line icons (stroke=currentColor) to match the app's SVG style.
+/**
+ * Symbols a user-made badge can wear.
+ *
+ * One 24x24 stroke path set each, drawn with the same attributes the built-in
+ * badges use so a custom badge is indistinguishable from a stock one. The first
+ * block is exactly the art the default role badges use, named so a new tag can
+ * borrow it; the rest is a general set to pick from.
+ */
+const BADGE_SYMBOLS = {
+  // ── the default role-tag art ───────────────────────────────────────────────
+  land:        '<path d="M3 19l6-9 4 5 2-3 6 7z"/>',
+  crown:       '<path d="M4 18h16M4 18l-1.5-9 5 4 4.5-7 4.5 7 5-4L20 18"/>',
+  ramp:        '<path d="M3 17l6-6 4 4 8-8M15 7h6v6"/>',
+  draw:        '<rect x="3" y="8" width="10" height="13" rx="1.5"/><path d="M18 9V3m-3 3l3-3 3 3"/>',
+  target:      '<circle cx="12" cy="12" r="8"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>',
+  starburst:   '<path d="M12 2l2.2 6.2L20 6l-2.5 5.6L23 14l-6.3.4L18 21l-6-3.4L6 21l1.3-6.6L1 14l5.5-2.4L4 6l5.8 2.2z"/>',
+  search:      '<circle cx="11" cy="11" r="7"/><path d="M21 21l-5-5"/>',
+  counter:     '<circle cx="12" cy="12" r="8"/><path d="M6.5 6.5l11 11"/>',
+  shield:      '<path d="M12 3l7 3v5c0 5-3.5 8-7 9-3.5-1-7-4-7-9V6z"/>',
+  bounce:      '<path d="M9 10L4 15l5 5"/><path d="M4 15h11a5 5 0 005-5V6"/>',
+  swap:        '<path d="M4 9h14l-4-4M20 15H6l4 4"/>',
+  flame:       '<path d="M12 3c1 4 5 5 5 9a5 5 0 01-10 0c0-2 1-3 2.2-4 .2 2 1 2.8 1.8 3-1-3 .5-5 1-8z"/>',
+  brokenheart: '<path d="M12 20s-7-4.5-7-9a4 4 0 017-2.6A4 4 0 0119 11c0 4.5-7 9-7 9z"/><path d="M4 4l16 16"/>',
+  lock:        '<rect x="5" y="11" width="14" height="9" rx="1.5"/><path d="M8 11V8a4 4 0 018 0v3"/>',
+  bears:       '<circle cx="7" cy="10" r="1.8"/><circle cx="12" cy="8.5" r="1.8"/><circle cx="17" cy="10" r="1.8"/><path d="M7.5 15a4.5 4.5 0 009 0c0-2-2-3-4.5-3s-4.5 1-4.5 3z"/>',
+  banner:      '<path d="M6 21V4M6 4h11l-2.5 4L17 12H6"/>',
+  wings:       '<path d="M3 12c4-4 7-1.5 9-7 2 5.5 5 3 9 7-4 1.5-7-.5-9 2.5-2-3-5-1-9-2.5z"/>',
+  chevrons:    '<path d="M6 13l6-6 6 6M6 19l6-6 6 6"/>',
+  bolt:        '<path d="M13 2L4 14h7l-2 8 9-12h-7z"/>',
+  fangs:       '<path d="M4 6h16v2c0 4-3 5-4 9-1-4-2-5-4-5s-3 1-4 5c-1-4-4-5-4-9z"/>',
+  swords:      '<path d="M5 5l9 9M19 5l-9 9M3 17l3 3M21 17l-3 3"/>',
+  token:       '<rect x="3" y="3" width="11" height="11" rx="1.5"/><path d="M19 11v8m-4-4h8"/>',
+  eye:         '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>',
+  copy:        '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h8"/>',
+  gem:         '<path d="M6 9l-2 4 8 9 8-9-2-4z"/><path d="M4 13h16M9 4h6l3 5M9 4L6 9M15 4l3 5"/>',
+  heartplus:   '<path d="M12 20s-7-4.5-7-9a4 4 0 017-2.6A4 4 0 0119 11c0 4.5-7 9-7 9z"/><path d="M12 9v5m-2.5-2.5h5"/>',
+  discard:     '<rect x="3" y="3" width="10" height="13" rx="1.5"/><path d="M18 15v6m-3-3l3 3 3-3"/>',
+  mill:        '<path d="M4 6h11M4 10h11M4 14h7"/><path d="M19 8v9m-3-3l3 3 3-3"/>',
+  refresh:     '<path d="M20 11A8 8 0 105.7 6.3"/><path d="M20 3v4h-4"/>',
+  landfall:    '<path d="M12 3v11m-4-4l4 4 4-4"/><path d="M4 20h16"/>',
+  // ── a wider set to choose from ─────────────────────────────────────────────
+  star:        '<path d="M12 3l2.6 5.9 6.4.6-4.8 4.3 1.4 6.2L12 16.8 6.4 20l1.4-6.2L3 9.5l6.4-.6z"/>',
+  heart:       '<path d="M12 20s-7-4.5-7-9a4 4 0 017-2.6A4 4 0 0119 11c0 4.5-7 9-7 9z"/>',
+  skull:       '<path d="M12 3a7 7 0 00-7 7v3l2 2v3h10v-3l2-2v-3a7 7 0 00-7-7z"/><circle cx="9.5" cy="11" r="1.3"/><circle cx="14.5" cy="11" r="1.3"/>',
+  ghost:       '<path d="M5 20V10a7 7 0 0114 0v10l-2.3-2-2.4 2-2.3-2-2.3 2-2.4-2z"/><circle cx="9.5" cy="10" r="1.2"/><circle cx="14.5" cy="10" r="1.2"/>',
+  crownsmall:  '<path d="M5 17h14l1-9-4.5 3.5L12 5l-3.5 6.5L4 8z"/>',
+  anvil:       '<path d="M4 9h11l3 3h3v3H6l-2-3z"/><path d="M9 15v3H7v2h10v-2h-2v-3"/>',
+  hammer:      '<path d="M11 4l6 6-3 3-6-6z"/><path d="M8 10l-5 8 2 2 8-5"/>',
+  axe:         '<path d="M14 3l7 5-4 5-4-3z"/><path d="M13 10L4 19l2 2 8-9"/>',
+  bow:         '<path d="M5 3c8 2 13 7 15 15"/><path d="M5 3v6M5 3h6"/><path d="M8 16l8-8"/>',
+  wand:        '<path d="M5 19L16 8"/><path d="M18 3l1 3 3 1-3 1-1 3-1-3-3-1 3-1z"/>',
+  potion:      '<path d="M10 3h4v4l4 8a4 4 0 01-3.6 6H9.6A4 4 0 016 15l4-8z"/><path d="M8 14h8"/>',
+  scroll:      '<path d="M6 4h11a2 2 0 012 2v12a2 2 0 01-2 2H6"/><path d="M6 4a2 2 0 00-2 2v2h4"/><path d="M9 10h7M9 14h7"/>',
+  book:        '<path d="M5 4h9a3 3 0 013 3v13H8a3 3 0 01-3-3z"/><path d="M8 4v16"/>',
+  key:         '<circle cx="8" cy="9" r="4"/><path d="M11 12l8 8M17 18l2-2M15 16l2-2"/>',
+  chain:       '<path d="M9 13a4 4 0 005.7 0l2.3-2.3a4 4 0 00-5.7-5.7L10 6.3"/><path d="M15 11a4 4 0 00-5.7 0L7 13.3a4 4 0 005.7 5.7L14 17.7"/>',
+  anchor:      '<circle cx="12" cy="5" r="2"/><path d="M12 7v13M5 13a7 7 0 0014 0"/>',
+  clock:       '<circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/>',
+  hourglass:   '<path d="M7 3h10M7 21h10"/><path d="M8 3c0 5 8 5 8 9s-8 4-8 9"/><path d="M16 3c0 5-8 5-8 9s8 4 8 9"/>',
+  dice:        '<rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="9" cy="9" r="1.3"/><circle cx="15" cy="15" r="1.3"/><circle cx="12" cy="12" r="1.3"/>',
+  coin:        '<circle cx="12" cy="12" r="8"/><path d="M12 8v8M9.5 10h5M9.5 14h5"/>',
+  bag:         '<path d="M5 8h14l-1 12H6z"/><path d="M9 8V6a3 3 0 016 0v2"/>',
+  chest:       '<rect x="3" y="9" width="18" height="11" rx="1.5"/><path d="M3 9l2-4h14l2 4M12 9v11M9 14h6"/>',
+  flag:        '<path d="M6 21V4h11l-2 4 2 4H6"/>',
+  tower:       '<path d="M7 21V8l-2-3h14l-2 3v13z"/><path d="M10 21v-5h4v5"/>',
+  gate:        '<path d="M4 21V9a8 8 0 0116 0v12"/><path d="M12 21V9M4 15h16"/>',
+  mountain:    '<path d="M3 19l6-10 4 6 2-3 6 7z"/><path d="M9 9l1.6 2.6"/>',
+  tree:        '<path d="M12 3l5 7h-3l4 6H6l4-6H7z"/><path d="M12 16v5"/>',
+  droplet:     '<path d="M12 3s6 7 6 11a6 6 0 01-12 0c0-4 6-11 6-11z"/>',
+  sun:         '<circle cx="12" cy="12" r="4.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/>',
+  moon:        '<path d="M20 14a8.5 8.5 0 01-10-10 8.5 8.5 0 1010 10z"/>',
+  cloud:       '<path d="M7 18h10a4 4 0 000-8 6 6 0 00-11.3 2A3.5 3.5 0 007 18z"/>',
+  wave:        '<path d="M3 9c2-2 4-2 6 0s4 2 6 0 4-2 6 0"/><path d="M3 15c2-2 4-2 6 0s4 2 6 0 4-2 6 0"/>',
+  snow:        '<path d="M12 3v18M4 8l16 8M20 8L4 16"/>',
+  spiral:      '<path d="M12 12a3 3 0 113-3 5 5 0 01-5 5 7 7 0 01-7-7"/>',
+  infinity:    '<path d="M8.5 9a3 3 0 100 6c3 0 4-6 7-6a3 3 0 110 6c-3 0-4-6-7-6z"/>',
+  recycle:     '<path d="M7 7l3-4 3 4"/><path d="M17 11l3 4-3 4"/><path d="M10 3l6 10M20 15H8M4 13l4-6"/>',
+  scales:      '<path d="M12 4v16M7 20h10"/><path d="M4 9l4-4 4 4M4 9a4 4 0 008 0"/><path d="M12 9l4-4 4 4M12 9a4 4 0 008 0"/>',
+  handshake:   '<path d="M3 12l4-4 3 3 3-3 4 4"/><path d="M7 15l3 3 3-3 3 3 4-4"/>',
+  fist:        '<path d="M6 11V8a2 2 0 014 0M10 11V7a2 2 0 014 0v4M14 11V8a2 2 0 014 0v6a6 6 0 01-6 6H9l-4-4 1-1 3 2"/>',
+  footprint:   '<ellipse cx="10" cy="9" rx="4" ry="6"/><ellipse cx="16" cy="19" rx="2.5" ry="2"/>',
+  wing:        '<path d="M3 8c6 0 10 3 12 8 3-3 5-3 6-2-2-6-9-9-18-6z"/>',
+  claw:        '<path d="M5 4c3 5 4 9 4 16M11 3c2 5 2 10 1 17M17 5c1 5 0 10-2 15"/>',
+  horn:        '<path d="M5 19c0-8 5-14 14-15-2 9-6 14-14 15z"/>',
+  egg:         '<path d="M12 3c4 0 7 6 7 10a7 7 0 01-14 0c0-4 3-10 7-10z"/>',
+  seed:        '<path d="M12 21c-5-3-7-7-7-11a7 7 0 0114 0c0 4-2 8-7 11z"/><path d="M12 21V9"/>',
+  flower:      '<circle cx="12" cy="12" r="2.5"/><path d="M12 3a3.5 3.5 0 010 7 3.5 3.5 0 010-7zM21 12a3.5 3.5 0 01-7 0 3.5 3.5 0 017 0zM12 21a3.5 3.5 0 010-7 3.5 3.5 0 010 7zM3 12a3.5 3.5 0 017 0 3.5 3.5 0 01-7 0z"/>',
+  leaf:        '<path d="M20 4C9 4 4 9 4 16c0 2 1 3 2 4 7 0 14-5 14-16z"/><path d="M6 20c4-6 8-9 12-11"/>',
+  bone:        '<path d="M6 15a2.5 2.5 0 113-3l6-6a2.5 2.5 0 113 3 2.5 2.5 0 11-3 3l-6 6a2.5 2.5 0 11-3-3z"/>',
+  grave:       '<path d="M6 21V10a6 6 0 0112 0v11z"/><path d="M12 8v6M9.5 11h5"/>',
+  cauldron:    '<path d="M4 10h16a8 8 0 01-16 0z"/><path d="M8 10V7M16 10V7M9 20h6"/>',
+  portal:      '<ellipse cx="12" cy="12" rx="5" ry="9"/><ellipse cx="12" cy="12" rx="9" ry="5"/>',
+  compass:     '<circle cx="12" cy="12" r="9"/><path d="M15 9l-2 5-5 2 2-5z"/>',
+  map:         '<path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z"/><path d="M9 4v14M15 6v14"/>',
+  pin:         '<path d="M12 21s6-6.5 6-11a6 6 0 10-12 0c0 4.5 6 11 6 11z"/><circle cx="12" cy="10" r="2.3"/>',
+  arrows:      '<path d="M12 3v18M8 7l4-4 4 4M8 17l4 4 4-4"/>',
+  shuffle:     '<path d="M3 7h4l10 10h4M3 17h4l4-4"/><path d="M18 4l3 3-3 3M18 14l3 3-3 3"/>',
+  filter:      '<path d="M3 5h18l-7 8v6l-4-2v-4z"/>',
+  layers:      '<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/>',
+  grid:        '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+  stack:       '<rect x="4" y="14" width="16" height="6" rx="1.5"/><rect x="6" y="9" width="12" height="4" rx="1.2"/><rect x="8" y="4" width="8" height="4" rx="1"/>',
+  scale:       '<path d="M4 20V8M10 20V4M16 20v-9M22 20v-5"/>',
+  chart:       '<path d="M4 20V6M4 20h16"/><path d="M8 16l4-5 3 3 5-7"/>',
+  gauge:       '<path d="M4 17a8 8 0 1116 0"/><path d="M12 17l4-5"/>',
+  bell:        '<path d="M7 17V11a5 5 0 0110 0v6l2 2H5z"/><path d="M10 21h4"/>',
+  megaphone:   '<path d="M4 10v4l10 4V6z"/><path d="M14 9a3 3 0 010 6"/><path d="M6 15v3h3"/>',
+  spark:       '<path d="M12 3v5M12 16v5M3 12h5M16 12h5M6 6l3 3M15 15l3 3M18 6l-3 3M9 15l-3 3"/>',
+  crystal:     '<path d="M12 2l7 8-7 12-7-12z"/><path d="M5 10h14M12 2v20"/>',
+  ring:        '<circle cx="12" cy="14" r="6"/><path d="M9 6l3-3 3 3-3 3z"/>',
+  helm:        '<path d="M5 12a7 7 0 0114 0v7H5z"/><path d="M12 12v7M5 15h14"/>',
+  boots:       '<path d="M7 3h4v10c0 3 2 4 5 4h3v4H7z"/>',
+  cloak:       '<path d="M12 3l6 4c0 8-2 12-6 14-4-2-6-6-6-14z"/>',
+  torch:       '<path d="M12 3c2 3 4 4 4 7a4 4 0 01-8 0c0-3 2-4 4-7z"/><path d="M10 14l1 7h2l1-7"/>',
+  lantern:     '<rect x="7" y="7" width="10" height="10" rx="2"/><path d="M9 7V5h6v2M10 20h4M12 17v3"/>',
+  chalice:     '<path d="M7 4h10l-1 6a4 4 0 01-8 0z"/><path d="M12 14v5M9 20h6"/>',
+  crossswords: '<path d="M4 4l16 16M20 4L4 20"/><path d="M2 18l4 4M22 18l-4 4"/>',
+  tombstone:   '<path d="M5 21V11a7 7 0 0114 0v10z"/><path d="M9 21v-4h6v4"/>',
+  vial:        '<path d="M9 3h6M10 3v8l-3 6a3 3 0 003 4h4a3 3 0 003-4l-3-6V3"/>',
+  feather:     '<path d="M20 4C10 4 5 10 5 19"/><path d="M20 4c0 9-6 13-13 13"/><path d="M5 19l4-4"/>',
+  hexagon:     '<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/>',
+  triangle:    '<path d="M12 4l9 16H3z"/>',
+  square:      '<rect x="4" y="4" width="16" height="16" rx="2"/>',
+  circle:      '<circle cx="12" cy="12" r="8"/>',
+  diamond:     '<path d="M12 3l9 9-9 9-9-9z"/>',
+  plus:        '<path d="M12 5v14M5 12h14"/>',
+  minus:       '<path d="M5 12h14"/>',
+  check:       '<path d="M4 13l5 5L20 6"/>',
+  cross:       '<path d="M6 6l12 12M18 6L6 18"/>',
+  question:    '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 114 2c-.9.7-1.5 1.2-1.5 2.5"/><circle cx="12" cy="17.5" r="0.8"/>',
+  exclaim:     '<circle cx="12" cy="12" r="9"/><path d="M12 7v6"/><circle cx="12" cy="16.5" r="0.8"/>',
+};
+
 const DEFAULT_TAG_BADGE = {
   'Land':          { color: '#8a6f3e', icon: '<path d="M3 19l6-9 4 5 2-3 6 7z"/>' },
   'Commander':     { color: '#9b6dff', icon: '<path d="M4 18h16M4 18l-1.5-9 5 4 4.5-7 4.5 7 5-4L20 18"/>' },
@@ -1631,21 +1763,31 @@ function _tagBadgeSvg(inner) {
  * listed" among multiple primaries/secondaries means that same array order.
  * Only explicit stored tiers count as manual (`_getCardCustomTagTierRaw`).
  */
+/**
+ * The tag a card's badge stands for, under the current badge mode.
+ *
+ * Primary and secondary look at every tag on the card, not just its default
+ * role tags — a tag you made and marked primary is exactly the thing you asked
+ * the badge to show. They paint nothing when the card has no tag at that tier,
+ * which is the point: the board then shows only the cards you have ranked.
+ */
 function _badgeTagForCard(card) {
+  const mode = typeof deckTagBadgeMode === 'string' ? deckTagBadgeMode : 'default';
+  if (mode === 'off') return null;
   let roles = [];
   try {
     roles = (typeof _roleTagsForCard === 'function') ? (_roleTagsForCard(card) || []) : [];
   } catch (_) {
     roles = [];
   }
-  if (!roles.length) return null;
-  if (typeof _getCardCustomTagTierRaw === 'function') {
-    for (const tag of roles) {
-      if (_getCardCustomTagTierRaw(card, tag) === 'primary') return tag;
+  if (mode === 'primary' || mode === 'secondary') {
+    if (typeof _getCardCustomTagTierRaw !== 'function') return null;
+    const seen = new Set(roles.map(t => String(t).toLowerCase()));
+    const extra = (card?.customTags || []).filter(t => !seen.has(String(t).toLowerCase()));
+    for (const tag of [...roles, ...extra]) {
+      if (_getCardCustomTagTierRaw(card, tag) === mode) return tag;
     }
-    for (const tag of roles) {
-      if (_getCardCustomTagTierRaw(card, tag) === 'secondary') return tag;
-    }
+    return null;
   }
   return roles[0] || null;
 }
@@ -1653,7 +1795,7 @@ function _badgeTagForCard(card) {
 /** Badge HTML for a card's role tag (Primary → Secondary → default role order). */
 function _defaultTagBadgeHtml(card, opts = {}) {
   const tag = _badgeTagForCard(card);
-  const meta = tag ? DEFAULT_TAG_BADGE[tag] : null;
+  const meta = tag ? badgeMetaForTag(tag) : null;
   if (!meta) return '';
   if (!deckTagBadgesEnabled) return '';
   const corner = opts.variant === 'corner' ? ' deck-tag-badge--corner' : '';
@@ -1741,25 +1883,79 @@ function _toggleTagBadgeTip(e, badge) {
   window.addEventListener('resize', () => { if (_tagBadgeTipAnchor) _hideTagBadgeTip(); });
 })();
 
-// Deck-list toggle for the role-tag badges (persisted; default on).
-let deckTagBadgesEnabled = localStorage.getItem('mtg_deck_tag_badges') !== '0';
+/**
+ * Which tags the deck-list badges stand for: off, the card's own default role
+ * tags, or the tags you have marked primary or secondary on it.
+ *
+ * It used to be a plain on/off toggle that always painted primary-then-
+ * secondary-then-default, so there was no way to ask "show me only what I
+ * called primary". Migrates the old 1/0 setting: on becomes Default.
+ */
+const DECK_BADGE_MODES = ['off', 'default', 'primary', 'secondary'];
+let deckTagBadgeMode = (() => {
+  const saved = localStorage.getItem('mtg_deck_tag_badge_mode');
+  if (DECK_BADGE_MODES.includes(saved)) return saved;
+  return localStorage.getItem('mtg_deck_tag_badges') === '0' ? 'off' : 'default';
+})();
+// Kept as a derived flag: plenty of code asks only whether badges show at all.
+let deckTagBadgesEnabled = deckTagBadgeMode !== 'off';
 
 function _applyDeckTagBadgesSetting() {
-  const btn = document.getElementById('deckTagBadgeToggleBtn');
-  if (btn) {
-    btn.classList.toggle('active', deckTagBadgesEnabled);
-    btn.setAttribute('aria-pressed', deckTagBadgesEnabled ? 'true' : 'false');
-    btn.title = deckTagBadgesEnabled ? 'Hide role-tag badges' : 'Show role-tag badges';
-  }
+  deckTagBadgesEnabled = deckTagBadgeMode !== 'off';
+  const sel = document.getElementById('deckTagBadgeModeSelect');
+  if (sel && sel.value !== deckTagBadgeMode) sel.value = deckTagBadgeMode;
+  if (typeof _glassSelectSyncLabels === 'function') _glassSelectSyncLabels();
 }
 
-function toggleDeckTagBadges() {
-  deckTagBadgesEnabled = !deckTagBadgesEnabled;
-  localStorage.setItem('mtg_deck_tag_badges', deckTagBadgesEnabled ? '1' : '0');
+function setDeckTagBadgeMode(mode) {
+  deckTagBadgeMode = DECK_BADGE_MODES.includes(mode) ? mode : 'default';
+  localStorage.setItem('mtg_deck_tag_badge_mode', deckTagBadgeMode);
+  localStorage.setItem('mtg_deck_tag_badges', deckTagBadgeMode === 'off' ? '0' : '1');
   _applyDeckTagBadgesSetting();
   const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
   if (deck) renderDeckList(deck);
 }
+globalThis.setDeckTagBadgeMode = setDeckTagBadgeMode;
+
+// Kept for anything still calling it: cycles off ↔ the last real mode.
+function toggleDeckTagBadges() {
+  setDeckTagBadgeMode(deckTagBadgeMode === 'off' ? 'default' : 'off');
+}
+
+/**
+ * Badges made by the user for their own tags: tag name → symbol + colour.
+ *
+ * Per account rather than per device — a tag's badge is part of what the tag
+ * means — so it rides in preferences with the tag catalogue itself.
+ */
+let deckTagBadges = {};
+
+function _normBadgeKey(tag) {
+  return String(tag || '').trim().toLowerCase();
+}
+
+/** The badge for a tag: the user's if they made one, else the built-in. */
+function badgeMetaForTag(tag) {
+  if (!tag) return null;
+  const custom = deckTagBadges[_normBadgeKey(tag)];
+  if (custom && custom.icon && BADGE_SYMBOLS[custom.icon]) {
+    return { color: custom.color || '#5aa9f0', icon: BADGE_SYMBOLS[custom.icon] };
+  }
+  return DEFAULT_TAG_BADGE[tag] || null;
+}
+
+function setTagBadge(tag, icon, color) {
+  const key = _normBadgeKey(tag);
+  if (!key) return false;
+  if (!icon) delete deckTagBadges[key];
+  else deckTagBadges[key] = { icon, color: color || '#5aa9f0', label: String(tag).trim() };
+  save('prefs');
+  const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+  if (deck) renderDeckList(deck);
+  return true;
+}
+globalThis.setTagBadge = setTagBadge;
+globalThis.badgeMetaForTag = badgeMetaForTag;
 
 let _tagOverridesByOracleId = new Map();  // oracleId -> { addTags:string[], removeTags:string[], updatedAt:number, cardName?:string }
 let _tagOverridesLoaded = false;
@@ -2125,6 +2321,25 @@ function toggleDeckSwapsSetting() {
     ? 'Adds & Cuts planning enabled for all decks (syncs across your devices)'
     : 'Adds & Cuts planning hidden — your planned adds and cuts are kept and come back when you re-enable it');
 }
+
+/** Custom tag badges arrive with the rest of the account's preferences. */
+function applyTagBadgePrefsFromServer(prefs) {
+  const v = prefs?.deck_tag_badges;
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return;
+  const next = {};
+  for (const [key, def] of Object.entries(v)) {
+    if (!def || typeof def !== 'object') continue;
+    const icon = String(def.icon || '');
+    if (!BADGE_SYMBOLS[icon]) continue;
+    next[String(key).toLowerCase()] = {
+      icon,
+      color: /^#[0-9a-f]{6}$/i.test(String(def.color || '')) ? String(def.color).toLowerCase() : '#5aa9f0',
+      label: String(def.label || key),
+    };
+  }
+  deckTagBadges = next;
+}
+globalThis.applyTagBadgePrefsFromServer = applyTagBadgePrefsFromServer;
 
 /** Apply the account's Adds & Cuts preference on login — server value wins over local cache. */
 function applyDeckSwapsPrefsFromServer(prefs) {
@@ -3251,8 +3466,18 @@ function renderMyTagsCatalog(opts = {}) {
   el.innerHTML = allTags.map(tag => {
     const isProtected = _isProtectedDeckTag(tag) && !_isUserCatalogTag(tag);
     const esc = tag.replace(/'/g, "\\'");
+    // Each tag carries its badge: what it looks like on a card, and the way in
+    // to change it. A tag with none shows a dashed placeholder rather than
+    // nothing, so "this tag has no badge" is a visible state.
+    const meta = typeof badgeMetaForTag === 'function' ? badgeMetaForTag(tag) : null;
+    const custom = deckTagBadges[_normBadgeKey(tag)];
+    const preview = meta
+      ? `<span class="tagcat-badge" style="--badge-color:${meta.color}">${_tagBadgeSvg(meta.icon)}</span>`
+      : '<span class="tagcat-badge tagcat-badge--none" aria-hidden="true"></span>';
     return `
-    <span class="tag tag-primary" style="display:inline-flex;align-items:center;gap:6px">
+    <span class="tag tag-primary tagcat-row">
+      <button type="button" class="tagcat-badge-btn" onclick="openTagBadgeEditor('${esc}')"
+        title="${meta ? (custom ? 'Change this badge' : 'Built-in badge — click to replace it') : 'Give this tag a badge'}">${preview}</button>
       ${escapeHtml(tag)}
       ${isProtected
         ? ''
@@ -3260,6 +3485,96 @@ function renderMyTagsCatalog(opts = {}) {
     </span>`;
   }).join('');
 }
+
+// ── Badge designer ───────────────────────────────────────────────────────────
+let _badgeEditorTag = null;
+let _badgeEditorIcon = null;
+let _badgeEditorColor = '#5aa9f0';
+
+/** Pick a symbol and a colour for one tag's badge. */
+function openTagBadgeEditor(tag) {
+  const name = String(tag || '').trim();
+  if (!name) return;
+  _badgeEditorTag = name;
+  const existing = deckTagBadges[_normBadgeKey(name)];
+  const builtIn = DEFAULT_TAG_BADGE[name];
+  _badgeEditorIcon = existing?.icon
+    || (builtIn ? Object.keys(BADGE_SYMBOLS).find(k => BADGE_SYMBOLS[k] === builtIn.icon) : null)
+    || null;
+  _badgeEditorColor = existing?.color || builtIn?.color || '#5aa9f0';
+  const modal = document.getElementById('tagBadgeModal');
+  if (!modal) return;
+  document.getElementById('tagBadgeTitle').textContent = `Badge for "${name}"`;
+  _renderTagBadgeEditor();
+  modal.classList.add('open');
+}
+globalThis.openTagBadgeEditor = openTagBadgeEditor;
+
+function closeTagBadgeEditor() {
+  document.getElementById('tagBadgeModal')?.classList.remove('open');
+  _badgeEditorTag = null;
+}
+globalThis.closeTagBadgeEditor = closeTagBadgeEditor;
+
+function _renderTagBadgeEditor() {
+  const grid = document.getElementById('tagBadgeSymbols');
+  const preview = document.getElementById('tagBadgePreview');
+  const swatch = document.getElementById('tagBadgeColorDot');
+  if (preview) {
+    preview.innerHTML = _badgeEditorIcon
+      ? `<span class="deck-tag-badge deck-tag-badge--corner" style="--badge-color:${_badgeEditorColor};position:static">${_tagBadgeSvg(BADGE_SYMBOLS[_badgeEditorIcon])}</span>`
+      : '<span class="tagcat-badge tagcat-badge--none"></span>';
+  }
+  if (swatch) swatch.style.setProperty('--sw', _badgeEditorColor);
+  if (grid) {
+    grid.innerHTML = Object.keys(BADGE_SYMBOLS).map(key => `
+      <button type="button" class="tagbadge-sym${key === _badgeEditorIcon ? ' is-picked' : ''}"
+        data-sym="${key}" title="${key}" onclick="pickTagBadgeSymbol('${key}')"
+        style="--badge-color:${_badgeEditorColor}">${_tagBadgeSvg(BADGE_SYMBOLS[key])}</button>`).join('');
+  }
+}
+
+function pickTagBadgeSymbol(key) {
+  if (!BADGE_SYMBOLS[key]) return;
+  _badgeEditorIcon = key;
+  _renderTagBadgeEditor();
+}
+globalThis.pickTagBadgeSymbol = pickTagBadgeSymbol;
+
+function openTagBadgeColorPicker(btn) {
+  if (typeof pgOpenColorPicker !== 'function') return;
+  pgOpenColorPicker(null, null, btn, {
+    current: _badgeEditorColor,
+    presets: [...new Set([
+      ...Object.values(DEFAULT_TAG_BADGE).map(b => b.color),
+      ...(typeof cardColorRecents === 'function' ? cardColorRecents() : []),
+    ])].slice(0, 24),
+    align: 'right',
+    onPreview: hex => { _badgeEditorColor = hex; _renderTagBadgeEditor(); },
+    onCommit: hex => { _badgeEditorColor = hex; },
+    onClose: () => _renderTagBadgeEditor(),
+  });
+}
+globalThis.openTagBadgeColorPicker = openTagBadgeColorPicker;
+
+function saveTagBadge() {
+  if (!_badgeEditorTag) return;
+  if (!_badgeEditorIcon) { showNotif('Pick a symbol first', true); return; }
+  setTagBadge(_badgeEditorTag, _badgeEditorIcon, _badgeEditorColor);
+  showNotif(`Badge set for "${_badgeEditorTag}"`);
+  closeTagBadgeEditor();
+  _refreshMyTagsCatalogUIs();
+}
+globalThis.saveTagBadge = saveTagBadge;
+
+/** Drop a custom badge — a tag with a built-in one falls back to it. */
+function clearTagBadge() {
+  if (!_badgeEditorTag) return;
+  setTagBadge(_badgeEditorTag, null);
+  closeTagBadgeEditor();
+  _refreshMyTagsCatalogUIs();
+}
+globalThis.clearTagBadge = clearTagBadge;
 
 function _refreshMyTagsCatalogUIs() {
   renderMyTagsCatalog({ filterBarId: 'deckTagManagerFilterBar', listId: 'deckTagManagerList' });

@@ -159,6 +159,9 @@ function hydrateAppData(data) {
   if (typeof applyAddsPrefsFromServer === 'function') {
     applyAddsPrefsFromServer(data.prefs || {});
   }
+  if (typeof applyTagBadgePrefsFromServer === 'function') {
+    applyTagBadgePrefsFromServer(data.prefs || {});
+  }
   if (typeof applyDeckSwapsPrefsFromServer === 'function') {
     applyDeckSwapsPrefsFromServer(data.prefs || {});
   }

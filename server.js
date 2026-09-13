@@ -6559,7 +6559,16 @@ app.get('/api/preferences', requireAuth, async (req, res) => {
     ]);
     const out = {};
     rows.forEach(r => {
-      out[r.key_name] = typeof r.value === 'string' ? JSON.parse(r.value) : r.value;
+      // `value` is a JSON column, so mysql2 hands back the decoded value — and a
+      // preference whose value is a JSON *string* comes back as a JS string.
+      // Parsing that again threw, and one throw failed the whole request: every
+      // account with adds_pool_mode set (the string "collection") got a 500 here,
+      // and the client's loader quietly substituted {} — so no preference of
+      // theirs, server-side, was reaching the app at all. Rows written before the
+      // column became JSON are still text, hence the guarded parse.
+      const v = r.value;
+      if (typeof v !== 'string') { out[r.key_name] = v; return; }
+      try { out[r.key_name] = JSON.parse(v); } catch (_) { out[r.key_name] = v; }
     });
     res.json(out);
   } catch (e) {
