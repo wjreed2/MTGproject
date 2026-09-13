@@ -1181,6 +1181,15 @@ select[data-glassified] { display: none !important; }
 .glass-dd-btn > svg { flex-shrink: 0; }
 .glass-dd-prefix { opacity: 0.55; }
 #tab-decks .glass-dir-btn { min-width: 34px; justify-content: center; }
+/* Height belongs to the toolbar, not to which cluster a control sits in. The
+   34px rule is scoped to #deckGroupByWrap, so the Badges trigger — a sibling of
+   that span, not a child — fell back to .btn-sm's 28px and stood a row short. */
+#tab-decks #deckListPanelHeader .glass-dd-btn {
+  height: 34px;
+  min-height: 34px;
+  padding: 0 12px;
+  box-sizing: border-box;
+}
 /* Glass triggers everywhere pick up the blue→purple hover, like the toolbar */
 .glass-dd-btn:hover {
   color: var(--text);
