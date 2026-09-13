@@ -3477,7 +3477,9 @@ app.get('/api/decks/public', async (req, res) => {
         commander: deck.commander || null,
         commanderImage: cmdCard?.imageLarge || cmdCard?.image || deck.commanderImage || null,
         colorIdentity: deck.commanderColorIdentity || [],
-        cardCount: (deck.cards || []).reduce((s, c) => s + (c.qty || 1), 0),
+        cardCount: cards.reduce((s, c) => s + (c.qty || 1), 0),
+        notes: String(deck.notes || '').slice(0, 400),
+        price: Math.round(deckValue(cards) * 100) / 100,
         ownerEmail: r.email,
         accountId: r.account_id,
       };

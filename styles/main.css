@@ -4518,7 +4518,7 @@ body.glass-mode .x-stepper-btn-sm { border-radius: 7px; }
    and type line are the point of showing it. The card's height follows from it. */
 .pubdeck-art {
   flex: 0 0 auto;
-  width: 200px;
+  width: 236px;
   aspect-ratio: 0.715;
   border-radius: 9px;
   overflow: hidden;
@@ -4536,12 +4536,12 @@ body.glass-mode .x-stepper-btn-sm { border-radius: 7px; }
   display: flex; flex-direction: column; gap: 3px;
 }
 .pubdeck-name {
-  font-family: 'Cinzel', serif; font-size: 1.18rem; font-weight: 600; color: var(--text);
+  font-family: 'Cinzel', serif; font-size: 1.35rem; font-weight: 600; color: var(--text);
   line-height: 1.25;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .pubdeck-cmdr {
-  font-size: 0.94rem; color: var(--text2);
+  font-size: 1.05rem; color: var(--text2);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 /* Three lines of notes, then an ellipsis — the whole point is a card that stays

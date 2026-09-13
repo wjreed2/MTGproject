@@ -261,6 +261,11 @@
         </a>
       </div>
       <div class="settings-divider"></div>
+      <button type="button" class="btn btn-ghost btn-sm settings-menu-item" style="width:100%;justify-content:flex-start;gap:7px" onclick="openSignInMethodsModal()">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><rect x="2.5" y="7" width="11" height="6.5" rx="1.5"/><path d="M5.2 7V4.8a2.8 2.8 0 0 1 5.6 0V7"/></svg>
+        Sign-in methods
+      </button>
+      <div class="settings-divider"></div>
       <button type="button" class="btn btn-ghost btn-sm settings-menu-item" style="width:100%;justify-content:flex-start;gap:7px;color:var(--red)" onclick="logoutAccount()">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M7 3.5H4a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h3"/><path d="M10.5 5.5L13.5 8.5 10.5 11.5"/><line x1="13.5" y1="8.5" x2="6" y2="8.5"/></svg>
         Sign out
@@ -1128,7 +1133,7 @@
   </div>
   <!-- min(100%, …) rather than a media query: a phone falls to one per row on
        its own, and a desktop gets two or three until the window is very wide. -->
-  <div id="browseDeckGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,510px),1fr));gap:0.9rem"></div>
+  <div id="browseDeckGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,528px),1fr));gap:0.9rem"></div>
 </div>
 
 <!-- WISHLIST TAB -->
@@ -2944,6 +2949,21 @@
 <!-- socket.io client for real-time trading (served by the socket.io server). Loaded
      defer so a missing/late server doesn't block the app; trade.js feature-detects `io`. -->
 <script src="/socket.io/socket.io.js" defer onerror="window._noSocketIo=true"></script>
+<!-- Linked providers + password state for the signed-in account. -->
+<div class="modal-overlay" id="signInMethodsModal" style="display:none" onclick="if(event.target===this)closeSignInMethodsModal()">
+  <div class="modal" style="width:min(480px,96vw);max-height:88vh;overflow-y:auto">
+    <button class="btn btn-ghost btn-icon" style="position:absolute;top:0.75rem;right:0.75rem" onclick="closeSignInMethodsModal()" aria-label="Close">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" style="width:14px;height:14px;display:block"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+    </button>
+    <div class="modal-title">Sign-in methods</div>
+    <p style="font-size:0.8rem;color:var(--text3);margin:0 0 1rem;line-height:1.5">
+      Every method listed here opens this same account &mdash; your collection, decks and wishlist stay exactly where they are.
+    </p>
+    <div id="signInMethodsStatus" style="font-size:0.82rem;color:var(--text3)">Loading&hellip;</div>
+    <div id="signInMethodsList"></div>
+  </div>
+</div>
+
 <script src="/dist/bundle.js"></script>
 <script>
   if (localStorage.getItem('mtg_sidebar_collapsed') === 'true') {
