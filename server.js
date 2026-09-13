@@ -668,6 +668,121 @@ async function ensureAccountLoginMetaColumns() {
   }
 }
 
+// ── Federated sign-in (Google / Apple / Discord) + email verification ────────
+
+/**
+ * Identity + verification schema. Both grandfathering steps here are one-shot
+ * and deliberate:
+ *  - email_verified_at is backfilled to created_at for every account that
+ *    already exists when the column is added. Those users signed up before
+ *    verification existed; making them re-verify — or nagging them forever —
+ *    would be a regression for every current user of the app.
+ *  - password_hash becomes nullable so a Google/Apple/Discord-only account
+ *    doesn't need a dummy password row. Existing hashes are untouched: an
+ *    account keeps working with its password whether or not it links a provider.
+ */
+async function ensureAuthIdentitySchema() {
+  const conn = await db().getConnection();
+  try {
+    if (!(await tableExists(conn, 'accounts'))) return;
+
+    if (!(await columnExists(conn, 'accounts', 'email_verified_at'))) {
+      await conn.query('ALTER TABLE accounts ADD COLUMN email_verified_at BIGINT NULL DEFAULT NULL');
+      try {
+        const [res] = await conn.query(
+          'UPDATE accounts SET email_verified_at = created_at WHERE email_verified_at IS NULL'
+        );
+        console.log(`[auth] grandfathered ${res.affectedRows} existing account(s) as email-verified`);
+      } catch (e) {
+        // The column and its backfill have to land together. Once the column
+        // exists this branch never runs again, so a half-applied migration
+        // would leave every pre-existing user staring at "confirm your email"
+        // permanently. Drop it back so the next boot retries the pair.
+        await conn.query('ALTER TABLE accounts DROP COLUMN email_verified_at');
+        throw e;
+      }
+    }
+
+    // An OAuth-only account has no password at all, so the column can't stay NOT NULL.
+    const [[pwCol]] = await conn.query(
+      `SELECT IS_NULLABLE FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'accounts' AND COLUMN_NAME = 'password_hash'`
+    );
+    if (pwCol && pwCol.IS_NULLABLE === 'NO') {
+      await conn.query('ALTER TABLE accounts MODIFY COLUMN password_hash VARCHAR(255) NULL DEFAULT NULL');
+    }
+
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS account_identities (
+        id               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        account_id       BIGINT UNSIGNED NOT NULL,
+        provider         VARCHAR(32)  NOT NULL,
+        provider_user_id VARCHAR(255) NOT NULL,
+        email            VARCHAR(255) NULL,
+        display_name     VARCHAR(128) NULL,
+        created_at       BIGINT NOT NULL,
+        last_login_at    BIGINT NULL DEFAULT NULL,
+        PRIMARY KEY (id),
+        -- One provider account maps to exactly one local account, and a local
+        -- account links any given provider at most once.
+        UNIQUE KEY uk_identity_provider_user (provider, provider_user_id),
+        UNIQUE KEY uk_identity_account_provider (account_id, provider),
+        CONSTRAINT fk_identity_account FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS email_verification_tokens (
+        id         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        account_id BIGINT UNSIGNED NOT NULL,
+        token_hash VARCHAR(255) NOT NULL,
+        email      VARCHAR(255) NOT NULL,
+        expires_at BIGINT NOT NULL,
+        used_at    BIGINT NULL DEFAULT NULL,
+        created_at BIGINT NOT NULL,
+        PRIMARY KEY (id),
+        UNIQUE KEY uk_evt_token (token_hash),
+        KEY idx_evt_account (account_id),
+        CONSTRAINT fk_evt_account FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    // The in-flight OAuth round trip is keyed here rather than on the session.
+    // Apple's form_post callback is a cross-site POST, which a SameSite=Lax
+    // session cookie is not sent on — and the Capacitor system-browser handoff
+    // has the same problem. Keying on the state value sidesteps both.
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS oauth_states (
+        id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        state_hash      VARCHAR(255) NOT NULL,
+        provider        VARCHAR(32)  NOT NULL,
+        code_verifier   VARCHAR(255) NOT NULL,
+        nonce           VARCHAR(255) NOT NULL,
+        redirect_uri    VARCHAR(512) NOT NULL,
+        link_account_id BIGINT UNSIGNED NULL DEFAULT NULL,
+        created_at      BIGINT NOT NULL,
+        expires_at      BIGINT NOT NULL,
+        used_at         BIGINT NULL DEFAULT NULL,
+        PRIMARY KEY (id),
+        UNIQUE KEY uk_oauth_state (state_hash),
+        KEY idx_oauth_expires (expires_at),
+        CONSTRAINT fk_oauth_link_account FOREIGN KEY (link_account_id) REFERENCES accounts(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+  } finally {
+    conn.release();
+  }
+}
+
+/** Drop consumed / expired OAuth handshakes so the table stays small. */
+async function pruneOauthStates() {
+  try {
+    await db().query('DELETE FROM oauth_states WHERE expires_at < ? OR used_at IS NOT NULL', [Date.now() - 60 * 60 * 1000]);
+  } catch (e) {
+    console.warn('[auth] oauth_states prune failed:', e.message);
+  }
+}
+
 // ── Notifications (durable per-user inbox; used by the Trade + price systems) ──
 
 async function ensureNotificationsTable() {
@@ -2241,6 +2356,18 @@ const {
 } = require('./lib/deck-planning-merge');
 const { collaboratorChangesPrintings } = require('./lib/deck-collaborator-printings');
 const { shouldBlockEmptyCollectionReplace } = require('./lib/collection-wipe-guard');
+// Google / Apple / Discord sign-in: provider definitions + PKCE and Apple's ES256
+// client-secret signing. Dependency-free (see the module header for why).
+const {
+  providerConfig,
+  configuredProviders,
+  buildAuthorizeUrl,
+  exchangeCode,
+  fetchProfile,
+  createPkcePair,
+  randomToken,
+} = require('./lib/oauth-providers');
+const { decideOauthLink } = require('./lib/oauth-link-policy');
 // Granular op-based deck sync (shared with the browser bundle).
 const DeckOps = require('./js/deck-ops');
 
@@ -2597,6 +2724,11 @@ async function replaceAllForAccount(accountId, table, rows, insertFn) {
 // ── Collection ────────────────────────────────────────────────────────────────
 
 // ── Email helper ──────────────────────────────────────────────────────────────
+/** Escape a URL for interpolation into outbound HTML email. */
+function escapeMailHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 function createMailTransport() {
   if (!process.env.SMTP_HOST) return null;
   return nodemailer.createTransport({
@@ -2607,18 +2739,72 @@ function createMailTransport() {
   });
 }
 
-async function sendResetEmail(toEmail, resetUrl) {
+/** True when outbound mail can actually be delivered by either transport. */
+function mailConfigured() {
+  return !!(process.env.RESEND_API_KEY || process.env.SMTP_HOST);
+}
+
+/**
+ * Send over Resend's HTTPS API.
+ *
+ * This exists because Railway blocks outbound SMTP (25/465/587/2525) on every
+ * plan below Pro, so the nodemailer path below silently fails to connect there.
+ * An HTTPS API is Railway's own documented answer, and it needs no dependency —
+ * it's one POST.
+ */
+async function sendMailViaResend({ to, subject, text, html }) {
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from: process.env.EMAIL_FROM || 'noreply@mtgarchive.app',
+      to: [to],
+      subject,
+      text,
+      html,
+    }),
+  });
+  if (!res.ok) {
+    // Resend puts the useful part ("domain not verified", "testing emails can
+    // only go to your own address") in the body, so surface it.
+    let detail = `HTTP ${res.status}`;
+    try {
+      const j = await res.json();
+      if (j && (j.message || j.error)) detail = j.message || j.error;
+    } catch (_) {}
+    throw new Error(`Resend rejected the email: ${detail}`);
+  }
+}
+
+/**
+ * One outbound path for every transactional email. Prefers the HTTPS API, falls
+ * back to SMTP, and when neither is configured logs the link so local dev and
+ * an unconfigured deploy stay usable instead of silently dropping it.
+ */
+async function sendAppMail({ to, subject, text, html, fallbackLabel, fallbackUrl }) {
+  if (process.env.RESEND_API_KEY) return sendMailViaResend({ to, subject, text, html });
   const transport = createMailTransport();
   if (!transport) {
-    console.warn('[auth] SMTP not configured — reset URL:', resetUrl);
+    console.warn(`[auth] email not configured — ${fallbackLabel}:`, fallbackUrl);
     return;
   }
   await transport.sendMail({
     from: process.env.EMAIL_FROM || 'noreply@mtgarchive.app',
+    to, subject, text, html,
+  });
+}
+
+async function sendResetEmail(toEmail, resetUrl) {
+  await sendAppMail({
     to: toEmail,
     subject: 'MTG Archive — Reset your password',
     text: `Click the link below to reset your password (expires in 1 hour):\n\n${resetUrl}\n\nIf you did not request this, ignore this email.`,
-    html: `<p>Click the link below to reset your password (expires in 1 hour):</p><p><a href="${resetUrl}">${resetUrl}</a></p><p>If you did not request this, ignore this email.</p>`,
+    html: `<p>Click the link below to reset your password (expires in 1 hour):</p><p><a href="${escapeMailHtml(resetUrl)}">${escapeMailHtml(resetUrl)}</a></p><p>If you did not request this, ignore this email.</p>`,
+    fallbackLabel: 'reset URL',
+    fallbackUrl: resetUrl,
   });
 }
 
@@ -2629,11 +2815,17 @@ authRouter.get('/me', async (req, res) => {
   try {
     if (!req.session.accountId) return res.status(401).json({ error: 'Not signed in' });
     const [rows] = await db().query(
-      'SELECT id, email, role, created_at, last_login_at, changelog_ack_at, mobile_welcome_seen_at FROM accounts WHERE id = ?',
+      `SELECT id, email, role, created_at, last_login_at, changelog_ack_at, mobile_welcome_seen_at,
+              email_verified_at, password_hash
+         FROM accounts WHERE id = ?`,
       [req.session.accountId],
     );
     if (!rows.length) return res.status(401).json({ error: 'Invalid session' });
     req.session.userRole = rows[0].role;
+    const [identRows] = await db().query(
+      'SELECT provider FROM account_identities WHERE account_id = ?',
+      [req.session.accountId],
+    );
     res.json({
       id: rows[0].id,
       email: rows[0].email,
@@ -2642,6 +2834,10 @@ authRouter.get('/me', async (req, res) => {
       lastLoginAt: rows[0].last_login_at,
       changelogAckAt: rows[0].changelog_ack_at,
       mobileWelcomeSeenAt: rows[0].mobile_welcome_seen_at,
+      emailVerifiedAt: rows[0].email_verified_at,
+      // Drives the "confirm your email" nudge and the Settings sign-in list.
+      hasPassword: !!rows[0].password_hash,
+      linkedProviders: identRows.map(r => r.provider),
     });
   } catch (e) {
     console.error(e);
@@ -2663,7 +2859,12 @@ authRouter.post('/register', authLimiter, async (req, res) => {
     );
     req.session.accountId = r.insertId;
     req.session.userRole = 'user';
-    res.json({ ok: true, email, role: 'user' });
+    // Never block sign-up on the mail hop — a slow or unconfigured SMTP host
+    // must not turn a successful registration into a failed one. The user can
+    // always resend from the banner.
+    void issueEmailVerification(r.insertId, email, req)
+      .catch(err => console.error('[auth] verification email failed:', err.message));
+    res.json({ ok: true, email, role: 'user', emailVerifiedAt: null });
   } catch (e) {
     if (e.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'Email already registered' });
     console.error(e);
@@ -2675,15 +2876,28 @@ authRouter.post('/login', authLimiter, async (req, res) => {
   try {
     const email = String(req.body?.email || '').toLowerCase().trim();
     const password = String(req.body?.password || '');
-    const [rows] = await db().query('SELECT id, email, password_hash, role FROM accounts WHERE email = ?', [email]);
+    const [rows] = await db().query('SELECT id, email, password_hash, role, email_verified_at FROM accounts WHERE email = ?', [email]);
     if (!rows.length) return res.status(401).json({ error: 'Invalid email or password' });
+    if (!rows[0].password_hash) {
+      // Signed up through a provider and never set a password. Say so plainly:
+      // "invalid password" here sends people round the reset loop forever, and
+      // /register already discloses whether an address is taken anyway.
+      const [linked] = await db().query('SELECT provider FROM account_identities WHERE account_id = ?', [rows[0].id]);
+      const names = linked.map(r => r.provider.charAt(0).toUpperCase() + r.provider.slice(1));
+      return res.status(401).json({
+        error: names.length
+          ? `This account signs in with ${names.join(' or ')}. Use that button, or set a password with "Forgot password?".`
+          : 'This account has no password set. Use "Forgot password?" to set one.',
+        useProvider: linked.length ? linked[0].provider : null,
+      });
+    }
     const ok = await bcrypt.compare(password, rows[0].password_hash);
     if (!ok) return res.status(401).json({ error: 'Invalid email or password' });
     const now = Date.now();
     await db().query('UPDATE accounts SET last_login_at = ? WHERE id = ?', [now, rows[0].id]);
     req.session.accountId = rows[0].id;
     req.session.userRole = rows[0].role;
-    res.json({ ok: true, email: rows[0].email, role: rows[0].role });
+    res.json({ ok: true, email: rows[0].email, role: rows[0].role, emailVerifiedAt: rows[0].email_verified_at });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
@@ -2809,9 +3023,385 @@ authRouter.post('/reset-password', authLimiter, async (req, res) => {
     if (t.used_at) return res.status(400).json({ error: 'Reset link already used' });
     if (Date.now() > t.expires_at) return res.status(400).json({ error: 'Reset link has expired' });
     const hash = await bcrypt.hash(newPassword, 10);
-    await db().query('UPDATE accounts SET password_hash = ? WHERE id = ?', [hash, t.account_id]);
+    // Following a link sent to the address proves control of the inbox, which is
+    // exactly what verification asserts — so a reset also confirms the email.
+    // This is also how an OAuth-only account gains its first password.
+    await db().query(
+      'UPDATE accounts SET password_hash = ?, email_verified_at = COALESCE(email_verified_at, ?) WHERE id = ?',
+      [hash, Date.now(), t.account_id]
+    );
     await db().query('UPDATE password_reset_tokens SET used_at = ? WHERE id = ?', [Date.now(), t.id]);
     res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Email verification ────────────────────────────────────────────────────────
+
+const EMAIL_VERIFY_TTL_MS = 24 * 60 * 60 * 1000;
+
+async function sendVerificationEmail(toEmail, verifyUrl) {
+  await sendAppMail({
+    to: toEmail,
+    fallbackLabel: 'verification URL',
+    fallbackUrl: verifyUrl,
+    subject: 'MTG Archive — Confirm your email',
+    text: `Confirm your email address to finish setting up your MTG Archive account (link expires in 24 hours):\n\n${verifyUrl}\n\nIf you did not create this account, ignore this email.`,
+    html: `<p>Confirm your email address to finish setting up your MTG Archive account (link expires in 24 hours):</p><p><a href="${escapeMailHtml(verifyUrl)}">${escapeMailHtml(verifyUrl)}</a></p><p>If you did not create this account, ignore this email.</p>`,
+  });
+}
+
+/** Public base URL for links we email and for OAuth redirect URIs. */
+function appBaseUrl(req) {
+  const configured = String(process.env.APP_URL || '').trim().replace(/\/$/, '');
+  if (configured) return configured;
+  if (req) return `${req.protocol}://${req.get('host')}`;
+  return `http://localhost:${process.env.PORT || 3001}`;
+}
+
+/**
+ * Mint a single-use verification link and email it. Any earlier unused token for
+ * the account is retired first, so a resend invalidates the previous link.
+ */
+async function issueEmailVerification(accountId, email, req) {
+  const now = Date.now();
+  await db().query(
+    'UPDATE email_verification_tokens SET used_at = ? WHERE account_id = ? AND used_at IS NULL',
+    [now, accountId]
+  );
+  const rawToken = crypto.randomBytes(32).toString('hex');
+  const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+  await db().query(
+    'INSERT INTO email_verification_tokens (account_id, token_hash, email, expires_at, created_at) VALUES (?,?,?,?,?)',
+    [accountId, tokenHash, email, now + EMAIL_VERIFY_TTL_MS, now]
+  );
+  await sendVerificationEmail(email, `${appBaseUrl(req)}/?verify_token=${rawToken}`);
+}
+
+// ── Federated sign-in ─────────────────────────────────────────────────────────
+
+const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
+
+/**
+ * Must match the redirect URI registered with the provider byte for byte, so it
+ * is always derived from APP_URL when that is set rather than from the request.
+ */
+function oauthRedirectUri(req, provider) {
+  return `${appBaseUrl(req)}/api/auth/oauth/${provider}/callback`;
+}
+
+function hashOauthState(state) {
+  return crypto.createHash('sha256').update(state).digest('hex');
+}
+
+/** Send the browser back to the app with a one-word outcome the UI can render. */
+function finishOauth(req, res, params) {
+  const url = new URL(appBaseUrl(req) + '/');
+  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+  res.redirect(url.toString());
+}
+
+/**
+ * Resolve a verified provider profile to a local account: does the lookups the
+ * decision needs, applies decideOauthLink(), then performs it. The rules — and
+ * why a known identity beats an email match, and why an unverified address can
+ * never match anything — live in lib/oauth-link-policy.js.
+ */
+async function resolveOauthAccount(provider, profile, linkAccountId) {
+  const now = Date.now();
+  const label = provider.charAt(0).toUpperCase() + provider.slice(1);
+
+  const [identRows] = await db().query(
+    'SELECT id, account_id FROM account_identities WHERE provider = ? AND provider_user_id = ?',
+    [provider, profile.providerUserId || '']
+  );
+  const identity = identRows[0] || null;
+
+  // Only looked up when it can actually matter — an unverified address must
+  // never be used to probe which emails have accounts.
+  let accountByEmail = null;
+  if (!identity && !linkAccountId && profile.email && profile.emailVerified) {
+    const [byEmail] = await db().query(
+      'SELECT id, email_verified_at FROM accounts WHERE email = ?', [profile.email]
+    );
+    accountByEmail = byEmail[0] || null;
+  }
+
+  const decision = decideOauthLink({
+    identity, linkAccountId, profile, accountByEmail, providerLabel: label,
+  });
+
+  if (decision.action === 'reject') {
+    const err = new Error(decision.message);
+    err.code = decision.code;
+    throw err;
+  }
+
+  const attach = async (accountId) => {
+    try {
+      await db().query(
+        `INSERT INTO account_identities (account_id, provider, provider_user_id, email, display_name, created_at, last_login_at)
+         VALUES (?,?,?,?,?,?,?)`,
+        [accountId, provider, profile.providerUserId, profile.email, profile.displayName, now, now]
+      );
+    } catch (e) {
+      if (e.code === 'ER_DUP_ENTRY') {
+        const err = new Error(`That ${label} account is already linked to an MTG Archive account.`);
+        err.code = 'IDENTITY_TAKEN';
+        throw err;
+      }
+      throw e;
+    }
+  };
+
+  if (decision.action === 'login') {
+    await db().query('UPDATE account_identities SET last_login_at = ?, email = ? WHERE id = ?',
+      [now, profile.email, identity.id]);
+    return { accountId: decision.accountId, created: false, linked: false };
+  }
+
+  if (decision.action === 'attach') {
+    await attach(decision.accountId);
+    if (decision.markVerified) {
+      await db().query('UPDATE accounts SET email_verified_at = ? WHERE id = ?', [now, decision.accountId]);
+    }
+    return { accountId: decision.accountId, created: false, linked: true };
+  }
+
+  // create
+  let accountId;
+  try {
+    const [r] = await db().query(
+      'INSERT INTO accounts (email, password_hash, created_at, last_login_at, email_verified_at) VALUES (?,?,?,?,?)',
+      [decision.email, null, now, now, now]
+    );
+    accountId = r.insertId;
+  } catch (e) {
+    if (e.code !== 'ER_DUP_ENTRY') throw e;
+    // Lost a race with a concurrent sign-in for the same address — join theirs.
+    const [again] = await db().query('SELECT id FROM accounts WHERE email = ?', [decision.email]);
+    if (!again.length) throw e;
+    accountId = again[0].id;
+  }
+  await attach(accountId);
+  return { accountId, created: true, linked: true };
+}
+
+/** Which providers this server actually has credentials for. */
+authRouter.get('/providers', (req, res) => {
+  res.json({ providers: configuredProviders(), emailConfigured: mailConfigured() });
+});
+
+/**
+ * Begin a sign-in (or, when already signed in, a link). Responds with a 302 so
+ * the button can be a plain link and the flow works identically in the
+ * Capacitor system browser.
+ */
+authRouter.get('/oauth/:provider/start', authLimiter, async (req, res) => {
+  const provider = String(req.params.provider || '').toLowerCase();
+  try {
+    const cfg = providerConfig(provider);
+    if (!cfg.configured) return res.status(503).json({ error: `${cfg.label} sign-in is not configured on this server` });
+
+    const state = randomToken(32);
+    const nonce = randomToken(32);
+    const { verifier, challenge } = createPkcePair();
+    const redirectUri = oauthRedirectUri(req, provider);
+    const now = Date.now();
+    // Linking only when there is a live session; otherwise this is a sign-in.
+    const linkAccountId = req.session?.accountId || null;
+
+    await db().query(
+      `INSERT INTO oauth_states (state_hash, provider, code_verifier, nonce, redirect_uri, link_account_id, created_at, expires_at)
+       VALUES (?,?,?,?,?,?,?,?)`,
+      [hashOauthState(state), provider, verifier, nonce, redirectUri, linkAccountId, now, now + OAUTH_STATE_TTL_MS]
+    );
+
+    res.redirect(buildAuthorizeUrl(provider, { redirectUri, state, nonce, codeChallenge: challenge }));
+  } catch (e) {
+    console.error('[auth] oauth start failed:', e.message);
+    res.status(400).json({ error: e.message });
+  }
+});
+
+/**
+ * Provider callback. Apple uses response_mode=form_post, so this accepts POST
+ * with a urlencoded body as well as the usual GET redirect.
+ */
+async function handleOauthCallback(req, res) {
+  const provider = String(req.params.provider || '').toLowerCase();
+  const src = req.method === 'POST' ? req.body || {} : req.query || {};
+  const code = String(src.code || '');
+  const state = String(src.state || '');
+
+  if (src.error) {
+    // User pressed cancel, or the provider refused — not an error worth logging loudly.
+    return finishOauth(req, res, { oauth_error: String(src.error).slice(0, 120) });
+  }
+
+  let row = null;
+  try {
+    if (!code || !state) return finishOauth(req, res, { oauth_error: 'invalid_request' });
+
+    // Claim the state row atomically: a replayed callback finds used_at already set.
+    const [claimed] = await db().query(
+      'UPDATE oauth_states SET used_at = ? WHERE state_hash = ? AND used_at IS NULL AND expires_at > ?',
+      [Date.now(), hashOauthState(state), Date.now()]
+    );
+    if (!claimed.affectedRows) return finishOauth(req, res, { oauth_error: 'expired_or_replayed' });
+
+    const [rows] = await db().query(
+      'SELECT provider, code_verifier, nonce, redirect_uri, link_account_id FROM oauth_states WHERE state_hash = ?',
+      [hashOauthState(state)]
+    );
+    if (!rows.length) return finishOauth(req, res, { oauth_error: 'invalid_state' });
+    row = rows[0];
+    if (row.provider !== provider) return finishOauth(req, res, { oauth_error: 'provider_mismatch' });
+
+    const tokens = await exchangeCode(provider, {
+      code,
+      redirectUri: row.redirect_uri,
+      codeVerifier: row.code_verifier,
+    });
+    const profile = await fetchProfile(provider, tokens, { nonce: row.nonce });
+
+    // Apple sends the user's name exactly once, in the callback body rather than
+    // the token — capture it on that first pass or it is gone for good.
+    if (provider === 'apple' && src.user) {
+      try {
+        const u = typeof src.user === 'string' ? JSON.parse(src.user) : src.user;
+        const name = [u?.name?.firstName, u?.name?.lastName].filter(Boolean).join(' ').trim();
+        if (name) profile.displayName = name.slice(0, 128);
+      } catch { /* name is optional — never fail the sign-in over it */ }
+    }
+
+    const result = await resolveOauthAccount(provider, profile, row.link_account_id || null);
+
+    const [accRows] = await db().query('SELECT id, email, role FROM accounts WHERE id = ?', [result.accountId]);
+    if (!accRows.length) return finishOauth(req, res, { oauth_error: 'account_missing' });
+
+    await db().query('UPDATE accounts SET last_login_at = ? WHERE id = ?', [Date.now(), result.accountId]);
+
+    // Fresh session id on every sign-in (session fixation).
+    req.session.regenerate((err) => {
+      if (err) {
+        console.error('[auth] session regenerate failed:', err.message);
+        return finishOauth(req, res, { oauth_error: 'session_failed' });
+      }
+      req.session.accountId = accRows[0].id;
+      req.session.userRole = accRows[0].role;
+      req.session.save(() => finishOauth(req, res, {
+        oauth: row.link_account_id ? 'linked' : 'ok',
+        provider,
+      }));
+    });
+  } catch (e) {
+    console.error('[auth] oauth callback failed:', e.message);
+    const known = e.code === 'NO_VERIFIED_EMAIL' || e.code === 'IDENTITY_TAKEN';
+    finishOauth(req, res, {
+      oauth_error: known ? e.code.toLowerCase() : 'sign_in_failed',
+      ...(known ? { oauth_message: e.message } : {}),
+    });
+  }
+}
+
+authRouter.get('/oauth/:provider/callback', handleOauthCallback);
+// form_post (Apple) — urlencoded parsing is scoped to this route only.
+authRouter.post('/oauth/:provider/callback', express.urlencoded({ extended: false }), handleOauthCallback);
+
+/** Providers linked to the signed-in account, for the Settings list. */
+authRouter.get('/identities', requireAuth, async (req, res) => {
+  try {
+    const [rows] = await db().query(
+      'SELECT provider, email, display_name, created_at, last_login_at FROM account_identities WHERE account_id = ? ORDER BY created_at ASC',
+      [req.accountId]
+    );
+    const [[acc]] = await db().query('SELECT password_hash FROM accounts WHERE id = ?', [req.accountId]);
+    res.json({
+      identities: rows.map(r => ({
+        provider: r.provider,
+        email: r.email,
+        displayName: r.display_name,
+        createdAt: r.created_at,
+        lastLoginAt: r.last_login_at,
+      })),
+      hasPassword: !!(acc && acc.password_hash),
+      available: configuredProviders(),
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Unlink a provider — refused when it is the only way left into the account. */
+authRouter.delete('/identities/:provider', requireAuth, async (req, res) => {
+  try {
+    const provider = String(req.params.provider || '').toLowerCase();
+    const [[acc]] = await db().query('SELECT password_hash FROM accounts WHERE id = ?', [req.accountId]);
+    const [rows] = await db().query('SELECT provider FROM account_identities WHERE account_id = ?', [req.accountId]);
+    const linked = rows.map(r => r.provider);
+    if (!linked.includes(provider)) return res.status(404).json({ error: 'Not linked' });
+
+    // Count what would be left afterwards. Checking the total before confirming
+    // this provider is even linked would refuse harmless no-op unlinks with a
+    // lockout warning that doesn't apply.
+    const remaining = (acc && acc.password_hash ? 1 : 0) + linked.length - 1;
+    if (remaining < 1) {
+      return res.status(400).json({
+        error: 'That is the only way to sign in to this account. Set a password first, or link another provider.',
+      });
+    }
+    const [r] = await db().query('DELETE FROM account_identities WHERE account_id = ? AND provider = ?', [req.accountId, provider]);
+    if (!r.affectedRows) return res.status(404).json({ error: 'Not linked' });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Resend the confirmation email to the signed-in account's address. */
+authRouter.post('/verify-email/send', authLimiter, requireAuth, async (req, res) => {
+  try {
+    const [[acc]] = await db().query('SELECT email, email_verified_at FROM accounts WHERE id = ?', [req.accountId]);
+    if (!acc) return res.status(401).json({ error: 'Not found' });
+    if (acc.email_verified_at != null) return res.json({ ok: true, alreadyVerified: true });
+    await issueEmailVerification(req.accountId, acc.email, req);
+    res.json({ ok: true, sent: mailConfigured() });
+  } catch (e) {
+    console.error('[auth] verify-email send failed:', e.message);
+    res.status(500).json({ error: 'Could not send the confirmation email' });
+  }
+});
+
+/** Consume a verification link. */
+authRouter.post('/verify-email', authLimiter, async (req, res) => {
+  try {
+    const token = String(req.body?.token || '').trim();
+    if (!token) return res.status(400).json({ error: 'Invalid request' });
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const [rows] = await db().query(
+      'SELECT id, account_id, email, expires_at, used_at FROM email_verification_tokens WHERE token_hash = ?',
+      [tokenHash]
+    );
+    if (!rows.length) return res.status(400).json({ error: 'Invalid or expired confirmation link' });
+    const t = rows[0];
+    if (t.used_at) return res.status(400).json({ error: 'That confirmation link has already been used' });
+    if (Date.now() > t.expires_at) return res.status(400).json({ error: 'That confirmation link has expired' });
+
+    const now = Date.now();
+    // Only confirms the address the link was issued for — if the account's email
+    // changed in the meantime the old link must not verify the new address.
+    const [upd] = await db().query(
+      'UPDATE accounts SET email_verified_at = ? WHERE id = ? AND email = ?',
+      [now, t.account_id, t.email]
+    );
+    await db().query('UPDATE email_verification_tokens SET used_at = ? WHERE id = ?', [now, t.id]);
+    if (!upd.affectedRows) return res.status(400).json({ error: 'That confirmation link is no longer valid for this account' });
+    res.json({ ok: true, emailVerifiedAt: now });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
@@ -11044,6 +11634,8 @@ async function start() {
       await ensureMetricKeysTable();
       await ensureNormalizedDeckSchema();
       await ensureAccountMigration();
+      await ensureAuthIdentitySchema();
+      await pruneOauthStates();
       await ensureDeckHistoryTable();
       await ensureCollectionHistoryTable();
       await ensureTagOverrideTables();

@@ -243,9 +243,11 @@ function showAuthGate() {
     g.style.display = 'flex';
     g.setAttribute('aria-hidden', 'false');
   }
+  void renderAuthProviders();
   const params = new URLSearchParams(location.search);
   if (params.has('reset_token')) {
     _hideAllAuthPanels();
+    _setAuthProvidersVisible(false);
     document.getElementById('authResetPanel').style.display = 'block';
   }
 }
@@ -305,6 +307,7 @@ function refreshAuthUserLabel(email, role) {
   if (email && typeof refreshWhatsNewUpdateBadge === 'function') void refreshWhatsNewUpdateBadge();
   if (email && typeof refreshNotifications === 'function') void refreshNotifications();
   if (email && typeof _initWishHotkey === 'function') _initWishHotkey();
+  refreshVerifyBanner();
 }
 
 function toggleDeckOwnershipSetting() {
@@ -337,18 +340,21 @@ function _hideAllAuthPanels() {
 function showAuthRegister() {
   setAuthError('');
   _hideAllAuthPanels();
+  _setAuthProvidersVisible(true);
   document.getElementById('authRegisterPanel').style.display = 'block';
 }
 
 function showAuthLogin() {
   setAuthError('');
   _hideAllAuthPanels();
+  _setAuthProvidersVisible(true);
   document.getElementById('authLoginForm').style.display = 'block';
 }
 
 function showForgotPassword() {
   setAuthError('');
   _hideAllAuthPanels();
+  _setAuthProvidersVisible(false);
   document.getElementById('authForgotPanel').style.display = 'block';
   setTimeout(() => document.getElementById('forgotEmail')?.focus(), 50);
 }
@@ -356,6 +362,7 @@ function showForgotPassword() {
 function _showResetPanel() {
   setAuthError('');
   _hideAllAuthPanels();
+  _setAuthProvidersVisible(false);
   document.getElementById('authResetPanel').style.display = 'block';
   setTimeout(() => document.getElementById('resetPassword')?.focus(), 50);
 }
@@ -424,6 +431,7 @@ async function submitAuthLogin(ev) {
     const data = await authLogin(email, password);
     hideAuthGate();
     refreshAuthUserLabel(data.email, data.role);
+    refreshVerifyBanner(data);
     document.body.classList.remove('auth-pending');
     await loadAppDataAfterAuth();
   } catch (e) {
@@ -441,6 +449,7 @@ async function submitAuthRegister(ev) {
     const data = await authRegister(email, password);
     hideAuthGate();
     refreshAuthUserLabel(data.email, data.role);
+    refreshVerifyBanner(data);
     document.body.classList.remove('auth-pending');
     await loadAppDataAfterAuth();
   } catch (e) {
@@ -455,6 +464,245 @@ async function logoutAccount() {
   } catch (_) {}
   location.reload();
 }
+
+// ── Federated sign-in (Google / Apple / Discord) ──────────────────────────────
+
+/**
+ * Brand marks, inline per the no-emoji-icons rule. These keep their own
+ * colours: Google and Discord both require the mark be shown unaltered, and
+ * Apple's glyph inherits currentColor so it stays legible in both themes.
+ */
+const AUTH_PROVIDER_ICONS = {
+  google: '<svg class="auth-provider-icon" viewBox="0 0 48 48" aria-hidden="true"><path fill="#4285F4" d="M45.12 24.5c0-1.56-.14-3.06-.4-4.5H24v8.51h11.84c-.51 2.75-2.06 5.08-4.39 6.64v5.52h7.11c4.16-3.83 6.56-9.47 6.56-16.17z"/><path fill="#34A853" d="M24 46c5.94 0 10.92-1.97 14.56-5.33l-7.11-5.52c-1.97 1.32-4.49 2.1-7.45 2.1-5.73 0-10.58-3.87-12.31-9.07H4.34v5.7C7.96 41.07 15.4 46 24 46z"/><path fill="#FBBC05" d="M11.69 28.18C11.25 26.86 11 25.45 11 24s.25-2.86.69-4.18v-5.7H4.34C2.85 17.09 2 20.45 2 24s.85 6.91 2.34 9.88l7.35-5.7z"/><path fill="#EA4335" d="M24 10.75c3.23 0 6.13 1.11 8.41 3.29l6.31-6.31C34.91 4.18 29.93 2 24 2 15.4 2 7.96 6.93 4.34 14.12l7.35 5.7c1.73-5.2 6.58-9.07 12.31-9.07z"/></svg>',
+  apple: '<svg class="auth-provider-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M17.05 12.54c-.02-2.4 1.96-3.55 2.05-3.61-1.12-1.63-2.86-1.86-3.48-1.89-1.48-.15-2.89.87-3.64.87-.75 0-1.91-.85-3.14-.83-1.61.02-3.1.94-3.93 2.38-1.68 2.91-.43 7.22 1.2 9.58.8 1.16 1.75 2.45 3 2.4 1.21-.05 1.66-.78 3.12-.78 1.46 0 1.87.78 3.14.75 1.3-.02 2.12-1.17 2.91-2.34.92-1.34 1.3-2.64 1.32-2.71-.03-.01-2.53-.97-2.55-3.82zM14.67 5.3c.66-.81 1.11-1.93.99-3.05-.95.04-2.11.64-2.8 1.44-.62.71-1.16 1.85-1.02 2.94 1.06.08 2.15-.54 2.83-1.33z"/></svg>',
+  discord: '<svg class="auth-provider-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="#5865F2" d="M20.317 4.369a19.79 19.79 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128c.126-.094.252-.192.372-.291a.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.009c.12.099.246.198.373.292a.077.077 0 0 1-.006.127 12.3 12.3 0 0 1-1.873.891.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.331c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>',
+};
+
+/**
+ * Render a button per provider the server holds credentials for. A server with
+ * none configured shows no buttons and no divider at all, so the gate looks
+ * exactly as it did before any of this existed.
+ */
+let _authHasProviders = false;
+
+/** Providers belong on the sign-in and register panels, not on reset/forgot. */
+function _setAuthProvidersVisible(show) {
+  const wrap = document.getElementById('authProviders');
+  const divider = document.getElementById('authProvidersDivider');
+  const on = show && _authHasProviders;
+  if (wrap) wrap.hidden = !on;
+  if (divider) divider.hidden = !on;
+}
+
+async function renderAuthProviders() {
+  const wrap = document.getElementById('authProviders');
+  const divider = document.getElementById('authProvidersDivider');
+  if (!wrap) return;
+  let providers = [];
+  try {
+    const data = await authProviders();
+    providers = Array.isArray(data?.providers) ? data.providers : [];
+  } catch (_) {
+    // A server that can't answer simply offers email sign-in.
+    providers = [];
+  }
+  _authHasProviders = providers.length > 0;
+  if (!providers.length) {
+    wrap.hidden = true;
+    if (divider) divider.hidden = true;
+    return;
+  }
+  wrap.innerHTML = providers.map(p => `
+    <button type="button" class="auth-provider-btn" data-provider="${escapeHtml(p.id)}"
+            onclick="authStartOauth('${escapeHtml(p.id)}')">
+      ${AUTH_PROVIDER_ICONS[p.id] || ''}
+      <span>Continue with ${escapeHtml(p.label)}</span>
+    </button>`).join('');
+  wrap.hidden = false;
+  if (divider) divider.hidden = false;
+}
+
+/** Copy for the outcomes the callback can redirect back with. */
+function _oauthErrorMessage(code, message) {
+  if (message) return message;
+  switch (code) {
+    case 'access_denied':          return 'Sign-in was cancelled.';
+    case 'expired_or_replayed':    return 'That sign-in attempt expired. Please try again.';
+    case 'no_verified_email':      return 'That account has no verified email address.';
+    case 'identity_taken':         return 'That account is already linked to a different MTG Archive account.';
+    case 'session_failed':         return 'Could not start your session. Please try again.';
+    default:                       return 'Sign-in failed. Please try again.';
+  }
+}
+
+/**
+ * Read the outcome the OAuth callback appended, then strip it from the URL so a
+ * refresh doesn't replay the message.
+ */
+function handleOauthReturn() {
+  const params = new URLSearchParams(location.search);
+  const ok = params.get('oauth');
+  const err = params.get('oauth_error');
+  if (!ok && !err) return;
+  const msg = params.get('oauth_message');
+  const provider = params.get('provider');
+
+  ['oauth', 'oauth_error', 'oauth_message', 'provider'].forEach(k => params.delete(k));
+  const qs = params.toString();
+  history.replaceState(null, '', location.pathname + (qs ? '?' + qs : ''));
+
+  if (err) {
+    setAuthError(_oauthErrorMessage(err, msg));
+    return;
+  }
+  if (ok === 'linked' && typeof showNotif === 'function') {
+    showNotif(provider ? `${provider.charAt(0).toUpperCase()}${provider.slice(1)} linked to your account` : 'Account linked');
+  }
+}
+
+// ── Email confirmation ────────────────────────────────────────────────────────
+
+/** Per-device dismissal only — the server stays the source of truth. */
+function dismissVerifyBanner() {
+  sessionStorage.setItem('mtg_verify_banner_dismissed', '1');
+  const el = document.getElementById('verifyBanner');
+  if (el) el.hidden = true;
+}
+
+/**
+ * Show the confirm-your-email strip for an account that has not verified yet.
+ * Accounts that predate verification were grandfathered in server-side, so they
+ * never see this.
+ */
+function refreshVerifyBanner(me) {
+  const el = document.getElementById('verifyBanner');
+  if (!el) return;
+  const acct = me || (typeof currentUser !== 'undefined' ? currentUser : null);
+  const pending = !!acct && acct.emailVerifiedAt == null;
+  el.hidden = !pending || sessionStorage.getItem('mtg_verify_banner_dismissed') === '1';
+}
+
+async function resendVerificationEmail() {
+  const btn = document.getElementById('verifyBannerResend');
+  const text = document.getElementById('verifyBannerText');
+  if (btn) btn.disabled = true;
+  try {
+    const res = await authResendVerification();
+    if (text) {
+      text.textContent = res && res.sent === false
+        // SMTP isn't configured on this server — say so rather than claim a send.
+        ? 'Email sending is not configured on this server yet.'
+        : 'Sent — check your inbox.';
+    }
+  } catch (e) {
+    if (text) text.textContent = e.message || 'Could not send the email.';
+    if (btn) btn.disabled = false;
+  }
+}
+
+/**
+ * Consume a ?verify_token= link. Runs whether or not anyone is signed in — the
+ * link is often opened in a different browser from the one that signed up.
+ */
+async function consumeVerifyTokenFromUrl() {
+  const params = new URLSearchParams(location.search);
+  const token = params.get('verify_token');
+  if (!token) return;
+  params.delete('verify_token');
+  const qs = params.toString();
+  history.replaceState(null, '', location.pathname + (qs ? '?' + qs : ''));
+  try {
+    await authVerifyEmail(token);
+    if (typeof currentUser !== 'undefined' && currentUser) currentUser.emailVerifiedAt = Date.now();
+    const el = document.getElementById('verifyBanner');
+    if (el) el.hidden = true;
+    if (typeof showNotif === 'function') showNotif('Email confirmed');
+    else setAuthError('');
+  } catch (e) {
+    if (typeof showNotif === 'function') showNotif(e.message || 'That confirmation link is no longer valid');
+    else setAuthError(e.message || 'That confirmation link is no longer valid');
+  }
+}
+
+// ── Settings → Sign-in methods ────────────────────────────────────────────────
+
+function openSignInMethodsModal() {
+  closeSettingsDropdown();
+  const m = document.getElementById('signInMethodsModal');
+  if (m) { m.style.display = 'flex'; m.classList.add('open'); }
+  void renderSignInMethods();
+}
+
+function closeSignInMethodsModal() {
+  const m = document.getElementById('signInMethodsModal');
+  if (m) { m.style.display = 'none'; m.classList.remove('open'); }
+}
+
+async function renderSignInMethods() {
+  const status = document.getElementById('signInMethodsStatus');
+  const list = document.getElementById('signInMethodsList');
+  if (!list) return;
+  list.innerHTML = '';
+  if (status) status.textContent = 'Loading…';
+
+  let data;
+  try {
+    data = await authListIdentities();
+  } catch (e) {
+    if (status) status.textContent = e.message || 'Could not load your sign-in methods';
+    return;
+  }
+
+  const linked = new Set(data.identities.map(i => i.provider));
+  // Unlinking the last way in would lock the account, so the button is only
+  // offered while at least one other method remains.
+  const methodCount = data.identities.length + (data.hasPassword ? 1 : 0);
+  if (status) status.textContent = '';
+
+  const row = (inner) => `<div style="display:flex;align-items:center;gap:10px;padding:9px 2px;border-bottom:1px solid var(--border)">${inner}</div>`;
+
+  const passwordRow = row(`
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:17px;height:17px;flex-shrink:0;color:var(--text2)"><rect x="2.5" y="7" width="11" height="6.5" rx="1.5"/><path d="M5.2 7V4.8a2.8 2.8 0 0 1 5.6 0V7"/></svg>
+    <span style="flex:1;font-size:0.85rem">Email and password</span>
+    <span style="font-size:0.74rem;color:${data.hasPassword ? 'var(--teal)' : 'var(--text3)'}">${data.hasPassword ? 'Set' : 'Not set'}</span>`);
+
+  const providerRows = (data.available || []).map(p => {
+    const on = linked.has(p.id);
+    const ident = data.identities.find(i => i.provider === p.id);
+    const canUnlink = on && methodCount > 1;
+    const right = on
+      ? (canUnlink
+          ? `<button type="button" class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="unlinkSignInProvider('${escapeHtml(p.id)}')">Unlink</button>`
+          : `<span style="font-size:0.74rem;color:var(--text3)">Only method</span>`)
+      : `<button type="button" class="btn btn-ghost btn-sm" onclick="authStartOauth('${escapeHtml(p.id)}')">Link</button>`;
+    return row(`
+      ${AUTH_PROVIDER_ICONS[p.id] || ''}
+      <span style="flex:1;font-size:0.85rem">${escapeHtml(p.label)}${
+        on && ident && ident.email ? `<span style="display:block;font-size:0.72rem;color:var(--text3)">${escapeHtml(ident.email)}</span>` : ''
+      }</span>
+      ${right}`);
+  }).join('');
+
+  list.innerHTML = passwordRow + providerRows
+    + (!data.available || !data.available.length
+        ? '<p style="font-size:0.78rem;color:var(--text3);margin:0.9rem 0 0">No other sign-in providers are configured on this server.</p>'
+        : '');
+}
+
+async function unlinkSignInProvider(provider) {
+  try {
+    await authUnlinkIdentity(provider);
+    if (typeof showNotif === 'function') showNotif('Unlinked');
+    await renderSignInMethods();
+  } catch (e) {
+    if (typeof showNotif === 'function') showNotif(e.message || 'Could not unlink');
+  }
+}
+
+// The bundle loads at the end of <body>, so the DOM is ready here. Both of these
+// act on query params the server just redirected back with.
+handleOauthReturn();
+void consumeVerifyTokenFromUrl();
 
 // ── Seed test data ─────────────────────────────────────────────────────────────
 
