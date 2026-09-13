@@ -5589,7 +5589,7 @@ body.glass-mode .deck-stack-card .stack-wrap {
 .stack-cut-flag,
 .stack-add-flag {
   position: absolute; top: 0; left: 0; right: auto; z-index: 10;
-  width: 34px; height: 34px;
+  width: 31px; height: 31px;
   padding: 0; border: none; pointer-events: none;
   font-size: 0; /* hides the CUT/ADD text — the wedge + glyph carry it */
   clip-path: polygon(0 0, 100% 0, 0 100%);
@@ -5605,29 +5605,17 @@ body.glass-mode .deck-stack-card .stack-wrap {
   color: #fff;
   filter: drop-shadow(0 1px 1.5px rgba(0,0,0,0.45));
 }
-/* The card's own colour. Two of them while we decide which to keep:
-   — left, behind the 34px add/cut wedge and a little bigger, so a card that is
-     both coloured and being swapped shows a band of colour around the marker;
-   — right, the same size as the add/cut wedge, where nothing else sits (the
-     role-tag badge starts 42px in, and the mana symbols are below it).
-   Both are pointer-transparent so they never eat a drag. */
+/* The card's own colour, in the right corner where nothing else sits — the
+   role-tag badge starts 42px in and the mana symbols are below it. The left
+   corner belongs to the add/cut wedge. Pointer-transparent so it never eats a
+   drag. */
 .stack-color-flag {
-  position: absolute; top: 0; z-index: 9;
+  position: absolute; top: 0; right: 0; left: auto; z-index: 9;
+  width: 31px; height: 31px;
   padding: 0; border: none; pointer-events: none;
-  background: linear-gradient(135deg, var(--cf, #5aa9f0), color-mix(in oklab, var(--cf, #5aa9f0) 68%, #000));
-  box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.3);
-}
-.stack-color-flag--left {
-  left: 0; right: auto;
-  width: 40px; height: 40px;
-  clip-path: polygon(0 0, 100% 0, 0 100%);
-  border-top-left-radius: 9px;
-}
-.stack-color-flag--right {
-  right: 0; left: auto;
-  width: 34px; height: 34px;
   clip-path: polygon(100% 0, 100% 100%, 0 0);
   border-top-right-radius: 9px;
+  background: linear-gradient(135deg, var(--cf, #5aa9f0), color-mix(in oklab, var(--cf, #5aa9f0) 68%, #000));
   box-shadow: inset -1px 1px 0 rgba(255, 255, 255, 0.3);
 }
 .stack-cut-flag { background: linear-gradient(135deg, rgba(232, 108, 94, 0.96), rgba(190, 58, 46, 0.9)); }
@@ -11018,25 +11006,34 @@ body.glass-mode .tablet-life-btn {
   display: flex;
   flex-direction: column;
   gap: 7px;
-  padding: 12px 13px 13px;
-  border-radius: var(--radius2);
+  /* Geometry and material both come from the Commander Gameplan turn boxes. */
+  padding: 14px 18px 16px;
+  border-radius: 12px;
   border: 1px solid var(--border2);
   background: var(--bg3);
   cursor: pointer;
   transition: border-color 0.15s var(--ease), background 0.15s var(--ease);
 }
+/* A flat 5%-white fill read as a plainer box than the gameplan's, which layers
+   the blue→purple tint over the white frost and sits on a real drop shadow. */
 body.glass-mode .game-card {
-  border-color: rgba(255, 255, 255, 0.16);
-  background: rgba(255, 255, 255, 0.055);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10);
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.13) 0%, rgba(var(--lgx2), 0.06) 60%, rgba(var(--lgx2), 0.04) 100%),
+    linear-gradient(180deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.05) 60px, rgba(255,255,255,0.05) 100%);
+  border-color: rgba(255,255,255,0.20);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.20), 0 8px 28px rgba(0,0,0,0.35);
 }
 body.glass-mode .game-card:hover {
   border-color: rgba(var(--lgx1), 0.45);
-  background: rgba(255, 255, 255, 0.09);
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.20) 0%, rgba(var(--lgx2), 0.10) 60%, rgba(var(--lgx2), 0.07) 100%),
+    linear-gradient(180deg, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0.07) 60px, rgba(255,255,255,0.07) 100%);
 }
 body.glass-mode .game-card.is-selected {
   border-color: rgba(var(--lgx2), 0.55);
-  background: linear-gradient(135deg, rgba(var(--lgx1), 0.18), rgba(var(--lgx2), 0.18));
+  background:
+    linear-gradient(135deg, rgba(var(--lgx1), 0.22), rgba(var(--lgx2), 0.22)),
+    linear-gradient(180deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.05) 60px, rgba(255,255,255,0.05) 100%);
 }
 /* Every control on this tab takes the deck-list filter/layout radius (8px)
    rather than the glass skin's 12px, so they read as squared-off controls.
@@ -11173,8 +11170,8 @@ body.glass-mode .gsum-row.is-active { background: rgba(255, 255, 255, 0.07); }
   /* Covers the tallest collapsed card — PG_PEEK members plus the expand slot —
      so shorter rosters pad out to the same box instead of stair-stepping. */
   min-height: 228px;
-  padding: 12px 13px 13px;
-  border-radius: var(--radius2);
+  padding: 14px 18px 16px;
+  border-radius: 12px;
   border: 1px solid var(--border2);
   background: var(--bg3);
 }
@@ -11182,9 +11179,11 @@ body.glass-mode .gsum-row.is-active { background: rgba(255, 255, 255, 0.07); }
 .pg-expand, .pg-accept { align-self: flex-start; }
 .pg-expand.is-placeholder { visibility: hidden; pointer-events: none; }
 body.glass-mode .pg-card {
-  border-color: rgba(255, 255, 255, 0.16);
-  background: rgba(255, 255, 255, 0.055);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10);
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.13) 0%, rgba(var(--lgx2), 0.06) 60%, rgba(var(--lgx2), 0.04) 100%),
+    linear-gradient(180deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.05) 60px, rgba(255,255,255,0.05) 100%);
+  border-color: rgba(255,255,255,0.20);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.20), 0 8px 28px rgba(0,0,0,0.35);
 }
 .pg-card-head { display: flex; align-items: center; gap: 8px; }
 .pg-group-name { font-family: 'Cinzel', serif; font-size: 0.92rem; color: var(--text); }
@@ -11220,15 +11219,17 @@ body.glass-mode .pg-card {
   margin-bottom: 1.1rem;
 }
 .lb-tile {
-  padding: 14px 16px;
-  border-radius: var(--radius2);
+  padding: 14px 18px 16px;
+  border-radius: 12px;
   border: 1px solid var(--border2);
   background: var(--bg3);
 }
 body.glass-mode .lb-tile {
-  border-color: rgba(255, 255, 255, 0.16);
-  background: rgba(255, 255, 255, 0.055);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10);
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.13) 0%, rgba(var(--lgx2), 0.06) 60%, rgba(var(--lgx2), 0.04) 100%),
+    linear-gradient(180deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.05) 60px, rgba(255,255,255,0.05) 100%);
+  border-color: rgba(255,255,255,0.20);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.20), 0 8px 28px rgba(0,0,0,0.35);
 }
 .lb-tile-val {
   font-size: 1.6rem; font-weight: 700; color: var(--text);
@@ -11278,24 +11279,28 @@ body.glass-mode .lb-tile {
    collection's KPI boxes: a white gradient with a near-white edge, separated
    from the background by a real drop shadow rather than by fill alone. */
 [data-theme="light"] body.glass-mode :is(.game-card, .pg-card, .lb-tile) {
-  background: linear-gradient(150deg, rgba(255, 255, 255, 0.78) 0%, rgba(255, 255, 255, 0.48) 45%, rgba(255, 255, 255, 0.62) 100%);
-  border-color: rgba(255, 255, 255, 0.88);
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.10) 0%, rgba(var(--lgx2), 0.05) 60%, rgba(var(--lgx2), 0.04) 100%),
+    linear-gradient(180deg, rgba(255,255,255,0.65) 0%, rgba(255,255,255,0.5) 60px, rgba(255,255,255,0.5) 100%);
+  border-color: rgba(255, 255, 255, 0.8);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    0 10px 32px rgba(30, 50, 90, 0.14);
+    0 8px 28px rgba(30, 50, 90, 0.12);
 }
 [data-theme="light"] body.glass-mode .game-card:hover {
   border-color: rgba(var(--lgx1), 0.5);
-  background: linear-gradient(150deg, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0.62) 100%);
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.16) 0%, rgba(var(--lgx2), 0.08) 60%, rgba(var(--lgx2), 0.06) 100%),
+    linear-gradient(180deg, rgba(255,255,255,0.8) 0%, rgba(255,255,255,0.62) 60px, rgba(255,255,255,0.62) 100%);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    0 14px 40px rgba(30, 50, 90, 0.2);
+    0 12px 34px rgba(30, 50, 90, 0.18);
 }
 [data-theme="light"] body.glass-mode .game-card.is-selected {
   border-color: rgba(var(--lgx2), 0.6);
   background:
-    linear-gradient(135deg, rgba(var(--lgx1), 0.16), rgba(var(--lgx2), 0.16)),
-    linear-gradient(150deg, rgba(255, 255, 255, 0.86) 0%, rgba(255, 255, 255, 0.6) 100%);
+    linear-gradient(135deg, rgba(var(--lgx1), 0.18), rgba(var(--lgx2), 0.18)),
+    linear-gradient(180deg, rgba(255,255,255,0.7) 0%, rgba(255,255,255,0.55) 60px, rgba(255,255,255,0.55) 100%);
 }
 /* Row washes and the win-rate track are white-on-white in light mode too. */
 [data-theme="light"] .lb-row:not(.lb-head):nth-child(even) { background: rgba(20, 35, 60, 0.04); }
