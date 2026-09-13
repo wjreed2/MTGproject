@@ -10,6 +10,14 @@ name: Claude PR Review
 #                              run `claude setup-token` locally, save the token,
 #                              then swap the `anthropic_api_key` line for
 #                              `claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}`
+#
+# Until that secret exists the review step skips cleanly (see the `guard` step)
+# rather than failing the check on every PR.
+#
+# GitHub auth: the action is given the built-in GITHUB_TOKEN explicitly. Without
+# it the action falls back to minting an OIDC token for the Claude GitHub App,
+# which needs `id-token: write` *and* that app installed — neither of which this
+# repo has, so every run died at "Could not fetch an OIDC token".
 on:
   pull_request:
     types: [opened, synchronize, ready_for_review]
@@ -35,9 +43,24 @@ jobs:
         with:
           fetch-depth: 1
 
+      # `secrets` is not available in an `if:` expression, so surface presence
+      # (never the value) as a step output the review step can branch on.
+      - id: guard
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -n "$ANTHROPIC_API_KEY" ]; then
+            echo "has_key=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_key=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::ANTHROPIC_API_KEY is not set — skipping the Claude review."
+          fi
+
       - uses: anthropics/claude-code-action@v1
+        if: steps.guard.outputs.has_key == 'true'
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
           prompt: |
             Review pull request #${{ github.event.pull_request.number }} in ${{ github.repository }}.
 

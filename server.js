@@ -1687,14 +1687,72 @@ async function getLatestTwoSnapshotDates() {
  * tradelist auto-add / wishlist priority-bump actions and enqueuing one-shot
  * notifications. Safe to re-run (idempotent via dedup keys + last-notified).
  */
-async function runDailyPriceJob({ skipSnapshot = false } = {}) {
+/**
+ * A snapshot that died mid-flight leaves a short day behind — 2026-08-25 landed
+ * 25,600 rows against a ~104k norm — and nothing ever revisited it. Compare a
+ * day's row count against the best of the ten days before it.
+ */
+const SNAPSHOT_MIN_FRACTION = 0.6;
+
+async function getSnapshotHealth(date) {
+  const [[cur]] = await db().query(
+    'SELECT COUNT(*) n FROM card_price_daily WHERE snapshot_date = ?', [date]
+  );
+  const [[norm]] = await db().query(
+    `SELECT MAX(n) n FROM (
+       SELECT COUNT(*) n FROM card_price_daily
+        WHERE snapshot_date < ?
+        GROUP BY snapshot_date
+        ORDER BY snapshot_date DESC
+        LIMIT 10
+     ) t`, [date]
+  );
+  const rows = Number(cur?.n) || 0;
+  const expected = Number(norm?.n) || 0;
+  return { rows, expected, complete: rows > 0 && (!expected || rows >= expected * SNAPSHOT_MIN_FRACTION) };
+}
+
+// AllPricesToday only ever serves *today*, so a day the process slept through is
+// lost for good — and the job used to run from a single in-process cron tick, which
+// a deploy restart silently eats. We now also catch up on boot, which means the job
+// can fire several times a day; this cooldown keeps that from re-pulling 5 MB each time.
+let _lastSnapshotAttemptTs = 0;
+const SNAPSHOT_ATTEMPT_COOLDOWN_MS = 6 * 60 * 60 * 1000;
+
+async function runDailyPriceJob({ skipSnapshot = false, force = false } = {}) {
   try {
     await ensurePriceHistorySchema();
     if (!skipSnapshot) {
+      // Rows are stamped with MTGJSON's own meta.date, which trails our UTC clock —
+      // and west of UTC our "today" flips hours before MTGJSON publishes it. So don't
+      // ask "is today present"; ask whether the newest day we hold is still current
+      // (today or yesterday) and complete. That is as fresh as this feed ever gets.
+      const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+      const [[latestRow]] = await db().query(
+        "SELECT DATE_FORMAT(MAX(snapshot_date), '%Y-%m-%d') d FROM card_price_daily"
+      );
+      const latest = latestRow?.d || null;
+      const health = latest ? await getSnapshotHealth(latest) : { rows: 0, expected: 0, complete: false };
+      const cooling = Date.now() - _lastSnapshotAttemptTs < SNAPSHOT_ATTEMPT_COOLDOWN_MS;
+      if (latest && latest >= yesterday && health.complete && !force) {
+        console.log(`[price-job] ${latest} is current (${health.rows.toLocaleString()} rows) — skipping fetch`);
+        skipSnapshot = true;
+      } else if (cooling && !force) {
+        console.log(`[price-job] snapshot attempted recently — skipping fetch (newest ${latest || 'none'})`);
+        skipSnapshot = true;
+      } else if (latest && !health.complete) {
+        console.warn(`[price-job] ${latest} looks partial (${health.rows.toLocaleString()} of ~${health.expected.toLocaleString()}) — re-running`);
+      } else {
+        console.log(`[price-job] newest snapshot is ${latest || 'none'} — fetching`);
+      }
+    }
+    if (!skipSnapshot) {
       try {
+        _lastSnapshotAttemptTs = Date.now();
         const { runSnapshot } = require(path.join(__dirname, 'scripts', 'mtgjson-price-snapshot.js'));
         const snap = await runSnapshot({ db: db(), log: msg => console.log(msg) });
         await refreshPrintingsIfStale(snap?.date);
+        await reportSnapshotGaps();
       } catch (e) {
         console.error('[price-job] snapshot failed, skipping threshold pass:', e.message);
         return;
@@ -1708,6 +1766,41 @@ async function runDailyPriceJob({ skipSnapshot = false } = {}) {
     console.log(`[price-job] threshold pass done (today=${today}, prev=${prev || 'n/a'})`);
   } catch (e) {
     console.error('[price-job] failed:', e.message);
+  }
+}
+
+/**
+ * Log any missing or partial days in the trailing 90. These are unrecoverable from
+ * AllPricesToday (it only serves today) — scripts/mtgjson-prices-backfill.js replays
+ * MTGJSON's 90-day AllPrices history and is the only way to close them. Without this
+ * the gaps are invisible: reads fall back to the last day that had a value, so a
+ * month-long hole still renders a price, just the wrong day's.
+ */
+async function reportSnapshotGaps() {
+  try {
+    const [rows] = await db().query(
+      `SELECT DATE_FORMAT(snapshot_date, '%Y-%m-%d') d, COUNT(*) n
+         FROM card_price_daily
+        WHERE snapshot_date >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)
+        GROUP BY snapshot_date
+        ORDER BY snapshot_date`
+    );
+    if (rows.length < 2) return;
+    const best = Math.max(...rows.map(r => Number(r.n) || 0));
+    const partial = rows.filter(r => (Number(r.n) || 0) < best * SNAPSHOT_MIN_FRACTION).map(r => r.d);
+    let missing = 0;
+    for (let i = 1; i < rows.length; i++) {
+      const gap = Math.round((Date.parse(rows[i].d) - Date.parse(rows[i - 1].d)) / 86400000) - 1;
+      if (gap > 0) missing += gap;
+    }
+    if (!missing && !partial.length) return;
+    console.warn(
+      `[price-job] history gaps in the last 90d: ${missing} day(s) missing` +
+      (partial.length ? `, ${partial.length} partial (${partial.join(', ')})` : '') +
+      ' — run scripts/mtgjson-prices-backfill.js to close them'
+    );
+  } catch (e) {
+    console.warn('[price-job] gap check failed:', e.message);
   }
 }
 
@@ -11694,6 +11787,11 @@ async function start() {
     if (!cron.validate(schedule)) { console.warn('[price-job] invalid PRICE_CRON_SCHEDULE, cron not started'); return; }
     cron.schedule(schedule, () => { void runDailyPriceJob(); }, { timezone: tz });
     console.log(`[price-job] daily cron scheduled (${schedule} ${tz})`);
+    // node-cron only fires while this process is alive, so every deploy restart that
+    // straddles the scheduled minute silently drops that day — and AllPricesToday can
+    // never serve it again (2026-07-21 → 2026-08-25 went missing exactly this way).
+    // Catch up on boot; runDailyPriceJob no-ops when today is already complete.
+    setTimeout(() => { void runDailyPriceJob(); }, 30_000).unref?.();
   };
 
   const runDbMigrations = async () => {

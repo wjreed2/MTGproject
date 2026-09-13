@@ -71,6 +71,23 @@ function getLatestPricesRequestDate() {
   return new Date().toISOString().slice(0, 10);
 }
 
+/** Promo types off a Scryfall card or a stored entry, always an array. */
+function _cardPromoTypes(card) {
+  const pt = card?.promo_types || card?.promoTypes;
+  return Array.isArray(pt) ? pt.slice() : [];
+}
+
+/**
+ * Surge foil: the `foil` finish of a printing whose promo types include `surgefoil`.
+ * There is no separate surge printing and no third finish, so a plain `card.foil`
+ * check cannot distinguish it — and the price gap is large (TMC #74 Sodden Verdure
+ * is $0.36 non-foil against $9.24 surge foil).
+ */
+function isSurgeFoilCard(card) {
+  if (!card?.foil) return false;
+  return _cardPromoTypes(card).includes('surgefoil');
+}
+
 function getTCGPriceForCard(card) {
   if (!card) return 0;
   const nonFoil = parseFloat(card.priceTCG) || 0;
@@ -347,6 +364,9 @@ function applyEntryMetadataToCard(card, entry) {
     card.colorIdentity = entry.colorIdentity;
   }
   if (Array.isArray(entry.cardFaces) && entry.cardFaces.length) card.cardFaces = entry.cardFaces;
+  // Every card stored before promoTypes existed has none, so backfill it on hydrate —
+  // otherwise an owned surge foil keeps rendering as a plain foil forever.
+  if (Array.isArray(entry.promoTypes) && entry.promoTypes.length) card.promoTypes = entry.promoTypes;
   if (entry.image) card.image = entry.image;
   if (entry.imageLarge) card.imageLarge = entry.imageLarge;
   if (entry.power) card.power = entry.power;
@@ -413,6 +433,10 @@ function cardToEntry(card, qty = 1) {
     priceCK: usdCk,
     priceCKFoil: usdCkFoil,
     oracleText: card.oracle_text || faceText || '',
+    // Surge foil is not a separate printing or a third finish — Scryfall and MTGJSON both
+    // model it as the `foil` finish of a printing whose promo types include `surgefoil`.
+    // Carrying the promo types is the only way the UI can tell the two foils apart.
+    promoTypes: _cardPromoTypes(card),
     power: card.power || creatureFace?.power || null,
     toughness: card.toughness || creatureFace?.toughness || null,
     loyalty: card.loyalty || null,

@@ -11112,13 +11112,23 @@ function _estimateManaSources(card, allowedColors = null, sourceMode = false) {
       if (col === 'C') { sources.C += 1; return; }
       if (sources[col] != null && (!allowed || allowed.has(col))) sources[col] += 1;
     });
+    // Any-color lands spell it out in words, not symbols (Command Tower, Exotic Orchard,
+    // Mana Confluence) — the symbol scan alone counted them as zero sources.
+    if (txt.includes('mana of any color') || txt.includes('any combination of colors') ||
+        txt.includes('mana of the chosen color')) {
+      const spread = allowed ? [...allowed] : ['W', 'U', 'B', 'R', 'G'];
+      spread.forEach(col => { if (sources[col] != null) sources[col] = Math.max(sources[col], 1); });
+    }
     return sources;
   }
   // Only count explicit mana-production: "add {X}" patterns or "mana of any color".
   // Deliberately excludes "create a treasure" — treasure tokens are colorless/conditional and
   // shouldn't be counted as color sources (avoids picking up {R} from pump costs like
   // "{R}: Storm Kiln Artist gets +1/+0" when the card also happens to make treasures).
-  if (!(txt.includes('add {') || txt.includes('mana of any'))) return sources;
+  // "Chosen color" producers (Utopia Sprawl, Caged Sun) pick the color on ETB,
+  // so they behave like any-color sources — you choose the color you need.
+  const chosenColor = txt.includes('mana of the chosen color');
+  if (!(txt.includes('add {') || txt.includes('mana of any') || chosenColor)) return sources;
   // Scan "add …" sentences (up to period/semicolon) for mana symbols to handle
   // both contiguous "{W}{U}" and "or"-separated "{W} or {U}" patterns.
   const addPhrases = txt.match(/add [^.;]+/gi) || [];
@@ -11132,7 +11142,7 @@ function _estimateManaSources(card, allowedColors = null, sourceMode = false) {
     const cCount = (phrase.match(/\{c\}/gi) || []).length;
     if (cCount) { sources.C += cCount; hasColorSym = true; }
   });
-  if (!hasColorSym && txt.includes('mana of any')) {
+  if (!hasColorSym && (txt.includes('mana of any') || chosenColor)) {
     const spread = allowed ? [...allowed] : ['W', 'U', 'B', 'R', 'G'];
     // sourceMode=true: 1.0 per color ("is this a source of X?", used by gameplan prob)
     // sourceMode=false: 1/N per color so total sums to 1 (used by generation chart proportions)
@@ -12246,8 +12256,10 @@ function _rampIsRelevant(card, cmdColors, hasGenericCost) {
   if (txt.includes('search your library') && (txt.includes(' land') || txt.includes('basic'))) return true;
   if (txt.includes('put') && txt.includes(' land') && txt.includes('onto the battlefield')) return true;
   // Any-color producers: Birds of Paradise, Arcane Signet, Commander's Sphere, etc.
+  // "Chosen color" (Utopia Sprawl, Caged Sun) counts too — the color is picked on ETB.
   if (txt.includes('mana of any color') || txt.includes('any one color') ||
-      txt.includes("commander's color identity") || txt.includes('any combination of colors')) return true;
+      txt.includes("commander's color identity") || txt.includes('any combination of colors') ||
+      txt.includes('mana of the chosen color')) return true;
   // Colorless mana (Sol Ring, etc.) only helps if commander has generic mana in cost
   if (hasGenericCost && (txt.includes('{c}') || (txt.includes('colorless') && txt.includes('add')))) return true;
   // Does this card produce a pip color the commander actually needs?
