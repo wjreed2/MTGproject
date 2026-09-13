@@ -321,16 +321,7 @@
     --page-gutter: 0.75rem;
     padding: calc(var(--topbar-h) + 0.75rem) var(--page-gutter)
              calc(var(--bottom-nav-h) + env(safe-area-inset-bottom) + 1rem);
-    /* The data disclosure is the last child of <main>, and on a sparse page —
-       a handful of games, an empty wishlist — it landed halfway up the screen
-       reading as the page's content. A column with an auto top margin on it
-       drops it to the foot of the viewport when there is little above it, and
-       leaves it directly under the content when there is plenty. */
-    display: flex;
-    flex-direction: column;
   }
-  main > .tab-content { flex: 0 0 auto; }
-  main > [data-data-disclosure] { margin-top: auto; }
 
   /* ── Offline banner sits just under the topbar ───────────────────────── */
   .offline-banner {

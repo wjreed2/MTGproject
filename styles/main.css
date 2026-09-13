@@ -951,7 +951,17 @@ main {
   padding: calc(var(--topbar-h) + 1rem) var(--page-gutter) 1.5rem;
   transition: margin-left 0.22s var(--ease);
   min-height: 100vh;
+  /* The data disclosure is the last child of <main>, and it followed whatever
+     content happened to be above it — on a sparse page that left it sitting
+     mid-screen, reading as part of the page rather than the footnote it is. A
+     column with an auto top margin on it drops it to the foot of the viewport
+     when there is little above, and leaves it directly under the content when
+     there is plenty. */
+  display: flex;
+  flex-direction: column;
 }
+main > .tab-content { flex: 0 0 auto; }
+main > [data-data-disclosure] { margin-top: auto; }
 
 /* PANELS */
 .panel {
