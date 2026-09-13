@@ -1913,6 +1913,17 @@ function toggleDeckExtraZoneCollapsed(zone) {
   renderDeckList(deck);
 }
 
+/** Bring every extra zone back — what the collapsed column's square button does. */
+function expandAllDeckExtraZones() {
+  const deck = getActiveDeck();
+  if (!deck) return;
+  ['mb', 'sb', 'add', 'cut'].forEach(z => {
+    try { localStorage.setItem(_deckZoneCollapseKey(z, deck.id), '0'); } catch (_) { /* private mode */ }
+  });
+  renderDeckList(deck);
+}
+globalThis.expandAllDeckExtraZones = expandAllDeckExtraZones;
+
 function _handleDeckExtraZoneToggleClick(e) {
   const btn = e.target.closest('[data-zone-toggle]');
   if (!btn) return false;
@@ -1968,7 +1979,13 @@ function _deckExtraZonesWrapOpenHtml(deck, innerHtml, extraClass = '') {
   const w = _deckExtraZoneColumnPx(deck);
   const cls = `deck-extra-zones-wrap${expanded ? ' is-expanded' : ''}${extraClass ? ` ${extraClass}` : ''}`;
   const style = `width:${w}px;min-width:0;max-width:${w}px;overflow:visible;box-sizing:border-box`;
-  return `<div class="${cls}" style="${style}">${innerHtml}</div>`;
+  // With every zone collapsed there is nothing to read in four stacked header
+  // pills — they become one square that brings them all back.
+  const inner = expanded ? innerHtml
+    : `<button type="button" class="decklist-collapse-btn deck-zones-reopen-btn is-rotated"
+         onclick="expandAllDeckExtraZones()" title="Show maybe board, adds and cuts"
+         aria-label="Show maybe board, adds and cuts">&#9662;</button>`;
+  return `<div class="${cls}" style="${style}">${inner}</div>`;
 }
 
 function _deckStackZoneLayout(el, deck, isVertical) {
@@ -7482,7 +7499,9 @@ function _assignGroupsToColumns(entries, numCols, deckId, groupBy) {
   return _assignGroupsToColumnsBalanced(entries, numCols);
 }
 
-const _DECK_EXTRA_ZONE_PILL_W = 22;
+// Everything collapsed: the column narrows to one square button, the same
+// control the Themes panel collapses to.
+const _DECK_EXTRA_ZONE_PILL_W = 34;
 
 function _calcVertExtraZoneWidth(deck, zonesBeside) {
   if (!deck || !zonesBeside) return 0;

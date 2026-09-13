@@ -876,6 +876,27 @@
     min-height: 0 !important;
     border-left: none !important;
   }
+  /* The all-collapsed square must not stretch to the full-width column. */
+  #deckCardList .deck-extra-zones-wrap > .deck-zones-reopen-btn {
+    align-self: center !important;
+    width: 34px !important;
+    min-width: 34px !important;
+    flex: 0 0 auto !important;
+  }
+  /* Generated tokens stack down the page rather than scrolling sideways —
+     a phone has the height for it and no room for a horizontal rail. */
+  #tab-decks .deck-tokens-grid.deck-stack-cards {
+    flex-direction: column !important;
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+    overflow-x: visible !important;
+    gap: 10px !important;
+  }
+  #tab-decks .deck-tokens-grid.deck-stack-cards .deck-stack-card {
+    width: min(90vw, 270px) !important;
+    max-width: min(90vw, 270px) !important;
+    margin: 0 !important;
+  }
   /* Zone stacks match the centered mainboard column width */
   #tab-decks .deck-stack-view > .deck-extra-zones-wrap .deck-stack-cards.vertical {
     width: min(90vw, 270px) !important;

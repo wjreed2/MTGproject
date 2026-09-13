@@ -5231,10 +5231,11 @@ body.glass-mode .x-stepper-btn-sm { border-radius: 7px; }
 }
 /* (Sibling zone separators retired — each zone is its own glass box and the
    zones-wrap flex gap spaces them.) */
+/* Collapsing takes a zone's height, not its width: the box shrinks to its
+   header and the column stays put, so collapsing one does not reflow the rest. */
 .deck-stack-view > .deck-extra-zones-wrap > .deck-extra-zone-section.is-collapsed,
 .deck-stack-view.vertical-orient > .deck-extra-zones-wrap > .deck-extra-zone-section.is-collapsed {
   min-height: 0;
-  align-self: flex-start;
 }
 .deck-extra-zone-section.drag-over {
   background: rgba(74, 130, 212, 0.08);
@@ -5740,9 +5741,22 @@ body.glass-mode .deck-extra-zone-section {
   padding: 0;
   margin-top: 0;
   min-height: 0;
-  align-self: flex-start;
-  width: auto !important; /* inline width:100% otherwise keeps the box full-width */
   border-radius: 10px;
+}
+/* The header fills the collapsed box so the whole strip is the hit target. */
+.deck-extra-zone-section.is-collapsed .deck-extra-zone-header,
+.deck-extra-zone-section.is-collapsed .deck-sideboard-header { width: 100%; }
+/* Every zone collapsed: one square button in place of the column. The pane-wide
+   rule that hides .decklist-collapse-btn inside a deck tab is about the deck
+   list's own header button, not this one. */
+.deck-tab-pane .deck-zones-reopen-btn,
+.deck-zones-reopen-btn {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  flex: 0 0 auto;
+  margin-top: 2px;
 }
 .deck-extra-zone-section.is-collapsed:hover {
   border-color: rgba(var(--lgx1), 0.55);
@@ -5751,7 +5765,6 @@ body.glass-mode .deck-extra-zone-section {
 .deck-extra-zone-section.is-collapsed .deck-extra-zone-header,
 .deck-extra-zone-section.is-collapsed .deck-sideboard-header {
   margin-bottom: 0;
-  width: auto;
   padding: 7px 12px;
   font-size: 0.72rem;
   line-height: 1;
