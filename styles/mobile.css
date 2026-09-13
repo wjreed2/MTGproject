@@ -120,7 +120,10 @@
 
   /* ── CSS variable overrides ───────────────────────────────────────────── */
   :root {
-    --bottom-nav-h: 46px;
+    /* The bottom bar is gone — the hamburger menu replaced it — so nothing
+       reserves height at the foot of the page. Kept as a variable because
+       main's padding and the notification popover both measure against it. */
+    --bottom-nav-h: 0px;
     /* Compact bar + notch/status inset so fixed chrome clears the status bar */
     /* No bar to clear any more — only the notch. main and the offline banner
        both key off this, so content now starts just under the status bar. */
@@ -318,7 +321,16 @@
     --page-gutter: 0.75rem;
     padding: calc(var(--topbar-h) + 0.75rem) var(--page-gutter)
              calc(var(--bottom-nav-h) + env(safe-area-inset-bottom) + 1rem);
+    /* The data disclosure is the last child of <main>, and on a sparse page —
+       a handful of games, an empty wishlist — it landed halfway up the screen
+       reading as the page's content. A column with an auto top margin on it
+       drops it to the foot of the viewport when there is little above it, and
+       leaves it directly under the content when there is plenty. */
+    display: flex;
+    flex-direction: column;
   }
+  main > .tab-content { flex: 0 0 auto; }
+  main > [data-data-disclosure] { margin-top: auto; }
 
   /* ── Offline banner sits just under the topbar ───────────────────────── */
   .offline-banner {
@@ -815,6 +827,12 @@
   .settings-as-page .settings-section-label { margin-top: 1.1rem; }
   .settings-as-page > .settings-section-label:first-child { margin-top: 0; }
   .settings-as-page .settings-divider { margin: 1.1rem 0; }
+
+  /* ── Browse public decks ────────────────────────────────────────────────
+     The art is sized for a 528px card. At phone width the card is 366px, so
+     236px of art left 86px for the deck's name and commander. A quarter off
+     gives the text back most of that. */
+  .pubdeck-art { width: 177px; }
 
   /* ── Notifications page — the topbar panel rendered as a full page ──────
      Same move as Settings above: showTab() relocates the live #notifPanel into

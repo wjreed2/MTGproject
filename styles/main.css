@@ -15103,6 +15103,5 @@ body.glass-mode .app-footer a:hover { color: rgb(var(--lgx1)); }
   .app-footer {
     margin-top: 2rem;
     font-size: 0.64rem;
-    text-align: left;
   }
 }
