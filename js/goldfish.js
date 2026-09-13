@@ -83,8 +83,12 @@ const GF_HAND_PCT_MIN = 20;
 const GF_HAND_PCT_MAX = 100;
 const GF_HAND_DEFAULT_PCT = 50;
 const GF_HAND_REF_W = 137;
-const GF_HAND_MAX_RISE = 60;
+const GF_HAND_MAX_RISE = 24;
 const GF_HAND_OVERLAP = 34;
+// The hand sits low, the way a real one does: only the top of each card clears
+// the edge, and hovering lifts the card you are reading clear of its neighbours
+// (.gf-hand-card:hover). The rest is below the mat's clip.
+const GF_HAND_PEEK = 0.62;
 
 function _gfBfPctToPx(pct) {
   const p = Math.max(GF_BF_PCT_MIN, Math.min(GF_BF_PCT_MAX, pct));
@@ -145,9 +149,9 @@ function _gfHandLayoutMetrics() {
   const maxRise = Math.round(GF_HAND_MAX_RISE * scale);
   const overlap = Math.round(GF_HAND_OVERLAP * scale);
   const cardH = Math.round(gfHandCardSize * GF_CARD_ASPECT);
-  const handH = cardH + maxRise + 8;
+  const handH = Math.round(cardH * GF_HAND_PEEK) + maxRise;
   const padTop = Math.max(4, Math.round(6 * scale));
-  const padBottom = Math.max(8, Math.round(16 * scale));
+  const padBottom = 0;
   return { maxRise, overlap, cardH, handH, padTop, padBottom };
 }
 
@@ -1819,7 +1823,10 @@ function _gfZoneDragEnd(e) {
   if (!moved) {
     if (fromZone === 'hand') {
       if (_gf?.mulligansInProgress && _gf.putBackCount > 0) _gfPutBackFromHand(iid);
-      else _gfPlayFromHand(iid, st.captureEl);
+      // A tap used to play the card. From a hand that sits low and overlapped
+      // that read as the card vanishing — most taps are someone trying to see
+      // what they have. Tapping lifts it clear instead; dragging plays it.
+      else _gfToggleHandReveal(iid);
     } else if (fromZone === 'battlefield') _gfTap(iid);
     else if (fromZone === 'library') _gfClickLibrary();
     else if (fromZone === 'commandZone') _gfPlayFromZone(iid, 'commandZone');
@@ -1970,7 +1977,7 @@ function _gfRenderHand() {
     return;
   }
 
-  const maxAngle = Math.min(30, n * 3.2);
+  const maxAngle = Math.min(12, n * 1.5);
   const { maxRise, overlap } = _gfHandLayoutMetrics();
   const cardW = gfHandCardSize;
   const overlapPx = -overlap;
@@ -1983,7 +1990,7 @@ function _gfRenderHand() {
     const ml = i === 0 ? '0' : `${overlapPx}px`;
     return `<div class="gf-hand-card" data-iid="${c.iid}"
       style="--angle:${angle.toFixed(1)}deg;--rise:${rise.toFixed(1)}px;z-index:${zIndex};margin-left:${ml}"
-      title="${escapeHtml(c.name)}${isPutBack ? ' — click to put back' : ' — drag to play'}"
+      title="${escapeHtml(c.name)}${isPutBack ? ' — click to put back' : ' — tap to read, drag to play'}"
       ${_gfHoverAttrs('hand', c.iid)}
       onpointerdown="_gfHandPointerDown(event,${c.iid})"
       oncontextmenu="_gfShowContextMenu(event,${c.iid},'hand')">
@@ -1991,6 +1998,20 @@ function _gfRenderHand() {
       ${isPutBack ? `<div class="gf-putback-hint">put back</div>` : ''}
     </div>`;
   }).join('');
+}
+
+/**
+ * Lift one hand card clear of the fan so the whole face is readable, or drop it
+ * back. Hover does the same on a pointer device; this is the touch equivalent,
+ * where there is no hover to work with.
+ */
+function _gfToggleHandReveal(iid) {
+  const el = document.querySelector(`#gfHand [data-iid="${iid}"]`);
+  if (!el) return;
+  const on = el.classList.contains('gf-hand-revealed');
+  document.querySelectorAll('#gfHand .gf-hand-revealed')
+    .forEach(x => x.classList.remove('gf-hand-revealed'));
+  if (!on) el.classList.add('gf-hand-revealed');
 }
 
 // ── Drag from hand ────────────────────────────────────────────────────────────

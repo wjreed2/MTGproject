@@ -8297,7 +8297,8 @@ function _gfeZoneDragEnd(e) {
   if (!moved) {
     if (fromZone === 'hand') {
       if (_gfe?.mulligansInProgress && _gfe.putBackCount > 0) _gfePutBackFromHand(iid);
-      else _gfePlayFromHand(iid, st.captureEl);
+      // Same reasoning as the plain overlay: a tap reads the card, a drag plays it.
+      else _gfeToggleHandReveal(iid);
     } else if (fromZone === 'battlefield') _gfeTapCard(iid);
     else if (fromZone === 'exile') {
       const card = (_gfe.exile || []).find(c => c.iid === iid);
@@ -8664,6 +8665,16 @@ function _gfeComputeCastableSet() {
       })
       .map(c => c.iid)
   );
+}
+
+/** Lift one hand card clear of the fan, or drop it back — the touch equivalent of hover. */
+function _gfeToggleHandReveal(iid) {
+  const el = document.querySelector(`#gfeHand [data-iid="${iid}"]`);
+  if (!el) return;
+  const on = el.classList.contains('gf-hand-revealed');
+  document.querySelectorAll('#gfeHand .gf-hand-revealed')
+    .forEach(x => x.classList.remove('gf-hand-revealed'));
+  if (!on) el.classList.add('gf-hand-revealed');
 }
 
 function _gfeRenderHand() {
