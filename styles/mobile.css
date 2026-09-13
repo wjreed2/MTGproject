@@ -641,7 +641,11 @@
   /* Row 3 — filter · badge toggle · view toggle, centred as a group.
      Orientation toggle is hidden on mobile (horizontal stacks make no sense). */
   #tab-decks #deckListPanelHeader #deckListFilterToggleBtn { order: 11; margin-left: auto; }
-  #tab-decks #deckListPanelHeader #deckTagBadgeToggleBtn   { order: 12; }
+  /* Badges rides the filter row, right after Filter. It is a glassified select,
+     so the visible control is the wrapper, not the id — hence data-for, set by
+     _glassSelectEnsure. Without this it falls to the .glass-dd-wrap rule above
+     and lands in row 2 beside Group and Sort. */
+  #tab-decks #deckListPanelHeader .glass-dd-wrap[data-for="deckTagBadgeModeSelect"] { order: 12; }
   #tab-decks #deckListPanelHeader #deckStackLayoutResetBtn { order: 13; }
   #tab-decks #deckListPanelHeader #deckStackOrientToggle   { display: none !important; }
   /* Architecture is the default view only on phones — no panel-layout (grid vs

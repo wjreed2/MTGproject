@@ -896,18 +896,31 @@
           <button id="deckListCollapseBtn" class="decklist-collapse-btn" onclick="toggleDeckListCollapse()" title="Collapse / expand">▾</button>
         </div>
         <div id="deckListFilterBar" class="deck-list-filter-bar" style="display:none">
+          <!-- Same shape as Add cards' search: a plain box with the syntax in a
+               tooltip, then one quick filter under it. -->
           <div class="dlf-row">
-            <input id="deckListFilterInput" type="search" class="dlf-text" placeholder="Filter deck… name, o:text, tag:ramp, mv<=3, c:ug, t:creature"
-              oninput="setDeckListSearch(this.value)" autocomplete="off" spellcheck="false">
+            <div class="dlf-search-wrap">
+              <input id="deckListFilterInput" type="search" class="dlf-text" placeholder="Search"
+                oninput="setDeckListSearch(this.value)" autocomplete="off" spellcheck="false">
+              <div class="filter-syntax-hint tooltip-wrap" aria-label="Search syntax">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><circle cx="8" cy="8" r="6.25"/><path d="M8 7.2v4"/><path d="M8 4.9h.01"/></svg>
+                <div class="tooltip" style="white-space:normal;width:280px;left:auto;right:0;transform:none;font-size:0.72rem;line-height:1.6;bottom:auto;top:calc(100% + 6px)">
+                  <strong>Search syntax</strong><br>
+                  <code>t:creature</code> &mdash; type or subtype<br>
+                  <code>c:ug</code> &mdash; color (w/u/b/r/g)<br>
+                  <code>mv&lt;=3</code> or <code>mv:3</code> &mdash; mana value<br>
+                  <code>o:"draw a card"</code> &mdash; oracle text<br>
+                  <code>tag:ramp</code> &mdash; role or your own tag<br>
+                  Or just type a card name.
+                </div>
+              </div>
+            </div>
             <button class="dlf-clear" id="deckListFilterClear" onclick="clearDeckListFilters()" title="Clear all filters" style="display:none">✕</button>
           </div>
-          <div class="dlf-row dlf-pills">
-            <button class="dlf-color-pill" data-color="W" onclick="toggleDeckListColorFilter('W')" title="White"><img src="https://svgs.scryfall.io/card-symbols/W.svg" class="mana-pip" alt="W"></button>
-            <button class="dlf-color-pill" data-color="U" onclick="toggleDeckListColorFilter('U')" title="Blue"><img src="https://svgs.scryfall.io/card-symbols/U.svg" class="mana-pip" alt="U"></button>
-            <button class="dlf-color-pill" data-color="B" onclick="toggleDeckListColorFilter('B')" title="Black"><img src="https://svgs.scryfall.io/card-symbols/B.svg" class="mana-pip" alt="B"></button>
-            <button class="dlf-color-pill" data-color="R" onclick="toggleDeckListColorFilter('R')" title="Red"><img src="https://svgs.scryfall.io/card-symbols/R.svg" class="mana-pip" alt="R"></button>
-            <button class="dlf-color-pill" data-color="G" onclick="toggleDeckListColorFilter('G')" title="Green"><img src="https://svgs.scryfall.io/card-symbols/G.svg" class="mana-pip" alt="G"></button>
-            <button class="dlf-color-pill" data-color="C" onclick="toggleDeckListColorFilter('C')" title="Colorless"><img src="https://svgs.scryfall.io/card-symbols/C.svg" class="mana-pip" alt="C"></button>
+          <div class="dlf-row">
+            <button type="button" id="deckListColorMenuBtn" class="btn btn-outline btn-sm"
+              aria-haspopup="true" aria-expanded="false"
+              onclick="toggleDeckListColorMenu(event)">Color</button>
             <span class="dlf-hint" id="deckListFilterCount"></span>
           </div>
         </div>

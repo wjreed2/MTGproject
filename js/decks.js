@@ -2709,6 +2709,10 @@ function _glassSelectEnsure() {
     sel.dataset.glassified = '1';
     const wrap = document.createElement('span');
     wrap.className = 'glass-dd-wrap';
+    // The trigger replaces the select in the flex flow, and it does not carry
+    // the select's id — so per-control layout rules have nothing to hook. Carry
+    // the id here instead (mobile.css orders the Badges trigger with it).
+    if (sel.id) wrap.dataset.for = sel.id;
     // Visibility toggles (e.g. classic-engine-only controls) target this class
     // with style.display — carry it so the trigger hides with its select.
     if (sel.classList.contains('suggest-classic-only')) wrap.classList.add('suggest-classic-only');
@@ -2861,12 +2865,42 @@ function _updateDeckListFilterUI() {
   if (clearBtn) clearBtn.style.display = hasFilter ? '' : 'none';
   const toggleBtn = document.getElementById('deckListFilterToggleBtn');
   if (toggleBtn) toggleBtn.classList.toggle('active', hasFilter);
-  document.querySelectorAll('.dlf-color-pill').forEach(btn => {
-    btn.classList.toggle('active', colors.has(btn.dataset.color));
-  });
+  _syncDeckListColorMenuUi();
 }
 
-function _applyDeckListFilter(cards) {
+function _syncDeckListColorMenuUi() {
+  const btn = document.getElementById('deckListColorMenuBtn');
+  if (!btn) return;
+  const n = _deckListFilter.colors.size;
+  btn.textContent = n > 0 ? `Color (${n})` : 'Color';
+  btn.classList.toggle('active', n > 0);
+}
+
+/** True when the deck list's colour filter has `code` on. Read by the shared menu. */
+function deckListColorFilterOn(code) {
+  return _deckListFilter.colors.has(code);
+}
+
+function toggleDeckListColorMenu(event) {
+  if (event) { event.stopPropagation(); event.preventDefault(); }
+  if (typeof _openFindMenu !== 'function') return;
+  const open = !!document.querySelector('.deck-list-color-menu');
+  _closeFindMenus();
+  if (!open) _openFindMenu('dlcolor');
+}
+
+globalThis.deckListColorFilterOn = deckListColorFilterOn;
+globalThis.toggleDeckListColorMenu = toggleDeckListColorMenu;
+
+/**
+ * @param {Array} cards
+ * @param {{reportCount?: boolean}} [opts] Only the mainboard pass should report
+ *   its result to the "n / total" readout. A render also filters the planned
+ *   adds, and that list is usually empty — left to report, it ran second and
+ *   overwrote the readout with 0, so a filter that matched looked like one that
+ *   matched nothing.
+ */
+function _applyDeckListFilter(cards, opts) {
   const { q, colors } = _deckListFilter;
   let out = cards;
 
@@ -2898,8 +2932,8 @@ function _applyDeckListFilter(cards) {
     });
   }
 
-  const countEl = document.getElementById('deckListFilterCount');
-  const deck = getActiveDeck();
+  const countEl = opts && opts.reportCount ? document.getElementById('deckListFilterCount') : null;
+  const deck = countEl ? getActiveDeck() : null;
   if (countEl && deck) {
     const total = (deck.cards || []).length;
     const hasFilter = q.trim() || colors.size > 0;
@@ -10550,7 +10584,7 @@ function renderDeckList(deck) {
   _bindDeckTagGroupHoverLinking(el, false);
   _bindSwapZoneHoverLinking(el, false);
   _bindArchListHoverPreview(el, deck, false);
-  const filteredCards = _applyDeckListFilter(deck.cards || []);
+  const filteredCards = _applyDeckListFilter(deck.cards || [], { reportCount: true });
   // One classification per render, shared by the Architecture view's panels and
   // Group By → Architecture (list / visual / nested band skip).
   const archOn = (deckListView === 'architecture' || deckGroupBy === 'architecture');

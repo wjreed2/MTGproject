@@ -7382,6 +7382,14 @@ body.glass-mode .deck-tab-pane .dlf-text:focus {
 }
 .dlf-row { display: flex; align-items: center; gap: 6px; }
 .dlf-row + .dlf-row { margin-top: 6px; }
+/* Holds the syntax-hint button inside the box, as the Add cards search does. */
+.dlf-search-wrap { position: relative; flex: 1; min-width: 0; }
+.dlf-search-wrap .dlf-text { padding-right: 28px; }
+.dlf-search-wrap .filter-syntax-hint {
+  position: absolute; right: 7px; top: 50%; transform: translateY(-50%);
+  color: var(--text3); cursor: default; user-select: none;
+  display: flex; align-items: center;
+}
 .dlf-text {
   flex: 1; min-width: 0;
   height: 34px;
@@ -7399,21 +7407,6 @@ body.glass-mode .deck-tab-pane .dlf-text:focus {
   font-size: 0.9rem; padding: 2px 5px; border-radius: 4px; flex-shrink: 0;
 }
 .dlf-clear:hover { color: var(--red); }
-.dlf-pills { flex-wrap: wrap; gap: 5px; }
-.dlf-color-pill {
-  background: var(--bg3); border: 2px solid transparent;
-  border-radius: 50%; width: 26px; height: 26px;
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer; padding: 0; transition: border-color 0.12s, opacity 0.12s;
-  opacity: 0.55;
-}
-.dlf-color-pill:hover { opacity: 0.85; }
-.dlf-color-pill.active {
-  border-color: rgba(var(--lgx1), 0.9);
-  box-shadow: 0 0 0 2px rgba(var(--lgx2), 0.35);
-  opacity: 1;
-}
-.dlf-color-pill img { width: 16px; height: 16px; pointer-events: none; }
 .dlf-hint { font-size: 0.75rem; color: var(--text3); margin-left: 4px; font-variant-numeric: tabular-nums; }
 .deck-list-panel-wrap {
   min-height: 120px;

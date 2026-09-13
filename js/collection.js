@@ -5016,8 +5016,9 @@ function _syncFindColorMenuUi() {
 
 function _closeFindMenus() {
   document.querySelectorAll('.find-filter-menu').forEach(m => m.remove());
-  document.getElementById('findTypeMenuBtn')?.setAttribute('aria-expanded', 'false');
-  document.getElementById('findColorMenuBtn')?.setAttribute('aria-expanded', 'false');
+  for (const id of ['findTypeMenuBtn', 'findColorMenuBtn', 'deckListColorMenuBtn']) {
+    document.getElementById(id)?.setAttribute('aria-expanded', 'false');
+  }
 }
 
 function toggleFindTypeMenu(event) {
@@ -5034,18 +5035,31 @@ function toggleFindColorMenu(event) {
   if (!open) _openFindMenu('color');
 }
 
+const FIND_MENU_KINDS = {
+  type:    { btn: 'findTypeMenuBtn',       cls: 'find-type-menu' },
+  color:   { btn: 'findColorMenuBtn',      cls: 'find-color-menu color-menu' },
+  // The deck list's own Color button — same component, its own selection state.
+  dlcolor: { btn: 'deckListColorMenuBtn',  cls: 'deck-list-color-menu color-menu' },
+};
+
 function _openFindMenu(kind) {
-  const btn = document.getElementById(kind === 'color' ? 'findColorMenuBtn' : 'findTypeMenuBtn');
+  const spec = FIND_MENU_KINDS[kind] || FIND_MENU_KINDS.type;
+  const btn = document.getElementById(spec.btn);
   if (!btn) return;
   const menu = document.createElement('div');
-  menu.className = `glass-menu qf-menu find-filter-menu ${kind === 'color' ? 'find-color-menu color-menu' : 'find-type-menu'}`;
+  menu.className = `glass-menu qf-menu find-filter-menu ${spec.cls}`;
+
+  const colorRows = (isOn, pick) => COLOR_FILTER_OPTIONS.map(([code, label]) => ({
+    on: !!isOn(code),
+    html: `<img src="https://svgs.scryfall.io/card-symbols/${code}.svg" alt="" aria-hidden="true">${label}`,
+    run: () => pick(code),
+  }));
 
   const rows = kind === 'color'
-    ? COLOR_FILTER_OPTIONS.map(([code, label]) => ({
-        on: !!(_findColorFilters && _findColorFilters.has(code)),
-        html: `<img src="https://svgs.scryfall.io/card-symbols/${code}.svg" alt="" aria-hidden="true">${label}`,
-        run: () => toggleFindColorFilter(code),
-      }))
+    ? colorRows(c => _findColorFilters && _findColorFilters.has(c), c => toggleFindColorFilter(c))
+    : kind === 'dlcolor'
+    ? colorRows(c => typeof deckListColorFilterOn === 'function' && deckListColorFilterOn(c),
+                c => toggleDeckListColorFilter(c))
     : FIND_TYPE_OPTIONS.map(([key, val, label]) => ({
         on: _findTypeTokenOn(key, val),
         html: label,
@@ -5055,7 +5069,8 @@ function _openFindMenu(kind) {
   for (const row of rows) {
     const item = document.createElement('button');
     item.type = 'button';
-    item.className = 'glass-menu-item' + (kind === 'color' ? ' color-menu-item' : '') + (row.on ? ' selected' : '');
+    const isColor = kind === 'color' || kind === 'dlcolor';
+    item.className = 'glass-menu-item' + (isColor ? ' color-menu-item' : '') + (row.on ? ' selected' : '');
     item.innerHTML = row.html;
     item.addEventListener('click', e => {
       e.stopPropagation();
