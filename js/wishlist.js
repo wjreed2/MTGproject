@@ -265,12 +265,65 @@ function openWishlistCardDetail(i) {
   openCardDetail(id, undefined, _viewingSharedWishlistOwnerId ? { prefetchedEntry: c } : undefined);
 }
 
+/**
+ * Where the open inspector sits in the search results, for its arrows.
+ *
+ * Neighbours are reported by id for the arrow's enabled state; the stepping
+ * itself goes by index (see navigateWishlistSearchCard), so a printing that
+ * appears twice in one result set is still two distinct stops.
+ */
+function wlSearchNavState() {
+  const total = _wishlistResultPayloads.length;
+  const i = _wishlistSearchActiveIdx;
+  if (i < 0 || i >= total) return { index: -1, total, prevUid: null, nextUid: null };
+  const idOf = p => (p ? String(p.scryfallId || p.id || '') : '') || null;
+  return {
+    index: i,
+    total,
+    prevUid: i > 0 ? idOf(_wishlistResultPayloads[i - 1]) : null,
+    nextUid: i < total - 1 ? idOf(_wishlistResultPayloads[i + 1]) : null,
+  };
+}
+
+/** The art of the results either side, so arrowing through doesn't flash. */
+function wlSearchNeighborArt() {
+  const i = _wishlistSearchActiveIdx;
+  if (i < 0) return [];
+  return [_wishlistResultPayloads[i - 1], _wishlistResultPayloads[i + 1]]
+    .filter(Boolean)
+    .map(p => String(p.imageLarge || p.image || ''))
+    .filter(Boolean);
+}
+
+/** Step the inspector to the next/previous result, in the order searched. */
+function navigateWishlistSearchCard(direction) {
+  const total = _wishlistResultPayloads.length;
+  const next = _wishlistSearchActiveIdx + (direction === 'next' ? 1 : -1);
+  if (_wishlistSearchActiveIdx < 0 || next < 0 || next >= total) return;
+  const payload = _wishlistResultPayloads[next];
+  if (!payload || typeof openCardDetail !== 'function') return;
+  _wishlistSearchActiveIdx = next;
+  void openCardDetail(String(payload.scryfallId || payload.id), 'wlsearch', {
+    prefetchedEntry: { ...payload },
+    fromArrow: true,
+  });
+}
+
 let _wishlistAcTimer = null;
 let _wishlistAcNames = [];
 let _wishlistSearchAbort = null;
 let _wishlistSearchLocal = [];
 let _wishlistSearchApi = [];
 let _wishlistResultPayloads = [];
+/**
+ * Which search result the inspector is showing, as an index into
+ * `_wishlistResultPayloads`.
+ *
+ * The arrows step this index rather than looking a card up by id: the order on
+ * screen is the order the search returned, duplicates of a printing included,
+ * and only the position knows which one you are on.
+ */
+let _wishlistSearchActiveIdx = -1;
 
 function _positionWishlistAc() {
   const input = document.getElementById('wishlistSearch');
@@ -499,7 +552,7 @@ async function runWishlistSearch(q, append) {
   // of the card under it.
   clearTimeout(_wishlistAcTimer);
   if (drop) drop.style.display = 'none';
-  if (!append) { _wishlistSearchOffset = 0; _wishlistSearchTotal = null; }
+  if (!append) { _wishlistSearchOffset = 0; _wishlistSearchTotal = null; _wishlistSearchActiveIdx = -1; }
   if (query.length < 2) {
     // A colour with no text has nothing to search the catalogue by, so the grid
     // just clears rather than pulling the whole of Scryfall.
@@ -632,8 +685,10 @@ function _renderWishlistSearchGrid() {
     const payload = _wishlistResultPayloads[+tile.dataset.idx];
     if (!payload) return;
     if (typeof openCardDetail !== 'function') return;
+    _wishlistSearchActiveIdx = +tile.dataset.idx;
     // The payload is already in cardToEntry shape, so hand it over prefetched.
-    void openCardDetail(String(payload.scryfallId || payload.id), undefined, { prefetchedEntry: { ...payload } });
+    // 'wlsearch' nav mode puts the inspector's arrows on the results.
+    void openCardDetail(String(payload.scryfallId || payload.id), 'wlsearch', { prefetchedEntry: { ...payload } });
   };
 }
 

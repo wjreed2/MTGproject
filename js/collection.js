@@ -1625,6 +1625,12 @@ function _peekCardForDetailArt(uid) {
 }
 
 function _prefetchCardDetailNeighborArts(uid) {
+  // Search results are not in any pool — their art comes off the payloads.
+  if (_cardDetailNavMode === 'wlsearch') {
+    const arts = typeof wlSearchNeighborArt === 'function' ? wlSearchNeighborArt() : [];
+    for (const u of arts) void _prefetchDetailArt(u);
+    return;
+  }
   const nav = _cardDetailNavMode === 'deck'
     ? _getCardDetailDeckNavState(uid)
     : _getCardDetailCollectionNavState(uid);
@@ -1930,11 +1936,28 @@ function _getCardDetailSetNavState() {
   };
 }
 
+/**
+ * The wishlist's Search tab, walked in the order the search returned.
+ *
+ * Like the set browser, these cards exist only as the payloads behind the
+ * result tiles — no uid, nothing in any local pool — so wishlist.js owns both
+ * the order and the position, and this just reads it.
+ */
+function _getCardDetailWishlistSearchNavState() {
+  const s = typeof wlSearchNavState === 'function' ? wlSearchNavState() : null;
+  return s || { prevUid: null, nextUid: null, index: -1, total: 0 };
+}
+
 function navigateCardDetailCollection(direction) {
   // The set browser owns its own stepping (it has to re-resolve the printing),
   // so hand off rather than trying to walk it by uid.
   if (_cardDetailNavMode === 'set') {
     if (typeof navigateSetBrowseCard === 'function') navigateSetBrowseCard(direction);
+    return;
+  }
+  // Same for the wishlist search grid — it steps by position in the results.
+  if (_cardDetailNavMode === 'wlsearch') {
+    if (typeof navigateWishlistSearchCard === 'function') navigateWishlistSearchCard(direction);
     return;
   }
   const currentUid = _cardDetailCurrentUid;
@@ -1953,9 +1976,11 @@ function _updateCardDetailEdgeNav(uid) {
   if (!prevEl || !nextEl) return;
   const nav = _cardDetailNavMode === 'set'
     ? _getCardDetailSetNavState()
-    : _cardDetailNavMode === 'deck'
-      ? _getCardDetailDeckNavState(uid)
-      : _getCardDetailCollectionNavState(uid);
+    : _cardDetailNavMode === 'wlsearch'
+      ? _getCardDetailWishlistSearchNavState()
+      : _cardDetailNavMode === 'deck'
+        ? _getCardDetailDeckNavState(uid)
+        : _getCardDetailCollectionNavState(uid);
   const show = nav.index !== -1 && nav.total > 1;
   prevEl.style.display = show ? '' : 'none';
   nextEl.style.display = show ? '' : 'none';
@@ -3529,7 +3554,9 @@ async function openCardDetail(uid, navMode, opts) {
     } catch (_) {}
   }
   if (!sourceCard) return;
-  if (navMode === 'deck' || navMode === 'collection' || navMode === 'set') _cardDetailNavMode = navMode;
+  if (navMode === 'deck' || navMode === 'collection' || navMode === 'set' || navMode === 'wlsearch') {
+    _cardDetailNavMode = navMode;
+  }
   const openSession = ++_cardDetailOpenSession;
   const fromArrowNav = !!(opts && opts.fromArrow);
   const ownedCard = window.Ownership?.resolveOwnedCard
