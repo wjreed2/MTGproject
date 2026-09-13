@@ -105,7 +105,15 @@ async function openBrowseDeckDetail(deckId, accountId) {
     const res = await fetch(`${base}/decks/public/${deckId}?accountId=${accountId}`, { credentials: 'include' });
     if (!res.ok) throw new Error('Could not load deck');
     const deck = await res.json();
-    _showPublicDeckModal(deck);
+    // The deck builder itself, read-only — every view and every number the owner
+    // sees. The summary modal this used to open showed a card list and nothing
+    // else. _showPublicDeckModal stays for anything still calling it.
+    const src = (_browseDecks || []).find(d => String(d.id) === String(deckId));
+    if (typeof openDeckReadOnly === 'function') {
+      openDeckReadOnly(deck, { ownerId: accountId, ownerEmail: src?.ownerEmail });
+    } else {
+      _showPublicDeckModal(deck);
+    }
   } catch (e) {
     showNotif('Could not load deck: ' + e.message, true);
   }

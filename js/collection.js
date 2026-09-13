@@ -2267,6 +2267,14 @@ function _htmlCardDetailDeckQtyCounter(ctx) {
   const { card, activeDeck, activeDeckCard, actionUid, inDeckQty } = ctx;
   const nameMeta = _htmlCardDetailDeckNameMeta(activeDeck, '');
 
+  // A deck this account cannot change shows its count and no way to alter it.
+  if (activeDeck && _cardDetailDeckIsReadOnly()) {
+    const zoneHint = activeDeckCard ? _deckSlotZoneLabel(activeDeck, activeDeckCard) : '';
+    return `<div class="card-detail-qty-printing">${_htmlCardDetailQtyControlRow({
+      qty: inDeckQty || 0, muted: !(inDeckQty > 0), interactive: false,
+    })}${_htmlCardDetailDeckNameMeta(activeDeck, zoneHint)}</div>`;
+  }
+
   // No active deck → single muted placeholder row.
   if (!activeDeck) {
     return `<div class="card-detail-qty-printing">${_htmlCardDetailQtyControlRow({ qty: 0, muted: true, interactive: false })}${nameMeta}</div>`;
@@ -2698,6 +2706,20 @@ function _cardDetailIsSharedCollection() {
   return !!_viewingSharedCollOwnerId;
 }
 
+/**
+ * True while the deck on screen is one this account cannot change — a deck
+ * shared read-only, or somebody else's opened from Browse or a share link.
+ *
+ * The inspector is the one place every deck action is reachable from, so it
+ * takes the same gate the deck list does: nothing here writes to the deck, its
+ * tags or its colouring. The Collection rows are untouched — those are the
+ * viewer's own cards and have nothing to do with whose deck is open.
+ */
+function _cardDetailDeckIsReadOnly() {
+  if (typeof canEditActiveDeck !== 'function' || typeof getActiveDeck !== 'function') return false;
+  return !!getActiveDeck() && !canEditActiveDeck();
+}
+
 // Shared by the full builder and the in-place sync so the two paths can't drift.
 function _htmlCardDetailPrimaryActionsInner(ctx) {
   const { isOwned, isCommanderCandidate, actionUid, uid } = ctx;
@@ -2708,7 +2730,9 @@ function _htmlCardDetailPrimaryActionsInner(ctx) {
   }
   // Edit Tags moved into the Tags & Coloring section, beside the tags it edits.
   // Already in the open deck → no "+ Add to Deck" (the zone/swap buttons cover it).
-  const inOpenDeck = !!(ctx.activeDeckCard && (ctx.inDeckQty || 0) > 0)
+  // A read-only deck never offers it at all.
+  const inOpenDeck = _cardDetailDeckIsReadOnly()
+    || !!(ctx.activeDeckCard && (ctx.inDeckQty || 0) > 0)
     || (typeof cardDetailIsPlannedAdd === 'function' && cardDetailIsPlannedAdd(ctx));
   // No "+ Add to Collection" anywhere in here: collecting is what Add Cards is
   // for, and an inspector opened from a deck or a set is not a place to acquire.
@@ -3863,7 +3887,7 @@ function _resolveActiveDeckCardForOpenDetail(uid) {
 
 /** Edit Tags now lives with the tags rather than with the deck actions. */
 function _htmlCardDetailEditTagsBtn(ctx) {
-  if (_cardDetailIsSharedCollection()) return '';
+  if (_cardDetailIsSharedCollection() || _cardDetailDeckIsReadOnly()) return '';
   const ref = String(ctx?.actionUid || '').replace(/'/g, "\\'");
   return `<button class="btn btn-outline btn-sm" onclick="openGlobalTagPickerForCard('${ref}')">Edit Tags</button>`;
 }
@@ -3879,6 +3903,12 @@ function _htmlCardDetailColorRow(ctx) {
   if (typeof cardColorHex !== 'function') return '';
   const ref = String(ctx?.actionUid || ctx?.uid || '').replace(/'/g, "\\'");
   const hex = cardColorHex(ctx?.card);
+  // Someone else's deck: its colours show, and stay as they are.
+  if (_cardDetailDeckIsReadOnly()) {
+    if (!hex) return '';
+    const roLabel = typeof _cardColorGroupLabel === 'function' ? _cardColorGroupLabel(hex) : hex;
+    return `<span class="cd-color-static"><span class="cd-color-dot" style="--cf:${hex}" aria-hidden="true"></span>${escapeHtml(roLabel)}</span>`;
+  }
   if (!hex) {
     return `<button type="button" class="btn btn-outline btn-sm cd-color-add" onclick="openCardColorPicker('${ref}', this)">
         <span class="cd-color-dot cd-color-dot--empty" aria-hidden="true"></span>+ Add color</button>`;
@@ -5152,6 +5182,13 @@ async function loadDeckOwnerCollectionLookup(deck) {
   }
 
   _deckOwnerCollDeckId = deck.id;
+  // Public/share-link view: the owner's collection is not ours to ask for, and
+  // the endpoint rightly says so. Nothing is shaded as "not owned" there.
+  if (typeof activeDeckIsPublicView === 'function' && activeDeckIsPublicView()) {
+    _deckOwnerCollectionCards = [];
+    _deckOwnerCollLookup = new Map();
+    return _deckOwnerCollLookup;
+  }
   _deckOwnerCollLoadPromise = apiFetch(`/decks/${deck.id}/owner-collection`)
     .then(rows => {
       _deckOwnerCollectionCards = Array.isArray(rows) ? rows : [];

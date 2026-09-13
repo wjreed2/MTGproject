@@ -3203,6 +3203,7 @@ function _allDeckTagsForUI() {
 }
 
 function openDeckTagManager() {
+  if (typeof _requireDeckEdit === 'function' && !_requireDeckEdit()) return;
   deckTagCatalogFilter = 'all';
   if (_seedUserTagCatalogFromUsage()) save('prefs');
   renderDeckTagManager();
@@ -4252,6 +4253,34 @@ function closeNewDeckModal() {
   document.getElementById('newDeckModal').classList.remove('open');
 }
 
+/**
+ * A deck opened from Browse or a share link: the owner's own view of it, with
+ * every way of changing it gone.
+ *
+ * It rides the shared-deck path — `userPermission: 'view'` is the flag the
+ * builder already reads — but is marked `isPublicView` so the parts that assume
+ * the deck is genuinely shared *with* this account (the collaborator refresh,
+ * the realtime room) sit it out. Those endpoints answer 403 for a deck nobody
+ * shared with you, which is correct and not worth asking.
+ */
+function openDeckReadOnly(deck, meta = {}) {
+  if (!deck || !deck.id) { showNotif('Could not open that deck', true); return; }
+  deck.userPermission = 'view';
+  deck.isPublicView = true;
+  if (meta.ownerId != null) deck.ownerId = meta.ownerId;
+  if (meta.ownerEmail) deck.ownerEmail = meta.ownerEmail;
+  sharedDecks = [...(Array.isArray(sharedDecks) ? sharedDecks : []).filter(d => d.id !== deck.id), deck];
+  if (typeof showTab === 'function') showTab('decks');
+  selectDeck(deck.id);
+}
+globalThis.openDeckReadOnly = openDeckReadOnly;
+
+/** True while the open deck is somebody else's, opened read-only. */
+function activeDeckIsPublicView() {
+  return !!(activeDeckIsShared && getActiveDeck()?.isPublicView);
+}
+globalThis.activeDeckIsPublicView = activeDeckIsPublicView;
+
 function selectDeck(id) {
   if (typeof leaveDeckRoom === 'function') leaveDeckRoom();
   activeDeckId = id;
@@ -4259,12 +4288,12 @@ function selectDeck(id) {
   if (typeof clearDeckOwnerCollectionLookup === 'function') clearDeckOwnerCollectionLookup();
   localStorage.setItem('mtg_active_deck_id', id);
   _deckHistoryVisible = false; // the render's _applyDeckBuilderTab refetches for this deck
-  if (typeof joinDeckRoom === 'function') joinDeckRoom(id);
+  if (typeof joinDeckRoom === 'function' && !activeDeckIsPublicView()) joinDeckRoom(id);
   void _selectDeckRefreshAndRender(id);
 }
 
 async function _selectDeckRefreshAndRender(id) {
-  if (activeDeckIsShared && typeof refreshSharedDeckFromServer === 'function') {
+  if (activeDeckIsShared && !activeDeckIsPublicView() && typeof refreshSharedDeckFromServer === 'function') {
     await refreshSharedDeckFromServer(id, { silent: true }).catch(() => {});
   }
   if (activeDeckId !== id) return;
@@ -4462,6 +4491,17 @@ function renderActiveDeck() {
   if (renameBtn) renameBtn.style.display = isOwner ? '' : 'none';
   const deckVoiceBtn = document.getElementById('deckBuilderVoiceBtn');
   if (deckVoiceBtn) deckVoiceBtn.style.display = canEditActiveDeck() ? '' : 'none';
+  // Everything that writes tags is off on a deck this account cannot change:
+  // the reusable-tag manager beside the header and Refresh Tags in the ⋯ menu.
+  const canEditHeader = canEditActiveDeck();
+  // One flag on the tab for the panes: Analytics and Suggestions are full of
+  // "+ Add" affordances that the write gate would refuse anyway — better not to
+  // offer them. The gate stays underneath; this only stops the asking.
+  document.getElementById('tab-decks')?.classList.toggle('deck-read-only', !canEditHeader);
+  const manageTagsBtn = document.getElementById('deckManageTagsBtn');
+  if (manageTagsBtn) manageTagsBtn.style.display = canEditHeader ? '' : 'none';
+  const refreshTagsBtn = document.getElementById('deckRefreshTagsBtn');
+  if (refreshTagsBtn) refreshTagsBtn.style.display = canEditHeader ? '' : 'none';
 
   if (activeDeckIsShared && typeof loadDeckOwnerCollectionLookup === 'function') {
     loadDeckOwnerCollectionLookup(deck).then(() => {
@@ -5226,6 +5266,12 @@ function _bindDeckCardTagPickerClicks() {
 }
 
 async function openDeckCardTagPicker(_deckId, cardUid) {
+  // The tag picker writes; a read-only deck does not get one.
+  if (typeof canEditActiveDeck === 'function' && typeof getActiveDeck === 'function'
+      && getActiveDeck() && !canEditActiveDeck()) {
+    showNotif('This deck is read-only', true);
+    return;
+  }
   let card = _findCardForTagPicker(cardUid);
   if (!card) return;
   _bindDeckCardTagPickerClicks();
@@ -5448,6 +5494,13 @@ function cardColorHex(card) {
 
 /** Paint (or clear, with null) a card's colour. Optimistic; the save follows. */
 function setCardColorHex(card, hex) {
+  // Colouring is the viewer's own marking, but not while they are looking at
+  // somebody else's deck — that deck is read-only end to end.
+  if (typeof canEditActiveDeck === 'function' && typeof getActiveDeck === 'function'
+      && getActiveDeck() && !canEditActiveDeck()) {
+    showNotif('This deck is read-only', true);
+    return false;
+  }
   const oid = _oracleIdForMyTags(card);
   if (!oid) { showNotif('This card has no oracle id to colour', true); return false; }
   const v = hex == null ? null : String(hex).toLowerCase();
@@ -6617,7 +6670,11 @@ function _stackTile(c, zone = 'main', poolHints = null) {
 
   const dragKey = _deckCardDragKey(c).replace(/"/g, '&quot;');
 
-  const swapBtns = zone === 'cut'
+  // Nothing that changes the deck is drawn on somebody else's: no remove, no
+  // printing swap, no zone moves. The handlers below refuse too — this is so the
+  // card does not offer what it will not do.
+  const canEditTile = typeof canEditActiveDeck !== 'function' || canEditActiveDeck();
+  const swapBtns = !canEditTile ? '' : zone === 'cut'
     ? `<button class="stack-swap stack-swap--keep" draggable="false" data-uid="${dragKey}" data-swap-zone="cut" data-swap-action="keep" title="Remove the cut marker — the card stays in the deck">Keep</button>` +
       `<button class="stack-swap stack-swap--cut" draggable="false" data-uid="${dragKey}" data-swap-zone="cut" data-swap-action="commit" title="Remove this card from the deck now">→ Cut</button>`
     : zone === 'add'
@@ -6644,8 +6701,8 @@ function _stackTile(c, zone = 'main', poolHints = null) {
         ${cutBadge}
         ${addBadge}
         ${ownerBadge}
-        <button class="stack-remove" draggable="false" data-uid="${dragKey}" data-zone="${isPlannedAdd ? 'add' : zone}" title="Remove">✕</button>
-        <button class="stack-version" draggable="false" title="Change printing">⟳</button>
+        ${canEditTile ? `<button class="stack-remove" draggable="false" data-uid="${dragKey}" data-zone="${isPlannedAdd ? 'add' : zone}" title="Remove">✕</button>
+        <button class="stack-version" draggable="false" title="Change printing">⟳</button>` : ''}
         ${swapBtns}
       </div>
       <div class="stack-name" style="${notOwned ? 'color:var(--text3);opacity:0.6' : ''}">${escapeHtml(c.name)}</div>
@@ -10035,10 +10092,18 @@ function _applyDeckBuilderTab() {
   if (historyOn !== _deckHistoryVisible) {
     _deckHistoryVisible = historyOn;
     if (historyOn && activeDeckId) {
-      apiFetch('/deck-history/' + activeDeckId)
-        .then(h => { _deckHistory = h; })
-        .catch(() => { _deckHistory = []; })
-        .then(() => { if (_deckHistoryVisible) renderDeckHistory(); });
+      // A deck opened from Browse or a share link: its history belongs to the
+      // owner and the endpoint refuses, rightly. Show the tab empty rather than
+      // firing a request that can only 403.
+      if (typeof activeDeckIsPublicView === 'function' && activeDeckIsPublicView()) {
+        _deckHistory = [];
+        renderDeckHistory();
+      } else {
+        apiFetch('/deck-history/' + activeDeckId)
+          .then(h => { _deckHistory = h; })
+          .catch(() => { _deckHistory = []; })
+          .then(() => { if (_deckHistoryVisible) renderDeckHistory(); });
+      }
     }
   }
 
@@ -10330,6 +10395,14 @@ function renderDeckList(deck) {
     el.onclick = e => {
       if (_deckConsumeSuppressClick()) return;
       if (_handleDeckExtraZoneToggleClick(e)) return;
+      // Read-only deck: collapsing a zone and opening a card still work; nothing
+      // that writes does, however the click arrived.
+      const canEditHere = typeof canEditActiveDeck !== 'function' || canEditActiveDeck();
+      if (!canEditHere) {
+        const tileRO = e.target.closest('.deck-stack-card');
+        if (tileRO) openCardDetail(tileRO.dataset.uid || tileRO.dataset.sid, 'deck');
+        return;
+      }
       const removeBtn = e.target.closest('.stack-remove');
       if (removeBtn) {
         const z = removeBtn.dataset.zone;
@@ -12922,7 +12995,23 @@ async function addScryfallCardToDeck(scryfallId) {
   scheduleEDHRECRefresh();
 }
 
+/**
+ * Refuse, and say why, when the open deck is not this account's to change.
+ *
+ * The buttons are already gone on a read-only deck; this is the floor under
+ * them — drag, keyboard, voice and the inspector all reach the same handlers,
+ * and a viewer must not be able to get at one by any route.
+ */
+function _requireDeckEdit() {
+  if (typeof canEditActiveDeck === 'function' && !canEditActiveDeck()) {
+    showNotif('This deck is read-only', true);
+    return false;
+  }
+  return true;
+}
+
 function addToDeck(uid) {
+  if (typeof _requireDeckEdit === 'function' && !_requireDeckEdit()) return;
   const deck = getActiveDeck();
   if (!deck) return;
   const pool = _ownershipCollection();
@@ -12942,6 +13031,7 @@ function addToDeckFromDetail(id) {
 }
 
 function removeFromDeck(uid) {
+  if (typeof _requireDeckEdit === 'function' && !_requireDeckEdit()) return;
   const deck = getActiveDeck();
   if (!deck) return;
   const c = deck.cards.find(c => getCardInventoryKey(c) === uid || c.uid === uid);
@@ -13149,6 +13239,7 @@ function toggleDeckCardFoil(uid, zone) {
 }
 
 function _removeFromDeckZone(deck, uid, zone) {
+  if (typeof _requireDeckEdit === 'function' && !_requireDeckEdit()) return;
   const pool = _deckZonePool(deck, zone);
   const planning = _deckZoneIsPlanning(zone);
   const c = pool.find(card => getCardInventoryKey(card) === uid || card.uid === uid);
@@ -13166,6 +13257,7 @@ function removeFromPlannedAdds(uid) { _removeFromDeckZone(getActiveDeck(), uid, 
 function removeFromPlannedCuts(uid) { _removeFromDeckZone(getActiveDeck(), uid, 'cut'); }
 
 function _adjustDeckZoneQtyByUid(uid, delta, zone) {
+  if (typeof _requireDeckEdit === 'function' && !_requireDeckEdit()) return;
   const deck = getActiveDeck();
   if (!deck) return;
   const pool = _deckZonePool(deck, zone);
@@ -13202,6 +13294,7 @@ function adjustPlannedAddQtyByUid(uid, delta) { _adjustDeckZoneQtyByUid(uid, del
 function adjustPlannedCutQtyByUid(uid, delta) { _adjustDeckZoneQtyByUid(uid, delta, 'cut'); }
 
 function _moveMainToDeckZone(uid, zone, label) {
+  if (typeof _requireDeckEdit === 'function' && !_requireDeckEdit()) return;
   const deck = getActiveDeck();
   if (!deck) return;
   if (zone === 'sb' && !_deckMatchSideboardEnabled(deck)) return;
@@ -13264,6 +13357,7 @@ function moveToMatchSideboard(uid) { _moveMainToDeckZone(uid, 'sb', 'sideboard')
 function moveMainToAdds(uid) { _moveMainToDeckZone(uid, 'add', 'planned adds'); }
 
 function moveToMainboard(uid, fromZone = 'mb') {
+  if (typeof _requireDeckEdit === 'function' && !_requireDeckEdit()) return;
   const deck = getActiveDeck();
   if (!deck) return;
   const pool = _deckZonePool(deck, fromZone);
@@ -13439,6 +13533,7 @@ async function unmarkPlannedCut(uid) {
 
 /** Move one copy of a planned add into the deck for real. */
 function commitPlannedAdd(uid) {
+  if (typeof _requireDeckEdit === 'function' && !_requireDeckEdit()) return;
   const deck = getActiveDeck();
   if (!deck) return;
   const pool = _deckPlannedAdds(deck);
@@ -13516,6 +13611,7 @@ function commitPlannedCut(uid) {
 
 /** Move a card between the planned-adds pool and the maybe board / sideboard (no history — planning only). */
 function _movePlanningZoneCard(uid, fromZone, toZone) {
+  if (typeof _requireDeckEdit === 'function' && !_requireDeckEdit()) return;
   const deck = getActiveDeck();
   if (!deck || fromZone === toZone) return;
   if ((fromZone === 'add' || toZone === 'add') && !_deckSwapsEnabled()) return;
@@ -13539,6 +13635,7 @@ function _movePlanningZoneCard(uid, fromZone, toZone) {
 }
 
 function addToAdds(uid) {
+  if (typeof _requireDeckEdit === 'function' && !_requireDeckEdit()) return;
   const deck = getActiveDeck();
   if (!deck || !_deckSwapsEnabled()) return;
   const pool = _ownershipCollection();

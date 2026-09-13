@@ -727,13 +727,21 @@ async function initApp() {
   // Handle before the auth gate so logged-out visitors can see the shared deck.
   const _shareToken = typeof _publicDeckTokenFromPath === 'function' ? _publicDeckTokenFromPath() : null;
   if (_shareToken) {
-    bootSplashStatus('Loading shared deck…');
-    try {
-      if (typeof renderPublicDeckView === 'function') await renderPublicDeckView(_shareToken);
-    } finally {
-      bootSplashDone();
+    // Signed in: boot normally and open the deck in the builder afterwards, so a
+    // link lands on the same views its owner has, read-only. Signed out: the
+    // standalone page, unchanged and still without waiting on anything else.
+    let _linkMe = null;
+    try { _linkMe = await authMe(); } catch (_) { _linkMe = null; }
+    if (!_linkMe) {
+      bootSplashStatus('Loading shared deck…');
+      try {
+        if (typeof renderPublicDeckView === 'function') await renderPublicDeckView(_shareToken);
+      } finally {
+        bootSplashDone();
+      }
+      return;
     }
-    return;
+    _pendingShareDeckToken = _shareToken;
   }
 
   bootSplashStatus('Checking session…');
@@ -773,4 +781,24 @@ async function initApp() {
 
   // Resolves at the first paint; restores the saved tab itself (_paintHydratedApp).
   await loadAppDataAfterAuth({ earlyCachePromise });
+  if (_pendingShareDeckToken) {
+    const token = _pendingShareDeckToken;
+    _pendingShareDeckToken = null;
+    await _openSharedLinkDeckReadOnly(token);
+  }
+}
+
+let _pendingShareDeckToken = null;
+
+/** Open a /d/<token> deck in the builder, read-only, once the app is up. */
+async function _openSharedLinkDeckReadOnly(token) {
+  try {
+    const deck = await apiFetch('/decks/link/' + encodeURIComponent(token));
+    if (!deck || !deck.id) throw new Error('Deck not available');
+    if (typeof openDeckReadOnly === 'function') {
+      openDeckReadOnly(deck, { ownerId: deck.ownerId, ownerEmail: deck.ownerEmail });
+    }
+  } catch (e) {
+    if (typeof showNotif === 'function') showNotif('That share link is no longer available', true);
+  }
 }

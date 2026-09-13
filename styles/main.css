@@ -3774,6 +3774,11 @@ img.stack-main.loaded { opacity: 1; }
   margin-top: 8px;
 }
 #cardDetailModal .cd-color-add { gap: 8px; }
+/* Read-only deck: the colour is shown, not offered. */
+#cardDetailModal .cd-color-static {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 0.82rem; color: var(--text2);
+}
 #cardDetailModal .cd-color-clear { min-width: 34px; padding: 0 10px !important; }
 .cd-color-dot {
   width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0;
@@ -4505,6 +4510,24 @@ body.glass-mode .x-stepper-btn-sm { border-radius: 7px; }
   font-size: 0.65rem; color: var(--text3);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px;
 }
+
+/* ── Read-only deck ─────────────────────────────────────────────────────────
+   Somebody else's deck, opened from Browse or a share link. Every view stays;
+   every way of writing to it goes. The handlers refuse independently — this is
+   so the deck never offers what it will not do. */
+#tab-decks.deck-read-only :is(
+  .suggest-item .cut-candidate-row > .btn,
+  .suggest-feedback,
+  .cut-candidate-row > .btn-outline,
+  .sim-chip-btn,
+  .deck-search-sb-btn,
+  .stack-remove,
+  .stack-version,
+  .stack-swap,
+  .deck-swaps-apply-btn,
+  #deckManageTagsBtn,
+  #deckRefreshTagsBtn
+) { display: none !important; }
 
 /* ── Browse public decks ────────────────────────────────────────────────────
    A card, not a tile: the commander's art on the left at card proportions and
