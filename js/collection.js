@@ -3932,7 +3932,7 @@ function openCardColorPicker(uid, btn) {
   pgOpenColorPicker(null, null, btn, {
     current,
     presets: [...new Set(presets)],
-    align: 'left',
+    align: 'right',
     onPreview: hex => { if (dot) { dot.style.setProperty('--cf', hex); dot.classList.remove('cd-color-dot--empty'); } },
     onCommit: hex => { if (typeof setCardColorHex === 'function') setCardColorHex(card, hex); },
     onClose: () => _afterCardColorChange(),

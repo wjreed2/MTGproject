@@ -6584,11 +6584,13 @@ function _stackTile(c, zone = 'main', poolHints = null) {
   const addBadge = isPlannedAdd || zone === 'add'
     ? `<div class="stack-add-flag" role="img" aria-label="Planned add" title="Planned add — not counted in the deck">${_SWAP_ADD_ICON}</div>`
     : '';
-  // The user's own colour, on a wedge behind the add/cut one so both read when a
-  // coloured card is also being swapped.
+  // The user's own colour. Both corners are drawn for now — the left one behind
+  // the add/cut wedge, the right one at the same size as it — so the two can be
+  // compared on real cards before one of them stays.
   const colorHex = typeof cardColorHex === 'function' ? cardColorHex(c) : null;
   const colorFlag = colorHex
-    ? `<div class="stack-color-flag" style="--cf:${colorHex}" role="img" aria-label="Coloured ${escapeHtml(colorHex)}" title="Coloured ${escapeHtml(colorHex)}"></div>`
+    ? `<div class="stack-color-flag stack-color-flag--left" style="--cf:${colorHex}" role="img" aria-label="Coloured ${escapeHtml(colorHex)}" title="Coloured ${escapeHtml(colorHex)}"></div>
+       <div class="stack-color-flag stack-color-flag--right" style="--cf:${colorHex}" aria-hidden="true"></div>`
     : '';
   const swapCls = (cutQty > 0 || zone === 'cut') ? ' is-planned-cut' : (isPlannedAdd || zone === 'add') ? ' is-planned-add' : '';
 

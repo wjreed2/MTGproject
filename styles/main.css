@@ -3634,9 +3634,11 @@ img.stack-main.loaded { opacity: 1; }
 /* Edit Tags sits on the tag row itself, at the end of it — it belongs with the
    tags it edits rather than with the deck actions above. */
 #cardDetailModal .cd-tag-edit { margin-left: auto; display: inline-flex; }
-/* Coloring: its own row under the tags, control on the left. */
+/* Coloring: its own row under the tags, control at the right end — under Edit
+   Tags, which sits at the right end of the row above it. */
 #cardDetailModal .card-detail-colorrow {
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  display: flex; align-items: center; justify-content: flex-end;
+  gap: 8px; flex-wrap: wrap;
   margin-top: 8px;
 }
 #cardDetailModal .cd-color-add { gap: 8px; }
@@ -5603,17 +5605,30 @@ body.glass-mode .deck-stack-card .stack-wrap {
   color: #fff;
   filter: drop-shadow(0 1px 1.5px rgba(0,0,0,0.45));
 }
-/* The card's own colour, behind the add/cut wedge and bigger than it, so a card
-   that is both coloured and being swapped shows a band of colour around the
-   swap marker. Left corner only — mana symbols live on the right of the art. */
+/* The card's own colour. Two of them while we decide which to keep:
+   — left, behind the 34px add/cut wedge and a little bigger, so a card that is
+     both coloured and being swapped shows a band of colour around the marker;
+   — right, the same size as the add/cut wedge, where nothing else sits (the
+     role-tag badge starts 42px in, and the mana symbols are below it).
+   Both are pointer-transparent so they never eat a drag. */
 .stack-color-flag {
-  position: absolute; top: 0; left: 0; right: auto; z-index: 9;
-  width: 48px; height: 48px;
+  position: absolute; top: 0; z-index: 9;
   padding: 0; border: none; pointer-events: none;
-  clip-path: polygon(0 0, 100% 0, 0 100%);
-  border-top-left-radius: 9px;
   background: linear-gradient(135deg, var(--cf, #5aa9f0), color-mix(in oklab, var(--cf, #5aa9f0) 68%, #000));
   box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.3);
+}
+.stack-color-flag--left {
+  left: 0; right: auto;
+  width: 40px; height: 40px;
+  clip-path: polygon(0 0, 100% 0, 0 100%);
+  border-top-left-radius: 9px;
+}
+.stack-color-flag--right {
+  right: 0; left: auto;
+  width: 34px; height: 34px;
+  clip-path: polygon(100% 0, 100% 100%, 0 0);
+  border-top-right-radius: 9px;
+  box-shadow: inset -1px 1px 0 rgba(255, 255, 255, 0.3);
 }
 .stack-cut-flag { background: linear-gradient(135deg, rgba(232, 108, 94, 0.96), rgba(190, 58, 46, 0.9)); }
 .stack-add-flag { background: linear-gradient(135deg, rgba(112, 224, 156, 0.96), rgba(46, 162, 98, 0.9)); }
