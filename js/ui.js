@@ -631,3 +631,69 @@ function cardRefLinkHtml(name, opts) {
     + ` title="${escapeHtml(label)}" ${o.attrs || ''}>${escapeHtml(label)}${qty}</button>`;
 }
 
+
+/* ── Data disclosure ────────────────────────────────────────────────────────
+   Every page credits the upstream data the app fetches. Defined once here and
+   mounted into each page shell: `[data-data-disclosure]` hosts under <main> and
+   in the sign-in gate (index.html), plus the public deck page (_pdvDeckHtml in
+   browse.js). Keep the list honest — it must match what the app actually calls:
+   Scryfall (api/cards/svgs), EDHREC (json.edhrec.com), MTGJSON price snapshots
+   feeding card_price_daily, the TCGplayer API, and the Archidekt/Moxfield
+   import proxies in server.js. */
+const DATA_DISCLOSURE_LINKS = {
+  scryfall:    'https://scryfall.com',
+  edhrec:      'https://edhrec.com',
+  mtgjson:     'https://mtgjson.com',
+  tcgplayer:   'https://www.tcgplayer.com',
+  cardkingdom: 'https://www.cardkingdom.com',
+  cardmarket:  'https://www.cardmarket.com',
+  archidekt:   'https://archidekt.com',
+  moxfield:    'https://www.moxfield.com',
+  fanContent:  'https://company.wizards.com/en/legal/fancontentpolicy',
+};
+
+function _dataDisclosureLink(key, label) {
+  return `<a href="${DATA_DISCLOSURE_LINKS[key]}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+}
+
+/**
+ * Footer markup for the data disclosure.
+ * @param {{compact?: boolean, className?: string}} [opts] compact drops the
+ *        legal paragraph (tight shells like the sign-in gate).
+ */
+function dataDisclosureHtml(opts) {
+  const o = opts || {};
+  const L = _dataDisclosureLink;
+  const sources =
+    `Card data, images and mana symbols from ${L('scryfall', 'Scryfall')}. `
+    + `Deck and commander statistics from ${L('edhrec', 'EDHREC')}. `
+    + `Market prices from ${L('mtgjson', 'MTGJSON')} daily snapshots and the `
+    + `${L('tcgplayer', 'TCGplayer')} API, covering TCGplayer, `
+    + `${L('cardkingdom', 'Card Kingdom')} and ${L('cardmarket', 'Cardmarket')}. `
+    + `Deck imports are fetched from ${L('archidekt', 'Archidekt')} and `
+    + `${L('moxfield', 'Moxfield')} when you start one.`;
+  const legal =
+    `MTG Archive is unofficial Fan Content permitted under the Wizards of the Coast `
+    + `${L('fanContent', 'Fan Content Policy')}. Not approved or endorsed by Wizards. `
+    + `Portions of the materials used are property of Wizards of the Coast. `
+    + `&copy;Wizards of the Coast LLC. The sources above are independent services; `
+    + `they neither endorse nor are affiliated with MTG Archive.`;
+  // No role="contentinfo": the app footer lives inside <main>, where that landmark
+  // is invalid, and the gate/public-page copies would duplicate it.
+  return `<footer class="app-footer${o.className ? ' ' + o.className : ''}">`
+    + `<p class="app-footer-sources">${sources}</p>`
+    + (o.compact ? '' : `<p class="app-footer-legal">${legal}</p>`)
+    + `</footer>`;
+}
+
+/** Fill every `[data-data-disclosure]` host in the static shell. Idempotent. */
+function mountDataDisclosure() {
+  document.querySelectorAll('[data-data-disclosure]').forEach(host => {
+    if (host.dataset.disclosureMounted === '1') return;
+    host.innerHTML = dataDisclosureHtml({ compact: host.dataset.dataDisclosure === 'compact' });
+    host.dataset.disclosureMounted = '1';
+  });
+}
+
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mountDataDisclosure);
+else mountDataDisclosure();

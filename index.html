@@ -120,6 +120,8 @@
       </div>
     </div>
   </div>
+  <!-- Data disclosure — compact variant, pinned to the bottom of the gate overlay -->
+  <div data-data-disclosure="compact"></div>
 </div>
 
 <!-- Public deck view (anyone-with-link, /d/<token>) — filled & shown by renderPublicDeckView() -->
@@ -1276,6 +1278,11 @@
     </div>
   </div>
 </div>
+
+<!-- DATA DISCLOSURE — bottom of every tab. Markup comes from dataDisclosureHtml()
+     in js/ui.js so the app, the sign-in gate and the public deck page all cite the
+     same sources. -->
+<div data-data-disclosure></div>
 
 </main>
 
