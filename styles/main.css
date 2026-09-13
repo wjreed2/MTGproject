@@ -11014,7 +11014,10 @@ body.glass-mode .game-card.is-selected {
 }
 .game-card-status { font-size: 0.76rem; color: var(--text2); }
 .game-card-open { align-self: flex-start; margin-top: 2px; }
-.ng-layout-btn { flex: 1; justify-content: center; gap: 6px; }
+/* Content width, like every other control in the app — stretched across half
+   the modal each they read as banners rather than as the pair of buttons they
+   are. */
+.ng-layout-btn { justify-content: center; gap: 6px; }
 
 /* New Game is a tab-level surface, so its buttons take the deck-list toolbar's
    metrics like every other control inside a tab. */
@@ -11028,6 +11031,17 @@ body.glass-mode .game-card.is-selected {
   justify-content: center;
   box-sizing: border-box;
 }
+/* Text fields and selects take the same shell as the buttons: the seat rows put
+   them side by side, and a 32px field with 12px corners next to a 34px button
+   with 8px ones is visibly two different controls. Font size is left alone —
+   mobile forces 16px on fields to stop iOS zooming the page on focus. */
+#newGameModal input[type="text"],
+#newGameModal select,
+#newGameModal .glass-dd-btn {
+  height: 34px !important;
+  border-radius: 8px !important;
+  box-sizing: border-box;
+}
 #newGameModal .btn.btn-icon {
   height: 34px !important;
   min-width: 34px;
@@ -11035,6 +11049,11 @@ body.glass-mode .game-card.is-selected {
   border-radius: 8px !important;
   justify-content: center;
 }
+/* The mulligan stepper is the card inspector's, so the value between the two
+   buttons is that one too — only narrower, since it counts to about three and
+   the inspector's is sized for collection quantities. */
+.ng-mull-value { min-width: 28px; font-size: 0.85rem; }
+
 /* The seat dot opens the colour picker, so it is a control and not decoration. */
 .ng-seat-swatch {
   position: relative;

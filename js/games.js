@@ -109,6 +109,10 @@ function _seatInk(hex) {
   const to = v => Math.round((v + m) * 255).toString(16).padStart(2, '0');
   return `#${to(seg[0])}${to(seg[1])}${to(seg[2])}`;
 }
+// Every game started here is Commander — the picker is gone, and the formats it
+// offered were never played. Older games keep whatever format they were saved
+// with, so everything that reads game.format still has to handle them.
+const NEW_GAME_FORMAT = 'Commander';
 let newGamePlayers = [];
 let newGamePlaygroupId = null;   // scopes the player picker and supplies colours
 let newGameFirstPlayerIdx = null;
@@ -506,8 +510,6 @@ async function openNewGame() {
   try { _storedLayout = localStorage.getItem('mtg_tablet_layout'); } catch (_) { /* storage blocked */ }
   newGameTabletLayout = _storedLayout === 'pie' ? 'pie' : 'default';
   _syncNewGameLayoutBtns();
-  const fmtEl = document.getElementById('newGameFormat');
-  if (fmtEl) fmtEl.value = 'Commander';
   await _ngFillPlaygroups();
 
   document.getElementById('newGameModal').classList.add('open');
@@ -665,25 +667,24 @@ function moveGameSeat(gameId, playerId, dir, circular) {
 }
 
 function renderNewGamePlayersList() {
-  const fmt = document.getElementById('newGameFormat')?.value || 'Commander';
   const el = document.getElementById('newGamePlayersList');
   if (!el) return;
   if (newGameFirstPlayerIdx !== null && newGameFirstPlayerIdx >= newGamePlayers.length) newGameFirstPlayerIdx = null;
 
-  // Fixed columns so every row's inputs are the same width regardless of the remove
-  // button or commander. The commander column is shown for commander-style formats.
-  const isCmdFmt = fmt === 'Commander' || fmt === 'Brawl';
-  const cols = `18px 22px 1fr 1fr${isCmdFmt ? ' 1fr' : ''} 86px 28px`;
+  // Fixed columns so every row's inputs are the same width regardless of the
+  // remove button. The commander a deck is played with is a property of the deck
+  // and already shown wherever decks are, so it had a column here saying what
+  // the deck column had just said.
+  const cols = '18px 22px 1fr 1fr 112px 28px';
 
   const header = document.getElementById('newGamePlayersHeader');
   if (header) {
     header.style.gridTemplateColumns = cols;
-    header.innerHTML = `<div></div><div></div><div>NAME</div><div>DECK</div>${isCmdFmt ? '<div>COMMANDER</div>' : ''}<div style="text-align:center">MULL</div><div></div>`;
+    header.innerHTML = `<div></div><div></div><div>NAME</div><div>DECK</div><div style="text-align:center">MULL</div><div></div>`;
   }
 
-  // Uses the shared stepper class (small variant) so it picks up the glass skin
-  // like every other +/- control instead of carrying its own inline box.
-  const mullBtn = 'x-stepper-btn x-stepper-btn-sm';
+  // The card inspector's quantity stepper, down to the classes.
+  const mullBtn = 'btn btn-outline btn-sm btn-icon';
   const lastSeat = newGamePlayers.length - 1;
 
   if (!Array.isArray(_allAppUsers)) _allAppUsers = [];
@@ -694,10 +695,10 @@ function renderNewGamePlayersList() {
     // With a playgroup chosen the picker is its members; without one it is
     // everybody, which is what it always was.
     const pool = _pgMembers
-      ? _pgMembers.map(m => ({ id: m.id, name: m.name }))
+      ? _pgMembers.map(m => ({ id: m.id, name: m.name, pending: m.status === 'invited' }))
       : _allAppUsers;
     const userOpts = pool.map(u =>
-      `<option value="${u.id}" ${p.userId == u.id ? 'selected' : ''}>${escapeHtml(u.name || '')}</option>`
+      `<option value="${u.id}" ${p.userId == u.id ? 'selected' : ''}>${escapeHtml(u.name || '')}${u.pending ? ' · invite pending' : ''}</option>`
     ).join('');
 
     const userDecks = _cachedUserDecks(p.userId);
@@ -705,17 +706,17 @@ function renderNewGamePlayersList() {
       `<option value="${d.id}" ${String(p.deckId) === String(d.id) ? 'selected' : ''}>${escapeHtml(d.name)}${d.format ? ' ('+escapeHtml(d.format)+')' : ''}</option>`
     ).join('');
 
-    const selDeck = userDecks.find(d => String(d.id) === String(p.deckId));
-    // Registered seat with no visible decks (not in your playgroup / nothing public):
-    // fall back to a typed deck name so the game can still be recorded.
+    // Registered seat with no visible decks: either they have none, or — far more
+    // often — they were invited to the playgroup and have not accepted yet, which
+    // is what gates deck sharing. Say which, rather than leaving an empty picker.
+    const pending = _pgMembers && _pgMembers.some(m => Number(m.id) === Number(p.userId) && m.status === 'invited');
     const deckCell = p.userId
       ? (userDecks.length
         ? `<select onchange="ngpDeckSelect(${i}, this.value)" style="min-width:0">${deckOpts}</select>`
-        : `<input type="text" value="${escapeHtml(p.deckName || '')}" placeholder="Deck name (join a playgroup to pick their decks)"
+        : `<input type="text" value="${escapeHtml(p.deckName || '')}" placeholder="${pending ? 'Deck name — they have not accepted the invite yet' : 'Deck name (no decks shared with you)'}"
              onchange="ngpDeckTyped(${i}, this.value)" style="min-width:0">`)
       : `<input type="text" value="${escapeHtml(p.deckName || '')}" placeholder="Deck (optional)"
            onchange="ngpDeckTyped(${i}, this.value)" style="min-width:0">`;
-    const commanderLabel = selDeck?.commander || p.commander || '';
 
     return `
     <div class="ng-player-row" style="display:grid;grid-template-columns:${cols};gap:8px;align-items:center;padding:9px 0;border-bottom:1px solid var(--border)">
@@ -731,10 +732,9 @@ function renderNewGamePlayersList() {
         ${userOpts}
       </select>
       ${deckCell}
-      ${isCmdFmt ? `<div style="font-size:0.78rem;color:var(--gold);font-family:'Cinzel',serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0">${escapeHtml(commanderLabel)}</div>` : ''}
-      <div style="display:flex;align-items:center;gap:3px;justify-content:center" title="Mulligans taken before the game">
+      <div style="display:flex;align-items:center;gap:4px;justify-content:center" title="Mulligans taken before the game">
         <button type="button" onclick="ngpMull(${i},-1)" class="${mullBtn}" aria-label="Fewer mulligans">−</button>
-        <span style="min-width:14px;text-align:center;font-family:'JetBrains Mono',monospace;font-size:0.85rem">${p.mulligans || 0}</span>
+        <span class="card-detail-qty-value ng-mull-value">${p.mulligans || 0}</span>
         <button type="button" onclick="ngpMull(${i},1)" class="${mullBtn}" aria-label="More mulligans">+</button>
       </div>
       ${newGamePlayers.length > 2 ? `<button class="btn btn-ghost btn-icon" onclick="removeNewGamePlayer(${i})" style="color:var(--red);padding:3px 5px;font-size:0.85rem">✕</button>` : '<div></div>'}
@@ -831,12 +831,12 @@ async function submitNewGame() {
     document.getElementById('newGamePlaygroup')?.focus();
     return;
   }
-  const fmt = document.getElementById('newGameFormat').value;
+  const fmt = NEW_GAME_FORMAT;
   // The notes field became the playgroup picker; a game's context is the group
   // it was played in, which is recorded below.
   const notes = '';
   const _submitSeatColors = _ngSeatColors();
-  const startLife = fmt === 'Commander' ? 40 : fmt === 'Brawl' ? 25 : 20;
+  const startLife = 40;
   // First player is always chosen at random, with the roll animation.
   await rollNewGameFirstPlayerAnimated();
 
@@ -2161,7 +2161,6 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
     <!-- Name bar -->
     <div class="tablet-name-bar" style="text-align:${nameAlign};padding:${namePad};position:relative">
       <div class="tablet-player-name" style="font-family:'Cinzel',serif;font-size:clamp(0.85rem,2.2vw,1.3rem);color:${ink};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:0.06em">${escapeHtml(p.name)}</div>
-      ${p.deckName ? `<div style="font-size:clamp(0.55rem,1.2vw,0.78rem);color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px">${escapeHtml(p.deckName)}${p.commander ? ' · ' + escapeHtml(p.commander) : ''}</div>` : ''}
       ${inTargetMode
         ? `<div style="position:absolute;top:50%;right:8px;transform:translateY(-50%);font-size:clamp(0.6rem,1.3vw,0.78rem);color:var(--text);animation:targetPulse 1s ease-in-out infinite">${targetLabel}</div>`
         : `<div class="tablet-corner ${dotsPos.startsWith('left') ? 'tablet-corner--left' : 'tablet-corner--right'}" style="position:absolute;top:50%;${dotsPos};transform:translateY(-50%);display:flex;align-items:center;gap:5px;flex-direction:${dotsPos.startsWith('left') ? 'row-reverse' : 'row'}">
@@ -2177,7 +2176,7 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
     <!-- Life total -->
     <div class="tablet-life-block" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:clamp(3px,0.8vh,8px);min-height:0">
       <div class="tablet-life-num" style="font-family:'JetBrains Mono',monospace;font-size:${lifeFontSize};font-weight:700;line-height:1;color:${lifeColor};text-shadow:0 0 38px ${p.color}2e;transition:color 0.25s;user-select:none">${p.life}</div>
-      ${isCmd && cmdBadges ? `<div style="display:flex;align-items:center;justify-content:center;gap:4px;flex-wrap:wrap;padding:0 8px">${cmdBadges}</div>` : ''}
+      ${isCmd ? `<div style="display:flex;align-items:center;justify-content:center;gap:4px;flex-wrap:wrap;padding:0 8px;min-height:16px">${cmdBadges}</div>` : ''}
       ${poisonBadge}
     </div>
 
@@ -2314,17 +2313,9 @@ function _cellLifeColor(p) {
     : 'var(--teal)';
 }
 
-/**
- * Commander damage taken, one number per opponent in that opponent's colour.
- *
- * Nothing at all until someone has actually landed some: a row of zeros sat
- * under every life total for the whole of most games, saying only that the
- * format is Commander. Once any of them moves the full row appears, so the
- * zeros are still there to read against.
- */
+/** Commander damage taken, one number per opponent in that opponent's colour. */
 function _cellCmdBadges(game, p, isCmd) {
   if (!isCmd) return '';
-  if (!Object.values(p.commanderDamage || {}).some(v => Number(v) > 0)) return '';
   return game.players.filter(op => op.id !== p.id).map(op => {
     const dmg = (p.commanderDamage || {})[op.id] || 0;
     // Just the number, in that opponent's colour — no pill, no border, no dot.

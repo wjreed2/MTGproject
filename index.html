@@ -1810,32 +1810,16 @@
   <div class="modal" style="width:min(680px,96vw)">
     <button class="btn btn-ghost btn-icon" style="position:absolute;top:0.75rem;right:0.75rem" onclick="closeNewGameModal()">✕</button>
     <div class="modal-title">New Game</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.85rem;margin-bottom:1rem">
-      <div>
-        <label style="font-size:0.78rem;color:var(--text3);display:block;margin-bottom:4px;letter-spacing:0.04em">FORMAT</label>
-        <select id="newGameFormat" onchange="renderNewGamePlayersList()" class="select">
-          <option value="Commander">Commander</option>
-          <option value="Brawl">Brawl</option>
-          <option value="Standard">Standard</option>
-          <option value="Modern">Modern</option>
-          <option value="Pioneer">Pioneer</option>
-          <option value="Legacy">Legacy</option>
-          <option value="Vintage">Vintage</option>
-          <option value="Pauper">Pauper</option>
-          <option value="Draft">Draft / Sealed</option>
-          <option value="Casual">Casual</option>
-        </select>
-      </div>
-      <div>
-        <label style="font-size:0.78rem;color:var(--text3);display:block;margin-bottom:4px;letter-spacing:0.04em">PLAYGROUP</label>
-        <select id="newGamePlaygroup" class="select" onchange="ngSetPlaygroup(this.value)" style="width:100%">
-          <option value="">— select a playgroup —</option>
-        </select>
-      </div>
+    <!-- No format picker: every game here is Commander. -->
+    <div style="margin-bottom:1rem">
+      <label style="font-size:0.78rem;color:var(--text3);display:block;margin-bottom:4px;letter-spacing:0.04em">PLAYGROUP</label>
+      <select id="newGamePlaygroup" class="select" onchange="ngSetPlaygroup(this.value)" style="width:100%">
+        <option value="">— select a playgroup —</option>
+      </select>
     </div>
     <div style="margin-bottom:1rem">
       <label style="font-size:0.78rem;color:var(--text3);display:block;margin-bottom:4px;letter-spacing:0.04em">TABLET LAYOUT</label>
-      <div style="display:flex;gap:8px">
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button type="button" id="ngLayoutDefault" onclick="setNewGameLayout('default')"></button>
         <button type="button" id="ngLayoutPie" onclick="setNewGameLayout('pie')"></button>
       </div>
@@ -1849,7 +1833,7 @@
       <span style="font-size:0.74rem;color:var(--text3)">↑↓ sets seat order around the table. First player is still rolled at start.</span>
     </div>
     <div style="display:flex;gap:8px">
-      <button class="btn btn-primary" style="flex:1" onclick="submitNewGame()">Start Game</button>
+      <button class="btn btn-primary" onclick="submitNewGame()">Start Game</button>
       <button class="btn btn-outline" onclick="closeNewGameModal()">Cancel</button>
     </div>
   </div>
