@@ -202,6 +202,13 @@
   /* Titles leave the corner free so the button lines up beside them. */
   .page-title { margin-left: 46px; }
 
+  /* Except where the tab keeps the row for itself: the deck builder replaces
+     its title with the open deck's header, which starts hard against the left
+     edge and would sit under the button. It pads down by a row instead, and
+     its titles go back to the normal margin. */
+  .tab-content[data-nav-own-row] { padding-top: 46px; }
+  .tab-content[data-nav-own-row] .page-title { margin-left: 0; }
+
   .mob-nav-menu {
     position: fixed;
     top: calc(env(safe-area-inset-top, 0px) + 54px);

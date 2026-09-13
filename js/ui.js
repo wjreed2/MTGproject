@@ -99,7 +99,11 @@ function buildMobNavMenu() {
   const items = [...document.querySelectorAll('#sidebar .sidebar-item')].map(btn => {
     const onclick = btn.getAttribute('onclick') || '';
     const tab = (/showTab\('([^']+)'/.exec(onclick) || [])[1] || '';
-    return { tab, label: btn.dataset.label || tab, icon: btn.querySelector('svg')?.outerHTML || '' };
+    // A feature toggle that hides a sidebar entry (Deck Map) must hide it here
+    // too. The toggles set display on the item itself, which is what we read:
+    // the sidebar is display:none on phones, so offsetParent tells us nothing.
+    const off = btn.hidden || btn.style.display === 'none';
+    return { tab: off ? '' : tab, label: btn.dataset.label || tab, icon: btn.querySelector('svg')?.outerHTML || '' };
   }).filter(x => x.tab);
   const row = x => `<button type="button" class="mob-nav-row" data-tab="${x.tab || ''}" data-row="${x.id || x.tab}"
       onclick="${x.id === 'notif' ? 'mobNavOpenNotifications(event)' : `showTab('${x.tab}')`}">
@@ -120,18 +124,28 @@ function buildMobNavMenu() {
  * header on render and would take the button with them. The titles carry a left
  * inset on phones to leave the corner free, so lining up the row is all it
  * takes for the two to read as one. Tabs with no title keep the default corner.
+ *
+ * `data-nav-own-row` panes opt out of sharing a row. The deck builder is one:
+ * opening a deck swaps the "Decks" title out for the deck's own header, which
+ * has no room to give, so the pane pads itself down by a row (mobile.css) and
+ * the button takes that row alone.
  */
 function _placeMobNavToggle(tab) {
   const btn = document.getElementById('mobNavToggle');
   if (!btn || getComputedStyle(btn).display === 'none') return;
   btn.style.top = '';
   const pane = document.getElementById('tab-' + tab);
-  const title = pane ? [...pane.querySelectorAll('.page-title')].find(t => t.offsetParent !== null) : null;
-  const r = title?.getBoundingClientRect();
-  if (!r || r.height <= 0) return;
+  if (!pane) return;
   const size = btn.offsetHeight || 38;
-  const top = Math.round(r.top + r.height / 2 - size / 2);
   const min = 6;
+  let top;
+  if (pane.hasAttribute('data-nav-own-row')) {
+    top = Math.round(pane.getBoundingClientRect().top - 4);
+  } else {
+    const r = [...pane.querySelectorAll('.page-title')].find(t => t.offsetParent !== null)?.getBoundingClientRect();
+    if (!r || r.height <= 0) return;
+    top = Math.round(r.top + r.height / 2 - size / 2);
+  }
   if (top >= min) btn.style.top = `${top}px`;
 }
 
