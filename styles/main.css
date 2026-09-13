@@ -12327,32 +12327,28 @@ body.glass-mode .deck-grid-placeholder { font-family: var(--glass-font); }
 /* ────────────────────────────────────────────────────────────────────────────
    Glass: collection KPI tiles — proper glass widgets
    ──────────────────────────────────────────────────────────────────────────── */
+/* The same box as the leaderboard tiles and the Commander Gameplan turn boxes:
+   the blue→purple tint over white frost at 12px, not a white-only gradient at
+   20px with a specular streak across it. */
 body.glass-mode .stat-card {
   position: relative;
   overflow: hidden;
-  background: linear-gradient(150deg, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.04) 45%, rgba(255,255,255,0.07) 100%);
-  border: 1px solid rgba(255,255,255,0.16);
-  border-radius: 20px;
-  padding: 1.05rem 1rem 0.95rem;
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.13) 0%, rgba(var(--lgx2), 0.06) 60%, rgba(var(--lgx2), 0.04) 100%),
+    linear-gradient(180deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.05) 60px, rgba(255,255,255,0.05) 100%);
+  border: 1px solid rgba(255,255,255,0.20);
+  border-radius: 12px;
+  padding: 14px 18px 16px;
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.22),
-    inset 0 0 0.5px rgba(255,255,255,0.12),
-    0 10px 32px rgba(0,0,0,0.30);
-}
-/* Static specular sheen across the face */
-body.glass-mode .stat-card::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: linear-gradient(115deg, transparent 30%, rgba(255,255,255,0.10) 44%, rgba(255,255,255,0.02) 56%, transparent 70%);
+    inset 0 1px 0 rgba(255,255,255,0.20),
+    0 8px 28px rgba(0,0,0,0.35);
 }
 body.glass-mode .stat-card:hover {
-  border-color: rgba(255,255,255,0.28);
+  border-color: rgba(255,255,255,0.30);
   transform: translateY(-2px);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.26),
-    0 14px 40px rgba(0,0,0,0.38);
+    0 12px 34px rgba(0,0,0,0.42);
 }
 body.glass-mode .stat-val {
   font-family: var(--glass-font);
@@ -12371,20 +12367,19 @@ body.glass-mode .stat-label {
   margin-top: 6px;
 }
 [data-theme="light"] body.glass-mode .stat-card {
-  background: linear-gradient(150deg, rgba(255,255,255,0.78) 0%, rgba(255,255,255,0.48) 45%, rgba(255,255,255,0.62) 100%);
-  border-color: rgba(255,255,255,0.88);
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.10) 0%, rgba(var(--lgx2), 0.05) 60%, rgba(var(--lgx2), 0.04) 100%),
+    linear-gradient(180deg, rgba(255,255,255,0.65) 0%, rgba(255,255,255,0.5) 60px, rgba(255,255,255,0.5) 100%);
+  border-color: rgba(255,255,255,0.8);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.95),
-    0 10px 32px rgba(30,50,90,0.14);
-}
-[data-theme="light"] body.glass-mode .stat-card::after {
-  background: linear-gradient(115deg, transparent 30%, rgba(255,255,255,0.55) 44%, rgba(255,255,255,0.12) 56%, transparent 70%);
+    0 8px 28px rgba(30,50,90,0.12);
 }
 [data-theme="light"] body.glass-mode .stat-card:hover {
   border-color: rgba(20,35,60,0.16);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.98),
-    0 14px 40px rgba(30,50,90,0.20);
+    0 12px 34px rgba(30,50,90,0.18);
 }
 
 /* ── Glass: collection page controls ───────────────────────────────────────
