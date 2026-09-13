@@ -658,6 +658,130 @@ body::before {
   margin: 1rem 0 0.5rem;
   color: var(--text);
 }
+
+/* ── Federated sign-in buttons ───────────────────────────────────────────────
+   Same 38px/8px geometry as .auth-submit so the stack reads as one column.
+   Brand marks keep their own colours (the one sanctioned exception to the
+   "never hardcode a colour a token covers" rule — Google and Discord both
+   require their mark be shown unaltered); everything else is tokens. */
+.auth-providers {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 1.15rem;
+}
+.auth-provider-btn {
+  width: 100%;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border2);
+  background: var(--bg3);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.18s var(--ease), border-color 0.15s var(--ease);
+}
+.auth-provider-btn:hover {
+  background: var(--bg4);
+  border-color: var(--border3);
+}
+.auth-provider-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.auth-provider-icon {
+  width: 17px;
+  height: 17px;
+  flex-shrink: 0;
+  display: block;
+}
+/* Apple's mark is a solid glyph, so it has to follow the text colour to stay
+   visible in both themes; Google and Discord carry their own palette. */
+.auth-provider-btn[data-provider="apple"] .auth-provider-icon { fill: currentColor; }
+
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 1.05rem;
+  color: var(--text3);
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.auth-divider::before,
+.auth-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border2);
+}
+
+/* ── "Confirm your email" strip ──────────────────────────────────────────────
+   Sits under the topbar. Advisory, not a gate: an unconfirmed account still
+   works, so this nudges rather than blocks. */
+.verify-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 14px;
+  font-size: 0.78rem;
+  color: var(--text2);
+  background: rgba(201, 168, 76, 0.1);
+  border-bottom: 1px solid rgba(201, 168, 76, 0.3);
+}
+.verify-banner-icon {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  color: var(--gold);
+}
+.verify-banner-spacer { flex: 1; }
+.verify-banner strong { color: var(--text); font-weight: 600; }
+
+/* Glass companions — hardcoded rgba above owes one per §0.1 of the UI ruleset. */
+body.glass-mode .auth-provider-btn {
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  color: var(--text);
+}
+body.glass-mode .auth-provider-btn:hover {
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14));
+  border-color: rgba(255, 255, 255, 0.4);
+}
+body.glass-mode .auth-divider::before,
+body.glass-mode .auth-divider::after {
+  background: rgba(255, 255, 255, 0.18);
+}
+body.glass-mode .verify-banner {
+  background: rgba(var(--lgx1), 0.12);
+  border-bottom-color: rgba(255, 255, 255, 0.18);
+}
+body.glass-mode .verify-banner-icon { color: rgb(var(--lgx1)); }
+
+[data-theme="light"] body.glass-mode .auth-provider-btn {
+  background: rgba(255, 255, 255, 0.55);
+  border-color: rgba(0, 0, 0, 0.14);
+}
+[data-theme="light"] body.glass-mode .auth-provider-btn:hover {
+  border-color: rgba(0, 0, 0, 0.22);
+}
+[data-theme="light"] body.glass-mode .auth-divider::before,
+[data-theme="light"] body.glass-mode .auth-divider::after {
+  background: rgba(0, 0, 0, 0.14);
+}
+[data-theme="light"] body.glass-mode .verify-banner {
+  background: rgba(var(--lgx1), 0.1);
+  border-bottom-color: rgba(0, 0, 0, 0.12);
+}
 .btn-link {
   background: none;
   border: none;
@@ -4391,10 +4515,10 @@ body.glass-mode .x-stepper-btn-sm { border-radius: 7px; }
   transition: transform 0.18s var(--ease), border-color 0.18s var(--ease), box-shadow 0.18s var(--ease);
 }
 /* Big enough to read the card, not just recognise the art — a commander's name
-   and type line are the point of showing it. */
+   and type line are the point of showing it. The card's height follows from it. */
 .pubdeck-art {
   flex: 0 0 auto;
-  width: 170px;
+  width: 200px;
   aspect-ratio: 0.715;
   border-radius: 9px;
   overflow: hidden;
@@ -4412,18 +4536,20 @@ body.glass-mode .x-stepper-btn-sm { border-radius: 7px; }
   display: flex; flex-direction: column; gap: 3px;
 }
 .pubdeck-name {
-  font-family: 'Cinzel', serif; font-size: 1rem; font-weight: 600; color: var(--text);
+  font-family: 'Cinzel', serif; font-size: 1.18rem; font-weight: 600; color: var(--text);
+  line-height: 1.25;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .pubdeck-cmdr {
-  font-size: 0.82rem; color: var(--text2);
+  font-size: 0.94rem; color: var(--text2);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 /* Three lines of notes, then an ellipsis — the whole point is a card that stays
    the same height whatever is written in it. */
 .pubdeck-notes {
-  font-size: 0.78rem; color: var(--text3); line-height: 1.4;
-  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+  font-size: 0.8rem; color: var(--text3); line-height: 1.45;
+  margin-top: 2px;
+  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical;
   overflow: hidden;
 }
 .pubdeck-foot {

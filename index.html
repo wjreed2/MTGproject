@@ -67,6 +67,10 @@
       </div>
       <p class="auth-sub">Your collection, decks, and wishlist in one place.</p>
       <div id="authError" class="auth-error" style="display:none" role="alert"></div>
+      <!-- Filled by renderAuthProviders() from /api/auth/providers: only providers
+           this server actually holds credentials for are shown. -->
+      <div id="authProviders" class="auth-providers" hidden></div>
+      <div id="authProvidersDivider" class="auth-divider" hidden>or</div>
       <form id="authLoginForm" onsubmit="return submitAuthLogin(event)">
         <label class="auth-label">Email
           <input class="auth-input" type="email" id="authEmail" required autocomplete="username">
@@ -273,6 +277,17 @@
     <div class="notif-panel-body" id="notifPanelBody"></div>
   </div>
 </header>
+
+<!-- Advisory only — an unconfirmed account still works. Shown by refreshVerifyBanner(). -->
+<div id="verifyBanner" class="verify-banner" hidden>
+  <svg class="verify-banner-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg>
+  <span><strong>Confirm your email.</strong> <span id="verifyBannerText">We sent a link to your address.</span></span>
+  <span class="verify-banner-spacer"></span>
+  <button type="button" class="btn btn-ghost btn-sm" id="verifyBannerResend" onclick="resendVerificationEmail()">Resend</button>
+  <button type="button" class="btn btn-ghost btn-sm" onclick="dismissVerifyBanner()" aria-label="Dismiss">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" style="width:13px;height:13px;display:block"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+  </button>
+</div>
 
 <aside id="sidebar" class="sidebar">
   <nav class="sidebar-nav">
@@ -1113,7 +1128,7 @@
   </div>
   <!-- min(100%, …) rather than a media query: a phone falls to one per row on
        its own, and a desktop gets two or three until the window is very wide. -->
-  <div id="browseDeckGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,470px),1fr));gap:0.9rem"></div>
+  <div id="browseDeckGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,510px),1fr));gap:0.9rem"></div>
 </div>
 
 <!-- WISHLIST TAB -->
