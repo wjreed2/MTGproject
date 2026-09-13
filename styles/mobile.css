@@ -833,6 +833,15 @@
      236px of art left 86px for the deck's name and commander. A quarter off
      gives the text back most of that. */
   .pubdeck-art { width: 177px; }
+  /* A 145px column fits about eight characters at the desktop size. Smaller
+     type on two lines turns a name from "Angels: They…" into something you can
+     actually read. */
+  .pubdeck-name {
+    font-size: 1.05rem;
+    white-space: normal;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  }
+  .pubdeck-cmdr { font-size: 0.88rem; }
 
   /* ── Notifications page — the topbar panel rendered as a full page ──────
      Same move as Settings above: showTab() relocates the live #notifPanel into

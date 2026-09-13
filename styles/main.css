@@ -4636,13 +4636,20 @@ body.glass-mode .tagbadge-sym {
    and type line are the point of showing it. The card's height follows from it. */
 .pubdeck-art {
   flex: 0 0 auto;
+  /* Not stretched to the card's height: the row is align-items:stretch, which
+     sets a height and so cancels aspect-ratio. The box then ran far taller than
+     the card is shaped and object-fit ate 15-41% of its width — worse the
+     narrower the art, which is why shrinking it did not help. */
+  align-self: flex-start;
   width: 236px;
   aspect-ratio: 0.715;
   border-radius: 9px;
   overflow: hidden;
   background: var(--bg4);
 }
-.pubdeck-art img { width: 100%; height: 100%; object-fit: cover; object-position: center top; display: block; }
+/* contain, not cover: the whole card has to be there to read. The box is card
+   proportioned so there is nothing to letterbox for a normal scan. */
+.pubdeck-art img { width: 100%; height: 100%; object-fit: contain; object-position: center top; display: block; }
 .pubdeck-art-fallback {
   width: 100%; height: 100%;
   display: flex; align-items: center; justify-content: center;
