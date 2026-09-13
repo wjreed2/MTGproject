@@ -3,25 +3,49 @@
 let _browseDecks = [];
 let _browseQuery = '';
 
-async function renderBrowseDecks() {
+// Opening the tab calls this from two places (showTab in state.js and in
+// ui.js), which fetched the whole listing twice and painted it twice. One
+// in-flight request is shared, and a listing less than a minute old is reused —
+// reopening the tab repaints from what is already here.
+let _browseFetch = null;
+let _browseFetchedAt = 0;
+const BROWSE_TTL_MS = 60_000;
+
+async function renderBrowseDecks({ force = false } = {}) {
   const grid = document.getElementById('browseDeckGrid');
   const label = document.getElementById('browseCountLabel');
   if (!grid) return;
 
-  grid.innerHTML = '<div style="grid-column:1/-1;padding:2rem;text-align:center;color:var(--text3);font-size:0.85rem">Loading…</div>';
+  const fresh = !force && _browseDecks.length && (Date.now() - _browseFetchedAt) < BROWSE_TTL_MS;
+  if (fresh) { _paintBrowseCount(label); _renderBrowseGrid(); return; }
 
-  try {
+  if (!_browseFetch) {
+    grid.innerHTML = '<div style="grid-column:1/-1;padding:2rem;text-align:center;color:var(--text3);font-size:0.85rem">Loading…</div>';
     const base = (document.querySelector('meta[name="mtg-api-base"]')?.content || 'http://localhost:3001/api');
-    const res = await fetch(`${base}/decks/public`, { credentials: 'include' });
-    if (!res.ok) throw new Error(await res.text());
-    _browseDecks = await res.json();
+    _browseFetch = fetch(`${base}/decks/public`, { credentials: 'include' })
+      .then(async res => {
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+      })
+      .finally(() => { _browseFetch = null; });
+  }
+  const pending = _browseFetch;
+  try {
+    _browseDecks = await pending;
+    _browseFetchedAt = Date.now();
   } catch (e) {
     grid.innerHTML = `<div style="grid-column:1/-1;padding:2rem;text-align:center;color:var(--red);font-size:0.85rem">Could not load public decks: ${e.message}</div>`;
     return;
   }
 
-  if (label) label.textContent = _browseDecks.length ? `${_browseDecks.length} public deck${_browseDecks.length !== 1 ? 's' : ''}` : '';
+  _paintBrowseCount(label);
   _renderBrowseGrid();
+}
+
+function _paintBrowseCount(label) {
+  if (!label) return;
+  label.textContent = _browseDecks.length
+    ? `${_browseDecks.length} public deck${_browseDecks.length !== 1 ? 's' : ''}` : '';
 }
 
 function filterBrowseDecks(q) {

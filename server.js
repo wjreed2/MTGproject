@@ -4198,7 +4198,7 @@ app.get('/api/decks/public', async (req, res) => {
         name: deck.name || 'Untitled',
         format: deck.format || '',
         commander: deck.commander || null,
-        commanderImage: cmdCard?.imageLarge || cmdCard?.image || deck.commanderImage || null,
+        commanderImage: deckThumbUrl(cmdCard?.image || cmdCard?.imageLarge || deck.commanderImage),
         colorIdentity: deck.commanderColorIdentity || [],
         cardCount: cards.reduce((s, c) => s + (c.qty || 1), 0),
         notes: String(deck.notes || '').slice(0, 400),
@@ -5759,6 +5759,20 @@ const _e2AnalyzeLast = new Map(); // accountId → ts (light rate limit; analysi
  * of /api/decks/analyze is retrieval and candidate scoring, which a listing has
  * no use for. Returns null when the cards have no semantics yet.
  */
+/**
+ * A Scryfall image URL at the size the browse card actually needs.
+ *
+ * Deck records store whatever the importer or the app happened to save, which
+ * is usually `large` — 672px wide and around 210KB, for a box 236px across.
+ * `normal` is 488px, which is still 2x on a retina screen, and about half the
+ * bytes. 22 of these fill the first screen, so the difference is megabytes.
+ */
+function deckThumbUrl(url) {
+  const u = String(url || '');
+  if (!u) return null;
+  return u.replace(/^(https:\/\/cards\.scryfall\.io\/)(large|png|border_crop)\//, '$1normal/');
+}
+
 async function computeDeckSemanticsGoal(cards, commanderName, preResolved = null) {
   if (!engine2?.deckGoals?.inferGoals) return null;
   const list = (Array.isArray(cards) ? cards : []).slice(0, 400);
