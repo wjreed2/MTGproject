@@ -2126,9 +2126,9 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
   const inTargetMode = gameActionMode !== null && !p.eliminated;
   const isAllMode = gameActionMode === 'deal1all' || gameActionMode === 'dealXall';
   const targetLabel = isAllMode ? 'Tap to confirm' : 'Tap — deal damage';
-  const maxCmdDmg = Math.max(...Object.values(p.commanderDamage || {}).map(Number), 0);
   const cmdBadges = _cellCmdBadges(game, p, isCmd);
   const poisonBadge = _cellPoisonBadge(p);
+  const statusRow = _cellStatusRow(p).trim();
 
   // outer horizontal edge: col 0 = left side of screen, col 1 = right side.
   // rotation swaps left/right in screen space, so invert for rotated cells.
@@ -2139,12 +2139,15 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
   const dotsPos = total === 2
     ? (rotated ? 'right:8px' : 'left:8px')                       // both → screen-left
     : (((col === 0) !== rotated) ? 'left:8px' : 'right:8px');
+  // 10px of top padding, and that is the whole gap between the counter buttons
+  // and the name: the row sits right under the controls rather than adrift at
+  // the bottom of the cell.
   const namePad = total === 2
-    ? (rotated ? 'clamp(5px,1.2vh,10px) 30px clamp(3px,0.8vh,6px) 12px'
-               : 'clamp(5px,1.2vh,10px) 12px clamp(3px,0.8vh,6px) 30px')
+    ? (rotated ? '10px 30px clamp(3px,0.8vh,6px) 12px'
+               : '10px 12px clamp(3px,0.8vh,6px) 30px')
     : (((col === 0) !== rotated)
-        ? 'clamp(5px,1.2vh,10px) 8px clamp(3px,0.8vh,6px) 30px'
-        : 'clamp(5px,1.2vh,10px) 30px clamp(3px,0.8vh,6px) 8px');
+        ? '10px 8px clamp(3px,0.8vh,6px) 30px'
+        : '10px 30px clamp(3px,0.8vh,6px) 8px');
 
   return `
   <div class="tablet-cell${inTargetMode ? ' player-targetable' : ''}"
@@ -2156,7 +2159,7 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
     ${inTargetMode ? `onclick="applyGameAction('${game.id}','${p.id}')"` : ''}>
 
     <!-- Name bar -->
-    <div class="tablet-name-bar" style="text-align:${nameAlign};padding:${namePad};border-top:1px solid ${p.color}25;position:relative">
+    <div class="tablet-name-bar" style="text-align:${nameAlign};padding:${namePad};position:relative">
       <div class="tablet-player-name" style="font-family:'Cinzel',serif;font-size:clamp(0.85rem,2.2vw,1.3rem);color:${ink};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:0.06em">${escapeHtml(p.name)}</div>
       ${p.deckName ? `<div style="font-size:clamp(0.55rem,1.2vw,0.78rem);color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px">${escapeHtml(p.deckName)}${p.commander ? ' · ' + escapeHtml(p.commander) : ''}</div>` : ''}
       ${inTargetMode
@@ -2174,19 +2177,21 @@ function renderTabletCell(game, p, idx, total, cols, rotated = false, col = 1) {
     <!-- Life total -->
     <div class="tablet-life-block" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:clamp(3px,0.8vh,8px);min-height:0">
       <div class="tablet-life-num" style="font-family:'JetBrains Mono',monospace;font-size:${lifeFontSize};font-weight:700;line-height:1;color:${lifeColor};text-shadow:0 0 38px ${p.color}2e;transition:color 0.25s;user-select:none">${p.life}</div>
-      ${isCmd ? `<div style="display:flex;align-items:center;justify-content:center;gap:4px;flex-wrap:wrap;padding:0 8px;min-height:16px">${cmdBadges}</div>` : ''}
+      ${isCmd && cmdBadges ? `<div style="display:flex;align-items:center;justify-content:center;gap:4px;flex-wrap:wrap;padding:0 8px">${cmdBadges}</div>` : ''}
       ${poisonBadge}
     </div>
 
     <!-- Self-modification buttons: +1 +X −1 −X -->
     <div class="tablet-btn-bar" style="padding:clamp(5px,1.2vh,9px) clamp(8px,1.8vw,16px) 0;border-top:1px solid ${p.color}25;" onclick="event.stopPropagation()">
-      <div class="tablet-life-btn-row" style="margin-bottom:clamp(4px,0.8vh,7px)">
+      <div class="tablet-life-btn-row">
         ${_cellLifeBtns(game, p)}
       </div>
-      <!-- Status -->
-      <div style="display:flex;gap:clamp(6px,1.2vw,12px);justify-content:center;align-items:center;padding-bottom:clamp(3px,0.7vh,6px);font-size:clamp(0.56rem,1.1vw,0.74rem)">
-        ${_cellStatusRow(p, maxCmdDmg)}
-      </div>
+      <!-- Status: rendered only when it has something to say. It used to hold a
+           blank line open, which is most of what sat between the buttons and
+           the name. -->
+      ${statusRow ? `<div style="display:flex;gap:clamp(6px,1.2vw,12px);justify-content:center;align-items:center;padding-top:6px;font-size:clamp(0.56rem,1.1vw,0.74rem)">
+        ${statusRow}
+      </div>` : ''}
     </div>
   </div>`;
 }
@@ -2309,8 +2314,17 @@ function _cellLifeColor(p) {
     : 'var(--teal)';
 }
 
+/**
+ * Commander damage taken, one number per opponent in that opponent's colour.
+ *
+ * Nothing at all until someone has actually landed some: a row of zeros sat
+ * under every life total for the whole of most games, saying only that the
+ * format is Commander. Once any of them moves the full row appears, so the
+ * zeros are still there to read against.
+ */
 function _cellCmdBadges(game, p, isCmd) {
   if (!isCmd) return '';
+  if (!Object.values(p.commanderDamage || {}).some(v => Number(v) > 0)) return '';
   return game.players.filter(op => op.id !== p.id).map(op => {
     const dmg = (p.commanderDamage || {})[op.id] || 0;
     // Just the number, in that opponent's colour — no pill, no border, no dot.
@@ -2338,12 +2352,20 @@ function _cellLifeBtns(game, p) {
 // Status row under the life buttons: eliminated placement, max commander damage
 // taken, mulligans — with a dim placeholder so the row never appears/disappears
 // mid-game and shifts the layout. Shared by the grid and pie cell templates.
-function _cellStatusRow(p, maxCmdDmg) {
+/**
+ * Anything worth saying under the counter buttons — usually nothing, in which
+ * case the callers render no row at all.
+ *
+ * The highest commander damage taken used to be summarised here, which was the
+ * same number the per-opponent badges above already carry, and it held a line
+ * open under the buttons even at zero.
+ */
+function _cellStatusRow(p) {
   return p.eliminated
     ? `<span style="color:var(--red);letter-spacing:0.05em;display:inline-flex;align-items:center;gap:4px">${gameIcon('skull', 11)}ELIMINATED #${p.placement || '?'}</span>`
-    : `${maxCmdDmg > 0 ? `<span style="color:${maxCmdDmg >= 16 ? 'var(--red)' : 'var(--text3)'};display:inline-flex;align-items:center;gap:4px">${gameIcon('sword', 11)}${maxCmdDmg} cmd</span>` : ''}
-             ${p.mulligans > 0 ? `<span style="color:var(--text3);display:inline-flex;align-items:center;gap:4px" title="Mulligans">${gameIcon('cards', 11)}${p.mulligans}</span>` : ''}
-             ${maxCmdDmg === 0 && !(p.mulligans > 0) ? '<span aria-hidden="true">&nbsp;</span>' : ''}`;
+    : p.mulligans > 0
+      ? `<span style="color:var(--text3);display:inline-flex;align-items:center;gap:4px" title="Mulligans">${gameIcon('cards', 11)}${p.mulligans}</span>`
+      : '';
 }
 
 // Poison is a single per-player total (10 = dead), shown right under commander damage.
@@ -2640,7 +2662,6 @@ function renderTabletPieCell(game, p, idx, g) {
   const inTargetMode = gameActionMode !== null && !p.eliminated;
   const isAllMode = gameActionMode === 'deal1all' || gameActionMode === 'dealXall';
   const targetLabel = isAllMode ? 'Tap to confirm' : 'Tap — deal damage';
-  const maxCmdDmg = Math.max(...Object.values(p.commanderDamage || {}).map(Number), 0);
   const n = game.players.length;
   const lifeFs = g.lifeFs || Math.round(Math.max(52, Math.min(g.contentH - 125, g.contentW * 0.56, 210)));
   const glowAlpha = inTargetMode ? '14' : isActiveTurn ? '26' : '0d';
@@ -2664,9 +2685,9 @@ function renderTabletPieCell(game, p, idx, g) {
       <div class="tablet-life-btn-row" onclick="event.stopPropagation()">
         ${_cellLifeBtns(game, p)}
       </div>
-      <div style="display:flex;gap:clamp(6px,1.2vw,12px);justify-content:center;align-items:center;font-size:clamp(0.56rem,1.1vw,0.74rem);min-height:14px">
-        ${_cellStatusRow(p, maxCmdDmg)}
-      </div>
+      ${_cellStatusRow(p).trim() ? `<div style="display:flex;gap:clamp(6px,1.2vw,12px);justify-content:center;align-items:center;font-size:clamp(0.56rem,1.1vw,0.74rem)">
+        ${_cellStatusRow(p)}
+      </div>` : ''}
       <!-- Name / clock / ⋯ sit under the counter buttons -->
       <div style="display:flex;align-items:center;justify-content:center;gap:7px;max-width:100%">
         <span class="tablet-total-time" data-pid="${p.id}" title="Total time this player has spent on turns"
@@ -2712,10 +2733,13 @@ window.addEventListener('resize', () => {
 // offers "Deal 1" / "Deal X" to every selected player at once. Source player is
 // attributed in the log. Disabled while an action mode (tap-targeting) is active.
 
-let _tabletDrag = null;            // { sourceId, pointerId, dragging, startX/Y, originX/Y, targets[], currentPid }
+let _tabletDrag = null;            // { sourceId, pointerId, dragging, startX/Y, lastX/Y, targets[], anchors[], dwell }
 let _tabletDragJustEnded = false;  // true for the trailing click after a real drag, so tap-to-advance ignores it
 let _dragMenuCtx = null;           // { sourceId, targetIds } for the open deal menu
 let _dragArrowEl = null;           // SVG overlay element
+// The theme's --red is a coral that turns pink over a warm seat wash; an attack
+// line has to stay unmistakably red against any of them.
+const _DRAG_RED = '#ff2f22';
 let _dragMenuOutsideHandler = null;
 // Set when a tap outside the deal menu dismisses it. Deliberately NOT
 // _tabletDragJustEnded: tabletDragPointerDown clears that on every pointerdown,
@@ -2729,29 +2753,6 @@ function _cellElAt(x, y) {
   return el ? el.closest('.tablet-cell') : null;
 }
 
-// A target only registers when the pointer is within a central zone around the
-// life number — not anywhere in the cell — so you have to aim closer to commit.
-// Smaller value = tighter hitbox. (Elliptical: normalized distance from centre.)
-const _TARGET_HIT = 0.5;
-function _targetCellAt(x, y) {
-  const cell = _cellElAt(x, y);
-  if (!cell) return null;
-  // Pie layout: the entire wedge polygon is the hit box — elementFromPoint
-  // already resolved the clip-path, so landing anywhere in the wedge targets it.
-  if (cell.dataset.pie === '1') return cell;
-  // Grid cells keep the central aim zone; during a drag the zones cached at
-  // pointerdown make this pure arithmetic (no per-move DOM queries).
-  let z = _tabletDrag && _tabletDrag.zones && _tabletDrag.zones[cell.dataset.pid];
-  if (!z) {
-    const anchor = cell.dataset.pie === '1' ? cell.querySelector('.tablet-pie-anchor') : null;
-    const r = (anchor || cell).getBoundingClientRect();
-    z = { x: r.left + r.width / 2, y: r.top + r.height / 2,
-      rx: r.width / 2, ry: r.height / 2, hit: anchor ? 0.85 : _TARGET_HIT };
-  }
-  const dx = (x - z.x) / z.rx, dy = (y - z.y) / z.ry;
-  return (dx * dx + dy * dy) <= z.hit * z.hit ? cell : null;
-}
-
 function tabletDragPointerDown(e) {
   _tabletDragJustEnded = false;                           // fresh gesture: clear any stale drag flag
   if (!tabletViewGameId || gameActionMode) return;        // action mode uses tap-targeting
@@ -2761,34 +2762,13 @@ function tabletDragPointerDown(e) {
   if (!cell || !cell.dataset.pid || cell.dataset.elim === '1') return;
   const game = games.find(g => g.id === tabletViewGameId);
   if (!game || game.status !== 'active') return;
-  // Pie cells span the whole screen — anchor the drag origin (and the deal
-  // menu's orientation) on the content block instead of the cell box. Every
-  // cell's aim zone is cached up front: anchors can't move mid-drag (the resize
-  // re-render skips while a drag is live), so per-move hit-testing stays cheap.
-  const zones = {};
-  document.querySelectorAll('#tabletView .tablet-cell').forEach(c => {
-    const a = c.dataset.pie === '1' ? c.querySelector('.tablet-pie-anchor') : null;
-    const rr = (a || c).getBoundingClientRect();
-    // Where the drawn arrow aims: the life number, not the cell's midpoint. The
-    // midpoint lands on the divider between the life block and the buttons,
-    // which is what "goes to the middle of the border" meant. Hit-testing still
-    // uses x/y below — this is only for drawing.
-    const lifeEl = c.querySelector('.tablet-life-num');
-    const lr = lifeEl ? lifeEl.getBoundingClientRect() : rr;
-    zones[c.dataset.pid] = { x: rr.left + rr.width / 2, y: rr.top + rr.height / 2,
-      rx: rr.width / 2, ry: rr.height / 2, hit: a ? 0.85 : _TARGET_HIT,
-      lifeX: lr.left + lr.width / 2, lifeY: lr.top + lr.height / 2 };
-  });
-  const z = zones[cell.dataset.pid];
   _tabletDrag = {
     sourceId: cell.dataset.pid, pointerId: e.pointerId, dragging: false,
     sourceRotDeg: cell.dataset.rotdeg != null ? (parseFloat(cell.dataset.rotdeg) || 0)
       : _rotDegOf(cell.dataset.rotated === '1'),
     startX: e.clientX, startY: e.clientY,
-    originX: z.x, originY: z.y, zones,
-    // Seed currentPid with the source so sitting on your own cell at the start of
-    // the drag doesn't auto-select you; leaving and returning still targets self.
-    targets: [], anchors: [], currentPid: cell.dataset.pid,
+    lastX: e.clientX, lastY: e.clientY,
+    targets: [], anchors: [], dwell: null,
     mode: null, seatTargetPid: null,
   };
   // Hold without moving on a wedge → seat-swap mode: drag the player onto
@@ -2862,26 +2842,55 @@ function tabletDragPointerMove(e) {
   }
   e.preventDefault();
   if (_tabletDrag.mode === 'seat') { _seatDragMove(e); return; }
-  const cell = _targetCellAt(e.clientX, e.clientY);
-  const pid = (cell && cell.dataset.pid && cell.dataset.elim !== '1') ? cell.dataset.pid : null;
-  // Commit a target the first time the pointer sweeps near its life number (self included).
-  if (pid !== _tabletDrag.currentPid) {
-    _tabletDrag.currentPid = pid;
-    if (pid && !_tabletDrag.targets.includes(pid)) {
-      _tabletDrag.targets.push(pid);
-      // Drop an anchor where the path bends, so the dotted line kinks toward each
-      // selected player instead of being one straight line to the finger.
-      const [ax, ay] = _snapToCellCentre(e.clientX, e.clientY);
-      _tabletDrag.anchors.push({ x: ax, y: ay });
-      _highlightDragTargets(_tabletDrag.targets);
-    }
+  _tabletDrag.lastX = e.clientX; _tabletDrag.lastY = e.clientY;
+  // Sweeping across a seat no longer picks it up — pausing on one does. Anywhere
+  // in the wedge or cell counts, since the pause is what carries the intent and
+  // aiming at the number as well would be two demands in one gesture.
+  const cell = _cellElAt(e.clientX, e.clientY);
+  const pid = (cell && cell.dataset.pid && cell.dataset.elim !== '1'
+    && cell.dataset.pid !== _tabletDrag.sourceId) ? cell.dataset.pid : null;
+  const d = _tabletDrag.dwell;
+  if (!d || d.pid !== pid || Math.hypot(e.clientX - d.x, e.clientY - d.y) > _DWELL_SLOP) {
+    _tabletDrag.dwell = { pid, x: e.clientX, y: e.clientY };
+    _armDwell(pid, e.clientX, e.clientY);
   }
   _drawDragArrows(e.clientX, e.clientY);
+}
+
+// How long the finger has to hold still over an opponent to pick them up, and
+// how far it may drift while doing so.
+const _DWELL_MS = 250;
+const _DWELL_SLOP = 16;
+let _dwellTimer = null;
+
+function _clearDwell() {
+  if (_dwellTimer) { clearTimeout(_dwellTimer); _dwellTimer = null; }
+}
+
+/**
+ * Arm the pause. Pointer events stop arriving the moment the finger is still,
+ * which is exactly the state being waited on, so this runs on a timer rather
+ * than off the next move.
+ */
+function _armDwell(pid, x, y) {
+  _clearDwell();
+  if (!pid) return;
+  _dwellTimer = setTimeout(() => {
+    _dwellTimer = null;
+    if (!_tabletDrag || _tabletDrag.mode === 'seat') return;
+    if (_tabletDrag.targets.includes(pid)) return;
+    _tabletDrag.targets.push(pid);
+    // The node lands where the finger stopped, not at the seat's centre.
+    _tabletDrag.anchors.push({ x, y });
+    _highlightDragTargets(_tabletDrag.targets);
+    _drawDragArrows(_tabletDrag.lastX ?? x, _tabletDrag.lastY ?? y);
+  }, _DWELL_MS);
 }
 
 function tabletDragPointerUp(e) {
   if (!_tabletDrag || e.pointerId !== _tabletDrag.pointerId) return;
   _clearSeatHold();
+  _clearDwell();
   const drag = _tabletDrag;
   _tabletDrag = null;
   _removeDragArrow();
@@ -2896,10 +2905,12 @@ function tabletDragPointerUp(e) {
   }
   if (!drag.dragging) { _highlightDragTargets([]); return; }
   _tabletDragJustEnded = true;   // a click follows this drag — don't let it advance the turn
-  // Include the cell the pointer is near at release (same central hitbox), then deal.
-  const cell = _targetCellAt(e.clientX, e.clientY);
+  // Letting go on a player counts as well as pausing on one — a release is
+  // already a stop. The dragging player's own seat is excluded either way: the
+  // gesture starts there, so counting it would fire on every stray drag.
+  const cell = _cellElAt(e.clientX, e.clientY);
   const relPid = cell && cell.dataset.pid;
-  if (relPid && cell.dataset.elim !== '1' && !drag.targets.includes(relPid)) {
+  if (relPid && cell.dataset.elim !== '1' && relPid !== drag.sourceId && !drag.targets.includes(relPid)) {
     drag.targets.push(relPid);
   }
   if (!drag.targets.length) { _highlightDragTargets([]); return; }
@@ -2925,90 +2936,31 @@ function _ensureDragArrow() {
   marker.setAttribute('markerWidth', '8'); marker.setAttribute('markerHeight', '8');
   marker.setAttribute('refX', '6'); marker.setAttribute('refY', '3'); marker.setAttribute('orient', 'auto');
   const head = document.createElementNS(NS, 'path');
-  head.setAttribute('d', 'M0,0 L6,3 L0,6 Z'); head.setAttribute('fill', 'var(--red)');
+  head.setAttribute('d', 'M0,0 L6,3 L0,6 Z'); head.setAttribute('fill', _DRAG_RED);
   marker.appendChild(head); defs.appendChild(marker); svg.appendChild(defs);
   const poly = document.createElementNS(NS, 'polyline');   // dotted path: origin → anchors → finger
   poly.setAttribute('id', 'dragPoly');
   poly.setAttribute('fill', 'none');
-  poly.setAttribute('stroke', 'var(--red)'); poly.setAttribute('stroke-width', '3');
+  poly.setAttribute('stroke', _DRAG_RED); poly.setAttribute('stroke-width', '6');
   poly.setAttribute('stroke-linecap', 'round'); poly.setAttribute('stroke-linejoin', 'round');
   // Solid, not dotted — the dashes read as a broken line against card art.
   poly.setAttribute('marker-end', 'url(#dragArrowHead)');
-  const dots = document.createElementNS(NS, 'g');          // origin + one dot per anchor
-  dots.setAttribute('id', 'dragDots');
-  svg.appendChild(poly); svg.appendChild(dots);
+  svg.appendChild(poly);
   document.body.appendChild(svg);
   _dragArrowEl = svg;
 }
 
-// Dotted path from the source, kinking at each committed-target anchor, then trailing
-// freely to the finger. Selected cells also show their red highlight.
-/**
- * Pull a drawn point toward the centre of the cell it is over, so the line lands
- * on the player rather than wherever the finger happens to be. Drawing only —
- * _targetCellAt and _TARGET_HIT still decide what actually gets hit, so the aim
- * required to commit a target is unchanged.
- */
-// Pull strength, graded by how close the finger is to the life total: loose out
-// at the edge of a seat, firm right over the number. A single strong constant
-// glued the node to the number and stopped it tracking the finger at all, which
-// made sweeping on to a second opponent feel like being stuck; a single weak one
-// never reached the number. Graded gives both.
-const _ARROW_SNAP_FAR  = 0.30;
-const _ARROW_SNAP_NEAR = 0.88;
-/**
- * Two zones, deliberately: _targetCellAt decides what actually gets hit and is
- * unchanged, while this smaller one only decides when the drawn line tidies
- * itself toward the seat. Snapping over the whole hit box made the line jump
- * as soon as you crossed into a cell.
- *
- * The centres come from _tabletDrag.zones, which pointerdown built from each
- * seat's content anchor. A pie cell is a full-screen element with a clip-path,
- * so its getBoundingClientRect() is the whole viewport — using that pulled the
- * arrow to the middle of the screen instead of to the player.
- */
-function _snapToCellCentre(x, y) {
-  if (!_tabletDrag || !_tabletDrag.zones) return [x, y];
-  const cell = _cellElAt(x, y);
-  if (!cell) return [x, y];
-  const pid = cell.dataset.pid;
-  // Never over the source: a drag starts in the dragging player's own seat.
-  if (!pid || pid === _tabletDrag.sourceId) return [x, y];
-  const z = _tabletDrag.zones[pid];
-  if (!z) return [x, y];
-  // Anywhere in the seat snaps, with no distance test of its own. Gating this on
-  // a zone around the centre meant crossing a cell near its edge left the node
-  // stranded under the finger — it only behaved when you dragged through the
-  // middle. The two boxes are still separate: _targetCellAt decides what is
-  // actually hit and is untouched; this one is simply the whole cell.
-  const tx = z.lifeX != null ? z.lifeX : z.x;
-  const ty = z.lifeY != null ? z.lifeY : z.y;
-  // 0 at the number, ~1 out at the seat's edge.
-  const reach = Math.max(z.rx || 0, z.ry || 0) || 1;
-  const d = Math.min(1, Math.hypot(x - tx, y - ty) / reach);
-  const strength = _ARROW_SNAP_NEAR + (_ARROW_SNAP_FAR - _ARROW_SNAP_NEAR) * d;
-  return [x + (tx - x) * strength, y + (ty - y) * strength];
-}
-
+// Solid red path from the source, kinking at each player picked up on the way,
+// then trailing freely to the finger. Selected players glow rather than being
+// outlined.
 function _drawDragArrows(liveX, liveY) {
   if (!_dragArrowEl || !_tabletDrag) return;
-  const NS = 'http://www.w3.org/2000/svg';
-  // Draw from where the drag actually began. originX/originY is the centre of the
-  // source's aim zone, so using it pinned the tail to the middle of the dragging
-  // player's seat however far away you pressed — that is the "snaps on the
-  // origin" behaviour. Only the far end, aimed at a target, snaps.
+  // Tail where the drag began, a bend at each player picked up on the way, tip
+  // under the finger. Nothing is pulled toward a seat any more: the line goes
+  // exactly where the hand goes, and the pause is what commits a player.
   const { startX, startY, anchors } = _tabletDrag;
-  const pts = [[startX, startY], ...anchors.map(a => [a.x, a.y]), _snapToCellCentre(liveX, liveY)];
+  const pts = [[startX, startY], ...anchors.map(a => [a.x, a.y]), [liveX, liveY]];
   _dragArrowEl.querySelector('#dragPoly').setAttribute('points', pts.map(p => p.join(',')).join(' '));
-  const dots = _dragArrowEl.querySelector('#dragDots');
-  dots.textContent = '';
-  // Origin dot (larger) plus a dot at each anchor (the bend points).
-  [[startX, startY, 7], ...anchors.map(a => [a.x, a.y, 5])].forEach(([cx, cy, r]) => {
-    const c = document.createElementNS(NS, 'circle');
-    c.setAttribute('cx', cx); c.setAttribute('cy', cy); c.setAttribute('r', r);
-    c.setAttribute('fill', 'var(--gold)');
-    dots.appendChild(c);
-  });
 }
 
 function _removeDragArrow() {

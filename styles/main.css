@@ -4083,7 +4083,7 @@ body.glass-mode .x-stepper-btn-sm { border-radius: 7px; }
    leaving a crisp inner outline. Active turn = player colour (inline), drag
    target = red, seat-drag = pulsing gold source / teal drop target. */
 .pie-outline { transition: stroke 0.15s; }
-.tablet-cell--pie.tablet-drag-target .pie-outline { stroke: var(--red) !important; }
+.tablet-cell--pie.tablet-drag-target .pie-outline { stroke: transparent !important; }
 .tablet-cell--pie.tablet-seat-drag-source .pie-outline {
   stroke: rgb(var(--lgx1)) !important;
   animation: seatDragPulse 0.9s ease-in-out infinite;
@@ -4094,10 +4094,10 @@ body.glass-mode .x-stepper-btn-sm { border-radius: 7px; }
   50% { stroke-opacity: 0.35; }
 }
 
-/* Drag-to-deal-damage */
-.tablet-drag-target {
-  border-color: var(--red) !important;
-  box-shadow: inset 0 0 0 3px rgba(212,90,74,0.6), 0 0 30px rgba(212,90,74,0.25);
+/* Drag-to-deal-damage: the marking lives at the end of this file, on the life
+   total, so it outranks the per-theme numeral shadows. */
+#tabletView .tablet-life-num {
+  transition: color 0.18s var(--ease), text-shadow 0.18s var(--ease), transform 0.18s var(--ease);
 }
 .tablet-drag-arrow {
   position: fixed; inset: 0; width: 100vw; height: 100vh;
@@ -10860,11 +10860,9 @@ body.glass-mode #tabletView .tablet-cell.player-targetable {
     inset 0 0 0 3px rgba(255,255,255,0.42),
     0 0 30px rgba(255,255,255,0.16) !important;
 }
+/* Same at rest as on turn: the glow on the life total is the only marking. */
 body.glass-mode #tabletView .tablet-cell.tablet-drag-target {
-  border-color: var(--red) !important;
-  box-shadow:
-    inset 0 0 0 3px rgba(255,122,107,0.60),
-    0 0 30px rgba(255,122,107,0.25) !important;
+  border-color: transparent !important;
 }
 /* Pie wedges are clip-path'd full-screen cells — no corner rounding and no
    outer shadow; blur still applies.
@@ -10882,12 +10880,6 @@ body.glass-mode #tabletView .tablet-cell--pie[data-active="1"] {
    Nothing rings a wedge now; the brighter fill is the whole signal. */
 body.glass-mode .tablet-cell--pie:not(.tablet-drag-target):not(.tablet-seat-drag-source):not(.tablet-seat-drag-target) .pie-outline {
   stroke: transparent !important;
-}
-/* The name bar's inline rule is border-*top*, so overriding the bottom left a
-   seat-coloured hairline across every cell. */
-body.glass-mode .tablet-name-bar {
-  border-top-color: rgba(255,255,255,0.10) !important;
-  border-bottom-color: rgba(255,255,255,0.10) !important;
 }
 body.glass-mode .tablet-btn-bar { border-top-color: rgba(255,255,255,0.10) !important; }
 body.glass-mode .tablet-player-name {
@@ -11478,10 +11470,6 @@ body.glass-mode :is(input:not([type="checkbox"]):not([type="radio"]):not([type="
 }
 [data-theme="light"] body.glass-mode #tabletView .tablet-cell--pie,
 [data-theme="light"] body.glass-mode #tabletView .tablet-cell--pie[data-active="1"] { box-shadow: none !important; }
-[data-theme="light"] body.glass-mode .tablet-name-bar {
-  border-top-color: rgba(20,35,60,0.10) !important;
-  border-bottom-color: rgba(20,35,60,0.10) !important;
-}
 [data-theme="light"] body.glass-mode .tablet-btn-bar { border-top-color: rgba(20,35,60,0.10) !important; }
 [data-theme="light"] body.glass-mode .tablet-life-num {
   text-shadow: 0 4px 18px rgba(30,50,90,0.15) !important;
@@ -14559,4 +14547,19 @@ body.glass-mode .offer-card:hover {
 }
 body.glass-mode #tabletView .tablet-cell.tablet-seat-drag-source {
   border-color: rgba(var(--lgx1), 0.7) !important;
+}
+
+/* ── Drag-to-deal target ─────────────────────────────────────────────────────
+   A player picked up mid-drag is marked by their life total catching fire, not
+   by a ring round their seat — nothing else in the tablet view has an outline
+   any more and this one read as one. Last in the file and carrying `body` on
+   purpose: the per-theme .tablet-life-num shadows are !important too, and this
+   has to win in both of them. */
+body #tabletView .tablet-cell.tablet-drag-target .tablet-life-num {
+  color: #ff5a4a !important;
+  text-shadow:
+    0 0 14px rgba(255, 47, 34, 0.95),
+    0 0 38px rgba(255, 47, 34, 0.70),
+    0 0 80px rgba(255, 47, 34, 0.40) !important;
+  transform: scale(1.06);
 }
