@@ -675,7 +675,9 @@ function renderNewGamePlayersList() {
   // remove button. The commander a deck is played with is a property of the deck
   // and already shown wherever decks are, so it had a column here saying what
   // the deck column had just said.
-  const cols = '18px 22px 1fr 1fr 112px 28px';
+  // minmax(0,…) on the flexible tracks: a plain 1fr floors at the content's own
+  // width, so one long name stretched the whole table past the modal.
+  const cols = '18px 22px minmax(0, 1fr) minmax(0, 1fr) 112px 28px';
 
   const header = document.getElementById('newGamePlayersHeader');
   if (header) {
@@ -706,15 +708,19 @@ function renderNewGamePlayersList() {
       `<option value="${d.id}" ${String(p.deckId) === String(d.id) ? 'selected' : ''}>${escapeHtml(d.name)}${d.format ? ' ('+escapeHtml(d.format)+')' : ''}</option>`
     ).join('');
 
-    // Registered seat with no visible decks: either they have none, or — far more
-    // often — they were invited to the playgroup and have not accepted yet, which
-    // is what gates deck sharing. Say which, rather than leaving an empty picker.
-    const pending = _pgMembers && _pgMembers.some(m => Number(m.id) === Number(p.userId) && m.status === 'invited');
+    // Until a member accepts the invite, only the decks they have made public are
+    // listed — accepting is what shares the private ones. So a pending member can
+    // still show decks, which looks like the "invite pending" tag is wrong; the
+    // row says which decks these are instead of leaving that to be guessed at.
+    const pending = !!(_pgMembers && _pgMembers.some(m => Number(m.id) === Number(p.userId) && m.status === 'invited'));
+    const pendingNote = pending
+      ? `<div class="ng-deck-note">${userDecks.length ? 'Public decks only — invite not accepted' : 'Invite not accepted — no decks shared'}</div>`
+      : '';
     const deckCell = p.userId
-      ? (userDecks.length
-        ? `<select onchange="ngpDeckSelect(${i}, this.value)" style="min-width:0">${deckOpts}</select>`
-        : `<input type="text" value="${escapeHtml(p.deckName || '')}" placeholder="${pending ? 'Deck name — they have not accepted the invite yet' : 'Deck name (no decks shared with you)'}"
-             onchange="ngpDeckTyped(${i}, this.value)" style="min-width:0">`)
+      ? `<div style="min-width:0">${userDecks.length
+          ? `<select onchange="ngpDeckSelect(${i}, this.value)" style="min-width:0;width:100%">${deckOpts}</select>`
+          : `<input type="text" value="${escapeHtml(p.deckName || '')}" placeholder="Deck name"
+               onchange="ngpDeckTyped(${i}, this.value)" style="min-width:0;width:100%">`}${pendingNote}</div>`
       : `<input type="text" value="${escapeHtml(p.deckName || '')}" placeholder="Deck (optional)"
            onchange="ngpDeckTyped(${i}, this.value)" style="min-width:0">`;
 

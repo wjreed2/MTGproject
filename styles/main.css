@@ -1045,7 +1045,8 @@ body.glass-mode #deckTabPane-design .panel {
 /* !important outranks the #tab-decks #deckGroupByWrap select sizing-parity rule */
 select[data-glassified] { display: none !important; }
 .glass-dd-btn { gap: 6px; white-space: nowrap; min-width: 0; border-radius: 8px !important; }
-.glass-dd-btn > :not(.glass-dd-prefix):not(svg) { overflow: hidden; text-overflow: ellipsis; }
+.glass-dd-btn > :not(.glass-dd-prefix):not(svg) { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.glass-dd-btn > svg { flex-shrink: 0; }
 .glass-dd-prefix { opacity: 0.55; }
 #tab-decks .glass-dir-btn { min-width: 34px; justify-content: center; }
 /* Glass triggers everywhere pick up the blue→purple hover, like the toolbar */
@@ -11031,6 +11032,12 @@ body.glass-mode .game-card.is-selected {
   justify-content: center;
   box-sizing: border-box;
 }
+/* Dropdowns fill their column rather than their content. A long player name or
+   deck title used to widen the trigger, which widened the grid track, which
+   pushed the row past the edge of the modal. */
+#newGameModal .glass-dd-wrap { display: block; width: 100%; min-width: 0; }
+#newGameModal .glass-dd-btn { width: 100%; justify-content: space-between; }
+
 /* Text fields and selects take the same shell as the buttons: the seat rows put
    them side by side, and a 32px field with 12px corners next to a 34px button
    with 8px ones is visibly two different controls. Font size is left alone —
@@ -11053,6 +11060,10 @@ body.glass-mode .game-card.is-selected {
    buttons is that one too — only narrower, since it counts to about three and
    the inspector's is sized for collection quantities. */
 .ng-mull-value { min-width: 28px; font-size: 0.85rem; }
+.ng-deck-note {
+  font-size: 0.64rem; color: var(--text3); margin-top: 3px; line-height: 1.2;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 
 /* The seat dot opens the colour picker, so it is a control and not decoration. */
 .ng-seat-swatch {

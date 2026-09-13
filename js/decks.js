@@ -2295,8 +2295,11 @@ function _glassSelectSyncLabels() {
     if (!btn || !btn.isConnected) return;
     const opt = sel.options[sel.selectedIndex];
     const prefix = sel.dataset.glassLabel;
+    // The label goes in a span so it can be clipped: as a bare text node it was
+    // an anonymous flex item, which no rule can reach, and a long option ran
+    // straight out of both sides of the trigger.
     btn.innerHTML = (prefix ? `<span class="glass-dd-prefix">${escapeHtml(prefix)}</span>` : '')
-      + `${escapeHtml(opt ? opt.text : '')} ${_GLASS_DD_CARET}`;
+      + `<span class="glass-dd-text">${escapeHtml(opt ? opt.text : '')}</span>${_GLASS_DD_CARET}`;
     btn.disabled = sel.disabled;
   });
   const dirSel = document.getElementById('deckStackSortDirSelect');
