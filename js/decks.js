@@ -4253,6 +4253,56 @@ function closeNewDeckModal() {
   document.getElementById('newDeckModal').classList.remove('open');
 }
 
+/** "Deck name (copy)", "(copy 2)" … — never silently two decks with one name. */
+function _uniqueDeckName(base) {
+  const taken = new Set((decks || []).map(d => String(d.name || '').toLowerCase()));
+  let name = `${base} (copy)`;
+  for (let n = 2; taken.has(name.toLowerCase()); n++) name = `${base} (copy ${n})`;
+  return name;
+}
+
+/**
+ * Take a copy of the deck on screen into this account.
+ *
+ * The copy is an ordinary deck of yours from the moment it lands — editable,
+ * counted against your collection like any other, and with none of the
+ * original's sharing: not public, no share link, no owner but you. The planning
+ * zones start empty; adds and cuts are the owner's working notes, not part of
+ * the list itself.
+ */
+async function copyDeckToMyDecks() {
+  const src = getActiveDeck();
+  if (!src) return;
+  const id = Date.now().toString();
+  const cloneCards = list => (Array.isArray(list) ? list : []).map(c => {
+    const card = JSON.parse(JSON.stringify(c));
+    delete card.customTags;
+    return card;
+  });
+  const copy = {
+    id,
+    name: _uniqueDeckName(src.name || 'Untitled'),
+    format: src.format || '',
+    commander: src.commander || null,
+    commanderColorIdentity: src.commanderColorIdentity || [],
+    commanderImage: src.commanderImage || null,
+    notes: src.notes || null,
+    cards: cloneCards(src.cards),
+    maybeboard: cloneCards(_deckMaybeBoard(src)),
+    sideboard: cloneCards(src.sideboard),
+    sideboardEnabled: !!src.sideboardEnabled,
+    adds: [], cuts: [],
+    zoneLayout: src.zoneLayout || 2,
+    colors: src.colors || [],
+    isPublic: false,
+  };
+  decks.push(copy);
+  save('decks');
+  showNotif(`Copied to your decks as "${copy.name}"`);
+  selectDeck(id);
+}
+globalThis.copyDeckToMyDecks = copyDeckToMyDecks;
+
 /**
  * A deck opened from Browse or a share link: the owner's own view of it, with
  * every way of changing it gone.
@@ -4498,6 +4548,8 @@ function renderActiveDeck() {
   // "+ Add" affordances that the write gate would refuse anyway — better not to
   // offer them. The gate stays underneath; this only stops the asking.
   document.getElementById('tab-decks')?.classList.toggle('deck-read-only', !canEditHeader);
+  const copyBtn = document.getElementById('deckCopyToMineBtn');
+  if (copyBtn) copyBtn.style.display = (typeof activeDeckIsPublicView === 'function' && activeDeckIsPublicView()) ? '' : 'none';
   const manageTagsBtn = document.getElementById('deckManageTagsBtn');
   if (manageTagsBtn) manageTagsBtn.style.display = canEditHeader ? '' : 'none';
   const refreshTagsBtn = document.getElementById('deckRefreshTagsBtn');
@@ -6312,6 +6364,11 @@ let _ownedByUid  = {}; // scryfallId+foil key → collection card
 let _ownedByName = {}; // lowercase name     → collection card (any printing/foil)
 
 function isDeckOwnershipEnabled() {
+  // Somebody else's deck, opened read-only: shading each card against a
+  // collection says nothing useful about a list you are only reading — and the
+  // owner's collection is not ours to ask for, so every card came out grey.
+  // Copy it to your decks and the shading comes back on your own copy.
+  if (typeof activeDeckIsPublicView === 'function' && activeDeckIsPublicView()) return false;
   return deckOwnershipEnabled !== false;
 }
 
