@@ -10794,12 +10794,11 @@ body.glass-mode :is(.tablet-player-menu, .tablet-drag-menu) .num-wheel-item.is-s
    Glass: tablet view — same toggle (flipped from the main tracker header)
    ──────────────────────────────────────────────────────────────────────────── */
 body.glass-mode #tabletView {
-  background:
-    radial-gradient(42% 38% at 16% 10%, rgba(90,162,255,0.30), transparent 70%),
-    radial-gradient(46% 42% at 84% 16%, rgba(168,140,255,0.24), transparent 70%),
-    radial-gradient(52% 48% at 76% 88%, rgba(79,216,189,0.18), transparent 70%),
-    radial-gradient(38% 34% at 10% 80%, rgba(255,170,110,0.14), transparent 70%),
-    linear-gradient(180deg, #0b1122 0%, #0d1428 55%, #0a0f1f 100%);
+  /* Plain. The four coloured pools that light the rest of the glass sat under
+     every seat and mixed with it — a gold seat over the teal one came out sage
+     — so each player's colour was never quite their own. The seats are the
+     colour on this screen. */
+  background: linear-gradient(180deg, #0b1122 0%, #0d1428 55%, #0a0f1f 100%);
   /* No gutter between seats. The page showed through it as a line down the
      middle of the table — subtle on the dark theme, a white rule on the light
      one, and either way a border between players. They meet now, and the change
@@ -11499,14 +11498,11 @@ body.glass-mode :is(input:not([type="checkbox"]):not([type="radio"]):not([type="
    Glass, light theme: tablet view + menus + modals
    ──────────────────────────────────────────────────────────────────────────── */
 [data-theme="light"] body.glass-mode #tabletView {
-  background:
-    radial-gradient(42% 38% at 16% 10%, rgba(120,170,255,0.5), transparent 70%),
-    radial-gradient(46% 42% at 84% 16%, rgba(190,160,255,0.42), transparent 70%),
-    radial-gradient(52% 48% at 76% 88%, rgba(120,225,200,0.38), transparent 70%),
-    radial-gradient(38% 34% at 10% 80%, rgba(255,200,150,0.35), transparent 70%),
-    linear-gradient(180deg, #eef2fa 0%, #e8edf8 55%, #eaeef6 100%);
+  background: linear-gradient(180deg, #eef2fa 0%, #e8edf8 55%, #eaeef6 100%);
   --glass-accent: #1668d8;
-  --glass-life-hi: #17202e;
+  /* The turn clocks' grey, not ink: a full life total is the calmest thing on
+     the board and only earns its colour as it falls. */
+  --glass-life-hi: rgba(28, 40, 58, 0.5);
   --glass-life-mid: #a8544a;
   --glass-life-low: #d0641e;
   --glass-life-crit: #d84a3a;
@@ -11520,7 +11516,7 @@ body.glass-mode :is(input:not([type="checkbox"]):not([type="radio"]):not([type="
       var(--lw1, color-mix(in oklab, var(--seat, #1668d8) 14%, transparent)) 0%,
       var(--lw2, color-mix(in oklab, var(--seat, #1668d8) 6%, transparent)) 60%,
       var(--lw3, transparent) 100%),
-    rgba(255,255,255,0.50) !important;
+    rgba(255,255,255,0.38) !important;
   box-shadow: none;
 }
 [data-theme="light"] body.glass-mode #tabletView .tablet-cell[data-active="1"] {
@@ -11530,7 +11526,7 @@ body.glass-mode :is(input:not([type="checkbox"]):not([type="radio"]):not([type="
       var(--lwa1, color-mix(in oklab, var(--seat, #1668d8) 30%, transparent)) 0%,
       var(--lwa2, color-mix(in oklab, var(--seat, #1668d8) 17%, transparent)) 65%,
       var(--lwa3, color-mix(in oklab, var(--seat, #1668d8) 9%, transparent)) 100%),
-    rgba(255,255,255,0.55) !important;
+    rgba(255,255,255,0.40) !important;
   box-shadow: none !important;
 }
 [data-theme="light"] body.glass-mode #tabletView .tablet-cell--pie,

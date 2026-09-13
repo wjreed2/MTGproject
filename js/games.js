@@ -78,8 +78,11 @@ function _seatWarmth(hex) {
 const _SEAT_STOPS = {
   dark:  { rest: [0.30, 0.16, 0.07], restCap: [0.46, 0.30, 0.18],
            act:  [0.56, 0.35, 0.20], actCap:  [0.74, 0.50, 0.32], warm: true },
-  light: { rest: [0.11, 0.05, 0.02], restCap: [0.18, 0.10, 0.05],
-           act:  [0.22, 0.12, 0.06], actCap:  [0.30, 0.18, 0.10], warm: false },
+  // The light theme's ramp is much flatter than the dark one's. On black a steep
+  // falloff reads as depth; on white it just means most of the cell is at the
+  // faint end, which is what "washed out" was — only the near corner had colour.
+  light: { rest: [0.24, 0.19, 0.14], restCap: [0.32, 0.26, 0.20],
+           act:  [0.42, 0.34, 0.26], actCap:  [0.52, 0.42, 0.33], warm: false },
 };
 
 function _seatWashVars(hex) {
@@ -2314,11 +2317,22 @@ function _wireTabletSurface(game, el) {
 /** Full life reads white and drains to red — continuous, so it tracks the
  *  number rather than stepping at thresholds. Replaces the blue→purple ramp,
  *  which competed with the seat colours now tinting each cell. */
-function _rgbFromHex(hex, fallback) {
-  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '').trim());
-  if (!m) return fallback;
-  const n = parseInt(m[1], 16);
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+/** `#rrggbb` or `rgb()/rgba()` to [r, g, b, a]. */
+function _rgbaOf(value, fallback) {
+  const v = String(value || '').trim();
+  const hex = /^#?([0-9a-f]{6})$/i.exec(v);
+  if (hex) {
+    const n = parseInt(hex[1], 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255, 1];
+  }
+  const fn = /^rgba?\(([^)]+)\)$/i.exec(v);
+  if (fn) {
+    const p = fn[1].split(/[,\s/]+/).filter(Boolean).map(Number);
+    if (p.length >= 3 && p.slice(0, 3).every(Number.isFinite)) {
+      return [p[0], p[1], p[2], Number.isFinite(p[3]) ? p[3] : 1];
+    }
+  }
+  return fallback;
 }
 
 /**
@@ -2334,10 +2348,14 @@ function _lifeWhiteToRed(t) {
   const k = Math.max(0, Math.min(1, t));
   const el = typeof document !== 'undefined' ? document.getElementById('tabletView') : null;
   const cs = el ? getComputedStyle(el) : null;
-  const hi = _rgbFromHex(cs && cs.getPropertyValue('--glass-life-hi'), [244, 246, 251]);
-  const lo = _rgbFromHex(cs && cs.getPropertyValue('--glass-life-crit'), [232, 70, 58]);
+  const hi = _rgbaOf(cs && cs.getPropertyValue('--glass-life-hi'), [244, 246, 251, 1]);
+  const lo = _rgbaOf(cs && cs.getPropertyValue('--glass-life-crit'), [232, 70, 58, 1]);
   const ch = i => Math.round(lo[i] + (hi[i] - lo[i]) * k);
-  return `rgb(${ch(0)}, ${ch(1)}, ${ch(2)})`;
+  // Alpha rides the ramp too: the light theme's full-life end is the same
+  // translucent slate as the turn clocks, so a healthy total sits back and the
+  // seat's colour shows through it.
+  const a = (lo[3] + (hi[3] - lo[3]) * k).toFixed(3);
+  return `rgba(${ch(0)}, ${ch(1)}, ${ch(2)}, ${a})`;
 }
 
 function _cellLifeColor(p) {
