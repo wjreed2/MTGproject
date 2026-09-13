@@ -189,15 +189,46 @@ async function writeDeck(db, accountId, deck) {
   }
 }
 
+/**
+ * Connection settings, from a URL if one is given or the DB_* variables if not.
+ *
+ * Railway hands out two addresses for a database: the private
+ * `*.railway.internal` one its own services use, which does not resolve from
+ * anywhere else, and a public proxy URL. Running this from a laptop means the
+ * second, and Railway offers that as a single copyable URL — so take one.
+ */
+function dbConfigFrom(env) {
+  const url = env.DATABASE_URL || env.MYSQL_PUBLIC_URL || env.MYSQL_URL;
+  if (url) {
+    const u = new URL(url);
+    return {
+      host: u.hostname,
+      port: Number(u.port || 3306),
+      user: decodeURIComponent(u.username || ''),
+      password: decodeURIComponent(u.password || ''),
+      database: decodeURIComponent((u.pathname || '').replace(/^\//, '')),
+    };
+  }
+  return {
+    host: env.DB_HOST || env.MYSQLHOST || '127.0.0.1',
+    port: Number(env.DB_PORT || env.MYSQLPORT || 3306),
+    user: env.DB_USER || env.MYSQLUSER,
+    password: env.DB_PASS || env.DB_PASSWORD || env.MYSQLPASSWORD,
+    database: env.DB_NAME || env.MYSQLDATABASE,
+  };
+}
+
 (async () => {
   const env = envFromDotfile();
-  const db = await mysql.createConnection({
-    host: env.DB_HOST || '127.0.0.1',
-    user: env.DB_USER,
-    password: env.DB_PASS || env.DB_PASSWORD,
-    database: env.DB_NAME,
-    port: Number(env.DB_PORT || 3306),
-  });
+  const dbCfg = dbConfigFrom(env);
+  if (/\.railway\.internal$/.test(String(dbCfg.host || ''))) {
+    console.error(`[precons] ${dbCfg.host} is Railway's private address — it only resolves from inside`);
+    console.error('[precons] their network. Use the database service\'s public proxy URL instead:');
+    console.error("[precons]   MYSQL_PUBLIC_URL='mysql://user:pass@host.proxy.rlwy.net:PORT/railway' node scripts/import-precons.js");
+    process.exit(1);
+  }
+  console.log(`[precons] database ${dbCfg.user}@${dbCfg.host}:${dbCfg.port}/${dbCfg.database}`);
+  const db = await mysql.createConnection(dbCfg);
 
   const wantType = arg('type', 'Commander Deck');
   const limit = Number(arg('limit', 0)) || 0;
