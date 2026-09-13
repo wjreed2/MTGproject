@@ -3430,17 +3430,46 @@ app.get('/api/decks/public', async (req, res) => {
        WHERE d.is_public = 1
        ORDER BY d.created_at DESC`
     );
+    if (!rows.length) return res.json([]);
+
+    // Cards come from deck_cards and prices from the price log, exactly as the
+    // single-deck view builds them. Summing the blob's stamped prices instead
+    // under-reported every deck and reported zero for the ones whose blob was
+    // written before prices were attached at all. One extra query for every
+    // public deck's cards, and one price lookup over the union of them.
+    const [cardRows] = await db().query(
+      `SELECT dc.deck_id, dc.account_id, dc.card_uid, dc.card_data
+         FROM deck_cards dc
+         JOIN decks d ON d.id = dc.deck_id AND d.account_id = dc.account_id
+        WHERE d.is_public = 1`
+    );
+    const cardsByDeck = new Map();
+    const allCards = [];
+    for (const r of cardRows) {
+      const parsed = typeof r.card_data === 'string' ? JSON.parse(r.card_data) : r.card_data;
+      if (!parsed) continue;
+      const uid = parsed.uid || r.card_uid || '';
+      const card = { ...parsed, uid, foil: parsed.foil != null ? !!parsed.foil : String(uid).endsWith('_f') };
+      const key = `${r.account_id}::${r.deck_id}`;
+      if (!cardsByDeck.has(key)) cardsByDeck.set(key, []);
+      cardsByDeck.get(key).push(card);
+      allCards.push(card);
+    }
+    await attachPriceLogPricesToDeckCards(allCards);
+
+    // The card's own finish, falling back to non-foil when a foil price is
+    // missing — the same rule the deck page's value uses.
+    const deckValue = cards => (cards || []).reduce((sum, c) => {
+      const nonFoil = parseFloat(c.priceTCG) || 0;
+      const foil = parseFloat(c.priceTCGFoil) || 0;
+      const unit = c.foil ? (foil > 0 ? foil : nonFoil) : nonFoil;
+      return sum + unit * (c.qty || 1);
+    }, 0);
+
     const out = rows.map(r => {
       const deck = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
-      const cmdCard = (deck.cards || []).find(c => c.isCommander);
-      // Market value, the same sum the deck list shows: the card's own finish,
-      // falling back to non-foil when a foil price is missing.
-      const price = (deck.cards || []).reduce((sum, c) => {
-        const nonFoil = parseFloat(c.priceTCG) || 0;
-        const foil = parseFloat(c.priceTCGFoil) || 0;
-        const unit = c.foil ? (foil > 0 ? foil : nonFoil) : nonFoil;
-        return sum + unit * (c.qty || 1);
-      }, 0);
+      const cards = cardsByDeck.get(`${r.account_id}::${r.id}`) || deck.cards || [];
+      const cmdCard = cards.find(c => c.isCommander);
       return {
         id: deck.id,
         name: deck.name || 'Untitled',
