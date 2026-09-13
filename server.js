@@ -4024,7 +4024,8 @@ app.get('/api/decks', requireAuth, async (req, res) => {
 app.get('/api/decks/public', async (req, res) => {
   try {
     const [rows] = await db().query(
-      `SELECT d.id, d.data, d.account_id, a.email, d.revision, d.semantics_goal, d.semantics_goal_rev
+      `SELECT d.id, d.data, d.account_id, a.email, a.username, a.display_name,
+              d.revision, d.semantics_goal, d.semantics_goal_rev
        FROM decks d
        JOIN accounts a ON a.id = d.account_id
        WHERE d.is_public = 1
@@ -4112,6 +4113,10 @@ app.get('/api/decks/public', async (req, res) => {
         goal: goalByDeck.get(r.id) || null,
         price: Math.round(deckValue(cards) * 100) / 100,
         ownerEmail: r.email,
+        // A handle or display name where there is one — the local part of an
+        // email is a poor byline, and the precon library's is "Wizards of the
+        // Coast", not "precons".
+        ownerName: publicAccountName(r),
         accountId: r.account_id,
       };
     });

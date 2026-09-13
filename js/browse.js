@@ -93,7 +93,7 @@ function _browseDeckCard(d) {
         ${notes ? `<div class="pubdeck-notes">${escapeHtml(notes)}</div>` : ''}
         <div class="pubdeck-foot">
           ${price ? `<span class="pubdeck-price">${price}</span>` : ''}
-          <span class="pubdeck-meta">${d.cardCount} cards · ${escapeHtml(_ownerLabel(d.ownerEmail))}</span>
+          <span class="pubdeck-meta">${d.cardCount} cards · ${escapeHtml(d.ownerName || _ownerLabel(d.ownerEmail))}</span>
         </div>
       </div>
     </div>`;
@@ -255,6 +255,9 @@ function _pdvErrorHtml() {
       <div class="pdv-empty-title">Deck not available</div>
       <p>This share link is invalid or has been turned off by its owner.</p>
       <button class="btn btn-outline" onclick="location.href='/'">Go to MTG Archive</button>
+    </div>
+    <div class="pdv-container pdv-container--footer-only">
+      ${typeof dataDisclosureHtml === 'function' ? dataDisclosureHtml() : ''}
     </div>`;
 }
 
@@ -312,6 +315,7 @@ function _pdvDeckHtml(deck) {
       ${_pdvStatsHtml(cards)}
       <div class="pdv-decklist">${groupHtml}</div>
       <div class="pdv-footer">Shared via MTG Archive · <a href="/" onclick="event.preventDefault();location.href='/'">Sign in to build your own decks</a></div>
+      ${typeof dataDisclosureHtml === 'function' ? dataDisclosureHtml() : ''}
     </div>`;
 }
 
