@@ -2737,9 +2737,9 @@ let _tabletDrag = null;            // { sourceId, pointerId, dragging, startX/Y,
 let _tabletDragJustEnded = false;  // true for the trailing click after a real drag, so tap-to-advance ignores it
 let _dragMenuCtx = null;           // { sourceId, targetIds } for the open deal menu
 let _dragArrowEl = null;           // SVG overlay element
-// The theme's --red is a coral that turns pink over a warm seat wash; an attack
-// line has to stay unmistakably red against any of them.
-const _DRAG_RED = '#ff2f22';
+// The app's own red. A pure signal red read as louder than anything else on the
+// table; the theme's carries the same meaning without shouting.
+const _DRAG_RED = 'var(--red)';
 let _dragMenuOutsideHandler = null;
 // Set when a tap outside the deal menu dismisses it. Deliberately NOT
 // _tabletDragJustEnded: tabletDragPointerDown clears that on every pointerdown,
@@ -2768,7 +2768,7 @@ function tabletDragPointerDown(e) {
       : _rotDegOf(cell.dataset.rotated === '1'),
     startX: e.clientX, startY: e.clientY,
     lastX: e.clientX, lastY: e.clientY,
-    targets: [], anchors: [], dwell: null,
+    targets: [], anchors: [], dwell: null, leftSource: false,
     mode: null, seatTargetPid: null,
   };
   // Hold without moving on a wedge → seat-swap mode: drag the player onto
@@ -2847,8 +2847,12 @@ function tabletDragPointerMove(e) {
   // in the wedge or cell counts, since the pause is what carries the intent and
   // aiming at the number as well would be two demands in one gesture.
   const cell = _cellElAt(e.clientX, e.clientY);
-  const pid = (cell && cell.dataset.pid && cell.dataset.elim !== '1'
-    && cell.dataset.pid !== _tabletDrag.sourceId) ? cell.dataset.pid : null;
+  const over = cell && cell.dataset.elim !== '1' ? cell.dataset.pid : null;
+  // Your own seat counts too, but only once the drag has been somewhere else:
+  // it is where every drag begins, so pausing there at the outset is just the
+  // start of the gesture rather than a choice to hit yourself.
+  if (!cell || cell.dataset.pid !== _tabletDrag.sourceId) _tabletDrag.leftSource = true;
+  const pid = (over && (over !== _tabletDrag.sourceId || _tabletDrag.leftSource)) ? over : null;
   const d = _tabletDrag.dwell;
   if (!d || d.pid !== pid || Math.hypot(e.clientX - d.x, e.clientY - d.y) > _DWELL_SLOP) {
     _tabletDrag.dwell = { pid, x: e.clientX, y: e.clientY };
@@ -2857,9 +2861,9 @@ function tabletDragPointerMove(e) {
   _drawDragArrows(e.clientX, e.clientY);
 }
 
-// How long the finger has to hold still over an opponent to pick them up, and
-// how far it may drift while doing so.
-const _DWELL_MS = 250;
+// How long the finger has to hold still over a player to pick them up, and how
+// far it may drift while doing so.
+const _DWELL_MS = 150;
 const _DWELL_SLOP = 16;
 let _dwellTimer = null;
 
@@ -2906,11 +2910,12 @@ function tabletDragPointerUp(e) {
   if (!drag.dragging) { _highlightDragTargets([]); return; }
   _tabletDragJustEnded = true;   // a click follows this drag — don't let it advance the turn
   // Letting go on a player counts as well as pausing on one — a release is
-  // already a stop. The dragging player's own seat is excluded either way: the
-  // gesture starts there, so counting it would fire on every stray drag.
+  // already a stop. Same rule for your own seat as above: only once the drag has
+  // left it, so a stray twitch inside it can't open a menu on yourself.
   const cell = _cellElAt(e.clientX, e.clientY);
   const relPid = cell && cell.dataset.pid;
-  if (relPid && cell.dataset.elim !== '1' && relPid !== drag.sourceId && !drag.targets.includes(relPid)) {
+  const selfOk = relPid !== drag.sourceId || drag.leftSource;
+  if (relPid && cell.dataset.elim !== '1' && selfOk && !drag.targets.includes(relPid)) {
     drag.targets.push(relPid);
   }
   if (!drag.targets.length) { _highlightDragTargets([]); return; }
@@ -2933,15 +2938,17 @@ function _ensureDragArrow() {
   const defs = document.createElementNS(NS, 'defs');
   const marker = document.createElementNS(NS, 'marker');
   marker.setAttribute('id', 'dragArrowHead');
-  marker.setAttribute('markerWidth', '8'); marker.setAttribute('markerHeight', '8');
-  marker.setAttribute('refX', '6'); marker.setAttribute('refY', '3'); marker.setAttribute('orient', 'auto');
+  // markerUnits defaults to strokeWidth, so the head grows with the line — these
+  // are multiples of it, not pixels.
+  marker.setAttribute('markerWidth', '5'); marker.setAttribute('markerHeight', '5');
+  marker.setAttribute('refX', '3.4'); marker.setAttribute('refY', '1.8'); marker.setAttribute('orient', 'auto');
   const head = document.createElementNS(NS, 'path');
-  head.setAttribute('d', 'M0,0 L6,3 L0,6 Z'); head.setAttribute('fill', _DRAG_RED);
+  head.setAttribute('d', 'M0,0 L3.6,1.8 L0,3.6 Z'); head.style.fill = _DRAG_RED;
   marker.appendChild(head); defs.appendChild(marker); svg.appendChild(defs);
   const poly = document.createElementNS(NS, 'polyline');   // dotted path: origin → anchors → finger
   poly.setAttribute('id', 'dragPoly');
   poly.setAttribute('fill', 'none');
-  poly.setAttribute('stroke', _DRAG_RED); poly.setAttribute('stroke-width', '6');
+  poly.style.stroke = _DRAG_RED; poly.setAttribute('stroke-width', '6');
   poly.setAttribute('stroke-linecap', 'round'); poly.setAttribute('stroke-linejoin', 'round');
   // Solid, not dotted — the dashes read as a broken line against card art.
   poly.setAttribute('marker-end', 'url(#dragArrowHead)');
