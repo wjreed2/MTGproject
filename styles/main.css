@@ -10800,7 +10800,11 @@ body.glass-mode #tabletView {
     radial-gradient(52% 48% at 76% 88%, rgba(79,216,189,0.18), transparent 70%),
     radial-gradient(38% 34% at 10% 80%, rgba(255,170,110,0.14), transparent 70%),
     linear-gradient(180deg, #0b1122 0%, #0d1428 55%, #0a0f1f 100%);
-  gap: clamp(6px, 0.9vh, 10px);
+  /* No gutter between seats. The page showed through it as a line down the
+     middle of the table — subtle on the dark theme, a white rule on the light
+     one, and either way a border between players. They meet now, and the change
+     of colour is the edge. */
+  gap: 0;
   font-family: var(--glass-font);
   /* Single accent for the active player + the white→yellow→orange→red life
      ramp (_cellLifeColor's glass branch reads these; light theme remaps them) */
@@ -10820,7 +10824,9 @@ body.glass-mode #tabletView {
    stay glass, and the same hue simply gets brighter when it is their turn, so
    "whose turn" no longer needs a separate accent ring. */
 body.glass-mode #tabletView .tablet-cell {
-  border-radius: 22px;
+  /* Square, now that the seats butt together: rounded corners left four notches
+     of page background at every interior junction. */
+  border-radius: 0;
   /* Transparent rather than tinted: a 1px line round every seat still read as a
      border, and the colour wash is meant to be the only marking. */
   border-color: transparent !important;
@@ -10832,10 +10838,9 @@ body.glass-mode #tabletView .tablet-cell {
       var(--w2, color-mix(in oklab, var(--seat, #7aa2ff) 16%, transparent)) 60%,
       var(--w3, color-mix(in oklab, var(--seat, #7aa2ff) 7%, transparent)) 100%),
     rgba(255,255,255,0.05) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.13),
-    inset 0 0 0.5px rgba(255,255,255,0.09),
-    0 8px 28px rgba(0,0,0,0.30);
+  /* No inset highlight or drop shadow either: against the neighbouring seat
+     they drew a light line and a dark one, which is a border by another name. */
+  box-shadow: none;
   transition: background 0.25s var(--ease), border-color 0.25s var(--ease), box-shadow 0.25s var(--ease);
 }
 /* Brighter, and only brighter — the border stays exactly as it rests, so the
@@ -10848,10 +10853,7 @@ body.glass-mode #tabletView .tablet-cell[data-active="1"] {
       var(--wa2, color-mix(in oklab, var(--seat, #7aa2ff) 35%, transparent)) 65%,
       var(--wa3, color-mix(in oklab, var(--seat, #7aa2ff) 20%, transparent)) 100%),
     rgba(255,255,255,0.05) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.13),
-    inset 0 0 0.5px rgba(255,255,255,0.09),
-    0 8px 28px rgba(0,0,0,0.30) !important;
+  box-shadow: none !important;
 }
 /* Transient action states must keep their own rings (they outrank inline styles
    via !important in base CSS, which the neutral overrides above would beat). */
@@ -11294,6 +11296,41 @@ body.glass-mode .tablet-drag-menu button.active {
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.28), 0 2px 14px rgba(0,0,0,0.25) !important;
 }
 
+/* The same controls on the light theme. Every one of them was drawing
+   near-white text on a 7%-white fill, which on white is nothing at all: the
+   life buttons read as empty boxes and the ⋯ was invisible. */
+[data-theme="light"] body.glass-mode #tabletView .tablet-life-btn,
+[data-theme="light"] body.glass-mode #tabletView .tablet-turn-btn,
+[data-theme="light"] body.glass-mode #tabletView .tablet-dots-btn,
+[data-theme="light"] body.glass-mode #tabletView .tablet-center-box button,
+[data-theme="light"] body.glass-mode .tablet-player-menu button,
+[data-theme="light"] body.glass-mode .tablet-player-menu input,
+[data-theme="light"] body.glass-mode .tablet-drag-menu button,
+[data-theme="light"] body.glass-mode .tablet-drag-menu input {
+  border: 1px solid rgba(20, 35, 60, 0.14) !important;
+  background: rgba(255, 255, 255, 0.72) !important;
+  color: var(--text2) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 2px 8px rgba(30, 50, 90, 0.10) !important;
+}
+[data-theme="light"] body.glass-mode #tabletView .tablet-life-btn:hover,
+[data-theme="light"] body.glass-mode #tabletView .tablet-life-btn:active,
+[data-theme="light"] body.glass-mode #tabletView .tablet-turn-btn:hover,
+[data-theme="light"] body.glass-mode #tabletView .tablet-dots-btn:hover,
+[data-theme="light"] body.glass-mode #tabletView .tablet-center-box button:hover,
+[data-theme="light"] body.glass-mode .tablet-player-menu button:hover,
+[data-theme="light"] body.glass-mode .tablet-drag-menu button:hover {
+  color: var(--text) !important;
+  border-color: rgba(20, 35, 60, 0.26) !important;
+  background: rgba(255, 255, 255, 0.95) !important;
+}
+[data-theme="light"] body.glass-mode #tabletView .tablet-turn-btn.active,
+[data-theme="light"] body.glass-mode .tablet-player-menu button.active,
+[data-theme="light"] body.glass-mode .tablet-drag-menu button.active {
+  color: var(--text) !important;
+  border-color: rgba(var(--lgx1), 0.5) !important;
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.16), rgba(var(--lgx2), 0.16)) !important;
+}
+
 /* ── Tablet cell order: life, buttons, then the player's name row ──────────
    The name, ⋯ and turn clock sit under the counter buttons now — the life total
    and the controls you actually touch get the top of the cell, and the label
@@ -11484,9 +11521,7 @@ body.glass-mode :is(input:not([type="checkbox"]):not([type="radio"]):not([type="
       var(--lw2, color-mix(in oklab, var(--seat, #1668d8) 6%, transparent)) 60%,
       var(--lw3, transparent) 100%),
     rgba(255,255,255,0.50) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.9),
-    0 8px 28px rgba(30,50,90,0.14);
+  box-shadow: none;
 }
 [data-theme="light"] body.glass-mode #tabletView .tablet-cell[data-active="1"] {
   border-color: transparent !important;
@@ -11496,9 +11531,7 @@ body.glass-mode :is(input:not([type="checkbox"]):not([type="radio"]):not([type="
       var(--lwa2, color-mix(in oklab, var(--seat, #1668d8) 17%, transparent)) 65%,
       var(--lwa3, color-mix(in oklab, var(--seat, #1668d8) 9%, transparent)) 100%),
     rgba(255,255,255,0.55) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.9),
-    0 8px 28px rgba(30,50,90,0.14) !important;
+  box-shadow: none !important;
 }
 [data-theme="light"] body.glass-mode #tabletView .tablet-cell--pie,
 [data-theme="light"] body.glass-mode #tabletView .tablet-cell--pie[data-active="1"] { box-shadow: none !important; }

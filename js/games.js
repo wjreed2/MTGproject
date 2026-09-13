@@ -72,20 +72,25 @@ function _seatWarmth(hex) {
 
 /* [near, mid, far] alpha, at rest and on turn. Each has its own ceiling: a warm
    hue boosted to where it reads warm at rest would otherwise arrive so close to
-   its on-turn value that "whose turn" stopped being visible. */
+   its on-turn value that "whose turn" stopped being visible. The light theme is
+   laid on far more thinly — the same alpha that is a dark tint over near-black
+   is a poster colour over white. */
 const _SEAT_STOPS = {
   dark:  { rest: [0.30, 0.16, 0.07], restCap: [0.46, 0.30, 0.18],
-           act:  [0.56, 0.35, 0.20], actCap:  [0.74, 0.50, 0.32] },
-  light: { rest: [0.14, 0.06, 0.02], restCap: [0.30, 0.18, 0.10],
-           act:  [0.30, 0.17, 0.09], actCap:  [0.46, 0.28, 0.16] },
+           act:  [0.56, 0.35, 0.20], actCap:  [0.74, 0.50, 0.32], warm: true },
+  light: { rest: [0.11, 0.05, 0.02], restCap: [0.18, 0.10, 0.05],
+           act:  [0.22, 0.12, 0.06], actCap:  [0.30, 0.18, 0.10], warm: false },
 };
 
 function _seatWashVars(hex) {
-  const k = 1 + 1.05 * _seatWarmth(hex);
+  const warmK = 1 + 1.05 * _seatWarmth(hex);
   const rgb = hexToRgb(/^#[0-9a-f]{6}$/i.test(hex || '') ? hex : PLAYER_COLORS[0]);
   const out = [];
   for (const [theme, prefix] of [['dark', '--w'], ['light', '--lw']]) {
     const S = _SEAT_STOPS[theme];
+    // Warm hues only need the boost over a dark ground; over white they were
+    // never in the brown trap, and boosting them just made them shout.
+    const k = S.warm ? warmK : 1;
     for (const [key, tag] of [['rest', ''], ['act', 'a']]) {
       S[key].forEach((a, i) => {
         out.push(`${prefix}${tag}${i + 1}:rgba(${rgb},${Math.min(a * k, S[key + 'Cap'][i]).toFixed(3)})`);
@@ -95,19 +100,32 @@ function _seatWashVars(hex) {
   return out.join(';') + ';';
 }
 
-/**
- * The seat colour as text. A wash strong enough to read as orange is also
- * strong enough to swallow an orange name sitting on it, so type takes a
- * lifted version of the same hue — still recognisably the player's colour.
- */
-function _seatInk(hex) {
-  const { h, s, l } = _seatHsl(hex);
-  if (l >= 0.62 && s >= 0.3) return hex;
-  const nl = Math.max(l, 0.7), ns = Math.max(s, 0.55);
-  const c = (1 - Math.abs(2 * nl - 1)) * ns, x = c * (1 - Math.abs(((h / 60) % 2) - 1)), m = nl - c / 2;
+/** The theme the scoreboard is currently painted in. */
+function _tabletIsLight() {
+  return document.documentElement.dataset.theme === 'light';
+}
+
+function _hslHex(h, s, l) {
+  const c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs(((h / 60) % 2) - 1)), m = l - c / 2;
   const seg = [[c, x, 0], [x, c, 0], [0, c, x], [0, x, c], [x, 0, c], [c, 0, x]][Math.floor(h / 60) % 6];
   const to = v => Math.round((v + m) * 255).toString(16).padStart(2, '0');
   return `#${to(seg[0])}${to(seg[1])}${to(seg[2])}`;
+}
+
+/**
+ * The seat colour as text, pushed away from whatever it is sitting on: lifted
+ * on the dark theme, darkened on the light one. A wash strong enough to read as
+ * orange is also strong enough to swallow an orange name on top of it, and a
+ * pastel name on white is not there at all.
+ */
+function _seatInk(hex) {
+  const { h, s, l } = _seatHsl(hex);
+  if (_tabletIsLight()) {
+    if (l <= 0.44 && s >= 0.3) return hex;
+    return _hslHex(h, Math.max(s, 0.55), Math.min(l, 0.38));
+  }
+  if (l >= 0.62 && s >= 0.3) return hex;
+  return _hslHex(h, Math.max(s, 0.55), Math.max(l, 0.7));
 }
 // Every game started here is Commander — the picker is gone, and the formats it
 // offered were never played. Older games keep whatever format they were saved
@@ -2296,10 +2314,28 @@ function _wireTabletSurface(game, el) {
 /** Full life reads white and drains to red — continuous, so it tracks the
  *  number rather than stepping at thresholds. Replaces the blue→purple ramp,
  *  which competed with the seat colours now tinting each cell. */
+function _rgbFromHex(hex, fallback) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '').trim());
+  if (!m) return fallback;
+  const n = parseInt(m[1], 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+/**
+ * Full life to none, along the ramp the current theme defines.
+ *
+ * The endpoints used to be the dark theme's, hardcoded — so on the light theme
+ * a healthy player's total was drawn in near-white on near-white and simply was
+ * not there. --glass-life-hi / --glass-life-crit are set per theme on
+ * #tabletView; this reads them, which is why the light one now goes dark-to-red
+ * rather than white-to-red.
+ */
 function _lifeWhiteToRed(t) {
   const k = Math.max(0, Math.min(1, t));
-  const hi = [244, 246, 251];   // #f4f6fb at full
-  const lo = [232, 70, 58];     // #e8463a at zero
+  const el = typeof document !== 'undefined' ? document.getElementById('tabletView') : null;
+  const cs = el ? getComputedStyle(el) : null;
+  const hi = _rgbFromHex(cs && cs.getPropertyValue('--glass-life-hi'), [244, 246, 251]);
+  const lo = _rgbFromHex(cs && cs.getPropertyValue('--glass-life-crit'), [232, 70, 58]);
   const ch = i => Math.round(lo[i] + (hi[i] - lo[i]) * k);
   return `rgb(${ch(0)}, ${ch(1)}, ${ch(2)})`;
 }
@@ -2329,7 +2365,7 @@ function _cellCmdBadges(game, p, isCmd) {
     const danger = dmg >= 16;
     return `
         <span class="tablet-cmd-dmg${danger ? ' is-danger' : ''}" title="${escapeHtml(op.name)}: ${dmg}"
-              style="color:${op.color};opacity:${dmg > 0 ? 1 : 0.45}">${dmg}</span>`;
+              style="color:${_seatInk(op.color)};opacity:${dmg > 0 ? 1 : 0.45}">${dmg}</span>`;
   }).join('');
 }
 
@@ -2724,6 +2760,16 @@ window.addEventListener('resize', () => {
   _pieResizeTimer = setTimeout(_pieResizeRerender, 150);
 });
 
+// Seat colours, ink and the life ramp are resolved per theme and written into
+// inline styles as the cells are built, so switching theme mid-game has to
+// repaint the board. Watching the attribute rather than hooking _applyTheme
+// keeps this out of the load-order question — auth.js applies the stored theme
+// while it is being parsed, which may be before this file exists.
+if (typeof document !== 'undefined' && typeof MutationObserver === 'function') {
+  new MutationObserver(() => { if (tabletViewGameId) renderTabletView(); })
+    .observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+}
+
 // ── Drag-to-deal-damage (tablet view) ──────────────────────────────────────────
 // Press-and-hold a player cell and drag across one or more other players; each
 // cell the pointer sweeps into is committed as a target. On release a small menu
@@ -2990,7 +3036,7 @@ function _openDragDamageMenu(sourceId, targetIds, x, y, rotated) {
   const isCmd = game.format === 'Commander' || game.format === 'Brawl';
   const showCmd = !multi && isCmd && targets[0].id !== source.id;
   const targetsHtml = targets
-    .map(t => `<span style="color:${t.color}">${escapeHtml(t.name)}</span>`)
+    .map(t => `<span style="color:${_seatInk(t.color)}">${escapeHtml(t.name)}</span>`)
     .join('<span style="color:var(--text3)">,&nbsp;</span>');
 
   const menu = document.createElement('div');
@@ -2998,7 +3044,7 @@ function _openDragDamageMenu(sourceId, targetIds, x, y, rotated) {
   menu.onclick = ev => ev.stopPropagation();
   menu.innerHTML = `
     <div class="tablet-drag-menu-head" style="flex-wrap:wrap">
-      <span style="color:${source.color};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px">${escapeHtml(source.name)}</span>
+      <span style="color:${_seatInk(source.color)};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px">${escapeHtml(source.name)}</span>
       <span style="color:var(--text3)">${gameIcon('sword', 12)}</span>
       <span style="display:inline-flex;flex-wrap:wrap;justify-content:center;gap:0 2px;max-width:200px">${targetsHtml}</span>
     </div>
