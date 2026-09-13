@@ -10540,6 +10540,11 @@ async function ensureTagOverrideTables() {
     if (!(await columnExists(conn, 'tag_overrides', 'custom_tags_json'))) {
       await conn.query('ALTER TABLE tag_overrides ADD COLUMN custom_tags_json JSON NULL');
     }
+    // One colour per card, per account — the same row already holds this
+    // account's other opinions about the card.
+    if (!(await columnExists(conn, 'tag_overrides', 'color'))) {
+      await conn.query('ALTER TABLE tag_overrides ADD COLUMN color VARCHAR(16) NULL DEFAULT NULL');
+    }
   } finally {
     conn.release();
   }
@@ -10647,7 +10652,7 @@ function normalizeCustomTagTiersBody(tiers) {
 app.get('/api/tag-overrides', requireAuth, async (req, res) => {
   try {
     const [rows] = await db().query(
-      `SELECT o.oracle_id, o.add_tags_json, o.remove_tags_json, o.custom_tags_json, o.updated_at, oc.name
+      `SELECT o.oracle_id, o.add_tags_json, o.remove_tags_json, o.custom_tags_json, o.color, o.updated_at, oc.name
        FROM tag_overrides o
        LEFT JOIN scryfall_oracle_cards oc ON oc.oracle_id = o.oracle_id
        WHERE o.account_id = ?
@@ -10674,6 +10679,7 @@ app.get('/api/tag-overrides', requireAuth, async (req, res) => {
         removeTags: removeTags.filter(Boolean),
         customTags: parsedCustom.tags,
         customTagTiers: parsedCustom.tiers,
+        color: r.color || null,
         updatedAt: Number(r.updated_at || 0),
       };
     });
@@ -10697,17 +10703,27 @@ app.put('/api/tag-overrides/:oracleId', requireAuth, async (req, res) => {
   const customTags = normArr(req.body?.customTags);
   const customTagTiers = normalizeCustomTagTiersBody(req.body?.customTagTiers);
   const customTagsStored = serializeTagOverrideCustomTags(customTags, customTagTiers);
+  // Colour is written into a style attribute client-side, so only #rrggbb gets
+  // through. Omitting the key leaves the stored colour alone; sending null or
+  // '' clears it — a tag save must not wipe a colour it knows nothing about.
+  const hasColor = Object.prototype.hasOwnProperty.call(req.body || {}, 'color');
+  const rawColor = String(req.body?.color || '').trim();
+  if (hasColor && rawColor && !/^#[0-9a-f]{6}$/i.test(rawColor)) {
+    return res.status(400).json({ error: 'Invalid colour' });
+  }
+  const color = hasColor ? (rawColor.toLowerCase() || null) : null;
   const now = Date.now();
   try {
     await db().query(
-      `INSERT INTO tag_overrides (account_id, oracle_id, add_tags_json, remove_tags_json, custom_tags_json, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO tag_overrides (account_id, oracle_id, add_tags_json, remove_tags_json, custom_tags_json, color, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
          add_tags_json = VALUES(add_tags_json),
          remove_tags_json = VALUES(remove_tags_json),
          custom_tags_json = VALUES(custom_tags_json),
+         ${hasColor ? 'color = VALUES(color),' : ''}
          updated_at = VALUES(updated_at)`,
-      [req.accountId, oracleId, JSON.stringify(addTags), JSON.stringify(removeTags), JSON.stringify(customTagsStored), now, now]
+      [req.accountId, oracleId, JSON.stringify(addTags), JSON.stringify(removeTags), JSON.stringify(customTagsStored), color, now, now]
     );
     await refreshCollectionRoleTagsForAccountOracle(req.accountId, oracleId);
     res.json({ ok: true });

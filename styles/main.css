@@ -3631,6 +3631,28 @@ img.stack-main.loaded { opacity: 1; }
 /* Tags keep a real tag silhouette — angled leading edge + punch hole — but in
    frosted glass. Tier reads from the hole colour, so one row can mix sources. */
 #cardDetailModal .cd-tag-group { display: contents; }
+/* Edit Tags sits on the tag row itself, at the end of it — it belongs with the
+   tags it edits rather than with the deck actions above. */
+#cardDetailModal .cd-tag-edit { margin-left: auto; display: inline-flex; }
+/* Coloring: its own row under the tags, control on the left. */
+#cardDetailModal .card-detail-colorrow {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-top: 8px;
+}
+#cardDetailModal .cd-color-add { gap: 8px; }
+#cardDetailModal .cd-color-clear { min-width: 34px; padding: 0 10px !important; }
+.cd-color-dot {
+  width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0;
+  background: var(--cf, #5aa9f0);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+.cd-color-dot--empty {
+  background: none;
+  border-style: dashed;
+  border-color: currentColor;
+  opacity: 0.5;
+}
+[data-theme="light"] .cd-color-dot { border-color: rgba(20, 35, 60, 0.22); }
 #cardDetailModal .card-detail-tagrow { gap: 8px; row-gap: 8px; min-height: 1.75rem; }
 #cardDetailModal .cd-tags-empty { font-size: 0.75rem; color: var(--text3); }
 /* Tier is the whole tag's colour now — no border, no dot. Blue = primary,
@@ -5580,6 +5602,18 @@ body.glass-mode .deck-stack-card .stack-wrap {
   width: 13px; height: 13px;
   color: #fff;
   filter: drop-shadow(0 1px 1.5px rgba(0,0,0,0.45));
+}
+/* The card's own colour, behind the add/cut wedge and bigger than it, so a card
+   that is both coloured and being swapped shows a band of colour around the
+   swap marker. Left corner only — mana symbols live on the right of the art. */
+.stack-color-flag {
+  position: absolute; top: 0; left: 0; right: auto; z-index: 9;
+  width: 48px; height: 48px;
+  padding: 0; border: none; pointer-events: none;
+  clip-path: polygon(0 0, 100% 0, 0 100%);
+  border-top-left-radius: 9px;
+  background: linear-gradient(135deg, var(--cf, #5aa9f0), color-mix(in oklab, var(--cf, #5aa9f0) 68%, #000));
+  box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.3);
 }
 .stack-cut-flag { background: linear-gradient(135deg, rgba(232, 108, 94, 0.96), rgba(190, 58, 46, 0.9)); }
 .stack-add-flag { background: linear-gradient(135deg, rgba(112, 224, 156, 0.96), rgba(46, 162, 98, 0.9)); }

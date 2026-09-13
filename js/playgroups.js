@@ -218,9 +218,11 @@ let _pgPickCtx = null;   // { groupId, memberId, h, s, v, opts }
 
 /**
  * `opts` lets a screen other than the playgroups panel drive the picker:
- * `current` seeds it, `onPreview` paints wherever that screen shows the colour,
- * `onCommit` saves it, and `onClose` fires once the menu is gone. Omit them and
- * it previews on the member row and saves to the playgroup, as it always has.
+ * `current` seeds it, `presets` replaces the swatch row, `onPreview` paints
+ * wherever that screen shows the colour, `onCommit` saves it, and `onClose`
+ * fires once the menu is gone. `align: 'right'` hangs the menu off the
+ * trigger's right edge instead of its left. Omit them all and it previews on
+ * the member row and saves to the playgroup, as it always has.
  */
 function pgOpenColorPicker(groupId, memberId, btn, opts = {}) {
   if (typeof event !== 'undefined' && event) event.stopPropagation();
@@ -249,7 +251,7 @@ function pgOpenColorPicker(groupId, memberId, btn, opts = {}) {
       <input class="pgc-hex" id="pgcHex" maxlength="7" spellcheck="false" aria-label="Hex colour">
       <button type="button" class="btn btn-outline btn-sm pgc-apply" id="pgcApply">Done</button>
     </div>
-    <div class="pgc-presets">${PLAYER_COLORS.map(c =>
+    <div class="pgc-presets">${(opts.presets && opts.presets.length ? opts.presets : PLAYER_COLORS).map(c =>
       `<button type="button" class="pgc-preset" data-c="${c}" style="--sw:${c}" title="${c}"></button>`).join('')}</div>`;
 
   document.body.appendChild(menu);
@@ -305,7 +307,8 @@ function pgOpenColorPicker(groupId, memberId, btn, opts = {}) {
   const below = window.innerHeight - r.bottom;
   const top = below >= mh + 10 ? r.bottom + 6 : Math.max(margin, r.top - mh - 6);
   menu.style.top = Math.min(top, window.innerHeight - mh - margin) + 'px';
-  menu.style.left = Math.min(Math.max(margin, r.left), window.innerWidth - mw - margin) + 'px';
+  const wantLeft = opts.align === 'right' ? r.right - mw : r.left;
+  menu.style.left = Math.min(Math.max(margin, wantLeft), window.innerWidth - mw - margin) + 'px';
 }
 
 let _pgCommitTimer = null;

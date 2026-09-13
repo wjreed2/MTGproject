@@ -938,7 +938,7 @@ let _archFitSubCount = 4;
 let _archUserSizeAtWidth = null;
 let _archStackResizeObserver = null;
 let _archStackResizeTimer = null;
-const _DECK_STACK_SORT_KEYS = new Set(['name', 'cmc', 'mana', 'price', 'badge']);
+const _DECK_STACK_SORT_KEYS = new Set(['name', 'cmc', 'mana', 'price', 'badge', 'coloring']);
 // Architecture briefly lived under Sort; move anyone who picked it over to Group By.
 let _migrateArchSortToGroup = false;
 let deckStackSort = (() => {
@@ -2216,6 +2216,27 @@ function _deckCardSortPrice(c) {
   return Number(c?.priceTCG) || 0;
 }
 
+/**
+ * Sort key for "Coloring" — round the hue wheel, uncoloured cards last.
+ *
+ * Hue rather than hex so colours that look alike land together however they
+ * were picked; the two are unrelated orders (#ff0000 and #ff0010 are adjacent
+ * hues but far apart as strings).
+ */
+function _deckCardColorSortKey(card) {
+  const hex = typeof cardColorHex === 'function' ? cardColorHex(card) : null;
+  if (!hex) return 1e6;
+  const n = parseInt(hex.slice(1), 16);
+  const r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  if (!d) return 1e5 + Math.round(max * 100);      // greys together, before "none"
+  let h = 0;
+  if (max === r) h = 60 * (((g - b) / d) % 6);
+  else if (max === g) h = 60 * ((b - r) / d + 2);
+  else h = 60 * ((r - g) / d + 4);
+  return (h + 360) % 360;
+}
+
 /** Sort key for "Badge" sort — same tag as the painted badge; un-badged last. */
 function _deckCardBadgeSortKey(card) {
   const tag = (typeof _badgeTagForCard === 'function' ? _badgeTagForCard(card) : null) || '';
@@ -2242,6 +2263,8 @@ function _deckStackSortCards(items, cardOf) {
       cmp = _deckCardSortPrice(a) - _deckCardSortPrice(b);
     } else if (deckStackSort === 'badge') {
       cmp = _deckCardBadgeSortKey(a).localeCompare(_deckCardBadgeSortKey(b), undefined, { sensitivity: 'base' });
+    } else if (deckStackSort === 'coloring') {
+      cmp = _deckCardColorSortKey(a) - _deckCardColorSortKey(b);
     } else {
       cmp = tieName(a, b);
     }
@@ -3103,6 +3126,7 @@ async function loadTagOverrides(force = false) {
           removeTags: Array.isArray(r.removeTags) ? r.removeTags.filter(Boolean) : [],
           customTags: Array.isArray(r.customTags) ? r.customTags.filter(Boolean) : [],
           customTagTiers: _normalizeCustomTagTiers(r.customTagTiers),
+          color: r.color || null,
           updatedAt: Number(r.updatedAt || 0),
           cardName: r.cardName || null,
         },
@@ -5350,13 +5374,78 @@ async function _saveGlobalCustomTags(oracleId) {
   const customTags = Array.from(ov.customTags || []);
   const customTagTiers = _normalizeCustomTagTiers(ov.customTagTiers);
   const hasTiers = Object.keys(customTagTiers).length > 0;
-  if (!addTags.length && !removeTags.length && !customTags.length && !hasTiers) {
+  const color = ov.color || null;
+  if (!addTags.length && !removeTags.length && !customTags.length && !hasTiers && !color) {
     await apiDelete(`/tag-overrides/${oid}`);
     _tagOverridesByOracleId.delete(oid);
   } else {
-    await apiPut(`/tag-overrides/${oid}`, { addTags, removeTags, customTags, customTagTiers });
+    await apiPut(`/tag-overrides/${oid}`, { addTags, removeTags, customTags, customTagTiers, color });
   }
 }
+
+// ── Card colouring ───────────────────────────────────────────────────────────
+/**
+ * A colour the user puts on a card, one per card, stored on the same per-oracle
+ * row as their tags. It is their own marking — nothing about the card derives
+ * it — so it groups and sorts alongside tags rather than with colour identity.
+ */
+const CARD_COLOR_PRESETS = [
+  { hex: '#5aa9f0', name: 'Blue' },
+  { hex: '#a98cf0', name: 'Violet' },
+  { hex: '#3dbfa4', name: 'Teal' },
+  { hex: '#6fc35a', name: 'Green' },
+  { hex: '#e0c14a', name: 'Gold' },
+  { hex: '#e0994a', name: 'Amber' },
+  { hex: '#e8705f', name: 'Rose' },
+  { hex: '#e06fb4', name: 'Pink' },
+];
+const _CARD_COLOR_RECENT_KEY = 'mtg_card_color_recent';
+const CARD_COLOR_RECENT_MAX = 10;
+
+/** The user's saved colours, most recent first. */
+function cardColorRecents() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(_CARD_COLOR_RECENT_KEY) || '[]');
+    return (Array.isArray(raw) ? raw : [])
+      .map(v => String(v || '').toLowerCase())
+      .filter(v => /^#[0-9a-f]{6}$/.test(v))
+      .slice(0, CARD_COLOR_RECENT_MAX);
+  } catch (_) { return []; }
+}
+
+function _rememberCardColor(hex) {
+  const v = String(hex || '').toLowerCase();
+  if (!/^#[0-9a-f]{6}$/.test(v)) return;
+  const next = [v, ...cardColorRecents().filter(c => c !== v)].slice(0, CARD_COLOR_RECENT_MAX);
+  try { localStorage.setItem(_CARD_COLOR_RECENT_KEY, JSON.stringify(next)); } catch (_) { /* private mode */ }
+}
+
+/** The colour on a card, or null. */
+function cardColorHex(card) {
+  const oid = _oracleIdForMyTags(card);
+  if (!oid) return null;
+  const ov = _tagOverridesByOracleId.get(oid);
+  const hex = ov && ov.color;
+  return /^#[0-9a-f]{6}$/i.test(String(hex || '')) ? String(hex).toLowerCase() : null;
+}
+
+/** Paint (or clear, with null) a card's colour. Optimistic; the save follows. */
+function setCardColorHex(card, hex) {
+  const oid = _oracleIdForMyTags(card);
+  if (!oid) { showNotif('This card has no oracle id to colour', true); return false; }
+  const v = hex == null ? null : String(hex).toLowerCase();
+  if (v && !/^#[0-9a-f]{6}$/.test(v)) return false;
+  const ov = _ensureTagOverrideRow(oid, card?.name);
+  if (!ov) return false;
+  ov.color = v;
+  ov.updatedAt = Date.now();
+  if (v) _rememberCardColor(v);
+  _queueGlobalCustomTagsSave(oid);
+  return true;
+}
+globalThis.cardColorHex = cardColorHex;
+globalThis.setCardColorHex = setCardColorHex;
+globalThis.cardColorRecents = cardColorRecents;
 
 function _ensureTagOverrideRow(oracleId, cardName) {
   const oid = _normalizeTagOracleId(oracleId);
@@ -5993,6 +6082,29 @@ function _dedupeDeckMainboardCards(deck) {
   return changed;
 }
 
+/**
+ * A readable name for a colour group. Presets keep the name they were given;
+ * anything hand-picked is named by the nearest hue band, so "Teal" and a
+ * slightly different teal group together rather than as two hex strings.
+ */
+function _cardColorGroupLabel(hex) {
+  const preset = (typeof CARD_COLOR_PRESETS !== 'undefined' ? CARD_COLOR_PRESETS : [])
+    .find(p => p.hex === hex);
+  if (preset) return preset.name;
+  const n = parseInt(hex.slice(1), 16);
+  const r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  if (d < 0.08) return max > 0.6 ? 'White' : max > 0.25 ? 'Grey' : 'Black';
+  let hue = 0;
+  if (max === r) hue = 60 * (((g - b) / d) % 6);
+  else if (max === g) hue = 60 * ((b - r) / d + 2);
+  else hue = 60 * ((r - g) / d + 4);
+  hue = (hue + 360) % 360;
+  const bands = [[15, 'Red'], [45, 'Orange'], [70, 'Gold'], [160, 'Green'],
+    [200, 'Teal'], [255, 'Blue'], [290, 'Violet'], [335, 'Pink'], [360, 'Red']];
+  return (bands.find(([to]) => hue < to) || bands[bands.length - 1])[1];
+}
+
 function _buildDeckGroups(cards, groupBy) {
   // Commander always gets its own group regardless of sort mode
   const commanderCards = cards.filter(c => c.isCommander);
@@ -6031,6 +6143,24 @@ function _buildDeckGroups(cards, groupBy) {
     });
     const ordered = {};
     Object.keys(groups).sort(_compareDeckTagGroupKeys).forEach(k => { if (groups[k].length) ordered[k] = groups[k]; });
+    return withCommander(ordered);
+  }
+  if (groupBy === 'coloring') {
+    const groups = new Map();
+    rest.forEach(c => {
+      const hex = typeof cardColorHex === 'function' ? cardColorHex(c) : null;
+      const label = hex ? _cardColorGroupLabel(hex) : 'Uncoloured';
+      if (!groups.has(label)) groups.set(label, []);
+      groups.get(label).push(c);
+    });
+    const ordered = {};
+    [...groups.keys()]
+      .sort((x, y) => {
+        if (x === 'Uncoloured') return 1;
+        if (y === 'Uncoloured') return -1;
+        return _deckCardColorSortKey(groups.get(x)[0]) - _deckCardColorSortKey(groups.get(y)[0]);
+      })
+      .forEach(k => { ordered[k] = groups.get(k); });
     return withCommander(ordered);
   }
   if (groupBy === 'color') {
@@ -6454,6 +6584,12 @@ function _stackTile(c, zone = 'main', poolHints = null) {
   const addBadge = isPlannedAdd || zone === 'add'
     ? `<div class="stack-add-flag" role="img" aria-label="Planned add" title="Planned add — not counted in the deck">${_SWAP_ADD_ICON}</div>`
     : '';
+  // The user's own colour, on a wedge behind the add/cut one so both read when a
+  // coloured card is also being swapped.
+  const colorHex = typeof cardColorHex === 'function' ? cardColorHex(c) : null;
+  const colorFlag = colorHex
+    ? `<div class="stack-color-flag" style="--cf:${colorHex}" role="img" aria-label="Coloured ${escapeHtml(colorHex)}" title="Coloured ${escapeHtml(colorHex)}"></div>`
+    : '';
   const swapCls = (cutQty > 0 || zone === 'cut') ? ' is-planned-cut' : (isPlannedAdd || zone === 'add') ? ' is-planned-add' : '';
 
   const isGameChanger = typeof isGameChangerCard === 'function' && isGameChangerCard(c);
@@ -6488,6 +6624,7 @@ function _stackTile(c, zone = 'main', poolHints = null) {
         ${gcBadge}
         ${mbPoolBadge}
         ${sbPoolBadge}
+        ${colorFlag}
         ${cutBadge}
         ${addBadge}
         ${ownerBadge}
@@ -13493,7 +13630,11 @@ function _htmlCardDetailSwapActionsInner(ctx) {
   const btns = [];
   if (inMain) {
     btns.push(`<button class="btn btn-outline btn-sm" title="Move this card from the mainboard to the maybe board" onclick="moveToMaybeboardFromDetail('${ref(inMain)}')">&rarr; MB</button>`);
-    if (swapsOn) {
+    // Already marked as a cut: the useful action is making the cut, not moving
+    // the card to the adds pile. It leaves the collection alone either way.
+    if (swapsOn && cutQty > 0) {
+      btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--red);border-color:var(--red)" title="Cut this card from the deck now — your collection is untouched" onclick="commitPlannedCutFromDetail('${ref(cutSlot || inMain)}')">${_SWAP_CUT_ICON} Cut from deck</button>`);
+    } else if (swapsOn) {
       btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--green);border-color:var(--green)" title="Move this card from the mainboard to planned adds" onclick="moveMainToAddsFromDetail('${ref(inMain)}')">${_SWAP_ADD_ICON} Adds</button>`);
     }
   }
@@ -13538,6 +13679,7 @@ function _refreshCardDetailAfterSwapAction(uid) {
   if (document.getElementById('cardDetailModal')?.classList.contains('open')) openCardDetail(uid, 'deck');
 }
 
+function commitPlannedCutFromDetail(uid) { commitPlannedCut(uid); _refreshCardDetailAfterSwapAction(uid); }
 function markPlannedCutFromDetail(uid) { markPlannedCut(uid); _refreshCardDetailAfterSwapAction(uid); }
 function unmarkPlannedCutFromDetail(uid) { unmarkPlannedCut(uid); _refreshCardDetailAfterSwapAction(uid); }
 function moveToMaybeboardFromDetail(uid) { moveToSideboard(uid); _refreshCardDetailAfterSwapAction(uid); }

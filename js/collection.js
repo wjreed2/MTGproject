@@ -2706,23 +2706,19 @@ function _htmlCardDetailPrimaryActionsInner(ctx) {
   if (_cardDetailIsSharedCollection()) {
     return '<div class="card-detail-readonly-note">Read-only — this card is in a collection shared with you</div>';
   }
-  const ref = String(actionUid || '').replace(/'/g, "\\'");
-  // Edit Tags groups with Change printing / swaps on the left; Remove is pushed
-  // to the far right by .btn-danger's auto margin, so it must come last.
-  const tagsBtn = `<button class="btn btn-outline btn-sm" onclick="openGlobalTagPickerForCard('${ref}')">Edit Tags</button>`;
+  // Edit Tags moved into the Tags & Coloring section, beside the tags it edits.
   // Already in the open deck → no "+ Add to Deck" (the zone/swap buttons cover it).
   const inOpenDeck = !!(ctx.activeDeckCard && (ctx.inDeckQty || 0) > 0)
     || (typeof cardDetailIsPlannedAdd === 'function' && cardDetailIsPlannedAdd(ctx));
+  // No "+ Add to Collection" anywhere in here: collecting is what Add Cards is
+  // for, and an inspector opened from a deck or a set is not a place to acquire.
   return isOwned
     ? `${inOpenDeck ? '' : `<button class="btn btn-primary btn-sm" title="Add to deck" onclick="addToDeckFromDetail('${actionUid}')">+ Add</button>`}
                ${printBtn}
                ${swapBtns}
-               ${tagsBtn}
                <button class="btn btn-danger btn-sm" onclick="removeFromCollection('${actionUid}')">Remove</button>`
-    : `<button class="btn btn-primary btn-sm" onclick="addCardToCollectionFromDetail('${uid}')">+ Add to Collection</button>
-               ${printBtn}
-               ${swapBtns}
-               ${tagsBtn}`;
+    : `${printBtn}
+               ${swapBtns}`;
 }
 
 function _syncCardDetailRowPrimaryActions(ctx) {
@@ -2790,6 +2786,9 @@ function _syncCardDetailInspectorInPlace(card, ctx) {
   _syncCardDetailRowCollection(ctx);
   _syncCardDetailRowInDeck(ctx);
   _syncCardDetailRowPrimaryActions(ctx);
+  const editTagsEl = document.getElementById('cardDetailEditTagsWrap');
+  if (editTagsEl) editTagsEl.innerHTML = _htmlCardDetailEditTagsBtn(ctx);
+  _syncCardDetailColorRow(ctx);
   _syncCardDetailTagToDeckWrap(ctx);
   void _loadCardDetailMyTags(card);
   return true;
@@ -3032,7 +3031,7 @@ function _htmlOpenCardDetailRightColumn(ctx) {
           </div>
         </div>
         <div class="card-detail-section card-detail-section--flush">
-          <div class="card-detail-section-label">TAGS
+          <div class="card-detail-section-label">TAGS &amp; COLORING
             <span class="deck-cut-help tooltip-wrap card-detail-tag-help" tabindex="0" aria-label="What the tag colours mean">
               <span class="deck-cut-help-icon" aria-hidden="true">i</span>
               <span class="tooltip deck-cut-help-tooltip">
@@ -3040,7 +3039,9 @@ function _htmlOpenCardDetailRightColumn(ctx) {
                 <strong>Green</strong> — default tag, derived from the card itself.<br>
                 <strong>Blue</strong> — primary: one of this card's main roles.<br>
                 <strong>Purple</strong> — secondary: a supporting role.<br>
-                Click a tag to change its importance.
+                Click a tag to change its importance.<br><br>
+                <strong>Coloring</strong> is your own marking — one colour per card,
+                shown as a corner flag on the deck list, which can group and sort by it.
               </span>
             </span>
           </div>
@@ -3055,7 +3056,9 @@ function _htmlOpenCardDetailRightColumn(ctx) {
                 ${myTagsChipsHtml}
               </span>
             </span>
+            <span id="cardDetailEditTagsWrap" class="cd-tag-edit">${_htmlCardDetailEditTagsBtn(ctx)}</span>
           </div>
+          <div id="cardDetailColorRow" class="card-detail-colorrow">${_htmlCardDetailColorRow(ctx)}</div>
         </div>
         <!-- Tag-to-deck became the Pin button in the left-hand utility row. -->
         <div id="cardDetailTagToDeckWrap" style="display:none"></div>
@@ -3856,6 +3859,91 @@ function _resolveActiveDeckCardForOpenDetail(uid) {
     : (card.uid || (card.scryfallId ? card.scryfallId + (card.foil ? '_f' : '_n') : ''));
   const activeDeckCard = _findActiveDeckSlotByCardKey(activeDeck, cardKey);
   return { activeDeckCard };
+}
+
+/** Edit Tags now lives with the tags rather than with the deck actions. */
+function _htmlCardDetailEditTagsBtn(ctx) {
+  if (_cardDetailIsSharedCollection()) return '';
+  const ref = String(ctx?.actionUid || '').replace(/'/g, "\\'");
+  return `<button class="btn btn-outline btn-sm" onclick="openGlobalTagPickerForCard('${ref}')">Edit Tags</button>`;
+}
+
+/**
+ * The colouring row: the card's colour, or the control that gives it one.
+ *
+ * One colour per card, so this is a single chip rather than a list — picking
+ * again replaces it.
+ */
+function _htmlCardDetailColorRow(ctx) {
+  if (_cardDetailIsSharedCollection()) return '';
+  if (typeof cardColorHex !== 'function') return '';
+  const ref = String(ctx?.actionUid || ctx?.uid || '').replace(/'/g, "\\'");
+  const hex = cardColorHex(ctx?.card);
+  if (!hex) {
+    return `<button type="button" class="btn btn-outline btn-sm cd-color-add" onclick="openCardColorPicker('${ref}', this)">
+        <span class="cd-color-dot cd-color-dot--empty" aria-hidden="true"></span>+ Add color</button>`;
+  }
+  const label = typeof _cardColorGroupLabel === 'function' ? _cardColorGroupLabel(hex) : hex;
+  return `<button type="button" class="btn btn-outline btn-sm cd-color-add" onclick="openCardColorPicker('${ref}', this)" title="Change this card's colour">
+      <span class="cd-color-dot" style="--cf:${hex}" aria-hidden="true"></span>${escapeHtml(label)}</button>
+    <button type="button" class="btn btn-outline btn-sm cd-color-clear" onclick="clearCardColor('${ref}')" title="Remove this card's colour" aria-label="Remove colour">✕</button>`;
+}
+
+function _cardForColoring(uid) {
+  if (typeof _findCardForTagPicker === 'function') {
+    const c = _findCardForTagPicker(uid);
+    if (c) return c;
+  }
+  return (collection || []).find(c => c.uid === uid || c.scryfallId === uid) || null;
+}
+
+function _syncCardDetailColorRow(ctx) {
+  const el = document.getElementById('cardDetailColorRow');
+  if (!el) return;
+  // Called both from the in-place sync (which has a context) and from a colour
+  // change (which only knows the open card).
+  const useCtx = ctx || (() => {
+    const uid = _cardDetailCurrentUid;
+    const card = uid ? _cardForColoring(uid) : null;
+    return card ? { card, uid, actionUid: uid } : null;
+  })();
+  if (useCtx) el.innerHTML = _htmlCardDetailColorRow(useCtx);
+}
+
+/** Repaint whatever is showing these cards, so the corner flag follows at once. */
+function _afterCardColorChange() {
+  _syncCardDetailColorRow();
+  if (typeof renderActiveDeck === 'function' && typeof getActiveDeck === 'function' && getActiveDeck()) {
+    renderActiveDeck();
+  }
+}
+
+function openCardColorPicker(uid, btn) {
+  const card = _cardForColoring(uid);
+  if (!card) { showNotif('Could not find that card', true); return; }
+  if (typeof pgOpenColorPicker !== 'function') return;
+  const current = (typeof cardColorHex === 'function' && cardColorHex(card))
+    || (typeof CARD_COLOR_PRESETS !== 'undefined' ? CARD_COLOR_PRESETS[0].hex : '#5aa9f0');
+  const presets = [
+    ...(typeof CARD_COLOR_PRESETS !== 'undefined' ? CARD_COLOR_PRESETS.map(p => p.hex) : []),
+    ...(typeof cardColorRecents === 'function' ? cardColorRecents() : []),
+  ];
+  const dot = btn?.querySelector('.cd-color-dot');
+  pgOpenColorPicker(null, null, btn, {
+    current,
+    presets: [...new Set(presets)],
+    align: 'left',
+    onPreview: hex => { if (dot) { dot.style.setProperty('--cf', hex); dot.classList.remove('cd-color-dot--empty'); } },
+    onCommit: hex => { if (typeof setCardColorHex === 'function') setCardColorHex(card, hex); },
+    onClose: () => _afterCardColorChange(),
+  });
+}
+
+function clearCardColor(uid) {
+  const card = _cardForColoring(uid);
+  if (!card || typeof setCardColorHex !== 'function') return;
+  setCardColorHex(card, null);
+  _afterCardColorChange();
 }
 
 function openGlobalTagPickerForCard(uid) {
