@@ -128,6 +128,14 @@
 <div id="publicDeckView" class="public-deck-view" style="display:none"></div>
 
 <header class="topbar">
+  <!-- Phone navigation. The bar itself is collapsed to nothing on phones, but it
+       is the one always-present host outside the tab panes, so the button and
+       its menu live here and are positioned by mobile.css. -->
+  <button id="mobNavToggle" class="mob-nav-toggle" onclick="toggleMobNav(event)" aria-haspopup="true" aria-expanded="false" aria-label="Menu" title="Menu">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/></svg>
+    <span class="mob-nav-toggle-badge" id="mobNavToggleBadge" hidden aria-hidden="true">0</span>
+  </button>
+  <nav id="mobNavMenu" class="mob-nav-menu" hidden aria-label="Sections"></nav>
   <button class="topbar-toggle" onclick="toggleSidebar()" title="Toggle sidebar">
     <svg class="sidebar-toggle-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
       <line x1="2" y1="4" x2="14" y2="4"/><line x1="2" y1="8" x2="14" y2="8"/><line x1="2" y1="12" x2="14" y2="12"/>
@@ -1206,6 +1214,10 @@
 <div id="tab-games" class="tab-content">
 
   <div class="games-desktop-layout">
+
+    <div class="top-action-bar" style="display:flex;align-items:center;gap:10px;margin-bottom:1.25rem;flex-wrap:wrap">
+      <span class="page-title">Games</span>
+    </div>
 
     <!-- Games / Playgroups / Leaderboard folder tabs, same component as the deck builder -->
     <div class="deck-folder-tabs" id="gamesTabs" role="tablist" aria-label="Games sections">

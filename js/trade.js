@@ -2282,9 +2282,10 @@ function initNotifications() {
 
 function _applyNotifBadge(n) {
   const count = Math.max(0, Number(n) || 0);
-  // Two badges now: the topbar bell on desktop and the bottom-nav Alerts button
-  // on phones, where the topbar is collapsed away.
-  for (const id of ['topbarNotifBadge', 'mobNotifBadge']) {
+  // Three places can carry it: the topbar bell on desktop, and on phones the
+  // menu button itself (so an unread count is visible without opening it) plus
+  // the Notifications row inside the menu.
+  for (const id of ['topbarNotifBadge', 'mobNotifBadge', 'mobNavToggleBadge', 'mobNavMenuNotifBadge']) {
     const badge = document.getElementById(id);
     if (!badge) continue;
     badge.textContent = count > 99 ? '99+' : String(count);

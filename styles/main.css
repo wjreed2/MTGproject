@@ -4520,6 +4520,11 @@ body.glass-mode .x-stepper-btn-sm { border-radius: 7px; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px;
 }
 
+/* The phone navigation button and its menu exist in the topbar on every screen;
+   mobile.css is what turns them on. */
+.mob-nav-toggle { display: none; }
+.mob-nav-menu[hidden] { display: none; }
+
 /* ── Tag badges: catalogue rows and the designer ────────────────────────────── */
 .tagcat-row { gap: 7px; }
 .tagcat-badge-btn {

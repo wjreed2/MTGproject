@@ -157,6 +157,101 @@
   }
   .topbar-brand,
   .topbar-user { display: none !important; }
+
+  /* ── Phone navigation ──────────────────────────────────────────────────
+     The bottom bar is gone: nine destinations across the foot of the screen
+     left each one a guess, and it stood between the content and the home
+     indicator on every page. One button in the corner opens the same list the
+     desktop sidebar shows, in the same order. */
+  .mobile-bottom-nav { display: none !important; }
+  .mob-nav-toggle {
+    display: inline-flex !important;
+    position: fixed;
+    top: calc(env(safe-area-inset-top, 0px) + 10px);
+    left: 10px;
+    z-index: 420;
+    pointer-events: auto;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    padding: 0;
+    border-radius: 10px;
+    border: 1px solid var(--border2);
+    background: var(--bg3);
+    color: var(--text);
+    cursor: pointer;
+  }
+  .mob-nav-toggle svg { width: 18px; height: 18px; }
+  body.glass-mode .mob-nav-toggle {
+    background: rgba(255, 255, 255, 0.10);
+    border-color: rgba(255, 255, 255, 0.22);
+    -webkit-backdrop-filter: blur(18px) saturate(160%);
+    backdrop-filter: blur(18px) saturate(160%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 6px 20px rgba(0, 0, 0, 0.35);
+  }
+  [data-theme="light"] body.glass-mode .mob-nav-toggle {
+    background: rgba(255, 255, 255, 0.8);
+    border-color: rgba(255, 255, 255, 0.9);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.95), 0 6px 20px rgba(30, 50, 90, 0.14);
+  }
+  .mob-nav-toggle.is-open { border-color: rgba(var(--lgx1), 0.6); }
+  .mob-nav-toggle-badge {
+    position: absolute; top: -4px; right: -4px;
+  }
+  /* Titles leave the corner free so the button lines up beside them. */
+  .page-title { margin-left: 46px; }
+
+  .mob-nav-menu {
+    position: fixed;
+    top: calc(env(safe-area-inset-top, 0px) + 54px);
+    left: 10px;
+    z-index: 419;
+    pointer-events: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 216px;
+    max-height: calc(100dvh - env(safe-area-inset-top, 0px) - 84px);
+    overflow-y: auto;
+    padding: 6px;
+    border-radius: 14px;
+    border: 1px solid var(--border2);
+    background: var(--bg2);
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+  }
+  body.glass-mode .mob-nav-menu {
+    background: rgba(16, 22, 40, 0.86);
+    border-color: rgba(255, 255, 255, 0.18);
+    -webkit-backdrop-filter: blur(26px) saturate(180%);
+    backdrop-filter: blur(26px) saturate(180%);
+  }
+  [data-theme="light"] body.glass-mode .mob-nav-menu {
+    background: rgba(255, 255, 255, 0.92);
+    border-color: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 18px 50px rgba(30, 50, 90, 0.18);
+  }
+  .mob-nav-row {
+    display: flex; align-items: center; gap: 10px;
+    width: 100%;
+    padding: 9px 11px;
+    border: none; border-radius: 9px;
+    background: none;
+    color: var(--text2);
+    font-family: inherit; font-size: 0.88rem; text-align: left;
+    cursor: pointer;
+    position: relative;
+  }
+  .mob-nav-row-icon { display: inline-flex; width: 18px; flex-shrink: 0; }
+  .mob-nav-row-icon svg { width: 17px; height: 17px; }
+  .mob-nav-row-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mob-nav-row-badge { position: static; margin-left: auto; }
+  .mob-nav-row:active { background: rgba(var(--lgx1), 0.14); }
+  .mob-nav-row.active {
+    color: var(--text);
+    background: linear-gradient(135deg, rgba(var(--lgx1), 0.22), rgba(var(--lgx2), 0.22));
+  }
+  .mob-nav-sep { height: 1px; margin: 5px 6px; background: var(--border2); }
   .topbar .notif-panel,
   .topbar .settings-dropdown { pointer-events: auto; }
 

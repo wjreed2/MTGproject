@@ -80,6 +80,121 @@ function _resetActiveTabToRoot(t) {
 
 /** @param opts.skipRender — set the active tab chrome only; the caller renders
  *  the content itself (boot paint uses this to avoid double-rendering). */
+// ── Phone navigation menu ────────────────────────────────────────────────────
+// Built from the desktop sidebar rather than written out again: same entries,
+// same order, same icons, and it cannot drift when the sidebar changes. The two
+// rows the sidebar has no entry for — notifications and settings — are appended.
+function _mobNavExtraRows() {
+  return [
+    { id: 'notif', label: 'Notifications', badge: true,
+      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>' },
+    { id: 'settings', label: 'Settings', tab: 'settings',
+      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 008 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H2a2 2 0 110-4h.09A1.65 1.65 0 004.6 8a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 3.6 1.65 1.65 0 0010 2.09V2a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9c.14.63.68 1.1 1.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>' },
+  ];
+}
+
+function buildMobNavMenu() {
+  const menu = document.getElementById('mobNavMenu');
+  if (!menu) return;
+  const items = [...document.querySelectorAll('#sidebar .sidebar-item')].map(btn => {
+    const onclick = btn.getAttribute('onclick') || '';
+    const tab = (/showTab\('([^']+)'/.exec(onclick) || [])[1] || '';
+    return { tab, label: btn.dataset.label || tab, icon: btn.querySelector('svg')?.outerHTML || '' };
+  }).filter(x => x.tab);
+  const row = x => `<button type="button" class="mob-nav-row" data-tab="${x.tab || ''}" data-row="${x.id || x.tab}"
+      onclick="${x.id === 'notif' ? 'mobNavOpenNotifications(event)' : `showTab('${x.tab}')`}">
+      <span class="mob-nav-row-icon">${x.icon}</span><span class="mob-nav-row-label">${x.label}</span>
+      ${x.badge ? '<span class="topbar-notif-badge mob-nav-row-badge" id="mobNavMenuNotifBadge" hidden aria-hidden="true">0</span>' : ''}
+    </button>`;
+  menu.innerHTML = items.map(row).join('')
+    + '<div class="mob-nav-sep"></div>'
+    + _mobNavExtraRows().map(row).join('');
+  if (typeof refreshNotifUnreadCount === 'function') void refreshNotifUnreadCount();
+}
+
+/**
+ * Line the menu button up with the page's own title.
+ *
+ * Only its `top` moves — the button stays a fixed element in the topbar rather
+ * than being inserted into the title row, because several tabs rebuild their
+ * header on render and would take the button with them. The titles carry a left
+ * inset on phones to leave the corner free, so lining up the row is all it
+ * takes for the two to read as one. Tabs with no title keep the default corner.
+ */
+function _placeMobNavToggle(tab) {
+  const btn = document.getElementById('mobNavToggle');
+  if (!btn || getComputedStyle(btn).display === 'none') return;
+  btn.style.top = '';
+  const pane = document.getElementById('tab-' + tab);
+  const title = pane ? [...pane.querySelectorAll('.page-title')].find(t => t.offsetParent !== null) : null;
+  const r = title?.getBoundingClientRect();
+  if (!r || r.height <= 0) return;
+  const size = btn.offsetHeight || 38;
+  const top = Math.round(r.top + r.height / 2 - size / 2);
+  const min = 6;
+  if (top >= min) btn.style.top = `${top}px`;
+}
+
+function _syncMobNavActive(tab) {
+  document.querySelectorAll('#mobNavMenu .mob-nav-row').forEach(r => {
+    r.classList.toggle('active', !!tab && r.dataset.tab === tab);
+  });
+}
+
+function closeMobNav() {
+  const menu = document.getElementById('mobNavMenu');
+  const btn = document.getElementById('mobNavToggle');
+  if (menu) menu.hidden = true;
+  if (btn) { btn.classList.remove('is-open'); btn.setAttribute('aria-expanded', 'false'); }
+}
+
+function toggleMobNav(e) {
+  if (e) e.stopPropagation();
+  const menu = document.getElementById('mobNavMenu');
+  const btn = document.getElementById('mobNavToggle');
+  if (!menu) return;
+  if (!menu.hidden) { closeMobNav(); return; }
+  buildMobNavMenu();
+  _syncMobNavActive(localStorage.getItem('mtg_active_tab') || 'collection');
+  menu.hidden = false;
+  // Anchored to the button wherever it currently sits, since it moves between
+  // the corner and whichever page title is on screen.
+  if (btn) {
+    const r = btn.getBoundingClientRect();
+    menu.style.top = `${Math.round(r.bottom + 6)}px`;
+    menu.style.left = `${Math.round(Math.max(8, Math.min(r.left, window.innerWidth - menu.offsetWidth - 8)))}px`;
+    btn.classList.add('is-open');
+    btn.setAttribute('aria-expanded', 'true');
+  }
+}
+
+function mobNavOpenNotifications(e) {
+  if (e) e.stopPropagation();
+  closeMobNav();
+  if (typeof toggleNotifPanel === 'function') void toggleNotifPanel();
+}
+
+globalThis.toggleMobNav = toggleMobNav;
+globalThis.closeMobNav = closeMobNav;
+globalThis.mobNavOpenNotifications = mobNavOpenNotifications;
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('click', e => {
+    const menu = document.getElementById('mobNavMenu');
+    if (!menu || menu.hidden) return;
+    if (e.target.closest('#mobNavMenu') || e.target.closest('#mobNavToggle')) return;
+    closeMobNav();
+  });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMobNav(); });
+  // The first tab is already active in the markup, so nothing calls showTab for
+  // it — seat the button against whatever is on screen once the app is up, and
+  // again if the window changes shape.
+  const seat = () => _placeMobNavToggle(localStorage.getItem('mtg_active_tab') || 'collection');
+  window.addEventListener('load', () => setTimeout(seat, 0));
+  window.addEventListener('resize', () => { closeMobNav(); seat(); });
+  if (document.readyState === 'complete') setTimeout(seat, 0);
+}
+
 function showTab(t, opts) {
   opts = opts || {};
   // Same-tab re-tap from nav chrome → pop to that tab's root view.
@@ -97,6 +212,11 @@ function showTab(t, opts) {
   else if (typeof event !== 'undefined' && event?.currentTarget) event.currentTarget.classList.add('active');
   const mobItem = document.querySelector(`.mob-nav-item[data-tab="${t}"]`);
   if (mobItem) mobItem.classList.add('active');
+  closeMobNav();
+  _syncMobNavActive(t);
+  // After the tab's own render, not before it: Trade and others build their
+  // header in that render, so the title does not exist yet at this point.
+  requestAnimationFrame(() => _placeMobNavToggle(t));
   // Settings tab (mobile): host the web settings dropdown as a full page. The
   // element lives in the topbar dropdown; move it into the page here and move
   // it back when leaving so the topbar menu keeps working on phone and desktop.
