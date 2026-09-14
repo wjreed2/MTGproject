@@ -9772,6 +9772,8 @@ const SCAN_ACCEPT_RELAXED_MAX = 24; // full-card gate when the art hash alone is
 const SCAN_ART_STRONG_MAX = 12; // art distance far enough below the ~32 noise floor to carry a match
 const SCAN_AMBIG_MARGIN = 3;  // (full-only queries) candidates within best+margin = disambiguation group
 const SCAN_AMBIG_MARGIN_COMB = 6; // same, on the combined distance (2x the variance of one hash)
+const SCAN_COMB_ACCEPT_MAX = 32;  // combined-distance cap — noise floor min measured at ~34
+const SCAN_SAMEART_WINDOW = 10;   // identical-art rival within this comb margin of the winner → chooser
 const SCAN_ART_TIE = 2;       // art-hash distance under which two printings count as "same art"
 const SCAN_ART_PRIMARY_MAX = 12;  // art-only fallback gate (foil glare / non-English fronts)
 const SCAN_ART_PRIMARY_GROUP = 2; // art-distance tie window for the fallback chooser group
@@ -9798,7 +9800,7 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
     const bestComb = near[0].comb;
 
     const cands = near.map(({ i, dist, artDist, comb }) => ({
-      dist, artDist, comb, meta: _fpIndex.meta[i],
+      i, dist, artDist, comb, meta: _fpIndex.meta[i],
     }));
     // Within-margin group on the ranking metric (already sorted ascending by it).
     const margin = art ? SCAN_AMBIG_MARGIN_COMB : SCAN_AMBIG_MARGIN;
@@ -9806,25 +9808,37 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
 
     let chosen = group[0];
     let ambiguous = false;
-    if (new Set(group.map(c => c.meta.scryfall_id)).size > 1) {
-      const byHint = group.find(c =>
+    // Decision set: the within-margin group PLUS identical-art rivals from the wider retrieval
+    // window — a same-art sibling a few combined bits back (The List reprints, promo stamps,
+    // set-code-only variants) otherwise silently steals the scan as a confident wrong-printing
+    // match. "Same art" compares the candidates' REFERENCE art hashes against each other;
+    // query-relative art distances wobble with capture noise and can't make this call.
+    const refArtTie = (a, b) => _fpIndex.hasArt[a.i] && _fpIndex.hasArt[b.i]
+      && _popcount32(_fpIndex.ahi[a.i] ^ _fpIndex.ahi[b.i])
+       + _popcount32(_fpIndex.alo[a.i] ^ _fpIndex.alo[b.i]) <= SCAN_ART_TIE * 2;
+    const rivals = art ? cands.filter(c => c !== chosen
+      && c.comb <= chosen.comb + SCAN_SAMEART_WINDOW && refArtTie(c, chosen)) : [];
+    const decision = [...new Map(
+      [...group, ...rivals].map(c => [c.meta.scryfall_id, c])
+    ).values()].sort((a, b) => a.comb - b.comb);
+    if (decision.length > 1) {
+      const byHint = decision.find(c =>
         (hintSet && String(c.meta.set_code).toLowerCase() === hintSet) ||
         (hintNum && String(c.meta.collector_number).toLowerCase() === hintNum));
-      if (byHint) {
-        chosen = byHint;
-      } else {
-        const sameArt = art ? group.filter(c => c.artDist != null && c.artDist <= SCAN_ART_TIE) : group;
-        ambiguous = sameArt.length > 1 && new Set(sameArt.map(c => c.meta.scryfall_id)).size > 1;
-      }
+      if (byHint) chosen = byHint;
+      else ambiguous = true;
     }
 
     // Confident match needs the full-card AND the art-crop hash to agree (art rejects noise).
     // When the art hash is decisive (glare/border bleed distorts the full hash more than the art),
     // the full-card gate relaxes a few bits — 19-24 is exactly that borderline regime.
-    const matched = (chosen.dist <= SCAN_ACCEPT_MAX
+    // The combined cap closes the corner both per-hash gates leave open (e.g. 16+18=34): the
+    // measured noise floor on the combined metric starts at ~34, so a "match" there is junk.
+    const matched = ((chosen.dist <= SCAN_ACCEPT_MAX
       && chosen.artDist != null && chosen.artDist <= SCAN_ART_ACCEPT_MAX)
       || (chosen.dist <= SCAN_ACCEPT_RELAXED_MAX
-      && chosen.artDist != null && chosen.artDist <= SCAN_ART_STRONG_MAX);
+      && chosen.artDist != null && chosen.artDist <= SCAN_ART_STRONG_MAX))
+      && (chosen.artDist == null || chosen.dist + chosen.artDist <= SCAN_COMB_ACCEPT_MAX);
 
     // Art-primary fallback: the full-card hash is mangled (foil glare, non-English text) but the
     // art alone is decisive (noise floor ~32). Such printings never surface in the full-hash top-K,
@@ -9850,7 +9864,7 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
       }
     }
 
-    const toReturn = ambiguous ? group.slice(0, k) : [chosen];
+    const toReturn = ambiguous ? decision.slice(0, k) : [chosen];
     const cards = await _fingerprintCardsFor(toReturn.map(c => c.meta));
     cards.forEach((card, j) => {
       card._scanDistance = toReturn[j].dist;
