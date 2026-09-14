@@ -179,6 +179,29 @@ async function ocrTitle(raw, rect) {
   }
 }
 
+// Live diag embedded by the app's Save crop (PNG tEXt chunk, keyword "ScanDiag"): what the
+// PHONE's pipeline saw — its native-res OCR read, winning variant, and the server verdict.
+function readScanDiag(file) {
+  try {
+    const buf = fs.readFileSync(file);
+    if (buf.readUInt32BE(0) !== 0x89504e47) return null;
+    let off = 8;
+    while (off + 12 <= buf.length) {
+      const len = buf.readUInt32BE(off);
+      const type = buf.toString('latin1', off + 4, off + 8);
+      if (type === 'tEXt') {
+        const data = buf.subarray(off + 8, off + 8 + len);
+        const nul = data.indexOf(0);
+        if (nul > 0 && data.toString('latin1', 0, nul) === 'ScanDiag') {
+          return JSON.parse(Buffer.from(data.subarray(nul + 1)).toString('utf8'));
+        }
+      }
+      off += 12 + len;
+    }
+  } catch (_) {}
+  return null;
+}
+
 async function main() {
   if (!fs.existsSync(DIR)) {
     fs.mkdirSync(DIR, { recursive: true });
@@ -219,6 +242,12 @@ async function main() {
       console.log(
         `${f.padEnd(24)} ${verdict.padEnd(16)} -> ${best ? `${best.name} [${String(best.set).toUpperCase()} #${best.collector_number}]` : "—"}`
         + `  d=${res.distance ?? "—"} a=${res.artDistance ?? "—"} tilt=${deg}°${res.titleMatched ? " TITLE" : ""} ocr="${(title || "").slice(0, 28)}" matched=${res.matched}`);
+      const live = readScanDiag(path.join(DIR, f));
+      if (live) {
+        console.log(
+          `${"".padEnd(24)} LIVE: ${live.outcome || "?"} -> ${live.best || "—"}  d=${live.d ?? "—"} a=${live.a ?? "—"}`
+          + ` v=${live.variant}/${live.variants} tilt=${live.tilt}°${live.titleMatched ? " TITLE" : ""} ocr="${(live.ocr || "").slice(0, 40)}"`);
+      }
     } catch (e) {
       none++;
       console.log(`${f.padEnd(24)} ERROR ${e.message}`);

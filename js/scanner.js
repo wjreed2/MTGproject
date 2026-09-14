@@ -2983,6 +2983,61 @@ const SCN_FP_NOMATCH_HOLD_AFTER = 3;
 /** Give the per-capture title OCR at most this long; identify proceeds untitled on timeout. */
 const SCN_FP_TITLE_OCR_TIMEOUT_MS = 1400;
 
+/**
+ * Rolling diagnostic of the LAST identify attempt — what the live pipeline actually saw:
+ * the native-res OCR read, which variant won, tilt, and the server's verdict. Save crop
+ * embeds this into the PNG (tEXt chunk, keyword "ScanDiag") so a reported capture carries
+ * its own live context; scripts/scan-photo-test.js prints it beside the offline replay.
+ */
+let _scnFpLastDiag = null;
+
+// CRC32 (PNG chunk checksums) — table built once.
+const _scnCrcTable = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+function _scnCrc32(bytes) {
+  let c = 0xffffffff;
+  for (let i = 0; i < bytes.length; i++) c = _scnCrcTable[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+// Insert a tEXt chunk (keyword "ScanDiag") before IEND of a PNG blob. Text is JSON encoded
+// as UTF-8 bytes (the reader reverses it); returns the original blob on any parse trouble.
+async function _scnPngWithDiag(blob, json) {
+  try {
+    const src = new Uint8Array(await blob.arrayBuffer());
+    const sig = [0x89, 0x50, 0x4e, 0x47];
+    if (!sig.every((b, i) => src[i] === b) || src.length < 45) return blob;
+    const keyword = 'ScanDiag';
+    const textBytes = new TextEncoder().encode(json);
+    const data = new Uint8Array(keyword.length + 1 + textBytes.length);
+    for (let i = 0; i < keyword.length; i++) data[i] = keyword.charCodeAt(i);
+    data[keyword.length] = 0;
+    data.set(textBytes, keyword.length + 1);
+    const chunk = new Uint8Array(12 + data.length);
+    const dv = new DataView(chunk.buffer);
+    dv.setUint32(0, data.length);
+    chunk[4] = 0x74; chunk[5] = 0x45; chunk[6] = 0x58; chunk[7] = 0x74; // tEXt
+    chunk.set(data, 8);
+    const crcInput = chunk.subarray(4, 8 + data.length);
+    dv.setUint32(8 + data.length, _scnCrc32(crcInput));
+    const iendAt = src.length - 12; // IEND is always the final 12 bytes of a canvas PNG
+    const out = new Uint8Array(src.length + chunk.length);
+    out.set(src.subarray(0, iendAt), 0);
+    out.set(chunk, iendAt);
+    out.set(src.subarray(iendAt), iendAt + chunk.length);
+    return new Blob([out], { type: 'image/png' });
+  } catch (_) {
+    return blob;
+  }
+}
+
 // Title-first identification: OCR the card's printed name and send it with the hashes —
 // server-side, a read title restricts matching to that name's printings, where the pHash is
 // nearly infallible. The band is cropped from the CAMERA FRAME at native resolution (the
@@ -3398,6 +3453,19 @@ async function _scnIdentifyFromQuad(hints, quad) {
     const winner = kept[Number.isInteger(data.variantIndex) ? data.variantIndex : 0] || kept[0];
     data._phash = winner.phash;
     data._variantCount = kept.length;
+    const db = data.best || (data.candidates && data.candidates[0]) || null;
+    _scnFpLastDiag = {
+      at: Date.now(),
+      ocr: body.title || '',
+      tilt: loc.deg,
+      rects: loc.rects.map(r => [r.x, r.y, r.w, r.h]),
+      variant: data.variantIndex, variants: kept.length,
+      phash: winner.phash, artPhash: winner.artPhash,
+      matched: !!data.matched, ambiguous: !!data.ambiguous, titleMatched: !!data.titleMatched,
+      d: data.distance, a: data.artDistance,
+      best: db ? `${db.name} [${db.set} #${db.collector_number}]` : null,
+      cands: (data.candidates || []).slice(0, 5).map(c => `${c.name} ${c.set}#${c.collector_number}`),
+    };
     if (data.matched && data.best && !data.ambiguous) {
       _scnFpLru.unshift({ phash: winner.phash, card: data.best });
       if (_scnFpLru.length > SCN_FP_LRU_MAX) _scnFpLru.pop();
@@ -3589,6 +3657,7 @@ function _scnFingerprintTick(v, now) {
         const setNum = `${(r.best.set || '').toUpperCase()} · #${r.best.collector_number || ''}${da}`;
         // Lingering same card already added — ignore, but offer "+1" for extra copies in hand.
         if (_scnFpLastAcceptedPhash && PhashCore.hamming(ph, _scnFpLastAcceptedPhash) <= SCN_FP_DEDUPE_HAMMING) {
+          if (_scnFpLastDiag) _scnFpLastDiag.outcome = 'already-added';
           _scnSetOverlay(r.best.name, `already added ✓${da}`, 'match');
           _scnShowPlusOne();
           _scnFpHoldForNextCard('Swap in the next card…');
@@ -3620,6 +3689,7 @@ function _scnFingerprintTick(v, now) {
           return;
         }
         const qtyTag = staged && staged.qty > 1 ? `×${staged.qty} · ` : '';
+        if (_scnFpLastDiag) _scnFpLastDiag.outcome = 'queued';
         _scnSetOverlay(r.best.name, qtyTag + setNum, 'match'); // overrides "Queued"
         if (_scnStreamAdd || staged) _scnShowPlusOne();
         // Result is on screen — hold until the next card comes in instead of re-reading this one.
@@ -3629,6 +3699,7 @@ function _scnFingerprintTick(v, now) {
         _scnFpPendingMatch = null; // a miss breaks the confirmation streak
         // "closest" readout keeps framing feedback for everyone; distances are admin-only.
         const da = _scnFpDiag(r, r._quadSrc);
+        if (_scnFpLastDiag) _scnFpLastDiag.outcome = 'no-match';
         _scnSetOverlay('No match', best ? `closest: ${best.name}${da}` : da.replace(/^ · /, ''), 'hint');
         // Near miss → offer one-tap add: the winner is often right on captures that fail the
         // gates by a few bits, and a user-confirmed add needs no gate.
@@ -3674,8 +3745,13 @@ async function scnSaveCapture() {
   // Save the RAW guide warp — not the localized rect. A localized save destroys the evidence
   // when localization itself was the failure (clipped titles made a whole corpus round
   // undiagnosable); the photo harness re-runs the full localization on the file anyway.
-  const blob = await new Promise(r => warp.canvas.toBlob(r, 'image/png'));
+  let blob = await new Promise(r => warp.canvas.toBlob(r, 'image/png'));
   if (!blob) return;
+  // Carry the live context along: the last identify attempt's OCR read, winning variant,
+  // and server verdict ride inside the PNG for the offline harness to print.
+  if (_scnFpLastDiag) {
+    blob = await _scnPngWithDiag(blob, JSON.stringify({ ..._scnFpLastDiag, savedAt: Date.now() }));
+  }
   const name = `scan-crop-${Date.now()}.png`;
   const file = new File([blob], name, { type: 'image/png' });
   if (navigator.canShare?.({ files: [file] })) {
