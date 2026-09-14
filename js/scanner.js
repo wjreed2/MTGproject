@@ -628,6 +628,9 @@ async function scnStartCamera() {
     _scnBoundsMiss = 0;
     if (_scnFingerprintMode) {
       // Image-recognition engine: start scanning immediately, no manual hint needed.
+      // Warm the OCR workers in the background — the borderline-match title veto below uses
+      // them with a short deadline, and a cold Tesseract would always miss it.
+      void _scnEnsureWorkers();
       _scnStartFingerprintScanning();
     } else if (_scnManualBboxNorm) {
       _scnTryStartScanningIfHintReady();
@@ -1046,6 +1049,7 @@ function _scnClearOverlay() {
   const p = document.getElementById('scnMatchPrimary');
   const s = document.getElementById('scnMatchSub');
   _scnHidePlusOne();
+  if (typeof _scnHideAddClosest === 'function') _scnHideAddClosest();
   if (wrap) {
     wrap.classList.add('hidden');
     wrap.classList.remove('scn-match-overlay--accent');
@@ -2804,6 +2808,8 @@ function _scnSetOverlay(primary, sub, mode) {
     _scnClearOverlay();
     return;
   }
+  // Every overlay change retires a pending "+ Add this" (the no-match branch re-shows it).
+  if (typeof _scnHideAddClosest === 'function') _scnHideAddClosest();
   _scnHidePlusOne(); // callers that want "+1" re-show it right after
   wrap.classList.remove('hidden');
   wrap.classList.toggle('scn-match-overlay--accent', mode === 'match');
@@ -2973,6 +2979,98 @@ let _scnFpChooserPhash = null;         // capture hash that opened the candidate
 let _scnFpNoMatchStreak = 0;           // consecutive no-match captures (→ hold + manual search)
 /** Consecutive misses before the scanner stops hammering and waits for a card swap. */
 const SCN_FP_NOMATCH_HOLD_AFTER = 3;
+
+/** Winning-variant capture of the last identify: { canvas, rect } (rect null = full warp). */
+let _scnFpLastCapture = null;
+/** Auto-adds at or beyond this combined distance get the title-OCR sanity veto. */
+const SCN_FP_OCR_VETO_MIN_COMB = 20;
+/** Give the veto OCR at most this long — fail OPEN (allow the add) on timeout/no-worker. */
+const SCN_FP_OCR_VETO_TIMEOUT_MS = 1800;
+
+// Title-band sanity veto for borderline auto-adds. The 64-bit pHash has true collision
+// classes (dark low-key art: unrelated cards at combined 20-26, jitter-stable — measured), and
+// no distance gate can separate those from genuine borderline matches. The card's own printed
+// NAME can: OCR the title strip of the winning capture and veto the add when the read text
+// clearly is not the matched card's name. Fails open on glare, low confidence, timeouts, or a
+// missing worker — this only blocks adds the OCR positively contradicts.
+async function _scnTitleOcrVeto(cardName) {
+  const cap = _scnFpLastCapture;
+  if (!cap?.canvas || !_scnWorkerReady || !_scnNameWorker) return false;
+  try {
+    const r = cap.rect || { x: 0, y: 0, w: cap.canvas.width, h: cap.canvas.height };
+    // Title band of the card rect (classic + borderless both keep the name in the top strip).
+    const tw = Math.max(64, Math.round(r.w * 0.92) * 2);
+    const th = Math.max(24, Math.round(r.h * 0.1) * 2);
+    const c = document.createElement('canvas');
+    c.width = tw; c.height = th;
+    c.getContext('2d').drawImage(
+      cap.canvas,
+      r.x + r.w * 0.04, r.y + r.h * 0.02, r.w * 0.92, r.h * 0.1,
+      0, 0, tw, th,
+    );
+    const rec = await Promise.race([
+      _scnNameWorker.recognize(c.toDataURL('image/png')),
+      new Promise(res => setTimeout(() => res(null), SCN_FP_OCR_VETO_TIMEOUT_MS)),
+    ]);
+    const text = rec?.data?.text ? String(rec.data.text) : '';
+    const conf = Number(rec?.data?.confidence) || 0;
+    if (!text || conf < 40) return false; // unreadable title — not evidence of a mismatch
+    const norm = s => String(s).toLowerCase().replace(/[^a-z]+/g, ' ').trim();
+    const ocr = norm(text);
+    const name = norm(cardName);
+    if (ocr.length < 4) return false;
+    // Any substantial name token appearing in the OCR text clears the match.
+    const tokens = name.split(' ').filter(t => t.length >= 4);
+    if (!tokens.length) return false;
+    if (tokens.some(t => ocr.includes(t))) return false;
+    // Tolerate OCR mangling: a token within edit distance 1/4 of its length also clears.
+    if (typeof levenshtein === 'function') {
+      const words = ocr.split(' ').filter(w => w.length >= 3);
+      for (const t of tokens) {
+        for (const w of words) {
+          if (levenshtein(t, w) <= Math.max(1, Math.floor(t.length / 4))) return false;
+        }
+      }
+    }
+    return true; // readable title, and nothing in it resembles the matched name
+  } catch (_) {
+    return false;
+  }
+}
+
+/** Near-miss candidate behind the "+ Add this" overlay button: { card, phash } or null. */
+let _scnFpClosestCand = null;
+/** Offer tap-to-add only when the near-miss is genuinely near (winner comb at most this). */
+const SCN_FP_CLOSEST_OFFER_MAX = 40;
+
+function _scnShowAddClosest() {
+  document.getElementById('scnAddClosestBtn')?.classList.remove('hidden');
+}
+function _scnHideAddClosest() {
+  document.getElementById('scnAddClosestBtn')?.classList.add('hidden');
+  _scnFpClosestCand = null;
+}
+
+// One tap turns a right-looking near miss ("closest: …") into an add — live testing showed
+// the winner is often CORRECT on captures that fail the accept gates by a few bits, and a
+// user-confirmed add needs no gate at all.
+async function scnAddClosest() {
+  const cand = _scnFpClosestCand;
+  if (!cand?.card) return;
+  _scnHideAddClosest();
+  _scnStopMotionWatch();
+  _scnFpLastAcceptedPhash = cand.phash || null;
+  _scnFpAwaitingLeave = true;
+  let staged = null;
+  if (_scnStreamAdd) _scnFpStreamAdd(cand.card);
+  else staged = await _scnAutoStageAndResume(cand.card);
+  if (!_scnStreamAdd && !staged) _scnAdd(cand.card); // Auto off — straight to collection
+  if (staged?.uid) _scnFpLastQueuedUid = staged.uid;
+  const setNum = `${(cand.card.set || '').toUpperCase()} · #${cand.card.collector_number || ''}`;
+  _scnSetOverlay(cand.card.name, setNum, 'match');
+  if (_scnStreamAdd || staged) _scnShowPlusOne();
+  _scnFpHoldForNextCard('Queued — swap in the next card…');
+}
 
 /**
  * Post-result hold: stop capturing and wait for motion (the next card arriving) instead of
@@ -3182,6 +3280,10 @@ function _scnAxisCardRects(L, W, H) {
       if (Math.abs(w / h - SCN_GUIDE_CARD_AR) > SCN_FP_AXIS_AR_TOL) continue;
       rects.push({ x: l, y: t, w, h, score: sl + sr + st + sb });
     }
+    // NB: aspect-completed 3-edge combos were tried here for the borderless top-clip problem
+    // and REVERTED: the extra junk-rect variants meant extra draws below the noise floor and
+    // produced a fresh confident wrong-accept (comb 20 with clean margin) on the live corpus.
+    // Borderless misses stay quiet no-matches with the "+ Add this" fallback instead.
   }
   rects.sort((a, b) => b.score - a.score);
   const uniq = [];
@@ -3264,12 +3366,12 @@ async function _scnIdentifyFromQuad(hints, quad) {
   for (const r of candRects) {
     if (kept.length >= SCN_FP_MAX_VARIANTS - 1) break; // reserve a slot for the full-frame
     const h = _scnHashesFromRect(loc.px, W, H, r);
-    if (h.detail >= SCN_FP_MIN_DETAIL) kept.push(h);
+    if (h.detail >= SCN_FP_MIN_DETAIL) kept.push(Object.assign(h, { _rect: r, _canvas: loc.canvas }));
   }
   // The full UNROTATED guide warp always rides along (a rotated full-frame carries dark
   // corner wedges; a card genuinely filling the guide is axis-true by construction).
   const hFull = _scnHashesFromRect(px0, W, H, null);
-  if (hFull.detail >= SCN_FP_MIN_DETAIL) kept.push(hFull);
+  if (hFull.detail >= SCN_FP_MIN_DETAIL) kept.push(Object.assign(hFull, { _rect: null, _canvas: warp.canvas }));
   if (!kept.length) return { ok: false, empty: true };
   // LRU short-circuit (no network) when the same card lingers / reappears in frame.
   if (!hints) {
@@ -3298,6 +3400,7 @@ async function _scnIdentifyFromQuad(hints, quad) {
     const winner = kept[Number.isInteger(data.variantIndex) ? data.variantIndex : 0] || kept[0];
     data._phash = winner.phash;
     data._variantCount = kept.length;
+    _scnFpLastCapture = { canvas: winner._canvas, rect: winner._rect }; // for the title veto
     if (data.matched && data.best && !data.ambiguous) {
       _scnFpLru.unshift({ phash: winner.phash, card: data.best });
       if (_scnFpLru.length > SCN_FP_LRU_MAX) _scnFpLru.pop();
@@ -3506,6 +3609,15 @@ function _scnFingerprintTick(v, now) {
           return;
         }
         _scnFpPendingMatch = null;
+        // Borderline match → read the card's own printed name before trusting it. Fails open;
+        // a positive contradiction downgrades to a no-match hold instead of a wrong add.
+        const combAccepted = (Number(r.distance) || 0) + (Number(r.artDistance) || 0);
+        if (combAccepted >= SCN_FP_OCR_VETO_MIN_COMB && await _scnTitleOcrVeto(r.best.name)) {
+          _scnSetOverlay('No match', `title doesn't read like ${r.best.name}`, 'hint');
+          _scnFpHoldForNextCard('Name check failed — reposition, or type the name below');
+          _scnFpCooldownUntil = performance.now() + 600;
+          return;
+        }
         _scnFpLastAcceptedPhash = ph || null;
         let staged = null;
         if (_scnStreamAdd) _scnFpStreamAdd(r.best); // sets _scnFpLastQueuedUid itself
@@ -3530,6 +3642,15 @@ function _scnFingerprintTick(v, now) {
         // "closest" readout keeps framing feedback for everyone; distances are admin-only.
         const da = _scnFpDiag(r, r._quadSrc);
         _scnSetOverlay('No match', best ? `closest: ${best.name}${da}` : da.replace(/^ · /, ''), 'hint');
+        // Near miss → offer one-tap add: the winner is often right on captures that fail the
+        // gates by a few bits, and a user-confirmed add needs no gate.
+        const comb = (Number(r.distance) || 99) + (Number(r.artDistance) || 99);
+        if (best && comb <= SCN_FP_CLOSEST_OFFER_MAX) {
+          _scnFpClosestCand = { card: best, phash: r._phash || null };
+          _scnShowAddClosest();
+        } else {
+          _scnHideAddClosest();
+        }
         // Repeated misses on the same static scene: stop hammering, open the manual search
         // as the fallback, and wait for a reposition/swap (motion) to try again.
         if (++_scnFpNoMatchStreak >= SCN_FP_NOMATCH_HOLD_AFTER) {
@@ -3562,25 +3683,10 @@ async function scnSaveCapture() {
     _scnStatus('Could not capture the card crop.', true);
     return;
   }
-  // Save the best de-tilted, axis-localized card rect (what the matcher most likely used);
-  // the raw guide warp when no card-shaped rect is found.
-  let outCanvas = warp.canvas;
-  const W = warp.canvas.width, H = warp.canvas.height;
-  const px0 = warp.ctx.getImageData(0, 0, W, H).data;
-  const loc = _scnLocalizeCard(warp.canvas, px0, W, H);
-  const best = loc.rects[0];
-  if (best) {
-    const g = SCN_FP_AXIS_GROW_PX;
-    const r = {
-      x: Math.max(0, best.x - g), y: Math.max(0, best.y - g),
-      w: Math.min(W - Math.max(0, best.x - g), best.w + 2 * g),
-      h: Math.min(H - Math.max(0, best.y - g), best.h + 2 * g),
-    };
-    outCanvas = document.createElement('canvas');
-    outCanvas.width = W; outCanvas.height = H;
-    outCanvas.getContext('2d').drawImage(loc.canvas, r.x, r.y, r.w, r.h, 0, 0, W, H);
-  }
-  const blob = await new Promise(r => outCanvas.toBlob(r, 'image/png'));
+  // Save the RAW guide warp — not the localized rect. A localized save destroys the evidence
+  // when localization itself was the failure (clipped titles made a whole corpus round
+  // undiagnosable); the photo harness re-runs the full localization on the file anyway.
+  const blob = await new Promise(r => warp.canvas.toBlob(r, 'image/png'));
   if (!blob) return;
   const name = `scan-crop-${Date.now()}.png`;
   const file = new File([blob], name, { type: 'image/png' });
@@ -3613,6 +3719,7 @@ function _scnStartFingerprintScanning() {
   _scnFpLastAcceptedPhash = null;
   _scnFpChooserPhash = null;
   _scnFpNoMatchStreak = 0;
+  _scnFpLastCapture = null;
   _scnFpDimKey = '';
   _scnFpDimStableAt = 0;
   _scnFpCooldownUntil = 0;
@@ -3620,6 +3727,7 @@ function _scnStartFingerprintScanning() {
   _scnFpEmptyTicks = 0;
   _scnFpLastQueuedUid = null;
   _scnHidePlusOne();
+  _scnHideAddClosest();
   _scnLastBoundsMs = 0;
   _scnBoundsMiss = 0;
   _scnBoundsLoopOn = true;

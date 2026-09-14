@@ -9781,7 +9781,7 @@ const SCAN_SAMEART_WINDOW = 10;   // identical-art rival within this comb margin
 // A real match is an OUTLIER below the noise floor; a junk winner is crowded by unrelated
 // neighbours within a bit or two. Require the winner to beat the best different-art runner-up
 // by this many combined bits (measured on the live corpus: true matches 4-8, junk 0-2).
-const SCAN_WIN_MARGIN = 3;
+const SCAN_WIN_MARGIN = 4; // was 3; one wrong add slipped through live at the old value
 const SCAN_ART_TIE = 2;       // art-hash distance under which two printings count as "same art"
 const SCAN_ART_PRIMARY_MAX = 12;  // art-only fallback gate (foil glare / non-English fronts)
 const SCAN_ART_PRIMARY_GROUP = 2; // art-distance tie window for the fallback chooser group

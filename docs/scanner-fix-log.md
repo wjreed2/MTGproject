@@ -158,8 +158,26 @@ fingerprint DB was freshly built, so staleness is a contributor but not the root
       with wrong adds). The four no-matches: two crops clipped by the pre-fix localizer
       (unrecoverable files), two borderless showcase foils (true comb 38-46 — genuinely
       beyond this hash; the name-OCR fallback idea would rescue those).
-- [ ] Borderless/showcase foils (Scarlet Witch class): too far for the pHash even well
-      framed — candidate for a title-band OCR fallback.
+- [x] **Live-test feedback round 6** (10 scans: 5 exact, 4 no-result — closest RIGHT on 1-2
+      of those — 1 wrong add). Four changes:
+      1. **"+ Add this" on the no-match overlay**: a near miss (winner comb ≤ 40) is one tap
+         from an add — recovers the right-but-gate-rejected class with zero precision risk.
+      2. **Win margin 3 → 4** (a wrong add slipped at 3).
+      3. **Title-OCR veto on borderline auto-adds** (comb ≥ 20): the corpus surfaced a
+         jitter-STABLE hash collision (dark low-key art: msc-471 ↔ Gateway Shade at comb
+         20-26 with clean margin — no distance gate can separate it; dark-luma gating
+         measured and rejected, no separation). The card's printed NAME can: Tesseract reads
+         the title band of the winning capture and vetoes the add when the text positively
+         contradicts the matched name. Fails open (glare/low confidence/timeout/cold
+         worker); workers warm in the background at camera start; only borderline adds pay
+         the latency. E2E through the veto path green.
+      4. **Save crop now saves the RAW guide warp** (localized saves destroyed the evidence
+         when localization itself failed — a whole corpus round was undiagnosable).
+      Also tried and REVERTED: aspect-completed 3-edge rects for borderless top-clips (the
+      extra junk-rect variants produced a fresh confident wrong accept — measured).
+- [ ] Borderless/showcase cards remain the weak class (localizer misses the frameless top
+      edge; dark-art collisions live here too). Fresh RAW crops from the next live round
+      will be diagnosable end-to-end.
 - [ ] Later: printing-swap affordance in the queue panel rows; footer OCR to auto-resolve
       same-art printings.
 
