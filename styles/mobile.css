@@ -270,15 +270,21 @@
   body.mob-nav-corner .mob-nav-toggle {
     top: auto !important;
     left: auto;
-    bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 34px);
     right: 19px;
+    /* Bigger than the title-row button: standing alone on the page rather than
+       beside a heading, it has nothing to take its scale from. */
+    width: 43px;
+    height: 43px;
+    border-radius: 11px;
   }
+  body.mob-nav-corner .mob-nav-toggle svg { width: 20px; height: 20px; }
   body.mob-nav-corner .page-title { margin-left: 0; }
   body.mob-nav-corner .tab-content[data-nav-own-row] { padding-top: 0; }
   body.mob-nav-corner .mob-nav-menu {
     top: auto;
     left: auto;
-    bottom: calc(env(safe-area-inset-bottom, 0px) + 60px);
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 85px);
     right: 19px;
   }
 
