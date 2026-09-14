@@ -9789,7 +9789,10 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
     const rot = body.phashRot180 ? _hashHexToHiLo(String(body.phashRot180)) : null;
     const art = body.artPhash ? _hashHexToHiLo(String(body.artPhash)) : null;
     const artRot = body.artPhashRot180 ? _hashHexToHiLo(String(body.artPhashRot180)) : null;
-    const k = Math.max(1, Math.min(10, Number(body.k) || 5));
+    // Default candidate cap 10 (was 5): within a same-art reprint group, capture noise
+    // scrambles the combined-distance order, and a tight cap can drop the TRUE printing
+    // from the chooser entirely (seen live with Ponder's six frame-twins).
+    const k = Math.max(1, Math.min(10, Number(body.k) || 10));
     const hintSet = body.hints && body.hints.set ? String(body.hints.set).toLowerCase() : '';
     const hintNum = body.hints && body.hints.collector ? String(body.hints.collector).toLowerCase() : '';
 

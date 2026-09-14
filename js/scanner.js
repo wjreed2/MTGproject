@@ -2970,6 +2970,7 @@ let _scnFpLru = [];                    // [{phash, card}] recent matches → ski
 let _scnFpSharpRing = [];              // rolling sharpness of recent capture-eligible frames
 let _scnFpEmptyTicks = 0;              // consecutive below-sharpness ticks (card-left detection)
 let _scnFpLastQueuedUid = null;        // uid the overlay "+1" button increments
+let _scnFpChooserPhash = null;         // capture hash that opened the candidate chooser
 
 // 2x3 affine mapping source pts tl→(0,0), tr→(W,0), bl→(0,H). Parallelogram approximation of the
 // quad (implied br = tr+bl-tl); good enough for pHash since the card is near-flat at capture time.
@@ -3342,6 +3343,18 @@ function _scnFingerprintTick(v, now) {
       _scnFpEmptyTicks = 0; // an identified frame means the reticle genuinely holds a card
       const best = r.best || (r.candidates && r.candidates[0]) || null;
       if (r.ambiguous && r.candidates && (r.candidates.length > 1 || r.artPrimary)) {
+        // A lingering card whose chooser was already resolved or dismissed must not reopen
+        // it — the handled hash is cleared once the card leaves the reticle (empty ticks).
+        if (_scnFpLastAcceptedPhash && r._phash
+          && PhashCore.hamming(r._phash, _scnFpLastAcceptedPhash) <= SCN_FP_DEDUPE_HAMMING) {
+          _scnSetOverlay('Card handled — show the next card', '', 'hint');
+          _scnFpCooldownUntil = performance.now() + 600;
+          return;
+        }
+        // Freeze scanning while the chooser is up: without the pause, the next tick re-rendered
+        // the grid under the user's finger every 1.5s and dismiss was instantly overridden.
+        _scnFpChooserPhash = r._phash || null;
+        _scnPaused = true;
         // artPrimary = weak art-only match (foil glare / non-English) — must be user-confirmed;
         // _scnShowCands would otherwise auto-stage a lone candidate in Auto mode.
         _scnRequireCandPick = !!r.artPrimary;
@@ -3350,7 +3363,7 @@ function _scnFingerprintTick(v, now) {
           (best && best.name) || 'reprint',
           r.artPrimary ? 'Low-confidence match — pick your card' : undefined,
         );
-        _scnFpCooldownUntil = performance.now() + 1500;
+        _scnFpCooldownUntil = performance.now() + 600;
         return;
       }
       if (r.matched && r.best) {
@@ -3453,6 +3466,7 @@ function _scnStartFingerprintScanning() {
   _scnFpAwaitingLeave = false;
   _scnFpPendingMatch = null;
   _scnFpLastAcceptedPhash = null;
+  _scnFpChooserPhash = null;
   _scnFpDimKey = '';
   _scnFpDimStableAt = 0;
   _scnFpCooldownUntil = 0;
@@ -4249,6 +4263,17 @@ function _scnShowCands(cards, query, labelOverride) {
 
 function scnDismiss() {
   document.getElementById('scnCandidates')?.classList.add('hidden');
+  if (_scnFingerprintMode) {
+    // Remember the dismissed capture as handled so the same lingering card doesn't reopen
+    // the chooser on the very next tick; the card leaving the reticle re-arms everything.
+    if (_scnFpChooserPhash) {
+      _scnFpLastAcceptedPhash = _scnFpChooserPhash;
+      _scnFpAwaitingLeave = true;
+      _scnFpChooserPhash = null;
+    }
+    _scnResume();
+    return;
+  }
   const tc = _scnTitleFallback(document.getElementById('scnNameInput')?.value || '');
   if (tc) {
     _scnDoFallback(tc);
@@ -4908,6 +4933,13 @@ function _scnAdd(scryfallCard) {
   showNotif(`Added ${entry.name}`);
   document.getElementById('scnCandidates')?.classList.add('hidden');
   _scnRequireCandPick = false;
+  if (_scnFingerprintMode && _scnFpChooserPhash) {
+    // Picked from the chooser: the card in the reticle is handled until it leaves.
+    _scnFpLastAcceptedPhash = _scnFpChooserPhash;
+    _scnFpAwaitingLeave = true;
+    _scnFpChooserPhash = null;
+    _scnFpLastQueuedUid = entry.uid; // "+1" works for chooser picks too
+  }
   _scnResume();
 }
 

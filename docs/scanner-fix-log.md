@@ -94,6 +94,22 @@ fingerprint DB was freshly built, so staleness is a contributor but not the root
 - [x] **No camera auto-start** from the Scan tab: scanning begins the instant the camera runs,
       so the user positions the card first and taps Start Camera when ready.
 
+- [x] **Live-test feedback round 2**: chooser boomerang — scanning didn't pause while the
+      picker was open (the grid re-rendered under your finger every 1.5s) and Dismiss didn't
+      remember the card, so the same lingering card reopened it instantly. Fixed: scanning
+      pauses while the chooser is up; Dismiss/pick marks that capture handled until the card
+      leaves the reticle (same re-arm as the playset flow); picking from the chooser also
+      arms the "+1" button. Verified end-to-end with a fake-webcam video of a real card
+      (Ponder [TDC], which legitimately triggers the same-art chooser): opens once, stable,
+      dismiss sticks for a lingering card, scanning resumes.
+- [x] The same E2E caught a real trap: **the true printing wasn't in the k=5 chooser** —
+      noise scrambles combined-distance order inside a same-art group (Ponder has TEN
+      frame-twins). Default candidate cap raised to 10; TDC #159 now present.
+- [x] **Railway verified healthy from here** (2026-09-14): deployed chunk carries the latest
+      markers, and an exact v2-hash probe returns matched distance 0 — code AND rebuilt DB
+      are live. Round-2 garbage reports predated that deploy; force-close/reopen the app to
+      shed any cached chunk.
+
 ## Remaining for Will (Railway)
 
 1. Deploy the branch (Railway auto-deploys feature/liquid-glass).
