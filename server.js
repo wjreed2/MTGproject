@@ -8960,7 +8960,7 @@ function _fpRowsForTitle(title) {
       continue;
     }
     if (w.length < 4) continue;
-    const tol = w.length >= 8 ? 2 : 1;
+    const tol = w.length >= 6 ? 2 : 1; // "Lolium" must reach Gollum (two substitutions)
     for (const t of names.allTokens) {
       if (Math.abs(t.length - w.length) > tol) continue;
       if (t[0] !== w[0] && t[1] !== w[1] && t[t.length - 1] !== w[w.length - 1]) continue;
@@ -8978,8 +8978,8 @@ function _fpRowsForTitle(title) {
     let hits = 0;
     for (const t of toks) {
       // Edit tolerance scales with token length — foil glare eats a character or two off
-      // long words ("remophnage" is Hemophage, "athering" is Gathering).
-      const tol = t.length >= 8 ? 2 : t.length >= 4 ? 1 : 0;
+      // long words ("remophnage" is Hemophage, "stent" must still count toward Silent).
+      const tol = t.length >= 6 ? 2 : t.length >= 4 ? 1 : 0;
       if (words.some(w => w === t || _fpLev(w, t) <= tol)) hits++;
     }
     const coverage = hits / toks.length;

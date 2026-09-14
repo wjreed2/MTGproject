@@ -134,7 +134,11 @@ async function photoVariants(file) {
   });
   const variants = candRects.slice(0, 5).map(r => hashesFromRect(best.raw, r));
   variants.push(hashesFromRect(raw0, null)); // unrotated full frame
-  const title = await ocrTitle(best.raw, best.rects[0] || null);
+  let title = await ocrTitle(best.raw, best.rects[0] || null);
+  if (title.replace(/[^A-Za-z]/g, "").length < 6 && best.rects[0]) {
+    const retry = await ocrTitle(raw0, null); // mirror the client's full-frame retry
+    if (retry.replace(/[^A-Za-z]/g, "").length > title.replace(/[^A-Za-z]/g, "").length) title = retry;
+  }
   return { variants, deg: best.deg, title };
 }
 

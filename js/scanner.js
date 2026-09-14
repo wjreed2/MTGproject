@@ -3378,8 +3378,14 @@ async function _scnIdentifyFromQuad(hints, quad) {
   const body = kept.length === 1 ? toVariant(kept[0]) : { variants: kept.map(toVariant) };
   if (hints) body.hints = hints;
   // Read the printed name off the best capture rect (workers warm at camera start; a cold or
-  // slow OCR just means this capture identifies by hash alone, as before).
-  const title = await _scnReadTitle(v, useQuad, kept[0]._rect);
+  // slow OCR just means this capture identifies by hash alone, as before). A garbage/short
+  // read usually means the localizer rect sits wrong for this layout (Sagas put a text column
+  // where the art belongs) — retry once from the full-frame title band before giving up.
+  let title = await _scnReadTitle(v, useQuad, kept[0]._rect);
+  if (title.replace(/[^A-Za-z]/g, '').length < 6 && kept[0]._rect) {
+    const retry = await _scnReadTitle(v, useQuad, null);
+    if (retry.replace(/[^A-Za-z]/g, '').length > title.replace(/[^A-Za-z]/g, '').length) title = retry;
+  }
   if (title) body.title = title;
   try {
     const res = await fetch(`${mtgApiRoot()}/scan/identify`, {
