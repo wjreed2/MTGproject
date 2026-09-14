@@ -15349,6 +15349,9 @@ body #tabletView .tablet-cell.tablet-drag-target .tablet-life-num {
 }
 .app-footer a:hover { color: var(--blue); text-decoration: underline; }
 
+/* Settings rows that only apply to the phone layout; mobile.css shows them. */
+.settings-mobile-only { display: none; }
+
 /* Glass accent for links — the lgx mix the ruleset calls for, not gold. */
 body.glass-mode .app-footer a {
   color: color-mix(in oklab, rgb(var(--lgx1)) 55%, rgb(var(--lgx2)));

@@ -117,6 +117,79 @@ function buildMobNavMenu() {
   if (typeof refreshNotifUnreadCount === 'function') void refreshNotifUnreadCount();
 }
 
+/**
+ * Where the menu button lives. Default is beside the page title, which is what
+ * the title inset and the two `data-nav-own-row` panes are there for; the
+ * setting moves it to the bottom-right corner instead and undoes both.
+ */
+function _mobNavCornerEnabled() {
+  try { return localStorage.getItem('mtg_mob_nav_corner') === '1'; }
+  catch { return false; }
+}
+
+function applyMobNavCorner() {
+  document.body.classList.toggle('mob-nav-corner', _mobNavCornerEnabled());
+}
+
+function renderMobNavCornerSettingBtn() {
+  const btn = document.getElementById('settingsMobNavCornerBtn');
+  if (!btn) return;
+  const on = _mobNavCornerEnabled();
+  btn.innerHTML = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><rect x="1.8" y="1.8" width="12.4" height="12.4" rx="2"/><rect x="8.6" y="8.6" width="4" height="4" rx="1"/></svg>`
+    + (on ? ' Corner nav button: on' : ' Corner nav button: off');
+  btn.classList.toggle('active', on);
+}
+
+function toggleMobNavCornerSetting() {
+  const next = !_mobNavCornerEnabled();
+  try { localStorage.setItem('mtg_mob_nav_corner', next ? '1' : '0'); } catch { /* private mode */ }
+  applyMobNavCorner();
+  renderMobNavCornerSettingBtn();
+  closeMobNav();
+  _placeMobNavToggle(localStorage.getItem('mtg_active_tab') || 'collection');
+  if (typeof showNotif === 'function') {
+    showNotif(next
+      ? 'Navigation button moved to the bottom-right corner'
+      : 'Navigation button back beside the page title');
+  }
+}
+
+/**
+ * Line the menu button up with the page's own title.
+ *
+ * Only its `top` moves — the button stays a fixed element in the topbar rather
+ * than being inserted into the title row, because several tabs rebuild their
+ * header on render and would take the button with them. The titles carry a left
+ * inset on phones to leave the corner free, so lining up the row is all it
+ * takes for the two to read as one. Tabs with no title keep the default corner.
+ *
+ * `data-nav-own-row` panes opt out of sharing a row. The deck builder is one:
+ * opening a deck swaps the "Decks" title out for the deck's own header, which
+ * has no room to give, so the pane pads itself down by a row (mobile.css) and
+ * the button takes that row alone.
+ *
+ * None of it applies in corner mode, where the button has a fixed home.
+ */
+function _placeMobNavToggle(tab) {
+  const btn = document.getElementById('mobNavToggle');
+  if (!btn || getComputedStyle(btn).display === 'none') return;
+  btn.style.top = '';
+  if (_mobNavCornerEnabled()) return;
+  const pane = document.getElementById('tab-' + tab);
+  if (!pane) return;
+  const size = btn.offsetHeight || 38;
+  const min = 6;
+  let top;
+  if (pane.hasAttribute('data-nav-own-row')) {
+    top = Math.round(pane.getBoundingClientRect().top - 4);
+  } else {
+    const r = [...pane.querySelectorAll('.page-title')].find(t => t.offsetParent !== null)?.getBoundingClientRect();
+    if (!r || r.height <= 0) return;
+    top = Math.round(r.top + r.height / 2 - size / 2);
+  }
+  if (top >= min) btn.style.top = `${top}px`;
+}
+
 function _syncMobNavActive(tab) {
   document.querySelectorAll('#mobNavMenu .mob-nav-row').forEach(r => {
     r.classList.toggle('active', !!tab && r.dataset.tab === tab);
@@ -139,14 +212,21 @@ function toggleMobNav(e) {
   buildMobNavMenu();
   _syncMobNavActive(localStorage.getItem('mtg_active_tab') || 'collection');
   menu.hidden = false;
-  // The button lives in the bottom-right corner, so the menu grows upward from
-  // it and hangs off the same edge.
+  // Anchored to the button: below it where it sits in a title row, above it when
+  // it is parked in the bottom-right corner.
   if (btn) {
     const r = btn.getBoundingClientRect();
-    menu.style.top = 'auto';
-    menu.style.left = 'auto';
-    menu.style.bottom = `${Math.round(Math.max(8, window.innerHeight - r.top + 8))}px`;
-    menu.style.right = `${Math.round(Math.max(8, window.innerWidth - r.right))}px`;
+    if (_mobNavCornerEnabled()) {
+      menu.style.top = 'auto';
+      menu.style.left = 'auto';
+      menu.style.bottom = `${Math.round(Math.max(8, window.innerHeight - r.top + 8))}px`;
+      menu.style.right = `${Math.round(Math.max(8, window.innerWidth - r.right))}px`;
+    } else {
+      menu.style.bottom = 'auto';
+      menu.style.right = 'auto';
+      menu.style.top = `${Math.round(r.bottom + 6)}px`;
+      menu.style.left = `${Math.round(Math.max(8, Math.min(r.left, window.innerWidth - menu.offsetWidth - 8)))}px`;
+    }
     btn.classList.add('is-open');
     btn.setAttribute('aria-expanded', 'true');
   }
@@ -154,6 +234,8 @@ function toggleMobNav(e) {
 
 globalThis.toggleMobNav = toggleMobNav;
 globalThis.closeMobNav = closeMobNav;
+globalThis.toggleMobNavCornerSetting = toggleMobNavCornerSetting;
+globalThis.renderMobNavCornerSettingBtn = renderMobNavCornerSettingBtn;
 
 if (typeof document !== 'undefined') {
   document.addEventListener('click', e => {
@@ -163,7 +245,15 @@ if (typeof document !== 'undefined') {
     closeMobNav();
   });
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMobNav(); });
-  window.addEventListener('resize', closeMobNav);
+  applyMobNavCorner();
+  renderMobNavCornerSettingBtn();
+  // The first tab is already active in the markup, so nothing calls showTab for
+  // it — seat the button against whatever is on screen once the app is up, and
+  // again if the window changes shape.
+  const seat = () => _placeMobNavToggle(localStorage.getItem('mtg_active_tab') || 'collection');
+  window.addEventListener('load', () => setTimeout(seat, 0));
+  window.addEventListener('resize', () => { closeMobNav(); seat(); });
+  if (document.readyState === 'complete') setTimeout(seat, 0);
 }
 
 function showTab(t, opts) {
@@ -188,6 +278,9 @@ function showTab(t, opts) {
   if (mobItem) mobItem.classList.add('active');
   closeMobNav();
   _syncMobNavActive(t);
+  // After the tab's own render, not before it: Trade and others build their
+  // header in that render, so the title does not exist yet at this point.
+  requestAnimationFrame(() => _placeMobNavToggle(t));
   // Settings tab (mobile): host the web settings dropdown as a full page. The
   // element lives in the topbar dropdown; move it into the page here and move
   // it back when leaving so the topbar menu keeps working on phone and desktop.

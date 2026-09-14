@@ -182,6 +182,10 @@
         What’s new
         <span class="settings-menu-update-pip" id="settingsWhatsNewMenuPip" style="display:none" aria-hidden="true"></span>
       </button>
+      <button type="button" id="settingsMobNavCornerBtn" class="btn btn-ghost btn-sm settings-menu-item settings-mobile-only" title="Move the navigation button out of the page title row and into the bottom-right corner, where the menu opens upward" style="width:100%;justify-content:flex-start;gap:7px" onclick="toggleMobNavCornerSetting()">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><rect x="1.8" y="1.8" width="12.4" height="12.4" rx="2"/><rect x="8.6" y="8.6" width="4" height="4" rx="1"/></svg>
+        Corner nav button
+      </button>
       <button type="button" id="settingsDeckGoalBtn" class="btn btn-ghost btn-sm settings-menu-item" title="Semantic deck analysis — shows the inferred deck goal and powers smarter add/cut suggestions; turning it off falls back to the classic role-tag heuristics" style="width:100%;justify-content:flex-start;gap:7px" onclick="toggleDeckGoalSetting()">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="2.5"/><path d="M8 2v2M8 12v2M2 8h2M12 8h2"/></svg>
         Deck goal analysis
@@ -561,7 +565,7 @@
 </div>
 
 <!-- SET BROWSER TAB -->
-<div id="tab-sets" class="tab-content">
+<div id="tab-sets" class="tab-content" data-nav-own-row>
   <!-- Header mirrors the collection's: high-level actions right-aligned above a
        filter bar that Filter collapses. Refresh stays outside it. -->
   <div id="setsHeader">
@@ -648,7 +652,7 @@
 </div>
 
 <!-- DECK BUILDER TAB -->
-<div id="tab-decks" class="tab-content">
+<div id="tab-decks" class="tab-content" data-nav-own-row>
 
   <!-- Top bar — always visible -->
   <div id="deckBuilderTopBar" class="top-action-bar" style="display:flex;align-items:center;gap:10px;margin-bottom:1.25rem;flex-wrap:wrap">
