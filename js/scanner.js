@@ -3080,6 +3080,49 @@ const SCN_FP_AXIS_AR_TOL = 0.06;  // |w/h − 63/88| tolerance for a candidate r
 // a hair INSIDE the physical card edge the reference images include (measured: −5px ≈ −6 bits).
 const SCN_FP_AXIS_GROW_PX = 5;
 const SCN_FP_MAX_VARIANTS = 6;    // hash sets per identify request (the server accepts ≤ 6)
+/**
+ * Tilt search: a hand-placed card sits 1-3° off axis, which the axis-aligned rect cannot
+ * correct and which costs 10+ Hamming bits (measured live: tilted cards matched WRONG cards
+ * confidently). The edge-profile peaks are sharpest exactly when the card's edges align with
+ * the axes, so the best-scoring rotation of the warp IS the tilt estimate — no Hough needed.
+ */
+const SCN_FP_TILT_DEGS = [-1, 1, -2, 2, -3, 3]; // small tilts first — ties go to less correction
+const SCN_FP_TILT_WIN = 1.06; // a rotation must beat the unrotated score by 6% to be trusted
+
+// Rotate the warped capture in place (same 360x504 frame); corner wedges fill dark, which is
+// why the full-frame fallback variant always hashes from the UNROTATED warp.
+function _scnRotatedWarp(warpCanvas, deg) {
+  const W = warpCanvas.width, H = warpCanvas.height;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.translate(W / 2, H / 2);
+  ctx.rotate((deg * Math.PI) / 180);
+  ctx.drawImage(warpCanvas, -W / 2, -H / 2);
+  return { canvas: c, px: ctx.getImageData(0, 0, W, H).data };
+}
+
+// De-tilted card localization: try the warp at several small rotations, keep whichever gives
+// the strongest edge-profile evidence. Returns { px, canvas, rects, deg }.
+function _scnLocalizeCard(warpCanvas, px0, W, H) {
+  let best = {
+    px: px0, canvas: warpCanvas, deg: 0,
+    rects: _scnAxisCardRects(_scnWarpLuma(px0, W, H), W, H),
+  };
+  let bestScore = best.rects[0] ? best.rects[0].score : 0;
+  for (const deg of SCN_FP_TILT_DEGS) {
+    const rot = _scnRotatedWarp(warpCanvas, deg);
+    const rects = _scnAxisCardRects(_scnWarpLuma(rot.px, W, H), W, H);
+    const score = rects[0] ? rects[0].score : 0;
+    if (score > bestScore * SCN_FP_TILT_WIN) {
+      bestScore = score;
+      best = { px: rot.px, canvas: rot.canvas, deg, rects };
+    }
+  }
+  return best;
+}
 
 // Rec.601 luma of the warped capture at full resolution (Float64, row-major).
 function _scnWarpLuma(px, W, H) {
@@ -3202,10 +3245,10 @@ async function _scnIdentifyFromQuad(hints, quad) {
   const warp = _scnWarpCardToCanvas(v, useQuad, SCN_FP_WARP_W, SCN_FP_WARP_H);
   if (!warp) return null;
   const W = warp.canvas.width, H = warp.canvas.height;
-  const px = warp.ctx.getImageData(0, 0, W, H).data;
-  const rects = _scnAxisCardRects(_scnWarpLuma(px, W, H), W, H);
+  const px0 = warp.ctx.getImageData(0, 0, W, H).data;
+  const loc = _scnLocalizeCard(warp.canvas, px0, W, H);
   const candRects = [];
-  rects.forEach((r, i) => {
+  loc.rects.forEach((r, i) => {
     candRects.push(r);
     if (i >= 2) return; // grown twins for the top-2 only (variant budget)
     const g = SCN_FP_AXIS_GROW_PX;
@@ -3215,15 +3258,18 @@ async function _scnIdentifyFromQuad(hints, quad) {
       h: Math.min(H - Math.max(0, r.y - g), r.h + 2 * g),
     });
   });
-  candRects.push(null); // the full guide warp always rides along as fallback
   // Empty-reticle guard per variant: a smooth crop (no card) must not reach the matcher — its
   // degenerate hash lands on random low-detail printings and reads as "found a card".
   const kept = [];
   for (const r of candRects) {
-    if (kept.length >= SCN_FP_MAX_VARIANTS) break;
-    const h = _scnHashesFromRect(px, W, H, r);
+    if (kept.length >= SCN_FP_MAX_VARIANTS - 1) break; // reserve a slot for the full-frame
+    const h = _scnHashesFromRect(loc.px, W, H, r);
     if (h.detail >= SCN_FP_MIN_DETAIL) kept.push(h);
   }
+  // The full UNROTATED guide warp always rides along (a rotated full-frame carries dark
+  // corner wedges; a card genuinely filling the guide is axis-true by construction).
+  const hFull = _scnHashesFromRect(px0, W, H, null);
+  if (hFull.detail >= SCN_FP_MIN_DETAIL) kept.push(hFull);
   if (!kept.length) return { ok: false, empty: true };
   // LRU short-circuit (no network) when the same card lingers / reappears in frame.
   if (!hints) {
@@ -3516,12 +3562,13 @@ async function scnSaveCapture() {
     _scnStatus('Could not capture the card crop.', true);
     return;
   }
-  // Save the best axis-localized card rect (what the matcher most likely used), guide as-is
-  // when no card-shaped rect is found.
+  // Save the best de-tilted, axis-localized card rect (what the matcher most likely used);
+  // the raw guide warp when no card-shaped rect is found.
   let outCanvas = warp.canvas;
   const W = warp.canvas.width, H = warp.canvas.height;
-  const px = warp.ctx.getImageData(0, 0, W, H).data;
-  const best = _scnAxisCardRects(_scnWarpLuma(px, W, H), W, H)[0];
+  const px0 = warp.ctx.getImageData(0, 0, W, H).data;
+  const loc = _scnLocalizeCard(warp.canvas, px0, W, H);
+  const best = loc.rects[0];
   if (best) {
     const g = SCN_FP_AXIS_GROW_PX;
     const r = {
@@ -3531,7 +3578,7 @@ async function scnSaveCapture() {
     };
     outCanvas = document.createElement('canvas');
     outCanvas.width = W; outCanvas.height = H;
-    outCanvas.getContext('2d').drawImage(warp.canvas, r.x, r.y, r.w, r.h, 0, 0, W, H);
+    outCanvas.getContext('2d').drawImage(loc.canvas, r.x, r.y, r.w, r.h, 0, 0, W, H);
   }
   const blob = await new Promise(r => outCanvas.toBlob(r, 'image/png'));
   if (!blob) return;

@@ -142,8 +142,24 @@ fingerprint DB was freshly built, so staleness is a contributor but not the root
       fallback. Verified: tray capture queues once and stays held (session count frozen,
       overlay persists, zero choosers), Ponder's ten frame-twins queue straight through,
       all four real crops still identify.
-- [ ] Unliving Legionnaire misses live (matched from the saved crop, so conditions-specific)
-      — needs a fresh Save-crop from a failing attempt to reproduce.
+- [x] **Live-test feedback round 5 — a 10-crop labeled corpus** (~30% live success, some
+      confident wrong adds). Ground truth from the crops (now renamed `<set>-<collector>.png`
+      in fixtures/scan-photos/, kept untracked): two failure modes.
+      1. **Tilt** (1-3° off axis costs 10+ bits; the axis rect can't correct it): fixed with
+         a tilt search — the edge-profile peaks are sharpest at the true rotation, so the
+         best-scoring rotation of the warp (±3° in 1° steps) IS the tilt estimate. Variants
+         hash from the de-tilted warp; the full-frame fallback stays unrotated. Flipped
+         iko-40 (2°) and msc-579 (1°) from WRONG to EXACT.
+      2. **Multi-variant junk floor** (6 tries at the noise floor → confident wrong accepts
+         at comb 24-30): fixed with a **win-margin gate** — the best DIFFERENT-ART runner
+         must trail the winner by ≥3 combined bits (measured: true matches win by 4-8, junk
+         by 0-2; identical-art siblings excluded). Killed the Kari Zev wrong-accept.
+      Corpus after: **6/10 exact auto-adds, 4 quiet no-matches, ZERO wrong adds** (was ~30%
+      with wrong adds). The four no-matches: two crops clipped by the pre-fix localizer
+      (unrecoverable files), two borderless showcase foils (true comb 38-46 — genuinely
+      beyond this hash; the name-OCR fallback idea would rescue those).
+- [ ] Borderless/showcase foils (Scarlet Witch class): too far for the pHash even well
+      framed — candidate for a title-band OCR fallback.
 - [ ] Later: printing-swap affordance in the queue panel rows; footer OCR to auto-resolve
       same-art printings.
 

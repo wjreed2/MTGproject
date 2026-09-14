@@ -9778,6 +9778,10 @@ const SCAN_AMBIG_MARGIN_COMB = 6; // same, on the combined distance (2x the vari
 // captures (tray scans through the variant pipeline) measured 26-31.
 const SCAN_COMB_ACCEPT_MAX = 31;
 const SCAN_SAMEART_WINDOW = 10;   // identical-art rival within this comb margin of the winner → chooser
+// A real match is an OUTLIER below the noise floor; a junk winner is crowded by unrelated
+// neighbours within a bit or two. Require the winner to beat the best different-art runner-up
+// by this many combined bits (measured on the live corpus: true matches 4-8, junk 0-2).
+const SCAN_WIN_MARGIN = 3;
 const SCAN_ART_TIE = 2;       // art-hash distance under which two printings count as "same art"
 const SCAN_ART_PRIMARY_MAX = 12;  // art-only fallback gate (foil glare / non-English fronts)
 const SCAN_ART_PRIMARY_GROUP = 2; // art-distance tie window for the fallback chooser group
@@ -9859,11 +9863,19 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
     // the full-card gate relaxes a few bits — 19-24 is exactly that borderline regime.
     // The combined cap closes the corner both per-hash gates leave open (e.g. 16+18=34): the
     // measured noise floor on the combined metric starts at ~34, so a "match" there is junk.
+    // Win-margin gate: the best DIFFERENT-ART runner in the retrieval window must trail the
+    // winner by SCAN_WIN_MARGIN combined bits (identical-art siblings don't count — they are
+    // the same painting and legitimately crowd the winner).
+    const diffArtRunner = cands.find(c =>
+      c.meta.scryfall_id !== chosen.meta.scryfall_id && !refArtTie(c, chosen));
+    const winMarginOk = !diffArtRunner || diffArtRunner.comb - chosen.comb >= SCAN_WIN_MARGIN;
+
     const matched = ((chosen.dist <= SCAN_ACCEPT_MAX
       && chosen.artDist != null && chosen.artDist <= SCAN_ART_ACCEPT_MAX)
       || (chosen.dist <= SCAN_ACCEPT_RELAXED_MAX
       && chosen.artDist != null && chosen.artDist <= SCAN_ART_STRONG_MAX))
-      && (chosen.artDist == null || chosen.dist + chosen.artDist <= SCAN_COMB_ACCEPT_MAX);
+      && (chosen.artDist == null || chosen.dist + chosen.artDist <= SCAN_COMB_ACCEPT_MAX)
+      && winMarginOk;
 
     // The chooser only opens over an ACCEPT-QUALITY winner with distinct-printing rivals.
     // Gating on `matched` is what keeps noise quiet: near the noise floor there is always a

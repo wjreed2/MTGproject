@@ -91,18 +91,39 @@ function hashesFromRect(raw, rect) {
   };
 }
 
-// Variant hash sets for a photo, exactly like the live capture path: top axis rects, grown
-// twins of the best two, and the whole frame as fallback.
+// Variant hash sets for a photo, exactly like the live capture path: de-tilted card
+// localization (edge profiles peak hardest at the true rotation), top axis rects, grown twins
+// of the best two, and the UNROTATED whole frame as fallback.
+const TILT_DEGS = [-1, 1, -2, 2, -3, 3]; // must track SCN_FP_TILT_DEGS in js/scanner.js
+const TILT_WIN = 1.06;
+
+function lumaOf(raw) {
+  const L = new Float64Array(W * H);
+  for (let i = 0, p = 0; p < W * H; i += 3, p++) L[p] = 0.299 * raw[i] + 0.587 * raw[i + 1] + 0.114 * raw[i + 2];
+  return L;
+}
+
 async function photoVariants(file) {
-  const raw = await sharp(file).rotate() // honor EXIF orientation
+  const raw0 = await sharp(file).rotate() // honor EXIF orientation
     .removeAlpha()
     .resize(W, H, { fit: "fill", kernel: sharp.kernel.cubic })
     .raw().toBuffer();
-  const L = new Float64Array(W * H);
-  for (let i = 0, p = 0; p < W * H; i += 3, p++) L[p] = 0.299 * raw[i] + 0.587 * raw[i + 1] + 0.114 * raw[i + 2];
-  const rects = axisCardRects(L);
+  let best = { raw: raw0, deg: 0, rects: axisCardRects(lumaOf(raw0)) };
+  let bestScore = best.rects[0] ? best.rects[0].score : 0;
+  for (const deg of TILT_DEGS) {
+    // rotate in place: sharp expands the canvas, so extract the centered original frame back out
+    const rotated = await sharp(raw0, { raw: { width: W, height: H, channels: 3 } })
+      .rotate(deg, { background: { r: 0, g: 0, b: 0 } }).toBuffer({ resolveWithObject: true });
+    const rw = rotated.info.width, rh = rotated.info.height;
+    const raw = await sharp(rotated.data, { raw: { width: rw, height: rh, channels: rotated.info.channels } })
+      .extract({ left: Math.round((rw - W) / 2), top: Math.round((rh - H) / 2), width: W, height: H })
+      .removeAlpha().raw().toBuffer();
+    const rects = axisCardRects(lumaOf(raw));
+    const score = rects[0] ? rects[0].score : 0;
+    if (score > bestScore * TILT_WIN) { bestScore = score; best = { raw, deg, rects }; }
+  }
   const candRects = [];
-  rects.forEach((r, i) => {
+  best.rects.forEach((r, i) => {
     candRects.push(r);
     if (i >= 2) return;
     candRects.push({
@@ -111,8 +132,9 @@ async function photoVariants(file) {
       h: Math.min(H - Math.max(0, r.y - GROW), r.h + 2 * GROW),
     });
   });
-  candRects.push(null);
-  return candRects.slice(0, 6).map(r => hashesFromRect(raw, r));
+  const variants = candRects.slice(0, 5).map(r => hashesFromRect(best.raw, r));
+  variants.push(hashesFromRect(raw0, null)); // unrotated full frame
+  return { variants, deg: best.deg };
 }
 
 async function main() {
@@ -135,7 +157,7 @@ async function main() {
     const expSet = labeled ? m[1].toLowerCase() : "";
     const expNum = labeled ? m[2].toLowerCase() : "";
     try {
-      const variants = await photoVariants(path.join(DIR, f));
+      const { variants, deg } = await photoVariants(path.join(DIR, f));
       const r = await fetch(BASE + "/api/scan/identify", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(variants.length === 1 ? variants[0] : { variants }),
@@ -152,7 +174,7 @@ async function main() {
       else { none++; verdict = "no match"; }
       console.log(
         `${f.padEnd(24)} ${verdict.padEnd(16)} -> ${best ? `${best.name} [${String(best.set).toUpperCase()} #${best.collector_number}]` : "—"}`
-        + `  d=${res.distance ?? "—"} a=${res.artDistance ?? "—"} matched=${res.matched} ambig=${res.ambiguous}`);
+        + `  d=${res.distance ?? "—"} a=${res.artDistance ?? "—"} tilt=${deg}° matched=${res.matched} ambig=${res.ambiguous}`);
     } catch (e) {
       none++;
       console.log(`${f.padEnd(24)} ERROR ${e.message}`);
@@ -160,4 +182,5 @@ async function main() {
   }
   console.log(`\n${files.length} photos: ${right} exact, ${group} in chooser group, ${wrong} wrong, ${none} no match/error`);
 }
-main().catch(e => { console.error(e); process.exit(1); });
+if (require.main === module) main().catch(e => { console.error(e); process.exit(1); });
+module.exports = { photoVariants };
