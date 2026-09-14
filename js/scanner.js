@@ -782,7 +782,7 @@ function _scnArmMotionResume(onDone) {
     }
     if (now - armAt >= SCN_MOTION_GIVEUP_MS) {
       _scnStopMotionWatch();
-      _scnStatus('Card queued — tap Scan Again to continue');
+      _scnStatus('Paused — tap Scan Again to continue');
       document.getElementById('scnScanAgainBtn')?.classList.remove('hidden');
       return;
     }
@@ -2970,6 +2970,20 @@ let _scnFpSharpRing = [];              // rolling sharpness of recent capture-el
 let _scnFpEmptyTicks = 0;              // consecutive below-sharpness ticks (card-left detection)
 let _scnFpLastQueuedUid = null;        // uid the overlay "+1" button increments
 let _scnFpChooserPhash = null;         // capture hash that opened the candidate chooser
+let _scnFpNoMatchStreak = 0;           // consecutive no-match captures (→ hold + manual search)
+/** Consecutive misses before the scanner stops hammering and waits for a card swap. */
+const SCN_FP_NOMATCH_HOLD_AFTER = 3;
+
+/**
+ * Post-result hold: stop capturing and wait for motion (the next card arriving) instead of
+ * re-scanning the same static scene — continuous rescan kept re-reading the handled card at
+ * new angles and re-announcing it. The match overlay stays up through the hold; motion clears
+ * it and resumes via _scnResume. The 12s give-up shows the Scan Again button.
+ */
+function _scnFpHoldForNextCard(statusMsg) {
+  _scnArmMotionResume(() => {});
+  if (statusMsg) _scnStatus(statusMsg);
+}
 
 // 2x3 affine mapping source pts tl→(0,0), tr→(W,0), bl→(0,H). Parallelogram approximation of the
 // quad (implied br = tr+bl-tl); good enough for pHash since the card is near-flat at capture time.
@@ -3362,7 +3376,8 @@ function _scnFingerprintTick(v, now) {
   if (!guide) return;
   _scnCardQuad = guide;
   _scnSyncScannerSvgLayout();
-  if (!_scnOcrActive || _scnPaused || _scnFpInFlight) return;
+  // _scnMotionWatchOn = a handled result is on screen; capture stays off until the card swap.
+  if (!_scnOcrActive || _scnPaused || _scnFpInFlight || _scnMotionWatchOn) return;
 
   // Camera warm-up: phones often switch resolution a beat after the stream starts, which shifts the
   // frame. Don't capture until the video dimensions have held steady for a moment.
@@ -3410,37 +3425,19 @@ function _scnFingerprintTick(v, now) {
           _scnFpLastAcceptedPhash = null;
           _scnFpEmptyTicks = 0;
         }
+        _scnFpNoMatchStreak = 0; // an empty reticle is not a miss
         _scnSetOverlay('Point the camera at a card', '', 'hint');
         _scnFpCooldownUntil = performance.now() + 350;
         return;
       }
       _scnFpEmptyTicks = 0; // an identified frame means the reticle genuinely holds a card
       const best = r.best || (r.candidates && r.candidates[0]) || null;
-      if (r.ambiguous && r.candidates && (r.candidates.length > 1 || r.artPrimary)) {
-        // A lingering card whose chooser was already resolved or dismissed must not reopen
-        // it — the handled hash is cleared once the card leaves the reticle (empty ticks).
-        if (_scnFpLastAcceptedPhash && r._phash
-          && PhashCore.hamming(r._phash, _scnFpLastAcceptedPhash) <= SCN_FP_DEDUPE_HAMMING) {
-          _scnSetOverlay('Card handled — show the next card', '', 'hint');
-          _scnFpCooldownUntil = performance.now() + 600;
-          return;
-        }
-        // Freeze scanning while the chooser is up: without the pause, the next tick re-rendered
-        // the grid under the user's finger every 1.5s and dismiss was instantly overridden.
-        _scnFpChooserPhash = r._phash || null;
-        _scnPaused = true;
-        // artPrimary = weak art-only match (foil glare / non-English) — must be user-confirmed;
-        // _scnShowCands would otherwise auto-stage a lone candidate in Auto mode.
-        _scnRequireCandPick = !!r.artPrimary;
-        _scnShowCands(
-          r.candidates,
-          (best && best.name) || 'reprint',
-          r.artPrimary ? 'Low-confidence match — pick your card' : undefined,
-        );
-        _scnFpCooldownUntil = performance.now() + 600;
-        return;
-      }
+      // No chooser in the scanning flow: an ambiguous accept-quality result (same-art
+      // reprints) auto-takes the best candidate — the queue panel is the place to fix a
+      // printing, and any interruption here made the scanner unusable in practice. Weak
+      // art-only guesses (artPrimary, matched:false) fall through to the no-match branch.
       if (r.matched && r.best) {
+        _scnFpNoMatchStreak = 0;
         const ph = r._phash;
         const da = _scnFpDiag(r, r._quadSrc);
         const setNum = `${(r.best.set || '').toUpperCase()} · #${r.best.collector_number || ''}${da}`;
@@ -3448,6 +3445,7 @@ function _scnFingerprintTick(v, now) {
         if (_scnFpLastAcceptedPhash && PhashCore.hamming(ph, _scnFpLastAcceptedPhash) <= SCN_FP_DEDUPE_HAMMING) {
           _scnSetOverlay(r.best.name, `already added ✓${da}`, 'match');
           _scnShowPlusOne();
+          _scnFpHoldForNextCard('Swap in the next card…');
           _scnFpCooldownUntil = performance.now() + 450;
           return;
         }
@@ -3471,18 +3469,28 @@ function _scnFingerprintTick(v, now) {
           // Lingering re-read past the hash dedupe (new angle) — nothing new was queued.
           _scnSetOverlay(r.best.name, `already queued ✓${da}`, 'match');
           _scnShowPlusOne();
+          _scnFpHoldForNextCard('Swap in the next card…');
           _scnFpCooldownUntil = performance.now() + 700;
           return;
         }
         const qtyTag = staged && staged.qty > 1 ? `×${staged.qty} · ` : '';
         _scnSetOverlay(r.best.name, qtyTag + setNum, 'match'); // overrides "Queued"
         if (_scnStreamAdd || staged) _scnShowPlusOne();
+        // Result is on screen — hold until the next card comes in instead of re-reading this one.
+        _scnFpHoldForNextCard('Queued — swap in the next card…');
         _scnFpCooldownUntil = performance.now() + 700;
       } else {
         _scnFpPendingMatch = null; // a miss breaks the confirmation streak
         // "closest" readout keeps framing feedback for everyone; distances are admin-only.
         const da = _scnFpDiag(r, r._quadSrc);
         _scnSetOverlay('No match', best ? `closest: ${best.name}${da}` : da.replace(/^ · /, ''), 'hint');
+        // Repeated misses on the same static scene: stop hammering, open the manual search
+        // as the fallback, and wait for a reposition/swap (motion) to try again.
+        if (++_scnFpNoMatchStreak >= SCN_FP_NOMATCH_HOLD_AFTER) {
+          _scnFpNoMatchStreak = 0;
+          document.querySelector('.scn-manual-details')?.setAttribute('open', '');
+          _scnFpHoldForNextCard('No match — reposition the card, or type its name below');
+        }
         _scnFpCooldownUntil = performance.now() + 450;
       }
     } finally {
@@ -3557,6 +3565,7 @@ function _scnStartFingerprintScanning() {
   _scnFpPendingMatch = null;
   _scnFpLastAcceptedPhash = null;
   _scnFpChooserPhash = null;
+  _scnFpNoMatchStreak = 0;
   _scnFpDimKey = '';
   _scnFpDimStableAt = 0;
   _scnFpCooldownUntil = 0;
