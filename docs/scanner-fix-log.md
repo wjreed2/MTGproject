@@ -200,9 +200,24 @@ fingerprint DB was freshly built, so staleness is a contributor but not the root
       corpus run AGAINST PRODUCTION: **14/14 regular-frame captures correct** (both copies
       of every HOB/VOW card), three of them rescued by title OCR. This is also the standing
       ops answer to Scryfall's new-set image churn: rebuild locally, push up.
-- [ ] Known-weak classes after the prod fix: vertical Sagas (art in the right column breaks
-      the art window + fancy title font), one bird-art collision (Ravenhill Flock ↔
-      Hardened Scales at comb 26), and the damaged/borderless legacy files.
+- [x] **Round 9 (19/30 live, 11 new labeled crops): title fuzzy-matching gaps closed.**
+      The failures' OCR strings diagnosed three bugs in `_fpRowsForTitle`: candidate
+      gathering required an EXACT token ("F1ocK"/"remophnage"/"athering" anchored nothing);
+      stopwords counted as name tokens ("1e Kingpin of ee" failed coverage on "the");
+      two-token names demanded both tokens. Fixes: fuzzy token anchoring with a
+      digit-confusion map (1↔l, 0↔o, 5↔s, 8↔b — a confusion-exact hit is as good as clean),
+      stopword-free name tokens, coverage ≥ half, and **anchor-quality gates** — strong
+      anchors (exact/confusion-exact, or fuzzy words ≥ 6 chars) get comb ≤ 40, short fuzzy
+      anchors ≤ 30 (blocks "mock"→Monk at 36 while keeping "athering"→Gathering at 36).
+      Corpus vs the fixed matcher: Ravenhill Flock, Gathering of Darkness, Insatiable
+      Hemophage, and borderless Kingpin of Crime all now correct via TITLE.
+- [ ] Remaining classes: vertical Sagas (art window + stylized title), dark-art collisions
+      when OCR reads nothing at 360px (hob-121→Vile Rebirth would wrong-add; live native-res
+      OCR should read those titles — needs live confirmation), borderless-art titles
+      (mar-55b "PRAWN MALY TRE"), damaged legacy files.
+- [ ] **Ops note:** do NOT enable the prod-side fingerprint cron during release season — a
+      prod rebuild re-fetches images at a different hour and reintroduces image-generation
+      drift. The flow is: rebuild locally, `npm run fingerprints:push`.
 - [ ] Harness nit: `-b`-suffixed duplicate labels (hob-115b) parse as collector "115b" and
       count as WRONG — strip a trailing letter when comparing.
 - [ ] Later: printing-swap affordance in the queue panel rows; footer OCR to auto-resolve

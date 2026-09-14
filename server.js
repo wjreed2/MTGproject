@@ -8881,6 +8881,9 @@ function _fpEnsureNameIndex() {
   const byToken = new Map();
   const rowsByName = new Map();
   const tokensByName = new Map();
+  // Stopwords never make or break a name read — "1e Kingpin of ee" must still find
+  // The Kingpin of Crime on the strength of "kingpin" alone.
+  const STOP = new Set(['the', 'of', 'and', 'for', 'to', 'a', 'an', 'in', 'at', 'on']);
   for (let i = 0; i < _fpIndex.n; i++) {
     const key = _fpNormName(_fpIndex.meta[i].name);
     if (!key) continue;
@@ -8888,7 +8891,7 @@ function _fpEnsureNameIndex() {
     if (!rows) {
       rows = [];
       rowsByName.set(key, rows);
-      const toks = key.split(' ').filter(t => t.length >= 3);
+      const toks = key.split(' ').filter(t => t.length >= 3 && !STOP.has(t));
       tokensByName.set(key, toks);
       for (const t of toks) {
         let s = byToken.get(t);
@@ -8898,8 +8901,12 @@ function _fpEnsureNameIndex() {
     }
     rows.push(i);
   }
-  _fpNames = { byToken, rowsByName, tokensByName, _builtAt: _fpIndexLoadedAt };
-  console.log(`[scan] name index built: ${rowsByName.size} distinct names`);
+  _fpNames = {
+    byToken, rowsByName, tokensByName,
+    allTokens: [...byToken.keys()], // for fuzzy anchor lookup
+    _builtAt: _fpIndexLoadedAt,
+  };
+  console.log(`[scan] name index built: ${rowsByName.size} distinct names, ${_fpNames.allTokens.length} tokens`);
   return _fpNames;
 }
 
@@ -8920,40 +8927,81 @@ function _fpLev(a, b) {
   return dp[n];
 }
 
-// OCR title → candidate row indices. A name qualifies when most of its tokens appear in the
-// OCR text (edit distance ≤ 1 per token tolerated — Tesseract mangles serifs and foil glare).
+// Map Tesseract's classic digit-for-letter confusions back to letters: a post-map EXACT hit
+// ("F1ocK" → flock) is as trustworthy as a clean read, unlike a genuine edit ("mock" → monk).
+function _fpDigitFix(s) {
+  return s.replace(/0/g, 'o').replace(/1/g, 'l').replace(/5/g, 's').replace(/8/g, 'b');
+}
+
+// OCR title → candidate rows. Returns { rows, strongRows } — strongRows are printings of
+// names backed by at least one exact (or confusion-exact) token hit; purely fuzzy-anchored
+// names are plausible but earn a stricter hash gate.
 function _fpRowsForTitle(title) {
   const names = _fpEnsureNameIndex();
   const norm = _fpNormName(title);
   if (norm.length < 3) return null;
-  const words = norm.split(' ').filter(w => w.length >= 3);
+  const words = norm.split(' ').filter(w => w.length >= 3).map(_fpDigitFix);
   if (!words.length) return null;
-  // Gather names sharing at least one exact token with the OCR text.
-  const cand = new Map(); // nameKey -> exact-token hits
+  // Gather names anchored by the OCR words — exact token hits first, and for words with no
+  // exact hit a fuzzy sweep over the token vocabulary ("F1ocK"/"remophnage"/"athering" must
+  // still anchor Flock/Hemophage/Gathering; exact-only anchoring silently dropped them and
+  // the downstream tolerance never got a chance to run). Length prefilter keeps it cheap.
+  const cand = new Map(); // nameKey -> { hits, strong }
+  const bump = (key, strong) => {
+    const c = cand.get(key) || { hits: 0, strong: false };
+    c.hits++;
+    c.strong = c.strong || strong;
+    cand.set(key, c);
+  };
   for (const w of words) {
     const s = names.byToken.get(w);
-    if (!s) continue;
-    for (const key of s) cand.set(key, (cand.get(key) || 0) + 1);
+    if (s) {
+      for (const key of s) bump(key, true);
+      continue;
+    }
+    if (w.length < 4) continue;
+    const tol = w.length >= 8 ? 2 : 1;
+    for (const t of names.allTokens) {
+      if (Math.abs(t.length - w.length) > tol) continue;
+      if (t[0] !== w[0] && t[1] !== w[1] && t[t.length - 1] !== w[w.length - 1]) continue;
+      if (_fpLev(w, t) > tol) continue;
+      // A long fuzzy anchor is trustworthy ("athering", "remophnage" — random 8+ char OCR
+      // output rarely sits within edit range of a real token); a short one is not ("mock"
+      // neighbours monk/rock/dock/lock) and earns only the stricter fuzzy gate.
+      for (const key of names.byToken.get(t)) bump(key, w.length >= 6);
+    }
   }
   const scored = [];
-  for (const [key, exactHits] of cand) {
+  for (const [key, c] of cand) {
     const toks = names.tokensByName.get(key) || [];
     if (!toks.length) continue;
     let hits = 0;
     for (const t of toks) {
-      if (words.some(w => w === t || _fpLev(w, t) <= (t.length >= 6 ? 1 : t.length >= 4 ? 1 : 0))) hits++;
+      // Edit tolerance scales with token length — foil glare eats a character or two off
+      // long words ("remophnage" is Hemophage, "athering" is Gathering).
+      const tol = t.length >= 8 ? 2 : t.length >= 4 ? 1 : 0;
+      if (words.some(w => w === t || _fpLev(w, t) <= tol)) hits++;
     }
     const coverage = hits / toks.length;
-    // Short names need full coverage; longer names tolerate one unread token.
-    if (coverage >= (toks.length <= 2 ? 1 : 0.6)) scored.push({ key, coverage, exactHits, nTok: toks.length });
+    // Half the name's tokens is enough — the hash arbitrates inside the shortlist, and OCR
+    // routinely loses a whole word to glare ("- F1ocK" must still reach Ravenhill Flock).
+    // Single-token names still need their token.
+    if (coverage >= (toks.length === 1 ? 1 : 0.5)) {
+      scored.push({ key, coverage, exactHits: c.hits, strong: c.strong, nTok: toks.length });
+    }
   }
   if (!scored.length) return null;
   scored.sort((a, b) => (b.coverage - a.coverage) || (b.nTok - a.nTok) || (b.exactHits - a.exactHits));
   const rows = [];
+  const strongRows = new Set();
   for (const s of scored.slice(0, 25)) {
-    for (const i of names.rowsByName.get(s.key)) rows.push(i);
+    for (const i of names.rowsByName.get(s.key)) {
+      rows.push(i);
+      if (s.strong) strongRows.add(i);
+    }
+    if (rows.length > 600) break; // bound the restricted scan
   }
-  return rows.length ? rows : null;
+  return rows.length ? { rows, strongRows } : null;
 }
 
 // Best variant match restricted to `rows` (the title's printings). Same combined metric,
@@ -9905,6 +9953,7 @@ const SCAN_WIN_MARGIN = 4; // was 3; one wrong add slipped through live at the o
 // (a wrong pick is at worst the right card's wrong printing), so the gate only guards
 // against the OCR shortlist containing a wrong-but-similar name.
 const SCAN_TITLE_COMB_MAX = 40;
+const SCAN_TITLE_COMB_FUZZY_MAX = 30; // gate for names anchored only by fuzzy token edits
 const SCAN_ART_TIE = 2;       // art-hash distance under which two printings count as "same art"
 const SCAN_ART_PRIMARY_MAX = 12;  // art-only fallback gate (foil glare / non-English fronts)
 const SCAN_ART_PRIMARY_GROUP = 2; // art-distance tie window for the fallback chooser group
@@ -9943,10 +9992,14 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
     // title restricts the search to that name's printings, where the hash is nearly
     // infallible — the global noise floor that breeds jitter-stable collisions (dark low-key
     // art matching unrelated cards at combined 20-26) doesn't exist inside a name set.
-    const titleRows = body.title ? _fpRowsForTitle(String(body.title).slice(0, 160)) : null;
-    if (titleRows) {
-      const tBest = _fpBestInRows(titleRows, parsed);
-      if (tBest && tBest.comb <= SCAN_TITLE_COMB_MAX) {
+    const titleHit = body.title ? _fpRowsForTitle(String(body.title).slice(0, 160)) : null;
+    if (titleHit) {
+      const tBest = _fpBestInRows(titleHit.rows, parsed);
+      // Purely fuzzy-anchored names ("mock" → Monk) are plausible-not-proven: they earn a
+      // stricter hash gate than exact/confusion-exact reads ("F1ocK" → Flock).
+      const gate = tBest && titleHit.strongRows.has(tBest.i)
+        ? SCAN_TITLE_COMB_MAX : SCAN_TITLE_COMB_FUZZY_MAX;
+      if (tBest && tBest.comb <= gate) {
         const cards = await _fingerprintCardsFor([_fpIndex.meta[tBest.i]]);
         if (cards[0]) {
           cards[0]._scanDistance = tBest.dist;
