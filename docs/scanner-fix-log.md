@@ -215,6 +215,18 @@ fingerprint DB was freshly built, so staleness is a contributor but not the root
       when OCR reads nothing at 360px (hob-121→Vile Rebirth would wrong-add; live native-res
       OCR should read those titles — needs live confirmation), borderless-art titles
       (mar-55b "PRAWN MALY TRE"), damaged legacy files.
+- [x] **Rounds 10-11** (30/42 cumulative live; corpus now 55 labeled files): wider fuzzy
+      nets ("Lolium"→Gollum, "Stent"→Silent), full-frame OCR retry when the rect band reads
+      garbage, evidence-quality gates (3-char-only title evidence never shortlists — "ark"
+      from truncated Dark had wrong-added Ark of Blight; 4-5 char evidence gets the strict
+      gate — lone "fury" had pulled a Fury promo), and **title/hash arbitration**: the title
+      path only overrides when the global winner's name contradicts the read; when the title
+      corroborates the global winner, agreement waives the win-margin gates (corroborated
+      true matches were dying at the margin). Corpus: 17 exact + 4 chooser, best yet.
+- [ ] Remaining failure classes, all with garbage/no OCR at 360px: dark-art global
+      collisions that wrong-add (Stony Goblins→Dawnhart Geist, Valiant Rescuer→Timber
+      Wolves, Boughside→Vile Rebirth, the Razorjaw Saga), and borderless-art titles
+      (Harbinger). Live native-res OCR is the differentiator the harness can't measure.
 - [ ] **Ops note:** do NOT enable the prod-side fingerprint cron during release season — a
       prod rebuild re-fetches images at a different hour and reintroduces image-generation
       drift. The flow is: rebuild locally, `npm run fingerprints:push`.
