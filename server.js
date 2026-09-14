@@ -12046,6 +12046,59 @@ app.get('/api/foundation-lab/user-fixtures', requireAuth, requireAdminRole, asyn
 });
 
 /** Batch upsert of CardIR rows (card_semantics + replaced card_semantics_axes). */
+// ── Fingerprint push channel (same shared secret as semantics ingest) ──────────────────────
+// Scryfall REPLACES new-set images (placeholder scans → final), so the prod fingerprint index
+// drifts 2-10 bits from a locally rebuilt one within hours during release season — enough to
+// break scanning for exactly the cards people scan. This lets a dev box push its freshly
+// built rows up instead of asking prod to re-fetch 100k images (scripts/fingerprints-push-prod.js).
+app.get('/api/internal/fingerprints-ingest/status', requireSemanticsIngestSecret, async (req, res) => {
+  try {
+    const [[{ n }]] = await db().query('SELECT COUNT(*) AS n FROM scryfall_print_fingerprints');
+    res.json({ ok: true, dbCount: n, indexSize: _fpIndex ? _fpIndex.n : 0, indexLoadedAt: _fpIndexLoadedAt });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+app.post('/api/internal/fingerprints-ingest', requireSemanticsIngestSecret, async (req, res) => {
+  try {
+    if (req.body?.reload) {
+      await reloadFingerprintIndex();
+      return res.json({ ok: true, reloaded: true, indexSize: _fpIndex ? _fpIndex.n : 0 });
+    }
+    const rows = Array.isArray(req.body?.rows) ? req.body.rows : null;
+    if (!rows || !rows.length) return res.status(400).json({ error: 'rows[] (or reload:true) required' });
+    if (rows.length > 4000) return res.status(400).json({ error: 'max 4000 rows per batch' });
+    for (const r of rows) {
+      if (!/^[0-9a-f-]{36}$/i.test(String(r?.scryfall_id || ''))) {
+        return res.status(400).json({ error: `bad scryfall_id: ${r?.scryfall_id}` });
+      }
+      if (!/^\d+$/.test(String(r?.phash || ''))) return res.status(400).json({ error: `bad phash for ${r.scryfall_id}` });
+      if (r.art_phash != null && !/^\d+$/.test(String(r.art_phash))) {
+        return res.status(400).json({ error: `bad art_phash for ${r.scryfall_id}` });
+      }
+    }
+    const INSERT = `INSERT INTO scryfall_print_fingerprints
+        (scryfall_id, oracle_id, name, set_code, collector_number, phash, art_phash, lang, layout, image_source, hashed_at)
+       VALUES ${rows.map(() => '(?,?,?,?,?,?,?,?,?,?,?)').join(',')}
+       ON DUPLICATE KEY UPDATE
+         oracle_id=VALUES(oracle_id), name=VALUES(name), set_code=VALUES(set_code),
+         collector_number=VALUES(collector_number), phash=VALUES(phash), art_phash=VALUES(art_phash),
+         lang=VALUES(lang), layout=VALUES(layout), image_source=VALUES(image_source), hashed_at=VALUES(hashed_at)`;
+    await db().query(INSERT, rows.flatMap(r => [
+      r.scryfall_id, r.oracle_id || null, String(r.name || '').slice(0, 255),
+      String(r.set_code || '').slice(0, 10), String(r.collector_number || '').slice(0, 20),
+      String(r.phash), r.art_phash != null ? String(r.art_phash) : null,
+      String(r.lang || 'en').slice(0, 8), r.layout != null ? String(r.layout).slice(0, 32) : null,
+      r.image_source != null ? String(r.image_source) : null, Number(r.hashed_at) || Date.now(),
+    ]));
+    res.json({ ok: true, upserted: rows.length });
+  } catch (e) {
+    console.error('[fingerprints-ingest]', e);
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 app.post('/api/internal/semantics-ingest', requireSemanticsIngestSecret, async (req, res) => {
   const cards = Array.isArray(req.body?.cards) ? req.body.cards : null;
   if (!cards || !cards.length) return res.status(400).json({ error: 'cards[] required' });

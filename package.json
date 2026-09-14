@@ -29,6 +29,7 @@
     "price:coverage": "node scripts/price-coverage.js",
     "changelog:add": "node scripts/changelog-add.js",
     "semantics:push": "node --use-system-ca scripts/semantics-push-prod.js",
+    "fingerprints:push": "node --use-system-ca scripts/fingerprints-push-prod.js",
     "deck:pull": "node --use-system-ca scripts/deck-pull.js",
     "feedback:pull": "node --use-system-ca scripts/feedback-pull.js",
     "changelog:sync": "node scripts/sync-changelog.js",
