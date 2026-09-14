@@ -173,6 +173,8 @@ function renderSets() {
   // header inside a set, Filter button included, since none of it applies there.
   const setsHeader = document.getElementById('setsHeader');
   if (setsHeader) setsHeader.style.display = hasSelected ? 'none' : '';
+  // All Sets shares the menu button's row; an open set's header does not.
+  if (typeof setMobNavOwnRow === 'function') setMobNavOwnRow('sets', hasSelected);
 
   const gridArea = document.getElementById('setGridArea');
   const detailArea = document.getElementById('setDetailArea');

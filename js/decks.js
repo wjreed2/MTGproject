@@ -4002,6 +4002,11 @@ function renderDecks() {
     renderActiveDeck();
   }
   _placeDeckActionCluster();
+  // After _placeDeckActionCluster, which is what shows or hides the top bar the
+  // "Decks" title lives in: called before it, the seating below finds no visible
+  // title on the way back from a deck and drops the button into the corner.
+  // All Decks shares the menu button's row; an open deck's header does not.
+  if (typeof setMobNavOwnRow === 'function') setMobNavOwnRow('decks', !!activeDeckId);
 }
 
 // Always read the commander card's current image rather than the stale stored snapshot

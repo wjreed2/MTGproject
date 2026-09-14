@@ -190,6 +190,21 @@ function _placeMobNavToggle(tab) {
   if (top >= min) btn.style.top = `${top}px`;
 }
 
+/**
+ * Whether a pane keeps the top row for the menu button.
+ *
+ * Only true while something is open inside it: on the deck list and the set
+ * list the title shares the button's row like every other tab, and it is the
+ * deck's or the set's own header — which starts hard against the left edge and
+ * has no inset to give — that has to drop below it.
+ */
+function setMobNavOwnRow(tab, own) {
+  const pane = document.getElementById('tab-' + tab);
+  if (!pane || pane.hasAttribute('data-nav-own-row') === !!own) return;
+  pane.toggleAttribute('data-nav-own-row', !!own);
+  _placeMobNavToggle(localStorage.getItem('mtg_active_tab') || 'collection');
+}
+
 function _syncMobNavActive(tab) {
   document.querySelectorAll('#mobNavMenu .mob-nav-row').forEach(r => {
     r.classList.toggle('active', !!tab && r.dataset.tab === tab);
@@ -232,6 +247,7 @@ function toggleMobNav(e) {
   }
 }
 
+globalThis.setMobNavOwnRow = setMobNavOwnRow;
 globalThis.toggleMobNav = toggleMobNav;
 globalThis.closeMobNav = closeMobNav;
 globalThis.toggleMobNavCornerSetting = toggleMobNavCornerSetting;
