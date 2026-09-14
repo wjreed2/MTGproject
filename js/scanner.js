@@ -2944,9 +2944,8 @@ const SCN_FP_LRU_MAX = 24;
 const SCN_FP_LRU_HAMMING = 6;          // reuse a recent match without a round-trip within this distance
 const SCN_FP_DEDUPE_HAMMING = 6;       // don't re-queue the same card while it lingers in frame
 const SCN_FP_WARMUP_MS = 900;          // wait this long after video dimensions settle before capturing
-const SCN_FP_REFINE_PAD = 0.06;        // guide bbox expansion for the corner-hunt seed (fraction of bbox)
-const SCN_FP_REFINE_MIN_CONF = 0.55;   // min compound confidence to trust a refined quad over the guide
-const SCN_FP_REFINE_ASPECT_TOL = 0.12; // refined quad aspect must be within ±this of 63:88
+// (The corner-hunt refine constants SCN_FP_REFINE_* are gone with the refine itself — card
+// localization is now the axis-projection scan + server-side variant arbitration below.)
 const SCN_FP_SHARP_RING = 4;           // recent capture-eligible sharpness readings kept
 const SCN_FP_SHARP_PEAK_RATIO = 0.85;  // only hash frames near the recent sharpness peak (skip focus hunts)
 const SCN_FP_LEAVE_TICKS = 3;          // consecutive empty-reticle ticks that count as "card removed"
@@ -3052,31 +3051,114 @@ function _scnWarpProjective(v, corners, W, H) {
   return { canvas: c, ctx };
 }
 
-// Spec v2: the 360x504 → 32x32 downsample and the art crop are SHARED code with the server
-// build (PhashCore.lumaBoxDownscale) — canvas drawImage decimation (which Safari aliases badly)
-// is no longer part of the fingerprint. One getImageData readback feeds all four hashes.
-function _scnComputeScanHashes(v, quad) {
-  const warp = _scnWarpCardToCanvas(v, quad, SCN_FP_WARP_W, SCN_FP_WARP_H);
-  if (!warp) return null;
-  const W = warp.canvas.width, H = warp.canvas.height;
-  const px = warp.ctx.getImageData(0, 0, W, H).data;
-  const lumaFull = PhashCore.lumaBoxDownscale(px, W, H, 4, null);
-  const artRect = PhashCore.artRect(W, H);
-  const lumaArt = PhashCore.lumaBoxDownscale(px, W, H, 4, artRect);
-  // Upside-down support: a card held rotated 180° shows its art in the MIRRORED rect, itself
-  // rotated. Hash that too so the server can match either orientation on BOTH hashes (the full
-  // rot hash alone used to pass, then die at the art gate).
-  const rectRot = {
-    x: W - artRect.x - artRect.w, y: H - artRect.y - artRect.h,
-    w: artRect.w, h: artRect.h,
+// ── Capture-time card localization: axis projections within the guide warp ──────────────────
+// The reticle is a suggestion, not a promise: real captures (cards sitting in a tray) put the
+// card at 60-85% of the guide, and both the raw guide hash and the corner-hunt refinement
+// measured useless on that imagery (the hunt locked onto the TRAY edges; white-border cards in
+// a white tray have no corner contrast at detect resolution). The card IS axis-aligned in the
+// guide warp though, so 1-D gradient projections find its edges — the row/column sums peak
+// hard at the card boundary, even white-on-white via the shadow seam — and the SERVER picks
+// the winning rect by match distance (multi-hypothesis variants), which is a far better judge
+// of "which rectangle was the card" than any local confidence score.
+const SCN_FP_AXIS_MIN_SPAN = 0.5; // a candidate card spans at least half the warp per axis
+const SCN_FP_AXIS_AR_TOL = 0.06;  // |w/h − 63/88| tolerance for a candidate rect
+// Each coarse rect also ships grown by this margin: gradient peaks sit on the printed border,
+// a hair INSIDE the physical card edge the reference images include (measured: −5px ≈ −6 bits).
+const SCN_FP_AXIS_GROW_PX = 5;
+const SCN_FP_MAX_VARIANTS = 6;    // hash sets per identify request (the server accepts ≤ 6)
+
+// Rec.601 luma of the warped capture at full resolution (Float64, row-major).
+function _scnWarpLuma(px, W, H) {
+  const L = new Float64Array(W * H);
+  for (let i = 0, p = 0; p < W * H; i += 4, p++) {
+    L[p] = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
+  }
+  return L;
+}
+
+// Local maxima of a 1-D profile in [a, b), strongest first, ≥ 7px apart, at most n.
+function _scnAxisPeaks(prof, a, b, n) {
+  const cand = [];
+  for (let i = Math.max(1, a); i < Math.min(prof.length - 1, b); i++) {
+    if (prof[i] >= prof[i - 1] && prof[i] >= prof[i + 1]) cand.push([i, prof[i]]);
+  }
+  cand.sort((u, v) => v[1] - u[1]);
+  const out = [];
+  for (const [i, s] of cand) {
+    if (out.every(([j]) => Math.abs(i - j) > 6)) out.push([i, s]);
+    if (out.length >= n) break;
+  }
+  return out;
+}
+
+// Top card-shaped axis-aligned rects in the warp (strongest combined edge evidence first).
+function _scnAxisCardRects(L, W, H) {
+  const colG = new Float64Array(W);
+  const rowG = new Float64Array(H);
+  const by0 = Math.round(H * 0.2), by1 = Math.round(H * 0.8);
+  const bx0 = Math.round(W * 0.2), bx1 = Math.round(W * 0.8);
+  for (let x = 1; x < W - 1; x++) {
+    let s = 0;
+    for (let y = by0; y < by1; y++) s += Math.abs(L[y * W + x + 1] - L[y * W + x - 1]);
+    colG[x] = s / (by1 - by0);
+  }
+  for (let y = 1; y < H - 1; y++) {
+    let s = 0;
+    for (let x = bx0; x < bx1; x++) s += Math.abs(L[(y + 1) * W + x] - L[(y - 1) * W + x]);
+    rowG[y] = s / (bx1 - bx0);
+  }
+  // Peak search stays 1% clear of the warp boundary: the outermost pixels carry the guide
+  // edge's own gradient, never a card edge (a card flush against the guide is the full-guide
+  // fallback variant's job) — but real captures put card edges as close as 97% out, so the
+  // margin must stay tight.
+  const lefts = _scnAxisPeaks(colG, Math.round(W * 0.01), Math.round(W * 0.42), 6);
+  const rights = _scnAxisPeaks(colG, Math.round(W * 0.58), Math.round(W * 0.99), 6);
+  const tops = _scnAxisPeaks(rowG, Math.round(H * 0.01), Math.round(H * 0.42), 6);
+  const bots = _scnAxisPeaks(rowG, Math.round(H * 0.58), Math.round(H * 0.99), 6);
+  const rects = [];
+  for (const [l, sl] of lefts) for (const [r, sr] of rights) {
+    const w = r - l;
+    if (w < W * SCN_FP_AXIS_MIN_SPAN) continue;
+    for (const [t, st] of tops) for (const [b, sb] of bots) {
+      const h = b - t;
+      if (h < H * SCN_FP_AXIS_MIN_SPAN) continue;
+      if (Math.abs(w / h - SCN_GUIDE_CARD_AR) > SCN_FP_AXIS_AR_TOL) continue;
+      rects.push({ x: l, y: t, w, h, score: sl + sr + st + sb });
+    }
+  }
+  rects.sort((a, b) => b.score - a.score);
+  const uniq = [];
+  for (const r of rects) {
+    if (uniq.every(u => Math.abs(u.x - r.x) + Math.abs(u.y - r.y) + Math.abs(u.w - r.w) + Math.abs(u.h - r.h) > 20)) uniq.push(r);
+    if (uniq.length >= 3) break;
+  }
+  return uniq;
+}
+
+// Spec v2 hash set for a sub-rect of the warped capture (rect = null → the whole warp). The
+// 360x504 → 32x32 downsample + art crop are SHARED code with the server build; the art window
+// and its 180°-mirrored twin are placed RELATIVE to the rect.
+function _scnHashesFromRect(px, W, H, rect) {
+  const r = rect || { x: 0, y: 0, w: W, h: H };
+  const lumaFull = PhashCore.lumaBoxDownscale(px, W, H, 4, r);
+  const aw = PhashCore.ART_WINDOW;
+  const ar = {
+    x: r.x + Math.round(r.w * aw.u0), y: r.y + Math.round(r.h * aw.v0),
+    w: Math.round(r.w * (aw.u1 - aw.u0)), h: Math.round(r.h * (aw.v1 - aw.v0)),
   };
-  const lumaArtRot = PhashCore.rotate180(PhashCore.lumaBoxDownscale(px, W, H, 4, rectRot));
+  const lumaArt = PhashCore.lumaBoxDownscale(px, W, H, 4, ar);
+  // Upside-down support: a card rotated 180° shows its art in the rect-mirrored window, itself
+  // rotated — hash that too so the server can match either orientation on BOTH hashes.
+  const arRot = {
+    x: r.x + r.w - (ar.x - r.x) - ar.w, y: r.y + r.h - (ar.y - r.y) - ar.h,
+    w: ar.w, h: ar.h,
+  };
+  const lumaArtRot = PhashCore.rotate180(PhashCore.lumaBoxDownscale(px, W, H, 4, arRot));
   return {
     phash: PhashCore.fromLuma(lumaFull),
     phashRot180: PhashCore.fromLuma(PhashCore.rotate180(lumaFull)),
     artPhash: PhashCore.fromLuma(lumaArt),
     artPhashRot180: PhashCore.fromLuma(lumaArtRot),
-    sharp: _scnLaplacianVariance(warp.ctx, W, H),
     detail: _scnLumaDetail(lumaFull),
   };
 }
@@ -3097,27 +3179,53 @@ function _scnLumaDetail(luma) {
   return n ? s / n : 0;
 }
 
+// Identify a capture: warp the guide once, localize candidate card rects inside it (axis
+// projections), hash every hypothesis, and let the server answer with the best-matching one.
 async function _scnIdentifyFromQuad(hints, quad) {
   const v = document.getElementById('scnVideo');
   const useQuad = quad || _scnCardQuad;
   if (!v?.videoWidth || !useQuad) return null;
-  const h = _scnComputeScanHashes(v, useQuad);
-  if (!h) return null;
-  // Empty-reticle guard: a smooth capture (no card) must not reach the matcher — its
+  const warp = _scnWarpCardToCanvas(v, useQuad, SCN_FP_WARP_W, SCN_FP_WARP_H);
+  if (!warp) return null;
+  const W = warp.canvas.width, H = warp.canvas.height;
+  const px = warp.ctx.getImageData(0, 0, W, H).data;
+  const rects = _scnAxisCardRects(_scnWarpLuma(px, W, H), W, H);
+  const candRects = [];
+  rects.forEach((r, i) => {
+    candRects.push(r);
+    if (i >= 2) return; // grown twins for the top-2 only (variant budget)
+    const g = SCN_FP_AXIS_GROW_PX;
+    candRects.push({
+      x: Math.max(0, r.x - g), y: Math.max(0, r.y - g),
+      w: Math.min(W - Math.max(0, r.x - g), r.w + 2 * g),
+      h: Math.min(H - Math.max(0, r.y - g), r.h + 2 * g),
+    });
+  });
+  candRects.push(null); // the full guide warp always rides along as fallback
+  // Empty-reticle guard per variant: a smooth crop (no card) must not reach the matcher — its
   // degenerate hash lands on random low-detail printings and reads as "found a card".
-  if (h.detail < SCN_FP_MIN_DETAIL) return { ok: false, empty: true };
+  const kept = [];
+  for (const r of candRects) {
+    if (kept.length >= SCN_FP_MAX_VARIANTS) break;
+    const h = _scnHashesFromRect(px, W, H, r);
+    if (h.detail >= SCN_FP_MIN_DETAIL) kept.push(h);
+  }
+  if (!kept.length) return { ok: false, empty: true };
   // LRU short-circuit (no network) when the same card lingers / reappears in frame.
   if (!hints) {
-    for (const e of _scnFpLru) {
-      if (PhashCore.hamming(e.phash, h.phash) <= SCN_FP_LRU_HAMMING) {
-        return { ok: true, matched: true, ambiguous: false, distance: 0, best: e.card, candidates: [e.card], _phash: h.phash, _cached: true };
+    for (const h of kept) {
+      for (const e of _scnFpLru) {
+        if (PhashCore.hamming(e.phash, h.phash) <= SCN_FP_LRU_HAMMING) {
+          return { ok: true, matched: true, ambiguous: false, distance: 0, best: e.card, candidates: [e.card], _phash: h.phash, _cached: true };
+        }
       }
     }
   }
-  const body = {
+  const toVariant = h => ({
     phash: h.phash, artPhash: h.artPhash,
     phashRot180: h.phashRot180, artPhashRot180: h.artPhashRot180,
-  };
+  });
+  const body = kept.length === 1 ? toVariant(kept[0]) : { variants: kept.map(toVariant) };
   if (hints) body.hints = hints;
   try {
     const res = await fetch(`${mtgApiRoot()}/scan/identify`, {
@@ -3127,9 +3235,11 @@ async function _scnIdentifyFromQuad(hints, quad) {
     });
     if (!res.ok) return null;
     const data = await res.json();
-    data._phash = h.phash;
+    const winner = kept[Number.isInteger(data.variantIndex) ? data.variantIndex : 0] || kept[0];
+    data._phash = winner.phash;
+    data._variantCount = kept.length;
     if (data.matched && data.best && !data.ambiguous) {
-      _scnFpLru.unshift({ phash: h.phash, card: data.best });
+      _scnFpLru.unshift({ phash: winner.phash, card: data.best });
       if (_scnFpLru.length > SCN_FP_LRU_MAX) _scnFpLru.pop();
     }
     return data;
@@ -3224,40 +3334,8 @@ function _scnGuideQuad(v) {
   return { tl: { nx: x0, ny: y0 }, tr: { nx: x1, ny: y0 }, br: { nx: x1, ny: y1 }, bl: { nx: x0, ny: y1 } };
 }
 
-// Refine the fixed reticle to the card's true edges: seed the classic corner hunt with the guide
-// bbox so a slightly tilted/off-center card is warped from its real quad instead of the rectangle
-// (less background bleed, lower Hamming distance). Any failure falls back to the guide — additive.
-function _scnRefineGuideQuad(v, guide) {
-  const bb = _scnQuadAxisBBox(guide);
-  const buf = bb && _scnDetectGrayBuffer(v);
-  if (!buf) return null;
-  const { gray, W, H } = buf;
-  const snap = _scnSnapshotContrast(gray, W, H);
-  const padX = bb.nw * SCN_FP_REFINE_PAD;
-  const padY = bb.nh * SCN_FP_REFINE_PAD;
-  const seed = {
-    x0: Math.max(1, Math.round((bb.nx - padX) * W)),
-    y0: Math.max(1, Math.round((bb.ny - padY) * H)),
-    x1: Math.min(W - 2, Math.round((bb.nx + bb.nw + padX) * W)),
-    y1: Math.min(H - 2, Math.round((bb.ny + bb.nh + padY) * H)),
-  };
-  const r = _scnQuadFromSeedPx(snap, gray, W, H, seed);
-  if (!r || r.compound < SCN_FP_REFINE_MIN_CONF) return null;
-  const q = r.q;
-  // Corners must stay inside the expanded seed (a hunt that wandered off found something else).
-  const inSeed = c =>
-    c.nx * W >= seed.x0 - 1 && c.nx * W <= seed.x1 + 1 &&
-    c.ny * H >= seed.y0 - 1 && c.ny * H <= seed.y1 + 1;
-  if (!inSeed(q.tl) || !inSeed(q.tr) || !inSeed(q.br) || !inSeed(q.bl)) return null;
-  // And the quad must still be card-shaped (aspect in detect-buffer pixels, which preserve video AR).
-  const px = c => [c.nx * W, c.ny * H];
-  const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
-  const tl = px(q.tl), tr = px(q.tr), br = px(q.br), bl = px(q.bl);
-  const w = (dist(tl, tr) + dist(bl, br)) / 2;
-  const h = (dist(tl, bl) + dist(tr, br)) / 2;
-  if (!h || Math.abs(w / h - SCN_GUIDE_CARD_AR) > SCN_FP_REFINE_ASPECT_TOL) return null;
-  return q;
-}
+// (Capture-time card localization lives in _scnAxisCardRects below — the corner-hunt variant
+// of this idea measured useless on real tray captures and was removed.)
 
 // Laplacian variance of the guide region (downscaled) — low when empty/blurred, high for a real card.
 function _scnFpGuideSharpness(v, quad) {
@@ -3317,15 +3395,11 @@ function _scnFingerprintTick(v, now) {
   if (_scnFpSharpRing.length > SCN_FP_SHARP_RING) _scnFpSharpRing.shift();
   if (sharp < SCN_FP_SHARP_PEAK_RATIO * Math.max(..._scnFpSharpRing)) return;
 
-  // Capture-time only (never on the steady-state hot path): hunt the card's true corners near the
-  // reticle so tilted/off-center cards hash cleanly; the guide rectangle remains the fallback.
-  const refined = _scnRefineGuideQuad(v, guide);
-
   _scnFpInFlight = true;
   void (async () => {
     try {
-      const r = await _scnIdentifyFromQuad(undefined, refined || guide);
-      if (r) r._quadSrc = refined ? 'q=refined' : 'q=guide';
+      const r = await _scnIdentifyFromQuad(undefined, guide);
+      if (r) r._quadSrc = `q=${Number.isInteger(r.variantIndex) ? r.variantIndex : '?'}/${r._variantCount || 1}`;
       if (!r) { _scnFpCooldownUntil = performance.now() + 300; return; }
       if (r.empty) {
         // Sharp but featureless frame (table/hand/no card) — same "reticle is empty" signal
@@ -3429,13 +3503,29 @@ async function scnSaveCapture() {
   }
   const guide = _scnGuideQuad(v);
   if (!guide) return;
-  const quad = _scnRefineGuideQuad(v, guide) || guide;
-  const warp = _scnWarpCardToCanvas(v, quad, SCN_FP_WARP_W, SCN_FP_WARP_H);
+  const warp = _scnWarpCardToCanvas(v, guide, SCN_FP_WARP_W, SCN_FP_WARP_H);
   if (!warp) {
     _scnStatus('Could not capture the card crop.', true);
     return;
   }
-  const blob = await new Promise(r => warp.canvas.toBlob(r, 'image/png'));
+  // Save the best axis-localized card rect (what the matcher most likely used), guide as-is
+  // when no card-shaped rect is found.
+  let outCanvas = warp.canvas;
+  const W = warp.canvas.width, H = warp.canvas.height;
+  const px = warp.ctx.getImageData(0, 0, W, H).data;
+  const best = _scnAxisCardRects(_scnWarpLuma(px, W, H), W, H)[0];
+  if (best) {
+    const g = SCN_FP_AXIS_GROW_PX;
+    const r = {
+      x: Math.max(0, best.x - g), y: Math.max(0, best.y - g),
+      w: Math.min(W - Math.max(0, best.x - g), best.w + 2 * g),
+      h: Math.min(H - Math.max(0, best.y - g), best.h + 2 * g),
+    };
+    outCanvas = document.createElement('canvas');
+    outCanvas.width = W; outCanvas.height = H;
+    outCanvas.getContext('2d').drawImage(warp.canvas, r.x, r.y, r.w, r.h, 0, 0, W, H);
+  }
+  const blob = await new Promise(r => outCanvas.toBlob(r, 'image/png'));
   if (!blob) return;
   const name = `scan-crop-${Date.now()}.png`;
   const file = new File([blob], name, { type: 'image/png' });

@@ -9772,7 +9772,11 @@ const SCAN_ACCEPT_RELAXED_MAX = 24; // full-card gate when the art hash alone is
 const SCAN_ART_STRONG_MAX = 12; // art distance far enough below the ~32 noise floor to carry a match
 const SCAN_AMBIG_MARGIN = 3;  // (full-only queries) candidates within best+margin = disambiguation group
 const SCAN_AMBIG_MARGIN_COMB = 6; // same, on the combined distance (2x the variance of one hash)
-const SCAN_COMB_ACCEPT_MAX = 28;  // combined-distance cap — junk textures reached 30-32, floor ~34
+// Combined-distance cap. Pure-noise floor ~34; the junk textures that once squeaked in at
+// 30-32 are low-detail captures the client's SCN_FP_MIN_DETAIL gate now drops before the
+// network (verified by scripts/scan-empty-reticle-test.js at this cap), while real borderline
+// captures (tray scans through the variant pipeline) measured 26-31.
+const SCAN_COMB_ACCEPT_MAX = 31;
 const SCAN_SAMEART_WINDOW = 10;   // identical-art rival within this comb margin of the winner → chooser
 const SCAN_ART_TIE = 2;       // art-hash distance under which two printings count as "same art"
 const SCAN_ART_PRIMARY_MAX = 12;  // art-only fallback gate (foil glare / non-English fronts)
@@ -9784,11 +9788,23 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
       return res.status(503).json({ ok: false, error: 'fingerprint index not ready' });
     }
     const body = req.body || {};
-    const q = _hashHexToHiLo(String(body.phash || ''));
-    if (!q) return res.status(400).json({ ok: false, error: 'phash (16-hex) required' });
-    const rot = body.phashRot180 ? _hashHexToHiLo(String(body.phashRot180)) : null;
-    const art = body.artPhash ? _hashHexToHiLo(String(body.artPhash)) : null;
-    const artRot = body.artPhashRot180 ? _hashHexToHiLo(String(body.artPhashRot180)) : null;
+    // Multi-hypothesis capture: the client may send several hash sets (`variants`), one per
+    // candidate card quad — the reticle is only a suggestion, and a card sitting inside a
+    // tray shows up at 60-75% of it. Every variant is matched and the best one answers; the
+    // index is a far better judge of "which rectangle was the card" than client heuristics.
+    const rawVariants = Array.isArray(body.variants) && body.variants.length
+      ? body.variants.slice(0, 6)
+      : [body];
+    const parsed = rawVariants
+      .map(v => v && typeof v === 'object' ? {
+        q: _hashHexToHiLo(String(v.phash || '')),
+        rot: v.phashRot180 ? _hashHexToHiLo(String(v.phashRot180)) : null,
+        art: v.artPhash ? _hashHexToHiLo(String(v.artPhash)) : null,
+        artRot: v.artPhashRot180 ? _hashHexToHiLo(String(v.artPhashRot180)) : null,
+      } : null)
+      .map((p, i) => (p && p.q ? { ...p, idx: i } : null))
+      .filter(Boolean);
+    if (!parsed.length) return res.status(400).json({ ok: false, error: 'phash (16-hex) required' });
     // Default candidate cap 10 (was 5): within a same-art reprint group, capture noise
     // scrambles the combined-distance order, and a tight cap can drop the TRUE printing
     // from the chooser entirely (seen live with Ponder's six frame-twins).
@@ -9798,8 +9814,14 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
 
     // Retrieval ranks by combined full+art distance (see _fpNearestCombined) — the true card
     // reliably surfaces even when full-hash noise buries it below unrelated printings.
-    const near = _fpNearestCombined(q, rot, art, artRot, SCAN_TOPK);
-    if (!near.length) return res.json({ ok: true, matched: false });
+    let near = null;
+    let winner = parsed[0];
+    for (const p of parsed) {
+      const n = _fpNearestCombined(p.q, p.rot, p.art, p.artRot, SCAN_TOPK);
+      if (n.length && (!near || n[0].comb < near[0].comb)) { near = n; winner = p; }
+    }
+    const art = winner.art; // grouping + the art-primary fallback below use the winning variant
+    if (!near || !near.length) return res.json({ ok: true, matched: false, variantIndex: winner.idx });
     const bestComb = near[0].comb;
 
     const cands = near.map(({ i, dist, artDist, comb }) => ({
@@ -9865,6 +9887,7 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
           matched: false,
           ambiguous: true,
           artPrimary: true,
+          variantIndex: winner.idx,
           distance: chosen.dist,
           artDistance: bestArt,
           best: null,
@@ -9884,6 +9907,7 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
       ok: true,
       matched,
       ambiguous,
+      variantIndex: winner.idx,
       distance: chosen.dist,
       artDistance: chosen.artDist,
       best: matched ? (cards[0] || null) : null,

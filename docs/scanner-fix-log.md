@@ -110,6 +110,29 @@ fingerprint DB was freshly built, so staleness is a contributor but not the root
       are live. Round-2 garbage reports predated that deploy; force-close/reopen the app to
       shed any cached chunk.
 
+- [x] **Live-test feedback round 3 — the real killer found and fixed.** Will's four saved
+      crops showed the capture quad locking onto the WHITE TRAY, card floating at ~70% scale
+      inside it (MSH Marvel cards; the set IS in the DB — pure geometry). Measured: a
+      precise crop of the same captures matches at comb 14-22, and ±5px of crop error costs
+      6-10 bits — capture-time localization is everything. The corner-hunt refine measured
+      useless on this imagery (locked onto tray edges; white-on-white cards have no corner
+      contrast at detect resolution). Replaced with:
+      **axis-projection localization + server-side variant arbitration** — 1-D gradient
+      profiles find the card's edges inside the guide warp (the card is axis-aligned there),
+      top-3 card-aspect rects + grown twins (+5px: gradient peaks sit on the printed border,
+      just inside the physical edge) + the full guide are ALL hashed, and
+      /api/scan/identify matches every variant, answering with the best (`variants` body
+      field, ≤6; `variantIndex` in the response). Accept cap 28 → 31 (the junk that motivated
+      28 is blocked client-side by the detail gate — re-verified clean).
+      **Result: all four of Will's failed captures now identify as the exact correct
+      printing** — offline (d=6-14, a=6-10, three unambiguous) AND through the full UI with
+      the crops replayed as a fake webcam (4/4 PASS, correct card confirming).
+- [x] scripts/scan-photo-test.js now mirrors the live variant pipeline (axis localization +
+      variants), so an unrenamed Save-crop file straight from the phone is a faithful replay;
+      files not named `set-collector.*` run unlabeled instead of counting as WRONG.
+- [x] Full regression battery after the change: empty-reticle clean at cap 31, camera sim
+      82.5% exact / 17.5% chooser / 0% wrong (realistic level), chooser-loop E2E green.
+
 ## Remaining for Will (Railway)
 
 1. Deploy the branch (Railway auto-deploys feature/liquid-glass).
