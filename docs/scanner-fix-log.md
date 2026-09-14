@@ -133,6 +133,20 @@ fingerprint DB was freshly built, so staleness is a contributor but not the root
 - [x] Full regression battery after the change: empty-reticle clean at cap 31, camera sim
       82.5% exact / 17.5% chooser / 0% wrong (realistic level), chooser-loop E2E green.
 
+- [x] **Live-test feedback round 4 — flow redesign (ff9aa00).** First two cards matched
+      live, but the chooser popping over the viewfinder (continuous rescan re-reading the
+      handled card at new angles) made it unusable. New flow: **scan → auto-take the best
+      candidate → hold until motion brings the next card in**. No chooser in the scan flow
+      (fix printings in the Scanned & queued panel); weak art-only guesses are quiet
+      no-matches; three straight misses hold too and pop the manual name search open as the
+      fallback. Verified: tray capture queues once and stays held (session count frozen,
+      overlay persists, zero choosers), Ponder's ten frame-twins queue straight through,
+      all four real crops still identify.
+- [ ] Unliving Legionnaire misses live (matched from the saved crop, so conditions-specific)
+      — needs a fresh Save-crop from a failing attempt to reproduce.
+- [ ] Later: printing-swap affordance in the queue panel rows; footer OCR to auto-resolve
+      same-art printings.
+
 ## Remaining for Will (Railway)
 
 1. Deploy the branch (Railway auto-deploys feature/liquid-glass).
