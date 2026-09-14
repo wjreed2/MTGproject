@@ -2212,6 +2212,12 @@ body.glass-mode .glass-menu-item { font-family: var(--glass-font); }
   position: relative;
   z-index: 2;
 }
+/* The Scan tab is phone-only: it hands off to the camera scanner, which is built around a
+   rear camera filling a card-shaped reticle — pointless on a desktop webcam. Same ≤768px
+   line every other mobile-only affordance uses. */
+@media (min-width: 769px) {
+  #scanTabBtn { display: none; }
+}
 #voiceModal .modal { border-top-left-radius: 0; }
 /* Tab and popup are one material, like the deck-builder tabs: both use a
    VERTICAL wash over a VERTICAL base, so the popup's entire top edge is exactly

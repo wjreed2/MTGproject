@@ -2950,6 +2950,14 @@ const SCN_FP_REFINE_ASPECT_TOL = 0.12; // refined quad aspect must be within ±t
 const SCN_FP_SHARP_RING = 4;           // recent capture-eligible sharpness readings kept
 const SCN_FP_SHARP_PEAK_RATIO = 0.85;  // only hash frames near the recent sharpness peak (skip focus hunts)
 const SCN_FP_LEAVE_TICKS = 3;          // consecutive empty-reticle ticks that count as "card removed"
+/**
+ * Min high-frequency detail (mean abs adjacent-pixel luma step on the 32×32) for a capture to
+ * be identified at all. An empty reticle (table, felt, gradient, a hand) passes the Laplacian
+ * sharpness gate easily but its 32×32 is smooth — measured: real cards ≥ 13.6, junk textures
+ * ≤ 13.6 with a fast falloff (felt/gradients/desk ≤ 8). 8.5 rejects the junk that was popping
+ * random matches before a card was even presented, with a wide margin below any real card.
+ */
+const SCN_FP_MIN_DETAIL = 8.5;
 
 let _scnFpInFlight = false;
 let _scnFpCooldownUntil = 0;
@@ -3068,7 +3076,24 @@ function _scnComputeScanHashes(v, quad) {
     artPhash: PhashCore.fromLuma(lumaArt),
     artPhashRot180: PhashCore.fromLuma(lumaArtRot),
     sharp: _scnLaplacianVariance(warp.ctx, W, H),
+    detail: _scnLumaDetail(lumaFull),
   };
+}
+
+// Mean absolute adjacent-pixel step over the 32×32 luma — the empty-reticle discriminator.
+function _scnLumaDetail(luma) {
+  const N = PhashCore.N;
+  let s = 0;
+  let n = 0;
+  for (let y = 0; y < N; y++) {
+    const row = y * N;
+    for (let x = 0; x < N - 1; x++) { s += Math.abs(luma[row + x + 1] - luma[row + x]); n++; }
+  }
+  for (let y = 0; y < N - 1; y++) {
+    const row = y * N;
+    for (let x = 0; x < N; x++) { s += Math.abs(luma[row + N + x] - luma[row + x]); n++; }
+  }
+  return n ? s / n : 0;
 }
 
 async function _scnIdentifyFromQuad(hints, quad) {
@@ -3077,6 +3102,9 @@ async function _scnIdentifyFromQuad(hints, quad) {
   if (!v?.videoWidth || !useQuad) return null;
   const h = _scnComputeScanHashes(v, useQuad);
   if (!h) return null;
+  // Empty-reticle guard: a smooth capture (no card) must not reach the matcher — its
+  // degenerate hash lands on random low-detail printings and reads as "found a card".
+  if (h.detail < SCN_FP_MIN_DETAIL) return { ok: false, empty: true };
   // LRU short-circuit (no network) when the same card lingers / reappears in frame.
   if (!hints) {
     for (const e of _scnFpLru) {
@@ -3278,7 +3306,9 @@ function _scnFingerprintTick(v, now) {
     }
     return;
   }
-  _scnFpEmptyTicks = 0;
+  // NB: empty-tick counter resets only after a frame actually identifies (or here on blur
+  // recovery being disproven) — the detail gate in _scnIdentifyFromQuad also increments it,
+  // and a pre-capture reset would keep it from ever reaching SCN_FP_LEAVE_TICKS.
 
   // Near-peak selection: while autofocus hunts, sharpness oscillates — don't waste the capture
   // (and its cooldown) on a frame clearly blurrier than what the camera just delivered.
@@ -3296,6 +3326,20 @@ function _scnFingerprintTick(v, now) {
       const r = await _scnIdentifyFromQuad(undefined, refined || guide);
       if (r) r._quadSrc = refined ? 'q=refined' : 'q=guide';
       if (!r) { _scnFpCooldownUntil = performance.now() + 300; return; }
+      if (r.empty) {
+        // Sharp but featureless frame (table/hand/no card) — same "reticle is empty" signal
+        // as the blur branch: never identify it, and let it re-arm the playset dedupe.
+        _scnFpPendingMatch = null;
+        if (_scnFpAwaitingLeave && ++_scnFpEmptyTicks >= SCN_FP_LEAVE_TICKS) {
+          _scnFpAwaitingLeave = false;
+          _scnFpLastAcceptedPhash = null;
+          _scnFpEmptyTicks = 0;
+        }
+        _scnSetOverlay('Point the camera at a card', '', 'hint');
+        _scnFpCooldownUntil = performance.now() + 350;
+        return;
+      }
+      _scnFpEmptyTicks = 0; // an identified frame means the reticle genuinely holds a card
       const best = r.best || (r.candidates && r.candidates[0]) || null;
       if (r.ambiguous && r.candidates && (r.candidates.length > 1 || r.artPrimary)) {
         // artPrimary = weak art-only match (foil glare / non-English) — must be user-confirmed;

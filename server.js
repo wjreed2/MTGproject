@@ -9772,7 +9772,7 @@ const SCAN_ACCEPT_RELAXED_MAX = 24; // full-card gate when the art hash alone is
 const SCAN_ART_STRONG_MAX = 12; // art distance far enough below the ~32 noise floor to carry a match
 const SCAN_AMBIG_MARGIN = 3;  // (full-only queries) candidates within best+margin = disambiguation group
 const SCAN_AMBIG_MARGIN_COMB = 6; // same, on the combined distance (2x the variance of one hash)
-const SCAN_COMB_ACCEPT_MAX = 32;  // combined-distance cap — noise floor min measured at ~34
+const SCAN_COMB_ACCEPT_MAX = 28;  // combined-distance cap — junk textures reached 30-32, floor ~34
 const SCAN_SAMEART_WINDOW = 10;   // identical-art rival within this comb margin of the winner → chooser
 const SCAN_ART_TIE = 2;       // art-hash distance under which two printings count as "same art"
 const SCAN_ART_PRIMARY_MAX = 12;  // art-only fallback gate (foil glare / non-English fronts)
@@ -9821,12 +9821,12 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
     const decision = [...new Map(
       [...group, ...rivals].map(c => [c.meta.scryfall_id, c])
     ).values()].sort((a, b) => a.comb - b.comb);
+    let hintPicked = false;
     if (decision.length > 1) {
       const byHint = decision.find(c =>
         (hintSet && String(c.meta.set_code).toLowerCase() === hintSet) ||
         (hintNum && String(c.meta.collector_number).toLowerCase() === hintNum));
-      if (byHint) chosen = byHint;
-      else ambiguous = true;
+      if (byHint) { chosen = byHint; hintPicked = true; }
     }
 
     // Confident match needs the full-card AND the art-crop hash to agree (art rejects noise).
@@ -9839,6 +9839,12 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
       || (chosen.dist <= SCAN_ACCEPT_RELAXED_MAX
       && chosen.artDist != null && chosen.artDist <= SCAN_ART_STRONG_MAX))
       && (chosen.artDist == null || chosen.dist + chosen.artDist <= SCAN_COMB_ACCEPT_MAX);
+
+    // The chooser only opens over an ACCEPT-QUALITY winner with distinct-printing rivals.
+    // Gating on `matched` is what keeps noise quiet: near the noise floor there is always a
+    // cluster of unrelated printings a few bits apart, and an unconditional multi-candidate
+    // check turned every empty-reticle frame into a "pick your card" prompt.
+    ambiguous = matched && decision.length > 1 && !hintPicked;
 
     // Art-primary fallback: the full-card hash is mangled (foil glare, non-English text) but the
     // art alone is decisive (noise floor ~32). Such printings never surface in the full-hash top-K,

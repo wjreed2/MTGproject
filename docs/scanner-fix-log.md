@@ -77,6 +77,23 @@ fingerprint DB was freshly built, so staleness is a contributor but not the root
       scripts/scan-photo-test.js to reproduce hard-to-read cards offline.
       Verified end-to-end with Playwright fake camera: tab → viewfinder → 360×504 PNG.
 
+- [x] **Live-test feedback round 1** (2026-09-14, Will on the phone): "finds random cards
+      before I've even put things in." Reproduced locally against the healthy v2 index with
+      synthetic empty-reticle textures (wood/felt/gradient/desk): 40/40 passed the old
+      sharpness gate, 37 popped the chooser, 3 auto-queued junk. Three fixes, all measured:
+      1. Client **empty-reticle detail gate** (`SCN_FP_MIN_DETAIL = 8.5`, mean adjacent-pixel
+         step on the 32×32 luma — real cards ≥ 13.6, junk falls off below): 35/40 junk frames
+         now never reach the network; feeds the card-left counter so playset re-arm still works.
+      2. Server: **chooser requires an accept-quality winner** (ambiguous ⇒ matched) — noise
+         clusters near the floor no longer open the picker.
+      3. Server: combined accept cap 32 → **28** (junk had squeaked in at 30–32).
+      After: 0 junk matches, 0 junk choosers; camera sim improved to 92.5% exact / 7.5%
+      chooser / 0 wrong at realistic quality; round-trip still 15/15 + 15/15.
+      Regression harness: scripts/scan-empty-reticle-test.js.
+- [x] Scan tab is **mobile-only** (≤768px, the app's mobile line) — desktop has no card camera.
+- [x] **No camera auto-start** from the Scan tab: scanning begins the instant the camera runs,
+      so the user positions the card first and taps Start Camera when ready.
+
 ## Remaining for Will (Railway)
 
 1. Deploy the branch (Railway auto-deploys feature/liquid-glass).
