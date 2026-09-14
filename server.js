@@ -8976,32 +8976,42 @@ function _fpRowsForTitle(title) {
     const toks = names.tokensByName.get(key) || [];
     if (!toks.length) continue;
     let hits = 0;
+    let maxHitLen = 0;
     for (const t of toks) {
       // Edit tolerance scales with token length — foil glare eats a character or two off
       // long words ("remophnage" is Hemophage, "stent" must still count toward Silent).
       const tol = t.length >= 6 ? 2 : t.length >= 4 ? 1 : 0;
-      if (words.some(w => w === t || _fpLev(w, t) <= tol)) hits++;
+      if (words.some(w => w === t || _fpLev(w, t) <= tol)) {
+        hits++;
+        if (t.length > maxHitLen) maxHitLen = t.length;
+      }
     }
+    // Evidence quality = the longest matched token. Every legitimate title win in the live
+    // corpus was carried by a 5+ char hit; the wrong-adds rode 3-4 char fragments ("ark"
+    // from a truncated Dark, a lone "fury"). ≤3-char-only evidence doesn't shortlist at all.
+    if (maxHitLen <= 3) continue;
     const coverage = hits / toks.length;
     // Half the name's tokens is enough — the hash arbitrates inside the shortlist, and OCR
     // routinely loses a whole word to glare ("- F1ocK" must still reach Ravenhill Flock).
     // Single-token names still need their token.
     if (coverage >= (toks.length === 1 ? 1 : 0.5)) {
-      scored.push({ key, coverage, exactHits: c.hits, strong: c.strong, nTok: toks.length });
+      scored.push({ key, coverage, exactHits: c.hits, strong: c.strong, maxHitLen, nTok: toks.length });
     }
   }
   if (!scored.length) return null;
   scored.sort((a, b) => (b.coverage - a.coverage) || (b.nTok - a.nTok) || (b.exactHits - a.exactHits));
   const rows = [];
   const strongRows = new Set();
+  const longHitRows = new Set(); // names whose evidence includes a 6+ char token hit
   for (const s of scored.slice(0, 25)) {
     for (const i of names.rowsByName.get(s.key)) {
       rows.push(i);
       if (s.strong) strongRows.add(i);
+      if (s.maxHitLen >= 6) longHitRows.add(i);
     }
     if (rows.length > 600) break; // bound the restricted scan
   }
-  return rows.length ? { rows, strongRows } : null;
+  return rows.length ? { rows, strongRows, longHitRows } : null;
 }
 
 // Best variant match restricted to `rows` (the title's printings). Same combined metric,
@@ -9953,7 +9963,7 @@ const SCAN_WIN_MARGIN = 4; // was 3; one wrong add slipped through live at the o
 // (a wrong pick is at worst the right card's wrong printing), so the gate only guards
 // against the OCR shortlist containing a wrong-but-similar name.
 const SCAN_TITLE_COMB_MAX = 40;
-const SCAN_TITLE_COMB_FUZZY_MAX = 30; // gate for names anchored only by fuzzy token edits
+const SCAN_TITLE_COMB_FUZZY_MAX = 32; // strict gate: short-token or fuzzy-only title evidence
 const SCAN_ART_TIE = 2;       // art-hash distance under which two printings count as "same art"
 const SCAN_ART_PRIMARY_MAX = 12;  // art-only fallback gate (foil glare / non-English fronts)
 const SCAN_ART_PRIMARY_GROUP = 2; // art-distance tie window for the fallback chooser group
@@ -9993,11 +10003,30 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
     // infallible — the global noise floor that breeds jitter-stable collisions (dark low-key
     // art matching unrelated cards at combined 20-26) doesn't exist inside a name set.
     const titleHit = body.title ? _fpRowsForTitle(String(body.title).slice(0, 160)) : null;
-    if (titleHit) {
+
+    // Retrieval ranks by combined full+art distance (see _fpNearestCombined) — the true card
+    // reliably surfaces even when full-hash noise buries it below unrelated printings.
+    let near = null;
+    let winner = parsed[0];
+    for (const p of parsed) {
+      const n = _fpNearestCombined(p.q, p.rot, p.art, p.artRot, SCAN_TOPK);
+      if (n.length && (!near || n[0].comb < near[0].comb)) { near = n; winner = p; }
+    }
+
+    // Title arbitration: when the read title COVERS the global winner's name, the two signals
+    // agree — let the (stronger) global answer proceed. The title fast path only overrides
+    // when the global winner's name contradicts the read — that's the dark-art collision case
+    // (global said Machine Man, the card says "athering o[f Darkness]"). Measured both ways
+    // on the live corpus: title hijacked two correct global answers before this check, and
+    // global collisions beat the title on four cards without it.
+    const titleAgreesWithGlobal = titleHit && near && near.length
+      && titleHit.rows.includes(near[0].i);
+    if (titleHit && !titleAgreesWithGlobal) {
       const tBest = _fpBestInRows(titleHit.rows, parsed);
-      // Purely fuzzy-anchored names ("mock" → Monk) are plausible-not-proven: they earn a
-      // stricter hash gate than exact/confusion-exact reads ("F1ocK" → Flock).
-      const gate = tBest && titleHit.strongRows.has(tBest.i)
+      // Gate scales with evidence quality: a 6+ char token hit with a strong anchor earns
+      // the full gate; short-token or purely fuzzy evidence ("fury" alone, "mock" → Monk)
+      // earns the strict one.
+      const gate = tBest && titleHit.strongRows.has(tBest.i) && titleHit.longHitRows.has(tBest.i)
         ? SCAN_TITLE_COMB_MAX : SCAN_TITLE_COMB_FUZZY_MAX;
       if (tBest && tBest.comb <= gate) {
         const cards = await _fingerprintCardsFor([_fpIndex.meta[tBest.i]]);
@@ -10012,15 +10041,6 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
           best: cards[0] || null, candidates: cards,
         });
       }
-    }
-
-    // Retrieval ranks by combined full+art distance (see _fpNearestCombined) — the true card
-    // reliably surfaces even when full-hash noise buries it below unrelated printings.
-    let near = null;
-    let winner = parsed[0];
-    for (const p of parsed) {
-      const n = _fpNearestCombined(p.q, p.rot, p.art, p.artRot, SCAN_TOPK);
-      if (n.length && (!near || n[0].comb < near[0].comb)) { near = n; winner = p; }
     }
     const art = winner.art; // grouping + the art-primary fallback below use the winning variant
     if (!near || !near.length) return res.json({ ok: true, matched: false, variantIndex: winner.idx });
@@ -10068,12 +10088,18 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
       c.meta.scryfall_id !== chosen.meta.scryfall_id && !refArtTie(c, chosen));
     const winMarginOk = !diffArtRunner || diffArtRunner.comb - chosen.comb >= SCAN_WIN_MARGIN;
 
-    const matched = ((chosen.dist <= SCAN_ACCEPT_MAX
-      && chosen.artDist != null && chosen.artDist <= SCAN_ART_ACCEPT_MAX)
-      || (chosen.dist <= SCAN_ACCEPT_RELAXED_MAX
-      && chosen.artDist != null && chosen.artDist <= SCAN_ART_STRONG_MAX))
-      && (chosen.artDist == null || chosen.dist + chosen.artDist <= SCAN_COMB_ACCEPT_MAX)
-      && winMarginOk;
+    // Two agreeing signals replace the strict gates: when the read title covers the global
+    // winner's name, the win-margin and tight combined cap are waived (the margin exists to
+    // catch noise-floor flukes, and a fluke whose name is ALSO printed on the card isn't
+    // one) — the generous title cap applies instead.
+    const matched = titleAgreesWithGlobal
+      ? (chosen.artDist != null && chosen.dist + chosen.artDist <= SCAN_TITLE_COMB_MAX)
+      : ((chosen.dist <= SCAN_ACCEPT_MAX
+        && chosen.artDist != null && chosen.artDist <= SCAN_ART_ACCEPT_MAX)
+        || (chosen.dist <= SCAN_ACCEPT_RELAXED_MAX
+        && chosen.artDist != null && chosen.artDist <= SCAN_ART_STRONG_MAX))
+        && (chosen.artDist == null || chosen.dist + chosen.artDist <= SCAN_COMB_ACCEPT_MAX)
+        && winMarginOk;
     // NB: a name-based suppression clause was tried here (global winner not covered by the
     // read title → reject) and removed: it only ever fired on PARTIAL OCR reads, where the
     // wrong-name shortlist suppressed true matches. When the OCR is good, the title fast
