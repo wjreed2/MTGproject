@@ -8861,38 +8861,50 @@ async function loadFingerprintIndex() {
 }
 async function reloadFingerprintIndex() { _fpIndexLoading = false; await loadFingerprintIndex(); }
 
-// Top-K nearest by full-card Hamming distance; checks the rotated query too (upside-down scans).
-function _fpNearest(qphi, qplo, qrhi, qrlo, k) {
-  const idx = _fpIndex, phi = idx.phi, plo = idx.plo, n = idx.n;
-  const useRot = qrhi != null;
-  const best = []; // {i, dist} kept ascending, length <= k
-  let worst = 65;
+// Top-K nearest by COMBINED (full + art) Hamming distance. The full hash alone has NO noise
+// margin at this index size: a real camera capture sits ~14-16 bits from its reference, and the
+// nearest neighbour of pure noise ALSO sits 14-21 bits (measured). Summing the art-crop distance
+// doubles the bit budget: true match ~27 combined vs a 34-46 noise floor (measured 2026-09-14,
+// 200 synthetic camera-noise queries: full-only ranking loses to an impostor 88% of the time at
+// 15/12 flipped bits; combined ranking 0.5%). Both orientations are scored per-row when the
+// rotated hashes are provided (a card upside down in the reticle shows its art in the mirrored
+// rect, so the art hash must rotate WITH the full hash); an artless rot query (older client)
+// falls back to v1 semantics — rotated full, upright art. Rows keep their per-hash distances for
+// the accept gates below. Without a query art hash, ranking degrades to full-only (v1).
+const SCAN_TOPK = 25;          // internal retrieval K (response candidate count capped separately)
+const SCAN_NOART_PENALTY = 32; // ranking-only art distance for rows lacking an art hash
+function _fpNearestCombined(q, rot, art, artRot, k) {
+  const idx = _fpIndex, phi = idx.phi, plo = idx.plo, ahi = idx.ahi, alo = idx.alo,
+    hasArt = idx.hasArt, n = idx.n;
+  const best = []; // {i, dist, artDist, comb} kept ascending by comb, length <= k
+  let worst = Infinity;
   for (let i = 0; i < n; i++) {
-    let d = _popcount32(phi[i] ^ qphi) + _popcount32(plo[i] ^ qplo);
-    if (useRot) {
-      const dr = _popcount32(phi[i] ^ qrhi) + _popcount32(plo[i] ^ qrlo);
-      if (dr < d) d = dr;
+    let df = _popcount32(phi[i] ^ q[0]) + _popcount32(plo[i] ^ q[1]);
+    let da = art && hasArt[i] ? _popcount32(ahi[i] ^ art[0]) + _popcount32(alo[i] ^ art[1]) : null;
+    let comb = df + (art ? (da == null ? SCAN_NOART_PENALTY : da) : 0);
+    if (rot) {
+      const dfR = _popcount32(phi[i] ^ rot[0]) + _popcount32(plo[i] ^ rot[1]);
+      const daR = artRot
+        ? (hasArt[i] ? _popcount32(ahi[i] ^ artRot[0]) + _popcount32(alo[i] ^ artRot[1]) : null)
+        : da;
+      const combR = dfR + (art ? (daR == null ? SCAN_NOART_PENALTY : daR) : 0);
+      if (combR < comb) { comb = combR; df = dfR; da = daR; }
     }
     if (best.length < k) {
-      best.push({ i, dist: d });
-      if (best.length === k) { best.sort((a, b) => a.dist - b.dist); worst = best[k - 1].dist; }
-    } else if (d < worst) {
-      best[k - 1] = { i, dist: d };
-      best.sort((a, b) => a.dist - b.dist);
-      worst = best[k - 1].dist;
+      best.push({ i, dist: df, artDist: da, comb });
+      if (best.length === k) { best.sort((a, b) => a.comb - b.comb); worst = best[k - 1].comb; }
+    } else if (comb < worst) {
+      best[k - 1] = { i, dist: df, artDist: da, comb };
+      best.sort((a, b) => a.comb - b.comb);
+      worst = best[k - 1].comb;
     }
   }
-  if (best.length < k) best.sort((a, b) => a.dist - b.dist);
+  if (best.length < k) best.sort((a, b) => a.comb - b.comb);
   return best;
 }
-function _fpArtDist(i, qahi, qalo) {
-  if (qahi == null || !_fpIndex.hasArt[i]) return null;
-  return _popcount32(_fpIndex.ahi[i] ^ qahi) + _popcount32(_fpIndex.alo[i] ^ qalo);
-}
-
-// Top-K by ART-CROP hash only. Fallback path for frames whose full-card hash is mangled (foil
-// glare, non-English text) but whose art still reads — those never surface in _fpNearest's
-// full-hash top-K, so a second scan over the art hashes is required. Only runs on misses.
+// Top-K by ART-CROP hash only. Fallback path for frames whose full-card hash is mangled badly
+// enough (foil glare, non-English text) that even the combined ranking can't clear the accept
+// gates — the art alone may still be decisive. Only runs on misses.
 function _fpNearestArt(qahi, qalo, k) {
   const idx = _fpIndex, ahi = idx.ahi, alo = idx.alo, hasArt = idx.hasArt, n = idx.n;
   const best = []; // {i, artDist} kept ascending, length <= k
@@ -9758,7 +9770,8 @@ const SCAN_ACCEPT_MAX = 18;     // full-card Hamming distance — loose pre-filt
 const SCAN_ART_ACCEPT_MAX = 22; // art-crop Hamming distance — the discriminating gate (noise ~32)
 const SCAN_ACCEPT_RELAXED_MAX = 24; // full-card gate when the art hash alone is decisive
 const SCAN_ART_STRONG_MAX = 12; // art distance far enough below the ~32 noise floor to carry a match
-const SCAN_AMBIG_MARGIN = 3;  // candidates within best+margin form the disambiguation group
+const SCAN_AMBIG_MARGIN = 3;  // (full-only queries) candidates within best+margin = disambiguation group
+const SCAN_AMBIG_MARGIN_COMB = 6; // same, on the combined distance (2x the variance of one hash)
 const SCAN_ART_TIE = 2;       // art-hash distance under which two printings count as "same art"
 const SCAN_ART_PRIMARY_MAX = 12;  // art-only fallback gate (foil glare / non-English fronts)
 const SCAN_ART_PRIMARY_GROUP = 2; // art-distance tie window for the fallback chooser group
@@ -9773,20 +9786,23 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
     if (!q) return res.status(400).json({ ok: false, error: 'phash (16-hex) required' });
     const rot = body.phashRot180 ? _hashHexToHiLo(String(body.phashRot180)) : null;
     const art = body.artPhash ? _hashHexToHiLo(String(body.artPhash)) : null;
+    const artRot = body.artPhashRot180 ? _hashHexToHiLo(String(body.artPhashRot180)) : null;
     const k = Math.max(1, Math.min(10, Number(body.k) || 5));
     const hintSet = body.hints && body.hints.set ? String(body.hints.set).toLowerCase() : '';
     const hintNum = body.hints && body.hints.collector ? String(body.hints.collector).toLowerCase() : '';
 
-    const near = _fpNearest(q[0], q[1], rot ? rot[0] : null, rot ? rot[1] : null, k);
+    // Retrieval ranks by combined full+art distance (see _fpNearestCombined) — the true card
+    // reliably surfaces even when full-hash noise buries it below unrelated printings.
+    const near = _fpNearestCombined(q, rot, art, artRot, SCAN_TOPK);
     if (!near.length) return res.json({ ok: true, matched: false });
-    const bestDist = near[0].dist;
+    const bestComb = near[0].comb;
 
-    let cands = near.map(({ i, dist }) => ({
-      dist, artDist: art ? _fpArtDist(i, art[0], art[1]) : null, meta: _fpIndex.meta[i],
+    const cands = near.map(({ i, dist, artDist, comb }) => ({
+      dist, artDist, comb, meta: _fpIndex.meta[i],
     }));
-    // Within-margin group, re-ranked by art distance when available (separates same-frame/diff-art).
-    const group = cands.filter(c => c.dist <= bestDist + SCAN_AMBIG_MARGIN);
-    if (art) group.sort((a, b) => (a.artDist - b.artDist) || (a.dist - b.dist));
+    // Within-margin group on the ranking metric (already sorted ascending by it).
+    const margin = art ? SCAN_AMBIG_MARGIN_COMB : SCAN_AMBIG_MARGIN;
+    const group = cands.filter(c => c.comb <= bestComb + margin);
 
     let chosen = group[0];
     let ambiguous = false;
@@ -11061,19 +11077,16 @@ app.post('/api/admin/semantics/review/:id', requireAuth, requireAdminRole, async
   }
 });
 
-// ── Scanner fingerprint DB admin: build/refresh (spawns scripts/build-print-fingerprints.js) ──
+// ── Scanner fingerprint DB: build/refresh (spawns scripts/build-print-fingerprints.js) ──
+// Shared by the admin rebuild endpoint and the weekly cron top-up. A non---force run is
+// incremental: it re-hashes only printings whose Scryfall image URL is new or changed.
 let _fpBuildProc = null;
 let _fpBuildProgress = { running: false, lastLine: '', startedAt: 0, endedAt: 0, exitCode: null };
 
-app.post('/api/admin/fingerprints/rebuild', requireAuth, requireAdminRole, (req, res) => {
-  if (_fpBuildProgress.running) {
-    return res.status(409).json({ error: 'fingerprint build already running', progress: _fpBuildProgress });
-  }
+function startFingerprintBuild(extraArgs = []) {
+  if (_fpBuildProgress.running) return false;
   const { spawn } = require('child_process');
-  const args = [path.join(__dirname, 'scripts', 'build-print-fingerprints.js')];
-  if (req.body?.set) args.push('--set', String(req.body.set).slice(0, 10));
-  if (req.body?.limit) args.push('--limit', String(parseInt(req.body.limit) || 0));
-  if (req.body?.force) args.push('--force');
+  const args = [path.join(__dirname, 'scripts', 'build-print-fingerprints.js'), ...extraArgs];
   _fpBuildProgress = { running: true, lastLine: 'starting…', startedAt: Date.now(), endedAt: 0, exitCode: null };
   const child = spawn(process.execPath, args, { cwd: __dirname, env: process.env });
   _fpBuildProc = child;
@@ -11090,6 +11103,17 @@ app.post('/api/admin/fingerprints/rebuild', requireAuth, requireAdminRole, (req,
     _fpBuildProc = null;
     if (code === 0) { try { await reloadFingerprintIndex(); } catch (_) {} }
   });
+  return true;
+}
+
+app.post('/api/admin/fingerprints/rebuild', requireAuth, requireAdminRole, (req, res) => {
+  const args = [];
+  if (req.body?.set) args.push('--set', String(req.body.set).slice(0, 10));
+  if (req.body?.limit) args.push('--limit', String(parseInt(req.body.limit) || 0));
+  if (req.body?.force) args.push('--force');
+  if (!startFingerprintBuild(args)) {
+    return res.status(409).json({ error: 'fingerprint build already running', progress: _fpBuildProgress });
+  }
   res.status(202).json({ ok: true, started: true });
 });
 
@@ -11907,6 +11931,28 @@ async function start() {
     setTimeout(() => { void runDailyPriceJob(); }, 30_000).unref?.();
   };
 
+  // Weekly scanner-fingerprint top-up: hash printings added/changed since the last run so new
+  // sets stay scannable (the index sat frozen 2026-06 → 2026-09 with no refresh path but a
+  // manual admin click). Incremental (no --force), so a quiet week costs one bulk-feed stream.
+  // Opt-in via FP_CRON_ENABLED=1, mirroring the price cron: dev/Capacitor builds stay quiet.
+  let fpCronStarted = false;
+  const startFingerprintCronOnce = () => {
+    if (fpCronStarted) return;
+    fpCronStarted = true;
+    if (process.env.FP_CRON_ENABLED !== '1') {
+      console.log('[scan] fingerprint cron disabled (set FP_CRON_ENABLED=1 for weekly top-up)');
+      return;
+    }
+    const schedule = process.env.FP_CRON_SCHEDULE || '15 5 * * 1';
+    const tz = process.env.FP_CRON_TZ || 'America/New_York';
+    if (!cron.validate(schedule)) { console.warn('[scan] invalid FP_CRON_SCHEDULE, cron not started'); return; }
+    cron.schedule(schedule, () => {
+      if (startFingerprintBuild([])) console.log('[scan] weekly fingerprint top-up started');
+      else console.log('[scan] fingerprint top-up skipped — a build is already running');
+    }, { timezone: tz });
+    console.log(`[scan] weekly fingerprint top-up scheduled (${schedule} ${tz})`);
+  };
+
   const runDbMigrations = async () => {
     try {
       await ensureAccountLoginMetaColumns();
@@ -11953,6 +11999,7 @@ async function start() {
       await runDbMigrations();
       startCollectionBgOnce();
       startPriceCronOnce();
+      startFingerprintCronOnce();
       await loadFingerprintIndex();
     })();
   };

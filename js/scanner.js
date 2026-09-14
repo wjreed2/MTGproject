@@ -2932,9 +2932,9 @@ function _scnCaptureRegion(v, rx, ry, rw, rh, maxDim) {
 
 let _scnFingerprintMode = true;        // image-recognition is the default scanner engine
 let _scnStreamAdd = false;             // false = queue to _scnPendingAuto; true = add straight to collection
-const SCN_FP_WARP_W = 360;             // warped card canvas size (≈63:88 card aspect)
-const SCN_FP_WARP_H = 504;
-const SCN_FP_ART = { u0: 0.07, u1: 0.93, v0: 0.11, v1: 0.63 }; // art window — MUST match build-print-fingerprints.js
+// Warp canvas size + art window come from the pinned spec in phash-core.js (spec v2).
+const SCN_FP_WARP_W = PhashCore.CARD_W;
+const SCN_FP_WARP_H = PhashCore.CARD_H;
 const SCN_FP_COOLDOWN_MS = 500;        // min gap between captures
 const SCN_FP_SHARP_MIN = 8;            // Laplacian variance of the guide region — reject blur/empty
 const SCN_FP_GUIDE_FILL = 0.9;         // guide frame fills this fraction of the limiting dimension
@@ -3041,30 +3041,30 @@ function _scnWarpProjective(v, corners, W, H) {
   return { canvas: c, ctx };
 }
 
-// Downscale a canvas region to 32x32 and return its Rec.601 luma (Float64Array) for PhashCore.
-function _scnLuma32(srcCanvas, sx, sy, sw, sh) {
-  const N = PhashCore.N;
-  const small = document.createElement('canvas');
-  small.width = N; small.height = N;
-  const sctx = small.getContext('2d', { willReadFrequently: true });
-  sctx.imageSmoothingEnabled = true;
-  sctx.imageSmoothingQuality = 'high';
-  sctx.drawImage(srcCanvas, sx, sy, sw, sh, 0, 0, N, N);
-  return PhashCore.lumaFromPixels(sctx.getImageData(0, 0, N, N).data, 4);
-}
-
+// Spec v2: the 360x504 → 32x32 downsample and the art crop are SHARED code with the server
+// build (PhashCore.lumaBoxDownscale) — canvas drawImage decimation (which Safari aliases badly)
+// is no longer part of the fingerprint. One getImageData readback feeds all four hashes.
 function _scnComputeScanHashes(v, quad) {
   const warp = _scnWarpCardToCanvas(v, quad, SCN_FP_WARP_W, SCN_FP_WARP_H);
   if (!warp) return null;
-  const cv = warp.canvas, W = cv.width, H = cv.height;
-  const lumaFull = _scnLuma32(cv, 0, 0, W, H);
-  const ax = Math.round(W * SCN_FP_ART.u0), ay = Math.round(H * SCN_FP_ART.v0);
-  const aw = Math.round(W * (SCN_FP_ART.u1 - SCN_FP_ART.u0)), ah = Math.round(H * (SCN_FP_ART.v1 - SCN_FP_ART.v0));
-  const lumaArt = _scnLuma32(cv, ax, ay, aw, ah);
+  const W = warp.canvas.width, H = warp.canvas.height;
+  const px = warp.ctx.getImageData(0, 0, W, H).data;
+  const lumaFull = PhashCore.lumaBoxDownscale(px, W, H, 4, null);
+  const artRect = PhashCore.artRect(W, H);
+  const lumaArt = PhashCore.lumaBoxDownscale(px, W, H, 4, artRect);
+  // Upside-down support: a card held rotated 180° shows its art in the MIRRORED rect, itself
+  // rotated. Hash that too so the server can match either orientation on BOTH hashes (the full
+  // rot hash alone used to pass, then die at the art gate).
+  const rectRot = {
+    x: W - artRect.x - artRect.w, y: H - artRect.y - artRect.h,
+    w: artRect.w, h: artRect.h,
+  };
+  const lumaArtRot = PhashCore.rotate180(PhashCore.lumaBoxDownscale(px, W, H, 4, rectRot));
   return {
     phash: PhashCore.fromLuma(lumaFull),
     phashRot180: PhashCore.fromLuma(PhashCore.rotate180(lumaFull)),
     artPhash: PhashCore.fromLuma(lumaArt),
+    artPhashRot180: PhashCore.fromLuma(lumaArtRot),
     sharp: _scnLaplacianVariance(warp.ctx, W, H),
   };
 }
@@ -3083,7 +3083,10 @@ async function _scnIdentifyFromQuad(hints, quad) {
       }
     }
   }
-  const body = { phash: h.phash, artPhash: h.artPhash, phashRot180: h.phashRot180 };
+  const body = {
+    phash: h.phash, artPhash: h.artPhash,
+    phashRot180: h.phashRot180, artPhashRot180: h.artPhashRot180,
+  };
   if (hints) body.hints = hints;
   try {
     const res = await fetch(`${mtgApiRoot()}/scan/identify`, {

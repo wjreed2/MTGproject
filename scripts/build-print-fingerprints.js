@@ -20,12 +20,10 @@ const { withParserAsStream: streamJsonArray } = require(
   path.join(__dirname, "..", "node_modules", "stream-json", "src", "streamers", "stream-array.js")
 );
 
-// ── card-art crop window (fraction of the full card frame), classic frame ──
-// MUST match SCN_FP_ART in js/scanner.js and ART in scanner-phash-parity.html.
-const ART = { top: 0.11, bottom: 0.63, left: 0.07, right: 0.93 };
-// Intermediate "warped card" size — mirrors the client's perspective-warp canvas so both sides
-// downsample two-step (full → WARP → 32x32) identically, maximizing pHash parity.
-const WARP_W = 360, WARP_H = 504;
+// Card size + art window come from the pinned spec in js/phash-core.js (spec v2): the only
+// platform-specific step is producing the 360x504 RGB buffer; the 360x504 → 32x32 downsample
+// and the art crop are SHARED code with the browser client.
+const WARP_W = Phash.CARD_W, WARP_H = Phash.CARD_H;
 const SCRYFALL_HEADERS = { "User-Agent": "MTGArchive/1.0 (fingerprint-build)", Accept: "application/json" };
 const IMG_HEADERS = { "User-Agent": "MTGArchive/1.0 (fingerprint-build)" };
 
@@ -37,6 +35,11 @@ function argVal(name, def) {
 const LIMIT = Number(argVal("--limit", "0")) || 0;
 const ONLY_SET = (argVal("--set", "") || "").toLowerCase();
 const FORCE = process.argv.includes("--force");
+// Resume a spec-migration rebuild: re-hash rows whose hashed_at predates this date/epoch-ms
+// (image-URL resume can't help there — URLs don't change when the hash spec does, and a fresh
+// --force would start over from row one).
+const OLDER_THAN_RAW = argVal("--older-than", "");
+const OLDER_THAN = OLDER_THAN_RAW ? (Date.parse(OLDER_THAN_RAW) || Number(OLDER_THAN_RAW) || 0) : 0;
 const CONCURRENCY = Math.max(1, Number(argVal("--concurrency", "6")) || 6);
 
 function db() {
@@ -115,40 +118,22 @@ async function fetchBuf(url, tries = 3) {
 }
 
 // Compute {phash, artPhash} (decimal strings for BIGINT UNSIGNED) from an image buffer.
-// Two-step (full → WARP_W×WARP_H → 32×32) to mirror the browser client's warp→downsample path.
+// Spec v2: sharp only produces the 360x504 RGB buffer; the 32x32 downsample + art crop are the
+// SAME shared code the browser client runs (Phash.lumaBoxDownscale), so resampler choice can no
+// longer cause client↔server hash drift.
 async function hashImage(buf) {
-  // Step 1: resize the full card to the warp size once (shared base for both hashes).
   const base = await sharp(buf)
     .removeAlpha()
     .resize(WARP_W, WARP_H, { fit: "fill", kernel: sharp.kernel.cubic })
     .raw()
     .toBuffer();
-  const rawIn = { raw: { width: WARP_W, height: WARP_H, channels: 3 } };
-
-  const full = await sharp(base, rawIn)
-    .resize(Phash.N, Phash.N, { fit: "fill", kernel: sharp.kernel.cubic })
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-  const phash = Phash.fromPixels(full.data, full.info.channels);
-
-  let artPhash = null;
-  try {
-    const left = Math.round(WARP_W * ART.left);
-    const top = Math.round(WARP_H * ART.top);
-    const width = Math.round(WARP_W * (ART.right - ART.left));
-    const height = Math.round(WARP_H * (ART.bottom - ART.top));
-    const art = await sharp(base, rawIn)
-      .extract({ left, top, width, height })
-      .resize(Phash.N, Phash.N, { fit: "fill", kernel: sharp.kernel.cubic })
-      .raw()
-      .toBuffer({ resolveWithObject: true });
-    artPhash = Phash.fromPixels(art.data, art.info.channels);
-  } catch (_) {
-    artPhash = null;
-  }
+  const phash = Phash.fromLuma(Phash.lumaBoxDownscale(base, WARP_W, WARP_H, 3, null));
+  const artPhash = Phash.fromLuma(
+    Phash.lumaBoxDownscale(base, WARP_W, WARP_H, 3, Phash.artRect(WARP_W, WARP_H))
+  );
   return {
     phashDec: Phash.hexToDecimal(phash),
-    artPhashDec: artPhash ? Phash.hexToDecimal(artPhash) : null,
+    artPhashDec: Phash.hexToDecimal(artPhash),
   };
 }
 
@@ -156,12 +141,12 @@ async function main() {
   const pool = db();
   await ensureTable(pool);
 
-  // Resume map: scryfall_id -> image_source already hashed.
+  // Resume map: scryfall_id -> { img, at } already hashed.
   const done = new Map();
   if (!FORCE) {
-    const [rows] = await pool.query("SELECT scryfall_id, image_source FROM scryfall_print_fingerprints");
-    for (const r of rows) done.set(r.scryfall_id, r.image_source || "");
-    console.log(`Resume: ${done.size} printings already in DB`);
+    const [rows] = await pool.query("SELECT scryfall_id, image_source, hashed_at FROM scryfall_print_fingerprints");
+    for (const r of rows) done.set(r.scryfall_id, { img: r.image_source || "", at: Number(r.hashed_at) || 0 });
+    console.log(`Resume: ${done.size} printings already in DB${OLDER_THAN ? ` (re-hashing those older than ${new Date(OLDER_THAN).toISOString()})` : ""}`);
   }
 
   // ── Phase A: stream the bulk feed, collect work items ──
@@ -170,34 +155,61 @@ async function main() {
   if (!idxRes.ok) throw new Error("bulk-data index HTTP " + idxRes.status);
   const idx = await idxRes.json();
   const feed = (idx.data || []).find((r) => r.type === "default_cards");
-  if (!feed || !feed.download_uri) throw new Error("default_cards feed missing");
-  console.log(`Streaming default_cards (${(feed.size / 1e6).toFixed(0)}MB, updated ${feed.updated_at})…`);
+  // Scryfall dropped the JSON-array `download_uri` feeds (observed 2026-09): bulk data is now
+  // gzipped JSONL under `jsonl_download_uri`. Support both so this keeps working either way.
+  const feedUrl = feed && (feed.download_uri || feed.jsonl_download_uri);
+  if (!feedUrl) throw new Error("default_cards feed missing");
+  const sizeMb = ((feed.size || feed.compressed_size || 0) / 1e6).toFixed(0);
+  console.log(`Streaming default_cards (${sizeMb}MB, updated ${feed.updated_at})…`);
 
   const work = [];
   let scanned = 0;
-  await new Promise((resolve, reject) => {
-    fetch(feed.download_uri, { headers: IMG_HEADERS, signal: AbortSignal.timeout(600000) })
-      .then((res) => {
-        if (!res.ok) return reject(new Error("bulk download HTTP " + res.status));
-        const nodeStream = require("stream").Readable.fromWeb(res.body);
+  // Returns false once LIMIT is reached so the stream can stop early.
+  const consider = (value) => {
+    scanned++;
+    const item = pickCard(value);
+    if (!item) return true;
+    if (!FORCE && done.has(item.scryfall_id)) {
+      const d = done.get(item.scryfall_id);
+      // Spec-migration resume keys on hashed_at; the normal path on an unchanged image URL.
+      if (OLDER_THAN ? d.at >= OLDER_THAN : d.img === item.image) return true; // already hashed
+    }
+    work.push(item);
+    return !(LIMIT && work.length >= LIMIT);
+  };
+  {
+    const res = await fetch(feedUrl, { headers: IMG_HEADERS, signal: AbortSignal.timeout(600000) });
+    if (!res.ok) throw new Error("bulk download HTTP " + res.status);
+    let nodeStream = require("stream").Readable.fromWeb(res.body);
+    if (/\.gz(\?|$)/.test(feedUrl)) nodeStream = nodeStream.pipe(require("zlib").createGunzip());
+    if (feed.download_uri) {
+      // Legacy JSON-array feed.
+      await new Promise((resolve, reject) => {
         const arr = nodeStream.pipe(streamJsonArray());
         arr.on("data", ({ value }) => {
-          scanned++;
-          const item = pickCard(value);
-          if (!item) return;
-          if (!FORCE && done.has(item.scryfall_id) && done.get(item.scryfall_id) === item.image) return; // already hashed, unchanged
-          work.push(item);
-          if (LIMIT && work.length >= LIMIT) {
-            arr.destroy();
-            resolve();
-          }
+          if (!consider(value)) { arr.destroy(); resolve(); }
         });
         arr.on("end", resolve);
         arr.on("error", (e) => (LIMIT && work.length >= LIMIT ? resolve() : reject(e)));
         nodeStream.on("error", reject);
-      })
-      .catch(reject);
-  });
+      });
+    } else {
+      // JSONL: one card object per line.
+      const rl = require("readline").createInterface({ input: nodeStream, crlfDelay: Infinity });
+      try {
+        for await (const line of rl) {
+          const t = line.trim();
+          if (!t) continue;
+          let value;
+          try { value = JSON.parse(t.endsWith(",") ? t.slice(0, -1) : t); } catch (_) { continue; }
+          if (!consider(value)) break;
+        }
+      } finally {
+        rl.close();
+        nodeStream.destroy();
+      }
+    }
+  }
   console.log(`Scanned ${scanned} cards; ${work.length} need hashing (concurrency ${CONCURRENCY}).`);
 
   // ── Phase B: fetch + hash with a bounded pool, batched upsert ──
