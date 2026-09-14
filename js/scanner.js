@@ -611,6 +611,7 @@ async function scnStartCamera() {
     document.getElementById('scnStartBtn').classList.add('hidden');
     document.getElementById('scnStopBtn').classList.remove('hidden');
     document.getElementById('scnPauseScanBtn')?.classList.remove('hidden');
+    document.getElementById('scnSaveCaptureBtn')?.classList.remove('hidden');
     document.getElementById('scnFlipBtn').style.display = '';
     _scnClearOverlay();
     // Fingerprint mode identifies by image hash and needs no Tesseract/OCR — skip the worker load
@@ -929,6 +930,7 @@ function _scnHardStop() {
   document.getElementById('scnStartBtn')?.classList.remove('hidden');
   document.getElementById('scnStopBtn')?.classList.add('hidden');
   document.getElementById('scnPauseScanBtn')?.classList.add('hidden');
+  document.getElementById('scnSaveCaptureBtn')?.classList.add('hidden');
   document.getElementById('scnScanAgainBtn')?.classList.add('hidden');
   const flip = document.getElementById('scnFlipBtn');
   if (flip) flip.style.display = 'none';
@@ -3356,6 +3358,48 @@ function _scnFingerprintTick(v, now) {
       _scnFpInFlight = false;
     }
   })();
+}
+
+// Save the exact 360x504 card crop the matcher hashes (refined quad when the corner hunt
+// succeeds, guide reticle otherwise) — for reporting hard-to-read cards. On phones the share
+// sheet offers "Save Image"; elsewhere it downloads. The file drops straight into
+// fixtures/scan-photos/ for scripts/scan-photo-test.js (rename to <set>-<collector>.png).
+async function scnSaveCapture() {
+  const v = document.getElementById('scnVideo');
+  if (!v?.videoWidth) {
+    _scnStatus('Start the camera first to save a crop.', true);
+    return;
+  }
+  const guide = _scnGuideQuad(v);
+  if (!guide) return;
+  const quad = _scnRefineGuideQuad(v, guide) || guide;
+  const warp = _scnWarpCardToCanvas(v, quad, SCN_FP_WARP_W, SCN_FP_WARP_H);
+  if (!warp) {
+    _scnStatus('Could not capture the card crop.', true);
+    return;
+  }
+  const blob = await new Promise(r => warp.canvas.toBlob(r, 'image/png'));
+  if (!blob) return;
+  const name = `scan-crop-${Date.now()}.png`;
+  const file = new File([blob], name, { type: 'image/png' });
+  if (navigator.canShare?.({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file] });
+      return;
+    } catch (e) {
+      if (e?.name === 'AbortError') return; // user closed the share sheet
+      // NotAllowedError etc. — fall through to a plain download
+    }
+  }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  if (typeof showNotif === 'function') showNotif('Card crop saved.');
 }
 
 function _scnStartFingerprintScanning() {

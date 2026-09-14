@@ -68,6 +68,15 @@ fingerprint DB was freshly built, so staleness is a contributor but not the root
 - [x] npm test (44 scripts) green; dist chunk rebuilt; committed + pushed to
       feature/liquid-glass.
 
+- [x] **Scan tab in Add cards** (the scanner previously had NO entry point in the UI):
+      third folder tab next to Search/Voice in the Add cards modal — closes the modal,
+      opens the scanner, auto-starts the camera. One tap from Collection to viewfinder.
+- [x] **Save crop button** in the scanner (visible while the camera runs): saves the exact
+      360×504 warped crop the matcher hashes — share sheet on phones, download elsewhere.
+      Drop saved crops into fixtures/scan-photos/ (renamed `<set>-<collector>.png`) and run
+      scripts/scan-photo-test.js to reproduce hard-to-read cards offline.
+      Verified end-to-end with Playwright fake camera: tab → viewfinder → 360×504 PNG.
+
 ## Remaining for Will (Railway)
 
 1. Deploy the branch (Railway auto-deploys feature/liquid-glass).

@@ -669,6 +669,16 @@ function toggleVoiceNewDeckMode() {
 }
 
 function switchVoiceTab(tab) {
+  if (tab === 'scan') {
+    // The camera scanner is its own fullscreen surface — hand off instead of hosting it in
+    // this modal. openScanner is a lazy-chunk stub on cold start, so wait for it before
+    // auto-starting the camera (one tap total from "Add cards" to a live viewfinder).
+    closeVoice();
+    Promise.resolve(openScanner()).then(() => {
+      if (typeof scnStartCamera === 'function') void scnStartCamera();
+    });
+    return;
+  }
   const isVoice = tab === 'voice';
   document.getElementById('voiceTabContent').style.display = isVoice ? '' : 'none';
   document.getElementById('searchTabContent').style.display = isVoice ? 'none' : '';
