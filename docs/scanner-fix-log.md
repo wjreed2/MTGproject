@@ -193,8 +193,18 @@ fingerprint DB was freshly built, so staleness is a contributor but not the root
       suppressing true matches). Corpus: 7/9 replayable crops confident-correct including
       one match by TITLE that hash alone missed; the two remaining wrongs are dark-art
       collisions live OCR should preempt at full resolution.
-- [ ] Borderless/showcase cards remain the weakest class (frameless top edge; dark-art
-      collisions). Title-first should carry most of them once live OCR quality is confirmed.
+- [x] **Round 8 root cause, fixed remotely: Railway's index was still the JUNE table**
+      (97,870 rows — the spec-v2 rebuild never completed there; every live round ran against
+      it). Built the fingerprint push channel (`npm run fingerprints:push`, shared ingest
+      secret, e28fc31), synced all 100,122 v2 rows to prod, index reloaded. Full labeled
+      corpus run AGAINST PRODUCTION: **14/14 regular-frame captures correct** (both copies
+      of every HOB/VOW card), three of them rescued by title OCR. This is also the standing
+      ops answer to Scryfall's new-set image churn: rebuild locally, push up.
+- [ ] Known-weak classes after the prod fix: vertical Sagas (art in the right column breaks
+      the art window + fancy title font), one bird-art collision (Ravenhill Flock ↔
+      Hardened Scales at comb 26), and the damaged/borderless legacy files.
+- [ ] Harness nit: `-b`-suffixed duplicate labels (hob-115b) parse as collector "115b" and
+      count as WRONG — strip a trailing letter when comparing.
 - [ ] Later: printing-swap affordance in the queue panel rows; footer OCR to auto-resolve
       same-art printings.
 
