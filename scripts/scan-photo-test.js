@@ -134,7 +134,45 @@ async function photoVariants(file) {
   });
   const variants = candRects.slice(0, 5).map(r => hashesFromRect(best.raw, r));
   variants.push(hashesFromRect(raw0, null)); // unrotated full frame
-  return { variants, deg: best.deg };
+  const title = await ocrTitle(best.raw, best.rects[0] || null);
+  return { variants, deg: best.deg, title };
+}
+
+// ── Title OCR — mirrors _scnReadTitle in js/scanner.js (tesseract.js, devDependency; the
+// harness runs untitled when it is not installed) ──
+let _tessWorkerP = null;
+function tessWorker() {
+  if (_tessWorkerP !== null) return _tessWorkerP;
+  try {
+    const { createWorker } = require("tesseract.js");
+    _tessWorkerP = createWorker("eng");
+  } catch (_) {
+    _tessWorkerP = Promise.resolve(null);
+  }
+  return _tessWorkerP;
+}
+async function ocrTitle(raw, rect) {
+  const worker = await tessWorker().catch(() => null);
+  if (!worker) return "";
+  try {
+    const r = rect || { x: 0, y: 0, w: W, h: H };
+    const band = await sharp(raw, { raw: { width: W, height: H, channels: 3 } })
+      .extract({
+        left: Math.round(r.x + r.w * 0.04), top: Math.round(r.y + r.h * 0.02),
+        width: Math.round(r.w * 0.92), height: Math.round(r.h * 0.1),
+      })
+      .resize({ width: Math.min(1200, Math.max(320, Math.round(r.w * 0.92 * 2.5))) })
+      .png().toBuffer();
+    await worker.setParameters({
+      tessedit_pageseg_mode: "7",
+      tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789',-. ",
+    });
+    const rec = await worker.recognize(band);
+    const text = rec?.data?.text ? String(rec.data.text).replace(/\s+/g, " ").trim() : "";
+    return text.length >= 3 ? text.slice(0, 160) : "";
+  } catch (_) {
+    return "";
+  }
 }
 
 async function main() {
@@ -157,10 +195,12 @@ async function main() {
     const expSet = labeled ? m[1].toLowerCase() : "";
     const expNum = labeled ? m[2].toLowerCase() : "";
     try {
-      const { variants, deg } = await photoVariants(path.join(DIR, f));
+      const { variants, deg, title } = await photoVariants(path.join(DIR, f));
+      const payload = variants.length === 1 ? { ...variants[0] } : { variants };
+      if (title) payload.title = title;
       const r = await fetch(BASE + "/api/scan/identify", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(variants.length === 1 ? variants[0] : { variants }),
+        body: JSON.stringify(payload),
       });
       const res = await r.json();
       const hit = c => c && String(c.set).toLowerCase() === expSet && String(c.collector_number).toLowerCase() === expNum;
@@ -174,13 +214,15 @@ async function main() {
       else { none++; verdict = "no match"; }
       console.log(
         `${f.padEnd(24)} ${verdict.padEnd(16)} -> ${best ? `${best.name} [${String(best.set).toUpperCase()} #${best.collector_number}]` : "—"}`
-        + `  d=${res.distance ?? "—"} a=${res.artDistance ?? "—"} tilt=${deg}° matched=${res.matched} ambig=${res.ambiguous}`);
+        + `  d=${res.distance ?? "—"} a=${res.artDistance ?? "—"} tilt=${deg}°${res.titleMatched ? " TITLE" : ""} ocr="${(title || "").slice(0, 28)}" matched=${res.matched}`);
     } catch (e) {
       none++;
       console.log(`${f.padEnd(24)} ERROR ${e.message}`);
     }
   }
   console.log(`\n${files.length} photos: ${right} exact, ${group} in chooser group, ${wrong} wrong, ${none} no match/error`);
+  const w = _tessWorkerP ? await _tessWorkerP.catch(() => null) : null;
+  await w?.terminate?.();
 }
 if (require.main === module) main().catch(e => { console.error(e); process.exit(1); });
 module.exports = { photoVariants };

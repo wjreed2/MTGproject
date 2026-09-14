@@ -2980,61 +2980,49 @@ let _scnFpNoMatchStreak = 0;           // consecutive no-match captures (→ hol
 /** Consecutive misses before the scanner stops hammering and waits for a card swap. */
 const SCN_FP_NOMATCH_HOLD_AFTER = 3;
 
-/** Winning-variant capture of the last identify: { canvas, rect } (rect null = full warp). */
-let _scnFpLastCapture = null;
-/** Auto-adds at or beyond this combined distance get the title-OCR sanity veto. */
-const SCN_FP_OCR_VETO_MIN_COMB = 20;
-/** Give the veto OCR at most this long — fail OPEN (allow the add) on timeout/no-worker. */
-const SCN_FP_OCR_VETO_TIMEOUT_MS = 1800;
+/** Give the per-capture title OCR at most this long; identify proceeds untitled on timeout. */
+const SCN_FP_TITLE_OCR_TIMEOUT_MS = 1400;
 
-// Title-band sanity veto for borderline auto-adds. The 64-bit pHash has true collision
-// classes (dark low-key art: unrelated cards at combined 20-26, jitter-stable — measured), and
-// no distance gate can separate those from genuine borderline matches. The card's own printed
-// NAME can: OCR the title strip of the winning capture and veto the add when the read text
-// clearly is not the matched card's name. Fails open on glare, low confidence, timeouts, or a
-// missing worker — this only blocks adds the OCR positively contradicts.
-async function _scnTitleOcrVeto(cardName) {
-  const cap = _scnFpLastCapture;
-  if (!cap?.canvas || !_scnWorkerReady || !_scnNameWorker) return false;
+// Title-first identification: OCR the card's printed name and send it with the hashes —
+// server-side, a read title restricts matching to that name's printings, where the pHash is
+// nearly infallible. The band is cropped from the CAMERA FRAME at native resolution (the
+// 360px warp starves Tesseract: title glyphs are ~14px there and reads came back garbage);
+// the guide is axis-aligned, so warp-rect → video-rect is a linear map. Single-line page
+// mode + a name-alphabet whitelist. Empty/failed reads cost nothing: identify proceeds
+// exactly as before.
+async function _scnReadTitle(v, guide, rect) {
+  if (!v?.videoWidth || !_scnWorkerReady || !_scnNameWorker) return '';
   try {
-    const r = cap.rect || { x: 0, y: 0, w: cap.canvas.width, h: cap.canvas.height };
-    // Title band of the card rect (classic + borderless both keep the name in the top strip).
-    const tw = Math.max(64, Math.round(r.w * 0.92) * 2);
-    const th = Math.max(24, Math.round(r.h * 0.1) * 2);
+    const bb = _scnQuadAxisBBox(guide);
+    if (!bb) return '';
+    const vw = v.videoWidth, vh = v.videoHeight;
+    const r = rect || { x: 0, y: 0, w: SCN_FP_WARP_W, h: SCN_FP_WARP_H };
+    // Title band in warp coords → video pixels through the guide bbox.
+    const bx = (bb.nx + (bb.nw * (r.x + r.w * 0.04)) / SCN_FP_WARP_W) * vw;
+    const by = (bb.ny + (bb.nh * (r.y + r.h * 0.02)) / SCN_FP_WARP_H) * vh;
+    const bw = ((bb.nw * (r.w * 0.92)) / SCN_FP_WARP_W) * vw;
+    const bh = ((bb.nh * (r.h * 0.1)) / SCN_FP_WARP_H) * vh;
+    if (bw < 40 || bh < 10) return '';
+    const outW = Math.min(1200, Math.max(320, Math.round(bw)));
+    const outH = Math.max(24, Math.round((outW / bw) * bh));
     const c = document.createElement('canvas');
-    c.width = tw; c.height = th;
-    c.getContext('2d').drawImage(
-      cap.canvas,
-      r.x + r.w * 0.04, r.y + r.h * 0.02, r.w * 0.92, r.h * 0.1,
-      0, 0, tw, th,
-    );
+    c.width = outW; c.height = outH;
+    const ctx = c.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(v, bx, by, bw, bh, 0, 0, outW, outH);
+    await _scnNameWorker.setParameters({
+      tessedit_pageseg_mode: '7', // single text line
+      tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789',-. ",
+    });
     const rec = await Promise.race([
       _scnNameWorker.recognize(c.toDataURL('image/png')),
-      new Promise(res => setTimeout(() => res(null), SCN_FP_OCR_VETO_TIMEOUT_MS)),
+      new Promise(res => setTimeout(() => res(null), SCN_FP_TITLE_OCR_TIMEOUT_MS)),
     ]);
-    const text = rec?.data?.text ? String(rec.data.text) : '';
-    const conf = Number(rec?.data?.confidence) || 0;
-    if (!text || conf < 40) return false; // unreadable title — not evidence of a mismatch
-    const norm = s => String(s).toLowerCase().replace(/[^a-z]+/g, ' ').trim();
-    const ocr = norm(text);
-    const name = norm(cardName);
-    if (ocr.length < 4) return false;
-    // Any substantial name token appearing in the OCR text clears the match.
-    const tokens = name.split(' ').filter(t => t.length >= 4);
-    if (!tokens.length) return false;
-    if (tokens.some(t => ocr.includes(t))) return false;
-    // Tolerate OCR mangling: a token within edit distance 1/4 of its length also clears.
-    if (typeof levenshtein === 'function') {
-      const words = ocr.split(' ').filter(w => w.length >= 3);
-      for (const t of tokens) {
-        for (const w of words) {
-          if (levenshtein(t, w) <= Math.max(1, Math.floor(t.length / 4))) return false;
-        }
-      }
-    }
-    return true; // readable title, and nothing in it resembles the matched name
+    const text = rec?.data?.text ? String(rec.data.text).replace(/\s+/g, ' ').trim() : '';
+    return text.length >= 3 ? text.slice(0, 160) : '';
   } catch (_) {
-    return false;
+    return '';
   }
 }
 
@@ -3389,6 +3377,10 @@ async function _scnIdentifyFromQuad(hints, quad) {
   });
   const body = kept.length === 1 ? toVariant(kept[0]) : { variants: kept.map(toVariant) };
   if (hints) body.hints = hints;
+  // Read the printed name off the best capture rect (workers warm at camera start; a cold or
+  // slow OCR just means this capture identifies by hash alone, as before).
+  const title = await _scnReadTitle(v, useQuad, kept[0]._rect);
+  if (title) body.title = title;
   try {
     const res = await fetch(`${mtgApiRoot()}/scan/identify`, {
       method: 'POST',
@@ -3400,7 +3392,6 @@ async function _scnIdentifyFromQuad(hints, quad) {
     const winner = kept[Number.isInteger(data.variantIndex) ? data.variantIndex : 0] || kept[0];
     data._phash = winner.phash;
     data._variantCount = kept.length;
-    _scnFpLastCapture = { canvas: winner._canvas, rect: winner._rect }; // for the title veto
     if (data.matched && data.best && !data.ambiguous) {
       _scnFpLru.unshift({ phash: winner.phash, card: data.best });
       if (_scnFpLru.length > SCN_FP_LRU_MAX) _scnFpLru.pop();
@@ -3609,15 +3600,6 @@ function _scnFingerprintTick(v, now) {
           return;
         }
         _scnFpPendingMatch = null;
-        // Borderline match → read the card's own printed name before trusting it. Fails open;
-        // a positive contradiction downgrades to a no-match hold instead of a wrong add.
-        const combAccepted = (Number(r.distance) || 0) + (Number(r.artDistance) || 0);
-        if (combAccepted >= SCN_FP_OCR_VETO_MIN_COMB && await _scnTitleOcrVeto(r.best.name)) {
-          _scnSetOverlay('No match', `title doesn't read like ${r.best.name}`, 'hint');
-          _scnFpHoldForNextCard('Name check failed — reposition, or type the name below');
-          _scnFpCooldownUntil = performance.now() + 600;
-          return;
-        }
         _scnFpLastAcceptedPhash = ph || null;
         let staged = null;
         if (_scnStreamAdd) _scnFpStreamAdd(r.best); // sets _scnFpLastQueuedUid itself
@@ -3719,7 +3701,6 @@ function _scnStartFingerprintScanning() {
   _scnFpLastAcceptedPhash = null;
   _scnFpChooserPhash = null;
   _scnFpNoMatchStreak = 0;
-  _scnFpLastCapture = null;
   _scnFpDimKey = '';
   _scnFpDimStableAt = 0;
   _scnFpCooldownUntil = 0;

@@ -8861,6 +8861,125 @@ async function loadFingerprintIndex() {
 }
 async function reloadFingerprintIndex() { _fpIndexLoading = false; await loadFingerprintIndex(); }
 
+// ── Card-name index for title-first identification ──────────────────────────────────────────
+// The client OCRs the card's printed title on every capture. A read title narrows ~100k
+// printings to one name's handful, where the pHash is nearly infallible — the global-search
+// noise floor (which capped accuracy and bred jitter-stable collisions) doesn't exist inside a
+// name-restricted set. Built lazily from _fpIndex.meta after each index (re)load.
+let _fpNames = null; // { byToken: Map<token, Set<nameKey>>, rowsByName: Map<nameKey, number[]>, tokensByName: Map<nameKey, string[]> }
+
+function _fpNormName(s) {
+  return String(s || '')
+    .toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '') // strip diacritics
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function _fpEnsureNameIndex() {
+  if (_fpNames && _fpNames._builtAt === _fpIndexLoadedAt) return _fpNames;
+  const byToken = new Map();
+  const rowsByName = new Map();
+  const tokensByName = new Map();
+  for (let i = 0; i < _fpIndex.n; i++) {
+    const key = _fpNormName(_fpIndex.meta[i].name);
+    if (!key) continue;
+    let rows = rowsByName.get(key);
+    if (!rows) {
+      rows = [];
+      rowsByName.set(key, rows);
+      const toks = key.split(' ').filter(t => t.length >= 3);
+      tokensByName.set(key, toks);
+      for (const t of toks) {
+        let s = byToken.get(t);
+        if (!s) byToken.set(t, (s = new Set()));
+        s.add(key);
+      }
+    }
+    rows.push(i);
+  }
+  _fpNames = { byToken, rowsByName, tokensByName, _builtAt: _fpIndexLoadedAt };
+  console.log(`[scan] name index built: ${rowsByName.size} distinct names`);
+  return _fpNames;
+}
+
+function _fpLev(a, b) {
+  const m = a.length, n = b.length;
+  if (Math.abs(m - n) > 2) return 3;
+  const dp = new Array(n + 1);
+  for (let j = 0; j <= n; j++) dp[j] = j;
+  for (let i = 1; i <= m; i++) {
+    let prev = dp[0];
+    dp[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const tmp = dp[j];
+      dp[j] = Math.min(dp[j] + 1, dp[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prev = tmp;
+    }
+  }
+  return dp[n];
+}
+
+// OCR title → candidate row indices. A name qualifies when most of its tokens appear in the
+// OCR text (edit distance ≤ 1 per token tolerated — Tesseract mangles serifs and foil glare).
+function _fpRowsForTitle(title) {
+  const names = _fpEnsureNameIndex();
+  const norm = _fpNormName(title);
+  if (norm.length < 3) return null;
+  const words = norm.split(' ').filter(w => w.length >= 3);
+  if (!words.length) return null;
+  // Gather names sharing at least one exact token with the OCR text.
+  const cand = new Map(); // nameKey -> exact-token hits
+  for (const w of words) {
+    const s = names.byToken.get(w);
+    if (!s) continue;
+    for (const key of s) cand.set(key, (cand.get(key) || 0) + 1);
+  }
+  const scored = [];
+  for (const [key, exactHits] of cand) {
+    const toks = names.tokensByName.get(key) || [];
+    if (!toks.length) continue;
+    let hits = 0;
+    for (const t of toks) {
+      if (words.some(w => w === t || _fpLev(w, t) <= (t.length >= 6 ? 1 : t.length >= 4 ? 1 : 0))) hits++;
+    }
+    const coverage = hits / toks.length;
+    // Short names need full coverage; longer names tolerate one unread token.
+    if (coverage >= (toks.length <= 2 ? 1 : 0.6)) scored.push({ key, coverage, exactHits, nTok: toks.length });
+  }
+  if (!scored.length) return null;
+  scored.sort((a, b) => (b.coverage - a.coverage) || (b.nTok - a.nTok) || (b.exactHits - a.exactHits));
+  const rows = [];
+  for (const s of scored.slice(0, 25)) {
+    for (const i of names.rowsByName.get(s.key)) rows.push(i);
+  }
+  return rows.length ? rows : null;
+}
+
+// Best variant match restricted to `rows` (the title's printings). Same combined metric,
+// per-orientation; returns { i, dist, artDist, comb, variant } or null.
+function _fpBestInRows(rows, parsed) {
+  let best = null;
+  for (const p of parsed) {
+    for (const i of rows) {
+      let df = _popcount32(_fpIndex.phi[i] ^ p.q[0]) + _popcount32(_fpIndex.plo[i] ^ p.q[1]);
+      let da = p.art && _fpIndex.hasArt[i]
+        ? _popcount32(_fpIndex.ahi[i] ^ p.art[0]) + _popcount32(_fpIndex.alo[i] ^ p.art[1]) : null;
+      let comb = df + (p.art ? (da == null ? SCAN_NOART_PENALTY : da) : 0);
+      if (p.rot) {
+        const dfR = _popcount32(_fpIndex.phi[i] ^ p.rot[0]) + _popcount32(_fpIndex.plo[i] ^ p.rot[1]);
+        const daR = p.artRot
+          ? (_fpIndex.hasArt[i] ? _popcount32(_fpIndex.ahi[i] ^ p.artRot[0]) + _popcount32(_fpIndex.alo[i] ^ p.artRot[1]) : null)
+          : da;
+        const combR = dfR + (p.art ? (daR == null ? SCAN_NOART_PENALTY : daR) : 0);
+        if (combR < comb) { comb = combR; df = dfR; da = daR; }
+      }
+      if (!best || comb < best.comb) best = { i, dist: df, artDist: da, comb, variant: p };
+    }
+  }
+  return best;
+}
+
 // Top-K nearest by COMBINED (full + art) Hamming distance. The full hash alone has NO noise
 // margin at this index size: a real camera capture sits ~14-16 bits from its reference, and the
 // nearest neighbour of pure noise ALSO sits 14-21 bits (measured). Summing the art-crop distance
@@ -9782,6 +9901,10 @@ const SCAN_SAMEART_WINDOW = 10;   // identical-art rival within this comb margin
 // neighbours within a bit or two. Require the winner to beat the best different-art runner-up
 // by this many combined bits (measured on the live corpus: true matches 4-8, junk 0-2).
 const SCAN_WIN_MARGIN = 4; // was 3; one wrong add slipped through live at the old value
+// Title-restricted accept: inside one name's printings there is no meaningful noise floor
+// (a wrong pick is at worst the right card's wrong printing), so the gate only guards
+// against the OCR shortlist containing a wrong-but-similar name.
+const SCAN_TITLE_COMB_MAX = 40;
 const SCAN_ART_TIE = 2;       // art-hash distance under which two printings count as "same art"
 const SCAN_ART_PRIMARY_MAX = 12;  // art-only fallback gate (foil glare / non-English fronts)
 const SCAN_ART_PRIMARY_GROUP = 2; // art-distance tie window for the fallback chooser group
@@ -9815,6 +9938,28 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
     const k = Math.max(1, Math.min(10, Number(body.k) || 10));
     const hintSet = body.hints && body.hints.set ? String(body.hints.set).toLowerCase() : '';
     const hintNum = body.hints && body.hints.collector ? String(body.hints.collector).toLowerCase() : '';
+
+    // Title-first fast path: the client OCRs the card's printed name each capture. A read
+    // title restricts the search to that name's printings, where the hash is nearly
+    // infallible — the global noise floor that breeds jitter-stable collisions (dark low-key
+    // art matching unrelated cards at combined 20-26) doesn't exist inside a name set.
+    const titleRows = body.title ? _fpRowsForTitle(String(body.title).slice(0, 160)) : null;
+    if (titleRows) {
+      const tBest = _fpBestInRows(titleRows, parsed);
+      if (tBest && tBest.comb <= SCAN_TITLE_COMB_MAX) {
+        const cards = await _fingerprintCardsFor([_fpIndex.meta[tBest.i]]);
+        if (cards[0]) {
+          cards[0]._scanDistance = tBest.dist;
+          if (tBest.artDist != null) cards[0]._scanArtDistance = tBest.artDist;
+        }
+        return res.json({
+          ok: true, matched: true, ambiguous: false, titleMatched: true,
+          variantIndex: tBest.variant.idx,
+          distance: tBest.dist, artDistance: tBest.artDist,
+          best: cards[0] || null, candidates: cards,
+        });
+      }
+    }
 
     // Retrieval ranks by combined full+art distance (see _fpNearestCombined) — the true card
     // reliably surfaces even when full-hash noise buries it below unrelated printings.
@@ -9876,6 +10021,10 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
       && chosen.artDist != null && chosen.artDist <= SCAN_ART_STRONG_MAX))
       && (chosen.artDist == null || chosen.dist + chosen.artDist <= SCAN_COMB_ACCEPT_MAX)
       && winMarginOk;
+    // NB: a name-based suppression clause was tried here (global winner not covered by the
+    // read title → reject) and removed: it only ever fired on PARTIAL OCR reads, where the
+    // wrong-name shortlist suppressed true matches. When the OCR is good, the title fast
+    // path above answers first and the clause never runs.
 
     // The chooser only opens over an ACCEPT-QUALITY winner with distinct-printing rivals.
     // Gating on `matched` is what keeps noise quiet: near the noise floor there is always a

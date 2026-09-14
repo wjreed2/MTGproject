@@ -175,9 +175,26 @@ fingerprint DB was freshly built, so staleness is a contributor but not the root
          when localization itself failed — a whole corpus round was undiagnosable).
       Also tried and REVERTED: aspect-completed 3-edge rects for borderless top-clips (the
       extra junk-rect variants produced a fresh confident wrong accept — measured).
-- [ ] Borderless/showcase cards remain the weak class (localizer misses the frameless top
-      edge; dark-art collisions live here too). Fresh RAW crops from the next live round
-      will be diagnosable end-to-end.
+- [x] **Live-test feedback round 7 (1/10 right) — root cause was NOT the client.** Probed
+      Railway with exact hashes: old sets byte-exact (d=0), but msh/msc at d=2 and hob at
+      d≈6-10 — **Scryfall replaces new-set images** (placeholder scans → final), and
+      Railway's rebuild caught a different image generation than local. His HOB-heavy round
+      couldn't match by construction. Fix: incremental rebuild (no force) re-hashes exactly
+      the rows whose image URL changed. New-set image churn is now a known operational
+      hazard — consider FP_CRON_SCHEDULE daily during new-set season.
+- [x] **Title-first identification** (the 95%-accuracy architecture move): the client OCRs
+      the card's printed name each capture — from the CAMERA FRAME at native resolution
+      (the 360px warp starves Tesseract), psm 7 + name-alphabet whitelist — and sends it
+      with the hashes. Server builds a token-indexed name table from the fingerprint meta
+      (~30k names); a read title restricts matching to that name's printings, where the
+      pHash has no noise floor (a wrong pick is at worst the right card's wrong printing).
+      Gate comb ≤ 40; garbage/empty reads fall back to the global path unchanged. A
+      name-based suppression clause was tried and removed (only fired on partial reads,
+      suppressing true matches). Corpus: 7/9 replayable crops confident-correct including
+      one match by TITLE that hash alone missed; the two remaining wrongs are dark-art
+      collisions live OCR should preempt at full resolution.
+- [ ] Borderless/showcase cards remain the weakest class (frameless top edge; dark-art
+      collisions). Title-first should carry most of them once live OCR quality is confirmed.
 - [ ] Later: printing-swap affordance in the queue panel rows; footer OCR to auto-resolve
       same-art printings.
 
