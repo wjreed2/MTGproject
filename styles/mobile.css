@@ -167,11 +167,13 @@
      indicator on every page. One button in the corner opens the same list the
      desktop sidebar shows, in the same order. */
   .mobile-bottom-nav { display: none !important; }
+  /* Bottom-right, within reach of a thumb — and out of the way of the page
+     titles, which are back to sitting where they always did. */
   .mob-nav-toggle {
     display: inline-flex !important;
     position: fixed;
-    top: calc(env(safe-area-inset-top, 0px) + 10px);
-    left: 10px;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
+    right: 14px;
     z-index: 420;
     pointer-events: auto;
     align-items: center;
@@ -200,29 +202,20 @@
   }
   .mob-nav-toggle.is-open { border-color: rgba(var(--lgx1), 0.6); }
   .mob-nav-toggle-badge {
-    position: absolute; top: -4px; right: -4px;
+    position: absolute; top: -5px; right: -5px;
   }
-  /* Titles leave the corner free so the button lines up beside them. */
-  .page-title { margin-left: 46px; }
-
-  /* Except where the tab keeps the row for itself: the deck builder replaces
-     its title with the open deck's header, which starts hard against the left
-     edge and would sit under the button. It pads down by a row instead, and
-     its titles go back to the normal margin. */
-  .tab-content[data-nav-own-row] { padding-top: 46px; }
-  .tab-content[data-nav-own-row] .page-title { margin-left: 0; }
-
+  /* Opens upward from the button in the corner. */
   .mob-nav-menu {
     position: fixed;
-    top: calc(env(safe-area-inset-top, 0px) + 54px);
-    left: 10px;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 60px);
+    right: 14px;
     z-index: 419;
     pointer-events: auto;
     display: flex;
     flex-direction: column;
     gap: 2px;
     min-width: 216px;
-    max-height: calc(100dvh - env(safe-area-inset-top, 0px) - 84px);
+    max-height: calc(100dvh - env(safe-area-inset-bottom, 0px) - 84px);
     overflow-y: auto;
     padding: 6px;
     border-radius: 14px;
@@ -1122,9 +1115,14 @@
   }
 
   /* ── Games tab ────────────────────────────────────────────────────────── */
+  /* Two up where two fit, one where they do not — a hard 1fr 1fr kept two
+     columns at 320px, where the pair could not fit however far the cards were
+     asked to shrink. */
   .games-grid {
-    grid-template-columns: 1fr 1fr !important; gap: 0.6rem;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 136px), 1fr)) !important;
+    gap: 0.6rem;
   }
+  .game-card { padding: 12px 13px 14px; }
   .game-player-card { padding: 0.65rem !important; }
 
   /* Quick filters: !important because the row carries inline

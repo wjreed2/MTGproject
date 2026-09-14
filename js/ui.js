@@ -117,39 +117,6 @@ function buildMobNavMenu() {
   if (typeof refreshNotifUnreadCount === 'function') void refreshNotifUnreadCount();
 }
 
-/**
- * Line the menu button up with the page's own title.
- *
- * Only its `top` moves — the button stays a fixed element in the topbar rather
- * than being inserted into the title row, because several tabs rebuild their
- * header on render and would take the button with them. The titles carry a left
- * inset on phones to leave the corner free, so lining up the row is all it
- * takes for the two to read as one. Tabs with no title keep the default corner.
- *
- * `data-nav-own-row` panes opt out of sharing a row. The deck builder is one:
- * opening a deck swaps the "Decks" title out for the deck's own header, which
- * has no room to give, so the pane pads itself down by a row (mobile.css) and
- * the button takes that row alone.
- */
-function _placeMobNavToggle(tab) {
-  const btn = document.getElementById('mobNavToggle');
-  if (!btn || getComputedStyle(btn).display === 'none') return;
-  btn.style.top = '';
-  const pane = document.getElementById('tab-' + tab);
-  if (!pane) return;
-  const size = btn.offsetHeight || 38;
-  const min = 6;
-  let top;
-  if (pane.hasAttribute('data-nav-own-row')) {
-    top = Math.round(pane.getBoundingClientRect().top - 4);
-  } else {
-    const r = [...pane.querySelectorAll('.page-title')].find(t => t.offsetParent !== null)?.getBoundingClientRect();
-    if (!r || r.height <= 0) return;
-    top = Math.round(r.top + r.height / 2 - size / 2);
-  }
-  if (top >= min) btn.style.top = `${top}px`;
-}
-
 function _syncMobNavActive(tab) {
   document.querySelectorAll('#mobNavMenu .mob-nav-row').forEach(r => {
     r.classList.toggle('active', !!tab && r.dataset.tab === tab);
@@ -172,12 +139,14 @@ function toggleMobNav(e) {
   buildMobNavMenu();
   _syncMobNavActive(localStorage.getItem('mtg_active_tab') || 'collection');
   menu.hidden = false;
-  // Anchored to the button wherever it currently sits, since it moves between
-  // the corner and whichever page title is on screen.
+  // The button lives in the bottom-right corner, so the menu grows upward from
+  // it and hangs off the same edge.
   if (btn) {
     const r = btn.getBoundingClientRect();
-    menu.style.top = `${Math.round(r.bottom + 6)}px`;
-    menu.style.left = `${Math.round(Math.max(8, Math.min(r.left, window.innerWidth - menu.offsetWidth - 8)))}px`;
+    menu.style.top = 'auto';
+    menu.style.left = 'auto';
+    menu.style.bottom = `${Math.round(Math.max(8, window.innerHeight - r.top + 8))}px`;
+    menu.style.right = `${Math.round(Math.max(8, window.innerWidth - r.right))}px`;
     btn.classList.add('is-open');
     btn.setAttribute('aria-expanded', 'true');
   }
@@ -194,13 +163,7 @@ if (typeof document !== 'undefined') {
     closeMobNav();
   });
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMobNav(); });
-  // The first tab is already active in the markup, so nothing calls showTab for
-  // it — seat the button against whatever is on screen once the app is up, and
-  // again if the window changes shape.
-  const seat = () => _placeMobNavToggle(localStorage.getItem('mtg_active_tab') || 'collection');
-  window.addEventListener('load', () => setTimeout(seat, 0));
-  window.addEventListener('resize', () => { closeMobNav(); seat(); });
-  if (document.readyState === 'complete') setTimeout(seat, 0);
+  window.addEventListener('resize', closeMobNav);
 }
 
 function showTab(t, opts) {
@@ -225,9 +188,6 @@ function showTab(t, opts) {
   if (mobItem) mobItem.classList.add('active');
   closeMobNav();
   _syncMobNavActive(t);
-  // After the tab's own render, not before it: Trade and others build their
-  // header in that render, so the title does not exist yet at this point.
-  requestAnimationFrame(() => _placeMobNavToggle(t));
   // Settings tab (mobile): host the web settings dropdown as a full page. The
   // element lives in the topbar dropdown; move it into the page here and move
   // it back when leaving so the topbar menu keeps working on phone and desktop.

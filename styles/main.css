@@ -11648,6 +11648,10 @@ body.glass-mode .tablet-life-btn {
   display: flex;
   flex-direction: column;
   gap: 7px;
+  /* A grid item's floor is its content's min-width unless told otherwise, and a
+     player name that will not break set that floor wider than the column at
+     narrow phone widths — the cards ran out past the edge of the page. */
+  min-width: 0;
   /* Geometry and material both come from the Commander Gameplan turn boxes. */
   padding: 14px 18px 16px;
   border-radius: 12px;
@@ -11688,21 +11692,23 @@ body.glass-mode .game-card.is-selected {
    that used to sit beside every one of them. */
 .gp-name { font-weight: 600; }
 
-.game-card-head { display: flex; align-items: center; gap: 7px; }
-.game-card-format { font-family: 'Cinzel', serif; font-size: 0.92rem; color: var(--text); }
+.game-card-head { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; min-width: 0; }
+.game-card-format { font-family: 'Cinzel', serif; font-size: 0.92rem; color: var(--text); min-width: 0; }
 .game-card-live {
   display: inline-flex; align-items: center; gap: 5px;
   font-size: 0.68rem; letter-spacing: 0.06em; text-transform: uppercase;
   color: rgb(var(--lgx1));
 }
-.game-card-seats { display: flex; flex-wrap: wrap; gap: 4px 10px; }
-.game-card-seat { font-size: 0.78rem; }
+.game-card-seats { display: flex; flex-wrap: wrap; gap: 4px 10px; min-width: 0; }
+/* Names are arbitrary, so they have to be allowed to break rather than hold the
+   card open. */
+.game-card-seat { font-size: 0.78rem; min-width: 0; overflow-wrap: anywhere; }
 .game-card-meta {
-  display: flex; gap: 10px;
+  display: flex; gap: 4px 10px; flex-wrap: wrap; min-width: 0;
   font-size: 0.72rem; color: var(--text3);
   font-variant-numeric: tabular-nums;
 }
-.game-card-status { font-size: 0.76rem; color: var(--text2); }
+.game-card-status { font-size: 0.76rem; color: var(--text2); min-width: 0; overflow-wrap: anywhere; }
 .game-card-open { align-self: flex-start; margin-top: 2px; }
 /* Content width, like every other control in the app — stretched across half
    the modal each they read as banners rather than as the pair of buttons they
