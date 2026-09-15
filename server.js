@@ -8901,13 +8901,43 @@ function _fpEnsureNameIndex() {
     }
     rows.push(i);
   }
+  // 4-gram → tokens index. OCR clips names ("eshore" for lakeshore, "ortswor" for
+  // shortsword), so anchoring needs shared RUNS, not whole-token equality; the n-gram index
+  // narrows ~30k tokens to a handful before the (costlier) substring check runs.
+  const allTokens = [...byToken.keys()];
+  const byGram = new Map();
+  for (const t of allTokens) {
+    for (let i = 0; i + 4 <= t.length; i++) {
+      const g = t.slice(i, i + 4);
+      let s = byGram.get(g);
+      if (!s) byGram.set(g, (s = new Set()));
+      s.add(t);
+    }
+  }
   _fpNames = {
-    byToken, rowsByName, tokensByName,
-    allTokens: [...byToken.keys()], // for fuzzy anchor lookup
+    byToken, rowsByName, tokensByName, allTokens, byGram,
     _builtAt: _fpIndexLoadedAt,
   };
   console.log(`[scan] name index built: ${rowsByName.size} distinct names, ${_fpNames.allTokens.length} tokens`);
   return _fpNames;
+}
+
+// Longest common substring length — the evidence metric for a clipped OCR read against a
+// card-name token. "eshore"/"lakeshore" = 6, "ortswor"/"shortsword" = 6, "bear"/"bear" = 4.
+function _fpLcs(a, b) {
+  let best = 0;
+  let prev = new Uint16Array(b.length + 1);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = new Uint16Array(b.length + 1);
+    for (let j = 1; j <= b.length; j++) {
+      if (a[i - 1] === b[j - 1]) {
+        cur[j] = prev[j - 1] + 1;
+        if (cur[j] > best) best = cur[j];
+      }
+    }
+    prev = cur;
+  }
+  return best;
 }
 
 function _fpLev(a, b) {
@@ -8946,72 +8976,83 @@ function _fpRowsForTitle(title) {
   // exact hit a fuzzy sweep over the token vocabulary ("F1ocK"/"remophnage"/"athering" must
   // still anchor Flock/Hemophage/Gathering; exact-only anchoring silently dropped them and
   // the downstream tolerance never got a chance to run). Length prefilter keeps it cheap.
-  const cand = new Map(); // nameKey -> { hits, strong }
-  const bump = (key, strong) => {
-    const c = cand.get(key) || { hits: 0, strong: false };
-    c.hits++;
-    c.strong = c.strong || strong;
-    cand.set(key, c);
-  };
+  // Candidate names: any name owning a token that shares a 4+ character RUN with an OCR word.
+  // Live diag proved the old whole-token rule was the binding constraint — OCR routinely
+  // delivers the middle or tail of a name ("eshore", "ler of tales", "warven oriswor") and
+  // every one of those scored zero.
+  const candKeys = new Set();
   for (const w of words) {
-    const s = names.byToken.get(w);
-    if (s) {
-      for (const key of s) bump(key, true);
-      continue;
-    }
+    const exact = names.byToken.get(w);
+    if (exact) for (const key of exact) candKeys.add(key);
     if (w.length < 4) continue;
-    const tol = w.length >= 6 ? 2 : 1; // "Lolium" must reach Gollum (two substitutions)
-    for (const t of names.allTokens) {
-      if (Math.abs(t.length - w.length) > tol) continue;
-      if (t[0] !== w[0] && t[1] !== w[1] && t[t.length - 1] !== w[w.length - 1]) continue;
-      if (_fpLev(w, t) > tol) continue;
-      // A long fuzzy anchor is trustworthy ("athering", "remophnage" — random 8+ char OCR
-      // output rarely sits within edit range of a real token); a short one is not ("mock"
-      // neighbours monk/rock/dock/lock) and earns only the stricter fuzzy gate.
-      for (const key of names.byToken.get(t)) bump(key, w.length >= 6);
+    const seen = new Set();
+    for (let i = 0; i + 4 <= w.length; i++) {
+      const bucket = names.byGram.get(w.slice(i, i + 4));
+      if (!bucket) continue;
+      for (const t of bucket) {
+        if (seen.has(t)) continue;
+        seen.add(t);
+        for (const key of names.byToken.get(t)) candKeys.add(key);
+      }
     }
   }
   const scored = [];
-  for (const [key, c] of cand) {
+  for (const key of candKeys) {
     const toks = names.tokensByName.get(key) || [];
     if (!toks.length) continue;
     let hits = 0;
-    let maxHitLen = 0;
+    let maxEvidence = 0;
     for (const t of toks) {
-      // Edit tolerance scales with token length — foil glare eats a character or two off
-      // long words ("remophnage" is Hemophage, "stent" must still count toward Silent).
+      // Evidence for this name token = the longest run any OCR word shares with it, with
+      // exact/edit-distance reads counted at full token length.
       const tol = t.length >= 6 ? 2 : t.length >= 4 ? 1 : 0;
-      if (words.some(w => w === t || _fpLev(w, t) <= tol)) {
+      let ev = 0;
+      for (const w of words) {
+        if (w === t || _fpLev(w, t) <= tol) { ev = t.length; break; }
+        if (w.length >= 4) {
+          const run = _fpLcs(w, t);
+          if (run > ev) ev = run;
+        }
+      }
+      if (ev >= Math.min(4, t.length)) {
         hits++;
-        if (t.length > maxHitLen) maxHitLen = t.length;
+        if (ev > maxEvidence) maxEvidence = ev;
       }
     }
-    // Evidence quality = the longest matched token. Every legitimate title win in the live
-    // corpus was carried by a 5+ char hit; the wrong-adds rode 3-4 char fragments ("ark"
-    // from a truncated Dark, a lone "fury"). ≤3-char-only evidence doesn't shortlist at all.
-    if (maxHitLen <= 3) continue;
+    if (maxEvidence < 4) continue; // 3-char scraps never shortlist ("ark" → Ark of Blight)
     const coverage = hits / toks.length;
-    // Half the name's tokens is enough — the hash arbitrates inside the shortlist, and OCR
-    // routinely loses a whole word to glare ("- F1ocK" must still reach Ravenhill Flock).
-    // Single-token names still need their token.
-    if (coverage >= (toks.length === 1 ? 1 : 0.5)) {
-      scored.push({ key, coverage, exactHits: c.hits, strong: c.strong, maxHitLen, nTok: toks.length });
+    // Half the name's tokens, OR one decisive 6+ character run — "valley" alone must reach
+    // Rage into the Valley when OCR lost the other two words entirely.
+    if (coverage >= (toks.length === 1 ? 1 : 0.5) || maxEvidence >= 6) {
+      scored.push({
+        key, coverage, exactHits: hits, nTok: toks.length,
+        maxHitLen: maxEvidence, strong: maxEvidence >= 6,
+      });
     }
   }
   if (!scored.length) return null;
-  scored.sort((a, b) => (b.coverage - a.coverage) || (b.nTok - a.nTok) || (b.exactHits - a.exactHits));
+  // Rank by evidence: a long shared run plus broad coverage beats either alone (the 25-name
+  // cap below makes this ordering matter — "valley" alone shortlists many names).
+  scored.sort((a, b) =>
+    (b.maxHitLen + 4 * b.coverage) - (a.maxHitLen + 4 * a.coverage) || (b.nTok - a.nTok));
+  // Evidence score per name: a long shared run AND broad coverage. Measured on live reads —
+  // real wins score 9-10 ("eshore"+"ecary" → Lakeshore Apothecary, coverage 1.0, run 6),
+  // while the fragments that produced wrong matches score ≤ 6 ("bear" → Toski, Bearer of
+  // Secrets). The shortlist stays small so the hash isn't re-running a global search.
+  // Only names within a band of the best evidence compete — otherwise one well-identified
+  // name shares its shortlist (and its size-scaled gate) with weakly-anchored strangers.
+  const bestScore = scored.length ? scored[0].maxHitLen + 4 * scored[0].coverage : 0;
   const rows = [];
-  const strongRows = new Set();
-  const longHitRows = new Set(); // names whose evidence includes a 6+ char token hit
-  for (const s of scored.slice(0, 25)) {
+  const scoreByRow = new Map();
+  for (const s of scored.filter(x => x.maxHitLen + 4 * x.coverage >= bestScore - 1.5).slice(0, 8)) {
+    const score = s.maxHitLen + 4 * s.coverage;
     for (const i of names.rowsByName.get(s.key)) {
       rows.push(i);
-      if (s.strong) strongRows.add(i);
-      if (s.maxHitLen >= 6) longHitRows.add(i);
+      if (score > (scoreByRow.get(i) || 0)) scoreByRow.set(i, score);
     }
-    if (rows.length > 600) break; // bound the restricted scan
+    if (rows.length > 200) break; // bound the restricted scan
   }
-  return rows.length ? { rows, strongRows, longHitRows } : null;
+  return rows.length ? { rows, scoreByRow } : null;
 }
 
 // Best variant match restricted to `rows` (the title's printings). Same combined metric,
@@ -9964,6 +10005,9 @@ const SCAN_WIN_MARGIN = 4; // was 3; one wrong add slipped through live at the o
 // against the OCR shortlist containing a wrong-but-similar name.
 const SCAN_TITLE_COMB_MAX = 40;
 const SCAN_TITLE_COMB_FUZZY_MAX = 32; // strict gate: short-token or fuzzy-only title evidence
+// Min (longest run + 4x coverage) for the title to OVERRIDE the global answer. Corroboration
+// — the title agreeing with the global winner — has no such bar.
+const SCAN_TITLE_MIN_EVIDENCE = 8.5;
 const SCAN_ART_TIE = 2;       // art-hash distance under which two printings count as "same art"
 const SCAN_ART_PRIMARY_MAX = 12;  // art-only fallback gate (foil glare / non-English fronts)
 const SCAN_ART_PRIMARY_GROUP = 2; // art-distance tie window for the fallback chooser group
@@ -10023,12 +10067,13 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
       && titleHit.rows.includes(near[0].i);
     if (titleHit && !titleAgreesWithGlobal) {
       const tBest = _fpBestInRows(titleHit.rows, parsed);
-      // Gate scales with evidence quality: a 6+ char token hit with a strong anchor earns
-      // the full gate; short-token or purely fuzzy evidence ("fury" alone, "mock" → Monk)
-      // earns the strict one.
-      const gate = tBest && titleHit.strongRows.has(tBest.i) && titleHit.longHitRows.has(tBest.i)
-        ? SCAN_TITLE_COMB_MAX : SCAN_TITLE_COMB_FUZZY_MAX;
-      if (tBest && tBest.comb <= gate) {
+      // Overriding the global answer demands decisive evidence, and the gate scales with the
+      // shortlist size — N rows of budget-40 searching is just the noise floor again (a
+      // basic-land name alone brings hundreds of printings).
+      const evidence = tBest ? (titleHit.scoreByRow.get(tBest.i) || 0) : 0;
+      const n = titleHit.rows.length;
+      const gate = n <= 12 ? SCAN_TITLE_COMB_MAX : n <= 60 ? 33 : SCAN_TITLE_COMB_FUZZY_MAX;
+      if (tBest && evidence >= SCAN_TITLE_MIN_EVIDENCE && tBest.comb <= gate) {
         const cards = await _fingerprintCardsFor([_fpIndex.meta[tBest.i]]);
         if (cards[0]) {
           cards[0]._scanDistance = tBest.dist;

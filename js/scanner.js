@@ -3057,10 +3057,17 @@ async function _scnReadTitle(v, guide, rect, band) {
     // instead of the card's softer outer edge and clipped the title out of the rect (the
     // live diag showed exactly this on most garbage reads).
     const bandY = band === 'above' ? Math.max(0, r.y - r.h * 0.095) : r.y + r.h * 0.02;
+    // Band spans the rect's full width plus a margin on each side. Every live OCR read was
+    // missing its first 1-3 characters ("eshore" for Lakeshore, "warven" for Dwarven, "rge
+    // bear" for Large Bear): the old 4% inset started inside the title text, because the
+    // localizer rect itself sits inside the card's true edge. Overshooting costs nothing —
+    // Tesseract ignores the extra border — while clipping costs the name.
+    const bandX = r.x - r.w * 0.06;
+    const bandW = r.w * 1.12;
     // Title band in warp coords → video pixels through the guide bbox.
-    const bx = (bb.nx + (bb.nw * (r.x + r.w * 0.04)) / SCN_FP_WARP_W) * vw;
+    const bx = (bb.nx + (bb.nw * bandX) / SCN_FP_WARP_W) * vw;
     const by = (bb.ny + (bb.nh * bandY) / SCN_FP_WARP_H) * vh;
-    const bw = ((bb.nw * (r.w * 0.92)) / SCN_FP_WARP_W) * vw;
+    const bw = ((bb.nw * bandW) / SCN_FP_WARP_W) * vw;
     const bh = ((bb.nh * (r.h * 0.1)) / SCN_FP_WARP_H) * vh;
     if (bw < 40 || bh < 10) return '';
     const outW = Math.min(1200, Math.max(320, Math.round(bw)));

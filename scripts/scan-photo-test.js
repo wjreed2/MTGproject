@@ -166,10 +166,12 @@ async function ocrTitle(raw, rect, bandMode) {
   try {
     const r = rect || { x: 0, y: 0, w: W, h: H };
     const bandY = bandMode === "above" ? Math.max(0, r.y - r.h * 0.095) : r.y + r.h * 0.02;
+    const bandX = Math.max(0, Math.round(r.x - r.w * 0.06)); // mirror scanner.js: no left clip
     const band = await sharp(raw, { raw: { width: W, height: H, channels: 3 } })
       .extract({
-        left: Math.round(r.x + r.w * 0.04), top: Math.round(bandY),
-        width: Math.round(r.w * 0.92), height: Math.min(H - Math.round(bandY), Math.round(r.h * 0.1)),
+        left: bandX, top: Math.round(bandY),
+        width: Math.min(W - bandX, Math.round(r.w * 1.12)),
+        height: Math.min(H - Math.round(bandY), Math.round(r.h * 0.1)),
       })
       .resize({ width: Math.min(1200, Math.max(320, Math.round(r.w * 0.92 * 2.5))) })
       .png().toBuffer();
