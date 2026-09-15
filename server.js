@@ -8914,8 +8914,15 @@ function _fpEnsureNameIndex() {
       s.add(t);
     }
   }
+  // Exact printing lookup. The footer states set code and collector number outright, which is
+  // the one piece of evidence that identifies a printing rather than a card.
+  const bySetNum = new Map();
+  for (let i = 0; i < _fpIndex.n; i++) {
+    const m = _fpIndex.meta[i];
+    bySetNum.set(`${String(m.set_code).toLowerCase()}|${String(m.collector_number).toLowerCase()}`, i);
+  }
   _fpNames = {
-    byToken, rowsByName, tokensByName, allTokens, byGram,
+    byToken, rowsByName, tokensByName, allTokens, byGram, bySetNum,
     _builtAt: _fpIndexLoadedAt,
   };
   console.log(`[scan] name index built: ${rowsByName.size} distinct names, ${_fpNames.allTokens.length} tokens`);
@@ -9177,6 +9184,40 @@ function _fpNearestArt(qahi, qalo, k) {
   }
   if (best.length < k) best.sort((a, b) => a.artDist - b.artDist);
   return best;
+}
+
+// Do two index rows carry the same artwork? Reprints overwhelmingly reuse art — only the set
+// symbol and collector number change, and a 32x32 hash discards both — so this is what makes
+// a printing undecidable by image alone, and what the footer hints are there to settle.
+function _fpSameArtRows(i, j) {
+  if (!_fpIndex.hasArt[i] || !_fpIndex.hasArt[j]) return false;
+  return _popcount32(_fpIndex.ahi[i] ^ _fpIndex.ahi[j])
+    + _popcount32(_fpIndex.alo[i] ^ _fpIndex.alo[j]) <= 4;
+}
+
+// Among `rows`, prefer the printing the footer hints point at: both fields beat set alone,
+// which beats collector alone (collector numbers repeat across sets).
+function _fpPickByHint(rows, hintSet, hintNum) {
+  if (!hintSet && !hintNum) return null;
+  let best = null, bestScore = 0;
+  for (const i of rows) {
+    const m = _fpIndex.meta[i];
+    const setOk = hintSet && String(m.set_code).toLowerCase() === hintSet;
+    const numOk = hintNum && String(m.collector_number).toLowerCase() === hintNum;
+    const score = (setOk ? 2 : 0) + (numOk ? 1 : 0);
+    if (score > bestScore) { bestScore = score; best = i; }
+  }
+  return bestScore >= 2 ? best : null; // a bare collector-number match is not enough on its own
+}
+
+// How many OTHER printings of this card share its artwork? These are the printings no image
+// hash can separate at any resolution, so a non-zero count is the client's cue to read the
+// collector number and set code off the card and ask again.
+function _fpPrintingRivals(i) {
+  const rows = _fpEnsureNameIndex().rowsByName.get(_fpNormName(_fpIndex.meta[i].name)) || [];
+  let n = 0;
+  for (const j of rows) if (j !== i && _fpSameArtRows(i, j)) n++;
+  return n;
 }
 
 // Shape matched fingerprint rows into Scryfall-like cards: oracle-level gameplay data joined from
@@ -10095,6 +10136,36 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
       .map(t => t.slice(0, 160));
     const titleHit = titleList.length ? _fpRowsForTitles(titleList) : null;
 
+    // Footer first. A read of the card's own set code and collector number names the exact
+    // printing — stronger than the title (which gives only the card) and far stronger than the
+    // hash (which cannot separate same-art reprints at all). The hash still has to agree
+    // loosely, so a misread footer cannot conjure an unrelated card.
+    if (hintSet && hintNum) {
+      const exact = _fpEnsureNameIndex().bySetNum.get(`${hintSet}|${hintNum}`);
+      if (exact != null) {
+        const fBest = _fpBestInRows([exact], parsed);
+        // Footer plus title is conclusive on its own. They are independent reads of different
+        // parts of the card, so when both name the same printing the image no longer has a
+        // vote — which matters because the captures that need this are exactly the ones whose
+        // hash is worthless (this one sits 60 bits from the true card and 30 from a wrong one).
+        const titleAgrees = !!(titleHit && titleHit.rows.includes(exact));
+        if (fBest && (fBest.comb <= SCAN_TITLE_COMB_DECISIVE || titleAgrees)) {
+          const cards = await _fingerprintCardsFor([_fpIndex.meta[exact]]);
+          if (cards[0]) {
+            cards[0]._scanDistance = fBest.dist;
+            if (fBest.artDist != null) cards[0]._scanArtDistance = fBest.artDist;
+          }
+          return res.json({
+            ok: true, matched: true, ambiguous: false, footerMatched: true,
+            variantIndex: fBest.variant.idx,
+            distance: fBest.dist, artDistance: fBest.artDist, printingRivals: 0,
+            best: cards[0] || null, candidates: cards,
+          });
+        }
+      }
+    }
+
+
     // Retrieval ranks by combined full+art distance (see _fpNearestCombined) — the true card
     // reliably surfaces even when full-hash noise buries it below unrelated printings.
     let near = null;
@@ -10113,7 +10184,7 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
     const titleAgreesWithGlobal = titleHit && near && near.length
       && titleHit.rows.includes(near[0].i);
     if (titleHit && !titleAgreesWithGlobal) {
-      const tBest = _fpBestInRows(titleHit.rows, parsed);
+      let tBest = _fpBestInRows(titleHit.rows, parsed);
       // Overriding the global answer demands decisive evidence, and the gate scales with the
       // shortlist size — N rows of budget-40 searching is just the noise floor again (a
       // basic-land name alone brings hundreds of printings).
@@ -10133,6 +10204,10 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
         : evidence >= SCAN_TITLE_DECISIVE && n <= 120 ? SCAN_TITLE_COMB_DECISIVE
         : n <= 12 ? SCAN_TITLE_COMB_MAX : n <= 60 ? 33 : SCAN_TITLE_COMB_FUZZY_MAX;
       if (tBest && evidence >= SCAN_TITLE_MIN_EVIDENCE && tBest.comb <= gate) {
+        // The name is settled; the printed footer settles the printing, which the image hash
+        // cannot do for same-art reprints at any resolution.
+        const hinted = _fpPickByHint(titleHit.rows, hintSet, hintNum);
+        if (hinted != null) tBest = { ...tBest, i: hinted };
         const cards = await _fingerprintCardsFor([_fpIndex.meta[tBest.i]]);
         if (cards[0]) {
           cards[0]._scanDistance = tBest.dist;
@@ -10142,6 +10217,7 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
           ok: true, matched: true, ambiguous: false, titleMatched: true,
           variantIndex: tBest.variant.idx,
           distance: tBest.dist, artDistance: tBest.artDist,
+          printingRivals: hinted != null ? 0 : _fpPrintingRivals(tBest.i),
           best: cards[0] || null, candidates: cards,
         });
       }
@@ -10174,9 +10250,8 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
     ).values()].sort((a, b) => a.comb - b.comb);
     let hintPicked = false;
     if (decision.length > 1) {
-      const byHint = decision.find(c =>
-        (hintSet && String(c.meta.set_code).toLowerCase() === hintSet) ||
-        (hintNum && String(c.meta.collector_number).toLowerCase() === hintNum));
+      const hinted = _fpPickByHint(decision.map(c => c.i), hintSet, hintNum);
+      const byHint = hinted != null ? decision.find(c => c.i === hinted) : null;
       if (byHint) { chosen = byHint; hintPicked = true; }
     }
 
@@ -10185,6 +10260,13 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
     // the full-card gate relaxes a few bits — 19-24 is exactly that borderline regime.
     // The combined cap closes the corner both per-hash gates leave open (e.g. 16+18=34): the
     // measured noise floor on the combined metric starts at ~34, so a "match" there is junk.
+    // A footer that confirms the winner counts even when nothing competed with it — the hint
+    // was previously only consulted to CHOOSE between candidates, so a lone correct answer
+    // with its set code printed on the card got no credit for it.
+    if (!hintPicked && hintSet && hintNum
+      && String(chosen.meta.set_code).toLowerCase() === hintSet
+      && String(chosen.meta.collector_number).toLowerCase() === hintNum) hintPicked = true;
+
     // Win-margin gate: the best DIFFERENT-ART runner in the retrieval window must trail the
     // winner by SCAN_WIN_MARGIN combined bits (identical-art siblings don't count — they are
     // the same painting and legitimately crowd the winner).
@@ -10217,7 +10299,10 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
         && chosen.artDist != null && chosen.artDist <= SCAN_ART_STRONG_MAX))
         && (chosen.artDist == null
           || chosen.dist + chosen.artDist <= SCAN_COMB_ACCEPT_MAX - poolPenalty)
-        && winMarginOk;
+        // A footer whose SET CODE matches the candidate is independent corroboration, exactly
+        // like the title agreeing: the win-margin gate exists to catch noise-floor flukes, and
+        // a fluke that also has the card's printed set code on it is not one.
+        && (winMarginOk || hintPicked);
     // NB: a name-based suppression clause was tried here (global winner not covered by the
     // read title → reject) and removed: it only ever fired on PARTIAL OCR reads, where the
     // wrong-name shortlist suppressed true matches. When the OCR is good, the title fast
@@ -10266,6 +10351,7 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
       matched,
       ambiguous,
       variantIndex: winner.idx,
+      printingRivals: matched && !hintPicked ? _fpPrintingRivals(chosen.i) : 0,
       distance: chosen.dist,
       artDistance: chosen.artDist,
       best: matched ? (cards[0] || null) : null,

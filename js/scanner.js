@@ -3147,6 +3147,83 @@ function _scnTitleBandUrl(v, cardQuad, { above = false, invert = false, narrow =
   return c.toDataURL('image/png');
 }
 
+// Collector number + set code, read off the card's bottom-left corner. This is the only
+// thing that separates same-art reprints: the artwork is identical, so no image hash tells
+// them apart at any resolution, but the printed footer states the printing exactly. Measured
+// at realistic capture resolution the strip reads cleanly ("L 0185 HOB EN MARINA ORTEGA
+// LORENTE"); it is far too small in the 360px saved crops, which is why the harness cannot
+// exercise this path.
+function _scnParseFooterHints(text) {
+  const t = String(text || '').toUpperCase().replace(/[^A-Z0-9/ ]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!t) return null;
+  // Collector number: first short digit run, leading zeros stripped ("0254" -> "254"), with
+  // an optional variant letter and an optional "/total" suffix from older frames.
+  let collector = '';
+  const num = t.match(/\b(\d{1,4})([A-Z]?)(?:\/\d+)?\b/);
+  if (num) collector = String(parseInt(num[1], 10)) + (num[2] || '').toLowerCase();
+  // Set code: the token immediately before the language code — "C 0254 FFX A FIN EN" has two
+  // plausible codes and only the one adjacent to EN is the set.
+  let set = '';
+  const m = t.match(/\b([A-Z0-9]{2,5})\s+(?:EN|DE|FR|IT|ES|PT|JA|JP|KO|RU|ZH|CS|CT)\b/);
+  if (m) set = m[1].toLowerCase();
+  return set || collector ? { set, collector } : null;
+}
+
+async function _scnReadFooter(v, cardQuad) {
+  if (!v?.videoWidth || !_scnWorkerReady || !_scnNameWorker) return null;
+  try {
+    const bb = _scnQuadAxisBBox(cardQuad);
+    if (!bb) return null;
+    const vw = v.videoWidth, vh = v.videoHeight;
+    const sx = Math.max(0, (bb.nx + bb.nw * 0.02) * vw);
+    const sy = Math.max(0, (bb.ny + bb.nh * 0.915) * vh);
+    const sw = Math.min(vw - sx, bb.nw * 0.48 * vw);
+    const sh = Math.min(vh - sy, bb.nh * 0.075 * vh);
+    if (sw < 40 || sh < 8) return null;
+    const outW = Math.min(1000, Math.max(400, Math.round(sw * 2.2)));
+    const outH = Math.max(20, Math.round((outW / sw) * sh));
+    const c = document.createElement('canvas');
+    c.width = outW; c.height = outH;
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(v, sx, sy, sw, sh, 0, 0, outW, outH);
+    const img = ctx.getImageData(0, 0, outW, outH);
+    const d = img.data;
+    const n = outW * outH;
+    const gray = new Uint8Array(n);
+    const hist = new Uint32Array(256);
+    for (let i = 0, p = 0; p < n; i += 4, p++) {
+      const g = (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]) | 0;
+      gray[p] = g; hist[g]++;
+    }
+    let lo = 0, hi = 255, acc = 0;
+    const cut = Math.max(1, Math.round(n * 0.02));
+    for (let g = 0; g < 256; g++) { acc += hist[g]; if (acc >= cut) { lo = g; break; } }
+    acc = 0;
+    for (let g = 255; g >= 0; g--) { acc += hist[g]; if (acc >= cut) { hi = g; break; } }
+    const span = Math.max(8, hi - lo);
+    // The footer is white-on-black on most frames, so invert to give Tesseract dark-on-light.
+    for (let i = 0, p = 0; p < n; i += 4, p++) {
+      let g = ((gray[p] - lo) * 255) / span;
+      g = 255 - (g < 0 ? 0 : g > 255 ? 255 : g);
+      d[i] = d[i + 1] = d[i + 2] = g;
+    }
+    ctx.putImageData(img, 0, 0);
+    await _scnNameWorker.setParameters({
+      tessedit_pageseg_mode: '6',
+      tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/ ',
+    });
+    const rec = await Promise.race([
+      _scnNameWorker.recognize(c.toDataURL('image/png')),
+      new Promise(r => setTimeout(() => r(null), 1500)),
+    ]);
+    return _scnParseFooterHints(rec?.data?.text || '');
+  } catch (_) {
+    return null;
+  }
+}
+
 // Up to three candidate reads of the printed name (normal polarity, inverted, and the strip
 // just above the card top for rects that clipped the title). All non-empty reads are sent —
 // the server scores each and keeps whichever produces the strongest name evidence, which is
@@ -3624,14 +3701,31 @@ async function _scnIdentifyFromQuad(hints, quad) {
         if (!_scnFpTitleBuf.includes(t)) { _scnFpTitleBuf.push(t); added = true; }
       }
       while (_scnFpTitleBuf.length > SCN_FP_TITLE_BUF_MAX) _scnFpTitleBuf.shift();
-      if (added) {
+      // The footer is worth reading here too: on a miss it can name the printing outright,
+      // and a matching set code corroborates a borderline winner the margin gate would
+      // otherwise discard (which is how a correctly-identified Iron Hills was thrown away).
+      const fh = await _scnReadFooter(v, ocrQuad);
+      if (added || fh) {
         sent = withTitles();
+        if (fh && (fh.set || fh.collector)) sent = { ...sent, hints: fh };
         data = (await post(sent)) || data;
+      }
+    }
+    // Phase three: the server has identified the CARD but reports printings of it that share
+    // the same artwork. No hash can choose between those, so read the footer and ask again.
+    if (data && data.matched && data.printingRivals > 0 && !hints && _scnWorkerReady) {
+      const wi2 = Number.isInteger(data.variantIndex) ? data.variantIndex : 0;
+      const fh = await _scnReadFooter(v, (kept[wi2] && kept[wi2]._quad) || useQuad);
+      if (fh && (fh.set || fh.collector)) {
+        const withHint = { ...sent, hints: fh };
+        const hinted = await post(withHint);
+        if (hinted && hinted.matched) { data = hinted; sent = withHint; }
       }
     }
     if (!data) return null;
     body.title = sent.title || '';
     body.titles = sent.titles || [];
+    body.hints = sent.hints || null;
     const winner = kept[Number.isInteger(data.variantIndex) ? data.variantIndex : 0] || kept[0];
     data._phash = winner.phash;
     data._variantCount = kept.length;
@@ -3640,6 +3734,8 @@ async function _scnIdentifyFromQuad(hints, quad) {
       at: Date.now(),
       ocr: body.title || '',
       ocrAll: body.titles || [],
+      hints: body.hints || null,
+      printingRivals: data.printingRivals || 0,
       tilt: loc.deg,
       rects: loc.rects.map(r => [r.x, r.y, r.w, r.h]),
       variant: data.variantIndex, variants: kept.length,
