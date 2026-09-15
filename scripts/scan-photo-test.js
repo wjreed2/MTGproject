@@ -148,6 +148,11 @@ async function photoVariants(file) {
   variants.push(await hashesFromRect(raw0, null)); // unrotated full frame
   const alpha = s => s.replace(/[^A-Za-z]/g, "").length;
   let title = await ocrTitle(best.raw, best.rects[0] || null, "in");
+  // Mirror the client: a long read means rules text (Sagas), so the title strip still runs.
+  if ((alpha(title) < 6 || alpha(title) > 40) && best.rects[0]) {
+    const narrow = await ocrTitle(best.raw, best.rects[0], "narrow");
+    if (alpha(narrow) >= 6) title = narrow;
+  }
   if (alpha(title) < 6 && best.rects[0]) {
     const above = await ocrTitle(best.raw, best.rects[0], "above"); // rect clipped the title
     if (alpha(above) > alpha(title)) title = above;
@@ -179,17 +184,18 @@ async function ocrTitle(raw, rect, bandMode) {
     const r = rect || { x: 0, y: 0, w: W, h: H };
     // Mirror scanner.js: read the card's whole top third, not a placement-sensitive strip.
     const bandY = Math.max(0, Math.round(r.y + r.h * (bandMode === "above" ? -0.10 : -0.02)));
+    const bandH = bandMode === "narrow" ? 0.13 : bandMode === "above" ? 0.16 : 0.30;
     const bandX = Math.max(0, Math.round(r.x - r.w * 0.04));
     const band = await sharp(raw, { raw: { width: W, height: H, channels: 3 } })
       .extract({
         left: bandX, top: bandY,
         width: Math.min(W - bandX, Math.round(r.w * 1.08)),
-        height: Math.min(H - bandY, Math.round(r.h * (bandMode === "above" ? 0.16 : 0.30))),
+        height: Math.min(H - bandY, Math.round(r.h * bandH)),
       })
       .resize({ width: Math.min(1200, Math.max(320, Math.round(r.w * 0.92 * 2.5))) })
       .png().toBuffer();
     await worker.setParameters({
-      tessedit_pageseg_mode: "6",
+      tessedit_pageseg_mode: bandMode === "narrow" ? "7" : "6",
       tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789',-. ",
     });
     const rec = await worker.recognize(band);

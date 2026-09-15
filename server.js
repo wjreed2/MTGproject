@@ -10196,13 +10196,27 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
     // winner's name, the win-margin and tight combined cap are waived (the margin exists to
     // catch noise-floor flukes, and a fluke whose name is ALSO printed on the card isn't
     // one) — the generous title cap applies instead.
+    // Reprint-pool penalty. A name with a thousand printings (every basic land) gets a
+    // thousand independent draws at the noise floor, so by chance alone one of them lands
+    // far closer than any single card would — which is how a Saga capture was confidently
+    // queued as Mountain [SLD #2512] at combined 30. The expected best-of-N distance falls
+    // with sqrt(log N), so the bar rises the same way. A genuine basic-land scan matches
+    // its own printing far inside this, so nothing legitimate is lost.
+    const pool = _fpEnsureNameIndex().rowsByName.get(_fpNormName(chosen.meta.name));
+    // Baselined at ~20 printings so an ordinary card is not penalised at all; only genuinely
+    // reprint-heavy names (lands, staples) have to clear a higher bar.
+    const poolN = Math.max(1, pool ? pool.length : 1);
+    const poolPenalty = Math.max(0, Math.min(6,
+      Math.round(3 * (Math.sqrt(Math.log(poolN)) - Math.sqrt(Math.log(20))))));
+
     const matched = titleAgreesWithGlobal
       ? (chosen.artDist != null && chosen.dist + chosen.artDist <= SCAN_TITLE_COMB_MAX)
       : ((chosen.dist <= SCAN_ACCEPT_MAX
         && chosen.artDist != null && chosen.artDist <= SCAN_ART_ACCEPT_MAX)
         || (chosen.dist <= SCAN_ACCEPT_RELAXED_MAX
         && chosen.artDist != null && chosen.artDist <= SCAN_ART_STRONG_MAX))
-        && (chosen.artDist == null || chosen.dist + chosen.artDist <= SCAN_COMB_ACCEPT_MAX)
+        && (chosen.artDist == null
+          || chosen.dist + chosen.artDist <= SCAN_COMB_ACCEPT_MAX - poolPenalty)
         && winMarginOk;
     // NB: a name-based suppression clause was tried here (global winner not covered by the
     // read title → reject) and removed: it only ever fired on PARTIAL OCR reads, where the

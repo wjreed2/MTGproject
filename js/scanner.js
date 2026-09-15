@@ -3082,7 +3082,7 @@ async function _scnPngWithDiag(blob, json) {
 // inset — which is what clipped the first characters off every live read. Contrast is
 // stretched, and `invert` handles light-on-dark frames (borderless, showcase, most black
 // cards) that Tesseract reads far worse in their native polarity.
-function _scnTitleBandUrl(v, cardQuad, { above = false, invert = false } = {}) {
+function _scnTitleBandUrl(v, cardQuad, { above = false, invert = false, narrow = false } = {}) {
   const bb = _scnQuadAxisBBox(cardQuad);
   if (!bb) return null;
   const vw = v.videoWidth, vh = v.videoHeight;
@@ -3094,7 +3094,11 @@ function _scnTitleBandUrl(v, cardQuad, { above = false, invert = false } = {}) {
   const bx = (bb.nx - bb.nw * 0.04) * vw;
   const by = (bb.ny + bb.nh * (above ? -0.10 : -0.02)) * vh;
   const bw = bb.nw * 1.08 * vw;
-  const bh = bb.nh * (above ? 0.16 : 0.30) * vh;
+  // `narrow` is the title line alone. The tall region is the right default — it finds the
+  // title without depending on exact placement — but on a Saga the top third also contains
+  // the chapter-ability column, and block segmentation reads THAT ("As this Saga enters...")
+  // instead of the name. A strip that can only contain the title fixes those.
+  const bh = bb.nh * (narrow ? 0.13 : above ? 0.16 : 0.30) * vh;
   if (bw < 40 || bh < 10) return null;
   const sx = Math.max(0, bx), sy = Math.max(0, by);
   const sw = Math.min(vw - sx, bw), sh = Math.min(vh - sy, bh);
@@ -3154,9 +3158,8 @@ async function _scnReadTitles(v, cardQuad) {
     // Alternate which polarity leads on each attempt: dark-on-light is the common case, but
     // borderless and black frames only read inverted, and reads accumulate across attempts
     // anyway — so both get tried without paying for both on every single capture.
-    const order = _scnFpTitleAttempt++ % 2 === 0
-      ? [{}, { invert: true }]
-      : [{ invert: true }, {}];
+    const inv = _scnFpTitleAttempt++ % 2 === 1;
+    const order = [{ invert: inv }, { narrow: true, invert: inv }];
     for (const opts of order) {
       if (performance.now() > deadline) break;
       const url = _scnTitleBandUrl(v, cardQuad, opts);
@@ -3167,10 +3170,10 @@ async function _scnReadTitles(v, cardQuad) {
       ]);
       const text = rec?.data?.text ? String(rec.data.text).replace(/\s+/g, ' ').trim() : '';
       if (alpha(text) >= 4 && !out.includes(text)) out.push(text.slice(0, 240));
-      // Only a substantial read ends the pass early. Exiting on anything with a few stray
-      // letters meant noise ("EEE Ee", "mew Lams") cancelled the inverted pass that would
-      // have read the actual name.
-      if (out.length && alpha(out[out.length - 1]) >= 16) break;
+      // A substantial read ends the pass early — but only if it is name-length. A long read
+      // means the region caught rules text (Sagas), and the title strip still has to run.
+      const got = out.length ? alpha(out[out.length - 1]) : 0;
+      if (got >= 16 && got <= 40) break;
     }
   } catch (_) { /* fall through — hash-only identify */ }
   return out;
