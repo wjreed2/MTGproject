@@ -10084,7 +10084,7 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
     // art matching unrelated cards at combined 20-26) doesn't exist inside a name set.
     const titleList = (Array.isArray(body.titles) && body.titles.length ? body.titles : [body.title])
       .filter(t => typeof t === 'string' && t.length >= 3)
-      .slice(0, 4)
+      .slice(0, 8)
       .map(t => t.slice(0, 160));
     const titleHit = titleList.length ? _fpRowsForTitles(titleList) : null;
 

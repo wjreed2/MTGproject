@@ -2978,10 +2978,29 @@ let _scnFpLastQueuedUid = null;        // uid the overlay "+1" button increments
 let _scnFpChooserPhash = null;         // capture hash that opened the candidate chooser
 let _scnFpNoMatchStreak = 0;           // consecutive no-match captures (→ hold + manual search)
 /** Consecutive misses before the scanner stops hammering and waits for a card swap. */
-const SCN_FP_NOMATCH_HOLD_AFTER = 3;
+const SCN_FP_NOMATCH_HOLD_AFTER = 5;
 
 /** Give the per-capture title OCR at most this long; identify proceeds untitled on timeout. */
 const SCN_FP_TITLE_OCR_TIMEOUT_MS = 1400;
+
+/**
+ * Title reads accumulated across successive attempts at the SAME card. OCR noise is largely
+ * independent frame to frame — focus breathes, glare moves, the hand shifts — so a capture
+ * that reads nothing often reads cleanly two attempts later. Every distinct read stays in
+ * play until the card changes, and all of them are sent: the server scores each and keeps
+ * whichever yields the strongest name.
+ */
+let _scnFpTitleBuf = [];
+/** Capture hash the buffer belongs to; a big jump means a different card is in the reticle. */
+let _scnFpTitleBufPhash = '';
+const SCN_FP_TITLE_BUF_MAX = 6;
+/** Beyond this Hamming distance between consecutive captures, the reticle holds a new card. */
+const SCN_FP_TITLE_SAME_CARD_HAMMING = 14;
+
+function _scnFpResetTitleBuf() {
+  _scnFpTitleBuf = [];
+  _scnFpTitleBufPhash = '';
+}
 
 /**
  * Rolling diagnostic of the LAST identify attempt — what the live pipeline actually saw:
@@ -3514,10 +3533,23 @@ async function _scnIdentifyFromQuad(hints, quad) {
   if (hints) body.hints = hints;
   // Read the printed name off the best candidate's own card quad (workers warm at camera
   // start; a cold or slow OCR just means this capture identifies by hash alone, as before).
-  const titles = await _scnReadTitles(v, kept[0]._quad || useQuad);
-  if (titles.length) {
-    body.titles = titles;
-    body.title = titles[0]; // older servers read the single field
+  // Reads accumulate across attempts at the same card — see _scnFpTitleBuf.
+  if (!_scnFpTitleBufPhash
+    || PhashCore.hamming(kept[0].phash, _scnFpTitleBufPhash) > SCN_FP_TITLE_SAME_CARD_HAMMING) {
+    _scnFpResetTitleBuf();
+  }
+  _scnFpTitleBufPhash = kept[0].phash;
+  for (const t of await _scnReadTitles(v, kept[0]._quad || useQuad)) {
+    if (!_scnFpTitleBuf.includes(t)) _scnFpTitleBuf.push(t);
+  }
+  while (_scnFpTitleBuf.length > SCN_FP_TITLE_BUF_MAX) _scnFpTitleBuf.shift();
+  if (_scnFpTitleBuf.length) {
+    const send = _scnFpTitleBuf.slice();
+    // Plus a union of the most recent reads: separate attempts often catch different halves
+    // of a name ("Nori Teller" then "of Tales"), and neither half alone clears the bar.
+    if (send.length >= 2) send.push(send.slice(-3).join(' '));
+    body.titles = send;
+    body.title = _scnFpTitleBuf[_scnFpTitleBuf.length - 1]; // older servers read one field
   }
   try {
     const res = await fetch(`${mtgApiRoot()}/scan/identify`, {
@@ -3718,6 +3750,7 @@ function _scnFingerprintTick(v, now) {
           _scnFpEmptyTicks = 0;
         }
         _scnFpNoMatchStreak = 0; // an empty reticle is not a miss
+        _scnFpResetTitleBuf();
         _scnSetOverlay('Point the camera at a card', '', 'hint');
         _scnFpCooldownUntil = performance.now() + 350;
         return;
@@ -3734,6 +3767,7 @@ function _scnFingerprintTick(v, now) {
         const da = _scnFpDiag(r, r._quadSrc);
         const setNum = `${(r.best.set || '').toUpperCase()} · #${r.best.collector_number || ''}${da}`;
         // Lingering same card already added — ignore, but offer "+1" for extra copies in hand.
+        _scnFpResetTitleBuf();
         if (_scnFpLastAcceptedPhash && PhashCore.hamming(ph, _scnFpLastAcceptedPhash) <= SCN_FP_DEDUPE_HAMMING) {
           if (_scnFpLastDiag) _scnFpLastDiag.outcome = 'already-added';
           _scnSetOverlay(r.best.name, `already added ✓${da}`, 'match');
@@ -3861,6 +3895,7 @@ function _scnStartFingerprintScanning() {
   _scnFpLastAcceptedPhash = null;
   _scnFpChooserPhash = null;
   _scnFpNoMatchStreak = 0;
+  _scnFpResetTitleBuf();
   _scnFpDimKey = '';
   _scnFpDimStableAt = 0;
   _scnFpCooldownUntil = 0;
