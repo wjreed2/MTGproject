@@ -730,7 +730,7 @@ function openVoice(options) {
   lastParseSpokenCode = '';
   renderVoiceSetSearchSettings();
   if (typeof _syncFindAllPrintingsBtn === 'function') _syncFindAllPrintingsBtn();
-  switchVoiceTab(voiceAddToActiveDeckMode ? 'search' : 'voice');
+  switchVoiceTab('search'); // search is the default way in; Voice/Scan are opt-in tabs
   pendingCard = null;
   voiceMode = 'scan';
   voiceAutoRestart = true;

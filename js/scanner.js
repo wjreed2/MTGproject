@@ -9,8 +9,12 @@ const SCN_INTERVAL_FAST_MS = 50;
  * before Scryfall). When still hunting either field, this is skipped so votes accumulate quickly.
  */
 const SCN_DEBUG_INTER_SCAN_PAUSE_MS = 200;
-/** Min ms between card-boundary detect ticks (video frame quad updates). */
-const SCN_BOUNDS_MIN_MS = 55;
+/**
+ * Min ms between card-boundary detect ticks. In fingerprint mode this paces the sharpness
+ * probe (a canvas draw + readback each tick), and the reticle is FIXED — polling it at 18 Hz
+ * bought nothing but battery. ~7 Hz still reacts to a card arriving well inside one cooldown.
+ */
+const SCN_BOUNDS_MIN_MS = 150;
 /** After Auto queue: mean abs luma delta (0–255) on downscaled frames; motion if this OR strong-pixel rule fires. */
 const SCN_MOTION_MEAN_DELTA_THRESH = 5.2;
 /** Count pixels with |Δ| ≥ this as “strong” (catches localized movement that barely moves the mean). */
@@ -468,7 +472,9 @@ async function openScanner() {
   _scnRefreshPauseScanUI();
   _scnRenderSession();
   if (typeof loadSets === 'function') void loadSets();
-  _scnInjectYolo();
+  // The YOLO detector (onnxruntime-web, ~536 KB) is only used by the classic quad pipeline.
+  // Fingerprint mode never calls it, so don't pay to download, parse and JIT it.
+  if (!_scnFingerprintMode || SCN_CARD_QUAD_BACKEND !== 'ml') _scnInjectYolo();
   // Fingerprint mode never OCRs — don't pull the Tesseract CDN script + two workers for nothing.
   if (!_scnFingerprintMode) _scnInjectTesseract();
 }
@@ -2998,10 +3004,15 @@ const SCN_FP_TITLE_BUF_MAX = 6;
 const SCN_FP_TITLE_SAME_CARD_HAMMING = 14;
 /** Attempt counter, used only to alternate OCR polarity between captures. */
 let _scnFpTitleAttempt = 0;
+/** Tilt solved for the card currently in the reticle (null = not solved yet). */
+let _scnFpTiltDeg = null;
+/** Last guide signature written to the overlay, so a static reticle isn't redrawn. */
+let _scnFpGuideSig = '';
 
 function _scnFpResetTitleBuf() {
   _scnFpTitleBuf = [];
   _scnFpTitleBufPhash = '';
+  _scnFpTiltDeg = null; // re-solve the tilt for the next card
 }
 
 /**
@@ -3144,8 +3155,8 @@ async function _scnReadTitles(v, cardQuad) {
     // borderless and black frames only read inverted, and reads accumulate across attempts
     // anyway — so both get tried without paying for both on every single capture.
     const order = _scnFpTitleAttempt++ % 2 === 0
-      ? [{}, { invert: true }, { above: true }]
-      : [{ invert: true }, {}, { above: true }];
+      ? [{}, { invert: true }]
+      : [{ invert: true }, {}];
     for (const opts of order) {
       if (performance.now() > deadline) break;
       const url = _scnTitleBandUrl(v, cardQuad, opts);
@@ -3156,8 +3167,9 @@ async function _scnReadTitles(v, cardQuad) {
       ]);
       const text = rec?.data?.text ? String(rec.data.text).replace(/\s+/g, ' ').trim() : '';
       if (alpha(text) >= 4 && !out.includes(text)) out.push(text.slice(0, 240));
-      // A substantial first read ends the search early; the other polarity leads next time.
-      if (out.length === 1 && alpha(out[0]) >= 16) break;
+      // Stop after one pass unless it came back nearly empty — the other polarity leads on
+      // the next attempt anyway, and reads accumulate across attempts.
+      if (out.length && alpha(out[out.length - 1]) >= 6) break;
     }
   } catch (_) { /* fall through — hash-only identify */ }
   return out;
@@ -3329,11 +3341,20 @@ function _scnRotatedWarp(warpCanvas, deg) {
 
 // De-tilted card localization: try the warp at several small rotations, keep whichever gives
 // the strongest edge-profile evidence. Returns { px, canvas, rects, deg }.
-function _scnLocalizeCard(warpCanvas, px0, W, H) {
+function _scnLocalizeCard(warpCanvas, px0, W, H, knownDeg) {
   let best = {
     px: px0, canvas: warpCanvas, deg: 0,
     rects: _scnAxisCardRects(_scnWarpLuma(px0, W, H), W, H),
   };
+  // A card does not re-tilt while it sits in the reticle: solve the rotation once per
+  // presentation and reuse it, instead of re-running six full-frame searches every capture.
+  if (knownDeg) {
+    const rot = _scnRotatedWarp(warpCanvas, knownDeg);
+    const rects = _scnAxisCardRects(_scnWarpLuma(rot.px, W, H), W, H);
+    if (rects.length) return { px: rot.px, canvas: rot.canvas, deg: knownDeg, rects };
+    return best;
+  }
+  if (knownDeg === 0) return best;
   let bestScore = best.rects[0] ? best.rects[0].score : 0;
   for (const deg of SCN_FP_TILT_DEGS) {
     const rot = _scnRotatedWarp(warpCanvas, deg);
@@ -3493,7 +3514,7 @@ function _scnLumaDetail(luma) {
 
 // Identify a capture: warp the guide once, localize candidate card rects inside it (axis
 // projections), hash every hypothesis, and let the server answer with the best-matching one.
-async function _scnIdentifyFromQuad(hints, quad) {
+async function _scnIdentifyFromQuad(hints, quad, wantOcr) {
   const v = document.getElementById('scnVideo');
   const useQuad = quad || _scnCardQuad;
   if (!v?.videoWidth || !useQuad) return null;
@@ -3501,7 +3522,8 @@ async function _scnIdentifyFromQuad(hints, quad) {
   if (!warp) return null;
   const W = warp.canvas.width, H = warp.canvas.height;
   const px0 = warp.ctx.getImageData(0, 0, W, H).data;
-  const loc = _scnLocalizeCard(warp.canvas, px0, W, H);
+  const loc = _scnLocalizeCard(warp.canvas, px0, W, H, _scnFpTiltDeg);
+  _scnFpTiltDeg = loc.deg;
   const candRects = [];
   loc.rects.forEach((r, i) => {
     candRects.push(r);
@@ -3554,8 +3576,13 @@ async function _scnIdentifyFromQuad(hints, quad) {
     _scnFpResetTitleBuf();
   }
   _scnFpTitleBufPhash = kept[0].phash;
-  for (const t of await _scnReadTitles(v, kept[0]._quad || useQuad)) {
-    if (!_scnFpTitleBuf.includes(t)) _scnFpTitleBuf.push(t);
+  // OCR is by far the most expensive thing the phone does here — Tesseract is single-threaded
+  // WASM over ~half a megapixel — so it only runs once the hash has already failed on this
+  // card. Cards that match on image alone (most of them) now cost zero OCR.
+  if (wantOcr) {
+    for (const t of await _scnReadTitles(v, kept[0]._quad || useQuad)) {
+      if (!_scnFpTitleBuf.includes(t)) _scnFpTitleBuf.push(t);
+    }
   }
   while (_scnFpTitleBuf.length > SCN_FP_TITLE_BUF_MAX) _scnFpTitleBuf.shift();
   if (_scnFpTitleBuf.length) {
@@ -3713,8 +3740,13 @@ function _scnFpGuideSharpness(v, quad) {
 function _scnFingerprintTick(v, now) {
   const guide = _scnGuideQuad(v);
   if (!guide) return;
-  _scnCardQuad = guide;
-  _scnSyncScannerSvgLayout();
+  // The guide is static for a given video size — re-writing the SVG every tick was pure cost.
+  const guideSig = `${guide.tl.nx.toFixed(4)},${guide.tl.ny.toFixed(4)}`;
+  if (guideSig !== _scnFpGuideSig) {
+    _scnFpGuideSig = guideSig;
+    _scnCardQuad = guide;
+    _scnSyncScannerSvgLayout();
+  }
   // _scnMotionWatchOn = a handled result is on screen; capture stays off until the card swap.
   if (!_scnOcrActive || _scnPaused || _scnFpInFlight || _scnMotionWatchOn) return;
 
@@ -3752,7 +3784,9 @@ function _scnFingerprintTick(v, now) {
   _scnFpInFlight = true;
   void (async () => {
     try {
-      const r = await _scnIdentifyFromQuad(undefined, guide);
+      // First look at a card is hash-only; OCR joins in once that has missed.
+      const r = await _scnIdentifyFromQuad(
+        undefined, guide, _scnFpNoMatchStreak >= 1 || _scnFpTitleBuf.length > 0);
       if (r) r._quadSrc = `q=${Number.isInteger(r.variantIndex) ? r.variantIndex : '?'}/${r._variantCount || 1}`;
       if (!r) { _scnFpCooldownUntil = performance.now() + 300; return; }
       if (r.empty) {
