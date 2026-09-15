@@ -269,6 +269,7 @@ let _scnScanBeepCtx = null;
 let _scnOcrGen = 0;
 let _scnTessLoaded = false;
 let _scnRoiRo = null;
+let _scnBarRo = null;
 
 /** Video-normalized quad `tl,tr,br,bl` each `{nx,ny}` — from corner search, not assumed square. */
 let _scnCardQuad = null;
@@ -1075,12 +1076,26 @@ function _scnAttachRoiObserver() {
   _scnDetachRoiObserver();
   _scnRoiRo = new ResizeObserver(() => _scnSyncScannerSvgLayout());
   _scnRoiRo.observe(wrap);
+  // The bottom bar is opaque, so any frame behind it is frame the user can't aim with. Publish
+  // its height so the stage can stop above it and the whole guide box stays on screen. The bar
+  // grows and shrinks (hints appear, manual entry expands), hence the observer.
+  const bar = document.querySelector('.scn-fs-bottom');
+  const root = document.querySelector('.scn-fs-root');
+  if (!bar || !root) return;
+  _scnBarRo = new ResizeObserver(() => {
+    root.style.setProperty('--scn-bar-h', Math.round(bar.getBoundingClientRect().height) + 'px');
+  });
+  _scnBarRo.observe(bar);
 }
 
 function _scnDetachRoiObserver() {
   if (_scnRoiRo) {
     _scnRoiRo.disconnect();
     _scnRoiRo = null;
+  }
+  if (_scnBarRo) {
+    _scnBarRo.disconnect();
+    _scnBarRo = null;
   }
 }
 
@@ -2142,8 +2157,10 @@ function _scnApplyCornerGeomLocks(q) {
   return _scnClampQuadToVideoFrame(out);
 }
 
+// NOTE: must match .scn-video's object-fit. The video is `contain`, so this is min(), not
+// max() — with the two out of step the drawn guide sat somewhere the capture never looked.
 function _scnMapVideoPtToScreen(nx, ny, vw, vh, cw, ch) {
-  const scale = Math.max(cw / vw, ch / vh);
+  const scale = Math.min(cw / vw, ch / vh);
   const dispW = vw * scale;
   const dispH = vh * scale;
   const ox = (cw - dispW) / 2;
@@ -2155,7 +2172,7 @@ function _scnMapVideoPtToScreen(nx, ny, vw, vh, cw, ch) {
 
 /** Inverse of `_scnMapVideoPtToScreen`: wrap-local px → video-normalized coords. */
 function _scnScreenToVideoNorm(sx, sy, vw, vh, cw, ch) {
-  const scale = Math.max(cw / vw, ch / vh);
+  const scale = Math.min(cw / vw, ch / vh); // contain — mirrors _scnMapVideoPtToScreen
   const dispW = vw * scale;
   const dispH = vh * scale;
   const ox = (cw - dispW) / 2;
@@ -3837,37 +3854,11 @@ function _scnGuideQuad(v) {
   if (!vw || !vh) return null;
   const AR = 63 / 88; // card width / height
 
-  // Fit the reticle to the camera area the user can actually SEE. The video now fills the
-  // whole sheet with the bars floating over it, so a guide sized to the frame runs underneath
-  // them — and a target you cannot see is not a target. Screen rect -> video coords via the
-  // inverse of the cover-fit mapping, so the capture region still matches the drawn box.
-  const wrap = document.getElementById('scnCameraWrap');
-  const cw = wrap ? wrap.clientWidth : 0;
-  const ch = wrap ? wrap.clientHeight : 0;
-  if (cw > 0 && ch > 0) {
-    const wr = wrap.getBoundingClientRect();
-    const topEl = document.querySelector('.scn-fs-top');
-    const botEl = document.querySelector('.scn-fs-bottom');
-    const bandTop = topEl ? Math.max(0, topEl.getBoundingClientRect().bottom - wr.top) : 0;
-    const bandBot = botEl ? Math.min(ch, botEl.getBoundingClientRect().top - wr.top) : ch;
-    const pad = 14;
-    const availW = Math.max(40, cw - pad * 2);
-    const availH = Math.max(60, bandBot - bandTop - pad * 2);
-    let bw = Math.min(availW, availH * AR);
-    let bh = bw / AR;
-    if (bh > availH) { bh = availH; bw = bh * AR; }
-    const sx = (cw - bw) / 2;
-    const sy = bandTop + pad + Math.max(0, (availH - bh) / 2);
-    const a = _scnScreenToVideoNorm(sx, sy, vw, vh, cw, ch);
-    const b = _scnScreenToVideoNorm(sx + bw, sy + bh, vw, vh, cw, ch);
-    const cl = n => (n < 0 ? 0 : n > 1 ? 1 : n);
-    const x0 = cl(a.nx), y0 = cl(a.ny), x1 = cl(b.nx), y1 = cl(b.ny);
-    if (x1 - x0 > 0.05 && y1 - y0 > 0.05) {
-      return { tl: { nx: x0, ny: y0 }, tr: { nx: x1, ny: y0 }, br: { nx: x1, ny: y1 }, bl: { nx: x0, ny: y1 } };
-    }
-  }
-
-  // Fallback before the sheet has been laid out: the largest card-shaped box in the frame.
+  // The reticle is sized to the CAMERA FRAME, not to the on-screen gap between the bars.
+  // Those are not the same thing once the video fills the sheet, and the difference is not
+  // cosmetic: a fixed stand holds the card at a fixed fraction of the frame, so shrinking the
+  // box to fit the visible band made a working setup stop fitting. Screen real estate is the
+  // bar's problem to solve, not the guide's.
   let hN = SCN_FP_GUIDE_FILL;          // try to fill most of the height
   let wN = (AR * hN * vh) / vw;        // width that preserves the card's pixel aspect
   if (wN > SCN_FP_GUIDE_FILL) {        // too wide for the frame → clamp width, recompute height

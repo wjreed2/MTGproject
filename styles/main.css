@@ -7590,7 +7590,11 @@ body.glass-mode .scn-fs-top-actions .btn {
 
 .scn-fs-stage {
   position: absolute;
-  inset: 0;
+  /* Stops above the bottom bar, not behind it. The bar is opaque, so frame hidden under it is
+     frame the user can't aim with — and with a contained fit that pushed the guide box off the
+     bottom of the screen. --scn-bar-h is published by the scanner's ResizeObserver; the top bar
+     still floats over the frame because it's transparent. */
+  inset: 0 0 var(--scn-bar-h, 0px) 0;
   z-index: 0;
   background: #000;
 }
@@ -7605,7 +7609,11 @@ body.glass-mode .scn-fs-top-actions .btn {
 .scn-video {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  /* `contain`, not `cover`: the guide is sized to the camera FRAME, so cropping the frame to
+     fill a taller screen pushed the box off the sides and far under the controls. Showing the
+     whole frame means the whole target box is on screen at the size the capture actually
+     uses. The letterboxing lands behind the top and bottom bars. */
+  object-fit: contain;
   display: none;
 }
 
@@ -7613,7 +7621,7 @@ body.glass-mode .scn-fs-top-actions .btn {
   display: block;
 }
 
-/* Card outline overlay (object-fit: cover mapping in scanner.js) */
+/* Card outline overlay (object-fit: contain mapping in scanner.js) */
 .scn-overlay-svg,
 .scn-roi-svg {
   position: absolute;
@@ -7805,11 +7813,17 @@ body.glass-mode .scn-fs-top-actions .btn {
 
 .scn-hint-row {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  /* One scrolling line rather than two wrapped ones — every row of controls is a row of the
+     guide box hidden behind them. */
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+  gap: 6px;
   align-items: center;
-  margin-top: 8px;
+  margin-top: 0;
 }
+.scn-hint-row::-webkit-scrollbar { display: none; }
+.scn-hint-row > .btn { flex: 0 0 auto; }
 
 .scn-region-label {
   font-size: 11px;
@@ -7952,7 +7966,7 @@ body.glass-mode .scn-fs-top-actions .btn {
   flex-shrink: 0;
   position: relative;
   margin-top: auto; /* pinned to the bottom now that the stage is out of flow */
-  padding: 10px 14px calc(12px + env(safe-area-inset-bottom, 0px));
+  padding: 8px 12px calc(9px + env(safe-area-inset-bottom, 0px));
   /* Reads as part of the app rather than a black bar taped over the camera: the same
      floating-overlay material as dropdowns and toasts, in both themes. */
   background: rgba(17,23,42,0.92);
@@ -7962,7 +7976,7 @@ body.glass-mode .scn-fs-top-actions .btn {
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.10), 0 -14px 44px rgba(0,0,0,0.45);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   z-index: 4;
 }
 [data-theme="light"] .scn-fs-bottom {
@@ -7983,7 +7997,7 @@ body.glass-mode .scn-fs-top-actions .btn {
   background: var(--bg3);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 6px 10px;
+  padding: 2px 8px;
 }
 
 .scn-manual-details {
@@ -7994,7 +8008,7 @@ body.glass-mode .scn-fs-top-actions .btn {
 
 .scn-manual-summary {
   cursor: pointer;
-  padding: 8px 12px;
+  padding: 5px 10px;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.05em;
