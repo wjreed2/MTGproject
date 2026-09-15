@@ -8786,6 +8786,15 @@ async function ensurePrintFingerprintsTable() {
       INDEX idx_pfp_setnum (set_code, collector_number)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+  // Added 2026-09: flavor names for Universes Beyond printings. CREATE TABLE IF NOT EXISTS
+  // does nothing to a table that already exists, so an existing deployment needs this ALTER —
+  // without it the index query selects a missing column, the index never loads, and every
+  // scan answers 503 while the app looks merely unresponsive.
+  try {
+    await db().query('ALTER TABLE scryfall_print_fingerprints ADD COLUMN flavor_name VARCHAR(255) NULL');
+  } catch (e) {
+    if (e.code !== 'ER_DUP_FIELDNAME') throw e;
+  }
 }
 
 // ── In-memory fingerprint index for the scanner's nearest-neighbor (Hamming) search ──

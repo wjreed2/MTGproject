@@ -3672,10 +3672,12 @@ async function _scnIdentifyFromQuad(hints, quad) {
     if (send.length >= 2) send.push(send.slice(-3).join(' '));
     return { ...body, titles: send, title: _scnFpTitleBuf[_scnFpTitleBuf.length - 1] };
   };
+  let lastStatus = 0;
   const post = async b => {
     const r = await fetch(`${mtgApiRoot()}/scan/identify`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b),
     });
+    lastStatus = r.status;
     return r.ok ? r.json() : null;
   };
   try {
@@ -3722,7 +3724,9 @@ async function _scnIdentifyFromQuad(hints, quad) {
         if (hinted && hinted.matched) { data = hinted; sent = withHint; }
       }
     }
-    if (!data) return null;
+    // A dead backend must not look like a dead scanner: without this the loop silently
+    // retried forever while the screen sat on its opening message.
+    if (!data) return { ok: false, serverError: lastStatus || 0 };
     body.title = sent.title || '';
     body.titles = sent.titles || [];
     body.hints = sent.hints || null;
@@ -3914,6 +3918,13 @@ function _scnFingerprintTick(v, now) {
       const r = await _scnIdentifyFromQuad(undefined, guide);
       if (r) r._quadSrc = `q=${Number.isInteger(r.variantIndex) ? r.variantIndex : '?'}/${r._variantCount || 1}`;
       if (!r) { _scnFpCooldownUntil = performance.now() + 300; return; }
+      if (r.serverError) {
+        _scnSetOverlay('Scanner offline', r.serverError === 503
+          ? 'card index still loading on the server' : `server error ${r.serverError}`, 'hint');
+        _scnStatus('Card recognition is unavailable right now — try again shortly.', true);
+        _scnFpCooldownUntil = performance.now() + 3000;
+        return;
+      }
       if (r.empty) {
         // Sharp but featureless frame (table/hand/no card) — same "reticle is empty" signal
         // as the blur branch: never identify it, and let it re-arm the playset dedupe.
@@ -4070,6 +4081,7 @@ function _scnStartFingerprintScanning() {
   _scnFpChooserPhash = null;
   _scnFpNoMatchStreak = 0;
   _scnFpResetTitleBuf();
+  _scnFpGuideSig = ''; // force the guide outline to be drawn again for this session
   _scnFpDimKey = '';
   _scnFpDimStableAt = 0;
   _scnFpCooldownUntil = 0;
