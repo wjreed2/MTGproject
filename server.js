@@ -8772,6 +8772,7 @@ async function ensurePrintFingerprintsTable() {
       scryfall_id      CHAR(36)        NOT NULL,
       oracle_id        CHAR(36)        NULL,
       name             VARCHAR(255)    NOT NULL DEFAULT '',
+      flavor_name      VARCHAR(255)    NULL,
       set_code         VARCHAR(10)     NOT NULL DEFAULT '',
       collector_number VARCHAR(20)     NOT NULL DEFAULT '',
       phash            BIGINT UNSIGNED NOT NULL,
@@ -8820,7 +8821,7 @@ async function loadFingerprintIndex() {
   try {
     // CAST to CHAR so BIGINT UNSIGNED round-trips exactly (the default driver loses precision > 2^53).
     const [rows] = await db().query(
-      `SELECT scryfall_id, oracle_id, name, set_code, collector_number, image_source,
+      `SELECT scryfall_id, oracle_id, name, flavor_name, set_code, collector_number, image_source,
               CAST(phash AS CHAR) phash, CAST(art_phash AS CHAR) art_phash
        FROM scryfall_print_fingerprints`
     );
@@ -8842,6 +8843,7 @@ async function loadFingerprintIndex() {
       }
       meta[idx] = {
         scryfall_id: r.scryfall_id, oracle_id: r.oracle_id, name: r.name,
+        flavor_name: r.flavor_name || null,
         set_code: r.set_code, collector_number: r.collector_number, image_source: r.image_source,
       };
     }
@@ -8884,7 +8886,28 @@ function _fpEnsureNameIndex() {
   // Stopwords never make or break a name read — "1e Kingpin of ee" must still find
   // The Kingpin of Crime on the strength of "kingpin" alone.
   const STOP = new Set(['the', 'of', 'and', 'for', 'to', 'a', 'an', 'in', 'at', 'on']);
+  // Universes Beyond printings (Final Fantasy, LOTR, Marvel) put a FLAVOR name large at the
+  // top of the card and the real Magic name smaller beneath it — so OCR reads the flavor name.
+  // Both are indexed to the same printings; before this, reading "Vana'diel Adventurers" found
+  // nothing and the leftover fragment matched an unrelated card.
+  const addKey = (key, i) => {
+    if (!key) return;
+    let rows = rowsByName.get(key);
+    if (!rows) {
+      rows = [];
+      rowsByName.set(key, rows);
+      const toks = key.split(' ').filter(t => t.length >= 3 && !STOP.has(t));
+      tokensByName.set(key, toks);
+      for (const t of toks) {
+        let set = byToken.get(t);
+        if (!set) byToken.set(t, (set = new Set()));
+        set.add(key);
+      }
+    }
+    rows.push(i);
+  };
   for (let i = 0; i < _fpIndex.n; i++) {
+    if (_fpIndex.meta[i].flavor_name) addKey(_fpNormName(_fpIndex.meta[i].flavor_name), i);
     const key = _fpNormName(_fpIndex.meta[i].name);
     if (!key) continue;
     let rows = rowsByName.get(key);
@@ -9068,6 +9091,7 @@ function _fpRowsForTitle(title) {
   const bestScore = scored.length ? nameScore(scored[0]) : 0;
   const rows = [];
   const scoreByRow = new Map();
+  const seqFracByRow = new Map(); // how much of the NAME the matched run actually covers
   // Margin over the best name of a DIFFERENT card. When two names tie — "…Teller of Tales"
   // fits both Nori and Chulane; "Fable Passage" fits both Fabled Passage and Honorable
   // Passage — the read has not actually identified anything, and letting a degraded hash
@@ -9078,13 +9102,15 @@ function _fpRowsForTitle(title) {
     const score = nameScore(s);
     // Per-name cap as well as a total cap: one reprint-heavy name (a basic land) otherwise
     // fills the shortlist by itself and turns the restricted scan back into a global one.
+    const frac = (s.seqRun || 0) / Math.max(1, s.key.replace(/ /g, '').length);
     for (const i of names.rowsByName.get(s.key).slice(0, 80)) {
       rows.push(i);
       if (score > (scoreByRow.get(i) || 0)) scoreByRow.set(i, score);
+      if (frac > (seqFracByRow.get(i) || 0)) seqFracByRow.set(i, frac);
     }
     if (rows.length > 200) break; // bound the restricted scan
   }
-  return rows.length ? { rows, scoreByRow, bestScore, nameMargin } : null;
+  return rows.length ? { rows, scoreByRow, seqFracByRow, bestScore, nameMargin } : null;
 }
 
 // The client sends several candidate reads of the title (polarities, band offsets); score
@@ -10096,9 +10122,12 @@ const SCAN_TITLE_COMB_FUZZY_MAX = 32; // strict gate: short-token or fuzzy-only 
 // Mightcaller; the wrong picks that used to slip through land at 16 ("rate" → Curate).
 const SCAN_TITLE_MIN_EVIDENCE = 24;
 const SCAN_TITLE_DECISIVE = 30;       // long runs + (near-)full coverage = the name is settled
+const SCAN_TITLE_DECISIVE_FRAC = 0.6; // ...and the run must cover most of the name itself
 const SCAN_TITLE_NAME_MARGIN = 4;     // ...and clearly ahead of the next candidate name
 // An uncorroborated footer must also agree closely with the image before it names a card.
 const SCAN_FOOTER_COMB_MAX = 30;
+// Ceiling for a match the image alone is claiming, with no title or footer agreeing.
+const SCAN_UNCORROBORATED_MAX = 22;
 const SCAN_TITLE_COMB_DECISIVE = 46;  // then the hash only picks the printing
 const SCAN_ART_TIE = 2;       // art-hash distance under which two printings count as "same art"
 const SCAN_ART_PRIMARY_MAX = 12;  // art-only fallback gate (foil glare / non-English fronts)
@@ -10177,7 +10206,12 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
       // in the wrong printing. That matters because the captures this rescues (Sagas,
       // borderless frames) are exactly the ones whose hash is degraded by layout, so gating
       // them on distance rejects the right answer for the one reason we already know about.
-      const gate = evidence >= SCAN_TITLE_DECISIVE && n <= 40 && titleHit.nameMargin >= SCAN_TITLE_NAME_MARGIN
+      // "Settled" also means most of the NAME was read, not just a long tail of it. OCR of
+      // "Vana'diel Adventurers" — a card absent from the index — matched only the trailing
+      // word of "Undermountain Adventurer", and that was enough to waive the image entirely.
+      const seqFrac = tBest ? (titleHit.seqFracByRow.get(tBest.i) || 0) : 0;
+      const gate = evidence >= SCAN_TITLE_DECISIVE && seqFrac >= SCAN_TITLE_DECISIVE_FRAC
+        && n <= 40 && titleHit.nameMargin >= SCAN_TITLE_NAME_MARGIN
         ? Infinity
         : evidence >= SCAN_TITLE_DECISIVE && n <= 120 ? SCAN_TITLE_COMB_DECISIVE
         : n <= 12 ? SCAN_TITLE_COMB_MAX : n <= 60 ? 33 : SCAN_TITLE_COMB_FUZZY_MAX;
@@ -10310,6 +10344,14 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
         && chosen.artDist != null && chosen.artDist <= SCAN_ART_STRONG_MAX))
         && (chosen.artDist == null
           || chosen.dist + chosen.artDist <= SCAN_COMB_ACCEPT_MAX - poolPenalty)
+        // Uncorroborated hash matches are only trusted when they are genuinely close. A card
+        // that is NOT in the index — every card from a set newer than the last build — still
+        // returns a nearest neighbour, and at 24-30 combined that neighbour is indistinguishable
+        // from a real borderline match. Five cards were confidently added this way. Above this
+        // bar the printed name or the footer has to agree before anything is queued.
+        && (hintPicked
+          || chosen.artDist == null
+          || chosen.dist + chosen.artDist <= SCAN_UNCORROBORATED_MAX)
         // A footer whose SET CODE matches the candidate is independent corroboration, exactly
         // like the title agreeing: the win-margin gate exists to catch noise-floor flukes, and
         // a fluke that also has the card's printed set code on it is not one.
@@ -12373,14 +12415,15 @@ app.post('/api/internal/fingerprints-ingest', requireSemanticsIngestSecret, asyn
       }
     }
     const INSERT = `INSERT INTO scryfall_print_fingerprints
-        (scryfall_id, oracle_id, name, set_code, collector_number, phash, art_phash, lang, layout, image_source, hashed_at)
-       VALUES ${rows.map(() => '(?,?,?,?,?,?,?,?,?,?,?)').join(',')}
+        (scryfall_id, oracle_id, name, flavor_name, set_code, collector_number, phash, art_phash, lang, layout, image_source, hashed_at)
+       VALUES ${rows.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?)').join(',')}
        ON DUPLICATE KEY UPDATE
-         oracle_id=VALUES(oracle_id), name=VALUES(name), set_code=VALUES(set_code),
+         oracle_id=VALUES(oracle_id), name=VALUES(name), flavor_name=VALUES(flavor_name), set_code=VALUES(set_code),
          collector_number=VALUES(collector_number), phash=VALUES(phash), art_phash=VALUES(art_phash),
          lang=VALUES(lang), layout=VALUES(layout), image_source=VALUES(image_source), hashed_at=VALUES(hashed_at)`;
     await db().query(INSERT, rows.flatMap(r => [
       r.scryfall_id, r.oracle_id || null, String(r.name || '').slice(0, 255),
+      r.flavor_name != null ? String(r.flavor_name).slice(0, 255) : null,
       String(r.set_code || '').slice(0, 10), String(r.collector_number || '').slice(0, 20),
       String(r.phash), r.art_phash != null ? String(r.art_phash) : null,
       String(r.lang || 'en').slice(0, 8), r.layout != null ? String(r.layout).slice(0, 32) : null,

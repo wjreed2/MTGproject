@@ -39,7 +39,7 @@ async function main() {
   });
   const where = onlySet ? "WHERE set_code = ?" : "";
   const [rows] = await pool.query(
-    `SELECT scryfall_id, oracle_id, name, set_code, collector_number,
+    `SELECT scryfall_id, oracle_id, name, flavor_name, set_code, collector_number,
             CAST(phash AS CHAR) phash, CAST(art_phash AS CHAR) art_phash,
             lang, layout, image_source, hashed_at
      FROM scryfall_print_fingerprints ${where}`, onlySet ? [onlySet] : []);

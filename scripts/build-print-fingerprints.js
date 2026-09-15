@@ -61,6 +61,7 @@ async function ensureTable(pool) {
       scryfall_id      CHAR(36)        NOT NULL,
       oracle_id        CHAR(36)        NULL,
       name             VARCHAR(255)    NOT NULL DEFAULT '',
+      flavor_name      VARCHAR(255)    NULL,
       set_code         VARCHAR(10)     NOT NULL DEFAULT '',
       collector_number VARCHAR(20)     NOT NULL DEFAULT '',
       phash            BIGINT UNSIGNED NOT NULL,
@@ -91,6 +92,7 @@ function pickCard(c) {
     scryfall_id: c.id,
     oracle_id: c.oracle_id || (c.card_faces && c.card_faces[0] && c.card_faces[0].oracle_id) || null,
     name: String(c.name || ""),
+    flavor_name: c.flavor_name ? String(c.flavor_name).slice(0, 255) : null,
     set_code: String(c.set || ""),
     collector_number: String(c.collector_number || ""),
     lang: c.lang || "en",
@@ -214,10 +216,10 @@ async function main() {
 
   // ── Phase B: fetch + hash with a bounded pool, batched upsert ──
   const INSERT = `INSERT INTO scryfall_print_fingerprints
-      (scryfall_id, oracle_id, name, set_code, collector_number, phash, art_phash, lang, layout, image_source, hashed_at)
+      (scryfall_id, oracle_id, name, flavor_name, set_code, collector_number, phash, art_phash, lang, layout, image_source, hashed_at)
      VALUES {VALS}
      ON DUPLICATE KEY UPDATE
-       oracle_id=VALUES(oracle_id), name=VALUES(name), set_code=VALUES(set_code),
+       oracle_id=VALUES(oracle_id), name=VALUES(name), flavor_name=VALUES(flavor_name), set_code=VALUES(set_code),
        collector_number=VALUES(collector_number), phash=VALUES(phash), art_phash=VALUES(art_phash),
        lang=VALUES(lang), layout=VALUES(layout), image_source=VALUES(image_source), hashed_at=VALUES(hashed_at)`;
   let batch = [];
@@ -225,7 +227,7 @@ async function main() {
   let errors = 0;
   const flush = async () => {
     if (!batch.length) return;
-    const ph = batch.map(() => "(?,?,?,?,?,?,?,?,?,?,?)").join(",");
+    const ph = batch.map(() => "(?,?,?,?,?,?,?,?,?,?,?,?)").join(",");
     await pool.query(INSERT.replace("{VALS}", ph), batch.flat());
     inserted += batch.length;
     batch = [];
@@ -241,7 +243,7 @@ async function main() {
         const buf = await fetchBuf(item.image);
         const { phashDec, artPhashDec } = await hashImage(buf);
         batch.push([
-          item.scryfall_id, item.oracle_id, item.name, item.set_code, item.collector_number,
+          item.scryfall_id, item.oracle_id, item.name, item.flavor_name, item.set_code, item.collector_number,
           phashDec, artPhashDec, item.lang, item.layout, item.image, Date.now(),
         ]);
         if (batch.length >= 100) await flush();
