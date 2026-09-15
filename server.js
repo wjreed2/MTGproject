@@ -9199,15 +9199,21 @@ function _fpSameArtRows(i, j) {
 // which beats collector alone (collector numbers repeat across sets).
 function _fpPickByHint(rows, hintSet, hintNum) {
   if (!hintSet && !hintNum) return null;
-  let best = null, bestScore = 0;
+  let exact = null;
+  const setOnly = [];
   for (const i of rows) {
     const m = _fpIndex.meta[i];
     const setOk = hintSet && String(m.set_code).toLowerCase() === hintSet;
     const numOk = hintNum && String(m.collector_number).toLowerCase() === hintNum;
-    const score = (setOk ? 2 : 0) + (numOk ? 1 : 0);
-    if (score > bestScore) { bestScore = score; best = i; }
+    if (setOk && numOk) { exact = i; break; }
+    if (setOk) setOnly.push(i);
   }
-  return bestScore >= 2 ? best : null; // a bare collector-number match is not enough on its own
+  // Both fields agreeing names one printing. A set code alone is only decisive when the name
+  // has exactly one printing in that set — otherwise a misread collector number would pick
+  // arbitrarily among siblings, and a bare collector number never decides anything (the same
+  // number exists in every set).
+  if (exact != null) return exact;
+  return setOnly.length === 1 ? setOnly[0] : null;
 }
 
 // How many OTHER printings of this card share its artwork? These are the printings no image
@@ -10091,6 +10097,8 @@ const SCAN_TITLE_COMB_FUZZY_MAX = 32; // strict gate: short-token or fuzzy-only 
 const SCAN_TITLE_MIN_EVIDENCE = 24;
 const SCAN_TITLE_DECISIVE = 30;       // long runs + (near-)full coverage = the name is settled
 const SCAN_TITLE_NAME_MARGIN = 4;     // ...and clearly ahead of the next candidate name
+// An uncorroborated footer must also agree closely with the image before it names a card.
+const SCAN_FOOTER_COMB_MAX = 30;
 const SCAN_TITLE_COMB_DECISIVE = 46;  // then the hash only picks the printing
 const SCAN_ART_TIE = 2;       // art-hash distance under which two printings count as "same art"
 const SCAN_ART_PRIMARY_MAX = 12;  // art-only fallback gate (foil glare / non-English fronts)
@@ -10135,36 +10143,6 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
       .slice(0, 8)
       .map(t => t.slice(0, 160));
     const titleHit = titleList.length ? _fpRowsForTitles(titleList) : null;
-
-    // Footer first. A read of the card's own set code and collector number names the exact
-    // printing — stronger than the title (which gives only the card) and far stronger than the
-    // hash (which cannot separate same-art reprints at all). The hash still has to agree
-    // loosely, so a misread footer cannot conjure an unrelated card.
-    if (hintSet && hintNum) {
-      const exact = _fpEnsureNameIndex().bySetNum.get(`${hintSet}|${hintNum}`);
-      if (exact != null) {
-        const fBest = _fpBestInRows([exact], parsed);
-        // Footer plus title is conclusive on its own. They are independent reads of different
-        // parts of the card, so when both name the same printing the image no longer has a
-        // vote — which matters because the captures that need this are exactly the ones whose
-        // hash is worthless (this one sits 60 bits from the true card and 30 from a wrong one).
-        const titleAgrees = !!(titleHit && titleHit.rows.includes(exact));
-        if (fBest && (fBest.comb <= SCAN_TITLE_COMB_DECISIVE || titleAgrees)) {
-          const cards = await _fingerprintCardsFor([_fpIndex.meta[exact]]);
-          if (cards[0]) {
-            cards[0]._scanDistance = fBest.dist;
-            if (fBest.artDist != null) cards[0]._scanArtDistance = fBest.artDist;
-          }
-          return res.json({
-            ok: true, matched: true, ambiguous: false, footerMatched: true,
-            variantIndex: fBest.variant.idx,
-            distance: fBest.dist, artDistance: fBest.artDist, printingRivals: 0,
-            best: cards[0] || null, candidates: cards,
-          });
-        }
-      }
-    }
-
 
     // Retrieval ranks by combined full+art distance (see _fpNearestCombined) — the true card
     // reliably surfaces even when full-hash noise buries it below unrelated printings.
@@ -10220,6 +10198,39 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
           printingRivals: hinted != null ? 0 : _fpPrintingRivals(tBest.i),
           best: cards[0] || null, candidates: cards,
         });
+      }
+    }
+
+    // Footer fallback. The footer names the exact PRINTING, but a collector number is a
+    // handful of digits where one misread character yields a different, perfectly valid card
+    // — it read 'hob 3' for Goblin Plate Mail and queued Troop of Ponies. So it runs only
+    // after the title has had its say, and the title path above already uses these hints to
+    // choose WITHIN the name it settled. Alone it must also agree closely with the image.
+    // printing — stronger than the title (which gives only the card) and far stronger than the
+    // hash (which cannot separate same-art reprints at all). The hash still has to agree
+    // loosely, so a misread footer cannot conjure an unrelated card.
+    if (hintSet && hintNum) {
+      const exact = _fpEnsureNameIndex().bySetNum.get(`${hintSet}|${hintNum}`);
+      if (exact != null) {
+        const fBest = _fpBestInRows([exact], parsed);
+        // Footer plus title is conclusive on its own. They are independent reads of different
+        // parts of the card, so when both name the same printing the image no longer has a
+        // vote — which matters because the captures that need this are exactly the ones whose
+        // hash is worthless (this one sits 60 bits from the true card and 30 from a wrong one).
+        const titleAgrees = !!(titleHit && titleHit.rows.includes(exact));
+        if (fBest && (fBest.comb <= SCAN_FOOTER_COMB_MAX || titleAgrees)) {
+          const cards = await _fingerprintCardsFor([_fpIndex.meta[exact]]);
+          if (cards[0]) {
+            cards[0]._scanDistance = fBest.dist;
+            if (fBest.artDist != null) cards[0]._scanArtDistance = fBest.artDist;
+          }
+          return res.json({
+            ok: true, matched: true, ambiguous: false, footerMatched: true,
+            variantIndex: fBest.variant.idx,
+            distance: fBest.dist, artDistance: fBest.artDist, printingRivals: 0,
+            best: cards[0] || null, candidates: cards,
+          });
+        }
       }
     }
     const art = winner.art; // grouping + the art-primary fallback below use the winning variant
