@@ -48,7 +48,8 @@ function readScanDiag(file) {
     withDiag++;
     if (d.matched) wasMatched++;
     const body = { phash: d.phash, artPhash: d.artPhash };
-    if (d.ocr) body.title = d.ocr;
+    if (d.ocrAll && d.ocrAll.length) body.titles = d.ocrAll;
+    else if (d.ocr) body.title = d.ocr;
     let res;
     try {
       res = await (await fetch(BASE + "/api/scan/identify", {

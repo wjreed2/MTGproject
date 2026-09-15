@@ -9002,13 +9002,17 @@ function _fpRowsForTitle(title) {
     if (!toks.length) continue;
     let hits = 0;
     let maxEvidence = 0;
+    let evSum = 0;
     for (const t of toks) {
-      // Evidence for this name token = the longest run any OCR word shares with it, with
-      // exact/edit-distance reads counted at full token length.
+      // Evidence for a name token = how much of it the OCR actually corroborates: the longest
+      // shared run, or (for an edit-distance read) the token length MINUS the edits. Crediting
+      // a near-miss at FULL token length let "rate" claim all six characters of Curate.
       const tol = t.length >= 6 ? 2 : t.length >= 4 ? 1 : 0;
       let ev = 0;
       for (const w of words) {
-        if (w === t || _fpLev(w, t) <= tol) { ev = t.length; break; }
+        if (w === t) { ev = t.length; break; }
+        const lev = _fpLev(w, t);
+        if (lev <= tol && t.length - lev > ev) ev = t.length - lev;
         if (w.length >= 4) {
           const run = _fpLcs(w, t);
           if (run > ev) ev = run;
@@ -9016,6 +9020,7 @@ function _fpRowsForTitle(title) {
       }
       if (ev >= Math.min(4, t.length)) {
         hits++;
+        evSum += ev;
         if (ev > maxEvidence) maxEvidence = ev;
       }
     }
@@ -9026,27 +9031,41 @@ function _fpRowsForTitle(title) {
     if (coverage >= (toks.length === 1 ? 1 : 0.5) || maxEvidence >= 6) {
       scored.push({
         key, coverage, exactHits: hits, nTok: toks.length,
-        maxHitLen: maxEvidence, strong: maxEvidence >= 6,
+        maxHitLen: maxEvidence, evSum, strong: maxEvidence >= 6,
       });
     }
   }
   if (!scored.length) return null;
-  // Rank by evidence: a long shared run plus broad coverage beats either alone (the 25-name
-  // cap below makes this ordering matter — "valley" alone shortlists many names).
-  scored.sort((a, b) =>
-    (b.maxHitLen + 4 * b.coverage) - (a.maxHitLen + 4 * a.coverage) || (b.nTok - a.nTok));
+  // Rank by total corroborated evidence plus coverage — then re-rank the leaders on the
+  // longest run shared with the WHOLE name, spaces stripped. Per-token scoring discards word
+  // order, which is the strongest signal a read carries: "into the valley" is 13 consecutive
+  // characters of Rage into the Valley and only 6 of Valley Mightcaller, yet the two scored
+  // the same on tokens alone (and the shorter name won on coverage).
+  const tokenScore = s => s.evSum + 4 * s.coverage;
+  scored.sort((a, b) => tokenScore(b) - tokenScore(a) || (b.nTok - a.nTok));
+  // The window has to be generous: the token score is exactly the metric that mis-ranks
+  // these (Rage into the Valley sits BELOW Valley Mightcaller on tokens), so cutting tight
+  // here would discard the name before its sequence run is ever measured. LCS over ~20-char
+  // strings is cheap enough to run on all of them.
+  const flat = norm.replace(/ /g, '');
+  scored.length = Math.min(scored.length, 200);
+  for (const s of scored) s.seqRun = _fpLcs(flat, s.key.replace(/ /g, ''));
+  const nameScore = s => 2 * (s.seqRun || 0) + tokenScore(s);
+  scored.sort((a, b) => nameScore(b) - nameScore(a) || (b.nTok - a.nTok));
   // Evidence score per name: a long shared run AND broad coverage. Measured on live reads —
   // real wins score 9-10 ("eshore"+"ecary" → Lakeshore Apothecary, coverage 1.0, run 6),
   // while the fragments that produced wrong matches score ≤ 6 ("bear" → Toski, Bearer of
   // Secrets). The shortlist stays small so the hash isn't re-running a global search.
   // Only names within a band of the best evidence compete — otherwise one well-identified
   // name shares its shortlist (and its size-scaled gate) with weakly-anchored strangers.
-  const bestScore = scored.length ? scored[0].maxHitLen + 4 * scored[0].coverage : 0;
+  const bestScore = scored.length ? nameScore(scored[0]) : 0;
   const rows = [];
   const scoreByRow = new Map();
-  for (const s of scored.filter(x => x.maxHitLen + 4 * x.coverage >= bestScore - 1.5).slice(0, 8)) {
-    const score = s.maxHitLen + 4 * s.coverage;
-    for (const i of names.rowsByName.get(s.key)) {
+  for (const s of scored.filter(x => nameScore(x) >= bestScore - 6).slice(0, 8)) {
+    const score = nameScore(s);
+    // Per-name cap as well as a total cap: one reprint-heavy name (a basic land) otherwise
+    // fills the shortlist by itself and turns the restricted scan back into a global one.
+    for (const i of names.rowsByName.get(s.key).slice(0, 80)) {
       rows.push(i);
       if (score > (scoreByRow.get(i) || 0)) scoreByRow.set(i, score);
     }
@@ -10018,8 +10037,12 @@ const SCAN_TITLE_COMB_MAX = 40;
 const SCAN_TITLE_COMB_FUZZY_MAX = 32; // strict gate: short-token or fuzzy-only title evidence
 // Min (longest run + 4x coverage) for the title to OVERRIDE the global answer. Corroboration
 // — the title agreeing with the global winner — has no such bar.
-const SCAN_TITLE_MIN_EVIDENCE = 8.5;
-const SCAN_TITLE_DECISIVE = 9;        // long run + (near-)full coverage = the name is settled
+// Scale: 2x the longest run shared with the whole name + corroborated token characters +
+// 4x coverage. Measured on live reads — "untain-king's Return" → 60 against the real card
+// and 22 against the basic land Mountain; "into the Valley" → 39 vs 26 for Valley
+// Mightcaller; the wrong picks that used to slip through land at 16 ("rate" → Curate).
+const SCAN_TITLE_MIN_EVIDENCE = 24;
+const SCAN_TITLE_DECISIVE = 30;       // long runs + (near-)full coverage = the name is settled
 const SCAN_TITLE_COMB_DECISIVE = 46;  // then the hash only picks the printing
 const SCAN_ART_TIE = 2;       // art-hash distance under which two printings count as "same art"
 const SCAN_ART_PRIMARY_MAX = 12;  // art-only fallback gate (foil glare / non-English fronts)
@@ -10093,8 +10116,14 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
       // both words of Thriving Grove) confirms the NAME on its own. The hash is then only
       // choosing among that name's printings, where the worst case is the right card's wrong
       // printing — so the distance gate opens up. Weaker evidence still scales with the pool.
-      const gate = evidence >= SCAN_TITLE_DECISIVE && n <= 120
-        ? SCAN_TITLE_COMB_DECISIVE
+      // Decisive evidence over a SMALL pool identifies the card outright — the hash is then
+      // only choosing among that name's few printings, and its worst case is the right card
+      // in the wrong printing. That matters because the captures this rescues (Sagas,
+      // borderless frames) are exactly the ones whose hash is degraded by layout, so gating
+      // them on distance rejects the right answer for the one reason we already know about.
+      const gate = evidence >= SCAN_TITLE_DECISIVE && n <= 40
+        ? Infinity
+        : evidence >= SCAN_TITLE_DECISIVE && n <= 120 ? SCAN_TITLE_COMB_DECISIVE
         : n <= 12 ? SCAN_TITLE_COMB_MAX : n <= 60 ? 33 : SCAN_TITLE_COMB_FUZZY_MAX;
       if (tBest && evidence >= SCAN_TITLE_MIN_EVIDENCE && tBest.comb <= gate) {
         const cards = await _fingerprintCardsFor([_fpIndex.meta[tBest.i]]);
