@@ -3836,6 +3836,38 @@ function _scnGuideQuad(v) {
   const vw = v.videoWidth, vh = v.videoHeight;
   if (!vw || !vh) return null;
   const AR = 63 / 88; // card width / height
+
+  // Fit the reticle to the camera area the user can actually SEE. The video now fills the
+  // whole sheet with the bars floating over it, so a guide sized to the frame runs underneath
+  // them — and a target you cannot see is not a target. Screen rect -> video coords via the
+  // inverse of the cover-fit mapping, so the capture region still matches the drawn box.
+  const wrap = document.getElementById('scnCameraWrap');
+  const cw = wrap ? wrap.clientWidth : 0;
+  const ch = wrap ? wrap.clientHeight : 0;
+  if (cw > 0 && ch > 0) {
+    const wr = wrap.getBoundingClientRect();
+    const topEl = document.querySelector('.scn-fs-top');
+    const botEl = document.querySelector('.scn-fs-bottom');
+    const bandTop = topEl ? Math.max(0, topEl.getBoundingClientRect().bottom - wr.top) : 0;
+    const bandBot = botEl ? Math.min(ch, botEl.getBoundingClientRect().top - wr.top) : ch;
+    const pad = 14;
+    const availW = Math.max(40, cw - pad * 2);
+    const availH = Math.max(60, bandBot - bandTop - pad * 2);
+    let bw = Math.min(availW, availH * AR);
+    let bh = bw / AR;
+    if (bh > availH) { bh = availH; bw = bh * AR; }
+    const sx = (cw - bw) / 2;
+    const sy = bandTop + pad + Math.max(0, (availH - bh) / 2);
+    const a = _scnScreenToVideoNorm(sx, sy, vw, vh, cw, ch);
+    const b = _scnScreenToVideoNorm(sx + bw, sy + bh, vw, vh, cw, ch);
+    const cl = n => (n < 0 ? 0 : n > 1 ? 1 : n);
+    const x0 = cl(a.nx), y0 = cl(a.ny), x1 = cl(b.nx), y1 = cl(b.ny);
+    if (x1 - x0 > 0.05 && y1 - y0 > 0.05) {
+      return { tl: { nx: x0, ny: y0 }, tr: { nx: x1, ny: y0 }, br: { nx: x1, ny: y1 }, bl: { nx: x0, ny: y1 } };
+    }
+  }
+
+  // Fallback before the sheet has been laid out: the largest card-shaped box in the frame.
   let hN = SCN_FP_GUIDE_FILL;          // try to fill most of the height
   let wN = (AR * hN * vh) / vw;        // width that preserves the card's pixel aspect
   if (wN > SCN_FP_GUIDE_FILL) {        // too wide for the frame → clamp width, recompute height
@@ -3873,7 +3905,7 @@ function _scnFingerprintTick(v, now) {
   const guide = _scnGuideQuad(v);
   if (!guide) return;
   // The guide is static for a given video size — re-writing the SVG every tick was pure cost.
-  const guideSig = `${guide.tl.nx.toFixed(4)},${guide.tl.ny.toFixed(4)}`;
+  const guideSig = `${guide.tl.nx.toFixed(4)},${guide.tl.ny.toFixed(4)},${guide.br.nx.toFixed(4)},${guide.br.ny.toFixed(4)}`;
   if (guideSig !== _scnFpGuideSig) {
     _scnFpGuideSig = guideSig;
     _scnCardQuad = guide;

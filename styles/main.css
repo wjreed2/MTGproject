@@ -7533,14 +7533,18 @@ body.glass-mode .deck-tab-pane .dlf-text:focus {
   min-height: 0;
   display: flex;
   flex-direction: column;
+  /* The camera is the screen: the stage is taken out of flow and pinned to every edge, so
+     the top and bottom bars float over live video instead of boxing it into a letterbox. */
+  position: relative;
   z-index: 1;
 }
 
 .scn-fs-top {
   flex-shrink: 0;
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end; /* no title any more — the controls sit at the right */
   padding: calc(10px + env(safe-area-inset-top, 0px)) 14px 10px;
   /* No scrim — the camera runs edge to edge. The controls carry their own glass
      chrome and the title gets a shadow, so nothing needs a black bar behind it. */
@@ -7585,9 +7589,9 @@ body.glass-mode .scn-fs-top-actions .btn {
 }
 
 .scn-fs-stage {
-  flex: 1;
-  min-height: 0;
-  position: relative;
+  position: absolute;
+  inset: 0;
+  z-index: 0;
   background: #000;
 }
 
@@ -7889,15 +7893,33 @@ body.glass-mode .scn-fs-top-actions .btn {
   text-align: center;
   padding: 14px 16px;
   border-radius: var(--radius2);
-  background: rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(8px);
-  border: 1px solid rgba(255,255,255,0.12);
-  transition: border-color 0.25s, box-shadow 0.25s;
+  /* Tier E (§2): text over camera art, so it stays a dark scrim in BOTH themes — a light
+     panel here would be unreadable over a bright tray. Glass material otherwise. */
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.07), rgba(255,255,255,0.03)),
+    rgba(14,19,36,0.78);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid rgba(255,255,255,0.17);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.16), 0 12px 40px rgba(0,0,0,0.45);
+  transition: background 0.28s var(--ease), border-color 0.28s var(--ease),
+    box-shadow 0.28s var(--ease);
 }
 
+/* Added to the collection: the whole panel goes green, so a successful add is readable at a
+   glance from arm's length without reading a word of it. */
 .scn-match-overlay.scn-match-overlay--accent {
-  border-color: rgba(90, 184, 90, 0.55);
-  box-shadow: 0 0 28px rgba(90, 184, 90, 0.2);
+  background:
+    linear-gradient(135deg, rgba(var(--lgx-green), 0.30), rgba(var(--lgx-green), 0.16)),
+    rgba(10,30,20,0.80);
+  border-color: rgba(var(--lgx-green), 0.55);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.22),
+    0 0 34px rgba(var(--lgx-green), 0.28),
+    0 12px 40px rgba(0,0,0,0.45);
+}
+.scn-match-overlay.scn-match-overlay--accent .scn-match-sub {
+  color: color-mix(in oklab, rgb(var(--lgx-green)) 72%, #ffffff);
 }
 
 .scn-match-primary {
@@ -7928,12 +7950,25 @@ body.glass-mode .scn-fs-top-actions .btn {
 
 .scn-fs-bottom {
   flex-shrink: 0;
+  position: relative;
+  margin-top: auto; /* pinned to the bottom now that the stage is out of flow */
   padding: 10px 14px calc(12px + env(safe-area-inset-bottom, 0px));
-  background: linear-gradient(to top, rgba(0,0,0,0.88), rgba(0,0,0,0.5));
+  /* Reads as part of the app rather than a black bar taped over the camera: the same
+     floating-overlay material as dropdowns and toasts, in both themes. */
+  background: rgba(17,23,42,0.92);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+  border-top: 1px solid rgba(255,255,255,0.14);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.10), 0 -14px 44px rgba(0,0,0,0.45);
   display: flex;
   flex-direction: column;
   gap: 8px;
   z-index: 4;
+}
+[data-theme="light"] .scn-fs-bottom {
+  background: rgba(252,253,255,0.93);
+  border-top: 1px solid rgba(255,255,255,0.8);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 -14px 44px rgba(30,50,90,0.18);
 }
 
 .scn-controls {
@@ -7945,16 +7980,16 @@ body.glass-mode .scn-fs-top-actions .btn {
   display: flex;
   align-items: center;
   gap: 6px;
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.1);
+  background: var(--bg3);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 6px 10px;
 }
 
 .scn-manual-details {
   border-radius: var(--radius);
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.08);
+  background: var(--bg3);
+  border: 1px solid var(--border);
 }
 
 .scn-manual-summary {

@@ -1331,7 +1331,6 @@
   <div class="scanner-sheet scanner-sheet--fullscreen">
     <div class="scn-fs-root">
       <header class="scn-fs-top">
-        <span class="scn-fs-title">Scanner</span>
         <div class="scn-fs-top-actions">
           <button type="button" class="btn btn-outline btn-sm" id="scnScannedBtn" onclick="scnToggleScannedPanel()">Scanned <span class="scn-session-badge" id="scnSessionCount">0</span></button>
           <button type="button" class="btn btn-outline btn-sm" onclick="closeScanner()">✕</button>
@@ -1435,14 +1434,12 @@
         </div>
         <div class="scn-hint-row">
           <button type="button" class="btn btn-primary btn-sm" id="scnAutoModeBtn" onclick="scnToggleAutoMode()">Auto: on</button>
-          <button type="button" class="btn btn-outline btn-sm" id="scnVoiceModeBtn" onclick="scnToggleVoiceMode()">Voice: off</button>
           <button type="button" class="btn btn-outline btn-sm" id="scnFoilModeBtn" onclick="scnToggleFoilMode()">✦ Foil: off</button>
           <button type="button" class="btn btn-outline btn-sm hidden" id="scnSaveCaptureBtn" onclick="scnSaveCapture()" title="Save the exact card crop the scanner matches on — for reporting hard-to-read cards">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M8 2v8"/><path d="M4.8 7 8 10.2 11.2 7"/><path d="M2.5 12.5h11"/></svg>
             Save crop
           </button>
           <button type="button" class="btn btn-outline btn-sm hidden" id="scnPauseScanBtn" onclick="scnToggleScanPause()">Pause scan</button>
-          <button type="button" class="btn btn-outline btn-sm" id="scnParseDistBtn" data-admin-only style="display:none" onclick="scnToggleParseDistOverlay()">Parse distribution</button>
           <button type="button" class="btn btn-primary btn-sm hidden" id="scnScanAgainBtn" onclick="scnScanAgain()">Scan Again</button>
         </div>
         <div class="scn-zoom-row" id="scnZoomControls" style="opacity:0.45">
