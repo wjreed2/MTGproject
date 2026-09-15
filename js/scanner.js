@@ -3045,16 +3045,21 @@ async function _scnPngWithDiag(blob, json) {
 // the guide is axis-aligned, so warp-rect → video-rect is a linear map. Single-line page
 // mode + a name-alphabet whitelist. Empty/failed reads cost nothing: identify proceeds
 // exactly as before.
-async function _scnReadTitle(v, guide, rect) {
+async function _scnReadTitle(v, guide, rect, band) {
   if (!v?.videoWidth || !_scnWorkerReady || !_scnNameWorker) return '';
   try {
     const bb = _scnQuadAxisBBox(guide);
     if (!bb) return '';
     const vw = v.videoWidth, vh = v.videoHeight;
     const r = rect || { x: 0, y: 0, w: SCN_FP_WARP_W, h: SCN_FP_WARP_H };
+    // Band placement: 'in' = the rect's own title strip; 'above' = the strip just above the
+    // rect top — where the title lives when the localizer latched onto the art-frame line
+    // instead of the card's softer outer edge and clipped the title out of the rect (the
+    // live diag showed exactly this on most garbage reads).
+    const bandY = band === 'above' ? Math.max(0, r.y - r.h * 0.095) : r.y + r.h * 0.02;
     // Title band in warp coords → video pixels through the guide bbox.
     const bx = (bb.nx + (bb.nw * (r.x + r.w * 0.04)) / SCN_FP_WARP_W) * vw;
-    const by = (bb.ny + (bb.nh * (r.y + r.h * 0.02)) / SCN_FP_WARP_H) * vh;
+    const by = (bb.ny + (bb.nh * bandY) / SCN_FP_WARP_H) * vh;
     const bw = ((bb.nw * (r.w * 0.92)) / SCN_FP_WARP_W) * vw;
     const bh = ((bb.nh * (r.h * 0.1)) / SCN_FP_WARP_H) * vh;
     if (bw < 40 || bh < 10) return '';
@@ -3434,12 +3439,17 @@ async function _scnIdentifyFromQuad(hints, quad) {
   if (hints) body.hints = hints;
   // Read the printed name off the best capture rect (workers warm at camera start; a cold or
   // slow OCR just means this capture identifies by hash alone, as before). A garbage/short
-  // read usually means the localizer rect sits wrong for this layout (Sagas put a text column
-  // where the art belongs) — retry once from the full-frame title band before giving up.
-  let title = await _scnReadTitle(v, useQuad, kept[0]._rect);
-  if (title.replace(/[^A-Za-z]/g, '').length < 6 && kept[0]._rect) {
-    const retry = await _scnReadTitle(v, useQuad, null);
-    if (retry.replace(/[^A-Za-z]/g, '').length > title.replace(/[^A-Za-z]/g, '').length) title = retry;
+  // read usually means the rect clipped the title (the localizer latches onto the art-frame
+  // line) — retry the strip just ABOVE the rect, then the full-frame band as a last resort.
+  const alpha = s => s.replace(/[^A-Za-z]/g, '').length;
+  let title = await _scnReadTitle(v, useQuad, kept[0]._rect, 'in');
+  if (alpha(title) < 6 && kept[0]._rect) {
+    const above = await _scnReadTitle(v, useQuad, kept[0]._rect, 'above');
+    if (alpha(above) > alpha(title)) title = above;
+  }
+  if (alpha(title) < 6 && kept[0]._rect) {
+    const full = await _scnReadTitle(v, useQuad, null, 'in');
+    if (alpha(full) > alpha(title)) title = full;
   }
   if (title) body.title = title;
   try {

@@ -134,10 +134,15 @@ async function photoVariants(file) {
   });
   const variants = candRects.slice(0, 5).map(r => hashesFromRect(best.raw, r));
   variants.push(hashesFromRect(raw0, null)); // unrotated full frame
-  let title = await ocrTitle(best.raw, best.rects[0] || null);
-  if (title.replace(/[^A-Za-z]/g, "").length < 6 && best.rects[0]) {
-    const retry = await ocrTitle(raw0, null); // mirror the client's full-frame retry
-    if (retry.replace(/[^A-Za-z]/g, "").length > title.replace(/[^A-Za-z]/g, "").length) title = retry;
+  const alpha = s => s.replace(/[^A-Za-z]/g, "").length;
+  let title = await ocrTitle(best.raw, best.rects[0] || null, "in");
+  if (alpha(title) < 6 && best.rects[0]) {
+    const above = await ocrTitle(best.raw, best.rects[0], "above"); // rect clipped the title
+    if (alpha(above) > alpha(title)) title = above;
+  }
+  if (alpha(title) < 6 && best.rects[0]) {
+    const full = await ocrTitle(raw0, null, "in");
+    if (alpha(full) > alpha(title)) title = full;
   }
   return { variants, deg: best.deg, title };
 }
@@ -155,15 +160,16 @@ function tessWorker() {
   }
   return _tessWorkerP;
 }
-async function ocrTitle(raw, rect) {
+async function ocrTitle(raw, rect, bandMode) {
   const worker = await tessWorker().catch(() => null);
   if (!worker) return "";
   try {
     const r = rect || { x: 0, y: 0, w: W, h: H };
+    const bandY = bandMode === "above" ? Math.max(0, r.y - r.h * 0.095) : r.y + r.h * 0.02;
     const band = await sharp(raw, { raw: { width: W, height: H, channels: 3 } })
       .extract({
-        left: Math.round(r.x + r.w * 0.04), top: Math.round(r.y + r.h * 0.02),
-        width: Math.round(r.w * 0.92), height: Math.round(r.h * 0.1),
+        left: Math.round(r.x + r.w * 0.04), top: Math.round(bandY),
+        width: Math.round(r.w * 0.92), height: Math.min(H - Math.round(bandY), Math.round(r.h * 0.1)),
       })
       .resize({ width: Math.min(1200, Math.max(320, Math.round(r.w * 0.92 * 2.5))) })
       .png().toBuffer();
