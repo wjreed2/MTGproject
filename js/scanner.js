@@ -3167,9 +3167,10 @@ async function _scnReadTitles(v, cardQuad) {
       ]);
       const text = rec?.data?.text ? String(rec.data.text).replace(/\s+/g, ' ').trim() : '';
       if (alpha(text) >= 4 && !out.includes(text)) out.push(text.slice(0, 240));
-      // Stop after one pass unless it came back nearly empty — the other polarity leads on
-      // the next attempt anyway, and reads accumulate across attempts.
-      if (out.length && alpha(out[out.length - 1]) >= 6) break;
+      // Only a substantial read ends the pass early. Exiting on anything with a few stray
+      // letters meant noise ("EEE Ee", "mew Lams") cancelled the inverted pass that would
+      // have read the actual name.
+      if (out.length && alpha(out[out.length - 1]) >= 16) break;
     }
   } catch (_) { /* fall through — hash-only identify */ }
   return out;
@@ -3514,7 +3515,7 @@ function _scnLumaDetail(luma) {
 
 // Identify a capture: warp the guide once, localize candidate card rects inside it (axis
 // projections), hash every hypothesis, and let the server answer with the best-matching one.
-async function _scnIdentifyFromQuad(hints, quad, wantOcr) {
+async function _scnIdentifyFromQuad(hints, quad) {
   const v = document.getElementById('scnVideo');
   const useQuad = quad || _scnCardQuad;
   if (!v?.videoWidth || !useQuad) return null;
@@ -3576,31 +3577,44 @@ async function _scnIdentifyFromQuad(hints, quad, wantOcr) {
     _scnFpResetTitleBuf();
   }
   _scnFpTitleBufPhash = kept[0].phash;
-  // OCR is by far the most expensive thing the phone does here — Tesseract is single-threaded
-  // WASM over ~half a megapixel — so it only runs once the hash has already failed on this
-  // card. Cards that match on image alone (most of them) now cost zero OCR.
-  if (wantOcr) {
-    for (const t of await _scnReadTitles(v, kept[0]._quad || useQuad)) {
-      if (!_scnFpTitleBuf.includes(t)) _scnFpTitleBuf.push(t);
-    }
-  }
   while (_scnFpTitleBuf.length > SCN_FP_TITLE_BUF_MAX) _scnFpTitleBuf.shift();
-  if (_scnFpTitleBuf.length) {
+  const withTitles = () => {
+    if (!_scnFpTitleBuf.length) return body;
     const send = _scnFpTitleBuf.slice();
     // Plus a union of the most recent reads: separate attempts often catch different halves
     // of a name ("Nori Teller" then "of Tales"), and neither half alone clears the bar.
     if (send.length >= 2) send.push(send.slice(-3).join(' '));
-    body.titles = send;
-    body.title = _scnFpTitleBuf[_scnFpTitleBuf.length - 1]; // older servers read one field
-  }
-  try {
-    const res = await fetch(`${mtgApiRoot()}/scan/identify`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+    return { ...body, titles: send, title: _scnFpTitleBuf[_scnFpTitleBuf.length - 1] };
+  };
+  const post = async b => {
+    const r = await fetch(`${mtgApiRoot()}/scan/identify`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b),
     });
-    if (!res.ok) return null;
-    const data = await res.json();
+    return r.ok ? r.json() : null;
+  };
+  try {
+    // Two phases, so OCR is paid for only when it can change the answer. Phase one asks with
+    // the hashes plus whatever earlier attempts already read; a confident match ends there and
+    // costs no OCR. Phase two runs only on a miss — which is exactly where the printed name
+    // decides, either naming the card outright or corroborating a borderline hash winner so
+    // it survives the win-margin gate. Skipping OCR on the first attempt outright, as this
+    // briefly did, removed that corroboration and regressed a whole pass.
+    let sent = withTitles();
+    let data = await post(sent);
+    if (data && !data.matched && _scnWorkerReady) {
+      let added = false;
+      for (const t of await _scnReadTitles(v, kept[0]._quad || useQuad)) {
+        if (!_scnFpTitleBuf.includes(t)) { _scnFpTitleBuf.push(t); added = true; }
+      }
+      while (_scnFpTitleBuf.length > SCN_FP_TITLE_BUF_MAX) _scnFpTitleBuf.shift();
+      if (added) {
+        sent = withTitles();
+        data = (await post(sent)) || data;
+      }
+    }
+    if (!data) return null;
+    body.title = sent.title || '';
+    body.titles = sent.titles || [];
     const winner = kept[Number.isInteger(data.variantIndex) ? data.variantIndex : 0] || kept[0];
     data._phash = winner.phash;
     data._variantCount = kept.length;
@@ -3784,9 +3798,7 @@ function _scnFingerprintTick(v, now) {
   _scnFpInFlight = true;
   void (async () => {
     try {
-      // First look at a card is hash-only; OCR joins in once that has missed.
-      const r = await _scnIdentifyFromQuad(
-        undefined, guide, _scnFpNoMatchStreak >= 1 || _scnFpTitleBuf.length > 0);
+      const r = await _scnIdentifyFromQuad(undefined, guide);
       if (r) r._quadSrc = `q=${Number.isInteger(r.variantIndex) ? r.variantIndex : '?'}/${r._variantCount || 1}`;
       if (!r) { _scnFpCooldownUntil = performance.now() + 300; return; }
       if (r.empty) {
