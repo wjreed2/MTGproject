@@ -183,8 +183,10 @@ async function ocrTitle(raw, rect, bandMode) {
   try {
     const r = rect || { x: 0, y: 0, w: W, h: H };
     // Mirror scanner.js: read the card's whole top third, not a placement-sensitive strip.
-    const bandY = Math.max(0, Math.round(r.y + r.h * (bandMode === "above" ? -0.10 : -0.02)));
-    const bandH = bandMode === "narrow" ? 0.13 : bandMode === "above" ? 0.16 : 0.30;
+    // Mirror scanner.js: bands start well above the rect top, which often sits below the title.
+    const bandY = Math.max(0, Math.round(r.y + r.h *
+      (bandMode === "above" ? -0.14 : bandMode === "narrow" ? -0.07 : -0.08)));
+    const bandH = bandMode === "narrow" ? 0.16 : bandMode === "above" ? 0.20 : 0.36;
     const bandX = Math.max(0, Math.round(r.x - r.w * 0.04));
     const band = await sharp(raw, { raw: { width: W, height: H, channels: 3 } })
       .extract({

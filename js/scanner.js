@@ -3002,6 +3002,12 @@ let _scnFpTitleBufPhash = '';
 const SCN_FP_TITLE_BUF_MAX = 6;
 /** Beyond this Hamming distance between consecutive captures, the reticle holds a new card. */
 const SCN_FP_TITLE_SAME_CARD_HAMMING = 14;
+/**
+ * A phase-one match at or below this combined distance is trusted outright and costs no OCR.
+ * Above it the match is borderline — strong enough to pass the gates, close enough to the
+ * noise floor to be a collision — so the printed name is read and asked to confirm it.
+ */
+const SCN_FP_VERIFY_COMB = 18;
 /** Attempt counter, used only to alternate OCR polarity between captures. */
 let _scnFpTitleAttempt = 0;
 /** Tilt solved for the card currently in the reticle (null = not solved yet). */
@@ -3092,13 +3098,13 @@ function _scnTitleBandUrl(v, cardQuad, { above = false, invert = false, narrow =
   // returns noise. A tall region contains the title wherever it actually sits; the extra
   // text costs nothing, because name scoring keys on long shared runs, not stray words.
   const bx = (bb.nx - bb.nw * 0.04) * vw;
-  const by = (bb.ny + bb.nh * (above ? -0.10 : -0.02)) * vh;
+  const by = (bb.ny + bb.nh * (above ? -0.14 : narrow ? -0.07 : -0.08)) * vh;
   const bw = bb.nw * 1.08 * vw;
   // `narrow` is the title line alone. The tall region is the right default — it finds the
   // title without depending on exact placement — but on a Saga the top third also contains
   // the chapter-ability column, and block segmentation reads THAT ("As this Saga enters...")
   // instead of the name. A strip that can only contain the title fixes those.
-  const bh = bb.nh * (narrow ? 0.13 : above ? 0.16 : 0.30) * vh;
+  const bh = bb.nh * (narrow ? 0.16 : above ? 0.20 : 0.36) * vh;
   if (bw < 40 || bh < 10) return null;
   const sx = Math.max(0, bx), sy = Math.max(0, by);
   const sw = Math.min(vw - sx, bw), sh = Math.min(vh - sy, bh);
@@ -3159,7 +3165,7 @@ async function _scnReadTitles(v, cardQuad) {
     // borderless and black frames only read inverted, and reads accumulate across attempts
     // anyway — so both get tried without paying for both on every single capture.
     const inv = _scnFpTitleAttempt++ % 2 === 1;
-    const order = [{ invert: inv }, { narrow: true, invert: inv }];
+    const order = [{ invert: inv }, { invert: !inv }, { narrow: true, invert: inv }];
     for (const opts of order) {
       if (performance.now() > deadline) break;
       const url = _scnTitleBandUrl(v, cardQuad, opts);
@@ -3604,7 +3610,9 @@ async function _scnIdentifyFromQuad(hints, quad) {
     // briefly did, removed that corroboration and regressed a whole pass.
     let sent = withTitles();
     let data = await post(sent);
-    if (data && !data.matched && _scnWorkerReady) {
+    const comb = (Number(data?.distance) || 0) + (Number(data?.artDistance) || 0);
+    const unconvincing = data && (!data.matched || (!data.titleMatched && comb > SCN_FP_VERIFY_COMB));
+    if (unconvincing && _scnWorkerReady) {
       let added = false;
       for (const t of await _scnReadTitles(v, kept[0]._quad || useQuad)) {
         if (!_scnFpTitleBuf.includes(t)) { _scnFpTitleBuf.push(t); added = true; }
