@@ -9061,6 +9061,12 @@ function _fpRowsForTitle(title) {
   const bestScore = scored.length ? nameScore(scored[0]) : 0;
   const rows = [];
   const scoreByRow = new Map();
+  // Margin over the best name of a DIFFERENT card. When two names tie — "…Teller of Tales"
+  // fits both Nori and Chulane; "Fable Passage" fits both Fabled Passage and Honorable
+  // Passage — the read has not actually identified anything, and letting a degraded hash
+  // break the tie is a coin flip that lost both times it was tried.
+  const runnerUp = scored.find(x => x.key !== scored[0].key);
+  const nameMargin = runnerUp ? bestScore - nameScore(runnerUp) : Infinity;
   for (const s of scored.filter(x => nameScore(x) >= bestScore - 6).slice(0, 8)) {
     const score = nameScore(s);
     // Per-name cap as well as a total cap: one reprint-heavy name (a basic land) otherwise
@@ -9071,7 +9077,7 @@ function _fpRowsForTitle(title) {
     }
     if (rows.length > 200) break; // bound the restricted scan
   }
-  return rows.length ? { rows, scoreByRow, bestScore } : null;
+  return rows.length ? { rows, scoreByRow, bestScore, nameMargin } : null;
 }
 
 // The client sends several candidate reads of the title (polarities, band offsets); score
@@ -10043,6 +10049,7 @@ const SCAN_TITLE_COMB_FUZZY_MAX = 32; // strict gate: short-token or fuzzy-only 
 // Mightcaller; the wrong picks that used to slip through land at 16 ("rate" → Curate).
 const SCAN_TITLE_MIN_EVIDENCE = 24;
 const SCAN_TITLE_DECISIVE = 30;       // long runs + (near-)full coverage = the name is settled
+const SCAN_TITLE_NAME_MARGIN = 4;     // ...and clearly ahead of the next candidate name
 const SCAN_TITLE_COMB_DECISIVE = 46;  // then the hash only picks the printing
 const SCAN_ART_TIE = 2;       // art-hash distance under which two printings count as "same art"
 const SCAN_ART_PRIMARY_MAX = 12;  // art-only fallback gate (foil glare / non-English fronts)
@@ -10121,7 +10128,7 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
       // in the wrong printing. That matters because the captures this rescues (Sagas,
       // borderless frames) are exactly the ones whose hash is degraded by layout, so gating
       // them on distance rejects the right answer for the one reason we already know about.
-      const gate = evidence >= SCAN_TITLE_DECISIVE && n <= 40
+      const gate = evidence >= SCAN_TITLE_DECISIVE && n <= 40 && titleHit.nameMargin >= SCAN_TITLE_NAME_MARGIN
         ? Infinity
         : evidence >= SCAN_TITLE_DECISIVE && n <= 120 ? SCAN_TITLE_COMB_DECISIVE
         : n <= 12 ? SCAN_TITLE_COMB_MAX : n <= 60 ? 33 : SCAN_TITLE_COMB_FUZZY_MAX;

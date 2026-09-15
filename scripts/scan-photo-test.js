@@ -177,18 +177,19 @@ async function ocrTitle(raw, rect, bandMode) {
   if (!worker) return "";
   try {
     const r = rect || { x: 0, y: 0, w: W, h: H };
-    const bandY = bandMode === "above" ? Math.max(0, r.y - r.h * 0.095) : r.y + r.h * 0.02;
-    const bandX = Math.max(0, Math.round(r.x - r.w * 0.06)); // mirror scanner.js: no left clip
+    // Mirror scanner.js: read the card's whole top third, not a placement-sensitive strip.
+    const bandY = Math.max(0, Math.round(r.y + r.h * (bandMode === "above" ? -0.10 : -0.02)));
+    const bandX = Math.max(0, Math.round(r.x - r.w * 0.04));
     const band = await sharp(raw, { raw: { width: W, height: H, channels: 3 } })
       .extract({
-        left: bandX, top: Math.round(bandY),
-        width: Math.min(W - bandX, Math.round(r.w * 1.12)),
-        height: Math.min(H - Math.round(bandY), Math.round(r.h * 0.1)),
+        left: bandX, top: bandY,
+        width: Math.min(W - bandX, Math.round(r.w * 1.08)),
+        height: Math.min(H - bandY, Math.round(r.h * (bandMode === "above" ? 0.16 : 0.30))),
       })
       .resize({ width: Math.min(1200, Math.max(320, Math.round(r.w * 0.92 * 2.5))) })
       .png().toBuffer();
     await worker.setParameters({
-      tessedit_pageseg_mode: "7",
+      tessedit_pageseg_mode: "6",
       tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789',-. ",
     });
     const rec = await worker.recognize(band);

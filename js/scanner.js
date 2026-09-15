@@ -2981,7 +2981,7 @@ let _scnFpNoMatchStreak = 0;           // consecutive no-match captures (→ hol
 const SCN_FP_NOMATCH_HOLD_AFTER = 5;
 
 /** Give the per-capture title OCR at most this long; identify proceeds untitled on timeout. */
-const SCN_FP_TITLE_OCR_TIMEOUT_MS = 1400;
+const SCN_FP_TITLE_OCR_TIMEOUT_MS = 2600;
 
 /**
  * Title reads accumulated across successive attempts at the SAME card. OCR noise is largely
@@ -2996,6 +2996,8 @@ let _scnFpTitleBufPhash = '';
 const SCN_FP_TITLE_BUF_MAX = 6;
 /** Beyond this Hamming distance between consecutive captures, the reticle holds a new card. */
 const SCN_FP_TITLE_SAME_CARD_HAMMING = 14;
+/** Attempt counter, used only to alternate OCR polarity between captures. */
+let _scnFpTitleAttempt = 0;
 
 function _scnFpResetTitleBuf() {
   _scnFpTitleBuf = [];
@@ -3073,16 +3075,23 @@ function _scnTitleBandUrl(v, cardQuad, { above = false, invert = false } = {}) {
   const bb = _scnQuadAxisBBox(cardQuad);
   if (!bb) return null;
   const vw = v.videoWidth, vh = v.videoHeight;
-  const bx = (bb.nx - bb.nw * 0.03) * vw;
-  const by = (bb.ny + bb.nh * (above ? -0.085 : 0.018)) * vh;
-  const bw = bb.nw * 1.06 * vw;
-  const bh = bb.nh * 0.105 * vh;
+  // Read the card's whole TOP THIRD, not a thin title strip. A strip has to be placed
+  // correctly, which makes OCR a hostage to localization — and when localization finds no
+  // card at all (seen live: variants=1, the guide-only fallback) the strip samples tray and
+  // returns noise. A tall region contains the title wherever it actually sits; the extra
+  // text costs nothing, because name scoring keys on long shared runs, not stray words.
+  const bx = (bb.nx - bb.nw * 0.04) * vw;
+  const by = (bb.ny + bb.nh * (above ? -0.10 : -0.02)) * vh;
+  const bw = bb.nw * 1.08 * vw;
+  const bh = bb.nh * (above ? 0.16 : 0.30) * vh;
   if (bw < 40 || bh < 10) return null;
   const sx = Math.max(0, bx), sy = Math.max(0, by);
   const sw = Math.min(vw - sx, bw), sh = Math.min(vh - sy, bh);
   if (sw < 40 || sh < 10) return null;
   // Tesseract wants roughly 30-40px of cap height; card titles are ~6% of card height.
-  const outW = Math.min(1400, Math.max(480, Math.round(sw * 2)));
+  // Native camera pixels already give ~50px cap height; a modest upscale keeps the taller
+  // region fast enough to finish inside the OCR budget.
+  const outW = Math.min(1200, Math.max(480, Math.round(sw * 1.3)));
   const outH = Math.max(28, Math.round((outW / sw) * sh));
   const c = document.createElement('canvas');
   c.width = outW; c.height = outH;
@@ -3126,12 +3135,18 @@ async function _scnReadTitles(v, cardQuad) {
   const out = [];
   try {
     await _scnNameWorker.setParameters({
-      tessedit_pageseg_mode: '7', // single text line
+      tessedit_pageseg_mode: '6', // uniform block — the region spans the title and below
       tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789',-. ",
     });
     const alpha = s => s.replace(/[^A-Za-z]/g, '').length;
     const deadline = performance.now() + SCN_FP_TITLE_OCR_TIMEOUT_MS;
-    for (const opts of [{}, { invert: true }, { above: true }]) {
+    // Alternate which polarity leads on each attempt: dark-on-light is the common case, but
+    // borderless and black frames only read inverted, and reads accumulate across attempts
+    // anyway — so both get tried without paying for both on every single capture.
+    const order = _scnFpTitleAttempt++ % 2 === 0
+      ? [{}, { invert: true }, { above: true }]
+      : [{ invert: true }, {}, { above: true }];
+    for (const opts of order) {
       if (performance.now() > deadline) break;
       const url = _scnTitleBandUrl(v, cardQuad, opts);
       if (!url) continue;
@@ -3140,9 +3155,9 @@ async function _scnReadTitles(v, cardQuad) {
         new Promise(res => setTimeout(() => res(null), Math.max(300, deadline - performance.now()))),
       ]);
       const text = rec?.data?.text ? String(rec.data.text).replace(/\s+/g, ' ').trim() : '';
-      if (alpha(text) >= 4 && !out.includes(text)) out.push(text.slice(0, 160));
-      // A clean first read (most of a name, in the common polarity) ends the search early.
-      if (out.length === 1 && alpha(out[0]) >= 12) break;
+      if (alpha(text) >= 4 && !out.includes(text)) out.push(text.slice(0, 240));
+      // A substantial first read ends the search early; the other polarity leads next time.
+      if (out.length === 1 && alpha(out[0]) >= 16) break;
     }
   } catch (_) { /* fall through — hash-only identify */ }
   return out;
