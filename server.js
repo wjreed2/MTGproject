@@ -9052,7 +9052,18 @@ function _fpRowsForTitle(title) {
     }
     if (rows.length > 200) break; // bound the restricted scan
   }
-  return rows.length ? { rows, scoreByRow } : null;
+  return rows.length ? { rows, scoreByRow, bestScore } : null;
+}
+
+// The client sends several candidate reads of the title (polarities, band offsets); score
+// each and keep the one yielding the strongest name evidence.
+function _fpRowsForTitles(list) {
+  let best = null;
+  for (const t of list) {
+    const hit = _fpRowsForTitle(t);
+    if (hit && (!best || hit.bestScore > best.bestScore)) best = hit;
+  }
+  return best;
 }
 
 // Best variant match restricted to `rows` (the title's printings). Same combined metric,
@@ -10008,6 +10019,8 @@ const SCAN_TITLE_COMB_FUZZY_MAX = 32; // strict gate: short-token or fuzzy-only 
 // Min (longest run + 4x coverage) for the title to OVERRIDE the global answer. Corroboration
 // — the title agreeing with the global winner — has no such bar.
 const SCAN_TITLE_MIN_EVIDENCE = 8.5;
+const SCAN_TITLE_DECISIVE = 9;        // long run + (near-)full coverage = the name is settled
+const SCAN_TITLE_COMB_DECISIVE = 46;  // then the hash only picks the printing
 const SCAN_ART_TIE = 2;       // art-hash distance under which two printings count as "same art"
 const SCAN_ART_PRIMARY_MAX = 12;  // art-only fallback gate (foil glare / non-English fronts)
 const SCAN_ART_PRIMARY_GROUP = 2; // art-distance tie window for the fallback chooser group
@@ -10046,7 +10059,11 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
     // title restricts the search to that name's printings, where the hash is nearly
     // infallible — the global noise floor that breeds jitter-stable collisions (dark low-key
     // art matching unrelated cards at combined 20-26) doesn't exist inside a name set.
-    const titleHit = body.title ? _fpRowsForTitle(String(body.title).slice(0, 160)) : null;
+    const titleList = (Array.isArray(body.titles) && body.titles.length ? body.titles : [body.title])
+      .filter(t => typeof t === 'string' && t.length >= 3)
+      .slice(0, 4)
+      .map(t => t.slice(0, 160));
+    const titleHit = titleList.length ? _fpRowsForTitles(titleList) : null;
 
     // Retrieval ranks by combined full+art distance (see _fpNearestCombined) — the true card
     // reliably surfaces even when full-hash noise buries it below unrelated printings.
@@ -10072,7 +10089,13 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
       // basic-land name alone brings hundreds of printings).
       const evidence = tBest ? (titleHit.scoreByRow.get(tBest.i) || 0) : 0;
       const n = titleHit.rows.length;
-      const gate = n <= 12 ? SCAN_TITLE_COMB_MAX : n <= 60 ? 33 : SCAN_TITLE_COMB_FUZZY_MAX;
+      // Decisive evidence (a long run AND essentially full coverage — "WvingGrove" covering
+      // both words of Thriving Grove) confirms the NAME on its own. The hash is then only
+      // choosing among that name's printings, where the worst case is the right card's wrong
+      // printing — so the distance gate opens up. Weaker evidence still scales with the pool.
+      const gate = evidence >= SCAN_TITLE_DECISIVE && n <= 120
+        ? SCAN_TITLE_COMB_DECISIVE
+        : n <= 12 ? SCAN_TITLE_COMB_MAX : n <= 60 ? 33 : SCAN_TITLE_COMB_FUZZY_MAX;
       if (tBest && evidence >= SCAN_TITLE_MIN_EVIDENCE && tBest.comb <= gate) {
         const cards = await _fingerprintCardsFor([_fpIndex.meta[tBest.i]]);
         if (cards[0]) {

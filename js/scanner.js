@@ -3045,52 +3045,88 @@ async function _scnPngWithDiag(blob, json) {
 // the guide is axis-aligned, so warp-rect → video-rect is a linear map. Single-line page
 // mode + a name-alphabet whitelist. Empty/failed reads cost nothing: identify proceeds
 // exactly as before.
-async function _scnReadTitle(v, guide, rect, band) {
-  if (!v?.videoWidth || !_scnWorkerReady || !_scnNameWorker) return '';
+// Render the card's title strip from the VIDEO at native resolution. `cardQuad` is the
+// card's own quad (video-normalized), so the band no longer inherits the localizer rect's
+// inset — which is what clipped the first characters off every live read. Contrast is
+// stretched, and `invert` handles light-on-dark frames (borderless, showcase, most black
+// cards) that Tesseract reads far worse in their native polarity.
+function _scnTitleBandUrl(v, cardQuad, { above = false, invert = false } = {}) {
+  const bb = _scnQuadAxisBBox(cardQuad);
+  if (!bb) return null;
+  const vw = v.videoWidth, vh = v.videoHeight;
+  const bx = (bb.nx - bb.nw * 0.03) * vw;
+  const by = (bb.ny + bb.nh * (above ? -0.085 : 0.018)) * vh;
+  const bw = bb.nw * 1.06 * vw;
+  const bh = bb.nh * 0.105 * vh;
+  if (bw < 40 || bh < 10) return null;
+  const sx = Math.max(0, bx), sy = Math.max(0, by);
+  const sw = Math.min(vw - sx, bw), sh = Math.min(vh - sy, bh);
+  if (sw < 40 || sh < 10) return null;
+  // Tesseract wants roughly 30-40px of cap height; card titles are ~6% of card height.
+  const outW = Math.min(1400, Math.max(480, Math.round(sw * 2)));
+  const outH = Math.max(28, Math.round((outW / sw) * sh));
+  const c = document.createElement('canvas');
+  c.width = outW; c.height = outH;
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(v, sx, sy, sw, sh, 0, 0, outW, outH);
+  // Grayscale + percentile contrast stretch (+ optional inversion).
+  const img = ctx.getImageData(0, 0, outW, outH);
+  const d = img.data;
+  const n = outW * outH;
+  const hist = new Uint32Array(256);
+  const gray = new Uint8Array(n);
+  for (let i = 0, p = 0; p < n; i += 4, p++) {
+    const g = (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]) | 0;
+    gray[p] = g;
+    hist[g]++;
+  }
+  let lo = 0, hi = 255, acc = 0;
+  const cut = Math.max(1, Math.round(n * 0.02));
+  for (let g = 0; g < 256; g++) { acc += hist[g]; if (acc >= cut) { lo = g; break; } }
+  acc = 0;
+  for (let g = 255; g >= 0; g--) { acc += hist[g]; if (acc >= cut) { hi = g; break; } }
+  const span = Math.max(8, hi - lo);
+  for (let i = 0, p = 0; p < n; i += 4, p++) {
+    let g = ((gray[p] - lo) * 255) / span;
+    g = g < 0 ? 0 : g > 255 ? 255 : g;
+    if (invert) g = 255 - g;
+    d[i] = d[i + 1] = d[i + 2] = g;
+  }
+  ctx.putImageData(img, 0, 0);
+  return c.toDataURL('image/png');
+}
+
+// Up to three candidate reads of the printed name (normal polarity, inverted, and the strip
+// just above the card top for rects that clipped the title). All non-empty reads are sent —
+// the server scores each and keeps whichever produces the strongest name evidence, which is
+// cheaper and more reliable than guessing client-side which read is "best".
+async function _scnReadTitles(v, cardQuad) {
+  if (!v?.videoWidth || !_scnWorkerReady || !_scnNameWorker) return [];
+  const out = [];
   try {
-    const bb = _scnQuadAxisBBox(guide);
-    if (!bb) return '';
-    const vw = v.videoWidth, vh = v.videoHeight;
-    const r = rect || { x: 0, y: 0, w: SCN_FP_WARP_W, h: SCN_FP_WARP_H };
-    // Band placement: 'in' = the rect's own title strip; 'above' = the strip just above the
-    // rect top — where the title lives when the localizer latched onto the art-frame line
-    // instead of the card's softer outer edge and clipped the title out of the rect (the
-    // live diag showed exactly this on most garbage reads).
-    const bandY = band === 'above' ? Math.max(0, r.y - r.h * 0.095) : r.y + r.h * 0.02;
-    // Band spans the rect's full width plus a margin on each side. Every live OCR read was
-    // missing its first 1-3 characters ("eshore" for Lakeshore, "warven" for Dwarven, "rge
-    // bear" for Large Bear): the old 4% inset started inside the title text, because the
-    // localizer rect itself sits inside the card's true edge. Overshooting costs nothing —
-    // Tesseract ignores the extra border — while clipping costs the name.
-    const bandX = r.x - r.w * 0.06;
-    const bandW = r.w * 1.12;
-    // Title band in warp coords → video pixels through the guide bbox.
-    const bx = (bb.nx + (bb.nw * bandX) / SCN_FP_WARP_W) * vw;
-    const by = (bb.ny + (bb.nh * bandY) / SCN_FP_WARP_H) * vh;
-    const bw = ((bb.nw * bandW) / SCN_FP_WARP_W) * vw;
-    const bh = ((bb.nh * (r.h * 0.1)) / SCN_FP_WARP_H) * vh;
-    if (bw < 40 || bh < 10) return '';
-    const outW = Math.min(1200, Math.max(320, Math.round(bw)));
-    const outH = Math.max(24, Math.round((outW / bw) * bh));
-    const c = document.createElement('canvas');
-    c.width = outW; c.height = outH;
-    const ctx = c.getContext('2d');
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(v, bx, by, bw, bh, 0, 0, outW, outH);
     await _scnNameWorker.setParameters({
       tessedit_pageseg_mode: '7', // single text line
       tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789',-. ",
     });
-    const rec = await Promise.race([
-      _scnNameWorker.recognize(c.toDataURL('image/png')),
-      new Promise(res => setTimeout(() => res(null), SCN_FP_TITLE_OCR_TIMEOUT_MS)),
-    ]);
-    const text = rec?.data?.text ? String(rec.data.text).replace(/\s+/g, ' ').trim() : '';
-    return text.length >= 3 ? text.slice(0, 160) : '';
-  } catch (_) {
-    return '';
-  }
+    const alpha = s => s.replace(/[^A-Za-z]/g, '').length;
+    const deadline = performance.now() + SCN_FP_TITLE_OCR_TIMEOUT_MS;
+    for (const opts of [{}, { invert: true }, { above: true }]) {
+      if (performance.now() > deadline) break;
+      const url = _scnTitleBandUrl(v, cardQuad, opts);
+      if (!url) continue;
+      const rec = await Promise.race([
+        _scnNameWorker.recognize(url),
+        new Promise(res => setTimeout(() => res(null), Math.max(300, deadline - performance.now()))),
+      ]);
+      const text = rec?.data?.text ? String(rec.data.text).replace(/\s+/g, ' ').trim() : '';
+      if (alpha(text) >= 4 && !out.includes(text)) out.push(text.slice(0, 160));
+      // A clean first read (most of a name, in the common polarity) ends the search early.
+      if (out.length === 1 && alpha(out[0]) >= 12) break;
+    }
+  } catch (_) { /* fall through — hash-only identify */ }
+  return out;
 }
 
 /** Near-miss candidate behind the "+ Add this" overlay button: { card, phash } or null. */
@@ -3232,7 +3268,7 @@ const SCN_FP_AXIS_AR_TOL = 0.06;  // |w/h − 63/88| tolerance for a candidate r
 // Each coarse rect also ships grown by this margin: gradient peaks sit on the printed border,
 // a hair INSIDE the physical card edge the reference images include (measured: −5px ≈ −6 bits).
 const SCN_FP_AXIS_GROW_PX = 5;
-const SCN_FP_MAX_VARIANTS = 6;    // hash sets per identify request (the server accepts ≤ 6)
+const SCN_FP_MAX_VARIANTS = 5;    // hash sets per identify request (each is a full re-warp)
 /**
  * Tilt search: a hand-placed card sits 1-3° off axis, which the axis-aligned rect cannot
  * correct and which costs 10+ Hamming bits (measured live: tilted cards matched WRONG cards
@@ -3349,6 +3385,34 @@ function _scnAxisCardRects(L, W, H) {
   return uniq;
 }
 
+// A card rect found in the (possibly tilt-rotated) guide warp → a quad in video-normalized
+// coordinates. This is what lets the capture be warped straight from NATIVE camera pixels
+// instead of from the already-resampled 360x504 guide buffer: the server hashes a full-res
+// card image resized ONCE to 360x504, so the client must do the same or pay the difference
+// in Hamming bits (the card only occupies ~75% of the guide, so we were effectively hashing
+// a ~270px-wide card upsampled from a downsample).
+function _scnCardRectToVideoQuad(guide, rect, tiltDeg) {
+  const bb = _scnQuadAxisBBox(guide);
+  if (!bb) return null;
+  const W = SCN_FP_WARP_W, H = SCN_FP_WARP_H;
+  const cx = W / 2, cy = H / 2;
+  const th = ((tiltDeg || 0) * Math.PI) / 180;
+  const cos = Math.cos(th), sin = Math.sin(th);
+  const pts = [
+    [rect.x, rect.y],
+    [rect.x + rect.w, rect.y],
+    [rect.x + rect.w, rect.y + rect.h],
+    [rect.x, rect.y + rect.h],
+  ].map(([x, y]) => {
+    // Undo the rotation _scnRotatedWarp applied, then map through the guide bbox.
+    const dx = x - cx, dy = y - cy;
+    const ux = cx + dx * cos + dy * sin;
+    const uy = cy - dx * sin + dy * cos;
+    return { nx: bb.nx + (bb.nw * ux) / W, ny: bb.ny + (bb.nh * uy) / H };
+  });
+  return { tl: pts[0], tr: pts[1], br: pts[2], bl: pts[3] };
+}
+
 // Spec v2 hash set for a sub-rect of the warped capture (rect = null → the whole warp). The
 // 360x504 → 32x32 downsample + art crop are SHARED code with the server build; the art window
 // and its 180°-mirrored twin are placed RELATIVE to the rect.
@@ -3415,18 +3479,22 @@ async function _scnIdentifyFromQuad(hints, quad) {
       h: Math.min(H - Math.max(0, r.y - g), r.h + 2 * g),
     });
   });
+  // Each candidate rect is re-warped from the VIDEO at native resolution so the card fills
+  // 360x504 exactly like the reference — same single-resample path as the server build.
   // Empty-reticle guard per variant: a smooth crop (no card) must not reach the matcher — its
   // degenerate hash lands on random low-detail printings and reads as "found a card".
   const kept = [];
   for (const r of candRects) {
     if (kept.length >= SCN_FP_MAX_VARIANTS - 1) break; // reserve a slot for the full-frame
-    const h = _scnHashesFromRect(loc.px, W, H, r);
-    if (h.detail >= SCN_FP_MIN_DETAIL) kept.push(Object.assign(h, { _rect: r, _canvas: loc.canvas }));
+    const q = _scnCardRectToVideoQuad(useQuad, r, loc.deg);
+    const cw = q && _scnWarpCardToCanvas(v, q, SCN_FP_WARP_W, SCN_FP_WARP_H);
+    if (!cw) continue;
+    const h = _scnHashesFromRect(cw.ctx.getImageData(0, 0, W, H).data, W, H, null);
+    if (h.detail >= SCN_FP_MIN_DETAIL) kept.push(Object.assign(h, { _quad: q, _canvas: cw.canvas }));
   }
-  // The full UNROTATED guide warp always rides along (a rotated full-frame carries dark
-  // corner wedges; a card genuinely filling the guide is axis-true by construction).
+  // The full guide warp always rides along, for a card that genuinely fills the reticle.
   const hFull = _scnHashesFromRect(px0, W, H, null);
-  if (hFull.detail >= SCN_FP_MIN_DETAIL) kept.push(Object.assign(hFull, { _rect: null, _canvas: warp.canvas }));
+  if (hFull.detail >= SCN_FP_MIN_DETAIL) kept.push(Object.assign(hFull, { _quad: useQuad, _canvas: warp.canvas }));
   if (!kept.length) return { ok: false, empty: true };
   // LRU short-circuit (no network) when the same card lingers / reappears in frame.
   if (!hints) {
@@ -3444,21 +3512,13 @@ async function _scnIdentifyFromQuad(hints, quad) {
   });
   const body = kept.length === 1 ? toVariant(kept[0]) : { variants: kept.map(toVariant) };
   if (hints) body.hints = hints;
-  // Read the printed name off the best capture rect (workers warm at camera start; a cold or
-  // slow OCR just means this capture identifies by hash alone, as before). A garbage/short
-  // read usually means the rect clipped the title (the localizer latches onto the art-frame
-  // line) — retry the strip just ABOVE the rect, then the full-frame band as a last resort.
-  const alpha = s => s.replace(/[^A-Za-z]/g, '').length;
-  let title = await _scnReadTitle(v, useQuad, kept[0]._rect, 'in');
-  if (alpha(title) < 6 && kept[0]._rect) {
-    const above = await _scnReadTitle(v, useQuad, kept[0]._rect, 'above');
-    if (alpha(above) > alpha(title)) title = above;
+  // Read the printed name off the best candidate's own card quad (workers warm at camera
+  // start; a cold or slow OCR just means this capture identifies by hash alone, as before).
+  const titles = await _scnReadTitles(v, kept[0]._quad || useQuad);
+  if (titles.length) {
+    body.titles = titles;
+    body.title = titles[0]; // older servers read the single field
   }
-  if (alpha(title) < 6 && kept[0]._rect) {
-    const full = await _scnReadTitle(v, useQuad, null, 'in');
-    if (alpha(full) > alpha(title)) title = full;
-  }
-  if (title) body.title = title;
   try {
     const res = await fetch(`${mtgApiRoot()}/scan/identify`, {
       method: 'POST',
@@ -3474,6 +3534,7 @@ async function _scnIdentifyFromQuad(hints, quad) {
     _scnFpLastDiag = {
       at: Date.now(),
       ocr: body.title || '',
+      ocrAll: body.titles || [],
       tilt: loc.deg,
       rects: loc.rects.map(r => [r.x, r.y, r.w, r.h]),
       variant: data.variantIndex, variants: kept.length,

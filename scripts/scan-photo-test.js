@@ -76,18 +76,29 @@ function axisCardRects(L) {
   return uniq;
 }
 
-function hashesFromRect(raw, rect) {
-  const r = rect || { x: 0, y: 0, w: W, h: H };
-  const full = Phash.lumaBoxDownscale(raw, W, H, 3, r);
-  const aw = Phash.ART_WINDOW;
-  const ar = {
-    x: r.x + Math.round(r.w * aw.u0), y: r.y + Math.round(r.h * aw.v0),
-    w: Math.round(r.w * (aw.u1 - aw.u0)), h: Math.round(r.h * (aw.v1 - aw.v0)),
-  };
+// Mirrors the client: the card rect is re-rendered to a full W x H frame FIRST, then hashed
+// as a whole — same single-resample framing as the server's reference build. (Hashing a
+// sub-rect of the guide buffer, as this used to, made the query a downsample of a downsample
+// and cost real Hamming bits.)
+async function hashesFromRect(raw, rect) {
+  let card = raw;
+  if (rect) {
+    const x = Math.max(0, Math.min(W - 2, Math.round(rect.x)));
+    const y = Math.max(0, Math.min(H - 2, Math.round(rect.y)));
+    card = await sharp(raw, { raw: { width: W, height: H, channels: 3 } })
+      .extract({
+        left: x, top: y,
+        width: Math.max(2, Math.min(W - x, Math.round(rect.w))),
+        height: Math.max(2, Math.min(H - y, Math.round(rect.h))),
+      })
+      .resize(W, H, { fit: "fill", kernel: sharp.kernel.cubic })
+      .raw().toBuffer();
+  }
+  const full = Phash.lumaBoxDownscale(card, W, H, 3, null);
   return {
     phash: Phash.fromLuma(full),
     phashRot180: Phash.fromLuma(Phash.rotate180(full)),
-    artPhash: Phash.fromLuma(Phash.lumaBoxDownscale(raw, W, H, 3, ar)),
+    artPhash: Phash.fromLuma(Phash.lumaBoxDownscale(card, W, H, 3, Phash.artRect(W, H))),
   };
 }
 
@@ -132,8 +143,9 @@ async function photoVariants(file) {
       h: Math.min(H - Math.max(0, r.y - GROW), r.h + 2 * GROW),
     });
   });
-  const variants = candRects.slice(0, 5).map(r => hashesFromRect(best.raw, r));
-  variants.push(hashesFromRect(raw0, null)); // unrotated full frame
+  const variants = [];
+  for (const r of candRects.slice(0, 4)) variants.push(await hashesFromRect(best.raw, r));
+  variants.push(await hashesFromRect(raw0, null)); // unrotated full frame
   const alpha = s => s.replace(/[^A-Za-z]/g, "").length;
   let title = await ocrTitle(best.raw, best.rects[0] || null, "in");
   if (alpha(title) < 6 && best.rects[0]) {
