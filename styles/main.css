@@ -2231,6 +2231,21 @@ body.glass-mode #voiceModal .voice-modal {
      under the (translucent) active tab. The tab strip carries that edge now. */
   box-shadow: 0 28px 90px rgba(0,0,0,0.6);
 }
+/* Deck-page tabs sit over the wallpaper, where a 3.5% white fill reads fine. Over this
+   modal's dark backdrop the same fill reads as near-black, so the inactive tabs need more
+   light to look like the tabs everywhere else. */
+body.glass-mode #voiceModal .deck-ftab::before {
+  background: rgba(255,255,255,0.12);
+  border-color: rgba(255,255,255,0.18);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14);
+}
+body.glass-mode #voiceModal .deck-ftab:hover::before {
+  background: rgba(255,255,255,0.17);
+}
+[data-theme="light"] body.glass-mode #voiceModal .deck-ftab::before {
+  background: rgba(255,255,255,0.55);
+  border-color: rgba(255,255,255,0.7);
+}
 body.glass-mode #voiceModal .deck-ftab.active::before {
   background:
     linear-gradient(180deg, rgba(var(--lgx1), 0.20), rgba(var(--lgx1), 0.15)),
@@ -7527,7 +7542,9 @@ body.glass-mode .deck-tab-pane .dlf-text:focus {
   align-items: center;
   justify-content: space-between;
   padding: calc(10px + env(safe-area-inset-top, 0px)) 14px 10px;
-  background: linear-gradient(to bottom, rgba(0,0,0,0.75), transparent);
+  /* No scrim — the camera runs edge to edge. The controls carry their own glass
+     chrome and the title gets a shadow, so nothing needs a black bar behind it. */
+  background: none;
   z-index: 4;
 }
 
@@ -7537,12 +7554,21 @@ body.glass-mode .deck-tab-pane .dlf-text:focus {
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--gold);
+  text-shadow: 0 1px 6px rgba(0,0,0,0.75);
 }
 
 .scn-fs-top-actions {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+/* Square like every other control (§3), not the free-standing top-bar pill: these sit over
+   live video, where a pill reads as a floating blob rather than a button. Needs the
+   glass-mode prefix to outrank `body.glass-mode .btn`, which pills free-standing buttons. */
+.scn-fs-top-actions .btn,
+body.glass-mode .scn-fs-top-actions .btn {
+  border-radius: 8px;
 }
 
 .scn-session-badge {
@@ -7594,9 +7620,12 @@ body.glass-mode .deck-tab-pane .dlf-text:focus {
 }
 
 .scn-card-poly {
-  fill: rgba(61, 184, 160, 0.06);
-  stroke: var(--teal);
-  stroke-width: 2.75;
+  /* A target area, not a highlight: no fill, and a faint dashed rule that shows where to put
+     the card without competing with it. */
+  fill: none;
+  stroke: rgba(255,255,255,0.55);
+  stroke-width: 1.5;
+  stroke-dasharray: 10 8;
   vector-effect: non-scaling-stroke;
   stroke-linejoin: round;
   animation: scn-card-outline 1.4s ease-in-out infinite;
@@ -8010,6 +8039,22 @@ body.glass-mode .deck-tab-pane .dlf-text:focus {
 
 .scn-scanned-panel.open {
   transform: translateY(0);
+}
+
+/* Glass remaps --bg2 to rgba(255,255,255,0.045), which left this sheet almost see-through
+   over live video. It is a floating overlay, so it takes the tier-D recipe like dropdowns
+   and toasts: near-opaque, blurred, with a specular top edge. */
+body.glass-mode .scn-scanned-panel {
+  background: rgba(17,23,42,0.97);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  backdrop-filter: blur(28px) saturate(180%);
+  border-top: 1px solid rgba(255,255,255,0.17);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 -18px 60px rgba(0,0,0,0.55);
+}
+[data-theme="light"] body.glass-mode .scn-scanned-panel {
+  background: rgba(252,253,255,0.97);
+  border-top: 1px solid rgba(255,255,255,0.75);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 -18px 60px rgba(30,50,90,0.22);
 }
 
 .scn-scanned-panel-head {
