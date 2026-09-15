@@ -3613,8 +3613,14 @@ async function _scnIdentifyFromQuad(hints, quad) {
     const comb = (Number(data?.distance) || 0) + (Number(data?.artDistance) || 0);
     const unconvincing = data && (!data.matched || (!data.titleMatched && comb > SCN_FP_VERIFY_COMB));
     if (unconvincing && _scnWorkerReady) {
+      // Read from the quad the hash actually preferred, not the first candidate. These are
+      // competing guesses at where the card is, and phase one just told us which one the
+      // index liked — reading the title off a different, worse rect is how a perfectly
+      // legible name ("Harbinger of the Seas") came back as seven lines of noise.
+      const wi = Number.isInteger(data.variantIndex) ? data.variantIndex : 0;
+      const ocrQuad = (kept[wi] && kept[wi]._quad) || kept[0]._quad || useQuad;
       let added = false;
-      for (const t of await _scnReadTitles(v, kept[0]._quad || useQuad)) {
+      for (const t of await _scnReadTitles(v, ocrQuad)) {
         if (!_scnFpTitleBuf.includes(t)) { _scnFpTitleBuf.push(t); added = true; }
       }
       while (_scnFpTitleBuf.length > SCN_FP_TITLE_BUF_MAX) _scnFpTitleBuf.shift();
