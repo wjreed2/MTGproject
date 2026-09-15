@@ -9101,6 +9101,7 @@ function _fpRowsForTitle(title) {
   const rows = [];
   const scoreByRow = new Map();
   const seqFracByRow = new Map(); // how much of the NAME the matched run actually covers
+  const covByRow = new Map();     // fraction of the name's tokens that were actually read
   // Margin over the best name of a DIFFERENT card. When two names tie — "…Teller of Tales"
   // fits both Nori and Chulane; "Fable Passage" fits both Fabled Passage and Honorable
   // Passage — the read has not actually identified anything, and letting a degraded hash
@@ -9116,10 +9117,11 @@ function _fpRowsForTitle(title) {
       rows.push(i);
       if (score > (scoreByRow.get(i) || 0)) scoreByRow.set(i, score);
       if (frac > (seqFracByRow.get(i) || 0)) seqFracByRow.set(i, frac);
+      if (s.coverage > (covByRow.get(i) || 0)) covByRow.set(i, s.coverage);
     }
     if (rows.length > 200) break; // bound the restricted scan
   }
-  return rows.length ? { rows, scoreByRow, seqFracByRow, bestScore, nameMargin } : null;
+  return rows.length ? { rows, scoreByRow, seqFracByRow, covByRow, bestScore, nameMargin } : null;
 }
 
 // The client sends several candidate reads of the title (polarities, band offsets); score
@@ -10219,8 +10221,15 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
       // "Vana'diel Adventurers" — a card absent from the index — matched only the trailing
       // word of "Undermountain Adventurer", and that was enough to waive the image entirely.
       const seqFrac = tBest ? (titleHit.seqFracByRow.get(tBest.i) || 0) : 0;
+      // Settled means either every word of the name was read, or the name clearly beat the
+      // next candidate. Requiring the margin alone blocked "Absorbing Man", whose every word
+      // WAS read but which ties with "Absorbing Man and Titania" — one name containing another
+      // is not the dangerous kind of tie. The dangerous kind ("...Teller of Tales" fitting both
+      // Nori and Chulane) leaves the distinguishing word unread, so coverage catches it.
+      const cov = tBest ? (titleHit.covByRow.get(tBest.i) || 0) : 0;
+      const settled = cov >= 0.999 || titleHit.nameMargin >= SCAN_TITLE_NAME_MARGIN;
       const gate = evidence >= SCAN_TITLE_DECISIVE && seqFrac >= SCAN_TITLE_DECISIVE_FRAC
-        && n <= 40 && titleHit.nameMargin >= SCAN_TITLE_NAME_MARGIN
+        && n <= 40 && settled
         ? Infinity
         : evidence >= SCAN_TITLE_DECISIVE && n <= 120 ? SCAN_TITLE_COMB_DECISIVE
         : n <= 12 ? SCAN_TITLE_COMB_MAX : n <= 60 ? 33 : SCAN_TITLE_COMB_FUZZY_MAX;

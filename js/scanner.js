@@ -2974,6 +2974,7 @@ let _scnFpInFlight = false;
 let _scnFpCooldownUntil = 0;
 let _scnFpAwaitingLeave = false;       // true after a queue: wait for the card to be removed/swapped
 let _scnFpLastAcceptedPhash = null;    // hex of the last queued card's full pHash
+let _scnFpLastAcceptedId = null;       // ...and which card that was, so dedupe needs both
 let _scnFpPendingMatch = null;         // {phash, card} matched once, awaiting a confirming 2nd read
 let _scnFpDimKey = '';                 // last seen "WxH" video dimensions (camera warm-up)
 let _scnFpDimStableAt = 0;             // when the current dimensions first held
@@ -3898,6 +3899,7 @@ function _scnFingerprintTick(v, now) {
     if (_scnFpAwaitingLeave && ++_scnFpEmptyTicks >= SCN_FP_LEAVE_TICKS) {
       _scnFpAwaitingLeave = false;
       _scnFpLastAcceptedPhash = null;
+      _scnFpLastAcceptedId = null;
       _scnFpEmptyTicks = 0;
     }
     return;
@@ -3953,7 +3955,12 @@ function _scnFingerprintTick(v, now) {
         const setNum = `${(r.best.set || '').toUpperCase()} · #${r.best.collector_number || ''}${da}`;
         // Lingering same card already added — ignore, but offer "+1" for extra copies in hand.
         _scnFpResetTitleBuf();
-        if (_scnFpLastAcceptedPhash && PhashCore.hamming(ph, _scnFpLastAcceptedPhash) <= SCN_FP_DEDUPE_HAMMING) {
+        // Same CARD still in the reticle — not merely a similar-looking capture. Comparing
+        // hashes alone silently swallowed correctly-identified cards: a degraded capture
+        // (combined 46) can land within six bits of the previous card's, and the add was
+        // dropped as a duplicate of a different card.
+        if (_scnFpLastAcceptedPhash && _scnFpLastAcceptedId === r.best.id
+          && PhashCore.hamming(ph, _scnFpLastAcceptedPhash) <= SCN_FP_DEDUPE_HAMMING) {
           if (_scnFpLastDiag) _scnFpLastDiag.outcome = 'already-added';
           _scnSetOverlay(r.best.name, `already added ✓${da}`, 'match');
           _scnShowPlusOne();
@@ -3973,6 +3980,7 @@ function _scnFingerprintTick(v, now) {
         }
         _scnFpPendingMatch = null;
         _scnFpLastAcceptedPhash = ph || null;
+        _scnFpLastAcceptedId = r.best.id;
         let staged = null;
         if (_scnStreamAdd) _scnFpStreamAdd(r.best); // sets _scnFpLastQueuedUid itself
         else staged = await _scnAutoStageAndResume(r.best); // queues + beeps
@@ -4078,6 +4086,7 @@ function _scnStartFingerprintScanning() {
   _scnFpAwaitingLeave = false;
   _scnFpPendingMatch = null;
   _scnFpLastAcceptedPhash = null;
+  _scnFpLastAcceptedId = null;
   _scnFpChooserPhash = null;
   _scnFpNoMatchStreak = 0;
   _scnFpResetTitleBuf();
