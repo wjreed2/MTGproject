@@ -790,13 +790,7 @@ function _scnArmMotionResume(onDone) {
     if (_scnFingerprintMode && _scnFpAwaitingLeave && ++leaveSample % SCN_MOTION_LEAVE_SAMPLE_EVERY === 0) {
       const g = _scnGuideQuad(v);
       if (g && _scnFpGuideSharpness(v, g) < SCN_FP_SHARP_MIN) {
-        if (++_scnFpEmptyTicks >= SCN_FP_LEAVE_TICKS) {
-          _scnFpAwaitingLeave = false;
-          _scnFpLastAcceptedPhash = null;
-          _scnFpLastAcceptedId = null;
-          _scnFpEmptyTicks = 0;
-          _scnFpResetTitleBuf();
-        }
+        if (++_scnFpEmptyTicks >= SCN_FP_LEAVE_TICKS) _scnFpForgetHandledCard();
       } else {
         _scnFpEmptyTicks = 0; // the reticle has to read empty on CONSECUTIVE samples
       }
@@ -810,6 +804,14 @@ function _scnArmMotionResume(onDone) {
         if (streak >= SCN_MOTION_STREAK_FRAMES) {
           document.getElementById('scnScanAgainBtn')?.classList.add('hidden');
           _scnStopMotionWatch();
+          // Motion here IS the swap. The scanner only waits in this loop because a result is
+          // on screen, and it only leaves because something moved — so the card that produced
+          // that result is gone, and the next one is new even if it is an identical second
+          // copy. Without this, two of the same card in a row could never both count: the
+          // reticle never reads empty during a swap fast enough to clear the gate any other
+          // way. The arm delay above is what keeps a hand still withdrawing from the card just
+          // identified from counting as the swap.
+          _scnFpForgetHandledCard();
           _scnStatus('');
           _scnResume();
           return;
@@ -3062,6 +3064,19 @@ let _scnFpTiltDeg = null;
 /** Last guide signature written to the overlay, so a static reticle isn't redrawn. */
 let _scnFpGuideSig = '';
 
+/**
+ * The handled card is gone — forget everything that was true of it, so whatever comes next is
+ * a new card even if it is the same card. Three copies of this drifted apart (the empty-frame
+ * branch had stopped clearing the id), so it lives in one place now.
+ */
+function _scnFpForgetHandledCard() {
+  _scnFpAwaitingLeave = false;
+  _scnFpLastAcceptedPhash = null;
+  _scnFpLastAcceptedId = null;
+  _scnFpEmptyTicks = 0;
+  _scnFpResetTitleBuf();
+}
+
 function _scnFpResetTitleBuf() {
   _scnFpTitleBuf = [];
   _scnFpTitleBufPhash = '';
@@ -3971,13 +3986,7 @@ function _scnFingerprintTick(v, now) {
   if (sharp < SCN_FP_SHARP_MIN) {
     // Empty/blurred reticle. Once the card has demonstrably left, re-arm dedupe so deliberately
     // re-presenting the same card queues another copy (playset flow).
-    if (_scnFpAwaitingLeave && ++_scnFpEmptyTicks >= SCN_FP_LEAVE_TICKS) {
-      _scnFpAwaitingLeave = false;
-      _scnFpLastAcceptedPhash = null;
-      _scnFpLastAcceptedId = null;
-      _scnFpEmptyTicks = 0;
-      _scnFpResetTitleBuf(); // the card is gone; so is anything read off it
-    }
+    if (_scnFpAwaitingLeave && ++_scnFpEmptyTicks >= SCN_FP_LEAVE_TICKS) _scnFpForgetHandledCard();
     return;
   }
   // NB: empty-tick counter resets only after a frame actually identifies (or here on blur
@@ -4007,11 +4016,7 @@ function _scnFingerprintTick(v, now) {
         // Sharp but featureless frame (table/hand/no card) — same "reticle is empty" signal
         // as the blur branch: never identify it, and let it re-arm the playset dedupe.
         _scnFpPendingMatch = null;
-        if (_scnFpAwaitingLeave && ++_scnFpEmptyTicks >= SCN_FP_LEAVE_TICKS) {
-          _scnFpAwaitingLeave = false;
-          _scnFpLastAcceptedPhash = null;
-          _scnFpEmptyTicks = 0;
-        }
+        if (_scnFpAwaitingLeave && ++_scnFpEmptyTicks >= SCN_FP_LEAVE_TICKS) _scnFpForgetHandledCard();
         _scnFpNoMatchStreak = 0; // an empty reticle is not a miss
         _scnFpResetTitleBuf();
         _scnSetOverlay('Point the camera at a card', '', 'hint');
