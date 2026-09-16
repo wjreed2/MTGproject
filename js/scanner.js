@@ -1055,7 +1055,6 @@ function _scnClearOverlay() {
   const wrap = document.getElementById('scnMatchOverlay');
   const p = document.getElementById('scnMatchPrimary');
   const s = document.getElementById('scnMatchSub');
-  _scnHidePlusOne();
   if (typeof _scnHideAddClosest === 'function') _scnHideAddClosest();
   if (wrap) {
     wrap.classList.add('hidden');
@@ -2833,7 +2832,6 @@ function _scnSetOverlay(primary, sub, mode) {
   }
   // Every overlay change retires a pending "+ Add this" (the no-match branch re-shows it).
   if (typeof _scnHideAddClosest === 'function') _scnHideAddClosest();
-  _scnHidePlusOne(); // callers that want "+1" re-show it right after
   wrap.classList.remove('hidden');
   wrap.classList.toggle('scn-match-overlay--accent', mode === 'match');
   pEl.textContent = primary || '';
@@ -2998,7 +2996,6 @@ let _scnFpDimStableAt = 0;             // when the current dimensions first held
 let _scnFpLru = [];                    // [{phash, card}] recent matches → skip the network round-trip
 let _scnFpSharpRing = [];              // rolling sharpness of recent capture-eligible frames
 let _scnFpEmptyTicks = 0;              // consecutive below-sharpness ticks (card-left detection)
-let _scnFpLastQueuedUid = null;        // uid the overlay "+1" button increments
 let _scnFpChooserPhash = null;         // capture hash that opened the candidate chooser
 let _scnFpNoMatchStreak = 0;           // consecutive no-match captures (→ hold + manual search)
 /** Consecutive misses before the scanner stops hammering and waits for a card swap. */
@@ -3307,10 +3304,8 @@ async function scnAddClosest() {
   if (_scnStreamAdd) _scnFpStreamAdd(cand.card);
   else staged = await _scnAutoStageAndResume(cand.card);
   if (!_scnStreamAdd && !staged) _scnAdd(cand.card); // Auto off — straight to collection
-  if (staged?.uid) _scnFpLastQueuedUid = staged.uid;
   const setNum = `${(cand.card.set || '').toUpperCase()} · #${cand.card.collector_number || ''}`;
   _scnSetOverlay(cand.card.name, setNum, 'match');
-  if (_scnStreamAdd || staged) _scnShowPlusOne();
   _scnFpHoldForNextCard('Queued — swap in the next card…');
 }
 
@@ -3792,49 +3787,8 @@ function _scnFpStreamAdd(card) {
   }
   save('collection');
   renderCollection(); // runs updateStats itself
-  _scnFpLastQueuedUid = entry.uid;
   _scnSession.push(entry);
   _scnRenderSession();
-  _scnPlayScanBeep();
-  if (navigator.vibrate) navigator.vibrate(80);
-}
-
-// ── Overlay "+1" (playset flow) ───────────────────────────────────────────────
-// Shown while a just-added/queued card's overlay is up; taps bump that card's quantity without
-// re-scanning. Hidden automatically whenever the overlay changes to a different state.
-
-function _scnShowPlusOne() {
-  if (!_scnFpLastQueuedUid) return;
-  document.getElementById('scnPlusOneBtn')?.classList.remove('hidden');
-}
-
-function _scnHidePlusOne() {
-  document.getElementById('scnPlusOneBtn')?.classList.add('hidden');
-}
-
-function scnMatchPlusOne() {
-  const uid = _scnFpLastQueuedUid;
-  if (!uid) return;
-  if (_scnStreamAdd) {
-    const existing = collection.find(c => c.uid === uid);
-    if (!existing) { _scnHidePlusOne(); return; }
-    if (typeof applyCollectionQtyAdd === 'function') applyCollectionQtyAdd(existing, existing, 1, {});
-    else {
-      existing.qty += 1;
-      existing.addedAt = Date.now();
-      recordCollectionEvent('add', existing, 1);
-    }
-    save('collection');
-    renderCollection(); // runs updateStats itself
-    _scnSetOverlay(existing.name, `×${existing.qty} in collection`, 'match');
-  } else {
-    const e = _scnPendingAuto.find(x => x.uid === uid);
-    if (!e) { _scnHidePlusOne(); return; } // queue was committed/cleared since
-    e.qty = (e.qty || 1) + 1;
-    _scnRenderSession();
-    _scnSetOverlay(e.name, `×${e.qty} queued`, 'match');
-  }
-  _scnShowPlusOne();
   _scnPlayScanBeep();
   if (navigator.vibrate) navigator.vibrate(80);
 }
@@ -3986,7 +3940,6 @@ function _scnFingerprintTick(v, now) {
           && PhashCore.hamming(ph, _scnFpLastAcceptedPhash) <= SCN_FP_DEDUPE_HAMMING) {
           if (_scnFpLastDiag) _scnFpLastDiag.outcome = 'already-added';
           _scnSetOverlay(r.best.name, `already added ✓${da}`, 'match');
-          _scnShowPlusOne();
           _scnFpHoldForNextCard('Swap in the next card…');
           _scnFpCooldownUntil = performance.now() + 450;
           return;
@@ -4005,13 +3958,11 @@ function _scnFingerprintTick(v, now) {
         _scnFpLastAcceptedPhash = ph || null;
         _scnFpLastAcceptedId = r.best.id;
         let staged = null;
-        if (_scnStreamAdd) _scnFpStreamAdd(r.best); // sets _scnFpLastQueuedUid itself
+        if (_scnStreamAdd) _scnFpStreamAdd(r.best);
         else staged = await _scnAutoStageAndResume(r.best); // queues + beeps
-        if (staged?.uid) _scnFpLastQueuedUid = staged.uid;
         if (staged && !staged.queued) {
           // Lingering re-read past the hash dedupe (new angle) — nothing new was queued.
           _scnSetOverlay(r.best.name, `already queued ✓${da}`, 'match');
-          _scnShowPlusOne();
           _scnFpHoldForNextCard('Swap in the next card…');
           _scnFpCooldownUntil = performance.now() + 700;
           return;
@@ -4019,7 +3970,6 @@ function _scnFingerprintTick(v, now) {
         const qtyTag = staged && staged.qty > 1 ? `×${staged.qty} · ` : '';
         if (_scnFpLastDiag) _scnFpLastDiag.outcome = 'queued';
         _scnSetOverlay(r.best.name, qtyTag + setNum, 'match'); // overrides "Queued"
-        if (_scnStreamAdd || staged) _scnShowPlusOne();
         // Result is on screen — hold until the next card comes in instead of re-reading this one.
         _scnFpHoldForNextCard('Queued — swap in the next card…');
         _scnFpCooldownUntil = performance.now() + 700;
@@ -4119,8 +4069,6 @@ function _scnStartFingerprintScanning() {
   _scnFpCooldownUntil = 0;
   _scnFpSharpRing = [];
   _scnFpEmptyTicks = 0;
-  _scnFpLastQueuedUid = null;
-  _scnHidePlusOne();
   _scnHideAddClosest();
   _scnLastBoundsMs = 0;
   _scnBoundsMiss = 0;
@@ -5586,7 +5534,6 @@ function _scnAdd(scryfallCard) {
     _scnFpLastAcceptedPhash = _scnFpChooserPhash;
     _scnFpAwaitingLeave = true;
     _scnFpChooserPhash = null;
-    _scnFpLastQueuedUid = entry.uid; // "+1" works for chooser picks too
   }
   _scnResume();
 }
