@@ -5557,7 +5557,7 @@ function scnAddPendingToCollection() {
     return;
   }
   const n = _scnPendingAuto.length;
-  const opt = typeof readPurchasePriceOptIn === 'function' ? readPurchasePriceOptIn('scnPurchase') : { price: null, manual: false };
+  const opt = { price: null, manual: false }; // no purchase-price opt-in in the scanner
   for (const entry of _scnPendingAuto) {
     const existing = collection.find(c => c.uid === entry.uid);
     const qty = entry.qty || 1;

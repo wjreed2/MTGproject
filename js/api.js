@@ -912,7 +912,6 @@ function mountPurchasePriceOptInHosts() {
   const pairs = [
     ['findPurchaseHost', 'findPurchase'],
     ['wlPurchaseHost', 'wlPurchase'],
-    ['scnPurchaseHost', 'scnPurchase'],
   ];
   for (const [hostId, prefix] of pairs) {
     const host = document.getElementById(hostId);
