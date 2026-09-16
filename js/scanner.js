@@ -15,12 +15,17 @@ const SCN_DEBUG_INTER_SCAN_PAUSE_MS = 200;
  * bought nothing but battery. ~7 Hz still reacts to a card arriving well inside one cooldown.
  */
 const SCN_BOUNDS_MIN_MS = 150;
-/** After Auto queue: mean abs luma delta (0–255) on downscaled frames; motion if this OR strong-pixel rule fires. */
-const SCN_MOTION_MEAN_DELTA_THRESH = 5.2;
+/**
+ * After Auto queue: mean abs luma delta (0–255) on downscaled frames; motion if this OR the
+ * strong-pixel rule fires. Both amounts raised ~8% from 5.2 / 0.0035: a hand settling over a
+ * card that is already handled was clearing the old bar, which resumed capture and re-read the
+ * same card. It takes a card actually moving to resume now.
+ */
+const SCN_MOTION_MEAN_DELTA_THRESH = 5.6;
 /** Count pixels with |Δ| ≥ this as “strong” (catches localized movement that barely moves the mean). */
 const SCN_MOTION_PIXEL_DIFF_STRONG = 18;
 /** Min share of strong pixels (0–1) to count as motion when mean is below threshold. */
-const SCN_MOTION_STRONG_PIXEL_FRAC = 0.0035;
+const SCN_MOTION_STRONG_PIXEL_FRAC = 0.0038;
 /** Width in px of the motion-detection thumb (height follows video aspect). */
 const SCN_MOTION_SAMPLE_W = 128;
 /** Ignore motion for this long after a queue (lets exposure/UI settle). */
@@ -5582,6 +5587,10 @@ function scnAddPendingToCollection() {
 
 function _scnAdd(scryfallCard) {
   const entry = cardToEntry(scryfallCard, 1);
+  // Foil mode is sticky across a batch, so it has to apply on EVERY add path. This one was
+  // missing it, which meant "+ Add this" and chooser picks filed non-foil copies in the
+  // middle of a foil stack — silently, since nothing on the confirmation says which it was.
+  if (_scnFoilMode) { entry.foil = true; entry.uid = scryfallCard.id + '_f'; }
   const existing = collection.find(c => c.uid === entry.uid);
   if (typeof applyCollectionQtyAdd === 'function') {
     if (existing) applyCollectionQtyAdd(existing, existing, 1, {});
