@@ -2966,7 +2966,7 @@ const SCN_FP_WARP_W = PhashCore.CARD_W;
 const SCN_FP_WARP_H = PhashCore.CARD_H;
 const SCN_FP_COOLDOWN_MS = 500;        // min gap between captures
 const SCN_FP_SHARP_MIN = 8;            // Laplacian variance of the guide region — reject blur/empty
-const SCN_FP_GUIDE_FILL = 0.9;         // guide frame fills this fraction of the limiting dimension
+const SCN_FP_GUIDE_FILL = 0.94;         // guide frame fills this fraction of the limiting dimension
 const SCN_FP_LRU_MAX = 24;
 const SCN_FP_LRU_HAMMING = 6;          // reuse a recent match without a round-trip within this distance
 const SCN_FP_DEDUPE_HAMMING = 6;       // don't re-queue the same card while it lingers in frame
@@ -3184,7 +3184,33 @@ function _scnParseFooterHints(text) {
   return set || collector ? { set, collector } : null;
 }
 
+/** Below this share of the guide, the localised rect may be cropping inside the card. */
+const SCN_FP_GUIDE_COVER_MIN = 0.85;
+
+/** How much of the guide the localised card rect spans, smaller axis first. 1 = the guide. */
+function _scnQuadGuideCover(v, cardQuad) {
+  const cb = _scnQuadAxisBBox(cardQuad), gb = _scnQuadAxisBBox(_scnGuideQuad(v));
+  if (!cb || !gb || !gb.nw || !gb.nh) return 1;
+  return Math.min(cb.nw / gb.nw, cb.nh / gb.nh);
+}
+
+/**
+ * Footer hints, with the same guide fallback the title read uses: a rect that lands inside
+ * the card puts the footer band over rules text, which is where the bogus "collector 1" on
+ * both 2026-09-16 failures came from. The guide read is only TRUSTED when it recovers a set
+ * code — a real footer line reads "SOS EN <artist>", whereas a band that overshot a genuinely
+ * small card and sampled the tray yields stray digits and no code. That matters because the
+ * footer is what pins the printing, so a junk hint picks the wrong one outright.
+ */
 async function _scnReadFooter(v, cardQuad) {
+  const own = await _scnFooterHintsForQuad(v, cardQuad);
+  if (own && own.set) return own;
+  if (_scnQuadGuideCover(v, cardQuad) >= SCN_FP_GUIDE_COVER_MIN) return own;
+  const viaGuide = await _scnFooterHintsForQuad(v, _scnGuideQuad(v));
+  return viaGuide && viaGuide.set ? viaGuide : own;
+}
+
+async function _scnFooterHintsForQuad(v, cardQuad) {
   if (!v?.videoWidth || !_scnWorkerReady || !_scnNameWorker) return null;
   try {
     const bb = _scnQuadAxisBBox(cardQuad);
@@ -3272,6 +3298,22 @@ async function _scnReadTitles(v, cardQuad) {
       // means the region caught rules text (Sagas), and the title strip still has to run.
       const got = out.length ? alpha(out[out.length - 1]) : 0;
       if (got >= 16 && got <= 40) break;
+    }
+    // The band above is anchored on the LOCALISED card rect, so a rect that lands inside the
+    // card puts the band below the real title and every pass reads art instead of a name.
+    // Both no-match failures in the 2026-09-16 round were exactly that (one read no name at
+    // all, the other lost the first word). When the rect is materially smaller than the guide
+    // — the only case where the two bands differ — spend one more read anchored on the guide.
+    if (_scnQuadGuideCover(v, cardQuad) < SCN_FP_GUIDE_COVER_MIN && performance.now() <= deadline) {
+      const url = _scnTitleBandUrl(v, _scnGuideQuad(v), { invert: inv });
+      if (url) {
+        const rec = await Promise.race([
+          _scnNameWorker.recognize(url),
+          new Promise(res => setTimeout(() => res(null), Math.max(300, deadline - performance.now()))),
+        ]);
+        const text = rec?.data?.text ? String(rec.data.text).replace(/\s+/g, ' ').trim() : '';
+        if (alpha(text) >= 4 && !out.includes(text)) out.push(text.slice(0, 240));
+      }
     }
   } catch (_) { /* fall through — hash-only identify */ }
   return out;
@@ -3807,6 +3849,7 @@ function _scnGuideQuad(v) {
   const vw = v.videoWidth, vh = v.videoHeight;
   if (!vw || !vh) return null;
   const AR = 63 / 88; // card width / height
+  const SCN_FP_GUIDE_DROP = 0.03; // frame-height fraction the reticle sits below centre
 
   // The reticle is sized to the CAMERA FRAME, not to the on-screen gap between the bars.
   // Those are not the same thing once the video fills the sheet, and the difference is not
@@ -3819,7 +3862,12 @@ function _scnGuideQuad(v) {
     wN = SCN_FP_GUIDE_FILL;
     hN = (wN * vw) / (AR * vh);
   }
-  const x0 = (1 - wN) / 2, y0 = (1 - hN) / 2, x1 = x0 + wN, y1 = y0 + hN;
+  // Biased DOWN, not centred. Measured on the saved warps from the fixed stand: the card
+  // lands ~5% of the guide height below centre, leaving a 12% gap at the top and none at the
+  // bottom — so the printed footer, the one thing that pins an exact printing, sat on or past
+  // the guide's edge. Clamped so the reticle can never run off the frame.
+  const x0 = (1 - wN) / 2, x1 = x0 + wN;
+  const y0 = Math.max(0, Math.min(1 - hN, (1 - hN) / 2 + SCN_FP_GUIDE_DROP)), y1 = y0 + hN;
   return { tl: { nx: x0, ny: y0 }, tr: { nx: x1, ny: y0 }, br: { nx: x1, ny: y1 }, bl: { nx: x0, ny: y1 } };
 }
 
