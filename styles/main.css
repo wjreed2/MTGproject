@@ -1108,7 +1108,12 @@ main > [data-data-disclosure] { margin-top: auto; }
 .deck-tab-pane {
   display: none;
   background: var(--bg2);
+  /* No top border, for the reason the glass skin gives below: the open tab is
+     meant to hide it but is translucent, so the line tints straight through and
+     reads as a rule drawn across the tabs. The surface change carries the top
+     edge where no tab covers it. */
   border: 1px solid var(--border2);
+  border-top: none;
   /* Square top-left: on a manila folder the left edge and the tab's left edge
      are one continuous line, so only the other three corners round off. */
   border-radius: 0 var(--deck-pane-radius) var(--deck-pane-radius) var(--deck-pane-radius);
@@ -2208,10 +2213,16 @@ body.glass-mode .glass-menu-item { font-family: var(--glass-font); }
   max-width: 96vw;
 }
 #voiceModal .voice-folder-tabs {
-  margin-bottom: -1px; /* active tab opens into the popup */
+  /* Meeting, not overlapping — the deck tabs learned this: two translucent
+     surfaces laid over each other stack into a brighter band exactly where the
+     joint is meant to disappear. */
+  margin-bottom: 0;
   position: relative;
   z-index: 2;
 }
+/* And the popup drops its top border for the same reason the tab pages drop
+   theirs, so the active tab opens into it instead of onto a rule. */
+#voiceModal .voice-modal { border-top: none; }
 /* The Scan tab is phone-only: it hands off to the camera scanner, which is built around a
    rear camera filling a card-shaped reticle — pointless on a desktop webcam. Same ≤768px
    line every other mobile-only affordance uses. */
@@ -2231,20 +2242,38 @@ body.glass-mode #voiceModal .voice-modal {
      under the (translucent) active tab. The tab strip carries that edge now. */
   box-shadow: 0 28px 90px rgba(0,0,0,0.6);
 }
-/* Deck-page tabs sit over the wallpaper, where a 3.5% white fill reads fine. Over this
-   modal's dark backdrop the same fill reads as near-black, so the inactive tabs need more
-   light to look like the tabs everywhere else. */
+/* Deck-page tabs are a 3.5% white film over the wallpaper. Here the backdrop is
+   the modal's scrim, where that film reads as near-black — so the film goes over
+   the popup's own colour instead, which keeps the same relationship to the
+   surface the tab opens into. Raising the film to 12% instead, as this used to,
+   turned the inactive tabs into grey slabs that matched nothing.
+   The blur comes with it: without it the tabs tucked behind show both of their
+   crossing slants rather than melting into one edge. */
 body.glass-mode #voiceModal .deck-ftab::before {
-  background: rgba(255,255,255,0.12);
-  border-color: rgba(255,255,255,0.18);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.035)),
+    rgba(34,44,74,0.72);
+  border-color: rgba(255,255,255,0.10);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.10);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
 }
 body.glass-mode #voiceModal .deck-ftab:hover::before {
-  background: rgba(255,255,255,0.17);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.075), rgba(255,255,255,0.075)),
+    rgba(34,44,74,0.78);
 }
 [data-theme="light"] body.glass-mode #voiceModal .deck-ftab::before {
-  background: rgba(255,255,255,0.55);
-  border-color: rgba(255,255,255,0.7);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.32), rgba(255,255,255,0.32)),
+    rgba(240,245,255,0.82);
+  border-color: rgba(255,255,255,0.55);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.6);
+}
+[data-theme="light"] body.glass-mode #voiceModal .deck-ftab:hover::before {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.48), rgba(255,255,255,0.48)),
+    rgba(246,249,255,0.9);
 }
 body.glass-mode #voiceModal .deck-ftab.active::before {
   background:
@@ -2252,6 +2281,9 @@ body.glass-mode #voiceModal .deck-ftab.active::before {
     rgba(34,44,74,0.92); /* = the popup's top colour */
   border-color: rgba(255,255,255,0.16);
   border-bottom: none;
+  /* Top highlight only, like the deck tabs: an all-round inset lights the
+     bottom edge too, right on the joint. */
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.2);
   -webkit-backdrop-filter: blur(30px) saturate(180%);
   backdrop-filter: blur(30px) saturate(180%);
 }
@@ -2267,6 +2299,7 @@ body.glass-mode #voiceModal .deck-ftab.active::before {
     rgba(255,255,255,0.95);
   border-color: rgba(255,255,255,0.85);
   border-bottom: none;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9);
 }
 
 /* Destination controls — deck-list-toolbar pill look. The #voiceModal prefix is
@@ -11510,7 +11543,11 @@ body.glass-mode .empty-state h2 {
       rgba(255,255,255,0.62) 0%,
       rgba(255,255,255,0.48) 180px,
       rgba(255,255,255,0.48) 100%);
+  /* Same as the dark rule above — the shorthand had been putting the top
+     border back, and on a light surface a white 1px line is the most visible
+     version of it. */
   border: 1px solid rgba(255,255,255,0.7);
+  border-top: none;
   box-shadow: 0 8px 28px rgba(30,50,90,0.14);
 }
 [data-theme="light"] body.glass-mode .deck-tab-pane .panel {
