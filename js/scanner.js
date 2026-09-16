@@ -32,6 +32,8 @@ const SCN_MOTION_SAMPLE_W = 128;
 const SCN_MOTION_ARM_DELAY_MS = 380;
 /** Consecutive motion frames required (1 = most sensitive; raise if auto-resumes on noise). */
 const SCN_MOTION_STREAK_FRAMES = 3;
+/** Run the card-left check on one motion sample in N (~34ms each) — 5 is ~6/s. */
+const SCN_MOTION_LEAVE_SAMPLE_EVERY = 5;
 /** If nothing moves for this long, resume scanning anyway (avoid getting stuck). */
 const SCN_MOTION_GIVEUP_MS = 12000;
 /** Min ms between motion samples (limits `getImageData` cost; ~30/s). */
@@ -745,6 +747,7 @@ function _scnArmMotionResume(onDone) {
   const armAt = performance.now();
   let streak = 0;
   let lastSampleAt = 0;
+  let leaveSample = 0;
 
   function tick() {
     if (!_scnMotionWatchOn) return;
@@ -777,6 +780,26 @@ function _scnArmMotionResume(onDone) {
       _scnStatus('');
       _scnResume();
       return;
+    }
+    // Card-left detection has to run HERE. It lived only in the capture tick, which is stopped
+    // for the whole of this wait — so during a swap nothing ever checked whether the card had
+    // gone, _scnFpAwaitingLeave stayed true from the first accept onwards, and the queue's
+    // duplicate branch could never count a second copy. That is why the same card five or six
+    // cards later was declined instead of added. Same detector, same threshold, sampled at a
+    // fraction of the motion rate so the wait stays cheap.
+    if (_scnFingerprintMode && _scnFpAwaitingLeave && ++leaveSample % SCN_MOTION_LEAVE_SAMPLE_EVERY === 0) {
+      const g = _scnGuideQuad(v);
+      if (g && _scnFpGuideSharpness(v, g) < SCN_FP_SHARP_MIN) {
+        if (++_scnFpEmptyTicks >= SCN_FP_LEAVE_TICKS) {
+          _scnFpAwaitingLeave = false;
+          _scnFpLastAcceptedPhash = null;
+          _scnFpLastAcceptedId = null;
+          _scnFpEmptyTicks = 0;
+          _scnFpResetTitleBuf();
+        }
+      } else {
+        _scnFpEmptyTicks = 0; // the reticle has to read empty on CONSECUTIVE samples
+      }
     }
     _scnMotionFrameBuf.push(new Uint8Array(gray));
     if (_scnMotionFrameBuf.length > 3) _scnMotionFrameBuf.shift();
