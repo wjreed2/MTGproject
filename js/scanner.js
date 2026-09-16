@@ -5005,9 +5005,20 @@ async function _scnAutoStageAndResume(card) {
     if (_scnFoilMode) { entry.foil = true; entry.uid = card.id + '_f'; }
     const dup = _scnPendingAuto.find(e => e.scryfallId === entry.scryfallId && !!e.foil === !!entry.foil);
     if (dup) {
-      // Fingerprint mode: a re-read after the card demonstrably left the reticle is a deliberate
-      // "add another copy" — bump the queued qty. A still-lingering card stays a no-op.
-      if (_scnFingerprintMode && !_scnFpAwaitingLeave) {
+      // Is this the card still sitting in the reticle, or a second copy presented later?
+      //
+      // This used to ask _scnFpAwaitingLeave, a flag cleared only by watching the reticle go
+      // empty — and that watch loses a race it can't win: motion ends the post-scan wait after
+      // ~100ms, while three consecutive empty samples take ~510ms, so a normal swap resumes
+      // long before emptiness is ever confirmed. The flag therefore stayed true from the first
+      // accept for the rest of the session, and every repeat in the stack was declined.
+      //
+      // Ask the question directly instead. Only the LAST accepted card can still be lying in
+      // the reticle; any other card in the queue must have been swapped out and brought back,
+      // because cards in between were identified in its place. So a lingering re-read is still
+      // a no-op, and a genuine second copy counts.
+      const lingering = _scnFpAwaitingLeave && _scnFpLastAcceptedId === card.id;
+      if (_scnFingerprintMode && !lingering) {
         dup.qty = (dup.qty || 1) + 1;
         _scnRenderSession();
         _scnPlayScanBeep();
