@@ -9238,20 +9238,33 @@ function _fpPickByHint(rows, hintSet, hintNum) {
   if (!hintSet && !hintNum) return null;
   let exact = null;
   const setOnly = [];
+  const numOnly = [];
   for (const i of rows) {
     const m = _fpIndex.meta[i];
     const setOk = hintSet && String(m.set_code).toLowerCase() === hintSet;
     const numOk = hintNum && String(m.collector_number).toLowerCase() === hintNum;
     if (setOk && numOk) { exact = i; break; }
     if (setOk) setOnly.push(i);
+    // A one-character number is the junk case: a stray digit off rules text reads as "1"
+    // (both 2026-09-16 failures did exactly that). A wrong printing added silently costs more
+    // than falling back to the hash, so single digits only count alongside a set code.
+    if (numOk && hintNum.length >= 2) numOnly.push(i);
   }
-  // Both fields agreeing names one printing. A set code alone is only decisive when the name
-  // has exactly one printing in that set — otherwise a misread collector number would pick
-  // arbitrarily among siblings, and a bare collector number never decides anything (the same
-  // number exists in every set).
+  // Both fields agreeing names one printing. Either field ALONE decides when it lands on
+  // exactly one of these rows — and it usually does, because both callers pass the printings
+  // of a single card, not the whole index. That matters most for the treatments the hash
+  // cannot rank (full art, showcase, foil): the collector number is printed large and reads
+  // cleanly, while the set code shares a tiny grey line with the language and the artist.
   if (exact != null) return exact;
-  return setOnly.length === 1 ? setOnly[0] : null;
+  if (setOnly.length === 1) return setOnly[0];
+  return numOnly.length === 1 ? numOnly[0] : null;
 }
+
+// Beyond this combined distance the hash is not ranking a card's printings, it is guessing.
+// Measured on saved captures: a full-art/showcase/foil capture lands 50-70 combined from its
+// OWN index row, while Monstrous Rage's Marvel full art sits 58-72 from its three siblings —
+// the noise is wider than the spread, so the nearest printing is a coin flip.
+const SCAN_PRINTING_HASH_TRUST = 30;
 
 // How many OTHER printings of this card share its artwork? These are the printings no image
 // hash can separate at any resolution, so a non-zero count is the client's cue to read the
@@ -10238,6 +10251,13 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
         // cannot do for same-art reprints at any resolution.
         const hinted = _fpPickByHint(titleHit.rows, hintSet, hintNum);
         if (hinted != null) tBest = { ...tBest, i: hinted };
+        // The title settled the NAME. Nothing has settled the PRINTING unless the footer did:
+        // past the trust distance, same-art siblings are not the only rivals — every printing
+        // of the name is one, so ask the client for a footer rather than banking the guess.
+        const printingRivals = hinted != null ? 0
+          : _fpPrintingRivals(tBest.i) || (tBest.comb > SCAN_PRINTING_HASH_TRUST
+            ? Math.max(0, (_fpEnsureNameIndex().rowsByName.get(_fpNormName(_fpIndex.meta[tBest.i].name)) || []).length - 1)
+            : 0);
         const cards = await _fingerprintCardsFor([_fpIndex.meta[tBest.i]]);
         if (cards[0]) {
           cards[0]._scanDistance = tBest.dist;
@@ -10247,7 +10267,7 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
           ok: true, matched: true, ambiguous: false, titleMatched: true,
           variantIndex: tBest.variant.idx,
           distance: tBest.dist, artDistance: tBest.artDist,
-          printingRivals: hinted != null ? 0 : _fpPrintingRivals(tBest.i),
+          printingRivals,
           best: cards[0] || null, candidates: cards,
         });
       }
