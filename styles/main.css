@@ -7588,6 +7588,11 @@ body.glass-mode .scn-fs-top-actions .btn {
   vertical-align: middle;
 }
 
+/* The camera frame is shown whole (object-fit: contain), so unless the sensor's aspect
+   happens to match the stage there is leftover space beside or above it. Painted black that
+   reads as broken video; painted the app's own ground it reads as the frame sitting on the
+   page, which is what it is. Cropping to fill instead would put the card's printed footer
+   back outside the capture, and the footer is what pins an exact printing. */
 .scn-fs-stage {
   position: absolute;
   /* Stops above the bottom bar, not behind it. The bar is opaque, so frame hidden under it is
@@ -7596,13 +7601,13 @@ body.glass-mode .scn-fs-top-actions .btn {
      still floats over the frame because it's transparent. */
   inset: 0 0 var(--scn-bar-h, 0px) 0;
   z-index: 0;
-  background: #000;
+  background: var(--bg);
 }
 
 .scn-camera-wrap {
   position: absolute;
   inset: 0;
-  background: #000;
+  background: var(--bg);
   overflow: hidden;
 }
 

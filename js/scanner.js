@@ -3357,7 +3357,15 @@ async function scnAddClosest() {
  * new angles and re-announcing it. The match overlay stays up through the hold; motion clears
  * it and resumes via _scnResume. The 12s give-up shows the Scan Again button.
  */
-function _scnFpHoldForNextCard(statusMsg) {
+function _scnFpHoldForNextCard(statusMsg, { keepTitles = false } = {}) {
+  // This card is done, so its OCR reads are done with it. They used to survive: the title
+  // buffer only cleared when a new capture's hash differed by more than 14 bits, which is
+  // inside the noise floor where unrelated cards routinely land, so a clean read of the
+  // FINISHED card kept outscoring the garbage read of the new one — and the title path, which
+  // overrides the hash by design, re-queued the old card several cards later (seen live: Nori
+  // re-entered about four cards on, over a card nothing else matched). A no-match hold keeps
+  // them: that card is still in the reticle and its reads are still accumulating.
+  if (!keepTitles) _scnFpResetTitleBuf();
   _scnArmMotionResume(() => {});
   if (statusMsg) _scnStatus(statusMsg);
 }
@@ -3926,6 +3934,7 @@ function _scnFingerprintTick(v, now) {
       _scnFpLastAcceptedPhash = null;
       _scnFpLastAcceptedId = null;
       _scnFpEmptyTicks = 0;
+      _scnFpResetTitleBuf(); // the card is gone; so is anything read off it
     }
     return;
   }
@@ -4041,7 +4050,7 @@ function _scnFingerprintTick(v, now) {
         if (++_scnFpNoMatchStreak >= SCN_FP_NOMATCH_HOLD_AFTER) {
           _scnFpNoMatchStreak = 0;
           document.querySelector('.scn-manual-details')?.setAttribute('open', '');
-          _scnFpHoldForNextCard('No match — reposition the card, or type its name below');
+          _scnFpHoldForNextCard('No match — reposition the card, or type its name below', { keepTitles: true });
         }
         _scnFpCooldownUntil = performance.now() + 450;
       }
@@ -4967,7 +4976,6 @@ async function _scnAutoStageAndResume(card) {
         return { queued: true, qty: dup.qty, uid: dup.uid };
       }
       _scnStatus('Already queued');
-      _scnClearOverlay();
       if (_scnFingerprintMode) {
         _scnFpAwaitingLeave = true;
         _scnFpCooldownUntil = performance.now() + SCN_FP_COOLDOWN_MS;
@@ -4986,7 +4994,9 @@ async function _scnAutoStageAndResume(card) {
     _scnPlayScanBeep();
     if (navigator.vibrate) navigator.vibrate(80);
     document.getElementById('scnCandidates')?.classList.add('hidden');
-    _scnClearOverlay();
+    // NB: no _scnClearOverlay() here. The caller sets the match panel immediately after, so
+    // clearing first only blinked it off and on — which reads as a flash, not as a result.
+    // _scnResume() clears it when scanning actually starts again, which is the honest signal.
     if (_scnFingerprintMode) {
       // No motion-wait: keep scanning, debounce on card identity until this card leaves the frame.
       _scnSetOverlay(card.name, `${(card.set || '').toUpperCase()} · #${card.collector_number || ''}`, 'match');
@@ -5591,7 +5601,13 @@ function _scnRenderSession() {
   const badge = document.getElementById('scnSessionCount');
   const nPend = _scnPendingAuto.length;
   const nSess = _scnSession.length;
-  if (badge) badge.textContent = String(nPend + nSess);
+  // CARDS, not rows. A second copy of a card bumps an existing row's qty instead of adding a
+  // row, so a row count reads one short of the stack for every duplicate — and the stack is
+  // exactly what this number gets compared against.
+  const qty = e => Math.max(1, Number(e && e.qty) || 1);
+  const nCards = _scnPendingAuto.reduce((s, e) => s + qty(e), 0)
+    + _scnSession.reduce((s, e) => s + qty(e), 0);
+  if (badge) badge.textContent = String(nCards);
   if (!el) return;
   if (!nPend && !nSess) {
     el.innerHTML =
