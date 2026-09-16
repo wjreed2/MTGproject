@@ -4055,10 +4055,14 @@ function _scnFingerprintTick(v, now) {
         }
         _scnFpPendingMatch = null;
         _scnFpLastAcceptedPhash = ph || null;
-        _scnFpLastAcceptedId = r.best.id;
         let staged = null;
         if (_scnStreamAdd) _scnFpStreamAdd(r.best);
         else staged = await _scnAutoStageAndResume(r.best); // queues + beeps
+        // AFTER staging, not before. Staging asks whether this card is the one still lying in
+        // the reticle by comparing it against the last accepted id — stamping that id with the
+        // current card first made the comparison self-referential, always true, so every repeat
+        // was read as a lingering card and declined no matter how many cards had gone between.
+        _scnFpLastAcceptedId = r.best.id;
         if (staged && !staged.queued) {
           // Lingering re-read past the hash dedupe (new angle) — nothing new was queued.
           _scnSetOverlay(r.best.name, `already scanned — not added${da}`, 'dupe');
