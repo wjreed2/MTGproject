@@ -3021,6 +3021,21 @@ let _scnFpAwaitingLeave = false;       // true after a queue: wait for the card 
 let _scnFpLastAcceptedPhash = null;    // hex of the last queued card's full pHash
 let _scnFpLastAcceptedId = null;       // ...and which card that was, so dedupe needs both
 let _scnFpPendingMatch = null;         // {phash, card} matched once, awaiting a confirming 2nd read
+/**
+ * Answers for the card CURRENTLY in the reticle: [{phash, artPhash, result}]. Scoped to one
+ * card's presentation and dropped the moment the scanner is done with it, which is what makes
+ * it safe — the old 24-card version kept answering for cards that had long since been put
+ * away, and at 6 bits of full hash that is the noise floor. Here the only thing a capture can
+ * collide with is the card it is actually looking at.
+ */
+let _scnFpCardCache = [];
+const SCN_FP_CACHE_MAX = 3;
+/**
+ * Combined full+art distance to reuse an answer. Deliberately no looser than the confirmation
+ * step's own window (SCN_FP_DEDUPE_HAMMING on the full hash alone): combined ≤ 6 implies full
+ * ≤ 6, so the cache can only ever skip re-proving a match the normal path would have accepted.
+ */
+const SCN_FP_CACHE_COMB = 6;
 let _scnFpDimKey = '';                 // last seen "WxH" video dimensions (camera warm-up)
 let _scnFpDimStableAt = 0;             // when the current dimensions first held
 let _scnFpSharpRing = [];              // rolling sharpness of recent capture-eligible frames
@@ -3066,6 +3081,7 @@ let _scnFpGuideSig = '';
  * branch had stopped clearing the id), so it lives in one place now.
  */
 function _scnFpForgetHandledCard() {
+  _scnFpCardCache = [];
   _scnFpAwaitingLeave = false;
   _scnFpLastAcceptedPhash = null;
   _scnFpLastAcceptedId = null;
@@ -3409,6 +3425,7 @@ function _scnFpHoldForNextCard(statusMsg, { keepTitles = false } = {}) {
   // re-entered about four cards on, over a card nothing else matched). A no-match hold keeps
   // them: that card is still in the reticle and its reads are still accumulating.
   if (!keepTitles) _scnFpResetTitleBuf();
+  _scnFpCardCache = []; // this card is dealt with; its answers must not outlive it
   _scnArmMotionResume(() => {});
   if (statusMsg) _scnStatus(statusMsg);
 }
@@ -3745,14 +3762,24 @@ async function _scnIdentifyFromQuad(hints, quad) {
   const hFull = _scnHashesFromRect(px0, W, H, null);
   if (hFull.detail >= SCN_FP_MIN_DETAIL) kept.push(Object.assign(hFull, { _quad: useQuad, _canvas: warp.canvas }));
   if (!kept.length) return { ok: false, empty: true };
-  // NB: a local cache of recent matches used to short-circuit here, answering from the last 24
-  // cards whenever any variant landed within 6 bits of one. That is the noise floor — unrelated
-  // cards sit 8-18 bits apart on the full hash alone, which is why ranking moved to combined
-  // full+art in the first place — and it was checked against up to six variants per capture,
-  // including the junk crops the localiser emits. So it re-matched cards that were not in front
-  // of the camera, reported distance 0 (maximum confidence), and bypassed the title, footer and
-  // printing-rival logic entirely: a cached hit could never have its printing corrected. It
-  // saved a round trip the server answers in 6-9ms. Not a trade worth making.
+  // Already answered this card? Reuse it. This runs before the OCR passes and the round trip,
+  // which is the whole point: the confirming second read is the same card in the same place,
+  // and re-proving it costs a full title and footer OCR.
+  //
+  // What makes it safe is scope, not threshold. It holds answers for the card in the reticle
+  // and nothing else (see _scnFpCardCache), so a capture can only collide with the card it is
+  // actually looking at. And it hands back the SERVER'S OWN result, not a fabricated one — the
+  // previous version returned a bare card at distance 0 with no printingRivals, so a cached
+  // hit could never have its printing corrected by the footer.
+  if (!hints && _scnFpCardCache.length) {
+    for (const h of kept) {
+      for (const e of _scnFpCardCache) {
+        const comb = PhashCore.hamming(e.phash, h.phash)
+          + (e.artPhash && h.artPhash ? PhashCore.hamming(e.artPhash, h.artPhash) : 64);
+        if (comb <= SCN_FP_CACHE_COMB) return { ...e.result, _phash: h.phash, _cached: true };
+      }
+    }
+  }
   const toVariant = h => ({
     phash: h.phash, artPhash: h.artPhash,
     phashRot180: h.phashRot180, artPhashRot180: h.artPhashRot180,
@@ -3853,6 +3880,12 @@ async function _scnIdentifyFromQuad(hints, quad) {
       best: db ? `${db.name} [${db.set} #${db.collector_number}]` : null,
       cands: (data.candidates || []).slice(0, 5).map(c => `${c.name} ${c.set}#${c.collector_number}`),
     };
+    // Cache the FINAL answer — after the footer pass has had its say on the printing — so a
+    // reused hit is the corrected one, and carries its own printingRivals if work remains.
+    if (data.matched && data.best && !data.ambiguous) {
+      _scnFpCardCache.unshift({ phash: winner.phash, artPhash: winner.artPhash, result: data });
+      if (_scnFpCardCache.length > SCN_FP_CACHE_MAX) _scnFpCardCache.pop();
+    }
     return data;
   } catch (_) {
     return null;
