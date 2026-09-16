@@ -7614,11 +7614,10 @@ body.glass-mode .scn-fs-top-actions .btn {
 .scn-video {
   width: 100%;
   height: 100%;
-  /* `contain`, not `cover`: the guide is sized to the camera FRAME, so cropping the frame to
-     fill a taller screen pushed the box off the sides and far under the controls. Showing the
-     whole frame means the whole target box is on screen at the size the capture actually
-     uses. The letterboxing lands behind the top and bottom bars. */
-  object-fit: contain;
+  /* `cover` — the camera runs edge to edge with no letterbox. This is only safe because the
+     reticle is fitted to the VISIBLE region rather than the whole sensor (_scnGuideQuad), so
+     the crop moves the box instead of hiding it. */
+  object-fit: cover;
   display: none;
 }
 
@@ -7626,7 +7625,7 @@ body.glass-mode .scn-fs-top-actions .btn {
   display: block;
 }
 
-/* Card outline overlay (object-fit: contain mapping in scanner.js) */
+/* Card outline overlay (object-fit: cover mapping in scanner.js) */
 .scn-overlay-svg,
 .scn-roi-svg {
   position: absolute;
@@ -7935,6 +7934,20 @@ body.glass-mode .scn-fs-top-actions .btn {
     0 16px 48px rgba(0,0,0,0.50);
   transition: background 0.28s var(--ease), box-shadow 0.28s var(--ease);
 }
+
+/* Declined as a repeat: gold, so "I skipped this" cannot be mistaken for "I added this" from
+   arm's length. Same material, different verdict. */
+.scn-match-overlay.scn-match-overlay--warn {
+  background:
+    linear-gradient(135deg, rgba(230,200,104,0.30), rgba(230,200,104,0.12) 60%, rgba(230,200,104,0.20)),
+    rgba(30,24,8,0.62);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.26),
+    inset 0 -1px 0 rgba(230,200,104,0.28),
+    0 0 36px rgba(230,200,104,0.26),
+    0 16px 48px rgba(0,0,0,0.50);
+}
+.scn-match-overlay.scn-match-overlay--warn .scn-match-sub { color: var(--gold2); }
 
 /* Added to the collection: the whole panel goes green, so a successful add is readable at a
    glance from arm's length without reading a word of it. */

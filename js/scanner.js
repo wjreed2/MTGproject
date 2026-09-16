@@ -2156,10 +2156,10 @@ function _scnApplyCornerGeomLocks(q) {
   return _scnClampQuadToVideoFrame(out);
 }
 
-// NOTE: must match .scn-video's object-fit. The video is `contain`, so this is min(), not
-// max() — with the two out of step the drawn guide sat somewhere the capture never looked.
+// NOTE: must match .scn-video's object-fit — cover, hence max(). With the two out of step the
+// drawn guide sits somewhere the capture never looked.
 function _scnMapVideoPtToScreen(nx, ny, vw, vh, cw, ch) {
-  const scale = Math.min(cw / vw, ch / vh);
+  const scale = Math.max(cw / vw, ch / vh);
   const dispW = vw * scale;
   const dispH = vh * scale;
   const ox = (cw - dispW) / 2;
@@ -2171,7 +2171,7 @@ function _scnMapVideoPtToScreen(nx, ny, vw, vh, cw, ch) {
 
 /** Inverse of `_scnMapVideoPtToScreen`: wrap-local px → video-normalized coords. */
 function _scnScreenToVideoNorm(sx, sy, vw, vh, cw, ch) {
-  const scale = Math.min(cw / vw, ch / vh); // contain — mirrors _scnMapVideoPtToScreen
+  const scale = Math.max(cw / vw, ch / vh); // cover — mirrors _scnMapVideoPtToScreen
   const dispW = vw * scale;
   const dispH = vh * scale;
   const ox = (cw - dispW) / 2;
@@ -2820,7 +2820,7 @@ function _scnBestTextForParse(classicText, probeText) {
   return bestT;
 }
 
-/** @param {'hint'|'match'} mode */
+/** @param {'hint'|'match'|'dupe'} mode */
 function _scnSetOverlay(primary, sub, mode) {
   const wrap = document.getElementById('scnMatchOverlay');
   const pEl = document.getElementById('scnMatchPrimary');
@@ -2833,7 +2833,11 @@ function _scnSetOverlay(primary, sub, mode) {
   // Every overlay change retires a pending "+ Add this" (the no-match branch re-shows it).
   if (typeof _scnHideAddClosest === 'function') _scnHideAddClosest();
   wrap.classList.remove('hidden');
+  // 'dupe' is NOT green. A card the scanner declined to add a second time used to paint the
+  // same green panel as a successful add, so a skip was indistinguishable from a scan at a
+  // glance — which is how a run that looked perfect came up one card short of the stack.
   wrap.classList.toggle('scn-match-overlay--accent', mode === 'match');
+  wrap.classList.toggle('scn-match-overlay--warn', mode === 'dupe');
   pEl.textContent = primary || '';
   sEl.textContent = sub || '';
   if (primary || sub) _scnClearHud();
@@ -3857,25 +3861,35 @@ function _scnGuideQuad(v) {
   const vw = v.videoWidth, vh = v.videoHeight;
   if (!vw || !vh) return null;
   const AR = 63 / 88; // card width / height
-  const SCN_FP_GUIDE_DROP = 0.03; // frame-height fraction the reticle sits below centre
+  const SCN_FP_GUIDE_DROP = 0.03; // visible-height fraction the reticle sits below centre
 
-  // The reticle is sized to the CAMERA FRAME, not to the on-screen gap between the bars.
-  // Those are not the same thing once the video fills the sheet, and the difference is not
-  // cosmetic: a fixed stand holds the card at a fixed fraction of the frame, so shrinking the
-  // box to fit the visible band made a working setup stop fitting. Screen real estate is the
-  // bar's problem to solve, not the guide's.
-  let hN = SCN_FP_GUIDE_FILL;          // try to fill most of the height
+  // The video is shown `cover`, so it fills the screen and whichever axis doesn't fit gets
+  // cropped. Aim inside WHAT SURVIVES that crop, not the whole sensor: a reticle placed in the
+  // cropped part is one the user cannot see, which is how the box ended up 168px under the
+  // controls. Fitting it to the visible region instead is what lets the camera run edge to
+  // edge with no letterbox and still show the entire target — the reticle simply moves and
+  // resizes to wherever the visible frame actually is.
+  const cw = v.clientWidth, ch = v.clientHeight;
+  let visW = 1, visH = 1;              // fraction of the frame that survives the cover crop
+  if (cw > 0 && ch > 0) {
+    const scale = Math.max(cw / vw, ch / vh);
+    visW = Math.min(1, cw / (vw * scale));
+    visH = Math.min(1, ch / (vh * scale));
+  }
+
+  let hN = SCN_FP_GUIDE_FILL * visH;   // try to fill most of the visible height
   let wN = (AR * hN * vh) / vw;        // width that preserves the card's pixel aspect
-  if (wN > SCN_FP_GUIDE_FILL) {        // too wide for the frame → clamp width, recompute height
-    wN = SCN_FP_GUIDE_FILL;
+  if (wN > SCN_FP_GUIDE_FILL * visW) { // too wide for the visible frame → clamp, recompute
+    wN = SCN_FP_GUIDE_FILL * visW;
     hN = (wN * vw) / (AR * vh);
   }
   // Biased DOWN, not centred. Measured on the saved warps from the fixed stand: the card
   // lands ~5% of the guide height below centre, leaving a 12% gap at the top and none at the
   // bottom — so the printed footer, the one thing that pins an exact printing, sat on or past
-  // the guide's edge. Clamped so the reticle can never run off the frame.
-  const x0 = (1 - wN) / 2, x1 = x0 + wN;
-  const y0 = Math.max(0, Math.min(1 - hN, (1 - hN) / 2 + SCN_FP_GUIDE_DROP)), y1 = y0 + hN;
+  // the guide's edge. Clamped to the visible band, so the bias can never push it off-screen.
+  const x0 = 0.5 - wN / 2, x1 = x0 + wN;
+  const yLo = (1 - visH) / 2, yHi = 1 - yLo;
+  const y0 = Math.max(yLo, Math.min(yHi - hN, 0.5 - hN / 2 + SCN_FP_GUIDE_DROP)), y1 = y0 + hN;
   return { tl: { nx: x0, ny: y0 }, tr: { nx: x1, ny: y0 }, br: { nx: x1, ny: y1 }, bl: { nx: x0, ny: y1 } };
 }
 
@@ -3996,7 +4010,7 @@ function _scnFingerprintTick(v, now) {
         if (_scnFpLastAcceptedPhash && _scnFpLastAcceptedId === r.best.id
           && PhashCore.hamming(ph, _scnFpLastAcceptedPhash) <= SCN_FP_DEDUPE_HAMMING) {
           if (_scnFpLastDiag) _scnFpLastDiag.outcome = 'already-added';
-          _scnSetOverlay(r.best.name, `already added ✓${da}`, 'match');
+          _scnSetOverlay(r.best.name, `already scanned — not added${da}`, 'dupe');
           _scnFpHoldForNextCard('Swap in the next card…');
           _scnFpCooldownUntil = performance.now() + 450;
           return;
@@ -4019,7 +4033,7 @@ function _scnFingerprintTick(v, now) {
         else staged = await _scnAutoStageAndResume(r.best); // queues + beeps
         if (staged && !staged.queued) {
           // Lingering re-read past the hash dedupe (new angle) — nothing new was queued.
-          _scnSetOverlay(r.best.name, `already queued ✓${da}`, 'match');
+          _scnSetOverlay(r.best.name, `already scanned — not added${da}`, 'dupe');
           _scnFpHoldForNextCard('Swap in the next card…');
           _scnFpCooldownUntil = performance.now() + 700;
           return;
