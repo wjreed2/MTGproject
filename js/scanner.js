@@ -804,14 +804,11 @@ function _scnArmMotionResume(onDone) {
         if (streak >= SCN_MOTION_STREAK_FRAMES) {
           document.getElementById('scnScanAgainBtn')?.classList.add('hidden');
           _scnStopMotionWatch();
-          // Motion here IS the swap. The scanner only waits in this loop because a result is
-          // on screen, and it only leaves because something moved — so the card that produced
-          // that result is gone, and the next one is new even if it is an identical second
-          // copy. Without this, two of the same card in a row could never both count: the
-          // reticle never reads empty during a swap fast enough to clear the gate any other
-          // way. The arm delay above is what keeps a hand still withdrawing from the card just
-          // identified from counting as the swap.
-          _scnFpForgetHandledCard();
+          // Motion resumes capture, and nothing more. It is NOT proof the card was swapped:
+          // autofocus, exposure and a hand passing over a card that stays put all clear the
+          // bar, and treating that as a swap re-scanned the same card on a loop. Only the
+          // reticle actually going clear proves the card left — see the leave check in
+          // _scnFingerprintTick, which now runs often enough to catch it.
           _scnStatus('');
           _scnResume();
           return;
@@ -3010,6 +3007,7 @@ const SCN_FP_WARMUP_MS = 900;          // wait this long after video dimensions 
 const SCN_FP_SHARP_RING = 4;           // recent capture-eligible sharpness readings kept
 const SCN_FP_SHARP_PEAK_RATIO = 0.85;  // only hash frames near the recent sharpness peak (skip focus hunts)
 const SCN_FP_LEAVE_TICKS = 3;          // consecutive empty-reticle ticks that count as "card removed"
+const SCN_FP_LEAVE_CHECK_MS = 80;      // ...sampled this often, so a swap's worth of clear air counts
 /**
  * Min high-frequency detail (mean abs adjacent-pixel luma step on the 32×32) for a capture to
  * be identified at all. An empty reticle (table, felt, gradient, a hand) passes the Laplacian
@@ -3030,6 +3028,7 @@ let _scnFpDimStableAt = 0;             // when the current dimensions first held
 let _scnFpLru = [];                    // [{phash, card}] recent matches → skip the network round-trip
 let _scnFpSharpRing = [];              // rolling sharpness of recent capture-eligible frames
 let _scnFpEmptyTicks = 0;              // consecutive below-sharpness ticks (card-left detection)
+let _scnFpLeaveCheckAt = 0;            // last time the card-left check sampled
 let _scnFpChooserPhash = null;         // capture hash that opened the candidate chooser
 let _scnFpNoMatchStreak = 0;           // consecutive no-match captures (→ hold + manual search)
 /** Consecutive misses before the scanner stops hammering and waits for a card swap. */
@@ -3977,6 +3976,17 @@ function _scnFingerprintTick(v, now) {
   const dimKey = `${v.videoWidth}x${v.videoHeight}`;
   if (dimKey !== _scnFpDimKey) { _scnFpDimKey = dimKey; _scnFpDimStableAt = now; _scnSetOverlay('Focusing…', '', 'hint'); return; }
   if (now - _scnFpDimStableAt < SCN_FP_WARMUP_MS) return;
+
+  // Has the handled card left? Watch for that at its own cadence, NOT behind the capture
+  // cooldown. At one observation per 500ms, the three consecutive clear reticles this needs
+  // meant 1.5s of uninterrupted clear air — longer than any swap — so the gate never opened
+  // and a second copy of the same card could not be counted. Sharpness is cheap; only
+  // identify is expensive, and only identify needs the cooldown.
+  if (_scnFpAwaitingLeave && now - _scnFpLeaveCheckAt >= SCN_FP_LEAVE_CHECK_MS) {
+    _scnFpLeaveCheckAt = now;
+    if (_scnFpGuideSharpness(v, guide) < SCN_FP_SHARP_MIN
+      && ++_scnFpEmptyTicks >= SCN_FP_LEAVE_TICKS) _scnFpForgetHandledCard();
+  }
 
   if (now < _scnFpCooldownUntil) return;
 
