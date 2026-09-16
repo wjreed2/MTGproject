@@ -2998,8 +2998,6 @@ const SCN_FP_WARP_H = PhashCore.CARD_H;
 const SCN_FP_COOLDOWN_MS = 500;        // min gap between captures
 const SCN_FP_SHARP_MIN = 8;            // Laplacian variance of the guide region — reject blur/empty
 const SCN_FP_GUIDE_FILL = 0.94;         // guide frame fills this fraction of the limiting dimension
-const SCN_FP_LRU_MAX = 24;
-const SCN_FP_LRU_HAMMING = 6;          // reuse a recent match without a round-trip within this distance
 const SCN_FP_DEDUPE_HAMMING = 6;       // don't re-queue the same card while it lingers in frame
 const SCN_FP_WARMUP_MS = 900;          // wait this long after video dimensions settle before capturing
 // (The corner-hunt refine constants SCN_FP_REFINE_* are gone with the refine itself — card
@@ -3025,7 +3023,6 @@ let _scnFpLastAcceptedId = null;       // ...and which card that was, so dedupe 
 let _scnFpPendingMatch = null;         // {phash, card} matched once, awaiting a confirming 2nd read
 let _scnFpDimKey = '';                 // last seen "WxH" video dimensions (camera warm-up)
 let _scnFpDimStableAt = 0;             // when the current dimensions first held
-let _scnFpLru = [];                    // [{phash, card}] recent matches → skip the network round-trip
 let _scnFpSharpRing = [];              // rolling sharpness of recent capture-eligible frames
 let _scnFpEmptyTicks = 0;              // consecutive below-sharpness ticks (card-left detection)
 let _scnFpLeaveCheckAt = 0;            // last time the card-left check sampled
@@ -3748,16 +3745,14 @@ async function _scnIdentifyFromQuad(hints, quad) {
   const hFull = _scnHashesFromRect(px0, W, H, null);
   if (hFull.detail >= SCN_FP_MIN_DETAIL) kept.push(Object.assign(hFull, { _quad: useQuad, _canvas: warp.canvas }));
   if (!kept.length) return { ok: false, empty: true };
-  // LRU short-circuit (no network) when the same card lingers / reappears in frame.
-  if (!hints) {
-    for (const h of kept) {
-      for (const e of _scnFpLru) {
-        if (PhashCore.hamming(e.phash, h.phash) <= SCN_FP_LRU_HAMMING) {
-          return { ok: true, matched: true, ambiguous: false, distance: 0, best: e.card, candidates: [e.card], _phash: h.phash, _cached: true };
-        }
-      }
-    }
-  }
+  // NB: a local cache of recent matches used to short-circuit here, answering from the last 24
+  // cards whenever any variant landed within 6 bits of one. That is the noise floor — unrelated
+  // cards sit 8-18 bits apart on the full hash alone, which is why ranking moved to combined
+  // full+art in the first place — and it was checked against up to six variants per capture,
+  // including the junk crops the localiser emits. So it re-matched cards that were not in front
+  // of the camera, reported distance 0 (maximum confidence), and bypassed the title, footer and
+  // printing-rival logic entirely: a cached hit could never have its printing corrected. It
+  // saved a round trip the server answers in 6-9ms. Not a trade worth making.
   const toVariant = h => ({
     phash: h.phash, artPhash: h.artPhash,
     phashRot180: h.phashRot180, artPhashRot180: h.artPhashRot180,
@@ -3858,10 +3853,6 @@ async function _scnIdentifyFromQuad(hints, quad) {
       best: db ? `${db.name} [${db.set} #${db.collector_number}]` : null,
       cands: (data.candidates || []).slice(0, 5).map(c => `${c.name} ${c.set}#${c.collector_number}`),
     };
-    if (data.matched && data.best && !data.ambiguous) {
-      _scnFpLru.unshift({ phash: winner.phash, card: data.best });
-      if (_scnFpLru.length > SCN_FP_LRU_MAX) _scnFpLru.pop();
-    }
     return data;
   } catch (_) {
     return null;
