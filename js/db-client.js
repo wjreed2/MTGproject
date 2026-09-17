@@ -144,6 +144,42 @@ async function authLogout() {
   await fetch(mtgApiRoot() + '/auth/logout', { method: 'POST', credentials: 'include' });
 }
 
+// ── Federated sign-in (Google / Apple / Discord) ─────────────────────────────
+
+/** Providers this server holds credentials for; drives which buttons render. */
+async function authProviders() {
+  return apiFetch('/auth/providers');
+}
+
+/**
+ * The OAuth handshake is a full-page navigation, not a fetch: providers refuse
+ * to render their consent screen inside XHR, and the redirect has to be
+ * top-level for the session cookie to come back.
+ */
+function authStartOauth(provider, link) {
+  // ?link=1 is the only thing that turns this into an account link — the server
+  // will not infer it from the session cookie.
+  window.location.href = mtgApiRoot() + '/auth/oauth/' + encodeURIComponent(provider)
+    + '/start' + (link ? '?link=1' : '');
+}
+
+/** Providers linked to the signed-in account, plus whether a password is set. */
+async function authListIdentities() {
+  return apiFetch('/auth/identities');
+}
+
+async function authUnlinkIdentity(provider) {
+  return apiDelete('/auth/identities/' + encodeURIComponent(provider));
+}
+
+async function authVerifyEmail(token) {
+  return apiPostJson('/auth/verify-email', { token });
+}
+
+async function authResendVerification() {
+  return apiPostJson('/auth/verify-email/send', {});
+}
+
 /**
  * Load account data. All endpoints fetch concurrently (collection used to go
  * first on its own, adding a full round-trip to every boot). Collection is
@@ -385,6 +421,7 @@ function _flushPendingSavesOnUnload() {
     deck_secondary_tags: deckSecondaryTags || [],
     adds_pool_mode: typeof getAddsPoolMode === 'function' ? getAddsPoolMode() : 'collection',
     deck_swaps_enabled: typeof deckSwapsFeatureEnabled !== 'undefined' ? !!deckSwapsFeatureEnabled : true,
+    deck_tag_badges: typeof deckTagBadges !== 'undefined' ? deckTagBadges : {},
   }) }).catch(() => {});
 }
 window.addEventListener('beforeunload', _flushPendingSavesOnUnload);
@@ -755,6 +792,7 @@ async function _flushSave() {
       deck_secondary_tags: deckSecondaryTags || [],
       adds_pool_mode: typeof getAddsPoolMode === 'function' ? getAddsPoolMode() : 'collection',
       deck_swaps_enabled: typeof deckSwapsFeatureEnabled !== 'undefined' ? !!deckSwapsFeatureEnabled : true,
+      deck_tag_badges: typeof deckTagBadges !== 'undefined' ? deckTagBadges : {},
     }));
     if (ops.length) await Promise.all(ops);
     if (!deckFlushFailed) {
@@ -999,6 +1037,9 @@ async function refreshSharedDeckFromServer(deckId, opts) {
 /** Debounced pull so Safari vs Home Screen PWA never sit on divergent cut markers. */
 function ensureSharedDeckFresh(deckId) {
   if (!deckId) return;
+  // Nothing to refresh for a deck opened from Browse or a share link — it was
+  // never shared with this account, so /decks/:id answers 404.
+  if (typeof activeDeckIsPublicView === 'function' && activeDeckIsPublicView()) return;
   const last = _sharedDeckLastFetch[deckId] || 0;
   if (Date.now() - last < 4000) return;
   refreshSharedDeckFromServer(deckId, { silent: true }).catch(() => {});
@@ -1006,7 +1047,7 @@ function ensureSharedDeckFresh(deckId) {
 
 /** Refresh every shared deck on login / tab focus — Safari vs PWA keep separate offline caches. */
 async function refreshAllSharedDecksFromServer(opts) {
-  const list = typeof sharedDecks !== 'undefined' ? sharedDecks : [];
+  const list = (typeof sharedDecks !== 'undefined' ? sharedDecks : []).filter(d => !d?.isPublicView);
   if (!list.length) return;
   const silent = opts && opts.silent;
   await Promise.all(list.map(async d => {
@@ -1053,6 +1094,9 @@ if (typeof document !== 'undefined') {
   const _refreshActiveSharedDeck = () => {
     if (document.visibilityState && document.visibilityState !== 'visible') return;
     if (typeof _isOffline !== 'undefined' && _isOffline) return;
+    // A deck opened from Browse or a share link was never shared *with* this
+    // account, so /decks/:id answers 404 for it — there is nothing to refresh.
+    if (typeof activeDeckIsPublicView === 'function' && activeDeckIsPublicView()) return;
     if (typeof activeDeckIsShared !== 'undefined' && activeDeckIsShared && activeDeckId) {
       refreshSharedDeckFromServer(activeDeckId, { silent: true }).catch(() => {});
     }

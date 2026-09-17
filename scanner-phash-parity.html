@@ -38,33 +38,20 @@
 
 <script src="/js/phash-core.js"></script>
 <script>
-const N = PhashCore.N;
-const ART = { u0: 0.07, u1: 0.93, v0: 0.11, v1: 0.63 }; // MUST match scanner.js / build script
-
-function luma32(srcCanvas, sx, sy, sw, sh) {
-  const small = document.createElement('canvas');
-  small.width = N; small.height = N;
-  const ctx = small.getContext('2d', { willReadFrequently: true });
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(srcCanvas, sx, sy, sw, sh, 0, 0, N, N);
-  return PhashCore.lumaFromPixels(ctx.getImageData(0, 0, N, N).data, 4);
-}
-
+// Spec v2: the 360x504 → 32x32 downsample + art crop are SHARED code with the server build
+// (PhashCore.lumaBoxDownscale) — this harness now only measures the remaining platform step,
+// drawing the card image onto the 360x504 canvas (the client's warp analogue).
 function hashImage(img) {
-  // The server hashes the FULL card image; the client warps a card to a flat canvas. Here the
-  // source is already a flat full-card image, so draw it 1:1 into a card-sized canvas.
-  const W = 360, H = 504;
+  const W = PhashCore.CARD_W, H = PhashCore.CARD_H;
   const card = document.createElement('canvas');
   card.width = W; card.height = H;
   const cctx = card.getContext('2d', { willReadFrequently: true });
   cctx.imageSmoothingEnabled = true;
   cctx.imageSmoothingQuality = 'high';
   cctx.drawImage(img, 0, 0, W, H);
-  const full = luma32(card, 0, 0, W, H);
-  const ax = Math.round(W * ART.u0), ay = Math.round(H * ART.v0);
-  const aw = Math.round(W * (ART.u1 - ART.u0)), ah = Math.round(H * (ART.v1 - ART.v0));
-  const art = luma32(card, ax, ay, aw, ah);
+  const px = cctx.getImageData(0, 0, W, H).data;
+  const full = PhashCore.lumaBoxDownscale(px, W, H, 4, null);
+  const art = PhashCore.lumaBoxDownscale(px, W, H, 4, PhashCore.artRect(W, H));
   return {
     phash: PhashCore.fromLuma(full),
     phashRot180: PhashCore.fromLuma(PhashCore.rotate180(full)),
@@ -85,6 +72,7 @@ function loadImg(url) {
 document.getElementById('run').addEventListener('click', async () => {
   const tbody = document.querySelector('#results tbody');
   tbody.innerHTML = '';
+  document.getElementById('summary').textContent = '';
   const status = document.getElementById('status');
   status.textContent = 'loading samples…';
   // Pull real fingerprint rows from the server so every card is guaranteed to be in the DB —

@@ -14,6 +14,7 @@ function _isNavChromeTabPress(t) {
   const tgt = (typeof event !== 'undefined' && event) ? event.currentTarget : null;
   if (!tgt || !tgt.classList) return false;
   if (tgt.classList.contains('mob-nav-item')) return tgt.getAttribute('data-tab') === t;
+  if (tgt.classList.contains('mob-nav-row')) return tgt.getAttribute('data-tab') === t;
   if (tgt.classList.contains('sidebar-item')) {
     const oc = tgt.getAttribute('onclick') || '';
     return oc.includes(`'${t}'`) || oc.includes(`"${t}"`);
@@ -80,10 +81,204 @@ function _resetActiveTabToRoot(t) {
 
 /** @param opts.skipRender — set the active tab chrome only; the caller renders
  *  the content itself (boot paint uses this to avoid double-rendering). */
+// ── Phone navigation menu ────────────────────────────────────────────────────
+// Built from the desktop sidebar rather than written out again: same entries,
+// same order, same icons, and it cannot drift when the sidebar changes. The two
+// rows the sidebar has no entry for — notifications and settings — are appended.
+function _mobNavExtraRows() {
+  return [
+    { id: 'notif', label: 'Notifications', tab: 'notifications', badge: true,
+      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>' },
+    { id: 'settings', label: 'Settings', tab: 'settings',
+      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 008 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H2a2 2 0 110-4h.09A1.65 1.65 0 004.6 8a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 3.6 1.65 1.65 0 0010 2.09V2a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9c.14.63.68 1.1 1.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>' },
+  ];
+}
+
+function buildMobNavMenu() {
+  const menu = document.getElementById('mobNavMenu');
+  if (!menu) return;
+  const items = [...document.querySelectorAll('#sidebar .sidebar-item')].map(btn => {
+    const onclick = btn.getAttribute('onclick') || '';
+    const tab = (/showTab\('([^']+)'/.exec(onclick) || [])[1] || '';
+    // A feature toggle that hides a sidebar entry (Deck Map) must hide it here
+    // too. The toggles set display on the item itself, which is what we read:
+    // the sidebar is display:none on phones, so offsetParent tells us nothing.
+    const off = btn.hidden || btn.style.display === 'none';
+    return { tab: off ? '' : tab, label: btn.dataset.label || tab, icon: btn.querySelector('svg')?.outerHTML || '' };
+  }).filter(x => x.tab);
+  const row = x => `<button type="button" class="mob-nav-row" data-tab="${x.tab || ''}" data-row="${x.id || x.tab}"
+      onclick="showTab('${x.tab}')">
+      <span class="mob-nav-row-icon">${x.icon}</span><span class="mob-nav-row-label">${x.label}</span>
+      ${x.badge ? '<span class="topbar-notif-badge mob-nav-row-badge" id="mobNavMenuNotifBadge" hidden aria-hidden="true">0</span>' : ''}
+    </button>`;
+  menu.innerHTML = items.map(row).join('')
+    + '<div class="mob-nav-sep"></div>'
+    + _mobNavExtraRows().map(row).join('');
+  if (typeof refreshNotifUnreadCount === 'function') void refreshNotifUnreadCount();
+}
+
+/**
+ * Where the menu button lives. Default is beside the page title, which is what
+ * the title inset and the two `data-nav-own-row` panes are there for; the
+ * setting moves it to the bottom-right corner instead and undoes both.
+ */
+function _mobNavCornerEnabled() {
+  try { return localStorage.getItem('mtg_mob_nav_corner') === '1'; }
+  catch { return false; }
+}
+
+function applyMobNavCorner() {
+  document.body.classList.toggle('mob-nav-corner', _mobNavCornerEnabled());
+}
+
+function renderMobNavCornerSettingBtn() {
+  const btn = document.getElementById('settingsMobNavCornerBtn');
+  if (!btn) return;
+  const on = _mobNavCornerEnabled();
+  btn.innerHTML = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><rect x="1.8" y="1.8" width="12.4" height="12.4" rx="2"/><rect x="8.6" y="8.6" width="4" height="4" rx="1"/></svg>`
+    + (on ? ' Corner nav button: on' : ' Corner nav button: off');
+  btn.classList.toggle('active', on);
+}
+
+function toggleMobNavCornerSetting() {
+  const next = !_mobNavCornerEnabled();
+  try { localStorage.setItem('mtg_mob_nav_corner', next ? '1' : '0'); } catch { /* private mode */ }
+  applyMobNavCorner();
+  renderMobNavCornerSettingBtn();
+  closeMobNav();
+  _placeMobNavToggle(localStorage.getItem('mtg_active_tab') || 'collection');
+  if (typeof showNotif === 'function') {
+    showNotif(next
+      ? 'Navigation button moved to the bottom-right corner'
+      : 'Navigation button back beside the page title');
+  }
+}
+
+/**
+ * Line the menu button up with the page's own title.
+ *
+ * Only its `top` moves — the button stays a fixed element in the topbar rather
+ * than being inserted into the title row, because several tabs rebuild their
+ * header on render and would take the button with them. The titles carry a left
+ * inset on phones to leave the corner free, so lining up the row is all it
+ * takes for the two to read as one. Tabs with no title keep the default corner.
+ *
+ * `data-nav-own-row` panes opt out of sharing a row. The deck builder is one:
+ * opening a deck swaps the "Decks" title out for the deck's own header, which
+ * has no room to give, so the pane pads itself down by a row (mobile.css) and
+ * the button takes that row alone.
+ *
+ * None of it applies in corner mode, where the button has a fixed home.
+ */
+function _placeMobNavToggle(tab) {
+  const btn = document.getElementById('mobNavToggle');
+  if (!btn || getComputedStyle(btn).display === 'none') return;
+  btn.style.top = '';
+  if (_mobNavCornerEnabled()) return;
+  const pane = document.getElementById('tab-' + tab);
+  if (!pane) return;
+  const size = btn.offsetHeight || 38;
+  const min = 6;
+  let top;
+  if (pane.hasAttribute('data-nav-own-row')) {
+    top = Math.round(pane.getBoundingClientRect().top - 4);
+  } else {
+    const r = [...pane.querySelectorAll('.page-title')].find(t => t.offsetParent !== null)?.getBoundingClientRect();
+    if (!r || r.height <= 0) return;
+    top = Math.round(r.top + r.height / 2 - size / 2);
+  }
+  if (top >= min) btn.style.top = `${top}px`;
+}
+
+/**
+ * Whether a pane keeps the top row for the menu button.
+ *
+ * Only true while something is open inside it: on the deck list and the set
+ * list the title shares the button's row like every other tab, and it is the
+ * deck's or the set's own header — which starts hard against the left edge and
+ * has no inset to give — that has to drop below it.
+ */
+function setMobNavOwnRow(tab, own) {
+  const pane = document.getElementById('tab-' + tab);
+  if (!pane || pane.hasAttribute('data-nav-own-row') === !!own) return;
+  pane.toggleAttribute('data-nav-own-row', !!own);
+  _placeMobNavToggle(localStorage.getItem('mtg_active_tab') || 'collection');
+}
+
+function _syncMobNavActive(tab) {
+  document.querySelectorAll('#mobNavMenu .mob-nav-row').forEach(r => {
+    r.classList.toggle('active', !!tab && r.dataset.tab === tab);
+  });
+}
+
+function closeMobNav() {
+  const menu = document.getElementById('mobNavMenu');
+  const btn = document.getElementById('mobNavToggle');
+  if (menu) menu.hidden = true;
+  if (btn) { btn.classList.remove('is-open'); btn.setAttribute('aria-expanded', 'false'); }
+}
+
+function toggleMobNav(e) {
+  if (e) e.stopPropagation();
+  const menu = document.getElementById('mobNavMenu');
+  const btn = document.getElementById('mobNavToggle');
+  if (!menu) return;
+  if (!menu.hidden) { closeMobNav(); return; }
+  buildMobNavMenu();
+  _syncMobNavActive(localStorage.getItem('mtg_active_tab') || 'collection');
+  menu.hidden = false;
+  // Anchored to the button: below it where it sits in a title row, above it when
+  // it is parked in the bottom-right corner.
+  if (btn) {
+    const r = btn.getBoundingClientRect();
+    if (_mobNavCornerEnabled()) {
+      menu.style.top = 'auto';
+      menu.style.left = 'auto';
+      menu.style.bottom = `${Math.round(Math.max(8, window.innerHeight - r.top + 8))}px`;
+      menu.style.right = `${Math.round(Math.max(8, window.innerWidth - r.right))}px`;
+    } else {
+      menu.style.bottom = 'auto';
+      menu.style.right = 'auto';
+      menu.style.top = `${Math.round(r.bottom + 6)}px`;
+      menu.style.left = `${Math.round(Math.max(8, Math.min(r.left, window.innerWidth - menu.offsetWidth - 8)))}px`;
+    }
+    btn.classList.add('is-open');
+    btn.setAttribute('aria-expanded', 'true');
+  }
+}
+
+globalThis.setMobNavOwnRow = setMobNavOwnRow;
+globalThis.toggleMobNav = toggleMobNav;
+globalThis.closeMobNav = closeMobNav;
+globalThis.toggleMobNavCornerSetting = toggleMobNavCornerSetting;
+globalThis.renderMobNavCornerSettingBtn = renderMobNavCornerSettingBtn;
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('click', e => {
+    const menu = document.getElementById('mobNavMenu');
+    if (!menu || menu.hidden) return;
+    if (e.target.closest('#mobNavMenu') || e.target.closest('#mobNavToggle')) return;
+    closeMobNav();
+  });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMobNav(); });
+  applyMobNavCorner();
+  renderMobNavCornerSettingBtn();
+  // The first tab is already active in the markup, so nothing calls showTab for
+  // it — seat the button against whatever is on screen once the app is up, and
+  // again if the window changes shape.
+  const seat = () => _placeMobNavToggle(localStorage.getItem('mtg_active_tab') || 'collection');
+  window.addEventListener('load', () => setTimeout(seat, 0));
+  window.addEventListener('resize', () => { closeMobNav(); seat(); });
+  if (document.readyState === 'complete') setTimeout(seat, 0);
+}
+
 function showTab(t, opts) {
   opts = opts || {};
-  // Same-tab re-tap from nav chrome → pop to that tab's root view.
+  // Same-tab re-tap from nav chrome → pop to that tab's root view. The menu has
+  // to close on the way out: this path returns before the close below, and a
+  // menu left open over the view it just reset reads as the tap doing nothing.
   if (!opts.skipRender && _currentShowTabId() === t && _isNavChromeTabPress(t)) {
+    closeMobNav();
     _resetActiveTabToRoot(t);
     return;
   }
@@ -97,6 +292,11 @@ function showTab(t, opts) {
   else if (typeof event !== 'undefined' && event?.currentTarget) event.currentTarget.classList.add('active');
   const mobItem = document.querySelector(`.mob-nav-item[data-tab="${t}"]`);
   if (mobItem) mobItem.classList.add('active');
+  closeMobNav();
+  _syncMobNavActive(t);
+  // After the tab's own render, not before it: Trade and others build their
+  // header in that render, so the title does not exist yet at this point.
+  requestAnimationFrame(() => _placeMobNavToggle(t));
   // Settings tab (mobile): host the web settings dropdown as a full page. The
   // element lives in the topbar dropdown; move it into the page here and move
   // it back when leaving so the topbar menu keeps working on phone and desktop.
@@ -112,10 +312,35 @@ function showTab(t, opts) {
       document.querySelector('header.topbar')?.appendChild(_settingsDropdown);
     }
   }
+  // Notifications tab (mobile): the same move as Settings above. The panel is
+  // the page rather than a copy of it, so there is one element, one set of ids
+  // and one unread count however you reach it.
+  const _notifPanelEl = document.getElementById('notifPanel');
+  if (_notifPanelEl) {
+    if (t === 'notifications') {
+      document.getElementById('tab-notifications')?.appendChild(_notifPanelEl);
+      _notifPanelEl.classList.add('notif-as-page');
+      _notifPanelEl.hidden = false;
+      if (typeof _notifState !== 'undefined') _notifState.open = true;
+      if (typeof renderNotifPanel === 'function') renderNotifPanel(true);
+      if (typeof refreshNotifications === 'function') void refreshNotifications();
+    } else if (_notifPanelEl.classList.contains('notif-as-page')) {
+      _notifPanelEl.classList.remove('notif-as-page');
+      _notifPanelEl.hidden = true;
+      if (typeof _notifState !== 'undefined') _notifState.open = false;
+      document.querySelector('header.topbar')?.appendChild(_notifPanelEl);
+    }
+  }
   if (t !== 'collection' && typeof exitSharedCollectionView === 'function' && typeof _viewingSharedCollOwnerId !== 'undefined' && _viewingSharedCollOwnerId) exitSharedCollectionView();
   if (opts.skipRender) return;
-  if (t === 'collection') renderCollection();
-  if (t === 'sets') loadSets();
+  if (t === 'collection') {
+    if (typeof syncCollectionHeaderToggles === 'function') syncCollectionHeaderToggles();
+    renderCollection();
+  }
+  if (t === 'sets') {
+    if (typeof syncSetsHeaderToggles === 'function') syncSetsHeaderToggles();
+    loadSets();
+  }
   if (t === 'decks') renderDecks();
   if (t === 'browse') renderBrowseDecks();
   if (t === 'wishlist') renderWishlist();
@@ -325,6 +550,30 @@ function escapeHtml(s) {
 // tiles until near-viewport decode (inspector exit / scroll read as a re-pop).
 const _imgFadeSeen = new Set();
 
+// The seen set survives reloads: sw.js serves these images from disk on the
+// next visit, so replaying a 100-tile fade cascade over instant cache hits
+// read as "everything loads again" every session. Cap mirrors the service
+// worker's image cache (MAX_ENTRIES 4000) — the two age out together-ish.
+const _IMG_FADE_SEEN_LS = 'mtg_img_seen_v1';
+const _IMG_FADE_SEEN_MAX = 4000;
+let _imgFadeSaveTimer = null;
+try {
+  const stored = JSON.parse(localStorage.getItem(_IMG_FADE_SEEN_LS) || '[]');
+  if (Array.isArray(stored)) for (const u of stored) { if (typeof u === 'string' && u) _imgFadeSeen.add(u); }
+} catch (_) { /* private mode / quota */ }
+
+function _imgFadeScheduleSave() {
+  if (_imgFadeSaveTimer) return;
+  _imgFadeSaveTimer = setTimeout(() => {
+    _imgFadeSaveTimer = null;
+    try {
+      // Insertion order = oldest first; keep the newest MAX entries.
+      const list = [..._imgFadeSeen];
+      localStorage.setItem(_IMG_FADE_SEEN_LS, JSON.stringify(list.slice(Math.max(0, list.length - _IMG_FADE_SEEN_MAX))));
+    } catch (_) { /* private mode / quota */ }
+  }, 1500);
+}
+
 /** Normalize so el.src (absolute) matches the URL string we put in markup. */
 function _imgFadeNormUrl(u) {
   if (!u) return '';
@@ -346,7 +595,9 @@ function imgFadeHasSeen(...urls) {
 /** onload hook for card <img> tags: record that this URL has been shown. */
 function imgFadeSeenMark(el) {
   const u = el && (el.currentSrc || el.src);
-  if (u) _imgFadeSeen.add(_imgFadeNormUrl(u));
+  if (!u) return;
+  _imgFadeSeen.add(_imgFadeNormUrl(u));
+  _imgFadeScheduleSave();
 }
 
 /** Render-time check: 'loaded' when any candidate URL already faded in. */
@@ -357,6 +608,28 @@ function imgFadeLoadedCls(...urls) {
 /** Prefer eager for already-shown art so rebuilds paint immediately. */
 function imgFadeLoadingAttr(...urls) {
   return imgFadeHasSeen(...urls) ? 'eager' : 'lazy';
+}
+
+/**
+ * Cap a Scryfall image at `normal` (488px wide).
+ *
+ * A card carries `image` (small) and `imageLarge` (normal) by this app's
+ * convention, but decks that arrived from an import can hold a whole size
+ * bigger in each — normal in `image`, large in `imageLarge`. Nothing in the app
+ * draws a card wider than about 300 CSS px, so `large` is never the right
+ * answer: opening one such deck pulled 13.9 MB of card art, most of it
+ * resolution no tile can show. Its own decks looked faster only because that
+ * art was already in the browser's cache.
+ */
+function cardImgCapNormal(url) {
+  const u = String(url || '');
+  if (!u) return u;
+  // Scryfall serves `normal` as .jpg ONLY — png/… needs its extension swapped too,
+  // or the rewrite points at a URL that does not exist and the tile renders broken.
+  if (/^https:\/\/cards\.scryfall\.io\/png\//.test(u)) {
+    return u.replace(/^(https:\/\/cards\.scryfall\.io\/)png\//, '$1normal/').replace(/\.png(\?|$)/, '.jpg$1');
+  }
+  return u.replace(/^(https:\/\/cards\.scryfall\.io\/)(large|border_crop)\//, '$1normal/');
 }
 
 /**
@@ -599,3 +872,69 @@ function cardRefLinkHtml(name, opts) {
     + ` title="${escapeHtml(label)}" ${o.attrs || ''}>${escapeHtml(label)}${qty}</button>`;
 }
 
+
+/* ── Data disclosure ────────────────────────────────────────────────────────
+   Every page credits the upstream data the app fetches. Defined once here and
+   mounted into each page shell: `[data-data-disclosure]` hosts under <main> and
+   in the sign-in gate (index.html), plus the public deck page (_pdvDeckHtml in
+   browse.js). Keep the list honest — it must match what the app actually calls:
+   Scryfall (api/cards/svgs), EDHREC (json.edhrec.com), MTGJSON price snapshots
+   feeding card_price_daily, the TCGplayer API, and the Archidekt/Moxfield
+   import proxies in server.js. */
+const DATA_DISCLOSURE_LINKS = {
+  scryfall:    'https://scryfall.com',
+  edhrec:      'https://edhrec.com',
+  mtgjson:     'https://mtgjson.com',
+  tcgplayer:   'https://www.tcgplayer.com',
+  cardkingdom: 'https://www.cardkingdom.com',
+  cardmarket:  'https://www.cardmarket.com',
+  archidekt:   'https://archidekt.com',
+  moxfield:    'https://www.moxfield.com',
+  fanContent:  'https://company.wizards.com/en/legal/fancontentpolicy',
+};
+
+function _dataDisclosureLink(key, label) {
+  return `<a href="${DATA_DISCLOSURE_LINKS[key]}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+}
+
+/**
+ * Footer markup for the data disclosure.
+ * @param {{compact?: boolean, className?: string}} [opts] compact drops the
+ *        legal paragraph (tight shells like the sign-in gate).
+ */
+function dataDisclosureHtml(opts) {
+  const o = opts || {};
+  const L = _dataDisclosureLink;
+  const sources =
+    `Card data, images and mana symbols from ${L('scryfall', 'Scryfall')}. `
+    + `Deck and commander statistics from ${L('edhrec', 'EDHREC')}. `
+    + `Market prices from ${L('mtgjson', 'MTGJSON')} daily snapshots and the `
+    + `${L('tcgplayer', 'TCGplayer')} API, covering TCGplayer, `
+    + `${L('cardkingdom', 'Card Kingdom')} and ${L('cardmarket', 'Cardmarket')}. `
+    + `Deck imports are fetched from ${L('archidekt', 'Archidekt')} and `
+    + `${L('moxfield', 'Moxfield')} when you start one.`;
+  const legal =
+    `MTG Archive is unofficial Fan Content permitted under the Wizards of the Coast `
+    + `${L('fanContent', 'Fan Content Policy')}. Not approved or endorsed by Wizards. `
+    + `Portions of the materials used are property of Wizards of the Coast. `
+    + `&copy;Wizards of the Coast LLC. The sources above are independent services; `
+    + `they neither endorse nor are affiliated with MTG Archive.`;
+  // No role="contentinfo": the app footer lives inside <main>, where that landmark
+  // is invalid, and the gate/public-page copies would duplicate it.
+  return `<footer class="app-footer${o.className ? ' ' + o.className : ''}">`
+    + `<p class="app-footer-sources">${sources}</p>`
+    + (o.compact ? '' : `<p class="app-footer-legal">${legal}</p>`)
+    + `</footer>`;
+}
+
+/** Fill every `[data-data-disclosure]` host in the static shell. Idempotent. */
+function mountDataDisclosure() {
+  document.querySelectorAll('[data-data-disclosure]').forEach(host => {
+    if (host.dataset.disclosureMounted === '1') return;
+    host.innerHTML = dataDisclosureHtml({ compact: host.dataset.dataDisclosure === 'compact' });
+    host.dataset.disclosureMounted = '1';
+  });
+}
+
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mountDataDisclosure);
+else mountDataDisclosure();

@@ -45,3 +45,7 @@ data/foundation-lab/ratings.json
 data/foundation-lab/ratings.jsonl
 # Live account deck dumps for Lab/audit — user data, never version
 data/foundation-lab/user-decks/
+
+# Tesseract language model, downloaded into the repo root by tesseract.js when
+# scripts/scan-photo-test.js runs. Regenerated on demand; not source.
+eng.traineddata

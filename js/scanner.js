@@ -9,20 +9,31 @@ const SCN_INTERVAL_FAST_MS = 50;
  * before Scryfall). When still hunting either field, this is skipped so votes accumulate quickly.
  */
 const SCN_DEBUG_INTER_SCAN_PAUSE_MS = 200;
-/** Min ms between card-boundary detect ticks (video frame quad updates). */
-const SCN_BOUNDS_MIN_MS = 55;
-/** After Auto queue: mean abs luma delta (0–255) on downscaled frames; motion if this OR strong-pixel rule fires. */
-const SCN_MOTION_MEAN_DELTA_THRESH = 5.2;
+/**
+ * Min ms between card-boundary detect ticks. In fingerprint mode this paces the sharpness
+ * probe (a canvas draw + readback each tick), and the reticle is FIXED — polling it at 18 Hz
+ * bought nothing but battery. ~7 Hz still reacts to a card arriving well inside one cooldown.
+ */
+const SCN_BOUNDS_MIN_MS = 150;
+/**
+ * After Auto queue: mean abs luma delta (0–255) on downscaled frames; motion if this OR the
+ * strong-pixel rule fires. Both amounts raised ~8% from 5.2 / 0.0035: a hand settling over a
+ * card that is already handled was clearing the old bar, which resumed capture and re-read the
+ * same card. It takes a card actually moving to resume now.
+ */
+const SCN_MOTION_MEAN_DELTA_THRESH = 5.6;
 /** Count pixels with |Δ| ≥ this as “strong” (catches localized movement that barely moves the mean). */
 const SCN_MOTION_PIXEL_DIFF_STRONG = 18;
 /** Min share of strong pixels (0–1) to count as motion when mean is below threshold. */
-const SCN_MOTION_STRONG_PIXEL_FRAC = 0.0035;
+const SCN_MOTION_STRONG_PIXEL_FRAC = 0.0038;
 /** Width in px of the motion-detection thumb (height follows video aspect). */
 const SCN_MOTION_SAMPLE_W = 128;
 /** Ignore motion for this long after a queue (lets exposure/UI settle). */
 const SCN_MOTION_ARM_DELAY_MS = 380;
 /** Consecutive motion frames required (1 = most sensitive; raise if auto-resumes on noise). */
 const SCN_MOTION_STREAK_FRAMES = 3;
+/** Run the card-left check on one motion sample in N (~34ms each) — 5 is ~6/s. */
+const SCN_MOTION_LEAVE_SAMPLE_EVERY = 5;
 /** If nothing moves for this long, resume scanning anyway (avoid getting stuck). */
 const SCN_MOTION_GIVEUP_MS = 12000;
 /** Min ms between motion samples (limits `getImageData` cost; ~30/s). */
@@ -265,6 +276,7 @@ let _scnScanBeepCtx = null;
 let _scnOcrGen = 0;
 let _scnTessLoaded = false;
 let _scnRoiRo = null;
+let _scnBarRo = null;
 
 /** Video-normalized quad `tl,tr,br,bl` each `{nx,ny}` — from corner search, not assumed square. */
 let _scnCardQuad = null;
@@ -468,7 +480,9 @@ async function openScanner() {
   _scnRefreshPauseScanUI();
   _scnRenderSession();
   if (typeof loadSets === 'function') void loadSets();
-  _scnInjectYolo();
+  // The YOLO detector (onnxruntime-web, ~536 KB) is only used by the classic quad pipeline.
+  // Fingerprint mode never calls it, so don't pay to download, parse and JIT it.
+  if (!_scnFingerprintMode || SCN_CARD_QUAD_BACKEND !== 'ml') _scnInjectYolo();
   // Fingerprint mode never OCRs — don't pull the Tesseract CDN script + two workers for nothing.
   if (!_scnFingerprintMode) _scnInjectTesseract();
 }
@@ -611,6 +625,7 @@ async function scnStartCamera() {
     document.getElementById('scnStartBtn').classList.add('hidden');
     document.getElementById('scnStopBtn').classList.remove('hidden');
     document.getElementById('scnPauseScanBtn')?.classList.remove('hidden');
+    document.getElementById('scnSaveCaptureBtn')?.classList.remove('hidden');
     document.getElementById('scnFlipBtn').style.display = '';
     _scnClearOverlay();
     // Fingerprint mode identifies by image hash and needs no Tesseract/OCR — skip the worker load
@@ -627,6 +642,9 @@ async function scnStartCamera() {
     _scnBoundsMiss = 0;
     if (_scnFingerprintMode) {
       // Image-recognition engine: start scanning immediately, no manual hint needed.
+      // Warm the OCR workers in the background — the borderline-match title veto below uses
+      // them with a short deadline, and a cold Tesseract would always miss it.
+      void _scnEnsureWorkers();
       _scnStartFingerprintScanning();
     } else if (_scnManualBboxNorm) {
       _scnTryStartScanningIfHintReady();
@@ -729,6 +747,7 @@ function _scnArmMotionResume(onDone) {
   const armAt = performance.now();
   let streak = 0;
   let lastSampleAt = 0;
+  let leaveSample = 0;
 
   function tick() {
     if (!_scnMotionWatchOn) return;
@@ -762,6 +781,20 @@ function _scnArmMotionResume(onDone) {
       _scnResume();
       return;
     }
+    // Card-left detection has to run HERE. It lived only in the capture tick, which is stopped
+    // for the whole of this wait — so during a swap nothing ever checked whether the card had
+    // gone, _scnFpAwaitingLeave stayed true from the first accept onwards, and the queue's
+    // duplicate branch could never count a second copy. That is why the same card five or six
+    // cards later was declined instead of added. Same detector, same threshold, sampled at a
+    // fraction of the motion rate so the wait stays cheap.
+    if (_scnFingerprintMode && _scnFpAwaitingLeave && ++leaveSample % SCN_MOTION_LEAVE_SAMPLE_EVERY === 0) {
+      const g = _scnGuideQuad(v);
+      if (g && _scnFpGuideSharpness(v, g) < SCN_FP_SHARP_MIN) {
+        if (++_scnFpEmptyTicks >= SCN_FP_LEAVE_TICKS) _scnFpForgetHandledCard();
+      } else {
+        _scnFpEmptyTicks = 0; // the reticle has to read empty on CONSECUTIVE samples
+      }
+    }
     _scnMotionFrameBuf.push(new Uint8Array(gray));
     if (_scnMotionFrameBuf.length > 3) _scnMotionFrameBuf.shift();
     const ref = _scnMotionFrameBuf.length >= 2 ? _scnMotionFrameBuf[0] : null;
@@ -771,6 +804,11 @@ function _scnArmMotionResume(onDone) {
         if (streak >= SCN_MOTION_STREAK_FRAMES) {
           document.getElementById('scnScanAgainBtn')?.classList.add('hidden');
           _scnStopMotionWatch();
+          // Motion resumes capture, and nothing more. It is NOT proof the card was swapped:
+          // autofocus, exposure and a hand passing over a card that stays put all clear the
+          // bar, and treating that as a swap re-scanned the same card on a loop. Only the
+          // reticle actually going clear proves the card left — see the leave check in
+          // _scnFingerprintTick, which now runs often enough to catch it.
           _scnStatus('');
           _scnResume();
           return;
@@ -781,7 +819,7 @@ function _scnArmMotionResume(onDone) {
     }
     if (now - armAt >= SCN_MOTION_GIVEUP_MS) {
       _scnStopMotionWatch();
-      _scnStatus('Card queued — tap Scan Again to continue');
+      _scnStatus('Paused — tap Scan Again to continue');
       document.getElementById('scnScanAgainBtn')?.classList.remove('hidden');
       return;
     }
@@ -929,6 +967,7 @@ function _scnHardStop() {
   document.getElementById('scnStartBtn')?.classList.remove('hidden');
   document.getElementById('scnStopBtn')?.classList.add('hidden');
   document.getElementById('scnPauseScanBtn')?.classList.add('hidden');
+  document.getElementById('scnSaveCaptureBtn')?.classList.add('hidden');
   document.getElementById('scnScanAgainBtn')?.classList.add('hidden');
   const flip = document.getElementById('scnFlipBtn');
   if (flip) flip.style.display = 'none';
@@ -1043,7 +1082,7 @@ function _scnClearOverlay() {
   const wrap = document.getElementById('scnMatchOverlay');
   const p = document.getElementById('scnMatchPrimary');
   const s = document.getElementById('scnMatchSub');
-  _scnHidePlusOne();
+  if (typeof _scnHideAddClosest === 'function') _scnHideAddClosest();
   if (wrap) {
     wrap.classList.add('hidden');
     wrap.classList.remove('scn-match-overlay--accent');
@@ -1063,12 +1102,26 @@ function _scnAttachRoiObserver() {
   _scnDetachRoiObserver();
   _scnRoiRo = new ResizeObserver(() => _scnSyncScannerSvgLayout());
   _scnRoiRo.observe(wrap);
+  // The bottom bar is opaque, so any frame behind it is frame the user can't aim with. Publish
+  // its height so the stage can stop above it and the whole guide box stays on screen. The bar
+  // grows and shrinks (hints appear, manual entry expands), hence the observer.
+  const bar = document.querySelector('.scn-fs-bottom');
+  const root = document.querySelector('.scn-fs-root');
+  if (!bar || !root) return;
+  _scnBarRo = new ResizeObserver(() => {
+    root.style.setProperty('--scn-bar-h', Math.round(bar.getBoundingClientRect().height) + 'px');
+  });
+  _scnBarRo.observe(bar);
 }
 
 function _scnDetachRoiObserver() {
   if (_scnRoiRo) {
     _scnRoiRo.disconnect();
     _scnRoiRo = null;
+  }
+  if (_scnBarRo) {
+    _scnBarRo.disconnect();
+    _scnBarRo = null;
   }
 }
 
@@ -2130,6 +2183,8 @@ function _scnApplyCornerGeomLocks(q) {
   return _scnClampQuadToVideoFrame(out);
 }
 
+// NOTE: must match .scn-video's object-fit — cover, hence max(). With the two out of step the
+// drawn guide sits somewhere the capture never looked.
 function _scnMapVideoPtToScreen(nx, ny, vw, vh, cw, ch) {
   const scale = Math.max(cw / vw, ch / vh);
   const dispW = vw * scale;
@@ -2143,7 +2198,7 @@ function _scnMapVideoPtToScreen(nx, ny, vw, vh, cw, ch) {
 
 /** Inverse of `_scnMapVideoPtToScreen`: wrap-local px → video-normalized coords. */
 function _scnScreenToVideoNorm(sx, sy, vw, vh, cw, ch) {
-  const scale = Math.max(cw / vw, ch / vh);
+  const scale = Math.max(cw / vw, ch / vh); // cover — mirrors _scnMapVideoPtToScreen
   const dispW = vw * scale;
   const dispH = vh * scale;
   const ox = (cw - dispW) / 2;
@@ -2792,7 +2847,7 @@ function _scnBestTextForParse(classicText, probeText) {
   return bestT;
 }
 
-/** @param {'hint'|'match'} mode */
+/** @param {'hint'|'match'|'dupe'} mode */
 function _scnSetOverlay(primary, sub, mode) {
   const wrap = document.getElementById('scnMatchOverlay');
   const pEl = document.getElementById('scnMatchPrimary');
@@ -2802,9 +2857,14 @@ function _scnSetOverlay(primary, sub, mode) {
     _scnClearOverlay();
     return;
   }
-  _scnHidePlusOne(); // callers that want "+1" re-show it right after
+  // Every overlay change retires a pending "+ Add this" (the no-match branch re-shows it).
+  if (typeof _scnHideAddClosest === 'function') _scnHideAddClosest();
   wrap.classList.remove('hidden');
+  // 'dupe' is NOT green. A card the scanner declined to add a second time used to paint the
+  // same green panel as a successful add, so a skip was indistinguishable from a scan at a
+  // glance — which is how a run that looked perfect came up one card short of the stack.
   wrap.classList.toggle('scn-match-overlay--accent', mode === 'match');
+  wrap.classList.toggle('scn-match-overlay--warn', mode === 'dupe');
   pEl.textContent = primary || '';
   sEl.textContent = sub || '';
   if (primary || sub) _scnClearHud();
@@ -2932,34 +2992,468 @@ function _scnCaptureRegion(v, rx, ry, rw, rh, maxDim) {
 
 let _scnFingerprintMode = true;        // image-recognition is the default scanner engine
 let _scnStreamAdd = false;             // false = queue to _scnPendingAuto; true = add straight to collection
-const SCN_FP_WARP_W = 360;             // warped card canvas size (≈63:88 card aspect)
-const SCN_FP_WARP_H = 504;
-const SCN_FP_ART = { u0: 0.07, u1: 0.93, v0: 0.11, v1: 0.63 }; // art window — MUST match build-print-fingerprints.js
+// Warp canvas size + art window come from the pinned spec in phash-core.js (spec v2).
+const SCN_FP_WARP_W = PhashCore.CARD_W;
+const SCN_FP_WARP_H = PhashCore.CARD_H;
 const SCN_FP_COOLDOWN_MS = 500;        // min gap between captures
 const SCN_FP_SHARP_MIN = 8;            // Laplacian variance of the guide region — reject blur/empty
-const SCN_FP_GUIDE_FILL = 0.9;         // guide frame fills this fraction of the limiting dimension
-const SCN_FP_LRU_MAX = 24;
-const SCN_FP_LRU_HAMMING = 6;          // reuse a recent match without a round-trip within this distance
+const SCN_FP_GUIDE_FILL = 0.94;         // guide frame fills this fraction of the limiting dimension
 const SCN_FP_DEDUPE_HAMMING = 6;       // don't re-queue the same card while it lingers in frame
 const SCN_FP_WARMUP_MS = 900;          // wait this long after video dimensions settle before capturing
-const SCN_FP_REFINE_PAD = 0.06;        // guide bbox expansion for the corner-hunt seed (fraction of bbox)
-const SCN_FP_REFINE_MIN_CONF = 0.55;   // min compound confidence to trust a refined quad over the guide
-const SCN_FP_REFINE_ASPECT_TOL = 0.12; // refined quad aspect must be within ±this of 63:88
+// (The corner-hunt refine constants SCN_FP_REFINE_* are gone with the refine itself — card
+// localization is now the axis-projection scan + server-side variant arbitration below.)
 const SCN_FP_SHARP_RING = 4;           // recent capture-eligible sharpness readings kept
 const SCN_FP_SHARP_PEAK_RATIO = 0.85;  // only hash frames near the recent sharpness peak (skip focus hunts)
 const SCN_FP_LEAVE_TICKS = 3;          // consecutive empty-reticle ticks that count as "card removed"
+const SCN_FP_LEAVE_CHECK_MS = 80;      // ...sampled this often, so a swap's worth of clear air counts
+/**
+ * Min high-frequency detail (mean abs adjacent-pixel luma step on the 32×32) for a capture to
+ * be identified at all. An empty reticle (table, felt, gradient, a hand) passes the Laplacian
+ * sharpness gate easily but its 32×32 is smooth — measured: real cards ≥ 13.6, junk textures
+ * ≤ 13.6 with a fast falloff (felt/gradients/desk ≤ 8). 8.5 rejects the junk that was popping
+ * random matches before a card was even presented, with a wide margin below any real card.
+ */
+const SCN_FP_MIN_DETAIL = 8.5;
 
 let _scnFpInFlight = false;
 let _scnFpCooldownUntil = 0;
 let _scnFpAwaitingLeave = false;       // true after a queue: wait for the card to be removed/swapped
 let _scnFpLastAcceptedPhash = null;    // hex of the last queued card's full pHash
+let _scnFpLastAcceptedId = null;       // ...and which card that was, so dedupe needs both
 let _scnFpPendingMatch = null;         // {phash, card} matched once, awaiting a confirming 2nd read
+/**
+ * Answers for the card CURRENTLY in the reticle: [{phash, artPhash, result}]. Scoped to one
+ * card's presentation and dropped the moment the scanner is done with it, which is what makes
+ * it safe — the old 24-card version kept answering for cards that had long since been put
+ * away, and at 6 bits of full hash that is the noise floor. Here the only thing a capture can
+ * collide with is the card it is actually looking at.
+ */
+let _scnFpCardCache = [];
+const SCN_FP_CACHE_MAX = 3;
+/**
+ * Combined full+art distance to reuse an answer. Deliberately no looser than the confirmation
+ * step's own window (SCN_FP_DEDUPE_HAMMING on the full hash alone): combined ≤ 6 implies full
+ * ≤ 6, so the cache can only ever skip re-proving a match the normal path would have accepted.
+ */
+const SCN_FP_CACHE_COMB = 6;
 let _scnFpDimKey = '';                 // last seen "WxH" video dimensions (camera warm-up)
 let _scnFpDimStableAt = 0;             // when the current dimensions first held
-let _scnFpLru = [];                    // [{phash, card}] recent matches → skip the network round-trip
 let _scnFpSharpRing = [];              // rolling sharpness of recent capture-eligible frames
 let _scnFpEmptyTicks = 0;              // consecutive below-sharpness ticks (card-left detection)
-let _scnFpLastQueuedUid = null;        // uid the overlay "+1" button increments
+let _scnFpLeaveCheckAt = 0;            // last time the card-left check sampled
+let _scnFpChooserPhash = null;         // capture hash that opened the candidate chooser
+let _scnFpNoMatchStreak = 0;           // consecutive no-match captures (→ hold + manual search)
+/** Consecutive misses before the scanner stops hammering and waits for a card swap. */
+const SCN_FP_NOMATCH_HOLD_AFTER = 5;
+
+/** Give the per-capture title OCR at most this long; identify proceeds untitled on timeout. */
+const SCN_FP_TITLE_OCR_TIMEOUT_MS = 2600;
+
+/**
+ * Title reads accumulated across successive attempts at the SAME card. OCR noise is largely
+ * independent frame to frame — focus breathes, glare moves, the hand shifts — so a capture
+ * that reads nothing often reads cleanly two attempts later. Every distinct read stays in
+ * play until the card changes, and all of them are sent: the server scores each and keeps
+ * whichever yields the strongest name.
+ */
+let _scnFpTitleBuf = [];
+/** Capture hash the buffer belongs to; a big jump means a different card is in the reticle. */
+let _scnFpTitleBufPhash = '';
+const SCN_FP_TITLE_BUF_MAX = 6;
+/** Beyond this Hamming distance between consecutive captures, the reticle holds a new card. */
+const SCN_FP_TITLE_SAME_CARD_HAMMING = 14;
+/**
+ * A phase-one match at or below this combined distance is trusted outright and costs no OCR.
+ * Above it the match is borderline — strong enough to pass the gates, close enough to the
+ * noise floor to be a collision — so the printed name is read and asked to confirm it.
+ */
+const SCN_FP_VERIFY_COMB = 18;
+/** Attempt counter, used only to alternate OCR polarity between captures. */
+let _scnFpTitleAttempt = 0;
+/** Tilt solved for the card currently in the reticle (null = not solved yet). */
+let _scnFpTiltDeg = null;
+/** Last guide signature written to the overlay, so a static reticle isn't redrawn. */
+let _scnFpGuideSig = '';
+
+/**
+ * The handled card is gone — forget everything that was true of it, so whatever comes next is
+ * a new card even if it is the same card. Three copies of this drifted apart (the empty-frame
+ * branch had stopped clearing the id), so it lives in one place now.
+ */
+function _scnFpForgetHandledCard() {
+  _scnFpCardCache = [];
+  _scnFpAwaitingLeave = false;
+  _scnFpLastAcceptedPhash = null;
+  _scnFpLastAcceptedId = null;
+  _scnFpEmptyTicks = 0;
+  _scnFpResetTitleBuf();
+}
+
+function _scnFpResetTitleBuf() {
+  _scnFpTitleBuf = [];
+  _scnFpTitleBufPhash = '';
+  _scnFpTiltDeg = null; // re-solve the tilt for the next card
+}
+
+/**
+ * Rolling diagnostic of the LAST identify attempt — what the live pipeline actually saw:
+ * the native-res OCR read, which variant won, tilt, and the server's verdict. Save crop
+ * embeds this into the PNG (tEXt chunk, keyword "ScanDiag") so a reported capture carries
+ * its own live context; scripts/scan-photo-test.js prints it beside the offline replay.
+ */
+let _scnFpLastDiag = null;
+
+// CRC32 (PNG chunk checksums) — table built once.
+const _scnCrcTable = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+function _scnCrc32(bytes) {
+  let c = 0xffffffff;
+  for (let i = 0; i < bytes.length; i++) c = _scnCrcTable[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+// Insert a tEXt chunk (keyword "ScanDiag") before IEND of a PNG blob. Text is JSON encoded
+// as UTF-8 bytes (the reader reverses it); returns the original blob on any parse trouble.
+async function _scnPngWithDiag(blob, json) {
+  try {
+    const src = new Uint8Array(await blob.arrayBuffer());
+    const sig = [0x89, 0x50, 0x4e, 0x47];
+    if (!sig.every((b, i) => src[i] === b) || src.length < 45) return blob;
+    const keyword = 'ScanDiag';
+    const textBytes = new TextEncoder().encode(json);
+    const data = new Uint8Array(keyword.length + 1 + textBytes.length);
+    for (let i = 0; i < keyword.length; i++) data[i] = keyword.charCodeAt(i);
+    data[keyword.length] = 0;
+    data.set(textBytes, keyword.length + 1);
+    const chunk = new Uint8Array(12 + data.length);
+    const dv = new DataView(chunk.buffer);
+    dv.setUint32(0, data.length);
+    chunk[4] = 0x74; chunk[5] = 0x45; chunk[6] = 0x58; chunk[7] = 0x74; // tEXt
+    chunk.set(data, 8);
+    const crcInput = chunk.subarray(4, 8 + data.length);
+    dv.setUint32(8 + data.length, _scnCrc32(crcInput));
+    const iendAt = src.length - 12; // IEND is always the final 12 bytes of a canvas PNG
+    const out = new Uint8Array(src.length + chunk.length);
+    out.set(src.subarray(0, iendAt), 0);
+    out.set(chunk, iendAt);
+    out.set(src.subarray(iendAt), iendAt + chunk.length);
+    return new Blob([out], { type: 'image/png' });
+  } catch (_) {
+    return blob;
+  }
+}
+
+// Title-first identification: OCR the card's printed name and send it with the hashes —
+// server-side, a read title restricts matching to that name's printings, where the pHash is
+// nearly infallible. The band is cropped from the CAMERA FRAME at native resolution (the
+// 360px warp starves Tesseract: title glyphs are ~14px there and reads came back garbage);
+// the guide is axis-aligned, so warp-rect → video-rect is a linear map. Single-line page
+// mode + a name-alphabet whitelist. Empty/failed reads cost nothing: identify proceeds
+// exactly as before.
+// Render the card's title strip from the VIDEO at native resolution. `cardQuad` is the
+// card's own quad (video-normalized), so the band no longer inherits the localizer rect's
+// inset — which is what clipped the first characters off every live read. Contrast is
+// stretched, and `invert` handles light-on-dark frames (borderless, showcase, most black
+// cards) that Tesseract reads far worse in their native polarity.
+function _scnTitleBandUrl(v, cardQuad, { above = false, invert = false, narrow = false, middle = false } = {}) {
+  const bb = _scnQuadAxisBBox(cardQuad);
+  if (!bb) return null;
+  const vw = v.videoWidth, vh = v.videoHeight;
+  // Read the card's whole TOP THIRD, not a thin title strip. A strip has to be placed
+  // correctly, which makes OCR a hostage to localization — and when localization finds no
+  // card at all (seen live: variants=1, the guide-only fallback) the strip samples tray and
+  // returns noise. A tall region contains the title wherever it actually sits; the extra
+  // text costs nothing, because name scoring keys on long shared runs, not stray words.
+  const bx = (bb.nx - bb.nw * 0.04) * vw;
+  // `middle` is for the full-art frames whose name sits in a band BELOW the art rather than at
+  // the top — Meteor Crater [eos #26] reads as pure sky from the top third. On a normal card
+  // this band is rules text, which is why it runs last: the early exit above ends the pass as
+  // soon as a name-length read comes back, so an ordinary card never pays for it.
+  const by = (bb.ny + bb.nh * (middle ? 0.58 : above ? -0.14 : narrow ? -0.07 : -0.08)) * vh;
+  const bw = bb.nw * 1.08 * vw;
+  // `narrow` is the title line alone. The tall region is the right default — it finds the
+  // title without depending on exact placement — but on a Saga the top third also contains
+  // the chapter-ability column, and block segmentation reads THAT ("As this Saga enters...")
+  // instead of the name. A strip that can only contain the title fixes those.
+  const bh = bb.nh * (middle ? 0.22 : narrow ? 0.16 : above ? 0.20 : 0.36) * vh;
+  if (bw < 40 || bh < 10) return null;
+  const sx = Math.max(0, bx), sy = Math.max(0, by);
+  const sw = Math.min(vw - sx, bw), sh = Math.min(vh - sy, bh);
+  if (sw < 40 || sh < 10) return null;
+  // Tesseract wants roughly 30-40px of cap height; card titles are ~6% of card height.
+  // Native camera pixels already give ~50px cap height; a modest upscale keeps the taller
+  // region fast enough to finish inside the OCR budget.
+  const outW = Math.min(1200, Math.max(480, Math.round(sw * 1.3)));
+  const outH = Math.max(28, Math.round((outW / sw) * sh));
+  const c = document.createElement('canvas');
+  c.width = outW; c.height = outH;
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(v, sx, sy, sw, sh, 0, 0, outW, outH);
+  // Grayscale + percentile contrast stretch (+ optional inversion).
+  const img = ctx.getImageData(0, 0, outW, outH);
+  const d = img.data;
+  const n = outW * outH;
+  const hist = new Uint32Array(256);
+  const gray = new Uint8Array(n);
+  for (let i = 0, p = 0; p < n; i += 4, p++) {
+    const g = (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]) | 0;
+    gray[p] = g;
+    hist[g]++;
+  }
+  let lo = 0, hi = 255, acc = 0;
+  const cut = Math.max(1, Math.round(n * 0.02));
+  for (let g = 0; g < 256; g++) { acc += hist[g]; if (acc >= cut) { lo = g; break; } }
+  acc = 0;
+  for (let g = 255; g >= 0; g--) { acc += hist[g]; if (acc >= cut) { hi = g; break; } }
+  const span = Math.max(8, hi - lo);
+  for (let i = 0, p = 0; p < n; i += 4, p++) {
+    let g = ((gray[p] - lo) * 255) / span;
+    g = g < 0 ? 0 : g > 255 ? 255 : g;
+    if (invert) g = 255 - g;
+    d[i] = d[i + 1] = d[i + 2] = g;
+  }
+  ctx.putImageData(img, 0, 0);
+  return c.toDataURL('image/png');
+}
+
+// Collector number + set code, read off the card's bottom-left corner. This is the only
+// thing that separates same-art reprints: the artwork is identical, so no image hash tells
+// them apart at any resolution, but the printed footer states the printing exactly. Measured
+// at realistic capture resolution the strip reads cleanly ("L 0185 HOB EN MARINA ORTEGA
+// LORENTE"); it is far too small in the 360px saved crops, which is why the harness cannot
+// exercise this path.
+function _scnParseFooterHints(text) {
+  const t = String(text || '').toUpperCase().replace(/[^A-Z0-9/ ]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!t) return null;
+  // Collector number: first short digit run, leading zeros stripped ("0254" -> "254"), with
+  // an optional variant letter and an optional "/total" suffix from older frames.
+  let collector = '';
+  const num = t.match(/\b(\d{1,4})([A-Z]?)(?:\/\d+)?\b/);
+  if (num) collector = String(parseInt(num[1], 10)) + (num[2] || '').toLowerCase();
+  // Set code: the token immediately before the language code — "C 0254 FFX A FIN EN" has two
+  // plausible codes and only the one adjacent to EN is the set.
+  let set = '';
+  const m = t.match(/\b([A-Z0-9]{2,5})\s+(?:EN|DE|FR|IT|ES|PT|JA|JP|KO|RU|ZH|CS|CT)\b/);
+  if (m) set = m[1].toLowerCase();
+  return set || collector ? { set, collector } : null;
+}
+
+/** Reads shorter than this can't clear the server's name-evidence bar, so nothing was read. */
+const SCAN_TITLE_MIN_EVIDENCE_ALPHA = 24;
+
+/** Below this share of the guide, the localised rect may be cropping inside the card. */
+const SCN_FP_GUIDE_COVER_MIN = 0.85;
+
+/** How much of the guide the localised card rect spans, smaller axis first. 1 = the guide. */
+function _scnQuadGuideCover(v, cardQuad) {
+  const cb = _scnQuadAxisBBox(cardQuad), gb = _scnQuadAxisBBox(_scnGuideQuad(v));
+  if (!cb || !gb || !gb.nw || !gb.nh) return 1;
+  return Math.min(cb.nw / gb.nw, cb.nh / gb.nh);
+}
+
+/**
+ * Footer hints, with the same guide fallback the title read uses: a rect that lands inside
+ * the card puts the footer band over rules text, which is where the bogus "collector 1" on
+ * both 2026-09-16 failures came from. The guide read is only TRUSTED when it recovers a set
+ * code — a real footer line reads "SOS EN <artist>", whereas a band that overshot a genuinely
+ * small card and sampled the tray yields stray digits and no code. That matters because the
+ * footer is what pins the printing, so a junk hint picks the wrong one outright.
+ */
+async function _scnReadFooter(v, cardQuad) {
+  const own = await _scnFooterHintsForQuad(v, cardQuad);
+  if (own && own.set) return own;
+  if (_scnQuadGuideCover(v, cardQuad) >= SCN_FP_GUIDE_COVER_MIN) return own;
+  const viaGuide = await _scnFooterHintsForQuad(v, _scnGuideQuad(v));
+  return viaGuide && viaGuide.set ? viaGuide : own;
+}
+
+async function _scnFooterHintsForQuad(v, cardQuad) {
+  if (!v?.videoWidth || !_scnWorkerReady || !_scnNameWorker) return null;
+  try {
+    const bb = _scnQuadAxisBBox(cardQuad);
+    if (!bb) return null;
+    const vw = v.videoWidth, vh = v.videoHeight;
+    const sx = Math.max(0, (bb.nx + bb.nw * 0.02) * vw);
+    const sy = Math.max(0, (bb.ny + bb.nh * 0.915) * vh);
+    const sw = Math.min(vw - sx, bb.nw * 0.48 * vw);
+    const sh = Math.min(vh - sy, bb.nh * 0.075 * vh);
+    if (sw < 40 || sh < 8) return null;
+    const outW = Math.min(1000, Math.max(400, Math.round(sw * 2.2)));
+    const outH = Math.max(20, Math.round((outW / sw) * sh));
+    const c = document.createElement('canvas');
+    c.width = outW; c.height = outH;
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(v, sx, sy, sw, sh, 0, 0, outW, outH);
+    const img = ctx.getImageData(0, 0, outW, outH);
+    const d = img.data;
+    const n = outW * outH;
+    const gray = new Uint8Array(n);
+    const hist = new Uint32Array(256);
+    for (let i = 0, p = 0; p < n; i += 4, p++) {
+      const g = (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]) | 0;
+      gray[p] = g; hist[g]++;
+    }
+    let lo = 0, hi = 255, acc = 0;
+    const cut = Math.max(1, Math.round(n * 0.02));
+    for (let g = 0; g < 256; g++) { acc += hist[g]; if (acc >= cut) { lo = g; break; } }
+    acc = 0;
+    for (let g = 255; g >= 0; g--) { acc += hist[g]; if (acc >= cut) { hi = g; break; } }
+    const span = Math.max(8, hi - lo);
+    // The footer is white-on-black on most frames, so invert to give Tesseract dark-on-light.
+    for (let i = 0, p = 0; p < n; i += 4, p++) {
+      let g = ((gray[p] - lo) * 255) / span;
+      g = 255 - (g < 0 ? 0 : g > 255 ? 255 : g);
+      d[i] = d[i + 1] = d[i + 2] = g;
+    }
+    ctx.putImageData(img, 0, 0);
+    await _scnNameWorker.setParameters({
+      tessedit_pageseg_mode: '6',
+      tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/ ',
+    });
+    const rec = await Promise.race([
+      _scnNameWorker.recognize(c.toDataURL('image/png')),
+      new Promise(r => setTimeout(() => r(null), 1500)),
+    ]);
+    return _scnParseFooterHints(rec?.data?.text || '');
+  } catch (_) {
+    return null;
+  }
+}
+
+// Up to three candidate reads of the printed name (normal polarity, inverted, and the strip
+// just above the card top for rects that clipped the title). All non-empty reads are sent —
+// the server scores each and keeps whichever produces the strongest name evidence, which is
+// cheaper and more reliable than guessing client-side which read is "best".
+async function _scnReadTitles(v, cardQuad) {
+  if (!v?.videoWidth || !_scnWorkerReady || !_scnNameWorker) return [];
+  const out = [];
+  try {
+    await _scnNameWorker.setParameters({
+      tessedit_pageseg_mode: '6', // uniform block — the region spans the title and below
+      tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789',-. ",
+    });
+    const alpha = s => s.replace(/[^A-Za-z]/g, '').length;
+    const deadline = performance.now() + SCN_FP_TITLE_OCR_TIMEOUT_MS;
+    // Alternate which polarity leads on each attempt: dark-on-light is the common case, but
+    // borderless and black frames only read inverted, and reads accumulate across attempts
+    // anyway — so both get tried without paying for both on every single capture.
+    const inv = _scnFpTitleAttempt++ % 2 === 1;
+    const order = [{ invert: inv }, { invert: !inv }, { narrow: true, invert: inv }];
+    for (const opts of order) {
+      if (performance.now() > deadline) break;
+      const url = _scnTitleBandUrl(v, cardQuad, opts);
+      if (!url) continue;
+      const rec = await Promise.race([
+        _scnNameWorker.recognize(url),
+        new Promise(res => setTimeout(() => res(null), Math.max(300, deadline - performance.now()))),
+      ]);
+      const text = rec?.data?.text ? String(rec.data.text).replace(/\s+/g, ' ').trim() : '';
+      if (alpha(text) >= 4 && !out.includes(text)) out.push(text.slice(0, 240));
+      // A substantial read ends the pass early — but only if it is name-length. A long read
+      // means the region caught rules text (Sagas), and the title strip still has to run.
+      const got = out.length ? alpha(out[out.length - 1]) : 0;
+      if (got >= 16 && got <= 40) break;
+    }
+    // Nothing readable up top? Then this may be one of the full-art frames whose name sits in
+    // a band BELOW the art (Meteor Crater [eos #26] reads as pure sky from the top third), so
+    // try there. Gated on the reads so far being too short to be a name — on an ordinary card
+    // that band is rules text, and feeding rules text to the name matcher is how a card gets
+    // matched on a sentence rather than its title.
+    const longest = out.reduce((m, t) => Math.max(m, alpha(t)), 0);
+    if (longest < SCAN_TITLE_MIN_EVIDENCE_ALPHA && performance.now() <= deadline) {
+      const url = _scnTitleBandUrl(v, cardQuad, { middle: true, invert: inv });
+      if (url) {
+        const rec = await Promise.race([
+          _scnNameWorker.recognize(url),
+          new Promise(res => setTimeout(() => res(null), Math.max(300, deadline - performance.now()))),
+        ]);
+        const text = rec?.data?.text ? String(rec.data.text).replace(/\s+/g, ' ').trim() : '';
+        if (alpha(text) >= 4 && !out.includes(text)) out.push(text.slice(0, 240));
+      }
+    }
+    // The band above is anchored on the LOCALISED card rect, so a rect that lands inside the
+    // card puts the band below the real title and every pass reads art instead of a name.
+    // Both no-match failures in the 2026-09-16 round were exactly that (one read no name at
+    // all, the other lost the first word). When the rect is materially smaller than the guide
+    // — the only case where the two bands differ — spend one more read anchored on the guide.
+    if (_scnQuadGuideCover(v, cardQuad) < SCN_FP_GUIDE_COVER_MIN && performance.now() <= deadline) {
+      const url = _scnTitleBandUrl(v, _scnGuideQuad(v), { invert: inv });
+      if (url) {
+        const rec = await Promise.race([
+          _scnNameWorker.recognize(url),
+          new Promise(res => setTimeout(() => res(null), Math.max(300, deadline - performance.now()))),
+        ]);
+        const text = rec?.data?.text ? String(rec.data.text).replace(/\s+/g, ' ').trim() : '';
+        if (alpha(text) >= 4 && !out.includes(text)) out.push(text.slice(0, 240));
+      }
+    }
+  } catch (_) { /* fall through — hash-only identify */ }
+  return out;
+}
+
+/** Near-miss candidate behind the "+ Add this" overlay button: { card, phash } or null. */
+let _scnFpClosestCand = null;
+/** Offer tap-to-add only when the near-miss is genuinely near (winner comb at most this). */
+const SCN_FP_CLOSEST_OFFER_MAX = 40;
+
+function _scnShowAddClosest() {
+  document.getElementById('scnAddClosestBtn')?.classList.remove('hidden');
+}
+function _scnHideAddClosest() {
+  document.getElementById('scnAddClosestBtn')?.classList.add('hidden');
+  _scnFpClosestCand = null;
+}
+
+// One tap turns a right-looking near miss ("closest: …") into an add — live testing showed
+// the winner is often CORRECT on captures that fail the accept gates by a few bits, and a
+// user-confirmed add needs no gate at all.
+async function scnAddClosest() {
+  const cand = _scnFpClosestCand;
+  if (!cand?.card) return;
+  _scnHideAddClosest();
+  _scnStopMotionWatch();
+  _scnFpLastAcceptedPhash = cand.phash || null;
+  _scnFpLastAcceptedId = cand.card.id || null; // both gates key on the id as well as the hash
+  _scnFpAwaitingLeave = true;
+  let staged = null;
+  if (_scnStreamAdd) _scnFpStreamAdd(cand.card);
+  else staged = await _scnAutoStageAndResume(cand.card);
+  if (!_scnStreamAdd && !staged) _scnAdd(cand.card); // Auto off — straight to collection
+  const setNum = `${(cand.card.set || '').toUpperCase()} · #${cand.card.collector_number || ''}`;
+  _scnSetOverlay(cand.card.name, setNum, 'match');
+  _scnFpHoldForNextCard('Queued — swap in the next card…');
+}
+
+/**
+ * Post-result hold: stop capturing and wait for motion (the next card arriving) instead of
+ * re-scanning the same static scene — continuous rescan kept re-reading the handled card at
+ * new angles and re-announcing it. The match overlay stays up through the hold; motion clears
+ * it and resumes via _scnResume. The 12s give-up shows the Scan Again button.
+ */
+function _scnFpHoldForNextCard(statusMsg, { keepTitles = false } = {}) {
+  // This card is done, so its OCR reads are done with it. They used to survive: the title
+  // buffer only cleared when a new capture's hash differed by more than 14 bits, which is
+  // inside the noise floor where unrelated cards routinely land, so a clean read of the
+  // FINISHED card kept outscoring the garbage read of the new one — and the title path, which
+  // overrides the hash by design, re-queued the old card several cards later (seen live: Nori
+  // re-entered about four cards on, over a card nothing else matched). A no-match hold keeps
+  // them: that card is still in the reticle and its reads are still accumulating.
+  if (!keepTitles) _scnFpResetTitleBuf();
+  _scnFpCardCache = []; // this card is dealt with; its answers must not outlive it
+  _scnArmMotionResume(() => {});
+  if (statusMsg) _scnStatus(statusMsg);
+}
 
 // 2x3 affine mapping source pts tl→(0,0), tr→(W,0), bl→(0,H). Parallelogram approximation of the
 // quad (implied br = tr+bl-tl); good enough for pHash since the card is near-flat at capture time.
@@ -3041,62 +3535,381 @@ function _scnWarpProjective(v, corners, W, H) {
   return { canvas: c, ctx };
 }
 
-// Downscale a canvas region to 32x32 and return its Rec.601 luma (Float64Array) for PhashCore.
-function _scnLuma32(srcCanvas, sx, sy, sw, sh) {
-  const N = PhashCore.N;
-  const small = document.createElement('canvas');
-  small.width = N; small.height = N;
-  const sctx = small.getContext('2d', { willReadFrequently: true });
-  sctx.imageSmoothingEnabled = true;
-  sctx.imageSmoothingQuality = 'high';
-  sctx.drawImage(srcCanvas, sx, sy, sw, sh, 0, 0, N, N);
-  return PhashCore.lumaFromPixels(sctx.getImageData(0, 0, N, N).data, 4);
+// ── Capture-time card localization: axis projections within the guide warp ──────────────────
+// The reticle is a suggestion, not a promise: real captures (cards sitting in a tray) put the
+// card at 60-85% of the guide, and both the raw guide hash and the corner-hunt refinement
+// measured useless on that imagery (the hunt locked onto the TRAY edges; white-border cards in
+// a white tray have no corner contrast at detect resolution). The card IS axis-aligned in the
+// guide warp though, so 1-D gradient projections find its edges — the row/column sums peak
+// hard at the card boundary, even white-on-white via the shadow seam — and the SERVER picks
+// the winning rect by match distance (multi-hypothesis variants), which is a far better judge
+// of "which rectangle was the card" than any local confidence score.
+const SCN_FP_AXIS_MIN_SPAN = 0.5; // a candidate card spans at least half the warp per axis
+const SCN_FP_AXIS_AR_TOL = 0.06;  // |w/h − 63/88| tolerance for a candidate rect
+// Each coarse rect also ships grown by this margin: gradient peaks sit on the printed border,
+// a hair INSIDE the physical card edge the reference images include (measured: −5px ≈ −6 bits).
+const SCN_FP_AXIS_GROW_PX = 5;
+const SCN_FP_MAX_VARIANTS = 5;    // hash sets per identify request (each is a full re-warp)
+/**
+ * Tilt search: a hand-placed card sits 1-3° off axis, which the axis-aligned rect cannot
+ * correct and which costs 10+ Hamming bits (measured live: tilted cards matched WRONG cards
+ * confidently). The edge-profile peaks are sharpest exactly when the card's edges align with
+ * the axes, so the best-scoring rotation of the warp IS the tilt estimate — no Hough needed.
+ */
+const SCN_FP_TILT_DEGS = [-1, 1, -2, 2, -3, 3]; // small tilts first — ties go to less correction
+const SCN_FP_TILT_WIN = 1.06; // a rotation must beat the unrotated score by 6% to be trusted
+
+// Rotate the warped capture in place (same 360x504 frame); corner wedges fill dark, which is
+// why the full-frame fallback variant always hashes from the UNROTATED warp.
+function _scnRotatedWarp(warpCanvas, deg) {
+  const W = warpCanvas.width, H = warpCanvas.height;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.translate(W / 2, H / 2);
+  ctx.rotate((deg * Math.PI) / 180);
+  ctx.drawImage(warpCanvas, -W / 2, -H / 2);
+  return { canvas: c, px: ctx.getImageData(0, 0, W, H).data };
 }
 
-function _scnComputeScanHashes(v, quad) {
-  const warp = _scnWarpCardToCanvas(v, quad, SCN_FP_WARP_W, SCN_FP_WARP_H);
-  if (!warp) return null;
-  const cv = warp.canvas, W = cv.width, H = cv.height;
-  const lumaFull = _scnLuma32(cv, 0, 0, W, H);
-  const ax = Math.round(W * SCN_FP_ART.u0), ay = Math.round(H * SCN_FP_ART.v0);
-  const aw = Math.round(W * (SCN_FP_ART.u1 - SCN_FP_ART.u0)), ah = Math.round(H * (SCN_FP_ART.v1 - SCN_FP_ART.v0));
-  const lumaArt = _scnLuma32(cv, ax, ay, aw, ah);
+// De-tilted card localization: try the warp at several small rotations, keep whichever gives
+// the strongest edge-profile evidence. Returns { px, canvas, rects, deg }.
+function _scnLocalizeCard(warpCanvas, px0, W, H, knownDeg) {
+  let best = {
+    px: px0, canvas: warpCanvas, deg: 0,
+    rects: _scnAxisCardRects(_scnWarpLuma(px0, W, H), W, H),
+  };
+  // A card does not re-tilt while it sits in the reticle: solve the rotation once per
+  // presentation and reuse it, instead of re-running six full-frame searches every capture.
+  if (knownDeg) {
+    const rot = _scnRotatedWarp(warpCanvas, knownDeg);
+    const rects = _scnAxisCardRects(_scnWarpLuma(rot.px, W, H), W, H);
+    if (rects.length) return { px: rot.px, canvas: rot.canvas, deg: knownDeg, rects };
+    return best;
+  }
+  if (knownDeg === 0) return best;
+  let bestScore = best.rects[0] ? best.rects[0].score : 0;
+  for (const deg of SCN_FP_TILT_DEGS) {
+    const rot = _scnRotatedWarp(warpCanvas, deg);
+    const rects = _scnAxisCardRects(_scnWarpLuma(rot.px, W, H), W, H);
+    const score = rects[0] ? rects[0].score : 0;
+    if (score > bestScore * SCN_FP_TILT_WIN) {
+      bestScore = score;
+      best = { px: rot.px, canvas: rot.canvas, deg, rects };
+    }
+  }
+  return best;
+}
+
+// Rec.601 luma of the warped capture at full resolution (Float64, row-major).
+function _scnWarpLuma(px, W, H) {
+  const L = new Float64Array(W * H);
+  for (let i = 0, p = 0; p < W * H; i += 4, p++) {
+    L[p] = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
+  }
+  return L;
+}
+
+// Local maxima of a 1-D profile in [a, b), strongest first, ≥ 7px apart, at most n.
+function _scnAxisPeaks(prof, a, b, n) {
+  const cand = [];
+  for (let i = Math.max(1, a); i < Math.min(prof.length - 1, b); i++) {
+    if (prof[i] >= prof[i - 1] && prof[i] >= prof[i + 1]) cand.push([i, prof[i]]);
+  }
+  cand.sort((u, v) => v[1] - u[1]);
+  const out = [];
+  for (const [i, s] of cand) {
+    if (out.every(([j]) => Math.abs(i - j) > 6)) out.push([i, s]);
+    if (out.length >= n) break;
+  }
+  return out;
+}
+
+// Top card-shaped axis-aligned rects in the warp (strongest combined edge evidence first).
+function _scnAxisCardRects(L, W, H) {
+  const colG = new Float64Array(W);
+  const rowG = new Float64Array(H);
+  const by0 = Math.round(H * 0.2), by1 = Math.round(H * 0.8);
+  const bx0 = Math.round(W * 0.2), bx1 = Math.round(W * 0.8);
+  for (let x = 1; x < W - 1; x++) {
+    let s = 0;
+    for (let y = by0; y < by1; y++) s += Math.abs(L[y * W + x + 1] - L[y * W + x - 1]);
+    colG[x] = s / (by1 - by0);
+  }
+  for (let y = 1; y < H - 1; y++) {
+    let s = 0;
+    for (let x = bx0; x < bx1; x++) s += Math.abs(L[(y + 1) * W + x] - L[(y - 1) * W + x]);
+    rowG[y] = s / (bx1 - bx0);
+  }
+  // Peak search stays 1% clear of the warp boundary: the outermost pixels carry the guide
+  // edge's own gradient, never a card edge (a card flush against the guide is the full-guide
+  // fallback variant's job) — but real captures put card edges as close as 97% out, so the
+  // margin must stay tight.
+  const lefts = _scnAxisPeaks(colG, Math.round(W * 0.01), Math.round(W * 0.42), 6);
+  const rights = _scnAxisPeaks(colG, Math.round(W * 0.58), Math.round(W * 0.99), 6);
+  const tops = _scnAxisPeaks(rowG, Math.round(H * 0.01), Math.round(H * 0.42), 6);
+  const bots = _scnAxisPeaks(rowG, Math.round(H * 0.58), Math.round(H * 0.99), 6);
+  const rects = [];
+  for (const [l, sl] of lefts) for (const [r, sr] of rights) {
+    const w = r - l;
+    if (w < W * SCN_FP_AXIS_MIN_SPAN) continue;
+    for (const [t, st] of tops) for (const [b, sb] of bots) {
+      const h = b - t;
+      if (h < H * SCN_FP_AXIS_MIN_SPAN) continue;
+      if (Math.abs(w / h - SCN_GUIDE_CARD_AR) > SCN_FP_AXIS_AR_TOL) continue;
+      rects.push({ x: l, y: t, w, h, score: sl + sr + st + sb });
+    }
+    // NB: aspect-completed 3-edge combos were tried here for the borderless top-clip problem
+    // and REVERTED: the extra junk-rect variants meant extra draws below the noise floor and
+    // produced a fresh confident wrong-accept (comb 20 with clean margin) on the live corpus.
+    // Borderless misses stay quiet no-matches with the "+ Add this" fallback instead.
+  }
+  rects.sort((a, b) => b.score - a.score);
+  const uniq = [];
+  for (const r of rects) {
+    if (uniq.every(u => Math.abs(u.x - r.x) + Math.abs(u.y - r.y) + Math.abs(u.w - r.w) + Math.abs(u.h - r.h) > 20)) uniq.push(r);
+    if (uniq.length >= 3) break;
+  }
+  return uniq;
+}
+
+// A card rect found in the (possibly tilt-rotated) guide warp → a quad in video-normalized
+// coordinates. This is what lets the capture be warped straight from NATIVE camera pixels
+// instead of from the already-resampled 360x504 guide buffer: the server hashes a full-res
+// card image resized ONCE to 360x504, so the client must do the same or pay the difference
+// in Hamming bits (the card only occupies ~75% of the guide, so we were effectively hashing
+// a ~270px-wide card upsampled from a downsample).
+function _scnCardRectToVideoQuad(guide, rect, tiltDeg) {
+  const bb = _scnQuadAxisBBox(guide);
+  if (!bb) return null;
+  const W = SCN_FP_WARP_W, H = SCN_FP_WARP_H;
+  const cx = W / 2, cy = H / 2;
+  const th = ((tiltDeg || 0) * Math.PI) / 180;
+  const cos = Math.cos(th), sin = Math.sin(th);
+  const pts = [
+    [rect.x, rect.y],
+    [rect.x + rect.w, rect.y],
+    [rect.x + rect.w, rect.y + rect.h],
+    [rect.x, rect.y + rect.h],
+  ].map(([x, y]) => {
+    // Undo the rotation _scnRotatedWarp applied, then map through the guide bbox.
+    const dx = x - cx, dy = y - cy;
+    const ux = cx + dx * cos + dy * sin;
+    const uy = cy - dx * sin + dy * cos;
+    return { nx: bb.nx + (bb.nw * ux) / W, ny: bb.ny + (bb.nh * uy) / H };
+  });
+  return { tl: pts[0], tr: pts[1], br: pts[2], bl: pts[3] };
+}
+
+// Spec v2 hash set for a sub-rect of the warped capture (rect = null → the whole warp). The
+// 360x504 → 32x32 downsample + art crop are SHARED code with the server build; the art window
+// and its 180°-mirrored twin are placed RELATIVE to the rect.
+function _scnHashesFromRect(px, W, H, rect) {
+  const r = rect || { x: 0, y: 0, w: W, h: H };
+  const lumaFull = PhashCore.lumaBoxDownscale(px, W, H, 4, r);
+  const aw = PhashCore.ART_WINDOW;
+  const ar = {
+    x: r.x + Math.round(r.w * aw.u0), y: r.y + Math.round(r.h * aw.v0),
+    w: Math.round(r.w * (aw.u1 - aw.u0)), h: Math.round(r.h * (aw.v1 - aw.v0)),
+  };
+  const lumaArt = PhashCore.lumaBoxDownscale(px, W, H, 4, ar);
+  // Upside-down support: a card rotated 180° shows its art in the rect-mirrored window, itself
+  // rotated — hash that too so the server can match either orientation on BOTH hashes.
+  const arRot = {
+    x: r.x + r.w - (ar.x - r.x) - ar.w, y: r.y + r.h - (ar.y - r.y) - ar.h,
+    w: ar.w, h: ar.h,
+  };
+  const lumaArtRot = PhashCore.rotate180(PhashCore.lumaBoxDownscale(px, W, H, 4, arRot));
   return {
     phash: PhashCore.fromLuma(lumaFull),
     phashRot180: PhashCore.fromLuma(PhashCore.rotate180(lumaFull)),
     artPhash: PhashCore.fromLuma(lumaArt),
-    sharp: _scnLaplacianVariance(warp.ctx, W, H),
+    artPhashRot180: PhashCore.fromLuma(lumaArtRot),
+    detail: _scnLumaDetail(lumaFull),
   };
 }
 
+// Mean absolute adjacent-pixel step over the 32×32 luma — the empty-reticle discriminator.
+function _scnLumaDetail(luma) {
+  const N = PhashCore.N;
+  let s = 0;
+  let n = 0;
+  for (let y = 0; y < N; y++) {
+    const row = y * N;
+    for (let x = 0; x < N - 1; x++) { s += Math.abs(luma[row + x + 1] - luma[row + x]); n++; }
+  }
+  for (let y = 0; y < N - 1; y++) {
+    const row = y * N;
+    for (let x = 0; x < N; x++) { s += Math.abs(luma[row + N + x] - luma[row + x]); n++; }
+  }
+  return n ? s / n : 0;
+}
+
+// Identify a capture: warp the guide once, localize candidate card rects inside it (axis
+// projections), hash every hypothesis, and let the server answer with the best-matching one.
 async function _scnIdentifyFromQuad(hints, quad) {
   const v = document.getElementById('scnVideo');
   const useQuad = quad || _scnCardQuad;
   if (!v?.videoWidth || !useQuad) return null;
-  const h = _scnComputeScanHashes(v, useQuad);
-  if (!h) return null;
-  // LRU short-circuit (no network) when the same card lingers / reappears in frame.
-  if (!hints) {
-    for (const e of _scnFpLru) {
-      if (PhashCore.hamming(e.phash, h.phash) <= SCN_FP_LRU_HAMMING) {
-        return { ok: true, matched: true, ambiguous: false, distance: 0, best: e.card, candidates: [e.card], _phash: h.phash, _cached: true };
+  const warp = _scnWarpCardToCanvas(v, useQuad, SCN_FP_WARP_W, SCN_FP_WARP_H);
+  if (!warp) return null;
+  const W = warp.canvas.width, H = warp.canvas.height;
+  const px0 = warp.ctx.getImageData(0, 0, W, H).data;
+  const loc = _scnLocalizeCard(warp.canvas, px0, W, H, _scnFpTiltDeg);
+  _scnFpTiltDeg = loc.deg;
+  const candRects = [];
+  loc.rects.forEach((r, i) => {
+    candRects.push(r);
+    if (i >= 2) return; // grown twins for the top-2 only (variant budget)
+    const g = SCN_FP_AXIS_GROW_PX;
+    candRects.push({
+      x: Math.max(0, r.x - g), y: Math.max(0, r.y - g),
+      w: Math.min(W - Math.max(0, r.x - g), r.w + 2 * g),
+      h: Math.min(H - Math.max(0, r.y - g), r.h + 2 * g),
+    });
+  });
+  // Each candidate rect is re-warped from the VIDEO at native resolution so the card fills
+  // 360x504 exactly like the reference — same single-resample path as the server build.
+  // Empty-reticle guard per variant: a smooth crop (no card) must not reach the matcher — its
+  // degenerate hash lands on random low-detail printings and reads as "found a card".
+  const kept = [];
+  for (const r of candRects) {
+    if (kept.length >= SCN_FP_MAX_VARIANTS - 1) break; // reserve a slot for the full-frame
+    const q = _scnCardRectToVideoQuad(useQuad, r, loc.deg);
+    const cw = q && _scnWarpCardToCanvas(v, q, SCN_FP_WARP_W, SCN_FP_WARP_H);
+    if (!cw) continue;
+    const h = _scnHashesFromRect(cw.ctx.getImageData(0, 0, W, H).data, W, H, null);
+    if (h.detail >= SCN_FP_MIN_DETAIL) kept.push(Object.assign(h, { _quad: q, _canvas: cw.canvas }));
+  }
+  // The full guide warp always rides along, for a card that genuinely fills the reticle.
+  const hFull = _scnHashesFromRect(px0, W, H, null);
+  if (hFull.detail >= SCN_FP_MIN_DETAIL) kept.push(Object.assign(hFull, { _quad: useQuad, _canvas: warp.canvas }));
+  if (!kept.length) return { ok: false, empty: true };
+  // Already answered this card? Reuse it. This runs before the OCR passes and the round trip,
+  // which is the whole point: the confirming second read is the same card in the same place,
+  // and re-proving it costs a full title and footer OCR.
+  //
+  // What makes it safe is scope, not threshold. It holds answers for the card in the reticle
+  // and nothing else (see _scnFpCardCache), so a capture can only collide with the card it is
+  // actually looking at. And it hands back the SERVER'S OWN result, not a fabricated one — the
+  // previous version returned a bare card at distance 0 with no printingRivals, so a cached
+  // hit could never have its printing corrected by the footer.
+  if (!hints && _scnFpCardCache.length) {
+    for (const h of kept) {
+      for (const e of _scnFpCardCache) {
+        const comb = PhashCore.hamming(e.phash, h.phash)
+          + (e.artPhash && h.artPhash ? PhashCore.hamming(e.artPhash, h.artPhash) : 64);
+        if (comb <= SCN_FP_CACHE_COMB) return { ...e.result, _phash: h.phash, _cached: true };
       }
     }
   }
-  const body = { phash: h.phash, artPhash: h.artPhash, phashRot180: h.phashRot180 };
+  const toVariant = h => ({
+    phash: h.phash, artPhash: h.artPhash,
+    phashRot180: h.phashRot180, artPhashRot180: h.artPhashRot180,
+  });
+  const body = kept.length === 1 ? toVariant(kept[0]) : { variants: kept.map(toVariant) };
   if (hints) body.hints = hints;
-  try {
-    const res = await fetch(`${mtgApiRoot()}/scan/identify`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+  // Read the printed name off the best candidate's own card quad (workers warm at camera
+  // start; a cold or slow OCR just means this capture identifies by hash alone, as before).
+  // Reads accumulate across attempts at the same card — see _scnFpTitleBuf.
+  if (!_scnFpTitleBufPhash
+    || PhashCore.hamming(kept[0].phash, _scnFpTitleBufPhash) > SCN_FP_TITLE_SAME_CARD_HAMMING) {
+    _scnFpResetTitleBuf();
+  }
+  _scnFpTitleBufPhash = kept[0].phash;
+  while (_scnFpTitleBuf.length > SCN_FP_TITLE_BUF_MAX) _scnFpTitleBuf.shift();
+  const withTitles = () => {
+    if (!_scnFpTitleBuf.length) return body;
+    const send = _scnFpTitleBuf.slice();
+    // Plus a union of the most recent reads: separate attempts often catch different halves
+    // of a name ("Nori Teller" then "of Tales"), and neither half alone clears the bar.
+    if (send.length >= 2) send.push(send.slice(-3).join(' '));
+    return { ...body, titles: send, title: _scnFpTitleBuf[_scnFpTitleBuf.length - 1] };
+  };
+  let lastStatus = 0;
+  const post = async b => {
+    const r = await fetch(`${mtgApiRoot()}/scan/identify`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b),
     });
-    if (!res.ok) return null;
-    const data = await res.json();
-    data._phash = h.phash;
+    lastStatus = r.status;
+    return r.ok ? r.json() : null;
+  };
+  try {
+    // Two phases, so OCR is paid for only when it can change the answer. Phase one asks with
+    // the hashes plus whatever earlier attempts already read; a confident match ends there and
+    // costs no OCR. Phase two runs only on a miss — which is exactly where the printed name
+    // decides, either naming the card outright or corroborating a borderline hash winner so
+    // it survives the win-margin gate. Skipping OCR on the first attempt outright, as this
+    // briefly did, removed that corroboration and regressed a whole pass.
+    let sent = withTitles();
+    let data = await post(sent);
+    const comb = (Number(data?.distance) || 0) + (Number(data?.artDistance) || 0);
+    const unconvincing = data && (!data.matched || (!data.titleMatched && comb > SCN_FP_VERIFY_COMB));
+    if (unconvincing && _scnWorkerReady) {
+      // Read from the quad the hash actually preferred, not the first candidate. These are
+      // competing guesses at where the card is, and phase one just told us which one the
+      // index liked — reading the title off a different, worse rect is how a perfectly
+      // legible name ("Harbinger of the Seas") came back as seven lines of noise.
+      const wi = Number.isInteger(data.variantIndex) ? data.variantIndex : 0;
+      const ocrQuad = (kept[wi] && kept[wi]._quad) || kept[0]._quad || useQuad;
+      let added = false;
+      for (const t of await _scnReadTitles(v, ocrQuad)) {
+        if (!_scnFpTitleBuf.includes(t)) { _scnFpTitleBuf.push(t); added = true; }
+      }
+      while (_scnFpTitleBuf.length > SCN_FP_TITLE_BUF_MAX) _scnFpTitleBuf.shift();
+      // The footer is worth reading here too: on a miss it can name the printing outright,
+      // and a matching set code corroborates a borderline winner the margin gate would
+      // otherwise discard (which is how a correctly-identified Iron Hills was thrown away).
+      const fh = await _scnReadFooter(v, ocrQuad);
+      if (added || fh) {
+        sent = withTitles();
+        if (fh && (fh.set || fh.collector)) sent = { ...sent, hints: fh };
+        data = (await post(sent)) || data;
+      }
+    }
+    // Phase three: the server has identified the CARD but reports printings of it that share
+    // the same artwork. No hash can choose between those, so read the footer and ask again.
+    if (data && data.matched && data.printingRivals > 0 && !hints && _scnWorkerReady) {
+      const wi2 = Number.isInteger(data.variantIndex) ? data.variantIndex : 0;
+      const fh = await _scnReadFooter(v, (kept[wi2] && kept[wi2]._quad) || useQuad);
+      if (fh && (fh.set || fh.collector)) {
+        const withHint = { ...sent, hints: fh };
+        const hinted = await post(withHint);
+        if (hinted && hinted.matched) { data = hinted; sent = withHint; }
+      }
+    }
+    // A dead backend must not look like a dead scanner: without this the loop silently
+    // retried forever while the screen sat on its opening message.
+    if (!data) return { ok: false, serverError: lastStatus || 0 };
+    body.title = sent.title || '';
+    body.titles = sent.titles || [];
+    body.hints = sent.hints || null;
+    const winner = kept[Number.isInteger(data.variantIndex) ? data.variantIndex : 0] || kept[0];
+    data._phash = winner.phash;
+    data._variantCount = kept.length;
+    const db = data.best || (data.candidates && data.candidates[0]) || null;
+    _scnFpLastDiag = {
+      at: Date.now(),
+      ocr: body.title || '',
+      ocrAll: body.titles || [],
+      hints: body.hints || null,
+      printingRivals: data.printingRivals || 0,
+      tilt: loc.deg,
+      rects: loc.rects.map(r => [r.x, r.y, r.w, r.h]),
+      variant: data.variantIndex, variants: kept.length,
+      phash: winner.phash, artPhash: winner.artPhash,
+      matched: !!data.matched, ambiguous: !!data.ambiguous, titleMatched: !!data.titleMatched,
+      d: data.distance, a: data.artDistance,
+      best: db ? `${db.name} [${db.set} #${db.collector_number}]` : null,
+      cands: (data.candidates || []).slice(0, 5).map(c => `${c.name} ${c.set}#${c.collector_number}`),
+    };
+    // Cache the FINAL answer — after the footer pass has had its say on the printing — so a
+    // reused hit is the corrected one, and carries its own printingRivals if work remains.
     if (data.matched && data.best && !data.ambiguous) {
-      _scnFpLru.unshift({ phash: h.phash, card: data.best });
-      if (_scnFpLru.length > SCN_FP_LRU_MAX) _scnFpLru.pop();
+      _scnFpCardCache.unshift({ phash: winner.phash, artPhash: winner.artPhash, result: data });
+      if (_scnFpCardCache.length > SCN_FP_CACHE_MAX) _scnFpCardCache.pop();
     }
     return data;
   } catch (_) {
@@ -3119,49 +3932,8 @@ function _scnFpStreamAdd(card) {
   }
   save('collection');
   renderCollection(); // runs updateStats itself
-  _scnFpLastQueuedUid = entry.uid;
   _scnSession.push(entry);
   _scnRenderSession();
-  _scnPlayScanBeep();
-  if (navigator.vibrate) navigator.vibrate(80);
-}
-
-// ── Overlay "+1" (playset flow) ───────────────────────────────────────────────
-// Shown while a just-added/queued card's overlay is up; taps bump that card's quantity without
-// re-scanning. Hidden automatically whenever the overlay changes to a different state.
-
-function _scnShowPlusOne() {
-  if (!_scnFpLastQueuedUid) return;
-  document.getElementById('scnPlusOneBtn')?.classList.remove('hidden');
-}
-
-function _scnHidePlusOne() {
-  document.getElementById('scnPlusOneBtn')?.classList.add('hidden');
-}
-
-function scnMatchPlusOne() {
-  const uid = _scnFpLastQueuedUid;
-  if (!uid) return;
-  if (_scnStreamAdd) {
-    const existing = collection.find(c => c.uid === uid);
-    if (!existing) { _scnHidePlusOne(); return; }
-    if (typeof applyCollectionQtyAdd === 'function') applyCollectionQtyAdd(existing, existing, 1, {});
-    else {
-      existing.qty += 1;
-      existing.addedAt = Date.now();
-      recordCollectionEvent('add', existing, 1);
-    }
-    save('collection');
-    renderCollection(); // runs updateStats itself
-    _scnSetOverlay(existing.name, `×${existing.qty} in collection`, 'match');
-  } else {
-    const e = _scnPendingAuto.find(x => x.uid === uid);
-    if (!e) { _scnHidePlusOne(); return; } // queue was committed/cleared since
-    e.qty = (e.qty || 1) + 1;
-    _scnRenderSession();
-    _scnSetOverlay(e.name, `×${e.qty} queued`, 'match');
-  }
-  _scnShowPlusOne();
   _scnPlayScanBeep();
   if (navigator.vibrate) navigator.vibrate(80);
 }
@@ -3180,50 +3952,40 @@ function _scnGuideQuad(v) {
   const vw = v.videoWidth, vh = v.videoHeight;
   if (!vw || !vh) return null;
   const AR = 63 / 88; // card width / height
-  let hN = SCN_FP_GUIDE_FILL;          // try to fill most of the height
+  const SCN_FP_GUIDE_DROP = 0.03; // visible-height fraction the reticle sits below centre
+
+  // The video is shown `cover`, so it fills the screen and whichever axis doesn't fit gets
+  // cropped. Aim inside WHAT SURVIVES that crop, not the whole sensor: a reticle placed in the
+  // cropped part is one the user cannot see, which is how the box ended up 168px under the
+  // controls. Fitting it to the visible region instead is what lets the camera run edge to
+  // edge with no letterbox and still show the entire target — the reticle simply moves and
+  // resizes to wherever the visible frame actually is.
+  const cw = v.clientWidth, ch = v.clientHeight;
+  let visW = 1, visH = 1;              // fraction of the frame that survives the cover crop
+  if (cw > 0 && ch > 0) {
+    const scale = Math.max(cw / vw, ch / vh);
+    visW = Math.min(1, cw / (vw * scale));
+    visH = Math.min(1, ch / (vh * scale));
+  }
+
+  let hN = SCN_FP_GUIDE_FILL * visH;   // try to fill most of the visible height
   let wN = (AR * hN * vh) / vw;        // width that preserves the card's pixel aspect
-  if (wN > SCN_FP_GUIDE_FILL) {        // too wide for the frame → clamp width, recompute height
-    wN = SCN_FP_GUIDE_FILL;
+  if (wN > SCN_FP_GUIDE_FILL * visW) { // too wide for the visible frame → clamp, recompute
+    wN = SCN_FP_GUIDE_FILL * visW;
     hN = (wN * vw) / (AR * vh);
   }
-  const x0 = (1 - wN) / 2, y0 = (1 - hN) / 2, x1 = x0 + wN, y1 = y0 + hN;
+  // Biased DOWN, not centred. Measured on the saved warps from the fixed stand: the card
+  // lands ~5% of the guide height below centre, leaving a 12% gap at the top and none at the
+  // bottom — so the printed footer, the one thing that pins an exact printing, sat on or past
+  // the guide's edge. Clamped to the visible band, so the bias can never push it off-screen.
+  const x0 = 0.5 - wN / 2, x1 = x0 + wN;
+  const yLo = (1 - visH) / 2, yHi = 1 - yLo;
+  const y0 = Math.max(yLo, Math.min(yHi - hN, 0.5 - hN / 2 + SCN_FP_GUIDE_DROP)), y1 = y0 + hN;
   return { tl: { nx: x0, ny: y0 }, tr: { nx: x1, ny: y0 }, br: { nx: x1, ny: y1 }, bl: { nx: x0, ny: y1 } };
 }
 
-// Refine the fixed reticle to the card's true edges: seed the classic corner hunt with the guide
-// bbox so a slightly tilted/off-center card is warped from its real quad instead of the rectangle
-// (less background bleed, lower Hamming distance). Any failure falls back to the guide — additive.
-function _scnRefineGuideQuad(v, guide) {
-  const bb = _scnQuadAxisBBox(guide);
-  const buf = bb && _scnDetectGrayBuffer(v);
-  if (!buf) return null;
-  const { gray, W, H } = buf;
-  const snap = _scnSnapshotContrast(gray, W, H);
-  const padX = bb.nw * SCN_FP_REFINE_PAD;
-  const padY = bb.nh * SCN_FP_REFINE_PAD;
-  const seed = {
-    x0: Math.max(1, Math.round((bb.nx - padX) * W)),
-    y0: Math.max(1, Math.round((bb.ny - padY) * H)),
-    x1: Math.min(W - 2, Math.round((bb.nx + bb.nw + padX) * W)),
-    y1: Math.min(H - 2, Math.round((bb.ny + bb.nh + padY) * H)),
-  };
-  const r = _scnQuadFromSeedPx(snap, gray, W, H, seed);
-  if (!r || r.compound < SCN_FP_REFINE_MIN_CONF) return null;
-  const q = r.q;
-  // Corners must stay inside the expanded seed (a hunt that wandered off found something else).
-  const inSeed = c =>
-    c.nx * W >= seed.x0 - 1 && c.nx * W <= seed.x1 + 1 &&
-    c.ny * H >= seed.y0 - 1 && c.ny * H <= seed.y1 + 1;
-  if (!inSeed(q.tl) || !inSeed(q.tr) || !inSeed(q.br) || !inSeed(q.bl)) return null;
-  // And the quad must still be card-shaped (aspect in detect-buffer pixels, which preserve video AR).
-  const px = c => [c.nx * W, c.ny * H];
-  const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
-  const tl = px(q.tl), tr = px(q.tr), br = px(q.br), bl = px(q.bl);
-  const w = (dist(tl, tr) + dist(bl, br)) / 2;
-  const h = (dist(tl, bl) + dist(tr, br)) / 2;
-  if (!h || Math.abs(w / h - SCN_GUIDE_CARD_AR) > SCN_FP_REFINE_ASPECT_TOL) return null;
-  return q;
-}
+// (Capture-time card localization lives in _scnAxisCardRects below — the corner-hunt variant
+// of this idea measured useless on real tray captures and was removed.)
 
 // Laplacian variance of the guide region (downscaled) — low when empty/blurred, high for a real card.
 function _scnFpGuideSharpness(v, quad) {
@@ -3248,15 +4010,32 @@ function _scnFpGuideSharpness(v, quad) {
 function _scnFingerprintTick(v, now) {
   const guide = _scnGuideQuad(v);
   if (!guide) return;
-  _scnCardQuad = guide;
-  _scnSyncScannerSvgLayout();
-  if (!_scnOcrActive || _scnPaused || _scnFpInFlight) return;
+  // The guide is static for a given video size — re-writing the SVG every tick was pure cost.
+  const guideSig = `${guide.tl.nx.toFixed(4)},${guide.tl.ny.toFixed(4)},${guide.br.nx.toFixed(4)},${guide.br.ny.toFixed(4)}`;
+  if (guideSig !== _scnFpGuideSig) {
+    _scnFpGuideSig = guideSig;
+    _scnCardQuad = guide;
+    _scnSyncScannerSvgLayout();
+  }
+  // _scnMotionWatchOn = a handled result is on screen; capture stays off until the card swap.
+  if (!_scnOcrActive || _scnPaused || _scnFpInFlight || _scnMotionWatchOn) return;
 
   // Camera warm-up: phones often switch resolution a beat after the stream starts, which shifts the
   // frame. Don't capture until the video dimensions have held steady for a moment.
   const dimKey = `${v.videoWidth}x${v.videoHeight}`;
   if (dimKey !== _scnFpDimKey) { _scnFpDimKey = dimKey; _scnFpDimStableAt = now; _scnSetOverlay('Focusing…', '', 'hint'); return; }
   if (now - _scnFpDimStableAt < SCN_FP_WARMUP_MS) return;
+
+  // Has the handled card left? Watch for that at its own cadence, NOT behind the capture
+  // cooldown. At one observation per 500ms, the three consecutive clear reticles this needs
+  // meant 1.5s of uninterrupted clear air — longer than any swap — so the gate never opened
+  // and a second copy of the same card could not be counted. Sharpness is cheap; only
+  // identify is expensive, and only identify needs the cooldown.
+  if (_scnFpAwaitingLeave && now - _scnFpLeaveCheckAt >= SCN_FP_LEAVE_CHECK_MS) {
+    _scnFpLeaveCheckAt = now;
+    if (_scnFpGuideSharpness(v, guide) < SCN_FP_SHARP_MIN
+      && ++_scnFpEmptyTicks >= SCN_FP_LEAVE_TICKS) _scnFpForgetHandledCard();
+  }
 
   if (now < _scnFpCooldownUntil) return;
 
@@ -3266,14 +4045,12 @@ function _scnFingerprintTick(v, now) {
   if (sharp < SCN_FP_SHARP_MIN) {
     // Empty/blurred reticle. Once the card has demonstrably left, re-arm dedupe so deliberately
     // re-presenting the same card queues another copy (playset flow).
-    if (_scnFpAwaitingLeave && ++_scnFpEmptyTicks >= SCN_FP_LEAVE_TICKS) {
-      _scnFpAwaitingLeave = false;
-      _scnFpLastAcceptedPhash = null;
-      _scnFpEmptyTicks = 0;
-    }
+    if (_scnFpAwaitingLeave && ++_scnFpEmptyTicks >= SCN_FP_LEAVE_TICKS) _scnFpForgetHandledCard();
     return;
   }
-  _scnFpEmptyTicks = 0;
+  // NB: empty-tick counter resets only after a frame actually identifies (or here on blur
+  // recovery being disproven) — the detail gate in _scnIdentifyFromQuad also increments it,
+  // and a pre-capture reset would keep it from ever reaching SCN_FP_LEAVE_TICKS.
 
   // Near-peak selection: while autofocus hunts, sharpness oscillates — don't waste the capture
   // (and its cooldown) on a frame clearly blurrier than what the camera just delivered.
@@ -3281,37 +4058,56 @@ function _scnFingerprintTick(v, now) {
   if (_scnFpSharpRing.length > SCN_FP_SHARP_RING) _scnFpSharpRing.shift();
   if (sharp < SCN_FP_SHARP_PEAK_RATIO * Math.max(..._scnFpSharpRing)) return;
 
-  // Capture-time only (never on the steady-state hot path): hunt the card's true corners near the
-  // reticle so tilted/off-center cards hash cleanly; the guide rectangle remains the fallback.
-  const refined = _scnRefineGuideQuad(v, guide);
-
   _scnFpInFlight = true;
   void (async () => {
     try {
-      const r = await _scnIdentifyFromQuad(undefined, refined || guide);
-      if (r) r._quadSrc = refined ? 'q=refined' : 'q=guide';
+      const r = await _scnIdentifyFromQuad(undefined, guide);
+      if (r) r._quadSrc = `q=${Number.isInteger(r.variantIndex) ? r.variantIndex : '?'}/${r._variantCount || 1}`;
       if (!r) { _scnFpCooldownUntil = performance.now() + 300; return; }
-      const best = r.best || (r.candidates && r.candidates[0]) || null;
-      if (r.ambiguous && r.candidates && (r.candidates.length > 1 || r.artPrimary)) {
-        // artPrimary = weak art-only match (foil glare / non-English) — must be user-confirmed;
-        // _scnShowCands would otherwise auto-stage a lone candidate in Auto mode.
-        _scnRequireCandPick = !!r.artPrimary;
-        _scnShowCands(
-          r.candidates,
-          (best && best.name) || 'reprint',
-          r.artPrimary ? 'Low-confidence match — pick your card' : undefined,
-        );
-        _scnFpCooldownUntil = performance.now() + 1500;
+      if (r.serverError) {
+        _scnSetOverlay('Scanner offline', r.serverError === 503
+          ? 'card index still loading on the server' : `server error ${r.serverError}`, 'hint');
+        _scnStatus('Card recognition is unavailable right now — try again shortly.', true);
+        _scnFpCooldownUntil = performance.now() + 3000;
         return;
       }
+      if (r.empty) {
+        // Sharp but featureless frame (table/hand/no card) — same "reticle is empty" signal
+        // as the blur branch: never identify it, and let it re-arm the playset dedupe.
+        _scnFpPendingMatch = null;
+        if (_scnFpAwaitingLeave && ++_scnFpEmptyTicks >= SCN_FP_LEAVE_TICKS) _scnFpForgetHandledCard();
+        _scnFpNoMatchStreak = 0; // an empty reticle is not a miss
+        _scnFpResetTitleBuf();
+        _scnSetOverlay('Point the camera at a card', '', 'hint');
+        _scnFpCooldownUntil = performance.now() + 350;
+        return;
+      }
+      _scnFpEmptyTicks = 0; // an identified frame means the reticle genuinely holds a card
+      // The capture hash of the card currently in the reticle. A manual pick or a dismiss
+      // arms "handled" from this; the chooser branch that used to set it was removed, which
+      // left every such path re-adding the card still lying there.
+      _scnFpChooserPhash = r._phash || null;
+      const best = r.best || (r.candidates && r.candidates[0]) || null;
+      // No chooser in the scanning flow: an ambiguous accept-quality result (same-art
+      // reprints) auto-takes the best candidate — the queue panel is the place to fix a
+      // printing, and any interruption here made the scanner unusable in practice. Weak
+      // art-only guesses (artPrimary, matched:false) fall through to the no-match branch.
       if (r.matched && r.best) {
+        _scnFpNoMatchStreak = 0;
         const ph = r._phash;
         const da = _scnFpDiag(r, r._quadSrc);
         const setNum = `${(r.best.set || '').toUpperCase()} · #${r.best.collector_number || ''}${da}`;
         // Lingering same card already added — ignore, but offer "+1" for extra copies in hand.
-        if (_scnFpLastAcceptedPhash && PhashCore.hamming(ph, _scnFpLastAcceptedPhash) <= SCN_FP_DEDUPE_HAMMING) {
-          _scnSetOverlay(r.best.name, `already added ✓${da}`, 'match');
-          _scnShowPlusOne();
+        _scnFpResetTitleBuf();
+        // Same CARD still in the reticle — not merely a similar-looking capture. Comparing
+        // hashes alone silently swallowed correctly-identified cards: a degraded capture
+        // (combined 46) can land within six bits of the previous card's, and the add was
+        // dropped as a duplicate of a different card.
+        if (_scnFpLastAcceptedPhash && _scnFpLastAcceptedId === r.best.id
+          && PhashCore.hamming(ph, _scnFpLastAcceptedPhash) <= SCN_FP_DEDUPE_HAMMING) {
+          if (_scnFpLastDiag) _scnFpLastDiag.outcome = 'already-added';
+          _scnSetOverlay(r.best.name, `already scanned — not added${da}`, 'dupe');
+          _scnFpHoldForNextCard('Swap in the next card…');
           _scnFpCooldownUntil = performance.now() + 450;
           return;
         }
@@ -3328,31 +4124,103 @@ function _scnFingerprintTick(v, now) {
         _scnFpPendingMatch = null;
         _scnFpLastAcceptedPhash = ph || null;
         let staged = null;
-        if (_scnStreamAdd) _scnFpStreamAdd(r.best); // sets _scnFpLastQueuedUid itself
+        if (_scnStreamAdd) _scnFpStreamAdd(r.best);
         else staged = await _scnAutoStageAndResume(r.best); // queues + beeps
-        if (staged?.uid) _scnFpLastQueuedUid = staged.uid;
+        // AFTER staging, not before. Staging asks whether this card is the one still lying in
+        // the reticle by comparing it against the last accepted id — stamping that id with the
+        // current card first made the comparison self-referential, always true, so every repeat
+        // was read as a lingering card and declined no matter how many cards had gone between.
+        _scnFpLastAcceptedId = r.best.id;
         if (staged && !staged.queued) {
           // Lingering re-read past the hash dedupe (new angle) — nothing new was queued.
-          _scnSetOverlay(r.best.name, `already queued ✓${da}`, 'match');
-          _scnShowPlusOne();
+          _scnSetOverlay(r.best.name, `already scanned — not added${da}`, 'dupe');
+          _scnFpHoldForNextCard('Swap in the next card…');
           _scnFpCooldownUntil = performance.now() + 700;
           return;
         }
         const qtyTag = staged && staged.qty > 1 ? `×${staged.qty} · ` : '';
+        if (_scnFpLastDiag) _scnFpLastDiag.outcome = 'queued';
         _scnSetOverlay(r.best.name, qtyTag + setNum, 'match'); // overrides "Queued"
-        if (_scnStreamAdd || staged) _scnShowPlusOne();
+        // Result is on screen — hold until the next card comes in instead of re-reading this one.
+        _scnFpHoldForNextCard('Queued — swap in the next card…');
         _scnFpCooldownUntil = performance.now() + 700;
       } else {
         _scnFpPendingMatch = null; // a miss breaks the confirmation streak
         // "closest" readout keeps framing feedback for everyone; distances are admin-only.
         const da = _scnFpDiag(r, r._quadSrc);
+        if (_scnFpLastDiag) _scnFpLastDiag.outcome = 'no-match';
         _scnSetOverlay('No match', best ? `closest: ${best.name}${da}` : da.replace(/^ · /, ''), 'hint');
+        // Near miss → offer one-tap add: the winner is often right on captures that fail the
+        // gates by a few bits, and a user-confirmed add needs no gate.
+        const comb = (Number(r.distance) || 99) + (Number(r.artDistance) || 99);
+        if (best && comb <= SCN_FP_CLOSEST_OFFER_MAX) {
+          _scnFpClosestCand = { card: best, phash: r._phash || null };
+          _scnShowAddClosest();
+        } else {
+          _scnHideAddClosest();
+        }
+        // Repeated misses on the same static scene: stop hammering, open the manual search
+        // as the fallback, and wait for a reposition/swap (motion) to try again.
+        if (++_scnFpNoMatchStreak >= SCN_FP_NOMATCH_HOLD_AFTER) {
+          _scnFpNoMatchStreak = 0;
+          document.querySelector('.scn-manual-details')?.setAttribute('open', '');
+          _scnFpHoldForNextCard('No match — reposition the card, or type its name below', { keepTitles: true });
+        }
         _scnFpCooldownUntil = performance.now() + 450;
       }
     } finally {
       _scnFpInFlight = false;
     }
   })();
+}
+
+// Save the exact 360x504 card crop the matcher hashes (refined quad when the corner hunt
+// succeeds, guide reticle otherwise) — for reporting hard-to-read cards. On phones the share
+// sheet offers "Save Image"; elsewhere it downloads. The file drops straight into
+// fixtures/scan-photos/ for scripts/scan-photo-test.js (rename to <set>-<collector>.png).
+async function scnSaveCapture() {
+  const v = document.getElementById('scnVideo');
+  if (!v?.videoWidth) {
+    _scnStatus('Start the camera first to save a crop.', true);
+    return;
+  }
+  const guide = _scnGuideQuad(v);
+  if (!guide) return;
+  const warp = _scnWarpCardToCanvas(v, guide, SCN_FP_WARP_W, SCN_FP_WARP_H);
+  if (!warp) {
+    _scnStatus('Could not capture the card crop.', true);
+    return;
+  }
+  // Save the RAW guide warp — not the localized rect. A localized save destroys the evidence
+  // when localization itself was the failure (clipped titles made a whole corpus round
+  // undiagnosable); the photo harness re-runs the full localization on the file anyway.
+  let blob = await new Promise(r => warp.canvas.toBlob(r, 'image/png'));
+  if (!blob) return;
+  // Carry the live context along: the last identify attempt's OCR read, winning variant,
+  // and server verdict ride inside the PNG for the offline harness to print.
+  if (_scnFpLastDiag) {
+    blob = await _scnPngWithDiag(blob, JSON.stringify({ ..._scnFpLastDiag, savedAt: Date.now() }));
+  }
+  const name = `scan-crop-${Date.now()}.png`;
+  const file = new File([blob], name, { type: 'image/png' });
+  if (navigator.canShare?.({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file] });
+      return;
+    } catch (e) {
+      if (e?.name === 'AbortError') return; // user closed the share sheet
+      // NotAllowedError etc. — fall through to a plain download
+    }
+  }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  if (typeof showNotif === 'function') showNotif('Card crop saved.');
 }
 
 function _scnStartFingerprintScanning() {
@@ -3362,13 +4230,17 @@ function _scnStartFingerprintScanning() {
   _scnFpAwaitingLeave = false;
   _scnFpPendingMatch = null;
   _scnFpLastAcceptedPhash = null;
+  _scnFpLastAcceptedId = null;
+  _scnFpChooserPhash = null;
+  _scnFpNoMatchStreak = 0;
+  _scnFpResetTitleBuf();
+  _scnFpGuideSig = ''; // force the guide outline to be drawn again for this session
   _scnFpDimKey = '';
   _scnFpDimStableAt = 0;
   _scnFpCooldownUntil = 0;
   _scnFpSharpRing = [];
   _scnFpEmptyTicks = 0;
-  _scnFpLastQueuedUid = null;
-  _scnHidePlusOne();
+  _scnHideAddClosest();
   _scnLastBoundsMs = 0;
   _scnBoundsMiss = 0;
   _scnBoundsLoopOn = true;
@@ -4158,6 +5030,17 @@ function _scnShowCands(cards, query, labelOverride) {
 
 function scnDismiss() {
   document.getElementById('scnCandidates')?.classList.add('hidden');
+  if (_scnFingerprintMode) {
+    // Remember the dismissed capture as handled so the same lingering card doesn't reopen
+    // the chooser on the very next tick; the card leaving the reticle re-arms everything.
+    if (_scnFpChooserPhash) {
+      _scnFpLastAcceptedPhash = _scnFpChooserPhash;
+      _scnFpAwaitingLeave = true;
+      _scnFpChooserPhash = null;
+    }
+    _scnResume();
+    return;
+  }
   const tc = _scnTitleFallback(document.getElementById('scnNameInput')?.value || '');
   if (tc) {
     _scnDoFallback(tc);
@@ -4194,9 +5077,20 @@ async function _scnAutoStageAndResume(card) {
     if (_scnFoilMode) { entry.foil = true; entry.uid = card.id + '_f'; }
     const dup = _scnPendingAuto.find(e => e.scryfallId === entry.scryfallId && !!e.foil === !!entry.foil);
     if (dup) {
-      // Fingerprint mode: a re-read after the card demonstrably left the reticle is a deliberate
-      // "add another copy" — bump the queued qty. A still-lingering card stays a no-op.
-      if (_scnFingerprintMode && !_scnFpAwaitingLeave) {
+      // Is this the card still sitting in the reticle, or a second copy presented later?
+      //
+      // This used to ask _scnFpAwaitingLeave, a flag cleared only by watching the reticle go
+      // empty — and that watch loses a race it can't win: motion ends the post-scan wait after
+      // ~100ms, while three consecutive empty samples take ~510ms, so a normal swap resumes
+      // long before emptiness is ever confirmed. The flag therefore stayed true from the first
+      // accept for the rest of the session, and every repeat in the stack was declined.
+      //
+      // Ask the question directly instead. Only the LAST accepted card can still be lying in
+      // the reticle; any other card in the queue must have been swapped out and brought back,
+      // because cards in between were identified in its place. So a lingering re-read is still
+      // a no-op, and a genuine second copy counts.
+      const lingering = _scnFpAwaitingLeave && _scnFpLastAcceptedId === card.id;
+      if (_scnFingerprintMode && !lingering) {
         dup.qty = (dup.qty || 1) + 1;
         _scnRenderSession();
         _scnPlayScanBeep();
@@ -4207,7 +5101,6 @@ async function _scnAutoStageAndResume(card) {
         return { queued: true, qty: dup.qty, uid: dup.uid };
       }
       _scnStatus('Already queued');
-      _scnClearOverlay();
       if (_scnFingerprintMode) {
         _scnFpAwaitingLeave = true;
         _scnFpCooldownUntil = performance.now() + SCN_FP_COOLDOWN_MS;
@@ -4226,7 +5119,9 @@ async function _scnAutoStageAndResume(card) {
     _scnPlayScanBeep();
     if (navigator.vibrate) navigator.vibrate(80);
     document.getElementById('scnCandidates')?.classList.add('hidden');
-    _scnClearOverlay();
+    // NB: no _scnClearOverlay() here. The caller sets the match panel immediately after, so
+    // clearing first only blinked it off and on — which reads as a flash, not as a result.
+    // _scnResume() clears it when scanning actually starts again, which is the honest signal.
     if (_scnFingerprintMode) {
       // No motion-wait: keep scanning, debounce on card identity until this card leaves the frame.
       _scnSetOverlay(card.name, `${(card.set || '').toUpperCase()} · #${card.collector_number || ''}`, 'match');
@@ -4773,7 +5668,7 @@ function scnAddPendingToCollection() {
     return;
   }
   const n = _scnPendingAuto.length;
-  const opt = typeof readPurchasePriceOptIn === 'function' ? readPurchasePriceOptIn('scnPurchase') : { price: null, manual: false };
+  const opt = { price: null, manual: false }; // no purchase-price opt-in in the scanner
   for (const entry of _scnPendingAuto) {
     const existing = collection.find(c => c.uid === entry.uid);
     const qty = entry.qty || 1;
@@ -4798,6 +5693,10 @@ function scnAddPendingToCollection() {
 
 function _scnAdd(scryfallCard) {
   const entry = cardToEntry(scryfallCard, 1);
+  // Foil mode is sticky across a batch, so it has to apply on EVERY add path. This one was
+  // missing it, which meant "+ Add this" and chooser picks filed non-foil copies in the
+  // middle of a foil stack — silently, since nothing on the confirmation says which it was.
+  if (_scnFoilMode) { entry.foil = true; entry.uid = scryfallCard.id + '_f'; }
   const existing = collection.find(c => c.uid === entry.uid);
   if (typeof applyCollectionQtyAdd === 'function') {
     if (existing) applyCollectionQtyAdd(existing, existing, 1, {});
@@ -4817,6 +5716,15 @@ function _scnAdd(scryfallCard) {
   showNotif(`Added ${entry.name}`);
   document.getElementById('scnCandidates')?.classList.add('hidden');
   _scnRequireCandPick = false;
+  if (_scnFingerprintMode && _scnFpChooserPhash) {
+    // Picked from the chooser: the card in the reticle is handled until it leaves.
+    // The id goes with the hash — the dedupe gate requires both, so arming the hash
+    // alone let _scnResume() re-identify the same card and add it twice.
+    _scnFpLastAcceptedPhash = _scnFpChooserPhash;
+    _scnFpLastAcceptedId = scryfallCard?.id || null;
+    _scnFpAwaitingLeave = true;
+    _scnFpChooserPhash = null;
+  }
   _scnResume();
 }
 
@@ -4825,7 +5733,13 @@ function _scnRenderSession() {
   const badge = document.getElementById('scnSessionCount');
   const nPend = _scnPendingAuto.length;
   const nSess = _scnSession.length;
-  if (badge) badge.textContent = String(nPend + nSess);
+  // CARDS, not rows. A second copy of a card bumps an existing row's qty instead of adding a
+  // row, so a row count reads one short of the stack for every duplicate — and the stack is
+  // exactly what this number gets compared against.
+  const qty = e => Math.max(1, Number(e && e.qty) || 1);
+  const nCards = _scnPendingAuto.reduce((s, e) => s + qty(e), 0)
+    + _scnSession.reduce((s, e) => s + qty(e), 0);
+  if (badge) badge.textContent = String(nCards);
   if (!el) return;
   if (!nPend && !nSess) {
     el.innerHTML =

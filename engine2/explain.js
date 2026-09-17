@@ -111,10 +111,13 @@ function addReasons(add) {
         out.push(`Multiplies the deck's ${t.axis === 'counters.doubler' ? '+1/+1 counter' : 'token'} output (${t.substrate} sources)`);
         break;
       case 'tribe_affinity':
-        out.push(t.makes ? `Makes ${t.tribe} tokens — on tribe` : `A ${t.tribe} itself — on tribe`);
+        out.push(t.makes ? `Makes ${t.tribe} tokens — on tribe` : `${/^[AEIOU]/i.test(String(t.tribe)) ? 'An' : 'A'} ${t.tribe} itself — on tribe`);
         break;
       case 'curve_fill':
         out.push('Lands in an under-filled spot on the curve');
+        break;
+      case 'commander_meta':
+        out.push(`A staple for this commander (${Math.round(t.pct)}% of decks run it)`);
         break;
       case 'owned':
         out.push('In your collection');
@@ -181,6 +184,12 @@ function addBreakdown(add) {
         break;
       case 'meta_prior':
         out.push({ text: `EDHREC popularity prior (#${t.rank})`, val });
+        break;
+      case 'commander_meta':
+        out.push({ text: `Run by ${Math.round(t.pct)}% of this commander's decks`, val });
+        break;
+      case 'breadth':
+        out.push({ text: `Covers ${t.count} different deck needs`, val });
         break;
       case 'owned':
         out.push({ text: 'In your collection', val });

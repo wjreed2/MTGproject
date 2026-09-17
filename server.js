@@ -15,6 +15,9 @@ const helmet      = require('helmet');
 const nodemailer  = require('nodemailer');
 const cron        = require('node-cron');
 const engine2     = require('./engine2'); // semantics/interaction engine (docs/engine2-plan.md)
+// commander_card_stats cache: slugify + lazy first-analyze fetch (anti-monoculture)
+const edhrecStats = require('./scripts/lib/edhrec-stats-core');
+const engine2SlugifyCommander = edhrecStats.slugifyCommander;
 const engine21w   = require('./engine2.1wizard'); // sandbox — wizard type picks / hybrid (do not replace engine2)
 const { Server: SocketIOServer } = require('socket.io');
 const MySQLStore  = require('express-mysql-session')(session);
@@ -665,6 +668,121 @@ async function ensureAccountLoginMetaColumns() {
   }
 }
 
+// ── Federated sign-in (Google / Apple / Discord) + email verification ────────
+
+/**
+ * Identity + verification schema. Both grandfathering steps here are one-shot
+ * and deliberate:
+ *  - email_verified_at is backfilled to created_at for every account that
+ *    already exists when the column is added. Those users signed up before
+ *    verification existed; making them re-verify — or nagging them forever —
+ *    would be a regression for every current user of the app.
+ *  - password_hash becomes nullable so a Google/Apple/Discord-only account
+ *    doesn't need a dummy password row. Existing hashes are untouched: an
+ *    account keeps working with its password whether or not it links a provider.
+ */
+async function ensureAuthIdentitySchema() {
+  const conn = await db().getConnection();
+  try {
+    if (!(await tableExists(conn, 'accounts'))) return;
+
+    if (!(await columnExists(conn, 'accounts', 'email_verified_at'))) {
+      await conn.query('ALTER TABLE accounts ADD COLUMN email_verified_at BIGINT NULL DEFAULT NULL');
+      try {
+        const [res] = await conn.query(
+          'UPDATE accounts SET email_verified_at = created_at WHERE email_verified_at IS NULL'
+        );
+        console.log(`[auth] grandfathered ${res.affectedRows} existing account(s) as email-verified`);
+      } catch (e) {
+        // The column and its backfill have to land together. Once the column
+        // exists this branch never runs again, so a half-applied migration
+        // would leave every pre-existing user staring at "confirm your email"
+        // permanently. Drop it back so the next boot retries the pair.
+        await conn.query('ALTER TABLE accounts DROP COLUMN email_verified_at');
+        throw e;
+      }
+    }
+
+    // An OAuth-only account has no password at all, so the column can't stay NOT NULL.
+    const [[pwCol]] = await conn.query(
+      `SELECT IS_NULLABLE FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'accounts' AND COLUMN_NAME = 'password_hash'`
+    );
+    if (pwCol && pwCol.IS_NULLABLE === 'NO') {
+      await conn.query('ALTER TABLE accounts MODIFY COLUMN password_hash VARCHAR(255) NULL DEFAULT NULL');
+    }
+
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS account_identities (
+        id               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        account_id       BIGINT UNSIGNED NOT NULL,
+        provider         VARCHAR(32)  NOT NULL,
+        provider_user_id VARCHAR(255) NOT NULL,
+        email            VARCHAR(255) NULL,
+        display_name     VARCHAR(128) NULL,
+        created_at       BIGINT NOT NULL,
+        last_login_at    BIGINT NULL DEFAULT NULL,
+        PRIMARY KEY (id),
+        -- One provider account maps to exactly one local account, and a local
+        -- account links any given provider at most once.
+        UNIQUE KEY uk_identity_provider_user (provider, provider_user_id),
+        UNIQUE KEY uk_identity_account_provider (account_id, provider),
+        CONSTRAINT fk_identity_account FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS email_verification_tokens (
+        id         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        account_id BIGINT UNSIGNED NOT NULL,
+        token_hash VARCHAR(255) NOT NULL,
+        email      VARCHAR(255) NOT NULL,
+        expires_at BIGINT NOT NULL,
+        used_at    BIGINT NULL DEFAULT NULL,
+        created_at BIGINT NOT NULL,
+        PRIMARY KEY (id),
+        UNIQUE KEY uk_evt_token (token_hash),
+        KEY idx_evt_account (account_id),
+        CONSTRAINT fk_evt_account FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    // The in-flight OAuth round trip is keyed here rather than on the session.
+    // Apple's form_post callback is a cross-site POST, which a SameSite=Lax
+    // session cookie is not sent on — and the Capacitor system-browser handoff
+    // has the same problem. Keying on the state value sidesteps both.
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS oauth_states (
+        id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        state_hash      VARCHAR(255) NOT NULL,
+        provider        VARCHAR(32)  NOT NULL,
+        code_verifier   VARCHAR(255) NOT NULL,
+        nonce           VARCHAR(255) NOT NULL,
+        redirect_uri    VARCHAR(512) NOT NULL,
+        link_account_id BIGINT UNSIGNED NULL DEFAULT NULL,
+        created_at      BIGINT NOT NULL,
+        expires_at      BIGINT NOT NULL,
+        used_at         BIGINT NULL DEFAULT NULL,
+        PRIMARY KEY (id),
+        UNIQUE KEY uk_oauth_state (state_hash),
+        KEY idx_oauth_expires (expires_at),
+        CONSTRAINT fk_oauth_link_account FOREIGN KEY (link_account_id) REFERENCES accounts(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+  } finally {
+    conn.release();
+  }
+}
+
+/** Drop consumed / expired OAuth handshakes so the table stays small. */
+async function pruneOauthStates() {
+  try {
+    await db().query('DELETE FROM oauth_states WHERE expires_at < ? OR used_at IS NOT NULL', [Date.now() - 60 * 60 * 1000]);
+  } catch (e) {
+    console.warn('[auth] oauth_states prune failed:', e.message);
+  }
+}
+
 // ── Notifications (durable per-user inbox; used by the Trade + price systems) ──
 
 async function ensureNotificationsTable() {
@@ -1164,6 +1282,12 @@ async function ensureWishlistTradeColumns() {
     if (!(await columnExists(conn, 'wishlist', 'priority_locked'))) {
       await conn.query('ALTER TABLE wishlist ADD COLUMN priority_locked TINYINT(1) NOT NULL DEFAULT 0');
     }
+    // A derived row you removed by hand. The row stays so the reconciler can see
+    // the decision and leave it alone; GET filters it out. Deleting instead would
+    // lose the fact, and the next reconcile would re-derive the card straight back.
+    if (!(await columnExists(conn, 'wishlist', 'dismissed'))) {
+      await conn.query('ALTER TABLE wishlist ADD COLUMN dismissed TINYINT(1) NOT NULL DEFAULT 0');
+    }
     if (!(await columnExists(conn, 'wishlist', 'source_meta'))) {
       await conn.query('ALTER TABLE wishlist ADD COLUMN source_meta JSON NULL DEFAULT NULL');
     }
@@ -1215,7 +1339,9 @@ async function reconcileWishlistSource(accountId, source, desiredRows) {
         [accountId, source, ...stale]
       );
     }
-    // Upsert desired rows. Respect priority_locked; default priority 'med'.
+    // Upsert desired rows. Respect priority_locked and dismissed; default 'med'.
+    // `dismissed` is deliberately absent from the UPDATE list below, so a row you
+    // removed by hand stays removed however many times it is re-derived.
     const now = Date.now();
     for (const d of desired) {
       const data = d.data && typeof d.data === 'object' ? d.data : {
@@ -1561,14 +1687,72 @@ async function getLatestTwoSnapshotDates() {
  * tradelist auto-add / wishlist priority-bump actions and enqueuing one-shot
  * notifications. Safe to re-run (idempotent via dedup keys + last-notified).
  */
-async function runDailyPriceJob({ skipSnapshot = false } = {}) {
+/**
+ * A snapshot that died mid-flight leaves a short day behind — 2026-08-25 landed
+ * 25,600 rows against a ~104k norm — and nothing ever revisited it. Compare a
+ * day's row count against the best of the ten days before it.
+ */
+const SNAPSHOT_MIN_FRACTION = 0.6;
+
+async function getSnapshotHealth(date) {
+  const [[cur]] = await db().query(
+    'SELECT COUNT(*) n FROM card_price_daily WHERE snapshot_date = ?', [date]
+  );
+  const [[norm]] = await db().query(
+    `SELECT MAX(n) n FROM (
+       SELECT COUNT(*) n FROM card_price_daily
+        WHERE snapshot_date < ?
+        GROUP BY snapshot_date
+        ORDER BY snapshot_date DESC
+        LIMIT 10
+     ) t`, [date]
+  );
+  const rows = Number(cur?.n) || 0;
+  const expected = Number(norm?.n) || 0;
+  return { rows, expected, complete: rows > 0 && (!expected || rows >= expected * SNAPSHOT_MIN_FRACTION) };
+}
+
+// AllPricesToday only ever serves *today*, so a day the process slept through is
+// lost for good — and the job used to run from a single in-process cron tick, which
+// a deploy restart silently eats. We now also catch up on boot, which means the job
+// can fire several times a day; this cooldown keeps that from re-pulling 5 MB each time.
+let _lastSnapshotAttemptTs = 0;
+const SNAPSHOT_ATTEMPT_COOLDOWN_MS = 6 * 60 * 60 * 1000;
+
+async function runDailyPriceJob({ skipSnapshot = false, force = false } = {}) {
   try {
     await ensurePriceHistorySchema();
     if (!skipSnapshot) {
+      // Rows are stamped with MTGJSON's own meta.date, which trails our UTC clock —
+      // and west of UTC our "today" flips hours before MTGJSON publishes it. So don't
+      // ask "is today present"; ask whether the newest day we hold is still current
+      // (today or yesterday) and complete. That is as fresh as this feed ever gets.
+      const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+      const [[latestRow]] = await db().query(
+        "SELECT DATE_FORMAT(MAX(snapshot_date), '%Y-%m-%d') d FROM card_price_daily"
+      );
+      const latest = latestRow?.d || null;
+      const health = latest ? await getSnapshotHealth(latest) : { rows: 0, expected: 0, complete: false };
+      const cooling = Date.now() - _lastSnapshotAttemptTs < SNAPSHOT_ATTEMPT_COOLDOWN_MS;
+      if (latest && latest >= yesterday && health.complete && !force) {
+        console.log(`[price-job] ${latest} is current (${health.rows.toLocaleString()} rows) — skipping fetch`);
+        skipSnapshot = true;
+      } else if (cooling && !force) {
+        console.log(`[price-job] snapshot attempted recently — skipping fetch (newest ${latest || 'none'})`);
+        skipSnapshot = true;
+      } else if (latest && !health.complete) {
+        console.warn(`[price-job] ${latest} looks partial (${health.rows.toLocaleString()} of ~${health.expected.toLocaleString()}) — re-running`);
+      } else {
+        console.log(`[price-job] newest snapshot is ${latest || 'none'} — fetching`);
+      }
+    }
+    if (!skipSnapshot) {
       try {
+        _lastSnapshotAttemptTs = Date.now();
         const { runSnapshot } = require(path.join(__dirname, 'scripts', 'mtgjson-price-snapshot.js'));
         const snap = await runSnapshot({ db: db(), log: msg => console.log(msg) });
         await refreshPrintingsIfStale(snap?.date);
+        await reportSnapshotGaps();
       } catch (e) {
         console.error('[price-job] snapshot failed, skipping threshold pass:', e.message);
         return;
@@ -1582,6 +1766,41 @@ async function runDailyPriceJob({ skipSnapshot = false } = {}) {
     console.log(`[price-job] threshold pass done (today=${today}, prev=${prev || 'n/a'})`);
   } catch (e) {
     console.error('[price-job] failed:', e.message);
+  }
+}
+
+/**
+ * Log any missing or partial days in the trailing 90. These are unrecoverable from
+ * AllPricesToday (it only serves today) — scripts/mtgjson-prices-backfill.js replays
+ * MTGJSON's 90-day AllPrices history and is the only way to close them. Without this
+ * the gaps are invisible: reads fall back to the last day that had a value, so a
+ * month-long hole still renders a price, just the wrong day's.
+ */
+async function reportSnapshotGaps() {
+  try {
+    const [rows] = await db().query(
+      `SELECT DATE_FORMAT(snapshot_date, '%Y-%m-%d') d, COUNT(*) n
+         FROM card_price_daily
+        WHERE snapshot_date >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)
+        GROUP BY snapshot_date
+        ORDER BY snapshot_date`
+    );
+    if (rows.length < 2) return;
+    const best = Math.max(...rows.map(r => Number(r.n) || 0));
+    const partial = rows.filter(r => (Number(r.n) || 0) < best * SNAPSHOT_MIN_FRACTION).map(r => r.d);
+    let missing = 0;
+    for (let i = 1; i < rows.length; i++) {
+      const gap = Math.round((Date.parse(rows[i].d) - Date.parse(rows[i - 1].d)) / 86400000) - 1;
+      if (gap > 0) missing += gap;
+    }
+    if (!missing && !partial.length) return;
+    console.warn(
+      `[price-job] history gaps in the last 90d: ${missing} day(s) missing` +
+      (partial.length ? `, ${partial.length} partial (${partial.join(', ')})` : '') +
+      ' — run scripts/mtgjson-prices-backfill.js to close them'
+    );
+  } catch (e) {
+    console.warn('[price-job] gap check failed:', e.message);
   }
 }
 
@@ -1786,6 +2005,9 @@ async function ensurePlaygroupTables() {
         CONSTRAINT fk_pgm_account FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
+    if (!(await columnExists(conn, 'playgroup_members', 'color'))) {
+      await conn.query('ALTER TABLE playgroup_members ADD COLUMN color VARCHAR(16) NULL DEFAULT NULL');
+    }
     if (!(await columnExists(conn, 'playgroup_members', 'status'))) {
       await conn.query("ALTER TABLE playgroup_members ADD COLUMN status ENUM('invited','accepted') NOT NULL DEFAULT 'invited'");
       // Pre-consent rows were added under the old model — treat them as accepted.
@@ -2119,6 +2341,22 @@ async function ensureNormalizedDeckSchema() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
     // Add is_public column if it doesn't exist yet
+    // The semantics engine's top goal for a deck, cached against the revision it
+    // was computed at. Inferring it means resolving every card's IR and running
+    // the cluster/interaction pass — far too much to do for a whole listing on
+    // every load, and it only changes when the deck does.
+    if (!(await columnExists(conn, 'decks', 'semantics_goal'))) {
+      await conn.query('ALTER TABLE decks ADD COLUMN semantics_goal VARCHAR(80) NULL DEFAULT NULL');
+    }
+    if (!(await columnExists(conn, 'decks', 'semantics_goal_rev'))) {
+      await conn.query('ALTER TABLE decks ADD COLUMN semantics_goal_rev INT NULL DEFAULT NULL');
+    }
+    // The whole readout — primary and secondary goal, their match confidences
+    // and the one-line summary — so a deck card can say what the Suggestions
+    // tab says. semantics_goal keeps the bare label beside it.
+    if (!(await columnExists(conn, 'decks', 'semantics_goal_json'))) {
+      await conn.query('ALTER TABLE decks ADD COLUMN semantics_goal_json JSON NULL DEFAULT NULL');
+    }
     if (!(await columnExists(conn, 'decks', 'is_public'))) {
       await conn.query('ALTER TABLE decks ADD COLUMN is_public TINYINT(1) NOT NULL DEFAULT 0');
     }
@@ -2227,6 +2465,18 @@ const {
 } = require('./lib/deck-planning-merge');
 const { collaboratorChangesPrintings } = require('./lib/deck-collaborator-printings');
 const { shouldBlockEmptyCollectionReplace } = require('./lib/collection-wipe-guard');
+// Google / Apple / Discord sign-in: provider definitions + PKCE and Apple's ES256
+// client-secret signing. Dependency-free (see the module header for why).
+const {
+  providerConfig,
+  configuredProviders,
+  buildAuthorizeUrl,
+  exchangeCode,
+  fetchProfile,
+  createPkcePair,
+  randomToken,
+} = require('./lib/oauth-providers');
+const { decideOauthLink } = require('./lib/oauth-link-policy');
 // Granular op-based deck sync (shared with the browser bundle).
 const DeckOps = require('./js/deck-ops');
 
@@ -2583,6 +2833,11 @@ async function replaceAllForAccount(accountId, table, rows, insertFn) {
 // ── Collection ────────────────────────────────────────────────────────────────
 
 // ── Email helper ──────────────────────────────────────────────────────────────
+/** Escape a URL for interpolation into outbound HTML email. */
+function escapeMailHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 function createMailTransport() {
   if (!process.env.SMTP_HOST) return null;
   return nodemailer.createTransport({
@@ -2593,18 +2848,72 @@ function createMailTransport() {
   });
 }
 
-async function sendResetEmail(toEmail, resetUrl) {
+/** True when outbound mail can actually be delivered by either transport. */
+function mailConfigured() {
+  return !!(process.env.RESEND_API_KEY || process.env.SMTP_HOST);
+}
+
+/**
+ * Send over Resend's HTTPS API.
+ *
+ * This exists because Railway blocks outbound SMTP (25/465/587/2525) on every
+ * plan below Pro, so the nodemailer path below silently fails to connect there.
+ * An HTTPS API is Railway's own documented answer, and it needs no dependency —
+ * it's one POST.
+ */
+async function sendMailViaResend({ to, subject, text, html }) {
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from: process.env.EMAIL_FROM || 'noreply@mtgarchive.app',
+      to: [to],
+      subject,
+      text,
+      html,
+    }),
+  });
+  if (!res.ok) {
+    // Resend puts the useful part ("domain not verified", "testing emails can
+    // only go to your own address") in the body, so surface it.
+    let detail = `HTTP ${res.status}`;
+    try {
+      const j = await res.json();
+      if (j && (j.message || j.error)) detail = j.message || j.error;
+    } catch (_) {}
+    throw new Error(`Resend rejected the email: ${detail}`);
+  }
+}
+
+/**
+ * One outbound path for every transactional email. Prefers the HTTPS API, falls
+ * back to SMTP, and when neither is configured logs the link so local dev and
+ * an unconfigured deploy stay usable instead of silently dropping it.
+ */
+async function sendAppMail({ to, subject, text, html, fallbackLabel, fallbackUrl }) {
+  if (process.env.RESEND_API_KEY) return sendMailViaResend({ to, subject, text, html });
   const transport = createMailTransport();
   if (!transport) {
-    console.warn('[auth] SMTP not configured — reset URL:', resetUrl);
+    console.warn(`[auth] email not configured — ${fallbackLabel}:`, fallbackUrl);
     return;
   }
   await transport.sendMail({
     from: process.env.EMAIL_FROM || 'noreply@mtgarchive.app',
+    to, subject, text, html,
+  });
+}
+
+async function sendResetEmail(toEmail, resetUrl) {
+  await sendAppMail({
     to: toEmail,
     subject: 'MTG Archive — Reset your password',
     text: `Click the link below to reset your password (expires in 1 hour):\n\n${resetUrl}\n\nIf you did not request this, ignore this email.`,
-    html: `<p>Click the link below to reset your password (expires in 1 hour):</p><p><a href="${resetUrl}">${resetUrl}</a></p><p>If you did not request this, ignore this email.</p>`,
+    html: `<p>Click the link below to reset your password (expires in 1 hour):</p><p><a href="${escapeMailHtml(resetUrl)}">${escapeMailHtml(resetUrl)}</a></p><p>If you did not request this, ignore this email.</p>`,
+    fallbackLabel: 'reset URL',
+    fallbackUrl: resetUrl,
   });
 }
 
@@ -2615,11 +2924,17 @@ authRouter.get('/me', async (req, res) => {
   try {
     if (!req.session.accountId) return res.status(401).json({ error: 'Not signed in' });
     const [rows] = await db().query(
-      'SELECT id, email, role, created_at, last_login_at, changelog_ack_at, mobile_welcome_seen_at FROM accounts WHERE id = ?',
+      `SELECT id, email, role, created_at, last_login_at, changelog_ack_at, mobile_welcome_seen_at,
+              email_verified_at, password_hash
+         FROM accounts WHERE id = ?`,
       [req.session.accountId],
     );
     if (!rows.length) return res.status(401).json({ error: 'Invalid session' });
     req.session.userRole = rows[0].role;
+    const [identRows] = await db().query(
+      'SELECT provider FROM account_identities WHERE account_id = ?',
+      [req.session.accountId],
+    );
     res.json({
       id: rows[0].id,
       email: rows[0].email,
@@ -2628,6 +2943,10 @@ authRouter.get('/me', async (req, res) => {
       lastLoginAt: rows[0].last_login_at,
       changelogAckAt: rows[0].changelog_ack_at,
       mobileWelcomeSeenAt: rows[0].mobile_welcome_seen_at,
+      emailVerifiedAt: rows[0].email_verified_at,
+      // Drives the "confirm your email" nudge and the Settings sign-in list.
+      hasPassword: !!rows[0].password_hash,
+      linkedProviders: identRows.map(r => r.provider),
     });
   } catch (e) {
     console.error(e);
@@ -2649,7 +2968,12 @@ authRouter.post('/register', authLimiter, async (req, res) => {
     );
     req.session.accountId = r.insertId;
     req.session.userRole = 'user';
-    res.json({ ok: true, email, role: 'user' });
+    // Never block sign-up on the mail hop — a slow or unconfigured SMTP host
+    // must not turn a successful registration into a failed one. The user can
+    // always resend from the banner.
+    void issueEmailVerification(r.insertId, email, req)
+      .catch(err => console.error('[auth] verification email failed:', err.message));
+    res.json({ ok: true, email, role: 'user', emailVerifiedAt: null });
   } catch (e) {
     if (e.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'Email already registered' });
     console.error(e);
@@ -2661,15 +2985,28 @@ authRouter.post('/login', authLimiter, async (req, res) => {
   try {
     const email = String(req.body?.email || '').toLowerCase().trim();
     const password = String(req.body?.password || '');
-    const [rows] = await db().query('SELECT id, email, password_hash, role FROM accounts WHERE email = ?', [email]);
+    const [rows] = await db().query('SELECT id, email, password_hash, role, email_verified_at FROM accounts WHERE email = ?', [email]);
     if (!rows.length) return res.status(401).json({ error: 'Invalid email or password' });
+    if (!rows[0].password_hash) {
+      // Signed up through a provider and never set a password. Say so plainly:
+      // "invalid password" here sends people round the reset loop forever, and
+      // /register already discloses whether an address is taken anyway.
+      const [linked] = await db().query('SELECT provider FROM account_identities WHERE account_id = ?', [rows[0].id]);
+      const names = linked.map(r => r.provider.charAt(0).toUpperCase() + r.provider.slice(1));
+      return res.status(401).json({
+        error: names.length
+          ? `This account signs in with ${names.join(' or ')}. Use that button, or set a password with "Forgot password?".`
+          : 'This account has no password set. Use "Forgot password?" to set one.',
+        useProvider: linked.length ? linked[0].provider : null,
+      });
+    }
     const ok = await bcrypt.compare(password, rows[0].password_hash);
     if (!ok) return res.status(401).json({ error: 'Invalid email or password' });
     const now = Date.now();
     await db().query('UPDATE accounts SET last_login_at = ? WHERE id = ?', [now, rows[0].id]);
     req.session.accountId = rows[0].id;
     req.session.userRole = rows[0].role;
-    res.json({ ok: true, email: rows[0].email, role: rows[0].role });
+    res.json({ ok: true, email: rows[0].email, role: rows[0].role, emailVerifiedAt: rows[0].email_verified_at });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
@@ -2795,9 +3132,397 @@ authRouter.post('/reset-password', authLimiter, async (req, res) => {
     if (t.used_at) return res.status(400).json({ error: 'Reset link already used' });
     if (Date.now() > t.expires_at) return res.status(400).json({ error: 'Reset link has expired' });
     const hash = await bcrypt.hash(newPassword, 10);
-    await db().query('UPDATE accounts SET password_hash = ? WHERE id = ?', [hash, t.account_id]);
+    // Following a link sent to the address proves control of the inbox, which is
+    // exactly what verification asserts — so a reset also confirms the email.
+    // This is also how an OAuth-only account gains its first password.
+    await db().query(
+      'UPDATE accounts SET password_hash = ?, email_verified_at = COALESCE(email_verified_at, ?) WHERE id = ?',
+      [hash, Date.now(), t.account_id]
+    );
     await db().query('UPDATE password_reset_tokens SET used_at = ? WHERE id = ?', [Date.now(), t.id]);
     res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Email verification ────────────────────────────────────────────────────────
+
+const EMAIL_VERIFY_TTL_MS = 24 * 60 * 60 * 1000;
+
+async function sendVerificationEmail(toEmail, verifyUrl) {
+  await sendAppMail({
+    to: toEmail,
+    fallbackLabel: 'verification URL',
+    fallbackUrl: verifyUrl,
+    subject: 'MTG Archive — Confirm your email',
+    text: `Confirm your email address to finish setting up your MTG Archive account (link expires in 24 hours):\n\n${verifyUrl}\n\nIf you did not create this account, ignore this email.`,
+    html: `<p>Confirm your email address to finish setting up your MTG Archive account (link expires in 24 hours):</p><p><a href="${escapeMailHtml(verifyUrl)}">${escapeMailHtml(verifyUrl)}</a></p><p>If you did not create this account, ignore this email.</p>`,
+  });
+}
+
+/** Public base URL for links we email and for OAuth redirect URIs. */
+function appBaseUrl(req) {
+  const configured = String(process.env.APP_URL || '').trim().replace(/\/$/, '');
+  if (configured) return configured;
+  if (req) return `${req.protocol}://${req.get('host')}`;
+  return `http://localhost:${process.env.PORT || 3001}`;
+}
+
+/**
+ * Mint a single-use verification link and email it. Any earlier unused token for
+ * the account is retired first, so a resend invalidates the previous link.
+ */
+async function issueEmailVerification(accountId, email, req) {
+  const now = Date.now();
+  await db().query(
+    'UPDATE email_verification_tokens SET used_at = ? WHERE account_id = ? AND used_at IS NULL',
+    [now, accountId]
+  );
+  const rawToken = crypto.randomBytes(32).toString('hex');
+  const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+  await db().query(
+    'INSERT INTO email_verification_tokens (account_id, token_hash, email, expires_at, created_at) VALUES (?,?,?,?,?)',
+    [accountId, tokenHash, email, now + EMAIL_VERIFY_TTL_MS, now]
+  );
+  await sendVerificationEmail(email, `${appBaseUrl(req)}/?verify_token=${rawToken}`);
+}
+
+// ── Federated sign-in ─────────────────────────────────────────────────────────
+
+const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
+
+/**
+ * Must match the redirect URI registered with the provider byte for byte, so it
+ * is always derived from APP_URL when that is set rather than from the request.
+ */
+function oauthRedirectUri(req, provider) {
+  return `${appBaseUrl(req)}/api/auth/oauth/${provider}/callback`;
+}
+
+function hashOauthState(state) {
+  return crypto.createHash('sha256').update(state).digest('hex');
+}
+
+/** Send the browser back to the app with a one-word outcome the UI can render. */
+function finishOauth(req, res, params) {
+  const url = new URL(appBaseUrl(req) + '/');
+  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+  res.redirect(url.toString());
+}
+
+/**
+ * Resolve a verified provider profile to a local account: does the lookups the
+ * decision needs, applies decideOauthLink(), then performs it. The rules — and
+ * why a known identity beats an email match, and why an unverified address can
+ * never match anything — live in lib/oauth-link-policy.js.
+ */
+async function resolveOauthAccount(provider, profile, linkAccountId) {
+  const now = Date.now();
+  const label = provider.charAt(0).toUpperCase() + provider.slice(1);
+
+  const [identRows] = await db().query(
+    'SELECT id, account_id FROM account_identities WHERE provider = ? AND provider_user_id = ?',
+    [provider, profile.providerUserId || '']
+  );
+  const identity = identRows[0] || null;
+
+  // Only looked up when it can actually matter — an unverified address must
+  // never be used to probe which emails have accounts.
+  let accountByEmail = null;
+  if (!identity && !linkAccountId && profile.email && profile.emailVerified) {
+    const [byEmail] = await db().query(
+      'SELECT id, email_verified_at FROM accounts WHERE email = ?', [profile.email]
+    );
+    accountByEmail = byEmail[0] || null;
+  }
+
+  const decision = decideOauthLink({
+    identity, linkAccountId, profile, accountByEmail, providerLabel: label,
+  });
+
+  if (decision.action === 'reject') {
+    const err = new Error(decision.message);
+    err.code = decision.code;
+    throw err;
+  }
+
+  const attach = async (accountId) => {
+    try {
+      await db().query(
+        `INSERT INTO account_identities (account_id, provider, provider_user_id, email, display_name, created_at, last_login_at)
+         VALUES (?,?,?,?,?,?,?)`,
+        [accountId, provider, profile.providerUserId, profile.email, profile.displayName, now, now]
+      );
+    } catch (e) {
+      if (e.code === 'ER_DUP_ENTRY') {
+        const err = new Error(`That ${label} account is already linked to an MTG Archive account.`);
+        err.code = 'IDENTITY_TAKEN';
+        throw err;
+      }
+      throw e;
+    }
+  };
+
+  if (decision.action === 'login') {
+    await db().query('UPDATE account_identities SET last_login_at = ?, email = ? WHERE id = ?',
+      [now, profile.email, identity.id]);
+    return { accountId: decision.accountId, created: false, linked: false };
+  }
+
+  if (decision.action === 'attach') {
+    await attach(decision.accountId);
+    if (decision.markVerified) {
+      await db().query('UPDATE accounts SET email_verified_at = ? WHERE id = ?', [now, decision.accountId]);
+    }
+    return { accountId: decision.accountId, created: false, linked: true };
+  }
+
+  // create
+  let accountId;
+  try {
+    const [r] = await db().query(
+      'INSERT INTO accounts (email, password_hash, created_at, last_login_at, email_verified_at) VALUES (?,?,?,?,?)',
+      [decision.email, null, now, now, now]
+    );
+    accountId = r.insertId;
+  } catch (e) {
+    if (e.code !== 'ER_DUP_ENTRY') throw e;
+    // Lost a race with a concurrent sign-in for the same address — join theirs.
+    const [again] = await db().query('SELECT id FROM accounts WHERE email = ?', [decision.email]);
+    if (!again.length) throw e;
+    accountId = again[0].id;
+  }
+  await attach(accountId);
+  return { accountId, created: true, linked: true };
+}
+
+/** Which providers this server actually has credentials for. */
+authRouter.get('/providers', (req, res) => {
+  res.json({ providers: configuredProviders(), emailConfigured: mailConfigured() });
+});
+
+/**
+ * Begin a sign-in (or, when already signed in, a link). Responds with a 302 so
+ * the button can be a plain link and the flow works identically in the
+ * Capacitor system browser.
+ */
+authRouter.get('/oauth/:provider/start', authLimiter, async (req, res) => {
+  const provider = String(req.params.provider || '').toLowerCase();
+  try {
+    const cfg = providerConfig(provider);
+    if (!cfg.configured) return res.status(503).json({ error: `${cfg.label} sign-in is not configured on this server` });
+
+    const state = randomToken(32);
+    const nonce = randomToken(32);
+    const { verifier, challenge } = createPkcePair();
+    const redirectUri = oauthRedirectUri(req, provider);
+    const now = Date.now();
+    // Linking is an explicit act from Settings (?link=1), never inferred from an
+    // ambient session: the gate also appears when /auth/me merely failed, and a
+    // session cookie alone would then bind the next person's provider identity to
+    // whoever was signed in before them.
+    const wantsLink = String(req.query.link || '') === '1';
+    const linkAccountId = wantsLink ? (req.session?.accountId || null) : null;
+
+    await db().query(
+      `INSERT INTO oauth_states (state_hash, provider, code_verifier, nonce, redirect_uri, link_account_id, created_at, expires_at)
+       VALUES (?,?,?,?,?,?,?,?)`,
+      [hashOauthState(state), provider, verifier, nonce, redirectUri, linkAccountId, now, now + OAUTH_STATE_TTL_MS]
+    );
+
+    res.redirect(buildAuthorizeUrl(provider, { redirectUri, state, nonce, codeChallenge: challenge }));
+  } catch (e) {
+    console.error('[auth] oauth start failed:', e.message);
+    res.status(400).json({ error: e.message });
+  }
+});
+
+/**
+ * Provider callback. Apple uses response_mode=form_post, so this accepts POST
+ * with a urlencoded body as well as the usual GET redirect.
+ */
+async function handleOauthCallback(req, res) {
+  const provider = String(req.params.provider || '').toLowerCase();
+  const src = req.method === 'POST' ? req.body || {} : req.query || {};
+  const code = String(src.code || '');
+  const state = String(src.state || '');
+
+  if (src.error) {
+    // User pressed cancel, or the provider refused — not an error worth logging loudly.
+    return finishOauth(req, res, { oauth_error: String(src.error).slice(0, 120) });
+  }
+
+  let row = null;
+  try {
+    if (!code || !state) return finishOauth(req, res, { oauth_error: 'invalid_request' });
+
+    // Claim the state row atomically: a replayed callback finds used_at already set.
+    const [claimed] = await db().query(
+      'UPDATE oauth_states SET used_at = ? WHERE state_hash = ? AND used_at IS NULL AND expires_at > ?',
+      [Date.now(), hashOauthState(state), Date.now()]
+    );
+    if (!claimed.affectedRows) return finishOauth(req, res, { oauth_error: 'expired_or_replayed' });
+
+    const [rows] = await db().query(
+      'SELECT provider, code_verifier, nonce, redirect_uri, link_account_id FROM oauth_states WHERE state_hash = ?',
+      [hashOauthState(state)]
+    );
+    if (!rows.length) return finishOauth(req, res, { oauth_error: 'invalid_state' });
+    row = rows[0];
+    if (row.provider !== provider) return finishOauth(req, res, { oauth_error: 'provider_mismatch' });
+
+    const tokens = await exchangeCode(provider, {
+      code,
+      redirectUri: row.redirect_uri,
+      codeVerifier: row.code_verifier,
+    });
+    const profile = await fetchProfile(provider, tokens, { nonce: row.nonce });
+
+    // Apple sends the user's name exactly once, in the callback body rather than
+    // the token — capture it on that first pass or it is gone for good.
+    if (provider === 'apple' && src.user) {
+      try {
+        const u = typeof src.user === 'string' ? JSON.parse(src.user) : src.user;
+        const name = [u?.name?.firstName, u?.name?.lastName].filter(Boolean).join(' ').trim();
+        if (name) profile.displayName = name.slice(0, 128);
+      } catch { /* name is optional — never fail the sign-in over it */ }
+    }
+
+    // The link target must still be the live session. An abandoned consent screen
+    // (user walks away, signs out, hands over the device) would otherwise let the
+    // next person attach their provider account to the previous user's login.
+    let linkAccountId = row.link_account_id || null;
+    if (linkAccountId && Number(req.session?.accountId) !== Number(linkAccountId)) {
+      console.warn('[auth] oauth link dropped — session no longer matches the linking account');
+      linkAccountId = null;
+    }
+    const result = await resolveOauthAccount(provider, profile, linkAccountId);
+
+    const [accRows] = await db().query('SELECT id, email, role FROM accounts WHERE id = ?', [result.accountId]);
+    if (!accRows.length) return finishOauth(req, res, { oauth_error: 'account_missing' });
+
+    await db().query('UPDATE accounts SET last_login_at = ? WHERE id = ?', [Date.now(), result.accountId]);
+
+    // Fresh session id on every sign-in (session fixation).
+    req.session.regenerate((err) => {
+      if (err) {
+        console.error('[auth] session regenerate failed:', err.message);
+        return finishOauth(req, res, { oauth_error: 'session_failed' });
+      }
+      req.session.accountId = accRows[0].id;
+      req.session.userRole = accRows[0].role;
+      req.session.save(() => finishOauth(req, res, {
+        oauth: row.link_account_id ? 'linked' : 'ok',
+        provider,
+      }));
+    });
+  } catch (e) {
+    console.error('[auth] oauth callback failed:', e.message);
+    const known = e.code === 'NO_VERIFIED_EMAIL' || e.code === 'IDENTITY_TAKEN';
+    finishOauth(req, res, {
+      oauth_error: known ? e.code.toLowerCase() : 'sign_in_failed',
+      ...(known ? { oauth_message: e.message } : {}),
+    });
+  }
+}
+
+authRouter.get('/oauth/:provider/callback', handleOauthCallback);
+// form_post (Apple) — urlencoded parsing is scoped to this route only.
+authRouter.post('/oauth/:provider/callback', express.urlencoded({ extended: false }), handleOauthCallback);
+
+/** Providers linked to the signed-in account, for the Settings list. */
+authRouter.get('/identities', requireAuth, async (req, res) => {
+  try {
+    const [rows] = await db().query(
+      'SELECT provider, email, display_name, created_at, last_login_at FROM account_identities WHERE account_id = ? ORDER BY created_at ASC',
+      [req.accountId]
+    );
+    const [[acc]] = await db().query('SELECT password_hash FROM accounts WHERE id = ?', [req.accountId]);
+    res.json({
+      identities: rows.map(r => ({
+        provider: r.provider,
+        email: r.email,
+        displayName: r.display_name,
+        createdAt: r.created_at,
+        lastLoginAt: r.last_login_at,
+      })),
+      hasPassword: !!(acc && acc.password_hash),
+      available: configuredProviders(),
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Unlink a provider — refused when it is the only way left into the account. */
+authRouter.delete('/identities/:provider', requireAuth, async (req, res) => {
+  try {
+    const provider = String(req.params.provider || '').toLowerCase();
+    const [[acc]] = await db().query('SELECT password_hash FROM accounts WHERE id = ?', [req.accountId]);
+    const [rows] = await db().query('SELECT provider FROM account_identities WHERE account_id = ?', [req.accountId]);
+    const linked = rows.map(r => r.provider);
+    if (!linked.includes(provider)) return res.status(404).json({ error: 'Not linked' });
+
+    // Count what would be left afterwards. Checking the total before confirming
+    // this provider is even linked would refuse harmless no-op unlinks with a
+    // lockout warning that doesn't apply.
+    const remaining = (acc && acc.password_hash ? 1 : 0) + linked.length - 1;
+    if (remaining < 1) {
+      return res.status(400).json({
+        error: 'That is the only way to sign in to this account. Set a password first, or link another provider.',
+      });
+    }
+    const [r] = await db().query('DELETE FROM account_identities WHERE account_id = ? AND provider = ?', [req.accountId, provider]);
+    if (!r.affectedRows) return res.status(404).json({ error: 'Not linked' });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Resend the confirmation email to the signed-in account's address. */
+authRouter.post('/verify-email/send', authLimiter, requireAuth, async (req, res) => {
+  try {
+    const [[acc]] = await db().query('SELECT email, email_verified_at FROM accounts WHERE id = ?', [req.accountId]);
+    if (!acc) return res.status(401).json({ error: 'Not found' });
+    if (acc.email_verified_at != null) return res.json({ ok: true, alreadyVerified: true });
+    await issueEmailVerification(req.accountId, acc.email, req);
+    res.json({ ok: true, sent: mailConfigured() });
+  } catch (e) {
+    console.error('[auth] verify-email send failed:', e.message);
+    res.status(500).json({ error: 'Could not send the confirmation email' });
+  }
+});
+
+/** Consume a verification link. */
+authRouter.post('/verify-email', authLimiter, async (req, res) => {
+  try {
+    const token = String(req.body?.token || '').trim();
+    if (!token) return res.status(400).json({ error: 'Invalid request' });
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const [rows] = await db().query(
+      'SELECT id, account_id, email, expires_at, used_at FROM email_verification_tokens WHERE token_hash = ?',
+      [tokenHash]
+    );
+    if (!rows.length) return res.status(400).json({ error: 'Invalid or expired confirmation link' });
+    const t = rows[0];
+    if (t.used_at) return res.status(400).json({ error: 'That confirmation link has already been used' });
+    if (Date.now() > t.expires_at) return res.status(400).json({ error: 'That confirmation link has expired' });
+
+    const now = Date.now();
+    // Only confirms the address the link was issued for — if the account's email
+    // changed in the meantime the old link must not verify the new address.
+    const [upd] = await db().query(
+      'UPDATE accounts SET email_verified_at = ? WHERE id = ? AND email = ?',
+      [now, t.account_id, t.email]
+    );
+    await db().query('UPDATE email_verification_tokens SET used_at = ? WHERE id = ?', [now, t.id]);
+    if (!upd.affectedRows) return res.status(400).json({ error: 'That confirmation link is no longer valid for this account' });
+    res.json({ ok: true, emailVerifiedAt: now });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
@@ -2850,7 +3575,7 @@ app.get('/api/playgroups', requireAuth, async (req, res) => {
     const ids = groups.map(g => g.id);
     const ph = ids.map(() => '?').join(',');
     const [members] = await db().query(
-      `SELECT m.playgroup_id, m.account_id, m.status, a.email, a.username, a.display_name
+      `SELECT m.playgroup_id, m.account_id, m.status, m.color, a.email, a.username, a.display_name
          FROM playgroup_members m
          JOIN accounts a ON a.id = m.account_id
         WHERE m.playgroup_id IN (${ph}) ORDER BY m.added_at ASC`,
@@ -2859,7 +3584,9 @@ app.get('/api/playgroups', requireAuth, async (req, res) => {
     const byGroup = new Map();
     for (const m of members) {
       if (!byGroup.has(m.playgroup_id)) byGroup.set(m.playgroup_id, []);
-      byGroup.get(m.playgroup_id).push({ id: m.account_id, name: publicAccountName(m), status: m.status });
+      byGroup.get(m.playgroup_id).push({
+        id: m.account_id, name: publicAccountName(m), status: m.status, color: m.color || null,
+      });
     }
     res.json({
       playgroups: groups.map(g => ({
@@ -2951,6 +3678,33 @@ app.post('/api/playgroups/:id/members/accept', requireAuth, async (req, res) => 
     );
     if (!r.affectedRows) return res.status(404).json({ error: 'No pending invite for this playgroup' });
     res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.patch('/api/playgroups/:id/members/:userId', requireAuth, async (req, res) => {
+  const groupId = Number(req.params.id);
+  const userId = Number(req.params.userId);
+  const color = req.body?.color;
+  // Hex only — this value is written straight into a style attribute client-side.
+  if (color != null && !/^#[0-9a-fA-F]{6}$/.test(String(color))) {
+    return res.status(400).json({ error: 'color must be #rrggbb or null' });
+  }
+  try {
+    const [[me]] = await db().query(
+      'SELECT 1 AS ok FROM playgroup_members WHERE playgroup_id = ? AND account_id = ?',
+      [groupId, req.accountId]
+    );
+    if (!me) return res.status(403).json({ error: 'Not a member of this playgroup' });
+    const [[grp]] = await db().query('SELECT owner_id FROM playgroups WHERE id = ?', [groupId]);
+    const isOwner = grp && Number(grp.owner_id) === Number(req.accountId);
+    if (!isOwner && userId !== Number(req.accountId)) {
+      return res.status(403).json({ error: 'Only the owner can recolour other members' });
+    }
+    const [r] = await db().query(
+      'UPDATE playgroup_members SET color = ? WHERE playgroup_id = ? AND account_id = ?',
+      [color || null, groupId, userId]
+    );
+    res.json({ ok: true, updated: r?.affectedRows ?? 0 });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -3377,31 +4131,139 @@ app.get('/api/decks', requireAuth, async (req, res) => {
   }
 });
 
-// Public decks — no auth required
+// Public decks — no auth required.
+// The payload is identical for every caller, so one build serves the burst: this is an
+// unauthenticated route that reads every public deck, and the precon library made that a
+// library-wide scan per Browse open.
+let _publicDecksCache = { at: 0, body: null };
+const PUBLIC_DECKS_CACHE_MS = 30_000;
+/** Publishing, unpublishing or editing a deck must show up in Browse now, not in 30s. */
+function bustPublicDecksCache() { _publicDecksCache = { at: 0, body: null }; }
+
 app.get('/api/decks/public', async (req, res) => {
   try {
+    if (_publicDecksCache.body && Date.now() - _publicDecksCache.at < PUBLIC_DECKS_CACHE_MS) {
+      return res.json(_publicDecksCache.body);
+    }
     const [rows] = await db().query(
-      `SELECT d.id, d.data, d.account_id, a.email
+      `SELECT d.id, d.data, d.account_id, a.email, a.username, a.display_name,
+              d.revision, d.semantics_goal, d.semantics_goal_rev, d.semantics_goal_json
        FROM decks d
        JOIN accounts a ON a.id = d.account_id
        WHERE d.is_public = 1
        ORDER BY d.created_at DESC`
     );
+    if (!rows.length) return res.json([]);
+
+    // Cards come from deck_cards and prices from the price log, exactly as the
+    // single-deck view builds them. Summing the blob's stamped prices instead
+    // under-reported every deck and reported zero for the ones whose blob was
+    // written before prices were attached at all.
+    //
+    // Only the columns a LISTING needs, though: qty and scryfall_id to price the deck,
+    // plus the finish. Selecting card_data pulled every public deck's every card blob
+    // through this route and JSON.parsed it — a whole published precon library per
+    // anonymous request, for a card count and a sum.
+    const [cardRows] = await db().query(
+      `SELECT dc.deck_id, dc.account_id, dc.card_uid, dc.qty, dc.scryfall_id,
+              JSON_UNQUOTE(JSON_EXTRACT(dc.card_data, '$.foil')) AS foil_json
+         FROM deck_cards dc
+         JOIN decks d ON d.id = dc.deck_id AND d.account_id = dc.account_id
+        WHERE d.is_public = 1`
+    );
+    const cardsByDeck = new Map();
+    const allCards = [];
+    for (const r of cardRows) {
+      const uid = r.card_uid || '';
+      const card = {
+        uid,
+        scryfallId: r.scryfall_id || null,
+        qty: Number(r.qty) || 1,
+        foil: r.foil_json != null ? r.foil_json === 'true' : String(uid).endsWith('_f'),
+      };
+      const key = `${r.account_id}::${r.deck_id}`;
+      if (!cardsByDeck.has(key)) cardsByDeck.set(key, []);
+      cardsByDeck.get(key).push(card);
+      allCards.push(card);
+    }
+    await attachPriceLogPricesToDeckCards(allCards);
+
+    // The commander's art, one row per deck rather than a scan of every card.
+    const [cmdRows] = await db().query(
+      `SELECT dc.deck_id, dc.account_id,
+              JSON_UNQUOTE(JSON_EXTRACT(dc.card_data, '$.image')) AS image,
+              JSON_UNQUOTE(JSON_EXTRACT(dc.card_data, '$.imageLarge')) AS imageLarge
+         FROM deck_cards dc
+         JOIN decks d ON d.id = dc.deck_id AND d.account_id = dc.account_id
+        WHERE d.is_public = 1 AND dc.is_commander = 1
+        ORDER BY dc.sort_order, dc.card_uid`
+    );
+    // Partner/background decks have two commander rows; the deck's own order decides
+    // which face fronts the listing, so keep the first and ignore the rest.
+    const cmdByDeck = new Map();
+    for (const r of cmdRows) {
+      const key = `${r.account_id}::${r.deck_id}`;
+      if (!cmdByDeck.has(key)) cmdByDeck.set(key, r);
+    }
+
+    // The card's own finish, falling back to non-foil when a foil price is
+    // missing — the same rule the deck page's value uses.
+    const deckValue = cards => (cards || []).reduce((sum, c) => {
+      const nonFoil = parseFloat(c.priceTCG) || 0;
+      const foil = parseFloat(c.priceTCGFoil) || 0;
+      const unit = c.foil ? (foil > 0 ? foil : nonFoil) : nonFoil;
+      return sum + unit * (c.qty || 1);
+    }, 0);
+
+    // Read the cached readouts; never infer here. Filling even four of them made
+    // a cold listing take five seconds, and the background warm-up works through
+    // the same backlog without a browse request waiting on it.
+    const goalByDeck = new Map();
+    for (const r of rows) {
+      const rev = Number(r.revision) || 0;
+      // Attempted at this revision is cached, goal or no goal. Keying on the
+      // goal being present instead meant every deck the engine had nothing to
+      // say about was re-inferred on every load, and the budget never reached
+      // the decks behind them. A row cached before the readout existed has a
+      // label but no json, and is re-inferred once to pick the rest up.
+      const cachedJson = r.semantics_goal_json
+        && (typeof r.semantics_goal_json === 'object' ? r.semantics_goal_json
+          : (() => { try { return JSON.parse(r.semantics_goal_json); } catch (_) { return null; } })());
+      if (cachedJson && r.semantics_goal_rev != null && Number(r.semantics_goal_rev) === rev) {
+        goalByDeck.set(r.id, cachedJson);
+      }
+    }
+    // Something is missing or stale — wake the warm-up rather than waiting on it.
+    if (goalByDeck.size < rows.length && typeof scheduleDeckGoalWarm === 'function') {
+      scheduleDeckGoalWarm(1500);
+    }
+
     const out = rows.map(r => {
       const deck = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
-      const cmdCard = (deck.cards || []).find(c => c.isCommander);
+      const key = `${r.account_id}::${r.id}`;
+      // Legacy decks with no deck_cards rows still fall back to the stored blob.
+      const cards = cardsByDeck.get(key) || deck.cards || [];
+      const cmdCard = cmdByDeck.get(key) || cards.find(c => c.isCommander);
       return {
         id: deck.id,
         name: deck.name || 'Untitled',
         format: deck.format || '',
         commander: deck.commander || null,
-        commanderImage: cmdCard?.imageLarge || cmdCard?.image || deck.commanderImage || null,
+        commanderImage: deckThumbUrl(cmdCard?.image || cmdCard?.imageLarge || deck.commanderImage),
         colorIdentity: deck.commanderColorIdentity || [],
-        cardCount: (deck.cards || []).reduce((s, c) => s + (c.qty || 1), 0),
+        cardCount: cards.reduce((s, c) => s + (c.qty || 1), 0),
+        notes: String(deck.notes || '').slice(0, 400),
+        goal: goalByDeck.get(r.id) || null,
+        price: Math.round(deckValue(cards) * 100) / 100,
         ownerEmail: r.email,
+        // A handle or display name where there is one — the local part of an
+        // email is a poor byline, and the precon library's is "Wizards of the
+        // Coast", not "precons".
+        ownerName: publicAccountName(r),
         accountId: r.account_id,
       };
     });
+    _publicDecksCache = { at: Date.now(), body: out };
     res.json(out);
   } catch (e) {
     console.error(e);
@@ -4348,6 +5210,7 @@ app.patch('/api/decks/:id', requireAuth, async (req, res) => {
           'UPDATE decks SET name=?, format=?, data=?, is_public=?, updated_at=?, revision=revision+1 WHERE id=?',
           [(deck.name || '').slice(0, 255), (deck.format || '').slice(0, 50), JSON.stringify(deck), deck.isPublic ? 1 : 0, now, deckId]
         );
+        bustPublicDecksCache();
       } else {
         await conn.query(
           'UPDATE decks SET name=?, format=?, data=?, updated_at=?, revision=revision+1 WHERE id=?',
@@ -4653,6 +5516,7 @@ app.post('/api/decks/:id/ops', requireAuth, async (req, res) => {
           [(merged.name || '').slice(0, 255), (merged.format || '').slice(0, 50), JSON.stringify(merged),
            merged.isPublic ? 1 : 0, now, nextRevision, ownerId, deckId]
         );
+        bustPublicDecksCache();
         // A cuts/adds/meta-only batch touches no mainboard rows — skip the full
         // deck_cards DELETE+INSERT so the row lock isn't held for ~2N writes.
         const cardsChanged = applied.changedZones.includes('cards');
@@ -4940,6 +5804,149 @@ app.post('/api/decks/suggest-types', requireAuth, async (req, res) => {
 
 const _e2AnalyzeLast = new Map(); // accountId → ts (light rate limit; analysis is CPU-bound)
 
+/**
+ * The semantics engine's reading of a deck, as the Suggestions tab states it:
+ * the goal, how strongly it matches, the one-line summary, and the secondary
+ * goal when there is a real one.
+ *
+ * Only the goals: inferGoals is pure work over resolved card IR, while the rest
+ * of /api/decks/analyze is retrieval and candidate scoring, which a listing has
+ * no use for. Returns null when the cards have no semantics yet.
+ */
+/**
+ * A Scryfall image URL at the size the browse card actually needs.
+ *
+ * Deck records store whatever the importer or the app happened to save, which
+ * is usually `large` — 672px wide and around 210KB, for a box 236px across.
+ * `normal` is 488px, which is still 2x on a retina screen, and about half the
+ * bytes. 22 of these fill the first screen, so the difference is megabytes.
+ */
+function deckThumbUrl(url) {
+  const u = String(url || '');
+  if (!u) return null;
+  // Scryfall serves `normal` as .jpg ONLY — png/… needs its extension swapped too,
+  // or the rewrite points at a URL that does not exist and the tile renders broken.
+  if (/^https:\/\/cards\.scryfall\.io\/png\//.test(u)) {
+    return u.replace(/^(https:\/\/cards\.scryfall\.io\/)png\//, '$1normal/').replace(/\.png(\?|$)/, '.jpg$1');
+  }
+  return u.replace(/^(https:\/\/cards\.scryfall\.io\/)(large|border_crop)\//, '$1normal/');
+}
+
+async function computeDeckSemanticsGoal(cards, commanderName, preResolved = null) {
+  if (!engine2?.deckGoals?.inferGoals) return null;
+  const list = (Array.isArray(cards) ? cards : []).slice(0, 400);
+  if (!list.length) return null;
+  const cmdName = String(commanderName || '').trim()
+    || list.find(c => c.isCommander)?.name || null;
+  // Resolving names is the expensive half. A caller doing several decks at once
+  // can resolve all of their names in one query and hand the map in.
+  const resolved = preResolved
+    || await _e2ResolveCards(list.map(c => String(c.name || '')).concat(cmdName ? [cmdName] : []));
+  const parseIR = r => { try { return r?.ir_json ? JSON.parse(r.ir_json) : null; } catch (_) { return null; } };
+  const deckCards = [];
+  for (const c of list) {
+    if (c.isCommander || (cmdName && c.name === cmdName)) continue;
+    const r = resolved.get(String(c.name));
+    deckCards.push({
+      name: String(c.name), qty: Math.max(1, parseInt(c.qty, 10) || 1),
+      ir: parseIR(r), cmc: r ? Number(r.cmc) : 0, typeLine: r ? r.type_line : '',
+    });
+  }
+  if (!deckCards.some(c => c.ir)) return null;
+  const cr = cmdName ? resolved.get(cmdName) : null;
+  const commander = cmdName ? { name: cmdName, ir: parseIR(cr) } : null;
+  try {
+    const goals = engine2.deckGoals.inferGoals(deckCards, commander).goals || [];
+    const top = goals[0];
+    if (!top) return null;
+    const second = goals[1];
+    return {
+      label: String(top.label || top.goal).slice(0, 80),
+      confidence: Number(top.confidence) || 0,
+      summary: String(top.summary || '').slice(0, 300),
+      // Same bar the Suggestions tab uses before it calls a second goal real.
+      second: second && (Number(second.confidence) || 0) >= 0.85
+        ? { label: String(second.label || second.goal).slice(0, 80), confidence: Number(second.confidence) || 0 }
+        : null,
+    };
+  } catch (e) {
+    console.warn('[e2] goal inference failed:', e.message);
+    return null;
+  }
+}
+
+// ── Deck goal backfill ───────────────────────────────────────────────────────
+// The browse listing fills a few missing goals per request, which is fine for a
+// deck someone just published and hopeless for a library that arrives all at
+// once — a fresh deployment would need dozens of page loads before the cards
+// stopped looking half-finished. This works through the backlog on its own,
+// slowly enough to stay out of the way of real requests.
+const GOAL_WARM_BATCH = 8;
+const GOAL_WARM_EVERY_MS = 10_000;      // while there is a backlog
+const GOAL_WARM_IDLE_MS = 15 * 60_000;  // once there is not
+let _goalWarmTimer = null;
+let _goalWarmRunning = false;
+
+async function warmDeckGoalsOnce(limit = GOAL_WARM_BATCH) {
+  const [rows] = await db().query(
+    `SELECT id, account_id, data, revision
+       FROM decks
+      WHERE is_public = 1
+        AND (semantics_goal_rev IS NULL
+             OR semantics_goal_rev <> COALESCE(revision, 0)
+             OR (semantics_goal_json IS NULL AND semantics_goal IS NOT NULL))
+      ORDER BY updated_at DESC
+      LIMIT ?`,
+    [limit]
+  );
+  if (!rows.length) return 0;
+
+  // One card-resolution query for the whole batch rather than one per deck —
+  // that lookup is most of the cost, and a 100-name query costs about what an
+  // 800-name one does.
+  const prepared = [];
+  for (const r of rows) {
+    let cards = [];
+    try {
+      const [cr] = await db().query(
+        'SELECT card_data FROM deck_cards WHERE account_id = ? AND deck_id = ?', [r.account_id, r.id]
+      );
+      cards = cr.map(x => (typeof x.card_data === 'string' ? JSON.parse(x.card_data) : x.card_data)).filter(Boolean);
+    } catch (_) { /* fall back to the blob below */ }
+    const deckData = typeof r.data === 'string' ? JSON.parse(r.data) : (r.data || {});
+    if (!cards.length) cards = deckData.cards || [];
+    prepared.push({ row: r, cards, commander: deckData.commander });
+  }
+  const allNames = prepared.flatMap(p =>
+    p.cards.slice(0, 400).map(c => String(c.name || '')).concat(p.commander ? [String(p.commander)] : []));
+  let resolved = null;
+  try { resolved = await _e2ResolveCards(allNames); } catch (_) { /* per-deck fallback */ }
+
+  for (const { row: r, cards, commander } of prepared) {
+    const rev = Number(r.revision) || 0;
+    const goal = await computeDeckSemanticsGoal(cards, commander, resolved).catch(() => null);
+    await db().query(
+      'UPDATE decks SET semantics_goal = ?, semantics_goal_json = ?, semantics_goal_rev = ? WHERE id = ? AND account_id = ?',
+      [goal ? goal.label : null, goal ? JSON.stringify(goal) : null, rev, r.id, r.account_id]
+    ).catch(() => {});
+  }
+  return rows.length;
+}
+
+function scheduleDeckGoalWarm(delay = GOAL_WARM_EVERY_MS) {
+  clearTimeout(_goalWarmTimer);
+  _goalWarmTimer = setTimeout(async () => {
+    if (_goalWarmRunning) return scheduleDeckGoalWarm();
+    _goalWarmRunning = true;
+    let done = 0;
+    try { done = await warmDeckGoalsOnce(); }
+    catch (e) { console.warn('[e2] goal warm failed:', e.message); }
+    finally { _goalWarmRunning = false; }
+    scheduleDeckGoalWarm(done ? GOAL_WARM_EVERY_MS : GOAL_WARM_IDLE_MS);
+  }, delay);
+  if (_goalWarmTimer.unref) _goalWarmTimer.unref();
+}
+
 async function _e2ResolveCards(names) {
   const found = new Map(); // name → {row, ir}
   const uniq = [...new Set(names)].filter(Boolean);
@@ -5025,17 +6032,35 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
       const ciSql = disallowed.length
         ? `AND NOT (${disallowed.map(() => `JSON_CONTAINS(c.color_identity_json, ?)`).join(' OR ')})`
         : '';
+      // Per-axis retrieval (engine2 precon audit F6): one global rank-ordered window
+      // let format staples on ONE pooled axis (fetch lands via landfall.enabler)
+      // starve every other axis — Merrow Reejerey missed a Merfolk deck's window by
+      // 46 ranks. Each wanted axis gets its own top-60, ranked commander-first
+      // (anti-monoculture): what THIS commander's players run beats global rank,
+      // then tribe-param matches, then global rank as the fallback.
+      // Lazy first-analyze fetch: a commander with no (fresh) stats rows gets their
+      // EDHREC page pulled inline behind a short timeout — on any failure the LEFT
+      // JOIN misses and ranking degrades to global rank for this one analysis.
+      try { await edhrecStats.ensureCommanderStats(db(), commanderName); }
+      catch (e) { console.warn('[analyze] commander stats fetch skipped:', e.message); }
+      const cmdrSlug = engine2SlugifyCommander(commanderName);
+      const tribeParam = /^tribal:(.+)$/.exec(String(topGoal?.goal || ''))?.[1]?.toLowerCase() || null;
+      const tribeOrder = tribeParam ? `(NOT (LOWER(COALESCE(x.param, '')) = ?)),` : '';
+      const candSub = wanted.map(() =>
+        `(SELECT c.oracle_id, c.name, c.type_line, c.cmc, c.edhrec_rank, c.scryfall_id, s.ir_json,
+                 st.inclusion_pct AS cmdr_pct
+          FROM card_semantics_axes x
+          JOIN scryfall_oracle_cards c ON c.oracle_id = x.oracle_id
+          JOIN card_semantics s ON s.oracle_id = x.oracle_id AND s.status IN ('valid','flagged','manual')
+          LEFT JOIN commander_card_stats st ON st.oracle_id = c.oracle_id AND st.commander_slug = ?
+          WHERE x.kind = 'provides' AND x.axis = ?
+            AND c.legal_commander = 1
+            ${ciSql}
+          ORDER BY (st.inclusion_pct IS NULL), st.inclusion_pct DESC, ${tribeOrder} (c.edhrec_rank IS NULL), c.edhrec_rank
+          LIMIT 60)`).join(' UNION ALL ');
       const [candRows] = await db().query(
-        `SELECT DISTINCT c.oracle_id, c.name, c.type_line, c.cmc, c.edhrec_rank, c.scryfall_id, s.ir_json
-         FROM card_semantics_axes x
-         JOIN scryfall_oracle_cards c ON c.oracle_id = x.oracle_id
-         JOIN card_semantics s ON s.oracle_id = x.oracle_id AND s.status IN ('valid','flagged','manual')
-         WHERE x.kind = 'provides' AND x.axis IN (${wanted.map(() => '?').join(',')})
-           AND c.legal_commander = 1
-           ${ciSql}
-         ORDER BY (c.edhrec_rank IS NULL), c.edhrec_rank
-         LIMIT 400`,
-        [...wanted, ...disallowed.map(d => JSON.stringify(d))]);
+        `SELECT DISTINCT * FROM (${candSub}) u`,
+        wanted.flatMap(ax => [cmdrSlug, ax, ...disallowed.map(d => JSON.stringify(d)), ...(tribeParam ? [tribeParam] : [])]));
 
       // prices (best normal finish across printings at the latest snapshot) — optional
       const prices = new Map();
@@ -5061,6 +6086,7 @@ app.post('/api/decks/analyze', requireAuth, async (req, res) => {
       const candidates = candRows.map(r => ({
         name: r.name, ir: parseIR(r), cmc: Number(r.cmc) || 0, typeLine: r.type_line,
         edhrecRank: r.edhrec_rank, scryfallId: r.scryfall_id || null,
+        cmdrPct: r.cmdr_pct != null ? Number(r.cmdr_pct) : null,
         price: prices.has(r.name) ? prices.get(r.name) : null,
         owned: ownedNames.has(String(r.name).toLowerCase()),
       }));
@@ -5202,21 +6228,33 @@ app.post('/api/decks/analyze-wizard', requireAuth, async (req, res) => {
       const ciSql = disallowed.length
         ? `AND NOT (${disallowed.map(() => `JSON_CONTAINS(c.color_identity_json, ?)`).join(' OR ')})`
         : '';
+      // Per-axis retrieval — same F6 + commander-first ranking as /api/decks/analyze,
+      // including the lazy first-analyze stats fetch.
+      try { await edhrecStats.ensureCommanderStats(db(), commanderName); }
+      catch (e) { console.warn('[analyze] commander stats fetch skipped:', e.message); }
+      const cmdrSlug = engine2SlugifyCommander(commanderName);
+      const tribeParam = /^tribal:(.+)$/.exec(String(topGoal?.goal || ''))?.[1]?.toLowerCase() || null;
+      const tribeOrder = tribeParam ? `(NOT (LOWER(COALESCE(x.param, '')) = ?)),` : '';
+      const candSub = wanted.map(() =>
+        `(SELECT c.oracle_id, c.name, c.type_line, c.cmc, c.edhrec_rank, c.scryfall_id, s.ir_json,
+                 st.inclusion_pct AS cmdr_pct
+          FROM card_semantics_axes x
+          JOIN scryfall_oracle_cards c ON c.oracle_id = x.oracle_id
+          JOIN card_semantics s ON s.oracle_id = x.oracle_id AND s.status IN ('valid','flagged','manual')
+          LEFT JOIN commander_card_stats st ON st.oracle_id = c.oracle_id AND st.commander_slug = ?
+          WHERE x.kind = 'provides' AND x.axis = ?
+            AND c.legal_commander = 1
+            ${ciSql}
+          ORDER BY (st.inclusion_pct IS NULL), st.inclusion_pct DESC, ${tribeOrder} (c.edhrec_rank IS NULL), c.edhrec_rank
+          LIMIT 60)`).join(' UNION ALL ');
       const [candRows] = await db().query(
-        `SELECT DISTINCT c.oracle_id, c.name, c.type_line, c.cmc, c.edhrec_rank, c.scryfall_id, s.ir_json
-         FROM card_semantics_axes x
-         JOIN scryfall_oracle_cards c ON c.oracle_id = x.oracle_id
-         JOIN card_semantics s ON s.oracle_id = x.oracle_id AND s.status IN ('valid','flagged','manual')
-         WHERE x.kind = 'provides' AND x.axis IN (${wanted.map(() => '?').join(',')})
-           AND c.legal_commander = 1
-           ${ciSql}
-         ORDER BY (c.edhrec_rank IS NULL), c.edhrec_rank
-         LIMIT 400`,
-        [...wanted, ...disallowed.map(d => JSON.stringify(d))]);
+        `SELECT DISTINCT * FROM (${candSub}) u`,
+        wanted.flatMap(ax => [cmdrSlug, ax, ...disallowed.map(d => JSON.stringify(d)), ...(tribeParam ? [tribeParam] : [])]));
       const ownedNames = new Set((Array.isArray(body.ownedNames) ? body.ownedNames : []).map(n => String(n).toLowerCase()));
       const candidates = candRows.map(r => ({
         name: r.name, ir: parseIR(r), cmc: Number(r.cmc) || 0, typeLine: r.type_line,
         edhrecRank: r.edhrec_rank, scryfallId: r.scryfall_id || null,
+        cmdrPct: r.cmdr_pct != null ? Number(r.cmdr_pct) : null,
         price: null, owned: ownedNames.has(String(r.name).toLowerCase()),
       }));
       adds = eng.recommender.scoreAdds({
@@ -5328,13 +6366,17 @@ app.get('/api/wishlist', requireAuth, async (req, res) => {
   try {
     const [rows] = await db().query(
       `SELECT uid, data, added_at, source, priority, priority_locked, source_meta
-         FROM wishlist WHERE account_id = ? ORDER BY added_at ASC`,
+         FROM wishlist WHERE account_id = ? AND dismissed = 0 ORDER BY added_at ASC`,
       [req.accountId]
     );
     res.json(rows.map(r => {
       const card = typeof r.data === 'string' ? JSON.parse(r.data) : (r.data || {});
-      // Columns are authoritative over the JSON blob for trade-managed fields.
-      card.uid = card.uid || r.uid;
+      // Columns are authoritative over the JSON blob for trade-managed fields —
+      // uid included. It used to read `card.uid || r.uid`, so a derived row whose
+      // data blob carried a different uid than its own column handed the client
+      // an id that addressed no row: DELETE /api/wishlist/:uid matched nothing,
+      // answered 200 anyway, and the entry was back on the next load.
+      card.uid = r.uid || card.uid;
       card.source = r.source || 'manual';
       card.priority = r.priority || card.priority || 'med';
       card.priorityLocked = !!r.priority_locked;
@@ -5360,9 +6402,12 @@ app.put('/api/wishlist', requireAuth, async (req, res) => {
     await conn.beginTransaction();
     // Existing auto rows (uid → priority) so we can detect user priority edits.
     const [autoRows] = await conn.query(
-      "SELECT uid, priority FROM wishlist WHERE account_id = ? AND source <> 'manual'", [accountId]
+      "SELECT uid, priority, dismissed FROM wishlist WHERE account_id = ? AND source <> 'manual'", [accountId]
     );
     const autoByUid = new Map(autoRows.map(r => [r.uid, r.priority]));
+    const dismissedUids = new Set(autoRows.filter(r => r.dismissed).map(r => r.uid));
+    // Adding a dismissed card back by hand is an explicit reversal of the removal.
+    const undismiss = [];
 
     // Partition the client array into manual rows vs. edits to auto rows.
     const byKey = new Map();
@@ -5371,6 +6416,7 @@ app.put('/api/wishlist', requireAuth, async (req, res) => {
       if (!i || typeof i !== 'object') return;
       const key = String(i.uid || i.scryfallId || `card_${i.foil ? 'f' : 'n'}_${idx}`);
       if (autoByUid.has(key)) {
+        if (dismissedUids.has(key)) undismiss.push(key);
         const newP = ['low', 'med', 'high'].includes(i.priority) ? i.priority : null;
         if (newP && newP !== autoByUid.get(key)) autoPriorityEdits.push({ key, priority: newP });
         return; // never re-insert auto rows as manual
@@ -5395,6 +6441,13 @@ app.put('/api/wishlist', requireAuth, async (req, res) => {
          ON DUPLICATE KEY UPDATE data = VALUES(data), added_at = VALUES(added_at),
            source = 'manual', priority = VALUES(priority), priority_locked = VALUES(priority_locked)`,
         vals
+      );
+    }
+    if (undismiss.length) {
+      const ph = undismiss.map(() => '?').join(',');
+      await conn.query(
+        `UPDATE wishlist SET dismissed = 0 WHERE account_id = ? AND uid IN (${ph})`,
+        [accountId, ...undismiss]
       );
     }
     // Apply (and lock) any user priority edits to auto rows.
@@ -5463,8 +6516,24 @@ app.patch('/api/wishlist/:uid', requireAuth, async (req, res) => {
 app.delete('/api/wishlist/:uid', requireAuth, async (req, res) => {
   const uid = String(req.params.uid || '').slice(0, 120);
   try {
-    await db().query('DELETE FROM wishlist WHERE account_id = ? AND uid = ?', [req.accountId, uid]);
-    res.json({ ok: true });
+    // A manual row is yours, so it goes. A derived one is re-computed from your
+    // decks and trades, so deleting it only means the next reconcile puts it
+    // back — it is marked dismissed instead, which GET hides and the reconciler
+    // respects. Report what happened either way: answering a bare ok to a uid
+    // that matched no row is what let the previous bug hide.
+    const [del] = await db().query(
+      "DELETE FROM wishlist WHERE account_id = ? AND uid = ? AND source = 'manual'",
+      [req.accountId, uid]
+    );
+    let dismissed = 0;
+    if (!del?.affectedRows) {
+      const [upd] = await db().query(
+        "UPDATE wishlist SET dismissed = 1 WHERE account_id = ? AND uid = ? AND source <> 'manual'",
+        [req.accountId, uid]
+      );
+      dismissed = upd?.affectedRows ?? 0;
+    }
+    res.json({ ok: true, deleted: del?.affectedRows ?? 0, dismissed });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -5549,7 +6618,16 @@ app.get('/api/preferences', requireAuth, async (req, res) => {
     ]);
     const out = {};
     rows.forEach(r => {
-      out[r.key_name] = typeof r.value === 'string' ? JSON.parse(r.value) : r.value;
+      // `value` is a JSON column, so mysql2 hands back the decoded value — and a
+      // preference whose value is a JSON *string* comes back as a JS string.
+      // Parsing that again threw, and one throw failed the whole request: every
+      // account with adds_pool_mode set (the string "collection") got a 500 here,
+      // and the client's loader quietly substituted {} — so no preference of
+      // theirs, server-side, was reaching the app at all. Rows written before the
+      // column became JSON are still text, hence the guarded parse.
+      const v = r.value;
+      if (typeof v !== 'string') { out[r.key_name] = v; return; }
+      try { out[r.key_name] = JSON.parse(v); } catch (_) { out[r.key_name] = v; }
     });
     res.json(out);
   } catch (e) {
@@ -7573,6 +8651,18 @@ async function ensureCardSemanticsTables() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
     await conn.query(`
+      CREATE TABLE IF NOT EXISTS commander_card_stats (
+        commander_slug VARCHAR(80) NOT NULL,
+        oracle_id      CHAR(36)    NOT NULL,
+        inclusion_pct  FLOAT       NOT NULL,
+        synergy_pct    FLOAT       NULL,
+        num_decks      INT         NULL,
+        updated_at     BIGINT      NOT NULL,
+        PRIMARY KEY (commander_slug, oracle_id),
+        KEY idx_ccs_oracle (oracle_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+    await conn.query(`
       CREATE TABLE IF NOT EXISTS semantics_runs (
         run_id         VARCHAR(40)  NOT NULL,
         model          VARCHAR(60)  NOT NULL,
@@ -7741,6 +8831,7 @@ async function ensurePrintFingerprintsTable() {
       scryfall_id      CHAR(36)        NOT NULL,
       oracle_id        CHAR(36)        NULL,
       name             VARCHAR(255)    NOT NULL DEFAULT '',
+      flavor_name      VARCHAR(255)    NULL,
       set_code         VARCHAR(10)     NOT NULL DEFAULT '',
       collector_number VARCHAR(20)     NOT NULL DEFAULT '',
       phash            BIGINT UNSIGNED NOT NULL,
@@ -7754,6 +8845,15 @@ async function ensurePrintFingerprintsTable() {
       INDEX idx_pfp_setnum (set_code, collector_number)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+  // Added 2026-09: flavor names for Universes Beyond printings. CREATE TABLE IF NOT EXISTS
+  // does nothing to a table that already exists, so an existing deployment needs this ALTER —
+  // without it the index query selects a missing column, the index never loads, and every
+  // scan answers 503 while the app looks merely unresponsive.
+  try {
+    await db().query('ALTER TABLE scryfall_print_fingerprints ADD COLUMN flavor_name VARCHAR(255) NULL');
+  } catch (e) {
+    if (e.code !== 'ER_DUP_FIELDNAME') throw e;
+  }
 }
 
 // ── In-memory fingerprint index for the scanner's nearest-neighbor (Hamming) search ──
@@ -7789,7 +8889,7 @@ async function loadFingerprintIndex() {
   try {
     // CAST to CHAR so BIGINT UNSIGNED round-trips exactly (the default driver loses precision > 2^53).
     const [rows] = await db().query(
-      `SELECT scryfall_id, oracle_id, name, set_code, collector_number, image_source,
+      `SELECT scryfall_id, oracle_id, name, flavor_name, set_code, collector_number, image_source,
               CAST(phash AS CHAR) phash, CAST(art_phash AS CHAR) art_phash
        FROM scryfall_print_fingerprints`
     );
@@ -7811,6 +8911,7 @@ async function loadFingerprintIndex() {
       }
       meta[idx] = {
         scryfall_id: r.scryfall_id, oracle_id: r.oracle_id, name: r.name,
+        flavor_name: r.flavor_name || null,
         set_code: r.set_code, collector_number: r.collector_number, image_source: r.image_source,
       };
     }
@@ -7830,38 +8931,337 @@ async function loadFingerprintIndex() {
 }
 async function reloadFingerprintIndex() { _fpIndexLoading = false; await loadFingerprintIndex(); }
 
-// Top-K nearest by full-card Hamming distance; checks the rotated query too (upside-down scans).
-function _fpNearest(qphi, qplo, qrhi, qrlo, k) {
-  const idx = _fpIndex, phi = idx.phi, plo = idx.plo, n = idx.n;
-  const useRot = qrhi != null;
-  const best = []; // {i, dist} kept ascending, length <= k
-  let worst = 65;
-  for (let i = 0; i < n; i++) {
-    let d = _popcount32(phi[i] ^ qphi) + _popcount32(plo[i] ^ qplo);
-    if (useRot) {
-      const dr = _popcount32(phi[i] ^ qrhi) + _popcount32(plo[i] ^ qrlo);
-      if (dr < d) d = dr;
-    }
-    if (best.length < k) {
-      best.push({ i, dist: d });
-      if (best.length === k) { best.sort((a, b) => a.dist - b.dist); worst = best[k - 1].dist; }
-    } else if (d < worst) {
-      best[k - 1] = { i, dist: d };
-      best.sort((a, b) => a.dist - b.dist);
-      worst = best[k - 1].dist;
-    }
-  }
-  if (best.length < k) best.sort((a, b) => a.dist - b.dist);
-  return best;
-}
-function _fpArtDist(i, qahi, qalo) {
-  if (qahi == null || !_fpIndex.hasArt[i]) return null;
-  return _popcount32(_fpIndex.ahi[i] ^ qahi) + _popcount32(_fpIndex.alo[i] ^ qalo);
+// ── Card-name index for title-first identification ──────────────────────────────────────────
+// The client OCRs the card's printed title on every capture. A read title narrows ~100k
+// printings to one name's handful, where the pHash is nearly infallible — the global-search
+// noise floor (which capped accuracy and bred jitter-stable collisions) doesn't exist inside a
+// name-restricted set. Built lazily from _fpIndex.meta after each index (re)load.
+let _fpNames = null; // { byToken: Map<token, Set<nameKey>>, rowsByName: Map<nameKey, number[]>, tokensByName: Map<nameKey, string[]> }
+
+function _fpNormName(s) {
+  return String(s || '')
+    .toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '') // strip diacritics
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
 }
 
-// Top-K by ART-CROP hash only. Fallback path for frames whose full-card hash is mangled (foil
-// glare, non-English text) but whose art still reads — those never surface in _fpNearest's
-// full-hash top-K, so a second scan over the art hashes is required. Only runs on misses.
+function _fpEnsureNameIndex() {
+  if (_fpNames && _fpNames._builtAt === _fpIndexLoadedAt) return _fpNames;
+  const byToken = new Map();
+  const rowsByName = new Map();
+  const tokensByName = new Map();
+  // Stopwords never make or break a name read — "1e Kingpin of ee" must still find
+  // The Kingpin of Crime on the strength of "kingpin" alone.
+  const STOP = new Set(['the', 'of', 'and', 'for', 'to', 'a', 'an', 'in', 'at', 'on']);
+  // Universes Beyond printings (Final Fantasy, LOTR, Marvel) put a FLAVOR name large at the
+  // top of the card and the real Magic name smaller beneath it — so OCR reads the flavor name.
+  // Both are indexed to the same printings; before this, reading "Vana'diel Adventurers" found
+  // nothing and the leftover fragment matched an unrelated card.
+  const addKey = (key, i) => {
+    if (!key) return;
+    let rows = rowsByName.get(key);
+    if (!rows) {
+      rows = [];
+      rowsByName.set(key, rows);
+      const toks = key.split(' ').filter(t => t.length >= 3 && !STOP.has(t));
+      tokensByName.set(key, toks);
+      for (const t of toks) {
+        let set = byToken.get(t);
+        if (!set) byToken.set(t, (set = new Set()));
+        set.add(key);
+      }
+    }
+    rows.push(i);
+  };
+  for (let i = 0; i < _fpIndex.n; i++) {
+    if (_fpIndex.meta[i].flavor_name) addKey(_fpNormName(_fpIndex.meta[i].flavor_name), i);
+    const key = _fpNormName(_fpIndex.meta[i].name);
+    if (!key) continue;
+    let rows = rowsByName.get(key);
+    if (!rows) {
+      rows = [];
+      rowsByName.set(key, rows);
+      const toks = key.split(' ').filter(t => t.length >= 3 && !STOP.has(t));
+      tokensByName.set(key, toks);
+      for (const t of toks) {
+        let s = byToken.get(t);
+        if (!s) byToken.set(t, (s = new Set()));
+        s.add(key);
+      }
+    }
+    rows.push(i);
+  }
+  // 4-gram → tokens index. OCR clips names ("eshore" for lakeshore, "ortswor" for
+  // shortsword), so anchoring needs shared RUNS, not whole-token equality; the n-gram index
+  // narrows ~30k tokens to a handful before the (costlier) substring check runs.
+  const allTokens = [...byToken.keys()];
+  const byGram = new Map();
+  for (const t of allTokens) {
+    for (let i = 0; i + 4 <= t.length; i++) {
+      const g = t.slice(i, i + 4);
+      let s = byGram.get(g);
+      if (!s) byGram.set(g, (s = new Set()));
+      s.add(t);
+    }
+  }
+  // Exact printing lookup. The footer states set code and collector number outright, which is
+  // the one piece of evidence that identifies a printing rather than a card.
+  const bySetNum = new Map();
+  for (let i = 0; i < _fpIndex.n; i++) {
+    const m = _fpIndex.meta[i];
+    bySetNum.set(`${String(m.set_code).toLowerCase()}|${String(m.collector_number).toLowerCase()}`, i);
+  }
+  _fpNames = {
+    byToken, rowsByName, tokensByName, allTokens, byGram, bySetNum,
+    _builtAt: _fpIndexLoadedAt,
+  };
+  console.log(`[scan] name index built: ${rowsByName.size} distinct names, ${_fpNames.allTokens.length} tokens`);
+  return _fpNames;
+}
+
+// Longest common substring length — the evidence metric for a clipped OCR read against a
+// card-name token. "eshore"/"lakeshore" = 6, "ortswor"/"shortsword" = 6, "bear"/"bear" = 4.
+function _fpLcs(a, b) {
+  let best = 0;
+  let prev = new Uint16Array(b.length + 1);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = new Uint16Array(b.length + 1);
+    for (let j = 1; j <= b.length; j++) {
+      if (a[i - 1] === b[j - 1]) {
+        cur[j] = prev[j - 1] + 1;
+        if (cur[j] > best) best = cur[j];
+      }
+    }
+    prev = cur;
+  }
+  return best;
+}
+
+function _fpLev(a, b) {
+  const m = a.length, n = b.length;
+  if (Math.abs(m - n) > 2) return 3;
+  const dp = new Array(n + 1);
+  for (let j = 0; j <= n; j++) dp[j] = j;
+  for (let i = 1; i <= m; i++) {
+    let prev = dp[0];
+    dp[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const tmp = dp[j];
+      dp[j] = Math.min(dp[j] + 1, dp[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prev = tmp;
+    }
+  }
+  return dp[n];
+}
+
+// Map Tesseract's classic digit-for-letter confusions back to letters: a post-map EXACT hit
+// ("F1ocK" → flock) is as trustworthy as a clean read, unlike a genuine edit ("mock" → monk).
+function _fpDigitFix(s) {
+  return s.replace(/0/g, 'o').replace(/1/g, 'l').replace(/5/g, 's').replace(/8/g, 'b');
+}
+
+// OCR title → candidate rows. Returns { rows, strongRows } — strongRows are printings of
+// names backed by at least one exact (or confusion-exact) token hit; purely fuzzy-anchored
+// names are plausible but earn a stricter hash gate.
+function _fpRowsForTitle(title) {
+  const names = _fpEnsureNameIndex();
+  const norm = _fpNormName(title);
+  if (norm.length < 3) return null;
+  const words = norm.split(' ').filter(w => w.length >= 3).map(_fpDigitFix);
+  if (!words.length) return null;
+  // Gather names anchored by the OCR words — exact token hits first, and for words with no
+  // exact hit a fuzzy sweep over the token vocabulary ("F1ocK"/"remophnage"/"athering" must
+  // still anchor Flock/Hemophage/Gathering; exact-only anchoring silently dropped them and
+  // the downstream tolerance never got a chance to run). Length prefilter keeps it cheap.
+  // Candidate names: any name owning a token that shares a 4+ character RUN with an OCR word.
+  // Live diag proved the old whole-token rule was the binding constraint — OCR routinely
+  // delivers the middle or tail of a name ("eshore", "ler of tales", "warven oriswor") and
+  // every one of those scored zero.
+  const candKeys = new Set();
+  for (const w of words) {
+    const exact = names.byToken.get(w);
+    if (exact) for (const key of exact) candKeys.add(key);
+    if (w.length < 4) continue;
+    const seen = new Set();
+    for (let i = 0; i + 4 <= w.length; i++) {
+      const bucket = names.byGram.get(w.slice(i, i + 4));
+      if (!bucket) continue;
+      for (const t of bucket) {
+        if (seen.has(t)) continue;
+        seen.add(t);
+        for (const key of names.byToken.get(t)) candKeys.add(key);
+      }
+    }
+  }
+  const scored = [];
+  for (const key of candKeys) {
+    const toks = names.tokensByName.get(key) || [];
+    if (!toks.length) continue;
+    let hits = 0;
+    let maxEvidence = 0;
+    let evSum = 0;
+    for (const t of toks) {
+      // Evidence for a name token = how much of it the OCR actually corroborates: the longest
+      // shared run, or (for an edit-distance read) the token length MINUS the edits. Crediting
+      // a near-miss at FULL token length let "rate" claim all six characters of Curate.
+      const tol = t.length >= 6 ? 2 : t.length >= 4 ? 1 : 0;
+      let ev = 0;
+      for (const w of words) {
+        if (w === t) { ev = t.length; break; }
+        const lev = _fpLev(w, t);
+        if (lev <= tol && t.length - lev > ev) ev = t.length - lev;
+        if (w.length >= 4) {
+          const run = _fpLcs(w, t);
+          if (run > ev) ev = run;
+        }
+      }
+      if (ev >= Math.min(4, t.length)) {
+        hits++;
+        evSum += ev;
+        if (ev > maxEvidence) maxEvidence = ev;
+      }
+    }
+    if (maxEvidence < 4) continue; // 3-char scraps never shortlist ("ark" → Ark of Blight)
+    const coverage = hits / toks.length;
+    // Half the name's tokens, OR one decisive 6+ character run — "valley" alone must reach
+    // Rage into the Valley when OCR lost the other two words entirely.
+    if (coverage >= (toks.length === 1 ? 1 : 0.5) || maxEvidence >= 6) {
+      scored.push({
+        key, coverage, exactHits: hits, nTok: toks.length,
+        maxHitLen: maxEvidence, evSum, strong: maxEvidence >= 6,
+      });
+    }
+  }
+  if (!scored.length) return null;
+  // Rank by total corroborated evidence plus coverage — then re-rank the leaders on the
+  // longest run shared with the WHOLE name, spaces stripped. Per-token scoring discards word
+  // order, which is the strongest signal a read carries: "into the valley" is 13 consecutive
+  // characters of Rage into the Valley and only 6 of Valley Mightcaller, yet the two scored
+  // the same on tokens alone (and the shorter name won on coverage).
+  const tokenScore = s => s.evSum + 4 * s.coverage;
+  scored.sort((a, b) => tokenScore(b) - tokenScore(a) || (b.nTok - a.nTok));
+  // The window has to be generous: the token score is exactly the metric that mis-ranks
+  // these (Rage into the Valley sits BELOW Valley Mightcaller on tokens), so cutting tight
+  // here would discard the name before its sequence run is ever measured. LCS over ~20-char
+  // strings is cheap enough to run on all of them.
+  const flat = norm.replace(/ /g, '');
+  scored.length = Math.min(scored.length, 200);
+  for (const s of scored) s.seqRun = _fpLcs(flat, s.key.replace(/ /g, ''));
+  const nameScore = s => 2 * (s.seqRun || 0) + tokenScore(s);
+  scored.sort((a, b) => nameScore(b) - nameScore(a) || (b.nTok - a.nTok));
+  // Evidence score per name: a long shared run AND broad coverage. Measured on live reads —
+  // real wins score 9-10 ("eshore"+"ecary" → Lakeshore Apothecary, coverage 1.0, run 6),
+  // while the fragments that produced wrong matches score ≤ 6 ("bear" → Toski, Bearer of
+  // Secrets). The shortlist stays small so the hash isn't re-running a global search.
+  // Only names within a band of the best evidence compete — otherwise one well-identified
+  // name shares its shortlist (and its size-scaled gate) with weakly-anchored strangers.
+  const bestScore = scored.length ? nameScore(scored[0]) : 0;
+  const rows = [];
+  const scoreByRow = new Map();
+  const seqFracByRow = new Map(); // how much of the NAME the matched run actually covers
+  const covByRow = new Map();     // fraction of the name's tokens that were actually read
+  // Margin over the best name of a DIFFERENT card. When two names tie — "…Teller of Tales"
+  // fits both Nori and Chulane; "Fable Passage" fits both Fabled Passage and Honorable
+  // Passage — the read has not actually identified anything, and letting a degraded hash
+  // break the tie is a coin flip that lost both times it was tried.
+  const runnerUp = scored.find(x => x.key !== scored[0].key);
+  const nameMargin = runnerUp ? bestScore - nameScore(runnerUp) : Infinity;
+  for (const s of scored.filter(x => nameScore(x) >= bestScore - 6).slice(0, 8)) {
+    const score = nameScore(s);
+    // Per-name cap as well as a total cap: one reprint-heavy name (a basic land) otherwise
+    // fills the shortlist by itself and turns the restricted scan back into a global one.
+    const frac = (s.seqRun || 0) / Math.max(1, s.key.replace(/ /g, '').length);
+    for (const i of names.rowsByName.get(s.key).slice(0, 80)) {
+      rows.push(i);
+      if (score > (scoreByRow.get(i) || 0)) scoreByRow.set(i, score);
+      if (frac > (seqFracByRow.get(i) || 0)) seqFracByRow.set(i, frac);
+      if (s.coverage > (covByRow.get(i) || 0)) covByRow.set(i, s.coverage);
+    }
+    if (rows.length > 200) break; // bound the restricted scan
+  }
+  return rows.length ? { rows, scoreByRow, seqFracByRow, covByRow, bestScore, nameMargin } : null;
+}
+
+// The client sends several candidate reads of the title (polarities, band offsets); score
+// each and keep the one yielding the strongest name evidence.
+function _fpRowsForTitles(list) {
+  let best = null;
+  for (const t of list) {
+    const hit = _fpRowsForTitle(t);
+    if (hit && (!best || hit.bestScore > best.bestScore)) best = hit;
+  }
+  return best;
+}
+
+// Best variant match restricted to `rows` (the title's printings). Same combined metric,
+// per-orientation; returns { i, dist, artDist, comb, variant } or null.
+function _fpBestInRows(rows, parsed) {
+  let best = null;
+  for (const p of parsed) {
+    for (const i of rows) {
+      let df = _popcount32(_fpIndex.phi[i] ^ p.q[0]) + _popcount32(_fpIndex.plo[i] ^ p.q[1]);
+      let da = p.art && _fpIndex.hasArt[i]
+        ? _popcount32(_fpIndex.ahi[i] ^ p.art[0]) + _popcount32(_fpIndex.alo[i] ^ p.art[1]) : null;
+      let comb = df + (p.art ? (da == null ? SCAN_NOART_PENALTY : da) : 0);
+      if (p.rot) {
+        const dfR = _popcount32(_fpIndex.phi[i] ^ p.rot[0]) + _popcount32(_fpIndex.plo[i] ^ p.rot[1]);
+        const daR = p.artRot
+          ? (_fpIndex.hasArt[i] ? _popcount32(_fpIndex.ahi[i] ^ p.artRot[0]) + _popcount32(_fpIndex.alo[i] ^ p.artRot[1]) : null)
+          : da;
+        const combR = dfR + (p.art ? (daR == null ? SCAN_NOART_PENALTY : daR) : 0);
+        if (combR < comb) { comb = combR; df = dfR; da = daR; }
+      }
+      if (!best || comb < best.comb) best = { i, dist: df, artDist: da, comb, variant: p };
+    }
+  }
+  return best;
+}
+
+// Top-K nearest by COMBINED (full + art) Hamming distance. The full hash alone has NO noise
+// margin at this index size: a real camera capture sits ~14-16 bits from its reference, and the
+// nearest neighbour of pure noise ALSO sits 14-21 bits (measured). Summing the art-crop distance
+// doubles the bit budget: true match ~27 combined vs a 34-46 noise floor (measured 2026-09-14,
+// 200 synthetic camera-noise queries: full-only ranking loses to an impostor 88% of the time at
+// 15/12 flipped bits; combined ranking 0.5%). Both orientations are scored per-row when the
+// rotated hashes are provided (a card upside down in the reticle shows its art in the mirrored
+// rect, so the art hash must rotate WITH the full hash); an artless rot query (older client)
+// falls back to v1 semantics — rotated full, upright art. Rows keep their per-hash distances for
+// the accept gates below. Without a query art hash, ranking degrades to full-only (v1).
+const SCAN_TOPK = 25;          // internal retrieval K (response candidate count capped separately)
+const SCAN_NOART_PENALTY = 32; // ranking-only art distance for rows lacking an art hash
+function _fpNearestCombined(q, rot, art, artRot, k) {
+  const idx = _fpIndex, phi = idx.phi, plo = idx.plo, ahi = idx.ahi, alo = idx.alo,
+    hasArt = idx.hasArt, n = idx.n;
+  const best = []; // {i, dist, artDist, comb} kept ascending by comb, length <= k
+  let worst = Infinity;
+  for (let i = 0; i < n; i++) {
+    let df = _popcount32(phi[i] ^ q[0]) + _popcount32(plo[i] ^ q[1]);
+    let da = art && hasArt[i] ? _popcount32(ahi[i] ^ art[0]) + _popcount32(alo[i] ^ art[1]) : null;
+    let comb = df + (art ? (da == null ? SCAN_NOART_PENALTY : da) : 0);
+    if (rot) {
+      const dfR = _popcount32(phi[i] ^ rot[0]) + _popcount32(plo[i] ^ rot[1]);
+      const daR = artRot
+        ? (hasArt[i] ? _popcount32(ahi[i] ^ artRot[0]) + _popcount32(alo[i] ^ artRot[1]) : null)
+        : da;
+      const combR = dfR + (art ? (daR == null ? SCAN_NOART_PENALTY : daR) : 0);
+      if (combR < comb) { comb = combR; df = dfR; da = daR; }
+    }
+    if (best.length < k) {
+      best.push({ i, dist: df, artDist: da, comb });
+      if (best.length === k) { best.sort((a, b) => a.comb - b.comb); worst = best[k - 1].comb; }
+    } else if (comb < worst) {
+      best[k - 1] = { i, dist: df, artDist: da, comb };
+      best.sort((a, b) => a.comb - b.comb);
+      worst = best[k - 1].comb;
+    }
+  }
+  if (best.length < k) best.sort((a, b) => a.comb - b.comb);
+  return best;
+}
+// Top-K by ART-CROP hash only. Fallback path for frames whose full-card hash is mangled badly
+// enough (foil glare, non-English text) that even the combined ranking can't clear the accept
+// gates — the art alone may still be decisive. Only runs on misses.
 function _fpNearestArt(qahi, qalo, k) {
   const idx = _fpIndex, ahi = idx.ahi, alo = idx.alo, hasArt = idx.hasArt, n = idx.n;
   const best = []; // {i, artDist} kept ascending, length <= k
@@ -7880,6 +9280,70 @@ function _fpNearestArt(qahi, qalo, k) {
   }
   if (best.length < k) best.sort((a, b) => a.artDist - b.artDist);
   return best;
+}
+
+// Do two index rows carry the same artwork? Reprints overwhelmingly reuse art — only the set
+// symbol and collector number change, and a 32x32 hash discards both — so this is what makes
+// a printing undecidable by image alone, and what the footer hints are there to settle.
+function _fpSameArtRows(i, j) {
+  if (!_fpIndex.hasArt[i] || !_fpIndex.hasArt[j]) return false;
+  return _popcount32(_fpIndex.ahi[i] ^ _fpIndex.ahi[j])
+    + _popcount32(_fpIndex.alo[i] ^ _fpIndex.alo[j]) <= 4;
+}
+
+// Among `rows`, prefer the printing the footer hints point at: both fields beat set alone,
+// which beats collector alone (collector numbers repeat across sets).
+function _fpPickByHint(rows, hintSet, hintNum, sameNameAsRow) {
+  if (!hintSet && !hintNum) return null;
+  // A hint chooses a PRINTING, never a card. Callers pass retrieval sets that span
+  // several names (a title shortlist, a within-margin decision group), and a misread
+  // 2-digit collector number that happens to be unique across them would otherwise
+  // substitute a different card for the one the title and the hash both chose — so
+  // the pool is narrowed to the printings of the row already settled on.
+  let pool = rows;
+  if (sameNameAsRow != null) {
+    const want = _fpNormName(_fpIndex.meta[sameNameAsRow].name);
+    pool = [];
+    for (const i of rows) if (_fpNormName(_fpIndex.meta[i].name) === want) pool.push(i);
+  }
+  let exact = null;
+  const setOnly = [];
+  const numOnly = [];
+  for (const i of pool) {
+    const m = _fpIndex.meta[i];
+    const setOk = hintSet && String(m.set_code).toLowerCase() === hintSet;
+    const numOk = hintNum && String(m.collector_number).toLowerCase() === hintNum;
+    if (setOk && numOk) { exact = i; break; }
+    if (setOk) setOnly.push(i);
+    // A one-character number is the junk case: a stray digit off rules text reads as "1"
+    // (both 2026-09-16 failures did exactly that). A wrong printing added silently costs more
+    // than falling back to the hash, so single digits only count alongside a set code.
+    if (numOk && hintNum.length >= 2) numOnly.push(i);
+  }
+  // Both fields agreeing names one printing. Either field ALONE decides when it lands on
+  // exactly one of these rows — and it usually does, because the pool above is the printings
+  // of a single card, not the whole index. That matters most for the treatments the hash
+  // cannot rank (full art, showcase, foil): the collector number is printed large and reads
+  // cleanly, while the set code shares a tiny grey line with the language and the artist.
+  if (exact != null) return exact;
+  if (setOnly.length === 1) return setOnly[0];
+  return numOnly.length === 1 ? numOnly[0] : null;
+}
+
+// Beyond this combined distance the hash is not ranking a card's printings, it is guessing.
+// Measured on saved captures: a full-art/showcase/foil capture lands 50-70 combined from its
+// OWN index row, while Monstrous Rage's Marvel full art sits 58-72 from its three siblings —
+// the noise is wider than the spread, so the nearest printing is a coin flip.
+const SCAN_PRINTING_HASH_TRUST = 30;
+
+// How many OTHER printings of this card share its artwork? These are the printings no image
+// hash can separate at any resolution, so a non-zero count is the client's cue to read the
+// collector number and set code off the card and ask again.
+function _fpPrintingRivals(i) {
+  const rows = _fpEnsureNameIndex().rowsByName.get(_fpNormName(_fpIndex.meta[i].name)) || [];
+  let n = 0;
+  for (const j of rows) if (j !== i && _fpSameArtRows(i, j)) n++;
+  return n;
 }
 
 // Shape matched fingerprint rows into Scryfall-like cards: oracle-level gameplay data joined from
@@ -8727,7 +10191,38 @@ const SCAN_ACCEPT_MAX = 18;     // full-card Hamming distance — loose pre-filt
 const SCAN_ART_ACCEPT_MAX = 22; // art-crop Hamming distance — the discriminating gate (noise ~32)
 const SCAN_ACCEPT_RELAXED_MAX = 24; // full-card gate when the art hash alone is decisive
 const SCAN_ART_STRONG_MAX = 12; // art distance far enough below the ~32 noise floor to carry a match
-const SCAN_AMBIG_MARGIN = 3;  // candidates within best+margin form the disambiguation group
+const SCAN_AMBIG_MARGIN = 3;  // (full-only queries) candidates within best+margin = disambiguation group
+const SCAN_AMBIG_MARGIN_COMB = 6; // same, on the combined distance (2x the variance of one hash)
+// Combined-distance cap. Pure-noise floor ~34; the junk textures that once squeaked in at
+// 30-32 are low-detail captures the client's SCN_FP_MIN_DETAIL gate now drops before the
+// network (verified by scripts/scan-empty-reticle-test.js at this cap), while real borderline
+// captures (tray scans through the variant pipeline) measured 26-31.
+const SCAN_COMB_ACCEPT_MAX = 31;
+const SCAN_SAMEART_WINDOW = 10;   // identical-art rival within this comb margin of the winner → chooser
+// A real match is an OUTLIER below the noise floor; a junk winner is crowded by unrelated
+// neighbours within a bit or two. Require the winner to beat the best different-art runner-up
+// by this many combined bits (measured on the live corpus: true matches 4-8, junk 0-2).
+const SCAN_WIN_MARGIN = 4; // was 3; one wrong add slipped through live at the old value
+// Title-restricted accept: inside one name's printings there is no meaningful noise floor
+// (a wrong pick is at worst the right card's wrong printing), so the gate only guards
+// against the OCR shortlist containing a wrong-but-similar name.
+const SCAN_TITLE_COMB_MAX = 40;
+const SCAN_TITLE_COMB_FUZZY_MAX = 32; // strict gate: short-token or fuzzy-only title evidence
+// Min (longest run + 4x coverage) for the title to OVERRIDE the global answer. Corroboration
+// — the title agreeing with the global winner — has no such bar.
+// Scale: 2x the longest run shared with the whole name + corroborated token characters +
+// 4x coverage. Measured on live reads — "untain-king's Return" → 60 against the real card
+// and 22 against the basic land Mountain; "into the Valley" → 39 vs 26 for Valley
+// Mightcaller; the wrong picks that used to slip through land at 16 ("rate" → Curate).
+const SCAN_TITLE_MIN_EVIDENCE = 24;
+const SCAN_TITLE_DECISIVE = 30;       // long runs + (near-)full coverage = the name is settled
+const SCAN_TITLE_DECISIVE_FRAC = 0.6; // ...and the run must cover most of the name itself
+const SCAN_TITLE_NAME_MARGIN = 4;     // ...and clearly ahead of the next candidate name
+// An uncorroborated footer must also agree closely with the image before it names a card.
+const SCAN_FOOTER_COMB_MAX = 30;
+// Ceiling for a match the image alone is claiming, with no title or footer agreeing.
+const SCAN_UNCORROBORATED_MAX = 22;
+const SCAN_TITLE_COMB_DECISIVE = 46;  // then the hash only picks the printing
 const SCAN_ART_TIE = 2;       // art-hash distance under which two printings count as "same art"
 const SCAN_ART_PRIMARY_MAX = 12;  // art-only fallback gate (foil glare / non-English fronts)
 const SCAN_ART_PRIMARY_GROUP = 2; // art-distance tie window for the fallback chooser group
@@ -8738,46 +10233,265 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
       return res.status(503).json({ ok: false, error: 'fingerprint index not ready' });
     }
     const body = req.body || {};
-    const q = _hashHexToHiLo(String(body.phash || ''));
-    if (!q) return res.status(400).json({ ok: false, error: 'phash (16-hex) required' });
-    const rot = body.phashRot180 ? _hashHexToHiLo(String(body.phashRot180)) : null;
-    const art = body.artPhash ? _hashHexToHiLo(String(body.artPhash)) : null;
-    const k = Math.max(1, Math.min(10, Number(body.k) || 5));
+    // Multi-hypothesis capture: the client may send several hash sets (`variants`), one per
+    // candidate card quad — the reticle is only a suggestion, and a card sitting inside a
+    // tray shows up at 60-75% of it. Every variant is matched and the best one answers; the
+    // index is a far better judge of "which rectangle was the card" than client heuristics.
+    const rawVariants = Array.isArray(body.variants) && body.variants.length
+      ? body.variants.slice(0, 6)
+      : [body];
+    const parsed = rawVariants
+      .map(v => v && typeof v === 'object' ? {
+        q: _hashHexToHiLo(String(v.phash || '')),
+        rot: v.phashRot180 ? _hashHexToHiLo(String(v.phashRot180)) : null,
+        art: v.artPhash ? _hashHexToHiLo(String(v.artPhash)) : null,
+        artRot: v.artPhashRot180 ? _hashHexToHiLo(String(v.artPhashRot180)) : null,
+      } : null)
+      .map((p, i) => (p && p.q ? { ...p, idx: i } : null))
+      .filter(Boolean);
+    if (!parsed.length) return res.status(400).json({ ok: false, error: 'phash (16-hex) required' });
+    // Default candidate cap 10 (was 5): within a same-art reprint group, capture noise
+    // scrambles the combined-distance order, and a tight cap can drop the TRUE printing
+    // from the chooser entirely (seen live with Ponder's six frame-twins).
+    const k = Math.max(1, Math.min(10, Number(body.k) || 10));
     const hintSet = body.hints && body.hints.set ? String(body.hints.set).toLowerCase() : '';
     const hintNum = body.hints && body.hints.collector ? String(body.hints.collector).toLowerCase() : '';
 
-    const near = _fpNearest(q[0], q[1], rot ? rot[0] : null, rot ? rot[1] : null, k);
-    if (!near.length) return res.json({ ok: true, matched: false });
-    const bestDist = near[0].dist;
+    // Title-first fast path: the client OCRs the card's printed name each capture. A read
+    // title restricts the search to that name's printings, where the hash is nearly
+    // infallible — the global noise floor that breeds jitter-stable collisions (dark low-key
+    // art matching unrelated cards at combined 20-26) doesn't exist inside a name set.
+    const titleList = (Array.isArray(body.titles) && body.titles.length ? body.titles : [body.title])
+      .filter(t => typeof t === 'string' && t.length >= 3)
+      .slice(0, 8)
+      .map(t => t.slice(0, 160));
+    const titleHit = titleList.length ? _fpRowsForTitles(titleList) : null;
 
-    let cands = near.map(({ i, dist }) => ({
-      dist, artDist: art ? _fpArtDist(i, art[0], art[1]) : null, meta: _fpIndex.meta[i],
+    // Retrieval ranks by combined full+art distance (see _fpNearestCombined) — the true card
+    // reliably surfaces even when full-hash noise buries it below unrelated printings.
+    let near = null;
+    let winner = parsed[0];
+    for (const p of parsed) {
+      const n = _fpNearestCombined(p.q, p.rot, p.art, p.artRot, SCAN_TOPK);
+      if (n.length && (!near || n[0].comb < near[0].comb)) { near = n; winner = p; }
+    }
+
+    // Title arbitration: when the read title COVERS the global winner's name, the two signals
+    // agree — let the (stronger) global answer proceed. The title fast path only overrides
+    // when the global winner's name contradicts the read — that's the dark-art collision case
+    // (global said Machine Man, the card says "athering o[f Darkness]"). Measured both ways
+    // on the live corpus: title hijacked two correct global answers before this check, and
+    // global collisions beat the title on four cards without it.
+    const titleAgreesWithGlobal = titleHit && near && near.length
+      && titleHit.rows.includes(near[0].i);
+    if (titleHit && !titleAgreesWithGlobal) {
+      let tBest = _fpBestInRows(titleHit.rows, parsed);
+      // Overriding the global answer demands decisive evidence, and the gate scales with the
+      // shortlist size — N rows of budget-40 searching is just the noise floor again (a
+      // basic-land name alone brings hundreds of printings).
+      const evidence = tBest ? (titleHit.scoreByRow.get(tBest.i) || 0) : 0;
+      const n = titleHit.rows.length;
+      // Decisive evidence (a long run AND essentially full coverage — "WvingGrove" covering
+      // both words of Thriving Grove) confirms the NAME on its own. The hash is then only
+      // choosing among that name's printings, where the worst case is the right card's wrong
+      // printing — so the distance gate opens up. Weaker evidence still scales with the pool.
+      // Decisive evidence over a SMALL pool identifies the card outright — the hash is then
+      // only choosing among that name's few printings, and its worst case is the right card
+      // in the wrong printing. That matters because the captures this rescues (Sagas,
+      // borderless frames) are exactly the ones whose hash is degraded by layout, so gating
+      // them on distance rejects the right answer for the one reason we already know about.
+      // "Settled" also means most of the NAME was read, not just a long tail of it. OCR of
+      // "Vana'diel Adventurers" — a card absent from the index — matched only the trailing
+      // word of "Undermountain Adventurer", and that was enough to waive the image entirely.
+      const seqFrac = tBest ? (titleHit.seqFracByRow.get(tBest.i) || 0) : 0;
+      // Settled means either every word of the name was read, or the name clearly beat the
+      // next candidate. Requiring the margin alone blocked "Absorbing Man", whose every word
+      // WAS read but which ties with "Absorbing Man and Titania" — one name containing another
+      // is not the dangerous kind of tie. The dangerous kind ("...Teller of Tales" fitting both
+      // Nori and Chulane) leaves the distinguishing word unread, so coverage catches it.
+      const cov = tBest ? (titleHit.covByRow.get(tBest.i) || 0) : 0;
+      const settled = cov >= 0.999 || titleHit.nameMargin >= SCAN_TITLE_NAME_MARGIN;
+      const gate = evidence >= SCAN_TITLE_DECISIVE && seqFrac >= SCAN_TITLE_DECISIVE_FRAC
+        && n <= 40 && settled
+        ? Infinity
+        : evidence >= SCAN_TITLE_DECISIVE && n <= 120 ? SCAN_TITLE_COMB_DECISIVE
+        : n <= 12 ? SCAN_TITLE_COMB_MAX : n <= 60 ? 33 : SCAN_TITLE_COMB_FUZZY_MAX;
+      if (tBest && evidence >= SCAN_TITLE_MIN_EVIDENCE && tBest.comb <= gate) {
+        // The name is settled; the printed footer settles the printing, which the image hash
+        // cannot do for same-art reprints at any resolution.
+        const hinted = _fpPickByHint(titleHit.rows, hintSet, hintNum, tBest.i);
+        if (hinted != null) tBest = { ...tBest, i: hinted };
+        // Only a footer that agrees on BOTH fields has actually settled the printing;
+        // a lone collector number that picked among siblings has not earned "no rivals".
+        const hintExact = hinted != null && hintSet && hintNum
+          && String(_fpIndex.meta[hinted].set_code).toLowerCase() === hintSet
+          && String(_fpIndex.meta[hinted].collector_number).toLowerCase() === hintNum;
+        // The title settled the NAME. Nothing has settled the PRINTING unless the footer did:
+        // past the trust distance, same-art siblings are not the only rivals — every printing
+        // of the name is one, so ask the client for a footer rather than banking the guess.
+        const printingRivals = hintExact ? 0
+          : _fpPrintingRivals(tBest.i) || (tBest.comb > SCAN_PRINTING_HASH_TRUST
+            ? Math.max(0, (_fpEnsureNameIndex().rowsByName.get(_fpNormName(_fpIndex.meta[tBest.i].name)) || []).length - 1)
+            : 0);
+        const cards = await _fingerprintCardsFor([_fpIndex.meta[tBest.i]]);
+        if (cards[0]) {
+          cards[0]._scanDistance = tBest.dist;
+          if (tBest.artDist != null) cards[0]._scanArtDistance = tBest.artDist;
+        }
+        return res.json({
+          ok: true, matched: true, ambiguous: false, titleMatched: true,
+          variantIndex: tBest.variant.idx,
+          distance: tBest.dist, artDistance: tBest.artDist,
+          printingRivals,
+          best: cards[0] || null, candidates: cards,
+        });
+      }
+    }
+
+    // Footer fallback. The footer names the exact PRINTING, but a collector number is a
+    // handful of digits where one misread character yields a different, perfectly valid card
+    // — it read 'hob 3' for Goblin Plate Mail and queued Troop of Ponies. So it runs only
+    // after the title has had its say, and the title path above already uses these hints to
+    // choose WITHIN the name it settled. Alone it must also agree closely with the image.
+    // printing — stronger than the title (which gives only the card) and far stronger than the
+    // hash (which cannot separate same-art reprints at all). The hash still has to agree
+    // loosely, so a misread footer cannot conjure an unrelated card.
+    if (hintSet && hintNum) {
+      const exact = _fpEnsureNameIndex().bySetNum.get(`${hintSet}|${hintNum}`);
+      if (exact != null) {
+        const fBest = _fpBestInRows([exact], parsed);
+        // Footer plus title is conclusive on its own. They are independent reads of different
+        // parts of the card, so when both name the same printing the image no longer has a
+        // vote — which matters because the captures that need this are exactly the ones whose
+        // hash is worthless (this one sits 60 bits from the true card and 30 from a wrong one).
+        const titleAgrees = !!(titleHit && titleHit.rows.includes(exact));
+        // A footer carrying BOTH a set code and a multi-character collector number is strong
+        // evidence by itself. The set code only parses when it sits next to the language
+        // marker, and the pair resolves to exactly one printing out of ~100k. Every bad footer
+        // read seen live was missing one of those: an empty set code, or a single stray digit
+        // picked off the rules text — "1", "1r", and the "hob 3" that queued Troop of Ponies.
+        // So a strong read no longer has to agree with the image, because on the captures that
+        // need it the image is actively wrong: Mesa Lynx's capture sits 34 combined bits from
+        // the true card and 28 from an unrelated one, Meteor Crater's 66 from true and 24 from
+        // a Thrull token. A weak read still has to clear the old distance bar.
+        const strongFooter = hintNum.length >= 2;
+        if (fBest && (strongFooter || titleAgrees || fBest.comb <= SCAN_FOOTER_COMB_MAX)) {
+          const cards = await _fingerprintCardsFor([_fpIndex.meta[exact]]);
+          if (cards[0]) {
+            cards[0]._scanDistance = fBest.dist;
+            if (fBest.artDist != null) cards[0]._scanArtDistance = fBest.artDist;
+          }
+          return res.json({
+            ok: true, matched: true, ambiguous: false, footerMatched: true,
+            variantIndex: fBest.variant.idx,
+            distance: fBest.dist, artDistance: fBest.artDist, printingRivals: 0,
+            best: cards[0] || null, candidates: cards,
+          });
+        }
+      }
+    }
+    const art = winner.art; // grouping + the art-primary fallback below use the winning variant
+    if (!near || !near.length) return res.json({ ok: true, matched: false, variantIndex: winner.idx });
+    const bestComb = near[0].comb;
+
+    const cands = near.map(({ i, dist, artDist, comb }) => ({
+      i, dist, artDist, comb, meta: _fpIndex.meta[i],
     }));
-    // Within-margin group, re-ranked by art distance when available (separates same-frame/diff-art).
-    const group = cands.filter(c => c.dist <= bestDist + SCAN_AMBIG_MARGIN);
-    if (art) group.sort((a, b) => (a.artDist - b.artDist) || (a.dist - b.dist));
+    // Within-margin group on the ranking metric (already sorted ascending by it).
+    const margin = art ? SCAN_AMBIG_MARGIN_COMB : SCAN_AMBIG_MARGIN;
+    const group = cands.filter(c => c.comb <= bestComb + margin);
 
     let chosen = group[0];
     let ambiguous = false;
-    if (new Set(group.map(c => c.meta.scryfall_id)).size > 1) {
-      const byHint = group.find(c =>
-        (hintSet && String(c.meta.set_code).toLowerCase() === hintSet) ||
-        (hintNum && String(c.meta.collector_number).toLowerCase() === hintNum));
-      if (byHint) {
-        chosen = byHint;
-      } else {
-        const sameArt = art ? group.filter(c => c.artDist != null && c.artDist <= SCAN_ART_TIE) : group;
-        ambiguous = sameArt.length > 1 && new Set(sameArt.map(c => c.meta.scryfall_id)).size > 1;
-      }
+    // Decision set: the within-margin group PLUS identical-art rivals from the wider retrieval
+    // window — a same-art sibling a few combined bits back (The List reprints, promo stamps,
+    // set-code-only variants) otherwise silently steals the scan as a confident wrong-printing
+    // match. "Same art" compares the candidates' REFERENCE art hashes against each other;
+    // query-relative art distances wobble with capture noise and can't make this call.
+    const refArtTie = (a, b) => _fpIndex.hasArt[a.i] && _fpIndex.hasArt[b.i]
+      && _popcount32(_fpIndex.ahi[a.i] ^ _fpIndex.ahi[b.i])
+       + _popcount32(_fpIndex.alo[a.i] ^ _fpIndex.alo[b.i]) <= SCAN_ART_TIE * 2;
+    const rivals = art ? cands.filter(c => c !== chosen
+      && c.comb <= chosen.comb + SCAN_SAMEART_WINDOW && refArtTie(c, chosen)) : [];
+    const decision = [...new Map(
+      [...group, ...rivals].map(c => [c.meta.scryfall_id, c])
+    ).values()].sort((a, b) => a.comb - b.comb);
+    let hintPicked = false;
+    if (decision.length > 1) {
+      // Scoped to the chosen card's own printings — see _fpPickByHint. Choosing a
+      // printing is NOT corroboration, so this no longer sets hintPicked: the gates
+      // below are waived only by the full set+number agreement checked right after.
+      const hinted = _fpPickByHint(decision.map(c => c.i), hintSet, hintNum, chosen.i);
+      const byHint = hinted != null ? decision.find(c => c.i === hinted) : null;
+      if (byHint) chosen = byHint;
     }
 
     // Confident match needs the full-card AND the art-crop hash to agree (art rejects noise).
     // When the art hash is decisive (glare/border bleed distorts the full hash more than the art),
     // the full-card gate relaxes a few bits — 19-24 is exactly that borderline regime.
-    const matched = (chosen.dist <= SCAN_ACCEPT_MAX
-      && chosen.artDist != null && chosen.artDist <= SCAN_ART_ACCEPT_MAX)
-      || (chosen.dist <= SCAN_ACCEPT_RELAXED_MAX
-      && chosen.artDist != null && chosen.artDist <= SCAN_ART_STRONG_MAX);
+    // The combined cap closes the corner both per-hash gates leave open (e.g. 16+18=34): the
+    // measured noise floor on the combined metric starts at ~34, so a "match" there is junk.
+    // A footer that confirms the winner counts even when nothing competed with it — the hint
+    // was previously only consulted to CHOOSE between candidates, so a lone correct answer
+    // with its set code printed on the card got no credit for it.
+    if (hintSet && hintNum
+      && String(chosen.meta.set_code).toLowerCase() === hintSet
+      && String(chosen.meta.collector_number).toLowerCase() === hintNum) hintPicked = true;
+
+    // Win-margin gate: the best DIFFERENT-ART runner in the retrieval window must trail the
+    // winner by SCAN_WIN_MARGIN combined bits (identical-art siblings don't count — they are
+    // the same painting and legitimately crowd the winner).
+    const diffArtRunner = cands.find(c =>
+      c.meta.scryfall_id !== chosen.meta.scryfall_id && !refArtTie(c, chosen));
+    const winMarginOk = !diffArtRunner || diffArtRunner.comb - chosen.comb >= SCAN_WIN_MARGIN;
+
+    // Two agreeing signals replace the strict gates: when the read title covers the global
+    // winner's name, the win-margin and tight combined cap are waived (the margin exists to
+    // catch noise-floor flukes, and a fluke whose name is ALSO printed on the card isn't
+    // one) — the generous title cap applies instead.
+    // Reprint-pool penalty. A name with a thousand printings (every basic land) gets a
+    // thousand independent draws at the noise floor, so by chance alone one of them lands
+    // far closer than any single card would — which is how a Saga capture was confidently
+    // queued as Mountain [SLD #2512] at combined 30. The expected best-of-N distance falls
+    // with sqrt(log N), so the bar rises the same way. A genuine basic-land scan matches
+    // its own printing far inside this, so nothing legitimate is lost.
+    const pool = _fpEnsureNameIndex().rowsByName.get(_fpNormName(chosen.meta.name));
+    // Baselined at ~20 printings so an ordinary card is not penalised at all; only genuinely
+    // reprint-heavy names (lands, staples) have to clear a higher bar.
+    const poolN = Math.max(1, pool ? pool.length : 1);
+    const poolPenalty = Math.max(0, Math.min(6,
+      Math.round(3 * (Math.sqrt(Math.log(poolN)) - Math.sqrt(Math.log(20))))));
+
+    const matched = titleAgreesWithGlobal
+      ? (chosen.artDist != null && chosen.dist + chosen.artDist <= SCAN_TITLE_COMB_MAX)
+      : ((chosen.dist <= SCAN_ACCEPT_MAX
+        && chosen.artDist != null && chosen.artDist <= SCAN_ART_ACCEPT_MAX)
+        || (chosen.dist <= SCAN_ACCEPT_RELAXED_MAX
+        && chosen.artDist != null && chosen.artDist <= SCAN_ART_STRONG_MAX))
+        && (chosen.artDist == null
+          || chosen.dist + chosen.artDist <= SCAN_COMB_ACCEPT_MAX - poolPenalty)
+        // Uncorroborated hash matches are only trusted when they are genuinely close. A card
+        // that is NOT in the index — every card from a set newer than the last build — still
+        // returns a nearest neighbour, and at 24-30 combined that neighbour is indistinguishable
+        // from a real borderline match. Five cards were confidently added this way. Above this
+        // bar the printed name or the footer has to agree before anything is queued.
+        && (hintPicked
+          || chosen.artDist == null
+          || chosen.dist + chosen.artDist <= SCAN_UNCORROBORATED_MAX)
+        // A footer whose SET CODE matches the candidate is independent corroboration, exactly
+        // like the title agreeing: the win-margin gate exists to catch noise-floor flukes, and
+        // a fluke that also has the card's printed set code on it is not one.
+        && (winMarginOk || hintPicked);
+    // NB: a name-based suppression clause was tried here (global winner not covered by the
+    // read title → reject) and removed: it only ever fired on PARTIAL OCR reads, where the
+    // wrong-name shortlist suppressed true matches. When the OCR is good, the title fast
+    // path above answers first and the clause never runs.
+
+    // The chooser only opens over an ACCEPT-QUALITY winner with distinct-printing rivals.
+    // Gating on `matched` is what keeps noise quiet: near the noise floor there is always a
+    // cluster of unrelated printings a few bits apart, and an unconditional multi-candidate
+    // check turned every empty-reticle frame into a "pick your card" prompt.
+    ambiguous = matched && decision.length > 1 && !hintPicked;
 
     // Art-primary fallback: the full-card hash is mangled (foil glare, non-English text) but the
     // art alone is decisive (noise floor ~32). Such printings never surface in the full-hash top-K,
@@ -8795,6 +10509,7 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
           matched: false,
           ambiguous: true,
           artPrimary: true,
+          variantIndex: winner.idx,
           distance: chosen.dist,
           artDistance: bestArt,
           best: null,
@@ -8803,7 +10518,7 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
       }
     }
 
-    const toReturn = ambiguous ? group.slice(0, k) : [chosen];
+    const toReturn = ambiguous ? decision.slice(0, k) : [chosen];
     const cards = await _fingerprintCardsFor(toReturn.map(c => c.meta));
     cards.forEach((card, j) => {
       card._scanDistance = toReturn[j].dist;
@@ -8814,6 +10529,8 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
       ok: true,
       matched,
       ambiguous,
+      variantIndex: winner.idx,
+      printingRivals: matched && !hintPicked ? _fpPrintingRivals(chosen.i) : 0,
       distance: chosen.dist,
       artDistance: chosen.artDist,
       best: matched ? (cards[0] || null) : null,
@@ -10030,19 +11747,16 @@ app.post('/api/admin/semantics/review/:id', requireAuth, requireAdminRole, async
   }
 });
 
-// ── Scanner fingerprint DB admin: build/refresh (spawns scripts/build-print-fingerprints.js) ──
+// ── Scanner fingerprint DB: build/refresh (spawns scripts/build-print-fingerprints.js) ──
+// Shared by the admin rebuild endpoint and the weekly cron top-up. A non---force run is
+// incremental: it re-hashes only printings whose Scryfall image URL is new or changed.
 let _fpBuildProc = null;
 let _fpBuildProgress = { running: false, lastLine: '', startedAt: 0, endedAt: 0, exitCode: null };
 
-app.post('/api/admin/fingerprints/rebuild', requireAuth, requireAdminRole, (req, res) => {
-  if (_fpBuildProgress.running) {
-    return res.status(409).json({ error: 'fingerprint build already running', progress: _fpBuildProgress });
-  }
+function startFingerprintBuild(extraArgs = []) {
+  if (_fpBuildProgress.running) return false;
   const { spawn } = require('child_process');
-  const args = [path.join(__dirname, 'scripts', 'build-print-fingerprints.js')];
-  if (req.body?.set) args.push('--set', String(req.body.set).slice(0, 10));
-  if (req.body?.limit) args.push('--limit', String(parseInt(req.body.limit) || 0));
-  if (req.body?.force) args.push('--force');
+  const args = [path.join(__dirname, 'scripts', 'build-print-fingerprints.js'), ...extraArgs];
   _fpBuildProgress = { running: true, lastLine: 'starting…', startedAt: Date.now(), endedAt: 0, exitCode: null };
   const child = spawn(process.execPath, args, { cwd: __dirname, env: process.env });
   _fpBuildProc = child;
@@ -10059,6 +11773,17 @@ app.post('/api/admin/fingerprints/rebuild', requireAuth, requireAdminRole, (req,
     _fpBuildProc = null;
     if (code === 0) { try { await reloadFingerprintIndex(); } catch (_) {} }
   });
+  return true;
+}
+
+app.post('/api/admin/fingerprints/rebuild', requireAuth, requireAdminRole, (req, res) => {
+  const args = [];
+  if (req.body?.set) args.push('--set', String(req.body.set).slice(0, 10));
+  if (req.body?.limit) args.push('--limit', String(parseInt(req.body.limit) || 0));
+  if (req.body?.force) args.push('--force');
+  if (!startFingerprintBuild(args)) {
+    return res.status(409).json({ error: 'fingerprint build already running', progress: _fpBuildProgress });
+  }
   res.status(202).json({ ok: true, started: true });
 });
 
@@ -10369,20 +12094,34 @@ async function ensureCollectionHistoryTable() {
         foil       TINYINT(1)      NOT NULL DEFAULT 0,
         delta      INT             NOT NULL DEFAULT 1,
         image      VARCHAR(500)    NULL,
+        client_id  VARCHAR(40)     NULL,
         PRIMARY KEY (id),
         INDEX idx_ch_account_ts (account_id, ts),
-        UNIQUE KEY uq_ch_dedup (account_id, ts, type, uid),
+        UNIQUE KEY uq_ch_client (account_id, client_id),
         CONSTRAINT fk_ch_account FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
-    const [chIdxRows] = await conn.query(
-      `SELECT INDEX_NAME FROM INFORMATION_SCHEMA.STATISTICS
-       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'collection_history' AND INDEX_NAME = 'uq_ch_dedup'`
-    );
-    if (!chIdxRows.length) {
-      await conn.query(
-        `ALTER TABLE collection_history ADD UNIQUE KEY uq_ch_dedup (account_id, ts, type, uid)`
+    // Dedup moved from (ts, type, uid) to a client-generated id: the old key
+    // silently swallowed the second of two legitimate same-millisecond events
+    // for one printing (e.g. a CSV import listing the same card on two rows).
+    // client_id is NULLable — rows from before the migration (and clients not
+    // yet sending it) never collide, since unique indexes ignore NULLs.
+    if (!(await columnExists(conn, 'collection_history', 'client_id'))) {
+      await conn.query('ALTER TABLE collection_history ADD COLUMN client_id VARCHAR(40) NULL');
+    }
+    const chIndexNames = async () => {
+      const [rows] = await conn.query(
+        `SELECT DISTINCT INDEX_NAME FROM INFORMATION_SCHEMA.STATISTICS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'collection_history'`
       );
+      return new Set(rows.map(r => r.INDEX_NAME));
+    };
+    const idx = await chIndexNames();
+    if (idx.has('uq_ch_dedup')) {
+      await conn.query('ALTER TABLE collection_history DROP INDEX uq_ch_dedup');
+    }
+    if (!idx.has('uq_ch_client')) {
+      await conn.query('ALTER TABLE collection_history ADD UNIQUE KEY uq_ch_client (account_id, client_id)');
     }
   } finally {
     conn.release();
@@ -10408,6 +12147,11 @@ async function ensureTagOverrideTables() {
     `);
     if (!(await columnExists(conn, 'tag_overrides', 'custom_tags_json'))) {
       await conn.query('ALTER TABLE tag_overrides ADD COLUMN custom_tags_json JSON NULL');
+    }
+    // One colour per card, per account — the same row already holds this
+    // account's other opinions about the card.
+    if (!(await columnExists(conn, 'tag_overrides', 'color'))) {
+      await conn.query('ALTER TABLE tag_overrides ADD COLUMN color VARCHAR(16) NULL DEFAULT NULL');
     }
   } finally {
     conn.release();
@@ -10458,14 +12202,17 @@ app.get('/api/history', requireAuth, async (req, res) => {
 });
 
 app.post('/api/history', requireAuth, async (req, res) => {
-  const { ts, type, uid, name, set, setName, foil, delta, image } = req.body;
+  const { ts, type, uid, name, set, setName, foil, delta, image, clientId } = req.body;
   if (!type || !name) return res.status(400).json({ error: 'Missing required fields' });
   try {
+    // INSERT IGNORE + uq_ch_client: a retried POST of the same event lands once;
+    // distinct events always land, even same card / same type / same millisecond.
+    const cid = typeof clientId === 'string' && clientId ? clientId.slice(0, 40) : null;
     await db().query(
-      `INSERT IGNORE INTO collection_history (account_id, ts, type, uid, name, set_code, set_name, foil, delta, image)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT IGNORE INTO collection_history (account_id, ts, type, uid, name, set_code, set_name, foil, delta, image, client_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [req.accountId, ts || Date.now(), type, uid || '', name || '',
-       set || '', setName || '', foil ? 1 : 0, delta || 1, image || null]
+       set || '', setName || '', foil ? 1 : 0, delta || 1, image || null, cid]
     );
     res.json({ ok: true });
   } catch (e) {
@@ -10513,7 +12260,7 @@ function normalizeCustomTagTiersBody(tiers) {
 app.get('/api/tag-overrides', requireAuth, async (req, res) => {
   try {
     const [rows] = await db().query(
-      `SELECT o.oracle_id, o.add_tags_json, o.remove_tags_json, o.custom_tags_json, o.updated_at, oc.name
+      `SELECT o.oracle_id, o.add_tags_json, o.remove_tags_json, o.custom_tags_json, o.color, o.updated_at, oc.name
        FROM tag_overrides o
        LEFT JOIN scryfall_oracle_cards oc ON oc.oracle_id = o.oracle_id
        WHERE o.account_id = ?
@@ -10540,6 +12287,7 @@ app.get('/api/tag-overrides', requireAuth, async (req, res) => {
         removeTags: removeTags.filter(Boolean),
         customTags: parsedCustom.tags,
         customTagTiers: parsedCustom.tiers,
+        color: r.color || null,
         updatedAt: Number(r.updated_at || 0),
       };
     });
@@ -10563,17 +12311,27 @@ app.put('/api/tag-overrides/:oracleId', requireAuth, async (req, res) => {
   const customTags = normArr(req.body?.customTags);
   const customTagTiers = normalizeCustomTagTiersBody(req.body?.customTagTiers);
   const customTagsStored = serializeTagOverrideCustomTags(customTags, customTagTiers);
+  // Colour is written into a style attribute client-side, so only #rrggbb gets
+  // through. Omitting the key leaves the stored colour alone; sending null or
+  // '' clears it — a tag save must not wipe a colour it knows nothing about.
+  const hasColor = Object.prototype.hasOwnProperty.call(req.body || {}, 'color');
+  const rawColor = String(req.body?.color || '').trim();
+  if (hasColor && rawColor && !/^#[0-9a-f]{6}$/i.test(rawColor)) {
+    return res.status(400).json({ error: 'Invalid colour' });
+  }
+  const color = hasColor ? (rawColor.toLowerCase() || null) : null;
   const now = Date.now();
   try {
     await db().query(
-      `INSERT INTO tag_overrides (account_id, oracle_id, add_tags_json, remove_tags_json, custom_tags_json, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO tag_overrides (account_id, oracle_id, add_tags_json, remove_tags_json, custom_tags_json, color, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
          add_tags_json = VALUES(add_tags_json),
          remove_tags_json = VALUES(remove_tags_json),
          custom_tags_json = VALUES(custom_tags_json),
+         ${hasColor ? 'color = VALUES(color),' : ''}
          updated_at = VALUES(updated_at)`,
-      [req.accountId, oracleId, JSON.stringify(addTags), JSON.stringify(removeTags), JSON.stringify(customTagsStored), now, now]
+      [req.accountId, oracleId, JSON.stringify(addTags), JSON.stringify(removeTags), JSON.stringify(customTagsStored), color, now, now]
     );
     await refreshCollectionRoleTagsForAccountOracle(req.accountId, oracleId);
     res.json({ ok: true });
@@ -10652,15 +12410,147 @@ app.post('/api/internal/changelog-ingest', requireChangelogIngestSecret, async (
 // and pushes finished CardIR rows here in batches; `status` exposes the
 // updated_at watermark that makes the sync incremental.
 
-/** Watermark + row counts — the push script diffs against this. */
+/** Watermark + row counts — the push script diffs against this. `?since=<ms>` also
+ * reports how many rows sit above that watermark, which is how the status/pull scripts
+ * say "N cards waiting to come down" without fetching a page first. */
 app.get('/api/internal/semantics-ingest/status', requireSemanticsIngestSecret, async (req, res) => {
   try {
     const [[row]] = await db().query(
       `SELECT COUNT(*) n, COALESCE(MAX(updated_at), 0) maxUpdatedAt FROM card_semantics`);
     const [[ax]] = await db().query(`SELECT COUNT(*) n FROM card_semantics_axes`);
-    res.json({ cards: Number(row.n), axes: Number(ax.n), maxUpdatedAt: Number(row.maxUpdatedAt) });
+    const since = Math.max(0, Number(req.query.since) || 0);
+    let newer = Number(row.n); // since=0 (or absent) — everything is "newer"
+    if (since) {
+      const [[n]] = await db().query(
+        `SELECT COUNT(*) n FROM card_semantics WHERE updated_at > ?`, [since]);
+      newer = Number(n.n);
+    }
+    res.json({
+      cards: Number(row.n), axes: Number(ax.n), maxUpdatedAt: Number(row.maxUpdatedAt), newer,
+    });
   } catch (e) {
     console.error('[semantics-ingest]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Which of these rows does this DB not have (or hold a staler copy of)? A single
+ * updated_at watermark only works with ONE machine pushing: rows extracted on machine B
+ * before machine A's latest push sit *below* the watermark and would never be sent. The
+ * push script diffs by (oracle_id, updated_at) against this instead. */
+app.post('/api/internal/semantics-ingest/diff', requireSemanticsIngestSecret, async (req, res) => {
+  const cards = Array.isArray(req.body?.cards) ? req.body.cards : null;
+  if (!cards) return res.status(400).json({ error: 'cards[] required' });
+  if (cards.length > 5000) return res.status(400).json({ error: 'max 5000 rows per diff' });
+  try {
+    const ids = [];
+    const stamp = new Map();
+    for (const c of cards) {
+      const id = String(c?.oracle_id || '');
+      if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: `bad oracle_id: ${id}` });
+      ids.push(id);
+      stamp.set(id, Number(c.updated_at) || 0);
+    }
+    const have = new Map();
+    for (let i = 0; i < ids.length; i += 1000) {
+      const chunk = ids.slice(i, i + 1000);
+      const [rows] = await db().query(
+        `SELECT oracle_id, updated_at FROM card_semantics
+          WHERE oracle_id IN (${chunk.map(() => '?').join(',')})`, chunk);
+      for (const r of rows) have.set(r.oracle_id, Number(r.updated_at));
+    }
+    res.json({
+      need: ids.filter(id => !have.has(id) || have.get(id) < stamp.get(id)),
+      checked: ids.length,
+    });
+  } catch (e) {
+    console.error('[semantics-diff]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Export finished CardIR rows so a second dev machine can mirror what is already
+ * extracted — the reverse of the ingest below (scripts/semantics-pull.js). Paged by an
+ * (updated_at, oracle_id) cursor the caller echoes back, so rows sharing a millisecond
+ * can never straddle a page boundary and go missing. */
+app.get('/api/internal/semantics-export', requireSemanticsIngestSecret, async (req, res) => {
+  try {
+    const since = Math.max(0, Number(req.query.since) || 0);
+    const after = /^[0-9a-f-]{36}$/i.test(String(req.query.after || '')) ? String(req.query.after) : '';
+    const limit = Math.min(500, Math.max(1, parseInt(req.query.limit) || 200));
+    const [rows] = await db().query(
+      `SELECT oracle_id, ir_version, vocab_version, ir_json, roles_json, confidence, validation_score,
+              status, run_id, model, prompt_version, updated_at
+         FROM card_semantics
+        WHERE updated_at > ? OR (updated_at = ? AND oracle_id > ?)
+        ORDER BY updated_at, oracle_id LIMIT ${limit}`, [since, since, after]);
+    const axesByCard = new Map();
+    if (rows.length) {
+      const ids = rows.map(r => r.oracle_id);
+      const [ax] = await db().query(
+        `SELECT oracle_id, kind, axis, param, weight, rate FROM card_semantics_axes
+          WHERE oracle_id IN (${ids.map(() => '?').join(',')})`, ids);
+      for (const a of ax) {
+        if (!axesByCard.has(a.oracle_id)) axesByCard.set(a.oracle_id, []);
+        axesByCard.get(a.oracle_id).push({ kind: a.kind, axis: a.axis, param: a.param, weight: a.weight, rate: a.rate });
+      }
+    }
+    const last = rows[rows.length - 1];
+    res.json({
+      cards: rows.map(r => ({
+        oracle_id: r.oracle_id, ir_version: r.ir_version, vocab_version: r.vocab_version,
+        ir_json: typeof r.ir_json === 'string' ? r.ir_json : JSON.stringify(r.ir_json),
+        roles_json: r.roles_json == null ? null : (typeof r.roles_json === 'string' ? r.roles_json : JSON.stringify(r.roles_json)),
+        confidence: Number(r.confidence),
+        validation_score: r.validation_score != null ? Number(r.validation_score) : null,
+        status: r.status, run_id: r.run_id, model: r.model, prompt_version: r.prompt_version,
+        updated_at: Number(r.updated_at), axes: axesByCard.get(r.oracle_id) || [],
+      })),
+      nextSince: last ? Number(last.updated_at) : since,
+      nextAfter: last ? last.oracle_id : after,
+      more: rows.length === limit,
+    });
+  } catch (e) {
+    console.error('[semantics-export]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Corpus coverage by EDHREC-rank band — the shared "where are we" view when extraction
+ * runs on more than one machine (scripts/semantics-status.js). The denominator matches
+ * the runner's own card selection (paper printings, non-excluded layouts) so the bands
+ * line up with what `semantics-extract.js --incremental` would actually pick up. */
+app.get('/api/internal/semantics-coverage', requireSemanticsIngestSecret, async (req, res) => {
+  try {
+    const band = Math.min(20000, Math.max(500, parseInt(req.query.band) || 2000));
+    const layouts = engine2.vocab.EXCLUDED_LAYOUTS;
+    const corpusWhere = `JSON_CONTAINS(c.games_json, '"paper"') AND (c.layout IS NULL OR c.layout NOT IN (?))`;
+    const [bands] = await db().query(
+      `SELECT FLOOR(c.edhrec_rank / ?) AS band, COUNT(*) AS total,
+              SUM(s.oracle_id IS NOT NULL) AS done
+         FROM scryfall_oracle_cards c
+         LEFT JOIN card_semantics s ON s.oracle_id = c.oracle_id AND s.ir_version = ?
+        WHERE ${corpusWhere} AND c.edhrec_rank IS NOT NULL
+        GROUP BY band ORDER BY band`, [band, engine2.irSchema.IR_VERSION, layouts]);
+    const [[unranked]] = await db().query(
+      `SELECT COUNT(*) AS total, SUM(s.oracle_id IS NOT NULL) AS done
+         FROM scryfall_oracle_cards c
+         LEFT JOIN card_semantics s ON s.oracle_id = c.oracle_id AND s.ir_version = ?
+        WHERE ${corpusWhere} AND c.edhrec_rank IS NULL`, [engine2.irSchema.IR_VERSION, layouts]);
+    const [[runs]] = await db().query(
+      `SELECT COUNT(*) AS n FROM card_semantics WHERE ir_version = ?`, [engine2.irSchema.IR_VERSION]);
+    res.json({
+      bandSize: band,
+      irVersion: engine2.irSchema.IR_VERSION,
+      bands: bands.map(b => ({
+        from: Number(b.band) * band + 1, to: (Number(b.band) + 1) * band,
+        total: Number(b.total), done: Number(b.done),
+      })),
+      unranked: { total: Number(unranked.total), done: Number(unranked.done) },
+      cardsAtIrVersion: Number(runs.n),
+    });
+  } catch (e) {
+    console.error('[semantics-coverage]', e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -10750,6 +12640,60 @@ app.get('/api/foundation-lab/user-fixtures', requireAuth, requireAdminRole, asyn
 });
 
 /** Batch upsert of CardIR rows (card_semantics + replaced card_semantics_axes). */
+// ── Fingerprint push channel (same shared secret as semantics ingest) ──────────────────────
+// Scryfall REPLACES new-set images (placeholder scans → final), so the prod fingerprint index
+// drifts 2-10 bits from a locally rebuilt one within hours during release season — enough to
+// break scanning for exactly the cards people scan. This lets a dev box push its freshly
+// built rows up instead of asking prod to re-fetch 100k images (scripts/fingerprints-push-prod.js).
+app.get('/api/internal/fingerprints-ingest/status', requireSemanticsIngestSecret, async (req, res) => {
+  try {
+    const [[{ n }]] = await db().query('SELECT COUNT(*) AS n FROM scryfall_print_fingerprints');
+    res.json({ ok: true, dbCount: n, indexSize: _fpIndex ? _fpIndex.n : 0, indexLoadedAt: _fpIndexLoadedAt });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+app.post('/api/internal/fingerprints-ingest', requireSemanticsIngestSecret, async (req, res) => {
+  try {
+    if (req.body?.reload) {
+      await reloadFingerprintIndex();
+      return res.json({ ok: true, reloaded: true, indexSize: _fpIndex ? _fpIndex.n : 0 });
+    }
+    const rows = Array.isArray(req.body?.rows) ? req.body.rows : null;
+    if (!rows || !rows.length) return res.status(400).json({ error: 'rows[] (or reload:true) required' });
+    if (rows.length > 4000) return res.status(400).json({ error: 'max 4000 rows per batch' });
+    for (const r of rows) {
+      if (!/^[0-9a-f-]{36}$/i.test(String(r?.scryfall_id || ''))) {
+        return res.status(400).json({ error: `bad scryfall_id: ${r?.scryfall_id}` });
+      }
+      if (!/^\d+$/.test(String(r?.phash || ''))) return res.status(400).json({ error: `bad phash for ${r.scryfall_id}` });
+      if (r.art_phash != null && !/^\d+$/.test(String(r.art_phash))) {
+        return res.status(400).json({ error: `bad art_phash for ${r.scryfall_id}` });
+      }
+    }
+    const INSERT = `INSERT INTO scryfall_print_fingerprints
+        (scryfall_id, oracle_id, name, flavor_name, set_code, collector_number, phash, art_phash, lang, layout, image_source, hashed_at)
+       VALUES ${rows.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?)').join(',')}
+       ON DUPLICATE KEY UPDATE
+         oracle_id=VALUES(oracle_id), name=VALUES(name), flavor_name=VALUES(flavor_name), set_code=VALUES(set_code),
+         collector_number=VALUES(collector_number), phash=VALUES(phash), art_phash=VALUES(art_phash),
+         lang=VALUES(lang), layout=VALUES(layout), image_source=VALUES(image_source), hashed_at=VALUES(hashed_at)`;
+    await db().query(INSERT, rows.flatMap(r => [
+      r.scryfall_id, r.oracle_id || null, String(r.name || '').slice(0, 255),
+      r.flavor_name != null ? String(r.flavor_name).slice(0, 255) : null,
+      String(r.set_code || '').slice(0, 10), String(r.collector_number || '').slice(0, 20),
+      String(r.phash), r.art_phash != null ? String(r.art_phash) : null,
+      String(r.lang || 'en').slice(0, 8), r.layout != null ? String(r.layout).slice(0, 32) : null,
+      r.image_source != null ? String(r.image_source) : null, Number(r.hashed_at) || Date.now(),
+    ]));
+    res.json({ ok: true, upserted: rows.length });
+  } catch (e) {
+    console.error('[fingerprints-ingest]', e);
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 app.post('/api/internal/semantics-ingest', requireSemanticsIngestSecret, async (req, res) => {
   const cards = Array.isArray(req.body?.cards) ? req.body.cards : null;
   if (!cards || !cards.length) return res.status(400).json({ error: 'cards[] required' });
@@ -10815,6 +12759,10 @@ async function start() {
     if (collectionBgStarted) return;
     collectionBgStarted = true;
     runCollectionRoleTagsInfillBackground();
+    // Work through any public decks without a goal, a few at a time. First run
+    // after a deployment has a whole library to get through; after that it
+    // wakes only for decks that were published or changed.
+    scheduleDeckGoalWarm(20_000);
   };
 
   // Daily MTGJSON price snapshot + threshold/drop pass. In-process node-cron,
@@ -10832,6 +12780,33 @@ async function start() {
     if (!cron.validate(schedule)) { console.warn('[price-job] invalid PRICE_CRON_SCHEDULE, cron not started'); return; }
     cron.schedule(schedule, () => { void runDailyPriceJob(); }, { timezone: tz });
     console.log(`[price-job] daily cron scheduled (${schedule} ${tz})`);
+    // node-cron only fires while this process is alive, so every deploy restart that
+    // straddles the scheduled minute silently drops that day — and AllPricesToday can
+    // never serve it again (2026-07-21 → 2026-08-25 went missing exactly this way).
+    // Catch up on boot; runDailyPriceJob no-ops when today is already complete.
+    setTimeout(() => { void runDailyPriceJob(); }, 30_000).unref?.();
+  };
+
+  // Weekly scanner-fingerprint top-up: hash printings added/changed since the last run so new
+  // sets stay scannable (the index sat frozen 2026-06 → 2026-09 with no refresh path but a
+  // manual admin click). Incremental (no --force), so a quiet week costs one bulk-feed stream.
+  // Opt-in via FP_CRON_ENABLED=1, mirroring the price cron: dev/Capacitor builds stay quiet.
+  let fpCronStarted = false;
+  const startFingerprintCronOnce = () => {
+    if (fpCronStarted) return;
+    fpCronStarted = true;
+    if (process.env.FP_CRON_ENABLED !== '1') {
+      console.log('[scan] fingerprint cron disabled (set FP_CRON_ENABLED=1 for weekly top-up)');
+      return;
+    }
+    const schedule = process.env.FP_CRON_SCHEDULE || '15 5 * * 1';
+    const tz = process.env.FP_CRON_TZ || 'America/New_York';
+    if (!cron.validate(schedule)) { console.warn('[scan] invalid FP_CRON_SCHEDULE, cron not started'); return; }
+    cron.schedule(schedule, () => {
+      if (startFingerprintBuild([])) console.log('[scan] weekly fingerprint top-up started');
+      else console.log('[scan] fingerprint top-up skipped — a build is already running');
+    }, { timezone: tz });
+    console.log(`[scan] weekly fingerprint top-up scheduled (${schedule} ${tz})`);
   };
 
   const runDbMigrations = async () => {
@@ -10855,6 +12830,8 @@ async function start() {
       await ensureMetricKeysTable();
       await ensureNormalizedDeckSchema();
       await ensureAccountMigration();
+      await ensureAuthIdentitySchema();
+      await pruneOauthStates();
       await ensureDeckHistoryTable();
       await ensureCollectionHistoryTable();
       await ensureTagOverrideTables();
@@ -10878,6 +12855,7 @@ async function start() {
       await runDbMigrations();
       startCollectionBgOnce();
       startPriceCronOnce();
+      startFingerprintCronOnce();
       await loadFingerprintIndex();
     })();
   };
@@ -10926,13 +12904,21 @@ async function start() {
   // Serve index.html with a per-deploy version stamped onto the bundle URLs so a new deploy always
   // busts the browser cache (no more stale dist/bundle.js after shipping). Cached in memory; the
   // process restarts on deploy, recomputing the version.
-  let _indexHtmlCache = null;
-  const _assetVersion = (() => {
-    const sha = (process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT || '').slice(0, 12);
-    if (sha) return sha;
+  //
+  // In local dev there is no deploy and no restart: the version was computed once
+  // at boot from dist/bundle.js's mtime, and index.html was memoized on the first
+  // request. Rebuilding the bundle therefore changed nothing the browser could
+  // see — the same /dist/bundle.js?v=<boot mtime> URL is served
+  // `immutable, max-age=1y`, so a long-running `node server.js` pinned the app at
+  // whatever was built when it started. Dev recomputes per request instead.
+  const _deployVersion = (process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT || '').slice(0, 12);
+  const _bundleMtime = () => {
     try { return String(Math.floor(fs.statSync(path.join(__dirname, 'dist', 'bundle.js')).mtimeMs)); }
     catch (_) { return String(Date.now()); }
-  })();
+  };
+  let _indexHtmlCache = null;
+  let _indexCacheVersion = null;   // the _assetVersion the memoized HTML was built with
+  const _assetVersion = _deployVersion || _bundleMtime();
   // Prefer the build's minified stylesheet copies (dist/main.css etc.) — but only
   // when the live source still matches the sha recorded at build time
   // (dist/css-manifest.json), so a CSS edit without a rebuild degrades to the
@@ -10956,15 +12942,21 @@ async function start() {
     return `/styles/${name}?v=${sha ? sha.slice(0, 12) : _assetVersion}`;
   };
   const serveIndex = (res) => {
-    if (!_indexHtmlCache) {
+    // Prod pins the version to the deploy sha, so this resolves once and the memo
+    // holds for the life of the process. Dev re-stats the bundle each request, so
+    // a rebuild yields a new version, which invalidates the memo and re-reads
+    // index.html — picking up markup edits as well as the new bundle URL.
+    const version = _deployVersion || _bundleMtime();
+    if (!_indexHtmlCache || _indexCacheVersion !== version) {
       try {
         _indexHtmlCache = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8')
-          .replace('/dist/bundle.js', `/dist/bundle.js?v=${_assetVersion}`)
-          .replace('/dist/scanner-card-yolo.js', `/dist/scanner-card-yolo.js?v=${_assetVersion}`)
+          .replace('/dist/bundle.js', `/dist/bundle.js?v=${version}`)
+          .replace('/dist/scanner-card-yolo.js', `/dist/scanner-card-yolo.js?v=${version}`)
           // Stylesheets carry load-bearing layout (grid classes, modal styles), so
           // each one is busted by its own content hash (see _styleHref).
           .replace('/styles/main.css', _styleHref('main.css'))
           .replace('/styles/mobile.css', _styleHref('mobile.css'));
+        _indexCacheVersion = version;
       } catch (_) {
         return res.sendFile(path.join(__dirname, 'index.html'));
       }

@@ -938,7 +938,7 @@ let _archFitSubCount = 4;
 let _archUserSizeAtWidth = null;
 let _archStackResizeObserver = null;
 let _archStackResizeTimer = null;
-const _DECK_STACK_SORT_KEYS = new Set(['name', 'cmc', 'mana', 'price', 'badge']);
+const _DECK_STACK_SORT_KEYS = new Set(['name', 'cmc', 'mana', 'price', 'badge', 'coloring']);
 // Architecture briefly lived under Sort; move anyone who picked it over to Group By.
 let _migrateArchSortToGroup = false;
 let deckStackSort = (() => {
@@ -1579,6 +1579,138 @@ const _SCRY_AUTO_LABEL_SET = new Set(SCRYFALL_AUTO_TAGS.map(t => t.label));
 // for one role tag per card — see _badgeTagForCard() for Primary → Secondary →
 // default priority (_roleTagsForCard() order is the "first listed" tie-break).
 // Icons are 24×24 line icons (stroke=currentColor) to match the app's SVG style.
+/**
+ * Symbols a user-made badge can wear.
+ *
+ * One 24x24 stroke path set each, drawn with the same attributes the built-in
+ * badges use so a custom badge is indistinguishable from a stock one. The first
+ * block is exactly the art the default role badges use, named so a new tag can
+ * borrow it; the rest is a general set to pick from.
+ */
+const BADGE_SYMBOLS = {
+  // ── the default role-tag art ───────────────────────────────────────────────
+  land:        '<path d="M3 19l6-9 4 5 2-3 6 7z"/>',
+  crown:       '<path d="M4 18h16M4 18l-1.5-9 5 4 4.5-7 4.5 7 5-4L20 18"/>',
+  ramp:        '<path d="M3 17l6-6 4 4 8-8M15 7h6v6"/>',
+  draw:        '<rect x="3" y="8" width="10" height="13" rx="1.5"/><path d="M18 9V3m-3 3l3-3 3 3"/>',
+  target:      '<circle cx="12" cy="12" r="8"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>',
+  starburst:   '<path d="M12 2l2.2 6.2L20 6l-2.5 5.6L23 14l-6.3.4L18 21l-6-3.4L6 21l1.3-6.6L1 14l5.5-2.4L4 6l5.8 2.2z"/>',
+  search:      '<circle cx="11" cy="11" r="7"/><path d="M21 21l-5-5"/>',
+  counter:     '<circle cx="12" cy="12" r="8"/><path d="M6.5 6.5l11 11"/>',
+  shield:      '<path d="M12 3l7 3v5c0 5-3.5 8-7 9-3.5-1-7-4-7-9V6z"/>',
+  bounce:      '<path d="M9 10L4 15l5 5"/><path d="M4 15h11a5 5 0 005-5V6"/>',
+  swap:        '<path d="M4 9h14l-4-4M20 15H6l4 4"/>',
+  flame:       '<path d="M12 3c1 4 5 5 5 9a5 5 0 01-10 0c0-2 1-3 2.2-4 .2 2 1 2.8 1.8 3-1-3 .5-5 1-8z"/>',
+  brokenheart: '<path d="M12 20s-7-4.5-7-9a4 4 0 017-2.6A4 4 0 0119 11c0 4.5-7 9-7 9z"/><path d="M4 4l16 16"/>',
+  lock:        '<rect x="5" y="11" width="14" height="9" rx="1.5"/><path d="M8 11V8a4 4 0 018 0v3"/>',
+  bears:       '<circle cx="7" cy="10" r="1.8"/><circle cx="12" cy="8.5" r="1.8"/><circle cx="17" cy="10" r="1.8"/><path d="M7.5 15a4.5 4.5 0 009 0c0-2-2-3-4.5-3s-4.5 1-4.5 3z"/>',
+  banner:      '<path d="M6 21V4M6 4h11l-2.5 4L17 12H6"/>',
+  wings:       '<path d="M3 12c4-4 7-1.5 9-7 2 5.5 5 3 9 7-4 1.5-7-.5-9 2.5-2-3-5-1-9-2.5z"/>',
+  chevrons:    '<path d="M6 13l6-6 6 6M6 19l6-6 6 6"/>',
+  bolt:        '<path d="M13 2L4 14h7l-2 8 9-12h-7z"/>',
+  fangs:       '<path d="M4 6h16v2c0 4-3 5-4 9-1-4-2-5-4-5s-3 1-4 5c-1-4-4-5-4-9z"/>',
+  swords:      '<path d="M5 5l9 9M19 5l-9 9M3 17l3 3M21 17l-3 3"/>',
+  token:       '<rect x="3" y="3" width="11" height="11" rx="1.5"/><path d="M19 11v8m-4-4h8"/>',
+  eye:         '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>',
+  copy:        '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h8"/>',
+  gem:         '<path d="M6 9l-2 4 8 9 8-9-2-4z"/><path d="M4 13h16M9 4h6l3 5M9 4L6 9M15 4l3 5"/>',
+  heartplus:   '<path d="M12 20s-7-4.5-7-9a4 4 0 017-2.6A4 4 0 0119 11c0 4.5-7 9-7 9z"/><path d="M12 9v5m-2.5-2.5h5"/>',
+  discard:     '<rect x="3" y="3" width="10" height="13" rx="1.5"/><path d="M18 15v6m-3-3l3 3 3-3"/>',
+  mill:        '<path d="M4 6h11M4 10h11M4 14h7"/><path d="M19 8v9m-3-3l3 3 3-3"/>',
+  refresh:     '<path d="M20 11A8 8 0 105.7 6.3"/><path d="M20 3v4h-4"/>',
+  landfall:    '<path d="M12 3v11m-4-4l4 4 4-4"/><path d="M4 20h16"/>',
+  // ── a wider set to choose from ─────────────────────────────────────────────
+  star:        '<path d="M12 3l2.6 5.9 6.4.6-4.8 4.3 1.4 6.2L12 16.8 6.4 20l1.4-6.2L3 9.5l6.4-.6z"/>',
+  heart:       '<path d="M12 20s-7-4.5-7-9a4 4 0 017-2.6A4 4 0 0119 11c0 4.5-7 9-7 9z"/>',
+  skull:       '<path d="M12 3a7 7 0 00-7 7v3l2 2v3h10v-3l2-2v-3a7 7 0 00-7-7z"/><circle cx="9.5" cy="11" r="1.3"/><circle cx="14.5" cy="11" r="1.3"/>',
+  ghost:       '<path d="M5 20V10a7 7 0 0114 0v10l-2.3-2-2.4 2-2.3-2-2.3 2-2.4-2z"/><circle cx="9.5" cy="10" r="1.2"/><circle cx="14.5" cy="10" r="1.2"/>',
+  crownsmall:  '<path d="M5 17h14l1-9-4.5 3.5L12 5l-3.5 6.5L4 8z"/>',
+  anvil:       '<path d="M4 9h11l3 3h3v3H6l-2-3z"/><path d="M9 15v3H7v2h10v-2h-2v-3"/>',
+  hammer:      '<path d="M11 4l6 6-3 3-6-6z"/><path d="M8 10l-5 8 2 2 8-5"/>',
+  axe:         '<path d="M14 3l7 5-4 5-4-3z"/><path d="M13 10L4 19l2 2 8-9"/>',
+  bow:         '<path d="M5 3c8 2 13 7 15 15"/><path d="M5 3v6M5 3h6"/><path d="M8 16l8-8"/>',
+  wand:        '<path d="M5 19L16 8"/><path d="M18 3l1 3 3 1-3 1-1 3-1-3-3-1 3-1z"/>',
+  potion:      '<path d="M10 3h4v4l4 8a4 4 0 01-3.6 6H9.6A4 4 0 016 15l4-8z"/><path d="M8 14h8"/>',
+  scroll:      '<path d="M6 4h11a2 2 0 012 2v12a2 2 0 01-2 2H6"/><path d="M6 4a2 2 0 00-2 2v2h4"/><path d="M9 10h7M9 14h7"/>',
+  book:        '<path d="M5 4h9a3 3 0 013 3v13H8a3 3 0 01-3-3z"/><path d="M8 4v16"/>',
+  key:         '<circle cx="8" cy="9" r="4"/><path d="M11 12l8 8M17 18l2-2M15 16l2-2"/>',
+  chain:       '<path d="M9 13a4 4 0 005.7 0l2.3-2.3a4 4 0 00-5.7-5.7L10 6.3"/><path d="M15 11a4 4 0 00-5.7 0L7 13.3a4 4 0 005.7 5.7L14 17.7"/>',
+  anchor:      '<circle cx="12" cy="5" r="2"/><path d="M12 7v13M5 13a7 7 0 0014 0"/>',
+  clock:       '<circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/>',
+  hourglass:   '<path d="M7 3h10M7 21h10"/><path d="M8 3c0 5 8 5 8 9s-8 4-8 9"/><path d="M16 3c0 5-8 5-8 9s8 4 8 9"/>',
+  dice:        '<rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="9" cy="9" r="1.3"/><circle cx="15" cy="15" r="1.3"/><circle cx="12" cy="12" r="1.3"/>',
+  coin:        '<circle cx="12" cy="12" r="8"/><path d="M12 8v8M9.5 10h5M9.5 14h5"/>',
+  bag:         '<path d="M5 8h14l-1 12H6z"/><path d="M9 8V6a3 3 0 016 0v2"/>',
+  chest:       '<rect x="3" y="9" width="18" height="11" rx="1.5"/><path d="M3 9l2-4h14l2 4M12 9v11M9 14h6"/>',
+  flag:        '<path d="M6 21V4h11l-2 4 2 4H6"/>',
+  tower:       '<path d="M7 21V8l-2-3h14l-2 3v13z"/><path d="M10 21v-5h4v5"/>',
+  gate:        '<path d="M4 21V9a8 8 0 0116 0v12"/><path d="M12 21V9M4 15h16"/>',
+  mountain:    '<path d="M3 19l6-10 4 6 2-3 6 7z"/><path d="M9 9l1.6 2.6"/>',
+  tree:        '<path d="M12 3l5 7h-3l4 6H6l4-6H7z"/><path d="M12 16v5"/>',
+  droplet:     '<path d="M12 3s6 7 6 11a6 6 0 01-12 0c0-4 6-11 6-11z"/>',
+  sun:         '<circle cx="12" cy="12" r="4.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/>',
+  moon:        '<path d="M20 14a8.5 8.5 0 01-10-10 8.5 8.5 0 1010 10z"/>',
+  cloud:       '<path d="M7 18h10a4 4 0 000-8 6 6 0 00-11.3 2A3.5 3.5 0 007 18z"/>',
+  wave:        '<path d="M3 9c2-2 4-2 6 0s4 2 6 0 4-2 6 0"/><path d="M3 15c2-2 4-2 6 0s4 2 6 0 4-2 6 0"/>',
+  snow:        '<path d="M12 3v18M4 8l16 8M20 8L4 16"/>',
+  spiral:      '<path d="M12 12a3 3 0 113-3 5 5 0 01-5 5 7 7 0 01-7-7"/>',
+  infinity:    '<path d="M8.5 9a3 3 0 100 6c3 0 4-6 7-6a3 3 0 110 6c-3 0-4-6-7-6z"/>',
+  recycle:     '<path d="M7 7l3-4 3 4"/><path d="M17 11l3 4-3 4"/><path d="M10 3l6 10M20 15H8M4 13l4-6"/>',
+  scales:      '<path d="M12 4v16M7 20h10"/><path d="M4 9l4-4 4 4M4 9a4 4 0 008 0"/><path d="M12 9l4-4 4 4M12 9a4 4 0 008 0"/>',
+  handshake:   '<path d="M3 12l4-4 3 3 3-3 4 4"/><path d="M7 15l3 3 3-3 3 3 4-4"/>',
+  fist:        '<path d="M6 11V8a2 2 0 014 0M10 11V7a2 2 0 014 0v4M14 11V8a2 2 0 014 0v6a6 6 0 01-6 6H9l-4-4 1-1 3 2"/>',
+  footprint:   '<ellipse cx="10" cy="9" rx="4" ry="6"/><ellipse cx="16" cy="19" rx="2.5" ry="2"/>',
+  wing:        '<path d="M3 8c6 0 10 3 12 8 3-3 5-3 6-2-2-6-9-9-18-6z"/>',
+  claw:        '<path d="M5 4c3 5 4 9 4 16M11 3c2 5 2 10 1 17M17 5c1 5 0 10-2 15"/>',
+  horn:        '<path d="M5 19c0-8 5-14 14-15-2 9-6 14-14 15z"/>',
+  egg:         '<path d="M12 3c4 0 7 6 7 10a7 7 0 01-14 0c0-4 3-10 7-10z"/>',
+  seed:        '<path d="M12 21c-5-3-7-7-7-11a7 7 0 0114 0c0 4-2 8-7 11z"/><path d="M12 21V9"/>',
+  flower:      '<circle cx="12" cy="12" r="2.5"/><path d="M12 3a3.5 3.5 0 010 7 3.5 3.5 0 010-7zM21 12a3.5 3.5 0 01-7 0 3.5 3.5 0 017 0zM12 21a3.5 3.5 0 010-7 3.5 3.5 0 010 7zM3 12a3.5 3.5 0 017 0 3.5 3.5 0 01-7 0z"/>',
+  leaf:        '<path d="M20 4C9 4 4 9 4 16c0 2 1 3 2 4 7 0 14-5 14-16z"/><path d="M6 20c4-6 8-9 12-11"/>',
+  bone:        '<path d="M6 15a2.5 2.5 0 113-3l6-6a2.5 2.5 0 113 3 2.5 2.5 0 11-3 3l-6 6a2.5 2.5 0 11-3-3z"/>',
+  grave:       '<path d="M6 21V10a6 6 0 0112 0v11z"/><path d="M12 8v6M9.5 11h5"/>',
+  cauldron:    '<path d="M4 10h16a8 8 0 01-16 0z"/><path d="M8 10V7M16 10V7M9 20h6"/>',
+  portal:      '<ellipse cx="12" cy="12" rx="5" ry="9"/><ellipse cx="12" cy="12" rx="9" ry="5"/>',
+  compass:     '<circle cx="12" cy="12" r="9"/><path d="M15 9l-2 5-5 2 2-5z"/>',
+  map:         '<path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z"/><path d="M9 4v14M15 6v14"/>',
+  pin:         '<path d="M12 21s6-6.5 6-11a6 6 0 10-12 0c0 4.5 6 11 6 11z"/><circle cx="12" cy="10" r="2.3"/>',
+  arrows:      '<path d="M12 3v18M8 7l4-4 4 4M8 17l4 4 4-4"/>',
+  shuffle:     '<path d="M3 7h4l10 10h4M3 17h4l4-4"/><path d="M18 4l3 3-3 3M18 14l3 3-3 3"/>',
+  filter:      '<path d="M3 5h18l-7 8v6l-4-2v-4z"/>',
+  layers:      '<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/>',
+  grid:        '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+  stack:       '<rect x="4" y="14" width="16" height="6" rx="1.5"/><rect x="6" y="9" width="12" height="4" rx="1.2"/><rect x="8" y="4" width="8" height="4" rx="1"/>',
+  scale:       '<path d="M4 20V8M10 20V4M16 20v-9M22 20v-5"/>',
+  chart:       '<path d="M4 20V6M4 20h16"/><path d="M8 16l4-5 3 3 5-7"/>',
+  gauge:       '<path d="M4 17a8 8 0 1116 0"/><path d="M12 17l4-5"/>',
+  bell:        '<path d="M7 17V11a5 5 0 0110 0v6l2 2H5z"/><path d="M10 21h4"/>',
+  megaphone:   '<path d="M4 10v4l10 4V6z"/><path d="M14 9a3 3 0 010 6"/><path d="M6 15v3h3"/>',
+  spark:       '<path d="M12 3v5M12 16v5M3 12h5M16 12h5M6 6l3 3M15 15l3 3M18 6l-3 3M9 15l-3 3"/>',
+  crystal:     '<path d="M12 2l7 8-7 12-7-12z"/><path d="M5 10h14M12 2v20"/>',
+  ring:        '<circle cx="12" cy="14" r="6"/><path d="M9 6l3-3 3 3-3 3z"/>',
+  helm:        '<path d="M5 12a7 7 0 0114 0v7H5z"/><path d="M12 12v7M5 15h14"/>',
+  boots:       '<path d="M7 3h4v10c0 3 2 4 5 4h3v4H7z"/>',
+  cloak:       '<path d="M12 3l6 4c0 8-2 12-6 14-4-2-6-6-6-14z"/>',
+  torch:       '<path d="M12 3c2 3 4 4 4 7a4 4 0 01-8 0c0-3 2-4 4-7z"/><path d="M10 14l1 7h2l1-7"/>',
+  lantern:     '<rect x="7" y="7" width="10" height="10" rx="2"/><path d="M9 7V5h6v2M10 20h4M12 17v3"/>',
+  chalice:     '<path d="M7 4h10l-1 6a4 4 0 01-8 0z"/><path d="M12 14v5M9 20h6"/>',
+  crossswords: '<path d="M4 4l16 16M20 4L4 20"/><path d="M2 18l4 4M22 18l-4 4"/>',
+  tombstone:   '<path d="M5 21V11a7 7 0 0114 0v10z"/><path d="M9 21v-4h6v4"/>',
+  vial:        '<path d="M9 3h6M10 3v8l-3 6a3 3 0 003 4h4a3 3 0 003-4l-3-6V3"/>',
+  feather:     '<path d="M20 4C10 4 5 10 5 19"/><path d="M20 4c0 9-6 13-13 13"/><path d="M5 19l4-4"/>',
+  hexagon:     '<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/>',
+  triangle:    '<path d="M12 4l9 16H3z"/>',
+  square:      '<rect x="4" y="4" width="16" height="16" rx="2"/>',
+  circle:      '<circle cx="12" cy="12" r="8"/>',
+  diamond:     '<path d="M12 3l9 9-9 9-9-9z"/>',
+  plus:        '<path d="M12 5v14M5 12h14"/>',
+  minus:       '<path d="M5 12h14"/>',
+  check:       '<path d="M4 13l5 5L20 6"/>',
+  cross:       '<path d="M6 6l12 12M18 6L6 18"/>',
+  question:    '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 114 2c-.9.7-1.5 1.2-1.5 2.5"/><circle cx="12" cy="17.5" r="0.8"/>',
+  exclaim:     '<circle cx="12" cy="12" r="9"/><path d="M12 7v6"/><circle cx="12" cy="16.5" r="0.8"/>',
+};
+
 const DEFAULT_TAG_BADGE = {
   'Land':          { color: '#8a6f3e', icon: '<path d="M3 19l6-9 4 5 2-3 6 7z"/>' },
   'Commander':     { color: '#9b6dff', icon: '<path d="M4 18h16M4 18l-1.5-9 5 4 4.5-7 4.5 7 5-4L20 18"/>' },
@@ -1631,21 +1763,31 @@ function _tagBadgeSvg(inner) {
  * listed" among multiple primaries/secondaries means that same array order.
  * Only explicit stored tiers count as manual (`_getCardCustomTagTierRaw`).
  */
+/**
+ * The tag a card's badge stands for, under the current badge mode.
+ *
+ * Primary and secondary look at every tag on the card, not just its default
+ * role tags — a tag you made and marked primary is exactly the thing you asked
+ * the badge to show. They paint nothing when the card has no tag at that tier,
+ * which is the point: the board then shows only the cards you have ranked.
+ */
 function _badgeTagForCard(card) {
+  const mode = typeof deckTagBadgeMode === 'string' ? deckTagBadgeMode : 'default';
+  if (mode === 'off') return null;
   let roles = [];
   try {
     roles = (typeof _roleTagsForCard === 'function') ? (_roleTagsForCard(card) || []) : [];
   } catch (_) {
     roles = [];
   }
-  if (!roles.length) return null;
-  if (typeof _getCardCustomTagTierRaw === 'function') {
-    for (const tag of roles) {
-      if (_getCardCustomTagTierRaw(card, tag) === 'primary') return tag;
+  if (mode === 'primary' || mode === 'secondary') {
+    if (typeof _getCardCustomTagTierRaw !== 'function') return null;
+    const seen = new Set(roles.map(t => String(t).toLowerCase()));
+    const extra = (card?.customTags || []).filter(t => !seen.has(String(t).toLowerCase()));
+    for (const tag of [...roles, ...extra]) {
+      if (_getCardCustomTagTierRaw(card, tag) === mode) return tag;
     }
-    for (const tag of roles) {
-      if (_getCardCustomTagTierRaw(card, tag) === 'secondary') return tag;
-    }
+    return null;
   }
   return roles[0] || null;
 }
@@ -1653,7 +1795,7 @@ function _badgeTagForCard(card) {
 /** Badge HTML for a card's role tag (Primary → Secondary → default role order). */
 function _defaultTagBadgeHtml(card, opts = {}) {
   const tag = _badgeTagForCard(card);
-  const meta = tag ? DEFAULT_TAG_BADGE[tag] : null;
+  const meta = tag ? badgeMetaForTag(tag) : null;
   if (!meta) return '';
   if (!deckTagBadgesEnabled) return '';
   const corner = opts.variant === 'corner' ? ' deck-tag-badge--corner' : '';
@@ -1741,25 +1883,79 @@ function _toggleTagBadgeTip(e, badge) {
   window.addEventListener('resize', () => { if (_tagBadgeTipAnchor) _hideTagBadgeTip(); });
 })();
 
-// Deck-list toggle for the role-tag badges (persisted; default on).
-let deckTagBadgesEnabled = localStorage.getItem('mtg_deck_tag_badges') !== '0';
+/**
+ * Which tags the deck-list badges stand for: off, the card's own default role
+ * tags, or the tags you have marked primary or secondary on it.
+ *
+ * It used to be a plain on/off toggle that always painted primary-then-
+ * secondary-then-default, so there was no way to ask "show me only what I
+ * called primary". Migrates the old 1/0 setting: on becomes Default.
+ */
+const DECK_BADGE_MODES = ['off', 'default', 'primary', 'secondary'];
+let deckTagBadgeMode = (() => {
+  const saved = localStorage.getItem('mtg_deck_tag_badge_mode');
+  if (DECK_BADGE_MODES.includes(saved)) return saved;
+  return localStorage.getItem('mtg_deck_tag_badges') === '0' ? 'off' : 'default';
+})();
+// Kept as a derived flag: plenty of code asks only whether badges show at all.
+let deckTagBadgesEnabled = deckTagBadgeMode !== 'off';
 
 function _applyDeckTagBadgesSetting() {
-  const btn = document.getElementById('deckTagBadgeToggleBtn');
-  if (btn) {
-    btn.classList.toggle('active', deckTagBadgesEnabled);
-    btn.setAttribute('aria-pressed', deckTagBadgesEnabled ? 'true' : 'false');
-    btn.title = deckTagBadgesEnabled ? 'Hide role-tag badges' : 'Show role-tag badges';
-  }
+  deckTagBadgesEnabled = deckTagBadgeMode !== 'off';
+  const sel = document.getElementById('deckTagBadgeModeSelect');
+  if (sel && sel.value !== deckTagBadgeMode) sel.value = deckTagBadgeMode;
+  if (typeof _glassSelectSyncLabels === 'function') _glassSelectSyncLabels();
 }
 
-function toggleDeckTagBadges() {
-  deckTagBadgesEnabled = !deckTagBadgesEnabled;
-  localStorage.setItem('mtg_deck_tag_badges', deckTagBadgesEnabled ? '1' : '0');
+function setDeckTagBadgeMode(mode) {
+  deckTagBadgeMode = DECK_BADGE_MODES.includes(mode) ? mode : 'default';
+  localStorage.setItem('mtg_deck_tag_badge_mode', deckTagBadgeMode);
+  localStorage.setItem('mtg_deck_tag_badges', deckTagBadgeMode === 'off' ? '0' : '1');
   _applyDeckTagBadgesSetting();
   const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
   if (deck) renderDeckList(deck);
 }
+globalThis.setDeckTagBadgeMode = setDeckTagBadgeMode;
+
+// Kept for anything still calling it: cycles off ↔ the last real mode.
+function toggleDeckTagBadges() {
+  setDeckTagBadgeMode(deckTagBadgeMode === 'off' ? 'default' : 'off');
+}
+
+/**
+ * Badges made by the user for their own tags: tag name → symbol + colour.
+ *
+ * Per account rather than per device — a tag's badge is part of what the tag
+ * means — so it rides in preferences with the tag catalogue itself.
+ */
+let deckTagBadges = {};
+
+function _normBadgeKey(tag) {
+  return String(tag || '').trim().toLowerCase();
+}
+
+/** The badge for a tag: the user's if they made one, else the built-in. */
+function badgeMetaForTag(tag) {
+  if (!tag) return null;
+  const custom = deckTagBadges[_normBadgeKey(tag)];
+  if (custom && custom.icon && BADGE_SYMBOLS[custom.icon]) {
+    return { color: custom.color || '#5aa9f0', icon: BADGE_SYMBOLS[custom.icon] };
+  }
+  return DEFAULT_TAG_BADGE[tag] || null;
+}
+
+function setTagBadge(tag, icon, color) {
+  const key = _normBadgeKey(tag);
+  if (!key) return false;
+  if (!icon) delete deckTagBadges[key];
+  else deckTagBadges[key] = { icon, color: color || '#5aa9f0', label: String(tag).trim() };
+  save('prefs');
+  const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+  if (deck) renderDeckList(deck);
+  return true;
+}
+globalThis.setTagBadge = setTagBadge;
+globalThis.badgeMetaForTag = badgeMetaForTag;
 
 let _tagOverridesByOracleId = new Map();  // oracleId -> { addTags:string[], removeTags:string[], updatedAt:number, cardName?:string }
 let _tagOverridesLoaded = false;
@@ -1777,14 +1973,6 @@ try {
     sessionStorage.setItem('mtg_scry_tag_schema_v', _SCRY_TAG_SCHEMA_VERSION);
   }
 } catch (_) {}
-
-function _renderScryTagSyncBadge() {
-  const badge = document.getElementById('deckScryTagSyncBadge');
-  if (badge) {
-    const show = !!activeDeckId && _scrySyncDecks.has(activeDeckId);
-    badge.style.display = show ? '' : 'none';
-  }
-}
 
 
 // Returns the active deck from either decks[] or sharedDecks[]
@@ -1913,6 +2101,17 @@ function toggleDeckExtraZoneCollapsed(zone) {
   renderDeckList(deck);
 }
 
+/** Bring every extra zone back — what the collapsed column's square button does. */
+function expandAllDeckExtraZones() {
+  const deck = getActiveDeck();
+  if (!deck) return;
+  ['mb', 'sb', 'add', 'cut'].forEach(z => {
+    try { localStorage.setItem(_deckZoneCollapseKey(z, deck.id), '0'); } catch (_) { /* private mode */ }
+  });
+  renderDeckList(deck);
+}
+globalThis.expandAllDeckExtraZones = expandAllDeckExtraZones;
+
 function _handleDeckExtraZoneToggleClick(e) {
   const btn = e.target.closest('[data-zone-toggle]');
   if (!btn) return false;
@@ -1943,6 +2142,19 @@ function _deckIsPhone() {
   return typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 768px)').matches;
 }
 
+/**
+ * Phones get the default Architecture view only — the panel-layout and card-mode
+ * toggles are hidden there, so a stacked or visual preference picked on desktop
+ * would otherwise strand a phone in a mode with no control to leave it by.
+ * Deliberately does not touch localStorage: the desktop preference survives, and
+ * the same browser at a wider width still opens in whatever mode it was left in.
+ */
+function _archForceMobileDefaults() {
+  if (!_deckIsPhone()) return;
+  archPanelLayout = 'horizontal';
+  archCardMode = 'text';
+}
+
 function _deckZonesBesideMainboard(el, deck, numCols) {
   const zoneW = _deckExtraZoneColumnPx(deck);
   const cols = Math.max(1, numCols || 1);
@@ -1955,7 +2167,13 @@ function _deckExtraZonesWrapOpenHtml(deck, innerHtml, extraClass = '') {
   const w = _deckExtraZoneColumnPx(deck);
   const cls = `deck-extra-zones-wrap${expanded ? ' is-expanded' : ''}${extraClass ? ` ${extraClass}` : ''}`;
   const style = `width:${w}px;min-width:0;max-width:${w}px;overflow:visible;box-sizing:border-box`;
-  return `<div class="${cls}" style="${style}">${innerHtml}</div>`;
+  // With every zone collapsed there is nothing to read in four stacked header
+  // pills — they become one square that brings them all back.
+  const inner = expanded ? innerHtml
+    : `<button type="button" class="decklist-collapse-btn deck-zones-reopen-btn is-rotated"
+         onclick="expandAllDeckExtraZones()" title="Show maybe board, adds and cuts"
+         aria-label="Show maybe board, adds and cuts">&#9662;</button>`;
+  return `<div class="${cls}" style="${style}">${inner}</div>`;
 }
 
 function _deckStackZoneLayout(el, deck, isVertical) {
@@ -2096,6 +2314,25 @@ function toggleDeckSwapsSetting() {
     : 'Adds & Cuts planning hidden — your planned adds and cuts are kept and come back when you re-enable it');
 }
 
+/** Custom tag badges arrive with the rest of the account's preferences. */
+function applyTagBadgePrefsFromServer(prefs) {
+  const v = prefs?.deck_tag_badges;
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return;
+  const next = {};
+  for (const [key, def] of Object.entries(v)) {
+    if (!def || typeof def !== 'object') continue;
+    const icon = String(def.icon || '');
+    if (!BADGE_SYMBOLS[icon]) continue;
+    next[String(key).toLowerCase()] = {
+      icon,
+      color: /^#[0-9a-f]{6}$/i.test(String(def.color || '')) ? String(def.color).toLowerCase() : '#5aa9f0',
+      label: String(def.label || key),
+    };
+  }
+  deckTagBadges = next;
+}
+globalThis.applyTagBadgePrefsFromServer = applyTagBadgePrefsFromServer;
+
 /** Apply the account's Adds & Cuts preference on login — server value wins over local cache. */
 function applyDeckSwapsPrefsFromServer(prefs) {
   const v = prefs?.deck_swaps_enabled;
@@ -2150,37 +2387,34 @@ function _placeDeckActionCluster() {
   const phone = window.matchMedia('(max-width: 768px)').matches;
   if (cluster) {
     cluster.style.display = activeDeckId ? 'flex' : 'none';
+    // Phones give the actions their own row under the commander line — that is
+    // .deck-back-row, which already sits between the commander and the folder
+    // tabs. Wider screens keep them beside the title in #deckTopBar.
     // Moving the same node keeps ids, listeners, and the options dropdown's anchor intact.
-    if (header && cluster.parentElement !== header) header.appendChild(cluster);
+    const backRow = document.querySelector('#activeDeckArea .deck-back-row');
+    const target = (phone && backRow) ? backRow : header;
+    if (target && cluster.parentElement !== target) target.appendChild(cluster);
     // Phones centre the wrapped button row instead of pushing it right.
     cluster.style.marginLeft = phone ? '' : 'auto';
   }
   const topBar = document.getElementById('deckBuilderTopBar');
   if (topBar) topBar.style.display = activeDeckId ? 'none' : 'flex';
-  _placeDeckHeaderIcons(phone);
+  _placeDeckHeaderIcons();
 }
 
-// Phones split the deck header across three rows: the deck name with its ✓/✗
-// badge and ⋮ on top, the commander line below it, then the ⓘ + icon-only
-// Add cards / Manage Tags row. That bottom row is .deck-back-row,
-// so those three nodes move into it on phones and back to the title row /
-// action cluster on wider screens. Same nodes throughout, so ids, listeners and
-// the ⓘ popover's anchor survive the move.
-function _placeDeckHeaderIcons(phone) {
-  const backRow = document.querySelector('#activeDeckArea .deck-back-row');
+// Every header control lives in #deckTopBar on all widths. Phones re-stack it
+// into two rows — ⋮ / Add cards / Manage Tags on top, then the name with its
+// ✓/✗, ⓘ and value badges — but purely through flex `order` in mobile.css, not
+// by moving nodes. This function only restores the authored placement, which
+// matters because earlier builds did relocate these three into .deck-back-row:
+// a session that ran that code still has them there after a resize.
+function _placeDeckHeaderIcons() {
   const titleRow = document.querySelector('#activeDeckArea .deck-top-title-row');
   const cluster = document.getElementById('deckActionCluster');
-  if (!backRow || !titleRow || !cluster) return;
+  if (!titleRow || !cluster) return;
   const info = document.getElementById('deckInfoBadge');
   const addBtn = document.getElementById('deckBuilderVoiceBtn');
   const tagsBtn = document.getElementById('deckManageTagsBtn');
-  if (phone) {
-    // The row is otherwise empty, so these three are its only contents on phones.
-    for (const el of [info, addBtn, tagsBtn]) {
-      if (el && el.parentElement !== backRow) backRow.appendChild(el);
-    }
-    return;
-  }
   if (info && info.parentElement !== titleRow) {
     titleRow.insertBefore(info, document.getElementById('deckGameChangerBadge'));
   }
@@ -2204,6 +2438,27 @@ function setDeckGroupBy(val) {
 function _deckCardSortPrice(c) {
   if (typeof getTCGPriceForCard === 'function') return Number(getTCGPriceForCard(c)) || 0;
   return Number(c?.priceTCG) || 0;
+}
+
+/**
+ * Sort key for "Coloring" — round the hue wheel, uncoloured cards last.
+ *
+ * Hue rather than hex so colours that look alike land together however they
+ * were picked; the two are unrelated orders (#ff0000 and #ff0010 are adjacent
+ * hues but far apart as strings).
+ */
+function _deckCardColorSortKey(card) {
+  const hex = typeof cardColorHex === 'function' ? cardColorHex(card) : null;
+  if (!hex) return 1e6;
+  const n = parseInt(hex.slice(1), 16);
+  const r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  if (!d) return 1e5 + Math.round(max * 100);      // greys together, before "none"
+  let h = 0;
+  if (max === r) h = 60 * (((g - b) / d) % 6);
+  else if (max === g) h = 60 * ((b - r) / d + 2);
+  else h = 60 * ((r - g) / d + 4);
+  return (h + 360) % 360;
 }
 
 /** Sort key for "Badge" sort — same tag as the painted badge; un-badged last. */
@@ -2232,6 +2487,8 @@ function _deckStackSortCards(items, cardOf) {
       cmp = _deckCardSortPrice(a) - _deckCardSortPrice(b);
     } else if (deckStackSort === 'badge') {
       cmp = _deckCardBadgeSortKey(a).localeCompare(_deckCardBadgeSortKey(b), undefined, { sensitivity: 'base' });
+    } else if (deckStackSort === 'coloring') {
+      cmp = _deckCardColorSortKey(a) - _deckCardColorSortKey(b);
     } else {
       cmp = tieName(a, b);
     }
@@ -2277,6 +2534,12 @@ function _glassMenuCloseAll() {
 document.addEventListener('click', _glassMenuCloseAll);
 document.addEventListener('keydown', e => { if (e.key === 'Escape') _glassMenuCloseAll(); });
 
+// Icons for fixed-label triggers, by select id — the Badges control keeps the
+// shield it has always had.
+const _GLASS_STATIC_ICONS = {
+  deckTagBadgeModeSelect: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M8 1.8l5 1.8v3.4c0 3.3-2.3 5.3-5 6.2-2.7-.9-5-2.9-5-6.2V3.6z"/></svg>',
+};
+
 function _glassSelectSyncLabels() {
   document.querySelectorAll('select[data-glassified]').forEach(sel => {
     // Dynamically built selects often have no id, so the trigger is linked
@@ -2284,13 +2547,35 @@ function _glassSelectSyncLabels() {
     const btn = sel._glassBtn || (sel.id ? document.getElementById(sel.id + 'GlassBtn') : null);
     if (!btn || !btn.isConnected) return;
     const opt = sel.options[sel.selectedIndex];
+    // A select can keep a fixed trigger: the same icon and word whatever is
+    // chosen, lit when the choice is anything but the "off" one. That is the
+    // Badges control — it was a toggle button, and it should still read as one
+    // even though choosing between four things now happens in its menu.
+    const staticLabel = sel.dataset.glassStatic;
+    if (staticLabel) {
+      const icon = _GLASS_STATIC_ICONS[sel.id] || '';
+      btn.innerHTML = `${icon}<span class="glass-dd-text">${escapeHtml(staticLabel)}</span>`;
+      const offValue = sel.dataset.glassOffValue;
+      const on = offValue == null ? true : sel.value !== offValue;
+      btn.classList.toggle('active', on);
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      btn.title = `${staticLabel}: ${opt ? opt.text : ''}`;
+      btn.disabled = sel.disabled;
+      return;
+    }
     const prefix = sel.dataset.glassLabel;
+    // The label goes in a span so it can be clipped: as a bare text node it was
+    // an anonymous flex item, which no rule can reach, and a long option ran
+    // straight out of both sides of the trigger.
     btn.innerHTML = (prefix ? `<span class="glass-dd-prefix">${escapeHtml(prefix)}</span>` : '')
-      + `${escapeHtml(opt ? opt.text : '')} ${_GLASS_DD_CARET}`;
+      + `<span class="glass-dd-text">${escapeHtml(opt ? opt.text : '')}</span>${_GLASS_DD_CARET}`;
     btn.disabled = sel.disabled;
   });
   const dirSel = document.getElementById('deckStackSortDirSelect');
-  const dirBtn = document.getElementById('deckStackSortDirGlassBtn');
+  // _glassSelectEnsure names the trigger `${select.id}GlassBtn`, so this is
+  // deckStackSortDirSelectGlassBtn — the old shorter id matched nothing, and the
+  // direction box kept the dropdown caret this line exists to strip.
+  const dirBtn = document.getElementById('deckStackSortDirSelectGlassBtn');
   if (dirSel && dirBtn) dirBtn.textContent = dirSel.value === 'desc' ? '↓' : '↑';
 }
 
@@ -2313,7 +2598,100 @@ function _glassMenuOpen(sel, wrap) {
     });
     menu.appendChild(item);
   }
-  wrap.appendChild(menu);
+  // A menu inside a scrolling/clipping ancestor cannot just be absolutely
+  // positioned: it grows that ancestor's scroll area instead of overlaying the
+  // page. The collection's quick-filter row is `overflow-x: auto` (which makes
+  // overflow-y `auto` too), so opening the rarity menu took the row's
+  // scrollHeight from 36px to 212px, scrolled it to the menu, and pushed all
+  // eleven filter chips out of sight. Those menus are hoisted to <body> and
+  // anchored to the trigger instead.
+  if (_glassMenuClippingAncestor(wrap)) {
+    menu.dataset.floating = '1';
+    document.body.appendChild(menu);
+  } else {
+    wrap.appendChild(menu);
+  }
+  _glassMenuFit(menu, wrap);
+}
+
+/** Nearest ancestor that would clip or scroll an absolutely-positioned child. */
+function _glassMenuClippingAncestor(wrap) {
+  let el = wrap && wrap.parentElement;
+  while (el && el !== document.body && el !== document.documentElement) {
+    const o = getComputedStyle(el);
+    if (o.overflowX !== 'visible' || o.overflowY !== 'visible') return el;
+    el = el.parentElement;
+  }
+  return null;
+}
+
+// A hoisted menu is position:fixed, so it cannot follow its trigger. Close on
+// scroll rather than leave it stranded mid-page.
+if (typeof document !== 'undefined') {
+  document.addEventListener('scroll', (e) => {
+    // ...but scrolling the menu's OWN list is not the page moving under it. Capture-phase
+    // document listeners see non-bubbling scroll events from any element, so without this
+    // the first drag inside a capped, internally-scrolling menu closed it — exactly what
+    // _glassMenuFit exists to make possible.
+    const t = e.target;
+    if (t && t.nodeType === 1 && t.closest && t.closest('.glass-menu[data-floating]')) return;
+    if (document.querySelector('.glass-menu[data-floating]')) _glassMenuCloseAll();
+  }, true);
+}
+
+/**
+ * Keep an open glass menu on screen and scrollable.
+ * The menu is absolutely positioned under its trigger with no height cap, so a
+ * long option list simply ran off the bottom of the window with nothing to
+ * scroll — the New Game commander picker has 739 options and measured 23,660px
+ * tall against an 800px viewport, which made the lower entries unreachable.
+ * Caps it to the room actually available, flips it above the trigger when
+ * there is more space there, and lets it scroll internally.
+ */
+function _glassMenuFit(menu, wrap) {
+  if (!menu || !wrap) return;
+  const r = wrap.getBoundingClientRect();
+  const margin = 12;
+  const below = window.innerHeight - r.bottom - margin;
+  const above = r.top - margin;
+  // Only flip when below is genuinely cramped and above is roomier, so menus
+  // keep opening downward in the ordinary case.
+  const flip = below < 180 && above > below;
+  const room = Math.max(140, flip ? above : below);
+  // The room above measures in screen px but max-height is set in CSS px, and a
+  // zoomed ancestor makes those differ — the cap would then render scaled up and
+  // still overflow. offsetHeight is unzoomed, so their ratio is the factor.
+  // A hoisted menu sits on <body>, outside any zoomed subtree, so it measures 1.
+  const floating = menu.dataset.floating === '1';
+  const scale = wrap.offsetHeight > 0 ? r.height / wrap.offsetHeight : 1;
+  const zoom = floating || !Number.isFinite(scale) || scale <= 0.1 ? 1 : scale;
+  menu.style.maxHeight = Math.min(340, room) / zoom + 'px';
+  menu.style.overflowY = 'auto';
+  menu.style.overscrollBehavior = 'contain';
+  menu.style.webkitOverflowScrolling = 'touch';
+  if (floating) {
+    // Anchored to the trigger's viewport rect, since there is no positioned
+    // parent to be `absolute` against any more.
+    menu.style.position = 'fixed';
+    menu.style.minWidth = Math.max(r.width, 150) + 'px';
+    const width = Math.max(r.width, 150);
+    menu.style.left = Math.round(Math.max(margin, Math.min(r.left, window.innerWidth - width - margin))) + 'px';
+    if (flip) {
+      menu.style.top = 'auto';
+      menu.style.bottom = Math.round(window.innerHeight - r.top + 6) + 'px';
+    } else {
+      menu.style.bottom = 'auto';
+      menu.style.top = Math.round(r.bottom + 6) + 'px';
+    }
+  } else if (flip) {
+    menu.style.top = 'auto';
+    menu.style.bottom = 'calc(100% + 6px)';
+  }
+  // Long lists open on the current value rather than at the top.
+  const sel = menu.querySelector('.glass-menu-item.selected');
+  if (sel && typeof sel.scrollIntoView === 'function') {
+    sel.scrollIntoView({ block: 'nearest' });
+  }
 }
 
 // Every single-choice <select> gets the glass trigger. Opt out with
@@ -2329,6 +2707,10 @@ function _glassSelectEnsure() {
     sel.dataset.glassified = '1';
     const wrap = document.createElement('span');
     wrap.className = 'glass-dd-wrap';
+    // The trigger replaces the select in the flex flow, and it does not carry
+    // the select's id — so per-control layout rules have nothing to hook. Carry
+    // the id here instead (mobile.css orders the Badges trigger with it).
+    if (sel.id) wrap.dataset.for = sel.id;
     // Visibility toggles (e.g. classic-engine-only controls) target this class
     // with style.display — carry it so the trigger hides with its select.
     if (sel.classList.contains('suggest-classic-only')) wrap.classList.add('suggest-classic-only');
@@ -2481,12 +2863,42 @@ function _updateDeckListFilterUI() {
   if (clearBtn) clearBtn.style.display = hasFilter ? '' : 'none';
   const toggleBtn = document.getElementById('deckListFilterToggleBtn');
   if (toggleBtn) toggleBtn.classList.toggle('active', hasFilter);
-  document.querySelectorAll('.dlf-color-pill').forEach(btn => {
-    btn.classList.toggle('active', colors.has(btn.dataset.color));
-  });
+  _syncDeckListColorMenuUi();
 }
 
-function _applyDeckListFilter(cards) {
+function _syncDeckListColorMenuUi() {
+  const btn = document.getElementById('deckListColorMenuBtn');
+  if (!btn) return;
+  const n = _deckListFilter.colors.size;
+  btn.textContent = n > 0 ? `Color (${n})` : 'Color';
+  btn.classList.toggle('active', n > 0);
+}
+
+/** True when the deck list's colour filter has `code` on. Read by the shared menu. */
+function deckListColorFilterOn(code) {
+  return _deckListFilter.colors.has(code);
+}
+
+function toggleDeckListColorMenu(event) {
+  if (event) { event.stopPropagation(); event.preventDefault(); }
+  if (typeof _openFindMenu !== 'function') return;
+  const open = !!document.querySelector('.deck-list-color-menu');
+  _closeFindMenus();
+  if (!open) _openFindMenu('dlcolor');
+}
+
+globalThis.deckListColorFilterOn = deckListColorFilterOn;
+globalThis.toggleDeckListColorMenu = toggleDeckListColorMenu;
+
+/**
+ * @param {Array} cards
+ * @param {{reportCount?: boolean}} [opts] Only the mainboard pass should report
+ *   its result to the "n / total" readout. A render also filters the planned
+ *   adds, and that list is usually empty — left to report, it ran second and
+ *   overwrote the readout with 0, so a filter that matched looked like one that
+ *   matched nothing.
+ */
+function _applyDeckListFilter(cards, opts) {
   const { q, colors } = _deckListFilter;
   let out = cards;
 
@@ -2518,8 +2930,8 @@ function _applyDeckListFilter(cards) {
     });
   }
 
-  const countEl = document.getElementById('deckListFilterCount');
-  const deck = getActiveDeck();
+  const countEl = opts && opts.reportCount ? document.getElementById('deckListFilterCount') : null;
+  const deck = countEl ? getActiveDeck() : null;
   if (countEl && deck) {
     const total = (deck.cards || []).length;
     const hasFilter = q.trim() || colors.size > 0;
@@ -3000,6 +3412,7 @@ async function loadTagOverrides(force = false) {
           removeTags: Array.isArray(r.removeTags) ? r.removeTags.filter(Boolean) : [],
           customTags: Array.isArray(r.customTags) ? r.customTags.filter(Boolean) : [],
           customTagTiers: _normalizeCustomTagTiers(r.customTagTiers),
+          color: r.color || null,
           updatedAt: Number(r.updatedAt || 0),
           cardName: r.cardName || null,
         },
@@ -3059,6 +3472,7 @@ function _allDeckTagsForUI() {
 }
 
 function openDeckTagManager() {
+  if (typeof _requireDeckEdit === 'function' && !_requireDeckEdit()) return;
   deckTagCatalogFilter = 'all';
   if (_seedUserTagCatalogFromUsage()) save('prefs');
   renderDeckTagManager();
@@ -3106,8 +3520,18 @@ function renderMyTagsCatalog(opts = {}) {
   el.innerHTML = allTags.map(tag => {
     const isProtected = _isProtectedDeckTag(tag) && !_isUserCatalogTag(tag);
     const esc = tag.replace(/'/g, "\\'");
+    // Each tag carries its badge: what it looks like on a card, and the way in
+    // to change it. A tag with none shows a dashed placeholder rather than
+    // nothing, so "this tag has no badge" is a visible state.
+    const meta = typeof badgeMetaForTag === 'function' ? badgeMetaForTag(tag) : null;
+    const custom = deckTagBadges[_normBadgeKey(tag)];
+    const preview = meta
+      ? `<span class="tagcat-badge" style="--badge-color:${meta.color}">${_tagBadgeSvg(meta.icon)}</span>`
+      : '<span class="tagcat-badge tagcat-badge--none" aria-hidden="true"></span>';
     return `
-    <span class="tag tag-primary" style="display:inline-flex;align-items:center;gap:6px">
+    <span class="tag tag-primary tagcat-row">
+      <button type="button" class="tagcat-badge-btn" onclick="openTagBadgeEditor('${esc}')"
+        title="${meta ? (custom ? 'Change this badge' : 'Built-in badge — click to replace it') : 'Give this tag a badge'}">${preview}</button>
       ${escapeHtml(tag)}
       ${isProtected
         ? ''
@@ -3115,6 +3539,96 @@ function renderMyTagsCatalog(opts = {}) {
     </span>`;
   }).join('');
 }
+
+// ── Badge designer ───────────────────────────────────────────────────────────
+let _badgeEditorTag = null;
+let _badgeEditorIcon = null;
+let _badgeEditorColor = '#5aa9f0';
+
+/** Pick a symbol and a colour for one tag's badge. */
+function openTagBadgeEditor(tag) {
+  const name = String(tag || '').trim();
+  if (!name) return;
+  _badgeEditorTag = name;
+  const existing = deckTagBadges[_normBadgeKey(name)];
+  const builtIn = DEFAULT_TAG_BADGE[name];
+  _badgeEditorIcon = existing?.icon
+    || (builtIn ? Object.keys(BADGE_SYMBOLS).find(k => BADGE_SYMBOLS[k] === builtIn.icon) : null)
+    || null;
+  _badgeEditorColor = existing?.color || builtIn?.color || '#5aa9f0';
+  const modal = document.getElementById('tagBadgeModal');
+  if (!modal) return;
+  document.getElementById('tagBadgeTitle').textContent = `Badge for "${name}"`;
+  _renderTagBadgeEditor();
+  modal.classList.add('open');
+}
+globalThis.openTagBadgeEditor = openTagBadgeEditor;
+
+function closeTagBadgeEditor() {
+  document.getElementById('tagBadgeModal')?.classList.remove('open');
+  _badgeEditorTag = null;
+}
+globalThis.closeTagBadgeEditor = closeTagBadgeEditor;
+
+function _renderTagBadgeEditor() {
+  const grid = document.getElementById('tagBadgeSymbols');
+  const preview = document.getElementById('tagBadgePreview');
+  const swatch = document.getElementById('tagBadgeColorDot');
+  if (preview) {
+    preview.innerHTML = _badgeEditorIcon
+      ? `<span class="deck-tag-badge deck-tag-badge--corner" style="--badge-color:${_badgeEditorColor};position:static">${_tagBadgeSvg(BADGE_SYMBOLS[_badgeEditorIcon])}</span>`
+      : '<span class="tagcat-badge tagcat-badge--none"></span>';
+  }
+  if (swatch) swatch.style.setProperty('--sw', _badgeEditorColor);
+  if (grid) {
+    grid.innerHTML = Object.keys(BADGE_SYMBOLS).map(key => `
+      <button type="button" class="tagbadge-sym${key === _badgeEditorIcon ? ' is-picked' : ''}"
+        data-sym="${key}" title="${key}" onclick="pickTagBadgeSymbol('${key}')"
+        style="--badge-color:${_badgeEditorColor}">${_tagBadgeSvg(BADGE_SYMBOLS[key])}</button>`).join('');
+  }
+}
+
+function pickTagBadgeSymbol(key) {
+  if (!BADGE_SYMBOLS[key]) return;
+  _badgeEditorIcon = key;
+  _renderTagBadgeEditor();
+}
+globalThis.pickTagBadgeSymbol = pickTagBadgeSymbol;
+
+function openTagBadgeColorPicker(btn) {
+  if (typeof pgOpenColorPicker !== 'function') return;
+  pgOpenColorPicker(null, null, btn, {
+    current: _badgeEditorColor,
+    presets: [...new Set([
+      ...Object.values(DEFAULT_TAG_BADGE).map(b => b.color),
+      ...(typeof cardColorRecents === 'function' ? cardColorRecents() : []),
+    ])].slice(0, 24),
+    align: 'right',
+    onPreview: hex => { _badgeEditorColor = hex; _renderTagBadgeEditor(); },
+    onCommit: hex => { _badgeEditorColor = hex; },
+    onClose: () => _renderTagBadgeEditor(),
+  });
+}
+globalThis.openTagBadgeColorPicker = openTagBadgeColorPicker;
+
+function saveTagBadge() {
+  if (!_badgeEditorTag) return;
+  if (!_badgeEditorIcon) { showNotif('Pick a symbol first', true); return; }
+  setTagBadge(_badgeEditorTag, _badgeEditorIcon, _badgeEditorColor);
+  showNotif(`Badge set for "${_badgeEditorTag}"`);
+  closeTagBadgeEditor();
+  _refreshMyTagsCatalogUIs();
+}
+globalThis.saveTagBadge = saveTagBadge;
+
+/** Drop a custom badge — a tag with a built-in one falls back to it. */
+function clearTagBadge() {
+  if (!_badgeEditorTag) return;
+  setTagBadge(_badgeEditorTag, null);
+  closeTagBadgeEditor();
+  _refreshMyTagsCatalogUIs();
+}
+globalThis.clearTagBadge = clearTagBadge;
 
 function _refreshMyTagsCatalogUIs() {
   renderMyTagsCatalog({ filterBarId: 'deckTagManagerFilterBar', listId: 'deckTagManagerList' });
@@ -3467,9 +3981,12 @@ function renderDecks() {
   }
   ensureDefaultDeckRoleTags();
   let roleTagChanged = false;
+  // Tags are read by the open deck's list, groupings and badges — never by the
+  // grid above, which is commander art. Scheduling a refresh per deck here meant
+  // a round trip on every render for an answer nothing on screen used, and the
+  // shared timer meant only the last deck's ever actually ran.
   decks.forEach(d => {
     if (syncDeckAutoRoleTags(d)) roleTagChanged = true;
-    _scheduleDeckScryfallTagRefresh(d);
   });
   if (roleTagChanged) save('decks');
   const importWrap = document.getElementById('deckImportDropdownWrap');
@@ -3491,6 +4008,11 @@ function renderDecks() {
     renderActiveDeck();
   }
   _placeDeckActionCluster();
+  // After _placeDeckActionCluster, which is what shows or hides the top bar the
+  // "Decks" title lives in: called before it, the seating below finds no visible
+  // title on the way back from a deck and drops the button into the corner.
+  // All Decks shares the menu button's row; an open deck's header does not.
+  if (typeof setMobNavOwnRow === 'function') setMobNavOwnRow('decks', !!activeDeckId);
 }
 
 // Always read the commander card's current image rather than the stale stored snapshot
@@ -3500,35 +4022,30 @@ function _deckImage(d) {
 }
 
 function _deckGridCard(d, isShared) {
-  const pips  = colorPips(d.commanderColorIdentity || []);
-  const combo = colorComboName(d.commanderColorIdentity || []);
-  const issues = validateDeck(d);
-  const hasErrors = issues.some(i => i.severity === 'error');
-  const validBadge = hasErrors
-    ? `<span class="deck-card-valid-dot deck-card-valid-dot--error" title="Invalid deck">${_deckValidIconSvg('error')}</span>`
-    : issues.length ? `<span class="deck-card-valid-dot deck-card-valid-dot--warn" title="Deck has warnings">${_deckValidIconSvg('warn')}</span>` : '';
-  const pubBadge = !isShared && d.isPublic
-    ? `<span class="deck-grid-badge deck-grid-badge-public">🌐</span>`
-    : '';
-  const sharedBadge = isShared
-    ? `<span class="deck-grid-badge" style="background:rgba(100,140,220,0.18);color:var(--blue);border:1px solid rgba(100,140,220,0.3)">Shared</span>`
-    : '';
+  // The colour pips, colour-combo name, validity dot and public/shared badges
+  // this used to build all lived in the caption over the art and went with it.
+  // Validity is still surfaced in the deck itself, and sharing state in the
+  // deck's own menu.
   const img = _deckImage(d);
+  // Nothing sits over the art. The caption block — name, format, commander,
+  // colour identity and badges — restated what the commander's own art already
+  // says, and covered the bottom third of it to do so. The card is the tile.
+  //
+  // With no visible caption the name still has to be reachable, so it is the
+  // tile's accessible name and its hover title; a deck with no commander art
+  // keeps the name-only placeholder, which is all that identifies it.
+  const label = `${d.name}${d.format ? ' — ' + d.format : ''}${d.commander ? ' · ' + d.commander : ''}`
+    + (isShared && d.ownerEmail ? ' · ' + d.ownerEmail : '');
   return `
-  <div class="browse-deck-card" onclick="selectDeck('${d.id}')">
+  <div class="browse-deck-card" role="button" tabindex="0" data-deck-id="${d.id}"
+    title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}"
+    onclick="selectDeck('${d.id}')"
+    ${isShared ? '' : `onpointerdown="_deckOrderPointerDown(event,'${d.id}')"`}
+    onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selectDeck('${d.id}')}">
     <div class="browse-deck-img">
       ${img
-        ? `<img src="${escapeHtml(img)}" alt="${escapeHtml(d.name)}" style="width:100%;height:100%;object-fit:cover;object-position:center top">`
+        ? `<img src="${escapeHtml(img)}" alt="" draggable="false" style="width:100%;height:100%;object-fit:cover;object-position:center top">`
         : `<div class="deck-grid-placeholder" style="width:100%;height:100%;background:var(--bg4)">${escapeHtml(d.name)}</div>`}
-    </div>
-    <div class="browse-deck-overlay">
-      <div class="browse-deck-name">${escapeHtml(d.name)}</div>
-      <div class="browse-deck-meta">${escapeHtml(d.format)}${d.commander ? ' · ' + escapeHtml(d.commander) : ''}${isShared ? ' · ' + escapeHtml(d.ownerEmail || '') : ''}</div>
-      ${combo ? `<div class="browse-deck-combo">${combo}</div>` : ''}
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px">
-        <span style="display:inline-flex;align-items:center;gap:5px">${pips}</span>
-        <span style="display:flex;align-items:center;gap:3px">${validBadge}${pubBadge}${sharedBadge}</span>
-      </div>
     </div>
   </div>`;
 }
@@ -3536,6 +4053,8 @@ function _deckGridCard(d, isShared) {
 function renderDeckGrid() {
   const el = document.getElementById('deckGridArea');
   if (!el) return;
+  // A repaint mid-drag would replace the tile under the finger with a new node.
+  if (_deckOrderState && _deckOrderState.active) return;
 
   const ownedHtml = decks.map(d => _deckGridCard(d, false)).join('');
   const sharedHtml = sharedDecks.map(d => _deckGridCard(d, true)).join('');
@@ -3552,7 +4071,7 @@ function renderDeckGrid() {
 
   el.innerHTML =
     (ownedHtml
-      ? `<div class="deck-grid">${ownedHtml}</div>`
+      ? `<div class="deck-grid" id="deckOrderGrid">${ownedHtml}</div>`
       : `<div class="deck-grid"><div class="deck-grid-empty" style="padding:2rem;text-align:center;color:var(--text3)">No decks yet — <button class="btn btn-primary btn-sm" onclick="createNewDeck()">+ Create Deck</button></div></div>`)
     + (sharedHtml ? `
       <div style="margin-top:1.75rem">
@@ -3566,6 +4085,148 @@ function renderDeckGrid() {
         ${_sharedDecksCollapsed() ? '' : `<div class="deck-grid">${sharedHtml}</div>`}
       </div>` : '');
 }
+
+// ── Reordering the deck grid ────────────────────────────────────────────────
+// Press and hold a deck, then drag it where you want it. A hold rather than a
+// plain drag because the tile's ordinary job is to open the deck, and on a
+// phone a drag from rest is how you scroll the page.
+//
+// The order rides on the decks themselves (`order`), because the server returns
+// them by created_at — sorting on load is the only thing that makes a new
+// arrangement outlast the session.
+const DECK_ORDER_HOLD_MS = 350;
+const DECK_ORDER_SLOP = 8;
+let _deckOrderState = null;
+let _deckOrderSuppressClick = false;
+
+/** Order decks by their stored position; ones never placed keep the tail. */
+function sortDecksByStoredOrder() {
+  if (!Array.isArray(decks) || decks.length < 2) return;
+  decks.sort((a, b) => {
+    const ao = Number.isFinite(a?.order) ? a.order : Infinity;
+    const bo = Number.isFinite(b?.order) ? b.order : Infinity;
+    return ao - bo;
+  });
+}
+
+function _deckOrderCleanup() {
+  const st = _deckOrderState;
+  _deckOrderState = null;
+  if (!st) return;
+  clearTimeout(st.timer);
+  window.removeEventListener('pointermove', _deckOrderMove, true);
+  window.removeEventListener('pointerup', _deckOrderEnd, true);
+  window.removeEventListener('pointercancel', _deckOrderEnd, true);
+  window.removeEventListener('touchmove', _deckOrderTouchMove, _DECK_ORDER_TOUCH_OPTS);
+  st.el?.classList.remove('is-reordering');
+  document.getElementById('deckOrderGrid')?.classList.remove('is-reordering');
+}
+
+const _DECK_ORDER_TOUCH_OPTS = { passive: false, capture: true };
+
+/**
+ * The only thing that keeps a touch drag alive.
+ *
+ * A finger's gesture is committed to scrolling at touchstart, so switching
+ * touch-action once the hold lands is too late: the first move cancels the
+ * pointer stream and the drag dies after one event. preventDefault on a
+ * non-passive touchmove is what actually takes the gesture back — and only once
+ * the hold has landed, so a plain swipe over a deck still scrolls the page.
+ */
+function _deckOrderTouchMove(e) {
+  if (_deckOrderState && _deckOrderState.active && e.cancelable) e.preventDefault();
+}
+
+function _deckOrderPointerDown(e, id) {
+  if (e.button === 2 || !id) return;
+  const el = e.currentTarget;
+  const grid = document.getElementById('deckOrderGrid');
+  if (!el || !grid || !grid.contains(el)) return;
+  _deckOrderCleanup();
+  _deckOrderState = {
+    id, el, grid, active: false, pointerId: e.pointerId,
+    startX: e.clientX, startY: e.clientY,
+    timer: setTimeout(() => _deckOrderBegin(), DECK_ORDER_HOLD_MS),
+  };
+  window.addEventListener('pointermove', _deckOrderMove, true);
+  window.addEventListener('pointerup', _deckOrderEnd, true);
+  window.addEventListener('pointercancel', _deckOrderEnd, true);
+  window.addEventListener('touchmove', _deckOrderTouchMove, _DECK_ORDER_TOUCH_OPTS);
+}
+
+function _deckOrderBegin() {
+  const st = _deckOrderState;
+  if (!st) return;
+  st.active = true;
+  st.el.classList.add('is-reordering');
+  st.grid.classList.add('is-reordering');
+  // No pointer capture: the dragged tile is moved between siblings as it goes,
+  // and relocating a captured element drops the capture mid-drag. The listeners
+  // are on window, so there is nothing to capture for.
+  if (navigator.vibrate) { try { navigator.vibrate(8); } catch { /* unsupported */ } }
+}
+
+function _deckOrderMove(e) {
+  const st = _deckOrderState;
+  if (!st) return;
+  if (!st.active) {
+    // Moved before the hold landed — that was a scroll or a drag-off, not this.
+    if (Math.hypot(e.clientX - st.startX, e.clientY - st.startY) > DECK_ORDER_SLOP) _deckOrderCleanup();
+    return;
+  }
+  e.preventDefault();
+  const over = document.elementFromPoint(e.clientX, e.clientY)?.closest('.browse-deck-card');
+  if (!over || over === st.el || !st.grid.contains(over)) return;
+  // Insert on the side the pointer is nearest, so the gap opens where it will land.
+  const r = over.getBoundingClientRect();
+  const after = e.clientX > r.left + r.width / 2;
+  st.grid.insertBefore(st.el, after ? over.nextSibling : over);
+}
+
+function _deckOrderEnd() {
+  const st = _deckOrderState;
+  if (st && st.active) {
+    _deckOrderCommit(st.grid);
+    // The pointerup after a drag still fires a click on the tile, which would
+    // open whatever deck it was dropped on.
+    _deckOrderSuppressClick = true;
+    setTimeout(() => { _deckOrderSuppressClick = false; }, 0);
+  }
+  _deckOrderCleanup();
+}
+
+function _deckOrderCommit(grid) {
+  const ids = [...grid.querySelectorAll('.browse-deck-card[data-deck-id]')].map(el => el.dataset.deckId);
+  if (ids.length !== decks.length) return;
+  const byId = new Map(decks.map(d => [String(d.id), d]));
+  const next = ids.map(id => byId.get(String(id))).filter(Boolean);
+  if (next.length !== decks.length) return;
+  decks.length = 0;
+  decks.push(...next);
+  // Renumber everything, not just what moved: decks that had never been placed
+  // need a position now or they would all sort to the tail together.
+  decks.forEach((d, i) => { d.order = i; });
+  save('decks');
+  if (typeof renderDeckSidebar === 'function') renderDeckSidebar();
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('click', e => {
+    if (!_deckOrderSuppressClick) return;
+    if (!e.target.closest?.('.browse-deck-card')) return;
+    e.stopPropagation();
+    e.preventDefault();
+  }, true);
+  // A tile is mostly a card image, and an image is natively draggable: holding
+  // one and moving handed the gesture to the browser's own drag-and-drop, which
+  // peeled off a translucent copy of the art and ended the pointer stream — the
+  // tile looked picked up and nothing reordered.
+  document.addEventListener('dragstart', e => {
+    if (e.target.closest?.('#deckOrderGrid')) e.preventDefault();
+  }, true);
+}
+globalThis._deckOrderPointerDown = _deckOrderPointerDown;
+globalThis.sortDecksByStoredOrder = sortDecksByStoredOrder;
 
 function _deckSidebarItem(d) {
   const total  = d.cards.reduce((s,c)=>s+c.qty,0);
@@ -4114,6 +4775,84 @@ function closeNewDeckModal() {
   document.getElementById('newDeckModal').classList.remove('open');
 }
 
+/** "Deck name (copy)", "(copy 2)" … — never silently two decks with one name. */
+function _uniqueDeckName(base) {
+  const taken = new Set((decks || []).map(d => String(d.name || '').toLowerCase()));
+  let name = `${base} (copy)`;
+  for (let n = 2; taken.has(name.toLowerCase()); n++) name = `${base} (copy ${n})`;
+  return name;
+}
+
+/**
+ * Take a copy of the deck on screen into this account.
+ *
+ * The copy is an ordinary deck of yours from the moment it lands — editable,
+ * counted against your collection like any other, and with none of the
+ * original's sharing: not public, no share link, no owner but you. The planning
+ * zones start empty; adds and cuts are the owner's working notes, not part of
+ * the list itself.
+ */
+async function copyDeckToMyDecks() {
+  const src = getActiveDeck();
+  if (!src) return;
+  const id = Date.now().toString();
+  const cloneCards = list => (Array.isArray(list) ? list : []).map(c => {
+    const card = JSON.parse(JSON.stringify(c));
+    delete card.customTags;
+    return card;
+  });
+  const copy = {
+    id,
+    name: _uniqueDeckName(src.name || 'Untitled'),
+    format: src.format || '',
+    commander: src.commander || null,
+    commanderColorIdentity: src.commanderColorIdentity || [],
+    commanderImage: src.commanderImage || null,
+    notes: src.notes || null,
+    cards: cloneCards(src.cards),
+    maybeboard: cloneCards(_deckMaybeBoard(src)),
+    sideboard: cloneCards(src.sideboard),
+    sideboardEnabled: !!src.sideboardEnabled,
+    adds: [], cuts: [],
+    zoneLayout: src.zoneLayout || 2,
+    colors: src.colors || [],
+    isPublic: false,
+  };
+  decks.push(copy);
+  save('decks');
+  showNotif(`Copied to your decks as "${copy.name}"`);
+  selectDeck(id);
+}
+globalThis.copyDeckToMyDecks = copyDeckToMyDecks;
+
+/**
+ * A deck opened from Browse or a share link: the owner's own view of it, with
+ * every way of changing it gone.
+ *
+ * It rides the shared-deck path — `userPermission: 'view'` is the flag the
+ * builder already reads — but is marked `isPublicView` so the parts that assume
+ * the deck is genuinely shared *with* this account (the collaborator refresh,
+ * the realtime room) sit it out. Those endpoints answer 403 for a deck nobody
+ * shared with you, which is correct and not worth asking.
+ */
+function openDeckReadOnly(deck, meta = {}) {
+  if (!deck || !deck.id) { showNotif('Could not open that deck', true); return; }
+  deck.userPermission = 'view';
+  deck.isPublicView = true;
+  if (meta.ownerId != null) deck.ownerId = meta.ownerId;
+  if (meta.ownerEmail) deck.ownerEmail = meta.ownerEmail;
+  sharedDecks = [...(Array.isArray(sharedDecks) ? sharedDecks : []).filter(d => d.id !== deck.id), deck];
+  if (typeof showTab === 'function') showTab('decks');
+  selectDeck(deck.id);
+}
+globalThis.openDeckReadOnly = openDeckReadOnly;
+
+/** True while the open deck is somebody else's, opened read-only. */
+function activeDeckIsPublicView() {
+  return !!(activeDeckIsShared && getActiveDeck()?.isPublicView);
+}
+globalThis.activeDeckIsPublicView = activeDeckIsPublicView;
+
 function selectDeck(id) {
   if (typeof leaveDeckRoom === 'function') leaveDeckRoom();
   activeDeckId = id;
@@ -4121,12 +4860,12 @@ function selectDeck(id) {
   if (typeof clearDeckOwnerCollectionLookup === 'function') clearDeckOwnerCollectionLookup();
   localStorage.setItem('mtg_active_deck_id', id);
   _deckHistoryVisible = false; // the render's _applyDeckBuilderTab refetches for this deck
-  if (typeof joinDeckRoom === 'function') joinDeckRoom(id);
+  if (typeof joinDeckRoom === 'function' && !activeDeckIsPublicView()) joinDeckRoom(id);
   void _selectDeckRefreshAndRender(id);
 }
 
 async function _selectDeckRefreshAndRender(id) {
-  if (activeDeckIsShared && typeof refreshSharedDeckFromServer === 'function') {
+  if (activeDeckIsShared && !activeDeckIsPublicView() && typeof refreshSharedDeckFromServer === 'function') {
     await refreshSharedDeckFromServer(id, { silent: true }).catch(() => {});
   }
   if (activeDeckId !== id) return;
@@ -4324,6 +5063,19 @@ function renderActiveDeck() {
   if (renameBtn) renameBtn.style.display = isOwner ? '' : 'none';
   const deckVoiceBtn = document.getElementById('deckBuilderVoiceBtn');
   if (deckVoiceBtn) deckVoiceBtn.style.display = canEditActiveDeck() ? '' : 'none';
+  // Everything that writes tags is off on a deck this account cannot change:
+  // the reusable-tag manager beside the header and Refresh Tags in the ⋯ menu.
+  const canEditHeader = canEditActiveDeck();
+  // One flag on the tab for the panes: Analytics and Suggestions are full of
+  // "+ Add" affordances that the write gate would refuse anyway — better not to
+  // offer them. The gate stays underneath; this only stops the asking.
+  document.getElementById('tab-decks')?.classList.toggle('deck-read-only', !canEditHeader);
+  const copyBtn = document.getElementById('deckCopyToMineBtn');
+  if (copyBtn) copyBtn.style.display = (typeof activeDeckIsPublicView === 'function' && activeDeckIsPublicView()) ? '' : 'none';
+  const manageTagsBtn = document.getElementById('deckManageTagsBtn');
+  if (manageTagsBtn) manageTagsBtn.style.display = canEditHeader ? '' : 'none';
+  const refreshTagsBtn = document.getElementById('deckRefreshTagsBtn');
+  if (refreshTagsBtn) refreshTagsBtn.style.display = canEditHeader ? '' : 'none';
 
   if (activeDeckIsShared && typeof loadDeckOwnerCollectionLookup === 'function') {
     loadDeckOwnerCollectionLookup(deck).then(() => {
@@ -4337,7 +5089,6 @@ function renderActiveDeck() {
     });
   }
 
-  _renderScryTagSyncBadge();
 
   renderDeckList(deck);
   _scheduleDeckChartsRender();
@@ -4453,6 +5204,7 @@ function setDeckListView(view, btn) {
 }
 
 function _syncDeckListViewChrome() {
+  _archForceMobileDefaults();
   document.querySelectorAll('#deckListViewList, #deckListViewGrid, #deckListViewArchitecture').forEach(b => b.classList.remove('active'));
   const id = deckListView === 'list' ? 'deckListViewList'
     : (deckListView === 'architecture' ? 'deckListViewArchitecture' : 'deckListViewGrid');
@@ -4683,6 +5435,9 @@ function setDeckStackOrient(orient) {
 }
 
 function setArchPanelLayout(layout) {
+  // The toggle is hidden on phones; ignore the call rather than let a stale
+  // handler or a stray tap put the view into a mode with no way back.
+  if (_deckIsPhone()) return;
   archPanelLayout = layout === 'vertical' ? 'vertical' : 'horizontal';
   try { localStorage.setItem('mtg_arch_panel_layout', archPanelLayout); } catch (_) {}
   _syncDeckListViewChrome();
@@ -4691,6 +5446,7 @@ function setArchPanelLayout(layout) {
 }
 
 function setArchCardMode(mode) {
+  if (_deckIsPhone()) return;
   archCardMode = mode === 'visual' ? 'visual' : 'text';
   try { localStorage.setItem('mtg_arch_card_mode', archCardMode); } catch (_) {}
   _syncDeckListViewChrome();
@@ -4726,7 +5482,8 @@ let _archGroupModel = null;
 let _archGoalPending = '';
 function _ensureArchGoals(deck) {
   if (!deck || typeof _e2Analyze !== 'function') return;
-  if (_e2AnalysisCache && _e2AnalysisCache.data && _e2AnalysisCache.data.goals) return;
+  const have = _e2CachedAnalysis(deck);
+  if (have && have.goals) return;
   const key = String(deck.id || '');
   if (_archGoalPending === key) return;
   _archGoalPending = key;
@@ -4744,7 +5501,7 @@ function _archModelOrNull(deck, cards) {
   try {
     // Reuse whatever /api/decks/analyze already returned for this deck; the view
     // falls back to detected themes until the goal lands, then re-renders.
-    const cached = (_e2AnalysisCache && _e2AnalysisCache.data) || null;
+    const cached = _e2CachedAnalysis(deck);
     return classifyDeckArchitecture(deck, typeof getDeckPlan === 'function' ? getDeckPlan(deck) : deck.plan, {
       cards,
       overrides: deck.architectureOverrides,
@@ -4793,8 +5550,10 @@ function _archVisualTile(row, opts) {
   const qty = row.qty || 1;
   const primaryMark = row.primary ? ' is-arch-primary' : '';
   const src = row.source === 'override' ? ' <span class="arch-pill arch-pill--override">Set</span>' : '';
-  const img = c.imageLarge || c.image
-    || (c.scryfallId ? `https://cards.scryfall.io/normal/front/${c.scryfallId[0]}/${c.scryfallId[1]}/${c.scryfallId}.jpg` : '');
+  const archTileW = _archStackedLayoutActive() && typeof _archFitCardSize === 'number' && _archFitCardSize
+    ? _archFitCardSize
+    : (typeof deckCardSize === 'number' ? deckCardSize : 0);
+  const img = _stackTileImgSrc(c, archTileW);
   let badge = '';
   if (opts && typeof opts.badgeHtml === 'function') badge = opts.badgeHtml(c, { variant: 'corner' }) || '';
   const menu = (opts && opts.canEdit)
@@ -4816,8 +5575,9 @@ function _archVisualTile(row, opts) {
 
 function _archCardImageSrc(c) {
   if (!c) return '';
-  return c.imageLarge || c.image
-    || (c.scryfallId ? `https://cards.scryfall.io/normal/front/${c.scryfallId[0]}/${c.scryfallId[1]}/${c.scryfallId}.jpg` : '');
+  const cap = typeof cardImgCapNormal === 'function' ? cardImgCapNormal : (u => u);
+  return cap(c.imageLarge || c.image
+    || (c.scryfallId ? `https://cards.scryfall.io/normal/front/${c.scryfallId[0]}/${c.scryfallId[1]}/${c.scryfallId}.jpg` : ''));
 }
 
 function _archCardPriceLabel(c) {
@@ -4893,6 +5653,10 @@ function _findCardForTagPicker(cardUid) {
     const slot = pools.find(c => _cardMatchesRef(c, key));
     if (slot) return slot;
   }
+  // A card you only want: tags are yours and per-oracle, so a wishlist row is a
+  // perfectly good subject. Last, so an owned copy or a deck slot still wins.
+  const want = (typeof wishlist !== 'undefined' ? wishlist : []).find(c => _cardMatchesRef(c, key));
+  if (want) return want;
   return null;
 }
 
@@ -5081,6 +5845,12 @@ function _bindDeckCardTagPickerClicks() {
 }
 
 async function openDeckCardTagPicker(_deckId, cardUid) {
+  // The tag picker writes; a read-only deck does not get one.
+  if (typeof canEditActiveDeck === 'function' && typeof getActiveDeck === 'function'
+      && getActiveDeck() && !canEditActiveDeck()) {
+    showNotif('This deck is read-only', true);
+    return;
+  }
   let card = _findCardForTagPicker(cardUid);
   if (!card) return;
   _bindDeckCardTagPickerClicks();
@@ -5246,13 +6016,85 @@ async function _saveGlobalCustomTags(oracleId) {
   const customTags = Array.from(ov.customTags || []);
   const customTagTiers = _normalizeCustomTagTiers(ov.customTagTiers);
   const hasTiers = Object.keys(customTagTiers).length > 0;
-  if (!addTags.length && !removeTags.length && !customTags.length && !hasTiers) {
+  const color = ov.color || null;
+  if (!addTags.length && !removeTags.length && !customTags.length && !hasTiers && !color) {
     await apiDelete(`/tag-overrides/${oid}`);
     _tagOverridesByOracleId.delete(oid);
   } else {
-    await apiPut(`/tag-overrides/${oid}`, { addTags, removeTags, customTags, customTagTiers });
+    await apiPut(`/tag-overrides/${oid}`, { addTags, removeTags, customTags, customTagTiers, color });
   }
 }
+
+// ── Card colouring ───────────────────────────────────────────────────────────
+/**
+ * A colour the user puts on a card, one per card, stored on the same per-oracle
+ * row as their tags. It is their own marking — nothing about the card derives
+ * it — so it groups and sorts alongside tags rather than with colour identity.
+ */
+const CARD_COLOR_PRESETS = [
+  { hex: '#5aa9f0', name: 'Blue' },
+  { hex: '#a98cf0', name: 'Violet' },
+  { hex: '#3dbfa4', name: 'Teal' },
+  { hex: '#6fc35a', name: 'Green' },
+  { hex: '#e0c14a', name: 'Gold' },
+  { hex: '#e0994a', name: 'Amber' },
+  { hex: '#e8705f', name: 'Rose' },
+  { hex: '#e06fb4', name: 'Pink' },
+];
+const _CARD_COLOR_RECENT_KEY = 'mtg_card_color_recent';
+const CARD_COLOR_RECENT_MAX = 10;
+
+/** The user's saved colours, most recent first. */
+function cardColorRecents() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(_CARD_COLOR_RECENT_KEY) || '[]');
+    return (Array.isArray(raw) ? raw : [])
+      .map(v => String(v || '').toLowerCase())
+      .filter(v => /^#[0-9a-f]{6}$/.test(v))
+      .slice(0, CARD_COLOR_RECENT_MAX);
+  } catch (_) { return []; }
+}
+
+function _rememberCardColor(hex) {
+  const v = String(hex || '').toLowerCase();
+  if (!/^#[0-9a-f]{6}$/.test(v)) return;
+  const next = [v, ...cardColorRecents().filter(c => c !== v)].slice(0, CARD_COLOR_RECENT_MAX);
+  try { localStorage.setItem(_CARD_COLOR_RECENT_KEY, JSON.stringify(next)); } catch (_) { /* private mode */ }
+}
+
+/** The colour on a card, or null. */
+function cardColorHex(card) {
+  const oid = _oracleIdForMyTags(card);
+  if (!oid) return null;
+  const ov = _tagOverridesByOracleId.get(oid);
+  const hex = ov && ov.color;
+  return /^#[0-9a-f]{6}$/i.test(String(hex || '')) ? String(hex).toLowerCase() : null;
+}
+
+/** Paint (or clear, with null) a card's colour. Optimistic; the save follows. */
+function setCardColorHex(card, hex) {
+  // Colouring is the viewer's own marking, but not while they are looking at
+  // somebody else's deck — that deck is read-only end to end.
+  if (typeof canEditActiveDeck === 'function' && typeof getActiveDeck === 'function'
+      && getActiveDeck() && !canEditActiveDeck()) {
+    showNotif('This deck is read-only', true);
+    return false;
+  }
+  const oid = _oracleIdForMyTags(card);
+  if (!oid) { showNotif('This card has no oracle id to colour', true); return false; }
+  const v = hex == null ? null : String(hex).toLowerCase();
+  if (v && !/^#[0-9a-f]{6}$/.test(v)) return false;
+  const ov = _ensureTagOverrideRow(oid, card?.name);
+  if (!ov) return false;
+  ov.color = v;
+  ov.updatedAt = Date.now();
+  if (v) _rememberCardColor(v);
+  _queueGlobalCustomTagsSave(oid);
+  return true;
+}
+globalThis.cardColorHex = cardColorHex;
+globalThis.setCardColorHex = setCardColorHex;
+globalThis.cardColorRecents = cardColorRecents;
 
 function _ensureTagOverrideRow(oracleId, cardName) {
   const oid = _normalizeTagOracleId(oracleId);
@@ -5889,6 +6731,29 @@ function _dedupeDeckMainboardCards(deck) {
   return changed;
 }
 
+/**
+ * A readable name for a colour group. Presets keep the name they were given;
+ * anything hand-picked is named by the nearest hue band, so "Teal" and a
+ * slightly different teal group together rather than as two hex strings.
+ */
+function _cardColorGroupLabel(hex) {
+  const preset = (typeof CARD_COLOR_PRESETS !== 'undefined' ? CARD_COLOR_PRESETS : [])
+    .find(p => p.hex === hex);
+  if (preset) return preset.name;
+  const n = parseInt(hex.slice(1), 16);
+  const r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  if (d < 0.08) return max > 0.6 ? 'White' : max > 0.25 ? 'Grey' : 'Black';
+  let hue = 0;
+  if (max === r) hue = 60 * (((g - b) / d) % 6);
+  else if (max === g) hue = 60 * ((b - r) / d + 2);
+  else hue = 60 * ((r - g) / d + 4);
+  hue = (hue + 360) % 360;
+  const bands = [[15, 'Red'], [45, 'Orange'], [70, 'Gold'], [160, 'Green'],
+    [200, 'Teal'], [255, 'Blue'], [290, 'Violet'], [335, 'Pink'], [360, 'Red']];
+  return (bands.find(([to]) => hue < to) || bands[bands.length - 1])[1];
+}
+
 function _buildDeckGroups(cards, groupBy) {
   // Commander always gets its own group regardless of sort mode
   const commanderCards = cards.filter(c => c.isCommander);
@@ -5927,6 +6792,24 @@ function _buildDeckGroups(cards, groupBy) {
     });
     const ordered = {};
     Object.keys(groups).sort(_compareDeckTagGroupKeys).forEach(k => { if (groups[k].length) ordered[k] = groups[k]; });
+    return withCommander(ordered);
+  }
+  if (groupBy === 'coloring') {
+    const groups = new Map();
+    rest.forEach(c => {
+      const hex = typeof cardColorHex === 'function' ? cardColorHex(c) : null;
+      const label = hex ? _cardColorGroupLabel(hex) : 'Uncoloured';
+      if (!groups.has(label)) groups.set(label, []);
+      groups.get(label).push(c);
+    });
+    const ordered = {};
+    [...groups.keys()]
+      .sort((x, y) => {
+        if (x === 'Uncoloured') return 1;
+        if (y === 'Uncoloured') return -1;
+        return _deckCardColorSortKey(groups.get(x)[0]) - _deckCardColorSortKey(groups.get(y)[0]);
+      })
+      .forEach(k => { ordered[k] = groups.get(k); });
     return withCommander(ordered);
   }
   if (groupBy === 'color') {
@@ -6008,6 +6891,11 @@ let _ownedByUid  = {}; // scryfallId+foil key → collection card
 let _ownedByName = {}; // lowercase name     → collection card (any printing/foil)
 
 function isDeckOwnershipEnabled() {
+  // Somebody else's deck, opened read-only: shading each card against a
+  // collection says nothing useful about a list you are only reading — and the
+  // owner's collection is not ours to ask for, so every card came out grey.
+  // Copy it to your decks and the shading comes back on your own copy.
+  if (typeof activeDeckIsPublicView === 'function' && activeDeckIsPublicView()) return false;
   return deckOwnershipEnabled !== false;
 }
 
@@ -6050,6 +6938,41 @@ function _deckByIdForOwnership(deckId) {
   if (!deckId) return null;
   return decks.find(d => d.id === deckId)
     || (typeof sharedDecks !== 'undefined' ? sharedDecks.find(d => d.id === deckId) : null);
+}
+
+/**
+ * Collapse a basic land held in both finishes into one tile.
+ *
+ * The deck stores a foil and a non-foil copy as separate entries, so a deck with
+ * both showed the same Island twice — two identical images differing only by a
+ * flag. Basics are fungible, so the list shows one tile with the combined count
+ * and the inspector still reports the real Non-foil / Foil split.
+ *
+ * Display only: these are copies, the deck's own entries are untouched. Scoped
+ * to one printing — a different art or set is a different thing to look at — and
+ * to real cards, so planned adds keep their own tiles.
+ */
+function _mergeBasicLandFinishes(cards) {
+  if (!Array.isArray(cards) || cards.length < 2) return cards;
+  const byPrinting = new Map();
+  const out = [];
+  for (const c of cards) {
+    const mergeable = c && c.scryfallId && !c._plannedAdd && BASIC_LANDS.has(c.name);
+    if (!mergeable) { out.push(c); continue; }
+    const key = String(c.scryfallId);
+    const seen = byPrinting.get(key);
+    if (!seen) {
+      const copy = { ...c };
+      byPrinting.set(key, copy);
+      out.push(copy);
+      continue;
+    }
+    // The non-foil copy is the one to show, so a merged pair does not shimmer.
+    const total = (seen.qty || 1) + (c.qty || 1);
+    if (seen.foil && !c.foil) Object.assign(seen, c);
+    seen.qty = total;
+  }
+  return out;
 }
 
 function getCardInventoryKey(card) {
@@ -6255,13 +7178,30 @@ function _deckRowOwnershipChipHtml(own) {
   return '';
 }
 
+/**
+ * Stack-tile art source: the Scryfall `small` file (146px, ~12KB) when the
+ * tile renders at or below small's own resolution, `normal` (~100KB) above it.
+ * Every tile served normal regardless of size — an ~8x bandwidth/decode tax on
+ * compact stacks, and small is usually already cached from the collection grid
+ * (same URL). tileWidthPx unknown/0 keeps the old normal-first behavior.
+ */
+function _stackTileImgSrc(c, tileWidthPx) {
+  const cap = typeof cardImgCapNormal === 'function' ? cardImgCapNormal : (u => u);
+  const small = cap(c.image || '');
+  const big = cap(c.imageLarge
+    || (c.scryfallId ? `https://cards.scryfall.io/normal/front/${c.scryfallId[0]}/${c.scryfallId[1]}/${c.scryfallId}.jpg` : ''));
+  if (!small || !big) return big || small;
+  const dpr = (typeof devicePixelRatio === 'number' && devicePixelRatio > 0) ? devicePixelRatio : 1;
+  const need = (Number(tileWidthPx) || 0) * dpr;
+  return need > 0 && need <= 150 ? small : big;
+}
+
 function _stackTile(c, zone = 'main', poolHints = null) {
   const qty = c.qty || 1;
   const cardKey = getCardInventoryKey(c);
   const nameKey = String(c.name || '').trim().toLowerCase();
   const isExtra = zone !== 'main';
-  const img = c.imageLarge || c.image
-    || (c.scryfallId ? `https://cards.scryfall.io/normal/front/${c.scryfallId[0]}/${c.scryfallId[1]}/${c.scryfallId}.jpg` : '');
+  const img = _stackTileImgSrc(c, typeof deckCardSize === 'number' ? deckCardSize : 0);
   const safeName = c.name.replace(/"/g, '&quot;');
 
   const { ownershipOn, owned, notOwned, foilMismatch, printingMismatch } = _deckCardOwnership(c);
@@ -6299,6 +7239,11 @@ function _stackTile(c, zone = 'main', poolHints = null) {
   const addBadge = isPlannedAdd || zone === 'add'
     ? `<div class="stack-add-flag" role="img" aria-label="Planned add" title="Planned add — not counted in the deck">${_SWAP_ADD_ICON}</div>`
     : '';
+  // The user's own colour, in the corner opposite the add/cut wedge.
+  const colorHex = typeof cardColorHex === 'function' ? cardColorHex(c) : null;
+  const colorFlag = colorHex
+    ? `<div class="stack-color-flag" style="--cf:${colorHex}" role="img" aria-label="Coloured ${escapeHtml(colorHex)}" title="Coloured ${escapeHtml(colorHex)}"></div>`
+    : '';
   const swapCls = (cutQty > 0 || zone === 'cut') ? ' is-planned-cut' : (isPlannedAdd || zone === 'add') ? ' is-planned-add' : '';
 
   const isGameChanger = typeof isGameChangerCard === 'function' && isGameChangerCard(c);
@@ -6310,7 +7255,11 @@ function _stackTile(c, zone = 'main', poolHints = null) {
 
   const dragKey = _deckCardDragKey(c).replace(/"/g, '&quot;');
 
-  const swapBtns = zone === 'cut'
+  // Nothing that changes the deck is drawn on somebody else's: no remove, no
+  // printing swap, no zone moves. The handlers below refuse too — this is so the
+  // card does not offer what it will not do.
+  const canEditTile = typeof canEditActiveDeck !== 'function' || canEditActiveDeck();
+  const swapBtns = !canEditTile ? '' : zone === 'cut'
     ? `<button class="stack-swap stack-swap--keep" draggable="false" data-uid="${dragKey}" data-swap-zone="cut" data-swap-action="keep" title="Remove the cut marker — the card stays in the deck">Keep</button>` +
       `<button class="stack-swap stack-swap--cut" draggable="false" data-uid="${dragKey}" data-swap-zone="cut" data-swap-action="commit" title="Remove this card from the deck now">→ Cut</button>`
     : zone === 'add'
@@ -6333,11 +7282,12 @@ function _stackTile(c, zone = 'main', poolHints = null) {
         ${gcBadge}
         ${mbPoolBadge}
         ${sbPoolBadge}
+        ${colorFlag}
         ${cutBadge}
         ${addBadge}
         ${ownerBadge}
-        <button class="stack-remove" draggable="false" data-uid="${dragKey}" data-zone="${isPlannedAdd ? 'add' : zone}" title="Remove">✕</button>
-        <button class="stack-version" draggable="false" title="Change printing">⟳</button>
+        ${canEditTile ? `<button class="stack-remove" draggable="false" data-uid="${dragKey}" data-zone="${isPlannedAdd ? 'add' : zone}" title="Remove">✕</button>
+        <button class="stack-version" draggable="false" title="Change printing">⟳</button>` : ''}
         ${swapBtns}
       </div>
       <div class="stack-name" style="${notOwned ? 'color:var(--text3);opacity:0.6' : ''}">${escapeHtml(c.name)}</div>
@@ -6482,6 +7432,28 @@ function _onDeckStackPeekOut(e) {
 
 /** Extra-zone (and mainboard) stacks: sticky peek class so tap/click lifts a card
  *  the same way :hover does on the mainboard. Bound once on #deckCardList. */
+/**
+ * Let the art you are actually looking at start downloading first.
+ * Every card image renders loading="lazy" on a deck's first visit
+ * (imgFadeLoadingAttr only returns eager for art already seen this session), and
+ * a lazy image does not fetch until the browser has laid out and decided it is
+ * visible — so the cards on screen were the last to request. Promote the ones in
+ * or just past the viewport; everything further down stays lazy.
+ * Reads every rect before writing any attribute, so this is one layout pass, not
+ * one per image.
+ */
+function _prioritizeVisibleDeckArt(el) {
+  if (!el) return;
+  const limit = (window.innerHeight || 800) * 1.25;
+  const imgs = [...el.querySelectorAll('img.stack-main[loading="lazy"]')];
+  if (!imgs.length) return;
+  const near = imgs.filter(im => im.getBoundingClientRect().top <= limit);
+  for (const im of near) {
+    im.setAttribute('fetchpriority', 'high');
+    im.setAttribute('loading', 'eager');
+  }
+}
+
 function _bindDeckStackPeek(el) {
   if (!el || el.dataset.stackPeekBound === '1') return;
   el.dataset.stackPeekBound = '1';
@@ -7169,7 +8141,9 @@ function _assignGroupsToColumns(entries, numCols, deckId, groupBy) {
   return _assignGroupsToColumnsBalanced(entries, numCols);
 }
 
-const _DECK_EXTRA_ZONE_PILL_W = 22;
+// Everything collapsed: the column narrows to one square button, the same
+// control the Themes panel collapses to.
+const _DECK_EXTRA_ZONE_PILL_W = 34;
 
 function _calcVertExtraZoneWidth(deck, zonesBeside) {
   if (!deck || !zonesBeside) return 0;
@@ -8154,7 +9128,14 @@ async function _sendSuggestFeedback(btn) {
   const ctx = _e2FeedbackCtx;
   if (ctx && deck && String(ctx.deckId) === String(deck.id)) {
     const mine = (ctx.adds || []).find(a => a.name === (strip.dataset.card || ''));
-    if (mine) {
+    if (strip.dataset.kind === 'cut') {
+      // Cuts are not in ctx.adds — record the list they came from explicitly.
+      context = {
+        kind: 'cut', basis: ctx.basis, goals: ctx.goals,
+        rank: Number(strip.dataset.rank) || null,
+        of: Number(strip.dataset.of) || null,
+      };
+    } else if (mine) {
       context = {
         basis: ctx.basis, goals: ctx.goals, rank: mine.rank, of: ctx.adds.length,
         breakdown: mine.breakdown, reasons: mine.reasons,
@@ -8268,6 +9249,18 @@ function setAnalyzeProjMode(mode) {
 // synergy-aware cuts, and on-plan adds. Only called in semantic mode.
 let _e2AnalysisCache = { key: null, data: null, promise: null };
 
+/** The cached analysis, but only when it belongs to THIS deck. The cache is a
+ * single slot keyed by deck + list; reading `.data` blind paints one deck's goals
+ * onto the next deck opened. */
+function _e2CachedAnalysis(deck) {
+  if (!deck || !_e2AnalysisCache || !_e2AnalysisCache.data) return null;
+  try {
+    return _e2AnalysisCache.key === _e2AnalysisKey(deck) ? _e2AnalysisCache.data : null;
+  } catch (_) {
+    return null;
+  }
+}
+
 function _e2AnalysisKey(deck) {
   const list = _analyzeProjected(deck) ? _projectedDeckCards(deck) : (deck.cards || []);
   const cards = list.map(c => `${c.name}x${c.qty || 1}`).sort().join('|');
@@ -8329,8 +9322,13 @@ function _renderDeckGoalReadout(deck, e2) {
   if (!el) {
     el = document.createElement('div');
     el.id = 'deckGoalReadout';
-    panel.parentNode.insertBefore(el, panel);
   }
+  // Always re-seat it at the top of the pane rather than just above the Adds
+  // panel. Suggested Cuts sits before Adds and only appears once the deck goes
+  // over 100, so anchoring to Adds stranded the goal between the two lists
+  // exactly when both were on screen.
+  const pane = document.getElementById('deckTabPane-suggestions') || panel.parentNode;
+  if (pane && pane.firstElementChild !== el) pane.insertBefore(el, pane.firstElementChild);
   el.className = 'deck-goal-card';
   el.style.cssText = '';
   el.style.display = '';
@@ -8428,7 +9426,8 @@ async function _renderCutSuggestions(deck) {
         : _SUGGEST_E2_UNAVAILABLE_HTML;
       return;
     }
-    body.innerHTML = _SUGG_CUT_COLHEAD + basisNote + items.map(({ cut, card, plannedAdd }) => {
+    const collIdx = _suggCollectionIndex();
+    body.innerHTML = _suggColHeadHtml('Cut') + basisNote + items.map(({ cut, card, plannedAdd }, i) => {
       const uid = (card.uid || card.scryfallId || card.name || '').replace(/'/g, "\\'");
       const sid = card.scryfallId || card.uid || '';
       const displayName = escapeHtml(card.name);
@@ -8452,16 +9451,33 @@ async function _renderCutSuggestions(deck) {
         : swapsOnE2
           ? 'Mark as a planned cut — stays in the deck until you apply swaps'
           : 'Remove one copy from the deck';
-      const addTag = plannedAdd
-        ? '<span class="sugg-meta" title="This is one of your planned adds — cutting it just un-plans it">planned add</span>' : '';
+      // Same row shape as Adds: rank, score, name, ownership + price, action,
+      // feedback. The feedback strip is tagged kind:'cut' so the stored context
+      // says which list a note came from — suggestion_feedback has no column for
+      // it, and without the tag a cut would be indistinguishable from an add.
+      const cutGoalKey = (e2 && e2.goals && e2.goals[0] && e2.goals[0].goal) || '';
+      const fbBtn = `<button type="button" class="btn btn-ghost btn-sm" title="Give feedback on this pick" aria-label="Give feedback on this pick" style="padding:2px 5px;flex-shrink:0" onclick="_toggleSuggestFeedback(this)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></svg></button>`;
+      const fbStrip = `<div class="suggest-feedback" data-kind="cut" data-rank="${i + 1}" data-of="${items.length}" data-card="${escapeHtml(card.name || '')}" data-score="${score}" data-goal="${escapeHtml(cutGoalKey)}" style="display:none;gap:6px;align-items:center;padding:.3rem .75rem .5rem">
+          <input type="text" maxlength="500" placeholder="What's right or wrong about this cut?" style="flex:1;font-size:.74rem;padding:4px 8px;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;color:var(--text)" onkeydown="if(event.key==='Enter')_sendSuggestFeedback(this.parentNode.querySelector('button'))">
+          <button type="button" class="btn btn-outline btn-sm" style="padding:2px 10px;font-size:.7rem" onclick="_sendSuggestFeedback(this)">Send</button>
+        </div>`;
+      // Every row shows ownership and price, planned adds included — the chip that
+      // used to replace them left those rows with no price at all. That a row is a
+      // planned add is still carried by the button's title.
+      const ownTag = _suggMetaHtml(
+        collIdx.has(String(card.name || '').toLowerCase()),
+        _suggCutPrice(card, collIdx));
       return `<div class="suggest-item">
         <div class="cut-candidate-row">
+          <span class="suggest-rank" title="Cut rank — the most negative contribution first">${i + 1}</span>
           <button type="button" class="cut-score-badge cut-why-toggle" aria-expanded="false" aria-label="Contribution to this deck ${score}" onclick="_toggleSuggestWhy(this)">${score}</button>
           <span class="cut-card-name" onclick="${sid ? `openCardDetail('${sid}','deck')` : ''}">${displayName}</span>
-          ${addTag}
-          <button class="btn-danger-ghost" title="${cutTitle}" onclick="${cutOnclick}">${plannedAdd ? "Don't add" : 'Cut'}</button>
+          ${ownTag}
+          <button class="btn btn-outline btn-sm" title="${cutTitle}" onclick="${cutOnclick}">Cut</button>
+          ${fbBtn}
         </div>
         ${why}
+        ${fbStrip}
       </div>`;
     }).join('');
     return;
@@ -8887,11 +9903,72 @@ function _suggestWhyDetailHtml(title, score, lines, footer) {
     </div>`;
 }
 
-const _SUGG_CUT_COLHEAD = `<div class="suggest-col-head">
-  <span class="suggest-col-score">Score</span>
-  <span class="suggest-col-card">Card</span>
-  <span class="suggest-col-actions">Cut</span>
-</div>`;
+/** Ownership + price beside a suggestion's name. The ownership word is wrapped
+ *  separately so phones can hide it and keep the price — see mobile.css. */
+function _suggMetaHtml(owned, price) {
+  const own = `<span class="sugg-meta-own">${owned ? 'owned' : 'unowned'}</span>`;
+  // A number renders as money; a string ('—') renders as-is for an unknown price.
+  const priceText = (typeof price === 'number' && price > 0) ? `$${Number(price).toFixed(2)}`
+    : (typeof price === 'string' && price) ? price : '';
+  const p = priceText ? `<span class="sugg-meta-price">${escapeHtml(priceText)}</span>` : '';
+  const sep = p ? '<span class="sugg-meta-sep">&ndash;</span>' : '';
+  return `<span class="sugg-meta">${own}${sep ? ' ' + sep + ' ' : ''}${p}</span>`;
+}
+
+/** Column header for both suggestion lists. Shared so Adds and Cuts cannot drift
+ *  apart — only the action column's label differs. */
+function _suggColHeadHtml(actionLabel) {
+  return `<div class="suggest-col-head">
+    <span class="suggest-rank">#</span>
+    <span class="suggest-col-score">Score</span>
+    <span class="suggest-col-card">Card</span>
+    <span class="suggest-col-actions">${escapeHtml(actionLabel)}</span>
+  </div>`;
+}
+
+/**
+ * Names in the collection, for the owned/unowned text beside a suggestion.
+ * Deliberately not _deckCardOwnership: that is printing-strict and returns early
+ * when the deck-ownership *display* toggle is off, while this has to mean the
+ * same thing the adds engine means by "owned" — the card is in your collection,
+ * any printing — regardless of that toggle.
+ */
+function _suggCollectionIndex() {
+  const src = (typeof _ownershipCollection === 'function' ? _ownershipCollection() : null)
+    || (typeof collection !== 'undefined' ? collection : []);
+  const out = new Map();
+  for (const c of (src || [])) {
+    const q = Number(c && c.qty);
+    if (Number.isFinite(q) && q < 1) continue;   // zero-qty rows are not owned
+    const n = String(c && c.name || '').toLowerCase();
+    if (n && !out.has(n)) out.set(n, c);
+  }
+  return out;
+}
+
+/**
+ * Price for a cut candidate. Deck rows usually carry priceTCG, but a planned-add
+ * slot often does not, so fall back to the collection's copy of the same card
+ * before giving up. Returns '—' rather than 0 when nothing knows the price — the
+ * column stays filled, and "$0.00" would be a lie.
+ */
+function _suggCutPrice(card, idx) {
+  // Whichever vendor Settings designates, falling back to the other — a card
+  // priced by only one of them still gets a number rather than a dash.
+  const read = c => {
+    if (!c) return 0;
+    const tcg = (typeof getTCGPriceForCard === 'function' ? Number(getTCGPriceForCard(c)) : 0) || Number(c.priceTCG) || 0;
+    const ck  = (typeof getCKPriceForCard === 'function' ? Number(getCKPriceForCard(c)) : 0) || Number(c.priceCK) || 0;
+    const primaryCk = typeof getPrimaryPriceVendor === 'function' && getPrimaryPriceVendor() === 'ck';
+    return primaryCk ? (ck || tcg) : (tcg || ck);
+  };
+  let v = read(card);
+  if (!v && idx) {
+    const alt = idx.get(String(card && card.name || '').toLowerCase());
+    if (alt) v = read(alt);
+  }
+  return v > 0 ? v : '—';
+}
 
 function _toggleSuggestWhy(btn) {
   const item = btn.closest('.suggest-item');
@@ -9189,13 +10266,7 @@ async function _renderAddSuggestions(deck) {
           reasons: a.reasons ? a.reasons.map((r, j) => ({ n: j + 1, text: r })) : null,
         })),
       };
-      const colHead = `<div class="suggest-col-head">
-        <span class="suggest-rank">#</span>
-        <span class="suggest-col-score">Score</span>
-        <span class="suggest-col-card">Card</span>
-        <span class="suggest-col-actions">Add</span>
-      </div>`;
-      body.innerHTML = colHead + shownAdds.map((a, i) => {
+      body.innerHTML = _suggColHeadHtml('Add') + shownAdds.map((a, i) => {
         const name = a.name || '';
         const safeName = name.replace(/'/g, "\\'");
         const displayName = escapeHtml(name);
@@ -9211,9 +10282,9 @@ async function _renderAddSuggestions(deck) {
           `Semantic engine analysis · ${a.owned ? 'In your collection' : 'Not in your collection'}${priceBit}`);
         // Ownership and price read as quiet text beside the name, joined by dashes,
         // instead of competing chips.
-        const metaBits = [a.owned ? 'owned' : 'unowned'];
-        if (a.price != null) metaBits.push(`$${Number(a.price).toFixed(2)}`);
-        const ownTag = `<span class="sugg-meta">${metaBits.map(escapeHtml).join(' <span class="sugg-meta-sep">&ndash;</span> ')}</span>`;
+        // Each bit is its own element so a narrow phone can drop the ownership
+        // word and keep the price, rather than squeezing the card name to nothing.
+        const ownTag = _suggMetaHtml(a.owned, a.price);
         const priceTag = '';
         const addTitle = swapsOnE2 ? ' title="Add to planned adds — not counted until you apply swaps"' : '';
         // One Add treatment regardless of ownership — the text beside the name
@@ -9516,9 +10587,7 @@ async function _renderAddSuggestions(deck) {
       : `Role tags: ${s.roles && s.roles.length ? escapeHtml(s.roles.join(', ')) : '—'} · ${owned ? 'In your collection' : 'Not in your collection'}`;
     const why = _suggestWhyDetailHtml('Why suggested', scoreLabel, whyLines, footer);
     const _priceVal = (s.price != null) ? s.price : (s.card && s.card.priceTCG);
-    const _meta = [owned ? 'owned' : 'unowned'];
-    if (_priceVal != null && Number(_priceVal) > 0) _meta.push(`$${Number(_priceVal).toFixed(2)}`);
-    const ownTag = `<span class="sugg-meta">${_meta.map(escapeHtml).join(' <span class="sugg-meta-sep">&ndash;</span> ')}</span>`;
+    const ownTag = _suggMetaHtml(owned, (_priceVal != null && Number(_priceVal) > 0) ? _priceVal : null);
     const addTitle = swapsOn ? ' title="Add to planned adds — use → Main or apply all swaps when ready"' : '';
     const addBtn = owned
       ? `<button class="btn btn-outline btn-sm"${addTitle} onclick="${swapsOn ? `addOwnedRecommendationToAdds('${safeName}')` : `addOwnedRecommendation('${safeName}')`}">+ Add</button>`
@@ -9620,10 +10689,18 @@ function _applyDeckBuilderTab() {
   if (historyOn !== _deckHistoryVisible) {
     _deckHistoryVisible = historyOn;
     if (historyOn && activeDeckId) {
-      apiFetch('/deck-history/' + activeDeckId)
-        .then(h => { _deckHistory = h; })
-        .catch(() => { _deckHistory = []; })
-        .then(() => { if (_deckHistoryVisible) renderDeckHistory(); });
+      // A deck opened from Browse or a share link: its history belongs to the
+      // owner and the endpoint refuses, rightly. Show the tab empty rather than
+      // firing a request that can only 403.
+      if (typeof activeDeckIsPublicView === 'function' && activeDeckIsPublicView()) {
+        _deckHistory = [];
+        renderDeckHistory();
+      } else {
+        apiFetch('/deck-history/' + activeDeckId)
+          .then(h => { _deckHistory = h; })
+          .catch(() => { _deckHistory = []; })
+          .then(() => { if (_deckHistoryVisible) renderDeckHistory(); });
+      }
     }
   }
 
@@ -9656,6 +10733,7 @@ function renderDeckList(deck) {
   if (_listPane && !_listPane.classList.contains('active')) _deckListRenderedHidden = true;
   _glassSelectEnsure();
   _bindDeckStackPeek(el);
+  _prioritizeVisibleDeckArt(el);
   // innerHTML rebuilds wipe scrollTop; keep the list where the user left it so
   // inspector tag refresh / ownership redraws don't jump to top and re-lazy-load.
   const prevScroll = el.scrollTop;
@@ -9671,7 +10749,7 @@ function renderDeckList(deck) {
   _bindDeckTagGroupHoverLinking(el, false);
   _bindSwapZoneHoverLinking(el, false);
   _bindArchListHoverPreview(el, deck, false);
-  const filteredCards = _applyDeckListFilter(deck.cards || []);
+  const filteredCards = _applyDeckListFilter(deck.cards || [], { reportCount: true });
   // One classification per render, shared by the Architecture view's panels and
   // Group By → Architecture (list / visual / nested band skip).
   const archOn = (deckListView === 'architecture' || deckGroupBy === 'architecture');
@@ -9769,6 +10847,7 @@ function renderDeckList(deck) {
       return;
     }
     const canEdit = typeof canEditActiveDeck !== 'function' || canEditActiveDeck();
+    _archForceMobileDefaults();
     const stackedLayout = archPanelLayout === 'vertical';
     const stackedVisual = stackedLayout && archCardMode === 'visual';
     if (stackedLayout) {
@@ -9779,7 +10858,11 @@ function renderDeckList(deck) {
     }
     const html = architectureViewHtml(model, {
       canEdit: canEdit && !activeDeckIsShared,
-      compact: typeof _deckIsPhone === 'function' && _deckIsPhone(),
+      // Phones used to get the compact readout — per-category chips, five
+      // representative cards, and the rest behind "Show all cards". The full
+      // list is wanted on mobile too, so nothing collapses now. The compact
+      // path stays in architectureViewHtml (and under test) for reuse.
+      compact: false,
       panelLayout: archPanelLayout,
       cardMode: archCardMode,
       stackContainerWidth: stackedVisual ? Math.max(0, _archFitWidth) : 0,
@@ -9844,7 +10927,7 @@ function renderDeckList(deck) {
   if (deckListView === 'grid') {
     _detachArchStackObserver();
     if (isDeckOwnershipEnabled()) _rebuildOwnershipMaps();
-    const groups = mergeAddGhostGroups(_buildDeckGroups(filteredCards, deckGroupBy));
+    const groups = mergeAddGhostGroups(_buildDeckGroups(_mergeBasicLandFinishes(filteredCards), deckGroupBy));
     const entries = Object.entries(groups).filter(([, v]) => v.length > 0);
     const isVertical = deckStackOrient === 'vertical';
     const orientClass = isVertical ? ' vertical' : '';
@@ -9909,6 +10992,14 @@ function renderDeckList(deck) {
     el.onclick = e => {
       if (_deckConsumeSuppressClick()) return;
       if (_handleDeckExtraZoneToggleClick(e)) return;
+      // Read-only deck: collapsing a zone and opening a card still work; nothing
+      // that writes does, however the click arrived.
+      const canEditHere = typeof canEditActiveDeck !== 'function' || canEditActiveDeck();
+      if (!canEditHere) {
+        const tileRO = e.target.closest('.deck-stack-card');
+        if (tileRO) openCardDetail(tileRO.dataset.uid || tileRO.dataset.sid, 'deck');
+        return;
+      }
       const removeBtn = e.target.closest('.stack-remove');
       if (removeBtn) {
         const z = removeBtn.dataset.zone;
@@ -9948,6 +11039,7 @@ function renderDeckList(deck) {
     _bindDeckTagGroupHoverLinking(el, _isTagGroupByMode(deckGroupBy));
     _bindSwapZoneHoverLinking(el, swapsOn);
     _bindDeckStackPeek(el);
+    _prioritizeVisibleDeckArt(el);
     _syncDeckStackLayoutResetBtn(deck);
     _scheduleDeckTokensRefresh(deck);
     restoreScroll();
@@ -10560,13 +11652,23 @@ function _estimateManaSources(card, allowedColors = null, sourceMode = false) {
       if (col === 'C') { sources.C += 1; return; }
       if (sources[col] != null && (!allowed || allowed.has(col))) sources[col] += 1;
     });
+    // Any-color lands spell it out in words, not symbols (Command Tower, Exotic Orchard,
+    // Mana Confluence) — the symbol scan alone counted them as zero sources.
+    if (txt.includes('mana of any color') || txt.includes('any combination of colors') ||
+        txt.includes('mana of the chosen color')) {
+      const spread = allowed ? [...allowed] : ['W', 'U', 'B', 'R', 'G'];
+      spread.forEach(col => { if (sources[col] != null) sources[col] = Math.max(sources[col], 1); });
+    }
     return sources;
   }
   // Only count explicit mana-production: "add {X}" patterns or "mana of any color".
   // Deliberately excludes "create a treasure" — treasure tokens are colorless/conditional and
   // shouldn't be counted as color sources (avoids picking up {R} from pump costs like
   // "{R}: Storm Kiln Artist gets +1/+0" when the card also happens to make treasures).
-  if (!(txt.includes('add {') || txt.includes('mana of any'))) return sources;
+  // "Chosen color" producers (Utopia Sprawl, Caged Sun) pick the color on ETB,
+  // so they behave like any-color sources — you choose the color you need.
+  const chosenColor = txt.includes('mana of the chosen color');
+  if (!(txt.includes('add {') || txt.includes('mana of any') || chosenColor)) return sources;
   // Scan "add …" sentences (up to period/semicolon) for mana symbols to handle
   // both contiguous "{W}{U}" and "or"-separated "{W} or {U}" patterns.
   const addPhrases = txt.match(/add [^.;]+/gi) || [];
@@ -10580,7 +11682,7 @@ function _estimateManaSources(card, allowedColors = null, sourceMode = false) {
     const cCount = (phrase.match(/\{c\}/gi) || []).length;
     if (cCount) { sources.C += cCount; hasColorSym = true; }
   });
-  if (!hasColorSym && txt.includes('mana of any')) {
+  if (!hasColorSym && (txt.includes('mana of any') || chosenColor)) {
     const spread = allowed ? [...allowed] : ['W', 'U', 'B', 'R', 'G'];
     // sourceMode=true: 1.0 per color ("is this a source of X?", used by gameplan prob)
     // sourceMode=false: 1/N per color so total sums to 1 (used by generation chart proportions)
@@ -11694,8 +12796,10 @@ function _rampIsRelevant(card, cmdColors, hasGenericCost) {
   if (txt.includes('search your library') && (txt.includes(' land') || txt.includes('basic'))) return true;
   if (txt.includes('put') && txt.includes(' land') && txt.includes('onto the battlefield')) return true;
   // Any-color producers: Birds of Paradise, Arcane Signet, Commander's Sphere, etc.
+  // "Chosen color" (Utopia Sprawl, Caged Sun) counts too — the color is picked on ETB.
   if (txt.includes('mana of any color') || txt.includes('any one color') ||
-      txt.includes("commander's color identity") || txt.includes('any combination of colors')) return true;
+      txt.includes("commander's color identity") || txt.includes('any combination of colors') ||
+      txt.includes('mana of the chosen color')) return true;
   // Colorless mana (Sol Ring, etc.) only helps if commander has generic mana in cost
   if (hasGenericCost && (txt.includes('{c}') || (txt.includes('colorless') && txt.includes('add')))) return true;
   // Does this card produce a pip color the commander actually needs?
@@ -12500,7 +13604,23 @@ async function addScryfallCardToDeck(scryfallId) {
   scheduleEDHRECRefresh();
 }
 
+/**
+ * Refuse, and say why, when the open deck is not this account's to change.
+ *
+ * The buttons are already gone on a read-only deck; this is the floor under
+ * them — drag, keyboard, voice and the inspector all reach the same handlers,
+ * and a viewer must not be able to get at one by any route.
+ */
+function _requireDeckEdit() {
+  if (typeof canEditActiveDeck === 'function' && !canEditActiveDeck()) {
+    showNotif('This deck is read-only', true);
+    return false;
+  }
+  return true;
+}
+
 function addToDeck(uid) {
+  if (typeof _requireDeckEdit === 'function' && !_requireDeckEdit()) return;
   const deck = getActiveDeck();
   if (!deck) return;
   const pool = _ownershipCollection();
@@ -12520,6 +13640,7 @@ function addToDeckFromDetail(id) {
 }
 
 function removeFromDeck(uid) {
+  if (typeof _requireDeckEdit === 'function' && !_requireDeckEdit()) return;
   const deck = getActiveDeck();
   if (!deck) return;
   const c = deck.cards.find(c => getCardInventoryKey(c) === uid || c.uid === uid);
@@ -12727,6 +13848,7 @@ function toggleDeckCardFoil(uid, zone) {
 }
 
 function _removeFromDeckZone(deck, uid, zone) {
+  if (typeof _requireDeckEdit === 'function' && !_requireDeckEdit()) return;
   const pool = _deckZonePool(deck, zone);
   const planning = _deckZoneIsPlanning(zone);
   const c = pool.find(card => getCardInventoryKey(card) === uid || card.uid === uid);
@@ -12744,6 +13866,7 @@ function removeFromPlannedAdds(uid) { _removeFromDeckZone(getActiveDeck(), uid, 
 function removeFromPlannedCuts(uid) { _removeFromDeckZone(getActiveDeck(), uid, 'cut'); }
 
 function _adjustDeckZoneQtyByUid(uid, delta, zone) {
+  if (typeof _requireDeckEdit === 'function' && !_requireDeckEdit()) return;
   const deck = getActiveDeck();
   if (!deck) return;
   const pool = _deckZonePool(deck, zone);
@@ -12780,6 +13903,7 @@ function adjustPlannedAddQtyByUid(uid, delta) { _adjustDeckZoneQtyByUid(uid, del
 function adjustPlannedCutQtyByUid(uid, delta) { _adjustDeckZoneQtyByUid(uid, delta, 'cut'); }
 
 function _moveMainToDeckZone(uid, zone, label) {
+  if (typeof _requireDeckEdit === 'function' && !_requireDeckEdit()) return;
   const deck = getActiveDeck();
   if (!deck) return;
   if (zone === 'sb' && !_deckMatchSideboardEnabled(deck)) return;
@@ -12842,6 +13966,7 @@ function moveToMatchSideboard(uid) { _moveMainToDeckZone(uid, 'sb', 'sideboard')
 function moveMainToAdds(uid) { _moveMainToDeckZone(uid, 'add', 'planned adds'); }
 
 function moveToMainboard(uid, fromZone = 'mb') {
+  if (typeof _requireDeckEdit === 'function' && !_requireDeckEdit()) return;
   const deck = getActiveDeck();
   if (!deck) return;
   const pool = _deckZonePool(deck, fromZone);
@@ -13017,6 +14142,7 @@ async function unmarkPlannedCut(uid) {
 
 /** Move one copy of a planned add into the deck for real. */
 function commitPlannedAdd(uid) {
+  if (typeof _requireDeckEdit === 'function' && !_requireDeckEdit()) return;
   const deck = getActiveDeck();
   if (!deck) return;
   const pool = _deckPlannedAdds(deck);
@@ -13094,6 +14220,7 @@ function commitPlannedCut(uid) {
 
 /** Move a card between the planned-adds pool and the maybe board / sideboard (no history — planning only). */
 function _movePlanningZoneCard(uid, fromZone, toZone) {
+  if (typeof _requireDeckEdit === 'function' && !_requireDeckEdit()) return;
   const deck = getActiveDeck();
   if (!deck || fromZone === toZone) return;
   if ((fromZone === 'add' || toZone === 'add') && !_deckSwapsEnabled()) return;
@@ -13117,6 +14244,7 @@ function _movePlanningZoneCard(uid, fromZone, toZone) {
 }
 
 function addToAdds(uid) {
+  if (typeof _requireDeckEdit === 'function' && !_requireDeckEdit()) return;
   const deck = getActiveDeck();
   if (!deck || !_deckSwapsEnabled()) return;
   const pool = _ownershipCollection();
@@ -13226,7 +14354,11 @@ function _htmlCardDetailSwapActionsInner(ctx) {
   const btns = [];
   if (inMain) {
     btns.push(`<button class="btn btn-outline btn-sm" title="Move this card from the mainboard to the maybe board" onclick="moveToMaybeboardFromDetail('${ref(inMain)}')">&rarr; MB</button>`);
-    if (swapsOn) {
+    // Already marked as a cut: the useful action is making the cut, not moving
+    // the card to the adds pile. It leaves the collection alone either way.
+    if (swapsOn && cutQty > 0) {
+      btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--red);border-color:var(--red)" title="Cut this card from the deck now — your collection is untouched" onclick="commitPlannedCutFromDetail('${ref(cutSlot || inMain)}')">${_SWAP_CUT_ICON} Cut from deck</button>`);
+    } else if (swapsOn) {
       btns.push(`<button class="btn btn-outline btn-sm" style="color:var(--green);border-color:var(--green)" title="Move this card from the mainboard to planned adds" onclick="moveMainToAddsFromDetail('${ref(inMain)}')">${_SWAP_ADD_ICON} Adds</button>`);
     }
   }
@@ -13271,6 +14403,7 @@ function _refreshCardDetailAfterSwapAction(uid) {
   if (document.getElementById('cardDetailModal')?.classList.contains('open')) openCardDetail(uid, 'deck');
 }
 
+function commitPlannedCutFromDetail(uid) { commitPlannedCut(uid); _refreshCardDetailAfterSwapAction(uid); }
 function markPlannedCutFromDetail(uid) { markPlannedCut(uid); _refreshCardDetailAfterSwapAction(uid); }
 function unmarkPlannedCutFromDetail(uid) { unmarkPlannedCut(uid); _refreshCardDetailAfterSwapAction(uid); }
 function moveToMaybeboardFromDetail(uid) { moveToSideboard(uid); _refreshCardDetailAfterSwapAction(uid); }
@@ -13588,17 +14721,28 @@ async function _fetchScryfallTagsBatch(missingOids) {
   }
 }
 
+/**
+ * Oracle tags do not change between two looks at the same deck, but every id in
+ * the deck went to the server on every refresh — so reopening a deck paid a full
+ * round trip for an answer already in hand. Only unknown ids are asked for now;
+ * forceRefreshDeckScryfallTags empties the cache first, so it still re-asks.
+ */
 async function _fetchScryfallTagsForDeckOracleIds(oracleIds) {
   const ids = [...new Set((oracleIds || []).filter(_isUuidLike))];
   const out = new Map();
   if (!ids.length) return out;
+  for (const oid of ids) {
+    if (_scryTagsByOracleId.has(oid)) out.set(oid, _scryTagsByOracleId.get(oid));
+  }
+  const missing = ids.filter(oid => !_scryTagsByOracleId.has(oid));
+  if (!missing.length) return out;
   try {
     const r = await apiPostJson('/scryfall/tags/batch', {
-      oracleIds: ids,
+      oracleIds: missing,
       schemaVersion: _SCRY_TAG_SCHEMA_VERSION,
     });
     const byOid = r?.tagsByOracleId || {};
-    ids.forEach(oid => {
+    missing.forEach(oid => {
       if (!Object.prototype.hasOwnProperty.call(byOid, oid)) return;
       const arr = Array.isArray(byOid[oid]) ? byOid[oid].filter(Boolean) : [];
       out.set(oid, arr);
@@ -13773,16 +14917,14 @@ function _scheduleDeckScryfallTagRefresh(deck) {
   // so grouping by default tags works on decks shared with the user.
   if (!deck) return;
   _scrySyncDecks.add(deck.id);
-  _renderScryTagSyncBadge();
   if (_scryRefreshTimer) clearTimeout(_scryRefreshTimer);
   _scryRefreshTimer = setTimeout(() => {
     _scryRefreshTimer = null;
     _refreshDeckScryfallTags(deck)
       .catch(() => {})
-      .finally(() => {
-        _scrySyncDecks.delete(deck.id);
-        _renderScryTagSyncBadge();
-      });
+      // The timer is shared, so a burst of schedules collapses into one run.
+      // Clearing only this deck's id left every superseded one in the set.
+      .finally(() => { _scrySyncDecks.clear(); });
   }, 90);
 }
 
@@ -13794,7 +14936,6 @@ async function forceRefreshDeckScryfallTags() {
     if (c?.oracleId) _scryTagsByOracleId.delete(c.oracleId);
   });
   _scrySyncDecks.add(deck.id);
-  _renderScryTagSyncBadge();
   try {
     await _refreshDeckScryfallTags(deck);
     showNotif('Scryfall tags refreshed');
@@ -13805,7 +14946,6 @@ async function forceRefreshDeckScryfallTags() {
     showNotif('Could not refresh Scryfall tags', true);
   } finally {
     _scrySyncDecks.delete(deck.id);
-    _renderScryTagSyncBadge();
   }
 }
 

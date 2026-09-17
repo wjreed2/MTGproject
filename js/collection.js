@@ -12,10 +12,18 @@ function _getCollectionSource() {
 
 function viewSharedCollection(ownerId) {
   _viewingSharedCollOwnerId = ownerId;
+  // The owner changed, so any cached history is someone else's. With the panel
+  // open, the old render would otherwise keep showing YOUR events — undo
+  // buttons included — under another person's collection.
+  _sharedCollHistory = null;
   closeCollectionShareModal();
   showTab('collection');
   _syncSharedCollectionBanner();
   renderCollection();
+  if (_historyVisible) {
+    renderCollectionHistory();
+    _fetchSharedCollHistory(ownerId);
+  }
   updateStats();
 }
 
@@ -248,6 +256,15 @@ function applyCardFilters(cards, f) {
   if (f.flags && f.flags.has('new'))       out = out.filter(c => isRecentlyAdded(c));
   if (f.cmcMin != null)                    out = out.filter(c => (c.cmc || 0) >= f.cmcMin);
   if (f.cmcMax != null)                    out = out.filter(c => (c.cmc || 0) <= f.cmcMax);
+  // The collection picks discrete values instead of a range. QUICK_CMC_MAX is
+  // the last option and stands for "that much or more", so nothing above it
+  // becomes unreachable.
+  if (f.cmcValues && f.cmcValues.size) {
+    out = out.filter(c => {
+      const v = Math.max(0, Math.round(Number(c.cmc) || 0));
+      return f.cmcValues.has(v) || (v > QUICK_CMC_MAX && f.cmcValues.has(QUICK_CMC_MAX));
+    });
+  }
   return out;
 }
 
@@ -502,7 +519,7 @@ function getFilteredCollection() {
     starred: showStarredCardsOnly, searchQ,
     colors: colorFilters, rarity: currentRarity,
     types: quickFilters.types, flags: quickFilters.flags,
-    cmcMin: quickFilters.cmcMin, cmcMax: quickFilters.cmcMax,
+    cmcValues: quickFilters.cmc,
   });
   return sortCardList(cards, currentSort);
 }
@@ -662,28 +679,255 @@ function toggleQuickFlag(flag, btn) {
   _syncQuickFilterUI(); renderCollection();
 }
 
-function setQuickCMC() {
-  const minEl = document.getElementById('cmcMinInput');
-  const maxEl = document.getElementById('cmcMaxInput');
-  quickFilters.cmcMin = minEl?.value !== '' ? parseInt(minEl.value) : null;
-  quickFilters.cmcMax = maxEl?.value !== '' ? parseInt(maxEl.value) : null;
-  _syncQuickFilterUI(); renderCollection();
+const QUICK_CMC_MAX = 12;
+const QUICK_CMC_OPTIONS = Array.from({ length: QUICK_CMC_MAX + 1 }, (_, i) => i);
+
+function _syncQuickCmcUi() {
+  const btn = document.getElementById('cmcFilterMenuBtn');
+  if (!btn) return;
+  const n = quickFilters.cmc.size;
+  btn.textContent = n > 0 ? `Mana Value (${n})` : 'Mana Value';
+  btn.classList.toggle('active', n > 0);
+}
+
+function toggleQuickCmc(v) {
+  if (quickFilters.cmc.has(v)) quickFilters.cmc.delete(v);
+  else quickFilters.cmc.add(v);
+  _syncQuickCmcUi();
+  _syncQuickFilterUI();
+  renderCollection();
+}
+
+function closeCmcFilterMenu() {
+  document.querySelectorAll('.cmc-menu').forEach(m => m.remove());
+  document.getElementById('cmcFilterMenuBtn')?.setAttribute('aria-expanded', 'false');
+}
+
+function toggleCmcFilterMenu(event) {
+  if (event) { event.stopPropagation(); event.preventDefault(); }
+  const open = !!document.querySelector('.cmc-menu');
+  closeQuickFilterMenu();
+  closeColorFilterMenu();
+  closeCmcFilterMenu();
+  if (!open) _openCmcFilterMenu();
+}
+
+function _openCmcFilterMenu() {
+  const btn = document.getElementById('cmcFilterMenuBtn');
+  if (!btn) return;
+  const menu = document.createElement('div');
+  menu.className = 'glass-menu qf-menu cmc-menu';
+  for (const v of QUICK_CMC_OPTIONS) {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'glass-menu-item' + (quickFilters.cmc.has(v) ? ' selected' : '');
+    item.textContent = v === QUICK_CMC_MAX ? `${v}+` : String(v);
+    item.addEventListener('click', e => {
+      e.stopPropagation();
+      toggleQuickCmc(v);
+      const scroll = menu.scrollTop;
+      setTimeout(() => {
+        closeCmcFilterMenu();
+        _openCmcFilterMenu();
+        const next = document.querySelector('.cmc-menu');
+        if (next) next.scrollTop = scroll;
+      }, 0);
+    });
+    menu.appendChild(item);
+  }
+  document.body.appendChild(menu);
+  const r = btn.getBoundingClientRect();
+  const margin = 8;
+  const maxH = Math.min(320, window.innerHeight - margin * 2);
+  menu.style.maxHeight = maxH + 'px';
+  const h = Math.min(menu.offsetHeight, maxH);
+  const w = menu.offsetWidth;
+  const below = window.innerHeight - r.bottom;
+  const top = below >= h + 12 ? r.bottom + 6 : Math.max(margin, r.top - h - 6);
+  menu.style.top = Math.min(top, window.innerHeight - h - margin) + 'px';
+  menu.style.left = Math.min(Math.max(margin, r.left), window.innerWidth - w - margin) + 'px';
+  btn.setAttribute('aria-expanded', 'true');
+
+  const drop = e => {
+    if (!menu.isConnected) {
+      window.removeEventListener('resize', drop, true);
+      window.removeEventListener('scroll', drop, true);
+      return;
+    }
+    if (e && e.target && menu.contains(e.target)) return;
+    closeCmcFilterMenu();
+    window.removeEventListener('resize', drop, true);
+    window.removeEventListener('scroll', drop, true);
+  };
+  window.addEventListener('resize', drop, true);
+  window.addEventListener('scroll', drop, true);
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('click', () => closeCmcFilterMenu());
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeCmcFilterMenu(); });
 }
 
 function clearQuickFilters() {
   quickFilters.types.clear(); quickFilters.flags.clear();
-  quickFilters.cmcMin = null; quickFilters.cmcMax = null;
-  document.querySelectorAll('.filter-chip').forEach(b => b.classList.remove('active'));
-  const min = document.getElementById('cmcMinInput'); if (min) min.value = '';
-  const max = document.getElementById('cmcMaxInput'); if (max) max.value = '';
+  quickFilters.cmc.clear();
+  // The collection's type/flag chips are gone — they are the "Type & more" menu
+  // now, which reads its ticks from quickFilters on each repaint. The old
+  // `.filter-chip` sweep here was unscoped, so with no collection chips left it
+  // would only have reached the find-card modal's chips and cleared those.
+  _syncQuickCmcUi();
+  colorFilters.clear();
+  _syncColorFilterUi();
+  // Rarity and Starred live on the same row and filter the same grid, but Clear
+  // used to leave both applied — so clearing "everything" still hid most of the
+  // collection, with the rarity dropdown still reading Rare and no way to get
+  // back except reselecting All Rarities by hand.
+  currentRarity = '';
+  const rarity = document.getElementById('rarityFilterSelect');
+  if (rarity) {
+    rarity.value = '';
+    // The native select is hidden behind a glass trigger; without this the
+    // button keeps the old label while the filter underneath is gone.
+    if (typeof _glassSelectSyncLabels === 'function') _glassSelectSyncLabels();
+  }
+  showStarredCardsOnly = false;
+  document.getElementById('starFilterBtn')?.classList.remove('active');
   _syncQuickFilterUI(); renderCollection();
 }
 
 function _syncQuickFilterUI() {
   const total = quickFilters.types.size + quickFilters.flags.size +
-    (quickFilters.cmcMin !== null ? 1 : 0) + (quickFilters.cmcMax !== null ? 1 : 0);
+    quickFilters.cmc.size +
+    (currentRarity ? 1 : 0) + (showStarredCardsOnly ? 1 : 0) + colorFilters.size;
   const btn = document.getElementById('clearChipsBtn');
   if (btn) { btn.style.display = total > 0 ? '' : 'none'; btn.textContent = `✕ Clear (${total})`; }
+  _syncQuickFilterMenuUi();
+  _syncColorFilterUi();
+  _syncQuickCmcUi();
+}
+
+// ── Phone quick filters: one multi-select menu ───────────────────────────────
+// The chip row is nowrap inside an overflow-x container, so on a phone most of
+// the eleven type/flag chips sat off-screen behind a scroll almost nobody finds.
+// Phones get a single trigger instead, opening a checklist of the same options
+// that stays open while you pick several.
+// Built to match the card inspector's pin-to-deck menu exactly: the same
+// .glass-menu / .glass-menu-item markup, the same .selected tick for what is on,
+// the same body-anchored fixed positioning, and the same repaint-after-toggle so
+// several can be picked without reopening. See _openCardDetailPinMenu.
+const QUICK_FILTER_OPTIONS = [
+  ['type', 'creature', 'Creature'],
+  ['type', 'instant', 'Instant'],
+  ['type', 'sorcery', 'Sorcery'],
+  ['type', 'artifact', 'Artifact'],
+  ['type', 'enchantment', 'Enchantment'],
+  ['type', 'planeswalker', 'Planeswalker'],
+  ['type', 'land', 'Land'],
+  ['flag', 'legendary', 'Legendary'],
+  ['flag', 'foil', 'Foil'],
+  ['flag', 'nonfoil', 'Non-foil'],
+  ['flag', 'new', 'New'],
+];
+
+function _quickFilterSelectedCount() {
+  return quickFilters.types.size + quickFilters.flags.size;
+}
+
+/** Trigger label only — the menu itself repaints rather than syncing in place. */
+function _syncQuickFilterMenuUi() {
+  const btn = document.getElementById('quickFilterMenuBtn');
+  if (!btn) return;
+  const n = _quickFilterSelectedCount();
+  btn.textContent = n > 0 ? `Type & more (${n})` : 'Type & more';
+  btn.classList.toggle('active', n > 0);
+}
+
+function closeQuickFilterMenu() {
+  // `.qf-menu` is the shared glass-menu LOOK (colour, CMC, find, wishlist, sets, trade
+  // all wear it). Matching on it here removed — and reported as "already open" — any of
+  // those, which left the Type & more button dead while another filter menu was up.
+  document.querySelectorAll('.quick-filter-menu').forEach(m => m.remove());
+  document.getElementById('quickFilterMenuBtn')?.setAttribute('aria-expanded', 'false');
+}
+
+function toggleQuickFilterMenu(event) {
+  if (event) { event.stopPropagation(); event.preventDefault(); }
+  const open = !!document.querySelector('.quick-filter-menu');
+  // The toggles stopPropagation, so the document-click closers never fire for a tap on a
+  // sibling filter button — without this the two menus sit stacked on top of each other.
+  closeCmcFilterMenu();
+  closeColorFilterMenu();
+  closeQuickFilterMenu();
+  if (!open) _openQuickFilterMenu();
+}
+
+function _openQuickFilterMenu() {
+  const btn = document.getElementById('quickFilterMenuBtn');
+  if (!btn) return;
+
+  const menu = document.createElement('div');
+  menu.className = 'glass-menu qf-menu quick-filter-menu';
+  for (const [kind, value, label] of QUICK_FILTER_OPTIONS) {
+    const on = kind === 'type' ? quickFilters.types.has(value) : quickFilters.flags.has(value);
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'glass-menu-item' + (on ? ' selected' : '');
+    item.textContent = label;
+    item.addEventListener('click', e => {
+      e.stopPropagation();
+      if (kind === 'type') toggleQuickType(value, item);
+      else toggleQuickFlag(value, item);
+      // Repaint so the new tick shows and several can be picked in one visit.
+      // The list scrolls on a phone, and a fresh menu starts at the top — so
+      // toggling anything below the fold threw you back up and the next tap
+      // landed on the wrong row. Carry the scroll offset across the repaint.
+      const scroll = menu.scrollTop;
+      setTimeout(() => {
+        closeQuickFilterMenu();
+        _openQuickFilterMenu();
+        const next = document.querySelector('.quick-filter-menu');
+        if (next) next.scrollTop = scroll;
+      }, 0);
+    });
+    menu.appendChild(item);
+  }
+
+  // Body-anchored: the filter row is overflow-x:auto, so a menu positioned
+  // inside it would grow that row's scroll area instead of overlaying the page.
+  document.body.appendChild(menu);
+  const r = btn.getBoundingClientRect();
+  const margin = 8;
+  const maxH = Math.min(320, window.innerHeight - margin * 2);
+  menu.style.maxHeight = maxH + 'px';
+  const h = Math.min(menu.offsetHeight, maxH);
+  const w = menu.offsetWidth;
+  const below = window.innerHeight - r.bottom;
+  const top = below >= h + 12 ? r.bottom + 6 : Math.max(margin, r.top - h - 6);
+  menu.style.top = Math.min(top, window.innerHeight - h - margin) + 'px';
+  menu.style.left = Math.min(Math.max(margin, r.left), window.innerWidth - w - margin) + 'px';
+  btn.setAttribute('aria-expanded', 'true');
+
+  // Anchored to a rect, so scrolling the page or resizing invalidates it — but
+  // scrolling WITHIN the menu must not close it, and a menu already replaced by
+  // the repaint above must retire its own listener rather than close the new one.
+  const drop = e => {
+    if (!menu.isConnected) {
+      window.removeEventListener('resize', drop, true);
+      window.removeEventListener('scroll', drop, true);
+      return;
+    }
+    if (e && e.target && menu.contains(e.target)) return;
+    closeQuickFilterMenu();
+    window.removeEventListener('resize', drop, true);
+    window.removeEventListener('scroll', drop, true);
+  };
+  window.addEventListener('resize', drop, true);
+  window.addEventListener('scroll', drop, true);
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('click', () => closeQuickFilterMenu());
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeQuickFilterMenu(); });
 }
 
 // ── Chunked grid rendering (M1) ──────────────────────────────────────────────
@@ -695,10 +939,45 @@ function _syncQuickFilterUI() {
 // content-visibility (see the #cardGrid .card-item rule in main.css).
 let _collectionRenderGen = 0;
 const _COLLECTION_RENDER_FIRST = 150;
+// 400 is a measured balance, not a guess. On a 4x-throttled phone with a
+// 5,000-card collection the tail costs ~725ms of scripting whatever the chunk
+// size; the size only decides how it is spread. 100 splits it into 34 chunks
+// whose per-chunk overhead dominates (2235ms total), 1200 finishes soonest
+// (746ms) but with 150-200ms frames that swallow taps. 400 sits between: 907ms
+// total, worst frame 96ms. Making this smaller "for phones" measurably hurts.
 const _COLLECTION_RENDER_CHUNK = 400;
+// Phone-only: how many tiles to build before waiting for the reader to scroll.
+// Several screenfuls at any column count, so the pause is never visible.
+const _COLLECTION_LAZY_BUDGET = 400;
+
+let _collectionLazyObserver = null;
+/**
+ * Watch for the end of the grid coming into view, then hand control back to the
+ * streaming step. Generation-guarded like the stream itself, so a filter change
+ * mid-scroll cannot resume rendering the list it just replaced.
+ */
+function _armCollectionLazyTail(grid, gen, resume) {
+  if (_collectionLazyObserver) { _collectionLazyObserver.disconnect(); _collectionLazyObserver = null; }
+  if (typeof IntersectionObserver !== 'function') { requestAnimationFrame(resume); return; }
+  const sentinel = grid.lastElementChild;
+  if (!sentinel) { requestAnimationFrame(resume); return; }
+  const io = new IntersectionObserver(entries => {
+    if (!entries.some(e => e.isIntersecting)) return;
+    io.disconnect();
+    if (_collectionLazyObserver === io) _collectionLazyObserver = null;
+    if (gen !== _collectionRenderGen) return;
+    resume();
+  }, { root: null, rootMargin: '800px 0px' }); // start early enough to feel seamless
+  io.observe(sentinel);
+  _collectionLazyObserver = io;
+}
 
 function _renderCollectionTiles(grid, cards, tileHtml) {
   const gen = ++_collectionRenderGen;
+  // Retire any pending lazy-tail watcher up front: its sentinel is about to be
+  // replaced. (The generation check would make it a no-op anyway; this just
+  // avoids leaving an observer attached to a detached node until it fires.)
+  if (_collectionLazyObserver) { _collectionLazyObserver.disconnect(); _collectionLazyObserver = null; }
   // Hold the grid's height while the tail streams in so a mid-scroll re-render
   // (e.g. the price repaint) doesn't collapse the page and yank the scroll.
   const prevH = grid.offsetHeight;
@@ -711,6 +990,12 @@ function _renderCollectionTiles(grid, cards, tileHtml) {
     return;
   }
   let idx = _COLLECTION_RENDER_FIRST;
+  // Phones stop after a few screenfuls and resume as you approach the end.
+  // Building every tile up front is the single biggest main-thread cost of
+  // opening this tab — ~690ms of blocked scripting for 5,000 cards at 4x CPU
+  // throttle, which on a real phone is seconds of the app not answering taps.
+  // Desktop keeps streaming to completion, where it was never a problem.
+  const lazy = _gamesIsPhone();
   const step = () => {
     if (gen !== _collectionRenderGen) return; // superseded by a newer render
     const tab = document.getElementById('tab-collection');
@@ -720,8 +1005,13 @@ function _renderCollectionTiles(grid, cards, tileHtml) {
     for (let i = idx; i < end; i++) html += tileHtml(cards[i]);
     grid.insertAdjacentHTML('beforeend', html);
     idx = end;
-    if (idx < cards.length) requestAnimationFrame(step);
-    else grid.style.minHeight = '';
+    if (idx >= cards.length) { grid.style.minHeight = ''; return; }
+    if (lazy && idx >= _COLLECTION_LAZY_BUDGET) {
+      grid.style.minHeight = '';
+      _armCollectionLazyTail(grid, gen, () => { idx += 0; step(); });
+      return;
+    }
+    requestAnimationFrame(step);
   };
   requestAnimationFrame(step);
 }
@@ -789,7 +1079,7 @@ function renderCollection(opts) {
       <div class="card-item" onclick="openCardDetail('${c.uid}')">
         <div class="card-img-wrap${c.foil ? ' foil' : ''}">
           ${tileImg ? `<img ${cardThumbAttrs(c, currentView)} alt="${escapeHtml(c.name)}" onload="this.classList.add('loaded');imgFadeSeenMark(this)" onerror="this.classList.add('loaded')">` : placeholder}
-          ${c.foil ? `<div class="card-foil-overlay"></div><div class="card-foil-badge">✦ FOIL</div>` : ''}
+          ${_htmlFoilOverlay(c)}
           ${!isSharedView && isRecentlyAdded(c) ? `<div class="card-new-badge" title="New card"></div>` : ''}
           ${!isSharedView ? `<button type="button" class="collection-card-star${c.starred ? ' is-starred' : ''}" data-card-uid="${c.uid}" onclick="toggleCardStar('${c.uid}',event)" aria-pressed="${c.starred ? 'true' : 'false'}" aria-label="${c.starred ? 'Unstar card' : 'Star card'}">${c.starred ? '★' : '☆'}</button>` : ''}
         </div>
@@ -943,7 +1233,22 @@ function _renderPriceInfoModal() {
     </tr>`;
   }).join('');
 
+  // Two columns when there is a movers list: stacked, a full movers table pushed
+  // the modal past 88vh on an 800px-tall laptop and it scrolled. Side by side the
+  // height is the taller column rather than the sum. Collapses back to one column
+  // on narrow viewports (see .price-modal-grid).
+  const moversHtml = showDeltas
+    ? `<div class="price-modal-section-title">Top movers · ${esc(tfLabel)}</div>
+       ${movers.length ? `
+       <table class="price-table price-modal-movers">
+         <tr class="price-modal-head"><td>Card</td><td>Δ $</td><td>Δ %</td></tr>
+         ${moverRowsHtml}
+       </table>` : '<div style="font-size:0.8rem;color:var(--text3)">No price-change data yet for this timeframe.</div>'}`
+    : '';
+
   body.innerHTML = `
+    <div class="price-modal-grid${moversHtml ? '' : ' is-single'}">
+    <div class="price-modal-col">
     <div class="price-modal-section-title">Estimated value</div>
     <table class="price-table" style="margin-bottom:1.1rem">
       ${valueRows.map(r => `
@@ -952,12 +1257,6 @@ function _renderPriceInfoModal() {
           <td>$${r.val.toFixed(2)}</td>
         </tr>`).join('')}
     </table>
-    ${showDeltas ? `<div class="price-modal-section-title">Top movers · ${esc(tfLabel)}</div>
-    ${movers.length ? `
-    <table class="price-table price-modal-movers" style="margin-bottom:1.1rem">
-      <tr class="price-modal-head"><td>Card</td><td>Δ $</td><td>Δ %</td></tr>
-      ${moverRowsHtml}
-    </table>` : '<div style="font-size:0.8rem;color:var(--text3);margin-bottom:1.1rem">No price-change data yet for this timeframe.</div>'}` : ''}
     <div class="price-modal-section-title">Settings</div>
     <div class="price-modal-settings">
       <label>Displayed price source
@@ -973,25 +1272,47 @@ function _renderPriceInfoModal() {
           ${prefs.timeframe === 'custom' ? `<option value="custom" selected>${esc(_priceChangeTfShortLabel('custom', prefs.customDate))}</option>` : ''}
         </select>
       </label>` : ''}
-      <label>Minimum price — omit rows under <strong id="priceModalMinLabel">${floor <= 0 ? 'Off' : '$' + floor.toFixed(2)}</strong> from totals
-        <input type="range" min="0" max="100" step="1" value="${Math.min(100, Math.max(0, Math.round(floor * 10)))}"
+      ${(() => {
+        const pos = Math.min(100, Math.max(0, Math.round(floor * 10)));
+        return `<label>Minimum price — omit rows under <strong id="priceModalMinLabel">${floor <= 0 ? 'Off' : '$' + floor.toFixed(2)}</strong> from totals
+        <input id="priceModalMinSlider" type="range" min="0" max="100" step="1" value="${pos}"
+          style="--range-fill:${pos}%"
           oninput="onPriceModalMinPriceInput(this.value)">
-      </label>
+      </label>`;
+      })()}
+    </div>
+    </div>
+    ${moversHtml ? `<div class="price-modal-col">${moversHtml}</div>` : ''}
     </div>`;
 }
 
 let _priceModalSliderTimer = null;
 function onPriceModalMinPriceInput(sliderVal) {
+  // Raise the guard BEFORE anything that can repaint. onValueExcludeThresholdInput
+  // runs updateStats synchronously, which refreshes this modal — so on the first
+  // input of a drag the slider was rebuilt under the pointer and the drag died
+  // there. That is why it only ever moved to wherever you clicked: one input
+  // event, then `change`. The flag was being set at the end of this function,
+  // which is too late to protect the event that sets it.
+  _priceModalSliderActive = true;
   if (typeof onValueExcludeThresholdInput === 'function') onValueExcludeThresholdInput(sliderVal);
   if (typeof renderValueExcludeSlider === 'function') renderValueExcludeSlider(); // sync Settings menu copy
   const v = typeof getValueExcludeBelowUsd === 'function' ? getValueExcludeBelowUsd() : 0;
   const label = document.getElementById('priceModalMinLabel');
   if (label) label.textContent = v <= 0 ? 'Off' : ('$' + v.toFixed(2));
+  // The track is drawn by us (see .price-modal-settings input[type=range]), so
+  // the filled span is a gradient stop rather than the UA's native fill — it has
+  // to be told where the thumb is.
+  const slider = document.getElementById('priceModalMinSlider');
+  if (slider) {
+    const max = Number(slider.max) || 100;
+    const pct = Math.min(100, Math.max(0, (Number(sliderVal) || 0) / max * 100));
+    slider.style.setProperty('--range-fill', pct + '%');
+  }
   // Debounce the stats pass: one recompute + modal refresh shortly after the drag
-  // settles. The flag pauses the modal-refresh hook so the slider node survives the
-  // drag; the timer ALWAYS clears it (a drag ending at its start value fires no
-  // change event, which previously left the flag stuck and refreshes disabled).
-  _priceModalSliderActive = true;
+  // settles. The timer ALWAYS clears the guard raised at the top (a drag ending at
+  // its start value fires no change event, which previously left the flag stuck
+  // and refreshes disabled).
   if (_priceModalSliderTimer) clearTimeout(_priceModalSliderTimer);
   _priceModalSliderTimer = setTimeout(() => {
     _priceModalSliderActive = false;
@@ -1075,12 +1396,159 @@ function sortCards(v) {
   syncCollectionChangeSortControls();
   renderCollection();
 }
-function changeRarity(v) { currentRarity = v; renderCollection(); }
+function changeRarity(v) { currentRarity = v; _syncQuickFilterUI(); renderCollection(); }
 
 function toggleColor(c, el) {
-  if (colorFilters.has(c)) { colorFilters.delete(c); el.classList.remove('active'); }
-  else { colorFilters.add(c); el.classList.add('active'); }
+  if (colorFilters.has(c)) { colorFilters.delete(c); el?.classList.remove('active'); }
+  else { colorFilters.add(c); el?.classList.add('active'); }
+  _syncColorFilterUi();
   renderCollection();
+}
+
+// ── Collection header: Filter and Info collapse the two blocks below ─────────
+// Filter mirrors the deck list's: the bar starts collapsed and the button lights
+// while it is open. Info hides the totals. Both remember their state, because a
+// panel you deliberately closed reopening on every visit is the annoying half of
+// a collapse control.
+const COLLECTION_FILTER_KEY = 'mtg_collection_filter_open';
+const COLLECTION_STATS_KEY = 'mtg_collection_stats_open';
+
+function _prefOpen(key, dflt) {
+  try {
+    const v = localStorage.getItem(key);
+    return v == null ? dflt : v === '1';
+  } catch (_) { return dflt; }
+}
+function _setPrefOpen(key, on) {
+  try { localStorage.setItem(key, on ? '1' : '0'); } catch (_) { /* private mode */ }
+}
+
+function _applyCollectionFilterBarState(open) {
+  const bar = document.getElementById('collectionFilterBar');
+  const btn = document.getElementById('collectionFilterToggleBtn');
+  if (bar) bar.style.display = open ? '' : 'none';
+  if (btn) {
+    btn.classList.toggle('active', open);
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+}
+
+function toggleCollectionFilterBar() {
+  const open = !_prefOpen(COLLECTION_FILTER_KEY, false);
+  _setPrefOpen(COLLECTION_FILTER_KEY, open);
+  _applyCollectionFilterBarState(open);
+  if (open) document.getElementById('searchInput')?.focus();
+}
+
+function _applyCollectionStatsState(open) {
+  const bar = document.getElementById('statsBar');
+  const btn = document.getElementById('collectionStatsToggleBtn');
+  if (bar) bar.style.display = open ? '' : 'none';
+  if (btn) {
+    btn.classList.toggle('active', open);
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+}
+
+function toggleCollectionStats() {
+  const open = !_prefOpen(COLLECTION_STATS_KEY, true);
+  _setPrefOpen(COLLECTION_STATS_KEY, open);
+  _applyCollectionStatsState(open);
+}
+
+/** Seed both from the stored preference whenever the tab is shown. */
+function syncCollectionHeaderToggles() {
+  _applyCollectionFilterBarState(_prefOpen(COLLECTION_FILTER_KEY, false));
+  _applyCollectionStatsState(_prefOpen(COLLECTION_STATS_KEY, true));
+}
+globalThis.toggleCollectionFilterBar = toggleCollectionFilterBar;
+globalThis.toggleCollectionStats = toggleCollectionStats;
+globalThis.syncCollectionHeaderToggles = syncCollectionHeaderToggles;
+
+// ── Colour filter: the same multi-select menu as Type & more ─────────────────
+// Six always-visible pips were a second interaction for the same job, and they
+// cost the row more width than the menu button does.
+const COLOR_FILTER_OPTIONS = [
+  ['W', 'White'], ['U', 'Blue'], ['B', 'Black'],
+  ['R', 'Red'], ['G', 'Green'], ['C', 'Colorless'],
+];
+
+function _syncColorFilterUi() {
+  const btn = document.getElementById('colorFilterMenuBtn');
+  if (!btn) return;
+  const n = colorFilters.size;
+  btn.textContent = n > 0 ? `Color (${n})` : 'Color';
+  btn.classList.toggle('active', n > 0);
+}
+
+function closeColorFilterMenu() {
+  document.querySelectorAll('.color-menu').forEach(m => m.remove());
+  document.getElementById('colorFilterMenuBtn')?.setAttribute('aria-expanded', 'false');
+}
+
+function toggleColorFilterMenu(event) {
+  if (event) { event.stopPropagation(); event.preventDefault(); }
+  const open = !!document.querySelector('.color-menu');
+  closeQuickFilterMenu();
+  closeCmcFilterMenu();
+  closeColorFilterMenu();
+  if (!open) _openColorFilterMenu();
+}
+
+function _openColorFilterMenu() {
+  const btn = document.getElementById('colorFilterMenuBtn');
+  if (!btn) return;
+  const menu = document.createElement('div');
+  menu.className = 'glass-menu qf-menu color-menu';
+  for (const [code, label] of COLOR_FILTER_OPTIONS) {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'glass-menu-item color-menu-item' + (colorFilters.has(code) ? ' selected' : '');
+    item.innerHTML = `<img src="https://svgs.scryfall.io/card-symbols/${code}.svg" alt="" aria-hidden="true">${label}`;
+    item.addEventListener('click', e => {
+      e.stopPropagation();
+      toggleColor(code, null);
+      const scroll = menu.scrollTop;
+      setTimeout(() => {
+        closeColorFilterMenu();
+        _openColorFilterMenu();
+        const next = document.querySelector('.color-menu');
+        if (next) next.scrollTop = scroll;
+      }, 0);
+    });
+    menu.appendChild(item);
+  }
+  document.body.appendChild(menu);
+  const r = btn.getBoundingClientRect();
+  const margin = 8;
+  const maxH = Math.min(320, window.innerHeight - margin * 2);
+  menu.style.maxHeight = maxH + 'px';
+  const h = Math.min(menu.offsetHeight, maxH);
+  const w = menu.offsetWidth;
+  const below = window.innerHeight - r.bottom;
+  const top = below >= h + 12 ? r.bottom + 6 : Math.max(margin, r.top - h - 6);
+  menu.style.top = Math.min(top, window.innerHeight - h - margin) + 'px';
+  menu.style.left = Math.min(Math.max(margin, r.left), window.innerWidth - w - margin) + 'px';
+  btn.setAttribute('aria-expanded', 'true');
+
+  const drop = e => {
+    if (!menu.isConnected) {
+      window.removeEventListener('resize', drop, true);
+      window.removeEventListener('scroll', drop, true);
+      return;
+    }
+    if (e && e.target && menu.contains(e.target)) return;
+    closeColorFilterMenu();
+    window.removeEventListener('resize', drop, true);
+    window.removeEventListener('scroll', drop, true);
+  };
+  window.addEventListener('resize', drop, true);
+  window.addEventListener('scroll', drop, true);
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('click', () => closeColorFilterMenu());
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeColorFilterMenu(); });
 }
 
 function setView(v, btn) {
@@ -1168,6 +1636,12 @@ function _peekCardForDetailArt(uid) {
 }
 
 function _prefetchCardDetailNeighborArts(uid) {
+  // Search results are not in any pool — their art comes off the payloads.
+  if (_cardDetailNavMode === 'wlsearch') {
+    const arts = typeof wlSearchNeighborArt === 'function' ? wlSearchNeighborArt() : [];
+    for (const u of arts) void _prefetchDetailArt(u);
+    return;
+  }
   const nav = _cardDetailNavMode === 'deck'
     ? _getCardDetailDeckNavState(uid)
     : _getCardDetailCollectionNavState(uid);
@@ -1184,12 +1658,17 @@ function _prefetchCardDetailNeighborArts(uid) {
  * Settings designates as primary, and the links under the art cover the rest.
  */
 function _htmlCardDetailInlinePrice(card) {
-  if (!card) return '';
+  // The span is emitted even with nothing to put in it. It is the mount a later
+  // hydrate patches by id, and a card arrowed to arrives with no price at all —
+  // rendering nothing here deleted the node, so when the hydrate came back with
+  // the price a moment later it had nowhere to land and was dropped in silence.
+  const mount = '<span id="cardDetailInlinePrice" class="card-detail-inline-price"></span>';
+  if (!card) return mount;
   const primary = typeof getPrimaryPriceVendor === 'function' ? getPrimaryPriceVendor() : 'tcg';
   const now = primary === 'ck'
     ? (typeof getCKPriceForCard === 'function' ? getCKPriceForCard(card) : 0)
     : (typeof getTCGPriceForCard === 'function' ? getTCGPriceForCard(card) : 0);
-  if (!(Number(now) > 0)) return '';
+  if (!(Number(now) > 0)) return mount;
   let cls = 'price-delta-flat';
   try {
     const prefs = typeof getPriceDeltaDisplayPrefs === 'function'
@@ -1201,7 +1680,10 @@ function _htmlCardDetailInlinePrice(card) {
     const delta = typeof getCardVendorDelta === 'function' ? getCardVendorDelta(card, primary, rec) : null;
     if (delta && typeof priceDeltaClass === 'function') cls = priceDeltaClass(delta) || cls;
   } catch (_) { /* no comparison point — stays neutral */ }
-  return `<span id="cardDetailInlinePrice" class="card-detail-inline-price ${cls}">($${Number(now).toFixed(2)})</span>`;
+  // Foil prices run far above the non-foil of the same printing (a surge foil can be
+  // 25x), so the number is misleading without the ✦ every other price surface carries.
+  const mark = card.foil ? '✦ ' : '';
+  return `<span id="cardDetailInlinePrice" class="card-detail-inline-price ${cls}">(${mark}$${Number(now).toFixed(2)})</span>`;
 }
 
 function _htmlCardDetailPriceRows(card) {
@@ -1344,6 +1826,12 @@ function _inspectorTagChipHtml(tag, opts = {}) {
   const label = isAuto
     ? `${safe}<span class="tag-auto-suffix"> (auto)</span>`
     : safe;
+  // In a shared collection the chips are someone else's; render them as plain
+  // labels so there is nothing to click, rather than a control that would act on
+  // the wrong card.
+  if (_cardDetailIsSharedCollection()) {
+    return `<span class="tag ${cls}" style="font-size:0.84rem">${label}</span>`;
+  }
   const title = isAuto
     ? 'Auto-assigned from default tags · click to set manually · long-press or right-click for options'
     : 'Click to change importance · long-press or right-click for options';
@@ -1443,7 +1931,51 @@ function _getCardDetailDeckNavState(currentUid) {
 }
 
 /** Same arrow handler for both modes: order comes from filtered collection vs active deck (+ MB); only `_cardDetailNavMode` differs. */
+/**
+ * Set browser nav runs over the printings currently on screen in the set, which
+ * is the list the inspector was opened from — the same relationship the deck and
+ * collection modes have to theirs. Keyed on the browse id rather than the
+ * inspector uid, because an unowned printing has no uid of its own.
+ */
+function _getCardDetailSetNavState() {
+  const rows = (typeof _browseVisibleCards !== 'undefined' && Array.isArray(_browseVisibleCards))
+    ? _browseVisibleCards : [];
+  const ids = rows.map(r => r && r.id).filter(Boolean).map(String);
+  const current = typeof _browseActiveCardId !== 'undefined' ? String(_browseActiveCardId || '') : '';
+  const index = current ? ids.indexOf(current) : -1;
+  if (index === -1) return { prevUid: null, nextUid: null, index: -1, total: ids.length };
+  return {
+    prevUid: index > 0 ? ids[index - 1] : null,
+    nextUid: index < ids.length - 1 ? ids[index + 1] : null,
+    index,
+    total: ids.length,
+  };
+}
+
+/**
+ * The wishlist's Search tab, walked in the order the search returned.
+ *
+ * Like the set browser, these cards exist only as the payloads behind the
+ * result tiles — no uid, nothing in any local pool — so wishlist.js owns both
+ * the order and the position, and this just reads it.
+ */
+function _getCardDetailWishlistSearchNavState() {
+  const s = typeof wlSearchNavState === 'function' ? wlSearchNavState() : null;
+  return s || { prevUid: null, nextUid: null, index: -1, total: 0 };
+}
+
 function navigateCardDetailCollection(direction) {
+  // The set browser owns its own stepping (it has to re-resolve the printing),
+  // so hand off rather than trying to walk it by uid.
+  if (_cardDetailNavMode === 'set') {
+    if (typeof navigateSetBrowseCard === 'function') navigateSetBrowseCard(direction);
+    return;
+  }
+  // Same for the wishlist search grid — it steps by position in the results.
+  if (_cardDetailNavMode === 'wlsearch') {
+    if (typeof navigateWishlistSearchCard === 'function') navigateWishlistSearchCard(direction);
+    return;
+  }
   const currentUid = _cardDetailCurrentUid;
   if (!currentUid) return;
   const nav = _cardDetailNavMode === 'deck'
@@ -1458,9 +1990,13 @@ function _updateCardDetailEdgeNav(uid) {
   const prevEl = document.getElementById('cardDetailPrevNav');
   const nextEl = document.getElementById('cardDetailNextNav');
   if (!prevEl || !nextEl) return;
-  const nav = _cardDetailNavMode === 'deck'
-    ? _getCardDetailDeckNavState(uid)
-    : _getCardDetailCollectionNavState(uid);
+  const nav = _cardDetailNavMode === 'set'
+    ? _getCardDetailSetNavState()
+    : _cardDetailNavMode === 'wlsearch'
+      ? _getCardDetailWishlistSearchNavState()
+      : _cardDetailNavMode === 'deck'
+        ? _getCardDetailDeckNavState(uid)
+        : _getCardDetailCollectionNavState(uid);
   const show = nav.index !== -1 && nav.total > 1;
   prevEl.style.display = show ? '' : 'none';
   nextEl.style.display = show ? '' : 'none';
@@ -1590,9 +2126,9 @@ function _syncCardDetailLeftInPlace(card, ctx) {
     }
     const shell = wrap.querySelector('.card-detail-art-shell') || wrap.firstElementChild;
     if (shell) shell.classList.toggle('is-foil', !!card.foil);
-    wrap.querySelectorAll('.card-foil-overlay,.card-foil-badge').forEach(n => n.remove());
+    wrap.querySelectorAll('.card-foil-overlay').forEach(n => n.remove());
     if (card.foil && shell) {
-      shell.insertAdjacentHTML('beforeend', '<div class="card-foil-overlay"></div><div class="card-foil-badge">✦ FOIL</div>');
+      shell.insertAdjacentHTML('beforeend', _htmlFoilOverlay(card));
     }
   } else {
     wrap.innerHTML = _htmlCardDetailArtSlotInner(card);
@@ -1771,6 +2307,14 @@ function _htmlCardDetailDeckNameMeta(activeDeck, zoneHint) {
 function _htmlCardDetailDeckQtyCounter(ctx) {
   const { card, activeDeck, activeDeckCard, actionUid, inDeckQty } = ctx;
   const nameMeta = _htmlCardDetailDeckNameMeta(activeDeck, '');
+
+  // A deck this account cannot change shows its count and no way to alter it.
+  if (activeDeck && _cardDetailDeckIsReadOnly()) {
+    const zoneHint = activeDeckCard ? _deckSlotZoneLabel(activeDeck, activeDeckCard) : '';
+    return `<div class="card-detail-qty-printing">${_htmlCardDetailQtyControlRow({
+      qty: inDeckQty || 0, muted: !(inDeckQty > 0), interactive: false,
+    })}${_htmlCardDetailDeckNameMeta(activeDeck, zoneHint)}</div>`;
+  }
 
   // No active deck → single muted placeholder row.
   if (!activeDeck) {
@@ -2187,28 +2731,71 @@ function _htmlCardDetailChangePrintingBtn() {
   return `<button type="button" class="btn btn-outline btn-sm" title="Change printing" onclick="openVersionPickerFromCardDetail()">⟳ Printing</button>`;
 }
 
+/**
+ * True while the inspector is showing a card from someone else's collection.
+ *
+ * Everything in the action row writes through a uid, and in a shared view that
+ * uid belongs to the owner, not the viewer — so Edit Tags wrote against a card
+ * the viewer does not have (tags are per-user), and Remove filtered the viewer's
+ * own collection by an id that is not in it. Neither did what it looked like it
+ * was doing. The whole row is withheld instead.
+ *
+ * Leaving the shared view is the only way to get here with the flag set (showTab
+ * exits it for any tab but the collection), so the flag alone is the condition.
+ */
+function _cardDetailIsSharedCollection() {
+  return !!_viewingSharedCollOwnerId;
+}
+
+/**
+ * True while the deck on screen is one this account cannot change — a deck
+ * shared read-only, or somebody else's opened from Browse or a share link.
+ *
+ * The inspector is the one place every deck action is reachable from, so it
+ * takes the same gate the deck list does: nothing here writes to the deck, its
+ * tags or its colouring. The Collection rows are untouched — those are the
+ * viewer's own cards and have nothing to do with whose deck is open.
+ */
+function _cardDetailDeckIsReadOnly() {
+  if (typeof canEditActiveDeck !== 'function' || typeof getActiveDeck !== 'function') return false;
+  return !!getActiveDeck() && !canEditActiveDeck();
+}
+
+/**
+ * True while the inspector is open over a deck in the builder.
+ *
+ * The Decks tab alone is not enough — it shows the deck list with no deck open,
+ * and a deck stays "active" after you leave for the collection or the wishlist.
+ * Both have to hold: this tab, and a deck on it.
+ */
+function _cardDetailInDeckBuilder() {
+  if (!_isDeckBuilderMainTabActive()) return false;
+  return typeof getActiveDeck === 'function' ? !!getActiveDeck() : false;
+}
+
 // Shared by the full builder and the in-place sync so the two paths can't drift.
 function _htmlCardDetailPrimaryActionsInner(ctx) {
   const { isOwned, isCommanderCandidate, actionUid, uid } = ctx;
   const printBtn = _showCardDetailChangePrinting(ctx) ? _htmlCardDetailChangePrintingBtn() : '';
   const swapBtns = typeof _htmlCardDetailSwapActionsInner === 'function' ? _htmlCardDetailSwapActionsInner(ctx) : '';
-  const ref = String(actionUid || '').replace(/'/g, "\\'");
-  // Edit Tags groups with Change printing / swaps on the left; Remove is pushed
-  // to the far right by .btn-danger's auto margin, so it must come last.
-  const tagsBtn = `<button class="btn btn-outline btn-sm" onclick="openGlobalTagPickerForCard('${ref}')">Edit Tags</button>`;
+  if (_cardDetailIsSharedCollection()) {
+    return '<div class="card-detail-readonly-note">Read-only — this card is in a collection shared with you</div>';
+  }
+  // Edit Tags moved into the Tags & Coloring section, beside the tags it edits.
   // Already in the open deck → no "+ Add to Deck" (the zone/swap buttons cover it).
-  const inOpenDeck = !!(ctx.activeDeckCard && (ctx.inDeckQty || 0) > 0)
+  // A read-only deck never offers it at all.
+  const inOpenDeck = _cardDetailDeckIsReadOnly()
+    || !!(ctx.activeDeckCard && (ctx.inDeckQty || 0) > 0)
     || (typeof cardDetailIsPlannedAdd === 'function' && cardDetailIsPlannedAdd(ctx));
+  // No "+ Add to Collection" anywhere in here: collecting is what Add Cards is
+  // for, and an inspector opened from a deck or a set is not a place to acquire.
   return isOwned
     ? `${inOpenDeck ? '' : `<button class="btn btn-primary btn-sm" title="Add to deck" onclick="addToDeckFromDetail('${actionUid}')">+ Add</button>`}
                ${printBtn}
                ${swapBtns}
-               ${tagsBtn}
                <button class="btn btn-danger btn-sm" onclick="removeFromCollection('${actionUid}')">Remove</button>`
-    : `<button class="btn btn-primary btn-sm" onclick="addCardToCollectionFromDetail('${uid}')">+ Add to Collection</button>
-               ${printBtn}
-               ${swapBtns}
-               ${tagsBtn}`;
+    : `${printBtn}
+               ${swapBtns}`;
 }
 
 function _syncCardDetailRowPrimaryActions(ctx) {
@@ -2276,9 +2863,28 @@ function _syncCardDetailInspectorInPlace(card, ctx) {
   _syncCardDetailRowCollection(ctx);
   _syncCardDetailRowInDeck(ctx);
   _syncCardDetailRowPrimaryActions(ctx);
+  const editTagsEl = document.getElementById('cardDetailEditTagsWrap');
+  if (editTagsEl) editTagsEl.innerHTML = _htmlCardDetailEditTagsBtn(ctx);
+  _syncCardDetailColorRow(ctx);
   _syncCardDetailTagToDeckWrap(ctx);
   void _loadCardDetailMyTags(card);
   return true;
+}
+
+/**
+ * Foil overlay + badge for a card image. Surge foil keeps the `card-foil-overlay`
+ * class so the inspector's teardown selector still matches, and adds the rippling
+ * variant on top. Non-foil cards render nothing.
+ */
+function _htmlFoilOverlay(card) {
+  if (!card?.foil) return '';
+  const surge = typeof isSurgeFoilCard === 'function' && isSurgeFoilCard(card);
+  // The shimmer says foil on its own — the word across the bottom of every foil
+  // card covered the art to repeat it. Surge keeps its own distinct animation
+  // (.card-surge-overlay), so the two finishes still read apart without a label.
+  return surge
+    ? '<div class="card-foil-overlay card-surge-overlay"></div>'
+    : '<div class="card-foil-overlay"></div>';
 }
 
 function _htmlCardDetailArtSlotInner(card) {
@@ -2286,7 +2892,7 @@ function _htmlCardDetailArtSlotInner(card) {
   if (card.imageLarge || card.image) {
     return `<div class="card-detail-art-shell${card.foil ? ' is-foil' : ''}">
               <img id="cardDetailMainImg" class="card-detail-img" src="${card.imageLarge || card.image}" alt="${imgAlt}">
-              ${card.foil ? `<div class="card-foil-overlay"></div><div class="card-foil-badge">✦ FOIL</div>` : ''}
+              ${_htmlFoilOverlay(card)}
               <button id="cardFaceFlipBtn" class="btn btn-outline btn-sm card-detail-flip-btn" onclick="flipCardDetailFace()" style="display:none">↻</button>
             </div>`;
   }
@@ -2309,9 +2915,15 @@ function _htmlCardDetailUtilityIconsInner(ctx) {
   const { card, isOwned, actionUid, uid, isWishlisted } = ctx;
   const icons = [];
   icons.push(`<button class="btn btn-outline btn-sm card-detail-utility-btn${isWishlisted ? ' active' : ''}" onclick="toggleWishlistFromDetail('${uid}')" title="${isWishlisted ? 'Wishlisted — click to remove' : 'Add to wishlist'}" aria-label="Wishlist"><svg class="tf-ic" viewBox="0 0 16 16" fill="${isWishlisted ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13.5S2.5 10.2 2.5 6.4a3 3 0 0 1 5.5-1.7A3 3 0 0 1 13.5 6.4c0 3.8-5.5 7.1-5.5 7.1z"/></svg></button>`);
-  if (isOwned) icons.push(`<button class="btn btn-outline btn-sm card-detail-utility-btn" onclick="flagUpgradeTargetFromDetail('${actionUid}')" title="Want a better printing, foil, or condition" aria-label="Upgrade"><svg class="tf-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13.5V5"/><path d="M4.5 8 8 4.5 11.5 8"/><path d="M4.5 2.5h7"/></svg></button>`);
+  // Star and Upgrade write through actionUid into the viewer's own collection, so
+  // in a shared view they would act on an id that is not in it. isOwned is true
+  // there because ownership is read from the owner's cards (see
+  // _cardDetailOwnershipView), which is right for showing counts and wrong for
+  // offering edits.
+  const canEditThisCard = isOwned && !_cardDetailIsSharedCollection();
+  if (canEditThisCard) icons.push(`<button class="btn btn-outline btn-sm card-detail-utility-btn" onclick="flagUpgradeTargetFromDetail('${actionUid}')" title="Want a better printing, foil, or condition" aria-label="Upgrade"><svg class="tf-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13.5V5"/><path d="M4.5 8 8 4.5 11.5 8"/><path d="M4.5 2.5h7"/></svg></button>`);
   icons.push(`<button class="btn btn-outline btn-sm card-detail-utility-btn" onclick="openPriceWatchModal('${escapeHtml(card.scryfallId || '')}', ${!!card.foil}, ${JSON.stringify(card.name || '').replace(/"/g, '&quot;')})" title="Set price alerts for this card" aria-label="Watch price"><svg class="tf-ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6a4 4 0 0 0-8 0c0 4.5-2 5.5-2 5.5h12s-2-1-2-5.5"/><path d="M9.3 13.5a1.5 1.5 0 0 1-2.6 0"/></svg></button>`);
-  if (isOwned) icons.push(`<button type="button" id="cardDetailStarBtn" class="btn btn-outline btn-sm card-detail-utility-btn${card.starred ? ' active' : ''}" data-detail-uid="${actionUid}" onclick="toggleCardStar('${actionUid}',event)" title="${card.starred ? 'Starred — click to unstar' : 'Star this card'}" aria-label="Star"><svg class="tf-ic" viewBox="0 0 16 16" fill="${card.starred ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z"/></svg></button>`);
+  if (canEditThisCard) icons.push(`<button type="button" id="cardDetailStarBtn" class="btn btn-outline btn-sm card-detail-utility-btn${card.starred ? ' active' : ''}" data-detail-uid="${actionUid}" onclick="toggleCardStar('${actionUid}',event)" title="${card.starred ? 'Starred — click to unstar' : 'Star this card'}" aria-label="Star"><svg class="tf-ic" viewBox="0 0 16 16" fill="${card.starred ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z"/></svg></button>`);
   // Pin (was "tag to deck"): dropdown of decks; pinning drops the card on that
   // deck's maybe board and the deck stays ticked in the list.
   const pinData = _cardDetailPinDecks(ctx);
@@ -2323,6 +2935,44 @@ function _htmlCardDetailUtilityIconsInner(ctx) {
       + `</span>`);
   }
   return icons.join('');
+}
+
+/**
+ * The card an unowned pin acts on, from the ref the inspector's buttons carry.
+ *
+ * The open inspector is the first answer — it holds the very card on screen,
+ * including one handed over prefetched that is in no local pool at all. The
+ * pools are the fallback for a ref that arrives without the modal open.
+ */
+function _pinSourceCardForRef(ref) {
+  const key = String(ref || '');
+  const matches = c => !!c && (c.uid === key || c.scryfallId === key);
+  if (_cardDetailCurrentCard && (matches(_cardDetailCurrentCard) || _cardDetailCurrentUid === key)) {
+    return _cardDetailCurrentCard;
+  }
+  if (!key) return null;
+  const pools = [
+    typeof wishlist !== 'undefined' ? wishlist : [],
+    ...(typeof decks !== 'undefined' ? decks : []).map(d => [
+      ...(d.cards || []), ...(d.maybeboard || []), ...(d.sideboard || []),
+      ...(d.adds || []), ...(d.cuts || []),
+    ]),
+    ...(typeof sharedDecks !== 'undefined' ? sharedDecks : []).map(d => d.cards || []),
+  ];
+  for (const pool of pools) {
+    const hit = pool.find(matches);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/** Does this deck's maybe board already hold that card? */
+function _deckMaybeBoardHasCard(deck, card) {
+  const pool = (deck && deck.maybeboard) || [];
+  if (!pool.length || !card) return false;
+  const keyOf = c => (typeof getCardInventoryKey === 'function' ? getCardInventoryKey(c) : (c && c.uid) || '');
+  const key = keyOf(card);
+  return pool.some(c => (key && keyOf(c) === key) || (card.uid && c.uid === card.uid));
 }
 
 /** Decks the Pin dropdown offers, with their current pinned state. */
@@ -2337,7 +2987,18 @@ function _cardDetailPinDecks(ctx) {
       .map(d => ({ id: d.id, name: d.name, pinned: (d.maybeboard || []).some(c => c.scryfallId === sid && !!c.foil === foilFlag) }));
     return { show: owner.length > 0, decks: owner, shared: true };
   }
-  if (!isOwned || typeof decks === 'undefined' || !decks.length) return { show: false, decks: [], shared: false };
+  if (typeof decks === 'undefined' || !decks.length) return { show: false, decks: [], shared: false };
+  // Owning the card is not the question — a card you are still hunting is exactly
+  // the kind that belongs on a maybe board. What changes with ownership is where
+  // the pin is recorded: an owned card carries it on its collection row, while an
+  // unowned one has no such row, so the maybe board itself is the record.
+  if (!isOwned) {
+    return {
+      show: true,
+      shared: false,
+      decks: decks.map(d => ({ id: d.id, name: d.name, pinned: _deckMaybeBoardHasCard(d, card) })),
+    };
+  }
   return {
     show: true,
     shared: false,
@@ -2368,7 +3029,12 @@ function _openCardDetailPinMenu(uid) {
   if (!btn) return;
   const card = _cardDetailCurrentCard
     || (typeof collection !== 'undefined' ? collection.find(c => c.uid === uid) : null);
-  const data = _cardDetailPinDecks({ card, isOwned: true });
+  // Not assumed: an unowned wishlist card pins too, and its ticks come from the
+  // maybe boards rather than from a collection row.
+  const owned = window.Ownership?.resolveOwnedCard
+    ? window.Ownership.resolveOwnedCard(collection || [], card || { uid })
+    : (collection || []).find(c => c.uid === (card?.uid || uid));
+  const data = _cardDetailPinDecks({ card, isOwned: !!owned });
 
   const menu = document.createElement('div');
   menu.className = 'glass-menu card-detail-pin-menu';
@@ -2446,6 +3112,9 @@ function _htmlOpenCardDetailRightColumn(ctx) {
     activeDeck, activeDeckCard, inDeckQty,
     isCommanderCandidate, isWishlisted,
   } = ctx;
+  // The colouring control is builder-only (see _htmlCardDetailColorRow); the
+  // heading and its help follow it rather than naming a control that isn't there.
+  const coloringHere = !_cardDetailIsSharedCollection() && _cardDetailInDeckBuilder();
   const myTags = typeof _getGlobalCustomTagsForCard === 'function' ? _getGlobalCustomTagsForCard(card) : [];
   const tieredDefaults = typeof _tieredDefaultTagsForCard === 'function' ? _tieredDefaultTagsForCard(card) : [];
   let globalCustomTags = [...new Set([...myTags, ...tieredDefaults])];
@@ -2496,7 +3165,7 @@ function _htmlOpenCardDetailRightColumn(ctx) {
           </div>
         </div>
         <div class="card-detail-section card-detail-section--flush">
-          <div class="card-detail-section-label">TAGS
+          <div class="card-detail-section-label">TAGS${coloringHere ? ' &amp; COLORING' : ''}
             <span class="deck-cut-help tooltip-wrap card-detail-tag-help" tabindex="0" aria-label="What the tag colours mean">
               <span class="deck-cut-help-icon" aria-hidden="true">i</span>
               <span class="tooltip deck-cut-help-tooltip">
@@ -2504,7 +3173,9 @@ function _htmlOpenCardDetailRightColumn(ctx) {
                 <strong>Green</strong> — default tag, derived from the card itself.<br>
                 <strong>Blue</strong> — primary: one of this card's main roles.<br>
                 <strong>Purple</strong> — secondary: a supporting role.<br>
-                Click a tag to change its importance.
+                Click a tag to change its importance.${coloringHere ? `<br><br>
+                <strong>Coloring</strong> is your own marking — one colour per card,
+                shown as a corner flag on the deck list, which can group and sort by it.` : ''}
               </span>
             </span>
           </div>
@@ -2519,7 +3190,9 @@ function _htmlOpenCardDetailRightColumn(ctx) {
                 ${myTagsChipsHtml}
               </span>
             </span>
+            <span id="cardDetailEditTagsWrap" class="cd-tag-edit">${_htmlCardDetailEditTagsBtn(ctx)}</span>
           </div>
+          <div id="cardDetailColorRow" class="card-detail-colorrow">${_htmlCardDetailColorRow(ctx)}</div>
         </div>
         <!-- Tag-to-deck became the Pin button in the left-hand utility row. -->
         <div id="cardDetailTagToDeckWrap" style="display:none"></div>
@@ -2897,7 +3570,9 @@ async function openCardDetail(uid, navMode, opts) {
     } catch (_) {}
   }
   if (!sourceCard) return;
-  if (navMode === 'deck' || navMode === 'collection') _cardDetailNavMode = navMode;
+  if (navMode === 'deck' || navMode === 'collection' || navMode === 'set' || navMode === 'wlsearch') {
+    _cardDetailNavMode = navMode;
+  }
   const openSession = ++_cardDetailOpenSession;
   const fromArrowNav = !!(opts && opts.fromArrow);
   const ownedCard = window.Ownership?.resolveOwnedCard
@@ -3202,8 +3877,16 @@ function toggleWishlistFromDetail(uid) {
   if (!sourceCard || !sourceCard.scryfallId) return;
   const idx = wishlist.findIndex(c => c.scryfallId === sourceCard.scryfallId);
   if (idx >= 0) {
+    // Delete the row as well as dropping it locally. PUT /api/wishlist only
+    // replaces rows whose source is 'manual', so on a server-derived entry the
+    // save alone cleared the screen and nothing else. Same path the wishlist
+    // tab's - button takes.
+    const removedUid = (typeof _wishlistUid === 'function')
+      ? _wishlistUid(wishlist[idx])
+      : wishlist[idx]?.uid;
     wishlist.splice(idx, 1);
     save('wishlist');
+    if (typeof _deleteWishlistRowRemote === 'function') _deleteWishlistRowRemote(removedUid);
     renderWishlist();
     openCardDetail(uid);
     showNotif('Removed from wishlist');
@@ -3214,10 +3897,14 @@ function toggleWishlistFromDetail(uid) {
 }
 
 function closeCardDetail() {
-  if (typeof returnToSetBrowseFromDetail === 'function' && returnToSetBrowseFromDetail()) {
-    return;
-  }
+  // The set browser repaints its grid on close (quantities may have changed, and
+  // the showing-detail flag has to clear), but it must not short-circuit the rest
+  // of this function — returning early here left the modal open over the grid.
+  if (typeof returnToSetBrowseFromDetail === 'function') returnToSetBrowseFromDetail();
   if (typeof _cdTagCloseMenu === 'function') _cdTagCloseMenu();
+  // The pin menu hangs off <body>, not off the modal, so closing the inspector
+  // does not take it with it — it would be left floating over the page.
+  _closeCardDetailPinMenu();
   document.getElementById('cardDetailModal').classList.remove('open');
   if (typeof _destroyInspectorPriceChart === 'function') _destroyInspectorPriceChart();
   _cardDetailOpenSession++;
@@ -3311,6 +3998,104 @@ function _resolveActiveDeckCardForOpenDetail(uid) {
     : (card.uid || (card.scryfallId ? card.scryfallId + (card.foil ? '_f' : '_n') : ''));
   const activeDeckCard = _findActiveDeckSlotByCardKey(activeDeck, cardKey);
   return { activeDeckCard };
+}
+
+/** Edit Tags now lives with the tags rather than with the deck actions. */
+function _htmlCardDetailEditTagsBtn(ctx) {
+  if (_cardDetailIsSharedCollection() || _cardDetailDeckIsReadOnly()) return '';
+  const ref = String(ctx?.actionUid || '').replace(/'/g, "\\'");
+  return `<button class="btn btn-outline btn-sm" onclick="openGlobalTagPickerForCard('${ref}')">Edit Tags</button>`;
+}
+
+/**
+ * The colouring row: the card's colour, or the control that gives it one.
+ *
+ * Colouring is a deck-building marking — it flags a card on the deck list, and
+ * that list groups and sorts by it — so the control lives where it has an
+ * effect: a deck open in the builder, for someone who may change that deck.
+ * Opened from the collection, the wishlist, a set or a trade, the row is
+ * withheld entirely rather than offering a marking with nowhere to show.
+ *
+ * One colour per card, so this is a single chip rather than a list — picking
+ * again replaces it.
+ */
+function _htmlCardDetailColorRow(ctx) {
+  if (_cardDetailIsSharedCollection()) return '';
+  if (!_cardDetailInDeckBuilder()) return '';
+  if (typeof cardColorHex !== 'function') return '';
+  const ref = String(ctx?.actionUid || ctx?.uid || '').replace(/'/g, "\\'");
+  const hex = cardColorHex(ctx?.card);
+  // Someone else's deck: its colours show, and stay as they are.
+  if (_cardDetailDeckIsReadOnly()) {
+    if (!hex) return '';
+    const roLabel = typeof _cardColorGroupLabel === 'function' ? _cardColorGroupLabel(hex) : hex;
+    return `<span class="cd-color-static"><span class="cd-color-dot" style="--cf:${hex}" aria-hidden="true"></span>${escapeHtml(roLabel)}</span>`;
+  }
+  if (!hex) {
+    return `<button type="button" class="btn btn-outline btn-sm cd-color-add" onclick="openCardColorPicker('${ref}', this)">
+        <span class="cd-color-dot cd-color-dot--empty" aria-hidden="true"></span>+ Add color</button>`;
+  }
+  const label = typeof _cardColorGroupLabel === 'function' ? _cardColorGroupLabel(hex) : hex;
+  return `<button type="button" class="btn btn-outline btn-sm cd-color-add" onclick="openCardColorPicker('${ref}', this)" title="Change this card's colour">
+      <span class="cd-color-dot" style="--cf:${hex}" aria-hidden="true"></span>${escapeHtml(label)}</button>
+    <button type="button" class="btn btn-outline btn-sm cd-color-clear" onclick="clearCardColor('${ref}')" title="Remove this card's colour" aria-label="Remove colour">✕</button>`;
+}
+
+function _cardForColoring(uid) {
+  if (typeof _findCardForTagPicker === 'function') {
+    const c = _findCardForTagPicker(uid);
+    if (c) return c;
+  }
+  return (collection || []).find(c => c.uid === uid || c.scryfallId === uid) || null;
+}
+
+function _syncCardDetailColorRow(ctx) {
+  const el = document.getElementById('cardDetailColorRow');
+  if (!el) return;
+  // Called both from the in-place sync (which has a context) and from a colour
+  // change (which only knows the open card).
+  const useCtx = ctx || (() => {
+    const uid = _cardDetailCurrentUid;
+    const card = uid ? _cardForColoring(uid) : null;
+    return card ? { card, uid, actionUid: uid } : null;
+  })();
+  if (useCtx) el.innerHTML = _htmlCardDetailColorRow(useCtx);
+}
+
+/** Repaint whatever is showing these cards, so the corner flag follows at once. */
+function _afterCardColorChange() {
+  _syncCardDetailColorRow();
+  if (typeof renderActiveDeck === 'function' && typeof getActiveDeck === 'function' && getActiveDeck()) {
+    renderActiveDeck();
+  }
+}
+
+function openCardColorPicker(uid, btn) {
+  const card = _cardForColoring(uid);
+  if (!card) { showNotif('Could not find that card', true); return; }
+  if (typeof pgOpenColorPicker !== 'function') return;
+  const current = (typeof cardColorHex === 'function' && cardColorHex(card))
+    || (typeof CARD_COLOR_PRESETS !== 'undefined' ? CARD_COLOR_PRESETS[0].hex : '#5aa9f0');
+  const presets = [
+    ...(typeof CARD_COLOR_PRESETS !== 'undefined' ? CARD_COLOR_PRESETS.map(p => p.hex) : []),
+    ...(typeof cardColorRecents === 'function' ? cardColorRecents() : []),
+  ];
+  const dot = btn?.querySelector('.cd-color-dot');
+  pgOpenColorPicker(null, null, btn, {
+    current,
+    presets: [...new Set(presets)],
+    align: 'right',
+    onPreview: hex => { if (dot) { dot.style.setProperty('--cf', hex); dot.classList.remove('cd-color-dot--empty'); } },
+    onCommit: hex => { if (typeof setCardColorHex === 'function') setCardColorHex(card, hex); },
+    onClose: () => _afterCardColorChange(),
+  });
+}
+
+function clearCardColor(uid) {
+  const card = _cardForColoring(uid);
+  if (!card || typeof setCardColorHex !== 'function') return;
+  setCardColorHex(card, null);
+  _afterCardColorChange();
 }
 
 function openGlobalTagPickerForCard(uid) {
@@ -3603,6 +4388,11 @@ function recordCollectionEvent(type, card, delta) {
     foil: !!card.foil,
     delta: Math.abs(delta || 1),
     image: card.image || null,
+    // Server-side dedup key. Deduping on (ts, type, uid) silently swallowed the
+    // second of two same-millisecond events for one printing (CSV rows of the
+    // same card import back-to-back) — an id makes each event distinct while
+    // still letting a retried POST of the SAME event land only once.
+    clientId: Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10),
   };
   collectionHistory.unshift(event);
   if (collectionHistory.length > 500) collectionHistory.length = 500;
@@ -3621,14 +4411,24 @@ async function toggleCollectionHistory() {
     if (_viewingSharedCollOwnerId) {
       _sharedCollHistory = null;
       renderCollectionHistory();
-      try {
-        _sharedCollHistory = await apiFetch(`/collection/shared/${_viewingSharedCollOwnerId}/history`);
-      } catch (_) {
-        _sharedCollHistory = [];
-      }
+      await _fetchSharedCollHistory(_viewingSharedCollOwnerId);
+      return;
     }
     renderCollectionHistory();
   }
+}
+
+/** Load one owner's history; ignore the result if the view moved on meanwhile. */
+async function _fetchSharedCollHistory(ownerId) {
+  let rows;
+  try {
+    rows = await apiFetch(`/collection/shared/${ownerId}/history`);
+  } catch (_) {
+    rows = [];
+  }
+  if (_viewingSharedCollOwnerId !== ownerId) return;
+  _sharedCollHistory = rows;
+  if (_historyVisible) renderCollectionHistory();
 }
 
 function _collectionHistoryPackEv(ev) {
@@ -3637,6 +4437,14 @@ function _collectionHistoryPackEv(ev) {
     s: ev.scryfallId || '',
     f: !!ev.foil,
     n: Math.max(1, Math.abs(Number(ev.delta)) || 1),
+    // Undo needs to know which way the change went. The row actions this packing
+    // was written for did not, so it was dropped — an undo without it silently
+    // took the restore branch for every row and added copies where it should
+    // have taken them away.
+    t: ev.type || '',
+    // Row identity: same card, same action, different moment must pack
+    // differently, or marking one row as undone marks its twins too.
+    d: Number(ev.ts) || 0,
   }));
 }
 
@@ -3647,11 +4455,18 @@ function _collectionHistoryUnpackEv(packed) {
     scryfallId: o.s || '',
     foil: !!o.f,
     delta: o.n != null ? Math.max(1, Math.abs(Number(o.n)) || 1) : 1,
+    type: o.t || '',
+    ts: Number(o.d) || 0,
   };
 }
 
-/** Match a history row to the current collection (uid may be stale after foil changes). */
-function _historyResolveLiveCollectionCard(ev) {
+/**
+ * Match a history row to the current collection (uid may be stale after foil
+ * changes). Undo passes exactFoil: restoring a FOIL removal must not bump the
+ * nonfoil row just because it is the only printing left — no live match sends
+ * undo down the refetch branch, which rebuilds the right printing.
+ */
+function _historyResolveLiveCollectionCard(ev, opts) {
   if (ev.uid) {
     const byUid = collection.find(c => c.uid === ev.uid);
     if (byUid) return byUid;
@@ -3663,8 +4478,9 @@ function _historyResolveLiveCollectionCard(ev) {
   }
   if (!sid) return null;
   const wantFoil = !!ev.foil;
-  return collection.find(c => c.scryfallId === sid && !!c.foil === wantFoil)
-    || collection.find(c => c.scryfallId === sid);
+  const exact = collection.find(c => c.scryfallId === sid && !!c.foil === wantFoil);
+  if (exact || (opts && opts.exactFoil)) return exact || null;
+  return collection.find(c => c.scryfallId === sid) || null;
 }
 
 /** Move up to `qtyToMove` copies to the other foil printing; leaves the rest on the source row. */
@@ -3715,54 +4531,70 @@ function historyOpenCardDetailFromRow(packed) {
   if (uid) openCardDetail(uid);
 }
 
-function historyCollectionRemoveFromRow(packed) {
-  let ev;
-  try {
-    ev = _collectionHistoryUnpackEv(packed);
-  } catch (_) {
-    return;
-  }
-  const c = _historyResolveLiveCollectionCard(ev);
-  if (!c) {
-    showNotif('That card is not in your collection anymore', true);
-    return;
-  }
-  removeFromCollection(c.uid, { skipCloseDetail: true });
-}
-
-function historyCollectionToggleFoilFromRow(packed) {
-  let ev;
-  try {
-    ev = _collectionHistoryUnpackEv(packed);
-  } catch (_) {
-    return;
-  }
-  const c = _historyResolveLiveCollectionCard(ev);
-  if (!c) {
-    showNotif('That printing is not in your collection', true);
-    return;
-  }
-  if (!c.scryfallId) {
-    showNotif('Cannot change foil for this entry', true);
-    return;
-  }
-  const wasFoil = !!c.foil;
-  const prevQty = Math.max(1, Number(c.qty || 1));
-  const cap = Math.max(1, Number(ev.delta) || 1);
-  const qtyMove = Math.min(prevQty, cap);
-  const newUid = applyCollectionFoilChangePartial(c.uid, !wasFoil, qtyMove);
-  if (!newUid) return;
+function _afterCollectionHistoryUndo(msg) {
   save('collection');
   renderCollection();
-  updateStats();
+  if (typeof updateStats === 'function') updateStats();
   if (_historyVisible) renderCollectionHistory();
-  const rest = prevQty - qtyMove;
-  showNotif(
-    rest > 0
-      ? `Moved ${qtyMove}× to ${!wasFoil ? 'foil' : 'non-foil'} · ${rest}× still on this printing`
-      : `Moved ${qtyMove}× to ${!wasFoil ? 'foil' : 'non-foil'}`,
-  );
+  if (msg) showNotif(msg);
   _refreshDeckListIfActive();
+}
+
+// Rows undone this session, keyed by their packed identity. A row's undo is
+// exact once: clicking it again would keep stripping N more copies each time.
+// The compensating event it logged is the thing to undo from then on.
+const _histUndoneRowKeys = new Set();
+
+/** Reverse one logged change: an add gives back its copies, a remove restores them. */
+async function historyCollectionUndoFromRow(packed) {
+  let ev;
+  try {
+    ev = _collectionHistoryUnpackEv(packed);
+  } catch (_) {
+    return;
+  }
+  if (_histUndoneRowKeys.has(packed)) {
+    showNotif('Already undone — undo the newer compensating row instead', true);
+    return;
+  }
+  const n = Math.max(1, Number(ev.delta) || 1);
+  // exactFoil: this row is about one specific printing. If that printing is
+  // gone, restoring onto the other-foil row would corrupt both stacks.
+  const live = _historyResolveLiveCollectionCard(ev, { exactFoil: true });
+
+  if (ev.type === 'add') {
+    if (!live) { showNotif('Those copies are not in your collection anymore', true); return; }
+    const left = Math.max(0, (Number(live.qty) || 1) - n);
+    recordCollectionEvent('remove', live, Math.min(n, Number(live.qty) || 1));
+    if (left > 0) live.qty = left;
+    else collection = collection.filter(c => c.uid !== live.uid);
+    _histUndoneRowKeys.add(packed);
+    _afterCollectionHistoryUndo(`Undid — removed ${n}×`);
+    return;
+  }
+
+  // A removal: put the copies back. If the stack still exists this is exact;
+  // if the last copies went, the printing has to be fetched again to rebuild a
+  // full entry rather than a stub missing everything the collection filters on.
+  if (live) {
+    live.qty = (Number(live.qty) || 0) + n;
+    recordCollectionEvent('add', live, n);
+    _histUndoneRowKeys.add(packed);
+    _afterCollectionHistoryUndo(`Undid — restored ${n}×`);
+    return;
+  }
+  if (!ev.scryfallId) { showNotif('Cannot restore this entry', true); return; }
+  try {
+    const res = await fetch(`https://api.scryfall.com/cards/${encodeURIComponent(ev.scryfallId)}`);
+    if (!res.ok) throw new Error('lookup failed');
+    const card = await res.json();
+    addCardToCollection(card, n, !!ev.foil);   // records its own history event
+    _histUndoneRowKeys.add(packed);
+    if (_historyVisible) renderCollectionHistory();
+    showNotif(`Undid — restored ${n}×`);
+  } catch (_) {
+    showNotif('Could not restore that card', true);
+  }
 }
 
 function renderCollectionHistory() {
@@ -3808,29 +4640,34 @@ function renderCollectionHistory() {
           ? `<img class="history-card-img" src="${imgSrc}" alt="" loading="lazy">`
           : `<div class="history-card-img-placeholder"></div>`;
         const pack = _collectionHistoryPackEv(ev);
-        let foilBtn = '', removeBtn = '', missing = '';
-        if (!isSharedView) {
-          const live = _historyResolveLiveCollectionCard(ev);
-          const canFoil = !!(live && live.scryfallId);
-          const entryQtyCap = Math.max(1, Math.abs(Number(ev.delta)) || 1);
-          foilBtn = !live ? '' : (canFoil
-            ? `<button type="button" class="btn btn-outline btn-sm history-row-btn" onclick="historyCollectionToggleFoilFromRow('${pack}')" title="Moves up to ${entryQtyCap} card(s) from this log line (not your full stack)">${live.foil ? 'Non-foil' : 'Foil'}</button>`
-            : '');
-          removeBtn = live
-            ? `<button type="button" class="btn btn-ghost btn-sm history-row-btn history-row-btn--danger" onclick="historyCollectionRemoveFromRow('${pack}')">Remove</button>`
-            : '';
-          missing = !live ? '<span class="history-not-in-coll">Not in collection</span>' : '';
-        }
-        return `<div class="history-event">
+        const live = isSharedView ? null : _historyResolveLiveCollectionCard(ev);
+        // Undo is the only row action, as on the deck list. It reverses the
+        // logged change rather than deleting the line: collection events carry
+        // no id, so there is nothing to delete server-side, and a log that hides
+        // what was undone is worse than one that shows both.
+        const undone = _histUndoneRowKeys.has(pack);
+        const undoBtn = isSharedView ? '' :
+          `<div class="history-event-quick-actions">`
+          + `<button type="button" class="btn btn-outline btn-sm btn-icon history-row-btn history-undo-btn"`
+          + (undone
+            ? ` disabled title="Already undone" aria-label="Already undone"`
+            : ` onclick="event.stopPropagation();historyCollectionUndoFromRow('${pack}')"`
+              + ` title="Undo this change" aria-label="Undo this change"`)
+          + `>${_HIST_ICON.undo}</button>`
+          + `</div>`;
+        const missing = !isSharedView && !live ? '<div class="history-not-in-coll">Not in collection</div>' : '';
+        return `<div class="history-event history-event--deck${undone ? ' history-event--undone' : ''}" style="cursor:pointer"
+          title="View ${esc(ev.name)}"
+          onclick="historyOpenCardDetailFromRow('${pack}')">
           ${img}
           <div class="history-event-info">
-            <button type="button" class="history-name-open-btn" onclick="historyOpenCardDetailFromRow('${pack}')">${esc(ev.name)}</button>
+            <div class="history-event-name">${esc(ev.name)}</div>
             ${meta ? `<div class="history-event-meta">${esc(meta)}</div>` : ''}
             <div class="history-event-time">${time}</div>
             ${missing}
+            <div class="history-event-kind ${isAdd ? 'history-add' : 'history-remove'}">${isAdd ? '+' : '−'}${ev.delta}</div>
           </div>
-          <div class="history-event-actions">${foilBtn}${removeBtn}</div>
-          <div class="history-event-badge ${isAdd ? 'history-add' : 'history-remove'}">${isAdd ? '+' : '−'}${ev.delta}</div>
+          ${undoBtn}
         </div>`;
       }).join('')}
     </div>`;
@@ -3962,6 +4799,7 @@ function removeFromCollection(uid, opts = {}) {
 function toggleStarFilter(btn) {
   showStarredCardsOnly = !showStarredCardsOnly;
   btn.classList.toggle('active', showStarredCardsOnly);
+  _syncQuickFilterUI();
   renderCollection();
 }
 
@@ -4010,7 +4848,7 @@ function toggleCardStar(uid, event) {
 
 function toggleDeckTag(uid, deckId) {
   const card = collection.find(c => c.uid === uid);
-  if (!card) return;
+  if (!card) return _toggleUnownedDeckPin(uid, deckId);
   if (!card.deckTags) card.deckTags = [];
   const idx = card.deckTags.indexOf(deckId);
   const removing = idx >= 0;
@@ -4019,7 +4857,35 @@ function toggleDeckTag(uid, deckId) {
   if (typeof syncDeckSideboardForCollectionTag === 'function') {
     syncDeckSideboardForCollectionTag(deckId, card, !removing);
   }
-  save('collection');
+  // The tag rides the collection row, but the copy it puts on the maybe board is
+  // a deck write — both domains have to go up or the two disagree on reload.
+  save('collection', 'decks');
+  if (typeof activeDeckId !== 'undefined' && activeDeckId === deckId && typeof renderActiveDeck === 'function') {
+    renderActiveDeck();
+  }
+  openCardDetail(uid);
+}
+
+/**
+ * Pin a card you do not own — off the wishlist, a set, Browse, someone else's
+ * deck — to one of your decks' maybe boards.
+ *
+ * The owned path keeps its tag on the collection row; there is no such row here,
+ * so the maybe board holds the whole state — pinned means "that board has it".
+ * Wishlist and inventory bookkeeping (priority, source, dismissal, star, tags)
+ * is stripped: what lands on the board is a deck slot, not the row it came from.
+ */
+function _toggleUnownedDeckPin(uid, deckId) {
+  const deck = (typeof decks !== 'undefined' ? decks : []).find(d => d.id === deckId);
+  const src = _pinSourceCardForRef(uid);
+  if (!deck || !src || typeof syncDeckSideboardForCollectionTag !== 'function') return;
+  const {
+    priority, priorityLocked, source, sourceMeta, dismissed, addedAt, deckTags, qty,
+    starred, customTags, customTagTiers, roleTags, _plannedAdd,
+    ...slot
+  } = src;
+  syncDeckSideboardForCollectionTag(deckId, slot, !_deckMaybeBoardHasCard(deck, src));
+  save('decks');
   if (typeof activeDeckId !== 'undefined' && activeDeckId === deckId && typeof renderActiveDeck === 'function') {
     renderActiveDeck();
   }
@@ -4116,15 +4982,155 @@ function _toggleFindToken(key, val) {
 
 function _syncFindFilterBtns(q) {
   _syncFindColorPills();
-  const qlo = (q || '').toLowerCase();
-  for (const t of ['creature','instant','sorcery','artifact','enchantment','planeswalker','land']) {
-    document.getElementById('fct-' + t)?.classList.toggle('active', new RegExp(`(?:^|\\s)t:${t}(?=\\s|$)`).test(qlo));
-  }
-  document.getElementById('fct-legendary')?.classList.toggle('active', /(?:^|\s)is:legendary(?=\s|$)/.test(qlo));
-  for (const r of ['r','m','u','c']) {
-    document.getElementById('fcr-' + r)?.classList.toggle('active', new RegExp(`(?:^|\\s)r:${r}(?=\\s|$)`).test(qlo));
+  // The rarity chips are gone; r: is still a query token you can type, it just
+  // has no button of its own here.
+  _syncFindTypeMenuUi();
+  _syncFindColorMenuUi();
+}
+
+// ── Add cards: the collection's two multi-selects ────────────────────────────
+// Same menu component as Type & more / Color on the collection page. Selection
+// still lives where it always did — types and Legendary as tokens in the query
+// string, colours in _findColorFilters — so the search itself is unchanged and
+// typing "t:land" by hand still lights the menu up.
+const FIND_TYPE_OPTIONS = [
+  ['t', 'creature', 'Creature'],
+  ['t', 'instant', 'Instant'],
+  ['t', 'sorcery', 'Sorcery'],
+  ['t', 'artifact', 'Artifact'],
+  ['t', 'enchantment', 'Enchantment'],
+  ['t', 'planeswalker', 'Planeswalker'],
+  ['t', 'land', 'Land'],
+  ['is', 'legendary', 'Legendary'],
+];
+
+function _findTypeTokenOn(key, val) {
+  const q = (document.getElementById('findCardInput')?.value || '').toLowerCase();
+  return new RegExp(`(?:^|\\s)${key}:${val}(?=\\s|$)`).test(q);
+}
+
+function _syncFindTypeMenuUi() {
+  const btn = document.getElementById('findTypeMenuBtn');
+  if (!btn) return;
+  const n = FIND_TYPE_OPTIONS.filter(([k, v]) => _findTypeTokenOn(k, v)).length;
+  btn.textContent = n > 0 ? `Type & more (${n})` : 'Type & more';
+  btn.classList.toggle('active', n > 0);
+}
+
+function _syncFindColorMenuUi() {
+  const btn = document.getElementById('findColorMenuBtn');
+  if (!btn) return;
+  const n = _findColorFilters ? _findColorFilters.size : 0;
+  btn.textContent = n > 0 ? `Color (${n})` : 'Color';
+  btn.classList.toggle('active', n > 0);
+}
+
+function _closeFindMenus() {
+  document.querySelectorAll('.find-filter-menu').forEach(m => m.remove());
+  for (const id of ['findTypeMenuBtn', 'findColorMenuBtn', 'deckListColorMenuBtn']) {
+    document.getElementById(id)?.setAttribute('aria-expanded', 'false');
   }
 }
+
+function toggleFindTypeMenu(event) {
+  if (event) { event.stopPropagation(); event.preventDefault(); }
+  const open = !!document.querySelector('.find-type-menu');
+  _closeFindMenus();
+  if (!open) _openFindMenu('type');
+}
+
+function toggleFindColorMenu(event) {
+  if (event) { event.stopPropagation(); event.preventDefault(); }
+  const open = !!document.querySelector('.find-color-menu');
+  _closeFindMenus();
+  if (!open) _openFindMenu('color');
+}
+
+const FIND_MENU_KINDS = {
+  type:    { btn: 'findTypeMenuBtn',       cls: 'find-type-menu' },
+  color:   { btn: 'findColorMenuBtn',      cls: 'find-color-menu color-menu' },
+  // The deck list's own Color button — same component, its own selection state.
+  dlcolor: { btn: 'deckListColorMenuBtn',  cls: 'deck-list-color-menu color-menu' },
+};
+
+function _openFindMenu(kind) {
+  const spec = FIND_MENU_KINDS[kind] || FIND_MENU_KINDS.type;
+  const btn = document.getElementById(spec.btn);
+  if (!btn) return;
+  const menu = document.createElement('div');
+  menu.className = `glass-menu qf-menu find-filter-menu ${spec.cls}`;
+
+  const colorRows = (isOn, pick) => COLOR_FILTER_OPTIONS.map(([code, label]) => ({
+    on: !!isOn(code),
+    html: `<img src="https://svgs.scryfall.io/card-symbols/${code}.svg" alt="" aria-hidden="true">${label}`,
+    run: () => pick(code),
+  }));
+
+  const rows = kind === 'color'
+    ? colorRows(c => _findColorFilters && _findColorFilters.has(c), c => toggleFindColorFilter(c))
+    : kind === 'dlcolor'
+    ? colorRows(c => typeof deckListColorFilterOn === 'function' && deckListColorFilterOn(c),
+                c => toggleDeckListColorFilter(c))
+    : FIND_TYPE_OPTIONS.map(([key, val, label]) => ({
+        on: _findTypeTokenOn(key, val),
+        html: label,
+        run: () => _toggleFindToken(key, val),
+      }));
+
+  for (const row of rows) {
+    const item = document.createElement('button');
+    item.type = 'button';
+    const isColor = kind === 'color' || kind === 'dlcolor';
+    item.className = 'glass-menu-item' + (isColor ? ' color-menu-item' : '') + (row.on ? ' selected' : '');
+    item.innerHTML = row.html;
+    item.addEventListener('click', e => {
+      e.stopPropagation();
+      row.run();
+      const scroll = menu.scrollTop;
+      setTimeout(() => {
+        _closeFindMenus();
+        _openFindMenu(kind);
+        const next = document.querySelector('.find-filter-menu');
+        if (next) next.scrollTop = scroll;
+      }, 0);
+    });
+    menu.appendChild(item);
+  }
+
+  document.body.appendChild(menu);
+  const r = btn.getBoundingClientRect();
+  const margin = 8;
+  const maxH = Math.min(320, window.innerHeight - margin * 2);
+  menu.style.maxHeight = maxH + 'px';
+  const h = Math.min(menu.offsetHeight, maxH);
+  const w = menu.offsetWidth;
+  const below = window.innerHeight - r.bottom;
+  const top = below >= h + 12 ? r.bottom + 6 : Math.max(margin, r.top - h - 6);
+  menu.style.top = Math.min(top, window.innerHeight - h - margin) + 'px';
+  menu.style.left = Math.min(Math.max(margin, r.left), window.innerWidth - w - margin) + 'px';
+  btn.setAttribute('aria-expanded', 'true');
+
+  const drop = e => {
+    if (!menu.isConnected) {
+      window.removeEventListener('resize', drop, true);
+      window.removeEventListener('scroll', drop, true);
+      return;
+    }
+    if (e && e.target && menu.contains(e.target)) return;
+    _closeFindMenus();
+    window.removeEventListener('resize', drop, true);
+    window.removeEventListener('scroll', drop, true);
+  };
+  window.addEventListener('resize', drop, true);
+  window.addEventListener('scroll', drop, true);
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('click', () => _closeFindMenus());
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') _closeFindMenus(); });
+}
+globalThis.toggleFindTypeMenu = toggleFindTypeMenu;
+globalThis.toggleFindColorMenu = toggleFindColorMenu;
 
 let _findSearchOffset = 0;
 let _findSearchTotal = 0;
@@ -4188,9 +5194,12 @@ function _applyFindColorFilter(cards) {
 }
 
 function _syncFindColorPills() {
+  // The pips are a menu now, so this is the colour UI sync generally — every
+  // caller that used to repaint the pills has to reach the button's count too.
   for (const code of ['W', 'U', 'B', 'R', 'G', 'C']) {
     document.getElementById('fcp-' + code)?.classList.toggle('active', _findColorFilters.has(code));
   }
+  _syncFindColorMenuUi();
 }
 
 function toggleFindColorFilter(color) {
@@ -4338,6 +5347,13 @@ async function loadDeckOwnerCollectionLookup(deck) {
   }
 
   _deckOwnerCollDeckId = deck.id;
+  // Public/share-link view: the owner's collection is not ours to ask for, and
+  // the endpoint rightly says so. Nothing is shaded as "not owned" there.
+  if (typeof activeDeckIsPublicView === 'function' && activeDeckIsPublicView()) {
+    _deckOwnerCollectionCards = [];
+    _deckOwnerCollLookup = new Map();
+    return _deckOwnerCollLookup;
+  }
   _deckOwnerCollLoadPromise = apiFetch(`/decks/${deck.id}/owner-collection`)
     .then(rows => {
       _deckOwnerCollectionCards = Array.isArray(rows) ? rows : [];

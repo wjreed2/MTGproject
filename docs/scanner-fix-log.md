@@ -1,0 +1,293 @@
+# Scanner fix log
+
+Working list for the scanner overhaul (2026-09-14). Goal: reliable exact-printing
+identification. Baseline complaint: scanner effectively never matches — including when the
+fingerprint DB was freshly built, so staleness is a contributor but not the root cause.
+
+## Plan (agreed)
+
+1. Rebuild the fingerprint DB + put the rebuild on a schedule.
+2. Server matcher: rank by combined full+art Hamming distance (real noise margin), raise top-K.
+3. Hash parity: measure client↔server pHash drift (Chromium + WebKit), then move the final
+   downsample into shared deterministic code in phash-core.js so browser resampling is out of
+   the spec. Requires one full fingerprint rebuild (done as part of 1, after the code change).
+
+## Done
+
+- [x] Reviewed scanner architecture. Key: three stacked approaches (OCR voting, YOLO/classic
+      quad detection, pHash fingerprint); only pHash runs; server admits full-hash
+      signal≈noise (~14–16 bits both); client never sends OCR hints; fingerprint DB frozen
+      2026-06-22 (97,870 rows).
+- [x] **Margin experiment** (200 synthetic camera-noise queries against the real 97,870-row
+      index): full-only ranking loses to an impostor **88%** of the time at realistic noise;
+      combined full+art ranking loses **0.5%** (numbers below). Justified the matcher change.
+- [x] **Baseline parity** (pristine reference images, self-match, old code): Chromium median
+      full-drift 2 bits, max 6; **WebKit median 4, art drift up to 12, wrong printing
+      returned 5/10** — Safari's aliased one-step canvas downscale eats the whole matching
+      budget before camera noise is even added.
+- [x] **Server matcher rewrite** (server.js): retrieval now ranks by combined full+art
+      Hamming distance (`_fpNearestCombined`), internal top-K 25 (was full-hash-first top-5),
+      per-orientation art for upside-down cards, ambiguity margin 6 on the combined metric.
+      Accept gates unchanged. Old `_fpNearest`/`_fpArtDist` removed.
+- [x] **pHash spec v2** (js/phash-core.js): the 360×504→32×32 downsample is now shared
+      deterministic code (`lumaBoxDownscale`, exact fractional box filter) instead of
+      platform resamplers; card size + art window moved into the spec (`CARD_W/H`,
+      `ART_WINDOW`, `artRect`). Smoke test extended (19 checks, all passing).
+- [x] Build script, scanner client (`_scnComputeScanHashes`), and parity harness all hash
+      through the shared downsample. Client also sends `artPhashRot180` so upside-down scans
+      can pass the art gate (they never could before).
+- [x] Client sends one `getImageData` readback for all four hashes (was three canvases).
+- [x] **Scryfall bulk API fix**: the JSON-array `download_uri` feeds are GONE (replaced by
+      gzipped JSONL `jsonl_download_uri`) — the build script was broken against today's API
+      no matter what. Now streams JSONL (legacy path kept), verified with a live 8-card run.
+- [x] `--older-than <date>` resume flag for spec-migration rebuilds (a plain re-run would
+      skip everything because image URLs don't change when the hash spec does).
+- [x] **Weekly fingerprint top-up cron** in server.js (`FP_CRON_ENABLED=1`, default
+      Mon 05:15 America/New_York, `FP_CRON_SCHEDULE`/`FP_CRON_TZ` to override) — incremental,
+      mirrors the price-cron pattern; admin rebuild endpoint refactored onto the same helper.
+
+- [x] **Full `--force` rebuild under spec v2**: 100,123 printings, 0 errors, ~25 min at
+      concurrency 6 (feed grew +2,253 printings since June — cards that could never match).
+- [x] **Identify round-trip** (build-path hashes → /api/scan/identify): 15/15 self-matches at
+      **distance 0** (server-side parity is byte-exact now). Noisy (15/12 flipped bits):
+      15/15 right — same-art reprint collisions land in the chooser group instead of losing.
+- [x] **Combined-distance accept cap** (`SCAN_COMB_ACCEPT_MAX = 32`): the per-hash gates left
+      a corner open (full 16 + art 18 = comb 34 = the measured noise floor) that accepted
+      junk as `matched:true`; capped.
+- [x] **Same-art rival chooser** (`SCAN_SAMEART_WINDOW = 10`): an identical-art sibling
+      (The List reprint, promo stamp, pixel-identical variant) within 10 combined bits of the
+      winner now forces the chooser instead of silently auto-adding the wrong printing.
+      "Same art" compares reference art hashes to each other, not to the noisy query.
+- [x] **Camera-degradation sim** (scripts/scan-camera-sim-test.js, 40 cards × 3 levels):
+      results below. Also found + fixed a sharp gotcha (composite output is RGBA).
+- [x] **Real-photo harness** (scripts/scan-photo-test.js): drop card photos (cropped to the
+      card) into fixtures/scan-photos/ as `<set>-<collector>.jpg` and run it.
+- [x] **After-parity** (pristine self-match, spec v2, shared downsample): Chromium AND WebKit
+      both at median 0 / max 2 full, art ≤ 2, **0/10 wrong printings** (WebKit before:
+      median 4, art to 12, 5/10 wrong).
+- [x] npm test (44 scripts) green; dist chunk rebuilt; committed + pushed to
+      feature/liquid-glass.
+
+- [x] **Scan tab in Add cards** (the scanner previously had NO entry point in the UI):
+      third folder tab next to Search/Voice in the Add cards modal — closes the modal,
+      opens the scanner, auto-starts the camera. One tap from Collection to viewfinder.
+- [x] **Save crop button** in the scanner (visible while the camera runs): saves the exact
+      360×504 warped crop the matcher hashes — share sheet on phones, download elsewhere.
+      Drop saved crops into fixtures/scan-photos/ (renamed `<set>-<collector>.png`) and run
+      scripts/scan-photo-test.js to reproduce hard-to-read cards offline.
+      Verified end-to-end with Playwright fake camera: tab → viewfinder → 360×504 PNG.
+
+- [x] **Live-test feedback round 1** (2026-09-14, Will on the phone): "finds random cards
+      before I've even put things in." Reproduced locally against the healthy v2 index with
+      synthetic empty-reticle textures (wood/felt/gradient/desk): 40/40 passed the old
+      sharpness gate, 37 popped the chooser, 3 auto-queued junk. Three fixes, all measured:
+      1. Client **empty-reticle detail gate** (`SCN_FP_MIN_DETAIL = 8.5`, mean adjacent-pixel
+         step on the 32×32 luma — real cards ≥ 13.6, junk falls off below): 35/40 junk frames
+         now never reach the network; feeds the card-left counter so playset re-arm still works.
+      2. Server: **chooser requires an accept-quality winner** (ambiguous ⇒ matched) — noise
+         clusters near the floor no longer open the picker.
+      3. Server: combined accept cap 32 → **28** (junk had squeaked in at 30–32).
+      After: 0 junk matches, 0 junk choosers; camera sim improved to 92.5% exact / 7.5%
+      chooser / 0 wrong at realistic quality; round-trip still 15/15 + 15/15.
+      Regression harness: scripts/scan-empty-reticle-test.js.
+- [x] Scan tab is **mobile-only** (≤768px, the app's mobile line) — desktop has no card camera.
+- [x] **No camera auto-start** from the Scan tab: scanning begins the instant the camera runs,
+      so the user positions the card first and taps Start Camera when ready.
+
+- [x] **Live-test feedback round 2**: chooser boomerang — scanning didn't pause while the
+      picker was open (the grid re-rendered under your finger every 1.5s) and Dismiss didn't
+      remember the card, so the same lingering card reopened it instantly. Fixed: scanning
+      pauses while the chooser is up; Dismiss/pick marks that capture handled until the card
+      leaves the reticle (same re-arm as the playset flow); picking from the chooser also
+      arms the "+1" button. Verified end-to-end with a fake-webcam video of a real card
+      (Ponder [TDC], which legitimately triggers the same-art chooser): opens once, stable,
+      dismiss sticks for a lingering card, scanning resumes.
+- [x] The same E2E caught a real trap: **the true printing wasn't in the k=5 chooser** —
+      noise scrambles combined-distance order inside a same-art group (Ponder has TEN
+      frame-twins). Default candidate cap raised to 10; TDC #159 now present.
+- [x] **Railway verified healthy from here** (2026-09-14): deployed chunk carries the latest
+      markers, and an exact v2-hash probe returns matched distance 0 — code AND rebuilt DB
+      are live. Round-2 garbage reports predated that deploy; force-close/reopen the app to
+      shed any cached chunk.
+
+- [x] **Live-test feedback round 3 — the real killer found and fixed.** Will's four saved
+      crops showed the capture quad locking onto the WHITE TRAY, card floating at ~70% scale
+      inside it (MSH Marvel cards; the set IS in the DB — pure geometry). Measured: a
+      precise crop of the same captures matches at comb 14-22, and ±5px of crop error costs
+      6-10 bits — capture-time localization is everything. The corner-hunt refine measured
+      useless on this imagery (locked onto tray edges; white-on-white cards have no corner
+      contrast at detect resolution). Replaced with:
+      **axis-projection localization + server-side variant arbitration** — 1-D gradient
+      profiles find the card's edges inside the guide warp (the card is axis-aligned there),
+      top-3 card-aspect rects + grown twins (+5px: gradient peaks sit on the printed border,
+      just inside the physical edge) + the full guide are ALL hashed, and
+      /api/scan/identify matches every variant, answering with the best (`variants` body
+      field, ≤6; `variantIndex` in the response). Accept cap 28 → 31 (the junk that motivated
+      28 is blocked client-side by the detail gate — re-verified clean).
+      **Result: all four of Will's failed captures now identify as the exact correct
+      printing** — offline (d=6-14, a=6-10, three unambiguous) AND through the full UI with
+      the crops replayed as a fake webcam (4/4 PASS, correct card confirming).
+- [x] scripts/scan-photo-test.js now mirrors the live variant pipeline (axis localization +
+      variants), so an unrenamed Save-crop file straight from the phone is a faithful replay;
+      files not named `set-collector.*` run unlabeled instead of counting as WRONG.
+- [x] Full regression battery after the change: empty-reticle clean at cap 31, camera sim
+      82.5% exact / 17.5% chooser / 0% wrong (realistic level), chooser-loop E2E green.
+
+- [x] **Live-test feedback round 4 — flow redesign (ff9aa00).** First two cards matched
+      live, but the chooser popping over the viewfinder (continuous rescan re-reading the
+      handled card at new angles) made it unusable. New flow: **scan → auto-take the best
+      candidate → hold until motion brings the next card in**. No chooser in the scan flow
+      (fix printings in the Scanned & queued panel); weak art-only guesses are quiet
+      no-matches; three straight misses hold too and pop the manual name search open as the
+      fallback. Verified: tray capture queues once and stays held (session count frozen,
+      overlay persists, zero choosers), Ponder's ten frame-twins queue straight through,
+      all four real crops still identify.
+- [x] **Live-test feedback round 5 — a 10-crop labeled corpus** (~30% live success, some
+      confident wrong adds). Ground truth from the crops (now renamed `<set>-<collector>.png`
+      in fixtures/scan-photos/, kept untracked): two failure modes.
+      1. **Tilt** (1-3° off axis costs 10+ bits; the axis rect can't correct it): fixed with
+         a tilt search — the edge-profile peaks are sharpest at the true rotation, so the
+         best-scoring rotation of the warp (±3° in 1° steps) IS the tilt estimate. Variants
+         hash from the de-tilted warp; the full-frame fallback stays unrotated. Flipped
+         iko-40 (2°) and msc-579 (1°) from WRONG to EXACT.
+      2. **Multi-variant junk floor** (6 tries at the noise floor → confident wrong accepts
+         at comb 24-30): fixed with a **win-margin gate** — the best DIFFERENT-ART runner
+         must trail the winner by ≥3 combined bits (measured: true matches win by 4-8, junk
+         by 0-2; identical-art siblings excluded). Killed the Kari Zev wrong-accept.
+      Corpus after: **6/10 exact auto-adds, 4 quiet no-matches, ZERO wrong adds** (was ~30%
+      with wrong adds). The four no-matches: two crops clipped by the pre-fix localizer
+      (unrecoverable files), two borderless showcase foils (true comb 38-46 — genuinely
+      beyond this hash; the name-OCR fallback idea would rescue those).
+- [x] **Live-test feedback round 6** (10 scans: 5 exact, 4 no-result — closest RIGHT on 1-2
+      of those — 1 wrong add). Four changes:
+      1. **"+ Add this" on the no-match overlay**: a near miss (winner comb ≤ 40) is one tap
+         from an add — recovers the right-but-gate-rejected class with zero precision risk.
+      2. **Win margin 3 → 4** (a wrong add slipped at 3).
+      3. **Title-OCR veto on borderline auto-adds** (comb ≥ 20): the corpus surfaced a
+         jitter-STABLE hash collision (dark low-key art: msc-471 ↔ Gateway Shade at comb
+         20-26 with clean margin — no distance gate can separate it; dark-luma gating
+         measured and rejected, no separation). The card's printed NAME can: Tesseract reads
+         the title band of the winning capture and vetoes the add when the text positively
+         contradicts the matched name. Fails open (glare/low confidence/timeout/cold
+         worker); workers warm in the background at camera start; only borderline adds pay
+         the latency. E2E through the veto path green.
+      4. **Save crop now saves the RAW guide warp** (localized saves destroyed the evidence
+         when localization itself failed — a whole corpus round was undiagnosable).
+      Also tried and REVERTED: aspect-completed 3-edge rects for borderless top-clips (the
+      extra junk-rect variants produced a fresh confident wrong accept — measured).
+- [x] **Live-test feedback round 7 (1/10 right) — root cause was NOT the client.** Probed
+      Railway with exact hashes: old sets byte-exact (d=0), but msh/msc at d=2 and hob at
+      d≈6-10 — **Scryfall replaces new-set images** (placeholder scans → final), and
+      Railway's rebuild caught a different image generation than local. His HOB-heavy round
+      couldn't match by construction. Fix: incremental rebuild (no force) re-hashes exactly
+      the rows whose image URL changed. New-set image churn is now a known operational
+      hazard — consider FP_CRON_SCHEDULE daily during new-set season.
+- [x] **Title-first identification** (the 95%-accuracy architecture move): the client OCRs
+      the card's printed name each capture — from the CAMERA FRAME at native resolution
+      (the 360px warp starves Tesseract), psm 7 + name-alphabet whitelist — and sends it
+      with the hashes. Server builds a token-indexed name table from the fingerprint meta
+      (~30k names); a read title restricts matching to that name's printings, where the
+      pHash has no noise floor (a wrong pick is at worst the right card's wrong printing).
+      Gate comb ≤ 40; garbage/empty reads fall back to the global path unchanged. A
+      name-based suppression clause was tried and removed (only fired on partial reads,
+      suppressing true matches). Corpus: 7/9 replayable crops confident-correct including
+      one match by TITLE that hash alone missed; the two remaining wrongs are dark-art
+      collisions live OCR should preempt at full resolution.
+- [x] **Round 8 root cause, fixed remotely: Railway's index was still the JUNE table**
+      (97,870 rows — the spec-v2 rebuild never completed there; every live round ran against
+      it). Built the fingerprint push channel (`npm run fingerprints:push`, shared ingest
+      secret, e28fc31), synced all 100,122 v2 rows to prod, index reloaded. Full labeled
+      corpus run AGAINST PRODUCTION: **14/14 regular-frame captures correct** (both copies
+      of every HOB/VOW card), three of them rescued by title OCR. This is also the standing
+      ops answer to Scryfall's new-set image churn: rebuild locally, push up.
+- [x] **Round 9 (19/30 live, 11 new labeled crops): title fuzzy-matching gaps closed.**
+      The failures' OCR strings diagnosed three bugs in `_fpRowsForTitle`: candidate
+      gathering required an EXACT token ("F1ocK"/"remophnage"/"athering" anchored nothing);
+      stopwords counted as name tokens ("1e Kingpin of ee" failed coverage on "the");
+      two-token names demanded both tokens. Fixes: fuzzy token anchoring with a
+      digit-confusion map (1↔l, 0↔o, 5↔s, 8↔b — a confusion-exact hit is as good as clean),
+      stopword-free name tokens, coverage ≥ half, and **anchor-quality gates** — strong
+      anchors (exact/confusion-exact, or fuzzy words ≥ 6 chars) get comb ≤ 40, short fuzzy
+      anchors ≤ 30 (blocks "mock"→Monk at 36 while keeping "athering"→Gathering at 36).
+      Corpus vs the fixed matcher: Ravenhill Flock, Gathering of Darkness, Insatiable
+      Hemophage, and borderless Kingpin of Crime all now correct via TITLE.
+- [ ] Remaining classes: vertical Sagas (art window + stylized title), dark-art collisions
+      when OCR reads nothing at 360px (hob-121→Vile Rebirth would wrong-add; live native-res
+      OCR should read those titles — needs live confirmation), borderless-art titles
+      (mar-55b "PRAWN MALY TRE"), damaged legacy files.
+- [x] **Rounds 10-11** (30/42 cumulative live; corpus now 55 labeled files): wider fuzzy
+      nets ("Lolium"→Gollum, "Stent"→Silent), full-frame OCR retry when the rect band reads
+      garbage, evidence-quality gates (3-char-only title evidence never shortlists — "ark"
+      from truncated Dark had wrong-added Ark of Blight; 4-5 char evidence gets the strict
+      gate — lone "fury" had pulled a Fury promo), and **title/hash arbitration**: the title
+      path only overrides when the global winner's name contradicts the read; when the title
+      corroborates the global winner, agreement waives the win-margin gates (corroborated
+      true matches were dying at the margin). Corpus: 17 exact + 4 chooser, best yet.
+- [ ] Remaining failure classes, all with garbage/no OCR at 360px: dark-art global
+      collisions that wrong-add (Stony Goblins→Dawnhart Geist, Valiant Rescuer→Timber
+      Wolves, Boughside→Vile Rebirth, the Razorjaw Saga), and borderless-art titles
+      (Harbinger). Live native-res OCR is the differentiator the harness can't measure.
+- [ ] **Ops note:** do NOT enable the prod-side fingerprint cron during release season — a
+      prod rebuild re-fetches images at a different hour and reintroduces image-generation
+      drift. The flow is: rebuild locally, `npm run fingerprints:push`.
+- [ ] Harness nit: `-b`-suffixed duplicate labels (hob-115b) parse as collector "115b" and
+      count as WRONG — strip a trailing letter when comparing.
+- [ ] Later: printing-swap affordance in the queue panel rows; footer OCR to auto-resolve
+      same-art printings.
+
+## Remaining for Will (Railway)
+
+1. Deploy the branch (Railway auto-deploys feature/liquid-glass).
+2. Trigger the spec-v2 rebuild on the server DB: `POST /api/admin/fingerprints/rebuild` with
+   body `{"force":true}` as admin (~25–30 min; progress at `/api/admin/fingerprints/status`;
+   the index reloads itself when the build exits 0). Until this completes, scans will
+   mismatch — old hashes vs new client.
+3. Set `FP_CRON_ENABLED=1` in the Railway env for the weekly top-up (Mon 05:15 ET default).
+4. On the phone: open `/scanner-phash-parity.html` and Run — expect distance ≤ 2 everywhere.
+   Then scan real cards; drop tricky ones into fixtures/scan-photos/ for the photo harness.
+
+## Measurements
+
+Margin experiment (synthetic bit-flip noise, 200 queries, real index):
+
+| noise (full/art bits) | full-only top-1 | full-only beaten by impostor | combined top-1 | combined beaten |
+|---|---|---|---|---|
+| 12 / 9  | 72.0% | 63.0% | 98.5% | 0.0% |
+| 15 / 12 | 34.5% | 88.0% | 98.5% | 0.5% |
+| 18 / 15 | 4.5%  | 100%  | 91.5% | 15.0% |
+
+Pure-noise nearest neighbour over the index: full hash min 14 / median 17 / max 21 —
+i.e. zero margin vs a real capture at ~14–16. Combined: min 34 / median 42 / max 46.
+
+Parity (10 pristine self-matches per browser):
+
+|  | full dist (min/med/max) | art dist max | wrong printing as best |
+|---|---|---|---|
+| Chromium before | 0 / 2 / 6 | 2 | 1/10 |
+| WebKit before   | 2 / 4 / 6 | 12 | **5/10** |
+| Chromium after (spec v2) | 0 / 0 / 2 | 0 | 0/10 |
+| WebKit after (spec v2)   | 0 / 0 / 2 | 2 | 0/10 |
+
+Camera-degradation sim (40 cards/level, after all matcher changes; "chooser" = right card
+present in the ambiguous group the client shows):
+
+| refine quality | exact auto-match | chooser | wrong | no result |
+|---|---|---|---|---|
+| corrected (normal) | 75.0% | 25.0% | 0.0% | 0% |
+| partial            | 67.5% | 30.0% | 2.5% | 0% |
+| failed (guide-only, sloppy framing) | 62.5% | 30.0% | 7.5% | 0% |
+
+The surviving "wrongs" are near-pixel-identical printings (Duel Deck reissues, C17 vs ALA
+frame twins) — indistinguishable at 64-bit hash resolution; footer OCR is the fix. The
+chooser rate (~25%) is the honest price of exact-printing with The List/promos in the pool;
+OCR hints can auto-resolve most of it later.
+
+## Known limitations / later
+
+- Same-art reprints still need the chooser (or OCR hints — plumbing exists server-side,
+  client doesn't send them yet; footer OCR from the warped canvas is the natural next step
+  for exact-printing auto-pick).
+- Dead weight still in place: Gen-1 OCR voting loop, classic quad pipeline, YOLO poker-deck
+  chunk injected per scanner open (~536 KB + 12 MB model in vendor/). Cleanup deferred.
+- Ambiguous-chooser UX bug (fp tick keeps re-rendering the candidate grid while the card is
+  in frame) — deferred, list kept in review notes.

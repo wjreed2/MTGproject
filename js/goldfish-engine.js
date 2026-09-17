@@ -416,7 +416,8 @@ function _gfePlaceCardInZone(card, toZone, opts = {}) {
       opts = { ...opts, _entersTapped: true };
     }
   }
-  card.tapped = !!opts._entersTapped;
+  // Only a real zone change resets tap state — see the note in goldfish.js.
+  if (opts.fromZone !== toZone) card.tapped = !!opts._entersTapped;
   card.autoPlaced = false;
   if (toZone === 'library_top') {
     _gfe.library.unshift(card);
@@ -2432,7 +2433,7 @@ function _gfeMoveCard(iid, fromZone, toZone, opts = {}) {
       && (toZone === 'graveyard' || toZone === 'hand' || toZone === 'library')) {
     toZone = 'exile';
   }
-  const placed = _gfePlaceCardInZone(removed, toZone, opts);
+  const placed = _gfePlaceCardInZone(removed, toZone, { ...opts, fromZone });
   if (placed === 'ceased') {
     _gfeRender();
     _gfeFlash(_gfeTokenRemovedMsg(removed));
@@ -8297,7 +8298,8 @@ function _gfeZoneDragEnd(e) {
   if (!moved) {
     if (fromZone === 'hand') {
       if (_gfe?.mulligansInProgress && _gfe.putBackCount > 0) _gfePutBackFromHand(iid);
-      else _gfePlayFromHand(iid, st.captureEl);
+      // Same reasoning as the plain overlay: a tap reads the card, a drag plays it.
+      else _gfeToggleHandReveal(iid);
     } else if (fromZone === 'battlefield') _gfeTapCard(iid);
     else if (fromZone === 'exile') {
       const card = (_gfe.exile || []).find(c => c.iid === iid);
@@ -8666,6 +8668,16 @@ function _gfeComputeCastableSet() {
   );
 }
 
+/** Lift one hand card clear of the fan, or drop it back — the touch equivalent of hover. */
+function _gfeToggleHandReveal(iid) {
+  const el = document.querySelector(`#gfeHand [data-iid="${iid}"]`);
+  if (!el) return;
+  const on = el.classList.contains('gf-hand-revealed');
+  document.querySelectorAll('#gfeHand .gf-hand-revealed')
+    .forEach(x => x.classList.remove('gf-hand-revealed'));
+  if (!on) el.classList.add('gf-hand-revealed');
+}
+
 function _gfeRenderHand() {
   const handEl = document.getElementById('gfeHand');
   if (!handEl || !_gfe) return;
@@ -8731,10 +8743,12 @@ function _gfeHandPointerDown(e, iid) {
 const _GFE_ZONE_IDS = ['gfGYSlot', 'gfExileSlot', 'gfCommandZone', 'gfLibSlot'];
 
 function _gfeHighlightZones(x, y) {
+  // Zones win over the hand — see the note on _gfZoneUnder in goldfish.js.
+  const onZone = typeof _gfZoneUnder === 'function' && !!_gfZoneUnder(x, y);
   const handWrap = document.querySelector('.gf-hand-wrap');
   if (handWrap) {
     const r = handWrap.getBoundingClientRect();
-    const over = x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+    const over = !onZone && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
     handWrap.classList.toggle('gf-zone-drop-target', over);
   }
   const bf = document.getElementById('gfeBattlefield');
@@ -8759,24 +8773,14 @@ function _gfeClearZoneHighlights() {
 }
 
 function _gfeHitZone(x, y) {
+  const zone = typeof _gfZoneUnder === 'function' ? _gfZoneUnder(x, y) : null;
+  if (zone) return zone;
   const handWrap = document.querySelector('.gf-hand-wrap');
   if (handWrap) {
     const r = handWrap.getBoundingClientRect();
     if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
       return { id: 'gfHand', toKey: 'hand' };
     }
-  }
-  const zones = [
-    { id: 'gfGYSlot', toKey: 'graveyard' },
-    { id: 'gfExileSlot', toKey: 'exile' },
-    { id: 'gfCommandZone', toKey: 'commandZone' },
-    { id: 'gfLibSlot', toKey: 'library_top' },
-  ];
-  for (const z of zones) {
-    const el = document.getElementById(z.id);
-    if (!el) continue;
-    const r = el.getBoundingClientRect();
-    if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return z;
   }
   const bf = document.getElementById('gfeBattlefield');
   if (bf) {

@@ -765,5 +765,57 @@ console.log('commander is the engine — secondary goals never shop for his outp
     JSON.stringify([...wTop.keys()]));
 }
 
+console.log('reinforcement never introduces a sub-theme (Helga: extra land drops)');
+{
+  // Stompy top goal, ramp group saturated (13 providers) — but the group's
+  // mana.extra_land_drop and mana.ritual axes have 0 providers in this deck.
+  // Reinforcement means redundancy for what the deck plays, so those axes must
+  // not become wanted (they made every adds suggestion an extra-land-drop card).
+  const hist = {
+    providers: {
+      'body.big': 8, 'protection.single': 13, 'card_advantage.draw_engine': 8,
+      'mana.rock': 2, 'mana.dork': 5, 'mana.ramp_land': 6,
+    },
+    weight: {}, byAxisCards: {}, typeCounts: {},
+  };
+  const index = { provides: new Map(), needs: new Map(), commanderProvides: new Set(), commanderCarrier: false };
+  const w = rec.wantedAxes('stompy', hist, index, templates, [{ goal: 'stompy', confidence: 1 }]);
+  check('0-provider core axis is not reinforced',
+    !w.has('mana.extra_land_drop') && !w.has('mana.ritual'), JSON.stringify([...w.keys()]));
+  check('played core axes still reinforce',
+    w.has('mana.ramp_land') && w.has('mana.rock'), JSON.stringify([...w.keys()]));
+}
+
+console.log('off-plan soft-wants cluster feeds below the wanted-axis class');
+{
+  // Four landfall riders "wants"-needing landfall.enabler in a non-landfall deck
+  // (Helga) — real aggregate demand, but upside, not dependency. Credit caps at
+  // 3, one class below the +4 a wanted plan axis earns.
+  const carrier = (n) => ({ name: n, qty: 1, cmc: 2, typeLine: 'Creature — Human', ir: synIR([], [['voltron.aura_equipment', 4, 'wants']]) });
+  const deck = [
+    carrier('Carrier A'), carrier('Carrier B'), carrier('Carrier C'), carrier('Carrier D'),
+    { name: 'Old Sword', qty: 1, cmc: 2, typeLine: 'Artifact — Equipment', ir: synIR([['voltron.aura_equipment', 3, 'static']]) },
+    { name: 'Old Sword B', qty: 1, cmc: 2, typeLine: 'Artifact — Equipment', ir: synIR([['voltron.aura_equipment', 3, 'static']]) },
+    { name: 'Fodder Maker', qty: 1, cmc: 2, typeLine: 'Sorcery', ir: synIR([['token.creature', 3, 'per_turn'], ['sac.fodder', 3, 'per_turn']]) },
+    { name: 'Sac Outlet', qty: 1, cmc: 1, typeLine: 'Creature — Vampire', ir: synIR([['sac.outlet_free', 5, 'repeatable'], ['creatures_dying', 4, 'repeatable']]) },
+    { name: 'Drainer A', qty: 1, cmc: 2, typeLine: 'Creature — Vampire', ir: synIR([['trigger.death_payoff', 4, 'repeatable']], [['creatures_dying', 5, 'requires']]) },
+    { name: 'Drainer B', qty: 1, cmc: 2, typeLine: 'Creature — Vampire', ir: synIR([['trigger.death_payoff', 4, 'repeatable']], [['creatures_dying', 5, 'requires']]) },
+    { name: 'Basic Swamp', qty: 30, cmc: 0, typeLine: 'Basic Land — Swamp', ir: synIR([], [], { roles: ['land'] }) },
+  ];
+  const cmd = { name: 'Aristo Cmdr', ir: synIR([['sac.outlet_free', 4, 'repeatable']], [['sac.fodder', 4]]) };
+  const goals = inferGoals(deck, cmd, {});
+  const ctx = {
+    deckCards: deck, commander: cmd, goals: goals.goals,
+    thresholds: th.computeThresholds({ goal: goals.goals[0]?.goal }),
+    roleCounts: th.countRoles(deck), hist: goals.histogram, templates,
+  };
+  const adds = rec.scoreAdds({ ...ctx, candidates: [
+    { name: 'Another Sword', ir: synIR([['voltron.aura_equipment', 4, 'static']]), cmc: 2, price: 1, owned: false, edhrecRank: 400 },
+  ], budget: { maxCardPrice: null, flagAbove: 5 } });
+  const sword = adds.find(a => a.name === 'Another Sword');
+  const feed = (sword?.trace || []).find(t => t.kind === 'feeds' && t.axis === 'voltron.aura_equipment');
+  check('4 soft needers cap at +3, not +4', !!feed && feed.pts === 3, JSON.stringify(sword?.trace));
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

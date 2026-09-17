@@ -80,7 +80,9 @@ let setsViewMode = 'owned';   // 'owned' | 'starred' | 'all'
 
 // Collection filter state
 let showStarredCardsOnly = false;
-let quickFilters = { types: new Set(), flags: new Set(), cmcMin: null, cmcMax: null };
+// cmc is a set of chosen mana values, not a range — the collection picks them
+// from a multi-select. The Trade tab keeps its own cmcMin/cmcMax range state.
+let quickFilters = { types: new Set(), flags: new Set(), cmc: new Set() };
 
 // Chart instances
 let colorChartInst, rarityChartInst, valueChartInst;
@@ -118,6 +120,9 @@ function hydrateAppData(data) {
   collection = data.collection || [];
   collectionHistory = data.history || [];
   decks = data.decks || [];
+  // The server hands decks back in creation order; a hand-arranged grid is
+  // restored here (see sortDecksByStoredOrder in decks.js).
+  if (typeof sortDecksByStoredOrder === 'function') sortDecksByStoredOrder();
   games = data.games || [];
   wishlist = data.wishlist || [];
 
@@ -156,6 +161,9 @@ function hydrateAppData(data) {
   }
   if (typeof applyAddsPrefsFromServer === 'function') {
     applyAddsPrefsFromServer(data.prefs || {});
+  }
+  if (typeof applyTagBadgePrefsFromServer === 'function') {
+    applyTagBadgePrefsFromServer(data.prefs || {});
   }
   if (typeof applyDeckSwapsPrefsFromServer === 'function') {
     applyDeckSwapsPrefsFromServer(data.prefs || {});
@@ -289,6 +297,11 @@ function _activeAppTabId() {
  */
 function renderHydratedAppShell() {
   const t = _activeAppTabId();
+  // The collection tab is already `active` in index.html, so a cold load paints
+  // it without ever going through showTab — which is where the header's Filter
+  // and Info buttons pick up their state. Without this the totals showed while
+  // the Info button that controls them sat unlit.
+  if (t === 'collection' && typeof syncCollectionHeaderToggles === 'function') syncCollectionHeaderToggles();
   if (t === 'collection' && typeof renderCollection === 'function') renderCollection();
   else if (t === 'sets' && typeof loadSets === 'function') loadSets();
   else if (t === 'decks' && typeof renderDecks === 'function') renderDecks();
@@ -375,6 +388,10 @@ function _postPaintSessionRefresh() {
  * @param opts.quiet — skip the "Collection synced." toast (every ordinary
  *   refresh revalidates now; the toast would be noise).
  */
+// Set by the last resync: true only when the server could not be reached, so
+// callers can tell "offline" from "the data arrived and something else threw".
+let _resyncUnreachable = false;
+
 async function resyncAppDataFromServer(opts) {
   if (typeof isAppDataSynced === 'function' && isAppDataSynced()) return true;
   if (_appDataResyncInFlight) return _appDataResyncInFlight;
@@ -382,9 +399,21 @@ async function resyncAppDataFromServer(opts) {
   const quiet = !!(opts && opts.quiet);
   const pendingLoad = (opts && opts.loadPromise) || null;
   _appDataResyncInFlight = (async () => {
+    let data;
     try {
       console.info('[db] Resyncing app data from server (' + reason + ')…');
-      const data = await (pendingLoad || loadAllData());
+      try {
+        data = await (pendingLoad || loadAllData());
+      } catch (e) {
+        // The only failure that means "offline". Everything past this point has
+        // the server's answer in hand, so a throw there is a bug in hydrating or
+        // painting it — and raising the offline banner for one sent people
+        // hunting a network fault that was never there.
+        console.warn('[db] Resync could not reach the server:', e);
+        _resyncUnreachable = true;
+        return false;
+      }
+      _resyncUnreachable = false;
       await cacheSaveAll(data, currentUser?.id);
       const flags = hydrateAppData(data);
       if (typeof markAppDataSynced === 'function') markAppDataSynced(true);
@@ -413,7 +442,8 @@ async function resyncAppDataFromServer(opts) {
       }
       return true;
     } catch (e) {
-      console.warn('[db] Resync failed:', e);
+      console.warn('[db] Resync failed after the data arrived:', e);
+      _resyncUnreachable = false;
       return false;
     } finally {
       _appDataResyncInFlight = null;
@@ -513,7 +543,7 @@ async function loadAppDataAfterAuth(opts) {
       _postPaintSessionRefresh();
       resyncAppDataFromServer({ reason: 'boot-revalidate', quiet: true, loadPromise })
         .then(ok => {
-          if (!ok && typeof _setOffline === 'function') _setOffline();
+          if (!ok && _resyncUnreachable && typeof _setOffline === 'function') _setOffline();
         })
         .catch(() => {});
       return;
@@ -522,6 +552,8 @@ async function loadAppDataAfterAuth(opts) {
 
   let fromCache = false;
   let fromServer = false;
+  // The budget expiring means the request is still running, not that it failed.
+  let loadStillPending = false;
   let data;
   try {
     const first = await _awaitLoadWithBudget(loadPromise, 20000);
@@ -530,6 +562,7 @@ async function loadAppDataAfterAuth(opts) {
       fromServer = true;
       await cacheSaveAll(data, currentUser?.id);
     } else {
+      loadStillPending = !!first.pending;
       throw first.err || new Error('timeout');
     }
   } catch (e) {
@@ -551,7 +584,12 @@ async function loadAppDataAfterAuth(opts) {
         }
         renderHydratedAppShell();
         if (typeof showNotif === 'function') showNotif('Collection synced.');
-      }).catch(() => {});
+      }).catch(() => {
+        // The slow load we deferred to has now failed outright. Painting from cache
+        // while it was still in flight was right; staying silent once it is gone is
+        // not — that leaves stale data on screen with nothing saying so.
+        if (typeof _setOffline === 'function') _setOffline();
+      });
     } else {
       // Fresh Home Screen PWA: empty IndexedDB. Wait longer instead of showing 0 cards.
       bootSplashStatus('Still syncing — large collections can take a moment…');
@@ -576,7 +614,11 @@ async function loadAppDataAfterAuth(opts) {
     }
   }
 
-  if (fromCache) _setOffline();
+  // Painting from cache because the server was slow is not being offline: the
+  // request is still in flight and the handler above repaints when it lands.
+  // Announcing "offline" for it put the banner up on any cold start over a
+  // slow connection, which on a phone is most of them.
+  if (fromCache && !loadStillPending) _setOffline();
 
   const hydrateFlags = hydrateAppData(data);
   if (fromServer && typeof markAppDataSynced === 'function') markAppDataSynced(true);
@@ -720,13 +762,21 @@ async function initApp() {
   // Handle before the auth gate so logged-out visitors can see the shared deck.
   const _shareToken = typeof _publicDeckTokenFromPath === 'function' ? _publicDeckTokenFromPath() : null;
   if (_shareToken) {
-    bootSplashStatus('Loading shared deck…');
-    try {
-      if (typeof renderPublicDeckView === 'function') await renderPublicDeckView(_shareToken);
-    } finally {
-      bootSplashDone();
+    // Signed in: boot normally and open the deck in the builder afterwards, so a
+    // link lands on the same views its owner has, read-only. Signed out: the
+    // standalone page, unchanged and still without waiting on anything else.
+    let _linkMe = null;
+    try { _linkMe = await authMe(); } catch (_) { _linkMe = null; }
+    if (!_linkMe) {
+      bootSplashStatus('Loading shared deck…');
+      try {
+        if (typeof renderPublicDeckView === 'function') await renderPublicDeckView(_shareToken);
+      } finally {
+        bootSplashDone();
+      }
+      return;
     }
-    return;
+    _pendingShareDeckToken = _shareToken;
   }
 
   bootSplashStatus('Checking session…');
@@ -766,4 +816,24 @@ async function initApp() {
 
   // Resolves at the first paint; restores the saved tab itself (_paintHydratedApp).
   await loadAppDataAfterAuth({ earlyCachePromise });
+  if (_pendingShareDeckToken) {
+    const token = _pendingShareDeckToken;
+    _pendingShareDeckToken = null;
+    await _openSharedLinkDeckReadOnly(token);
+  }
+}
+
+let _pendingShareDeckToken = null;
+
+/** Open a /d/<token> deck in the builder, read-only, once the app is up. */
+async function _openSharedLinkDeckReadOnly(token) {
+  try {
+    const deck = await apiFetch('/decks/link/' + encodeURIComponent(token));
+    if (!deck || !deck.id) throw new Error('Deck not available');
+    if (typeof openDeckReadOnly === 'function') {
+      openDeckReadOnly(deck, { ownerId: deck.ownerId, ownerEmail: deck.ownerEmail });
+    }
+  } catch (e) {
+    if (typeof showNotif === 'function') showNotif('That share link is no longer available', true);
+  }
 }
