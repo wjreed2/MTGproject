@@ -302,6 +302,15 @@ function _playerName(p) {
   return `<span class="gp-name" style="color:${p.color}">${escapeHtml(p.name)}</span>`;
 }
 
+/** The playgroup a game was played in, by name. Null for games from before
+ *  playgroups were required, which fall back to listing their seats. */
+function _gamePlaygroupName(g) {
+  if (!g || g.playgroupId == null) return null;
+  const groups = Array.isArray(typeof _playgroups !== 'undefined' ? _playgroups : null) ? _playgroups : [];
+  const found = groups.find(x => Number(x.id) === Number(g.playgroupId));
+  return found?.name || null;
+}
+
 /** One game as a card in the grid. */
 function _gameCardHtml(g) {
   const winner = g.players.find(p => p.id === g.winner);
@@ -309,7 +318,16 @@ function _gameCardHtml(g) {
   const activePlayer = g.players[g.activePlayerIdx ?? 0];
   const dateLabel = new Date(g.date).toLocaleDateString();
   const durationLabel = g.endedAt ? formatDuration(g.endedAt - g.date) : null;
-  const seats = g.players.map(p => `<span class="game-card-seat">${_playerName(p)}</span>`).join('');
+  // Four names in full is most of the card, and the one that matters — whose
+  // turn it is, or who won — is already on the status line below. The group
+  // names the table; the seats keep their colours as dots, which is the same
+  // identification the names carried.
+  const pgName = _gamePlaygroupName(g);
+  const seats = pgName
+    ? `<span class="game-card-group">${escapeHtml(pgName)}</span>`
+      + `<span class="game-card-dots">${g.players.map(p =>
+          `<span class="game-card-dot" style="background:${p.color}" title="${escapeHtml(p.name)}"></span>`).join('')}</span>`
+    : g.players.map(p => `<span class="game-card-seat">${_playerName(p)}</span>`).join('');
   return `
     <div class="game-card${activeGameId === g.id ? ' is-selected' : ''}${isActive ? ' is-live' : ''}" onclick="selectGame('${g.id}')">
       <div class="game-card-head">
@@ -325,7 +343,7 @@ function _gameCardHtml(g) {
       <div class="game-card-status">${isActive
         ? `In progress${activePlayer ? ` · ${_playerName(activePlayer)}` : ''}`
         : `Winner: ${winner ? _playerName(winner) : '—'}`}</div>
-      ${isActive ? `<button class="btn btn-outline btn-sm game-card-open" onclick="event.stopPropagation();openTabletView('${g.id}')">${g.paused ? 'Resume game' : 'Open Tablet View'}</button>` : ''}
+      ${isActive ? `<button class="btn btn-outline btn-sm game-card-open" onclick="event.stopPropagation();openTabletView('${g.id}')"><span class="gco-long">${g.paused ? 'Resume game' : 'Open Tablet View'}</span><span class="gco-short">${g.paused ? 'Resume' : 'Open'}</span></button>` : ''}
     </div>`;
 }
 

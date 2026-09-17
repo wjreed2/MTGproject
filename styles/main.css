@@ -11897,7 +11897,23 @@ body.glass-mode .game-card.is-selected {
   font-size: 0.68rem; letter-spacing: 0.06em; text-transform: uppercase;
   color: rgb(var(--lgx1));
 }
-.game-card-seats { display: flex; flex-wrap: wrap; gap: 4px 10px; min-width: 0; }
+/* The card sizes its own contents: two columns on a phone make it ~140px, where
+   the full button label is wider than the card it sits in. */
+.game-card { container-type: inline-size; container-name: gamecard; }
+.game-card-seats { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 0; }
+/* The table, named. */
+.game-card-group {
+  font-size: 0.82rem; font-weight: 600; color: var(--text2);
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.game-card-dots { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+/* A seat's colour was always the identification; without the names it is all
+   of it, so the name rides along as the title. */
+.game-card-dot {
+  width: 9px; height: 9px; border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.35);
+}
+[data-theme="light"] .game-card-dot { box-shadow: 0 0 0 1px rgba(255,255,255,0.8); }
 /* Names are arbitrary, so they have to be allowed to break rather than hold the
    card open. */
 .game-card-seat { font-size: 0.78rem; min-width: 0; overflow-wrap: anywhere; }
@@ -11907,7 +11923,16 @@ body.glass-mode .game-card.is-selected {
   font-variant-numeric: tabular-nums;
 }
 .game-card-status { font-size: 0.76rem; color: var(--text2); min-width: 0; overflow-wrap: anywhere; }
-.game-card-open { align-self: flex-start; margin-top: 2px; }
+.game-card-open { align-self: flex-start; margin-top: 2px; max-width: 100%; }
+/* Narrow card: the label shortens and the button takes the width, which reads
+   as the card's action rather than a chip floating at the bottom of it. After
+   the rule above, or its align-self would win on equal specificity. */
+.gco-short { display: none; }
+@container gamecard (max-width: 215px) {
+  .game-card-open { align-self: stretch; justify-content: center; }
+  .game-card-open .gco-long { display: none; }
+  .game-card-open .gco-short { display: inline; }
+}
 /* Content width, like every other control in the app — stretched across half
    the modal each they read as banners rather than as the pair of buttons they
    are. */
