@@ -3162,7 +3162,7 @@ async function _scnPngWithDiag(blob, json) {
 // inset — which is what clipped the first characters off every live read. Contrast is
 // stretched, and `invert` handles light-on-dark frames (borderless, showcase, most black
 // cards) that Tesseract reads far worse in their native polarity.
-function _scnTitleBandUrl(v, cardQuad, { above = false, invert = false, narrow = false } = {}) {
+function _scnTitleBandUrl(v, cardQuad, { above = false, invert = false, narrow = false, middle = false } = {}) {
   const bb = _scnQuadAxisBBox(cardQuad);
   if (!bb) return null;
   const vw = v.videoWidth, vh = v.videoHeight;
@@ -3172,13 +3172,17 @@ function _scnTitleBandUrl(v, cardQuad, { above = false, invert = false, narrow =
   // returns noise. A tall region contains the title wherever it actually sits; the extra
   // text costs nothing, because name scoring keys on long shared runs, not stray words.
   const bx = (bb.nx - bb.nw * 0.04) * vw;
-  const by = (bb.ny + bb.nh * (above ? -0.14 : narrow ? -0.07 : -0.08)) * vh;
+  // `middle` is for the full-art frames whose name sits in a band BELOW the art rather than at
+  // the top — Meteor Crater [eos #26] reads as pure sky from the top third. On a normal card
+  // this band is rules text, which is why it runs last: the early exit above ends the pass as
+  // soon as a name-length read comes back, so an ordinary card never pays for it.
+  const by = (bb.ny + bb.nh * (middle ? 0.58 : above ? -0.14 : narrow ? -0.07 : -0.08)) * vh;
   const bw = bb.nw * 1.08 * vw;
   // `narrow` is the title line alone. The tall region is the right default — it finds the
   // title without depending on exact placement — but on a Saga the top third also contains
   // the chapter-ability column, and block segmentation reads THAT ("As this Saga enters...")
   // instead of the name. A strip that can only contain the title fixes those.
-  const bh = bb.nh * (narrow ? 0.16 : above ? 0.20 : 0.36) * vh;
+  const bh = bb.nh * (middle ? 0.22 : narrow ? 0.16 : above ? 0.20 : 0.36) * vh;
   if (bw < 40 || bh < 10) return null;
   const sx = Math.max(0, bx), sy = Math.max(0, by);
   const sw = Math.min(vw - sx, bw), sh = Math.min(vh - sy, bh);
@@ -3242,6 +3246,9 @@ function _scnParseFooterHints(text) {
   if (m) set = m[1].toLowerCase();
   return set || collector ? { set, collector } : null;
 }
+
+/** Reads shorter than this can't clear the server's name-evidence bar, so nothing was read. */
+const SCAN_TITLE_MIN_EVIDENCE_ALPHA = 24;
 
 /** Below this share of the guide, the localised rect may be cropping inside the card. */
 const SCN_FP_GUIDE_COVER_MIN = 0.85;
@@ -3357,6 +3364,23 @@ async function _scnReadTitles(v, cardQuad) {
       // means the region caught rules text (Sagas), and the title strip still has to run.
       const got = out.length ? alpha(out[out.length - 1]) : 0;
       if (got >= 16 && got <= 40) break;
+    }
+    // Nothing readable up top? Then this may be one of the full-art frames whose name sits in
+    // a band BELOW the art (Meteor Crater [eos #26] reads as pure sky from the top third), so
+    // try there. Gated on the reads so far being too short to be a name — on an ordinary card
+    // that band is rules text, and feeding rules text to the name matcher is how a card gets
+    // matched on a sentence rather than its title.
+    const longest = out.reduce((m, t) => Math.max(m, alpha(t)), 0);
+    if (longest < SCAN_TITLE_MIN_EVIDENCE_ALPHA && performance.now() <= deadline) {
+      const url = _scnTitleBandUrl(v, cardQuad, { middle: true, invert: inv });
+      if (url) {
+        const rec = await Promise.race([
+          _scnNameWorker.recognize(url),
+          new Promise(res => setTimeout(() => res(null), Math.max(300, deadline - performance.now()))),
+        ]);
+        const text = rec?.data?.text ? String(rec.data.text).replace(/\s+/g, ' ').trim() : '';
+        if (alpha(text) >= 4 && !out.includes(text)) out.push(text.slice(0, 240));
+      }
     }
     // The band above is anchored on the LOCALISED card rect, so a rect that lands inside the
     // card puts the band below the real title and every pass reads art instead of a name.

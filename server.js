@@ -10290,7 +10290,17 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
         // vote — which matters because the captures that need this are exactly the ones whose
         // hash is worthless (this one sits 60 bits from the true card and 30 from a wrong one).
         const titleAgrees = !!(titleHit && titleHit.rows.includes(exact));
-        if (fBest && (fBest.comb <= SCAN_FOOTER_COMB_MAX || titleAgrees)) {
+        // A footer carrying BOTH a set code and a multi-character collector number is strong
+        // evidence by itself. The set code only parses when it sits next to the language
+        // marker, and the pair resolves to exactly one printing out of ~100k. Every bad footer
+        // read seen live was missing one of those: an empty set code, or a single stray digit
+        // picked off the rules text — "1", "1r", and the "hob 3" that queued Troop of Ponies.
+        // So a strong read no longer has to agree with the image, because on the captures that
+        // need it the image is actively wrong: Mesa Lynx's capture sits 34 combined bits from
+        // the true card and 28 from an unrelated one, Meteor Crater's 66 from true and 24 from
+        // a Thrull token. A weak read still has to clear the old distance bar.
+        const strongFooter = hintNum.length >= 2;
+        if (fBest && (strongFooter || titleAgrees || fBest.comb <= SCAN_FOOTER_COMB_MAX)) {
           const cards = await _fingerprintCardsFor([_fpIndex.meta[exact]]);
           if (cards[0]) {
             cards[0]._scanDistance = fBest.dist;
