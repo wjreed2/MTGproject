@@ -5,8 +5,12 @@
  * to a deployed server through POST /api/internal/semantics-ingest.
  *
  * All extraction happens dev-side; prod only receives finished rows. Incremental by
- * default: the target's updated_at watermark (GET /status) filters what gets pushed,
- * so re-runs move only rows extracted/patched since the last sync.
+ * default: the script asks the target which of its local rows are missing or staler
+ * (POST /diff, by oracle_id + updated_at), so re-runs move only what the target lacks.
+ * A row-level diff rather than a single watermark, because with TWO machines extracting
+ * (docs/deployment-runbook.md §1c) rows stamped before the other machine's last push sit
+ * below the watermark and would never be sent. Targets that predate /diff fall back to
+ * the watermark automatically.
  *
  * Setup (mirrors the changelog ingest pattern — see docs/deployment-runbook.md):
  *   Railway → set SEMANTICS_INGEST_SECRET (long random string; openssl rand -base64 48)
@@ -16,8 +20,8 @@
  *
  * Usage:
  *   node scripts/semantics-push-prod.js --dry-run          # show what would be pushed
- *   node scripts/semantics-push-prod.js                    # incremental push
- *   node scripts/semantics-push-prod.js --full             # ignore watermark, push everything
+ *   node scripts/semantics-push-prod.js                    # incremental push (row diff)
+ *   node scripts/semantics-push-prod.js --full             # skip the diff, push everything
  *   node scripts/semantics-push-prod.js --api https://localhost:3001 --insecure --limit 50
  */
 
@@ -38,6 +42,33 @@ function parseArgs(argv) {
   };
 }
 
+/** Rows the target is missing or holds staler than us. Asks the target directly
+ * (POST /diff in chunks); falls back to the updated_at watermark when the target is an
+ * older deployment without that route. --full skips the diff entirely. */
+async function selectPushIds(db, base, headers, opts, since) {
+  const [local] = await db.query(
+    `SELECT oracle_id, updated_at FROM card_semantics ORDER BY updated_at, oracle_id`);
+  if (opts.full) return local.map(r => r.oracle_id);
+
+  const need = [];
+  for (let i = 0; i < local.length; i += 2000) {
+    const chunk = local.slice(i, i + 2000)
+      .map(r => ({ oracle_id: r.oracle_id, updated_at: Number(r.updated_at) }));
+    const res = await fetch(`${base}/api/internal/semantics-ingest/diff`, {
+      method: 'POST', headers, body: JSON.stringify({ cards: chunk }),
+    });
+    if (res.status === 404) {
+      console.warn('target has no /diff route (older deployment) — falling back to the updated_at watermark.');
+      console.warn('With two machines extracting, deploy the current server.js so nothing gets skipped.');
+      return local.filter(r => Number(r.updated_at) > since).map(r => r.oracle_id);
+    }
+    if (!res.ok) { console.error(`diff failed (${res.status}): ${(await res.text()).slice(0, 300)}`); process.exit(1); }
+    const body = await res.json();
+    need.push(...(body.need || []));
+  }
+  return need;
+}
+
 async function main() {
   const opts = parseArgs(process.argv);
   const secret = String(process.env.SEMANTICS_INGEST_SECRET || '').trim();
@@ -51,7 +82,7 @@ async function main() {
   if (!statusRes.ok) { console.error(`status ${statusRes.status}: ${(await statusRes.text()).slice(0, 300)}`); process.exit(1); }
   const remote = await statusRes.json();
   const since = opts.full ? 0 : Number(remote.maxUpdatedAt) || 0;
-  console.log(`target ${base}: ${remote.cards} cards / ${remote.axes} axes · watermark ${since}${opts.full ? ' (ignored — --full)' : ''}`);
+  console.log(`target ${base}: ${remote.cards} cards / ${remote.axes} axes · watermark ${remote.maxUpdatedAt}${opts.full ? ' — --full, pushing everything' : ''}`);
 
   const db = mysql.createPool({
     host: process.env.DB_HOST || 'localhost', port: parseInt(process.env.DB_PORT || '3306'),
@@ -59,13 +90,20 @@ async function main() {
     database: process.env.DB_NAME || 'mtgproject', connectionLimit: 2, charset: 'utf8mb4',
   });
   try {
-    const limitSql = opts.limit ? ` LIMIT ${opts.limit}` : '';
-    const [rows] = await db.query(
-      `SELECT oracle_id, ir_version, vocab_version, ir_json, roles_json, confidence, validation_score,
-              status, run_id, model, prompt_version, updated_at
-         FROM card_semantics WHERE updated_at > ? ORDER BY updated_at, oracle_id${limitSql}`, [since]);
-    if (!rows.length) { console.log('nothing to push — target is up to date.'); return; }
-    console.log(`${rows.length} card(s) newer than watermark${opts.limit ? ` (capped by --limit ${opts.limit})` : ''}`);
+    const ids = await selectPushIds(db, base, headers, opts, since);
+    if (!ids.length) { console.log('nothing to push — target is up to date.'); return; }
+    const limited = opts.limit ? ids.slice(0, opts.limit) : ids;
+    const rows = [];
+    for (let i = 0; i < limited.length; i += 500) {
+      const chunk = limited.slice(i, i + 500);
+      const [part] = await db.query(
+        `SELECT oracle_id, ir_version, vocab_version, ir_json, roles_json, confidence, validation_score,
+                status, run_id, model, prompt_version, updated_at
+           FROM card_semantics WHERE oracle_id IN (${chunk.map(() => '?').join(',')})
+          ORDER BY updated_at, oracle_id`, chunk);
+      rows.push(...part);
+    }
+    console.log(`${rows.length} card(s) to push${opts.limit && ids.length > opts.limit ? ` (capped by --limit ${opts.limit} of ${ids.length})` : ''}`);
     if (opts.dryRun) {
       const byPrompt = {};
       for (const r of rows) byPrompt[r.prompt_version] = (byPrompt[r.prompt_version] || 0) + 1;

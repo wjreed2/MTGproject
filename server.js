@@ -12332,15 +12332,147 @@ app.post('/api/internal/changelog-ingest', requireChangelogIngestSecret, async (
 // and pushes finished CardIR rows here in batches; `status` exposes the
 // updated_at watermark that makes the sync incremental.
 
-/** Watermark + row counts — the push script diffs against this. */
+/** Watermark + row counts — the push script diffs against this. `?since=<ms>` also
+ * reports how many rows sit above that watermark, which is how the status/pull scripts
+ * say "N cards waiting to come down" without fetching a page first. */
 app.get('/api/internal/semantics-ingest/status', requireSemanticsIngestSecret, async (req, res) => {
   try {
     const [[row]] = await db().query(
       `SELECT COUNT(*) n, COALESCE(MAX(updated_at), 0) maxUpdatedAt FROM card_semantics`);
     const [[ax]] = await db().query(`SELECT COUNT(*) n FROM card_semantics_axes`);
-    res.json({ cards: Number(row.n), axes: Number(ax.n), maxUpdatedAt: Number(row.maxUpdatedAt) });
+    const since = Math.max(0, Number(req.query.since) || 0);
+    let newer = Number(row.n); // since=0 (or absent) — everything is "newer"
+    if (since) {
+      const [[n]] = await db().query(
+        `SELECT COUNT(*) n FROM card_semantics WHERE updated_at > ?`, [since]);
+      newer = Number(n.n);
+    }
+    res.json({
+      cards: Number(row.n), axes: Number(ax.n), maxUpdatedAt: Number(row.maxUpdatedAt), newer,
+    });
   } catch (e) {
     console.error('[semantics-ingest]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Which of these rows does this DB not have (or hold a staler copy of)? A single
+ * updated_at watermark only works with ONE machine pushing: rows extracted on machine B
+ * before machine A's latest push sit *below* the watermark and would never be sent. The
+ * push script diffs by (oracle_id, updated_at) against this instead. */
+app.post('/api/internal/semantics-ingest/diff', requireSemanticsIngestSecret, async (req, res) => {
+  const cards = Array.isArray(req.body?.cards) ? req.body.cards : null;
+  if (!cards) return res.status(400).json({ error: 'cards[] required' });
+  if (cards.length > 5000) return res.status(400).json({ error: 'max 5000 rows per diff' });
+  try {
+    const ids = [];
+    const stamp = new Map();
+    for (const c of cards) {
+      const id = String(c?.oracle_id || '');
+      if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: `bad oracle_id: ${id}` });
+      ids.push(id);
+      stamp.set(id, Number(c.updated_at) || 0);
+    }
+    const have = new Map();
+    for (let i = 0; i < ids.length; i += 1000) {
+      const chunk = ids.slice(i, i + 1000);
+      const [rows] = await db().query(
+        `SELECT oracle_id, updated_at FROM card_semantics
+          WHERE oracle_id IN (${chunk.map(() => '?').join(',')})`, chunk);
+      for (const r of rows) have.set(r.oracle_id, Number(r.updated_at));
+    }
+    res.json({
+      need: ids.filter(id => !have.has(id) || have.get(id) < stamp.get(id)),
+      checked: ids.length,
+    });
+  } catch (e) {
+    console.error('[semantics-diff]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Export finished CardIR rows so a second dev machine can mirror what is already
+ * extracted — the reverse of the ingest below (scripts/semantics-pull.js). Paged by an
+ * (updated_at, oracle_id) cursor the caller echoes back, so rows sharing a millisecond
+ * can never straddle a page boundary and go missing. */
+app.get('/api/internal/semantics-export', requireSemanticsIngestSecret, async (req, res) => {
+  try {
+    const since = Math.max(0, Number(req.query.since) || 0);
+    const after = /^[0-9a-f-]{36}$/i.test(String(req.query.after || '')) ? String(req.query.after) : '';
+    const limit = Math.min(500, Math.max(1, parseInt(req.query.limit) || 200));
+    const [rows] = await db().query(
+      `SELECT oracle_id, ir_version, vocab_version, ir_json, roles_json, confidence, validation_score,
+              status, run_id, model, prompt_version, updated_at
+         FROM card_semantics
+        WHERE updated_at > ? OR (updated_at = ? AND oracle_id > ?)
+        ORDER BY updated_at, oracle_id LIMIT ${limit}`, [since, since, after]);
+    const axesByCard = new Map();
+    if (rows.length) {
+      const ids = rows.map(r => r.oracle_id);
+      const [ax] = await db().query(
+        `SELECT oracle_id, kind, axis, param, weight, rate FROM card_semantics_axes
+          WHERE oracle_id IN (${ids.map(() => '?').join(',')})`, ids);
+      for (const a of ax) {
+        if (!axesByCard.has(a.oracle_id)) axesByCard.set(a.oracle_id, []);
+        axesByCard.get(a.oracle_id).push({ kind: a.kind, axis: a.axis, param: a.param, weight: a.weight, rate: a.rate });
+      }
+    }
+    const last = rows[rows.length - 1];
+    res.json({
+      cards: rows.map(r => ({
+        oracle_id: r.oracle_id, ir_version: r.ir_version, vocab_version: r.vocab_version,
+        ir_json: typeof r.ir_json === 'string' ? r.ir_json : JSON.stringify(r.ir_json),
+        roles_json: r.roles_json == null ? null : (typeof r.roles_json === 'string' ? r.roles_json : JSON.stringify(r.roles_json)),
+        confidence: Number(r.confidence),
+        validation_score: r.validation_score != null ? Number(r.validation_score) : null,
+        status: r.status, run_id: r.run_id, model: r.model, prompt_version: r.prompt_version,
+        updated_at: Number(r.updated_at), axes: axesByCard.get(r.oracle_id) || [],
+      })),
+      nextSince: last ? Number(last.updated_at) : since,
+      nextAfter: last ? last.oracle_id : after,
+      more: rows.length === limit,
+    });
+  } catch (e) {
+    console.error('[semantics-export]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Corpus coverage by EDHREC-rank band — the shared "where are we" view when extraction
+ * runs on more than one machine (scripts/semantics-status.js). The denominator matches
+ * the runner's own card selection (paper printings, non-excluded layouts) so the bands
+ * line up with what `semantics-extract.js --incremental` would actually pick up. */
+app.get('/api/internal/semantics-coverage', requireSemanticsIngestSecret, async (req, res) => {
+  try {
+    const band = Math.min(20000, Math.max(500, parseInt(req.query.band) || 2000));
+    const layouts = engine2.vocab.EXCLUDED_LAYOUTS;
+    const corpusWhere = `JSON_CONTAINS(c.games_json, '"paper"') AND (c.layout IS NULL OR c.layout NOT IN (?))`;
+    const [bands] = await db().query(
+      `SELECT FLOOR(c.edhrec_rank / ?) AS band, COUNT(*) AS total,
+              SUM(s.oracle_id IS NOT NULL) AS done
+         FROM scryfall_oracle_cards c
+         LEFT JOIN card_semantics s ON s.oracle_id = c.oracle_id AND s.ir_version = ?
+        WHERE ${corpusWhere} AND c.edhrec_rank IS NOT NULL
+        GROUP BY band ORDER BY band`, [band, engine2.irSchema.IR_VERSION, layouts]);
+    const [[unranked]] = await db().query(
+      `SELECT COUNT(*) AS total, SUM(s.oracle_id IS NOT NULL) AS done
+         FROM scryfall_oracle_cards c
+         LEFT JOIN card_semantics s ON s.oracle_id = c.oracle_id AND s.ir_version = ?
+        WHERE ${corpusWhere} AND c.edhrec_rank IS NULL`, [engine2.irSchema.IR_VERSION, layouts]);
+    const [[runs]] = await db().query(
+      `SELECT COUNT(*) AS n FROM card_semantics WHERE ir_version = ?`, [engine2.irSchema.IR_VERSION]);
+    res.json({
+      bandSize: band,
+      irVersion: engine2.irSchema.IR_VERSION,
+      bands: bands.map(b => ({
+        from: Number(b.band) * band + 1, to: (Number(b.band) + 1) * band,
+        total: Number(b.total), done: Number(b.done),
+      })),
+      unranked: { total: Number(unranked.total), done: Number(unranked.done) },
+      cardsAtIrVersion: Number(runs.n),
+    });
+  } catch (e) {
+    console.error('[semantics-coverage]', e);
     res.status(500).json({ error: e.message });
   }
 });
