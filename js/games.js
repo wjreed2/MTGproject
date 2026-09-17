@@ -323,16 +323,20 @@ function _gameCardHtml(g) {
   // names the table; the seats keep their colours as dots, which is the same
   // identification the names carried.
   const pgName = _gamePlaygroupName(g);
+  // Whose turn it is is carried by the dots: the seat on the clock takes the
+  // live dot's glow and pulse, in its own colour so it still says who. That
+  // leaves nothing for an "In progress" line or a LIVE badge to add — an active
+  // game already announces itself with a button to resume it.
+  const dot = p => `<span class="game-card-dot${isActive && p === activePlayer ? ' is-turn' : ''}"`
+    + ` style="background:${p.color};color:${p.color}" title="${escapeHtml(p.name)}"></span>`;
   const seats = pgName
     ? `<span class="game-card-group">${escapeHtml(pgName)}</span>`
-      + `<span class="game-card-dots">${g.players.map(p =>
-          `<span class="game-card-dot" style="background:${p.color}" title="${escapeHtml(p.name)}"></span>`).join('')}</span>`
+      + `<span class="game-card-dots">${g.players.map(dot).join('')}</span>`
     : g.players.map(p => `<span class="game-card-seat">${_playerName(p)}</span>`).join('');
   return `
     <div class="game-card${activeGameId === g.id ? ' is-selected' : ''}${isActive ? ' is-live' : ''}" onclick="selectGame('${g.id}')">
       <div class="game-card-head">
         <span class="game-card-format">${escapeHtml(g.format)}</span>
-        ${isActive ? '<span class="game-card-live"><span class="game-active-dot"></span>Live</span>' : ''}
       </div>
       <div class="game-card-seats">${seats}</div>
       <div class="game-card-meta">
@@ -340,9 +344,11 @@ function _gameCardHtml(g) {
         <span>T${g.currentTurn || 0}</span>
         <span>${durationLabel || dateLabel}</span>
       </div>
-      <div class="game-card-status">${isActive
-        ? `In progress${activePlayer ? ` · ${_playerName(activePlayer)}` : ''}`
-        : `Winner: ${winner ? _playerName(winner) : '—'}`}</div>
+      ${isActive
+        // Without a playgroup there are no dots, so the line is the only thing
+        // left that can say whose turn it is.
+        ? (pgName ? '' : `<div class="game-card-status">In progress${activePlayer ? ` · ${_playerName(activePlayer)}` : ''}</div>`)
+        : `<div class="game-card-status">Winner: ${winner ? _playerName(winner) : '—'}</div>`}
       ${isActive ? `<button class="btn btn-outline btn-sm game-card-open" onclick="event.stopPropagation();openTabletView('${g.id}')"><span class="gco-long">${g.paused ? 'Resume game' : 'Open Tablet View'}</span><span class="gco-short">${g.paused ? 'Resume' : 'Open'}</span></button>` : ''}
     </div>`;
 }

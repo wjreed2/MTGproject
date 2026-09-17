@@ -11908,12 +11908,20 @@ body.glass-mode .game-card.is-selected {
 }
 .game-card-dots { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
 /* A seat's colour was always the identification; without the names it is all
-   of it, so the name rides along as the title. */
-.game-card-dot {
-  width: 9px; height: 9px; border-radius: 50%;
-  box-shadow: 0 0 0 1px rgba(0,0,0,0.35);
+   of it, so the name rides along as the title. No ring: it muddied the colour
+   it was outlining, and the turn glow below needs the box-shadow anyway. */
+.game-card-dot { width: 9px; height: 9px; border-radius: 50%; }
+/* The seat on the clock, wearing the live dot's glow and pulse — in its own
+   colour (hence currentColor, set alongside the background) so the dot still
+   says who as well as when. */
+.game-card-dot.is-turn { animation: gameTurnDotPulse 2s ease-in-out infinite; }
+@keyframes gameTurnDotPulse {
+  0%, 100% { opacity: 1;   box-shadow: 0 0 6px currentColor; }
+  50%      { opacity: 0.6; box-shadow: 0 0 12px currentColor; }
 }
-[data-theme="light"] .game-card-dot { box-shadow: 0 0 0 1px rgba(255,255,255,0.8); }
+@media (prefers-reduced-motion: reduce) {
+  .game-card-dot.is-turn { animation: none; box-shadow: 0 0 8px currentColor; }
+}
 /* Names are arbitrary, so they have to be allowed to break rather than hold the
    card open. */
 .game-card-seat { font-size: 0.78rem; min-width: 0; overflow-wrap: anywhere; }
