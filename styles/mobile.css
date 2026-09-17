@@ -31,6 +31,84 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 @media (max-width: 768px) {
 
+  /* ── No zoom-on-focus ──────────────────────────────────────────────────
+     iOS Safari zooms the page when a focused text field is under 16px, and it
+     does not zoom back out — so tapping the collection search (13.12px) left
+     the whole UI scaled up and shifted. 16px is the threshold, so every field
+     that takes a keyboard sits on it. Selects are exempt: they open a picker
+     rather than a caret, and never trigger the zoom. !important because the
+     per-page sizing rules these override are themselves !important. */
+  html body input[type="text"],
+  html body input[type="search"],
+  html body input[type="email"],
+  html body input[type="password"],
+  html body input[type="number"],
+  html body input[type="tel"],
+  html body input[type="url"],
+  html body input:not([type]),
+  html body textarea {
+    font-size: 16px !important;
+  }
+  /* The per-page sizing rules are ID-scoped and !important, which outranks the
+     element selectors above however many `html body` prefixes they carry —
+     specificity decides before source order. These match them. */
+  :is(#tab-collection, #tab-sets, #tab-wishlist, #tab-trade) .collection-search-row .search-box,
+  :is(#tab-collection, #tab-sets, #tab-wishlist, #tab-trade) .view-controls .search-box,
+  #tab-collection #quickFilterRow #cmcMinInput,
+  #tab-collection #quickFilterRow #cmcMaxInput,
+  #tab-collection #cmcMinInput,
+  #tab-collection #cmcMaxInput,
+  #tab-decks #deckSearchInput,
+  #deckTagManagerModal input[type="text"] {
+    font-size: 16px !important;
+  }
+
+  /* Collection header: icon only. Four labelled pills plus Add did not fit a
+     phone width, and each icon is the one used for that action elsewhere.
+     Matching the main rule's specificity (1 id + 1 class) and !important,
+     which is what it takes to beat it. */
+  #tab-collection .coll-top-btn .coll-top-label { display: none; }
+  #tab-collection .coll-top-btn {
+    width: 32px;
+    padding: 0 !important;
+    gap: 0;
+    justify-content: center;
+  }
+  #tab-collection .collection-top-actions { gap: 8px; }
+
+  /* New Game player rows: seven columns do not fit 390px. The name dropdown was
+     54px wide holding 136px of text, so every option read as an ellipsis. Each
+     seat becomes a stacked block instead, full width for the controls. */
+  .ng-players-header { display: none !important; }
+  .ng-player-row {
+    grid-template-columns: 22px 1fr 28px !important;
+    grid-template-areas:
+      "seat name  del"
+      "nudge deck deck"
+      "mull  mull mull" !important;
+    gap: 6px 8px !important;
+    align-items: center;
+    padding: 10px 0 !important;
+  }
+  .ng-player-row > *:nth-child(1) { grid-area: seat; }
+  .ng-player-row > *:nth-child(2) { grid-area: nudge; }
+  .ng-player-row > *:nth-child(3) { grid-area: name; min-width: 0; }
+  .ng-player-row > *:nth-child(4) { grid-area: deck; min-width: 0; }
+  .ng-player-row > *:nth-child(5) { grid-area: mull; }
+  .ng-player-row > *:last-child   { grid-area: del; }
+  /* The glass control replaces the native select, so it is the one that has to
+     be allowed to fill the cell rather than shrink to its grid track. */
+  .ng-player-row .glass-dd-btn,
+  .ng-player-row select,
+  .ng-player-row input[type="text"] { width: 100% !important; min-width: 0 !important; }
+
+  /* The modal itself has to scroll, or a five-seat table runs past the screen. */
+  #newGameModal .modal {
+    max-height: 88dvh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
   /* ── Safe-area background — status bar shows app BG, not bleed ───────── */
   body {
     background-color: var(--bg);
@@ -42,35 +120,186 @@
 
   /* ── CSS variable overrides ───────────────────────────────────────────── */
   :root {
-    --bottom-nav-h: 56px;
+    /* The bottom bar is gone — the hamburger menu replaced it — so nothing
+       reserves height at the foot of the page. Kept as a variable because
+       main's padding and the notification popover both measure against it. */
+    --bottom-nav-h: 0px;
     /* Compact bar + notch/status inset so fixed chrome clears the status bar */
-    --topbar-h: calc(52px + env(safe-area-inset-top, 0px));
+    /* No bar to clear any more — only the notch. main and the offline banner
+       both key off this, so content now starts just under the status bar. */
+    --topbar-h: env(safe-area-inset-top, 0px);
+    /* The status-bar / notch inset on its own, for things that are sized
+       against the screen rather than positioned under the bar. Named separately
+       from --topbar-h so its meaning survives the topbar changing again. */
+    --safe-top: env(safe-area-inset-top, 0px);
   }
 
-  /* ── Hide sidebar chrome; keep the top account banner ───────────────────
-     Previously `.topbar { display:none }` hid the whole header — including
-     #topbarUserRow (username, notifications, What’s new, settings/sign-out).
-     A “floating user button” override could not win: children of display:none
-     never paint. Restore the topbar; only the sidebar toggle stays hidden. */
+  /* ── No topbar on phones ───────────────────────────────────────────────
+     The bar carried a gem, a bell and an account button; the bell is in the
+     bottom nav now and the other two are already gone, so it was dead height at
+     the top of every screen.
+     It is collapsed rather than display:none, and that distinction is the whole
+     reason this was reverted once before: #notifPanel and #settingsDropdown are
+     children of <header class="topbar"> in index.html, and children of a
+     display:none parent never paint — hiding the bar takes notifications and
+     settings with it. Zero height, no paint, no pointer events; the two panels
+     opt back into pointer events below. */
   .sidebar        { display: none !important; }
   .topbar-toggle  { display: none !important; }
-
   .topbar {
-    display: flex !important;
-    height: var(--topbar-h);
-    padding-top: env(safe-area-inset-top, 0px);
-    box-sizing: border-box;
-    z-index: 400;
-    /* Toggle is hidden; pin brand left so it never collides with the account cluster */
-    justify-content: flex-start;
-    padding-left: 0.75rem;
-    padding-right: 0.5rem;
+    height: 0 !important;
+    min-height: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    background: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    box-shadow: none !important;
+    overflow: visible;
+    pointer-events: none;
   }
-  .topbar-brand {
-    font-size: 0.92rem;
-    gap: 8px;
-    min-width: 0;
+  .topbar-brand,
+  .topbar-user { display: none !important; }
+
+  /* ── Phone navigation ──────────────────────────────────────────────────
+     The bottom bar is gone: nine destinations across the foot of the screen
+     left each one a guess, and it stood between the content and the home
+     indicator on every page. One button in the corner opens the same list the
+     desktop sidebar shows, in the same order. */
+  .mobile-bottom-nav { display: none !important; }
+  /* Default: beside whichever page title is on screen, seated by
+     _placeMobNavToggle. Settings → "Corner nav button" moves it to the
+     bottom-right instead (body.mob-nav-corner, further down). */
+  .mob-nav-toggle {
+    display: inline-flex !important;
+    position: fixed;
+    top: calc(env(safe-area-inset-top, 0px) + 10px);
+    left: 10px;
+    z-index: 420;
+    pointer-events: auto;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    padding: 0;
+    border-radius: 10px;
+    border: 1px solid var(--border2);
+    background: var(--bg3);
+    color: var(--text);
+    cursor: pointer;
   }
+  .mob-nav-toggle svg { width: 18px; height: 18px; }
+  body.glass-mode .mob-nav-toggle {
+    background: rgba(255, 255, 255, 0.10);
+    border-color: rgba(255, 255, 255, 0.22);
+    -webkit-backdrop-filter: blur(18px) saturate(160%);
+    backdrop-filter: blur(18px) saturate(160%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 6px 20px rgba(0, 0, 0, 0.35);
+  }
+  [data-theme="light"] body.glass-mode .mob-nav-toggle {
+    background: rgba(255, 255, 255, 0.8);
+    border-color: rgba(255, 255, 255, 0.9);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.95), 0 6px 20px rgba(30, 50, 90, 0.14);
+  }
+  .mob-nav-toggle.is-open { border-color: rgba(var(--lgx1), 0.6); }
+  .mob-nav-toggle-badge {
+    position: absolute; top: -4px; right: -4px;
+  }
+
+  /* Titles leave the corner free so the button lines up beside them. */
+  .page-title { margin-left: 46px; }
+
+  /* Except where the tab keeps the row for itself: the deck builder replaces
+     its title with the open deck's header, which starts hard against the left
+     edge and would sit under the button. It pads down by a row instead, and
+     its titles go back to the normal margin. */
+  .tab-content[data-nav-own-row] { padding-top: 46px; }
+  .tab-content[data-nav-own-row] .page-title { margin-left: 0; }
+  .mob-nav-menu {
+    position: fixed;
+    top: calc(env(safe-area-inset-top, 0px) + 54px);
+    left: 10px;
+    z-index: 419;
+    pointer-events: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 216px;
+    max-height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 84px);
+    overflow-y: auto;
+    padding: 6px;
+    border-radius: 14px;
+    border: 1px solid var(--border2);
+    background: var(--bg2);
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+  }
+  body.glass-mode .mob-nav-menu {
+    background: rgba(16, 22, 40, 0.86);
+    border-color: rgba(255, 255, 255, 0.18);
+    -webkit-backdrop-filter: blur(26px) saturate(180%);
+    backdrop-filter: blur(26px) saturate(180%);
+  }
+  [data-theme="light"] body.glass-mode .mob-nav-menu {
+    background: rgba(255, 255, 255, 0.92);
+    border-color: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 18px 50px rgba(30, 50, 90, 0.18);
+  }
+  .mob-nav-row {
+    display: flex; align-items: center; gap: 10px;
+    width: 100%;
+    padding: 9px 11px;
+    border: none; border-radius: 9px;
+    background: none;
+    color: var(--text2);
+    font-family: inherit; font-size: 0.88rem; text-align: left;
+    cursor: pointer;
+    position: relative;
+  }
+  .mob-nav-row-icon { display: inline-flex; width: 18px; flex-shrink: 0; }
+  .mob-nav-row-icon svg { width: 17px; height: 17px; }
+  .mob-nav-row-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mob-nav-row-badge { position: static; margin-left: auto; }
+  .mob-nav-row:active { background: rgba(var(--lgx1), 0.14); }
+
+  /* ── Corner nav button (Settings → Corner nav button) ──────────────────
+     The button leaves the title row for the bottom-right corner and the menu
+     grows upward from it. With nothing beside them the titles go back to the
+     page gutter, and the two panes that padded down by a row stop doing so.
+     !important on `top` because _placeMobNavToggle writes an inline one for
+     the default mode. */
+  body.mob-nav-corner .mob-nav-toggle {
+    top: auto !important;
+    left: auto;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 34px);
+    right: 19px;
+    /* Bigger than the title-row button: standing alone on the page rather than
+       beside a heading, it has nothing to take its scale from. */
+    width: 43px;
+    height: 43px;
+    border-radius: 11px;
+  }
+  body.mob-nav-corner .mob-nav-toggle svg { width: 20px; height: 20px; }
+  body.mob-nav-corner .page-title { margin-left: 0; }
+  body.mob-nav-corner .tab-content[data-nav-own-row] { padding-top: 0; }
+  body.mob-nav-corner .mob-nav-menu {
+    top: auto;
+    left: auto;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 85px);
+    right: 19px;
+  }
+
+  /* Mobile-only rows in the settings page — the corner button has no meaning on
+     a layout that never shows it. */
+  .settings-mobile-only { display: inline-flex !important; }
+  .mob-nav-row.active {
+    color: var(--text);
+    background: linear-gradient(135deg, rgba(var(--lgx1), 0.22), rgba(var(--lgx2), 0.22));
+  }
+  .mob-nav-sep { height: 1px; margin: 5px 6px; background: var(--border2); }
+  .topbar .notif-panel,
+  .topbar .settings-dropdown { pointer-events: auto; }
+
+  .topbar { z-index: 400; }
   .topbar-user {
     right: 0.5rem;
     gap: 2px;
@@ -80,38 +309,44 @@
        cluster must start there too or it rides up into the status bar. */
     top: env(safe-area-inset-top, 0px);
   }
-  #topbarUser {
-    max-width: min(148px, 38vw);
-    padding: 5px 7px !important;
-  }
-  #topbarUser span {
-    font-size: 0.78rem !important;
-  }
-  #topbarNotifBtn,
-  #topbarWhatsNewIconBtn {
+  /* The bell is the whole cluster on phones. Everything behind the account
+     button is in Settings, which the bottom nav opens directly
+     (mob-nav-item[data-tab="settings"]), and What's new has its own row in that
+     same menu — so neither needs a seat in the bar. */
+  #topbarUser,
+  #topbarWhatsNewIconBtn { display: none !important; }
+  #topbarNotifBtn {
     padding: 5px 7px !important;
     min-width: 34px;
     min-height: 34px;
     align-items: center;
     justify-content: center;
   }
-  #topbarNotifBtn svg,
-  #topbarWhatsNewIconBtn svg,
-  #topbarUser svg {
+  #topbarNotifBtn svg {
     width: 18px !important;
     height: 18px !important;
   }
   #topbarUserRow .topbar-user-menu-cluster {
     gap: 2px !important;
   }
-  /* Anchor panels to the taller safe-area topbar, not a hard-coded 52px */
-  .notif-panel {
-    top: calc(100% - 4px) !important;
-    right: 0.5rem !important;
+  /* Their anchor is a zero-height bar now, so `top: 100%` would land them at the
+     very top of the screen under the notch. Pin them to the viewport instead,
+     clearing the status bar above and the bottom nav below. */
+  /* The popover form only — as a page (#tab-notifications) it is the content,
+     not an overlay. Mirrors .settings-dropdown:not(.settings-as-page) below. */
+  .notif-panel:not(.notif-as-page) {
+    position: fixed !important;
+    top: calc(env(safe-area-inset-top, 0px) + 8px) !important;
+    right: 8px !important;
+    left: auto !important;
+    width: min(360px, calc(100vw - 16px)) !important;
+    max-height: calc(100dvh - env(safe-area-inset-top, 0px)
+                     - var(--bottom-nav-h) - env(safe-area-inset-bottom, 0px) - 24px) !important;
   }
   .settings-dropdown:not(.settings-as-page) {
-    top: 100%;
-    right: 0.5rem;
+    position: fixed;
+    top: calc(env(safe-area-inset-top, 0px) + 8px);
+    right: 8px;
   }
 
   /* ── Main content — below topbar, above bottom nav ────────────────────── */
@@ -133,8 +368,8 @@
     position: fixed;
     bottom: 0; left: 0; right: 0;
     z-index: 300;
-    height: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom) + 8px);
-    padding-bottom: calc(env(safe-area-inset-bottom) + 8px);
+    height: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom) + 4px);
+    padding-bottom: calc(env(safe-area-inset-bottom) + 4px);
     background: rgba(7,8,16,0.96);
     backdrop-filter: blur(24px) saturate(1.5);
     border-top: 1px solid var(--border);
@@ -159,22 +394,25 @@
   .mobile-bottom-nav::-webkit-scrollbar { display: none; }
 
   .mob-nav-item {
-    min-width: 62px;
+    min-width: 56px;
     flex-shrink: 0;
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
-    gap: 4px; padding: 4px 4px 2px;
+    gap: 2px; padding: 2px 4px 1px;
     background: none; border: none;
     color: var(--text3); cursor: pointer;
     transition: color 0.15s;
     -webkit-tap-highlight-color: transparent;
   }
   .mob-nav-item:active { opacity: 0.7; }
-  .mob-nav-item.active { color: var(--gold); }
-  .mob-nav-icon  { width: 26px; height: 26px; flex-shrink: 0; stroke-width: 1.3; }
+  /* Gold is the pre-glass accent; body.glass-mode paints the desktop sidebar's
+     active item #fff, and the bottom nav is that same navigation. */
+  .mob-nav-item.active { color: #fff; }
+  [data-theme="light"] .mob-nav-item.active { color: #17202e; }
+  .mob-nav-icon  { width: 21px; height: 21px; flex-shrink: 0; stroke-width: 1.35; }
   .mob-nav-label {
-    font-family: 'Cinzel', serif; font-size: 0.58rem;
-    font-weight: 600; letter-spacing: 0.06em; line-height: 1;
+    font-family: 'Cinzel', serif; font-size: 0.54rem;
+    font-weight: 600; letter-spacing: 0.04em; line-height: 1;
   }
 
   /* ── Prevent iOS input zoom (min 16px) ───────────────────────────────── */
@@ -263,77 +501,117 @@
     grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)) !important;
     gap: 4px;
   }
-  /* ── Deck header — deliberate 3-row layout on phones ───────────────────
-       Row 1:  Deck name   ✓/✗   ⋮            (#deckTopBar)
-       Row 2:  Commander: …                    (the line already below it)
-       Row 3:  [All Decks]  ⓘ  [+]  [tag]     (.deck-back-row)
-     Row 3 is assembled by _placeDeckHeaderIcons() in js/decks.js, which moves
-     ⓘ and the two action buttons into .deck-back-row on phones. Row 1 flattens
-     the title row and the action cluster with display:contents so the name, its
-     badge and ⋮ share one flex line — !important is required to beat the inline
-     `display:flex` on both wrappers. */
+  /* ── Deck header — deliberate 2-row layout on phones ───────────────────
+       Row 1:              [+ Add cards]  [Manage Tags]  ⋮
+       Row 2:  Deck name   ✓/✗  ⓘ  ⟡  format  value
+       Row 3:  Commander: …                    (the line already below it)
+     The two wrappers already hold exactly the right children — #deckActionCluster
+     is the three buttons, .deck-top-title-row is the name and its badges — so
+     each is given a full 100% basis and becomes one row, rather than being
+     flattened with display:contents and re-sorted item by item. That keeps the
+     title row a nowrap flex context of its own, which is what stops a long deck
+     name from pushing ⓘ onto a line by itself: the name shrinks instead.
+     Nothing moves in the DOM, so ids, listeners and the ⓘ popover's anchor are
+     untouched. */
   #deckTopBar {
     align-items: center !important;
     justify-content: flex-start !important;
     column-gap: 6px !important;
     row-gap: 4px;
-  }
-  #deckTopBar .deck-top-spacer { display: none !important; }
-  #deckTopBar .btn { padding: 0 10px !important; }
-  #deckTopBar #deckOptionsBtn { padding: 0 8px !important; }
-  #tab-decks .deck-top-title-row,
-  #tab-decks #deckActionCluster { display: contents !important; }
-
-  /* Row 3 — "All Decks" keeps the default order:0 so it stays furthest left,
-     then ⓘ and the action buttons, which drop their text labels to icons so the
-     whole row fits comfortably beside it. z-index matches #deckTopBar's so the
-     ⓘ popover opens over the folder tabs and panel below. */
-  #tab-decks .deck-back-row {
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-bottom: 6px;
     position: relative;
     z-index: 40;
   }
-  #tab-decks #deckInfoBadge       { order: 5; }
-  #tab-decks #deckBuilderVoiceBtn { order: 6; }
-  #tab-decks #deckManageTagsBtn   { order: 7; }
+  /* Header buttons only. The options dropdown is a descendant of #deckTopBar, so
+     an unscoped .btn rule here also flattened all 13 of its rows to 0 vertical
+     padding — 17px tall against desktop's 29px. Everything else about the menu
+     already matched; this was the whole difference. */
+  #deckTopBar .btn:not(.deck-menu-item) { padding: 0 10px !important; }
+
+  #deckTopBar .deck-top-spacer { display: none !important; }
+
+  /* Actions sit on their own row beneath the commander line
+     (_placeDeckActionCluster moves #deckActionCluster into .deck-back-row):
+     Add cards and Manage Tags to the left, the ⋮ menu pushed to the right.
+     All three stay icon-only. */
+  #tab-decks .deck-back-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+    /* The options dropdown hangs off this row, so it needs to stack above the
+       folder tabs and the panel beneath them. */
+    position: relative;
+    z-index: 40;
+  }
+  #tab-decks .deck-back-row #deckActionCluster {
+    flex: 1 1 auto;
+    gap: 6px;
+    justify-content: flex-start;
+    margin-left: 0 !important;
+  }
+  #tab-decks .deck-back-row #deckTopMenuWrap { margin-left: auto; }
+  /* All three header actions are the same square. #deckOptionsBtn is reached
+     through its wrapper, and its own padding rule below has to go with it or it
+     wins on specificity. */
   #tab-decks #deckBuilderVoiceBtn,
-  #tab-decks #deckManageTagsBtn {
+  #tab-decks #deckManageTagsBtn,
+  #tab-decks #deckTopMenuWrap > #deckOptionsBtn {
     gap: 0 !important;
-    padding: 0 9px !important;
+    padding: 0 !important;
+    width: 38px;
+    min-width: 38px;
+    height: 34px;
+    min-height: 34px;
+    justify-content: center;
+    align-items: center;
     flex-shrink: 0;
   }
+  #tab-decks #deckTopMenuWrap { flex-shrink: 0; }
+  #tab-decks #deckTopMenuWrap > #deckOptionsBtn svg { width: 15px; height: 15px; }
   #tab-decks #deckBuilderVoiceBtn .deck-btn-label,
   #tab-decks #deckManageTagsBtn .deck-btn-label { display: none; }
+  #tab-decks #deckBuilderVoiceBtn svg { width: 15px; height: 15px; }
   #tab-decks #deckManageTagsBtn .deck-btn-icon {
     display: block;
-    width: 14px;
-    height: 14px;
+    width: 15px;
+    height: 15px;
     flex-shrink: 0;
   }
-  /* Row 1 — name ellipsises if long so the ✓/✗ badge and ⋮ keep their spots.
-     The max-width reserves the badge + ⋮ + gaps, otherwise a long name claims
-     the whole flex line and wraps those two onto a row of their own. */
+
+  /* The title is all #deckTopBar holds now. nowrap beats the inline flex-wrap so
+     the badges stay on the name's line; the name ellipsises to make room. */
+  #tab-decks .deck-top-title-row {
+    flex: 1 1 auto;
+    flex-wrap: nowrap !important;
+    gap: 6px !important;
+    min-width: 0;
+  }
   #tab-decks #activeDeckName {
-    order: 1;
     flex: 0 1 auto !important;
     min-width: 0 !important;
-    max-width: calc(100% - 86px);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  #tab-decks #deckValidBadge       { order: 2; }
-  #tab-decks #deckTopMenuWrap      { order: 3; }
-  #tab-decks #deckGameChangerBadge { order: 8; }
-  #tab-decks #activeDeckFormat     { order: 9; }
-  #tab-decks #activeDeckValue      { order: 10; }
-  #tab-decks #deckScryTagSyncBadge { order: 11; }
-  #deckTopMenuWrap .deck-options-dropdown {
-    width: min(84vw, 280px);
+  #tab-decks .deck-top-title-row > :not(#activeDeckName) { flex-shrink: 0; }
+  #tab-decks #deckScryTagSyncBadge { order: 3; }
+
+  /* The ⓘ's own x-position slides with the deck name's length, so anchoring its
+     250px popover to the badge overflows one edge or the other — left:0 runs off
+     the right on a long name, right:0 runs off the left on a short one. Drop the
+     badge's positioning context so the popover resolves against #deckTopBar
+     instead and spans the header's full width, which is on-screen either way. */
+  #tab-decks #deckInfoBadge { position: static; }
+  #tab-decks #deckInfoBadge .deck-info-tooltip {
+    left: 0;
+    right: 0;
+    min-width: 0;
+    max-width: none;
   }
+
+
+  /* No width override: the base rule's min(260px, 100vw - 20px) already fits a
+     phone, and matching desktop exactly is the point. */
 
   /* ── Deck List header — deliberate 3-row layout on phones ──────────────
        Row 1:  Deck List  ·count·  …………………………………………  ▾ collapse
@@ -360,18 +638,24 @@
   #tab-decks #deckListPanelHeader::after {
     content: ""; flex: 0 0 100%; height: 0; margin: 0;
   }
-  #tab-decks #deckListPanelHeader::before { order: 4; }
+  #tab-decks #deckListPanelHeader::before { order: 3; }
   #tab-decks #deckListPanelHeader::after  { order: 10; }
 
-  /* Row 1 — title + count, collapse pushed to the right edge */
-  #tab-decks #deckListPanelHeader .panel-title         { order: 1; }
-  #tab-decks #deckListPanelHeader #deckListCount        { order: 2; }
-  #tab-decks #deckListPanelHeader #deckListCollapseBtn  { order: 3; margin-left: auto; }
+  /* Row 1 — the card count and its "after swaps" readout, directly under the
+     folder tabs. Every button starts on the row below it. */
+  #tab-decks #deckListPanelHeader .panel-title         { order: 0; }
+  #tab-decks #deckListPanelHeader #deckListCount        { order: 1; }
+  #tab-decks #deckListPanelHeader #deckListCollapseBtn  { order: 2; margin-left: auto; }
 
   /* Row 2 — Group [Type] · Sort [Name] [↕], centred on one row.
      Select widths scale with viewport (clamp) so the cluster fits from ~360px
      up; the asc/desc box is wide enough to show its arrow beside the native
      dropdown caret. Selects otherwise size to their widest option and overflow. */
+  /* Each select is swapped at runtime for a .glass-dd-wrap trigger that does not
+     carry the select's id, so the per-id orders below never reach the visible
+     control — left alone the wrappers default to order:0 and jump above the
+     count. Order them as a group; their DOM order is already Group → Sort → ↕. */
+  #tab-decks #deckListPanelHeader .glass-dd-wrap           { order: 6; min-width: 0; }
   #tab-decks #deckListPanelHeader .dlh-group               { order: 5; }
   #tab-decks #deckListPanelHeader #deckGroupBySelect       { order: 6; width: clamp(4.8rem, 22vw, 6.6rem); flex-shrink: 0; box-sizing: border-box; }
   #tab-decks #deckListPanelHeader .dlh-sort                { order: 7; }
@@ -382,9 +666,19 @@
   /* Row 3 — filter · badge toggle · view toggle, centred as a group.
      Orientation toggle is hidden on mobile (horizontal stacks make no sense). */
   #tab-decks #deckListPanelHeader #deckListFilterToggleBtn { order: 11; margin-left: auto; }
-  #tab-decks #deckListPanelHeader #deckTagBadgeToggleBtn   { order: 12; }
+  /* Badges rides the filter row, right after Filter. It is a glassified select,
+     so the visible control is the wrapper, not the id — hence data-for, set by
+     _glassSelectEnsure. Without this it falls to the .glass-dd-wrap rule above
+     and lands in row 2 beside Group and Sort. */
+  #tab-decks #deckListPanelHeader .glass-dd-wrap[data-for="deckTagBadgeModeSelect"] { order: 12; }
   #tab-decks #deckListPanelHeader #deckStackLayoutResetBtn { order: 13; }
   #tab-decks #deckListPanelHeader #deckStackOrientToggle   { display: none !important; }
+  /* Architecture is the default view only on phones — no panel-layout (grid vs
+     stacked) or card-mode (text vs visual) swapping. _syncDeckListViewChrome
+     sets these inline, so !important is what actually keeps them hidden;
+     _archForceMobileDefaults pins the matching state. */
+  #tab-decks #deckListPanelHeader #deckArchLayoutToggle,
+  #tab-decks #deckListPanelHeader #deckArchCardToggle      { display: none !important; }
   #tab-decks #deckListPanelHeader #deckListViewToggle      { order: 14; margin-right: auto; }
 
   /* ── Suggested Cuts / Adds headers — controls drop below the title row ──
@@ -403,7 +697,10 @@
   /* Row 1 */
   #tab-decks .deck-suggest-header .panel-title          { order: 1; }
   #tab-decks .deck-suggest-header .deck-cut-help        { order: 2; }
-  #tab-decks .deck-suggest-header .tag                  { order: 3; }
+  /* The over-count sits after the title. It used to be a .tag and picked up that
+     order; as plain text it would default to order:0 and jump in front. */
+  #tab-decks .deck-suggest-header .tag,
+  #tab-decks .deck-suggest-header .deck-over-count      { order: 3; }
   #tab-decks .deck-suggest-header .decklist-collapse-btn { order: 4; margin-left: auto; }
   /* break → row 2 */
   #tab-decks .deck-suggest-header::after {
@@ -413,6 +710,74 @@
   #tab-decks .deck-suggest-header .cut-playstyle-wrap    { order: 6; margin: 0; }
   #tab-decks .deck-suggest-header .deck-select           { order: 7; }
   #tab-decks .deck-suggest-header .deck-cut-threshold-btn { order: 8; }
+
+  /* ── Suggestion rows — one line per pick ───────────────────────────────
+     At 430px the row has 367px to spend and the fixed parts (rank, score,
+     owned/price, Add, feedback and five gaps) were claiming 310 of it, leaving
+     the card name 57px to wrap inside — so a long name ran to five lines and
+     rows ranged from 47px to 109px tall. Trim the fixed parts, hold everything
+     on one line, and let the name take what is left and ellipsise. */
+  #tab-decks .cut-candidate-row {
+    flex-wrap: nowrap;
+    gap: 4px;
+    padding: .4rem .4rem;
+  }
+  /* The name is the row's point, so it gets the leftover width and a floor it
+     cannot be squeezed below — at 390px it was being crushed to 30px and at
+     320px to nothing, because everything else refused to shrink. */
+  #tab-decks .cut-candidate-row .cut-card-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* Price earns its place; the "owned"/"unowned" word does not, at this width —
+     the Add button reads the same either way and the price is the decision. */
+  #tab-decks .cut-candidate-row .sugg-meta {
+    flex: 0 0 auto;
+    min-width: 3.4rem;
+    text-align: right;
+    white-space: nowrap;
+    font-size: 0.64rem;
+  }
+  #tab-decks .cut-candidate-row .sugg-meta-own,
+  #tab-decks .cut-candidate-row .sugg-meta-sep { display: none; }
+  #tab-decks .cut-candidate-row .cut-score-badge {
+    flex-shrink: 0;
+    min-width: 2.4rem;
+    padding-inline: 4px;
+  }
+  #tab-decks .cut-candidate-row .btn { flex-shrink: 0; padding-inline: 5px; }
+  /* Narrower here than desktop, but still shared between Add and Cut. */
+  #tab-decks .suggest-item .cut-candidate-row .btn.btn-outline { min-width: 3.9rem; }
+  #tab-decks .suggest-rank { flex-shrink: 0; }
+  /* Column headers line up with the trimmed row padding. */
+  #tab-decks .suggest-col-head { padding-inline: .5rem; gap: 6px; }
+  #tab-decks .suggest-col-score { min-width: 2.4rem; }
+
+  /* ── Deck goal box ─────────────────────────────────────────────────────
+     "Deck goal", the goal and its match share one 1.15rem line on desktop,
+     which on a phone leaves the goal itself almost no width. Each kicker gets
+     its own small-caps line instead, with the goal and its percentage beneath
+     — and the same shape repeats for the secondary goal. */
+  #tab-decks .deck-goal-card {
+    margin: 0.5rem 0 0.8rem;
+    padding: 12px 14px 13px;
+  }
+  #tab-decks .deck-goal-head { flex-wrap: wrap; gap: 1px 8px; }
+  #tab-decks .deck-goal-kicker {
+    flex: 0 0 100%;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 0.62rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  #tab-decks .deck-goal-sep { display: none; }
+  #tab-decks .deck-goal-name { font-size: 1.1rem; min-width: 0; }
+  #tab-decks .deck-goal-match { margin-left: auto; flex-shrink: 0; }
+  #tab-decks .deck-goal-summary { font-size: 0.82rem; margin-top: 4px; }
 
   /* ── Deck analytics charts — one full-width column on phones ───────────
      The 2-up grid makes every chart half-width and cramped; stack them so
@@ -425,15 +790,31 @@
      so it doesn't spawn a phantom second grid column. */
   .deck-stats-grid .deck-draw-accel-panel { grid-column: auto !important; }
 
-  /* Deck builder folder tabs — tighter tabs that scroll sideways on phones */
+  /* Deck builder folder tabs — tighter tabs that scroll sideways on phones,
+     but tall enough to read as folder tabs rather than plain text links. */
   .deck-folder-tabs { padding: 5px 6px 0 0; }
-  .deck-ftab { padding: 9px 20px 8px; font-size: 0.9rem; letter-spacing: 0.02em; }
+  /* Asymmetric left/right padding, as on desktop: the tab's right edge is a
+     diagonal, so equal padding parks the label right of where it reads as
+     centred. The extra right padding shifts it back over the tab's body. */
+  .deck-ftab { padding: 12px 27px 11px 15px; font-size: 0.9rem; letter-spacing: 0.02em; }
   .deck-ftab + .deck-ftab { margin-left: -17px; }
-  .deck-ftab.active { padding: 11px 22px 9px; }
+  .deck-ftab.active { padding: 14px 29px 12px 17px; }
 
-  .deck-themes-toggle { flex-wrap: wrap; row-gap: 2px; }
-  .deck-themes-name { flex: 1 1 60%; }
-  .deck-themes-band { min-width: 0; }
+  /* One line, caret always last. Wrapping here put the caret on a second line at
+     the left edge whenever the name plus count plus band overran the row —
+     which is why it only happened on some themes, "very focused" being a far
+     longer band label than "decent". The name ellipsises instead. */
+  .deck-themes-toggle { flex-wrap: nowrap; gap: 6px; }
+  .deck-themes-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .deck-themes-count { flex-shrink: 0; }
+  .deck-themes-band { min-width: 0; flex-shrink: 0; }
+  .deck-themes-caret { margin-left: auto; flex-shrink: 0; }
 
   /* ── Settings page — the web settings dropdown rendered as a full page ──
      #settingsDropdown normally lives in the topbar, so showTab() moves the live
@@ -446,59 +827,145 @@
     width: auto;
     max-width: none;
     max-height: none;
+    overflow: visible;
+    z-index: auto;
+    padding: 0 0 1.25rem !important;
+  }
+  /* It is the page, not a menu floating over one — so no panel of its own.
+     The shared glass rule for dropdowns and popovers is
+     `body.glass-mode :is(.settings-dropdown, …)` with !important, which is
+     specificity (0,2,1); a plain `.settings-dropdown.settings-as-page` is
+     (0,2,0) and loses even with !important of its own. Hence the body prefix. */
+  body.glass-mode .settings-dropdown.settings-as-page {
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+  /* There is no topbar on phones, so the page supplies its own top breathing
+     room — otherwise the first section label sits against the very top edge of
+     the viewport. The heading is a real .page-title in the markup, so it is the
+     same size as every other page's and carries the same inset past the menu
+     button; it just stands alone instead of heading a row of controls. */
+  #tab-settings.active { padding-top: 0.35rem; }
+  #tab-settings > .page-title,
+  #tab-notifications > .page-title { display: block; margin-bottom: 0.85rem; }
+  /* Section labels need air between groups now that they are the only structure. */
+  .settings-as-page .settings-section-label { margin-top: 1.1rem; }
+  .settings-as-page > .settings-section-label:first-child { margin-top: 0; }
+  .settings-as-page .settings-divider { margin: 1.1rem 0; }
+
+  /* ── Browse public decks ────────────────────────────────────────────────
+     The art is sized for a 528px card. At phone width the card is 366px, so
+     236px of art left 86px for the deck's name and commander. A quarter off
+     gives the text back most of that. */
+  .pubdeck-art { width: 177px; }
+  /* A 145px column fits about eight characters at the desktop size. Smaller
+     type on two lines turns a name from "Angels: They…" into something you can
+     actually read. */
+  .pubdeck-name {
+    font-size: 1.05rem;
+    white-space: normal;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  }
+  .pubdeck-cmdr { font-size: 0.88rem; }
+
+  /* ── Notifications page — the topbar panel rendered as a full page ──────
+     Same move as Settings above: showTab() relocates the live #notifPanel into
+     #tab-notifications, so one element keeps one set of ids and one unread
+     count. Here it stops being a floating popover. */
+  .notif-panel.notif-as-page {
+    position: static;
+    width: auto;
+    max-height: none;
+    overflow: visible;
+    z-index: auto;
+    background: transparent;
     border: none;
     border-radius: 0;
     box-shadow: none;
-    background: transparent;
-    padding: 0.25rem 0 1rem;
-    overflow: visible;
-    z-index: auto;
   }
+  /* Same specificity note as the settings page: the shared glass rule for
+     popovers is `body.glass-mode :is(.notif-panel, …)` at (0,2,1) with
+     !important, which a plain `.notif-panel.notif-as-page` cannot outrank. */
+  body.glass-mode .notif-panel.notif-as-page {
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+  .notif-as-page .notif-panel-head {
+    position: static;
+    background: transparent;
+    padding: 0 0 8px;
+  }
+  /* The page carries the title above; the panel's own is a duplicate. */
+  .notif-as-page .notif-panel-title { display: none; }
+  .notif-as-page #notifMarkAllBtn { margin-left: auto; }
+  .notif-as-page .notif-panel-body { padding: 4px 0; }
 
   /* ── Modals — slide up from bottom ───────────────────────────────────── */
   .modal-overlay { align-items: flex-end !important; }
   .modal {
     width: 100% !important; max-width: 100% !important;
     border-radius: var(--radius2) var(--radius2) 0 0 !important;
-    max-height: 92vh !important; overflow-y: auto;
+    overflow-y: auto;
     padding: 1.25rem 1rem calc(1rem + env(safe-area-inset-bottom)) !important;
+    /* Same reasoning as the card inspector below: these are bottom sheets, so
+       height decides how close the top edge lands to the notch. 92vh cleared it
+       on most phones but not by principle — subtracting the inset makes it
+       true on any of them. */
+    max-height: calc(92vh - var(--safe-top)) !important;
+    max-height: calc(100dvh - var(--safe-top) - 14px) !important;
   }
   #cardDetailModal > .card-detail-modal {
     width: 100% !important; max-width: 100% !important;
     border-radius: var(--radius2) var(--radius2) 0 0 !important;
-    max-height: 96vh !important; padding: 0 !important;
+    padding: 0 !important;
+    /* The sheet is bottom-anchored, so its height decides how close the top edge
+       lands to the screen's. 96vh left 4% — about 32px on a 6.1" phone — which
+       is inside the notch on a device that has one, so the sheet's own rounded
+       top corner and close button sat under the status bar. Subtracting the
+       inset keeps the top edge below it whatever the device, plus a little air.
+       vh first for anything without dvh; dvh so an iOS URL bar appearing does
+       not push the top edge up under the notch again. */
+    max-height: calc(96vh - var(--safe-top)) !important;
+    max-height: calc(100dvh - var(--safe-top) - 14px) !important;
   }
   #cardDetailModal .card-detail-body { flex-direction: column !important; }
+  /* The art ran the full width of the sheet, edge to edge inside the padding.
+     Pulling it to 90% and centring gives the card a margin to sit in and takes
+     about a tenth off its height too, since the image keeps its own ratio. */
   #cardDetailModal .card-detail-col--art {
-    max-width: 100% !important; width: 100% !important;
+    max-width: 90% !important; width: 90% !important;
+    margin-left: auto !important; margin-right: auto !important;
   }
   .modal-edge-nav { display: none !important; }
   /* Tighter sheet padding; clear the home indicator at the bottom */
+  /* Top padding replaces the removed title strip — enough that the sheet does
+     not start hard against its own edge, with the close button floating over
+     the art's top corner rather than reserving a band of its own. */
   #cardDetailModal .card-detail-modal-scroll {
-    padding: 0 1rem calc(1.25rem + env(safe-area-inset-bottom)) !important;
+    padding: 0.85rem 1rem calc(1.25rem + env(safe-area-inset-bottom)) !important;
   }
-  /* On phones you swipe left/right to move between cards, so the in-sheet arrow
-     buttons are hidden; the sticky bar just shows the current card name. */
-  #cardDetailModal .card-detail-mobile-nav {
-    display: flex; align-items: center; justify-content: center; gap: 8px;
-    position: sticky; top: 0; z-index: 11;
-    margin: 0 -1rem 0.75rem;
-    /* right padding clears the enlarged close button so the title never tucks under it */
-    padding: 10px 56px;
-    background: var(--bg2); border-bottom: 1px solid var(--border2);
-  }
-  #cardDetailModal .card-detail-mnav-btn { display: none !important; }
-  #cardDetailModal .card-detail-mnav-title {
-    flex: 0 1 auto; min-width: 0; text-align: center;
-    font-family: 'Cinzel', serif; color: var(--gold); font-size: 0.95rem;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  /* Bigger, red, centred close button that paints above the sticky nav bar.
-     Shared by the card inspector and the "Add cards" (voice) modal. */
+  /* The sticky title strip is gone. The card's name is already the first heading
+     inside the sheet, so the bar only repeated it behind a translucent band and
+     cost a row of height. Swiping between cards is unaffected — the arrow
+     buttons it held were hidden on phones anyway. */
+  #cardDetailModal .card-detail-mobile-nav { display: none !important; }
+
+  /* Close button: a 44px tap target, and otherwise the same glass as desktop.
+     Only size and placement are set here so it keeps the shared .btn-ghost
+     treatment instead of the red circle it used to paint over the strip.
+     Shared with the "Add cards" modal, which matched it before and still does. */
   #cardDetailModal .card-detail-modal-close,
   #voiceModal .modal-close-x {
     z-index: 20;
-    top: 8px; right: 8px;
+    top: 10px; right: 10px;
     width: 44px; height: 44px;
     min-width: 44px; min-height: 44px;
     padding: 0;
@@ -506,20 +973,36 @@
     align-items: center;
     justify-content: center;
     line-height: 1;
-    font-size: 1.4rem;
-    border-radius: 50%;
-    color: var(--red);
-    background: rgba(212, 90, 74, 0.16);
-    border: 1px solid rgba(212, 90, 74, 0.45);
+    font-size: 1.25rem;
+    /* Desktop lays the sheet out in two columns, so its close button sits over
+       the details side; here the art is full width and the button lands on the
+       card's top corner. The glass is unchanged — this only casts a soft dark
+       halo, invisible against dark art and enough to separate it from light. */
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
   }
-  #cardDetailModal .card-detail-modal-close:hover,
-  #cardDetailModal .card-detail-modal-close:active,
-  #voiceModal .modal-close-x:hover,
-  #voiceModal .modal-close-x:active {
-    color: #fff;
-    background: rgba(212, 90, 74, 0.3);
-    border-color: rgba(212, 90, 74, 0.6);
+
+  /* Seven action buttons never fit one phone row, so let them wrap and centre
+     the result — left-aligned wrapping left a short, lopsided second row.
+     Remove is pinned right by an auto margin on desktop, which would otherwise
+     hold the whole row apart and defeat the centring. */
+  #cardDetailModal .card-detail-actions { justify-content: center; }
+  #cardDetailModal .card-detail-actions .btn-danger { margin-left: 0; }
+  /* Counters: the number is the anchor. Each row spans the sheet and its grid
+     gets symmetric 1fr gutters either side of the − value + trio, so the value
+     lands on the sheet's centre line and the label, steppers and meta are placed
+     around it. Centring each row as a whole instead let the number drift left or
+     right with the label's width, so "Non-foil" and "Foil" disagreed. */
+  #cardDetailModal .card-detail-qty-grid { justify-content: center; }
+  #cardDetailModal .card-detail-qty-grid .card-detail-qty-row { flex: 1 1 100%; }
+  #cardDetailModal .card-detail-qty-row { align-items: stretch; }
+  #cardDetailModal .card-detail-qty-row-label { text-align: center; }
+  #cardDetailModal .card-detail-qty-fill { width: 100%; }
+  #cardDetailModal .card-detail-qty-printing-row {
+    grid-template-columns: minmax(0, 1fr) max-content max-content max-content minmax(0, 1fr);
   }
+  #cardDetailModal .card-detail-qty-label { text-align: right; }
+  #cardDetailModal .card-detail-qty-meta  { text-align: left; }
+
   /* Larger tap targets inside the inspector on phones */
   #cardDetailModal .card-detail-qty-printing-row .btn-icon { min-width: 40px; min-height: 40px; }
   #cardDetailModal .card-detail-qty-slot--empty { width: 40px; height: 40px; }
@@ -583,6 +1066,27 @@
     min-height: 0 !important;
     border-left: none !important;
   }
+  /* The all-collapsed square must not stretch to the full-width column. */
+  #deckCardList .deck-extra-zones-wrap > .deck-zones-reopen-btn {
+    align-self: center !important;
+    width: 34px !important;
+    min-width: 34px !important;
+    flex: 0 0 auto !important;
+  }
+  /* Generated tokens stack down the page rather than scrolling sideways —
+     a phone has the height for it and no room for a horizontal rail. */
+  #tab-decks .deck-tokens-grid.deck-stack-cards {
+    flex-direction: column !important;
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+    overflow-x: visible !important;
+    gap: 10px !important;
+  }
+  #tab-decks .deck-tokens-grid.deck-stack-cards .deck-stack-card {
+    width: min(90vw, 270px) !important;
+    max-width: min(90vw, 270px) !important;
+    margin: 0 !important;
+  }
   /* Zone stacks match the centered mainboard column width */
   #tab-decks .deck-stack-view > .deck-extra-zones-wrap .deck-stack-cards.vertical {
     width: min(90vw, 270px) !important;
@@ -607,15 +1111,24 @@
   }
   #tab-decks .deck-stack-cards.vertical .deck-stack-card {
     width: min(90vw, 270px) !important;
-    margin-top: -338px !important;
+    /* Overlap derived from the card's own width rather than a flat -338px. That
+       number was only correct at exactly 270px, so any phone under ~300px
+       (where 90vw wins) pulled more than the card was tall. 40px of peek. */
+    margin-top: calc(-1 * (min(90vw, 270px) * 88 / 63 - 40px)) !important;
   }
+  /* Height reservation now lives in main.css (.deck-stack-card .stack-main),
+     so it applies on every width rather than only here. */
   #tab-decks .deck-stack-cards.vertical .deck-stack-card:first-child {
     margin-top: 8px !important;
   }
-  #tab-decks .deck-stack-cards.vertical .deck-stack-card:hover ~ .deck-stack-card,
-  #tab-decks .deck-stack-cards.vertical .deck-stack-card:focus-within ~ .deck-stack-card,
+  /* Only .is-stack-peek opens a stack here, never :hover or :focus-within.
+     iOS keeps :hover on the last-tapped element, and JS can only clear the
+     class — so a stale hover on one card plus the class on another opened two
+     stacks at once, each shoving its own siblings down a full card, which is
+     what left cards piled over one another. _bindDeckStackPeek adds the class
+     on pointerover, so mouse and touch both still open a stack from one rule. */
   #tab-decks .deck-stack-cards.vertical .deck-stack-card.is-stack-peek ~ .deck-stack-card {
-    transform: translateY(354px) !important;
+    transform: translateY(calc(min(90vw, 270px) * 88 / 63 - 23px)) !important;
   }
   #tab-decks .deck-stack-view > .deck-extra-zones-wrap .deck-stack-cards.vertical .deck-stack-card {
     width: 100% !important;
@@ -627,18 +1140,14 @@
   #tab-decks .deck-stack-view > .deck-extra-zones-wrap .deck-stack-cards.vertical .deck-stack-card:first-child {
     margin-top: 8px !important;
   }
-  /* Extra zones (Adds / maybe board / Cuts / sideboard): same peek-open as
-     the mainboard — push following cards down so the tapped card is fully visible. */
-  #tab-decks .deck-stack-view > .deck-extra-zones-wrap .deck-stack-cards.vertical .deck-stack-card:hover ~ .deck-stack-card,
-  #tab-decks .deck-stack-view > .deck-extra-zones-wrap .deck-stack-cards.vertical .deck-stack-card:focus-within ~ .deck-stack-card,
+  /* Extra zones (Adds / maybe board / Cuts / sideboard): same peek-open as the
+     mainboard, and likewise class-only — see the note above. The distance is
+     derived from the zone card's own width (the container less its 4px of side
+     padding) rather than a flat 354px, which only matched at one card size. */
   #tab-decks .deck-stack-view > .deck-extra-zones-wrap .deck-stack-cards.vertical .deck-stack-card.is-stack-peek ~ .deck-stack-card,
-  #tab-decks .deck-stack-view.vertical-orient > .deck-extra-zones-wrap .deck-stack-card:hover ~ .deck-stack-card,
-  #tab-decks .deck-stack-view.vertical-orient > .deck-extra-zones-wrap .deck-stack-card:focus-within ~ .deck-stack-card,
   #tab-decks .deck-stack-view.vertical-orient > .deck-extra-zones-wrap .deck-stack-card.is-stack-peek ~ .deck-stack-card,
-  #tab-decks .deck-stack-view.vertical-orient > .deck-sideboard-section .deck-stack-card:hover ~ .deck-stack-card,
-  #tab-decks .deck-stack-view.vertical-orient > .deck-sideboard-section .deck-stack-card:focus-within ~ .deck-stack-card,
   #tab-decks .deck-stack-view.vertical-orient > .deck-sideboard-section .deck-stack-card.is-stack-peek ~ .deck-stack-card {
-    transform: translateY(354px) !important;
+    transform: translateY(calc((min(90vw, 270px) - 4px) / 0.715 - 23px)) !important;
   }
 
   /* Nudge the role-tag corner badge left of the right-edge controls. */
@@ -647,50 +1156,38 @@
   }
 
   /* ── Games tab ────────────────────────────────────────────────────────── */
+  /* Two up where two fit, one where they do not — a hard 1fr 1fr kept two
+     columns at 320px, where the pair could not fit however far the cards were
+     asked to shrink. */
   .games-grid {
-    grid-template-columns: 1fr 1fr !important; gap: 0.6rem;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 136px), 1fr)) !important;
+    gap: 0.6rem;
   }
+  .game-card { padding: 12px 13px 14px; }
   .game-player-card { padding: 0.65rem !important; }
 
-  /* Phone games page: swap the desktop sidebar+tracker (which overflows
-     sideways) for a single-column layout — top buttons, history list, log.
-     Live tracking happens in the tablet view, so the default tracker is gone. */
-  #tab-games { zoom: 1 !important; }            /* desktop zoom:1.3 overflows phones */
-  .games-desktop-layout { display: none !important; }
-  .games-mobile { display: block; }
-
-  .games-mobile-actions { display: flex; gap: 8px; margin-bottom: 0.9rem; }
-  .games-mobile-actions .btn { flex: 1; justify-content: center; }
-
-  .games-mobile-section-label {
-    font-size: 0.66rem; letter-spacing: 0.06em; text-transform: uppercase;
-    color: var(--text3); margin: 0.1rem 0 0.45rem;
+  /* Quick filters: !important because the row carries inline
+     `flex-wrap:nowrap; overflow-x:auto`, which no stylesheet rule can outrank.
+     With the type/flag chips replaced by one menu, the rest of the row fits on
+     wrapped lines instead of hiding behind a sideways scroll. */
+  #tab-collection #quickFilterRow {
+    flex-wrap: wrap !important;
+    overflow-x: visible !important;
+    gap: 6px !important;
   }
-  .games-mobile-list { display: flex; flex-direction: column; gap: 7px; }
-  .games-mobile-list .game-history-item { aspect-ratio: auto; width: 100%; }
-  .games-mobile-empty {
-    color: var(--text3); font-size: 0.85rem; text-align: center; padding: 1.75rem 0;
-  }
+  /* The filter panel's own controls centre on a phone. Left-aligned they wrapped
+     into ragged rows with a gap down the right; centred, each row reads as a
+     group under the full-width search field above them. */
+  #tab-collection .view-controls { justify-content: center; }
 
-  .games-mobile-ended-toggle {
-    display: flex; align-items: center; justify-content: space-between; width: 100%;
-    margin-top: 0.65rem; padding: 9px 11px; cursor: pointer;
-    background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius2);
-    color: var(--text2); font-family: inherit; font-size: 0.8rem;
-  }
-  .games-mobile-ended-chevron { color: var(--text3); font-size: 0.7rem; }
-  .games-mobile-ended { display: flex; flex-direction: column; gap: 7px; margin-top: 7px; }
-  .games-mobile-ended[hidden] { display: none; }
-
-  .games-mobile-log { margin-top: 1rem; }
-  .games-mobile-log-body { max-height: 48vh; overflow-y: auto; }
+  /* Phones use the same Games / Playgroups / Leaderboard tabs as the desktop.
+     The separate single-column phone layout is gone: the card grid already
+     collapses to one column at this width, so there was nothing left for it to
+     solve and it meant two implementations of the same page. */
 
   /* ── Scanner — edge-to-edge on small screens ───────────────────────────── */
   .scanner-sheet--fullscreen {
     max-height: 100dvh !important;
-  }
-  .scn-match-overlay {
-    bottom: max(22%, 100px) !important;
   }
   .scn-cand-grid {
     grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)) !important;
@@ -756,6 +1253,39 @@
   .stat-val   { font-size: 1rem; }
   .panel-body { padding: 0.65rem; }
   .mob-nav-label { font-size: 0.48rem; }
+
+  /* Six elements will not share a row this narrow without the card name losing
+     to them, so the feedback button goes — the score badge opens the same
+     breakdown, and the name is what the row is for. */
+  #tab-decks .cut-candidate-row .btn-ghost { display: none; }
+
+  /* Deck list header — keep Group / Sort / ↕ on one row down here. Measured at
+     320px the header is 257px wide while the untrimmed trio wants 300px, so the
+     ↕ box drops to its arrow alone and the triggers give up side padding. */
+  #tab-decks #deckListPanelHeader { column-gap: 4px !important; }
+  #tab-decks #deckListPanelHeader .glass-dd-btn { padding-inline: 6px; gap: 4px; }
+  #tab-decks #deckListPanelHeader #deckStackSortDirSelectGlassBtn {
+    min-width: 30px;
+    padding-inline: 4px;
+  }
+  /* Same for the button row beneath it. */
+  #tab-decks #deckListPanelHeader #deckListFilterToggleBtn,
+  #tab-decks #deckListPanelHeader #deckTagBadgeToggleBtn { padding-inline: 7px; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   VERY SMALL PHONES  ≤ 340px  (iPhone SE 1st gen, iPhone 5)
+   The ≤375px padding trim runs out here — at 320px the header is 257px wide and
+   the triggers are already at content width ("Group" + "Type" + caret = 116px),
+   so trimming further buys nothing. Drop the "Group"/"Sort" prefix instead and
+   let the value carry the meaning; the row fits with room to spare.
+   ═══════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 340px) {
+  #tab-decks #deckListPanelHeader { column-gap: 3px !important; }
+  #tab-decks #deckListPanelHeader .glass-dd-prefix { display: none; }
+  #tab-decks #deckListPanelHeader #deckListFilterToggleBtn,
+  #tab-decks #deckListPanelHeader #deckTagBadgeToggleBtn { padding-inline: 5px; }
+  #tab-decks #deckListPanelHeader #deckListViewToggle button { padding-inline: 6px; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════

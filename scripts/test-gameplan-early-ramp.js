@@ -28,7 +28,8 @@ function _probTagsOnCard(card) {
 function _estimateManaSources(card) {
   const txt = String(card.oracleText || '').toLowerCase();
   const src = { W: 0, U: 0, B: 0, R: 0, G: 0 };
-  if (txt.includes('mana of any color') || txt.includes('any one color')) {
+  if (txt.includes('mana of any color') || txt.includes('any one color') ||
+      txt.includes('mana of the chosen color')) {
     ['W', 'U', 'B', 'R', 'G'].forEach(c => { src[c] = 1; });
   }
   if (txt.includes('{w}')) src.W = 1;
@@ -44,7 +45,9 @@ function _rampIsRelevant(card, cmdColors, hasGenericCost) {
   const txt = String(card.oracleText || '').toLowerCase();
   if (txt.includes('search your library') && (txt.includes(' land') || txt.includes('basic'))) return true;
   if (txt.includes('put') && txt.includes(' land') && txt.includes('onto the battlefield')) return true;
-  if (txt.includes('mana of any color') || txt.includes('any one color')) return true;
+  if (txt.includes('mana of any color') || txt.includes('any one color') ||
+      txt.includes("commander's color identity") || txt.includes('any combination of colors') ||
+      txt.includes('mana of the chosen color')) return true;
   if (hasGenericCost && (txt.includes('{c}') || (txt.includes('colorless') && txt.includes('add')))) return true;
   const src = _estimateManaSources(card, null);
   if (cmdColors.some(col => (src[col] || 0) > 0)) return true;
@@ -53,7 +56,7 @@ function _rampIsRelevant(card, cmdColors, hasGenericCost) {
 
 function _earlyRampCmcCap(commanderCmc) {
   const cmc = Math.round(Number(commanderCmc) || 0);
-  return Math.max(0, cmc - 2);
+  return Math.max(1, cmc - 1);
 }
 
 function _countEarlyRamp(deck, cmdColors, hasGenericCost, maxInclusiveCmc) {
@@ -67,7 +70,7 @@ function _countEarlyRamp(deck, cmdColors, hasGenericCost, maxInclusiveCmc) {
   }, 0);
 }
 
-// 5-MV commander → early ramp ≤ 3; plan targetCastTurn must not tighten the band.
+// 5-MV commander → early ramp is cast the turn before (T4), so MV ≤ 4 qualifies.
 {
   const cmdColors = ['W', 'U', 'B'];
   const deck = {
@@ -80,21 +83,34 @@ function _countEarlyRamp(deck, cmdColors, hasGenericCost, maxInclusiveCmc) {
     ],
   };
   const cap = _earlyRampCmcCap(5);
-  assert.strictEqual(cap, 3);
+  assert.strictEqual(cap, 4);
   const count = _countEarlyRamp(deck, cmdColors, true, cap);
-  assert.strictEqual(count, 9, 'MV≤3 ramp counts even when plan T=3');
+  assert.strictEqual(count, 10, 'MV≤4 ramp counts even when plan T=3');
 }
 
-// Edge: 2-MV commander → cap 0 (only 0-MV ramp).
+// Edge: 2-MV commander → cap 1 (ramp cast on T1 with that turn's land).
 {
-  assert.strictEqual(_earlyRampCmcCap(2), 0);
+  assert.strictEqual(_earlyRampCmcCap(2), 1);
   const deck = {
     cards: [
       { name: 'Zero', cmc: 0, roleTags: ['Ramp'], oracleText: '{c}', qty: 1 },
       { name: 'One', cmc: 1, roleTags: ['Ramp'], oracleText: 'mana of any color', qty: 1 },
     ],
   };
-  assert.strictEqual(_countEarlyRamp(deck, ['U'], true, 0), 1);
+  assert.strictEqual(_countEarlyRamp(deck, ['U'], true, 1), 2);
+}
+
+// "Chosen color" producers (Utopia Sprawl, Caged Sun) are relevant ramp for any
+// commander — the color is picked on ETB, so you choose one the commander needs.
+{
+  const sprawl = {
+    name: 'Utopia Sprawl', cmc: 1, roleTags: ['Ramp'], qty: 1,
+    oracleText: 'Enchant Forest\nAs this Aura enters, choose a color.\nWhenever enchanted Forest is tapped for mana, its controller adds an additional one mana of the chosen color.',
+  };
+  assert.strictEqual(_rampIsRelevant(sprawl, ['G', 'W', 'U'], false), true, 'Utopia Sprawl counts as relevant ramp');
+  const deck = { cards: [sprawl] };
+  // 3-MV commander pre-curving to T2 → ramp must be MV ≤ 1
+  assert.strictEqual(_countEarlyRamp(deck, ['G', 'W', 'U'], false, 1), 1, 'Sprawl counted for a T2 pre-curve');
 }
 
 console.log('test-gameplan-early-ramp: ok');

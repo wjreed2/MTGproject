@@ -658,6 +658,138 @@ body::before {
   margin: 1rem 0 0.5rem;
   color: var(--text);
 }
+
+/* ── Federated sign-in buttons ───────────────────────────────────────────────
+   Same 38px/8px geometry as .auth-submit so the stack reads as one column.
+   Brand marks keep their own colours (the one sanctioned exception to the
+   "never hardcode a colour a token covers" rule — Google and Discord both
+   require their mark be shown unaltered); everything else is tokens. */
+/* display:flex below outranks the UA's [hidden] { display: none } on
+   specificity, so these three need to opt back out explicitly — without this a
+   hidden row still renders (a stray "OR" on the sign-in card, and a permanent
+   confirm-your-email strip for users who have nothing to confirm). */
+.auth-providers[hidden],
+.auth-divider[hidden],
+.verify-banner[hidden] { display: none; }
+
+.auth-providers {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 1.15rem;
+}
+.auth-provider-btn {
+  width: 100%;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border2);
+  background: var(--bg3);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.18s var(--ease), border-color 0.15s var(--ease);
+}
+.auth-provider-btn:hover {
+  background: var(--bg4);
+  border-color: var(--border3);
+}
+.auth-provider-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.auth-provider-icon {
+  width: 17px;
+  height: 17px;
+  flex-shrink: 0;
+  display: block;
+}
+/* Apple's mark is a solid glyph, so it has to follow the text colour to stay
+   visible in both themes; Google and Discord carry their own palette. */
+.auth-provider-btn[data-provider="apple"] .auth-provider-icon { fill: currentColor; }
+
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 1.05rem;
+  color: var(--text3);
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.auth-divider::before,
+.auth-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border2);
+}
+
+/* ── "Confirm your email" strip ──────────────────────────────────────────────
+   Sits under the topbar. Advisory, not a gate: an unconfirmed account still
+   works, so this nudges rather than blocks. */
+.verify-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 14px;
+  font-size: 0.78rem;
+  color: var(--text2);
+  background: rgba(201, 168, 76, 0.1);
+  border-bottom: 1px solid rgba(201, 168, 76, 0.3);
+}
+.verify-banner-icon {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  color: var(--gold);
+}
+.verify-banner-spacer { flex: 1; }
+.verify-banner strong { color: var(--text); font-weight: 600; }
+
+/* Glass companions — hardcoded rgba above owes one per §0.1 of the UI ruleset. */
+body.glass-mode .auth-provider-btn {
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  color: var(--text);
+}
+body.glass-mode .auth-provider-btn:hover {
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14));
+  border-color: rgba(255, 255, 255, 0.4);
+}
+body.glass-mode .auth-divider::before,
+body.glass-mode .auth-divider::after {
+  background: rgba(255, 255, 255, 0.18);
+}
+body.glass-mode .verify-banner {
+  background: rgba(var(--lgx1), 0.12);
+  border-bottom-color: rgba(255, 255, 255, 0.18);
+}
+body.glass-mode .verify-banner-icon { color: rgb(var(--lgx1)); }
+
+[data-theme="light"] body.glass-mode .auth-provider-btn {
+  background: rgba(255, 255, 255, 0.55);
+  border-color: rgba(0, 0, 0, 0.14);
+}
+[data-theme="light"] body.glass-mode .auth-provider-btn:hover {
+  border-color: rgba(0, 0, 0, 0.22);
+}
+[data-theme="light"] body.glass-mode .auth-divider::before,
+[data-theme="light"] body.glass-mode .auth-divider::after {
+  background: rgba(0, 0, 0, 0.14);
+}
+[data-theme="light"] body.glass-mode .verify-banner {
+  background: rgba(var(--lgx1), 0.1);
+  border-bottom-color: rgba(0, 0, 0, 0.12);
+}
 .btn-link {
   background: none;
   border: none;
@@ -819,7 +951,17 @@ main {
   padding: calc(var(--topbar-h) + 1rem) var(--page-gutter) 1.5rem;
   transition: margin-left 0.22s var(--ease);
   min-height: 100vh;
+  /* The data disclosure is the last child of <main>, and it followed whatever
+     content happened to be above it — on a sparse page that left it sitting
+     mid-screen, reading as part of the page rather than the footnote it is. A
+     column with an auto top margin on it drops it to the foot of the viewport
+     when there is little above, and leaves it directly under the content when
+     there is plenty. */
+  display: flex;
+  flex-direction: column;
 }
+main > .tab-content { flex: 0 0 auto; }
+main > [data-data-disclosure] { margin-top: auto; }
 
 /* PANELS */
 .panel {
@@ -856,6 +998,25 @@ main {
   margin-right: calc(var(--page-gutter-tight) - var(--page-gutter));
 }
 
+/* The pane above is pulled out to the tight gutter for the builder's width;
+   the top bar gives it back so its title lines up with Collection, Sets and
+   Browse rather than hanging 24px further left. */
+#deckBuilderTopBar {
+  margin-left: calc(var(--page-gutter) - var(--page-gutter-tight));
+  margin-right: calc(var(--page-gutter) - var(--page-gutter-tight));
+}
+
+/* All Decks grid starts where the title does, so the gap to the sidebar matches
+   the other tabs. The pane's negative margin is there for the deck BUILDER's
+   width, which a card grid does not need — #deckDetailArea keeps it. Desktop
+   only: phones have no sidebar to balance against and want the full width. */
+@media (min-width: 769px) {
+  #deckGridArea {
+    margin-left: calc(var(--page-gutter) - var(--page-gutter-tight));
+    margin-right: calc(var(--page-gutter) - var(--page-gutter-tight));
+  }
+}
+
 /* "All Decks" gets its own line between the deck header and the folder tabs. */
 .deck-back-row {
   display: flex;
@@ -870,7 +1031,16 @@ main {
   align-items: flex-end;
   /* No left padding: the page's left edge flows straight up into the first tab */
   padding: 10px 14px 0 0;
-  margin-bottom: -1px;
+  /* No overlap. The row used to be pulled down over the page so the open tab
+     would hide the page's top border — but both surfaces are translucent glass,
+     so overlapping them stacked two layers and the doubled region read as a
+     bright band: measured ~75,99,139 against ~51,70,104 for either surface
+     alone. That band was the divider under the first tab, and deepening the
+     overlap to chase it only made it wider. The page carries no top border now
+     (see .deck-tab-pane), so there is nothing to cover and the tab can simply
+     meet it: measured across the joint, 52,72,105 → 51,70,103 → 52,73,106, no
+     step at all. */
+  margin-bottom: 0;
   position: relative;
   z-index: 2;
   overflow-x: auto;
@@ -938,11 +1108,16 @@ main {
 .deck-tab-pane {
   display: none;
   background: var(--bg2);
+  /* No top border, for the reason the glass skin gives below: the open tab is
+     meant to hide it but is translucent, so the line tints straight through and
+     reads as a rule drawn across the tabs. The surface change carries the top
+     edge where no tab covers it. */
   border: 1px solid var(--border2);
+  border-top: none;
   /* Square top-left: on a manila folder the left edge and the tab's left edge
      are one continuous line, so only the other three corners round off. */
   border-radius: 0 var(--deck-pane-radius) var(--deck-pane-radius) var(--deck-pane-radius);
-  padding: 0.4rem 1.4rem 1.4rem;
+  padding: 1rem 1.4rem 1.4rem;
 }
 .deck-tab-pane.active { display: block; }
 /* Sections on a tab page lose their own boxes and read as one document */
@@ -1017,9 +1192,19 @@ body.glass-mode #deckTabPane-design .panel {
 /* !important outranks the #tab-decks #deckGroupByWrap select sizing-parity rule */
 select[data-glassified] { display: none !important; }
 .glass-dd-btn { gap: 6px; white-space: nowrap; min-width: 0; border-radius: 8px !important; }
-.glass-dd-btn > :not(.glass-dd-prefix):not(svg) { overflow: hidden; text-overflow: ellipsis; }
+.glass-dd-btn > :not(.glass-dd-prefix):not(svg) { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.glass-dd-btn > svg { flex-shrink: 0; }
 .glass-dd-prefix { opacity: 0.55; }
 #tab-decks .glass-dir-btn { min-width: 34px; justify-content: center; }
+/* Height belongs to the toolbar, not to which cluster a control sits in. The
+   34px rule is scoped to #deckGroupByWrap, so the Badges trigger — a sibling of
+   that span, not a child — fell back to .btn-sm's 28px and stood a row short. */
+#tab-decks #deckListPanelHeader .glass-dd-btn {
+  height: 34px;
+  min-height: 34px;
+  padding: 0 12px;
+  box-sizing: border-box;
+}
 /* Glass triggers everywhere pick up the blue→purple hover, like the toolbar */
 .glass-dd-btn:hover {
   color: var(--text);
@@ -1059,7 +1244,136 @@ body.glass-mode #deckListPanelHeader .view-toggle {
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 10px rgba(30,50,90,0.10);
 }
 
+body.glass-mode #tab-sets .view-toggle {
+  background: rgba(255,255,255,0.07);
+  border-color: rgba(255,255,255,0.16);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 2px 10px rgba(0,0,0,0.22);
+  overflow: hidden;
+}
+[data-theme="light"] body.glass-mode #tab-sets .view-toggle {
+  background: rgba(255,255,255,0.55);
+  border-color: rgba(255,255,255,0.75);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 10px rgba(30,50,90,0.10);
+}
+
+body.glass-mode .set-card {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.055);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10);
+}
+body.glass-mode .set-card:hover {
+  border-color: rgba(var(--lgx1), 0.45);
+  background: rgba(255, 255, 255, 0.09);
+}
+body.glass-mode .set-star {
+  color: rgba(238, 243, 252, 0.72);
+  -webkit-text-stroke: 0.6px rgba(255, 255, 255, 0.8);
+}
+body.glass-mode .set-star.is-starred {
+  color: color-mix(in oklab, rgb(var(--lgx1)) 55%, rgb(var(--lgx2)));
+  -webkit-text-stroke: 0;
+}
+[data-theme="light"] body.glass-mode .set-card {
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.78) 0%, rgba(255, 255, 255, 0.48) 45%, rgba(255, 255, 255, 0.62) 100%);
+  border-color: rgba(255, 255, 255, 0.88);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 10px 32px rgba(30, 50, 90, 0.14);
+}
+[data-theme="light"] body.glass-mode .set-card:hover {
+  border-color: rgba(var(--lgx1), 0.5);
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0.62) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 14px 40px rgba(30, 50, 90, 0.2);
+}
+[data-theme="light"] body.glass-mode .set-star {
+  color: rgba(40, 60, 95, 0.5);
+  -webkit-text-stroke: 0;
+}
+[data-theme="light"] body.glass-mode .set-star.is-starred {
+  color: color-mix(in oklab, rgb(var(--lgx1)) 55%, rgb(var(--lgx2)));
+}
+
+/* Set code and card count beside the set name: facts, so plain text. */
+/* Page heading. This is the treatment the set-detail title already used (.panel-title
+   at 1.35rem); pulling it into a class lets the tab headers share it instead of
+   repeating an inline font-size, and keeps the four in step if it ever changes. */
+.page-title {
+  font-family: 'Cinzel', serif;
+  font-size: 1.6rem;
+  font-weight: 600;
+  color: var(--gold);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+body.glass-mode .page-title {
+  font-family: var(--glass-font);
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 1.6rem;
+  font-weight: 600;
+  color: rgba(244, 246, 251, 0.86);
+}
+[data-theme="light"] body.glass-mode .page-title { color: rgba(23, 32, 46, 0.88); }
+
+.set-detail-meta {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.74rem;
+  color: var(--text3);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.set-browse-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+#tab-sets .set-browse-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.set-browse-count {
+  font-size: 0.74rem;
+  color: var(--text3);
+  margin-left: auto;
+}
+/* Clear sits inside the field, where the collection bar puts its hint. */
+.set-browse-search-clear {
+  position: absolute;
+  right: 7px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text3);
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 0 2px;
+}
+.set-browse-search-clear:hover { color: var(--text); }
+.set-detail-factline {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+  font-size: 0.8rem;
+  color: var(--text3);
+  font-family: 'JetBrains Mono', monospace;
+}
+
 /* Frosted dropdown menus — translucent but never so glassy they stop reading */
+/* A menu hoisted out of a clipping ancestor becomes a sibling of whatever it was
+   opened from, so it no longer inherits that element's stacking context. At the
+   base 450 it painted *behind* the modal overlays (z-index 1000) that most
+   hoisted menus belong to — visible to the DOM, invisible and unclickable on
+   screen. Above the highest overlay in the app (10050). */
+.glass-menu[data-floating] { z-index: 10060; }
 .glass-menu {
   position: absolute;
   top: calc(100% + 6px);
@@ -1899,9 +2213,21 @@ body.glass-mode .glass-menu-item { font-family: var(--glass-font); }
   max-width: 96vw;
 }
 #voiceModal .voice-folder-tabs {
-  margin-bottom: -1px; /* active tab opens into the popup */
+  /* Meeting, not overlapping — the deck tabs learned this: two translucent
+     surfaces laid over each other stack into a brighter band exactly where the
+     joint is meant to disappear. */
+  margin-bottom: 0;
   position: relative;
   z-index: 2;
+}
+/* And the popup drops its top border for the same reason the tab pages drop
+   theirs, so the active tab opens into it instead of onto a rule. */
+#voiceModal .voice-modal { border-top: none; }
+/* The Scan tab is phone-only: it hands off to the camera scanner, which is built around a
+   rear camera filling a card-shaped reticle — pointless on a desktop webcam. Same ≤768px
+   line every other mobile-only affordance uses. */
+@media (min-width: 769px) {
+  #scanTabBtn { display: none; }
 }
 #voiceModal .modal { border-top-left-radius: 0; }
 /* Tab and popup are one material, like the deck-builder tabs: both use a
@@ -1916,12 +2242,48 @@ body.glass-mode #voiceModal .voice-modal {
      under the (translucent) active tab. The tab strip carries that edge now. */
   box-shadow: 0 28px 90px rgba(0,0,0,0.6);
 }
+/* Deck-page tabs are a 3.5% white film over the wallpaper. Here the backdrop is
+   the modal's scrim, where that film reads as near-black — so the film goes over
+   the popup's own colour instead, which keeps the same relationship to the
+   surface the tab opens into. Raising the film to 12% instead, as this used to,
+   turned the inactive tabs into grey slabs that matched nothing.
+   The blur comes with it: without it the tabs tucked behind show both of their
+   crossing slants rather than melting into one edge. */
+body.glass-mode #voiceModal .deck-ftab::before {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.035)),
+    rgba(34,44,74,0.72);
+  border-color: rgba(255,255,255,0.10);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.10);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+body.glass-mode #voiceModal .deck-ftab:hover::before {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.075), rgba(255,255,255,0.075)),
+    rgba(34,44,74,0.78);
+}
+[data-theme="light"] body.glass-mode #voiceModal .deck-ftab::before {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.32), rgba(255,255,255,0.32)),
+    rgba(240,245,255,0.82);
+  border-color: rgba(255,255,255,0.55);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.6);
+}
+[data-theme="light"] body.glass-mode #voiceModal .deck-ftab:hover::before {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.48), rgba(255,255,255,0.48)),
+    rgba(246,249,255,0.9);
+}
 body.glass-mode #voiceModal .deck-ftab.active::before {
   background:
     linear-gradient(180deg, rgba(var(--lgx1), 0.20), rgba(var(--lgx1), 0.15)),
     rgba(34,44,74,0.92); /* = the popup's top colour */
   border-color: rgba(255,255,255,0.16);
   border-bottom: none;
+  /* Top highlight only, like the deck tabs: an all-round inset lights the
+     bottom edge too, right on the joint. */
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.2);
   -webkit-backdrop-filter: blur(30px) saturate(180%);
   backdrop-filter: blur(30px) saturate(180%);
 }
@@ -1937,6 +2299,7 @@ body.glass-mode #voiceModal .deck-ftab.active::before {
     rgba(255,255,255,0.95);
   border-color: rgba(255,255,255,0.85);
   border-bottom: none;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9);
 }
 
 /* Destination controls — deck-list-toolbar pill look. The #voiceModal prefix is
@@ -2524,13 +2887,18 @@ body.glass-mode #voiceModal .search-box {
 /* Compact horizontal metrics so the whole rail fits one desktop line
    (overrides the 34px-parity block's 12px padding / 0.82rem sizing) */
 #tab-collection #quickFilterRow .filter-chip,
+#tab-collection #quickFilterRow #quickFilterMenuBtn,
 #tab-collection #quickFilterRow #starFilterBtn,
 #tab-collection #quickFilterRow #clearChipsBtn {
   padding: 0 9px !important;
   font-size: 0.75rem !important;
 }
-#tab-collection #quickFilterRow > select {
-  padding: 0 8px !important;
+/* Glassification nests the select inside .glass-dd-wrap, so `> select` stopped
+   matching and the visible control is the trigger button — size that instead,
+   to the same 0.75rem as the chips it sits between. */
+#tab-collection #quickFilterRow > select,
+#tab-collection #quickFilterRow .glass-dd-btn {
+  padding: 0 9px !important;
   font-size: 0.75rem !important;
 }
 #tab-collection #quickFilterRow #cmcMinInput,
@@ -2567,7 +2935,13 @@ body.glass-mode #voiceModal .search-box {
   color: var(--text); font-family: 'Crimson Pro', serif; font-size: 0.95rem;
 }
 .search-box::placeholder { color: var(--text3); }
-.search-box:focus { outline: none; border-color: var(--gold); }
+/* Accent, not gold — the app moved off gold and this was the last focus ring
+   still using it. */
+.search-box:focus {
+  outline: none;
+  border-color: rgba(var(--lgx1), 0.75);
+  box-shadow: 0 0 0 3px rgba(var(--lgx1), 0.18);
+}
 
 /* Canonical dropdown — text inputs/textareas already share a global base rule
    (see `input[type=...]` further down); selects had none, so each modal styled
@@ -2590,6 +2964,13 @@ body.glass-mode #voiceModal .search-box {
   display: grid;
   gap: 12px;
   grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  /* Rows size to their content and stop. _renderCollectionTiles pins the grid's
+     min-height while the tail streams in, so the container is deliberately taller
+     than the tiles it currently holds; the default `stretch` redistributed all
+     that slack into the rows, which ballooned a 262px tile to over 1000px and
+     then collapsed it again as each chunk landed — the rows visibly dropping and
+     springing back on every load. */
+  align-content: start;
 }
 .card-grid.view-list { grid-template-columns: 1fr; gap: 6px; }
 .card-grid.view-large { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
@@ -2655,6 +3036,12 @@ body.glass-mode #voiceModal .search-box {
   aspect-ratio: 0.715;
   background: var(--bg4);
   overflow: hidden; position: relative;
+  /* Card scans carry their own pale rounded corners, and .card-item's 6px never
+     cut them off: it has a 1px border, and a border box clips its content at
+     radius − border-width. Same fix as the deck list's .stack-main — put the
+     radius on this borderless wrapper instead. Per-axis against the 0.715
+     aspect keeps the corner circular at any tile size. */
+  border-radius: 5.6% / 4%;
 }
 .card-img-wrap img {
   width: 100%; height: 100%; object-fit: cover;
@@ -2663,7 +3050,9 @@ body.glass-mode #voiceModal .search-box {
 .card-img-wrap img.loaded { opacity: 1; }
 /* Fade card images in once decoded so they don't snap in one-by-one.
    Scoped to <img> so text fallbacks (.stack-face-fallback divs) aren't hidden. */
-img.stack-main { opacity: 0; transition: opacity 0.25s; }
+/* A gentle fade is the point: shortening it makes each card's arrival sharper,
+   which is the pop itself. Measured 130ms as a regression and put it back. */
+img.stack-main { opacity: 0; transition: opacity 0.28s ease-out; }
 img.stack-main.loaded { opacity: 1; }
 .deck-search-art img { opacity: 0; transition: opacity 0.25s; }
 .deck-search-art img.loaded { opacity: 1; }
@@ -2759,32 +3148,45 @@ img.stack-main.loaded { opacity: 1; }
     transparent 82%
   );
 }
-.card-foil-badge {
-  position: absolute;
-  bottom: 0; left: 0; right: 0;
-  z-index: 2;
-  pointer-events: none;
-  text-align: center;
-  font-size: 0.48rem;
-  font-weight: 800;
-  letter-spacing: 0.14em;
-  color: #fff;
-  text-shadow: 0 1px 3px rgba(0,0,0,0.85);
-  padding: 2px 0 3px;
-  background: linear-gradient(90deg,
-    #ff0066  0%,  #ff6600 14%, #ffcc00 28%,
-    #00cc66 42%, #0099ff 56%, #8800ff 70%,
-    #ff00aa 84%, #ff0066 100%
-  );
-  background-size: 200% 100%;
-  animation: holo-badge 30s linear infinite;
-}
 .card-img-wrap.foil {
   box-shadow: 0 0 5px 0 rgba(180, 80, 255, 0.35);
 }
-@keyframes holo-badge {
-  0%   { background-position: 0%   50%; }
-  100% { background-position: 200% 50%; }
+/* ── Surge foil ───────────────────────────────────────────────────────────────
+   Surge is a promo finish layered on an otherwise normal printing, so it keeps the
+   holo spectrum and adds what the plain foil lacks: a tight diagonal ripple, a
+   deeper spectrum, and motion. Stacked on .card-foil-overlay, so these rules only
+   need to override what differs. */
+.card-surge-overlay {
+  background:
+    repeating-linear-gradient(
+      115deg,
+      rgba(255,255,255,0.00)  0px,
+      rgba(255,255,255,0.15)  2px,
+      rgba(255,255,255,0.00)  5px,
+      rgba(255,255,255,0.00) 11px
+    ),
+    linear-gradient(
+      115deg,
+      transparent 10%,
+      rgba(255,  0, 100, 0.34) 22%,
+      rgba(255,140,   0, 0.34) 31%,
+      rgba(220,255,   0, 0.34) 40%,
+      rgba(  0,220, 100, 0.34) 49%,
+      rgba(  0,155, 255, 0.34) 58%,
+      rgba(130,  0, 255, 0.34) 67%,
+      rgba(255,  0, 180, 0.34) 76%,
+      transparent 88%
+    );
+  background-size: 200% 100%, 250% 100%;
+  animation: surge-sweep 7s linear infinite;
+}
+@keyframes surge-sweep {
+  0%   { background-position:   0% 50%,   0% 50%; }
+  100% { background-position: 200% 50%, 250% 50%; }
+}
+/* The plain-foil badge crawls at 30s; surge reads as the livelier one. */
+@media (prefers-reduced-motion: reduce) {
+  .card-surge-overlay { animation: none; }
 }
 @keyframes holo-glow {
   0%   { box-shadow: 0 0 9px 1px rgba(255,  0, 100, 0.55); }
@@ -2820,9 +3222,9 @@ img.stack-main.loaded { opacity: 1; }
   font-size: 0.7rem; color: var(--text3);
   letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 6px;
 }
+/* Plain text, not a chip — it labels which row is displayed, it is not a control. */
 .price-modal-shown-tag {
-  font-size: 0.62rem; color: var(--gold); background: var(--gold-dim);
-  border-radius: 4px; padding: 1px 6px; margin-left: 6px; letter-spacing: 0.04em;
+  font-size: 0.7rem; color: var(--text3); margin-left: 6px;
 }
 .price-modal-movers td { font-size: 0.8rem; }
 .price-modal-movers .price-modal-head td {
@@ -2834,23 +3236,86 @@ img.stack-main.loaded { opacity: 1; }
 }
 .price-modal-mover-row { cursor: pointer; }
 .price-modal-mover-row:hover td { color: var(--gold); }
+/* Estimated value + Settings on the left, Top movers on the right, so the modal's
+   height is the taller column instead of the sum of both. */
+.price-modal-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0 1.75rem;
+  align-items: start;
+}
+.price-modal-grid.is-single { grid-template-columns: minmax(0, 1fr); }
+.price-modal-col { min-width: 0; }
+@media (max-width: 860px) {
+  .price-modal-grid { grid-template-columns: minmax(0, 1fr); gap: 1.1rem; }
+}
 .price-modal-settings { display: flex; flex-direction: column; gap: 12px; }
 .price-modal-settings label { font-size: 0.78rem; color: var(--text2); display: block; }
-.price-modal-settings label strong { color: var(--gold); }
+.price-modal-settings label strong { color: rgb(var(--lgx1)); }
 .price-modal-settings select {
   width: 100%; margin-top: 5px; font-size: 0.78rem; padding: 5px 6px;
   background: var(--bg3); border: 1px solid var(--border2); color: var(--text); border-radius: var(--radius);
 }
+/* Track and thumb are drawn explicitly rather than left to accent-color, which
+   only tints the thumb and the filled span — the empty track kept rendering from
+   the UA's light theme as a pale cream bar, which is what still read as gold
+   after the accent was changed. #settingsValueExcludeSlider is the same control
+   in the Settings menu and had the same pale bar. */
+#settingsValueExcludeSlider,
 .price-modal-settings input[type="range"] {
-  width: 100%; margin-top: 7px; accent-color: var(--gold); display: block;
+  width: 100%; margin-top: 7px; display: block; height: 16px;
+  -webkit-appearance: none; appearance: none;
+  background: transparent; cursor: pointer;
+}
+/* --range-fill is set from onPriceModalMinPriceInput; custom properties inherit
+   into these pseudo-elements, so the filled span tracks the thumb the way the
+   native accent fill used to. */
+#settingsValueExcludeSlider::-webkit-slider-runnable-track,
+.price-modal-settings input[type="range"]::-webkit-slider-runnable-track {
+  height: 6px; border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    rgb(var(--lgx1)) 0 var(--range-fill, 0%),
+    rgba(255, 255, 255, 0.14) var(--range-fill, 0%) 100%);
+}
+#settingsValueExcludeSlider::-webkit-slider-thumb,
+.price-modal-settings input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 14px; height: 14px; margin-top: -4px;
+  border: none; border-radius: 50%;
+  background: rgb(var(--lgx1));
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+}
+#settingsValueExcludeSlider::-moz-range-track,
+.price-modal-settings input[type="range"]::-moz-range-track {
+  height: 6px; border-radius: 999px; background: rgba(255, 255, 255, 0.14);
+}
+#settingsValueExcludeSlider::-moz-range-progress,
+.price-modal-settings input[type="range"]::-moz-range-progress {
+  height: 6px; border-radius: 999px; background: rgb(var(--lgx1));
+}
+.price-modal-settings input[type="range"]::-moz-range-thumb {
+  width: 14px; height: 14px; border: none; border-radius: 50%;
+  background: rgb(var(--lgx1));
 }
 .stat-card {
   background: linear-gradient(145deg, var(--bg3) 0%, var(--bg4) 100%);
   border: 1px solid var(--border);
   border-radius: var(--radius2); padding: 0.9rem 1rem;
   text-align: center;
-  transition: all 0.18s var(--ease);
+  /* Never `all`. These cards change height whenever their content settles — the
+     web font swapping in, the counts arriving, prices landing — and `all` turned
+     each of those into a 180ms animated resize that pushed the filter bar, the
+     chips and the whole grid down and back up, repeatedly, on every load. Only
+     paint properties animate here. */
+  transition: border-color 0.18s var(--ease), background 0.18s var(--ease),
+              box-shadow 0.18s var(--ease), transform 0.18s var(--ease);
 }
+/* A floor tall enough for one value line plus its label, so the remaining
+   content swaps resize nothing at all rather than resizing instantly. */
+.stat-card { min-height: 82px; }
+.stat-val { line-height: 1.2; }
+.stat-label { line-height: 1.3; }
 .stat-card:hover { border-color: rgba(200,168,74,0.2); }
 .stat-val {
   font-family: 'Cinzel', serif; font-size: 1.55rem;
@@ -2877,7 +3342,7 @@ img.stack-main.loaded { opacity: 1; }
   display: flex; flex-direction: column; gap: 8px;
 }
 .set-card:hover {
-  border-color: rgba(200,168,74,0.4);
+  border-color: rgba(var(--lgx1), 0.45);
   transform: translateY(-2px);
   box-shadow: 0 8px 28px rgba(0,0,0,0.35);
 }
@@ -2919,13 +3384,29 @@ img.stack-main.loaded { opacity: 1; }
 
 .set-code {
   font-family: 'JetBrains Mono', monospace; font-size: 0.68rem;
-  color: var(--gold); background: var(--gold-dim);
-  padding: 2px 7px; border-radius: 4px; width: fit-content; letter-spacing: 0.06em;
+  color: var(--text3);
+  width: fit-content; letter-spacing: 0.06em; text-transform: uppercase;
 }
+.set-pct {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.68rem;
+  color: var(--text2);
+}
+/* Same star as a collection tile: neutral until it is lit, then the accent. */
+.set-star {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 2px;
+  color: var(--text3);
+}
+.set-star.is-starred { color: var(--text); }
 .set-progress { width: 100%; height: 3px; background: var(--bg); border-radius: 2px; overflow: hidden; }
 .set-progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, var(--gold), var(--gold2));
+  background: linear-gradient(90deg, rgb(var(--lgx1)), rgb(var(--lgx2)));
   border-radius: 2px; transition: width 0.6s var(--ease);
 }
 .set-count { font-family: 'Inter', system-ui, sans-serif; font-size: 0.7rem; color: var(--text3); }
@@ -3295,6 +3776,9 @@ img.stack-main.loaded { opacity: 1; }
   font-size: 0.85rem;
   font-weight: 600;
 }
+/* The node stays in the type line with no price in it, as the mount a later
+   hydrate fills — it must not hold the row's gap open while it is empty. */
+.card-detail-inline-price:empty { display: none; }
 /* Condensed counters + action row. The Collection/Deck headings sit above their
    counters rather than beside them, so the two groups sit side by side. */
 #cardDetailModal .card-detail-actions { gap: 6px; margin-bottom: 0.5rem; }
@@ -3355,6 +3839,38 @@ img.stack-main.loaded { opacity: 1; }
 /* Tags keep a real tag silhouette — angled leading edge + punch hole — but in
    frosted glass. Tier reads from the hole colour, so one row can mix sources. */
 #cardDetailModal .cd-tag-group { display: contents; }
+/* Edit Tags sits on the tag row itself, at the end of it — it belongs with the
+   tags it edits rather than with the deck actions above. */
+#cardDetailModal .cd-tag-edit { margin-left: auto; display: inline-flex; }
+/* Coloring: its own row under the tags, control at the right end — under Edit
+   Tags, which sits at the right end of the row above it. */
+#cardDetailModal .card-detail-colorrow {
+  display: flex; align-items: center; justify-content: flex-end;
+  gap: 8px; flex-wrap: wrap;
+  margin-top: 8px;
+}
+/* Colouring is builder-only; everywhere else the row is empty and must not
+   leave its margin behind under the tags. */
+#cardDetailModal .card-detail-colorrow:empty { display: none; }
+#cardDetailModal .cd-color-add { gap: 8px; }
+/* Read-only deck: the colour is shown, not offered. */
+#cardDetailModal .cd-color-static {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 0.82rem; color: var(--text2);
+}
+#cardDetailModal .cd-color-clear { min-width: 34px; padding: 0 10px !important; }
+.cd-color-dot {
+  width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0;
+  background: var(--cf, #5aa9f0);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+.cd-color-dot--empty {
+  background: none;
+  border-style: dashed;
+  border-color: currentColor;
+  opacity: 0.5;
+}
+[data-theme="light"] .cd-color-dot { border-color: rgba(20, 35, 60, 0.22); }
 #cardDetailModal .card-detail-tagrow { gap: 8px; row-gap: 8px; min-height: 1.75rem; }
 #cardDetailModal .cd-tags-empty { font-size: 0.75rem; color: var(--text3); }
 /* Tier is the whole tag's colour now — no border, no dot. Blue = primary,
@@ -3692,6 +4208,9 @@ img.stack-main.loaded { opacity: 1; }
   cursor: pointer; touch-action: manipulation;
 }
 .x-stepper-btn:active { background: var(--bg); transform: scale(0.92); }
+/* Compact variant for dense modal rows (new-game mulligan counter). */
+.x-stepper-btn-sm { width: 22px; height: 22px; font-size: 0.95rem; border-radius: 6px; }
+body.glass-mode .x-stepper-btn-sm { border-radius: 7px; }
 
 /* In-game number wheel — flick/scroll to pick an amount, no keyboard. */
 .num-wheel {
@@ -3805,9 +4324,9 @@ img.stack-main.loaded { opacity: 1; }
    leaving a crisp inner outline. Active turn = player colour (inline), drag
    target = red, seat-drag = pulsing gold source / teal drop target. */
 .pie-outline { transition: stroke 0.15s; }
-.tablet-cell--pie.tablet-drag-target .pie-outline { stroke: var(--red) !important; }
+.tablet-cell--pie.tablet-drag-target .pie-outline { stroke: transparent !important; }
 .tablet-cell--pie.tablet-seat-drag-source .pie-outline {
-  stroke: var(--gold) !important;
+  stroke: rgb(var(--lgx1)) !important;
   animation: seatDragPulse 0.9s ease-in-out infinite;
 }
 .tablet-cell--pie.tablet-seat-drag-target .pie-outline { stroke: var(--teal) !important; }
@@ -3816,10 +4335,10 @@ img.stack-main.loaded { opacity: 1; }
   50% { stroke-opacity: 0.35; }
 }
 
-/* Drag-to-deal-damage */
-.tablet-drag-target {
-  border-color: var(--red) !important;
-  box-shadow: inset 0 0 0 3px rgba(212,90,74,0.6), 0 0 30px rgba(212,90,74,0.25);
+/* Drag-to-deal-damage: the marking lives at the end of this file, on the life
+   total, so it outranks the per-theme numeral shadows. */
+#tabletView .tablet-life-num {
+  transition: color 0.18s var(--ease), text-shadow 0.18s var(--ease), transform 0.18s var(--ease);
 }
 .tablet-drag-arrow {
   position: fixed; inset: 0; width: 100vw; height: 100vh;
@@ -3874,12 +4393,25 @@ img.stack-main.loaded { opacity: 1; }
   font-family: 'JetBrains Mono', monospace;
   font-size: clamp(0.62rem, 1.28vw, 0.9rem);
   font-weight: 700;
-  padding: clamp(6px, 1.45vh, 12px) 2px;
+  /* Squarer, and grouped: they were tall bars, one per stretched grid column,
+     which left them spread across the full width of the cell. */
+  padding: clamp(4px, 0.9vh, 8px) 2px;
+  width: clamp(46px, 6.5vw, 72px);
+  aspect-ratio: 1.35;
   border: 1px solid;
   transition: background 0.1s, transform 0.08s;
   touch-action: manipulation;
   user-select: none;
   -webkit-user-select: none;
+}
+/* The four life buttons read as one control, so they sit together in a centred
+   row. The pie layout used to stretch them across four 1fr columns of the whole
+   wedge, which left a gap the width of a button between each. */
+.tablet-life-btn-row {
+  display: flex;
+  justify-content: center;
+  gap: clamp(4px, 0.6vw, 8px);
+  width: 100%;
 }
 .tablet-life-btn:active { transform: scale(0.93); }
 .tablet-life-btn-neg { background: rgba(212,90,74,0.1); border-color: rgba(212,90,74,0.25); color: var(--red); }
@@ -3961,17 +4493,10 @@ img.stack-main.loaded { opacity: 1; }
 }
 
 /* GAME TRACKER — targeting & action bar */
-#tab-games {
-  zoom: 1.3;
-}
-/* Phone-only games layout — shown via mobile.css at ≤768px, off everywhere else. */
-.games-mobile { display: none; }
-#tab-games #gamesSidebar {
-  max-height: 630px !important;
-}
-#tab-games #gamesEmpty {
-  height: 630px !important;
-}
+/* This page used to carry `zoom: 1.3`, which scaled every control on it 1.3×
+   — so its buttons and inputs could never match the rest of the app, and any
+   popup menu sized in CSS px (the glass dropdowns) rendered 1.3× taller than
+   the cap meant to keep it on screen. */
 
 .player-active-turn {
   box-shadow: 0 0 0 1px rgba(255,255,255,0.08), 0 4px 20px rgba(0,0,0,0.3);
@@ -4045,6 +4570,33 @@ img.stack-main.loaded { opacity: 1; }
   transform: translateY(-6px) scale(1.02);
   box-shadow: 0 16px 48px rgba(0,0,0,0.55), 0 0 0 1px rgba(200,168,74,0.35);
 }
+/* ── Reordering (press and hold a deck tile) ─────────────────────────────── */
+/* touch-action only while a reorder is live: set on the tile at rest it would
+   cost the grid its scrolling, and the hold has to survive a scroll attempt
+   without stealing one. */
+/* Nothing in the grid is the browser's to drag or select: holding a tile was
+   starting a native image drag and a text selection instead of a reorder. */
+#deckOrderGrid .browse-deck-card,
+#deckOrderGrid .browse-deck-card * {
+  -webkit-user-drag: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+#deckOrderGrid.is-reordering { touch-action: none; }
+#deckOrderGrid.is-reordering .browse-deck-card { transition: none; }
+#deckOrderGrid.is-reordering .browse-deck-card:not(.is-reordering) { opacity: 0.55; }
+#deckOrderGrid.is-reordering .browse-deck-card:hover { transform: none; box-shadow: none; }
+.browse-deck-card.is-reordering {
+  cursor: grabbing;
+  transform: scale(1.06);
+  box-shadow: 0 22px 60px rgba(0,0,0,0.6), 0 0 0 2px rgba(var(--lgx1), 0.75);
+  z-index: 5;
+  opacity: 1;
+}
+[data-theme="light"] body.glass-mode .browse-deck-card.is-reordering {
+  box-shadow: 0 22px 60px rgba(30,50,90,0.3), 0 0 0 2px rgba(var(--lgx1), 0.75);
+}
+
 .browse-deck-img { width: 100%; height: 100%; }
 .browse-deck-overlay {
   position: absolute; bottom: 0; left: 0; right: 0;
@@ -4063,6 +4615,227 @@ img.stack-main.loaded { opacity: 1; }
 .browse-deck-meta {
   font-size: 0.65rem; color: var(--text3);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px;
+}
+
+/* The phone navigation button and its menu exist in the topbar on every screen;
+   mobile.css is what turns them on. */
+.mob-nav-toggle { display: none; }
+.mob-nav-menu[hidden] { display: none; }
+
+/* ── Tag badges: catalogue rows and the designer ────────────────────────────── */
+.tagcat-row { gap: 7px; }
+.tagcat-badge-btn {
+  display: inline-flex; padding: 0; border: none; background: none; cursor: pointer;
+  line-height: 0;
+}
+.tagcat-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 5px;
+  background: var(--badge-color, var(--text3));
+  color: #fff;
+}
+.tagcat-badge svg { width: 13px; height: 13px; }
+.tagcat-badge--none {
+  background: none;
+  border: 1px dashed currentColor;
+  opacity: 0.45;
+}
+.tagbadge-head {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-bottom: 0.85rem;
+}
+.tagbadge-preview {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px;
+}
+.tagbadge-preview .deck-tag-badge { width: 30px; height: 30px; }
+.tagbadge-preview .deck-tag-badge svg { width: 18px; height: 18px; margin: 0; }
+/* One grid of every symbol — a list you scan, not a dropdown you page through. */
+.tagbadge-symbols {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
+  gap: 6px;
+  max-height: 46vh;
+  overflow-y: auto;
+  padding: 2px;
+}
+.tagbadge-sym {
+  display: inline-flex; align-items: center; justify-content: center;
+  aspect-ratio: 1; padding: 0; cursor: pointer;
+  border-radius: 8px;
+  border: 1px solid var(--border2);
+  background: var(--bg3);
+  color: var(--badge-color, var(--text2));
+  transition: border-color 0.12s var(--ease), background 0.12s var(--ease), transform 0.1s var(--ease);
+}
+.tagbadge-sym svg { width: 20px; height: 20px; }
+.tagbadge-sym:hover { transform: translateY(-1px); border-color: rgba(var(--lgx1), 0.5); }
+/* The picked symbol wears the colour it will actually be, filled — scanning a
+   grid of 119 outlines for a slightly brighter border does not work. */
+.tagbadge-sym.is-picked {
+  border-color: transparent;
+  background: var(--badge-color, rgb(var(--lgx1)));
+  color: #fff;
+  box-shadow: 0 0 0 2px rgba(var(--lgx2), 0.55), 0 4px 14px rgba(0, 0, 0, 0.3);
+}
+body.glass-mode .tagbadge-sym.is-picked,
+[data-theme="light"] body.glass-mode .tagbadge-sym.is-picked {
+  background: var(--badge-color, rgb(var(--lgx1)));
+  border-color: transparent;
+}
+body.glass-mode .tagbadge-sym {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+[data-theme="light"] body.glass-mode .tagbadge-sym {
+  background: rgba(255, 255, 255, 0.7);
+  border-color: rgba(20, 35, 60, 0.14);
+}
+
+/* ── Read-only deck ─────────────────────────────────────────────────────────
+   Somebody else's deck, opened from Browse or a share link. Every view stays;
+   every way of writing to it goes. The handlers refuse independently — this is
+   so the deck never offers what it will not do. */
+#tab-decks.deck-read-only :is(
+  .suggest-item .cut-candidate-row > .btn,
+  .suggest-feedback,
+  .cut-candidate-row > .btn-outline,
+  .sim-chip-btn,
+  .deck-search-sb-btn,
+  .stack-remove,
+  .stack-version,
+  .stack-swap,
+  .deck-swaps-apply-btn,
+  #deckManageTagsBtn,
+  #deckRefreshTagsBtn
+) { display: none !important; }
+
+/* ── Browse public decks ────────────────────────────────────────────────────
+   A card, not a tile: the commander's art on the left at card proportions and
+   everything that identifies the deck beside it. Same box as the Commander
+   Gameplan turn boxes, so it reads as the app's glass. */
+.pubdeck-card {
+  display: flex;
+  align-items: stretch;
+  gap: 14px;
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border2);
+  background: var(--bg3);
+  cursor: pointer;
+  overflow: hidden;
+  transition: transform 0.18s var(--ease), border-color 0.18s var(--ease), box-shadow 0.18s var(--ease);
+}
+/* Big enough to read the card, not just recognise the art — a commander's name
+   and type line are the point of showing it. The card's height follows from it. */
+.pubdeck-art {
+  flex: 0 0 auto;
+  /* Not stretched to the card's height: the row is align-items:stretch, which
+     sets a height and so cancels aspect-ratio. The box then ran far taller than
+     the card is shaped and object-fit ate 15-41% of its width — worse the
+     narrower the art, which is why shrinking it did not help. */
+  align-self: flex-start;
+  width: 236px;
+  aspect-ratio: 0.715;
+  /* The card's own pale corners, clipped the way the deck list and the
+     collection clip theirs (.stack-main, .card-img-wrap): per-axis against the
+     0.715 aspect so the corner stays circular at any size, on a box with no
+     border — a border clips content at radius minus border-width, which is what
+     used to leave the light fringe showing. */
+  border-radius: 5.6% / 4%;
+  overflow: hidden;
+  background: var(--bg4);
+}
+/* contain, not cover: the whole card has to be there to read. The box is card
+   proportioned so there is nothing to letterbox for a normal scan. */
+.pubdeck-art img { width: 100%; height: 100%; object-fit: contain; object-position: center top; display: block; }
+.pubdeck-art-fallback {
+  width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'Cinzel', serif; font-size: 0.68rem; color: var(--text3);
+  text-align: center; padding: 8px;
+}
+.pubdeck-info {
+  flex: 1 1 auto; min-width: 0;
+  display: flex; flex-direction: column; gap: 3px;
+}
+.pubdeck-name {
+  font-family: 'Cinzel', serif; font-size: 1.35rem; font-weight: 600; color: var(--text);
+  line-height: 1.25;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pubdeck-cmdr {
+  font-size: 1.05rem; color: var(--text2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* What the semantics engine reads the deck as doing, written exactly as the
+   Suggestions tab writes it — "Deck goal" in the quiet face, the goal itself in
+   the blue→purple of every score in the app. Type, not a chip. */
+.pubdeck-goal {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+  margin: 4px 0 2px;
+  font-family: Cinzel, serif;
+  font-size: 0.95rem;
+  letter-spacing: 0.03em;
+}
+.pubdeck-goal { flex-wrap: wrap; }
+.pubdeck-goal-kicker { color: var(--text3); flex-shrink: 0; }
+.pubdeck-goal-name {
+  color: color-mix(in oklab, rgb(var(--lgx1)) 55%, rgb(var(--lgx2)));
+  min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pubdeck-goal-name--second { font-size: 0.86rem; opacity: 0.9; }
+.pubdeck-goal .deck-goal-match { font-size: 0.76rem; font-family: 'Inter', system-ui, sans-serif; }
+.pubdeck-goal-summary {
+  font-size: 0.78rem; color: var(--text2); line-height: 1.4;
+  margin-bottom: 2px;
+}
+
+/* Three lines of notes, then an ellipsis — the whole point is a card that stays
+   the same height whatever is written in it. */
+.pubdeck-notes {
+  font-size: 0.8rem; color: var(--text3); line-height: 1.45;
+  margin-top: 2px;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.pubdeck-foot {
+  margin-top: auto; padding-top: 6px;
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  font-size: 0.74rem; color: var(--text3);
+}
+.pubdeck-price {
+  font-family: 'JetBrains Mono', monospace; font-size: 0.88rem;
+  color: var(--text); font-variant-numeric: tabular-nums;
+}
+.pubdeck-meta { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body.glass-mode .pubdeck-card {
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.13) 0%, rgba(var(--lgx2), 0.06) 60%, rgba(var(--lgx2), 0.04) 100%),
+    linear-gradient(180deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.05) 60px, rgba(255,255,255,0.05) 100%);
+  border-color: rgba(255,255,255,0.20);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.20), 0 8px 28px rgba(0,0,0,0.35);
+}
+body.glass-mode .pubdeck-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(var(--lgx1), 0.45);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.24), 0 12px 34px rgba(0,0,0,0.42);
+}
+[data-theme="light"] body.glass-mode .pubdeck-card {
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.10) 0%, rgba(var(--lgx2), 0.05) 60%, rgba(var(--lgx2), 0.04) 100%),
+    linear-gradient(180deg, rgba(255,255,255,0.65) 0%, rgba(255,255,255,0.5) 60px, rgba(255,255,255,0.5) 100%);
+  border-color: rgba(255,255,255,0.8);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.95), 0 8px 28px rgba(30,50,90,0.12);
+}
+[data-theme="light"] body.glass-mode .pubdeck-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(var(--lgx1), 0.5);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.98), 0 12px 34px rgba(30,50,90,0.18);
 }
 
 .deck-grid-card {
@@ -4197,45 +4970,6 @@ img.stack-main.loaded { opacity: 1; }
 .deck-sidebar-item.active { border-color: var(--gold); }
 .deck-sidebar-name { font-family: 'Cinzel', serif; font-size: 0.75rem; color: #fff; line-height: 1.2; }
 .deck-sidebar-meta { font-family: 'Inter', system-ui, sans-serif; font-size: 0.62rem; color: rgba(255,255,255,0.65); margin-top: 2px; }
-.game-history-item {
-  aspect-ratio: auto;
-  min-height: 0;
-  padding: 8px 9px;
-  border-width: 1px;
-  background: linear-gradient(160deg, rgba(255,255,255,0.02), transparent 65%);
-}
-.game-history-title {
-  font-family: 'Cinzel', serif;
-  font-size: 0.76rem;
-  color: var(--gold);
-  line-height: 1.15;
-}
-.game-history-players {
-  margin-top: 3px;
-  font-size: 0.72rem;
-  color: var(--text2);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.game-history-meta {
-  margin-top: 4px;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  flex-wrap: wrap;
-}
-.game-history-meta span {
-  font-size: 0.64rem;
-  color: var(--text3);
-  padding: 1px 5px;
-  border-radius: 999px;
-  border: 1px solid var(--border2);
-  background: var(--bg3);
-  line-height: 1.35;
-  letter-spacing: 0.02em;
-}
-
 /* Normalize top action buttons */
 .top-action-bar .btn,
 .top-action-bar .btn.btn-sm {
@@ -4348,11 +5082,15 @@ img.stack-main.loaded { opacity: 1; }
   flex-shrink: 0;
 }
 
-/* Collection controls sizing parity */
-#tab-collection .view-controls .search-box,
-#tab-collection .view-controls select,
-#tab-collection .view-controls .btn,
-#tab-collection .view-controls .view-toggle button,
+/* Collection + sets controls sizing parity — one header pattern, two tabs. */
+:is(#tab-collection, #tab-sets, #tab-wishlist, #tab-trade) .view-controls .search-box,
+:is(#tab-collection, #tab-sets, #tab-wishlist, #tab-trade) .view-controls select,
+:is(#tab-collection, #tab-sets, #tab-wishlist, #tab-trade) .view-controls .btn,
+:is(#tab-collection, #tab-sets, #tab-wishlist, #tab-trade) .view-controls .view-toggle button,
+#tab-trade .trade-settings-bar .view-toggle,
+#tab-trade .trade-settings-bar .view-toggle button,
+#tab-collection #quickFilterMenuBtn,
+#tab-sets #setTypeMenuBtn,
 #tab-collection .filter-bar .filter-chip,
 #tab-collection #cmcMinInput,
 #tab-collection #cmcMaxInput,
@@ -4362,26 +5100,46 @@ img.stack-main.loaded { opacity: 1; }
   height: 34px !important;
   box-sizing: border-box;
 }
-#tab-collection .view-controls .search-box,
-#tab-collection .view-controls select,
+/* Tab-level controls all take the deck list filter row's measurements: 34px
+   tall, 8px corners, 0.82rem text, 12px sides. The height rule above already
+   listed .btn and the toggle segments; without them here they kept btn-sm's
+   smaller text and tighter padding inside a 34px box. */
+:is(#tab-collection, #tab-sets, #tab-wishlist, #tab-trade) .view-controls .search-box,
+:is(#tab-collection, #tab-sets, #tab-wishlist, #tab-trade) .view-controls select,
+:is(#tab-collection, #tab-sets, #tab-wishlist, #tab-trade) .view-controls .btn,
+:is(#tab-collection, #tab-sets, #tab-wishlist, #tab-trade) .view-controls .view-toggle button,
+#tab-trade .trade-settings-bar .view-toggle button,
 #tab-collection #cmcMinInput,
 #tab-collection #cmcMaxInput,
 #tab-collection .filter-bar > div:nth-child(2) > select {
   padding: 0 12px !important;
   font-size: 0.82rem !important;
 }
-#tab-collection .view-controls .view-toggle,
-#tab-collection .view-controls .view-toggle button {
+:is(#tab-collection, #tab-sets, #tab-trade) .view-controls .view-toggle,
+:is(#tab-collection, #tab-sets, #tab-trade) .view-controls .view-toggle button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
-#tab-collection .view-controls .view-toggle {
+:is(#tab-collection, #tab-sets, #tab-trade) .view-controls .view-toggle {
   height: 34px;
   align-items: stretch;
 }
+#tab-sets .set-browse-toolbar .view-toggle,
+#tab-sets .set-browse-toolbar .view-toggle button {
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+#tab-sets .view-toggle button {
+  padding: 0 12px;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
 #tab-collection .filter-bar .filter-chip,
-#tab-collection #historyBtn,
+#tab-collection #quickFilterMenuBtn,
+#tab-sets #setTypeMenuBtn,
 #tab-collection #starFilterBtn,
 #tab-collection #clearChipsBtn {
   padding: 0 12px !important;
@@ -4392,7 +5150,39 @@ img.stack-main.loaded { opacity: 1; }
   justify-content: center;
 }
 #tab-collection .filter-bar .filter-chip {
-  border-radius: 999px !important;
+  /* Squared off like the deck-list filter/layout controls, not pills. */
+  border-radius: 8px !important;
+}
+
+/* Search gets the full width on its own row; everything else — mana pills,
+   sort, layout, History, Share and the filters — shares the line below it. */
+.collection-search-row {
+  display: flex;
+  margin-bottom: 10px;
+}
+:is(#tab-collection, #tab-sets, #tab-trade) .collection-search-row .search-box {
+  width: 100%;
+  height: 34px !important;
+  box-sizing: border-box;
+  padding: 0 32px 0 12px !important;
+  font-size: 0.82rem !important;
+  border-radius: 8px !important;
+}
+:is(#tab-collection, #tab-sets, #tab-trade) .view-controls {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 10px;
+  margin-bottom: 10px;
+  row-gap: 8px;
+}
+
+/* The quick filters' multi-select, on every width. The menu itself is the
+   pin-to-deck menu: plain .glass-menu / .glass-menu-item, so it needs nothing
+   beyond the same fixed-position box that rule uses. */
+.qf-menu {
+  position: fixed;
+  z-index: 2000;
+  min-width: 190px;
+  overflow-y: auto;
 }
 #tab-collection #cmcMinInput,
 #tab-collection #cmcMaxInput {
@@ -4905,10 +5695,11 @@ img.stack-main.loaded { opacity: 1; }
 }
 /* (Sibling zone separators retired — each zone is its own glass box and the
    zones-wrap flex gap spaces them.) */
+/* Collapsing takes a zone's height, not its width: the box shrinks to its
+   header and the column stays put, so collapsing one does not reflow the rest. */
 .deck-stack-view > .deck-extra-zones-wrap > .deck-extra-zone-section.is-collapsed,
 .deck-stack-view.vertical-orient > .deck-extra-zones-wrap > .deck-extra-zone-section.is-collapsed {
   min-height: 0;
-  align-self: flex-start;
 }
 .deck-extra-zone-section.drag-over {
   background: rgba(74, 130, 212, 0.08);
@@ -4936,23 +5727,63 @@ img.stack-main.loaded { opacity: 1; }
   z-index: 1;
 }
 .deck-stack-cards.vertical .deck-stack-card:first-child { margin-top: 8px; }
-.deck-stack-cards.vertical .deck-stack-card:hover,
-.deck-stack-cards.vertical .deck-stack-card:focus-within,
+/* The lift is driven by .is-stack-peek alone. _bindDeckStackPeek adds that class
+ * on pointerover and pointerdown and clears it from every other card, so it
+ * already covers mouse and touch — while :hover cannot be cleared from script
+ * and sticks to the last-tapped card on iOS, leaving a second card lifted and
+ * scaled on top of the stack. The :hover/:focus-within copies are kept only for
+ * hover-capable input, where they are redundant with the class anyway. */
 .deck-stack-cards.vertical .deck-stack-card.is-stack-peek {
   z-index: 10;
   margin-right: 0;
   transform: translateX(6px) scale(1.05);
   transition-delay: 0s;
 }
+@media (hover: hover) {
+  .deck-stack-cards.vertical .deck-stack-card:hover,
+  .deck-stack-cards.vertical .deck-stack-card:focus-within {
+    z-index: 10;
+    margin-right: 0;
+    transform: translateX(6px) scale(1.05);
+    transition-delay: 0s;
+  }
+}
 /* Peek stack: lift hovered card only — don't shove cards below (causes flicker with overlap) */
-.deck-stack-cards.vertical .deck-stack-card:hover ~ .deck-stack-card,
-.deck-stack-cards.vertical .deck-stack-card:focus-within ~ .deck-stack-card,
 .deck-stack-cards.vertical .deck-stack-card.is-stack-peek ~ .deck-stack-card {
   transform: none;
+}
+@media (hover: hover) {
+  .deck-stack-cards.vertical .deck-stack-card:hover ~ .deck-stack-card,
+  .deck-stack-cards.vertical .deck-stack-card:focus-within ~ .deck-stack-card {
+    transform: none;
+  }
 }
 .deck-stack-cards.vertical::-webkit-scrollbar { display: none; }
 
 .stack-wrap { position: relative; width: 100%; }
+/* ── Card slots hold their shape before the art arrives ────────────────────
+   An <img> with width:100% and no height is 0px tall until it decodes, so a
+   deck list opened cold had zero-height slots that jumped to full size one at a
+   time as images streamed in — the whole grid reflowing under the cursor.
+   Reserving the ratio fixes the geometry; the placeholder below fixes the look,
+   because a reserved-but-transparent slot still had cards appearing out of
+   nothing. The art is opaque and paints straight over it. */
+.deck-stack-card .stack-main {
+  aspect-ratio: 63 / 88;
+  height: auto;
+}
+.deck-stack-card .stack-wrap {
+  border-radius: 10px;
+  background: var(--bg3);
+}
+body.glass-mode .deck-stack-card .stack-wrap {
+  background: rgba(255, 255, 255, 0.055);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+[data-theme="light"] body.glass-mode .deck-stack-card .stack-wrap {
+  background: rgba(20, 35, 60, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(20, 35, 60, 0.08);
+}
 .deck-stack-card .stack-main,
 .deck-stack-card .stack-main img {
   -webkit-user-drag: none;
@@ -5223,7 +6054,7 @@ img.stack-main.loaded { opacity: 1; }
 .stack-cut-flag,
 .stack-add-flag {
   position: absolute; top: 0; left: 0; right: auto; z-index: 10;
-  width: 34px; height: 34px;
+  width: 31px; height: 31px;
   padding: 0; border: none; pointer-events: none;
   font-size: 0; /* hides the CUT/ADD text — the wedge + glyph carry it */
   clip-path: polygon(0 0, 100% 0, 0 100%);
@@ -5238,6 +6069,19 @@ img.stack-main.loaded { opacity: 1; }
   width: 13px; height: 13px;
   color: #fff;
   filter: drop-shadow(0 1px 1.5px rgba(0,0,0,0.45));
+}
+/* The card's own colour, in the right corner where nothing else sits — the
+   role-tag badge starts 42px in and the mana symbols are below it. The left
+   corner belongs to the add/cut wedge. Pointer-transparent so it never eats a
+   drag. */
+.stack-color-flag {
+  position: absolute; top: 0; right: 0; left: auto; z-index: 9;
+  width: 31px; height: 31px;
+  padding: 0; border: none; pointer-events: none;
+  clip-path: polygon(100% 0, 100% 100%, 0 0);
+  border-top-right-radius: 9px;
+  background: linear-gradient(135deg, var(--cf, #5aa9f0), color-mix(in oklab, var(--cf, #5aa9f0) 68%, #000));
+  box-shadow: inset -1px 1px 0 rgba(255, 255, 255, 0.3);
 }
 .stack-cut-flag { background: linear-gradient(135deg, rgba(232, 108, 94, 0.96), rgba(190, 58, 46, 0.9)); }
 .stack-add-flag { background: linear-gradient(135deg, rgba(112, 224, 156, 0.96), rgba(46, 162, 98, 0.9)); }
@@ -5361,9 +6205,22 @@ body.glass-mode .deck-extra-zone-section {
   padding: 0;
   margin-top: 0;
   min-height: 0;
-  align-self: flex-start;
-  width: auto !important; /* inline width:100% otherwise keeps the box full-width */
   border-radius: 10px;
+}
+/* The header fills the collapsed box so the whole strip is the hit target. */
+.deck-extra-zone-section.is-collapsed .deck-extra-zone-header,
+.deck-extra-zone-section.is-collapsed .deck-sideboard-header { width: 100%; }
+/* Every zone collapsed: one square button in place of the column. The pane-wide
+   rule that hides .decklist-collapse-btn inside a deck tab is about the deck
+   list's own header button, not this one. */
+.deck-tab-pane .deck-zones-reopen-btn,
+.deck-zones-reopen-btn {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  flex: 0 0 auto;
+  margin-top: 2px;
 }
 .deck-extra-zone-section.is-collapsed:hover {
   border-color: rgba(var(--lgx1), 0.55);
@@ -5372,7 +6229,6 @@ body.glass-mode .deck-extra-zone-section {
 .deck-extra-zone-section.is-collapsed .deck-extra-zone-header,
 .deck-extra-zone-section.is-collapsed .deck-sideboard-header {
   margin-bottom: 0;
-  width: auto;
   padding: 7px 12px;
   font-size: 0.72rem;
   line-height: 1;
@@ -6202,10 +7058,32 @@ textarea.deck-import:focus { outline: none; border-color: var(--gold); }
 /* WISHLIST */
 .wishlist-search-results {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(158px, 1fr));
-  gap: 10px;
+  /* Bigger than the old 158px so the card's own text is legible without opening it. */
+  grid-template-columns: repeat(auto-fill, minmax(215px, 1fr));
+  gap: 12px;
+  margin-top: 14px;
   margin-bottom: 1rem;
 }
+/* Spacing under the folder tabs is the pane's job now, uniformly. */
+.wl-search-field { position: relative; flex: 1; min-width: 220px; }
+.wl-result { cursor: pointer; }
+.wl-result-art {
+  aspect-ratio: 0.715;
+  overflow: hidden;
+  border-radius: 5.6% / 4%;
+  transition: transform 0.15s var(--ease), box-shadow 0.15s var(--ease);
+}
+.wl-result-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.wl-result:hover .wl-result-art {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.42);
+}
+.wl-result-fallback {
+  width: 100%; height: 100%; background: var(--bg3);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.72rem; padding: 6px; text-align: center; color: var(--text2);
+}
+.wl-more { grid-column: 1 / -1; display: flex; justify-content: center; padding: 6px 0 2px; }
 .wishlist-panel-header {
   display: flex;
   align-items: center;
@@ -6323,11 +7201,14 @@ input[type=search], input[type=url], input[type=tel], input:not([type]), textare
 }
 textarea { resize: vertical; line-height: 1.5; }
 
+/* Focus is the app accent, not gold. This is the generic rule for every text
+   field, and being declared after .search-box:focus it also outranks it — so
+   recolouring the search bar alone never took. */
 input[type=text]:focus, input[type=number]:focus, input[type=email]:focus, input[type=password]:focus,
 input[type=search]:focus, input[type=url]:focus, input[type=tel]:focus, input:not([type]):focus,
 textarea:focus {
-  outline: none; border-color: rgba(200,168,74,0.6);
-  background: var(--bg4); box-shadow: 0 0 0 3px var(--gold-dim);
+  outline: none; border-color: rgba(var(--lgx1), 0.75);
+  background: var(--bg4); box-shadow: 0 0 0 3px rgba(var(--lgx1), 0.18);
 }
 
 /* Prevent browser autofill from painting a white/blue background */
@@ -6355,7 +7236,7 @@ select {
   padding: 7px 10px; font-family: 'Inter', system-ui, sans-serif; font-size: 0.82rem;
   cursor: pointer; transition: all 0.18s var(--ease);
 }
-select:focus { outline: none; border-color: rgba(200,168,74,0.6); box-shadow: 0 0 0 3px var(--gold-dim); }
+select:focus { outline: none; border-color: rgba(var(--lgx1), 0.75); box-shadow: 0 0 0 3px rgba(var(--lgx1), 0.18); }
 
 /* RESPONSIVE */
 @media(max-width: 900px) {
@@ -6517,6 +7398,10 @@ select:focus { outline: none; border-color: rgba(200,168,74,0.6); box-shadow: 0 
 .history-not-in-coll {
   display: inline-block; margin-top: 4px; font-size: 0.68rem; color: var(--text3); font-style: italic;
 }
+/* A row already reversed this session: still legible (the log shows both sides),
+   but visibly spent, and its undo control is inert. */
+.history-event--undone { opacity: 0.55; }
+.history-event--undone .history-undo-btn { pointer-events: none; opacity: 0.5; }
 .history-event-name {
   font-size: 0.85rem; font-weight: 600;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -6593,6 +7478,14 @@ body.glass-mode .deck-tab-pane .dlf-text:focus {
 }
 .dlf-row { display: flex; align-items: center; gap: 6px; }
 .dlf-row + .dlf-row { margin-top: 6px; }
+/* Holds the syntax-hint button inside the box, as the Add cards search does. */
+.dlf-search-wrap { position: relative; flex: 1; min-width: 0; }
+.dlf-search-wrap .dlf-text { padding-right: 28px; }
+.dlf-search-wrap .filter-syntax-hint {
+  position: absolute; right: 7px; top: 50%; transform: translateY(-50%);
+  color: var(--text3); cursor: default; user-select: none;
+  display: flex; align-items: center;
+}
 .dlf-text {
   flex: 1; min-width: 0;
   height: 34px;
@@ -6610,21 +7503,6 @@ body.glass-mode .deck-tab-pane .dlf-text:focus {
   font-size: 0.9rem; padding: 2px 5px; border-radius: 4px; flex-shrink: 0;
 }
 .dlf-clear:hover { color: var(--red); }
-.dlf-pills { flex-wrap: wrap; gap: 5px; }
-.dlf-color-pill {
-  background: var(--bg3); border: 2px solid transparent;
-  border-radius: 50%; width: 26px; height: 26px;
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer; padding: 0; transition: border-color 0.12s, opacity 0.12s;
-  opacity: 0.55;
-}
-.dlf-color-pill:hover { opacity: 0.85; }
-.dlf-color-pill.active {
-  border-color: rgba(var(--lgx1), 0.9);
-  box-shadow: 0 0 0 2px rgba(var(--lgx2), 0.35);
-  opacity: 1;
-}
-.dlf-color-pill img { width: 16px; height: 16px; pointer-events: none; }
 .dlf-hint { font-size: 0.75rem; color: var(--text3); margin-left: 4px; font-variant-numeric: tabular-nums; }
 .deck-list-panel-wrap {
   min-height: 120px;
@@ -6720,16 +7598,22 @@ body.glass-mode .deck-tab-pane .dlf-text:focus {
   min-height: 0;
   display: flex;
   flex-direction: column;
+  /* The camera is the screen: the stage is taken out of flow and pinned to every edge, so
+     the top and bottom bars float over live video instead of boxing it into a letterbox. */
+  position: relative;
   z-index: 1;
 }
 
 .scn-fs-top {
   flex-shrink: 0;
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end; /* no title any more — the controls sit at the right */
   padding: calc(10px + env(safe-area-inset-top, 0px)) 14px 10px;
-  background: linear-gradient(to bottom, rgba(0,0,0,0.75), transparent);
+  /* No scrim — the camera runs edge to edge. The controls carry their own glass
+     chrome and the title gets a shadow, so nothing needs a black bar behind it. */
+  background: none;
   z-index: 4;
 }
 
@@ -6739,12 +7623,21 @@ body.glass-mode .deck-tab-pane .dlf-text:focus {
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--gold);
+  text-shadow: 0 1px 6px rgba(0,0,0,0.75);
 }
 
 .scn-fs-top-actions {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+/* Square like every other control (§3), not the free-standing top-bar pill: these sit over
+   live video, where a pill reads as a floating blob rather than a button. Needs the
+   glass-mode prefix to outrank `body.glass-mode .btn`, which pills free-standing buttons. */
+.scn-fs-top-actions .btn,
+body.glass-mode .scn-fs-top-actions .btn {
+  border-radius: 8px;
 }
 
 .scn-session-badge {
@@ -6760,23 +7653,35 @@ body.glass-mode .deck-tab-pane .dlf-text:focus {
   vertical-align: middle;
 }
 
+/* The camera frame is shown whole (object-fit: contain), so unless the sensor's aspect
+   happens to match the stage there is leftover space beside or above it. Painted black that
+   reads as broken video; painted the app's own ground it reads as the frame sitting on the
+   page, which is what it is. Cropping to fill instead would put the card's printed footer
+   back outside the capture, and the footer is what pins an exact printing. */
 .scn-fs-stage {
-  flex: 1;
-  min-height: 0;
-  position: relative;
-  background: #000;
+  position: absolute;
+  /* Stops above the bottom bar, not behind it. The bar is opaque, so frame hidden under it is
+     frame the user can't aim with — and with a contained fit that pushed the guide box off the
+     bottom of the screen. --scn-bar-h is published by the scanner's ResizeObserver; the top bar
+     still floats over the frame because it's transparent. */
+  inset: 0 0 var(--scn-bar-h, 0px) 0;
+  z-index: 0;
+  background: var(--bg);
 }
 
 .scn-camera-wrap {
   position: absolute;
   inset: 0;
-  background: #000;
+  background: var(--bg);
   overflow: hidden;
 }
 
 .scn-video {
   width: 100%;
   height: 100%;
+  /* `cover` — the camera runs edge to edge with no letterbox. This is only safe because the
+     reticle is fitted to the VISIBLE region rather than the whole sensor (_scnGuideQuad), so
+     the crop moves the box instead of hiding it. */
   object-fit: cover;
   display: none;
 }
@@ -6796,9 +7701,12 @@ body.glass-mode .deck-tab-pane .dlf-text:focus {
 }
 
 .scn-card-poly {
-  fill: rgba(61, 184, 160, 0.06);
-  stroke: var(--teal);
-  stroke-width: 2.75;
+  /* A target area, not a highlight: no fill, and a faint dashed rule that shows where to put
+     the card without competing with it. */
+  fill: none;
+  stroke: rgba(255,255,255,0.55);
+  stroke-width: 1.5;
+  stroke-dasharray: 10 8;
   vector-effect: non-scaling-stroke;
   stroke-linejoin: round;
   animation: scn-card-outline 1.4s ease-in-out infinite;
@@ -6974,11 +7882,17 @@ body.glass-mode .deck-tab-pane .dlf-text:focus {
 
 .scn-hint-row {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  /* One scrolling line rather than two wrapped ones — every row of controls is a row of the
+     guide box hidden behind them. */
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+  gap: 6px;
   align-items: center;
-  margin-top: 8px;
+  margin-top: 0;
 }
+.scn-hint-row::-webkit-scrollbar { display: none; }
+.scn-hint-row > .btn { flex: 0 0 auto; }
 
 .scn-region-label {
   font-size: 11px;
@@ -7054,23 +7968,66 @@ body.glass-mode .deck-tab-pane .dlf-text:focus {
 
 .scn-match-overlay {
   position: absolute;
-  left: 12px;
-  right: 12px;
-  bottom: max(18%, 120px);
+  /* Centred on the card, not parked above the controls. The guide box is centred in the frame
+     and the frame is centred in the stage, so the stage's centre IS the card's centre — the
+     verdict lands on the thing it's a verdict about, where the eye already is. */
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  /* Hugs its text (shrink-to-fit, as an absolutely-positioned box does with width:auto)
+     rather than reserving a fixed slab over the card art. */
+  width: auto;
+  max-width: min(84%, 320px);
   z-index: 3;
   pointer-events: none;
   text-align: center;
-  padding: 14px 16px;
-  border-radius: var(--radius2);
-  background: rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(8px);
-  border: 1px solid rgba(255,255,255,0.12);
-  transition: border-color 0.25s, box-shadow 0.25s;
+  padding: 10px 16px;
+  border-radius: var(--radius3);
+  /* Tier E (§2): text over camera art, so it stays a dark scrim in BOTH themes — a light
+     panel here would be unreadable over a bright tray. Borderless: sitting on top of the card
+     it's reading, an outline would fence off the art. The specular sheen and the drop shadow
+     carry the edge instead, and the thinner fill lets more of the card through. */
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0.02) 55%, rgba(255,255,255,0.05)),
+    rgba(12,17,32,0.62);
+  -webkit-backdrop-filter: blur(30px) saturate(200%);
+  backdrop-filter: blur(30px) saturate(200%);
+  border: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.22),
+    inset 0 -1px 0 rgba(255,255,255,0.07),
+    0 16px 48px rgba(0,0,0,0.50);
+  transition: background 0.28s var(--ease), box-shadow 0.28s var(--ease);
 }
 
+/* Declined as a repeat: gold, so "I skipped this" cannot be mistaken for "I added this" from
+   arm's length. Same material, different verdict. */
+.scn-match-overlay.scn-match-overlay--warn {
+  background:
+    linear-gradient(135deg, rgba(230,200,104,0.30), rgba(230,200,104,0.12) 60%, rgba(230,200,104,0.20)),
+    rgba(30,24,8,0.62);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.26),
+    inset 0 -1px 0 rgba(230,200,104,0.28),
+    0 0 36px rgba(230,200,104,0.26),
+    0 16px 48px rgba(0,0,0,0.50);
+}
+.scn-match-overlay.scn-match-overlay--warn .scn-match-sub { color: var(--gold2); }
+
+/* Added to the collection: the whole panel goes green, so a successful add is readable at a
+   glance from arm's length without reading a word of it. */
 .scn-match-overlay.scn-match-overlay--accent {
-  border-color: rgba(90, 184, 90, 0.55);
-  box-shadow: 0 0 28px rgba(90, 184, 90, 0.2);
+  background:
+    linear-gradient(135deg, rgba(var(--lgx-green), 0.34), rgba(var(--lgx-green), 0.14) 60%, rgba(var(--lgx-green), 0.22)),
+    rgba(8,26,18,0.60);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.26),
+    inset 0 -1px 0 rgba(var(--lgx-green), 0.30),
+    0 0 40px rgba(var(--lgx-green), 0.32),
+    0 16px 48px rgba(0,0,0,0.50);
+}
+.scn-match-overlay.scn-match-overlay--accent .scn-match-sub {
+  color: color-mix(in oklab, rgb(var(--lgx-green)) 72%, #ffffff);
 }
 
 .scn-match-primary {
@@ -7083,7 +8040,7 @@ body.glass-mode .deck-tab-pane .dlf-text:focus {
 }
 
 .scn-match-sub {
-  margin-top: 6px;
+  margin-top: 3px;
   font-size: 0.8rem;
   font-weight: 600;
   letter-spacing: 0.06em;
@@ -7092,21 +8049,34 @@ body.glass-mode .deck-tab-pane .dlf-text:focus {
   text-shadow: 0 1px 8px rgba(0,0,0,0.9);
 }
 
-/* The overlay ignores pointer events; the "+1" playset button opts back in. */
+/* The overlay ignores pointer events; the "+ Add this" button opts back in. */
 .scn-match-plus1 {
   pointer-events: auto;
-  margin-top: 10px;
+  margin-top: 8px;
   min-width: 72px;
 }
 
 .scn-fs-bottom {
   flex-shrink: 0;
-  padding: 10px 14px calc(12px + env(safe-area-inset-bottom, 0px));
-  background: linear-gradient(to top, rgba(0,0,0,0.88), rgba(0,0,0,0.5));
+  position: relative;
+  margin-top: auto; /* pinned to the bottom now that the stage is out of flow */
+  padding: 8px 12px calc(9px + env(safe-area-inset-bottom, 0px));
+  /* Reads as part of the app rather than a black bar taped over the camera: the same
+     floating-overlay material as dropdowns and toasts, in both themes. */
+  background: rgba(17,23,42,0.92);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+  border-top: 1px solid rgba(255,255,255,0.14);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.10), 0 -14px 44px rgba(0,0,0,0.45);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   z-index: 4;
+}
+[data-theme="light"] .scn-fs-bottom {
+  background: rgba(252,253,255,0.93);
+  border-top: 1px solid rgba(255,255,255,0.8);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 -14px 44px rgba(30,50,90,0.18);
 }
 
 .scn-controls {
@@ -7118,21 +8088,21 @@ body.glass-mode .deck-tab-pane .dlf-text:focus {
   display: flex;
   align-items: center;
   gap: 6px;
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.1);
+  background: var(--bg3);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 6px 10px;
+  padding: 2px 8px;
 }
 
 .scn-manual-details {
   border-radius: var(--radius);
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.08);
+  background: var(--bg3);
+  border: 1px solid var(--border);
 }
 
 .scn-manual-summary {
   cursor: pointer;
-  padding: 8px 12px;
+  padding: 5px 10px;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.05em;
@@ -7212,6 +8182,22 @@ body.glass-mode .deck-tab-pane .dlf-text:focus {
 
 .scn-scanned-panel.open {
   transform: translateY(0);
+}
+
+/* Glass remaps --bg2 to rgba(255,255,255,0.045), which left this sheet almost see-through
+   over live video. It is a floating overlay, so it takes the tier-D recipe like dropdowns
+   and toasts: near-opaque, blurred, with a specular top edge. */
+body.glass-mode .scn-scanned-panel {
+  background: rgba(17,23,42,0.97);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  backdrop-filter: blur(28px) saturate(180%);
+  border-top: 1px solid rgba(255,255,255,0.17);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 -18px 60px rgba(0,0,0,0.55);
+}
+[data-theme="light"] body.glass-mode .scn-scanned-panel {
+  background: rgba(252,253,255,0.97);
+  border-top: 1px solid rgba(255,255,255,0.75);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 -18px 60px rgba(30,50,90,0.22);
 }
 
 .scn-scanned-panel-head {
@@ -7413,9 +8399,222 @@ body.glass-mode .deck-tab-pane .dlf-text:focus {
 
 /* ── Goldfish Playtest ──────────────────────────────────────────────────── */
 
+/* ══ Goldfish in liquid glass ══════════════════════════════════════════════
+   The playtest overlay predates the glass skin and was still drawing flat navy
+   panels against hard borders. Everything below gives it the app's material:
+   the mat is one continuous surface, the chrome floats on it, and the only hard
+   edges left are the cards themselves.
+
+   These are glass-mode only — the classic skin keeps the panels it was drawn
+   for. They lean on explicit rgba rather than --bgN because in glass mode those
+   resolve to near-transparent whites, which is what left the token panel you
+   could read the battlefield through. */
+
+/* The mat: one deep field with the app's two accents pooling in it, instead of
+   flat --bg with a gold wash over the battlefield. */
+body.glass-mode #goldfishOverlay,
+body.glass-mode #goldfishEngineOverlay {
+  /* Literally the page wallpaper (body.glass-mode::before) — the overlay covers
+     the app, so anything of its own reads as a different, darker room. */
+  background:
+    radial-gradient(42% 38% at 16% 10%, rgba(90,162,255,0.30), transparent 70%),
+    radial-gradient(46% 42% at 84% 16%, rgba(168,140,255,0.24), transparent 70%),
+    radial-gradient(52% 48% at 76% 88%, rgba(79,216,189,0.18), transparent 70%),
+    radial-gradient(38% 34% at 10% 80%, rgba(255,170,110,0.14), transparent 70%),
+    linear-gradient(180deg, #0b1122 0%, #0d1428 55%, #0a0f1f 100%);
+  font-family: var(--glass-font);
+}
+body.glass-mode .gf-battlefield,
+body.glass-mode .gfe-opp-battlefield {
+  background: transparent;
+}
+
+/* Header — a floating bar, not a titlebar with a rule under it. */
+/* No bar — just the controls, standing on the mat like the rest of the app's
+   page headers do. */
+body.glass-mode .gf-header {
+  background: transparent;
+  border-bottom: none;
+  box-shadow: none;
+  padding: 10px 14px;
+}
+body.glass-mode .gf-divider-v { background: rgba(255,255,255,0.14); }
+
+/* Buttons take the app's control idiom: 8px radius, frosted face, lgx on hover. */
+body.glass-mode .gf-btn,
+body.glass-mode .gf-close-btn,
+body.glass-mode .gf-life-adj {
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.16);
+  border-radius: 8px;
+  color: var(--text);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.10);
+  transition: background 0.14s var(--ease), border-color 0.14s var(--ease);
+}
+/* The app's tab-level control, exactly: 34px tall, 8px radius, 0.82rem of the
+   glass face. The playtest scale (--gf-fs) is for the cards, not the chrome. */
+body.glass-mode .gf-btn {
+  height: 34px;
+  padding: 0 12px;
+  font-family: var(--glass-font);
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+body.glass-mode :is(.gf-size-label, .gf-life-label, .gf-turn-hud, .gf-deck-name,
+                    .gf-zone-label, .gf-zone-count, .gf-hotkeys, .gf-flash,
+                    .gf-token-panel, .gf-context-menu, .gf-zone-viewer-inner) {
+  font-family: var(--glass-font);
+}
+body.glass-mode .gf-life-num { font-family: var(--glass-font); font-weight: 700; }
+body.glass-mode .gf-close-btn { width: 34px; height: 34px; }
+body.glass-mode .gf-life-adj { width: 30px; height: 30px; }
+body.glass-mode .gf-btn:hover:not(:disabled),
+body.glass-mode .gf-close-btn:hover,
+body.glass-mode .gf-life-adj:hover {
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.22), rgba(var(--lgx2), 0.22));
+  border-color: rgba(var(--lgx1), 0.45);
+}
+body.glass-mode .gf-close-btn:hover {
+  background: rgba(232,70,58,0.85);
+  border-color: rgba(232,70,58,0.9);
+  color: #fff;
+}
+body.glass-mode .gf-btn-active {
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.30), rgba(var(--lgx2), 0.30));
+  border-color: rgba(var(--lgx1), 0.55);
+  color: var(--text);
+}
+body.glass-mode .gf-size-control input[type="range"] { accent-color: rgb(var(--lgx1)); }
+body.glass-mode .gf-flash { color: rgb(var(--lgx1)); font-style: normal; font-weight: 600; }
+
+/* The zones wear no plate, so the only glass note left is the drop ring and a
+   lift on the art under the pointer. */
+body.glass-mode .gf-zone-slot.gf-zone-drop-target {
+  box-shadow: 0 0 0 2px rgba(var(--lgx1), 0.85) inset;
+}
+.gf-zone-slot:hover .gf-zone-card-img,
+.gf-zone-slot:hover .gf-lib-visual { filter: brightness(1.12); }
+body.glass-mode .gf-bf-drop-active {
+  outline: 2px dashed rgba(var(--lgx1), 0.7);
+}
+body.glass-mode .gf-zone-empty-placeholder {
+  border-color: rgba(255,255,255,0.20);
+}
+
+/* The token panel is a menu, so it takes the menu material — it was reading as
+   a hole in the page because --bg2 is 4.5% white under glass. */
+body.glass-mode .gf-token-panel {
+  background: rgba(18,24,44,0.94);
+  -webkit-backdrop-filter: blur(24px) saturate(1.15);
+  backdrop-filter: blur(24px) saturate(1.15);
+  border-left: 1px solid rgba(var(--lgx1), 0.28);
+  box-shadow: -14px 0 40px rgba(0,0,0,0.55), inset 1px 0 0 rgba(255,255,255,0.08);
+}
+body.glass-mode .gf-token-tile {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 10px;
+}
+body.glass-mode .gf-token-tile:hover {
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.20), rgba(var(--lgx2), 0.20));
+  border-color: rgba(var(--lgx1), 0.45);
+}
+
+/* The card menu and the zone browser are menus and a modal — same materials the
+   rest of the app gives those. */
+body.glass-mode .gf-context-menu {
+  background: rgba(18,24,44,0.94);
+  -webkit-backdrop-filter: blur(20px) saturate(1.15);
+  backdrop-filter: blur(20px) saturate(1.15);
+  border: 1px solid rgba(var(--lgx1), 0.28);
+  border-radius: 14px;
+  padding: 5px;
+  box-shadow: 0 14px 34px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.10);
+}
+body.glass-mode .gf-ctx-item { border-radius: 9px; }
+body.glass-mode .gf-ctx-item:hover {
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.20), rgba(var(--lgx2), 0.20));
+}
+body.glass-mode .gf-ctx-sep { background: rgba(255,255,255,0.12); }
+body.glass-mode .gf-ctx-count-input {
+  background: rgba(255,255,255,0.07);
+  border-color: rgba(255,255,255,0.16);
+  border-radius: 7px;
+}
+body.glass-mode .gf-zone-viewer { background: rgba(6,9,18,0.72); }
+body.glass-mode .gf-zone-viewer-inner {
+  background: rgba(18,24,44,0.94);
+  -webkit-backdrop-filter: blur(26px) saturate(1.15);
+  backdrop-filter: blur(26px) saturate(1.15);
+  border: 1px solid rgba(255,255,255,0.16);
+  border-radius: 16px;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.10);
+}
+
+/* Hotkey legend: a quiet overlay on the mat rather than a block of body text. */
+body.glass-mode .gf-hotkeys {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 12px;
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+
+/* ── Light theme ──────────────────────────────────────────────────────────
+   Light glass keeps the app's dark ink, so the mat has to come up to meet it —
+   left dark, every label, the life total and the deck name went invisible. Same
+   palette the rest of light glass uses: white frost over a pale ground. */
+[data-theme="light"] body.glass-mode #goldfishOverlay,
+[data-theme="light"] body.glass-mode #goldfishEngineOverlay {
+  background:
+    radial-gradient(42% 38% at 16% 10%, rgba(120,170,255,0.5), transparent 70%),
+    radial-gradient(46% 42% at 84% 16%, rgba(190,160,255,0.42), transparent 70%),
+    radial-gradient(52% 48% at 76% 88%, rgba(120,225,200,0.38), transparent 70%),
+    radial-gradient(38% 34% at 10% 80%, rgba(255,200,150,0.35), transparent 70%),
+    linear-gradient(180deg, #eef2fa 0%, #e8edf8 55%, #eaeef6 100%);
+}
+[data-theme="light"] body.glass-mode .gf-divider-v { background: rgba(90,110,200,0.22); }
+[data-theme="light"] body.glass-mode .gf-btn,
+[data-theme="light"] body.glass-mode .gf-close-btn,
+[data-theme="light"] body.glass-mode .gf-life-adj {
+  background: rgba(255,255,255,0.66);
+  border-color: rgba(255,255,255,0.92);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.95), 0 1px 2px rgba(40,60,120,0.10);
+}
+[data-theme="light"] body.glass-mode .gf-zone-empty-placeholder {
+  border-color: rgba(90,110,200,0.32);
+}
+[data-theme="light"] body.glass-mode .gf-token-panel,
+[data-theme="light"] body.glass-mode .gf-context-menu,
+[data-theme="light"] body.glass-mode .gf-zone-viewer-inner {
+  background: rgba(252,253,255,0.96);
+  border-color: rgba(90,110,200,0.30);
+  box-shadow: 0 14px 34px rgba(40,60,120,0.20), inset 0 1px 0 rgba(255,255,255,0.9);
+}
+[data-theme="light"] body.glass-mode .gf-zone-viewer { background: rgba(226,232,245,0.78); }
+[data-theme="light"] body.glass-mode .gf-token-tile {
+  background: rgba(255,255,255,0.70);
+  border-color: rgba(255,255,255,0.92);
+}
+[data-theme="light"] body.glass-mode .gf-hotkeys {
+  background: rgba(255,255,255,0.60);
+  border-color: rgba(255,255,255,0.9);
+}
+[data-theme="light"] body.glass-mode .gf-ctx-count-input {
+  background: rgba(255,255,255,0.75);
+  border-color: rgba(255,255,255,0.92);
+}
+
 #goldfishOverlay,
 #goldfishEngineOverlay {
   --gf-fs: 1.2544; /* +12% on top of prior 1.12 playtest scale */
+  /* Reserved on the right of the middle row for the zone block, which is
+     positioned against the mat rather than laid out in that row. */
+  --gf-zones-w: clamp(160px, 28vw, 360px);
   background: var(--bg);
   position: relative;
 }
@@ -7508,7 +8707,7 @@ body.glass-mode .deck-tab-pane .dlf-text:focus {
 .gf-close-btn:hover { background: var(--red); color: #fff; border-color: var(--red); }
 
 /* Layout */
-.gf-mat { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; }
+.gf-mat { flex: 1; display: flex; flex-direction: column; overflow: clip; position: relative; }
 .gf-mid-row {
   flex: 1;
   display: flex;
@@ -7516,6 +8715,9 @@ body.glass-mode .deck-tab-pane .dlf-text:focus {
   overflow: hidden;
   position: relative;
   z-index: 2;
+  /* The zone block no longer occupies this row; keep its width clear anyway so
+     battlefield cards are never dealt underneath it. */
+  padding-right: var(--gf-zones-w);
 }
 
 /* Faded HUD on play mat (hotkeys + simulation) — above mat, clicks pass through */
@@ -7910,51 +9112,63 @@ body.glass-mode .deck-tab-pane .dlf-text:focus {
 
 /* Zone quadrant panel — right side, 2×2 grid (scales with viewport) */
 .gf-zones-panel {
-  container-type: size;
+  /* inline-size, not size: the block's height comes from its cards now, and a
+     size container needs a definite one in both axes or it resolves to zero. */
+  container-type: inline-size;
   container-name: gf-zones;
-  position: relative;
-  z-index: 2;
-  width: clamp(148px, 26vw, 320px);
-  height: 100%;
+  z-index: 4;
+  /* Against the mat's bottom-right corner, so the block reaches the foot of the
+     screen beside the hand instead of stopping where the battlefield ends. The
+     middle row reserves the width with padding. */
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: var(--gf-zones-w);
   max-height: 100%;
-  flex-shrink: 1;
   min-width: 0;
   min-height: 0;
-  align-self: stretch;
   overflow: visible;
+  /* Packed into the bottom-right corner and working up, rather than four cells
+     stretched over the full height — the zones belong together, near the hand,
+     not spread the length of the mat. auto tracks so they size to their cards
+     and the block can be pushed to the corner. */
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr 1fr;
-  gap: 5px;
-  padding: 8px;
-  background: var(--bg2);
-  border-left: 1px solid var(--border);
+  grid-template-columns: auto auto;
+  grid-template-rows: auto auto;
+  align-content: end;
+  justify-content: end;
+  gap: 30px;
+  padding: 8px 8px 16px;
+  background: transparent;
   --gf-thumb-w: min(
-    120px,
-    calc((100cqw - 32px) / 2 - 12px),
-    calc((100cqh - 52px) / 2 * 0.716 - 4px)
+    150px,
+    calc((100cqw - 46px) / 2),
+    calc((100vh - 210px) / 2 * 0.716)
   );
 }
+/* No plate under them: a zone is its title, its card and its count, lying
+   directly on the mat. The slot is still the hit area and drop target — only
+   the box it used to draw is gone. */
 .gf-zone-slot {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 3px;
+  justify-content: flex-start;
+  gap: 4px;
   min-width: 0;
   min-height: 0;
   cursor: pointer;
-  background: var(--bg3);
-  border: 1px solid var(--border);
+  background: transparent;
+  border: none;
   border-radius: var(--radius);
-  padding: 6px 5px;
+  padding: 4px 2px;
   overflow: hidden;
-  transition: background 0.1s, border-color 0.1s;
 }
-.gf-zone-slot:hover { background: var(--bg4); border-color: var(--border2); }
-.gf-zone-slot.gf-zone-drop-target { background: var(--bg4); border-color: var(--teal); border-width: 2px; box-shadow: 0 0 0 2px rgba(0,200,170,0.25) inset; }
-.gf-lib-slot { border-color: var(--gold-glow); }
-.gf-lib-slot:hover { border-color: var(--gold); }
+/* Drop feedback has to read without a plate to fill, so it is a ring on the mat. */
+.gf-zone-slot.gf-zone-drop-target {
+  box-shadow: 0 0 0 2px var(--teal) inset;
+  border-radius: 10px;
+}
 
 .gf-zone-label {
   font-size: clamp(calc(0.48rem * var(--gf-fs)), 2.8cqw, calc(0.58rem * var(--gf-fs)));
@@ -7969,7 +9183,10 @@ body.glass-mode .deck-tab-pane .dlf-text:focus {
 .gf-zone-preview,
 .gf-zone-top,
 .gf-cmd-cards {
-  flex: 1 1 auto;
+  /* Packed, not stretched: with no plate to fill, a growing preview pushed the
+     count to the bottom of the cell where it read as a stray number on the mat
+     rather than that zone's own count. */
+  flex: 0 1 auto;
   min-height: 0;
   min-width: 0;
   width: 100%;
@@ -7996,6 +9213,7 @@ body.glass-mode .deck-tab-pane .dlf-text:focus {
 .gf-zone-empty-placeholder {
   width: var(--gf-thumb-w);
   max-width: 100%;
+  height: auto;
   aspect-ratio: 5 / 7;
   border-radius: 5px;
   border: 1px dashed var(--border2);
@@ -8011,14 +9229,17 @@ body.glass-mode .deck-tab-pane .dlf-text:focus {
   position: relative;
   width: var(--gf-thumb-w);
   max-width: 100%;
-  aspect-ratio: 5 / 7;
   height: auto;
-  flex-shrink: 1;
+  aspect-ratio: 5 / 7;
+  flex: 0 0 auto;
   transition: opacity 0.25s;
 }
 .gf-lib-card {
   position: absolute; inset: 0; border-radius: 5px;
-  background-image: url('mtg-card-back.jpg');
+  /* Absolute: the stylesheet is served from /styles in dev but from /dist in
+     production (see _styleHref in server.js), where a relative path 404s — which
+     is why the library drew as three empty rectangles. */
+  background-image: url('/styles/mtg-card-back.jpg');
   background-size: cover; background-position: center;
 }
 .gf-lib-c1 { transform: translate(0,0); z-index: 3; }
@@ -8026,24 +9247,27 @@ body.glass-mode .deck-tab-pane .dlf-text:focus {
 .gf-lib-c3 { transform: translate(-6px,-6px); z-index: 1; opacity: 0.7; }
 
 /* Hand */
+/* The hand is the cards and nothing else — no band, no rule, no label. It sits
+   on the mat, which runs unbroken from the battlefield down to the edge. */
 .gf-hand-wrap {
   flex-shrink: 0;
   position: relative;
   z-index: 3;
-  background: var(--bg2);
-  border-top: 1px solid var(--border);
-  padding: var(--gf-hand-pad-top, 6px) 12px var(--gf-hand-pad-bottom, 16px);
+  background: transparent;
+  /* The zone block owns the bottom-right corner now, so the hand centres in what
+     is left of the width rather than sliding under it. */
+  padding: var(--gf-hand-pad-top, 6px) calc(var(--gf-zones-w) + 12px)
+           var(--gf-hand-pad-bottom, 0px) 12px;
   display: flex;
   flex-direction: column;
   align-items: center;
 }
-.gf-hand-label {
-  font-size: calc(0.6rem * var(--gf-fs)); letter-spacing: 0.1em; color: var(--text3);
-  font-weight: 600; text-transform: uppercase; margin-bottom: 2px; align-self: flex-start;
-}
+.gf-hand-label { display: none; }
+/* Cards hang below the container and are clipped by .gf-mat, so only their tops
+   read until one is lifted. */
 .gf-hand {
-  position: relative; display: flex; align-items: flex-end; justify-content: center;
-  height: var(--gf-hand-h, 240px); width: 100%; overflow: visible;
+  position: relative; display: flex; align-items: flex-start; justify-content: center;
+  height: var(--gf-hand-h, 150px); width: 100%; overflow: visible;
 }
 .gf-hand-card {
   position: relative; flex-shrink: 0; margin-left: -34px;
@@ -8055,6 +9279,15 @@ body.glass-mode .deck-tab-pane .dlf-text:focus {
   filter: drop-shadow(0 4px 12px rgba(0,0,0,0.5));
 }
 .gf-hand-card:first-child { margin-left: 0; }
+/* Lifted clear: straightened, raised past the clip, and above its neighbours, so
+   the whole face is readable without leaving the hand. :hover for a pointer,
+   .gf-hand-revealed for a tap (_gfToggleHandReveal). */
+.gf-hand-card:hover,
+.gf-hand-card.gf-hand-revealed {
+  z-index: 8000;
+  transform: rotate(0deg) translateY(-44%) scale(1.04);
+  filter: drop-shadow(0 12px 26px rgba(0,0,0,0.62));
+}
 .gf-hand-card.gf-card-zoomed {
   z-index: 9000 !important;
   transform: rotate(var(--angle, 0deg)) scale(var(--gf-zoom-scale, 1));
@@ -8575,6 +9808,10 @@ body.glass-mode .deck-tab-pane .dlf-text:focus {
   position: relative; cursor: grab; user-select: none; touch-action: none;
   transition: filter 0.1s; z-index: 1;
   filter: drop-shadow(0 3px 10px rgba(0,0,0,0.5));
+  /* The battlefield is a column, so without this the box stretches to the full
+     width and rotate(90deg) swings that whole slab about its centre — a tapped
+     card left the screen. The box has to be the card. */
+  align-self: flex-start;
 }
 .gf-bf-card.gf-card-zoomed {
   z-index: 9000 !important;
@@ -8687,7 +9924,11 @@ body.glass-mode .deck-tab-pane .dlf-text:focus {
   cursor: grab;
   touch-action: none;
   user-select: none;
-  flex: 1 1 0;
+  /* Content basis, not 0: the wrapper sizes to its cards now rather than being
+     handed a height by the flex line, and a zero basis contributes nothing to
+     that — the whole command zone measured 0 tall and its card drew over the
+     label above it. */
+  flex: 0 1 auto;
   min-height: 0;
   display: flex;
   align-items: center;
@@ -8707,9 +9948,12 @@ body.glass-mode .deck-tab-pane .dlf-text:focus {
 .gf-cmd-cards { flex-direction: column; gap: 3px; overflow: visible; }
 .gf-cmd-card .gf-zone-card-img,
 .gf-cmd-card img {
-  width: auto;
-  max-width: var(--gf-thumb-w);
-  max-height: 100%;
+  /* Width-driven, like every other zone thumb. max-height:100% measured against
+     a parent that now sizes to its content, which is a loop: the cap resolved
+     to 0 and aspect-ratio took the width down with it. --gf-thumb-w already
+     carries the height bound in its cqh term. */
+  width: var(--gf-thumb-w);
+  max-width: 100%;
   height: auto;
   object-fit: contain;
 }
@@ -9490,22 +10734,7 @@ body.glass-mode .deck-themes-caret {
   display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
   margin-bottom: 18px;
 }
-.trade-title {
-  font-family: 'Cinzel', serif; font-weight: 600; font-size: 1.5rem;
-  color: var(--gold); margin: 0; letter-spacing: 0.02em;
-}
-.trade-subnav { display: flex; gap: 4px; flex-wrap: wrap; }
-.trade-subnav-btn {
-  background: transparent; border: 1px solid transparent; color: var(--text2);
-  font-family: 'Inter', sans-serif; font-size: 0.82rem; font-weight: 500;
-  padding: 6px 14px; border-radius: var(--radius); cursor: pointer;
-  transition: background .15s, color .15s, border-color .15s;
-}
-.trade-subnav-btn:hover { background: var(--bg3); color: var(--text); }
-.trade-subnav-btn.active {
-  background: var(--bg3); color: var(--gold); border-color: var(--border2);
-}
-.trade-section-body { min-height: 200px; }
+/* .trade-title and .trade-section-body { min-height: 200px; }
 .trade-empty {
   text-align: center; color: var(--text3); padding: 60px 20px;
   font-style: italic; font-family: 'Crimson Pro', serif; font-size: 1.05rem;
@@ -9532,7 +10761,7 @@ body.glass-mode .deck-themes-caret {
   border-bottom: 1px solid var(--border);
 }
 .notif-panel-title {
-  font-family: 'Cinzel', serif; font-weight: 600; color: var(--gold);
+  font-family: 'Cinzel', serif; font-weight: 600; color: var(--text);
   font-size: 0.95rem;
 }
 .notif-panel-body { padding: 4px; }
@@ -9543,7 +10772,7 @@ body.glass-mode .deck-themes-caret {
   border-left: 2px solid transparent; transition: background .12s;
 }
 .notif-item:hover { background: var(--bg3); }
-.notif-item.unread { border-left-color: var(--gold); background: rgba(212,175,110,0.06); }
+.notif-item.unread { border-left-color: var(--text); background: rgba(var(--lgx1), 0.10); }
 .notif-item-title { color: var(--text); font-size: 0.85rem; font-weight: 600; }
 .notif-item-body { color: var(--text2); font-size: 0.8rem; margin-top: 2px; line-height: 1.35; }
 .notif-item-time { color: var(--text3); font-size: 0.68rem; margin-top: 4px; }
@@ -9570,8 +10799,8 @@ body.glass-mode .deck-themes-caret {
 .calc-delta-mid { font-weight: 600; font-size: 0.9rem; text-align: center; flex: 1 1 auto; }
 .calc-delta.tier-green  { border-color: rgba(94,186,125,0.5); background: rgba(94,186,125,0.08); }
 .calc-delta.tier-green .calc-delta-mid  { color: var(--green); }
-.calc-delta.tier-yellow { border-color: rgba(212,175,110,0.5); background: rgba(212,175,110,0.08); }
-.calc-delta.tier-yellow .calc-delta-mid { color: var(--gold); }
+.calc-delta.tier-yellow { border-color: rgba(var(--lgx1), 0.5); background: rgba(var(--lgx1), 0.08); }
+.calc-delta.tier-yellow .calc-delta-mid { color: var(--text); }
 .calc-delta.tier-red    { border-color: rgba(206,99,99,0.55); background: rgba(206,99,99,0.08); }
 .calc-delta.tier-red .calc-delta-mid    { color: var(--red); }
 
@@ -9581,8 +10810,8 @@ body.glass-mode .deck-themes-caret {
   background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius2);
   padding: 12px; display: flex; flex-direction: column; gap: 10px;
 }
-.calc-side-a { border-top: 2px solid var(--red); }
-.calc-side-b { border-top: 2px solid var(--green); }
+/* No red/green rail on the columns — "You Give" and "You Receive" say it, and
+   the colour read as a judgement on the trade rather than a label. */
 
 /* ── always-visible suggestion pick-lists (one under each column) ─────────── */
 .calc-suggest:not(:empty) { margin-top: 4px; border-top: 1px dashed var(--border2); padding-top: 10px; }
@@ -9605,9 +10834,31 @@ body.glass-mode .deck-themes-caret {
 }
 .calc-sugg-item {
   display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; cursor: pointer;
-  background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 5px 8px;
+  background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 5px 8px;
 }
-.calc-sugg-item:hover { border-color: var(--teal); background: var(--bg3); }
+.calc-sugg-item:hover { border-color: rgba(var(--lgx1), 0.45); background: var(--bg3); }
+/* These sit on a glass panel, so they take glass rather than the flat near-black
+   page colour, which read as a hole punched in the panel. */
+body.glass-mode .calc-sugg-item {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.16);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+body.glass-mode .calc-sugg-item:hover {
+  border-color: rgba(var(--lgx1), 0.5);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14));
+}
+body.glass-mode .calc-sugg-item.added:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+[data-theme="light"] body.glass-mode .calc-sugg-item {
+  background: rgba(255, 255, 255, 0.62);
+  border-color: rgba(255, 255, 255, 0.8);
+}
+/* The trade dialog is wide; its columns need room to breathe. */
+.trade-calc-modal .calc-toolbar { padding-right: 2.25rem; }
+.trade-calc-modal .calc-grid { gap: 14px; }
 .calc-sugg-item.added { opacity: 0.5; cursor: default; }
 .calc-sugg-item.added:hover { border-color: var(--border); background: var(--bg); }
 .calc-sugg-thumb { flex: 0 0 auto; width: 30px; height: 42px; border-radius: 3px; overflow: hidden; background: var(--bg4); }
@@ -9617,16 +10868,16 @@ body.glass-mode .deck-themes-caret {
 .calc-sugg-tags { display: flex; gap: 4px; flex-wrap: wrap; }
 .calc-sugg-tag { font-size: 0.62rem; border-radius: 3px; padding: 1px 5px; white-space: nowrap; }
 .calc-sugg-tag.tag-high { background: rgba(206,99,99,0.18); color: var(--red); }
-.calc-sugg-tag.tag-med  { background: rgba(212,175,110,0.18); color: var(--gold); }
+.calc-sugg-tag.tag-med  { background: rgba(var(--lgx1), 0.18); color: var(--text); }
 .calc-sugg-tag.tag-low  { background: var(--bg4); color: var(--text3); }
 .calc-sugg-tag.tag-deck { background: rgba(61,184,160,0.16); color: var(--teal); max-width: 130px; overflow: hidden; text-overflow: ellipsis; }
-.calc-sugg-price { flex: 0 0 auto; font-family: 'JetBrains Mono', monospace; font-size: 0.74rem; color: var(--gold); }
+.calc-sugg-price { flex: 0 0 auto; font-family: 'JetBrains Mono', monospace; font-size: 0.74rem; color: var(--text); }
 .calc-sugg-item.added .calc-sugg-price { color: var(--green); }
 .calc-sugg-loading, .calc-sugg-empty { color: var(--text3); font-size: 0.76rem; font-style: italic; padding: 8px 2px; }
 .partner-cta-hint { color: var(--text3); font-size: 0.78rem; text-align: center; max-width: 320px; }
 .calc-side-head { display: flex; align-items: baseline; justify-content: space-between; }
 .calc-side-title { font-family: 'Cinzel', serif; font-weight: 600; color: var(--text); font-size: 1rem; }
-.calc-side-total { font-family: 'JetBrains Mono', monospace; font-weight: 600; color: var(--gold); font-size: 1.05rem; }
+.calc-side-total { font-family: 'JetBrains Mono', monospace; font-weight: 600; color: var(--text); font-size: 1.05rem; }
 
 .calc-search { position: relative; }
 .calc-search-input {
@@ -9648,7 +10899,7 @@ body.glass-mode .deck-themes-caret {
 .calc-result-thumb img { width: 100%; height: 100%; object-fit: cover; }
 .calc-result-name { font-size: 0.82rem; color: var(--text); }
 .calc-result-sub { font-size: 0.7rem; color: var(--text3); }
-.calc-owned-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--gold); vertical-align: middle; }
+.calc-owned-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: rgb(var(--lgx1)); vertical-align: middle; }
 
 .calc-lines { display: flex; flex-direction: column; gap: 7px; }
 .calc-side-empty { color: var(--text3); font-size: 0.82rem; font-style: italic; padding: 14px 4px; text-align: center; }
@@ -9661,14 +10912,14 @@ body.glass-mode .deck-themes-caret {
 .calc-line-noimg { font-size: 0.55rem; color: var(--text3); padding: 3px; text-align: center; }
 .calc-line-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .calc-line-name { font-size: 0.82rem; color: var(--text); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.calc-foil-tag { color: var(--gold); font-size: 0.66rem; font-weight: 600; }
+.calc-foil-tag { color: var(--text); font-size: 0.66rem; font-weight: 600; }
 .calc-line-sub { font-size: 0.66rem; color: var(--text3); }
 .calc-line-controls { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
 .calc-foil-toggle {
   width: 24px; height: 24px; border-radius: 5px; border: 1px solid var(--border2);
   background: var(--bg2); color: var(--text3); cursor: pointer; font-size: 0.8rem; line-height: 1;
 }
-.calc-foil-toggle.on { color: var(--gold); border-color: var(--gold); background: rgba(212,175,110,0.12); }
+.calc-foil-toggle.on { color: var(--text); border-color: rgba(var(--lgx2), 0.55); background: rgba(var(--lgx1), 0.12); }
 .calc-foil-toggle.disabled { opacity: 0.3; cursor: default; }
 .calc-cond-select {
   background: var(--bg2); color: var(--text); border: 1px solid var(--border2);
@@ -9710,8 +10961,7 @@ body.glass-mode .deck-themes-caret {
 .trade-loading { color: var(--text3); padding: 40px; text-align: center; font-style: italic; }
 .trade-settings-bar {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-  background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 10px 14px; margin-bottom: 14px;
+  padding: 2px 0; margin-bottom: 12px;
 }
 .trade-settings-label { font-size: 0.78rem; color: var(--text2); font-weight: 500; }
 .visibility-toggle { display: flex; gap: 4px; flex-wrap: wrap; }
@@ -9722,7 +10972,7 @@ body.glass-mode .deck-themes-caret {
   transition: background .12s, color .12s, border-color .12s;
 }
 .vis-opt:hover { background: var(--bg4); color: var(--text); }
-.vis-opt.active { background: rgba(212,175,110,0.14); color: var(--gold); border-color: var(--gold); }
+.vis-opt.active { background: rgba(var(--lgx1), 0.16); color: var(--text); border-color: rgba(var(--lgx2), 0.55); }
 .vis-opt-icon { display: inline-flex; flex-shrink: 0; }
 .vis-opt-icon svg { width: 15px; height: 15px; display: block; }
 
@@ -9739,14 +10989,29 @@ body.glass-mode .deck-themes-caret {
 .trade-card-controls { display: flex; align-items: center; gap: 6px; margin-top: 5px; }
 .trade-card-controls .calc-cond-select { flex: 1 1 auto; min-width: 0; }
 .trade-card-val { font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color: var(--text); white-space: nowrap; }
-.trade-card-x { background: transparent; border: none; color: var(--text3); cursor: pointer; font-size: 0.85rem; padding: 1px 3px; line-height: 1; }
-.trade-card-x:hover { color: var(--red); }
+/* Square, same height as the button it sits beside, so a row of actions lines
+   up instead of one control being a bare glyph half the size of its neighbour. */
+.trade-card-x {
+  background: transparent; border: 1px solid transparent; color: var(--text3);
+  cursor: pointer; font-size: 0.9rem; line-height: 1;
+  width: 34px; height: 34px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 8px; box-sizing: border-box;
+}
+.trade-card-x:hover { border-color: rgba(255, 122, 107, 0.45); background: rgba(255, 90, 74, 0.14); }
+/* Price-alert actions are tab-level controls like the rest of this tab. */
+#tab-trade .watch-actions { display: flex; align-items: center; gap: 6px; }
+#tab-trade .watch-actions .btn {
+  height: 34px !important; border-radius: 8px !important;
+  padding: 0 12px !important; font-size: 0.82rem !important;
+  box-sizing: border-box; display: inline-flex; align-items: center;
+}
 
 .tl-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 14px; flex-wrap: wrap; }
 .tl-head-left { display: flex; align-items: baseline; gap: 12px; }
 .tl-head-meta { display: flex; align-items: baseline; gap: 12px; }
 .tl-count { color: var(--text2); font-size: 0.85rem; }
-.tl-total { font-family: 'JetBrains Mono', monospace; color: var(--gold); font-weight: 600; font-size: 1.1rem; }
+.tl-total { font-family: 'JetBrains Mono', monospace; color: var(--text); font-weight: 600; font-size: 1.1rem; }
 .tl-add { position: relative; flex: 1 1 240px; max-width: 360px; }
 
 /* Collection-style filter/sort toolbar (Tradelist + Wishlist) — reuses the
@@ -9788,7 +11053,7 @@ body.glass-mode .deck-themes-caret {
 .watch-info { flex: 1 1 auto; min-width: 0; }
 .watch-name { color: var(--text); font-size: 0.9rem; font-weight: 500; }
 .watch-targets { color: var(--text3); font-size: 0.74rem; margin-top: 2px; }
-.watch-current { font-family: 'JetBrains Mono', monospace; font-size: 0.9rem; color: var(--gold); white-space: nowrap; }
+.watch-current { font-family: 'JetBrains Mono', monospace; font-size: 0.9rem; color: var(--text); white-space: nowrap; }
 .watch-current-label { color: var(--text3); font-size: 0.66rem; font-family: 'Inter', sans-serif; }
 .watch-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 
@@ -9800,7 +11065,7 @@ body.glass-mode .deck-themes-caret {
 .tl-card-removed { opacity: 0.7; }
 .tl-card-img { aspect-ratio: 0.715; border-radius: 5px; overflow: hidden; background: var(--bg4); position: relative; }
 .tl-card-img img { width: 100%; height: 100%; object-fit: cover; cursor: pointer; display: block; }
-.tl-foil { position: absolute; top: 4px; right: 5px; color: var(--gold); font-size: 0.8rem; text-shadow: 0 0 4px rgba(0,0,0,0.7); }
+.tl-foil { position: absolute; top: 4px; right: 5px; color: var(--text); font-size: 0.8rem; text-shadow: 0 0 4px rgba(0,0,0,0.7); }
 .tl-card-name { font-size: 0.76rem; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tl-src { color: var(--text3); font-size: 0.6rem; border: 1px solid var(--border2); border-radius: 3px; padding: 0 3px; }
 .tl-card-sub { font-size: 0.66rem; color: var(--text3); }
@@ -9821,7 +11086,7 @@ body.glass-mode .deck-themes-caret {
 .wl-group-head { font-family: 'Cinzel', serif; font-size: 0.9rem; margin-bottom: 9px; padding-left: 8px; border-left: 3px solid var(--border2); }
 .wl-group-head span { color: var(--text3); font-weight: 400; }
 .wl-group-head.wl-pri-high { border-left-color: var(--red); color: var(--red); }
-.wl-group-head.wl-pri-med  { border-left-color: var(--gold); color: var(--gold); }
+.wl-group-head.wl-pri-med  { border-left-color: var(--text); color: var(--text); }
 .wl-group-head.wl-pri-low  { border-left-color: var(--text3); color: var(--text2); }
 .wl-card { position: relative; }
 .wl-src-badge {
@@ -9832,12 +11097,12 @@ body.glass-mode .deck-themes-caret {
 .wl-src-badge.src-deck { background: rgba(90,140,200,0.92); }
 .wl-src-badge.src-trade { background: rgba(150,110,200,0.92); }
 .wl-src-badge.src-upgrade { background: rgba(200,150,60,0.92); }
-.wl-upg-note { font-size: 0.62rem; color: var(--gold); margin: 2px 0; }
+.wl-upg-note { font-size: 0.62rem; color: var(--text); margin: 2px 0; }
 .wl-pri-select { flex: 1; }
 .wl-auto-tag { font-size: 0.6rem; color: var(--text3); border: 1px solid var(--border2); border-radius: 3px; padding: 1px 4px; margin-left: auto; }
 .wl-head kbd, .trade-empty kbd {
   background: var(--bg4); border: 1px solid var(--border2); border-radius: 4px;
-  padding: 0 5px; font-family: 'JetBrains Mono', monospace; font-size: 0.85em; color: var(--gold);
+  padding: 0 5px; font-family: 'JetBrains Mono', monospace; font-size: 0.85em; color: var(--text);
 }
 
 /* ── Price watch + threshold defaults ───────────────────────────────────── */
@@ -9855,7 +11120,7 @@ body.glass-mode .deck-themes-caret {
 
 /* ── Trade-partner discovery ────────────────────────────────────────────── */
 .username-setup { max-width: 460px; margin: 40px auto; text-align: center; }
-.username-setup h2 { font-family: 'Cinzel', serif; color: var(--gold); margin-bottom: 8px; }
+.username-setup h2 { font-family: 'Cinzel', serif; color: var(--text); margin-bottom: 8px; }
 .username-setup p { color: var(--text2); font-size: 0.9rem; margin-bottom: 18px; }
 .username-form { display: flex; flex-direction: column; gap: 10px; }
 .username-form input { background: var(--bg3); color: var(--text); border: 1px solid var(--border2); border-radius: var(--radius); padding: 10px 12px; font-size: 0.95rem; }
@@ -9864,7 +11129,7 @@ body.glass-mode .deck-themes-caret {
 
 .partners-bar { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
 .partners-me { color: var(--text2); font-size: 0.85rem; }
-.partners-me strong { color: var(--gold); }
+.partners-me strong { color: var(--text); }
 .partners-search { position: relative; flex: 1 1 240px; max-width: 360px; }
 .partners-layout { display: grid; grid-template-columns: minmax(240px, 340px) 1fr; gap: 16px; }
 @media (max-width: 760px) { .partners-layout { grid-template-columns: 1fr; } }
@@ -9872,8 +11137,8 @@ body.glass-mode .deck-themes-caret {
 .partners-browse-head { color: var(--text2); font-size: 0.85rem; margin-bottom: 10px; }
 .partner-row { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 9px 11px; cursor: pointer; margin-bottom: 7px; }
 .partner-row:hover { background: var(--bg3); }
-.partner-row.active { border-color: var(--gold); }
-.partner-avatar { width: 36px; height: 36px; flex-shrink: 0; border-radius: 50%; background: var(--bg4); color: var(--gold); display: flex; align-items: center; justify-content: center; font-weight: 700; font-family: 'Cinzel', serif; }
+.partner-row.active { border-color: rgba(var(--lgx2), 0.55); }
+.partner-avatar { width: 36px; height: 36px; flex-shrink: 0; border-radius: 50%; background: var(--bg4); color: var(--text); display: flex; align-items: center; justify-content: center; font-weight: 700; font-family: 'Cinzel', serif; }
 .partner-avatar.sm { width: 26px; height: 26px; font-size: 0.8rem; }
 .partner-avatar.lg { width: 52px; height: 52px; font-size: 1.3rem; }
 .partner-name { color: var(--text); font-size: 0.88rem; font-weight: 500; }
@@ -9890,14 +11155,14 @@ body.glass-mode .deck-themes-caret {
 .sugg-card { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius2); padding: 14px; }
 .sugg-delta { text-align: center; font-weight: 600; padding: 8px; border-radius: var(--radius); margin-bottom: 10px; font-size: 0.9rem; }
 .sugg-delta.tier-green { background: rgba(94,186,125,0.1); color: var(--green); }
-.sugg-delta.tier-yellow { background: rgba(212,175,110,0.1); color: var(--gold); }
+.sugg-delta.tier-yellow { background: rgba(var(--lgx1), 0.12); color: var(--text); }
 .sugg-delta.tier-red { background: rgba(206,99,99,0.1); color: var(--red); }
 .sugg-balanced { color: var(--green); }
 .sugg-imbalance { color: var(--red); font-size: 0.82rem; text-align: center; margin-bottom: 10px; }
 .sugg-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 @media (max-width: 620px) { .sugg-cols { grid-template-columns: 1fr; } }
 .sugg-col-head { display: flex; justify-content: space-between; font-family: 'Cinzel', serif; font-size: 0.85rem; color: var(--text2); margin-bottom: 8px; padding-bottom: 5px; border-bottom: 1px solid var(--border); }
-.sugg-col-head span { font-family: 'JetBrains Mono', monospace; color: var(--gold); }
+.sugg-col-head span { font-family: 'JetBrains Mono', monospace; color: var(--text); }
 .sugg-item { display: flex; align-items: center; gap: 8px; padding: 5px 0; }
 .sugg-item-thumb { width: 30px; height: 42px; flex-shrink: 0; border-radius: 3px; overflow: hidden; background: var(--bg4); }
 .sugg-item-thumb img { width: 100%; height: 100%; object-fit: cover; cursor: pointer; }
@@ -9920,7 +11185,7 @@ body.glass-mode .deck-themes-caret {
 }
 .calc-status-badge { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.04em; padding: 2px 8px; border-radius: 10px; font-weight: 700; }
 .status-draft { background: var(--bg4); color: var(--text2); }
-.status-pending, .status-countered { background: rgba(212,175,110,0.18); color: var(--gold); }
+.status-pending, .status-countered { background: rgba(var(--lgx1), 0.18); color: var(--text); }
 .status-accepted { background: rgba(94,186,125,0.18); color: var(--green); }
 .status-completed { background: rgba(94,186,125,0.28); color: var(--green); }
 .status-declined, .status-cancelled { background: rgba(206,99,99,0.18); color: var(--red); }
@@ -9965,7 +11230,15 @@ body.glass-mode .deck-themes-caret {
 
 /* ── Trade history ──────────────────────────────────────────────────────── */
 .hist-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; color: var(--text2); font-size: 0.85rem; }
-.hist-sort .btn.active { color: var(--gold); }
+/* One control, so it takes the tab-level box directly rather than joining
+   .view-controls and inheriting that row's full-width divider. */
+#tab-trade .hist-sort select {
+  height: 34px !important;
+  border-radius: 8px !important;
+  padding: 0 12px !important;
+  font-size: 0.82rem !important;
+  box-sizing: border-box;
+}
 .hist-list { display: flex; flex-direction: column; gap: 12px; }
 .hist-card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius2); padding: 14px; }
 .hist-card-head { display: flex; justify-content: space-between; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
@@ -9974,7 +11247,7 @@ body.glass-mode .deck-themes-caret {
 .hist-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 @media (max-width: 620px) { .hist-cols { grid-template-columns: 1fr; } }
 .hist-col-head { display: flex; justify-content: space-between; font-size: 0.82rem; color: var(--text2); margin-bottom: 6px; }
-.hist-col-head span { font-family: 'JetBrains Mono', monospace; color: var(--gold); }
+.hist-col-head span { font-family: 'JetBrains Mono', monospace; color: var(--text); }
 .hist-item { font-size: 0.8rem; color: var(--text2); padding: 2px 0; display: flex; align-items: center; gap: 6px; }
 .hist-item-cond { font-size: 0.65rem; color: var(--text3); border: 1px solid var(--border2); border-radius: 3px; padding: 0 4px; }
 .hist-item-val { margin-left: auto; font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: var(--text3); }
@@ -9985,8 +11258,7 @@ body.glass-mode .deck-themes-caret {
 /* ── Card-detail price-history chart ────────────────────────────────────── */
 .cd-price-chart { margin-bottom: 0.85rem; }
 .cd-price-controls { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 10px; min-height: 1.4rem; }
-.cd-price-row { display: flex; gap: 6px; flex-wrap: wrap; }
-.cd-price-btn {
+.cd-price-row { display: flex; gap: 6px; flex-wrap: wrap; }.cd-price-btn {
   font-size: 0.72rem; padding: 3px 10px; border-radius: 999px; cursor: pointer;
   border: 1px solid var(--border2); background: var(--bg3); color: var(--text3);
 }
@@ -10095,9 +11367,16 @@ body.glass-mode .deck-tab-pane {
       rgba(255,255,255,0.085) 0%,
       rgba(255,255,255,0.05) 180px,
       rgba(255,255,255,0.05) 100%);
+  /* No top border. The open tab is meant to hide it, and it is painted over —
+     but the tab is glass, roughly a quarter opaque, so a light 1px line under it
+     tints straight through rather than disappearing. Measured at the joint: the
+     two rows between the page's top and the tab's bottom sat ~16 brighter than
+     either surface, which is the divider that stayed visible under the first tab
+     through covering the border, deepening the overlap and dropping the tab's
+     own inset highlight. The outer shadow and the surface contrast carry the
+     page's top edge where no tab covers it. */
   border: 1px solid rgba(255,255,255,0.16);
-  /* No top specular inset here: it reads as a divider line running under the
-     active tab, breaking the tab-flows-into-page illusion. */
+  border-top: none;
   box-shadow:
     inset 0 0 0.5px rgba(255,255,255,0.12),
     0 8px 28px rgba(0,0,0,0.35);
@@ -10127,9 +11406,9 @@ body.glass-mode .deck-ftab.active::before {
     rgba(255,255,255,0.085);
   border-color: rgba(255,255,255,0.16);
   border-bottom: none;
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.2),
-    inset 0 0 0.5px rgba(255,255,255,0.12);
+  /* Top highlight only — the all-round `inset 0 0 0.5px` drew its light edge
+     along the bottom as well, right on the joint with the page. */
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.2);
 }
 body.glass-mode .player-card {
   border-radius: 20px;
@@ -10164,7 +11443,9 @@ body.glass-mode .btn {
   color: rgba(240,244,252,0.82);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 2px 10px rgba(0,0,0,0.22);
 }
-body.glass-mode .top-action-bar .btn,
+/* .top-action-bar .btn used to sit here, giving the deck header's pills a white
+   0.14 fill while the collection's rested at 0.07 — the same control, two looks.
+   It is gone: they fall through to the ordinary .btn-outline glass now. */
 body.glass-mode body.glass-mode .btn-outline:hover {
   color: #fff;
   border-color: rgba(255,255,255,0.34);
@@ -10289,7 +11570,11 @@ body.glass-mode .empty-state h2 {
       rgba(255,255,255,0.62) 0%,
       rgba(255,255,255,0.48) 180px,
       rgba(255,255,255,0.48) 100%);
+  /* Same as the dark rule above — the shorthand had been putting the top
+     border back, and on a light surface a white 1px line is the most visible
+     version of it. */
   border: 1px solid rgba(255,255,255,0.7);
+  border-top: none;
   box-shadow: 0 8px 28px rgba(30,50,90,0.14);
 }
 [data-theme="light"] body.glass-mode .deck-tab-pane .panel {
@@ -10386,80 +11671,106 @@ body.glass-mode :is(.tablet-player-menu, .tablet-drag-menu) .num-wheel-item.is-s
    Glass: tablet view — same toggle (flipped from the main tracker header)
    ──────────────────────────────────────────────────────────────────────────── */
 body.glass-mode #tabletView {
-  background:
-    radial-gradient(42% 38% at 16% 10%, rgba(90,162,255,0.30), transparent 70%),
-    radial-gradient(46% 42% at 84% 16%, rgba(168,140,255,0.24), transparent 70%),
-    radial-gradient(52% 48% at 76% 88%, rgba(79,216,189,0.18), transparent 70%),
-    radial-gradient(38% 34% at 10% 80%, rgba(255,170,110,0.14), transparent 70%),
-    linear-gradient(180deg, #0b1122 0%, #0d1428 55%, #0a0f1f 100%);
-  gap: clamp(6px, 0.9vh, 10px);
+  /* Plain. The four coloured pools that light the rest of the glass sat under
+     every seat and mixed with it — a gold seat over the teal one came out sage
+     — so each player's colour was never quite their own. The seats are the
+     colour on this screen. */
+  background: linear-gradient(180deg, #0b1122 0%, #0d1428 55%, #0a0f1f 100%);
+  /* No gutter between seats. The page showed through it as a line down the
+     middle of the table — subtle on the dark theme, a white rule on the light
+     one, and either way a border between players. They meet now, and the change
+     of colour is the edge. */
+  gap: 0;
   font-family: var(--glass-font);
   /* Single accent for the active player + the white→yellow→orange→red life
      ramp (_cellLifeColor's glass branch reads these; light theme remaps them) */
   --glass-accent: #7ab2ff;
+  /* Life runs white to red, full to empty — no amber step, which was the gold
+     family the rest of the app dropped. */
   --glass-life-hi: #f4f6fb;
-  --glass-life-mid: #ffd97a;
-  --glass-life-low: #ffa15e;
-  --glass-life-crit: #ff7a6b;
+  --glass-life-mid: #f7c9c2;
+  --glass-life-low: #f0897c;
+  --glass-life-crit: #e8463a;
 }
 /* Neutral frosted cells: the per-player border colours and radial tints are
    inline-styled, so the neutralising overrides need !important. Player identity
    stays in the name/dots; "whose turn" is the one accent colour. */
+/* Each seat is tinted with that player's colour rather than all of them sharing
+   one neutral glass. --seat is set inline per cell; the wash is low enough to
+   stay glass, and the same hue simply gets brighter when it is their turn, so
+   "whose turn" no longer needs a separate accent ring. */
 body.glass-mode #tabletView .tablet-cell {
-  border-radius: 22px;
-  border-color: rgba(255,255,255,0.13) !important;
-  background: rgba(255,255,255,0.05) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.13),
-    inset 0 0 0.5px rgba(255,255,255,0.09),
-    0 8px 28px rgba(0,0,0,0.30);
-}
-body.glass-mode #tabletView .tablet-cell[data-active="1"] {
-  border-color: rgba(122,178,255,0.60) !important;
+  /* Square, now that the seats butt together: rounded corners left four notches
+     of page background at every interior junction. */
+  border-radius: 0;
+  /* Transparent rather than tinted: a 1px line round every seat still read as a
+     border, and the colour wash is meant to be the only marking. */
+  border-color: transparent !important;
+  /* --w1..3 are computed per seat in JS (_seatWashVars): a flat percentage of
+     the colour turns every warm hue into brown, so the strength is hue-aware. */
   background:
-    radial-gradient(120% 90% at 50% 45%, rgba(90,162,255,0.14) 0%, transparent 70%),
-    rgba(255,255,255,0.04) !important;
-  box-shadow:
-    inset 0 0 0 3px rgba(90,162,255,0.50),
-    inset 0 1px 0 rgba(255,255,255,0.13),
-    0 0 36px rgba(90,162,255,0.18),
-    0 8px 28px rgba(0,0,0,0.30) !important;
+    linear-gradient(160deg,
+      var(--w1, color-mix(in oklab, var(--seat, #7aa2ff) 30%, transparent)) 0%,
+      var(--w2, color-mix(in oklab, var(--seat, #7aa2ff) 16%, transparent)) 60%,
+      var(--w3, color-mix(in oklab, var(--seat, #7aa2ff) 7%, transparent)) 100%),
+    rgba(255,255,255,0.05) !important;
+  /* No inset highlight or drop shadow either: against the neighbouring seat
+     they drew a light line and a dark one, which is a border by another name. */
+  box-shadow: none;
+  transition: background 0.25s var(--ease), border-color 0.25s var(--ease), box-shadow 0.25s var(--ease);
+}
+/* Brighter, and only brighter — the border stays exactly as it rests, so the
+   active seat reads as a change in the light rather than an outline. */
+body.glass-mode #tabletView .tablet-cell[data-active="1"] {
+  border-color: transparent !important;
+  background:
+    linear-gradient(160deg,
+      var(--wa1, color-mix(in oklab, var(--seat, #7aa2ff) 56%, transparent)) 0%,
+      var(--wa2, color-mix(in oklab, var(--seat, #7aa2ff) 35%, transparent)) 65%,
+      var(--wa3, color-mix(in oklab, var(--seat, #7aa2ff) 20%, transparent)) 100%),
+    rgba(255,255,255,0.05) !important;
+  box-shadow: none !important;
 }
 /* Transient action states must keep their own rings (they outrank inline styles
    via !important in base CSS, which the neutral overrides above would beat). */
 body.glass-mode #tabletView .tablet-cell.player-targetable {
-  border-color: rgba(255,217,122,0.70) !important;
+  border-color: rgba(255,255,255,0.78) !important;
   box-shadow:
-    inset 0 0 0 3px rgba(255,217,122,0.40),
-    0 0 30px rgba(255,217,122,0.15) !important;
+    inset 0 0 0 3px rgba(255,255,255,0.42),
+    0 0 30px rgba(255,255,255,0.16) !important;
 }
+/* Same at rest as on turn: the glow on the life total is the only marking. */
 body.glass-mode #tabletView .tablet-cell.tablet-drag-target {
-  border-color: var(--red) !important;
-  box-shadow:
-    inset 0 0 0 3px rgba(255,122,107,0.60),
-    0 0 30px rgba(255,122,107,0.25) !important;
+  border-color: transparent !important;
 }
-/* Pie wedges are clip-path'd full-screen cells — no corner rounding or outer
-   shadow (the wedge outline SVG draws the seams), blur still applies. */
-body.glass-mode #tabletView .tablet-cell--pie {
+/* Pie wedges are clip-path'd full-screen cells — no corner rounding and no
+   outer shadow; blur still applies.
+   The [data-active] rule above outranks a plain .tablet-cell--pie selector, so
+   the active wedge alone kept the inset highlight and the drop shadow — a lit
+   edge round exactly one player, which is the thing that must not happen. */
+body.glass-mode #tabletView .tablet-cell--pie,
+body.glass-mode #tabletView .tablet-cell--pie[data-active="1"] {
   border-radius: 0;
   box-shadow: none !important;
 }
-body.glass-mode .tablet-cell--pie[data-active="1"]:not(.tablet-drag-target):not(.tablet-seat-drag-source):not(.tablet-seat-drag-target) .pie-outline {
-  stroke: var(--glass-accent) !important;
+/* The 7px stroke the pie layout drew round the player whose turn it is *was*
+   the border that kept surviving these passes — neutralising it in the cell's
+   own border-color never touched it, because it is an SVG outline on a child.
+   Nothing rings a wedge now; the brighter fill is the whole signal. */
+body.glass-mode .tablet-cell--pie:not(.tablet-drag-target):not(.tablet-seat-drag-source):not(.tablet-seat-drag-target) .pie-outline {
+  stroke: transparent !important;
 }
-body.glass-mode .tablet-name-bar { border-bottom-color: rgba(255,255,255,0.10) !important; }
 body.glass-mode .tablet-btn-bar { border-top-color: rgba(255,255,255,0.10) !important; }
 body.glass-mode .tablet-player-name {
   font-family: var(--glass-font) !important;
   font-weight: 600;
   letter-spacing: 0 !important;
-  color: var(--text) !important;
+  /* No colour override — the inline style carries the player's own, which is
+     the whole point of a per-player colour. */
 }
-body.glass-mode #tabletView .tablet-cell[data-active="1"] .tablet-player-name {
-  color: var(--glass-accent) !important;
-}
-body.glass-mode .tablet-dots-btn { color: var(--text3) !important; }
+/* The active player's name was forced to the app accent — that blue was the
+   last thing still marking the turn with a colour that is not the player's. */
+/* .tablet-dots-btn colour comes from the shared tablet-control rule below. */
 /* iOS-flavoured numerals: Inter with tabular figures instead of JetBrains Mono,
    neutral depth shadow instead of the per-player glow. */
 body.glass-mode .tablet-life-num {
@@ -10473,23 +11784,518 @@ body.glass-mode .tablet-total-time {
   font-family: var(--glass-font) !important;
   font-variant-numeric: tabular-nums;
 }
-/* Neutral frosted life buttons — labels (+1/−5) carry the meaning, not colour */
+/* Neutral frosted life buttons — labels (+1/−5) carry the meaning, not colour.
+   Weight and side padding follow the deck-list button: these ran at weight 600
+   with 2px of horizontal padding, so the label sat hard against the edges and
+   the button read as a stretched slab rather than a button. Vertical padding is
+   left alone — it is what gives the scoreboard its tap target. */
 body.glass-mode .tablet-life-btn {
-  border-radius: 999px;
   font-family: var(--glass-font);
-  font-weight: 600;
+  font-weight: 500;
+  padding-inline: 12px;
 }
-body.glass-mode .tablet-life-btn-neg,
-body.glass-mode .tablet-life-btn-pos {
-  background: rgba(255,255,255,0.08);
-  border-color: rgba(255,255,255,0.15);
-  color: rgba(244,246,251,0.92);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.10);
+/* Life button colours come from the shared tablet-control rule below, which
+   matches the deck-list button exactly. These used to run at 0.08/0.15/0.10 —
+   close to it, but not it. */
+
+/* ── Games page: cards in a grid, and a read-only summary ──────────────────
+   The page used to be a sidebar list plus a live tracker with life buttons.
+   Games are cards now, and controlling a game happens in Tablet View. */
+/* The grid is the pane's own content — there is no panel box around it, so the
+   pane supplies the padding the panel-body used to. */
+/* No padding of its own: the pane already sets the distance from its top and
+   sides, and this bar's 0.6rem/0.25rem stacked on top of that, so the games tabs
+   sat lower and 4px further in than every other tab's first row. */
+.games-pane-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 0;
+  margin-bottom: 12px;
 }
-body.glass-mode .tablet-life-btn-neg:hover,
-body.glass-mode .tablet-life-btn-neg:active,
-body.glass-mode .tablet-life-btn-pos:hover,
-body.glass-mode .tablet-life-btn-pos:active { background: rgba(255,255,255,0.18); }
+/* Every action on this tab is a tab-level control, so they all take the deck
+   list's box — the bar's New Game, the cards' Open/Resume, and the buttons on
+   the panel a game opens into, which were .btn-sm's 28px next to that bar's
+   34px. (.game-detail was in this list and matches nothing: the panel is
+   rendered into #activeGameArea / #gameDetailArea.) */
+#tab-games .game-card .btn,
+#tab-games .pg-card .btn,
+#tab-games .games-pane-bar .btn,
+#tab-games #activeGameArea .btn,
+#tab-games #gameDetailArea .btn {
+  height: 34px !important;
+  border-radius: 8px !important;
+  padding: 0 12px !important;
+  font-size: 0.82rem !important;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+}
+.games-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 0.85rem;
+  padding: 0.25rem;
+}
+.game-card {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  /* A grid item's floor is its content's min-width unless told otherwise, and a
+     player name that will not break set that floor wider than the column at
+     narrow phone widths — the cards ran out past the edge of the page. */
+  min-width: 0;
+  /* Geometry and material both come from the Commander Gameplan turn boxes. */
+  padding: 14px 18px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--border2);
+  background: var(--bg3);
+  cursor: pointer;
+  transition: border-color 0.15s var(--ease), background 0.15s var(--ease);
+}
+/* A flat 5%-white fill read as a plainer box than the gameplan's, which layers
+   the blue→purple tint over the white frost and sits on a real drop shadow. */
+body.glass-mode .game-card {
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.13) 0%, rgba(var(--lgx2), 0.06) 60%, rgba(var(--lgx2), 0.04) 100%),
+    linear-gradient(180deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.05) 60px, rgba(255,255,255,0.05) 100%);
+  border-color: rgba(255,255,255,0.20);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.20), 0 8px 28px rgba(0,0,0,0.35);
+}
+body.glass-mode .game-card:hover {
+  border-color: rgba(var(--lgx1), 0.45);
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.20) 0%, rgba(var(--lgx2), 0.10) 60%, rgba(var(--lgx2), 0.07) 100%),
+    linear-gradient(180deg, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0.07) 60px, rgba(255,255,255,0.07) 100%);
+}
+body.glass-mode .game-card.is-selected {
+  border-color: rgba(var(--lgx2), 0.55);
+  background:
+    linear-gradient(135deg, rgba(var(--lgx1), 0.22), rgba(var(--lgx2), 0.22)),
+    linear-gradient(180deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.05) 60px, rgba(255,255,255,0.05) 100%);
+}
+/* Every control on this tab takes the deck-list filter/layout radius (8px)
+   rather than the glass skin's 12px, so they read as squared-off controls.
+   Scoped to the tab; the game modals live outside it. */
+#tab-games .btn,
+#tab-games .view-toggle,
+#tab-games .glass-dd-btn { border-radius: 8px; }
+
+/* A player's name carries their seat colour — that replaces the swatch dot
+   that used to sit beside every one of them. */
+.gp-name { font-weight: 600; }
+
+.game-card-head { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; min-width: 0; }
+.game-card-format { font-family: 'Cinzel', serif; font-size: 0.92rem; color: var(--text); min-width: 0; }
+.game-card-live {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 0.68rem; letter-spacing: 0.06em; text-transform: uppercase;
+  color: rgb(var(--lgx1));
+}
+/* The card sizes its own contents: two columns on a phone make it ~140px, where
+   the full button label is wider than the card it sits in. */
+.game-card { container-type: inline-size; container-name: gamecard; }
+.game-card-seats { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 0; }
+/* The table, named. */
+.game-card-group {
+  font-size: 0.82rem; font-weight: 600; color: var(--text2);
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.game-card-dots { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+/* A seat's colour was always the identification; without the names it is all
+   of it, so the name rides along as the title. No ring: it muddied the colour
+   it was outlining, and the turn glow below needs the box-shadow anyway. */
+.game-card-dot { width: 9px; height: 9px; border-radius: 50%; }
+/* The seat on the clock, wearing the live dot's glow and pulse — in its own
+   colour (hence currentColor, set alongside the background) so the dot still
+   says who as well as when. */
+.game-card-dot.is-turn { animation: gameTurnDotPulse 2s ease-in-out infinite; }
+@keyframes gameTurnDotPulse {
+  0%, 100% { opacity: 1;   box-shadow: 0 0 6px currentColor; }
+  50%      { opacity: 0.6; box-shadow: 0 0 12px currentColor; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .game-card-dot.is-turn { animation: none; box-shadow: 0 0 8px currentColor; }
+}
+/* Names are arbitrary, so they have to be allowed to break rather than hold the
+   card open. */
+.game-card-seat { font-size: 0.78rem; min-width: 0; overflow-wrap: anywhere; }
+.game-card-meta {
+  display: flex; gap: 4px 10px; flex-wrap: wrap; min-width: 0;
+  font-size: 0.72rem; color: var(--text3);
+  font-variant-numeric: tabular-nums;
+}
+.game-card-status { font-size: 0.76rem; color: var(--text2); min-width: 0; overflow-wrap: anywhere; }
+.game-card-open { align-self: flex-start; margin-top: 2px; max-width: 100%; }
+/* Narrow card: the label shortens and the button takes the width, which reads
+   as the card's action rather than a chip floating at the bottom of it. After
+   the rule above, or its align-self would win on equal specificity. */
+.gco-short { display: none; }
+@container gamecard (max-width: 215px) {
+  .game-card-open { align-self: stretch; justify-content: center; }
+  .game-card-open .gco-long { display: none; }
+  .game-card-open .gco-short { display: inline; }
+}
+/* Content width, like every other control in the app — stretched across half
+   the modal each they read as banners rather than as the pair of buttons they
+   are. */
+.ng-layout-btn { justify-content: center; gap: 6px; }
+
+/* New Game is a tab-level surface, so its buttons take the deck-list toolbar's
+   metrics like every other control inside a tab. */
+#newGameModal .btn:not(.btn-icon) {
+  height: 34px !important;
+  padding: 0 12px !important;
+  font-size: 0.82rem !important;
+  border-radius: 8px !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+/* Dropdowns fill their column rather than their content. A long player name or
+   deck title used to widen the trigger, which widened the grid track, which
+   pushed the row past the edge of the modal. */
+#newGameModal .glass-dd-wrap { display: block; width: 100%; min-width: 0; }
+#newGameModal .glass-dd-btn { width: 100%; justify-content: space-between; }
+
+/* Text fields and selects take the same shell as the buttons: the seat rows put
+   them side by side, and a 32px field with 12px corners next to a 34px button
+   with 8px ones is visibly two different controls. Font size is left alone —
+   mobile forces 16px on fields to stop iOS zooming the page on focus. */
+#newGameModal input[type="text"],
+#newGameModal select,
+#newGameModal .glass-dd-btn {
+  height: 34px !important;
+  border-radius: 8px !important;
+  box-sizing: border-box;
+}
+#newGameModal .btn.btn-icon {
+  height: 34px !important;
+  min-width: 34px;
+  padding: 0 !important;
+  border-radius: 8px !important;
+  justify-content: center;
+}
+/* The mulligan stepper is the card inspector's, so the value between the two
+   buttons is that one too — only narrower, since it counts to about three and
+   the inspector's is sized for collection quantities. */
+.ng-mull-value { min-width: 28px; font-size: 0.85rem; }
+.ng-deck-note {
+  font-size: 0.64rem; color: var(--text3); margin-top: 3px; line-height: 1.2;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* The seat dot opens the colour picker, so it is a control and not decoration. */
+.ng-seat-swatch {
+  position: relative;
+  width: 16px; height: 16px; border-radius: 50%; padding: 0; cursor: pointer;
+  background: var(--sw, #5aa9f0);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  flex-shrink: 0;
+  transition: transform 0.1s var(--ease), box-shadow 0.15s var(--ease);
+}
+/* A 16px dot is the right size to look at and the wrong size to hit. */
+.ng-seat-swatch::before { content: ''; position: absolute; inset: -9px; }
+.ng-seat-swatch:hover { transform: scale(1.12); box-shadow: 0 0 0 3px color-mix(in oklab, var(--sw, #5aa9f0) 30%, transparent); }
+[data-theme="light"] .ng-seat-swatch { border-color: rgba(20, 35, 60, 0.22); }
+
+/* Winner is a line of text under the header, not a full-width gold panel. */
+.gd-winner {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px;
+  margin-bottom: 1.25rem; font-size: 0.95rem; color: var(--text2);
+}
+.gd-winner-sub { font-size: 0.78rem; color: var(--text3); }
+
+/* Read-only standings for the selected game */
+.gsum-grid { display: flex; flex-direction: column; gap: 2px; }
+.gsum-row {
+  display: flex; align-items: center; gap: 9px;
+  padding: 7px 9px; border-radius: 9px;
+}
+body.glass-mode .gsum-row.is-active { background: rgba(255, 255, 255, 0.07); }
+.gsum-row.is-out { opacity: 0.45; }
+.gsum-name { flex: 1; min-width: 0; font-size: 0.88rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gsum-cmds { display: flex; gap: 7px; flex-shrink: 0; }
+.gsum-cmd { font-weight: 700; font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+.gsum-life {
+  min-width: 2.4rem; text-align: right; flex-shrink: 0;
+  font-size: 1.15rem; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text);
+}
+.gsum-turn { font-size: 0.78rem; color: var(--text3); font-variant-numeric: tabular-nums; }
+.gsum-hint { margin: 10px 2px 0; font-size: 0.76rem; color: var(--text3); }
+
+/* ── Playgroups tab: the same card grid as Games ───────────────────────────
+   Was a cramped list in the old right-hand column, which also clipped the
+   member picker's dropdown. Full-width pane, so the menu has room to open. */
+.pg-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 0.85rem;
+  padding: 0.25rem;
+}
+/* Fixed height so a 1-member card and a 6-member card line up in the grid;
+   rosters longer than PG_PEEK sit behind the card's Show all toggle, and only
+   an expanded card is allowed to grow. */
+.pg-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  /* Covers the tallest collapsed card — PG_PEEK members plus the expand slot —
+     so shorter rosters pad out to the same box instead of stair-stepping. */
+  min-height: 228px;
+  padding: 14px 18px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--border2);
+  background: var(--bg3);
+}
+.pg-card.is-open { min-height: 0; }
+.pg-expand, .pg-accept { align-self: flex-start; }
+.pg-expand.is-placeholder { visibility: hidden; pointer-events: none; }
+body.glass-mode .pg-card {
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.13) 0%, rgba(var(--lgx2), 0.06) 60%, rgba(var(--lgx2), 0.04) 100%),
+    linear-gradient(180deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.05) 60px, rgba(255,255,255,0.05) 100%);
+  border-color: rgba(255,255,255,0.20);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.20), 0 8px 28px rgba(0,0,0,0.35);
+}
+.pg-card-head { display: flex; align-items: center; gap: 8px; }
+.pg-group-name { font-family: 'Cinzel', serif; font-size: 0.92rem; color: var(--text); }
+.pg-count { font-size: 0.72rem; color: var(--text3); }
+.pg-members { display: flex; flex-direction: column; gap: 1px; }
+.pg-member { display: flex; align-items: center; gap: 7px; min-height: 24px; }
+.pg-member-name {
+  font-size: 0.82rem; color: var(--text2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pg-you { color: var(--text3); }
+/* Plain text, not pills — these are asides on a name, not controls. */
+.pg-tag {
+  flex-shrink: 0;
+  font-size: 0.68rem; color: var(--text3);
+}
+/* "owner" is a label, not an accent — and gold is the colour the app dropped. */
+.pg-tag-owner { color: var(--text2); }
+.pg-member .pg-x-btn { margin-left: auto; opacity: 0.5; }
+.pg-member .pg-x-btn:hover { opacity: 1; }
+.pg-add-row { display: flex; gap: 6px; align-items: center; margin-top: 2px; }
+.pg-add-row .glass-dd-wrap { flex: 1; min-width: 0; }
+.pg-add-row .glass-dd-btn { width: 100%; justify-content: space-between; }
+.pg-empty { color: var(--text3); font-size: 0.82rem; line-height: 1.45; padding: 0.5rem 0.25rem; }
+
+/* ── Leaderboard tab ───────────────────────────────────────────────────────
+   Was six cramped rows in a 280px sidebar box; it owns a folder tab now. */
+.lb-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.85rem;
+  padding: 0.25rem;
+  margin-bottom: 1.1rem;
+}
+.lb-tile {
+  padding: 14px 18px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--border2);
+  background: var(--bg3);
+}
+body.glass-mode .lb-tile {
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.13) 0%, rgba(var(--lgx2), 0.06) 60%, rgba(var(--lgx2), 0.04) 100%),
+    linear-gradient(180deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.05) 60px, rgba(255,255,255,0.05) 100%);
+  border-color: rgba(255,255,255,0.20);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.20), 0 8px 28px rgba(0,0,0,0.35);
+}
+.lb-tile-val {
+  font-size: 1.6rem; font-weight: 700; color: var(--text);
+  font-variant-numeric: tabular-nums; line-height: 1.1;
+}
+.lb-tile-label {
+  margin-top: 3px;
+  font-size: 0.7rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text3);
+}
+.lb-table { padding: 0 0.25rem; }
+.lb-row {
+  display: grid;
+  grid-template-columns: 2rem 1fr 4rem 4.5rem minmax(120px, 22%);
+  align-items: center; gap: 10px;
+  padding: 9px 10px; border-radius: 9px;
+  font-size: 0.88rem;
+}
+.lb-row:not(.lb-head):nth-child(even) { background: rgba(255, 255, 255, 0.03); }
+.lb-head {
+  font-size: 0.7rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text3);
+  border-bottom: 1px solid var(--border2); border-radius: 0; padding-bottom: 7px; margin-bottom: 3px;
+}
+.lb-rank { color: var(--text3); font-variant-numeric: tabular-nums; }
+.lb-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.lb-head .lb-name { color: var(--text3); }
+.lb-num { text-align: right; font-variant-numeric: tabular-nums; color: var(--text2); }
+.lb-head .lb-num { color: var(--text3); }
+.lb-wins { color: var(--gold); font-weight: 700; }
+.lb-head .lb-wins { color: var(--text3); font-weight: inherit; }
+.lb-rate { display: flex; align-items: center; gap: 8px; }
+.lb-head .lb-rate { display: block; }
+.lb-bar {
+  flex: 1; min-width: 0; height: 6px; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.09); overflow: hidden;
+}
+.lb-bar-fill {
+  display: block; height: 100%; border-radius: 999px;
+  background: linear-gradient(90deg, rgba(var(--lgx1), 0.85), rgba(var(--lgx2), 0.85));
+}
+.lb-pct { flex-shrink: 0; font-size: 0.76rem; color: var(--text3); font-variant-numeric: tabular-nums; }
+.lb-empty { color: var(--text3); font-size: 0.82rem; padding: 1.25rem 0.25rem; }
+
+/* ── Light mode: games, playgroups and leaderboard boxes ───────────────────
+   These were defined only for the dark skin — a 0.055 white fill inside a
+   0.16 white border. On the light theme that is white on white, so the game and
+   playgroup cards were invisible against their pane. Same treatment as the
+   collection's KPI boxes: a white gradient with a near-white edge, separated
+   from the background by a real drop shadow rather than by fill alone. */
+[data-theme="light"] body.glass-mode :is(.game-card, .pg-card, .lb-tile) {
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.10) 0%, rgba(var(--lgx2), 0.05) 60%, rgba(var(--lgx2), 0.04) 100%),
+    linear-gradient(180deg, rgba(255,255,255,0.65) 0%, rgba(255,255,255,0.5) 60px, rgba(255,255,255,0.5) 100%);
+  border-color: rgba(255, 255, 255, 0.8);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 8px 28px rgba(30, 50, 90, 0.12);
+}
+[data-theme="light"] body.glass-mode .game-card:hover {
+  border-color: rgba(var(--lgx1), 0.5);
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.16) 0%, rgba(var(--lgx2), 0.08) 60%, rgba(var(--lgx2), 0.06) 100%),
+    linear-gradient(180deg, rgba(255,255,255,0.8) 0%, rgba(255,255,255,0.62) 60px, rgba(255,255,255,0.62) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 12px 34px rgba(30, 50, 90, 0.18);
+}
+[data-theme="light"] body.glass-mode .game-card.is-selected {
+  border-color: rgba(var(--lgx2), 0.6);
+  background:
+    linear-gradient(135deg, rgba(var(--lgx1), 0.18), rgba(var(--lgx2), 0.18)),
+    linear-gradient(180deg, rgba(255,255,255,0.7) 0%, rgba(255,255,255,0.55) 60px, rgba(255,255,255,0.55) 100%);
+}
+/* Row washes and the win-rate track are white-on-white in light mode too. */
+[data-theme="light"] .lb-row:not(.lb-head):nth-child(even) { background: rgba(20, 35, 60, 0.04); }
+[data-theme="light"] .lb-bar { background: rgba(20, 35, 60, 0.12); }
+[data-theme="light"] body.glass-mode .gsum-row.is-active { background: rgba(20, 35, 60, 0.06); }
+[data-theme="light"] .lb-head { border-bottom-color: rgba(20, 35, 60, 0.14); }
+
+/* ── Tablet view controls: the deck-list button, exactly ───────────────────
+   Every button in the scoreboard and its two popup menus now takes the same
+   fill, border, radius, text colour and shadow as a deck-list button
+   (#deckListFilterToggleBtn is the reference). They had drifted to three
+   different backgrounds — 0.075, 0.08 and transparent — the ⋯ carried no button
+   treatment at all, and none had the inset highlight. The scoreboard sets a lot
+   of this inline, so !important is what actually lands it. */
+body.glass-mode #tabletView .tablet-life-btn,
+body.glass-mode #tabletView .tablet-turn-btn,
+body.glass-mode #tabletView .tablet-dots-btn,
+body.glass-mode #tabletView .tablet-center-box button,
+body.glass-mode .tablet-player-menu button,
+body.glass-mode .tablet-player-menu input,
+body.glass-mode .tablet-drag-menu button,
+body.glass-mode .tablet-drag-menu input {
+  border: 1px solid rgba(255,255,255,0.16) !important;
+  border-radius: 8px !important;
+  background: rgba(255,255,255,0.07) !important;
+  color: rgba(240,244,252,0.82) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 2px 10px rgba(0,0,0,0.22) !important;
+}
+body.glass-mode #tabletView .tablet-life-btn:hover,
+body.glass-mode #tabletView .tablet-life-btn:active,
+body.glass-mode #tabletView .tablet-turn-btn:hover,
+body.glass-mode #tabletView .tablet-dots-btn:hover,
+body.glass-mode #tabletView .tablet-center-box button:hover,
+body.glass-mode .tablet-player-menu button:hover,
+body.glass-mode .tablet-drag-menu button:hover {
+  color: #fff !important;
+  border-color: rgba(255,255,255,0.34) !important;
+  background: rgba(255,255,255,0.14) !important;
+}
+body.glass-mode #tabletView .tablet-turn-btn.active,
+body.glass-mode .tablet-player-menu button.active,
+body.glass-mode .tablet-drag-menu button.active {
+  color: #fff !important;
+  border-color: rgba(255,255,255,0.45) !important;
+  background: rgba(255,255,255,0.18) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.28), 0 2px 14px rgba(0,0,0,0.25) !important;
+}
+
+/* The same controls on the light theme. Every one of them was drawing
+   near-white text on a 7%-white fill, which on white is nothing at all: the
+   life buttons read as empty boxes and the ⋯ was invisible. */
+[data-theme="light"] body.glass-mode #tabletView .tablet-life-btn,
+[data-theme="light"] body.glass-mode #tabletView .tablet-turn-btn,
+[data-theme="light"] body.glass-mode #tabletView .tablet-dots-btn,
+[data-theme="light"] body.glass-mode #tabletView .tablet-center-box button,
+[data-theme="light"] body.glass-mode .tablet-player-menu button,
+[data-theme="light"] body.glass-mode .tablet-player-menu input,
+[data-theme="light"] body.glass-mode .tablet-drag-menu button,
+[data-theme="light"] body.glass-mode .tablet-drag-menu input {
+  border: 1px solid rgba(20, 35, 60, 0.14) !important;
+  background: rgba(255, 255, 255, 0.72) !important;
+  color: var(--text2) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 2px 8px rgba(30, 50, 90, 0.10) !important;
+}
+[data-theme="light"] body.glass-mode #tabletView .tablet-life-btn:hover,
+[data-theme="light"] body.glass-mode #tabletView .tablet-life-btn:active,
+[data-theme="light"] body.glass-mode #tabletView .tablet-turn-btn:hover,
+[data-theme="light"] body.glass-mode #tabletView .tablet-dots-btn:hover,
+[data-theme="light"] body.glass-mode #tabletView .tablet-center-box button:hover,
+[data-theme="light"] body.glass-mode .tablet-player-menu button:hover,
+[data-theme="light"] body.glass-mode .tablet-drag-menu button:hover {
+  color: var(--text) !important;
+  border-color: rgba(20, 35, 60, 0.26) !important;
+  background: rgba(255, 255, 255, 0.95) !important;
+}
+[data-theme="light"] body.glass-mode #tabletView .tablet-turn-btn.active,
+[data-theme="light"] body.glass-mode .tablet-player-menu button.active,
+[data-theme="light"] body.glass-mode .tablet-drag-menu button.active {
+  color: var(--text) !important;
+  border-color: rgba(var(--lgx1), 0.5) !important;
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.16), rgba(var(--lgx2), 0.16)) !important;
+}
+
+/* ── Tablet cell order: life, buttons, then the player's name row ──────────
+   The name, ⋯ and turn clock sit under the counter buttons now — the life total
+   and the controls you actually touch get the top of the cell, and the label
+   reads as a footer for it. Ordering is done here rather than by moving the
+   markup so the ⋯ menu's anchor, the drag handlers and the name-bar rotation
+   maths all keep working unchanged. */
+#tabletView .tablet-cell .tablet-life-block { order: 1; }
+#tabletView .tablet-cell .tablet-btn-bar    { order: 2; }
+#tabletView .tablet-cell .tablet-name-bar   { order: 3; }
+
+/* Life numerals: the app's own face, raised slightly like the theme bars —
+   a light top edge over a soft drop, not an outline or a glow. */
+body.glass-mode #tabletView .tablet-life-num {
+  font-family: var(--glass-font) !important;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.035em;
+  /* A hair over 1 so the glyph box is not clipped by .tablet-cell's overflow;
+     much more than this and the box starts eating the cell's height budget. */
+  line-height: 1.05 !important;
+  text-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.30),
+    0 3px 10px rgba(0, 0, 0, 0.38) !important;
+}
+[data-theme="light"] body.glass-mode #tabletView .tablet-life-num {
+  text-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.85),
+    0 3px 10px rgba(30, 50, 90, 0.20) !important;
+}
+
+/* Commander damage: the opponent's colour is the label. No pill, no dot. */
+#tabletView .tablet-cmd-dmg {
+  font-family: var(--glass-font);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: clamp(0.85rem, 2.1vw, 1.35rem);
+  line-height: 1.1;
+  padding: 0 clamp(3px, 0.7vw, 7px);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+}
+#tabletView .tablet-cmd-dmg.is-danger { text-decoration: underline; text-underline-offset: 3px; }
 
 /* Centre hub — floating frosted widget (inline-styled, hence the !important) */
 body.glass-mode .tablet-center-box {
@@ -10497,7 +12303,9 @@ body.glass-mode .tablet-center-box {
   -webkit-backdrop-filter: blur(26px) saturate(180%) !important;
   backdrop-filter: blur(26px) saturate(180%) !important;
   border-color: rgba(255,255,255,0.18) !important;
-  border-radius: 22px !important;
+  /* It was carrying the seat cells' 22px, which next to its own 8px buttons read
+     as the roundest thing on the table. 14px keeps it a panel without that. */
+  border-radius: 14px !important;
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.18),
     0 14px 44px rgba(0,0,0,0.45);
@@ -10509,7 +12317,7 @@ body.glass-mode .tablet-center-timer {
   font-variant-numeric: tabular-nums;
 }
 body.glass-mode .tablet-center-turn {
-  color: var(--glass-accent) !important;
+  /* No colour here — the inline style carries the active player's. */
   font-weight: 600;
 }
 body.glass-mode .tablet-turn-btn { border-radius: 999px !important; }
@@ -10616,38 +12424,39 @@ body.glass-mode :is(input:not([type="checkbox"]):not([type="radio"]):not([type="
    Glass, light theme: tablet view + menus + modals
    ──────────────────────────────────────────────────────────────────────────── */
 [data-theme="light"] body.glass-mode #tabletView {
-  background:
-    radial-gradient(42% 38% at 16% 10%, rgba(120,170,255,0.5), transparent 70%),
-    radial-gradient(46% 42% at 84% 16%, rgba(190,160,255,0.42), transparent 70%),
-    radial-gradient(52% 48% at 76% 88%, rgba(120,225,200,0.38), transparent 70%),
-    radial-gradient(38% 34% at 10% 80%, rgba(255,200,150,0.35), transparent 70%),
-    linear-gradient(180deg, #eef2fa 0%, #e8edf8 55%, #eaeef6 100%);
+  background: linear-gradient(180deg, #eef2fa 0%, #e8edf8 55%, #eaeef6 100%);
   --glass-accent: #1668d8;
-  --glass-life-hi: #17202e;
-  --glass-life-mid: #b07f1e;
+  /* The turn clocks' grey, not ink: a full life total is the calmest thing on
+     the board and only earns its colour as it falls. */
+  --glass-life-hi: rgba(28, 40, 58, 0.5);
+  --glass-life-mid: #a8544a;
   --glass-life-low: #d0641e;
   --glass-life-crit: #d84a3a;
 }
+/* Same idea on white: the seat's hue over the light glass, stronger on turn.
+   Lower mixes than the dark theme — the same alpha over white reads far louder. */
 [data-theme="light"] body.glass-mode #tabletView .tablet-cell {
-  border-color: rgba(255,255,255,0.65) !important;
-  background: rgba(255,255,255,0.50) !important;
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.9),
-    0 8px 28px rgba(30,50,90,0.14);
+  border-color: transparent !important;
+  background:
+    linear-gradient(160deg,
+      var(--lw1, color-mix(in oklab, var(--seat, #1668d8) 14%, transparent)) 0%,
+      var(--lw2, color-mix(in oklab, var(--seat, #1668d8) 6%, transparent)) 60%,
+      var(--lw3, transparent) 100%),
+    rgba(255,255,255,0.38) !important;
+  box-shadow: none;
 }
 [data-theme="light"] body.glass-mode #tabletView .tablet-cell[data-active="1"] {
-  border-color: rgba(22,104,216,0.55) !important;
+  border-color: transparent !important;
   background:
-    radial-gradient(120% 90% at 50% 45%, rgba(90,162,255,0.18) 0%, transparent 70%),
-    rgba(255,255,255,0.50) !important;
-  box-shadow:
-    inset 0 0 0 3px rgba(22,104,216,0.45),
-    inset 0 1px 0 rgba(255,255,255,0.9),
-    0 0 36px rgba(22,104,216,0.15),
-    0 8px 28px rgba(30,50,90,0.14) !important;
+    linear-gradient(160deg,
+      var(--lwa1, color-mix(in oklab, var(--seat, #1668d8) 30%, transparent)) 0%,
+      var(--lwa2, color-mix(in oklab, var(--seat, #1668d8) 17%, transparent)) 65%,
+      var(--lwa3, color-mix(in oklab, var(--seat, #1668d8) 9%, transparent)) 100%),
+    rgba(255,255,255,0.40) !important;
+  box-shadow: none !important;
 }
-[data-theme="light"] body.glass-mode #tabletView .tablet-cell--pie { box-shadow: none !important; }
-[data-theme="light"] body.glass-mode .tablet-name-bar { border-bottom-color: rgba(20,35,60,0.10) !important; }
+[data-theme="light"] body.glass-mode #tabletView .tablet-cell--pie,
+[data-theme="light"] body.glass-mode #tabletView .tablet-cell--pie[data-active="1"] { box-shadow: none !important; }
 [data-theme="light"] body.glass-mode .tablet-btn-bar { border-top-color: rgba(20,35,60,0.10) !important; }
 [data-theme="light"] body.glass-mode .tablet-life-num {
   text-shadow: 0 4px 18px rgba(30,50,90,0.15) !important;
@@ -11377,32 +13186,28 @@ body.glass-mode .deck-grid-placeholder { font-family: var(--glass-font); }
 /* ────────────────────────────────────────────────────────────────────────────
    Glass: collection KPI tiles — proper glass widgets
    ──────────────────────────────────────────────────────────────────────────── */
+/* The same box as the leaderboard tiles and the Commander Gameplan turn boxes:
+   the blue→purple tint over white frost at 12px, not a white-only gradient at
+   20px with a specular streak across it. */
 body.glass-mode .stat-card {
   position: relative;
   overflow: hidden;
-  background: linear-gradient(150deg, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.04) 45%, rgba(255,255,255,0.07) 100%);
-  border: 1px solid rgba(255,255,255,0.16);
-  border-radius: 20px;
-  padding: 1.05rem 1rem 0.95rem;
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.13) 0%, rgba(var(--lgx2), 0.06) 60%, rgba(var(--lgx2), 0.04) 100%),
+    linear-gradient(180deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.05) 60px, rgba(255,255,255,0.05) 100%);
+  border: 1px solid rgba(255,255,255,0.20);
+  border-radius: 12px;
+  padding: 14px 18px 16px;
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.22),
-    inset 0 0 0.5px rgba(255,255,255,0.12),
-    0 10px 32px rgba(0,0,0,0.30);
-}
-/* Static specular sheen across the face */
-body.glass-mode .stat-card::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: linear-gradient(115deg, transparent 30%, rgba(255,255,255,0.10) 44%, rgba(255,255,255,0.02) 56%, transparent 70%);
+    inset 0 1px 0 rgba(255,255,255,0.20),
+    0 8px 28px rgba(0,0,0,0.35);
 }
 body.glass-mode .stat-card:hover {
-  border-color: rgba(255,255,255,0.28);
+  border-color: rgba(255,255,255,0.30);
   transform: translateY(-2px);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.26),
-    0 14px 40px rgba(0,0,0,0.38);
+    0 12px 34px rgba(0,0,0,0.42);
 }
 body.glass-mode .stat-val {
   font-family: var(--glass-font);
@@ -11421,20 +13226,175 @@ body.glass-mode .stat-label {
   margin-top: 6px;
 }
 [data-theme="light"] body.glass-mode .stat-card {
-  background: linear-gradient(150deg, rgba(255,255,255,0.78) 0%, rgba(255,255,255,0.48) 45%, rgba(255,255,255,0.62) 100%);
-  border-color: rgba(255,255,255,0.88);
+  background:
+    linear-gradient(180deg, rgba(var(--lgx1), 0.10) 0%, rgba(var(--lgx2), 0.05) 60%, rgba(var(--lgx2), 0.04) 100%),
+    linear-gradient(180deg, rgba(255,255,255,0.65) 0%, rgba(255,255,255,0.5) 60px, rgba(255,255,255,0.5) 100%);
+  border-color: rgba(255,255,255,0.8);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.95),
-    0 10px 32px rgba(30,50,90,0.14);
-}
-[data-theme="light"] body.glass-mode .stat-card::after {
-  background: linear-gradient(115deg, transparent 30%, rgba(255,255,255,0.55) 44%, rgba(255,255,255,0.12) 56%, transparent 70%);
+    0 8px 28px rgba(30,50,90,0.12);
 }
 [data-theme="light"] body.glass-mode .stat-card:hover {
   border-color: rgba(20,35,60,0.16);
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.98),
-    0 14px 40px rgba(30,50,90,0.20);
+    0 12px 34px rgba(30,50,90,0.18);
+}
+
+/* ── Glass: collection page controls ───────────────────────────────────────
+   The KPI cards, filter chips, view toggle and tile badges were still on the
+   pre-glass gold accent for hover and active — the last gold left on this page.
+   Same blue→purple states as every other toggle in the app. */
+body.glass-mode .stat-card:hover {
+  border-color: rgba(var(--lgx1), 0.42);
+}
+body.glass-mode .filter-chip:hover {
+  color: var(--text);
+  border-color: rgba(var(--lgx1), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14));
+}
+body.glass-mode .filter-chip.active {
+  color: var(--text);
+  font-weight: 600;
+  border-color: rgba(var(--lgx2), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.22), rgba(var(--lgx2), 0.22));
+}
+body.glass-mode .view-toggle button.active {
+  color: var(--text);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.22), rgba(var(--lgx2), 0.22));
+}
+body.glass-mode .view-toggle button:hover:not(.active) {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+/* Collection controls: squared, and blue→purple for every lit state.
+   The chips already used the accent, but .btn-outline and the view toggle fell
+   back to the skin's white hover/active fills, so hovering a chip and hovering
+   the button beside it lit up two different colours. Scoped to this tab. */
+#tab-collection .btn,
+#tab-collection .view-toggle,
+#tab-collection .glass-dd-btn,
+#tab-collection .view-controls .search-box,
+#tab-collection .view-controls select,
+#tab-collection #cmcMinInput,
+#tab-collection #cmcMaxInput,
+/* :not(.coll-top-btn) — Refresh and Filter are the rounded high-level pair,
+   same as the collection's; everything else in the header is squared. */
+#tab-sets .btn:not(.coll-top-btn),
+#tab-sets .view-toggle,
+#tab-sets .search-box,
+#tab-wishlist .view-controls .btn:not(.coll-top-btn),
+#tab-wishlist .view-toggle,
+#tab-wishlist .search-box,
+#tab-trade .view-controls .btn,
+#tab-trade .view-toggle,
+#tab-trade .search-box,
+#tab-collection #quickFilterRow select { border-radius: 8px !important; }
+
+/* The height rules on this row target the <select>, but a glassified select is
+   display:none behind a .glass-dd-btn — so the rarity dropdown sat at 28px in a
+   row of 34px chips and buttons. Size the trigger, which is the visible control. */
+#tab-collection .glass-dd-btn {
+  height: 34px !important;
+  box-sizing: border-box;
+  padding: 0 12px !important;
+  font-size: 0.82rem !important;
+}
+
+/* The collection's two modals live outside #tab-collection, so they never got
+   the squared treatment and fell back to glass mode's 999px pill at whatever
+   height btn-sm gave them — Share was a 28px pill beside a 34px email field,
+   and the price modal's dropdowns were 28px. Same 34px / 8px / 0.82rem metrics
+   the tag modals use. Appearance (panel fill, glass buttons, light mode) comes
+   from the shared tag-modal block further down; this is sizing only. The
+   circular close X is left alone: a round icon button is the app's modal-close
+   convention. */
+#collectionShareModal .btn:not(.btn-icon),
+#wishlistShareModal .btn:not(.btn-icon),
+#priceInfoModal .btn:not(.btn-icon) {
+  border-radius: 8px !important;
+  height: 34px !important;
+  box-sizing: border-box;
+  padding: 0 14px !important;
+  font-size: 0.82rem !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+#collectionShareModal input,
+#wishlistShareModal input {
+  height: 34px;
+  box-sizing: border-box;
+  border-radius: 8px;
+}
+
+body.glass-mode .top-action-bar .btn-outline:hover,
+body.glass-mode .collection-top-actions .btn-outline:hover,
+body.glass-mode #tab-collection .btn-outline:hover,
+body.glass-mode #tab-collection .btn-ghost:hover,
+body.glass-mode #tab-collection .view-toggle button:hover:not(.active),
+body.glass-mode #tab-sets .btn-outline:hover,
+body.glass-mode #tab-sets .view-toggle button:hover:not(.active),
+body.glass-mode #tab-wishlist .view-controls .btn-outline:hover,
+body.glass-mode #tab-wishlist .view-toggle button:hover:not(.active),
+body.glass-mode #tab-trade .view-controls .btn-outline:hover,
+body.glass-mode #tab-trade .view-toggle button:hover:not(.active),
+body.glass-mode #tab-collection .glass-dd-btn:hover {
+  color: var(--text);
+  border-color: rgba(var(--lgx1), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14));
+}
+body.glass-mode .top-action-bar .btn-outline.active,
+body.glass-mode .collection-top-actions .btn-outline.active,
+body.glass-mode #tab-collection .btn-outline.active,
+body.glass-mode #tab-collection .view-toggle button.active,
+body.glass-mode #tab-sets .btn-outline.active,
+body.glass-mode #tab-sets .view-toggle button.active,
+body.glass-mode #tab-wishlist .view-controls .btn-outline.active,
+body.glass-mode #tab-wishlist .view-toggle button.active,
+body.glass-mode #tab-trade .view-controls .btn-outline.active,
+body.glass-mode #tab-trade .view-toggle button.active {
+  color: var(--text);
+  border-color: rgba(var(--lgx2), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.22), rgba(var(--lgx2), 0.22));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
+}
+/* Clear stays red — it undoes filters rather than being one. */
+body.glass-mode #tab-collection #clearChipsBtn:hover {
+  border-color: rgba(255, 122, 107, 0.45);
+  background: rgba(255, 90, 74, 0.18);
+}
+/* Copies-in-collection chip on a tile: neutral glass rather than a gold pill. */
+body.glass-mode .price-qty {
+  background: rgba(255, 255, 255, 0.16);
+  color: var(--text);
+}
+[data-theme="light"] body.glass-mode .price-qty {
+  background: rgba(20, 35, 60, 0.10);
+  color: #17202e;
+}
+/* Star: quiet outline when unset, the app's accent when set — it was a gold
+   glyph with a gold stroke, which read as the loudest thing on the page. */
+body.glass-mode .card-grid .collection-card-star {
+  color: rgba(238, 243, 252, 0.72);
+  -webkit-text-stroke: 0.6px rgba(255, 255, 255, 0.8);
+}
+body.glass-mode .card-grid .collection-card-star.is-starred {
+  color: color-mix(in oklab, rgb(var(--lgx1)) 55%, rgb(var(--lgx2)));
+  -webkit-text-stroke: 0;
+}
+
+.set-browse-card {
+  position: relative;
+  cursor: pointer;
+  overflow: hidden;
+  border-radius: 5.6% / 4%;
+  transition: transform 0.2s var(--ease), box-shadow 0.2s var(--ease);
+}
+.set-browse-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
 }
 
 /* Card tiles keep card-like corners — exempt from the rounder --radius2 remap
@@ -11738,7 +13698,21 @@ body.glass-mode .card-detail-text {
    not the collection size. */
 #cardGrid .card-item {
   content-visibility: auto;
-  contain-intrinsic-size: auto 180px auto 300px;
+  /* The estimate has to match what a tile actually measures, or every tile lays
+     out at the guess and then snaps to its real size — which is what made row 2
+     and everything under it drop and spring back on load. A tile is
+     width / 0.715 (.card-img-wrap's aspect-ratio) plus ~34px of meta and border,
+     so the pair has to be self-consistent: 180x300 implied a 252px-tall image
+     under a 180px-wide tile, while the real grid column is ~165px and the tile
+     measured 262. These numbers are that relationship. */
+  contain-intrinsic-size: auto 165px auto 265px;
+}
+/* The first screenful never gets to use an estimate. `auto` remembers each
+   tile's real size after its first render, so tiles further down correct
+   themselves once and stay correct; it is only the initial paint that has
+   nothing to remember, and that is exactly where the jump was visible. */
+#cardGrid .card-item:nth-child(-n + 24) {
+  content-visibility: visible;
 }
 
 
@@ -12574,6 +14548,23 @@ body.glass-mode #deckTabPane-suggestions .suggest-why-detail {
 .suggest-col-score { min-width: 3.4rem; text-align: center; flex-shrink: 0; }
 .suggest-col-card { flex: 1; min-width: 0; }
 .suggest-col-actions { flex-shrink: 0; text-align: right; }
+/* Over-100 count beside "Suggested Cuts": plain red text rather than a pill. */
+.deck-over-count {
+  margin-left: 0.6rem;
+  color: var(--red);
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.deck-over-count:empty { display: none; }
+/* Add and Cut share a footprint so the Card column ends at the same x in both
+   lists — "Cut" is a shorter word than "+ Add" and the name column was
+   absorbing the difference. min-width, so a longer label ("Don't add") still
+   grows past it. */
+.suggest-item .cut-candidate-row .btn.btn-outline {
+  min-width: 4.4rem;
+  justify-content: center;
+}
 
 /* Card names inside score details open the inspector. */
 .why-card-link {
@@ -12796,6 +14787,10 @@ body.glass-mode #deckTabPane-design .mc-filter-btn.active,
   color: rgb(var(--tp-rgb));
   box-shadow: none;
 }
+/* Assigned and unassigned differ only in colour. The inset top highlight was on
+   the assigned state alone, and against the clipped left point it read as the
+   chip sitting slightly right of its neighbours with a sliver beside it. */
+#deckCardTagModal #deckCardTagList .btn { box-shadow: none; }
 #deckCardTagModal #deckCardTagList .btn:hover { filter: brightness(1.15); }
 /* The delete ✕ inside a manager tag stays a plain glyph. */
 #deckTagManagerModal #deckTagManagerList .tag .btn,
@@ -12836,15 +14831,18 @@ body.glass-mode #deckTabPane-design .mc-filter-btn.active,
 }
 
 /* Tag modals: no solid blue controls, and the panel takes the lit glass the
-   rest of the deck builder uses rather than the flat modal fill. */
-body.glass-mode :is(#deckCardTagModal, #deckTagManagerModal) .modal {
+   rest of the deck builder uses rather than the flat modal fill.
+   The collection's Share / Collection Value modals are in the same list so they
+   are the same surface rather than a near-miss of it — same lit panel, same
+   glass buttons, same light-mode pair. */
+body.glass-mode :is(#deckCardTagModal, #deckTagManagerModal, #priceInfoModal, #collectionShareModal, #wishlistShareModal) .modal {
   background:
     linear-gradient(180deg, rgba(var(--lgx1), 0.13) 0%, rgba(var(--lgx2), 0.06) 60%, rgba(var(--lgx2), 0.04) 100%),
     linear-gradient(165deg, rgba(34,44,74,0.94) 0%, rgba(20,27,48,0.93) 100%);
   border-color: rgba(255,255,255,0.20);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.20), 0 28px 90px rgba(0,0,0,0.6);
 }
-[data-theme="light"] body.glass-mode :is(#deckCardTagModal, #deckTagManagerModal) .modal {
+[data-theme="light"] body.glass-mode :is(#deckCardTagModal, #deckTagManagerModal, #priceInfoModal, #collectionShareModal, #wishlistShareModal) .modal {
   background:
     linear-gradient(180deg, rgba(var(--lgx1), 0.10) 0%, rgba(var(--lgx2), 0.05) 60%, rgba(var(--lgx2), 0.04) 100%),
     linear-gradient(165deg, rgba(255,255,255,0.94) 0%, rgba(248,250,255,0.93) 100%);
@@ -12852,25 +14850,25 @@ body.glass-mode :is(#deckCardTagModal, #deckTagManagerModal) .modal {
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.95), 0 28px 90px rgba(30,50,90,0.28);
 }
 /* + Tag / filter buttons: glass, not solid blue. */
-:is(#deckCardTagModal, #deckTagManagerModal) :is(.btn-primary, .btn-outline, .btn-ghost):not(.btn-icon) {
+:is(#deckCardTagModal, #deckTagManagerModal, #priceInfoModal, #collectionShareModal, #wishlistShareModal) :is(.btn-primary, .btn-outline, .btn-ghost):not(.btn-icon) {
   border: 1px solid rgba(255,255,255,0.16) !important;
   background: rgba(255,255,255,0.07) !important;
   color: rgba(240,244,252,0.82) !important;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 2px 10px rgba(0,0,0,0.22) !important;
   font-weight: 500;
 }
-[data-theme="light"] :is(#deckCardTagModal, #deckTagManagerModal) :is(.btn-primary, .btn-outline, .btn-ghost):not(.btn-icon) {
+[data-theme="light"] :is(#deckCardTagModal, #deckTagManagerModal, #priceInfoModal, #collectionShareModal, #wishlistShareModal) :is(.btn-primary, .btn-outline, .btn-ghost):not(.btn-icon) {
   border-color: rgba(255,255,255,0.75) !important;
   background: rgba(255,255,255,0.55) !important;
   color: rgba(28,40,58,0.82) !important;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 10px rgba(30,50,90,0.10) !important;
 }
-:is(#deckCardTagModal, #deckTagManagerModal) :is(.btn-primary, .btn-outline, .btn-ghost):not(.btn-icon):hover {
+:is(#deckCardTagModal, #deckTagManagerModal, #priceInfoModal, #collectionShareModal, #wishlistShareModal) :is(.btn-primary, .btn-outline, .btn-ghost):not(.btn-icon):hover {
   color: var(--text) !important;
   border-color: rgba(var(--lgx1), 0.55) !important;
   background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14)) !important;
 }
-:is(#deckCardTagModal, #deckTagManagerModal) :is(.btn-primary, .btn-outline, .btn-ghost):not(.btn-icon).active {
+:is(#deckCardTagModal, #deckTagManagerModal, #priceInfoModal, #collectionShareModal, #wishlistShareModal) :is(.btn-primary, .btn-outline, .btn-ghost):not(.btn-icon).active {
   color: var(--text) !important;
   border-color: rgba(var(--lgx2), 0.55) !important;
   background: linear-gradient(135deg, rgba(var(--lgx1), 0.22), rgba(var(--lgx2), 0.22)) !important;
@@ -12918,7 +14916,9 @@ body.glass-mode :is(#deckCardTagModal, #deckTagManagerModal) .modal {
 #tab-decks .history-tag    { --hist-rgb: var(--lgx2); }
 #tab-decks .history-tag-badge { min-width: 0; justify-content: flex-start; max-width: 140px; }
 
-#tab-decks .history-event-quick-actions .history-row-btn {
+/* Shared by both history panels. These were deck-scoped, so the collection's
+   undo button drew as an empty pill: the icon sizing lives here too. */
+:is(#tab-decks, #collectionHistoryPanel) .history-event-quick-actions .history-row-btn {
   width: 28px;
   height: 28px;
   min-width: 28px;
@@ -12930,26 +14930,26 @@ body.glass-mode :is(#deckCardTagModal, #deckTagManagerModal) .modal {
   justify-content: center;
   flex: 0 0 auto;
 }
-#tab-decks .history-event-quick-actions .history-row-btn svg { width: 14px; height: 14px; }
-body.glass-mode #tab-decks .history-event-quick-actions .history-row-btn {
+:is(#tab-decks, #collectionHistoryPanel) .history-event-quick-actions .history-row-btn svg { width: 14px; height: 14px; }
+body.glass-mode :is(#tab-decks, #collectionHistoryPanel) .history-event-quick-actions .history-row-btn {
   border-color: rgba(255,255,255,0.16);
   background: rgba(255,255,255,0.07);
   color: rgba(240,244,252,0.82);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 2px 10px rgba(0,0,0,0.22);
 }
-[data-theme="light"] body.glass-mode #tab-decks .history-event-quick-actions .history-row-btn {
+[data-theme="light"] body.glass-mode :is(#tab-decks, #collectionHistoryPanel) .history-event-quick-actions .history-row-btn {
   border-color: rgba(255,255,255,0.75);
   background: rgba(255,255,255,0.55);
   color: rgba(28,40,58,0.82);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 10px rgba(30,50,90,0.10);
 }
-body.glass-mode #tab-decks .history-event-quick-actions .history-row-btn:hover,
-[data-theme="light"] body.glass-mode #tab-decks .history-event-quick-actions .history-row-btn:hover {
+body.glass-mode :is(#tab-decks, #collectionHistoryPanel) .history-event-quick-actions .history-row-btn:hover,
+[data-theme="light"] body.glass-mode :is(#tab-decks, #collectionHistoryPanel) .history-event-quick-actions .history-row-btn:hover {
   color: var(--text);
   border-color: rgba(var(--lgx1), 0.55);
   background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14));
 }
-#tab-decks .history-event-quick-actions .history-undo-btn:hover {
+:is(#tab-decks, #collectionHistoryPanel) .history-event-quick-actions .history-undo-btn:hover {
   border-color: rgba(255,90,74,0.55);
   background: rgba(255,90,74,0.18);
   color: #ff8a7a;
@@ -13123,3 +15123,489 @@ body.glass-mode #deckExportModal .modal {
 #deckExportModal .deck-export-check { display: flex; align-items: center; gap: 0.5rem; }
 #deckExportModal .deck-export-opt:hover,
 #deckExportModal .deck-export-check:hover { color: var(--text); }
+
+/* Colour menu rows carry their mana symbol beside the name. */
+.color-menu-item { display: flex; align-items: center; gap: 9px; }
+.color-menu-item img { width: 15px; height: 15px; flex-shrink: 0; }
+
+/* ── Collection header actions ─────────────────────────────────────────────
+   Four high-level buttons above the page, right-aligned: Share, History, Info,
+   Filter. Filter and Info collapse the blocks under them; the other two are
+   plain actions and stay outside that. */
+.collection-top-actions {
+  display: flex;
+  justify-content: flex-end;
+  /* The page title sits left, buttons stay right. */
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 0.85rem;
+}
+.collection-top-actions .page-title { margin-right: auto; }
+/* These are the deck page's high-level buttons — the rounded ones Add cards and
+   Manage Tags use — so they override this tab's squared-off control radius. */
+:is(#tab-collection, #tab-sets, #tab-wishlist) .coll-top-btn {
+  border-radius: 999px !important;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+/* Collection history rows mirror the deck list's. The deck's kind label is plain
+   text; this one carries the +N / −N colour, so it needs to hug its text rather
+   than let the colour class paint the width of the info column. */
+#collectionHistoryPanel .history-event-kind {
+  align-self: flex-start;
+  width: max-content;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.74rem;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 4px;
+  margin-top: 3px;
+}
+#collectionHistoryPanel .history-not-in-coll { display: block; }
+
+/* Shared collection: the inspector states why it offers nothing to change. */
+.card-detail-readonly-note {
+  font-size: 0.8rem;
+  color: var(--text3);
+  padding: 7px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+}
+[data-theme="light"] .card-detail-readonly-note {
+  border-color: rgba(20, 35, 60, 0.14);
+  background: rgba(20, 35, 60, 0.04);
+}
+
+/* ── Wishlist ─────────────────────────────────────────────────────────────── */
+/* The autocomplete was see-through enough to read the grid behind it; it takes
+   the same frosted treatment as the glass menus. */
+.wl-autocomplete {
+  position: fixed;
+  z-index: 9999;
+  max-height: 260px;
+  overflow-y: auto;
+  border-radius: var(--radius2);
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+body.glass-mode .wl-autocomplete {
+  background: rgba(22, 30, 46, 0.97);
+  backdrop-filter: blur(18px) saturate(1.3);
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10), 0 16px 44px rgba(0, 0, 0, 0.55);
+}
+[data-theme="light"] body.glass-mode .wl-autocomplete {
+  background: rgba(252, 253, 255, 0.98);
+  border-color: rgba(20, 35, 60, 0.16);
+  box-shadow: 0 16px 44px rgba(30, 50, 90, 0.18);
+}
+
+/* + / − sit together at the bottom of the tile, same size as the app's icon buttons. */
+.wl-actions { display: flex; gap: 6px; margin-top: 6px; }
+.wishlist-item .wl-actions { margin-top: 0; flex-shrink: 0; }
+.wl-act {
+  width: 28px; height: 28px; padding: 0 !important;
+  font-size: 1rem; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 8px !important;
+}
+body.glass-mode .wl-act--add:hover {
+  color: var(--green);
+  border-color: rgba(90, 184, 90, 0.55);
+  background: rgba(90, 184, 90, 0.16);
+}
+body.glass-mode .wl-act--remove:hover {
+  color: #ff7a6b;
+  border-color: rgba(255, 122, 107, 0.5);
+  background: rgba(255, 90, 74, 0.16);
+}
+
+/* Priority reads as a word, not a colour-only strip — the colour reinforces it. */
+.wl-meta-row {
+  display: flex; align-items: center; gap: 6px; margin-top: 6px;
+}
+.wl-meta-row .wl-actions { margin-top: 0; margin-left: auto; }
+.wl-priority {
+  font-size: 0.6rem; font-weight: 700; letter-spacing: 0.04em;
+  padding: 2px 7px; border-radius: 999px;
+  border: 1px solid transparent; cursor: pointer;
+  background: rgba(10, 14, 22, 0.72); color: var(--text);
+}
+.wishlist-item .wl-priority { position: static; flex-shrink: 0; }
+.wl-priority--high { border-color: rgba(255, 122, 107, 0.7); color: #ff9a8d; }
+.wl-priority--med  { border-color: rgba(var(--lgx1), 0.7); color: rgb(var(--lgx1)); }
+.wl-priority--low  { border-color: rgba(255, 255, 255, 0.28); color: var(--text3); }
+[data-theme="light"] body.glass-mode .wl-priority { background: rgba(255, 255, 255, 0.9); }
+
+.wishlist-toolbar { align-items: center; }
+/* The pane keeps its box; it is the frame the glass skin puts on the message
+   inside it that has to go, so an empty list is one box with a line in it
+   rather than a box inside a box. */
+#wlPane-list.is-empty .empty-state {
+  padding: 1.25rem 0;
+  text-align: left;
+  border: none;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+/* ── Trade: offers as cards, one visibility switch ─────────────────────────── */
+.offers-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+}
+.offer-card {
+  position: relative;
+  display: flex; flex-direction: column; gap: 5px;
+  padding: 11px 12px;
+  border-radius: var(--radius2);
+  border: 1px solid var(--border2);
+  background: var(--bg3);
+  cursor: pointer;
+  transition: border-color 0.15s var(--ease), background 0.15s var(--ease);
+}
+body.glass-mode .offer-card {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.055);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10);
+}
+body.glass-mode .offer-card:hover {
+  border-color: rgba(var(--lgx1), 0.45);
+  background: rgba(255, 255, 255, 0.09);
+}
+[data-theme="light"] body.glass-mode .offer-card {
+  background: linear-gradient(150deg, rgba(255,255,255,0.78) 0%, rgba(255,255,255,0.48) 45%, rgba(255,255,255,0.62) 100%);
+  border-color: rgba(255, 255, 255, 0.88);
+}
+.offer-card-head { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.offer-card-title { font-size: 0.88rem; font-weight: 600; color: var(--text); }
+.offer-card-who { font-size: 0.74rem; color: var(--text3); }
+.offer-card-values {
+  display: flex; align-items: center; gap: 8px;
+  font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; color: var(--text2);
+}
+.offer-card-swap { display: inline-flex; opacity: 0.6; }
+.offer-card-swap svg { width: 13px; height: 13px; }
+.offer-card-del {
+  position: absolute; top: 6px; right: 6px;
+  background: none; border: none; cursor: pointer;
+  color: var(--text3); font-size: 0.8rem; line-height: 1; padding: 3px;
+}
+.offer-card-del:hover { color: #ff7a6b; }
+
+/* An empty section is one grey line in the middle of the pane. The base
+   .trade-empty said as much but was being outranked inside the tab pane. */
+#tab-trade .trade-empty {
+  text-align: center;
+  color: var(--text3);
+  padding: 60px 20px;
+}
+
+/* Visibility is a yes/no, so it looks like one. */
+.trade-settings-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.trade-settings-bar .view-toggle { height: 34px; }
+
+/* ── Global price alert: one threshold either side of "no change" ──────────── */
+.pa-global {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+#tab-trade .pa-global-toggle {
+  height: 34px !important;
+  border-radius: 8px !important;
+  padding: 0 12px !important;
+  font-size: 0.82rem !important;
+}
+.pa-global-readout {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.76rem; color: var(--text3); white-space: nowrap;
+}
+.pa-global.is-on .pa-global-readout { color: var(--text2); }
+
+/* Two inputs, each owning half the track — they sit side by side and never
+   overlap, so they take pointer events normally. They previously did not: only
+   the thumb pseudo-element accepted the pointer, which meant a press a few
+   pixels off the thumb landed on the track and dragged nothing. */
+.pa-dual {
+  position: relative;
+  flex: 1 1 260px; min-width: 200px; max-width: 420px;
+  height: 18px;
+}
+.pa-dual::before {
+  content: ''; position: absolute; left: 0; right: 0; top: 6px; height: 6px;
+  border-radius: 999px;
+  /* Lit between the thumbs, dull outside — the span you are setting reads as
+     the filled one, the way a two-handled range normally does. */
+  background: linear-gradient(to right,
+    rgba(255, 255, 255, 0.14) 0 var(--pa-lo, 30%),
+    rgb(var(--lgx1)) var(--pa-lo, 30%) var(--pa-hi, 70%),
+    rgba(255, 255, 255, 0.14) var(--pa-hi, 70%) 100%);
+  opacity: 0.35;
+  transition: opacity 0.15s var(--ease);
+}
+.pa-global.is-on .pa-dual::before { opacity: 1; }
+.pa-range {
+  position: absolute; inset: 0; width: 100%; height: 18px; margin: 0;
+  -webkit-appearance: none; appearance: none;
+  background: transparent;
+}
+/* The drop thumb runs leftward from the middle, so its track is mirrored. */
+.pa-range--down { transform: scaleX(-1); right: 50%; width: 50%; }
+.pa-range--up { left: 50%; width: 50%; }
+.pa-range::-webkit-slider-runnable-track { height: 6px; background: transparent; }
+.pa-range::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 14px; height: 14px; margin-top: -4px;
+  border: none; border-radius: 50%; cursor: pointer;
+  background: rgb(var(--lgx1));
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+}
+.pa-range::-moz-range-track { height: 6px; background: transparent; }
+.pa-range::-moz-range-thumb {
+  width: 14px; height: 14px;
+  border: none; border-radius: 50%; cursor: pointer;
+  background: rgb(var(--lgx1)); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+}
+.pa-range:disabled::-webkit-slider-thumb { background: var(--text3); cursor: default; }
+.pa-range:disabled::-moz-range-thumb { background: var(--text3); cursor: default; }
+
+/* ── Playgroup member colours ──────────────────────────────────────────────── */
+.pg-member { display: flex; align-items: center; gap: 7px; }
+.pg-swatch {
+  width: 13px; height: 13px; flex-shrink: 0;
+  border-radius: 50%; padding: 0; cursor: pointer;
+  background: var(--sw, var(--text3));
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.18);
+}
+.pg-swatch.is-static { cursor: default; }
+.pg-swatch:hover { box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.22); }
+.pg-color-menu {
+  position: fixed; z-index: 10060;
+  padding: 12px; border-radius: var(--radius2);
+  display: flex; flex-direction: column; gap: 10px;
+  width: 232px;
+  min-width: 0;
+}
+
+/* Saturation across, value down, over the chosen hue — the standard field,
+   drawn here rather than handed to the operating system's dialog. */
+.pgc-field {
+  position: relative; width: 100%; height: 132px;
+  border-radius: 10px; overflow: hidden; cursor: crosshair;
+  background: var(--pgc-hue, hsl(210 100% 50%));
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  touch-action: none;
+}
+.pgc-field-sat, .pgc-field-val { position: absolute; inset: 0; pointer-events: none; }
+.pgc-field-sat { background: linear-gradient(to right, #fff, transparent); }
+.pgc-field-val { background: linear-gradient(to top, #000, transparent); }
+.pgc-cursor {
+  position: absolute; width: 14px; height: 14px; margin: -7px 0 0 -7px;
+  border-radius: 50%; pointer-events: none;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.5);
+  background: var(--pgc-cur, transparent);
+}
+
+.pgc-hue-wrap { padding: 0 1px; }
+.pgc-hue {
+  -webkit-appearance: none; appearance: none;
+  width: 100%; height: 14px; background: transparent; cursor: pointer; margin: 0;
+}
+.pgc-hue::-webkit-slider-runnable-track {
+  height: 10px; border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: linear-gradient(to right, #f00 0%, #ff0 17%, #0f0 33%, #0ff 50%, #00f 67%, #f0f 83%, #f00 100%);
+}
+.pgc-hue::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 14px; height: 14px; margin-top: -3px; border-radius: 50%;
+  background: var(--pgc-hue, #fff); border: 2px solid #fff;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.5);
+}
+.pgc-hue::-moz-range-track {
+  height: 10px; border-radius: 999px;
+  background: linear-gradient(to right, #f00 0%, #ff0 17%, #0f0 33%, #0ff 50%, #00f 67%, #f0f 83%, #f00 100%);
+}
+.pgc-hue::-moz-range-thumb {
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--pgc-hue, #fff); border: 2px solid #fff;
+}
+
+.pgc-foot { display: flex; align-items: center; gap: 7px; }
+.pgc-preview {
+  width: 22px; height: 22px; flex-shrink: 0; border-radius: 6px;
+  background: var(--pgc-cur, #fff);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+.pgc-hex {
+  flex: 1; min-width: 0; height: 28px;
+  font-family: 'JetBrains Mono', monospace; font-size: 0.74rem;
+  border-radius: 8px; padding: 0 8px; box-sizing: border-box;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+}
+.pgc-apply { height: 28px !important; padding: 0 10px !important; font-size: 0.74rem !important; }
+
+.pgc-presets { display: grid; grid-template-columns: repeat(8, 1fr); gap: 5px; }
+.pgc-preset {
+  width: 100%; aspect-ratio: 1; border-radius: 50%; cursor: pointer; padding: 0;
+  background: var(--sw); border: 1px solid rgba(255, 255, 255, 0.28);
+}
+.pgc-preset:hover { border-color: #fff; }
+
+[data-theme="light"] body.glass-mode .pgc-hex {
+  background: rgba(255, 255, 255, 0.7);
+  border-color: rgba(20, 35, 60, 0.16);
+}
+.pg-color-opt {
+  width: 22px; height: 22px; border-radius: 50%; cursor: pointer; padding: 0;
+  background: var(--sw); border: 2px solid transparent;
+}
+.pg-color-opt:hover { border-color: rgba(255, 255, 255, 0.5); }
+.pg-color-opt.selected { border-color: #fff; }
+
+/* ── First-player roll ─────────────────────────────────────────────────────── */
+/* Glass, tinted with whoever is showing, so the spin reads as cycling through
+   the table. It carried a gold Cinzel name on a near-opaque slab before. */
+.fp-roll-card {
+  min-width: min(92vw, 420px);
+  padding: 20px 22px;
+  border-radius: var(--radius2);
+  text-align: center;
+  border: 1px solid color-mix(in oklab, var(--seat, #7aa2ff) 42%, rgba(255, 255, 255, 0.16));
+  background:
+    linear-gradient(160deg,
+      color-mix(in oklab, var(--seat, #7aa2ff) 30%, transparent) 0%,
+      color-mix(in oklab, var(--seat, #7aa2ff) 14%, transparent) 60%,
+      transparent 100%),
+    rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(22px) saturate(1.35);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    0 0 44px color-mix(in oklab, var(--seat, #7aa2ff) 22%, transparent),
+    0 18px 54px rgba(0, 0, 0, 0.45);
+  transition: border-color 0.09s linear, background 0.09s linear, box-shadow 0.2s var(--ease);
+}
+/* On the winner it settles rather than keeping the flicker cadence. */
+.fp-roll-card.is-settled {
+  transition: border-color 0.35s var(--ease), background 0.35s var(--ease), box-shadow 0.35s var(--ease);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    0 0 70px color-mix(in oklab, var(--seat, #7aa2ff) 34%, transparent),
+    0 18px 54px rgba(0, 0, 0, 0.45);
+}
+.fp-roll-label {
+  font-size: 0.7rem; letter-spacing: 0.12em;
+  color: var(--text3); margin-bottom: 10px;
+}
+.fp-roll-name { font-size: 1.5rem; font-weight: 600; min-height: 1.7em; line-height: 1.7; }
+[data-theme="light"] body.glass-mode .fp-roll-card {
+  border-color: color-mix(in oklab, var(--seat, #1668d8) 38%, rgba(255, 255, 255, 0.8));
+  background:
+    linear-gradient(160deg,
+      color-mix(in oklab, var(--seat, #1668d8) 20%, transparent) 0%,
+      color-mix(in oklab, var(--seat, #1668d8) 9%, transparent) 60%,
+      transparent 100%),
+    rgba(255, 255, 255, 0.72);
+}
+
+/* The grid layout's drag source had no marker of its own — only the pie's
+   outline was styled, and that in gold. Both are the app's blue now. */
+.tablet-cell.tablet-seat-drag-source {
+  box-shadow: inset 0 0 0 3px rgba(var(--lgx1), 0.65), 0 0 30px rgba(var(--lgx1), 0.22) !important;
+}
+body.glass-mode #tabletView .tablet-cell.tablet-seat-drag-source {
+  border-color: rgba(var(--lgx1), 0.7) !important;
+}
+
+/* ── Drag-to-deal target ─────────────────────────────────────────────────────
+   A player picked up mid-drag is marked by their life total catching fire, not
+   by a ring round their seat — nothing else in the tablet view has an outline
+   any more and this one read as one. Last in the file and carrying `body` on
+   purpose: the per-theme .tablet-life-num shadows are !important too, and this
+   has to win in both of them. */
+body #tabletView .tablet-cell.tablet-drag-target .tablet-life-num {
+  color: var(--red) !important;
+  text-shadow:
+    0 0 12px color-mix(in oklab, var(--red) 62%, transparent),
+    0 0 34px color-mix(in oklab, var(--red) 36%, transparent),
+    0 0 72px color-mix(in oklab, var(--red) 18%, transparent) !important;
+  transform: scale(1.04);
+}
+
+/* ── Data disclosure footer ─────────────────────────────────────────────────
+   Bottom of every page: who the card, statistic and price data comes from, plus
+   the Wizards fan-content notice. Markup: dataDisclosureHtml() in js/ui.js.
+   Deliberately quiet furniture (ruleset §6) — token colours, one hairline rule,
+   no surface of its own, so it reads the same in all four theme states. */
+.app-footer {
+  max-width: 780px;
+  margin: 2.75rem auto 0;
+  padding-top: 1.1rem;
+  border-top: 1px solid var(--border);
+  text-align: center;
+  font-size: 0.68rem;
+  line-height: 1.65;
+  color: var(--text2);
+}
+.app-footer p { margin: 0; }
+.app-footer .app-footer-legal {
+  margin-top: 0.45rem;
+  color: var(--text3);
+}
+.app-footer a {
+  color: var(--blue2);
+  text-decoration: none;
+  transition: color 0.15s var(--ease);
+}
+.app-footer a:hover { color: var(--blue); text-decoration: underline; }
+
+/* Settings rows that only apply to the phone layout; mobile.css shows them. */
+.settings-mobile-only { display: none; }
+
+/* Glass accent for links — the lgx mix the ruleset calls for, not gold. */
+body.glass-mode .app-footer a {
+  color: color-mix(in oklab, rgb(var(--lgx1)) 55%, rgb(var(--lgx2)));
+}
+body.glass-mode .app-footer a:hover { color: rgb(var(--lgx1)); }
+[data-theme="light"] body.glass-mode .app-footer a { color: var(--blue); }
+[data-theme="light"] body.glass-mode .app-footer a:hover { color: var(--blue2); }
+
+/* Sign-in gate: pinned to the bottom of the fixed overlay so it can never push
+   the auth card off centre. Dropped on short viewports, where the register and
+   reset panels need every pixel. */
+.auth-gate .app-footer {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 0 1.5rem 0.85rem;
+  border-top: none;
+  font-size: 0.64rem;
+}
+@media (max-height: 640px) {
+  .auth-gate .app-footer { display: none; }
+}
+
+/* Public deck page (/d/<token>) — the error state has no deck body to sit under. */
+.pdv-container--footer-only { padding-top: 0; }
+
+@media (max-width: 768px) {
+  .app-footer {
+    margin-top: 2rem;
+    font-size: 0.64rem;
+  }
+}

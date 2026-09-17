@@ -3,25 +3,78 @@
 let _browseDecks = [];
 let _browseQuery = '';
 
-async function renderBrowseDecks() {
+// Opening the tab calls this from two places (showTab in state.js and in
+// ui.js), which fetched the whole listing twice and painted it twice. One
+// in-flight request is shared, and a listing less than a minute old is reused —
+// reopening the tab repaints from what is already here.
+let _browseFetch = null;
+let _browseFetchedAt = 0;
+const BROWSE_TTL_MS = 60_000;
+// The listing survives a reload, so reopening the tab paints the decks you saw
+// last time straight away and the fetch behind it only repaints what changed —
+// the same stale-while-revalidate the collection boots with.
+const BROWSE_CACHE_KEY = 'public_decks_v1';
+
+async function renderBrowseDecks({ force = false } = {}) {
   const grid = document.getElementById('browseDeckGrid');
   const label = document.getElementById('browseCountLabel');
   if (!grid) return;
 
-  grid.innerHTML = '<div style="grid-column:1/-1;padding:2rem;text-align:center;color:var(--text3);font-size:0.85rem">Loading…</div>';
+  const fresh = !force && _browseDecks.length && (Date.now() - _browseFetchedAt) < BROWSE_TTL_MS;
+  if (fresh) { _paintBrowseCount(label); _renderBrowseGrid(); return; }
 
-  try {
+  let painted = false;
+  if (!_browseDecks.length && typeof cacheGet === 'function') {
+    try {
+      const cached = await cacheGet(BROWSE_CACHE_KEY);
+      if (Array.isArray(cached) && cached.length) {
+        _browseDecks = cached;
+        _paintBrowseCount(label);
+        _renderBrowseGrid();
+        painted = true;
+      }
+    } catch (_) { /* no snapshot yet */ }
+  }
+
+  // Opening the tab calls this twice (state.js and ui.js), and the two race:
+  // whichever runs first at boot can read the snapshot before IndexedDB is
+  // ready and get nothing back. So ask the grid what is on it rather than
+  // trusting this call's own view — neither the placeholder nor the error below
+  // may paint over a listing the other call has already put up.
+  const gridHasCards = () => !!grid.querySelector('.pubdeck-card');
+
+  if (!_browseFetch) {
+    if (!painted && !gridHasCards()) {
+      grid.innerHTML = '<div style="grid-column:1/-1;padding:2rem;text-align:center;color:var(--text3);font-size:0.85rem">Loading…</div>';
+    }
     const base = (document.querySelector('meta[name="mtg-api-base"]')?.content || 'http://localhost:3001/api');
-    const res = await fetch(`${base}/decks/public`, { credentials: 'include' });
-    if (!res.ok) throw new Error(await res.text());
-    _browseDecks = await res.json();
+    _browseFetch = fetch(`${base}/decks/public`, { credentials: 'include' })
+      .then(async res => {
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+      })
+      .finally(() => { _browseFetch = null; });
+  }
+  const pending = _browseFetch;
+  try {
+    _browseDecks = await pending;
+    _browseFetchedAt = Date.now();
+    if (typeof cacheSet === 'function') void cacheSet(BROWSE_CACHE_KEY, _browseDecks);
   } catch (e) {
+    // A snapshot on screen is better than an error over the top of it.
+    if (painted || gridHasCards()) return;
     grid.innerHTML = `<div style="grid-column:1/-1;padding:2rem;text-align:center;color:var(--red);font-size:0.85rem">Could not load public decks: ${e.message}</div>`;
     return;
   }
 
-  if (label) label.textContent = _browseDecks.length ? `${_browseDecks.length} public deck${_browseDecks.length !== 1 ? 's' : ''}` : '';
+  _paintBrowseCount(label);
   _renderBrowseGrid();
+}
+
+function _paintBrowseCount(label) {
+  if (!label) return;
+  label.textContent = _browseDecks.length
+    ? `${_browseDecks.length} public deck${_browseDecks.length !== 1 ? 's' : ''}` : '';
 }
 
 function filterBrowseDecks(q) {
@@ -29,26 +82,69 @@ function filterBrowseDecks(q) {
   _renderBrowseGrid();
 }
 
+// Painting the whole listing at once meant ~350 KiB of markup and 200-odd card
+// boxes laid out before the first one could be read. Cards come in a page at a
+// time, the next page arriving as the sentinel at the foot of the grid scrolls
+// into view. Filtering restarts from the first page.
+const BROWSE_PAGE = 24;
+let _browseShown = 0;
+let _browseVisible = [];
+let _browseMoreObserver = null;
+
+function _browseMatches(q) {
+  if (!q) return _browseDecks;
+  return _browseDecks.filter(d =>
+    (d.name || '').toLowerCase().includes(q) ||
+    (d.format || '').toLowerCase().includes(q) ||
+    (d.commander || '').toLowerCase().includes(q) ||
+    (d.ownerEmail || '').toLowerCase().includes(q)
+  );
+}
+
 function _renderBrowseGrid() {
   const grid = document.getElementById('browseDeckGrid');
   if (!grid) return;
 
-  const q = _browseQuery;
-  const visible = q
-    ? _browseDecks.filter(d =>
-        (d.name || '').toLowerCase().includes(q) ||
-        (d.format || '').toLowerCase().includes(q) ||
-        (d.commander || '').toLowerCase().includes(q) ||
-        (d.ownerEmail || '').toLowerCase().includes(q)
-      )
-    : _browseDecks;
+  _browseVisible = _browseMatches(_browseQuery);
+  _browseShown = 0;
+  _browseMoreObserver?.disconnect();
+  _browseMoreObserver = null;
 
-  if (!visible.length) {
+  if (!_browseVisible.length) {
     grid.innerHTML = '<div style="grid-column:1/-1;padding:3rem;text-align:center;color:var(--text3);font-size:0.85rem">No public decks found.</div>';
     return;
   }
 
-  grid.innerHTML = visible.map(d => _browseDeckCard(d)).join('');
+  grid.innerHTML = '';
+  _browseAppendPage();
+}
+
+function _browseAppendPage() {
+  const grid = document.getElementById('browseDeckGrid');
+  if (!grid) return;
+  const next = _browseVisible.slice(_browseShown, _browseShown + BROWSE_PAGE);
+  if (!next.length) return;
+  _browseShown += next.length;
+
+  document.getElementById('browseMoreSentinel')?.remove();
+  grid.insertAdjacentHTML('beforeend', next.map(d => _browseDeckCard(d)).join(''));
+
+  if (_browseShown >= _browseVisible.length) {
+    _browseMoreObserver?.disconnect();
+    _browseMoreObserver = null;
+    return;
+  }
+  grid.insertAdjacentHTML('beforeend',
+    '<div id="browseMoreSentinel" style="grid-column:1/-1;height:1px"></div>');
+  const sentinel = document.getElementById('browseMoreSentinel');
+  if (!_browseMoreObserver) {
+    // A tall root margin so the next page is already in the DOM by the time the
+    // reader reaches it — the point is never to see the seam.
+    _browseMoreObserver = new IntersectionObserver(entries => {
+      if (entries.some(e => e.isIntersecting)) _browseAppendPage();
+    }, { rootMargin: '800px 0px' });
+  }
+  _browseMoreObserver.observe(sentinel);
 }
 
 function _ownerLabel(email) {
@@ -57,24 +153,66 @@ function _ownerLabel(email) {
   return at > 0 ? email.slice(0, at) : (email || 'unknown');
 }
 
-function _browseDeckCard(d) {
-  const pips  = colorPips(d.colorIdentity || []);
-  const combo = colorComboName(d.colorIdentity || []);
+/** Deck value, short enough to sit on one line beside the card count. */
+function _browseDeckPrice(v) {
+  const n = Number(v) || 0;
+  if (!n) return '';
+  return n >= 1000
+    ? '$' + Math.round(n).toLocaleString('en-US')
+    : '$' + n.toFixed(2);
+}
 
+/**
+ * The semantics readout, worded and coloured exactly as the Suggestions tab
+ * words it: the goal and its match, the secondary goal when there is a real
+ * one, and the engine's one-line summary underneath.
+ */
+function _browseGoalHtml(goal) {
+  if (!goal || !goal.label) return '';
+  const pct = p => Math.round((Number(p) || 0) * 100);
+  const colour = p => (typeof _lgxVerdictColor === 'function'
+    ? _lgxVerdictColor(Number(p) || 0)
+    : 'var(--text2)');
+  const match = p => `<span class="deck-goal-match" style="color:${colour(p)}">${pct(p)}% match</span>`;
+  const second = goal.second && goal.second.label
+    ? `<span class="deck-goal-sep">·</span><span class="pubdeck-goal-kicker">secondary</span>`
+      + `<span class="pubdeck-goal-name pubdeck-goal-name--second">${escapeHtml(goal.second.label)}</span>`
+      + match(goal.second.confidence)
+    : '';
+  return `<div class="pubdeck-goal">
+      <span class="pubdeck-goal-kicker">Deck goal</span><span class="pubdeck-goal-name">${escapeHtml(goal.label)}</span>${match(goal.confidence)}${second}
+    </div>`
+    + (goal.summary ? `<div class="pubdeck-goal-summary">${escapeHtml(goal.summary)}</div>` : '');
+}
+
+function _browseDeckCard(d) {
+  // A card rather than a bare tile: someone else's deck is worth reading about
+  // before opening it, and the commander's art alone said nothing but "this is
+  // a Commander deck". Art on the left at card proportions, everything that
+  // identifies the deck to the right of it.
   const img = d.commanderImage
-    ? `<img src="${escapeHtml(d.commanderImage)}" alt="${escapeHtml(d.name)}" style="width:100%;height:100%;object-fit:cover;object-position:center top">`
-    : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-family:'Cinzel',serif;font-size:0.65rem;color:var(--text3);text-align:center;padding:8px;background:var(--bg4)">${escapeHtml(d.name)}</div>`;
+    ? `<img src="${escapeHtml(d.commanderImage)}" alt="" loading="lazy" decoding="async">`
+    : `<div class="pubdeck-art-fallback">${escapeHtml(d.name)}</div>`;
+
+  const label = `${d.name}${d.format ? ' — ' + d.format : ''}${d.commander ? ' · ' + d.commander : ''}`
+    + ` · ${d.cardCount} cards · ${_ownerLabel(d.ownerEmail)}`;
+  const price = _browseDeckPrice(d.price);
+  const notes = String(d.notes || '').trim();
 
   return `
-    <div class="browse-deck-card" onclick="openBrowseDeckDetail('${d.id}','${d.accountId}')">
-      <div class="browse-deck-img">${img}</div>
-      <div class="browse-deck-overlay">
-        <div class="browse-deck-name">${escapeHtml(d.name)}</div>
-        ${combo ? `<div style="font-family:'Cinzel',serif;font-size:0.75rem;font-weight:600;color:var(--gold);letter-spacing:0.04em;margin-bottom:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(combo)}</div>` : ''}
-        <div class="browse-deck-meta">${escapeHtml(d.format)}${d.commander ? ' · ' + escapeHtml(d.commander) : ''}</div>
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px">
-          <span style="font-size:0.68rem;color:var(--text3)">${d.cardCount} cards · ${escapeHtml(_ownerLabel(d.ownerEmail))}</span>
-          <span style="display:inline-flex;align-items:center;gap:3px">${pips}</span>
+    <div class="pubdeck-card" role="button" tabindex="0"
+      title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}"
+      onclick="openBrowseDeckDetail('${d.id}','${d.accountId}')"
+      onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openBrowseDeckDetail('${d.id}','${d.accountId}')}">
+      <div class="pubdeck-art">${img}</div>
+      <div class="pubdeck-info">
+        <div class="pubdeck-name">${escapeHtml(d.name)}</div>
+        ${d.commander ? `<div class="pubdeck-cmdr">${escapeHtml(d.commander)}</div>` : ''}
+        ${_browseGoalHtml(d.goal)}
+        ${notes ? `<div class="pubdeck-notes">${escapeHtml(notes)}</div>` : ''}
+        <div class="pubdeck-foot">
+          ${price ? `<span class="pubdeck-price">${price}</span>` : ''}
+          <span class="pubdeck-meta">${d.cardCount} cards · ${escapeHtml(d.ownerName || _ownerLabel(d.ownerEmail))}</span>
         </div>
       </div>
     </div>`;
@@ -87,7 +225,15 @@ async function openBrowseDeckDetail(deckId, accountId) {
     const res = await fetch(`${base}/decks/public/${deckId}?accountId=${accountId}`, { credentials: 'include' });
     if (!res.ok) throw new Error('Could not load deck');
     const deck = await res.json();
-    _showPublicDeckModal(deck);
+    // The deck builder itself, read-only — every view and every number the owner
+    // sees. The summary modal this used to open showed a card list and nothing
+    // else. _showPublicDeckModal stays for anything still calling it.
+    const src = (_browseDecks || []).find(d => String(d.id) === String(deckId));
+    if (typeof openDeckReadOnly === 'function') {
+      openDeckReadOnly(deck, { ownerId: accountId, ownerEmail: src?.ownerEmail });
+    } else {
+      _showPublicDeckModal(deck);
+    }
   } catch (e) {
     showNotif('Could not load deck: ' + e.message, true);
   }
@@ -228,6 +374,9 @@ function _pdvErrorHtml() {
       <div class="pdv-empty-title">Deck not available</div>
       <p>This share link is invalid or has been turned off by its owner.</p>
       <button class="btn btn-outline" onclick="location.href='/'">Go to MTG Archive</button>
+    </div>
+    <div class="pdv-container pdv-container--footer-only">
+      ${typeof dataDisclosureHtml === 'function' ? dataDisclosureHtml() : ''}
     </div>`;
 }
 
@@ -285,6 +434,7 @@ function _pdvDeckHtml(deck) {
       ${_pdvStatsHtml(cards)}
       <div class="pdv-decklist">${groupHtml}</div>
       <div class="pdv-footer">Shared via MTG Archive · <a href="/" onclick="event.preventDefault();location.href='/'">Sign in to build your own decks</a></div>
+      ${typeof dataDisclosureHtml === 'function' ? dataDisclosureHtml() : ''}
     </div>`;
 }
 

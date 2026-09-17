@@ -71,18 +71,30 @@ async function main() {
       const disallowed = ['W', 'U', 'B', 'R', 'G'].filter(x => !ci.includes(x));
       const ciSql = disallowed.length
         ? `AND NOT (${disallowed.map(() => `JSON_CONTAINS(c.color_identity_json, ?)`).join(' OR ')})` : '';
+      // Per-axis retrieval, commander-first ranking — mirrors /api/decks/analyze,
+      // including the lazy first-analyze stats fetch.
+      const statsCore = require('./lib/edhrec-stats-core');
+      try { await statsCore.ensureCommanderStats(db, fx.commander); }
+      catch (e) { console.warn('commander stats fetch skipped:', e.message); }
+      const cmdrSlug = statsCore.slugifyCommander(fx.commander);
+      const tribeParam = /^tribal:(.+)$/.exec(String(topGoal?.goal || ''))?.[1]?.toLowerCase() || null;
+      const tribeOrder = tribeParam ? `(NOT (LOWER(COALESCE(x.param, '')) = ?)),` : '';
+      const candSub = wanted.map(() =>
+        `(SELECT c.oracle_id, c.name, c.type_line, c.cmc, c.edhrec_rank, s.ir_json, st.inclusion_pct AS cmdr_pct
+          FROM card_semantics_axes x
+          JOIN scryfall_oracle_cards c ON c.oracle_id = x.oracle_id
+          JOIN card_semantics s ON s.oracle_id = x.oracle_id AND s.status IN ('valid','flagged','manual')
+          LEFT JOIN commander_card_stats st ON st.oracle_id = c.oracle_id AND st.commander_slug = ?
+          WHERE x.kind='provides' AND x.axis = ?
+            AND c.legal_commander = 1 ${ciSql}
+          ORDER BY (st.inclusion_pct IS NULL), st.inclusion_pct DESC, ${tribeOrder} (c.edhrec_rank IS NULL), c.edhrec_rank LIMIT 60)`).join(' UNION ALL ');
       const [cand] = await db.query(
-        `SELECT DISTINCT c.oracle_id, c.name, c.type_line, c.cmc, c.edhrec_rank, s.ir_json
-         FROM card_semantics_axes x
-         JOIN scryfall_oracle_cards c ON c.oracle_id = x.oracle_id
-         JOIN card_semantics s ON s.oracle_id = x.oracle_id AND s.status IN ('valid','flagged','manual')
-         WHERE x.kind='provides' AND x.axis IN (${wanted.map(() => '?').join(',')})
-           AND c.legal_commander = 1 ${ciSql}
-         ORDER BY (c.edhrec_rank IS NULL), c.edhrec_rank LIMIT 400`,
-        [...wanted, ...disallowed.map(d => JSON.stringify(d))]);
+        `SELECT DISTINCT * FROM (${candSub}) u`,
+        wanted.flatMap(ax => [cmdrSlug, ax, ...disallowed.map(d => JSON.stringify(d)), ...(tribeParam ? [tribeParam] : [])]));
       const candidates = cand.map(r => ({
         name: r.name, ir: parseIR(r), cmc: Number(r.cmc) || 0, typeLine: r.type_line,
-        edhrecRank: r.edhrec_rank, price: null, owned: false,
+        edhrecRank: r.edhrec_rank, cmdrPct: r.cmdr_pct != null ? Number(r.cmdr_pct) : null,
+        price: null, owned: false,
       }));
       adds = engine2.recommender.scoreAdds({
         candidates, deckCards, commander, goals: goalsRes.goals, thresholds, roleCounts,

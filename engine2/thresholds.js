@@ -38,6 +38,11 @@ const GOAL_ADJUSTMENTS = {
   lifegain: {},
   control: { Counterspell: 4, 'Board Wipe': 2, Removal: 2, Plan: -8 },
   stax: { Plan: -5, Protection: 2 },
+  // goad/pillowfort decks: deterrents and fogs ARE the plan — a Command-Zone-sized
+  // Protection target reads the deck's engine as surplus (precon audit F3, Nelly).
+  goad: { Protection: 5, 'Board Wipe': 1, Plan: -5 },
+  impulse: { 'Card Draw': -2 }, // impulse cards already count as draw; don't double-demand
+  mill: {},
   voltron: { Protection: 3, Tutor: 2, 'Board Wipe': -1 },
   stompy: { Ramp: 2, Plan: 5 }, // big-creature decks legitimately run more "plan" bodies
   'big-mana': { Ramp: 4, 'Card Draw': 1 },
@@ -95,6 +100,7 @@ const SPEED_BY_GOAL = {
   counters: 50, lifegain: 50, enchantress: 52, artifacts: 52, graveyard: 55,
   landfall: 55, wheels: 55, voltron: 48, combo: 45, reanimator: 58, stompy: 62,
   'group-slug': 55, stax: 60, control: 70, 'big-mana': 75,
+  impulse: 48, goad: 55, mill: 55,
 };
 
 function idealCurveWeights(goal) {

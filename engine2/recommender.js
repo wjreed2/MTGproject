@@ -13,6 +13,13 @@ const th = require('./thresholds');
 const CUT_COUNT = 8;
 const ADD_COUNT = 24;
 
+// Threshold categories that ARE interaction: their cards never earn synergy edges, so
+// cut scoring shields them harder while at/under target (precon audit F3).
+const INTERACTION_CATS = new Set(['Removal', 'Board Wipe', 'Counterspell', 'Protection']);
+// Categories whose cuts are capped at the role's overage (interaction plus draw — the
+// other package guides tell precon owners to grow, not shrink).
+const CAPPED_CUT_CATS = [...INTERACTION_CATS, 'Card Draw'];
+
 // Doubler axis → predicate over provides axes that count as its substrate.
 const _DOUBLER_SUBSTRATE = {
   'token.doubler': (ax) => ax.startsWith('token.') && ax !== 'token.doubler' && ax !== 'token.payoff',
@@ -33,6 +40,24 @@ function isLandCard(c) {
 
 function bucketOf(cmc) { return Math.min(Math.max(Math.floor(Number(cmc) || 0), 0), 7); }
 
+// A need for one graveyard CONSUMER is satisfied by any of them: Entomb's "wants
+// gy.reanimate" really means "someone must USE what I bury" — a commander with
+// gy.matters (Thranduil plays abilities straight from the yard), cast-from-graveyard,
+// or recursion serves that appetite as well as literal reanimation. One-way: providing
+// gy.matters satisfies a reanimate NEED; it does not make the card a reanimator.
+const _GY_CONSUMER_AXES = ['gy.reanimate', 'gy.recursion', 'gy.cast_from', 'gy.matters'];
+const _GY_CONSUMER_SET = new Set(_GY_CONSUMER_AXES);
+function demandSupplyCount(index, axis, param, mode) {
+  let have = matchParam(index.provides.get(axis), param, mode)?.count || 0;
+  if (_GY_CONSUMER_SET.has(axis)) {
+    for (const alt of _GY_CONSUMER_AXES) {
+      if (alt === axis) continue;
+      have += matchParam(index.provides.get(alt), null)?.count || 0;
+    }
+  }
+  return have;
+}
+
 // A need strong enough to headline a "Feeds X" suggestion: hard requirements always,
 // soft wants only with real weight. helps-level appetites (an X spell mildly "wants"
 // ramp) may nudge scores but never read as one card feeding another.
@@ -47,7 +72,7 @@ function strongNeed(criticality, weight) {
 function deckAxisIndex(deckCards, commander) {
   const provides = new Map(); // axis → {count, names[], entries: [{param, count, names[]}]}
   const needs = new Map();    // axis → {count, weight, strong, names[], strongNames[], entries: [...]}
-  const all = commander?.ir ? [...deckCards, { ...commander, qty: 1 }] : deckCards;
+  const all = commander?.ir ? [...deckCards, { ...commander, qty: 1, _isCommander: true }] : deckCards;
   const subEntry = (rec, param) => {
     const key = param == null ? null : String(param).toLowerCase();
     let e = rec.entries.find(x => x.key === key);
@@ -79,8 +104,39 @@ function deckAxisIndex(deckCards, commander) {
         if (rec.strongNames.length < 6) rec.strongNames.push(c.name);
         if (e.strongNames.length < 6) e.strongNames.push(c.name);
       }
-      if (nd.criticality === 'requires') { rec.hard = (rec.hard || 0) + (c.qty || 1); e.hard = (e.hard || 0) + (c.qty || 1); }
+      // The commander's own demand is the plan seed — track it so wantedAxes can
+      // treat it as on-plan even when the top goal's template doesn't mention the
+      // axis (Thranduil wants ELF CARDS IN THE GRAVEYARD; tribal:Elf has no idea).
+      if (c._isCommander) { rec.commanderWeight = (rec.commanderWeight || 0) + (nd.weight || 1); e.commanderWeight = (e.commanderWeight || 0) + (nd.weight || 1); }
+      // A low-weight "requires" is a weak dependency, not a plan anchor: Mosswort
+      // Bridge's w3 body.big requirement made hydras the whole adds list for a
+      // Merfolk deck (precon audit F4). Only substantive requirements count as HARD
+      // demand able to pull an off-plan axis into the wanted set.
+      if (nd.criticality === 'requires' && (nd.weight || 1) >= 4) { rec.hard = (rec.hard || 0) + (c.qty || 1); e.hard = (e.hard || 0) + (c.qty || 1); }
       needs.set(nd.axis, rec);
+    }
+  }
+  // Type-line-satisfiable sources (precon audit F7): a card that IS an Artifact or
+  // Enchantment satisfies artifacts.source / enchantments.source demand by existing.
+  // Puresteel Paladin read as a dead card in a deck with 15 Equipment because zero of
+  // them carried the axis — the type line was the provide. Synthesized only into this
+  // index (demand joins), never into the IRs themselves.
+  for (const c of all) {
+    const tl = String(c.typeLine || '');
+    const addSynth = (axis, param) => {
+      const rec = provides.get(axis) || { count: 0, names: [], entries: [] };
+      rec.count += c.qty || 1;
+      if (rec.names.length < 6) rec.names.push(c.name);
+      const e = subEntry(rec, param);
+      e.count += c.qty || 1;
+      if (e.names.length < 6) e.names.push(c.name);
+      provides.set(axis, rec);
+    };
+    if (/\bArtifact\b/.test(tl) && !(c.ir?.provides || []).some(p => p.axis === 'artifacts.source')) {
+      addSynth('artifacts.source', /\bEquipment\b/.test(tl) ? 'Equipment' : null);
+    }
+    if (/\bEnchantment\b/.test(tl) && !(c.ir?.provides || []).some(p => p.axis === 'enchantments.source')) {
+      addSynth('enchantments.source', /\bAura\b/.test(tl) ? 'Aura' : null);
     }
   }
   // Repeatable commander output — axes the command zone itself keeps supplying.
@@ -242,11 +298,13 @@ function wantedAxes(goal, hist, index, templates, goals) {
   const wanted = new Map(); // axis → {why, gap, params?, permissive?, needers?, neederParams?}
   const all = goals && goals.length ? goals : [{ goal, confidence: 1 }];
   const goalAxes = deckPlanAxes(all, templates); // ≥0.8 set — gates unmet-need wants
-  // Core/support gaps only for CO-PRIMARY goals (top, plus ≥0.95 — a rat deck with
-  // aristocrats at 0.98 wants aristocrats pieces too). Merely-confident hypotheses
-  // (voltron at 0.91 in a swarm deck) may gate claims but must not steer the pool —
-  // goal-inference noise amplifies badly through the 8-slot wanted budget.
-  const coPrimary = all.filter((g, i) => i === 0 || (g.confidence || 0) >= 0.95);
+  // Core/support gaps only for CO-PRIMARY goals: the top goal, plus the RUNNER-UP when
+  // it rides ≥0.95 (a rat deck with aristocrats at 0.98 wants aristocrats pieces too).
+  // Deeper confident hypotheses may gate claims but must not steer the pool — hybrid
+  // precons saturate four or five templates at once, and every extra tied goal that
+  // shops its core gaps drags the adds off plan (precon audit F2: stompy@0.99 put
+  // Eldrazi in an artifacts deck, control@0.98 put 11 counterspells in a rogue deck).
+  const coPrimary = all.filter((g, i) => i === 0 || (i === 1 && (g.confidence || 0) >= 0.95));
   for (const g of coPrimary) {
     const key = String(g?.goal || goal || '');
     const tribalMatch = /^tribal:(.+)$/.exec(key);
@@ -291,10 +349,14 @@ function wantedAxes(goal, hist, index, templates, goals) {
     // is a coincidence), never introduce one. Without this, a protection package
     // saturating voltron dragged artifact tutors into a big-creature deck with zero
     // artifact synergy (Enlightened Tutor at #1), and one energy card made the deck
-    // "want" more energy (Guide of Souls).
-    for (const ax of tpl?.support || []) {
-      const have = hist.providers[ax] || 0;
-      if (have >= 2 && have < 3 && !wanted.has(ax)) wanted.set(ax, { why: 'goal_support', gap: 3 - have });
+    // "want" more energy (Guide of Souls). TOP goal only: a saturated runner-up's
+    // support is where off-plan floods came from (stax@1 second in a goad deck put
+    // 23 graveyard-hate cards in the adds — precon audit F2).
+    if (g === coPrimary[0]) {
+      for (const ax of tpl?.support || []) {
+        const have = hist.providers[ax] || 0;
+        if (have >= 2 && have < 3 && !wanted.has(ax)) wanted.set(ax, { why: 'goal_support', gap: 3 - have });
+      }
     }
   }
   // Unmet needs of cards already in the deck — but only when the demand is real
@@ -307,10 +369,14 @@ function wantedAxes(goal, hist, index, templates, goals) {
     // voltron deck wants ONE carrier and always has it in the command zone
     if (axis === 'voltron.carrier' && index.commanderCarrier) continue;
     for (const grp of rec.entries) {
-      const have = matchParam(index.provides.get(axis), grp.param)?.count || 0;
+      const have = demandSupplyCount(index, axis, grp.param);
       // Unmet demand steers suggestions only when it's on-plan or a hard dependency —
       // off-plan soft wants (however many) stay out of the wanted set entirely.
-      if (have < 2 && grp.weight >= 5 && (goalAxes.has(axis) || (grp.hard || 0) >= 1)) {
+      // EXCEPTION: the commander's own wants (weight ≥3) are on-plan by definition —
+      // the command zone seeds the game plan, and a template can't know that
+      // Thranduil wants Elf cards IN the graveyard rather than recurred from it.
+      const cmdrDemand = (grp.commanderWeight || 0) >= 3;
+      if (have < 2 && (grp.weight >= 5 || cmdrDemand) && (goalAxes.has(axis) || (grp.hard || 0) >= 1 || cmdrDemand)) {
         // Weak wants may aggregate into real demand (three X spells each mildly wanting
         // ramp), but only STRONG needers get cited by name — otherwise the reason reads
         // "Feeds <X spell>" for a card that merely likes having more mana around.
@@ -326,34 +392,48 @@ function wantedAxes(goal, hist, index, templates, goals) {
         } else {
           wanted.set(axis, {
             why: 'unmet_need', gap: 2 - have,
-            params: [grp.param], neederGroups: group ? [group] : [],
+            // Commander-sourced demand is param-permissive: a generic self-mill fills
+            // an Elf deck's graveyard with Elves just fine — only explicit OTHER-param
+            // providers should be excluded.
+            params: [grp.param], permissive: cmdrDemand || undefined,
+            neederGroups: group ? [group] : [],
           });
         }
       }
     }
   }
-  // A deck that saturates its plan still deserves suggestions: fall back to
-  // REINFORCEMENT — the top goal's core axes at a nominal gap, i.e. shop for better
-  // versions and redundancy of what the plan already does, instead of returning an
-  // empty list ("no adds to suggest" for a fully-built Treebeard Food deck).
-  if (!wanted.size) {
-    const m2 = /^tribal:(.+)$/.exec(String(goal || ''));
-    if (m2) {
-      for (const ax of ['tribal.lord', 'tribal.synergy', 'anthem.global']) {
-        wanted.set(ax, { why: 'goal_reinforce', gap: 1, params: [m2[1]], permissive: true });
-      }
-    } else {
-      const tpl2 = templates.find(t => t.key === String(goal || ''));
-      for (const grp of tpl2?.core || []) {
-        for (const ax of _coreAxes(grp, all[0]?.mechanism)) {
-          if (ax === 'voltron.carrier' && index.commanderCarrier) continue;
-          if (!wanted.has(ax)) wanted.set(ax, { why: 'goal_reinforce', gap: 1 });
-        }
+  // REINFORCEMENT — the top goal's core axes at a nominal gap: shop for better
+  // versions and redundancy of what the plan already does. This always runs (axes not
+  // already wanted, appended last so pool trimming drops them first): a saturated top
+  // goal used to contribute NOTHING, leaving fringe demands and runner-up support to
+  // define the whole adds list — an impulse@1 Prosper deck whose wanted set was
+  // sac-fodder wishes never shopped for a single impulse card (precon audit F2).
+  const wasEmpty = !wanted.size;
+  const m2 = /^tribal:(.+)$/.exec(String(goal || ''));
+  if (m2) {
+    for (const ax of ['tribal.lord', 'tribal.synergy', 'anthem.global']) {
+      if (!wanted.has(ax)) wanted.set(ax, { why: 'goal_reinforce', gap: 1, params: [m2[1]], permissive: true });
+    }
+  } else {
+    const tpl2 = templates.find(t => t.key === String(goal || ''));
+    for (const grp of tpl2?.core || []) {
+      for (const ax of _coreAxes(grp, all[0]?.mechanism)) {
+        if (ax === 'voltron.carrier' && index.commanderCarrier) continue;
+        // Reinforce only what the deck already plays (≥2 providers, same bar as
+        // support axes): a core GROUP lists alternative routes to the concept,
+        // and wanting every listed axis introduced sub-themes the deck skipped —
+        // stompy's ramp group made a 0-provider mana.extra_land_drop "wanted",
+        // and the Helga adds list became extra-land-drop cards front to back.
+        if ((hist.providers[ax] || 0) < 2) continue;
+        if (!wanted.has(ax)) wanted.set(ax, { why: 'goal_reinforce', gap: 1 });
       }
     }
+  }
+  if (wasEmpty) {
     // Plus the deck's DOMINANT axes — sub-archetype identity is emergent from the
     // data: 17 Food producers say "Food deck" louder than any template. Density ≥8
-    // keeps incidental axes out; top 2 keeps the reinforcement focused.
+    // keeps incidental axes out; top 2 keeps the reinforcement focused. Only when
+    // nothing else was wanted — a deck with real gaps shops for those first.
     const dominant = Object.entries(hist.providers || {})
       .filter(([ax, n]) => n >= 8 && !wanted.has(ax))
       .sort((a, b) => b[1] - a[1])
@@ -371,8 +451,13 @@ function wantedAxes(goal, hist, index, templates, goals) {
 // Demand qualifies with ≥2 strong needers or any hard requirement, ranked by strong
 // needer count then aggregate weight.
 function poolAxes(wanted, index, cap = 12) {
-  const axes = [...wanted.keys()];
-  const seen = new Set(axes);
+  // The cap has to bind on the WANTED set too, not just the demand axes appended after
+  // it: a deck with many unmet needs plus a six-axis template core produced ~20 axes, and
+  // every one becomes a UNION arm with its own LIMIT 60 (server.js builds the pool query
+  // from this). Map order is insertion order and wantedAxes appends reinforcement last
+  // precisely so trimming drops the expendable entries first.
+  const axes = [...wanted.keys()].slice(0, cap);
+  const seen = new Set(wanted.keys()); // trimmed axes still must not come back as demands
   const demands = [...index.needs.entries()]
     .filter(([ax, rec]) => !seen.has(ax) && ((rec.strong || 0) >= 2 || (rec.hard || 0) >= 1))
     .sort((a, b) => (b[1].strong || 0) - (a[1].strong || 0) || (b[1].weight || 0) - (a[1].weight || 0))
@@ -393,6 +478,7 @@ function scoreCuts({ deckCards, commander, goals, thresholds, roleCounts }) {
 
   // actual curve shares for over-stuffed-bucket detection
   const nonLand = deckCards.filter(c => !isLandCard(c) && !c.isCommander);
+  const landNames = new Set(deckCards.filter(c => isLandCard(c)).map(c => c.name));
   const curveCounts = Array(8).fill(0);
   for (const c of nonLand) curveCounts[bucketOf(c.cmc)] += c.qty || 1;
   const curveTotal = curveCounts.reduce((s, n) => s + n, 0) || 1;
@@ -403,24 +489,54 @@ function scoreCuts({ deckCards, commander, goals, thresholds, roleCounts }) {
   const tribalType = topGoal?.goal?.startsWith('tribal:') ? topGoal.goal.slice(7) : null;
   const tribes = deckTribeSet(goals);
 
+  // Nonbo blame attribution: when ONE card conflicts with a whole package (a mass
+  // aggressor — Necrodominance exiling everything the graveyard plan buries, Rest in
+  // Peace in a reanimator deck), the penalty belongs on the aggressor, not spread
+  // across its victims. The old per-victim −5 told a Thranduil player to cut Buried
+  // Alive while the card actually fighting the deck skated on its draw engine.
+  const nonboCount = new Map();
+  for (const e of interactions.edges) {
+    if (e.type !== 'nonbo') continue;
+    nonboCount.set(e.a, (nonboCount.get(e.a) || 0) + 1);
+    nonboCount.set(e.b, (nonboCount.get(e.b) || 0) + 1);
+  }
+  const massAggressor = (n) => (nonboCount.get(n) || 0) >= 3;
+
   const scored = [];
   for (const c of nonLand) {
     if (!c.ir) continue; // no semantics — never suggest cutting blind
+    // Format staples (Sol Ring class) are never cut suggestions: they carry no synergy
+    // edges by nature, so surplus math bottom-ranks them in any deck — and no upgrade
+    // guide cuts them, they ARE the upgrades (precon audit F3).
+    if ((Number(c.ir.power_level_hint) || 0) >= 5) continue;
     const trace = [];
     let score = 0;
 
-    const syn = synergyDegree(c.name, interactions);
+    let syn = synergyDegree(c.name, interactions);
+    // Victims of a mass aggressor get their poisoned degree restored — their synergy
+    // with the rest of the deck is real; the conflict is the aggressor's problem.
+    if (!massAggressor(c.name)) {
+      for (const e of interactions.edges) {
+        if (e.type !== 'nonbo' || (e.a !== c.name && e.b !== c.name)) continue;
+        const other = e.a === c.name ? e.b : e.a;
+        if (massAggressor(other) && (e.strength || 0) < 0) syn -= e.strength;
+      }
+      syn = Math.round(syn * 100) / 100;
+    }
     score += Math.min(syn, 40) * 0.35;
     trace.push({ kind: 'synergy', value: syn, pts: Math.min(syn, 40) * 0.35, edges: interactions.edges
       .filter(e => (e.a === c.name || e.b === c.name) && e.type !== 'redundancy').slice(0, 4) });
 
-    // role fill: does this card protect a threshold?
+    // role fill: does this card protect a threshold? Interaction roles shield harder:
+    // removal/protection/counters structurally have no synergy edges, so role adequacy
+    // is most of what keeps them out of the cut list (precon audit F3).
     const cats = new Set((c.ir.roles || []).map(r => th.ROLE_TO_CATEGORY[r]).filter(Boolean));
     for (const cat of cats) {
       const have = roleCounts[cat] || 0;
       const need = thresholds[cat] || 0;
       const afterCut = have - (c.qty || 1);
-      if (afterCut < need) { const pts = Math.min(need - afterCut, 4) * 2; score += pts; trace.push({ kind: 'role_protects', cat, have, need, pts }); }
+      const shieldMult = INTERACTION_CATS.has(cat) ? 3 : 2;
+      if (afterCut < need) { const pts = Math.min(need - afterCut, 4) * shieldMult; score += pts; trace.push({ kind: 'role_protects', cat, have, need, pts }); }
       else { const pts = -Math.min(3, afterCut - need) * 0.5; score += pts; trace.push({ kind: 'role_surplus', cat, have, need, pts }); }
     }
 
@@ -431,7 +547,7 @@ function scoreCuts({ deckCards, commander, goals, thresholds, roleCounts }) {
     // dead needs: requires an axis the deck barely provides (param-compatible only)
     for (const nd of c.ir.needs || []) {
       if (nd.criticality !== 'requires') continue;
-      const have = matchParam(index.provides.get(nd.axis), nd.param, tribalBound(tribes, nd.axis, nd.param) ? 'exact' : undefined)?.count || 0;
+      const have = demandSupplyCount(index, nd.axis, nd.param, tribalBound(tribes, nd.axis, nd.param) ? 'exact' : undefined);
       if (have < 2) { const pts = -(have === 0 ? 6 : 2); score += pts; trace.push({ kind: 'dead_need', axis: nd.axis, have, pts }); }
     }
 
@@ -442,19 +558,67 @@ function scoreCuts({ deckCards, commander, goals, thresholds, roleCounts }) {
 
     // shields
     const staple = Number(c.ir.power_level_hint) || 0;
-    if (staple >= 5) { score += 8; trace.push({ kind: 'shield_staple', hint: staple, pts: 8 }); }
-    else if (staple >= 4) { score += 4; trace.push({ kind: 'shield_staple', hint: staple, pts: 4 }); }
+    if (staple >= 4) { score += 6; trace.push({ kind: 'shield_staple', hint: staple, pts: 6 }); }
     if (tribalType && (c.ir.tribal?.types || []).includes(tribalType)) { score += 5; trace.push({ kind: 'shield_tribe', type: tribalType, pts: 5 }); }
-    if ((c.ir.provides || []).some(p => commanderNeeds.has(p.axis))) { score += 4; trace.push({ kind: 'shield_commander', pts: 4 }); }
+    // Tribe-scoped SUPPORT shields like tribe membership does: a Zombie cost reducer
+    // (Rooftop Storm, 91% of Wilhelt decks) has zero synergy edges because param'd
+    // cost-reduction axes don't join, but it is plainly on plan (precon audit F3/F7).
+    if (tribalType && (c.ir.provides || []).some(p => p.param &&
+        String(p.param).split(/[,/]/).some(t => t.trim().toLowerCase() === tribalType.toLowerCase()))) {
+      score += 5; trace.push({ kind: 'shield_tribe_support', type: tribalType, pts: 5 });
+    }
+    // Weight-scaled: a w5 supplier of something the commander NEEDS (Buried Alive
+    // stocking Thranduil's graveyard) is core, not a coincidence — the flat +4 let
+    // one-shot yard-stockers bottom out as cuts in the very deck built around them.
+    const cmdrMatches = (c.ir.provides || []).filter(p => commanderNeeds.has(p.axis));
+    if (cmdrMatches.length) {
+      const wBest = Math.max(...cmdrMatches.map(p => p.weight || 1));
+      const pts = Math.min(8, 3 + wBest);
+      score += pts; trace.push({ kind: 'shield_commander', pts });
+    }
     if (c.ir.wincon) { score += 4; trace.push({ kind: 'shield_wincon', wc: c.ir.wincon.kind, pts: 4 }); }
     for (const e of interactions.edges) {
-      if (e.type === 'nonbo' && (e.a === c.name || e.b === c.name)) { score -= 5; trace.push({ kind: 'nonbo', axis: e.axis, other: e.a === c.name ? e.b : e.a, pts: -5 }); break; }
+      if (e.type === 'nonbo' && (e.a === c.name || e.b === c.name)) {
+        const other = e.a === c.name ? e.b : e.a;
+        // A hate LAND is a free-roll utility slot, not a deck identity — one Scavenger
+        // Grounds must not generate cut evidence against the deck's own draw and
+        // recursion spells (precon audit F8: Frantic Search at 67% inclusion).
+        if (landNames.has(other)) continue;
+        // Blame the aggressor: a card fighting a whole package takes the aggregate
+        // penalty; its victims take none from it (Necrodominance vs the yard plan).
+        if (massAggressor(c.name)) {
+          const pts = -5 * Math.min(4, nonboCount.get(c.name) || 1);
+          score += pts; trace.push({ kind: 'nonbo', axis: e.axis, other, pts }); break;
+        }
+        if (massAggressor(other)) continue;
+        score -= 5; trace.push({ kind: 'nonbo', axis: e.axis, other, pts: -5 }); break;
+      }
     }
 
-    scored.push({ name: c.name, contribution: Math.round(score * 100) / 100, trace });
+    scored.push({ name: c.name, contribution: Math.round(score * 100) / 100, trace, cats: [...cats] });
   }
 
   scored.sort((a, b) => a.contribution - b.contribution);
+  // Interaction and draw cuts are capped at the role's actual OVERAGE: a deck one
+  // removal spell over target justifies one removal cut, not seven, and a deck at or
+  // under target justifies none. Synergy scoring reads interaction as "barely
+  // connected" by nature, so without this cap the bottom of every list is the deck's
+  // removal suite (precon audit F3: Feed the Swarm cut from two decks whose players
+  // run it at 61-63%, Obuun's seven-removal cut list for an 11-vs-10 surplus).
+  const capLeft = {};
+  for (const cat of CAPPED_CUT_CATS) capLeft[cat] = Math.max(0, Math.ceil((roleCounts[cat] || 0) - (thresholds[cat] || 0)));
+  const kept = [];
+  for (const s of scored) {
+    const limited = s.cats.filter(cat => cat in capLeft);
+    // Excluded only when EVERY capped role it fills is exhausted. Dropping a card because
+    // ONE is — a removal spell that also cantrips, with Card Draw at target and Removal
+    // five over — took the whole interaction suite out of `cuttable` for a typical precon,
+    // so a deck needing 16 cuts got a four-line panel with nothing saying why.
+    if (limited.length && limited.every(cat => capLeft[cat] <= 0)) continue;
+    for (const cat of limited) if (capLeft[cat] > 0) capLeft[cat]--;
+    kept.push(s);
+  }
+  const cuttable = kept;
   // A deck 16 over needs at least 16 candidates — the fixed count only fits mild
   // overages. Scale with how far over 100 the analyzed list is (cap keeps the
   // panel reviewable; the analyzed list already includes planned adds when the
@@ -464,7 +628,7 @@ function scoreCuts({ deckCards, commander, goals, thresholds, roleCounts }) {
   // score IS the signed contribution (what the card does for this deck): most
   // negative first = strongest cut. The breakdown lines sum to exactly this
   // number — a "4.9" badge over lines summing to −4.9 read as a bug.
-  return scored.slice(0, cutCount).map(s => ({ name: s.name, score: s.contribution, trace: s.trace }));
+  return cuttable.slice(0, cutCount).map(s => ({ name: s.name, score: s.contribution, trace: s.trace }));
 }
 
 // ── adds ─────────────────────────────────────────────────────────────────────
@@ -533,7 +697,13 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
       const paramFits = !w0?.params || w0.params.some(fit);
       const w = w0 && paramFits ? w0 : null;
       if (w) {
-        const pts = (p.weight || 1) * (1 + Math.min(3, w.gap) * 0.5) * outFactor;
+        // Repeatability matters for a standing appetite: a wanted axis is an ongoing
+        // plan gap, and a one-shot barely serves an engine (Entomb — one card to the
+        // yard, once — outranked every repeatable filler for a commander who wants
+        // cards FLOWING into the graveyard). One-shots keep partial credit: they do
+        // advance the plan, once.
+        const rateFactor = p.rate === 'once' ? 0.7 : 1;
+        const pts = (p.weight || 1) * (1 + Math.min(3, w.gap) * 0.5) * outFactor * rateFactor;
         score += pts;
         // Name the needers only when the claim carries real weight: on-plan axis, a
         // hard (requires) dependency, or ≥2 strong needers among the groups served.
@@ -556,9 +726,17 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
       const needers = matchParam(index.needs.get(p.axis), p.param, bound ? 'exact' : 'serves');
       if (needers && !w) {
         if (needers.strong) {
-          const pts = Math.min(4, needers.strong) * outFactor;
+          // An off-plan cluster of soft wants (no hard needer, axis in no
+          // confident goal) is upside, not dependency — the needers all function
+          // without it. Full credit here let four landfall riders in a stompy
+          // deck hand +4 (the wanted-axis class) to every extra-land-drop
+          // candidate, and the whole Helga adds list became land drops. Cap it
+          // one class below plan credit: the "more of what feeds what I have"
+          // signal stays real, but never outranks filling the plan itself.
+          const onPlan = planAxes.has(p.axis) || (needers.hard || 0) >= 1;
+          const pts = Math.min(onPlan ? 4 : 3, needers.strong) * outFactor;
           score += pts;
-          if (planAxes.has(p.axis) || (needers.hard || 0) >= 1) {
+          if (onPlan) {
             trace.push({ kind: 'feeds', axis: p.axis, param: p.param || null, names: needers.strongNames, pts, offTribe: offTribeOut || undefined });
           } else if (needers.strong >= 2) {
             offPlanFeeds.push({ kind: 'feeds', axis: p.axis, param: p.param || null, names: needers.strongNames, pts });
@@ -611,7 +789,7 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
     // its own needs are already fed here (card won't be dead)
     let fedNeeds = 0, deadNeeds = 0;
     for (const nd of cand.ir.needs || []) {
-      const have = matchParam(index.provides.get(nd.axis), nd.param, tribalBound(tribes, nd.axis, nd.param) ? 'exact' : undefined)?.count || 0;
+      const have = demandSupplyCount(index, nd.axis, nd.param, tribalBound(tribes, nd.axis, nd.param) ? 'exact' : undefined);
       if (have >= 2) fedNeeds++;
       else if (nd.criticality === 'requires') deadNeeds++;
     }
@@ -649,8 +827,28 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
       }
     }
 
-    // meta-popularity as a weak prior
-    if (cand.edhrecRank != null && cand.edhrecRank < 2000) { score += 0.75; trace.push({ kind: 'meta_prior', rank: cand.edhrecRank, pts: 0.75 }); }
+    // Breadth bonus (anti-monoculture): a card credited on two DIFFERENT wanted axes
+    // is a better deck card than one twice as deep on a single axis — guides love
+    // hybrids (Skullclamp is draw+sac, Thalia's Lieutenant is humans+counters).
+    {
+      const credited = new Set(trace
+        .filter(t => ['fills_axis', 'feeds', 'role_deficit', 'doubler_scale'].includes(t.kind))
+        .map(t => t.axis || t.cat).filter(Boolean));
+      if (credited.size >= 2) {
+        const pts = Math.min(1.5, (credited.size - 1) * 0.75);
+        score += pts;
+        trace.push({ kind: 'breadth', count: credited.size, pts });
+      }
+    }
+
+    // meta-popularity: commander-context stats (what THIS commander's players run)
+    // beat the global rank prior when available — global rank is what made every
+    // tribal deck's list identical (precon audit, anti-monoculture work).
+    if (cand.cmdrPct != null && cand.cmdrPct > 0) {
+      const pts = Math.round(Math.min(2.5, cand.cmdrPct * 0.03) * 100) / 100;
+      score += pts;
+      trace.push({ kind: 'commander_meta', pct: cand.cmdrPct, pts });
+    } else if (cand.edhrecRank != null && cand.edhrecRank < 2000) { score += 0.75; trace.push({ kind: 'meta_prior', rank: cand.edhrecRank, pts: 0.75 }); }
 
     // collection preference + soft price behavior
     if (cand.owned) { score += 1.5; trace.push({ kind: 'owned', pts: 1.5 }); }
@@ -667,7 +865,7 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
     // Fit = score minus preference nudges (owned / popularity / price). Preferences
     // may reorder genuinely good cards but must not lift filler over the quality
     // floor — an owned Bitterblossom is still a weak fit for a rat deck.
-    const PREF_KINDS = new Set(['owned', 'meta_prior', 'price_soft']);
+    const PREF_KINDS = new Set(['owned', 'meta_prior', 'commander_meta', 'price_soft']);
     const fit = score - trace.reduce((s, t) => s + (PREF_KINDS.has(t.kind) ? (t.pts || 0) : 0), 0);
     scored.push({
       name: cand.name, score: Math.round(score * 100) / 100, fit,
@@ -682,7 +880,57 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
   // pools with a modest leader keep their few genuine picks.
   const topFit = scored.reduce((m, s) => Math.max(m, s.fit), 0);
   const floor = Math.max(3, topFit * 0.3);
-  return scored.filter(s => s.fit >= floor).slice(0, ADD_COUNT).map(({ fit, ...s }) => s);
+  const eligible = scored.filter(s => s.fit >= floor);
+  // Portfolio diversity (precon audit F5): a real upgrade list spreads across the
+  // deck's top needs, but score-order alone returned ten sac outlets for Wilhelt and
+  // 24 ramp spells for Kalamax. Greedy re-selection decays a card's effective score
+  // by 0.75 per already-picked card sharing its primary credit axis — scores and
+  // traces are untouched (the breakdown invariant holds), only the order changes,
+  // and the #1 pick is always the raw top scorer.
+  const primaryKey = (s) => {
+    let best = null, pts = 0;
+    for (const t of s.trace || []) {
+      const key = t.axis || t.cat || null;
+      if (key && (t.pts || 0) > pts) { pts = t.pts; best = key; }
+    }
+    return best;
+  };
+  // Generic tribal staples (Coat of Arms class): tribal-axis credit without tribe
+  // membership. Every tribal deck was getting the same four; cap them so the list
+  // stays commander-shaped (anti-monoculture #3).
+  const tribeGoal = /^tribal:(.+)$/.exec(String(goals?.[0]?.goal || ''))?.[1] || null;
+  const TRIBAL_AXES = new Set(['tribal.lord', 'tribal.synergy', 'anthem.global']);
+  const isGenericTribal = (s) => {
+    if (!tribeGoal) return false;
+    const citesTribal = (s.trace || []).some(t => (t.kind === 'fills_axis' || t.kind === 'feeds') && TRIBAL_AXES.has(t.axis));
+    const onTribe = (s.trace || []).some(t => t.kind === 'tribe_affinity');
+    return citesTribal && !onTribe;
+  };
+  const picks = {};
+  let genericTribalPicks = 0;
+  const ordered = [];
+  const pool = [...eligible];
+  while (pool.length) {
+    // Coverage quota (anti-monoculture #2): before any credit axis gets a 4th slot,
+    // every axis that still has candidates gets its 1st — a real upgrade list covers
+    // the deck's needs, it doesn't rank one need to exhaustion.
+    const unseenExists = pool.some(s => { const k = primaryKey(s); return k && !(picks[k] > 0); });
+    let bestI = -1, bestEff = -Infinity;
+    for (let i = 0; i < pool.length; i++) {
+      const key = primaryKey(pool[i]);
+      if (unseenExists && key && (picks[key] || 0) >= 3) continue;
+      if (isGenericTribal(pool[i]) && genericTribalPicks >= 3) continue;
+      const eff = pool[i].score * Math.pow(0.75, key ? (picks[key] || 0) : 0);
+      if (eff > bestEff + 1e-9) { bestEff = eff; bestI = i; }
+    }
+    if (bestI < 0) bestI = 0; // every candidate filtered — fall back to raw order
+    const chosen = pool.splice(bestI, 1)[0];
+    const key = primaryKey(chosen);
+    if (key) picks[key] = (picks[key] || 0) + 1;
+    if (isGenericTribal(chosen)) genericTribalPicks++;
+    ordered.push(chosen);
+  }
+  return ordered.slice(0, ADD_COUNT).map(({ fit, ...s }) => s);
 }
 
 module.exports = { scoreCuts, scoreAdds, deckAxisIndex, wantedAxes, poolAxes, matchParam, deckPlanAxes, isLandCard, bucketOf, CUT_COUNT, ADD_COUNT };

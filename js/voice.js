@@ -669,6 +669,22 @@ function toggleVoiceNewDeckMode() {
 }
 
 function switchVoiceTab(tab) {
+  if (tab === 'scan') {
+    // The camera scanner is its own fullscreen surface — hand off instead of hosting it in
+    // this modal. Deliberately no camera auto-start: scanning begins the moment the camera
+    // runs, so the user positions the card first and hits Start Camera when ready.
+    // closeVoice() clears the deck destination and the scanner only ever writes to the
+    // collection, so say so rather than letting a chosen deck silently evaporate.
+    if (voiceAddToActiveDeckMode) {
+      const deck = typeof getActiveDeck === 'function' ? getActiveDeck() : null;
+      showNotif(deck
+        ? `Scanning adds to your collection, not "${deck.name}"`
+        : 'Scanning adds to your collection, not the deck');
+    }
+    closeVoice();
+    void openScanner();
+    return;
+  }
   const isVoice = tab === 'voice';
   document.getElementById('voiceTabContent').style.display = isVoice ? '' : 'none';
   document.getElementById('searchTabContent').style.display = isVoice ? 'none' : '';
@@ -722,7 +738,7 @@ function openVoice(options) {
   lastParseSpokenCode = '';
   renderVoiceSetSearchSettings();
   if (typeof _syncFindAllPrintingsBtn === 'function') _syncFindAllPrintingsBtn();
-  switchVoiceTab(voiceAddToActiveDeckMode ? 'search' : 'voice');
+  switchVoiceTab('search'); // search is the default way in; Voice/Scan are opt-in tabs
   pendingCard = null;
   voiceMode = 'scan';
   voiceAutoRestart = true;
@@ -1280,7 +1296,7 @@ async function lookupManual(source = 'manual') {
     <div style="background:var(--bg3);border:1px solid ${pendingCard.foil ? 'var(--gold)' : 'var(--border2)'};border-radius:var(--radius2);padding:10px">
       <div style="position:relative;overflow:hidden;border-radius:6px;margin-bottom:8px">
         ${pendingCard.image ? `<img src="${pendingCard.image}" style="width:100%;display:block;border-radius:6px">` : ''}
-        ${pendingCard.foil ? `<div class="card-foil-overlay"></div><div class="card-foil-badge">✦ FOIL</div>` : ''}
+        ${pendingCard.foil ? `<div class="card-foil-overlay"></div>` : ''}
       </div>
       <div style="font-family:'Cinzel',serif;color:var(--gold);font-size:0.82rem;margin-bottom:3px;line-height:1.2">${pendingCard.name}</div>
       <div style="font-size:0.72rem;color:var(--text2);margin-bottom:2px;font-style:italic">${pendingCard.set.toUpperCase()} · #${pendingCard.number}</div>

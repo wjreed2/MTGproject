@@ -97,24 +97,30 @@ function wishlistCardImgUrl(c) {
   return '';
 }
 
-function getWishlistViewMode() {
-  const m = localStorage.getItem('mtg_wishlist_view');
-  return m === 'list' ? 'list' : 'grid';
+// ── Wishlist / Search tabs ───────────────────────────────────────────────────
+const WISHLIST_TABS = ['list', 'search'];
+let _wishlistTab = 'list';
+
+function setWishlistTab(key) {
+  _wishlistTab = WISHLIST_TABS.includes(key) ? key : 'list';
+  for (const k of WISHLIST_TABS) {
+    const pane = document.getElementById('wlPane-' + k);
+    const tab = document.getElementById('wlFtab-' + k);
+    if (pane) pane.classList.toggle('active', k === _wishlistTab);
+    if (tab) {
+      tab.classList.toggle('active', k === _wishlistTab);
+      tab.setAttribute('aria-selected', k === _wishlistTab ? 'true' : 'false');
+    }
+  }
+  if (_wishlistTab === 'search') document.getElementById('wishlistSearch')?.focus();
 }
 
-function setWishlistViewMode(mode) {
-  localStorage.setItem('mtg_wishlist_view', mode === 'list' ? 'list' : 'grid');
-  syncWishlistViewButtons();
-  renderWishlist();
-}
-
-function syncWishlistViewButtons() {
-  const m = getWishlistViewMode();
-  const g = document.getElementById('wishlistViewGrid');
-  const l = document.getElementById('wishlistViewList');
-  if (g) g.classList.toggle('is-active', m === 'grid');
-  if (l) l.classList.toggle('is-active', m === 'list');
-}
+// The layout toggle is gone; cards render as the grid of collection-style tiles.
+// Kept callable because the app shell is service-worker cached and a stale
+// index.html can still carry the old buttons.
+function getWishlistViewMode() { return 'grid'; }
+function setWishlistViewMode() { renderWishlist(); }
+function syncWishlistViewButtons() {}
 
 function renderWishlist() {
   const el = document.getElementById('wishlistItems');
@@ -128,104 +134,123 @@ function renderWishlist() {
   const mode = getWishlistViewMode();
   el.className = 'wishlist-display wishlist-display--' + mode;
 
+  // An empty wishlist is a sentence, not a large empty panel: the pane drops its
+  // box and the count row goes with it, leaving just the line.
+  const pane = document.getElementById('wlPane-list');
+  const toolbar = document.getElementById('wishlistToolbar');
   if (items.length === 0) {
     el.innerHTML = ''; empty.style.display = 'block';
     empty.textContent = shared ? 'This wishlist is empty' : 'Your wishlist is empty';
     total.textContent = '';
-    document.getElementById('wlTCGLow').textContent = '—';
-    document.getElementById('wlTCGMid').textContent = '—';
-    document.getElementById('wlCK').textContent = '—';
+    if (pane) pane.classList.add('is-empty');
+    if (toolbar) toolbar.style.display = 'none';
     return;
   }
   empty.style.display = 'none';
+  if (pane) pane.classList.remove('is-empty');
+  if (toolbar) toolbar.style.display = '';
   total.textContent = items.length + ' cards';
-
-  const vendors = typeof getPriceVendorEnabled === 'function'
-    ? getPriceVendorEnabled()
-    : { tcg: true, ck: true };
-  const totalTCG = vendors.tcg ? items.reduce((s,c) => s + getTCGPriceForCard(c), 0) : 0;
-  const totalCK = vendors.ck ? items.reduce((s,c) => s + getCKPriceForCard(c), 0) : 0;
-  const wlTcgLow = document.getElementById('wlTCGLow');
-  const wlTcgMid = document.getElementById('wlTCGMid');
-  const wlCk = document.getElementById('wlCK');
-  if (wlTcgLow) {
-    const row = wlTcgLow.closest('tr');
-    if (row) row.style.display = vendors.tcg ? '' : 'none';
-    wlTcgLow.textContent = vendors.tcg ? ('$' + (totalTCG * 0.8).toFixed(2)) : '—';
-  }
-  if (wlTcgMid) {
-    const row = wlTcgMid.closest('tr');
-    if (row) row.style.display = vendors.tcg ? '' : 'none';
-    wlTcgMid.textContent = vendors.tcg ? ('$' + totalTCG.toFixed(2)) : '—';
-  }
-  if (wlCk) {
-    const row = wlCk.closest('tr');
-    if (row) row.style.display = vendors.ck ? '' : 'none';
-    wlCk.textContent = vendors.ck ? ('$' + totalCK.toFixed(2)) : '—';
-  }
 
   // Shared-wishlist cards are cross-user data — escape every interpolated field.
   const sub = c => `${escapeHtml((c.set || '').toUpperCase())}${c.number ? ' #' + escapeHtml(String(c.number)) : ''}`;
-  const priceLabel = (c) => {
-    if (vendors.tcg) {
-      const t = getTCGPriceForCard(c);
-      if (t > 0) return `$${t.toFixed(2)}`;
-    }
-    if (vendors.ck) {
-      const k = getCKPriceForCard(c);
-      if (k > 0) return `$${k.toFixed(2)}`;
-    }
-    return '';
+
+  /**
+   * The two things you do to a wishlist card, as one pair of buttons: + puts it
+   * in the collection (and off the list), - takes it off the list. Keyed by card
+   * rather than row index — see removeWishlistByUid.
+   */
+  /**
+   * The uid rides in a data attribute and a delegated listener reads it back —
+   * it is never interpolated into inline JS. A derived row takes its uid from
+   * deck_cards.card_uid, which is built from the card name, so "Gaea's Cradle"
+   * produced onclick="...('gaea's cradle_n',event)" — a syntax error, and a
+   * button that silently did nothing. escapeHtml does not save it either: the
+   * entity is decoded back to an apostrophe before the JS is parsed.
+   */
+  const actions = (c) => {
+    if (shared) return _wishlistOwnershipBadge(c);
+    const uid = escapeHtml(_wishlistUid(c));
+    return `<div class="wl-actions" data-wl-stop="1">
+      <button type="button" class="btn btn-outline btn-sm btn-icon wl-act wl-act--add"
+        data-wl-uid="${uid}" data-wl-action="add" title="Add to collection" aria-label="Add to collection">+</button>
+      <button type="button" class="btn btn-outline btn-sm btn-icon wl-act wl-act--remove"
+        data-wl-uid="${uid}" data-wl-action="remove" title="Remove from wishlist" aria-label="Remove from wishlist">&minus;</button>
+    </div>`;
   };
-  const imgSrc = c => wishlistCardImgUrl(c);
+
+  const priorityBtn = (c) => {
+    const p = c.priority || 'med';
+    const label = _WL_PRIORITY_LABEL[p] || 'Med';
+    if (shared) return `<span class="wl-priority wl-priority--${p}" title="Priority">${label}</span>`;
+    return `<button type="button" class="wl-priority wl-priority--${p}"
+      data-wl-uid="${escapeHtml(_wishlistUid(c))}" data-wl-action="priority"
+      title="Priority: ${label} — click to change">${label}</button>`;
+  };
+
+  const priceHtml = c => (typeof _htmlCardPriceBadges === 'function' ? _htmlCardPriceBadges(c) : '');
+
   if (mode === 'grid') {
-    el.innerHTML = items.map((c,i) => {
-      const src = imgSrc(c);
-      const foilStrip = c.foil
-        ? `<div style="position:absolute;bottom:0;left:0;right:0;text-align:center;font-size:0.55rem;font-weight:700;color:#0e0b00;background:var(--gold);padding:1px 0;letter-spacing:0.06em">✦ FOIL</div>`
-        : '';
-      const actions = shared
-        ? `<div class="wishlist-grid-actions">${_wishlistOwnershipBadge(c)}</div>`
-        : `<div class="wishlist-grid-actions">
-          <button type="button" class="btn btn-sm" onclick="event.stopPropagation();moveWishlistToCollection(${i})" title="Add to collection" style="padding:4px 8px;font-size:0.68rem;background:rgba(90,184,90,0.18);border:1px solid rgba(90,184,90,0.55);color:var(--green)">Add to Collection</button>
-          <button type="button" class="btn btn-ghost btn-sm btn-icon" onclick="event.stopPropagation();removeWishlist(${i})" style="padding:4px 8px;font-size:0.72rem;flex-shrink:0" title="Remove">✕</button>
-        </div>`;
+    // Same tile as the collection grid — .card-item / .card-img-wrap / .card-meta
+    // with the collection's own price badges — so a card reads the same in both.
+    el.innerHTML = items.map((c, i) => {
+      const src = wishlistCardImgUrl(c);
       return `
     <div class="card-item wishlist-grid-tile" style="cursor:pointer" onclick="openWishlistCardDetail(${i})">
-      <div class="card-img-wrap" style="position:relative">
-        <div class="wishlist-priority wishlist-priority--on-card priority-${c.priority||'med'}"></div>
+      <div class="card-img-wrap${c.foil ? ' foil' : ''}">
         ${src
-          ? `<img src="${escapeHtml(src)}" class="${imgFadeLoadedCls(src)}" alt="" loading="${imgFadeLoadingAttr(src)}" decoding="async" onload="this.classList.add('loaded');imgFadeSeenMark(this)" onerror="this.classList.add('loaded')"${c.foil ? ` style="filter:drop-shadow(0 0 6px rgba(201,168,76,0.5))"` : ''}>`
+          ? `<img src="${escapeHtml(src)}" class="${imgFadeLoadedCls(src)}" alt="${escapeHtml(c.name)}" loading="${imgFadeLoadingAttr(src)}" decoding="async" onload="this.classList.add('loaded');imgFadeSeenMark(this)" onerror="this.classList.add('loaded')">`
           : `<div class="card-img-placeholder"><span>${escapeHtml((c.set||'?').toUpperCase())}</span></div>`}
-        ${foilStrip}
+        ${typeof _htmlFoilOverlay === 'function' ? _htmlFoilOverlay(c) : ''}
       </div>
       <div class="card-meta">
         <div class="card-name">${escapeHtml(c.name)}</div>
-        <div class="wishlist-grid-sub">${sub(c)}${priceLabel(c) ? ' · ' + priceLabel(c) : ''}</div>
-        ${actions}
+        ${priceHtml(c)}
+        <div class="wl-meta-row">${priorityBtn(c)}${actions(c)}</div>
       </div>
     </div>`;
     }).join('');
     return;
   }
 
-  el.innerHTML = items.map((c,i) => {
-    const src = imgSrc(c);
-    const actions = shared
-      ? _wishlistOwnershipBadge(c)
-      : `<button class="btn btn-sm" onclick="event.stopPropagation();moveWishlistToCollection(${i})" title="Add to collection" style="padding:3px 8px;font-size:0.7rem;background:rgba(90,184,90,0.18);border:1px solid rgba(90,184,90,0.55);color:var(--green)">Add to Collection</button>
-      <button class="btn btn-ghost btn-sm btn-icon" onclick="event.stopPropagation();removeWishlist(${i})" style="padding:3px 7px;font-size:0.72rem">✕</button>`;
+  el.innerHTML = items.map((c, i) => {
+    const src = wishlistCardImgUrl(c);
     return `
     <div class="wishlist-item" style="cursor:pointer" onclick="openWishlistCardDetail(${i})">
-      <div class="wishlist-priority priority-${c.priority||'med'}"></div>
+      ${priorityBtn(c)}
       ${src ? `<img class="wishlist-thumb" src="${escapeHtml(src)}" alt="" loading="lazy">` : ''}
       <div style="flex:1;min-width:0">
         <div style="font-size:0.88rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(c.name)}</div>
-        <div style="font-size:0.72rem;color:var(--text3)">${sub(c)}${c.foil ? ' ✦ Foil' : ''}${priceLabel(c) ? ' • ' + priceLabel(c) : ''}</div>
+        <div style="font-size:0.72rem;color:var(--text3)">${sub(c)}${c.foil ? ' \u2726 Foil' : ''}</div>
       </div>
-      ${actions}
+      ${priceHtml(c)}
+      ${actions(c)}
     </div>`;
   }).join('');
+}
+
+/**
+ * One delegated listener for every per-card control. Bound once, so it survives
+ * each renderWishlist() rebuild, and it reads the uid out of the DOM rather than
+ * out of generated source.
+ *
+ * Capture phase, deliberately. The tile itself carries an onclick that opens the
+ * inspector, and that runs on the way back up — so a bubble-phase listener here
+ * would fire after it and every + / - / priority click would also open the card.
+ * Capturing at the document lets this stop the event before it ever reaches the
+ * target, and it only does so for one of these buttons.
+ */
+if (typeof document !== 'undefined') {
+  document.addEventListener('click', e => {
+    const btn = e.target?.closest?.('[data-wl-action]');
+    if (!btn || !document.getElementById('wishlistItems')?.contains(btn)) return;
+    e.stopPropagation();
+    e.preventDefault();
+    const uid = btn.getAttribute('data-wl-uid') || '';
+    const action = btn.getAttribute('data-wl-action');
+    if (action === 'remove') removeWishlistByUid(uid);
+    else if (action === 'add') moveWishlistToCollectionByUid(uid);
+    else if (action === 'priority') cycleWishlistPriority(uid);
+  }, true);
 }
 
 // Open the card inspector for a wishlist card. Own-wishlist cards resolve from
@@ -240,12 +265,65 @@ function openWishlistCardDetail(i) {
   openCardDetail(id, undefined, _viewingSharedWishlistOwnerId ? { prefetchedEntry: c } : undefined);
 }
 
+/**
+ * Where the open inspector sits in the search results, for its arrows.
+ *
+ * Neighbours are reported by id for the arrow's enabled state; the stepping
+ * itself goes by index (see navigateWishlistSearchCard), so a printing that
+ * appears twice in one result set is still two distinct stops.
+ */
+function wlSearchNavState() {
+  const total = _wishlistResultPayloads.length;
+  const i = _wishlistSearchActiveIdx;
+  if (i < 0 || i >= total) return { index: -1, total, prevUid: null, nextUid: null };
+  const idOf = p => (p ? String(p.scryfallId || p.id || '') : '') || null;
+  return {
+    index: i,
+    total,
+    prevUid: i > 0 ? idOf(_wishlistResultPayloads[i - 1]) : null,
+    nextUid: i < total - 1 ? idOf(_wishlistResultPayloads[i + 1]) : null,
+  };
+}
+
+/** The art of the results either side, so arrowing through doesn't flash. */
+function wlSearchNeighborArt() {
+  const i = _wishlistSearchActiveIdx;
+  if (i < 0) return [];
+  return [_wishlistResultPayloads[i - 1], _wishlistResultPayloads[i + 1]]
+    .filter(Boolean)
+    .map(p => String(p.imageLarge || p.image || ''))
+    .filter(Boolean);
+}
+
+/** Step the inspector to the next/previous result, in the order searched. */
+function navigateWishlistSearchCard(direction) {
+  const total = _wishlistResultPayloads.length;
+  const next = _wishlistSearchActiveIdx + (direction === 'next' ? 1 : -1);
+  if (_wishlistSearchActiveIdx < 0 || next < 0 || next >= total) return;
+  const payload = _wishlistResultPayloads[next];
+  if (!payload || typeof openCardDetail !== 'function') return;
+  _wishlistSearchActiveIdx = next;
+  void openCardDetail(String(payload.scryfallId || payload.id), 'wlsearch', {
+    prefetchedEntry: { ...payload },
+    fromArrow: true,
+  });
+}
+
 let _wishlistAcTimer = null;
 let _wishlistAcNames = [];
 let _wishlistSearchAbort = null;
 let _wishlistSearchLocal = [];
 let _wishlistSearchApi = [];
 let _wishlistResultPayloads = [];
+/**
+ * Which search result the inspector is showing, as an index into
+ * `_wishlistResultPayloads`.
+ *
+ * The arrows step this index rather than looking a card up by id: the order on
+ * screen is the order the search returned, duplicates of a printing included,
+ * and only the position knows which one you are on.
+ */
+let _wishlistSearchActiveIdx = -1;
 
 function _positionWishlistAc() {
   const input = document.getElementById('wishlistSearch');
@@ -255,6 +333,150 @@ function _positionWishlistAc() {
   drop.style.top = (r.bottom + 4) + 'px';
   drop.style.left = r.left + 'px';
   drop.style.width = r.width + 'px';
+}
+
+// ── Search filters: the same two multi-selects Add cards uses ────────────────
+// Types work the way the card finder's do — the token goes into the query text,
+// so what is filtered is visible and editable in the field. Colours are a set
+// applied to the results, since the search endpoint keys them separately.
+let _wishlistColorFilters = new Set();
+const WL_COLOR_OPTIONS = [
+  ['W', 'White'], ['U', 'Blue'], ['B', 'Black'],
+  ['R', 'Red'], ['G', 'Green'], ['C', 'Colorless'],
+];
+
+function _wlTypeTokenOn(key, val) {
+  const q = (document.getElementById('wishlistSearch')?.value || '').toLowerCase();
+  return new RegExp(`(?:^|\\s)${key}:${val}(?=\\s|$)`).test(q);
+}
+
+function _syncWishlistFilterButtons() {
+  const tBtn = document.getElementById('wlTypeMenuBtn');
+  if (tBtn) {
+    const n = FIND_TYPE_OPTIONS.filter(([k, v]) => _wlTypeTokenOn(k, v)).length;
+    tBtn.textContent = n > 0 ? `Type & more (${n})` : 'Type & more';
+    tBtn.classList.toggle('active', n > 0);
+  }
+  const cBtn = document.getElementById('wlColorMenuBtn');
+  if (cBtn) {
+    const n = _wishlistColorFilters.size;
+    cBtn.textContent = n > 0 ? `Color (${n})` : 'Color';
+    cBtn.classList.toggle('active', n > 0);
+  }
+}
+
+function _wlToggleTypeToken(key, val) {
+  const input = document.getElementById('wishlistSearch');
+  if (!input) return;
+  const token = `${key}:${val}`;
+  const re = new RegExp(`(?:^|\\s)${key}:${val}(?=\\s|$)`, 'i');
+  input.value = re.test(input.value)
+    ? input.value.replace(re, ' ').replace(/\s+/g, ' ').trim()
+    : `${input.value.trim()} ${token}`.trim();
+  _syncWishlistFilterButtons();
+  runWishlistSearch(input.value);
+}
+
+function closeWishlistFilterMenu() {
+  document.querySelectorAll('.wl-filter-menu').forEach(m => m.remove());
+  document.getElementById('wlTypeMenuBtn')?.setAttribute('aria-expanded', 'false');
+  document.getElementById('wlColorMenuBtn')?.setAttribute('aria-expanded', 'false');
+}
+
+function toggleWishlistTypeMenu(event) { _toggleWishlistMenu('type', event); }
+function toggleWishlistColorMenu(event) { _toggleWishlistMenu('color', event); }
+
+function _toggleWishlistMenu(kind, event) {
+  if (event) { event.stopPropagation(); event.preventDefault(); }
+  const open = document.querySelector(`.wl-filter-menu[data-kind="${kind}"]`);
+  closeWishlistFilterMenu();
+  if (!open) _openWishlistMenu(kind);
+}
+
+function _openWishlistMenu(kind) {
+  const btn = document.getElementById(kind === 'color' ? 'wlColorMenuBtn' : 'wlTypeMenuBtn');
+  if (!btn) return;
+  const menu = document.createElement('div');
+  menu.className = 'glass-menu qf-menu wl-filter-menu';
+  menu.dataset.kind = kind;
+
+  const rows = kind === 'color'
+    ? WL_COLOR_OPTIONS.map(([v, label]) => ({ label, on: _wishlistColorFilters.has(v), run: () => {
+      if (_wishlistColorFilters.has(v)) _wishlistColorFilters.delete(v);
+      else _wishlistColorFilters.add(v);
+      _syncWishlistFilterButtons();
+      runWishlistSearch(document.getElementById('wishlistSearch')?.value || '');
+    } }))
+    : FIND_TYPE_OPTIONS.map(([key, val, label]) => ({ label, on: _wlTypeTokenOn(key, val), run: () => _wlToggleTypeToken(key, val) }));
+
+  for (const row of rows) {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'glass-menu-item' + (row.on ? ' selected' : '');
+    item.textContent = row.label;
+    item.addEventListener('click', e => {
+      e.stopPropagation();
+      row.run();
+      const scroll = menu.scrollTop;
+      setTimeout(() => {
+        closeWishlistFilterMenu();
+        _openWishlistMenu(kind);
+        const next = document.querySelector(`.wl-filter-menu[data-kind="${kind}"]`);
+        if (next) next.scrollTop = scroll;
+      }, 0);
+    });
+    menu.appendChild(item);
+  }
+
+  document.body.appendChild(menu);
+  const r = btn.getBoundingClientRect();
+  const margin = 8;
+  const maxH = Math.min(320, window.innerHeight - margin * 2);
+  menu.style.maxHeight = maxH + 'px';
+  const h = Math.min(menu.offsetHeight, maxH);
+  const w = menu.offsetWidth;
+  const below = window.innerHeight - r.bottom;
+  const top = below >= h + 12 ? r.bottom + 6 : Math.max(margin, r.top - h - 6);
+  menu.style.top = Math.min(top, window.innerHeight - h - margin) + 'px';
+  menu.style.left = Math.min(Math.max(margin, r.left), window.innerWidth - w - margin) + 'px';
+  btn.setAttribute('aria-expanded', 'true');
+
+  const drop = e => {
+    if (!menu.isConnected) {
+      window.removeEventListener('resize', drop, true);
+      window.removeEventListener('scroll', drop, true);
+      return;
+    }
+    if (e && e.target && menu.contains(e.target)) return;
+    closeWishlistFilterMenu();
+    window.removeEventListener('resize', drop, true);
+    window.removeEventListener('scroll', drop, true);
+  };
+  window.addEventListener('resize', drop, true);
+  window.addEventListener('scroll', drop, true);
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('click', () => closeWishlistFilterMenu());
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeWishlistFilterMenu(); });
+}
+
+/**
+ * Applied to collection results only. Cards from /api/cards/search come back
+ * with colors[] empty regardless of the card, so the endpoint's own colors=
+ * parameter is what filters those; your own cards carry real colours.
+ */
+function _applyWishlistColorFilter(cards) {
+  if (!_wishlistColorFilters.size) return cards;
+  const selected = [..._wishlistColorFilters];
+  const wantColorless = selected.includes('C');
+  const wantColors = selected.filter(c => c !== 'C');
+  return cards.filter(c => {
+    const cols = [...new Set((c.colors || c.color_identity || []).filter(Boolean).map(x => String(x).toUpperCase()))];
+    if (!cols.length) return wantColorless;
+    if (!wantColors.length) return false;
+    return cols.every(ch => wantColors.includes(ch));
+  });
 }
 
 async function wishlistAutocomplete(q) {
@@ -316,70 +538,95 @@ function selectWishlistAutocomplete(name) {
   runWishlistSearch(name);
 }
 
-async function runWishlistSearch(q) {
+const WISHLIST_PAGE = 60;
+let _wishlistSearchOffset = 0;
+let _wishlistSearchTotal = null;
+
+async function runWishlistSearch(q, append) {
   const el = document.getElementById('wishlistSearchResults');
   const query = String(q || '').trim();
   const drop = document.getElementById('wishlistSearchAutocomplete');
+  // Cancel the pending autocomplete as well as hiding it. Hiding alone left the
+  // 180ms timer to fire straight afterwards and re-open the list on top of the
+  // results — so the first click after pressing Enter hit the dropdown instead
+  // of the card under it.
+  clearTimeout(_wishlistAcTimer);
   if (drop) drop.style.display = 'none';
-  if (!query || query.length < 2) { el.innerHTML = ''; return; }
+  if (!append) { _wishlistSearchOffset = 0; _wishlistSearchTotal = null; _wishlistSearchActiveIdx = -1; }
+  if (query.length < 2) {
+    // A colour with no text has nothing to search the catalogue by, so the grid
+    // just clears rather than pulling the whole of Scryfall.
+    el.innerHTML = '';
+    _wishlistSearchLocal = []; _wishlistSearchApi = [];
+    _syncWishlistFilterButtons();
+    return;
+  }
   const qLow = query.toLowerCase();
   const localByName = {};
   collection.forEach(c => {
     if ((c.name || '').toLowerCase().includes(qLow) && !localByName[c.name]) localByName[c.name] = c;
   });
-  _wishlistSearchLocal = Object.values(localByName).slice(0, 16);
+  _wishlistSearchLocal = _applyWishlistColorFilter(Object.values(localByName)).slice(0, 16);
+  _syncWishlistFilterButtons();
   const localIds = new Set(_wishlistSearchLocal.map(c => c.scryfallId));
-  _wishlistSearchApi = [];
-  _renderWishlistSearchGrid();
+  // Clearing here paints the local matches immediately while the catalogue call
+  // is in flight — but on a Load more that would throw away the pages already on
+  // screen, so only a fresh search resets.
+  if (!append) {
+    _wishlistSearchApi = [];
+    _renderWishlistSearchGrid();
+  }
 
   if (_wishlistSearchAbort) _wishlistSearchAbort.abort();
   _wishlistSearchAbort = new AbortController();
   const signal = _wishlistSearchAbort.signal;
 
+  // Same endpoint the Add cards finder uses, rather than a one-off Scryfall
+  // proxy call. That one asked for an exact name with unique=prints and came
+  // back with a single card for "lightning bolt"; this is the catalogue search,
+  // it honours the t:/is: tokens the Type menu writes into the field, and it
+  // takes the colour set as a parameter the way the finder does.
   try {
-    const exactRes = await fetch(`/api/scryfall/search?q=${encodeURIComponent(`!"${query}" -is:extra`)}&order=released&unique=prints&skipTcg=1`, { signal });
-    let data = exactRes.ok ? await exactRes.json() : { data: [] };
-    let apiCards = data.data || [];
-    if (!apiCards.length) {
-      const res = await fetch(`/api/scryfall/search?q=${encodeURIComponent(`${query} -is:extra`)}&order=released&unique=prints&skipTcg=1`, { signal });
-      data = res.ok ? await res.json() : { data: [] };
-      apiCards = data.data || [];
-    }
-    _wishlistSearchApi = apiCards.filter(c => !localIds.has(c.id)).slice(0, 28);
+    const params = new URLSearchParams({
+      q: query, limit: String(WISHLIST_PAGE), offset: String(_wishlistSearchOffset), withPrices: '1',
+    });
+    if (_wishlistColorFilters.size) params.set('colors', [..._wishlistColorFilters].sort().join(','));
+    const res = await fetch(`/api/cards/search?${params.toString()}`, { signal });
+    const data = res.ok ? await res.json() : { data: [] };
+    // Colours are the server's job here: /api/cards/search honours colors= but
+    // returns empty colors[] on the rows it sends back, so filtering them again
+    // on the client would throw away everything it just matched.
+    const page = (data.data || []).filter(c => !localIds.has(c.id));
+    _wishlistSearchApi = append ? _wishlistSearchApi.concat(page) : page;
+    // Advance by what the server consumed, not by rows kept — dropping cards you
+    // already own would otherwise walk the offset backwards and repeat a page.
+    _wishlistSearchOffset += Number.isFinite(data.pageCards) ? data.pageCards : (data.data || []).length;
+    _wishlistSearchTotal = Number.isFinite(data.total) ? data.total : null;
     _renderWishlistSearchGrid();
   } catch (e) {
     if (e.name === 'AbortError') return;
-    try {
-      const res = await fetch(`/api/scryfall/search?q=${encodeURIComponent(`${query} -is:extra`)}&order=released&unique=prints&skipTcg=1`);
-      const d = await res.json();
-      const apiCards = d.data || [];
-      _wishlistSearchApi = apiCards.filter(c => !localIds.has(c.id)).slice(0, 28);
-      _renderWishlistSearchGrid();
-    } catch (_) {
-      _wishlistSearchApi = [];
-      _renderWishlistSearchGrid();
-    }
+    if (!append) _wishlistSearchApi = [];
+    _renderWishlistSearchGrid();
   }
 }
 
+function loadMoreWishlistResults() {
+  runWishlistSearch(document.getElementById('wishlistSearch')?.value || '', true);
+}
+
+/**
+ * A search result is the card image and nothing else — no name, set line or
+ * price row under it, and no Add buttons. Clicking the tile adds it. Owned
+ * printings keep the highlight so you can see what you already have.
+ */
 function _wishlistTile(name, img, inCollection, payload, idx) {
-  const border = inCollection ? '2px solid var(--gold)' : '1px solid var(--border)';
-  const filter = !inCollection ? 'grayscale(60%) opacity(0.65)' : '';
-  const nonFoilPrice = parseFloat(payload.priceTCG || 0);
-  const foilPrice = parseFloat(payload.priceTCGFoil || 0);
-  const foilAvailable = foilPrice > 0;
+  const border = inCollection ? '2px solid rgba(var(--lgx1),0.75)' : '1px solid var(--border)';
   return `
-    <div class="deck-search-tile" data-idx="${idx}" style="cursor:pointer">
-      <div style="aspect-ratio:0.715;overflow:hidden;border-radius:6px;border:${border};transition:border-color 0.15s;position:relative">
+    <div class="deck-search-tile wl-result" data-idx="${idx}" title="${escapeHtml(name)} — click to add to wishlist">
+      <div class="wl-result-art" style="border:${border}">
         ${img
-          ? `<img src="${img}" style="width:100%;height:100%;object-fit:cover;${filter}" alt="${name}" loading="lazy">`
-          : `<div style="width:100%;height:100%;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:0.6rem;padding:4px;text-align:center;color:var(--text2)">${name}</div>`}
-      </div>
-      <div style="font-size:0.62rem;color:var(--text3);margin-top:2px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${name}</div>
-      <div style="font-size:0.6rem;color:var(--text3);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${(payload.set||'').toUpperCase()}${payload.number ? ' #' + payload.number : ''}</div>
-      <div style="display:flex;gap:4px;justify-content:center;margin-top:3px" onclick="event.stopPropagation()">
-        <button class="btn btn-outline btn-sm wishlist-add-btn" data-idx="${idx}" data-finish="nonfoil" style="padding:2px 6px;font-size:0.62rem">${nonFoilPrice > 0 ? `$${nonFoilPrice.toFixed(2)}` : 'Add'}</button>
-        ${foilAvailable ? `<button class="btn btn-outline btn-sm wishlist-add-btn" data-idx="${idx}" data-finish="foil" style="padding:2px 6px;font-size:0.62rem;color:var(--gold);border-color:rgba(200,168,74,0.4)">✦ $${foilPrice.toFixed(2)}</button>` : ''}
+          ? `<img src="${escapeHtml(img)}" alt="${escapeHtml(name)}" loading="lazy">`
+          : `<div class="wl-result-fallback">${escapeHtml(name)}</div>`}
       </div>
     </div>`;
 }
@@ -422,24 +669,32 @@ function _renderWishlistSearchGrid() {
     return _wishlistTile(c.name, img, !!collectionByScryId[c.id], payload, _wishlistResultPayloads.length - 1);
   }).join('');
 
-  el.innerHTML = (localHtml + apiHtml) ||
-    '<div style="grid-column:1/-1;padding:8px;font-size:0.8rem;color:var(--text3)">No cards found</div>';
+  const shown = _wishlistSearchLocal.length + _wishlistSearchApi.length;
+  const more = _wishlistSearchTotal != null && _wishlistSearchOffset < _wishlistSearchTotal
+    ? `<div class="wl-more"><button type="button" class="btn btn-outline btn-sm" onclick="loadMoreWishlistResults()">Load more (${shown} of ${_wishlistSearchTotal})</button></div>`
+    : '';
+  el.innerHTML = ((localHtml + apiHtml) ||
+    '<div style="grid-column:1/-1;padding:8px;font-size:0.8rem;color:var(--text3)">No cards found</div>') + more;
 
+  // Clicking a result opens the inspector rather than adding it outright — you
+  // get the card's detail, its printings and the wishlist heart, instead of a
+  // silent add you then have to undo. The heart is what adds it.
   el.onclick = e => {
-    const addBtn = e.target.closest('.wishlist-add-btn');
     const tile = e.target.closest('.deck-search-tile');
     if (!tile) return;
     const payload = _wishlistResultPayloads[+tile.dataset.idx];
     if (!payload) return;
-    const finish = addBtn?.dataset?.finish || 'nonfoil';
-    const data = { ...payload, foil: finish === 'foil' };
-    addToWishlistCard(data.scryfallId || data.id, encodeURIComponent(JSON.stringify(data)));
+    if (typeof openCardDetail !== 'function') return;
+    _wishlistSearchActiveIdx = +tile.dataset.idx;
+    // The payload is already in cardToEntry shape, so hand it over prefetched.
+    // 'wlsearch' nav mode puts the inspector's arrows on the results.
+    void openCardDetail(String(payload.scryfallId || payload.id), 'wlsearch', { prefetchedEntry: { ...payload } });
   };
 }
 
 function addToWishlistCard(id, dataStr) {
   const data = JSON.parse(decodeURIComponent(dataStr));
-  const priority = document.getElementById('wishlistPriority').value;
+  const priority = document.getElementById('wishlistPriority')?.value || 'med';
   const uid = (data.scryfallId || id) + (data.foil ? '_f' : '_n');
   if (wishlist.find(c => (c.uid || (c.scryfallId + (c.foil ? '_f' : '_n'))) === uid)) { showNotif('Already in wishlist'); return; }
   wishlist.push({...data, uid, priority, addedAt: Date.now()});
@@ -452,6 +707,74 @@ function addToWishlistManual() {
   const q = document.getElementById('wishlistSearch').value;
   if (!q) return;
   runWishlistSearch(q);
+}
+
+const WISHLIST_PRIORITIES = ['high', 'med', 'low'];
+const _WL_PRIORITY_LABEL = { high: 'High', med: 'Med', low: 'Low' };
+
+function _wishlistUid(c) {
+  return c?.uid || ((c?.scryfallId || '') + (c?.foil ? '_f' : '_n'));
+}
+
+function _wishlistIndexByUid(uid) {
+  return wishlist.findIndex(c => _wishlistUid(c) === uid);
+}
+
+/** Cycle High -> Med -> Low. The tile shows the current value, so one control does. */
+function cycleWishlistPriority(uid, event) {
+  if (event) event.stopPropagation();
+  const i = _wishlistIndexByUid(uid);
+  if (i < 0) return;
+  const cur = wishlist[i].priority || 'med';
+  const next = WISHLIST_PRIORITIES[(WISHLIST_PRIORITIES.indexOf(cur) + 1) % WISHLIST_PRIORITIES.length];
+  wishlist[i].priority = next;
+  save('wishlist');
+  renderWishlist();
+}
+
+/**
+ * Delete a wishlist row server-side as well as locally.
+ *
+ * PUT /api/wishlist only full-replaces the rows whose source is 'manual'. Rows
+ * the server derived for you — source deck_needed, pending_trade or
+ * upgrade_target — are owned by reconcileWishlistSource and the PUT leaves them
+ * alone by design. So dropping one from the array and saving removed it from
+ * the screen and nothing else: the row was still in the table, and the next
+ * load brought it straight back. Most wishlist entries are derived, which is
+ * why Remove looked broken rather than occasionally wrong.
+ *
+ * DELETE /api/wishlist/:uid removes the row whatever its source. Fire-and-forget
+ * on top of the normal save: the save keeps the manual partition right, and this
+ * is what actually reaches a derived row.
+ */
+function _deleteWishlistRowRemote(uid) {
+  if (!uid) return;
+  const root = typeof mtgApiRoot === 'function' ? mtgApiRoot() : '/api';
+  fetch(`${root}/wishlist/${encodeURIComponent(uid)}`, { method: 'DELETE', credentials: 'include' })
+    .catch(() => { /* the local splice + PUT still stand for manual rows */ });
+}
+
+/**
+ * Removal is keyed on the card, not its position in the array. The index the
+ * tile was rendered with stops matching the moment the list is ordered by
+ * anything other than insertion — priority sorting, for one — and the quiet
+ * failure mode is removing a different card than the one clicked.
+ */
+function removeWishlistByUid(uid, event) {
+  if (event) event.stopPropagation();
+  const i = _wishlistIndexByUid(uid);
+  if (i < 0) return;
+  wishlist.splice(i, 1);
+  save('wishlist');
+  _deleteWishlistRowRemote(uid);
+  renderWishlist();
+}
+
+function moveWishlistToCollectionByUid(uid, event) {
+  if (event) event.stopPropagation();
+  const i = _wishlistIndexByUid(uid);
+  if (i < 0) return;
+  moveWishlistToCollection(i);
 }
 
 function removeWishlist(i) { wishlist.splice(i, 1); save('wishlist'); renderWishlist(); }
@@ -474,7 +797,11 @@ function moveWishlistToCollection(i) {
     const now = Date.now();
     collection.push({ ...card, uid: wUid, qty: 1, addedAt: now, firstAddedAt: now });
   }
-  wishlist.splice(i, 1); save('collection', 'wishlist'); renderWishlist(); renderCollection(); showNotif('Moved to collection!');
+  const removedUid = _wishlistUid(card);
+  wishlist.splice(i, 1);
+  save('collection', 'wishlist');
+  _deleteWishlistRowRemote(removedUid);
+  renderWishlist(); renderCollection(); showNotif('Moved to collection!');
 }
 
 document.addEventListener('click', e => {

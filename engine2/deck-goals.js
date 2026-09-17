@@ -19,7 +19,8 @@ const TEMPLATES = require('./goal-templates');
 const COMMANDER_WEIGHT = 3;
 
 function axisHistogram(deckCards, commander) {
-  const providers = {};   // axis → distinct provider count (qty-aware)
+  const providers = {};   // axis → RANKING count: qty-aware, commander-emphasised (see add)
+  const cardCounts = {};  // axis → the honest card count, no emphasis — anything a user reads
   const weight = {};      // axis → summed weight
   const byAxisCards = {}; // axis → [names]
   const typeCounts = {};  // card type → qty ("Enchantment", "Artifact", …) — some goals
@@ -27,7 +28,15 @@ function axisHistogram(deckCards, commander) {
   const add = (card, mult, qty) => {
     for (const p of card.ir?.provides || []) {
       if (!p?.axis) continue;
-      providers[p.axis] = (providers[p.axis] || 0) + qty;
+      // The commander counts as COMMANDER_WEIGHT providers, not one: template fill
+      // runs on provider counts, and a commander-defined theme (Thranduil's
+      // graveyard) must not rank like a random 1-of supports it (mult is 1 for the
+      // 99, COMMANDER_WEIGHT for the command zone — same rule the weights follow).
+      providers[p.axis] = (providers[p.axis] || 0) + qty * mult;
+      // …but the emphasis is a ranking device, not a fact about the deck. Evidence and
+      // the goal summary are shown to the user ("3 mill payoffs"), and a commander that
+      // is the only provider of an axis must not be reported as three cards.
+      cardCounts[p.axis] = (cardCounts[p.axis] || 0) + qty;
       weight[p.axis] = (weight[p.axis] || 0) + (p.weight || 1) * mult * qty;
       (byAxisCards[p.axis] = byAxisCards[p.axis] || []).push(card.name);
     }
@@ -39,7 +48,7 @@ function axisHistogram(deckCards, commander) {
   };
   for (const c of deckCards) if (c.ir) add(c, 1, c.qty || 1);
   if (commander?.ir) add(commander, COMMANDER_WEIGHT, 1);
-  return { providers, weight, byAxisCards, typeCounts };
+  return { providers, cardCounts, weight, byAxisCards, typeCounts };
 }
 
 // Greedy label propagation over enabler_payoff edges: each node starts labeled by its
@@ -134,7 +143,7 @@ function coreGroupFill(group, hist) {
   return { ratio: got === 0 ? 0 : Math.min(1, got / group.min), mechanism: null };
 }
 
-function scoreTemplate(tpl, hist, comboCount, out = {}) {
+function scoreTemplate(tpl, hist, comboCount, out = {}, wideBodies = 0) {
   const supportOf = () => Math.min(1, (tpl.support || []).reduce((s, ax) => s + (hist.providers[ax] || 0), 0) / 6);
   if (tpl.usesCombos) {
     // One incidental axis coincidence must not read as "combo deck" — confidence needs
@@ -154,6 +163,11 @@ function scoreTemplate(tpl, hist, comboCount, out = {}) {
   if (defining) {
     score *= defining.ratio;
     if (defining.ratio > 0) out.mechanism = defining.mechanism;
+  }
+  // Width damper (voltron): archetypes defined by concentration lose confidence in
+  // decks that are demonstrably going wide instead (dominant-tribe body count).
+  if (tpl.widthDamper && wideBodies >= tpl.widthDamper.bodies) {
+    score *= tpl.widthDamper.factor;
   }
   return score;
 }
@@ -181,6 +195,34 @@ function pluralizeType(t) {
   return t + 's';
 }
 
+// Provider mass a goal's CORE accounts for — the saturation tie-break metric. Same
+// units as scoreTemplate's fills (provider counts + type-density counts); tribal goals
+// use their own bodies+lords metric so a dominant tribe outranks a saturated template.
+function explainedShare(goal, hist) {
+  if (goal.goal.startsWith('tribal:')) {
+    const h = goal._tribalHit;
+    return h ? h.bodies + h.lords * 5 : 0;
+  }
+  const tpl = TEMPLATES.find(t => t.key === goal.goal);
+  if (!tpl || !tpl.core) return 0;
+  let sum = 0;
+  const counted = new Set();
+  for (const group of tpl.core) {
+    for (const ax of coreGroupAxes(group, goal.mechanism)) {
+      if (counted.has(ax)) continue;
+      counted.add(ax);
+      sum += hist.providers[ax] || 0;
+    }
+    for (const t of group.types || []) {
+      const key = `type:${t}`;
+      if (counted.has(key)) continue;
+      counted.add(key);
+      sum += hist.typeCounts[t] || 0;
+    }
+  }
+  return sum;
+}
+
 function summarize(goal, hist, tribalHit) {
   if (goal.goal.startsWith('tribal:')) {
     return `This deck wants to overwhelm with ${pluralizeType(tribalHit.type)} — ${tribalHit.bodies} ${tribalHit.type} bodies` +
@@ -204,11 +246,11 @@ function inferGoals(deckCards, commander, opts = {}) {
   const goals = [];
   for (const tpl of TEMPLATES) {
     const mech = {};
-    const score = scoreTemplate(tpl, hist, interactions.combos.length, mech);
+    const score = scoreTemplate(tpl, hist, interactions.combos.length, mech, tribal[0]?.bodies || 0);
     if (score <= 0.15) continue;
     const evidenceAxes = (tpl.core || []).flatMap(g => coreGroupAxes(g, mech.mechanism))
       .concat(tpl.support || [])
-      .map(ax => ({ axis: ax, count: hist.providers[ax] || 0 }))
+      .map(ax => ({ axis: ax, count: hist.cardCounts[ax] || 0 }))
       .filter(a => a.count > 0)
       .sort((a, b) => b.count - a.count)
       .slice(0, 6);
@@ -252,15 +294,19 @@ function inferGoals(deckCards, commander, opts = {}) {
     if (g.evidence.commanderContribution.length) sortKey += 0.1;
     if (theme && (g.label.toLowerCase().includes(theme) || g.goal.includes(theme))) sortKey += 0.05;
     g._sortKey = sortKey;
+    g._share = explainedShare(g, hist);
     g.confidence = Math.round(Math.min(1, sortKey) * 100) / 100;
   }
 
-  // Exact-score ties break by TEMPLATE ORDER (tribal first) — deliberate editorial
-  // ranking (stompy ahead of counters, aristocrats ahead of graveyard), not the
-  // accident of alphabetical keys.
+  // Exact-score ties break by EXPLAINED SHARE — how much of the deck the goal's core
+  // actually accounts for. Hybrid precons saturate several templates at once (Anikthea
+  // tied five goals at 1.0), and with everything downstream keyed off goals[0], the
+  // winner must be the template that explains the most cards, not the one that happens
+  // to sit earliest in the table (precon audit F2). Template order remains the final
+  // deterministic fallback (stompy ahead of counters, aristocrats ahead of graveyard).
   const tplIdx = (key) => key.startsWith('tribal:') ? -1 : TEMPLATES.findIndex(t => t.key === key);
-  goals.sort((a, b) => b._sortKey - a._sortKey || tplIdx(a.goal) - tplIdx(b.goal) || a.goal.localeCompare(b.goal));
-  for (const g of goals) delete g._sortKey;
+  goals.sort((a, b) => b._sortKey - a._sortKey || b._share - a._share || tplIdx(a.goal) - tplIdx(b.goal) || a.goal.localeCompare(b.goal));
+  for (const g of goals) { delete g._sortKey; delete g._share; }
   for (const g of goals) {
     g.summary = summarize(g, hist, g._tribalHit || tribal[0] || { type: '?', bodies: 0, lords: 0 });
     delete g._tribalHit;

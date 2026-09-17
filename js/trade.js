@@ -9,7 +9,6 @@ const _TRADE_SECTIONS = [
   { key: 'partners',   label: 'Find Trades' },
   { key: 'offers',     label: 'Offers' },
   { key: 'tradelist',  label: 'Tradelist' },
-  { key: 'wishlist',   label: 'Wishlist' },
   { key: 'watches',    label: 'Price Alerts' },
   { key: 'history',    label: 'History' },
 ];
@@ -29,11 +28,11 @@ function renderTrade() {
   if (!root.querySelector('.trade-shell')) {
     root.innerHTML = `
       <div class="trade-shell">
-        <div class="trade-header">
-          <h1 class="trade-title">Trade</h1>
-          <div class="trade-subnav" id="tradeSubnav"></div>
+        <div class="collection-top-actions">
+          <span class="page-title">Trade</span>
         </div>
-        <div class="trade-section-body" id="tradeSectionBody"></div>
+        <div class="deck-folder-tabs" id="tradeSubnav" role="tablist" aria-label="Trade sections"></div>
+        <div class="deck-tab-pane active trade-section-body" id="tradeSectionBody"></div>
       </div>`;
   }
   _renderTradeSubnav();
@@ -45,8 +44,10 @@ function renderTrade() {
 function _renderTradeSubnav() {
   const nav = document.getElementById('tradeSubnav');
   if (!nav) return;
+  // Same folder tabs the deck builder, games and wishlist use.
   nav.innerHTML = _TRADE_SECTIONS.map(s =>
-    `<button class="trade-subnav-btn${s.key === _tradeSection ? ' active' : ''}"
+    `<button type="button" role="tab" class="deck-ftab${s.key === _tradeSection ? ' active' : ''}"
+       aria-selected="${s.key === _tradeSection ? 'true' : 'false'}"
        onclick="setTradeSection('${s.key}')">${escapeHtml(s.label)}</button>`
   ).join('');
 }
@@ -66,9 +67,6 @@ function renderTradeSection() {
       break;
     case 'tradelist':
       if (typeof renderTradelistSection === 'function') return renderTradelistSection(host);
-      break;
-    case 'wishlist':
-      if (typeof renderTradeWishlistSection === 'function') return renderTradeWishlistSection(host);
       break;
     case 'partners':
       if (typeof renderTradePartnersSection === 'function') return renderTradePartnersSection(host);
@@ -249,11 +247,10 @@ function renderTradeCalculator(host) {
         value="${escapeHtml(_calc.title || '')}" oninput="tradeCalcSetTitle(this.value)">
       <div class="calc-toolbar-actions">
         <button class="btn btn-ghost btn-sm" onclick="tradeCalcClose()">Close</button>
-        <button class="btn btn-primary btn-sm" id="calcSaveBtn" onclick="tradeCalcSave()">Save</button>
+        <button class="btn btn-outline btn-sm" id="calcSaveBtn" onclick="tradeCalcSave()">Save</button>
       </div>
     </div>
     ${_calcTradeStatusHtml()}
-    <div class="calc-delta" id="calcDelta"></div>
     <div class="calc-grid">
       ${_calcSideHtml('a')}
       ${_calcSideHtml('b')}
@@ -356,23 +353,19 @@ function _calcTradeStatusHtml() {
   }
   const myId = _calcMyId();
   const partner = _calc.partnerName ? `@${escapeHtml(_calc.partnerName)}` : 'partner';
-  // Partner chosen but the trade isn't saved yet → save then send.
-  if (!_calc.id) {
-    return `<div class="calc-trade-status">Trade with <strong>${partner}</strong>
-      <button class="calc-partner-change" onclick="calcClearPartner()">change</button>
-      · save, then send an offer.</div>`;
-  }
+  // Partner chosen but the trade isn't saved yet. Who it is with is already the
+  // reason you are in this dialog, so there is nothing to say here yet.
+  if (!_calc.id) return '';
   const status = _calc.status;
   let badge = `<span class="calc-status-badge status-${status}">${escapeHtml(status)}</span>`;
   let actions = '';
   if (status === 'draft') {
-    actions = `<button class="btn btn-primary btn-sm" onclick="tradeCalcSendOffer()">Send offer to ${partner}</button>
-      <button class="calc-partner-change" onclick="calcClearPartner()">change partner</button>`;
+    actions = `<button class="btn btn-outline btn-sm" onclick="tradeCalcSendOffer()">Send offer to ${partner}</button>`;
   } else if (status === 'pending' || status === 'countered') {
     const amResponder = Number(_calcResponderId()) === Number(myId);
     if (amResponder) {
       actions = `
-        <button class="btn btn-primary btn-sm" onclick="tradeCalcRespond('accept')">Accept</button>
+        <button class="btn btn-outline btn-sm" onclick="tradeCalcRespond('accept')">Accept</button>
         <button class="btn btn-outline btn-sm" onclick="tradeCalcRespond('counter')">Counter</button>
         <button class="btn btn-danger btn-sm" onclick="tradeCalcRespond('decline')">Decline</button>`;
     } else {
@@ -380,7 +373,7 @@ function _calcTradeStatusHtml() {
         <button class="btn btn-ghost btn-sm" onclick="tradeCalcRespond('cancel')">Cancel offer</button>`;
     }
   } else if (status === 'accepted') {
-    actions = `<button class="btn btn-primary btn-sm" onclick="tradeCalcComplete()">Mark complete</button>`;
+    actions = `<button class="btn btn-outline btn-sm" onclick="tradeCalcComplete()">Mark complete</button>`;
   }
   return `<div class="calc-trade-status">${badge} · with ${partner} ${actions}</div>`;
 }
@@ -780,6 +773,11 @@ function _refreshCalcSide(side) {
   if (totalEl) totalEl.textContent = fmtUsd(sideTotalCents(lines.map(_calcLineForValue)));
 }
 
+/**
+ * The give/receive totals sit on each column already, so the bar that repeated
+ * them and added a "favors you by" reading was saying the same thing a third
+ * time. Kept as a no-op because several call sites refresh it after edits.
+ */
 function _renderCalcDelta() {
   const el = document.getElementById('calcDelta');
   if (!el || !_calc) return;
@@ -871,7 +869,7 @@ function _applyTradeDocToCalc(doc, opts = {}) {
   if (!opts.fromSocket && _calc.id && _calc.partnerId && ['pending', 'countered', 'accepted'].includes(_calc.status)) joinTradeRoom(_calc.id);
 }
 
-// Close the inline calculator and return to wherever it was opened from.
+// Close the calculator dialog and return to whichever tab opened it.
 async function tradeCalcClose() {
   if (_calc && _calc.dirty && (_calc.give.length || _calc.receive.length)) {
     const ok = await showConfirmModal({
@@ -883,17 +881,16 @@ async function tradeCalcClose() {
   _exitCalc();
 }
 
-// Tear down the calculator and re-render its host's natural view.
+// Tear down the calculator, dismiss its dialog and refresh the tab behind it.
 function _exitCalc() {
   if (_joinedTradeRoom && typeof leaveTradeRoom === 'function') leaveTradeRoom();
   _calc = _newCalcState();
+  closeTradeCalcModal();
+  _calcHostId = 'tradeSectionBody';
   if (_calcContext === 'offers') {
     _offersOpenId = null;
     const host = document.getElementById('tradeSectionBody');
     if (host && _tradeSection === 'offers') renderTradeOffersSection(host);
-  } else {
-    // Find Trades: drop back to the partner's detail (CTA + suggestions).
-    if (typeof _renderPartnerDetail === 'function') _renderPartnerDetail();
   }
 }
 
@@ -932,18 +929,7 @@ async function _refreshOffersList() {
 }
 
 async function renderTradeOffersSection(host) {
-  // When a trade is open, the calculator takes over the section body.
-  if (_offersOpenId) {
-    _calcContext = 'offers';
-    renderTradeCalculator(host);
-    return;
-  }
-  host.innerHTML = `
-    <div class="offers-bar">
-      <div class="offers-bar-title">Your trades &amp; offers</div>
-      <button class="btn btn-outline btn-sm" onclick="offersNewBlank()">${_ICON_TRADE} New trade</button>
-    </div>
-    <div id="offersListMount"><div class="trade-loading">Loading…</div></div>`;
+  host.innerHTML = `<div id="offersListMount"><div class="trade-loading">Loading…</div></div>`;
   try { _offersList = await apiFetch('/trades?status=draft,pending,countered,accepted'); }
   catch (_) { _offersList = []; }
   _renderOffersList();
@@ -953,7 +939,7 @@ function _renderOffersList() {
   const el = document.getElementById('offersListMount');
   if (!el) return;
   if (!_offersList.length) {
-    el.innerHTML = `<div class="trade-empty">No trades yet. Find a trader in <button type="button" class="linklike" onclick="setTradeSection('partners')">Find Trades</button> to start one.</div>`;
+    el.innerHTML = `<div class="trade-empty">No offers yet</div>`;
     return;
   }
   const me = _calcMyId();
@@ -967,7 +953,7 @@ function _renderOffersList() {
   const group = (title, rows) => rows.length ? `
     <div class="offers-group">
       <div class="offers-group-head">${escapeHtml(title)}</div>
-      ${rows.map(_offerRowHtml).join('')}
+      <div class="offers-card-grid">${rows.map(_offerRowHtml).join('')}</div>
     </div>` : '';
   el.innerHTML =
     group('Incoming offers', incoming) +
@@ -988,16 +974,20 @@ function _offerOtherName(d) {
   return other ? `@${other}` : (d.iAmInitiator ? 'no partner yet' : 'a trader');
 }
 
+/** An offer is a card; opening it is the whole interaction. */
 function _offerRowHtml(d) {
   const give = fmtUsd(d.valueACents), recv = fmtUsd(d.valueBCents);
   const who = escapeHtml(_offerOtherName(d));
   const badge = d.status !== 'draft' ? `<span class="calc-status-badge status-${d.status}">${escapeHtml(d.status)}</span>` : '';
-  return `<div class="offers-row">
-    <button class="offers-row-open" onclick="openTradeInOffers(${d.id})">
-      <span class="offers-row-title">${escapeHtml(d.title || 'Untitled trade')} ${badge}</span>
-      <span class="offers-row-meta">${give} ⇄ ${recv} · with ${who}</span>
-    </button>
-    ${d.status === 'draft' && d.iAmInitiator ? `<button class="offers-row-del" title="Delete draft" onclick="tradeCalcDeleteDraft(${d.id})">✕</button>` : ''}
+  return `<div class="offer-card" role="button" tabindex="0" onclick="openTradeInOffers(${d.id})"
+      onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openTradeInOffers(${d.id})}">
+    <div class="offer-card-head">
+      <span class="offer-card-title">${escapeHtml(d.title || 'Untitled trade')}</span>
+      ${badge}
+    </div>
+    <div class="offer-card-who">with ${who}</div>
+    <div class="offer-card-values"><span>${give}</span><span class="offer-card-swap">${_ICON_TRADE}</span><span>${recv}</span></div>
+    ${d.status === 'draft' && d.iAmInitiator ? `<button class="offer-card-del" title="Delete draft" onclick="event.stopPropagation();tradeCalcDeleteDraft(${d.id})">&#10005;</button>` : ''}
   </div>`;
 }
 
@@ -1005,9 +995,13 @@ function _offerRowHtml(d) {
 async function openTradeInOffers(id) {
   _offersOpenId = id;
   _calcContext = 'offers';
-  if (_tradeSection !== 'offers') { setTradeSection('offers'); }
+  const modal = document.getElementById('tradeCalcModal');
+  const mount = document.getElementById('tradeCalcModalBody');
   try {
     const doc = await apiFetch(`/trades/${id}`);
+    // _rerenderCalc() paints into _calcHostId, so point it at the dialog before
+    // the doc lands or the calculator redraws into the section body behind it.
+    if (modal && mount) { _calcHostId = 'tradeCalcModalBody'; modal.classList.add('open'); }
     _applyTradeDocToCalc(doc);
   } catch (e) {
     showNotif(e.message || 'Could not load trade', true);
@@ -1077,52 +1071,156 @@ const _TF_TYPES = ['creature', 'instant', 'sorcery', 'artifact', 'enchantment', 
 const _TF_FLAGS = [['legendary', 'Legendary'], ['foil', 'Foil'], ['nonfoil', 'Non-foil'], ['new', 'New']];
 const _TF_SORTS = [['name', 'Name'], ['cmc', 'Mana Value'], ['price_tcg', 'Price (TCG)'], ['price_ck', 'Price (CK)'], ['set', 'Set'], ['added', 'Recently Added']];
 
-function _tradeToolbarHtml(ctx, addPlaceholder, addFn) {
+/**
+ * The collection's filter bar, driven by this tab's state. Same row order —
+ * search on its own line, then Type & more, Color, Sort, Mana Value, Rarity and
+ * the layout toggle — and the same multi-select menus, because the filtering
+ * underneath is already the collection's applyCardFilters and sortCardList.
+ */
+function _tradeToolbarHtml(ctx) {
   const s = _tfState(ctx);
-  const cap = w => w.charAt(0).toUpperCase() + w.slice(1);
   return `
-  <div class="filter-bar trade-toolbar">
+  <div class="filter-bar trade-toolbar" data-tf-ctx="${ctx}">
+    <div class="collection-search-row">
+      <div style="position:relative;flex:1;min-width:0">
+        <input class="search-box" type="text" style="width:100%;padding-right:28px" placeholder="Search"
+          value="${escapeHtml(s.searchQ)}" oninput="tfSearch('${ctx}', this.value)" autocomplete="off" spellcheck="false">
+        <div class="filter-syntax-hint tooltip-wrap" aria-label="Search syntax" style="position:absolute;right:7px;top:50%;transform:translateY(-50%);color:var(--text3);cursor:default;user-select:none;display:flex;align-items:center">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><circle cx="8" cy="8" r="6.25"/><path d="M8 7.2v4"/><path d="M8 4.9h.01"/></svg>
+          <div class="tooltip" style="white-space:normal;width:280px;left:auto;right:0;transform:none;font-size:0.72rem;line-height:1.6;bottom:auto;top:calc(100% + 6px)">
+            <strong>Search syntax</strong><br>
+            <code>t:creature</code> — type or subtype<br>
+            <code>is:legendary</code> / <code>is:foil</code><br>
+            <code>mv&gt;=4</code> or <code>mv:3</code> — mana value<br>
+            <code>r:rare</code> / <code>r:mythic</code> — rarity<br>
+            <code>s:znr</code> — set code<br>
+            <code>c:u</code> — colour (w/u/b/r/g)<br>
+            <code>-t:land</code> — negate any filter
+          </div>
+        </div>
+      </div>
+    </div>
     <div class="view-controls">
-      <div class="trade-toolbar-search">
-        <input class="search-box" type="text" placeholder="${_TRADE_FILTER_PLACEHOLDER}" value="${escapeHtml(s.searchQ)}"
-          oninput="tfSearch('${ctx}', this.value)" autocomplete="off" spellcheck="false">
-      </div>
-      <div class="color-pills">
-        ${_TF_COLORS.map(([c, n]) => `<div class="color-pill tooltip-wrap${s.colors.has(c) ? ' active' : ''}" data-c="${c}" onclick="tfColor('${ctx}','${c}')"><span class="tooltip">${n}</span><img src="https://svgs.scryfall.io/card-symbols/${c}.svg" alt="${c}"></div>`).join('')}
-      </div>
-      <select class="trade-sort" onchange="tfSort('${ctx}', this.value)">
+      <button type="button" id="tfTypeBtn-${ctx}" class="btn btn-outline btn-sm${s.types.size + s.flags.size ? ' active' : ''}"
+        aria-haspopup="true" onclick="tfToggleMenu('${ctx}','type',event)">Type &amp; more${s.types.size + s.flags.size ? ` (${s.types.size + s.flags.size})` : ''}</button>
+      <button type="button" id="tfColorBtn-${ctx}" class="btn btn-outline btn-sm${s.colors.size ? ' active' : ''}"
+        aria-haspopup="true" onclick="tfToggleMenu('${ctx}','color',event)">Color${s.colors.size ? ` (${s.colors.size})` : ''}</button>
+      <select onchange="tfSort('${ctx}', this.value)">
         ${_TF_SORTS.map(([v, l]) => `<option value="${v}"${s.sort === v ? ' selected' : ''}>Sort: ${l}</option>`).join('')}
       </select>
-      <div class="view-toggle">
-        <button class="${s.view === 'grid' ? 'active ' : ''}tooltip-wrap" onclick="tfView('${ctx}','grid')"><span class="tooltip">Grid</span>⊞</button>
-        <button class="${s.view === 'large' ? 'active ' : ''}tooltip-wrap" onclick="tfView('${ctx}','large')"><span class="tooltip">Large</span>⊟</button>
-        <button class="${s.view === 'compact' ? 'active ' : ''}tooltip-wrap" onclick="tfView('${ctx}','compact')"><span class="tooltip">Compact</span>⊠</button>
-        <button class="${s.view === 'list' ? 'active ' : ''}tooltip-wrap" onclick="tfView('${ctx}','list')"><span class="tooltip">List</span>☰</button>
-      </div>
-      <button type="button" class="btn btn-outline btn-sm trade-add-toggle" onclick="toggleTradeAddPanel('${ctx}')">+ Add</button>
-    </div>
-    <div class="trade-chip-row">
-      <span class="tf-row-label">Type</span>
-      ${_TF_TYPES.map(t => `<button class="filter-chip${s.types.has(t) ? ' active' : ''}" onclick="tfType('${ctx}','${t}')">${cap(t)}</button>`).join('')}
-      <span class="tf-sep"></span>
-      ${_TF_FLAGS.map(([f, l]) => `<button class="filter-chip${s.flags.has(f) ? ' active' : ''}" onclick="tfFlag('${ctx}','${f}')">${l}</button>`).join('')}
-      <span class="tf-sep"></span>
-      <span class="tf-row-label">Mana Value</span>
-      <input id="${ctx}CmcMin" class="tf-cmc-input" type="number" min="0" max="20" placeholder="Min" value="${s.cmcMin ?? ''}" oninput="tfCMC('${ctx}')">
-      <span style="font-size:0.72rem;color:var(--text3)">–</span>
-      <input id="${ctx}CmcMax" class="tf-cmc-input" type="number" min="0" max="20" placeholder="Max" value="${s.cmcMax ?? ''}" oninput="tfCMC('${ctx}')">
-      <span class="tf-sep"></span>
-      <select class="tf-rarity" onchange="tfRarity('${ctx}', this.value)">
+      <button type="button" id="tfCmcBtn-${ctx}" class="btn btn-outline btn-sm${_tfCmcCount(ctx) ? ' active' : ''}"
+        aria-haspopup="true" onclick="tfToggleMenu('${ctx}','cmc',event)">Mana Value${_tfCmcCount(ctx) ? ` (${_tfCmcCount(ctx)})` : ''}</button>
+      <select onchange="tfRarity('${ctx}', this.value)">
         <option value="">All Rarities</option>
-        ${['common', 'uncommon', 'rare', 'mythic'].map(r => `<option value="${r}"${s.rarity === r ? ' selected' : ''}>${cap(r)}</option>`).join('')}
+        ${['common', 'uncommon', 'rare', 'mythic'].map(r =>
+          `<option value="${r}"${s.rarity === r ? ' selected' : ''}>${r.charAt(0).toUpperCase() + r.slice(1)}</option>`).join('')}
       </select>
-      <button id="${ctx}ClearBtn" class="btn btn-ghost btn-sm tf-clear" onclick="tfClear('${ctx}')" style="${_tfHasQuick(ctx) ? '' : 'display:none'}">✕ Clear</button>
     </div>
-  </div>
-  <div class="trade-add-panel" id="${ctx}AddPanel" style="display:none">
-    <input type="text" id="${ctx}AddSearch" class="calc-search-input" placeholder="${addPlaceholder}" oninput="${addFn}(this.value)" autocomplete="off">
-    <div class="calc-search-results" id="${ctx}AddResults"></div>
   </div>`;
+}
+
+const _TF_CMC_MAX = 12;
+function _tfCmcCount(ctx) {
+  const s = _tfState(ctx);
+  if (s.cmcMin == null && s.cmcMax == null) return 0;
+  return (Math.min(s.cmcMax ?? _TF_CMC_MAX, _TF_CMC_MAX) - Math.max(s.cmcMin ?? 0, 0)) + 1;
+}
+
+function closeTfMenu() {
+  document.querySelectorAll('.tf-menu').forEach(m => m.remove());
+}
+
+function tfToggleMenu(ctx, kind, event) {
+  if (event) { event.stopPropagation(); event.preventDefault(); }
+  const open = document.querySelector(`.tf-menu[data-kind="${kind}"]`);
+  closeTfMenu();
+  if (!open) _tfOpenMenu(ctx, kind);
+}
+
+/** One body-anchored multi-select, the same shape the collection's menus use. */
+function _tfOpenMenu(ctx, kind) {
+  const btn = document.getElementById(`tf${kind === 'color' ? 'Color' : kind === 'cmc' ? 'Cmc' : 'Type'}Btn-${ctx}`);
+  if (!btn) return;
+  const st = _tfState(ctx);
+  const rows = kind === 'color'
+    ? _TF_COLORS.map(([c, n]) => ({ label: n, on: st.colors.has(c), run: () => tfColor(ctx, c) }))
+    : kind === 'cmc'
+      ? Array.from({ length: _TF_CMC_MAX + 1 }, (_, v) => ({
+        label: v === _TF_CMC_MAX ? `${v}+` : String(v),
+        on: (st.cmcMin ?? 0) <= v && v <= (st.cmcMax ?? _TF_CMC_MAX) && (st.cmcMin != null || st.cmcMax != null),
+        run: () => tfCmcPick(ctx, v),
+      }))
+      : [
+        ..._TF_TYPES.map(t => ({ label: t.charAt(0).toUpperCase() + t.slice(1), on: st.types.has(t), run: () => tfType(ctx, t) })),
+        ..._TF_FLAGS.map(([f, l]) => ({ label: l, on: st.flags.has(f), run: () => tfFlag(ctx, f) })),
+      ];
+
+  const menu = document.createElement('div');
+  menu.className = 'glass-menu qf-menu tf-menu';
+  menu.dataset.kind = kind;
+  for (const row of rows) {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'glass-menu-item' + (row.on ? ' selected' : '');
+    item.textContent = row.label;
+    item.addEventListener('click', e => {
+      e.stopPropagation();
+      row.run();
+      const scroll = menu.scrollTop;
+      setTimeout(() => {
+        closeTfMenu();
+        _tfOpenMenu(ctx, kind);
+        const next = document.querySelector(`.tf-menu[data-kind="${kind}"]`);
+        if (next) next.scrollTop = scroll;
+      }, 0);
+    });
+    menu.appendChild(item);
+  }
+  document.body.appendChild(menu);
+  const r = btn.getBoundingClientRect();
+  const margin = 8;
+  const maxH = Math.min(320, window.innerHeight - margin * 2);
+  menu.style.maxHeight = maxH + 'px';
+  const h = Math.min(menu.offsetHeight, maxH);
+  const w = menu.offsetWidth;
+  const below = window.innerHeight - r.bottom;
+  const top = below >= h + 12 ? r.bottom + 6 : Math.max(margin, r.top - h - 6);
+  menu.style.top = Math.min(top, window.innerHeight - h - margin) + 'px';
+  menu.style.left = Math.min(Math.max(margin, r.left), window.innerWidth - w - margin) + 'px';
+
+  const drop = e => {
+    if (!menu.isConnected) {
+      window.removeEventListener('resize', drop, true);
+      window.removeEventListener('scroll', drop, true);
+      return;
+    }
+    if (e && e.target && menu.contains(e.target)) return;
+    closeTfMenu();
+    window.removeEventListener('resize', drop, true);
+    window.removeEventListener('scroll', drop, true);
+  };
+  window.addEventListener('resize', drop, true);
+  window.addEventListener('scroll', drop, true);
+}
+
+/** Mana value is a set of discrete picks expressed as the min/max the filter takes. */
+function tfCmcPick(ctx, v) {
+  const s = _tfState(ctx);
+  const cur = new Set();
+  if (s.cmcMin != null || s.cmcMax != null) {
+    for (let i = Math.max(0, s.cmcMin ?? 0); i <= Math.min(_TF_CMC_MAX, s.cmcMax ?? _TF_CMC_MAX); i++) cur.add(i);
+  }
+  if (cur.has(v)) cur.delete(v); else cur.add(v);
+  if (!cur.size) { s.cmcMin = null; s.cmcMax = null; }
+  else { s.cmcMin = Math.min(...cur); s.cmcMax = Math.max(...cur); }
+  _tfRerenderSection(ctx);
+}
+
+function tfRarity(ctx, v) { _tfState(ctx).rarity = v || ''; _tfRerenderSection(ctx); }
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('click', () => closeTfMenu());
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeTfMenu(); });
 }
 
 function _tfRerenderSection(ctx) {
@@ -1196,11 +1294,7 @@ function _paintTradelist(host) {
   const removed = _tradelistData.removed || [];
   host.innerHTML = `
     ${_tradeSettingsBarHtml()}
-    ${_tradeToolbarHtml('tl', 'Add a card you own to your tradelist…', 'tradelistAddInput')}
-    <div class="trade-meta-row">
-      <span class="tl-count" id="tlCount"></span>
-      <span class="tl-total" id="tlTotal"></span>
-    </div>
+    ${_tradeToolbarHtml('tl')}
     <div class="card-grid" id="tlGrid"></div>
     ${removed.length ? `
       <div class="tl-removed">
@@ -1222,16 +1316,6 @@ function _renderTradelistGrid() {
       ? shown.map(_tradelistCardHtml).join('')
       : `<div class="trade-empty" style="grid-column:1/-1">${all.length ? 'No cards match your filters.' : 'No surplus cards. Cards you own beyond what your decks use show up here automatically.'}</div>`;
   }
-  const count = document.getElementById('tlCount');
-  if (count) {
-    const copies = shown.reduce((s, c) => s + (c.qty || 0), 0);
-    const filtering = shown.length !== all.length;
-    count.textContent =
-      `${shown.length.toLocaleString()}${filtering ? ` of ${all.length.toLocaleString()}` : ''} card${all.length === 1 ? '' : 's'}`
-      + ` · ${copies.toLocaleString()} cop${copies === 1 ? 'y' : 'ies'}`;
-  }
-  const total = document.getElementById('tlTotal');
-  if (total) total.textContent = fmtUsd(shown.reduce((s, c) => s + _tradelistCardValueCents(c), 0));
 }
 
 function toggleTradeAddPanel(which) {
@@ -1242,22 +1326,20 @@ function toggleTradeAddPanel(which) {
   if (open) document.getElementById(which === 'tl' ? 'tlAddSearch' : 'wlAddSearch')?.focus();
 }
 
+/**
+ * One switch. The three-way picker offered Friends Only, which is marked
+ * "coming soon" and does nothing, so what it really asked was yes or no.
+ * Price alerts moved out — they belong to the Price Alerts tab, not here.
+ */
 function _tradeSettingsBarHtml() {
+  const on = _tradeSettings.visibility === 'public';
   return `
     <div class="trade-settings-bar">
-      <span class="trade-settings-label">Trading visibility</span>
-      <div class="visibility-toggle">
-        ${_VISIBILITY_OPTS.map(o => `
-          <button class="vis-opt${_tradeSettings.visibility === o.key ? ' active' : ''}"
-            onclick="setTradeVisibility('${o.key}')" title="${escapeHtml(o.desc)}"><span class="vis-opt-icon">${o.icon}</span><span>${escapeHtml(o.label)}</span></button>
-        `).join('')}
-      </div>
-      <div class="trade-settings-spacer"></div>
-      <div class="price-defaults" title="Applied to collection cards without a per-card watch">
-        <span class="trade-settings-label">Price alerts</span>
-        <label class="pd-inline">rise <input type="number" id="pdUp" min="0" step="1" value="${_tradeSettings.defaultPctUp ?? ''}" placeholder="off">%</label>
-        <label class="pd-inline">drop <input type="number" id="pdDown" min="0" step="1" value="${_tradeSettings.defaultPctDown ?? ''}" placeholder="off">%</label>
-        <button class="btn btn-ghost btn-sm" onclick="saveTradePriceDefaults()">Save</button>
+      <div class="view-toggle" role="group" aria-label="Trading visibility">
+        <button type="button" class="${on ? 'active' : ''}" onclick="setTradeVisibility('public')"
+          title="Others can find you and send offers">Open to trades</button>
+        <button type="button" class="${on ? '' : 'active'}" onclick="setTradeVisibility('not_trading')"
+          title="Hidden from discovery; no offers">Not trading</button>
       </div>
     </div>`;
 }
@@ -1309,7 +1391,7 @@ function _tradelistCardHtml(c) {
     <div class="card-item trade-card" data-uid="${escapeHtml(c.uid)}">
       <div class="card-img-wrap${c.foil ? ' foil' : ''}" onclick="tradeCalcOpenCard('${escapeHtml(c.scryfallId)}')">
         ${_tradeCardImgHtml(c)}
-        ${c.foil ? `<div class="card-foil-overlay"></div><div class="card-foil-badge">✦ FOIL</div>` : ''}
+        ${c.foil ? `<div class="card-foil-overlay"></div>` : ''}
         ${c.qty > 1 ? `<span class="trade-card-qty">×${c.qty}</span>` : ''}
       </div>
       <div class="card-meta trade-card-foot">
@@ -1328,7 +1410,7 @@ function _tradelistRemovedHtml(c) {
     <div class="card-item trade-card trade-card-dim" data-uid="${escapeHtml(c.uid)}">
       <div class="card-img-wrap${c.foil ? ' foil' : ''}" onclick="tradeCalcOpenCard('${escapeHtml(c.scryfallId)}')">
         ${_tradeCardImgHtml(c)}
-        ${c.foil ? `<div class="card-foil-overlay"></div><div class="card-foil-badge">✦ FOIL</div>` : ''}
+        ${c.foil ? `<div class="card-foil-overlay"></div>` : ''}
       </div>
       <div class="card-meta trade-card-foot">
         <div class="card-name">${escapeHtml(c.name)}</div>
@@ -1499,7 +1581,7 @@ function _wishlistCardHtml(c) {
     <div class="card-item trade-card wl-card" data-uid="${escapeHtml(c.uid)}">
       <div class="card-img-wrap${c.foil ? ' foil' : ''}" onclick="tradeCalcOpenCard('${escapeHtml(c.scryfallId || c.uid || '')}')">
         ${_tradeCardImgHtml(c)}
-        ${c.foil ? `<div class="card-foil-overlay"></div><div class="card-foil-badge">✦ FOIL</div>` : ''}
+        ${c.foil ? `<div class="card-foil-overlay"></div>` : ''}
         ${badge ? `<span class="wl-src-badge ${badge.cls}" title="${escapeHtml(badgeTitle)}">${badge.icon || ''}${escapeHtml(badgeLabel)}</span>` : ''}
       </div>
       <div class="card-meta trade-card-foot">
@@ -1646,7 +1728,7 @@ async function openPriceWatchModal(scryfallId, foil, cardName, cardData) {
       <div style="display:flex;gap:8px;margin-top:18px;justify-content:flex-end">
         ${cur ? `<button class="btn btn-danger btn-sm" onclick="clearPriceWatch('${escapeHtml(scryfallId)}', ${!!foil})">Remove watch</button>` : ''}
         <button class="btn btn-ghost btn-sm" onclick="closePriceWatchModal()">Cancel</button>
-        <button class="btn btn-primary btn-sm" onclick="savePriceWatch('${escapeHtml(scryfallId)}', ${!!foil})">Save</button>
+        <button class="btn btn-outline btn-sm" onclick="savePriceWatch('${escapeHtml(scryfallId)}', ${!!foil})">Save</button>
       </div>
     </div>`;
   overlay.addEventListener('click', e => { if (e.target === overlay) closePriceWatchModal(); });
@@ -1691,18 +1773,113 @@ function _refreshWatchesIfOpen() {
 
 // ── Price Alerts: a list of every card you're watching ──────────────────────
 
+const _PA_MAX = 100;   // percent, either direction
+
+/** Off unless the account has stored a threshold in at least one direction. */
+function _paGlobalOn() {
+  return (_tradeSettings?.defaultPctDown ?? null) != null || (_tradeSettings?.defaultPctUp ?? null) != null;
+}
+function _paDown() { return Math.min(_PA_MAX, Math.max(1, Number(_tradeSettings?.defaultPctDown ?? 20))); }
+function _paUp()   { return Math.min(_PA_MAX, Math.max(1, Number(_tradeSettings?.defaultPctUp   ?? 20))); }
+
+/**
+ * One control for "tell me about any card that moves this far". Two thumbs on a
+ * shared track: drop on the left, rise on the right, so the span between them is
+ * the range you are choosing to ignore. Off until switched on — individual
+ * per-card alerts are separate and untouched either way.
+ */
+function _paGlobalHtml() {
+  const on = _paGlobalOn();
+  const down = _paDown(), up = _paUp();
+  const lo = 50 - (down / _PA_MAX) * 50;
+  const hi = 50 + (up / _PA_MAX) * 50;
+  return `
+    <div class="pa-global${on ? ' is-on' : ''}">
+      <button type="button" class="btn btn-outline btn-sm pa-global-toggle${on ? ' active' : ''}"
+        role="switch" aria-checked="${on ? 'true' : 'false'}" onclick="paToggleGlobal()"
+        title="Alert on any card that moves past these thresholds">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex-shrink:0"><path d="M12 6a4 4 0 0 0-8 0c0 4.5-2 5.5-2 5.5h12s-2-1-2-5.5"/><path d="M9.3 13.5a1.5 1.5 0 0 1-2.6 0"/></svg>
+        Alert on any card
+      </button>
+      <div class="pa-dual" style="--pa-lo:${lo}%;--pa-hi:${hi}%" aria-hidden="${on ? 'false' : 'true'}">
+        <input type="range" id="paDown" class="pa-range pa-range--down" min="1" max="${_PA_MAX}" step="1"
+          value="${down}" ${on ? '' : 'disabled'} oninput="paSetGlobal('down', +this.value)"
+          aria-label="Alert when a card drops by this percent">
+        <input type="range" id="paUp" class="pa-range pa-range--up" min="1" max="${_PA_MAX}" step="1"
+          value="${up}" ${on ? '' : 'disabled'} oninput="paSetGlobal('up', +this.value)"
+          aria-label="Alert when a card rises by this percent">
+      </div>
+      <span class="pa-global-readout">${on ? `drop ${down}% · rise ${up}%` : 'off'}</span>
+    </div>`;
+}
+
+function _paRepaint() {
+  const host = document.getElementById('tradeSectionBody');
+  const mount = host?.querySelector('.pa-global');
+  if (mount) mount.outerHTML = _paGlobalHtml();
+}
+
+/** Save is debounced — dragging a slider should not be one PUT per pixel. */
+let _paSaveTimer = null;
+function _paSave() {
+  clearTimeout(_paSaveTimer);
+  _paSaveTimer = setTimeout(async () => {
+    try {
+      await apiPut('/trade/settings', {
+        defaultPctUp: _tradeSettings.defaultPctUp ?? null,
+        defaultPctDown: _tradeSettings.defaultPctDown ?? null,
+      });
+    } catch (e) { showNotif(e.message || 'Could not save price alert', true); }
+  }, 400);
+}
+
+function paToggleGlobal() {
+  if (!_tradeSettings) _tradeSettings = {};
+  if (_paGlobalOn()) {
+    _tradeSettings.defaultPctUp = null;
+    _tradeSettings.defaultPctDown = null;
+  } else {
+    _tradeSettings.defaultPctUp = 20;
+    _tradeSettings.defaultPctDown = 20;
+  }
+  _paRepaint();
+  _paSave();
+}
+
+/**
+ * Update in place — never repaint here. _paRepaint() swaps the whole control out
+ * via outerHTML, which destroys the very input being dragged: the browser loses
+ * the pointer capture and the drag stops dead after one step, which reads as a
+ * slider that cannot be moved. Only the fill and the readout need to change.
+ */
+function paSetGlobal(side, v) {
+  if (!_tradeSettings) _tradeSettings = {};
+  const n = Math.min(_PA_MAX, Math.max(1, Number(v) || 1));
+  if (side === 'down') _tradeSettings.defaultPctDown = n;
+  else _tradeSettings.defaultPctUp = n;
+  const down = _paDown(), up = _paUp();
+  const dual = document.querySelector('.pa-dual');
+  if (dual) {
+    dual.style.setProperty('--pa-lo', `${50 - (down / _PA_MAX) * 50}%`);
+    dual.style.setProperty('--pa-hi', `${50 + (up / _PA_MAX) * 50}%`);
+  }
+  const readout = document.querySelector('.pa-global-readout');
+  if (readout) readout.textContent = `drop ${down}% · rise ${up}%`;
+  _paSave();
+}
+
 async function renderTradeWatchesSection(host) {
   host.innerHTML = `<div class="trade-loading">Loading your price alerts…</div>`;
   let watches;
-  try { watches = await apiFetch('/price-watches'); }
-  catch (e) { host.innerHTML = `<div class="trade-empty">Could not load price alerts: ${escapeHtml(e.message || '')}</div>`; return; }
-  if (!watches.length) {
-    host.innerHTML = `<div class="trade-empty">No price alerts yet. Open any card, choose <strong>Watch</strong>, and set a target — your alerts appear here.</div>`;
-    return;
-  }
-  host.innerHTML = `
-    <div class="watch-head">${watches.length} price alert${watches.length === 1 ? '' : 's'}</div>
-    <div class="watch-list">${watches.map(_watchRowHtml).join('')}</div>`;
+  try {
+    const [w, settings] = await Promise.all([apiFetch('/price-watches'), apiFetch('/trade/settings')]);
+    watches = w;
+    _tradeSettings = settings;
+  } catch (e) { host.innerHTML = `<div class="trade-empty">Could not load price alerts: ${escapeHtml(e.message || '')}</div>`; return; }
+  host.innerHTML = _paGlobalHtml() + (watches.length
+    ? `<div class="watch-head">${watches.length} price alert${watches.length === 1 ? '' : 's'}</div>
+       <div class="watch-list">${watches.map(_watchRowHtml).join('')}</div>`
+    : `<div class="trade-empty">No price alerts yet. Open any card, choose <strong>Watch</strong>, and set a target — your alerts appear here.</div>`);
 }
 
 function _scryThumb(scryfallId) {
@@ -1844,7 +2021,7 @@ function _paintUsernameSetup(host) {
       <div class="username-form">
         <input type="text" id="usernameInput" placeholder="username" maxlength="32" autocomplete="off">
         <input type="text" id="displayNameInput" placeholder="Display name (optional)" maxlength="64" autocomplete="off">
-        <button class="btn btn-primary" onclick="saveUsername()">Save</button>
+        <button class="btn btn-outline" onclick="saveUsername()">Save</button>
       </div>
       <div class="username-hint">3–32 characters · letters, numbers, underscore</div>
       <div id="usernameError" class="username-error"></div>
@@ -1893,16 +2070,10 @@ async function _paintPartners(host) {
         <div class="calc-search-results" id="partnerResults"></div>
       </div>
     </div>
-    <div class="partners-layout">
-      <div class="partners-browse">
-        <div class="partners-browse-head">Open to Trades</div>
-        <div id="partnersBrowseList"><div class="trade-loading">Finding traders…</div></div>
-      </div>
-      <div class="partners-detail" id="partnersDetail">
-        <div class="trade-empty">Select a trader to see suggested trades.</div>
-      </div>
+    <div class="partners-browse">
+      <div class="partners-browse-head">Open to Trades</div>
+      <div id="partnersBrowseList"><div class="trade-loading">Finding traders…</div></div>
     </div>`;
-  if (_tradePartner) _renderPartnerDetail();
   try {
     const list = await apiFetch('/trade/browse');
     _renderBrowseList(list);
@@ -1946,36 +2117,21 @@ function partnerSearchInput(query) {
   }, 250);
 }
 
+/** Picking a trader is the whole gesture: it opens the trade UI on them. */
 function selectTradePartner(u) {
   _tradePartner = u;
-  _renderPartnerDetail();
-  // refresh browse highlight
-  const host = document.getElementById('tradeSectionBody');
-  const active = host && host.querySelector('.partner-row.active');
-  host?.querySelectorAll('.partner-row').forEach(r => r.classList.remove('active'));
+  void startTradeWithPartner();
 }
 
-function _renderPartnerDetail() {
-  const el = document.getElementById('partnersDetail');
-  if (!el || !_tradePartner) return;
-  el.innerHTML = `
-    <div class="partner-detail-head">
-      <div class="partner-avatar lg">${escapeHtml((_tradePartner.username || '?')[0].toUpperCase())}</div>
-      <div>
-        <div class="partner-detail-name">@${escapeHtml(_tradePartner.username)}${_tradePartner.isFriend ? ' <span class="friend-badge">friend</span>' : ''}</div>
-        <div class="partner-detail-sub">${_tradePartner.displayName ? escapeHtml(_tradePartner.displayName) + ' · ' : ''}Open to trades</div>
-      </div>
-    </div>
-    <div id="suggestionsMount">
-      <div class="partner-cta">
-        <button class="btn btn-primary" onclick="startTradeWithPartner()">${_ICON_TRADE} New trade with @${escapeHtml(_tradePartner.username)}</button>
-        <div class="partner-cta-hint">Build the trade and pick from the suggested cards under each column.</div>
-      </div>
-    </div>`;
+/** No detail pane any more — picking someone opens the trade UI directly. */
+function _renderPartnerDetail() {}
+
+function closeTradeCalcModal() {
+  document.getElementById('tradeCalcModal')?.classList.remove('open');
 }
 
-// Open the calculator inline (inside Find Trades), pre-attached to this partner.
-// "You Receive" searches their tradelist; ranked pick-lists sit under each column.
+// Open the calculator in its own modal, pre-attached to this partner. "You
+// Receive" searches their tradelist; ranked pick-lists sit under each column.
 async function startTradeWithPartner() {
   if (!_tradePartner) return;
   if (_calc && _calc.dirty && (_calc.give.length || _calc.receive.length)) {
@@ -1990,8 +2146,11 @@ async function startTradeWithPartner() {
   _calc.title = `Trade with @${_tradePartner.username}`;
   _calcContext = 'partners';
   _offersOpenId = null;
-  const mount = document.getElementById('suggestionsMount');
-  if (mount) renderTradeCalculator(mount);
+  const modal = document.getElementById('tradeCalcModal');
+  const mount = document.getElementById('tradeCalcModalBody');
+  if (!modal || !mount) return;
+  modal.classList.add('open');
+  renderTradeCalculator(mount);
 }
 
 // ── Phase 8: trade completion + collection sync ─────────────────────────────
@@ -2038,8 +2197,10 @@ async function renderTradeHistorySection(host) {
     <div class="hist-head">
       <span>${list.length} completed trade${list.length === 1 ? '' : 's'}</span>
       <div class="hist-sort">
-        <button class="btn btn-ghost btn-sm${_historySort === 'date' ? ' active' : ''}" onclick="setHistorySort('date')">Newest</button>
-        <button class="btn btn-ghost btn-sm${_historySort === 'value' ? ' active' : ''}" onclick="setHistorySort('value')">Value</button>
+        <select onchange="setHistorySort(this.value)" aria-label="Sort trade history">
+          <option value="date"${_historySort === 'date' ? ' selected' : ''}>Sort: Newest</option>
+          <option value="value"${_historySort === 'value' ? ' selected' : ''}>Sort: Value</option>
+        </select>
       </div>
     </div>
     <div class="hist-list">${list.map(_historyCardHtml).join('')}</div>`;
@@ -2103,8 +2264,16 @@ function initNotifications() {
   document.addEventListener('click', e => {
     if (!_notifState.open) return;
     const panel = document.getElementById('notifPanel');
-    const btn = document.getElementById('topbarNotifBtn');
-    if (panel && !panel.contains(e.target) && btn && !btn.contains(e.target)) {
+    // As a page there is no "outside" to dismiss to — and the menu tap that
+    // navigated there bubbles to here, so without this it closed on arrival.
+    if (panel?.classList.contains('notif-as-page')) return;
+    // Both triggers have to be exempt, or the very click that opens the panel
+    // bubbles to here and closes it again.
+    const onTrigger = ['topbarNotifBtn', 'mobNotifBtn'].some(id => {
+      const b = document.getElementById(id);
+      return b && b.contains(e.target);
+    });
+    if (panel && !panel.contains(e.target) && !onTrigger) {
       _notifState.open = false;
       panel.hidden = true;
     }
@@ -2115,10 +2284,15 @@ function initNotifications() {
 
 function _applyNotifBadge(n) {
   const count = Math.max(0, Number(n) || 0);
-  const badge = document.getElementById('topbarNotifBadge');
-  if (!badge) return;
-  badge.textContent = count > 99 ? '99+' : String(count);
-  badge.hidden = count === 0;
+  // Three places can carry it: the topbar bell on desktop, and on phones the
+  // menu button itself (so an unread count is visible without opening it) plus
+  // the Notifications row inside the menu.
+  for (const id of ['topbarNotifBadge', 'mobNotifBadge', 'mobNavToggleBadge', 'mobNavMenuNotifBadge']) {
+    const badge = document.getElementById(id);
+    if (!badge) continue;
+    badge.textContent = count > 99 ? '99+' : String(count);
+    badge.hidden = count === 0;
+  }
 }
 
 async function refreshNotifUnreadCount() {
@@ -2214,9 +2388,12 @@ async function onNotifClick(id) {
   if (!n) return;
   if (n.readAt == null) { void markNotifRead(id); }
   const t = _notifTarget(n);
-  _notifState.open = false;
   const panel = document.getElementById('notifPanel');
-  if (panel) panel.hidden = true;
+  const asPage = panel?.classList.contains('notif-as-page');
+  if (!asPage) {
+    _notifState.open = false;
+    if (panel) panel.hidden = true;
+  }
   if (t && typeof showTab === 'function') {
     showTab(t.tab);
     if (t.section && typeof setTradeSection === 'function') setTradeSection(t.section);
