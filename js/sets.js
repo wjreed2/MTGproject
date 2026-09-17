@@ -594,14 +594,21 @@ async function browseSet(code, name) {
   if (_browseSetCode !== code) return;
 
   const all = firstPage.slice();
-  for (const page of rest) if (page && Array.isArray(page.data)) all.push(...page.data);
+  let complete = true;
+  for (const page of rest) {
+    if (page && Array.isArray(page.data)) all.push(...page.data);
+    else complete = false; // a 429 or a dropped request — this set is NOT fully loaded
+  }
   if (all.length === firstPage.length) return; // nothing new; keep what is painted
 
   // A re-render rebuilds the search field, so hold focus if it is being used.
   if (document.activeElement?.id === 'setBrowseSearchInput') _browseSetSearchKeepFocus = true;
   _browseSetCards = _sortSetCardsByCollector(all);
   _renderSetBrowse();
-  _putCachedSetCards(code, _browseSetCards);
+  // Paint what arrived, but only CACHE a complete set: the TTL is 30 days for an old
+  // set, so storing a run that lost a page to a 429 hides those cards — and wrongs every
+  // completion percentage — for a month, with no path to notice or refresh it.
+  if (complete) _putCachedSetCards(code, _browseSetCards);
 }
 
 function _setCardRarityKey(card) {

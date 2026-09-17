@@ -232,7 +232,9 @@ function pgOpenColorPicker(groupId, memberId, btn, opts = {}) {
 
   const current = opts.current || playgroupMemberColor(groupId, memberId) || PLAYER_COLORS[0];
   const { h, s: sat, v } = _hexToHsv(current);
-  _pgPickCtx = { groupId, memberId, h, s: sat, v, opts };
+  // `prev` is the colour as it stood BEFORE the first preview paint — the only value a
+  // failed save can roll back to, since previewing writes the new one onto the member.
+  _pgPickCtx = { groupId, memberId, h, s: sat, v, opts, prev: current };
 
   const menu = document.createElement('div');
   menu.className = 'glass-menu pg-color-menu';
@@ -331,9 +333,9 @@ function _pgCommitPicker() {
 /** Save the picked colour wherever this picker was opened from. */
 function _pgSavePicked(hex, saveOpts = {}) {
   if (!_pgPickCtx) return;
-  const { groupId, memberId, opts } = _pgPickCtx;
+  const { groupId, memberId, opts, prev } = _pgPickCtx;
   if (opts && typeof opts.onCommit === 'function') { opts.onCommit(hex, saveOpts); return; }
-  void pgSetMemberColor(groupId, memberId, hex, saveOpts);
+  void pgSetMemberColor(groupId, memberId, hex, { ...saveOpts, previous: prev });
 }
 
 /** Repaint the picker from _pgPickCtx and preview the colour on the member. */
@@ -371,7 +373,10 @@ function _pgPreviewMemberColor(groupId, memberId, color) {
 async function pgSetMemberColor(groupId, memberId, color, opts = {}) {
   const g = _playgroups.find(x => Number(x.id) === Number(groupId));
   const m = g && (g.members || []).find(x => Number(x.id) === Number(memberId));
-  const previous = m ? m.color : null;
+  // NOT m.color: the picker previews live, so by the time a drag settles here `m.color`
+  // is already the colour being saved and rolling back to it restores nothing — a failed
+  // PATCH then looked applied until a reload quietly undid it.
+  const previous = opts.previous !== undefined ? opts.previous : (m ? m.color : null);
   if (m) {
     m.color = color;
     // Never repaint while the picker is open — renderPlaygroupsPanel() rebuilds

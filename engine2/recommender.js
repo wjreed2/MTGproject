@@ -451,8 +451,13 @@ function wantedAxes(goal, hist, index, templates, goals) {
 // Demand qualifies with ≥2 strong needers or any hard requirement, ranked by strong
 // needer count then aggregate weight.
 function poolAxes(wanted, index, cap = 12) {
-  const axes = [...wanted.keys()];
-  const seen = new Set(axes);
+  // The cap has to bind on the WANTED set too, not just the demand axes appended after
+  // it: a deck with many unmet needs plus a six-axis template core produced ~20 axes, and
+  // every one becomes a UNION arm with its own LIMIT 60 (server.js builds the pool query
+  // from this). Map order is insertion order and wantedAxes appends reinforcement last
+  // precisely so trimming drops the expendable entries first.
+  const axes = [...wanted.keys()].slice(0, cap);
+  const seen = new Set(wanted.keys()); // trimmed axes still must not come back as demands
   const demands = [...index.needs.entries()]
     .filter(([ax, rec]) => !seen.has(ax) && ((rec.strong || 0) >= 2 || (rec.hard || 0) >= 1))
     .sort((a, b) => (b[1].strong || 0) - (a[1].strong || 0) || (b[1].weight || 0) - (a[1].weight || 0))
@@ -605,8 +610,12 @@ function scoreCuts({ deckCards, commander, goals, thresholds, roleCounts }) {
   const kept = [];
   for (const s of scored) {
     const limited = s.cats.filter(cat => cat in capLeft);
-    if (limited.some(cat => capLeft[cat] <= 0)) continue;
-    for (const cat of limited) capLeft[cat]--;
+    // Excluded only when EVERY capped role it fills is exhausted. Dropping a card because
+    // ONE is — a removal spell that also cantrips, with Card Draw at target and Removal
+    // five over — took the whole interaction suite out of `cuttable` for a typical precon,
+    // so a deck needing 16 cuts got a four-line panel with nothing saying why.
+    if (limited.length && limited.every(cat => capLeft[cat] <= 0)) continue;
+    for (const cat of limited) if (capLeft[cat] > 0) capLeft[cat]--;
     kept.push(s);
   }
   const cuttable = kept;

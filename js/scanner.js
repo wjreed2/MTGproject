@@ -3424,6 +3424,7 @@ async function scnAddClosest() {
   _scnHideAddClosest();
   _scnStopMotionWatch();
   _scnFpLastAcceptedPhash = cand.phash || null;
+  _scnFpLastAcceptedId = cand.card.id || null; // both gates key on the id as well as the hash
   _scnFpAwaitingLeave = true;
   let staged = null;
   if (_scnStreamAdd) _scnFpStreamAdd(cand.card);
@@ -4082,6 +4083,10 @@ function _scnFingerprintTick(v, now) {
         return;
       }
       _scnFpEmptyTicks = 0; // an identified frame means the reticle genuinely holds a card
+      // The capture hash of the card currently in the reticle. A manual pick or a dismiss
+      // arms "handled" from this; the chooser branch that used to set it was removed, which
+      // left every such path re-adding the card still lying there.
+      _scnFpChooserPhash = r._phash || null;
       const best = r.best || (r.candidates && r.candidates[0]) || null;
       // No chooser in the scanning flow: an ambiguous accept-quality result (same-art
       // reprints) auto-takes the best candidate — the queue panel is the place to fix a
@@ -5713,7 +5718,10 @@ function _scnAdd(scryfallCard) {
   _scnRequireCandPick = false;
   if (_scnFingerprintMode && _scnFpChooserPhash) {
     // Picked from the chooser: the card in the reticle is handled until it leaves.
+    // The id goes with the hash — the dedupe gate requires both, so arming the hash
+    // alone let _scnResume() re-identify the same card and add it twice.
     _scnFpLastAcceptedPhash = _scnFpChooserPhash;
+    _scnFpLastAcceptedId = scryfallCard?.id || null;
     _scnFpAwaitingLeave = true;
     _scnFpChooserPhash = null;
   }

@@ -65,7 +65,10 @@ const _scryCardInflight = new Map();
 const SCRY_CARD_CACHE_MAX = 5000;
 const _scryKey = id => String(id).toLowerCase();
 
-/** Batch-fetch Scryfall cards by id (75 per request), memoised and deduped. */
+/** Batch-fetch Scryfall cards by id (75 per request), memoised and deduped.
+ * Rejects if a batch fails rather than returning a short list: callers cache what
+ * they derive from this, and a silently partial answer gets cached as the truth
+ * (a blipped proxy left a deck reporting "no generated tokens" for the session). */
 async function fetchAllCardsByScryfallIds(ids) {
   const unique = [...new Set((ids || []).filter(Boolean).map(_scryKey))];
   if (!unique.length) return [];
@@ -89,7 +92,6 @@ async function fetchAllCardsByScryfallIds(ids) {
         }
         for (const id of batch) if (!_scryCardById.has(id)) _scryCardById.set(id, null);
       })
-      .catch(() => {})
       .finally(() => { for (const id of batch) _scryCardInflight.delete(id); });
     for (const id of batch) _scryCardInflight.set(id, req);
     waitFor.push(req);

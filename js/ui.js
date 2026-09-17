@@ -624,7 +624,12 @@ function imgFadeLoadingAttr(...urls) {
 function cardImgCapNormal(url) {
   const u = String(url || '');
   if (!u) return u;
-  return u.replace(/^(https:\/\/cards\.scryfall\.io\/)(large|png|border_crop)\//, '$1normal/');
+  // Scryfall serves `normal` as .jpg ONLY — png/… needs its extension swapped too,
+  // or the rewrite points at a URL that does not exist and the tile renders broken.
+  if (/^https:\/\/cards\.scryfall\.io\/png\//.test(u)) {
+    return u.replace(/^(https:\/\/cards\.scryfall\.io\/)png\//, '$1normal/').replace(/\.png(\?|$)/, '.jpg$1');
+  }
+  return u.replace(/^(https:\/\/cards\.scryfall\.io\/)(large|border_crop)\//, '$1normal/');
 }
 
 /**

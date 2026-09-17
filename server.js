@@ -3319,8 +3319,12 @@ authRouter.get('/oauth/:provider/start', authLimiter, async (req, res) => {
     const { verifier, challenge } = createPkcePair();
     const redirectUri = oauthRedirectUri(req, provider);
     const now = Date.now();
-    // Linking only when there is a live session; otherwise this is a sign-in.
-    const linkAccountId = req.session?.accountId || null;
+    // Linking is an explicit act from Settings (?link=1), never inferred from an
+    // ambient session: the gate also appears when /auth/me merely failed, and a
+    // session cookie alone would then bind the next person's provider identity to
+    // whoever was signed in before them.
+    const wantsLink = String(req.query.link || '') === '1';
+    const linkAccountId = wantsLink ? (req.session?.accountId || null) : null;
 
     await db().query(
       `INSERT INTO oauth_states (state_hash, provider, code_verifier, nonce, redirect_uri, link_account_id, created_at, expires_at)
@@ -3386,7 +3390,15 @@ async function handleOauthCallback(req, res) {
       } catch { /* name is optional — never fail the sign-in over it */ }
     }
 
-    const result = await resolveOauthAccount(provider, profile, row.link_account_id || null);
+    // The link target must still be the live session. An abandoned consent screen
+    // (user walks away, signs out, hands over the device) would otherwise let the
+    // next person attach their provider account to the previous user's login.
+    let linkAccountId = row.link_account_id || null;
+    if (linkAccountId && Number(req.session?.accountId) !== Number(linkAccountId)) {
+      console.warn('[auth] oauth link dropped — session no longer matches the linking account');
+      linkAccountId = null;
+    }
+    const result = await resolveOauthAccount(provider, profile, linkAccountId);
 
     const [accRows] = await db().query('SELECT id, email, role FROM accounts WHERE id = ?', [result.accountId]);
     if (!accRows.length) return finishOauth(req, res, { oauth_error: 'account_missing' });
@@ -4119,9 +4131,20 @@ app.get('/api/decks', requireAuth, async (req, res) => {
   }
 });
 
-// Public decks — no auth required
+// Public decks — no auth required.
+// The payload is identical for every caller, so one build serves the burst: this is an
+// unauthenticated route that reads every public deck, and the precon library made that a
+// library-wide scan per Browse open.
+let _publicDecksCache = { at: 0, body: null };
+const PUBLIC_DECKS_CACHE_MS = 30_000;
+/** Publishing, unpublishing or editing a deck must show up in Browse now, not in 30s. */
+function bustPublicDecksCache() { _publicDecksCache = { at: 0, body: null }; }
+
 app.get('/api/decks/public', async (req, res) => {
   try {
+    if (_publicDecksCache.body && Date.now() - _publicDecksCache.at < PUBLIC_DECKS_CACHE_MS) {
+      return res.json(_publicDecksCache.body);
+    }
     const [rows] = await db().query(
       `SELECT d.id, d.data, d.account_id, a.email, a.username, a.display_name,
               d.revision, d.semantics_goal, d.semantics_goal_rev, d.semantics_goal_json
@@ -4135,10 +4158,15 @@ app.get('/api/decks/public', async (req, res) => {
     // Cards come from deck_cards and prices from the price log, exactly as the
     // single-deck view builds them. Summing the blob's stamped prices instead
     // under-reported every deck and reported zero for the ones whose blob was
-    // written before prices were attached at all. One extra query for every
-    // public deck's cards, and one price lookup over the union of them.
+    // written before prices were attached at all.
+    //
+    // Only the columns a LISTING needs, though: qty and scryfall_id to price the deck,
+    // plus the finish. Selecting card_data pulled every public deck's every card blob
+    // through this route and JSON.parsed it — a whole published precon library per
+    // anonymous request, for a card count and a sum.
     const [cardRows] = await db().query(
-      `SELECT dc.deck_id, dc.account_id, dc.card_uid, dc.card_data
+      `SELECT dc.deck_id, dc.account_id, dc.card_uid, dc.qty, dc.scryfall_id,
+              JSON_UNQUOTE(JSON_EXTRACT(dc.card_data, '$.foil')) AS foil_json
          FROM deck_cards dc
          JOIN decks d ON d.id = dc.deck_id AND d.account_id = dc.account_id
         WHERE d.is_public = 1`
@@ -4146,16 +4174,37 @@ app.get('/api/decks/public', async (req, res) => {
     const cardsByDeck = new Map();
     const allCards = [];
     for (const r of cardRows) {
-      const parsed = typeof r.card_data === 'string' ? JSON.parse(r.card_data) : r.card_data;
-      if (!parsed) continue;
-      const uid = parsed.uid || r.card_uid || '';
-      const card = { ...parsed, uid, foil: parsed.foil != null ? !!parsed.foil : String(uid).endsWith('_f') };
+      const uid = r.card_uid || '';
+      const card = {
+        uid,
+        scryfallId: r.scryfall_id || null,
+        qty: Number(r.qty) || 1,
+        foil: r.foil_json != null ? r.foil_json === 'true' : String(uid).endsWith('_f'),
+      };
       const key = `${r.account_id}::${r.deck_id}`;
       if (!cardsByDeck.has(key)) cardsByDeck.set(key, []);
       cardsByDeck.get(key).push(card);
       allCards.push(card);
     }
     await attachPriceLogPricesToDeckCards(allCards);
+
+    // The commander's art, one row per deck rather than a scan of every card.
+    const [cmdRows] = await db().query(
+      `SELECT dc.deck_id, dc.account_id,
+              JSON_UNQUOTE(JSON_EXTRACT(dc.card_data, '$.image')) AS image,
+              JSON_UNQUOTE(JSON_EXTRACT(dc.card_data, '$.imageLarge')) AS imageLarge
+         FROM deck_cards dc
+         JOIN decks d ON d.id = dc.deck_id AND d.account_id = dc.account_id
+        WHERE d.is_public = 1 AND dc.is_commander = 1
+        ORDER BY dc.sort_order, dc.card_uid`
+    );
+    // Partner/background decks have two commander rows; the deck's own order decides
+    // which face fronts the listing, so keep the first and ignore the rest.
+    const cmdByDeck = new Map();
+    for (const r of cmdRows) {
+      const key = `${r.account_id}::${r.deck_id}`;
+      if (!cmdByDeck.has(key)) cmdByDeck.set(key, r);
+    }
 
     // The card's own finish, falling back to non-foil when a foil price is
     // missing — the same rule the deck page's value uses.
@@ -4191,8 +4240,10 @@ app.get('/api/decks/public', async (req, res) => {
 
     const out = rows.map(r => {
       const deck = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
-      const cards = cardsByDeck.get(`${r.account_id}::${r.id}`) || deck.cards || [];
-      const cmdCard = cards.find(c => c.isCommander);
+      const key = `${r.account_id}::${r.id}`;
+      // Legacy decks with no deck_cards rows still fall back to the stored blob.
+      const cards = cardsByDeck.get(key) || deck.cards || [];
+      const cmdCard = cmdByDeck.get(key) || cards.find(c => c.isCommander);
       return {
         id: deck.id,
         name: deck.name || 'Untitled',
@@ -4212,6 +4263,7 @@ app.get('/api/decks/public', async (req, res) => {
         accountId: r.account_id,
       };
     });
+    _publicDecksCache = { at: Date.now(), body: out };
     res.json(out);
   } catch (e) {
     console.error(e);
@@ -5158,6 +5210,7 @@ app.patch('/api/decks/:id', requireAuth, async (req, res) => {
           'UPDATE decks SET name=?, format=?, data=?, is_public=?, updated_at=?, revision=revision+1 WHERE id=?',
           [(deck.name || '').slice(0, 255), (deck.format || '').slice(0, 50), JSON.stringify(deck), deck.isPublic ? 1 : 0, now, deckId]
         );
+        bustPublicDecksCache();
       } else {
         await conn.query(
           'UPDATE decks SET name=?, format=?, data=?, updated_at=?, revision=revision+1 WHERE id=?',
@@ -5463,6 +5516,7 @@ app.post('/api/decks/:id/ops', requireAuth, async (req, res) => {
           [(merged.name || '').slice(0, 255), (merged.format || '').slice(0, 50), JSON.stringify(merged),
            merged.isPublic ? 1 : 0, now, nextRevision, ownerId, deckId]
         );
+        bustPublicDecksCache();
         // A cuts/adds/meta-only batch touches no mainboard rows — skip the full
         // deck_cards DELETE+INSERT so the row lock isn't held for ~2N writes.
         const cardsChanged = applied.changedZones.includes('cards');
@@ -5770,7 +5824,12 @@ const _e2AnalyzeLast = new Map(); // accountId → ts (light rate limit; analysi
 function deckThumbUrl(url) {
   const u = String(url || '');
   if (!u) return null;
-  return u.replace(/^(https:\/\/cards\.scryfall\.io\/)(large|png|border_crop)\//, '$1normal/');
+  // Scryfall serves `normal` as .jpg ONLY — png/… needs its extension swapped too,
+  // or the rewrite points at a URL that does not exist and the tile renders broken.
+  if (/^https:\/\/cards\.scryfall\.io\/png\//.test(u)) {
+    return u.replace(/^(https:\/\/cards\.scryfall\.io\/)png\//, '$1normal/').replace(/\.png(\?|$)/, '.jpg$1');
+  }
+  return u.replace(/^(https:\/\/cards\.scryfall\.io\/)(large|border_crop)\//, '$1normal/');
 }
 
 async function computeDeckSemanticsGoal(cards, commanderName, preResolved = null) {
@@ -9234,12 +9293,23 @@ function _fpSameArtRows(i, j) {
 
 // Among `rows`, prefer the printing the footer hints point at: both fields beat set alone,
 // which beats collector alone (collector numbers repeat across sets).
-function _fpPickByHint(rows, hintSet, hintNum) {
+function _fpPickByHint(rows, hintSet, hintNum, sameNameAsRow) {
   if (!hintSet && !hintNum) return null;
+  // A hint chooses a PRINTING, never a card. Callers pass retrieval sets that span
+  // several names (a title shortlist, a within-margin decision group), and a misread
+  // 2-digit collector number that happens to be unique across them would otherwise
+  // substitute a different card for the one the title and the hash both chose — so
+  // the pool is narrowed to the printings of the row already settled on.
+  let pool = rows;
+  if (sameNameAsRow != null) {
+    const want = _fpNormName(_fpIndex.meta[sameNameAsRow].name);
+    pool = [];
+    for (const i of rows) if (_fpNormName(_fpIndex.meta[i].name) === want) pool.push(i);
+  }
   let exact = null;
   const setOnly = [];
   const numOnly = [];
-  for (const i of rows) {
+  for (const i of pool) {
     const m = _fpIndex.meta[i];
     const setOk = hintSet && String(m.set_code).toLowerCase() === hintSet;
     const numOk = hintNum && String(m.collector_number).toLowerCase() === hintNum;
@@ -9251,7 +9321,7 @@ function _fpPickByHint(rows, hintSet, hintNum) {
     if (numOk && hintNum.length >= 2) numOnly.push(i);
   }
   // Both fields agreeing names one printing. Either field ALONE decides when it lands on
-  // exactly one of these rows — and it usually does, because both callers pass the printings
+  // exactly one of these rows — and it usually does, because the pool above is the printings
   // of a single card, not the whole index. That matters most for the treatments the hash
   // cannot rank (full art, showcase, foil): the collector number is printed large and reads
   // cleanly, while the set code shares a tiny grey line with the language and the artist.
@@ -10249,12 +10319,17 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
       if (tBest && evidence >= SCAN_TITLE_MIN_EVIDENCE && tBest.comb <= gate) {
         // The name is settled; the printed footer settles the printing, which the image hash
         // cannot do for same-art reprints at any resolution.
-        const hinted = _fpPickByHint(titleHit.rows, hintSet, hintNum);
+        const hinted = _fpPickByHint(titleHit.rows, hintSet, hintNum, tBest.i);
         if (hinted != null) tBest = { ...tBest, i: hinted };
+        // Only a footer that agrees on BOTH fields has actually settled the printing;
+        // a lone collector number that picked among siblings has not earned "no rivals".
+        const hintExact = hinted != null && hintSet && hintNum
+          && String(_fpIndex.meta[hinted].set_code).toLowerCase() === hintSet
+          && String(_fpIndex.meta[hinted].collector_number).toLowerCase() === hintNum;
         // The title settled the NAME. Nothing has settled the PRINTING unless the footer did:
         // past the trust distance, same-art siblings are not the only rivals — every printing
         // of the name is one, so ask the client for a footer rather than banking the guess.
-        const printingRivals = hinted != null ? 0
+        const printingRivals = hintExact ? 0
           : _fpPrintingRivals(tBest.i) || (tBest.comb > SCAN_PRINTING_HASH_TRUST
             ? Math.max(0, (_fpEnsureNameIndex().rowsByName.get(_fpNormName(_fpIndex.meta[tBest.i].name)) || []).length - 1)
             : 0);
@@ -10343,9 +10418,12 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
     ).values()].sort((a, b) => a.comb - b.comb);
     let hintPicked = false;
     if (decision.length > 1) {
-      const hinted = _fpPickByHint(decision.map(c => c.i), hintSet, hintNum);
+      // Scoped to the chosen card's own printings — see _fpPickByHint. Choosing a
+      // printing is NOT corroboration, so this no longer sets hintPicked: the gates
+      // below are waived only by the full set+number agreement checked right after.
+      const hinted = _fpPickByHint(decision.map(c => c.i), hintSet, hintNum, chosen.i);
       const byHint = hinted != null ? decision.find(c => c.i === hinted) : null;
-      if (byHint) { chosen = byHint; hintPicked = true; }
+      if (byHint) chosen = byHint;
     }
 
     // Confident match needs the full-card AND the art-crop hash to agree (art rejects noise).
@@ -10356,7 +10434,7 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
     // A footer that confirms the winner counts even when nothing competed with it — the hint
     // was previously only consulted to CHOOSE between candidates, so a lone correct answer
     // with its set code printed on the card got no credit for it.
-    if (!hintPicked && hintSet && hintNum
+    if (hintSet && hintNum
       && String(chosen.meta.set_code).toLowerCase() === hintSet
       && String(chosen.meta.collector_number).toLowerCase() === hintNum) hintPicked = true;
 

@@ -2628,7 +2628,13 @@ function _glassMenuClippingAncestor(wrap) {
 // A hoisted menu is position:fixed, so it cannot follow its trigger. Close on
 // scroll rather than leave it stranded mid-page.
 if (typeof document !== 'undefined') {
-  document.addEventListener('scroll', () => {
+  document.addEventListener('scroll', (e) => {
+    // ...but scrolling the menu's OWN list is not the page moving under it. Capture-phase
+    // document listeners see non-bubbling scroll events from any element, so without this
+    // the first drag inside a capped, internally-scrolling menu closed it — exactly what
+    // _glassMenuFit exists to make possible.
+    const t = e.target;
+    if (t && t.nodeType === 1 && t.closest && t.closest('.glass-menu[data-floating]')) return;
     if (document.querySelector('.glass-menu[data-floating]')) _glassMenuCloseAll();
   }, true);
 }
@@ -5476,7 +5482,8 @@ let _archGroupModel = null;
 let _archGoalPending = '';
 function _ensureArchGoals(deck) {
   if (!deck || typeof _e2Analyze !== 'function') return;
-  if (_e2AnalysisCache && _e2AnalysisCache.data && _e2AnalysisCache.data.goals) return;
+  const have = _e2CachedAnalysis(deck);
+  if (have && have.goals) return;
   const key = String(deck.id || '');
   if (_archGoalPending === key) return;
   _archGoalPending = key;
@@ -5494,7 +5501,7 @@ function _archModelOrNull(deck, cards) {
   try {
     // Reuse whatever /api/decks/analyze already returned for this deck; the view
     // falls back to detected themes until the goal lands, then re-renders.
-    const cached = (_e2AnalysisCache && _e2AnalysisCache.data) || null;
+    const cached = _e2CachedAnalysis(deck);
     return classifyDeckArchitecture(deck, typeof getDeckPlan === 'function' ? getDeckPlan(deck) : deck.plan, {
       cards,
       overrides: deck.architectureOverrides,
@@ -9241,6 +9248,18 @@ function setAnalyzeProjMode(mode) {
 // Deterministic server-side analysis over precomputed card semantics: deck goal,
 // synergy-aware cuts, and on-plan adds. Only called in semantic mode.
 let _e2AnalysisCache = { key: null, data: null, promise: null };
+
+/** The cached analysis, but only when it belongs to THIS deck. The cache is a
+ * single slot keyed by deck + list; reading `.data` blind paints one deck's goals
+ * onto the next deck opened. */
+function _e2CachedAnalysis(deck) {
+  if (!deck || !_e2AnalysisCache || !_e2AnalysisCache.data) return null;
+  try {
+    return _e2AnalysisCache.key === _e2AnalysisKey(deck) ? _e2AnalysisCache.data : null;
+  } catch (_) {
+    return null;
+  }
+}
 
 function _e2AnalysisKey(deck) {
   const list = _analyzeProjected(deck) ? _projectedDeckCards(deck) : (deck.cards || []);

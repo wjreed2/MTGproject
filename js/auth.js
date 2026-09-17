@@ -486,7 +486,12 @@ const AUTH_PROVIDER_ICONS = {
 let _authHasProviders = false;
 
 /** Providers belong on the sign-in and register panels, not on reset/forgot. */
+/** Which panel is up decides whether providers belong on screen; renderAuthProviders
+ * resolves asynchronously and must land on THIS answer rather than overriding it. */
+let _authProvidersWanted = true;
+
 function _setAuthProvidersVisible(show) {
+  _authProvidersWanted = !!show;
   const wrap = document.getElementById('authProviders');
   const divider = document.getElementById('authProvidersDivider');
   const on = show && _authHasProviders;
@@ -518,8 +523,10 @@ async function renderAuthProviders() {
       ${AUTH_PROVIDER_ICONS[p.id] || ''}
       <span>Continue with ${escapeHtml(p.label)}</span>
     </button>`).join('');
-  wrap.hidden = false;
-  if (divider) divider.hidden = false;
+  // NOT an unconditional un-hide: showAuthGate() fires this unawaited and then hides the
+  // providers for a ?reset_token= link, so setting hidden = false here popped the OAuth
+  // buttons in underneath the password-reset form a round trip later.
+  _setAuthProvidersVisible(_authProvidersWanted);
 }
 
 /** Copy for the outcomes the callback can redirect back with. */
@@ -674,7 +681,7 @@ async function renderSignInMethods() {
       ? (canUnlink
           ? `<button type="button" class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="unlinkSignInProvider('${escapeHtml(p.id)}')">Unlink</button>`
           : `<span style="font-size:0.74rem;color:var(--text3)">Only method</span>`)
-      : `<button type="button" class="btn btn-ghost btn-sm" onclick="authStartOauth('${escapeHtml(p.id)}')">Link</button>`;
+      : `<button type="button" class="btn btn-ghost btn-sm" onclick="authStartOauth('${escapeHtml(p.id)}', true)">Link</button>`;
     return row(`
       ${AUTH_PROVIDER_ICONS[p.id] || ''}
       <span style="flex:1;font-size:0.85rem">${escapeHtml(p.label)}${
