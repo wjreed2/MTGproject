@@ -11811,23 +11811,16 @@ body.glass-mode .tablet-life-btn {
   padding: 0;
   margin-bottom: 12px;
 }
-/* Card actions too — these are real actions, not chips, so they match the bar
-   above them rather than being a size of their own. */
+/* Every action on this tab is a tab-level control, so they all take the deck
+   list's box — the bar's New Game, the cards' Open/Resume, and the buttons on
+   the panel a game opens into, which were .btn-sm's 28px next to that bar's
+   34px. (.game-detail was in this list and matches nothing: the panel is
+   rendered into #activeGameArea / #gameDetailArea.) */
 #tab-games .game-card .btn,
-#tab-games .game-detail .btn,
 #tab-games .pg-card .btn,
-#tab-games .games-pane-bar .btn {
-  height: 34px !important;
-  border-radius: 8px !important;
-  padding: 0 12px !important;
-  font-size: 0.82rem !important;
-  box-sizing: border-box;
-  display: inline-flex;
-  align-items: center;
-}
-
-/* Its actions are tab-level controls, so they take the deck list's box. */
-#tab-games .games-pane-bar .btn {
+#tab-games .games-pane-bar .btn,
+#tab-games #activeGameArea .btn,
+#tab-games #gameDetailArea .btn {
   height: 34px !important;
   border-radius: 8px !important;
   padding: 0 12px !important;
