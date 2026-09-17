@@ -5568,8 +5568,9 @@ function _archVisualTile(row, opts) {
 
 function _archCardImageSrc(c) {
   if (!c) return '';
-  return c.imageLarge || c.image
-    || (c.scryfallId ? `https://cards.scryfall.io/normal/front/${c.scryfallId[0]}/${c.scryfallId[1]}/${c.scryfallId}.jpg` : '');
+  const cap = typeof cardImgCapNormal === 'function' ? cardImgCapNormal : (u => u);
+  return cap(c.imageLarge || c.image
+    || (c.scryfallId ? `https://cards.scryfall.io/normal/front/${c.scryfallId[0]}/${c.scryfallId[1]}/${c.scryfallId}.jpg` : ''));
 }
 
 function _archCardPriceLabel(c) {
@@ -7178,9 +7179,10 @@ function _deckRowOwnershipChipHtml(own) {
  * (same URL). tileWidthPx unknown/0 keeps the old normal-first behavior.
  */
 function _stackTileImgSrc(c, tileWidthPx) {
-  const small = c.image || '';
-  const big = c.imageLarge
-    || (c.scryfallId ? `https://cards.scryfall.io/normal/front/${c.scryfallId[0]}/${c.scryfallId[1]}/${c.scryfallId}.jpg` : '');
+  const cap = typeof cardImgCapNormal === 'function' ? cardImgCapNormal : (u => u);
+  const small = cap(c.image || '');
+  const big = cap(c.imageLarge
+    || (c.scryfallId ? `https://cards.scryfall.io/normal/front/${c.scryfallId[0]}/${c.scryfallId[1]}/${c.scryfallId}.jpg` : ''));
   if (!small || !big) return big || small;
   const dpr = (typeof devicePixelRatio === 'number' && devicePixelRatio > 0) ? devicePixelRatio : 1;
   const need = (Number(tileWidthPx) || 0) * dpr;
