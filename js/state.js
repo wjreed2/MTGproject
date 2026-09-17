@@ -120,6 +120,9 @@ function hydrateAppData(data) {
   collection = data.collection || [];
   collectionHistory = data.history || [];
   decks = data.decks || [];
+  // The server hands decks back in creation order; a hand-arranged grid is
+  // restored here (see sortDecksByStoredOrder in decks.js).
+  if (typeof sortDecksByStoredOrder === 'function') sortDecksByStoredOrder();
   games = data.games || [];
   wishlist = data.wishlist || [];
 

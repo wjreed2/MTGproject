@@ -4570,6 +4570,25 @@ body.glass-mode .x-stepper-btn-sm { border-radius: 7px; }
   transform: translateY(-6px) scale(1.02);
   box-shadow: 0 16px 48px rgba(0,0,0,0.55), 0 0 0 1px rgba(200,168,74,0.35);
 }
+/* ── Reordering (press and hold a deck tile) ─────────────────────────────── */
+/* touch-action only while a reorder is live: set on the tile at rest it would
+   cost the grid its scrolling, and the hold has to survive a scroll attempt
+   without stealing one. */
+#deckOrderGrid.is-reordering { touch-action: none; }
+#deckOrderGrid.is-reordering .browse-deck-card { transition: none; }
+#deckOrderGrid.is-reordering .browse-deck-card:not(.is-reordering) { opacity: 0.55; }
+#deckOrderGrid.is-reordering .browse-deck-card:hover { transform: none; box-shadow: none; }
+.browse-deck-card.is-reordering {
+  cursor: grabbing;
+  transform: scale(1.06);
+  box-shadow: 0 22px 60px rgba(0,0,0,0.6), 0 0 0 2px rgba(var(--lgx1), 0.75);
+  z-index: 5;
+  opacity: 1;
+}
+[data-theme="light"] body.glass-mode .browse-deck-card.is-reordering {
+  box-shadow: 0 22px 60px rgba(30,50,90,0.3), 0 0 0 2px rgba(var(--lgx1), 0.75);
+}
+
 .browse-deck-img { width: 100%; height: 100%; }
 .browse-deck-overlay {
   position: absolute; bottom: 0; left: 0; right: 0;
