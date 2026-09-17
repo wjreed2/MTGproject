@@ -4574,6 +4574,14 @@ body.glass-mode .x-stepper-btn-sm { border-radius: 7px; }
 /* touch-action only while a reorder is live: set on the tile at rest it would
    cost the grid its scrolling, and the hold has to survive a scroll attempt
    without stealing one. */
+/* Nothing in the grid is the browser's to drag or select: holding a tile was
+   starting a native image drag and a text selection instead of a reorder. */
+#deckOrderGrid .browse-deck-card,
+#deckOrderGrid .browse-deck-card * {
+  -webkit-user-drag: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
 #deckOrderGrid.is-reordering { touch-action: none; }
 #deckOrderGrid.is-reordering .browse-deck-card { transition: none; }
 #deckOrderGrid.is-reordering .browse-deck-card:not(.is-reordering) { opacity: 0.55; }

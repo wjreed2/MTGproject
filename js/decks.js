@@ -4038,7 +4038,7 @@ function _deckGridCard(d, isShared) {
     onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selectDeck('${d.id}')}">
     <div class="browse-deck-img">
       ${img
-        ? `<img src="${escapeHtml(img)}" alt="" style="width:100%;height:100%;object-fit:cover;object-position:center top">`
+        ? `<img src="${escapeHtml(img)}" alt="" draggable="false" style="width:100%;height:100%;object-fit:cover;object-position:center top">`
         : `<div class="deck-grid-placeholder" style="width:100%;height:100%;background:var(--bg4)">${escapeHtml(d.name)}</div>`}
     </div>
   </div>`;
@@ -4210,6 +4210,13 @@ if (typeof document !== 'undefined') {
     if (!e.target.closest?.('.browse-deck-card')) return;
     e.stopPropagation();
     e.preventDefault();
+  }, true);
+  // A tile is mostly a card image, and an image is natively draggable: holding
+  // one and moving handed the gesture to the browser's own drag-and-drop, which
+  // peeled off a translucent copy of the art and ended the pointer stream — the
+  // tile looked picked up and nothing reordered.
+  document.addEventListener('dragstart', e => {
+    if (e.target.closest?.('#deckOrderGrid')) e.preventDefault();
   }, true);
 }
 globalThis._deckOrderPointerDown = _deckOrderPointerDown;
