@@ -23,6 +23,8 @@ const DIR = path.join(__dirname, "..", "fixtures", "scan-photos");
 const W = Phash.CARD_W, H = Phash.CARD_H;
 const CARD_AR = 63 / 88;
 const GROW = 5; // must track SCN_FP_AXIS_GROW_PX in js/scanner.js
+// must track SCAN_TITLE_MIN_EVIDENCE_ALPHA in js/scanner.js
+const MIDDLE_BAND_GATE_ALPHA = Number(process.env.MIDDLE_BAND_GATE_ALPHA || 24);
 
 // ── Axis-projection card localization — MIRRORS _scnAxisCardRects in js/scanner.js ──
 function axisPeaks(prof, a, b, n) {
@@ -147,21 +149,36 @@ async function photoVariants(file) {
   for (const r of candRects.slice(0, 4)) variants.push(await hashesFromRect(best.raw, r));
   variants.push(await hashesFromRect(raw0, null)); // unrotated full frame
   const alpha = s => s.replace(/[^A-Za-z]/g, "").length;
+  // The client sends EVERY non-empty read and lets the server score them (body.titles), so
+  // the harness has to as well: picking one read here hid the failure this test exists to
+  // catch — a rules-text read outscoring a correct title.
+  const titles = [];
+  const push = t => { if (t && alpha(t) >= 4 && !titles.includes(t)) titles.push(t); };
   let title = await ocrTitle(best.raw, best.rects[0] || null, "in");
+  push(title);
   // Mirror the client: a long read means rules text (Sagas), so the title strip still runs.
   if ((alpha(title) < 6 || alpha(title) > 40) && best.rects[0]) {
     const narrow = await ocrTitle(best.raw, best.rects[0], "narrow");
+    push(narrow);
     if (alpha(narrow) >= 6) title = narrow;
   }
   if (alpha(title) < 6 && best.rects[0]) {
     const above = await ocrTitle(best.raw, best.rects[0], "above"); // rect clipped the title
+    push(above);
     if (alpha(above) > alpha(title)) title = above;
   }
   if (alpha(title) < 6 && best.rects[0]) {
     const full = await ocrTitle(raw0, null, "in");
+    push(full);
     if (alpha(full) > alpha(title)) title = full;
   }
-  return { variants, deg: best.deg, title };
+  // Mirror _scnReadTitles' middle-band pass: gated on nothing name-length having been read,
+  // which on an ordinary frame is the type line and rules text.
+  const longest = titles.reduce((m, t) => Math.max(m, alpha(t)), 0);
+  if (longest < MIDDLE_BAND_GATE_ALPHA && best.rects[0]) {
+    push(await ocrTitle(best.raw, best.rects[0], "middle"));
+  }
+  return { variants, deg: best.deg, title, titles };
 }
 
 // ── Title OCR — mirrors _scnReadTitle in js/scanner.js (tesseract.js, devDependency; the
@@ -185,8 +202,8 @@ async function ocrTitle(raw, rect, bandMode) {
     // Mirror scanner.js: read the card's whole top third, not a placement-sensitive strip.
     // Mirror scanner.js: bands start well above the rect top, which often sits below the title.
     const bandY = Math.max(0, Math.round(r.y + r.h *
-      (bandMode === "above" ? -0.14 : bandMode === "narrow" ? -0.07 : -0.08)));
-    const bandH = bandMode === "narrow" ? 0.16 : bandMode === "above" ? 0.20 : 0.36;
+      (bandMode === "middle" ? 0.58 : bandMode === "above" ? -0.14 : bandMode === "narrow" ? -0.07 : -0.08)));
+    const bandH = bandMode === "middle" ? 0.22 : bandMode === "narrow" ? 0.16 : bandMode === "above" ? 0.20 : 0.36;
     const bandX = Math.max(0, Math.round(r.x - r.w * 0.04));
     const band = await sharp(raw, { raw: { width: W, height: H, channels: 3 } })
       .extract({
@@ -251,9 +268,10 @@ async function main() {
     const expSet = labeled ? m[1].toLowerCase() : "";
     const expNum = labeled ? m[2].toLowerCase() : "";
     try {
-      const { variants, deg, title } = await photoVariants(path.join(DIR, f));
+      const { variants, deg, title, titles } = await photoVariants(path.join(DIR, f));
       const payload = variants.length === 1 ? { ...variants[0] } : { variants };
-      if (title) payload.title = title;
+      if (titles && titles.length) payload.titles = titles;
+      else if (title) payload.title = title;
       const r = await fetch(BASE + "/api/scan/identify", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -270,7 +288,7 @@ async function main() {
       else { none++; verdict = "no match"; }
       console.log(
         `${f.padEnd(24)} ${verdict.padEnd(16)} -> ${best ? `${best.name} [${String(best.set).toUpperCase()} #${best.collector_number}]` : "—"}`
-        + `  d=${res.distance ?? "—"} a=${res.artDistance ?? "—"} tilt=${deg}°${res.titleMatched ? " TITLE" : ""} ocr="${(title || "").slice(0, 28)}" matched=${res.matched}`);
+        + `  d=${res.distance ?? "—"} a=${res.artDistance ?? "—"} tilt=${deg}°${res.titleMatched ? " TITLE" : ""} ocr="${(titles || [title]).filter(Boolean).join(" | ").slice(0, 90)}" matched=${res.matched}`);
       const live = readScanDiag(path.join(DIR, f));
       if (live) {
         console.log(

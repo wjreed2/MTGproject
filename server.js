@@ -9064,8 +9064,45 @@ function _fpDigitFix(s) {
 // OCR title → candidate rows. Returns { rows, strongRows } — strongRows are printings of
 // names backed by at least one exact (or confusion-exact) token hit; purely fuzzy-anchored
 // names are plausible but earn a stricter hash gate.
+// A card name is short and is not a sentence. Title bands land on rules text more often than
+// they should — the middle-band pass on an ordinary frame, or a top band misplaced by a card
+// rect that came in low — and the scorer below measures how much of a NAME the read
+// corroborates, never how much of the READ the name explains. So a sentence beats a correct
+// short title whenever it happens to contain a long run of some card's name: "Destroy target
+// artifact or enchantment" returned Enchantmentize, "Landfall — Whenever a land enters the
+// battlefield" returned Immersturm Battlefield. Rejecting here costs a decline (the hash still
+// runs); accepting costs a wrong card, so the asymmetry favours rejecting.
+const SCAN_TITLE_MAX_NAME_ALPHA = 40;
+// A type line is ONLY type words ("Enchantment", "Legendary Creature — Crab"); a NAME that
+// merely starts with one is not (Battle Squadron, Tribal Flames, Kindred Discovery), so this
+// tests every word before the subtype dash rather than matching a prefix.
+const SCAN_TYPE_WORDS = new Set(['legendary', 'basic', 'snow', 'world', 'ongoing', 'host',
+  'artifact', 'creature', 'enchantment', 'instant', 'land', 'planeswalker', 'sorcery', 'battle',
+  'kindred', 'tribal', 'conspiracy', 'dungeon', 'phenomenon', 'plane', 'scheme']);
+
+function _fpIsTypeLine(text) {
+  // Split only on the SUBTYPE dash — an em/en dash, or a hyphen with spaces around it (which is
+  // how OCR usually renders one). Splitting on any hyphen cut "Snow-Covered Mountain" down to
+  // "Snow" and "Battle-Rattle Shaman" to "Battle", condemning both as type lines.
+  const head = String(text || '').split(/—|–|\s-\s/)[0];
+  const words = head.toLowerCase().match(/[a-z]+/g) || [];
+  return words.length > 0 && words.every(w => SCAN_TYPE_WORDS.has(w));
+}
+// Words that carry rules meaning. ONE can legitimately appear in a name (Destroy the Evidence,
+// Enchanted Evening), so the bar is two or more — rules text always clears it.
+const SCAN_RULES_WORDS_RE = /\b(?:whenever|when|enters|dies|destroy|exile|sacrifice|discard|draws?|target|opponents?|battlefield|graveyard|library|instead|unless|until|activate|equipped|enchanted|landfall|counters?|artifact|creature|enchantment|instant|sorcery|permanent|nonland|control)\b/gi;
+
+function _fpTitleLooksLikeRulesText(title) {
+  const text = String(title || '').trim();
+  if (text.replace(/[^A-Za-z]/g, '').length > SCAN_TITLE_MAX_NAME_ALPHA) return true;
+  if (_fpIsTypeLine(text)) return true;
+  const hits = new Set((text.match(SCAN_RULES_WORDS_RE) || []).map(w => w.toLowerCase()));
+  return hits.size >= 2;
+}
+
 function _fpRowsForTitle(title) {
   const names = _fpEnsureNameIndex();
+  if (_fpTitleLooksLikeRulesText(title)) return null;
   const norm = _fpNormName(title);
   if (norm.length < 3) return null;
   const words = norm.split(' ').filter(w => w.length >= 3).map(_fpDigitFix);
