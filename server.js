@@ -9293,23 +9293,12 @@ function _fpSameArtRows(i, j) {
 
 // Among `rows`, prefer the printing the footer hints point at: both fields beat set alone,
 // which beats collector alone (collector numbers repeat across sets).
-function _fpPickByHint(rows, hintSet, hintNum, sameNameAsRow) {
+function _fpPickByHint(rows, hintSet, hintNum) {
   if (!hintSet && !hintNum) return null;
-  // A hint chooses a PRINTING, never a card. Callers pass retrieval sets that span
-  // several names (a title shortlist, a within-margin decision group), and a misread
-  // 2-digit collector number that happens to be unique across them would otherwise
-  // substitute a different card for the one the title and the hash both chose — so
-  // the pool is narrowed to the printings of the row already settled on.
-  let pool = rows;
-  if (sameNameAsRow != null) {
-    const want = _fpNormName(_fpIndex.meta[sameNameAsRow].name);
-    pool = [];
-    for (const i of rows) if (_fpNormName(_fpIndex.meta[i].name) === want) pool.push(i);
-  }
   let exact = null;
   const setOnly = [];
   const numOnly = [];
-  for (const i of pool) {
+  for (const i of rows) {
     const m = _fpIndex.meta[i];
     const setOk = hintSet && String(m.set_code).toLowerCase() === hintSet;
     const numOk = hintNum && String(m.collector_number).toLowerCase() === hintNum;
@@ -9321,7 +9310,7 @@ function _fpPickByHint(rows, hintSet, hintNum, sameNameAsRow) {
     if (numOk && hintNum.length >= 2) numOnly.push(i);
   }
   // Both fields agreeing names one printing. Either field ALONE decides when it lands on
-  // exactly one of these rows — and it usually does, because the pool above is the printings
+  // exactly one of these rows — and it usually does, because both callers pass the printings
   // of a single card, not the whole index. That matters most for the treatments the hash
   // cannot rank (full art, showcase, foil): the collector number is printed large and reads
   // cleanly, while the set code shares a tiny grey line with the language and the artist.
@@ -10319,17 +10308,12 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
       if (tBest && evidence >= SCAN_TITLE_MIN_EVIDENCE && tBest.comb <= gate) {
         // The name is settled; the printed footer settles the printing, which the image hash
         // cannot do for same-art reprints at any resolution.
-        const hinted = _fpPickByHint(titleHit.rows, hintSet, hintNum, tBest.i);
+        const hinted = _fpPickByHint(titleHit.rows, hintSet, hintNum);
         if (hinted != null) tBest = { ...tBest, i: hinted };
-        // Only a footer that agrees on BOTH fields has actually settled the printing;
-        // a lone collector number that picked among siblings has not earned "no rivals".
-        const hintExact = hinted != null && hintSet && hintNum
-          && String(_fpIndex.meta[hinted].set_code).toLowerCase() === hintSet
-          && String(_fpIndex.meta[hinted].collector_number).toLowerCase() === hintNum;
         // The title settled the NAME. Nothing has settled the PRINTING unless the footer did:
         // past the trust distance, same-art siblings are not the only rivals — every printing
         // of the name is one, so ask the client for a footer rather than banking the guess.
-        const printingRivals = hintExact ? 0
+        const printingRivals = hinted != null ? 0
           : _fpPrintingRivals(tBest.i) || (tBest.comb > SCAN_PRINTING_HASH_TRUST
             ? Math.max(0, (_fpEnsureNameIndex().rowsByName.get(_fpNormName(_fpIndex.meta[tBest.i].name)) || []).length - 1)
             : 0);
@@ -10418,12 +10402,9 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
     ).values()].sort((a, b) => a.comb - b.comb);
     let hintPicked = false;
     if (decision.length > 1) {
-      // Scoped to the chosen card's own printings — see _fpPickByHint. Choosing a
-      // printing is NOT corroboration, so this no longer sets hintPicked: the gates
-      // below are waived only by the full set+number agreement checked right after.
-      const hinted = _fpPickByHint(decision.map(c => c.i), hintSet, hintNum, chosen.i);
+      const hinted = _fpPickByHint(decision.map(c => c.i), hintSet, hintNum);
       const byHint = hinted != null ? decision.find(c => c.i === hinted) : null;
-      if (byHint) chosen = byHint;
+      if (byHint) { chosen = byHint; hintPicked = true; }
     }
 
     // Confident match needs the full-card AND the art-crop hash to agree (art rejects noise).
@@ -10434,7 +10415,7 @@ app.post('/api/scan/identify', scanLimiter, async (req, res) => {
     // A footer that confirms the winner counts even when nothing competed with it — the hint
     // was previously only consulted to CHOOSE between candidates, so a lone correct answer
     // with its set code printed on the card got no credit for it.
-    if (hintSet && hintNum
+    if (!hintPicked && hintSet && hintNum
       && String(chosen.meta.set_code).toLowerCase() === hintSet
       && String(chosen.meta.collector_number).toLowerCase() === hintNum) hintPicked = true;
 
