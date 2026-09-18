@@ -3250,6 +3250,13 @@ function _scnParseFooterHints(text) {
 /** Reads shorter than this can't clear the server's name-evidence bar, so nothing was read. */
 const SCAN_TITLE_MIN_EVIDENCE_ALPHA = 24;
 
+/** The middle band runs only when the top bands read essentially NOTHING. Gating it on
+ * "nothing NAME-LENGTH yet" made it fire on ordinary cards, because real names are routinely
+ * shorter than that bar — Web Up is five letters, Ruin Crab eight, Disenchant ten — so a
+ * perfect title read still opened a pass whose band, on an ordinary frame, is the type line
+ * and the rules box. Three of four test captures were then matched on their rules text. */
+const SCAN_TITLE_TOP_BAND_EMPTY_ALPHA = 6;
+
 /** Below this share of the guide, the localised rect may be cropping inside the card. */
 const SCN_FP_GUIDE_COVER_MIN = 0.85;
 
@@ -3371,7 +3378,7 @@ async function _scnReadTitles(v, cardQuad) {
     // that band is rules text, and feeding rules text to the name matcher is how a card gets
     // matched on a sentence rather than its title.
     const longest = out.reduce((m, t) => Math.max(m, alpha(t)), 0);
-    if (longest < SCAN_TITLE_MIN_EVIDENCE_ALPHA && performance.now() <= deadline) {
+    if (longest < SCAN_TITLE_TOP_BAND_EMPTY_ALPHA && performance.now() <= deadline) {
       const url = _scnTitleBandUrl(v, cardQuad, { middle: true, invert: inv });
       if (url) {
         const rec = await Promise.race([
