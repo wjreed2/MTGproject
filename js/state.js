@@ -101,6 +101,9 @@ let currentUser = null; // { id, email, role, createdAt, lastLoginAt, changelogA
 function save(...domains) {
   const touched = domains.length ? domains : ['collection', 'decks', 'games', 'wishlist', 'prefs'];
   if (touched.includes('prefs') && typeof normalizeDeckTagPrefs === 'function') normalizeDeckTagPrefs();
+  // Local first, and unconditionally: markDirty drops server saves until the first sync
+  // lands, and until 2026-09-18 that meant the edit existed only in page memory.
+  if (typeof scheduleLocalSnapshot === 'function') scheduleLocalSnapshot(...touched);
   markDirty(...domains);
   scheduleSave();
 }
@@ -117,7 +120,23 @@ let _appDataResyncInFlight = null;
  */
 function hydrateAppData(data) {
   const flags = { saveCollection: false, saveDecks: false, saveWishlist: false };
+  // Work done before the first sync is in `collection` and nowhere else — the server's
+  // payload does not have it, so assigning straight over it is what turned a sync hiccup
+  // into 500 lost scans. Keep the rows the server has never seen and re-save them.
+  const localAhead = (typeof hasUnsavedLocalWork === 'function' && hasUnsavedLocalWork()
+    && typeof collection !== 'undefined' && Array.isArray(collection) && collection.length)
+    ? collection.slice()
+    : null;
   collection = data.collection || [];
+  if (localAhead && typeof mergeUnsyncedAdditions === 'function') {
+    const { merged, added } = mergeUnsyncedAdditions(collection, localAhead);
+    if (added) {
+      console.warn(`[db] restored ${added} row(s) saved before the first sync`);
+      collection = merged;
+      flags.saveCollection = true; // applyHydrateSaveFlags PUTs it back
+    }
+    if (typeof clearUnsavedLocalWork === 'function') clearUnsavedLocalWork();
+  }
   collectionHistory = data.history || [];
   decks = data.decks || [];
   // The server hands decks back in creation order; a hand-arranged grid is

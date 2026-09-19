@@ -318,6 +318,110 @@ async function cacheLoadAll(accountId) {
   };
 }
 
+// ── Local snapshot ────────────────────────────────────────────────────────
+// Every save writes its domains to the local cache, synced or not. cacheSaveAll only
+// ever ran on SERVER payloads, so anything edited before the first successful sync
+// lived in page memory alone: a force-quit took it with it, and the only trace left
+// was the per-event history POSTs (500 scans recovered that way on 2026-09-18).
+
+/**
+ * May this value be written to the local cache? An empty array is only real once the
+ * server has confirmed it — before the first sync the arrays can be [] from a cold PWA
+ * cache miss, and persisting that would overwrite a good snapshot with nothing.
+ */
+function shouldPersistLocalSnapshot(value, synced) {
+  if (!Array.isArray(value)) return false;
+  return value.length > 0 || !!synced;
+}
+
+/**
+ * Rows the local copy has that the server's does not, appended. ADDITIVE ONLY: a row
+ * the server has is never modified or removed, so reconciling can restore work done
+ * before the first sync without ever deleting what another device saved.
+ */
+function mergeUnsyncedAdditions(serverRows, localRows) {
+  const merged = Array.isArray(serverRows) ? serverRows.slice() : [];
+  if (!Array.isArray(localRows) || !localRows.length) return { merged, added: 0 };
+  const have = new Set(merged.map(r => r && r.uid).filter(Boolean));
+  let added = 0;
+  for (const row of localRows) {
+    if (!row || !row.uid || have.has(row.uid)) continue;
+    have.add(row.uid);
+    merged.push(row);
+    added++;
+  }
+  return { merged, added };
+}
+
+const _LOCAL_SNAPSHOT_KEYS = ['collection', 'decks', 'games', 'wishlist'];
+const _localSnapshotDirty = new Set();
+let _localSnapshotTimer = null;
+
+function _localSnapshotValue(domain) {
+  switch (domain) {
+    case 'collection': return typeof collection !== 'undefined' ? collection : null;
+    case 'decks':      return typeof decks !== 'undefined' ? decks : null;
+    case 'games':      return typeof games !== 'undefined' ? games : null;
+    case 'wishlist':   return typeof wishlist !== 'undefined' ? wishlist : null;
+    default:           return null;
+  }
+}
+
+/** Debounced local persist — called by save() for every domain it touches. */
+function scheduleLocalSnapshot(...domains) {
+  const list = domains.length ? domains : _LOCAL_SNAPSHOT_KEYS;
+  for (const d of list) if (_LOCAL_SNAPSHOT_KEYS.includes(d)) _localSnapshotDirty.add(d);
+  if (!_localSnapshotDirty.size) return;
+  clearTimeout(_localSnapshotTimer);
+  _localSnapshotTimer = setTimeout(() => { void _flushLocalSnapshot(); }, 400);
+}
+
+async function _flushLocalSnapshot() {
+  if (typeof cacheSet !== 'function' || !_localSnapshotDirty.size) return;
+  const list = [..._localSnapshotDirty];
+  _localSnapshotDirty.clear();
+  for (const d of list) {
+    const value = _localSnapshotValue(d);
+    if (!shouldPersistLocalSnapshot(value, _appDataSynced)) continue;
+    try { await cacheSet(d, value); } catch (_) { /* quota / private mode — never surface */ }
+  }
+  if (typeof collectionHistory !== 'undefined' && Array.isArray(collectionHistory) && collectionHistory.length) {
+    try { await cacheSet('history', collectionHistory); } catch (_) { /* same */ }
+  }
+}
+
+// ── Unsaved-while-unsynced ────────────────────────────────────────────────
+// markDirty drops server saves until the first sync lands. That is deliberate (a cold
+// empty cache must never PUT [] over a real collection) but it used to be SILENT: the
+// grid showed the cards, the KPIs counted them, the scanner said "Added", and every one
+// of those writes was going nowhere. Say so, and remember there is work to reconcile.
+let _unsavedWhileUnsynced = false;
+
+function hasUnsavedLocalWork() { return _unsavedWhileUnsynced; }
+function clearUnsavedLocalWork() {
+  _unsavedWhileUnsynced = false;
+  _applyUnsavedBannerText();
+}
+
+function _applyUnsavedBannerText() {
+  const el = typeof document !== 'undefined' && document.getElementById('offlineBanner');
+  if (!el) return;
+  const text = _unsavedWhileUnsynced
+    ? ' Not saved yet — waiting to reach the server'
+    : ' Offline — changes will sync when reconnected';
+  // The banner is an icon plus a bare text node; replace only the text.
+  for (const node of el.childNodes) {
+    if (node.nodeType === 3 && node.textContent.trim()) { node.textContent = text; return; }
+  }
+}
+
+function _noteUnsavedLocalWork() {
+  if (_unsavedWhileUnsynced) return;
+  _unsavedWhileUnsynced = true;
+  _applyUnsavedBannerText();
+  if (typeof _setOffline === 'function') _setOffline();
+}
+
 // ── Offline state ─────────────────────────────────────────────────────────
 
 let _isOffline = false;
@@ -732,6 +836,9 @@ function markDirty(...domains) {
     const blocked = list.filter(d => d === 'collection' || d === 'decks' || d === 'games' || d === 'wishlist');
     if (blocked.length) {
       console.warn('[db] Skipping save for unsynced domains:', blocked.join(', '));
+      // The local snapshot still holds this work, and hydrateAppData folds it back in
+      // once the server answers — but the user gets told either way.
+      _noteUnsavedLocalWork();
     }
     list.forEach(d => {
       if (d === 'collection' || d === 'decks' || d === 'games' || d === 'wishlist') return;
