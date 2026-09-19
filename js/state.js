@@ -118,22 +118,30 @@ let _appDataResyncInFlight = null;
  * @param {object} data
  * @returns {{ saveCollection: boolean, saveDecks: boolean }}
  */
-function hydrateAppData(data) {
+function hydrateAppData(data, fromServer) {
   const flags = { saveCollection: false, saveDecks: false, saveWishlist: false };
   // Work done before the first sync is in `collection` and nowhere else — the server's
   // payload does not have it, so assigning straight over it is what turned a sync hiccup
-  // into 500 lost scans. Keep the rows the server has never seen and re-save them.
+  // into 500 lost scans. Diff the local copy against what the server actually has, then
+  // replay the result on top; the ops layer re-derives the work rather than guessing at
+  // it (js/collection-ops.js). Removals are dropped from a replay — see
+  // collectionReplayOps.
   const localAhead = (typeof hasUnsavedLocalWork === 'function' && hasUnsavedLocalWork()
     && typeof collection !== 'undefined' && Array.isArray(collection) && collection.length)
     ? collection.slice()
     : null;
-  collection = data.collection || [];
-  if (localAhead && typeof mergeUnsyncedAdditions === 'function') {
-    const { merged, added } = mergeUnsyncedAdditions(collection, localAhead);
-    if (added) {
-      console.warn(`[db] restored ${added} row(s) saved before the first sync`);
-      collection = merged;
-      flags.saveCollection = true; // applyHydrateSaveFlags PUTs it back
+  const serverCollection = data.collection || [];
+  collection = serverCollection;
+  // The shadow is SERVER truth only. Seeding it from a cache hydrate would make the
+  // next diff measure against a stale snapshot, and every row the server had gained
+  // since would read as one this client deleted.
+  if (fromServer && typeof seedCollectionShadow === 'function') seedCollectionShadow(serverCollection);
+  if (fromServer && localAhead && typeof collectionReplayOps === 'function' && typeof CollectionOps !== 'undefined') {
+    const replay = collectionReplayOps(localAhead, serverCollection);
+    if (replay.length) {
+      console.warn(`[db] replaying ${replay.length} collection change(s) made before the first sync`);
+      collection = CollectionOps.applyOps(serverCollection, replay).rows;
+      flags.saveCollection = true; // applyHydrateSaveFlags → save() → the ops flush sends them
     }
     if (typeof clearUnsavedLocalWork === 'function') clearUnsavedLocalWork();
   }
@@ -434,7 +442,7 @@ async function resyncAppDataFromServer(opts) {
       }
       _resyncUnreachable = false;
       await cacheSaveAll(data, currentUser?.id);
-      const flags = hydrateAppData(data);
+      const flags = hydrateAppData(data, true);
       if (typeof markAppDataSynced === 'function') markAppDataSynced(true);
       applyHydrateSaveFlags(flags, true);
       if (typeof _isOffline !== 'undefined' && _isOffline && typeof _setOnline === 'function') {
@@ -500,7 +508,7 @@ async function _awaitLoadWithBudget(loadPromise, budgetMs) {
       if (!result.ok) return;
       if (typeof isAppDataSynced === 'function' && isAppDataSynced()) return;
       cacheSaveAll(result.data, currentUser?.id).catch(() => {});
-      const flags = hydrateAppData(result.data);
+      const flags = hydrateAppData(result.data, true);
       if (typeof markAppDataSynced === 'function') markAppDataSynced(true);
       applyHydrateSaveFlags(flags, true);
       if (typeof _isOffline !== 'undefined' && _isOffline && typeof _setOnline === 'function') {
@@ -556,7 +564,13 @@ async function loadAppDataAfterAuth(opts) {
     } catch (_) { cached = null; }
     if (cached) {
       // Cleanup flags are dropped on purpose — saves are blocked until synced.
-      hydrateAppData(cached);
+      hydrateAppData(cached, false);
+      // A previous session may have made changes it never managed to send. The
+      // cached copy holds them; this re-arms the marker so the server hydrate
+      // replays them instead of assigning straight over the top.
+      if (cached.pendingCollectionWork && typeof restoreUnsavedLocalWork === 'function') {
+        restoreUnsavedLocalWork();
+      }
       _paintHydratedApp();
       bootSplashDone();
       _postPaintSessionRefresh();
@@ -592,7 +606,7 @@ async function loadAppDataAfterAuth(opts) {
       loadPromise.then(async serverData => {
         if (typeof isAppDataSynced === 'function' && isAppDataSynced()) return;
         await cacheSaveAll(serverData, currentUser?.id);
-        const flags = hydrateAppData(serverData);
+        const flags = hydrateAppData(serverData, true);
         if (typeof markAppDataSynced === 'function') markAppDataSynced(true);
         applyHydrateSaveFlags(flags, true);
         if (typeof _isOffline !== 'undefined' && _isOffline && typeof _setOnline === 'function') {
@@ -639,7 +653,7 @@ async function loadAppDataAfterAuth(opts) {
   // slow connection, which on a phone is most of them.
   if (fromCache && !loadStillPending) _setOffline();
 
-  const hydrateFlags = hydrateAppData(data);
+  const hydrateFlags = hydrateAppData(data, fromServer);
   if (fromServer && typeof markAppDataSynced === 'function') markAppDataSynced(true);
   applyHydrateSaveFlags(hydrateFlags, fromServer);
 

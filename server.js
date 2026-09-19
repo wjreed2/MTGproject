@@ -2464,7 +2464,8 @@ const {
   applyDeckPlanningWrite,
 } = require('./lib/deck-planning-merge');
 const { collaboratorChangesPrintings } = require('./lib/deck-collaborator-printings');
-const { shouldBlockEmptyCollectionReplace } = require('./lib/collection-wipe-guard');
+const { shouldBlockEmptyCollectionReplace, shouldBlockBulkCollectionRemove } = require('./lib/collection-wipe-guard');
+const CollectionOps = require('./js/collection-ops'); // shared op vocabulary (client + server)
 // Google / Apple / Discord sign-in: provider definitions + PKCE and Apple's ES256
 // client-secret signing. Dependency-free (see the module header for why).
 const {
@@ -3935,6 +3936,182 @@ app.put('/api/collection', requireAuth, async (req, res) => {
     res.json({ ok: true, count: cards.length });
   } catch (e) {
     console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Collection op sync (js/collection-ops.js) ─────────────────────────────────
+// Additive sibling of PUT /api/collection. The blob PUT replaces every row, which
+// is why a client that might be stale is not allowed to send one at all — and that
+// refusal is what silently discarded 500+ scanned cards on 2026-09-18. Ops describe
+// only what changed, applied onto the CURRENT rows under a per-account lock, so a
+// stale client can affect exactly what it touched and nothing else.
+//
+// Every op is absolute rather than relative (set/qty/rm, never "+1"), so replaying
+// a batch is harmless — a retried flush cannot double a quantity.
+async function _collectionTagContext(conn, accountId, cards) {
+  const oidList = [...new Set(cards
+    .map(c => (c?.oracleId && ORACLE_UUID_RE.test(String(c.oracleId))) ? String(c.oracleId).toLowerCase() : null)
+    .filter(Boolean))];
+  let typeRows = [], tagRows = [];
+  if (oidList.length) {
+    const ph = oidList.map(() => '?').join(',');
+    const [tr] = await conn.query(
+      `SELECT oracle_id, type_line FROM scryfall_oracle_cards WHERE oracle_id IN (${ph})`, oidList);
+    typeRows = tr || [];
+    const [tg] = await conn.query(
+      `SELECT oracle_id, tags_json FROM scryfall_oracle_tags
+        WHERE oracle_id IN (${ph}) AND schema_version = ?`, [...oidList, SCRY_TAG_SCHEMA_VERSION]);
+    tagRows = tg || [];
+  }
+  const typeByOid = new Map((typeRows || [])
+    .map(r => [String(r.oracle_id || '').toLowerCase(), String(r.type_line || '')]));
+  const tagsByOidMap = tagsFromBatchLogic(oidList, typeRows || [], tagRows || []);
+  const [ovRows] = await conn.query(
+    'SELECT oracle_id, add_tags_json, remove_tags_json FROM tag_overrides WHERE account_id = ?', [accountId]);
+  const ovByOid = new Map();
+  for (const r of ovRows || []) {
+    ovByOid.set(String(r.oracle_id || '').toLowerCase(), {
+      add: parseMysqlJsonArray(r.add_tags_json),
+      remove: parseMysqlJsonArray(r.remove_tags_json),
+    });
+  }
+  return { typeByOid, tagsByOidMap, ovByOid };
+}
+
+app.post('/api/collection/ops', requireAuth, async (req, res) => {
+  const accountId = req.accountId;
+  const body = req.body || {};
+  const ops = Array.isArray(body.ops) ? body.ops : [];
+  if (!ops.length) return res.status(400).json({ error: 'No ops' });
+  if (ops.length > 4000) return res.status(400).json({ error: 'Too many ops' });
+
+  // Validate before opening a transaction: a malformed batch must not take a lock.
+  for (const op of ops) {
+    if (!op || typeof op !== 'object') return res.status(400).json({ error: 'Malformed op' });
+    if (!['set', 'qty', 'rm'].includes(op.t)) return res.status(400).json({ error: `Unknown op: ${op.t}` });
+    if (typeof op.k !== 'string' || !op.k || op.k.length > 120) return res.status(400).json({ error: 'Bad op key' });
+    if (op.t === 'set' && (!op.card || typeof op.card !== 'object')) {
+      return res.status(400).json({ error: `set op without a card: ${op.k}` });
+    }
+    if (op.t === 'qty' && !Number.isFinite(Number(op.qty))) {
+      return res.status(400).json({ error: `qty op without a quantity: ${op.k}` });
+    }
+  }
+
+  try {
+    // Oracle ids are what role tags hang off; resolve any the client lacks BEFORE
+    // the transaction, exactly as the blob PUT does (it is a network call).
+    const setCards = ops.filter(o => o.t === 'set').map(o => o.card);
+    const needOracle = setCards.filter(c => c?.scryfallId && !ORACLE_UUID_RE.test(String(c?.oracleId || '')));
+    if (needOracle.length) await enrichCardsFromScryfall(needOracle);
+
+    const now = Date.now();
+    let applied = { added: 0, changed: 0, removed: 0 };
+    let revision = 0;
+    let existingCount = 0;
+    const conn = await db().getConnection();
+    try {
+      await conn.beginTransaction();
+      // The lock: one row per account, created on demand. Every op batch for this
+      // account serialises behind it, so two devices cannot interleave mid-apply.
+      await conn.query(
+        'INSERT IGNORE INTO collection_sync (account_id, revision, updated_at) VALUES (?, 0, 0)', [accountId]);
+      const [[sync]] = await conn.query(
+        'SELECT revision FROM collection_sync WHERE account_id = ? FOR UPDATE', [accountId]);
+      const [[cnt]] = await conn.query(
+        'SELECT COUNT(*) AS n FROM collection WHERE account_id = ?', [accountId]);
+      existingCount = Number(cnt?.n) || 0;
+
+      // A client whose local copy came back cold diffs as "remove everything".
+      // Ops would carry that out row by row, so the threshold lives here too —
+      // the client checks it before sending, this is the backstop.
+      const removes = ops.filter(o => o.t === 'rm').length;
+      if (shouldBlockBulkCollectionRemove(removes, existingCount, !!body.allowBulkRemove)) {
+        await conn.rollback();
+        conn.release();
+        return res.status(409).json({
+          error: 'Refusing a batch that removes most of the collection. Re-sync and retry, or confirm.',
+          code: 'COLLECTION_BULK_REMOVE_BLOCKED',
+          removes, existingCount,
+        });
+      }
+
+      const ctx = await _collectionTagContext(conn, accountId, setCards);
+      for (const op of ops) {
+        if (op.t === 'rm') {
+          const [r] = await conn.query(
+            'DELETE FROM collection WHERE account_id = ? AND uid = ?', [accountId, op.k]);
+          applied.removed += r.affectedRows || 0;
+        } else if (op.t === 'qty') {
+          // qty lives in both the column and the stored blob; they must not drift.
+          const qty = Math.max(0, Math.trunc(Number(op.qty) || 0)) || 1;
+          const [r] = await conn.query(
+            `UPDATE collection SET qty = ?, data = JSON_SET(data, '$.qty', ?)
+              WHERE account_id = ? AND uid = ?`, [qty, qty, accountId, op.k]);
+          applied.changed += r.affectedRows || 0;
+        } else {
+          const c = op.card;
+          const rawOid = c?.oracleId;
+          const oracleId = rawOid && ORACLE_UUID_RE.test(String(rawOid)) ? String(rawOid).toLowerCase() : null;
+          const roleTags = computeCollectionStoredRoleTags(c, oracleId, ctx.typeByOid, ctx.tagsByOidMap, ctx.ovByOid);
+          const dataObj = { ...c, uid: op.k, roleTags, ...(oracleId ? { oracleId } : {}) };
+          const [r] = await conn.query(
+            `INSERT INTO collection
+               (account_id, uid, name, qty, foil, scryfall_id, oracle_id, role_tags_json, data, added_at)
+             VALUES (?,?,?,?,?,?,?,?,?,?)
+             ON DUPLICATE KEY UPDATE
+               name = VALUES(name), qty = VALUES(qty), foil = VALUES(foil),
+               scryfall_id = VALUES(scryfall_id), oracle_id = VALUES(oracle_id),
+               role_tags_json = VALUES(role_tags_json), data = VALUES(data),
+               -- a re-send must not restamp when the row was first acquired
+               added_at = IF(VALUES(added_at) > 0, VALUES(added_at), added_at)`,
+            [accountId, op.k, (c.name || '').slice(0, 255), c.qty ?? 1, c.foil ? 1 : 0,
+             c.scryfallId || null, oracleId, JSON.stringify(roleTags), JSON.stringify(dataObj),
+             Number(c.addedAt) || 0]);
+          // mysql2 reports 1 for an insert and 2 for an update on ON DUPLICATE KEY.
+          if ((r.affectedRows || 0) >= 2) applied.changed++; else applied.added++;
+        }
+      }
+
+      revision = (Number(sync?.revision) || 0) + 1;
+      await conn.query(
+        'UPDATE collection_sync SET revision = ?, updated_at = ? WHERE account_id = ?',
+        [revision, now, accountId]);
+      await conn.commit();
+    } catch (e) {
+      try { await conn.rollback(); } catch (_) { /* already gone */ }
+      throw e;
+    } finally {
+      conn.release();
+    }
+
+    // Same downstream invalidation the blob PUT performs.
+    invalidateTradelistCache(accountId);
+    void reconcileAccountWishlist(accountId);
+    const [[after]] = await db().query(
+      'SELECT COUNT(*) AS n FROM collection WHERE account_id = ?', [accountId]);
+    res.json({ ok: true, revision, applied, count: Number(after?.n) || 0 });
+  } catch (e) {
+    console.error('[collection-ops]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** The revision a client's shadow is measured against. */
+app.get('/api/collection/revision', requireAuth, async (req, res) => {
+  try {
+    const [[row]] = await db().query(
+      'SELECT revision, updated_at FROM collection_sync WHERE account_id = ?', [req.accountId]);
+    const [[cnt]] = await db().query(
+      'SELECT COUNT(*) AS n FROM collection WHERE account_id = ?', [req.accountId]);
+    res.json({
+      revision: Number(row?.revision) || 0,
+      updatedAt: Number(row?.updated_at) || 0,
+      count: Number(cnt?.n) || 0,
+    });
+  } catch (e) {
+    console.error('[collection-ops]', e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -12096,6 +12273,26 @@ app.delete('/api/deck-history/:deckId/:historyId', requireAuth, async (req, res)
   }
 });
 
+// One row per account: the lock that serialises op batches, and the revision a
+// client tracks so it knows whether its shadow is still current. The collection
+// itself has no single row to lock the way a deck does.
+async function ensureCollectionSyncTable() {
+  const conn = await db().getConnection();
+  try {
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS collection_sync (
+        account_id BIGINT UNSIGNED NOT NULL,
+        revision   BIGINT NOT NULL DEFAULT 0,
+        updated_at BIGINT NOT NULL DEFAULT 0,
+        PRIMARY KEY (account_id),
+        CONSTRAINT fk_collsync_account FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+  } finally {
+    conn.release();
+  }
+}
+
 async function ensureCollectionHistoryTable() {
   const conn = await db().getConnection();
   try {
@@ -12852,6 +13049,7 @@ async function start() {
       await pruneOauthStates();
       await ensureDeckHistoryTable();
       await ensureCollectionHistoryTable();
+      await ensureCollectionSyncTable();
       await ensureTagOverrideTables();
       await ensureCollectionRoleTagsColumns();
       await ensureScryfallTagCacheTable();
