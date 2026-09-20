@@ -40,7 +40,7 @@ Parent project tag **Burn** (Scryfall `otag:burn`) is an umbrella only — it do
 | `Burn.Player` | Target player / player-or-planeswalker | No |
 | `Burn.Opponents` | Each/all opponents (e.g. Valakut Exploration, Guttersnipe) | No |
 
-Until subtype tags are re-ingested (`SCRY_TAG_SCHEMA_VERSION` 5+), Architecture and Foundation fall back to oracle text via `js/burn-roles.js`.
+Scryfall tagger already has `burn.any`, `burn.creature`, and `burn.player` (ingested as project labels `Burn.Any` / `Burn.Creature` / `Burn.Player`). There is **no** Scryfall `burn.opponents` otag — `Burn.Opponents` is a project oracle query. CardIR/semantics only has the flat role `burn` (no `burn.any` etc.). Until tag schema v5 is re-ingested, Architecture and Foundation also fall back to oracle text via `js/burn-roles.js`.
 
 ## Verification checklist
 
