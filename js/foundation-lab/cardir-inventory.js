@@ -71,7 +71,7 @@
           currentlyUnreliable: 'Impulse/wheel/loot without Card Draw tag and without CardIR',
         },
         interaction: {
-          fromRoleTags: ['Removal', 'Bite', 'Burn', 'Bounce', 'Board Wipe', 'Counterspell'],
+          fromRoleTags: ['Removal', 'Bite', 'Burn.Any', 'Burn.Creature', 'Bounce', 'Board Wipe', 'Counterspell'],
           fromOracleHeuristics: [],
           fromCardIRIfUsed: ['removal.spot', 'removal.wipe', 'control.counter', 'hate.*'],
           currentlyUnreliable: 'Threat-type split; graveyard hate without a dedicated mechanism',

@@ -105,7 +105,7 @@
 
     interaction: {
       threatTypes: {
-        creature: { base: 0.85, tags: ['Removal', 'Bite', 'Burn', 'Bounce'] },
+        creature: { base: 0.85, tags: ['Removal', 'Bite', 'Burn.Any', 'Burn.Creature', 'Bounce'] },
         wideBoard: { base: 0.7, tags: ['Board Wipe'] },
         artifact: { base: 0.55, tags: ['Removal'], oracle: /\bartifact\b/i },
         enchantment: { base: 0.5, tags: ['Removal'], oracle: /\benchantment\b/i },

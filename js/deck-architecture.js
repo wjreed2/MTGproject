@@ -19,9 +19,11 @@
 
   let planApi = root && root.getDeckPlan ? root : null;
   let themesApi = root && root.analyzeDeckThemes ? root : null;
+  let burnApi = root && root.burnIndicatesInteraction ? root : null;
   if (typeof require === 'function') {
     try { if (!planApi || !planApi.getDeckPlan) planApi = require('./deck-plan.js'); } catch (_) { /* bundled */ }
     try { if (!themesApi || !themesApi.analyzeDeckThemes) themesApi = require('./deck-themes.js'); } catch (_) { /* bundled */ }
+    try { if (!burnApi || !burnApi.burnIndicatesInteraction) burnApi = require('./burn-roles.js'); } catch (_) { /* bundled */ }
   }
 
   const ARCH_CATEGORIES = Object.freeze(['foundation', 'strategy', 'payoffs', 'manabase']);
@@ -63,13 +65,32 @@
 
   const PAYOFF_SUBTAG_RE = /\.(payoffs|finish|finishers)$|^(ss\.finish|tribal\.finishers)$/;
   const STAPLE_ONLY = Object.freeze(['Ramp', 'Card Draw', 'Removal', 'Board Wipe', 'Land', 'Commander', 'Wheel']);
-  const INTERACTION_TAGS = Object.freeze(['Removal', 'Counterspell', 'Bounce', 'Bite', 'Burn']);
+  // Plain `Burn` is NOT interaction — only Burn.Any / Burn.Creature (see burn-roles.js).
+  const INTERACTION_TAGS = Object.freeze(['Removal', 'Counterspell', 'Bounce', 'Bite', 'Burn.Any', 'Burn.Creature']);
   const DRAW_TAGS = Object.freeze(['Card Draw', 'Wheel']);
   const LIGHT_MIN = 5;
   // Below this the engine is guessing; fall back to detected themes instead.
   const GOAL_MIN_CONFIDENCE = 0.35;
   const GOAL_MAX_SUBS = 3;
   const ARCH_SUB_TINT_STEPS = 5;
+
+  function _burnInteraction(card, tags) {
+    if (burnApi && typeof burnApi.burnIndicatesInteraction === 'function') {
+      return !!burnApi.burnIndicatesInteraction(tags, _oracle(card));
+    }
+    const set = new Set(tags || []);
+    return set.has('Burn.Any') || set.has('Burn.Creature');
+  }
+
+  function _preferredBurnInteractionLabel(card, tags) {
+    if (burnApi && typeof burnApi.preferredBurnInteractionLabel === 'function') {
+      return burnApi.preferredBurnInteractionLabel(tags, _oracle(card));
+    }
+    const set = new Set(tags || []);
+    if (set.has('Burn.Any')) return 'Burn.Any';
+    if (set.has('Burn.Creature')) return 'Burn.Creature';
+    return null;
+  }
 
   function _subsectionSlug(subId) {
     return String(subId || '').replace(/[^a-z0-9_-]/gi, '_');
@@ -245,6 +266,8 @@
       if (subsection === 'board_wipes') return 'Board Wipe';
       if (subsection === 'interaction') {
         const tags = new Set(_roles(card, deck));
+        const burnLabel = _preferredBurnInteractionLabel(card, [...tags]);
+        if (burnLabel) return burnLabel;
         for (const t of INTERACTION_TAGS) {
           if (t !== 'Removal' && tags.has(t)) return t;
         }
@@ -331,7 +354,7 @@
       fns.push('card_advantage');
       reasons.push(tagSet.has('Wheel') ? 'tag:Wheel' : 'tag:Card Draw');
     }
-    if (INTERACTION_TAGS.some(t => tagSet.has(t))) {
+    if (INTERACTION_TAGS.some(t => tagSet.has(t)) || _burnInteraction(card, tags)) {
       fns.push('interaction');
       reasons.push('tag:interaction');
     }

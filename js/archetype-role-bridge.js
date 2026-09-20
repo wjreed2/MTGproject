@@ -37,7 +37,7 @@
   const STRATEGY_PROJECT_TAGS = Object.freeze({
     'strategy.tokens': Object.freeze(['Token Maker', 'Treasure', 'Anthem']),
     'strategy.sacrifice': Object.freeze(['Sac Outlet', 'Death Trigger', 'Sac Synergy', 'Drain']),
-    'strategy.spellslinger': Object.freeze(['Card Draw', 'Tutor', 'Counterspell', 'Copy', 'Burn']),
+    'strategy.spellslinger': Object.freeze(['Card Draw', 'Tutor', 'Counterspell', 'Copy', 'Burn', 'Burn.Any', 'Burn.Creature', 'Burn.Player', 'Burn.Opponents']),
     'strategy.reanimator': Object.freeze(['Recursion', 'Reanimate', 'Graveyard Cast', 'Self-Mill']),
     'strategy.voltron': Object.freeze(['Pump', 'Evasion', 'Protection', 'Anthem']),
     'strategy.counters': Object.freeze(['Pump', 'Anthem']),

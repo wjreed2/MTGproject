@@ -248,7 +248,7 @@
     'strategy.spellslinger': Object.freeze([
       { id: 'ss.payoffs', label: 'Spell payoffs', target: 8, projectTags: [] },
       { id: 'ss.copy', label: 'Copy', target: 3, projectTags: ['Copy'] },
-      { id: 'ss.finish', label: 'Burn/finish', target: 4, projectTags: ['Burn'] },
+      { id: 'ss.finish', label: 'Burn/finish', target: 4, projectTags: ['Burn', 'Burn.Any', 'Burn.Creature', 'Burn.Player', 'Burn.Opponents'] },
     ]),
     'strategy.voltron': Object.freeze([
       { id: 'vol.equip', label: 'Type equip/auras', target: 8, projectTags: [] },

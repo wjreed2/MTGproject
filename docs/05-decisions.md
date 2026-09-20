@@ -20,6 +20,10 @@ Deck categories (not suggestion modes): Mana Base · Foundation · Strategy (pla
 ## DECIDED — Architecture visualization (2026-09-08)
 Open-deck **By Architecture** view is a third list mode. Visualization Foundation functions (Card Advantage, Interaction/Removal, Board Wipes, Win Condition) are not the five-capability evaluator. The Mana Sources panel (internal id `manabase`) is **lands plus Ramp**; rocks/rituals/dorks sit under Ramp, not Foundation. Also-running themes may appear as Strategy subsections marked inferred. User Set-primary writes category + Primary role; extras remain (7C). Classifier does not silently rewrite tags.
 
+
+## DECIDED — Burn subtypes vs interaction (2026-09-20)
+Parent project tag **Burn** (`otag:burn`) is an umbrella only — it does not imply interaction or removal. Interactive burn is **Burn.Any** and **Burn.Creature**. Face burn is **Burn.Player** and **Burn.Opponents** (e.g. Valakut Exploration) and must not count toward Interaction / Removal or Foundation creature-threat coverage. Oracle fallback in `js/burn-roles.js` applies until subtype tags are re-ingested (tag schema v5).
+
 ## DECIDED — Foundation is not a mandatory checklist
 Foundation means fundamental capabilities evaluated for every deck. It does not imply every deck must contain a fixed amount of every function. Classic Hybrid role-count staples remain until cutover; they are not the destination model.
 

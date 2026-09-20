@@ -28,7 +28,12 @@
     { label: 'Protection', query: '(o:"protection from" or o:hexproof or o:indestructible or o:"phase out")' },
     { label: 'Bounce', otag: 'bounce' },
     { label: 'Control', query: '(o:"gain control" or o:"exchange control")' },
+    // Burn umbrella (otag) does not imply interaction — see Burn.* subtypes + js/burn-roles.js.
     { label: 'Burn', otag: 'burn' },
+    { label: 'Burn.Any', query: 'otag:burn (o:"any target" OR o:"target creature or player" OR o:"creature or player" OR o:"any number of targets" OR o:"divided" OR o:"permanent or player")' },
+    { label: 'Burn.Creature', query: 'otag:burn (o:"target creature" OR o:"each creature" OR o:"all creatures" OR o:"creatures you don\'t control" OR o:"damage to target creature")' },
+    { label: 'Burn.Player', query: 'otag:burn (o:"target player" OR o:"target opponent" OR o:"target player or planeswalker" OR o:"target opponent or planeswalker")' },
+    { label: 'Burn.Opponents', query: 'otag:burn (o:"each opponent" OR o:"all opponents" OR o:"to each opponent" OR o:"each other player")' },
     // CP-Q32: 1 damage to a creature or player (aliases: poke, Tim, zap, pinger).
     { label: 'Ping', query: '(o:"deals 1 damage" or o:"deal 1 damage")' },
     { label: 'Group Slug', otag: 'group-slug' },

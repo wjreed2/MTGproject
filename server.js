@@ -8715,7 +8715,7 @@ async function ensureCardSemanticsTables() {
  * legality is known. Any role with ≥1 ranked card gets percentiles (no min-population floor).
  * Never call this per suggestion; only from import / cron / admin.
  */
-async function recomputeEdhrecRolePercentiles({ schemaVersion = '4' } = {}) {
+async function recomputeEdhrecRolePercentiles({ schemaVersion = '5' } = {}) {
   const conn = await db().getConnection();
   try {
     const [[rankRow]] = await conn.query(
@@ -9379,7 +9379,7 @@ async function _fingerprintCardsFor(metas) {
   return cards;
 }
 
-async function fetchScryfallTagsForOracle(oracleId, schemaVersion = '4') {
+async function fetchScryfallTagsForOracle(oracleId, schemaVersion = '5') {
   const [rows] = await db().query(
     `SELECT tags_json FROM scryfall_oracle_tags WHERE oracle_id = ? AND schema_version = ? LIMIT 1`,
     [String(oracleId || '').toLowerCase(), schemaVersion]
@@ -9393,7 +9393,8 @@ async function fetchScryfallTagsForOracle(oracleId, schemaVersion = '4') {
   }
 }
 
-const SCRY_TAG_SCHEMA_VERSION = '4';
+// v5: Burn.Any / Burn.Creature / Burn.Player / Burn.Opponents subtype queries
+const SCRY_TAG_SCHEMA_VERSION = '5';
 let _scryfallImportProgress = {
   running: false,
   phase: 'idle',
@@ -9828,7 +9829,7 @@ async function saveTagQueryCache(schemaVersion, cacheMap) {
   }
 }
 
-async function buildTagMapFromQueries({ schemaVersion = '4', useCache = true, refreshCache = false, onProgress = null } = {}) {
+async function buildTagMapFromQueries({ schemaVersion = '5', useCache = true, refreshCache = false, onProgress = null } = {}) {
   const specs = SCRYFALL_AUTO_TAGS.map(spec => ({
     label: spec.label,
     query: spec.query || `otag:${spec.otag}`,
@@ -9895,7 +9896,7 @@ async function buildTagMapFromQueries({ schemaVersion = '4', useCache = true, re
 }
 
 async function importScryfallOracleBulkToDb({
-  schemaVersion = '4',
+  schemaVersion = '5',
   importCards = true,
   rebuildTags = true,
   useTagQueryCache = true,
@@ -10972,7 +10973,7 @@ app.post('/api/cards/by-roles', requireAuth, catalogLimiter, async (req, res) =>
       `SELECT c.name, c.scryfall_id, c.type_line, c.oracle_text, c.cmc, c.mana_cost, c.oracle_id,
               c.color_identity_json, c.image_small, c.image_normal, c.edhrec_pct_json, t.tags_json
          FROM scryfall_oracle_cards c
-         LEFT JOIN scryfall_oracle_tags t ON t.oracle_id = c.oracle_id AND t.schema_version = '4'
+         LEFT JOIN scryfall_oracle_tags t ON t.oracle_id = c.oracle_id AND t.schema_version = '${SCRY_TAG_SCHEMA_VERSION}'
         WHERE (${matchParts.join(' OR ')}) ${ciClause}
         ORDER BY c.cmc, c.name
         LIMIT ?`,
@@ -11056,7 +11057,7 @@ app.post('/api/cards/adds-catalog', requireAuth, catalogLimiter, async (req, res
         `SELECT c.name, c.scryfall_id, c.type_line, c.oracle_text, c.cmc, c.mana_cost, c.oracle_id,
                 c.color_identity_json, c.image_small, c.image_normal, c.edhrec_pct_json, t.tags_json
            FROM scryfall_oracle_cards c
-           LEFT JOIN scryfall_oracle_tags t ON t.oracle_id = c.oracle_id AND t.schema_version = '4'
+           LEFT JOIN scryfall_oracle_tags t ON t.oracle_id = c.oracle_id AND t.schema_version = '${SCRY_TAG_SCHEMA_VERSION}'
           WHERE (c.commander_legal IS NULL OR c.commander_legal = 1)
             AND c.type_line NOT LIKE '%Land%'
             AND c.type_line NOT LIKE '%Token%'
