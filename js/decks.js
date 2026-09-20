@@ -16885,15 +16885,20 @@ async function loadDeckSimilarity() {
     return r.json();
   };
 
-  const [edhrecRes, archiveRes] = await Promise.allSettled([
+  const [edhrecRes, preconRes, archiveRes] = await Promise.allSettled([
     safeJson(`${base}/decks/edhrec-similarity?commander=${encCmd}`),
+    safeJson(`${base}/decks/precon-similarity?commander=${encCmd}`),
     safeJson(`${base}/decks/archive-similarity?commander=${encCmd}&deckId=${encodeURIComponent(deck.id)}`),
   ]);
 
   const edhrecData  = edhrecRes.status  === 'fulfilled' ? edhrecRes.value  : { error: edhrecRes.reason?.message ?? 'Request failed' };
   const archiveData = archiveRes.status === 'fulfilled' ? archiveRes.value : { error: archiveRes.reason?.message ?? 'Request failed' };
+  // The precon section only exists for commanders that fronted one, so a failed
+  // request draws nothing rather than an error where most decks show no section.
+  const preconData  = preconRes.status  === 'fulfilled' ? preconRes.value  : null;
+  if (preconRes.status === 'rejected') console.warn('Precon match unavailable:', preconRes.reason?.message);
 
-  panel.innerHTML = _simRenderHTML(deck, commander, edhrecData, archiveData);
+  panel.innerHTML = _simRenderHTML(deck, commander, edhrecData, archiveData, preconData);
 }
 
 
@@ -16960,7 +16965,164 @@ function _simCardInPlannedCuts(card, cutKeys) {
   return !!(k && cutKeys.has(k));
 }
 
-function _simRenderHTML(deck, commander, edhrecData, archiveData) {
+// ── Precon match ──────────────────────────────────────────────────────────────
+// Every Commander precon is published here as a public deck, so a commander that
+// fronted one has a real list to diff against. The comparison is by card name, so
+// printings never matter, and by count, so a mana base that swapped ten Forests
+// for ten duals reads as twenty changes rather than none.
+
+/**
+ * Match key for a card name. Lowercased, and cut to the front face: a transform
+ * or meld card is written "Gisela, the Broken Blade // Brisela, Voice of
+ * Nightmares" by one source and "Gisela, the Broken Blade" by another, and those
+ * are the same card. A front face names exactly one card, so this can't collide.
+ */
+function _simNameKey(name) {
+  return String(name || '').trim().toLowerCase().split(' // ')[0].trim();
+}
+
+/** Name-keyed multiset of the deck as it will be played: mainboard + planned adds − planned cuts. */
+function _simDeckCounts(deck) {
+  const counts = new Map(); // name key → { name, qty }
+  const bump = (card, sign) => {
+    const name = String(card?.name || '').trim();
+    const key = _simNameKey(name);
+    if (!key) return;
+    const cur = counts.get(key) || { name, qty: 0 };
+    cur.qty += sign * (card.qty || 1);
+    counts.set(key, cur);
+  };
+  for (const c of (deck.cards || [])) bump(c, 1);
+  if (_deckSwapsEnabled()) {
+    for (const c of _deckPlannedAdds(deck)) bump(c, 1);
+    // Planned cuts are still on the mainboard, so they have to come back off here.
+    for (const c of _deckPlannedCuts(deck)) bump(c, -1);
+  }
+  for (const [key, v] of counts) if (v.qty <= 0) counts.delete(key);
+  return counts;
+}
+
+/** Your list against one precon: cards in common, plus what you cut and what you added. */
+function _simPreconDiff(deck, precon) {
+  const mine = _simDeckCounts(deck);
+  const theirs = new Map(); // name key → { name, qty }
+  for (const c of (precon.cards || [])) {
+    const name = String(c?.name || '').trim();
+    const key = _simNameKey(name);
+    if (!key) continue;
+    const cur = theirs.get(key) || { name, qty: 0 };
+    cur.qty += c.qty || 1;
+    theirs.set(key, cur);
+  }
+
+  let matched = 0, total = 0;
+  const cuts = [];
+  for (const [key, t] of theirs) {
+    total += t.qty;
+    const hit = Math.min(mine.get(key)?.qty || 0, t.qty);
+    matched += hit;
+    if (t.qty > hit) cuts.push({ name: t.name, qty: t.qty - hit });
+  }
+  const adds = [];
+  for (const [key, m] of mine) {
+    const extra = m.qty - (theirs.get(key)?.qty || 0);
+    if (extra > 0) adds.push({ name: m.name, qty: extra });
+  }
+
+  const byName = (a, b) => a.name.localeCompare(b.name);
+  return {
+    matched, total,
+    pct: total ? Math.round((matched / total) * 100) : 0,
+    cuts: cuts.sort(byName),
+    adds: adds.sort(byName),
+  };
+}
+
+/**
+ * Chips carry the card name and uid in attributes rather than inline call
+ * arguments: a handful of real card names contain a double quote
+ * (Kongming, "Sleeping Dragon") and would otherwise close the onclick attribute.
+ */
+function simAddToMaybeFromChip(btn) {
+  const name = btn?.closest?.('[data-card-name]')?.getAttribute('data-card-name');
+  if (name) simAddToMaybe(btn, name);
+}
+
+function simRemoveFromDeckChip(btn) {
+  const uid = btn?.closest?.('[data-card-uid]')?.getAttribute('data-card-uid');
+  if (uid) simRemoveFromDeck(btn, uid);
+}
+
+function _simPreconChipsHTML(items, kind, mainByName) {
+  return `<ul class="card-chip-row">${items.map(it => {
+    const qtyTag = it.qty > 1 ? ` <em>&times;${it.qty}</em>` : '';
+    const nameBtn = `<button type="button" class="card-chip-name" onclick="openCardDetailFromSimChip(this)">${escapeHtml(it.name)}${qtyTag}</button>`;
+    if (kind === 'cut') {
+      return `<li class="sim-chip sim-chip--missing card-chip" data-card-name="${escapeHtml(it.name)}" title="In the precon, not in your deck">`
+        + nameBtn
+        + `<button type="button" class="sim-chip-btn" onclick="simAddToMaybeFromChip(this)" title="Add to maybe board">+</button></li>`;
+    }
+    const card = mainByName.get(_simNameKey(it.name));
+    const uid = card ? (typeof getCardInventoryKey === 'function' ? getCardInventoryKey(card) : (card.uid || card.scryfallId || '')) : '';
+    const cutTitle = _deckSwapsEnabled()
+      ? 'Mark as a planned cut — cut from Cuts zone or apply all swaps'
+      : 'Remove from deck';
+    // Planned adds have no mainboard slot to remove, so those chips are read-only.
+    return `<li class="sim-chip sim-chip--spice card-chip" data-card-name="${escapeHtml(it.name)}"${uid ? ` data-card-uid="${escapeHtml(uid)}"` : ''} title="Not in the precon">`
+      + nameBtn
+      + (uid ? `<button type="button" class="sim-chip-btn sim-chip-btn--remove" onclick="simRemoveFromDeckChip(this)" title="${cutTitle}">&minus;</button>` : '')
+      + `</li>`;
+  }).join('')}</ul>`;
+}
+
+function _simPreconSectionHTML(deck, preconData) {
+  const list = Array.isArray(preconData?.decks) ? preconData.decks : [];
+  if (!list.length) return '';
+
+  const scored = list.map(p => ({ ...p, ..._simPreconDiff(deck, p) }))
+    .sort((a, b) => b.pct - a.pct);
+  const best = scored[0];
+  if (!best.total) return '';
+
+  const col = _lgxVerdictColor(best.pct / 100); // blue = close to the precon, purple = rebuilt
+  const mainByName = new Map();
+  for (const c of (deck.cards || [])) {
+    const key = _simNameKey(c?.name);
+    if (key && !mainByName.has(key)) mainByName.set(key, c);
+  }
+  const others = scored.slice(1);
+
+  return `
+<div class="sim-section">
+  <div class="sim-section-title">Precon Match — <strong>${escapeHtml(best.deck_name)}</strong>
+    ${best.subtitle ? `<span class="sim-meta">${escapeHtml(best.subtitle)}</span>` : ''}
+  </div>
+  <div class="sim-score-row">
+    <div class="sim-score-bar-wrap"><div class="sim-score-bar" style="width:${best.pct}%;background:${col}"></div></div>
+    <span class="sim-score-label" style="color:${col}">${best.pct}%</span>
+  </div>
+  <p class="sim-note">${best.matched} of the precon's ${best.total} cards are still in your deck (by name — any printing counts)</p>
+  ${best.cuts.length ? `
+  <div class="sim-subsection-title">Cut from the precon <span class="sim-meta">(${best.cuts.reduce((s, c) => s + c.qty, 0)} cards)</span></div>
+  ${_simPreconChipsHTML(best.cuts, 'cut', mainByName)}` : ''}
+  ${best.adds.length ? `
+  <div class="sim-subsection-title">Added to the precon <span class="sim-meta">(${best.adds.reduce((s, c) => s + c.qty, 0)} cards)</span></div>
+  ${_simPreconChipsHTML(best.adds, 'add', mainByName)}` : ''}
+  ${others.length ? `
+  <div class="sim-subsection-title">Other precons with this commander</div>
+  <div class="sim-archive-list">${others.map(p => {
+    const c = _lgxVerdictColor(p.pct / 100);
+    return `<div class="sim-archive-row">
+      <div class="sim-archive-name">${escapeHtml(p.deck_name)}</div>
+      <div class="sim-score-bar-wrap" style="flex:1;max-width:160px"><div class="sim-score-bar" style="width:${p.pct}%;background:${c}"></div></div>
+      <span class="sim-score-label" style="color:${c};min-width:38px">${p.pct}%</span>
+      <span class="sim-meta">${p.matched} shared</span>
+    </div>`;
+  }).join('')}</div>` : ''}
+</div>`;
+}
+
+function _simRenderHTML(deck, commander, edhrecData, archiveData, preconData) {
   const parts = [];
 
   // ── EDHREC ────────────────────────────────────────────────────────────────
@@ -17020,6 +17182,10 @@ function _simRenderHTML(deck, commander, edhrecData, archiveData) {
   }).join('')}</ul>` : ''}
 </div>`);
   }
+
+  // ── Precon ────────────────────────────────────────────────────────────────
+  // Drawn only for commanders that fronted a precon; everyone else sees nothing here.
+  parts.push(_simPreconSectionHTML(deck, preconData));
 
   // ── Archive ───────────────────────────────────────────────────────────────
   if (archiveData?.error) {

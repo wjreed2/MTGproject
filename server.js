@@ -5267,6 +5267,86 @@ app.get('/api/decks/archive-similarity', requireAuth, async (req, res) => {
   }
 });
 
+// ── Precon match ─────────────────────────────────────────────────────────────
+// Every Commander preconstructed deck is already in this database as a public
+// deck under one system account, ids prefixed `precon_` (scripts/import-precons.js).
+// So a commander that fronted a precon has a real list here to diff against, and
+// one that never did simply returns no decks — the client then draws nothing.
+const PRECON_ACCOUNT_EMAIL = (process.env.PRECON_ACCOUNT_EMAIL || 'precons@mtg-archive.local').toLowerCase();
+
+app.get('/api/decks/precon-similarity', requireAuth, async (req, res) => {
+  const { commander } = req.query;
+  if (!commander) return res.status(400).json({ error: 'commander required' });
+  try {
+    // A meld or transform commander is stored under its full "front // back" name
+    // by whichever side wrote it, and the two sides don't always agree — MTGJSON
+    // gave the precon library "Gisela, the Broken Blade // Brisela, Voice of
+    // Nightmares" for a deck a player may have saved as just the front face. Both
+    // spellings are matched, as equality and a prefix so the card_name index is
+    // still what narrows the scan.
+    const front = String(commander).split(' // ')[0].trim();
+    const names = front && front !== commander ? [commander, front] : [commander];
+    const likeFront = front.replace(/[\\%_]/g, c => '\\' + c) + ' // %';
+    // Driven from deck_cards rather than decks: idx_deck_cards_name narrows this
+    // to the few decks that run the card as a commander before either precon
+    // test is applied, so neither the `LIKE` nor the accounts join scans.
+    // `is_public` is not redundant next to those tests: deck ids come from the
+    // client, so without it any private deck saved under an id that happens to
+    // start with `precon_` would hand its list to whoever shares its commander.
+    const [heads] = await db().query(`
+      SELECT d.account_id, d.id AS deck_id, d.name AS deck_name,
+             JSON_UNQUOTE(JSON_EXTRACT(d.data, '$.notes')) AS notes
+      FROM deck_cards dc
+      JOIN decks d ON d.account_id = dc.account_id AND d.id = dc.deck_id
+      JOIN accounts a ON a.id = d.account_id
+      WHERE (dc.card_name IN (?) OR dc.card_name LIKE ?) AND dc.is_commander = 1
+        AND d.is_public = 1 AND (a.email = ? OR d.id LIKE 'precon\\_%')
+      LIMIT 8
+    `, [names, likeFront, PRECON_ACCOUNT_EMAIL]);
+    // One row per commander printing, so a deck that lists the commander twice
+    // (two printings, or a front-face and a full-name row) arrives twice.
+    const decks = [...new Map(heads.map(h => [`${h.account_id}::${h.deck_id}`, h])).values()];
+    if (!decks.length) return res.json({ decks: [] });
+
+    // One query per owning account (in practice exactly one — the precon library).
+    const deckIdsByAccount = new Map();
+    for (const h of decks) {
+      if (!deckIdsByAccount.has(h.account_id)) deckIdsByAccount.set(h.account_id, []);
+      deckIdsByAccount.get(h.account_id).push(h.deck_id);
+    }
+    const cardsByDeck = new Map(); // `${account_id}::${deck_id}` -> cards
+    for (const [accountId, deckIds] of deckIdsByAccount) {
+      const [rows] = await db().query(
+        `SELECT deck_id, card_name, qty, is_commander FROM deck_cards
+          WHERE account_id = ? AND deck_id IN (?)`,
+        [accountId, deckIds]
+      );
+      for (const r of rows) {
+        const key = `${accountId}::${r.deck_id}`;
+        if (!cardsByDeck.has(key)) cardsByDeck.set(key, []);
+        cardsByDeck.get(key).push({
+          name: r.card_name,
+          qty: Number(r.qty) || 1,
+          is_commander: !!r.is_commander,
+        });
+      }
+    }
+
+    res.json({
+      decks: decks.map(h => ({
+        deck_id: h.deck_id,
+        deck_name: h.deck_name,
+        // "Commander Deck · LTC · 2023 — preconstructed deck, as released." — the
+        // half before the dash is the only part worth a subtitle.
+        subtitle: String(h.notes || '').split('—')[0].trim().slice(0, 80),
+        cards: cardsByDeck.get(`${h.account_id}::${h.deck_id}`) || [],
+      })).filter(d => d.cards.length),
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Owner or collaborator — lightweight refresh for realtime sync.
 /**
  * Bulk shared-deck revalidation. The client used to GET /api/decks/:id once per
