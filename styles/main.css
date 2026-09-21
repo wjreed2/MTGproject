@@ -5101,6 +5101,12 @@ body.glass-mode .pubdeck-card:hover {
   flex-shrink: 0;
   margin-right: 2px;
 }
+/* A focus or price cap is narrowing the list — say so even when the panel is shut. */
+#tab-decks .suggest-targets-btn.has-filters {
+  color: var(--text);
+  border-color: rgba(var(--lgx2), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.22), rgba(var(--lgx2), 0.22));
+}
 .suggest-targets-pop {
   position: fixed; /* anchored to the button at open time */
   width: min(320px, calc(100vw - 20px));
@@ -5111,8 +5117,56 @@ body.glass-mode .pubdeck-card:hover {
 .suggest-target-title { font-size: 0.8rem; font-weight: 600; color: var(--text); }
 .suggest-target-reset { margin-left: auto; font-size: 0.72rem; padding: 2px 8px; }
 .suggest-target-row { margin-bottom: 9px; }
-.suggest-target-top { display: flex; align-items: baseline; gap: 8px; font-size: 0.78rem; }
+.suggest-target-top { display: flex; align-items: center; gap: 8px; font-size: 0.78rem; }
 .suggest-target-name { color: var(--text2); }
+
+/* Max price sits above the categories and is separated from them. */
+.suggest-target-price { border-bottom: 1px solid var(--border2); padding-bottom: 10px; margin-bottom: 10px; }
+
+/* Per-category focus toggle — suggestions fill that category only. */
+.suggest-target-focus {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text3);
+  cursor: pointer;
+  transition: color 0.15s var(--ease), border-color 0.15s var(--ease), background 0.15s var(--ease);
+}
+.suggest-target-focus:hover {
+  color: var(--text);
+  border-color: rgba(var(--lgx1), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.14), rgba(var(--lgx2), 0.14));
+}
+.suggest-target-focus.active {
+  color: #fff;
+  border-color: rgba(var(--lgx2), 0.55);
+  background: linear-gradient(135deg, rgba(var(--lgx1), 0.22), rgba(var(--lgx2), 0.22));
+}
+.suggest-target-row.is-focused .suggest-target-name,
+.suggest-target-row.is-focused .suggest-target-val {
+  color: color-mix(in oklab, rgb(var(--lgx1)) 55%, rgb(var(--lgx2)));
+}
+.suggest-target-note-focus { color: color-mix(in oklab, rgb(var(--lgx1)) 55%, rgb(var(--lgx2))); }
+/* Touch: no sticky iOS hover — only the lit state highlights. */
+@media (hover: none) {
+  .suggest-target-focus:hover {
+    color: var(--text3);
+    border-color: var(--border2);
+    background: transparent;
+  }
+  .suggest-target-focus.active:hover {
+    color: #fff;
+    border-color: rgba(var(--lgx2), 0.55);
+    background: linear-gradient(135deg, rgba(var(--lgx1), 0.22), rgba(var(--lgx2), 0.22));
+  }
+}
 .suggest-target-have { margin-left: auto; font-size: 0.68rem; color: var(--text3); white-space: nowrap; }
 .suggest-target-val {
   min-width: 2ch;

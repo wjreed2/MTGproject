@@ -107,6 +107,9 @@ function addReasons(add) {
         out.push(`Fills the ${t.cat} deficit (${short} short of target)`);
         break;
       }
+      case 'focus_fill':
+        out.push(`${t.cat} — the category you're focused on`);
+        break;
       case 'doubler_scale':
         out.push(`Multiplies the deck's ${t.axis === 'counters.doubler' ? '+1/+1 counter' : 'token'} output (${t.substrate} sources)`);
         break;
@@ -169,6 +172,9 @@ function addBreakdown(add) {
         break;
       case 'role_deficit':
         out.push({ text: `${t.cat} deficit (${Math.max(1, Math.round(Number(t.deficit) || 0))} short)`, val });
+        break;
+      case 'focus_fill':
+        out.push({ text: `Focused category (${t.cat})`, val });
         break;
       case 'doubler_scale':
         out.push({ text: `Doubler substrate — ${ax} × ${t.substrate} sources`, val });

@@ -12,6 +12,10 @@ const th = require('./thresholds');
 
 const CUT_COUNT = 8;
 const ADD_COUNT = 24;
+// Flat credit every candidate earns in a focused run (see scoreAdds). Sized to
+// clear the score>0.5 drop and the min-3 fit floor on its own, so a focused
+// category returns cards even when the deck already meets its target.
+const FOCUS_PTS = 3.5;
 
 // Threshold categories that ARE interaction: their cards never earn synergy edges, so
 // cut scoring shields them harder while at/under target (precon audit F3).
@@ -634,8 +638,14 @@ function scoreCuts({ deckCards, commander, goals, thresholds, roleCounts }) {
 // ── adds ─────────────────────────────────────────────────────────────────────
 // candidates: [{name, ir, cmc, typeLine, price, edhrecRank, owned}] — already
 // color-legal, commander-legal, and not in the deck (SQL enforces; re-checked here).
-function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCounts, hist, budget, templates }) {
+function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCounts, hist, budget, templates, focusCategory }) {
   const topGoal = goals?.[0] || null;
+  // Focus mode: the user asked for ONE category, so every other candidate is
+  // dropped and the survivors get a flat standing appetite. Without that credit
+  // a category already at its target scores near zero and the quality floor
+  // empties the list — "show me tutors" must still show tutors.
+  const focusCat = focusCategory && Object.values(th.ROLE_TO_CATEGORY).includes(focusCategory)
+    ? focusCategory : null;
   const topTribe = topGoal?.goal?.startsWith('tribal:') ? topGoal.goal.slice(7) : null;
   const tribes = deckTribeSet(goals);
   const index = deckAxisIndex(deckCards, commander);
@@ -672,6 +682,17 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
   for (const cand of candidates) {
     if (!cand.ir || deckNames.has(cand.name)) continue;
     if (maxPrice != null && cand.price != null && cand.price > maxPrice) continue; // hard cap only when set
+    // Roles are param-blind, so a role whose backing axes are ALL context-excluded
+    // earns nothing (Higure's 'tutor' role is tutor.creature(Ninja); in a Rat deck
+    // he tutors nothing). Shared by the focus filter and the deficit credit below.
+    const candCats = new Set((cand.ir.roles || []).map(r => th.ROLE_TO_CATEGORY[r]).filter(Boolean));
+    const catEarns = (cat) => {
+      const family = _ROLE_AXIS_FAMILY[cat];
+      if (!family) return true;
+      const inFamily = (cand.ir.provides || []).filter(p => String(p.axis).startsWith(family));
+      return !(inFamily.length && inFamily.every(p => tribalBound(tribes, p.axis, p.param)));
+    };
+    if (focusCat && !(candCats.has(focusCat) && catEarns(focusCat))) continue;
     const trace = [];
     const offPlanFeeds = [];
     let score = 0;
@@ -796,19 +817,15 @@ function scoreAdds({ candidates, deckCards, commander, goals, thresholds, roleCo
     if (fedNeeds) { score += fedNeeds * 1.5; trace.push({ kind: 'needs_fed', count: fedNeeds, pts: fedNeeds * 1.5 }); }
     if (deadNeeds) { score -= deadNeeds * 6; trace.push({ kind: 'would_be_dead', count: deadNeeds, pts: -deadNeeds * 6 }); }
 
-    // role deficits — but roles are param-blind, so a role whose backing axes are ALL
-    // context-excluded earns nothing (Higure's 'tutor' role is tutor.creature(Ninja);
-    // in a Rat deck he tutors nothing and must not fill the Tutor deficit).
-    const cats = new Set((cand.ir.roles || []).map(r => th.ROLE_TO_CATEGORY[r]).filter(Boolean));
-    for (const cat of cats) {
-      const family = _ROLE_AXIS_FAMILY[cat];
-      if (family) {
-        const inFamily = (cand.ir.provides || []).filter(p => String(p.axis).startsWith(family));
-        if (inFamily.length && inFamily.every(p => tribalBound(tribes, p.axis, p.param))) continue;
-      }
+    // role deficits (see candCats/catEarns above for the param-blindness guard)
+    for (const cat of candCats) {
+      if (!catEarns(cat)) continue;
       const deficit = (thresholds[cat] || 0) - (roleCounts[cat] || 0);
       if (deficit > 0) { const pts = Math.min(deficit, 5); score += pts; trace.push({ kind: 'role_deficit', cat, deficit, pts }); }
     }
+    // Focused category: a standing appetite worth the same to every survivor, so
+    // ordering inside the focused pool is still decided by real signal.
+    if (focusCat) { score += FOCUS_PTS; trace.push({ kind: 'focus_fill', cat: focusCat, pts: FOCUS_PTS }); }
 
     // curve deficit — lands don't occupy a curve slot, so no bucket-0 credit for them
     // (the curve model itself excludes lands; crediting land candidates against the

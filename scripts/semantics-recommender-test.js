@@ -817,5 +817,61 @@ console.log('off-plan soft-wants cluster feeds below the wanted-axis class');
   check('4 soft needers cap at +3, not +4', !!feed && feed.pts === 3, JSON.stringify(sword?.trace));
 }
 
+console.log('adds — category focus');
+{
+  // A tutor and a counterspell that fill NO wanted axis of the aristocrats deck:
+  // exactly the case an unfocused run drops and a focused run must keep.
+  const tutor = { name: 'Focus Tutor', ir: synIR([['tutor.any', 4, 'once']], [], { roles: ['tutor'] }), cmc: 2, price: 3, owned: false, edhrecRank: 400 };
+  const counter = { name: 'Focus Counter', ir: synIR([['control.counter', 4, 'once']], [], { roles: ['counterspell'] }), cmc: 2, price: 2, owned: false, edhrecRank: 600 };
+  const fodder = { name: 'Fodder Engine', ir: synIR([['sac.fodder', 4, 'per_turn']]), cmc: 2, price: 3, owned: false, edhrecRank: 500 };
+  const candidates = [tutor, counter, fodder];
+  const focused = rec.scoreAdds({ ...ctxBase, candidates, budget: {}, focusCategory: 'Tutor' });
+  const fNames = focused.map(a => a.name);
+  check('focus keeps only the focused category', fNames.length === 1 && fNames[0] === 'Focus Tutor', JSON.stringify(fNames));
+  const fTrace = (focused[0]?.trace || []).find(t => t.kind === 'focus_fill');
+  check('focused pick carries a focus_fill credit', !!fTrace && fTrace.cat === 'Tutor', JSON.stringify(focused[0]?.trace));
+  check('focus_fill renders in English', explain.addBreakdown(focused[0]).some(l => /Focused category \(Tutor\)/.test(l.text)),
+    JSON.stringify(explain.addBreakdown(focused[0])));
+
+  // Target already met ⇒ no role_deficit credit; the focus credit alone must still
+  // clear the score/fit floors, or "show me tutors" would come back empty.
+  const metCtx = { ...ctxBase, thresholds: { ...ctxBase.thresholds, Tutor: 0 }, roleCounts: { ...ctxBase.roleCounts, Tutor: 9 } };
+  const met = rec.scoreAdds({ ...metCtx, candidates, budget: {}, focusCategory: 'Tutor' });
+  check('focus survives a met target', met.some(a => a.name === 'Focus Tutor'), JSON.stringify(met.map(a => a.name)));
+
+  const counters = rec.scoreAdds({ ...ctxBase, candidates, budget: {}, focusCategory: 'Counterspell' });
+  check('focus switches category cleanly', counters.length === 1 && counters[0].name === 'Focus Counter', JSON.stringify(counters.map(a => a.name)));
+
+  const unfocused = rec.scoreAdds({ ...ctxBase, candidates, budget: {} });
+  check('no focus leaves scoring untouched', !(unfocused.find(a => a.name === 'Fodder Engine')?.trace || []).some(t => t.kind === 'focus_fill'),
+    JSON.stringify(unfocused.map(a => a.name)));
+
+  const capped = rec.scoreAdds({ ...ctxBase, candidates, budget: { maxCardPrice: 1 }, focusCategory: 'Tutor' });
+  check('price cap still applies inside a focus', !capped.some(a => a.name === 'Focus Tutor'), JSON.stringify(capped.map(a => a.name)));
+
+  // Param-blind roles: a tribe-bound tutor tutors nothing here, so the focus must
+  // not surface it (same guard the role-deficit credit uses).
+  const tribalDeck = [
+    { name: 'Rat One', qty: 1, cmc: 2, typeLine: 'Creature — Rat', ir: synIR([['tribal.synergy', 4, 'static']], [], { tribal: { types: ['Rat'], lord_of: [] } }) },
+    { name: 'Rat Two', qty: 1, cmc: 3, typeLine: 'Creature — Rat', ir: synIR([['tribal.lord', 4, 'static']], [], { tribal: { types: ['Rat'], lord_of: ['Rat'] } }) },
+    { name: 'Swamp', qty: 30, cmc: 0, typeLine: 'Basic Land — Swamp', ir: synIR([], [], { roles: ['land'] }) },
+  ];
+  const ratCmd = { name: 'Rat Boss', ir: synIR([['tribal.lord', 5, 'static']], [], { tribal: { types: ['Rat'], lord_of: ['Rat'] } }) };
+  const ratGoals = inferGoals(tribalDeck, ratCmd, {});
+  const ratCtx = {
+    deckCards: tribalDeck, commander: ratCmd, goals: ratGoals.goals,
+    thresholds: th.computeThresholds({ goal: ratGoals.goals[0]?.goal }),
+    roleCounts: th.countRoles(tribalDeck), hist: ratGoals.histogram, templates,
+  };
+  const ninjaTutor = {
+    name: 'Ninja Tutor',
+    ir: { ...synIR([['tutor.creature', 4, 'repeatable']], [], { roles: ['tutor'] }) },
+    cmc: 3, price: 2, owned: false, edhrecRank: 900,
+  };
+  ninjaTutor.ir.provides[0].param = 'Ninja';
+  const ratFocus = rec.scoreAdds({ ...ratCtx, candidates: [ninjaTutor], budget: {}, focusCategory: 'Tutor' });
+  check('focus respects the tribe-bound role guard', ratFocus.length === 0, JSON.stringify(ratFocus.map(a => a.name)));
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
