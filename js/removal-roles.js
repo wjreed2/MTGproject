@@ -1,12 +1,15 @@
 /**
- * Removal target categories — what a card's CardIR effects destroy, exile,
- * bounce, tuck, or force-sacrifice, broken out by permanent type (creature,
- * artifact, enchantment, planeswalker, battle, land) plus 'permanent' for
- * unrestricted "destroy target permanent" style effects (Beast Within).
+ * Interaction/Removal categories — what a card's CardIR effects answer:
+ * destroy/exile/bounce/tuck/force-sacrifice broken out by permanent type
+ * (creature, artifact, enchantment, planeswalker, battle, land), plus
+ * 'permanent' for unrestricted "destroy target permanent" style effects
+ * (Beast Within), plus 'counterspell' for a counter_spell effect — which has
+ * no permanent-type target (it answers a spell on the stack, not an object
+ * on the battlefield) and so is detected by op alone, not by target.object.
  *
  * Reads CardIR only — never writes it, never calls engine2. Board wipes
  * (target.object.all) and damage-only effects (burn — see burn-roles.js) are
- * out of scope: this only covers the ops that answer ONE specific permanent.
+ * out of scope: this only covers the ops that answer ONE specific thing.
  */
 (function (root, factory) {
   const api = factory();
@@ -17,14 +20,17 @@
 })(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : null), function () {
   'use strict';
 
-  // engine2/vocab.js EFFECT_OPS that answer a single permanent. Not 'damage'
-  // (creature-vs-player ambiguity is burn-roles.js's job) and not
-  // 'counter_spell' (stack interaction, no permanent-type target).
+  // engine2/vocab.js EFFECT_OPS that answer a single permanent by type. Not
+  // 'damage' (creature-vs-player ambiguity is burn-roles.js's job).
   const REMOVAL_OPS = Object.freeze(['destroy', 'exile', 'bounce', 'tuck', 'sacrifice_forced']);
+  // Answers a spell on the stack, not a permanent — detected by op alone.
+  const COUNTER_OP = 'counter_spell';
 
   // CardIR target.object.types tokens this app groups Architecture subsections by.
   const REMOVAL_CATEGORIES = Object.freeze(['creature', 'artifact', 'enchantment', 'planeswalker', 'battle', 'land', 'permanent']);
   const CATEGORY_SET = new Set(REMOVAL_CATEGORIES);
+  // Every category classifyRemovalTargets can return, including 'counterspell'.
+  const INTERACTION_CATEGORIES = Object.freeze([...REMOVAL_CATEGORIES, 'counterspell']);
 
   function _effectsOf(ir) {
     const out = [];
@@ -49,14 +55,16 @@
   }
 
   /**
-   * Removal target categories this card's CardIR answers, e.g. ['creature'],
-   * ['artifact'], or ['creature', 'enchantment'] for a card like Withering
-   * Torment. Returns [] when the IR is missing or carries no type-filtered
-   * removal effect (counterspells, bounce-a-card-from-graveyard, board wipes).
+   * Interaction/Removal categories this card's CardIR answers, e.g.
+   * ['creature'], ['counterspell'], or ['creature', 'enchantment'] for a card
+   * like Withering Torment. Returns [] when the IR is missing or carries no
+   * recognized interaction effect (bounce-a-card-from-graveyard, board
+   * wipes, damage-only burn).
    */
   function classifyRemovalTargets(ir) {
     const cats = new Set();
     for (const ef of _effectsOf(ir)) {
+      if (ef.op === COUNTER_OP) { cats.add('counterspell'); continue; }
       if (!REMOVAL_OPS.includes(ef.op)) continue;
       const obj = ef.target && ef.target.object;
       if (!obj) continue;
@@ -73,7 +81,9 @@
 
   return {
     REMOVAL_OPS,
+    COUNTER_OP,
     REMOVAL_CATEGORIES,
+    INTERACTION_CATEGORIES,
     classifyRemovalTargets,
   };
 });

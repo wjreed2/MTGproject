@@ -78,10 +78,10 @@
   const STAPLE_ONLY = Object.freeze(['Ramp', 'Card Draw', 'Removal', 'Board Wipe', 'Land', 'Commander', 'Wheel']);
   // Plain `Burn` is NOT interaction — only Burn.Any / Burn.Creature (see burn-roles.js).
   const INTERACTION_TAGS = Object.freeze(['Removal', 'Counterspell', 'Bounce', 'Bite', 'Burn.Any', 'Burn.Creature']);
-  // Interaction / Removal drill-down groups, in display order. 'counterspell' comes
-  // from the existing Counterspell project tag; the rest are CardIR target-type
-  // categories from removal-roles.js. Cards matching none of these (bounce, burn,
-  // or CardIR coverage gaps) fall into "Other Interaction".
+  // Interaction / Removal drill-down groups, in display order — all CardIR-derived
+  // (removal-roles.js: target-type categories plus 'counterspell' for a
+  // counter_spell effect). Cards with no CardIR match (bounce, burn, or coverage
+  // gaps) fall into "Other Interaction".
   const REMOVAL_GROUP_ORDER = Object.freeze([
     Object.freeze({ id: 'counterspell', label: 'Counterspell' }),
     Object.freeze({ id: 'creature', label: 'Creature Removal' }),
@@ -220,11 +220,14 @@
   }
 
   /**
-   * CardIR removal-target categories only (creature/artifact/enchantment/…).
+   * Interaction/Removal drill-down categories (creature/artifact/enchantment/…
+   * removal, counterspell) — all CardIR-derived, none from project tags, so
+   * this group is only as good as CardIR coverage (see removal-roles.js).
    * The server-computed map (from /api/decks/analyze, keyed by card name) is
    * preferred — it's derived from the full CardIR corpus without shipping raw
    * effect data to the client. Falls back to classifying card.ir directly when
-   * present (Foundation Lab, tests).
+   * present (Foundation Lab, tests). Returns [] with no CardIR either way —
+   * the card lands in "Other Interaction", same as any other coverage gap.
    */
   function _removalTargetsForCard(card, ctx) {
     const map = ctx && ctx.removalTargets;
@@ -235,18 +238,6 @@
       return removalApi.classifyRemovalTargets(ir);
     }
     return [];
-  }
-
-  /**
-   * Full set of Interaction/Removal drill-down groups for one card: CardIR
-   * removal targets plus tag-driven groups that CardIR doesn't cover
-   * (Counterspell — countering a spell has no permanent-type target to read
-   * from the effect AST).
-   */
-  function _interactionGroupsForCard(card, ctx, tags) {
-    const cats = _removalTargetsForCard(card, ctx).slice();
-    if ((tags || []).includes('Counterspell')) cats.push('counterspell');
-    return cats;
   }
 
   function _cmc(card) {
@@ -1426,7 +1417,7 @@
       strategySubs: _uniqIds(s.hit),
       payoffSubs: _uniqIds(p.hit),
       manabaseSubs: _uniqIds(manabaseSubs),
-      interactionGroups: f.fns.includes('interaction') ? _uniqIds(_interactionGroupsForCard(card, ctx, tags)) : [],
+      interactionGroups: f.fns.includes('interaction') ? _uniqIds(_removalTargetsForCard(card, ctx)) : [],
       reasons: _uniqIds(reasons),
       ambiguous,
       primary: null,
@@ -1988,9 +1979,9 @@
    * a deck whose interaction is entirely Counterspells (nothing left over for
    * "Other Interaction") still gets a labeled Counterspell group, since a
    * label naming what's there is the point. Only returns null — "render
-   * flat, no groups" — when nothing at all was recognized (no CardIR removal
-   * data and no Counterspell/etc. tags), so a deck with no groupable
-   * interaction renders exactly as it did before this existed.
+   * flat, no groups" — when nothing at all was recognized (no CardIR
+   * coverage for any interaction card in the deck), so a deck with no
+   * groupable interaction renders exactly as it did before this existed.
    */
   function _interactionGroupRows(rows) {
     const buckets = new Map();

@@ -91,18 +91,47 @@ function findRow(model, name) {
   assert.deepStrictEqual(removal.classifyRemovalTargets({}), []);
 }
 
+// ── classifyRemovalTargets: counter_spell has no permanent-type target ──────
+{
+  // Counterspell — counter target spell. No target.object at all: detected by op.
+  const counterspell = ir([ability([
+    effect('counter_spell', { target: { who: 'any' } }),
+  ])]);
+  assert.deepStrictEqual(removal.classifyRemovalTargets(counterspell), ['counterspell']);
+
+  // Mystic Confluence — modal, one mode is a counter, others are bounce/draw:
+  // still surfaces 'counterspell' alongside whatever the other modes answer.
+  const confluence = ir([ability([
+    effect('modal', {
+      modes: {
+        choose: 2,
+        options: [
+          [effect('counter_spell', { target: { who: 'any' } })],
+          [effect('bounce', { target: { who: 'any', object: { types: ['permanent'] } } })],
+          [effect('draw', { n: { kind: 'fixed', value: 1 } })],
+        ],
+      },
+    }),
+  ])]);
+  assert.deepStrictEqual(removal.classifyRemovalTargets(confluence).sort(), ['counterspell', 'permanent']);
+}
+
 // ── Architecture view: drill-down groups from row.removalTargets ────────────
 {
   const swordsIr = ir([ability([effect('exile', { target: { who: 'any', object: { types: ['creature'] } } } )])]);
   const beastIr = ir([ability([effect('destroy', { target: { who: 'any', object: { types: ['permanent'] } } })])]);
   const tormentIr = ir([ability([effect('destroy', { target: { who: 'any', object: { types: ['creature', 'enchantment'] } } })])]);
+  const counterIr = ir([ability([effect('counter_spell', { target: { who: 'any' } })])]);
 
   const deck = {
     cards: [
       card('Swords to Plowshares', { ir: swordsIr }),
       card('Beast Within', { ir: beastIr }),
       card('Withering Torment', { ir: tormentIr }),
-      card('Counterspell', { type: 'Instant', roleTags: ['Counterspell'] }),
+      // roleTags still carries 'Counterspell' — that's what puts a card in the
+      // Interaction/Removal pile at all (INTERACTION_TAGS); which drill-down
+      // GROUP it lands in inside that pile is CardIR-only, same as the rest.
+      card('Counterspell', { type: 'Instant', roleTags: ['Counterspell'], ir: counterIr }),
       card('Unsummon', { type: 'Instant', roleTags: ['Bounce'] }),
     ],
   };
@@ -115,9 +144,9 @@ function findRow(model, name) {
   const torment = findRow(model, 'Withering Torment');
   assert.deepStrictEqual(torment.interactionGroups.sort(), ['creature', 'enchantment']);
   const counter = findRow(model, 'Counterspell');
-  assert.deepStrictEqual(counter.interactionGroups, ['counterspell'], 'Counterspell tag maps to its own group');
+  assert.deepStrictEqual(counter.interactionGroups, ['counterspell'], 'counter_spell CardIR op maps to its own group');
   const bounce = findRow(model, 'Unsummon');
-  assert.deepStrictEqual(bounce.interactionGroups, [], 'bounce has no CardIR/tag-derived group yet — falls to Other Interaction');
+  assert.deepStrictEqual(bounce.interactionGroups, [], 'bounce has no CardIR-derived group yet — falls to Other Interaction');
 
   // Rendering: Counterspell/Creature/Enchantment/Permanent Removal + Other Interaction
   // groups appear, and Withering Torment shows up under both Creature and Enchantment Removal.
@@ -138,13 +167,12 @@ function findRow(model, name) {
   });
   assert.deepStrictEqual(findRow(model2, 'Doom Blade').interactionGroups, ['creature']);
 
-  // No CardIR anywhere (the common local-dev case — card_semantics is empty) but the
-  // deck's interaction is entirely Counterspells: still gets a labeled Counterspell
-  // group, with no "Other Interaction" group since nothing is left over.
+  // Deck's interaction is entirely Counterspells, with CardIR on both: still gets
+  // a labeled Counterspell group, with no "Other Interaction" left over.
   const deck3 = {
     cards: [
-      card('Counterspell', { type: 'Instant', roleTags: ['Counterspell'] }),
-      card('Negate', { type: 'Instant', roleTags: ['Counterspell'] }),
+      card('Counterspell', { type: 'Instant', roleTags: ['Counterspell'], ir: counterIr }),
+      card('Negate', { type: 'Instant', roleTags: ['Counterspell'], ir: counterIr }),
     ],
   };
   const model3 = classifyDeckArchitecture(deck3, {}, { cards: deck3.cards });
@@ -152,11 +180,18 @@ function findRow(model, name) {
   assert.ok(html3.includes('>Counterspell<'), 'Counterspell-only deck still gets a labeled group');
   assert.ok(!html3.includes('Other Interaction'), 'nothing left over — no Other Interaction group');
 
-  // Nothing recognized at all (no CardIR, no Counterspell/etc. tags) — flat, as before.
-  const deck4 = { cards: [card('Doom Blade', { ir: null, roleTags: ['Removal'] })] };
+  // Counterspell-tagged cards with NO CardIR (the local-dev case — card_semantics
+  // is empty there) get no group at all now — this grouping is CardIR-only, same
+  // rule as every other group, so it renders flat exactly like uncovered removal.
+  const deck4 = {
+    cards: [
+      card('Counterspell', { type: 'Instant', roleTags: ['Counterspell'], ir: null }),
+      card('Doom Blade', { ir: null, roleTags: ['Removal'] }),
+    ],
+  };
   const model4 = classifyDeckArchitecture(deck4, {}, { cards: deck4.cards });
   const html4 = architectureViewHtml(model4, { canEdit: false });
-  assert.ok(!html4.includes('Other Interaction'), 'nothing recognized — renders flat, no drill-down groups');
+  assert.ok(!html4.includes('Other Interaction'), 'no CardIR anywhere — renders flat, no drill-down groups');
 }
 
 console.log('test-removal-roles: ok');
